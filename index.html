@@ -1298,8 +1298,10 @@ function doLogin(){
   iniciarSesion();
 }
 
-function iniciarSesion(){
-  const perms=PERMISOS[SESION.rol];
+function iniciarSesion(usuario,rol,nombre){
+  if(usuario){SESION.usuario=usuario;SESION.rol=rol;SESION.nombre=nombre;}
+  initApp();
+  var perms=PERMISOS[SESION.rol];
   const allPages=['dashboard','planilla','historico','reporte','abonos','nomina','combustible','km','stats','config'];
   allPages.forEach(p=>{
     const mi=document.getElementById('mi-'+p);
@@ -1312,12 +1314,14 @@ function iniciarSesion(){
     ui.innerHTML='<span class="role-badge '+rolColors[SESION.rol]+'">'+rolLabel[SESION.rol]+'</span><span style="font-size:10px;color:var(--text2)">'+SESION.nombre+'</span>';
     ui.style.display='flex';
   }
-  // Inicializar datos al entrar
-  updTank();
-  renderPlanHoy();
-  renderKmAlerts();
-  renderAbonos();
-  renderDash();
+  // Inicializar datos al entrar — delay para que el DOM esté visible
+  setTimeout(function(){
+    updTank();
+    renderPlanHoy();
+    renderKmAlerts();
+    renderAbonos();
+    renderDash();
+  }, 100);
 }
 
 function cerrarSesion(){
@@ -1353,23 +1357,33 @@ function sp(id){
   if(id==='km')renderKm();
 }
 window.onload=function(){
-  const now=new Date();
-  document.getElementById('fecha-top').textContent=now.toLocaleDateString('es-VE',{weekday:'short',day:'numeric',month:'short',year:'numeric'});
-  const hoy=now.toISOString().split('T')[0];
-  ['rp-fecha','rr-des','rr-hta','ab-f','gc-f','gp-f','km-f'].forEach(id=>{
-    const el=document.getElementById(id); if(el) el.value=hoy;
+  // Mostrar siempre el sitio corporativo primero
+  document.getElementById('corporate-site').style.display='block';
+  document.getElementById('login-screen-web').style.display='none';
+  document.getElementById('app-screen').style.display='none';
+};
+
+function initApp(){
+  var now=new Date();
+  var felTop=document.getElementById('fecha-top');
+  if(felTop) felTop.textContent=now.toLocaleDateString('es-VE',{weekday:'short',day:'numeric',month:'short',year:'numeric'});
+  var hoy=now.toISOString().split('T')[0];
+  ['rp-fecha','rr-des','rr-hta','ab-f','gc-f','gp-f','km-f'].forEach(function(id){
+    var el=document.getElementById(id); if(el) el.value=hoy;
   });
-  document.getElementById('lbl-hoy').textContent=now.toLocaleDateString('es-VE');
-  // Set semana correlativa
-  document.getElementById('rp-sem').value = getSemanaActual(null);
+  var lblHoy=document.getElementById('lbl-hoy');
+  if(lblHoy) lblHoy.textContent=now.toLocaleDateString('es-VE');
+  var rpSem=document.getElementById('rp-sem');
+  if(rpSem) rpSem.value=getSemanaActual(null);
   poblarFiltroSemanas();
-  const mx=REGS.reduce(function(a,r){var v=parseInt(r.p)||0;return v>a?v:a;},0);
-  document.getElementById('rp-num').value=String(mx+1).padStart(5,'0');
-  document.getElementById('rp-mes').value='abr-26';
+  var mx=REGS.reduce(function(a,r){var v=parseInt(r.p)||0;return v>a?v:a;},0);
+  var rpNum=document.getElementById('rp-num');
+  if(rpNum) rpNum.value=String(mx+1).padStart(5,'0');
+  var rpMes=document.getElementById('rp-mes');
+  if(rpMes) rpMes.value='abr-26';
   renderNomAdm();
   renderTemporales();
-  // NO renderizar charts aqui — se hace al iniciar sesion
-};
+}
 
 // COUNTER
 function cc(t,d){
@@ -1655,10 +1669,7 @@ function sendContactWeb(e){
   e.target.reset();
 }
 
-/* Mostrar sitio web al iniciar */
-window.addEventListener('load', function(){
-  document.getElementById('corporate-site').style.display='block';
-});
+/* sitio web se muestra en window.onload principal */
 
 
 /* ═══ APP DE FLOTA ═══ */
@@ -1921,8 +1932,10 @@ function doLogin(){
   iniciarSesion();
 }
 
-function iniciarSesion(){
-  const perms=PERMISOS[SESION.rol];
+function iniciarSesion(usuario,rol,nombre){
+  if(usuario){SESION.usuario=usuario;SESION.rol=rol;SESION.nombre=nombre;}
+  initApp();
+  var perms=PERMISOS[SESION.rol];
   const allPages=['dashboard','planilla','historico','reporte','abonos','nomina','combustible','km','stats','config'];
   allPages.forEach(p=>{
     const mi=document.getElementById('mi-'+p);
@@ -1935,15 +1948,21 @@ function iniciarSesion(){
     ui.innerHTML='<span class="role-badge '+rolColors[SESION.rol]+'">'+rolLabel[SESION.rol]+'</span><span style="font-size:10px;color:var(--text2)">'+SESION.nombre+'</span>';
     ui.style.display='flex';
   }
-  // Inicializar datos al entrar
-  updTank();
-  renderPlanHoy();
-  renderKmAlerts();
-  renderAbonos();
-  renderDash();
+  // Inicializar datos al entrar — delay para que el DOM esté visible
+  setTimeout(function(){
+    updTank();
+    renderPlanHoy();
+    renderKmAlerts();
+    renderAbonos();
+    renderDash();
+  }, 100);
 }
 
-function cerrarSesion(){showCorporateWeb();}
+function cerrarSesion(){
+  SESION={usuario:'',rol:'',nombre:''};
+  showCorporateWeb();
+  window.scrollTo(0,0);
+}
 
 function sp(id){
   if(SESION&&!PERMISOS[SESION.rol].includes(id)){
@@ -1968,23 +1987,33 @@ function sp(id){
   if(id==='km')renderKm();
 }
 window.onload=function(){
-  const now=new Date();
-  document.getElementById('fecha-top').textContent=now.toLocaleDateString('es-VE',{weekday:'short',day:'numeric',month:'short',year:'numeric'});
-  const hoy=now.toISOString().split('T')[0];
-  ['rp-fecha','rr-des','rr-hta','ab-f','gc-f','gp-f','km-f'].forEach(id=>{
-    const el=document.getElementById(id); if(el) el.value=hoy;
+  // Mostrar siempre el sitio corporativo primero
+  document.getElementById('corporate-site').style.display='block';
+  document.getElementById('login-screen-web').style.display='none';
+  document.getElementById('app-screen').style.display='none';
+};
+
+function initApp(){
+  var now=new Date();
+  var felTop=document.getElementById('fecha-top');
+  if(felTop) felTop.textContent=now.toLocaleDateString('es-VE',{weekday:'short',day:'numeric',month:'short',year:'numeric'});
+  var hoy=now.toISOString().split('T')[0];
+  ['rp-fecha','rr-des','rr-hta','ab-f','gc-f','gp-f','km-f'].forEach(function(id){
+    var el=document.getElementById(id); if(el) el.value=hoy;
   });
-  document.getElementById('lbl-hoy').textContent=now.toLocaleDateString('es-VE');
-  // Set semana correlativa
-  document.getElementById('rp-sem').value = getSemanaActual(null);
+  var lblHoy=document.getElementById('lbl-hoy');
+  if(lblHoy) lblHoy.textContent=now.toLocaleDateString('es-VE');
+  var rpSem=document.getElementById('rp-sem');
+  if(rpSem) rpSem.value=getSemanaActual(null);
   poblarFiltroSemanas();
-  const mx=REGS.reduce(function(a,r){var v=parseInt(r.p)||0;return v>a?v:a;},0);
-  document.getElementById('rp-num').value=String(mx+1).padStart(5,'0');
-  document.getElementById('rp-mes').value='abr-26';
+  var mx=REGS.reduce(function(a,r){var v=parseInt(r.p)||0;return v>a?v:a;},0);
+  var rpNum=document.getElementById('rp-num');
+  if(rpNum) rpNum.value=String(mx+1).padStart(5,'0');
+  var rpMes=document.getElementById('rp-mes');
+  if(rpMes) rpMes.value='abr-26';
   renderNomAdm();
   renderTemporales();
-  // NO renderizar charts aqui — se hace al iniciar sesion
-};
+}
 
 // COUNTER
 function cc(t,d){
