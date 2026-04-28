@@ -730,6 +730,7 @@ font-family:var(–m);margin-bottom:16px;
 <div class="moverlay" id="modal"><div class="mbox"><div class="mtitle"><span id="modal-title">Modal</span><span class="mclose" onclick="closeModal()">✕</span></div><div id="modal-body"></div></div></div>
 
 <script>
+
 const FLOTA={
   'JAC-B001':{placa:'A06ER7P',vin:'8XR2RDH87TU000121',chofer:'REINALDO FARIA',ay1:'JACKSON RINCON',ay2:'MISAEL RINCON'},
   'JAC-B002':{placa:'A19EP3P',vin:'8XR2RDH87TU000118',chofer:'JOSE ARANGURE',ay1:'AMERICO GONZALEZ',ay2:'DARWIN ESCORCIA'},
@@ -964,6 +965,10 @@ const PERMISOS = {
 
 let SESION = null;
 
+</script>
+
+<script>
+
 function toggleMenu(){
   const m=document.getElementById('nav-menu');
   m.style.display=m.style.display==='none'?'block':'none';
@@ -989,7 +994,6 @@ function doLogin(){
     iniciarSesion();
   } catch(e) {
     console.log('Error en iniciarSesion:', e);
-    alert('Sesión iniciada pero hubo un error al cargar el dashboard. Toca cualquier menú para continuar.');
   }
 }
 
@@ -1009,11 +1013,9 @@ function iniciarSesion(){
     ui.style.display='flex';
   }
   // Inicializar datos al entrar
-  updTank();
-  renderPlanHoy();
-  renderKmAlerts();
-  renderAbonos();
-  renderDash();
+  try { updTank(); renderPlanHoy(); renderKmAlerts(); renderAbonos(); } catch(e){}
+  setTimeout(function(){ try{ renderDash(); }catch(e){} }, 300);
+  setTimeout(function(){ try{ renderDash(); }catch(e){} }, 800);
 }
 
 function cerrarSesion(){
@@ -1060,16 +1062,16 @@ window.onload=function(){
     var lblHoy=document.getElementById('lbl-hoy');
     if(lblHoy) lblHoy.textContent=now.toLocaleDateString('es-VE');
     var rpSem=document.getElementById('rp-sem');
-    if(rpSem) rpSem.value=getSemanaActual(null);
-    poblarFiltroSemanas();
+    if(rpSem && typeof getSemanaActual==='function') rpSem.value=getSemanaActual(null);
+    if(typeof poblarFiltroSemanas==='function') poblarFiltroSemanas();
     var mx=REGS.reduce(function(a,r){var v=parseInt(r.p)||0;return v>a?v:a;},0);
     var rpNum=document.getElementById('rp-num');
     if(rpNum) rpNum.value=String(mx+1).padStart(5,'0');
     var rpMes=document.getElementById('rp-mes');
     if(rpMes) rpMes.value='abr-26';
-    renderNomAdm();
-    renderTemporales();
-  } catch(e) {
+    if(typeof renderNomAdm==='function') renderNomAdm();
+    if(typeof renderTemporales==='function') renderTemporales();
+  } catch(e){
     console.log('onload error:', e);
   }
 };
