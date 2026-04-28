@@ -980,13 +980,19 @@ function doLogin(){
   if(!USUARIOS[user]||USUARIOS[user].pass!==pass){
     err.style.display='block';
     document.getElementById('login-pass').value='';
-    setTimeout(()=>err.style.display='none',3000);
+    setTimeout(function(){err.style.display='none';},3000);
     return;
   }
   SESION={usuario:user,rol:USUARIOS[user].rol,nombre:USUARIOS[user].nombre};
   document.getElementById('login-overlay').style.display='none';
-  iniciarSesion();
+  try {
+    iniciarSesion();
+  } catch(e) {
+    console.log('Error en iniciarSesion:', e);
+    alert('Sesión iniciada pero hubo un error al cargar el dashboard. Toca cualquier menú para continuar.');
+  }
 }
+
 
 function iniciarSesion(){
   const perms=PERMISOS[SESION.rol];
