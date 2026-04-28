@@ -1049,22 +1049,29 @@ function sp(id){
   if(id==='km')renderKm();
 }
 window.onload=function(){
-  const now=new Date();
-  document.getElementById('fecha-top').textContent=now.toLocaleDateString('es-VE',{weekday:'short',day:'numeric',month:'short',year:'numeric'});
-  const hoy=now.toISOString().split('T')[0];
-  ['rp-fecha','rr-des','rr-hta','ab-f','gc-f','gp-f','km-f'].forEach(id=>{
-    const el=document.getElementById(id); if(el) el.value=hoy;
-  });
-  document.getElementById('lbl-hoy').textContent=now.toLocaleDateString('es-VE');
-  // Set semana correlativa
-  document.getElementById('rp-sem').value = getSemanaActual(null);
-  poblarFiltroSemanas();
-  const mx=REGS.reduce(function(a,r){var v=parseInt(r.p)||0;return v>a?v:a;},0);
-  document.getElementById('rp-num').value=String(mx+1).padStart(5,'0');
-  document.getElementById('rp-mes').value='abr-26';
-  renderNomAdm();
-  renderTemporales();
-  // NO renderizar charts aqui — se hace al iniciar sesion
+  try {
+    var now=new Date();
+    var felTop=document.getElementById('fecha-top');
+    if(felTop) felTop.textContent=now.toLocaleDateString('es-VE',{weekday:'short',day:'numeric',month:'short',year:'numeric'});
+    var hoy=now.toISOString().split('T')[0];
+    ['rp-fecha','rr-des','rr-hta','ab-f','gc-f','gp-f','km-f'].forEach(function(id){
+      var el=document.getElementById(id); if(el) el.value=hoy;
+    });
+    var lblHoy=document.getElementById('lbl-hoy');
+    if(lblHoy) lblHoy.textContent=now.toLocaleDateString('es-VE');
+    var rpSem=document.getElementById('rp-sem');
+    if(rpSem) rpSem.value=getSemanaActual(null);
+    poblarFiltroSemanas();
+    var mx=REGS.reduce(function(a,r){var v=parseInt(r.p)||0;return v>a?v:a;},0);
+    var rpNum=document.getElementById('rp-num');
+    if(rpNum) rpNum.value=String(mx+1).padStart(5,'0');
+    var rpMes=document.getElementById('rp-mes');
+    if(rpMes) rpMes.value='abr-26';
+    renderNomAdm();
+    renderTemporales();
+  } catch(e) {
+    console.log('onload error:', e);
+  }
 };
 
 // COUNTER
