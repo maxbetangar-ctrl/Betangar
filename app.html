@@ -731,6 +731,9 @@ font-family:var(–m);margin-bottom:16px;
 
 <script>
 
+
+
+
 const FLOTA={
   'JAC-B001':{placa:'A06ER7P',vin:'8XR2RDH87TU000121',chofer:'REINALDO FARIA',ay1:'JACKSON RINCON',ay2:'MISAEL RINCON'},
   'JAC-B002':{placa:'A19EP3P',vin:'8XR2RDH87TU000118',chofer:'JOSE ARANGURE',ay1:'AMERICO GONZALEZ',ay2:'DARWIN ESCORCIA'},
@@ -965,9 +968,33 @@ const PERMISOS = {
 
 let SESION = null;
 
-</script>
 
-<script>
+
+
+
+// ── Funciones de semana ──
+function getSemanaActual(fecha){
+  var d = fecha ? new Date(fecha+'T12:00:00') : new Date();
+  var dia = d.getDate();
+  if(dia <= 7) return 'Semana 1';
+  if(dia <= 14) return 'Semana 2';
+  if(dia <= 21) return 'Semana 3';
+  return 'Semana 4';
+}
+function poblarFiltroSemanas(){
+  var sel = document.getElementById('rr-sem');
+  if(!sel) return;
+  var opts = ['','Semana 1','Semana 2','Semana 3','Semana 4','Semana 5'];
+  var cur = sel.value;
+  sel.innerHTML = '';
+  opts.forEach(function(o){
+    var opt = document.createElement('option');
+    opt.value = o;
+    opt.textContent = o || 'Todas las semanas';
+    sel.appendChild(opt);
+  });
+  sel.value = cur;
+}
 
 function toggleMenu(){
   const m=document.getElementById('nav-menu');
@@ -999,6 +1026,21 @@ function doLogin(){
 
 
 function iniciarSesion(){
+  // Inicializar fechas y campos
+  try{
+    var now=new Date();
+    var felTop=document.getElementById('fecha-top');
+    if(felTop)felTop.textContent=now.toLocaleDateString('es-VE',{weekday:'short',day:'numeric',month:'short',year:'numeric'});
+    var hoy=now.toISOString().split('T')[0];
+    ['rp-fecha','rr-des','rr-hta','ab-f','gc-f','gp-f','km-f'].forEach(function(id){var el=document.getElementById(id);if(el)el.value=hoy;});
+    var lblHoy=document.getElementById('lbl-hoy');
+    if(lblHoy)lblHoy.textContent=now.toLocaleDateString('es-VE');
+    var mx=REGS.reduce(function(a,r){var v=parseInt(r.p)||0;return v>a?v:a;},0);
+    var rpNum=document.getElementById('rp-num');
+    if(rpNum)rpNum.value=String(mx+1).padStart(5,'0');
+    var rpMes=document.getElementById('rp-mes');
+    if(rpMes)rpMes.value='abr-26';
+  }catch(e){console.log('init campos:',e);}
   const perms=PERMISOS[SESION.rol];
   const allPages=['dashboard','planilla','historico','reporte','abonos','nomina','combustible','km','stats','config'];
   allPages.forEach(p=>{
@@ -1013,9 +1055,10 @@ function iniciarSesion(){
     ui.style.display='flex';
   }
   // Inicializar datos al entrar
-  try { updTank(); renderPlanHoy(); renderKmAlerts(); renderAbonos(); } catch(e){}
-  setTimeout(function(){ try{ renderDash(); }catch(e){} }, 300);
-  setTimeout(function(){ try{ renderDash(); }catch(e){} }, 800);
+  try{updTank();renderPlanHoy();renderKmAlerts();renderAbonos();}catch(e){}
+  setTimeout(function(){try{renderDash();}catch(e){console.log('dash1:',e);}},200);
+  setTimeout(function(){try{renderDash();}catch(e){console.log('dash2:',e);}},700);
+  setTimeout(function(){try{renderDash();}catch(e){console.log('dash3:',e);}},1500);
 }
 
 function cerrarSesion(){
@@ -1050,31 +1093,6 @@ function sp(id){
   if(id==='combustible')renderComb();
   if(id==='km')renderKm();
 }
-window.onload=function(){
-  try {
-    var now=new Date();
-    var felTop=document.getElementById('fecha-top');
-    if(felTop) felTop.textContent=now.toLocaleDateString('es-VE',{weekday:'short',day:'numeric',month:'short',year:'numeric'});
-    var hoy=now.toISOString().split('T')[0];
-    ['rp-fecha','rr-des','rr-hta','ab-f','gc-f','gp-f','km-f'].forEach(function(id){
-      var el=document.getElementById(id); if(el) el.value=hoy;
-    });
-    var lblHoy=document.getElementById('lbl-hoy');
-    if(lblHoy) lblHoy.textContent=now.toLocaleDateString('es-VE');
-    var rpSem=document.getElementById('rp-sem');
-    if(rpSem && typeof getSemanaActual==='function') rpSem.value=getSemanaActual(null);
-    if(typeof poblarFiltroSemanas==='function') poblarFiltroSemanas();
-    var mx=REGS.reduce(function(a,r){var v=parseInt(r.p)||0;return v>a?v:a;},0);
-    var rpNum=document.getElementById('rp-num');
-    if(rpNum) rpNum.value=String(mx+1).padStart(5,'0');
-    var rpMes=document.getElementById('rp-mes');
-    if(rpMes) rpMes.value='abr-26';
-    if(typeof renderNomAdm==='function') renderNomAdm();
-    if(typeof renderTemporales==='function') renderTemporales();
-  } catch(e){
-    console.log('onload error:', e);
-  }
-};
 
 // COUNTER
 function cc(t,d){
@@ -1866,6 +1884,8 @@ angle+=a;
 var legsHTML=labs.map(function(l,i){return ‘<g transform="translate(150,'+(20+i*22)+')"><rect width="12" height="12" fill="'+colors[i]+'" rx="2"/><text x="16" y="10" fill="#6fa882" font-size="9">’+l+’</text></g>’;}).join(’’);
 return ‘<svg viewBox="0 0 300 140" style="width:100%;height:140px">’+slices+legsHTML+’</svg>’;
 }
+
+/* onload movido a iniciarSesion */
 
 </script>
 </body>
