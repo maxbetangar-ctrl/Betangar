@@ -1,0 +1,1216 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta name="theme-color" content="#0f1923">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Betangar">
+<link rel="manifest" href="/chofer-manifest.json">
+<title>Betangar — Chofer</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
+body{background:#0f1923;color:#fff;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;min-height:100vh;display:flex;flex-direction:column;}
+
+/* ── HEADER ── */
+.header{background:linear-gradient(135deg,#1a2d3d,#1e3a5f);padding:14px 20px;text-align:center;border-bottom:2px solid #7dc941;position:sticky;top:0;z-index:100;}
+.logo-row{display:flex;align-items:center;justify-content:center;gap:10px;margin-bottom:4px;}
+.logo-text{color:#7dc941;font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;}
+.cam-name{color:#fff;font-size:20px;font-weight:700;}
+.chofer-name{color:rgba(255,255,255,.6);font-size:13px;margin-top:2px;}
+.fecha{color:#7dc941;font-size:11px;margin-top:4px;}
+
+/* ── TABS ── */
+.tabs{display:flex;background:#111c26;border-bottom:1px solid rgba(255,255,255,.08);}
+.tab{flex:1;padding:12px 8px;text-align:center;font-size:12px;font-weight:700;color:rgba(255,255,255,.4);cursor:pointer;border-bottom:2px solid transparent;transition:all .2s;letter-spacing:.5px;text-transform:uppercase;}
+.tab.active{color:#7dc941;border-bottom-color:#7dc941;}
+.tab-page{display:none;flex:1;flex-direction:column;}
+.tab-page.active{display:flex;flex-direction:column;}
+
+/* ── CONTENT ── */
+.content{flex:1;padding:16px;max-width:480px;margin:0 auto;width:100%;}
+
+/* ── STATUS BAR ── */
+.status-bar{background:#1a2d3d;border-radius:12px;padding:12px 16px;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;}
+.status-viajes{font-size:32px;font-weight:700;color:#7dc941;line-height:1;}
+.status-label{font-size:11px;color:rgba(255,255,255,.4);text-transform:uppercase;letter-spacing:1px;margin-top:2px;}
+.status-semana{font-size:13px;font-weight:600;color:rgba(255,255,255,.6);}
+.status-sem-label{font-size:10px;color:rgba(255,255,255,.3);}
+.status-pill{font-size:11px;padding:4px 10px;border-radius:20px;font-weight:600;}
+.pill-online{background:rgba(125,201,65,.15);color:#7dc941;border:1px solid rgba(125,201,65,.3);}
+.pill-offline{background:rgba(239,159,39,.15);color:#ef9f27;border:1px solid rgba(239,159,39,.3);}
+
+/* ── VIAJES GRID ── */
+.viajes-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:20px;}
+.viaje-btn{border:none;border-radius:16px;padding:20px 12px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:6px;transition:transform .1s,opacity .1s;min-height:120px;justify-content:center;font-family:inherit;-webkit-user-select:none;user-select:none;}
+.viaje-btn:active{transform:scale(.95);}
+.vb-pendiente{background:#1a2d3d;border:2px dashed rgba(255,255,255,.15);}
+.vb-registrado{background:rgba(125,201,65,.12);border:2px solid rgba(125,201,65,.4);}
+.vb-deshabilitado{background:#111c26;border:2px dashed rgba(255,255,255,.05);opacity:.35;cursor:not-allowed;}
+.viaje-num{font-size:38px;font-weight:700;}
+.vb-pendiente .viaje-num{color:rgba(255,255,255,.25);}
+.vb-registrado .viaje-num{color:#7dc941;}
+.vb-deshabilitado .viaje-num{color:rgba(255,255,255,.15);}
+.viaje-lbl{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;}
+.vb-pendiente .viaje-lbl{color:rgba(255,255,255,.25);}
+.vb-registrado .viaje-lbl{color:#7dc941;}
+.viaje-hora{font-size:11px;color:rgba(255,255,255,.4);}
+.vb-registrado .viaje-hora{color:rgba(125,201,65,.7);}
+.viaje-check{font-size:22px;display:none;}
+.vb-registrado .viaje-check{display:block;}
+
+/* ── BANNER COLA ── */
+.cola-banner{background:rgba(239,159,39,.1);border:1px solid rgba(239,159,39,.3);border-radius:10px;padding:10px 14px;margin-bottom:12px;font-size:12px;color:#ef9f27;display:none;}
+
+/* ── HISTORIAL ── */
+.historial{background:#1a2d3d;border-radius:12px;padding:14px 16px;margin-bottom:16px;}
+.hist-title{font-size:10px;color:rgba(255,255,255,.35);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:10px;}
+.hist-item{display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid rgba(255,255,255,.05);}
+.hist-item:last-child{border-bottom:none;}
+.hist-dot{width:8px;height:8px;border-radius:50%;background:#7dc941;flex-shrink:0;}
+.hist-dot.pend{background:#ef9f27;}
+.hist-text{font-size:13px;color:rgba(255,255,255,.8);}
+.hist-hora{font-size:11px;color:rgba(255,255,255,.4);margin-left:auto;}
+
+/* ── CHECKLIST ── */
+.cl-section{background:#1a2d3d;border-radius:12px;padding:14px 16px;margin-bottom:12px;}
+.cl-sec-title{font-size:11px;font-weight:700;color:rgba(255,255,255,.5);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:12px;display:flex;align-items:center;gap:6px;}
+.cl-modo-badge{padding:3px 8px;border-radius:20px;font-size:10px;font-weight:700;}
+.badge-salida{background:rgba(125,201,65,.15);color:#7dc941;border:1px solid rgba(125,201,65,.3);}
+.badge-llegada{background:rgba(59,143,212,.15);color:#3b8fd4;border:1px solid rgba(59,143,212,.3);}
+
+.cl-row{display:flex;gap:10px;margin-bottom:10px;}
+.cl-field{flex:1;}
+.cl-label{font-size:11px;color:rgba(255,255,255,.4);margin-bottom:4px;display:block;text-transform:uppercase;letter-spacing:.5px;}
+.cl-input{width:100%;background:#0f1923;border:1px solid rgba(255,255,255,.12);border-radius:10px;padding:11px 12px;color:#fff;font-size:15px;font-family:inherit;outline:none;transition:border-color .2s;}
+.cl-input:focus{border-color:#7dc941;}
+.cl-input[readonly]{background:rgba(255,255,255,.04);color:rgba(255,255,255,.5);cursor:not-allowed;}
+.cl-select{width:100%;background:#0f1923;border:1px solid rgba(255,255,255,.12);border-radius:10px;padding:11px 12px;color:#fff;font-size:14px;font-family:inherit;outline:none;-webkit-appearance:none;appearance:none;}
+.cl-select:focus{border-color:#7dc941;}
+
+/* Checklist items (luces, motor etc) */
+.cl-items-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
+.cl-item{background:#0f1923;border:1px solid rgba(255,255,255,.08);border-radius:10px;padding:10px 12px;cursor:pointer;transition:all .15s;}
+.cl-item.ok{background:rgba(125,201,65,.1);border-color:rgba(125,201,65,.4);}
+.cl-item.mal{background:rgba(226,75,74,.1);border-color:rgba(226,75,74,.4);}
+.cl-item-name{font-size:12px;color:rgba(255,255,255,.7);margin-bottom:6px;}
+.cl-item.ok .cl-item-name{color:#7dc941;}
+.cl-item.mal .cl-item-name{color:#e24b4a;}
+.cl-item-btns{display:flex;gap:6px;}
+.cl-item-btn{flex:1;border:none;border-radius:6px;padding:5px;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;transition:all .15s;}
+.btn-ok{background:rgba(125,201,65,.1);color:rgba(125,201,65,.6);border:1px solid rgba(125,201,65,.2);}
+.btn-mal{background:rgba(226,75,74,.1);color:rgba(226,75,74,.6);border:1px solid rgba(226,75,74,.2);}
+.cl-item.ok .btn-ok{background:#7dc941;color:#000;}
+.cl-item.mal .btn-mal{background:#e24b4a;color:#fff;}
+
+/* Estado vehículo */
+.estado-btns{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px;}
+.estado-btn{border:2px solid rgba(255,255,255,.1);border-radius:10px;padding:12px 8px;background:#0f1923;color:rgba(255,255,255,.5);font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;text-align:center;transition:all .15s;}
+.estado-btn.sel-operativo{background:rgba(29,158,117,.15);border-color:#1d9e75;color:#1d9e75;}
+.estado-btn.sel-taller{background:rgba(239,159,39,.15);border-color:#ef9f27;color:#ef9f27;}
+.estado-btn.sel-inoperativo{background:rgba(226,75,74,.15);border-color:#e24b4a;color:#e24b4a;}
+
+/* Combustible selector */
+.comb-btns{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;}
+.comb-btn{border:1px solid rgba(255,255,255,.15);border-radius:8px;padding:7px 12px;background:#0f1923;color:rgba(255,255,255,.5);font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;transition:all .15s;}
+.comb-btn.sel{background:rgba(125,201,65,.2);border-color:#7dc941;color:#7dc941;}
+
+/* ── BOTONES PRINCIPALES ── */
+.btn-guardar{width:100%;background:linear-gradient(135deg,#7dc941,#5fa830);border:none;border-radius:14px;padding:16px;color:#000;font-size:15px;font-weight:800;cursor:pointer;font-family:inherit;margin-top:8px;letter-spacing:.5px;}
+.btn-guardar:active{transform:scale(.98);}
+.btn-guardar:disabled{opacity:.4;cursor:not-allowed;}
+.btn-incidencia{width:100%;background:rgba(226,75,74,.1);border:1px solid rgba(226,75,74,.3);border-radius:12px;padding:14px;font-size:14px;font-weight:700;color:#e24b4a;cursor:pointer;margin-bottom:12px;font-family:inherit;}
+
+/* ── MODAL ── */
+.modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.88);z-index:999;padding:20px;overflow-y:auto;}
+.modal-box{background:#1a2d3d;border-radius:16px;padding:20px;max-width:400px;margin:0 auto;}
+.modal-title{font-size:16px;font-weight:700;margin-bottom:16px;}
+.modal-close{background:none;border:none;color:#fff;font-size:28px;cursor:pointer;line-height:1;}
+
+/* ── MODO LLEGADA BANNER ── */
+.llegada-banner{background:rgba(59,143,212,.12);border:1px solid rgba(59,143,212,.35);border-radius:12px;padding:12px 16px;margin-bottom:14px;font-size:13px;color:#3b8fd4;display:none;}
+
+/* ── TOAST ── */
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(80px);background:#1d9e75;color:#fff;padding:12px 20px;border-radius:12px;font-size:14px;font-weight:700;z-index:9999;opacity:0;transition:all .35s;white-space:nowrap;}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+.toast.error{background:#e24b4a;}
+.toast.warn{background:#ef9f27;}
+
+/* ── ERROR PANTALLA ── */
+.error-screen{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:40px 20px;text-align:center;}
+.error-icon{font-size:64px;margin-bottom:16px;}
+.error-title{font-size:20px;font-weight:700;color:#e24b4a;margin-bottom:8px;}
+.error-msg{font-size:14px;color:rgba(255,255,255,.5);line-height:1.6;}
+
+.footer{text-align:center;padding:14px;color:rgba(255,255,255,.15);font-size:10px;}
+
+@media(min-width:420px){
+  .viaje-btn{min-height:140px;}
+  .viaje-num{font-size:44px;}
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <div class="logo-row">
+    <div class="logo-text">BETANGAR</div>
+  </div>
+  <div class="cam-name" id="cam-display">Cargando...</div>
+  <div class="chofer-name" id="chofer-display"></div>
+  <div class="fecha" id="fecha-display"></div>
+</div>
+
+<!-- ERROR SCREEN (QR inválido) -->
+<div class="error-screen" id="error-screen" style="display:none">
+  <div class="error-icon">🚫</div>
+  <div class="error-title">Acceso Inválido</div>
+  <div class="error-msg">Este enlace no es válido.<br>Escanea el código QR pegado<br>en tu camión para acceder.</div>
+</div>
+
+<!-- APP PRINCIPAL -->
+<div id="app-main" style="display:none;flex:1;flex-direction:column;display:none">
+
+  <!-- TABS -->
+  <div class="tabs">
+    <div class="tab active" id="tab-viajes-btn" onclick="switchTab('viajes')">🚛 Viajes</div>
+    <div class="tab" id="tab-checklist-btn" onclick="switchTab('checklist')">📋 Checklist</div>
+  </div>
+
+  <!-- ══════ TAB VIAJES ══════ -->
+  <div class="tab-page active" id="tab-viajes">
+    <div class="content">
+
+      <div class="cola-banner" id="cola-banner">
+        📵 Sin conexión — <span id="cola-count">0</span> viaje(s) guardado(s). Se sincronizarán automáticamente.
+      </div>
+
+      <!-- Status bar -->
+      <div class="status-bar">
+        <div>
+          <div class="status-viajes" id="viajes-hoy-count">0</div>
+          <div class="status-label">Viajes hoy</div>
+        </div>
+        <div style="text-align:center">
+          <div class="status-semana" id="viajes-semana-count">0</div>
+          <div class="status-sem-label">Esta semana</div>
+        </div>
+        <div class="status-pill pill-offline" id="status-pill">Sin conexión</div>
+      </div>
+
+      <!-- Grid de viajes -->
+      <div class="viajes-grid" id="viajes-grid"></div>
+
+      <!-- Botón incidencia -->
+      <button class="btn-incidencia" onclick="abrirModalIncidencia()">🚨 Reportar Incidencia</button>
+
+      <!-- Historial -->
+      <div class="historial" id="historial-cont" style="display:none">
+        <div class="hist-title">Registro del día</div>
+        <div id="historial-lista"></div>
+      </div>
+
+    </div>
+  </div><!-- /tab-viajes -->
+
+  <!-- ══════ TAB CHECKLIST ══════ -->
+  <div class="tab-page" id="tab-checklist">
+    <div class="content">
+
+      <!-- Banner modo llegada -->
+      <div class="llegada-banner" id="llegada-banner">
+        🌙 <b>Modo Llegada</b> — El checklist de esta mañana ya está registrado. Completa los datos de llegada.
+      </div>
+
+      <!-- Modo badge -->
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+        <div style="font-size:14px;font-weight:700;color:var(--text1)">Checklist del Día</div>
+        <div class="cl-modo-badge badge-salida" id="cl-modo-badge">☀️ SALIDA</div>
+      </div>
+
+      <!-- KM y Horas -->
+      <div class="cl-section">
+        <div class="cl-sec-title">📏 Kilometraje y Horas</div>
+        <div class="cl-row">
+          <div class="cl-field">
+            <label class="cl-label">KM Salida</label>
+            <input class="cl-input" type="number" id="cl-km-salida" placeholder="0">
+          </div>
+          <div class="cl-field">
+            <label class="cl-label">Hora Salida</label>
+            <input class="cl-input" type="time" id="cl-hora-salida">
+          </div>
+        </div>
+        <div class="cl-row" id="cl-row-llegada" style="display:none">
+          <div class="cl-field">
+            <label class="cl-label">KM Llegada</label>
+            <input class="cl-input" type="number" id="cl-km-llegada" placeholder="0">
+          </div>
+          <div class="cl-field">
+            <label class="cl-label">Hora Llegada</label>
+            <input class="cl-input" type="time" id="cl-hora-llegada">
+          </div>
+        </div>
+      </div>
+
+      <!-- Combustible -->
+      <div class="cl-section" id="cl-sec-combustible">
+        <div class="cl-sec-title">⛽ Combustible</div>
+        <div>
+          <label class="cl-label">Nivel al Salir</label>
+          <div class="comb-btns" id="cl-comb-salida-btns">
+            <button class="comb-btn" onclick="selComb('salida','lleno',this)">LLENO</button>
+            <button class="comb-btn" onclick="selComb('salida','3/4',this)">3/4</button>
+            <button class="comb-btn" onclick="selComb('salida','1/2',this)">1/2</button>
+            <button class="comb-btn" onclick="selComb('salida','1/4',this)">1/4</button>
+            <button class="comb-btn" onclick="selComb('salida','reserva',this)">RESERVA</button>
+          </div>
+        </div>
+        <div style="margin-top:12px" id="cl-comb-llegada-cont" style="display:none">
+          <label class="cl-label">Nivel al Llegar</label>
+          <div class="comb-btns" id="cl-comb-llegada-btns">
+            <button class="comb-btn" onclick="selComb('llegada','lleno',this)">LLENO</button>
+            <button class="comb-btn" onclick="selComb('llegada','3/4',this)">3/4</button>
+            <button class="comb-btn" onclick="selComb('llegada','1/2',this)">1/2</button>
+            <button class="comb-btn" onclick="selComb('llegada','1/4',this)">1/4</button>
+            <button class="comb-btn" onclick="selComb('llegada','reserva',this)">RESERVA</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Inspección (solo salida) -->
+      <div class="cl-section" id="cl-sec-inspeccion">
+        <div class="cl-sec-title">🔦 Inspección Visual</div>
+
+        <div style="font-size:11px;color:rgba(255,255,255,.35);margin-bottom:8px;text-transform:uppercase;letter-spacing:1px">Luces</div>
+        <div class="cl-items-grid" id="cl-luces">
+          <div class="cl-item" id="ci-luz-delantera" onclick="toggleItem('luz-delantera')">
+            <div class="cl-item-name">Luz Delantera</div>
+            <div class="cl-item-btns">
+              <button class="cl-item-btn btn-ok" onclick="setItem(event,'luz-delantera','ok')">✓ OK</button>
+              <button class="cl-item-btn btn-mal" onclick="setItem(event,'luz-delantera','mal')">✗ MAL</button>
+            </div>
+          </div>
+          <div class="cl-item" id="ci-luz-trasera" onclick="toggleItem('luz-trasera')">
+            <div class="cl-item-name">Luz Trasera</div>
+            <div class="cl-item-btns">
+              <button class="cl-item-btn btn-ok" onclick="setItem(event,'luz-trasera','ok')">✓ OK</button>
+              <button class="cl-item-btn btn-mal" onclick="setItem(event,'luz-trasera','mal')">✗ MAL</button>
+            </div>
+          </div>
+          <div class="cl-item" id="ci-luz-freno" onclick="toggleItem('luz-freno')">
+            <div class="cl-item-name">Luz de Freno</div>
+            <div class="cl-item-btns">
+              <button class="cl-item-btn btn-ok" onclick="setItem(event,'luz-freno','ok')">✓ OK</button>
+              <button class="cl-item-btn btn-mal" onclick="setItem(event,'luz-freno','mal')">✗ MAL</button>
+            </div>
+          </div>
+          <div class="cl-item" id="ci-direccionales">
+            <div class="cl-item-name">Direccionales</div>
+            <div class="cl-item-btns">
+              <button class="cl-item-btn btn-ok" onclick="setItem(event,'direccionales','ok')">✓ OK</button>
+              <button class="cl-item-btn btn-mal" onclick="setItem(event,'direccionales','mal')">✗ MAL</button>
+            </div>
+          </div>
+        </div>
+
+        <div style="font-size:11px;color:rgba(255,255,255,.35);margin:12px 0 8px;text-transform:uppercase;letter-spacing:1px">Motor y Fluidos</div>
+        <div class="cl-items-grid">
+          <div class="cl-item" id="ci-aceite">
+            <div class="cl-item-name">Aceite Motor</div>
+            <div class="cl-item-btns">
+              <button class="cl-item-btn btn-ok" onclick="setItem(event,'aceite','ok')">✓ OK</button>
+              <button class="cl-item-btn btn-mal" onclick="setItem(event,'aceite','mal')">✗ MAL</button>
+            </div>
+          </div>
+          <div class="cl-item" id="ci-agua">
+            <div class="cl-item-name">Agua Radiador</div>
+            <div class="cl-item-btns">
+              <button class="cl-item-btn btn-ok" onclick="setItem(event,'agua','ok')">✓ OK</button>
+              <button class="cl-item-btn btn-mal" onclick="setItem(event,'agua','mal')">✗ MAL</button>
+            </div>
+          </div>
+          <div class="cl-item" id="ci-frenos">
+            <div class="cl-item-name">Frenos</div>
+            <div class="cl-item-btns">
+              <button class="cl-item-btn btn-ok" onclick="setItem(event,'frenos','ok')">✓ OK</button>
+              <button class="cl-item-btn btn-mal" onclick="setItem(event,'frenos','mal')">✗ MAL</button>
+            </div>
+          </div>
+          <div class="cl-item" id="ci-bateria">
+            <div class="cl-item-name">Batería</div>
+            <div class="cl-item-btns">
+              <button class="cl-item-btn btn-ok" onclick="setItem(event,'bateria','ok')">✓ OK</button>
+              <button class="cl-item-btn btn-mal" onclick="setItem(event,'bateria','mal')">✗ MAL</button>
+            </div>
+          </div>
+        </div>
+
+        <div style="font-size:11px;color:rgba(255,255,255,.35);margin:12px 0 8px;text-transform:uppercase;letter-spacing:1px">Neumáticos</div>
+        <div class="cl-items-grid">
+          <div class="cl-item" id="ci-neuma-del">
+            <div class="cl-item-name">Neum. Delanteros</div>
+            <div class="cl-item-btns">
+              <button class="cl-item-btn btn-ok" onclick="setItem(event,'neuma-del','ok')">✓ OK</button>
+              <button class="cl-item-btn btn-mal" onclick="setItem(event,'neuma-del','mal')">✗ MAL</button>
+            </div>
+          </div>
+          <div class="cl-item" id="ci-neuma-tra">
+            <div class="cl-item-name">Neum. Traseros</div>
+            <div class="cl-item-btns">
+              <button class="cl-item-btn btn-ok" onclick="setItem(event,'neuma-tra','ok')">✓ OK</button>
+              <button class="cl-item-btn btn-mal" onclick="setItem(event,'neuma-tra','mal')">✗ MAL</button>
+            </div>
+          </div>
+          <div class="cl-item" id="ci-repuesto">
+            <div class="cl-item-name">Repuesto</div>
+            <div class="cl-item-btns">
+              <button class="cl-item-btn btn-ok" onclick="setItem(event,'repuesto','ok')">✓ OK</button>
+              <button class="cl-item-btn btn-mal" onclick="setItem(event,'repuesto','mal')">✗ MAL</button>
+            </div>
+          </div>
+          <div class="cl-item" id="ci-carroceria">
+            <div class="cl-item-name">Carrocería</div>
+            <div class="cl-item-btns">
+              <button class="cl-item-btn btn-ok" onclick="setItem(event,'carroceria','ok')">✓ OK</button>
+              <button class="cl-item-btn btn-mal" onclick="setItem(event,'carroceria','mal')">✗ MAL</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Estado del vehículo -->
+      <div class="cl-section">
+        <div class="cl-sec-title">🚦 Estado del Vehículo</div>
+        <div class="estado-btns">
+          <button class="estado-btn" id="eb-operativo" onclick="selEstado('operativo')">✅ Operativo</button>
+          <button class="estado-btn" id="eb-taller" onclick="selEstado('taller_betangar')">🔧 Taller</button>
+          <button class="estado-btn" id="eb-inoperativo" onclick="selEstado('inoperativo')">🔴 Inoperativo</button>
+          <button class="estado-btn" id="eb-taller-jac" onclick="selEstado('taller_jac')">🏭 Taller JAC</button>
+        </div>
+        <div id="cl-motivo-cont" style="display:none;margin-top:12px">
+          <label class="cl-label">Motivo / Descripción del problema</label>
+          <textarea class="cl-input" id="cl-motivo" rows="3" placeholder="Describe el problema o motivo..." style="resize:none;font-size:13px"></textarea>
+        </div>
+      </div>
+
+      <!-- Observaciones -->
+      <div class="cl-section">
+        <div class="cl-sec-title">📝 Observaciones</div>
+        <textarea class="cl-input" id="cl-observaciones" rows="3" placeholder="Escribe aquí cualquier observación del vehículo o ruta..." style="resize:none;font-size:13px"></textarea>
+      </div>
+
+      <!-- Botón guardar -->
+      <button class="btn-guardar" id="cl-btn-guardar" onclick="guardarChecklist()">
+        ✅ Guardar Checklist
+      </button>
+
+      <div style="height:20px"></div>
+    </div>
+  </div><!-- /tab-checklist -->
+
+</div><!-- /app-main -->
+
+<!-- MODAL INCIDENCIA -->
+<div class="modal" id="modal-incidencia">
+  <div class="modal-box">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <div class="modal-title" style="color:#e24b4a">🚨 Reportar Incidencia</div>
+      <button class="modal-close" onclick="cerrarModalIncidencia()">×</button>
+    </div>
+    <div style="margin-bottom:12px">
+      <div style="font-size:11px;color:rgba(255,255,255,.4);margin-bottom:8px;text-transform:uppercase;letter-spacing:1px">Tipo</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <button onclick="selTipoInc(this,'mecanica')" class="inc-tipo-btn" style="background:#1e3a5f;border:2px solid rgba(255,255,255,.1);border-radius:10px;padding:12px 8px;color:#fff;font-size:13px;cursor:pointer;font-family:inherit">🔧 Falla Mecánica</button>
+        <button onclick="selTipoInc(this,'accidente')" class="inc-tipo-btn" style="background:#1e3a5f;border:2px solid rgba(255,255,255,.1);border-radius:10px;padding:12px 8px;color:#fff;font-size:13px;cursor:pointer;font-family:inherit">💥 Accidente</button>
+        <button onclick="selTipoInc(this,'combustible')" class="inc-tipo-btn" style="background:#1e3a5f;border:2px solid rgba(255,255,255,.1);border-radius:10px;padding:12px 8px;color:#fff;font-size:13px;cursor:pointer;font-family:inherit">⛽ Sin Combustible</button>
+        <button onclick="selTipoInc(this,'seguridad')" class="inc-tipo-btn" style="background:#1e3a5f;border:2px solid rgba(255,255,255,.1);border-radius:10px;padding:12px 8px;color:#fff;font-size:13px;cursor:pointer;font-family:inherit">🔒 Seguridad</button>
+      </div>
+    </div>
+    <div style="margin-bottom:12px">
+      <div style="font-size:11px;color:rgba(255,255,255,.4);margin-bottom:6px;text-transform:uppercase;letter-spacing:1px">Descripción</div>
+      <textarea id="inc-desc" placeholder="Describe qué pasó..." style="width:100%;background:#0f1923;border:1px solid rgba(255,255,255,.15);border-radius:10px;padding:12px;color:#fff;font-size:14px;font-family:inherit;resize:none;box-sizing:border-box" rows="3"></textarea>
+    </div>
+    <div style="margin-bottom:16px">
+      <div style="font-size:11px;color:rgba(255,255,255,.4);margin-bottom:6px;text-transform:uppercase;letter-spacing:1px">Ubicación (opcional)</div>
+      <input id="inc-ubicacion" placeholder="Ej: Av. principal, frente al mercado..." style="width:100%;background:#0f1923;border:1px solid rgba(255,255,255,.15);border-radius:10px;padding:12px;color:#fff;font-size:14px;font-family:inherit;box-sizing:border-box">
+    </div>
+    <button onclick="enviarIncidencia()" style="width:100%;background:#e24b4a;border:none;border-radius:12px;padding:14px;color:#fff;font-size:15px;font-weight:700;cursor:pointer;font-family:inherit">
+      📤 Enviar Reporte
+    </button>
+  </div>
+</div>
+
+<!-- TOAST -->
+<div class="toast" id="toast"></div>
+
+<div class="footer">Betangar · Inversiones Betangar C.A. · J-29566107-0</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script>
+// ══════════════════════════════════════════════════════════
+// BETANGAR — APP CHOFERES v9.0
+// Acceso por QR · Offline-first · Conectado a Supabase
+// ══════════════════════════════════════════════════════════
+
+var SUPA_URL = 'https://hrkjddehqnzcqwlkklqm.supabase.co';
+var SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhya2pkZGVocW56Y3F3bGtrbHFtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDM3MTYyNzMsImV4cCI6MjA1OTI5MjI3M30.TDSHkzGl5DGbO2zyYttXDMlW3_pn7zCPBcKDgBFfXkg';
+// Destinatarios WA del checklist
+var WA_DESTINATARIOS = [
+  {num:'584147379886', key:'3999109',  nombre:'Maximo'},
+  {num:'584142411159', key:'4266754',  nombre:'Francisco'},
+  // Mecánico y operativo — agregar cuando tengan API key de callmebot
+  // {num:'58414XXXXXXX', key:'XXXXXXX', nombre:'Mecanico'},
+  // {num:'58414XXXXXXX', key:'XXXXXXX', nombre:'Operativo'},
+];
+
+var FLOTA_CHOFERES = {
+  'JAC-B001':'REINALDO FARIA',
+  'JAC-B002':'JOSE ARANGURE',
+  'JAC-B003':'MANUEL',
+  'JAC-B004':'MELVIN BARBOZA',
+  'JAC-B005':'HELY URDANETA',
+  'JAC-B006':'JHAN ROA',
+  'JAC-B007':'JAVIER URDANETA',
+  'JAC-B008':'YURBENIS BERMUDEZ',
+  'JAC-B009':'RICHARD VILLALOBOS',
+  'JAC-B010':'ANDRY ORTEGA',
+  'JAC-B011':'OMAR NAVA',
+  'JAC-B012':'EDIOBER BARRIOS'
+};
+
+var MAX_VIAJES = 4;
+var cam = '', chofer = '', hoy = '';
+var supabase = null;
+var isOnline = false;
+var VIAJES_HOY = {};   // {1:{hora,sincronizado}, ...}
+var COLA_LOCAL  = [];  // viajes offline pendientes
+
+// Estado checklist
+var CL_ITEMS = {};     // {nombre: 'ok'|'mal'}
+var CL_COMB_SAL = '';
+var CL_COMB_LLE = '';
+var CL_ESTADO = '';
+var CL_MODO = 'salida'; // 'salida' o 'llegada'
+var CL_ID_EXISTENTE = null; // id del registro si ya existe hoy
+
+// ── INIT ──
+if('serviceWorker' in navigator){
+  navigator.serviceWorker.register('/chofer-sw.js').then(function(reg){
+    console.log('[App] SW registrado OK');
+    // Detectar nueva versión disponible
+    reg.addEventListener('updatefound', function(){
+      var newSW = reg.installing;
+      newSW.addEventListener('statechange', function(){
+        if(newSW.state === 'installed' && navigator.serviceWorker.controller){
+          // Hay nueva versión — recargar silenciosamente
+          console.log('[App] Nueva versión disponible — actualizando...');
+          newSW.postMessage({tipo: 'skipWaiting'});
+          window.location.reload();
+        }
+      });
+    });
+  }).catch(function(err){
+    console.warn('[App] SW no pudo registrarse:', err);
+  });
+
+  // Escuchar mensajes del SW
+  navigator.serviceWorker.addEventListener('message', function(e){
+    if(e.data && e.data.tipo === 'sync-disponible'){
+      // El SW detectó conexión — sincronizar cola
+      if(typeof sincronizarCola === 'function') sincronizarCola();
+    }
+  });
+}
+
+document.addEventListener('DOMContentLoaded', function(){
+  var params = new URLSearchParams(window.location.search);
+  cam = (params.get('cam') || '').toUpperCase().trim();
+
+  // Validar que sea un camión conocido
+  if(!cam || !FLOTA_CHOFERES[cam]){
+    document.getElementById('error-screen').style.display = 'flex';
+    return;
+  }
+
+  chofer = FLOTA_CHOFERES[cam];
+  var now = new Date();
+  hoy = now.toISOString().slice(0,10);
+
+  // Mostrar info
+  document.getElementById('cam-display').textContent  = cam;
+  document.getElementById('chofer-display').textContent = chofer;
+  document.getElementById('fecha-display').textContent  = now.toLocaleDateString('es-VE',{
+    weekday:'long', day:'numeric', month:'long', year:'numeric'
+  });
+
+  // Prellenar hora salida
+  var hh = String(now.getHours()).padStart(2,'0');
+  var mm = String(now.getMinutes()).padStart(2,'0');
+  document.getElementById('cl-hora-salida').value = hh+':'+mm;
+
+  // Mostrar app
+  var appMain = document.getElementById('app-main');
+  appMain.style.display = 'flex';
+  appMain.style.flexDirection = 'column';
+
+  // Cargar datos locales
+  cargarColaLocal();
+  cargarViajesLocal();
+  renderBotones();
+  actualizarContador();
+  renderHistorial();
+
+  // Verificar si ya llenó la salida hoy (modo llegada) desde localStorage
+  var modoGuardado = localStorage.getItem('btg_cl_modo_'+cam+'_'+hoy);
+  if(modoGuardado==='llegada'){
+    CL_MODO = 'llegada';
+    // Cargar datos guardados localmente
+    try{
+      var clLocal = localStorage.getItem('btg_cl_'+cam+'_'+hoy);
+      if(clLocal){
+        var clData = JSON.parse(clLocal);
+        if(clData.km_salida) document.getElementById('cl-km-salida').value = clData.km_salida;
+        if(clData.hora_salida) document.getElementById('cl-hora-salida').value = clData.hora_salida;
+        if(clData.combustible_salida) CL_COMB_SAL = clData.combustible_salida;
+        if(clData.estado_vehiculo) CL_ESTADO = clData.estado_vehiculo;
+        if(clData.observaciones) document.getElementById('cl-observaciones').value = clData.observaciones||'';
+      }
+    }catch(e){}
+  }
+
+  // Conectar Supabase
+  iniciarSupabase();
+
+  // Monitorear conexión
+  window.addEventListener('online',  function(){ verificarConexion(); sincronizarCola(); });
+  window.addEventListener('offline', function(){ actualizarConexion(false); });
+
+  // Refresh cada 30s si online
+  setInterval(function(){
+    if(isOnline){ sincronizarCola(); }
+  }, 30000);
+});
+
+// ── SUPABASE ──
+function iniciarSupabase(){
+  try{
+    var fn = (window.supabase && window.supabase.createClient)
+           ? window.supabase.createClient
+           : window.createClient || null;
+    if(fn){
+      supabase = fn(SUPA_URL, SUPA_KEY);
+      verificarConexion();
+    } else {
+      setTimeout(iniciarSupabase, 800);
+    }
+  } catch(e){ setTimeout(iniciarSupabase, 800); }
+}
+
+function verificarConexion(){
+  if(!supabase) return;
+  supabase.from('viajes_chofer').select('id').limit(1).then(function(res){
+    isOnline = !res.error;
+    actualizarConexion(isOnline);
+    if(isOnline){
+      cargarViajesSupabase();
+      cargarChecklistSupabase();
+      cargarSemanaSupabase();
+      sincronizarCola();
+    }
+  }).catch(function(){ actualizarConexion(false); });
+}
+
+function actualizarConexion(online){
+  isOnline = online;
+  var el = document.getElementById('status-pill');
+  if(el){
+    el.textContent   = online ? 'En línea ✓' : 'Sin conexión';
+    el.className     = 'status-pill ' + (online ? 'pill-online' : 'pill-offline');
+  }
+}
+
+// ── TABS ──
+function switchTab(tab){
+  ['viajes','checklist'].forEach(function(t){
+    document.getElementById('tab-'+t).classList.toggle('active', t===tab);
+    document.getElementById('tab-'+t+'-btn').classList.toggle('active', t===tab);
+  });
+  if(tab==='checklist') renderChecklistModo();
+}
+
+// ════════════════════════════════
+// MÓDULO VIAJES
+// ════════════════════════════════
+
+function getSemanaISO(fecha){
+  var d = new Date(fecha);
+  d.setHours(12,0,0,0);
+  d.setDate(d.getDate() + 4 - (d.getDay()||7));
+  var year = d.getFullYear();
+  var week = Math.ceil((((d - new Date(year,0,1))/86400000)+1)/7);
+  return { semana: week, anio: year };
+}
+
+function getLunesDeSemana(){
+  var now = new Date();
+  var day = now.getDay() || 7;
+  var lunes = new Date(now);
+  lunes.setDate(now.getDate() - (day - 1));
+  lunes.setHours(0,0,0,0);
+  return lunes.toISOString().slice(0,10);
+}
+
+function cargarViajesLocal(){
+  var key = 'btg_viajes_'+cam+'_'+hoy;
+  try{
+    var s = localStorage.getItem(key);
+    if(s) VIAJES_HOY = JSON.parse(s);
+  }catch(e){ VIAJES_HOY = {}; }
+}
+
+function guardarViajesLocal(){
+  var key = 'btg_viajes_'+cam+'_'+hoy;
+  try{ localStorage.setItem(key, JSON.stringify(VIAJES_HOY)); }catch(e){}
+}
+
+function cargarViajesSupabase(){
+  if(!supabase) return;
+  supabase.from('viajes_chofer').select('*').eq('fecha',hoy).eq('cam',cam)
+  .then(function(res){
+    if(res.error || !res.data) return;
+    res.data.forEach(function(v){
+      VIAJES_HOY[v.viaje_num] = { hora: v.hora_registro||v.hora, sincronizado: true };
+    });
+    guardarViajesLocal();
+    renderBotones();
+    actualizarContador();
+    renderHistorial();
+  });
+}
+
+function cargarSemanaSupabase(){
+  if(!supabase) return;
+  var lunesStr = getLunesDeSemana();
+  var sem = getSemanaISO(hoy);
+  supabase.from('viajes_chofer').select('viaje_num').eq('cam',cam)
+    .gte('fecha', lunesStr).lte('fecha', hoy)
+  .then(function(res){
+    var total = (res.data && !res.error) ? res.data.length : 0;
+    var el = document.getElementById('viajes-semana-count');
+    if(el) el.textContent = total;
+  });
+}
+
+function registrarViaje(num){
+  if(VIAJES_HOY[num]) return;
+  if(num > 1 && !VIAJES_HOY[num-1]) return;
+
+  var now  = new Date();
+  var hora = now.toLocaleTimeString('es-VE',{hour:'2-digit',minute:'2-digit'});
+  var sem  = getSemanaISO(hoy);
+
+  VIAJES_HOY[num] = { hora: hora, sincronizado: false };
+  guardarViajesLocal();
+  renderBotones();
+  actualizarContador();
+  renderHistorial();
+  if(navigator.vibrate) navigator.vibrate(60);
+
+  var reg = {
+    fecha: hoy, cam: cam, chofer: chofer,
+    viaje_num: num, hora_registro: hora,
+    semana: sem.semana, año: sem.anio
+  };
+
+  if(isOnline && supabase){
+    supabase.from('viajes_chofer').upsert([reg],{onConflict:'fecha,cam,viaje_num'})
+    .then(function(res){
+      if(!res.error){
+        VIAJES_HOY[num].sincronizado = true;
+        guardarViajesLocal();
+        renderHistorial();
+        cargarSemanaSupabase();
+      } else {
+        agregarACola(reg);
+      }
+    }).catch(function(){ agregarACola(reg); });
+  } else {
+    agregarACola(reg);
+  }
+}
+
+// ── COLA OFFLINE ──
+function cargarColaLocal(){
+  try{
+    var s = localStorage.getItem('btg_cola_chofer');
+    if(s) COLA_LOCAL = JSON.parse(s);
+  }catch(e){ COLA_LOCAL = []; }
+}
+
+function agregarACola(reg){
+  var existe = COLA_LOCAL.some(function(r){
+    return r.cam===reg.cam && r.viaje_num===reg.viaje_num && r.fecha===reg.fecha;
+  });
+  if(!existe){
+    COLA_LOCAL.push(reg);
+    try{ localStorage.setItem('btg_cola_chofer', JSON.stringify(COLA_LOCAL)); }catch(e){}
+  }
+  actualizarBannerCola();
+}
+
+function sincronizarCola(){
+  if(!isOnline || !supabase || !COLA_LOCAL.length) return;
+  var pend = COLA_LOCAL.slice();
+  COLA_LOCAL = [];
+  localStorage.removeItem('btg_cola_chofer');
+
+  supabase.from('viajes_chofer').upsert(pend,{onConflict:'fecha,cam,viaje_num'})
+  .then(function(res){
+    if(res.error){
+      COLA_LOCAL = pend;
+      try{ localStorage.setItem('btg_cola_chofer', JSON.stringify(COLA_LOCAL)); }catch(e){}
+    } else {
+      pend.forEach(function(r){
+        if(VIAJES_HOY[r.viaje_num]) VIAJES_HOY[r.viaje_num].sincronizado = true;
+      });
+      guardarViajesLocal();
+      renderHistorial();
+      cargarSemanaSupabase();
+    }
+    actualizarBannerCola();
+  });
+}
+
+function actualizarBannerCola(){
+  var banner = document.getElementById('cola-banner');
+  var count  = document.getElementById('cola-count');
+  if(!banner) return;
+  if(COLA_LOCAL.length > 0){
+    banner.style.display = 'block';
+    if(count) count.textContent = COLA_LOCAL.length;
+  } else {
+    banner.style.display = 'none';
+  }
+}
+
+// ── RENDER VIAJES ──
+function renderBotones(){
+  var grid = document.getElementById('viajes-grid');
+  if(!grid) return;
+  var html = '';
+  for(var i=1; i<=MAX_VIAJES; i++){
+    var v = VIAJES_HOY[i];
+    var habilitado = i===1 || VIAJES_HOY[i-1];
+    if(v){
+      html += '<button class="viaje-btn vb-registrado" disabled>'+
+        '<div class="viaje-check">✅</div>'+
+        '<div class="viaje-num">'+i+'</div>'+
+        '<div class="viaje-lbl">Viaje '+i+'</div>'+
+        '<div class="viaje-hora">'+v.hora+(v.sincronizado?'':' ⏳')+'</div>'+
+        '</button>';
+    } else if(habilitado){
+      html += '<button class="viaje-btn vb-pendiente" onclick="registrarViaje('+i+')">'+
+        '<div class="viaje-num">'+i+'</div>'+
+        '<div class="viaje-lbl">Viaje '+i+'</div>'+
+        '<div class="viaje-hora">Toca para registrar</div>'+
+        '</button>';
+    } else {
+      html += '<button class="viaje-btn vb-deshabilitado" disabled>'+
+        '<div class="viaje-num">'+i+'</div>'+
+        '<div class="viaje-lbl">Viaje '+i+'</div>'+
+        '</button>';
+    }
+  }
+  grid.innerHTML = html;
+}
+
+function actualizarContador(){
+  var count = Object.keys(VIAJES_HOY).length;
+  var el = document.getElementById('viajes-hoy-count');
+  if(el) el.textContent = count;
+}
+
+function renderHistorial(){
+  var cont  = document.getElementById('historial-cont');
+  var lista = document.getElementById('historial-lista');
+  if(!cont || !lista) return;
+  var keys = Object.keys(VIAJES_HOY).sort(function(a,b){return a-b;});
+  if(!keys.length){ cont.style.display = 'none'; return; }
+  cont.style.display = 'block';
+  lista.innerHTML = keys.map(function(k){
+    var v = VIAJES_HOY[k];
+    return '<div class="hist-item">'+
+      '<div class="hist-dot'+(v.sincronizado?'':' pend')+'"></div>'+
+      '<div class="hist-text">Viaje '+k+'</div>'+
+      '<div class="hist-hora">'+v.hora+(v.sincronizado?' ✓':' ⏳')+'</div>'+
+      '</div>';
+  }).join('');
+}
+
+// ════════════════════════════════
+// MÓDULO CHECKLIST
+// ════════════════════════════════
+
+function cargarChecklistSupabase(){
+  if(!supabase) return;
+  supabase.from('checklist').select('*')
+    .eq('cam', cam).eq('fecha', hoy)
+    .limit(1)
+  .then(function(res){
+    if(res.error || !res.data || !res.data.length){
+      CL_MODO = 'salida';
+      CL_ID_EXISTENTE = null;
+    } else {
+      var d = res.data[0];
+      // Si ya existe con llenado_por='mecanico', bloquear edición
+      if(d.llenado_por === 'mecanico'){
+        CL_ID_EXISTENTE = d.id;
+        CL_MODO = 'bloqueado';
+      } else {
+        CL_ID_EXISTENTE = d.id;
+        // Si ya tiene km_salida → modo llegada
+        CL_MODO = d.km_salida ? 'llegada' : 'salida';
+        // Cargar datos existentes
+        precargarChecklist(d);
+      }
+    }
+    renderChecklistModo();
+  });
+}
+
+function precargarChecklist(d){
+  if(d.km_salida) setVal('cl-km-salida', d.km_salida);
+  if(d.hora_salida) setVal('cl-hora-salida', d.hora_salida);
+  if(d.combustible_salida){
+    CL_COMB_SAL = d.combustible_salida;
+    setTimeout(function(){ marcarCombBtn('salida', CL_COMB_SAL); }, 100);
+  }
+  // Inspeccion
+  try{
+    var insp = typeof d.inspeccion === 'string' ? JSON.parse(d.inspeccion) : (d.inspeccion||{});
+    Object.keys(insp).forEach(function(k){ CL_ITEMS[k] = insp[k]; });
+  }catch(e){}
+  if(d.estado_vehiculo){ CL_ESTADO = d.estado_vehiculo; }
+  if(d.observaciones) setVal('cl-observaciones', d.observaciones);
+}
+
+function renderChecklistModo(){
+  var badge  = document.getElementById('cl-modo-badge');
+  var banner = document.getElementById('llegada-banner');
+  var rowLle = document.getElementById('cl-row-llegada');
+  var secIns = document.getElementById('cl-sec-inspeccion');
+  var combLle= document.getElementById('cl-comb-llegada-cont');
+  var btnG   = document.getElementById('cl-btn-guardar');
+
+  if(CL_MODO === 'bloqueado'){
+    if(badge)  { badge.textContent='🔒 MECÁNICO'; badge.className='cl-modo-badge'; badge.style.background='rgba(239,159,39,.15)'; badge.style.color='#ef9f27'; badge.style.border='1px solid rgba(239,159,39,.3)'; }
+    if(banner) { banner.style.display='block'; banner.style.background='rgba(239,159,39,.1)'; banner.style.borderColor='rgba(239,159,39,.3)'; banner.style.color='#ef9f27'; banner.innerHTML='🔒 <b>El mecánico ya completó este checklist.</b> No puedes modificarlo.'; }
+    if(btnG)   { btnG.disabled=true; btnG.textContent='Checklist ya registrado por mecánico'; }
+    return;
+  }
+
+  if(CL_MODO === 'llegada'){
+    if(badge)  { badge.textContent='🌙 LLEGADA'; badge.className='cl-modo-badge badge-llegada'; }
+    if(banner) { banner.style.display='block'; }
+    if(rowLle) { rowLle.style.display='flex'; }
+    if(secIns) { secIns.style.display='none'; }
+    if(combLle){ combLle.style.display='block'; }
+    if(btnG)   { btnG.textContent='🌙 Guardar Llegada'; btnG.disabled=false; }
+    // Bloquear km salida (ya registrado)
+    var kmSal = document.getElementById('cl-km-salida');
+    if(kmSal){ kmSal.readOnly=true; }
+    var horaSal = document.getElementById('cl-hora-salida');
+    if(horaSal){ horaSal.disabled=true; horaSal.style.opacity='.5'; }
+    // Prellenar hora llegada
+    var now = new Date();
+    var hh = String(now.getHours()).padStart(2,'0');
+    var mm = String(now.getMinutes()).padStart(2,'0');
+    setVal('cl-hora-llegada', hh+':'+mm);
+  } else {
+    // Salida
+    if(badge)  { badge.textContent='☀️ SALIDA'; badge.className='cl-modo-badge badge-salida'; }
+    if(banner) { banner.style.display='none'; }
+    if(rowLle) { rowLle.style.display='none'; }
+    if(secIns) { secIns.style.display='block'; }
+    if(combLle){ combLle.style.display='none'; }
+    if(btnG)   { btnG.textContent='☀️ Guardar Salida'; btnG.disabled=false; }
+  }
+
+  // Renderizar estado items
+  renderItemsEstado();
+  renderEstadoVehiculo();
+}
+
+function renderItemsEstado(){
+  Object.keys(CL_ITEMS).forEach(function(k){
+    var el = document.getElementById('ci-'+k);
+    if(!el) return;
+    el.className = 'cl-item ' + (CL_ITEMS[k]==='ok'?'ok':CL_ITEMS[k]==='mal'?'mal':'');
+  });
+}
+
+function renderEstadoVehiculo(){
+  var mapa = {operativo:'eb-operativo', taller_betangar:'eb-taller', inoperativo:'eb-inoperativo', taller_jac:'eb-taller-jac'};
+  Object.keys(mapa).forEach(function(k){
+    var btn = document.getElementById(mapa[k]);
+    if(btn) btn.className = 'estado-btn' + (CL_ESTADO===k ? ' sel-'+(k.startsWith('taller')?'taller':k) : '');
+  });
+  var mc = document.getElementById('cl-motivo-cont');
+  if(mc) mc.style.display = (CL_ESTADO && CL_ESTADO!=='operativo') ? 'block' : 'none';
+}
+
+function setItem(e, nombre, val){
+  e.stopPropagation();
+  CL_ITEMS[nombre] = val;
+  var el = document.getElementById('ci-'+nombre);
+  if(el) el.className = 'cl-item ' + (val==='ok'?'ok':'mal');
+}
+
+function toggleItem(nombre){
+  var cur = CL_ITEMS[nombre];
+  CL_ITEMS[nombre] = cur==='ok' ? 'mal' : cur==='mal' ? '' : 'ok';
+  var el = document.getElementById('ci-'+nombre);
+  if(!el) return;
+  el.className = 'cl-item ' + (CL_ITEMS[nombre]==='ok'?'ok':CL_ITEMS[nombre]==='mal'?'mal':'');
+}
+
+function selComb(momento, val, btn){
+  if(momento==='salida') CL_COMB_SAL = val;
+  else                   CL_COMB_LLE = val;
+  var groupId = momento==='salida' ? 'cl-comb-salida-btns' : 'cl-comb-llegada-btns';
+  var group = document.getElementById(groupId);
+  if(group) group.querySelectorAll('.comb-btn').forEach(function(b){ b.classList.remove('sel'); });
+  btn.classList.add('sel');
+}
+
+function marcarCombBtn(momento, val){
+  var groupId = momento==='salida' ? 'cl-comb-salida-btns' : 'cl-comb-llegada-btns';
+  var group = document.getElementById(groupId);
+  if(!group) return;
+  group.querySelectorAll('.comb-btn').forEach(function(b){
+    if(b.textContent.trim().toLowerCase() === val.toLowerCase()) b.classList.add('sel');
+  });
+}
+
+function selEstado(estado){
+  CL_ESTADO = estado;
+  renderEstadoVehiculo();
+}
+
+function setVal(id, val){ var el=document.getElementById(id); if(el&&val!==null&&val!==undefined) el.value=val; }
+function gv(id){ var el=document.getElementById(id); return el?el.value.trim():''; }
+
+// ── GUARDAR CHECKLIST ──
+async function guardarChecklist(){
+  if(CL_MODO==='bloqueado'){ mostrarToast('El mecánico ya registró este checklist','warn'); return; }
+
+  var btn = document.getElementById('cl-btn-guardar');
+  if(btn){ btn.disabled=true; btn.textContent='Guardando...'; }
+
+  var now  = new Date();
+  var hora = now.toLocaleTimeString('es-VE',{hour:'2-digit',minute:'2-digit'});
+
+  var registro = {
+    cam: cam,
+    fecha: hoy,
+    chofer: chofer,
+    llenado_por: 'chofer',
+    chofer_fecha_llenado: new Date().toISOString(),
+    inspeccion: JSON.stringify(CL_ITEMS),
+    estado_vehiculo: CL_ESTADO || 'operativo',
+    observaciones: gv('cl-observaciones')
+  };
+
+  if(CL_MODO==='salida'){
+    registro.km_salida        = parseInt(gv('cl-km-salida')) || null;
+    registro.hora_salida      = gv('cl-hora-salida') || hora;
+    registro.combustible_salida = CL_COMB_SAL || null;
+  } else {
+    registro.km_llegada       = parseInt(gv('cl-km-llegada')) || null;
+    registro.hora_llegada     = gv('cl-hora-llegada') || hora;
+    registro.combustible_llegada = CL_COMB_LLE || null;
+  }
+
+  // Guardar localmente primero
+  try{
+    localStorage.setItem('btg_cl_'+cam+'_'+hoy, JSON.stringify(registro));
+  }catch(e){}
+
+  var guardadoOk = false;
+
+  if(isOnline && supabase){
+    var res;
+    if(CL_ID_EXISTENTE){
+      // UPDATE — solo si llenado_por no es 'mecanico'
+      res = await supabase.from('checklist')
+        .update(registro)
+        .eq('id', CL_ID_EXISTENTE)
+        .neq('llenado_por','mecanico');
+    } else {
+      // INSERT
+      res = await supabase.from('checklist').insert([registro]).select();
+      if(!res.error && res.data && res.data[0]) CL_ID_EXISTENTE = res.data[0].id;
+    }
+    guardadoOk = !res.error;
+    if(!guardadoOk) console.error('Checklist error:', res.error);
+
+    // Actualizar flota_estado si hay cambio de estado
+    if(guardadoOk && CL_ESTADO){
+      await supabase.from('flota_estado')
+        .upsert([{ cam: cam, estado: CL_ESTADO, fecha_cambio: hoy, motivo: gv('cl-motivo') || null }],
+                { onConflict: 'cam' });
+      // Actualizar km_data si hay km
+      var kmVal = CL_MODO==='salida' ? (parseInt(gv('cl-km-salida'))||0) : (parseInt(gv('cl-km-llegada'))||0);
+      if(kmVal > 0){
+        await supabase.from('km_data').update({ km: kmVal }).eq('cam', cam);
+      }
+    }
+  } else {
+    guardadoOk = true; // Guardado local
+  }
+
+  if(guardadoOk){
+    mostrarToast(CL_MODO==='salida' ? '☀️ Salida registrada' : '🌙 Llegada registrada');
+
+    // Notificar a Máximo por WhatsApp
+    enviarNotificacionWA(registro);
+
+    // Pasar a modo llegada si era salida
+    if(CL_MODO==='salida'){
+      CL_MODO = 'llegada';
+      // Guardar en localStorage para que si cierra el navegador no pierda el modo
+      try{localStorage.setItem('btg_cl_modo_'+cam+'_'+hoy,'llegada');}catch(e){}
+      setTimeout(renderChecklistModo, 800);
+    }
+  } else {
+    mostrarToast('Error al guardar — verifica conexión','error');
+  }
+
+  if(btn){ btn.disabled=false; btn.textContent = CL_MODO==='llegada'?'🌙 Guardar Llegada':'☀️ Guardar Salida'; }
+}
+
+// ── NOTIFICACIÓN WHATSAPP ──
+async function enviarNotificacionWA(reg){
+  try{
+    var tiposEstado = {
+      operativo:'Operativo', taller_betangar:'Taller Betangar',
+      taller_jac:'Taller JAC', inoperativo:'Inoperativo'
+    };
+    var modo   = CL_MODO==='llegada' ? 'LLEGADA' : 'SALIDA';
+    var km     = reg.km_salida || reg.km_llegada || '-';
+    var hora   = reg.hora_salida || reg.hora_llegada || '-';
+    var estado = tiposEstado[reg.estado_vehiculo] || reg.estado_vehiculo || '-';
+
+    // Mensaje sin emojis especiales para mayor compatibilidad con callmebot
+    var msg = 'BETANGAR - Checklist '+modo+'\n'+
+              'Camion: '+cam+' | '+chofer+'\n'+
+              'Fecha: '+new Date().toLocaleDateString('es-VE')+'\n'+
+              'KM: '+km+'\n'+
+              'Hora: '+hora+'\n'+
+              'Estado: '+estado;
+    if(reg.observaciones) msg += '\nObs: '+reg.observaciones.slice(0,80);
+
+    // Enviar a todos los destinatarios configurados
+    WA_DESTINATARIOS.forEach(function(dest){
+      if(!dest.num||!dest.key)return;
+      var urlD='https://api.callmebot.com/whatsapp.php?phone='+encodeURIComponent(dest.num)+'&text='+encodeURIComponent(msg)+'&apikey='+dest.key;
+      fetch(urlD,{mode:'no-cors'}).catch(function(){});
+      var imgD=new Image();imgD.src=urlD;
+    });
+
+
+  }catch(e){
+    console.log('WA error:', e);
+  }
+}
+
+// ── INCIDENCIAS ──
+var tipoIncActual = '';
+
+function abrirModalIncidencia(){
+  document.getElementById('modal-incidencia').style.display='block';
+  document.body.style.overflow='hidden';
+}
+
+function cerrarModalIncidencia(){
+  document.getElementById('modal-incidencia').style.display='none';
+  document.body.style.overflow='';
+  tipoIncActual='';
+  document.querySelectorAll('.inc-tipo-btn').forEach(function(b){
+    b.style.borderColor='rgba(255,255,255,.1)'; b.style.background='#1e3a5f';
+  });
+  var d=document.getElementById('inc-desc'); if(d) d.value='';
+  var u=document.getElementById('inc-ubicacion'); if(u) u.value='';
+}
+
+function selTipoInc(btn, tipo){
+  tipoIncActual=tipo;
+  document.querySelectorAll('.inc-tipo-btn').forEach(function(b){
+    b.style.borderColor='rgba(255,255,255,.1)'; b.style.background='#1e3a5f';
+  });
+  btn.style.borderColor='#e24b4a'; btn.style.background='rgba(226,75,74,.2)';
+}
+
+function enviarIncidencia(){
+  if(!tipoIncActual){ mostrarToast('Selecciona el tipo','warn'); return; }
+  var desc = document.getElementById('inc-desc') ? document.getElementById('inc-desc').value.trim() : '';
+  if(!desc){ mostrarToast('Describe qué pasó','warn'); return; }
+  var ubi  = document.getElementById('inc-ubicacion') ? document.getElementById('inc-ubicacion').value.trim() : '';
+  var now  = new Date();
+  var hora = now.toLocaleTimeString('es-VE',{hour:'2-digit',minute:'2-digit'});
+
+  var reg = { fecha:hoy, cam:cam, chofer:chofer, tipo:'incidencia', subtipo:tipoIncActual, detalle:desc, ubicacion:ubi, hora:hora };
+
+  if(isOnline && supabase){
+    supabase.from('porteria').insert([reg]).then(function(res){
+      if(!res.error){
+        mostrarToast('Reporte enviado');
+        cerrarModalIncidencia();
+      } else {
+        guardarIncidenciaLocal(reg);
+      }
+    });
+  } else {
+    guardarIncidenciaLocal(reg);
+  }
+}
+
+function guardarIncidenciaLocal(reg){
+  try{
+    var key = 'btg_inc_'+hoy;
+    var saved = JSON.parse(localStorage.getItem(key)||'[]');
+    saved.push(reg);
+    localStorage.setItem(key, JSON.stringify(saved));
+    mostrarToast('Guardado sin conexión','warn');
+    cerrarModalIncidencia();
+  }catch(e){
+    mostrarToast('Informa al vigilante al llegar','warn');
+    cerrarModalIncidencia();
+  }
+}
+
+// ── TOAST ──
+var toastTimer = null;
+function mostrarToast(msg, tipo){
+  var el = document.getElementById('toast');
+  if(!el) return;
+  el.textContent = msg;
+  el.className = 'toast show' + (tipo==='error'?' error':tipo==='warn'?' warn':'');
+  if(toastTimer) clearTimeout(toastTimer);
+  toastTimer = setTimeout(function(){ el.className='toast'; }, 3000);
+}
+
+// ── PWA INSTALL ──
+var deferredPrompt=null;
+window.addEventListener('beforeinstallprompt',function(e){
+  e.preventDefault(); deferredPrompt=e;
+});
+window.addEventListener('appinstalled',function(){
+  deferredPrompt=null;
+});
+</script>
+</body>
+</html>
