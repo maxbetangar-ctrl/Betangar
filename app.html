@@ -6100,6 +6100,20 @@ function formatFecha(f){
   return s;
 }
 
+// Primer nombre + primer apellido para mensajes personalizados.
+// Los nombres se guardan como NOMBRE(s) APELLIDO(s). Muchos tienen 2 nombres
+// (ANDRY JOEL ORTEGA FARIA -> "ANDRY ORTEGA") o particulas (AUREDY DEL VALLE
+// MEDINA CHOURIO -> "AUREDY MEDINA"). El apellido suele estar en la posicion 2,
+// salvo que el segundo token sea una particula de nombre compuesto (DE, DEL...).
+function nombreCorto(nombre){
+  if(!nombre)return'';
+  var p=String(nombre).trim().split(/\s+/).filter(Boolean);
+  if(p.length<=2)return p.join(' ');
+  var part={DE:1,DEL:1,LA:1,LAS:1,LOS:1,Y:1,SAN:1,SANTA:1};
+  var i=part[(p[1]||'').toUpperCase()]?3:2; // nombre compuesto con particula ocupa 3 tokens
+  return p[0]+' '+(p[i]||p[p.length-1]);
+}
+
 // Helpers de rol específico para uso rápido
 function waAdmin(msg){sendWA(msg,['admin']);}
 function waRRHH(msg){sendWA(msg,['rrhh']);}
@@ -6449,19 +6463,19 @@ function checkCumpleAlerts(){
       var keyCum='btg_wa_cum_'+hoyStr2+'_'+e.id;
       if(!localStorage.getItem(keyCum)){
         localStorage.setItem(keyCum,'1');
-        var primerNombre=e.nombre.split(' ')[0];
+        var nombreSaludo=nombreCorto(e.nombre);
         // (c) A RRHH y socios (config WhatsApp) — los socios reciben todo
         sendWA('🎂 HOY cumpleanos de '+e.nombre+' ('+edad+' anos) - '+e.cargo,['rrhh','socios']);
         // (a) Al festejado directamente si tiene WA registrado
         if(e.whatsapp&&e.wa_apikey){
-          sendWADirecto(e.whatsapp,e.wa_apikey,'🎂 ¡Feliz Cumpleanos '+primerNombre+'! De parte de toda la familia Betangar');
+          sendWADirecto(e.whatsapp,e.wa_apikey,'🎂 ¡Feliz Cumpleanos '+nombreSaludo+'! De parte de toda la familia Betangar');
         }
         // (b) A TODOS los empleados con whatsapp configurado (excepto el festejado)
         EMPLEADOS.forEach(function(emp){
           if(emp.id===e.id)return;
           if(emp.activo===false)return;
           if(emp.whatsapp&&emp.wa_apikey){
-            sendWADirecto(emp.whatsapp,emp.wa_apikey,'🎂 Hoy es el cumpleanos de '+primerNombre+'. ¡Felicitalo!');
+            sendWADirecto(emp.whatsapp,emp.wa_apikey,'🎂 Hoy es el cumpleanos de '+nombreSaludo+'. ¡Felicitalo!');
           }
         });
       }
