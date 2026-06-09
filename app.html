@@ -1272,22 +1272,33 @@ tr:hover td{background:rgba(45,255,122,.02)}
 <div id="p-combustible" class="page">
   <div class="g3" style="margin-bottom:10px">
     <div class="card">
-      <div class="sh"><div class="st">Tanque Tumaca</div></div>
-      <div style="font-size:11px;color:var(--text3);margin-bottom:6px">Capacidad: 4.600L · $0.90/L</div>
+      <div class="sh"><div class="st">Tanque Interno</div></div>
+      <div style="font-size:11px;color:var(--text3);margin-bottom:6px">Tumaca + Boscán · Capacidad: 4.600L</div>
       <div class="tank-viz"><div class="tank-fill" id="tank-fill"></div><div class="tank-lbl" id="tank-lbl">-</div></div>
       <div id="tank-alerta" style="font-size:11px;text-align:center;margin-top:4px"></div>
       <div class="sep"></div>
       <div class="fr2">
         <div class="fg"><label>Nivel Actual (L)</label><input class="fc" id="tank-niv" type="number" placeholder="4600" oninput="updTank()"></div>
-        <div class="fg"><label>Agregar litros</label><input class="fc" id="tank-add" type="number" placeholder="0"></div>
+        <div class="fg"><label>Ajuste manual (L)</label><input class="fc" id="tank-add" type="number" placeholder="0"></div>
       </div>
-      <button class="btn btn-g btn-sm" style="width:100%" onclick="addCombustible()">+ Cargar Tanque</button>
+      <button class="btn btn-s btn-sm" style="width:100%" onclick="addCombustible()">± Ajustar Tanque</button>
     </div>
     <div class="card">
-      <div class="sh"><div class="st">Gasoil Camiones</div></div>
+      <div class="sh"><div class="st">🛢️ Compra de Combustible</div></div>
+      <div style="font-size:11px;color:var(--text3);margin-bottom:6px">Sube el tanque interno y genera CxP automática (tasas BCV del día)</div>
+      <div class="fr2">
+        <div class="fg"><label>Proveedor</label><select class="fc" id="gcomp-prov"><option value="tumaca">Tumaca ($0.54 + €0.26)</option><option value="boscan">Transporte Boscán ($0.50 + €0.25)</option></select></div>
+        <div class="fg"><label>Litros comprados</label><input class="fc" id="gcomp-lit" type="number" placeholder="0"></div>
+      </div>
+      <div class="fg"><label>Fecha</label><input class="fc" id="gcomp-f" type="date"></div>
+      <button class="btn btn-g btn-sm" style="width:100%" onclick="guardarCompraCombustible()">🛢️ Registrar Compra</button>
+    </div>
+    <div class="card">
+      <div class="sh"><div class="st">⛽ Despacho a Camión</div></div>
       <div class="fr2"><div class="fg"><label>Camion</label><select class="fc" id="gc-cam"><option value="">-</option></select></div><div class="fg"><label>Litros</label><input class="fc" id="gc-lit" type="number" placeholder="0"></div></div>
-      <div class="fr2"><div class="fg"><label>Fuente</label><select class="fc" id="gc-src"><option value="tumaca">Tumaca</option><option value="boscan">Boscán</option><option value="estacion">Estación</option></select></div><div class="fg"><label>Fecha</label><input class="fc" id="gc-f" type="date"></div></div>
-      <button class="btn btn-g btn-sm" style="width:100%;margin-bottom:8px" onclick="guardarGasoil()">Registrar</button>
+      <div class="fr2"><div class="fg"><label>Fuente</label><select class="fc" id="gc-src" onchange="gcToggleFuente()"><option value="tumaca">Tumaca (tanque)</option><option value="boscan">Boscán (tanque)</option><option value="estacion">Estación de servicio</option></select></div><div class="fg" id="gc-precio-wrap" style="display:none"><label>Precio $/L (Estación)</label><input class="fc" id="gc-precio" type="number" step="0.01" placeholder="0.00"></div></div>
+      <div class="fr2"><div class="fg"><label>Fecha</label><input class="fc" id="gc-f" type="date"></div></div>
+      <button class="btn btn-g btn-sm" style="width:100%;margin-bottom:8px" onclick="guardarGasoil()">Registrar Despacho</button>
       <div class="fr2" style="margin-bottom:8px"><div class="fg" style="margin-bottom:0"><label>Filtrar camion</label><select class="fc" id="gc-filtro-cam" onchange="renderGasoil()" style="font-size:11px;padding:5px 8px"><option value="">Todos</option></select></div><div class="fg" style="margin-bottom:0"><label>Filtrar fecha</label><input class="fc" id="gc-filtro-fecha" type="date" onchange="renderGasoil()" style="font-size:11px;padding:5px 8px"></div></div>
       <div class="tw" style="max-height:160px;overflow-y:auto"><table><thead><tr><th>Fecha</th><th>Camion</th><th>L</th><th>Fuente</th><th>$</th><th></th></tr></thead><tbody id="tb-gasoil"></tbody></table></div>
     </div>
@@ -1792,6 +1803,11 @@ tr:hover td{background:rgba(45,255,122,.02)}
       <button id="bnc-btn-test" onclick="bncTestConexion()" class="btn" style="flex:1;padding:12px;font-size:13px;border-color:#38bdf8;color:#38bdf8">🔌 Probar Conexión Webhook</button>
     </div>
   </div>
+  <div class="card" style="margin-bottom:12px">
+    <div class="sh"><div class="st">🏦 Cuentas BNC Monitoreadas</div></div>
+    <div style="font-size:11px;color:var(--text3);margin:4px 0 8px">Saldo en vivo requiere la API del BNC. Por ahora se muestran los movimientos recibidos por cada cuenta.</div>
+    <div id="bnc-cuentas-lista" style="margin-top:8px"><div style="color:var(--text3);text-align:center;padding:16px">Cargando...</div></div>
+  </div>
   <div class="card">
     <div class="sh"><div class="st">📨 Notificaciones Recibidas del BNC</div></div>
     <div id="bnc-notif-lista" style="margin-top:8px">
@@ -2234,6 +2250,7 @@ async function bncCargarConfig(){
       if(el('bnc-url-prod'))el('bnc-url-prod').value=d.url_notificacion_prod||'https://hrkjddehqnzcqwlkklqm.supabase.co/functions/v1/bnc-webhook';
       if(el('bnc-wk'))el('bnc-wk').textContent=d.working_key?'✅ Activo ('+d.working_key_fecha+')':'⏳ No generado aún';
     }
+    bncRenderCuentas();
     // Cargar notificaciones recientes
     var rn=await supabase.from('bnc_notificaciones').select('*').order('fecha_recibido',{ascending:false}).limit(20);
     var lista=document.getElementById('bnc-notif-lista');
@@ -2270,14 +2287,66 @@ async function bncGuardarConfig(){
 }
 
 async function bncTestConexion(){
+  // No usar fetch() al webhook: CORS lo bloquea desde el navegador (error "Load failed").
+  // En su lugar verificamos que el webhook esté recibiendo: consultamos bnc_notificaciones.
   var btn=document.getElementById('bnc-btn-test');
   if(btn)btn.textContent='⏳ Probando...';
   try{
-    var r=await fetch('https://hrkjddehqnzcqwlkklqm.supabase.co/functions/v1/bnc-webhook');
-    var d=await r.json();
-    alert(d.status==='OK'?'✅ Webhook activo y respondiendo correctamente':'⚠️ Respuesta: '+JSON.stringify(d));
-  }catch(e){alert('❌ Error: '+e.message);}
+    if(!DB_READY||!supabase){alert('⚠️ Sin conexión a base de datos');}
+    else{
+      var r=await supabase.from('bnc_notificaciones')
+        .select('fecha_recibido',{count:'exact'})
+        .order('fecha_recibido',{ascending:false}).limit(1);
+      if(r.error)throw r.error;
+      var n=(typeof r.count==='number')?r.count:((r.data&&r.data.length)?r.data.length:0);
+      if(n>0&&r.data&&r.data[0]){
+        var f=r.data[0].fecha_recibido||'';
+        var d=new Date(f);
+        var fecha=isNaN(d.getTime())?f:(String(d.getDate()).padStart(2,'0')+'/'+String(d.getMonth()+1).padStart(2,'0')+'/'+d.getFullYear()+' '+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'));
+        alert('✅ Webhook activo — '+n+' notificacion(es), última: '+fecha);
+      }else{
+        alert('⚠️ Sin notificaciones recibidas aún');
+      }
+    }
+  }catch(e){alert('❌ Error consultando notificaciones: '+e.message);}
   if(btn)btn.textContent='🔌 Probar Conexión Webhook';
+}
+
+// Las 4 cuentas BNC a monitorear (3 en Bs + 1 en USD).
+var BNC_CUENTAS=[
+  {num:'0191-0304-84-2100014881', moneda:'Bs'},
+  {num:'0191-0031-68-2131012653', moneda:'Bs'},
+  {num:'0191-0040-50-2140088290', moneda:'Bs'},
+  {num:'0191-0040-52-2340021897', moneda:'USD'}
+];
+async function bncRenderCuentas(){
+  var el=document.getElementById('bnc-cuentas-lista');
+  if(!el)return;
+  if(!DB_READY||!supabase){el.innerHTML='<div style="color:var(--text3);text-align:center;padding:16px">Sin conexión a base de datos</div>';return;}
+  try{
+    var rn=await supabase.from('bnc_notificaciones')
+      .select('cuenta,cuenta_destino,monto,moneda,referencia,descripcion,fecha_recibido')
+      .order('fecha_recibido',{ascending:false}).limit(200);
+    var movs=(!rn.error&&rn.data)?rn.data:[];
+    el.innerHTML=BNC_CUENTAS.map(function(c){
+      var last=c.num.replace(/\D/g,'').slice(-10); // últimos 10 dígitos identifican la cuenta
+      var propios=movs.filter(function(m){
+        var mc=((m.cuenta||'')+' '+(m.cuenta_destino||'')).replace(/\D/g,'');
+        return last&&mc.indexOf(last)>=0;
+      });
+      var ult=propios[0];
+      var ultTxt=ult?((ult.descripcion||ult.referencia||'Movimiento')+' · '+String(ult.fecha_recibido||'').slice(0,16).replace('T',' ')):'Sin movimientos';
+      var ultMonto=ult?((ult.moneda==='USD'?'$':'Bs ')+parseFloat(ult.monto||0).toLocaleString('es-VE',{minimumFractionDigits:2})):'';
+      return '<div style="border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:8px">'+
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">'+
+          '<div style="font-family:var(--m);font-size:13px;font-weight:700;color:var(--text1)">'+c.num+'</div>'+
+          '<div style="font-size:10px;padding:2px 8px;border-radius:10px;background:rgba(56,189,248,.15);color:#38bdf8">'+c.moneda+'</div>'+
+        '</div>'+
+        '<div style="font-size:11px;color:var(--text2)">'+propios.length+' movimiento(s) recibido(s)</div>'+
+        '<div style="font-size:11px;color:var(--text3);margin-top:2px">Último: '+ultTxt+(ultMonto?' · <b style="color:#a3e635">'+ultMonto+'</b>':'')+'</div>'+
+      '</div>';
+    }).join('');
+  }catch(e){el.innerHTML='<div style="color:var(--red);text-align:center;padding:16px">Error: '+e.message+'</div>';}
 }
 
 // ═══════════════════════════════════════════════════
@@ -3892,22 +3961,102 @@ async function addCombustible(){
   tankNivel=Math.min(cfg.tanque||4600,tankNivel+add);sv('tank-niv',tankNivel.toString());sv('tank-add','');updTank();
   audit('Tanque cargado','+'+add+'L');
 }
-async function guardarGasoil(){
-  var cam=gv('gc-cam'),lit=parseFloat(gv('gc-lit'))||0,src=parseFloat(gv('gc-src'))||0.9,f=gv('gc-f');
-  if(!cam||!lit){alert('Completa camion y litros');return;}
-  var m=lit*src;
-  var r={f:f,cam:cam,lit:lit,src:src===0.9?'Tumaca':'Estacion',m:m};
+// Mostrar el campo de precio manual solo cuando la fuente es Estación de servicio.
+function gcToggleFuente(){
+  var src=gv('gc-src')||'tumaca';
+  var w=g('gc-precio-wrap');
+  if(w)w.style.display=(src==='estacion')?'block':'none';
+}
+
+// Asegura tasas BCV (prioridad: API → modal manual; sin fallback a valores viejos) y calcula.
+function ensureTasasYCalc(cDolar, cEuro, cb){
+  var td=getTasa('bcvDolar');
+  if(!td){ tasaOManual('bcvDolar', function(){ ensureTasasYCalc(cDolar,cEuro,cb); }); return; }
+  var te=getTasa('bcvEuro');
+  if(!te){ tasaOManual('bcvEuro', function(){ ensureTasasYCalc(cDolar,cEuro,cb); }); return; }
+  var totalBs=cDolar*td + cEuro*te;   // costo por litro en Bs (componente dólar + componente euro)
+  var totalUsd=totalBs/td;            // costo por litro en USD
+  cb(totalUsd, totalBs, td, te);
+}
+
+// Costo $/L de un proveedor de tanque (Tumaca/Boscán) con las tasas del día.
+function compCostoUnit(prov, cb){
+  var cDolar = prov==='boscan' ? (parseFloat(gv('cfg-boscan-dolar'))||0.50) : (parseFloat(gv('cfg-tumaca-dolar'))||0.54);
+  var cEuro  = prov==='boscan' ? (parseFloat(gv('cfg-boscan-euro'))||0.25) : (parseFloat(gv('cfg-tumaca-euro'))||0.26);
+  ensureTasasYCalc(cDolar, cEuro, function(totalUsd){ cb(totalUsd); });
+}
+
+// DESPACHO a camión: baja el tanque si viene de Tumaca/Boscán; Estación usa precio manual.
+function guardarGasoil(){
+  var cam=gv('gc-cam'), lit=parseFloat(gv('gc-lit'))||0, src=(gv('gc-src')||'tumaca'), f=gv('gc-f')||new Date().toISOString().slice(0,10);
+  if(!cam||!lit){alert('Completa camión y litros');return;}
+  if(src==='estacion'){
+    var precio=parseFloat(gv('gc-precio'))||0;
+    if(!precio){alert('Ingresa el precio por litro de la estación');return;}
+    _persistirDespacho({f:f,cam:cam,lit:lit,src:'Estacion',m:lit*precio}, false);
+  } else {
+    var prov = src==='boscan' ? 'boscan' : 'tumaca';
+    compCostoUnit(prov, function(costoUnit){
+      var srcLabel = prov==='boscan' ? 'Boscán' : 'Tumaca';
+      _persistirDespacho({f:f,cam:cam,lit:lit,src:srcLabel,m:lit*costoUnit}, true);
+    });
+  }
+}
+function _persistirDespacho(r, bajarTanque){
+  r.tipo_operacion='despacho';
   GASOIL.push(r);
-  if(src===0.9){tankNivel=Math.max(0,tankNivel-lit);updTank();}
-  // Guardar en Supabase
+  if(bajarTanque){ tankNivel=Math.max(0,tankNivel-r.lit); sv('tank-niv',tankNivel.toString()); updTank(); }
   if(DB_READY&&supabase){
-    supabase.from('gasoil').insert([{f:r.f,cam:r.cam,lit:r.lit,src:r.src,m:r.m}])
+    supabase.from('gasoil').insert([{f:r.f,cam:r.cam,lit:r.lit,src:r.src,m:r.m,tipo_operacion:'despacho'}])
       .then(function(res){if(res.error)console.log('Gasoil Supabase:',res.error.message);});
   }
-  // Guardar en localStorage
   try{localStorage.setItem('btg_gasoil',JSON.stringify(GASOIL));}catch(e){}
-  sv('gc-lit','');audit('Gasoil registrado',cam+' '+lit+'L');
+  sv('gc-lit','');sv('gc-precio','');audit('Despacho gasoil',r.cam+' '+r.lit+'L '+r.src);
   renderGasoil();
+}
+
+// COMPRA de combustible a proveedor de tanque (Tumaca/Boscán): sube el tanque y genera CxP.
+function guardarCompraCombustible(){
+  var prov=(gv('gcomp-prov')||'tumaca');
+  var lit=parseFloat(gv('gcomp-lit'))||0;
+  var f=gv('gcomp-f')||new Date().toISOString().slice(0,10);
+  if(!lit){alert('Ingresa los litros comprados');return;}
+  var provLabel = prov==='boscan' ? 'Boscán' : 'Tumaca';
+  var provNombre = prov==='boscan' ? 'Transporte Boscán' : 'Tumaca';
+  compCostoUnit(prov, function(costoUnit){
+    var totalUsd=lit*costoUnit;
+    // Sube el tanque interno
+    var cap=cfg.tanque||4600;
+    tankNivel=Math.min(cap, tankNivel+lit);
+    sv('tank-niv',tankNivel.toString()); updTank();
+    // Registro en gasoil (tipo compra)
+    var r={f:f,cam:'COMPRA · '+provLabel,lit:lit,src:provLabel,m:parseFloat(totalUsd.toFixed(2)),tipo_operacion:'compra'};
+    GASOIL.push(r);
+    if(DB_READY&&supabase){
+      supabase.from('gasoil').insert([{f:r.f,cam:r.cam,lit:r.lit,src:r.src,m:r.m,tipo_operacion:'compra'}])
+        .then(function(res){if(res.error)console.log('Gasoil compra Supabase:',res.error.message);});
+    }
+    try{localStorage.setItem('btg_gasoil',JSON.stringify(GASOIL));}catch(e){}
+    // Genera CxP automáticamente
+    if(DB_READY&&supabase){
+      var cxpRow={
+        fecha:f, fecha_venc:null,
+        prov_nombre:provNombre, tipo_proveedor:'sin_soporte', sin_soporte:true,
+        descripcion:'Compra combustible '+lit+' L @ $'+costoUnit.toFixed(3)+'/L', factura:'', nota:'Generada automáticamente desde Combustible',
+        base_usd:parseFloat(totalUsd.toFixed(2)), iva_pct:0, iva_usd:0, total_usd:parseFloat(totalUsd.toFixed(2)),
+        ret_iva_pct:0, ret_iva_usd:0, ret_islr_pct:0, ret_islr_usd:0, neto_pagar:parseFloat(totalUsd.toFixed(2)),
+        estado:'pendiente', tasa_tipo:'usd', tasa_val:TASAS.bcvDolar||0, created_at:new Date().toISOString()
+      };
+      supabase.from('cxp').insert([cxpRow]).select().then(function(res){
+        if(res.error){console.log('CxP compra error:',res.error.message);}
+        else if(res.data&&res.data[0]){if(typeof CXP!=='undefined'&&CXP)CXP.push(res.data[0]);}
+      });
+    }
+    sv('gcomp-lit','');
+    audit('Compra combustible',provLabel+' '+lit+'L $'+totalUsd.toFixed(2));
+    renderGasoil();
+    alert('✅ Compra registrada: '+lit+' L de '+provLabel+'\nCosto: $'+totalUsd.toFixed(2)+' ($'+costoUnit.toFixed(3)+'/L)\nTanque actualizado y CxP generada.');
+  });
 }
 async function guardarGasol(){
   var per=gv('gp-per'),lit=parseFloat(gv('gp-lit'))||0,f=gv('gp-f');
@@ -6466,7 +6615,7 @@ function checkCumpleAlerts(){
     if(d.getDate()===hoy.getDate()&&d.getMonth()===hoy.getMonth()){
       var edad=hoy.getFullYear()-d.getFullYear();
       var hoyStr2=new Date().toISOString().slice(0,10);
-      var keyCum='btg_wa_cum_'+hoyStr2+'_'+e.id;
+      var keyCum='btg_cumple_'+hoyStr2+'_'+e.id;
       if(!localStorage.getItem(keyCum)){
         localStorage.setItem(keyCum,'1');
         var nombreSaludo=nombreCorto(e.nombre);
@@ -6653,32 +6802,24 @@ var WA_EMPRESA_ROLES = [
   {rol:'rrhh',      label:'👥 RRHH',           num:'', key:'', activo:false}
 ];
 
+// Horarios/mensajes por rol (defaults segun spec Betangar). Editables en Config y
+// persistidos en Supabase (clave 'recordatorios_cfg'). Placeholders: [nombre], [su unidad].
 var RECORDATORIOS_CONFIG = [
   {rol:'chofer', label:'🚛 Chofer', activo:true, mensajes:[
-    {hora:'05:30', msg:'Buenos dias! Recuerda revisar tu camion y llenar el checklist antes de arrancar. NO cierres esta pagina hasta hacer el cierre al entregar el carro.', activo:true},
-    {hora:'10:00', msg:'Recuerda marcar en la app tus viajes de la manana.', activo:true},
-    {hora:'15:00', msg:'Recuerda marcar tus viajes de la tarde en la app.', activo:true},
-    {hora:'17:00', msg:'Ya es hora de entregar el carro. Recuerda llenar el checklist de llegada antes de retirarte.', activo:true}
-  ]},
-  {rol:'vigilante', label:'👁 Vigilante/Porteria', activo:true, mensajes:[
-    {hora:'05:30', msg:'Buenos dias! Recuerda tomar la asistencia del personal al llegar y registrar la entrada y salida de todos los vehiculos en la app.', activo:true}
-  ]},
-  {rol:'mecanica', label:'🔧 Mecanico', activo:true, mensajes:[
-    {hora:'05:30', msg:'Buenos dias! Verifica que todos los choferes hayan llenado el checklist de su unidad y que esten revisando los fluidos antes de prender el motor.', activo:true},
-    {hora:'17:00', msg:'Revisa si todos los choferes han regresado y llenado el checklist de llegada al entregar su unidad.', activo:true}
-  ]},
-  {rol:'operativo', label:'📋 Operativo', activo:true, mensajes:[
-    {hora:'05:30', msg:'Buenos dias! Revisa el estado de las operaciones, organiza las rutas y dale orden al dia.', activo:true},
-    {hora:'19:00', msg:'Recuerda cargar en la app el cumplimiento de limpieza de parroquias del dia de hoy.', activo:true}
+    {hora:'05:00', msg:'🚛 BETANGAR - Buenos días [nombre]. Recuerda hacer el checklist del camión [su unidad] ANTES de encenderlo. ¡Buen turno!', activo:true},
+    {hora:'17:00', msg:'📋 BETANGAR - [nombre], recuerda registrar los viajes ejecutados hoy en la app antes de terminar tu turno.', activo:true}
   ]},
   {rol:'admin', label:'💼 Administradora', activo:true, mensajes:[
-    {hora:'08:00', msg:'Buenos dias Aurelys! Recuerda cargar toda la informacion que corresponda en Galac Administrativo, Galac Nomina y la App Betangar.', activo:true},
-    {hora:'14:00', msg:'Recuerda cargar en el sistema y en tu cuadro lo que se haya surtido de combustible el dia de hoy.', activo:true},
-    {hora:'16:00', msg:'Si aun no has terminado de cargar en el sistema, hazlo ahora. Ya te queda poco tiempo antes de irte.', activo:true}
+    {hora:'18:00', msg:'📌 BETANGAR - Recordatorio: completa los módulos del día antes de cerrar. ¡Gracias!', activo:true}
   ]},
   {rol:'rrhh', label:'👥 RRHH', activo:true, mensajes:[
-    {hora:'08:00', msg:'Buenos dias Gladys! Recuerda recoger todas las planillas y cargarlas en el sistema o en el Excel correspondiente.', activo:true},
-    {hora:'10:00', msg:'Recuerda cargar en el sistema el combustible surtido y todos los mantenimientos realizados a cada camion.', activo:true}
+    {hora:'18:00', msg:'📌 BETANGAR - Recordatorio: completa los módulos del día antes de cerrar. ¡Gracias!', activo:true}
+  ]},
+  {rol:'operativo', label:'📋 Operativo', activo:true, mensajes:[
+    {hora:'18:00', msg:'📌 BETANGAR - Recordatorio: completa los módulos del día antes de cerrar. ¡Gracias!', activo:true}
+  ]},
+  {rol:'mecanica', label:'🔧 Mecánico', activo:true, mensajes:[
+    {hora:'20:00', msg:'🔧 BETANGAR - Verifica que todos los choferes hayan completado el checklist de hoy. Revisa en la app.', activo:true}
   ]}
 ];
 
@@ -6735,11 +6876,21 @@ function guardarWAEmpresarial(){
   }
 }
 
-// Enviar WA empresarial adicional para un rol
+// Sustituir placeholders [nombre] y [su unidad] por los datos del empleado.
+function _recTpl(msg, e){
+  var nom = e ? (typeof nombreCorto==='function'?nombreCorto(e.nombre):e.nombre) : '';
+  var uni = e ? (e.unidad||'tu unidad') : 'tu unidad';
+  return String(msg||'')
+    .replace(/\[nombre\]/g, nom)
+    .replace(/\[su unidad\]/g, uni)
+    .replace(/\[unidad\]/g, uni);
+}
+
+// Enviar WA empresarial adicional para un rol (los mensajes ya traen su propia marca BETANGAR)
 function sendWAEmpresarial(msg, rol){
   var cfg=WA_EMPRESA_ROLES.find(function(r){return r.rol===rol;});
   if(!cfg||!cfg.activo||!cfg.num||!cfg.key)return;
-  var url='https://api.callmebot.com/whatsapp.php?phone='+encodeURIComponent(cfg.num)+'&text='+encodeURIComponent('BETANGAR: '+msg)+'&apikey='+cfg.key;
+  var url='https://api.callmebot.com/whatsapp.php?phone='+encodeURIComponent(cfg.num)+'&text='+encodeURIComponent(msg)+'&apikey='+cfg.key;
   var img=new Image();img.src=url;
 }
 
@@ -6848,11 +6999,12 @@ function checkRecordatorios(){
            rolCfg.rol==='rrhh'?e.cargo&&(e.cargo.toLowerCase().includes('rrhh')||e.cargo.toLowerCase().includes('recursos')):false);
       });
       destsEmp.forEach(function(e){
-        var url='https://api.callmebot.com/whatsapp.php?phone='+encodeURIComponent(e.whatsapp)+'&text='+encodeURIComponent('BETANGAR: '+m.msg)+'&apikey='+e.wa_apikey;
+        var msgFinal=_recTpl(m.msg, e);
+        var url='https://api.callmebot.com/whatsapp.php?phone='+encodeURIComponent(e.whatsapp)+'&text='+encodeURIComponent(msgFinal)+'&apikey='+e.wa_apikey;
         var img=new Image();img.src=url;
       });
       // También al número empresarial del rol si está configurado
-      sendWAEmpresarial(m.msg, rolCfg.rol);
+      sendWAEmpresarial(_recTpl(m.msg, null), rolCfg.rol);
     });
   });
 
@@ -6877,8 +7029,52 @@ function checkRecordatorios(){
   }
 }
 
-// Arrancar motor de recordatorios cada 60 segundos
-setInterval(checkRecordatorios, 60000);
+// ── Resumen diario consolidado a socios (1 vez al día, ~20:00) ──
+var REC_RESUMEN_HORA='20:00';
+async function checkResumenDiario(){
+  if(!DB_READY||!supabase)return;
+  var now=new Date();
+  var horaActual=String(now.getHours()).padStart(2,'0')+':'+String(now.getMinutes()).padStart(2,'0');
+  if(horaActual<REC_RESUMEN_HORA)return; // dispara a partir de la hora, 1 sola vez/día
+  // Fecha LOCAL (Venezuela UTC-4): a las 20:00 toISOString ya sería el día siguiente.
+  var hoyStr=now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0')+'-'+String(now.getDate()).padStart(2,'0');
+  var keyR='btg_resumen_'+hoyStr;
+  if(localStorage.getItem(keyR))return;
+  localStorage.setItem(keyR,'1');
+  try{
+    // Viajes ejecutados hoy
+    var vj=await supabase.from('viajes_chofer').select('id',{count:'exact',head:true}).eq('fecha',hoyStr);
+    var totalViajes=(typeof vj.count==='number')?vj.count:0;
+    // Combustible cargado hoy (litros) — desde GASOIL local
+    var litrosHoy=(GASOIL||[]).filter(function(r){return r.f===hoyStr;}).reduce(function(a,r){return a+(parseFloat(r.lit)||0);},0);
+    // Pagos BNC recibidos hoy
+    var bnc=await supabase.from('bnc_notificaciones').select('monto,moneda').gte('fecha_recibido',hoyStr);
+    var totalBnc=0;
+    if(!bnc.error&&bnc.data){bnc.data.forEach(function(p){totalBnc+=parseFloat(p.monto||0);});}
+    // Checklists completados hoy
+    var ck=await supabase.from('checklist').select('cam,estado_vehiculo').eq('fecha',hoyStr);
+    var camsCheck=(!ck.error&&ck.data)?[...new Set(ck.data.map(function(x){return x.cam;}))].length:0;
+    var totalCams=(typeof FLOTA==='object'&&FLOTA)?Object.keys(FLOTA).length:0;
+    // CxP pendientes
+    var cxpPend=(CXP||[]).filter(function(c){return (c.estado||'')==='pendiente';}).reduce(function(a,c){return a+(parseFloat(c.neto_pagar||c.total_usd||0)||0);},0);
+    // Novedades (vehículos no operativos en el checklist de hoy)
+    var novList=[];
+    if(!ck.error&&ck.data){ck.data.forEach(function(x){if(x.estado_vehiculo&&String(x.estado_vehiculo).toLowerCase()!=='operativo'){novList.push(x.cam+' ('+x.estado_vehiculo+')');}});}
+    var novedades=novList.length?novList.join(', '):'';
+    var fechaFmt=String(now.getDate()).padStart(2,'0')+'/'+String(now.getMonth()+1).padStart(2,'0')+'/'+now.getFullYear();
+    var msg='BETANGAR - Resumen del día '+fechaFmt+'\n'+
+      '🚛 Viajes ejecutados: '+totalViajes+'\n'+
+      '⛽ Combustible cargado: '+litrosHoy.toLocaleString('es-VE')+' L\n'+
+      '💰 Pagos BNC recibidos: $'+totalBnc.toLocaleString('es-VE',{minimumFractionDigits:2,maximumFractionDigits:2})+'\n'+
+      '📋 Checklists completados: '+camsCheck+' de '+totalCams+' camiones\n'+
+      '📌 CxP pendientes: $'+cxpPend.toLocaleString('es-VE',{minimumFractionDigits:2,maximumFractionDigits:2})+
+      (novedades?'\n⚠️ Novedades: '+novedades:'');
+    sendWA(msg,['socios']);
+  }catch(e){console.log('Resumen diario error:',e); try{localStorage.removeItem(keyR);}catch(_){}}
+}
+
+// Arrancar motor de recordatorios + resumen cada 60 segundos
+setInterval(function(){ checkRecordatorios(); checkResumenDiario(); }, 60000);
 
 // ── Fix chofer pierde modo llegada al cerrar navegador ──
 // El modo llegada se guarda en localStorage con la fecha
@@ -7641,7 +7837,7 @@ async function notificarPagosBNCNuevos(){
       'Concepto: '+(pago.concepto||'—')+'\n'+
       'Fecha: '+fecha+'\n'+
       'Ambiente: '+(pago.ambiente||'produccion');
-    sendWA(msg,['socios']);
+    sendWA(msg,['socios','admin']);
     // Marcar como notificado
     supabase.from('bnc_notificaciones').update({procesado:true}).eq('id',pago.id);
     BNC_ULTIMO_NOTIFICADO = pago.id;
