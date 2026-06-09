@@ -16,7 +16,7 @@
   --lime:#a3e635;--teal:#14b8a6;
   --yellow:#fbbf24;--orange:#fb923c;
   --red:#f87171;--blue:#38bdf8;--purple:#a78bfa;
-  --text:#e8f4ff;--text2:#8fc4de;--text3:#4a7da3;
+  --text:#e8f4ff;--text1:#e8f4ff;--text2:#8fc4de;--text3:#4a7da3;
   --f:'Outfit',sans-serif;--m:'JetBrains Mono',monospace;
 }
 *{box-sizing:border-box;margin:0;padding:0}
@@ -429,9 +429,6 @@ tr:hover td{background:rgba(45,255,122,.02)}
 </div>
 
 
->
->
-
 <!-- BANCO BNC -->
 <div id="p-banco" class="page">
   <div class="switch-row">
@@ -518,7 +515,6 @@ tr:hover td{background:rgba(45,255,122,.02)}
     <div class="sw" id="sw-prov-hist" onclick="switchProvTab('hist')">Historial</div>
   </div>
   <!-- TAB CUENTAS X PAGAR -->
->
 
 
   <div id="tab-prov-cxp">
@@ -766,8 +762,6 @@ tr:hover td{background:rgba(45,255,122,.02)}
     <div class="tw"><table><thead><tr><th>F.Pago</th><th>Proveedor</th><th>Nota</th><th>Factura</th><th>Base $</th><th>Total $</th><th>Ret $</th><th>Pagado $</th><th>Pagado Bs</th><th>Tasa</th><th>Ref BNC</th></tr></thead><tbody id="tb-pv-hist"></tbody></table></div>
   </div>
 </div>
-
->
 
 <!-- DOCUMENTOS -->
 <div id="p-documentos" class="page">
@@ -1708,8 +1702,6 @@ tr:hover td{background:rgba(45,255,122,.02)}
     </div>
   </div>
 </div>
-
->
 
 <div class="page" id="p-mensajes-wa">
   <div class="card" style="margin-bottom:12px">
@@ -10608,7 +10600,7 @@ function agregarTipoMant(){
     <div id="mec-grid" style="margin-bottom:14px">
       <div style="text-align:center;color:var(--text3);padding:30px">Cargando flota...</div>
     </div>
-    <button onclick="mecAgregarVehiculo()" class="btn btn-s" style="width:100%;padding:12px;font-size:14px;border-radius:10px" id="btn-agregar-vehiculo" style="display:none">+ Agregar Vehículo de Servicio</button>
+    <button onclick="mecAgregarVehiculo()" class="btn btn-s" id="btn-agregar-vehiculo" style="width:100%;padding:12px;font-size:14px;border-radius:10px;display:none">+ Agregar Vehículo de Servicio</button>
   </div>
 </div>
 
@@ -10811,8 +10803,6 @@ function agregarTipoMant(){
   </div>
 </div>
 </div>
-
->
 
 <!-- MODAL Nueva CxP -->
 <div id="modal-cxp" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.7);z-index:999;overflow-y:auto">
