@@ -16,7 +16,7 @@
   --lime:#a3e635;--teal:#14b8a6;
   --yellow:#fbbf24;--orange:#fb923c;
   --red:#f87171;--blue:#38bdf8;--purple:#a78bfa;
-  --text:#e8f4ff;--text2:#7eb8d4;--text3:#2d5c7a;
+  --text:#e8f4ff;--text2:#8fc4de;--text3:#4a7da3;
   --f:'Outfit',sans-serif;--m:'JetBrains Mono',monospace;
 }
 *{box-sizing:border-box;margin:0;padding:0}
@@ -115,6 +115,33 @@ tr:hover td{background:rgba(45,255,122,.02)}
 ::-webkit-scrollbar{width:5px;height:5px}
 ::-webkit-scrollbar-track{background:var(--bg)}
 ::-webkit-scrollbar-thumb{background:var(--border2);border-radius:3px}
+/* ── RESPONSIVE: comodo en celular y computadora ── */
+@media (max-width:768px){
+  .page{padding:10px 10px}
+  .btn{min-height:44px;padding:10px 16px;font-size:13px}
+  .btn-sm{min-height:40px;padding:9px 13px;font-size:12px}
+  .btn-xs{min-height:34px;padding:6px 10px;font-size:11px}
+  .btn-icon{width:42px;height:42px;font-size:18px}
+  .fc{font-size:16px;padding:10px 12px}            /* 16px evita el zoom automatico en iOS */
+  .fg label{font-size:12px}
+  .g2,.g3,.g4,.g5,.fr2,.fr3,.fr4{grid-template-columns:1fr}
+  .stat{padding:14px}
+  .stat-val{font-size:24px}
+  .stat-lbl{font-size:10px}
+  .st{font-size:14px}
+  td{font-size:14px;padding:9px 8px}
+  th{font-size:10px;padding:8px}
+  .badge{font-size:10px;padding:2px 9px}
+  .menu-item{padding:13px 18px;font-size:14px}
+  .menu-group{font-size:10px}
+  .mbox{padding:16px;max-width:96vw}
+  #emp-grid{grid-template-columns:1fr!important}
+}
+@media (max-width:480px){
+  .nav-right{gap:4px}
+  #nav-active-label{font-size:12px}
+  .stat{padding:12px}
+}
 @media print{@page{size:letter;margin:1.5cm}body{overflow:visible}.topnav,.btn,.moverlay,.demo-banner{display:none!important}.page{display:block!important;padding:0;overflow:visible}}
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -1254,14 +1281,15 @@ tr:hover td{background:rgba(45,255,122,.02)}
       <div class="fr2"><div class="fg"><label>Camion</label><select class="fc" id="gc-cam"><option value="">-</option></select></div><div class="fg"><label>Litros</label><input class="fc" id="gc-lit" type="number" placeholder="0"></div></div>
       <div class="fr2"><div class="fg"><label>Fuente</label><select class="fc" id="gc-src"><option value="tumaca">Tumaca</option><option value="boscan">Boscán</option><option value="estacion">Estación</option></select></div><div class="fg"><label>Fecha</label><input class="fc" id="gc-f" type="date"></div></div>
       <button class="btn btn-g btn-sm" style="width:100%;margin-bottom:8px" onclick="guardarGasoil()">Registrar</button>
-      <div class="tw" style="max-height:160px;overflow-y:auto"><table><thead><tr><th>Fecha</th><th>Camion</th><th>L</th><th>Fuente</th><th>$</th></tr><th></th></thead><tbody id="tb-gasoil"></tbody></table></div>
+      <div class="fr2" style="margin-bottom:8px"><div class="fg" style="margin-bottom:0"><label>Filtrar camion</label><select class="fc" id="gc-filtro-cam" onchange="renderGasoil()" style="font-size:11px;padding:5px 8px"><option value="">Todos</option></select></div><div class="fg" style="margin-bottom:0"><label>Filtrar fecha</label><input class="fc" id="gc-filtro-fecha" type="date" onchange="renderGasoil()" style="font-size:11px;padding:5px 8px"></div></div>
+      <div class="tw" style="max-height:160px;overflow-y:auto"><table><thead><tr><th>Fecha</th><th>Camion</th><th>L</th><th>Fuente</th><th>$</th><th></th></tr></thead><tbody id="tb-gasoil"></tbody></table></div>
     </div>
     <div class="card">
       <div class="sh"><div class="st">Gasolina Personal</div></div>
       <div class="fr2"><div class="fg"><label>Persona</label><select class="fc" id="gp-per"><option>Supervisor Ruta (moto)</option><option>Gte. Operaciones</option><option>Mecanico</option><option>Vehiculo Peugeot Partner</option><option>Otro</option></select></div><div class="fg"><label>Litros</label><input class="fc" id="gp-lit" type="number" placeholder="0"></div></div>
       <div class="fr2"><div class="fg"><label>Fecha</label><input class="fc" id="gp-f" type="date"></div><div class="fg"><label>Monto $</label><input class="fc" id="gp-m" placeholder="auto" style="font-family:var(--m)"></div></div>
       <button class="btn btn-g btn-sm" style="width:100%;margin-bottom:8px" onclick="guardarGasol()">Registrar</button>
-      <div class="tw" style="max-height:160px;overflow-y:auto"><table><thead><tr><th>Fecha</th><th>Persona</th><th>L</th><th>$</th></tr></thead><tbody id="tb-gasol"></tbody></table></div>
+      <div class="tw" style="max-height:160px;overflow-y:auto"><table><thead><tr><th>Fecha</th><th>Persona</th><th>L</th><th>$</th><th></th></tr></thead><tbody id="tb-gasol"></tbody></table></div>
     </div>
   </div>
   <div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:8px">
@@ -1357,6 +1385,7 @@ tr:hover td{background:rgba(45,255,122,.02)}
     <div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap">
       <input class="fc" id="emp-buscar" placeholder="Buscar empleado..." oninput="renderEmpleados()" style="max-width:200px;padding:6px 10px;font-size:12px">
       <select class="fc" id="emp-filtro" onchange="renderEmpleados()" style="max-width:160px;padding:6px 8px;font-size:11px"><option value="">Todos los cargos</option><option>Gerente General</option><option>Administradora</option><option>RRHH</option><option>Operativo</option><option>Supervisor</option><option>Mecanico</option><option>Vigilante</option><option>Chofer</option><option>Ayudante</option></select>
+      <label class="ctr" style="font-size:11px;color:var(--text2);cursor:pointer;gap:5px;font-weight:600"><input type="checkbox" id="emp-show-inactivos" onchange="renderEmpleados()" style="width:auto;cursor:pointer">Mostrar inactivos</label>
     </div>
     <div id="emp-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px"></div>
   </div>
@@ -1895,6 +1924,7 @@ var ABONOS=[
 ];
 var GASOIL=[],GASOL=[];
 try{var _gasoil=localStorage.getItem('btg_gasoil');if(_gasoil&&_gasoil!=='[]')GASOIL=JSON.parse(_gasoil);}catch(e){}
+try{var _gasol=localStorage.getItem('btg_gasol');if(_gasol&&_gasol!=='[]')GASOL=JSON.parse(_gasol);}catch(e){}
 var PAGOS_ALC=[
   {id:'H001',fecha:'2026-03-22',fact:'000623',ref:'',viajes:44,tasa:600,base:10924,iva:1748,total:12672,neto:9504,fiel:1092,fielDevuelto:true,pct75:true},
   {id:'H002',fecha:'2026-03-27',fact:'000624',ref:'',viajes:74,tasa:600,base:18379,iva:2940,total:21312,neto:15984,fiel:1837,fielDevuelto:true,pct75:true},
@@ -2276,7 +2306,7 @@ function sp(id){
     if(id==='financiero'){renderFinDash();renderGastosFijos();renderProveedoresLista();renderBancoFin();autoLlenarTasasEnFormularios();}
     if(id==='abonos'){renderAbonos();calcMontoAbono();}
     if(id==='nomina')calcNom();
-    if(id==='combustible'){renderComb();setTimeout(renderGasoil,100);}
+    if(id==='combustible'){renderComb();renderGasolPersonal();setTimeout(renderGasoil,100);}
     if(id==='km'){renderKm();renderTiposMant();}
     if(id==='banco')renderBNCDash();
     if(id==='proveedores'){renderCXP();renderProveedoresLista();renderRetenciones();}
@@ -3526,6 +3556,12 @@ async function guardarAbono(){
   audit('Abono registrado','$'+ab.m+' Fact:'+ab.fact);
   // Conciliar en BNC automaticamente
   BNC_MOV.push({id:Date.now()+'',fecha:ab.f,monto:ab.m*(TASAS.bcvDolar||cfg.tasa),tipo:'credito',desc:'Pago Alcaldia Fact.'+ab.fact,ref:ab.ref,conciliado:true});
+  // Aviso a socios (Maximo y Francisco)
+  sendWA('Abono registrado\n'+
+    '💰 Monto: $'+ab.m.toLocaleString()+'\n'+
+    '📅 Fecha: '+formatFecha(ab.f)+'\n'+
+    '🏦 Ref: '+(ab.ref||'--')+'\n'+
+    '👤 Registrado por: '+(SESION&&SESION.nombre?SESION.nombre:'--'),'socios');
   renderAbonos();renderDash();
   ['ab-f','ab-fact','ab-v','ab-m','ab-obs','ab-ref'].forEach(function(id){sv(id,'');});
   var hoy=new Date().toISOString().split('T')[0];sv('ab-f',hoy);
@@ -3554,7 +3590,7 @@ function renderAbonos(){
     var rows=f.map(function(a){
       acum+=a.m;
       var tr=document.createElement('tr');
-      tr.innerHTML='<td>'+a.f+'</td>'+
+      tr.innerHTML='<td>'+formatFecha(a.f)+'</td>'+
         '<td style="font-family:var(--m)">'+a.fact+'</td>'+
         '<td style="color:var(--green)">'+a.v+'</td>'+
         '<td style="font-family:var(--m);font-weight:700;color:var(--green)">$'+a.m.toLocaleString()+'</td>'+
@@ -3864,8 +3900,42 @@ async function guardarGasol(){
   var per=gv('gp-per'),lit=parseFloat(gv('gp-lit'))||0,f=gv('gp-f');
   if(!lit){alert('Ingresa litros');return;}
   var m=lit*0.5;var r={f:f,per:per,lit:lit,m:m};GASOL.push(r);
-  var tb=g('tb-gasol');if(tb)tb.innerHTML='<tr><td style="font-size:10px">'+f+'</td><td style="font-size:11px">'+per.split(' ')[0]+'</td><td>'+lit+'</td><td>$'+m.toFixed(2)+'</td></tr>'+tb.innerHTML;
+  try{localStorage.setItem('btg_gasol',JSON.stringify(GASOL));}catch(e){}
+  renderGasolPersonal();
   sv('gp-lit','');audit('Gasolina registrada',per+' '+lit+'L');
+}
+
+// Render gasolina personal con boton eliminar (token), filtra registros sin monto
+function renderGasolPersonal(){
+  var tb=g('tb-gasol');if(!tb)return;
+  var datos=GASOL.map(function(r,i){return{r:r,i:i};}).filter(function(o){
+    return!(o.r.m===undefined||o.r.m===null||isNaN(o.r.m));
+  });
+  if(!datos.length){tb.innerHTML='<tr><td colspan="5" style="text-align:center;color:var(--text3);padding:12px">Sin registros</td></tr>';return;}
+  tb.innerHTML=datos.slice().reverse().map(function(o){
+    var r=o.r;
+    return '<tr><td style="font-size:10px">'+formatFecha(r.f)+'</td><td style="font-size:11px">'+String(r.per||'').split(' ')[0]+'</td><td>'+r.lit+'</td><td>$'+Number(r.m).toFixed(2)+'</td>'+
+      '<td><button class="btn btn-s btn-xs" data-gidx="'+o.i+'" onclick="solicitarEliminarGasolPersonal(this.dataset.gidx)">🗑</button></td></tr>';
+  }).join('');
+}
+
+function solicitarEliminarGasolPersonal(idx){
+  var r=GASOL[idx];
+  if(!r){alert('Registro no encontrado');return;}
+  var desc='Eliminar gasolina personal: '+(r.per||'')+' - '+r.lit+'L - '+r.f;
+  generarTokenAprobacion(desc,{idx:idx},function(datos){eliminarGasolConfirmado(datos.idx);});
+  var token_input=prompt('Accion enviada por WA.\nSi eres superadmin ingresa el token de aprobacion:');
+  if(token_input){verificarToken(token_input,function(datos){eliminarGasolConfirmado(datos.idx);});}
+}
+
+function eliminarGasolConfirmado(idx){
+  var r=GASOL[idx];
+  if(!r)return;
+  GASOL.splice(idx,1);
+  try{localStorage.setItem('btg_gasol',JSON.stringify(GASOL));}catch(e){}
+  audit('Gasolina personal ELIMINADA',(r.per||'')+' '+r.lit+'L');
+  renderGasolPersonal();
+  alert('✅ Registro eliminado.');
 }
 function renderComb(){
   var ce=g('c-comb-svg');
@@ -4341,7 +4411,7 @@ function renderCXP(){
     var dr=c.estado==='pendiente'?diasHasta(c.fechaVenc):99;
     var bsBoy=c.netoPagar*tasa;
     return'<tr>'+
-      '<td>'+c.fecha+'</td>'+
+      '<td>'+formatFecha(c.fecha)+'</td>'+
       '<td style="font-weight:700;font-size:11px">'+c.prov+'</td>'+
       '<td style="font-family:var(--m);font-size:10px">'+c.nota+'</td>'+
       '<td style="font-size:10px">'+c.desc.slice(0,25)+'</td>'+
@@ -5144,8 +5214,9 @@ function renderEmpleados(){
 
   function normCargo(c){return (c||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');}
 
+  var mostrarInactivos=g('emp-show-inactivos')&&g('emp-show-inactivos').checked;
   var todos=EMPLEADOS.filter(function(e){
-    if(e.activo===false)return false;
+    if(e.activo===false&&!mostrarInactivos)return false;
     if(filtCargo&&filtCargo!==''&&e.cargo!==filtCargo)return false;
     if(q&&!e.nombre.toLowerCase().includes(q)&&!(e.cedula||'').includes(q))return false;
     return true;
@@ -5160,13 +5231,15 @@ function renderEmpleados(){
 
   var betangar=todos.filter(function(e){return !e.imau;}).sort(sortFn);
   var imau=todos.filter(function(e){return e.imau;}).sort(sortFn);
-  var imau=todos.filter(function(e){return e.imau;}).sort(sortFn);
 
   function card(e){
     var borde=e.cargo==='Gerente General'?'#f5c842':e.cargo==='Chofer'?'var(--green)':e.cargo==='Ayudante'?'var(--teal)':'var(--blue)';
     if(e.imau)borde='#ef9f27';
+    var inactivo=e.activo===false;
+    if(inactivo)borde='var(--text3)';
     var badge=e.imau?'<span style="font-size:9px;background:rgba(239,159,39,.15);color:#ef9f27;border:1px solid rgba(239,159,39,.4);border-radius:10px;padding:1px 6px;margin-left:4px">IMAU</span>':'';
-    var h='<div class="card" style="border-top:3px solid '+borde+';cursor:pointer" data-eid="'+e.id+'" onclick="empCardClick(this)">';
+    if(inactivo)badge+='<span style="font-size:9px;background:rgba(248,113,113,.15);color:var(--red);border:1px solid rgba(248,113,113,.4);border-radius:10px;padding:1px 6px;margin-left:4px">INACTIVO</span>';
+    var h='<div class="card" style="border-top:3px solid '+borde+';cursor:pointer'+(inactivo?';opacity:.6':'')+'" data-eid="'+e.id+'" onclick="empCardClick(this)">';
     h+='<div style="font-weight:700;font-size:13px">'+e.nombre+badge+'</div>';
     h+='<div style="font-size:11px;color:var(--text3)">'+e.cargo+' · '+(e.unidad||'')+'</div>';
     if(e.cedula||e.banco)h+='<div style="font-size:10px;color:var(--text3)">'+(e.cedula||'')+(e.banco?' · '+e.banco:'')+'</div>';
@@ -5630,7 +5703,7 @@ function renderGastosVariables(){
   if(tb){
     var rows=GASTOS_VARIABLES.slice().reverse().map(function(x){
       var tr=document.createElement('tr');
-      tr.innerHTML='<td>'+x.fecha+'</td><td><span class="badge bt">'+x.cat+'</span></td>'+
+      tr.innerHTML='<td>'+formatFecha(x.fecha)+'</td><td><span class="badge bt">'+x.cat+'</span></td>'+
         '<td style="font-size:11px">'+x.desc+'</td>'+
         '<td style="font-family:var(--m);color:var(--red)">Bs '+x.bs.toFixed(0)+'</td>'+
         '<td style="font-family:var(--m);color:var(--yellow)">$'+x.usd.toFixed(2)+'</td>'+
@@ -5996,6 +6069,28 @@ function sendWA(msg, roles){
   });
 }
 
+// Envío directo a un número/apikey concreto (empleados) — usa Image() igual que sendWA
+function sendWADirecto(numero, apikey, mensaje){
+  if(!numero||!apikey)return false;
+  var numLimpio=String(numero).replace(/[\s\-\+]/g,'');
+  if(!numLimpio)return false;
+  var img=new Image();
+  img.onload=function(){console.log('WA directo OK:',numLimpio);};
+  img.onerror=function(){console.log('WA directo respuesta:',numLimpio,'(normal si llego)');};
+  img.src='https://api.callmebot.com/whatsapp.php?phone='+encodeURIComponent(numLimpio)+'&text='+encodeURIComponent(mensaje)+'&apikey='+apikey;
+  return true;
+}
+
+// dd/mm/aaaa para mostrar en tablas/reportes. Los inputs type=date siguen usando aaaa-mm-dd.
+function formatFecha(f){
+  if(!f)return'';
+  var s=String(f).slice(0,10);
+  var m=s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if(m)return m[3]+'/'+m[2]+'/'+m[1];
+  if(/^\d{2}\/\d{2}\/\d{4}$/.test(s))return s; // ya formateado
+  return s;
+}
+
 // Helpers de rol específico para uso rápido
 function waAdmin(msg){sendWA(msg,['admin']);}
 function waRRHH(msg){sendWA(msg,['rrhh']);}
@@ -6104,15 +6199,15 @@ function pedirNuevoToken(){
   var codigo=generarCodigo();
   TOKEN_ACTIVO={codigo:codigo,expira:null,solicitante:SESION.nombre,accion:accion,motivo:motivo,detalle:window._tokenDetalle||''};
   var now=new Date().toLocaleString('es-VE');
-  var waMsg='BETANGAR - CODIGO DE AUTORIZACION\n\n'+
-    'Usuario: '+SESION.nombre+'\n'+
-    'Accion: '+accion+'\n'+
-    (window._tokenDetalle?'Detalle: '+window._tokenDetalle+'\n':'')+
-    'Motivo: '+motivo+'\n'+
-    'Fecha: '+now+'\n\n'+
-    'TOKEN: '+codigo+'\n\n'+
-    'Si apruebas envia este token al solicitante.\n'+
-    'Si rechazas simplemente no lo envies.';
+  var waMsg='Solicitud de modificacion\n'+
+    '👤 Usuario: '+SESION.nombre+'\n'+
+    '📋 Accion: '+accion+'\n'+
+    (window._tokenDetalle?'📄 Detalle: '+window._tokenDetalle+'\n':'')+
+    '💬 Motivo: '+motivo+'\n'+
+    '🔑 Token: *'+codigo+'*\n'+
+    '⏱ Valido 30 min\n\n'+
+    'Si apruebas envia el token al solicitante. Si no, ignoralo.';
+  // sendWA antepone "BETANGAR: "; va SIEMPRE a socios (Maximo y Francisco)
   sendWA(waMsg,'socios');
   // Email respaldo
   if(typeof emailjs!=='undefined'){
@@ -6345,15 +6440,21 @@ function checkCumpleAlerts(){
       var keyCum='btg_wa_cum_'+hoyStr2+'_'+e.id;
       if(!localStorage.getItem(keyCum)){
         localStorage.setItem(keyCum,'1');
-        // A RRHH y socios
-        sendWA('BETANGAR - HOY cumpleanos de '+e.nombre+' ('+edad+' anos) '+e.cargo,['rrhh','socios']);
-        // A todo el personal
-        sendWA('BETANGAR - Hoy '+e.nombre.split(' ')[0]+' esta de cumpleanos! Felicitemoslo! Inversiones Betangar CA','todos');
-        // Al festejado directamente si tiene WA registrado
+        var primerNombre=e.nombre.split(' ')[0];
+        // (c) A RRHH y socios (config WhatsApp) — los socios reciben todo
+        sendWA('🎂 HOY cumpleanos de '+e.nombre+' ('+edad+' anos) - '+e.cargo,['rrhh','socios']);
+        // (a) Al festejado directamente si tiene WA registrado
         if(e.whatsapp&&e.wa_apikey){
-          var mc='Feliz Cumpleanos '+e.nombre.split(' ')[0]+'! Inversiones Betangar CA te desea un excelente dia en tu cumpleanos. Que los cumplas muy feliz!';
-          try{var ic=new Image();ic.src='https://api.callmebot.com/whatsapp.php?phone='+encodeURIComponent(e.whatsapp)+'&text='+encodeURIComponent(mc)+'&apikey='+e.wa_apikey;}catch(ex){}
+          sendWADirecto(e.whatsapp,e.wa_apikey,'🎂 ¡Feliz Cumpleanos '+primerNombre+'! De parte de toda la familia Betangar');
         }
+        // (b) A TODOS los empleados con whatsapp configurado (excepto el festejado)
+        EMPLEADOS.forEach(function(emp){
+          if(emp.id===e.id)return;
+          if(emp.activo===false)return;
+          if(emp.whatsapp&&emp.wa_apikey){
+            sendWADirecto(emp.whatsapp,emp.wa_apikey,'🎂 Hoy es el cumpleanos de '+primerNombre+'. ¡Felicitalo!');
+          }
+        });
       }
     }
   });
@@ -7884,6 +7985,8 @@ function renderGasoil(){
   var filtFecha=gv('gc-filtro-fecha')||'';
   var datos=GASOIL.filter(function(r,i){
     r._idx=i;
+    // Filtrar registros sin monto (datos extranos)
+    if(r.m===undefined||r.m===null||isNaN(r.m))return false;
     if(filtCam&&r.cam!==filtCam)return false;
     if(filtFecha&&r.f!==filtFecha)return false;
     return true;
@@ -7891,11 +7994,11 @@ function renderGasoil(){
   if(!datos.length){tb.innerHTML='<tr><td colspan="6" style="text-align:center;color:var(--text3);padding:12px">Sin registros</td></tr>';return;}
   tb.innerHTML=datos.slice().reverse().map(function(r){
     return '<tr>'+
-      '<td style="font-size:10px">'+r.f+'</td>'+
+      '<td style="font-size:10px">'+formatFecha(r.f)+'</td>'+
       '<td style="font-size:11px">'+r.cam+'</td>'+
       '<td style="font-family:var(--m)">'+r.lit+'</td>'+
       '<td style="font-size:10px">'+r.src+'</td>'+
-      '<td style="font-family:var(--m)">$'+(r.m?r.m.toFixed(2):'-')+'</td>'+
+      '<td style="font-family:var(--m)">$'+Number(r.m).toFixed(2)+'</td>'+
       '<td><button class="btn btn-s btn-xs" data-gidx="'+(r._idx)+'" onclick="solicitarEliminarGasoil(this.dataset.gidx)">🗑</button></td>'+
     '</tr>';
   }).join('');
@@ -9608,9 +9711,8 @@ async function enviarMensajeMasivo(){
   for(var i=0;i<destinatarios.length;i++){
     var emp = destinatarios[i];
     try{
-      var url='https://api.callmebot.com/whatsapp.php?phone='+emp.whatsapp+'&text='+encodeURIComponent(msgCompleto)+'&apikey='+emp.wa_apikey;
-      var res=await fetch(url);
-      if(res.ok)enviados++; else fallidos++;
+      // Image() en vez de fetch() — callmebot bloquea CORS y fetch falla siempre
+      if(sendWADirecto(emp.whatsapp,emp.wa_apikey,msgCompleto))enviados++; else fallidos++;
     }catch(e){ fallidos++; }
     await new Promise(function(r){setTimeout(r,600);}); // Pausa entre mensajes
   }
@@ -9805,7 +9907,7 @@ function verificarAlertasServicio(){
     sendWA(msg,'mecanico');
     sendWA(msg,'operativo');
     var empChofer=EMPLEADOS.find(function(e){return e.nombre.toUpperCase()===chofer.toUpperCase()&&e.whatsapp&&e.wa_apikey;});
-    if(empChofer){try{fetch('https://api.callmebot.com/whatsapp.php?phone='+empChofer.whatsapp+'&text='+encodeURIComponent(msg)+'&apikey='+empChofer.wa_apikey).catch(function(){});}catch(e){}}
+    if(empChofer){try{sendWADirecto(empChofer.whatsapp,empChofer.wa_apikey,msg);}catch(e){}}
     var alertEl=document.getElementById('dash-alerta-srv');
     if(alertEl){
       alertEl.innerHTML+='<div style="padding:5px 0;border-bottom:0.5px solid var(--border)"><span style="color:#ef9f27;font-weight:700">'+cam+'</span> — faltan '+faltanKm+' km para servicio '+proximoSrv.toLocaleString()+' km</div>';
@@ -9967,10 +10069,8 @@ function testWAEmpCard(el){
 }
 function testWAEmpleado(num, key, nombre){
   if(!num||!key){alert('Sin WhatsApp o API Key configurados');return;}
-  var numLimpio=num.replace(/[\s\-\+]/g,'');
   var msg='BETANGAR - Prueba de WhatsApp\n'+nombre+'\nSi recibes esto, tu numero esta correctamente configurado en el sistema.';
-  var img=new Image();
-  img.src='https://api.callmebot.com/whatsapp.php?phone='+encodeURIComponent(numLimpio)+'&text='+encodeURIComponent(msg)+'&apikey='+key;
+  sendWADirecto(num,key,msg);
   alert('Mensaje de prueba enviado a '+nombre+' ('+num+').\nDile que verifique si le llegó en los próximos 30 segundos.');
 }
 function empEditClick(el){switchEmpTab('nuevo');cargarEmp(el.dataset.eid);}
@@ -10415,15 +10515,19 @@ async function cargarTasas(){
 <div class="section" id="sec-porteria" style="display:none;flex:1;overflow-y:auto;padding:14px 18px">
   <div style="max-width:500px;margin:0 auto;padding:8px">
     <div class="card" style="background:#1e3a5f;border:
+var TIPOS_MANT_DEFAULT=['Solo registro km','GARANTIA (Servicio 5000km)','CORRECTIVO','PREVENTIVO','CAMBIO DE ACEITE','CAMBIO FILTROS','FRENOS','SUSPENSION','ELECTRICO','MOTOR','TRANSMISION','OTROS'];
 function renderTiposMant(){
   var sel=document.getElementById('km-mant');
   if(!sel)return;
+  // Defensivo: si la config se sobrescribio (DB/localStorage) y quedo vacia, usar defaults
+  if(!Array.isArray(cfg.tipos_mant)||!cfg.tipos_mant.length){cfg.tipos_mant=TIPOS_MANT_DEFAULT.slice();}
   sel.innerHTML=cfg.tipos_mant.map(function(t){return'<option value="'+t+'">'+t+'</option>';}).join('');
 }
 function agregarTipoMant(){
   var nuevo=prompt('Nombre del nuevo tipo:');
   if(!nuevo||!nuevo.trim())return;
   nuevo=nuevo.trim().toUpperCase();
+  if(!Array.isArray(cfg.tipos_mant))cfg.tipos_mant=TIPOS_MANT_DEFAULT.slice();
   if(cfg.tipos_mant.indexOf(nuevo)>=0){alert('Ya existe');return;}
   cfg.tipos_mant.push(nuevo);
   renderTiposMant();

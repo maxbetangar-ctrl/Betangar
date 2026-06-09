@@ -717,7 +717,8 @@ function registrarViaje(num){
   renderBotones();
   actualizarContador();
   renderHistorial();
-  if(navigator.vibrate) navigator.vibrate(60);
+  if(navigator.vibrate) navigator.vibrate([60,40,60]);
+  mostrarToast('✅ Viaje '+num+' registrado · '+hora);
 
   var reg = {
     fecha: hoy, cam: cam, chofer: chofer,
