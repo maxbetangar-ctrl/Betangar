@@ -275,6 +275,7 @@ tr:hover td{background:rgba(45,255,122,.02)}
   </div>
   <div id="tasas-widget" style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:7px 12px;margin-bottom:10px"><div style="font-size:10px;color:var(--text3)">Cargando tasas...</div></div>
   <div id="dash-alertas" style="margin-bottom:10px"></div>
+  <div id="bnc-dash-resumen"></div>
   <div class="g5" style="margin-bottom:10px">
     <div class="stat"><div class="stat-lbl">Total Viajes</div><div class="stat-val" id="s-viajes">-</div><div class="stat-sub" id="s-viajes-sub">-</div></div>
     <div class="stat y"><div class="stat-lbl">Ejecutado</div><div class="stat-val" style="font-size:16px;color:var(--yellow)" id="s-ejec">-</div><div class="stat-sub" id="s-ejec-sub">@ $317.88/viaje</div></div>
@@ -2948,6 +2949,7 @@ function validarAyudanteUnico(campoId){
 }
 
 function renderDash(){
+  try{renderBncDashResumen();}catch(e){}
   var totalV=REGS.reduce(function(s,r){return s+r.t;},0);
   var totalM=REGS.reduce(function(s,r){return s+r.m;},0);
   var totalCob=Math.min(ABONOS.reduce(function(s,a){return s+a.m;},0),totalM);
@@ -10655,6 +10657,52 @@ async function cargarTasas(){
     TASAS.bcvEuro=TASAS.bcvEuro||Math.round(TASAS.bcvDolar*1.08);TASAS.binance=(binN&&binN>100)?binN:(TASAS.binance||TASAS.bcvDolar);TASAS.promedio=((TASAS.bcvDolar+TASAS.binance)/2);
   }
   renderTasas();autoLlenarTasasEnFormularios();return TASAS;
+}
+
+// ── Resumen BNC del día en el dashboard (saldo inicial, ingresos, egresos, saldo actual) ──
+var _bncResumenCache=null,_bncResumenTs=0;
+async function renderBncDashResumen(forzar){
+  var el=g('bnc-dash-resumen');if(!el)return;
+  var ahora=Date.now();
+  if(!forzar&&_bncResumenCache&&(ahora-_bncResumenTs)<180000){_pintarBncResumen(el,_bncResumenCache);return;}
+  if(!el.innerHTML)el.innerHTML='<div style="font-size:11px;color:var(--text3);padding:8px">🏦 Cargando saldos BNC...</div>';
+  try{
+    var r=await fetch(SUPA_URL+'/functions/v1/bnc-saldo',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+SUPA_KEY},body:JSON.stringify({action:'resumen'}),signal:AbortSignal.timeout(30000)});
+    var d=await r.json();
+    if(!d||!d.ok){
+      el.innerHTML='<div style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:10px;font-size:11px;color:var(--text3)">🏦 Saldos BNC no disponibles'+((d&&d.step==='resumen'&&d.error&&d.error.indexOf('ClientID')>=0)||(d&&d.step==='saldo')?' — configura el ClientID de producción en Config BNC':'')+'</div>';
+      return;
+    }
+    _bncResumenCache=d;_bncResumenTs=ahora;_pintarBncResumen(el,d);
+  }catch(e){el.innerHTML='<div style="font-size:11px;color:var(--text3);padding:8px">🏦 Saldos BNC no disponibles ahora</div>';}
+}
+function _pintarBncResumen(el,d){
+  var fmt=function(n){return Number(n||0).toLocaleString('es-VE',{minimumFractionDigits:2,maximumFractionDigits:2});};
+  var cuentas=d.cuentas||[];
+  var badge=d.esPrueba?'<span style="font-size:9px;background:rgba(251,191,36,.15);color:var(--yellow);border:1px solid rgba(251,191,36,.3);border-radius:6px;padding:1px 6px;margin-left:6px">DATOS DE PRUEBA</span>':'';
+  var html='<div style="background:linear-gradient(135deg,var(--card),var(--card2));border:1px solid var(--border);border-radius:12px;padding:12px;margin-bottom:10px">'+
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">'+
+      '<div style="font-size:13px;font-weight:800;color:var(--green)">🏦 Saldos BNC — día '+(d.fecha||'')+badge+'</div>'+
+      '<button onclick="renderBncDashResumen(true)" style="font-size:9px;background:none;border:1px solid var(--border);border-radius:4px;color:var(--text3);padding:2px 6px;cursor:pointer" title="Actualizar">↻</button>'+
+    '</div>';
+  if(!cuentas.length)html+='<div style="font-size:11px;color:var(--text3)">Sin cuentas para mostrar.</div>';
+  cuentas.forEach(function(c){
+    var sim=c.moneda==='USD'?'$':'Bs ';
+    html+='<div style="background:var(--bg3);border-radius:10px;padding:10px;margin-bottom:6px">'+
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">'+
+        '<span style="font-family:var(--m);font-size:11px;color:var(--text2)">'+c.cuenta+'</span>'+
+        '<span style="font-size:9px;color:var(--text3)">'+c.moneda+' · '+c.movimientosHoy+' mov hoy</span>'+
+      '</div>'+
+      '<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:6px;text-align:center">'+
+        '<div><div style="font-size:9px;color:var(--text3);margin-bottom:2px">Inició día</div><div style="font-size:12px;font-weight:700;color:var(--text1)">'+sim+fmt(c.saldoInicial)+'</div></div>'+
+        '<div><div style="font-size:9px;color:var(--text3);margin-bottom:2px">Ingresos</div><div style="font-size:12px;font-weight:700;color:var(--green)">+'+fmt(c.ingresos)+'</div></div>'+
+        '<div><div style="font-size:9px;color:var(--text3);margin-bottom:2px">Egresos</div><div style="font-size:12px;font-weight:700;color:var(--red)">-'+fmt(c.egresos)+'</div></div>'+
+        '<div><div style="font-size:9px;color:var(--text3);margin-bottom:2px">Saldo actual</div><div style="font-size:13px;font-weight:900;color:var(--green)">'+sim+fmt(c.saldoActual)+'</div></div>'+
+      '</div>'+
+    '</div>';
+  });
+  html+='</div>';
+  el.innerHTML=html;
 }
 
 // Tipos de mantenimiento (KM) — estaban orfanos dentro del HTML de porteria, ahora en el script
