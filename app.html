@@ -257,6 +257,7 @@ tr:hover td{background:rgba(45,255,122,.02)}
     <div class="menu-item" onclick="sp('usuarios')" id="mi-usuarios">🔐 Usuarios</div>
     <div class="menu-item" onclick="sp('auditoria')" id="mi-auditoria">🔍 Auditoria</div>
     <div class="menu-item" onclick="sp('banco-bnc')" id="mi-banco-bnc">🏦 Config BNC</div>
+    <div class="menu-item" onclick="sp('conciliacion')" id="mi-conciliacion">🔄 Conciliación</div>
     <div class="menu-item" onclick="sp('config')" id="mi-config">⚙️ Configuracion</div>
     <div class="menu-item" onclick="sp('mensajes-wa')" id="mi-mensajes-wa">📢 Mensajes WA</div>
     <div class="menu-item" onclick="sp('galeria')" id="mi-galeria">🏗️ Galeria</div>
@@ -1818,6 +1819,19 @@ tr:hover td{background:rgba(45,255,122,.02)}
   </div>
 </div>
 
+<div class="page" id="p-conciliacion">
+  <div style="font-size:18px;font-weight:800;color:var(--text1);margin-bottom:12px">🔄 Conciliación Bancaria</div>
+  <div class="card" style="margin-bottom:12px">
+    <div style="font-size:11px;color:var(--text3);margin-bottom:10px">Cruza los movimientos reales del BNC contra las notificaciones recibidas en la app. Cada ingreso queda marcado como ✅ conciliado o ⚠️ sin registrar.</div>
+    <div class="fr2">
+      <div class="fg"><label>Desde</label><input class="fc" id="conc-desde" type="date"></div>
+      <div class="fg"><label>Hasta</label><input class="fc" id="conc-hasta" type="date"></div>
+    </div>
+    <button class="btn btn-g btn-sm" style="width:100%" onclick="renderConciliacionBNC()">🔄 Conciliar</button>
+  </div>
+  <div id="conc-resultado"></div>
+</div>
+
 <script>
 // ═══════════════════════════════════════════════════
 // BETANGAR v9.0 — CORE DATA & CONSTANTS
@@ -1992,8 +2006,8 @@ var USUARIOS={
 };
 
 var PERMISOS={
-  superadmin:['dashboard','banco-bnc','checklist','mensajes-wa','planilla','historico','reporte','abonos','banco','proveedores','financiero','nomina','asistencia','combustible','km','documentos','inventario','llantas','metas','empleados','prestamos','multas','stats','ranking','contratos','usuarios','auditoria','config','galeria','porteria','mecanico','operativo','cxp','cajachica'],
-  admin:['dashboard','checklist','planilla','historico','reporte','abonos','banco','proveedores','financiero','nomina','asistencia','combustible','km','documentos','inventario','llantas','metas','empleados','prestamos','multas','stats','ranking','contratos','usuarios','auditoria','config','galeria','porteria','mecanico','operativo','cxp','cajachica'],
+  superadmin:['dashboard','banco-bnc','conciliacion','checklist','mensajes-wa','planilla','historico','reporte','abonos','banco','proveedores','financiero','nomina','asistencia','combustible','km','documentos','inventario','llantas','metas','empleados','prestamos','multas','stats','ranking','contratos','usuarios','auditoria','config','galeria','porteria','mecanico','operativo','cxp','cajachica'],
+  admin:['dashboard','conciliacion','checklist','planilla','historico','reporte','abonos','banco','proveedores','financiero','nomina','asistencia','combustible','km','documentos','inventario','llantas','metas','empleados','prestamos','multas','stats','ranking','contratos','usuarios','auditoria','config','galeria','porteria','mecanico','operativo','cxp','cajachica'],
   operador:['dashboard','planilla','historico','reporte','abonos','banco','proveedores','financiero','nomina','asistencia','combustible','km','documentos','inventario','llantas','metas','empleados','prestamos','multas','stats','ranking','contratos','galeria'],
   rrhh:['dashboard','mensajes-wa','planilla','historico','reporte','nomina','asistencia','combustible','km','documentos','inventario','llantas','metas','empleados','prestamos','multas','ranking','galeria'],
   visualizador:['dashboard','abonos','banco','financiero','stats','ranking','contratos','galeria'],
@@ -2009,7 +2023,7 @@ var PERMISOS={
 
 var NAV_LABELS={
   dashboard:'Dashboard',planilla:'Registro Diario',historico:'Historico',reporte:'Reporte Alcaldia',
-  abonos:'Abonos / Cobros',banco:'Banco BNC',proveedores:'Proveedores',financiero:'Financiero',
+  abonos:'Abonos / Cobros',banco:'Banco BNC',conciliacion:'Conciliación Bancaria',proveedores:'Proveedores',financiero:'Financiero',
   nomina:'Nomina',asistencia:'Asistencia',combustible:'Combustible',km:'Km / Servicio',
   documentos:'Documentos',inventario:'Inventario',llantas:'Llantas',metas:'Metas',
   empleados:'Empleados',prestamos:'Prestamos',multas:'Multas',stats:'Estadisticas',
@@ -2425,6 +2439,7 @@ function sp(id){
     if(id==='checklist')clIniciar();if(id==='mensajes-wa')renderMensajesWA();
     if(id==='mecanico')mecIniciar();
     if(id==='banco-bnc')bncCargarConfig();
+    if(id==='conciliacion')renderConciliacionBNC();
     if(id==='operativo')operIniciar();
   }catch(e){console.log('nav err',id,e);}
 }
@@ -10703,6 +10718,65 @@ function _pintarBncResumen(el,d){
   });
   html+='</div>';
   el.innerHTML=html;
+}
+
+// ── Módulo Conciliación Bancaria: cruza movimientos reales del BNC vs notificaciones de la app ──
+async function renderConciliacionBNC(){
+  var el=g('conc-resultado');if(!el)return;
+  var hoy=new Date();var ymd=hoy.getFullYear()+'-'+String(hoy.getMonth()+1).padStart(2,'0')+'-'+String(hoy.getDate()).padStart(2,'0');
+  if(g('conc-desde')&&!g('conc-desde').value)g('conc-desde').value=ymd;
+  if(g('conc-hasta')&&!g('conc-hasta').value)g('conc-hasta').value=ymd;
+  var desde=gv('conc-desde')||ymd,hasta=gv('conc-hasta')||ymd;
+  el.innerHTML='<div style="padding:16px;color:var(--text3);font-size:12px">🔄 Consultando el BNC y conciliando '+desde+' → '+hasta+'...</div>';
+  var fmt=function(n){return Number(n||0).toLocaleString('es-VE',{minimumFractionDigits:2,maximumFractionDigits:2});};
+  try{
+    var hdr={'Content-Type':'application/json','Authorization':'Bearer '+SUPA_KEY};
+    var rs=await fetch(SUPA_URL+'/functions/v1/bnc-saldo',{method:'POST',headers:hdr,body:JSON.stringify({action:'saldo'}),signal:AbortSignal.timeout(30000)});
+    var ds=await rs.json();
+    if(!ds||!ds.ok||!ds.saldos){el.innerHTML='<div style="padding:16px;color:var(--text3);font-size:12px">No se pudieron obtener las cuentas del BNC'+((ds&&ds.step==='saldo')?' — configura el ClientID de producción en Config BNC':'')+'.</div>';return;}
+    var cuentas=Object.keys(ds.saldos);
+    var sandbox=cuentas.indexOf('01910001482101010049')>=0;
+    var notifs=[];
+    try{var rn=await supabase.from('bnc_notificaciones').select('id,referencia,monto,moneda,fecha_recibido,descripcion').gte('fecha_recibido',desde).lte('fecha_recibido',hasta+'T23:59:59').order('fecha_recibido',{ascending:false});if(!rn.error&&rn.data)notifs=rn.data.map(function(n){return{ref:n.referencia,monto:Math.round(parseFloat(n.monto||0)*100)/100,fecha:n.fecha_recibido,desc:n.descripcion,usada:false};});}catch(e){}
+    var html=sandbox?'<div style="font-size:10px;color:var(--yellow);margin-bottom:8px">⚠️ DATOS DE PRUEBA (sandbox). Con el ClientID de producción se concilian tus cuentas reales.</div>':'';
+    for(var ci=0;ci<cuentas.length;ci++){
+      var acc=cuentas[ci];
+      var moneda=(ds.saldos[acc]&&ds.saldos[acc].CurrencyCode)||'VES';
+      var rm=await fetch(SUPA_URL+'/functions/v1/bnc-saldo',{method:'POST',headers:hdr,body:JSON.stringify({action:'movimientos_fecha',account_number:acc,start_date:desde,end_date:hasta}),signal:AbortSignal.timeout(40000)});
+      var dm=await rm.json();
+      var movs=(dm&&dm.ok&&Array.isArray(dm.movimientos))?dm.movimientos:[];
+      var ingTot=0,egrTot=0,nConc=0,nIng=0,filasHtml='';
+      movs.forEach(function(m){
+        var amt=Math.round(parseFloat(m.Amount||0)*100)/100;
+        var sd=String(m.BalanceDelta||'').toLowerCase();
+        var esIng=sd.indexOf('ingreso')>=0||sd.indexOf('credito')>=0||sd.indexOf('crédito')>=0;
+        if(esIng){ingTot+=amt;nIng++;}else egrTot+=amt;
+        var conc=false;
+        if(esIng){var mt=notifs.find(function(n){return !n.usada&&Math.abs(n.monto-amt)<0.01;});if(mt){conc=true;mt.usada=true;nConc++;}}
+        var refs=[m.ReferenceA,m.ReferenceB,m.ReferenceC,m.ReferenceD].filter(Boolean).join(' / ');
+        var estado=!esIng?'<span style="color:var(--text3)">—</span>':(conc?'<span style="color:var(--green);font-weight:700">✅</span>':'<span style="color:var(--yellow);font-weight:700">⚠️ sin registrar</span>');
+        filasHtml+='<tr><td style="font-size:10px">'+(m.Date||'')+'</td><td style="font-size:10px">'+String(m.Type||'').trim()+'</td><td style="font-size:9px;color:var(--text3)">'+refs+'</td><td style="text-align:right;font-family:var(--m);color:'+(esIng?'var(--green)':'var(--red)')+'">'+(esIng?'+':'-')+fmt(amt)+'</td><td style="text-align:center">'+estado+'</td></tr>';
+      });
+      html+='<div class="card" style="margin-bottom:12px">'+
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><span style="font-family:var(--m);font-size:12px;font-weight:700">'+acc+'</span><span style="font-size:10px;color:var(--text3)">'+moneda+' · '+movs.length+' mov</span></div>'+
+        '<div style="display:flex;gap:12px;margin-bottom:10px;flex-wrap:wrap;font-size:11px">'+
+          '<span style="color:var(--green)">▲ Ingresos '+fmt(ingTot)+'</span>'+
+          '<span style="color:var(--red)">▼ Egresos '+fmt(egrTot)+'</span>'+
+          '<span style="color:var(--text2)">Conciliados '+nConc+'/'+nIng+'</span>'+
+        '</div>'+
+        (movs.length?('<div class="tw" style="max-height:340px;overflow:auto"><table style="font-size:11px"><thead><tr><th>Fecha</th><th>Tipo</th><th>Ref</th><th style="text-align:right">Monto</th><th style="text-align:center">Estado</th></tr></thead><tbody>'+filasHtml+'</tbody></table></div>'):'<div style="font-size:11px;color:var(--text3)">Sin movimientos en el rango.</div>')+
+      '</div>';
+    }
+    var huer=notifs.filter(function(n){return !n.usada;});
+    if(huer.length){
+      var hh='';huer.forEach(function(n){hh+='<tr><td style="font-size:10px">'+String(n.fecha||'').slice(0,16).replace('T',' ')+'</td><td style="font-size:10px">'+(n.ref||'')+'</td><td style="font-size:9px;color:var(--text3)">'+(n.desc||'')+'</td><td style="text-align:right;font-family:var(--m)">'+fmt(n.monto)+'</td></tr>';});
+      html+='<div class="card" style="margin-bottom:12px;border-color:rgba(251,191,36,.3)">'+
+        '<div style="font-size:12px;font-weight:700;color:var(--yellow);margin-bottom:8px">⚠️ Notificaciones en la app sin movimiento BNC ('+huer.length+')</div>'+
+        '<div class="tw" style="max-height:220px;overflow:auto"><table style="font-size:11px"><thead><tr><th>Fecha</th><th>Ref</th><th>Desc</th><th style="text-align:right">Monto</th></tr></thead><tbody>'+hh+'</tbody></table></div>'+
+      '</div>';
+    }
+    el.innerHTML=html||'<div style="padding:16px;color:var(--text3);font-size:12px">Sin datos para el rango.</div>';
+  }catch(e){el.innerHTML='<div style="padding:16px;color:var(--text3);font-size:12px">Error al conciliar: '+(e.message||e)+'</div>';}
 }
 
 // Tipos de mantenimiento (KM) — estaban orfanos dentro del HTML de porteria, ahora en el script
