@@ -1774,6 +1774,7 @@ tr:hover td{background:rgba(45,255,122,.02)}
         <input class="fc" id="bnc-master-key" type="password" placeholder="MasterKey del BNC">
       </div>
     </div>
+    <div id="bnc-cred-estado" style="display:none;margin-top:8px;padding:8px 12px;border-radius:8px;font-size:12px;line-height:1.5"></div>
     <div class="fr2" style="margin-top:8px">
       <div class="fg">
         <label style="font-size:11px;color:var(--text2)">Cuenta a Monitorear</label>
@@ -2237,18 +2238,30 @@ async function bncCargarConfig(){
   if(!pg)return;
   if(!DB_READY){pg.innerHTML='<div class="card"><p style="color:var(--text3);text-align:center;padding:20px">Sin conexión a base de datos</p></div>';return;}
   try{
-    var r=await supabase.from('bnc_config').select('*').single();
-    if(r.data){
-      var d=r.data;
-      var el=function(id){return document.getElementById(id);};
-      if(el('bnc-client-guid'))el('bnc-client-guid').value=d.client_guid||'';
-      if(el('bnc-master-key'))el('bnc-master-key').value=d.master_key||'';
+    // Leer la vista segura (no expone secretos en claro al navegador). limit(1) evita
+    // el error de .single() cuando hay 0 ó varias filas.
+    var r=await supabase.from('bnc_config_estado').select('*').order('updated_at',{ascending:false}).limit(1);
+    var d=(r.data&&r.data.length)?r.data[0]:null;
+    var el=function(id){return document.getElementById(id);};
+    if(d){
+      // Campos NO sensibles
       if(el('bnc-cuenta'))el('bnc-cuenta').value=d.cuenta||'';
       if(el('bnc-telefono'))el('bnc-telefono').value=d.telefono_pm||'';
       if(el('bnc-moneda'))el('bnc-moneda').value=d.moneda||'VES';
       if(el('bnc-url-dev'))el('bnc-url-dev').value=d.url_notificacion_dev||'https://hrkjddehqnzcqwlkklqm.supabase.co/functions/v1/bnc-webhook';
       if(el('bnc-url-prod'))el('bnc-url-prod').value=d.url_notificacion_prod||'https://hrkjddehqnzcqwlkklqm.supabase.co/functions/v1/bnc-webhook';
-      if(el('bnc-wk'))el('bnc-wk').textContent=d.working_key?'✅ Activo ('+d.working_key_fecha+')':'⏳ No generado aún';
+      if(el('bnc-wk'))el('bnc-wk').textContent=d.working_key?'✅ Activo ('+(d.working_key_fecha||'')+')':'⏳ No generado aún';
+      // Credenciales: ya configuradas → mostrar enmascaradas, NO pedir de nuevo.
+      var est=el('bnc-cred-estado');
+      if(d.tiene_credenciales){
+        if(el('bnc-client-guid')){el('bnc-client-guid').value='';el('bnc-client-guid').placeholder='Configurado ('+(d.client_guid_masked||'••••')+') — deja en blanco para mantener';}
+        if(el('bnc-master-key')){el('bnc-master-key').value='';el('bnc-master-key').placeholder='Configurado ('+(d.master_key_masked||'••••')+') — deja en blanco para mantener';}
+        if(est){est.style.display='block';est.style.background='rgba(163,230,53,.08)';est.style.border='1px solid rgba(163,230,53,.3)';est.style.color='#a3e635';
+          est.innerHTML='✅ Credenciales BNC cargadas desde Supabase — Client GUID <b>'+(d.client_guid_masked||'')+'</b> · Master Key <b>'+(d.master_key_masked||'')+'</b>. No necesitas ingresarlas de nuevo.';}
+      } else if(est){
+        est.style.display='block';est.style.background='rgba(251,191,36,.08)';est.style.border='1px solid rgba(251,191,36,.3)';est.style.color='#fbbf24';
+        est.innerHTML='⚠️ Aún no hay credenciales BNC guardadas. Ingrésalas y pulsa «Guardar Configuración».';
+      }
     }
     bncRenderCuentas();
     // Cargar notificaciones recientes
@@ -2269,20 +2282,21 @@ async function bncCargarConfig(){
 
 async function bncGuardarConfig(){
   var el=function(id){var e=document.getElementById(id);return e?e.value.trim():'';};
-  var cfg={
-    client_guid:el('bnc-client-guid'),
-    master_key:el('bnc-master-key'),
-    cuenta:el('bnc-cuenta'),
-    telefono_pm:el('bnc-telefono'),
-    moneda:el('bnc-moneda')||'VES',
-    url_notificacion_dev:el('bnc-url-dev'),
-    url_notificacion_prod:el('bnc-url-prod'),
-    updated_at:new Date().toISOString()
-  };
+  // Se guarda vía RPC SECURITY DEFINER (la tabla bnc_config es solo service_role por
+  // seguridad). Los campos de credencial en blanco NO sobrescriben las actuales.
   try{
-    var r=await supabase.from('bnc_config').update(cfg).neq('id','00000000-0000-0000-0000-000000000000');
+    var r=await supabase.rpc('bnc_actualizar_config',{
+      p_client_guid: el('bnc-client-guid')||null,
+      p_master_key:  el('bnc-master-key')||null,
+      p_cuenta:      el('bnc-cuenta')||null,
+      p_telefono_pm: el('bnc-telefono')||null,
+      p_moneda:      el('bnc-moneda')||'VES',
+      p_url_dev:     el('bnc-url-dev')||null,
+      p_url_prod:    el('bnc-url-prod')||null
+    });
     if(r.error)throw r.error;
     alert('✅ Configuración BNC guardada');
+    bncCargarConfig();
   }catch(e){alert('Error guardando: '+e.message);}
 }
 
