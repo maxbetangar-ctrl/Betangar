@@ -10629,22 +10629,30 @@ async function cargarTasas(){
       }
     }catch(e){}
   }
-  var bcvN=0,fuenteOk='';
+  var bcvN=0,binN=0,fuenteOk='';
   var apis=[
-    async function(){var r=await fetch('https://ve.dolarapi.com/v1/dolares',{mode:'cors',signal:AbortSignal.timeout(6000)});if(r.ok){var d=await r.json();if(Array.isArray(d))d.forEach(function(t){var f=(t.fuente||t.nombre||'').toLowerCase();var v=parseFloat(t.promedio||t.precio||0);if(!v)return;if(f.includes('bcv')||f.includes('oficial'))bcvN=v;});if(bcvN)fuenteOk='ve.dolarapi.com';}},
+    // Fuente preferida: tasa BCV oficial del BNC (mas estable). Solo si es realista (>100);
+    // mientras el BNC siga en certificacion devuelve un valor viejo (~36) y se ignora.
+    async function(){try{var r=await fetch(SUPA_URL+'/functions/v1/bnc-saldo',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+SUPA_KEY},body:JSON.stringify({action:'tasas'}),signal:AbortSignal.timeout(9000)});if(r.ok){var d=await r.json();var pv=(d&&d.data)?parseFloat(d.data.PriceRateBCV||0):0;if(pv&&pv>100){bcvN=pv;fuenteOk='BNC (oficial)';}}}catch(e){}},
+    async function(){var r=await fetch('https://ve.dolarapi.com/v1/dolares',{mode:'cors',signal:AbortSignal.timeout(6000)});if(r.ok){var d=await r.json();if(Array.isArray(d))d.forEach(function(t){var f=(t.fuente||t.nombre||'').toLowerCase();var v=parseFloat(t.promedio||t.precio||0);if(!v)return;if((f.includes('bcv')||f.includes('oficial'))&&!bcvN)bcvN=v;if((f.includes('paralelo')||f.includes('binance')||f.includes('bitcoin'))&&!binN)binN=v;});if(bcvN&&!fuenteOk)fuenteOk='ve.dolarapi.com';}},
     async function(){if(bcvN)return;var r=await fetch('https://ve.dolarapi.com/v1/dolares/oficial',{mode:'cors',signal:AbortSignal.timeout(5000)});if(r.ok){var d=await r.json();bcvN=parseFloat(d.promedio||d.precio||0);if(bcvN)fuenteOk='dolarapi/oficial';}},
     async function(){if(bcvN)return;var r=await fetch('https://pydolarve.org/api/v1/dollar?monitor=bcv',{mode:'cors',signal:AbortSignal.timeout(5000)});if(r.ok){var d=await r.json();bcvN=parseFloat(d.price||d.promedio||0);if(bcvN)fuenteOk='pydolarve.org';}},
     async function(){if(bcvN)return;var r=await fetch('https://api.exchangerate-api.com/v4/latest/USD',{signal:AbortSignal.timeout(5000)});if(r.ok){var d=await r.json();if(d.rates&&d.rates.VES){bcvN=parseFloat(d.rates.VES);if(bcvN)fuenteOk='exchangerate-api';}}}
   ];
   for(var i=0;i<apis.length;i++){try{await apis[i]();}catch(e){}}
+  // Tasa Binance/paralelo REAL (antes se copiaba el BCV — ese era el bug). Fuentes dedicadas:
+  if(!binN||binN<100){var apisBin=[
+    async function(){try{var r=await fetch('https://pydolarve.org/api/v1/dollar?monitor=binance',{mode:'cors',signal:AbortSignal.timeout(5000)});if(r.ok){var d=await r.json();var v=parseFloat(d.price||d.promedio||0);if(v>100)binN=v;}}catch(e){}},
+    async function(){if(binN>100)return;try{var r=await fetch('https://ve.dolarapi.com/v1/dolares/paralelo',{mode:'cors',signal:AbortSignal.timeout(5000)});if(r.ok){var d=await r.json();var v=parseFloat(d.promedio||d.precio||0);if(v>100)binN=v;}}catch(e){}}
+  ];for(var k=0;k<apisBin.length;k++){try{await apisBin[k]();}catch(e){}}}
   if(bcvN&&bcvN>100){
     TASAS.bcvDolar=bcvN;TASAS.bcvEuro=TASAS.bcvEuro||Math.round(bcvN*1.08*100)/100;
-    TASAS.binance=TASAS.binance||bcvN;TASAS.promedio=((bcvN+(TASAS.binance||bcvN))/2);
+    TASAS.binance=(binN&&binN>100)?binN:(TASAS.binance&&TASAS.binance>100?TASAS.binance:bcvN);TASAS.promedio=((bcvN+TASAS.binance)/2);
     TASAS.fecha=new Date().toLocaleDateString('es-VE');TASAS.hora=new Date().toLocaleTimeString('es-VE',{hour:'2-digit',minute:'2-digit'});TASAS.fuente=fuenteOk;
     if(DB_READY&&supabase){try{await supabase.from('configuracion').upsert([{clave:'tasas_bcv',valor:JSON.stringify({bcvDolar:TASAS.bcvDolar,bcvEuro:TASAS.bcvEuro,binance:TASAS.binance,promedio:TASAS.promedio,fecha:TASAS.fecha,hora:TASAS.hora,fuente:TASAS.fuente})}],{onConflict:'clave',ignoreDuplicates:false});}catch(e){}}
   } else {
     if(!TASAS.bcvDolar||TASAS.bcvDolar<100){TASAS.bcvDolar=cfg.tasa||600;TASAS.fuente='fallback';}
-    TASAS.bcvEuro=TASAS.bcvEuro||Math.round(TASAS.bcvDolar*1.08);TASAS.binance=TASAS.binance||TASAS.bcvDolar;TASAS.promedio=((TASAS.bcvDolar+TASAS.binance)/2);
+    TASAS.bcvEuro=TASAS.bcvEuro||Math.round(TASAS.bcvDolar*1.08);TASAS.binance=(binN&&binN>100)?binN:(TASAS.binance||TASAS.bcvDolar);TASAS.promedio=((TASAS.bcvDolar+TASAS.binance)/2);
   }
   renderTasas();autoLlenarTasasEnFormularios();return TASAS;
 }
