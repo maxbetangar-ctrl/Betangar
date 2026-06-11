@@ -13,19 +13,21 @@
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
 :root{
-  --bg:#08111f;--bg2:#0c1a2e;--bg3:#0f2040;
-  --card:#0d1e3a;--card2:#112347;
-  --border:#1e3a5f;--border2:#2a5080;
+  /* Fondo aclarado: mismo tema oscuro pero más ameno a la vista (antes 08111f/0c1a2e/0f2040) */
+  --bg:#0e1d33;--bg2:#15273f;--bg3:#1b3357;
+  --card:#16294a;--card2:#1b3157;
+  --border:#274a73;--border2:#356092;
   --green:#a3e635;--green2:#84cc16;--green3:#65a30d;
   --lime:#a3e635;--teal:#14b8a6;
   --yellow:#fbbf24;--orange:#fb923c;
   --red:#f87171;--blue:#38bdf8;--purple:#a78bfa;
-  --text:#e8f4ff;--text1:#e8f4ff;--text2:#8fc4de;--text3:#4a7da3;
+  /* Texto secundario con más contraste (antes text2 8fc4de / text3 4a7da3) */
+  --text:#eef6ff;--text1:#eef6ff;--text2:#aed4ea;--text3:#7ba6c8;
   --f:'Outfit',sans-serif;--m:'JetBrains Mono',monospace;
 }
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%;overflow:hidden}
-body{background:var(--bg);color:var(--text);font-family:var(--f);display:flex;flex-direction:column}
+body{background:var(--bg);color:var(--text);font-family:var(--f);display:flex;flex-direction:column;font-size:13px}
 .topnav{background:linear-gradient(135deg,#0c1a2e,#0f2040);border-bottom:1px solid var(--border);padding:0 10px;display:flex;align-items:center;flex-shrink:0;height:48px;position:sticky;top:0;z-index:100;box-shadow:0 2px 12px rgba(0,0,0,.4)}
 .nav-logo{display:flex;align-items:center;padding-right:10px;border-right:1px solid var(--border);flex-shrink:0}
 .nav-right{display:flex;align-items:center;gap:6px;flex-shrink:0}
@@ -66,8 +68,16 @@ body{background:var(--bg);color:var(--text);font-family:var(--f);display:flex;fl
 .fr4{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
 .tw{overflow-x:auto;border-radius:9px;border:1px solid var(--border)}
 table{width:100%;border-collapse:collapse}
-th{background:var(--bg3);padding:7px 10px;text-align:left;font-size:9px;color:#a0c8e0;letter-spacing:1px;text-transform:uppercase;font-weight:700;white-space:nowrap}
-td{padding:6px 10px;border-top:1px solid var(--border);font-size:12px;white-space:nowrap;color:var(--text)}
+th{background:var(--bg3);padding:7px 10px;text-align:left;font-size:10px;color:#bcdcf0;letter-spacing:1px;text-transform:uppercase;font-weight:700;white-space:nowrap}
+td{padding:6px 10px;border-top:1px solid var(--border);font-size:13px;white-space:nowrap;color:var(--text)}
+/* Legibilidad mobile: mínimo 14px en contenido y controles (desktop usa 13px base) */
+@media (max-width:768px){
+  body{font-size:14px}
+  td,.fc,.btn,.menu-item,.ctitle,.stat-sub{font-size:14px}
+  th{font-size:11px}
+  .fg label{font-size:12px}
+  .btn-sm{font-size:13px}.btn-xs{font-size:12px}
+}
 tr:hover td{background:rgba(45,255,122,.02)}
 .badge{display:inline-block;padding:1px 7px;border-radius:20px;font-size:9px;font-weight:700;font-family:var(--m)}
 .bg{background:rgba(45,255,122,.2);color:#a3e635}.by{background:rgba(251,191,36,.2);color:#fbbf24}
@@ -1306,9 +1316,11 @@ tr:hover td{background:rgba(45,255,122,.02)}
     </div>
     <div class="card">
       <div class="sh"><div class="st">Gasolina Personal</div></div>
-      <div class="fr2"><div class="fg"><label>Persona</label><select class="fc" id="gp-per"><option>Supervisor Ruta (moto)</option><option>Gte. Operaciones</option><option>Mecanico</option><option>Vehiculo Peugeot Partner</option><option>Otro</option></select></div><div class="fg"><label>Litros</label><input class="fc" id="gp-lit" type="number" placeholder="0"></div></div>
+      <div class="fr2"><div class="fg"><label>Persona</label><select class="fc" id="gp-per"><option>Supervisor Ruta (moto)</option><option>Gte. Operaciones</option><option>Mecanico</option><option>Vehiculo Peugeot Partner</option><option>Jinet</option><option>Máximo</option><option>Otro</option></select></div><div class="fg"><label>Litros</label><input class="fc" id="gp-lit" type="number" placeholder="0"></div></div>
       <div class="fr2"><div class="fg"><label>Fecha</label><input class="fc" id="gp-f" type="date"></div><div class="fg"><label>Monto $</label><input class="fc" id="gp-m" placeholder="auto" style="font-family:var(--m)"></div></div>
       <button class="btn btn-g btn-sm" style="width:100%;margin-bottom:8px" onclick="guardarGasol()">Registrar</button>
+      <div class="fr2" style="margin-bottom:8px"><div class="fg" style="margin:0"><label style="font-size:10px">Filtrar por fecha</label><input class="fc" id="gp-filtro-f" type="date" onchange="renderGasolPersonal()" style="padding:6px 8px"></div><div class="fg" style="margin:0"><label style="font-size:10px">Filtrar por persona</label><select class="fc" id="gp-filtro-per" onchange="renderGasolPersonal()" style="padding:6px 8px"><option value="">Todas</option></select></div></div>
+      <div style="text-align:right;margin-bottom:4px"><button class="btn btn-s btn-xs" onclick="document.getElementById('gp-filtro-f').value='';document.getElementById('gp-filtro-per').value='';renderGasolPersonal()">Limpiar filtros</button></div>
       <div class="tw" style="max-height:160px;overflow-y:auto"><table><thead><tr><th>Fecha</th><th>Persona</th><th>L</th><th>$</th><th></th></tr></thead><tbody id="tb-gasol"></tbody></table></div>
     </div>
   </div>
@@ -3765,7 +3777,7 @@ function imprimirAbonos(){
   var totalV=ABONOS.reduce(function(s,a){return s+a.v;},0);
   var filas=ABONOS.map(function(a,i){
     return '<tr style="background:'+(i%2===0?'#fff':'#f5f9ff')+'">'+
-      '<td>'+a.f+'</td><td class="bv"><b>'+a.fact+'</b></td>'+
+      '<td>'+formatFecha(a.f)+'</td><td class="bv"><b>'+a.fact+'</b></td>'+
       '<td style="text-align:center;font-weight:700">'+a.v+'</td>'+
       '<td class="gv">$'+a.m.toLocaleString('es-VE',{minimumFractionDigits:2})+'</td>'+
       '<td class="mono" style="color:#6b7280">Bs '+(a.m*tasa).toLocaleString('es-VE',{maximumFractionDigits:0})+'</td>'+
@@ -4004,7 +4016,10 @@ function ensureTasasYCalc(cDolar, cEuro, cb){
   var td=getTasa('bcvDolar');
   if(!td){ tasaOManual('bcvDolar', function(){ ensureTasasYCalc(cDolar,cEuro,cb); }); return; }
   var te=getTasa('bcvEuro');
-  if(!te){ tasaOManual('bcvEuro', function(){ ensureTasasYCalc(cDolar,cEuro,cb); }); return; }
+  // Solo exigir tasa euro si el costo realmente tiene componente en euros; de lo
+  // contrario un despacho se quedaba bloqueado esperando una tasa que no se usa.
+  if(!te && cEuro>0){ tasaOManual('bcvEuro', function(){ ensureTasasYCalc(cDolar,cEuro,cb); }); return; }
+  te=te||0;
   var totalBs=cDolar*td + cEuro*te;   // costo por litro en Bs (componente dólar + componente euro)
   var totalUsd=totalBs/td;            // costo por litro en USD
   cb(totalUsd, totalBs, td, te);
@@ -4037,13 +4052,18 @@ function _persistirDespacho(r, bajarTanque){
   r.tipo_operacion='despacho';
   GASOIL.push(r);
   if(bajarTanque){ tankNivel=Math.max(0,tankNivel-r.lit); sv('tank-niv',tankNivel.toString()); updTank(); }
-  if(DB_READY&&supabase){
-    supabase.from('gasoil').insert([{f:r.f,cam:r.cam,lit:r.lit,src:r.src,m:r.m,tipo_operacion:'despacho'}])
-      .then(function(res){if(res.error)console.log('Gasoil Supabase:',res.error.message);});
-  }
   try{localStorage.setItem('btg_gasoil',JSON.stringify(GASOIL));}catch(e){}
   sv('gc-lit','');sv('gc-precio','');audit('Despacho gasoil',r.cam+' '+r.lit+'L '+r.src);
   renderGasoil();
+  if(DB_READY&&supabase){
+    // .select() para capturar el id real y poder eliminar luego sin recargar.
+    supabase.from('gasoil').insert([{f:r.f,cam:r.cam,lit:r.lit,src:r.src,m:r.m,tipo_operacion:'despacho'}]).select()
+      .then(function(res){
+        if(res.error){alert('⚠️ Despacho guardado localmente pero NO se sincronizó con Supabase:\n'+res.error.message+'\n\nRevisa tu conexión.');return;}
+        if(res.data&&res.data[0]){r.id=res.data[0].id;try{localStorage.setItem('btg_gasoil',JSON.stringify(GASOIL));}catch(e){}}
+      });
+  }
+  alert('✅ Despacho registrado: '+r.cam+' — '+r.lit+' L ('+r.src+')');
 }
 
 // COMPRA de combustible a proveedor de tanque (Tumaca/Boscán): sube el tanque y genera CxP.
@@ -4101,8 +4121,21 @@ async function guardarGasol(){
 // Render gasolina personal con boton eliminar (token), filtra registros sin monto
 function renderGasolPersonal(){
   var tb=g('tb-gasol');if(!tb)return;
+  // Poblar el filtro de personas con las que existen en los registros (+ conserva selección).
+  var selPer=g('gp-filtro-per');
+  if(selPer){
+    var personas=[...new Set(GASOL.map(function(r){return r.per;}).filter(Boolean))].sort();
+    var curPer=selPer.value;
+    selPer.innerHTML='<option value="">Todas</option>'+personas.map(function(p){return '<option value="'+p+'">'+p+'</option>';}).join('');
+    selPer.value=curPer;
+  }
+  var filtF=gv('gp-filtro-f')||'';
+  var filtPer=gv('gp-filtro-per')||'';
   var datos=GASOL.map(function(r,i){return{r:r,i:i};}).filter(function(o){
-    return!(o.r.m===undefined||o.r.m===null||isNaN(o.r.m));
+    if(o.r.m===undefined||o.r.m===null||isNaN(o.r.m))return false;
+    if(filtF&&String(o.r.f||'').slice(0,10)!==filtF)return false;
+    if(filtPer&&o.r.per!==filtPer)return false;
+    return true;
   });
   if(!datos.length){tb.innerHTML='<tr><td colspan="5" style="text-align:center;color:var(--text3);padding:12px">Sin registros</td></tr>';return;}
   tb.innerHTML=datos.slice().reverse().map(function(o){
@@ -4140,7 +4173,7 @@ function imprimirCombustible(){
   var totM=GASOIL.reduce(function(s,g){return s+g.m;},0);
   var filas=GASOIL.slice().reverse().map(function(g,i){
     return '<tr style="background:'+(i%2===0?'#fff':'#f5f9ff')+'">'+
-      '<td>'+g.f+'</td><td class="bv"><b>'+g.cam+'</b></td>'+
+      '<td>'+formatFecha(g.f)+'</td><td class="bv"><b>'+g.cam+'</b></td>'+
       '<td style="text-align:right;font-weight:700">'+g.lit+'L</td>'+
       '<td>'+g.src+'</td>'+
       '<td class="gv">$'+g.m.toFixed(2)+'</td></tr>';
@@ -4787,33 +4820,58 @@ function renderDocAlertas(){
   proximos.filter(function(v){return v.dr<=7;}).forEach(function(v){sendWA('⚠️ PROXIMO VENCIMIENTO: '+v.label+' en '+v.dr+' dias',['operativo']);});
 }
 
+// Panel desplegable por entidad: al hacer click en un camión/empleado se despliega
+// un panel con TODOS sus documentos, en vez de repetir una fila por cada documento.
+function toggleDocPanel(tipo,id){
+  var p=document.getElementById('docpanel-'+tipo+'-'+id);
+  var a=document.getElementById('docarrow-'+tipo+'-'+id);
+  if(!p)return;
+  var abierto=p.style.display!=='none';
+  p.style.display=abierto?'none':'block';
+  if(a)a.textContent=abierto?'▸':'▾';
+}
+function _docResumenBadge(docs, tipos){
+  var peor=9999, hay=false;
+  tipos.forEach(function(t){var d=docs[t]; if(d&&d.venc){hay=true; var dr=diasHasta(d.venc); if(dr<peor)peor=dr;}});
+  return hay?vencBadge(peor):'<span class="badge bt">Sin docs</span>';
+}
 function renderDocTablas(){
   var cams=Object.keys(FLOTA).filter(function(k){return k.startsWith('JAC-B');});
   var tiposCam=['seguro','circulacion','revision'];
-  var rowsCam=[];
-  cams.forEach(function(cam){
+  var htmlCam=cams.map(function(cam){
     var d=DOCS_CAM[cam]||{};
-    tiposCam.forEach(function(tipo){
+    var detalle=tiposCam.map(function(tipo){
       var doc=d[tipo]||{venc:'',num:'',ente:''};
       var dr=doc.venc?diasHasta(doc.venc):9999;
-      rowsCam.push('<tr><td style="font-weight:700">'+cam+'</td><td><span class="badge bb">'+tipo+'</span></td><td style="font-family:var(--m);font-size:10px">'+doc.num+'</td><td style="font-size:11px">'+doc.ente+'</td><td>'+doc.venc+'</td><td>'+vencBadge(dr)+'</td></tr>');
-    });
-  });
+      return '<tr><td><span class="badge bb">'+tipo+'</span></td><td style="font-family:var(--m);font-size:10px">'+(doc.num||'—')+'</td><td style="font-size:11px">'+(doc.ente||'—')+'</td><td>'+(doc.venc?formatFecha(doc.venc):'—')+'</td><td>'+(doc.venc?vencBadge(dr):'')+'</td></tr>';
+    }).join('');
+    return '<div style="border:1px solid var(--border);border-radius:10px;margin-bottom:6px;overflow:hidden">'+
+      '<div onclick="toggleDocPanel(\'cam\',\''+cam+'\')" style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;cursor:pointer;background:var(--bg2)">'+
+        '<div style="font-weight:700">🚛 '+cam+'</div>'+
+        '<div style="display:flex;gap:8px;align-items:center">'+_docResumenBadge(d,tiposCam)+'<span id="docarrow-cam-'+cam+'" style="color:var(--text3)">▸</span></div></div>'+
+      '<div id="docpanel-cam-'+cam+'" style="display:none;padding:6px 10px;background:var(--bg3)"><table style="width:100%"><thead><tr><th>Documento</th><th>N.</th><th>Ente</th><th>Vence</th><th>Estado</th></tr></thead><tbody>'+detalle+'</tbody></table></div>'+
+    '</div>';
+  }).join('');
   var dct=g('doc-cam-tabla');
-  if(dct)dct.innerHTML='<div class="tw"><table><thead><tr><th>Camion</th><th>Documento</th><th>N.</th><th>Ente</th><th>Vencimiento</th><th>Estado</th></tr></thead><tbody>'+rowsCam.join('')+'</tbody></table></div>';
+  if(dct)dct.innerHTML=htmlCam||'<div style="color:var(--text3);font-size:12px;padding:10px">Sin camiones</div>';
   var emps=EMPLEADOS.filter(function(e){return e.cargo==='Chofer'&&e.activo;});
   var tiposEmp=['cedula','licencia','medico'];
-  var rowsEmp=[];
-  emps.forEach(function(emp){
+  var htmlEmp=emps.map(function(emp){
     var d=DOCS_EMP[emp.id]||{};
-    tiposEmp.forEach(function(tipo){
+    var detalle=tiposEmp.map(function(tipo){
       var doc=d[tipo]||{venc:'',num:'',grado:''};
       var dr=doc.venc?diasHasta(doc.venc):9999;
-      rowsEmp.push('<tr><td style="font-weight:700;font-size:11px">'+emp.nombre+'</td><td><span class="badge bp">'+tipo+'</span></td><td style="font-family:var(--m);font-size:10px">'+doc.num+'</td><td style="font-size:10px">'+doc.grado+'</td><td>'+doc.venc+'</td><td>'+vencBadge(dr)+'</td></tr>');
-    });
-  });
+      return '<tr><td><span class="badge bp">'+tipo+'</span></td><td style="font-family:var(--m);font-size:10px">'+(doc.num||'—')+'</td><td style="font-size:10px">'+(doc.grado||'—')+'</td><td>'+(doc.venc?formatFecha(doc.venc):'—')+'</td><td>'+(doc.venc?vencBadge(dr):'')+'</td></tr>';
+    }).join('');
+    return '<div style="border:1px solid var(--border);border-radius:10px;margin-bottom:6px;overflow:hidden">'+
+      '<div onclick="toggleDocPanel(\'emp\',\''+emp.id+'\')" style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;cursor:pointer;background:var(--bg2)">'+
+        '<div style="font-weight:700;font-size:12px">👤 '+emp.nombre+'</div>'+
+        '<div style="display:flex;gap:8px;align-items:center">'+_docResumenBadge(d,tiposEmp)+'<span id="docarrow-emp-'+emp.id+'" style="color:var(--text3)">▸</span></div></div>'+
+      '<div id="docpanel-emp-'+emp.id+'" style="display:none;padding:6px 10px;background:var(--bg3)"><table style="width:100%"><thead><tr><th>Documento</th><th>N.</th><th>Grado</th><th>Vence</th><th>Estado</th></tr></thead><tbody>'+detalle+'</tbody></table></div>'+
+    '</div>';
+  }).join('');
   var det=g('doc-emp-tabla');
-  if(det)det.innerHTML='<div class="tw"><table><thead><tr><th>Empleado</th><th>Documento</th><th>N.</th><th>Grado</th><th>Vencimiento</th><th>Estado</th></tr></thead><tbody>'+rowsEmp.join('')+'</tbody></table></div>';
+  if(det)det.innerHTML=htmlEmp||'<div style="color:var(--text3);font-size:12px;padding:10px">Sin choferes activos</div>';
 }
 
 function guardarDocCam(){
@@ -4999,7 +5057,7 @@ function renderPrestamos(){
       var rest=p.montoUsd-p.pagado;
       var tr=document.createElement('tr');
       tr.innerHTML='<td style="font-weight:700;font-size:11px">'+p.empNombre+'</td>'+
-        '<td>'+p.fecha+'</td>'+
+        '<td>'+formatFecha(p.fecha)+'</td>'+
         '<td style="font-family:var(--m)">$'+p.montoUsd.toFixed(2)+'</td>'+
         '<td>'+p.semanas+'</td>'+
         '<td style="font-family:var(--m)">$'+p.cuotaUsd.toFixed(2)+'</td>'+
@@ -5058,7 +5116,7 @@ function renderMultas(){
     var rows=MULTAS.slice().reverse().map(function(m){
       var rest=m.montoBs-m.pagadoBs;
       var tr=document.createElement('tr');
-      tr.innerHTML='<td>'+m.fecha+'</td><td style="font-weight:700">'+m.camId+'</td>'+
+      tr.innerHTML='<td>'+formatFecha(m.fecha)+'</td><td style="font-weight:700">'+m.camId+'</td>'+
         '<td style="font-size:11px">'+m.desc+'</td>'+
         '<td style="font-family:var(--m)">Bs '+m.montoBs.toFixed(0)+'</td>'+
         '<td><span class="badge '+(m.resp==='empresa'?'bb':'br')+'">'+m.resp.toUpperCase()+'</span></td>'+
@@ -5646,7 +5704,7 @@ function imprimirReporteBancario(){
   var filas=movs.slice().reverse().slice(0,100).map(function(m,i){
     var esCred=m.tipo==='credito';
     return '<tr style="background:'+(i%2===0?'#fff':'#f5f9ff')+'">'+
-      '<td>'+(m.fecha||'—')+'</td>'+
+      '<td>'+(m.fecha?formatFecha(m.fecha):'—')+'</td>'+
       '<td class="mono" style="font-size:10px">'+(m.referencia||'—')+'</td>'+
       '<td style="font-size:11px">'+(m.descripcion||'—')+'</td>'+
       '<td class="'+(esCred?'gv':'rv')+'" style="text-align:right">'+(esCred?'+ ':'- ')+
@@ -5933,7 +5991,7 @@ function registrarPagoNom(){
   audit('Nomina pagada','Bs'+total+' ref:'+ref);
   alert('✅ Pago de nomina registrado. Bs'+total.toFixed(0));
   var hist=g('np-historial');
-  if(hist)hist.innerHTML='<div class="tw"><table><thead><tr><th>Fecha</th><th>Semana</th><th>Mes</th><th>Total Bs</th><th>Ref</th></tr></thead><tbody>'+NOMINA_PAGOS.slice().reverse().map(function(p){return'<tr><td>'+p.fecha+'</td><td>'+p.sem+'</td><td>'+p.mes+'</td><td style="font-family:var(--m);font-weight:700;color:var(--yellow)">Bs '+p.totalBs.toFixed(0)+'</td><td style="font-family:var(--m);font-size:10px">'+p.ref+'</td></tr>';}).join('')+'</tbody></table></div>';
+  if(hist)hist.innerHTML='<div class="tw"><table><thead><tr><th>Fecha</th><th>Semana</th><th>Mes</th><th>Total Bs</th><th>Ref</th></tr></thead><tbody>'+NOMINA_PAGOS.slice().reverse().map(function(p){return'<tr><td>'+formatFecha(p.fecha)+'</td><td>'+p.sem+'</td><td>'+p.mes+'</td><td style="font-family:var(--m);font-weight:700;color:var(--yellow)">Bs '+p.totalBs.toFixed(0)+'</td><td style="font-family:var(--m);font-size:10px">'+p.ref+'</td></tr>';}).join('')+'</tbody></table></div>';
 }
 
 function renderBancoFin(){
@@ -7002,32 +7060,53 @@ function guardarConfigRecordatorios(){
 }
 
 // ── Motor de recordatorios — se ejecuta cada minuto ──
+// Envía cada recordatorio UNA sola vez por día por rol+hora.
+// Clave localStorage: btg_rec_[rol]_[HHMM]_[fecha]  (fecha y hora LOCAL, Venezuela UTC-4).
+// Ventana de gracia: si la pestaña estuvo en segundo plano y se saltó el minuto exacto,
+// igual envía dentro de las 2h siguientes a la hora programada (no a horas incorrectas).
 var _REC_ULTIMO_MIN = '';
+var REC_GRACIA_MIN = 120; // ventana máxima de envío tardío, en minutos
+function _recFechaLocal(d){
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+}
+function _recMin(hhmm){ var p=String(hhmm||'').split(':'); return (parseInt(p[0],10)||0)*60+(parseInt(p[1],10)||0); }
+function _recDebeEnviar(horaProg, minActual){
+  var dif=minActual-_recMin(horaProg);
+  return dif>=0 && dif<=REC_GRACIA_MIN;
+}
+// Coincidencia rol ↔ cargo del empleado (centraliza la lógica que estaba duplicada).
+function _recRolMatch(rol, cargo){
+  cargo=(cargo||'').toLowerCase();
+  switch(rol){
+    case 'chofer':    return cargo.includes('chofer');
+    case 'vigilante': return cargo.includes('vigilante')||cargo.includes('porteria');
+    case 'mecanica':  return cargo.includes('mec');
+    case 'operativo': return cargo.includes('oper');
+    case 'admin':     return cargo.includes('admin')||cargo.includes('administr');
+    case 'rrhh':      return cargo.includes('rrhh')||cargo.includes('recursos');
+    default:          return false;
+  }
+}
 function checkRecordatorios(){
   if(!DB_READY||!EMPLEADOS||!EMPLEADOS.length)return;
   var now=new Date();
   var horaActual=String(now.getHours()).padStart(2,'0')+':'+String(now.getMinutes()).padStart(2,'0');
   if(horaActual===_REC_ULTIMO_MIN)return;
   _REC_ULTIMO_MIN=horaActual;
-  var hoyStr=now.toISOString().slice(0,10);
+  var hoyStr=_recFechaLocal(now);
+  var minActual=now.getHours()*60+now.getMinutes();
 
   // Recordatorios por rol
   RECORDATORIOS_CONFIG.forEach(function(rolCfg){
     if(!rolCfg.activo)return;
     rolCfg.mensajes.forEach(function(m){
-      if(!m.activo||m.hora!==horaActual)return;
-      var keyRec='btg_rec_'+hoyStr+'_'+rolCfg.rol+'_'+m.hora.replace(':','');
+      if(!m.activo||!_recDebeEnviar(m.hora,minActual))return;
+      var keyRec='btg_rec_'+rolCfg.rol+'_'+m.hora.replace(':','')+'_'+hoyStr;
       if(localStorage.getItem(keyRec))return;
       localStorage.setItem(keyRec,'1');
-      // Enviar a empleados con ese rol que tengan WA
+      // Enviar a empleados ACTIVOS con ese rol que tengan WA
       var destsEmp=EMPLEADOS.filter(function(e){
-        return e.whatsapp&&e.wa_apikey&&
-          (rolCfg.rol==='chofer'?e.cargo&&e.cargo.toLowerCase().includes('chofer'):
-           rolCfg.rol==='vigilante'?e.cargo&&(e.cargo.toLowerCase().includes('vigilante')||e.cargo.toLowerCase().includes('porteria')):
-           rolCfg.rol==='mecanica'?e.cargo&&e.cargo.toLowerCase().includes('mec'):
-           rolCfg.rol==='operativo'?e.cargo&&e.cargo.toLowerCase().includes('oper'):
-           rolCfg.rol==='admin'?e.cargo&&(e.cargo.toLowerCase().includes('admin')||e.cargo.toLowerCase().includes('administr')):
-           rolCfg.rol==='rrhh'?e.cargo&&(e.cargo.toLowerCase().includes('rrhh')||e.cargo.toLowerCase().includes('recursos')):false);
+        return e.activo!==false && e.whatsapp && e.wa_apikey && _recRolMatch(rolCfg.rol, e.cargo);
       });
       destsEmp.forEach(function(e){
         var msgFinal=_recTpl(m.msg, e);
@@ -7040,12 +7119,11 @@ function checkRecordatorios(){
   });
 
   // Recordatorio para TODOS (excluye socios y directivo)
-  if(REC_TODOS.activo&&REC_TODOS.hora===horaActual){
-    var keyTodos='btg_rec_todos_'+hoyStr+'_'+REC_TODOS.hora.replace(':','');
+  if(REC_TODOS.activo&&_recDebeEnviar(REC_TODOS.hora,minActual)){
+    var keyTodos='btg_rec_todos_'+REC_TODOS.hora.replace(':','')+'_'+hoyStr;
     if(!localStorage.getItem(keyTodos)){
       localStorage.setItem(keyTodos,'1');
-      var rolesExcluidos=['superadmin','directivo'];
-      EMPLEADOS.filter(function(e){return e.whatsapp&&e.wa_apikey;}).forEach(function(e){
+      EMPLEADOS.filter(function(e){return e.activo!==false&&e.whatsapp&&e.wa_apikey;}).forEach(function(e){
         var url='https://api.callmebot.com/whatsapp.php?phone='+encodeURIComponent(e.whatsapp)+'&text='+encodeURIComponent('BETANGAR: '+REC_TODOS.msg)+'&apikey='+e.wa_apikey;
         var img=new Image();img.src=url;
       });
@@ -8202,12 +8280,17 @@ function mostrarModalToken(accion, datos, callback){
 function solicitarEliminarGasoil(idx){
   var r = GASOIL[idx];
   if(!r){alert('Registro no encontrado');return;}
-  var desc = 'Eliminar combustible: '+r.cam+' - '+r.lit+'L - '+r.f;
+  // Pedir el motivo: se incluye en el WA que reciben los socios junto al token.
+  var motivo = prompt('Motivo de la eliminación de este despacho ('+r.cam+' - '+r.lit+'L):\n\nSe enviará a los socios por WhatsApp.');
+  if(motivo===null) return; // canceló
+  motivo=(motivo||'').trim();
+  if(!motivo){alert('Debes indicar el motivo para solicitar la eliminación.');return;}
+  var desc = 'Eliminar combustible: '+r.cam+' - '+r.lit+'L - '+r.f+'\n📝 Motivo: '+motivo;
   generarTokenAprobacion(desc, {idx:idx, r:r}, function(datos){
     eliminarGasoilConfirmado(datos.idx);
   });
   // Panel para ingresar token
-  var token_input = prompt('Acción enviada por WA.\nSi eres superadmin ingresa el token de aprobación:');
+  var token_input = prompt('Acción enviada por WA a los socios.\nSi eres superadmin ingresa el token de aprobación:');
   if(token_input){verificarToken(token_input, function(datos){eliminarGasoilConfirmado(datos.idx);});}
 }
 
@@ -8872,20 +8955,11 @@ function operResumenFlota(){
 
 
 
-function operProgramarRecordatorio(){
-  var now=new Date();
-  var target=new Date();
-  target.setHours(20,0,0,0);
-  if(now>target)target.setDate(target.getDate()+1);
-  var diff=target-now;
-  setTimeout(function(){
-    var hoy=new Date().toISOString().slice(0,10);
-    var faltantes=PARROQUIAS.filter(function(p){return !RUTAS_HOY[p]||!RUTAS_HOY[p].estado;});
-    if(faltantes.length>0){
-      sendWA('⚠️ RECORDATORIO BETANGAR\nSon las 8:00 PM y no se registro el estado de:\n'+faltantes.join('\n')+'\n\nPor favor registrar antes de cerrar.',['operativo']);
-    }
-  },diff);
-}
+// DESACTIVADO: este setTimeout se reprogramaba cada vez que se abría el módulo
+// operativo (timers apilados → recordatorios repetidos) y al despertar de suspensión
+// disparaba a horas incorrectas. El recordatorio operativo de las 18:00 ahora lo maneja
+// el motor central checkRecordatorios() con de-dup diario por localStorage.
+function operProgramarRecordatorio(){ /* no-op: ver checkRecordatorios() */ }
 
 // ══════════════════════════════════════════════════
 // DASHBOARD: Widget estado flota y rutas
@@ -10389,22 +10463,31 @@ function renderWidgetFlota(){
   var cams=Object.keys(FLOTA_MAP_WF);
   Promise.all([
     supabase.from('viajes_chofer').select('cam,viaje_num').eq('fecha',hoy),
-    supabase.from('viajes_chofer').select('cam,viaje_num').gte('fecha',lunes).lte('fecha',hoy)
+    supabase.from('viajes_chofer').select('cam,viaje_num').gte('fecha',lunes).lte('fecha',hoy),
+    supabase.from('checklist').select('cam,estado_vehiculo').eq('fecha',hoy)
   ]).then(function(res){
     var ph={},ps={};cams.forEach(function(c){ph[c]=0;ps[c]=0;});
     if(!res[0].error&&res[0].data)res[0].data.forEach(function(v){if(ph[v.cam]!==undefined)ph[v.cam]++;});
     if(!res[1].error&&res[1].data)res[1].data.forEach(function(v){if(ps[v.cam]!==undefined)ps[v.cam]++;});
+    // Checklists completados hoy por camión
+    var ckSet={};
+    if(!res[2].error&&res[2].data)res[2].data.forEach(function(c){if(ckSet[c.cam]===undefined)ckSet[c.cam]=c.estado_vehiculo||'operativo';});
+    var ckCount=cams.filter(function(c){return ckSet[c]!==undefined;}).length;
     var th=cams.reduce(function(s,c){return s+ph[c];},0),ts=cams.reduce(function(s,c){return s+ps[c];},0);
     if(g2)g2.textContent=th;if(g3)g3.textContent=ts;
-    g1.innerHTML=cams.map(function(cam){
+    var resumenCk='<div style="grid-column:1/-1;font-size:11px;color:var(--text2);font-weight:700;padding:2px 2px 4px">📋 Checklist hoy: <span style="color:'+(ckCount>=cams.length?'#7dc941':'var(--yellow)')+'">'+ckCount+' de '+cams.length+'</span> camiones</div>';
+    g1.innerHTML=resumenCk+cams.map(function(cam){
       var vh=ph[cam]||0,vs=ps[cam]||0,nm=(FLOTA_MAP_WF[cam]||cam).split(' ')[0],col=vh>0?'#7dc941':'var(--text3)';
-      return '<div style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:8px 6px;text-align:center">'+
+      var hizoCk=ckSet[cam]!==undefined;
+      var ckBadge=hizoCk?'<div style="font-size:8px;color:#7dc941;margin-top:2px">✅ checklist</div>':'<div style="font-size:8px;color:var(--text3);margin-top:2px">○ sin checklist</div>';
+      return '<div style="background:var(--bg3);border:1px solid '+(hizoCk?'rgba(125,201,65,.35)':'var(--border)')+';border-radius:8px;padding:8px 6px;text-align:center">'+
         '<div style="font-size:10px;font-weight:700;color:var(--text2)">'+cam.replace('JAC-','')+'</div>'+
         '<div style="font-size:9px;color:var(--text3);margin-bottom:4px">'+nm+'</div>'+
         '<div style="font-size:22px;font-weight:900;color:'+col+';font-family:var(--m);line-height:1">'+vh+'</div>'+
         '<div style="font-size:9px;color:var(--text3)">hoy</div>'+
         '<div style="font-size:12px;font-weight:700;color:#3b8fd4;margin-top:3px">'+vs+'</div>'+
-        '<div style="font-size:8px;color:var(--text3)">semana</div></div>';
+        '<div style="font-size:8px;color:var(--text3)">semana</div>'+
+        ckBadge+'</div>';
     }).join('');
     if(g5)g5.textContent='Act. '+new Date().toLocaleTimeString('es-VE',{hour:'2-digit',minute:'2-digit'});
   }).catch(function(){if(g1)g1.innerHTML='<div style="color:var(--text3);font-size:11px;padding:6px;grid-column:1/-1">Sin conexion</div>';});

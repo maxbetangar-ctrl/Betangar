@@ -574,7 +574,7 @@ document.addEventListener('DOMContentLoaded', function(){
         var clData = JSON.parse(clLocal);
         if(clData.km_salida) document.getElementById('cl-km-salida').value = clData.km_salida;
         if(clData.hora_salida) document.getElementById('cl-hora-salida').value = clData.hora_salida;
-        if(clData.combustible_salida) CL_COMB_SAL = clData.combustible_salida;
+        if(clData.comb_salida) CL_COMB_SAL = clData.comb_salida;
         if(clData.estado_vehiculo) CL_ESTADO = clData.estado_vehiculo;
         if(clData.observaciones) document.getElementById('cl-observaciones').value = clData.observaciones||'';
       }
@@ -720,10 +720,12 @@ function registrarViaje(num){
   if(navigator.vibrate) navigator.vibrate([60,40,60]);
   mostrarToast('✅ Viaje '+num+' registrado · '+hora);
 
+  // Solo columnas REALES de viajes_chofer: fecha, cam, chofer, viaje_num, hora, sincronizado.
+  // (Antes enviaba hora_registro/semana/año, que no existen → el upsert fallaba y el viaje
+  //  quedaba atrapado en la cola offline sin llegar nunca al dashboard.)
   var reg = {
     fecha: hoy, cam: cam, chofer: chofer,
-    viaje_num: num, hora_registro: hora,
-    semana: sem.semana, año: sem.anio
+    viaje_num: num, hora: hora, sincronizado: true
   };
 
   if(isOnline && supabase){
@@ -885,15 +887,10 @@ function cargarChecklistSupabase(){
 function precargarChecklist(d){
   if(d.km_salida) setVal('cl-km-salida', d.km_salida);
   if(d.hora_salida) setVal('cl-hora-salida', d.hora_salida);
-  if(d.combustible_salida){
-    CL_COMB_SAL = d.combustible_salida;
+  if(d.comb_salida){
+    CL_COMB_SAL = d.comb_salida;
     setTimeout(function(){ marcarCombBtn('salida', CL_COMB_SAL); }, 100);
   }
-  // Inspeccion
-  try{
-    var insp = typeof d.inspeccion === 'string' ? JSON.parse(d.inspeccion) : (d.inspeccion||{});
-    Object.keys(insp).forEach(function(k){ CL_ITEMS[k] = insp[k]; });
-  }catch(e){}
   if(d.estado_vehiculo){ CL_ESTADO = d.estado_vehiculo; }
   if(d.observaciones) setVal('cl-observaciones', d.observaciones);
 }
@@ -1014,25 +1011,33 @@ async function guardarChecklist(){
   var now  = new Date();
   var hora = now.toLocaleTimeString('es-VE',{hour:'2-digit',minute:'2-digit'});
 
+  // Solo columnas REALES de la tabla checklist (cam, conductor, fecha, llenado_por,
+  // estado_vehiculo, hora/km/comb _salida/_entrada, observaciones). No existe columna
+  // 'inspeccion' ni columnas por ítem para el chofer: los ítems en falla se resumen
+  // dentro de observaciones para no perder la información.
   var registro = {
     cam: cam,
     fecha: hoy,
-    chofer: chofer,
+    conductor: chofer,
     llenado_por: 'chofer',
     chofer_fecha_llenado: new Date().toISOString(),
-    inspeccion: JSON.stringify(CL_ITEMS),
     estado_vehiculo: CL_ESTADO || 'operativo',
     observaciones: gv('cl-observaciones')
   };
+  var fallas = Object.keys(CL_ITEMS).filter(function(k){return CL_ITEMS[k]==='mal';});
+  if(fallas.length){
+    var resumen = 'Fallas: '+fallas.join(', ').replace(/-/g,' ');
+    registro.observaciones = registro.observaciones ? (registro.observaciones+' | '+resumen) : resumen;
+  }
 
   if(CL_MODO==='salida'){
-    registro.km_salida        = parseInt(gv('cl-km-salida')) || null;
-    registro.hora_salida      = gv('cl-hora-salida') || hora;
-    registro.combustible_salida = CL_COMB_SAL || null;
+    registro.km_salida   = parseInt(gv('cl-km-salida')) || null;
+    registro.hora_salida = gv('cl-hora-salida') || hora;
+    registro.comb_salida = CL_COMB_SAL || null;
   } else {
-    registro.km_llegada       = parseInt(gv('cl-km-llegada')) || null;
-    registro.hora_llegada     = gv('cl-hora-llegada') || hora;
-    registro.combustible_llegada = CL_COMB_LLE || null;
+    registro.km_entrada   = parseInt(gv('cl-km-llegada')) || null;
+    registro.hora_entrada = gv('cl-hora-llegada') || hora;
+    registro.comb_entrada = CL_COMB_LLE || null;
   }
 
   // Guardar localmente primero
@@ -1101,24 +1106,22 @@ async function enviarNotificacionWA(reg){
       taller_jac:'Taller JAC', inoperativo:'Inoperativo'
     };
     var modo   = CL_MODO==='llegada' ? 'LLEGADA' : 'SALIDA';
-    var km     = reg.km_salida || reg.km_llegada || '-';
-    var hora   = reg.hora_salida || reg.hora_llegada || '-';
+    var km     = reg.km_salida || reg.km_entrada || '-';
+    var hora   = reg.hora_salida || reg.hora_entrada || '-';
     var estado = tiposEstado[reg.estado_vehiculo] || reg.estado_vehiculo || '-';
 
-    // Mensaje sin emojis especiales para mayor compatibilidad con callmebot
-    var msg = 'BETANGAR - Checklist '+modo+'\n'+
-              'Camion: '+cam+' | '+chofer+'\n'+
+    // Titular pedido: notifica de inmediato a socios y mecánico que el chofer completó el checklist
+    var msg = '✅ '+cam+' - '+chofer+' completó el checklist ('+modo+') a las '+hora+'\n'+
               'Fecha: '+new Date().toLocaleDateString('es-VE')+'\n'+
               'KM: '+km+'\n'+
-              'Hora: '+hora+'\n'+
               'Estado: '+estado;
-    if(reg.observaciones) msg += '\nObs: '+reg.observaciones.slice(0,80);
+    if(reg.observaciones) msg += '\nObs: '+reg.observaciones.slice(0,100);
 
-    // Enviar a todos los destinatarios configurados
+    // SIEMPRE Image() — nunca fetch() para callmebot (norma Betangar).
+    // Llega a todos los destinatarios con número y API key configurados (socios + mecánico).
     WA_DESTINATARIOS.forEach(function(dest){
       if(!dest.num||!dest.key)return;
       var urlD='https://api.callmebot.com/whatsapp.php?phone='+encodeURIComponent(dest.num)+'&text='+encodeURIComponent(msg)+'&apikey='+dest.key;
-      fetch(urlD,{mode:'no-cors'}).catch(function(){});
       var imgD=new Image();imgD.src=urlD;
     });
 
