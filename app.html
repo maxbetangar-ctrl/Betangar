@@ -6840,8 +6840,9 @@ function checkCumpleAlerts(){
       if(!localStorage.getItem(keyCum)){
         localStorage.setItem(keyCum,'1');
         var nombreSaludo=nombreCorto(e.nombre);
-        // (c) A RRHH y socios (config WhatsApp) — los socios reciben todo
-        sendWA('🎂 HOY cumpleanos de '+e.nombre+' ('+edad+' anos) - '+e.cargo,['rrhh','socios']);
+        // (c) A RRHH y socios → AHORA lo manda el servidor (edge function alertas-diarias, 8am/6pm).
+        // Se deja desactivado aca para no duplicar. Los saludos directos (a/b) siguen en el cliente.
+        // sendWA('🎂 HOY cumpleanos de '+e.nombre+' ('+edad+' anos) - '+e.cargo,['rrhh','socios']);
         // (a) Al festejado directamente si tiene WA registrado
         if(e.whatsapp&&e.wa_apikey){
           sendWADirecto(e.whatsapp,e.wa_apikey,'🎂 ¡Feliz Cumpleanos '+nombreSaludo+'! De parte de toda la familia Betangar');
@@ -10366,8 +10367,10 @@ function verificarAlertasServicio(){
     if(localStorage.getItem(alertKey))return;
     var chofer=FLOTA[cam]?FLOTA[cam].chofer:'Sin asignar';
     var msg='ALERTA SERVICIO JAC'+nl+'Unidad: '+cam+nl+'Conductor: '+chofer+nl+'KM actual: '+km.toLocaleString()+nl+'Proximo servicio: '+proximoSrv.toLocaleString()+' km'+nl+'Faltan: '+faltanKm+' km'+nl+nl+'Programar revision en concesionario JAC.';
-    sendWA(msg,'mecanico');
-    sendWA(msg,'operativo');
+    // Service a mecanica/operativo/socios → AHORA lo manda el servidor (alertas-diarias 8am/6pm).
+    // Desactivado aca para no duplicar. El aviso directo al chofer se mantiene en el cliente.
+    // sendWA(msg,'mecanico');
+    // sendWA(msg,'operativo');
     var empChofer=EMPLEADOS.find(function(e){return e.nombre.toUpperCase()===chofer.toUpperCase()&&e.whatsapp&&e.wa_apikey;});
     if(empChofer){try{sendWADirecto(empChofer.whatsapp,empChofer.wa_apikey,msg);}catch(e){}}
     var alertEl=document.getElementById('dash-alerta-srv');
