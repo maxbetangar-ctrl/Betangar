@@ -277,6 +277,8 @@ tr:hover td{background:rgba(45,255,122,.02)}
 </div>
 
 <div class="app-body">
+<!-- PANEL DE TOKENS PENDIENTES (solo superadmin) -->
+<div id="tokens-pend-banner" style="display:none;margin-bottom:12px"></div>
 <!-- DASHBOARD -->
 <div id="p-dashboard" class="page active">
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;padding:10px 14px;background:linear-gradient(135deg,var(--card),var(--card2));border:1px solid var(--border);border-radius:10px">
@@ -2207,6 +2209,8 @@ function _iniciarSesionCore(){
   });
   // Llamar cargarConfigWA async para refrescar desde Supabase si está disponible
   setTimeout(function(){cargarConfigWA();},1500);
+  // Panel de tokens pendientes (solo superadmin, refresco cada 30s)
+  iniciarBannerTokens();
 }
 
 function aplicarPermisos(){
@@ -6476,6 +6480,16 @@ function pedirNuevoToken(){
     'Si apruebas envia el token al solicitante. Si no, ignoralo.';
   // sendWA antepone "BETANGAR: "; va SIEMPRE a socios (Maximo y Francisco)
   sendWA(waMsg,'socios');
+  // Guardar en tokens_pendientes para el panel del dashboard (lo ve el superadmin)
+  if(supabase){
+    var _expTok=new Date(Date.now()+30*60*1000).toISOString(); // valido 30 min
+    supabase.from('tokens_pendientes').insert([{
+      token:codigo,usuario:SESION.nombre,accion:accion,motivo:motivo,expira:_expTok
+    }]).then(function(r){
+      if(r&&r.error)console.log('tokens_pendientes insert err:',r.error.message);
+      else if(esSuperAdmin())renderTokensPendientes();
+    });
+  }
   // Email respaldo
   if(typeof emailjs!=='undefined'){
     emailjs.send(EJS_SVC,EJS_TPL,{
@@ -6509,6 +6523,11 @@ function validarToken(){
   if(codigo!==TOKEN_ACTIVO.codigo){if(errEl){errEl.style.display='block';errEl.style.color='var(--red)';errEl.textContent='Codigo incorrecto.';}return;}
   // Token valido
   audit('Token validado',SESION.nombre+' ejecuto: '+TOKEN_ACTIVO.accion+' -- Motivo: '+motivo);
+  // Marcar como usado en el panel de tokens pendientes
+  if(supabase){
+    supabase.from('tokens_pendientes').update({usado:true}).eq('token',codigo).eq('usado',false)
+      .then(function(r){if(r&&r.error)console.log('tokens_pendientes use err:',r.error.message);});
+  }
   var confirmMsg='BETANGAR - ACCION EJECUTADA\n\n'+
     'Usuario: '+SESION.nombre+'\n'+
     'Accion: '+TOKEN_ACTIVO.accion+'\n'+
@@ -6545,6 +6564,100 @@ function confirmarMotivo(){
   closeModal();
   if(window._motivoCallback)window._motivoCallback(motivo);
   window._motivoCallback=null;
+}
+
+// ═══════════════════════════════════════════════════
+// PANEL DE TOKENS PENDIENTES DE APROBACION (solo superadmin)
+// ═══════════════════════════════════════════════════
+var _bannerTokensInterval=null;
+
+function _escHtml(s){
+  return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// Arranca el panel: render inmediato + refresco cada 30s. Solo para superadmin.
+function iniciarBannerTokens(){
+  if(_bannerTokensInterval){clearInterval(_bannerTokensInterval);_bannerTokensInterval=null;}
+  var cont=g('tokens-pend-banner');
+  if(!esSuperAdmin()){if(cont)cont.style.display='none';return;}
+  renderTokensPendientes();
+  _bannerTokensInterval=setInterval(renderTokensPendientes,30000);
+}
+
+function renderTokensPendientes(){
+  var cont=g('tokens-pend-banner');
+  if(!cont||!esSuperAdmin()||!supabase)return;
+  var ahora=new Date().toISOString();
+  supabase.from('tokens_pendientes').select('*')
+    .eq('usado',false).gt('expira',ahora)
+    .order('created_at',{ascending:false})
+    .then(function(res){
+      if(res&&res.error){console.log('tokens_pendientes select err:',res.error.message);return;}
+      var rows=(res&&res.data)||[];
+      if(!rows.length){cont.style.display='none';cont.innerHTML='';return;}
+      var h='<div class="card" style="border:1px solid rgba(250,204,21,.45);background:linear-gradient(135deg,rgba(250,204,21,.08),var(--card2))">'+
+        '<div class="sh" style="display:flex;justify-content:space-between;align-items:center">'+
+          '<div class="st" style="color:var(--yellow)">🔑 Tokens pendientes de aprobación</div>'+
+          '<span class="role-badge role-admin">'+rows.length+'</span>'+
+        '</div>';
+      rows.forEach(function(t){
+        var venceMin=Math.max(0,Math.round((new Date(t.expira)-new Date())/60000));
+        h+='<div style="border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-top:10px;background:var(--bg3)">'+
+          '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap">'+
+            '<div style="flex:1;min-width:200px">'+
+              '<div style="font-size:11px;color:var(--text3)">Solicita</div>'+
+              '<div style="font-size:14px;font-weight:800;color:var(--text)">'+_escHtml(t.usuario)+'</div>'+
+              '<div style="font-size:12px;color:var(--text2);margin-top:6px"><b style="color:var(--text)">Acción:</b> '+_escHtml(t.accion)+'</div>'+
+              '<div style="font-size:12px;color:var(--text2);margin-top:2px"><b style="color:var(--text)">Motivo:</b> '+_escHtml(t.motivo)+'</div>'+
+              '<div style="font-size:10px;color:var(--text3);margin-top:6px">⏱ Vence en '+venceMin+' min</div>'+
+            '</div>'+
+            '<div style="text-align:center;min-width:150px">'+
+              '<div style="font-size:10px;color:var(--text3);margin-bottom:4px">Token</div>'+
+              '<div style="font-family:var(--m);font-size:30px;font-weight:800;letter-spacing:6px;color:var(--green);background:rgba(163,230,53,.1);border:1px solid rgba(163,230,53,.3);border-radius:8px;padding:6px 10px">'+_escHtml(t.token)+'</div>'+
+            '</div>'+
+          '</div>'+
+          '<div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">'+
+            '<button class="btn btn-b btn-sm" style="flex:1;min-width:120px" onclick="copiarTokenPend(\''+_escHtml(t.token)+'\')">📋 Copiar token</button>'+
+            '<button class="btn btn-g btn-sm" style="flex:1;min-width:120px" onclick="aprobarTokenPend(\''+t.id+'\')">✅ Aprobar</button>'+
+            '<button class="btn btn-s btn-sm" style="flex:1;min-width:120px;color:var(--red);border-color:rgba(248,113,113,.4)" onclick="rechazarTokenPend(\''+t.id+'\')">❌ Rechazar</button>'+
+          '</div>'+
+        '</div>';
+      });
+      h+='</div>';
+      cont.innerHTML=h;
+      cont.style.display='block';
+    });
+}
+
+function copiarTokenPend(token){
+  var ok=function(){if(typeof toast==='function')toast('Token '+token+' copiado');else alert('Token copiado: '+token);};
+  if(navigator.clipboard&&navigator.clipboard.writeText){
+    navigator.clipboard.writeText(token).then(ok).catch(function(){_copiarFallback(token);ok();});
+  }else{_copiarFallback(token);ok();}
+}
+function _copiarFallback(token){
+  try{var ta=document.createElement('textarea');ta.value=token;ta.style.position='fixed';ta.style.opacity='0';
+    document.body.appendChild(ta);ta.select();document.execCommand('copy');document.body.removeChild(ta);}catch(e){}
+}
+
+function aprobarTokenPend(id){
+  if(!supabase)return;
+  supabase.from('tokens_pendientes').update({usado:true}).eq('id',id).then(function(r){
+    if(r&&r.error){alert('No se pudo aprobar: '+r.error.message);return;}
+    audit('Token APROBADO','El superadmin aprobó un token pendiente (id '+id+')');
+    renderTokensPendientes();
+  });
+}
+
+function rechazarTokenPend(id){
+  if(!supabase)return;
+  if(!confirm('¿Rechazar y eliminar este token?'))return;
+  supabase.from('tokens_pendientes').delete().eq('id',id).then(function(r){
+    if(r&&r.error){alert('No se pudo rechazar: '+r.error.message);return;}
+    audit('Token RECHAZADO','El superadmin rechazó/eliminó un token pendiente (id '+id+')');
+    renderTokensPendientes();
+  });
 }
 
 // ── WRAPPERS SIMPLES PARA ELIMINAR (evitan problemas de escaping en onclick) ──
