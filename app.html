@@ -6481,15 +6481,16 @@ function pedirNuevoToken(){
   // sendWA antepone "BETANGAR: "; va SIEMPRE a socios (Maximo y Francisco)
   sendWA(waMsg,'socios');
   // Guardar en tokens_pendientes para el panel del dashboard (lo ve el superadmin)
-  if(supabase){
-    var _expTok=new Date(Date.now()+30*60*1000).toISOString(); // valido 30 min
-    supabase.from('tokens_pendientes').insert([{
-      token:codigo,usuario:SESION.nombre,accion:accion,motivo:motivo,expira:_expTok
-    }]).then(function(r){
-      if(r&&r.error)console.log('tokens_pendientes insert err:',r.error.message);
-      else if(esSuperAdmin())renderTokensPendientes();
-    });
-  }
+  // Via fetch a PostgREST: funciona aunque el cliente supabase-js no haya cargado
+  var _expTok=new Date(Date.now()+30*60*1000).toISOString(); // valido 30 min
+  fetch(SUPA_URL+'/rest/v1/tokens_pendientes',{
+    method:'POST',
+    headers:_tokRestHdr({'Content-Type':'application/json','Prefer':'return=minimal'}),
+    body:JSON.stringify({token:codigo,usuario:SESION.nombre,accion:accion,motivo:motivo,expira:_expTok})
+  }).then(function(r){
+    if(!r.ok)r.text().then(function(t){console.log('tokens_pendientes insert err:',t);});
+    else if(esSuperAdmin())renderTokensPendientes();
+  }).catch(function(e){console.log('tokens_pendientes insert err:',e&&e.message);});
   // Email respaldo
   if(typeof emailjs!=='undefined'){
     emailjs.send(EJS_SVC,EJS_TPL,{
@@ -6523,11 +6524,12 @@ function validarToken(){
   if(codigo!==TOKEN_ACTIVO.codigo){if(errEl){errEl.style.display='block';errEl.style.color='var(--red)';errEl.textContent='Codigo incorrecto.';}return;}
   // Token valido
   audit('Token validado',SESION.nombre+' ejecuto: '+TOKEN_ACTIVO.accion+' -- Motivo: '+motivo);
-  // Marcar como usado en el panel de tokens pendientes
-  if(supabase){
-    supabase.from('tokens_pendientes').update({usado:true}).eq('token',codigo).eq('usado',false)
-      .then(function(r){if(r&&r.error)console.log('tokens_pendientes use err:',r.error.message);});
-  }
+  // Marcar como usado en el panel de tokens pendientes (fetch a PostgREST)
+  fetch(SUPA_URL+'/rest/v1/tokens_pendientes?token=eq.'+encodeURIComponent(codigo)+'&usado=eq.false',{
+    method:'PATCH',
+    headers:_tokRestHdr({'Content-Type':'application/json','Prefer':'return=minimal'}),
+    body:JSON.stringify({usado:true})
+  }).catch(function(){});
   var confirmMsg='BETANGAR - ACCION EJECUTADA\n\n'+
     'Usuario: '+SESION.nombre+'\n'+
     'Accion: '+TOKEN_ACTIVO.accion+'\n'+
@@ -6585,16 +6587,23 @@ function iniciarBannerTokens(){
   _bannerTokensInterval=setInterval(renderTokensPendientes,30000);
 }
 
+// Headers REST con la anon key (no depende del cliente supabase-js, que a veces no carga)
+function _tokRestHdr(extra){
+  var h={apikey:SUPA_KEY,Authorization:'Bearer '+SUPA_KEY};
+  if(extra)for(var k in extra)h[k]=extra[k];
+  return h;
+}
+
 function renderTokensPendientes(){
   var cont=g('tokens-pend-banner');
-  if(!cont||!esSuperAdmin()||!supabase)return;
+  if(!cont||!esSuperAdmin())return;
   var ahora=new Date().toISOString();
-  supabase.from('tokens_pendientes').select('*')
-    .eq('usado',false).gt('expira',ahora)
-    .order('created_at',{ascending:false})
-    .then(function(res){
-      if(res&&res.error){console.log('tokens_pendientes select err:',res.error.message);return;}
-      var rows=(res&&res.data)||[];
+  var url=SUPA_URL+'/rest/v1/tokens_pendientes?select=*&usado=eq.false'+
+    '&expira=gt.'+encodeURIComponent(ahora)+'&order=created_at.desc';
+  fetch(url,{headers:_tokRestHdr()})
+    .then(function(r){return r.json();})
+    .then(function(rows){
+      if(!Array.isArray(rows)){console.log('tokens_pendientes resp inesperada:',rows);return;}
       if(!rows.length){cont.style.display='none';cont.innerHTML='';return;}
       var h='<div class="card" style="border:1px solid rgba(250,204,21,.45);background:linear-gradient(135deg,rgba(250,204,21,.08),var(--card2))">'+
         '<div class="sh" style="display:flex;justify-content:space-between;align-items:center">'+
@@ -6627,7 +6636,8 @@ function renderTokensPendientes(){
       h+='</div>';
       cont.innerHTML=h;
       cont.style.display='block';
-    });
+    })
+    .catch(function(e){console.log('tokens_pendientes fetch err:',e&&e.message);});
 }
 
 function copiarTokenPend(token){
@@ -6642,22 +6652,27 @@ function _copiarFallback(token){
 }
 
 function aprobarTokenPend(id){
-  if(!supabase)return;
-  supabase.from('tokens_pendientes').update({usado:true}).eq('id',id).then(function(r){
-    if(r&&r.error){alert('No se pudo aprobar: '+r.error.message);return;}
+  fetch(SUPA_URL+'/rest/v1/tokens_pendientes?id=eq.'+encodeURIComponent(id),{
+    method:'PATCH',
+    headers:_tokRestHdr({'Content-Type':'application/json','Prefer':'return=minimal'}),
+    body:JSON.stringify({usado:true})
+  }).then(function(r){
+    if(!r.ok){return r.text().then(function(t){alert('No se pudo aprobar: '+t);});}
     audit('Token APROBADO','El superadmin aprobó un token pendiente (id '+id+')');
     renderTokensPendientes();
-  });
+  }).catch(function(e){alert('No se pudo aprobar: '+(e&&e.message));});
 }
 
 function rechazarTokenPend(id){
-  if(!supabase)return;
   if(!confirm('¿Rechazar y eliminar este token?'))return;
-  supabase.from('tokens_pendientes').delete().eq('id',id).then(function(r){
-    if(r&&r.error){alert('No se pudo rechazar: '+r.error.message);return;}
+  fetch(SUPA_URL+'/rest/v1/tokens_pendientes?id=eq.'+encodeURIComponent(id),{
+    method:'DELETE',
+    headers:_tokRestHdr()
+  }).then(function(r){
+    if(!r.ok){return r.text().then(function(t){alert('No se pudo rechazar: '+t);});}
     audit('Token RECHAZADO','El superadmin rechazó/eliminó un token pendiente (id '+id+')');
     renderTokensPendientes();
-  });
+  }).catch(function(e){alert('No se pudo rechazar: '+(e&&e.message));});
 }
 
 // ── WRAPPERS SIMPLES PARA ELIMINAR (evitan problemas de escaping en onclick) ──
