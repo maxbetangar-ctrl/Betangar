@@ -3690,7 +3690,7 @@ async function guardarAbono(){
     '💰 Monto: $'+ab.m.toLocaleString()+'\n'+
     '📅 Fecha: '+formatFecha(ab.f)+'\n'+
     '🏦 Ref: '+(ab.ref||'--')+'\n'+
-    '👤 Registrado por: '+(SESION&&SESION.nombre?SESION.nombre:'--'),'socios');
+    '👤 Registrado por: '+(SESION&&SESION.nombre?SESION.nombre:'--'),'socios',true);
   renderAbonos();renderDash();
   ['ab-f','ab-fact','ab-v','ab-m','ab-obs','ab-ref'].forEach(function(id){sv(id,'');});
   var hoy=new Date().toISOString().split('T')[0];sv('ab-f',hoy);
@@ -3926,7 +3926,7 @@ async function montarNominaBNC(){
   if(g('bnc-por-aut'))g('bnc-por-aut').textContent=porAut;
   // Notificar firmante por WhatsApp
   var totalBs=pagos.reduce(function(s,p){return s+p.montoBs;},0);
-  sendWA('🏦 BETANGAR: Nomina montada en BNC\n'+pagos.length+' empleados\nTotal: Bs '+totalBs.toLocaleString('es-VE',{maximumFractionDigits:0})+'\nAutorizar en BNCNET');
+  sendWA('🏦 BETANGAR: Nomina montada en BNC\n'+pagos.length+' empleados\nTotal: Bs '+totalBs.toLocaleString('es-VE',{maximumFractionDigits:0})+'\nAutorizar en BNCNET',null,true);
   audit('Nomina montada en BNC',pagos.length+' pagos pendientes de autorizacion');
   alert('✅ Nomina montada en BNC.\n'+pagos.length+' pagos pendientes de autorizar.\nSe envio WhatsApp al firmante.\n\n⚠ El firmante debe ingresar a BNCNET para autorizar.');
 }
@@ -4680,7 +4680,7 @@ function montarPagoBNC(id){
   BNC_MOV.push({id:Date.now()+'',fecha:new Date().toISOString().split('T')[0],monto:montoBs,tipo:'debito',desc:'PAGO PROVEEDOR: '+c.prov+' '+c.nota,ref:'',conciliado:false,pendienteAutorizacion:true,detalle:pv});
   var pend=BNC_MOV.filter(function(m){return m.pendienteAutorizacion;}).length;
   if(g('bnc-por-aut'))g('bnc-por-aut').textContent=pend;
-  sendWA('🏦 BETANGAR: Pago montado en BNC\nProveedor: '+c.prov+'\nMonto: Bs '+montoBs.toLocaleString('es-VE',{maximumFractionDigits:0})+'\nAutorizar en BNCNET');
+  sendWA('🏦 BETANGAR: Pago montado en BNC\nProveedor: '+c.prov+'\nMonto: Bs '+montoBs.toLocaleString('es-VE',{maximumFractionDigits:0})+'\nAutorizar en BNCNET',null,true);
   audit('Pago proveedor montado en BNC',c.prov+' Bs'+montoBs.toFixed(0));
   alert('✅ Pago montado en BNC.\nSe envio WhatsApp al firmante.\n\n⚠ El firmante debe autorizar en BNCNET.');
 }
@@ -6304,10 +6304,14 @@ function enviarWADirecto(lista, msg, callback){
 // ═══════════════════════════════════════════════════
 // WHATSAPP / CALLMEBOT
 // ═══════════════════════════════════════════════════
-// sendWA(msg, roles) — envía solo a los roles indicados
+// sendWA(msg, roles, force) — envía solo a los roles indicados
 // roles puede ser: 'todos', ['socios','admin'], 'socios', etc.
 // Si no se pasa roles, va a TODOS
-function sendWA(msg, roles){
+// force=true → envío interactivo (token, abono, nómina...): sale a cualquier hora.
+// Sin force → alerta automática: NO se envía en horario nocturno (9pm–7am VET).
+function _esSilencioNocturno(){ var h=new Date().getHours(); return (h<7||h>=21); }
+function sendWA(msg, roles, force){
+  if(!force && _esSilencioNocturno()){ console.log('WA automático silenciado (horario nocturno):',String(msg).slice(0,50)); return; }
   var destinos=WA.filter(function(w){
     if(!w.num||!w.key||!w.activo)return false;
     if(!roles||roles==='todos')return true;
@@ -6479,7 +6483,7 @@ function pedirNuevoToken(){
     '⏱ Valido 30 min\n\n'+
     'Si apruebas envia el token al solicitante. Si no, ignoralo.';
   // sendWA antepone "BETANGAR: "; va SIEMPRE a socios (Maximo y Francisco)
-  sendWA(waMsg,'socios');
+  sendWA(waMsg,'socios',true); // interactivo: sale a cualquier hora
   // Guardar en tokens_pendientes para el panel del dashboard (lo ve el superadmin)
   // Via fetch a PostgREST: funciona aunque el cliente supabase-js no haya cargado
   var _expTok=new Date(Date.now()+30*60*1000).toISOString(); // valido 30 min
@@ -6536,7 +6540,7 @@ function validarToken(){
     (TOKEN_ACTIVO.detalle?'Detalle: '+TOKEN_ACTIVO.detalle+'\n':'')+
     'Motivo: '+motivo+'\n'+
     'Fecha: '+new Date().toLocaleString('es-VE');
-  sendWA(confirmMsg,'socios');
+  sendWA(confirmMsg,'socios',true); // interactivo: sale a cualquier hora
   TOKEN_ACTIVO=null;
   closeModal();
   if(window._tokenCallback)window._tokenCallback(motivo);
