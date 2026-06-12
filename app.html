@@ -6645,6 +6645,7 @@ function renderTokensPendientes(){
   fetch(url,{headers:_tokRestHdr()})
     .then(function(r){return r.json();})
     .then(function(rows){
+      console.log('[TOKENS]',(Array.isArray(rows)?rows.length:0),'pendientes');
       if(!Array.isArray(rows)){console.log('tokens_pendientes resp inesperada:',rows);return;}
       if(!rows.length){cont.style.display='none';cont.innerHTML='';return;}
       var h='<div class="card" style="border:1px solid rgba(250,204,21,.45);background:linear-gradient(135deg,rgba(250,204,21,.08),var(--card2))">'+
