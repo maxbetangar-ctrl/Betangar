@@ -6891,10 +6891,17 @@ function pollTokensAprobados(){
   var toks=Object.keys(PENDING_TOKEN_CB);
   if(!toks.length){if(_pollTokensInt){clearInterval(_pollTokensInt);_pollTokensInt=null;}return;}
   toks.forEach(function(tk){
-    var url=SUPA_URL+'/rest/v1/tokens_pendientes?select=id,token,usado,aprobado'+
-      '&token=eq.'+encodeURIComponent(tk)+'&aprobado=eq.true&usado=eq.false';
+    // Traemos la fila por token y verificamos aprobado/usado en JS (evita ambigüedad del
+    // filtro booleano de PostgREST, que podía no devolver el aprobado=true).
+    var url=SUPA_URL+'/rest/v1/tokens_pendientes?select=id,token,usado,aprobado&token=eq.'+encodeURIComponent(tk);
     fetch(url,{headers:_tokRestHdr()}).then(function(r){return r.json();})
-      .then(function(rows){ if(Array.isArray(rows)&&rows.length)ejecutarTokenLocal(tk,rows[0].id); })
+      .then(function(rows){
+        if(!Array.isArray(rows)||!rows.length)return;
+        var row=rows[0];
+        if((row.aprobado===true||row.aprobado==='true')&&row.usado!==true&&row.usado!=='true'){
+          ejecutarTokenLocal(tk,row.id);
+        }
+      })
       .catch(function(){});
   });
 }
