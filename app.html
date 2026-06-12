@@ -2779,18 +2779,28 @@ var COLA_OFFLINE=[];
 // Cargar cola offline desde localStorage al iniciar (una sola clave)
 try{var _co=localStorage.getItem('betangar_cola_off');if(_co)COLA_OFFLINE=JSON.parse(_co);}catch(e){}
 try{localStorage.removeItem('btg_cola_offline');}catch(e){} // limpiar clave vieja en desuso
+// Reintento automático periódico: si hay conexión, vacía la cola sola (no espera al init).
+try{setInterval(function(){try{if(typeof procesarColaOffline==='function')procesarColaOffline();}catch(e){}},60000);}catch(e){}
 function guardarColaLS(){try{localStorage.setItem('betangar_cola_off',JSON.stringify(COLA_OFFLINE));}catch(e){}}
 function actualizarBannerCola(){
   var b=document.getElementById('db-status-banner');if(!b)return;
   if(COLA_OFFLINE.length>0){
     b.style.display='block';b.style.background='rgba(255,165,0,.15)';
-    b.innerHTML='📵 Sin conexión — '+COLA_OFFLINE.length+' registro(s) en espera de guardarse';
+    b.innerHTML='📵 '+COLA_OFFLINE.length+' registro(s) en espera de guardarse'+
+      ' <button onclick="procesarColaOffline()" style="margin-left:8px;background:#22c55e;color:#fff;border:none;border-radius:5px;padding:3px 9px;font-size:11px;font-weight:700;cursor:pointer">Reintentar</button>'+
+      ' <button onclick="vaciarColaOffline()" style="background:#ef4444;color:#fff;border:none;border-radius:5px;padding:3px 9px;font-size:11px;font-weight:700;cursor:pointer">Descartar</button>';
   } else { b.style.display='none'; }
 }
 function guardarEnCola(t,d){
-  COLA_OFFLINE.push({t:t,d:d});
+  COLA_OFFLINE.push({t:t,d:d,_try:0});
   guardarColaLS();
   actualizarBannerCola();
+}
+function vaciarColaOffline(){
+  if(!COLA_OFFLINE.length)return;
+  if(!confirm('¿Descartar '+COLA_OFFLINE.length+' registro(s) de la cola? No se guardarán. (Úsalo si quedaron atascados.)'))return;
+  COLA_OFFLINE=[];guardarColaLS();actualizarBannerCola();
+  if(typeof mostrarToast==='function')mostrarToast('Cola offline vaciada','info');
 }
 async function procesarColaOffline(){
   if(!COLA_OFFLINE.length||!DB_READY||!supabase)return;
@@ -2808,8 +2818,11 @@ async function procesarColaOffline(){
         console.log('[Cola offline] Sincronizado:',item.t);
       }
     }catch(e){
-      // Falla de red real (sin respuesta): reintentar luego.
-      COLA_OFFLINE.push(item);
+      // Falla de red real (sin respuesta): reintentar, pero descartar tras 3 intentos
+      // para que la cola nunca quede atascada para siempre.
+      item._try=(item._try||0)+1;
+      if(item._try<3){COLA_OFFLINE.push(item);}
+      else{console.log('[Cola offline] descartado tras 3 intentos:',item.t);}
     }
   }
   guardarColaLS();
