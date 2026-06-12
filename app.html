@@ -2676,6 +2676,12 @@ async function cargarDatosDB(){
         if(!isNaN(_tnv)){tankNivel=_tnv;try{sv('tank-niv',String(tankNivel));}catch(e){}try{if(typeof updTank==='function')updTank();}catch(e){}}
       }
     }catch(e){console.log('tanque_nivel load:',e&&e.message);}
+    // ASISTENCIA: persistida en configuracion.asistencia_data (fuente de verdad) + fallback local
+    try{
+      var _as=await supabase.from('configuracion').select('valor').eq('clave','asistencia_data').maybeSingle();
+      if(_as&&_as.data&&_as.data.valor){try{ASISTENCIA=JSON.parse(_as.data.valor)||{};}catch(e){}}
+      else{try{var _al=localStorage.getItem('btg_asistencia');if(_al)ASISTENCIA=JSON.parse(_al)||{};}catch(e){}}
+    }catch(e){try{var _al2=localStorage.getItem('btg_asistencia');if(_al2)ASISTENCIA=JSON.parse(_al2)||{};}catch(e2){}}
     // CXP
     var cxp=await supabase.from('cxp').select('*');
     if(cxp.data&&cxp.data.length)CXP=cxp.data.map(function(x){return{id:x.id,fecha:x.fecha,provId:x.prov_id,prov:x.prov_nombre,nota:x.nota||'',factura:x.factura||'',desc:x.descripcion||'',baseUsd:parseFloat(x.base_usd)||0,ivaPct:parseFloat(x.iva_pct)||0,ivaUsd:parseFloat(x.iva_usd)||0,totalUsd:parseFloat(x.total_usd)||0,tasaTipo:x.tasa_tipo||'bcvDolar',tasaVal:parseFloat(x.tasa_val)||0,retPct:parseFloat(x.ret_pct)||0,retUsd:parseFloat(x.ret_usd)||0,netoPagar:parseFloat(x.neto_pagar)||0,neto_pagar:parseFloat(x.neto_pagar)||0,fechaVenc:x.fecha_venc||'',estado:x.estado||'pendiente',fechaPago:x.fecha_pago||'',refBnc:x.ref_bnc||''};});
@@ -5137,6 +5143,15 @@ function guardarDocEmp(){
 // ═══════════════════════════════════════════════════
 // ASISTENCIA
 // ═══════════════════════════════════════════════════
+// P1: persistir asistencia en Supabase (configuracion.asistencia_data) + localStorage.
+// Antes NO se guardaba en ningún lado y se perdía al recargar.
+function guardarAsistencia(){
+  try{localStorage.setItem('btg_asistencia',JSON.stringify(ASISTENCIA));}catch(e){}
+  if(DB_READY&&supabase){
+    try{supabase.from('configuracion').upsert([{clave:'asistencia_data',valor:JSON.stringify(ASISTENCIA)}],{onConflict:'clave'})
+      .then(function(res){if(res&&res.error)console.log('asistencia save:',res.error.message);});}catch(e){}
+  }
+}
 function renderAsistencia(){
   var sem=gv('asis-sem'),mes=gv('asis-mes');
   var key=mes+'-'+sem;
@@ -5150,9 +5165,16 @@ function renderAsistencia(){
     var orden={'Chofer':1,'Ayudante':2,'Mecanico':3,'Gte. Operaciones':4,'Supervisor de Ruta':5,'Administradora':6,'Asistente Operativa':7,'Vigilante':8};
     return (orden[a.cargo]||9)-(orden[b.cargo]||9);
   });
-  var hoy=new Date();var dow=hoy.getDay();
+  // Conteo del DÍA de hoy (hora Venezuela UTC-4) en la columna correspondiente de la semana.
+  // Antes comparaba claves contra la fecha ISO de hoy, pero las claves no llevan fecha
+  // (emp_dia_N_mes-sem) → nunca coincidía y el conteo siempre daba 0.
+  var _ve=new Date(Date.now()-4*3600000); var _dowVE=_ve.getUTCDay(); // 0=Dom..6=Sab
+  var _diaIdx=_dowVE===0?6:_dowVE-1; // Lun=0..Sab=5, Dom=6
   var total=emps.length,pres=0,aus=0;
-  Object.keys(ASISTENCIA[key]).forEach(function(k){var v=ASISTENCIA[key][k];if(k.endsWith('_'+hoy.toISOString().split('T')[0])){if(v==='P')pres++;else aus++;}});
+  emps.forEach(function(emp){
+    var v=ASISTENCIA[key][emp.id+'_dia_'+_diaIdx+'_'+key]||'';
+    if(v==='P')pres++; else if(v==='A')aus++;
+  });
   if(g('asis-total'))g('asis-total').textContent=total;
   if(g('asis-pres'))g('asis-pres').textContent=pres;
   if(g('asis-aus'))g('asis-aus').textContent=aus;
@@ -5183,6 +5205,7 @@ function marcarAsistencia(empId,dia,key){
   var cur=ASISTENCIA[key][dk]||'';
   var idx=ciclo.indexOf(cur);
   ASISTENCIA[key][dk]=ciclo[(idx+1)%ciclo.length];
+  guardarAsistencia();
   renderAsistencia();
 }
 
@@ -5206,6 +5229,7 @@ function marcarTodosPresente(){
     ASISTENCIA[key][emp.id+'_dia_'+idx+'_'+key]=diaIdx===6?'J':'P';
   });
   audit('Asistencia masiva','Todos presentes — '+todosEmp.length+' empleados');
+  guardarAsistencia();
   renderAsistencia();
 }
 
@@ -8731,12 +8755,18 @@ function eliminarGasoilConfirmado(ref){
   var r = (ref&&typeof ref==='object') ? ref : GASOIL[ref];
   if(!r)return;
   var idx = GASOIL.indexOf(r);
-  if(idx<0 && r.id) idx = GASOIL.findIndex(function(x){return x.id===r.id;});
+  if(idx<0 && r.id!=null) idx = GASOIL.findIndex(function(x){return x.id===r.id;});
+  if(idx<0) idx = GASOIL.findIndex(function(x){return x.f===r.f&&x.cam===r.cam&&String(x.lit)===String(r.lit)&&x.src===r.src;});
   if(idx>=0) GASOIL.splice(idx,1);
   try{localStorage.setItem('btg_gasoil',JSON.stringify(GASOIL));}catch(e){}
-  if(DB_READY&&supabase&&r.id){
-    supabase.from('gasoil').delete().eq('id',r.id).then(function(res){
-      if(res.error){console.log('Error eliminando gasoil:',res.error.message);if(typeof mostrarToast==='function')mostrarToast('No se pudo eliminar en Supabase: '+res.error.message,'error');}
+  if(DB_READY&&supabase){
+    // Borrar por id si lo tenemos; si no, por coincidencia de campos (FIX: antes, sin id,
+    // el DELETE se saltaba por completo y el registro quedaba en Supabase).
+    var del=supabase.from('gasoil').delete();
+    if(r.id!=null){ del=del.eq('id',r.id); }
+    else { del=del.eq('f',r.f).eq('cam',r.cam).eq('lit',r.lit).eq('src',r.src); }
+    del.then(function(res){
+      if(res&&res.error){console.log('Error eliminando gasoil:',res.error.message);if(typeof mostrarToast==='function')mostrarToast('No se pudo eliminar en Supabase: '+res.error.message,'error');}
     });
   }
   renderGasoil();
