@@ -2311,7 +2311,7 @@ async function bncCargarConfig(){
       if(el('bnc-moneda'))el('bnc-moneda').value=d.moneda||'VES';
       if(el('bnc-url-dev'))el('bnc-url-dev').value=d.url_notificacion_dev||'https://hrkjddehqnzcqwlkklqm.supabase.co/functions/v1/bnc-webhook';
       if(el('bnc-url-prod'))el('bnc-url-prod').value=d.url_notificacion_prod||'https://hrkjddehqnzcqwlkklqm.supabase.co/functions/v1/bnc-webhook';
-      if(el('bnc-wk'))el('bnc-wk').textContent=d.working_key?'✅ Activo ('+(d.working_key_fecha||'')+')':'⏳ No generado aún';
+      if(el('bnc-wk'))el('bnc-wk').textContent=d.tiene_working_key?'✅ Activo ('+(d.working_key_fecha||'')+')':'⏳ No generado aún';
       // Credenciales: ya configuradas → mostrar enmascaradas, NO pedir de nuevo.
       var est=el('bnc-cred-estado');
       if(d.tiene_credenciales){
