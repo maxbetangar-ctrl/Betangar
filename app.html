@@ -1829,6 +1829,8 @@ tr:hover td{background:rgba(45,255,122,.02)}
       <button onclick="bncGuardarConfig()" class="btn btn-g" style="flex:1;padding:12px;font-size:13px">💾 Guardar Configuración</button>
       <button id="bnc-btn-test" onclick="bncTestConexion()" class="btn" style="flex:1;padding:12px;font-size:13px;border-color:#38bdf8;color:#38bdf8">🔌 Probar Conexión Webhook</button>
     </div>
+    <button onclick="bncProbarSaldo()" class="btn" style="width:100%;margin-top:8px;padding:12px;font-size:13px;border-color:#a3e635;color:#a3e635">🏦 Probar LogOn + Saldo (BNC en vivo)</button>
+    <div id="bnc-probar-saldo-out" style="display:none;margin-top:8px;padding:10px 12px;border-radius:8px;font-size:12px;line-height:1.6;background:var(--bg3);border:1px solid var(--border)"></div>
   </div>
   <div class="card" style="margin-bottom:12px">
     <div class="sh"><div class="st">🏦 Cuentas BNC Monitoreadas</div></div>
@@ -2343,6 +2345,28 @@ async function bncGuardarConfig(){
     alert('✅ Configuración BNC guardada');
     bncCargarConfig();
   }catch(e){alert('Error guardando: '+e.message);}
+}
+
+// Prueba en vivo del flujo BNC (LogOn -> WorkingKey -> Position/Current) y muestra las cuentas.
+async function bncProbarSaldo(){
+  var out=document.getElementById('bnc-probar-saldo-out');
+  if(out){out.style.display='block';out.style.background='var(--bg3)';out.style.color='var(--text2)';out.innerHTML='⏳ Probando LogOn + saldo contra el BNC…';}
+  try{
+    var r=await fetch(SUPA_URL+'/functions/v1/bnc-saldo',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+SUPA_KEY},body:JSON.stringify({action:'saldo'}),signal:AbortSignal.timeout(45000)});
+    var d=await r.json();
+    if(!d||!d.ok){
+      var det=(d&&(d.error||(d.respuesta&&(d.respuesta.message||d.respuesta.Message))))||(d?JSON.stringify(d).slice(0,300):'sin respuesta');
+      if(out){out.style.background='rgba(248,113,113,.08)';out.style.color='#f87171';out.innerHTML='❌ Error en paso «'+((d&&d.step)||'?')+'»: '+det;}
+      return;
+    }
+    var s=d.saldos||{};var ks=Object.keys(s);
+    var rows=ks.map(function(k){
+      var c=s[k]||{};var mon=c.CurrencyCode||c.currencyCode||'';
+      var bal=Number(c.Balance!=null?c.Balance:(c.balance||0)).toLocaleString('es-VE',{minimumFractionDigits:2,maximumFractionDigits:2});
+      return '<div style="display:flex;justify-content:space-between;border-top:1px solid var(--border);padding:6px 0"><span style="font-family:var(--m);font-size:12px;color:var(--text2)">'+k+'</span><span style="font-weight:700;color:var(--text1)">'+(mon==='USD'?'$ ':'Bs ')+bal+' <span style="font-size:10px;color:var(--text3)">'+mon+'</span></span></div>';
+    }).join('');
+    if(out){out.style.background='rgba(163,230,53,.08)';out.style.color='#a3e635';out.innerHTML='✅ LogOn OK · '+ks.length+' cuenta(s) consultada(s):'+rows;}
+  }catch(e){ if(out){out.style.background='rgba(248,113,113,.08)';out.style.color='#f87171';out.innerHTML='❌ '+(e.name==='TimeoutError'?'Tiempo de espera agotado (el BNC no respondió a tiempo)':e.message);} }
 }
 
 async function bncTestConexion(){
