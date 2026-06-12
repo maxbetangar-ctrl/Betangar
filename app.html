@@ -2683,6 +2683,17 @@ async function cargarDatosDB(){
       if(_as&&_as.data&&_as.data.valor){try{ASISTENCIA=JSON.parse(_as.data.valor)||{};}catch(e){}}
       else{try{var _al=localStorage.getItem('btg_asistencia');if(_al)ASISTENCIA=JSON.parse(_al)||{};}catch(e){}}
     }catch(e){try{var _al2=localStorage.getItem('btg_asistencia');if(_al2)ASISTENCIA=JSON.parse(_al2)||{};}catch(e2){}}
+    // DOCUMENTOS y METAS: persistidos en configuracion (JSON)
+    try{
+      var _dm=await supabase.from('configuracion').select('clave,valor').in('clave',['docs_cam','docs_emp','metas_data']);
+      if(_dm&&_dm.data)_dm.data.forEach(function(row){
+        try{var v=JSON.parse(row.valor);
+          if(row.clave==='docs_cam')DOCS_CAM=v||{};
+          else if(row.clave==='docs_emp')DOCS_EMP=v||{};
+          else if(row.clave==='metas_data')METAS=v||{};
+        }catch(e){}
+      });
+    }catch(e){}
     // CXP
     var cxp=await supabase.from('cxp').select('*');
     if(cxp.data&&cxp.data.length)CXP=cxp.data.map(function(x){return{id:x.id,fecha:x.fecha,provId:x.prov_id,prov:x.prov_nombre,nota:x.nota||'',factura:x.factura||'',desc:x.descripcion||'',baseUsd:parseFloat(x.base_usd)||0,ivaPct:parseFloat(x.iva_pct)||0,ivaUsd:parseFloat(x.iva_usd)||0,totalUsd:parseFloat(x.total_usd)||0,tasaTipo:x.tasa_tipo||'bcvDolar',tasaVal:parseFloat(x.tasa_val)||0,retPct:parseFloat(x.ret_pct)||0,retUsd:parseFloat(x.ret_usd)||0,netoPagar:parseFloat(x.neto_pagar)||0,neto_pagar:parseFloat(x.neto_pagar)||0,fechaVenc:x.fecha_venc||'',estado:x.estado||'pendiente',fechaPago:x.fecha_pago||'',refBnc:x.ref_bnc||''};});
@@ -4526,13 +4537,20 @@ async function guardarLavado(){
   if(!cam){alert('Selecciona camion');return;}
   if(!KM_DATA[cam])KM_DATA[cam]={km:0,f:'',ultsrv:0,mant:[],lavado:'',engrase:''};
   KM_DATA[cam].lavado=f;
+  var _ok=false;
   if(DB_READY&&supabase){
-    await supabase.from('km_data').update({lavado:f,lavado_obs:obs}).eq('cam',cam);
-    await supabase.from('lavados').insert([{cam:cam,fecha:f,obs:obs,registrado_por:SESION?SESION.nombre:'',created_at:new Date().toISOString()}]);
+    // Esquema real: km_data NO tiene lavado_obs; lavados usa 'f' (no 'fecha') y no tiene
+    // registrado_por. (Por eso antes fallaba el guardado de lavado en silencio.)
+    try{
+      await supabase.from('km_data').update({lavado:f}).eq('cam',cam);
+      var _rl=await supabase.from('lavados').insert([{cam:cam,f:f,obs:obs}]);
+      _ok=!_rl.error;
+      if(_rl.error&&typeof mostrarToast==='function')mostrarToast('No se pudo guardar el lavado: '+_rl.error.message,'error');
+    }catch(e){if(typeof mostrarToast==='function')mostrarToast('Sin conexión al guardar el lavado.','error');}
   }
   audit('Lavado registrado',cam+' '+f);
   renderLavados();
-  alert('✅ Lavado registrado correctamente.');
+  if(typeof mostrarToast==='function')mostrarToast(_ok?('✅ Lavado registrado: '+cam):'⚠️ Lavado guardado solo localmente','exito');
 }
 function renderEngrases(){var rows=[];Object.keys(FLOTA).filter(function(k){return k.startsWith('JAC-B');}).forEach(function(cam){var d=KM_DATA[cam];var ul=d?d.engrase:'';var dias=ul?diasDesde(ul):0;var prox=ul?addDays(ul,15):'--';var est,c;if(!ul){est='Sin datos';c='bt';}else if(dias>15){est='VENCIDO '+dias+'d';c='br';}else if(dias>10){est='PROXIMO';c='by';}else{est='OK';c='bg';}rows.push('<tr><td style="font-weight:700">'+cam+'</td><td>'+(ul||'--')+'</td><td style="font-family:var(--m);color:'+(dias>15?'var(--red)':'var(--text)')+'">'+dias+'</td><td>'+prox+'</td><td><span class="badge '+c+'">'+est+'</span></td></tr>');});var tb=g('tb-engrases');if(tb)tb.innerHTML=rows.join('');}
 async function guardarEngrase(){
@@ -5141,13 +5159,23 @@ function renderDocTablas(){
   if(det)det.innerHTML=htmlEmp||'<div style="color:var(--text3);font-size:12px;padding:10px">Sin choferes activos</div>';
 }
 
+// Persistir documentos en Supabase (configuracion.docs_cam/docs_emp como JSON) + localStorage.
+// Antes solo se guardaban en memoria → se perdían al recargar.
+function guardarDocs(){
+  try{localStorage.setItem('btg_docs_cam',JSON.stringify(DOCS_CAM));localStorage.setItem('btg_docs_emp',JSON.stringify(DOCS_EMP));}catch(e){}
+  if(DB_READY&&supabase){
+    try{supabase.from('configuracion').upsert([{clave:'docs_cam',valor:JSON.stringify(DOCS_CAM)},{clave:'docs_emp',valor:JSON.stringify(DOCS_EMP)}],{onConflict:'clave'})
+      .then(function(res){if(res&&res.error&&typeof mostrarToast==='function')mostrarToast('No se pudieron guardar documentos: '+res.error.message,'error');});}catch(e){}
+  }
+}
 function guardarDocCam(){
   var cam=gv('doc-cam-sel'),tipo=gv('doc-cam-tipo'),venc=gv('doc-cam-venc'),num=gv('doc-cam-num'),ente=gv('doc-cam-ente');
   if(!cam||!tipo||!venc){alert('Completa camion, tipo y fecha');return;}
   if(!DOCS_CAM[cam])DOCS_CAM[cam]={seguro:{},circulacion:{},revision:{}};
   DOCS_CAM[cam][tipo]={venc:venc,num:num,ente:ente};
+  guardarDocs();
   audit('Documento camion actualizado',cam+' '+tipo+' vence:'+venc);
-  alert('✅ Documento guardado.');
+  if(typeof mostrarToast==='function')mostrarToast('✅ Documento guardado','exito');
   renderDocAlertas();renderDocTablas();
   sv('doc-cam-num','');sv('doc-cam-ente','');
 }
@@ -5157,8 +5185,9 @@ function guardarDocEmp(){
   if(!empId||!tipo||!venc){alert('Completa empleado, tipo y fecha');return;}
   if(!DOCS_EMP[empId])DOCS_EMP[empId]={};
   DOCS_EMP[empId][tipo]={venc:venc,num:num,grado:grado};
+  guardarDocs();
   audit('Documento empleado actualizado',empId+' '+tipo+' vence:'+venc);
-  alert('✅ Documento guardado.');
+  if(typeof mostrarToast==='function')mostrarToast('✅ Documento guardado','exito');
   renderDocAlertas();renderDocTablas();
   sv('doc-emp-num','');
 }
@@ -5418,10 +5447,17 @@ function renderMultas(){
 }
 function switchInvTab(t){['stock','add','usar','hist'].forEach(function(x){var el=g('tab-inv-'+x);var sw=g('sw-inv-'+x);if(el)el.style.display=x===t?'block':'none';if(sw){sw.classList.remove('on');if(x===t)sw.classList.add('on');}});if(t==='stock')renderInventario();if(t==='prog')renderMantProg();if(t==='hist')renderInvHist();}
 
-function guardarItemInv(){
+async function guardarItemInv(){
   var nombre=gv('inv-nombre');if(!nombre){alert('Ingresa el nombre del item');return;}
   var item={id:'INV'+Date.now(),nombre:nombre,cat:gv('inv-cat'),unidad:gv('inv-unidad'),stock:parseInt(gv('inv-stock-ini'))||0,stockMin:parseInt(gv('inv-stock-min'))||2,precio:parseFloat(gv('inv-precio'))||0};
   INVENTARIO.push(item);
+  // Persistir en Supabase (antes solo quedaba en memoria → se perdía al recargar)
+  if(DB_READY&&supabase){
+    try{var _ri=await supabase.from('inventario').upsert([{id:item.id,nombre:item.nombre,categoria:item.cat,unidad:item.unidad,stock:item.stock,stock_min:item.stockMin,precio:item.precio}],{onConflict:'id'});
+      if(_ri.error&&typeof mostrarToast==='function')mostrarToast('No se pudo guardar el item: '+_ri.error.message,'error');
+    }catch(e){if(typeof mostrarToast==='function')mostrarToast('Sin conexión al guardar el item.','error');}
+  }
+  try{localStorage.setItem('btg_inventario',JSON.stringify(INVENTARIO));}catch(e){}
   audit('Item inventario agregado',nombre);
   ['inv-nombre','inv-stock-ini','inv-stock-min','inv-precio'].forEach(function(id){sv(id,'');});
   // Poblar select de uso
@@ -5429,12 +5465,14 @@ function guardarItemInv(){
   renderInventario();alert('✅ '+nombre+' agregado al inventario.');
 }
 
-function registrarUsoInv(){
+async function registrarUsoInv(){
   var itemId=gv('inv-uso-item'),cam=gv('inv-uso-cam'),cant=parseInt(gv('inv-uso-cant'))||1,motivo=gv('inv-uso-motivo');
   if(!itemId||!cam){alert('Selecciona item y camion');return;}
   var item=INVENTARIO.find(function(x){return x.id===itemId;});if(!item){alert('Item no encontrado');return;}
   if(item.stock<cant){alert('Stock insuficiente. Disponible: '+item.stock);return;}
   item.stock-=cant;
+  if(DB_READY&&supabase){try{await supabase.from('inventario').update({stock:item.stock}).eq('id',item.id);}catch(e){}}
+  try{localStorage.setItem('btg_inventario',JSON.stringify(INVENTARIO));}catch(e){}
   INV_MOV.push({fecha:new Date().toISOString().split('T')[0],item:item.nombre,tipo:'Uso',cantidad:-cant,cam:cam,motivo:motivo,stockResult:item.stock});
   if(item.stock<=item.stockMin)sendWA('📦 STOCK CRITICO: '+item.nombre+' — Solo '+item.stock+' '+item.unidad+' restantes',['mecanica']);
   audit('Uso inventario',item.nombre+' x'+cant+' en '+cam);
@@ -5530,12 +5568,20 @@ function registrarCambioLl(){
 // ═══════════════════════════════════════════════════
 // METAS
 // ═══════════════════════════════════════════════════
+function guardarMetasDB(){
+  try{localStorage.setItem('btg_metas',JSON.stringify(METAS));}catch(e){}
+  if(DB_READY&&supabase){
+    try{supabase.from('configuracion').upsert([{clave:'metas_data',valor:JSON.stringify(METAS)}],{onConflict:'clave'})
+      .then(function(res){if(res&&res.error&&typeof mostrarToast==='function')mostrarToast('No se pudo guardar la meta: '+res.error.message,'error');});}catch(e){}
+  }
+}
 function guardarMeta(){
   var mes=gv('meta-mes'),sem=gv('meta-sem');
   var key=mes+'-'+sem;
   METAS[key]={viajesCam:parseInt(gv('meta-x-cam'))||20,viajesFlota:parseInt(gv('meta-flota'))||200};
+  guardarMetasDB();
   audit('Meta guardada',key+' flota:'+METAS[key].viajesFlota);
-  alert('✅ Meta guardada para '+sem+' '+mes);
+  if(typeof mostrarToast==='function')mostrarToast('✅ Meta guardada para '+sem+' '+mes,'exito');
   renderMetas();renderSemaforo();renderMetasDash();
 }
 
