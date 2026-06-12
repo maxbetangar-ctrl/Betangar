@@ -2763,10 +2763,47 @@ async function procesarColaOffline(){
 async function dbIn(t,d){
   if(DEMO_MODE)return null;
   if(!DB_READY){guardarEnCola(t,d);return null;}
-  try{return(await supabase.from(t).insert(d).select()).data;}catch(e){guardarEnCola(t,d);return null;}
+  try{var res=await supabase.from(t).insert(d).select();if(res.error){guardarEnCola(t,d);if(typeof mostrarToast==='function')mostrarToast('No se pudo guardar ('+t+'): '+res.error.message+'. Quedó en cola.','error');return null;}return res.data;}catch(e){guardarEnCola(t,d);if(typeof mostrarToast==='function')mostrarToast('Sin conexión: "'+t+'" quedó en cola offline.','error');return null;}
 }
-async function dbUp(t,d,c,v){if(!DB_READY||DEMO_MODE)return null;try{return(await supabase.from(t).upsert(d,{onConflict:c}).select()).data;}catch(e){return null;}}
+async function dbUp(t,d,c,v){if(!DB_READY||DEMO_MODE)return null;try{var res=await supabase.from(t).upsert(d,{onConflict:c}).select();if(res.error){if(typeof mostrarToast==='function')mostrarToast('No se pudo guardar ('+t+'): '+res.error.message,'error');return null;}return res.data;}catch(e){if(typeof mostrarToast==='function')mostrarToast('Error de conexión al guardar '+t,'error');return null;}}
 async function dbDel(t,c,v){if(!DB_READY||DEMO_MODE)return null;try{return await supabase.from(t).delete().eq(c,v);}catch(e){return null;}}
+
+// ═══════════════════════════════════════════════════
+// TOAST / CONFIRMACIÓN GLOBAL (P2)
+//   mostrarToast(mensaje, tipo)  tipo: 'exito' | 'error' | 'info'
+//   - exito: verde, 3s   - error: rojo, permanente (botón cerrar)   - info: azul, 3s
+//   toast(msg, tipo)  alias (tipo por defecto 'exito')
+// ═══════════════════════════════════════════════════
+function mostrarToast(mensaje, tipo){
+  tipo = tipo || 'info';
+  var cont = document.getElementById('toast-cont');
+  if(!cont){
+    cont = document.createElement('div');
+    cont.id = 'toast-cont';
+    cont.style.cssText = 'position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:999999;display:flex;flex-direction:column;gap:8px;align-items:center;max-width:92vw;pointer-events:none';
+    document.body.appendChild(cont);
+  }
+  var estilos = {exito:{bg:'#16a34a',ic:'✅'}, error:{bg:'#dc2626',ic:'❌'}, info:{bg:'#2563eb',ic:'ℹ️'}};
+  var c = estilos[tipo] || estilos.info;
+  var t = document.createElement('div');
+  t.style.cssText = 'pointer-events:auto;background:'+c.bg+';color:#fff;font-weight:700;font-size:15px;line-height:1.4;padding:14px 18px;border-radius:12px;box-shadow:0 8px 30px rgba(0,0,0,.35);display:flex;align-items:center;gap:10px;max-width:92vw';
+  var icon = document.createElement('span'); icon.style.fontSize = '18px'; icon.textContent = c.ic;
+  var span = document.createElement('span'); span.textContent = String(mensaje);
+  t.appendChild(icon); t.appendChild(span);
+  if(tipo === 'error'){
+    var x = document.createElement('span');
+    x.textContent = '✕';
+    x.style.cssText = 'margin-left:8px;cursor:pointer;opacity:.85;font-weight:900';
+    x.onclick = function(){ t.remove(); };
+    t.appendChild(x);
+  }
+  cont.appendChild(t);
+  if(tipo !== 'error'){
+    setTimeout(function(){ t.style.transition='opacity .3s'; t.style.opacity='0'; setTimeout(function(){ t.remove(); }, 300); }, 3000);
+  }
+}
+function toast(mensaje, tipo){ mostrarToast(mensaje, tipo || 'exito'); }
+
 
 // ═══════════════════════════════════════════════════
 // TASAS
