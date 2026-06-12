@@ -4469,7 +4469,30 @@ function renderBNCDash(){
 async function consultarSaldoBNC(){
   if(!BNC_CONFIG.guid){alert('Primero configura las credenciales BNC en la tab "Config API"');return;}
   if(DEMO_MODE){BNC_SALDO=4250000+Math.random()*500000;renderBNCDash();renderDash();return;}
-  alert('La API BNC requiere un proxy backend por seguridad.\nContacta al desarrollador para activar la conexion en produccion.\n\nURL produccion: servicios.bncenlinea.com:16000/api');
+  var fe=g('bnc-saldo-fecha');if(fe)fe.textContent='⏳ Consultando saldo en el BNC…';
+  try{
+    var r=await fetch(SUPA_URL+'/functions/v1/bnc-saldo',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+SUPA_KEY},body:JSON.stringify({action:'saldo'}),signal:AbortSignal.timeout(45000)});
+    var d=await r.json();
+    if(!d||!d.ok){
+      var det=(d&&(d.error||(d.respuesta&&(d.respuesta.message||d.respuesta.Message))))||(d?JSON.stringify(d).slice(0,300):'sin respuesta');
+      if(fe)fe.textContent='❌ Error en paso «'+((d&&d.step)||'?')+'»';
+      alert('❌ No se pudo consultar el saldo BNC.\nPaso: '+((d&&d.step)||'?')+'\n'+det);
+      return;
+    }
+    var s=d.saldos||{};var ks=Object.keys(s);
+    var totVES=0;
+    ks.forEach(function(k){
+      var c=s[k]||{};var mon=(c.CurrencyCode||c.currencyCode||'VES').toUpperCase();
+      var bal=Number(c.Balance!=null?c.Balance:(c.balance||0));
+      if(mon==='VES')totVES+=bal;
+    });
+    BNC_SALDO=totVES;
+    renderBNCDash();renderDash();
+    if(fe)fe.textContent='Actualizado: '+new Date().toLocaleString('es-VE')+' · '+ks.length+' cuenta(s)';
+  }catch(e){
+    if(fe)fe.textContent='❌ '+(e.name==='TimeoutError'?'El BNC no respondió a tiempo':e.message);
+    alert('❌ '+(e.name==='TimeoutError'?'Tiempo de espera agotado (el BNC no respondió a tiempo)':e.message));
+  }
 }
 
 function registrarMovManual(){
