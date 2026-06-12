@@ -4363,20 +4363,29 @@ function renderGasolPersonal(){
 function solicitarEliminarGasolPersonal(idx){
   var r=GASOL[idx];
   if(!r){alert('Registro no encontrado');return;}
-  var desc='Eliminar gasolina personal: '+(r.per||'')+' - '+r.lit+'L - '+r.f;
-  generarTokenAprobacion(desc,{idx:idx},function(datos){eliminarGasolConfirmado(datos.idx);});
-  var token_input=prompt('Accion enviada por WA.\nSi eres superadmin ingresa el token de aprobacion:');
-  if(token_input){verificarToken(token_input,function(datos){eliminarGasolConfirmado(datos.idx);});}
+  // Modal NO bloqueante (antes un prompt() congelaba el polling y el botón Aprobar no corría).
+  window._tokenDetalle=(r.per||'')+' - '+r.lit+'L - '+r.f;
+  solicitarToken('Eliminar gasolina personal: '+(r.per||'')+' '+r.lit+'L',function(motivo){
+    eliminarGasolConfirmado(r);
+  });
 }
 
-function eliminarGasolConfirmado(idx){
-  var r=GASOL[idx];
+function eliminarGasolConfirmado(ref){
+  var r=(ref&&typeof ref==='object')?ref:GASOL[ref];
   if(!r)return;
-  GASOL.splice(idx,1);
+  var idx=GASOL.indexOf(r);
+  if(idx<0&&r.id!=null)idx=GASOL.findIndex(function(x){return x.id===r.id;});
+  if(idx<0)idx=GASOL.findIndex(function(x){return x.f===r.f&&x.per===r.per&&String(x.lit)===String(r.lit);});
+  if(idx>=0)GASOL.splice(idx,1);
   try{localStorage.setItem('btg_gasol',JSON.stringify(GASOL));}catch(e){}
+  if(DB_READY&&supabase){
+    var del=supabase.from('gasol').delete();
+    if(r.id!=null){del=del.eq('id',r.id);}else{del=del.eq('f',r.f).eq('per',r.per).eq('lit',r.lit);}
+    del.then(function(res){if(res&&res.error)console.log('Error eliminando gasol:',res.error.message);});
+  }
   audit('Gasolina personal ELIMINADA',(r.per||'')+' '+r.lit+'L');
   renderGasolPersonal();
-  alert('✅ Registro eliminado.');
+  if(typeof mostrarToast==='function')mostrarToast('🗑️ Gasolina personal eliminada','exito');
 }
 function renderComb(){
   var ce=g('c-comb-svg');
@@ -8755,18 +8764,12 @@ function mostrarModalToken(accion, datos, callback){
 function solicitarEliminarGasoil(idx){
   var r = GASOIL[idx];
   if(!r){alert('Registro no encontrado');return;}
-  // Pedir el motivo: se incluye en el WA que reciben los socios junto al token.
-  var motivo = prompt('Motivo de la eliminación de este despacho ('+r.cam+' - '+r.lit+'L):\n\nSe enviará a los socios por WhatsApp.');
-  if(motivo===null) return; // canceló
-  motivo=(motivo||'').trim();
-  if(!motivo){alert('Debes indicar el motivo para solicitar la eliminación.');return;}
-  var desc = 'Eliminar combustible: '+r.cam+' - '+r.lit+'L - '+r.f+'\n📝 Motivo: '+motivo;
-  generarTokenAprobacion(desc, {idx:idx, r:r}, function(datos){
-    eliminarGasoilConfirmado(datos.r||datos.idx);
+  // Modal NO bloqueante (antes un prompt() congelaba el polling y el botón Aprobar no
+  // ejecutaba). solicitarToken maneja motivo + WA + polling + entrada manual del código.
+  window._tokenDetalle = r.cam+' - '+r.lit+'L - '+r.f;
+  solicitarToken('Eliminar combustible: '+r.cam+' '+r.lit+'L', function(motivo){
+    eliminarGasoilConfirmado(r);
   });
-  // Panel para ingresar token
-  var token_input = prompt('Acción enviada por WA a los socios.\nSi eres superadmin ingresa el token de aprobación:');
-  if(token_input){verificarToken(token_input, function(datos){eliminarGasoilConfirmado(datos.r||datos.idx);});}
 }
 
 function eliminarGasoilConfirmado(ref){
