@@ -14,8 +14,8 @@
 <style>
 :root{
   /* Fondo aclarado: mismo tema oscuro pero más ameno a la vista (antes 08111f/0c1a2e/0f2040) */
-  --bg:#0e1d33;--bg2:#15273f;--bg3:#1b3357;
-  --card:#16294a;--card2:#1b3157;
+  --bg:#13243f;--bg2:#1a304e;--bg3:#22406a;
+  --card:#1c3257;--card2:#223a66;
   --border:#274a73;--border2:#356092;
   --green:#a3e635;--green2:#84cc16;--green3:#65a30d;
   --lime:#a3e635;--teal:#14b8a6;
@@ -3421,7 +3421,7 @@ function filtH(){
   if(g('h-tv'))g('h-tv').textContent=tv;if(g('h-tm'))g('h-tm').textContent='$'+tm.toLocaleString();
   if(g('h-td'))g('h-td').textContent=td;if(g('h-tn'))g('h-tn').textContent=tn;if(g('h-tp'))g('h-tp').textContent=f.length;
   var tb=g('tb-hist');
-  if(tb)tb.innerHTML=f.slice().reverse().map(function(r){return'<tr><td style="font-family:var(--m)">#'+r.p+'</td><td>'+r.f+'</td><td><span class="badge bt">'+r.mes+'</span></td><td style="font-weight:700">'+r.cam+'</td><td style="font-size:11px">'+r.ch+'</td><td style="font-size:11px">'+r.r+'</td><td style="font-size:10px;color:var(--text3)">'+r.par+'</td><td style="color:var(--blue)">'+r.d+'</td><td style="color:var(--purple)">'+r.n+'</td><td style="font-weight:700;color:var(--green)">'+r.t+'</td><td><span class="badge by">'+r.sem+'</span></td><td style="font-family:var(--m);color:var(--yellow)">$'+r.m.toLocaleString()+'</td><td><button onclick="editarPlanilla(\''+r.p+'\')" class="btn btn-xs" style="background:var(--teal);color:#fff;padding:2px 5px">✏</button><button onclick="eliminarPlanilla(\''+r.p+'\')" class="btn btn-r btn-xs">×</button></td></tr>';}).join('')||'<tr><td colspan="13" style="text-align:center;color:var(--text3);padding:20px">Sin resultados</td></tr>';
+  if(tb)tb.innerHTML=f.slice().sort(function(a,b){if(a.f!==b.f)return a.f<b.f?1:-1;return (parseInt(b.p)||0)-(parseInt(a.p)||0);}).map(function(r){return'<tr><td style="font-family:var(--m)">#'+r.p+'</td><td>'+formatFecha(r.f)+'</td><td><span class="badge bt">'+r.mes+'</span></td><td style="font-weight:700">'+r.cam+'</td><td style="font-size:11px">'+r.ch+'</td><td style="font-size:11px">'+r.r+'</td><td style="font-size:10px;color:var(--text3)">'+r.par+'</td><td style="color:var(--blue)">'+r.d+'</td><td style="color:var(--purple)">'+r.n+'</td><td style="font-weight:700;color:var(--green)">'+r.t+'</td><td><span class="badge by">'+r.sem+'</span></td><td style="font-family:var(--m);color:var(--yellow)">$'+r.m.toLocaleString()+'</td><td><button onclick="editarPlanilla(\''+r.p+'\')" class="btn btn-xs" style="background:var(--teal);color:#fff;padding:2px 5px">✏</button><button onclick="eliminarPlanilla(\''+r.p+'\')" class="btn btn-r btn-xs">×</button></td></tr>';}).join('')||'<tr><td colspan="13" style="text-align:center;color:var(--text3);padding:20px">Sin resultados</td></tr>';
 }
 function limpH(){['hf-mes','hf-sem','hf-cam','hf-des','hf-hta'].forEach(function(id){sv(id,'');});filtH();}
 function exportHistExcel(){
@@ -4566,7 +4566,7 @@ async function guardarEngrase(){
   renderEngrases();
   alert('✅ Engrase registrado correctamente.');
 }
-function renderHistMant(){var cam=gv('hist-mant-cam'),tipo=gv('hist-mant-tipo');var rows=[];Object.keys(KM_DATA).filter(function(c){return !cam||c===cam;}).forEach(function(c){(KM_DATA[c].mant||[]).filter(function(m){return !tipo||m.tipo===tipo;}).forEach(function(m){rows.push('<tr><td style="font-weight:700">'+c+'</td><td>'+m.f+'</td><td style="font-family:var(--m)">'+m.km.toLocaleString()+'</td><td><span class="badge by">'+m.tipo+'</span></td><td style="font-size:11px">'+m.desc+'</td></tr>');});});var tb=g('tb-hist-mant');if(tb)tb.innerHTML=rows.join('')||'<tr><td colspan="5" style="text-align:center;color:var(--text3);padding:20px">Sin registros de mantenimiento</td></tr>';}
+function renderHistMant(){var cam=gv('hist-mant-cam'),tipo=gv('hist-mant-tipo');var rows=[];Object.keys(KM_DATA).filter(function(c){return !cam||c===cam;}).forEach(function(c){(KM_DATA[c].mant||[]).filter(function(m){return !tipo||m.tipo===tipo;}).forEach(function(m){rows.push('<tr><td style="font-weight:700">'+c+'</td><td>'+formatFecha(m.f)+'</td><td style="font-family:var(--m)">'+m.km.toLocaleString()+'</td><td><span class="badge by">'+m.tipo+'</span></td><td style="font-size:11px">'+m.desc+'</td></tr>');});});var tb=g('tb-hist-mant');if(tb)tb.innerHTML=rows.join('')||'<tr><td colspan="5" style="text-align:center;color:var(--text3);padding:20px">Sin registros de mantenimiento</td></tr>';}
 function imprimirMantenimiento(){
   var cams=Object.keys(FLOTA).filter(function(k){return k.startsWith('JAC');}).sort();
   var kmCfg=cfg.km||5000;
@@ -4625,7 +4625,7 @@ function renderBNCDash(){
   if(rEl){
     var movs=BNC_MOV.slice().reverse().slice(0,8);
     rEl.innerHTML=movs.length?'<div class="tw"><table><thead><tr><th>Fecha</th><th>Tipo</th><th>Descripcion</th><th>Monto Bs</th><th>Estado</th></tr></thead><tbody>'+
-    movs.map(function(m){return'<tr><td>'+m.fecha+'</td><td><span class="badge '+(m.tipo==='credito'?'bg':'br')+'">'+m.tipo.toUpperCase()+'</span></td><td style="font-size:11px">'+m.desc+'</td><td style="font-family:var(--m);color:'+(m.tipo==='credito'?'var(--green)':'var(--red)')+'">Bs '+m.monto.toLocaleString('es-VE',{maximumFractionDigits:0})+'</td><td>'+(m.conciliado?'<span class="badge bg">Conciliado</span>':m.pendienteAutorizacion?'<span class="badge by">Pend. Firma</span>':'<span class="badge bt">Registrado</span>')+'</td></tr>';}).join('')+
+    movs.map(function(m){return'<tr><td>'+formatFecha(m.fecha)+'</td><td><span class="badge '+(m.tipo==='credito'?'bg':'br')+'">'+m.tipo.toUpperCase()+'</span></td><td style="font-size:11px">'+m.desc+'</td><td style="font-family:var(--m);color:'+(m.tipo==='credito'?'var(--green)':'var(--red)')+'">Bs '+m.monto.toLocaleString('es-VE',{maximumFractionDigits:0})+'</td><td>'+(m.conciliado?'<span class="badge bg">Conciliado</span>':m.pendienteAutorizacion?'<span class="badge by">Pend. Firma</span>':'<span class="badge bt">Registrado</span>')+'</td></tr>';}).join('')+
     '</tbody></table></div>':'<div style="text-align:center;color:var(--text3);padding:20px;font-size:12px">Sin movimientos. Registra uno manualmente o conecta la API BNC.</div>';
   }
 }
@@ -4688,7 +4688,7 @@ function renderMovBNC(){
   if(g('bnc-tot-num'))g('bnc-tot-num').textContent=f.length;
   var tasa=TASAS.bcvDolar||cfg.tasa;
   var tb=g('tb-bnc-mov');
-  if(tb)tb.innerHTML=f.slice().reverse().map(function(m){return'<tr><td>'+m.fecha+'</td><td><span class="badge '+(m.tipo==='credito'?'bg':'br')+'">'+(m.tipo==='pago_nomina_pend'?'NOMINA':m.tipo.toUpperCase())+'</span></td><td style="font-size:11px">'+m.desc+'</td><td style="font-family:var(--m)">'+m.ref+'</td><td style="font-family:var(--m);color:'+(m.tipo==='credito'?'var(--green)':'var(--red)')+'">Bs '+m.monto.toLocaleString('es-VE',{maximumFractionDigits:0})+'</td><td style="font-family:var(--m)">$'+(m.monto/tasa).toFixed(2)+'</td><td>'+(m.conciliado?'<span class="badge bg">SI</span>':m.pendienteAutorizacion?'<span class="badge by">Pend. Firma</span>':'<span class="badge bt">No</span>')+'</td><td>'+((!m.conciliado&&!m.pendienteAutorizacion)?'<button class="btn btn-g btn-xs" onclick="conciliarMov(\''+m.id+'\')">Conciliar</button>':'')+'</td></tr>';}).join('')||'<tr><td colspan="8" style="text-align:center;color:var(--text3);padding:20px">Sin movimientos</td></tr>';
+  if(tb)tb.innerHTML=f.slice().reverse().map(function(m){return'<tr><td>'+formatFecha(m.fecha)+'</td><td><span class="badge '+(m.tipo==='credito'?'bg':'br')+'">'+(m.tipo==='pago_nomina_pend'?'NOMINA':m.tipo.toUpperCase())+'</span></td><td style="font-size:11px">'+m.desc+'</td><td style="font-family:var(--m)">'+m.ref+'</td><td style="font-family:var(--m);color:'+(m.tipo==='credito'?'var(--green)':'var(--red)')+'">Bs '+m.monto.toLocaleString('es-VE',{maximumFractionDigits:0})+'</td><td style="font-family:var(--m)">$'+(m.monto/tasa).toFixed(2)+'</td><td>'+(m.conciliado?'<span class="badge bg">SI</span>':m.pendienteAutorizacion?'<span class="badge by">Pend. Firma</span>':'<span class="badge bt">No</span>')+'</td><td>'+((!m.conciliado&&!m.pendienteAutorizacion)?'<button class="btn btn-g btn-xs" onclick="conciliarMov(\''+m.id+'\')">Conciliar</button>':'')+'</td></tr>';}).join('')||'<tr><td colspan="8" style="text-align:center;color:var(--text3);padding:20px">Sin movimientos</td></tr>';
 }
 
 function conciliarMov(id){var mov=BNC_MOV.find(function(m){return m.id===id;});if(!mov)return;mov.conciliado=true;audit('Movimiento BNC conciliado',id);renderMovBNC();renderConciliacion();}
@@ -4721,7 +4721,7 @@ function renderConciliacion(){
   var pe=g('conc-pend');
   if(pe)pe.innerHTML=pend.length?pend.slice(0,5).map(function(m){return'<div style="font-size:12px;padding:5px 0;border-bottom:1px solid var(--border);display:flex;justify-content:space-between"><span>'+m.fecha+' '+m.desc+'</span><span style="font-family:var(--m);color:var(--green)">Bs '+m.monto.toLocaleString('es-VE',{maximumFractionDigits:0})+'</span></div>';}).join(''):'<div style="color:var(--green);font-size:12px;padding:8px">✓ Todo conciliado</div>';
   var tb=g('tb-conc');
-  if(tb)tb.innerHTML=BNC_MOV.filter(function(m){return m.tipo==='credito';}).map(function(m){return'<tr><td>'+m.fecha+'</td><td style="font-family:var(--m)">Bs '+m.monto.toLocaleString('es-VE',{maximumFractionDigits:0})+'</td><td style="font-family:var(--m)">$'+(m.monto/tasa).toFixed(2)+'</td><td style="font-family:var(--m);font-size:10px">'+m.ref+'</td><td>—</td><td>'+(m.conciliado?'<span class="badge bg">SI</span>':'<span class="badge by">NO</span>')+'</td><td>'+((!m.conciliado)?'<button class="btn btn-g btn-xs" onclick="conciliarMov(\''+m.id+'\')">Conciliar</button>':'')+'</td></tr>';}).join('');
+  if(tb)tb.innerHTML=BNC_MOV.filter(function(m){return m.tipo==='credito';}).map(function(m){return'<tr><td>'+formatFecha(m.fecha)+'</td><td style="font-family:var(--m)">Bs '+m.monto.toLocaleString('es-VE',{maximumFractionDigits:0})+'</td><td style="font-family:var(--m)">$'+(m.monto/tasa).toFixed(2)+'</td><td style="font-family:var(--m);font-size:10px">'+m.ref+'</td><td>—</td><td>'+(m.conciliado?'<span class="badge bg">SI</span>':'<span class="badge by">NO</span>')+'</td><td>'+((!m.conciliado)?'<button class="btn btn-g btn-xs" onclick="conciliarMov(\''+m.id+'\')">Conciliar</button>':'')+'</td></tr>';}).join('');
 }
 
 function renderPagosPendBNC(){
@@ -4732,7 +4732,7 @@ function renderPagosPendBNC(){
   var totalBs=pend.reduce(function(s,m){return s+m.monto;},0);
   el.innerHTML='<div class="alert-w" style="margin-bottom:10px">Total pendiente: <b>Bs '+totalBs.toLocaleString('es-VE',{maximumFractionDigits:0})+'</b> en '+pend.length+' pagos. El firmante debe aprobar en BNCNET.</div>'+
   '<div class="tw"><table><thead><tr><th>Descripcion</th><th>Beneficiario</th><th>Monto Bs</th><th>Fecha</th><th></th></tr></thead><tbody>'+
-  pend.map(function(m){return'<tr><td style="font-size:11px">'+m.desc+'</td><td style="font-size:10px">'+(m.detalle?m.detalle.banco+' '+m.detalle.cuenta:'--')+'</td><td style="font-family:var(--m);color:var(--yellow)">Bs '+m.monto.toLocaleString('es-VE',{maximumFractionDigits:0})+'</td><td>'+m.fecha+'</td><td><button class="btn btn-g btn-xs" onclick="confirmarPagoBNC(\''+m.id+'\')">Confirmar Ejecutado</button></td></tr>';}).join('')+
+  pend.map(function(m){return'<tr><td style="font-size:11px">'+m.desc+'</td><td style="font-size:10px">'+(m.detalle?m.detalle.banco+' '+m.detalle.cuenta:'--')+'</td><td style="font-family:var(--m);color:var(--yellow)">Bs '+m.monto.toLocaleString('es-VE',{maximumFractionDigits:0})+'</td><td>'+formatFecha(m.fecha)+'</td><td><button class="btn btn-g btn-xs" onclick="confirmarPagoBNC(\''+m.id+'\')">Confirmar Ejecutado</button></td></tr>';}).join('')+
   '</tbody></table></div>';
 }
 
@@ -5064,7 +5064,7 @@ function calcRet(){
 function renderRetenciones(){
   var rets=CXP.filter(function(c){return c.retUsd>0;});
   var tb=g('tb-ret');
-  if(tb)tb.innerHTML=rets.map(function(c){return'<tr><td>'+c.fecha+'</td><td>'+c.prov+'</td><td>'+c.factura+'</td><td>$'+c.baseUsd.toFixed(2)+'</td><td>$'+c.ivaUsd.toFixed(2)+'</td><td>'+c.retPct+'%</td><td>$'+c.retUsd.toFixed(2)+'</td><td>Bs '+(c.retUsd*(TASAS.bcvDolar||cfg.tasa)).toFixed(0)+'</td><td><span class="badge '+(c.estado==='pagado'?'bg':'by')+'">'+(c.estado==='pagado'?'Pagado':'Pendiente')+'</span></td></tr>';}).join('')||'<tr><td colspan="9" style="text-align:center;color:var(--text3);padding:20px">Sin retenciones registradas</td></tr>';
+  if(tb)tb.innerHTML=rets.map(function(c){return'<tr><td>'+formatFecha(c.fecha)+'</td><td>'+c.prov+'</td><td>'+c.factura+'</td><td>$'+c.baseUsd.toFixed(2)+'</td><td>$'+c.ivaUsd.toFixed(2)+'</td><td>'+c.retPct+'%</td><td>$'+c.retUsd.toFixed(2)+'</td><td>Bs '+(c.retUsd*(TASAS.bcvDolar||cfg.tasa)).toFixed(0)+'</td><td><span class="badge '+(c.estado==='pagado'?'bg':'by')+'">'+(c.estado==='pagado'?'Pagado':'Pendiente')+'</span></td></tr>';}).join('')||'<tr><td colspan="9" style="text-align:center;color:var(--text3);padding:20px">Sin retenciones registradas</td></tr>';
   var res=g('ret-resumen');
   if(res){var totalRet=rets.reduce(function(s,c){return s+c.retUsd;},0);res.innerHTML='<div style="font-size:12px;color:var(--text2)">Total retenciones generadas: <b style="color:var(--red)">$'+totalRet.toFixed(2)+'</b></div>';}
 }
@@ -5509,7 +5509,7 @@ function renderInventario(){
 
 function renderInvHist(){
   var tb=g('tb-inv-hist');
-  if(tb)tb.innerHTML=INV_MOV.slice().reverse().map(function(m){return'<tr><td>'+m.fecha+'</td><td style="font-weight:700">'+m.item+'</td><td><span class="badge '+(m.tipo==='Entrada'?'bg':'by')+'">'+m.tipo+'</span></td><td style="font-family:var(--m);color:'+(m.cantidad>0?'var(--green)':'var(--red)')+'">'+m.cantidad+'</td><td>'+m.cam+'</td><td style="font-size:11px">'+m.motivo+'</td><td style="font-family:var(--m)">'+m.stockResult+'</td></tr>';}).join('')||'<tr><td colspan="7" style="text-align:center;color:var(--text3);padding:20px">Sin movimientos</td></tr>';
+  if(tb)tb.innerHTML=INV_MOV.slice().reverse().map(function(m){return'<tr><td>'+formatFecha(m.fecha)+'</td><td style="font-weight:700">'+m.item+'</td><td><span class="badge '+(m.tipo==='Entrada'?'bg':'by')+'">'+m.tipo+'</span></td><td style="font-family:var(--m);color:'+(m.cantidad>0?'var(--green)':'var(--red)')+'">'+m.cantidad+'</td><td>'+m.cam+'</td><td style="font-size:11px">'+m.motivo+'</td><td style="font-family:var(--m)">'+m.stockResult+'</td></tr>';}).join('')||'<tr><td colspan="7" style="text-align:center;color:var(--text3);padding:20px">Sin movimientos</td></tr>';
 }
 
 // ═══════════════════════════════════════════════════
@@ -6227,7 +6227,7 @@ function renderAlcResumen(){
 
 function renderPagosAlcTabla(){
   var tb=g('tb-pagos-alc');
-  if(tb)tb.innerHTML=PAGOS_ALC.slice().reverse().map(function(p){return'<tr><td>'+p.fecha+'</td><td style="font-family:var(--m)">'+p.fact+'</td><td style="color:var(--green)">'+p.viajes+'</td><td style="font-family:var(--m)">$'+p.base.toFixed(0)+'</td><td style="font-family:var(--m);font-weight:700;color:var(--green)">$'+p.neto.toFixed(0)+'</td><td style="font-family:var(--m);color:var(--yellow)">Bs '+(p.neto*p.tasa).toFixed(0)+'</td><td style="font-family:var(--m)">'+p.tasa+'</td><td><span class="badge '+(p.fielDevuelto?'bg':'by')+'">'+(p.fielDevuelto?'Devuelto':'Pendiente')+'</span></td><td style="font-family:var(--m);color:var(--teal)">$'+(p.neto*0.075).toFixed(0)+'</td><td><button onclick="PAGOS_ALC.find(function(x){return x.id===\''+p.id+'\'}).fielDevuelto=true;renderPagosAlcTabla();" class="btn btn-g btn-xs">Dev.Fiel</button></td></tr>';}).join('')||'<tr><td colspan="10" style="text-align:center;color:var(--text3);padding:20px">Sin pagos registrados</td></tr>';
+  if(tb)tb.innerHTML=PAGOS_ALC.slice().reverse().map(function(p){return'<tr><td>'+formatFecha(p.fecha)+'</td><td style="font-family:var(--m)">'+p.fact+'</td><td style="color:var(--green)">'+p.viajes+'</td><td style="font-family:var(--m)">$'+p.base.toFixed(0)+'</td><td style="font-family:var(--m);font-weight:700;color:var(--green)">$'+p.neto.toFixed(0)+'</td><td style="font-family:var(--m);color:var(--yellow)">Bs '+(p.neto*p.tasa).toFixed(0)+'</td><td style="font-family:var(--m)">'+p.tasa+'</td><td><span class="badge '+(p.fielDevuelto?'bg':'by')+'">'+(p.fielDevuelto?'Devuelto':'Pendiente')+'</span></td><td style="font-family:var(--m);color:var(--teal)">$'+(p.neto*0.075).toFixed(0)+'</td><td><button onclick="PAGOS_ALC.find(function(x){return x.id===\''+p.id+'\'}).fielDevuelto=true;renderPagosAlcTabla();" class="btn btn-g btn-xs">Dev.Fiel</button></td></tr>';}).join('')||'<tr><td colspan="10" style="text-align:center;color:var(--text3);padding:20px">Sin pagos registrados</td></tr>';
 }
 
 function renderGastosFijos(){
@@ -6403,7 +6403,7 @@ function cambiarContrasena(){
 
 function renderAuditoria(){
   var tb=g('tb-auditoria');if(!tb)return;
-  tb.innerHTML=AUDITORIA_LOG.slice().reverse().slice(0,50).map(function(a){return'<tr><td style="font-size:10px;font-family:var(--m)">'+a.fecha+'</td><td><span class="badge by">'+a.usuario+'</span></td><td style="font-size:11px">'+a.accion+'</td><td style="font-size:11px;color:var(--text2)">'+a.detalle+'</td></tr>';}).join('')||'<tr><td colspan="4" style="text-align:center;color:var(--text3);padding:20px">Sin registros de auditoria</td></tr>';
+  tb.innerHTML=AUDITORIA_LOG.slice().reverse().slice(0,50).map(function(a){return'<tr><td style="font-size:10px;font-family:var(--m)">'+formatFecha(a.fecha)+'</td><td><span class="badge by">'+a.usuario+'</span></td><td style="font-size:11px">'+a.accion+'</td><td style="font-size:11px;color:var(--text2)">'+a.detalle+'</td></tr>';}).join('')||'<tr><td colspan="4" style="text-align:center;color:var(--text3);padding:20px">Sin registros de auditoria</td></tr>';
 }
 
 function exportarAuditoria(){
@@ -6732,7 +6732,7 @@ function renderAlertaDuplicadasRRHH(){
     html+='<tr>'+
       '<td style="font-family:var(--m);color:var(--yellow)">'+r.p+'</td>'+
       '<td style="font-family:var(--m);color:var(--red)">#'+r.p.replace('DUP','')+'</td>'+
-      '<td>'+r.f+'</td>'+
+      '<td>'+formatFecha(r.f)+'</td>'+
       '<td style="font-weight:700">'+r.cam+'</td>'+
       '<td style="font-size:11px">'+r.ch+'</td>'+
       '<td style="color:var(--green)">'+r.t+'v</td>'+
@@ -7180,7 +7180,7 @@ function emailAbonos(){
   if(!rows){alert('Sin datos');return;}
   var html='<h3>Reporte de Abonos/Cobros — Betangar</h3><table border=1 cellpadding=5>'+
     '<tr><th>Fecha</th><th>Factura</th><th>Viajes</th><th>Monto $</th><th>Ref BNC</th></tr>';
-  ABONOS.forEach(function(a){html+='<tr><td>'+a.f+'</td><td>'+a.fact+'</td><td>'+a.v+'</td><td>$'+a.m.toLocaleString()+'</td><td>'+a.ref+'</td></tr>';});
+  ABONOS.forEach(function(a){html+='<tr><td>'+formatFecha(a.f)+'</td><td>'+a.fact+'</td><td>'+a.v+'</td><td>$'+a.m.toLocaleString()+'</td><td>'+a.ref+'</td></tr>';});
   html+='</table><p>Total cobrado: $'+ABONOS.reduce(function(s,a){return s+a.m;},0).toLocaleString()+'</p>';
   enviarEmail('Reporte Abonos y Cobros',html);
 }
@@ -7205,7 +7205,7 @@ function emailCombustible(){
   var html='<h3>Reporte Combustible Betangar</h3>';
   html+='<p>Tanque actual: '+tankNivel+'L</p>';
   html+='<table border=1 cellpadding=4><tr><th>Fecha</th><th>Camion</th><th>Litros</th><th>Fuente</th><th>Monto $</th></tr>';
-  GASOIL.forEach(function(g){html+='<tr><td>'+g.f+'</td><td>'+g.cam+'</td><td>'+g.lit+'</td><td>'+g.src+'</td><td>$'+g.m.toFixed(2)+'</td></tr>';});
+  GASOIL.forEach(function(g){html+='<tr><td>'+formatFecha(g.f)+'</td><td>'+g.cam+'</td><td>'+g.lit+'</td><td>'+g.src+'</td><td>$'+g.m.toFixed(2)+'</td></tr>';});
   html+='</table>';
   enviarEmail('Reporte Combustible',html);
 }
@@ -7378,7 +7378,7 @@ function imprimirHistorico(){
     return '<tr style="background:'+(i%2===0?'#fff':'#f5f9ff')+'">'+
       '<td style="color:#6b7280;font-size:10px">'+(i+1)+'</td>'+
       '<td class="mono bv">'+r.p+'</td>'+
-      '<td>'+r.f+'</td>'+
+      '<td>'+formatFecha(r.f)+'</td>'+
       '<td class="bv"><b>'+r.cam+'</b></td>'+
       '<td style="font-size:11px">'+r.ch+'</td>'+
       '<td style="font-size:10px;color:#6b7280">'+r.r+'</td>'+
@@ -8685,7 +8685,7 @@ function renderCajaChica(){
     } else {
       repEl.innerHTML=CAJACHICA.reposiciones.slice().reverse().map(function(r){
         return '<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:12px">'+
-          '<span>'+r.fecha+'</span>'+
+          '<span>'+formatFecha(r.fecha)+'</span>'+
           '<span>$'+CAJACHICA.montoFijo+' = <b>Bs '+r.montoBs.toFixed(0)+'</b></span>'+
           '<span style="color:var(--text3)">Tasa: '+r.tasa+'</span>'+
           '</div>';
