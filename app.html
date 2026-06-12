@@ -6669,6 +6669,8 @@ function pedirNuevoToken(){
   }
   var codigo=generarCodigo();
   TOKEN_ACTIVO={codigo:codigo,expira:null,solicitante:SESION.nombre,accion:accion,motivo:motivo,detalle:window._tokenDetalle||''};
+  // P0: registrar la acción local para que el polling la ejecute al aprobar el superadmin
+  if(window._tokenCallback)registrarTokenLocal(codigo,window._tokenCallback,motivo);
   var now=new Date().toLocaleString('es-VE');
   var waMsg='Solicitud de modificacion\n'+
     '👤 Usuario: '+SESION.nombre+'\n'+
@@ -6719,11 +6721,13 @@ function validarToken(){
   var errEl=g('tok-error');
   if(!motivo){if(errEl){errEl.style.display='block';errEl.style.color='var(--red)';errEl.textContent='Escribe el motivo de la modificacion.';}return;}
   if(!codigo||codigo.length!==6){if(errEl){errEl.style.display='block';errEl.style.color='var(--red)';errEl.textContent='Ingresa el codigo de 6 digitos.';}return;}
-  if(!TOKEN_ACTIVO){if(errEl){errEl.style.display='block';errEl.style.color='var(--red)';errEl.textContent='No hay codigo activo. Solicítalo primero.';}return;}
-  // Sin expiración — el token es válido hasta que se use o se cancele
-  if(codigo!==TOKEN_ACTIVO.codigo){if(errEl){errEl.style.display='block';errEl.style.color='var(--red)';errEl.textContent='Codigo incorrecto.';}return;}
+  var _tk=String(codigo).toUpperCase();
+  var _local=PENDING_TOKEN_CB[_tk];
+  var _matchActivo=TOKEN_ACTIVO&&codigo===TOKEN_ACTIVO.codigo;
+  if(!_matchActivo&&!_local){if(errEl){errEl.style.display='block';errEl.style.color='var(--red)';errEl.textContent='Codigo incorrecto o sin acción pendiente en esta sesión.';}return;}
   // Token valido
-  audit('Token validado',SESION.nombre+' ejecuto: '+TOKEN_ACTIVO.accion+' -- Motivo: '+motivo);
+  var _accion=TOKEN_ACTIVO?TOKEN_ACTIVO.accion:(window._tokenAccion||'modificacion');
+  audit('Token validado',SESION.nombre+' ejecuto: '+_accion+' -- Motivo: '+motivo);
   // Marcar como usado en el panel de tokens pendientes (fetch a PostgREST)
   fetch(SUPA_URL+'/rest/v1/tokens_pendientes?token=eq.'+encodeURIComponent(codigo)+'&usado=eq.false',{
     method:'PATCH',
@@ -6732,15 +6736,17 @@ function validarToken(){
   }).catch(function(){});
   var confirmMsg='BETANGAR - ACCION EJECUTADA\n\n'+
     'Usuario: '+SESION.nombre+'\n'+
-    'Accion: '+TOKEN_ACTIVO.accion+'\n'+
-    (TOKEN_ACTIVO.detalle?'Detalle: '+TOKEN_ACTIVO.detalle+'\n':'')+
+    'Accion: '+_accion+'\n'+
+    ((TOKEN_ACTIVO&&TOKEN_ACTIVO.detalle)?'Detalle: '+TOKEN_ACTIVO.detalle+'\n':'')+
     'Motivo: '+motivo+'\n'+
     'Fecha: '+new Date().toLocaleString('es-VE');
   sendWA(confirmMsg,'socios',true); // interactivo: sale a cualquier hora
   TOKEN_ACTIVO=null;
+  delete PENDING_TOKEN_CB[_tk]; // evita que el polling repita la acción
   closeModal();
-  if(window._tokenCallback)window._tokenCallback(motivo);
+  var _cb=_local?_local.cb:window._tokenCallback;
   window._tokenCallback=null;
+  if(_cb)try{_cb(motivo);}catch(e){console.log('token cb err:',e&&e.message);}
 }
 
 function pedirMotivo(accion,callback){
@@ -6794,11 +6800,51 @@ function _tokRestHdr(extra){
   return h;
 }
 
+// ── P0: aprobación de token EJECUTA la acción en la sesión del solicitante ──
+// La acción (callback) vive en memoria de la sesión que la solicitó; no se serializa.
+// El superadmin aprueba (aprobado=true en Supabase) y el polling de ESTA sesión lo
+// detecta y ejecuta. Guarda usado=true para evitar doble ejecución.
+var PENDING_TOKEN_CB = {};   // { "TOKEN": {cb:fn, motivo:str} }
+var _pollTokensInt = null;
+function registrarTokenLocal(token, cb, motivo){
+  if(!token||typeof cb!=='function')return;
+  PENDING_TOKEN_CB[String(token).toUpperCase()]={cb:cb,motivo:motivo||''};
+  if(!_pollTokensInt){_pollTokensInt=setInterval(pollTokensAprobados,5000);}
+  pollTokensAprobados();
+}
+function pollTokensAprobados(){
+  var toks=Object.keys(PENDING_TOKEN_CB);
+  if(!toks.length){if(_pollTokensInt){clearInterval(_pollTokensInt);_pollTokensInt=null;}return;}
+  toks.forEach(function(tk){
+    var url=SUPA_URL+'/rest/v1/tokens_pendientes?select=id,token,usado,aprobado'+
+      '&token=eq.'+encodeURIComponent(tk)+'&aprobado=eq.true&usado=eq.false';
+    fetch(url,{headers:_tokRestHdr()}).then(function(r){return r.json();})
+      .then(function(rows){ if(Array.isArray(rows)&&rows.length)ejecutarTokenLocal(tk,rows[0].id); })
+      .catch(function(){});
+  });
+}
+// Ejecuta el callback local de un token una sola vez (marca usado=true antes para evitar doble).
+function ejecutarTokenLocal(token,id){
+  var key=String(token).toUpperCase();
+  var entry=PENDING_TOKEN_CB[key];
+  if(!entry)return;
+  delete PENDING_TOKEN_CB[key]; // anti doble ejecución dentro de la sesión
+  var q=id?('id=eq.'+encodeURIComponent(id)):('token=eq.'+encodeURIComponent(token)+'&usado=eq.false');
+  fetch(SUPA_URL+'/rest/v1/tokens_pendientes?'+q,{
+    method:'PATCH',headers:_tokRestHdr({'Content-Type':'application/json','Prefer':'return=minimal'}),
+    body:JSON.stringify({usado:true})
+  }).catch(function(){});
+  try{entry.cb(entry.motivo);}catch(e){console.log('token cb err:',e&&e.message);}
+  if(typeof mostrarToast==='function')mostrarToast('✅ Acción aprobada y ejecutada','exito');
+  try{if(typeof closeModal==='function')closeModal();}catch(e){}
+  audit('Token aprobado y ejecutado',token);
+}
+
 function renderTokensPendientes(){
   var cont=g('tokens-pend-banner');
   if(!cont||!esSuperAdmin())return;
   var ahora=new Date().toISOString();
-  var url=SUPA_URL+'/rest/v1/tokens_pendientes?select=*&usado=eq.false'+
+  var url=SUPA_URL+'/rest/v1/tokens_pendientes?select=*&usado=eq.false&aprobado=eq.false'+
     '&expira=gt.'+encodeURIComponent(ahora)+'&order=created_at.desc';
   fetch(url,{headers:_tokRestHdr()})
     .then(function(r){return r.json();})
@@ -6856,10 +6902,11 @@ function aprobarTokenPend(id){
   fetch(SUPA_URL+'/rest/v1/tokens_pendientes?id=eq.'+encodeURIComponent(id),{
     method:'PATCH',
     headers:_tokRestHdr({'Content-Type':'application/json','Prefer':'return=minimal'}),
-    body:JSON.stringify({usado:true})
+    body:JSON.stringify({aprobado:true})
   }).then(function(r){
     if(!r.ok){return r.text().then(function(t){alert('No se pudo aprobar: '+t);});}
     audit('Token APROBADO','El superadmin aprobó un token pendiente (id '+id+')');
+    if(typeof mostrarToast==='function')mostrarToast('Aprobado. La acción se ejecutará en la sesión del solicitante.','exito');
     renderTokensPendientes();
   }).catch(function(e){alert('No se pudo aprobar: '+(e&&e.message));});
 }
@@ -8563,6 +8610,8 @@ function generarTokenAprobacion(accion, datos, callback){
   var token = Math.random().toString(36).substr(2,6).toUpperCase();
   var expira = Date.now() + 30*60*1000; // 30 minutos
   TOKENS_PENDIENTES[token] = {accion:accion, datos:datos, callback:callback, expira:expira};
+  // P0: registrar la acción local para que el polling la ejecute al aprobar el superadmin
+  registrarTokenLocal(token, function(){ if(callback)callback(datos); }, (typeof datos==='string'?datos:''));
   // FIX banner: registrar también en la tabla Supabase tokens_pendientes para que el
   // superadmin lo vea en el banner (antes este flujo solo guardaba en localStorage).
   try{
@@ -8591,22 +8640,27 @@ function generarTokenAprobacion(accion, datos, callback){
 }
 
 function verificarToken(token, callback){
-  // Recargar desde localStorage
-  try{var _t=localStorage.getItem('btg_tokens');if(_t)TOKENS_PENDIENTES=JSON.parse(_t);}catch(e){}
-  
-  var entry = TOKENS_PENDIENTES[token.toUpperCase()];
-  if(!entry){alert('Token inválido o no encontrado.');return false;}
-  if(Date.now() > entry.expira){
-    delete TOKENS_PENDIENTES[token.toUpperCase()];
-    localStorage.setItem('btg_tokens',JSON.stringify(TOKENS_PENDIENTES));
-    alert('Token expirado. Solicita uno nuevo.');
-    return false;
+  var _tk=String(token).toUpperCase();
+  // NO recargar TOKENS_PENDIENTES desde localStorage: los callbacks son funciones y
+  // JSON las borra → entry.callback quedaba undefined y NO ejecutaba (bug "el token
+  // llega pero no elimina"). Usamos el mapa en memoria PENDING_TOKEN_CB.
+  var _local=PENDING_TOKEN_CB[_tk];
+  var entry=TOKENS_PENDIENTES[_tk];
+  if(entry&&entry.expira&&Date.now()>entry.expira){
+    delete TOKENS_PENDIENTES[_tk];delete PENDING_TOKEN_CB[_tk];
+    alert('Token expirado. Solicita uno nuevo.');return false;
   }
-  // Token válido - ejecutar acción
-  if(entry.callback)entry.callback(entry.datos);
-  delete TOKENS_PENDIENTES[token.toUpperCase()];
+  var cb=_local?_local.cb:(entry&&typeof entry.callback==='function'?function(){entry.callback(entry.datos);}:(typeof callback==='function'&&entry?function(){callback(entry.datos);}:null));
+  if(!cb){alert('Token inválido o sin acción pendiente en esta sesión.');return false;}
+  // Marcar usado en Supabase (anti doble ejecución) y limpiar mapas locales
+  fetch(SUPA_URL+'/rest/v1/tokens_pendientes?token=eq.'+encodeURIComponent(token)+'&usado=eq.false',{
+    method:'PATCH',headers:_tokRestHdr({'Content-Type':'application/json','Prefer':'return=minimal'}),
+    body:JSON.stringify({usado:true})
+  }).catch(function(){});
+  delete TOKENS_PENDIENTES[_tk];delete PENDING_TOKEN_CB[_tk];
   try{localStorage.setItem('btg_tokens',JSON.stringify(TOKENS_PENDIENTES));}catch(e){}
-  audit('Token aprobado', entry.accion);
+  audit('Token aprobado', entry?entry.accion:_tk);
+  try{cb();}catch(e){console.log('token cb err:',e&&e.message);}
   return true;
 }
 
@@ -8626,25 +8680,29 @@ function solicitarEliminarGasoil(idx){
   if(!motivo){alert('Debes indicar el motivo para solicitar la eliminación.');return;}
   var desc = 'Eliminar combustible: '+r.cam+' - '+r.lit+'L - '+r.f+'\n📝 Motivo: '+motivo;
   generarTokenAprobacion(desc, {idx:idx, r:r}, function(datos){
-    eliminarGasoilConfirmado(datos.idx);
+    eliminarGasoilConfirmado(datos.r||datos.idx);
   });
   // Panel para ingresar token
   var token_input = prompt('Acción enviada por WA a los socios.\nSi eres superadmin ingresa el token de aprobación:');
-  if(token_input){verificarToken(token_input, function(datos){eliminarGasoilConfirmado(datos.idx);});}
+  if(token_input){verificarToken(token_input, function(datos){eliminarGasoilConfirmado(datos.r||datos.idx);});}
 }
 
-function eliminarGasoilConfirmado(idx){
-  var r = GASOIL[idx];
+function eliminarGasoilConfirmado(ref){
+  // ref puede ser el registro (preferido, estable) o un índice (compat). Borrar por id
+  // evita borrar el registro equivocado si el array cambió mientras se aprobaba el token.
+  var r = (ref&&typeof ref==='object') ? ref : GASOIL[ref];
   if(!r)return;
-  GASOIL.splice(idx,1);
+  var idx = GASOIL.indexOf(r);
+  if(idx<0 && r.id) idx = GASOIL.findIndex(function(x){return x.id===r.id;});
+  if(idx>=0) GASOIL.splice(idx,1);
   try{localStorage.setItem('btg_gasoil',JSON.stringify(GASOIL));}catch(e){}
   if(DB_READY&&supabase&&r.id){
     supabase.from('gasoil').delete().eq('id',r.id).then(function(res){
-      if(res.error)console.log('Error eliminando gasoil:',res.error.message);
+      if(res.error){console.log('Error eliminando gasoil:',res.error.message);if(typeof mostrarToast==='function')mostrarToast('No se pudo eliminar en Supabase: '+res.error.message,'error');}
     });
   }
   renderGasoil();
-  alert('✅ Registro eliminado.');
+  if(typeof mostrarToast==='function')mostrarToast('🗑️ Registro de combustible eliminado','exito');
 }
 
 
