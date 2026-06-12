@@ -505,7 +505,7 @@ tr:hover td{background:rgba(45,255,122,.02)}
         <div class="alert-w" style="margin-bottom:10px">CONFIDENCIAL. Solo admin. Credenciales otorgadas por el BNC como persona juridica.</div>
         <div class="fg"><label>BNC Client GUID</label><input class="fc" id="bnc-guid" type="password" placeholder="Tu GUID de cliente BNC" style="font-family:var(--m)"></div>
         <div class="fg"><label>BNC Master Key</label><input class="fc" id="bnc-mkey" type="password" placeholder="Tu clave maestra BNC" style="font-family:var(--m)"></div>
-        <div class="fg"><label>Numero de Cuenta BNC</label><input class="fc" id="bnc-cuenta" placeholder="0000-0000-00-0000000000" style="font-family:var(--m)"></div>
+        <div class="fg"><label>Numero de Cuenta BNC</label><input class="fc" id="bnc-cuenta-legacy" placeholder="0000-0000-00-0000000000" style="font-family:var(--m)"></div>
         <div class="fg"><label>RIF</label><input class="fc" id="bnc-rif" value="J-29566107-0"></div>
         <div class="fg"><label>Ambiente</label><select class="fc" id="bnc-amb"><option value="production">Produccion</option><option value="development">Pruebas</option></select></div>
         <div style="display:flex;gap:8px">
@@ -2166,6 +2166,7 @@ function _iniciarSesionCore(){
     // Refrescar vistas según rol
     var _rl={vigilante:1,mecanico:1,operativo:1,asistencia:1};
     if(!_rl[SESION.rol]){
+      bncInitFlag().then(function(){renderDash();});
       renderDash();renderPlanHoy();renderKm();renderAbonos();
       calcNom();renderGastosFijos();renderGastosVariables();
       checkAlertas7AM();checkCumpleAlerts();
@@ -2276,6 +2277,21 @@ function cerrarSesion(){SESION=null;try{localStorage.removeItem('betangar_sesion
 // ═══════════════════════════════════════════════════
 // BNC CONFIG
 // ═══════════════════════════════════════════════════
+// Activa la compuerta BNC al arrancar leyendo solo si existen credenciales en Supabase
+// (no trae el secreto). Sin esto, BNC_CONFIG.guid queda vacio tras recargar y los modulos
+// BNC piden reingresar credenciales aunque ya esten guardadas de forma segura.
+async function bncInitFlag(){
+  try{
+    if(!DB_READY||!supabase)return;
+    var r=await supabase.from('bnc_config_estado').select('tiene_credenciales,cuenta,client_id').order('updated_at',{ascending:false}).limit(1);
+    var d=(r.data&&r.data.length)?r.data[0]:null;
+    if(d&&d.tiene_credenciales){
+      BNC_CONFIG.guid=BNC_CONFIG.guid||'✓';
+      if(d.cuenta)BNC_CONFIG.cuenta=BNC_CONFIG.cuenta||d.cuenta;
+    }
+  }catch(e){}
+}
+
 async function bncCargarConfig(){
   var pg=document.getElementById('p-banco-bnc');
   if(!pg)return;
@@ -2299,6 +2315,10 @@ async function bncCargarConfig(){
       // Credenciales: ya configuradas → mostrar enmascaradas, NO pedir de nuevo.
       var est=el('bnc-cred-estado');
       if(d.tiene_credenciales){
+        // Activa la compuerta en memoria sin exponer el secreto: con esto los modulos
+        // BNC funcionan tras recargar sin que el usuario reingrese credenciales.
+        BNC_CONFIG.guid=BNC_CONFIG.guid||'✓';
+        if(d.cuenta)BNC_CONFIG.cuenta=BNC_CONFIG.cuenta||d.cuenta;
         if(el('bnc-client-guid')){el('bnc-client-guid').value='';el('bnc-client-guid').placeholder='Configurado ('+(d.client_guid_masked||'••••')+') — deja en blanco para mantener';}
         if(el('bnc-master-key')){el('bnc-master-key').value='';el('bnc-master-key').placeholder='Configurado ('+(d.master_key_masked||'••••')+') — deja en blanco para mantener';}
         if(est){est.style.display='block';est.style.background='rgba(163,230,53,.08)';est.style.border='1px solid rgba(163,230,53,.3)';est.style.color='#a3e635';
@@ -4584,24 +4604,43 @@ function confirmarPagoBNC(id){
   });  // fin solicitarToken
 }
 
-function guardarConfigBNC(){
-  BNC_CONFIG.guid=gv('bnc-guid');BNC_CONFIG.mkey=gv('bnc-mkey');
-  BNC_CONFIG.cuenta=gv('bnc-cuenta');BNC_CONFIG.rif=gv('bnc-rif');
-  BNC_CONFIG.amb=gv('bnc-amb');
-  audit('Config BNC actualizada','');
-  alert('✅ Configuracion BNC guardada.');
+async function guardarConfigBNC(){
+  // Guarda de forma SEGURA en Supabase via RPC (SECURITY DEFINER). El secreto no se
+  // persiste en el navegador; los campos en blanco NO sobrescriben lo ya guardado.
+  if(!supabase){alert('Sin conexion a base de datos');return;}
+  try{
+    var r=await supabase.rpc('bnc_actualizar_config',{
+      p_client_guid: gv('bnc-guid')||null,
+      p_master_key:  gv('bnc-mkey')||null,
+      p_cuenta:      gv('bnc-cuenta-legacy')||null
+    });
+    if(r.error)throw r.error;
+    BNC_CONFIG.guid='✓';
+    if(gv('bnc-cuenta-legacy'))BNC_CONFIG.cuenta=gv('bnc-cuenta-legacy');
+    audit('Config BNC actualizada','');
+    // Limpia los campos sensibles de la UI tras guardar
+    if(g('bnc-guid'))g('bnc-guid').value='';
+    if(g('bnc-mkey'))g('bnc-mkey').value='';
+    alert('✅ Credenciales BNC guardadas de forma segura en Supabase.\nNo tendras que volver a ingresarlas cada vez que entres.');
+  }catch(e){alert('Error guardando: '+(e.message||e));}
 }
 
-function testBNC(){
+async function testBNC(){
   var res=g('bnc-test-res');if(!res)return;
-  res.style.display='block';
-  if(!BNC_CONFIG.guid||!BNC_CONFIG.mkey){res.style.color='var(--red)';res.textContent='❌ Faltan credenciales (GUID y Master Key)';return;}
-  res.style.color='var(--yellow)';res.textContent='⏳ Probando conexion...';
-  // Simular intento de conexion
-  setTimeout(function(){
-    if(DEMO_MODE){res.style.color='var(--green)';res.textContent='✅ DEMO: Conexion simulada correctamente';BNC_SALDO=4250000;renderBNCDash();return;}
-    res.style.color='var(--yellow)';res.textContent='⚠ La conexion directa requiere proxy backend. Las credenciales estan guardadas. Contacta al desarrollador para habilitar la conexion en produccion.';
-  },1500);
+  res.style.display='block';res.style.color='var(--yellow)';res.textContent='⏳ Probando conexion con el BNC...';
+  if(DEMO_MODE){res.style.color='var(--green)';res.textContent='✅ DEMO: Conexion simulada correctamente';BNC_SALDO=4250000;renderBNCDash();return;}
+  try{
+    var r=await fetch(SUPA_URL+'/functions/v1/bnc-saldo',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+SUPA_KEY},body:JSON.stringify({action:'saldo'}),signal:AbortSignal.timeout(45000)});
+    var d=await r.json();
+    if(!d||!d.ok){
+      var det=(d&&(d.error||(d.respuesta&&(d.respuesta.message||d.respuesta.Message))))||'sin respuesta';
+      res.style.color='var(--red)';res.textContent='❌ Error en paso «'+((d&&d.step)||'?')+'»: '+det;return;
+    }
+    var s=d.saldos||{};var ks=Object.keys(s);var totVES=0;
+    ks.forEach(function(k){var c=s[k]||{};if((c.CurrencyCode||c.currencyCode||'VES').toUpperCase()==='VES')totVES+=Number(c.Balance!=null?c.Balance:(c.balance||0));});
+    if(totVES>0){BNC_SALDO=totVES;renderBNCDash();renderDash();}
+    res.style.color='var(--green)';res.textContent='✅ Conexion BNC OK — '+ks.length+' cuenta(s) consultada(s).';
+  }catch(e){res.style.color='var(--red)';res.textContent='❌ '+(e.name==='TimeoutError'?'El BNC no respondio a tiempo':e.message);}
 }
 
 // ═══════════════════════════════════════════════════
@@ -11044,6 +11083,14 @@ function _pintarBncResumen(el,d){
   });
   html+='</div>';
   el.innerHTML=html;
+  // Propaga el saldo VES al dashboard principal (tarjeta "Saldo BNC" y barra superior)
+  var ves=cuentas.filter(function(c){return c.moneda==='VES';}).reduce(function(s,c){return s+Number(c.saldoActual||0);},0);
+  if(ves>0){
+    BNC_SALDO=ves;
+    if(g('s-saldo-bnc'))g('s-saldo-bnc').textContent='Bs '+(ves/1000).toFixed(0)+'k';
+    if(g('s-saldo-sub'))g('s-saldo-sub').innerHTML='<span onclick="sp(\'banco\')" style="cursor:pointer;color:var(--blue)">Actualizado</span>';
+    if(g('bnc-nav-saldo')){g('bnc-nav-saldo').textContent='BNC: Bs '+(ves/1000).toFixed(0)+'k';g('bnc-nav-saldo').style.display='block';}
+  }
 }
 
 // ── Módulo Conciliación Bancaria: cruza movimientos reales del BNC vs notificaciones de la app ──
