@@ -1010,7 +1010,7 @@ tr:hover td{background:rgba(45,255,122,.02)}
     <div class="card">
       <div class="st" style="margin-bottom:10px">🎯 Configurar Metas</div>
       <div class="fr2">
-        <div class="fg"><label>Mes</label><select class="fc" id="meta-mes"><option value="abr-26">Abril 2026</option><option value="may-26">Mayo 2026</option></select></div>
+        <div class="fg"><label>Mes</label><select class="fc" id="meta-mes"><option value="ene-26">Enero 2026</option><option value="feb-26">Febrero 2026</option><option value="mar-26">Marzo 2026</option><option value="abr-26" selected>Abril 2026</option><option value="may-26">Mayo 2026</option><option value="jun-26">Junio 2026</option><option value="jul-26">Julio 2026</option><option value="ago-26">Agosto 2026</option><option value="sep-26">Septiembre 2026</option><option value="oct-26">Octubre 2026</option><option value="nov-26">Noviembre 2026</option><option value="dic-26">Diciembre 2026</option></select></div>
         <div class="fg"><label>Semana</label><select class="fc" id="meta-sem"><option>Semana 1</option><option>Semana 2</option><option>Semana 3</option><option>Semana 4</option><option>Semana 5</option></select></div>
       </div>
       <div class="fg"><label>Meta de viajes por camion (semanal)</label><input type="number" class="fc" id="meta-x-cam" placeholder="20" style="font-family:var(--m)"></div>
@@ -1126,7 +1126,7 @@ tr:hover td{background:rgba(45,255,122,.02)}
 <!-- HISTORICO -->
 <div id="p-historico" class="page">
   <div style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:10px 14px;margin-bottom:10px;display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
-    <div class="fg" style="margin:0"><label style="display:block;font-size:10px;color:var(--text3);margin-bottom:4px">Mes</label><select class="fc" id="hf-mes" onchange="filtH()" style="padding:6px 8px;font-size:11px"><option value="">Todos</option><option value="mar-26">Marzo</option><option value="abr-26">Abril</option><option value="may-26">Mayo</option></select></div>
+    <div class="fg" style="margin:0"><label style="display:block;font-size:10px;color:var(--text3);margin-bottom:4px">Mes</label><select class="fc" id="hf-mes" onchange="filtH()" style="padding:6px 8px;font-size:11px"><option value="">Todos</option><option value="ene-26">Enero 2026</option><option value="feb-26">Febrero 2026</option><option value="mar-26">Marzo 2026</option><option value="abr-26">Abril 2026</option><option value="may-26">Mayo 2026</option><option value="jun-26">Junio 2026</option><option value="jul-26">Julio 2026</option><option value="ago-26">Agosto 2026</option><option value="sep-26">Septiembre 2026</option><option value="oct-26">Octubre 2026</option><option value="nov-26">Noviembre 2026</option><option value="dic-26">Diciembre 2026</option></select></div>
     <div class="fg" style="margin:0"><label style="display:block;font-size:10px;color:var(--text3);margin-bottom:4px">Semana</label><select class="fc" id="hf-sem" onchange="filtH()" style="padding:6px 8px;font-size:11px"><option value="">Todas</option></select></div>
     <div class="fg" style="margin:0"><label style="display:block;font-size:10px;color:var(--text3);margin-bottom:4px">Camion</label><select class="fc" id="hf-cam" onchange="filtH()" style="padding:6px 8px;font-size:11px"><option value="">Todos</option></select></div>
     <div class="fg" style="margin:0"><label style="display:block;font-size:10px;color:var(--text3);margin-bottom:4px">Desde</label><input type="date" class="fc" id="hf-des" onchange="filtH()" style="padding:6px 8px;font-size:11px"></div>
@@ -1258,7 +1258,7 @@ tr:hover td{background:rgba(45,255,122,.02)}
 <!-- NOMINA -->
 <div id="p-nomina" class="page">
   <div style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:10px 14px;margin-bottom:10px;display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
-    <div class="fg" style="margin:0"><label style="font-size:10px;color:var(--text3)">Mes</label><select class="fc" id="nm-mes" onchange="calcNom()" style="padding:6px 8px;font-size:11px"><option value="abr-26">Abril 2026</option><option value="mar-26">Marzo 2026</option><option value="may-26">Mayo 2026</option><option value="">Todos</option></select></div>
+    <div class="fg" style="margin:0"><label style="font-size:10px;color:var(--text3)">Mes</label><select class="fc" id="nm-mes" onchange="calcNom()" style="padding:6px 8px;font-size:11px"><option value="ene-26">Enero 2026</option><option value="feb-26">Febrero 2026</option><option value="mar-26">Marzo 2026</option><option value="abr-26" selected>Abril 2026</option><option value="may-26">Mayo 2026</option><option value="jun-26">Junio 2026</option><option value="jul-26">Julio 2026</option><option value="ago-26">Agosto 2026</option><option value="sep-26">Septiembre 2026</option><option value="oct-26">Octubre 2026</option><option value="nov-26">Noviembre 2026</option><option value="dic-26">Diciembre 2026</option><option value="">Todos</option></select></div>
     <div class="fg" style="margin:0"><label style="font-size:10px;color:var(--text3)">Semana</label><select class="fc" id="nm-sem" onchange="calcNom()" style="padding:6px 8px;font-size:11px"><option value="">Todas</option></select></div>
     <div class="fg" style="margin:0"><label style="font-size:10px;color:var(--text3)">Desde</label><input type="date" class="fc" id="nm-des" onchange="calcNom()" style="padding:6px 8px;font-size:11px"></div>
     <div class="fg" style="margin:0"><label style="font-size:10px;color:var(--text3)">Hasta</label><input type="date" class="fc" id="nm-hta" onchange="calcNom()" style="padding:6px 8px;font-size:11px"></div>
@@ -1522,7 +1522,7 @@ tr:hover td{background:rgba(45,255,122,.02)}
   </div>
   <div id="tab-fin-nompago" style="display:none">
     <div class="g2">
-      <div class="card"><div class="st" style="margin-bottom:10px">Pago Nomina Semanal</div><div class="fr2"><div class="fg"><label>Semana</label><select class="fc" id="np-sem"><option>Semana 1</option><option>Semana 2</option><option>Semana 3</option><option>Semana 4</option><option>Semana 5</option></select></div><div class="fg"><label>Mes</label><select class="fc" id="np-mes"><option value="mar-26">Marzo</option><option value="abr-26">Abril</option><option value="may-26">Mayo</option></select></div></div><div class="fr2"><div class="fg"><label>Fecha de pago</label><input class="fc" id="np-fecha" type="date"></div><div class="fg"><label>Tasa BCV $</label><input class="fc" id="np-tasa" type="number" style="font-family:var(--m)" oninput="calcularNomina()"></div></div><button class="btn btn-s btn-sm" style="width:100%;margin-bottom:8px" onclick="calcularNomina()">Calcular</button><div id="np-lista"></div><div class="fr2" style="margin-top:8px"><div class="fg"><label>N. Referencia</label><input class="fc" id="np-ref" style="font-family:var(--m)"></div><div class="fg"><label>Total Bs</label><input class="fc" id="np-total-bs" readonly style="font-family:var(--m);color:var(--green);font-weight:700"></div></div><div style="display:flex;gap:8px;margin-top:8px"><button class="btn btn-g" style="flex:1" onclick="registrarPagoNom()">Confirmar Pago</button><button class="btn btn-b" style="flex:1" onclick="montarNominaBNC()">🏦 Montar BNC</button></div></div>
+      <div class="card"><div class="st" style="margin-bottom:10px">Pago Nomina Semanal</div><div class="fr2"><div class="fg"><label>Semana</label><select class="fc" id="np-sem"><option>Semana 1</option><option>Semana 2</option><option>Semana 3</option><option>Semana 4</option><option>Semana 5</option></select></div><div class="fg"><label>Mes</label><select class="fc" id="np-mes"><option value="ene-26">Enero 2026</option><option value="feb-26">Febrero 2026</option><option value="mar-26">Marzo 2026</option><option value="abr-26" selected>Abril 2026</option><option value="may-26">Mayo 2026</option><option value="jun-26">Junio 2026</option><option value="jul-26">Julio 2026</option><option value="ago-26">Agosto 2026</option><option value="sep-26">Septiembre 2026</option><option value="oct-26">Octubre 2026</option><option value="nov-26">Noviembre 2026</option><option value="dic-26">Diciembre 2026</option></select></div></div><div class="fr2"><div class="fg"><label>Fecha de pago</label><input class="fc" id="np-fecha" type="date"></div><div class="fg"><label>Tasa BCV $</label><input class="fc" id="np-tasa" type="number" style="font-family:var(--m)" oninput="calcularNomina()"></div></div><button class="btn btn-s btn-sm" style="width:100%;margin-bottom:8px" onclick="calcularNomina()">Calcular</button><div id="np-lista"></div><div class="fr2" style="margin-top:8px"><div class="fg"><label>N. Referencia</label><input class="fc" id="np-ref" style="font-family:var(--m)"></div><div class="fg"><label>Total Bs</label><input class="fc" id="np-total-bs" readonly style="font-family:var(--m);color:var(--green);font-weight:700"></div></div><div style="display:flex;gap:8px;margin-top:8px"><button class="btn btn-g" style="flex:1" onclick="registrarPagoNom()">Confirmar Pago</button><button class="btn btn-b" style="flex:1" onclick="montarNominaBNC()">🏦 Montar BNC</button></div></div>
       <div class="card"><div class="st" style="margin-bottom:8px">Historial</div><div id="np-historial"></div></div>
     </div>
   </div>
@@ -6659,13 +6659,15 @@ function sendWA(msg, roles, force){
 
 // Envío directo a un número/apikey concreto (empleados) — usa Image() igual que sendWA
 function sendWADirecto(numero, apikey, mensaje){
-  if(!numero||!apikey)return false;
+  if(!numero||!apikey){console.log('[WA directo] FALTA numero o apikey:',numero,apikey);return false;}
   var numLimpio=String(numero).replace(/[\s\-\+]/g,'');
   if(!numLimpio)return false;
+  var url='https://api.callmebot.com/whatsapp.php?phone='+encodeURIComponent(numLimpio)+'&text='+encodeURIComponent(mensaje)+'&apikey='+encodeURIComponent(apikey);
+  console.log('[WA directo] enviando a',numLimpio,'→',url);
   var img=new Image();
-  img.onload=function(){console.log('WA directo OK:',numLimpio);};
-  img.onerror=function(){console.log('WA directo respuesta:',numLimpio,'(normal si llego)');};
-  img.src='https://api.callmebot.com/whatsapp.php?phone='+encodeURIComponent(numLimpio)+'&text='+encodeURIComponent(mensaje)+'&apikey='+apikey;
+  img.onload=function(){console.log('[WA directo] OK:',numLimpio);};
+  img.onerror=function(){console.log('[WA directo] respuesta de callmebot para',numLimpio,'(normal si llegó el mensaje)');};
+  img.src=url;
   return true;
 }
 
