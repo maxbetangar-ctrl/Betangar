@@ -4631,7 +4631,9 @@ function renderBNCDash(){
 }
 
 async function consultarSaldoBNC(){
-  if(!BNC_CONFIG.guid){alert('Primero configura las credenciales BNC en la tab "Config API"');return;}
+  // Las credenciales viven en el servidor (bnc_config, service_role). NO dependemos de la
+  // bandera local BNC_CONFIG.guid (que quedaba vacía si bncInitFlag no corrió / DB_READY false).
+  // El edge function bnc-saldo responde si realmente faltan credenciales.
   if(DEMO_MODE){BNC_SALDO=4250000+Math.random()*500000;renderBNCDash();renderDash();return;}
   var fe=g('bnc-saldo-fecha');if(fe)fe.textContent='⏳ Consultando saldo en el BNC…';
   try{
@@ -4651,6 +4653,7 @@ async function consultarSaldoBNC(){
       if(mon==='VES')totVES+=bal;
     });
     BNC_SALDO=totVES;
+    BNC_CONFIG.guid=BNC_CONFIG.guid||'✓'; // el saldo llegó → hay credenciales válidas en el servidor
     renderBNCDash();renderDash();
     if(fe)fe.textContent='Actualizado: '+new Date().toLocaleString('es-VE')+' · '+ks.length+' cuenta(s)';
   }catch(e){
