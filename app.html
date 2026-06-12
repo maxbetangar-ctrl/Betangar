@@ -834,7 +834,7 @@ tr:hover td{background:rgba(45,255,122,.02)}
 <div id="p-asistencia" class="page">
   <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;align-items:flex-end">
     <div class="fg" style="margin:0"><label style="font-size:10px;color:var(--text3)">Semana</label><select class="fc" id="asis-sem" onchange="renderAsistencia()" style="padding:6px 8px;font-size:11px"><option>Semana 1</option><option>Semana 2</option><option>Semana 3</option><option>Semana 4</option><option>Semana 5</option></select></div>
-    <div class="fg" style="margin:0"><label style="font-size:10px;color:var(--text3)">Mes</label><select class="fc" id="asis-mes" onchange="renderAsistencia()" style="padding:6px 8px;font-size:11px"><option value="abr-26">Abril 2026</option><option value="may-26">Mayo 2026</option><option value="mar-26">Marzo 2026</option></select></div>
+    <div class="fg" style="margin:0"><label style="font-size:10px;color:var(--text3)">Mes</label><select class="fc" id="asis-mes" onchange="renderAsistencia()" style="padding:6px 8px;font-size:11px"><option value="ene-26">Enero 2026</option><option value="feb-26">Febrero 2026</option><option value="mar-26">Marzo 2026</option><option value="abr-26" selected>Abril 2026</option><option value="may-26">Mayo 2026</option><option value="jun-26">Junio 2026</option><option value="jul-26">Julio 2026</option><option value="ago-26">Agosto 2026</option><option value="sep-26">Septiembre 2026</option><option value="oct-26">Octubre 2026</option><option value="nov-26">Noviembre 2026</option><option value="dic-26">Diciembre 2026</option></select></div>
     <button class="btn btn-g btn-sm" onclick="marcarTodosPresente()">✅ Todos Presente Hoy</button>
     <button class="btn btn-s btn-sm" onclick="exportarAsistencia()">Excel</button>
     <button class="btn btn-s btn-sm" onclick="imprimirAsistencia()">🖨 Imprimir</button>
@@ -4191,7 +4191,7 @@ function guardarCompraCombustible(){
 async function guardarGasol(){
   var per=gv('gp-per'),lit=parseFloat(gv('gp-lit'))||0,f=gv('gp-f');
   if(!lit){alert('Ingresa litros');return;}
-  var m=lit*0.5;var r={f:f,per:per,lit:lit,m:m};GASOL.push(r);
+  var m=lit*0.5;if(!f)f=new Date().toISOString().slice(0,10);var r={f:f,per:per,lit:lit,m:m};GASOL.push(r);var _okG=await dbIn('gasol',{f:f,per:per,lit:lit,m:m});if(_okG&&typeof mostrarToast==='function')mostrarToast('Gasolina: '+per+' '+lit+' L guardada','exito');
   try{localStorage.setItem('btg_gasol',JSON.stringify(GASOL));}catch(e){}
   renderGasolPersonal();
   sv('gp-lit','');audit('Gasolina registrada',per+' '+lit+'L');
@@ -5002,7 +5002,7 @@ function renderAsistencia(){
   dias.forEach(function(d){html+='<th style="background:var(--bg3);padding:6px;text-align:center">'+d+'</th>';});
   html+='<th style="background:var(--bg3);padding:6px">Total</th></tr></thead><tbody>';
   emps.forEach(function(emp){
-    html+='<tr><td style="padding:5px;border-top:1px solid var(--border);font-weight:600">'+emp.nombre.split(' ')[0]+'</td><td style="padding:5px;border-top:1px solid var(--border);font-size:10px;color:var(--text3)">'+emp.cargo+'</td>';
+    html+='<tr><td style="padding:5px;border-top:1px solid var(--border);font-weight:600">'+emp.nombre+'</td><td style="padding:5px;border-top:1px solid var(--border);font-size:10px;color:var(--text3)">'+emp.cargo+'</td>';
     var semTotal=0;
     for(var d=0;d<7;d++){
       var dk=emp.id+'_dia_'+d+'_'+key;
