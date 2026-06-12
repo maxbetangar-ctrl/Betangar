@@ -3839,7 +3839,7 @@ async function guardarAbono(){
   BNC_MOV.push({id:Date.now()+'',fecha:ab.f,monto:ab.m*(TASAS.bcvDolar||cfg.tasa),tipo:'credito',desc:'Pago Alcaldia Fact.'+ab.fact,ref:ab.ref,conciliado:true});
   // Aviso a socios (Maximo y Francisco)
   sendWA('Abono registrado\n'+
-    '💰 Monto: $'+ab.m.toFixed(2)+'\n'+
+    '💰 Monto: $ '+Number(ab.m||0).toLocaleString('es-VE',{minimumFractionDigits:2,maximumFractionDigits:2})+'\n'+
     '🚛 Viajes: '+ab.v+'\n'+
     '🧾 Factura: '+(ab.fact||'--')+'\n'+
     '📅 Fecha: '+formatFecha(ab.f)+'\n'+
@@ -4004,7 +4004,7 @@ function calcNom(){
         if(chMap[cam])chMap[cam].descuentos+=cuota;
         else if(ayMap[p.empId])ayMap[p.empId].descuentos+=cuota;
         p.semanasPagadas++;p.pagado=(p.pagado||0)+cuota;
-        if(p.semanasPagadas>=p.semanas){p.estado='pagado';sendWA('💳 Prestamo de '+empObj.nombre+' completamente pagado ($'+p.montoUsd+')',['rrhh']);}
+        if(p.semanasPagadas>=p.semanas){p.estado='pagado';sendWA('💳 Prestamo de '+empObj.nombre+' completamente pagado (USD '+p.montoUsd+')',['rrhh']);}
         descBanners.push('<div class="alert-b" style="margin-bottom:4px;font-size:11px">💳 Descuento prestamo: <b>'+empObj.nombre+'</b> — $'+cuota.toFixed(2)+'/semana ('+p.semanasPagadas+'/'+p.semanas+')</div>');
       }
     }
@@ -6074,7 +6074,7 @@ function guardarPagoAlcaldia(){
   PAGOS_ALC.push(pago);
   // Agregar como abono
   ABONOS.push({f:pago.fecha,fact:pago.fact,v:viajes,m:neto,obs:'Pago Alcaldia',ref:pago.ref});
-  sendWA('💰 Pago Alcaldia recibido:\nFactura: '+pago.fact+'\nViajes: '+viajes+'\nNeto: $'+neto.toFixed(0)+'\nBs: '+fbn(neto,tasa),['admin']);
+  sendWA('💰 Pago Alcaldia recibido:\nFactura: '+pago.fact+'\nViajes: '+viajes+'\nNeto: $ '+Number(neto||0).toLocaleString('es-VE',{minimumFractionDigits:2,maximumFractionDigits:2})+'\nBs: '+fbn(neto,tasa),['admin']);
   audit('Pago Alcaldia registrado',pago.fact+' $'+neto.toFixed(0));
   ['alc-fact','alc-ref','alc-viajes','alc-tasa'].forEach(function(id){sv(id,'');});g('alc-calculo').style.display='none';
   alert('✅ Pago registrado.');
@@ -7021,7 +7021,7 @@ function checkAlertas7AM(){
     if(!ult||diasDesde(ult.f)>=3)sendWA('🚛 '+cam+' lleva '+(ult?diasDesde(ult.f):'?')+'+ dias sin planilla registrada',['operativo']);
   });
   // Facturas CXP vencidas
-  CXP.filter(function(c){return c.estado==='pendiente'&&diasHasta(c.fechaVenc)<=0;}).forEach(function(c){sendWA('🤝 Factura VENCIDA: '+c.prov+' $'+c.netoPagar.toFixed(0)+' (vencio '+c.fechaVenc+')',['admin']);});
+  CXP.filter(function(c){return c.estado==='pendiente'&&diasHasta(c.fechaVenc)<=0;}).forEach(function(c){sendWA('🤝 Factura VENCIDA: '+c.prov+' $ '+Number(c.netoPagar||0).toLocaleString('es-VE',{minimumFractionDigits:2,maximumFractionDigits:2})+' (vencio '+c.fechaVenc+')',['admin']);});
   // Stock critico inventario
   INVENTARIO.filter(function(x){return x.stock===0;}).forEach(function(x){sendWA('📦 SIN STOCK: '+x.nombre+' — Reabastecer urgente',['mecanica']);});
 }
