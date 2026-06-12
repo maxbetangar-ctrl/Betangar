@@ -11287,6 +11287,9 @@ async function cargarTasas(){
 var _bncResumenCache=null,_bncResumenTs=0;
 async function renderBncDashResumen(forzar){
   var el=g('bnc-dash-resumen');if(!el)return;
+  // SEGURIDAD: el saldo bancario solo lo ve el superadmin. Para otros roles no se
+  // consulta ni se muestra (el dashboard lo ven todos los roles).
+  if(!esSuperAdmin()){el.style.display='none';el.innerHTML='';return;}
   var ahora=Date.now();
   if(!forzar&&_bncResumenCache&&(ahora-_bncResumenTs)<180000){_pintarBncResumen(el,_bncResumenCache);return;}
   if(!el.innerHTML)el.innerHTML='<div style="font-size:11px;color:var(--text3);padding:8px">🏦 Cargando saldos BNC...</div>';
