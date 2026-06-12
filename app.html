@@ -1793,6 +1793,16 @@ tr:hover td{background:rgba(45,255,122,.02)}
     <div id="bnc-cred-estado" style="display:none;margin-top:8px;padding:8px 12px;border-radius:8px;font-size:12px;line-height:1.5"></div>
     <div class="fr2" style="margin-top:8px">
       <div class="fg">
+        <label style="font-size:11px;color:#a3e635;font-weight:700">⭐ ClientID (producción)</label>
+        <input class="fc" id="bnc-client-id" placeholder="Ej: J000123456 — lo entrega el BNC">
+      </div>
+      <div class="fg">
+        <label style="font-size:11px;color:var(--text2)">URL base API (avanzado · vacío = default)</label>
+        <input class="fc" id="bnc-base-url" placeholder="https://servicios.bncenlinea.com:16500/api">
+      </div>
+    </div>
+    <div class="fr2" style="margin-top:8px">
+      <div class="fg">
         <label style="font-size:11px;color:var(--text2)">Cuenta a Monitorear</label>
         <input class="fc" id="bnc-cuenta" placeholder="Nro. de cuenta BNC">
       </div>
@@ -2277,6 +2287,8 @@ async function bncCargarConfig(){
     if(d){
       // Campos NO sensibles
       if(el('bnc-cuenta'))el('bnc-cuenta').value=d.cuenta||'';
+      if(el('bnc-client-id'))el('bnc-client-id').value=d.client_id||'';
+      if(el('bnc-base-url'))el('bnc-base-url').value=d.base_url||'';
       if(el('bnc-telefono'))el('bnc-telefono').value=d.telefono_pm||'';
       if(el('bnc-moneda'))el('bnc-moneda').value=d.moneda||'VES';
       if(el('bnc-url-dev'))el('bnc-url-dev').value=d.url_notificacion_dev||'https://hrkjddehqnzcqwlkklqm.supabase.co/functions/v1/bnc-webhook';
@@ -2323,7 +2335,9 @@ async function bncGuardarConfig(){
       p_telefono_pm: el('bnc-telefono')||null,
       p_moneda:      el('bnc-moneda')||'VES',
       p_url_dev:     el('bnc-url-dev')||null,
-      p_url_prod:    el('bnc-url-prod')||null
+      p_url_prod:    el('bnc-url-prod')||null,
+      p_client_id:   el('bnc-client-id')||null,
+      p_base_url:    el('bnc-base-url')||null
     });
     if(r.error)throw r.error;
     alert('✅ Configuración BNC guardada');
