@@ -6755,6 +6755,11 @@ function generarCodigo(){
 function esSuperAdmin(){
   return SESION&&SESION.rol==='superadmin';
 }
+// Quién puede VER el saldo bancario: superadmin, admin (administradora) y visualizador (visor).
+// NO lo ven: rrhh, mecanico, operativo/operador, chofer, vigilante, asistencia.
+function puedeVerSaldo(){
+  return SESION && ['superadmin','admin','visualizador'].indexOf(SESION.rol)>=0;
+}
 
 // Punto de entrada para cualquier accion protegida
 function solicitarToken(accion,callback,accionData){
@@ -11333,9 +11338,9 @@ async function cargarTasas(){
 var _bncResumenCache=null,_bncResumenTs=0;
 async function renderBncDashResumen(forzar){
   var el=g('bnc-dash-resumen');if(!el)return;
-  // SEGURIDAD: el saldo bancario solo lo ve el superadmin. Para otros roles no se
-  // consulta ni se muestra (el dashboard lo ven todos los roles).
-  if(!esSuperAdmin()){el.style.display='none';el.innerHTML='';return;}
+  // SEGURIDAD: el saldo bancario solo lo ven superadmin, admin y visualizador.
+  // Para rrhh/mecanico/operativo/chofer no se consulta ni se muestra.
+  if(!puedeVerSaldo()){el.style.display='none';el.innerHTML='';return;}
   var ahora=Date.now();
   if(!forzar&&_bncResumenCache&&(ahora-_bncResumenTs)<180000){_pintarBncResumen(el,_bncResumenCache);return;}
   if(!el.innerHTML)el.innerHTML='<div style="font-size:11px;color:var(--text3);padding:8px">🏦 Cargando saldos BNC...</div>';
