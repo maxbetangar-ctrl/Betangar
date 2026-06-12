@@ -2668,6 +2668,14 @@ async function cargarDatosDB(){
       // Fallback localStorage
       try{var _g=localStorage.getItem('btg_gasoil');if(_g)GASOIL=JSON.parse(_g);}catch(e){}
     }
+    // TANQUE: nivel persistido en configuracion (clave 'tanque_nivel') — fuente de verdad
+    try{
+      var _tn=await supabase.from('configuracion').select('valor').eq('clave','tanque_nivel').maybeSingle();
+      if(_tn&&_tn.data&&_tn.data.valor!=null&&String(_tn.data.valor)!==''){
+        var _tnv=parseFloat(_tn.data.valor);
+        if(!isNaN(_tnv)){tankNivel=_tnv;try{sv('tank-niv',String(tankNivel));}catch(e){}try{if(typeof updTank==='function')updTank();}catch(e){}}
+      }
+    }catch(e){console.log('tanque_nivel load:',e&&e.message);}
     // CXP
     var cxp=await supabase.from('cxp').select('*');
     if(cxp.data&&cxp.data.length)CXP=cxp.data.map(function(x){return{id:x.id,fecha:x.fecha,provId:x.prov_id,prov:x.prov_nombre,nota:x.nota||'',factura:x.factura||'',desc:x.descripcion||'',baseUsd:parseFloat(x.base_usd)||0,ivaPct:parseFloat(x.iva_pct)||0,ivaUsd:parseFloat(x.iva_usd)||0,totalUsd:parseFloat(x.total_usd)||0,tasaTipo:x.tasa_tipo||'bcvDolar',tasaVal:parseFloat(x.tasa_val)||0,retPct:parseFloat(x.ret_pct)||0,retUsd:parseFloat(x.ret_usd)||0,netoPagar:parseFloat(x.neto_pagar)||0,neto_pagar:parseFloat(x.neto_pagar)||0,fechaVenc:x.fecha_venc||'',estado:x.estado||'pendiente',fechaPago:x.fecha_pago||'',refBnc:x.ref_bnc||''};});
@@ -3323,12 +3331,22 @@ async function guardarPlanilla(){
   var ns=String(p).padStart(5,'0');
   if(REGS.some(function(r){return r.p===ns;})){alert('Ya existe la planilla #'+ns);return;}
   var nr={p:ns,f:f,mes:gv('rp-mes'),cam:c,ch:ch.toUpperCase(),r:gv('rp-ruta'),par:gv('rp-par'),d:cntD,n:cntN,t:tot,sem:gv('rp-sem'),m:tot*cfg.tarifa,obs:gv('rp-obs'),inc:gv('rp-inc'),incDesc:gv('rp-inc-desc')};
+  var row={p:nr.p,f:nr.f,mes:nr.mes,cam:nr.cam,ch:nr.ch,r:nr.r,par:nr.par,d:nr.d,n:nr.n,t:nr.t,sem:nr.sem,m:nr.m,obs:nr.obs,inc:nr.inc,inc_desc:nr.incDesc,ay1:'',ay2:'',gasoil:0,km:0,mant:''};
+  // P1: Supabase es la fuente de verdad. Guardar PRIMERO y solo confirmar éxito si responde OK.
+  var _res=await dbUp('planillas',row,'p');
   REGS.push(nr);
   VX[c]=(VX[c]||0)+tot;
   if(KM_DATA[c])KM_DATA[c].km=(KM_DATA[c].km||0)+Math.round(tot*4.5);
-  await dbUp('planillas',{p:nr.p,f:nr.f,mes:nr.mes,cam:nr.cam,ch:nr.ch,r:nr.r,par:nr.par,d:nr.d,n:nr.n,t:nr.t,sem:nr.sem,m:nr.m,obs:nr.obs,inc:nr.inc,inc_desc:nr.incDesc,ay1:'',ay2:'',gasoil:0,km:0,mant:''},'p');
-  audit('Planilla guardada','#'+ns+' '+c+' '+tot+'v');
-  var al=g('alert-plan');if(al){al.style.display='block';setTimeout(function(){al.style.display='none';},2500);}
+  if(_res){
+    audit('Planilla guardada','#'+ns+' '+c+' '+tot+'v');
+    var al=g('alert-plan');if(al){al.style.display='block';setTimeout(function(){al.style.display='none';},2500);}
+    if(typeof mostrarToast==='function')mostrarToast('✅ Planilla #'+ns+' guardada','exito');
+  } else {
+    // Supabase NO confirmó → cola offline + aviso. NUNCA se declara "guardado".
+    guardarEnCola('planillas',row);
+    audit('Planilla en cola (sin confirmar)','#'+ns+' '+c+' '+tot+'v');
+    if(typeof mostrarToast==='function')mostrarToast('⚠️ Planilla #'+ns+' quedó EN COLA (sin conexión). Se guardará al reconectar.','error');
+  }
   cntD=0;cntN=0;g('cd').textContent=0;g('cn').textContent=0;g('ctot').textContent=0;g('cmonto').textContent='$0';
   sv('rp-num',String(REGS.reduce(function(a,r){return Math.max(a,parseInt(r.p)||0);},0)+1).padStart(5,'0'));
   renderPlanHoy();renderDash();
@@ -4147,6 +4165,14 @@ function enviarReporteJAC(){
 // ═══════════════════════════════════════════════════
 // COMBUSTIBLE
 // ═══════════════════════════════════════════════════
+// P1: persistir el nivel del tanque en Supabase (configuracion.tanque_nivel) en cada cambio
+function guardarNivelTanque(){
+  if(!DB_READY||!supabase)return;
+  try{
+    supabase.from('configuracion').upsert([{clave:'tanque_nivel',valor:String(tankNivel)}],{onConflict:'clave'})
+      .then(function(res){if(res&&res.error)console.log('tanque_nivel save:',res.error.message);});
+  }catch(e){}
+}
 function updTank(){
   var niv=parseFloat(gv('tank-niv'))||tankNivel;
   tankNivel=niv;var cap=cfg.tanque||4600;
@@ -4160,7 +4186,9 @@ function updTank(){
 async function addCombustible(){
   var add=parseFloat(gv('tank-add'))||0;if(!add){alert('Ingresa los litros a agregar');return;}
   tankNivel=Math.min(cfg.tanque||4600,tankNivel+add);sv('tank-niv',tankNivel.toString());sv('tank-add','');updTank();
+  guardarNivelTanque();
   audit('Tanque cargado','+'+add+'L');
+  if(typeof mostrarToast==='function')mostrarToast('Tanque: +'+add+' L → '+tankNivel+' L','exito');
 }
 // Mostrar el campo de precio manual solo cuando la fuente es Estación de servicio.
 function gcToggleFuente(){
@@ -4206,22 +4234,26 @@ function guardarGasoil(){
     });
   }
 }
-function _persistirDespacho(r, bajarTanque){
+async function _persistirDespacho(r, bajarTanque){
   r.tipo_operacion='despacho';
+  var row={f:r.f,cam:r.cam,lit:r.lit,src:r.src,m:r.m,tipo_operacion:'despacho'};
+  // P1: Supabase es la fuente de verdad. Insertar primero (.select para capturar id) y
+  // confirmar éxito según la respuesta; si falla, cola offline + toast (no "guardado").
+  var ok=false;
+  if(DB_READY&&supabase){
+    try{
+      var res=await supabase.from('gasoil').insert([row]).select();
+      if(res.error){if(typeof mostrarToast==='function')mostrarToast('No se pudo guardar el despacho: '+res.error.message,'error');}
+      else{ok=true;if(res.data&&res.data[0])r.id=res.data[0].id;}
+    }catch(e){if(typeof mostrarToast==='function')mostrarToast('Sin conexión al guardar el despacho.','error');}
+  }
+  if(!ok&&typeof guardarEnCola==='function')guardarEnCola('gasoil',row);
   GASOIL.push(r);
-  if(bajarTanque){ tankNivel=Math.max(0,tankNivel-r.lit); sv('tank-niv',tankNivel.toString()); updTank(); }
+  if(bajarTanque){ tankNivel=Math.max(0,tankNivel-r.lit); sv('tank-niv',tankNivel.toString()); updTank(); guardarNivelTanque(); }
   try{localStorage.setItem('btg_gasoil',JSON.stringify(GASOIL));}catch(e){}
   sv('gc-lit','');sv('gc-precio','');audit('Despacho gasoil',r.cam+' '+r.lit+'L '+r.src);
   renderGasoil();
-  if(DB_READY&&supabase){
-    // .select() para capturar el id real y poder eliminar luego sin recargar.
-    supabase.from('gasoil').insert([{f:r.f,cam:r.cam,lit:r.lit,src:r.src,m:r.m,tipo_operacion:'despacho'}]).select()
-      .then(function(res){
-        if(res.error){alert('⚠️ Despacho guardado localmente pero NO se sincronizó con Supabase:\n'+res.error.message+'\n\nRevisa tu conexión.');return;}
-        if(res.data&&res.data[0]){r.id=res.data[0].id;try{localStorage.setItem('btg_gasoil',JSON.stringify(GASOIL));}catch(e){}}
-      });
-  }
-  alert('✅ Despacho registrado: '+r.cam+' — '+r.lit+' L ('+r.src+')');
+  if(typeof mostrarToast==='function')mostrarToast(ok?('✅ Despacho: '+r.cam+' '+r.lit+' L ('+r.src+')'):('⚠️ Despacho EN COLA (sin conexión): '+r.cam+' '+r.lit+' L'),ok?'exito':'error');
 }
 
 // COMPRA de combustible a proveedor de tanque (Tumaca/Boscán): sube el tanque y genera CxP.
@@ -4232,21 +4264,27 @@ function guardarCompraCombustible(){
   if(!lit){alert('Ingresa los litros comprados');return;}
   var provLabel = prov==='boscan' ? 'Boscán' : 'Tumaca';
   var provNombre = prov==='boscan' ? 'Transporte Boscán' : 'Tumaca';
-  compCostoUnit(prov, function(costoUnit){
+  compCostoUnit(prov, async function(costoUnit){
     var totalUsd=lit*costoUnit;
-    // Sube el tanque interno
+    // Sube el tanque interno + persiste el nivel en Supabase
     var cap=cfg.tanque||4600;
     tankNivel=Math.min(cap, tankNivel+lit);
-    sv('tank-niv',tankNivel.toString()); updTank();
-    // Registro en gasoil (tipo compra)
+    sv('tank-niv',tankNivel.toString()); updTank(); guardarNivelTanque();
+    // Registro en gasoil (tipo compra) — Supabase primero, confirmar según respuesta
     var r={f:f,cam:'COMPRA · '+provLabel,lit:lit,src:provLabel,m:parseFloat(totalUsd.toFixed(2)),tipo_operacion:'compra'};
-    GASOIL.push(r);
+    var gRow={f:r.f,cam:r.cam,lit:r.lit,src:r.src,m:r.m,tipo_operacion:'compra'};
+    var okG=false;
     if(DB_READY&&supabase){
-      supabase.from('gasoil').insert([{f:r.f,cam:r.cam,lit:r.lit,src:r.src,m:r.m,tipo_operacion:'compra'}])
-        .then(function(res){if(res.error)console.log('Gasoil compra Supabase:',res.error.message);});
+      try{var resG=await supabase.from('gasoil').insert([gRow]).select();
+        if(resG.error){if(typeof mostrarToast==='function')mostrarToast('No se pudo guardar la compra: '+resG.error.message,'error');}
+        else{okG=true;if(resG.data&&resG.data[0])r.id=resG.data[0].id;}
+      }catch(e){if(typeof mostrarToast==='function')mostrarToast('Sin conexión al guardar la compra.','error');}
     }
+    if(!okG&&typeof guardarEnCola==='function')guardarEnCola('gasoil',gRow);
+    GASOIL.push(r);
     try{localStorage.setItem('btg_gasoil',JSON.stringify(GASOIL));}catch(e){}
     // Genera CxP automáticamente
+    var okCxp=false;
     if(DB_READY&&supabase){
       var cxpRow={
         fecha:f, fecha_venc:null,
@@ -4256,15 +4294,15 @@ function guardarCompraCombustible(){
         ret_iva_pct:0, ret_iva_usd:0, ret_islr_pct:0, ret_islr_usd:0, neto_pagar:parseFloat(totalUsd.toFixed(2)),
         estado:'pendiente', tasa_tipo:'usd', tasa_val:TASAS.bcvDolar||0, created_at:new Date().toISOString()
       };
-      supabase.from('cxp').insert([cxpRow]).select().then(function(res){
-        if(res.error){console.log('CxP compra error:',res.error.message);}
-        else if(res.data&&res.data[0]){if(typeof CXP!=='undefined'&&CXP)CXP.push(res.data[0]);}
-      });
+      try{var resC=await supabase.from('cxp').insert([cxpRow]).select();
+        if(resC.error){console.log('CxP compra error:',resC.error.message);}
+        else{okCxp=true;if(resC.data&&resC.data[0]&&typeof CXP!=='undefined'&&CXP)CXP.push(resC.data[0]);}
+      }catch(e){}
     }
     sv('gcomp-lit','');
     audit('Compra combustible',provLabel+' '+lit+'L $'+totalUsd.toFixed(2));
     renderGasoil();
-    alert('✅ Compra registrada: '+lit+' L de '+provLabel+'\nCosto: $'+totalUsd.toFixed(2)+' ($'+costoUnit.toFixed(3)+'/L)\nTanque actualizado y CxP generada.');
+    if(typeof mostrarToast==='function')mostrarToast((okG?'✅ Compra: ':'⚠️ Compra EN COLA (sin conexión): ')+lit+' L '+provLabel+' · $'+totalUsd.toFixed(2)+(okCxp?' · CxP generada':''),okG?'exito':'error');
   });
 }
 async function guardarGasol(){
