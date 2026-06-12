@@ -3356,6 +3356,7 @@ function importarExcel(input){
       var msg='✅ Importacion completada:\n\n';
       msg+='• Planillas (viajes): '+resultado.planillas+' nuevas';
       if(resultado.planillasIgnoradas>0)msg+=', '+resultado.planillasIgnoradas+' ya existian';
+      if(resultado.actualizadas&&resultado.actualizadas.length>0)msg+=', '+resultado.actualizadas.length+' actualizadas (mismo número, datos corregidos)';
       msg+='\n• Abonos/Pagos Alcaldia: '+resultado.abonos+' nuevos';
       msg+='\n• Gasoil: '+resultado.gasoil+' registros';
       if(resultado.duplicadas.length>0){
@@ -3508,7 +3509,7 @@ async function guardarImportacionEnDB(resultado){
 }
 
 function procesarExcelBetangar(wb){
-  var resultado={planillas:0,planillasIgnoradas:0,abonos:0,gasoil:0,duplicadas:[],nuevasRegs:[]};
+  var resultado={planillas:0,planillasIgnoradas:0,actualizadas:[],abonos:0,gasoil:0,duplicadas:[],nuevasRegs:[]};
   // PRECIO: siempre usa el configurado en la app, ignora cualquier precio del Excel
   var TARIFA=cfg.tarifa||316.88;
 
@@ -3645,8 +3646,11 @@ function procesarExcelBetangar(wb){
           });
         }
       }
-      // No duplicar si ya existe exactamente en REGS (importacion previa sin cambios)
-      if(REGS.some(function(r){return r.p===p;})){resultado.planillasIgnoradas++;continue;}
+      // El número de planilla es el IDENTIFICADOR ÚNICO. El manejo de "ya existe" se
+      // hace más abajo (tras construir el registro) para poder ACTUALIZAR la planilla
+      // si cambiaron sus datos. Antes se saltaba, y por eso re-subir el Excel corregido
+      // NO aplicaba las correcciones.
+      var _idxExist=REGS.findIndex(function(r){return r.p===p;});
 
       var mesStr=fmtMes(fechaStr);
       // Leer semana de col M del Excel si tiene valor válido (no fórmula)
@@ -3676,6 +3680,24 @@ function procesarExcelBetangar(wb){
         km:parseFloat(cKm)||0,
         mant:String(cMant||'').trim()
       };
+      // Si el número ya existía: ACTUALIZAR solo si cambiaron los datos de viaje
+      // (chofer, viajes, ruta, etc.). El upsert a Supabase usa onConflict:'p'.
+      if(_idxExist>=0){
+        var _ex=REGS[_idxExist];
+        var _cambio=(_ex.ch!==nr.ch)||(_ex.d!==nr.d)||(_ex.n!==nr.n)||(_ex.t!==nr.t)||
+                    (_ex.r!==nr.r)||(_ex.par!==nr.par)||(_ex.cam!==nr.cam)||(_ex.f!==nr.f)||(_ex.sem!==nr.sem);
+        if(!_cambio){resultado.planillasIgnoradas++;continue;} // idéntica → no tocar
+        // Conservar gasoil/km que maneja la app si el Excel no trae valor real
+        if(!(nr.gasoil>0)&&_ex.gasoil>0)nr.gasoil=_ex.gasoil;
+        if(!(nr.km>0)&&_ex.km>0)nr.km=_ex.km;
+        if(_ex.cam)VX[_ex.cam]=(VX[_ex.cam]||0)-(_ex.t||0); // descontar viajes viejos
+        VX[cam]=(VX[cam]||0)+t;
+        REGS[_idxExist]=nr;                       // actualizar en memoria
+        resultado.actualizadas.push({p:p,f:nr.f,cam:nr.cam,ch:nr.ch,antesT:_ex.t,ahoraT:nr.t});
+        resultado.nuevasRegs.push(nr);            // → se upsertea (onConflict:'p')
+        continue;
+      }
+
       REGS.push(nr);
       resultado.nuevasRegs.push(nr);
       resultado.planillas++;
