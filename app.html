@@ -2747,43 +2747,63 @@ async function cargarDatosDB(){
 }
 // ── COLA OFFLINE ──
 var COLA_OFFLINE=[];
-// Cargar cola offline desde localStorage al iniciar
-try{var _colaLS=localStorage.getItem('btg_cola_offline');if(_colaLS)COLA_OFFLINE=JSON.parse(_colaLS);}catch(e){}
+// Cargar cola offline desde localStorage al iniciar (una sola clave)
 try{var _co=localStorage.getItem('betangar_cola_off');if(_co)COLA_OFFLINE=JSON.parse(_co);}catch(e){}
+try{localStorage.removeItem('btg_cola_offline');}catch(e){} // limpiar clave vieja en desuso
+function guardarColaLS(){try{localStorage.setItem('betangar_cola_off',JSON.stringify(COLA_OFFLINE));}catch(e){}}
+function actualizarBannerCola(){
+  var b=document.getElementById('db-status-banner');if(!b)return;
+  if(COLA_OFFLINE.length>0){
+    b.style.display='block';b.style.background='rgba(255,165,0,.15)';
+    b.innerHTML='📵 Sin conexión — '+COLA_OFFLINE.length+' registro(s) en espera de guardarse';
+  } else { b.style.display='none'; }
+}
 function guardarEnCola(t,d){
   COLA_OFFLINE.push({t:t,d:d});
-  try{localStorage.setItem('betangar_cola_off',JSON.stringify(COLA_OFFLINE));}catch(e){}
-  var b=document.getElementById('db-status-banner');
-  if(b){b.style.display='block';b.style.background='rgba(255,165,0,.15)';b.innerHTML='📵 Sin internet — '+COLA_OFFLINE.length+' registro(s) guardados localmente';}
+  guardarColaLS();
+  actualizarBannerCola();
 }
 async function procesarColaOffline(){
   if(!COLA_OFFLINE.length||!DB_READY||!supabase)return;
   var pendientes=[...COLA_OFFLINE];
   COLA_OFFLINE=[];
-  try{localStorage.removeItem('btg_cola_offline');}catch(e){}
-  pendientes.forEach(async function(item){
+  for(var i=0;i<pendientes.length;i++){
+    var item=pendientes[i];
     try{
-      var r=await supabase.from(item.tabla).insert([item.datos]);
+      var r=await supabase.from(item.t).insert([item.d]);
       if(r.error){
-        COLA_OFFLINE.push(item);
-        try{localStorage.setItem('btg_cola_offline',JSON.stringify(COLA_OFFLINE));}catch(e){}
-        console.log('[Cola offline] Error sync:',r.error.message);
+        // El servidor respondió con error (ej. duplicado/constraint): NO reintentar infinito → descartar.
+        console.log('[Cola offline] descartado por error del servidor:',r.error.message);
+        if(typeof mostrarToast==='function')mostrarToast('Un registro en cola ('+item.t+') no se pudo guardar: '+r.error.message,'error');
       } else {
-        console.log('[Cola offline] Sincronizado:',item.tabla);
+        console.log('[Cola offline] Sincronizado:',item.t);
       }
     }catch(e){
+      // Falla de red real (sin respuesta): reintentar luego.
       COLA_OFFLINE.push(item);
-      try{localStorage.setItem('btg_cola_offline',JSON.stringify(COLA_OFFLINE));}catch(e2){}
     }
-  });
-  if(COLA_OFFLINE.length===0){
-    console.log('[Cola offline] Todo sincronizado ✅');
   }
+  guardarColaLS();
+  actualizarBannerCola();
+  if(COLA_OFFLINE.length===0)console.log('[Cola offline] Todo sincronizado ✅');
 }
 async function dbIn(t,d){
   if(DEMO_MODE)return null;
   if(!DB_READY){guardarEnCola(t,d);return null;}
-  try{var res=await supabase.from(t).insert(d).select();if(res.error){guardarEnCola(t,d);if(typeof mostrarToast==='function')mostrarToast('No se pudo guardar ('+t+'): '+res.error.message+'. Quedó en cola.','error');return null;}return res.data;}catch(e){guardarEnCola(t,d);if(typeof mostrarToast==='function')mostrarToast('Sin conexión: "'+t+'" quedó en cola offline.','error');return null;}
+  try{
+    var res=await supabase.from(t).insert(d).select();
+    if(res.error){
+      // El servidor rechazó (duplicado/RLS/validación): NO es falta de internet → no encolar.
+      if(typeof mostrarToast==='function')mostrarToast('No se pudo guardar ('+t+'): '+res.error.message,'error');
+      return null;
+    }
+    return res.data;
+  }catch(e){
+    // Sin respuesta del servidor = sin conexión → encolar para reintentar.
+    guardarEnCola(t,d);
+    if(typeof mostrarToast==='function')mostrarToast('Sin conexión: "'+t+'" quedó en cola offline.','error');
+    return null;
+  }
 }
 async function dbUp(t,d,c,v){if(!DB_READY||DEMO_MODE)return null;try{var res=await supabase.from(t).upsert(d,{onConflict:c}).select();if(res.error){if(typeof mostrarToast==='function')mostrarToast('No se pudo guardar ('+t+'): '+res.error.message,'error');return null;}return res.data;}catch(e){if(typeof mostrarToast==='function')mostrarToast('Error de conexión al guardar '+t,'error');return null;}}
 async function dbDel(t,c,v){if(!DB_READY||DEMO_MODE)return null;try{return await supabase.from(t).delete().eq(c,v);}catch(e){return null;}}
