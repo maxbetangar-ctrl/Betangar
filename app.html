@@ -2619,9 +2619,24 @@ async function cargarDatosDB(){
       if(lsA){var pa=JSON.parse(lsA);if(pa.length)ABONOS=pa;}
       console.log("localStorage: REGS="+REGS.length);
     }catch(e2){}
-    // Mostrar error visible
+    // Mostrar AVISO PROMINENTE: datos locales posiblemente desactualizados
     var bx=document.getElementById('db-status-banner');
-    if(bx){bx.style.display='block';bx.innerHTML='⚠ Sin conexión a Supabase. Usando datos locales ('+REGS.length+' planillas)';}
+    if(bx){
+      bx.style.display='block';
+      bx.style.background='#dc2626';
+      bx.style.color='#fff';
+      bx.style.border='2px solid #fff';
+      bx.style.fontSize='14px';
+      bx.style.fontWeight='800';
+      bx.style.padding='12px 18px';
+      bx.style.minWidth='90vw';
+      bx.style.maxWidth='96vw';
+      bx.style.boxShadow='0 4px 24px rgba(0,0,0,.55)';
+      bx.style.lineHeight='1.45';
+      bx.innerHTML='⚠️ SIN CONEXIÓN A LA BASE DE DATOS'+
+        '<div style="font-weight:600;font-size:12px;margin-top:3px">Estás viendo datos guardados en ESTE dispositivo ('+REGS.length+' planillas) que pueden estar <u>DESACTUALIZADOS</u>. No registres cambios hasta reconectar.</div>'+
+        '<button onclick="location.reload()" style="margin-top:9px;background:#fff;color:#dc2626;border:none;border-radius:6px;padding:7px 18px;font-weight:800;cursor:pointer">🔄 Reintentar conexión</button>';
+    }
     return;
   }
   console.log('Cargando datos de Supabase...');
