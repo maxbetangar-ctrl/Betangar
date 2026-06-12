@@ -8442,6 +8442,15 @@ function generarTokenAprobacion(accion, datos, callback){
   var token = Math.random().toString(36).substr(2,6).toUpperCase();
   var expira = Date.now() + 30*60*1000; // 30 minutos
   TOKENS_PENDIENTES[token] = {accion:accion, datos:datos, callback:callback, expira:expira};
+  // FIX banner: registrar también en la tabla Supabase tokens_pendientes para que el
+  // superadmin lo vea en el banner (antes este flujo solo guardaba en localStorage).
+  try{
+    fetch(SUPA_URL+'/rest/v1/tokens_pendientes',{
+      method:'POST',
+      headers:_tokRestHdr({'Content-Type':'application/json','Prefer':'return=minimal'}),
+      body:JSON.stringify({token:token,usuario:(SESION?SESION.nombre:'--'),accion:accion,motivo:(typeof datos==='string'?datos:''),expira:new Date(expira).toISOString(),usado:false})
+    }).then(function(r){ if(r.ok&&esSuperAdmin())renderTokensPendientes(); }).catch(function(){});
+  }catch(e){}
   
   // Guardar en localStorage
   try{localStorage.setItem('btg_tokens',JSON.stringify(TOKENS_PENDIENTES));}catch(e){}
