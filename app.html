@@ -3386,7 +3386,7 @@ function eliminarPlanilla(p){
     if(DB_READY)supabase.from('planillas').delete().eq('p',p).then(function(){});
     audit('Planilla ELIMINADA','#'+p+' — '+motivo);
     renderPlanHoy();renderDash();filtH();
-  });
+  },{op:'del',tabla:'planillas',col:'p',val:p});
 }
 
 // ═══════════════════════════════════════════════════
@@ -4367,7 +4367,7 @@ function solicitarEliminarGasolPersonal(idx){
   window._tokenDetalle=(r.per||'')+' - '+r.lit+'L - '+r.f;
   solicitarToken('Eliminar gasolina personal: '+(r.per||'')+' '+r.lit+'L',function(motivo){
     eliminarGasolConfirmado(r);
-  });
+  }, (r.id!=null?{op:'del',tabla:'gasol',col:'id',val:r.id}:null));
 }
 
 function eliminarGasolConfirmado(ref){
@@ -6710,7 +6710,7 @@ function esSuperAdmin(){
 }
 
 // Punto de entrada para cualquier accion protegida
-function solicitarToken(accion,callback){
+function solicitarToken(accion,callback,accionData){
   if(esSuperAdmin()){
     pedirMotivo(accion,function(motivo){
       audit('MODIFICACION SUPERADMIN',accion+' -- '+motivo);
@@ -6721,6 +6721,9 @@ function solicitarToken(accion,callback){
   // Guardar para usar luego
   window._tokenCallback=callback;
   window._tokenAccion=accion;
+  // accionData: {op:'del',tabla,col,val} → permite que el SUPERADMIN ejecute la acción
+  // al aprobar (sin depender de la sesión del solicitante).
+  window._tokenAccionData=accionData||null;
   var html='<div class="alert-b" style="margin-bottom:12px">'+
     'Esta accion requiere autorizacion.<br>'+
     'Solicita el codigo a Maximo o Francisco Betancourt.<br>'+
@@ -6772,7 +6775,7 @@ function pedirNuevoToken(){
   fetch(SUPA_URL+'/rest/v1/tokens_pendientes',{
     method:'POST',
     headers:_tokRestHdr({'Content-Type':'application/json','Prefer':'return=minimal'}),
-    body:JSON.stringify({token:codigo,usuario:SESION.nombre,accion:accion,motivo:motivo,expira:_expTok})
+    body:JSON.stringify({token:codigo,usuario:SESION.nombre,accion:accion,motivo:motivo,expira:_expTok,accion_data:(window._tokenAccionData||null)})
   }).then(function(r){
     if(!r.ok)r.text().then(function(t){console.log('tokens_pendientes insert err:',t);});
     else if(esSuperAdmin())renderTokensPendientes();
@@ -6989,17 +6992,49 @@ function _copiarFallback(token){
     document.body.appendChild(ta);ta.select();document.execCommand('copy');document.body.removeChild(ta);}catch(e){}
 }
 
-function aprobarTokenPend(id){
-  fetch(SUPA_URL+'/rest/v1/tokens_pendientes?id=eq.'+encodeURIComponent(id),{
-    method:'PATCH',
-    headers:_tokRestHdr({'Content-Type':'application/json','Prefer':'return=minimal'}),
-    body:JSON.stringify({aprobado:true})
-  }).then(function(r){
-    if(!r.ok){return r.text().then(function(t){alert('No se pudo aprobar: '+t);});}
-    audit('Token APROBADO','El superadmin aprobó un token pendiente (id '+id+')');
-    if(typeof mostrarToast==='function')mostrarToast('Aprobado. La acción se ejecutará en la sesión del solicitante.','exito');
+async function aprobarTokenPend(id){
+  try{
+    // 1) Marcar aprobado=true
+    var rp=await fetch(SUPA_URL+'/rest/v1/tokens_pendientes?id=eq.'+encodeURIComponent(id),{
+      method:'PATCH',headers:_tokRestHdr({'Content-Type':'application/json','Prefer':'return=minimal'}),
+      body:JSON.stringify({aprobado:true})
+    });
+    if(!rp.ok){var t=await rp.text();alert('No se pudo aprobar: '+t);return;}
+    audit('Token APROBADO','El superadmin aprobó un token (id '+id+')');
+    // 2) Leer la acción y EJECUTARLA aquí mismo (sesión del superadmin, fiable, no depende
+    //    de que el solicitante tenga la pestaña abierta). Solo para op 'del' (eliminaciones).
+    var rowRes=await fetch(SUPA_URL+'/rest/v1/tokens_pendientes?select=accion_data&id=eq.'+encodeURIComponent(id),{headers:_tokRestHdr()});
+    var rows=await rowRes.json();
+    var ad=(Array.isArray(rows)&&rows[0])?rows[0].accion_data:null;
+    if(ad&&ad.op==='del'&&ad.tabla&&ad.col){
+      var delRes=await fetch(SUPA_URL+'/rest/v1/'+encodeURIComponent(ad.tabla)+'?'+encodeURIComponent(ad.col)+'=eq.'+encodeURIComponent(ad.val),{
+        method:'DELETE',headers:_tokRestHdr({'Prefer':'return=minimal'})
+      });
+      if(!delRes.ok){var dt=await delRes.text();if(typeof mostrarToast==='function')mostrarToast('Aprobado, pero no se pudo eliminar: '+dt,'error');}
+      else{
+        await fetch(SUPA_URL+'/rest/v1/tokens_pendientes?id=eq.'+encodeURIComponent(id),{method:'PATCH',headers:_tokRestHdr({'Content-Type':'application/json','Prefer':'return=minimal'}),body:JSON.stringify({usado:true})});
+        recargarTrasTokenAccion(ad);
+        if(typeof mostrarToast==='function')mostrarToast('✅ Aprobado y eliminado de '+ad.tabla,'exito');
+      }
+    } else {
+      // Sin accion_data: el solicitante lo ejecuta por polling/entrada manual.
+      if(typeof mostrarToast==='function')mostrarToast('Aprobado. Se ejecutará en la sesión del solicitante.','exito');
+    }
     renderTokensPendientes();
-  }).catch(function(e){alert('No se pudo aprobar: '+(e&&e.message));});
+  }catch(e){alert('No se pudo aprobar: '+(e&&e.message));}
+}
+// Refresca arrays/vistas locales tras una eliminación aprobada por el superadmin.
+function recargarTrasTokenAccion(ad){
+  try{
+    var col=ad.col, val=String(ad.val);
+    if(ad.tabla==='gasoil'){ if(typeof GASOIL!=='undefined')GASOIL=GASOIL.filter(function(x){return String(x[col])!==val;}); if(typeof renderGasoil==='function')renderGasoil(); }
+    else if(ad.tabla==='gasol'){ if(typeof GASOL!=='undefined')GASOL=GASOL.filter(function(x){return String(x[col])!==val;}); if(typeof renderGasolPersonal==='function')renderGasolPersonal(); }
+    else if(ad.tabla==='planillas'){ if(typeof REGS!=='undefined')REGS=REGS.filter(function(x){return String(x[col])!==val;}); if(typeof renderPlanHoy==='function')renderPlanHoy(); if(typeof renderDash==='function')renderDash(); if(typeof filtH==='function')filtH(); }
+    else if(ad.tabla==='prestamos'){ if(typeof PRESTAMOS!=='undefined')PRESTAMOS=PRESTAMOS.filter(function(x){return String(x[col])!==val;}); if(typeof renderPrestamos==='function')renderPrestamos(); }
+    else if(ad.tabla==='multas'){ if(typeof MULTAS!=='undefined')MULTAS=MULTAS.filter(function(x){return String(x[col])!==val;}); if(typeof renderMultas==='function')renderMultas(); }
+    else if(ad.tabla==='contratos'){ if(typeof CONTRATOS!=='undefined')CONTRATOS=CONTRATOS.filter(function(x){return String(x[col])!==val;}); if(typeof renderContratos==='function')renderContratos(); }
+    else if(ad.tabla==='gastos_variables'){ if(typeof GASTOS_VARIABLES!=='undefined')GASTOS_VARIABLES=GASTOS_VARIABLES.filter(function(x){return String(x[col])!==val;}); if(typeof renderGastos==='function')renderGastos(); }
+  }catch(e){console.log('recargarTrasTokenAccion:',e&&e.message);}
 }
 
 function rechazarTokenPend(id){
@@ -8769,7 +8804,7 @@ function solicitarEliminarGasoil(idx){
   window._tokenDetalle = r.cam+' - '+r.lit+'L - '+r.f;
   solicitarToken('Eliminar combustible: '+r.cam+' '+r.lit+'L', function(motivo){
     eliminarGasoilConfirmado(r);
-  });
+  }, (r.id!=null?{op:'del',tabla:'gasoil',col:'id',val:r.id}:null));
 }
 
 function eliminarGasoilConfirmado(ref){
