@@ -3839,7 +3839,9 @@ async function guardarAbono(){
   BNC_MOV.push({id:Date.now()+'',fecha:ab.f,monto:ab.m*(TASAS.bcvDolar||cfg.tasa),tipo:'credito',desc:'Pago Alcaldia Fact.'+ab.fact,ref:ab.ref,conciliado:true});
   // Aviso a socios (Maximo y Francisco)
   sendWA('Abono registrado\n'+
-    '💰 Monto: $'+ab.m.toLocaleString()+'\n'+
+    '💰 Monto: $'+ab.m.toFixed(2)+'\n'+
+    '🚛 Viajes: '+ab.v+'\n'+
+    '🧾 Factura: '+(ab.fact||'--')+'\n'+
     '📅 Fecha: '+formatFecha(ab.f)+'\n'+
     '🏦 Ref: '+(ab.ref||'--')+'\n'+
     '👤 Registrado por: '+(SESION&&SESION.nombre?SESION.nombre:'--'),'socios',true);
