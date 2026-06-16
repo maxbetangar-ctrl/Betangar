@@ -203,7 +203,7 @@ tr:hover td{background:rgba(45,255,122,.02)}
 <div class="demo-banner" id="demo-banner">⚠ MODO DEMO — Los cambios no se guardan</div>
 <!-- Sello de versión: sirve para verificar que un dispositivo cargó el código más reciente
      (si el celular muestra un build distinto al del computador, está en caché vieja). -->
-<div id="app-ver" style="position:fixed;bottom:2px;right:5px;font-size:8px;color:rgba(174,212,234,.35);z-index:9998;pointer-events:none;font-family:monospace">v9.0 · build 2026-06-16b</div>
+<div id="app-ver" style="position:fixed;bottom:2px;right:5px;font-size:8px;color:rgba(174,212,234,.35);z-index:9998;pointer-events:none;font-family:monospace">v9.0 · build 2026-06-16c</div>
 
 <div class="login-overlay" id="login-overlay">
   <div class="login-box">
@@ -3585,7 +3585,11 @@ async function guardarImportacionEnDB(resultado){
       progEl.textContent='💾 Guardando abonos...';
       var abonosNuevos=ABONOS.slice(-resultado.abonos);
       var abRows=abonosNuevos.map(function(a){return{f:a.f,fact:a.fact,v:a.v,m:a.m,obs:a.obs||'',ref:a.ref||''};});
-      try{await supabase.from('abonos').insert(abRows);}
+      // upsert por 'fact' (no insert): la tabla tiene UNIQUE(fact). Con insert, si UNA sola
+      // factura ya existia, Postgres rechazaba el LOTE ENTERO en silencio y los abonos
+      // nuevos legitimos NO se guardaban. Con upsert, lo existente se actualiza y lo nuevo
+      // entra; nunca se duplica (lo garantiza UNIQUE) ni se pierde el lote.
+      try{await supabase.from('abonos').upsert(abRows,{onConflict:'fact'});}
       catch(e){console.log('Error abonos',e);}
     }
 
