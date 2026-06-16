@@ -3166,6 +3166,8 @@ function renderDash(){
   g('s-viajes').textContent=totalV.toLocaleString();
   g('s-viajes-sub').textContent='Sem. actual: '+vSem;
   g('s-ejec').textContent='$'+totalM.toLocaleString();
+  var ultF=REGS.reduce(function(mx,r){return (r.f&&r.f>mx)?r.f:mx;},'');
+  if(g('s-ejec-sub'))g('s-ejec-sub').textContent=ultF?('📅 Cargado al '+formatFecha(ultF)):'@ $316,88/viaje';
   if(SESION&&SESION.rol==='rrhh'){g('s-cobrado')&&(g('s-cobrado').textContent='—');g('s-cobrado-sub')&&(g('s-cobrado-sub').textContent='Restringido');}else g('s-cobrado').textContent='$'+totalCob.toLocaleString();
   g('s-cobrado-sub').textContent=vCobV+' viajes';
   if(!(SESION&&SESION.rol==='rrhh'))g('s-porcobrar').textContent='$'+porcobrar.toLocaleString();
