@@ -203,7 +203,7 @@ tr:hover td{background:rgba(45,255,122,.02)}
 <div class="demo-banner" id="demo-banner">⚠ MODO DEMO — Los cambios no se guardan</div>
 <!-- Sello de versión: sirve para verificar que un dispositivo cargó el código más reciente
      (si el celular muestra un build distinto al del computador, está en caché vieja). -->
-<div id="app-ver" style="position:fixed;bottom:2px;right:5px;font-size:8px;color:rgba(174,212,234,.35);z-index:9998;pointer-events:none;font-family:monospace">v9.0 · build 2026-06-16m</div>
+<div id="app-ver" style="position:fixed;bottom:2px;right:5px;font-size:8px;color:rgba(174,212,234,.35);z-index:9998;pointer-events:none;font-family:monospace">v9.0 · build 2026-06-16n</div>
 
 <div class="login-overlay" id="login-overlay">
   <div class="login-box">
@@ -1992,6 +1992,11 @@ var REGS=[];
 // Sin semilla hardcodeada: estos 5 abonos de muestra REAPARECÍAN al recargar tras borrarlos
 // (Supabase es la fuente de verdad). Si la tabla está vacía, no debe haber abonos.
 var ABONOS=[];
+// Núcleos de factura (solo dígitos, sin ceros a la izquierda) de abonos PROTEGIDOS: el
+// import de Excel NUNCA los toca (se corrigieron a mano, ej. pagados a $288). Se llena al
+// cargar de Supabase (columna abonos.protegido). Compara por dígitos para que "M1004" y
+// "1004" cuenten como la misma factura.
+var ABONOS_PROTEGIDOS=new Set();
 var GASOIL=[],GASOL=[];
 try{var _gasoil=localStorage.getItem('btg_gasoil');if(_gasoil&&_gasoil!=='[]')GASOIL=JSON.parse(_gasoil);}catch(e){}
 try{var _gasol=localStorage.getItem('btg_gasol');if(_gasol&&_gasol!=='[]')GASOL=JSON.parse(_gasol);}catch(e){}
@@ -2659,6 +2664,8 @@ async function cargarDatosDB(){
     // resultado AUNQUE sea vacío → así, si borraste todos, NO reaparecen. Antes
     // (a.data&&a.data.length) ignoraba el caso vacío y conservaba abonos viejos en memoria.
     if(!a.error&&Array.isArray(a.data))ABONOS=a.data.map(function(x){return{f:x.f,fact:x.fact,v:x.v,m:x.m,obs:x.obs||'',ref:x.ref||''};});
+    // Cargar los abonos PROTEGIDOS (no los pisa el Excel) por núcleo de dígitos.
+    if(!a.error&&Array.isArray(a.data))ABONOS_PROTEGIDOS=new Set(a.data.filter(function(x){return x.protegido;}).map(function(x){return _factCore(x.fact);}));
     // EMPLEADOS
     var e=await supabase.from('empleados').select('*');
     if(e.data&&e.data.length)EMPLEADOS=e.data.map(function(x){return{id:x.id,nombre:x.nombre,cargo:x.cargo,unidad:x.unidad||'',cedula:x.cedula||'',fnac:x.fnac||'',banco:x.banco||'',tcuenta:x.tcuenta||'',ncuenta:x.ncuenta||'',foto:x.foto_url||'',activo:x.activo!==false,tipoAy:x.tipo_ay||'',email:x.email||'',tel:x.tel||'',whatsapp:x.whatsapp||'',wa_apikey:x.wa_apikey||'',rif:x.rif||'',fingreso:x.fingreso||'',imau:x.imau||false};});
@@ -3847,8 +3854,10 @@ function procesarExcelBetangar(wb){
       }
       if(!fechaPago||monto<=0||viajes<=0||!factura||factura==='000000')continue;
       // dedup por FACTURA (no por fecha): si esa factura ya existe, se salta. Asi el mismo
-      // pago no entra dos veces aunque venga con otra fecha.
-      if(ABONOS.some(function(a){return normFact(a.fact)===factura;}))continue;
+      // pago no entra dos veces aunque venga con otra fecha. Además, NUNCA tocar abonos
+      // PROTEGIDOS (corregidos a mano, ej. pagados a $288): se comparan por núcleo de dígitos
+      // para que el Excel no los pise ni duplique (ej. "1004" no debe pisar "M1004").
+      if(ABONOS.some(function(a){return normFact(a.fact)===factura;})||ABONOS_PROTEGIDOS.has(_factCore(factura)))continue;
       ABONOS.push({f:fechaPago,fact:factura,v:viajes,m:monto,obs:'Importado del Excel',ref:''});
       resultado.abonos++;
     }
@@ -3918,6 +3927,9 @@ function calcMontoAbono(){
 // cual, solo se pasa a MAYUSCULAS y se quita espacio para que "m12345" / "M 12345" / "M12345"
 // cuenten como la MISMA factura y nunca choquen con las electronicas (que no llevan letra).
 function normFact(s){ s=String(s==null?'':s).trim().toUpperCase().replace(/\s+/g,''); return /^\d+$/.test(s)?s.padStart(6,'0'):s; }
+// Núcleo de factura = solo dígitos sin ceros a la izquierda ("M1004"->"1004", "000623"->"623").
+// Sirve para proteger un abono sin importar el formato con que venga la factura en el Excel.
+function _factCore(f){ return String(f==null?'':f).replace(/\D/g,'').replace(/^0+/,''); }
 
 async function guardarAbono(){
   var ab={f:gv('ab-f'),fact:normFact(gv('ab-fact')),v:parseInt(gv('ab-v'))||0,m:parseFloat(gv('ab-m'))||0,obs:gv('ab-obs'),ref:gv('ab-ref')};
