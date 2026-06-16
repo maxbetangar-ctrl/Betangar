@@ -203,7 +203,7 @@ tr:hover td{background:rgba(45,255,122,.02)}
 <div class="demo-banner" id="demo-banner">⚠ MODO DEMO — Los cambios no se guardan</div>
 <!-- Sello de versión: sirve para verificar que un dispositivo cargó el código más reciente
      (si el celular muestra un build distinto al del computador, está en caché vieja). -->
-<div id="app-ver" style="position:fixed;bottom:2px;right:5px;font-size:8px;color:rgba(174,212,234,.35);z-index:9998;pointer-events:none;font-family:monospace">v9.0 · build 2026-06-15a</div>
+<div id="app-ver" style="position:fixed;bottom:2px;right:5px;font-size:8px;color:rgba(174,212,234,.35);z-index:9998;pointer-events:none;font-family:monospace">v9.0 · build 2026-06-15b</div>
 
 <div class="login-overlay" id="login-overlay">
   <div class="login-box">
@@ -296,7 +296,7 @@ tr:hover td{background:rgba(45,255,122,.02)}
     <div class="stat"><div class="stat-lbl">Total Viajes</div><div class="stat-val" id="s-viajes">-</div><div class="stat-sub" id="s-viajes-sub">-</div></div>
     <div class="stat y"><div class="stat-lbl">Ejecutado</div><div class="stat-val" style="font-size:16px;color:var(--yellow)" id="s-ejec">-</div><div class="stat-sub" id="s-ejec-sub">@ $317.88/viaje</div></div>
     <div class="stat" style="border-top-color:var(--green2)"><div class="stat-lbl">Cobrado</div><div class="stat-val" style="font-size:16px;color:var(--green2)" id="s-cobrado">-</div><div class="stat-sub" id="s-cobrado-sub">-</div></div>
-    <div class="stat r"><div class="stat-lbl">Por Cobrar</div><div class="stat-val" style="font-size:16px;color:var(--red)" id="s-porcobrar">-</div><div class="pbar"><div class="pfill" id="s-pbar" style="width:0%"></div></div></div>
+    <div class="stat r"><div class="stat-lbl">Por Cobrar</div><div class="stat-val" style="font-size:16px;color:var(--red)" id="s-porcobrar">-</div><div class="stat-sub" id="s-porcobrar-sub">-</div><div class="pbar"><div class="pfill" id="s-pbar" style="width:0%"></div></div></div>
     <div class="stat b" id="stat-saldo-bnc"><div class="stat-lbl">Saldo BNC</div><div class="stat-val" style="font-size:15px;color:var(--blue)" id="s-saldo-bnc">--</div><div class="stat-sub" id="s-saldo-sub"><span onclick="sp('banco')" style="cursor:pointer;color:var(--blue)">Ver banco</span></div></div>
   </div>
   <div class="g2" style="margin-bottom:10px">
@@ -3164,13 +3164,13 @@ function renderDash(){
   var vSem=REGS.filter(function(r){return r.sem===semHoy;}).reduce(function(s,r){return s+r.t;},0);
   var vCobV=Math.min(ABONOS.reduce(function(s,a){return s+a.v;},0),totalV);
   g('s-viajes').textContent=totalV.toLocaleString();
-  g('s-viajes-sub').textContent='Sem. actual: '+vSem;
+  g('s-viajes-sub').textContent='Esta semana: '+vSem+' viajes';
   g('s-ejec').textContent='$'+totalM.toLocaleString();
   var ultF=REGS.reduce(function(mx,r){return (r.f&&r.f>mx)?r.f:mx;},'');
   if(g('s-ejec-sub'))g('s-ejec-sub').textContent=ultF?('📅 Cargado al '+formatFecha(ultF)):'@ $316,88/viaje';
   if(SESION&&SESION.rol==='rrhh'){g('s-cobrado')&&(g('s-cobrado').textContent='—');g('s-cobrado-sub')&&(g('s-cobrado-sub').textContent='Restringido');}else g('s-cobrado').textContent='$'+totalCob.toLocaleString();
   g('s-cobrado-sub').textContent=vCobV+' viajes';
-  if(!(SESION&&SESION.rol==='rrhh'))g('s-porcobrar').textContent='$'+porcobrar.toLocaleString();
+  if(!(SESION&&SESION.rol==='rrhh')){g('s-porcobrar').textContent='$'+porcobrar.toLocaleString();if(g('s-porcobrar-sub'))g('s-porcobrar-sub').textContent=Math.max(0,totalV-vCobV).toLocaleString()+' viajes';}
   g('s-pbar').style.width=pct+'%';
   if(BNC_SALDO>0&&puedeVerSaldo()){g('s-saldo-bnc').textContent='Bs '+(BNC_SALDO/1000).toFixed(0)+'k';g('s-saldo-sub').textContent='Actualizado';}
   // Charts
