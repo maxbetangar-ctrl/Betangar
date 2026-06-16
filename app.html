@@ -203,7 +203,7 @@ tr:hover td{background:rgba(45,255,122,.02)}
 <div class="demo-banner" id="demo-banner">⚠ MODO DEMO — Los cambios no se guardan</div>
 <!-- Sello de versión: sirve para verificar que un dispositivo cargó el código más reciente
      (si el celular muestra un build distinto al del computador, está en caché vieja). -->
-<div id="app-ver" style="position:fixed;bottom:2px;right:5px;font-size:8px;color:rgba(174,212,234,.35);z-index:9998;pointer-events:none;font-family:monospace">v9.0 · build 2026-06-16j</div>
+<div id="app-ver" style="position:fixed;bottom:2px;right:5px;font-size:8px;color:rgba(174,212,234,.35);z-index:9998;pointer-events:none;font-family:monospace">v9.0 · build 2026-06-16k</div>
 
 <div class="login-overlay" id="login-overlay">
   <div class="login-box">
@@ -1989,23 +1989,15 @@ var LLANTAS={};
 Object.keys(FLOTA).forEach(function(c){LLANTAS[c]=POS_LL.map(function(p){return{posicion:p,estado:'Buena',km:0,fecha:''};});});
 
 var REGS=[];
-var ABONOS=[
-  {f:'2026-03-22',fact:'000623',v:44,m:12672,obs:'Transferencia Alcaldia',ref:''},
-  {f:'2026-03-27',fact:'000624',v:74,m:21312,obs:'Transferencia Alcaldia',ref:''},
-  {f:'2026-04-10',fact:'000625',v:104,m:29952,obs:'Transferencia Alcaldia',ref:''},
-  {f:'2026-04-17',fact:'000626',v:59,m:16992,obs:'Transferencia Alcaldia',ref:''},
-  {f:'2026-04-24',fact:'000627',v:59,m:16992,obs:'Transferencia Alcaldia',ref:''}
-];
+// Sin semilla hardcodeada: estos 5 abonos de muestra REAPARECÍAN al recargar tras borrarlos
+// (Supabase es la fuente de verdad). Si la tabla está vacía, no debe haber abonos.
+var ABONOS=[];
 var GASOIL=[],GASOL=[];
 try{var _gasoil=localStorage.getItem('btg_gasoil');if(_gasoil&&_gasoil!=='[]')GASOIL=JSON.parse(_gasoil);}catch(e){}
 try{var _gasol=localStorage.getItem('btg_gasol');if(_gasol&&_gasol!=='[]')GASOL=JSON.parse(_gasol);}catch(e){}
-var PAGOS_ALC=[
-  {id:'H001',fecha:'2026-03-22',fact:'000623',ref:'',viajes:44,tasa:600,base:10924,iva:1748,total:12672,neto:9504,fiel:1092,fielDevuelto:true,pct75:true},
-  {id:'H002',fecha:'2026-03-27',fact:'000624',ref:'',viajes:74,tasa:600,base:18379,iva:2940,total:21312,neto:15984,fiel:1837,fielDevuelto:true,pct75:true},
-  {id:'H003',fecha:'2026-04-10',fact:'000625',ref:'',viajes:104,tasa:600,base:25793,iva:4128,total:29952,neto:22464,fiel:2579,fielDevuelto:true,pct75:true},
-  {id:'H004',fecha:'2026-04-17',fact:'000626',ref:'',viajes:59,tasa:600,base:14648,iva:2344,total:16992,neto:12744,fiel:1464,fielDevuelto:true,pct75:true},
-  {id:'H005',fecha:'2026-04-24',fact:'000627',ref:'',viajes:59,tasa:600,base:14648,iva:2344,total:16992,neto:12744,fiel:1464,fielDevuelto:true,pct75:true}
-];
+// Sin semilla hardcodeada (mismos 5 de muestra que reaparecían en el tab Alcaldía tras
+// borrarlos). pagos_alcaldia en Supabase es la fuente de verdad.
+var PAGOS_ALC=[];
 var SEM_HIST=[
   {s:'Mar S1',v:40},{s:'Mar S2',v:61},{s:'Mar S3',v:102},{s:'Mar S4',v:133},
   {s:'Abr S1',v:120},{s:'Abr S2',v:145},{s:'Abr S3',v:161},{s:'Abr S4',v:80}
@@ -2663,7 +2655,10 @@ async function cargarDatosDB(){
     // orden. Sin .order() PostgREST devuelve las filas en orden arbitrario que cambia tras
     // cada edicion/borrado, y eso hacia que aparecieran "en distinto orden cada vez".
     var a=await supabase.from('abonos').select('*').order('f',{ascending:true}).order('id',{ascending:true});
-    if(a.data&&a.data.length)ABONOS=a.data.map(function(x){return{f:x.f,fact:x.fact,v:x.v,m:x.m,obs:x.obs||'',ref:x.ref||''};});
+    // Supabase es la FUENTE DE VERDAD: si la consulta tuvo éxito (sin error), usar su
+    // resultado AUNQUE sea vacío → así, si borraste todos, NO reaparecen. Antes
+    // (a.data&&a.data.length) ignoraba el caso vacío y conservaba abonos viejos en memoria.
+    if(!a.error&&Array.isArray(a.data))ABONOS=a.data.map(function(x){return{f:x.f,fact:x.fact,v:x.v,m:x.m,obs:x.obs||'',ref:x.ref||''};});
     // EMPLEADOS
     var e=await supabase.from('empleados').select('*');
     if(e.data&&e.data.length)EMPLEADOS=e.data.map(function(x){return{id:x.id,nombre:x.nombre,cargo:x.cargo,unidad:x.unidad||'',cedula:x.cedula||'',fnac:x.fnac||'',banco:x.banco||'',tcuenta:x.tcuenta||'',ncuenta:x.ncuenta||'',foto:x.foto_url||'',activo:x.activo!==false,tipoAy:x.tipo_ay||'',email:x.email||'',tel:x.tel||'',whatsapp:x.whatsapp||'',wa_apikey:x.wa_apikey||'',rif:x.rif||'',fingreso:x.fingreso||'',imau:x.imau||false};});
@@ -2741,7 +2736,8 @@ async function cargarDatosDB(){
     if(gv2.data&&gv2.data.length)GASTOS_VARIABLES=gv2.data.map(function(x){return{id:x.id,fecha:x.fecha,cat:x.categoria||'',desc:x.descripcion||'',bs:parseFloat(x.monto_bs)||0,usd:parseFloat(x.monto_usd)||0,ref:x.referencia||'',fact:x.factura||''};});
     // PAGOS ALCALDÍA
     var palc=await supabase.from('pagos_alcaldia').select('*');
-    if(palc.data&&palc.data.length)PAGOS_ALC=palc.data.map(function(x){return{id:x.id,fecha:x.fecha,fact:x.factura,ref:x.referencia||'',viajes:parseInt(x.viajes)||0,tasa:parseFloat(x.tasa)||0,base:parseFloat(x.base_usd)||0,iva:parseFloat(x.iva_usd)||0,total:parseFloat(x.total_usd)||0,neto:parseFloat(x.neto_usd)||0,fiel:parseFloat(x.fiel_usd)||0,fielDevuelto:x.fiel_devuelto||false,pct75:x.pct75_pagado||false};});
+    // Fuente de verdad Supabase: usar resultado aunque sea vacío (sin error) → no reaparecen seeds.
+    if(!palc.error&&Array.isArray(palc.data))PAGOS_ALC=palc.data.map(function(x){return{id:x.id,fecha:x.fecha,fact:x.factura,ref:x.referencia||'',viajes:parseInt(x.viajes)||0,tasa:parseFloat(x.tasa)||0,base:parseFloat(x.base_usd)||0,iva:parseFloat(x.iva_usd)||0,total:parseFloat(x.total_usd)||0,neto:parseFloat(x.neto_usd)||0,fiel:parseFloat(x.fiel_usd)||0,fielDevuelto:x.fiel_devuelto||false,pct75:x.pct75_pagado||false};});
     // KM DATA
     var km=await supabase.from('km_data').select('*');
     if(km.data&&km.data.length)km.data.forEach(function(x){
