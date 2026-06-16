@@ -203,7 +203,7 @@ tr:hover td{background:rgba(45,255,122,.02)}
 <div class="demo-banner" id="demo-banner">⚠ MODO DEMO — Los cambios no se guardan</div>
 <!-- Sello de versión: sirve para verificar que un dispositivo cargó el código más reciente
      (si el celular muestra un build distinto al del computador, está en caché vieja). -->
-<div id="app-ver" style="position:fixed;bottom:2px;right:5px;font-size:8px;color:rgba(174,212,234,.35);z-index:9998;pointer-events:none;font-family:monospace">v9.0 · build 2026-06-16f</div>
+<div id="app-ver" style="position:fixed;bottom:2px;right:5px;font-size:8px;color:rgba(174,212,234,.35);z-index:9998;pointer-events:none;font-family:monospace">v9.0 · build 2026-06-16g</div>
 
 <div class="login-overlay" id="login-overlay">
   <div class="login-box">
@@ -2782,6 +2782,8 @@ async function cargarDatosDB(){
     cargarCxP(); // Cargar CxP al inicio
     // Notificar pagos BNC pendientes ahora que DB está lista
     if(SESION){setTimeout(notificarPagosBNCNuevos,500);}
+    // Poll de sesion: aplica eliminaciones aprobadas aunque el solicitante haya recargado
+    if(SESION){iniciarPollSesionTokens();}
     cargarCargos();
     if(EMPLEADOS.length>0){setTimeout(function(){renderEmpleados();},100);}
     try{localStorage.setItem('betangar_regs',JSON.stringify(REGS));localStorage.setItem('betangar_abonos',JSON.stringify(ABONOS));}catch(e5){}
@@ -6943,14 +6945,17 @@ function pedirNuevoToken(){
     // renderiza la variable 'codigo_token'. Pasamos el token bajo VARIOS nombres comunes
     // (token, codigo, codigo_token) y lo incrustamos también en subject/detalle, para que
     // aparezca sea cual sea la variable que use la plantilla.
+    // El token se INCRUSTA en TODOS los campos que la plantilla muestra (operador, accion,
+    // detalle, message) y en varios alias, porque no sabemos cual variable usa la plantilla
+    // ni si respeta el subject. Asi el numero aparece si o si en el correo.
+    var tokenTxt='🔑 TOKEN: '+codigo;
     emailjs.send(EJS_SVC,EJS_TPL,{
       to_email:'betangar@gmail.com',
-      subject:'TOKEN BETANGAR '+codigo+' - Solicitud de '+SESION.nombre,
-      message:waMsg,
-      // Campos específicos de la template del token (varios alias para el token)
-      operador: SESION.nombre+' ('+SESION.usuario+')',
-      accion_solicitada: accion,
-      detalle: 'TOKEN: '+codigo+' — Motivo: '+motivo,
+      subject:'TOKEN '+codigo+' - Betangar - Solicitud de '+SESION.nombre,
+      message:tokenTxt+'\n\n'+waMsg,
+      operador: tokenTxt+'  |  '+SESION.nombre+' ('+SESION.usuario+')',
+      accion_solicitada: accion+'   ['+tokenTxt+']',
+      detalle: tokenTxt+'  —  Motivo: '+motivo,
       codigo_token: codigo,
       token: codigo,
       codigo: codigo,
@@ -7099,10 +7104,60 @@ function ejecutarTokenLocal(token,id){
     method:'PATCH',headers:_tokRestHdr({'Content-Type':'application/json','Prefer':'return=minimal'}),
     body:JSON.stringify({usado:true})
   }).catch(function(){});
+  if(id)_marcarTokenAplicado(id); // evita que el poll de sesion lo vuelva a aplicar
   try{entry.cb(entry.motivo);}catch(e){console.log('token cb err:',e&&e.message);}
-  if(typeof mostrarToast==='function')mostrarToast('✅ Acción aprobada y ejecutada','exito');
+  if(typeof mostrarToast==='function')mostrarToast('✅ Tu solicitud fue APROBADA y aplicada','exito');
   try{if(typeof closeModal==='function')closeModal();}catch(e){}
   audit('Token aprobado y ejecutado',token);
+}
+
+// ── POLL DE SESION (robusto ante recargas / cambio de rol) ─────────────────────────────
+// El callback de un token vive SOLO en memoria de la pestaña que lo pidio. Si el solicitante
+// recarga, cambia de pestaña/rol, o prueba todo en un mismo navegador, ese callback se pierde
+// y la aprobacion nunca "desbloqueaba" su pantalla. Este poll NO depende de la memoria: busca
+// en la tabla los tokens del USUARIO ACTUAL ya aprobados con accion_data (op:del) y aplica el
+// cambio local (quitar el registro + re-render), marcando cada id como aplicado para no
+// repetir. Asi funciona aunque la sesion sea nueva. (Las ediciones sin accion_data si necesitan
+// la pestaña abierta y las cubre pollTokensAprobados.)
+var _pollSesionInt=null;
+var _tokensAplicados=null;
+function _getTokensAplicados(){
+  if(_tokensAplicados)return _tokensAplicados;
+  try{_tokensAplicados=JSON.parse(localStorage.getItem('btg_tokens_aplicados')||'[]');}catch(e){_tokensAplicados=[];}
+  if(!Array.isArray(_tokensAplicados))_tokensAplicados=[];
+  return _tokensAplicados;
+}
+function _marcarTokenAplicado(id){
+  if(id==null)return;
+  var arr=_getTokensAplicados(); id=String(id);
+  if(arr.indexOf(id)<0){arr.push(id); if(arr.length>300)arr=arr.slice(-300); _tokensAplicados=arr;
+    try{localStorage.setItem('btg_tokens_aplicados',JSON.stringify(arr));}catch(e){}}
+}
+function iniciarPollSesionTokens(){
+  if(_pollSesionInt){clearInterval(_pollSesionInt);_pollSesionInt=null;}
+  if(!SESION||esSuperAdmin())return; // el superadmin ya ejecuta al aprobar; no lo necesita
+  _pollSesionTokens();
+  _pollSesionInt=setInterval(_pollSesionTokens,5000);
+}
+function _pollSesionTokens(){
+  if(!SESION||!SESION.nombre)return;
+  var url=SUPA_URL+'/rest/v1/tokens_pendientes?select=id,token,usuario,aprobado,accion_data&usuario=eq.'+encodeURIComponent(SESION.nombre)+'&aprobado=eq.true&order=created_at.desc&limit=25';
+  fetch(url,{headers:_tokRestHdr()}).then(function(r){return r.json();}).then(function(rows){
+    if(!Array.isArray(rows)||!rows.length)return;
+    var aplicados=_getTokensAplicados();
+    rows.forEach(function(row){
+      if(aplicados.indexOf(String(row.id))>=0)return; // ya aplicado en este dispositivo
+      var ad=row.accion_data;
+      if(ad&&ad.op==='del'&&ad.tabla&&ad.col){
+        console.log('[POLLING-SESION] solicitud aprobada detectada, aplicando local:',row.token,ad.tabla,ad.val);
+        recargarTrasTokenAccion(ad);
+        _marcarTokenAplicado(row.id);
+        delete PENDING_TOKEN_CB[String(row.token).toUpperCase()]; // por si tambien estaba en memoria
+        if(typeof mostrarToast==='function')mostrarToast('✅ Tu solicitud fue APROBADA y aplicada','exito');
+        try{if(typeof closeModal==='function')closeModal();}catch(e){}
+      }
+    });
+  }).catch(function(e){console.log('[POLLING-SESION] err',e&&e.message);});
 }
 
 function renderTokensPendientes(){
