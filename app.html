@@ -203,7 +203,7 @@ tr:hover td{background:rgba(45,255,122,.02)}
 <div class="demo-banner" id="demo-banner">⚠ MODO DEMO — Los cambios no se guardan</div>
 <!-- Sello de versión: sirve para verificar que un dispositivo cargó el código más reciente
      (si el celular muestra un build distinto al del computador, está en caché vieja). -->
-<div id="app-ver" style="position:fixed;bottom:2px;right:5px;font-size:8px;color:rgba(174,212,234,.35);z-index:9998;pointer-events:none;font-family:monospace">v9.0 · build 2026-06-15b</div>
+<div id="app-ver" style="position:fixed;bottom:2px;right:5px;font-size:8px;color:rgba(174,212,234,.35);z-index:9998;pointer-events:none;font-family:monospace">v9.0 · build 2026-06-15c</div>
 
 <div class="login-overlay" id="login-overlay">
   <div class="login-box">
@@ -1061,7 +1061,7 @@ tr:hover td{background:rgba(45,255,122,.02)}
   <div id="alert-plan" class="alert-ok">Planilla guardada correctamente</div>
   <div class="g2">
     <div class="card">
-      <div class="sh"><div class="st">Nueva Planilla</div></div>
+      <div class="sh"><div class="st">Nueva Planilla</div><div id="rp-ultima" style="font-size:11px;color:var(--green);font-weight:700;font-family:var(--m)"></div></div>
       <div class="fr4">
         <div class="fg"><label>N Planilla</label><input class="fc" id="rp-num" type="number" placeholder="00416" style="font-family:var(--m)"></div>
         <div class="fg"><label>Fecha</label><input class="fc" id="rp-fecha" type="date" onchange="autoData()"></div>
@@ -2475,6 +2475,7 @@ function sp(id){
   var mi=document.getElementById('mi-'+id);if(mi)mi.classList.add('active');
   var lbl=document.getElementById('nav-active-label');if(lbl)lbl.textContent=NAV_LABELS[id]||id;
   closeMenu();
+  if(id==='planilla'){try{actualizarUltimaPlanilla();}catch(e){}}
   try{
     if(id==='dashboard'){
     renderDash();
@@ -3160,13 +3161,22 @@ function renderDash(){
   var totalCob=Math.min(ABONOS.reduce(function(s,a){return s+a.m;},0),totalM);
   var porcobrar=Math.max(0,totalM-totalCob);
   var pct=totalM>0?Math.round((totalCob/totalM)*100):0;
-  var semHoy=getSem(null);
-  var vSem=REGS.filter(function(r){return r.sem===semHoy;}).reduce(function(s,r){return s+r.t;},0);
   var vCobV=Math.min(ABONOS.reduce(function(s,a){return s+a.v;},0),totalV);
-  g('s-viajes').textContent=totalV.toLocaleString();
-  g('s-viajes-sub').textContent='Esta semana: '+vSem+' viajes';
-  g('s-ejec').textContent='$'+totalM.toLocaleString();
   var ultF=REGS.reduce(function(mx,r){return (r.f&&r.f>mx)?r.f:mx;},'');
+  // Viajes de la ULTIMA semana real (lunes a domingo) con datos, segun la fecha verdadera de cada planilla
+  var ultSemTxt='';
+  if(ultF){
+    var _ud=new Date(ultF+'T12:00:00'),_dow=(_ud.getDay()+6)%7;
+    var _lun=new Date(_ud);_lun.setDate(_ud.getDate()-_dow);
+    var _dom=new Date(_lun);_dom.setDate(_lun.getDate()+6);
+    var _lunS=_lun.toISOString().split('T')[0],_domS=_dom.toISOString().split('T')[0];
+    var _vv=REGS.filter(function(r){return r.f>=_lunS&&r.f<=_domS;}).reduce(function(s,r){return s+r.t;},0);
+    ultSemTxt='Últ. semana: '+_vv+' viajes · '+formatFecha(_lunS).slice(0,5)+'–'+formatFecha(_domS).slice(0,5);
+  }
+  g('s-viajes').textContent=totalV.toLocaleString();
+  try{actualizarUltimaPlanilla();}catch(e){}
+  g('s-viajes-sub').textContent=ultSemTxt;
+  g('s-ejec').textContent='$'+totalM.toLocaleString();
   if(g('s-ejec-sub'))g('s-ejec-sub').textContent=ultF?('📅 Cargado al '+formatFecha(ultF)):'@ $316,88/viaje';
   if(SESION&&SESION.rol==='rrhh'){g('s-cobrado')&&(g('s-cobrado').textContent='—');g('s-cobrado-sub')&&(g('s-cobrado-sub').textContent='Restringido');}else g('s-cobrado').textContent='$'+totalCob.toLocaleString();
   g('s-cobrado-sub').textContent=vCobV+' viajes';
@@ -3362,6 +3372,14 @@ function guardarEdicionPlanilla(pOriginal){
   });
 }
 
+// Muestra el numero de planilla MAS ALTO cargado (no el ultimo en orden de carga),
+// para que quien registra sepa hasta cual va el lote.
+function actualizarUltimaPlanilla(){
+  var el=g('rp-ultima');if(!el)return;
+  var mx=0;
+  REGS.forEach(function(r){var s=String(r.p||'');if(/^\d+$/.test(s)){var n=parseInt(s,10);if(n>mx)mx=n;}});
+  el.textContent=mx>0?('Última cargada: #'+String(mx).padStart(5,'0')):'';
+}
 async function guardarPlanilla(){
   var p=gv('rp-num');var f=gv('rp-fecha');var c=gv('rp-cam');var ch=gv('rp-chofer');
   if(!p||!f||!c||!ch){alert('Completa: Planilla, Fecha, Camion, Chofer');return;}
