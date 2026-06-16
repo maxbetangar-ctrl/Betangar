@@ -203,7 +203,7 @@ tr:hover td{background:rgba(45,255,122,.02)}
 <div class="demo-banner" id="demo-banner">⚠ MODO DEMO — Los cambios no se guardan</div>
 <!-- Sello de versión: sirve para verificar que un dispositivo cargó el código más reciente
      (si el celular muestra un build distinto al del computador, está en caché vieja). -->
-<div id="app-ver" style="position:fixed;bottom:2px;right:5px;font-size:8px;color:rgba(174,212,234,.35);z-index:9998;pointer-events:none;font-family:monospace">v9.0 · build 2026-06-15c</div>
+<div id="app-ver" style="position:fixed;bottom:2px;right:5px;font-size:8px;color:rgba(174,212,234,.35);z-index:9998;pointer-events:none;font-family:monospace">v9.0 · build 2026-06-16a</div>
 
 <div class="login-overlay" id="login-overlay">
   <div class="login-box">
@@ -6666,7 +6666,9 @@ function enviarWADirecto(lista, msg, callback){
 // Si no se pasa roles, va a TODOS
 // force=true → envío interactivo (token, abono, nómina...): sale a cualquier hora.
 // Sin force → alerta automática: NO se envía en horario nocturno (9pm–7am VET).
-function _esSilencioNocturno(){ var h=new Date().getHours(); return (h<7||h>=21); }
+// Silencio nocturno DESACTIVADO por pedido: todos los números registrados reciben los
+// mensajes a cualquier hora, sin restricción. (Para reactivarlo: return (h<7||h>=21).)
+function _esSilencioNocturno(){ return false; }
 function sendWA(msg, roles, force){
   if(!force && _esSilencioNocturno()){ console.log('WA automático silenciado (horario nocturno):',String(msg).slice(0,50)); return; }
   var destinos=WA.filter(function(w){
@@ -6874,15 +6876,21 @@ function pedirNuevoToken(){
   }).catch(function(e){console.log('tokens_pendientes insert err:',e&&e.message);});
   // Email respaldo
   if(typeof emailjs!=='undefined'){
+    // FIX: el correo llegaba sin el número de token porque la template de EmailJS no
+    // renderiza la variable 'codigo_token'. Pasamos el token bajo VARIOS nombres comunes
+    // (token, codigo, codigo_token) y lo incrustamos también en subject/detalle, para que
+    // aparezca sea cual sea la variable que use la plantilla.
     emailjs.send(EJS_SVC,EJS_TPL,{
       to_email:'betangar@gmail.com',
-      subject:'TOKEN BETANGAR - Solicitud de '+SESION.nombre,
+      subject:'TOKEN BETANGAR '+codigo+' - Solicitud de '+SESION.nombre,
       message:waMsg,
-      // Campos específicos de la template del token
+      // Campos específicos de la template del token (varios alias para el token)
       operador: SESION.nombre+' ('+SESION.usuario+')',
       accion_solicitada: accion,
-      detalle: motivo,
+      detalle: 'TOKEN: '+codigo+' — Motivo: '+motivo,
       codigo_token: codigo,
+      token: codigo,
+      codigo: codigo,
       fecha: new Date().toLocaleString('es-VE')
     }).catch(function(e){console.log('Token email err:',e);});
   }
@@ -6994,19 +7002,27 @@ function registrarTokenLocal(token, cb, motivo){
 function pollTokensAprobados(){
   var toks=Object.keys(PENDING_TOKEN_CB);
   if(!toks.length){if(_pollTokensInt){clearInterval(_pollTokensInt);_pollTokensInt=null;}return;}
+  console.log('[POLLING] revisando '+toks.length+' token(s) pendiente(s):',toks.join(','));
   toks.forEach(function(tk){
-    // Traemos la fila por token y verificamos aprobado/usado en JS (evita ambigüedad del
-    // filtro booleano de PostgREST, que podía no devolver el aprobado=true).
-    var url=SUPA_URL+'/rest/v1/tokens_pendientes?select=id,token,usado,aprobado&token=eq.'+encodeURIComponent(tk);
+    // Traemos la fila MAS RECIENTE por token y verificamos aprobado en JS (evita la
+    // ambigüedad del filtro booleano de PostgREST, que podía no devolver el aprobado=true).
+    var url=SUPA_URL+'/rest/v1/tokens_pendientes?select=id,token,usado,aprobado&token=eq.'+encodeURIComponent(tk)+'&order=created_at.desc&limit=1';
     fetch(url,{headers:_tokRestHdr()}).then(function(r){return r.json();})
       .then(function(rows){
         if(!Array.isArray(rows)||!rows.length)return;
         var row=rows[0];
-        if((row.aprobado===true||row.aprobado==='true')&&row.usado!==true&&row.usado!=='true'){
+        // FIX BUG: ejecutar en cuanto esté APROBADO, sin condicionar a usado. En las
+        // eliminaciones el superadmin ya marca usado=true al ejecutarlas de su lado, pero
+        // el solicitante TODAVÍA necesita correr su callback local para reflejar el cambio
+        // en su pantalla (antes quedaba "colgado" sin desbloquearse). El borrado de
+        // PENDING_TOKEN_CB dentro de ejecutarTokenLocal es la garantía real de una sola
+        // ejecución; los callbacks locales (eliminarXConfirmado) son idempotentes.
+        if(row.aprobado===true||row.aprobado==='true'){
+          console.log('[POLLING] token aprobado detectado',tk,'(usado='+row.usado+') -> ejecutando');
           ejecutarTokenLocal(tk,row.id);
         }
       })
-      .catch(function(){});
+      .catch(function(e){console.log('[POLLING] error consultando token',tk,e&&e.message);});
   });
 }
 // Ejecuta el callback local de un token una sola vez (marca usado=true antes para evitar doble).
@@ -8521,6 +8537,10 @@ var BNC_ABONO_PENDIENTE = null;
 var BNC_ULTIMO_NOTIFICADO = localStorage.getItem('btg_bnc_ultimo')||'';
 
 async function notificarPagosBNCNuevos(){
+  // NOTA: la tabla bnc_notificaciones tiene RLS solo_service_role, así que con la anon key
+  // este SELECT devuelve vacío y esta función NO es la que notifica (es un respaldo inerte;
+  // NO abrir el RLS del banco por seguridad). El WhatsApp de pagos lo envía el servidor en
+  // la edge function 'bnc-webhook' al instante de recibir el pago (corre con service_role).
   if(!DB_READY||!supabase)return;
   var res = await supabase.from('bnc_notificaciones')
     .select('id,tipo,tipo_label,monto,moneda,referencia,deudor_id,concepto,fecha_recibido,ambiente')
@@ -8541,7 +8561,7 @@ async function notificarPagosBNCNuevos(){
       'Concepto: '+(pago.concepto||'—')+'\n'+
       'Fecha: '+fecha+'\n'+
       'Ambiente: '+(pago.ambiente||'produccion');
-    sendWA(msg,['socios','admin']);
+    sendWA(msg,['socios','admin'],true); // force: un pago es crítico, sale a cualquier hora
     // Marcar como notificado
     supabase.from('bnc_notificaciones').update({procesado:true}).eq('id',pago.id);
     BNC_ULTIMO_NOTIFICADO = pago.id;
