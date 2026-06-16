@@ -203,7 +203,7 @@ tr:hover td{background:rgba(45,255,122,.02)}
 <div class="demo-banner" id="demo-banner">⚠ MODO DEMO — Los cambios no se guardan</div>
 <!-- Sello de versión: sirve para verificar que un dispositivo cargó el código más reciente
      (si el celular muestra un build distinto al del computador, está en caché vieja). -->
-<div id="app-ver" style="position:fixed;bottom:2px;right:5px;font-size:8px;color:rgba(174,212,234,.35);z-index:9998;pointer-events:none;font-family:monospace">v9.0 · build 2026-06-16k</div>
+<div id="app-ver" style="position:fixed;bottom:2px;right:5px;font-size:8px;color:rgba(174,212,234,.35);z-index:9998;pointer-events:none;font-family:monospace">v9.0 · build 2026-06-16l</div>
 
 <div class="login-overlay" id="login-overlay">
   <div class="login-box">
@@ -4529,32 +4529,8 @@ function renderKm(){
   });
   var tb=g('tb-km');if(tb)tb.innerHTML=rows.join('');
   var al=g('alertas-km');if(al)al.innerHTML=alertas.map(function(a){return'<div class="alert-w" style="margin-bottom:4px">'+a+'</div>';}).join('')||'<div style="color:var(--green);font-size:12px;padding:8px">✓ Todo al dia</div>';
-  var hoyKm=new Date().toISOString().slice(0,10);
-  var keyKmRes='btg_wa_km_res_'+hoyKm;
-  if(alertas.length>0&&!localStorage.getItem(keyKmRes)){
-    localStorage.setItem(keyKmRes,'1');
-    // Ordenar por KM restante (menor primero = más urgente)
-    var alertasOrdenadas=[];
-    var camsKm=Object.keys(FLOTA).filter(function(k){return k.startsWith('JAC-B');});
-    camsKm.forEach(function(cam){
-      var d=KM_DATA[cam]||{km:0,ultsrv:0};
-      var proximo=d.ultsrv>0?d.ultsrv+(cfg.km||5000):cfg.km;
-      var restante=proximo-(d.km||0);
-      if(restante<=500){
-        alertasOrdenadas.push({cam:cam,restante:restante,km:d.km||0,chofer:FLOTA[cam]?FLOTA[cam].chofer:'--'});
-      }
-    });
-    alertasOrdenadas.sort(function(a,b){return a.restante-b.restante;});
-    if(alertasOrdenadas.length){
-      var msg='BETANGAR - KM PROXIMOS A MANTENIMIENTO\n\n';
-      alertasOrdenadas.forEach(function(a){
-        msg+='⚠️ '+a.cam+' ('+a.chofer.split(' ')[0]+')\n';
-        msg+='   KM actual: '+a.km.toLocaleString()+' | Faltan: '+a.restante+' km\n\n';
-      });
-      msg+='Total unidades: '+alertasOrdenadas.length;
-      sendWA(msg,['socios']);
-    }
-  }
+  // WhatsApp de service/KM MOVIDO al servidor (cron alertas-diarias, "SERVICE PRÓXIMO"):
+  // ya no se envía desde el cliente, para no depender de que la app esté abierta ni duplicar.
 }
 async function guardarKm(){
   var cam=gv('km-cam'),km=parseInt(gv('km-val'))||0,f=gv('km-f'),mant=gv('km-mant'),desc=gv('km-desc');
@@ -4601,19 +4577,8 @@ function renderLavados(){
   // Separar vencidos de próximos
   var lavVencidos=alertas.filter(function(a){return a.toLowerCase().includes('vencido');});
   var lavProximos=alertas.filter(function(a){return !a.toLowerCase().includes('vencido');});
-  // Socios: solo vencidos (1 vez por día)
-  if(lavVencidos.length&&!localStorage.getItem(keyLavRes)){
-    localStorage.setItem(keyLavRes,'1');
-    var msgLav='BETANGAR - LAVADOS VENCIDOS\n\n'+lavVencidos.join('\n');
-    sendWA(msgLav,['socios']);
-  }
-  // Mecánico y operativo: próximos (1 vez por día)
-  var keyLavPrx='btg_wa_lav_prx_'+hoyLav;
-  if(lavProximos.length&&!localStorage.getItem(keyLavPrx)){
-    localStorage.setItem(keyLavPrx,'1');
-    var msgLavPrx='BETANGAR - LAVADOS PROXIMOS\n\n'+lavProximos.join('\n');
-    sendWA(msgLavPrx,['mecanico','operativo']);
-  }
+  // WhatsApp de lavados MOVIDO al servidor (cron alertas-diarias, "LAVADOS VENCIDOS"):
+  // ya no se envía desde el cliente. El panel visual de arriba se mantiene.
 }
 async function guardarLavado(){
   var cam=gv('lav-cam'),f=gv('lav-f'),obs=gv('lav-obs')||'';
@@ -7438,22 +7403,10 @@ function emailReporteFinanciero(){
   enviarEmail('Reporte Financiero',html);
 }
 
-function checkAlertas7AM(){
-  var now=new Date();if(now.getHours()!==7&&now.getHours()!==8)return;
-  renderDocAlertas();// triggers WA alerts for vencidos
-  renderKm();// triggers km alerts
-  renderLavados();// triggers lavado alerts
-  checkCumpleAlerts();
-  // Camiones inactivos
-  Object.keys(FLOTA).filter(function(k){return FLOTA[k].estado==='operativo';}).forEach(function(cam){
-    var ult=REGS.filter(function(r){return r.cam===cam;}).sort(function(a,b){return b.f.localeCompare(a.f);})[0];
-    if(!ult||diasDesde(ult.f)>=3)sendWA('🚛 '+cam+' lleva '+(ult?diasDesde(ult.f):'?')+'+ dias sin planilla registrada',['operativo']);
-  });
-  // Facturas CXP vencidas
-  CXP.filter(function(c){return c.estado==='pendiente'&&diasHasta(c.fechaVenc)<=0;}).forEach(function(c){sendWA('🤝 Factura VENCIDA: '+c.prov+' $ '+Number(c.netoPagar||0).toLocaleString('es-VE',{minimumFractionDigits:2,maximumFractionDigits:2})+' (vencio '+c.fechaVenc+')',['admin']);});
-  // Stock critico inventario
-  INVENTARIO.filter(function(x){return x.stock===0;}).forEach(function(x){sendWA('📦 SIN STOCK: '+x.nombre+' — Reabastecer urgente',['mecanica']);});
-}
+// DESACTIVADO: todas estas alertas diarias (vencidos, km/service, lavados, sin planilla,
+// CXP vencidas, stock) las envía AHORA el servidor (cron alertas-diarias, 8am y 6pm), para
+// que NO dependan de que la app esté abierta ni se dupliquen. Se deja como no-op.
+function checkAlertas7AM(){ /* movido al servidor: edge function alertas-diarias */ }
 
 function checkCumpleAlerts(){
   var hoy=new Date();
@@ -7847,6 +7800,11 @@ function _recRolMatch(rol, cargo){
   }
 }
 function checkRecordatorios(){
+  // DESACTIVADO en el cliente: los recordatorios de rol (chofer 5am checklist, etc.) los
+  // envía AHORA el servidor (cron 'recordatorios-cron'), para que NO dependan de que la app
+  // esté abierta ni se dupliquen. La config se edita igual en pantalla (recordatorios_cfg).
+  return;
+  /* eslint-disable */
   if(!DB_READY||!EMPLEADOS||!EMPLEADOS.length)return;
   var now=new Date();
   var horaActual=String(now.getHours()).padStart(2,'0')+':'+String(now.getMinutes()).padStart(2,'0');
