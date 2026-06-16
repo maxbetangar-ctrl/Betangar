@@ -297,7 +297,7 @@ tr:hover td{background:rgba(45,255,122,.02)}
     <div class="stat y"><div class="stat-lbl">Ejecutado</div><div class="stat-val" style="font-size:16px;color:var(--yellow)" id="s-ejec">-</div><div class="stat-sub" id="s-ejec-sub">@ $317.88/viaje</div></div>
     <div class="stat" style="border-top-color:var(--green2)"><div class="stat-lbl">Cobrado</div><div class="stat-val" style="font-size:16px;color:var(--green2)" id="s-cobrado">-</div><div class="stat-sub" id="s-cobrado-sub">-</div></div>
     <div class="stat r"><div class="stat-lbl">Por Cobrar</div><div class="stat-val" style="font-size:16px;color:var(--red)" id="s-porcobrar">-</div><div class="pbar"><div class="pfill" id="s-pbar" style="width:0%"></div></div></div>
-    <div class="stat b"><div class="stat-lbl">Saldo BNC</div><div class="stat-val" style="font-size:15px;color:var(--blue)" id="s-saldo-bnc">--</div><div class="stat-sub" id="s-saldo-sub"><span onclick="sp('banco')" style="cursor:pointer;color:var(--blue)">Ver banco</span></div></div>
+    <div class="stat b" id="stat-saldo-bnc"><div class="stat-lbl">Saldo BNC</div><div class="stat-val" style="font-size:15px;color:var(--blue)" id="s-saldo-bnc">--</div><div class="stat-sub" id="s-saldo-sub"><span onclick="sp('banco')" style="cursor:pointer;color:var(--blue)">Ver banco</span></div></div>
   </div>
   <div class="g2" style="margin-bottom:10px">
     <div class="cbox"><div class="ctitle">Viajes por Semana</div><div id="c-sem-svg"></div></div>
@@ -463,7 +463,7 @@ tr:hover td{background:rgba(45,255,122,.02)}
   </div>
   <div id="tab-bnc-dash">
     <div class="g3" style="margin-bottom:14px">
-      <div class="bnc-card"><div style="font-size:9px;color:var(--blue);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Saldo Disponible</div><div style="font-family:var(--m);font-size:26px;font-weight:900;color:var(--blue)" id="bnc-saldo-main">Bs --</div><div style="font-size:10px;color:var(--text2);margin-top:4px" id="bnc-saldo-usd">USD --</div><div style="font-size:9px;color:var(--text3);margin-top:6px" id="bnc-saldo-fecha">Sin conexion</div></div>
+      <div class="bnc-card" id="bnc-card-saldo"><div style="font-size:9px;color:var(--blue);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Saldo Disponible</div><div style="font-family:var(--m);font-size:26px;font-weight:900;color:var(--blue)" id="bnc-saldo-main">Bs --</div><div style="font-size:10px;color:var(--text2);margin-top:4px" id="bnc-saldo-usd">USD --</div><div style="font-size:9px;color:var(--text3);margin-top:6px" id="bnc-saldo-fecha">Sin conexion</div></div>
       <div class="bnc-card"><div style="font-size:9px;color:var(--teal);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Entradas del Dia</div><div style="font-family:var(--m);font-size:22px;font-weight:900;color:var(--teal)" id="bnc-entr-hoy">Bs --</div><div style="font-size:10px;color:var(--text2);margin-top:4px" id="bnc-entr-count">-- transferencias</div></div>
       <div class="bnc-card"><div style="font-size:9px;color:var(--yellow);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Pagos por Autorizar</div><div style="font-family:var(--m);font-size:22px;font-weight:900;color:var(--yellow)" id="bnc-por-aut">0</div><div style="font-size:10px;color:var(--text2);margin-top:4px">Pendientes en BNCNET</div></div>
     </div>
@@ -2243,6 +2243,8 @@ function aplicarPermisos(){
     }
     grp.style.display=tieneVisible?'':'none';
   });
+  // Ocultar el saldo bancario para roles no autorizados (solo superadmin/admin/visor)
+  aplicarVisibilidadSaldo();
   // Redirect automático para roles de módulo único
   // Para roles limitados el sp() se llama desde cargarDatosPorRol().then()
   // No llamar sp() aquí para evitar pantalla vacía
@@ -3168,7 +3170,7 @@ function renderDash(){
   g('s-cobrado-sub').textContent=vCobV+' viajes';
   if(!(SESION&&SESION.rol==='rrhh'))g('s-porcobrar').textContent='$'+porcobrar.toLocaleString();
   g('s-pbar').style.width=pct+'%';
-  if(BNC_SALDO>0){g('s-saldo-bnc').textContent='Bs '+(BNC_SALDO/1000).toFixed(0)+'k';g('s-saldo-sub').textContent='Actualizado';}
+  if(BNC_SALDO>0&&puedeVerSaldo()){g('s-saldo-bnc').textContent='Bs '+(BNC_SALDO/1000).toFixed(0)+'k';g('s-saldo-sub').textContent='Actualizado';}
   // Charts
   var se=g('c-sem-svg');if(se)se.innerHTML=svgLine(SEM_HIST.map(function(s){return s.v;}),SEM_HIST.map(function(s){return s.s;}),'#a3e635');
   var cams=Object.keys(VX);
@@ -4609,7 +4611,7 @@ function switchBNCTab(t){['dash','mov','conc','pend','cfg'].forEach(function(x){
 
 function renderBNCDash(){
   if(!BNC_CONFIG.guid){if(g('bnc-saldo-fecha'))g('bnc-saldo-fecha').textContent='Sin conexion — Configura en tab Config API';}
-  if(BNC_SALDO>0){
+  if(BNC_SALDO>0&&puedeVerSaldo()){
     var t=TASAS.bcvDolar||cfg.tasa;
     if(g('bnc-saldo-main'))g('bnc-saldo-main').textContent='Bs '+BNC_SALDO.toLocaleString('es-VE',{maximumFractionDigits:0});
     if(g('bnc-saldo-usd'))g('bnc-saldo-usd').textContent='USD '+(BNC_SALDO/t).toFixed(2);
@@ -4617,6 +4619,8 @@ function renderBNCDash(){
     if(g('bnc-nav-saldo')){g('bnc-nav-saldo').textContent='BNC: Bs '+(BNC_SALDO/1000).toFixed(0)+'k';g('bnc-nav-saldo').style.display='block';}
     if(g('s-saldo-bnc'))g('s-saldo-bnc').textContent='Bs '+(BNC_SALDO/1000).toFixed(0)+'k';
   }
+  // Asegura que la tarjeta de saldo quede oculta para roles no autorizados
+  aplicarVisibilidadSaldo();
   var entH=BNC_MOV.filter(function(m){return m.tipo==='credito'&&m.fecha===new Date().toISOString().split('T')[0];});
   var totEntH=entH.reduce(function(s,m){return s+m.monto;},0);
   if(g('bnc-entr-hoy'))g('bnc-entr-hoy').textContent='Bs '+totEntH.toLocaleString('es-VE',{maximumFractionDigits:0});
@@ -6767,6 +6771,14 @@ function esSuperAdmin(){
 // NO lo ven: rrhh, mecanico, operativo/operador, chofer, vigilante, asistencia.
 function puedeVerSaldo(){
   return SESION && ['superadmin','admin','visualizador'].indexOf(SESION.rol)>=0;
+}
+// Oculta/muestra el SALDO BANCARIO (dashboard, chip del nav y tarjeta del tab BNC)
+// segun el rol. Solo superadmin, admin y visualizador (visor) pueden verlo.
+function aplicarVisibilidadSaldo(){
+  var ver=puedeVerSaldo();
+  var s=document.getElementById('stat-saldo-bnc');if(s)s.style.display=ver?'':'none';
+  var b=document.getElementById('bnc-card-saldo');if(b)b.style.display=ver?'':'none';
+  if(!ver){var n=document.getElementById('bnc-nav-saldo');if(n)n.style.display='none';}
 }
 
 // Punto de entrada para cualquier accion protegida
