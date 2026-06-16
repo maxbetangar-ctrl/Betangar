@@ -203,7 +203,7 @@ tr:hover td{background:rgba(45,255,122,.02)}
 <div class="demo-banner" id="demo-banner">⚠ MODO DEMO — Los cambios no se guardan</div>
 <!-- Sello de versión: sirve para verificar que un dispositivo cargó el código más reciente
      (si el celular muestra un build distinto al del computador, está en caché vieja). -->
-<div id="app-ver" style="position:fixed;bottom:2px;right:5px;font-size:8px;color:rgba(174,212,234,.35);z-index:9998;pointer-events:none;font-family:monospace">v9.0 · build 2026-06-16h</div>
+<div id="app-ver" style="position:fixed;bottom:2px;right:5px;font-size:8px;color:rgba(174,212,234,.35);z-index:9998;pointer-events:none;font-family:monospace">v9.0 · build 2026-06-16i</div>
 
 <div class="login-overlay" id="login-overlay">
   <div class="login-box">
@@ -5255,33 +5255,56 @@ function renderDocTablas(){
 // Antes solo se guardaban en memoria → se perdían al recargar.
 function guardarDocs(){
   try{localStorage.setItem('btg_docs_cam',JSON.stringify(DOCS_CAM));localStorage.setItem('btg_docs_emp',JSON.stringify(DOCS_EMP));}catch(e){}
-  if(DB_READY&&supabase){
-    try{supabase.from('configuracion').upsert([{clave:'docs_cam',valor:JSON.stringify(DOCS_CAM)},{clave:'docs_emp',valor:JSON.stringify(DOCS_EMP)}],{onConflict:'clave'})
-      .then(function(res){if(res&&res.error&&typeof mostrarToast==='function')mostrarToast('No se pudieron guardar documentos: '+res.error.message,'error');});}catch(e){}
-  }
+  // Persistir SIEMPRE via REST directo (no depende de DB_READY). Antes, si el cliente
+  // supabase-js no estaba listo, NO se guardaba: los cambios/borrados de documentos se
+  // perdian al recargar y documentos de PRUEBA seguian disparando alertas de vencimiento.
+  fetch(SUPA_URL+'/rest/v1/configuracion?on_conflict=clave',{
+    method:'POST',
+    headers:_tokRestHdr({'Content-Type':'application/json','Prefer':'resolution=merge-duplicates,return=minimal'}),
+    body:JSON.stringify([{clave:'docs_cam',valor:JSON.stringify(DOCS_CAM)},{clave:'docs_emp',valor:JSON.stringify(DOCS_EMP)}])
+  }).then(function(r){
+    if(!r.ok)r.text().then(function(t){if(typeof mostrarToast==='function')mostrarToast('No se pudieron guardar documentos: '+t,'error');});
+  }).catch(function(e){if(typeof mostrarToast==='function')mostrarToast('Sin conexion: documentos no guardados. Reintenta.','error');});
 }
 function guardarDocCam(){
   var cam=gv('doc-cam-sel'),tipo=gv('doc-cam-tipo'),venc=gv('doc-cam-venc'),num=gv('doc-cam-num'),ente=gv('doc-cam-ente');
-  if(!cam||!tipo||!venc){alert('Completa camion, tipo y fecha');return;}
+  if(!cam||!tipo){alert('Selecciona camion y tipo de documento');return;}
   if(!DOCS_CAM[cam])DOCS_CAM[cam]={seguro:{},circulacion:{},revision:{}};
-  DOCS_CAM[cam][tipo]={venc:venc,num:num,ente:ente};
-  guardarDocs();
-  audit('Documento camion actualizado',cam+' '+tipo+' vence:'+venc);
-  if(typeof mostrarToast==='function')mostrarToast('✅ Documento guardado','exito');
+  if(!venc){
+    // Sin fecha = BORRAR ese documento (asi se limpia una alerta de vencimiento erronea/prueba)
+    if(!confirm('Sin fecha se BORRARA el documento "'+tipo+'" de '+cam+' y dejara de avisar su vencimiento. ¿Continuar?'))return;
+    DOCS_CAM[cam][tipo]={venc:'',num:'',ente:''};
+    guardarDocs();
+    audit('Documento camion BORRADO',cam+' '+tipo);
+    if(typeof mostrarToast==='function')mostrarToast('🗑️ Documento '+tipo+' de '+cam+' borrado','exito');
+  } else {
+    DOCS_CAM[cam][tipo]={venc:venc,num:num,ente:ente};
+    guardarDocs();
+    audit('Documento camion actualizado',cam+' '+tipo+' vence:'+venc);
+    if(typeof mostrarToast==='function')mostrarToast('✅ Documento guardado','exito');
+  }
   renderDocAlertas();renderDocTablas();
-  sv('doc-cam-num','');sv('doc-cam-ente','');
+  sv('doc-cam-num','');sv('doc-cam-ente','');sv('doc-cam-venc','');
 }
 
 function guardarDocEmp(){
   var empId=gv('doc-emp-sel'),tipo=gv('doc-emp-tipo'),venc=gv('doc-emp-venc'),num=gv('doc-emp-num'),grado=gv('doc-emp-grado');
-  if(!empId||!tipo||!venc){alert('Completa empleado, tipo y fecha');return;}
+  if(!empId||!tipo){alert('Selecciona empleado y tipo de documento');return;}
   if(!DOCS_EMP[empId])DOCS_EMP[empId]={};
-  DOCS_EMP[empId][tipo]={venc:venc,num:num,grado:grado};
-  guardarDocs();
-  audit('Documento empleado actualizado',empId+' '+tipo+' vence:'+venc);
-  if(typeof mostrarToast==='function')mostrarToast('✅ Documento guardado','exito');
+  if(!venc){
+    if(!confirm('Sin fecha se BORRARA el documento "'+tipo+'" de este empleado y dejara de avisar su vencimiento. ¿Continuar?'))return;
+    DOCS_EMP[empId][tipo]={venc:'',num:'',grado:''};
+    guardarDocs();
+    audit('Documento empleado BORRADO',empId+' '+tipo);
+    if(typeof mostrarToast==='function')mostrarToast('🗑️ Documento '+tipo+' borrado','exito');
+  } else {
+    DOCS_EMP[empId][tipo]={venc:venc,num:num,grado:grado};
+    guardarDocs();
+    audit('Documento empleado actualizado',empId+' '+tipo+' vence:'+venc);
+    if(typeof mostrarToast==='function')mostrarToast('✅ Documento guardado','exito');
+  }
   renderDocAlertas();renderDocTablas();
-  sv('doc-emp-num','');
+  sv('doc-emp-num','');sv('doc-emp-venc','');
 }
 
 // ═══════════════════════════════════════════════════
