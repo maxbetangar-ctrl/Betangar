@@ -203,7 +203,7 @@ tr:hover td{background:rgba(45,255,122,.02)}
 <div class="demo-banner" id="demo-banner">⚠ MODO DEMO — Los cambios no se guardan</div>
 <!-- Sello de versión: sirve para verificar que un dispositivo cargó el código más reciente
      (si el celular muestra un build distinto al del computador, está en caché vieja). -->
-<div id="app-ver" style="position:fixed;bottom:2px;right:5px;font-size:8px;color:rgba(174,212,234,.35);z-index:9998;pointer-events:none;font-family:monospace">v9.0 · build 2026-06-16d</div>
+<div id="app-ver" style="position:fixed;bottom:2px;right:5px;font-size:8px;color:rgba(174,212,234,.35);z-index:9998;pointer-events:none;font-family:monospace">v9.0 · build 2026-06-16e</div>
 
 <div class="login-overlay" id="login-overlay">
   <div class="login-box">
@@ -3915,7 +3915,11 @@ function calcMontoAbono(){
 // por diferencias de formato: si es solo numeros se rellena a 6 digitos con ceros (igual
 // que el import de Excel), asi "12345" y "012345" son la MISMA factura. Lo no numerico se
 // deja tal cual (solo trim).
-function normFact(s){ s=String(s==null?'':s).trim(); return /^\d+$/.test(s)?s.padStart(6,'0'):s; }
+// Numerica pura (factura electronica) -> 6 digitos con ceros. Con letra (ej. facturas
+// MANUALES del SENIAT que el usuario marca con "M" adelante, "M12345") -> se respeta tal
+// cual, solo se pasa a MAYUSCULAS y se quita espacio para que "m12345" / "M 12345" / "M12345"
+// cuenten como la MISMA factura y nunca choquen con las electronicas (que no llevan letra).
+function normFact(s){ s=String(s==null?'':s).trim().toUpperCase().replace(/\s+/g,''); return /^\d+$/.test(s)?s.padStart(6,'0'):s; }
 
 async function guardarAbono(){
   var ab={f:gv('ab-f'),fact:normFact(gv('ab-fact')),v:parseInt(gv('ab-v'))||0,m:parseFloat(gv('ab-m'))||0,obs:gv('ab-obs'),ref:gv('ab-ref')};
