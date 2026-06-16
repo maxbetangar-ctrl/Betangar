@@ -203,7 +203,7 @@ tr:hover td{background:rgba(45,255,122,.02)}
 <div class="demo-banner" id="demo-banner">⚠ MODO DEMO — Los cambios no se guardan</div>
 <!-- Sello de versión: sirve para verificar que un dispositivo cargó el código más reciente
      (si el celular muestra un build distinto al del computador, está en caché vieja). -->
-<div id="app-ver" style="position:fixed;bottom:2px;right:5px;font-size:8px;color:rgba(174,212,234,.35);z-index:9998;pointer-events:none;font-family:monospace">v9.0 · build 2026-06-16o</div>
+<div id="app-ver" style="position:fixed;bottom:2px;right:5px;font-size:8px;color:rgba(174,212,234,.35);z-index:9998;pointer-events:none;font-family:monospace">v9.0 · build 2026-06-16p</div>
 
 <div class="login-overlay" id="login-overlay">
   <div class="login-box">
@@ -3221,6 +3221,18 @@ function imprimirDashboard(){
   var vPorCob=Math.max(0,totalV-vCobV);
   var ultF=REGS.reduce(function(mx,r){return (r.f&&r.f>mx)?r.f:mx;},'');
   var saldoTxt=(typeof BNC_SALDO!=='undefined'&&BNC_SALDO>0&&puedeVerSaldo())?('Bs '+Number(BNC_SALDO).toLocaleString('es-VE',{maximumFractionDigits:0})):'—';
+  // Saldos en cuenta (BNC) — desde la caché del dashboard (solo quien puede ver saldo)
+  var bancosHtml='';
+  try{
+    if(puedeVerSaldo()&&typeof _bncResumenCache!=='undefined'&&_bncResumenCache&&_bncResumenCache.cuentas&&_bncResumenCache.cuentas.length){
+      var f2=function(n){return Number(n||0).toLocaleString('es-VE',{minimumFractionDigits:2,maximumFractionDigits:2});};
+      var rowsB=_bncResumenCache.cuentas.map(function(c){var sim=c.moneda==='USD'?'$':'Bs ';return '<tr><td style="font-family:monospace">'+(c.cuenta||'--')+'</td><td>'+c.moneda+'</td><td style="text-align:right;color:#a3e635;font-weight:800">'+sim+f2(c.saldoActual)+'</td><td style="text-align:right;color:#8b97a7">'+sim+f2(c.saldoInicial)+'</td></tr>';}).join('');
+      bancosHtml='<h2>Saldos en cuenta — BNC'+(_bncResumenCache.fecha?' (día '+_bncResumenCache.fecha+')':'')+(_bncResumenCache.esPrueba?' · DATOS DE PRUEBA':'')+'</h2><table><thead><tr><th>Cuenta</th><th>Moneda</th><th>Saldo actual</th><th>Inició día</th></tr></thead><tbody>'+rowsB+'</tbody></table>';
+    } else if(puedeVerSaldo()){
+      bancosHtml='<h2>Saldos en cuenta — BNC</h2><div class="mut">Abre/actualiza el dashboard (botón ↻ de Saldos BNC) antes de imprimir para incluir los saldos.</div>';
+    }
+  }catch(e){}
+  var tasasTxt='BCV $ '+(TASAS.bcvDolar?TASAS.bcvDolar.toFixed(2):'--')+(TASAS.binance?'  ·  Binance $ '+TASAS.binance.toFixed(2):'')+(TASAS.bcvEuro?'  ·  BCV € '+TASAS.bcvEuro.toFixed(2):'');
   // Flota
   var cams=Object.keys(FLOTA),op=0,tal=0,ino=0;
   var flotaRows=cams.map(function(cam){
@@ -3250,15 +3262,15 @@ function imprimirDashboard(){
   var al=[];
   Object.keys(FLOTA).filter(function(k){return (FLOTA[k].estado||'operativo')==='operativo';}).forEach(function(cam){var u=REGS.filter(function(r){return r.cam===cam;}).sort(function(a,b){return b.f.localeCompare(a.f);})[0];if(!u||diasDesde(u.f)>=3)al.push('🚛 '+cam.replace('JAC-','')+' — '+(u?diasDesde(u.f):'?')+'+ días sin planilla');});
   Object.keys(KM_DATA).forEach(function(cam){var d=KM_DATA[cam];if(d&&d.km&&d.ultsrv>0&&(d.km-d.ultsrv)>=(cfg.km||5000))al.push('🔧 '+cam.replace('JAC-','')+' — Servicio '+(cfg.km||5000)+'km vencido');});
-  var alertHtml=al.length?al.map(function(a){return '<div style="padding:3px 0;border-bottom:1px solid #eee">'+a+'</div>';}).join(''):'<div style="color:#16a34a;padding:4px 0">Sin alertas críticas ✓</div>';
+  var alertHtml=al.length?(al.slice(0,8).map(function(a){return '<div style="padding:3px 0;border-bottom:1px solid #243140">'+a+'</div>';}).join('')+(al.length>8?'<div class="mut" style="padding-top:3px">…y '+(al.length-8)+' más</div>':'')):'<div style="color:#4ade80;padding:4px 0">Sin alertas críticas ✓</div>';
   // Últimas planillas
-  var ult=REGS.slice().reverse().slice(0,10);
+  var ult=REGS.slice().reverse().slice(0,8);
   var ultRows=ult.map(function(r){return '<tr><td style="font-family:monospace">#'+r.p+'</td><td>'+formatFecha(r.f)+'</td><td style="font-weight:700">'+r.cam.replace('JAC-','')+'</td><td style="font-size:8px">'+(r.ch||'--')+'</td><td style="text-align:center">'+r.t+'v</td><td style="text-align:right">'+usd(r.m)+'</td></tr>';}).join('')||'<tr><td colspan="6">Sin planillas</td></tr>';
   var gen=new Date().toLocaleString('es-VE');
   var kpi=function(l,v,s,col){return '<div class="kpi"><div class="l">'+l+'</div><div class="v"'+(col?' style="color:'+col+'"':'')+'>'+v+'</div><div class="s">'+(s||'')+'</div></div>';};
   var css='*{margin:0;padding:0;box-sizing:border-box;font-family:Arial,Helvetica,sans-serif;-webkit-print-color-adjust:exact;print-color-adjust:exact}'+
     '@page{size:letter;margin:0}html,body{background:#0e1726;color:#d7dde5;font-size:10px}'+
-    '.pg{padding:1.05cm 1.05cm .8cm;min-height:100vh}.pg.page2{page-break-before:always}'+
+    '.pg{padding:1.05cm 1.05cm .8cm}.pg.page2{page-break-before:always}'+
     '.hdr{display:flex;justify-content:space-between;align-items:center;border-bottom:3px solid #a3e635;padding-bottom:7px;margin-bottom:9px}'+
     '.hdr .emp{font-size:15px;font-weight:800;color:#a3e635}.hdr .rif{font-size:8px;color:#8b97a7;margin-top:2px}.hdr .doc{text-align:right;font-size:8px;color:#8b97a7}'+
     'h2{font-size:10px;color:#a3e635;border-bottom:1px solid #2a3a4a;margin:9px 0 4px;padding-bottom:2px;text-transform:uppercase;letter-spacing:.4px}'+
@@ -3272,6 +3284,7 @@ function imprimirDashboard(){
       '<div class="doc">DASHBOARD DE CONTROL<br>'+gen+'<br>Sistema v9.0</div></div>';
   var html='<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Dashboard Betangar</title><style>'+css+'</style></head><body>'+
     '<div class="pg">'+hdr+
+    '<div class="mut" style="margin-bottom:6px">Tasas del día: '+tasasTxt+'</div>'+
     '<div class="kpis">'+
       kpi('Total Viajes',fmt(totalV),(ultF?'Cargado al '+formatFecha(ultF):''))+
       kpi('Ejecutado',usd(totalM),'@ $316,88/viaje','#a3e635')+
@@ -3283,6 +3296,7 @@ function imprimirDashboard(){
     '<h2>Cobranza Alcaldía</h2>'+
     '<div class="bar"><i style="width:'+pct+'%"></i></div>'+
     '<div class="mut">Cobrado '+usd(totalCob)+' de '+usd(totalM)+' ('+pct+'%) · Pendiente '+usd(porcobrar)+' = '+fmt(vPorCob)+' viajes</div>'+
+    bancosHtml+
     '<div class="cols">'+
       '<div><h2>Flota ('+op+' operativos / '+tal+' taller)</h2><table><thead><tr><th>Unidad</th><th>Estado</th><th>KM</th><th>Chofer</th></tr></thead><tbody>'+flotaRows+'</tbody></table></div>'+
       '<div><h2>Top 5 Choferes</h2><table><thead><tr><th>#</th><th>Chofer</th><th>Viajes</th></tr></thead><tbody>'+rankRows+'</tbody></table>'+
