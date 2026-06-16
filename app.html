@@ -203,7 +203,7 @@ tr:hover td{background:rgba(45,255,122,.02)}
 <div class="demo-banner" id="demo-banner">⚠ MODO DEMO — Los cambios no se guardan</div>
 <!-- Sello de versión: sirve para verificar que un dispositivo cargó el código más reciente
      (si el celular muestra un build distinto al del computador, está en caché vieja). -->
-<div id="app-ver" style="position:fixed;bottom:2px;right:5px;font-size:8px;color:rgba(174,212,234,.35);z-index:9998;pointer-events:none;font-family:monospace">v9.0 · build 2026-06-16i</div>
+<div id="app-ver" style="position:fixed;bottom:2px;right:5px;font-size:8px;color:rgba(174,212,234,.35);z-index:9998;pointer-events:none;font-family:monospace">v9.0 · build 2026-06-16j</div>
 
 <div class="login-overlay" id="login-overlay">
   <div class="login-box">
@@ -5192,9 +5192,10 @@ function renderDocAlertas(){
   if(vEl)vEl.innerHTML=vencidos.length?vencidos.map(function(v){return'<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border)"><span style="font-size:12px">'+v.label+'</span>'+v.badge+'</div>';}).join(''):'<div style="color:var(--green);font-size:12px;padding:8px">✓ Todo en regla</div>';
   var pEl=g('doc-proximos');
   if(pEl)pEl.innerHTML=proximos.length?proximos.map(function(v){return'<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border)"><span style="font-size:12px">'+v.label+'</span>'+v.badge+'</div>';}).join(''):'<div style="color:var(--teal);font-size:12px;padding:8px">Sin vencimientos en 30 dias</div>';
-  // WhatsApp alertas criticas
-  vencidos.forEach(function(v){sendWA('📄 VENCIDO: '+v.label+' ('+Math.abs(v.dr)+'d atrasado)',['operativo','admin']);});
-  proximos.filter(function(v){return v.dr<=7;}).forEach(function(v){sendWA('⚠️ PROXIMO VENCIMIENTO: '+v.label+' en '+v.dr+' dias',['operativo']);});
+  // NO enviar WhatsApp aquí: renderDocAlertas es solo VISUAL y se llama muchísimas veces
+  // (abrir tab, guardar, refrescar dashboard) → antes spameaba el mismo vencimiento sin
+  // control. La notificación de vencimientos de documentos la hace UNA vez al día el cron
+  // 'alertas-diarias' (con anti-duplicado por alertas_log), igual que contratos y CXP.
 }
 
 // Panel desplegable por entidad: al hacer click en un camión/empleado se despliega
@@ -5762,7 +5763,9 @@ function renderContratosLista(){
       '<button class="btn btn-r btn-xs" style="margin-top:5px">Eliminar</button>';
     div.querySelector('button').onclick=function(){elimContrato(c.id);};
     el.appendChild(div);
-    if(dr<=60&&dr>0)sendWA('Contrato "'+c.nombre+'" vence en '+dr+' dias',['admin']);
+    // NO enviar WhatsApp aquí: esto es un RENDER (corre en cada carga/navegación) y spameaba
+    // el mismo aviso. Los "contratos por vencer" los notifica UNA vez al día el cron
+    // 'alertas-diarias' (con anti-duplicado por alertas_log).
   });
 }
 function renderStats(){
