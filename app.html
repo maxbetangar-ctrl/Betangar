@@ -203,7 +203,7 @@ tr:hover td{background:rgba(45,255,122,.02)}
 <div class="demo-banner" id="demo-banner">⚠ MODO DEMO — Los cambios no se guardan</div>
 <!-- Sello de versión: sirve para verificar que un dispositivo cargó el código más reciente
      (si el celular muestra un build distinto al del computador, está en caché vieja). -->
-<div id="app-ver" style="position:fixed;bottom:2px;right:5px;font-size:8px;color:rgba(174,212,234,.35);z-index:9998;pointer-events:none;font-family:monospace">v9.0 · build 2026-06-16n</div>
+<div id="app-ver" style="position:fixed;bottom:2px;right:5px;font-size:8px;color:rgba(174,212,234,.35);z-index:9998;pointer-events:none;font-family:monospace">v9.0 · build 2026-06-16o</div>
 
 <div class="login-overlay" id="login-overlay">
   <div class="login-box">
@@ -287,7 +287,7 @@ tr:hover td{background:rgba(45,255,122,.02)}
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;padding:10px 14px;background:linear-gradient(135deg,var(--card),var(--card2));border:1px solid var(--border);border-radius:10px">
     <img id="dash-logo" src="" alt="Betangar" style="height:36px;width:auto;opacity:.9">
     <div style="text-align:center"><div style="font-size:13px;font-weight:800;color:var(--green)">Control de Flota v9.0</div><div style="font-family:var(--m);font-size:10px;color:var(--text3)" id="fecha-top"></div></div>
-    <div style="text-align:right;font-size:9px;color:var(--text3)">Sistema v9.0<br>Inversiones Betangar CA</div>
+    <div style="text-align:right;font-size:9px;color:var(--text3)">Sistema v9.0<br>Inversiones Betangar CA<br><button class="btn btn-g btn-sm" style="margin-top:6px" onclick="imprimirDashboard()">🖨 Imprimir / PDF</button></div>
   </div>
   <div id="tasas-widget" style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:7px 12px;margin-bottom:10px"><div style="font-size:10px;color:var(--text3)">Cargando tasas...</div></div>
   <div id="dash-alertas" style="margin-bottom:10px"></div>
@@ -3205,6 +3205,98 @@ function renderDash(){
   // Flota
   renderFlotaDash();renderRankingTop5();renderMetasDash();renderVencimientosDash();renderAlertasCriticas();
   updTank();
+}
+
+// Impresión LIMPIA del dashboard en 2 hojas carta (ideal para PDF / enviar).
+function imprimirDashboard(){
+  var fmt=function(n){return Number(n||0).toLocaleString('es-VE');};
+  var usd=function(n){return '$'+Number(n||0).toLocaleString('es-VE',{minimumFractionDigits:2,maximumFractionDigits:2});};
+  // KPIs (mismos cálculos que el dashboard)
+  var totalV=REGS.reduce(function(s,r){return s+r.t;},0);
+  var totalM=REGS.reduce(function(s,r){return s+r.m;},0);
+  var totalCob=Math.min(ABONOS.reduce(function(s,a){return s+a.m;},0),totalM);
+  var porcobrar=Math.max(0,totalM-totalCob);
+  var pct=totalM>0?Math.round((totalCob/totalM)*100):0;
+  var vCobV=Math.min(ABONOS.reduce(function(s,a){return s+a.v;},0),totalV);
+  var vPorCob=Math.max(0,totalV-vCobV);
+  var ultF=REGS.reduce(function(mx,r){return (r.f&&r.f>mx)?r.f:mx;},'');
+  var saldoTxt=(typeof BNC_SALDO!=='undefined'&&BNC_SALDO>0&&puedeVerSaldo())?('Bs '+Number(BNC_SALDO).toLocaleString('es-VE',{maximumFractionDigits:0})):'—';
+  // Flota
+  var cams=Object.keys(FLOTA),op=0,tal=0,ino=0;
+  var flotaRows=cams.map(function(cam){
+    var est=(FLOTA[cam].estado||'operativo');
+    if(est==='operativo')op++;else if(est==='taller')tal++;else ino++;
+    var km=(KM_DATA[cam]&&KM_DATA[cam].km)?KM_DATA[cam].km.toLocaleString('es-VE'):'--';
+    var col=est==='operativo'?'#4ade80':est==='taller'?'#fbbf24':'#f87171';
+    return '<tr><td style="font-weight:700">'+cam.replace('JAC-','')+'</td><td style="color:'+col+';font-weight:700">'+est.toUpperCase()+'</td><td style="text-align:right;font-family:monospace">'+km+'</td><td style="font-size:8px">'+(FLOTA[cam].chofer||'--')+'</td></tr>';
+  }).join('');
+  // Ranking top 5
+  var chMap={};
+  REGS.forEach(function(r){if(!r.ch)return;if(!chMap[r.ch])chMap[r.ch]={ch:r.ch,cam:r.cam,viajes:0,inc:0};chMap[r.ch].viajes+=r.t;if(r.inc&&String(r.inc).indexOf('neg:')===0)chMap[r.ch].inc++;});
+  var top5=Object.keys(chMap).map(function(k){var c=chMap[k];c.score=(c.viajes*10)-(c.inc*15);return c;}).sort(function(a,b){return b.score-a.score;}).slice(0,5);
+  var medals=['1°','2°','3°','4°','5°'];
+  var rankRows=top5.map(function(c,i){return '<tr><td>'+medals[i]+'</td><td style="font-weight:700">'+c.ch+'</td><td style="text-align:right;color:#16a34a;font-weight:700">'+c.viajes+'v</td></tr>';}).join('')||'<tr><td colspan="3">Sin datos</td></tr>';
+  // Metas (igual que renderMetasDash)
+  var semHoy=getSem(null),meta=(METAS['abr-26-'+semHoy]||{viajesFlota:200});
+  var vMeta=REGS.filter(function(r){return r.sem===semHoy&&r.mes==='abr-26';}).reduce(function(s,r){return s+r.t;},0);
+  var pctMeta=meta.viajesFlota>0?Math.min(100,Math.round((vMeta/meta.viajesFlota)*100)):0;
+  // Vencimientos (<=30 dias)
+  var venc=[];
+  Object.keys(DOCS_CAM).forEach(function(cam){var d=DOCS_CAM[cam];['seguro','circulacion','revision'].forEach(function(t){if(d[t]&&d[t].venc){var dr=diasHasta(d[t].venc);if(dr<=30)venc.push({txt:cam.replace('JAC-','')+' '+t,dias:dr});}});});
+  Object.keys(DOCS_EMP).forEach(function(eid){var d=DOCS_EMP[eid];var emp=EMPLEADOS.find(function(e){return e.id===eid;});if(!emp)return;['cedula','licencia','medico'].forEach(function(t){if(d[t]&&d[t].venc){var dr=diasHasta(d[t].venc);if(dr<=30)venc.push({txt:emp.nombre.split(' ')[0]+' '+t,dias:dr});}});});
+  venc.sort(function(a,b){return a.dias-b.dias;});
+  var vencRows=venc.slice(0,12).map(function(a){return '<tr><td>'+a.txt+'</td><td style="text-align:right;color:'+(a.dias<0?'#f87171':'#fbbf24')+';font-weight:700">'+(a.dias<0?'VENCIDO '+Math.abs(a.dias)+'d':'en '+a.dias+'d')+'</td></tr>';}).join('')||'<tr><td colspan="2" style="color:#4ade80">Todo al día</td></tr>';
+  // Alertas
+  var al=[];
+  Object.keys(FLOTA).filter(function(k){return (FLOTA[k].estado||'operativo')==='operativo';}).forEach(function(cam){var u=REGS.filter(function(r){return r.cam===cam;}).sort(function(a,b){return b.f.localeCompare(a.f);})[0];if(!u||diasDesde(u.f)>=3)al.push('🚛 '+cam.replace('JAC-','')+' — '+(u?diasDesde(u.f):'?')+'+ días sin planilla');});
+  Object.keys(KM_DATA).forEach(function(cam){var d=KM_DATA[cam];if(d&&d.km&&d.ultsrv>0&&(d.km-d.ultsrv)>=(cfg.km||5000))al.push('🔧 '+cam.replace('JAC-','')+' — Servicio '+(cfg.km||5000)+'km vencido');});
+  var alertHtml=al.length?al.map(function(a){return '<div style="padding:3px 0;border-bottom:1px solid #eee">'+a+'</div>';}).join(''):'<div style="color:#16a34a;padding:4px 0">Sin alertas críticas ✓</div>';
+  // Últimas planillas
+  var ult=REGS.slice().reverse().slice(0,10);
+  var ultRows=ult.map(function(r){return '<tr><td style="font-family:monospace">#'+r.p+'</td><td>'+formatFecha(r.f)+'</td><td style="font-weight:700">'+r.cam.replace('JAC-','')+'</td><td style="font-size:8px">'+(r.ch||'--')+'</td><td style="text-align:center">'+r.t+'v</td><td style="text-align:right">'+usd(r.m)+'</td></tr>';}).join('')||'<tr><td colspan="6">Sin planillas</td></tr>';
+  var gen=new Date().toLocaleString('es-VE');
+  var kpi=function(l,v,s,col){return '<div class="kpi"><div class="l">'+l+'</div><div class="v"'+(col?' style="color:'+col+'"':'')+'>'+v+'</div><div class="s">'+(s||'')+'</div></div>';};
+  var css='*{margin:0;padding:0;box-sizing:border-box;font-family:Arial,Helvetica,sans-serif;-webkit-print-color-adjust:exact;print-color-adjust:exact}'+
+    '@page{size:letter;margin:0}html,body{background:#0e1726;color:#d7dde5;font-size:10px}'+
+    '.pg{padding:1.05cm 1.05cm .8cm;min-height:100vh}.pg.page2{page-break-before:always}'+
+    '.hdr{display:flex;justify-content:space-between;align-items:center;border-bottom:3px solid #a3e635;padding-bottom:7px;margin-bottom:9px}'+
+    '.hdr .emp{font-size:15px;font-weight:800;color:#a3e635}.hdr .rif{font-size:8px;color:#8b97a7;margin-top:2px}.hdr .doc{text-align:right;font-size:8px;color:#8b97a7}'+
+    'h2{font-size:10px;color:#a3e635;border-bottom:1px solid #2a3a4a;margin:9px 0 4px;padding-bottom:2px;text-transform:uppercase;letter-spacing:.4px}'+
+    '.kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}.kpi{border:1px solid #2a3a4a;background:#16202e;border-radius:6px;padding:6px 9px}'+
+    '.kpi .l{font-size:8px;color:#8b97a7;text-transform:uppercase}.kpi .v{font-size:17px;font-weight:800;line-height:1.1;color:#eef2f7}.kpi .s{font-size:8px;color:#8b97a7}'+
+    'table{width:100%;border-collapse:collapse;margin-bottom:3px}th{background:#15803d;color:#fff;font-size:8px;padding:3px 6px;text-align:left;text-transform:uppercase}'+
+    'td{padding:3px 6px;border-bottom:1px solid #243140;font-size:9px;color:#cdd5df}.cols{display:grid;grid-template-columns:1fr 1fr;gap:14px}'+
+    '.bar{height:9px;background:#243140;border-radius:5px;overflow:hidden;margin:3px 0}.bar>i{display:block;height:100%;background:#a3e635}'+
+    '.mut{font-size:9px;color:#8b97a7}.ftr{margin-top:10px;border-top:1px solid #2a3a4a;padding-top:5px;font-size:8px;color:#6b7280;text-align:center}';
+  var hdr='<div class="hdr"><div><div class="emp">INVERSIONES BETANGAR C.A.</div><div class="rif">RIF J-29566107-0 · Maracaibo · Contrato Aseo Urbano — Alcaldía de Maracaibo</div></div>'+
+      '<div class="doc">DASHBOARD DE CONTROL<br>'+gen+'<br>Sistema v9.0</div></div>';
+  var html='<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Dashboard Betangar</title><style>'+css+'</style></head><body>'+
+    '<div class="pg">'+hdr+
+    '<div class="kpis">'+
+      kpi('Total Viajes',fmt(totalV),(ultF?'Cargado al '+formatFecha(ultF):''))+
+      kpi('Ejecutado',usd(totalM),'@ $316,88/viaje','#a3e635')+
+      kpi('Cobrado',usd(totalCob),fmt(vCobV)+' viajes · '+pct+'%','#4ade80')+
+      kpi('Por Cobrar',usd(porcobrar),fmt(vPorCob)+' viajes','#f87171')+
+      kpi('Flota',op+' oper · '+tal+' taller'+(ino?' · '+ino+' inop':''),cams.length+' unidades')+
+      kpi('Saldo BNC',saldoTxt,'')+
+    '</div>'+
+    '<h2>Cobranza Alcaldía</h2>'+
+    '<div class="bar"><i style="width:'+pct+'%"></i></div>'+
+    '<div class="mut">Cobrado '+usd(totalCob)+' de '+usd(totalM)+' ('+pct+'%) · Pendiente '+usd(porcobrar)+' = '+fmt(vPorCob)+' viajes</div>'+
+    '<div class="cols">'+
+      '<div><h2>Flota ('+op+' operativos / '+tal+' taller)</h2><table><thead><tr><th>Unidad</th><th>Estado</th><th>KM</th><th>Chofer</th></tr></thead><tbody>'+flotaRows+'</tbody></table></div>'+
+      '<div><h2>Top 5 Choferes</h2><table><thead><tr><th>#</th><th>Chofer</th><th>Viajes</th></tr></thead><tbody>'+rankRows+'</tbody></table>'+
+        '<h2>Meta semana ('+semHoy+')</h2><div class="mut">'+fmt(vMeta)+' / '+fmt(meta.viajesFlota)+' viajes</div><div class="bar"><i style="width:'+pctMeta+'%;background:'+(pctMeta>=80?'#4ade80':pctMeta>=50?'#fbbf24':'#f87171')+'"></i></div><div class="mut">'+pctMeta+'% completado</div>'+
+      '</div>'+
+    '</div></div>'+
+    '<div class="pg page2">'+hdr+'<div class="cols">'+
+      '<div><h2>Vencimientos próximos (≤30 días)</h2><table><thead><tr><th>Documento</th><th>Vence</th></tr></thead><tbody>'+vencRows+'</tbody></table></div>'+
+      '<div><h2>Alertas operativas</h2>'+alertHtml+'</div>'+
+    '</div>'+
+    '<h2>Últimas planillas</h2><table><thead><tr><th>Planilla</th><th>Fecha</th><th>Unidad</th><th>Chofer</th><th>Viajes</th><th>Monto</th></tr></thead><tbody>'+ultRows+'</tbody></table>'+
+    '<div class="ftr">Inversiones Betangar CA · J-29566107-0 · Maracaibo, Edo. Zulia · betangar@gmail.com · Generado '+gen+'</div>'+
+    '</div></body></html>';
+  abrirVentanaImpresion(html);
 }
 
 function renderFlotaDash(){
