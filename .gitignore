@@ -1,0 +1,8 @@
+# ───────────────────────────────────────────────────────────
+# RESPALDOS DE DATOS — NUNCA subir a GitHub.
+# Este repositorio es PÚBLICO. La carpeta respaldos/ contiene
+# datos sensibles (empleados, cédulas, cuentas bancarias, fotos,
+# planillas, abonos). git la ignora para que jamás llegue a internet.
+# ───────────────────────────────────────────────────────────
+respaldos/
+*.csv
