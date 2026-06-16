@@ -203,7 +203,7 @@ tr:hover td{background:rgba(45,255,122,.02)}
 <div class="demo-banner" id="demo-banner">⚠ MODO DEMO — Los cambios no se guardan</div>
 <!-- Sello de versión: sirve para verificar que un dispositivo cargó el código más reciente
      (si el celular muestra un build distinto al del computador, está en caché vieja). -->
-<div id="app-ver" style="position:fixed;bottom:2px;right:5px;font-size:8px;color:rgba(174,212,234,.35);z-index:9998;pointer-events:none;font-family:monospace">v9.0 · build 2026-06-16e</div>
+<div id="app-ver" style="position:fixed;bottom:2px;right:5px;font-size:8px;color:rgba(174,212,234,.35);z-index:9998;pointer-events:none;font-family:monospace">v9.0 · build 2026-06-16f</div>
 
 <div class="login-overlay" id="login-overlay">
   <div class="login-box">
@@ -3989,9 +3989,13 @@ function renderAbonos(){
   if(tb){
     var rows=f.map(function(a){
       acum+=a.m;
+      // Factura manual (talonario SENIAT): el usuario la marca con "M" adelante. La
+      // resaltamos con una etiqueta MANUAL para ubicarla de un vistazo.
+      var esManual=/^M/i.test(String(a.fact||''));
+      var badgeManual=esManual?' <span style="display:inline-block;font-size:8px;font-weight:800;letter-spacing:.5px;color:#f59e0b;background:rgba(245,158,11,.15);border:1px solid rgba(245,158,11,.45);border-radius:5px;padding:1px 5px;vertical-align:middle;font-family:var(--f)">MANUAL</span>':'';
       var tr=document.createElement('tr');
       tr.innerHTML='<td>'+formatFecha(a.f)+'</td>'+
-        '<td style="font-family:var(--m)">'+a.fact+'</td>'+
+        '<td style="font-family:var(--m)">'+a.fact+badgeManual+'</td>'+
         '<td style="color:var(--green)">'+a.v+'</td>'+
         '<td style="font-family:var(--m);font-weight:700;color:var(--green)">$'+a.m.toLocaleString()+'</td>'+
         '<td style="font-family:var(--m);font-size:10px;color:var(--yellow)">Bs '+(a.m*tasaAb).toLocaleString('es-VE',{maximumFractionDigits:0})+'</td>'+
@@ -4055,8 +4059,9 @@ function imprimirAbonos(){
     return String(a.fact)<String(b.fact)?-1:(String(a.fact)>String(b.fact)?1:0);
   });
   var filas=abOrd.map(function(a,i){
+    var manualTag=/^M/i.test(String(a.fact||''))?' <span style="font-size:8px;font-weight:800;color:#b45309;background:#fde68a;border-radius:4px;padding:1px 4px">MANUAL</span>':'';
     return '<tr style="background:'+(i%2===0?'#fff':'#f5f9ff')+'">'+
-      '<td>'+formatFecha(a.f)+'</td><td class="bv"><b>'+a.fact+'</b></td>'+
+      '<td>'+formatFecha(a.f)+'</td><td class="bv"><b>'+a.fact+'</b>'+manualTag+'</td>'+
       '<td style="text-align:center;font-weight:700">'+a.v+'</td>'+
       '<td class="gv">$'+a.m.toLocaleString('es-VE',{minimumFractionDigits:2})+'</td>'+
       '<td class="mono" style="color:#6b7280">Bs '+(a.m*tasa).toLocaleString('es-VE',{maximumFractionDigits:0})+'</td>'+
