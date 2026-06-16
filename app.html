@@ -203,7 +203,7 @@ tr:hover td{background:rgba(45,255,122,.02)}
 <div class="demo-banner" id="demo-banner">⚠ MODO DEMO — Los cambios no se guardan</div>
 <!-- Sello de versión: sirve para verificar que un dispositivo cargó el código más reciente
      (si el celular muestra un build distinto al del computador, está en caché vieja). -->
-<div id="app-ver" style="position:fixed;bottom:2px;right:5px;font-size:8px;color:rgba(174,212,234,.35);z-index:9998;pointer-events:none;font-family:monospace">v9.0 · build 2026-06-16c</div>
+<div id="app-ver" style="position:fixed;bottom:2px;right:5px;font-size:8px;color:rgba(174,212,234,.35);z-index:9998;pointer-events:none;font-family:monospace">v9.0 · build 2026-06-16d</div>
 
 <div class="login-overlay" id="login-overlay">
   <div class="login-box">
@@ -3845,10 +3845,12 @@ function procesarExcelBetangar(wb){
       var viajes=parseInt(viajesV)||0;
       var factura='';
       if(facturaV){
-        try{factura=String(Math.round(parseFloat(facturaV))).padStart(6,'0');}catch(x){factura=String(facturaV);}
+        try{factura=normFact(Math.round(parseFloat(facturaV)));}catch(x){factura=normFact(facturaV);}
       }
       if(!fechaPago||monto<=0||viajes<=0||!factura||factura==='000000')continue;
-      if(ABONOS.some(function(a){return a.fact===factura;}))continue;
+      // dedup por FACTURA (no por fecha): si esa factura ya existe, se salta. Asi el mismo
+      // pago no entra dos veces aunque venga con otra fecha.
+      if(ABONOS.some(function(a){return normFact(a.fact)===factura;}))continue;
       ABONOS.push({f:fechaPago,fact:factura,v:viajes,m:monto,obs:'Importado del Excel',ref:''});
       resultado.abonos++;
     }
@@ -3909,11 +3911,35 @@ function calcMontoAbono(){
   }
 }
 
+// Normaliza el numero de factura para que sea la IDENTIDAD del abono y no haya duplicados
+// por diferencias de formato: si es solo numeros se rellena a 6 digitos con ceros (igual
+// que el import de Excel), asi "12345" y "012345" son la MISMA factura. Lo no numerico se
+// deja tal cual (solo trim).
+function normFact(s){ s=String(s==null?'':s).trim(); return /^\d+$/.test(s)?s.padStart(6,'0'):s; }
+
 async function guardarAbono(){
-  var ab={f:gv('ab-f'),fact:gv('ab-fact'),v:parseInt(gv('ab-v'))||0,m:parseFloat(gv('ab-m'))||0,obs:gv('ab-obs'),ref:gv('ab-ref')};
+  var ab={f:gv('ab-f'),fact:normFact(gv('ab-fact')),v:parseInt(gv('ab-v'))||0,m:parseFloat(gv('ab-m'))||0,obs:gv('ab-obs'),ref:gv('ab-ref')};
   if(!ab.f||!ab.m){alert('Completa fecha y monto');return;}
-  ABONOS.push(ab);
-  await dbIn('abonos',{f:ab.f,fact:ab.fact,v:ab.v,m:ab.m,obs:ab.obs,ref:ab.ref});
+  // La FACTURA es la identidad del abono (NO la fecha). Exigirla evita que el mismo pago
+  // entre dos veces con fechas distintas.
+  if(!ab.fact){alert('Escribe el numero de factura.\n\nLa factura es la que identifica el abono (no la fecha), para que el mismo pago no se duplique.');return;}
+  // Si ya existe esa factura, NO duplicar: ofrecer actualizarla con los datos nuevos,
+  // aunque la fecha registrada sea distinta a la que se introduce ahora.
+  var idx=ABONOS.findIndex(function(a){return String(a.fact)===String(ab.fact);});
+  if(idx>=0){
+    var ex=ABONOS[idx];
+    if(!confirm('Ya existe un abono con la factura '+ab.fact+'\n(monto $'+ex.m+', fecha '+ex.f+').\n\nNO se va a duplicar. ¿Actualizar ese abono con los datos nuevos?')) return;
+    ABONOS[idx]=ab;
+  } else {
+    ABONOS.push(ab);
+  }
+  // upsert por 'fact': si la factura ya estaba, ACTUALIZA; si es nueva, inserta. Nunca duplica.
+  if(DB_READY&&supabase){
+    var rUp=await supabase.from('abonos').upsert({f:ab.f,fact:ab.fact,v:ab.v,m:ab.m,obs:ab.obs,ref:ab.ref},{onConflict:'fact'});
+    if(rUp&&rUp.error&&typeof mostrarToast==='function')mostrarToast('No se pudo guardar abono: '+rUp.error.message,'error');
+  } else {
+    guardarEnCola('abonos',{f:ab.f,fact:ab.fact,v:ab.v,m:ab.m,obs:ab.obs,ref:ab.ref});
+  }
   audit('Abono registrado','$'+ab.m+' Fact:'+ab.fact);
   // Conciliar en BNC automaticamente
   BNC_MOV.push({id:Date.now()+'',fecha:ab.f,monto:ab.m*(TASAS.bcvDolar||cfg.tasa),tipo:'credito',desc:'Pago Alcaldia Fact.'+ab.fact,ref:ab.ref,conciliado:true});
@@ -6243,15 +6269,26 @@ function calcPagoAlc(){
 
 function guardarPagoAlcaldia(){
   var viajes=parseInt(gv('alc-viajes'))||0;if(!viajes){alert('Ingresa los viajes facturados');return;}
+  var factAlc=normFact(gv('alc-fact'));
+  if(!factAlc){alert('Escribe el numero de factura.\n\nLa factura identifica el pago (no la fecha), para que no se duplique.');return;}
   var tasa=parseFloat(gv('alc-tasa'))||cfg.tasa;
   var base=viajes*cfg.tarifa;var iva=base*0.16;var total=base+iva;
   var retIVA=iva*0.75;var retISLR=base*0.02;var retMun=base*0.01;var timbre=base*0.001;
   var fiel=base*0.1;var laboral=parseFloat(gv('alc-laboral'))||0;
   var neto=total-retIVA-retISLR-retMun-timbre-fiel-laboral;
-  var pago={id:'ALC'+Date.now(),fecha:gv('alc-fecha'),fact:gv('alc-fact'),ref:gv('alc-ref'),viajes:viajes,tasa:tasa,base:base,iva:iva,total:total,neto:neto,fiel:fiel,fielDevuelto:false,pct75:false};
+  var pago={id:'ALC'+Date.now(),fecha:gv('alc-fecha'),fact:factAlc,ref:gv('alc-ref'),viajes:viajes,tasa:tasa,base:base,iva:iva,total:total,neto:neto,fiel:fiel,fielDevuelto:false,pct75:false};
   PAGOS_ALC.push(pago);
-  // Agregar como abono
-  ABONOS.push({f:pago.fecha,fact:pago.fact,v:viajes,m:neto,obs:'Pago Alcaldia',ref:pago.ref});
+  // Agregar como abono — identidad por FACTURA: si ya existe esa factura no se duplica,
+  // se actualiza. Además se PERSISTE con upsert (antes solo quedaba local y se perdia).
+  var abAlc={f:pago.fecha,fact:factAlc,v:viajes,m:neto,obs:'Pago Alcaldia',ref:pago.ref};
+  var iAlc=ABONOS.findIndex(function(a){return String(a.fact)===String(factAlc);});
+  if(iAlc>=0){
+    if(!confirm('Ya existe un abono con la factura '+factAlc+'.\n\nNO se va a duplicar. ¿Actualizarlo con este pago?')){PAGOS_ALC.pop();return;}
+    ABONOS[iAlc]=abAlc;
+  } else { ABONOS.push(abAlc); }
+  if(DB_READY&&supabase){
+    supabase.from('abonos').upsert(abAlc,{onConflict:'fact'}).then(function(r){if(r&&r.error&&typeof mostrarToast==='function')mostrarToast('No se pudo guardar abono Alcaldia: '+r.error.message,'error');});
+  } else { guardarEnCola('abonos',abAlc); }
   sendWA('💰 Pago Alcaldia recibido:\nFactura: '+pago.fact+'\nViajes: '+viajes+'\nNeto: $ '+Number(neto||0).toLocaleString('es-VE',{minimumFractionDigits:2,maximumFractionDigits:2})+'\nBs: '+fbn(neto,tasa),['admin']);
   audit('Pago Alcaldia registrado',pago.fact+' $'+neto.toFixed(0));
   ['alc-fact','alc-ref','alc-viajes','alc-tasa'].forEach(function(id){sv(id,'');});g('alc-calculo').style.display='none';
