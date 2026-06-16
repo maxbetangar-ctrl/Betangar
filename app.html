@@ -203,7 +203,7 @@ tr:hover td{background:rgba(45,255,122,.02)}
 <div class="demo-banner" id="demo-banner">⚠ MODO DEMO — Los cambios no se guardan</div>
 <!-- Sello de versión: sirve para verificar que un dispositivo cargó el código más reciente
      (si el celular muestra un build distinto al del computador, está en caché vieja). -->
-<div id="app-ver" style="position:fixed;bottom:2px;right:5px;font-size:8px;color:rgba(174,212,234,.35);z-index:9998;pointer-events:none;font-family:monospace">v9.0 · build 2026-06-16a</div>
+<div id="app-ver" style="position:fixed;bottom:2px;right:5px;font-size:8px;color:rgba(174,212,234,.35);z-index:9998;pointer-events:none;font-family:monospace">v9.0 · build 2026-06-16b</div>
 
 <div class="login-overlay" id="login-overlay">
   <div class="login-box">
@@ -2659,8 +2659,10 @@ async function cargarDatosDB(){
              ay1:r.ay1||'',ay2:r.ay2||'',gasoil:parseFloat(r.gasoil)||0,
              km:parseFloat(r.km)||0,mant:r.mant||''};
     });
-    // ABONOS
-    var a=await supabase.from('abonos').select('*');
+    // ABONOS — ordenar por fecha (y id como desempate) para que SIEMPRE salgan en el mismo
+    // orden. Sin .order() PostgREST devuelve las filas en orden arbitrario que cambia tras
+    // cada edicion/borrado, y eso hacia que aparecieran "en distinto orden cada vez".
+    var a=await supabase.from('abonos').select('*').order('f',{ascending:true}).order('id',{ascending:true});
     if(a.data&&a.data.length)ABONOS=a.data.map(function(x){return{f:x.f,fact:x.fact,v:x.v,m:x.m,obs:x.obs||'',ref:x.ref||''};});
     // EMPLEADOS
     var e=await supabase.from('empleados').select('*');
@@ -3941,6 +3943,13 @@ function renderAbonos(){
   var acum=0;
   var des=gv('ab-filt-des'),hta=gv('ab-filt-hta');
   var f=ABONOS.filter(function(a){if(des&&a.f<des)return false;if(hta&&a.f>hta)return false;return true;});
+  // Orden estable y cronologico: la columna "Acumulado" es una suma corrida y depende del
+  // orden, asi que ordenamos por fecha (y factura como desempate) SIEMPRE, sin importar el
+  // orden en que vino el array. Antes salia distinto en cada entrada al modulo.
+  f.sort(function(a,b){
+    if(a.f!==b.f)return a.f<b.f?-1:1;
+    return String(a.fact)<String(b.fact)?-1:(String(a.fact)>String(b.fact)?1:0);
+  });
   var tb=g('tb-abonos');
   var tasaAb=TASAS.bcvDolar||cfg.tasa;
   if(tb){
@@ -4007,7 +4016,11 @@ function imprimirAbonos(){
   var tasa=TASAS.bcvDolar||cfg.tasa||600;
   var totalM=ABONOS.reduce(function(s,a){return s+a.m;},0);
   var totalV=ABONOS.reduce(function(s,a){return s+a.v;},0);
-  var filas=ABONOS.map(function(a,i){
+  var abOrd=ABONOS.slice().sort(function(a,b){
+    if(a.f!==b.f)return a.f<b.f?-1:1;
+    return String(a.fact)<String(b.fact)?-1:(String(a.fact)>String(b.fact)?1:0);
+  });
+  var filas=abOrd.map(function(a,i){
     return '<tr style="background:'+(i%2===0?'#fff':'#f5f9ff')+'">'+
       '<td>'+formatFecha(a.f)+'</td><td class="bv"><b>'+a.fact+'</b></td>'+
       '<td style="text-align:center;font-weight:700">'+a.v+'</td>'+
