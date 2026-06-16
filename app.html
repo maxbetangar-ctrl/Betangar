@@ -203,7 +203,7 @@ tr:hover td{background:rgba(45,255,122,.02)}
 <div class="demo-banner" id="demo-banner">⚠ MODO DEMO — Los cambios no se guardan</div>
 <!-- Sello de versión: sirve para verificar que un dispositivo cargó el código más reciente
      (si el celular muestra un build distinto al del computador, está en caché vieja). -->
-<div id="app-ver" style="position:fixed;bottom:2px;right:5px;font-size:8px;color:rgba(174,212,234,.35);z-index:9998;pointer-events:none;font-family:monospace">v9.0 · build 2026-06-16l</div>
+<div id="app-ver" style="position:fixed;bottom:2px;right:5px;font-size:8px;color:rgba(174,212,234,.35);z-index:9998;pointer-events:none;font-family:monospace">v9.0 · build 2026-06-16m</div>
 
 <div class="login-overlay" id="login-overlay">
   <div class="login-box">
@@ -7858,6 +7858,10 @@ function checkRecordatorios(){
 // ── Resumen diario consolidado a socios (1 vez al día, ~20:00) ──
 var REC_RESUMEN_HORA='20:00';
 async function checkResumenDiario(){
+  // MOVIDO al servidor (cron alertas-diarias, corrida de la tarde): el resumen del día a
+  // socios ya no depende de la app abierta. No-op en el cliente para no duplicar.
+  return;
+  /* eslint-disable */
   if(!DB_READY||!supabase)return;
   var now=new Date();
   var horaActual=String(now.getHours()).padStart(2,'0')+':'+String(now.getMinutes()).padStart(2,'0');
@@ -7913,6 +7917,12 @@ setInterval(function(){ checkRecordatorios(); checkResumenDiario(); }, 60000);
 // ══════════════════════════════════════════════════════
 var _clResumenEnviado = '';
 function checkResumenChecklist(){
+  // MOVIDO al servidor (cron alertas-diarias, corrida de las 8am): ahora envía a las 8am
+  // SIEMPRE, con los que llenaron y la lista de los que NO llenaron (antes esperaba a que
+  // TODAS las unidades llenaran y, como los carros no operativos no llenan, nunca salía).
+  // No-op en el cliente para no duplicar.
+  return;
+  /* eslint-disable */
   if(!DB_READY||!supabase)return;
   var hoy=new Date().toISOString().slice(0,10);
   // Solo enviar una vez por día
