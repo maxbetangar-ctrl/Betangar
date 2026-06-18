@@ -1013,8 +1013,8 @@ tr:hover td{background:rgba(45,255,122,.02)}
     <div class="card">
       <div class="st" style="margin-bottom:10px">🎯 Configurar Metas</div>
       <div class="fr2">
-        <div class="fg"><label>Mes</label><select class="fc" id="meta-mes"><option value="ene-26">Enero 2026</option><option value="feb-26">Febrero 2026</option><option value="mar-26">Marzo 2026</option><option value="abr-26" selected>Abril 2026</option><option value="may-26">Mayo 2026</option><option value="jun-26">Junio 2026</option><option value="jul-26">Julio 2026</option><option value="ago-26">Agosto 2026</option><option value="sep-26">Septiembre 2026</option><option value="oct-26">Octubre 2026</option><option value="nov-26">Noviembre 2026</option><option value="dic-26">Diciembre 2026</option></select></div>
-        <div class="fg"><label>Semana</label><select class="fc" id="meta-sem"><option>Semana 1</option><option>Semana 2</option><option>Semana 3</option><option>Semana 4</option><option>Semana 5</option></select></div>
+        <div class="fg"><label>Mes</label><select class="fc" id="meta-mes" onchange="prefillMeta()"><option value="ene-26">Enero 2026</option><option value="feb-26">Febrero 2026</option><option value="mar-26">Marzo 2026</option><option value="abr-26" selected>Abril 2026</option><option value="may-26">Mayo 2026</option><option value="jun-26">Junio 2026</option><option value="jul-26">Julio 2026</option><option value="ago-26">Agosto 2026</option><option value="sep-26">Septiembre 2026</option><option value="oct-26">Octubre 2026</option><option value="nov-26">Noviembre 2026</option><option value="dic-26">Diciembre 2026</option></select></div>
+        <div class="fg"><label>Semana</label><select class="fc" id="meta-sem" onchange="prefillMeta()"><option>Semana 1</option><option>Semana 2</option><option>Semana 3</option><option>Semana 4</option><option>Semana 5</option></select></div>
       </div>
       <div class="fg"><label>Meta de viajes por camion (semanal)</label><input type="number" class="fc" id="meta-x-cam" placeholder="20" style="font-family:var(--m)"></div>
       <div class="fg"><label>Meta total de la flota</label><input type="number" class="fc" id="meta-flota" placeholder="200" style="font-family:var(--m)"></div>
@@ -1317,6 +1317,7 @@ tr:hover td{background:rgba(45,255,122,.02)}
       <div class="fr2"><div class="fg"><label>Fecha</label><input class="fc" id="gc-f" type="date"></div></div>
       <button class="btn btn-g btn-sm" style="width:100%;margin-bottom:8px" onclick="guardarGasoil()">Registrar Despacho</button>
       <div class="fr2" style="margin-bottom:8px"><div class="fg" style="margin-bottom:0"><label>Filtrar camion</label><select class="fc" id="gc-filtro-cam" onchange="renderGasoil()" style="font-size:11px;padding:5px 8px"><option value="">Todos</option></select></div><div class="fg" style="margin-bottom:0"><label>Filtrar fecha</label><input class="fc" id="gc-filtro-fecha" type="date" onchange="renderGasoil()" style="font-size:11px;padding:5px 8px"></div></div>
+      <div style="text-align:right;margin-bottom:4px"><button class="btn btn-s btn-xs" onclick="document.getElementById('gc-filtro-cam').value='';document.getElementById('gc-filtro-fecha').value='';renderGasoil()">Limpiar filtros</button></div>
       <div class="tw" style="max-height:160px;overflow-y:auto"><table><thead><tr><th>Fecha</th><th>Camion</th><th>L</th><th>Fuente</th><th>$</th><th></th></tr></thead><tbody id="tb-gasoil"></tbody></table></div>
     </div>
     <div class="card">
@@ -1359,21 +1360,21 @@ tr:hover td{background:rgba(45,255,122,.02)}
       </div>
       <div class="card"><div class="sh"><div class="st">Alertas Servicio</div></div><div id="alertas-km"></div></div>
     </div>
-    <div class="tw"><table><thead><tr><th>Camion</th><th>Chofer</th><th>Km Actual</th><th>Ult. Serv.</th><th>Proximo</th><th>Restante</th><th>Estado</th><th>Nota</th></tr></thead><tbody id="tb-km"></tbody></table></div>
+    <div class="tw"><table><thead><tr><th>Camion</th><th>Chofer</th><th>Km Actual</th><th>Ult. Serv.</th><th>Proximo</th><th>Restante</th><th>Estado</th><th>Nota</th><th></th></tr></thead><tbody id="tb-km"></tbody></table></div>
   </div>
   <div id="tab-km-lav" style="display:none">
     <div class="g2" style="margin-bottom:10px">
       <div class="card"><div class="st" style="margin-bottom:8px">Registrar Lavado</div><div class="fr3"><div class="fg"><label>Camion</label><select class="fc" id="lav-cam"><option value="">-</option></select></div><div class="fg"><label>Fecha</label><input class="fc" id="lav-f" type="date"></div><div class="fg"><label>Obs</label><input class="fc" id="lav-obs" placeholder="Lavado completo..."></div></div><button class="btn btn-g btn-sm" style="width:100%" onclick="guardarLavado()">Registrar</button></div>
       <div class="card"><div class="st" style="margin-bottom:8px">Estado (ciclo 45 dias)</div><div id="estado-lavados"></div></div>
     </div>
-    <div class="tw"><table><thead><tr><th>Camion</th><th>Ult. Lavado</th><th>Dias</th><th>Proximo</th><th>Estado</th></tr></thead><tbody id="tb-lavados"></tbody></table></div>
+    <div class="tw"><table><thead><tr><th>Camion</th><th>Ult. Lavado</th><th>Dias</th><th>Proximo</th><th>Estado</th><th></th></tr></thead><tbody id="tb-lavados"></tbody></table></div>
   </div>
   <div id="tab-km-eng" style="display:none">
     <div class="g2" style="margin-bottom:10px">
       <div class="card"><div class="st" style="margin-bottom:8px">Registrar Engrase</div><div class="fr3"><div class="fg"><label>Camion</label><select class="fc" id="eng-cam"><option value="">-</option></select></div><div class="fg"><label>Fecha</label><input class="fc" id="eng-f" type="date"></div><div class="fg"><label>Obs</label><input class="fc" id="eng-obs" placeholder="Engrase general..."></div></div><button class="btn btn-g btn-sm" style="width:100%" onclick="guardarEngrase()">Registrar</button></div>
       <div class="card"><div class="st" style="margin-bottom:8px">Estado (ciclo 15 dias)</div><div id="estado-engrases"></div></div>
     </div>
-    <div class="tw"><table><thead><tr><th>Camion</th><th>Ult. Engrase</th><th>Dias</th><th>Proximo</th><th>Estado</th></tr></thead><tbody id="tb-engrases"></tbody></table></div>
+    <div class="tw"><table><thead><tr><th>Camion</th><th>Ult. Engrase</th><th>Dias</th><th>Proximo</th><th>Estado</th><th></th></tr></thead><tbody id="tb-engrases"></tbody></table></div>
   </div>
   <div id="tab-km-prog" style="display:none"><div class="card" style="margin-bottom:12px"><div class="sh" style="display:flex;justify-content:space-between;align-items:center"><div class="st">Intervalos de Mantenimiento</div><button onclick="agregarMantProg()" class="btn btn-g btn-sm">+ Agregar tipo</button></div><div id="tb-mant-prog-config" style="margin-top:8px"></div></div><div class="card"><div class="sh"><div class="st">Estado por Camion</div></div><div id="tb-mant-prog-estado" style="overflow-x:auto;margin-top:8px"></div></div></div>
 <div id="tab-km-hist" style="display:none">
@@ -1399,7 +1400,7 @@ tr:hover td{background:rgba(45,255,122,.02)}
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px">
     <div class="st" style="font-size:16px">🏆 Ranking de Choferes</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
-      <select class="fc" id="rank-mes" style="padding:6px 10px;font-size:11px" onchange="calcRanking()"><option value="">Todos</option><option value="mar-26">Marzo</option><option value="abr-26">Abril</option></select>
+      <select class="fc" id="rank-mes" style="padding:6px 10px;font-size:11px" onchange="calcRanking()"><option value="">Todos</option><option value="ene-26">Enero</option><option value="feb-26">Febrero</option><option value="mar-26">Marzo</option><option value="abr-26">Abril</option><option value="may-26">Mayo</option><option value="jun-26">Junio</option><option value="jul-26">Julio</option><option value="ago-26">Agosto</option><option value="sep-26">Septiembre</option><option value="oct-26">Octubre</option><option value="nov-26">Noviembre</option><option value="dic-26">Diciembre</option></select>
       <select class="fc" id="rank-sem" style="padding:6px 10px;font-size:11px" onchange="calcRanking()"><option value="">Todas</option><option>Semana 1</option><option>Semana 2</option><option>Semana 3</option><option>Semana 4</option><option>Semana 5</option></select>
       <button class="btn btn-g btn-sm" onclick="imprimirRanking()">Imprimir</button>
       <button class="btn btn-s btn-sm" onclick="emailRanking()">✉ Correo</button>
@@ -2505,7 +2506,7 @@ function sp(id){
     if(id==='multas'){poblarCams();renderMultas();}
     if(id==='inventario')renderInventario();
     if(id==='llantas')renderLlantas();
-    if(id==='metas'){renderMetas();renderSemaforo();}
+    if(id==='metas'){prefillMeta();}
     if(id==='contratos')renderContratosLista();
     if(id==='config'){renderFlotaCfgLista();renderNomAdm();renderWANums();renderWAEmpresarial();renderRecordatorios();renderCfgCorrelativo();}
     if(id==='cxp'){cargarCxP();}
@@ -4663,6 +4664,30 @@ function imprimirCombustible(){
 // ═══════════════════════════════════════════════════
 function switchKmTab(t){['odo','lav','eng','prog','hist'].forEach(function(x){var el=g('tab-km-'+x);var sw=g('sw-km-'+x);if(el)el.style.display=x===t?'block':'none';if(sw){sw.classList.remove('on');if(x===t)sw.classList.add('on');}});if(t==='odo')renderKm();if(t==='lav')renderLavados();if(t==='eng')renderEngrases();if(t==='prog')renderMantProg();if(t==='hist')renderHistMant();}
 
+async function borrarOdo(cam){
+  if(!KM_DATA[cam])return;
+  if(!confirm('¿Borrar el odometro registrado de '+cam+'? Se reinicia a sin datos.'))return;
+  KM_DATA[cam].km=0;KM_DATA[cam].ultsrv=0;KM_DATA[cam].f='';
+  if(DB_READY&&supabase){try{var _r=await supabase.from('km_data').update({km:0,ultsrv:0,f:null}).eq('cam',cam);
+    if(_r.error&&typeof mostrarToast==='function')mostrarToast('No se pudo borrar: '+_r.error.message,'error');}catch(e){}}
+  audit('Odometro borrado',cam);renderKm();
+}
+async function borrarLavado(cam){
+  if(!KM_DATA[cam])return;
+  if(!confirm('¿Borrar el ultimo lavado registrado de '+cam+'?'))return;
+  KM_DATA[cam].lavado='';
+  if(DB_READY&&supabase){try{var _r=await supabase.from('km_data').update({lavado:null}).eq('cam',cam);
+    if(_r.error&&typeof mostrarToast==='function')mostrarToast('No se pudo borrar: '+_r.error.message,'error');}catch(e){}}
+  audit('Lavado borrado',cam);renderLavados();
+}
+async function borrarEngrase(cam){
+  if(!KM_DATA[cam])return;
+  if(!confirm('¿Borrar el ultimo engrase registrado de '+cam+'?'))return;
+  KM_DATA[cam].engrase='';
+  if(DB_READY&&supabase){try{var _r=await supabase.from('km_data').update({engrase:null}).eq('cam',cam);
+    if(_r.error&&typeof mostrarToast==='function')mostrarToast('No se pudo borrar: '+_r.error.message,'error');}catch(e){}}
+  audit('Engrase borrado',cam);renderEngrases();
+}
 function renderKm(){
   var alertas=[];var rows=[];
   var cams=Object.keys(FLOTA).filter(function(k){return k.startsWith('JAC-B');});
@@ -4674,7 +4699,7 @@ function renderKm(){
     if(d.km>=proximo){est='VENCIDO';estClass='br';}
     else if(restante<=500){est='PROXIMO';estClass='by';alertas.push('⚠ '+cam+': km en '+restante+'km');}
     else{est='OK';estClass='bg';}
-    rows.push('<tr><td style="font-weight:700">'+cam+'</td><td style="font-size:11px">'+FLOTA[cam].chofer+'</td><td style="font-family:var(--m);color:var(--teal)">'+(d.km?d.km.toLocaleString():'--')+'</td><td style="font-family:var(--m)">'+(d.ultsrv?d.ultsrv.toLocaleString():'--')+'</td><td style="font-family:var(--m)">'+proximo.toLocaleString()+'</td><td style="font-family:var(--m);color:'+(restante<500?'var(--red)':'var(--text)')+'">'+restante.toLocaleString()+'</td><td><span class="badge '+estClass+'">'+est+'</span></td><td style="font-size:10px;color:var(--text3)">'+(d.nota||'')+'</td></tr>');
+    rows.push('<tr><td style="font-weight:700">'+cam+'</td><td style="font-size:11px">'+FLOTA[cam].chofer+'</td><td style="font-family:var(--m);color:var(--teal)">'+(d.km?d.km.toLocaleString():'--')+'</td><td style="font-family:var(--m)">'+(d.ultsrv?d.ultsrv.toLocaleString():'--')+'</td><td style="font-family:var(--m)">'+proximo.toLocaleString()+'</td><td style="font-family:var(--m);color:'+(restante<500?'var(--red)':'var(--text)')+'">'+restante.toLocaleString()+'</td><td><span class="badge '+estClass+'">'+est+'</span></td><td style="font-size:10px;color:var(--text3)">'+(d.nota||'')+'</td><td>'+((d.km||d.ultsrv)?'<button onclick="borrarOdo(\''+cam+'\')" class="btn btn-xs" style="background:var(--red);color:#fff">🗑</button>':'')+'</td></tr>');
   });
   var tb=g('tb-km');if(tb)tb.innerHTML=rows.join('');
   var al=g('alertas-km');if(al)al.innerHTML=alertas.map(function(a){return'<div class="alert-w" style="margin-bottom:4px">'+a+'</div>';}).join('')||'<div style="color:var(--green);font-size:12px;padding:8px">✓ Todo al dia</div>';
@@ -4717,7 +4742,7 @@ function renderLavados(){
     else if(dias>45){est='VENCIDO '+dias+'d';c='br';alertas.push('🧼 '+cam+': lavado vencido ('+dias+' dias)');}
     else if(dias>35){est='PROXIMO';c='by';}
     else{est='OK';c='bg';}
-    rows.push('<tr><td style="font-weight:700">'+cam+'</td><td>'+(ul||'--')+'</td><td style="font-family:var(--m);color:'+(dias>45?'var(--red)':dias>35?'var(--yellow)':'var(--text)')+'">'+dias+'</td><td>'+prox+'</td><td><span class="badge '+c+'">'+est+'</span></td></tr>');
+    rows.push('<tr><td style="font-weight:700">'+cam+'</td><td>'+(ul||'--')+'</td><td style="font-family:var(--m);color:'+(dias>45?'var(--red)':dias>35?'var(--yellow)':'var(--text)')+'">'+dias+'</td><td>'+prox+'</td><td><span class="badge '+c+'">'+est+'</span></td><td>'+(ul?'<button onclick="borrarLavado(\''+cam+'\')" class="btn btn-xs" style="background:var(--red);color:#fff">🗑</button>':'')+'</td></tr>');
   });
   var tb=g('tb-lavados');if(tb)tb.innerHTML=rows.join('');
   var est=g('estado-lavados');if(est)est.innerHTML=alertas.map(function(a){return'<div class="alert-r" style="margin-bottom:4px">'+a+'</div>';}).join('')||'<div style="color:var(--green);font-size:12px;padding:8px">✓ Todo al dia</div>';
@@ -4749,7 +4774,7 @@ async function guardarLavado(){
   renderLavados();
   if(typeof mostrarToast==='function')mostrarToast(_ok?('✅ Lavado registrado: '+cam):'⚠️ Lavado guardado solo localmente','exito');
 }
-function renderEngrases(){var rows=[];Object.keys(FLOTA).filter(function(k){return k.startsWith('JAC-B');}).forEach(function(cam){var d=KM_DATA[cam];var ul=d?d.engrase:'';var dias=ul?diasDesde(ul):0;var prox=ul?addDays(ul,15):'--';var est,c;if(!ul){est='Sin datos';c='bt';}else if(dias>15){est='VENCIDO '+dias+'d';c='br';}else if(dias>10){est='PROXIMO';c='by';}else{est='OK';c='bg';}rows.push('<tr><td style="font-weight:700">'+cam+'</td><td>'+(ul||'--')+'</td><td style="font-family:var(--m);color:'+(dias>15?'var(--red)':'var(--text)')+'">'+dias+'</td><td>'+prox+'</td><td><span class="badge '+c+'">'+est+'</span></td></tr>');});var tb=g('tb-engrases');if(tb)tb.innerHTML=rows.join('');}
+function renderEngrases(){var rows=[];Object.keys(FLOTA).filter(function(k){return k.startsWith('JAC-B');}).forEach(function(cam){var d=KM_DATA[cam];var ul=d?d.engrase:'';var dias=ul?diasDesde(ul):0;var prox=ul?addDays(ul,15):'--';var est,c;if(!ul){est='Sin datos';c='bt';}else if(dias>15){est='VENCIDO '+dias+'d';c='br';}else if(dias>10){est='PROXIMO';c='by';}else{est='OK';c='bg';}rows.push('<tr><td style="font-weight:700">'+cam+'</td><td>'+(ul||'--')+'</td><td style="font-family:var(--m);color:'+(dias>15?'var(--red)':'var(--text)')+'">'+dias+'</td><td>'+prox+'</td><td><span class="badge '+c+'">'+est+'</span></td><td>'+(ul?'<button onclick="borrarEngrase(\''+cam+'\')" class="btn btn-xs" style="background:var(--red);color:#fff">🗑</button>':'')+'</td></tr>');});var tb=g('tb-engrases');if(tb)tb.innerHTML=rows.join('');}
 async function guardarEngrase(){
   var cam=gv('eng-cam'),f=gv('eng-f');
   if(!cam){alert('Selecciona camion');return;}
@@ -5704,6 +5729,20 @@ async function registrarUsoInv(){
   renderInventario();
 }
 
+async function eliminarItemInv(id){
+  var item=INVENTARIO.find(function(x){return x.id===id;});if(!item)return;
+  if(!confirm('¿Eliminar "'+item.nombre+'" del inventario? Esta accion no se puede deshacer.'))return;
+  INVENTARIO=INVENTARIO.filter(function(x){return x.id!==id;});
+  if(DB_READY&&supabase){
+    try{var _rd=await supabase.from('inventario').delete().eq('id',id);
+      if(_rd.error&&typeof mostrarToast==='function')mostrarToast('No se pudo eliminar: '+_rd.error.message,'error');
+    }catch(e){if(typeof mostrarToast==='function')mostrarToast('Sin conexion al eliminar el item.','error');}
+  }
+  try{localStorage.setItem('btg_inventario',JSON.stringify(INVENTARIO));}catch(e){}
+  audit('Item inventario eliminado',item.nombre);
+  var sel=g('inv-uso-item');if(sel){for(var i=sel.options.length-1;i>=0;i--){if(sel.options[i].value===id)sel.remove(i);}}
+  renderInventario();
+}
 function renderInventario(){
   var totItems=INVENTARIO.length;
   var criticos=INVENTARIO.filter(function(x){return x.stock===0;}).length;
@@ -5726,6 +5765,7 @@ function renderInventario(){
       '<div style="display:flex;gap:4px;margin-top:8px">'+
         '<button onclick="INV_MOV.push({fecha:new Date().toISOString().split(\'T\')[0],item:\''+item.nombre+'\',tipo:\'Entrada\',cantidad:1,cam:\'\',motivo:\'Manual\',stockResult:++INVENTARIO.find(function(x){return x.id===\''+item.id+'\';}).stock});renderInventario();" class="btn btn-g btn-xs">+1</button>'+
         '<button onclick="switchInvTab(\'usar\')" class="btn btn-s btn-xs">Usar</button>'+
+        '<button onclick="eliminarItemInv(\''+item.id+'\')" class="btn btn-xs" style="background:var(--red);color:#fff;margin-left:auto">🗑</button>'+
       '</div>'+
     '</div>';
   }).join(''):'<div style="color:var(--text3);font-size:12px;padding:20px">Sin items en inventario. Agrega repuestos desde la tab "+ Agregar".</div>';
@@ -5818,6 +5858,15 @@ function guardarMeta(){
   });
 }
 
+// Rellena los campos con la meta guardada del mes/semana elegido y refresca vistas.
+function prefillMeta(){
+  var mes=gv('meta-mes'),sem=gv('meta-sem');
+  var m=METAS[mes+'-'+sem];
+  var c=g('meta-x-cam'),f=g('meta-flota');
+  if(c)c.value=(m&&m.viajesCam!=null)?m.viajesCam:'';
+  if(f)f.value=(m&&m.viajesFlota!=null)?m.viajesFlota:'';
+  renderMetas();renderSemaforo();
+}
 function renderMetas(){
   var mes=gv('meta-mes')||'abr-26',sem=gv('meta-sem')||'Semana 1';
   var key=mes+'-'+sem;
