@@ -4742,7 +4742,7 @@ function renderLavados(){
     else if(dias>45){est='VENCIDO '+dias+'d';c='br';alertas.push('🧼 '+cam+': lavado vencido ('+dias+' dias)');}
     else if(dias>35){est='PROXIMO';c='by';}
     else{est='OK';c='bg';}
-    rows.push('<tr><td style="font-weight:700">'+cam+'</td><td>'+(ul||'--')+'</td><td style="font-family:var(--m);color:'+(dias>45?'var(--red)':dias>35?'var(--yellow)':'var(--text)')+'">'+dias+'</td><td>'+prox+'</td><td><span class="badge '+c+'">'+est+'</span></td><td>'+(ul?'<button onclick="borrarLavado(\''+cam+'\')" class="btn btn-xs" style="background:var(--red);color:#fff">🗑</button>':'')+'</td></tr>');
+    rows.push('<tr><td style="font-weight:700">'+cam+'</td><td>'+(ul?formatFecha(ul):'--')+'</td><td style="font-family:var(--m);color:'+(dias>45?'var(--red)':dias>35?'var(--yellow)':'var(--text)')+'">'+dias+'</td><td>'+(ul?formatFecha(prox):'--')+'</td><td><span class="badge '+c+'">'+est+'</span></td><td>'+(ul?'<button onclick="borrarLavado(\''+cam+'\')" class="btn btn-xs" style="background:var(--red);color:#fff">🗑</button>':'')+'</td></tr>');
   });
   var tb=g('tb-lavados');if(tb)tb.innerHTML=rows.join('');
   var est=g('estado-lavados');if(est)est.innerHTML=alertas.map(function(a){return'<div class="alert-r" style="margin-bottom:4px">'+a+'</div>';}).join('')||'<div style="color:var(--green);font-size:12px;padding:8px">✓ Todo al dia</div>';
@@ -4774,7 +4774,7 @@ async function guardarLavado(){
   renderLavados();
   if(typeof mostrarToast==='function')mostrarToast(_ok?('✅ Lavado registrado: '+cam):'⚠️ Lavado guardado solo localmente','exito');
 }
-function renderEngrases(){var rows=[];Object.keys(FLOTA).filter(function(k){return k.startsWith('JAC-B');}).forEach(function(cam){var d=KM_DATA[cam];var ul=d?d.engrase:'';var dias=ul?diasDesde(ul):0;var prox=ul?addDays(ul,15):'--';var est,c;if(!ul){est='Sin datos';c='bt';}else if(dias>15){est='VENCIDO '+dias+'d';c='br';}else if(dias>10){est='PROXIMO';c='by';}else{est='OK';c='bg';}rows.push('<tr><td style="font-weight:700">'+cam+'</td><td>'+(ul||'--')+'</td><td style="font-family:var(--m);color:'+(dias>15?'var(--red)':'var(--text)')+'">'+dias+'</td><td>'+prox+'</td><td><span class="badge '+c+'">'+est+'</span></td><td>'+(ul?'<button onclick="borrarEngrase(\''+cam+'\')" class="btn btn-xs" style="background:var(--red);color:#fff">🗑</button>':'')+'</td></tr>');});var tb=g('tb-engrases');if(tb)tb.innerHTML=rows.join('');}
+function renderEngrases(){var rows=[];Object.keys(FLOTA).filter(function(k){return k.startsWith('JAC-B');}).forEach(function(cam){var d=KM_DATA[cam];var ul=d?d.engrase:'';var dias=ul?diasDesde(ul):0;var prox=ul?addDays(ul,15):'--';var est,c;if(!ul){est='Sin datos';c='bt';}else if(dias>15){est='VENCIDO '+dias+'d';c='br';}else if(dias>10){est='PROXIMO';c='by';}else{est='OK';c='bg';}rows.push('<tr><td style="font-weight:700">'+cam+'</td><td>'+(ul?formatFecha(ul):'--')+'</td><td style="font-family:var(--m);color:'+(dias>15?'var(--red)':'var(--text)')+'">'+dias+'</td><td>'+(ul?formatFecha(prox):'--')+'</td><td><span class="badge '+c+'">'+est+'</span></td><td>'+(ul?'<button onclick="borrarEngrase(\''+cam+'\')" class="btn btn-xs" style="background:var(--red);color:#fff">🗑</button>':'')+'</td></tr>');});var tb=g('tb-engrases');if(tb)tb.innerHTML=rows.join('');}
 async function guardarEngrase(){
   var cam=gv('eng-cam'),f=gv('eng-f');
   if(!cam){alert('Selecciona camion');return;}
