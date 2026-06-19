@@ -326,6 +326,7 @@ tr:hover td{background:rgba(45,255,122,.02)}
       <div style="font-size:9px;color:var(--text3)" id="wf-semana-rango"></div>
     </div>
   </div>
+  <div id="wf-semana-dias" style="margin-bottom:10px"></div>
   <div id="wf-grid-camiones" style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:10px">
     <div style="color:var(--text3);font-size:11px;grid-column:1/-1;padding:6px">Cargando...</div>
   </div>
@@ -1366,7 +1367,8 @@ tr:hover td{background:rgba(45,255,122,.02)}
       <div class="stat y"><div class="stat-lbl">KM Flota Hoy</div><div class="stat-val" style="font-size:18px;color:var(--yellow)" id="cc-kpi-km">-</div><div class="stat-sub">recorridos</div></div>
     </div>
     <div class="card" style="margin-bottom:10px">
-      <div class="sh"><div class="st">🚛 Estado de la flota hoy</div></div>
+      <div class="sh"><div class="st">🚛 Flota — vista en tiempo real (choferes)</div></div>
+      <div style="font-size:11px;color:var(--text3);margin-bottom:6px">Estimación del día según lo que reportan los choferes. Lo operativo real (combustible, nómina, alcaldía) sale de las planillas.</div>
       <div id="cc-flota-hoy"><div style="color:var(--text3);text-align:center;padding:10px">Cargando...</div></div>
     </div>
     <div class="card" style="margin-bottom:10px">
@@ -1424,10 +1426,11 @@ tr:hover td{background:rgba(45,255,122,.02)}
           <input class="fc" id="cc-cam-fecha" type="date" onchange="renderCCPorCamion()" style="width:auto;font-size:11px;padding:5px 8px">
         </div>
       </div>
-      <div class="tw" style="overflow-x:auto"><table><thead><tr><th>Camión</th><th>Litros recibidos</th><th>Viajes</th><th>KM hoy</th><th>Esperado (L)</th><th>Real (L)</th><th>Desv.</th><th>Estado</th></tr></thead><tbody id="cc-tb-cam"></tbody></table></div>
+      <div style="font-size:11px;color:var(--text3);margin-bottom:8px">Viajes y consumo según <b style="color:var(--green2)">PLANILLAS</b> (fuente real). KM del día es informativo (del checklist).</div>
+      <div class="tw" style="overflow-x:auto"><table><thead><tr><th>Camión</th><th>Litros recibidos</th><th>Viajes (planilla)</th><th>KM (info)</th><th>Esperado (L)</th><th>Real (L)</th><th>Desv.</th><th>Estado</th></tr></thead><tbody id="cc-tb-cam"></tbody></table></div>
     </div>
     <div class="card">
-      <div class="sh"><div class="st">📅 Historial semanal — por camión</div></div>
+      <div class="sh"><div class="st">📅 Historial semanal — por camión (planillas)</div></div>
       <div class="fg" style="margin-bottom:8px"><label>Camión</label><select class="fc" id="cc-cam-hist-sel" onchange="renderCCHistCamion()"></select></div>
       <div id="cc-cam-hist"></div>
     </div>
@@ -11575,12 +11578,27 @@ function renderWidgetFlota(){
   var cams=Object.keys(FLOTA_MAP_WF);
   Promise.all([
     supabase.from('viajes_chofer').select('cam,viaje_num').eq('fecha',hoy),
-    supabase.from('viajes_chofer').select('cam,viaje_num').gte('fecha',lunes).lte('fecha',hoy),
+    supabase.from('viajes_chofer').select('cam,viaje_num,fecha').gte('fecha',lunes).lte('fecha',hoy),
     supabase.from('checklist').select('cam,estado_vehiculo').eq('fecha',hoy)
   ]).then(function(res){
     var ph={},ps={};cams.forEach(function(c){ph[c]=0;ps[c]=0;});
     if(!res[0].error&&res[0].data)res[0].data.forEach(function(v){if(ph[v.cam]!==undefined)ph[v.cam]++;});
-    if(!res[1].error&&res[1].data)res[1].data.forEach(function(v){if(ps[v.cam]!==undefined)ps[v.cam]++;});
+    var porDia={};
+    if(!res[1].error&&res[1].data)res[1].data.forEach(function(v){if(ps[v.cam]!==undefined)ps[v.cam]++;porDia[v.fecha]=(porDia[v.fecha]||0)+1;});
+    // Desglose semanal por día (lunes a sábado, la operación es L-S) — vista en vivo choferes
+    var nomDias=['Lun','Mar','Mié','Jue','Vie','Sáb'];
+    var celdas='';
+    for(var di=0;di<6;di++){
+      var dfecha=new Date(ld);dfecha.setDate(ld.getDate()+di);var ds=dfecha.toISOString().slice(0,10);
+      var nv=porDia[ds]||0; var esHoy=(ds===hoy);
+      celdas+='<div style="flex:1;text-align:center;padding:4px 2px;border-radius:6px;'+(esHoy?'background:rgba(125,201,65,.12);border:1px solid rgba(125,201,65,.35)':'background:var(--bg3)')+'">'+
+        '<div style="font-size:9px;color:var(--text3)">'+nomDias[di]+'</div>'+
+        '<div style="font-size:16px;font-weight:800;font-family:var(--m);color:'+(nv>0?'#7dc941':'var(--text3)')+'">'+nv+'</div></div>';
+    }
+    var wsd=document.getElementById('wf-semana-dias');
+    var totSemDias=Object.keys(porDia).reduce(function(s,k){return s+porDia[k];},0);
+    if(wsd)wsd.innerHTML='<div style="font-size:10px;color:var(--text3);margin-bottom:4px;text-transform:uppercase;letter-spacing:1px">Registro de la semana (choferes) — total <b style="color:#3b8fd4">'+totSemDias+'</b> viajes</div>'+
+      '<div style="display:flex;gap:4px">'+celdas+'</div>';
     // Checklists completados hoy por camión
     var ckSet={};
     if(!res[2].error&&res[2].data)res[2].data.forEach(function(c){if(ckSet[c.cam]===undefined)ckSet[c.cam]=c.estado_vehiculo||'operativo';});
@@ -12059,6 +12077,29 @@ function kmRecorridoCamFecha(cam,fecha){
 }
 function camTieneChecklistHoy(cam){return !!checklistCamFecha(cam,ccHoy());}
 
+// ---- Viajes OPERATIVOS desde PLANILLAS (REGS) = fuente de verdad ----
+// Regla del negocio: viajes_chofer es SOLO vista en tiempo real (estimación). Para
+// combustible, nómina, alcaldía y cualquier cálculo real se usan las PLANILLAS.
+// Cada planilla es una fila cam+fecha con t = total de viajes de ese camión ese día.
+function viajesPlanillaMapaFecha(fecha){
+  var map={};
+  (typeof REGS!=='undefined'?REGS:[]).forEach(function(r){if(r.f===fecha)map[r.cam]=(map[r.cam]||0)+(parseInt(r.t)||0);});
+  return map;
+}
+function viajesPlanillaCamFecha(cam,fecha){
+  var n=0;(typeof REGS!=='undefined'?REGS:[]).forEach(function(r){if(r.cam===cam&&r.f===fecha)n+=(parseInt(r.t)||0);});
+  return n;
+}
+function viajesPlanillaCamRango(cam,f1,f2){
+  var n=0;(typeof REGS!=='undefined'?REGS:[]).forEach(function(r){if(r.cam===cam&&r.f>=f1&&r.f<=f2)n+=(parseInt(r.t)||0);});
+  return n;
+}
+// Última fecha con planillas (para mostrar datos útiles cuando "hoy" aún no se cargó)
+function ultimaFechaPlanilla(){
+  var mx=''; (typeof REGS!=='undefined'?REGS:[]).forEach(function(r){if(r.f&&r.f>mx)mx=r.f;});
+  return mx||ccHoy();
+}
+
 async function cargarCombustibleData(){
   if(!DB_READY||!supabase)return;
   try{
@@ -12307,20 +12348,23 @@ async function renderCCDashboard(){
   // KPI alertas
   var activas=COMB_ALERTAS.filter(function(a){return !a.revisada;}).length;
   g('cc-kpi-alertas')&&(g('cc-kpi-alertas').textContent=activas);
-  // KPI eficiencia (necesita viajes de hoy)
-  var viajes=await ccViajesPorCam(hoy);
+  // KPI eficiencia — OPERATIVA: viajes de PLANILLAS del último día cerrado (no chofer)
+  var fop=ultimaFechaPlanilla();
+  var viajesOp=viajesPlanillaMapaFecha(fop);
   var scores=[];
   ccVehiculosActivos().forEach(function(v){
-    var vi=viajes[v.id]||0; if(!vi)return;
+    var vi=viajesOp[v.id]||0; if(!vi)return;
     var esperado=vi*(parseFloat(v.consumo_estimado_por_viaje)||22.5);
-    var real=ccLitrosCamFecha(v.id,hoy); if(real<=0)return;
+    var real=ccLitrosCamFecha(v.id,fop); if(real<=0)return;
     var desv=Math.abs((real-esperado)/esperado*100);
     scores.push(Math.max(0,100-desv));
   });
   var efi=scores.length?Math.round(scores.reduce(function(a,b){return a+b;},0)/scores.length):null;
   g('cc-kpi-efi')&&(g('cc-kpi-efi').textContent=efi==null?'—':efi+'%');
-  // KPIs de interconexión flota (capa compartida)
-  renderCCFlotaHoy(viajes);
+  var efiSub=g('cc-kpi-efi'); if(efiSub&&efiSub.parentNode){var s=efiSub.parentNode.querySelector('.stat-sub');if(s)s.textContent='planilla '+fmtFechaCorta(fop);}
+  // Tira de flota "en vivo" (chofer) — solo vistazo del día
+  var viajesChofer=await ccViajesPorCam(hoy);
+  renderCCFlotaHoy(viajesChofer);
   // Lista de alertas
   renderCCAlertasLista();
   // Chart 7 días
@@ -12382,8 +12426,8 @@ async function renderCCChartSemana(){
 /* ----------------------------- TAB POR CAMIÓN ----------------------------- */
 async function renderCCPorCamion(){
   var tb=g('cc-tb-cam'); if(!tb)return;
-  var fecha=gv('cc-cam-fecha')||ccHoy();
-  var viajes=await ccViajesPorCam(fecha);
+  var fecha=gv('cc-cam-fecha')||ultimaFechaPlanilla();
+  var viajes=viajesPlanillaMapaFecha(fecha); // FUENTE REAL: planillas (no chofer)
   var vehs=ccVehiculosActivos();
   if(!vehs.length){tb.innerHTML='<tr><td colspan="8" style="text-align:center;color:var(--text3);padding:14px">No hay vehículos configurados</td></tr>';return;}
   tb.innerHTML=vehs.map(function(v){
@@ -12420,8 +12464,7 @@ async function renderCCHistCamion(){
   var rows='';
   for(var j=0;j<dias.length;j++){
     var f=dias[j];
-    var vmap=await ccViajesPorCam(f);
-    var vi=vmap[cam]||0, real=ccLitrosCamFecha(cam,f), esp=vi*kpv;
+    var vi=viajesPlanillaCamFecha(cam,f), real=ccLitrosCamFecha(cam,f), esp=vi*kpv;
     var desv=esp>0?Math.round((real-esp)/esp*100):0;
     var col=Math.abs(desv)<=15?'var(--green2)':Math.abs(desv)<=25?'var(--yellow)':'var(--red)';
     rows+='<tr><td>'+fmtFechaCorta(f)+'</td><td style="text-align:center">'+vi+'</td><td style="font-family:var(--m)">'+Math.round(real)+' L</td><td style="font-family:var(--m);color:var(--text2)">'+Math.round(esp)+' L</td><td style="font-family:var(--m);color:'+col+'">'+(esp>0?(desv>0?'+':'')+desv+'%':'—')+'</td></tr>';
@@ -12447,26 +12490,28 @@ async function checkAlertasCombustible(forzar){
     else if(Math.abs(dif)>20&&Math.abs(dif)<=50&&!ccAlertaExiste(hoy,'Diferencia tanque galpón','galpon'))
       nuevas.push({fecha:hoy,tipo:'Diferencia tanque galpón',vehiculo_id:null,tanque_id:'galpon',descripcion:'Diferencia de '+Math.round(Math.abs(dif))+' L en el balance del galpón.',diferencia_litros:Math.round(dif),severidad:'advertencia',revisada:false});
   }
-  // ALERTA 2 — Exceso de consumo por camión (litros recibidos vs viajes)
-  var viajes=await ccViajesPorCam(hoy);
+  // ALERTA 2 — Exceso de consumo por camión (litros vs viajes). Se evalúa sobre la ÚLTIMA
+  // fecha con planillas (día operativo cerrado) porque los viajes reales vienen de planillas.
+  var fop=ultimaFechaPlanilla();
+  var viajes=viajesPlanillaMapaFecha(fop);
   ccVehiculosActivos().forEach(function(v){
-    var vi=viajes[v.id]||0, real=ccLitrosCamFecha(v.id,hoy);
+    var vi=viajes[v.id]||0, real=ccLitrosCamFecha(v.id,fop);
     if(real<=0)return;
-    if(vi===0){ if(!ccAlertaExiste(hoy,'Combustible sin viajes',v.id)) nuevas.push({fecha:hoy,tipo:'Combustible sin viajes',vehiculo_id:v.id,tanque_id:null,descripcion:v.nombre+' recibió '+Math.round(real)+' L pero no registró viajes hoy.',diferencia_litros:Math.round(real),severidad:'critica',revisada:false}); return; }
-    if(real>vi*32){ if(!ccAlertaExiste(hoy,'Exceso consumo crítico',v.id)) nuevas.push({fecha:hoy,tipo:'Exceso consumo crítico',vehiculo_id:v.id,tanque_id:null,descripcion:v.nombre+': '+Math.round(real)+' L para '+vi+' viajes ('+(real/vi).toFixed(1)+' L/viaje, límite 32).',diferencia_litros:Math.round(real-vi*22.5),severidad:'critica',revisada:false}); }
-    else if(real>vi*27){ if(!ccAlertaExiste(hoy,'Exceso consumo',v.id)) nuevas.push({fecha:hoy,tipo:'Exceso consumo',vehiculo_id:v.id,tanque_id:null,descripcion:v.nombre+': '+Math.round(real)+' L para '+vi+' viajes ('+(real/vi).toFixed(1)+' L/viaje, esperado ~22.5).',diferencia_litros:Math.round(real-vi*22.5),severidad:'advertencia',revisada:false}); }
+    if(vi===0){ if(!ccAlertaExiste(fop,'Combustible sin viajes',v.id)) nuevas.push({fecha:fop,tipo:'Combustible sin viajes',vehiculo_id:v.id,tanque_id:null,descripcion:v.nombre+' recibió '+Math.round(real)+' L el '+fmtFechaCorta(fop)+' pero no tiene viajes en planilla.',diferencia_litros:Math.round(real),severidad:'critica',revisada:false}); return; }
+    if(real>vi*32){ if(!ccAlertaExiste(fop,'Exceso consumo crítico',v.id)) nuevas.push({fecha:fop,tipo:'Exceso consumo crítico',vehiculo_id:v.id,tanque_id:null,descripcion:v.nombre+' ('+fmtFechaCorta(fop)+'): '+Math.round(real)+' L para '+vi+' viajes ('+(real/vi).toFixed(1)+' L/viaje, límite 32).',diferencia_litros:Math.round(real-vi*22.5),severidad:'critica',revisada:false}); }
+    else if(real>vi*27){ if(!ccAlertaExiste(fop,'Exceso consumo',v.id)) nuevas.push({fecha:fop,tipo:'Exceso consumo',vehiculo_id:v.id,tanque_id:null,descripcion:v.nombre+' ('+fmtFechaCorta(fop)+'): '+Math.round(real)+' L para '+vi+' viajes ('+(real/vi).toFixed(1)+' L/viaje, esperado ~22.5).',diferencia_litros:Math.round(real-vi*22.5),severidad:'advertencia',revisada:false}); }
   });
   // ALERTA 4 — Rendimiento bajo por KM (si hay consumo_fabrica_l100km configurado)
   ccVehiculosActivos().forEach(function(v){
     var cf=parseFloat(v.consumo_fabrica_l100km); if(!cf||cf<=0)return;
-    var km=kmRecorridoCamFecha(v.id,hoy); // de checklist (km_entrada - km_salida)
-    var real=ccLitrosCamFecha(v.id,hoy);
+    var km=kmRecorridoCamFecha(v.id,fop); // recorrido real del día (checklist)
+    var real=ccLitrosCamFecha(v.id,fop);
     if(km<=0||real<=0)return;
     var l100=(real/km)*100;
-    if(l100>cf*1.35&&!ccAlertaExiste(hoy,'Rendimiento crítico (km)',v.id))
-      nuevas.push({fecha:hoy,tipo:'Rendimiento crítico (km)',vehiculo_id:v.id,tanque_id:null,descripcion:v.nombre+': '+l100.toFixed(1)+' L/100km (fábrica '+cf+', +35%).',diferencia_litros:null,severidad:'critica',revisada:false});
-    else if(l100>cf*1.20&&!ccAlertaExiste(hoy,'Rendimiento bajo (km)',v.id))
-      nuevas.push({fecha:hoy,tipo:'Rendimiento bajo (km)',vehiculo_id:v.id,tanque_id:null,descripcion:v.nombre+': '+l100.toFixed(1)+' L/100km (fábrica '+cf+', +20%).',diferencia_litros:null,severidad:'advertencia',revisada:false});
+    if(l100>cf*1.35&&!ccAlertaExiste(fop,'Rendimiento crítico (km)',v.id))
+      nuevas.push({fecha:fop,tipo:'Rendimiento crítico (km)',vehiculo_id:v.id,tanque_id:null,descripcion:v.nombre+' ('+fmtFechaCorta(fop)+'): '+l100.toFixed(1)+' L/100km (fábrica '+cf+', +35%).',diferencia_litros:null,severidad:'critica',revisada:false});
+    else if(l100>cf*1.20&&!ccAlertaExiste(fop,'Rendimiento bajo (km)',v.id))
+      nuevas.push({fecha:fop,tipo:'Rendimiento bajo (km)',vehiculo_id:v.id,tanque_id:null,descripcion:v.nombre+' ('+fmtFechaCorta(fop)+'): '+l100.toFixed(1)+' L/100km (fábrica '+cf+', +20%).',diferencia_litros:null,severidad:'advertencia',revisada:false});
   });
   if(nuevas.length){
     try{var res=await supabase.from('combustible_alertas').insert(nuevas).select();
@@ -12492,7 +12537,8 @@ async function generarReporteCombustible(){
   try{
     var ga=await supabase.from('gasoil').select('*').like('f',pref+'%');
     var gas=(!ga.error&&ga.data)?ga.data:[];
-    var vc=await supabase.from('viajes_chofer').select('cam,fecha').like('fecha',pref+'%');
+    // Viajes desde PLANILLAS (fuente real), no viajes_chofer
+    var vc=await supabase.from('planillas').select('cam,f,t').like('f',pref+'%');
     var via=(!vc.error&&vc.data)?vc.data:[];
     var al=await supabase.from('combustible_alertas').select('*').like('fecha',pref+'%');
     var alertas=(!al.error&&al.data)?al.data:[];
@@ -12507,8 +12553,8 @@ async function generarReporteCombustible(){
     gas.filter(function(x){return !(ccEsCompra(x)||x.tipo_operacion==='compra');}).forEach(function(x){
       despTotL+=parseFloat(x.lit)||0; despCam[x.cam]=(despCam[x.cam]||0)+(parseFloat(x.lit)||0);
     });
-    // Viajes por cam y total
-    var viaCam={}, viaTot=0; via.forEach(function(x){viaCam[x.cam]=(viaCam[x.cam]||0)+1;viaTot++;});
+    // Viajes por cam y total (planillas: t por fila cam+fecha)
+    var viaCam={}, viaTot=0; via.forEach(function(x){var t=parseInt(x.t)||0;viaCam[x.cam]=(viaCam[x.cam]||0)+t;viaTot+=t;});
     // Ranking eficiencia por camión
     var ranking=ccVehiculosActivos().map(function(v){
       var L=despCam[v.id]||0, vi=viaCam[v.id]||0, kpv=parseFloat(v.consumo_estimado_por_viaje)||22.5;
@@ -12522,7 +12568,7 @@ async function generarReporteCombustible(){
       var key=lun.toISOString().slice(0,10); if(!semanas[key])semanas[key]={litros:0,viajes:0};
       semanas[key].litros+=parseFloat(x.lit)||0;
     });
-    via.forEach(function(x){var d=new Date(x.fecha+'T00:00:00');if(isNaN(d))return;var on=d.getDay();var diff=(on===0?6:on-1);var lun=new Date(d);lun.setDate(d.getDate()-diff);var key=lun.toISOString().slice(0,10);if(!semanas[key])semanas[key]={litros:0,viajes:0};semanas[key].viajes++;});
+    via.forEach(function(x){var d=new Date(x.f+'T00:00:00');if(isNaN(d))return;var on=d.getDay();var diff=(on===0?6:on-1);var lun=new Date(d);lun.setDate(d.getDate()-diff);var key=lun.toISOString().slice(0,10);if(!semanas[key])semanas[key]={litros:0,viajes:0};semanas[key].viajes+=(parseInt(x.t)||0);});
     // Alertas por tipo
     var alTipo={}; alertas.forEach(function(a){alTipo[a.tipo]=(alTipo[a.tipo]||0)+1;});
     // Costo promedio por litro por proveedor + costo por viaje
