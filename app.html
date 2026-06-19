@@ -1285,6 +1285,21 @@ tr:hover td{background:rgba(45,255,122,.02)}
     <div><div class="sh" style="margin-bottom:6px"><div class="st">Ayudantes</div><div style="font-size:11px;color:var(--blue)" id="nm-ay-total">-</div></div><div class="tw"><table><thead><tr><th>#</th><th>Ayudante</th><th>Tipo</th><th>Unidad</th><th>Viajes</th><th>Sueldo $</th><th>Desc $</th><th>Total $</th></tr></thead><tbody id="tb-nom-ay"></tbody></table></div></div>
   </div>
   <div><div class="st" style="margin-bottom:6px">Nomina Administrativa</div><div class="tw"><table><thead><tr><th>Cargo</th><th>Mensual $</th><th>Semanal $</th></tr></thead><tbody id="tb-nom-adm"></tbody></table></div></div>
+
+  <!-- COTEJO PLANILLA vs ASISTENCIA (anomalías RRHH) -->
+  <div class="card" style="margin-top:12px;border:1px solid var(--border)">
+    <div class="sh" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">
+      <div class="st">🕵️ Cotejo Planilla vs Asistencia (anomalías RRHH)</div>
+      <div style="display:flex;gap:6px;align-items:center">
+        <label style="font-size:11px;color:var(--text3)"><input type="checkbox" id="nm-anom-ver-resueltas" onchange="renderAnomaliasRRHH()"> ver resueltas</label>
+        <button class="btn btn-s btn-sm" onclick="enviarResumenAnomaliasWA()">📲 WA a RRHH</button>
+      </div>
+    </div>
+    <div style="font-size:11px;color:var(--text3);margin-bottom:8px">El viaje SIEMPRE se cuenta y se paga. Esto solo marca posibles inconsistencias (tiene viaje pero no asistió) para que RRHH valide (falso positivo) o rechace (confirmado).</div>
+    <div id="nm-anom-kpis" class="g4" style="margin-bottom:10px"></div>
+    <div id="nm-anom-lista"></div>
+    <div id="nm-anom-nocasados" style="margin-top:10px"></div>
+  </div>
 </div>
 
 <!-- COMBUSTIBLE -->
@@ -2932,6 +2947,7 @@ async function cargarDatosDB(){
     if(EMPLEADOS.length>0){setTimeout(function(){renderEmpleados();},100);}
     cargarCfgCorrelativo();
     cargarDatosCompartidos(); // Capa compartida: viajes_chofer + checklist en memoria global
+    cargarAnomaliasDecisiones(); // Decisiones RRHH previas (validado/rechazado) para el cotejo
     cargarCombustibleData(); // Cargar config/mediciones/alertas del módulo Control Combustible
     cargarCxP(); // Cargar CxP al inicio
     // Notificar pagos BNC pendientes ahora que DB está lista
@@ -4478,6 +4494,8 @@ function calcNom(){
   }).join('');
   if(g('nm-ay-total'))g('nm-ay-total').textContent='$'+totAy.toFixed(0)+' total ayudantes';
   renderNomAdm();
+  // Cotejo planilla vs asistencia (anomalías RRHH) sobre el MISMO conjunto filtrado
+  try{detectarAnomaliasRRHH(f);}catch(e){console.log('anomalias RRHH:',e&&e.message);}
 }
 
 function renderNomAdm(){
@@ -12636,6 +12654,186 @@ function imprimirReporteCombustible(){
   var w=window.open('','_blank');
   w.document.write('<html><head><title>Reporte Combustible</title><style>body{font-family:Arial;padding:20px;color:#111}table{width:100%;border-collapse:collapse;margin:8px 0}th,td{border:1px solid #ccc;padding:5px 8px;font-size:12px;text-align:left}.stat-lbl{font-size:11px;color:#666}.stat-val{font-size:16px;font-weight:bold}.sh{font-weight:bold;font-size:15px;margin:10px 0}</style></head><body><h2>⛽ Reporte de Combustible — Inversiones Betangar CA</h2>'+cont+'</body></html>');
   w.document.close();w.print();
+}
+
+/* ============================================================================
+   COTEJO PLANILLA vs ASISTENCIA — anomalías RRHH
+   Regla: el viaje SIEMPRE se cuenta/paga (calcNom no se altera). Esto solo detecta
+   inconsistencias (persona con viaje en planilla pero Ausente/sin marca/Justificado
+   en asistencia) para que RRHH valide (falso positivo) o rechace (confirmado).
+   Decisiones persistidas en Supabase (tabla anomalias_rrhh).
+   ============================================================================ */
+var ANOMALIAS_ACTUAL=[], ANOMALIAS_NOCASADOS=[], ANOMALIAS_DECISIONES={};
+
+function _normNom(s){return String(s||'').toUpperCase().replace(/[ÁÀÄÂ]/g,'A').replace(/[ÉÈËÊ]/g,'E').replace(/[ÍÌÏÎ]/g,'I').replace(/[ÓÒÖÔ]/g,'O').replace(/[ÚÙÜÛ]/g,'U').replace(/Ñ/g,'N').replace(/[^A-Z0-9 ]/g,'').replace(/\s+/g,' ').trim();}
+
+// Las planillas usan "PRIMER_NOMBRE PRIMER_APELLIDO" (ej. "JOHANDRY URDANETA") mientras
+// empleados guarda el nombre COMPLETO ("JOHANDRY SEGUNDO URDANETA CASTILLO"). Por eso se
+// casa por tokens: mismo primer nombre + un apellido compartido. Si hay 0 o varios
+// candidatos → no casa (se lista aparte para revisión manual).
+function _empPorNombre(nombre){
+  var n=_normNom(nombre); if(!n)return null;
+  var emps=(typeof EMPLEADOS!=='undefined'?EMPLEADOS:[]);
+  // 1) match exacto normalizado
+  for(var i=0;i<emps.length;i++){if(_normNom(emps[i].nombre)===n)return emps[i];}
+  var pt=n.split(' '); if(!pt.length)return null;
+  var first=pt[0], last=pt[pt.length-1];
+  // 2) primer nombre igual + apellido (último token de planilla) presente en el empleado
+  var cands=emps.filter(function(e){var et=_normNom(e.nombre).split(' ');return et.length&&et[0]===first&&et.indexOf(last)>=0;});
+  if(cands.length===1)return cands[0];
+  // 3) subconjunto: TODOS los tokens de la planilla están en el empleado (único)
+  if(cands.length!==1){
+    var cands2=emps.filter(function(e){var et=_normNom(e.nombre).split(' ');return pt.every(function(tok){return et.indexOf(tok)>=0;});});
+    if(cands2.length===1)return cands2[0];
+    if(cands2.length>1)return null; // ambiguo
+  }
+  return null; // 0 candidatos o ambiguo → no casa
+}
+function _asisDow(fecha){var d=new Date(fecha+'T12:00:00');if(isNaN(d))return -1;var dw=d.getDay();return dw===0?6:dw-1;} // Lun=0..Dom=6
+function _asisKey(mes,sem){return (mes||'')+'-'+(sem||'');}
+function _asisMarca(empId,mes,sem,dow){
+  var key=_asisKey(mes,sem); var blk=(typeof ASISTENCIA!=='undefined'&&ASISTENCIA[key])?ASISTENCIA[key]:null;
+  if(!blk)return null; // null = no hay datos de asistencia esa semana
+  var v=blk[empId+'_dia_'+dow+'_'+key];
+  return (v===undefined||v===null)?'':v; // '' = sin marca pero la semana sí se llevó
+}
+// ¿Esta persona tiene ALGUNA marca de asistencia en la semana? (para no marcar "sin marca"
+// a quien nadie registró — solo a quien SÍ se lleva pero le falta ese día).
+function _empTieneAsistenciaSemana(empId,mes,sem){
+  var key=_asisKey(mes,sem); var blk=(typeof ASISTENCIA!=='undefined'&&ASISTENCIA[key])?ASISTENCIA[key]:null;
+  if(!blk)return false;
+  for(var d=0;d<7;d++){if(blk[empId+'_dia_'+d+'_'+key])return true;}
+  return false;
+}
+
+async function cargarAnomaliasDecisiones(){
+  if(!DB_READY||!supabase)return;
+  try{var r=await supabase.from('anomalias_rrhh').select('*');
+    if(!r.error&&Array.isArray(r.data)){ANOMALIAS_DECISIONES={};r.data.forEach(function(x){ANOMALIAS_DECISIONES[x.id]=x;});}
+  }catch(e){console.log('[anom] carga decisiones',e&&e.message);}
+}
+
+// Construye la lista de anomalías sobre el conjunto de planillas YA filtrado por calcNom.
+function detectarAnomaliasRRHH(planillas){
+  planillas=planillas||(typeof REGS!=='undefined'?REGS:[]);
+  var acc={}; // empId|fecha -> {datos}
+  var nocas={}; // nombre normalizado -> {nombre,cam,fecha,viajes}
+  planillas.forEach(function(r){
+    if(!r.f)return;
+    var personas=[{name:r.ch,rol:'chofer'},{name:r.ay1,rol:'ayudante'},{name:r.ay2,rol:'ayudante'},{name:r.ay3,rol:'ayudante'}];
+    personas.forEach(function(p){
+      if(!p.name||!String(p.name).trim())return;
+      var emp=_empPorNombre(p.name);
+      if(!emp){var kn=_normNom(p.name)+'|'+r.f;if(!nocas[kn])nocas[kn]={nombre:p.name,cam:r.cam,fecha:r.f,viajes:0};nocas[kn].viajes+=(parseInt(r.t)||0);return;}
+      var id=emp.id+'|'+r.f;
+      if(!acc[id])acc[id]={id:id,emp_id:emp.id,emp_nombre:emp.nombre,cam:r.cam,rol:p.rol,fecha:r.f,mes:r.mes,sem:r.sem,viajes:0};
+      acc[id].viajes+=(parseInt(r.t)||0);
+    });
+  });
+  var lista=[];
+  Object.keys(acc).forEach(function(id){
+    var a=acc[id];
+    var dow=_asisDow(a.fecha); if(dow<0)return;
+    var marca=_asisMarca(a.emp_id,a.mes,a.sem,dow); // null=semana sin datos
+    var tipo=null,sev=null;
+    if(marca==='A'){tipo='ausente_con_viaje';sev='critica';}
+    else if(marca==='J'){tipo='justificado_con_viaje';sev='advertencia';}
+    else if(marca===''){ if(_empTieneAsistenciaSemana(a.emp_id,a.mes,a.sem)){tipo='sin_marca_con_viaje';sev='info';} else return; } // solo si a esa persona SÍ se le lleva asistencia esa semana
+    else return; // 'P' (presente) o null → sin anomalía
+    var dec=ANOMALIAS_DECISIONES[id]||{};
+    lista.push({id:id,emp_id:a.emp_id,emp_nombre:a.emp_nombre,cam:a.cam,rol:a.rol,fecha:a.fecha,viajes:a.viajes,
+      asistencia:marca,tipo:tipo,severidad:sev,
+      estado:dec.estado||'pendiente',nota:dec.nota||'',resuelto_por:dec.resuelto_por||''});
+  });
+  var ordSev={critica:0,advertencia:1,info:2};
+  lista.sort(function(a,b){
+    var ea=a.estado==='pendiente'?0:1, eb=b.estado==='pendiente'?0:1;
+    if(ea!==eb)return ea-eb;
+    return (ordSev[a.severidad]||3)-(ordSev[b.severidad]||3);
+  });
+  ANOMALIAS_ACTUAL=lista;
+  ANOMALIAS_NOCASADOS=Object.values(nocas);
+  renderAnomaliasRRHH();
+}
+
+function renderAnomaliasRRHH(){
+  var verRes=g('nm-anom-ver-resueltas')&&g('nm-anom-ver-resueltas').checked;
+  var lista=ANOMALIAS_ACTUAL.filter(function(a){return verRes||a.estado==='pendiente';});
+  // KPIs
+  var pend=ANOMALIAS_ACTUAL.filter(function(a){return a.estado==='pendiente';}).length;
+  var crit=ANOMALIAS_ACTUAL.filter(function(a){return a.estado==='pendiente'&&a.severidad==='critica';}).length;
+  var val=ANOMALIAS_ACTUAL.filter(function(a){return a.estado==='validado';}).length;
+  var rech=ANOMALIAS_ACTUAL.filter(function(a){return a.estado==='rechazado';}).length;
+  var kp=g('nm-anom-kpis');
+  if(kp)kp.innerHTML=
+    '<div class="stat r"><div class="stat-lbl">Pendientes</div><div class="stat-val" style="font-size:18px;color:var(--red)">'+pend+'</div><div class="stat-sub">'+crit+' críticas</div></div>'+
+    '<div class="stat" style="border-top-color:var(--green2)"><div class="stat-lbl">Validadas (falso +)</div><div class="stat-val" style="font-size:18px;color:var(--green2)">'+val+'</div><div class="stat-sub">OK</div></div>'+
+    '<div class="stat y"><div class="stat-lbl">Rechazadas</div><div class="stat-val" style="font-size:18px;color:var(--yellow)">'+rech+'</div><div class="stat-sub">confirmadas</div></div>'+
+    '<div class="stat b"><div class="stat-lbl">Sin identificar</div><div class="stat-val" style="font-size:18px;color:var(--blue)">'+ANOMALIAS_NOCASADOS.length+'</div><div class="stat-sub">nombres</div></div>';
+  var box=g('nm-anom-lista'); if(!box)return;
+  if(!lista.length){box.innerHTML='<div style="color:var(--green2);text-align:center;padding:14px">✓ Sin anomalías '+(verRes?'':'pendientes')+' en el período</div>';}
+  else{
+    var marcaTxt={'A':'Ausente','J':'Justificado','':'Sin marca'};
+    box.innerHTML='<div class="tw" style="max-height:340px;overflow-y:auto"><table><thead><tr><th>Persona</th><th>Rol</th><th>Cam</th><th>Fecha</th><th>Viajes</th><th>Asistencia</th><th>Estado</th><th>Acción</th></tr></thead><tbody>'+
+      lista.map(function(a){
+        var col=a.severidad==='critica'?'var(--red)':a.severidad==='advertencia'?'var(--yellow)':'var(--blue)';
+        var ico=a.severidad==='critica'?'🔴':a.severidad==='advertencia'?'🟡':'🔵';
+        var estBadge=a.estado==='validado'?'<span style="color:var(--green2)">✅ validado</span>':a.estado==='rechazado'?'<span style="color:var(--red)">🚩 rechazado</span>':'<span style="color:var(--text3)">pendiente</span>';
+        var acc=a.estado==='pendiente'
+          ? '<button class="btn btn-g btn-xs" onclick="resolverAnomalia(\''+a.id+'\',\'validado\')">✅ Validar</button> <button class="btn btn-r btn-xs" onclick="resolverAnomalia(\''+a.id+'\',\'rechazado\')">🚩 Rechazar</button>'
+          : '<button class="btn btn-s btn-xs" onclick="resolverAnomalia(\''+a.id+'\',\'pendiente\')">↩ reabrir</button>';
+        return '<tr style="border-left:3px solid '+col+'"><td style="font-weight:700">'+ico+' '+a.emp_nombre+(a.nota?'<br><span style="font-size:9px;color:var(--text3)">📝 '+a.nota+'</span>':'')+'</td>'+
+          '<td style="font-size:11px">'+a.rol+'</td><td style="font-size:11px">'+(a.cam||'')+'</td><td style="font-size:11px">'+fmtFechaCorta(a.fecha)+'</td>'+
+          '<td style="text-align:center;color:var(--green)">'+a.viajes+'</td>'+
+          '<td style="color:'+col+';font-size:11px">'+(marcaTxt[a.asistencia]||a.asistencia)+'</td>'+
+          '<td style="font-size:11px">'+estBadge+'</td><td>'+acc+'</td></tr>';
+      }).join('')+'</tbody></table></div>';
+  }
+  // No casados
+  var nc=g('nm-anom-nocasados');
+  if(nc){
+    if(!ANOMALIAS_NOCASADOS.length)nc.innerHTML='';
+    else nc.innerHTML='<div style="border-top:1px solid var(--border);padding-top:8px"><div style="font-weight:700;font-size:12px;color:var(--blue);margin-bottom:4px">⚠ Nombres en planilla sin identificar ('+ANOMALIAS_NOCASADOS.length+') — revisar/crear empleado o corregir nombre</div>'+
+      '<div style="font-size:11px;color:var(--text2);display:flex;flex-wrap:wrap;gap:6px">'+ANOMALIAS_NOCASADOS.map(function(n){return '<span style="background:var(--bg3);border:1px solid var(--border);border-radius:5px;padding:2px 6px">'+n.nombre+' · '+(n.cam||'')+' · '+fmtFechaCorta(n.fecha)+' ('+n.viajes+'v)</span>';}).join('')+'</div></div>';
+  }
+}
+
+async function resolverAnomalia(id,estado){
+  var a=ANOMALIAS_ACTUAL.find(function(x){return x.id===id;}); if(!a)return;
+  var nota=a.nota||'';
+  if(estado==='rechazado'||estado==='validado'){
+    var motivo=prompt(estado==='validado'?'Nota (falso positivo / justificación válida):':'Nota (qué pasó / por qué se rechaza):', nota);
+    if(motivo===null)return; // canceló
+    nota=motivo;
+  } else { nota=''; }
+  var row={id:id,fecha:a.fecha,emp_id:a.emp_id,emp_nombre:a.emp_nombre,cam:a.cam,rol:a.rol,viajes:a.viajes,
+    asistencia:a.asistencia,tipo:a.tipo,severidad:a.severidad,estado:estado,nota:nota,
+    resuelto_por:(SESION?SESION.nombre:'?'),updated_at:new Date().toISOString()};
+  var ok=false;
+  if(DB_READY&&supabase){
+    try{var r=await supabase.from('anomalias_rrhh').upsert([row],{onConflict:'id'});
+      if(r.error){mostrarToast('No se pudo guardar: '+r.error.message,'error');}else ok=true;
+    }catch(e){mostrarToast('Sin conexión','error');}
+  }
+  if(!ok&&typeof guardarEnCola==='function')guardarEnCola('anomalias_rrhh',row);
+  ANOMALIAS_DECISIONES[id]=row;
+  a.estado=estado;a.nota=nota;a.resuelto_por=row.resuelto_por;
+  if(typeof audit==='function')audit('Anomalía RRHH '+estado,a.emp_nombre+' '+a.fecha+(nota?(' · '+nota):''));
+  mostrarToast(estado==='validado'?'✅ Validada (falso positivo)':estado==='rechazado'?'🚩 Rechazada (confirmada)':'↩ Reabierta', ok?'exito':'info');
+  renderAnomaliasRRHH();
+}
+
+function enviarResumenAnomaliasWA(){
+  var pend=ANOMALIAS_ACTUAL.filter(function(a){return a.estado==='pendiente';});
+  if(!pend.length){alert('No hay anomalías pendientes para enviar');return;}
+  var crit=pend.filter(function(a){return a.severidad==='critica';});
+  var msg='🕵️ ANOMALÍAS RRHH (planilla vs asistencia)\n'+
+    pend.length+' pendientes ('+crit.length+' críticas):\n'+
+    pend.slice(0,15).map(function(a){return '• '+a.emp_nombre+' ('+a.rol+') '+fmtFechaCorta(a.fecha)+' — '+a.viajes+'v, '+(a.asistencia==='A'?'AUSENTE':a.asistencia==='J'?'justificado':'sin marca')+' · '+a.cam;}).join('\n')+
+    (pend.length>15?('\n…y '+(pend.length-15)+' más'):'')+
+    '\nRevisar en Nómina → Cotejo.';
+  if(typeof sendWA==='function')sendWA(msg,['rrhh','socios'],true);
+  mostrarToast('📲 Resumen enviado a RRHH','exito');
 }
 
 /* ----------------------- CONFIGURACIÓN COMBUSTIBLE ------------------------ */
