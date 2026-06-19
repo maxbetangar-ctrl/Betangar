@@ -10886,9 +10886,16 @@ function cargarPanelChoferes(){
   var cont = document.getElementById('dash-viajes-choferes');
   if(!cont || !DB_READY || !supabase) return;
   var hoy = new Date().toISOString().slice(0,10);
+  // Total FACTURADO de hoy según planillas (fuente real) — se muestra SIEMPRE para contrastar
+  var planDiaTot=(typeof REGS!=='undefined'?REGS:[]).filter(function(r){return r.f===hoy;}).reduce(function(s,r){return s+(parseInt(r.t)||0);},0);
+  function cab(envivo){
+    return '<div style="display:flex;gap:10px;margin-bottom:8px">'+
+      '<div style="flex:1;text-align:center;background:var(--bg3);border-radius:6px;padding:5px"><div style="font-size:9px;color:var(--text3);text-transform:uppercase">En vivo (choferes)</div><div style="font-size:18px;font-weight:800;font-family:var(--m);color:#7dc941">'+envivo+'</div></div>'+
+      '<div style="flex:1;text-align:center;background:var(--bg3);border-radius:6px;padding:5px"><div style="font-size:9px;color:var(--text3);text-transform:uppercase">Facturado (planillas)</div><div style="font-size:18px;font-weight:800;font-family:var(--m);color:#3b8fd4">'+planDiaTot+'</div></div></div>';
+  }
   supabase.from('viajes_chofer').select('*').eq('fecha',hoy).order('cam').then(function(res){
     if(res.error || !res.data || !res.data.length){
-      cont.innerHTML='<div style="color:var(--text3);font-size:12px;padding:8px">Sin reportes de choferes hoy</div>';
+      cont.innerHTML=cab(0)+'<div style="color:var(--text3);font-size:11px;padding:4px 2px">Sin reportes de choferes hoy (la app del chofer no está registrando). Los viajes reales entran por <b>planillas</b>.</div>';
       return;
     }
     // Agrupar por camión
@@ -10917,7 +10924,7 @@ function cargarPanelChoferes(){
         '</div></div>';
     }).join('');
     var total = Object.values(porCam).reduce(function(s,d){return s+d.total;},0);
-    cont.innerHTML = '<div style="font-size:11px;color:var(--text3);margin-bottom:8px">Total reportado: <b style="color:#7dc941">'+total+' viajes</b></div>'+html;
+    cont.innerHTML = cab(total)+html;
   });
 }
 
