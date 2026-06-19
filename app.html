@@ -253,6 +253,7 @@ tr:hover td{background:rgba(45,255,122,.02)}
     <div class="menu-item" onclick="sp('checklist')" id="mi-checklist">📋 Check List</div>
     <div class="menu-item" onclick="sp('operativo')" id="mi-operativo">🗺 Operativo</div>
     <div class="menu-item" onclick="sp('combustible')" id="mi-combustible">⛽ Combustible</div>
+    <div class="menu-item" onclick="sp('control-combustible')" id="mi-control-combustible">⛽ Control Combustible</div>
     <div class="menu-item" onclick="sp('km')" id="mi-km">🔧 Km / Servicio</div>
     <div class="menu-item" onclick="sp('documentos')" id="mi-documentos">📑 Documentos</div>
     <div class="menu-item" onclick="sp('inventario')" id="mi-inventario">📦 Inventario</div>
@@ -1337,6 +1338,112 @@ tr:hover td{background:rgba(45,255,122,.02)}
   <div class="cbox"><div class="ctitle">Rendimiento Combustible (L/Viaje)</div><div id="c-comb-svg"></div></div>
 </div>
 
+<!-- ============ CONTROL DE COMBUSTIBLE (módulo nuevo, configurable) ============ -->
+<div id="p-control-combustible" class="page">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px">
+    <div style="font-size:15px;font-weight:800;color:var(--green)">⛽ Control de Combustible</div>
+    <div style="font-size:10px;color:var(--text3)">Cubicación por medición · Alertas automáticas · Reporte IA</div>
+  </div>
+  <div class="switch-row" style="margin-bottom:10px;flex-wrap:wrap">
+    <div class="sw on" id="sw-cc-dash" onclick="switchCCTab('dash')">🚨 Alertas</div>
+    <div class="sw" id="sw-cc-med" onclick="switchCCTab('med')">📏 Medición Tanques</div>
+    <div class="sw" id="sw-cc-cam" onclick="switchCCTab('cam')">🚛 Por Camión</div>
+    <div class="sw" id="sw-cc-rep" onclick="switchCCTab('rep')">🤖 Reporte Mensual</div>
+  </div>
+
+  <!-- TAB 1: DASHBOARD DE ALERTAS -->
+  <div id="cc-tab-dash">
+    <div class="g4" style="margin-bottom:10px">
+      <div class="stat"><div class="stat-lbl">Litros en Galpón</div><div class="stat-val" style="font-size:18px;color:var(--green2)" id="cc-kpi-galpon">-</div><div class="stat-sub" id="cc-kpi-galpon-sub">T1 + T2</div></div>
+      <div class="stat y"><div class="stat-lbl">Despachado Hoy</div><div class="stat-val" style="font-size:18px;color:var(--yellow)" id="cc-kpi-desp">-</div><div class="stat-sub">a camiones</div></div>
+      <div class="stat" style="border-top-color:var(--green2)"><div class="stat-lbl">Eficiencia Flota</div><div class="stat-val" style="font-size:18px;color:var(--green2)" id="cc-kpi-efi">-</div><div class="stat-sub">real vs esperado</div></div>
+      <div class="stat r"><div class="stat-lbl">Alertas Activas</div><div class="stat-val" style="font-size:18px;color:var(--red)" id="cc-kpi-alertas">-</div><div class="stat-sub">sin revisar</div></div>
+    </div>
+    <div class="card" style="margin-bottom:10px">
+      <div class="sh" style="display:flex;justify-content:space-between;align-items:center">
+        <div class="st">🚨 Alertas</div>
+        <button class="btn btn-s btn-sm" onclick="checkAlertasCombustible(true)">🔄 Recalcular alertas</button>
+      </div>
+      <div id="cc-alertas-lista"><div style="color:var(--text3);text-align:center;padding:16px">Cargando...</div></div>
+    </div>
+    <div class="cbox"><div class="ctitle">Consumo vs Viajes (últimos 7 días)</div><div id="cc-chart-sem"></div></div>
+  </div>
+
+  <!-- TAB 2: MEDICIÓN DE TANQUES -->
+  <div id="cc-tab-med" style="display:none">
+    <div class="g2" style="margin-bottom:10px">
+      <div class="card">
+        <div class="sh"><div class="st">📏 Registrar Medición (regla graduada)</div></div>
+        <div class="fr2">
+          <div class="fg"><label>Tanque</label><select class="fc" id="cc-med-tanque" onchange="ccCalcLitros()"></select></div>
+          <div class="fg"><label>Momento</label><select class="fc" id="cc-med-momento"><option value="inicio">Inicio del día</option><option value="fin">Fin del día</option></select></div>
+        </div>
+        <div class="fr2">
+          <div class="fg"><label>Altura medida (cm)</label><input class="fc" id="cc-med-cm" type="number" step="0.1" min="0" placeholder="0" oninput="ccCalcLitros()"></div>
+          <div class="fg"><label>Litros (auto)</label><input class="fc" id="cc-med-litros" readonly style="font-family:var(--m);font-weight:700;color:var(--green2)" placeholder="0"></div>
+        </div>
+        <div class="fr2">
+          <div class="fg"><label>Fecha</label><input class="fc" id="cc-med-fecha" type="date"></div>
+          <div class="fg"><label>Registrado por</label><select class="fc" id="cc-med-por"></select></div>
+        </div>
+        <div class="fg"><label>Notas (opcional)</label><input class="fc" id="cc-med-notas" placeholder=""></div>
+        <button class="btn btn-g btn-sm" style="width:100%" onclick="guardarMedicionTanque()">💾 Registrar Medición</button>
+      </div>
+      <div class="card">
+        <div class="sh"><div class="st">⚖️ Balance del Día — Galpón</div></div>
+        <div class="fg" style="margin-bottom:8px"><label>Fecha del balance</label><input class="fc" id="cc-bal-fecha" type="date" onchange="renderCCBalance()"></div>
+        <div id="cc-balance"></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="sh" style="display:flex;justify-content:space-between;align-items:center">
+        <div class="st">Mediciones registradas</div>
+        <input class="fc" id="cc-med-filtro-fecha" type="date" onchange="renderCCMediciones()" style="width:auto;font-size:11px;padding:5px 8px">
+      </div>
+      <div class="tw" style="max-height:280px;overflow-y:auto"><table><thead><tr><th>Fecha</th><th>Tanque</th><th>Momento</th><th>cm</th><th>Litros</th><th>Por</th><th></th></tr></thead><tbody id="cc-tb-med"></tbody></table></div>
+    </div>
+  </div>
+
+  <!-- TAB 3: CONTROL POR CAMIÓN -->
+  <div id="cc-tab-cam" style="display:none">
+    <div class="card" style="margin-bottom:10px">
+      <div class="sh" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">
+        <div class="st">🚛 Control de Consumo por Camión</div>
+        <div style="display:flex;gap:6px;align-items:center">
+          <label style="font-size:11px;color:var(--text3)">Fecha</label>
+          <input class="fc" id="cc-cam-fecha" type="date" onchange="renderCCPorCamion()" style="width:auto;font-size:11px;padding:5px 8px">
+        </div>
+      </div>
+      <div class="tw" style="overflow-x:auto"><table><thead><tr><th>Camión</th><th>Litros recibidos</th><th>Viajes</th><th>KM hoy</th><th>Esperado (L)</th><th>Real (L)</th><th>Desv.</th><th>Estado</th></tr></thead><tbody id="cc-tb-cam"></tbody></table></div>
+    </div>
+    <div class="card">
+      <div class="sh"><div class="st">📅 Historial semanal — por camión</div></div>
+      <div class="fg" style="margin-bottom:8px"><label>Camión</label><select class="fc" id="cc-cam-hist-sel" onchange="renderCCHistCamion()"></select></div>
+      <div id="cc-cam-hist"></div>
+    </div>
+  </div>
+
+  <!-- TAB 4: REPORTE MENSUAL CON GEMINI -->
+  <div id="cc-tab-rep" style="display:none">
+    <div class="card" style="margin-bottom:10px">
+      <div class="sh"><div class="st">🤖 Reporte Mensual de Combustible</div></div>
+      <div class="fr2">
+        <div class="fg"><label>Mes</label><select class="fc" id="cc-rep-mes">
+          <option value="1">Enero</option><option value="2">Febrero</option><option value="3">Marzo</option><option value="4">Abril</option><option value="5">Mayo</option><option value="6">Junio</option><option value="7">Julio</option><option value="8">Agosto</option><option value="9">Septiembre</option><option value="10">Octubre</option><option value="11">Noviembre</option><option value="12">Diciembre</option>
+        </select></div>
+        <div class="fg"><label>Año</label><input class="fc" id="cc-rep-anio" type="number" placeholder="2026"></div>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn btn-g btn-sm" onclick="generarReporteCombustible()">📊 Generar Reporte</button>
+        <button class="btn btn-s btn-sm" onclick="analizarReporteGemini()">🤖 Analizar con Gemini</button>
+        <button class="btn btn-s btn-sm" onclick="imprimirReporteCombustible()">🖨 Imprimir</button>
+      </div>
+    </div>
+    <div id="cc-rep-resultado"></div>
+    <div id="cc-rep-gemini"></div>
+  </div>
+</div>
+
 <!-- KM / SERVICIO -->
 <div id="p-km" class="page">
   <div class="switch-row" style="margin-bottom:10px">
@@ -1579,6 +1686,7 @@ tr:hover td{background:rgba(45,255,122,.02)}
     <div class="sw" id="sw-cfg-nomadm" onclick="switchCfgTab('nomadm')">Nomina Admin</div>
     <div class="sw" id="sw-cfg-correlativo" onclick="switchCfgTab('correlativo')">🔢 Correlativo</div>
     <div class="sw" id="sw-cfg-cargos" onclick="switchCfgTab('cargos')">🏷️ Cargos</div>
+    <div class="sw" id="sw-cfg-combustible" onclick="switchCfgTab('combustible')">⛽ Combustible</div>
   </div>
   <div id="tab-cfg-general">
     <div class="g2">
@@ -1736,6 +1844,29 @@ tr:hover td{background:rgba(45,255,122,.02)}
         </div>
         <input type="hidden" id="cfg-cargo-edit-id">
       </div>
+    </div>
+  </div>
+  <div id="tab-cfg-combustible" style="display:none">
+    <div class="card" style="margin-bottom:12px">
+      <div style="font-weight:700;font-size:14px;margin-bottom:6px">🤖 API Key de Gemini (análisis IA)</div>
+      <div style="font-size:11px;color:var(--text3);margin-bottom:8px">Se guarda en Supabase (configuracion · gemini_api_key). Nunca queda en el código.</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <input class="fc" id="cfg-comb-gemini" type="password" placeholder="AIza..." style="flex:1;min-width:220px;font-family:var(--m)">
+        <button class="btn btn-g btn-sm" onclick="guardarGeminiKey()">💾 Guardar</button>
+        <button class="btn btn-s btn-sm" onclick="(function(){var i=g('cfg-comb-gemini');i.type=i.type==='password'?'text':'password';})()">👁 Ver</button>
+      </div>
+      <div id="cfg-comb-gemini-status" style="font-size:11px;margin-top:6px;color:var(--text3)"></div>
+    </div>
+    <div class="card" style="margin-bottom:12px">
+      <div style="font-weight:700;font-size:14px;margin-bottom:6px">🚛 Vehículos (consumo y tolerancia)</div>
+      <div style="font-size:11px;color:var(--text3);margin-bottom:8px">Configurable por empresa. Consumo por viaje, tolerancia % y consumo de fábrica (L/100km, opcional).</div>
+      <div class="tw" style="max-height:340px;overflow-y:auto"><table><thead><tr><th>ID</th><th>Nombre</th><th>L/Viaje</th><th>Tol. %</th><th>L/100km fáb.</th><th>Activo</th><th></th></tr></thead><tbody id="cfg-comb-veh"></tbody></table></div>
+      <div style="margin-top:8px"><button class="btn btn-s btn-sm" onclick="nuevoVehiculoComb()">+ Nuevo vehículo</button></div>
+    </div>
+    <div class="card">
+      <div style="font-weight:700;font-size:14px;margin-bottom:6px">🛢️ Tanques (cubicación)</div>
+      <div style="font-size:11px;color:var(--text3);margin-bottom:8px">Capacidad, altura máxima y nº de puntos de cubicación cargados.</div>
+      <div class="tw"><table><thead><tr><th>ID</th><th>Nombre</th><th>Tipo</th><th>Capacidad</th><th>Altura máx</th><th>Puntos cub.</th><th>Activo</th></tr></thead><tbody id="cfg-comb-tanques"></tbody></table></div>
     </div>
   </div>
 </div>
@@ -2033,9 +2164,9 @@ var USUARIOS={
 };
 
 var PERMISOS={
-  superadmin:['dashboard','banco-bnc','conciliacion','checklist','mensajes-wa','planilla','historico','reporte','abonos','banco','proveedores','financiero','nomina','asistencia','combustible','km','documentos','inventario','llantas','metas','empleados','prestamos','multas','stats','ranking','contratos','usuarios','auditoria','config','galeria','porteria','mecanico','operativo','cxp','cajachica'],
-  admin:['dashboard','conciliacion','checklist','planilla','historico','reporte','abonos','banco','proveedores','financiero','nomina','asistencia','combustible','km','documentos','inventario','llantas','metas','empleados','prestamos','multas','stats','ranking','contratos','usuarios','auditoria','config','galeria','porteria','mecanico','operativo','cxp','cajachica'],
-  operador:['dashboard','planilla','historico','reporte','abonos','banco','proveedores','financiero','nomina','asistencia','combustible','km','documentos','inventario','llantas','metas','empleados','prestamos','multas','stats','ranking','contratos','galeria'],
+  superadmin:['dashboard','banco-bnc','conciliacion','checklist','mensajes-wa','planilla','historico','reporte','abonos','banco','proveedores','financiero','nomina','asistencia','combustible','control-combustible','km','documentos','inventario','llantas','metas','empleados','prestamos','multas','stats','ranking','contratos','usuarios','auditoria','config','galeria','porteria','mecanico','operativo','cxp','cajachica'],
+  admin:['dashboard','conciliacion','checklist','planilla','historico','reporte','abonos','banco','proveedores','financiero','nomina','asistencia','combustible','control-combustible','km','documentos','inventario','llantas','metas','empleados','prestamos','multas','stats','ranking','contratos','usuarios','auditoria','config','galeria','porteria','mecanico','operativo','cxp','cajachica'],
+  operador:['dashboard','planilla','historico','reporte','abonos','banco','proveedores','financiero','nomina','asistencia','combustible','control-combustible','km','documentos','inventario','llantas','metas','empleados','prestamos','multas','stats','ranking','contratos','galeria'],
   rrhh:['dashboard','mensajes-wa','planilla','historico','reporte','nomina','asistencia','combustible','km','documentos','inventario','llantas','metas','empleados','prestamos','multas','ranking','galeria'],
   visualizador:['dashboard','abonos','banco','financiero','stats','ranking','contratos','galeria'],
   directivo:['dashboard','historico','reporte','abonos','financiero','stats','ranking'],
@@ -2051,7 +2182,7 @@ var PERMISOS={
 var NAV_LABELS={
   dashboard:'Dashboard',planilla:'Registro Diario',historico:'Historico',reporte:'Reporte Alcaldia',
   abonos:'Abonos / Cobros',banco:'Banco BNC',conciliacion:'Conciliación Bancaria',proveedores:'Proveedores',financiero:'Financiero',
-  nomina:'Nomina',asistencia:'Asistencia',combustible:'Combustible',km:'Km / Servicio',
+  nomina:'Nomina',asistencia:'Asistencia',combustible:'Combustible','control-combustible':'Control Combustible',km:'Km / Servicio',
   documentos:'Documentos',inventario:'Inventario',llantas:'Llantas',metas:'Metas',
   empleados:'Empleados',prestamos:'Prestamos',multas:'Multas',stats:'Estadisticas',
   porteria:'Porteria',mecanico:'Mecanico',checklist:'Check List',operativo:'Operativo',ranking:'Ranking',contratos:'Contratos',usuarios:'Usuarios',auditoria:'Auditoria',
@@ -2497,6 +2628,7 @@ function sp(id){
     if(id==='abonos'){renderAbonos();calcMontoAbono();}
     if(id==='nomina')calcNom();
     if(id==='combustible'){renderComb();renderGasolPersonal();setTimeout(renderGasoil,100);}
+    if(id==='control-combustible'){renderControlComb();}
     if(id==='km'){renderKm();renderTiposMant();}
     if(id==='banco')renderBNCDash();
     if(id==='proveedores'){renderCXP();renderProveedoresLista();renderRetenciones();}
@@ -2783,6 +2915,7 @@ async function cargarDatosDB(){
     console.log('DB cargada: planillas='+REGS.length+' abonos='+ABONOS.length+' empleados='+EMPLEADOS.length);
     if(EMPLEADOS.length>0){setTimeout(function(){renderEmpleados();},100);}
     cargarCfgCorrelativo();
+    cargarCombustibleData(); // Cargar config/mediciones/alertas del módulo Control Combustible
     cargarCxP(); // Cargar CxP al inicio
     // Notificar pagos BNC pendientes ahora que DB está lista
     if(SESION){setTimeout(notificarPagosBNCNuevos,500);}
@@ -6710,7 +6843,7 @@ function exportarAuditoria(){
 // ═══════════════════════════════════════════════════
 // CONFIG
 // ═══════════════════════════════════════════════════
-function switchCfgTab(t){['general','flota','wa','rec','nomadm','correlativo','cargos'].forEach(function(x){var el=g('tab-cfg-'+x);var sw=g('sw-cfg-'+x);if(el)el.style.display=x===t?'block':'none';if(sw){sw.classList.remove('on');if(x===t)sw.classList.add('on');}});if(t==='rec'){renderWAEmpresarial();renderRecordatorios();}if(t==='correlativo'){renderCfgCorrelativo();}if(t==='cargos'){renderCfgCargos();}}
+function switchCfgTab(t){['general','flota','wa','rec','nomadm','correlativo','cargos','combustible'].forEach(function(x){var el=g('tab-cfg-'+x);var sw=g('sw-cfg-'+x);if(el)el.style.display=x===t?'block':'none';if(sw){sw.classList.remove('on');if(x===t)sw.classList.add('on');}});if(t==='rec'){renderWAEmpresarial();renderRecordatorios();}if(t==='correlativo'){renderCfgCorrelativo();}if(t==='cargos'){renderCfgCargos();}if(t==='combustible'){renderCfgCombustible();}}
 
 function guardarConfig(){
   cfg.tarifa=parseFloat(gv('cfg-tarifa'))||317.88;
@@ -11855,6 +11988,586 @@ function agregarTipoMant(){
   if(cfg.tipos_mant.indexOf(nuevo)>=0){alert('Ya existe');return;}
   cfg.tipos_mant.push(nuevo);
   renderTiposMant();
+}
+
+/* ============================================================================
+   CONTROL DE COMBUSTIBLE — módulo configurable (no toca el módulo "Combustible")
+   Fuentes de verdad: tablas combustible_* + lectura de gasoil / viajes_chofer / km_data
+   ============================================================================ */
+var COMB_TANQUES=[], COMB_VEHICULOS=[], COMB_MEDICIONES=[], COMB_ALERTAS=[];
+var CC_REPORTE_ACTUAL=null;
+
+function ccPad2(n){n=String(n);return n.length<2?'0'+n:n;}
+function ccHoy(){return new Date().toISOString().slice(0,10);}
+
+async function cargarCombustibleData(){
+  if(!DB_READY||!supabase)return;
+  try{
+    var t=await supabase.from('combustible_tanques_config').select('*').order('id');
+    if(!t.error&&Array.isArray(t.data))COMB_TANQUES=t.data;
+    var v=await supabase.from('combustible_vehiculos_config').select('*').order('id');
+    if(!v.error&&Array.isArray(v.data))COMB_VEHICULOS=v.data;
+    var m=await supabase.from('combustible_mediciones').select('*').order('fecha',{ascending:false}).order('created_at',{ascending:false}).limit(2000);
+    if(!m.error&&Array.isArray(m.data))COMB_MEDICIONES=m.data;
+    var a=await supabase.from('combustible_alertas').select('*').order('created_at',{ascending:false}).limit(500);
+    if(!a.error&&Array.isArray(a.data))COMB_ALERTAS=a.data;
+    console.log('[COMB] tanques='+COMB_TANQUES.length+' veh='+COMB_VEHICULOS.length+' med='+COMB_MEDICIONES.length+' alertas='+COMB_ALERTAS.length);
+  }catch(e){console.log('[COMB] carga error',e&&e.message);}
+}
+
+function ccTanque(id){for(var i=0;i<COMB_TANQUES.length;i++){if(COMB_TANQUES[i].id===id)return COMB_TANQUES[i];}return null;}
+function ccVehiculo(id){for(var i=0;i<COMB_VEHICULOS.length;i++){if(COMB_VEHICULOS[i].id===id)return COMB_VEHICULOS[i];}return null;}
+function ccVehiculosActivos(){return COMB_VEHICULOS.filter(function(v){return v.activo!==false;});}
+function ccTanquesGalpon(){return COMB_TANQUES.filter(function(t){return t.tipo==='galpon'&&t.activo!==false;});}
+
+// Cubicación: altura cm -> litros, interpolando linealmente entre entradas de la tabla.
+function combLitros(tanqueId, alturaCm){
+  var t=ccTanque(tanqueId); if(!t||!t.tabla_cubicacion)return 0;
+  var cm=parseFloat(alturaCm); if(isNaN(cm)||cm<0)return 0;
+  var tabla=t.tabla_cubicacion, maxH=parseFloat(t.altura_max_cm)||0;
+  if(maxH&&cm>maxH)cm=maxH;
+  function val(k){
+    if(k<=0)return 0;
+    var x=tabla[String(k)];
+    if(x===undefined||x===null){var kk=k;while(kk>0&&(tabla[String(kk)]===undefined||tabla[String(kk)]===null))kk--;return kk>0?parseFloat(tabla[String(kk)]):0;}
+    return parseFloat(x);
+  }
+  var lo=Math.floor(cm), hi=Math.ceil(cm);
+  if(lo===hi)return Math.round(val(lo)*100)/100;
+  var vlo=val(lo), vhi=val(hi);
+  return Math.round((vlo+(vhi-vlo)*(cm-lo))*100)/100;
+}
+
+// ------- Lectura de gasoil en memoria (despachos = cam que NO empieza por "COMPRA") -------
+function ccEsCompra(row){return String(row.cam||'').toUpperCase().indexOf('COMPRA')===0;}
+function ccDespachosFecha(fecha){return GASOIL.filter(function(x){return x.f===fecha&&!ccEsCompra(x);});}
+function ccLitrosDespachadosFecha(fecha){return ccDespachosFecha(fecha).reduce(function(s,x){return s+(parseFloat(x.lit)||0);},0);}
+function ccLitrosCamFecha(cam,fecha){return GASOIL.filter(function(x){return x.f===fecha&&x.cam===cam;}).reduce(function(s,x){return s+(parseFloat(x.lit)||0);},0);}
+function ccComprasFecha(fecha){return GASOIL.filter(function(x){return x.f===fecha&&ccEsCompra(x);});}
+function ccLitrosComprasFecha(fecha){return ccComprasFecha(fecha).reduce(function(s,x){return s+(parseFloat(x.lit)||0);},0);}
+
+// Medición más reciente de un tanque para una fecha y momento (inicio/fin). Si no hay para
+// esa fecha, devuelve null. Las mediciones ya vienen ordenadas desc por fecha+created_at.
+function ccMedicion(tanqueId,fecha,momento){
+  for(var i=0;i<COMB_MEDICIONES.length;i++){var m=COMB_MEDICIONES[i];
+    if(m.tanque_id===tanqueId&&m.fecha===fecha&&(!momento||m.momento===momento))return m;}
+  return null;
+}
+function ccLitrosGalponFecha(fecha,momento){
+  var tot=0,hay=false;
+  ccTanquesGalpon().forEach(function(t){var m=ccMedicion(t.id,fecha,momento)||ccMedicion(t.id,fecha,null);if(m){tot+=parseFloat(m.litros_calculados)||0;hay=true;}});
+  return hay?tot:null;
+}
+// Último nivel conocido del galpón (cualquier fecha) sumando última medición de cada tanque.
+function ccUltimoNivelGalpon(){
+  var tot=0,hay=false;
+  ccTanquesGalpon().forEach(function(t){
+    for(var i=0;i<COMB_MEDICIONES.length;i++){if(COMB_MEDICIONES[i].tanque_id===t.id){tot+=parseFloat(COMB_MEDICIONES[i].litros_calculados)||0;hay=true;break;}}
+  });
+  return hay?tot:null;
+}
+
+// Viajes por camión (consulta Supabase viajes_chofer para una fecha) -> {cam:count}
+async function ccViajesPorCam(fecha){
+  var map={};
+  if(!DB_READY||!supabase)return map;
+  try{
+    var r=await supabase.from('viajes_chofer').select('cam').eq('fecha',fecha);
+    if(!r.error&&Array.isArray(r.data))r.data.forEach(function(x){map[x.cam]=(map[x.cam]||0)+1;});
+  }catch(e){}
+  return map;
+}
+
+/* --------------------------- NAVEGACIÓN / SELECTS --------------------------- */
+function switchCCTab(t){
+  ['dash','med','cam','rep'].forEach(function(x){
+    var el=g('cc-tab-'+x), sw=g('sw-cc-'+x);
+    if(el)el.style.display=(x===t)?'block':'none';
+    if(sw){sw.classList.remove('on');if(x===t)sw.classList.add('on');}
+  });
+  if(t==='dash')renderCCDashboard();
+  if(t==='med'){renderCCMediciones();renderCCBalance();}
+  if(t==='cam')renderCCPorCamion();
+  if(t==='rep'){var ay=g('cc-rep-anio');if(ay&&!ay.value)ay.value=new Date().getFullYear();var me=g('cc-rep-mes');if(me)me.value=String(new Date().getMonth()+1);}
+}
+
+function ccPoblarSelects(){
+  // Tanques del galpón en el form de medición
+  var selT=g('cc-med-tanque');
+  if(selT)selT.innerHTML=ccTanquesGalpon().map(function(t){return '<option value="'+t.id+'">'+t.nombre+'</option>';}).join('')||'<option value="">(sin tanques)</option>';
+  // Empleados activos en "Registrado por"
+  var selP=g('cc-med-por');
+  if(selP){var emps=(typeof EMPLEADOS!=='undefined'?EMPLEADOS:[]).filter(function(e){return e.activo!==false;});
+    selP.innerHTML=emps.map(function(e){return '<option value="'+(e.nombre||'').replace(/"/g,'')+'">'+e.nombre+'</option>';}).join('')||'<option value="'+(SESION?SESION.nombre:'')+'">'+(SESION?SESION.nombre:'Usuario')+'</option>';}
+  // Camión en historial
+  var selH=g('cc-cam-hist-sel');
+  if(selH)selH.innerHTML=ccVehiculosActivos().map(function(v){return '<option value="'+v.id+'">'+v.nombre+'</option>';}).join('');
+}
+
+async function renderControlComb(){
+  if(!DB_READY||!supabase){var c=g('cc-alertas-lista');if(c)c.innerHTML='<div style="color:var(--text3);text-align:center;padding:16px">Sin conexión a base de datos</div>';return;}
+  if(!COMB_TANQUES.length||!COMB_VEHICULOS.length)await cargarCombustibleData();
+  ccPoblarSelects();
+  var hoy=ccHoy();
+  ['cc-med-fecha','cc-bal-fecha','cc-cam-fecha'].forEach(function(id){var e=g(id);if(e&&!e.value)e.value=hoy;});
+  var mf=g('cc-med-filtro-fecha');if(mf&&!mf.value)mf.value=hoy;
+  ccCalcLitros();
+  switchCCTab('dash');
+  await checkAlertasCombustible(false);
+}
+
+/* ------------------------------- TAB MEDICIÓN ------------------------------ */
+function ccCalcLitros(){
+  var tid=gv('cc-med-tanque'), cm=gv('cc-med-cm');
+  var l=combLitros(tid,cm);
+  sv('cc-med-litros', l? l.toLocaleString('es-VE',{maximumFractionDigits:1})+' L':'0 L');
+  g('cc-med-litros')&&(g('cc-med-litros').dataset.litros=l);
+}
+
+async function guardarMedicionTanque(){
+  var tid=gv('cc-med-tanque'), cm=parseFloat(gv('cc-med-cm')), momento=gv('cc-med-momento');
+  var fecha=gv('cc-med-fecha')||ccHoy(), por=gv('cc-med-por')||(SESION?SESION.nombre:'?'), notas=gv('cc-med-notas');
+  if(!tid){alert('Selecciona un tanque');return;}
+  if(isNaN(cm)||cm<0){alert('Ingresa la altura en cm');return;}
+  var t=ccTanque(tid), maxH=t?parseFloat(t.altura_max_cm):0;
+  if(maxH&&cm>maxH){if(!confirm('La altura ('+cm+' cm) supera el máximo del tanque ('+maxH+' cm). ¿Registrar de todos modos como tanque lleno?'))return;}
+  var litros=combLitros(tid,cm);
+  var row={fecha:fecha,tanque_id:tid,vehiculo_id:null,momento:momento,altura_cm:cm,litros_calculados:litros,registrado_por:por,notas:notas||null};
+  var ok=false;
+  if(DB_READY&&supabase){
+    try{var res=await supabase.from('combustible_mediciones').insert([row]).select();
+      if(res.error){mostrarToast('No se pudo guardar la medición: '+res.error.message,'error');}
+      else{ok=true;if(res.data&&res.data[0])COMB_MEDICIONES.unshift(res.data[0]);}
+    }catch(e){mostrarToast('Sin conexión al guardar la medición.','error');}
+  }
+  if(!ok&&typeof guardarEnCola==='function')guardarEnCola('combustible_mediciones',row);
+  if(typeof audit==='function')audit('Medición tanque',(t?t.nombre:tid)+' '+cm+'cm = '+litros+'L ('+momento+')');
+  sv('cc-med-cm','');ccCalcLitros();sv('cc-med-notas','');
+  mostrarToast(ok?('✅ Medición: '+(t?t.nombre:tid)+' '+litros+' L'):'⚠️ Medición en cola (sin conexión)', ok?'exito':'error');
+  renderCCMediciones();renderCCBalance();
+  await checkAlertasCombustible(false);
+}
+
+function renderCCMediciones(){
+  var tb=g('cc-tb-med'); if(!tb)return;
+  var filtro=gv('cc-med-filtro-fecha');
+  var rows=COMB_MEDICIONES.filter(function(m){return !filtro||m.fecha===filtro;}).slice(0,200);
+  if(!rows.length){tb.innerHTML='<tr><td colspan="7" style="text-align:center;color:var(--text3);padding:14px">Sin mediciones'+(filtro?' para esa fecha':'')+'</td></tr>';return;}
+  tb.innerHTML=rows.map(function(m){
+    var t=ccTanque(m.tanque_id);
+    var mom=m.momento==='inicio'?'Inicio':m.momento==='fin'?'Fin':m.momento==='salida'?'Salida':m.momento==='llegada'?'Llegada':m.momento;
+    return '<tr><td>'+fmtFechaCorta(m.fecha)+'</td><td>'+(t?t.nombre:m.tanque_id)+(m.vehiculo_id?' ('+m.vehiculo_id+')':'')+'</td><td>'+mom+'</td><td style="font-family:var(--m)">'+m.altura_cm+'</td><td style="font-family:var(--m);color:var(--green2)">'+(parseFloat(m.litros_calculados)||0).toLocaleString()+'</td><td style="font-size:11px">'+(m.registrado_por||'')+'</td>'+
+      '<td>'+(typeof esSuperAdmin==='function'&&esSuperAdmin()?'<button class="btn btn-r btn-xs" onclick="borrarMedicionTanque(\''+m.id+'\')">🗑</button>':'')+'</td></tr>';
+  }).join('');
+}
+
+async function borrarMedicionTanque(id){
+  if(typeof esSuperAdmin!=='function'||!esSuperAdmin()){alert('Solo superadmin puede eliminar');return;}
+  if(!confirm('¿Eliminar esta medición?'))return;
+  try{var r=await supabase.from('combustible_mediciones').delete().eq('id',id);
+    if(r.error){mostrarToast('No se pudo eliminar: '+r.error.message,'error');return;}
+  }catch(e){mostrarToast('Sin conexión','error');return;}
+  COMB_MEDICIONES=COMB_MEDICIONES.filter(function(m){return m.id!==id;});
+  if(typeof audit==='function')audit('Borrar medición tanque',id);
+  mostrarToast('🗑 Medición eliminada','exito');
+  renderCCMediciones();renderCCBalance();
+}
+
+function renderCCBalance(){
+  var box=g('cc-balance'); if(!box)return;
+  var fecha=gv('cc-bal-fecha')||ccHoy();
+  var ini=ccLitrosGalponFecha(fecha,'inicio');
+  var fin=ccLitrosGalponFecha(fecha,'fin');
+  var compras=ccLitrosComprasFecha(fecha);
+  var despachos=ccLitrosDespachadosFecha(fecha);
+  var esperado=(ini!=null)?(ini+compras-despachos):null;
+  var dif=(esperado!=null&&fin!=null)?(esperado-fin):null;
+  function fl(v){return v==null?'<span style="color:var(--text3)">— sin medición</span>':('<b style="font-family:var(--m)">'+(Math.round(v)).toLocaleString()+' L</b>');}
+  var html='<table style="width:100%;font-size:13px"><tbody>'+
+    '<tr><td>Litros inicio (mañana)</td><td style="text-align:right">'+fl(ini)+'</td></tr>'+
+    '<tr><td>+ Compras del día (Tumaca/Boscán)</td><td style="text-align:right;color:var(--green2)">+'+Math.round(compras).toLocaleString()+' L</td></tr>'+
+    '<tr><td>− Despachos a camiones</td><td style="text-align:right;color:var(--yellow)">−'+Math.round(despachos).toLocaleString()+' L</td></tr>'+
+    '<tr style="border-top:1px solid var(--border)"><td><b>= Esperado fin del día</b></td><td style="text-align:right">'+fl(esperado)+'</td></tr>'+
+    '<tr><td><b>Real fin del día (medición tarde)</b></td><td style="text-align:right">'+fl(fin)+'</td></tr>';
+  if(dif!=null){
+    var ad=Math.abs(dif), col=ad>50?'var(--red)':ad>20?'var(--yellow)':'var(--green2)';
+    var txt=ad>50?'⚠️ FUGA/FALTANTE CRÍTICO':ad>20?'⚠ Diferencia a revisar':'✓ Dentro de tolerancia';
+    html+='<tr style="border-top:2px solid '+col+'"><td><b>Diferencia</b></td><td style="text-align:right;color:'+col+'"><b>'+(dif>0?'−':'+')+Math.round(ad).toLocaleString()+' L</b></td></tr>'+
+      '<tr><td colspan="2" style="color:'+col+';font-size:12px;text-align:center;padding-top:4px">'+txt+'</td></tr>';
+  }
+  html+='</tbody></table>';
+  if(ini==null||fin==null)html+='<div style="font-size:11px;color:var(--text3);margin-top:8px">Registra medición de <b>Inicio</b> y <b>Fin</b> del día para calcular el balance completo.</div>';
+  // Detalle por tanque
+  html+='<div style="margin-top:10px;border-top:1px solid var(--border);padding-top:8px;font-size:12px">';
+  ccTanquesGalpon().forEach(function(t){
+    var mi=ccMedicion(t.id,fecha,'inicio'), mf2=ccMedicion(t.id,fecha,'fin');
+    html+='<div style="display:flex;justify-content:space-between;margin-bottom:3px"><span>'+t.nombre+'</span><span style="font-family:var(--m);color:var(--text2)">ini '+(mi?Math.round(mi.litros_calculados)+'L':'—')+' · fin '+(mf2?Math.round(mf2.litros_calculados)+'L':'—')+'</span></div>';
+  });
+  html+='</div>';
+  box.innerHTML=html;
+}
+
+/* ------------------------------ TAB DASHBOARD ----------------------------- */
+async function renderCCDashboard(){
+  var hoy=ccHoy();
+  // KPI galpón
+  var galpon=ccLitrosGalponFecha(hoy,null); if(galpon==null)galpon=ccUltimoNivelGalpon();
+  g('cc-kpi-galpon')&&(g('cc-kpi-galpon').textContent=galpon==null?'—':Math.round(galpon).toLocaleString()+' L');
+  // KPI despachado hoy
+  g('cc-kpi-desp')&&(g('cc-kpi-desp').textContent=Math.round(ccLitrosDespachadosFecha(hoy)).toLocaleString()+' L');
+  // KPI alertas
+  var activas=COMB_ALERTAS.filter(function(a){return !a.revisada;}).length;
+  g('cc-kpi-alertas')&&(g('cc-kpi-alertas').textContent=activas);
+  // KPI eficiencia (necesita viajes de hoy)
+  var viajes=await ccViajesPorCam(hoy);
+  var scores=[];
+  ccVehiculosActivos().forEach(function(v){
+    var vi=viajes[v.id]||0; if(!vi)return;
+    var esperado=vi*(parseFloat(v.consumo_estimado_por_viaje)||22.5);
+    var real=ccLitrosCamFecha(v.id,hoy); if(real<=0)return;
+    var desv=Math.abs((real-esperado)/esperado*100);
+    scores.push(Math.max(0,100-desv));
+  });
+  var efi=scores.length?Math.round(scores.reduce(function(a,b){return a+b;},0)/scores.length):null;
+  g('cc-kpi-efi')&&(g('cc-kpi-efi').textContent=efi==null?'—':efi+'%');
+  // Lista de alertas
+  renderCCAlertasLista();
+  // Chart 7 días
+  await renderCCChartSemana();
+}
+
+function renderCCAlertasLista(){
+  var box=g('cc-alertas-lista'); if(!box)return;
+  var orden={critica:0,advertencia:1,info:2};
+  var activas=COMB_ALERTAS.filter(function(a){return !a.revisada;}).sort(function(a,b){return (orden[a.severidad]||3)-(orden[b.severidad]||3);});
+  if(!activas.length){box.innerHTML='<div style="color:var(--green2);text-align:center;padding:16px">✓ No hay alertas activas</div>';return;}
+  box.innerHTML=activas.map(function(a){
+    var col=a.severidad==='critica'?'var(--red)':a.severidad==='advertencia'?'var(--yellow)':'var(--blue)';
+    var ico=a.severidad==='critica'?'🔴':a.severidad==='advertencia'?'🟡':'🔵';
+    return '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:9px 11px;border-left:3px solid '+col+';background:var(--bg3);border-radius:6px;margin-bottom:6px">'+
+      '<div style="flex:1"><div style="font-weight:700;font-size:13px;color:'+col+'">'+ico+' '+a.tipo+(a.vehiculo_id?' · '+a.vehiculo_id:'')+'</div>'+
+      '<div style="font-size:12px;color:var(--text2);margin-top:2px">'+a.descripcion+'</div>'+
+      '<div style="font-size:10px;color:var(--text3);margin-top:2px">'+fmtFechaCorta(a.fecha)+(a.diferencia_litros!=null?' · '+Math.round(a.diferencia_litros)+' L':'')+'</div></div>'+
+      '<button class="btn btn-s btn-xs" onclick="marcarAlertaRevisada(\''+a.id+'\')">✓ Revisada</button></div>';
+  }).join('');
+}
+
+async function marcarAlertaRevisada(id){
+  try{var r=await supabase.from('combustible_alertas').update({revisada:true}).eq('id',id);
+    if(r.error){mostrarToast('No se pudo actualizar: '+r.error.message,'error');return;}
+  }catch(e){mostrarToast('Sin conexión','error');return;}
+  COMB_ALERTAS.forEach(function(a){if(a.id===id)a.revisada=true;});
+  if(typeof audit==='function')audit('Alerta combustible revisada',id);
+  renderCCAlertasLista();renderCCDashboard();
+}
+
+async function renderCCChartSemana(){
+  var box=g('cc-chart-sem'); if(!box)return;
+  var dias=[], hoy=new Date(ccHoy()+'T00:00:00');
+  for(var i=6;i>=0;i--){var d=new Date(hoy);d.setDate(d.getDate()-i);dias.push(d.toISOString().slice(0,10));}
+  var datos=[];
+  for(var j=0;j<dias.length;j++){
+    var f=dias[j];
+    var vmap=await ccViajesPorCam(f);
+    var nvia=0;for(var k in vmap)nvia+=vmap[k];
+    datos.push({f:f,litros:ccLitrosDespachadosFecha(f),viajes:nvia});
+  }
+  var maxL=Math.max(1,Math.max.apply(null,datos.map(function(d){return d.litros;})));
+  var maxV=Math.max(1,Math.max.apply(null,datos.map(function(d){return d.viajes;})));
+  var W=Math.max(320,box.clientWidth||340), H=160, pad=24, bw=(W-pad*2)/datos.length;
+  var svg='<svg width="100%" viewBox="0 0 '+W+' '+H+'" style="font-family:var(--m)">';
+  datos.forEach(function(d,i){
+    var x=pad+i*bw;
+    var hL=(d.litros/maxL)*(H-40), hV=(d.viajes/maxV)*(H-40);
+    svg+='<rect x="'+(x+bw*0.18)+'" y="'+(H-20-hL)+'" width="'+(bw*0.3)+'" height="'+hL+'" fill="#7dc941" rx="2"/>';
+    svg+='<rect x="'+(x+bw*0.52)+'" y="'+(H-20-hV)+'" width="'+(bw*0.3)+'" height="'+hV+'" fill="#3b82f6" rx="2"/>';
+    svg+='<text x="'+(x+bw*0.5)+'" y="'+(H-6)+'" font-size="9" fill="#888" text-anchor="middle">'+d.f.slice(8,10)+'/'+d.f.slice(5,7)+'</text>';
+  });
+  svg+='</svg>';
+  svg+='<div style="display:flex;gap:14px;justify-content:center;font-size:11px;margin-top:4px"><span style="color:#7dc941">■ Litros despachados</span><span style="color:#3b82f6">■ Viajes</span></div>';
+  box.innerHTML=svg;
+}
+
+/* ----------------------------- TAB POR CAMIÓN ----------------------------- */
+async function renderCCPorCamion(){
+  var tb=g('cc-tb-cam'); if(!tb)return;
+  var fecha=gv('cc-cam-fecha')||ccHoy();
+  var viajes=await ccViajesPorCam(fecha);
+  var vehs=ccVehiculosActivos();
+  if(!vehs.length){tb.innerHTML='<tr><td colspan="8" style="text-align:center;color:var(--text3);padding:14px">No hay vehículos configurados</td></tr>';return;}
+  tb.innerHTML=vehs.map(function(v){
+    var vi=viajes[v.id]||0;
+    var real=ccLitrosCamFecha(v.id,fecha);
+    var kpv=parseFloat(v.consumo_estimado_por_viaje)||22.5;
+    var esperado=vi*kpv;
+    var kmh=0; if(typeof KM_DATA!=='undefined'&&KM_DATA[v.id]){kmh=Math.max(0,(parseFloat(KM_DATA[v.id].km)||0)-(parseFloat(KM_DATA[v.id].km_entrada_ayer)||0));}
+    var tol=parseFloat(v.tolerancia_alerta_pct)||15;
+    var desv=esperado>0?((real-esperado)/esperado*100):(real>0?999:0);
+    var ad=Math.abs(desv);
+    var col=ad<=tol?'var(--green2)':ad<=tol+10?'var(--yellow)':'var(--red)';
+    var sem=ad<=tol?'🟢':ad<=tol+10?'🟡':'🔴';
+    var desvTxt=esperado>0?((desv>0?'+':'')+Math.round(desv)+'%'):(real>0?'sin viajes':'—');
+    return '<tr><td><b>'+v.nombre+'</b></td>'+
+      '<td style="font-family:var(--m)">'+Math.round(real).toLocaleString()+' L</td>'+
+      '<td style="text-align:center">'+vi+'</td>'+
+      '<td style="font-family:var(--m)">'+(kmh?kmh.toLocaleString()+' km':'—')+'</td>'+
+      '<td style="font-family:var(--m);color:var(--text2)">'+Math.round(esperado).toLocaleString()+'</td>'+
+      '<td style="font-family:var(--m)">'+Math.round(real).toLocaleString()+'</td>'+
+      '<td style="font-family:var(--m);color:'+col+'">'+desvTxt+'</td>'+
+      '<td style="text-align:center">'+sem+'</td></tr>';
+  }).join('');
+  // poblar selector historial si vacío
+  var selH=g('cc-cam-hist-sel'); if(selH&&!selH.options.length){ccPoblarSelects();}
+}
+
+async function renderCCHistCamion(){
+  var box=g('cc-cam-hist'); if(!box)return;
+  var cam=gv('cc-cam-hist-sel'); if(!cam){box.innerHTML='';return;}
+  var v=ccVehiculo(cam), kpv=v?(parseFloat(v.consumo_estimado_por_viaje)||22.5):22.5;
+  var dias=[], hoy=new Date(ccHoy()+'T00:00:00');
+  for(var i=6;i>=0;i--){var d=new Date(hoy);d.setDate(d.getDate()-i);dias.push(d.toISOString().slice(0,10));}
+  var rows='';
+  for(var j=0;j<dias.length;j++){
+    var f=dias[j];
+    var vmap=await ccViajesPorCam(f);
+    var vi=vmap[cam]||0, real=ccLitrosCamFecha(cam,f), esp=vi*kpv;
+    var desv=esp>0?Math.round((real-esp)/esp*100):0;
+    var col=Math.abs(desv)<=15?'var(--green2)':Math.abs(desv)<=25?'var(--yellow)':'var(--red)';
+    rows+='<tr><td>'+fmtFechaCorta(f)+'</td><td style="text-align:center">'+vi+'</td><td style="font-family:var(--m)">'+Math.round(real)+' L</td><td style="font-family:var(--m);color:var(--text2)">'+Math.round(esp)+' L</td><td style="font-family:var(--m);color:'+col+'">'+(esp>0?(desv>0?'+':'')+desv+'%':'—')+'</td></tr>';
+  }
+  box.innerHTML='<div class="tw"><table><thead><tr><th>Fecha</th><th>Viajes</th><th>Real</th><th>Esperado</th><th>Desv.</th></tr></thead><tbody>'+rows+'</tbody></table></div>';
+}
+
+/* --------------------------- MOTOR DE ALERTAS ----------------------------- */
+function ccAlertaExiste(fecha,tipo,ref){
+  return COMB_ALERTAS.some(function(a){return a.fecha===fecha&&a.tipo===tipo&&((a.vehiculo_id||a.tanque_id||'')===(ref||''));});
+}
+async function checkAlertasCombustible(forzar){
+  if(!DB_READY||!supabase)return;
+  var hoy=ccHoy();
+  var nuevas=[];
+  // ALERTA 1 — Fuga tanque galpón (balance del día)
+  var ini=ccLitrosGalponFecha(hoy,'inicio'), fin=ccLitrosGalponFecha(hoy,'fin');
+  if(ini!=null&&fin!=null){
+    var esperado=ini+ccLitrosComprasFecha(hoy)-ccLitrosDespachadosFecha(hoy);
+    var dif=esperado-fin;
+    if(Math.abs(dif)>50&&!ccAlertaExiste(hoy,'Fuga tanque galpón','galpon'))
+      nuevas.push({fecha:hoy,tipo:'Fuga tanque galpón',vehiculo_id:null,tanque_id:'galpon',descripcion:'Balance del galpón con faltante de '+Math.round(Math.abs(dif))+' L (esperado '+Math.round(esperado)+' L vs real '+Math.round(fin)+' L).',diferencia_litros:Math.round(dif),severidad:'critica',revisada:false});
+    else if(Math.abs(dif)>20&&Math.abs(dif)<=50&&!ccAlertaExiste(hoy,'Diferencia tanque galpón','galpon'))
+      nuevas.push({fecha:hoy,tipo:'Diferencia tanque galpón',vehiculo_id:null,tanque_id:'galpon',descripcion:'Diferencia de '+Math.round(Math.abs(dif))+' L en el balance del galpón.',diferencia_litros:Math.round(dif),severidad:'advertencia',revisada:false});
+  }
+  // ALERTA 2 — Exceso de consumo por camión (litros recibidos vs viajes)
+  var viajes=await ccViajesPorCam(hoy);
+  ccVehiculosActivos().forEach(function(v){
+    var vi=viajes[v.id]||0, real=ccLitrosCamFecha(v.id,hoy);
+    if(real<=0)return;
+    if(vi===0){ if(!ccAlertaExiste(hoy,'Combustible sin viajes',v.id)) nuevas.push({fecha:hoy,tipo:'Combustible sin viajes',vehiculo_id:v.id,tanque_id:null,descripcion:v.nombre+' recibió '+Math.round(real)+' L pero no registró viajes hoy.',diferencia_litros:Math.round(real),severidad:'critica',revisada:false}); return; }
+    if(real>vi*32){ if(!ccAlertaExiste(hoy,'Exceso consumo crítico',v.id)) nuevas.push({fecha:hoy,tipo:'Exceso consumo crítico',vehiculo_id:v.id,tanque_id:null,descripcion:v.nombre+': '+Math.round(real)+' L para '+vi+' viajes ('+(real/vi).toFixed(1)+' L/viaje, límite 32).',diferencia_litros:Math.round(real-vi*22.5),severidad:'critica',revisada:false}); }
+    else if(real>vi*27){ if(!ccAlertaExiste(hoy,'Exceso consumo',v.id)) nuevas.push({fecha:hoy,tipo:'Exceso consumo',vehiculo_id:v.id,tanque_id:null,descripcion:v.nombre+': '+Math.round(real)+' L para '+vi+' viajes ('+(real/vi).toFixed(1)+' L/viaje, esperado ~22.5).',diferencia_litros:Math.round(real-vi*22.5),severidad:'advertencia',revisada:false}); }
+  });
+  // ALERTA 4 — Rendimiento bajo por KM (si hay consumo_fabrica_l100km configurado)
+  ccVehiculosActivos().forEach(function(v){
+    var cf=parseFloat(v.consumo_fabrica_l100km); if(!cf||cf<=0)return;
+    var km=0; if(typeof KM_DATA!=='undefined'&&KM_DATA[v.id])km=Math.max(0,(parseFloat(KM_DATA[v.id].km)||0)-(parseFloat(KM_DATA[v.id].km_entrada_ayer)||0));
+    var real=ccLitrosCamFecha(v.id,hoy);
+    if(km<=0||real<=0)return;
+    var l100=(real/km)*100;
+    if(l100>cf*1.35&&!ccAlertaExiste(hoy,'Rendimiento crítico (km)',v.id))
+      nuevas.push({fecha:hoy,tipo:'Rendimiento crítico (km)',vehiculo_id:v.id,tanque_id:null,descripcion:v.nombre+': '+l100.toFixed(1)+' L/100km (fábrica '+cf+', +35%).',diferencia_litros:null,severidad:'critica',revisada:false});
+    else if(l100>cf*1.20&&!ccAlertaExiste(hoy,'Rendimiento bajo (km)',v.id))
+      nuevas.push({fecha:hoy,tipo:'Rendimiento bajo (km)',vehiculo_id:v.id,tanque_id:null,descripcion:v.nombre+': '+l100.toFixed(1)+' L/100km (fábrica '+cf+', +20%).',diferencia_litros:null,severidad:'advertencia',revisada:false});
+  });
+  if(nuevas.length){
+    try{var res=await supabase.from('combustible_alertas').insert(nuevas).select();
+      if(!res.error&&res.data){res.data.forEach(function(a){COMB_ALERTAS.unshift(a);});
+        // WhatsApp para alertas críticas
+        if(typeof sendWA==='function')res.data.filter(function(a){return a.severidad==='critica';}).forEach(function(a){sendWA('⛽ ALERTA COMBUSTIBLE: '+a.descripcion,['socios','operador'],true);});
+      }
+    }catch(e){console.log('[COMB] insert alertas',e&&e.message);}
+  }
+  renderCCAlertasLista();
+  var k=g('cc-kpi-alertas'); if(k)k.textContent=COMB_ALERTAS.filter(function(a){return !a.revisada;}).length;
+  if(forzar)mostrarToast(nuevas.length?('Se generaron '+nuevas.length+' alerta(s)'):'Sin alertas nuevas','exito');
+}
+
+/* ----------------------- REPORTE MENSUAL + GEMINI ------------------------- */
+async function generarReporteCombustible(){
+  if(!DB_READY||!supabase){alert('Sin conexión a base de datos');return;}
+  var mes=parseInt(gv('cc-rep-mes'))||(new Date().getMonth()+1);
+  var anio=parseInt(gv('cc-rep-anio'))||new Date().getFullYear();
+  var pref=anio+'-'+ccPad2(mes);
+  var box=g('cc-rep-resultado'); box.innerHTML='<div class="card"><div style="text-align:center;color:var(--text3);padding:16px">Compilando reporte de '+pref+'...</div></div>';
+  g('cc-rep-gemini').innerHTML='';
+  try{
+    var ga=await supabase.from('gasoil').select('*').like('f',pref+'%');
+    var gas=(!ga.error&&ga.data)?ga.data:[];
+    var vc=await supabase.from('viajes_chofer').select('cam,fecha').like('fecha',pref+'%');
+    var via=(!vc.error&&vc.data)?vc.data:[];
+    var al=await supabase.from('combustible_alertas').select('*').like('fecha',pref+'%');
+    var alertas=(!al.error&&al.data)?al.data:[];
+    // Compras por proveedor
+    var compras={};
+    gas.filter(function(x){return ccEsCompra(x)||x.tipo_operacion==='compra';}).forEach(function(x){
+      var p=x.src||'Otro'; if(!compras[p])compras[p]={litros:0,costo:0};
+      compras[p].litros+=parseFloat(x.lit)||0; compras[p].costo+=parseFloat(x.m)||0;
+    });
+    // Despachos
+    var despTotL=0, despCam={};
+    gas.filter(function(x){return !(ccEsCompra(x)||x.tipo_operacion==='compra');}).forEach(function(x){
+      despTotL+=parseFloat(x.lit)||0; despCam[x.cam]=(despCam[x.cam]||0)+(parseFloat(x.lit)||0);
+    });
+    // Viajes por cam y total
+    var viaCam={}, viaTot=0; via.forEach(function(x){viaCam[x.cam]=(viaCam[x.cam]||0)+1;viaTot++;});
+    // Ranking eficiencia por camión
+    var ranking=ccVehiculosActivos().map(function(v){
+      var L=despCam[v.id]||0, vi=viaCam[v.id]||0, kpv=parseFloat(v.consumo_estimado_por_viaje)||22.5;
+      var esp=vi*kpv, lpv=vi>0?L/vi:0, desv=esp>0?((L-esp)/esp*100):0;
+      return {cam:v.nombre,litros:L,viajes:vi,lpv:lpv,esperado:esp,desv:desv};
+    }).filter(function(r){return r.viajes>0||r.litros>0;}).sort(function(a,b){return Math.abs(a.desv)-Math.abs(b.desv);});
+    // Consumo por semana (lunes-sábado) dentro del mes
+    var semanas={};
+    gas.filter(function(x){return !(ccEsCompra(x)||x.tipo_operacion==='compra');}).forEach(function(x){
+      var d=new Date(x.f+'T00:00:00'); var on=d.getDay(); var diff=(on===0?6:on-1); var lun=new Date(d); lun.setDate(d.getDate()-diff);
+      var key=lun.toISOString().slice(0,10); if(!semanas[key])semanas[key]={litros:0,viajes:0};
+      semanas[key].litros+=parseFloat(x.lit)||0;
+    });
+    via.forEach(function(x){var d=new Date(x.fecha+'T00:00:00');if(isNaN(d))return;var on=d.getDay();var diff=(on===0?6:on-1);var lun=new Date(d);lun.setDate(d.getDate()-diff);var key=lun.toISOString().slice(0,10);if(!semanas[key])semanas[key]={litros:0,viajes:0};semanas[key].viajes++;});
+    // Alertas por tipo
+    var alTipo={}; alertas.forEach(function(a){alTipo[a.tipo]=(alTipo[a.tipo]||0)+1;});
+    // Costo promedio por litro por proveedor + costo por viaje
+    var totalComprasUsd=0,totalComprasL=0; for(var p in compras){totalComprasUsd+=compras[p].costo;totalComprasL+=compras[p].litros;}
+    var costoLProm=totalComprasL>0?totalComprasUsd/totalComprasL:0;
+    var costoPorViaje=viaTot>0?(despTotL*costoLProm)/viaTot:0;
+
+    CC_REPORTE_ACTUAL={periodo:pref,mes:mes,anio:anio,compras:compras,despachado_litros:Math.round(despTotL),viajes_total:viaTot,ranking:ranking,semanas:semanas,alertas_por_tipo:alTipo,alertas_total:alertas.length,costo_litro_promedio:Math.round(costoLProm*1000)/1000,costo_por_viaje:Math.round(costoPorViaje*100)/100,nivel_galpon_actual:ccUltimoNivelGalpon()};
+
+    // Render
+    var meses=['','Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+    var h='<div class="card" style="margin-bottom:10px"><div class="sh"><div class="st">📊 Reporte '+meses[mes]+' '+anio+'</div></div>';
+    h+='<div class="g3" style="margin-bottom:10px">'+
+       '<div class="stat"><div class="stat-lbl">Despachado</div><div class="stat-val" style="font-size:16px">'+Math.round(despTotL).toLocaleString()+' L</div></div>'+
+       '<div class="stat y"><div class="stat-lbl">Viajes</div><div class="stat-val" style="font-size:16px;color:var(--yellow)">'+viaTot+'</div></div>'+
+       '<div class="stat"><div class="stat-lbl">Costo/Viaje</div><div class="stat-val" style="font-size:16px;color:var(--green2)">$'+costoPorViaje.toFixed(2)+'</div></div></div>';
+    h+='<div style="font-weight:700;margin:8px 0 4px">Compras por proveedor</div><div class="tw"><table><thead><tr><th>Proveedor</th><th>Litros</th><th>Costo USD</th><th>$/L</th></tr></thead><tbody>';
+    var hayC=false; for(var pr in compras){hayC=true;var c=compras[pr];h+='<tr><td>'+pr+'</td><td style="font-family:var(--m)">'+Math.round(c.litros).toLocaleString()+'</td><td style="font-family:var(--m)">$'+c.costo.toFixed(2)+'</td><td style="font-family:var(--m)">$'+(c.litros>0?(c.costo/c.litros).toFixed(3):'0')+'</td></tr>';}
+    if(!hayC)h+='<tr><td colspan="4" style="text-align:center;color:var(--text3)">Sin compras en el período</td></tr>';
+    h+='</tbody></table></div>';
+    h+='<div style="font-weight:700;margin:10px 0 4px">Ranking de eficiencia por camión</div><div class="tw"><table><thead><tr><th>#</th><th>Camión</th><th>Litros</th><th>Viajes</th><th>L/Viaje</th><th>Desv.</th></tr></thead><tbody>';
+    if(ranking.length)ranking.forEach(function(r,i){var col=Math.abs(r.desv)<=15?'var(--green2)':Math.abs(r.desv)<=25?'var(--yellow)':'var(--red)';h+='<tr><td>'+(i+1)+'</td><td>'+r.cam+'</td><td style="font-family:var(--m)">'+Math.round(r.litros)+'</td><td style="text-align:center">'+r.viajes+'</td><td style="font-family:var(--m)">'+r.lpv.toFixed(1)+'</td><td style="font-family:var(--m);color:'+col+'">'+(r.esperado>0?(r.desv>0?'+':'')+Math.round(r.desv)+'%':'—')+'</td></tr>';});
+    else h+='<tr><td colspan="6" style="text-align:center;color:var(--text3)">Sin datos de viajes/despachos</td></tr>';
+    h+='</tbody></table></div>';
+    h+='<div style="font-weight:700;margin:10px 0 4px">Consumo por semana</div><div class="tw"><table><thead><tr><th>Semana (desde)</th><th>Litros</th><th>Viajes</th><th>L/Viaje</th></tr></thead><tbody>';
+    var keys=Object.keys(semanas).sort();
+    if(keys.length)keys.forEach(function(k){var s=semanas[k];h+='<tr><td>'+fmtFechaCorta(k)+'</td><td style="font-family:var(--m)">'+Math.round(s.litros)+'</td><td style="text-align:center">'+s.viajes+'</td><td style="font-family:var(--m)">'+(s.viajes>0?(s.litros/s.viajes).toFixed(1):'—')+'</td></tr>';});
+    else h+='<tr><td colspan="4" style="text-align:center;color:var(--text3)">Sin datos</td></tr>';
+    h+='</tbody></table></div>';
+    h+='<div style="font-weight:700;margin:10px 0 4px">Alertas del mes ('+alertas.length+')</div>';
+    var hayA=false;for(var at in alTipo){hayA=true;h+='<div style="display:flex;justify-content:space-between;font-size:12px;padding:2px 0"><span>'+at+'</span><b>'+alTipo[at]+'</b></div>';}
+    if(!hayA)h+='<div style="color:var(--text3);font-size:12px">Sin alertas en el período ✓</div>';
+    h+='</div>';
+    box.innerHTML=h;
+    mostrarToast('✅ Reporte generado','exito');
+  }catch(e){box.innerHTML='<div class="card" style="color:var(--red)">Error generando reporte: '+(e&&e.message)+'</div>';}
+}
+
+async function analizarReporteGemini(){
+  if(!CC_REPORTE_ACTUAL){alert('Primero genera el reporte');return;}
+  var box=g('cc-rep-gemini'); box.innerHTML='<div class="card"><div style="text-align:center;color:var(--text3);padding:14px">🤖 Consultando a Gemini...</div></div>';
+  // Leer API key de configuracion (NUNCA en el HTML)
+  var key='';
+  try{var r=await supabase.from('configuracion').select('valor').eq('clave','gemini_api_key').maybeSingle();if(r&&r.data&&r.data.valor)key=String(r.data.valor).trim();}catch(e){}
+  if(!key){box.innerHTML='<div class="card" style="color:var(--yellow)">⚠ No hay API key de Gemini configurada. Ve a Configuración → ⛽ Combustible e ingrésala.</div>';return;}
+  var prompt='Eres un analista de flota de aseo urbano. Analiza este reporte mensual de combustible (12 camiones JAC, 2-4 viajes/día, ~22.5 L/viaje esperado) y responde en español con: 1) anomalías detectadas, 2) tendencias de consumo, 3) recomendaciones concretas de ahorro y control. Sé breve y directo. Datos JSON:\n'+JSON.stringify(CC_REPORTE_ACTUAL);
+  try{
+    var resp=await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key='+encodeURIComponent(key),{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({contents:[{parts:[{text:prompt}]}]})
+    });
+    var data=await resp.json();
+    if(!resp.ok){box.innerHTML='<div class="card" style="color:var(--red)">Error Gemini: '+((data&&data.error&&data.error.message)||resp.status)+'</div>';return;}
+    var txt=(data&&data.candidates&&data.candidates[0]&&data.candidates[0].content&&data.candidates[0].content.parts&&data.candidates[0].content.parts[0].text)||'(sin respuesta)';
+    box.innerHTML='<div class="card"><div class="sh"><div class="st">🤖 Análisis de Gemini — '+CC_REPORTE_ACTUAL.periodo+'</div></div><div style="white-space:pre-wrap;font-size:13px;line-height:1.5;color:var(--text)">'+txt.replace(/</g,'&lt;')+'</div></div>';
+    // Guardar análisis para historial
+    try{await supabase.from('configuracion').upsert([{clave:'comb_analisis_'+CC_REPORTE_ACTUAL.periodo,valor:JSON.stringify({periodo:CC_REPORTE_ACTUAL.periodo,fecha:new Date().toISOString(),analisis:txt,reporte:CC_REPORTE_ACTUAL})}],{onConflict:'clave'});}catch(e){}
+    if(typeof audit==='function')audit('Análisis Gemini combustible',CC_REPORTE_ACTUAL.periodo);
+  }catch(e){box.innerHTML='<div class="card" style="color:var(--red)">No se pudo conectar con Gemini: '+(e&&e.message)+'</div>';}
+}
+
+function imprimirReporteCombustible(){
+  var cont=(g('cc-rep-resultado')?g('cc-rep-resultado').innerHTML:'')+(g('cc-rep-gemini')?g('cc-rep-gemini').innerHTML:'');
+  if(!cont.trim()){alert('Primero genera el reporte');return;}
+  var w=window.open('','_blank');
+  w.document.write('<html><head><title>Reporte Combustible</title><style>body{font-family:Arial;padding:20px;color:#111}table{width:100%;border-collapse:collapse;margin:8px 0}th,td{border:1px solid #ccc;padding:5px 8px;font-size:12px;text-align:left}.stat-lbl{font-size:11px;color:#666}.stat-val{font-size:16px;font-weight:bold}.sh{font-weight:bold;font-size:15px;margin:10px 0}</style></head><body><h2>⛽ Reporte de Combustible — Inversiones Betangar CA</h2>'+cont+'</body></html>');
+  w.document.close();w.print();
+}
+
+/* ----------------------- CONFIGURACIÓN COMBUSTIBLE ------------------------ */
+async function renderCfgCombustible(){
+  if(!COMB_TANQUES.length||!COMB_VEHICULOS.length)await cargarCombustibleData();
+  // Gemini key
+  var st=g('cfg-comb-gemini-status');
+  try{var r=await supabase.from('configuracion').select('valor').eq('clave','gemini_api_key').maybeSingle();
+    if(r&&r.data&&r.data.valor){if(st)st.innerHTML='<span style="color:var(--green2)">✓ API key configurada</span>';}
+    else{if(st)st.textContent='Sin API key configurada.';}
+  }catch(e){}
+  // Vehículos
+  var tbv=g('cfg-comb-veh');
+  if(tbv)tbv.innerHTML=COMB_VEHICULOS.map(function(v){
+    return '<tr><td style="font-family:var(--m)">'+v.id+'</td><td><input class="fc" id="cv-nom-'+v.id+'" value="'+(v.nombre||'').replace(/"/g,'&quot;')+'" style="padding:4px 6px;font-size:11px"></td>'+
+      '<td><input class="fc" id="cv-lpv-'+v.id+'" type="number" step="0.1" value="'+(v.consumo_estimado_por_viaje!=null?v.consumo_estimado_por_viaje:22.5)+'" style="width:70px;padding:4px 6px;font-size:11px"></td>'+
+      '<td><input class="fc" id="cv-tol-'+v.id+'" type="number" step="1" value="'+(v.tolerancia_alerta_pct!=null?v.tolerancia_alerta_pct:15)+'" style="width:60px;padding:4px 6px;font-size:11px"></td>'+
+      '<td><input class="fc" id="cv-cf-'+v.id+'" type="number" step="0.1" value="'+(v.consumo_fabrica_l100km!=null?v.consumo_fabrica_l100km:'')+'" placeholder="—" style="width:70px;padding:4px 6px;font-size:11px"></td>'+
+      '<td style="text-align:center"><input type="checkbox" id="cv-act-'+v.id+'" '+(v.activo!==false?'checked':'')+'></td>'+
+      '<td><button class="btn btn-g btn-xs" onclick="guardarVehiculoComb(\''+v.id+'\')">💾</button></td></tr>';
+  }).join('')||'<tr><td colspan="7" style="text-align:center;color:var(--text3)">Sin vehículos</td></tr>';
+  // Tanques
+  var tbt=g('cfg-comb-tanques');
+  if(tbt)tbt.innerHTML=COMB_TANQUES.map(function(t){
+    var pts=t.tabla_cubicacion?Object.keys(t.tabla_cubicacion).length:0;
+    return '<tr><td style="font-family:var(--m)">'+t.id+'</td><td>'+t.nombre+'</td><td>'+t.tipo+'</td><td style="font-family:var(--m)">'+t.capacidad_litros+' L</td><td style="font-family:var(--m)">'+t.altura_max_cm+' cm</td><td style="text-align:center">'+pts+'</td><td style="text-align:center">'+(t.activo!==false?'✓':'—')+'</td></tr>';
+  }).join('')||'<tr><td colspan="7" style="text-align:center;color:var(--text3)">Sin tanques</td></tr>';
+}
+
+async function guardarGeminiKey(){
+  var key=(gv('cfg-comb-gemini')||'').trim();
+  if(!key){alert('Ingresa la API key');return;}
+  try{var r=await supabase.from('configuracion').upsert([{clave:'gemini_api_key',valor:key}],{onConflict:'clave'});
+    if(r.error){mostrarToast('No se pudo guardar: '+r.error.message,'error');return;}
+  }catch(e){mostrarToast('Sin conexión','error');return;}
+  if(typeof audit==='function')audit('Config Gemini key','actualizada');
+  sv('cfg-comb-gemini','');
+  var st=g('cfg-comb-gemini-status');if(st)st.innerHTML='<span style="color:var(--green2)">✓ API key guardada</span>';
+  mostrarToast('✅ API key de Gemini guardada','exito');
+}
+
+async function guardarVehiculoComb(id){
+  var v=ccVehiculo(id); if(!v)return;
+  var upd={
+    nombre:gv('cv-nom-'+id)||v.nombre,
+    consumo_estimado_por_viaje:parseFloat(gv('cv-lpv-'+id))||22.5,
+    tolerancia_alerta_pct:parseFloat(gv('cv-tol-'+id))||15,
+    consumo_fabrica_l100km:(gv('cv-cf-'+id)===''?null:parseFloat(gv('cv-cf-'+id))),
+    activo:(g('cv-act-'+id)?g('cv-act-'+id).checked:true)
+  };
+  try{var r=await supabase.from('combustible_vehiculos_config').update(upd).eq('id',id);
+    if(r.error){mostrarToast('No se pudo guardar: '+r.error.message,'error');return;}
+  }catch(e){mostrarToast('Sin conexión','error');return;}
+  Object.assign(v,upd);
+  if(typeof audit==='function')audit('Config vehículo combustible',id);
+  mostrarToast('✅ '+id+' actualizado','exito');
+}
+
+async function nuevoVehiculoComb(){
+  var id=prompt('ID del vehículo (ej: JAC-B013):'); if(!id||!id.trim())return; id=id.trim();
+  if(ccVehiculo(id)){alert('Ya existe ese ID');return;}
+  var row={id:id,nombre:id,marca:'',modelo:'',consumo_fabrica_l100km:null,consumo_estimado_por_viaje:22.5,tolerancia_alerta_pct:15,tanque_id:'tanque-jac',activo:true};
+  try{var r=await supabase.from('combustible_vehiculos_config').insert([row]).select();
+    if(r.error){mostrarToast('No se pudo crear: '+r.error.message,'error');return;}
+    if(r.data&&r.data[0])COMB_VEHICULOS.push(r.data[0]);
+  }catch(e){mostrarToast('Sin conexión','error');return;}
+  if(typeof audit==='function')audit('Nuevo vehículo combustible',id);
+  mostrarToast('✅ Vehículo '+id+' creado','exito');
+  renderCfgCombustible();
 }
 </script>
 

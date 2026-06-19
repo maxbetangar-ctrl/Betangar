@@ -278,6 +278,21 @@ body{background:#0f1923;color:#fff;font-family:-apple-system,BlinkMacSystemFont,
             <button class="comb-btn" onclick="selComb('llegada','reserva',this)">RESERVA</button>
           </div>
         </div>
+        <div style="margin-top:14px;border-top:1px dashed rgba(255,255,255,.15);padding-top:10px">
+          <div class="cl-label" style="margin-bottom:6px">📐 Medición del tanque con regla (cm) — opcional</div>
+          <div class="cl-row">
+            <div class="cl-field" id="cl-cm-salida-cont">
+              <label class="cl-label">CM al SALIR del galpón (0-46)</label>
+              <input class="cl-input" type="number" step="0.1" min="0" max="46" id="cl-cm-salida" placeholder="0" oninput="clCalcLitrosCm('salida')">
+              <div id="cl-cm-salida-l" style="font-size:12px;color:#7dc941;margin-top:3px"></div>
+            </div>
+            <div class="cl-field" id="cl-cm-llegada-cont" style="display:none">
+              <label class="cl-label">CM al REGRESAR al galpón (0-46)</label>
+              <input class="cl-input" type="number" step="0.1" min="0" max="46" id="cl-cm-llegada" placeholder="0" oninput="clCalcLitrosCm('llegada')">
+              <div id="cl-cm-llegada-l" style="font-size:12px;color:#7dc941;margin-top:3px"></div>
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- Inspección (solo salida) -->
@@ -916,6 +931,7 @@ function renderChecklistModo(){
     if(rowLle) { rowLle.style.display='flex'; }
     if(secIns) { secIns.style.display='none'; }
     if(combLle){ combLle.style.display='block'; }
+    var cmLle=document.getElementById('cl-cm-llegada-cont'); if(cmLle)cmLle.style.display='block';
     if(btnG)   { btnG.textContent='🌙 Guardar Llegada'; btnG.disabled=false; }
     // Bloquear km salida (ya registrado)
     var kmSal = document.getElementById('cl-km-salida');
@@ -934,6 +950,7 @@ function renderChecklistModo(){
     if(rowLle) { rowLle.style.display='none'; }
     if(secIns) { secIns.style.display='block'; }
     if(combLle){ combLle.style.display='none'; }
+    var cmLle2=document.getElementById('cl-cm-llegada-cont'); if(cmLle2)cmLle2.style.display='none';
     if(btnG)   { btnG.textContent='☀️ Guardar Salida'; btnG.disabled=false; }
   }
 
@@ -1002,6 +1019,31 @@ function setVal(id, val){ var el=document.getElementById(id); if(el&&val!==null&
 function gv(id){ var el=document.getElementById(id); return el?el.value.trim():''; }
 
 // ── GUARDAR CHECKLIST ──
+// Tabla de cubicación del tanque JAC (cm -> litros). Espejo de combustible_tanques_config(tanque-jac).
+var CL_JAC_CUB={1:13.04,2:26.09,3:39.13,4:52.17,5:65.22,6:78.26,7:91.30,8:104.35,9:117.39,10:130.43,11:143.48,12:156.52,13:169.57,14:182.61,15:195.65,16:208.70,17:221.74,18:234.78,19:247.83,20:260.87,21:273.91,22:286.96,23:300.00,24:313.04,25:326.09,26:339.13,27:352.17,28:365.22,29:378.26,30:391.30,31:404.35,32:417.39,33:430.43,34:443.48,35:456.52,36:469.57,37:482.61,38:495.65,39:508.70,40:521.74,41:534.78,42:547.83,43:560.87,44:573.91,45:586.96,46:600.00};
+function clLitrosJac(cm){
+  cm=parseFloat(cm); if(isNaN(cm)||cm<0)return 0; if(cm>46)cm=46;
+  function val(k){ if(k<=0)return 0; if(CL_JAC_CUB[k]!=null)return CL_JAC_CUB[k]; var kk=k; while(kk>0&&CL_JAC_CUB[kk]==null)kk--; return kk>0?CL_JAC_CUB[kk]:0; }
+  var lo=Math.floor(cm), hi=Math.ceil(cm);
+  if(lo===hi)return Math.round(val(lo)*100)/100;
+  return Math.round((val(lo)+(val(hi)-val(lo))*(cm-lo))*100)/100;
+}
+function clCalcLitrosCm(momento){
+  var v=gv('cl-cm-'+momento); var l=clLitrosJac(v);
+  var box=document.getElementById('cl-cm-'+momento+'-l');
+  if(box)box.textContent=l?('≈ '+l.toLocaleString('es-VE',{maximumFractionDigits:1})+' L'):'';
+}
+async function clGuardarMedicionCm(momento){
+  var cmV=parseFloat(gv('cl-cm-'+momento));
+  if(isNaN(cmV)||cmV<=0)return; // medición opcional
+  var litros=clLitrosJac(cmV);
+  var row={fecha:hoy,tanque_id:'tanque-jac',vehiculo_id:cam,momento:momento,altura_cm:cmV,litros_calculados:litros,registrado_por:(chofer||'chofer'),notas:'Medición chofer '+cam};
+  try{
+    if(isOnline&&supabase){ var r=await supabase.from('combustible_mediciones').insert([row]); if(r.error)console.error('medicion cm error',r.error); }
+    else { localStorage.setItem('btg_medcm_'+cam+'_'+hoy+'_'+momento, JSON.stringify(row)); }
+  }catch(e){ try{localStorage.setItem('btg_medcm_'+cam+'_'+hoy+'_'+momento, JSON.stringify(row));}catch(e2){} }
+}
+
 async function guardarChecklist(){
   if(CL_MODO==='bloqueado'){ mostrarToast('El mecánico ya registró este checklist','warn'); return; }
 
@@ -1080,6 +1122,9 @@ async function guardarChecklist(){
 
   if(guardadoOk){
     mostrarToast(CL_MODO==='salida' ? '☀️ Salida registrada' : '🌙 Llegada registrada');
+
+    // Medición del tanque con regla (cm -> litros) -> combustible_mediciones
+    try{ await clGuardarMedicionCm(CL_MODO==='salida'?'salida':'llegada'); }catch(e){}
 
     // Notificar a Máximo por WhatsApp
     enviarNotificacionWA(registro);
