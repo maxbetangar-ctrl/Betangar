@@ -3,7 +3,7 @@
 // PWA Offline-First para choferes
 // ═══════════════════════════════════════════════════
 
-const CACHE_NAME = 'betangar-chofer-v2';
+const CACHE_NAME = 'betangar-chofer-v3'; // v3: fix anon key inválida (viajes no subían)
 
 // Archivos a cachear para funcionar sin internet
 const ARCHIVOS_CACHE = [
