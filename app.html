@@ -1359,6 +1359,16 @@ tr:hover td{background:rgba(45,255,122,.02)}
       <div class="stat" style="border-top-color:var(--green2)"><div class="stat-lbl">Eficiencia Flota</div><div class="stat-val" style="font-size:18px;color:var(--green2)" id="cc-kpi-efi">-</div><div class="stat-sub">real vs esperado</div></div>
       <div class="stat r"><div class="stat-lbl">Alertas Activas</div><div class="stat-val" style="font-size:18px;color:var(--red)" id="cc-kpi-alertas">-</div><div class="stat-sub">sin revisar</div></div>
     </div>
+    <div class="g4" style="margin-bottom:10px">
+      <div class="stat b"><div class="stat-lbl">Checklist Hoy</div><div class="stat-val" style="font-size:18px;color:var(--blue)" id="cc-kpi-checklist">-</div><div class="stat-sub" id="cc-kpi-checklist-sub">de la flota</div></div>
+      <div class="stat"><div class="stat-lbl">Viajes Hoy</div><div class="stat-val" style="font-size:18px" id="cc-kpi-viajes">-</div><div class="stat-sub">todos los camiones</div></div>
+      <div class="stat" style="border-top-color:var(--green2)"><div class="stat-lbl">Camiones Operativos</div><div class="stat-val" style="font-size:18px;color:var(--green2)" id="cc-kpi-operativos">-</div><div class="stat-sub">con checklist hoy</div></div>
+      <div class="stat y"><div class="stat-lbl">KM Flota Hoy</div><div class="stat-val" style="font-size:18px;color:var(--yellow)" id="cc-kpi-km">-</div><div class="stat-sub">recorridos</div></div>
+    </div>
+    <div class="card" style="margin-bottom:10px">
+      <div class="sh"><div class="st">🚛 Estado de la flota hoy</div></div>
+      <div id="cc-flota-hoy"><div style="color:var(--text3);text-align:center;padding:10px">Cargando...</div></div>
+    </div>
     <div class="card" style="margin-bottom:10px">
       <div class="sh" style="display:flex;justify-content:space-between;align-items:center">
         <div class="st">🚨 Alertas</div>
@@ -2130,6 +2140,9 @@ var ABONOS=[];
 // "1004" cuenten como la misma factura.
 var ABONOS_PROTEGIDOS=new Set();
 var GASOIL=[],GASOL=[];
+// Capa de datos compartida entre módulos: viajes de choferes y checklists (km por día).
+// GASOIL y KM_DATA ya existen. Estos arrays quedan disponibles para TODOS los módulos.
+var VIAJES_CHOFER=[], CHECKLIST_DATA=[];
 try{var _gasoil=localStorage.getItem('btg_gasoil');if(_gasoil&&_gasoil!=='[]')GASOIL=JSON.parse(_gasoil);}catch(e){}
 try{var _gasol=localStorage.getItem('btg_gasol');if(_gasol&&_gasol!=='[]')GASOL=JSON.parse(_gasol);}catch(e){}
 // Sin semilla hardcodeada (mismos 5 de muestra que reaparecían en el tab Alcaldía tras
@@ -2915,6 +2928,7 @@ async function cargarDatosDB(){
     console.log('DB cargada: planillas='+REGS.length+' abonos='+ABONOS.length+' empleados='+EMPLEADOS.length);
     if(EMPLEADOS.length>0){setTimeout(function(){renderEmpleados();},100);}
     cargarCfgCorrelativo();
+    cargarDatosCompartidos(); // Capa compartida: viajes_chofer + checklist en memoria global
     cargarCombustibleData(); // Cargar config/mediciones/alertas del módulo Control Combustible
     cargarCxP(); // Cargar CxP al inicio
     // Notificar pagos BNC pendientes ahora que DB está lista
@@ -12000,6 +12014,51 @@ var CC_REPORTE_ACTUAL=null;
 function ccPad2(n){n=String(n);return n.length<2?'0'+n:n;}
 function ccHoy(){return new Date().toISOString().slice(0,10);}
 
+/* ============================================================================
+   CAPA DE DATOS COMPARTIDA — carga en memoria global las tablas que cruzan
+   varios módulos (viajes_chofer, checklist). GASOIL y KM_DATA ya se cargan en
+   cargarDatosDB. Disponible para TODOS los módulos vía los helpers de abajo.
+   ============================================================================ */
+async function cargarDatosCompartidos(){
+  if(!DB_READY||!supabase)return;
+  try{
+    var v=await supabase.from('viajes_chofer').select('*').order('fecha',{ascending:false}).limit(5000);
+    if(!v.error&&Array.isArray(v.data))VIAJES_CHOFER=v.data;
+  }catch(e){console.log('[compartido] viajes_chofer',e&&e.message);}
+  try{
+    var c=await supabase.from('checklist').select('*').order('fecha',{ascending:false}).limit(5000);
+    if(!c.error&&Array.isArray(c.data))CHECKLIST_DATA=c.data;
+  }catch(e){console.log('[compartido] checklist',e&&e.message);}
+  console.log('[compartido] viajes='+VIAJES_CHOFER.length+' checklist='+CHECKLIST_DATA.length+' gasoil='+(typeof GASOIL!=='undefined'?GASOIL.length:0)+' km='+(typeof KM_DATA!=='undefined'?Object.keys(KM_DATA).length:0));
+}
+
+// ---- Helpers de cruce (cam + fecha en formato YYYY-MM-DD) usables por cualquier módulo ----
+function viajesMapaFecha(fecha){
+  var map={};
+  VIAJES_CHOFER.forEach(function(x){if(x.fecha===fecha)map[x.cam]=(map[x.cam]||0)+1;});
+  return map;
+}
+function viajesPorCamFecha(cam,fecha){
+  var n=0; VIAJES_CHOFER.forEach(function(x){if(x.cam===cam&&x.fecha===fecha)n++;}); return n;
+}
+function checklistDeFecha(fecha){return CHECKLIST_DATA.filter(function(x){return x.fecha===fecha;});}
+function checklistCamFecha(cam,fecha){
+  for(var i=0;i<CHECKLIST_DATA.length;i++){var c=CHECKLIST_DATA[i];if(c.cam===cam&&c.fecha===fecha)return c;}return null;
+}
+// KM recorridos por camión en un día = checklist.km_entrada - checklist.km_salida.
+// Origen único: tabla checklist (km_data solo guarda el odómetro actual, no el recorrido
+// de un día → usarlo daría el odómetro completo, no los km del día). Si no hay checklist
+// para ese día, no se conoce el recorrido → 0.
+function kmRecorridoCamFecha(cam,fecha){
+  var c=checklistCamFecha(cam,fecha);
+  if(c){
+    var ks=parseFloat(c.km_salida), ke=parseFloat(c.km_entrada);
+    if(!isNaN(ks)&&!isNaN(ke)&&ke>ks&&(ke-ks)<5000)return ke-ks; // tope de cordura: <5000 km/día
+  }
+  return 0;
+}
+function camTieneChecklistHoy(cam){return !!checklistCamFecha(cam,ccHoy());}
+
 async function cargarCombustibleData(){
   if(!DB_READY||!supabase)return;
   try{
@@ -12068,14 +12127,14 @@ function ccUltimoNivelGalpon(){
 }
 
 // Viajes por camión (consulta Supabase viajes_chofer para una fecha) -> {cam:count}
+// Lee de la capa compartida en memoria (VIAJES_CHOFER). Se mantiene async por
+// compatibilidad con los `await` existentes; si la memoria está vacía intenta
+// una carga puntual desde Supabase.
 async function ccViajesPorCam(fecha){
-  var map={};
-  if(!DB_READY||!supabase)return map;
-  try{
-    var r=await supabase.from('viajes_chofer').select('cam').eq('fecha',fecha);
-    if(!r.error&&Array.isArray(r.data))r.data.forEach(function(x){map[x.cam]=(map[x.cam]||0)+1;});
-  }catch(e){}
-  return map;
+  if((!VIAJES_CHOFER||!VIAJES_CHOFER.length)&&DB_READY&&supabase){
+    try{var r=await supabase.from('viajes_chofer').select('*').limit(5000);if(!r.error&&Array.isArray(r.data))VIAJES_CHOFER=r.data;}catch(e){}
+  }
+  return viajesMapaFecha(fecha);
 }
 
 /* --------------------------- NAVEGACIÓN / SELECTS --------------------------- */
@@ -12107,6 +12166,7 @@ function ccPoblarSelects(){
 async function renderControlComb(){
   if(!DB_READY||!supabase){var c=g('cc-alertas-lista');if(c)c.innerHTML='<div style="color:var(--text3);text-align:center;padding:16px">Sin conexión a base de datos</div>';return;}
   if(!COMB_TANQUES.length||!COMB_VEHICULOS.length)await cargarCombustibleData();
+  if((!VIAJES_CHOFER||!VIAJES_CHOFER.length)&&(!CHECKLIST_DATA||!CHECKLIST_DATA.length))await cargarDatosCompartidos();
   ccPoblarSelects();
   var hoy=ccHoy();
   ['cc-med-fecha','cc-bal-fecha','cc-cam-fecha'].forEach(function(id){var e=g(id);if(e&&!e.value)e.value=hoy;});
@@ -12207,6 +12267,35 @@ function renderCCBalance(){
   box.innerHTML=html;
 }
 
+/* --- Estado de la flota hoy (cruce viajes + checklist + km + gasoil) --- */
+function renderCCFlotaHoy(viajesMap){
+  var hoy=ccHoy();
+  viajesMap=viajesMap||viajesMapaFecha(hoy);
+  var vehs=ccVehiculosActivos();
+  var totViajes=0, totKm=0, operativos=0, conChecklist=0;
+  var filas=vehs.map(function(v){
+    var vi=viajesMap[v.id]||0; totViajes+=vi;
+    var km=kmRecorridoCamFecha(v.id,hoy); totKm+=km;
+    var lit=ccLitrosCamFecha(v.id,hoy);
+    var chk=camTieneChecklistHoy(v.id); if(chk){conChecklist++;operativos++;}
+    var estado=chk?'<span style="color:var(--green2)">🟢 Operativo</span>':'<span style="color:var(--text3)">⚪ Sin checklist</span>';
+    return '<tr><td><b>'+v.nombre+'</b></td>'+
+      '<td style="text-align:center">'+(chk?'✅':'—')+'</td>'+
+      '<td style="text-align:center">'+vi+'</td>'+
+      '<td style="font-family:var(--m)">'+(km?km.toLocaleString()+' km':'—')+'</td>'+
+      '<td style="font-family:var(--m)">'+Math.round(lit).toLocaleString()+' L</td>'+
+      '<td>'+estado+'</td></tr>';
+  }).join('');
+  var box=g('cc-flota-hoy');
+  if(box)box.innerHTML='<div class="tw" style="overflow-x:auto"><table><thead><tr><th>Camión</th><th>Checklist</th><th>Viajes</th><th>KM hoy</th><th>Litros</th><th>Estado</th></tr></thead><tbody>'+filas+'</tbody></table></div>';
+  var total=vehs.length;
+  g('cc-kpi-checklist')&&(g('cc-kpi-checklist').textContent=conChecklist+'/'+total);
+  g('cc-kpi-checklist-sub')&&(g('cc-kpi-checklist-sub').textContent='de '+total+' camiones');
+  g('cc-kpi-viajes')&&(g('cc-kpi-viajes').textContent=totViajes);
+  g('cc-kpi-operativos')&&(g('cc-kpi-operativos').textContent=operativos+'/'+total);
+  g('cc-kpi-km')&&(g('cc-kpi-km').textContent=Math.round(totKm).toLocaleString()+' km');
+}
+
 /* ------------------------------ TAB DASHBOARD ----------------------------- */
 async function renderCCDashboard(){
   var hoy=ccHoy();
@@ -12230,6 +12319,8 @@ async function renderCCDashboard(){
   });
   var efi=scores.length?Math.round(scores.reduce(function(a,b){return a+b;},0)/scores.length):null;
   g('cc-kpi-efi')&&(g('cc-kpi-efi').textContent=efi==null?'—':efi+'%');
+  // KPIs de interconexión flota (capa compartida)
+  renderCCFlotaHoy(viajes);
   // Lista de alertas
   renderCCAlertasLista();
   // Chart 7 días
@@ -12300,7 +12391,7 @@ async function renderCCPorCamion(){
     var real=ccLitrosCamFecha(v.id,fecha);
     var kpv=parseFloat(v.consumo_estimado_por_viaje)||22.5;
     var esperado=vi*kpv;
-    var kmh=0; if(typeof KM_DATA!=='undefined'&&KM_DATA[v.id]){kmh=Math.max(0,(parseFloat(KM_DATA[v.id].km)||0)-(parseFloat(KM_DATA[v.id].km_entrada_ayer)||0));}
+    var kmh=kmRecorridoCamFecha(v.id,fecha); // de checklist (km_entrada - km_salida), fallback km_data
     var tol=parseFloat(v.tolerancia_alerta_pct)||15;
     var desv=esperado>0?((real-esperado)/esperado*100):(real>0?999:0);
     var ad=Math.abs(desv);
@@ -12368,7 +12459,7 @@ async function checkAlertasCombustible(forzar){
   // ALERTA 4 — Rendimiento bajo por KM (si hay consumo_fabrica_l100km configurado)
   ccVehiculosActivos().forEach(function(v){
     var cf=parseFloat(v.consumo_fabrica_l100km); if(!cf||cf<=0)return;
-    var km=0; if(typeof KM_DATA!=='undefined'&&KM_DATA[v.id])km=Math.max(0,(parseFloat(KM_DATA[v.id].km)||0)-(parseFloat(KM_DATA[v.id].km_entrada_ayer)||0));
+    var km=kmRecorridoCamFecha(v.id,hoy); // de checklist (km_entrada - km_salida)
     var real=ccLitrosCamFecha(v.id,hoy);
     if(km<=0||real<=0)return;
     var l100=(real/km)*100;
