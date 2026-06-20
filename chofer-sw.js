@@ -3,7 +3,7 @@
 // PWA Offline-First para choferes
 // ═══════════════════════════════════════════════════
 
-const CACHE_NAME = 'betangar-chofer-v5'; // v4: cola checklist + sync reintenta siempre + flota_estado columnas (viajes/checklist no llegaban al dashboard)
+const CACHE_NAME = 'betangar-chofer-v6'; // v4: cola checklist + sync reintenta siempre + flota_estado columnas (viajes/checklist no llegaban al dashboard)
 
 // Archivos a cachear para funcionar sin internet
 const ARCHIVOS_CACHE = [

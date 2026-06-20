@@ -186,6 +186,9 @@ body{background:#0f1923;color:#fff;font-family:-apple-system,BlinkMacSystemFont,
       <div class="cola-banner" id="cola-banner">
         📵 Pendiente de subir — <span id="cola-count">0</span> registro(s) guardado(s). Se sincronizarán automáticamente.
       </div>
+      <div style="text-align:center;margin:6px 0">
+        <button onclick="reintentarYDiagnosticar()" style="background:#1e3a5f;color:#7dc941;border:1px solid #7dc941;border-radius:8px;padding:8px 16px;font-size:12px;font-weight:700;cursor:pointer">🔄 Reintentar / Ver estado</button>
+      </div>
 
       <!-- Status bar -->
       <div class="status-bar">
@@ -799,6 +802,7 @@ function limpiarRegViaje(r){
 // ── Cola de CHECKLIST (antes NO existía: si el chofer llenaba el checklist sin
 //    conexión, se guardaba solo en el teléfono y nunca subía al dashboard) ──
 var COLA_CL = [];
+var __ultErrSync = '';   // último error real de subida (para el botón de diagnóstico)
 function cargarColaCL(){ try{ var s=localStorage.getItem('btg_cola_cl'); if(s) COLA_CL=JSON.parse(s); }catch(e){ COLA_CL=[]; } }
 function persistColaCL(){ try{ if(COLA_CL.length) localStorage.setItem('btg_cola_cl',JSON.stringify(COLA_CL)); else localStorage.removeItem('btg_cola_cl'); }catch(e){} }
 function agregarChecklistCola(reg){
@@ -824,9 +828,9 @@ function sincronizarCola(){
       var reg = limpiarRegViaje(raw);
       supabase.from('viajes_chofer').upsert([reg],{onConflict:'fecha,cam,viaje_num'})
       .then(function(res){
-        if(res.error){ fall.push(raw); }
+        if(res.error){ fall.push(raw); __ultErrSync = 'viaje '+reg.cam+'#'+reg.viaje_num+': '+(res.error.message||res.error.code||'error'); }
         else { if(!isOnline) actualizarConexion(true); if(VIAJES_HOY[reg.viaje_num]) VIAJES_HOY[reg.viaje_num].sincronizado = true; }
-      }, function(){ fall.push(raw); })
+      }, function(e){ fall.push(raw); __ultErrSync = 'viaje (red): '+((e&&e.message)||e); })
       .then(function(){
         if(--rest <= 0){
           COLA_LOCAL = fall;
@@ -846,7 +850,7 @@ function sincronizarCola(){
     pendC.forEach(function(reg){
       supabase.from('checklist').upsert([reg],{onConflict:'fecha,cam'})
       .then(function(res){
-        if(res.error){ fallC.push(reg); }
+        if(res.error){ fallC.push(reg); __ultErrSync = 'checklist '+reg.cam+': '+(res.error.message||res.error.code||'error'); }
         else {
           if(!isOnline) actualizarConexion(true);
           if(reg.estado_vehiculo){
@@ -861,6 +865,37 @@ function sincronizarCola(){
       });
     });
   }
+}
+
+// Botón de DIAGNÓSTICO + reintento manual: dice por qué no sube (librería no cargó,
+// base rechaza, etc.) y fuerza la subida sin esperar los 30s.
+async function reintentarYDiagnosticar(){
+  var L=[];
+  L.push('Libreria base: '+(supabase?'cargada OK':'NO CARGO'));
+  L.push('Estado: '+(isOnline?'En linea':'Sin conexion'));
+  L.push('Viajes en cola: '+COLA_LOCAL.length);
+  L.push('Checklist en cola: '+COLA_CL.length);
+  L.push('Camion: '+(cam||'-')+' / '+(chofer||'SIN CHOFER'));
+  if(!supabase){
+    iniciarSupabase();
+    alert('La libreria de la base NO cargo (sin esto no sube nada).\n\n'+L.join('\n')+'\n\nVerifica internet y toca de nuevo en 5 seg.');
+    return;
+  }
+  try{
+    var t=await supabase.from('viajes_chofer').select('id').limit(1);
+    L.push('Lectura prueba: '+(t.error?('ERROR: '+t.error.message):'OK'));
+    if(!t.error && !isOnline){ actualizarConexion(true); }
+  }catch(e){ L.push('Lectura prueba: EXCEPCION '+((e&&e.message)||e)); }
+  __ultErrSync='';
+  sincronizarCola();
+  mostrarToast('Reintentando subir...');
+  setTimeout(function(){
+    var R='--- TRAS REINTENTAR ---\nViajes en cola: '+COLA_LOCAL.length+'\nChecklist en cola: '+COLA_CL.length;
+    if(COLA_LOCAL.length===0 && COLA_CL.length===0){ R+='\n\nTODO SINCRONIZADO ✓'; }
+    else if(__ultErrSync){ R+='\n\nERROR REAL AL SUBIR:\n'+__ultErrSync; }
+    else { R+='\n\nAun subiendo o sin respuesta...'; }
+    alert(L.join('\n')+'\n\n'+R);
+  }, 3000);
 }
 
 function actualizarBannerCola(){
