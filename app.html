@@ -3024,9 +3024,20 @@ try{var _co=localStorage.getItem('betangar_cola_off');if(_co)COLA_OFFLINE=JSON.p
 try{localStorage.removeItem('btg_cola_offline');}catch(e){} // limpiar clave vieja en desuso
 // Reintento automático periódico: si hay conexión, vacía la cola sola (no espera al init).
 try{setInterval(function(){try{if(typeof procesarColaOffline==='function')procesarColaOffline();}catch(e){}},60000);}catch(e){}
-// Auto-refresco del widget de flota EN VIVO (viajes + checklist + estado del chofer) cada
-// 45s, para que el dashboard se actualice solo sin recargar la página.
-try{setInterval(function(){try{if(typeof cargarDatosCompartidos==='function')cargarDatosCompartidos();if(typeof renderWidgetFlota==='function')renderWidgetFlota();}catch(e){}},45000);}catch(e){}
+// Auto-refresco EN VIVO del dashboard: recarga los datos que cambian solos (viajes,
+// checklist, estado del camión, ÚLTIMA PLANILLA, bancos/BNC) y re-renderiza, cada 60s,
+// para no tener que dar refresh. NO corre si estás escribiendo (no pisa lo que editas).
+async function refrescarEnVivo(){
+  if(!DB_READY||!supabase)return;
+  var ae=document.activeElement;
+  if(ae && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName||'')) return;
+  try{ await cargarDatosDB(); }catch(e){}             // planillas(última), km_data(estado), gasoil, etc.
+  try{ if(typeof cargarDatosCompartidos==='function') await cargarDatosCompartidos(); }catch(e){} // viajes + checklist
+  try{ if(typeof renderDash==='function') renderDash(); }catch(e){}                 // re-render dashboard + flota + resumen BNC
+  try{ if(typeof renderWidgetFlota==='function') renderWidgetFlota(); }catch(e){}   // widget flota en vivo
+  try{ if(typeof renderBncDashResumen==='function') renderBncDashResumen(true); }catch(e){} // bancos (forzar)
+}
+try{setInterval(refrescarEnVivo,60000);}catch(e){}
 function guardarColaLS(){try{localStorage.setItem('betangar_cola_off',JSON.stringify(COLA_OFFLINE));}catch(e){}}
 function actualizarBannerCola(){
   var b=document.getElementById('db-status-banner');if(!b)return;
