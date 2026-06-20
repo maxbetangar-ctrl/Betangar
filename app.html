@@ -270,6 +270,7 @@ tr:hover td{background:rgba(45,255,122,.02)}
     <div class="menu-item" onclick="sp('contratos')" id="mi-contratos">📋 Contratos</div>
     <div class="menu-item" onclick="sp('usuarios')" id="mi-usuarios">🔐 Usuarios</div>
     <div class="menu-item" onclick="sp('auditoria')" id="mi-auditoria">🔍 Auditoria</div>
+    <div class="menu-item" onclick="sp('salud')" id="mi-salud">🩺 Salud de Datos</div>
     <div class="menu-item" onclick="sp('banco-bnc')" id="mi-banco-bnc">🏦 Config BNC</div>
     <div class="menu-item" onclick="sp('conciliacion')" id="mi-conciliacion">🔄 Conciliación</div>
     <div class="menu-item" onclick="sp('config')" id="mi-config">⚙️ Configuracion</div>
@@ -1522,6 +1523,20 @@ tr:hover td{background:rgba(45,255,122,.02)}
 </div>
 
 <!-- STATS -->
+<!-- SALUD DE DATOS -->
+<div id="p-salud" class="page">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px">
+    <div style="font-size:15px;font-weight:800;color:var(--green)">🩺 Salud de Datos</div>
+    <button class="btn btn-g btn-sm" onclick="renderSaludDatos()">🔄 Revisar ahora</button>
+  </div>
+  <div style="font-size:11px;color:var(--text3);margin-bottom:10px">Verifica que la app realmente guarda en la base de datos y que cada módulo sigue recibiendo datos. Detecta a tiempo fallos silenciosos (clave revocada, permisos, columnas).</div>
+  <div id="salud-conexion" style="margin-bottom:10px"></div>
+  <div class="card">
+    <div class="sh"><div class="st">Estado por módulo / tabla</div></div>
+    <div class="tw" style="overflow-x:auto"><table><thead><tr><th>Módulo / Tabla</th><th>Lectura</th><th>Registros</th><th>Última escritura</th><th>Estado</th></tr></thead><tbody id="salud-tabla"><tr><td colspan="5" style="text-align:center;color:var(--text3);padding:14px">Pulsa "Revisar ahora"</td></tr></tbody></table></div>
+  </div>
+</div>
+
 <!-- RENTABILIDAD POR CAMION -->
 <div id="p-rentabilidad" class="page">
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px">
@@ -2219,8 +2234,8 @@ var USUARIOS={
 };
 
 var PERMISOS={
-  superadmin:['dashboard','banco-bnc','conciliacion','checklist','mensajes-wa','planilla','historico','reporte','abonos','banco','proveedores','financiero','nomina','asistencia','combustible','control-combustible','km','documentos','inventario','llantas','metas','empleados','prestamos','multas','stats','ranking','rentabilidad','contratos','usuarios','auditoria','config','galeria','porteria','mecanico','operativo','cxp','cajachica'],
-  admin:['dashboard','conciliacion','checklist','planilla','historico','reporte','abonos','banco','proveedores','financiero','nomina','asistencia','combustible','control-combustible','km','documentos','inventario','llantas','metas','empleados','prestamos','multas','stats','ranking','rentabilidad','contratos','usuarios','auditoria','config','galeria','porteria','mecanico','operativo','cxp','cajachica'],
+  superadmin:['dashboard','banco-bnc','conciliacion','checklist','mensajes-wa','planilla','historico','reporte','abonos','banco','proveedores','financiero','nomina','asistencia','combustible','control-combustible','km','documentos','inventario','llantas','metas','empleados','prestamos','multas','stats','ranking','rentabilidad','contratos','usuarios','auditoria','salud','config','galeria','porteria','mecanico','operativo','cxp','cajachica'],
+  admin:['dashboard','conciliacion','checklist','planilla','historico','reporte','abonos','banco','proveedores','financiero','nomina','asistencia','combustible','control-combustible','km','documentos','inventario','llantas','metas','empleados','prestamos','multas','stats','ranking','rentabilidad','contratos','usuarios','auditoria','salud','config','galeria','porteria','mecanico','operativo','cxp','cajachica'],
   operador:['dashboard','planilla','historico','reporte','abonos','banco','proveedores','financiero','nomina','asistencia','combustible','control-combustible','km','documentos','inventario','llantas','metas','empleados','prestamos','multas','stats','ranking','rentabilidad','contratos','galeria'],
   rrhh:['dashboard','mensajes-wa','planilla','historico','reporte','nomina','asistencia','combustible','km','documentos','inventario','llantas','metas','empleados','prestamos','multas','ranking','galeria'],
   visualizador:['dashboard','reporte','abonos','banco','financiero','stats','ranking','rentabilidad','contratos','galeria'],
@@ -2239,7 +2254,7 @@ var NAV_LABELS={
   abonos:'Abonos / Cobros',banco:'Banco BNC',conciliacion:'Conciliación Bancaria',proveedores:'Proveedores',financiero:'Financiero',
   nomina:'Nomina',asistencia:'Asistencia',combustible:'Combustible','control-combustible':'Control Combustible',km:'Km / Servicio',
   documentos:'Documentos',inventario:'Inventario',llantas:'Llantas',metas:'Metas',
-  empleados:'Empleados',prestamos:'Prestamos',multas:'Multas',stats:'Estadisticas',rentabilidad:'Rentabilidad x Camion',
+  empleados:'Empleados',prestamos:'Prestamos',multas:'Multas',stats:'Estadisticas',rentabilidad:'Rentabilidad x Camion',salud:'Salud de Datos',
   porteria:'Porteria',mecanico:'Mecanico',checklist:'Check List',operativo:'Operativo',ranking:'Ranking',contratos:'Contratos',usuarios:'Usuarios',auditoria:'Auditoria',
   config:'Configuracion',galeria:'Galeria','mensajes-wa':'Mensajes WA',cxp:'Cuentas x Pagar',cajachica:'Caja Chica'
 };
@@ -2687,6 +2702,7 @@ function sp(id){
     if(id==='combustible'){renderComb();renderGasolPersonal();setTimeout(renderGasoil,100);}
     if(id==='control-combustible'){renderControlComb();}
     if(id==='rentabilidad'){renderRentabilidad();}
+    if(id==='salud'){renderSaludDatos();}
     if(id==='km'){renderKm();renderTiposMant();}
     if(id==='banco')renderBNCDash();
     if(id==='proveedores'){renderCXP();renderProveedoresLista();renderRetenciones();}
@@ -13126,6 +13142,86 @@ function imprimirRentabilidad(){
   var w=window.open('','_blank');
   w.document.write('<html><head><title>Rentabilidad por Camión — Betangar</title><style>body{font-family:Arial;padding:20px;color:#111}table{width:100%;border-collapse:collapse;margin-top:10px}th,td{border:1px solid #ccc;padding:6px 8px;font-size:12px;text-align:left}.stat{display:inline-block;border:1px solid #ccc;border-radius:8px;padding:8px 14px;margin:4px}.stat-lbl{font-size:10px;color:#666}.stat-val{font-size:16px;font-weight:bold}</style></head><body><h2>📊 Rentabilidad por Camión — Inversiones Betangar CA</h2>'+cont+'</body></html>');
   w.document.close();w.print();
+}
+
+/* ============================================================================
+   PANEL SALUD DE DATOS — detecta fallos silenciosos: prueba ESCRITURA real
+   (heartbeat a health_check), lectura + frescura por tabla, y cola offline.
+   ============================================================================ */
+var SALUD_TABLAS=[
+  {t:'planillas',label:'Registro Diario',ts:'created_at',umbral:3,critico:true},
+  {t:'gasoil',label:'Combustible (despachos/compras)',ts:'created_at',umbral:3,critico:true},
+  {t:'viajes_chofer',label:'Viajes Chofer (en vivo)',ts:'created_at',umbral:3,critico:false},
+  {t:'checklist',label:'Checklist',ts:'created_at',umbral:7,critico:false},
+  {t:'abonos',label:'Cobros / Pagos',ts:'created_at',umbral:14,critico:false},
+  {t:'km_data',label:'Km / Odómetro',ts:'updated_at',umbral:14,critico:false},
+  {t:'caja_chica',label:'Caja Chica',ts:'created_at',umbral:30,critico:false},
+  {t:'combustible_mediciones',label:'Mediciones tanque',ts:'created_at',umbral:7,critico:false},
+  {t:'combustible_alertas',label:'Alertas combustible',ts:'created_at',umbral:30,critico:false},
+  {t:'anomalias_rrhh',label:'Anomalías RRHH',ts:'created_at',umbral:60,critico:false},
+  {t:'mantenimientos',label:'Mantenimientos',ts:'created_at',umbral:60,critico:false},
+  {t:'multas',label:'Multas',ts:'created_at',umbral:60,critico:false},
+  {t:'prestamos',label:'Préstamos',ts:'created_at',umbral:60,critico:false},
+  {t:'cxp',label:'Cuentas por Pagar',ts:'created_at',umbral:30,critico:false},
+  {t:'porteria',label:'Portería / Asistencia',ts:'created_at',umbral:7,critico:false},
+  {t:'empleados',label:'Empleados',ts:'created_at',umbral:365,critico:false},
+  {t:'bnc_notificaciones',label:'Pagos BNC',ts:'created_at',umbral:30,critico:false}
+];
+async function _saludTabla(item){
+  if(!DB_READY||!supabase)return{error:'sin conexión'};
+  try{
+    var r=await supabase.from(item.t).select(item.ts,{count:'exact'}).order(item.ts,{ascending:false}).limit(1);
+    if(r.error){
+      var r2=await supabase.from(item.t).select('*',{count:'exact',head:true});
+      if(r2.error)return{error:r2.error.message};
+      return{count:r2.count,ultima:null};
+    }
+    return{count:r.count,ultima:(r.data&&r.data[0]?r.data[0][item.ts]:null)};
+  }catch(e){return{error:e.message};}
+}
+async function renderSaludDatos(){
+  var box=g('salud-conexion'), tb=g('salud-tabla');
+  if(!DB_READY||!supabase){ if(box)box.innerHTML='<div class="alert-r">🔴 SIN CONEXIÓN A LA BASE DE DATOS — la app no está guardando.</div>'; return; }
+  if(box)box.innerHTML='<div style="color:var(--text3);padding:8px">⏳ Probando lectura y escritura real...</div>';
+  if(tb)tb.innerHTML='<tr><td colspan="5" style="text-align:center;color:var(--text3);padding:14px">Revisando...</td></tr>';
+  // 1) PRUEBA DE ESCRITURA REAL (heartbeat) — esto detecta clave revocada / RLS / write roto
+  var escOk=false, escMsg='';
+  try{
+    var hb=await supabase.from('health_check').upsert([{id:'app',ultima_escritura:new Date().toISOString(),origen:(SESION?SESION.nombre:'?')}],{onConflict:'id'});
+    if(hb.error){escMsg=hb.error.message;}else escOk=true;
+  }catch(e){escMsg=e.message||'error';}
+  var cola=(typeof COLA_OFFLINE!=='undefined'?COLA_OFFLINE.length:0);
+  if(box){
+    box.innerHTML=
+      '<div class="g3">'+
+      '<div class="stat" style="border-top-color:var(--green2)"><div class="stat-lbl">Conexión BD</div><div class="stat-val" style="font-size:15px;color:var(--green2)">🟢 Conectado</div></div>'+
+      '<div class="stat" style="border-top-color:'+(escOk?'var(--green2)':'var(--red)')+'"><div class="stat-lbl">Escritura a la base</div><div class="stat-val" style="font-size:15px;color:'+(escOk?'var(--green2)':'var(--red)')+'">'+(escOk?'🟢 GUARDA OK':'🔴 BLOQUEADA')+'</div><div class="stat-sub">'+(escOk?'la app sí persiste':('⚠ '+escMsg))+'</div></div>'+
+      '<div class="stat" style="border-top-color:'+(cola>0?'var(--yellow)':'var(--green2)')+'"><div class="stat-lbl">Cola sin guardar</div><div class="stat-val" style="font-size:15px;color:'+(cola>0?'var(--yellow)':'var(--green2)')+'">'+cola+'</div><div class="stat-sub">'+(cola>0?'registros pendientes':'todo sincronizado')+'</div></div>'+
+      '</div>'+
+      (escOk?'':'<div class="alert-r" style="margin-top:8px">🔴 La base RECHAZA las escrituras ('+escMsg+'). Revisa la anon key / políticas RLS. Mientras tanto, lo que registres NO se guardará.</div>');
+  }
+  // 2) Lectura + frescura por tabla
+  var hoy=Date.now();
+  var resultados=await Promise.all(SALUD_TABLAS.map(_saludTabla));
+  if(tb)tb.innerHTML=SALUD_TABLAS.map(function(item,i){
+    var r=resultados[i], estado, col, det='';
+    if(r.error){estado='🔴 Lectura bloqueada';col='var(--red)';det=r.error;}
+    else if((r.count||0)===0){estado='⚪ Vacía';col='var(--text3)';}
+    else if(!r.ultima){estado='🟢 OK';col='var(--green2)';}
+    else{
+      var dias=Math.floor((hoy-new Date(r.ultima).getTime())/86400000);
+      det='hace '+dias+' día'+(dias===1?'':'s');
+      if(dias<=item.umbral){estado='🟢 Activa';col='var(--green2)';}
+      else if(item.critico){estado='🔴 Sin actividad';col='var(--red)';}
+      else{estado='🟡 Sin actividad reciente';col='var(--yellow)';}
+    }
+    var ultimaTxt=r.error?'—':(r.ultima?fmtFechaCorta(String(r.ultima).slice(0,10)):'—');
+    return '<tr><td><b>'+item.label+'</b><br><span style="font-size:9px;color:var(--text3);font-family:var(--m)">'+item.t+'</span></td>'+
+      '<td style="text-align:center">'+(r.error?'🔴':'🟢')+'</td>'+
+      '<td style="text-align:center;font-family:var(--m)">'+(r.error?'—':(r.count||0).toLocaleString())+'</td>'+
+      '<td style="font-family:var(--m);font-size:11px">'+ultimaTxt+(det?'<br><span style="font-size:9px;color:var(--text3)">'+det+'</span>':'')+'</td>'+
+      '<td style="color:'+col+';font-size:12px;font-weight:700">'+estado+'</td></tr>';
+  }).join('');
 }
 </script>
 
