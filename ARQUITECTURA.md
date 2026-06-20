@@ -103,6 +103,7 @@ audit(...); mostrarToast(...);
 | Contratos (`contratos`) | contratos | |
 | Usuarios (`usuarios`) | usuarios_app | gestión de acceso |
 | Auditoría (`auditoria`) | auditoria | log de acciones |
+| **Salud de Datos (`salud`)** | health_check + lee todas | **Anti-fallo-silencioso** (superadmin/admin). `renderSaludDatos()`: prueba de ESCRITURA real (heartbeat upsert a `health_check`) → detecta clave revocada/RLS/write roto; + lectura y frescura por tabla (conteo + última escritura + semáforo); + cola offline. Si "guarda en pantalla pero no en BD", aquí sale 🔴 al instante. |
 | Config BNC (`banco-bnc`) | bnc_config | credenciales BNC |
 | Configuración (`config`) | configuracion (varias claves) | tabs: General, Flota, WhatsApp, Recordatorios, Nómina Admin, Correlativo, Cargos, **⛽ Combustible** (vehículos/tanques/Gemini key) |
 | Mensajes WA (`mensajes-wa`) | mensajes_wa | difusión |
