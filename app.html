@@ -240,7 +240,6 @@ tr:hover td{background:rgba(45,255,122,.02)}
     <div class="menu-item" onclick="sp('historico')" id="mi-historico">📁 Historico</div>
     <div class="menu-item" onclick="sp('reporte')" id="mi-reporte">💵 Cobranza / Alcaldia</div>
     <div class="menu-group">FINANCIERO</div>
-    <div class="menu-item" onclick="sp('abonos')" id="mi-abonos">💰 Abonos / Cobros</div>
     <div class="menu-item" onclick="sp('banco')" id="mi-banco">🏦 Banco BNC</div>
     <div class="menu-item" onclick="sp('proveedores')" id="mi-proveedores">🤝 Proveedores</div>
     <div class="menu-item" onclick="sp('financiero')" id="mi-financiero">📈 Financiero</div>
@@ -1155,6 +1154,7 @@ tr:hover td{background:rgba(45,255,122,.02)}
   <div style="display:flex;gap:0;margin-bottom:14px;background:var(--bg2);border-radius:10px;padding:3px">
     <button id="rtab-ejecucion" onclick="switchRptTab('ejecucion')" style="flex:1;border:none;border-radius:8px;padding:9px 8px;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;background:var(--card);color:var(--text1)">📊 Ejecucion Semanal</button>
     <button id="rtab-alcaldia" onclick="switchRptTab('alcaldia')" style="flex:1;border:none;border-radius:8px;padding:9px 8px;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;background:transparent;color:var(--text3)">🏛 Estado de Cuenta</button>
+    <button id="rtab-pagos" onclick="switchRptTab('pagos')" style="flex:1;border:none;border-radius:8px;padding:9px 8px;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;background:transparent;color:var(--text3)">💰 Pagos</button>
     <button id="rtab-precios" onclick="switchRptTab('precios')" style="flex:1;border:none;border-radius:8px;padding:9px 8px;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;background:transparent;color:var(--text3)">💲 Precios</button>
   </div>
   <div id="rpt-ejecucion">
@@ -1220,10 +1220,8 @@ tr:hover td{background:rgba(45,255,122,.02)}
       <div class="tw" style="margin-top:8px"><table><thead><tr><th>Vigencia</th><th>Precio</th><th>Alcance</th><th>Motivo</th><th>Usuario</th></tr></thead><tbody id="tb-hist-precios"></tbody></table></div>
     </div>
   </div>
-</div>
-
-<!-- ABONOS -->
-<div id="p-abonos" class="page">
+  <!-- TAB PAGOS (Abonos fundido aquí — un solo lugar de cobros) -->
+  <div id="rpt-pagos" style="display:none">
   <div class="g2" style="margin-bottom:10px">
     <div class="card">
       <div class="st" style="margin-bottom:10px">Registrar Abono</div>
@@ -1261,6 +1259,7 @@ tr:hover td{background:rgba(45,255,122,.02)}
     <button class="btn btn-s btn-sm" onclick="emailAbonos()">✉ Correo</button>
   </div>
   <div class="tw"><table><thead><tr><th>Fecha</th><th>Factura</th><th>Viajes</th><th>Monto $</th><th>En Bs</th><th>Acumulado $</th><th>Ref BNC</th><th>Obs</th><th></th></tr></thead><tbody id="tb-abonos"></tbody></table></div>
+  </div>
 </div>
 
 <!-- NOMINA -->
@@ -2202,7 +2201,7 @@ var PERMISOS={
   admin:['dashboard','conciliacion','checklist','planilla','historico','reporte','abonos','banco','proveedores','financiero','nomina','asistencia','combustible','control-combustible','km','documentos','inventario','llantas','metas','empleados','prestamos','multas','stats','ranking','contratos','usuarios','auditoria','config','galeria','porteria','mecanico','operativo','cxp','cajachica'],
   operador:['dashboard','planilla','historico','reporte','abonos','banco','proveedores','financiero','nomina','asistencia','combustible','control-combustible','km','documentos','inventario','llantas','metas','empleados','prestamos','multas','stats','ranking','contratos','galeria'],
   rrhh:['dashboard','mensajes-wa','planilla','historico','reporte','nomina','asistencia','combustible','km','documentos','inventario','llantas','metas','empleados','prestamos','multas','ranking','galeria'],
-  visualizador:['dashboard','abonos','banco','financiero','stats','ranking','contratos','galeria'],
+  visualizador:['dashboard','reporte','abonos','banco','financiero','stats','ranking','contratos','galeria'],
   directivo:['dashboard','historico','reporte','abonos','financiero','stats','ranking'],
   demo_admin:['dashboard','checklist','planilla','historico','reporte','abonos','banco','proveedores','financiero','nomina','asistencia','combustible','km','documentos','inventario','llantas','metas','empleados','prestamos','multas','stats','ranking','contratos','usuarios','config','galeria'],
   demo_operador:['dashboard','planilla','historico','reporte','abonos','banco','proveedores','financiero','nomina','asistencia','combustible','km','documentos','inventario','llantas','metas','empleados','prestamos','multas','stats','ranking','contratos','galeria'],
@@ -2625,6 +2624,8 @@ async function bncRenderCuentas(){
 // NAVIGATION
 // ═══════════════════════════════════════════════════
 function sp(id){
+  // Abonos se fundió en Cobranza/Alcaldía → pestaña Pagos. Redirigir para no romper accesos directos.
+  if(id==='abonos'){ sp('reporte'); setTimeout(function(){try{switchRptTab('pagos');}catch(e){}},0); return; }
   var perms=PERMISOS[SESION?SESION.rol:'visualizador']||PERMISOS['admin']||[];
   if(perms.indexOf(id)<0){alert('No tienes permiso para esta seccion');return;}
   document.querySelectorAll('.page').forEach(function(p){p.classList.remove('active');p.style.display='none';});
@@ -11766,13 +11767,14 @@ function enviarRecordatorioCobranza(){
   if(typeof mostrarToast==='function')mostrarToast('📲 Recordatorio de cobranza enviado','exito');
 }
 function switchRptTab(tab){
-  ['ejecucion','alcaldia','precios'].forEach(function(t){
+  ['ejecucion','alcaldia','pagos','precios'].forEach(function(t){
     var el=document.getElementById('rpt-'+t),btn=document.getElementById('rtab-'+t);
     if(el)el.style.display=t===tab?'block':'none';
     if(btn){btn.style.background=t===tab?'var(--card)':'transparent';btn.style.color=t===tab?'var(--text1)':'var(--text3)';}
   });
   if(tab==='precios')cargarPrecioActual();
   if(tab==='alcaldia'){try{renderCobranzaResumen();}catch(e){console.log('cobranza resumen',e&&e.message);}}
+  if(tab==='pagos'){try{renderAbonos();calcMontoAbono();}catch(e){console.log('pagos',e&&e.message);}}
 }
 function genRpt(){genRptEjecucion();}
 
