@@ -11250,27 +11250,39 @@ function cargarWidgetJAC(){
   var lunes = new Date(hoy);
   lunes.setDate(hoy.getDate()-diasDesLunes);
   var lunesStr = lunes.toISOString().slice(0,10);
+  var hoyISO = new Date().toISOString().slice(0,10);
 
   cont.innerHTML='<div style="overflow-x:auto"><table style="width:100%;font-size:11px;border-collapse:collapse">'+
     '<thead><tr style="color:var(--text3);border-bottom:1px solid var(--border)">'+
     '<th style="text-align:left;padding:4px">Unidad</th>'+
-    '<th style="text-align:right;padding:4px">KM Lunes</th>'+
     '<th style="text-align:right;padding:4px">KM Actual</th>'+
-    '<th style="text-align:right;padding:4px;color:#7dc941">Recorridos</th>'+
+    '<th style="text-align:right;padding:4px;color:#7dc941">Recorridos (sem)</th>'+
     '</tr></thead><tbody>'+
     cams.map(function(cam){
       var d=KM_DATA[cam]||{};
       var kmActual=d.km||0;
-      var kmLunes=d.km_lunes||d.km_entrada_ayer||kmActual;
-      var recorridos=kmActual-kmLunes;
+      // Distancia REAL de la semana = suma diaria (km_entrada - km_salida) del checklist (Lun→hoy).
+      // Ahí sí vive el dato por día (lo cargan chofer/mecánico). km_data solo guarda el odómetro
+      // actual (un solo número), por eso no se puede sacar "lunes/martes/miércoles" de ahí.
+      var chkSem=(typeof CHECKLIST_DATA!=='undefined'?CHECKLIST_DATA:[]).filter(function(c){return c.cam===cam&&c.fecha>=lunesStr&&c.fecha<=hoyISO;});
+      var recorridos=null;
+      if(chkSem.length){
+        recorridos=chkSem.reduce(function(s,c){var ks=parseFloat(c.km_salida),ke=parseFloat(c.km_entrada);return s+((!isNaN(ks)&&!isNaN(ke)&&ke>ks&&(ke-ks)<5000)?(ke-ks):0);},0);
+      } else {
+        // Sin checklist de la semana: estimación odómetro − baseline, BLINDADA (nunca negativa ni absurda)
+        var base=d.km_lunes||d.km_entrada_ayer||0;
+        var delta=base?(kmActual-base):0;
+        recorridos=(delta>0&&delta<5000)?delta:null; // negativo o salto irreal → sin dato
+      }
+      var recTxt=(recorridos==null)?'<span style="color:var(--text3)">—</span>':recorridos.toLocaleString()+' km';
       return '<tr style="border-bottom:0.5px solid var(--border)">'+
         '<td style="padding:5px;font-weight:700;color:var(--text1)">'+cam.replace('JAC-','')+'</td>'+
-        '<td style="padding:5px;text-align:right;color:var(--text3)">'+kmLunes.toLocaleString()+'</td>'+
         '<td style="padding:5px;text-align:right;color:var(--text2)">'+kmActual.toLocaleString()+'</td>'+
-        '<td style="padding:5px;text-align:right;font-weight:700;color:#7dc941">'+recorridos.toLocaleString()+'</td>'+
+        '<td style="padding:5px;text-align:right;font-weight:700;color:#7dc941">'+recTxt+'</td>'+
         '</tr>';
     }).join('')+
-    '</tbody></table></div>';
+    '</tbody></table></div>'+
+    '<div style="font-size:10px;color:var(--text3);margin-top:6px">Recorridos de la semana = suma diaria (entrada − salida) del checklist. "—" = sin checklist cargado o dato de odómetro inconsistente.</div>';
 }
 
 function generarReporteJAC(){
