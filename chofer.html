@@ -779,26 +779,50 @@ function agregarACola(reg){
   actualizarBannerCola();
 }
 
+// Limpia un registro de la cola dejando SOLO las columnas reales de viajes_chofer y
+// garantizando chofer no-nulo. Esto rescata viajes viejos guardados con la forma vieja
+// (hora_registro/semana/año, o chofer vacío) que antes hacían fallar TODO el lote.
+function limpiarRegViaje(r){
+  return {
+    fecha: r.fecha,
+    cam: r.cam,
+    chofer: r.chofer || FLOTA_CHOFERES[r.cam] || 'CHOFER',
+    viaje_num: r.viaje_num,
+    hora: r.hora || r.hora_registro || '',
+    sincronizado: true
+  };
+}
+
+// Sincroniza la cola UNO POR UNO (antes iba en un solo lote: un registro malo tumbaba
+// los 52 y nada entraba nunca). Cada viaje se limpia antes de subir; los que fallen se
+// quedan en la cola, el resto sí entra.
 function sincronizarCola(){
   if(!isOnline || !supabase || !COLA_LOCAL.length) return;
   var pend = COLA_LOCAL.slice();
   COLA_LOCAL = [];
   localStorage.removeItem('btg_cola_chofer');
 
-  supabase.from('viajes_chofer').upsert(pend,{onConflict:'fecha,cam,viaje_num'})
-  .then(function(res){
-    if(res.error){
-      COLA_LOCAL = pend;
-      try{ localStorage.setItem('btg_cola_chofer', JSON.stringify(COLA_LOCAL)); }catch(e){}
-    } else {
-      pend.forEach(function(r){
-        if(VIAJES_HOY[r.viaje_num]) VIAJES_HOY[r.viaje_num].sincronizado = true;
-      });
-      guardarViajesLocal();
-      renderHistorial();
-      cargarSemanaSupabase();
-    }
+  var fallidos = [];
+  var restantes = pend.length;
+  function finalizar(){
+    COLA_LOCAL = fallidos;
+    try{
+      if(fallidos.length) localStorage.setItem('btg_cola_chofer', JSON.stringify(fallidos));
+      else localStorage.removeItem('btg_cola_chofer');
+    }catch(e){}
+    guardarViajesLocal();
+    renderHistorial();
+    cargarSemanaSupabase();
     actualizarBannerCola();
+  }
+  pend.forEach(function(raw){
+    var reg = limpiarRegViaje(raw);
+    supabase.from('viajes_chofer').upsert([reg],{onConflict:'fecha,cam,viaje_num'})
+    .then(function(res){
+      if(res.error){ fallidos.push(raw); }
+      else if(VIAJES_HOY[reg.viaje_num]){ VIAJES_HOY[reg.viaje_num].sincronizado = true; }
+    }, function(){ fallidos.push(raw); })
+    .then(function(){ if(--restantes <= 0) finalizar(); });
   });
 }
 
@@ -1107,9 +1131,12 @@ async function guardarChecklist(){
 
     // Actualizar flota_estado si hay cambio de estado
     if(guardadoOk && CL_ESTADO){
+      // Columnas REALES de flota_estado: unidad (no 'cam'), estado, nota (no 'motivo'),
+      // updated_by, updated_at. onConflict 'unidad' (igual que el dashboard en app.html).
+      // Antes usaba cam/motivo/fecha_cambio → 400 y el estado nunca se actualizaba.
       await supabase.from('flota_estado')
-        .upsert([{ cam: cam, estado: CL_ESTADO, fecha_cambio: hoy, motivo: gv('cl-motivo') || null }],
-                { onConflict: 'cam' });
+        .upsert([{ unidad: cam, estado: CL_ESTADO, nota: gv('cl-motivo') || '', updated_by: chofer || 'chofer', updated_at: new Date().toISOString() }],
+                { onConflict: 'unidad' });
       // Actualizar km_data si hay km
       var kmVal = CL_MODO==='salida' ? (parseInt(gv('cl-km-salida'))||0) : (parseInt(gv('cl-km-llegada'))||0);
       if(kmVal > 0){
