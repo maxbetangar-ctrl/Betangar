@@ -468,6 +468,11 @@ body{background:#0f1923;color:#fff;font-family:-apple-system,BlinkMacSystemFont,
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script>
+// CRÍTICO: guardar la librería ANTES de que `var supabase` (global, más abajo) sobrescriba
+// window.supabase con null. Ese choque de nombres dejaba el cliente sin crear → NADA subía.
+window.__supaLib = window.supabase || null;
+</script>
+<script>
 // ══════════════════════════════════════════════════════════
 // BETANGAR — APP CHOFERES v9.0
 // Acceso por QR · Offline-first · Conectado a Supabase
@@ -615,9 +620,9 @@ document.addEventListener('DOMContentLoaded', function(){
 // ── SUPABASE ──
 function iniciarSupabase(){
   try{
-    var fn = (window.supabase && window.supabase.createClient)
-           ? window.supabase.createClient
-           : window.createClient || null;
+    // Usar la librería capturada en __supaLib (window.supabase quedó pisado por `var supabase`).
+    var lib = window.__supaLib || window.supabase;
+    var fn = (lib && lib.createClient) ? lib.createClient : (window.createClient || null);
     if(fn){
       supabase = fn(SUPA_URL, SUPA_KEY);
       verificarConexion();
