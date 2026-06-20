@@ -2855,8 +2855,25 @@ async function cargarDatosDB(){
   }
   console.log('Cargando datos de Supabase...');
   try{
+    // Cargar TODAS las tablas EN PARALELO (antes era una tras otra = lento; ahora ~1 ida).
+    var _res = await Promise.all([
+      supabase.from('planillas').select('*'),
+      supabase.from('abonos').select('*').order('f',{ascending:true}).order('id',{ascending:true}),
+      supabase.from('empleados').select('*'),
+      supabase.from('gasoil').select('*'),
+      supabase.from('cxp').select('*'),
+      supabase.from('proveedores').select('*'),
+      supabase.from('prestamos').select('*'),
+      supabase.from('multas').select('*'),
+      supabase.from('inventario').select('*'),
+      supabase.from('contratos').select('*'),
+      supabase.from('gastos_variables').select('*'),
+      supabase.from('pagos_alcaldia').select('*'),
+      supabase.from('km_data').select('*'),
+      supabase.from('auditoria').select('*').order('created_at',{ascending:false}).limit(200)
+    ]);
+    var p=_res[0],a=_res[1],e=_res[2],ga=_res[3],cxp=_res[4],pv=_res[5],pr=_res[6],ml=_res[7],inv=_res[8],co=_res[9],gv2=_res[10],palc=_res[11],km=_res[12],aul=_res[13];
     // PLANILLAS
-    var p=await supabase.from('planillas').select('*');
     if(p.data&&p.data.length)REGS=p.data.map(function(r){
       var d=parseInt(r.d)||0,n=parseInt(r.n)||0;
       var t=parseInt(r.t)||0;if(t===0&&(d>0||n>0))t=d+n;
@@ -2869,7 +2886,6 @@ async function cargarDatosDB(){
     // ABONOS — ordenar por fecha (y id como desempate) para que SIEMPRE salgan en el mismo
     // orden. Sin .order() PostgREST devuelve las filas en orden arbitrario que cambia tras
     // cada edicion/borrado, y eso hacia que aparecieran "en distinto orden cada vez".
-    var a=await supabase.from('abonos').select('*').order('f',{ascending:true}).order('id',{ascending:true});
     // Supabase es la FUENTE DE VERDAD: si la consulta tuvo éxito (sin error), usar su
     // resultado AUNQUE sea vacío → así, si borraste todos, NO reaparecen. Antes
     // (a.data&&a.data.length) ignoraba el caso vacío y conservaba abonos viejos en memoria.
@@ -2877,10 +2893,8 @@ async function cargarDatosDB(){
     // Cargar los abonos PROTEGIDOS (no los pisa el Excel) por núcleo de dígitos.
     if(!a.error&&Array.isArray(a.data))ABONOS_PROTEGIDOS=new Set(a.data.filter(function(x){return x.protegido;}).map(function(x){return _factCore(x.fact);}));
     // EMPLEADOS
-    var e=await supabase.from('empleados').select('*');
     if(e.data&&e.data.length)EMPLEADOS=e.data.map(function(x){return{id:x.id,nombre:x.nombre,cargo:x.cargo,unidad:x.unidad||'',cedula:x.cedula||'',fnac:x.fnac||'',banco:x.banco||'',tcuenta:x.tcuenta||'',ncuenta:x.ncuenta||'',foto:x.foto_url||'',activo:x.activo!==false,tipoAy:x.tipo_ay||'',email:x.email||'',tel:x.tel||'',whatsapp:x.whatsapp||'',wa_apikey:x.wa_apikey||'',rif:x.rif||'',fingreso:x.fingreso||'',imau:x.imau||false};});
     // GASOIL
-    var ga=await supabase.from('gasoil').select('*');
     if(ga.data&&ga.data.length){
       GASOIL=ga.data.map(function(x){return{id:x.id,f:x.f,cam:x.cam,lit:x.lit,src:x.src,m:x.m};});
       console.log('[GASOIL] cargados desde Supabase: '+GASOIL.length);
@@ -2915,10 +2929,8 @@ async function cargarDatosDB(){
       });
     }catch(e){}
     // CXP
-    var cxp=await supabase.from('cxp').select('*');
     if(cxp.data&&cxp.data.length)CXP=cxp.data.map(function(x){return{id:x.id,fecha:x.fecha,provId:x.prov_id,prov:x.prov_nombre,nota:x.nota||'',factura:x.factura||'',desc:x.descripcion||'',baseUsd:parseFloat(x.base_usd)||0,ivaPct:parseFloat(x.iva_pct)||0,ivaUsd:parseFloat(x.iva_usd)||0,totalUsd:parseFloat(x.total_usd)||0,tasaTipo:x.tasa_tipo||'bcvDolar',tasaVal:parseFloat(x.tasa_val)||0,retPct:parseFloat(x.ret_pct)||0,retUsd:parseFloat(x.ret_usd)||0,netoPagar:parseFloat(x.neto_pagar)||0,neto_pagar:parseFloat(x.neto_pagar)||0,fechaVenc:x.fecha_venc||'',estado:x.estado||'pendiente',fechaPago:x.fecha_pago||'',refBnc:x.ref_bnc||''};});
     // PROVEEDORES
-    var pv=await supabase.from('proveedores').select('*');
     if(pv.data&&pv.data.length)PROVEEDORES=pv.data.map(function(x){return{
         id:x.id,nombre:x.nombre,rif:x.rif||'',
         banco:x.banco||'',tcuenta:x.tcuenta||'',ncuenta:x.ncuenta||'',
@@ -2937,26 +2949,19 @@ async function cargarDatosDB(){
         islr_pct:parseFloat(x.islr_pct)||0
       };});
     // PRESTAMOS
-    var pr=await supabase.from('prestamos').select('*');
     if(pr.data&&pr.data.length)PRESTAMOS=pr.data.map(function(x){return{id:x.id,empId:x.emp_id,empNombre:x.emp_nombre,fecha:x.fecha,montoUsd:parseFloat(x.monto_usd)||0,semanas:parseInt(x.semanas)||1,cuotaUsd:parseFloat(x.cuota_usd)||0,pagado:parseFloat(x.pagado)||0,semanasPagadas:parseInt(x.semanas_pagadas)||0,motivo:x.motivo||'',estado:x.estado||'activo'};});
     // MULTAS
-    var ml=await supabase.from('multas').select('*');
     if(ml.data&&ml.data.length)MULTAS=ml.data.map(function(x){return{id:x.id,camId:x.cam_id,fecha:x.fecha,desc:x.descripcion||'',montoBs:parseFloat(x.monto_bs)||0,ref:x.ref||'',resp:x.responsable||'empresa',choferId:x.chofer_id||'',cuotas:parseInt(x.cuotas)||1,cuotaBs:parseFloat(x.cuota_bs)||0,pagadoBs:parseFloat(x.pagado_bs)||0,cuotasPagas:parseInt(x.cuotas_pagas)||0,estado:x.estado||'activo'};});
     // INVENTARIO
-    var inv=await supabase.from('inventario').select('*');
     if(inv.data&&inv.data.length)INVENTARIO=inv.data.map(function(x){return{id:x.id,nombre:x.nombre,cat:x.categoria||'',unidad:x.unidad||'Unidades',stock:parseInt(x.stock)||0,stockMin:parseInt(x.stock_min)||2,precio:parseFloat(x.precio)||0};});
     // CONTRATOS
-    var co=await supabase.from('contratos').select('*');
     if(co.data&&co.data.length)CONTRATOS=co.data.map(function(x){return{id:x.id,nombre:x.nombre,parte:x.parte||'',monto:parseFloat(x.monto)||0,inicio:x.inicio||'',venc:x.vencimiento||'',cond:x.condiciones||'',estado:x.estado||'activo'};});
     // GASTOS VARIABLES
-    var gv2=await supabase.from('gastos_variables').select('*');
     if(gv2.data&&gv2.data.length)GASTOS_VARIABLES=gv2.data.map(function(x){return{id:x.id,fecha:x.fecha,cat:x.categoria||'',desc:x.descripcion||'',bs:parseFloat(x.monto_bs)||0,usd:parseFloat(x.monto_usd)||0,ref:x.referencia||'',fact:x.factura||''};});
     // PAGOS ALCALDÍA
-    var palc=await supabase.from('pagos_alcaldia').select('*');
     // Fuente de verdad Supabase: usar resultado aunque sea vacío (sin error) → no reaparecen seeds.
     if(!palc.error&&Array.isArray(palc.data))PAGOS_ALC=palc.data.map(function(x){return{id:x.id,fecha:x.fecha,fact:x.factura,ref:x.referencia||'',viajes:parseInt(x.viajes)||0,tasa:parseFloat(x.tasa)||0,base:parseFloat(x.base_usd)||0,iva:parseFloat(x.iva_usd)||0,total:parseFloat(x.total_usd)||0,neto:parseFloat(x.neto_usd)||0,fiel:parseFloat(x.fiel_usd)||0,fielDevuelto:x.fiel_devuelto||false,pct75:x.pct75_pagado||false};});
     // KM DATA
-    var km=await supabase.from('km_data').select('*');
     if(km.data&&km.data.length)km.data.forEach(function(x){
       if(!KM_DATA[x.cam])KM_DATA[x.cam]={mant:[]};
       KM_DATA[x.cam].km=parseFloat(x.km)||0;
@@ -2970,7 +2975,6 @@ async function cargarDatosDB(){
       KM_DATA[x.cam].modelo=x.nota_estado&&x.cam.startsWith('SRV')?x.nota_estado:'JAC 1035';
     });
     // AUDITORIA LOG
-    var aul=await supabase.from('auditoria').select('*').order('created_at',{ascending:false}).limit(200);
     if(aul.data&&aul.data.length)AUDITORIA_LOG=aul.data.map(function(x){return{fecha:x.fecha||x.created_at,usuario:x.usuario,accion:x.accion,detalle:x.detalle||''};});
     // CONFIG WHATSAPP
     try{
