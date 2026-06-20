@@ -3480,10 +3480,16 @@ function renderDash(){
   var cams=Object.keys(VX);
   var ce=g('c-cam-svg');if(ce)ce.innerHTML=svgBar(cams.map(function(c){return VX[c];}),cams.map(function(c){return c.replace('JAC-','');}));
   var coe=g('c-cob-svg');if(coe)coe.innerHTML=svgDonut([totalCob,Math.max(1,porcobrar)],['Cobrado','Por cobrar'],['#22c55e','#ef4444']);
-  // Ultimas planillas
-  var ult=REGS.slice().reverse().slice(0,5);
+  // Ultimas planillas — ordenar por número de planilla DESC (REGS viene sin ordenar de la
+  // base, antes con reverse() salían 5 al azar = incoherente). Se muestra también la fecha.
+  var ult=REGS.slice().sort(function(a,b){
+    var df=String(b.f||'').localeCompare(String(a.f||''));   // por FECHA más reciente primero
+    if(df!==0) return df;
+    var pa=parseInt(String(a.p).replace(/\D/g,''))||0, pb=parseInt(String(b.p).replace(/\D/g,''))||0;
+    return pb-pa;                                            // desempate por número de planilla
+  }).slice(0,5);
   var uptEl=g('ult-plan');
-  if(uptEl)uptEl.innerHTML=ult.map(function(r){return'<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border)"><span style="font-family:var(--m);font-size:10px;color:var(--text3)">#'+r.p+'</span><span style="font-weight:700;font-size:11px;flex:1">'+r.cam+'</span><span class="badge bg">'+r.t+'v</span><span style="font-size:11px;color:var(--yellow);font-family:var(--m)">$'+r.m.toLocaleString()+'</span></div>';}).join('')||'<div style="color:var(--text3);font-size:12px;padding:10px">Sin planillas</div>';
+  if(uptEl)uptEl.innerHTML=ult.map(function(r){return'<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border)"><span style="font-family:var(--m);font-size:10px;color:var(--text3)">#'+r.p+'</span><span style="font-weight:700;font-size:11px;flex:1">'+r.cam+'<span style="font-weight:400;color:var(--text3);font-size:9px;margin-left:4px">'+(r.f?fmtFechaCorta(r.f):'')+'</span></span><span class="badge bg">'+r.t+'v</span><span style="font-size:11px;color:var(--yellow);font-family:var(--m)">$'+r.m.toLocaleString()+'</span></div>';}).join('')||'<div style="color:var(--text3);font-size:12px;padding:10px">Sin planillas</div>';
   // Financiero para roles que pueden verlo
   var perms=PERMISOS[SESION?SESION.rol:'visualizador']||PERMISOS['admin']||[];
   if(perms.indexOf('financiero')>=0)renderDashFinanciero(totalM,totalCob,porcobrar);
@@ -3603,7 +3609,10 @@ function renderFlotaDash(){
   var op=0,tal=0;
   var html='<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:5px">';
   cams.forEach(function(cam){
-    var f=FLOTA[cam];var est=f.estado||'operativo';
+    var f=FLOTA[cam];
+    // Estado ENLAZADO con chofer/mecánico: leer km_data.estado (donde ellos escriben),
+    // con fallback al estado local de oficina. El auto-refresco recarga km_data cada 60s.
+    var est=(KM_DATA[cam]&&KM_DATA[cam].estado)||f.estado||'operativo';
     var km=KM_DATA[cam]?KM_DATA[cam].km:0;
     var c=est==='operativo'?'var(--green)':est==='taller'?'var(--yellow)':'var(--red)';
     var bg=est==='operativo'?'rgba(163,230,53,.07)':est==='taller'?'rgba(251,191,36,.07)':'rgba(248,113,113,.07)';
@@ -3619,7 +3628,21 @@ function renderFlotaDash(){
   var res=g('flota-resumen');if(res)res.textContent=op+' operativos · '+tal+' en taller';
 }
 
-function toggleEstCam(cam){var ests=['operativo','taller','inoperativo'];var cur=FLOTA[cam].estado||'operativo';FLOTA[cam].estado=ests[(ests.indexOf(cur)+1)%ests.length];renderFlotaDash();}
+function toggleEstCam(cam){
+  var ests=['operativo','taller','inoperativo'];
+  var cur=(KM_DATA[cam]&&KM_DATA[cam].estado)||FLOTA[cam].estado||'operativo';
+  var nv=ests[(ests.indexOf(cur)+1)%ests.length];
+  FLOTA[cam].estado=nv;
+  if(!KM_DATA[cam])KM_DATA[cam]={mant:[]};
+  KM_DATA[cam].estado=nv;
+  renderFlotaDash();
+  // PERSISTIR (antes era solo local y se perdía): km_data.estado es la fuente que también
+  // leen/escriben el chofer y el mecánico → así oficina y apps quedan ENLAZADAS.
+  if(DB_READY&&supabase){
+    supabase.from('km_data').update({estado:nv}).eq('cam',cam).then(function(r){if(r&&r.error)console.log('km_data estado:',r.error.message);});
+    supabase.from('flota_estado').upsert([{unidad:cam,estado:nv,updated_by:(SESION&&SESION.nombre)||'oficina',updated_at:new Date().toISOString()}],{onConflict:'unidad'}).then(function(){});
+  }
+}
 
 function renderRankingTop5(){
   var chMap={};
@@ -11815,9 +11838,14 @@ function renderWidgetFlota(){
     var ckSet={};
     if(!res[2].error&&res[2].data)res[2].data.forEach(function(c){if(ckSet[c.cam]===undefined)ckSet[c.cam]=c.estado_vehiculo||'operativo';});
     var ckCount=cams.filter(function(c){return ckSet[c]!==undefined;}).length;
+    var ckHechos=cams.filter(function(c){return ckSet[c]!==undefined;}).map(function(c){return c.replace('JAC-','');});
+    var ckFaltan=cams.filter(function(c){return ckSet[c]===undefined;}).map(function(c){return c.replace('JAC-','');});
     var th=cams.reduce(function(s,c){return s+ph[c];},0),ts=cams.reduce(function(s,c){return s+ps[c];},0);
     if(g2)g2.textContent=th;if(g3)g3.textContent=ts;
-    var resumenCk='<div style="grid-column:1/-1;font-size:11px;color:var(--text2);font-weight:700;padding:2px 2px 4px">📋 Checklist hoy: <span style="color:'+(ckCount>=cams.length?'#7dc941':'var(--yellow)')+'">'+ckCount+' de '+cams.length+'</span> camiones</div>';
+    var resumenCk='<div style="grid-column:1/-1;font-size:11px;color:var(--text2);font-weight:700;padding:2px 2px 4px">📋 Checklist hoy: <span style="color:'+(ckCount>=cams.length?'#7dc941':'var(--yellow)')+'">'+ckCount+' de '+cams.length+'</span> camiones'
+      +(ckHechos.length?'<div style="font-size:9px;font-weight:600;color:#7dc941;margin-top:2px">✅ Hicieron: '+ckHechos.join(', ')+'</div>':'')
+      +(ckFaltan.length?'<div style="font-size:9px;font-weight:600;color:#fbbf24;margin-top:1px">⌛ Faltan: '+ckFaltan.join(', ')+'</div>':'')
+      +'</div>';
     g1.innerHTML=resumenCk+cams.map(function(cam){
       var vh=ph[cam]||0,vs=ps[cam]||0,nm=(FLOTA_MAP_WF[cam]||cam).split(' ')[0],col=vh>0?'#7dc941':'var(--text3)';
       var hizoCk=ckSet[cam]!==undefined;
