@@ -99,6 +99,7 @@ audit(...); mostrarToast(...);
 | Préstamos (`prestamos`) | prestamos | descuento en nómina |
 | Multas (`multas`) | multas | descuento chofer/empresa |
 | Estadísticas/Ranking (`stats`,`ranking`) | REGS | top choferes, etc. |
+| **Rentabilidad x Camión (`rentabilidad`)** | REGS, GASOIL | Ingreso (planillas) − Combustible (gasoil despachos) − Nómina (chofer+ayudantes) por camión. Motor `calcRentabilidadCamiones(des,hta)`; KPIs + ranking + gráfico + imprimir. Ingreso reconcilia con facturado del dashboard. |
 | Contratos (`contratos`) | contratos | |
 | Usuarios (`usuarios`) | usuarios_app | gestión de acceso |
 | Auditoría (`auditoria`) | auditoria | log de acciones |
