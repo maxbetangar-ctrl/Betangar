@@ -1073,7 +1073,7 @@ tr:hover td{background:rgba(45,255,122,.02)}
       </div>
       <div class="fr2">
         <div class="fg"><label>Camion</label><select class="fc" id="rp-cam" onchange="autoData()"><option value="">-</option></select></div>
-        <div class="fg"><label>Chofer</label><input class="fc" id="rp-chofer" placeholder="Auto..."></div>
+        <div class="fg"><label>Chofer</label><input class="fc" id="rp-chofer" placeholder="Auto..." list="dl-chofer"><datalist id="dl-chofer"></datalist></div>
       </div>
       <div class="fr2">
         <div class="fg">
@@ -2690,7 +2690,7 @@ function sp(id){
     },500);
     setTimeout(function(){clearInterval(_bncWait);},15000); // máximo 15 seg
   }
-    if(id==='planilla'){renderPlanHoy();renderAlertaDuplicadasRRHH();}
+    if(id==='planilla'){renderPlanHoy();renderAlertaDuplicadasRRHH();poblarDatalistsEmpleados();}
     if(id==='historico'){poblarSems();filtH();}
     if(id==='stats')renderStats();
     if(id==='ranking')calcRanking();
@@ -2860,7 +2860,7 @@ async function cargarDatosDB(){
       return{p:r.p,f:r.f,mes:r.mes||'',cam:r.cam,ch:r.ch,r:r.r||'',par:r.par||'',
              d:d,n:n,t:t,sem:r.sem||'',m:parseFloat(r.m)||t*(cfg.tarifa||316.88),
              obs:r.obs||'',inc:r.inc||'',incDesc:r.inc_desc||'',
-             ay1:r.ay1||'',ay2:r.ay2||'',gasoil:parseFloat(r.gasoil)||0,
+             ay1:r.ay1||'',ay2:r.ay2||'',ay3:r.ay3||'',gasoil:parseFloat(r.gasoil)||0,
              km:parseFloat(r.km)||0,mant:r.mant||''};
     });
     // ABONOS — ordenar por fecha (y id como desempate) para que SIEMPRE salgan en el mismo
@@ -3732,14 +3732,41 @@ function actualizarUltimaPlanilla(){
   REGS.forEach(function(r){var s=String(r.p||'');if(/^\d+$/.test(s)){var n=parseInt(s,10);if(n>mx)mx=n;}});
   el.textContent=mx>0?('Última cargada: #'+String(mx).padStart(5,'0')):'';
 }
+// Llena los datalists de Chofer y Ayudantes del Registro Diario con los nombres
+// CANÓNICOS de los empleados → el operador elige el nombre completo correcto.
+function poblarDatalistsEmpleados(){
+  var emps=(typeof EMPLEADOS!=='undefined'?EMPLEADOS:[]).filter(function(e){return e.activo!==false;});
+  var chof=emps.filter(function(e){return /chofer/i.test(e.cargo||'');});
+  var ayud=emps.filter(function(e){return /ayud/i.test(e.cargo||'');});
+  if(!chof.length)chof=emps; if(!ayud.length)ayud=emps;
+  function fill(id,list){var dl=document.getElementById(id);if(dl)dl.innerHTML=list.map(function(e){return '<option value="'+String(e.nombre||'').replace(/"/g,'&quot;')+'">';}).join('');}
+  fill('dl-chofer',chof); fill('dl-ay1',ayud); fill('dl-ay2',ayud); fill('dl-ay3',ayud);
+}
+// Devuelve el nombre COMPLETO del empleado (canónico) si el texto escrito casa con uno;
+// si no, devuelve el texto tal cual (en mayúsculas). Así las planillas guardan nombres que
+// SIEMPRE casan con la nómina/asistencia (arregla la calidad de datos de raíz).
+function _nombreCanonico(n){
+  if(!n||!String(n).trim())return '';
+  var e=(typeof _empPorNombre==='function')?_empPorNombre(n):null;
+  return e?e.nombre:String(n).trim().toUpperCase();
+}
 async function guardarPlanilla(){
   var p=gv('rp-num');var f=gv('rp-fecha');var c=gv('rp-cam');var ch=gv('rp-chofer');
   if(!p||!f||!c||!ch){alert('Completa: Planilla, Fecha, Camion, Chofer');return;}
   var tot=cntD+cntN;if(!tot){alert('Registra al menos 1 viaje');return;}
   var ns=String(p).padStart(5,'0');
   if(REGS.some(function(r){return r.p===ns;})){alert('Ya existe la planilla #'+ns);return;}
-  var nr={p:ns,f:f,mes:gv('rp-mes'),cam:c,ch:ch.toUpperCase(),r:gv('rp-ruta'),par:gv('rp-par'),d:cntD,n:cntN,t:tot,sem:gv('rp-sem'),m:tot*cfg.tarifa,obs:gv('rp-obs'),inc:gv('rp-inc'),incDesc:gv('rp-inc-desc')};
-  var row={p:nr.p,f:nr.f,mes:nr.mes,cam:nr.cam,ch:nr.ch,r:nr.r,par:nr.par,d:nr.d,n:nr.n,t:nr.t,sem:nr.sem,m:nr.m,obs:nr.obs,inc:nr.inc,inc_desc:nr.incDesc,ay1:'',ay2:'',gasoil:0,km:0,mant:''};
+  // Normalizar chofer + ayudantes a nombre canónico de empleado (calidad de datos)
+  var chC=_nombreCanonico(ch);
+  var ay1=_nombreCanonico(gv('rp-ay1')), ay2=_nombreCanonico(gv('rp-ay2')), ay3=_nombreCanonico(gv('rp-ay3'));
+  // Avisar si algún nombre escrito NO corresponde a un empleado (typo / no registrado)
+  var noCasan=[];
+  [['Chofer',ch,chC],['Ayudante 1',gv('rp-ay1'),ay1],['Ayudante 2',gv('rp-ay2'),ay2],['Ayudante 3',gv('rp-ay3'),ay3]].forEach(function(x){
+    if(x[1]&&String(x[1]).trim()&&(typeof _empPorNombre==='function')&&!_empPorNombre(x[1]))noCasan.push(x[0]+': "'+x[1]+'"');
+  });
+  if(noCasan.length){ if(!confirm('⚠ Estos nombres no coinciden con ningún empleado registrado:\n\n'+noCasan.join('\n')+'\n\nSe guardarán tal cual (la nómina/anomalías podrían no reconocerlos). ¿Continuar?'))return; }
+  var nr={p:ns,f:f,mes:gv('rp-mes'),cam:c,ch:chC,r:gv('rp-ruta'),par:gv('rp-par'),d:cntD,n:cntN,t:tot,sem:gv('rp-sem'),m:tot*cfg.tarifa,obs:gv('rp-obs'),inc:gv('rp-inc'),incDesc:gv('rp-inc-desc'),ay1:ay1,ay2:ay2,ay3:ay3};
+  var row={p:nr.p,f:nr.f,mes:nr.mes,cam:nr.cam,ch:nr.ch,r:nr.r,par:nr.par,d:nr.d,n:nr.n,t:nr.t,sem:nr.sem,m:nr.m,obs:nr.obs,inc:nr.inc,inc_desc:nr.incDesc,ay1:ay1,ay2:ay2,ay3:ay3,gasoil:0,km:0,mant:''};
   // P1: Supabase es la fuente de verdad. Guardar PRIMERO y solo confirmar éxito si responde OK.
   var _res=await dbUp('planillas',row,'p');
   REGS.push(nr);
