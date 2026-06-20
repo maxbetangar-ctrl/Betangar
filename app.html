@@ -263,6 +263,7 @@ tr:hover td{background:rgba(45,255,122,.02)}
     <div class="menu-item" onclick="sp('prestamos')" id="mi-prestamos">💳 Prestamos</div>
     <div class="menu-item" onclick="sp('multas')" id="mi-multas">⚖️ Multas</div>
     <div class="menu-group">ANALISIS</div>
+    <div class="menu-item" onclick="sp('rentabilidad')" id="mi-rentabilidad">📊 Rentabilidad x Camion</div>
     <div class="menu-item" onclick="sp('stats')" id="mi-stats">📉 Estadisticas</div>
     <div class="menu-item" onclick="sp('ranking')" id="mi-ranking">🏆 Ranking</div>
     <div class="menu-group">SISTEMA</div>
@@ -1521,6 +1522,27 @@ tr:hover td{background:rgba(45,255,122,.02)}
 </div>
 
 <!-- STATS -->
+<!-- RENTABILIDAD POR CAMION -->
+<div id="p-rentabilidad" class="page">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px">
+    <div style="font-size:15px;font-weight:800;color:var(--green)">📊 Rentabilidad por Camión</div>
+    <div style="display:flex;gap:6px;align-items:flex-end;flex-wrap:wrap">
+      <div class="fg" style="margin:0"><label style="font-size:10px;color:var(--text3)">Desde</label><input type="date" class="fc" id="rent-des" style="padding:6px 8px;font-size:11px" onchange="renderRentabilidad()"></div>
+      <div class="fg" style="margin:0"><label style="font-size:10px;color:var(--text3)">Hasta</label><input type="date" class="fc" id="rent-hta" style="padding:6px 8px;font-size:11px" onchange="renderRentabilidad()"></div>
+      <button class="btn btn-s btn-sm" onclick="document.getElementById('rent-des').value='';document.getElementById('rent-hta').value='';renderRentabilidad()">Todo</button>
+      <button class="btn btn-s btn-sm" onclick="imprimirRentabilidad()">🖨 Imprimir</button>
+    </div>
+  </div>
+  <div style="font-size:11px;color:var(--text3);margin-bottom:10px">Ingreso (planillas) − Combustible (gasoil) − Nómina (chofer + ayudantes). Fuente: datos reales por camión.</div>
+  <div id="rent-kpis" class="g4" style="margin-bottom:10px"></div>
+  <div class="card" style="margin-bottom:10px">
+    <div class="sh"><div class="st">Ranking de rentabilidad</div></div>
+    <div class="tw" style="overflow-x:auto"><table><thead><tr><th>#</th><th>Camión</th><th>Viajes</th><th>Ingreso</th><th>Combustible</th><th>Nómina</th><th>Utilidad</th><th>Margen</th><th>L/viaje</th><th>$/viaje util.</th></tr></thead><tbody id="rent-tabla"></tbody></table></div>
+  </div>
+  <div class="cbox"><div class="ctitle">Utilidad por camión</div><div id="rent-chart"></div></div>
+</div>
+
+<!-- ESTADISTICAS -->
 <div id="p-stats" class="page">
   <div class="g2" style="margin-bottom:10px">
     <div class="cbox"><div class="ctitle">Viajes Acumulados</div><div id="c-acum-svg"></div></div>
@@ -2197,14 +2219,14 @@ var USUARIOS={
 };
 
 var PERMISOS={
-  superadmin:['dashboard','banco-bnc','conciliacion','checklist','mensajes-wa','planilla','historico','reporte','abonos','banco','proveedores','financiero','nomina','asistencia','combustible','control-combustible','km','documentos','inventario','llantas','metas','empleados','prestamos','multas','stats','ranking','contratos','usuarios','auditoria','config','galeria','porteria','mecanico','operativo','cxp','cajachica'],
-  admin:['dashboard','conciliacion','checklist','planilla','historico','reporte','abonos','banco','proveedores','financiero','nomina','asistencia','combustible','control-combustible','km','documentos','inventario','llantas','metas','empleados','prestamos','multas','stats','ranking','contratos','usuarios','auditoria','config','galeria','porteria','mecanico','operativo','cxp','cajachica'],
-  operador:['dashboard','planilla','historico','reporte','abonos','banco','proveedores','financiero','nomina','asistencia','combustible','control-combustible','km','documentos','inventario','llantas','metas','empleados','prestamos','multas','stats','ranking','contratos','galeria'],
+  superadmin:['dashboard','banco-bnc','conciliacion','checklist','mensajes-wa','planilla','historico','reporte','abonos','banco','proveedores','financiero','nomina','asistencia','combustible','control-combustible','km','documentos','inventario','llantas','metas','empleados','prestamos','multas','stats','ranking','rentabilidad','contratos','usuarios','auditoria','config','galeria','porteria','mecanico','operativo','cxp','cajachica'],
+  admin:['dashboard','conciliacion','checklist','planilla','historico','reporte','abonos','banco','proveedores','financiero','nomina','asistencia','combustible','control-combustible','km','documentos','inventario','llantas','metas','empleados','prestamos','multas','stats','ranking','rentabilidad','contratos','usuarios','auditoria','config','galeria','porteria','mecanico','operativo','cxp','cajachica'],
+  operador:['dashboard','planilla','historico','reporte','abonos','banco','proveedores','financiero','nomina','asistencia','combustible','control-combustible','km','documentos','inventario','llantas','metas','empleados','prestamos','multas','stats','ranking','rentabilidad','contratos','galeria'],
   rrhh:['dashboard','mensajes-wa','planilla','historico','reporte','nomina','asistencia','combustible','km','documentos','inventario','llantas','metas','empleados','prestamos','multas','ranking','galeria'],
-  visualizador:['dashboard','reporte','abonos','banco','financiero','stats','ranking','contratos','galeria'],
-  directivo:['dashboard','historico','reporte','abonos','financiero','stats','ranking'],
-  demo_admin:['dashboard','checklist','planilla','historico','reporte','abonos','banco','proveedores','financiero','nomina','asistencia','combustible','km','documentos','inventario','llantas','metas','empleados','prestamos','multas','stats','ranking','contratos','usuarios','config','galeria'],
-  demo_operador:['dashboard','planilla','historico','reporte','abonos','banco','proveedores','financiero','nomina','asistencia','combustible','km','documentos','inventario','llantas','metas','empleados','prestamos','multas','stats','ranking','contratos','galeria'],
+  visualizador:['dashboard','reporte','abonos','banco','financiero','stats','ranking','rentabilidad','contratos','galeria'],
+  directivo:['dashboard','historico','reporte','abonos','financiero','stats','ranking','rentabilidad'],
+  demo_admin:['dashboard','checklist','planilla','historico','reporte','abonos','banco','proveedores','financiero','nomina','asistencia','combustible','km','documentos','inventario','llantas','metas','empleados','prestamos','multas','stats','ranking','rentabilidad','contratos','usuarios','config','galeria'],
+  demo_operador:['dashboard','planilla','historico','reporte','abonos','banco','proveedores','financiero','nomina','asistencia','combustible','km','documentos','inventario','llantas','metas','empleados','prestamos','multas','stats','ranking','rentabilidad','contratos','galeria'],
   demo_rrhh:['dashboard','mensajes-wa','planilla','historico','reporte','nomina','asistencia','combustible','km','documentos','inventario','llantas','metas','empleados','prestamos','multas','ranking','galeria'],
   asistencia:['asistencia'],
   vigilante:['porteria'],
@@ -2217,7 +2239,7 @@ var NAV_LABELS={
   abonos:'Abonos / Cobros',banco:'Banco BNC',conciliacion:'Conciliación Bancaria',proveedores:'Proveedores',financiero:'Financiero',
   nomina:'Nomina',asistencia:'Asistencia',combustible:'Combustible','control-combustible':'Control Combustible',km:'Km / Servicio',
   documentos:'Documentos',inventario:'Inventario',llantas:'Llantas',metas:'Metas',
-  empleados:'Empleados',prestamos:'Prestamos',multas:'Multas',stats:'Estadisticas',
+  empleados:'Empleados',prestamos:'Prestamos',multas:'Multas',stats:'Estadisticas',rentabilidad:'Rentabilidad x Camion',
   porteria:'Porteria',mecanico:'Mecanico',checklist:'Check List',operativo:'Operativo',ranking:'Ranking',contratos:'Contratos',usuarios:'Usuarios',auditoria:'Auditoria',
   config:'Configuracion',galeria:'Galeria','mensajes-wa':'Mensajes WA',cxp:'Cuentas x Pagar',cajachica:'Caja Chica'
 };
@@ -2664,6 +2686,7 @@ function sp(id){
     if(id==='nomina')calcNom();
     if(id==='combustible'){renderComb();renderGasolPersonal();setTimeout(renderGasoil,100);}
     if(id==='control-combustible'){renderControlComb();}
+    if(id==='rentabilidad'){renderRentabilidad();}
     if(id==='km'){renderKm();renderTiposMant();}
     if(id==='banco')renderBNCDash();
     if(id==='proveedores'){renderCXP();renderProveedoresLista();renderRetenciones();}
@@ -13012,6 +13035,97 @@ async function nuevoVehiculoComb(){
   if(typeof audit==='function')audit('Nuevo vehículo combustible',id);
   mostrarToast('✅ Vehículo '+id+' creado','exito');
   renderCfgCombustible();
+}
+
+/* ============================================================================
+   RENTABILIDAD POR CAMIÓN — Ingreso (planillas) − Combustible (gasoil) − Nómina
+   (chofer + ayudantes). Usa los mismos datos reales que el resto de la app.
+   ============================================================================ */
+function _rentEsCompra(row){return String(row.cam||'').toUpperCase().indexOf('COMPRA')===0;}
+function calcRentabilidadCamiones(des,hta){
+  var tarChofer=cfg.chofer||10, tarAyud=cfg.ayud||5;
+  var pf=(typeof REGS!=='undefined'?REGS:[]).filter(function(r){if(!r.cam||String(r.cam).toUpperCase().indexOf('JAC')!==0)return false;if(des&&r.f<des)return false;if(hta&&r.f>hta)return false;return true;});
+  var map={};
+  pf.forEach(function(r){
+    var c=r.cam; if(!map[c])map[c]={cam:c,viajes:0,ingreso:0,ayViajes:0};
+    var t=parseInt(r.t)||0;
+    map[c].viajes+=t;
+    map[c].ingreso+=(parseFloat(r.m)||0);
+    var ayCount=((r.ay1&&String(r.ay1).trim())?1:0)+((r.ay2&&String(r.ay2).trim())?1:0)+((r.ay3&&String(r.ay3).trim())?1:0);
+    map[c].ayViajes+=ayCount*t;
+  });
+  // Combustible (gasoil despachos) por camión, en el rango
+  (typeof GASOIL!=='undefined'?GASOIL:[]).forEach(function(g){
+    if(_rentEsCompra(g))return;
+    if(des&&g.f<des)return; if(hta&&g.f>hta)return;
+    if(!map[g.cam])return; // solo camiones con planillas en el rango
+    map[g.cam].combustible=(map[g.cam].combustible||0)+(parseFloat(g.m)||0);
+    map[g.cam].litros=(map[g.cam].litros||0)+(parseFloat(g.lit)||0);
+  });
+  var rows=Object.keys(map).map(function(c){
+    var x=map[c];
+    var combustible=x.combustible||0, litros=x.litros||0;
+    var nominaChofer=x.viajes*tarChofer, nominaAyud=x.ayViajes*tarAyud, nomina=nominaChofer+nominaAyud;
+    var utilidad=x.ingreso-combustible-nomina;
+    var margen=x.ingreso>0?(utilidad/x.ingreso*100):0;
+    return {cam:c,viajes:x.viajes,ingreso:x.ingreso,combustible:combustible,litros:litros,
+      nomina:nomina,nominaChofer:nominaChofer,nominaAyud:nominaAyud,utilidad:utilidad,margen:margen,
+      lViaje:x.viajes>0?litros/x.viajes:0,utilPorViaje:x.viajes>0?utilidad/x.viajes:0};
+  }).sort(function(a,b){return b.utilidad-a.utilidad;});
+  var tot=rows.reduce(function(s,r){return{ingreso:s.ingreso+r.ingreso,combustible:s.combustible+r.combustible,nomina:s.nomina+r.nomina,utilidad:s.utilidad+r.utilidad,viajes:s.viajes+r.viajes};},{ingreso:0,combustible:0,nomina:0,utilidad:0,viajes:0});
+  return {rows:rows,total:tot};
+}
+
+function renderRentabilidad(){
+  var R=calcRentabilidadCamiones(gv('rent-des'),gv('rent-hta'));
+  function $m(x){return '$'+Math.round(x||0).toLocaleString('es-VE');}
+  var margenTot=R.total.ingreso>0?Math.round(R.total.utilidad/R.total.ingreso*100):0;
+  var kp=g('rent-kpis');
+  if(kp)kp.innerHTML=
+    '<div class="stat" style="border-top-color:var(--green2)"><div class="stat-lbl">Ingreso</div><div class="stat-val" style="font-size:16px;color:var(--green2)">'+$m(R.total.ingreso)+'</div><div class="stat-sub">'+R.total.viajes+' viajes</div></div>'+
+    '<div class="stat y"><div class="stat-lbl">Costos (comb.+nómina)</div><div class="stat-val" style="font-size:16px;color:var(--yellow)">'+$m(R.total.combustible+R.total.nomina)+'</div><div class="stat-sub">⛽ '+$m(R.total.combustible)+' · 👷 '+$m(R.total.nomina)+'</div></div>'+
+    '<div class="stat b"><div class="stat-lbl">Utilidad</div><div class="stat-val" style="font-size:16px;color:var(--blue)">'+$m(R.total.utilidad)+'</div><div class="stat-sub">de los 12 camiones</div></div>'+
+    '<div class="stat"><div class="stat-lbl">Margen</div><div class="stat-val" style="font-size:16px;color:'+(margenTot>=0?'var(--green2)':'var(--red)')+'">'+margenTot+'%</div><div class="stat-sub">utilidad/ingreso</div></div>';
+  var tb=g('rent-tabla');
+  if(tb)tb.innerHTML=R.rows.map(function(r,i){
+    var col=r.utilidad<0?'var(--red)':r.margen>=70?'var(--green2)':r.margen>=40?'var(--yellow)':'#fb923c';
+    var sem=r.utilidad<0?'🔴':r.margen>=70?'🟢':r.margen>=40?'🟡':'🟠';
+    return '<tr><td>'+(i+1)+'</td><td><b>'+r.cam+'</b> '+sem+'</td>'+
+      '<td style="text-align:center">'+r.viajes+'</td>'+
+      '<td style="font-family:var(--m)">'+$m(r.ingreso)+'</td>'+
+      '<td style="font-family:var(--m);color:var(--yellow)">'+$m(r.combustible)+'</td>'+
+      '<td style="font-family:var(--m);color:var(--yellow)">'+$m(r.nomina)+'</td>'+
+      '<td style="font-family:var(--m);font-weight:700;color:'+col+'">'+$m(r.utilidad)+'</td>'+
+      '<td style="font-family:var(--m);color:'+col+'">'+Math.round(r.margen)+'%</td>'+
+      '<td style="font-family:var(--m)">'+(r.lViaje?r.lViaje.toFixed(1)+' L':'—')+'</td>'+
+      '<td style="font-family:var(--m)">'+$m(r.utilPorViaje)+'</td></tr>';
+  }).join('')||'<tr><td colspan="10" style="text-align:center;color:var(--text3);padding:14px">Sin datos en el período</td></tr>';
+  renderRentChart(R.rows);
+}
+
+function renderRentChart(rows){
+  var box=g('rent-chart'); if(!box)return;
+  if(!rows.length){box.innerHTML='';return;}
+  var maxU=Math.max.apply(null,rows.map(function(r){return Math.abs(r.utilidad);}))||1;
+  var W=Math.max(360,box.clientWidth||600), H=200, pad=28, bw=(W-pad*2)/rows.length;
+  var svg='<svg width="100%" viewBox="0 0 '+W+' '+H+'" style="font-family:var(--m)">';
+  var zeroY=H-30;
+  rows.forEach(function(r,i){
+    var x=pad+i*bw;
+    var h=(Math.abs(r.utilidad)/maxU)*(H-50);
+    var c=r.utilidad<0?'#ef4444':'#7dc941';
+    svg+='<rect x="'+(x+bw*0.15)+'" y="'+(zeroY-h)+'" width="'+(bw*0.7)+'" height="'+h+'" fill="'+c+'" rx="2"/>';
+    svg+='<text x="'+(x+bw*0.5)+'" y="'+(H-16)+'" font-size="8" fill="#888" text-anchor="middle">'+r.cam.replace('JAC-','')+'</text>';
+  });
+  svg+='</svg>';
+  box.innerHTML=svg;
+}
+
+function imprimirRentabilidad(){
+  var cont=g('rent-kpis').outerHTML+g('rent-tabla').closest('.card').outerHTML;
+  var w=window.open('','_blank');
+  w.document.write('<html><head><title>Rentabilidad por Camión — Betangar</title><style>body{font-family:Arial;padding:20px;color:#111}table{width:100%;border-collapse:collapse;margin-top:10px}th,td{border:1px solid #ccc;padding:6px 8px;font-size:12px;text-align:left}.stat{display:inline-block;border:1px solid #ccc;border-radius:8px;padding:8px 14px;margin:4px}.stat-lbl{font-size:10px;color:#666}.stat-val{font-size:16px;font-weight:bold}</style></head><body><h2>📊 Rentabilidad por Camión — Inversiones Betangar CA</h2>'+cont+'</body></html>');
+  w.document.close();w.print();
 }
 </script>
 
