@@ -2461,10 +2461,11 @@ function cerrarSesion(){SESION=null;try{localStorage.removeItem('betangar_sesion
       var ses=JSON.parse(s);
       if(ses&&ses.usuario&&ses.rol&&USUARIOS[ses.usuario]){
         SESION=ses;
-        // Ocultar login y mostrar app
-        var loginEl=document.getElementById('login');
-        var appEl=document.getElementById('app');
+        // Ocultar el OVERLAY del login (el id real es 'login-overlay', no 'login' → antes
+        // no se ocultaba y por eso seguía pidiendo usuario/clave aunque la sesión existía).
+        var loginEl=document.getElementById('login-overlay');
         if(loginEl)loginEl.style.display='none';
+        var appEl=document.getElementById('app');
         if(appEl)appEl.style.display='flex';
         // FIX SISTÉMICO: crear el cliente Supabase ANTES de cargar/guardar datos. Antes,
         // al restaurar sesión (recargar) NO se creaba el cliente → DB_READY=false → ninguna
