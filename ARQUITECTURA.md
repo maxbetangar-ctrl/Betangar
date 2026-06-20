@@ -76,8 +76,7 @@ audit(...); mostrarToast(...);
 | Dashboard (`dashboard`) | REGS, ABONOS, viajes_chofer, checklist, bnc | `renderDash`, `renderWidgetFlota` (viajes chofer hoy + desglose semanal Lun–Sáb), `cargarPanelChoferes` (En vivo vs Facturado), `renderDashFinanciero` (Facturado/Cobrado/Por Cobrar/Utilidad Real), `renderReporteKM` (recorridos desde checklist) |
 | Registro Diario (`planilla`) | planillas | alta manual + import Excel (`onConflict:'p'`); produce REGS |
 | Histórico (`historico`) | planillas | filtros por semana |
-| Reporte Alcaldía (`reporte`) | planillas, pagos_alcaldia | ejecución semanal, facturación |
-| Abonos/Cobros (`abonos`) | abonos (`onConflict:'fact'`) | cobros vs facturado |
+| **Cobranza / Alcaldía (`reporte`)** | planillas, abonos (`onConflict:'fact'`), pagos_alcaldia | **Módulo unificado de cobros** — 4 pestañas: Estado de Cuenta (FIFO + antigüedad/aging + KPIs + Recordatorio WA), Ejecución Semanal, **Pagos** (registrar abonos; antes el módulo "Abonos", fundido aquí), Precios. Motor único `calcCobranzaSemanas()` / `calcCobranzaAging()` (mismo cálculo en reporte y panel). `sp('abonos')` redirige a la pestaña Pagos; el menú "Abonos" se eliminó. |
 | Banco BNC (`banco`) | bnc_notificaciones, bnc_config | saldo (edge `bnc-saldo`), movimientos |
 | Conciliación (`conciliacion`) | bnc_notificaciones, abonos | cruza pagos BNC ↔ abonos |
 | Proveedores/CxP (`proveedores`,`cxp`) | proveedores, cxp | retenciones SENIAT, pagos |
