@@ -184,7 +184,7 @@ body{background:#0f1923;color:#fff;font-family:-apple-system,BlinkMacSystemFont,
     <div class="content">
 
       <div class="cola-banner" id="cola-banner">
-        📵 Sin conexión — <span id="cola-count">0</span> viaje(s) guardado(s). Se sincronizarán automáticamente.
+        📵 Pendiente de subir — <span id="cola-count">0</span> registro(s) guardado(s). Se sincronizarán automáticamente.
       </div>
 
       <!-- Status bar -->
@@ -573,6 +573,7 @@ document.addEventListener('DOMContentLoaded', function(){
 
   // Cargar datos locales
   cargarColaLocal();
+  cargarColaCL();
   cargarViajesLocal();
   renderBotones();
   actualizarContador();
@@ -603,10 +604,9 @@ document.addEventListener('DOMContentLoaded', function(){
   window.addEventListener('online',  function(){ verificarConexion(); sincronizarCola(); });
   window.addEventListener('offline', function(){ actualizarConexion(false); });
 
-  // Refresh cada 30s si online
-  setInterval(function(){
-    if(isOnline){ sincronizarCola(); }
-  }, 30000);
+  // Refresh cada 30s: SIEMPRE intenta sincronizar (no depende de isOnline, que en
+  // algunos teléfonos quedaba en "Sin conexión" aunque sí había internet → nada subía).
+  setInterval(function(){ sincronizarCola(); }, 30000);
 });
 
 // ── SUPABASE ──
@@ -796,43 +796,79 @@ function limpiarRegViaje(r){
 // Sincroniza la cola UNO POR UNO (antes iba en un solo lote: un registro malo tumbaba
 // los 52 y nada entraba nunca). Cada viaje se limpia antes de subir; los que fallen se
 // quedan en la cola, el resto sí entra.
-function sincronizarCola(){
-  if(!isOnline || !supabase || !COLA_LOCAL.length) return;
-  var pend = COLA_LOCAL.slice();
-  COLA_LOCAL = [];
-  localStorage.removeItem('btg_cola_chofer');
+// ── Cola de CHECKLIST (antes NO existía: si el chofer llenaba el checklist sin
+//    conexión, se guardaba solo en el teléfono y nunca subía al dashboard) ──
+var COLA_CL = [];
+function cargarColaCL(){ try{ var s=localStorage.getItem('btg_cola_cl'); if(s) COLA_CL=JSON.parse(s); }catch(e){ COLA_CL=[]; } }
+function persistColaCL(){ try{ if(COLA_CL.length) localStorage.setItem('btg_cola_cl',JSON.stringify(COLA_CL)); else localStorage.removeItem('btg_cola_cl'); }catch(e){} }
+function agregarChecklistCola(reg){
+  var existe = COLA_CL.some(function(r){ return r.cam===reg.cam && r.fecha===reg.fecha; });
+  if(existe) COLA_CL = COLA_CL.filter(function(r){ return !(r.cam===reg.cam && r.fecha===reg.fecha); });
+  COLA_CL.push(reg);
+  persistColaCL();
+  actualizarBannerCola();
+}
 
-  var fallidos = [];
-  var restantes = pend.length;
-  function finalizar(){
-    COLA_LOCAL = fallidos;
-    try{
-      if(fallidos.length) localStorage.setItem('btg_cola_chofer', JSON.stringify(fallidos));
-      else localStorage.removeItem('btg_cola_chofer');
-    }catch(e){}
-    guardarViajesLocal();
-    renderHistorial();
-    cargarSemanaSupabase();
-    actualizarBannerCola();
+// Sincroniza AMBAS colas (viajes + checklist), UNO POR UNO, e INTENTA SIEMPRE (no exige
+// isOnline). Al primer éxito marca "En línea". Los que fallen se quedan en su cola.
+function sincronizarCola(){
+  if(!supabase) return;
+
+  // ── Viajes ──
+  if(COLA_LOCAL.length){
+    var pend = COLA_LOCAL.slice();
+    COLA_LOCAL = [];
+    localStorage.removeItem('btg_cola_chofer');
+    var fall = [], rest = pend.length;
+    pend.forEach(function(raw){
+      var reg = limpiarRegViaje(raw);
+      supabase.from('viajes_chofer').upsert([reg],{onConflict:'fecha,cam,viaje_num'})
+      .then(function(res){
+        if(res.error){ fall.push(raw); }
+        else { if(!isOnline) actualizarConexion(true); if(VIAJES_HOY[reg.viaje_num]) VIAJES_HOY[reg.viaje_num].sincronizado = true; }
+      }, function(){ fall.push(raw); })
+      .then(function(){
+        if(--rest <= 0){
+          COLA_LOCAL = fall;
+          try{ if(fall.length) localStorage.setItem('btg_cola_chofer', JSON.stringify(fall)); else localStorage.removeItem('btg_cola_chofer'); }catch(e){}
+          guardarViajesLocal(); renderHistorial(); cargarSemanaSupabase(); actualizarBannerCola();
+        }
+      });
+    });
   }
-  pend.forEach(function(raw){
-    var reg = limpiarRegViaje(raw);
-    supabase.from('viajes_chofer').upsert([reg],{onConflict:'fecha,cam,viaje_num'})
-    .then(function(res){
-      if(res.error){ fallidos.push(raw); }
-      else if(VIAJES_HOY[reg.viaje_num]){ VIAJES_HOY[reg.viaje_num].sincronizado = true; }
-    }, function(){ fallidos.push(raw); })
-    .then(function(){ if(--restantes <= 0) finalizar(); });
-  });
+
+  // ── Checklist ──
+  if(COLA_CL.length){
+    var pendC = COLA_CL.slice();
+    COLA_CL = [];
+    localStorage.removeItem('btg_cola_cl');
+    var fallC = [], restC = pendC.length;
+    pendC.forEach(function(reg){
+      supabase.from('checklist').upsert([reg],{onConflict:'fecha,cam'})
+      .then(function(res){
+        if(res.error){ fallC.push(reg); }
+        else {
+          if(!isOnline) actualizarConexion(true);
+          if(reg.estado_vehiculo){
+            supabase.from('flota_estado').upsert([{ unidad: reg.cam, estado: reg.estado_vehiculo, nota: '', updated_by: reg.conductor || 'chofer', updated_at: new Date().toISOString() }],{onConflict:'unidad'});
+          }
+        }
+      }, function(){ fallC.push(reg); })
+      .then(function(){
+        if(--restC <= 0){ COLA_CL = fallC; persistColaCL(); actualizarBannerCola(); }
+      });
+    });
+  }
 }
 
 function actualizarBannerCola(){
   var banner = document.getElementById('cola-banner');
   var count  = document.getElementById('cola-count');
   if(!banner) return;
-  if(COLA_LOCAL.length > 0){
+  var total = COLA_LOCAL.length + (typeof COLA_CL !== 'undefined' ? COLA_CL.length : 0);
+  if(total > 0){
     banner.style.display = 'block';
-    if(count) count.textContent = COLA_LOCAL.length;
+    if(count) count.textContent = total;
   } else {
     banner.style.display = 'none';
   }
@@ -1111,7 +1147,7 @@ async function guardarChecklist(){
     localStorage.setItem('btg_cl_'+cam+'_'+hoy, JSON.stringify(registro));
   }catch(e){}
 
-  var guardadoOk = false;
+  var guardadoOk = false, enCola = false;
 
   if(isOnline && supabase){
     var res;
@@ -1127,7 +1163,11 @@ async function guardarChecklist(){
       if(!res.error && res.data && res.data[0]) CL_ID_EXISTENTE = res.data[0].id;
     }
     guardadoOk = !res.error;
-    if(!guardadoOk) console.error('Checklist error:', res.error);
+    if(!guardadoOk){
+      console.error('Checklist error:', res.error);
+      agregarChecklistCola(registro);   // a la cola → se reintenta solo
+      enCola = true;
+    }
 
     // Actualizar flota_estado si hay cambio de estado
     if(guardadoOk && CL_ESTADO){
@@ -1144,10 +1184,13 @@ async function guardarChecklist(){
       }
     }
   } else {
-    guardadoOk = true; // Guardado local
+    // Sin conexión (o supabase aún no listo): a la cola para que suba al reconectar.
+    agregarChecklistCola(registro);
+    enCola = true;
   }
 
-  if(guardadoOk){
+  if(guardadoOk || enCola){
+    if(enCola) sincronizarCola();   // intento inmediato (no depende de isOnline)
     mostrarToast(CL_MODO==='salida' ? '☀️ Salida registrada' : '🌙 Llegada registrada');
 
     // Medición del tanque con regla (cm -> litros) -> combustible_mediciones
