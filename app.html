@@ -4878,6 +4878,14 @@ async function guardarKm(){
   var cam=gv('km-cam'),km=parseInt(gv('km-val'))||0,f=gv('km-f'),mant=gv('km-mant'),desc=gv('km-desc');
   if(!cam||!km){alert('Completa camion y km');return;}
   if(!KM_DATA[cam])KM_DATA[cam]={km:0,f:'',ultsrv:0,mant:[],lavado:'',engrase:''};
+  // BLINDAJE: el odómetro no retrocede. Si el km nuevo es MENOR que el último registrado,
+  // es typo o cambio de tablero — pedir confirmación explícita (evita los KM negativos).
+  var kmPrev=parseFloat(KM_DATA[cam].km)||0;
+  if(kmPrev>0 && km<kmPrev){
+    if(!confirm('⚠ El KM ingresado ('+km.toLocaleString()+') es MENOR que el último registrado de '+cam+' ('+kmPrev.toLocaleString()+').\n\nEl odómetro no debería retroceder. ¿Es una corrección o cambio de tablero?\n\nAceptar = guardar de todos modos · Cancelar = revisar el número.'))return;
+  } else if(kmPrev>0 && (km-kmPrev)>5000){
+    if(!confirm('⚠ Salto grande: '+cam+' pasó de '+kmPrev.toLocaleString()+' a '+km.toLocaleString()+' km (+'+(km-kmPrev).toLocaleString()+'). ¿Es correcto?'))return;
+  }
   KM_DATA[cam].km=km;KM_DATA[cam].f=f;
   if(mant){KM_DATA[cam].mant.push({f:f,km:km,tipo:mant,desc:desc});if(mant.includes('5000'))KM_DATA[cam].ultsrv=km;}
   // Guardar en Supabase
@@ -10797,11 +10805,15 @@ function clGuardar(){
   supabase.from('checklist').upsert([reg],{onConflict:'fecha,cam'}).then(function(res){
     if(res.error){alert('Error guardando: '+res.error.message);return;}
 
-    // Actualizar KM_DATA con el km de entrada (para precargar mañana como salida)
+    // Actualizar KM_DATA con el km de entrada (para precargar mañana como salida).
+    // BLINDAJE: el odómetro (km) nunca baja — si la entrada es menor que el actual (typo),
+    // se conserva el mayor. km_entrada_ayer sí refleja la entrada real para la precarga.
     if(kmEntrada>0&&KM_DATA[cam]){
+      var kmPrevMec=parseFloat(KM_DATA[cam].km)||0;
+      var kmNuevoMec=Math.max(kmPrevMec,kmEntrada);
       KM_DATA[cam].km_entrada_ayer=kmEntrada;
-      KM_DATA[cam].km=kmEntrada;
-      supabase.from('km_data').update({km:kmEntrada,km_entrada_ayer:kmEntrada,f:hoy}).eq('cam',cam).then(function(){});
+      KM_DATA[cam].km=kmNuevoMec;
+      supabase.from('km_data').update({km:kmNuevoMec,km_entrada_ayer:kmEntrada,f:hoy}).eq('cam',cam).then(function(){});
     }
 
     // Evaluar ítems en MAL estado y actualizar estado del camión automáticamente
