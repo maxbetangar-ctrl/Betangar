@@ -4897,10 +4897,9 @@ async function guardarKm(){
     });
     if(mant){
       supabase.from('mantenimientos').insert([{
-        cam:cam,fecha:f,km:km,tipo:mant,
-        descripcion:desc,registrado_por:SESION?SESION.nombre:'',
-        created_at:new Date().toISOString()
-      }]).catch(function(){});
+        cam:cam,f:f,km:km,tipo:mant,
+        desc_trabajo:(desc?desc+' ':'')+'(por '+(SESION?SESION.nombre:'?')+')'
+      }]).then(function(r){if(r&&r.error)console.log('mantenimientos:',r.error.message);});
     }
   }
   audit('Km registrado',cam+' '+km+'km'+(mant?' — '+mant:''));
@@ -4958,7 +4957,7 @@ async function guardarEngrase(){
   KM_DATA[cam].engrase=f;
   if(DB_READY&&supabase){
     await supabase.from('km_data').update({engrase:f}).eq('cam',cam);
-    await supabase.from('engrases').insert([{cam:cam,fecha:f,registrado_por:SESION?SESION.nombre:'',created_at:new Date().toISOString()}]);
+    await supabase.from('engrases').insert([{cam:cam,f:f,obs:(SESION?SESION.nombre:'')}]);
   }
   audit('Engrase registrado',cam+' '+f);
   renderEngrases();
@@ -9907,7 +9906,7 @@ function mecGuardarEstado(cam){
         'Fecha: '+new Date().toLocaleString('es-VE');
       sendWA(msgEstado,['socios','operativo']);
       // Actualizar flota_estado en Supabase
-      if(supabase)supabase.from('flota_estado').upsert([{cam:cam,estado:estado,motivo:nota||'',fecha_cambio:new Date().toISOString().slice(0,10),registrado_por:SESION.nombre||''}],{onConflict:'cam'}).catch(function(){});
+      if(supabase)supabase.from('flota_estado').upsert([{unidad:cam,estado:estado,nota:nota||'',updated_by:SESION.nombre||'',updated_at:new Date().toISOString()}],{onConflict:'unidad'}).then(function(r){if(r&&r.error)console.log('flota_estado:',r.error.message);});
     });
   } else {
     mecRenderizar();
