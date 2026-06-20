@@ -238,7 +238,7 @@ tr:hover td{background:rgba(45,255,122,.02)}
     <div class="menu-item active" onclick="sp('dashboard')" id="mi-dashboard">📊 Dashboard</div>
     <div class="menu-item" onclick="sp('planilla')" id="mi-planilla">📋 Registro Diario</div>
     <div class="menu-item" onclick="sp('historico')" id="mi-historico">📁 Historico</div>
-    <div class="menu-item" onclick="sp('reporte')" id="mi-reporte">📄 Reporte Alcaldia</div>
+    <div class="menu-item" onclick="sp('reporte')" id="mi-reporte">💵 Cobranza / Alcaldia</div>
     <div class="menu-group">FINANCIERO</div>
     <div class="menu-item" onclick="sp('abonos')" id="mi-abonos">💰 Abonos / Cobros</div>
     <div class="menu-item" onclick="sp('banco')" id="mi-banco">🏦 Banco BNC</div>
@@ -1169,12 +1169,15 @@ tr:hover td{background:rgba(45,255,122,.02)}
     <div id="rpt-area"><div style="text-align:center;color:var(--text3);padding:50px;font-size:13px">Selecciona el rango y genera el reporte</div></div>
   </div>
   <div id="rpt-alcaldia" style="display:none">
+    <!-- COBRANZA: resumen y antigüedad (mismo motor FIFO) -->
+    <div id="cobranza-resumen" style="margin-bottom:12px"></div>
     <div style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:10px 14px;margin-bottom:12px;display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
       <div class="fg" style="margin:0"><label style="font-size:10px;color:var(--text3)">Desde</label><input type="date" class="fc" id="alc-des" style="padding:6px 8px;font-size:11px"></div>
       <div class="fg" style="margin:0"><label style="font-size:10px;color:var(--text3)">Hasta</label><input type="date" class="fc" id="alc-hta" style="padding:6px 8px;font-size:11px"></div>
-      <button class="btn btn-g btn-sm" onclick="genRptAlcaldia()">Generar</button>
+      <button class="btn btn-g btn-sm" onclick="genRptAlcaldia()">Generar detalle</button>
       <button class="btn btn-s btn-sm" onclick="printRptAlcaldia()">🖨 Imprimir</button>
       <button class="btn btn-s btn-sm" onclick="exportAlcaldiaExcel()">Excel</button>
+      <button class="btn btn-s btn-sm" onclick="enviarRecordatorioCobranza()">📲 Recordatorio</button>
     </div>
     <div id="rpt-alcaldia-area"><div style="text-align:center;color:var(--text3);padding:50px;font-size:13px">Selecciona el rango y genera el estado de cuenta</div></div>
   </div>
@@ -2211,7 +2214,7 @@ var PERMISOS={
 };
 
 var NAV_LABELS={
-  dashboard:'Dashboard',planilla:'Registro Diario',historico:'Historico',reporte:'Reporte Alcaldia',
+  dashboard:'Dashboard',planilla:'Registro Diario',historico:'Historico',reporte:'Cobranza / Alcaldia',
   abonos:'Abonos / Cobros',banco:'Banco BNC',conciliacion:'Conciliación Bancaria',proveedores:'Proveedores',financiero:'Financiero',
   nomina:'Nomina',asistencia:'Asistencia',combustible:'Combustible','control-combustible':'Control Combustible',km:'Km / Servicio',
   documentos:'Documentos',inventario:'Inventario',llantas:'Llantas',metas:'Metas',
@@ -11678,6 +11681,90 @@ function getLunesDeRango(f){var d=new Date(f+'T12:00:00');var day=d.getDay()||7;
 function getDomingoDeSemana(l){var d=new Date(l+'T12:00:00');d.setDate(d.getDate()+6);return d.toISOString().slice(0,10);}
 function fmtFechaCorta(s){if(!s)return'';var p=s.split('-');return p[2]+'/'+p[1]+'/'+p[0];}
 function agruparPorSemanas(pl){var sem={};pl.forEach(function(r){var l=getLunesDeRango(r.f);if(!sem[l])sem[l]=[];sem[l].push(r);});return sem;}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// MOTOR ÚNICO DE COBRANZA (FIFO) — fuente de verdad compartida por el Estado de
+// Cuenta (PDF Alcaldía) y el panel de Cobranza. Agrupa planillas por semana y
+// aplica los abonos (pagos) a las semanas MÁS VIEJAS primero (cerrada/parcial/
+// pendiente). Misma lógica que tenía genRptAlcaldia, ahora centralizada.
+// ═══════════════════════════════════════════════════════════════════════════
+function calcCobranzaSemanas(des,hta){
+  var pf=REGS.filter(function(r){if(des&&r.f<des)return false;if(hta&&r.f>hta)return false;return true;});
+  var sem=agruparPorSemanas(pf),ls=Object.keys(sem).sort();
+  var sl=ls.map(function(lunes,i){
+    var dom=getDomingoDeSemana(lunes),regs=sem[lunes];
+    var v=regs.reduce(function(s,r){return s+r.t;},0),m=regs.reduce(function(s,r){return s+r.m;},0);
+    return{idx:i+1,lunes:lunes,dom:dom,viajes:v,monto:m,montoPendiente:m,abonado:0,estado:'pendiente'};
+  });
+  var af=ABONOS.filter(function(a){if(des&&a.f<des)return false;if(hta&&a.f>hta)return false;return true;}).slice().sort(function(a,b){return a.f.localeCompare(b.f);});
+  var te=sl.reduce(function(s,x){return s+x.monto;},0),ta=af.reduce(function(s,a){return s+a.m;},0),tv=sl.reduce(function(s,x){return s+x.viajes;},0);
+  var sp=Math.max(0,te-ta),pct=te>0?Math.round((Math.min(ta,te)/te)*100):0;
+  var saldo=ta,ultima=null;
+  sl.forEach(function(s){
+    if(saldo<=0){s.estado='pendiente';s.abonado=0;}
+    else if(saldo>=s.monto){s.estado='cerrada';s.abonado=s.monto;s.montoPendiente=0;saldo-=s.monto;ultima=s;}
+    else{s.estado='parcial';s.abonado=saldo;s.montoPendiente=s.monto-saldo;saldo=0;}
+  });
+  return {semanas:sl,abonos:af,ls:ls,totalEjecutado:te,totalAbonado:ta,totalViajes:tv,saldoPendiente:sp,pct:pct,ultimaCerrada:ultima};
+}
+
+// Antigüedad (aging) del saldo por cobrar: reparte el saldo pendiente por días desde
+// el domingo (fin) de cada semana no saldada. Usa el MISMO motor (sin divergencia).
+function calcCobranzaAging(des,hta){
+  var R=calcCobranzaSemanas(des,hta);
+  var hoy=new Date(new Date().toISOString().slice(0,10)+'T12:00:00');
+  var buckets=[{k:'0-15',min:0,max:15,monto:0,viajes:0},{k:'16-30',min:16,max:30,monto:0,viajes:0},{k:'31-60',min:31,max:60,monto:0,viajes:0},{k:'61-90',min:61,max:90,monto:0,viajes:0},{k:'+90',min:91,max:1e9,monto:0,viajes:0}];
+  var maxDias=0, viajesPend=0;
+  R.semanas.forEach(function(s){
+    if(s.montoPendiente<=0)return;
+    var dom=new Date(s.dom+'T12:00:00');
+    var dias=Math.max(0,Math.round((hoy-dom)/86400000));
+    if(dias>maxDias)maxDias=dias;
+    // viajes pendientes proporcionales al saldo de esa semana
+    var vp=s.monto>0?Math.round(s.viajes*(s.montoPendiente/s.monto)):0; viajesPend+=vp;
+    for(var i=0;i<buckets.length;i++){if(dias>=buckets[i].min&&dias<=buckets[i].max){buckets[i].monto+=s.montoPendiente;buckets[i].viajes+=vp;break;}}
+  });
+  return {R:R,buckets:buckets,maxDias:maxDias,viajesPendientes:viajesPend};
+}
+
+function _cobMoney(x){return '$'+Math.round(x||0).toLocaleString('es-VE');}
+// Resumen de cobranza (KPIs + antigüedad) — se pinta arriba del Estado de Cuenta.
+function renderCobranzaResumen(){
+  var box=g('cobranza-resumen'); if(!box)return;
+  var des=gv('alc-des'),hta=gv('alc-hta');
+  var A=calcCobranzaAging(des,hta), R=A.R;
+  var col=A.maxDias>90?'var(--red)':A.maxDias>60?'#fb923c':A.maxDias>30?'var(--yellow)':'var(--green2)';
+  var kpis='<div class="g5" style="margin-bottom:8px">'+
+    '<div class="stat" style="border-top-color:var(--green2)"><div class="stat-lbl">Facturado</div><div class="stat-val" style="font-size:15px;color:var(--green2)">'+_cobMoney(R.totalEjecutado)+'</div><div class="stat-sub">'+R.totalViajes+' viajes</div></div>'+
+    '<div class="stat b"><div class="stat-lbl">Cobrado</div><div class="stat-val" style="font-size:15px;color:var(--blue)">'+_cobMoney(R.totalAbonado)+'</div><div class="stat-sub">'+R.pct+'% del total</div></div>'+
+    '<div class="stat r"><div class="stat-lbl">Por Cobrar</div><div class="stat-val" style="font-size:15px;color:var(--red)">'+_cobMoney(R.saldoPendiente)+'</div><div class="stat-sub">'+A.viajesPendientes+' viajes</div></div>'+
+    '<div class="stat y"><div class="stat-lbl">Antigüedad máx</div><div class="stat-val" style="font-size:15px;color:'+col+'">'+A.maxDias+' días</div><div class="stat-sub">saldo más viejo</div></div>'+
+    '<div class="stat"><div class="stat-lbl">Cerrado hasta</div><div class="stat-val" style="font-size:12px">'+(R.ultimaCerrada?fmtFechaCorta(R.ultimaCerrada.dom):'—')+'</div><div class="stat-sub">semana saldada</div></div>'+
+    '</div>';
+  // Aging buckets
+  var bcols={'0-15':'var(--green2)','16-30':'var(--teal)','31-60':'var(--yellow)','61-90':'#fb923c','+90':'var(--red)'};
+  var aging='<div class="card" style="margin-bottom:0"><div class="sh"><div class="st">📅 Antigüedad del saldo por cobrar</div></div>'+
+    '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px">'+
+    A.buckets.map(function(b){var c=bcols[b.k]||'var(--text3)';return '<div style="flex:1;min-width:110px;text-align:center;background:var(--bg3);border-radius:8px;border-top:3px solid '+c+';padding:8px"><div style="font-size:10px;color:var(--text3);text-transform:uppercase">'+b.k+' días</div><div style="font-size:15px;font-weight:800;font-family:var(--m);color:'+c+'">'+_cobMoney(b.monto)+'</div><div style="font-size:9px;color:var(--text3)">'+b.viajes+' viajes</div></div>';}).join('')+
+    '</div>'+
+    (R.saldoPendiente>0&&A.maxDias>30?'<div style="margin-top:8px;font-size:12px;color:'+col+'">⚠ Hay '+_cobMoney(A.buckets[2].monto+A.buckets[3].monto+A.buckets[4].monto)+' con más de 30 días sin cobrar.</div>':'')+
+    '</div>';
+  box.innerHTML=kpis+aging;
+}
+function enviarRecordatorioCobranza(){
+  var des=gv('alc-des'),hta=gv('alc-hta');
+  var A=calcCobranzaAging(des,hta), R=A.R;
+  if(R.saldoPendiente<=0){alert('No hay saldo por cobrar en el período');return;}
+  var msg='💵 COBRANZA ALCALDÍA — Estado\n'+
+    'Facturado: '+_cobMoney(R.totalEjecutado)+'\n'+
+    'Cobrado: '+_cobMoney(R.totalAbonado)+' ('+R.pct+'%)\n'+
+    'POR COBRAR: '+_cobMoney(R.saldoPendiente)+' ('+A.viajesPendientes+' viajes)\n'+
+    'Saldo más viejo: '+A.maxDias+' días\n'+
+    'Antigüedad: '+A.buckets.filter(function(b){return b.monto>0;}).map(function(b){return b.k+'d='+_cobMoney(b.monto);}).join(' · ')+
+    (R.ultimaCerrada?('\nCerrado hasta '+fmtFechaCorta(R.ultimaCerrada.dom)):'');
+  if(typeof sendWA==='function')sendWA(msg,['socios'],true);
+  if(typeof mostrarToast==='function')mostrarToast('📲 Recordatorio de cobranza enviado','exito');
+}
 function switchRptTab(tab){
   ['ejecucion','alcaldia','precios'].forEach(function(t){
     var el=document.getElementById('rpt-'+t),btn=document.getElementById('rtab-'+t);
@@ -11685,6 +11772,7 @@ function switchRptTab(tab){
     if(btn){btn.style.background=t===tab?'var(--card)':'transparent';btn.style.color=t===tab?'var(--text1)':'var(--text3)';}
   });
   if(tab==='precios')cargarPrecioActual();
+  if(tab==='alcaldia'){try{renderCobranzaResumen();}catch(e){console.log('cobranza resumen',e&&e.message);}}
 }
 function genRpt(){genRptEjecucion();}
 
@@ -11734,21 +11822,9 @@ function genRptAlcaldia(){
   var des=gv('alc-des'),hta=gv('alc-hta');
   var pf=REGS.filter(function(r){if(des&&r.f<des)return false;if(hta&&r.f>hta)return false;return true;});
   if(!pf.length){document.getElementById('rpt-alcaldia-area').innerHTML='<div style="text-align:center;color:var(--text3);padding:30px">Sin planillas para el periodo</div>';return;}
-  var sem=agruparPorSemanas(pf),ls=Object.keys(sem).sort();
-  var sl=ls.map(function(lunes,i){
-    var dom=getDomingoDeSemana(lunes),regs=sem[lunes];
-    var v=regs.reduce(function(s,r){return s+r.t;},0),m=regs.reduce(function(s,r){return s+r.m;},0);
-    return{idx:i+1,lunes:lunes,dom:dom,viajes:v,monto:m,montoPendiente:m,abonado:0,estado:'pendiente'};
-  });
-  var af=ABONOS.filter(function(a){if(des&&a.f<des)return false;if(hta&&a.f>hta)return false;return true;}).slice().sort(function(a,b){return a.f.localeCompare(b.f);});
-  var te=sl.reduce(function(s,x){return s+x.monto;},0),ta=af.reduce(function(s,a){return s+a.m;},0),tv=sl.reduce(function(s,x){return s+x.viajes;},0);
-  var sp=Math.max(0,te-ta),pct=te>0?Math.round((Math.min(ta,te)/te)*100):0;
-  var saldo=ta,ultima=null;
-  sl.forEach(function(s){
-    if(saldo<=0){s.estado='pendiente';s.abonado=0;}
-    else if(saldo>=s.monto){s.estado='cerrada';s.abonado=s.monto;s.montoPendiente=0;saldo-=s.monto;ultima=s;}
-    else{s.estado='parcial';s.abonado=saldo;s.montoPendiente=s.monto-saldo;saldo=0;}
-  });
+  // Motor único compartido (misma lógica FIFO de siempre, ahora centralizada)
+  var _R=calcCobranzaSemanas(des,hta);
+  var sl=_R.semanas,af=_R.abonos,ls=_R.ls,te=_R.totalEjecutado,ta=_R.totalAbonado,tv=_R.totalViajes,sp=_R.saldoPendiente,pct=_R.pct,ultima=_R.ultimaCerrada;
   var tasa=TASAS&&TASAS.bcvDolar?TASAS.bcvDolar:(cfg.tasa||600);
   var sc=sl.filter(function(s){return s.estado==='cerrada';}).length;
   var spar=sl.filter(function(s){return s.estado==='parcial';}).length;
@@ -11804,6 +11880,7 @@ function genRptAlcaldia(){
         '<tbody>'+rows+'</tbody><tfoot><tr style="background:#0f2544;color:#fff;font-weight:900;-webkit-print-color-adjust:exact;print-color-adjust:exact"><td colspan="2" style="padding:12px 8px">TOTALES</td><td style="padding:12px 8px;text-align:center;font-size:18px">'+tv+'</td><td style="padding:12px 8px;text-align:right;font-family:monospace">$'+te.toLocaleString('es-VE',{minimumFractionDigits:2})+'</td><td style="padding:12px 8px;text-align:right;font-family:monospace;color:#86efac">$'+ta.toLocaleString('es-VE',{minimumFractionDigits:2})+'</td><td style="padding:12px 8px;text-align:right;font-family:monospace;color:'+(sp>0?'#fca5a5':'#86efac')+'">$'+sp.toLocaleString('es-VE',{minimumFractionDigits:2})+'</td><td></td></tr></tfoot></table></div>'+
     '<div style="background:#f3f4f6;padding:14px 24px;border-top:1px solid #e5e7eb;display:flex;justify-content:space-between;font-size:10px;color:#9ca3af"><div>Inversiones Betangar CA · J-29566107-0 · Maracaibo</div><div>'+gen+'</div></div></div>';
   document.getElementById('rpt-alcaldia-area').innerHTML=html;
+  try{renderCobranzaResumen();}catch(e){}
 }
 function printRptAlcaldia(){
   var el=document.getElementById('rpt-alcaldia-area');
