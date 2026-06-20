@@ -739,7 +739,7 @@ function registrarViaje(num){
   // (Antes enviaba hora_registro/semana/año, que no existen → el upsert fallaba y el viaje
   //  quedaba atrapado en la cola offline sin llegar nunca al dashboard.)
   var reg = {
-    fecha: hoy, cam: cam, chofer: chofer,
+    fecha: hoy, cam: cam, chofer: chofer || FLOTA_CHOFERES[cam] || 'CHOFER',
     viaje_num: num, hora: hora, sincronizado: true
   };
 
@@ -851,6 +851,8 @@ function sincronizarCola(){
           if(!isOnline) actualizarConexion(true);
           if(reg.estado_vehiculo){
             supabase.from('flota_estado').upsert([{ unidad: reg.cam, estado: reg.estado_vehiculo, nota: '', updated_by: reg.conductor || 'chofer', updated_at: new Date().toISOString() }],{onConflict:'unidad'});
+            var estD = reg.estado_vehiculo==='inoperativo' ? 'inoperativo' : (String(reg.estado_vehiculo).indexOf('taller')===0 ? 'taller' : 'operativo');
+            supabase.from('km_data').update({ estado: estD }).eq('cam', reg.cam);
           }
         }
       }, function(){ fallC.push(reg); })
@@ -1120,7 +1122,7 @@ async function guardarChecklist(){
   var registro = {
     cam: cam,
     fecha: hoy,
-    conductor: chofer,
+    conductor: chofer || FLOTA_CHOFERES[cam] || 'CHOFER',
     llenado_por: 'chofer',
     chofer_fecha_llenado: new Date().toISOString(),
     estado_vehiculo: CL_ESTADO || 'operativo',
@@ -1177,11 +1179,14 @@ async function guardarChecklist(){
       await supabase.from('flota_estado')
         .upsert([{ unidad: cam, estado: CL_ESTADO, nota: gv('cl-motivo') || '', updated_by: chofer || 'chofer', updated_at: new Date().toISOString() }],
                 { onConflict: 'unidad' });
-      // Actualizar km_data si hay km
+      // El DASHBOARD lee el estado del camión de km_data.estado (NO de flota_estado) →
+      // actualizarlo ahí también, mapeado al vocabulario del dashboard (operativo/taller/
+      // inoperativo). Así el estado que reporta el chofer SÍ se enlaza con el dashboard.
+      var estDash = CL_ESTADO==='inoperativo' ? 'inoperativo' : (String(CL_ESTADO).indexOf('taller')===0 ? 'taller' : 'operativo');
       var kmVal = CL_MODO==='salida' ? (parseInt(gv('cl-km-salida'))||0) : (parseInt(gv('cl-km-llegada'))||0);
-      if(kmVal > 0){
-        await supabase.from('km_data').update({ km: kmVal }).eq('cam', cam);
-      }
+      var kmPatch = { estado: estDash, nota_estado: gv('cl-motivo') || '' };
+      if(kmVal > 0) kmPatch.km = kmVal;
+      await supabase.from('km_data').update(kmPatch).eq('cam', cam);
     }
   } else {
     // Sin conexión (o supabase aún no listo): a la cola para que suba al reconectar.
