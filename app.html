@@ -3083,7 +3083,36 @@ async function dbIn(t,d){
   }
 }
 async function dbUp(t,d,c,v){if(!DB_READY||DEMO_MODE)return null;try{var res=await supabase.from(t).upsert(d,{onConflict:c}).select();if(res.error){if(typeof mostrarToast==='function')mostrarToast('No se pudo guardar ('+t+'): '+res.error.message,'error');return null;}return res.data;}catch(e){if(typeof mostrarToast==='function')mostrarToast('Error de conexión al guardar '+t,'error');return null;}}
-async function dbDel(t,c,v){if(!DB_READY||DEMO_MODE)return null;try{return await supabase.from(t).delete().eq(c,v);}catch(e){return null;}}
+async function dbDel(t,c,v){if(!DB_READY||DEMO_MODE)return null;try{var r=await supabase.from(t).delete().eq(c,v);if(r&&r.error&&typeof mostrarToast==='function')mostrarToast('No se pudo eliminar ('+t+'): '+r.error.message,'error');return r;}catch(e){if(typeof mostrarToast==='function')mostrarToast('Sin conexión al eliminar '+t,'error');return null;}}
+
+// ── guardar(): API ÚNICA recomendada para escribir en Supabase (anti-fallo-silencioso).
+// Inserta o upsert (si opts.onConflict), SIEMPRE verifica error y avisa en pantalla, y
+// encola offline si no hay conexión. Devuelve {ok, data?, error?, encolado?}. Usar esto
+// en código nuevo en vez de llamar supabase.from(...).insert directo sin chequear error.
+async function guardar(tabla, filas, opts){
+  opts=opts||{};
+  var arr=Array.isArray(filas)?filas:[filas];
+  if(typeof DEMO_MODE!=='undefined'&&DEMO_MODE)return {ok:false,demo:true};
+  if(!DB_READY||!supabase){
+    arr.forEach(function(f){if(typeof guardarEnCola==='function')guardarEnCola(tabla,f);});
+    if(typeof mostrarToast==='function')mostrarToast('Sin conexión: "'+tabla+'" quedó en cola offline','error');
+    return {ok:false,encolado:true};
+  }
+  try{
+    var q=opts.onConflict?supabase.from(tabla).upsert(arr,{onConflict:opts.onConflict}):supabase.from(tabla).insert(arr);
+    var res=await q.select();
+    if(res.error){
+      if(typeof mostrarToast==='function')mostrarToast('No se pudo guardar ('+tabla+'): '+res.error.message,'error');
+      return {ok:false,error:res.error};
+    }
+    if(opts.audit&&typeof audit==='function')audit(opts.audit,opts.auditDetalle||'');
+    return {ok:true,data:res.data};
+  }catch(e){
+    arr.forEach(function(f){if(typeof guardarEnCola==='function')guardarEnCola(tabla,f);});
+    if(typeof mostrarToast==='function')mostrarToast('Sin conexión: "'+tabla+'" quedó en cola offline','error');
+    return {ok:false,encolado:true,error:e};
+  }
+}
 
 // ═══════════════════════════════════════════════════
 // TOAST / CONFIRMACIÓN GLOBAL (P2)
