@@ -1073,25 +1073,25 @@ tr:hover td{background:rgba(45,255,122,.02)}
       </div>
       <div class="fr2">
         <div class="fg"><label>Camion</label><select class="fc" id="rp-cam" onchange="autoData()"><option value="">-</option></select></div>
-        <div class="fg"><label>Chofer</label><input class="fc" id="rp-chofer" placeholder="Auto..." list="dl-chofer"><datalist id="dl-chofer"></datalist></div>
+        <div class="fg"><label>Chofer <span style="font-size:9px;color:var(--text3)">(escribe para buscar)</span></label><input class="fc" id="rp-chofer" placeholder="Buscar empleado..." list="dl-chofer" oninput="valEmpField('rp-chofer','val-chofer')"><datalist id="dl-chofer"></datalist><div id="val-chofer" style="margin-top:2px"></div></div>
       </div>
       <div class="fr2">
         <div class="fg">
           <label>Ayudante 1</label>
-          <input class="fc" id="rp-ay1" placeholder="Auto..." list="dl-ay1">
+          <input class="fc" id="rp-ay1" placeholder="Buscar empleado..." list="dl-ay1" oninput="valEmpField('rp-ay1','val-ay1')"><div id="val-ay1"></div>
           <datalist id="dl-ay1"></datalist>
           <div id="sg-ay1" style="display:flex;gap:4px;flex-wrap:wrap;margin-top:4px"></div>
         </div>
         <div class="fg">
           <label>Ayudante 2</label>
-          <input class="fc" id="rp-ay2" placeholder="Opcional" list="dl-ay2">
+          <input class="fc" id="rp-ay2" placeholder="Buscar empleado..." list="dl-ay2" oninput="valEmpField('rp-ay2','val-ay2')"><div id="val-ay2"></div>
           <datalist id="dl-ay2"></datalist>
           <div id="sg-ay2" style="display:flex;gap:4px;flex-wrap:wrap;margin-top:4px"></div>
         </div>
       </div>
       <div class="fg">
         <label>Ayudante 3 <span style="font-size:10px;color:var(--text3)">(si aplica)</span></label>
-        <input class="fc" id="rp-ay3" placeholder="Opcional" list="dl-ay3">
+        <input class="fc" id="rp-ay3" placeholder="Buscar empleado..." list="dl-ay3" oninput="valEmpField('rp-ay3','val-ay3')"><div id="val-ay3"></div>
         <datalist id="dl-ay3"></datalist>
       </div>
       <div class="fr2">
@@ -3643,7 +3643,7 @@ function cc(t,d){if(t==='d'){cntD=Math.max(0,cntD+d);g('cd').textContent=cntD;}e
 
 function autoData(){
   var c=gv('rp-cam');
-  if(FLOTA[c]){var ch=TEMPORALES[c]||FLOTA[c].chofer;sv('rp-chofer',ch);g('rp-chofer').style.color=TEMPORALES[c]?'var(--yellow)':'';autoAyudantes(c);}
+  if(FLOTA[c]){var ch=_nombreCanonico(TEMPORALES[c]||FLOTA[c].chofer);sv('rp-chofer',ch);g('rp-chofer').style.color=TEMPORALES[c]?'var(--yellow)':'';try{valEmpField('rp-chofer','val-chofer');}catch(e){}autoAyudantes(c);}
   var f=gv('rp-fecha');
   if(f){var d=new Date(f+'T12:00:00');var ms=['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];sv('rp-mes',ms[d.getMonth()]+'-'+String(d.getFullYear()).slice(2));sv('rp-sem',getSem(f));}
 }
@@ -3735,12 +3735,22 @@ function actualizarUltimaPlanilla(){
 // Llena los datalists de Chofer y Ayudantes del Registro Diario con los nombres
 // CANÓNICOS de los empleados → el operador elige el nombre completo correcto.
 function poblarDatalistsEmpleados(){
-  var emps=(typeof EMPLEADOS!=='undefined'?EMPLEADOS:[]).filter(function(e){return e.activo!==false;});
-  var chof=emps.filter(function(e){return /chofer/i.test(e.cargo||'');});
-  var ayud=emps.filter(function(e){return /ayud/i.test(e.cargo||'');});
-  if(!chof.length)chof=emps; if(!ayud.length)ayud=emps;
-  function fill(id,list){var dl=document.getElementById(id);if(dl)dl.innerHTML=list.map(function(e){return '<option value="'+String(e.nombre||'').replace(/"/g,'&quot;')+'">';}).join('');}
-  fill('dl-chofer',chof); fill('dl-ay1',ayud); fill('dl-ay2',ayud); fill('dl-ay3',ayud);
+  // TODOS los empleados activos del expediente (cualquiera puede ir en cualquier camión).
+  // El datalist trae buscador propio: al escribir filtra por el nombre.
+  var emps=(typeof EMPLEADOS!=='undefined'?EMPLEADOS:[]).filter(function(e){return e.activo!==false&&e.nombre;})
+    .slice().sort(function(a,b){return String(a.nombre).localeCompare(String(b.nombre));});
+  var opts=emps.map(function(e){return '<option value="'+String(e.nombre).replace(/"/g,'&quot;')+'">'+(e.cargo||'')+'</option>';}).join('');
+  ['dl-chofer','dl-ay1','dl-ay2','dl-ay3'].forEach(function(id){var dl=document.getElementById(id);if(dl)dl.innerHTML=opts;});
+}
+// Indicador en vivo: ✓ si el nombre escrito está en el expediente, ⚠ si no.
+function valEmpField(inputId,hintId){
+  var inp=document.getElementById(inputId), hint=document.getElementById(hintId);
+  if(!inp||!hint)return;
+  var v=inp.value.trim();
+  if(!v){hint.innerHTML='';inp.style.borderColor='';return;}
+  var e=(typeof _empPorNombre==='function')?_empPorNombre(v):null;
+  if(e){hint.innerHTML='<span style="color:var(--green2);font-size:10px">✓ '+e.nombre+'</span>';inp.style.borderColor='var(--green2)';}
+  else{hint.innerHTML='<span style="color:var(--red);font-size:10px">⚠ no está en Empleados (regístralo primero)</span>';inp.style.borderColor='var(--red)';}
 }
 // Devuelve el nombre COMPLETO del empleado (canónico) si el texto escrito casa con uno;
 // si no, devuelve el texto tal cual (en mayúsculas). Así las planillas guardan nombres que
@@ -10357,23 +10367,24 @@ function autoAyudantes(cam){
     if(FLOTA[cam].ay1)flotaAy.push(FLOTA[cam].ay1);
     if(FLOTA[cam].ay2)flotaAy.push(FLOTA[cam].ay2);
   }
-  // Todos los ayudantes activos para el datalist
-  var todos=EMPLEADOS.filter(function(e){return e.cargo==='Ayudante'&&e.activo!==false;});
-
-  // Llenar datalist con TODOS los ayudantes activos
+  // Datalist con TODOS los empleados activos del expediente (cualquiera puede sustituir
+  // ese día). El datalist filtra al escribir = buscador. Solo gente registrada.
+  var todos=EMPLEADOS.filter(function(e){return e.activo!==false&&e.nombre;})
+    .slice().sort(function(a,b){return String(a.nombre).localeCompare(String(b.nombre));});
   [1,2,3].forEach(function(n){
     var dl=document.getElementById('dl-ay'+n);
-    if(dl)dl.innerHTML=todos.map(function(e){return'<option value="'+e.nombre+'">';}).join('');
+    if(dl)dl.innerHTML=todos.map(function(e){return'<option value="'+String(e.nombre).replace(/"/g,'&quot;')+'">'+(e.cargo||'')+'</option>';}).join('');
   });
 
-  // Pre-llenar campos con los fijos de la unidad (prioridad: FLOTA, luego EMPLEADOS)
+  // Pre-llenar con la cuadrilla NORMAL del camión, ya en nombre CANÓNICO (recomendación)
   [1,2,3].forEach(function(n){
     var inp=document.getElementById('rp-ay'+n);
     if(!inp)return;
     var nombre=flotaAy[n-1]||'';
     if(!nombre&&fijos[n-1])nombre=fijos[n-1].nombre;
-    inp.value=nombre;
+    inp.value=nombre?_nombreCanonico(nombre):'';
     inp.style.color=nombre?'var(--teal)':'';
+    try{valEmpField('rp-ay'+n,'val-ay'+n);}catch(e){}
   });
 
   // Mostrar botones de sugeridos (fijos de FLOTA + otros de la unidad)
@@ -10403,7 +10414,7 @@ function autoAyudantes(cam){
         btn.style.cssText='cursor:pointer;background:rgba(29,158,117,.2);border:1px solid rgba(29,158,117,.5);border-radius:20px;padding:2px 8px;font-size:10px;color:var(--teal);margin:1px;font-weight:700';
         btn.onclick=(function(nom,num){return function(){
           var f=document.getElementById('rp-ay'+num);
-          if(f){f.value=nom;f.style.color='var(--teal)';}
+          if(f){f.value=_nombreCanonico(nom);f.style.color='var(--teal)';try{valEmpField('rp-ay'+num,'val-ay'+num);}catch(e){}}
         };})(s.nombre,n);
         sg.appendChild(btn);
       });
