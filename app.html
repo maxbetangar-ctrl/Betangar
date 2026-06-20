@@ -3735,12 +3735,15 @@ function actualizarUltimaPlanilla(){
 // Llena los datalists de Chofer y Ayudantes del Registro Diario con los nombres
 // CANÓNICOS de los empleados → el operador elige el nombre completo correcto.
 function poblarDatalistsEmpleados(){
-  // TODOS los empleados activos del expediente (cualquiera puede ir en cualquier camión).
-  // El datalist trae buscador propio: al escribir filtra por el nombre.
-  var emps=(typeof EMPLEADOS!=='undefined'?EMPLEADOS:[]).filter(function(e){return e.activo!==false&&e.nombre;})
+  // Cada campo filtra SOLO su rol: chofer→choferes, ayudante→ayudantes (del expediente,
+  // activos). El datalist trae buscador propio: al escribir filtra por el nombre.
+  var act=(typeof EMPLEADOS!=='undefined'?EMPLEADOS:[]).filter(function(e){return e.activo!==false&&e.nombre;})
     .slice().sort(function(a,b){return String(a.nombre).localeCompare(String(b.nombre));});
-  var opts=emps.map(function(e){return '<option value="'+String(e.nombre).replace(/"/g,'&quot;')+'">'+(e.cargo||'')+'</option>';}).join('');
-  ['dl-chofer','dl-ay1','dl-ay2','dl-ay3'].forEach(function(id){var dl=document.getElementById(id);if(dl)dl.innerHTML=opts;});
+  var chof=act.filter(function(e){return /chofer/i.test(e.cargo||'');}); if(!chof.length)chof=act;
+  var ayud=act.filter(function(e){return /ayud/i.test(e.cargo||'');}); if(!ayud.length)ayud=act;
+  function opts(list){return list.map(function(e){return '<option value="'+String(e.nombre).replace(/"/g,'&quot;')+'">'+(e.cargo||'')+'</option>';}).join('');}
+  var dc=document.getElementById('dl-chofer'); if(dc)dc.innerHTML=opts(chof);
+  ['dl-ay1','dl-ay2','dl-ay3'].forEach(function(id){var dl=document.getElementById(id);if(dl)dl.innerHTML=opts(ayud);});
 }
 // Indicador en vivo: ✓ si el nombre escrito está en el expediente, ⚠ si no.
 function valEmpField(inputId,hintId){
@@ -10367,10 +10370,11 @@ function autoAyudantes(cam){
     if(FLOTA[cam].ay1)flotaAy.push(FLOTA[cam].ay1);
     if(FLOTA[cam].ay2)flotaAy.push(FLOTA[cam].ay2);
   }
-  // Datalist con TODOS los empleados activos del expediente (cualquiera puede sustituir
-  // ese día). El datalist filtra al escribir = buscador. Solo gente registrada.
-  var todos=EMPLEADOS.filter(function(e){return e.activo!==false&&e.nombre;})
+  // Datalist con los AYUDANTES activos del expediente (solo ayudantes en campos de
+  // ayudante). El datalist filtra al escribir = buscador. Solo gente registrada.
+  var todos=EMPLEADOS.filter(function(e){return e.activo!==false&&e.nombre&&/ayud/i.test(e.cargo||'');})
     .slice().sort(function(a,b){return String(a.nombre).localeCompare(String(b.nombre));});
+  if(!todos.length)todos=EMPLEADOS.filter(function(e){return e.activo!==false&&e.nombre;}).slice().sort(function(a,b){return String(a.nombre).localeCompare(String(b.nombre));});
   [1,2,3].forEach(function(n){
     var dl=document.getElementById('dl-ay'+n);
     if(dl)dl.innerHTML=todos.map(function(e){return'<option value="'+String(e.nombre).replace(/"/g,'&quot;')+'">'+(e.cargo||'')+'</option>';}).join('');
