@@ -3557,10 +3557,10 @@ function renderDashFinanciero(totalM,totalCob,porcobrar){
   var utilReal=totalCob-egNom-egGas-eg75;
   el.innerHTML='<div style="font-size:10px;font-weight:800;color:var(--text3);letter-spacing:1px;text-transform:uppercase;margin-bottom:8px">Resumen Financiero</div>'+
     '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px;margin-bottom:10px">'+
-    '<div class="card card-sm" style="border-top:3px solid var(--green)"><div class="stat-lbl">Facturado</div><div style="font-family:var(--m);font-size:16px;font-weight:900;color:var(--green)">$'+totalM.toLocaleString()+'</div><div class="stat-sub">'+REGS.reduce(function(s,r){return s+r.t;},0)+' viajes</div></div>'+
-    '<div class="card card-sm" style="border-top:3px solid var(--teal)"><div class="stat-lbl">Cobrado</div><div style="font-family:var(--m);font-size:16px;font-weight:900;color:var(--teal)">$'+totalCob.toLocaleString()+'</div><div class="stat-sub">'+pct+'% del total</div></div>'+
-    '<div class="card card-sm" style="border-top:3px solid var(--red)"><div class="stat-lbl">Por Cobrar</div><div style="font-family:var(--m);font-size:16px;font-weight:900;color:var(--red)">$'+porcobrar.toLocaleString()+'</div></div>'+
-    '<div class="card card-sm" style="border-top:3px solid '+(utilReal>=0?'var(--green)':'var(--red)')+'"><div class="stat-lbl">Utilidad Real</div><div style="font-family:var(--m);font-size:16px;font-weight:900;color:'+(utilReal>=0?'var(--green)':'var(--red)')+'">$'+utilReal.toLocaleString()+'</div></div>'+
+    '<div class="card card-sm" style="border-top:3px solid var(--green)"><div class="stat-lbl">Facturado</div><div style="font-family:var(--m);font-size:16px;font-weight:900;color:var(--green)">$'+Math.round(totalM).toLocaleString('es-VE')+'</div><div class="stat-sub">'+REGS.reduce(function(s,r){return s+r.t;},0)+' viajes</div></div>'+
+    '<div class="card card-sm" style="border-top:3px solid var(--teal)"><div class="stat-lbl">Cobrado</div><div style="font-family:var(--m);font-size:16px;font-weight:900;color:var(--teal)">$'+Math.round(totalCob).toLocaleString('es-VE')+'</div><div class="stat-sub">'+pct+'% del total</div></div>'+
+    '<div class="card card-sm" style="border-top:3px solid var(--red)"><div class="stat-lbl">Por Cobrar</div><div style="font-family:var(--m);font-size:16px;font-weight:900;color:var(--red)">$'+Math.round(porcobrar).toLocaleString('es-VE')+'</div></div>'+
+    '<div class="card card-sm" style="border-top:3px solid '+(utilReal>=0?'var(--green)':'var(--red)')+'"><div class="stat-lbl">Utilidad Real</div><div style="font-family:var(--m);font-size:16px;font-weight:900;color:'+(utilReal>=0?'var(--green)':'var(--red)')+'">$'+Math.round(utilReal).toLocaleString('es-VE')+'</div></div>'+
     '</div>';
 }
 
