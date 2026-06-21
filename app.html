@@ -229,6 +229,7 @@ tr:hover td{background:rgba(45,255,122,.02)}
     <button class="btn-icon" onclick="imprimirPagina()" title="Imprimir" style="color:#60a5fa;border-color:#2563eb">&#128424;</button>
     <button class="btn-icon" onclick="exportExcelCompleto()" title="Excel" style="color:#34d399;border-color:#059669">&#11015;</button>
     <button class="btn-icon" onclick="toggleMenu()" style="font-size:20px;border-color:var(--green);background:rgba(163,230,53,.12);color:var(--green)">&#9776;</button>
+    <button class="btn-icon" onclick="cerrarSesion()" title="Cerrar sesión" style="font-size:18px;border-color:var(--red);background:rgba(192,57,43,.12);color:var(--red)">&#128682;</button>
   </div>
 </nav>
 
@@ -2528,7 +2529,16 @@ function aplicarPermisos(){
   // Para roles limitados el sp() se llama desde cargarDatosPorRol().then()
   // No llamar sp() aquí para evitar pantalla vacía
 }
-function cerrarSesion(){SESION=null;try{localStorage.removeItem('betangar_sesion');}catch(e){}location.reload();}
+function cerrarSesion(){
+  if(typeof window!=='undefined' && window.confirm && !window.confirm('¿Cerrar sesión?')) return;
+  SESION=null;
+  try{localStorage.removeItem('betangar_sesion');}catch(e){}
+  // Cerrar también la sesión de Supabase Auth (si no, el token seguía activo) y luego recargar.
+  try{
+    if(supabase&&supabase.auth&&supabase.auth.signOut){ supabase.auth.signOut().finally(function(){location.reload();}); return; }
+  }catch(e){}
+  location.reload();
+}
 
 // ═══════════════════════════════════════════════════
 // RESTAURAR SESION AL REFRESCAR
