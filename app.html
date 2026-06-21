@@ -3617,6 +3617,7 @@ function renderFlotaDash(){
     // Estado ENLAZADO con chofer/mecánico: leer km_data.estado (donde ellos escriben),
     // con fallback al estado local de oficina. El auto-refresco recarga km_data cada 60s.
     var est=(KM_DATA[cam]&&KM_DATA[cam].estado)||f.estado||'operativo';
+    if(String(est).indexOf('taller')===0) est='taller';   // taller_jac / taller_betangar -> taller
     var km=KM_DATA[cam]?KM_DATA[cam].km:0;
     var c=est==='operativo'?'var(--green)':est==='taller'?'var(--yellow)':'var(--red)';
     var bg=est==='operativo'?'rgba(163,230,53,.07)':est==='taller'?'rgba(251,191,36,.07)':'rgba(248,113,113,.07)';
