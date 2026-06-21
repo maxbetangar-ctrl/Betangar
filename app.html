@@ -2341,9 +2341,17 @@ function iniciarSesion(){
 async function verificarLicencia(){
   try{
     if(!supabase) return;
-    var r = await supabase.rpc('licencia_estado', { p_producto:'betangar', p_ref:'betangar' });
-    if(r.error || !r.data || !r.data.length) return;   // fail-open
-    var lic = r.data[0];
+    var lic = null;
+    // 1) RESOLUCIÓN POR DOMINIO: cada empresa entra por su propio sitio → su licencia.
+    var dom = (location.hostname||'').toLowerCase();
+    var rd = await supabase.rpc('licencia_por_dominio', { p_producto:'betangar', p_dominio:dom });
+    if(!rd.error && rd.data && rd.data.length) lic = rd.data[0];
+    // 2) Fallback al identificador fijo (deploy mono-empresa actual).
+    if(!lic){
+      var r = await supabase.rpc('licencia_estado', { p_producto:'betangar', p_ref:'betangar' });
+      if(!r.error && r.data && r.data.length) lic = r.data[0];
+    }
+    if(!lic) return;                                   // fail-open
     if(lic.cortesia === true) return;                  // cortesía: nunca bloquea
     if(lic.activo === false){ mostrarBloqueoLicencia('suspendida'); return; }
     if(lic.licencia_vence){
