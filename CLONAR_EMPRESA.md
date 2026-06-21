@@ -20,6 +20,10 @@ por la tabla `licencias` CENTRAL (kill-switch). Pasos:
 3. En **chofer.html** → bloque `BTG_CHOFER_CONFIG`: pon `data_url`/`data_key` del cliente.
 4. Ajusta la flota del cliente: `var FLOTA` (app.html) y `var FLOTA_CHOFERES` (chofer.html)
    con sus camiones y choferes.
+5. Configura los **usuarios** del cliente en `var USUARIOS` (app.html) — sus logins/roles.
+   ⚠️ OJO SEGURIDAD: hoy las claves van en texto plano en el HTML (visibles en "ver código
+   fuente"). Para clientes reales conviene migrar el login a Supabase Auth (login cifrado,
+   sin secretos en el HTML). Mientras tanto, usa claves distintas por empresa y largas.
 5. Despliega (GitHub Pages / Vercel) y apunta el dominio del cliente a ese deploy.
 
 ## 3. Licencia (en el panel central de Geppetto)
