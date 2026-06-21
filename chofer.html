@@ -560,7 +560,9 @@ document.addEventListener('DOMContentLoaded', function(){
 
   chofer = FLOTA_CHOFERES[cam];
   var now = new Date();
-  hoy = now.toISOString().slice(0,10);
+  // HOY en hora de Venezuela (UTC-4). Antes usaba UTC (toISOString) y de noche marcaba el
+  // día siguiente → el viaje/checklist quedaba con otra fecha y el dashboard no lo veía "hoy".
+  hoy = new Date(Date.now()-14400000).toISOString().slice(0,10);
 
   // Mostrar info
   document.getElementById('cam-display').textContent  = cam;

@@ -2076,6 +2076,10 @@ var EJS_KEY='Uyqw-MYDuZEOqhxeJ',EJS_SVC='service_h2b7fbm',EJS_TPL='template_he74
 var EJS_RPT_SVC='service_za892jr',EJS_RPT_TPL='template_mcfmlle';
 
 var supabase=null,DB_READY=false,DEMO_MODE=false,SESION=null;
+// Fecha de HOY en hora de Venezuela (UTC-4, sin horario de verano). Antes se usaba UTC
+// (toISOString) y de noche en Venezuela ya marcaba el día siguiente → los datos de "hoy"
+// (viajes, checklist, rutas) no aparecían. Esto unifica "hoy" al día real venezolano.
+function fechaVE(){ return new Date(Date.now()-14400000).toISOString().slice(0,10); }
 // ── SISTEMA DE TOKEN ──
 var TOKEN_ACTIVO=null; // {codigo, expira, solicitante, accion}
 var TOKEN_DURACION_MS=10*60*1000; // 10 minutos
@@ -2803,7 +2807,7 @@ async function cargarDatosMinimos(rol){
 
     // Rutas estado hoy — operativo
     if(rol==='operativo'){
-      var hoy=new Date().toISOString().slice(0,10);
+      var hoy=fechaVE();
       var rutasRes=await supabase.from('rutas_estado').select('*').eq('fecha',hoy);
       if(rutasRes.data){
         rutasRes.data.forEach(function(r){RUTAS_HOY[r.parroquia]=r;});
@@ -4837,7 +4841,7 @@ function compCostoUnit(prov, cb){
 
 // DESPACHO a camión: baja el tanque si viene de Tumaca/Boscán; Estación usa precio manual.
 function guardarGasoil(){
-  var cam=gv('gc-cam'), lit=parseFloat(gv('gc-lit'))||0, src=(gv('gc-src')||'tumaca'), f=gv('gc-f')||new Date().toISOString().slice(0,10);
+  var cam=gv('gc-cam'), lit=parseFloat(gv('gc-lit'))||0, src=(gv('gc-src')||'tumaca'), f=gv('gc-f')||fechaVE();
   if(!cam||!lit){alert('Completa camión y litros');return;}
   if(src==='estacion'){
     var precio=parseFloat(gv('gc-precio'))||0;
@@ -4877,7 +4881,7 @@ async function _persistirDespacho(r, bajarTanque){
 function guardarCompraCombustible(){
   var prov=(gv('gcomp-prov')||'tumaca');
   var lit=parseFloat(gv('gcomp-lit'))||0;
-  var f=gv('gcomp-f')||new Date().toISOString().slice(0,10);
+  var f=gv('gcomp-f')||fechaVE();
   if(!lit){alert('Ingresa los litros comprados');return;}
   var provLabel = prov==='boscan' ? 'Boscán' : 'Tumaca';
   var provNombre = prov==='boscan' ? 'Transporte Boscán' : 'Tumaca';
@@ -4925,7 +4929,7 @@ function guardarCompraCombustible(){
 async function guardarGasol(){
   var per=gv('gp-per'),lit=parseFloat(gv('gp-lit'))||0,f=gv('gp-f');
   if(!lit){alert('Ingresa litros');return;}
-  var m=lit*0.5;if(!f)f=new Date().toISOString().slice(0,10);var r={f:f,per:per,lit:lit,m:m};GASOL.push(r);var _okG=await dbIn('gasol',{f:f,per:per,lit:lit,m:m});if(_okG&&typeof mostrarToast==='function')mostrarToast('Gasolina: '+per+' '+lit+' L guardada','exito');
+  var m=lit*0.5;if(!f)f=fechaVE();var r={f:f,per:per,lit:lit,m:m};GASOL.push(r);var _okG=await dbIn('gasol',{f:f,per:per,lit:lit,m:m});if(_okG&&typeof mostrarToast==='function')mostrarToast('Gasolina: '+per+' '+lit+' L guardada','exito');
   try{localStorage.setItem('btg_gasol',JSON.stringify(GASOL));}catch(e){}
   renderGasolPersonal();
   sv('gp-lit','');audit('Gasolina registrada',per+' '+lit+'L');
@@ -5106,7 +5110,7 @@ function renderLavados(){
   });
   var tb=g('tb-lavados');if(tb)tb.innerHTML=rows.join('');
   var est=g('estado-lavados');if(est)est.innerHTML=alertas.map(function(a){return'<div class="alert-r" style="margin-bottom:4px">'+a+'</div>';}).join('')||'<div style="color:var(--green);font-size:12px;padding:8px">✓ Todo al dia</div>';
-  var hoyLav=new Date().toISOString().slice(0,10);
+  var hoyLav=fechaVE();
   var keyLavRes='btg_wa_lav_res_'+hoyLav;
   // Separar vencidos de próximos
   var lavVencidos=alertas.filter(function(a){return a.toLowerCase().includes('vencido');});
@@ -6163,7 +6167,7 @@ function renderLlantas(){
   if(g('ll-regular'))g('ll-regular').textContent=regular;
   if(g('ll-cambiar'))g('ll-cambiar').textContent=cambiar;
   if(cambiar>0){
-    var hoyLL=new Date().toISOString().slice(0,10);
+    var hoyLL=fechaVE();
     var keyLL='btg_wa_ll_'+hoyLL;
     if(!localStorage.getItem(keyLL)){
       localStorage.setItem(keyLL,'1');
@@ -7986,7 +7990,7 @@ function checkCumpleAlerts(){
     var d=new Date(e.fnac+'T12:00:00');
     if(d.getDate()===hoy.getDate()&&d.getMonth()===hoy.getMonth()){
       var edad=hoy.getFullYear()-d.getFullYear();
-      var hoyStr2=new Date().toISOString().slice(0,10);
+      var hoyStr2=fechaVE();
       var keyCum='btg_cumple_'+hoyStr2+'_'+e.id;
       if(!localStorage.getItem(keyCum)){
         localStorage.setItem(keyCum,'1');
@@ -8496,7 +8500,7 @@ function checkResumenChecklist(){
   return;
   /* eslint-disable */
   if(!DB_READY||!supabase)return;
-  var hoy=new Date().toISOString().slice(0,10);
+  var hoy=fechaVE();
   // Solo enviar una vez por día
   var keyRes='btg_cl_resumen_'+hoy;
   if(localStorage.getItem(keyRes))return;
@@ -8563,7 +8567,7 @@ function renderCxP(){
   var filtEstado = gv('cxp-filtro-estado')||'';
   var filtTipo   = gv('cxp-filtro-tipo')||'';
   var q          = (gv('cxp-buscar')||'').toLowerCase();
-  var hoy        = new Date().toISOString().slice(0,10);
+  var hoy        = fechaVE();
 
   var datos = CXP.filter(function(c){
     if(filtEstado==='vencida'){
@@ -8659,7 +8663,7 @@ function abrirNuevaCxP(){
     });
   }
   // Fecha hoy
-  sv('cxp-fecha', new Date().toISOString().slice(0,10));
+  sv('cxp-fecha', fechaVE());
   sv('cxp-base','');sv('cxp-total','');sv('cxp-factura','');sv('cxp-nota','');sv('cxp-desc','');
   g('cxp-resumen-ret').style.display='none';
   m.style.display='block';
@@ -8750,7 +8754,7 @@ async function guardarCxP(){
   var neto=total-retIva-retIslr;
 
   var nuevaCxP={
-    fecha:gv('cxp-fecha')||new Date().toISOString().slice(0,10),
+    fecha:gv('cxp-fecha')||fechaVE(),
     fecha_venc:gv('cxp-vence')||null,
     prov_id:provId,
     prov_nombre:provNombre,
@@ -8799,7 +8803,7 @@ function abrirPagarCxP(id){
       '<span style="font-weight:700">NETO A PAGAR:</span><span style="font-weight:700;color:var(--green)">$'+parseFloat(c.neto_pagar||0).toFixed(2)+'</span>'+
       '</div></div>';
   }
-  sv('pagar-fecha',new Date().toISOString().slice(0,10));
+  sv('pagar-fecha',fechaVE());
   sv('pagar-ref','');
   var m=g('modal-pagar-cxp');if(m)m.style.display='block';
 }
@@ -8808,7 +8812,7 @@ function cerrarModalPagar(){var m=g('modal-pagar-cxp');if(m)m.style.display='non
 
 async function confirmarPagoCxP(){
   if(!CXP_PAGAR_ID)return;
-  var fecha=gv('pagar-fecha')||new Date().toISOString().slice(0,10);
+  var fecha=gv('pagar-fecha')||fechaVE();
   var ref=gv('pagar-ref')||'';
   var c=CXP.find(function(x){return x.id==CXP_PAGAR_ID;});
   if(!c)return;
@@ -9335,7 +9339,7 @@ function registrarAbonoDesdeWNC(){
   // Pre-llenar formulario de abono
   sp('abonos');
   setTimeout(function(){
-    var fechaEl = g('ab-fecha');if(fechaEl)fechaEl.value=pago.fecha||new Date().toISOString().slice(0,10);
+    var fechaEl = g('ab-fecha');if(fechaEl)fechaEl.value=pago.fecha||fechaVE();
     var montoEl = g('ab-monto');if(montoEl)montoEl.value=monto.toFixed(2);
     var refEl   = g('ab-ref');if(refEl)refEl.value=pago.referencia||pago.ref_bnc||'';
     var viajesEl= g('ab-viajes');if(viajesEl)viajesEl.value=viajes;
@@ -9388,7 +9392,7 @@ function calcSaldoCaja(){
 }
 
 function renderCajaChica(){
-  var hoy=new Date().toISOString().slice(0,10);
+  var hoy=fechaVE();
   var tasa=getTasa('bcvDolar');
   if(!tasa){tasaOManual('bcvDolar',function(t){tasa=t;calcCajachica();});return;}
   var saldo=calcSaldoCaja();
@@ -9447,7 +9451,7 @@ function renderCajaChica(){
 
 function abrirGastoCaja(){
   var m=g('modal-cajachica');if(!m)return;
-  sv('cc-fecha',new Date().toISOString().slice(0,10));
+  sv('cc-fecha',fechaVE());
   sv('cc-concepto','');sv('cc-monto-bs','');sv('cc-monto-usd','');
   m.style.display='block';
 }
@@ -9500,7 +9504,7 @@ function abrirReposicionCaja(){
   var m=g('modal-reposicion');if(!m)return;
   var tasa=getTasa('bcvDolar');
   if(!tasa){tasaOManual('bcvDolar',function(t){tasa=t;calcCajachica();});return;}
-  sv('cc-rep-fecha',new Date().toISOString().slice(0,10));
+  sv('cc-rep-fecha',fechaVE());
   sv('cc-rep-tasa',tasa.toFixed(2));
   var bsEl=g('cc-rep-bs');
   if(bsEl)bsEl.textContent='Bs '+(CAJACHICA.montoFijo*tasa).toFixed(0);
@@ -9736,7 +9740,7 @@ function portIniciar(){
 }
 
 function portCargarHoy(){
-  var hoy=new Date().toISOString().slice(0,10);
+  var hoy=fechaVE();
   var lista=g('port-lista-hoy');
   if(!lista)return;
   if(!DB_READY){lista.innerHTML='<span style="color:var(--text3)">Sin conexión</span>';return;}
@@ -9817,7 +9821,7 @@ function portMarcarAsis(btn,nombre,estado){
 function portGuardarAsistencia(){
   var keys=Object.keys(PORT_ASIS_MAP);
   if(!keys.length){alert('Marca al menos un empleado');return;}
-  var hoy=new Date().toISOString().slice(0,10);
+  var hoy=fechaVE();
   var hora=new Date().toLocaleTimeString('es-VE',{hour:'2-digit',minute:'2-digit'});
   var vigilante=SESION.nombre||'Vigilante';
   var registros=keys.map(function(nombre){
@@ -9825,7 +9829,7 @@ function portGuardarAsistencia(){
   });
   if(DB_READY&&supabase){
     // Verificar biométrico — no sobreescribir si ya tiene registro biométrico
-    var hoyCheck=new Date().toISOString().slice(0,10);
+    var hoyCheck=fechaVE();
     supabase.from('porteria').select('nombre').eq('fecha',hoyCheck).eq('tipo','asistencia').eq('subtipo','biometrico').then(function(bio){
       var bioNombres=(bio.data||[]).map(function(r){return r.nombre;});
       var filtrados=registros.filter(function(r){return bioNombres.indexOf(r.nombre)<0;});
@@ -9854,7 +9858,7 @@ function portGuardarEntrada(){
   var tipo=PORT_TIPO_SELECTED['ent'];
   if(!nombre){alert('Escribe el nombre de la persona');return;}
   if(!tipo){alert('Selecciona si llegó o salió');return;}
-  var hoy=new Date().toISOString().slice(0,10);
+  var hoy=fechaVE();
   var hora=new Date().toLocaleTimeString('es-VE',{hour:'2-digit',minute:'2-digit'});
   var obs=gv('port-ent-obs').trim();
   var reg={tipo:'entrada_salida',fecha:hoy,hora:hora,nombre:nombre,detalle:obs,subtipo:tipo==='llego'?'Llegó':'Salió',vigilante:SESION.nombre||'Vigilante'};
@@ -9879,7 +9883,7 @@ function portGuardarGalpon(){
   var tipo=PORT_TIPO_SELECTED['galp'];
   if(!que){alert('Escribe qué entró o salió');return;}
   if(!tipo){alert('Selecciona si entró o salió');return;}
-  var hoy=new Date().toISOString().slice(0,10);
+  var hoy=fechaVE();
   var hora=new Date().toLocaleTimeString('es-VE',{hour:'2-digit',minute:'2-digit'});
   var det=gv('port-galp-det').trim();
   var reg={tipo:'galpon',fecha:hoy,hora:hora,nombre:que,detalle:det,subtipo:tipo==='entro'?'Entró al galpón':'Salió del galpón',vigilante:SESION.nombre||'Vigilante'};
@@ -9903,7 +9907,7 @@ function portGuardarNovedad(){
   var texto=gv('port-nov-texto').trim();
   var nivel=PORT_TIPO_SELECTED['nov']||'info';
   if(!texto||texto.length<5){alert('Describe lo que pasó con más detalle');return;}
-  var hoy=new Date().toISOString().slice(0,10);
+  var hoy=fechaVE();
   var hora=new Date().toLocaleTimeString('es-VE',{hour:'2-digit',minute:'2-digit'});
   var reg={tipo:'novedad',fecha:hoy,hora:hora,nombre:'Novedad '+nivel.toUpperCase(),detalle:texto,subtipo:nivel,vigilante:SESION.nombre||'Vigilante'};
   if(DB_READY&&supabase){
@@ -10133,7 +10137,7 @@ function operIniciar(){
   var fechaEl=document.getElementById('oper-fecha');
   if(fechaEl)fechaEl.textContent=new Date().toLocaleDateString('es-VE',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
   // Mostrar parroquias inmediatamente sin esperar DB
-  var hoy=new Date().toISOString().slice(0,10);
+  var hoy=fechaVE();
   operRenderParroquias(hoy);
   // Luego cargar si ya registró hoy
   if(DB_READY&&supabase){
@@ -10192,7 +10196,7 @@ function operSelEstado(btn){
   var estado=btn.dataset.e;
   if(!RUTAS_HOY[par])RUTAS_HOY[par]={parroquia:par,estado:null,justificacion:''};
   RUTAS_HOY[par].estado=estado;
-  var hoy=new Date().toISOString().slice(0,10);
+  var hoy=fechaVE();
   operRenderParroquias(hoy);
 }
 
@@ -10380,7 +10384,7 @@ function portGuardarCamiones(){
   var marcados = Object.keys(PORT_CAMS_MAP).filter(function(c){return PORT_CAMS_MAP[c].estado;});
   if(!marcados.length){alert('Marca al menos un camión');return;}
 
-  var hoy = new Date().toISOString().slice(0,10);
+  var hoy = fechaVE();
   var hora = new Date().toLocaleTimeString('es-VE',{hour:'2-digit',minute:'2-digit'});
   var vigilante = SESION.nombre||'Vigilante';
   var registros = [];
@@ -10829,7 +10833,7 @@ function clCargarUnidad(){
 
 function clVerificarKmChofer(cam){
   // Verificar si el chofer ya registró el KM de llegada
-  var key = 'betangar_km_llegada_'+cam+'_'+new Date().toISOString().slice(0,10);
+  var key = 'betangar_km_llegada_'+cam+'_'+fechaVE();
   try{
     var saved = localStorage.getItem(key);
     if(saved){
@@ -10850,7 +10854,7 @@ function clVerificarKmChofer(cam){
   }catch(e){}
   // También verificar en Supabase
   if(DB_READY&&supabase){
-    var hoy=new Date().toISOString().slice(0,10);
+    var hoy=fechaVE();
     supabase.from('km_data').select('km_entrada_ayer').eq('cam',cam).single().then(function(res){
       if(res.data&&res.data.km_entrada_ayer){
         var inp=document.getElementById('cl-km-entrada');
@@ -10870,7 +10874,7 @@ function clKmEntradaChange(){
   if(nota){
     if(!confirm('El chofer ya registró este KM. ¿Seguro que quieres modificarlo?\nEl dato del mecánico prevalece.')){
       // Restaurar valor del chofer
-      var key = 'betangar_km_llegada_'+document.getElementById('cl-cam').value+'_'+new Date().toISOString().slice(0,10);
+      var key = 'betangar_km_llegada_'+document.getElementById('cl-cam').value+'_'+fechaVE();
       try{ var d=JSON.parse(localStorage.getItem(key)); if(d&&d.km)document.getElementById('cl-km-entrada').value=d.km; }catch(e){}
       return;
     }
@@ -10906,7 +10910,7 @@ function clMarcar(btn,campo,val){
 
 function clCargarExistente(cam){
   if(!DB_READY||!supabase)return;
-  var hoy=new Date().toISOString().slice(0,10);
+  var hoy=fechaVE();
   supabase.from('checklist').select('*').eq('fecha',hoy).eq('cam',cam).single().then(function(res){
     if(!res.data)return;
     var d=res.data;
@@ -10959,7 +10963,7 @@ function clGuardar(){
   if(!cam){alert('Selecciona el camión primero');return;}
   var kmSalida=parseFloat(document.getElementById('cl-km-salida')?document.getElementById('cl-km-salida').value:0)||0;
   var kmEntrada=parseFloat(document.getElementById('cl-km-entrada')?document.getElementById('cl-km-entrada').value:0)||0;
-  var hoy=new Date().toISOString().slice(0,10);
+  var hoy=fechaVE();
 
   var reg={
     fecha:hoy, cam:cam,
@@ -11083,7 +11087,7 @@ function clGuardar(){
 function cargarPanelChoferes(){
   var cont = document.getElementById('dash-viajes-choferes');
   if(!cont || !DB_READY || !supabase) return;
-  var hoy = new Date().toISOString().slice(0,10);
+  var hoy = fechaVE();
   // Total FACTURADO de hoy según planillas (fuente real) — se muestra SIEMPRE para contrastar
   var planDiaTot=(typeof REGS!=='undefined'?REGS:[]).filter(function(r){return r.f===hoy;}).reduce(function(s,r){return s+(parseInt(r.t)||0);},0);
   function cab(envivo){
@@ -11405,7 +11409,7 @@ function cargarWidgetRutas(){
     cont.innerHTML='<div style="color:var(--text3);font-size:12px">Sin conexión</div>';
     return;
   }
-  var hoy = new Date().toISOString().slice(0,10);
+  var hoy = fechaVE();
   supabase.from('rutas_estado').select('*').eq('fecha',hoy).then(function(r){
     if(r.error||!r.data||!r.data.length){
       cont.innerHTML='<div style="color:var(--text3);font-size:12px;padding:8px">Sin reporte del operativo hoy</div>';
@@ -11448,7 +11452,7 @@ function cargarWidgetJAC(){
   var lunes = new Date(hoy);
   lunes.setDate(hoy.getDate()-diasDesLunes);
   var lunesStr = lunes.toISOString().slice(0,10);
-  var hoyISO = new Date().toISOString().slice(0,10);
+  var hoyISO = fechaVE();
 
   cont.innerHTML='<div style="overflow-x:auto"><table style="width:100%;font-size:11px;border-collapse:collapse">'+
     '<thead><tr style="color:var(--text3);border-bottom:1px solid var(--border)">'+
@@ -11807,7 +11811,7 @@ function renderWidgetFlota(){
   if(!puedeVerWidgetFlota())return;
   var g1=document.getElementById('wf-grid-camiones'),g2=document.getElementById('wf-total-hoy'),g3=document.getElementById('wf-total-semana'),g4=document.getElementById('wf-semana-rango'),g5=document.getElementById('widget-flota-update');
   if(!g1||!DB_READY||!supabase)return;
-  var hoy=new Date().toISOString().slice(0,10),lunes=getLunesWF();
+  var hoy=fechaVE(),lunes=getLunesWF();
   var ld=new Date(lunes),dd=new Date(ld);dd.setDate(ld.getDate()+6);
   if(g4)g4.textContent=ld.toLocaleDateString('es-VE',{day:'numeric',month:'short'})+' – '+dd.toLocaleDateString('es-VE',{day:'numeric',month:'short'});
   var cams=Object.keys(FLOTA_MAP_WF);
@@ -11911,7 +11915,7 @@ function calcCobranzaSemanas(des,hta){
 // el domingo (fin) de cada semana no saldada. Usa el MISMO motor (sin divergencia).
 function calcCobranzaAging(des,hta){
   var R=calcCobranzaSemanas(des,hta);
-  var hoy=new Date(new Date().toISOString().slice(0,10)+'T12:00:00');
+  var hoy=new Date(fechaVE()+'T12:00:00');
   var buckets=[{k:'0-15',min:0,max:15,monto:0,viajes:0},{k:'16-30',min:16,max:30,monto:0,viajes:0},{k:'31-60',min:31,max:60,monto:0,viajes:0},{k:'61-90',min:61,max:90,monto:0,viajes:0},{k:'+90',min:91,max:1e9,monto:0,viajes:0}];
   var maxDias=0, viajesPend=0;
   R.semanas.forEach(function(s){
@@ -12119,7 +12123,7 @@ function cargarPrecioActual(){
   if(el)el.textContent='$'+(cfg.tarifa||316.88);
   if(el2)el2.textContent='Tarifa configurada actualmente';
   cargarHistorialPrecios();
-  var hoy=new Date().toISOString().slice(0,10);
+  var hoy=fechaVE();
   var npf=document.getElementById('pc-fecha');if(npf&&!npf.value)npf.value=hoy;
 }
 function cargarHistorialPrecios(){
@@ -12371,7 +12375,7 @@ var COMB_TANQUES=[], COMB_VEHICULOS=[], COMB_MEDICIONES=[], COMB_ALERTAS=[];
 var CC_REPORTE_ACTUAL=null;
 
 function ccPad2(n){n=String(n);return n.length<2?'0'+n:n;}
-function ccHoy(){return new Date().toISOString().slice(0,10);}
+function ccHoy(){return fechaVE();}
 
 /* ============================================================================
    CAPA DE DATOS COMPARTIDA — carga en memoria global las tablas que cruzan
