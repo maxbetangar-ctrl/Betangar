@@ -2281,22 +2281,38 @@ var LOGO_SVG='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAACAAAAAONCAYAAAASjoDM
 // ═══════════════════════════════════════════════════
 // LOGIN & SESSION
 // ═══════════════════════════════════════════════════
-function doLogin(){
+async function doLogin(){
   var u=document.getElementById('login-user').value.trim().toLowerCase();
   var p=document.getElementById('login-pass').value;
   var err=document.getElementById('login-error');
-  if(!USUARIOS[u]||USUARIOS[u].pass!==p){
-    err.style.display='block';document.getElementById('login-pass').value='';
-    setTimeout(function(){err.style.display='none';},3000);return;
-  }
-  SESION={usuario:u,rol:USUARIOS[u].rol,nombre:USUARIOS[u].nombre,demo:!!USUARIOS[u].demo};
-  // Guardar sesión en localStorage para persistir al refrescar
+  // 1) AUTH REAL (Supabase Auth): claves cifradas, sin secretos en el HTML. El usuario
+  //    escribe su username; se autentica con un email sintético (usuario@betangar.local).
   try{
-    // Guardar sesión con timestamp para saber cuándo se inició
-    var sesionGuardada=Object.assign({},SESION,{_ts:Date.now()});
-    localStorage.setItem('betangar_sesion',JSON.stringify(sesionGuardada));
-  }catch(e){}
-  // Restaurar config y WA desde localStorage inmediatamente
+    if(!supabase) initSupabaseClient();
+    if(supabase){
+      var em = u.indexOf('@')>0 ? u : (u + '@betangar.local');
+      var res = await supabase.auth.signInWithPassword({ email: em, password: p });
+      if(res && !res.error && res.data && res.data.user){
+        var ur = await supabase.from('btg_usuarios').select('usuario,rol,nombre,demo,activo').eq('auth_user_id', res.data.user.id).maybeSingle();
+        var perfil = ur && ur.data;
+        if(perfil && perfil.activo!==false){
+          _entrarSesion({usuario:perfil.usuario||u, rol:perfil.rol, nombre:perfil.nombre, demo:!!perfil.demo});
+          return;
+        }
+      }
+    }
+  }catch(e){ /* cae al respaldo */ }
+  // 2) RESPALDO hardcodeado (transición; se quita cuando Auth esté verificado).
+  if(USUARIOS[u] && USUARIOS[u].pass===p){
+    _entrarSesion({usuario:u, rol:USUARIOS[u].rol, nombre:USUARIOS[u].nombre, demo:!!USUARIOS[u].demo});
+    return;
+  }
+  err.style.display='block';document.getElementById('login-pass').value='';
+  setTimeout(function(){err.style.display='none';},3000);
+}
+function _entrarSesion(ses){
+  SESION=ses;
+  try{ localStorage.setItem('betangar_sesion',JSON.stringify(Object.assign({},SESION,{_ts:Date.now()}))); }catch(e){}
   try{var cfgLS=localStorage.getItem('betangar_cfg');if(cfgLS)Object.assign(cfg,JSON.parse(cfgLS));}catch(e){}
   try{var waLS=localStorage.getItem('betangar_wa_config');if(waLS){var waSaved=JSON.parse(waLS);waSaved.forEach(function(w,i){if(WA[i]){WA[i].num=w.num||'';WA[i].key=w.key||'';WA[i].activo=w.activo!==false;}});}}catch(e){}
   document.getElementById('login-overlay').style.display='none';
@@ -2522,7 +2538,7 @@ function cerrarSesion(){SESION=null;try{localStorage.removeItem('betangar_sesion
     var s=localStorage.getItem('betangar_sesion');
     if(s){
       var ses=JSON.parse(s);
-      if(ses&&ses.usuario&&ses.rol&&USUARIOS[ses.usuario]){
+      if(ses&&ses.usuario&&ses.rol){   // no exige USUARIOS (soporta usuarios solo-Auth)
         SESION=ses;
         // Ocultar el OVERLAY del login (el id real es 'login-overlay', no 'login' → antes
         // no se ocultaba y por eso seguía pidiendo usuario/clave aunque la sesión existía).
