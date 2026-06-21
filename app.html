@@ -2335,8 +2335,40 @@ function iniciarSesion(){
     }, 2000);
   }
 }
+// ── KILL-SWITCH DE LICENCIA (controlado desde el panel SaaS de Geppetto) ──────
+// Consulta la licencia de Betangar y bloquea la app si el dueño la suspendió o venció.
+// FAIL-OPEN total: ante cualquier duda (sin conexión, error, sin fila) DEJA ENTRAR.
+async function verificarLicencia(){
+  try{
+    if(!supabase) return;
+    var r = await supabase.rpc('licencia_estado', { p_producto:'betangar', p_ref:'betangar' });
+    if(r.error || !r.data || !r.data.length) return;   // fail-open
+    var lic = r.data[0];
+    if(lic.cortesia === true) return;                  // cortesía: nunca bloquea
+    if(lic.activo === false){ mostrarBloqueoLicencia('suspendida'); return; }
+    if(lic.licencia_vence){
+      var hoy=new Date(); hoy.setHours(0,0,0,0);
+      var vence=new Date(lic.licencia_vence+'T00:00:00');
+      if(vence.getTime() < hoy.getTime()) mostrarBloqueoLicencia('vencida');
+    }
+  }catch(e){ /* fail-open */ }
+}
+function mostrarBloqueoLicencia(motivo){
+  if(document.getElementById('licencia-bloqueo')) return;
+  var ov=document.createElement('div');
+  ov.id='licencia-bloqueo';
+  ov.style.cssText='position:fixed;inset:0;background:linear-gradient(135deg,#06101e,#0a1628,#0d2040);z-index:100000;display:flex;align-items:center;justify-content:center;padding:24px;font-family:sans-serif';
+  ov.innerHTML='<div style="background:#fff;border-radius:18px;max-width:420px;width:100%;padding:36px;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.55)">'+
+    '<div style="font-size:48px;margin-bottom:10px">🔒</div>'+
+    '<h1 style="font-size:21px;font-weight:900;color:#111;margin:0 0 8px">Acceso suspendido</h1>'+
+    '<p style="color:#555;font-size:14px;margin:0 0 6px">La licencia del sistema está <b>'+(motivo==='vencida'?'vencida':'suspendida')+'</b>.</p>'+
+    '<p style="color:#777;font-size:13px;margin:0">Contacta al proveedor del sistema para reactivar el servicio.</p>'+
+  '</div>';
+  document.body.appendChild(ov);
+}
 function _iniciarSesionCore(){
   if(!supabase||!DB_READY)initSupabaseClient(); // asegurar conexión en cualquier camino
+  try{ verificarLicencia(); }catch(e){}         // kill-switch (no bloquea el arranque si falla)
   DEMO_MODE=SESION.demo;
   var db=document.getElementById('demo-banner');if(db)db.style.display=DEMO_MODE?'block':'none';
   ['login-logo-img','nav-logo-img','dash-logo'].forEach(function(id){var el=document.getElementById(id);if(el)el.src=LOGO_SVG;});
