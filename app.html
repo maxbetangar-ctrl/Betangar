@@ -2065,13 +2065,25 @@ tr:hover td{background:rgba(45,255,122,.02)}
 // ═══════════════════════════════════════════════════
 // BETANGAR v9.0 — CORE DATA & CONSTANTS
 // ═══════════════════════════════════════════════════
-var SUPA_URL='https://hrkjddehqnzcqwlkklqm.supabase.co';
-// ── SEGURIDAD SUPABASE ──
-// SUPA_KEY es la 'anon key' — diseñada para ser pública en el browser.
-// La protección real son las políticas RLS en Supabase (habilitadas).
-// Sin RLS esto sería inseguro. Con RLS activo, exponer la anon key es normal.
-// Para mayor seguridad: migrar login a supabase.auth (v10.0)
-var SUPA_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhya2pkZGVocW56Y3F3bGtrbHFtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc2NTk1NzIsImV4cCI6MjA5MzIzNTU3Mn0.kqWKthyZfPZ86toql7shGByF-ZhUpcQUS4Jw4RnG_ko';
+// ════════════════════════════════════════════════════════════════════════════
+// CONFIG DE LA INSTANCIA — al CLONAR Betangar para una EMPRESA NUEVA, cambia SOLO esto:
+//   data_*       = el Supabase de ESA empresa (sus datos, base aparte = aislamiento real).
+//   lic_*        = NO se toca: SIEMPRE la base CENTRAL (control de licencias unificado).
+//   licencia_ref = identificador de la empresa en la tabla licencias (o se resuelve por dominio).
+//   Al clonar, revisa también: lista de camiones (var FLOTA) y FLOTA_CHOFERES (chofer.html).
+// ════════════════════════════════════════════════════════════════════════════
+var ANON_CENTRAL='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhya2pkZGVocW56Y3F3bGtrbHFtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc2NTk1NzIsImV4cCI6MjA5MzIzNTU3Mn0.kqWKthyZfPZ86toql7shGByF-ZhUpcQUS4Jw4RnG_ko';
+var BTG_CONFIG = {
+  empresa_nombre: 'Inversiones Betangar C.A.',
+  data_url: 'https://hrkjddehqnzcqwlkklqm.supabase.co',   // ← base de ESTA empresa
+  data_key: ANON_CENTRAL,                                  // ← anon key de ESA base
+  lic_url:  'https://hrkjddehqnzcqwlkklqm.supabase.co',   // ← CENTRAL (no cambiar)
+  lic_key:  ANON_CENTRAL,                                  // ← anon key central (no cambiar)
+  licencia_ref: 'betangar'                                 // ← su id en la tabla licencias
+};
+// La anon key es pública por diseño; la protección real es RLS en Supabase.
+var SUPA_URL=BTG_CONFIG.data_url;
+var SUPA_KEY=BTG_CONFIG.data_key;
 var EJS_KEY='Uyqw-MYDuZEOqhxeJ',EJS_SVC='service_h2b7fbm',EJS_TPL='template_he74cd4';
 var EJS_RPT_SVC='service_za892jr',EJS_RPT_TPL='template_mcfmlle';
 
@@ -2301,7 +2313,7 @@ function initSupabaseClient(){
     if(typeof window.supabase==='object'&&window.supabase.createClient)createFn=window.supabase.createClient;
     else if(typeof window.createClient==='function')createFn=window.createClient;
     else if(window.supabase&&window.supabase.default&&window.supabase.default.createClient)createFn=window.supabase.default.createClient;
-    if(createFn){supabase=createFn(SUPA_URL,SUPA_KEY);DB_READY=true;console.log('✅ Supabase cliente OK');return true;}
+    if(createFn){try{window.__btgCreate=createFn;}catch(e){}supabase=createFn(SUPA_URL,SUPA_KEY);DB_READY=true;console.log('✅ Supabase cliente OK');return true;}
     console.warn('⚠ Supabase CDN aún no disponible');DB_READY=false;return false;
   }catch(e){console.error('Supabase init error:',e);DB_READY=false;return false;}
 }
@@ -2341,14 +2353,21 @@ function iniciarSesion(){
 async function verificarLicencia(){
   try{
     if(!supabase) return;
+    // Las licencias viven SIEMPRE en la base CENTRAL. En los clones (data ≠ central) se usa
+    // un cliente aparte; en la instancia de Máximo (data = central) se reusa supabase.
+    var sl = supabase;
+    if(BTG_CONFIG.lic_url !== BTG_CONFIG.data_url){
+      if(!window.__supaLic && window.__btgCreate) window.__supaLic = window.__btgCreate(BTG_CONFIG.lic_url, BTG_CONFIG.lic_key);
+      sl = window.__supaLic || supabase;
+    }
     var lic = null;
     // 1) RESOLUCIÓN POR DOMINIO: cada empresa entra por su propio sitio → su licencia.
     var dom = (location.hostname||'').toLowerCase();
-    var rd = await supabase.rpc('licencia_por_dominio', { p_producto:'betangar', p_dominio:dom });
+    var rd = await sl.rpc('licencia_por_dominio', { p_producto:'betangar', p_dominio:dom });
     if(!rd.error && rd.data && rd.data.length) lic = rd.data[0];
-    // 2) Fallback al identificador fijo (deploy mono-empresa actual).
+    // 2) Fallback al identificador de ESTA instancia (configurable).
     if(!lic){
-      var r = await supabase.rpc('licencia_estado', { p_producto:'betangar', p_ref:'betangar' });
+      var r = await sl.rpc('licencia_estado', { p_producto:'betangar', p_ref:BTG_CONFIG.licencia_ref });
       if(!r.error && r.data && r.data.length) lic = r.data[0];
     }
     if(!lic) return;                                   // fail-open

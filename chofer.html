@@ -478,8 +478,14 @@ window.__supaLib = window.supabase || null;
 // Acceso por QR · Offline-first · Conectado a Supabase
 // ══════════════════════════════════════════════════════════
 
-var SUPA_URL = 'https://hrkjddehqnzcqwlkklqm.supabase.co';
-var SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhya2pkZGVocW56Y3F3bGtrbHFtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc2NTk1NzIsImV4cCI6MjA5MzIzNTU3Mn0.kqWKthyZfPZ86toql7shGByF-ZhUpcQUS4Jw4RnG_ko';
+// CONFIG DE INSTANCIA (chofer): al CLONAR para una empresa nueva, cambia data_url/data_key
+// por el Supabase de ESA empresa, y abajo el mapa FLOTA_CHOFERES con sus camiones/choferes.
+var BTG_CHOFER_CONFIG = {
+  data_url: 'https://hrkjddehqnzcqwlkklqm.supabase.co',
+  data_key: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhya2pkZGVocW56Y3F3bGtrbHFtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc2NTk1NzIsImV4cCI6MjA5MzIzNTU3Mn0.kqWKthyZfPZ86toql7shGByF-ZhUpcQUS4Jw4RnG_ko'
+};
+var SUPA_URL = BTG_CHOFER_CONFIG.data_url;
+var SUPA_KEY = BTG_CHOFER_CONFIG.data_key;
 // Destinatarios WA del checklist
 var WA_DESTINATARIOS = [
   {num:'584147379886', key:'3999109',  nombre:'Maximo'},
