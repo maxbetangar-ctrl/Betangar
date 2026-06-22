@@ -2088,7 +2088,7 @@ var SUPA_KEY=BTG_CONFIG.data_key;
 var EJS_KEY='Uyqw-MYDuZEOqhxeJ',EJS_SVC='service_h2b7fbm',EJS_TPL='template_he74cd4';
 var EJS_RPT_SVC='service_za892jr',EJS_RPT_TPL='template_mcfmlle';
 
-var supabase=null,DB_READY=false,DEMO_MODE=false,SESION=null;
+var supabase=null,supabaseAuth=null,DB_READY=false,DEMO_MODE=false,SESION=null;
 // Fecha de HOY en hora de Venezuela (UTC-4, sin horario de verano). Antes se usaba UTC
 // (toISOString) y de noche en Venezuela ya marcaba el día siguiente → los datos de "hoy"
 // (viajes, checklist, rutas) no aparecían. Esto unifica "hoy" al día real venezolano.
@@ -2295,17 +2295,17 @@ async function doLogin(){
     // La CDN de Supabase carga ASÍNCRONA → al hacer login rápido aún no está lista.
     // Esperamos hasta ~6s a que el cliente con .auth exista antes de autenticar.
     var _intentos=0;
-    while((!supabase || !supabase.auth) && _intentos<40){
+    while((!supabaseAuth || !supabaseAuth.auth) && _intentos<40){
       initSupabaseClient();
-      if(supabase && supabase.auth) break;
+      if(supabaseAuth && supabaseAuth.auth) break;
       await new Promise(function(r){ setTimeout(r,150); });
       _intentos++;
     }
-    _setDiag('supabase='+(!!supabase)+' tieneAuth='+(!!(supabase&&supabase.auth))+' intentos='+_intentos);
-    if(supabase && supabase.auth){
+    _setDiag('auth='+(!!supabaseAuth)+' tieneAuth='+(!!(supabaseAuth&&supabaseAuth.auth))+' intentos='+_intentos);
+    if(supabaseAuth && supabaseAuth.auth){
       var em = u.indexOf('@')>0 ? u : (u + '@betangar.local');
       _setDiag('llamando signin con '+em);
-      var res = await supabase.auth.signInWithPassword({ email: em, password: p });
+      var res = await supabaseAuth.auth.signInWithPassword({ email: em, password: p });
       _setDiag(res && res.error ? ('signin ERROR: '+res.error.message) : (res&&res.data&&res.data.user?('signin OK '+String(res.data.user.id||'').slice(0,8)):'signin sin user'));
       if(res && res.error){ authMsg = res.error.message || 'auth error'; }
       else if(res && res.data && res.data.user){
@@ -2313,7 +2313,7 @@ async function doLogin(){
         var rol=meta.rol, nombre=meta.nombre||u, usuario=meta.usuario||u, demo=!!meta.demo, activo=true;
         // enriquecer con btg_usuarios si se puede, pero SIN bloquear si falla
         try{
-          var ur = await supabase.from('btg_usuarios').select('usuario,rol,nombre,demo,activo').eq('auth_user_id', res.data.user.id).maybeSingle();
+          var ur = await supabaseAuth.from('btg_usuarios').select('usuario,rol,nombre,demo,activo').eq('auth_user_id', res.data.user.id).maybeSingle();
           if(ur && ur.data){ rol=ur.data.rol||rol; nombre=ur.data.nombre||nombre; usuario=ur.data.usuario||usuario; demo=!!ur.data.demo; activo=ur.data.activo!==false; }
         }catch(e2){}
         if(!activo){ err.textContent='Usuario desactivado. Contacta al administrador.'; err.style.display='block'; setTimeout(function(){err.style.display='none';err.textContent='Usuario o contrasena incorrectos';},4000); return; }
@@ -2349,7 +2349,15 @@ function initSupabaseClient(){
     if(typeof window.supabase==='object'&&window.supabase.createClient)createFn=window.supabase.createClient;
     else if(typeof window.createClient==='function')createFn=window.createClient;
     else if(window.supabase&&window.supabase.default&&window.supabase.default.createClient)createFn=window.supabase.default.createClient;
-    if(createFn){try{window.__btgCreate=createFn;}catch(e){}supabase=createFn(SUPA_URL,SUPA_KEY,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:false,storageKey:'btg-auth'}});DB_READY=true;console.log('✅ Supabase cliente OK');return true;}
+    if(createFn){
+      try{window.__btgCreate=createFn;}catch(e){}
+      // CLIENTE DE DATOS: SIEMPRE anónimo. persistSession:false → nunca arrastra una sesión Auth.
+      // Toda la app (RLS) corre como anon; el login con Auth NO debe volver authenticated al cliente de datos.
+      supabase=createFn(SUPA_URL,SUPA_KEY,{auth:{persistSession:false,autoRefreshToken:false,detectSessionInUrl:false}});
+      // CLIENTE DE IDENTIDAD: solo para login/logout/getSession (gestión de usuarios). Guarda la sesión aparte.
+      try{ supabaseAuth=createFn(SUPA_URL,SUPA_KEY,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:false,storageKey:'btg-auth'}}); }catch(e){ supabaseAuth=null; }
+      DB_READY=true;console.log('✅ Supabase cliente OK (datos=anon, auth=aparte)');return true;
+    }
     console.warn('⚠ Supabase CDN aún no disponible');DB_READY=false;return false;
   }catch(e){console.error('Supabase init error:',e);DB_READY=false;return false;}
 }
@@ -2554,7 +2562,7 @@ function cerrarSesion(){
   try{localStorage.removeItem('betangar_sesion');}catch(e){}
   // Cerrar también la sesión de Supabase Auth (si no, el token seguía activo) y luego recargar.
   try{
-    if(supabase&&supabase.auth&&supabase.auth.signOut){ supabase.auth.signOut().finally(function(){location.reload();}); return; }
+    if(supabaseAuth&&supabaseAuth.auth&&supabaseAuth.auth.signOut){ supabaseAuth.auth.signOut().finally(function(){location.reload();}); return; }
   }catch(e){}
   location.reload();
 }
@@ -7152,7 +7160,7 @@ function imprimirReporteFinanciero(){
 // Betangar no tiene backend → crear/desactivar/cambiar clave pasa por esta API.
 async function btgUsuariosAPI(method, body){
   var token='';
-  try{ var s=await supabase.auth.getSession(); token=(s&&s.data&&s.data.session)?s.data.session.access_token:''; }catch(e){}
+  try{ var s=await supabaseAuth.auth.getSession(); token=(s&&s.data&&s.data.session)?s.data.session.access_token:''; }catch(e){}
   var r=await fetch('https://www.preescolargeppetto.com/api/btg-usuarios',{
     method:method, headers:{'Content-Type':'application/json', Authorization:'Bearer '+token},
     body: method==='GET'?undefined:JSON.stringify(body||{})
@@ -7166,7 +7174,7 @@ async function renderUsuarios(){
   var j=await btgUsuariosAPI('GET');
   if(!j||!j.ok){
     var diag='';
-    try{ var s=await supabase.auth.getSession(); diag = (s&&s.data&&s.data.session) ? ('sesión Auth presente') : ('SIN sesión Auth (entraste por el respaldo)'); }catch(e){ diag='getSession err'; }
+    try{ var s=await supabaseAuth.auth.getSession(); diag = (s&&s.data&&s.data.session) ? ('sesión Auth presente') : ('SIN sesión Auth (entraste por el respaldo)'); }catch(e){ diag='getSession err'; }
     var ld=''; try{ ld=localStorage.getItem('btg_authdiag')||window.__authDiag||''; }catch(e){}
     tb.innerHTML='<tr><td colspan="5" style="text-align:left;color:var(--red);padding:14px;font-size:11px">⚠️ '+((j&&j.error)||'No se pudo cargar')+'<br><b>Diag:</b> '+diag+(ld?(' · login: '+ld):'')+'</td></tr>';
     return;
