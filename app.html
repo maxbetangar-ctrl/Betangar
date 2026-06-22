@@ -1308,6 +1308,18 @@ tr:hover td{background:rgba(45,255,122,.02)}
     <div id="nm-hist-lista" class="tw"></div>
   </div>
 
+  <!-- AUDITORÍA DE PAGOS: pagado (historial) vs corresponde (viajes en planilla × tarifa) -->
+  <div class="card" style="margin-top:12px;border:1px solid var(--border)">
+    <div class="sh"><div class="st">🔍 Auditoría de Pagos — cotejo contra planilla</div></div>
+    <div style="font-size:11px;color:var(--text3);margin-bottom:8px">Compara lo PAGADO (del historial) contra lo que CORRESPONDE según los viajes de la planilla × tarifa. Marca 🚩 a quien recibió de más y ⚠️ pagos sin soporte de planilla. La planilla es la verdad.</div>
+    <div style="margin-bottom:8px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <select class="fc" id="aud-sem" onchange="renderAuditoriaPagos()" style="font-size:12px;max-width:220px;padding:5px 8px"></select>
+      <label style="font-size:11px;color:var(--text3);cursor:pointer"><input type="checkbox" id="aud-patio" checked onchange="renderAuditoriaPagos()"> tolerar patio (±2 días)</label>
+      <div id="aud-resumen" style="font-size:11px"></div>
+    </div>
+    <div id="aud-lista" class="tw"></div>
+  </div>
+
   <!-- COTEJO PLANILLA vs ASISTENCIA (anomalías RRHH) -->
   <div class="card" style="margin-top:12px;border:1px solid var(--border)">
     <div class="sh" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">
@@ -4894,6 +4906,7 @@ function calcNom(){
 
 // ── HISTORIAL DE NÓMINA (gasto total de la empresa; soporte por persona auditable) ──
 function renderNominaHist(){
+  try{llenarAudSem();}catch(e){}
   var lista=g('nm-hist-lista'); if(!lista)return;
   var hist=(NOMINA_HIST||[]).slice().sort(function(a,b){return (a.semana<b.semana?-1:(a.semana>b.semana?1:0));});
   var totU=hist.reduce(function(s,h){return s+(parseFloat(h.total_usd)||0);},0);
@@ -4971,6 +4984,55 @@ async function guardarNominaHist(){
   var idx=NOMINA_HIST.findIndex(function(x){return x.id===id;});
   if(idx>=0)NOMINA_HIST[idx]=row; else NOMINA_HIST.push(row);
   renderNominaHist(); audit('Nómina guardada en historial',id+' $'+row.total_usd.toFixed(0)); mostrarToast('✅ Nómina "'+n.sem+'" guardada en el historial','exito');
+}
+
+// ── AUDITORÍA DE PAGOS: pagado (historial) vs corresponde (viajes planilla × tarifa) ──
+function _audToks(n){return (typeof _normNom==='function'?_normNom(n):String(n||'').toUpperCase()).split(' ').filter(Boolean);}
+function _audMatchViajes(nombre,vmap){
+  var e=_audToks(nombre); var best=0,bestN=0;
+  for(var k in vmap){ var ov=0,kt=_audToks(k); e.forEach(function(t){if(kt.indexOf(t)>=0)ov++;}); if(ov>=2&&ov>best){best=ov;bestN=vmap[k];} }
+  return bestN;
+}
+function llenarAudSem(){
+  var sel=g('aud-sem'); if(!sel)return; var cur=sel.value;
+  var hist=(NOMINA_HIST||[]).slice().sort(function(a,b){return a.semana<b.semana?-1:(a.semana>b.semana?1:0);});
+  sel.innerHTML='<option value="">— elegí semana —</option>'+hist.map(function(h){return '<option value="'+h.semana+'">'+h.semana+(h.periodo?(' · '+String(h.periodo).slice(0,22)):'')+'</option>';}).join('');
+  if(cur)sel.value=cur;
+}
+function renderAuditoriaPagos(){
+  var lista=g('aud-lista'); if(!lista)return;
+  var sem=gv('aud-sem'); var h=(NOMINA_HIST||[]).find(function(x){return x.semana===sem;});
+  var res=g('aud-resumen');
+  if(!h){lista.innerHTML='<div style="color:var(--text3);font-size:12px;padding:8px">Elegí una semana para auditar.</div>';if(res)res.textContent='';return;}
+  var tolPatio=g('aud-patio')&&g('aud-patio').checked;
+  var f0=h.fecha_desde,f1=h.fecha_hasta;
+  var pw=(REGS||[]).filter(function(r){return r.f&&(!f0||r.f>=f0)&&(!f1||r.f<=f1);});
+  if(!pw.length){lista.innerHTML='<div style="color:var(--amber);font-size:12px;padding:8px">No hay planillas cargadas en el rango '+(f0||'?')+' a '+(f1||'?')+' para cotejar.</div>';if(res)res.textContent='';return;}
+  var chV={},ayV={};
+  pw.forEach(function(r){
+    var k=(typeof _normNom==='function'?_normNom(r.ch):String(r.ch||'').toUpperCase()); if(k)chV[k]=(chV[k]||0)+(parseInt(r.t)||0);
+    [r.ay1,r.ay2,r.ay3].forEach(function(nm){var a=(typeof _normNom==='function'?_normNom(nm):String(nm||'').toUpperCase()); if(a)ayV[a]=(ayV[a]||0)+(parseInt(r.t)||0);});
+  });
+  var d=h.detalle||{}; var filas=[]; var nFlag=0,sumOver=0;
+  function chk(arr,rate,vmap,rol){
+    (arr||[]).forEach(function(p){
+      var vj=_audMatchViajes(p.n,vmap); var corr=vj*rate; var pag=parseFloat(p.usd)||0;
+      var tol=(tolPatio?rate*2:0)+1; var diff=Math.round((pag-corr)*100)/100;
+      var flag=(corr===0&&pag>0)?'GHOST':(diff>tol?'OVER':'');
+      if(flag){nFlag++;sumOver+=Math.max(0,diff);}
+      filas.push({rol:rol,n:p.n,vj:vj,corr:corr,pag:pag,diff:diff,flag:flag});
+    });
+  }
+  chk(d.choferes,10,chV,'Chofer'); chk(d.ayudantes,5,ayV,'Ayud');
+  filas.sort(function(a,b){return (b.flag?1:0)-(a.flag?1:0)||b.diff-a.diff;});
+  if(res)res.innerHTML=nFlag>0?('<span style="color:var(--red);font-weight:700">🚩 '+nFlag+' a revisar · $'+sumOver.toFixed(0)+' de más</span>'):'<span style="color:var(--green);font-weight:700">✓ todo cuadra con la planilla</span>';
+  lista.innerHTML='<table><thead><tr><th>Rol</th><th>Persona</th><th>Viajes</th><th>Corresponde</th><th>Pagado</th><th>Dif</th><th>Estado</th></tr></thead><tbody>'+
+    filas.map(function(x){return '<tr style="'+(x.flag?'background:rgba(220,38,38,.10)':'')+'"><td style="font-size:10px">'+x.rol+'</td>'+
+      '<td style="font-size:11px;font-weight:'+(x.flag?'700':'400')+'">'+x.n+'</td><td style="color:var(--green)">'+x.vj+'</td>'+
+      '<td style="font-family:var(--m)">$'+x.corr+'</td><td style="font-family:var(--m)">$'+x.pag.toFixed(0)+'</td>'+
+      '<td style="font-family:var(--m);font-weight:700;color:'+(x.diff>0?'var(--red)':x.diff<0?'var(--amber)':'var(--green)')+'">'+(x.diff>0?'+':'')+'$'+x.diff.toFixed(0)+'</td>'+
+      '<td style="font-size:10px">'+(x.flag==='OVER'?'🚩 cobró de más':x.flag==='GHOST'?'⚠️ sin planilla':(x.diff<0?'falta cargar?':'✓'))+'</td></tr>';}).join('')+
+    '</tbody></table>';
 }
 
 function renderNomAdm(){
