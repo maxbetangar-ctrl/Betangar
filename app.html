@@ -2286,30 +2286,36 @@ async function doLogin(){
   var u=document.getElementById('login-user').value.trim().toLowerCase();
   var p=document.getElementById('login-pass').value;
   var err=document.getElementById('login-error');
-  // 1) AUTH REAL (Supabase Auth): claves cifradas, sin secretos en el HTML. El usuario
-  //    escribe su username; se autentica con un email sintético (usuario@betangar.local).
+  // 1) AUTH REAL (Supabase Auth). El rol sale del TOKEN (user_metadata) → NO depende de
+  //    leer btg_usuarios (eso podía fallar por RLS/timing en el navegador y dejaba afuera).
+  var authMsg='';
   try{
     if(!supabase) initSupabaseClient();
-    if(supabase){
+    if(supabase && supabase.auth){
       var em = u.indexOf('@')>0 ? u : (u + '@betangar.local');
       var res = await supabase.auth.signInWithPassword({ email: em, password: p });
-      if(res && !res.error && res.data && res.data.user){
-        var ur = await supabase.from('btg_usuarios').select('usuario,rol,nombre,demo,activo').eq('auth_user_id', res.data.user.id).maybeSingle();
-        var perfil = ur && ur.data;
-        if(perfil && perfil.activo!==false){
-          _entrarSesion({usuario:perfil.usuario||u, rol:perfil.rol, nombre:perfil.nombre, demo:!!perfil.demo});
-          return;
-        }
+      if(res && res.error){ authMsg = res.error.message || 'auth error'; }
+      else if(res && res.data && res.data.user){
+        var meta = res.data.user.user_metadata || {};
+        var rol=meta.rol, nombre=meta.nombre||u, usuario=meta.usuario||u, demo=!!meta.demo, activo=true;
+        // enriquecer con btg_usuarios si se puede, pero SIN bloquear si falla
+        try{
+          var ur = await supabase.from('btg_usuarios').select('usuario,rol,nombre,demo,activo').eq('auth_user_id', res.data.user.id).maybeSingle();
+          if(ur && ur.data){ rol=ur.data.rol||rol; nombre=ur.data.nombre||nombre; usuario=ur.data.usuario||usuario; demo=!!ur.data.demo; activo=ur.data.activo!==false; }
+        }catch(e2){}
+        if(!activo){ err.textContent='Usuario desactivado. Contacta al administrador.'; err.style.display='block'; setTimeout(function(){err.style.display='none';err.textContent='Usuario o contrasena incorrectos';},4000); return; }
+        if(rol){ _entrarSesion({usuario:usuario, rol:rol, nombre:nombre, demo:demo}); return; }
       }
-    }
-  }catch(e){ /* cae al respaldo */ }
-  // 2) RESPALDO hardcodeado (transición; se quita cuando Auth esté verificado).
+    } else { authMsg='Supabase no cargó'; }
+  }catch(e){ authMsg=(e&&e.message)||'error'; }
+  // 2) RESPALDO hardcodeado (safety net mientras Auth se estabiliza).
   if(USUARIOS[u] && USUARIOS[u].pass===p){
     _entrarSesion({usuario:u, rol:USUARIOS[u].rol, nombre:USUARIOS[u].nombre, demo:!!USUARIOS[u].demo});
     return;
   }
+  err.textContent = authMsg ? ('No se pudo entrar: '+authMsg) : 'Usuario o contrasena incorrectos';
   err.style.display='block';document.getElementById('login-pass').value='';
-  setTimeout(function(){err.style.display='none';},3000);
+  setTimeout(function(){err.style.display='none';err.textContent='Usuario o contrasena incorrectos';},6000);
 }
 function _entrarSesion(ses){
   SESION=ses;
