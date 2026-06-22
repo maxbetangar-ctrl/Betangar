@@ -1315,6 +1315,7 @@ tr:hover td{background:rgba(45,255,122,.02)}
     <div style="margin-bottom:8px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
       <select class="fc" id="aud-sem" onchange="renderAuditoriaPagos()" style="font-size:12px;max-width:220px;padding:5px 8px"></select>
       <label style="font-size:11px;color:var(--text3);cursor:pointer"><input type="checkbox" id="aud-patio" checked onchange="renderAuditoriaPagos()"> tolerar patio (±2 días)</label>
+      <button class="btn btn-s btn-sm" onclick="imprimirAuditoriaPagos()">🖨️ Imprimir</button>
       <div id="aud-resumen" style="font-size:11px"></div>
     </div>
     <div id="aud-lista" class="tw"></div>
@@ -5033,6 +5034,32 @@ function renderAuditoriaPagos(){
       '<td style="font-family:var(--m);font-weight:700;color:'+(x.diff>0?'var(--red)':x.diff<0?'var(--amber)':'var(--green)')+'">'+(x.diff>0?'+':'')+'$'+x.diff.toFixed(0)+'</td>'+
       '<td style="font-size:10px">'+(x.flag==='OVER'?'🚩 cobró de más':x.flag==='GHOST'?'⚠️ sin planilla':(x.diff<0?'falta cargar?':'✓'))+'</td></tr>';}).join('')+
     '</tbody></table>';
+}
+// Imprimir la auditoría para llevarla a Operaciones/RRHH con bases.
+function imprimirAuditoriaPagos(){
+  var sem=gv('aud-sem'); var h=(NOMINA_HIST||[]).find(function(x){return x.semana===sem;});
+  if(!h){alert('Elegí una semana primero.');return;}
+  var tolPatio=g('aud-patio')&&g('aud-patio').checked;
+  var f0=h.fecha_desde,f1=h.fecha_hasta;
+  var pw=(REGS||[]).filter(function(r){return r.f&&(!f0||r.f>=f0)&&(!f1||r.f<=f1);});
+  if(!pw.length){alert('No hay planillas cargadas en el rango de esa semana para cotejar.');return;}
+  var chV={},ayV={};
+  pw.forEach(function(r){var k=(typeof _normNom==='function'?_normNom(r.ch):String(r.ch||'').toUpperCase()); if(k)chV[k]=(chV[k]||0)+(parseInt(r.t)||0);[r.ay1,r.ay2,r.ay3].forEach(function(nm){var a=(typeof _normNom==='function'?_normNom(nm):String(nm||'').toUpperCase()); if(a)ayV[a]=(ayV[a]||0)+(parseInt(r.t)||0);});});
+  var d=h.detalle||{}; var filas=[]; var nFlag=0,sumOver=0;
+  function chk(arr,rate,vmap,rol){(arr||[]).forEach(function(p){var vj=_audMatchViajes(p.n,vmap);var corr=vj*rate;var pag=parseFloat(p.usd)||0;var tol=(tolPatio?rate*2:0)+1;var diff=Math.round((pag-corr)*100)/100;var flag=(corr===0&&pag>0)?'GHOST':(diff>tol?'OVER':'');if(flag){nFlag++;sumOver+=Math.max(0,diff);}filas.push({rol:rol,n:p.n,vj:vj,corr:corr,pag:pag,diff:diff,flag:flag});});}
+  chk(d.choferes,10,chV,'Chofer'); chk(d.ayudantes,5,ayV,'Ayudante');
+  filas.sort(function(a,b){return (b.flag?1:0)-(a.flag?1:0)||b.diff-a.diff;});
+  var stats=mkStat('Semana',h.semana,String(h.periodo||'').slice(0,28),'azul')+
+    mkStat('A revisar',nFlag,nFlag>0?'requieren explicación':'todo cuadra',nFlag>0?'rojo':'verde')+
+    mkStat('Pagado de más','$'+sumOver.toFixed(0),'sobre lo que corresponde','rojo')+
+    mkStat('Personas',filas.length,'cotejadas vs planilla','amari');
+  var body='<style>@media print{tr{page-break-inside:avoid!important;break-inside:avoid!important}thead{display:table-header-group}table{page-break-inside:auto;width:100%;border-collapse:collapse}td,th{padding:4px 6px}}</style>'+
+    '<p style="font-size:12px;color:#555;margin-bottom:8px">Cotejo: <b>lo pagado</b> (relación de nómina) vs <b>lo que corresponde</b> = viajes registrados en planilla × tarifa (chofer $10 / ayudante $5). Las filas resaltadas requieren explicación de Operaciones / RRHH.</p>'+
+    '<table><thead><tr><th>Rol</th><th>Persona</th><th style="text-align:center">Viajes</th><th>Corresponde</th><th>Pagado</th><th>Diferencia</th><th>Estado</th></tr></thead><tbody>'+
+    filas.map(function(x,i){return '<tr style="background:'+(x.flag?'#fee2e2':(i%2?'#f5f9ff':'#fff'))+'"><td>'+x.rol+'</td><td><b>'+x.n+'</b></td><td style="text-align:center;font-weight:700">'+x.vj+'</td><td class="gv">$'+x.corr+'</td><td class="gv">$'+x.pag.toFixed(0)+'</td><td class="gv" style="color:'+(x.diff>0?'#dc2626':x.diff<0?'#b45309':'#16a34a')+';font-weight:700">'+(x.diff>0?'+':'')+'$'+x.diff.toFixed(0)+'</td><td style="font-weight:700;color:'+(x.flag?'#dc2626':'#16a34a')+'">'+(x.flag==='OVER'?'COBRÓ DE MÁS':x.flag==='GHOST'?'SIN PLANILLA':(x.diff<0?'¿falta cargar?':'OK'))+'</td></tr>';}).join('')+
+    '<tr class="tr-tot"><td colspan="5">SOBREPAGO TOTAL A REVISAR</td><td class="gv" style="color:#dc2626">+$'+sumOver.toFixed(0)+'</td><td>'+nFlag+' casos</td></tr>'+
+    '</tbody></table>';
+  abrirImpresionPremium('Auditoría de Pagos de Nómina','Cotejo planilla vs pagado — '+(h.periodo||h.semana),stats,body);
 }
 
 function renderNomAdm(){
