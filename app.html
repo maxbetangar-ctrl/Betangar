@@ -2294,6 +2294,7 @@ async function doLogin(){
     if(supabase && supabase.auth){
       var em = u.indexOf('@')>0 ? u : (u + '@betangar.local');
       var res = await supabase.auth.signInWithPassword({ email: em, password: p });
+      try{ window.__authDiag = res && res.error ? ('signin ERROR: '+res.error.message) : (res&&res.data&&res.data.user?('signin OK '+String(res.data.user.id||'').slice(0,8)):'signin sin user'); }catch(_){}
       if(res && res.error){ authMsg = res.error.message || 'auth error'; }
       else if(res && res.data && res.data.user){
         var meta = res.data.user.user_metadata || {};
@@ -2336,7 +2337,7 @@ function initSupabaseClient(){
     if(typeof window.supabase==='object'&&window.supabase.createClient)createFn=window.supabase.createClient;
     else if(typeof window.createClient==='function')createFn=window.createClient;
     else if(window.supabase&&window.supabase.default&&window.supabase.default.createClient)createFn=window.supabase.default.createClient;
-    if(createFn){try{window.__btgCreate=createFn;}catch(e){}supabase=createFn(SUPA_URL,SUPA_KEY);DB_READY=true;console.log('✅ Supabase cliente OK');return true;}
+    if(createFn){try{window.__btgCreate=createFn;}catch(e){}supabase=createFn(SUPA_URL,SUPA_KEY,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:false,storageKey:'btg-auth'}});DB_READY=true;console.log('✅ Supabase cliente OK');return true;}
     console.warn('⚠ Supabase CDN aún no disponible');DB_READY=false;return false;
   }catch(e){console.error('Supabase init error:',e);DB_READY=false;return false;}
 }
@@ -7151,7 +7152,12 @@ async function renderUsuarios(){
   var tb=g('tb-usuarios');if(!tb)return;
   tb.innerHTML='<tr><td colspan="5" style="text-align:center;color:var(--text3);padding:14px">Cargando…</td></tr>';
   var j=await btgUsuariosAPI('GET');
-  if(!j||!j.ok){ tb.innerHTML='<tr><td colspan="5" style="text-align:center;color:var(--red);padding:14px">'+((j&&j.error)||'No se pudo cargar')+'</td></tr>'; return; }
+  if(!j||!j.ok){
+    var diag='';
+    try{ var s=await supabase.auth.getSession(); diag = (s&&s.data&&s.data.session) ? ('sesión Auth presente') : ('SIN sesión Auth (entraste por el respaldo)'); }catch(e){ diag='getSession err'; }
+    tb.innerHTML='<tr><td colspan="5" style="text-align:left;color:var(--red);padding:14px;font-size:11px">⚠️ '+((j&&j.error)||'No se pudo cargar')+'<br><b>Diag:</b> '+diag+(window.__authDiag?(' · login: '+window.__authDiag):'')+'</td></tr>';
+    return;
+  }
   tb.innerHTML=(j.usuarios||[]).map(function(usr){
     var activo=usr.activo!==false;
     return '<tr><td style="font-family:var(--m);font-weight:700">'+usr.usuario+'</td><td>'+(usr.nombre||'')+'</td>'+
