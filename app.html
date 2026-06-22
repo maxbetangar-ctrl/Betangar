@@ -1298,10 +1298,11 @@ tr:hover td{background:rgba(45,255,122,.02)}
       <div class="st">📚 Historial de Nómina — gasto total acumulado</div>
       <div style="display:flex;gap:8px;align-items:center">
         <div id="nm-hist-total" style="font-size:12px;color:var(--yellow);font-weight:700"></div>
+        <button class="btn btn-g btn-sm" onclick="guardarNominaHist()">💾 Guardar esta semana</button>
         <button class="btn btn-s btn-sm" onclick="renderNominaHist()">↻</button>
       </div>
     </div>
-    <div style="font-size:11px;color:var(--text3);margin-bottom:8px">Cada semana pagada (importada del Excel + las que registres). Toca "ver" para auditar el detalle por persona.</div>
+    <div style="font-size:11px;color:var(--text3);margin-bottom:8px">Cada semana pagada (importada del Excel + las que calcules y guardes acá). Calcula la nómina arriba, elige la semana y dale <b>💾 Guardar esta semana</b>. Toca "ver" para auditar el detalle por persona.</div>
     <div id="nm-hist-lista" class="tw"></div>
   </div>
 
@@ -2220,6 +2221,7 @@ Object.keys(FLOTA).forEach(function(c){LLANTAS[c]=POS_LL.map(function(p){return{
 
 var REGS=[];
 var NOMINA_HIST=[]; // historial de nómina semanal (tabla nomina_historial); soporte por persona en .detalle
+var _ultimaNomina=null; // último cálculo de calcNom, para "Guardar en historial"
 // Sin semilla hardcodeada: estos 5 abonos de muestra REAPARECÍAN al recargar tras borrarlos
 // (Supabase es la fuente de verdad). Si la tabla está vacía, no debe haber abonos.
 var ABONOS=[];
@@ -4821,6 +4823,14 @@ function calcNom(){
   var tasa=TASAS.bcvDolar||cfg.tasa;
   var totUsd=totCh+totAy;
   var totBs=totUsd*tasa;
+  // Guardar el último cálculo para poder "Guardar en historial" (nutrir nomina_historial).
+  _ultimaNomina={
+    sem:sem||'', mes:mes||'', tasa:tasa, totCh:totCh, totAy:totAy, totBs:totBs,
+    fdesde: f.length?f.reduce(function(m,r){return r.f<m?r.f:m;},f[0].f):null,
+    fhasta: f.length?f.reduce(function(m,r){return r.f>m?r.f:m;},f[0].f):null,
+    choferes: Object.values(chMap).map(function(c){return {n:c.ch,u:Array.from(c.cams||[]).join(','),viajes:c.viajes,usd:Math.round((Math.max(0,c.viajes*cfg.chofer-c.descuentos))*100)/100,bs:Math.round(Math.max(0,c.viajes*cfg.chofer-c.descuentos)*tasa*100)/100};}),
+    ayudantes: Object.values(ayMap).map(function(a){return {n:a.emp.nombre,u:a.emp.unidad,viajes:a.viajes,usd:Math.round((Math.max(0,a.viajes*a.tasa-a.descuentos))*100)/100,bs:Math.round(Math.max(0,a.viajes*a.tasa-a.descuentos)*tasa*100)/100,tipo:a.emp.tipoAy||'interno'};})
+  };
   if(g('nm-tot'))g('nm-tot').textContent='$'+totUsd.toFixed(0)+' = Bs '+(totBs/1000).toFixed(0)+'k';
   if(g('nm-ch'))g('nm-ch').textContent='$'+totCh.toFixed(0)+' (Bs '+(totCh*tasa/1000).toFixed(0)+'k)';
   if(g('nm-ay'))g('nm-ay').textContent='$'+totAy.toFixed(0)+' (Bs '+(totAy*tasa/1000).toFixed(0)+'k)';
@@ -4883,6 +4893,24 @@ function verNominaHistDetalle(sem){
     '<button class="btn btn-r btn-xs" onclick="document.getElementById(\'nm-hist-modal\').remove()">✕</button></div>'+
     '<div style="font-size:11px;color:var(--text3);margin-bottom:6px">Total: $'+(parseFloat(h.total_usd)||0).toLocaleString('es-VE')+' · Bs '+(parseFloat(h.total_bs)||0).toLocaleString('es-VE')+' · tasa '+(h.tasa||'-')+'</div>'+html+'</div>';
   document.body.appendChild(ov);
+}
+// Guardar la nómina calculada (último calcNom) en el historial → nutre nomina_historial.
+async function guardarNominaHist(){
+  if(!_ultimaNomina||!_ultimaNomina.sem){alert('Calcula la nómina y elige una SEMANA primero.');return;}
+  var n=_ultimaNomina;
+  var id='APP-'+(n.mes||'').replace(/\s+/g,'')+'-'+(n.sem||'').replace(/\s+/g,'');
+  var row={id:id, semana:n.sem, periodo:(n.fdesde||'')+(n.fhasta?(' a '+n.fhasta):''),
+    fecha_desde:n.fdesde||null, fecha_hasta:n.fhasta||null,
+    total_usd:Math.round((n.totCh+n.totAy)*100)/100, total_bs:Math.round(n.totBs*100)/100,
+    op_usd:Math.round((n.totCh+n.totAy)*100)/100, adm_usd:0, imau_bs:0, tasa:n.tasa,
+    detalle:{choferes:n.choferes,ayudantes:n.ayudantes,imau:[]}, fuente:'app'};
+  if(!confirm('¿Guardar la nómina de "'+n.sem+'" ('+n.mes+') en el historial?\nTotal $'+row.total_usd.toFixed(0)+' · '+n.choferes.length+' choferes, '+n.ayudantes.length+' ayudantes.\n(Si ya existe esa semana, se reemplaza.)'))return;
+  if(!(DB_READY&&supabase)){alert('Sin conexión a la base.');return;}
+  var res=await supabase.from('nomina_historial').upsert(row,{onConflict:'id'}).select();
+  if(res.error){mostrarToast('No se pudo guardar: '+res.error.message,'error');return;}
+  var idx=NOMINA_HIST.findIndex(function(x){return x.id===id;});
+  if(idx>=0)NOMINA_HIST[idx]=row; else NOMINA_HIST.push(row);
+  renderNominaHist(); audit('Nómina guardada en historial',id+' $'+row.total_usd.toFixed(0)); mostrarToast('✅ Nómina "'+n.sem+'" guardada en el historial','exito');
 }
 
 function renderNomAdm(){
