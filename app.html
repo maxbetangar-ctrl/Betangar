@@ -2292,8 +2292,16 @@ async function doLogin(){
   function _setDiag(m){ try{ window.__authDiag=m; localStorage.setItem('btg_authdiag',m); }catch(e){} }
   _setDiag('inicio');
   try{
-    if(!supabase) initSupabaseClient();
-    _setDiag('supabase='+(!!supabase)+' tieneAuth='+(!!(supabase&&supabase.auth)));
+    // La CDN de Supabase carga ASÍNCRONA → al hacer login rápido aún no está lista.
+    // Esperamos hasta ~6s a que el cliente con .auth exista antes de autenticar.
+    var _intentos=0;
+    while((!supabase || !supabase.auth) && _intentos<40){
+      initSupabaseClient();
+      if(supabase && supabase.auth) break;
+      await new Promise(function(r){ setTimeout(r,150); });
+      _intentos++;
+    }
+    _setDiag('supabase='+(!!supabase)+' tieneAuth='+(!!(supabase&&supabase.auth))+' intentos='+_intentos);
     if(supabase && supabase.auth){
       var em = u.indexOf('@')>0 ? u : (u + '@betangar.local');
       _setDiag('llamando signin con '+em);
