@@ -4739,9 +4739,15 @@ function calcNom(){
     return true;
   });
   var chMap={},ayMap={};
+  // Los VIAJES son DEL CHOFER, no del camión. Se agrupa por chofer (r.ch); si un chofer
+  // maneja distintos camiones en la semana, sus viajes lo siguen a él (no se le cargan al
+  // chofer fijo del camión). Antes se agrupaba por r.cam → relevos quedaban mal.
   f.forEach(function(r){
-    if(!chMap[r.cam])chMap[r.cam]={cam:r.cam,ch:r.ch,viajes:0,dias:new Set(),descuentos:0};
-    chMap[r.cam].viajes+=r.t;chMap[r.cam].dias.add(r.f);chMap[r.cam].ch=TEMPORALES[r.cam]||r.ch;
+    var nomCh=TEMPORALES[r.cam]||r.ch||'';
+    var chKey=_nombreCanonico(nomCh).toUpperCase();
+    if(!chKey)return; // planilla sin chofer: no se puede pagar a nadie
+    if(!chMap[chKey])chMap[chKey]={ch:nomCh,cams:new Set(),viajes:0,dias:new Set(),descuentos:0};
+    chMap[chKey].viajes+=r.t;chMap[chKey].dias.add(r.f);chMap[chKey].cams.add(r.cam);
   });
   EMPLEADOS.filter(function(e){return e.cargo==='Ayudante'&&e.activo;}).forEach(function(e){
     // Buscar viajes POR NOMBRE en todas las planillas (independiente del camión)
@@ -4770,9 +4776,9 @@ function calcNom(){
       var cuota=p.cuotaUsd;
       p.semanasPagadas=(p.semanasPagadas||0);
       if(p.semanasPagadas<p.semanas){
-        // Aplicar descuento al chofer de su camion
-        var cam=empObj.unidad;
-        if(chMap[cam])chMap[cam].descuentos+=cuota;
+        // Aplicar descuento al EMPLEADO (chofer por su nombre, ya no por camión) o al ayudante.
+        var chKeyEmp=_nombreCanonico(empObj.nombre||'').toUpperCase();
+        if(chMap[chKeyEmp])chMap[chKeyEmp].descuentos+=cuota;
         else if(ayMap[p.empId])ayMap[p.empId].descuentos+=cuota;
         p.semanasPagadas++;p.pagado=(p.pagado||0)+cuota;
         if(p.semanasPagadas>=p.semanas){p.estado='pagado';sendWA('💳 Prestamo de '+empObj.nombre+' completamente pagado (USD '+p.montoUsd+')',['rrhh']);}
@@ -4783,8 +4789,10 @@ function calcNom(){
   // Descuentos multas
   MULTAS.filter(function(m){return m.resp==='chofer'&&m.estado==='activo';}).forEach(function(m){
     var cuotaBs=m.cuotaBs;
-    var cam=m.camId;
-    if(chMap[cam]){var usd=cuotaBs/(TASAS.bcvDolar||cfg.tasa);chMap[cam].descuentos+=usd;}
+    // La multa es de un camión → se descuenta al chofer ASIGNADO a ese camión (por nombre).
+    var empCh=EMPLEADOS.find(function(e){return e.cargo==='Chofer'&&e.unidad===m.camId;});
+    var chKeyM=empCh?_nombreCanonico(empCh.nombre||'').toUpperCase():'';
+    if(chKeyM&&chMap[chKeyM]){var usd=cuotaBs/(TASAS.bcvDolar||cfg.tasa);chMap[chKeyM].descuentos+=usd;}
     m.pagadoBs=(m.pagadoBs||0)+cuotaBs;m.cuotasPagas=(m.cuotasPagas||0)+1;
     if(m.cuotasPagas>=m.cuotas)m.estado='pagado';
   });
@@ -4802,7 +4810,7 @@ function calcNom(){
   if(g('nm-ay'))g('nm-ay').textContent='$'+totAy.toFixed(0)+' (Bs '+(totAy*tasa/1000).toFixed(0)+'k)';
   var desc=g('nm-descuentos');if(desc)desc.innerHTML=descBanners.join('');
   var tbCh=g('tb-nom-ch');
-  if(tbCh)tbCh.innerHTML=Object.values(chMap).map(function(c,i){var sueldo=c.viajes*cfg.chofer;var total=Math.max(0,sueldo-c.descuentos);return'<tr><td style="font-family:var(--m)">'+(i+1)+'</td><td style="font-weight:700">'+c.ch+'</td><td style="font-size:10px">'+c.cam+'</td><td style="color:var(--green)">'+c.viajes+'</td><td>'+c.dias.size+'</td><td style="font-family:var(--m)">$'+sueldo.toFixed(0)+'</td><td style="font-family:var(--m);color:var(--red)">'+(c.descuentos>0?'-$'+c.descuentos.toFixed(0):'—')+'</td><td style="font-family:var(--m);font-weight:700;color:var(--yellow)">$'+total.toFixed(0)+'</td></tr>';}).join('');
+  if(tbCh)tbCh.innerHTML=Object.values(chMap).map(function(c,i){var sueldo=c.viajes*cfg.chofer;var total=Math.max(0,sueldo-c.descuentos);return'<tr><td style="font-family:var(--m)">'+(i+1)+'</td><td style="font-weight:700">'+c.ch+'</td><td style="font-size:10px">'+Array.from(c.cams||[]).join(', ')+'</td><td style="color:var(--green)">'+c.viajes+'</td><td>'+c.dias.size+'</td><td style="font-family:var(--m)">$'+sueldo.toFixed(0)+'</td><td style="font-family:var(--m);color:var(--red)">'+(c.descuentos>0?'-$'+c.descuentos.toFixed(0):'—')+'</td><td style="font-family:var(--m);font-weight:700;color:var(--yellow)">$'+total.toFixed(0)+'</td></tr>';}).join('');
   var tbAy=g('tb-nom-ay');
   if(tbAy)tbAy.innerHTML=Object.values(ayMap).sort(function(a,b){return b.viajes-a.viajes;}).map(function(a,i){
     var sueldo=a.viajes*a.tasa;var total=Math.max(0,sueldo-a.descuentos);
