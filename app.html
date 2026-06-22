@@ -9926,6 +9926,16 @@ function eliminarGasoilConfirmado(ref){
   if(idx<0 && r.id!=null) idx = GASOIL.findIndex(function(x){return x.id===r.id;});
   if(idx<0) idx = GASOIL.findIndex(function(x){return x.f===r.f&&x.cam===r.cam&&String(x.lit)===String(r.lit)&&x.src===r.src;});
   if(idx>=0) GASOIL.splice(idx,1);
+  // REVERTIR el efecto en el tanque al borrar: un despacho de Tumaca/Boscán bajó el tanque
+  // → se devuelven los litros; una compra lo subió → se restan. Estación no toca el tanque.
+  var litR=parseFloat(r.lit)||0;
+  var srcTanque=(r.src==='Tumaca'||r.src==='Boscán'||r.src==='Boscan');
+  if(litR>0 && srcTanque){
+    var capR=cfg.tanque||4600;
+    if(r.tipo_operacion==='compra'){ tankNivel=Math.max(0,tankNivel-litR); }
+    else { tankNivel=Math.min(capR,tankNivel+litR); } // despacho → devolver litros
+    try{sv('tank-niv',tankNivel.toString());updTank();guardarNivelTanque();}catch(e){}
+  }
   try{localStorage.setItem('btg_gasoil',JSON.stringify(GASOIL));}catch(e){}
   if(DB_READY&&supabase){
     // Borrar por id si lo tenemos; si no, por coincidencia de campos (FIX: antes, sin id,
