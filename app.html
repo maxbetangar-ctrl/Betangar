@@ -1341,10 +1341,14 @@ tr:hover td{background:rgba(45,255,122,.02)}
     </div>
     <div class="card">
       <div class="sh"><div class="st">🛢️ Compra de Combustible</div></div>
-      <div style="font-size:11px;color:var(--text3);margin-bottom:6px">Sube el tanque interno y genera CxP automática (tasas BCV del día)</div>
+      <div style="font-size:11px;color:var(--text3);margin-bottom:6px">El precio $/L se fija en la COMPRA (a la tasa de hoy) y el tanque queda con ESE costo hasta la próxima compra. El despacho a camión usa el costo del tanque.</div>
       <div class="fr2">
-        <div class="fg"><label>Proveedor</label><select class="fc" id="gcomp-prov"><option value="tumaca">Tumaca ($0.54 + €0.26)</option><option value="boscan">Transporte Boscán ($0.50 + €0.25)</option></select></div>
+        <div class="fg"><label>Proveedor</label><select class="fc" id="gcomp-prov"><option value="tumaca">Tumaca</option><option value="boscan">Transporte Boscán</option></select></div>
         <div class="fg"><label>Litros comprados</label><input class="fc" id="gcomp-lit" type="number" placeholder="0"></div>
+      </div>
+      <div class="fr2">
+        <div class="fg"><label>Precio ($/litro)</label><input class="fc" id="gcomp-precio" type="number" step="0.001" placeholder="Ej: 0.54"></div>
+        <div class="fg"><label>Tasa (para Bs / CxP)</label><select class="fc" id="gcomp-tasa"><option value="bcvDolar">BCV Dólar</option><option value="bcvEuro">BCV Euro</option><option value="binance">Binance</option><option value="promedio">Promedio</option></select></div>
       </div>
       <div class="fg"><label>Fecha</label><input class="fc" id="gcomp-f" type="date"></div>
       <button class="btn btn-g btn-sm" style="width:100%" onclick="guardarCompraCombustible()">🛢️ Registrar Compra</button>
@@ -3067,6 +3071,11 @@ async function cargarDatosDB(){
         if(!isNaN(_tnv)){tankNivel=_tnv;try{sv('tank-niv',String(tankNivel));}catch(e){}try{if(typeof updTank==='function')updTank();}catch(e){}}
       }
     }catch(e){console.log('tanque_nivel load:',e&&e.message);}
+    // COSTO $/L del tanque (clave 'tanque_costo') — lo que se pagó por el combustible que hay.
+    try{
+      var _tc=await supabase.from('configuracion').select('valor').eq('clave','tanque_costo').maybeSingle();
+      if(_tc&&_tc.data&&_tc.data.valor!=null&&String(_tc.data.valor)!==''){var _tcv=parseFloat(_tc.data.valor);if(!isNaN(_tcv))tankCostoLitro=_tcv;}
+    }catch(e){console.log('tanque_costo load:',e&&e.message);}
     // ASISTENCIA: persistida en configuracion.asistencia_data (fuente de verdad) + fallback local
     try{
       var _as=await supabase.from('configuracion').select('valor').eq('clave','asistencia_data').maybeSingle();
@@ -5071,6 +5080,15 @@ function guardarNivelTanque(){
       .then(function(res){if(res&&res.error)console.log('tanque_nivel save:',res.error.message);});
   }catch(e){}
 }
+// Costo $/L del combustible que está en el tanque (se fija en la COMPRA; el despacho lo usa).
+var tankCostoLitro=0;
+function guardarCostoTanque(){
+  if(!DB_READY||!supabase)return;
+  try{
+    supabase.from('configuracion').upsert([{clave:'tanque_costo',valor:String(tankCostoLitro)}],{onConflict:'clave'})
+      .then(function(res){if(res&&res.error)console.log('tanque_costo save:',res.error.message);});
+  }catch(e){}
+}
 function updTank(){
   var niv=parseFloat(gv('tank-niv'))||tankNivel;
   tankNivel=niv;var cap=cfg.tanque||4600;
@@ -5126,11 +5144,12 @@ function guardarGasoil(){
     if(!precio){alert('Ingresa el precio por litro de la estación');return;}
     _persistirDespacho({f:f,cam:cam,lit:lit,src:'Estacion',m:lit*precio}, false);
   } else {
-    var prov = src==='boscan' ? 'boscan' : 'tumaca';
-    compCostoUnit(prov, function(costoUnit){
-      var srcLabel = prov==='boscan' ? 'Boscán' : 'Tumaca';
-      _persistirDespacho({f:f,cam:cam,lit:lit,src:srcLabel,m:lit*costoUnit}, true);
-    });
+    // Despacho de tanque: usa el COSTO $/L del tanque (lo pagado en la última compra), NO la
+    // tasa del día. Así mismo litraje = mismo precio entre compras.
+    var srcLabel = src==='boscan' ? 'Boscán' : 'Tumaca';
+    var costoUnit = tankCostoLitro>0 ? tankCostoLitro : 0;
+    if(!costoUnit && !confirm('El tanque no tiene costo $/L registrado (aún no hay una compra). El despacho quedará en $0/L. ¿Continuar igual?'))return;
+    _persistirDespacho({f:f,cam:cam,lit:lit,src:srcLabel,m:lit*costoUnit}, true);
   }
 }
 async function _persistirDespacho(r, bajarTanque){
@@ -5159,16 +5178,25 @@ async function _persistirDespacho(r, bajarTanque){
 function guardarCompraCombustible(){
   var prov=(gv('gcomp-prov')||'tumaca');
   var lit=parseFloat(gv('gcomp-lit'))||0;
+  var precio=parseFloat(gv('gcomp-precio'))||0; // $/L (precio en dólares; la tasa es solo para Bs/CxP)
+  var tasaTipo=gv('gcomp-tasa')||'bcvDolar';
   var f=gv('gcomp-f')||fechaVE();
   if(!lit){alert('Ingresa los litros comprados');return;}
+  if(!precio){alert('Ingresa el precio por litro ($/L)');return;}
   var provLabel = prov==='boscan' ? 'Boscán' : 'Tumaca';
   var provNombre = prov==='boscan' ? 'Transporte Boscán' : 'Tumaca';
-  compCostoUnit(prov, async function(costoUnit){
+  (async function(){
+    var costoUnit=precio;
     var totalUsd=lit*costoUnit;
-    // Sube el tanque interno + persiste el nivel en Supabase
+    // Sube el tanque + actualiza su COSTO $/L (promedio ponderado con lo que ya había en el
+    // tanque). El despacho a camión usará ESTE costo, no la tasa del día.
     var cap=cfg.tanque||4600;
+    var nivelPrev=tankNivel;
     tankNivel=Math.min(cap, tankNivel+lit);
-    sv('tank-niv',tankNivel.toString()); updTank(); guardarNivelTanque();
+    var litEntran=tankNivel-nivelPrev;
+    var baseCost=(tankCostoLitro>0?tankCostoLitro:costoUnit);
+    tankCostoLitro=(nivelPrev+litEntran)>0 ? Math.round(((nivelPrev*baseCost+litEntran*costoUnit)/(nivelPrev+litEntran))*1000)/1000 : costoUnit;
+    sv('tank-niv',tankNivel.toString()); updTank(); guardarNivelTanque(); guardarCostoTanque();
     // Registro en gasoil (tipo compra) — Supabase primero, confirmar según respuesta
     var r={f:f,cam:'COMPRA · '+provLabel,lit:lit,src:provLabel,m:parseFloat(totalUsd.toFixed(2)),tipo_operacion:'compra'};
     var gRow={f:r.f,cam:r.cam,lit:r.lit,src:r.src,m:r.m,tipo_operacion:'compra'};
@@ -5191,7 +5219,7 @@ function guardarCompraCombustible(){
         descripcion:'Compra combustible '+lit+' L @ $'+costoUnit.toFixed(3)+'/L', factura:'', nota:'Generada automáticamente desde Combustible',
         base_usd:parseFloat(totalUsd.toFixed(2)), iva_pct:0, iva_usd:0, total_usd:parseFloat(totalUsd.toFixed(2)),
         ret_iva_pct:0, ret_iva_usd:0, ret_islr_pct:0, ret_islr_usd:0, neto_pagar:parseFloat(totalUsd.toFixed(2)),
-        estado:'pendiente', tasa_tipo:'usd', tasa_val:TASAS.bcvDolar||0, created_at:new Date().toISOString()
+        estado:'pendiente', tasa_tipo:tasaTipo, tasa_val:(typeof getTasa==='function'?getTasa(tasaTipo):TASAS[tasaTipo])||0, created_at:new Date().toISOString()
       };
       try{var resC=await supabase.from('cxp').insert([cxpRow]).select();
         if(resC.error){console.log('CxP compra error:',resC.error.message);}
@@ -5201,8 +5229,8 @@ function guardarCompraCombustible(){
     sv('gcomp-lit','');
     audit('Compra combustible',provLabel+' '+lit+'L $'+totalUsd.toFixed(2));
     renderGasoil();
-    if(typeof mostrarToast==='function')mostrarToast((okG?'✅ Compra: ':'⚠️ Compra EN COLA (sin conexión): ')+lit+' L '+provLabel+' · $'+totalUsd.toFixed(2)+(okCxp?' · CxP generada':''),okG?'exito':'error');
-  });
+    if(typeof mostrarToast==='function')mostrarToast((okG?'✅ Compra: ':'⚠️ Compra EN COLA (sin conexión): ')+lit+' L '+provLabel+' · $'+totalUsd.toFixed(2)+' · tanque a $'+tankCostoLitro.toFixed(3)+'/L'+(okCxp?' · CxP generada':''),okG?'exito':'error');
+  })();
 }
 async function guardarGasol(){
   var per=gv('gp-per'),lit=parseFloat(gv('gp-lit'))||0,f=gv('gp-f');
