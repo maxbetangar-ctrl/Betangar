@@ -3027,7 +3027,7 @@ async function cargarDatosDB(){
   console.log('Cargando datos de Supabase...');
   try{
     // Cargar TODAS las tablas EN PARALELO (antes era una tras otra = lento; ahora ~1 ida).
-    var _res = await Promise.all([
+    var _resS = await Promise.allSettled([
       supabase.from('planillas').select('*'),
       supabase.from('abonos').select('*').order('f',{ascending:true}).order('id',{ascending:true}),
       supabase.from('empleados').select('*'),
@@ -3044,6 +3044,9 @@ async function cargarDatosDB(){
       supabase.from('auditoria').select('*').order('created_at',{ascending:false}).limit(200),
       supabase.from('nomina_historial').select('*').order('semana',{ascending:true})
     ]);
+    // allSettled: una consulta que falle (red, RLS de UNA tabla, etc.) NO tumba a las demás.
+    // Antes, con Promise.all, un solo error transitorio dejaba TODO en 0 (incluidas planillas).
+    var _res=_resS.map(function(x){return x.status==='fulfilled'?x.value:{data:null,error:((x.reason&&x.reason.message)||'consulta falló')};});
     var p=_res[0],a=_res[1],e=_res[2],ga=_res[3],cxp=_res[4],pv=_res[5],pr=_res[6],ml=_res[7],inv=_res[8],co=_res[9],gv2=_res[10],palc=_res[11],km=_res[12],aul=_res[13],nh=_res[14];
     if(nh&&!nh.error&&Array.isArray(nh.data))NOMINA_HIST=nh.data;
     // PLANILLAS
