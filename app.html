@@ -2289,8 +2289,6 @@ async function doLogin(){
   // 1) AUTH REAL (Supabase Auth). El rol sale del TOKEN (user_metadata) → NO depende de
   //    leer btg_usuarios (eso podía fallar por RLS/timing en el navegador y dejaba afuera).
   var authMsg='';
-  function _setDiag(m){ try{ window.__authDiag=m; localStorage.setItem('btg_authdiag',m); }catch(e){} }
-  _setDiag('inicio');
   try{
     // La CDN de Supabase carga ASÍNCRONA → al hacer login rápido aún no está lista.
     // Esperamos hasta ~6s a que el cliente con .auth exista antes de autenticar.
@@ -2301,12 +2299,9 @@ async function doLogin(){
       await new Promise(function(r){ setTimeout(r,150); });
       _intentos++;
     }
-    _setDiag('auth='+(!!supabaseAuth)+' tieneAuth='+(!!(supabaseAuth&&supabaseAuth.auth))+' intentos='+_intentos);
     if(supabaseAuth && supabaseAuth.auth){
       var em = u.indexOf('@')>0 ? u : (u + '@betangar.local');
-      _setDiag('llamando signin con '+em);
       var res = await supabaseAuth.auth.signInWithPassword({ email: em, password: p });
-      _setDiag(res && res.error ? ('signin ERROR: '+res.error.message) : (res&&res.data&&res.data.user?('signin OK '+String(res.data.user.id||'').slice(0,8)):'signin sin user'));
       if(res && res.error){ authMsg = res.error.message || 'auth error'; }
       else if(res && res.data && res.data.user){
         var meta = res.data.user.user_metadata || {};
@@ -2319,8 +2314,8 @@ async function doLogin(){
         if(!activo){ err.textContent='Usuario desactivado. Contacta al administrador.'; err.style.display='block'; setTimeout(function(){err.style.display='none';err.textContent='Usuario o contrasena incorrectos';},4000); return; }
         if(rol){ _entrarSesion({usuario:usuario, rol:rol, nombre:nombre, demo:demo}); return; }
       }
-    } else { authMsg='Supabase no cargó'; _setDiag('sin supabase/auth'); }
-  }catch(e){ authMsg=(e&&e.message)||'error'; _setDiag('EXCEPCION: '+((e&&e.message)||e)); }
+    } else { authMsg='Supabase no cargó'; }
+  }catch(e){ authMsg=(e&&e.message)||'error'; }
   // 2) RESPALDO hardcodeado (safety net mientras Auth se estabiliza).
   if(USUARIOS[u] && USUARIOS[u].pass===p){
     _entrarSesion({usuario:u, rol:USUARIOS[u].rol, nombre:USUARIOS[u].nombre, demo:!!USUARIOS[u].demo});
@@ -7173,10 +7168,7 @@ async function renderUsuarios(){
   tb.innerHTML='<tr><td colspan="5" style="text-align:center;color:var(--text3);padding:14px">Cargando…</td></tr>';
   var j=await btgUsuariosAPI('GET');
   if(!j||!j.ok){
-    var diag='';
-    try{ var s=await supabaseAuth.auth.getSession(); diag = (s&&s.data&&s.data.session) ? ('sesión Auth presente') : ('SIN sesión Auth (entraste por el respaldo)'); }catch(e){ diag='getSession err'; }
-    var ld=''; try{ ld=localStorage.getItem('btg_authdiag')||window.__authDiag||''; }catch(e){}
-    tb.innerHTML='<tr><td colspan="5" style="text-align:left;color:var(--red);padding:14px;font-size:11px">⚠️ '+((j&&j.error)||'No se pudo cargar')+'<br><b>Diag:</b> '+diag+(ld?(' · login: '+ld):'')+'</td></tr>';
+    tb.innerHTML='<tr><td colspan="5" style="text-align:left;color:var(--red);padding:14px;font-size:12px">⚠️ '+((j&&j.error)||'No se pudo cargar la lista de usuarios')+'</td></tr>';
     return;
   }
   tb.innerHTML=(j.usuarios||[]).map(function(usr){
