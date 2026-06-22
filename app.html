@@ -7129,30 +7129,56 @@ function imprimirReporteFinanciero(){
 // ═══════════════════════════════════════════════════
 // USUARIOS
 // ═══════════════════════════════════════════════════
-function renderUsuarios(){
+// Gestión de usuarios vía API (Geppetto, service_role) con el token del superadmin logueado.
+// Betangar no tiene backend → crear/desactivar/cambiar clave pasa por esta API.
+async function btgUsuariosAPI(method, body){
+  var token='';
+  try{ var s=await supabase.auth.getSession(); token=(s&&s.data&&s.data.session)?s.data.session.access_token:''; }catch(e){}
+  var r=await fetch('https://preescolargeppetto.com/api/btg-usuarios',{
+    method:method, headers:{'Content-Type':'application/json', Authorization:'Bearer '+token},
+    body: method==='GET'?undefined:JSON.stringify(body||{})
+  });
+  return await r.json();
+}
+
+async function renderUsuarios(){
   var tb=g('tb-usuarios');if(!tb)return;
-  tb.innerHTML=Object.keys(USUARIOS).map(function(u){var usr=USUARIOS[u];return'<tr><td style="font-family:var(--m);font-weight:700">'+u+'</td><td>'+usr.nombre+'</td><td><span class="badge '+(usr.rol==='admin'?'bg':usr.rol==='operador'?'by':usr.rol==='rrhh'?'bp':'bb')+'">'+usr.rol+'</span></td><td><span class="badge '+(usr.demo?'by':'bg')+'">'+(usr.demo?'DEMO':'Activo')+'</span></td><td><button onclick="if(confirm(\'Desactivar '+u+'?\')){delete USUARIOS[\''+u+'\'];renderUsuarios();}" class="btn btn-r btn-xs">Baja</button></td></tr>';}).join('');
+  tb.innerHTML='<tr><td colspan="5" style="text-align:center;color:var(--text3);padding:14px">Cargando…</td></tr>';
+  var j=await btgUsuariosAPI('GET');
+  if(!j||!j.ok){ tb.innerHTML='<tr><td colspan="5" style="text-align:center;color:var(--red);padding:14px">'+((j&&j.error)||'No se pudo cargar')+'</td></tr>'; return; }
+  tb.innerHTML=(j.usuarios||[]).map(function(usr){
+    var activo=usr.activo!==false;
+    return '<tr><td style="font-family:var(--m);font-weight:700">'+usr.usuario+'</td><td>'+(usr.nombre||'')+'</td>'+
+      '<td><span class="badge bb">'+usr.rol+'</span></td>'+
+      '<td><span class="badge '+(activo?'bg':'br')+'">'+(activo?'Activo':'Inactivo')+'</span></td>'+
+      '<td><button onclick="toggleUsuarioActivo(\''+usr.usuario+'\','+(!activo)+')" class="btn '+(activo?'btn-r':'btn-g')+' btn-xs">'+(activo?'Desactivar':'Activar')+'</button></td></tr>';
+  }).join('')||'<tr><td colspan="5" style="text-align:center;color:var(--text3);padding:14px">Sin usuarios</td></tr>';
 }
 
-function crearUsuario(){
-  var u=gv('nu-user').toLowerCase().trim(),p=gv('nu-pass'),nombre=gv('nu-nombre'),rol=gv('nu-rol'),email=gv('nu-email');
+async function toggleUsuarioActivo(u, activar){
+  if(!confirm((activar?'Activar':'Desactivar')+' a '+u+'?'))return;
+  var j=await btgUsuariosAPI('POST',{accion:'activar',usuario:u,activo:activar});
+  if(j&&j.ok){ audit('Usuario '+(activar?'activado':'desactivado'),u); renderUsuarios(); }
+  else alert('No se pudo: '+((j&&j.error)||''));
+}
+
+async function crearUsuario(){
+  var u=gv('nu-user').toLowerCase().trim(),p=gv('nu-pass'),nombre=gv('nu-nombre'),rol=gv('nu-rol');
   if(!u||!p||!nombre){alert('Completa usuario, contrasena y nombre');return;}
-  if(USUARIOS[u]){alert('Ya existe el usuario '+u);return;}
-  USUARIOS[u]={pass:p,rol:rol,nombre:nombre,email:email};
-  audit('Usuario creado',u+' rol:'+rol);
-  ['nu-user','nu-pass','nu-nombre','nu-email'].forEach(function(id){sv(id,'');});
-  renderUsuarios();alert('✅ Usuario '+u+' creado.');
+  if(p.length<6){alert('La clave debe tener al menos 6 caracteres');return;}
+  var j=await btgUsuariosAPI('POST',{accion:'crear',usuario:u,password:p,nombre:nombre,rol:rol});
+  if(j&&j.ok){ audit('Usuario creado',u+' rol:'+rol); ['nu-user','nu-pass','nu-nombre','nu-email'].forEach(function(id){sv(id,'');}); renderUsuarios(); alert('✅ Usuario '+u+' creado.'); }
+  else alert('No se pudo crear: '+((j&&j.error)||''));
 }
 
-function cambiarContrasena(){
+async function cambiarContrasena(){
   var u=gv('cp-user'),nueva=gv('cp-nueva'),conf=gv('cp-conf');
-  if(!u||!nueva){alert('Selecciona usuario e ingresa la nueva contrasena');return;}
+  if(!u||!nueva){alert('Indica usuario y la nueva contrasena');return;}
   if(nueva!==conf){alert('Las contrasenas no coinciden');return;}
-  if(!USUARIOS[u]){alert('Usuario no encontrado');return;}
-  USUARIOS[u].pass=nueva;
-  audit('Contrasena cambiada',u);
-  ['cp-user','cp-nueva','cp-conf'].forEach(function(id){sv(id,'');});
-  alert('✅ Contrasena cambiada para '+u+'.');
+  if(nueva.length<6){alert('La clave debe tener al menos 6 caracteres');return;}
+  var j=await btgUsuariosAPI('POST',{accion:'clave',usuario:u,password:nueva});
+  if(j&&j.ok){ audit('Contrasena cambiada',u); ['cp-user','cp-nueva','cp-conf'].forEach(function(id){sv(id,'');}); alert('✅ Contrasena cambiada para '+u+'.'); }
+  else alert('No se pudo: '+((j&&j.error)||''));
 }
 
 function renderAuditoria(){
