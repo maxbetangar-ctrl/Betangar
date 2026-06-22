@@ -2247,6 +2247,8 @@ Object.keys(FLOTA).forEach(function(c){LLANTAS[c]=POS_LL.map(function(p){return{
 var REGS=[];
 var NOMINA_HIST=[]; // historial de nómina semanal (tabla nomina_historial); soporte por persona en .detalle
 var _ultimaNomina=null; // último cálculo de calcNom, para "Guardar en historial"
+// FASE 1 multi-contrato (aditivo): tipos de unidad, unidades y operaciones configurables.
+var TIPOS_UNIDAD=[], UNIDADES=[], OPERACIONES=[];
 // Sin semilla hardcodeada: estos 5 abonos de muestra REAPARECÍAN al recargar tras borrarlos
 // (Supabase es la fuente de verdad). Si la tabla está vacía, no debe haber abonos.
 var ABONOS=[];
@@ -3042,13 +3044,20 @@ async function cargarDatosDB(){
       supabase.from('pagos_alcaldia').select('*'),
       supabase.from('km_data').select('*'),
       supabase.from('auditoria').select('*').order('created_at',{ascending:false}).limit(200),
-      supabase.from('nomina_historial').select('*').order('semana',{ascending:true})
+      supabase.from('nomina_historial').select('*').order('semana',{ascending:true}),
+      supabase.from('tipos_unidad').select('*'),
+      supabase.from('unidades').select('*'),
+      supabase.from('operaciones').select('*')
     ]);
     // allSettled: una consulta que falle (red, RLS de UNA tabla, etc.) NO tumba a las demás.
     // Antes, con Promise.all, un solo error transitorio dejaba TODO en 0 (incluidas planillas).
     var _res=_resS.map(function(x){return x.status==='fulfilled'?x.value:{data:null,error:((x.reason&&x.reason.message)||'consulta falló')};});
-    var p=_res[0],a=_res[1],e=_res[2],ga=_res[3],cxp=_res[4],pv=_res[5],pr=_res[6],ml=_res[7],inv=_res[8],co=_res[9],gv2=_res[10],palc=_res[11],km=_res[12],aul=_res[13],nh=_res[14];
+    var p=_res[0],a=_res[1],e=_res[2],ga=_res[3],cxp=_res[4],pv=_res[5],pr=_res[6],ml=_res[7],inv=_res[8],co=_res[9],gv2=_res[10],palc=_res[11],km=_res[12],aul=_res[13],nh=_res[14],tu=_res[15],un=_res[16],op=_res[17];
     if(nh&&!nh.error&&Array.isArray(nh.data))NOMINA_HIST=nh.data;
+    // FASE 1 multi-contrato (aditivo, no toca el aseo): tipos de unidad, unidades, operaciones.
+    if(tu&&!tu.error&&Array.isArray(tu.data))TIPOS_UNIDAD=tu.data;
+    if(un&&!un.error&&Array.isArray(un.data))UNIDADES=un.data;
+    if(op&&!op.error&&Array.isArray(op.data))OPERACIONES=op.data;
     // PLANILLAS
     if(p.data&&p.data.length)REGS=p.data.map(function(r){
       var d=parseInt(r.d)||0,n=parseInt(r.n)||0;
