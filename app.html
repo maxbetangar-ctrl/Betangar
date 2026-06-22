@@ -1273,6 +1273,7 @@ tr:hover td{background:rgba(45,255,122,.02)}
     <div class="fg" style="margin:0"><label style="font-size:10px;color:var(--text3)">Semana</label><select class="fc" id="nm-sem" onchange="calcNom()" style="padding:6px 8px;font-size:11px"><option value="">Todas</option></select></div>
     <div class="fg" style="margin:0"><label style="font-size:10px;color:var(--text3)">Desde</label><input type="date" class="fc" id="nm-des" onchange="calcNom()" style="padding:6px 8px;font-size:11px"></div>
     <div class="fg" style="margin:0"><label style="font-size:10px;color:var(--text3)">Hasta</label><input type="date" class="fc" id="nm-hta" onchange="calcNom()" style="padding:6px 8px;font-size:11px"></div>
+    <label style="font-size:11px;color:var(--text3);display:flex;align-items:center;gap:5px;cursor:pointer" title="Día sin viaje pero presente en patio ('P' en Asistencia) = +1 viaje. Solo Betangar; IMAU no. Requiere elegir Semana."><input type="checkbox" id="nm-patio" onchange="calcNom()"> 🏭 Contar patio</label>
     <button class="btn btn-s btn-sm" onclick="exportNomExcel()">Excel</button>
     <button class="btn btn-s btn-sm" onclick="imprimirNomina()">Imprimir</button>
     <button class="btn btn-s btn-sm" onclick="emailNomina()">✉ Correo</button>
@@ -4771,8 +4772,9 @@ function calcNom(){
     var nomCh=TEMPORALES[r.cam]||r.ch||'';
     var chKey=_nombreCanonico(nomCh).toUpperCase();
     if(!chKey)return; // planilla sin chofer: no se puede pagar a nadie
-    if(!chMap[chKey])chMap[chKey]={ch:nomCh,cams:new Set(),viajes:0,dias:new Set(),descuentos:0};
+    if(!chMap[chKey])chMap[chKey]={ch:nomCh,cams:new Set(),viajes:0,dias:new Set(),diasViaje:new Set(),descuentos:0,patio:0};
     chMap[chKey].viajes+=r.t;chMap[chKey].dias.add(r.f);chMap[chKey].cams.add(r.cam);
+    if((parseInt(r.t)||0)>0)chMap[chKey].diasViaje.add(_asisDow(r.f));
   });
   EMPLEADOS.filter(function(e){return e.cargo==='Ayudante'&&e.activo;}).forEach(function(e){
     // Buscar viajes POR NOMBRE en todas las planillas (independiente del camión)
@@ -4821,6 +4823,24 @@ function calcNom(){
     m.pagadoBs=(m.pagadoBs||0)+cuotaBs;m.cuotasPagas=(m.cuotasPagas||0)+1;
     if(m.cuotasPagas>=m.cuotas)m.estado='pagado';
   });
+  // ── ASISTENCIA A PATIO (opcional, interruptor nm-patio) ──────────────────────────────
+  // Regla (Máximo): día CON viajes → solo viajes; día SIN viajes pero PRESENTE en patio ('P')
+  // → se paga 1 viaje. Sin doble conteo (solo días sin viaje). Solo BETANGAR (choferes y
+  // ayudantes internos); el IMAU sin viaje NO cobra. Usa la asistencia (off por defecto).
+  if(g('nm-patio')&&g('nm-patio').checked&&sem){
+    Object.values(chMap).forEach(function(c){
+      var emp=_empPorNombre(c.ch); if(!emp)return;
+      for(var dw=0;dw<7;dw++){ if(c.diasViaje.has(dw))continue; if(_asisMarca(emp.id,mes,sem,dw)==='P'){c.viajes++;c.patio=(c.patio||0)+1;} }
+    });
+    var ayDows={};
+    f.forEach(function(r){ if((parseInt(r.t)||0)<=0||!r.f)return; var dw=_asisDow(r.f);
+      [r.ay1,r.ay2,r.ay3].forEach(function(nm){ if(!nm)return; var e=_empPorNombre(nm); if(e){(ayDows[e.id]=ayDows[e.id]||{})[dw]=1;} }); });
+    Object.values(ayMap).forEach(function(a){
+      if(a.emp.tipoAy==='imau')return; // IMAU no cobra patio
+      var dset=ayDows[a.emp.id]||{};
+      for(var dw=0;dw<7;dw++){ if(dset[dw])continue; if(_asisMarca(a.emp.id,mes,sem,dw)==='P'){a.viajes++;a.patio=(a.patio||0)+1;} }
+    });
+  }
   var tvTot=f.reduce(function(s,r){return s+r.t;},0);
   var totCh=Object.values(chMap).reduce(function(s,c){return s+Math.max(0,(c.viajes*cfg.chofer)-c.descuentos);},0);
   var totAy=Object.values(ayMap).reduce(function(s,a){return s+Math.max(0,(a.viajes*a.tasa)-a.descuentos);},0);
@@ -4843,7 +4863,7 @@ function calcNom(){
   if(g('nm-ay'))g('nm-ay').textContent='$'+totAy.toFixed(0)+' (Bs '+(totAy*tasa/1000).toFixed(0)+'k)';
   var desc=g('nm-descuentos');if(desc)desc.innerHTML=descBanners.join('');
   var tbCh=g('tb-nom-ch');
-  if(tbCh)tbCh.innerHTML=Object.values(chMap).map(function(c,i){var sueldo=c.viajes*cfg.chofer;var total=Math.max(0,sueldo-c.descuentos);return'<tr><td style="font-family:var(--m)">'+(i+1)+'</td><td style="font-weight:700">'+c.ch+'</td><td style="font-size:10px">'+Array.from(c.cams||[]).join(', ')+'</td><td style="color:var(--green)">'+c.viajes+'</td><td>'+c.dias.size+'</td><td style="font-family:var(--m)">$'+sueldo.toFixed(0)+'</td><td style="font-family:var(--m);color:var(--red)">'+(c.descuentos>0?'-$'+c.descuentos.toFixed(0):'—')+'</td><td style="font-family:var(--m);font-weight:700;color:var(--yellow)">$'+total.toFixed(0)+'</td></tr>';}).join('');
+  if(tbCh)tbCh.innerHTML=Object.values(chMap).map(function(c,i){var sueldo=c.viajes*cfg.chofer;var total=Math.max(0,sueldo-c.descuentos);return'<tr><td style="font-family:var(--m)">'+(i+1)+'</td><td style="font-weight:700">'+c.ch+'</td><td style="font-size:10px">'+Array.from(c.cams||[]).join(', ')+'</td><td style="color:var(--green)">'+c.viajes+(c.patio>0?' <span style="font-size:8px;color:var(--amber)" title="incluye '+c.patio+' dia(s) de patio">+'+c.patio+'P</span>':'')+'</td><td>'+c.dias.size+'</td><td style="font-family:var(--m)">$'+sueldo.toFixed(0)+'</td><td style="font-family:var(--m);color:var(--red)">'+(c.descuentos>0?'-$'+c.descuentos.toFixed(0):'—')+'</td><td style="font-family:var(--m);font-weight:700;color:var(--yellow)">$'+total.toFixed(0)+'</td></tr>';}).join('');
   var tbAy=g('tb-nom-ay');
   if(tbAy)tbAy.innerHTML=Object.values(ayMap).sort(function(a,b){return b.viajes-a.viajes;}).map(function(a,i){
     var sueldo=a.viajes*a.tasa;var total=Math.max(0,sueldo-a.descuentos);
