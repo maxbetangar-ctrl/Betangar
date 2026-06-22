@@ -1039,8 +1039,16 @@ tr:hover td{background:rgba(45,255,122,.02)}
       <div class="st" style="margin-bottom:10px">Nuevo Contrato</div>
       <div class="fg"><label>Nombre del Contrato</label><input class="fc" id="cont-nombre" placeholder="Contrato Alcaldia de Maracaibo"></div>
       <div class="fr2">
-        <div class="fg"><label>Parte Contratante</label><input class="fc" id="cont-parte" placeholder="Alcaldia de Maracaibo"></div>
-        <div class="fg"><label>Monto $ (si aplica)</label><input type="number" class="fc" id="cont-monto" placeholder="0.00" style="font-family:var(--m)"></div>
+        <div class="fg"><label>Cliente / Parte Contratante</label><input class="fc" id="cont-parte" placeholder="PDVSA / Empresa X / Alcaldía"></div>
+        <div class="fg"><label>Monto $ (fijo, si aplica)</label><input type="number" class="fc" id="cont-monto" placeholder="0.00" style="font-family:var(--m)"></div>
+      </div>
+      <div class="fr2">
+        <div class="fg"><label>Forma de cobro</label><select class="fc" id="cont-forma"><option value="">— elegir —</option><option value="viaje">Por viaje</option><option value="hora">Por hora</option><option value="flete">Por flete</option><option value="km">Por km</option><option value="tonelada">Por tonelada</option><option value="fijo">Fijo mensual</option></select></div>
+        <div class="fg"><label>Moneda</label><select class="fc" id="cont-moneda"><option value="USD">USD</option><option value="Bs">Bs</option></select></div>
+      </div>
+      <div class="fr2">
+        <div class="fg"><label>Tarifa al CLIENTE ($/unidad)</label><input type="number" step="0.01" class="fc" id="cont-tarifa-cli" placeholder="0.00" style="font-family:var(--m)"></div>
+        <div class="fg"><label>Pago al OPERADOR ($/unidad)</label><input type="number" step="0.01" class="fc" id="cont-tarifa-op" placeholder="0.00" style="font-family:var(--m)"></div>
       </div>
       <div class="fr2">
         <div class="fg"><label>Fecha Inicio</label><input type="date" class="fc" id="cont-inicio"></div>
@@ -3145,7 +3153,7 @@ async function cargarDatosDB(){
     // INVENTARIO
     if(inv.data&&inv.data.length)INVENTARIO=inv.data.map(function(x){return{id:x.id,nombre:x.nombre,cat:x.categoria||'',unidad:x.unidad||'Unidades',stock:parseInt(x.stock)||0,stockMin:parseInt(x.stock_min)||2,precio:parseFloat(x.precio)||0};});
     // CONTRATOS
-    if(co.data&&co.data.length)CONTRATOS=co.data.map(function(x){return{id:x.id,nombre:x.nombre,parte:x.parte||'',monto:parseFloat(x.monto)||0,inicio:x.inicio||'',venc:x.vencimiento||'',cond:x.condiciones||'',estado:x.estado||'activo'};});
+    if(co.data&&co.data.length)CONTRATOS=co.data.map(function(x){return{id:x.id,nombre:x.nombre,parte:x.parte||'',cliente:x.cliente||x.parte||'',monto:parseFloat(x.monto)||0,forma_cobro:x.forma_cobro||'',tarifa_cliente:parseFloat(x.tarifa_cliente)||0,tarifa_operador:parseFloat(x.tarifa_operador)||0,moneda:x.moneda||'USD',inicio:x.inicio||'',venc:x.vencimiento||'',cond:x.condiciones||'',estado:x.estado||'activo'};});
     // GASTOS VARIABLES
     if(gv2.data&&gv2.data.length)GASTOS_VARIABLES=gv2.data.map(function(x){return{id:x.id,fecha:x.fecha,cat:x.categoria||'',desc:x.descripcion||'',bs:parseFloat(x.monto_bs)||0,usd:parseFloat(x.monto_usd)||0,ref:x.referencia||'',fact:x.factura||''};});
     // PAGOS ALCALDÍA
@@ -6673,13 +6681,24 @@ function renderSemaforo(){
 // ═══════════════════════════════════════════════════
 // CONTRATOS
 // ═══════════════════════════════════════════════════
-function guardarContrato(){
+async function guardarContrato(){
   var nombre=gv('cont-nombre');if(!nombre){alert('Ingresa el nombre del contrato');return;}
-  var cont={id:'CNT'+Date.now(),nombre:nombre,parte:gv('cont-parte'),monto:parseFloat(gv('cont-monto'))||0,inicio:gv('cont-inicio'),venc:gv('cont-venc'),cond:gv('cont-cond'),estado:'activo'};
+  var cont={id:'CNT'+Date.now(),nombre:nombre,parte:gv('cont-parte'),cliente:gv('cont-parte'),monto:parseFloat(gv('cont-monto'))||0,
+    forma_cobro:gv('cont-forma')||'',tarifa_cliente:parseFloat(gv('cont-tarifa-cli'))||0,tarifa_operador:parseFloat(gv('cont-tarifa-op'))||0,moneda:gv('cont-moneda')||'USD',
+    inicio:gv('cont-inicio'),venc:gv('cont-venc'),cond:gv('cont-cond'),estado:'activo'};
   CONTRATOS.push(cont);
-  audit('Contrato guardado',nombre);
-  ['cont-nombre','cont-parte','cont-monto','cont-inicio','cont-venc','cont-cond'].forEach(function(id){sv(id,'');});
-  alert('✅ Contrato guardado.');
+  // Persistencia directa (patrón Betangar: si falla → toast + cola offline)
+  var ok=false;
+  if(DB_READY&&supabase){
+    var row={id:cont.id,nombre:cont.nombre,parte:cont.parte,cliente:cont.cliente,monto:cont.monto,forma_cobro:cont.forma_cobro,tarifa_cliente:cont.tarifa_cliente,tarifa_operador:cont.tarifa_operador,moneda:cont.moneda,inicio:cont.inicio,vencimiento:cont.venc,condiciones:cont.cond,estado:cont.estado};
+    try{var res=await supabase.from('contratos').upsert([row],{onConflict:'id'}).select();
+      if(res.error){mostrarToast('No se pudo guardar el contrato: '+res.error.message,'error');}else ok=true;
+    }catch(e){mostrarToast('Sin conexión al guardar el contrato.','error');}
+  }
+  if(!ok&&typeof guardarEnCola==='function')guardarEnCola('contratos',{id:cont.id,nombre:cont.nombre,parte:cont.parte,monto:cont.monto,inicio:cont.inicio,vencimiento:cont.venc,condiciones:cont.cond,estado:cont.estado});
+  audit('Contrato guardado',nombre+' · '+(cont.forma_cobro||'sin forma de cobro'));
+  ['cont-nombre','cont-parte','cont-monto','cont-tarifa-cli','cont-tarifa-op','cont-inicio','cont-venc','cont-cond'].forEach(function(id){sv(id,'');});
+  if(typeof mostrarToast==='function')mostrarToast(ok?'✅ Contrato guardado':'⚠️ Contrato en cola (sin conexión)',ok?'exito':'error');
   renderContratosLista();
 }
 
@@ -6695,6 +6714,7 @@ function renderContratosLista(){
       '<div style="font-size:12px;font-weight:700">'+c.nombre+'</div>'+vencBadge(dr)+
       '</div>'+
       '<div style="font-size:11px;color:var(--text2)">'+c.parte+(c.monto?' · $'+c.monto.toLocaleString():'')+'</div>'+
+      (c.forma_cobro?'<div style="font-size:10px;color:var(--lime)">💰 Cobro por '+c.forma_cobro+(c.tarifa_cliente?' · cliente '+(c.moneda||'$')+' '+c.tarifa_cliente:'')+(c.tarifa_operador?' · operador '+(c.moneda||'$')+' '+c.tarifa_operador:'')+'</div>':'')+
       (c.inicio?'<div style="font-size:10px;color:var(--text3)">'+c.inicio+' → '+c.venc+'</div>':'')+
       (c.cond?'<div style="font-size:10px;color:var(--text3);margin-top:3px">'+c.cond+'</div>':'')+
       '<button class="btn btn-r btn-xs" style="margin-top:5px">Eliminar</button>';
