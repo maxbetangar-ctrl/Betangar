@@ -2341,7 +2341,7 @@ function initSupabaseClient(){
   if(supabase&&DB_READY)return true;
   try{
     var createFn=null;
-    if(typeof window.supabase==='object'&&window.supabase.createClient)createFn=window.supabase.createClient;
+    if(window.supabase&&window.supabase.createClient)createFn=window.supabase.createClient;
     else if(typeof window.createClient==='function')createFn=window.createClient;
     else if(window.supabase&&window.supabase.default&&window.supabase.default.createClient)createFn=window.supabase.default.createClient;
     if(createFn){
@@ -2583,7 +2583,25 @@ function cerrarSesion(){
         // escritura persistía. Esperamos a que el CDN de supabase-js esté disponible.
         var _trySupa=0;
         (function waitSupa(){
-          if(initSupabaseClient()||_trySupa>=40){ _iniciarSesionCore(); }
+          if(initSupabaseClient()||_trySupa>=40){
+            // GUARD: la app cree estar logueada (betangar_sesion), pero los datos corren con la
+            // sesión Auth (RLS authenticated). Si esa sesión expiró/se perdió, forzar re-login en
+            // vez de mostrar la app sin datos.
+            var _cont=function(){ _iniciarSesionCore(); };
+            try{
+              if(supabase&&supabase.auth){
+                supabase.auth.getSession().then(function(r){
+                  if(r&&r.data&&r.data.session){ _cont(); }
+                  else {
+                    try{localStorage.removeItem('betangar_sesion');}catch(e){}
+                    SESION=null;
+                    var lo=document.getElementById('login-overlay'); if(lo)lo.style.display='flex';
+                    var ap=document.getElementById('app'); if(ap)ap.style.display='none';
+                  }
+                }).catch(_cont);
+              } else { _cont(); }
+            }catch(e){ _cont(); }
+          }
           else { _trySupa++; setTimeout(waitSupa,150); }
         })();
       }
