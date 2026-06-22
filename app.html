@@ -1303,6 +1303,7 @@ tr:hover td{background:rgba(45,255,122,.02)}
       </div>
     </div>
     <div style="font-size:11px;color:var(--text3);margin-bottom:8px">Cada semana pagada (importada del Excel + las que calcules y guardes acá). Calcula la nómina arriba, elige la semana y dale <b>💾 Guardar esta semana</b>. Toca "ver" para auditar el detalle por persona.</div>
+    <div style="margin-bottom:8px"><input class="fc" id="nm-hist-filtro" placeholder="🔎 Filtrar por chofer o ayudante (nombre)…" oninput="renderNominaHist()" style="font-size:12px"></div>
     <div id="nm-hist-lista" class="tw"></div>
   </div>
 
@@ -4870,6 +4871,30 @@ function renderNominaHist(){
   var totB=hist.reduce(function(s,h){return s+(parseFloat(h.total_bs)||0);},0);
   var te=g('nm-hist-total'); if(te)te.textContent='$'+totU.toLocaleString('es-VE',{maximumFractionDigits:0})+' · Bs '+(totB/1000000).toFixed(1)+'M · '+hist.length+' sem';
   if(!hist.length){lista.innerHTML='<div style="color:var(--text3);font-size:12px;padding:8px">Sin historial cargado.</div>';return;}
+  var filtro=(gv('nm-hist-filtro')||'').trim().toUpperCase();
+  if(filtro){
+    // FILTRO POR PERSONA: busca al chofer/ayudante/imau en el detalle de cada semana.
+    var filas=[],tp=0,tb=0;
+    hist.forEach(function(h){
+      var d=h.detalle||{}; var grupos=[['choferes','Chofer'],['ayudantes','Ayudante'],['imau','IMAU']];
+      grupos.forEach(function(gp){
+        (d[gp[0]]||[]).forEach(function(p){
+          if((p.n||'').toUpperCase().indexOf(filtro)>=0){
+            filas.push({sem:h.semana,per:h.periodo||'',rol:gp[1],viajes:(p.viajes!=null?p.viajes:'-'),usd:parseFloat(p.usd)||0,bs:parseFloat(p.bs)||0,nom:p.n});
+            tp+=parseFloat(p.usd)||0; tb+=parseFloat(p.bs)||0;
+          }
+        });
+      });
+    });
+    if(!filas.length){lista.innerHTML='<div style="color:var(--text3);font-size:12px;padding:8px">Nadie con "'+filtro+'" en el historial.</div>';return;}
+    lista.innerHTML='<table><thead><tr><th>Semana</th><th>Rol</th><th>Nombre</th><th>Viajes</th><th>$</th><th>Bs</th></tr></thead><tbody>'+
+      filas.map(function(r){return '<tr><td style="font-weight:700">'+r.sem+'</td><td style="font-size:10px">'+r.rol+'</td><td style="font-size:10px">'+r.nom+'</td>'+
+        '<td style="color:var(--green)">'+r.viajes+'</td><td style="font-family:var(--m)">$'+r.usd.toLocaleString('es-VE',{maximumFractionDigits:0})+'</td>'+
+        '<td style="font-family:var(--m);color:var(--yellow)">Bs '+r.bs.toLocaleString('es-VE',{maximumFractionDigits:0})+'</td></tr>';}).join('')+
+      '<tr class="tr-tot"><td colspan="4">TOTAL ('+filas.length+' semanas)</td><td style="font-family:var(--m);font-weight:700;color:var(--green)">$'+tp.toLocaleString('es-VE',{maximumFractionDigits:0})+'</td><td style="font-family:var(--m);font-weight:700;color:var(--yellow)">Bs '+tb.toLocaleString('es-VE',{maximumFractionDigits:0})+'</td></tr>'+
+      '</tbody></table>';
+    return;
+  }
   lista.innerHTML='<table><thead><tr><th>Semana</th><th>Período</th><th>Total $</th><th>Total Bs</th><th></th></tr></thead><tbody>'+
     hist.map(function(h){return '<tr><td style="font-weight:700">'+h.semana+'</td><td style="font-size:10px;color:var(--text3)">'+(h.periodo||'')+'</td>'+
       '<td style="font-family:var(--m);color:var(--green)">$'+(parseFloat(h.total_usd)||0).toLocaleString('es-VE',{maximumFractionDigits:0})+'</td>'+
