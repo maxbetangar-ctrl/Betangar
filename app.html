@@ -2346,12 +2346,12 @@ function initSupabaseClient(){
     else if(window.supabase&&window.supabase.default&&window.supabase.default.createClient)createFn=window.supabase.default.createClient;
     if(createFn){
       try{window.__btgCreate=createFn;}catch(e){}
-      // CLIENTE DE DATOS: SIEMPRE anónimo. persistSession:false → nunca arrastra una sesión Auth.
-      // Toda la app (RLS) corre como anon; el login con Auth NO debe volver authenticated al cliente de datos.
-      supabase=createFn(SUPA_URL,SUPA_KEY,{auth:{persistSession:false,autoRefreshToken:false,detectSessionInUrl:false}});
-      // CLIENTE DE IDENTIDAD: solo para login/logout/getSession (gestión de usuarios). Guarda la sesión aparte.
-      try{ supabaseAuth=createFn(SUPA_URL,SUPA_KEY,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:false,storageKey:'btg-auth'}}); }catch(e){ supabaseAuth=null; }
-      DB_READY=true;console.log('✅ Supabase cliente OK (datos=anon, auth=aparte)');return true;
+      // CLIENTE ÚNICO AUTENTICADO: tras el login, la sesión Auth viaja en TODAS las consultas
+      // de datos (RLS por rol → ISO 27001). Antes de iniciar sesión es anónimo, pero la pantalla
+      // de login no lee datos. La RLS concede 'authenticated' en todas las tablas (migración 2a).
+      supabase=createFn(SUPA_URL,SUPA_KEY,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:false,storageKey:'btg-auth'}});
+      supabaseAuth=supabase; // mismo cliente para identidad (login/logout/getSession) y datos
+      DB_READY=true;console.log('✅ Supabase cliente OK (autenticado)');return true;
     }
     console.warn('⚠ Supabase CDN aún no disponible');DB_READY=false;return false;
   }catch(e){console.error('Supabase init error:',e);DB_READY=false;return false;}
