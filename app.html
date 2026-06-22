@@ -5109,11 +5109,12 @@ function ensureTasasYCalc(cDolar, cEuro, cb){
   cb(totalUsd, totalBs, td, te);
 }
 
-// Costo $/L de un proveedor de tanque (Tumaca/Boscán) con las tasas del día.
+// Costo $/L de un proveedor de tanque (Tumaca/Boscán): precio $/L FIJO por fuente (decisión
+// de Máximo). Mismo litraje + misma fuente = mismo precio SIEMPRE (no se mezcla el componente
+// euro / razón euro-dólar que lo hacía variar día a día). Se cambia en Config cuando suba.
 function compCostoUnit(prov, cb){
-  var cDolar = prov==='boscan' ? (parseFloat(gv('cfg-boscan-dolar'))||0.50) : (parseFloat(gv('cfg-tumaca-dolar'))||0.54);
-  var cEuro  = prov==='boscan' ? (parseFloat(gv('cfg-boscan-euro'))||0.25) : (parseFloat(gv('cfg-tumaca-euro'))||0.26);
-  ensureTasasYCalc(cDolar, cEuro, function(totalUsd){ cb(totalUsd); });
+  var fijo = prov==='boscan' ? (parseFloat(gv('cfg-boscan-dolar'))||0.50) : (parseFloat(gv('cfg-tumaca-dolar'))||0.54);
+  cb(fijo);
 }
 
 // DESPACHO a camión: baja el tanque si viene de Tumaca/Boscán; Estación usa precio manual.
