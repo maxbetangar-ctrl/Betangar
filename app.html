@@ -4701,6 +4701,12 @@ function renderAbonos(){
   if(tb){
     var rows=f.map(function(a){
       acum+=a.m;
+      // Bs CONGELADO a la tasa del día del abono (cobro ya recibido). Si ese día no tiene tasa
+      // guardada en tasas_diarias, se muestra estimado a la tasa de hoy (marcado), nunca exacto.
+      var _td=getTasaFecha(a.f,'dolar');
+      var _bsCell = _td
+        ? '<td style="font-family:var(--m);font-size:10px;color:var(--yellow)">Bs '+(a.m*_td).toLocaleString('es-VE',{maximumFractionDigits:0})+'</td>'
+        : '<td style="font-family:var(--m);font-size:10px;color:var(--text3)" title="Sin tasa guardada del '+a.f+' — estimado a la tasa de hoy, no cerrado">≈ Bs '+(a.m*tasaAb).toLocaleString('es-VE',{maximumFractionDigits:0})+' <span style="color:var(--amber);font-size:8px">est</span></td>';
       // Factura manual (talonario SENIAT): el usuario la marca con "M" adelante. La
       // resaltamos con una etiqueta MANUAL para ubicarla de un vistazo.
       var esManual=/^M/i.test(String(a.fact||''));
@@ -4710,7 +4716,7 @@ function renderAbonos(){
         '<td style="font-family:var(--m)">'+a.fact+badgeManual+'</td>'+
         '<td style="color:var(--green)">'+a.v+'</td>'+
         '<td style="font-family:var(--m);font-weight:700;color:var(--green)">$'+a.m.toLocaleString()+'</td>'+
-        '<td style="font-family:var(--m);font-size:10px;color:var(--yellow)">Bs '+(a.m*tasaAb).toLocaleString('es-VE',{maximumFractionDigits:0})+'</td>'+
+        _bsCell+
         '<td style="font-family:var(--m);color:var(--teal)">$'+acum.toLocaleString()+'</td>'+
         '<td style="font-family:var(--m);font-size:10px">'+a.ref+'</td>'+
         '<td style="font-size:11px;color:var(--text2)">'+a.obs+'</td>'+
@@ -12687,9 +12693,32 @@ async function confirmarCambioPrecio(){
 // ══════════════════════════════════════════════════════
 // BCV MULTI-API
 // ══════════════════════════════════════════════════════
+// ── TASAS DIARIAS: historial de tasa por FECHA. Para que la contabilidad cierre, lo pagado
+// se valora a la tasa de SU día (congelada) y NO cambia si la tasa sube mañana. Lo pendiente
+// flota con la tasa de hoy hasta que se paga. Si no hay tasa de ese día → "Sin tasa".
+var TASAS_DIARIAS = {}; // 'YYYY-MM-DD' -> {dolar,euro,binance,fuente}
+async function cargarTasasDiarias(){
+  if(!(DB_READY&&supabase))return;
+  try{
+    var r=await supabase.from('tasas_diarias').select('*').order('fecha',{ascending:false}).limit(3000);
+    if(!r.error&&Array.isArray(r.data)){
+      TASAS_DIARIAS={};
+      r.data.forEach(function(x){TASAS_DIARIAS[String(x.fecha).slice(0,10)]={dolar:parseFloat(x.bcv_dolar)||0,euro:parseFloat(x.bcv_euro)||0,binance:parseFloat(x.binance)||0,fuente:x.fuente||''};});
+    }
+  }catch(e){}
+}
+// Tasa GUARDADA de una fecha (YYYY-MM-DD); null si no hay. tipo: 'dolar'|'euro'|'binance'.
+function getTasaFecha(fecha, tipo){
+  tipo=tipo||'dolar';
+  var t=TASAS_DIARIAS[String(fecha||'').slice(0,10)];
+  if(!t)return null;
+  var v=t[tipo];
+  return (v&&v>0)?v:null;
+}
 async function cargarTasas(){
   if(!TASAS.bcvDolar)TASAS.bcvDolar=cfg.tasa||600;
   renderTasas();
+  cargarTasasDiarias();
   if(DB_READY&&supabase){
     try{var cache=await supabase.from('configuracion').select('valor').eq('clave','tasas_bcv').single();
       if(!cache.error&&cache.data){var ct=JSON.parse(cache.data.valor||'{}');
@@ -12717,7 +12746,14 @@ async function cargarTasas(){
     TASAS.bcvDolar=bcvN;TASAS.bcvEuro=TASAS.bcvEuro||Math.round(bcvN*1.08*100)/100;
     TASAS.binance=(binN&&binN>100)?binN:(TASAS.binance&&TASAS.binance>100?TASAS.binance:bcvN);TASAS.promedio=((bcvN+TASAS.binance)/2);
     TASAS.fecha=new Date().toLocaleDateString('es-VE');TASAS.hora=new Date().toLocaleTimeString('es-VE',{hour:'2-digit',minute:'2-digit'});TASAS.fuente=fuenteOk;
-    if(DB_READY&&supabase){try{await supabase.from('configuracion').upsert([{clave:'tasas_bcv',valor:JSON.stringify({bcvDolar:TASAS.bcvDolar,bcvEuro:TASAS.bcvEuro,binance:TASAS.binance,promedio:TASAS.promedio,fecha:TASAS.fecha,hora:TASAS.hora,fuente:TASAS.fuente})}],{onConflict:'clave',ignoreDuplicates:false});}catch(e){}}
+    if(DB_READY&&supabase){try{await supabase.from('configuracion').upsert([{clave:'tasas_bcv',valor:JSON.stringify({bcvDolar:TASAS.bcvDolar,bcvEuro:TASAS.bcvEuro,binance:TASAS.binance,promedio:TASAS.promedio,fecha:TASAS.fecha,hora:TASAS.hora,fuente:TASAS.fuente})}],{onConflict:'clave',ignoreDuplicates:false});}catch(e){}
+      // Historial diario: graba la tasa de HOY por fecha (PK = fecha, no se sobrescriben días
+      // anteriores). Así cualquier pago queda valorable a la tasa exacta de su día.
+      try{var _hoyTD=(typeof fechaVE==='function'?fechaVE():new Date().toISOString().slice(0,10));
+        await supabase.from('tasas_diarias').upsert([{fecha:_hoyTD,bcv_dolar:TASAS.bcvDolar,bcv_euro:TASAS.bcvEuro,binance:TASAS.binance,fuente:TASAS.fuente}],{onConflict:'fecha'});
+        TASAS_DIARIAS[_hoyTD]={dolar:TASAS.bcvDolar,euro:TASAS.bcvEuro,binance:TASAS.binance,fuente:TASAS.fuente};
+      }catch(e){}
+    }
   } else {
     if(!TASAS.bcvDolar||TASAS.bcvDolar<100){TASAS.bcvDolar=cfg.tasa||600;TASAS.fuente='fallback';}
     TASAS.bcvEuro=TASAS.bcvEuro||Math.round(TASAS.bcvDolar*1.08);TASAS.binance=(binN&&binN>100)?binN:(TASAS.binance||TASAS.bcvDolar);TASAS.promedio=((TASAS.bcvDolar+TASAS.binance)/2);
