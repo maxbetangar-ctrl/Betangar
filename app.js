@@ -1710,6 +1710,20 @@ function imprimirDashboard(){
   abrirVentanaImpresion(html);
 }
 
+// Estado del camión DERIVADO del checklist de HOY: ítem crítico (frenos/motor/fugas/llantas/
+// presión/PTO marcado 'mal') o daño → 'taller'; checklist hecho sin críticos → 'operativo';
+// sin checklist hoy → null (se usa el último estado conocido). El clic manual (toggleEstCam)
+// queda como override de la sesión.
+var _CL_CRITICOS=['freno_mano','freno_servicio','aceite_motor','fugas','presion_aire','tuercas_esparragos','mangueras_hidraulicas','toma_fuerza','refrigerante','liquido_hidraulico'];
+var _estadoOverride={};
+function estadoDelChecklist(cam){
+  var hoy=(typeof ccHoy==='function')?ccHoy():(typeof fechaVE==='function'?fechaVE():'');
+  var c=(typeof checklistCamFecha==='function')?checklistCamFecha(cam,hoy):null;
+  if(!c)return null;
+  var crit=_CL_CRITICOS.some(function(k){return c[k]==='mal';});
+  ['danio_frontal','danio_lateral_izq','danio_lateral_der','danio_posterior','danio_techo'].forEach(function(d){var v=String(c[d]||'').trim();if(v&&v!=='0'&&v!=='ok')crit=true;});
+  return crit?'taller':'operativo';
+}
 function renderFlotaDash(){
   var cams=Object.keys(FLOTA);
   var op=0,tal=0;
@@ -1718,15 +1732,18 @@ function renderFlotaDash(){
     var f=FLOTA[cam];
     // Estado ENLAZADO con chofer/mecánico: leer km_data.estado (donde ellos escriben),
     // con fallback al estado local de oficina. El auto-refresco recarga km_data cada 60s.
-    var est=(KM_DATA[cam]&&KM_DATA[cam].estado)||f.estado||'operativo';
+    // Prioridad: override manual de sesión > checklist de hoy > último estado conocido.
+    var estCl=estadoDelChecklist(cam);
+    var deChecklist=(!_estadoOverride[cam]&&estCl!=null);
+    var est=_estadoOverride[cam]||estCl||(KM_DATA[cam]&&KM_DATA[cam].estado)||f.estado||'operativo';
     if(String(est).indexOf('taller')===0) est='taller';   // taller_jac / taller_betangar -> taller
     var km=KM_DATA[cam]?KM_DATA[cam].km:0;
     var c=est==='operativo'?'var(--green)':est==='taller'?'var(--yellow)':'var(--red)';
     var bg=est==='operativo'?'rgba(163,230,53,.07)':est==='taller'?'rgba(251,191,36,.07)':'rgba(248,113,113,.07)';
     if(est==='operativo')op++;else tal++;
-    html+='<div style="background:'+bg+';border:1px solid '+c+';border-radius:6px;padding:6px;text-align:center;cursor:pointer" onclick="toggleEstCam(\''+cam+'\')" title="Clic para cambiar estado">'+
+    html+='<div style="background:'+bg+';border:1px solid '+c+';border-radius:6px;padding:6px;text-align:center;cursor:pointer" onclick="toggleEstCam(\''+cam+'\')" title="'+(deChecklist?'Estado tomado del checklist de hoy. ':'')+'Clic para forzar el estado (override)">'+
       '<div style="font-family:var(--m);font-size:10px;font-weight:800;color:'+c+'">'+cam.replace('JAC-','')+'</div>'+
-      '<div style="font-size:8px;color:'+c+'">'+est.toUpperCase()+'</div>'+
+      '<div style="font-size:8px;color:'+c+'">'+est.toUpperCase()+(deChecklist?' 🔧':'')+'</div>'+
       '<div style="font-size:9px;color:var(--text3)">'+(km?km.toLocaleString()+'km':'--')+'</div>'+
     '</div>';
   });
@@ -1737,11 +1754,14 @@ function renderFlotaDash(){
 
 function toggleEstCam(cam){
   var ests=['operativo','taller','inoperativo'];
-  var cur=(KM_DATA[cam]&&KM_DATA[cam].estado)||FLOTA[cam].estado||'operativo';
-  var nv=ests[(ests.indexOf(cur)+1)%ests.length];
+  // Ciclar desde el estado MOSTRADO (override > checklist > último conocido).
+  var cur=_estadoOverride[cam]||estadoDelChecklist(cam)||(KM_DATA[cam]&&KM_DATA[cam].estado)||FLOTA[cam].estado||'operativo';
+  if(String(cur).indexOf('taller')===0)cur='taller';
+  var nv=ests[((ests.indexOf(cur)+1+ests.length)%ests.length)];
   FLOTA[cam].estado=nv;
   if(!KM_DATA[cam])KM_DATA[cam]={mant:[]};
   KM_DATA[cam].estado=nv;
+  _estadoOverride[cam]=nv;   // override manual: gana sobre el checklist hasta recargar
   renderFlotaDash();
   // PERSISTIR (antes era solo local y se perdía): km_data.estado es la fuente que también
   // leen/escriben el chofer y el mecánico → así oficina y apps quedan ENLAZADAS.
