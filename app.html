@@ -4817,8 +4817,12 @@ function calcNom(){
   // Los VIAJES son DEL CHOFER, no del camión. Se agrupa por chofer (r.ch); si un chofer
   // maneja distintos camiones en la semana, sus viajes lo siguen a él (no se le cargan al
   // chofer fijo del camión). Antes se agrupaba por r.cam → relevos quedaban mal.
+  // REGLA: el chofer de la PLANILLA manda (el que salió ese día cobra). TEMPORALES (suplente
+  // manual por camión) solo se usa como respaldo si la planilla NO trae chofer. Antes era
+  // TEMPORALES[r.cam]||r.ch, lo que dejaba que un override por camión le quitara el pago al
+  // chofer real registrado en la planilla.
   f.forEach(function(r){
-    var nomCh=TEMPORALES[r.cam]||r.ch||'';
+    var nomCh=r.ch||TEMPORALES[r.cam]||'';
     var chKey=_nombreCanonico(nomCh).toUpperCase();
     if(!chKey)return; // planilla sin chofer: no se puede pagar a nadie
     if(!chMap[chKey])chMap[chKey]={ch:nomCh,cams:new Set(),viajes:0,dias:new Set(),diasViaje:new Set(),descuentos:0,patio:0};
@@ -4966,9 +4970,16 @@ function renderNominaHist(){
     return;
   }
   lista.innerHTML='<table><thead><tr><th>Semana</th><th>Período</th><th>Total $</th><th>Total Bs</th><th></th></tr></thead><tbody>'+
-    hist.map(function(h){return '<tr><td style="font-weight:700">'+h.semana+'</td><td style="font-size:10px;color:var(--text3)">'+(h.periodo||'')+'</td>'+
+    hist.map(function(h){
+      // BUG 4: si la semana no tiene tasa guardada, NO mostrar "Bs 0" como si fuera real;
+      // avisar en rojo. La conversión Bs debe ser a la tasa del día que se pagó (guardada).
+      var sinTasa=!(parseFloat(h.tasa)>0);
+      var celdaBs=sinTasa
+        ? '<td style="font-family:var(--m);color:var(--red);font-size:10px">⚠️ Sin tasa registrada</td>'
+        : '<td style="font-family:var(--m);color:var(--yellow)">Bs '+(parseFloat(h.total_bs)||0).toLocaleString('es-VE',{maximumFractionDigits:0})+'</td>';
+      return '<tr><td style="font-weight:700">'+h.semana+'</td><td style="font-size:10px;color:var(--text3)">'+(h.periodo||'')+'</td>'+
       '<td style="font-family:var(--m);color:var(--green)">$'+(parseFloat(h.total_usd)||0).toLocaleString('es-VE',{maximumFractionDigits:0})+'</td>'+
-      '<td style="font-family:var(--m);color:var(--yellow)">Bs '+(parseFloat(h.total_bs)||0).toLocaleString('es-VE',{maximumFractionDigits:0})+'</td>'+
+      celdaBs+
       '<td><button class="btn btn-s btn-xs" onclick="verNominaHistDetalle(\''+h.semana+'\')">ver</button></td></tr>';}).join('')+
     '</tbody></table>';
 }
@@ -4992,7 +5003,7 @@ function verNominaHistDetalle(sem){
   ov.innerHTML='<div style="background:var(--bg2,#16181d);border:1px solid var(--border);border-radius:12px;max-width:580px;width:100%;max-height:88vh;overflow:auto;padding:16px">'+
     '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><div style="font-weight:800">📋 '+sem+' — '+(h.periodo||'')+'</div>'+
     '<button class="btn btn-r btn-xs" onclick="document.getElementById(\'nm-hist-modal\').remove()">✕</button></div>'+
-    '<div style="font-size:11px;color:var(--text3);margin-bottom:6px">Total: $'+(parseFloat(h.total_usd)||0).toLocaleString('es-VE')+' · Bs '+(parseFloat(h.total_bs)||0).toLocaleString('es-VE')+' · tasa '+(h.tasa||'-')+'</div>'+html+'</div>';
+    '<div style="font-size:11px;color:var(--text3);margin-bottom:6px">Total: $'+(parseFloat(h.total_usd)||0).toLocaleString('es-VE')+' · '+(parseFloat(h.tasa)>0?('Bs '+(parseFloat(h.total_bs)||0).toLocaleString('es-VE')+' · tasa '+h.tasa):'<span style="color:var(--red);font-weight:700">⚠️ Sin tasa registrada</span>')+'</div>'+html+'</div>';
   document.body.appendChild(ov);
 }
 // Guardar la nómina calculada (último calcNom) en el historial → nutre nomina_historial.
@@ -5260,12 +5271,15 @@ function guardarGasoil(){
     if(!precio){alert('Ingresa el precio por litro de la estación');return;}
     _persistirDespacho({f:f,cam:cam,lit:lit,src:'Estacion',m:lit*precio}, false);
   } else {
-    // Despacho de tanque: usa el COSTO $/L del tanque (lo pagado en la última compra), NO la
-    // tasa del día. Así mismo litraje = mismo precio entre compras.
+    // Despacho de tanque: precio $/L FIJO por fuente (Config), NO el promedio ponderado del
+    // tanque (que derivaba con cada compra y hacía variar el monto a igual litraje+fuente).
+    // Decisión de Máximo: mismo litraje + misma fuente = mismo monto SIEMPRE.
     var srcLabel = src==='boscan' ? 'Boscán' : 'Tumaca';
-    var costoUnit = tankCostoLitro>0 ? tankCostoLitro : 0;
-    if(!costoUnit && !confirm('El tanque no tiene costo $/L registrado (aún no hay una compra). El despacho quedará en $0/L. ¿Continuar igual?'))return;
-    _persistirDespacho({f:f,cam:cam,lit:lit,src:srcLabel,m:lit*costoUnit}, true);
+    compCostoUnit(src, function(costoUnit){
+      costoUnit = costoUnit||0;
+      if(!costoUnit && !confirm('La fuente '+srcLabel+' no tiene precio $/L configurado (Config → Combustible). El despacho quedará en $0/L. ¿Continuar igual?'))return;
+      _persistirDespacho({f:f,cam:cam,lit:lit,src:srcLabel,m:lit*costoUnit}, true);
+    });
   }
 }
 async function _persistirDespacho(r, bajarTanque){
