@@ -3431,6 +3431,7 @@ function renderTasas(){
     '<span style="background:rgba(251,191,36,.1);border:1px solid rgba(251,191,36,.2);border-radius:6px;padding:2px 8px;font-size:10px">Binance <b style="color:var(--yellow)">'+(TASAS.binance?TASAS.binance.toFixed(2):'--')+'</b></span>'+
     (prom?'<span style="background:rgba(167,139,250,.1);border:1px solid rgba(167,139,250,.2);border-radius:6px;padding:2px 8px;font-size:10px">Prom. <b style="color:var(--purple)">'+prom.toFixed(2)+'</b></span>':'')+
     '<button onclick="cargarTasas()" style="font-size:9px;background:none;border:1px solid var(--border);border-radius:4px;color:var(--text3);padding:2px 6px;cursor:pointer" title="Actualizar tasas">↻ actualizar</button>'+
+    ((typeof esSuperAdmin==='function'&&esSuperAdmin())?'<button onclick="importarHistoricoBCV()" style="font-size:9px;background:none;border:1px solid var(--border);border-radius:4px;color:var(--text3);padding:2px 6px;cursor:pointer" title="Importar tasa BCV histórica (pydolarve) a tasas_diarias">📥 histórico</button>':'')+
     (TASAS.bcvDolar?'':'<span style="font-size:9px;color:var(--red)">⚠ Sin conexión a API — usando tasas por defecto</span>')+
   '</div>';
 }
@@ -4837,11 +4838,10 @@ function calcNom(){
   });
   EMPLEADOS.filter(function(e){return e.cargo==='Ayudante'&&e.activo;}).forEach(function(e){
     // Buscar viajes POR NOMBRE en todas las planillas (independiente del camión)
-    var nombre=e.nombre.toUpperCase();
+    // Match tolerante (nombre corto en planilla vs completo en empleados) pero conservador:
+    // _nomCasa exige mismo PRIMER nombre + ≥1 apellido en común (no casa homónimos de apellido).
     var vNom=f.filter(function(r){
-      return (r.ay1&&r.ay1.toUpperCase()===nombre)||
-             (r.ay2&&r.ay2.toUpperCase()===nombre)||
-             (r.ay3&&r.ay3.toUpperCase()===nombre);
+      return _nomCasa(r.ay1,e.nombre)||_nomCasa(r.ay2,e.nombre)||_nomCasa(r.ay3,e.nombre);
     }).reduce(function(s,r){return s+r.t;},0);
     // También buscar por camión asignado si ay1/ay2 están vacíos (planillas viejas sin ayudante registrado)
     var vCam=0;
@@ -12773,6 +12773,53 @@ async function cargarTasas(){
   renderTasas();autoLlenarTasasEnFormularios();return TASAS;
 }
 
+// Importa el histórico de la tasa BCV (USD) desde pydolarve y llena tasas_diarias. Se corre
+// UNA vez DESDE EL NAVEGADOR (pydolarve no es alcanzable desde el server). Antes de guardar
+// muestra lo que parseó. Solo inserta fechas que falten (no pisa las que ya tengan euro/binance).
+async function importarHistoricoBCV(){
+  if(!(DB_READY&&supabase)){alert('Sin conexión a la base.');return;}
+  var d1=prompt('Importar tasa BCV histórica.\n\nFecha DESDE (YYYY-MM-DD):','2026-01-01'); if(!d1)return;
+  var d2=prompt('Fecha HASTA (YYYY-MM-DD):',(typeof fechaVE==='function'?fechaVE():new Date().toISOString().slice(0,10))); if(!d2)return;
+  function aDMY(iso){var p=String(iso).slice(0,10).split('-');return p.length===3?(p[2]+'-'+p[1]+'-'+p[0]):iso;}
+  var url='https://pydolarve.org/api/v1/dollar/history?page=bcv&monitor=usd&start_date='+aDMY(d1)+'&end_date='+aDMY(d2)+'&format_date=default&rounded_price=false';
+  var raw;
+  try{
+    var r=await fetch(url,{mode:'cors',signal:AbortSignal.timeout(20000)});
+    if(!r.ok){alert('pydolarve respondió HTTP '+r.status);return;}
+    raw=await r.json();
+  }catch(e){alert('No se pudo consultar pydolarve: '+(e&&e.message)+'\n\nDebe correrse con internet, desde el navegador.');return;}
+  console.log('[histBCV] respuesta cruda:',raw);
+  // Parseo defensivo: ubicar el arreglo de registros y sacar fecha+precio de cada uno.
+  var arr = Array.isArray(raw)?raw:(raw.history||raw.data||raw.prices||raw.changes||[]);
+  if(!Array.isArray(arr)||!arr.length){alert('pydolarve no devolvió un historial reconocible.\nAbre la consola (F12), copia lo que salió en [histBCV] y me lo pasas para ajustar el parseo.');return;}
+  function parseFecha(it){
+    var f=it.date||it.fecha||(it.datetime&&(it.datetime.date||it.datetime))||it.day||'';
+    f=String(f);
+    if(/^\d{2}-\d{2}-\d{4}/.test(f)){var p=f.slice(0,10).split('-');return p[2]+'-'+p[1]+'-'+p[0];}
+    if(/^\d{4}-\d{2}-\d{2}/.test(f))return f.slice(0,10);
+    return '';
+  }
+  function parsePrecio(it){return parseFloat(it.price||it.promedio||it.precio||it.close||it.value||0)||0;}
+  var byF={};
+  arr.forEach(function(it){var f=parseFecha(it),p=parsePrecio(it);if(f&&p>100)byF[f]={fecha:f,bcv_dolar:p,fuente:'pydolarve (histórico)'};});
+  var rows=Object.keys(byF).sort().map(function(k){return byF[k];});
+  if(!rows.length){alert('Llegó historial pero no pude extraer fecha+precio.\nRevisa [histBCV] en la consola y me lo pasas.');return;}
+  // Solo fechas que NO tengamos ya (no pisar today / euro / binance existentes).
+  await cargarTasasDiarias();
+  var nuevas=rows.filter(function(x){return !TASAS_DIARIAS[x.fecha];});
+  if(!nuevas.length){alert('Ya tenías guardadas todas esas fechas ('+rows.length+'). Nada que importar.');return;}
+  if(!confirm('Se obtuvieron '+rows.length+' días; '+nuevas.length+' son nuevos ('+nuevas[0].fecha+' … '+nuevas[nuevas.length-1].fecha+').\nEjemplo: '+nuevas[0].fecha+' = Bs '+nuevas[0].bcv_dolar+'\n\n¿Guardar los '+nuevas.length+' nuevos en tasas_diarias?'))return;
+  var ok=0,err=0;
+  for(var i=0;i<nuevas.length;i+=200){
+    var lote=nuevas.slice(i,i+200);
+    try{var res=await supabase.from('tasas_diarias').upsert(lote,{onConflict:'fecha',ignoreDuplicates:true});if(res.error){err+=lote.length;console.log('[histBCV] upsert err',res.error.message);}else ok+=lote.length;}catch(e){err+=lote.length;}
+  }
+  await cargarTasasDiarias();
+  if(typeof audit==='function')audit('Importar histórico BCV',nuevas.length+' días ('+d1+' a '+d2+')');
+  if(typeof renderAbonos==='function')try{renderAbonos();}catch(e){}
+  alert('✅ Histórico BCV: '+ok+' días guardados'+(err?(' · '+err+' con error'):'')+'.\nLos abonos/CxP de esas fechas ya cierran a su tasa real.');
+}
+
 // ── Resumen BNC del día en el dashboard (saldo inicial, ingresos, egresos, saldo actual) ──
 var _bncResumenCache=null,_bncResumenTs=0;
 async function renderBncDashResumen(forzar){
@@ -13534,6 +13581,18 @@ function imprimirReporteCombustible(){
 var ANOMALIAS_ACTUAL=[], ANOMALIAS_NOCASADOS=[], ANOMALIAS_DECISIONES={};
 
 function _normNom(s){return String(s||'').toUpperCase().replace(/[ÁÀÄÂ]/g,'A').replace(/[ÉÈËÊ]/g,'E').replace(/[ÍÌÏÎ]/g,'I').replace(/[ÓÒÖÔ]/g,'O').replace(/[ÚÙÜÛ]/g,'U').replace(/Ñ/g,'N').replace(/[^A-Z0-9 ]/g,'').replace(/\s+/g,' ').trim();}
+// Casa nombre de planilla vs empleado tolerando corto-vs-completo, pero CONSERVADOR:
+// exacto normalizado, o mismo PRIMER nombre + ≥1 apellido (≥3 letras) en común. Evita casar
+// homónimos de apellido (p.ej. "X GONZALEZ URDANETA" vs "Y GONZALEZ URDANETA").
+function _nomCasa(a,b){
+  var na=_normNom(a), nb=_normNom(b);
+  if(!na||!nb)return false;
+  if(na===nb)return true;
+  var ta=na.split(' ').filter(Boolean), tb=nb.split(' ').filter(Boolean);
+  if(!ta.length||!tb.length||ta[0]!==tb[0])return false; // el primer nombre debe coincidir
+  for(var i=1;i<ta.length;i++){ if(ta[i].length>=3&&tb.indexOf(ta[i])>=0)return true; }
+  return false;
+}
 
 // Las planillas usan "PRIMER_NOMBRE PRIMER_APELLIDO" (ej. "JOHANDRY URDANETA") mientras
 // empleados guarda el nombre COMPLETO ("JOHANDRY SEGUNDO URDANETA CASTILLO"). Por eso se
