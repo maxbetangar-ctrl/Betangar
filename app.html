@@ -170,31 +170,24 @@ tr:hover td{background:rgba(45,255,122,.02)}
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
 <script>
-// Cargar Supabase con fallback entre CDNs
+// Cargar Supabase con fallback entre CDNs.
+// IMPORTANTE (fix DB_READY=false al recargar): app.js es externo y declara `var supabase=null`,
+// que en el navegador equivale a window.supabase=null. Según el orden de carga, eso puede PISAR
+// la librería que el UMD pone en window.supabase → initSupabaseClient no la encuentra. Por eso
+// apenas carga la librería copiamos createClient a window.createClient (global que NADIE pisa y
+// que initSupabaseClient ya usa como respaldo). Un interval lo asegura sin importar el orden.
 (function(){
-  // Cargar Supabase con timeout para no bloquear en conexión lenta
+  function grab(){ try{ if(window.supabase&&window.supabase.createClient&&typeof window.createClient!=='function'){ window.createClient=window.supabase.createClient; } }catch(e){} }
   var loaded=false;
+  function addCdn(url,label){ var sc=document.createElement('script'); sc.src=url; sc.onload=function(){loaded=true;grab();console.log('Supabase '+label+' OK');}; document.head.appendChild(sc); }
   var s=document.createElement('script');
   s.src='https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js';
-  s.onload=function(){loaded=true;console.log('Supabase CDN OK');};
-  s.onerror=function(){
-    if(loaded)return;
-    // Fallback a unpkg
-    var s2=document.createElement('script');
-    s2.src='https://unpkg.com/@supabase/supabase-js@2/dist/umd/supabase.js';
-    s2.onload=function(){console.log('Supabase unpkg OK');};
-    document.head.appendChild(s2);
-  };
+  s.onload=function(){loaded=true;grab();console.log('Supabase CDN OK');};
+  s.onerror=function(){ if(loaded)return; addCdn('https://unpkg.com/@supabase/supabase-js@2/dist/umd/supabase.js','unpkg'); };
   document.head.appendChild(s);
-  // Timeout: si en 8 segundos no cargó, intentar unpkg
-  setTimeout(function(){
-    if(!loaded&&typeof window.supabase==='undefined'){
-      console.warn('Supabase timeout — intentando unpkg');
-      var s3=document.createElement('script');
-      s3.src='https://unpkg.com/@supabase/supabase-js@2/dist/umd/supabase.js';
-      document.head.appendChild(s3);
-    }
-  },8000);
+  setTimeout(function(){ if(!loaded&&typeof window.supabase==='undefined'){ console.warn('Supabase timeout — intentando unpkg'); addCdn('https://unpkg.com/@supabase/supabase-js@2/dist/umd/supabase.js','unpkg-timeout'); } },8000);
+  // Red de seguridad: copiar createClient apenas exista, sin importar el orden librería vs app.js.
+  var _n=0,_iv=setInterval(function(){ grab(); if(typeof window.createClient==='function'||++_n>100) clearInterval(_iv); },100);
 })();
 </script>
 </head>
