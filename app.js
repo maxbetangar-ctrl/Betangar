@@ -3113,10 +3113,13 @@ async function montarNominaBNC(){
   if(!f.length){alert('Sin planillas para el periodo seleccionado');return;}
   // Preparar lista de pagos
   var pagos=[];
+  // Por CHOFER de la planilla (no por camión): el que manejó ese día cobra. Se busca al
+  // empleado por NOMBRE (con alias/canónico) para tomar su cuenta — antes pagaba al titular
+  // del camión aunque hubiera manejado un relevo.
   var chMap={};
-  f.forEach(function(r){if(!chMap[r.cam])chMap[r.cam]={cam:r.cam,ch:r.ch,viajes:0};chMap[r.cam].viajes+=r.t;});
+  f.forEach(function(r){var nom=_nombreCanonico(r.ch||TEMPORALES[r.cam]||'');if(!nom)return;if(!chMap[nom])chMap[nom]={ch:nom,viajes:0};chMap[nom].viajes+=(parseInt(r.t)||0);});
   Object.values(chMap).forEach(function(c){
-    var emp=EMPLEADOS.find(function(e){return e.cargo==='Chofer'&&e.unidad===c.cam;});
+    var emp=(typeof _empPorNombre==='function')?_empPorNombre(c.ch):null;
     if(!emp||!emp.ncuenta)return;
     var monto=c.viajes*cfg.chofer;
     var montoBs=monto*(TASAS.bcvDolar||cfg.tasa);
@@ -5411,9 +5414,10 @@ function calcularNomina(){
   var sem=gv('np-sem'),mes=gv('np-mes');
   var tasa=parseFloat(gv('np-tasa'))||TASAS.bcvDolar||cfg.tasa;
   var f=REGS.filter(function(r){if(mes&&r.mes!==mes)return false;if(sem&&r.sem!==sem)return false;return true;});
-  var chMap={};f.forEach(function(r){if(!chMap[r.cam])chMap[r.cam]={cam:r.cam,ch:r.ch,viajes:0};chMap[r.cam].viajes+=r.t;});
+  // Por CHOFER de la planilla (no por camión), consistente con calcNom.
+  var chMap={};f.forEach(function(r){var nom=_nombreCanonico(r.ch||TEMPORALES[r.cam]||'');if(!nom)return;if(!chMap[nom])chMap[nom]={ch:nom,viajes:0};chMap[nom].viajes+=(parseInt(r.t)||0);});
   var lista=[],totalBs=0;
-  Object.values(chMap).forEach(function(c){var usd=c.viajes*cfg.chofer;var bs=usd*tasa;totalBs+=bs;lista.push({nombre:c.ch,cam:c.cam,viajes:c.viajes,usd:usd,bs:bs});});
+  Object.values(chMap).forEach(function(c){var usd=c.viajes*cfg.chofer;var bs=usd*tasa;totalBs+=bs;lista.push({nombre:c.ch,viajes:c.viajes,usd:usd,bs:bs});});
   var npEl=g('np-lista');
   if(npEl)npEl.innerHTML='<div class="tw"><table><thead><tr><th>Empleado</th><th>Viajes</th><th>$</th><th>Bs</th></tr></thead><tbody>'+lista.map(function(l){return'<tr><td style="font-size:11px;font-weight:700">'+l.nombre+'</td><td>'+l.viajes+'</td><td style="font-family:var(--m)">$'+l.usd.toFixed(0)+'</td><td style="font-family:var(--m);color:var(--yellow)">Bs '+l.bs.toFixed(0)+'</td></tr>';}).join('')+'</tbody></table></div>';
   sv('np-total-bs',totalBs.toFixed(0));
