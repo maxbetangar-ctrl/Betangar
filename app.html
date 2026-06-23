@@ -334,6 +334,7 @@ tr:hover td{background:rgba(45,255,122,.02)}
 </div>
   </div>
   <div id="dash-financiero" style="margin-bottom:10px"></div>
+  <div class="card" style="margin-bottom:10px"><div class="sh" style="display:flex;justify-content:space-between;align-items:center"><div class="st">🔧 Anomalías del checklist (hoy)</div><div style="font-size:9px;color:var(--text3)">solo lo que está mal + observación</div></div><div id="checklist-anomalias" style="margin-top:6px"><div style="color:var(--text3);font-size:12px">Cargando…</div></div></div>
   <div class="g2" style="margin-bottom:10px">
     <div class="card"><div class="sh" style="display:flex;justify-content:space-between;align-items:center"><div class="st">🚛 Estado de Flota</div><div style="font-size:10px;color:var(--text3)" id="flota-resumen"></div></div><div id="flota-status" style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:8px"></div></div>
     <div class="card"><div class="sh" style="display:flex;justify-content:space-between;align-items:center"><div class="st">📍 Rutas Hoy</div><div id="rutas-resumen" style="font-size:10px;color:var(--text3)"></div></div><div id="rutas-status" style="margin-top:8px"></div></div>
@@ -2097,7 +2098,7 @@ tr:hover td{background:rgba(45,255,122,.02)}
   <div id="conc-resultado"></div>
 </div>
 
-<script src="app.js?v=20260623f"></script>
+<script src="app.js?v=20260623g"></script>
 
 <!-- Modal global -->
 <div id="modal" class="moverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9990;align-items:center;justify-content:center;padding:16px">
@@ -2316,6 +2317,8 @@ tr:hover td{background:rgba(45,255,122,.02)}
         </div>
       </div>
     </div>
+
+    <div class="card" style="margin:10px 0"><div class="sh" style="display:flex;justify-content:space-between;align-items:center"><div class="st">🔧 Anomalías de hoy</div><div style="font-size:9px;color:var(--text3)">solo lo que está mal + observación</div></div><div id="cl-anomalias" style="margin-top:6px"><div style="color:var(--text3);font-size:12px">Cargando…</div></div></div>
 
     <!-- Selector de camión -->
     <div class="card" style="margin-bottom:12px">

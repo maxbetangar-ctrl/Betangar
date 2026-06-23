@@ -1600,6 +1600,7 @@ function renderDash(){
   if(perms.indexOf('financiero')>=0)renderDashFinanciero(totalM,totalCob,porcobrar);
   // Flota
   renderFlotaDash();renderRankingTop5();renderMetasDash();renderVencimientosDash();renderAlertasCriticas();
+  try{renderChecklistAnomalias();}catch(e){}
   updTank();
 }
 
@@ -1748,6 +1749,42 @@ function toggleEstCam(cam){
     supabase.from('km_data').update({estado:nv}).eq('cam',cam).then(function(r){if(r&&r.error)console.log('km_data estado:',r.error.message);});
     supabase.from('flota_estado').upsert([{unidad:cam,estado:nv,updated_by:(SESION&&SESION.nombre)||'oficina',updated_at:new Date().toISOString()}],{onConflict:'unidad'}).then(function(){});
   }
+}
+
+// Anomalías del checklist de HOY: SOLO lo que está MAL + la observación escrita (compacto).
+// Para el dueño, el mecánico y el jefe de operaciones. No muestra lo que está bien.
+async function renderChecklistAnomalias(){
+  var targets=['checklist-anomalias','cl-anomalias'].map(function(id){return document.getElementById(id);}).filter(Boolean);
+  if(!targets.length)return;
+  var hoy=(typeof fechaVE==='function')?fechaVE():new Date().toISOString().slice(0,10);
+  var data=(typeof CHECKLIST_DATA!=='undefined'?CHECKLIST_DATA:[]).filter(function(c){return c.fecha===hoy;});
+  if(!data.length && DB_READY && supabase){ try{var r=await supabase.from('checklist').select('*').eq('fecha',hoy);if(!r.error&&r.data)data=r.data;}catch(e){} }
+  // Mapa campo->etiqueta desde CL_SECCIONES
+  var labels={};
+  try{Object.keys(CL_SECCIONES).forEach(function(sec){CL_SECCIONES[sec].forEach(function(it){var p=it.split(':');labels[p[0]]=p[1]||p[0];});});}catch(e){}
+  var criticos={freno_mano:1,freno_servicio:1,aceite_motor:1,fugas:1,presion_aire:1,tuercas_esparragos:1,mangueras_hidraulicas:1,toma_fuerza:1,llanta_repuesto:1};
+  var danios={danio_frontal:'Daño frontal',danio_lateral_izq:'Daño lateral izq.',danio_lateral_der:'Daño lateral der.',danio_posterior:'Daño posterior',danio_techo:'Daño techo'};
+  // Una fila por camión (la medición más reciente del día)
+  var porCam={}; data.forEach(function(c){if(!porCam[c.cam]||String(c.created_at)>String(porCam[c.cam].created_at))porCam[c.cam]=c;});
+  var filas=[], nCrit=0;
+  Object.keys(porCam).sort().forEach(function(cam){
+    var c=porCam[cam], mal=[], crit=false;
+    for(var k in labels){ if(c[k]==='mal'){ mal.push({l:labels[k],c:!!criticos[k]}); if(criticos[k])crit=true; } }
+    for(var d in danios){ var v=String(c[d]||'').trim(); if(v&&v!=='0'&&v!=='ok'){ mal.push({l:danios[d],c:true}); crit=true; } }
+    var obs=String(c.observaciones||'').trim();
+    if(!mal.length && !obs) return; // sin novedad → no se muestra
+    if(crit)nCrit++;
+    var chips=mal.map(function(m){return '<span style="display:inline-block;font-size:10px;padding:1px 6px;margin:1px;border-radius:8px;'+(m.c?'background:rgba(220,38,38,.15);color:#ef4444;border:1px solid #ef4444':'background:rgba(245,158,11,.12);color:#f59e0b;border:1px solid rgba(245,158,11,.4)')+'">'+(m.c?'🔴 ':'')+m.l+'</span>';}).join('');
+    filas.push('<div style="padding:7px 0;border-bottom:1px solid var(--border)">'+
+      '<div style="display:flex;justify-content:space-between;align-items:center"><b style="font-size:12px">'+cam+(crit?' <span style="color:#ef4444;font-size:9px">CRÍTICO</span>':'')+'</b><span style="font-size:9px;color:var(--text3)">'+(c.conductor||'')+'</span></div>'+
+      (chips?'<div style="margin-top:3px">'+chips+'</div>':'')+
+      (obs?'<div style="margin-top:3px;font-size:11px;color:var(--text2)">📝 '+obs.replace(/</g,'&lt;')+'</div>':'')+
+    '</div>');
+  });
+  var html = filas.length
+    ? '<div style="font-size:10px;color:var(--text3);margin-bottom:4px">'+filas.length+' camión(es) con novedad'+(nCrit?' · <b style="color:#ef4444">'+nCrit+' crítico(s)</b>':'')+'</div>'+filas.join('')
+    : '<div style="color:var(--green2);font-size:12px;padding:8px">✓ Sin anomalías reportadas hoy</div>';
+  targets.forEach(function(el){el.innerHTML=html;});
 }
 
 function renderRankingTop5(){
@@ -9155,6 +9192,7 @@ var CL_NIVELES_COMB = [
 ];
 
 function clIniciar(){
+  try{renderChecklistAnomalias();}catch(e){}
   // Fecha
   var hdr=document.getElementById('cl-fecha-hdr');
   if(hdr)hdr.textContent=new Date().toLocaleDateString('es-VE',{weekday:'long',day:'numeric',month:'long'});
