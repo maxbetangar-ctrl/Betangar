@@ -1330,8 +1330,33 @@ function renderTasas(){
     '<span style="background:rgba(251,191,36,.1);border:1px solid rgba(251,191,36,.2);border-radius:6px;padding:2px 8px;font-size:10px">Binance <b style="color:var(--yellow)">'+(TASAS.binance?TASAS.binance.toFixed(2):'--')+'</b></span>'+
     (prom?'<span style="background:rgba(167,139,250,.1);border:1px solid rgba(167,139,250,.2);border-radius:6px;padding:2px 8px;font-size:10px">Prom. <b style="color:var(--purple)">'+prom.toFixed(2)+'</b></span>':'')+
     '<button onclick="cargarTasas()" style="font-size:9px;background:none;border:1px solid var(--border);border-radius:4px;color:var(--text3);padding:2px 6px;cursor:pointer" title="Actualizar tasas">↻ actualizar</button>'+
+    '<button onclick="verHistorialTasas()" style="font-size:9px;background:none;border:1px solid var(--border);border-radius:4px;color:var(--text3);padding:2px 6px;cursor:pointer" title="Ver historial de tasas guardadas">📋 historial</button>'+
     (TASAS.bcvDolar?'':'<span style="font-size:9px;color:var(--red)">⚠ Sin conexión a API — usando tasas por defecto</span>')+
   '</div>';
+}
+// Modal: historial de tasas BCV guardadas por día (tasas_diarias). Abonos/CxP cierran a la
+// tasa de su fecha; acá se ve el histórico completo (USD y € en Bs).
+async function verHistorialTasas(){
+  if((!window.TASAS_DIARIAS||!Object.keys(TASAS_DIARIAS).length)&&typeof cargarTasasDiarias==='function'){try{await cargarTasasDiarias();}catch(e){}}
+  var keys=Object.keys(TASAS_DIARIAS||{}).sort().reverse();
+  var filas=keys.map(function(f){
+    var t=TASAS_DIARIAS[f];
+    return '<tr style="border-bottom:1px solid var(--border)"><td style="padding:3px 6px;font-family:var(--m)">'+f+'</td>'+
+      '<td style="padding:3px 6px;font-family:var(--m);color:var(--green2)">'+(t.dolar?t.dolar.toLocaleString('es-VE',{maximumFractionDigits:4}):'—')+'</td>'+
+      '<td style="padding:3px 6px;font-family:var(--m);color:var(--blue)">'+(t.euro?t.euro.toLocaleString('es-VE',{maximumFractionDigits:4}):'—')+'</td>'+
+      '<td style="padding:3px 6px;font-size:10px;color:var(--text3)">'+(t.fuente||'')+'</td></tr>';
+  }).join('');
+  var prev=document.getElementById('tasas-hist-modal'); if(prev)prev.remove();
+  var ov=document.createElement('div'); ov.id='tasas-hist-modal';
+  ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:13000;display:flex;align-items:center;justify-content:center;padding:16px';
+  ov.onclick=function(e){if(e.target===ov)ov.remove();};
+  ov.innerHTML='<div style="background:var(--bg2,#16181d);border:1px solid var(--border);border-radius:12px;max-width:560px;width:100%;max-height:88vh;overflow:auto;padding:16px">'+
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><div style="font-weight:800">📋 Historial de tasas BCV ('+keys.length+' días)</div>'+
+    '<button class="btn btn-r btn-xs" onclick="document.getElementById(\'tasas-hist-modal\').remove()">✕</button></div>'+
+    '<div style="font-size:11px;color:var(--text3);margin-bottom:8px">Tasa oficial guardada por día. Los abonos/CxP cierran a la tasa de SU fecha. USD y € en Bs.</div>'+
+    (keys.length?'<table style="width:100%;font-size:12px;border-collapse:collapse"><thead><tr style="text-align:left;color:var(--text3);font-size:10px"><th style="padding:3px 6px">Fecha</th><th style="padding:3px 6px">BCV $ (Bs)</th><th style="padding:3px 6px">BCV € (Bs)</th><th style="padding:3px 6px">Fuente</th></tr></thead><tbody>'+filas+'</tbody></table>':'<div style="color:var(--text3);padding:10px">Sin tasas guardadas aún.</div>')+
+    '</div>';
+  document.body.appendChild(ov);
 }
 var TASAS_DISPONIBLES = false; // Se pone true cuando API BCV responde
 
