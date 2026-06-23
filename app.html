@@ -1659,7 +1659,7 @@ tr:hover td{background:rgba(45,255,122,.02)}
               </select>
             </div>
           </div>
-          <div class="fg"><label>Cargo</label><select class="fc" id="ne-cargo" onchange="toggleTipoAy(this.value)"><option value="">-- Seleccionar --</option><option>Gerente General</option><option>Administradora</option><option>RRHH</option><option>Operativo</option><option>Supervisor</option><option>Mecanico</option><option>Vigilante</option><option>Chofer</option><option>Ayudante</option></select></div><div class="fg" id="fg-tipoAy" style="display:none"><label>Tipo Ayudante</label><select class="fc" id="ne-tipoAy"><option value="interno">Interno ($5/viaje)</option><option value="imau">IMAU ($2.50/viaje)</option></select></div></div>
+          <div class="fg"><label>Cargo</label><select class="fc" id="ne-cargo" onchange="toggleTipoAy(this.value)"><option value="">-- Seleccionar --</option><option>Gerente General</option><option>Administradora</option><option>RRHH</option><option>Operativo</option><option>Supervisor</option><option>Mecanico</option><option>Vigilante</option><option>Chofer</option><option>Ayudante</option><option>Contadora</option><option>Auditora</option></select></div><div class="fg" id="fg-tipoAy" style="display:none"><label>Tipo Ayudante</label><select class="fc" id="ne-tipoAy"><option value="interno">Interno ($5/viaje)</option><option value="imau">IMAU ($2.50/viaje)</option></select></div></div>
         <div class="fg"><label>Unidad / Area</label><select class="fc" id="ne-unidad"></select><button onclick="agregarUnidadArea()" class="btn btn-s btn-sm" style="margin-top:4px;font-size:11px;width:100%">+ Agregar unidad/área</button></div>
         <div class="fg"><label>Fecha de Nacimiento</label><input class="fc" id="ne-fnac" type="date"></div>
           <div class="fg"><label>Fecha de Ingreso</label><input class="fc" id="ne-fingreso" type="date"></div>
@@ -9543,6 +9543,8 @@ var CARGOS_SISTEMA = [
   {id:'c07',nombre:'Vigilante',cat:'operativo',sistema:true},
   {id:'c08',nombre:'Chofer',cat:'campo',sistema:true},
   {id:'c09',nombre:'Ayudante',cat:'campo',sistema:true},
+  {id:'c10',nombre:'Contadora',cat:'administrativo',sistema:true},
+  {id:'c11',nombre:'Auditora',cat:'administrativo',sistema:true},
 ];
 
 async function cargarCargos(){
