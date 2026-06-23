@@ -9124,7 +9124,12 @@ function renderCxP(){
       html+='<button class="btn btn-s" data-cid="'+c.id+'" onclick="imprimirComprobante(this.dataset.cid)" style="font-size:11px;padding:4px 12px">🖨️ Comprobante</button>';
     }
     if(c.estado==='pagada'){
-      html+='<span style="font-size:10px;color:var(--text3);padding:4px">Pagada: '+(c.fecha_pago||'')+(c.ref_bnc?' · Ref: '+c.ref_bnc:'')+'</span>';
+      // Cierre congelado: Bs = neto USD × tasa BCV del día de pago (guardada en tasa_val al pagar).
+      var _tc=parseFloat(c.tasa_val)||0;
+      var _bsCerr=_tc>0
+        ? ' · <b style="color:var(--yellow)">Bs '+(parseFloat(c.neto_pagar||0)*_tc).toLocaleString('es-VE',{maximumFractionDigits:0})+'</b> <span style="color:var(--text3)">@'+_tc.toFixed(2)+'</span>'
+        : ' · <span style="color:var(--amber)">⚠️ sin tasa de cierre</span>';
+      html+='<span style="font-size:10px;color:var(--text3);padding:4px">Pagada: '+(c.fecha_pago||'')+(c.ref_bnc?' · Ref: '+c.ref_bnc:'')+_bsCerr+'</span>';
     } else {
       html+='<span style="font-size:10px;color:var(--text3);padding:4px">Vence: '+(c.fecha_venc||'Sin fecha')+'</span>';
     }
@@ -9303,16 +9308,23 @@ async function confirmarPagoCxP(){
   // Generar número de comprobante usando correlativo configurable
   var numComp = await siguienteNumCorrelativo();
 
+  // CIERRE CONTABLE: la CxP vive en USD hasta que se paga; al pagar se congela a la tasa BCV
+  // del DÍA DE PAGO (no la de creación). Prioriza la tasa guardada de esa fecha; si no la hay
+  // (pago de hoy aún sin guardar) usa la tasa actual; último recurso la de creación.
+  var tasaPago = (typeof getTasaFecha==='function' && getTasaFecha(fecha,'dolar')) || TASAS.bcvDolar || c.tasa_val || 0;
+
   var res=await supabase.from('cxp').update({
     estado:'pagada',
     fecha_pago:fecha,
     ref_bnc:ref,
-    num_comprobante:numComp
+    num_comprobante:numComp,
+    tasa_val:tasaPago,
+    tasa_tipo:'bcv_dia_pago'
   }).eq('id',CXP_PAGAR_ID);
 
   if(res.error){alert('Error: '+res.error.message);return;}
   var idx=CXP.findIndex(function(x){return x.id==CXP_PAGAR_ID;});
-  if(idx>=0){CXP[idx].estado='pagada';CXP[idx].fecha_pago=fecha;CXP[idx].ref_bnc=ref;CXP[idx].num_comprobante=numComp;}
+  if(idx>=0){CXP[idx].estado='pagada';CXP[idx].fecha_pago=fecha;CXP[idx].ref_bnc=ref;CXP[idx].num_comprobante=numComp;CXP[idx].tasa_val=tasaPago;CXP[idx].tasa_tipo='bcv_dia_pago';}
 
   cerrarModalPagar();
   renderCxP();
