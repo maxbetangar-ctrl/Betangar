@@ -1017,12 +1017,13 @@ async function cargarDatosDB(){
     }catch(e){try{var _al2=localStorage.getItem('btg_asistencia');if(_al2)ASISTENCIA=JSON.parse(_al2)||{};}catch(e2){}}
     // DOCUMENTOS y METAS: persistidos en configuracion (JSON)
     try{
-      var _dm=await supabase.from('configuracion').select('clave,valor').in('clave',['docs_cam','docs_emp','metas_data']);
+      var _dm=await supabase.from('configuracion').select('clave,valor').in('clave',['docs_cam','docs_emp','metas_data','nom_adm']);
       if(_dm&&_dm.data)_dm.data.forEach(function(row){
         try{var v=JSON.parse(row.valor);
           if(row.clave==='docs_cam')DOCS_CAM=v||{};
           else if(row.clave==='docs_emp')DOCS_EMP=v||{};
           else if(row.clave==='metas_data')METAS=v||{};
+          else if(row.clave==='nom_adm'){if(Array.isArray(v))NOM_ADM=v;}
         }catch(e){}
       });
     }catch(e){}
@@ -2900,17 +2901,21 @@ function calcNom(){
   if(g('nm-ch'))g('nm-ch').textContent='$'+totCh.toFixed(0);
   if(g('nm-ay'))g('nm-ay').textContent='$'+totAy.toFixed(0);
   var tasa=TASAS.bcvDolar||cfg.tasa;
-  var totUsd=totCh+totAy;
+  var totOp=totCh+totAy;
+  // FIJOS (admin + apoyo IMAU): NOM_ADM en monto MENSUAL → semanal (/4) si hay semana
+  // seleccionada, completo si es el mes. Suman al total para que cuadre con la nómina oficial.
+  var totAdm=(typeof NOM_ADM!=='undefined'?NOM_ADM:[]).reduce(function(s,n){return s+(parseFloat(n.monto)||0);},0)/(sem?4:1);
+  var totUsd=totOp+totAdm;
   var totBs=totUsd*tasa;
   // Guardar el último cálculo para poder "Guardar en historial" (nutrir nomina_historial).
   _ultimaNomina={
-    sem:sem||'', mes:mes||'', tasa:tasa, totCh:totCh, totAy:totAy, totBs:totBs,
+    sem:sem||'', mes:mes||'', tasa:tasa, totCh:totCh, totAy:totAy, totAdm:totAdm, totBs:totBs,
     fdesde: f.length?f.reduce(function(m,r){return r.f<m?r.f:m;},f[0].f):null,
     fhasta: f.length?f.reduce(function(m,r){return r.f>m?r.f:m;},f[0].f):null,
     choferes: Object.values(chMap).map(function(c){return {n:c.ch,u:Array.from(c.cams||[]).join(','),viajes:c.viajes,usd:Math.round((Math.max(0,c.viajes*cfg.chofer-c.descuentos))*100)/100,bs:Math.round(Math.max(0,c.viajes*cfg.chofer-c.descuentos)*tasa*100)/100};}),
     ayudantes: Object.values(ayMap).map(function(a){return {n:a.emp.nombre,u:a.emp.unidad,viajes:a.viajes,usd:Math.round((Math.max(0,a.viajes*a.tasa-a.descuentos))*100)/100,bs:Math.round(Math.max(0,a.viajes*a.tasa-a.descuentos)*tasa*100)/100,tipo:a.emp.tipoAy||'interno'};})
   };
-  if(g('nm-tot'))g('nm-tot').textContent='$'+totUsd.toFixed(0)+' = Bs '+(totBs/1000).toFixed(0)+'k';
+  if(g('nm-tot'))g('nm-tot').textContent='$'+totUsd.toFixed(0)+(totAdm>0?' (op $'+totOp.toFixed(0)+' + fijos $'+totAdm.toFixed(0)+')':'')+' = Bs '+(totBs/1000).toFixed(0)+'k';
   if(g('nm-ch'))g('nm-ch').textContent='$'+totCh.toFixed(0)+' (Bs '+(totCh*tasa/1000).toFixed(0)+'k)';
   if(g('nm-ay'))g('nm-ay').textContent='$'+totAy.toFixed(0)+' (Bs '+(totAy*tasa/1000).toFixed(0)+'k)';
   var desc=g('nm-descuentos');if(desc)desc.innerHTML=descBanners.join('');
@@ -3012,8 +3017,8 @@ async function guardarNominaHist(){
   var id='APP-'+(n.mes||'').replace(/\s+/g,'')+'-'+(n.sem||'').replace(/\s+/g,'');
   var row={id:id, semana:n.sem, periodo:(n.fdesde||'')+(n.fhasta?(' a '+n.fhasta):''),
     fecha_desde:n.fdesde||null, fecha_hasta:n.fhasta||null,
-    total_usd:Math.round((n.totCh+n.totAy)*100)/100, total_bs:Math.round(n.totBs*100)/100,
-    op_usd:Math.round((n.totCh+n.totAy)*100)/100, adm_usd:0, imau_bs:0, tasa:n.tasa,
+    total_usd:Math.round((n.totCh+n.totAy+(n.totAdm||0))*100)/100, total_bs:Math.round(n.totBs*100)/100,
+    op_usd:Math.round((n.totCh+n.totAy)*100)/100, adm_usd:Math.round((n.totAdm||0)*100)/100, imau_bs:0, tasa:n.tasa,
     detalle:{choferes:n.choferes,ayudantes:n.ayudantes,imau:[]}, fuente:'app'};
   if(!confirm('¿Guardar la nómina de "'+n.sem+'" ('+n.mes+') en el historial?\nTotal $'+row.total_usd.toFixed(0)+' · '+n.choferes.length+' choferes, '+n.ayudantes.length+' ayudantes.\n(Si ya existe esa semana, se reemplaza.)'))return;
   if(!(DB_READY&&supabase)){alert('Sin conexión a la base.');return;}
@@ -3100,10 +3105,26 @@ function imprimirAuditoriaPagos(){
 }
 
 function renderNomAdm(){
+  var totMes=NOM_ADM.reduce(function(s,n){return s+(parseFloat(n.monto)||0);},0);
   var tb=g('tb-nom-adm');
-  if(tb)tb.innerHTML=NOM_ADM.map(function(n){return'<tr><td>'+n.cargo+'</td><td style="font-family:var(--m)">$'+n.monto+'</td><td style="font-family:var(--m);color:var(--teal)">$'+(n.monto/4).toFixed(0)+'</td></tr>';}).join('');
+  if(tb)tb.innerHTML=NOM_ADM.map(function(n){return'<tr><td>'+n.cargo+'</td><td style="font-family:var(--m)">$'+n.monto+'</td><td style="font-family:var(--m);color:var(--teal)">$'+(n.monto/4).toFixed(0)+'</td></tr>';}).join('')+
+    '<tr class="tr-tot"><td>TOTAL FIJOS</td><td style="font-family:var(--m)">$'+totMes.toFixed(0)+'/mes</td><td style="font-family:var(--m);color:var(--teal)">$'+(totMes/4).toFixed(0)+'/sem</td></tr>';
   var tbCfg=g('tb-nom-adm-cfg');
-  if(tbCfg)tbCfg.innerHTML=NOM_ADM.map(function(n,i){return'<tr><td>'+n.cargo+'</td><td><input type="number" value="'+n.monto+'" onchange="NOM_ADM['+i+'].monto=parseFloat(this.value)||0" style="font-family:var(--m);background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:4px 8px;border-radius:5px;width:100px"></td><td><button onclick="NOM_ADM.splice('+i+',1);renderNomAdm()" class="btn btn-r btn-xs">×</button></td></tr>';}).join('');
+  if(tbCfg)tbCfg.innerHTML=NOM_ADM.map(function(n,i){return'<tr>'+
+    '<td><input value="'+String(n.cargo||'').replace(/"/g,'&quot;')+'" onchange="NOM_ADM['+i+'].cargo=this.value;guardarNomAdm()" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:4px 8px;border-radius:5px;width:170px;font-size:11px"></td>'+
+    '<td><input type="number" value="'+n.monto+'" onchange="NOM_ADM['+i+'].monto=parseFloat(this.value)||0;guardarNomAdm();try{calcNom()}catch(e){}" style="font-family:var(--m);background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:4px 8px;border-radius:5px;width:90px"></td>'+
+    '<td><button onclick="NOM_ADM.splice('+i+',1);guardarNomAdm();renderNomAdm();try{calcNom()}catch(e){}" class="btn btn-r btn-xs">×</button></td></tr>';}).join('')+
+    '<tr><td colspan="3" style="padding-top:6px"><button onclick="agregarNomAdm()" class="btn btn-s btn-xs">+ Agregar fijo (ADM / apoyo IMAU)</button></td></tr>';
+}
+function agregarNomAdm(){
+  if(typeof NOM_ADM==='undefined')return;
+  NOM_ADM.push({cargo:'ADM '+(NOM_ADM.length+1),monto:0});
+  guardarNomAdm(); renderNomAdm();
+}
+// Persiste NOM_ADM (lista de sueldos fijos) en configuracion → sobrevive recargas.
+function guardarNomAdm(){
+  if(!(DB_READY&&supabase))return;
+  try{supabase.from('configuracion').upsert([{clave:'nom_adm',valor:JSON.stringify(NOM_ADM)}],{onConflict:'clave'}).then(function(r){if(r&&r.error)console.log('nom_adm save:',r.error.message);});}catch(e){}
 }
 
 async function montarNominaBNC(){
