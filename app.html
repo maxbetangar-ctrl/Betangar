@@ -3090,7 +3090,7 @@ async function cargarDatosDB(){
     if(e.data&&e.data.length)EMPLEADOS=e.data.map(function(x){return{id:x.id,nombre:x.nombre,cargo:x.cargo,unidad:x.unidad||'',cedula:x.cedula||'',fnac:x.fnac||'',banco:x.banco||'',tcuenta:x.tcuenta||'',ncuenta:x.ncuenta||'',foto:x.foto_url||'',activo:x.activo!==false,tipoAy:x.tipo_ay||'',email:x.email||'',tel:x.tel||'',whatsapp:x.whatsapp||'',wa_apikey:x.wa_apikey||'',rif:x.rif||'',fingreso:x.fingreso||'',imau:x.imau||false};});
     // GASOIL
     if(ga.data&&ga.data.length){
-      GASOIL=ga.data.map(function(x){return{id:x.id,f:x.f,cam:x.cam,lit:x.lit,src:x.src,m:x.m};});
+      GASOIL=ga.data.map(function(x){return{id:x.id,f:x.f,cam:x.cam,lit:x.lit,src:x.src,m:x.m,tipo_operacion:x.tipo_operacion};});
       console.log('[GASOIL] cargados desde Supabase: '+GASOIL.length);
       try{localStorage.setItem('btg_gasoil',JSON.stringify(GASOIL));}catch(e){}
     } else {
@@ -10101,10 +10101,14 @@ function eliminarGasoilConfirmado(ref){
   // → se devuelven los litros; una compra lo subió → se restan. Estación no toca el tanque.
   var litR=parseFloat(r.lit)||0;
   var srcTanque=(r.src==='Tumaca'||r.src==='Boscán'||r.src==='Boscan');
+  // Detectar compra por tipo_operacion O por el prefijo "COMPRA ·" del campo cam: el load
+  // desde Supabase no siempre trae tipo_operacion (registros viejos / caché localStorage), y
+  // sin esto una compra se revertía como despacho (sumaba litros en vez de restarlos).
+  var esCompra=(r.tipo_operacion==='compra')||(typeof ccEsCompra==='function'&&ccEsCompra(r));
   if(litR>0 && srcTanque){
     var capR=cfg.tanque||4600;
-    if(r.tipo_operacion==='compra'){ tankNivel=Math.max(0,tankNivel-litR); }
-    else { tankNivel=Math.min(capR,tankNivel+litR); } // despacho → devolver litros
+    if(esCompra){ tankNivel=Math.max(0,tankNivel-litR); }   // compra subió el tanque → restar
+    else { tankNivel=Math.min(capR,tankNivel+litR); } // despacho bajó el tanque → devolver litros
     try{sv('tank-niv',tankNivel.toString());updTank();guardarNivelTanque();}catch(e){}
   }
   try{localStorage.setItem('btg_gasoil',JSON.stringify(GASOIL));}catch(e){}
