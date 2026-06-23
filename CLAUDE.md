@@ -5,7 +5,7 @@
 
 ## Proyecto
 ERP de **Inversiones Betangar C.A.** (aseo urbano, 12 camiones JAC-B001…B012, factura viajes a la Alcaldía).
-- `app.html` = app principal (oficina, ~12.5k líneas). `chofer.html` = PWA del chofer (QR por camión). `index.html` = landing pública.
+- `app.html` = app principal de oficina (~2.6k líneas de HTML). **La lógica JS (~11.9k líneas) vive en `app.js`**, cargado con `<script src="app.js?v=FECHA">` (extraído del inline el 2026-06-23, sin cambios de lógica). `chofer.html` = PWA del chofer (QR por camión). `index.html` = landing pública.
 - Supabase proyecto **`hrkjddehqnzcqwlkklqm`**. Producción **betangar.com** (GitHub Pages, rama `main`, push = deploy).
 - ⚠️ El **mismo Supabase aloja Geppetto** (tablas `edu_*` / `usdt_*`): **NO TOCARLAS**.
 
@@ -16,7 +16,7 @@ ERP de **Inversiones Betangar C.A.** (aseo urbano, 12 camiones JAC-B001…B012, 
 4. Implementar el fix.
 5. Auditoría POST: verificar que lo demás sigue funcionando.
 6. **Todo persiste en Supabase** — nada vive solo en memoria/localStorage (localStorage = caché).
-7. `node --check` del JS inline antes de commit (extraer `<script>` y chequear).
+7. `node --check app.js` antes de commit (el JS ya es archivo aparte; al editarlo, **bumpear el `?v=` en app.html** para romper caché).
 8. Commit descriptivo + push a `main` solo cuando esté verificado.
 9. **NO tocar módulos que ya funcionan.**
 
