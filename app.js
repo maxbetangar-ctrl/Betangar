@@ -1330,7 +1330,6 @@ function renderTasas(){
     '<span style="background:rgba(251,191,36,.1);border:1px solid rgba(251,191,36,.2);border-radius:6px;padding:2px 8px;font-size:10px">Binance <b style="color:var(--yellow)">'+(TASAS.binance?TASAS.binance.toFixed(2):'--')+'</b></span>'+
     (prom?'<span style="background:rgba(167,139,250,.1);border:1px solid rgba(167,139,250,.2);border-radius:6px;padding:2px 8px;font-size:10px">Prom. <b style="color:var(--purple)">'+prom.toFixed(2)+'</b></span>':'')+
     '<button onclick="cargarTasas()" style="font-size:9px;background:none;border:1px solid var(--border);border-radius:4px;color:var(--text3);padding:2px 6px;cursor:pointer" title="Actualizar tasas">↻ actualizar</button>'+
-    ((typeof esSuperAdmin==='function'&&esSuperAdmin())?'<button onclick="importarHistoricoBCV()" style="font-size:9px;background:none;border:1px solid var(--border);border-radius:4px;color:var(--text3);padding:2px 6px;cursor:pointer" title="Importar tasa BCV histórica (pydolarve) a tasas_diarias">📥 histórico</button>':'')+
     (TASAS.bcvDolar?'':'<span style="font-size:9px;color:var(--red)">⚠ Sin conexión a API — usando tasas por defecto</span>')+
   '</div>';
 }
@@ -10676,68 +10675,9 @@ async function cargarTasas(){
   renderTasas();autoLlenarTasasEnFormularios();return TASAS;
 }
 
-// Importa el histórico de la tasa BCV (USD) desde pydolarve y llena tasas_diarias. Se corre
-// UNA vez DESDE EL NAVEGADOR (pydolarve no es alcanzable desde el server). Antes de guardar
-// muestra lo que parseó. Solo inserta fechas que falten (no pisa las que ya tengan euro/binance).
-// Extrae [{fecha:'YYYY-MM-DD', bcv_dolar:Number, fuente}] de la respuesta de pydolarve, sea
-// cual sea su anidación: busca recursivamente el MAYOR arreglo de registros con fecha+precio
-// válidos. Así no depende de la forma exacta del JSON (que varía por versión del API).
-function _parseHistBCV(raw){
-  function fechaDe(it){
-    if(!it||typeof it!=='object')return '';
-    var f=it.date||it.fecha||it.day||(it.datetime&&(it.datetime.date||it.datetime))||'';
-    f=String(f);
-    if(/^\d{4}-\d{2}-\d{2}/.test(f))return f.slice(0,10);
-    if(/^\d{2}-\d{2}-\d{4}/.test(f)){var p=f.slice(0,10).split('-');return p[2]+'-'+p[1]+'-'+p[0];}
-    if(/^\d{2}\/\d{2}\/\d{4}/.test(f)){var q=f.slice(0,10).split('/');return q[2]+'-'+q[1]+'-'+q[0];}
-    return '';
-  }
-  function precioDe(it){return (it&&typeof it==='object')?(parseFloat(it.price||it.promedio||it.precio||it.close||it.value||it.bcv||0)||0):0;}
-  var best=null;
-  function walk(node){
-    if(Array.isArray(node)){
-      var hits=node.map(function(x){return {fecha:fechaDe(x),p:precioDe(x)};}).filter(function(o){return o.fecha&&o.p>100;});
-      if(hits.length&&(!best||hits.length>best.length))best=hits;
-      for(var i=0;i<node.length;i++)walk(node[i]);
-    } else if(node&&typeof node==='object'){
-      for(var k in node)walk(node[k]);
-    }
-  }
-  walk(raw);
-  if(!best)return [];
-  var byF={}; best.forEach(function(o){byF[o.fecha]={fecha:o.fecha,bcv_dolar:o.p,fuente:'pydolarve (historico)'};});
-  return Object.keys(byF).sort().map(function(k){return byF[k];});
-}
-async function importarHistoricoBCV(){
-  if(!(DB_READY&&supabase)){alert('Sin conexión a la base.');return;}
-  var d1=prompt('Importar tasa BCV histórica.\n\nFecha DESDE (YYYY-MM-DD):','2026-01-01'); if(!d1)return;
-  var d2=prompt('Fecha HASTA (YYYY-MM-DD):',(typeof fechaVE==='function'?fechaVE():new Date().toISOString().slice(0,10))); if(!d2)return;
-  function aDMY(iso){var p=String(iso).slice(0,10).split('-');return p.length===3?(p[2]+'-'+p[1]+'-'+p[0]):iso;}
-  var url='https://pydolarve.org/api/v1/dollar/history?page=bcv&monitor=usd&start_date='+aDMY(d1)+'&end_date='+aDMY(d2)+'&format_date=default&rounded_price=false';
-  var raw;
-  try{
-    var r=await fetch(url,{mode:'cors',signal:AbortSignal.timeout(20000)});
-    if(!r.ok){alert('pydolarve respondió HTTP '+r.status);return;}
-    raw=await r.json();
-  }catch(e){alert('No se pudo consultar pydolarve: '+(e&&e.message)+'\n\nDebe correrse con internet, desde el navegador.');return;}
-  console.log('[histBCV] respuesta cruda:',raw);
-  var rows=_parseHistBCV(raw);
-  if(!rows.length){alert('Llegó respuesta de pydolarve pero no pude extraer fecha+precio del historial.\nAbre la consola (F12), copia lo que salió en [histBCV] y me lo pasas para ajustar.');return;}
-  // Solo fechas que NO tengamos ya (no pisar today / euro / binance existentes).
-  await cargarTasasDiarias();
-  var nuevas=rows.filter(function(x){return !TASAS_DIARIAS[x.fecha];});
-  if(!nuevas.length){alert('Ya tenías guardadas todas esas fechas ('+rows.length+'). Nada que importar.');return;}
-  if(!confirm('Se obtuvieron '+rows.length+' días; '+nuevas.length+' son nuevos ('+nuevas[0].fecha+' … '+nuevas[nuevas.length-1].fecha+').\nEjemplo: '+nuevas[0].fecha+' = Bs '+nuevas[0].bcv_dolar+'\n\n¿Guardar los '+nuevas.length+' nuevos en tasas_diarias?'))return;
-  var ok=0,err=0;
-  for(var i=0;i<nuevas.length;i+=200){
-    var lote=nuevas.slice(i,i+200);
-    try{var res=await supabase.from('tasas_diarias').upsert(lote,{onConflict:'fecha',ignoreDuplicates:true});if(res.error){err+=lote.length;console.log('[histBCV] upsert err',res.error.message);}else ok+=lote.length;}catch(e){err+=lote.length;}
-  }
-  await cargarTasasDiarias();
-  if(typeof audit==='function')audit('Importar histórico BCV',nuevas.length+' días ('+d1+' a '+d2+')');
-  if(typeof renderAbonos==='function')try{renderAbonos();}catch(e){}
-  alert('✅ Histórico BCV: '+ok+' días guardados'+(err?(' · '+err+' con error'):'')+'.\nLos abonos/CxP de esas fechas ya cierran a su tasa real.');
-}
+// (El importador de histórico vía pydolarve se removió: pydolarve está bloqueado por CORS
+// desde el navegador. La tasa del día se guarda sola desde el BNC en cargarTasas(). El
+// histórico hacia atrás, si hace falta, se carga desde un Excel que pase Máximo.)
 
 // ── Resumen BNC del día en el dashboard (saldo inicial, ingresos, egresos, saldo actual) ──
 var _bncResumenCache=null,_bncResumenTs=0;
