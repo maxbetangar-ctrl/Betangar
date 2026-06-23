@@ -10,3 +10,4 @@ respaldos/
 # QA / tooling local (no afecta a GitHub Pages)
 node_modules/
 package-lock.json
+.playwright-mcp/
