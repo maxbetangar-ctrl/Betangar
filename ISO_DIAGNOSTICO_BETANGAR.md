@@ -14,12 +14,12 @@
 ## 2. Resumen ejecutivo
 | Norma | Estado | Riesgo dominante |
 |---|---|---|
-| 27001 — Seguridad | 🔴 | RLS abierto a escritura/borrado anónimo en tablas sensibles (incl. usuarios y auditoría) |
+| 27001 — Seguridad | 🟡 | Tablas sensibles ya cerradas a anon (Fase 2c + 0.1). Residuales: `audit()` no persiste, respaldos sin política, `tasas_diarias` abierta, vistas SECURITY DEFINER |
 | 25010 — Calidad | 🟡 | Mantenibilidad: monolito de 14.367 líneas sin módulos ni pruebas |
 | 55000 — Activos | 🟡 | Mantenimiento sin plan preventivo formal ni KPIs de disponibilidad/ciclo de vida |
 | IEEE 730 — SQA | 🔴 | No existe plan de calidad documentado (este documento lo inicia) |
 
-**Prioridad #1:** cerrar RLS de escritura anónima (Fase 0). Es alto impacto y el más urgente.
+**Prioridad ahora:** ya no es la RLS de las sensibles (resuelta). El mayor riesgo restante es **mantenibilidad (25010)** — el monolito — y los residuales de 27001 (auditoría persistente + respaldos).
 
 ## 3. ISO/IEC 27001 — Seguridad de la información
 La **anon key** (`...RnG_ko`) está embebida en `app.html`/`chofer.html` (público por diseño de
@@ -28,19 +28,19 @@ Supabase). Por eso **todo permiso del rol `anon` equivale a permiso para cualqui
 ### 3.1 Evidencia real (pruebas REST 2026-06-23)
 | Tabla | anon SELECT | anon DELETE | Veredicto |
 |---|---|---|---|
-| `btg_usuarios` | ✅ lee | ✅ borra | 🔴 **CRÍTICO** — tabla de usuarios expuesta y borrable |
-| `auditoria` | ❌ | ✅ borra | 🔴 auditoría manipulable (no append-only) |
-| `nomina_historial` | ✅ lee | ✅ borra | 🔴 histórico de nómina expuesto y borrable |
-| `planillas` | ❌ | ✅ borra | 🔴 verdad operativa borrable |
-| `abonos` | ❌ | ✅ borra | 🔴 cobros borrables |
-| `gasoil` | ❌ | ✅ borra | 🔴 combustible borrable |
-| `configuracion` | ❌ | ✅ borra | 🔴 config (tasas, claves) borrable |
-| `combustible_mediciones` | ✅ lee | ✅ borra | 🔴 mediciones expuestas/borrables |
-| `tasas_diarias` | ✅ lee | ✅ borra | 🟡 lectura OK (deseada); borrado anónimo a cerrar |
-| `empleados` | ❌ | ❌ | 🟢 seguro |
-| `cxp` | ❌ | ❌ | 🟢 seguro |
-| `caja_chica` | ❌ | ❌ | 🟢 seguro |
-| `proveedores`/`prestamos`/`multas` | ❌ | ❌ | 🟢 seguro |
+| `btg_usuarios` | ~~lee + borra~~ | 🟢 cerrado | ✅ Fase 0.1 (2026-06-23) — `revoke all from anon` |
+| `auditoria` | ~~borra~~ | 🟢 cerrado | ✅ Fase 0.1 (2026-06-23) |
+| `nomina_historial` | ~~lee + borra~~ | 🟢 cerrado | ✅ Fase 0.1 (2026-06-23) |
+| `planillas` | ❌ | ❌ (401) | 🟢 seguro (Fase 2c, 2026-06-21) |
+| `abonos` | ❌ | ❌ (401) | 🟢 seguro (Fase 2c) |
+| `gasoil` | ❌ | ❌ (401) | 🟢 seguro (Fase 2c) |
+| `configuracion` | ❌ | ❌ (401) | 🟢 seguro (Fase 2c) |
+| `empleados`/`cxp`/`caja_chica`/`proveedores`/`prestamos`/`multas` | ❌ | ❌ | 🟢 seguro (Fase 2c) |
+| `tasas_diarias` | ✅ lee | ✅ borra (204) | 🟡 **abierta** — tabla nueva (2026-06-23); cerrar escritura anónima |
+| `combustible_mediciones` | ✅ lee | ✅ borra (204) | ⚪ tabla del CHOFER (Grupo B) — anon a propósito (chofer.html sin login, decisión de Máximo) |
+| Grupo B chofer (`checklist`,`flota_estado`,`km_data`,`porteria`,`viajes_chofer`) | ✅/✅ | abierto | ⚪ intencional hasta que se haga login del chofer |
+
+> **Corrección (2026-06-23):** la primera sonda usó la columna `id` (que varias tablas no tienen) → daba HTTP 400 (error de columna) que se interpretó por error como "borrado abierto". Con columnas válidas, las tablas sensibles ya estaban cerradas desde la **Fase 2c**. Las únicas brechas reales eran `btg_usuarios` y `nomina_historial` (cerradas en Fase 0.1) y `tasas_diarias` (pendiente).
 
 ### 3.2 Controles Anexo A
 - **A.9 Control de acceso**: 🟡 Login por Supabase Auth (`btg_usuarios`, email sintético) + roles
@@ -85,9 +85,10 @@ aceptación, roles y responsabilidades de QA.
 ## 7. Roadmap priorizado (impacto / esfuerzo / riesgo)
 **FASE 0 — Seguridad RLS (crítico, alto impacto).** Cerrar por capas, verificando antes que la
 app escriba con el JWT del usuario (no con la anon key):
-- 0.1 `btg_usuarios`, `auditoria`, `nomina_historial`: cortar lectura/borrado anónimo. Auditoría → append-only.
-- 0.2 `planillas`, `abonos`, `gasoil`, `configuracion`, `combustible_mediciones`, `tasas_diarias`: cortar escritura/borrado anónimo.
-- Dependencia: migrar los `fetch` directos con anon key (p.ej. borrado de abonos) al token de sesión.
+- 0.1 ✅ **HECHO (2026-06-23)** — `btg_usuarios`, `auditoria`, `nomina_historial`: `revoke all from anon`. Verificado: anon 401, app (JWT) 200.
+- 0.2 ⏳ `planillas`, `abonos`, `gasoil`, `configuracion`, `combustible_mediciones`, `tasas_diarias`: cortar escritura/borrado anónimo.
+  - **Bloqueante**: `_tokRestHdr()` usa la anon key (no el JWT). Hay que migrarlo al token de sesión ANTES de cerrar estas tablas, o se rompe el borrado por token / abonos.
+- 0.3 Auditoría real: `audit()` hoy solo guarda en memoria → persistir a `auditoria` (con el JWT) y hacerla append-only (sin DELETE/UPDATE ni para authenticated).
 
 **FASE 1 — Mantenibilidad 25010 (medio plazo).** Extraer el JS a archivos/módulos por dominio,
 introducir pruebas mínimas (smoke + reglas críticas de nómina/tasas), mantener `node --check`.
