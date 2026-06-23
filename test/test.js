@@ -51,6 +51,24 @@ console.log('\ncompCostoUnit (defaults, sin inputs en el DOM stub):');
 app.compCostoUnit('tumaca', function (v) { eq("tumaca default 0.54", v, 0.54); });
 app.compCostoUnit('boscan', function (v) { eq("boscan default 0.50", v, 0.50); });
 
+// ── _parseHistBCV: extrae fecha+precio del histórico pydolarve en cualquier forma ──
+console.log('\n_parseHistBCV (robusto a la anidación):');
+ok("_parseHistBCV definida", typeof app._parseHistBCV === 'function');
+eq("arreglo plano DD-MM-YYYY",
+  app._parseHistBCV([{date:'22-06-2026',price:617.6},{date:'21-06-2026',price:616}]),
+  [{fecha:'2026-06-21',bcv_dolar:616,fuente:'pydolarve (historico)'},{fecha:'2026-06-22',bcv_dolar:617.6,fuente:'pydolarve (historico)'}]);
+eq("anidado bcv[] con datetime.date",
+  app._parseHistBCV({bcv:[{datetime:{date:'22-06-2026'},price:617.6}]}).map(r=>r.fecha+'='+r.bcv_dolar),
+  ['2026-06-22=617.6']);
+eq("anidado bcv.history con fecha/promedio (ISO)",
+  app._parseHistBCV({bcv:{history:[{fecha:'2026-06-20',promedio:615}]}}).map(r=>r.fecha+'='+r.bcv_dolar),
+  ['2026-06-20=615']);
+eq("anidado monitors.usd",
+  app._parseHistBCV({monitors:{usd:[{date:'20-06-2026',price:615}]}}).map(r=>r.fecha),
+  ['2026-06-20']);
+eq("sin datos → []", app._parseHistBCV({error:'no data'}), []);
+eq("ignora precios basura (<100)", app._parseHistBCV([{date:'22-06-2026',price:0}]), []);
+
 // ── Resumen ──
 console.log('\n──────────────');
 console.log('PASS: ' + pass + '   FAIL: ' + fail);
