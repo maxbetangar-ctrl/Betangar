@@ -2131,6 +2131,9 @@ var EJS_KEY='Uyqw-MYDuZEOqhxeJ',EJS_SVC='service_h2b7fbm',EJS_TPL='template_he74
 var EJS_RPT_SVC='service_za892jr',EJS_RPT_TPL='template_mcfmlle';
 
 var supabase=null,supabaseAuth=null,DB_READY=false,DEMO_MODE=false,SESION=null;
+// JWT de la sesión actual, para los fetch REST directos (_tokRestHdr). Se mantiene fresco vía
+// onAuthStateChange. Antes esos fetch usaban la anon key → 401 contra tablas cerradas a anon.
+var _SESSION_JWT='';
 // Fecha de HOY en hora de Venezuela (UTC-4, sin horario de verano). Antes se usaba UTC
 // (toISOString) y de noche en Venezuela ya marcaba el día siguiente → los datos de "hoy"
 // (viajes, checklist, rutas) no aparecían. Esto unifica "hoy" al día real venezolano.
@@ -2403,6 +2406,9 @@ function initSupabaseClient(){
       // de login no lee datos. La RLS concede 'authenticated' en todas las tablas (migración 2a).
       supabase=createFn(SUPA_URL,SUPA_KEY,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:false,storageKey:'btg-auth'}});
       supabaseAuth=supabase; // mismo cliente para identidad (login/logout/getSession) y datos
+      // Mantener el JWT de sesión disponible para los fetch REST directos. Dispara al instante
+      // con la sesión restaurada (INITIAL_SESSION) y en cada login/refresh/logout.
+      try{supabase.auth.onAuthStateChange(function(_e,session){_SESSION_JWT=(session&&session.access_token)?session.access_token:'';});}catch(e){}
       DB_READY=true;console.log('✅ Supabase cliente OK (autenticado)');return true;
     }
     console.warn('⚠ Supabase CDN aún no disponible');DB_READY=false;return false;
@@ -8098,7 +8104,10 @@ function iniciarBannerTokens(){
 
 // Headers REST con la anon key (no depende del cliente supabase-js, que a veces no carga)
 function _tokRestHdr(extra){
-  var h={apikey:SUPA_KEY,Authorization:'Bearer '+SUPA_KEY};
+  // apikey SIEMPRE la anon (lo exige Supabase); la IDENTIDAD va en Authorization con el JWT de
+  // sesión. Si no hay sesión, cae a la anon key (igual que antes). Esto repara los borrados/
+  // updates directos (abonos, acciones por token) contra tablas ya cerradas a anon (Fase 2c).
+  var h={apikey:SUPA_KEY,Authorization:'Bearer '+(_SESSION_JWT||SUPA_KEY)};
   if(extra)for(var k in extra)h[k]=extra[k];
   return h;
 }
