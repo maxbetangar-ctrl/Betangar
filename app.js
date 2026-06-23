@@ -2804,6 +2804,38 @@ function imprimirAbonos(){
 // ═══════════════════════════════════════════════════
 // NOMINA
 // ═══════════════════════════════════════════════════
+// Feriados NACIONALES (no regionales). Los viajes de DOMINGO o feriado nacional pagan 1.5×.
+// Carnaval y Semana Santa son movibles → agregar las fechas exactas del año cuando toque.
+var FERIADOS_NACIONALES=['2026-01-01','2026-04-19','2026-05-01','2026-06-24','2026-07-05','2026-07-24','2026-10-12','2026-12-24','2026-12-25','2026-12-31'];
+function _esDomingoOferiado(f){
+  f=String(f||'').slice(0,10);
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(f))return false;
+  if(FERIADOS_NACIONALES.indexOf(f)>=0)return true;
+  var p=f.split('-');
+  return new Date(Date.UTC(+p[0],+p[1]-1,+p[2])).getUTCDay()===0; // 0 = domingo
+}
+// Días de PATIO por chofer (manual): si el camión no salió pero el chofer cumplió patio, se le
+// paga +1 viaje por día. Clave = nombre canónico en MAYÚSCULA. Persiste por semana.
+var PATIO_DIAS={};
+function setPatioDias(chKey,val){
+  chKey=String(chKey||'').toUpperCase(); var n=Math.max(0,parseInt(val)||0);
+  if(n)PATIO_DIAS[chKey]=n; else delete PATIO_DIAS[chKey];
+  guardarPatioDias(); try{calcNom();}catch(e){}
+}
+function _patioKeyDB(){return 'patio_'+(gv('nm-mes')||'')+'_'+(gv('nm-sem')||'');}
+function guardarPatioDias(){
+  if(!(DB_READY&&supabase))return;
+  try{supabase.from('configuracion').upsert([{clave:_patioKeyDB(),valor:JSON.stringify(PATIO_DIAS)}],{onConflict:'clave'}).then(function(r){if(r&&r.error)console.log('patio save:',r.error.message);});}catch(e){}
+}
+async function cargarPatioDias(){
+  PATIO_DIAS={};
+  if(!(DB_READY&&supabase))return;
+  try{var r=await supabase.from('configuracion').select('valor').eq('clave',_patioKeyDB()).maybeSingle();
+    if(r&&r.data&&r.data.valor){var v=JSON.parse(r.data.valor); if(v&&typeof v==='object')PATIO_DIAS=v;}
+  }catch(e){}
+}
+// Al cambiar de semana/mes: cargar el patio guardado de ESA semana y recalcular.
+function recalcNom(){ cargarPatioDias().then(function(){try{calcNom();}catch(e){}}).catch(function(){try{calcNom();}catch(e){}}); }
 function calcNom(){
   var mes=gv('nm-mes'),sem=gv('nm-sem');
   var des=gv('nm-des'),hta=gv('nm-hta');
@@ -2826,8 +2858,10 @@ function calcNom(){
     var nomCh=r.ch||TEMPORALES[r.cam]||'';
     var chKey=_nombreCanonico(nomCh).toUpperCase();
     if(!chKey)return; // planilla sin chofer: no se puede pagar a nadie
-    if(!chMap[chKey])chMap[chKey]={ch:nomCh,cams:new Set(),viajes:0,dias:new Set(),diasViaje:new Set(),descuentos:0,patio:0};
+    if(!chMap[chKey])chMap[chKey]={ch:nomCh,cams:new Set(),viajes:0,montoViajes:0,dias:new Set(),diasViaje:new Set(),descuentos:0,patio:0};
     chMap[chKey].viajes+=r.t;chMap[chKey].dias.add(r.f);chMap[chKey].cams.add(r.cam);
+    // Monto de los viajes con recargo 1.5× si la planilla es de domingo/feriado nacional.
+    chMap[chKey].montoViajes+=(parseInt(r.t)||0)*cfg.chofer*(_esDomingoOferiado(r.f)?1.5:1);
     if((parseInt(r.t)||0)>0)chMap[chKey].diasViaje.add(_asisDow(r.f));
   });
   EMPLEADOS.filter(function(e){return e.cargo==='Ayudante'&&e.activo;}).forEach(function(e){
@@ -2895,7 +2929,7 @@ function calcNom(){
     });
   }
   var tvTot=f.reduce(function(s,r){return s+r.t;},0);
-  var totCh=Object.values(chMap).reduce(function(s,c){return s+Math.max(0,(c.viajes*cfg.chofer)-c.descuentos);},0);
+  var totCh=Object.values(chMap).reduce(function(s,c){var k=_nombreCanonico(c.ch).toUpperCase();var pat=(c.patio||0)+(parseInt(PATIO_DIAS[k])||0);return s+Math.max(0,(c.montoViajes||0)+pat*cfg.chofer-c.descuentos);},0);
   var totAy=Object.values(ayMap).reduce(function(s,a){return s+Math.max(0,(a.viajes*a.tasa)-a.descuentos);},0);
   if(g('nm-tv'))g('nm-tv').textContent=tvTot;
   if(g('nm-ch'))g('nm-ch').textContent='$'+totCh.toFixed(0);
@@ -2912,7 +2946,7 @@ function calcNom(){
     sem:sem||'', mes:mes||'', tasa:tasa, totCh:totCh, totAy:totAy, totAdm:totAdm, totBs:totBs,
     fdesde: f.length?f.reduce(function(m,r){return r.f<m?r.f:m;},f[0].f):null,
     fhasta: f.length?f.reduce(function(m,r){return r.f>m?r.f:m;},f[0].f):null,
-    choferes: Object.values(chMap).map(function(c){return {n:c.ch,u:Array.from(c.cams||[]).join(','),viajes:c.viajes,usd:Math.round((Math.max(0,c.viajes*cfg.chofer-c.descuentos))*100)/100,bs:Math.round(Math.max(0,c.viajes*cfg.chofer-c.descuentos)*tasa*100)/100};}),
+    choferes: Object.values(chMap).map(function(c){var k=_nombreCanonico(c.ch).toUpperCase();var pat=(c.patio||0)+(parseInt(PATIO_DIAS[k])||0);var u=Math.max(0,(c.montoViajes||0)+pat*cfg.chofer-c.descuentos);return {n:c.ch,u:Array.from(c.cams||[]).join(','),viajes:c.viajes+pat,usd:Math.round(u*100)/100,bs:Math.round(u*tasa*100)/100};}),
     ayudantes: Object.values(ayMap).map(function(a){return {n:a.emp.nombre,u:a.emp.unidad,viajes:a.viajes,usd:Math.round((Math.max(0,a.viajes*a.tasa-a.descuentos))*100)/100,bs:Math.round(Math.max(0,a.viajes*a.tasa-a.descuentos)*tasa*100)/100,tipo:a.emp.tipoAy||'interno'};})
   };
   if(g('nm-tot'))g('nm-tot').textContent='$'+totUsd.toFixed(0)+(totAdm>0?' (op $'+totOp.toFixed(0)+' + fijos $'+totAdm.toFixed(0)+')':'')+' = Bs '+(totBs/1000).toFixed(0)+'k';
@@ -2920,7 +2954,18 @@ function calcNom(){
   if(g('nm-ay'))g('nm-ay').textContent='$'+totAy.toFixed(0)+' (Bs '+(totAy*tasa/1000).toFixed(0)+'k)';
   var desc=g('nm-descuentos');if(desc)desc.innerHTML=descBanners.join('');
   var tbCh=g('tb-nom-ch');
-  if(tbCh)tbCh.innerHTML=Object.values(chMap).map(function(c,i){var sueldo=c.viajes*cfg.chofer;var total=Math.max(0,sueldo-c.descuentos);return'<tr><td style="font-family:var(--m)">'+(i+1)+'</td><td style="font-weight:700">'+c.ch+'</td><td style="font-size:10px">'+Array.from(c.cams||[]).join(', ')+'</td><td style="color:var(--green)">'+c.viajes+(c.patio>0?' <span style="font-size:8px;color:var(--amber)" title="incluye '+c.patio+' dia(s) de patio">+'+c.patio+'P</span>':'')+'</td><td>'+c.dias.size+'</td><td style="font-family:var(--m)">$'+sueldo.toFixed(0)+'</td><td style="font-family:var(--m);color:var(--red)">'+(c.descuentos>0?'-$'+c.descuentos.toFixed(0):'—')+'</td><td style="font-family:var(--m);font-weight:700;color:var(--yellow)">$'+total.toFixed(0)+'</td></tr>';}).join('');
+  if(tbCh)tbCh.innerHTML=Object.values(chMap).map(function(c,i){
+    var key=_nombreCanonico(c.ch).toUpperCase();
+    var patM=parseInt(PATIO_DIAS[key])||0, patTot=(c.patio||0)+patM;
+    var sueldo=(c.montoViajes||0)+patTot*cfg.chofer, total=Math.max(0,sueldo-c.descuentos);
+    return '<tr><td style="font-family:var(--m)">'+(i+1)+'</td><td style="font-weight:700">'+c.ch+'</td>'+
+      '<td style="font-size:10px">'+Array.from(c.cams||[]).join(', ')+'</td>'+
+      '<td style="color:var(--green)">'+c.viajes+(c.patio>0?' <span style="font-size:8px;color:var(--amber)" title="patio por asistencia">+'+c.patio+'P</span>':'')+
+        ' <input type="number" min="0" value="'+patM+'" title="Días de patio (manual): +1 viaje c/u" onchange="setPatioDias(\''+key.replace(/'/g,"")+'\',this.value)" style="width:30px;font-size:9px;background:var(--bg3);border:1px solid var(--border);color:var(--amber);border-radius:4px;padding:1px 2px;text-align:center"><span style="font-size:8px;color:var(--amber)">P</span></td>'+
+      '<td>'+c.dias.size+'</td>'+
+      '<td style="font-family:var(--m)">$'+sueldo.toFixed(0)+'</td>'+
+      '<td style="font-family:var(--m);color:var(--red)">'+(c.descuentos>0?'-$'+c.descuentos.toFixed(0):'—')+'</td>'+
+      '<td style="font-family:var(--m);font-weight:700;color:var(--yellow)">$'+total.toFixed(0)+'</td></tr>';}).join('');
   var tbAy=g('tb-nom-ay');
   if(tbAy)tbAy.innerHTML=Object.values(ayMap).sort(function(a,b){return b.viajes-a.viajes;}).map(function(a,i){
     var sueldo=a.viajes*a.tasa;var total=Math.max(0,sueldo-a.descuentos);
