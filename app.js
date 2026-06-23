@@ -2020,13 +2020,13 @@ function filtH(){
   if(g('h-tv'))g('h-tv').textContent=tv;if(g('h-tm'))g('h-tm').textContent='$'+tm.toLocaleString();
   if(g('h-td'))g('h-td').textContent=td;if(g('h-tn'))g('h-tn').textContent=tn;if(g('h-tp'))g('h-tp').textContent=f.length;
   var tb=g('tb-hist');
-  if(tb)tb.innerHTML=f.slice().sort(function(a,b){if(a.f!==b.f)return a.f<b.f?1:-1;return (parseInt(b.p)||0)-(parseInt(a.p)||0);}).map(function(r){return'<tr><td style="font-family:var(--m)">#'+r.p+'</td><td>'+formatFecha(r.f)+'</td><td><span class="badge bt">'+r.mes+'</span></td><td style="font-weight:700">'+r.cam+'</td><td style="font-size:11px">'+r.ch+'</td><td style="font-size:11px">'+r.r+'</td><td style="font-size:10px;color:var(--text3)">'+r.par+'</td><td style="color:var(--blue)">'+r.d+'</td><td style="color:var(--purple)">'+r.n+'</td><td style="font-weight:700;color:var(--green)">'+r.t+'</td><td><span class="badge by">'+r.sem+'</span></td><td style="font-family:var(--m);color:var(--yellow)">$'+r.m.toLocaleString()+'</td><td><button onclick="editarPlanilla(\''+r.p+'\')" class="btn btn-xs" style="background:var(--teal);color:#fff;padding:2px 5px">✏</button><button onclick="eliminarPlanilla(\''+r.p+'\')" class="btn btn-r btn-xs">×</button></td></tr>';}).join('')||'<tr><td colspan="13" style="text-align:center;color:var(--text3);padding:20px">Sin resultados</td></tr>';
+  if(tb)tb.innerHTML=f.slice().sort(function(a,b){if(a.f!==b.f)return a.f<b.f?1:-1;return (parseInt(b.p)||0)-(parseInt(a.p)||0);}).map(function(r){return'<tr><td style="font-family:var(--m)">#'+r.p+'</td><td>'+formatFecha(r.f)+'</td><td><span class="badge bt">'+r.mes+'</span></td><td style="font-weight:700">'+r.cam+'</td><td style="font-size:11px">'+r.ch+'</td><td style="font-size:10px;color:var(--text2)">'+([r.ay1,r.ay2,r.ay3].filter(Boolean).join(', ')||'—')+'</td><td style="font-size:11px">'+r.r+'</td><td style="font-size:10px;color:var(--text3)">'+r.par+'</td><td style="color:var(--blue)">'+r.d+'</td><td style="color:var(--purple)">'+r.n+'</td><td style="font-weight:700;color:var(--green)">'+r.t+'</td><td><span class="badge by">'+r.sem+'</span></td><td style="font-family:var(--m);color:var(--yellow)">$'+r.m.toLocaleString()+'</td><td><button onclick="editarPlanilla(\''+r.p+'\')" class="btn btn-xs" style="background:var(--teal);color:#fff;padding:2px 5px">✏</button><button onclick="eliminarPlanilla(\''+r.p+'\')" class="btn btn-r btn-xs">×</button></td></tr>';}).join('')||'<tr><td colspan="14" style="text-align:center;color:var(--text3);padding:20px">Sin resultados</td></tr>';
 }
 function limpH(){['hf-mes','hf-sem','hf-cam','hf-des','hf-hta','hf-per'].forEach(function(id){sv(id,'');});filtH();}
 function exportHistExcel(){
   if(typeof XLSX==='undefined'){alert('XLSX no cargado');return;}
   var wb=XLSX.utils.book_new();
-  var ws=XLSX.utils.json_to_sheet(REGS.map(function(r){return{Planilla:r.p,Fecha:r.f,Mes:r.mes,Camion:r.cam,Chofer:r.ch,Ruta:r.r,Parroquia:r.par,Diurnos:r.d,Nocturnos:r.n,Total:r.t,Semana:r.sem,'Monto $':r.m};}));
+  var ws=XLSX.utils.json_to_sheet(REGS.map(function(r){return{Planilla:r.p,Fecha:r.f,Mes:r.mes,Camion:r.cam,Chofer:r.ch,Ayudante1:r.ay1||'',Ayudante2:r.ay2||'',Ayudante3:r.ay3||'',Ruta:r.r,Parroquia:r.par,Diurnos:r.d,Nocturnos:r.n,Total:r.t,Semana:r.sem,'Monto $':r.m};}));
   XLSX.utils.book_append_sheet(wb,ws,'Planillas');XLSX.writeFile(wb,'Betangar_Historico.xlsx');
 }
 // Aviso claro de DÓNDE quedó guardada la importación.
@@ -6497,6 +6497,7 @@ function imprimirHistorico(){
       '<td>'+formatFecha(r.f)+'</td>'+
       '<td class="bv"><b>'+r.cam+'</b></td>'+
       '<td style="font-size:11px">'+r.ch+'</td>'+
+      '<td style="font-size:10px;color:#374151">'+([r.ay1,r.ay2,r.ay3].filter(Boolean).join(', ')||'—')+'</td>'+
       '<td style="font-size:10px;color:#6b7280">'+r.r+'</td>'+
       '<td style="text-align:center;font-weight:700">'+r.t+'</td>'+
       '<td class="gv">$'+r.m.toLocaleString('es-VE',{minimumFractionDigits:2})+'</td></tr>';
@@ -6504,9 +6505,9 @@ function imprimirHistorico(){
   var stats=mkStat('Planillas',rows.length,'Ultimas '+rows.length,'azul')+
     mkStat('Total Viajes',tv,'','verde')+
     mkStat('Total Facturado','$'+tm.toLocaleString('es-VE',{minimumFractionDigits:2}),'USD','verde');
-  var body='<table><thead><tr><th>#</th><th>Planilla</th><th>Fecha</th><th>Unidad</th><th>Chofer</th><th>Ruta</th><th style="text-align:center">Viajes</th><th>Monto $</th></tr></thead>'+
+  var body='<table><thead><tr><th>#</th><th>Planilla</th><th>Fecha</th><th>Unidad</th><th>Chofer</th><th>Ayudantes</th><th>Ruta</th><th style="text-align:center">Viajes</th><th>Monto $</th></tr></thead>'+
     '<tbody>'+filas+
-    '<tr class="tr-tot"><td colspan="6">TOTALES</td><td style="text-align:center">'+tv+'</td><td>$'+tm.toLocaleString('es-VE',{minimumFractionDigits:2})+'</td></tr>'+
+    '<tr class="tr-tot"><td colspan="7">TOTALES</td><td style="text-align:center">'+tv+'</td><td>$'+tm.toLocaleString('es-VE',{minimumFractionDigits:2})+'</td></tr>'+
     '</tbody></table>';
   abrirImpresionPremium('Historico de Planillas','Ultimos '+rows.length+' registros',stats,body);
 }
