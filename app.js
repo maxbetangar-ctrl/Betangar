@@ -10624,10 +10624,21 @@ async function cargarTasasDiarias(){
 // Tasa GUARDADA de una fecha (YYYY-MM-DD); null si no hay. tipo: 'dolar'|'euro'|'binance'.
 function getTasaFecha(fecha, tipo){
   tipo=tipo||'dolar';
-  var t=TASAS_DIARIAS[String(fecha||'').slice(0,10)];
-  if(!t)return null;
-  var v=t[tipo];
-  return (v&&v>0)?v:null;
+  var f=String(fecha||'').slice(0,10);
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(f))return null;
+  // Exacta
+  var t=TASAS_DIARIAS[f];
+  if(t&&t[tipo]>0)return t[tipo];
+  // Fin de semana / feriado: el BCV no publica → la tasa vigente es la del día hábil anterior
+  // más cercano. Se busca hasta 7 días atrás (más allá se considera sin dato real). UTC para
+  // no correr la fecha por zona horaria.
+  var p=f.split('-'), dt=new Date(Date.UTC(+p[0],+p[1]-1,+p[2]));
+  for(var i=0;i<7;i++){
+    dt.setUTCDate(dt.getUTCDate()-1);
+    var prev=TASAS_DIARIAS[dt.toISOString().slice(0,10)];
+    if(prev&&prev[tipo]>0)return prev[tipo];
+  }
+  return null;
 }
 async function cargarTasas(){
   if(!TASAS.bcvDolar)TASAS.bcvDolar=cfg.tasa||600;

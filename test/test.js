@@ -45,6 +45,11 @@ eq("acepta timestamp (slice a 10)", app.getTasaFecha('2026-06-23T10:00:00Z', 'do
 eq("euro", app.getTasaFecha('2026-06-23', 'euro'), 634.4);
 eq("fecha sin tasa → null (nunca USD=Bs)", app.getTasaFecha('2026-06-22', 'dolar'), null);
 eq("default tipo = dolar", app.getTasaFecha('2026-06-23'), 617.64);
+// Fin de semana / feriado → usa el día hábil anterior (≤7 días atrás)
+app.TASAS_DIARIAS = { '2026-06-19': { dolar: 611.5 } }; // viernes
+eq("sábado usa la tasa del viernes", app.getTasaFecha('2026-06-20', 'dolar'), 611.5);
+eq("domingo usa la tasa del viernes", app.getTasaFecha('2026-06-21', 'dolar'), 611.5);
+eq("más de 7 días sin tasa previa → null", app.getTasaFecha('2026-07-01', 'dolar'), null);
 
 // ── compCostoUnit: precio $/L FIJO por fuente (sin DOM → usa defaults) ──
 console.log('\ncompCostoUnit (defaults, sin inputs en el DOM stub):');
