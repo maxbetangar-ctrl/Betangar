@@ -56,6 +56,13 @@ console.log('\ncompCostoUnit (defaults, sin inputs en el DOM stub):');
 app.compCostoUnit('tumaca', function (v) { eq("tumaca default 0.54", v, 0.54); });
 app.compCostoUnit('boscan', function (v) { eq("boscan default 0.50", v, 0.50); });
 
+// ── _nombreCanonico: alias de nombres mal escritos en planillas ──
+console.log('\n_nombreCanonico (alias de typos):');
+eq("YURBENIS -> YURVENIS (full)", app._nombreCanonico('YURBENIS BERMUDEZ'), 'YURVENIS FRANCISCO BERMUDEZ SUAREZ');
+eq("Jose Arangure -> ARANGUREN", app._nombreCanonico('Jose Arangure'), 'JOSE ELITE ARANGUREN GONZALEZ');
+eq("YIBER -> YIRBER", app._nombreCanonico('yiber gonzalez'), 'YIRBER LENITHON GONZALEZ MONTIEL');
+eq("nombre sin alias ni empleado -> uppercase", app._nombreCanonico('Pedro Perez'), 'PEDRO PEREZ');
+
 // ── Resumen ──
 console.log('\n──────────────');
 console.log('PASS: ' + pass + '   FAIL: ' + fail);

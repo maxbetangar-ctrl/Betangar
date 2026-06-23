@@ -1933,8 +1933,21 @@ function valEmpField(inputId,hintId){
 // Devuelve el nombre COMPLETO del empleado (canónico) si el texto escrito casa con uno;
 // si no, devuelve el texto tal cual (en mayúsculas). Así las planillas guardan nombres que
 // SIEMPRE casan con la nómina/asistencia (arregla la calidad de datos de raíz).
+// Alias de nombres mal escritos en las planillas (typos que NO casan con el empleado vía
+// _empPorNombre, p.ej. YURBENIS->YURVENIS). Se aplican al IMPORTAR y en el cálculo de nómina,
+// así da igual que RRHH suba el Excel con el nombre malo: la app lo corrige sola.
+// Clave = nombre normalizado (mayúsculas, sin acentos); valor = nombre canónico del empleado.
+var _ALIAS_NOMBRES={
+  'YURBENIS BERMUDEZ':'YURVENIS FRANCISCO BERMUDEZ SUAREZ',
+  'JOSE ARANGURE':'JOSE ELITE ARANGUREN GONZALEZ',
+  'ANDRI CUBA':'ANDRY JOSE CUBA SUAREZ',
+  'YIBER GONZALEZ':'YIRBER LENITHON GONZALEZ MONTIEL',
+  'JONH J DELGADO':'JHON JAIRO DELGADO GONZALEZ'
+};
 function _nombreCanonico(n){
   if(!n||!String(n).trim())return '';
+  var key=(typeof _normNom==='function')?_normNom(n):String(n).trim().toUpperCase();
+  if(_ALIAS_NOMBRES[key])return _ALIAS_NOMBRES[key];
   var e=(typeof _empPorNombre==='function')?_empPorNombre(n):null;
   return e?e.nombre:String(n).trim().toUpperCase();
 }
