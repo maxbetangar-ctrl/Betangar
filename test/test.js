@@ -63,6 +63,16 @@ eq("Jose Arangure -> ARANGUREN", app._nombreCanonico('Jose Arangure'), 'JOSE ELI
 eq("YIBER -> YIRBER", app._nombreCanonico('yiber gonzalez'), 'YIRBER LENITHON GONZALEZ MONTIEL');
 eq("nombre sin alias ni empleado -> uppercase", app._nombreCanonico('Pedro Perez'), 'PEDRO PEREZ');
 
+// ── imauViajesPlanilla: cuenta la marca "IMAU" en la planilla (ay1/ay2/ay3) × viajes ──
+console.log('\nimauViajesPlanilla (marca "IMAU", sin nombres):');
+eq("una fila IMAU = sus viajes", app.imauViajesPlanilla([{ay1:'IMAU',t:3}]), 3);
+eq("ignora ayudantes con nombre", app.imauViajesPlanilla([{ay1:'IMAU',t:3},{ay1:'JUAN PEREZ',t:2}]), 3);
+eq("minúsculas/espacios cuentan", app.imauViajesPlanilla([{ay2:'  imau ',t:4}]), 4);
+eq("dos IMAU en la fila = 2× viajes", app.imauViajesPlanilla([{ay1:'IMAU',ay2:'IMAU',t:3}]), 6);
+eq("sin IMAU = 0", app.imauViajesPlanilla([{ay1:'PEDRO',ay2:'',t:5}]), 0);
+eq("'IMAU' parcial NO cuenta (exacto)", app.imauViajesPlanilla([{ay1:'IMAUX',t:5}]), 0);
+eq("lista vacía = 0", app.imauViajesPlanilla([]), 0);
+
 // ── Resumen ──
 console.log('\n──────────────');
 console.log('PASS: ' + pass + '   FAIL: ' + fail);

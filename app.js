@@ -419,7 +419,7 @@ function _iniciarSesionCore(){
     if(!_rl[SESION.rol]){
       bncInitFlag().then(function(){renderDash();});
       renderDash();renderPlanHoy();renderKm();renderAbonos();
-      calcNom();renderGastosFijos();renderGastosVariables();
+      recalcNom();renderGastosFijos();renderGastosVariables();
       checkAlertas7AM();checkCumpleAlerts();
     }
     // Para roles limitados: navegar PRIMERO antes de cualquier render
@@ -780,7 +780,7 @@ function sp(id){
     if(id==='usuarios')renderUsuarios();
     if(id==='financiero'){renderFinDash();renderGastosFijos();renderProveedoresLista();renderBancoFin();autoLlenarTasasEnFormularios();}
     if(id==='abonos'){renderAbonos();calcMontoAbono();}
-    if(id==='nomina')calcNom();
+    if(id==='nomina')recalcNom();
     if(id==='combustible'){renderComb();renderGasolPersonal();setTimeout(renderGasoil,100);}
     if(id==='control-combustible'){renderControlComb();}
     if(id==='rentabilidad'){renderRentabilidad();}
@@ -2001,7 +2001,9 @@ function poblarDatalistsEmpleados(){
   var ayud=act.filter(function(e){return /ayud/i.test(e.cargo||'');}); if(!ayud.length)ayud=act;
   function opts(list){return list.map(function(e){return '<option value="'+String(e.nombre).replace(/"/g,'&quot;')+'">'+(e.cargo||'')+'</option>';}).join('');}
   var dc=document.getElementById('dl-chofer'); if(dc)dc.innerHTML=opts(chof);
-  ['dl-ay1','dl-ay2','dl-ay3'].forEach(function(id){var dl=document.getElementById(id);if(dl)dl.innerHTML=opts(ayud);});
+  // "IMAU" de primero: los ayudantes IMAU no se escriben con nombre, se marca "IMAU" (la nómina lo cuenta solo).
+  var imauOpt='<option value="IMAU">Apoyo IMAU ($2,50/viaje)</option>';
+  ['dl-ay1','dl-ay2','dl-ay3'].forEach(function(id){var dl=document.getElementById(id);if(dl)dl.innerHTML=imauOpt+opts(ayud);});
 }
 // Indicador en vivo: ✓ si el nombre escrito está en el expediente, ⚠ si no.
 function valEmpField(inputId,hintId){
@@ -2834,8 +2836,31 @@ async function cargarPatioDias(){
     if(r&&r.data&&r.data.valor){var v=JSON.parse(r.data.valor); if(v&&typeof v==='object')PATIO_DIAS=v;}
   }catch(e){}
 }
-// Al cambiar de semana/mes: cargar el patio guardado de ESA semana y recalcular.
-function recalcNom(){ cargarPatioDias().then(function(){try{calcNom();}catch(e){}}).catch(function(){try{calcNom();}catch(e){}}); }
+// APOYO IMAU — dos partes:
+//  (1) Los ~16 ayudantes IMAU NO se escriben con nombre en la planilla: se anota la palabra
+//      "IMAU" en el campo de ayudante (ay1/ay2/ay3). calcNom cuenta esas filas × sus viajes ×
+//      $2,50 (cfg.imau) y arma el total solo, sin un solo nombre. (Ver imauPlanilla() en calcNom.)
+//  (2) Los 4 de apoyo/supervisor (Martín $50, Oswaldo $50, Gregorio $25, Kelvis $20) son FIJOS
+//      e iguales toda la semana → lista chica GLOBAL (no por semana) que se suma al total.
+var IMAU_FIJOS_DEF={'MARTIN GUTIERREZ':50,'OSWALDO FERNANDEZ':50,'GREGORIO VILCHEZ':25,'KELVIS BRACHO':20};
+var IMAU_APOYO={}; // {NOMBRE_UPPER: monto semanal $} — solo los 4 fijos
+function setImauApoyo(nombre,val){ var k=String(nombre||'').toUpperCase(); var m=Math.max(0,parseFloat(val)||0); if(m)IMAU_APOYO[k]=m; else delete IMAU_APOYO[k]; guardarImauApoyo(); try{calcNom();}catch(e){} }
+function guardarImauApoyo(){ if(!(DB_READY&&supabase))return; try{supabase.from('configuracion').upsert([{clave:'imau_fijos',valor:JSON.stringify(IMAU_APOYO)}],{onConflict:'clave'}).then(function(r){if(r&&r.error)console.log('imau save:',r.error.message);});}catch(e){} }
+async function cargarImauApoyo(){ IMAU_APOYO={}; if(DB_READY&&supabase){ try{var r=await supabase.from('configuracion').select('valor').eq('clave','imau_fijos').maybeSingle(); if(r&&r.data&&r.data.valor){var v=JSON.parse(r.data.valor); if(v&&typeof v==='object')IMAU_APOYO=v;}}catch(e){} } if(!Object.keys(IMAU_APOYO).length){var d={};Object.keys(IMAU_FIJOS_DEF).forEach(function(k){d[k]=IMAU_FIJOS_DEF[k];});IMAU_APOYO=d;} }
+function imauTotal(){ return Object.values(IMAU_APOYO||{}).reduce(function(s,m){return s+(parseFloat(m)||0);},0); }
+// Viajes IMAU de la planilla: filas (del filtro f) con "IMAU" escrito en ay1/ay2/ay3 × viajes.
+function imauViajesPlanilla(f){ var v=0; (f||[]).forEach(function(r){ var n=[r.ay1,r.ay2,r.ay3].filter(function(nm){return nm&&String(nm).trim().toUpperCase()==='IMAU';}).length; if(n)v+=n*(parseInt(r.t)||0); }); return v; }
+function renderImauApoyo(){
+  var tb=g('tb-imau-apoyo'); if(!tb)return;
+  var nombres=Object.keys(IMAU_APOYO).sort();
+  var tot=0;
+  tb.innerHTML=nombres.map(function(k){var m=parseFloat(IMAU_APOYO[k])||0;tot+=m;return '<tr><td style="font-size:11px">'+k+'</td><td><input type="number" min="0" step="0.5" value="'+m+'" title="Monto fijo semanal $" onchange="setImauApoyo(\''+k.replace(/'/g,'')+'\',this.value)" style="width:72px;font-family:var(--m);background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:3px 6px;border-radius:5px"></td></tr>';}).join('')+
+    '<tr class="tr-tot"><td>TOTAL FIJOS IMAU</td><td style="font-family:var(--m);color:var(--yellow)">$'+tot.toFixed(0)+'</td></tr>'+
+    '<tr><td colspan="2" style="padding-top:6px"><button onclick="agregarImauApoyo()" class="btn btn-s btn-xs">+ Agregar apoyo / supervisor</button></td></tr>';
+}
+function agregarImauApoyo(){ var n=prompt('Nombre del apoyo/supervisor IMAU:'); if(!n||!n.trim())return; IMAU_APOYO[n.trim().toUpperCase()]=0; guardarImauApoyo(); renderImauApoyo(); }
+// Al cambiar de semana/mes: cargar patio + fijos IMAU y recalcular.
+function recalcNom(){ Promise.all([cargarPatioDias(),cargarImauApoyo()]).then(function(){try{calcNom();}catch(e){}}).catch(function(){try{calcNom();}catch(e){}}); }
 function calcNom(){
   var mes=gv('nm-mes'),sem=gv('nm-sem');
   var des=gv('nm-des'),hta=gv('nm-hta');
@@ -2939,8 +2964,16 @@ function calcNom(){
   // FIJOS (admin + apoyo IMAU): NOM_ADM en monto MENSUAL → semanal (/4) si hay semana
   // seleccionada, completo si es el mes. Suman al total para que cuadre con la nómina oficial.
   var totAdm=(typeof NOM_ADM!=='undefined'?NOM_ADM:[]).reduce(function(s,n){return s+(parseFloat(n.monto)||0);},0)/(sem?4:1);
-  var totUsd=totOp+totAdm;
+  // APOYO IMAU: (a) los ~16 ayudantes salen de la planilla — cada "IMAU" escrito × viajes × $2,50;
+  //             (b) los 4 fijos (apoyo/supervisor) de la lista global.
+  var imauVj=(typeof imauViajesPlanilla==='function')?imauViajesPlanilla(f):0;
+  var totImauPlan=imauVj*((typeof cfg!=='undefined'&&cfg.imau)?cfg.imau:2.5);
+  var totImauFijo=(typeof imauTotal==='function')?imauTotal():0;
+  var totImau=totImauPlan+totImauFijo;
+  var totUsd=totOp+totAdm+totImau;
   var totBs=totUsd*tasa;
+  if(g('nm-imau'))g('nm-imau').textContent='$'+totImau.toFixed(0)+(imauVj?' ('+imauVj+' viajes×$'+(((typeof cfg!=='undefined'&&cfg.imau)?cfg.imau:2.5))+' + fijos $'+totImauFijo.toFixed(0)+')':' (fijos)');
+  try{renderImauApoyo();}catch(e){}
   // Guardar el último cálculo para poder "Guardar en historial" (nutrir nomina_historial).
   _ultimaNomina={
     sem:sem||'', mes:mes||'', tasa:tasa, totCh:totCh, totAy:totAy, totAdm:totAdm, totBs:totBs,
@@ -2949,7 +2982,7 @@ function calcNom(){
     choferes: Object.values(chMap).map(function(c){var k=_nombreCanonico(c.ch).toUpperCase();var pat=(c.patio||0)+(parseInt(PATIO_DIAS[k])||0);var u=Math.max(0,(c.montoViajes||0)+pat*cfg.chofer-c.descuentos);return {n:c.ch,u:Array.from(c.cams||[]).join(','),viajes:c.viajes+pat,usd:Math.round(u*100)/100,bs:Math.round(u*tasa*100)/100};}),
     ayudantes: Object.values(ayMap).map(function(a){return {n:a.emp.nombre,u:a.emp.unidad,viajes:a.viajes,usd:Math.round((Math.max(0,a.viajes*a.tasa-a.descuentos))*100)/100,bs:Math.round(Math.max(0,a.viajes*a.tasa-a.descuentos)*tasa*100)/100,tipo:a.emp.tipoAy||'interno'};})
   };
-  if(g('nm-tot'))g('nm-tot').textContent='$'+totUsd.toFixed(0)+(totAdm>0?' (op $'+totOp.toFixed(0)+' + fijos $'+totAdm.toFixed(0)+')':'')+' = Bs '+(totBs/1000).toFixed(0)+'k';
+  if(g('nm-tot'))g('nm-tot').textContent='$'+totUsd.toFixed(0)+' (op $'+totOp.toFixed(0)+(totImau>0?' + IMAU $'+totImau.toFixed(0):'')+(totAdm>0?' + adm $'+totAdm.toFixed(0):'')+')'+' = Bs '+(totBs/1000).toFixed(0)+'k';
   if(g('nm-ch'))g('nm-ch').textContent='$'+totCh.toFixed(0)+' (Bs '+(totCh*tasa/1000).toFixed(0)+'k)';
   if(g('nm-ay'))g('nm-ay').textContent='$'+totAy.toFixed(0)+' (Bs '+(totAy*tasa/1000).toFixed(0)+'k)';
   var desc=g('nm-descuentos');if(desc)desc.innerHTML=descBanners.join('');

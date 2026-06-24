@@ -1284,19 +1284,22 @@ tr:hover td{background:rgba(45,255,122,.02)}
     <button class="btn btn-y btn-sm" onclick="enviarReporteJAC()">📧 Reporte JAC</button>
   </div>
   <div id="nm-descuentos" style="margin-bottom:8px"></div>
-  <div class="g4" style="margin-bottom:10px">
+  <div class="g5" style="margin-bottom:10px">
     <div class="stat"><div class="stat-lbl">Total Viajes</div><div class="stat-val" id="nm-tv">-</div></div>
     <div class="stat" style="border-top-color:var(--green2)"><div class="stat-lbl">Nomina Choferes</div><div class="stat-val" style="font-size:16px" id="nm-ch">-</div></div>
     <div class="stat y"><div class="stat-lbl">Nomina Ayudantes</div><div class="stat-val" style="font-size:16px" id="nm-ay">-</div></div>
-    <div class="stat b"><div class="stat-lbl">Total Operativa</div><div class="stat-val" style="font-size:16px" id="nm-tot">-</div></div>
+    <div class="stat" style="border-top-color:var(--yellow)"><div class="stat-lbl">Apoyo IMAU</div><div class="stat-val" style="font-size:12px" id="nm-imau">-</div></div>
+    <div class="stat b"><div class="stat-lbl">Total Nómina</div><div class="stat-val" style="font-size:16px" id="nm-tot">-</div></div>
   </div>
   <div class="g2" style="margin-bottom:10px">
     <div style="min-width:0"><div class="st" style="margin-bottom:6px">Choferes</div><div class="tw"><table><thead><tr><th>#</th><th>Chofer</th><th>Unidad</th><th>Viajes</th><th>Dias</th><th>Sueldo $</th><th>Desc $</th><th>Total $</th></tr></thead><tbody id="tb-nom-ch"></tbody></table></div></div>
     <div style="min-width:0"><div class="sh" style="margin-bottom:6px"><div class="st">Ayudantes</div><div style="font-size:11px;color:var(--blue)" id="nm-ay-total">-</div></div><div class="tw"><table><thead><tr><th>#</th><th>Ayudante</th><th>Tipo</th><th>Unidad</th><th>Viajes</th><th>Sueldo $</th><th>Desc $</th><th>Total $</th></tr></thead><tbody id="tb-nom-ay"></tbody></table></div></div>
   </div>
   <div><div class="st" style="margin-bottom:6px">Nomina Administrativa</div><div class="tw"><table><thead><tr><th>Cargo</th><th>Mensual $</th><th>Semanal $</th></tr></thead><tbody id="tb-nom-adm"></tbody></table></div>
-    <div class="st" style="margin:10px 0 4px;font-size:12px;color:var(--text2)">✏️ Editar fijos (admin + apoyo IMAU — suman al total de la nómina)</div>
+    <div class="st" style="margin:10px 0 4px;font-size:12px;color:var(--text2)">✏️ Editar fijos administrativos (suman al total de la nómina)</div>
     <div class="tw"><table><thead><tr><th>Cargo / Etiqueta</th><th>Mensual $</th><th></th></tr></thead><tbody id="tb-nom-adm-cfg"></tbody></table></div>
+    <div class="st" style="margin:14px 0 4px;font-size:12px;color:var(--text2)">🟡 Apoyo IMAU — fijos semanales (los 4 de apoyo/supervisor). Los ~16 ayudantes IMAU salen solos de la planilla: escribe <b>IMAU</b> en el ayudante.</div>
+    <div class="tw" style="max-width:340px"><table><thead><tr><th>Nombre</th><th>Semanal $</th></tr></thead><tbody id="tb-imau-apoyo"></tbody></table></div>
   </div>
 
   <!-- HISTORIAL DE NÓMINA (gasto total de la empresa, soporte por persona auditable) -->
@@ -2101,7 +2104,7 @@ tr:hover td{background:rgba(45,255,122,.02)}
   <div id="conc-resultado"></div>
 </div>
 
-<script src="app.js?v=20260623l"></script>
+<script src="app.js?v=20260623m"></script>
 
 <!-- Modal global -->
 <div id="modal" class="moverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9990;align-items:center;justify-content:center;padding:16px">
