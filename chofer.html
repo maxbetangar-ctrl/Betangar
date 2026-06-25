@@ -282,7 +282,7 @@ body{background:#0f1923;color:#fff;font-family:-apple-system,BlinkMacSystemFont,
           </div>
         </div>
         <div style="margin-top:14px;border-top:1px dashed rgba(255,255,255,.15);padding-top:10px">
-          <div class="cl-label" style="margin-bottom:6px">📐 Medición del tanque con regla (cm) — opcional</div>
+          <div class="cl-label" style="margin-bottom:6px">📐 Medición del tanque con regla (cm) — <b style="color:#ef9f27">OBLIGATORIO cada día</b></div>
           <div class="cl-row">
             <div class="cl-field" id="cl-cm-salida-cont">
               <label class="cl-label">CM al SALIR del galpón (0-46)</label>
@@ -1156,6 +1156,16 @@ async function clGuardarMedicionCm(momento){
 
 async function guardarChecklist(){
   if(CL_MODO==='bloqueado'){ mostrarToast('El mecánico ya registró este checklist','warn'); return; }
+
+  // La medición del tanque con regla (cm) es OBLIGATORIA cada día (decisión de Máximo): el chofer
+  // reporta los centímetros al salir y al regresar para poder reconciliar el tanque del galpón.
+  var _cmId = (CL_MODO==='llegada') ? 'cl-cm-llegada' : 'cl-cm-salida';
+  var _cmVal = parseFloat(gv(_cmId));
+  if(isNaN(_cmVal) || _cmVal<=0){
+    mostrarToast('Mide el tanque con la regla y escribe los CM antes de guardar','warn');
+    var _cmEl=document.getElementById(_cmId); if(_cmEl){ try{_cmEl.focus();_cmEl.scrollIntoView({block:'center'});}catch(e){} }
+    return;
+  }
 
   var btn = document.getElementById('cl-btn-guardar');
   if(btn){ btn.disabled=true; btn.textContent='Guardando...'; }

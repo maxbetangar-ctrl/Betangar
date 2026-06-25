@@ -182,6 +182,25 @@ var cfg={tarifa:(function(){
   return 317.88;
 })(),chofer:10,ayud:5,km:5000,tanque:4600,tasa:600,imau:2.5,tipos_mant:['Solo registro km','GARANTIA (Servicio 5000km)','CORRECTIVO','PREVENTIVO','CAMBIO DE ACEITE','CAMBIO FILTROS','FRENOS','SUSPENSION','ELECTRICO','MOTOR','TRANSMISION','OTROS'],mant_programados:[{id:'lavado',nombre:'Lavado',dias:7,campo:'lavado'},{id:'engrase',nombre:'Engrase',dias:15,campo:'engrase'},{id:'aceite',nombre:'Cambio de Aceite',dias:90,campo:'aceite'}],unidades_areas:['ADM - Administrativo','OPERATIVO - Jefe Operaciones','PORTERIA - Vigilancia','MANT - Mantenimiento','TRANS - Transporte','JAC-B001','JAC-B002','JAC-B003','JAC-B004','JAC-B005','JAC-B006','JAC-B007','JAC-B008','JAC-B009','JAC-B010','JAC-B011','JAC-B012','SRV-001','PEUGEOT-001','MOTO-001']};
 
+// PRECIO $/L de REFERENCIA por fuente. Dos usos: (1) DEFAULT del precio de compra (editable en
+// cada compra, porque varía entre una y otra) y (2) FALLBACK de costeo cuando el tanque aún no
+// tiene costo promedio establecido. La surtida a camión NO usa esto: se valúa al COSTO REAL
+// PROMEDIO del tanque (tankCostoLitro). Surtir NO es venta: pasa inventario del tanque al camión
+// como consumible. Se edita en Config y se persiste en configuracion.gasoil_precios.
+var GASOIL_PRECIO={tumaca:0.83,boscan:0.78};
+function precioGasoil(src){
+  var s=String(src||'').toLowerCase();
+  if(s.indexOf('bosc')>=0)return parseFloat(GASOIL_PRECIO.boscan)||0; // Boscán
+  return parseFloat(GASOIL_PRECIO.tumaca)||0;                          // Tumaca (por defecto)
+}
+function guardarPreciosGasoil(){
+  if(typeof DB_READY==='undefined'||!DB_READY||!supabase)return;
+  try{
+    supabase.from('configuracion').upsert([{clave:'gasoil_precios',valor:JSON.stringify({tumaca:GASOIL_PRECIO.tumaca,boscan:GASOIL_PRECIO.boscan})}],{onConflict:'clave'})
+      .then(function(res){if(res&&res.error)console.log('gasoil_precios save:',res.error.message);});
+  }catch(e){}
+}
+
 var USUARIOS={
   'maxbetangar':{rol:'superadmin',nombre:'Maximo Betancourt',email:'betangar@gmail.com',wa:'+584147379886'},
   'frankbetangar':{rol:'superadmin',nombre:'Francisco Betancourt',email:'betangar@gmail.com',wa:'+584142411159'},
@@ -1009,6 +1028,17 @@ async function cargarDatosDB(){
       var _tc=await supabase.from('configuracion').select('valor').eq('clave','tanque_costo').maybeSingle();
       if(_tc&&_tc.data&&_tc.data.valor!=null&&String(_tc.data.valor)!==''){var _tcv=parseFloat(_tc.data.valor);if(!isNaN(_tcv))tankCostoLitro=_tcv;}
     }catch(e){console.log('tanque_costo load:',e&&e.message);}
+    // PRECIOS $/L de referencia por fuente (clave 'gasoil_precios') — fuente única para el
+    // despacho a camión y el import de planillas. Editable en Config; default Tumaca 0.83 / Boscán 0.78.
+    try{
+      var _gp=await supabase.from('configuracion').select('valor').eq('clave','gasoil_precios').maybeSingle();
+      if(_gp&&_gp.data&&_gp.data.valor){var _gpv=JSON.parse(_gp.data.valor);
+        if(_gpv&&typeof _gpv==='object'){
+          if(_gpv.tumaca!=null&&!isNaN(parseFloat(_gpv.tumaca)))GASOIL_PRECIO.tumaca=parseFloat(_gpv.tumaca);
+          if(_gpv.boscan!=null&&!isNaN(parseFloat(_gpv.boscan)))GASOIL_PRECIO.boscan=parseFloat(_gpv.boscan);
+        }}
+      try{sv('cfg-tumaca-dolar',String(GASOIL_PRECIO.tumaca));sv('cfg-boscan-dolar',String(GASOIL_PRECIO.boscan));}catch(e){}
+    }catch(e){console.log('gasoil_precios load:',e&&e.message);}
     // ASISTENCIA: persistida en configuracion.asistencia_data (fuente de verdad) + fallback local
     try{
       var _as=await supabase.from('configuracion').select('valor').eq('clave','asistencia_data').maybeSingle();
@@ -1922,6 +1952,11 @@ function editarPlanilla(p){
   html+='<div class="fg"><label>Camion</label><select class="fc" id="ep-cam">'+camOpts+'</select></div>';
   html+='<div class="fg"><label>Chofer</label><input class="fc" id="ep-chofer" value="'+r.ch+'"></div>';
   html+='</div>';
+  html+='<div class="fr3">';
+  html+='<div class="fg"><label>Ayudante 1</label><input class="fc" id="ep-ay1" value="'+String(r.ay1||'').replace(/"/g,'&quot;')+'"></div>';
+  html+='<div class="fg"><label>Ayudante 2</label><input class="fc" id="ep-ay2" value="'+String(r.ay2||'').replace(/"/g,'&quot;')+'"></div>';
+  html+='<div class="fg"><label>Ayudante 3</label><input class="fc" id="ep-ay3" value="'+String(r.ay3||'').replace(/"/g,'&quot;')+'"></div>';
+  html+='</div>';
   html+='<div class="fr2">';
   html+='<div class="fg"><label>Viajes Diurnos</label><input type="number" class="fc" id="ep-d" value="'+r.d+'" style="font-family:var(--m)"></div>';
   html+='<div class="fg"><label>Viajes Nocturnos</label><input type="number" class="fc" id="ep-n" value="'+r.n+'" style="font-family:var(--m)"></div>';
@@ -1945,6 +1980,10 @@ function guardarEdicionPlanilla(pOriginal){
     var n=parseInt(document.getElementById('ep-n').value)||0;
     var t=d+n;
     var p=nuevoNum;
+    // Ayudantes editables (canoniza el nombre como el chofer; vacío permitido)
+    var _ay1=(document.getElementById('ep-ay1').value||'').trim(); _ay1=_ay1?_nombreCanonico(_ay1):'';
+    var _ay2=(document.getElementById('ep-ay2').value||'').trim(); _ay2=_ay2?_nombreCanonico(_ay2):'';
+    var _ay3=(document.getElementById('ep-ay3').value||'').trim(); _ay3=_ay3?_nombreCanonico(_ay3):'';
     // Si cambia el número, eliminar el registro viejo de Supabase
     if(p!==pOriginal){
       if(DB_READY)supabase.from('planillas').delete().eq('p',pOriginal).then(function(){});
@@ -1961,7 +2000,7 @@ function guardarEdicionPlanilla(pOriginal){
       m:t*(cfg.tarifa||316.88),
       obs:document.getElementById('ep-obs').value,
       inc:REGS[idx].inc||'',incDesc:REGS[idx].incDesc||'',
-      ay1:REGS[idx].ay1||'',ay2:REGS[idx].ay2||'',
+      ay1:_ay1,ay2:_ay2,ay3:_ay3,
       gasoil:REGS[idx].gasoil||0,km:REGS[idx].km||0,mant:REGS[idx].mant||''
     };
     // Guardar en Supabase
@@ -1971,7 +2010,7 @@ function guardarEdicionPlanilla(pOriginal){
         ch:REGS[idx].ch,r:REGS[idx].r,par:REGS[idx].par,
         d:REGS[idx].d,n:REGS[idx].n,t:REGS[idx].t,sem:REGS[idx].sem,
         m:REGS[idx].m,obs:REGS[idx].obs,inc:REGS[idx].inc,
-        inc_desc:REGS[idx].incDesc,ay1:REGS[idx].ay1,ay2:REGS[idx].ay2,
+        inc_desc:REGS[idx].incDesc,ay1:REGS[idx].ay1,ay2:REGS[idx].ay2,ay3:REGS[idx].ay3,
         gasoil:REGS[idx].gasoil,km:REGS[idx].km,mant:REGS[idx].mant
       },{onConflict:'p'}).then(function(){});
     }
@@ -2522,7 +2561,7 @@ function procesarExcelBetangar(wb){
 
       // Gasoil
       if(gasoilV>0&&gasoilV<10000){
-        GASOIL.push({f:fechaStr,cam:cam,lit:gasoilV,src:'Tumaca',m:gasoilV*0.9});
+        GASOIL.push({f:fechaStr,cam:cam,lit:gasoilV,src:'Tumaca',m:gasoilV*((parseFloat(tankCostoLitro)>0)?parseFloat(tankCostoLitro):precioGasoil('tumaca'))});
         resultado.gasoil++;
       }
       // KM
@@ -2955,7 +2994,7 @@ function calcNom(){
   }
   var tvTot=f.reduce(function(s,r){return s+r.t;},0);
   var totCh=Object.values(chMap).reduce(function(s,c){var k=_nombreCanonico(c.ch).toUpperCase();var pat=(c.patio||0)+(parseInt(PATIO_DIAS[k])||0);return s+Math.max(0,(c.montoViajes||0)+pat*cfg.chofer-c.descuentos);},0);
-  var totAy=Object.values(ayMap).reduce(function(s,a){return s+Math.max(0,(a.viajes*a.tasa)-a.descuentos);},0);
+  var totAy=Object.values(ayMap).reduce(function(s,a){var patAy=(a.emp.tipoAy!=='imau')?(parseInt(PATIO_DIAS[a.emp.id])||0):0;return s+Math.max(0,((a.viajes+patAy)*a.tasa)-a.descuentos);},0);
   if(g('nm-tv'))g('nm-tv').textContent=tvTot;
   if(g('nm-ch'))g('nm-ch').textContent='$'+totCh.toFixed(0);
   if(g('nm-ay'))g('nm-ay').textContent='$'+totAy.toFixed(0);
@@ -2980,7 +3019,7 @@ function calcNom(){
     fdesde: f.length?f.reduce(function(m,r){return r.f<m?r.f:m;},f[0].f):null,
     fhasta: f.length?f.reduce(function(m,r){return r.f>m?r.f:m;},f[0].f):null,
     choferes: Object.values(chMap).map(function(c){var k=_nombreCanonico(c.ch).toUpperCase();var pat=(c.patio||0)+(parseInt(PATIO_DIAS[k])||0);var u=Math.max(0,(c.montoViajes||0)+pat*cfg.chofer-c.descuentos);return {n:c.ch,u:Array.from(c.cams||[]).join(','),viajes:c.viajes+pat,usd:Math.round(u*100)/100,bs:Math.round(u*tasa*100)/100};}),
-    ayudantes: Object.values(ayMap).map(function(a){return {n:a.emp.nombre,u:a.emp.unidad,viajes:a.viajes,usd:Math.round((Math.max(0,a.viajes*a.tasa-a.descuentos))*100)/100,bs:Math.round(Math.max(0,a.viajes*a.tasa-a.descuentos)*tasa*100)/100,tipo:a.emp.tipoAy||'interno'};})
+    ayudantes: Object.values(ayMap).map(function(a){var patAy=(a.emp.tipoAy!=='imau')?(parseInt(PATIO_DIAS[a.emp.id])||0):0;var v=a.viajes+patAy;return {n:a.emp.nombre,u:a.emp.unidad,viajes:v,usd:Math.round((Math.max(0,v*a.tasa-a.descuentos))*100)/100,bs:Math.round(Math.max(0,v*a.tasa-a.descuentos)*tasa*100)/100,tipo:a.emp.tipoAy||'interno'};})
   };
   if(g('nm-tot'))g('nm-tot').textContent='$'+totUsd.toFixed(0)+' (op $'+totOp.toFixed(0)+(totImau>0?' + IMAU $'+totImau.toFixed(0):'')+(totAdm>0?' + adm $'+totAdm.toFixed(0):'')+')'+' = Bs '+(totBs/1000).toFixed(0)+'k';
   if(g('nm-ch'))g('nm-ch').textContent='$'+totCh.toFixed(0)+' (Bs '+(totCh*tasa/1000).toFixed(0)+'k)';
@@ -3001,12 +3040,16 @@ function calcNom(){
       '<td style="font-family:var(--m);font-weight:700;color:var(--yellow)">$'+total.toFixed(0)+'</td></tr>';}).join('');
   var tbAy=g('tb-nom-ay');
   if(tbAy)tbAy.innerHTML=Object.values(ayMap).sort(function(a,b){return b.viajes-a.viajes;}).map(function(a,i){
-    var sueldo=a.viajes*a.tasa;var total=Math.max(0,sueldo-a.descuentos);
+    var esImau=(a.emp.tipoAy==='imau');
+    var patAyM=esImau?0:(parseInt(PATIO_DIAS[a.emp.id])||0); // días de patio manual (IMAU no cobra patio)
+    var vTot=a.viajes+patAyM;
+    var sueldo=vTot*a.tasa;var total=Math.max(0,sueldo-a.descuentos);
     var nota=a.porNombre>0&&a.porCam>0?'('+a.porNombre+'v nombre + '+a.porCam+'v camión)':'';
+    var inputPatio=esImau?'':(' <input type="number" min="0" value="'+patAyM+'" title="Días de patio (manual): +1 viaje c/u" onchange="setPatioDias(\''+a.emp.id+'\',this.value)" style="width:30px;font-size:9px;background:var(--bg3);border:1px solid var(--border);color:var(--amber);border-radius:4px;padding:1px 2px;text-align:center"><span style="font-size:8px;color:var(--amber)">P</span>');
     return'<tr><td>'+(i+1)+'</td><td style="font-weight:700">'+a.emp.nombre+'</td>'+
-      '<td><span class="badge '+(a.emp.tipoAy==='imau'?'bp':'bt')+'">'+( a.emp.tipoAy||'interno')+'</span></td>'+
+      '<td><span class="badge '+(esImau?'bp':'bt')+'">'+( a.emp.tipoAy||'interno')+'</span></td>'+
       '<td style="font-size:10px">'+a.emp.unidad+(nota?'<br><span style="color:var(--text3);font-size:9px">'+nota+'</span>':'')+'</td>'+
-      '<td style="color:var(--green)">'+a.viajes+'</td>'+
+      '<td style="color:var(--green)">'+a.viajes+inputPatio+'</td>'+
       '<td style="font-family:var(--m)">$'+sueldo.toFixed(0)+'</td>'+
       '<td style="font-family:var(--m);color:var(--red)">'+(a.descuentos>0?'-$'+a.descuentos.toFixed(0):'—')+'</td>'+
       '<td style="font-family:var(--m);font-weight:700;color:var(--yellow)">$'+total.toFixed(0)+'</td></tr>';
@@ -3340,6 +3383,12 @@ function gcToggleFuente(){
   var w=g('gc-precio-wrap');
   if(w)w.style.display=(src==='estacion')?'block':'none';
 }
+// Rellena el precio de la COMPRA con el de referencia de la fuente (Tumaca/Boscán). Editable:
+// cada compra puede costar distinto, así que solo es un valor inicial que el usuario puede cambiar.
+function gcompPrefillPrecio(){
+  var prov=gv('gcomp-prov')||'tumaca';
+  try{sv('gcomp-precio',String(precioGasoil(prov)));}catch(e){}
+}
 
 // Asegura tasas BCV (prioridad: API → modal manual; sin fallback a valores viejos) y calcula.
 function ensureTasasYCalc(cDolar, cEuro, cb){
@@ -3359,8 +3408,11 @@ function ensureTasasYCalc(cDolar, cEuro, cb){
 // de Máximo). Mismo litraje + misma fuente = mismo precio SIEMPRE (no se mezcla el componente
 // euro / razón euro-dólar que lo hacía variar día a día). Se cambia en Config cuando suba.
 function compCostoUnit(prov, cb){
-  var fijo = prov==='boscan' ? (parseFloat(gv('cfg-boscan-dolar'))||0.50) : (parseFloat(gv('cfg-tumaca-dolar'))||0.54);
-  cb(fijo);
+  // COSTO REAL PROMEDIO: la surtida al camión vale lo que costó en promedio el combustible que
+  // hay en el tanque (tankCostoLitro = promedio ponderado, actualizado en cada compra). Si el
+  // tanque aún no tiene costo establecido, cae al precio de referencia de la fuente.
+  var c=(parseFloat(tankCostoLitro)>0)?parseFloat(tankCostoLitro):precioGasoil(prov);
+  cb(c);
 }
 
 // DESPACHO a camión: baja el tanque si viene de Tumaca/Boscán; Estación usa precio manual.
@@ -5662,6 +5714,10 @@ function guardarConfig(){
   cfg.km=parseFloat(gv('cfg-km'))||5000;
   cfg.tanque=parseFloat(gv('cfg-tanque'))||4600;
   cfg.imau=parseFloat(gv('cfg-imau'))||2.5;
+  // Precio $/L de referencia por fuente (fuente única: despacho a camión + import de planillas)
+  GASOIL_PRECIO.tumaca=parseFloat(gv('cfg-tumaca-dolar'))||GASOIL_PRECIO.tumaca||0.83;
+  GASOIL_PRECIO.boscan=parseFloat(gv('cfg-boscan-dolar'))||GASOIL_PRECIO.boscan||0.78;
+  guardarPreciosGasoil();
   // Persistir en Supabase
   if(DB_READY){
     supabase.from('configuracion').upsert([{clave:'general',valor:JSON.stringify(cfg)}],{onConflict:'clave',ignoreDuplicates:false}).then(function(){});
@@ -8225,10 +8281,11 @@ function eliminarGasoilConfirmado(ref){
   // desde Supabase no siempre trae tipo_operacion (registros viejos / caché localStorage), y
   // sin esto una compra se revertía como despacho (sumaba litros en vez de restarlos).
   var esCompra=(r.tipo_operacion==='compra')||(typeof ccEsCompra==='function'&&ccEsCompra(r));
+  var _avisoTanque='';
   if(litR>0 && srcTanque){
     var capR=cfg.tanque||4600;
-    if(esCompra){ tankNivel=Math.max(0,tankNivel-litR); }   // compra subió el tanque → restar
-    else { tankNivel=Math.min(capR,tankNivel+litR); } // despacho bajó el tanque → devolver litros
+    if(esCompra){ tankNivel=Math.max(0,tankNivel-litR); _avisoTanque=' · −'+litR+' L del tanque (era compra)'; }   // compra subió el tanque → restar
+    else { tankNivel=Math.min(capR,tankNivel+litR); _avisoTanque=' · +'+litR+' L devueltos al tanque → '+Math.round(tankNivel).toLocaleString()+' L'; } // surtida bajó el tanque → devolver litros
     try{sv('tank-niv',tankNivel.toString());updTank();guardarNivelTanque();}catch(e){}
   }
   try{localStorage.setItem('btg_gasoil',JSON.stringify(GASOIL));}catch(e){}
@@ -8243,7 +8300,7 @@ function eliminarGasoilConfirmado(ref){
     });
   }
   renderGasoil();
-  if(typeof mostrarToast==='function')mostrarToast('🗑️ Registro de combustible eliminado','exito');
+  if(typeof mostrarToast==='function')mostrarToast('🗑️ Surtida eliminada'+_avisoTanque,'exito');
 }
 
 
@@ -8270,17 +8327,85 @@ function renderGasoil(){
   });
   if(!datos.length){tb.innerHTML='<tr><td colspan="6" style="text-align:center;color:var(--text3);padding:12px">Sin registros</td></tr>';return;}
   tb.innerHTML=datos.slice().reverse().map(function(r){
+    var esC=(r.tipo_operacion==='compra')||(typeof ccEsCompra==='function'&&ccEsCompra(r));
     return '<tr>'+
       '<td style="font-size:10px">'+formatFecha(r.f)+'</td>'+
       '<td style="font-size:11px">'+r.cam+'</td>'+
       '<td style="font-family:var(--m)">'+r.lit+'</td>'+
       '<td style="font-size:10px">'+r.src+'</td>'+
       '<td style="font-family:var(--m)">$'+Number(r.m).toFixed(2)+'</td>'+
-      '<td><button class="btn btn-s btn-xs" data-gidx="'+(r._idx)+'" onclick="solicitarEliminarGasoil(this.dataset.gidx)">🗑</button></td>'+
+      '<td style="white-space:nowrap">'+(esC?'':'<button class="btn btn-s btn-xs" data-gidx="'+(r._idx)+'" onclick="solicitarEditarGasoil(this.dataset.gidx)" title="Editar surtida">✏️</button> ')+'<button class="btn btn-s btn-xs" data-gidx="'+(r._idx)+'" onclick="solicitarEliminarGasoil(this.dataset.gidx)">🗑</button></td>'+
     '</tr>';
   }).join('');
 }
 
+
+// ¿La fuente sale del tanque interno (Tumaca/Boscán) o es externa (Estación)?
+function _esTanqueSrc(src){var s=String(src||'').toLowerCase();return s.indexOf('tumaca')>=0||s.indexOf('bosc')>=0;}
+
+// EDITAR una surtida (ej.: se cargó a la unidad equivocada, o litros mal). Las COMPRAS no se
+// editan aquí (afectan CxP y costo del tanque). Requiere autorización igual que el borrado.
+function solicitarEditarGasoil(idx){
+  var r=GASOIL[idx];
+  if(!r){alert('Registro no encontrado');return;}
+  if((r.tipo_operacion==='compra')||(typeof ccEsCompra==='function'&&ccEsCompra(r))){alert('Las COMPRAS no se editan aquí. Si hace falta, bórrala y vuelve a registrarla.');return;}
+  window._editGasoilRef=r;
+  var srcVal=String(r.src||'Tumaca');
+  var html=''+
+    '<div class="fg"><label>Unidad</label><input class="fc" id="eg-cam" value="'+String(r.cam||'').replace(/"/g,'&quot;')+'"></div>'+
+    '<div class="fg"><label>Litros</label><input class="fc" id="eg-lit" type="number" step="0.1" value="'+(parseFloat(r.lit)||0)+'" style="font-family:var(--m)"></div>'+
+    '<div class="fg"><label>Fuente</label><select class="fc" id="eg-src">'+
+      ['Tumaca','Boscán','Estacion'].map(function(s){return '<option value="'+s+'"'+(srcVal===s?' selected':'')+'>'+s+'</option>';}).join('')+
+    '</select></div>'+
+    '<div style="font-size:10px;color:var(--text3);margin-bottom:8px">Si cambian los litros o la fuente, el tanque se ajusta solo. El costo $/L de la surtida se conserva.</div>'+
+    '<div style="display:flex;gap:8px">'+
+      '<button class="btn btn-g" style="flex:1" onclick="confirmarEditarGasoil()">Guardar cambios</button>'+
+      '<button class="btn btn-s" onclick="closeModal()">Cancelar</button>'+
+    '</div>';
+  openModal('Editar surtida',html);
+}
+function confirmarEditarGasoil(){
+  var r=window._editGasoilRef; if(!r)return;
+  var nuevo={cam:(gv('eg-cam')||'').trim().toUpperCase(), lit:parseFloat(gv('eg-lit'))||0, src:gv('eg-src')||'Tumaca'};
+  if(!nuevo.cam||!nuevo.lit){alert('Completa unidad y litros');return;}
+  closeModal();
+  window._tokenDetalle=r.cam+' '+r.lit+'L → '+nuevo.cam+' '+nuevo.lit+'L ('+nuevo.src+')';
+  // Autorización: superadmin ejecuta directo; el resto requiere token (mismo flujo que borrar).
+  solicitarToken('Editar surtida de combustible', function(motivo){ aplicarEdicionGasoil(r, nuevo); });
+}
+function aplicarEdicionGasoil(r, nuevo){
+  var idx=GASOIL.indexOf(r);
+  if(idx<0 && r.id!=null) idx=GASOIL.findIndex(function(x){return x.id===r.id;});
+  if(idx<0){alert('Registro no encontrado');return;}
+  // Capturar valores viejos ANTES de mutar (para el WHERE de Supabase y el ajuste del tanque).
+  var oldLit=parseFloat(r.lit)||0, oldM=parseFloat(r.m)||0, oldSrc=r.src, oldCam=r.cam, oldF=r.f;
+  // Costo $/L congelado del registro original; si no se puede derivar, usar promedio/ref.
+  var costoUnit=(oldLit>0&&oldM>0)?(oldM/oldLit):((parseFloat(tankCostoLitro)>0)?parseFloat(tankCostoLitro):precioGasoil(nuevo.src));
+  // Efecto en el tanque: surtida de tanque = −lit (salió); estación = 0 (externa).
+  var oldEffect=_esTanqueSrc(oldSrc)?(-oldLit):0;
+  var newEffect=_esTanqueSrc(nuevo.src)?(-nuevo.lit):0;
+  var deltaTanque=(newEffect-oldEffect); // cambio neto del nivel: deshace el viejo, aplica el nuevo
+  if(deltaTanque!==0){
+    var cap=cfg.tanque||4600;
+    tankNivel=Math.max(0,Math.min(cap, tankNivel+deltaTanque));
+    try{sv('tank-niv',tankNivel.toString());updTank();guardarNivelTanque();}catch(e){}
+  }
+  // Aplicar cambios
+  r.cam=nuevo.cam; r.lit=nuevo.lit; r.src=nuevo.src; r.m=parseFloat((nuevo.lit*costoUnit).toFixed(2));
+  GASOIL[idx]=r;
+  try{localStorage.setItem('btg_gasoil',JSON.stringify(GASOIL));}catch(e){}
+  if(DB_READY&&supabase){
+    var upd={cam:r.cam,lit:r.lit,src:r.src,m:r.m};
+    var q=supabase.from('gasoil').update(upd);
+    if(r.id!=null){ q=q.eq('id',r.id); }
+    else { q=q.eq('f',oldF).eq('cam',oldCam).eq('lit',oldLit).eq('src',oldSrc); }
+    q.then(function(res){ if(res&&res.error){if(typeof mostrarToast==='function')mostrarToast('No se pudo editar en Supabase: '+res.error.message,'error');} });
+  }
+  audit('Surtida editada',oldCam+' '+oldLit+'L → '+r.cam+' '+r.lit+'L ('+r.src+')');
+  renderGasoil();
+  var aviso=(deltaTanque!==0)?(' · tanque '+(deltaTanque>0?'+':'')+Math.round(deltaTanque)+' L → '+Math.round(tankNivel).toLocaleString()+' L'):'';
+  if(typeof mostrarToast==='function')mostrarToast('✏️ Surtida actualizada'+aviso,'exito');
+}
 
 function calcCostoProveedor(cDolar, cEuro, elId){
   var tasaDolar=getTasa('bcvDolar');

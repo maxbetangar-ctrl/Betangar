@@ -3,7 +3,7 @@
 // PWA Offline-First para choferes
 // ═══════════════════════════════════════════════════
 
-const CACHE_NAME = 'betangar-chofer-v8'; // v4: cola checklist + sync reintenta siempre + flota_estado columnas (viajes/checklist no llegaban al dashboard)
+const CACHE_NAME = 'betangar-chofer-v9'; // v9: medición del tanque (cm) OBLIGATORIA cada día en el checklist
 
 // Archivos a cachear para funcionar sin internet
 const ARCHIVOS_CACHE = [
