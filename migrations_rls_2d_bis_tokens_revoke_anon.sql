@@ -1,0 +1,17 @@
+-- FASE 2d-bis — SEGURIDAD del sistema de TOKENS (ISO 27001: confidencialidad).
+--
+-- CONTEXTO: los tokens de `tokens_pendientes` autorizan acciones sobre DINERO. La anon key es
+-- pública (viaja en el HTML), así que hoy CUALQUIERA con esa key puede LEER los códigos pendientes
+-- y, en teoría, usarlos para aprobar/ejecutar acciones. La fase 2d le dio acceso a 'authenticated'
+-- (usuarios logueados) pero NO revocó a 'anon' (quedó fuera de la lista sensible de la fase 2c).
+--
+-- REQUISITO PREVIO (ya cumplido en código, commit posterior a 9d1d3ef): el header REST de tokens
+-- (`_tokRestHdr`, app.js) SIEMPRE manda el JWT de sesión (`_SESSION_JWT`), reforzado con un
+-- getSession inmediato al crear el cliente. Así las operaciones de token viajan como 'authenticated'
+-- y NO dependen del anon key. Por eso revocar anon ya no rompe el flujo.
+--
+-- EFECTO: anon deja de poder leer/escribir tokens_pendientes; los usuarios logueados (authenticated)
+-- siguen igual gracias a la policy btg_auth_all de la fase 2d. chofer.html NO usa esta tabla.
+--
+-- REVERSIBLE: GRANT SELECT,INSERT,UPDATE,DELETE ON public.tokens_pendientes TO anon;
+REVOKE ALL ON public.tokens_pendientes FROM anon;

@@ -321,6 +321,10 @@ function initSupabaseClient(){
       // Mantener el JWT de sesión disponible para los fetch REST directos. Dispara al instante
       // con la sesión restaurada (INITIAL_SESSION) y en cada login/refresh/logout.
       try{supabase.auth.onAuthStateChange(function(_e,session){_SESSION_JWT=(session&&session.access_token)?session.access_token:'';});}catch(e){}
+      // Refuerzo: poblar el JWT de inmediato por si el evento INITIAL_SESSION ya ocurrió. Garantiza
+      // que las escrituras REST con identidad (tokens_pendientes, etc.) viajen como 'authenticated'
+      // y no caigan al anon key (necesario tras revocar anon de tablas sensibles).
+      try{supabase.auth.getSession().then(function(r){if(r&&r.data&&r.data.session&&r.data.session.access_token)_SESSION_JWT=r.data.session.access_token;}).catch(function(){});}catch(e){}
       DB_READY=true;console.log('✅ Supabase cliente OK (autenticado)');return true;
     }
     console.warn('⚠ Supabase CDN aún no disponible');DB_READY=false;return false;
@@ -3359,6 +3363,24 @@ function guardarCostoTanque(){
     supabase.from('configuracion').upsert([{clave:'tanque_costo',valor:String(tankCostoLitro)}],{onConflict:'clave'})
       .then(function(res){if(res&&res.error)console.log('tanque_costo save:',res.error.message);});
   }catch(e){}
+}
+// Recalcula el COSTO PROMEDIO del combustible que HOY está en el tanque, asumiendo consumo FIFO
+// (lo más viejo se gasta primero): se toman las COMPRAS más recientes hasta cubrir el nivel
+// actual y se promedia su $/L ponderado por litros. Se usa al BORRAR/EDITAR una compra (o al
+// cambiar el nivel del tanque), para que el costo refleje lo que realmente queda. Si no hay
+// compras que cubran el nivel, conserva el costo actual (no lo pone en 0).
+function recalcCostoTanqueDesdeCompras(){
+  var compras=GASOIL.filter(function(r){return (r.tipo_operacion==='compra')||(typeof ccEsCompra==='function'&&ccEsCompra(r));})
+    .slice().sort(function(a,b){return String(b.f||'').localeCompare(String(a.f||''));}); // más reciente primero
+  var restante=Math.max(0,parseFloat(tankNivel)||0);
+  var litAcum=0,costoAcum=0;
+  for(var i=0;i<compras.length && restante>0;i++){
+    var lit=parseFloat(compras[i].lit)||0; if(lit<=0)continue;
+    var precio=(parseFloat(compras[i].m)||0)/lit; // $/L de esa compra
+    var usar=Math.min(lit,restante);
+    litAcum+=usar; costoAcum+=usar*precio; restante-=usar;
+  }
+  if(litAcum>0){ tankCostoLitro=Math.round((costoAcum/litAcum)*1000)/1000; guardarCostoTanque(); }
 }
 function updTank(){
   var niv=parseFloat(gv('tank-niv'))||tankNivel;
@@ -8287,6 +8309,9 @@ function eliminarGasoilConfirmado(ref){
     if(esCompra){ tankNivel=Math.max(0,tankNivel-litR); _avisoTanque=' · −'+litR+' L del tanque (era compra)'; }   // compra subió el tanque → restar
     else { tankNivel=Math.min(capR,tankNivel+litR); _avisoTanque=' · +'+litR+' L devueltos al tanque → '+Math.round(tankNivel).toLocaleString()+' L'; } // surtida bajó el tanque → devolver litros
     try{sv('tank-niv',tankNivel.toString());updTank();guardarNivelTanque();}catch(e){}
+    // Cambió el nivel del tanque (sobre todo si se borró una COMPRA): recalcular el costo
+    // promedio FIFO de lo que queda, para que la rentabilidad por camión siga cuadrando.
+    try{recalcCostoTanqueDesdeCompras();}catch(e){}
   }
   try{localStorage.setItem('btg_gasoil',JSON.stringify(GASOIL));}catch(e){}
   if(DB_READY&&supabase){
