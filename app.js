@@ -795,6 +795,27 @@ function renderBancoSubnav(activo){
   var html=visibles>=2?('<div class="switch-row" style="margin-bottom:10px">'+tab('banco','💰 Saldos')+tab('conciliacion','🔄 Conciliación')+tab('banco-bnc','⚙️ Config BNC')+'</div>'):'';
   ['subnav-banco','subnav-conciliacion','subnav-banco-bnc'].forEach(function(pid){var el=document.getElementById(pid);if(el)el.innerHTML=html;});
 }
+// Sub-navegación del módulo Mantenimiento UNIFICADO: Check List / Mecánico / Km-Servicio / Llantas.
+// Cuatro módulos (2 páginas p-* y 2 secciones sec-*) que comparten una entrada de menú. Cada botón
+// solo si el rol tiene ese permiso; si <2, no se muestra barra. NO altera la lógica de los módulos.
+function renderMantSubnav(activo){
+  var perms=PERMISOS[SESION?SESION.rol:'admin']||PERMISOS['admin']||[];
+  function tab(id,label){
+    if(perms.indexOf(id)<0)return '';
+    return '<div class="sw'+(id===activo?' on':'')+'" onclick="sp(\''+id+'\')">'+label+'</div>';
+  }
+  var ids=['checklist','mecanico','km','llantas'];
+  var visibles=ids.reduce(function(s,i){return s+(perms.indexOf(i)>=0?1:0);},0);
+  var html=visibles>=2?('<div class="switch-row" style="margin-bottom:10px">'+tab('checklist','📋 Check List')+tab('mecanico','🔧 Mecánico')+tab('km','🛠 Km / Servicio')+tab('llantas','🔄 Llantas')+'</div>'):'';
+  ['subnav-checklist','subnav-mecanico','subnav-km','subnav-llantas'].forEach(function(pid){var el=document.getElementById(pid);if(el)el.innerHTML=html;});
+}
+// Entrada de menú unificada "Mantenimiento": abre el primer sub-módulo que el rol pueda ver.
+function abrirMantenimiento(){
+  var perms=PERMISOS[SESION?SESION.rol:'admin']||PERMISOS['admin']||[];
+  var orden=['checklist','mecanico','km','llantas'];
+  for(var i=0;i<orden.length;i++){if(perms.indexOf(orden[i])>=0){sp(orden[i]);return;}}
+  alert('No tienes permiso para esta sección');
+}
 function sp(id){
   // Abonos se fundió en Cobranza/Alcaldía → pestaña Pagos. Redirigir para no romper accesos directos.
   if(id==='abonos'){ sp('reporte'); setTimeout(function(){try{switchRptTab('pagos');}catch(e){}},0); return; }
@@ -838,7 +859,7 @@ function sp(id){
     if(id==='control-combustible'){renderCombSubnav('control-combustible');renderControlComb();}
     if(id==='rentabilidad'){renderRentabilidad();}
     if(id==='salud'){renderSaludDatos();}
-    if(id==='km'){renderKm();renderTiposMant();}
+    if(id==='km'){renderMantSubnav('km');renderKm();renderTiposMant();}
     if(id==='banco'){renderBancoSubnav('banco');renderBNCDash();}
     if(id==='proveedores'){renderCXP();renderProveedoresLista();renderRetenciones();}
     if(id==='documentos'){renderDocAlertas();renderDocTablas();}
@@ -846,7 +867,7 @@ function sp(id){
     if(id==='prestamos'){poblarEmps();renderPrestamos();}
     if(id==='multas'){poblarCams();renderMultas();}
     if(id==='inventario')renderInventario();
-    if(id==='llantas')renderLlantas();
+    if(id==='llantas'){renderMantSubnav('llantas');renderLlantas();}
     if(id==='metas'){prefillMeta();}
     if(id==='contratos')renderContratosLista();
     if(id==='config'){renderFlotaCfgLista();renderNomAdm();renderWANums();renderWAEmpresarial();renderRecordatorios();renderCfgCorrelativo();}
@@ -856,8 +877,8 @@ function sp(id){
     if(id==='auditoria')renderAuditoria();
     // Módulos especiales
     if(id==='porteria')portIniciar();
-    if(id==='checklist')clIniciar();if(id==='mensajes-wa')renderMensajesWA();
-    if(id==='mecanico')mecIniciar();
+    if(id==='checklist'){renderMantSubnav('checklist');clIniciar();}if(id==='mensajes-wa')renderMensajesWA();
+    if(id==='mecanico'){renderMantSubnav('mecanico');mecIniciar();}
     if(id==='banco-bnc'){renderBancoSubnav('banco-bnc');bncCargarConfig();}
     if(id==='conciliacion'){renderBancoSubnav('conciliacion');renderConciliacionBNC();}
     if(id==='operativo')operIniciar();
