@@ -780,6 +780,21 @@ function renderCombSubnav(activo){
   var html=visibles>=2?('<div class="switch-row" style="margin-bottom:10px">'+tab('combustible','⛽ Operación')+tab('control-combustible','📊 Control y Alertas')+'</div>'):'';
   ['subnav-combustible','subnav-control-combustible'].forEach(function(pid){var el=document.getElementById(pid);if(el)el.innerHTML=html;});
 }
+// Sub-navegación del módulo Banco UNIFICADO: Saldos ('banco') / Conciliación ('conciliacion') /
+// Config BNC ('banco-bnc'). Tres páginas que ahora comparten una sola entrada de menú. Cada botón
+// solo aparece si el rol tiene ese permiso; si tiene <2, no se muestra barra. NO altera la lógica
+// de ninguno de los tres módulos.
+function renderBancoSubnav(activo){
+  var perms=PERMISOS[SESION?SESION.rol:'admin']||PERMISOS['admin']||[];
+  function tab(id,label){
+    if(perms.indexOf(id)<0)return '';
+    return '<div class="sw'+(id===activo?' on':'')+'" onclick="sp(\''+id+'\')">'+label+'</div>';
+  }
+  var ids=['banco','conciliacion','banco-bnc'];
+  var visibles=ids.reduce(function(s,i){return s+(perms.indexOf(i)>=0?1:0);},0);
+  var html=visibles>=2?('<div class="switch-row" style="margin-bottom:10px">'+tab('banco','💰 Saldos')+tab('conciliacion','🔄 Conciliación')+tab('banco-bnc','⚙️ Config BNC')+'</div>'):'';
+  ['subnav-banco','subnav-conciliacion','subnav-banco-bnc'].forEach(function(pid){var el=document.getElementById(pid);if(el)el.innerHTML=html;});
+}
 function sp(id){
   // Abonos se fundió en Cobranza/Alcaldía → pestaña Pagos. Redirigir para no romper accesos directos.
   if(id==='abonos'){ sp('reporte'); setTimeout(function(){try{switchRptTab('pagos');}catch(e){}},0); return; }
@@ -824,7 +839,7 @@ function sp(id){
     if(id==='rentabilidad'){renderRentabilidad();}
     if(id==='salud'){renderSaludDatos();}
     if(id==='km'){renderKm();renderTiposMant();}
-    if(id==='banco')renderBNCDash();
+    if(id==='banco'){renderBancoSubnav('banco');renderBNCDash();}
     if(id==='proveedores'){renderCXP();renderProveedoresLista();renderRetenciones();}
     if(id==='documentos'){renderDocAlertas();renderDocTablas();}
     if(id==='asistencia')renderAsistencia();
@@ -843,8 +858,8 @@ function sp(id){
     if(id==='porteria')portIniciar();
     if(id==='checklist')clIniciar();if(id==='mensajes-wa')renderMensajesWA();
     if(id==='mecanico')mecIniciar();
-    if(id==='banco-bnc')bncCargarConfig();
-    if(id==='conciliacion')renderConciliacionBNC();
+    if(id==='banco-bnc'){renderBancoSubnav('banco-bnc');bncCargarConfig();}
+    if(id==='conciliacion'){renderBancoSubnav('conciliacion');renderConciliacionBNC();}
     if(id==='operativo')operIniciar();
     // Buscador automático en los selects largos del módulo recién abierto
     try{var _pg=document.getElementById('p-'+id);autoBuscadorSelects(_pg);setTimeout(function(){autoBuscadorSelects(_pg);},400);}catch(e){}
