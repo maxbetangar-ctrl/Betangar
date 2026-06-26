@@ -1977,52 +1977,63 @@ function editarPlanilla(p){
 function guardarEdicionPlanilla(pOriginal){
   var nuevoNum=document.getElementById('ep-num').value.trim().padStart(5,'0');
   var accion='Editar planilla #'+pOriginal+(nuevoNum!==pOriginal.replace('DUP','')?' → nuevo #'+nuevoNum:'');
+  var idx=REGS.findIndex(function(x){return x.p===pOriginal;});
+  if(idx<0){alert('No encontrada');return;}
+  // Calcular la fila YA, con los valores del formulario presentes. Hay que hacerlo ANTES de pedir el
+  // token: el payload se serializa en accion_data para que el SuperAdmin aplique el cambio al aprobar
+  // (en un solo navegador la sesión del solicitante ya no existe para reusar el DOM).
+  var d=parseInt(document.getElementById('ep-d').value)||0;
+  var n=parseInt(document.getElementById('ep-n').value)||0;
+  var t=d+n;
+  var p=nuevoNum;
+  // Ayudantes editables (canoniza el nombre como el chofer; vacío permitido)
+  var _ay1=(document.getElementById('ep-ay1').value||'').trim(); _ay1=_ay1?_nombreCanonico(_ay1):'';
+  var _ay2=(document.getElementById('ep-ay2').value||'').trim(); _ay2=_ay2?_nombreCanonico(_ay2):'';
+  var _ay3=(document.getElementById('ep-ay3').value||'').trim(); _ay3=_ay3?_nombreCanonico(_ay3):'';
+  var nuevo={
+    p:p,
+    f:document.getElementById('ep-fecha').value,
+    cam:document.getElementById('ep-cam').value,
+    ch:_nombreCanonico(document.getElementById('ep-chofer').value),
+    r:document.getElementById('ep-ruta').value,
+    par:document.getElementById('ep-par').value,
+    d:d,n:n,t:t,
+    mes:REGS[idx].mes,sem:REGS[idx].sem,
+    m:t*(cfg.tarifa||316.88),
+    obs:document.getElementById('ep-obs').value,
+    inc:REGS[idx].inc||'',incDesc:REGS[idx].incDesc||'',
+    ay1:_ay1,ay2:_ay2,ay3:_ay3,
+    gasoil:REGS[idx].gasoil||0,km:REGS[idx].km||0,mant:REGS[idx].mant||''
+  };
+  // Payload en forma de columnas de BD (inc_desc, no incDesc) para el PATCH server-side del SuperAdmin.
+  var dbSet={
+    p:nuevo.p,f:nuevo.f,mes:nuevo.mes,cam:nuevo.cam,
+    ch:nuevo.ch,r:nuevo.r,par:nuevo.par,
+    d:nuevo.d,n:nuevo.n,t:nuevo.t,sem:nuevo.sem,
+    m:nuevo.m,obs:nuevo.obs,inc:nuevo.inc,
+    inc_desc:nuevo.incDesc,ay1:nuevo.ay1,ay2:nuevo.ay2,ay3:nuevo.ay3,
+    gasoil:nuevo.gasoil,km:nuevo.km,mant:nuevo.mant
+  };
+  // El WHERE del PATCH usa el número ORIGINAL; si el número cambió, el propio set reescribe 'p'.
+  var accionData={op:'upd',tabla:'planillas',col:'p',val:pOriginal,set:dbSet};
   solicitarToken(accion,function(motivo){
-    var idx=REGS.findIndex(function(x){return x.p===pOriginal;});
-    if(idx<0){alert('No encontrada');return;}
-    var d=parseInt(document.getElementById('ep-d').value)||0;
-    var n=parseInt(document.getElementById('ep-n').value)||0;
-    var t=d+n;
-    var p=nuevoNum;
-    // Ayudantes editables (canoniza el nombre como el chofer; vacío permitido)
-    var _ay1=(document.getElementById('ep-ay1').value||'').trim(); _ay1=_ay1?_nombreCanonico(_ay1):'';
-    var _ay2=(document.getElementById('ep-ay2').value||'').trim(); _ay2=_ay2?_nombreCanonico(_ay2):'';
-    var _ay3=(document.getElementById('ep-ay3').value||'').trim(); _ay3=_ay3?_nombreCanonico(_ay3):'';
+    // Camino de ejecución LOCAL (SuperAdmin directo o pestaña del solicitante aún viva).
+    var i=REGS.findIndex(function(x){return x.p===pOriginal;});
+    if(i<0)i=idx;
     // Si cambia el número, eliminar el registro viejo de Supabase
     if(p!==pOriginal){
       if(DB_READY)supabase.from('planillas').delete().eq('p',pOriginal).then(function(){});
     }
-    REGS[idx]={
-      p:p,
-      f:document.getElementById('ep-fecha').value,
-      cam:document.getElementById('ep-cam').value,
-      ch:_nombreCanonico(document.getElementById('ep-chofer').value),
-      r:document.getElementById('ep-ruta').value,
-      par:document.getElementById('ep-par').value,
-      d:d,n:n,t:t,
-      mes:REGS[idx].mes,sem:REGS[idx].sem,
-      m:t*(cfg.tarifa||316.88),
-      obs:document.getElementById('ep-obs').value,
-      inc:REGS[idx].inc||'',incDesc:REGS[idx].incDesc||'',
-      ay1:_ay1,ay2:_ay2,ay3:_ay3,
-      gasoil:REGS[idx].gasoil||0,km:REGS[idx].km||0,mant:REGS[idx].mant||''
-    };
+    REGS[i]=nuevo;
     // Guardar en Supabase
     if(DB_READY){
-      supabase.from('planillas').upsert({
-        p:REGS[idx].p,f:REGS[idx].f,mes:REGS[idx].mes,cam:REGS[idx].cam,
-        ch:REGS[idx].ch,r:REGS[idx].r,par:REGS[idx].par,
-        d:REGS[idx].d,n:REGS[idx].n,t:REGS[idx].t,sem:REGS[idx].sem,
-        m:REGS[idx].m,obs:REGS[idx].obs,inc:REGS[idx].inc,
-        inc_desc:REGS[idx].incDesc,ay1:REGS[idx].ay1,ay2:REGS[idx].ay2,ay3:REGS[idx].ay3,
-        gasoil:REGS[idx].gasoil,km:REGS[idx].km,mant:REGS[idx].mant
-      },{onConflict:'p'}).then(function(){});
+      supabase.from('planillas').upsert(dbSet,{onConflict:'p'}).then(function(){});
     }
     audit('Planilla EDITADA','#'+pOriginal+' → #'+p+' — '+motivo);
     closeModal();
     filtH();renderDash();renderPlanHoy();
     alert('✅ Planilla #'+p+' guardada correctamente.');
-  });
+  },accionData);
 }
 
 // Muestra el numero de planilla MAS ALTO cargado (no el ultimo en orden de carga),
@@ -6335,9 +6346,10 @@ function registrarTokenLocal(token, cb, motivo){
   if(!_pollTokensInt){_pollTokensInt=setInterval(pollTokensAprobados,5000);}
   pollTokensAprobados();
 }
-function pollTokensAprobados(){
+async function pollTokensAprobados(){
   var toks=Object.keys(PENDING_TOKEN_CB);
   if(!toks.length){if(_pollTokensInt){clearInterval(_pollTokensInt);_pollTokensInt=null;}return;}
+  await _ensureJWT(); // tokens_pendientes tiene anon REVOCADO: sin JWT el GET cae a anon y da 401 → la aprobación nunca se detecta (mismo patrón que _pollSesionTokens)
   console.log('[POLLING] revisando '+toks.length+' token(s) pendiente(s):',toks.join(','));
   toks.forEach(function(tk){
     // Traemos la fila MAS RECIENTE por token y verificamos aprobado en JS (evita la
@@ -6417,8 +6429,8 @@ async function _pollSesionTokens(){
     rows.forEach(function(row){
       if(aplicados.indexOf(String(row.id))>=0)return; // ya aplicado en este dispositivo
       var ad=row.accion_data;
-      if(ad&&ad.op==='del'&&ad.tabla&&ad.col){
-        console.log('[POLLING-SESION] solicitud aprobada detectada, aplicando local:',row.token,ad.tabla,ad.val);
+      if(ad&&(ad.op==='del'||ad.op==='upd')&&ad.tabla&&ad.col){
+        console.log('[POLLING-SESION] solicitud aprobada detectada ('+ad.op+'), aplicando local:',row.token,ad.tabla,ad.val);
         recargarTrasTokenAccion(ad);
         _marcarTokenAplicado(row.id);
         delete PENDING_TOKEN_CB[String(row.token).toUpperCase()]; // por si tambien estaba en memoria
@@ -6513,6 +6525,21 @@ async function aprobarTokenPend(id){
         recargarTrasTokenAccion(ad);
         if(typeof mostrarToast==='function')mostrarToast('✅ Aprobado y eliminado de '+ad.tabla,'exito');
       }
+    } else if(ad&&ad.op==='upd'&&ad.tabla&&ad.col&&ad.set){
+      // EDICIONES (ej. cierre de planilla): el SuperAdmin aplica el cambio aquí mismo. En un solo
+      // navegador la sesión del solicitante ya no existe al aprobar, así que NO podemos depender de
+      // su callback en memoria — el PATCH server-side es la única vía fiable. El payload (ad.set) se
+      // serializó al solicitar el token, con los valores ya calculados (monto, etc.).
+      var updRes=await fetch(SUPA_URL+'/rest/v1/'+encodeURIComponent(ad.tabla)+'?'+encodeURIComponent(ad.col)+'=eq.'+encodeURIComponent(ad.val),{
+        method:'PATCH',headers:_tokRestHdr({'Content-Type':'application/json','Prefer':'return=minimal'}),
+        body:JSON.stringify(ad.set)
+      });
+      if(!updRes.ok){var ut=await updRes.text();if(typeof mostrarToast==='function')mostrarToast('Aprobado, pero no se pudo aplicar la edición: '+ut,'error');}
+      else{
+        await fetch(SUPA_URL+'/rest/v1/tokens_pendientes?id=eq.'+encodeURIComponent(id),{method:'PATCH',headers:_tokRestHdr({'Content-Type':'application/json','Prefer':'return=minimal'}),body:JSON.stringify({usado:true})});
+        recargarTrasTokenAccion(ad);
+        if(typeof mostrarToast==='function')mostrarToast('✅ Aprobado y aplicado en '+ad.tabla,'exito');
+      }
     } else {
       // Sin accion_data: el solicitante lo ejecuta por polling/entrada manual.
       if(typeof mostrarToast==='function')mostrarToast('Aprobado. Se ejecutará en la sesión del solicitante.','exito');
@@ -6524,6 +6551,16 @@ async function aprobarTokenPend(id){
 function recargarTrasTokenAccion(ad){
   try{
     var col=ad.col, val=String(ad.val);
+    // EDICIONES aprobadas: refrescar la fila en memoria SIN borrarla (el bloque de abajo es solo para op 'del').
+    if(ad.op==='upd'){
+      if(ad.tabla==='planillas'&&ad.set&&typeof REGS!=='undefined'){
+        var s=ad.set, iU=REGS.findIndex(function(x){return String(x[col])===val;});
+        var rowU={p:s.p,f:s.f,cam:s.cam,ch:s.ch,r:s.r,par:s.par,d:s.d,n:s.n,t:s.t,mes:s.mes,sem:s.sem,m:s.m,obs:s.obs,inc:s.inc,incDesc:s.inc_desc,ay1:s.ay1,ay2:s.ay2,ay3:s.ay3,gasoil:s.gasoil,km:s.km,mant:s.mant};
+        if(iU>=0)REGS[iU]=rowU;
+        if(typeof renderPlanHoy==='function')renderPlanHoy(); if(typeof renderDash==='function')renderDash(); if(typeof filtH==='function')filtH();
+      }
+      return;
+    }
     if(ad.tabla==='gasoil'){ if(typeof GASOIL!=='undefined')GASOIL=GASOIL.filter(function(x){return String(x[col])!==val;}); if(typeof renderGasoil==='function')renderGasoil(); }
     else if(ad.tabla==='gasol'){ if(typeof GASOL!=='undefined')GASOL=GASOL.filter(function(x){return String(x[col])!==val;}); if(typeof renderGasolPersonal==='function')renderGasolPersonal(); }
     else if(ad.tabla==='planillas'){ if(typeof REGS!=='undefined')REGS=REGS.filter(function(x){return String(x[col])!==val;}); if(typeof renderPlanHoy==='function')renderPlanHoy(); if(typeof renderDash==='function')renderDash(); if(typeof filtH==='function')filtH(); }
