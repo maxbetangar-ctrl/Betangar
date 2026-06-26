@@ -3441,7 +3441,7 @@ function _audConstruir(h,tolPatio){
   var rCh=function(){return (typeof cfg!=='undefined'&&cfg.chofer)?cfg.chofer:10;};
   var rAy=function(p){return (p&&p.tipo==='imau')?((typeof cfg!=='undefined'&&cfg.imau)?cfg.imau:2.5):((typeof cfg!=='undefined'&&cfg.ayud)?cfg.ayud:5);};
   chk(d.choferes,chV,chD,function(n){return _nombreCanonico(n).toUpperCase();},rCh,'Chofer');
-  chk(d.ayudantes,ayV,ayD,function(n){return _normNom(n);},rAy,'Ayud');
+  chk(d.ayudantes,ayV,ayD,function(n){var e=_empPorNombre(n);return _normNom(e?e.nombre:n);},rAy,'Ayud'); // resolver al empleado (mismo criterio que ayV) — si no, nombre corto guardado ≠ completo de la planilla
   filas.sort(function(a,b){return (b.flag?1:0)-(a.flag?1:0)||b.diff-a.diff;});
   return {filas:filas,nFlag:nFlag,sumOver:sumOver,pw:pw};
 }
