@@ -1533,6 +1533,17 @@ function _defMesSelects(){var m=mesBtg();['nm-mes','asis-mes','meta-mes','np-mes
 // último servicio (se veía "próximo < km actual", sin sentido). Ahora rueda solo: 6.206→10.000,
 // 12.000→15.000, etc. Siempre un número futuro.
 function proxServicio(km){var kc=cfg.km||5000;km=parseFloat(km)||0;return (Math.floor(km/kc)+1)*kc;}
+// KM ACTUAL de una unidad: toma el MÁS ALTO entre lo guardado en km_data, el km que cargó el CHOFER
+// en su app (km_entrada_ayer) y el último checklist (km_salida). Así el km es el más fresco/exacto
+// (lo llena el chofer a diario) y un valor viejo o malo en la tabla no lo deja pegado (odómetro no baja).
+function kmActualCam(cam){
+  var d=KM_DATA[cam]||{};
+  var v=Math.max(parseFloat(d.km)||0, parseFloat(d.km_entrada_ayer)||0);
+  (typeof CHECKLIST_DATA!=='undefined'?CHECKLIST_DATA:[]).forEach(function(c){if(c&&c.cam===cam){var k=parseFloat(c.km_salida)||0;if(k>v)v=k;}});
+  // fallback: el km más alto en las planillas (col S) por si el chofer aún no cargó — el odómetro no baja
+  (typeof REGS!=='undefined'?REGS:[]).forEach(function(r){if(r&&r.cam===cam){var k=parseFloat(r.km)||0;if(k>0&&k<10000000&&k>v)v=k;}});
+  return v;
+}
 function diasDesde(f){if(!f)return 9999;return Math.floor((new Date()-new Date(f))/86400000);}
 function diasHasta(f){if(!f)return 9999;return Math.floor((new Date(f)-new Date())/86400000);}
 function addDays(d,n){var x=new Date(d);x.setDate(x.getDate()+n);return x.toISOString().split('T')[0];}
@@ -1799,7 +1810,7 @@ function imprimirDashboard(){
   // Alertas
   var al=[];
   Object.keys(FLOTA).filter(function(k){return (FLOTA[k].estado||'operativo')==='operativo';}).forEach(function(cam){var u=REGS.filter(function(r){return r.cam===cam;}).sort(function(a,b){return b.f.localeCompare(a.f);})[0];if(!u||diasDesde(u.f)>=3)al.push('🚛 '+cam.replace('JAC-','')+' — '+(u?diasDesde(u.f):'?')+'+ días sin planilla');});
-  Object.keys(KM_DATA).forEach(function(cam){var d=KM_DATA[cam];if(d&&d.km){var _ps=proxServicio(d.km);if(_ps-d.km<=500)al.push('🔧 '+cam.replace('JAC-','')+' — Servicio próximo ('+(_ps-d.km).toLocaleString()+' km → '+_ps.toLocaleString()+')');}});
+  Object.keys(KM_DATA).forEach(function(cam){var _km=kmActualCam(cam);if(_km>0){var _ps=proxServicio(_km);if(_ps-_km<=500)al.push('🔧 '+cam.replace('JAC-','')+' — Servicio próximo ('+(_ps-_km).toLocaleString()+' km → '+_ps.toLocaleString()+')');}});
   var alertHtml=al.length?(al.slice(0,8).map(function(a){return '<div style="padding:3px 0;border-bottom:1px solid #243140">'+a+'</div>';}).join('')+(al.length>8?'<div class="mut" style="padding-top:3px">…y '+(al.length-8)+' más</div>':'')):'<div style="color:#4ade80;padding:4px 0">Sin alertas críticas ✓</div>';
   // Últimas planillas
   var ult=REGS.slice().reverse().slice(0,8);
@@ -1984,7 +1995,7 @@ function renderAlertasCriticas(){
     var ult=REGS.filter(function(r){return r.cam===cam;}).sort(function(a,b){return b.f.localeCompare(a.f);})[0];
     if(!ult||diasDesde(ult.f)>=3)al.push({t:'r',txt:'🚛 '+cam+' — '+(ult?diasDesde(ult.f):'?')+'+ dias sin planilla'});
   });
-  Object.keys(KM_DATA).forEach(function(cam){var d=KM_DATA[cam];if(!d.km)return;var _ps=proxServicio(d.km);if(_ps-d.km<=500)al.push({t:'r',txt:'🔧 '+cam+' — Servicio próximo ('+(_ps-d.km).toLocaleString()+' km → '+_ps.toLocaleString()+')'});});
+  Object.keys(KM_DATA).forEach(function(cam){var _km=kmActualCam(cam);if(!_km)return;var _ps=proxServicio(_km);if(_ps-_km<=500)al.push({t:'r',txt:'🔧 '+cam+' — Servicio próximo ('+(_ps-_km).toLocaleString()+' km → '+_ps.toLocaleString()+')'});});
   PRESTAMOS.filter(function(p){return p.estado==='activo';}).forEach(function(p){if(p.semanasPagadas>=p.semanas){sendWA('💳 Prestamo de '+p.empNombre+' completamente pagado',['rrhh']);}});
   // BADGE persistente (#opción c): nombres en planillas que NO casan con el roster (sin identificar),
   // para que no queden silenciosos. Dedup por nombre normalizado (chequea cada nombre único 1 vez).
@@ -3577,15 +3588,16 @@ function imprimirReporteJAC(){
   var venc=0,prox=0,ok=0;
   var filas=cams.map(function(cam,i){
     var d=KM_DATA[cam]||{km:0,ultsrv:0,lavado:'—',engrase:'—'};
-    var pSrv=proxServicio(d.km);
-    var rest=pSrv-(parseFloat(d.km)||0);
+    var km=kmActualCam(cam);
+    var pSrv=proxServicio(km);
+    var rest=pSrv-km;
     var est=rest<=500?'PROXIMO':'OK';
     var bk=est==='OK'?'bk-ok':'bk-warn';
     if(est==='PROXIMO')prox++;else ok++;
     return '<tr style="background:'+(i%2===0?'#fff':'#f5f9ff')+'">'+
       '<td class="bv"><b>'+cam+'</b></td>'+
       '<td style="font-size:11px">'+(FLOTA[cam]?FLOTA[cam].chofer:'—')+'</td>'+
-      '<td class="mono" style="text-align:right">'+(d.km||0).toLocaleString()+'</td>'+
+      '<td class="mono" style="text-align:right">'+km.toLocaleString()+'</td>'+
       '<td class="mono" style="text-align:right">'+(d.ultsrv||0).toLocaleString()+'</td>'+
       '<td class="mono" style="text-align:right">'+pSrv.toLocaleString()+'</td>'+
       '<td class="mono" style="text-align:right;color:'+(rest<=0?'#dc2626':rest<=500?'#d97706':'#16a34a')+';font-weight:700">'+(rest>0?rest.toLocaleString():'VENCIDO')+'</td>'+
@@ -3626,8 +3638,8 @@ function ordenServicio(){
       '<td class="bv"><b>'+cam+'</b></td>'+
       '<td class="mono">'+(fl.placa||'—')+'</td>'+
       '<td class="mono" style="font-size:10px">'+(fl.vin||'—')+'</td>'+
-      '<td class="mono" style="text-align:right">'+((parseFloat(d.km)||0).toLocaleString())+'</td>'+
-      '<td class="mono" style="text-align:right">'+proxServicio(d.km).toLocaleString()+'</td>'+
+      '<td class="mono" style="text-align:right">'+kmActualCam(cam).toLocaleString()+'</td>'+
+      '<td class="mono" style="text-align:right">'+proxServicio(kmActualCam(cam)).toLocaleString()+'</td>'+
       '<td style="font-size:11px">'+(fl.chofer||'—')+'</td></tr>';
   }).join('');
   var body='<table><thead><tr><th>Unidad</th><th>Placa</th><th>VIN</th><th style="text-align:right">KM Actual</th><th style="text-align:right">Próx. Servicio</th><th>Chofer</th></tr></thead><tbody>'+filas+'</tbody></table>'+
@@ -3953,12 +3965,13 @@ function renderKm(){
   var cams=Object.keys(FLOTA).filter(function(k){return k.startsWith('JAC-B');});
   cams.forEach(function(cam){
     var d=KM_DATA[cam]||{km:0,ultsrv:0,mant:[]};
-    var proximo=proxServicio(d.km);
-    var restante=proximo-(d.km||0);
+    var km=kmActualCam(cam); // km más fresco: lo que cargó el chofer (no el valor viejo de la tabla)
+    var proximo=proxServicio(km);
+    var restante=proximo-km;
     var est,estClass;
     if(restante<=500){est='PROXIMO';estClass='by';alertas.push('⚠ '+cam+': servicio en '+restante.toLocaleString()+' km (próximo: '+proximo.toLocaleString()+')');}
     else{est='OK';estClass='bg';}
-    rows.push('<tr><td style="font-weight:700">'+cam+'</td><td style="font-size:11px">'+FLOTA[cam].chofer+'</td><td style="font-family:var(--m);color:var(--teal)">'+(d.km?d.km.toLocaleString():'--')+'</td><td style="font-family:var(--m)">'+(d.ultsrv?d.ultsrv.toLocaleString():'--')+'</td><td style="font-family:var(--m)">'+proximo.toLocaleString()+'</td><td style="font-family:var(--m);color:'+(restante<500?'var(--red)':'var(--text)')+'">'+restante.toLocaleString()+'</td><td><span class="badge '+estClass+'">'+est+'</span></td><td style="font-size:10px;color:var(--text3)">'+(d.nota||'')+'</td><td>'+((d.km||d.ultsrv)?'<button onclick="borrarOdo(\''+cam+'\')" class="btn btn-xs" style="background:var(--red);color:#fff">🗑</button>':'')+'</td></tr>');
+    rows.push('<tr><td style="font-weight:700">'+cam+'</td><td style="font-size:11px">'+FLOTA[cam].chofer+'</td><td style="font-family:var(--m);color:var(--teal)">'+(km?km.toLocaleString():'--')+'</td><td style="font-family:var(--m)">'+(d.ultsrv?d.ultsrv.toLocaleString():'--')+'</td><td style="font-family:var(--m)">'+proximo.toLocaleString()+'</td><td style="font-family:var(--m);color:'+(restante<500?'var(--red)':'var(--text)')+'">'+restante.toLocaleString()+'</td><td><span class="badge '+estClass+'">'+est+'</span></td><td style="font-size:10px;color:var(--text3)">'+(d.nota||'')+'</td><td>'+((km||d.ultsrv)?'<button onclick="borrarOdo(\''+cam+'\')" class="btn btn-xs" style="background:var(--red);color:#fff">🗑</button>':'')+'</td></tr>');
   });
   var tb=g('tb-km');if(tb)tb.innerHTML=rows.join('');
   var al=g('alertas-km');if(al)al.innerHTML=alertas.map(function(a){return'<div class="alert-w" style="margin-bottom:4px">'+a+'</div>';}).join('')||'<div style="color:var(--green);font-size:12px;padding:8px">✓ Todo al dia</div>';
