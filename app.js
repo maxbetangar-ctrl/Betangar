@@ -1533,6 +1533,10 @@ function vencBadge(dr){
 }
 function fm(v){return'$'+Math.abs(v||0).toLocaleString('es-VE',{minimumFractionDigits:0,maximumFractionDigits:0});}
 function fbn(v,t){return'Bs '+((v||0)*(t||getTasa('bcvDolar'))).toLocaleString('es-VE',{maximumFractionDigits:0});}
+// Monto de NÓMINA sin redondear: si da entero lo deja entero ($80), si da decimales los muestra
+// ($87,50). Desde que el domingo/feriado paga 1.5× los montos dan medios (ej. ayud 7,5) y antes
+// el toFixed(0) los redondeaba (87,5 se veía 88) descuadrando lo pagado. Solo display, no cambia cálculo.
+function fmtMon(v){v=Math.round((Number(v)||0)*100)/100;return Number.isInteger(v)?String(v):v.toFixed(2);}
 function audit(accion,detalle){AUDITORIA_LOG.push({fecha:new Date().toLocaleString('es-VE'),usuario:SESION?SESION.usuario:'?',accion:accion,detalle:detalle||''});}
 function g(id){return document.getElementById(id);}
 function gv(id){var el=g(id);return el?el.value:'';}
@@ -2285,6 +2289,13 @@ function importarExcel(input){
       if(resultado.actualizadas&&resultado.actualizadas.length>0)msg+=', '+resultado.actualizadas.length+' actualizadas (mismo número, datos corregidos)';
       msg+='\n• Abonos/Pagos Alcaldia: '+resultado.abonos+' nuevos';
       msg+='\n• Gasoil: '+resultado.gasoil+' registros';
+      if(resultado.personalSync){
+        var ps=resultado.personalSync;
+        msg+='\n• Personal (Lista Maestra): '+ps.choferes+' choferes + '+ps.ayudantes+' ayudantes leídos';
+        if(ps.nuevos>0)msg+=', '+ps.nuevos+' nuevos';
+        if(ps.inactivados>0)msg+=', '+ps.inactivados+' inactivados';
+        if(ps.activados>0)msg+=', '+ps.activados+' reactivados';
+      }
       if(resultado.duplicadas.length>0){
         var nd=resultado.duplicadas.length;
         msg+='\n\n⚠ '+nd+' PLANILLA(S) CON NUMERO REPETIDO:\n';
@@ -2347,6 +2358,20 @@ async function guardarImportacionEnDB(resultado){
       // No bloquear con alert — continuar
     }
     return;
+  }
+  // Personal sincronizado desde la LISTA MAESTRA del Excel (nombres/activos/altas). Se persiste
+  // SIEMPRE, aunque no haya planillas nuevas (el usuario puede solo cambiar activos y reimportar).
+  var _ps=resultado.personalSync;
+  if(_ps&&_ps.tocados&&_ps.tocados.length){
+    var empRows=_ps.tocados.map(function(e){return{
+      id:e.id,nombre:e.nombre,cargo:e.cargo,unidad:e.unidad||'',cedula:e.cedula||'',rif:e.rif||'',
+      fnac:e.fnac||'',fingreso:e.fingreso||'',email:e.email||'',tel:e.tel||'',banco:e.banco||'',
+      tcuenta:e.tcuenta||'',ncuenta:e.ncuenta||'',tipo_ay:e.tipoAy||'',imau:!!e.imau,foto_url:e.foto||'',
+      activo:e.activo!==false,whatsapp:e.whatsapp||'',wa_apikey:e.wa_apikey||''};});
+    try{var rEmp=await supabase.from('empleados').upsert(empRows,{onConflict:'id'});
+      if(rEmp.error)console.log('[personal] sync empleados:',rEmp.error.message);
+      else{try{poblarEmps();}catch(e){}}
+    }catch(e){console.log('[personal] sync empleados (exc):',e&&e.message);}
   }
   var total=(resultado.nuevasRegs||[]).length;
   if(total===0&&resultado.abonos===0){
@@ -2499,6 +2524,58 @@ function procesarExcelBetangar(wb){
     return cell.v!==undefined?cell.v:null;
   }
 
+  // ── LISTA MAESTRA DE PERSONAL (hoja PARAMETROS) → fuente de verdad del personal ──
+  // Modificación del Excel (2026-06-26): roster limpio con nombre corto↔completo y ESTADO.
+  //   Choferes:  AA=corto · AB=estado · AE=nombre completo
+  //   Ayudantes: AF=corto · AG=estado · AL=nombre completo
+  // Con esto: (1) se auto-puebla _ALIAS_NOMBRES para casar nombres EXACTO (mata los "sin
+  // identificar"); (2) se sincroniza EMPLEADOS (nombre completo, cargo, activo) con MERGE que
+  // PRESERVA banco/cédula/cuenta/IMAU. Se corre ANTES de leer las planillas para que sus
+  // nombres se canonicen ya con el mapa cargado. El Excel manda: ACTIVO/INACTIVO de aquí
+  // controla qué se lleva a nómina.
+  function _syncPersonalExcel(sheetParam){
+    if(!sheetParam||typeof _normNom!=='function')return;
+    resultado.personalSync={choferes:0,ayudantes:0,activados:0,inactivados:0,nuevos:0,tocados:[]};
+    function leerRoster(colCorto,colEstado,colCompleto,cargo){
+      for(var fr=11;fr<=80;fr++){
+        var corto=String(leerCelda(sheetParam,colCorto,fr)||'').trim();
+        if(!corto||corto==='-')continue;
+        var completo=(String(leerCelda(sheetParam,colCompleto,fr)||'').trim()||corto).toUpperCase();
+        var estado=String(leerCelda(sheetParam,colEstado,fr)||'').trim().toUpperCase();
+        var activo=(estado!=='INACTIVO'); // solo INACTIVO desactiva; vacío/ACTIVO = activo
+        var nCorto=_normNom(corto), nComp=_normNom(completo);
+        // (1) alias corto→completo y completo→completo, para casado exacto
+        _ALIAS_NOMBRES[nCorto]=completo;
+        if(nComp!==nCorto)_ALIAS_NOMBRES[nComp]=completo;
+        if(cargo==='Chofer')resultado.personalSync.choferes++;else resultado.personalSync.ayudantes++;
+        // (2) MERGE en EMPLEADOS (preserva banco/cédula/cuenta/IMAU)
+        var idx=EMPLEADOS.findIndex(function(e){
+          var ne=_normNom(e.nombre);
+          return ne===nComp||ne===nCorto||_nomCasa(corto,e.nombre)||_nomCasa(completo,e.nombre);
+        });
+        if(idx>=0){
+          var e=EMPLEADOS[idx], antesAct=(e.activo!==false), antesNom=e.nombre;
+          e.nombre=completo; e.cargo=cargo;
+          if(cargo==='Ayudante'&&!e.tipoAy)e.tipoAy='interno';
+          e.activo=activo;
+          if(antesAct&&!activo)resultado.personalSync.inactivados++;
+          if(!antesAct&&activo)resultado.personalSync.activados++;
+          if(antesAct!==activo||antesNom!==e.nombre)resultado.personalSync.tocados.push(e);
+        }else{
+          var nuevo={id:'EX'+String(fr)+(cargo==='Chofer'?'C':'A'),nombre:completo,cargo:cargo,unidad:'',
+            cedula:'',rif:'',fnac:'',fingreso:'',email:'',tel:'',banco:'',tcuenta:'',ncuenta:'',
+            tipoAy:(cargo==='Ayudante'?'interno':''),imau:false,foto:'',activo:activo,whatsapp:'',wa_apikey:''};
+          EMPLEADOS.push(nuevo);
+          resultado.personalSync.nuevos++;
+          resultado.personalSync.tocados.push(nuevo);
+        }
+      }
+    }
+    leerRoster('AA','AB','AE','Chofer');
+    leerRoster('AF','AG','AL','Ayudante');
+  }
+  _syncPersonalExcel(wb.Sheets['PARAMETROS']);
+
   // ── HOJA REGISTRO VIAJES — lectura celda por celda (evita bug de fórmulas) ──
   var sheetRV=wb.Sheets['REGISTRO VIAJES'];
   if(sheetRV){
@@ -2621,7 +2698,8 @@ function procesarExcelBetangar(wb){
       if(_idxExist>=0){
         var _ex=REGS[_idxExist];
         var _cambio=(_ex.ch!==nr.ch)||(_ex.d!==nr.d)||(_ex.n!==nr.n)||(_ex.t!==nr.t)||
-                    (_ex.r!==nr.r)||(_ex.par!==nr.par)||(_ex.cam!==nr.cam)||(_ex.f!==nr.f)||(_ex.sem!==nr.sem);
+                    (_ex.r!==nr.r)||(_ex.par!==nr.par)||(_ex.cam!==nr.cam)||(_ex.f!==nr.f)||(_ex.sem!==nr.sem)||
+                    ((_ex.ay1||'')!==(nr.ay1||''))||((_ex.ay2||'')!==(nr.ay2||''))||((_ex.obs||'')!==(nr.obs||''));
         if(!_cambio){resultado.planillasIgnoradas++;continue;} // idéntica → no tocar
         // Conservar gasoil/km que maneja la app si el Excel no trae valor real
         if(!(nr.gasoil>0)&&_ex.gasoil>0)nr.gasoil=_ex.gasoil;
@@ -2682,10 +2760,12 @@ function procesarExcelBetangar(wb){
   // ── HOJA PARAMETROS → config ──
   var sheetP=wb.Sheets['PARAMETROS'];
   if(sheetP){
-    // Fila 2: tasa, fila 3: tarifa chofer, fila 4: tarifa ayudante, fila 5: IMAU
-    var tasa=leerCelda(sheetP,'B',2);
-    var tChofer=leerCelda(sheetP,'B',3);
-    var tAyud=leerCelda(sheetP,'B',4);
+    // Fila 2: tasa, fila 3: tarifa chofer, fila 4: tarifa ayudante, fila 5: IMAU.
+    // El VALOR vive en la columna D (la B tiene el rótulo). Antes leía B → tomaba el texto
+    // del rótulo (NaN) e ignoraba tarifas/tasa. Ahora lee D (donde Máximo puso los números).
+    var tasa=leerCelda(sheetP,'D',2);
+    var tChofer=leerCelda(sheetP,'D',3);
+    var tAyud=leerCelda(sheetP,'D',4);
     if(tasa&&parseFloat(tasa)>1)cfg.tasa=parseFloat(tasa);
     if(tChofer&&parseFloat(tChofer)>0)cfg.chofer=parseFloat(tChofer);
     if(tAyud&&parseFloat(tAyud)>0)cfg.ayud=parseFloat(tAyud);
@@ -2926,8 +3006,10 @@ function imprimirAbonos(){
 // NOMINA
 // ═══════════════════════════════════════════════════
 // Feriados NACIONALES (no regionales). Los viajes de DOMINGO o feriado nacional pagan 1.5×.
-// Carnaval y Semana Santa son movibles → agregar las fechas exactas del año cuando toque.
-var FERIADOS_NACIONALES=['2026-01-01','2026-04-19','2026-05-01','2026-06-24','2026-07-05','2026-07-24','2026-10-12','2026-12-24','2026-12-25','2026-12-31'];
+// Carnaval y Semana Santa son MOVIBLES: estas son las fechas exactas de 2026 (Carnaval 16-17 feb,
+// Jueves/Viernes Santo 2-3 abr). Al cambiar de año hay que recalcularlas. NOTA: el 24-dic (Nochebuena)
+// NO se cuenta como feriado por decisión de la empresa.
+var FERIADOS_NACIONALES=['2026-01-01','2026-02-16','2026-02-17','2026-04-02','2026-04-03','2026-04-19','2026-05-01','2026-06-24','2026-07-05','2026-07-24','2026-10-12','2026-12-25','2026-12-31'];
 function _esDomingoOferiado(f){
   f=String(f||'').slice(0,10);
   if(!/^\d{4}-\d{2}-\d{2}$/.test(f))return false;
@@ -3002,13 +3084,17 @@ function calcNom(){
     var nomCh=r.ch||TEMPORALES[r.cam]||'';
     var chKey=_nombreCanonico(nomCh).toUpperCase();
     if(!chKey)return; // planilla sin chofer: no se puede pagar a nadie
-    if(!chMap[chKey])chMap[chKey]={ch:nomCh,cams:new Set(),viajes:0,montoViajes:0,dias:new Set(),diasViaje:new Set(),descuentos:0,patio:0};
+    if(!chMap[chKey])chMap[chKey]={ch:nomCh,cams:new Set(),viajes:0,viajesDom:0,montoViajes:0,dias:new Set(),diasViaje:new Set(),descuentos:0,patio:0};
     chMap[chKey].viajes+=r.t;chMap[chKey].dias.add(r.f);chMap[chKey].cams.add(r.cam);
     // Monto de los viajes con recargo 1.5× si la planilla es de domingo/feriado nacional.
     chMap[chKey].montoViajes+=(parseInt(r.t)||0)*cfg.chofer*(_esDomingoOferiado(r.f)?1.5:1);
+    chMap[chKey].viajesDom+=(_esDomingoOferiado(r.f)?(parseInt(r.t)||0):0); // conteo viajes domingo (para badge +xD/▲)
     if((parseInt(r.t)||0)>0)chMap[chKey].diasViaje.add(_asisDow(r.f));
   });
-  EMPLEADOS.filter(function(e){return e.cargo==='Ayudante'&&e.activo;}).forEach(function(e){
+  // Incluye ayudantes INACTIVOS también: si aparecen con viajes en planilla se cuentan/pagan
+  // igual (regla "el viaje siempre se paga") y se marcan ⚠️. Sin viajes, el if(viajes>0) los
+  // deja fuera, así que un ex-ayudante sin actividad no ensucia la nómina.
+  EMPLEADOS.filter(function(e){return e.cargo==='Ayudante';}).forEach(function(e){
     // Buscar viajes POR NOMBRE en todas las planillas (independiente del camión)
     // Match tolerante (nombre corto en planilla vs completo en empleados) pero conservador:
     // _nomCasa exige mismo PRIMER nombre + ≥1 apellido en común (no casa homónimos de apellido).
@@ -3109,23 +3195,28 @@ function calcNom(){
     choferes: Object.values(chMap).map(function(c){var k=_nombreCanonico(c.ch).toUpperCase();var pat=(c.patio||0)+(parseInt(PATIO_DIAS[k])||0);var u=Math.max(0,(c.montoViajes||0)+pat*cfg.chofer-c.descuentos);return {n:c.ch,u:Array.from(c.cams||[]).join(','),viajes:c.viajes+pat,pat:pat,usd:Math.round(u*100)/100,bs:Math.round(u*tasa*100)/100};}),
     ayudantes: Object.values(ayMap).map(function(a){var patAy=(a.emp.tipoAy!=='imau')?(parseInt(PATIO_DIAS[a.emp.id])||0):0;var patTot=(a.patio||0)+patAy;var v=a.viajes+patAy;var u=Math.max(0,v*a.tasa+(a.recargoDom||0)-a.descuentos);return {n:a.emp.nombre,u:a.emp.unidad,viajes:v,pat:patTot,usd:Math.round(u*100)/100,bs:Math.round(u*tasa*100)/100,tipo:a.emp.tipoAy||'interno'};})
   };
-  if(g('nm-tot'))g('nm-tot').textContent='$'+totUsd.toFixed(0)+' (op $'+totOp.toFixed(0)+(totImau>0?' + IMAU $'+totImau.toFixed(0):'')+(totAdm>0?' + adm $'+totAdm.toFixed(0):'')+')'+' = Bs '+(totBs/1000).toFixed(0)+'k';
-  if(g('nm-ch'))g('nm-ch').textContent='$'+totCh.toFixed(0)+' (Bs '+(totCh*tasa/1000).toFixed(0)+'k)';
-  if(g('nm-ay'))g('nm-ay').textContent='$'+totAy.toFixed(0)+' (Bs '+(totAy*tasa/1000).toFixed(0)+'k)';
+  if(g('nm-tot'))g('nm-tot').textContent='$'+fmtMon(totUsd)+' (op $'+fmtMon(totOp)+(totImau>0?' + IMAU $'+fmtMon(totImau):'')+(totAdm>0?' + adm $'+fmtMon(totAdm):'')+')'+' = Bs '+(totBs/1000).toFixed(0)+'k';
+  if(g('nm-ch'))g('nm-ch').textContent='$'+fmtMon(totCh)+' (Bs '+(totCh*tasa/1000).toFixed(0)+'k)';
+  if(g('nm-ay'))g('nm-ay').textContent='$'+fmtMon(totAy)+' (Bs '+(totAy*tasa/1000).toFixed(0)+'k)';
   var desc=g('nm-descuentos');if(desc)desc.innerHTML=descBanners.join('');
   var tbCh=g('tb-nom-ch');
   if(tbCh)tbCh.innerHTML=Object.values(chMap).map(function(c,i){
     var key=_nombreCanonico(c.ch).toUpperCase();
     var patM=parseInt(PATIO_DIAS[key])||0, patTot=(c.patio||0)+patM;
     var sueldo=(c.montoViajes||0)+patTot*cfg.chofer, total=Math.max(0,sueldo-c.descuentos);
-    return '<tr><td style="font-family:var(--m)">'+(i+1)+'</td><td style="font-weight:700">'+c.ch+'</td>'+
+    // Chofer INACTIVO con viajes: se cuenta/paga igual (regla "el viaje siempre se paga"), pero
+    // se marca ⚠️ para que RRHH revise (apareció en planilla estando dado de baja en el roster).
+    var _empCh=(typeof _empPorNombre==='function')?_empPorNombre(c.ch):null;
+    var _inact=_empCh&&_empCh.activo===false;
+    var _badgeInact=(_inact&&_empCh)?' <span style="font-size:8px;color:var(--amber)" title="Chofer INACTIVO en la Lista Maestra pero con viajes en la planilla — revisar">⚠️ inactivo</span> <button class="btn btn-s" style="font-size:8px;padding:1px 5px" onclick="corregirInactivoNomina(\''+_empCh.id+'\')" title="Corregir: reactivar (si sí trabajó) o arreglar la planilla (si fue empleado equivocado). Pide token.">✏️ corregir</button>':'';
+    return '<tr'+(_inact?' style="background:rgba(245,158,11,.07)"':'')+'><td style="font-family:var(--m)">'+(i+1)+'</td><td style="font-weight:700">'+c.ch+_badgeInact+'</td>'+
       '<td style="font-size:10px">'+Array.from(c.cams||[]).join(', ')+'</td>'+
-      '<td style="color:var(--green)">'+c.viajes+(c.patio>0?' <span style="font-size:8px;color:var(--amber)" title="patio por asistencia">+'+c.patio+'P</span>':'')+
+      '<td style="color:var(--green)">'+c.viajes+(c.viajesDom>0?' <span style="font-size:8px;color:var(--teal)" title="viajes en domingo/feriado pagados a 1.5×">+'+c.viajesDom+'D</span>':'')+(c.patio>0?' <span style="font-size:8px;color:var(--amber)" title="patio por asistencia">+'+c.patio+'P</span>':'')+
         ' <input type="number" min="0" value="'+patM+'" title="Días de patio (manual): +1 viaje c/u" onchange="setPatioDias(\''+key.replace(/'/g,"")+'\',this.value)" style="width:30px;font-size:9px;background:var(--bg3);border:1px solid var(--border);color:var(--amber);border-radius:4px;padding:1px 2px;text-align:center"><span style="font-size:8px;color:var(--amber)">P</span></td>'+
       '<td>'+c.dias.size+'</td>'+
-      '<td style="font-family:var(--m)">$'+sueldo.toFixed(0)+'</td>'+
-      '<td style="font-family:var(--m);color:var(--red)">'+(c.descuentos>0?'-$'+c.descuentos.toFixed(0):'—')+'</td>'+
-      '<td style="font-family:var(--m);font-weight:700;color:var(--yellow)">$'+total.toFixed(0)+'</td></tr>';}).join('');
+      '<td style="font-family:var(--m)">$'+fmtMon(sueldo)+(c.viajesDom>0?' <span style="font-size:8px;color:var(--teal)" title="incluye recargo domingo 1.5×">▲</span>':'')+'</td>'+
+      '<td style="font-family:var(--m);color:var(--red)">'+(c.descuentos>0?'-$'+fmtMon(c.descuentos):'—')+'</td>'+
+      '<td style="font-family:var(--m);font-weight:700;color:var(--yellow)">$'+fmtMon(total)+'</td></tr>';}).join('');
   var tbAy=g('tb-nom-ay');
   if(tbAy)tbAy.innerHTML=Object.values(ayMap).sort(function(a,b){return b.viajes-a.viajes;}).map(function(a,i){
     var esImau=(a.emp.tipoAy==='imau');
@@ -3134,15 +3225,18 @@ function calcNom(){
     var sueldo=vTot*a.tasa+(a.recargoDom||0);var total=Math.max(0,sueldo-a.descuentos);
     var nota=a.porNombre>0&&a.porCam>0?'('+a.porNombre+'v nombre + '+a.porCam+'v camión)':'';
     var inputPatio=esImau?'':(' <input type="number" min="0" value="'+patAyM+'" title="Días de patio (manual): +1 viaje c/u" onchange="setPatioDias(\''+a.emp.id+'\',this.value)" style="width:30px;font-size:9px;background:var(--bg3);border:1px solid var(--border);color:var(--amber);border-radius:4px;padding:1px 2px;text-align:center"><span style="font-size:8px;color:var(--amber)">P</span>');
-    return'<tr><td>'+(i+1)+'</td><td style="font-weight:700">'+a.emp.nombre+'</td>'+
+    // Ayudante INACTIVO con viajes: se paga igual pero se marca ⚠️ (apareció en planilla dado de baja).
+    var _inactAy=(a.emp.activo===false);
+    var _badgeInactAy=_inactAy?' <span style="font-size:8px;color:var(--amber)" title="Ayudante INACTIVO en la Lista Maestra pero con viajes en la planilla — revisar">⚠️ inactivo</span> <button class="btn btn-s" style="font-size:8px;padding:1px 5px" onclick="corregirInactivoNomina(\''+a.emp.id+'\')" title="Corregir: reactivar (si sí trabajó) o arreglar la planilla (si fue empleado equivocado). Pide token.">✏️ corregir</button>':'';
+    return'<tr'+(_inactAy?' style="background:rgba(245,158,11,.07)"':'')+'><td>'+(i+1)+'</td><td style="font-weight:700">'+a.emp.nombre+_badgeInactAy+'</td>'+
       '<td><span class="badge '+(esImau?'bp':'bt')+'">'+( a.emp.tipoAy||'interno')+'</span></td>'+
       '<td style="font-size:10px">'+a.emp.unidad+(nota?'<br><span style="color:var(--text3);font-size:9px">'+nota+'</span>':'')+'</td>'+
       '<td style="color:var(--green)">'+a.viajes+(a.viajesDom>0?' <span style="font-size:8px;color:var(--teal)" title="viajes en domingo/feriado pagados a 1.5×">+'+a.viajesDom+'D</span>':'')+inputPatio+'</td>'+
-      '<td style="font-family:var(--m)">$'+sueldo.toFixed(0)+(a.recargoDom>0?' <span style="font-size:8px;color:var(--teal)" title="incluye recargo domingo 1.5×">▲</span>':'')+'</td>'+
-      '<td style="font-family:var(--m);color:var(--red)">'+(a.descuentos>0?'-$'+a.descuentos.toFixed(0):'—')+'</td>'+
-      '<td style="font-family:var(--m);font-weight:700;color:var(--yellow)">$'+total.toFixed(0)+'</td></tr>';
+      '<td style="font-family:var(--m)">$'+fmtMon(sueldo)+(a.recargoDom>0?' <span style="font-size:8px;color:var(--teal)" title="incluye recargo domingo 1.5×">▲</span>':'')+'</td>'+
+      '<td style="font-family:var(--m);color:var(--red)">'+(a.descuentos>0?'-$'+fmtMon(a.descuentos):'—')+'</td>'+
+      '<td style="font-family:var(--m);font-weight:700;color:var(--yellow)">$'+fmtMon(total)+'</td></tr>';
   }).join('');
-  if(g('nm-ay-total'))g('nm-ay-total').textContent='$'+totAy.toFixed(0)+' total ayudantes';
+  if(g('nm-ay-total'))g('nm-ay-total').textContent='$'+fmtMon(totAy)+' total ayudantes';
   renderNomAdm();
   try{renderNominaHist();}catch(e){console.log('hist nomina:',e&&e.message);}
   // Cotejo planilla vs asistencia (anomalías RRHH) sobre el MISMO conjunto filtrado
@@ -6179,6 +6273,69 @@ function aplicarVisibilidadSaldo(){
 }
 
 // Punto de entrada para cualquier accion protegida
+// Corrige EN EL ACTO un ⚠️ inactivo de la nómina: si fue un error y la persona SÍ está activa,
+// la reactiva. Es un cambio sensible (afecta nómina) → pide TOKEN de autorización (igual que
+// editar una planilla). Al aprobar: en local hace upsert COMPLETO a 'empleados' (preserva
+// banco/cédula/cuenta/IMAU); el SuperAdmin remoto aplica el PATCH mínimo {activo:true}.
+// Ojo: el Excel manda — hay que corregir también el ESTADO en la Lista Maestra o la próxima
+// importación lo volverá a marcar INACTIVO.
+function reactivarEmpleadoNomina(empId){
+  var e=EMPLEADOS.find(function(x){return x.id===empId;});
+  if(!e){alert('Empleado no encontrado.');return;}
+  if(e.activo!==false){alert(e.nombre+' ya está ACTIVO.');return;}
+  solicitarToken('Reactivar a '+e.nombre+' (estaba INACTIVO y apareció con viajes en planilla)',function(motivo){
+    e.activo=true;
+    if(DB_READY&&supabase){
+      supabase.from('empleados').upsert([{
+        id:e.id,nombre:e.nombre,cargo:e.cargo,unidad:e.unidad||'',cedula:e.cedula||'',rif:e.rif||'',
+        fnac:e.fnac||'',fingreso:e.fingreso||'',email:e.email||'',tel:e.tel||'',banco:e.banco||'',
+        tcuenta:e.tcuenta||'',ncuenta:e.ncuenta||'',tipo_ay:e.tipoAy||'',imau:!!e.imau,foto_url:e.foto||'',
+        activo:true,whatsapp:e.whatsapp||'',wa_apikey:e.wa_apikey||''
+      }],{onConflict:'id'}).then(function(r){if(r&&r.error)console.log('[reactivar]',r.error.message);});
+    }
+    audit('Empleado reactivado',e.nombre+(motivo?(' — '+motivo):''));
+    closeModal();
+    try{calcNom();}catch(_e){}
+    try{poblarEmps();}catch(_e){}
+    alert('✅ '+e.nombre+' reactivado.\n\n⚠️ Corrige también el ESTADO en el Excel (Lista Maestra), o la próxima importación lo volverá a marcar INACTIVO.');
+  },{op:'upd',tabla:'empleados',col:'id',val:e.id,set:{activo:true}});
+}
+
+// Abre la corrección EN EL ACTO de un ⚠️ inactivo en nómina. Dos motivos posibles:
+//   (a) la persona SÍ trabajó / está activa → Reactivar (pide token).
+//   (b) se eligió el empleado EQUIVOCADO en la planilla → editar esa(s) planilla(s) y poner el
+//       nombre correcto (el editor de planillas ya pide su propio token al guardar).
+function corregirInactivoNomina(empId){
+  var e=EMPLEADOS.find(function(x){return x.id===empId;});
+  if(!e){alert('Empleado no encontrado.');return;}
+  // Planillas del MISMO período de la nómina donde aparece esta persona (chofer o ayudante).
+  var mes=gv('nm-mes'),sem=gv('nm-sem'),des=gv('nm-des'),hta=gv('nm-hta');
+  var f=REGS.filter(function(r){
+    if(mes&&r.mes!==mes)return false;
+    if(sem&&r.sem!==sem)return false;
+    if(des&&r.f<des)return false;
+    if(hta&&r.f>hta)return false;
+    return _nomCasa(r.ch,e.nombre)||_nomCasa(r.ay1,e.nombre)||_nomCasa(r.ay2,e.nombre)||_nomCasa(r.ay3,e.nombre);
+  });
+  var listaPlan = f.length
+    ? '<div class="tw" style="max-height:200px;overflow:auto"><table><thead><tr><th>#</th><th>Fecha</th><th>Cam</th><th>Rol</th><th>V</th><th></th></tr></thead><tbody>'+
+      f.map(function(r){
+        var rol=_nomCasa(r.ch,e.nombre)?'Chofer':'Ayudante';
+        return '<tr><td style="font-family:var(--m)">'+r.p+'</td><td style="font-size:10px">'+fmtFechaCorta(r.f)+'</td><td style="font-size:10px">'+r.cam+'</td><td style="font-size:10px">'+rol+'</td><td style="text-align:center;color:var(--green)">'+r.t+'</td>'+
+          '<td><button class="btn btn-s" style="font-size:9px;padding:2px 6px" onclick="closeModal();editarPlanilla(\''+r.p+'\')">✏️ editar</button></td></tr>';
+      }).join('')+'</tbody></table></div>'
+    : '<div style="color:var(--text3);font-size:12px;padding:8px">No se hallaron planillas de esta persona en el período seleccionado.</div>';
+  var html=''+
+    '<div class="alert-w" style="margin-bottom:10px;font-size:12px"><b>'+e.nombre+'</b> está <b>INACTIVO</b> en la Lista Maestra pero tiene viajes en este período. El viaje se paga igual; aquí lo corriges:</div>'+
+    '<div style="font-weight:700;font-size:12px;margin-bottom:4px">a) Sí trabajó / está activo</div>'+
+    '<button class="btn btn-g" style="width:100%;margin-bottom:14px" onclick="reactivarEmpleadoNomina(\''+e.id+'\')">✅ Reactivar a '+e.nombre+' (pide token)</button>'+
+    '<div style="font-weight:700;font-size:12px;margin-bottom:4px">b) Me equivoqué de empleado en la planilla</div>'+
+    '<div style="font-size:11px;color:var(--text3);margin-bottom:6px">Edita la planilla y pon el nombre correcto. Guardar pedirá token.</div>'+
+    listaPlan+
+    '<div style="margin-top:12px;text-align:right"><button class="btn btn-s" onclick="closeModal()">Cerrar</button></div>';
+  openModal('Corregir ⚠️ inactivo',html);
+}
+
 function solicitarToken(accion,callback,accionData){
   if(esSuperAdmin()){
     pedirMotivo(accion,function(motivo){
@@ -12051,6 +12208,29 @@ function detectarAnomaliasRRHH(planillas){
   ANOMALIAS_ACTUAL=lista;
   ANOMALIAS_NOCASADOS=Object.values(nocas);
   renderAnomaliasRRHH();
+  persistirAnomaliasPendientes(); // refleja en BD las pendientes (idempotente); NUNCA pisa decisiones resueltas
+}
+
+// Persiste en anomalias_rrhh las anomalías PENDIENTES detectadas. Antes la tabla SOLO guardaba
+// decisiones humanas (validado/rechazado vía resolverAnomalia), así que quedaba vacía aunque
+// hubiera anomalías reales → Salud de Datos daba falsa alarma y las pendientes morían en memoria.
+// UPSERT idempotente por id (emp_id|fecha): solo escribe las NUEVAS (las que aún no están en
+// ANOMALIAS_DECISIONES) y NUNCA toca una decisión ya resuelta (esas tienen estado!=='pendiente'
+// y quedan excluidas por el filtro). No borra: la detección corre sobre el set FILTRADO de la
+// semana, así que no hay visibilidad global para purgar sin riesgo de eliminar anomalías de
+// otras semanas; una pendiente que dejó de aplicar se cierra a mano como falso positivo.
+async function persistirAnomaliasPendientes(){
+  if(!DB_READY||!supabase)return;
+  var nuevas=ANOMALIAS_ACTUAL.filter(function(a){return a.estado==='pendiente'&&!ANOMALIAS_DECISIONES[a.id];});
+  if(!nuevas.length)return;
+  var rows=nuevas.map(function(a){return {id:a.id,fecha:a.fecha,emp_id:a.emp_id,emp_nombre:a.emp_nombre,
+    cam:a.cam,rol:a.rol,viajes:a.viajes,asistencia:a.asistencia,tipo:a.tipo,severidad:a.severidad,
+    estado:'pendiente',nota:'',resuelto_por:''};});
+  try{
+    var r=await supabase.from('anomalias_rrhh').upsert(rows,{onConflict:'id'});
+    if(r.error){console.log('[anom] persistir pendientes:',r.error.message);return;}
+    rows.forEach(function(row){ANOMALIAS_DECISIONES[row.id]=row;}); // ya en BD → no reescribir en cada calcNom
+  }catch(e){console.log('[anom] persistir pendientes (excepción):',e&&e.message);}
 }
 
 function renderAnomaliasRRHH(){
