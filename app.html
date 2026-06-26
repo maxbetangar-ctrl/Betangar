@@ -448,9 +448,12 @@ tr:hover td{background:rgba(45,255,122,.02)}
   <div class="switch-row">
     <div class="sw on" id="sw-bnc-dash" onclick="switchBNCTab('dash')">Dashboard</div>
     <div class="sw" id="sw-bnc-mov" onclick="switchBNCTab('mov')">Movimientos</div>
-    <div class="sw" id="sw-bnc-conc" onclick="switchBNCTab('conc')">Conciliacion</div>
     <div class="sw" id="sw-bnc-pend" onclick="switchBNCTab('pend')">Pagos Pendientes</div>
-    <div class="sw" id="sw-bnc-cfg" onclick="switchBNCTab('cfg')">Config API</div>
+    <!-- Conciliacion y Config API se movieron al sub-nav del hub Banco (paginas standalone, mas
+         completas): renderConciliacionBNC (BNC real por fecha) y bncGuardarConfig (RPC con los 9
+         params: ClientID prod, webhooks, working key). Los tabs internos viejos quedan obsoletos. -->
+    <div class="sw" id="sw-bnc-conc" onclick="sp('conciliacion')" style="display:none">Conciliacion</div>
+    <div class="sw" id="sw-bnc-cfg" onclick="sp('banco-bnc')" style="display:none">Config API</div>
   </div>
   <div id="tab-bnc-dash">
     <div class="g3" style="margin-bottom:14px">
@@ -2105,7 +2108,7 @@ tr:hover td{background:rgba(45,255,122,.02)}
   <div id="conc-resultado"></div>
 </div>
 
-<script src="app.js?v=20260625k"></script>
+<script src="app.js?v=20260625l"></script>
 
 <!-- Modal global -->
 <div id="modal" class="moverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9990;align-items:center;justify-content:center;padding:16px">
