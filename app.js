@@ -6119,8 +6119,8 @@ function solicitarToken(accion,callback,accionData){
   window._tokenAccionData=accionData||null;
   var html='<div class="alert-b" style="margin-bottom:12px">'+
     'Esta accion requiere autorizacion.<br>'+
-    'Solicita el codigo a Maximo o Francisco Betancourt.<br>'+
-    '<span style="font-size:10px;color:var(--text3)">El codigo llega por WhatsApp a los administradores.</span>'+
+    'Se está enviando la solicitud a Maximo y Francisco (correo + WhatsApp + panel).<br>'+
+    '<span style="font-size:10px;color:var(--text3)">Pídeles el código de 6 dígitos e ingrésalo abajo. El motivo es opcional.</span>'+
     '</div>'+
     '<div class="fg"><label>Motivo de la modificacion</label>'+
     '<input class="fc" id="tok-motivo" placeholder="Ej: Correccion de numero de planilla...">'+
@@ -6134,19 +6134,20 @@ function solicitarToken(accion,callback,accionData){
     '<button class="btn btn-s" onclick="closeModal()">Cancelar</button>'+
     '</div>'+
     '<div style="margin-top:10px;text-align:center">'+
-    '<button class="btn btn-b btn-sm" onclick="pedirNuevoToken()">📱 Solicitar codigo por WhatsApp</button>'+
+    '<button class="btn btn-b btn-sm" onclick="pedirNuevoToken()">📱 Reenviar código</button>'+
     '</div>';
   openModal('Autorizacion requerida',html);
+  // Generar y ENVIAR el código de inmediato (correo + WhatsApp + panel), sin depender de que el
+  // usuario apriete un botón ni llene el motivo. Ese filtro hacía que el código NO saliera y el
+  // admin nunca lo recibiera ("no llega ni correo ni nada en un cambio real").
+  setTimeout(function(){try{pedirNuevoToken();}catch(e){console.log('auto pedirToken err:',e&&e.message);}},150);
 }
 
 async function pedirNuevoToken(){
   var accion=window._tokenAccion||'modificacion';
   var motivo=g('tok-motivo')?g('tok-motivo').value.trim():'';
   var errEl=g('tok-error');
-  if(!motivo){
-    if(errEl){errEl.style.display='block';errEl.style.color='var(--red)';errEl.textContent='Escribe el motivo antes de solicitar el codigo.';}
-    return;
-  }
+  if(!motivo)motivo=accion; // motivo OPCIONAL: si no lo escriben, usamos la acción → nunca bloquea el envío del código
   var codigo=generarCodigo();
   TOKEN_ACTIVO={codigo:codigo,expira:null,solicitante:SESION.nombre,accion:accion,motivo:motivo,detalle:window._tokenDetalle||''};
   // P0: registrar la acción local para que el polling la ejecute al aprobar el superadmin
@@ -6224,7 +6225,7 @@ function validarToken(){
   var codigo=g('tok-codigo')?g('tok-codigo').value.trim():'';
   var motivo=g('tok-motivo')?g('tok-motivo').value.trim():'';
   var errEl=g('tok-error');
-  if(!motivo){if(errEl){errEl.style.display='block';errEl.style.color='var(--red)';errEl.textContent='Escribe el motivo de la modificacion.';}return;}
+  if(!motivo)motivo=(window._tokenAccion||'modificacion'); // motivo OPCIONAL (coherente con el auto-envío)
   if(!codigo||codigo.length!==6){if(errEl){errEl.style.display='block';errEl.style.color='var(--red)';errEl.textContent='Ingresa el codigo de 6 digitos.';}return;}
   var _tk=String(codigo).toUpperCase();
   var _local=PENDING_TOKEN_CB[_tk];
