@@ -2171,7 +2171,8 @@ var _ALIAS_NOMBRES={
   'JOSE ARANGURE':'JOSE ELITE ARANGUREN GONZALEZ',
   'ANDRI CUBA':'ANDRY JOSE CUBA SUAREZ',
   'YIBER GONZALEZ':'YIRBER LENITHON GONZALEZ MONTIEL',
-  'JONH J DELGADO':'JHON JAIRO DELGADO GONZALEZ'
+  'JONH J DELGADO':'JHON JAIRO DELGADO GONZALEZ',
+  'JESUSANGEL PARRA':'JESUS ANGEL PARRA ATENCIO'
 };
 // Persistencia del mapa de alias (corto→completo) construido en la importación: se guarda en
 // localStorage y se recarga aquí, para que _nombreCanonico resuelva nombres (ej. MANUEL LOPEZ →
