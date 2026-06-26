@@ -235,9 +235,7 @@ tr:hover td{background:rgba(45,255,122,.02)}
     <div class="menu-item" onclick="sp('reporte')" id="mi-reporte">💵 Cobranza / Alcaldia</div>
     <div class="menu-group">FINANCIERO</div>
     <div class="menu-item" onclick="sp('banco')" id="mi-banco">🏦 Banco</div>
-    <div class="menu-item" onclick="sp('proveedores')" id="mi-proveedores">🤝 Proveedores</div>
-    <div class="menu-item" onclick="sp('financiero')" id="mi-financiero">📈 Financiero</div>
-    <div class="menu-item" onclick="sp('cajachica')" id="mi-cajachica">💵 Caja Chica</div>
+    <div class="menu-item" onclick="abrirFinanzas()" id="mi-financiero">💰 Finanzas</div>
     <div class="menu-group">OPERACIONES</div>
     <div class="menu-item" onclick="sp('nomina')" id="mi-nomina">👥 Nomina</div>
     <div class="menu-item" onclick="sp('asistencia')" id="mi-asistencia">✅ Asistencia</div>
@@ -247,13 +245,10 @@ tr:hover td{background:rgba(45,255,122,.02)}
     <div class="menu-item" onclick="abrirMantenimiento()" id="mi-km">🔧 Mantenimiento</div>
     <div class="menu-item" onclick="sp('documentos')" id="mi-documentos">📑 Documentos</div>
     <div class="menu-item" onclick="sp('inventario')" id="mi-inventario">📦 Inventario</div>
-    <div class="menu-item" onclick="sp('metas')" id="mi-metas">🎯 Metas</div>
     <div class="menu-group">RRHH</div>
     <div class="menu-item" onclick="sp('empleados')" id="mi-empleados">👤 Personal</div>
     <div class="menu-group">ANALISIS</div>
-    <div class="menu-item" onclick="sp('rentabilidad')" id="mi-rentabilidad">📊 Rentabilidad x Camion</div>
-    <div class="menu-item" onclick="sp('stats')" id="mi-stats">📉 Estadisticas</div>
-    <div class="menu-item" onclick="sp('ranking')" id="mi-ranking">🏆 Ranking</div>
+    <div class="menu-item" onclick="abrirAnalisis()" id="mi-ranking">📊 Analisis</div>
     <div class="menu-group">SISTEMA</div>
     <div class="menu-item" onclick="sp('contratos')" id="mi-contratos">📋 Contratos</div>
     <div class="menu-item" onclick="sp('usuarios')" id="mi-usuarios">🔐 Usuarios</div>
@@ -352,6 +347,7 @@ tr:hover td{background:rgba(45,255,122,.02)}
 </div
 <!-- MÓDULO CAJA CHICA -->
 <div id="p-cajachica" class="page" style="display:none">
+  <div id="subnav-cajachica"></div>
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:10px">
     <div>
       <div style="font-size:18px;font-weight:900;color:var(--text1)">💵 Caja Chica</div>
@@ -525,6 +521,7 @@ tr:hover td{background:rgba(45,255,122,.02)}
 
 <!-- CUENTAS POR PAGAR -->
 <div id="p-proveedores" class="page">
+  <div id="subnav-proveedores"></div>
   <div class="switch-row">
     <div class="sw on" id="sw-prov-cxp" onclick="switchProvTab('cxp')">📋 Cuentas x Pagar</div>
     <div class="sw" id="sw-prov-lista" onclick="switchProvTab('lista')">Proveedores</div>
@@ -1006,6 +1003,7 @@ tr:hover td{background:rgba(45,255,122,.02)}
 
 <!-- METAS -->
 <div id="p-metas" class="page">
+  <div id="subnav-metas"></div>
   <div class="g2" style="margin-bottom:10px">
     <div class="card">
       <div class="st" style="margin-bottom:10px">🎯 Configurar Metas</div>
@@ -1598,6 +1596,7 @@ tr:hover td{background:rgba(45,255,122,.02)}
 
 <!-- RENTABILIDAD POR CAMION -->
 <div id="p-rentabilidad" class="page">
+  <div id="subnav-rentabilidad"></div>
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px">
     <div style="font-size:15px;font-weight:800;color:var(--green)">📊 Rentabilidad por Camión</div>
     <div style="display:flex;gap:6px;align-items:flex-end;flex-wrap:wrap">
@@ -1618,6 +1617,7 @@ tr:hover td{background:rgba(45,255,122,.02)}
 
 <!-- ESTADISTICAS -->
 <div id="p-stats" class="page">
+  <div id="subnav-stats"></div>
   <div class="g2" style="margin-bottom:10px">
     <div class="cbox"><div class="ctitle">Viajes Acumulados</div><div id="c-acum-svg"></div></div>
     <div class="cbox"><div class="ctitle">Diurnos vs Nocturnos</div><div id="c-dn-svg"></div></div>
@@ -1630,6 +1630,7 @@ tr:hover td{background:rgba(45,255,122,.02)}
 
 <!-- RANKING -->
 <div id="p-ranking" class="page">
+  <div id="subnav-ranking"></div>
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px">
     <div class="st" style="font-size:16px">🏆 Ranking de Choferes</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
@@ -1726,6 +1727,7 @@ tr:hover td{background:rgba(45,255,122,.02)}
 
 <!-- FINANCIERO -->
 <div id="p-financiero" class="page">
+  <div id="subnav-financiero"></div>
   <div class="switch-row" style="margin-bottom:10px;flex-wrap:wrap">
     <div class="sw on" id="sw-fin-dash" onclick="switchFinTab('dash')">Dashboard</div>
     <div class="sw" id="sw-fin-ingresos" onclick="switchFinTab('ingresos')">Pagos Alcaldia</div>
@@ -2117,7 +2119,7 @@ tr:hover td{background:rgba(45,255,122,.02)}
   <div id="conc-resultado"></div>
 </div>
 
-<script src="app.js?v=20260626n"></script>
+<script src="app.js?v=20260626o"></script>
 
 <!-- Modal global -->
 <div id="modal" class="moverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9990;align-items:center;justify-content:center;padding:16px">

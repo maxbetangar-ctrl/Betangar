@@ -831,6 +831,48 @@ function renderRRHHSubnav(activo){
   var html=visibles>=2?('<div class="switch-row" style="margin-bottom:10px">'+tab('empleados','👤 Empleados')+tab('prestamos','💳 Préstamos')+tab('multas','⚖️ Multas')+'</div>'):'';
   ['subnav-empleados','subnav-prestamos','subnav-multas'].forEach(function(pid){var el=document.getElementById(pid);if(el)el.innerHTML=html;});
 }
+// Sub-navegación del hub FINANZAS: Proveedores (incluye CxP como pestaña interna) / Financiero /
+// Caja Chica. Cobranza/Alcaldía (reporte) se deja aparte en el menú PRINCIPAL por ser de uso diario
+// y tener permisos más amplios. Cada botón solo si el rol lo tiene; si <2, no se muestra barra.
+// NO altera la lógica de ninguno de los módulos.
+function renderFinanzasSubnav(activo){
+  var perms=PERMISOS[SESION?SESION.rol:'admin']||PERMISOS['admin']||[];
+  function tab(id,label){
+    if(perms.indexOf(id)<0)return '';
+    return '<div class="sw'+(id===activo?' on':'')+'" onclick="sp(\''+id+'\')">'+label+'</div>';
+  }
+  var ids=['proveedores','financiero','cajachica'];
+  var visibles=ids.reduce(function(s,i){return s+(perms.indexOf(i)>=0?1:0);},0);
+  var html=visibles>=2?('<div class="switch-row" style="margin-bottom:10px">'+tab('proveedores','🤝 Proveedores')+tab('financiero','📈 Financiero')+tab('cajachica','💵 Caja Chica')+'</div>'):'';
+  ['subnav-proveedores','subnav-financiero','subnav-cajachica'].forEach(function(pid){var el=document.getElementById(pid);if(el)el.innerHTML=html;});
+}
+// Entrada de menú unificada "Finanzas": abre el primer sub-módulo que el rol pueda ver.
+function abrirFinanzas(){
+  var perms=PERMISOS[SESION?SESION.rol:'admin']||PERMISOS['admin']||[];
+  var orden=['proveedores','financiero','cajachica'];
+  for(var i=0;i<orden.length;i++){if(perms.indexOf(orden[i])>=0){sp(orden[i]);return;}}
+  alert('No tienes permiso para esta sección');
+}
+// Sub-navegación del hub ANÁLISIS: Rentabilidad x Camión / Estadísticas / Ranking / Metas. Cada
+// botón solo si el rol lo tiene; si <2, no se muestra barra. NO altera la lógica de los módulos.
+function renderAnalisisSubnav(activo){
+  var perms=PERMISOS[SESION?SESION.rol:'admin']||PERMISOS['admin']||[];
+  function tab(id,label){
+    if(perms.indexOf(id)<0)return '';
+    return '<div class="sw'+(id===activo?' on':'')+'" onclick="sp(\''+id+'\')">'+label+'</div>';
+  }
+  var ids=['rentabilidad','stats','ranking','metas'];
+  var visibles=ids.reduce(function(s,i){return s+(perms.indexOf(i)>=0?1:0);},0);
+  var html=visibles>=2?('<div class="switch-row" style="margin-bottom:10px">'+tab('rentabilidad','📊 Rentabilidad')+tab('stats','📉 Estadísticas')+tab('ranking','🏆 Ranking')+tab('metas','🎯 Metas')+'</div>'):'';
+  ['subnav-rentabilidad','subnav-stats','subnav-ranking','subnav-metas'].forEach(function(pid){var el=document.getElementById(pid);if(el)el.innerHTML=html;});
+}
+// Entrada de menú unificada "Análisis": abre el primer sub-módulo que el rol pueda ver.
+function abrirAnalisis(){
+  var perms=PERMISOS[SESION?SESION.rol:'admin']||PERMISOS['admin']||[];
+  var orden=['rentabilidad','stats','ranking','metas'];
+  for(var i=0;i<orden.length;i++){if(perms.indexOf(orden[i])>=0){sp(orden[i]);return;}}
+  alert('No tienes permiso para esta sección');
+}
 function sp(id){
   // Abonos se fundió en Cobranza/Alcaldía → pestaña Pagos. Redirigir para no romper accesos directos.
   if(id==='abonos'){ sp('reporte'); setTimeout(function(){try{switchRptTab('pagos');}catch(e){}},0); return; }
@@ -863,31 +905,31 @@ function sp(id){
   }
     if(id==='planilla'){renderPlanHoy();renderAlertaDuplicadasRRHH();poblarDatalistsEmpleados();}
     if(id==='historico'){poblarSems();filtH();}
-    if(id==='stats')renderStats();
-    if(id==='ranking')calcRanking();
+    if(id==='stats'){renderAnalisisSubnav('stats');renderStats();}
+    if(id==='ranking'){renderAnalisisSubnav('ranking');calcRanking();}
     if(id==='empleados'){renderRRHHSubnav('empleados');renderEmpleados();renderCumpleanos();renderBancario();renderCarnetsPreview();}
     if(id==='usuarios')renderUsuarios();
-    if(id==='financiero'){renderFinDash();renderGastosFijos();renderProveedoresLista();renderBancoFin();autoLlenarTasasEnFormularios();}
+    if(id==='financiero'){renderFinanzasSubnav('financiero');renderFinDash();renderGastosFijos();renderProveedoresLista();renderBancoFin();autoLlenarTasasEnFormularios();}
     if(id==='abonos'){renderAbonos();calcMontoAbono();}
     if(id==='nomina')recalcNom();
     if(id==='combustible'){renderCombSubnav('combustible');renderComb();renderGasolPersonal();setTimeout(renderGasoil,100);}
     if(id==='control-combustible'){renderCombSubnav('control-combustible');renderControlComb();}
-    if(id==='rentabilidad'){renderRentabilidad();}
+    if(id==='rentabilidad'){renderAnalisisSubnav('rentabilidad');renderRentabilidad();}
     if(id==='salud'){renderSaludDatos();}
     if(id==='km'){renderMantSubnav('km');renderKm();renderTiposMant();}
     if(id==='banco'){renderBancoSubnav('banco');renderBNCDash();}
-    if(id==='proveedores'){renderCXP();renderProveedoresLista();renderRetenciones();}
+    if(id==='proveedores'){renderFinanzasSubnav('proveedores');renderCXP();renderProveedoresLista();renderRetenciones();}
     if(id==='documentos'){renderDocAlertas();renderDocTablas();}
     if(id==='asistencia')renderAsistencia();
     if(id==='prestamos'){renderRRHHSubnav('prestamos');poblarEmps();renderPrestamos();}
     if(id==='multas'){renderRRHHSubnav('multas');poblarCams();renderMultas();}
     if(id==='inventario')renderInventario();
     if(id==='llantas'){renderMantSubnav('llantas');renderLlantas();}
-    if(id==='metas'){prefillMeta();}
+    if(id==='metas'){renderAnalisisSubnav('metas');prefillMeta();}
     if(id==='contratos')renderContratosLista();
     if(id==='config'){renderFlotaCfgLista();renderNomAdm();renderWANums();renderWAEmpresarial();renderRecordatorios();renderCfgCorrelativo();}
     if(id==='cxp'){cargarCxP();}
-    if(id==='cajachica'){renderCajaChica();}
+    if(id==='cajachica'){renderFinanzasSubnav('cajachica');renderCajaChica();}
     if(id==='proveedores'){setTimeout(function(){switchProvTab('cxp');cargarCxP();},100);}
     if(id==='auditoria')renderAuditoria();
     // Módulos especiales
