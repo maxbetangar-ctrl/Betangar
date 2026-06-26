@@ -246,7 +246,6 @@ tr:hover td{background:rgba(45,255,122,.02)}
     <div class="menu-item" onclick="sp('checklist')" id="mi-checklist">📋 Check List</div>
     <div class="menu-item" onclick="sp('operativo')" id="mi-operativo">🗺 Operativo</div>
     <div class="menu-item" onclick="sp('combustible')" id="mi-combustible">⛽ Combustible</div>
-    <div class="menu-item" onclick="sp('control-combustible')" id="mi-control-combustible">⛽ Control Combustible</div>
     <div class="menu-item" onclick="sp('km')" id="mi-km">🔧 Km / Servicio</div>
     <div class="menu-item" onclick="sp('documentos')" id="mi-documentos">📑 Documentos</div>
     <div class="menu-item" onclick="sp('inventario')" id="mi-inventario">📦 Inventario</div>
@@ -1352,6 +1351,7 @@ tr:hover td{background:rgba(45,255,122,.02)}
 
 <!-- COMBUSTIBLE -->
 <div id="p-combustible" class="page">
+  <div id="subnav-combustible"></div>
   <div class="g3" style="margin-bottom:10px">
     <div class="card">
       <div class="sh"><div class="st">Tanque Interno</div></div>
@@ -1408,6 +1408,7 @@ tr:hover td{background:rgba(45,255,122,.02)}
 
 <!-- ============ CONTROL DE COMBUSTIBLE (módulo nuevo, configurable) ============ -->
 <div id="p-control-combustible" class="page">
+  <div id="subnav-control-combustible"></div>
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px">
     <div style="font-size:15px;font-weight:800;color:var(--green)">⛽ Control de Combustible</div>
     <div style="font-size:10px;color:var(--text3)">Cubicación por medición · Alertas automáticas · Reporte IA</div>
@@ -2103,7 +2104,7 @@ tr:hover td{background:rgba(45,255,122,.02)}
   <div id="conc-resultado"></div>
 </div>
 
-<script src="app.js?v=20260625g"></script>
+<script src="app.js?v=20260625h"></script>
 
 <!-- Modal global -->
 <div id="modal" class="moverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9990;align-items:center;justify-content:center;padding:16px">

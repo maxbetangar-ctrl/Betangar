@@ -765,6 +765,21 @@ async function bncRenderCuentas(){
 // ═══════════════════════════════════════════════════
 // NAVIGATION
 // ═══════════════════════════════════════════════════
+// Sub-navegación del módulo Combustible UNIFICADO: Operación (módulo viejo 'combustible') ↔
+// Control y Alertas (módulo nuevo 'control-combustible'). Son dos páginas que ahora comparten una
+// sola entrada de menú; cada botón solo aparece si el rol tiene ese permiso (mismo criterio que el
+// menú vía aplicarPermisos). NO altera la lógica de ninguno de los dos módulos.
+function renderCombSubnav(activo){
+  var perms=PERMISOS[SESION?SESION.rol:'admin']||PERMISOS['admin']||[];
+  function tab(id,label){
+    if(perms.indexOf(id)<0)return '';
+    return '<div class="sw'+(id===activo?' on':'')+'" onclick="sp(\''+id+'\')">'+label+'</div>';
+  }
+  var visibles=(perms.indexOf('combustible')>=0?1:0)+(perms.indexOf('control-combustible')>=0?1:0);
+  // Si el rol solo tiene acceso a uno, no mostramos una barra de un solo botón.
+  var html=visibles>=2?('<div class="switch-row" style="margin-bottom:10px">'+tab('combustible','⛽ Operación')+tab('control-combustible','📊 Control y Alertas')+'</div>'):'';
+  ['subnav-combustible','subnav-control-combustible'].forEach(function(pid){var el=document.getElementById(pid);if(el)el.innerHTML=html;});
+}
 function sp(id){
   // Abonos se fundió en Cobranza/Alcaldía → pestaña Pagos. Redirigir para no romper accesos directos.
   if(id==='abonos'){ sp('reporte'); setTimeout(function(){try{switchRptTab('pagos');}catch(e){}},0); return; }
@@ -804,8 +819,8 @@ function sp(id){
     if(id==='financiero'){renderFinDash();renderGastosFijos();renderProveedoresLista();renderBancoFin();autoLlenarTasasEnFormularios();}
     if(id==='abonos'){renderAbonos();calcMontoAbono();}
     if(id==='nomina')recalcNom();
-    if(id==='combustible'){renderComb();renderGasolPersonal();setTimeout(renderGasoil,100);}
-    if(id==='control-combustible'){renderControlComb();}
+    if(id==='combustible'){renderCombSubnav('combustible');renderComb();renderGasolPersonal();setTimeout(renderGasoil,100);}
+    if(id==='control-combustible'){renderCombSubnav('control-combustible');renderControlComb();}
     if(id==='rentabilidad'){renderRentabilidad();}
     if(id==='salud'){renderSaludDatos();}
     if(id==='km'){renderKm();renderTiposMant();}
