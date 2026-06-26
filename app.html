@@ -1295,11 +1295,32 @@ tr:hover td{background:rgba(45,255,122,.02)}
     <div style="min-width:0"><div class="st" style="margin-bottom:6px">Choferes</div><div class="tw"><table><thead><tr><th>#</th><th>Chofer</th><th>Unidad</th><th>Viajes</th><th>Dias</th><th>Sueldo $</th><th>Desc $</th><th>Total $</th></tr></thead><tbody id="tb-nom-ch"></tbody></table></div></div>
     <div style="min-width:0"><div class="sh" style="margin-bottom:6px"><div class="st">Ayudantes</div><div style="font-size:11px;color:var(--blue)" id="nm-ay-total">-</div></div><div class="tw"><table><thead><tr><th>#</th><th>Ayudante</th><th>Tipo</th><th>Unidad</th><th>Viajes</th><th>Sueldo $</th><th>Desc $</th><th>Total $</th></tr></thead><tbody id="tb-nom-ay"></tbody></table></div></div>
   </div>
-  <div><div class="st" style="margin-bottom:6px">Nomina Administrativa</div><div class="tw"><table><thead><tr><th>Cargo</th><th>Mensual $</th><th>Semanal $</th></tr></thead><tbody id="tb-nom-adm"></tbody></table></div>
-    <div class="st" style="margin:10px 0 4px;font-size:12px;color:var(--text2)">✏️ Editar fijos administrativos (suman al total de la nómina)</div>
-    <div class="tw"><table><thead><tr><th>Cargo / Etiqueta</th><th>Mensual $</th><th></th></tr></thead><tbody id="tb-nom-adm-cfg"></tbody></table></div>
-    <div class="st" style="margin:14px 0 4px;font-size:12px;color:var(--text2)">🟡 Apoyo IMAU — fijos semanales (los 4 de apoyo/supervisor). Los ~16 ayudantes IMAU salen solos de la planilla: escribe <b>IMAU</b> en el ayudante.</div>
-    <div class="tw" style="max-width:340px"><table><thead><tr><th>Nombre</th><th>Semanal $</th></tr></thead><tbody id="tb-imau-apoyo"></tbody></table></div>
+  <!-- COTEJO PLANILLA vs ASISTENCIA (anomalías RRHH) — pegado a Choferes/Ayudantes para auditar de inmediato -->
+  <div class="card" style="margin-top:10px;border:1px solid var(--amber)">
+    <div class="sh" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">
+      <div class="st">🕵️ Cotejo Planilla vs Asistencia (anomalías RRHH)</div>
+      <div style="display:flex;gap:6px;align-items:center">
+        <label style="font-size:11px;color:var(--text3)"><input type="checkbox" id="nm-anom-ver-resueltas" onchange="renderAnomaliasRRHH()"> ver resueltas</label>
+        <button class="btn btn-s btn-sm" onclick="enviarResumenAnomaliasWA()">📲 WA a RRHH</button>
+      </div>
+    </div>
+    <div style="font-size:11px;color:var(--text3);margin-bottom:8px">El viaje SIEMPRE se cuenta y se paga. Esto solo marca posibles inconsistencias (tiene viaje pero no asistió) para que RRHH valide (falso positivo) o rechace (confirmado).</div>
+    <div id="nm-anom-kpis" class="g4" style="margin-bottom:10px"></div>
+    <div id="nm-anom-lista"></div>
+    <div id="nm-anom-nocasados" style="margin-top:10px"></div>
+  </div>
+
+  <!-- AUDITORÍA DE PAGOS: pagado (historial) vs corresponde (viajes en planilla × tarifa) -->
+  <div class="card" style="margin-top:12px;border:1px solid var(--border)">
+    <div class="sh"><div class="st">🔍 Auditoría de Pagos — cotejo contra planilla</div></div>
+    <div style="font-size:11px;color:var(--text3);margin-bottom:8px">Compara lo PAGADO (del historial) contra lo que CORRESPONDE según los viajes de la planilla × tarifa. Marca 🚩 a quien recibió de más y ⚠️ pagos sin soporte de planilla. La planilla es la verdad.</div>
+    <div style="margin-bottom:8px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <select class="fc" id="aud-sem" onchange="renderAuditoriaPagos()" style="font-size:12px;max-width:220px;padding:5px 8px"></select>
+      <label style="font-size:11px;color:var(--text3);cursor:pointer"><input type="checkbox" id="aud-patio" checked onchange="renderAuditoriaPagos()"> tolerar patio (±2 días)</label>
+      <button class="btn btn-s btn-sm" onclick="imprimirAuditoriaPagos()">🖨️ Imprimir</button>
+      <div id="aud-resumen" style="font-size:11px"></div>
+    </div>
+    <div id="aud-lista" class="tw"></div>
   </div>
 
   <!-- HISTORIAL DE NÓMINA (gasto total de la empresa, soporte por persona auditable) -->
@@ -1317,32 +1338,15 @@ tr:hover td{background:rgba(45,255,122,.02)}
     <div id="nm-hist-lista" class="tw"></div>
   </div>
 
-  <!-- AUDITORÍA DE PAGOS: pagado (historial) vs corresponde (viajes en planilla × tarifa) -->
-  <div class="card" style="margin-top:12px;border:1px solid var(--border)">
-    <div class="sh"><div class="st">🔍 Auditoría de Pagos — cotejo contra planilla</div></div>
-    <div style="font-size:11px;color:var(--text3);margin-bottom:8px">Compara lo PAGADO (del historial) contra lo que CORRESPONDE según los viajes de la planilla × tarifa. Marca 🚩 a quien recibió de más y ⚠️ pagos sin soporte de planilla. La planilla es la verdad.</div>
-    <div style="margin-bottom:8px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-      <select class="fc" id="aud-sem" onchange="renderAuditoriaPagos()" style="font-size:12px;max-width:220px;padding:5px 8px"></select>
-      <label style="font-size:11px;color:var(--text3);cursor:pointer"><input type="checkbox" id="aud-patio" checked onchange="renderAuditoriaPagos()"> tolerar patio (±2 días)</label>
-      <button class="btn btn-s btn-sm" onclick="imprimirAuditoriaPagos()">🖨️ Imprimir</button>
-      <div id="aud-resumen" style="font-size:11px"></div>
-    </div>
-    <div id="aud-lista" class="tw"></div>
+  <!-- ════ FIJOS (al final: poco que auditar, son montos estables) ════ -->
+  <!-- APOYO IMAU (fijos semanales) -->
+  <div style="margin-top:14px"><div class="st" style="margin-bottom:4px;font-size:12px;color:var(--text2)">🟡 Apoyo IMAU — fijos semanales (los 4 de apoyo/supervisor). Los ~16 ayudantes IMAU salen solos de la planilla: escribe <b>IMAU</b> en el ayudante.</div>
+    <div class="tw" style="max-width:340px"><table><thead><tr><th>Nombre</th><th>Semanal $</th></tr></thead><tbody id="tb-imau-apoyo"></tbody></table></div>
   </div>
 
-  <!-- COTEJO PLANILLA vs ASISTENCIA (anomalías RRHH) -->
-  <div class="card" style="margin-top:12px;border:1px solid var(--border)">
-    <div class="sh" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">
-      <div class="st">🕵️ Cotejo Planilla vs Asistencia (anomalías RRHH)</div>
-      <div style="display:flex;gap:6px;align-items:center">
-        <label style="font-size:11px;color:var(--text3)"><input type="checkbox" id="nm-anom-ver-resueltas" onchange="renderAnomaliasRRHH()"> ver resueltas</label>
-        <button class="btn btn-s btn-sm" onclick="enviarResumenAnomaliasWA()">📲 WA a RRHH</button>
-      </div>
-    </div>
-    <div style="font-size:11px;color:var(--text3);margin-bottom:8px">El viaje SIEMPRE se cuenta y se paga. Esto solo marca posibles inconsistencias (tiene viaje pero no asistió) para que RRHH valide (falso positivo) o rechace (confirmado).</div>
-    <div id="nm-anom-kpis" class="g4" style="margin-bottom:10px"></div>
-    <div id="nm-anom-lista"></div>
-    <div id="nm-anom-nocasados" style="margin-top:10px"></div>
+  <!-- FIJOS ADMINISTRATIVOS (unificado: una sola tabla editable; antes había una duplicada de solo lectura) -->
+  <div style="margin-top:12px"><div class="st" style="margin-bottom:4px">🗂️ Fijos Administrativos <span style="font-size:11px;color:var(--text3);font-weight:400">— sueldos fijos que suman al total de la nómina (editables)</span></div>
+    <div class="tw"><table><thead><tr><th>Cargo / Etiqueta</th><th>Mensual $</th><th>Semanal $</th><th></th></tr></thead><tbody id="tb-nom-adm-cfg"></tbody></table></div>
   </div>
 </div>
 
@@ -2099,7 +2103,7 @@ tr:hover td{background:rgba(45,255,122,.02)}
   <div id="conc-resultado"></div>
 </div>
 
-<script src="app.js?v=20260625b"></script>
+<script src="app.js?v=20260625c"></script>
 
 <!-- Modal global -->
 <div id="modal" class="moverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9990;align-items:center;justify-content:center;padding:16px">

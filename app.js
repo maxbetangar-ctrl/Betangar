@@ -2936,18 +2936,26 @@ function calcNom(){
     // Buscar viajes POR NOMBRE en todas las planillas (independiente del camión)
     // Match tolerante (nombre corto en planilla vs completo en empleados) pero conservador:
     // _nomCasa exige mismo PRIMER nombre + ≥1 apellido en común (no casa homónimos de apellido).
-    var vNom=f.filter(function(r){
+    var rNom=f.filter(function(r){
       return _nomCasa(r.ay1,e.nombre)||_nomCasa(r.ay2,e.nombre)||_nomCasa(r.ay3,e.nombre);
-    }).reduce(function(s,r){return s+r.t;},0);
+    });
+    var vNom=rNom.reduce(function(s,r){return s+r.t;},0);
+    // Viajes hechos en DOMINGO/feriado nacional → pagan 1.5× (igual que choferes). Aplica a TODOS.
+    var vNomDom=rNom.reduce(function(s,r){return s+(_esDomingoOferiado(r.f)?(parseInt(r.t)||0):0);},0);
     // También buscar por camión asignado si ay1/ay2 están vacíos (planillas viejas sin ayudante registrado)
-    var vCam=0;
+    var vCam=0,vCamDom=0;
     if(vNom===0){
-      vCam=f.filter(function(r){
+      var rCam=f.filter(function(r){
         return r.cam===e.unidad&&!r.ay1&&!r.ay2;
-      }).reduce(function(s,r){return s+r.t;},0);
+      });
+      vCam=rCam.reduce(function(s,r){return s+r.t;},0);
+      vCamDom=rCam.reduce(function(s,r){return s+(_esDomingoOferiado(r.f)?(parseInt(r.t)||0):0);},0);
     }
     var viajes=vNom+vCam;
-    if(viajes>0)ayMap[e.id]={emp:e,viajes:viajes,tasa:e.tipoAy==='imau'?cfg.imau:cfg.ayud,descuentos:0,porNombre:vNom,porCam:vCam};
+    var tasaAy=e.tipoAy==='imau'?cfg.imau:cfg.ayud;
+    // recargoDom = 0.5 extra por cada viaje de domingo (el viaje base ya va en viajes×tasa).
+    var recargoDom=(vNomDom+vCamDom)*tasaAy*0.5;
+    if(viajes>0)ayMap[e.id]={emp:e,viajes:viajes,viajesDom:vNomDom+vCamDom,recargoDom:recargoDom,tasa:tasaAy,descuentos:0,porNombre:vNom,porCam:vCam};
   });
   // Descuentos prestamos
   var descBanners=[];
@@ -2998,7 +3006,7 @@ function calcNom(){
   }
   var tvTot=f.reduce(function(s,r){return s+r.t;},0);
   var totCh=Object.values(chMap).reduce(function(s,c){var k=_nombreCanonico(c.ch).toUpperCase();var pat=(c.patio||0)+(parseInt(PATIO_DIAS[k])||0);return s+Math.max(0,(c.montoViajes||0)+pat*cfg.chofer-c.descuentos);},0);
-  var totAy=Object.values(ayMap).reduce(function(s,a){var patAy=(a.emp.tipoAy!=='imau')?(parseInt(PATIO_DIAS[a.emp.id])||0):0;return s+Math.max(0,((a.viajes+patAy)*a.tasa)-a.descuentos);},0);
+  var totAy=Object.values(ayMap).reduce(function(s,a){var patAy=(a.emp.tipoAy!=='imau')?(parseInt(PATIO_DIAS[a.emp.id])||0):0;return s+Math.max(0,((a.viajes+patAy)*a.tasa)+(a.recargoDom||0)-a.descuentos);},0);
   if(g('nm-tv'))g('nm-tv').textContent=tvTot;
   if(g('nm-ch'))g('nm-ch').textContent='$'+totCh.toFixed(0);
   if(g('nm-ay'))g('nm-ay').textContent='$'+totAy.toFixed(0);
@@ -3022,8 +3030,8 @@ function calcNom(){
     sem:sem||'', mes:mes||'', tasa:tasa, totCh:totCh, totAy:totAy, totAdm:totAdm, totBs:totBs,
     fdesde: f.length?f.reduce(function(m,r){return r.f<m?r.f:m;},f[0].f):null,
     fhasta: f.length?f.reduce(function(m,r){return r.f>m?r.f:m;},f[0].f):null,
-    choferes: Object.values(chMap).map(function(c){var k=_nombreCanonico(c.ch).toUpperCase();var pat=(c.patio||0)+(parseInt(PATIO_DIAS[k])||0);var u=Math.max(0,(c.montoViajes||0)+pat*cfg.chofer-c.descuentos);return {n:c.ch,u:Array.from(c.cams||[]).join(','),viajes:c.viajes+pat,usd:Math.round(u*100)/100,bs:Math.round(u*tasa*100)/100};}),
-    ayudantes: Object.values(ayMap).map(function(a){var patAy=(a.emp.tipoAy!=='imau')?(parseInt(PATIO_DIAS[a.emp.id])||0):0;var v=a.viajes+patAy;return {n:a.emp.nombre,u:a.emp.unidad,viajes:v,usd:Math.round((Math.max(0,v*a.tasa-a.descuentos))*100)/100,bs:Math.round(Math.max(0,v*a.tasa-a.descuentos)*tasa*100)/100,tipo:a.emp.tipoAy||'interno'};})
+    choferes: Object.values(chMap).map(function(c){var k=_nombreCanonico(c.ch).toUpperCase();var pat=(c.patio||0)+(parseInt(PATIO_DIAS[k])||0);var u=Math.max(0,(c.montoViajes||0)+pat*cfg.chofer-c.descuentos);return {n:c.ch,u:Array.from(c.cams||[]).join(','),viajes:c.viajes+pat,pat:pat,usd:Math.round(u*100)/100,bs:Math.round(u*tasa*100)/100};}),
+    ayudantes: Object.values(ayMap).map(function(a){var patAy=(a.emp.tipoAy!=='imau')?(parseInt(PATIO_DIAS[a.emp.id])||0):0;var patTot=(a.patio||0)+patAy;var v=a.viajes+patAy;var u=Math.max(0,v*a.tasa+(a.recargoDom||0)-a.descuentos);return {n:a.emp.nombre,u:a.emp.unidad,viajes:v,pat:patTot,usd:Math.round(u*100)/100,bs:Math.round(u*tasa*100)/100,tipo:a.emp.tipoAy||'interno'};})
   };
   if(g('nm-tot'))g('nm-tot').textContent='$'+totUsd.toFixed(0)+' (op $'+totOp.toFixed(0)+(totImau>0?' + IMAU $'+totImau.toFixed(0):'')+(totAdm>0?' + adm $'+totAdm.toFixed(0):'')+')'+' = Bs '+(totBs/1000).toFixed(0)+'k';
   if(g('nm-ch'))g('nm-ch').textContent='$'+totCh.toFixed(0)+' (Bs '+(totCh*tasa/1000).toFixed(0)+'k)';
@@ -3047,14 +3055,14 @@ function calcNom(){
     var esImau=(a.emp.tipoAy==='imau');
     var patAyM=esImau?0:(parseInt(PATIO_DIAS[a.emp.id])||0); // días de patio manual (IMAU no cobra patio)
     var vTot=a.viajes+patAyM;
-    var sueldo=vTot*a.tasa;var total=Math.max(0,sueldo-a.descuentos);
+    var sueldo=vTot*a.tasa+(a.recargoDom||0);var total=Math.max(0,sueldo-a.descuentos);
     var nota=a.porNombre>0&&a.porCam>0?'('+a.porNombre+'v nombre + '+a.porCam+'v camión)':'';
     var inputPatio=esImau?'':(' <input type="number" min="0" value="'+patAyM+'" title="Días de patio (manual): +1 viaje c/u" onchange="setPatioDias(\''+a.emp.id+'\',this.value)" style="width:30px;font-size:9px;background:var(--bg3);border:1px solid var(--border);color:var(--amber);border-radius:4px;padding:1px 2px;text-align:center"><span style="font-size:8px;color:var(--amber)">P</span>');
     return'<tr><td>'+(i+1)+'</td><td style="font-weight:700">'+a.emp.nombre+'</td>'+
       '<td><span class="badge '+(esImau?'bp':'bt')+'">'+( a.emp.tipoAy||'interno')+'</span></td>'+
       '<td style="font-size:10px">'+a.emp.unidad+(nota?'<br><span style="color:var(--text3);font-size:9px">'+nota+'</span>':'')+'</td>'+
-      '<td style="color:var(--green)">'+a.viajes+inputPatio+'</td>'+
-      '<td style="font-family:var(--m)">$'+sueldo.toFixed(0)+'</td>'+
+      '<td style="color:var(--green)">'+a.viajes+(a.viajesDom>0?' <span style="font-size:8px;color:var(--teal)" title="viajes en domingo/feriado pagados a 1.5×">+'+a.viajesDom+'D</span>':'')+inputPatio+'</td>'+
+      '<td style="font-family:var(--m)">$'+sueldo.toFixed(0)+(a.recargoDom>0?' <span style="font-size:8px;color:var(--teal)" title="incluye recargo domingo 1.5×">▲</span>':'')+'</td>'+
       '<td style="font-family:var(--m);color:var(--red)">'+(a.descuentos>0?'-$'+a.descuentos.toFixed(0):'—')+'</td>'+
       '<td style="font-family:var(--m);font-weight:700;color:var(--yellow)">$'+total.toFixed(0)+'</td></tr>';
   }).join('');
@@ -3154,18 +3162,44 @@ async function guardarNominaHist(){
   renderNominaHist(); audit('Nómina guardada en historial',id+' $'+row.total_usd.toFixed(0)); mostrarToast('✅ Nómina "'+n.sem+'" guardada en el historial','exito');
 }
 
-// ── AUDITORÍA DE PAGOS: pagado (historial) vs corresponde (viajes planilla × tarifa) ──
-function _audToks(n){return (typeof _normNom==='function'?_normNom(n):String(n||'').toUpperCase()).split(' ').filter(Boolean);}
-function _audMatchViajes(nombre,vmap){
-  var e=_audToks(nombre); var best=0,bestN=0;
-  for(var k in vmap){ var ov=0,kt=_audToks(k); e.forEach(function(t){if(kt.indexOf(t)>=0)ov++;}); if(ov>=2&&ov>best){best=ov;bestN=vmap[k];} }
-  return bestN;
-}
+// ── AUDITORÍA DE PAGOS: pagado (historial) vs corresponde (viajes planilla × tarifa + domingo + patio) ──
 function llenarAudSem(){
   var sel=g('aud-sem'); if(!sel)return; var cur=sel.value;
   var hist=(NOMINA_HIST||[]).slice().sort(function(a,b){return a.semana<b.semana?-1:(a.semana>b.semana?1:0);});
   sel.innerHTML='<option value="">— elegí semana —</option>'+hist.map(function(h){return '<option value="'+h.semana+'">'+h.semana+(h.periodo?(' · '+String(h.periodo).slice(0,22)):'')+'</option>';}).join('');
   if(cur)sel.value=cur;
+}
+// Construye el cotejo de una semana del historial vs la planilla. Usa el MISMO criterio de
+// match que calcNom (_nombreCanonico / _empPorNombre) para no "perder" planillas que sí se
+// pagaron, e incluye recargo de domingo (1.5×) y los días de patio (manuales, fuera de planilla).
+function _audConstruir(h,tolPatio){
+  var f0=h.fecha_desde,f1=h.fecha_hasta;
+  var pw=(REGS||[]).filter(function(r){return r.f&&(!f0||r.f>=f0)&&(!f1||r.f<=f1);});
+  var chV={},chD={},ayV={},ayD={};
+  pw.forEach(function(r){
+    var t=parseInt(r.t)||0, dom=_esDomingoOferiado(r.f)?t:0;
+    var ck=_nombreCanonico(r.ch||TEMPORALES[r.cam]||'').toUpperCase(); if(ck){chV[ck]=(chV[ck]||0)+t;chD[ck]=(chD[ck]||0)+dom;}
+    [r.ay1,r.ay2,r.ay3].forEach(function(nm){if(!nm)return;var e=_empPorNombre(nm);var ak=_normNom(e?e.nombre:nm);if(ak){ayV[ak]=(ayV[ak]||0)+t;ayD[ak]=(ayD[ak]||0)+dom;}});
+  });
+  var d=h.detalle||{}, filas=[], nFlag=0, sumOver=0;
+  function chk(arr,vmap,dmap,keyFn,rateFn,rol){
+    (arr||[]).forEach(function(p){
+      var key=keyFn(p.n), rate=rateFn(p);
+      var vj=vmap[key]||0, dom=dmap[key]||0, pat=parseInt(p.pat)||0;
+      var corr=Math.round((vj*rate+dom*rate*0.5+pat*rate)*100)/100;
+      var pag=parseFloat(p.usd)||0;
+      var tol=(tolPatio?rate*2:0)+1, diff=Math.round((pag-corr)*100)/100;
+      var flag=(corr===0&&pag>0)?'GHOST':(diff>tol?'OVER':'');
+      if(flag){nFlag++;sumOver+=Math.max(0,diff);}
+      filas.push({rol:rol,n:p.n,vj:vj,dom:dom,pat:pat,corr:corr,pag:pag,diff:diff,flag:flag});
+    });
+  }
+  var rCh=function(){return (typeof cfg!=='undefined'&&cfg.chofer)?cfg.chofer:10;};
+  var rAy=function(p){return (p&&p.tipo==='imau')?((typeof cfg!=='undefined'&&cfg.imau)?cfg.imau:2.5):((typeof cfg!=='undefined'&&cfg.ayud)?cfg.ayud:5);};
+  chk(d.choferes,chV,chD,function(n){return _nombreCanonico(n).toUpperCase();},rCh,'Chofer');
+  chk(d.ayudantes,ayV,ayD,function(n){return _normNom(n);},rAy,'Ayud');
+  filas.sort(function(a,b){return (b.flag?1:0)-(a.flag?1:0)||b.diff-a.diff;});
+  return {filas:filas,nFlag:nFlag,sumOver:sumOver,pw:pw};
 }
 function renderAuditoriaPagos(){
   var lista=g('aud-lista'); if(!lista)return;
@@ -3173,30 +3207,13 @@ function renderAuditoriaPagos(){
   var res=g('aud-resumen');
   if(!h){lista.innerHTML='<div style="color:var(--text3);font-size:12px;padding:8px">Elegí una semana para auditar.</div>';if(res)res.textContent='';return;}
   var tolPatio=g('aud-patio')&&g('aud-patio').checked;
-  var f0=h.fecha_desde,f1=h.fecha_hasta;
-  var pw=(REGS||[]).filter(function(r){return r.f&&(!f0||r.f>=f0)&&(!f1||r.f<=f1);});
-  if(!pw.length){lista.innerHTML='<div style="color:var(--amber);font-size:12px;padding:8px">No hay planillas cargadas en el rango '+(f0||'?')+' a '+(f1||'?')+' para cotejar.</div>';if(res)res.textContent='';return;}
-  var chV={},ayV={};
-  pw.forEach(function(r){
-    var k=(typeof _normNom==='function'?_normNom(r.ch):String(r.ch||'').toUpperCase()); if(k)chV[k]=(chV[k]||0)+(parseInt(r.t)||0);
-    [r.ay1,r.ay2,r.ay3].forEach(function(nm){var a=(typeof _normNom==='function'?_normNom(nm):String(nm||'').toUpperCase()); if(a)ayV[a]=(ayV[a]||0)+(parseInt(r.t)||0);});
-  });
-  var d=h.detalle||{}; var filas=[]; var nFlag=0,sumOver=0;
-  function chk(arr,rate,vmap,rol){
-    (arr||[]).forEach(function(p){
-      var vj=_audMatchViajes(p.n,vmap); var corr=vj*rate; var pag=parseFloat(p.usd)||0;
-      var tol=(tolPatio?rate*2:0)+1; var diff=Math.round((pag-corr)*100)/100;
-      var flag=(corr===0&&pag>0)?'GHOST':(diff>tol?'OVER':'');
-      if(flag){nFlag++;sumOver+=Math.max(0,diff);}
-      filas.push({rol:rol,n:p.n,vj:vj,corr:corr,pag:pag,diff:diff,flag:flag});
-    });
-  }
-  chk(d.choferes,10,chV,'Chofer'); chk(d.ayudantes,5,ayV,'Ayud');
-  filas.sort(function(a,b){return (b.flag?1:0)-(a.flag?1:0)||b.diff-a.diff;});
+  var ag=_audConstruir(h,tolPatio);
+  if(!ag.pw.length){lista.innerHTML='<div style="color:var(--amber);font-size:12px;padding:8px">No hay planillas cargadas en el rango '+(h.fecha_desde||'?')+' a '+(h.fecha_hasta||'?')+' para cotejar.</div>';if(res)res.textContent='';return;}
+  var filas=ag.filas, nFlag=ag.nFlag, sumOver=ag.sumOver;
   if(res)res.innerHTML=nFlag>0?('<span style="color:var(--red);font-weight:700">🚩 '+nFlag+' a revisar · $'+sumOver.toFixed(0)+' de más</span>'):'<span style="color:var(--green);font-weight:700">✓ todo cuadra con la planilla</span>';
   lista.innerHTML='<table><thead><tr><th>Rol</th><th>Persona</th><th>Viajes</th><th>Corresponde</th><th>Pagado</th><th>Dif</th><th>Estado</th></tr></thead><tbody>'+
     filas.map(function(x){return '<tr style="'+(x.flag?'background:rgba(220,38,38,.10)':'')+'"><td style="font-size:10px">'+x.rol+'</td>'+
-      '<td style="font-size:11px;font-weight:'+(x.flag?'700':'400')+'">'+x.n+'</td><td style="color:var(--green)">'+x.vj+'</td>'+
+      '<td style="font-size:11px;font-weight:'+(x.flag?'700':'400')+'">'+x.n+'</td><td style="color:var(--green)">'+x.vj+(x.dom>0?' <span style="font-size:8px;color:var(--teal)" title="viajes domingo ×1.5">+'+x.dom+'D</span>':'')+(x.pat>0?' <span style="font-size:8px;color:var(--amber)" title="días de patio (fuera de planilla)">+'+x.pat+'P</span>':'')+'</td>'+
       '<td style="font-family:var(--m)">$'+x.corr+'</td><td style="font-family:var(--m)">$'+x.pag.toFixed(0)+'</td>'+
       '<td style="font-family:var(--m);font-weight:700;color:'+(x.diff>0?'var(--red)':x.diff<0?'var(--amber)':'var(--green)')+'">'+(x.diff>0?'+':'')+'$'+x.diff.toFixed(0)+'</td>'+
       '<td style="font-size:10px">'+(x.flag==='OVER'?'🚩 cobró de más':x.flag==='GHOST'?'⚠️ sin planilla':(x.diff<0?'falta cargar?':'✓'))+'</td></tr>';}).join('')+
@@ -3207,23 +3224,17 @@ function imprimirAuditoriaPagos(){
   var sem=gv('aud-sem'); var h=(NOMINA_HIST||[]).find(function(x){return x.semana===sem;});
   if(!h){alert('Elegí una semana primero.');return;}
   var tolPatio=g('aud-patio')&&g('aud-patio').checked;
-  var f0=h.fecha_desde,f1=h.fecha_hasta;
-  var pw=(REGS||[]).filter(function(r){return r.f&&(!f0||r.f>=f0)&&(!f1||r.f<=f1);});
-  if(!pw.length){alert('No hay planillas cargadas en el rango de esa semana para cotejar.');return;}
-  var chV={},ayV={};
-  pw.forEach(function(r){var k=(typeof _normNom==='function'?_normNom(r.ch):String(r.ch||'').toUpperCase()); if(k)chV[k]=(chV[k]||0)+(parseInt(r.t)||0);[r.ay1,r.ay2,r.ay3].forEach(function(nm){var a=(typeof _normNom==='function'?_normNom(nm):String(nm||'').toUpperCase()); if(a)ayV[a]=(ayV[a]||0)+(parseInt(r.t)||0);});});
-  var d=h.detalle||{}; var filas=[]; var nFlag=0,sumOver=0;
-  function chk(arr,rate,vmap,rol){(arr||[]).forEach(function(p){var vj=_audMatchViajes(p.n,vmap);var corr=vj*rate;var pag=parseFloat(p.usd)||0;var tol=(tolPatio?rate*2:0)+1;var diff=Math.round((pag-corr)*100)/100;var flag=(corr===0&&pag>0)?'GHOST':(diff>tol?'OVER':'');if(flag){nFlag++;sumOver+=Math.max(0,diff);}filas.push({rol:rol,n:p.n,vj:vj,corr:corr,pag:pag,diff:diff,flag:flag});});}
-  chk(d.choferes,10,chV,'Chofer'); chk(d.ayudantes,5,ayV,'Ayudante');
-  filas.sort(function(a,b){return (b.flag?1:0)-(a.flag?1:0)||b.diff-a.diff;});
+  var ag=_audConstruir(h,tolPatio);
+  if(!ag.pw.length){alert('No hay planillas cargadas en el rango de esa semana para cotejar.');return;}
+  var filas=ag.filas, nFlag=ag.nFlag, sumOver=ag.sumOver;
   var stats=mkStat('Semana',h.semana,String(h.periodo||'').slice(0,28),'azul')+
     mkStat('A revisar',nFlag,nFlag>0?'requieren explicación':'todo cuadra',nFlag>0?'rojo':'verde')+
     mkStat('Pagado de más','$'+sumOver.toFixed(0),'sobre lo que corresponde','rojo')+
     mkStat('Personas',filas.length,'cotejadas vs planilla','amari');
   var body='<style>@media print{tr{page-break-inside:avoid!important;break-inside:avoid!important}thead{display:table-header-group}table{page-break-inside:auto;width:100%;border-collapse:collapse}td,th{padding:4px 6px}}</style>'+
-    '<p style="font-size:12px;color:#555;margin-bottom:8px">Cotejo: <b>lo pagado</b> (relación de nómina) vs <b>lo que corresponde</b> = viajes registrados en planilla × tarifa (chofer $10 / ayudante $5). Las filas resaltadas requieren explicación de Operaciones / RRHH.</p>'+
+    '<p style="font-size:12px;color:#555;margin-bottom:8px">Cotejo: <b>lo pagado</b> (relación de nómina) vs <b>lo que corresponde</b> = viajes de la planilla × tarifa, con <b>recargo de domingo 1.5×</b> (D) y <b>días de patio</b> (P) que se cargan a mano fuera de la planilla. Las filas resaltadas requieren explicación de Operaciones / RRHH.</p>'+
     '<table><thead><tr><th>Rol</th><th>Persona</th><th style="text-align:center">Viajes</th><th>Corresponde</th><th>Pagado</th><th>Diferencia</th><th>Estado</th></tr></thead><tbody>'+
-    filas.map(function(x,i){return '<tr style="background:'+(x.flag?'#fee2e2':(i%2?'#f5f9ff':'#fff'))+'"><td>'+x.rol+'</td><td><b>'+x.n+'</b></td><td style="text-align:center;font-weight:700">'+x.vj+'</td><td class="gv">$'+x.corr+'</td><td class="gv">$'+x.pag.toFixed(0)+'</td><td class="gv" style="color:'+(x.diff>0?'#dc2626':x.diff<0?'#b45309':'#16a34a')+';font-weight:700">'+(x.diff>0?'+':'')+'$'+x.diff.toFixed(0)+'</td><td style="font-weight:700;color:'+(x.flag?'#dc2626':'#16a34a')+'">'+(x.flag==='OVER'?'COBRÓ DE MÁS':x.flag==='GHOST'?'SIN PLANILLA':(x.diff<0?'¿falta cargar?':'OK'))+'</td></tr>';}).join('')+
+    filas.map(function(x,i){return '<tr style="background:'+(x.flag?'#fee2e2':(i%2?'#f5f9ff':'#fff'))+'"><td>'+x.rol+'</td><td><b>'+x.n+'</b></td><td style="text-align:center;font-weight:700">'+x.vj+(x.dom>0?' (+'+x.dom+'D)':'')+(x.pat>0?' (+'+x.pat+'P)':'')+'</td><td class="gv">$'+x.corr+'</td><td class="gv">$'+x.pag.toFixed(0)+'</td><td class="gv" style="color:'+(x.diff>0?'#dc2626':x.diff<0?'#b45309':'#16a34a')+';font-weight:700">'+(x.diff>0?'+':'')+'$'+x.diff.toFixed(0)+'</td><td style="font-weight:700;color:'+(x.flag?'#dc2626':'#16a34a')+'">'+(x.flag==='OVER'?'COBRÓ DE MÁS':x.flag==='GHOST'?'SIN PLANILLA':(x.diff<0?'¿falta cargar?':'OK'))+'</td></tr>';}).join('')+
     '<tr class="tr-tot"><td colspan="5">SOBREPAGO TOTAL A REVISAR</td><td class="gv" style="color:#dc2626">+$'+sumOver.toFixed(0)+'</td><td>'+nFlag+' casos</td></tr>'+
     '</tbody></table>';
   abrirImpresionPremium('Auditoría de Pagos de Nómina','Cotejo planilla vs pagado — '+(h.periodo||h.semana),stats,body);
@@ -3231,15 +3242,15 @@ function imprimirAuditoriaPagos(){
 
 function renderNomAdm(){
   var totMes=NOM_ADM.reduce(function(s,n){return s+(parseFloat(n.monto)||0);},0);
-  var tb=g('tb-nom-adm');
-  if(tb)tb.innerHTML=NOM_ADM.map(function(n){return'<tr><td>'+n.cargo+'</td><td style="font-family:var(--m)">$'+n.monto+'</td><td style="font-family:var(--m);color:var(--teal)">$'+(n.monto/4).toFixed(0)+'</td></tr>';}).join('')+
-    '<tr class="tr-tot"><td>TOTAL FIJOS</td><td style="font-family:var(--m)">$'+totMes.toFixed(0)+'/mes</td><td style="font-family:var(--m);color:var(--teal)">$'+(totMes/4).toFixed(0)+'/sem</td></tr>';
+  // Tabla UNIFICADA: una sola tabla editable con Mensual + Semanal (antes había una duplicada de solo lectura).
   var tbCfg=g('tb-nom-adm-cfg');
   if(tbCfg)tbCfg.innerHTML=NOM_ADM.map(function(n,i){return'<tr>'+
     '<td><input value="'+String(n.cargo||'').replace(/"/g,'&quot;')+'" onchange="NOM_ADM['+i+'].cargo=this.value;guardarNomAdm()" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:4px 8px;border-radius:5px;width:170px;font-size:11px"></td>'+
-    '<td><input type="number" value="'+n.monto+'" onchange="NOM_ADM['+i+'].monto=parseFloat(this.value)||0;guardarNomAdm();try{calcNom()}catch(e){}" style="font-family:var(--m);background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:4px 8px;border-radius:5px;width:90px"></td>'+
+    '<td><input type="number" value="'+n.monto+'" onchange="NOM_ADM['+i+'].monto=parseFloat(this.value)||0;guardarNomAdm();renderNomAdm();try{calcNom()}catch(e){}" style="font-family:var(--m);background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:4px 8px;border-radius:5px;width:90px"></td>'+
+    '<td style="font-family:var(--m);color:var(--teal)">$'+((parseFloat(n.monto)||0)/4).toFixed(0)+'</td>'+
     '<td><button onclick="NOM_ADM.splice('+i+',1);guardarNomAdm();renderNomAdm();try{calcNom()}catch(e){}" class="btn btn-r btn-xs">×</button></td></tr>';}).join('')+
-    '<tr><td colspan="3" style="padding-top:6px"><button onclick="agregarNomAdm()" class="btn btn-s btn-xs">+ Agregar fijo (ADM / apoyo IMAU)</button></td></tr>';
+    '<tr class="tr-tot"><td>TOTAL FIJOS</td><td style="font-family:var(--m)">$'+totMes.toFixed(0)+'/mes</td><td style="font-family:var(--m);color:var(--teal)">$'+(totMes/4).toFixed(0)+'/sem</td><td></td></tr>'+
+    '<tr><td colspan="4" style="padding-top:6px"><button onclick="agregarNomAdm()" class="btn btn-s btn-xs">+ Agregar fijo administrativo</button></td></tr>';
 }
 function agregarNomAdm(){
   if(typeof NOM_ADM==='undefined')return;
@@ -3263,11 +3274,12 @@ async function montarNominaBNC(){
   // empleado por NOMBRE (con alias/canónico) para tomar su cuenta — antes pagaba al titular
   // del camión aunque hubiera manejado un relevo.
   var chMap={};
-  f.forEach(function(r){var nom=_nombreCanonico(r.ch||TEMPORALES[r.cam]||'');if(!nom)return;if(!chMap[nom])chMap[nom]={ch:nom,viajes:0};chMap[nom].viajes+=(parseInt(r.t)||0);});
+  // monto con recargo 1.5× por viajes de domingo/feriado (igual que calcNom y la tabla en pantalla).
+  f.forEach(function(r){var nom=_nombreCanonico(r.ch||TEMPORALES[r.cam]||'');if(!nom)return;if(!chMap[nom])chMap[nom]={ch:nom,viajes:0,monto:0};var t=parseInt(r.t)||0;chMap[nom].viajes+=t;chMap[nom].monto+=t*cfg.chofer*(_esDomingoOferiado(r.f)?1.5:1);});
   Object.values(chMap).forEach(function(c){
     var emp=(typeof _empPorNombre==='function')?_empPorNombre(c.ch):null;
     if(!emp||!emp.ncuenta)return;
-    var monto=c.viajes*cfg.chofer;
+    var monto=c.monto;
     var montoBs=monto*(TASAS.bcvDolar||cfg.tasa);
     pagos.push({empleado:emp.nombre,banco:emp.banco,cuenta:emp.ncuenta,tipo:emp.tcuenta,montoBs:montoBs,montoUsd:monto});
   });
@@ -6127,12 +6139,12 @@ function solicitarToken(accion,callback,accionData){
   openModal('Autorizacion requerida',html);
 }
 
-function pedirNuevoToken(){
+async function pedirNuevoToken(){
   var accion=window._tokenAccion||'modificacion';
   var motivo=g('tok-motivo')?g('tok-motivo').value.trim():'';
+  var errEl=g('tok-error');
   if(!motivo){
-    var errEl=g('tok-error');
-    if(errEl){errEl.style.display='block';errEl.textContent='Escribe el motivo antes de solicitar el codigo.';}
+    if(errEl){errEl.style.display='block';errEl.style.color='var(--red)';errEl.textContent='Escribe el motivo antes de solicitar el codigo.';}
     return;
   }
   var codigo=generarCodigo();
@@ -6150,17 +6162,26 @@ function pedirNuevoToken(){
     'Si apruebas envia el token al solicitante. Si no, ignoralo.';
   // sendWA antepone "BETANGAR: "; va SIEMPRE a socios (Maximo y Francisco)
   sendWA(waMsg,'socios',true); // interactivo: sale a cualquier hora
-  // Guardar en tokens_pendientes para el panel del dashboard (lo ve el superadmin)
-  // Via fetch a PostgREST: funciona aunque el cliente supabase-js no haya cargado
+  if(errEl){errEl.style.display='block';errEl.style.color='var(--text3)';errEl.textContent='Registrando solicitud…';}
+  // Guardar en tokens_pendientes para el panel del dashboard (lo ve el superadmin). La tabla
+  // tiene anon REVOCADO → se EXIGE el JWT de sesión; si falta, el insert da 401 y el token nunca
+  // aparece en el panel. Por eso garantizamos el JWT y verificamos la respuesta (sin mentir verde).
+  var _jwt=await _ensureJWT();
   var _expTok=new Date(Date.now()+30*60*1000).toISOString(); // valido 30 min
-  fetch(SUPA_URL+'/rest/v1/tokens_pendientes',{
-    method:'POST',
-    headers:_tokRestHdr({'Content-Type':'application/json','Prefer':'return=minimal'}),
-    body:JSON.stringify({token:codigo,usuario:SESION.nombre,accion:accion,motivo:motivo,expira:_expTok,accion_data:(window._tokenAccionData||null)})
-  }).then(function(r){
-    if(!r.ok)r.text().then(function(t){console.log('tokens_pendientes insert err:',t);});
-    else if(esSuperAdmin())renderTokensPendientes();
-  }).catch(function(e){console.log('tokens_pendientes insert err:',e&&e.message);});
+  var _insertOk=false, _insertErr='';
+  if(!_jwt){
+    _insertErr='tu sesión no está activa (vuelve a iniciar sesión)';
+  } else {
+    try{
+      var _r=await fetch(SUPA_URL+'/rest/v1/tokens_pendientes',{
+        method:'POST',
+        headers:_tokRestHdr({'Content-Type':'application/json','Prefer':'return=minimal'}),
+        body:JSON.stringify({token:codigo,usuario:SESION.nombre,accion:accion,motivo:motivo,expira:_expTok,accion_data:(window._tokenAccionData||null)})
+      });
+      if(_r.ok){_insertOk=true; if(esSuperAdmin())renderTokensPendientes();}
+      else{ _insertErr='HTTP '+_r.status; try{_insertErr+=' '+(await _r.text());}catch(e){} console.log('tokens_pendientes insert err:',_insertErr); }
+    }catch(e){ _insertErr=e&&e.message||'red'; console.log('tokens_pendientes insert err:',_insertErr); }
+  }
   // Email respaldo
   if(typeof emailjs!=='undefined'){
     // FIX: el correo llegaba sin el número de token porque la template de EmailJS no
@@ -6182,14 +6203,21 @@ function pedirNuevoToken(){
       token: codigo,
       codigo: codigo,
       fecha: new Date().toLocaleString('es-VE')
-    }).catch(function(e){console.log('Token email err:',e);});
+    }).catch(function(e){console.log('Token email err:',e&&(e.text||e.message||e));});
   }
-  audit('Token solicitado',SESION.nombre+' solicita para: '+accion+' -- Motivo: '+motivo);
-  var btnEl=g('tok-error');
-  var btn=document.getElementById ? document.querySelector('#tok-error + div + div button.btn-b'):null;
-  // Feedback visual
-  var errEl=g('tok-error');
-  if(errEl){errEl.style.display='block';errEl.style.color='var(--green)';errEl.textContent='Codigo enviado por WhatsApp a los administradores. Ingresa el token cuando te lo envien.';}
+  audit('Token solicitado',SESION.nombre+' solicita para: '+accion+' -- Motivo: '+motivo+(_insertOk?'':' [INSERT FALLÓ: '+_insertErr+']'));
+  // Feedback HONESTO: verde SOLO si el token quedó registrado (antes mentía verde aunque el
+  // insert diera 401 → el usuario creía que llegó y el admin no veía nada).
+  if(errEl){
+    errEl.style.display='block';
+    if(_insertOk){
+      errEl.style.color='var(--green)';
+      errEl.textContent='✅ Solicitud registrada. El administrador ya ve tu token en el panel y le llegó por WhatsApp. Ingresá el código cuando te lo aprueben o te lo envíen.';
+    } else {
+      errEl.style.color='var(--red)';
+      errEl.textContent='⚠ No se pudo registrar la solicitud ('+_insertErr+'). Si dice "sesión no activa": cerrá sesión y volvé a entrar. El admin igual recibió el aviso por WhatsApp.';
+    }
+  }
 }
 
 function validarToken(){
@@ -6279,6 +6307,20 @@ function _tokRestHdr(extra){
   if(extra)for(var k in extra)h[k]=extra[k];
   return h;
 }
+// Garantiza un JWT de sesión FRESCO antes de tocar tablas sensibles (tokens_pendientes tiene
+// anon REVOCADO: sin JWT, el REST cae a anon y da 401 en silencio). Devuelve el token o ''.
+// Causa raíz del "no llega el token": _SESSION_JWT vacío por timing del getSession async / refresh.
+async function _ensureJWT(){
+  if(_SESSION_JWT)return _SESSION_JWT;
+  try{
+    if(supabase&&supabase.auth&&supabase.auth.getSession){
+      var r=await supabase.auth.getSession();
+      var tk=r&&r.data&&r.data.session&&r.data.session.access_token;
+      if(tk){_SESSION_JWT=tk;return tk;}
+    }
+  }catch(e){console.log('_ensureJWT err:',e&&e.message);}
+  return '';
+}
 
 // ── P0: aprobación de token EJECUTA la acción en la sesión del solicitante ──
 // La acción (callback) vive en memoria de la sesión que la solicitó; no se serializa.
@@ -6364,8 +6406,9 @@ function iniciarPollSesionTokens(){
   _pollSesionTokens();
   _pollSesionInt=setInterval(_pollSesionTokens,5000);
 }
-function _pollSesionTokens(){
+async function _pollSesionTokens(){
   if(!SESION||!SESION.nombre)return;
+  await _ensureJWT(); // sin JWT no detecta la aprobación (401 anon revocado)
   var url=SUPA_URL+'/rest/v1/tokens_pendientes?select=id,token,usuario,aprobado,accion_data&usuario=eq.'+encodeURIComponent(SESION.nombre)+'&aprobado=eq.true&order=created_at.desc&limit=25';
   fetch(url,{headers:_tokRestHdr()}).then(function(r){return r.json();}).then(function(rows){
     if(!Array.isArray(rows)||!rows.length)return;
@@ -6385,9 +6428,10 @@ function _pollSesionTokens(){
   }).catch(function(e){console.log('[POLLING-SESION] err',e&&e.message);});
 }
 
-function renderTokensPendientes(){
+async function renderTokensPendientes(){
   var cont=g('tokens-pend-banner');
   if(!cont||!esSuperAdmin())return;
+  await _ensureJWT(); // sin JWT, tokens_pendientes responde 401 (anon revocado) y el panel queda vacío
   var ahora=new Date().toISOString();
   var url=SUPA_URL+'/rest/v1/tokens_pendientes?select=*&usado=eq.false&aprobado=eq.false'+
     '&expira=gt.'+encodeURIComponent(ahora)+'&order=created_at.desc';
@@ -6395,7 +6439,7 @@ function renderTokensPendientes(){
     .then(function(r){return r.json();})
     .then(function(rows){
       console.log('[TOKENS]',(Array.isArray(rows)?rows.length:0),'pendientes');
-      if(!Array.isArray(rows)){console.log('tokens_pendientes resp inesperada:',rows);return;}
+      if(!Array.isArray(rows)){console.log('tokens_pendientes resp inesperada (¿401 sin JWT?):',rows);return;}
       if(!rows.length){cont.style.display='none';cont.innerHTML='';return;}
       var h='<div class="card" style="border:1px solid rgba(250,204,21,.45);background:linear-gradient(135deg,rgba(250,204,21,.08),var(--card2))">'+
         '<div class="sh" style="display:flex;justify-content:space-between;align-items:center">'+
@@ -6445,6 +6489,7 @@ function _copiarFallback(token){
 
 async function aprobarTokenPend(id){
   try{
+    await _ensureJWT(); // el PATCH necesita JWT (anon revocado en tokens_pendientes)
     // 1) Marcar aprobado=true
     var rp=await fetch(SUPA_URL+'/rest/v1/tokens_pendientes?id=eq.'+encodeURIComponent(id),{
       method:'PATCH',headers:_tokRestHdr({'Content-Type':'application/json','Prefer':'return=minimal'}),
