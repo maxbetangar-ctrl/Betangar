@@ -816,6 +816,20 @@ function abrirMantenimiento(){
   for(var i=0;i<orden.length;i++){if(perms.indexOf(orden[i])>=0){sp(orden[i]);return;}}
   alert('No tienes permiso para esta sección');
 }
+// Sub-navegación del módulo RRHH UNIFICADO ("Personal"): Empleados / Préstamos / Multas. Tres
+// páginas que comparten una entrada de menú; las tres tienen el mismo set de permisos. Cada botón
+// solo si el rol lo tiene; si <2, no se muestra barra. NO altera la lógica de los módulos.
+function renderRRHHSubnav(activo){
+  var perms=PERMISOS[SESION?SESION.rol:'admin']||PERMISOS['admin']||[];
+  function tab(id,label){
+    if(perms.indexOf(id)<0)return '';
+    return '<div class="sw'+(id===activo?' on':'')+'" onclick="sp(\''+id+'\')">'+label+'</div>';
+  }
+  var ids=['empleados','prestamos','multas'];
+  var visibles=ids.reduce(function(s,i){return s+(perms.indexOf(i)>=0?1:0);},0);
+  var html=visibles>=2?('<div class="switch-row" style="margin-bottom:10px">'+tab('empleados','👤 Empleados')+tab('prestamos','💳 Préstamos')+tab('multas','⚖️ Multas')+'</div>'):'';
+  ['subnav-empleados','subnav-prestamos','subnav-multas'].forEach(function(pid){var el=document.getElementById(pid);if(el)el.innerHTML=html;});
+}
 function sp(id){
   // Abonos se fundió en Cobranza/Alcaldía → pestaña Pagos. Redirigir para no romper accesos directos.
   if(id==='abonos'){ sp('reporte'); setTimeout(function(){try{switchRptTab('pagos');}catch(e){}},0); return; }
@@ -850,7 +864,7 @@ function sp(id){
     if(id==='historico'){poblarSems();filtH();}
     if(id==='stats')renderStats();
     if(id==='ranking')calcRanking();
-    if(id==='empleados'){renderEmpleados();renderCumpleanos();renderBancario();renderCarnetsPreview();}
+    if(id==='empleados'){renderRRHHSubnav('empleados');renderEmpleados();renderCumpleanos();renderBancario();renderCarnetsPreview();}
     if(id==='usuarios')renderUsuarios();
     if(id==='financiero'){renderFinDash();renderGastosFijos();renderProveedoresLista();renderBancoFin();autoLlenarTasasEnFormularios();}
     if(id==='abonos'){renderAbonos();calcMontoAbono();}
@@ -864,8 +878,8 @@ function sp(id){
     if(id==='proveedores'){renderCXP();renderProveedoresLista();renderRetenciones();}
     if(id==='documentos'){renderDocAlertas();renderDocTablas();}
     if(id==='asistencia')renderAsistencia();
-    if(id==='prestamos'){poblarEmps();renderPrestamos();}
-    if(id==='multas'){poblarCams();renderMultas();}
+    if(id==='prestamos'){renderRRHHSubnav('prestamos');poblarEmps();renderPrestamos();}
+    if(id==='multas'){renderRRHHSubnav('multas');poblarCams();renderMultas();}
     if(id==='inventario')renderInventario();
     if(id==='llantas'){renderMantSubnav('llantas');renderLlantas();}
     if(id==='metas'){prefillMeta();}

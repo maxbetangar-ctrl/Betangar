@@ -249,9 +249,7 @@ tr:hover td{background:rgba(45,255,122,.02)}
     <div class="menu-item" onclick="sp('inventario')" id="mi-inventario">📦 Inventario</div>
     <div class="menu-item" onclick="sp('metas')" id="mi-metas">🎯 Metas</div>
     <div class="menu-group">RRHH</div>
-    <div class="menu-item" onclick="sp('empleados')" id="mi-empleados">👤 Empleados</div>
-    <div class="menu-item" onclick="sp('prestamos')" id="mi-prestamos">💳 Prestamos</div>
-    <div class="menu-item" onclick="sp('multas')" id="mi-multas">⚖️ Multas</div>
+    <div class="menu-item" onclick="sp('empleados')" id="mi-empleados">👤 Personal</div>
     <div class="menu-group">ANALISIS</div>
     <div class="menu-item" onclick="sp('rentabilidad')" id="mi-rentabilidad">📊 Rentabilidad x Camion</div>
     <div class="menu-item" onclick="sp('stats')" id="mi-stats">📉 Estadisticas</div>
@@ -857,6 +855,7 @@ tr:hover td{background:rgba(45,255,122,.02)}
 
 <!-- PRESTAMOS -->
 <div id="p-prestamos" class="page">
+  <div id="subnav-prestamos"></div>
   <div class="g2" style="margin-bottom:10px">
     <div class="card">
       <div class="st" style="margin-bottom:12px">💳 Nuevo Prestamo</div>
@@ -893,6 +892,7 @@ tr:hover td{background:rgba(45,255,122,.02)}
 
 <!-- MULTAS -->
 <div id="p-multas" class="page">
+  <div id="subnav-multas"></div>
   <div class="g2" style="margin-bottom:10px">
     <div class="card">
       <div class="st" style="margin-bottom:12px">⚖️ Registrar Multa</div>
@@ -1633,6 +1633,7 @@ tr:hover td{background:rgba(45,255,122,.02)}
 
 <!-- EMPLEADOS -->
 <div id="p-empleados" class="page">
+  <div id="subnav-empleados"></div>
   <div class="switch-row" style="margin-bottom:10px">
     <div class="sw on" id="sw-emp-lista" onclick="switchEmpTab('lista')">Lista</div>
     <div class="sw" id="sw-emp-nuevo" onclick="switchEmpTab('nuevo')">+ Nuevo</div>
@@ -2104,7 +2105,7 @@ tr:hover td{background:rgba(45,255,122,.02)}
   <div id="conc-resultado"></div>
 </div>
 
-<script src="app.js?v=20260625j"></script>
+<script src="app.js?v=20260625k"></script>
 
 <!-- Modal global -->
 <div id="modal" class="moverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9990;align-items:center;justify-content:center;padding:16px">
