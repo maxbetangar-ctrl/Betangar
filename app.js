@@ -1528,6 +1528,11 @@ function getSem(f){var d=f?new Date(f+'T12:00:00'):new Date();var dia=d.getDate(
 function mesBtg(){var ms=['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];var d=new Date();return ms[d.getMonth()]+'-'+String(d.getFullYear()).slice(2);}
 // Pone el mes EN CURSO como predeterminado en los selectores de mes (solo si esa opción existe).
 function _defMesSelects(){var m=mesBtg();['nm-mes','asis-mes','meta-mes','np-mes'].forEach(function(id){var sel=document.getElementById(id);if(sel&&[].some.call(sel.options,function(o){return o.value===m;}))sel.value=m;});}
+// Próximo cambio de aceite/servicio = el SIGUIENTE múltiplo del intervalo (5.000) por encima del km
+// ACTUAL. Antes era ultimo_servicio + 5.000, que quedaba POR DEBAJO del km si no se actualizaba el
+// último servicio (se veía "próximo < km actual", sin sentido). Ahora rueda solo: 6.206→10.000,
+// 12.000→15.000, etc. Siempre un número futuro.
+function proxServicio(km){var kc=cfg.km||5000;km=parseFloat(km)||0;return (Math.floor(km/kc)+1)*kc;}
 function diasDesde(f){if(!f)return 9999;return Math.floor((new Date()-new Date(f))/86400000);}
 function diasHasta(f){if(!f)return 9999;return Math.floor((new Date(f)-new Date())/86400000);}
 function addDays(d,n){var x=new Date(d);x.setDate(x.getDate()+n);return x.toISOString().split('T')[0];}
@@ -1794,7 +1799,7 @@ function imprimirDashboard(){
   // Alertas
   var al=[];
   Object.keys(FLOTA).filter(function(k){return (FLOTA[k].estado||'operativo')==='operativo';}).forEach(function(cam){var u=REGS.filter(function(r){return r.cam===cam;}).sort(function(a,b){return b.f.localeCompare(a.f);})[0];if(!u||diasDesde(u.f)>=3)al.push('🚛 '+cam.replace('JAC-','')+' — '+(u?diasDesde(u.f):'?')+'+ días sin planilla');});
-  Object.keys(KM_DATA).forEach(function(cam){var d=KM_DATA[cam];if(d&&d.km&&d.ultsrv>0&&(d.km-d.ultsrv)>=(cfg.km||5000))al.push('🔧 '+cam.replace('JAC-','')+' — Servicio '+(cfg.km||5000)+'km vencido');});
+  Object.keys(KM_DATA).forEach(function(cam){var d=KM_DATA[cam];if(d&&d.km){var _ps=proxServicio(d.km);if(_ps-d.km<=500)al.push('🔧 '+cam.replace('JAC-','')+' — Servicio próximo ('+(_ps-d.km).toLocaleString()+' km → '+_ps.toLocaleString()+')');}});
   var alertHtml=al.length?(al.slice(0,8).map(function(a){return '<div style="padding:3px 0;border-bottom:1px solid #243140">'+a+'</div>';}).join('')+(al.length>8?'<div class="mut" style="padding-top:3px">…y '+(al.length-8)+' más</div>':'')):'<div style="color:#4ade80;padding:4px 0">Sin alertas críticas ✓</div>';
   // Últimas planillas
   var ult=REGS.slice().reverse().slice(0,8);
@@ -1979,7 +1984,7 @@ function renderAlertasCriticas(){
     var ult=REGS.filter(function(r){return r.cam===cam;}).sort(function(a,b){return b.f.localeCompare(a.f);})[0];
     if(!ult||diasDesde(ult.f)>=3)al.push({t:'r',txt:'🚛 '+cam+' — '+(ult?diasDesde(ult.f):'?')+'+ dias sin planilla'});
   });
-  Object.keys(KM_DATA).forEach(function(cam){var d=KM_DATA[cam];if(!d.km)return;if(d.ultsrv>0&&(d.km-d.ultsrv)>=(cfg.km||5000))al.push({t:'r',txt:'🔧 '+cam+' — Servicio de '+cfg.km+'km VENCIDO'});});
+  Object.keys(KM_DATA).forEach(function(cam){var d=KM_DATA[cam];if(!d.km)return;var _ps=proxServicio(d.km);if(_ps-d.km<=500)al.push({t:'r',txt:'🔧 '+cam+' — Servicio próximo ('+(_ps-d.km).toLocaleString()+' km → '+_ps.toLocaleString()+')'});});
   PRESTAMOS.filter(function(p){return p.estado==='activo';}).forEach(function(p){if(p.semanasPagadas>=p.semanas){sendWA('💳 Prestamo de '+p.empNombre+' completamente pagado',['rrhh']);}});
   // BADGE persistente (#opción c): nombres en planillas que NO casan con el roster (sin identificar),
   // para que no queden silenciosos. Dedup por nombre normalizado (chequea cada nombre único 1 vez).
@@ -3572,11 +3577,11 @@ function imprimirReporteJAC(){
   var venc=0,prox=0,ok=0;
   var filas=cams.map(function(cam,i){
     var d=KM_DATA[cam]||{km:0,ultsrv:0,lavado:'—',engrase:'—'};
-    var pSrv=(parseFloat(d.ultsrv)||0)+kmCfg;
+    var pSrv=proxServicio(d.km);
     var rest=pSrv-(parseFloat(d.km)||0);
-    var est=rest<=0?'VENCIDO':rest<=500?'PROXIMO':'OK';
-    var bk=est==='OK'?'bk-ok':est==='PROXIMO'?'bk-warn':'bk-err';
-    if(est==='VENCIDO')venc++;else if(est==='PROXIMO')prox++;else ok++;
+    var est=rest<=500?'PROXIMO':'OK';
+    var bk=est==='OK'?'bk-ok':'bk-warn';
+    if(est==='PROXIMO')prox++;else ok++;
     return '<tr style="background:'+(i%2===0?'#fff':'#f5f9ff')+'">'+
       '<td class="bv"><b>'+cam+'</b></td>'+
       '<td style="font-size:11px">'+(FLOTA[cam]?FLOTA[cam].chofer:'—')+'</td>'+
@@ -3605,6 +3610,30 @@ function enviarReporteJAC(){
   var subject='Reporte Kilometraje Betangar '+new Date().toLocaleDateString('es-VE');
   if(typeof emailjs!=='undefined'){emailjs.send(EJS_RPT_SVC,EJS_RPT_TPL,{to_email:'soporte@jac.com.ve',subject:subject,message:body},{publicKey:EJS_KEY}).then(function(){alert('Reporte enviado a JAC');}).catch(function(){alert('Error enviando correo');});}else{alert('EmailJS no disponible. Reporte:\n\n'+body);}
   audit('Reporte JAC enviado','12 camiones');
+}
+
+// ORDEN DE SERVICIO: eliges las unidades que vas a llevar a mantenimiento (ej. "1,2,3") y arma un
+// reporte imprimible/PDF con SOLO esas — unidad, placa, VIN, km actual y próximo servicio — listo
+// para enviar al concesionario. Reusa los datos de FLOTA (placa/VIN) y KM_DATA (km).
+function ordenServicio(){
+  var inp=prompt('🔧 ORDEN DE SERVICIO\n\n¿Qué unidades vas a llevar a mantenimiento?\nEscribe los números separados por coma (ej: 1,2,3):');
+  if(inp===null||!String(inp).trim())return;
+  var cams=String(inp).split(/[,;\s]+/).map(function(n){var d=String(n).replace(/\D/g,'');return d?'JAC-B'+d.padStart(3,'0'):'';}).filter(function(c,i,arr){return c&&FLOTA[c]&&arr.indexOf(c)===i;});
+  if(!cams.length){alert('No reconocí ninguna unidad válida. Usa solo números, por ejemplo: 1,2,3');return;}
+  var filas=cams.map(function(cam,i){
+    var d=KM_DATA[cam]||{km:0}, fl=FLOTA[cam]||{};
+    return '<tr style="background:'+(i%2===0?'#fff':'#f5f9ff')+'">'+
+      '<td class="bv"><b>'+cam+'</b></td>'+
+      '<td class="mono">'+(fl.placa||'—')+'</td>'+
+      '<td class="mono" style="font-size:10px">'+(fl.vin||'—')+'</td>'+
+      '<td class="mono" style="text-align:right">'+((parseFloat(d.km)||0).toLocaleString())+'</td>'+
+      '<td class="mono" style="text-align:right">'+proxServicio(d.km).toLocaleString()+'</td>'+
+      '<td style="font-size:11px">'+(fl.chofer||'—')+'</td></tr>';
+  }).join('');
+  var body='<table><thead><tr><th>Unidad</th><th>Placa</th><th>VIN</th><th style="text-align:right">KM Actual</th><th style="text-align:right">Próx. Servicio</th><th>Chofer</th></tr></thead><tbody>'+filas+'</tbody></table>'+
+    '<p style="margin-top:12px;font-size:11px;color:#374151">Unidades a ingresar a mantenimiento: <b>'+cams.length+'</b> ('+cams.join(', ')+'). Intervalo de servicio: '+((cfg.km||5000).toLocaleString())+' km.</p>';
+  abrirImpresionPremium('Orden de Servicio — Inversiones Betangar','Unidades a mantenimiento · '+new Date().toLocaleDateString('es-VE'),'',body);
+  audit('Orden de Servicio generada',cams.join(', '));
 }
 
 // ═══════════════════════════════════════════════════
@@ -3924,11 +3953,10 @@ function renderKm(){
   var cams=Object.keys(FLOTA).filter(function(k){return k.startsWith('JAC-B');});
   cams.forEach(function(cam){
     var d=KM_DATA[cam]||{km:0,ultsrv:0,mant:[]};
-    var proximo=d.ultsrv>0?d.ultsrv+(cfg.km||5000):cfg.km;
+    var proximo=proxServicio(d.km);
     var restante=proximo-(d.km||0);
     var est,estClass;
-    if(d.km>=proximo){est='VENCIDO';estClass='br';}
-    else if(restante<=500){est='PROXIMO';estClass='by';alertas.push('⚠ '+cam+': km en '+restante+'km');}
+    if(restante<=500){est='PROXIMO';estClass='by';alertas.push('⚠ '+cam+': servicio en '+restante.toLocaleString()+' km (próximo: '+proximo.toLocaleString()+')');}
     else{est='OK';estClass='bg';}
     rows.push('<tr><td style="font-weight:700">'+cam+'</td><td style="font-size:11px">'+FLOTA[cam].chofer+'</td><td style="font-family:var(--m);color:var(--teal)">'+(d.km?d.km.toLocaleString():'--')+'</td><td style="font-family:var(--m)">'+(d.ultsrv?d.ultsrv.toLocaleString():'--')+'</td><td style="font-family:var(--m)">'+proximo.toLocaleString()+'</td><td style="font-family:var(--m);color:'+(restante<500?'var(--red)':'var(--text)')+'">'+restante.toLocaleString()+'</td><td><span class="badge '+estClass+'">'+est+'</span></td><td style="font-size:10px;color:var(--text3)">'+(d.nota||'')+'</td><td>'+((d.km||d.ultsrv)?'<button onclick="borrarOdo(\''+cam+'\')" class="btn btn-xs" style="background:var(--red);color:#fff">🗑</button>':'')+'</td></tr>');
   });
