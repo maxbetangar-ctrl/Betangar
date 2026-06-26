@@ -2038,7 +2038,8 @@ function renderAlertasCriticas(){
     if(!ult||diasDesde(ult.f)>=3)al.push({t:'r',txt:'🚛 '+cam+' — '+(ult?diasDesde(ult.f):'?')+'+ dias sin planilla'});
   });
   Object.keys(KM_DATA).forEach(function(cam){var _km=kmActualCam(cam);if(!_km)return;var _ps=proxServicio(_km);if(_ps-_km<=500)al.push({t:'r',txt:'🔧 '+cam+' — Servicio próximo ('+(_ps-_km).toLocaleString()+' km → '+_ps.toLocaleString()+')'});});
-  PRESTAMOS.filter(function(p){return p.estado==='activo';}).forEach(function(p){if(p.semanasPagadas>=p.semanas){sendWA('💳 Prestamo de '+p.empNombre+' completamente pagado',['rrhh']);}});
+  // (El aviso de "préstamo completamente pagado" NO se manda aquí: dibujar el dashboard no debe
+  //  disparar WhatsApp. Ese aviso lo manda aplicarAvanceDescuentos una sola vez, al pagar la semana.)
   // BADGE persistente (#opción c): nombres en planillas que NO casan con el roster (sin identificar),
   // para que no queden silenciosos. Dedup por nombre normalizado (chequea cada nombre único 1 vez).
   try{
@@ -3258,34 +3259,37 @@ function calcNom(){
     var recargoDom=(vNomDom+vCamDom)*tasaAy*0.5;
     if(viajes>0)ayMap[e.id]={emp:e,viajes:viajes,viajesDom:vNomDom+vCamDom,recargoDom:recargoDom,tasa:tasaAy,descuentos:0,porNombre:vNom,porCam:vCam};
   });
-  // Descuentos prestamos
+  // Descuentos prestamos — CÁLCULO PURO. Solo MUESTRA la cuota que se descontaría esta semana;
+  // NO avanza la cuota (semanas_pagadas), NO marca pagado, NO manda WhatsApp. El AVANCE real
+  // ocurre UNA sola vez al "Guardar esta semana" (guardarNominaHist→aplicarAvanceDescuentos),
+  // no al ver/recalcular la nómina (antes mutaba en cada render → cuotas fantasma + WA falsos).
   var descBanners=[];
+  var _prestAplicar=[], _multaAplicar=[]; // lo que se avanzaría al pagar esta semana
   PRESTAMOS.filter(function(p){return p.estado==='activo';}).forEach(function(p){
     if(mes===p.mes||!p.mes){
       var empObj=EMPLEADOS.find(function(e){return e.id===p.empId;});
       if(!empObj)return;
       var cuota=p.cuotaUsd;
-      p.semanasPagadas=(p.semanasPagadas||0);
-      if(p.semanasPagadas<p.semanas){
+      var pagadasYa=p.semanasPagadas||0;
+      if(pagadasYa<p.semanas){
         // Aplicar descuento al EMPLEADO (chofer por su nombre, ya no por camión) o al ayudante.
         var chKeyEmp=_nombreCanonico(empObj.nombre||'').toUpperCase();
         if(chMap[chKeyEmp])chMap[chKeyEmp].descuentos+=cuota;
         else if(ayMap[p.empId])ayMap[p.empId].descuentos+=cuota;
-        p.semanasPagadas++;p.pagado=(p.pagado||0)+cuota;
-        if(p.semanasPagadas>=p.semanas){p.estado='pagado';sendWA('💳 Prestamo de '+empObj.nombre+' completamente pagado (USD '+p.montoUsd+')',['rrhh']);}
-        descBanners.push('<div class="alert-b" style="margin-bottom:4px;font-size:11px">💳 Descuento prestamo: <b>'+empObj.nombre+'</b> — $'+cuota.toFixed(2)+'/semana ('+p.semanasPagadas+'/'+p.semanas+')</div>');
+        _prestAplicar.push({id:p.id,cuota:cuota,empNombre:empObj.nombre,montoUsd:p.montoUsd});
+        descBanners.push('<div class="alert-b" style="margin-bottom:4px;font-size:11px">💳 Descuento prestamo: <b>'+empObj.nombre+'</b> — $'+cuota.toFixed(2)+'/semana ('+(pagadasYa+1)+'/'+p.semanas+')</div>');
       }
     }
   });
-  // Descuentos multas
+  // Descuentos multas — CÁLCULO PURO (avance real al "Guardar esta semana", igual que préstamos).
   MULTAS.filter(function(m){return m.resp==='chofer'&&m.estado==='activo';}).forEach(function(m){
+    if((m.cuotasPagas||0)>=m.cuotas)return; // ya saldada
     var cuotaBs=m.cuotaBs;
     // La multa es de un camión → se descuenta al chofer ASIGNADO a ese camión (por nombre).
     var empCh=EMPLEADOS.find(function(e){return e.cargo==='Chofer'&&e.unidad===m.camId;});
     var chKeyM=empCh?_nombreCanonico(empCh.nombre||'').toUpperCase():'';
     if(chKeyM&&chMap[chKeyM]){var usd=cuotaBs/(TASAS.bcvDolar||cfg.tasa);chMap[chKeyM].descuentos+=usd;}
-    m.pagadoBs=(m.pagadoBs||0)+cuotaBs;m.cuotasPagas=(m.cuotasPagas||0)+1;
-    if(m.cuotasPagas>=m.cuotas)m.estado='pagado';
+    _multaAplicar.push({id:m.id,cuotaBs:cuotaBs});
   });
   // ── ASISTENCIA A PATIO (opcional, interruptor nm-patio) ──────────────────────────────
   // Regla (Máximo): día CON viajes → solo viajes; día SIN viajes pero PRESENTE en patio ('P')
@@ -3328,6 +3332,7 @@ function calcNom(){
   try{renderImauApoyo();}catch(e){}
   // Guardar el último cálculo para poder "Guardar en historial" (nutrir nomina_historial).
   _ultimaNomina={
+    _prestAplicar:_prestAplicar, _multaAplicar:_multaAplicar, // descuentos a avanzar SOLO al guardar la semana
     sem:sem||'', mes:mes||'', tasa:tasa, totCh:totCh, totAy:totAy, totAdm:totAdm, totImau:totImau, totBs:totBs,
     fdesde: f.length?f.reduce(function(m,r){return r.f<m?r.f:m;},f[0].f):null,
     fhasta: f.length?f.reduce(function(m,r){return r.f>m?r.f:m;},f[0].f):null,
@@ -3457,18 +3462,56 @@ async function guardarNominaHist(){
   if(!_ultimaNomina||!_ultimaNomina.sem){alert('Calcula la nómina y elige una SEMANA primero.');return;}
   var n=_ultimaNomina;
   var id='APP-'+(n.mes||'').replace(/\s+/g,'')+'-'+(n.sem||'').replace(/\s+/g,'');
+  // ¿Ya se guardó esta semana? Si sí, NO se vuelven a avanzar las cuotas (guardia anti-doble):
+  // el avance de préstamos/multas ocurre SOLO la primera vez que se paga/guarda la semana.
+  var yaExistia=NOMINA_HIST.some(function(x){return x.id===id;});
+  var nPrest=(n._prestAplicar||[]).length, nMulta=(n._multaAplicar||[]).length;
   var row={id:id, semana:n.sem, periodo:(n.fdesde||'')+(n.fhasta?(' a '+n.fhasta):''),
     fecha_desde:n.fdesde||null, fecha_hasta:n.fhasta||null,
     total_usd:Math.round((n.totCh+n.totAy+(n.totAdm||0)+(n.totImau||0))*100)/100, total_bs:Math.round(n.totBs*100)/100,
     op_usd:Math.round((n.totCh+n.totAy)*100)/100, adm_usd:Math.round((n.totAdm||0)*100)/100, imau_bs:Math.round((n.totImau||0)*(n.tasa||0)*100)/100, tasa:n.tasa,
     detalle:{choferes:n.choferes,ayudantes:n.ayudantes,imau:[]}, fuente:'app'};
-  if(!confirm('¿Guardar la nómina de "'+n.sem+'" ('+n.mes+') en el historial?\nTotal $'+row.total_usd.toFixed(0)+' · '+n.choferes.length+' choferes, '+n.ayudantes.length+' ayudantes.\n(Si ya existe esa semana, se reemplaza.)'))return;
+  var avisoDesc=(!yaExistia&&(nPrest||nMulta))
+    ?('\n\n⚠️ Esto avanzará 1 cuota a '+nPrest+' préstamo(s) y '+nMulta+' multa(s) activas (el descuento de ESTA semana).')
+    :((yaExistia&&(nPrest||nMulta))?'\n\n(Esta semana ya estaba guardada → las cuotas NO se vuelven a avanzar.)':'');
+  if(!confirm('¿Guardar la nómina de "'+n.sem+'" ('+n.mes+') en el historial?\nTotal $'+row.total_usd.toFixed(0)+' · '+n.choferes.length+' choferes, '+n.ayudantes.length+' ayudantes.'+avisoDesc+'\n(Si ya existe esa semana, se reemplaza.)'))return;
   if(!(DB_READY&&supabase)){alert('Sin conexión a la base.');return;}
   var res=await supabase.from('nomina_historial').upsert(row,{onConflict:'id'}).select();
   if(res.error){mostrarToast('No se pudo guardar: '+res.error.message,'error');return;}
   var idx=NOMINA_HIST.findIndex(function(x){return x.id===id;});
   if(idx>=0)NOMINA_HIST[idx]=row; else NOMINA_HIST.push(row);
-  renderNominaHist(); audit('Nómina guardada en historial',id+' $'+row.total_usd.toFixed(0)); mostrarToast('✅ Nómina "'+n.sem+'" guardada en el historial','exito');
+  // AVANCE REAL de las cuotas — solo la primera vez que se guarda esta semana.
+  if(!yaExistia){ try{ await aplicarAvanceDescuentos(n); }catch(e){console.log('avance desc err',e);} }
+  renderNominaHist(); audit('Nómina guardada en historial',id+' $'+row.total_usd.toFixed(0));
+  mostrarToast('✅ Nómina "'+n.sem+'" guardada'+((!yaExistia&&(nPrest||nMulta))?' (cuotas avanzadas)':'')+' en el historial','exito');
+}
+// Aplica el AVANCE real de las cuotas que calcNom marcó para esta semana (_ultimaNomina._prestAplicar/
+// _multaAplicar): sube semanas_pagadas / cuotas_pagas, marca 'pagado' al completar (WhatsApp UNA vez)
+// y persiste en Supabase. Se llama SOLO desde guardarNominaHist y SOLO la primera vez que se guarda
+// esa semana → ver/recalcular la nómina nunca mueve las cuotas (antes mutaba en cada render).
+async function aplicarAvanceDescuentos(n){
+  if(!n)return;
+  var prestTocados=[], multaTocadas=[];
+  (n._prestAplicar||[]).forEach(function(d){
+    var p=PRESTAMOS.find(function(x){return x.id===d.id;});
+    if(!p||p.estado!=='activo'||(p.semanasPagadas||0)>=p.semanas)return;
+    p.semanasPagadas=(p.semanasPagadas||0)+1; p.pagado=(p.pagado||0)+d.cuota;
+    if(p.semanasPagadas>=p.semanas){p.estado='pagado'; sendWA('💳 Prestamo de '+(d.empNombre||p.empNombre)+' completamente pagado (USD '+(d.montoUsd||p.montoUsd)+')',['rrhh']);}
+    prestTocados.push(p);
+  });
+  (n._multaAplicar||[]).forEach(function(d){
+    var m=MULTAS.find(function(x){return x.id===d.id;});
+    if(!m||m.estado!=='activo'||(m.cuotasPagas||0)>=m.cuotas)return;
+    m.pagadoBs=(m.pagadoBs||0)+d.cuotaBs; m.cuotasPagas=(m.cuotasPagas||0)+1;
+    if(m.cuotasPagas>=m.cuotas)m.estado='pagado';
+    multaTocadas.push(m);
+  });
+  if(DB_READY&&supabase){
+    if(prestTocados.length){var rp=await supabase.from('prestamos').upsert(prestTocados.map(function(p){return{id:p.id,emp_id:p.empId,emp_nombre:p.empNombre,fecha:p.fecha,monto_usd:p.montoUsd,semanas:p.semanas,cuota_usd:p.cuotaUsd,pagado:p.pagado,semanas_pagadas:p.semanasPagadas,motivo:p.motivo,estado:p.estado};}),{onConflict:'id'}); if(rp&&rp.error)mostrarToast('Cuotas de préstamo no persistieron: '+rp.error.message,'error');}
+    if(multaTocadas.length){var rm=await supabase.from('multas').upsert(multaTocadas.map(function(m){return{id:m.id,cam_id:m.camId,fecha:m.fecha,descripcion:m.desc,monto_bs:m.montoBs,ref:m.ref,responsable:m.resp,chofer_id:m.choferId,cuotas:m.cuotas,cuota_bs:m.cuotaBs,pagado_bs:m.pagadoBs,cuotas_pagas:m.cuotasPagas,estado:m.estado};}),{onConflict:'id'}); if(rm&&rm.error)mostrarToast('Cuotas de multa no persistieron: '+rm.error.message,'error');}
+  }
+  try{if(typeof renderPrestamos==='function')renderPrestamos();}catch(e){}
+  try{if(typeof renderMultas==='function')renderMultas();}catch(e){}
 }
 
 // ── AUDITORÍA DE PAGOS: pagado (historial) vs corresponde (viajes planilla × tarifa + domingo + patio) ──
