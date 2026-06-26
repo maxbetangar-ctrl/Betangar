@@ -3352,7 +3352,7 @@ function enviarReporteJAC(){
   var body='Reporte de Kilometraje JAC - Betangar\nFecha: '+new Date().toLocaleDateString('es-VE')+'\n\n';
   cams.forEach(function(cam){var d=KM_DATA[cam];body+=cam+' | Placa: '+FLOTA[cam].placa+' | VIN: '+FLOTA[cam].vin+' | Km: '+(d?d.km.toLocaleString():'--')+'\n';});
   var subject='Reporte Kilometraje Betangar '+new Date().toLocaleDateString('es-VE');
-  if(typeof emailjs!=='undefined'){emailjs.send(EJS_RPT_SVC,EJS_RPT_TPL,{to_email:'soporte@jac.com.ve',subject:subject,message:body}).then(function(){alert('Reporte enviado a JAC');}).catch(function(){alert('Error enviando correo');});}else{alert('EmailJS no disponible. Reporte:\n\n'+body);}
+  if(typeof emailjs!=='undefined'){emailjs.send(EJS_RPT_SVC,EJS_RPT_TPL,{to_email:'soporte@jac.com.ve',subject:subject,message:body},{publicKey:EJS_KEY}).then(function(){alert('Reporte enviado a JAC');}).catch(function(){alert('Error enviando correo');});}else{alert('EmailJS no disponible. Reporte:\n\n'+body);}
   audit('Reporte JAC enviado','12 camiones');
 }
 
@@ -5400,7 +5400,7 @@ function emailArteCumple(){
   if(typeof emailjs==='undefined'){alert('EmailJS no disponible');return;}
   var hoy=new Date();var edad=emp.fnac?hoy.getFullYear()-new Date(emp.fnac+'T12:00:00').getFullYear():0;
   var body='Feliz Cumpleanos '+emp.nombre+'!'+(edad?' Hoy cumples '+edad+' anos.':'');
-  emailjs.send(EJS_SVC,EJS_TPL,{to_email:emp.email,subject:'Feliz Cumpleanos de parte de Betangar!',message:body})
+  emailjs.send(EJS_SVC,EJS_TPL,{to_email:emp.email,subject:'Feliz Cumpleanos de parte de Betangar!',message:body},{publicKey:EJS_KEY})
   .then(function(){alert('Mensaje enviado a '+emp.email);}).catch(function(e){alert('Error: '+e.text);});
 }
 
@@ -6203,7 +6203,7 @@ async function pedirNuevoToken(){
       token: codigo,
       codigo: codigo,
       fecha: new Date().toLocaleString('es-VE')
-    }).catch(function(e){console.log('Token email err:',e&&(e.text||e.message||e));});
+    },{publicKey:EJS_KEY}).catch(function(e){console.log('Token email err:',e&&(e.text||e.message||e));});
   }
   audit('Token solicitado',SESION.nombre+' solicita para: '+accion+' -- Motivo: '+motivo+(_insertOk?'':' [INSERT FALLÓ: '+_insertErr+']'));
   // Feedback HONESTO: verde SOLO si el token quedó registrado (antes mentía verde aunque el
@@ -6607,7 +6607,7 @@ function enviarEmail(asunto,cuerpoHtml,destino){
     to_email:destino,
     subject:'Betangar: '+asunto,
     message:cuerpoHtml
-  }).then(function(){
+  },{publicKey:EJS_KEY}).then(function(){
     alert('✅ Correo enviado a '+destino);
   }).catch(function(e){
     alert('Error enviando correo: '+(e.text||e.message||'Verifica EmailJS'));
