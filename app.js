@@ -418,8 +418,9 @@ function _iniciarSesionCore(){
   var hoy=new Date().toISOString().split('T')[0];
   ['rp-fecha','rr-des','rr-hta','ab-f','gc-f','gp-f','km-f','cxp-fecha','mul-fecha','prest-fecha','doc-cam-venc','doc-emp-venc','cont-venc','cont-inicio','ll-fecha','bnc-mov-des','bnc-mov-hta','np-fecha','alc-fecha','gv-fecha'].forEach(function(id){var el=document.getElementById(id);if(el&&!el.value)el.value=hoy;});
   var rpSem=document.getElementById('rp-sem');if(rpSem)rpSem.value=getSem(null);
-  var rpMes=document.getElementById('rp-mes');if(rpMes)rpMes.value='abr-26';
+  var rpMes=document.getElementById('rp-mes');if(rpMes)rpMes.value=mesBtg();
   poblarCams();poblarEmps();poblarSems();renderWANums();
+  try{_defMesSelects();}catch(e){} // mes en curso como default en nómina/asistencia/metas/pagos
   var mx=REGS.reduce(function(a,r){var v=parseInt(r.p)||0;return v>a?v:a;},0);
   var rpNum=document.getElementById('rp-num');if(rpNum)rpNum.value=String(mx+1).padStart(5,'0');
   aplicarPermisos();
@@ -1521,6 +1522,12 @@ function mostrarModalTasaManual(tipo, callback){
 // HELPERS
 // ═══════════════════════════════════════════════════
 function getSem(f){var d=f?new Date(f+'T12:00:00'):new Date();var dia=d.getDate();if(dia<=7)return'Semana 1';if(dia<=14)return'Semana 2';if(dia<=21)return'Semana 3';if(dia<=28)return'Semana 4';return'Semana 5';}
+// Mes EN CURSO en formato Betangar ('jun-26'). Reemplaza el 'abr-26' que estaba hardcodeado como
+// "mes actual" en varios sitios (defaults de nómina/asistencia/metas/dashboard). OJO: los <select>
+// de mes solo tienen opciones hasta 2026; al llegar 2027 hay que ampliarlas o el default no casará.
+function mesBtg(){var ms=['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];var d=new Date();return ms[d.getMonth()]+'-'+String(d.getFullYear()).slice(2);}
+// Pone el mes EN CURSO como predeterminado en los selectores de mes (solo si esa opción existe).
+function _defMesSelects(){var m=mesBtg();['nm-mes','asis-mes','meta-mes','np-mes'].forEach(function(id){var sel=document.getElementById(id);if(sel&&[].some.call(sel.options,function(o){return o.value===m;}))sel.value=m;});}
 function diasDesde(f){if(!f)return 9999;return Math.floor((new Date()-new Date(f))/86400000);}
 function diasHasta(f){if(!f)return 9999;return Math.floor((new Date(f)-new Date())/86400000);}
 function addDays(d,n){var x=new Date(d);x.setDate(x.getDate()+n);return x.toISOString().split('T')[0];}
@@ -1775,8 +1782,8 @@ function imprimirDashboard(){
   var medals=['1°','2°','3°','4°','5°'];
   var rankRows=top5.map(function(c,i){return '<tr><td>'+medals[i]+'</td><td style="font-weight:700">'+c.ch+'</td><td style="text-align:right;color:#16a34a;font-weight:700">'+c.viajes+'v</td></tr>';}).join('')||'<tr><td colspan="3">Sin datos</td></tr>';
   // Metas (igual que renderMetasDash)
-  var semHoy=getSem(null),meta=(METAS['abr-26-'+semHoy]||{viajesFlota:200});
-  var vMeta=REGS.filter(function(r){return r.sem===semHoy&&r.mes==='abr-26';}).reduce(function(s,r){return s+r.t;},0);
+  var semHoy=getSem(null),_mh=mesBtg(),meta=(METAS[_mh+'-'+semHoy]||{viajesFlota:200});
+  var vMeta=REGS.filter(function(r){return r.sem===semHoy&&r.mes===_mh;}).reduce(function(s,r){return s+r.t;},0);
   var pctMeta=meta.viajesFlota>0?Math.min(100,Math.round((vMeta/meta.viajesFlota)*100)):0;
   // Vencimientos (<=30 dias)
   var venc=[];
@@ -1947,7 +1954,7 @@ function renderRankingTop5(){
 
 function renderMetasDash(){
   var el=g('dash-metas');if(!el)return;
-  var semHoy=getSem(null);var mesHoy='abr-26';
+  var semHoy=getSem(null);var mesHoy=mesBtg();
   var mk=mesHoy+'-'+semHoy;
   var meta=METAS[mk]||{viajesCam:20,viajesFlota:200};
   var totalV=REGS.filter(function(r){return r.sem===semHoy&&r.mes===mesHoy;}).reduce(function(s,r){return s+r.t;},0);
@@ -5092,7 +5099,7 @@ function prefillMeta(){
   renderMetas();renderSemaforo();
 }
 function renderMetas(){
-  var mes=gv('meta-mes')||'abr-26',sem=gv('meta-sem')||'Semana 1';
+  var mes=gv('meta-mes')||mesBtg(),sem=gv('meta-sem')||'Semana 1';
   var key=mes+'-'+sem;
   var meta=METAS[key]||{viajesCam:20,viajesFlota:200};
   var totalV=REGS.filter(function(r){return r.sem===sem&&r.mes===mes;}).reduce(function(s,r){return s+r.t;},0);
@@ -5104,7 +5111,7 @@ function renderMetas(){
 }
 
 function renderSemaforo(){
-  var mes=gv('meta-mes')||'abr-26',sem=gv('meta-sem')||'Semana 1';
+  var mes=gv('meta-mes')||mesBtg(),sem=gv('meta-sem')||'Semana 1';
   var key=mes+'-'+sem;
   var meta=METAS[key]||{viajesCam:20,viajesFlota:200};
   var el=g('metas-semaforo');if(!el)return;
