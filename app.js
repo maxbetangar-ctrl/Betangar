@@ -3423,7 +3423,7 @@ function _audConstruir(h,tolPatio){
   pw.forEach(function(r){
     var t=parseInt(r.t)||0, dom=_esDomingoOferiado(r.f)?t:0;
     var ck=_nombreCanonico(r.ch||TEMPORALES[r.cam]||'').toUpperCase(); if(ck){chV[ck]=(chV[ck]||0)+t;chD[ck]=(chD[ck]||0)+dom;}
-    [r.ay1,r.ay2,r.ay3].forEach(function(nm){if(!nm)return;var e=_empPorNombre(nm);var ak=_normNom(e?e.nombre:nm);if(ak){ayV[ak]=(ayV[ak]||0)+t;ayD[ak]=(ayD[ak]||0)+dom;}});
+    [r.ay1,r.ay2,r.ay3].forEach(function(nm){if(!nm)return;var ak=_normNom(_nombreCanonico(nm));if(ak){ayV[ak]=(ayV[ak]||0)+t;ayD[ak]=(ayD[ak]||0)+dom;}});
   });
   var d=h.detalle||{}, filas=[], nFlag=0, sumOver=0;
   function chk(arr,vmap,dmap,keyFn,rateFn,rol){
@@ -3441,7 +3441,7 @@ function _audConstruir(h,tolPatio){
   var rCh=function(){return (typeof cfg!=='undefined'&&cfg.chofer)?cfg.chofer:10;};
   var rAy=function(p){return (p&&p.tipo==='imau')?((typeof cfg!=='undefined'&&cfg.imau)?cfg.imau:2.5):((typeof cfg!=='undefined'&&cfg.ayud)?cfg.ayud:5);};
   chk(d.choferes,chV,chD,function(n){return _nombreCanonico(n).toUpperCase();},rCh,'Chofer');
-  chk(d.ayudantes,ayV,ayD,function(n){var e=_empPorNombre(n);return _normNom(e?e.nombre:n);},rAy,'Ayud'); // resolver al empleado (mismo criterio que ayV) — si no, nombre corto guardado ≠ completo de la planilla
+  chk(d.ayudantes,ayV,ayD,function(n){return _normNom(_nombreCanonico(n));},rAy,'Ayud'); // _nombreCanonico (alias-aware) en AMBOS lados — resuelve corto↔completo incl. nombres pegados como MANUELFRANCISCO
   filas.sort(function(a,b){return (b.flag?1:0)-(a.flag?1:0)||b.diff-a.diff;});
   return {filas:filas,nFlag:nFlag,sumOver:sumOver,pw:pw};
 }
