@@ -2957,7 +2957,7 @@ function calcNom(){
     var vCam=0,vCamDom=0;
     if(vNom===0){
       var rCam=f.filter(function(r){
-        return r.cam===e.unidad&&!r.ay1&&!r.ay2;
+        return r.cam===e.unidad&&!r.ay1&&!r.ay2&&!r.ay3;
       });
       vCam=rCam.reduce(function(s,r){return s+r.t;},0);
       vCamDom=rCam.reduce(function(s,r){return s+(_esDomingoOferiado(r.f)?(parseInt(r.t)||0):0);},0);
@@ -3038,7 +3038,7 @@ function calcNom(){
   try{renderImauApoyo();}catch(e){}
   // Guardar el último cálculo para poder "Guardar en historial" (nutrir nomina_historial).
   _ultimaNomina={
-    sem:sem||'', mes:mes||'', tasa:tasa, totCh:totCh, totAy:totAy, totAdm:totAdm, totBs:totBs,
+    sem:sem||'', mes:mes||'', tasa:tasa, totCh:totCh, totAy:totAy, totAdm:totAdm, totImau:totImau, totBs:totBs,
     fdesde: f.length?f.reduce(function(m,r){return r.f<m?r.f:m;},f[0].f):null,
     fhasta: f.length?f.reduce(function(m,r){return r.f>m?r.f:m;},f[0].f):null,
     choferes: Object.values(chMap).map(function(c){var k=_nombreCanonico(c.ch).toUpperCase();var pat=(c.patio||0)+(parseInt(PATIO_DIAS[k])||0);var u=Math.max(0,(c.montoViajes||0)+pat*cfg.chofer-c.descuentos);return {n:c.ch,u:Array.from(c.cams||[]).join(','),viajes:c.viajes+pat,pat:pat,usd:Math.round(u*100)/100,bs:Math.round(u*tasa*100)/100};}),
@@ -3161,8 +3161,8 @@ async function guardarNominaHist(){
   var id='APP-'+(n.mes||'').replace(/\s+/g,'')+'-'+(n.sem||'').replace(/\s+/g,'');
   var row={id:id, semana:n.sem, periodo:(n.fdesde||'')+(n.fhasta?(' a '+n.fhasta):''),
     fecha_desde:n.fdesde||null, fecha_hasta:n.fhasta||null,
-    total_usd:Math.round((n.totCh+n.totAy+(n.totAdm||0))*100)/100, total_bs:Math.round(n.totBs*100)/100,
-    op_usd:Math.round((n.totCh+n.totAy)*100)/100, adm_usd:Math.round((n.totAdm||0)*100)/100, imau_bs:0, tasa:n.tasa,
+    total_usd:Math.round((n.totCh+n.totAy+(n.totAdm||0)+(n.totImau||0))*100)/100, total_bs:Math.round(n.totBs*100)/100,
+    op_usd:Math.round((n.totCh+n.totAy)*100)/100, adm_usd:Math.round((n.totAdm||0)*100)/100, imau_bs:Math.round((n.totImau||0)*(n.tasa||0)*100)/100, tasa:n.tasa,
     detalle:{choferes:n.choferes,ayudantes:n.ayudantes,imau:[]}, fuente:'app'};
   if(!confirm('¿Guardar la nómina de "'+n.sem+'" ('+n.mes+') en el historial?\nTotal $'+row.total_usd.toFixed(0)+' · '+n.choferes.length+' choferes, '+n.ayudantes.length+' ayudantes.\n(Si ya existe esa semana, se reemplaza.)'))return;
   if(!(DB_READY&&supabase)){alert('Sin conexión a la base.');return;}
@@ -3449,9 +3449,9 @@ function ensureTasasYCalc(cDolar, cEuro, cb){
   cb(totalUsd, totalBs, td, te);
 }
 
-// Costo $/L de un proveedor de tanque (Tumaca/Boscán): precio $/L FIJO por fuente (decisión
-// de Máximo). Mismo litraje + misma fuente = mismo precio SIEMPRE (no se mezcla el componente
-// euro / razón euro-dólar que lo hacía variar día a día). Se cambia en Config cuando suba.
+// Costo $/L de la surtida desde el tanque: COSTO REAL PROMEDIO del combustible que hay en el
+// tanque (tankCostoLitro, promedio ponderado actualizado en cada compra y recalculado por FIFO
+// al editar/borrar). Si el tanque aún no tiene costo, cae al precio de referencia de la fuente.
 function compCostoUnit(prov, cb){
   // COSTO REAL PROMEDIO: la surtida al camión vale lo que costó en promedio el combustible que
   // hay en el tanque (tankCostoLitro = promedio ponderado, actualizado en cada compra). Si el
@@ -3469,9 +3469,9 @@ function guardarGasoil(){
     if(!precio){alert('Ingresa el precio por litro de la estación');return;}
     _persistirDespacho({f:f,cam:cam,lit:lit,src:'Estacion',m:lit*precio}, false);
   } else {
-    // Despacho de tanque: precio $/L FIJO por fuente (Config), NO el promedio ponderado del
-    // tanque (que derivaba con cada compra y hacía variar el monto a igual litraje+fuente).
-    // Decisión de Máximo: mismo litraje + misma fuente = mismo monto SIEMPRE.
+    // Despacho de tanque: se valora al COSTO REAL PROMEDIO del tanque (compCostoUnit →
+    // tankCostoLitro), no a un precio fijo. Así la rentabilidad por camión refleja lo que
+    // de verdad costó el combustible despachado.
     var srcLabel = src==='boscan' ? 'Boscán' : 'Tumaca';
     compCostoUnit(src, function(costoUnit){
       costoUnit = costoUnit||0;
@@ -8497,6 +8497,9 @@ function aplicarEdicionGasoil(r, nuevo){
     var cap=cfg.tanque||4600;
     tankNivel=Math.max(0,Math.min(cap, tankNivel+deltaTanque));
     try{sv('tank-niv',tankNivel.toString());updTank();guardarNivelTanque();}catch(e){}
+    // El nivel cambió → recalcular el costo promedio FIFO de lo que queda, simétrico con el
+    // borrado (eliminarGasoilConfirmado). Si no, editar litros dejaba tankCostoLitro desfasado.
+    try{recalcCostoTanqueDesdeCompras();}catch(e){}
   }
   // Aplicar cambios
   r.cam=nuevo.cam; r.lit=nuevo.lit; r.src=nuevo.src; r.m=parseFloat((nuevo.lit*costoUnit).toFixed(2));
