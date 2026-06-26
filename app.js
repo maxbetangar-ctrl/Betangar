@@ -2173,6 +2173,11 @@ var _ALIAS_NOMBRES={
   'YIBER GONZALEZ':'YIRBER LENITHON GONZALEZ MONTIEL',
   'JONH J DELGADO':'JHON JAIRO DELGADO GONZALEZ'
 };
+// Persistencia del mapa de alias (corto→completo) construido en la importación: se guarda en
+// localStorage y se recarga aquí, para que _nombreCanonico resuelva nombres (ej. MANUEL LOPEZ →
+// MANUELFRANCISCO LOPEZ GONZALEZ) aunque NO se haya reimportado en esta sesión. Antes el alias se
+// reseteaba a los 5 fijos al recargar la página y se "perdían" casados en cotejo/auditoría.
+try{var _alLS=localStorage.getItem('btg_alias_nombres');if(_alLS){var _alO=JSON.parse(_alLS);if(_alO&&typeof _alO==='object')for(var _alK in _alO)_ALIAS_NOMBRES[_alK]=_alO[_alK];}}catch(e){}
 function _nombreCanonico(n){
   if(!n||!String(n).trim())return '';
   var key=(typeof _normNom==='function')?_normNom(n):String(n).trim().toUpperCase();
@@ -2614,6 +2619,7 @@ function procesarExcelBetangar(wb){
     }
     leerRoster('AA','AB','AE','Chofer');
     leerRoster('AF','AG','AL','Ayudante');
+    try{localStorage.setItem('btg_alias_nombres',JSON.stringify(_ALIAS_NOMBRES));}catch(e){} // persistir para que sobreviva recargas
   }
   _syncPersonalExcel(wb.Sheets['PARAMETROS']);
 
