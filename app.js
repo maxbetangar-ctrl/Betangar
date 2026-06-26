@@ -1974,6 +1974,20 @@ function renderAlertasCriticas(){
   });
   Object.keys(KM_DATA).forEach(function(cam){var d=KM_DATA[cam];if(!d.km)return;if(d.ultsrv>0&&(d.km-d.ultsrv)>=(cfg.km||5000))al.push({t:'r',txt:'🔧 '+cam+' — Servicio de '+cfg.km+'km VENCIDO'});});
   PRESTAMOS.filter(function(p){return p.estado==='activo';}).forEach(function(p){if(p.semanasPagadas>=p.semanas){sendWA('💳 Prestamo de '+p.empNombre+' completamente pagado',['rrhh']);}});
+  // BADGE persistente (#opción c): nombres en planillas que NO casan con el roster (sin identificar),
+  // para que no queden silenciosos. Dedup por nombre normalizado (chequea cada nombre único 1 vez).
+  try{
+    var _vistos={}, _sinId=0;
+    (typeof REGS!=='undefined'?REGS:[]).forEach(function(r){
+      [r.ch,r.ay1,r.ay2,r.ay3].forEach(function(nm){
+        nm=String(nm||'').trim(); if(!nm||nm==='-'||nm.toUpperCase()==='IMAU')return;
+        var k=(typeof _normNom==='function')?_normNom(nm):nm.toUpperCase();
+        if(_vistos[k])return; _vistos[k]=1;
+        if(typeof _empPorNombre==='function' && !_empPorNombre(nm))_sinId++;
+      });
+    });
+    if(_sinId>0)al.push({t:'w',txt:'🕵️ '+_sinId+' nombre(s) en planillas SIN IDENTIFICAR — agrégalos a la Lista Maestra (PARAMETROS) o corrige el Excel. Revísalos en Nómina ▸ Cotejo.'});
+  }catch(e){}
   if(!al.length){el.innerHTML='';return;}
   el.innerHTML=al.slice(0,3).map(function(a){return'<div class="alert-'+(a.t==='r'?'r':'w')+'" style="margin-bottom:6px">'+a.txt+'</div>';}).join('');
 }
@@ -2328,6 +2342,18 @@ function importarExcel(input){
           msg+='  '+k+' → eliminada, reemplazada por el número correcto\n';
         });
       }
+      if(resultado.nombresSinIdentificar&&resultado.nombresSinIdentificar.length>0){
+        var nsi=resultado.nombresSinIdentificar;
+        msg+='\n\n⚠ '+nsi.length+' NOMBRE(S) NO RECONOCIDO(S) (no están en la Lista Maestra o están ambiguos):\n';
+        nsi.slice(0,20).forEach(function(x){ msg+='  • "'+x.nombre+'" ('+x.rol+', '+x.cam+' '+x.fecha+(x.veces>1?', '+x.veces+'×':'')+')\n'; });
+        if(nsi.length>20)msg+='  …y '+(nsi.length-20)+' más.\n';
+        msg+='👉 Agrégalos a PARAMETROS (Lista Maestra) o corrige el nombre, y vuelve a importar.';
+        window._SININDENT_ALERT=nsi; try{renderAlertasCriticas();}catch(e){}
+        var waN='⚠️ BETANGAR — NOMBRES NO RECONOCIDOS\nSe importaron '+resultado.planillas+' planillas.\nHay '+nsi.length+' nombre(s) que el sistema NO reconoce (no están en la Lista Maestra):\n\n';
+        nsi.slice(0,15).forEach(function(x){ waN+='🔴 "'+x.nombre+'" ('+x.rol+') — '+x.cam+' '+x.fecha+'\n'; });
+        waN+='\nAgrégalos en PARAMETROS o corrige el nombre y vuelve a importar.';
+        sendWA(waN,['rrhh','admin']);
+      }
       // Refrescar todas las vistas
       filtH();renderDash();renderAbonos();renderComb();
       poblarSems();renderAlertaDuplicadasRRHH();
@@ -2365,13 +2391,20 @@ async function guardarImportacionEnDB(resultado){
   if(_ps&&_ps.tocados&&_ps.tocados.length){
     var empRows=_ps.tocados.map(function(e){return{
       id:e.id,nombre:e.nombre,cargo:e.cargo,unidad:e.unidad||'',cedula:e.cedula||'',rif:e.rif||'',
-      fnac:e.fnac||'',fingreso:e.fingreso||'',email:e.email||'',tel:e.tel||'',banco:e.banco||'',
+      fnac:e.fnac||null,fingreso:e.fingreso||null,email:e.email||'',tel:e.tel||'',banco:e.banco||'',
       tcuenta:e.tcuenta||'',ncuenta:e.ncuenta||'',tipo_ay:e.tipoAy||'',imau:!!e.imau,foto_url:e.foto||'',
-      activo:e.activo!==false,whatsapp:e.whatsapp||'',wa_apikey:e.wa_apikey||''};});
+      activo:e.activo!==false,whatsapp:e.whatsapp||'',wa_apikey:e.wa_apikey||''};}); // fechas vacías → null (Postgres rechaza '' en DATE)
     try{var rEmp=await supabase.from('empleados').upsert(empRows,{onConflict:'id'});
-      if(rEmp.error)console.log('[personal] sync empleados:',rEmp.error.message);
-      else{try{poblarEmps();}catch(e){}}
-    }catch(e){console.log('[personal] sync empleados (exc):',e&&e.message);}
+      if(rEmp.error){
+        // El lote se cayó (una fila mala tumba todo). Reintento UNA POR UNA para salvar las buenas y aislar la mala.
+        var _falló=0,_ultErr=rEmp.error.message;
+        for(var _i=0;_i<empRows.length;_i++){
+          try{var _r1=await supabase.from('empleados').upsert([empRows[_i]],{onConflict:'id'}); if(_r1.error){_falló++;_ultErr=_r1.error.message;}}catch(_e){_falló++;}
+        }
+        if(_falló>0&&typeof mostrarToast==='function')mostrarToast('⚠ '+_falló+' empleado(s) NO se guardaron: '+_ultErr,'error');
+      }
+      try{poblarEmps();}catch(e){}
+    }catch(e){if(typeof mostrarToast==='function')mostrarToast('⚠ No se guardó el personal: '+(e&&e.message),'error'); console.log('[personal] sync empleados (exc):',e&&e.message);}
   }
   var total=(resultado.nuevasRegs||[]).length;
   if(total===0&&resultado.abonos===0){
@@ -2468,7 +2501,8 @@ async function guardarImportacionEnDB(resultado){
 }
 
 function procesarExcelBetangar(wb){
-  var resultado={planillas:0,planillasIgnoradas:0,actualizadas:[],abonos:0,gasoil:0,duplicadas:[],nuevasRegs:[]};
+  var resultado={planillas:0,planillasIgnoradas:0,actualizadas:[],abonos:0,gasoil:0,duplicadas:[],nuevasRegs:[],nombresSinIdentificar:[]};
+  var _sinIdentMap={}; // nombre normalizado -> {nombre,cam,fecha,rol,veces} de chofer/ayudante que NO casa con ningún empleado
   // PRECIO: siempre usa el configurado en la app, ignora cualquier precio del Excel
   var TARIFA=cfg.tarifa||316.88;
 
@@ -2693,6 +2727,17 @@ function procesarExcelBetangar(wb){
         km:parseFloat(cKm)||0,
         mant:String(cMant||'').trim()
       };
+      // DETECTAR nombres NO reconocidos (no casan con ningún empleado del roster) para AVISAR a
+      // RRHH al importar — antes se guardaban callados con el nombre corto, sin alerta. Excluye
+      // "IMAU" (es una marca, no persona) y guiones/vacíos. Deduplica por nombre normalizado.
+      [['chofer',nr.ch],['ayudante',nr.ay1],['ayudante',nr.ay2]].forEach(function(_x){
+        var _nm=String(_x[1]||'').trim(); if(!_nm||_nm==='-'||_nm.toUpperCase()==='IMAU')return;
+        if(typeof _empPorNombre==='function' && !_empPorNombre(_nm)){
+          var _k=(typeof _normNom==='function')?_normNom(_nm):_nm.toUpperCase();
+          if(!_sinIdentMap[_k])_sinIdentMap[_k]={nombre:_nm,cam:nr.cam,fecha:nr.f,rol:_x[0],veces:0};
+          _sinIdentMap[_k].veces++;
+        }
+      });
       // Si el número ya existía: ACTUALIZAR solo si cambiaron los datos de viaje
       // (chofer, viajes, ruta, etc.). El upsert a Supabase usa onConflict:'p'.
       if(_idxExist>=0){
@@ -2771,6 +2816,7 @@ function procesarExcelBetangar(wb){
     if(tAyud&&parseFloat(tAyud)>0)cfg.ayud=parseFloat(tAyud);
   }
 
+  resultado.nombresSinIdentificar=Object.values(_sinIdentMap);
   return resultado;
 }
 
@@ -5428,7 +5474,7 @@ async function guardarEmpleado(){
   if(idx>=0)EMPLEADOS[idx]=emp;else EMPLEADOS.push(emp);
   var resEmp=await supabase.from('empleados').upsert([{
     id:emp.id,nombre:emp.nombre,cargo:emp.cargo,unidad:emp.unidad,
-    cedula:emp.cedula,rif:emp.rif||'',fnac:emp.fnac,fingreso:emp.fingreso||'',
+    cedula:emp.cedula,rif:emp.rif||'',fnac:emp.fnac||null,fingreso:emp.fingreso||null,
     email:emp.email,tel:emp.tel||'',banco:emp.banco,tcuenta:emp.tcuenta,
     ncuenta:emp.ncuenta,tipo_ay:emp.tipoAy,imau:emp.imau,foto_url:emp.foto,
     activo:emp.activo,whatsapp:emp.whatsapp||'',wa_apikey:emp.wa_apikey||''
