@@ -1304,6 +1304,15 @@ tr:hover td{background:rgba(45,255,122,.02)}
       </div>
     </div>
     <div style="font-size:11px;color:var(--text3);margin-bottom:8px">El viaje SIEMPRE se cuenta y se paga. Esto solo marca posibles inconsistencias (tiene viaje pero no asistió) para que RRHH valide (falso positivo) o rechace (confirmado).</div>
+    <details style="margin-bottom:10px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:6px 10px">
+      <summary style="cursor:pointer;font-size:11px;font-weight:700;color:var(--amber)">ℹ️ ¿Cómo corregir los errores? (leer)</summary>
+      <div style="font-size:11px;color:var(--text2);line-height:1.7;margin-top:6px">
+        <b>Regla de oro:</b> el <b>Excel manda</b>. Si corriges solo en la app pero el Excel sigue con el error, al volver a subir el Excel el error <b>regresa</b>. Los datos se corrigen <b>en el Excel</b>.<br>
+        <b style="color:var(--green2)">✅ "Nombre sin identificar"</b> → se arregla SOLO al importar (el sistema convierte el nombre corto al completo). No reescribas nombres a mano: solo verifica que la persona esté en la <b>Lista Maestra (PARAMETROS)</b> como <b>ACTIVO</b>.<br>
+        <b style="color:var(--red)">❌ Dato equivocado</b> (otra persona, viajes o fecha mal) → corrígelo <b>en el Excel</b>, dejando el <b>mismo número</b> de planilla, y vuelve a subir.<br>
+        <b style="color:var(--red)">No</b> cambies el número de una planilla, <b>no</b> borres filas y <b>no</b> muevas columnas en el Excel. Si una planilla se cargó por error, avisa para borrarla en la app.
+      </div>
+    </details>
     <div id="nm-anom-kpis" class="g4" style="margin-bottom:10px"></div>
     <div id="nm-anom-lista"></div>
     <div id="nm-anom-nocasados" style="margin-top:10px"></div>
