@@ -2726,11 +2726,21 @@ function procesarExcelBetangar(wb){
       var t=d+n;
       if(t<=0)continue;
 
-      // Número de planilla
+      // Número de planilla. Acepta un SUFIJO explícito ("251-2" o "251B") para planillas
+      // con el MISMO número impreso por ERROR DE LA IMPRENTA (ambas reales y usadas, no se
+      // pueden borrar ni renumerar): se guardan como "00251-2"/"00251-B" → planilla DISTINTA
+      // y estable, NO se marca como duplicada y cuenta una sola vez. (Un número normal sin
+      // sufijo se comporta igual que antes.)
       var p='';
+      var cPlanStr=String(cPlan==null?'':cPlan).trim();
+      var mSuf=cPlanStr.match(/^0*(\d{1,6})\s*-\s*([A-Za-z0-9]{1,3})$/)||cPlanStr.match(/^0*(\d{1,6})\s*([A-Za-z])$/);
       try{
-        var pn=parseFloat(cPlan);
-        if(!isNaN(pn)&&pn>0)p=String(Math.round(pn)).padStart(5,'0');
+        if(mSuf){
+          p=String(Math.round(parseFloat(mSuf[1]))).padStart(5,'0')+'-'+String(mSuf[2]).toUpperCase();
+        }else{
+          var pn=parseFloat(cPlanStr);
+          if(!isNaN(pn)&&pn>0)p=String(Math.round(pn)).padStart(5,'0');
+        }
       }catch(x){}
       if(!p)p='X'+String(fila).padStart(4,'0'); // fallback único si no tiene correlativo
 
