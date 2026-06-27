@@ -6441,7 +6441,7 @@ function renderAlertaDuplicadasRRHH(){
       '<td style="font-weight:700">'+d.cam+'</td>'+
       '<td style="font-size:11px">'+d.ch+'</td>'+
       '<td style="color:var(--green)">'+d.t+'v</td>'+
-      '<td style="font-size:10px;color:var(--text3)">Asignar #único en Excel</td>'+
+      '<td style="font-size:10px;color:var(--text3)">Corregir en Excel ↓</td>'+
     '</tr>';
   });
   // De REGS que ya tienen DUP (importaciones anteriores)
@@ -6454,11 +6454,16 @@ function renderAlertaDuplicadasRRHH(){
       '<td style="font-weight:700">'+r.cam+'</td>'+
       '<td style="font-size:11px">'+r.ch+'</td>'+
       '<td style="color:var(--green)">'+r.t+'v</td>'+
-      '<td style="font-size:10px;color:var(--text3)">Asignar #único en Excel</td>'+
+      '<td style="font-size:10px;color:var(--text3)">Corregir en Excel ↓</td>'+
     '</tr>';
   });
   html+='</tbody></table></div>';
-  html+='<div style="margin-top:8px;font-size:11px;color:var(--text2)">Ejemplo: si la planilla #152 está repetida entre JAC-B011 y JAC-B006, dile a la secretaria que le asigne el siguiente número disponible a una de las dos (ej: #503).</div>';
+  html+='<div style="margin-top:10px;font-size:11px;color:var(--text2);line-height:1.55">'+
+    '<b>Cómo corregirlas en el Excel y volver a importar:</b><br>'+
+    '• <b>Si fue error al escribir el número</b> (una quedó con el número de otra) → corrige esa fila con el <b>correlativo REAL</b> de la planilla física.<br>'+
+    '• <b>Si la imprenta repitió el número</b> (las dos planillas son reales y ya se usaron, no se pueden borrar) → a UNA ponle un sufijo: escribe <span style="font-family:var(--m);color:var(--yellow);font-weight:700">'+'251-2'+'</span> (o <span style="font-family:var(--m);color:var(--yellow);font-weight:700">251B</span>). Queda como planilla aparte, <b>sin este aviso</b> y <b>cuenta una sola vez</b>.<br>'+
+    'Al reimportar el Excel corregido, las <span style="font-family:var(--m);color:var(--yellow);font-weight:700">DUP</span> viejas se borran solas.'+
+  '</div>';
   lista.innerHTML=html;
 }
 
