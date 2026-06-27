@@ -1602,7 +1602,12 @@ function fbn(v,t){return'Bs '+((v||0)*(t||getTasa('bcvDolar'))).toLocaleString('
 // ($87,50). Desde que el domingo/feriado paga 1.5× los montos dan medios (ej. ayud 7,5) y antes
 // el toFixed(0) los redondeaba (87,5 se veía 88) descuadrando lo pagado. Solo display, no cambia cálculo.
 function fmtMon(v){v=Math.round((Number(v)||0)*100)/100;return Number.isInteger(v)?String(v):v.toFixed(2);}
-function audit(accion,detalle){AUDITORIA_LOG.push({fecha:new Date().toLocaleString('es-VE'),usuario:SESION?SESION.usuario:'?',accion:accion,detalle:detalle||''});}
+function audit(accion,detalle){
+  var row={fecha:new Date().toLocaleString('es-VE'),usuario:SESION?SESION.usuario:'?',accion:accion,detalle:detalle||''};
+  AUDITORIA_LOG.push(row);
+  // Norma #6: nada vive solo en memoria. Persistir en Supabase (best-effort, no rompe nada).
+  try{ if(DB_READY&&supabase&&!DEMO_MODE){ supabase.from('auditoria').insert([row]).then(function(res){ if(res&&res.error)console.error('audit persist:',res.error.message); }); } }catch(e){}
+}
 function g(id){return document.getElementById(id);}
 function gv(id){var el=g(id);return el?el.value:'';}
 function sv(id,v){var el=g(id);if(el)el.value=v;}
@@ -3628,34 +3633,53 @@ function guardarNomAdm(){
 async function montarNominaBNC(){
   if(!BNC_CONFIG.guid){alert('Configura las credenciales BNC primero (Banco BNC → Config API)');return;}
   var mes=gv('nm-mes'),sem=gv('nm-sem');
-  var f=REGS.filter(function(r){if(mes&&r.mes!==mes)return false;if(sem&&r.sem!==sem)return false;return true;});
-  if(!f.length){alert('Sin planillas para el periodo seleccionado');return;}
-  // Preparar lista de pagos
+  // MOTOR ÚNICO: el monto que se manda al banco es el NETO de calcNom (_ultimaNomina), que ya
+  // incluye recargo de domingo Y descuentos de préstamos/multas. Antes recalculaba aparte SIN
+  // descuentos → pagaba de más. Refresca el cálculo si no corresponde al período actual.
+  if(!_ultimaNomina||!_ultimaNomina.choferes||!_ultimaNomina.choferes.length||(_ultimaNomina.mes||'')!==(mes||'')||(_ultimaNomina.sem||'')!==(sem||'')){
+    try{calcNom();}catch(e){}
+  }
+  var nom=_ultimaNomina||{};
+  var chs=(nom.choferes||[]);
+  if(!chs.length){alert('No hay nómina calculada para este período. Abre el módulo Nómina y selecciona el período primero.');return;}
+  var tasa=nom.tasa||TASAS.bcvDolar||cfg.tasa;
+  // Lista de pagos al banco: solo choferes CON cuenta, con su NETO (usd) ya calculado.
   var pagos=[];
-  // Por CHOFER de la planilla (no por camión): el que manejó ese día cobra. Se busca al
-  // empleado por NOMBRE (con alias/canónico) para tomar su cuenta — antes pagaba al titular
-  // del camión aunque hubiera manejado un relevo.
-  var chMap={};
-  // monto con recargo 1.5× por viajes de domingo/feriado (igual que calcNom y la tabla en pantalla).
-  f.forEach(function(r){var nom=_nombreCanonico(r.ch||TEMPORALES[r.cam]||'');if(!nom)return;if(!chMap[nom])chMap[nom]={ch:nom,viajes:0,monto:0};var t=parseInt(r.t)||0;chMap[nom].viajes+=t;chMap[nom].monto+=t*cfg.chofer*(_esDomingoOferiado(r.f)?1.5:1);});
-  Object.values(chMap).forEach(function(c){
-    var emp=(typeof _empPorNombre==='function')?_empPorNombre(c.ch):null;
+  chs.forEach(function(c){
+    var emp=(typeof _empPorNombre==='function')?_empPorNombre(c.n):null;
     if(!emp||!emp.ncuenta)return;
-    var monto=c.monto;
-    var montoBs=monto*(TASAS.bcvDolar||cfg.tasa);
-    pagos.push({empleado:emp.nombre,banco:emp.banco,cuenta:emp.ncuenta,tipo:emp.tcuenta,montoBs:montoBs,montoUsd:monto});
+    var monto=Math.max(0,Number(c.usd)||0); // NETO con descuentos
+    if(monto<=0)return; // no se monta un pago de 0 (p.ej. el descuento se comió el viaje)
+    pagos.push({empleado:emp.nombre,banco:emp.banco,cuenta:emp.ncuenta,tipo:emp.tcuenta,montoBs:Math.round(monto*tasa*100)/100,montoUsd:monto});
   });
-  // Agregar a cola de pagos BNC
+  if(!pagos.length){alert('No hay choferes con cuenta bancaria y monto > 0 para montar.');return;}
+  // IDEMPOTENCIA: si este período ya se montó, pedir confirmación explícita (evita doble pago BNC).
+  var periodo=(mes||'')+'|'+(sem||'');
+  if(DB_READY&&supabase&&!DEMO_MODE){
+    try{
+      var ex=await supabase.from('pagos_bnc').select('id').eq('periodo',periodo).limit(1);
+      if(ex&&ex.data&&ex.data.length){
+        if(!confirm('⚠ Ya montaste el pago BNC de este período ('+periodo+').\n¿Montarlo OTRA VEZ? Esto puede DUPLICAR el pago al banco.'))return;
+      }
+    }catch(e){}
+  }
+  // Persistir el lote en pagos_bnc (historial/forense + base de la idempotencia).
+  if(DB_READY&&supabase&&!DEMO_MODE){
+    try{
+      var rows=pagos.map(function(p){return {periodo:periodo,empleado:p.empleado,cuenta:p.cuenta,banco:p.banco,tipo_cuenta:p.tipo,monto_bs:p.montoBs,monto_usd:p.montoUsd,ref:'',estado:'pendiente_autorizacion',fecha:new Date().toISOString().split('T')[0]};});
+      var rp=await supabase.from('pagos_bnc').insert(rows);
+      if(rp&&rp.error)console.error('pagos_bnc persist:',rp.error.message);
+    }catch(e){console.error('pagos_bnc:',e);}
+  }
+  // Cola en memoria para la UI del banco (igual que antes).
   pagos.forEach(function(p){
     BNC_MOV.push({id:Date.now()+'_'+p.cuenta,fecha:new Date().toISOString().split('T')[0],monto:p.montoBs,tipo:'pago_nomina_pend',desc:'NOMINA: '+p.empleado,ref:'',conciliado:false,detalle:p,pendienteAutorizacion:true});
   });
-  // Actualizar contador
   var porAut=BNC_MOV.filter(function(m){return m.pendienteAutorizacion;}).length;
   if(g('bnc-por-aut'))g('bnc-por-aut').textContent=porAut;
-  // Notificar firmante por WhatsApp
   var totalBs=pagos.reduce(function(s,p){return s+p.montoBs;},0);
   sendWA('🏦 BETANGAR: Nomina montada en BNC\n'+pagos.length+' empleados\nTotal: Bs '+totalBs.toLocaleString('es-VE',{maximumFractionDigits:0})+'\nAutorizar en BNCNET',null,true);
-  audit('Nomina montada en BNC',pagos.length+' pagos pendientes de autorizacion');
+  audit('Nomina montada en BNC',pagos.length+' pagos ('+periodo+') Bs '+Math.round(totalBs));
   alert('✅ Nomina montada en BNC.\n'+pagos.length+' pagos pendientes de autorizar.\nSe envio WhatsApp al firmante.\n\n⚠ El firmante debe ingresar a BNCNET para autorizar.');
 }
 
@@ -5983,23 +6007,22 @@ function renderGastosVariables(){
   }
 }
 function calcularNomina(){
-  var sem=gv('np-sem'),mes=gv('np-mes');
-  var tasa=parseFloat(gv('np-tasa'))||TASAS.bcvDolar||cfg.tasa;
-  var f=REGS.filter(function(r){if(mes&&r.mes!==mes)return false;if(sem&&r.sem!==sem)return false;return true;});
-  // Por CHOFER de la planilla (no por camión), consistente con calcNom.
-  var chMap={};f.forEach(function(r){var nom=_nombreCanonico(r.ch||TEMPORALES[r.cam]||'');if(!nom)return;if(!chMap[nom])chMap[nom]={ch:nom,viajes:0};chMap[nom].viajes+=(parseInt(r.t)||0);});
-  var lista=[],totalBs=0;
-  Object.values(chMap).forEach(function(c){var usd=c.viajes*cfg.chofer;var bs=usd*tasa;totalBs+=bs;lista.push({nombre:c.ch,viajes:c.viajes,usd:usd,bs:bs});});
+  // RETIRADO (unificación 2026-06-27): este cálculo rápido sumaba SOLO viajes×tarifa de chofer
+  // — sin ayudantes, sin IMAU, sin recargo de domingo y SIN descontar préstamos/multas →
+  // divergía del oficial y se prestaba a pagar mal. El cálculo y pago OFICIAL es el módulo
+  // NÓMINA (motor único calcNom). Aquí solo se muestra el aviso y se redirige.
   var npEl=g('np-lista');
-  if(npEl)npEl.innerHTML='<div class="tw"><table><thead><tr><th>Empleado</th><th>Viajes</th><th>$</th><th>Bs</th></tr></thead><tbody>'+lista.map(function(l){return'<tr><td style="font-size:11px;font-weight:700">'+l.nombre+'</td><td>'+l.viajes+'</td><td style="font-family:var(--m)">$'+l.usd.toFixed(0)+'</td><td style="font-family:var(--m);color:var(--yellow)">Bs '+l.bs.toFixed(0)+'</td></tr>';}).join('')+'</tbody></table></div>';
-  sv('np-total-bs',totalBs.toFixed(0));
-  return lista;
+  if(npEl)npEl.innerHTML='<div class="alert-b" style="font-size:12px;line-height:1.5;padding:10px">⚠️ El cálculo y pago de nómina se hace ahora en el módulo <b>Nómina</b>: incluye ayudantes, IMAU, recargo de domingo y descuentos de préstamos/multas. Este tab quedó descontinuado para evitar pagar montos incorrectos.<br><button class="btn btn-s btn-sm" style="margin-top:8px" onclick="sp(\'nomina\')">Ir a Nómina →</button></div>';
+  sv('np-total-bs','');
+  return [];
 }
 
 function registrarPagoNom(){
   var ref=gv('np-ref');var total=parseFloat(gv('np-total-bs'))||0;
   if(!total){alert('Calcula la nomina primero');return;}
   NOMINA_PAGOS.push({fecha:gv('np-fecha'),sem:gv('np-sem'),mes:gv('np-mes'),totalBs:total,ref:ref});
+  // Persistir el pago en Supabase (antes solo quedaba en memoria → se perdía al recargar).
+  try{ if(DB_READY&&supabase&&!DEMO_MODE){ supabase.from('pagos_nomina').insert([{fecha:gv('np-fecha'),sem:gv('np-sem'),mes:gv('np-mes'),total_bs:total,ref:ref}]).then(function(res){ if(res&&res.error)console.error('pagos_nomina persist:',res.error.message); }); } }catch(e){}
   // Agregar como debito BNC
   BNC_MOV.push({id:Date.now()+'',fecha:gv('np-fecha'),monto:total,tipo:'debito',desc:'NOMINA '+gv('np-sem')+' '+gv('np-mes'),ref:ref,conciliado:true,pendienteAutorizacion:false});
   audit('Nomina pagada','Bs'+total+' ref:'+ref);
