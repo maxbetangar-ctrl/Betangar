@@ -15,6 +15,10 @@ var BTG_CONFIG = {
   empresa_ciudad: 'Maracaibo, Edo. Zulia',                 // ← ciudad/estado (encabezados)
   empresa_contrato: 'Contrato Aseo Urbano — Alcaldía de Maracaibo', // ← descripción del contrato/cliente principal
   empresa_email: 'betangar@gmail.com',                     // ← correo (pie de impresos)
+  auth_correo_obligatorio: false,                          // ← Betangar: APAGADO (empleados siguen igual,
+                                                           //   login por usuario, sin forzar correo). Los
+                                                           //   CLONES nuevos lo ponen en true → login por
+                                                           //   correo + "olvidé mi contraseña" autoservicio.
   data_url: 'https://hrkjddehqnzcqwlkklqm.supabase.co',   // ← base de ESTA empresa
   data_key: ANON_CENTRAL,                                  // ← anon key de ESA base
   lic_url:  'https://hrkjddehqnzcqwlkklqm.supabase.co',   // ← CENTRAL (no cambiar)
@@ -298,7 +302,7 @@ function _mfaOverlay(inner){
   document.body.appendChild(ov);
   return ov;
 }
-// Pide el código de 6 dígitos (login). Devuelve Promesa<string>; rechaza con 'cancelado'.
+// Pide el código de 6 dígitos (login) + opción "confiar en este equipo". Devuelve Promesa<{code,trust}>.
 function _pedirCodigoMFA(titulo,sub){
   return new Promise(function(resolve,reject){
     var ov=_mfaOverlay(
@@ -306,18 +310,19 @@ function _pedirCodigoMFA(titulo,sub){
       '<div style="font-size:12px;color:#9fb4cc;margin-bottom:14px">'+(sub||'Escribe el código de 6 dígitos de tu app de autenticación.')+'</div>'+
       '<input id="_mfa-code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" style="width:100%;box-sizing:border-box;padding:12px;font-size:22px;letter-spacing:8px;text-align:center;border-radius:8px;border:1px solid #2a4a6a;background:#0a1628;color:#fff;font-family:monospace" placeholder="------">'+
       '<div id="_mfa-err" style="color:#f87171;font-size:11px;min-height:14px;margin-top:6px"></div>'+
+      '<label style="display:flex;align-items:center;gap:8px;font-size:12px;color:#cdd9e8;margin-top:10px;cursor:pointer"><input type="checkbox" id="_mfa-trust" style="width:16px;height:16px"> Confiar en este equipo 30 días (no volver a pedir el código aquí)</label>'+
       '<div style="display:flex;gap:8px;margin-top:12px">'+
         '<button id="_mfa-ok" style="flex:1;padding:11px;border:0;border-radius:8px;background:#15803d;color:#fff;font-weight:700;cursor:pointer">Verificar</button>'+
         '<button id="_mfa-cancel" style="padding:11px 14px;border:1px solid #2a4a6a;border-radius:8px;background:transparent;color:#9fb4cc;cursor:pointer">Cancelar</button>'+
       '</div>');
     var inp=ov.querySelector('#_mfa-code'); inp.focus();
-    function done(){ var c=(inp.value||'').trim(); if(c.length<6){ov.querySelector('#_mfa-err').textContent='Código incompleto';return;} document.body.removeChild(ov); resolve(c); }
+    function done(){ var c=(inp.value||'').trim(); if(c.length<6){ov.querySelector('#_mfa-err').textContent='Código incompleto';return;} var t=ov.querySelector('#_mfa-trust').checked; document.body.removeChild(ov); resolve({code:c,trust:t}); }
     ov.querySelector('#_mfa-ok').onclick=done;
     inp.onkeydown=function(e){ if(e.key==='Enter')done(); };
     ov.querySelector('#_mfa-cancel').onclick=function(){ document.body.removeChild(ov); reject(new Error('cancelado')); };
   });
 }
-// Reto MFA en el login: lista el factor verificado, challenge + verify con el código.
+// Reto MFA en el login: challenge + verify. Devuelve true si el usuario marcó "confiar en este equipo".
 async function _retoMFA(){
   var fr=await supabaseAuth.auth.mfa.listFactors();
   var fd=(fr&&fr.data)?fr.data:fr;
@@ -326,9 +331,30 @@ async function _retoMFA(){
   var ch=await supabaseAuth.auth.mfa.challenge({factorId:totp.id});
   if(ch&&ch.error) throw new Error(ch.error.message);
   var challengeId=(ch&&ch.data)?ch.data.id:ch.id;
-  var code=await _pedirCodigoMFA();
-  var v=await supabaseAuth.auth.mfa.verify({factorId:totp.id,challengeId:challengeId,code:code});
+  var r=await _pedirCodigoMFA();
+  var v=await supabaseAuth.auth.mfa.verify({factorId:totp.id,challengeId:challengeId,code:r.code});
   if(v&&v.error) throw new Error(v.error.message||'código inválido');
+  return !!r.trust;
+}
+// "Confiar en este equipo": marca local por usuario, 30 días. Evita pedir el 2FA en cada login
+// en SU equipo (la contraseña SÍ se sigue pidiendo). No usar en equipos compartidos/kiosco.
+function _dispositivoConfiable(uid){ try{ var t=parseFloat(localStorage.getItem('btg_trust_'+uid)); return !!(t&&Date.now()<t); }catch(e){ return false; } }
+function _marcarConfiable(uid){ try{ localStorage.setItem('btg_trust_'+uid, String(Date.now()+30*24*60*60*1000)); }catch(e){} }
+// "Olvidé mi contraseña" (autoservicio): envía el enlace de recuperación al correo. Requiere que
+// el usuario tenga correo REAL y que el proyecto tenga SMTP propio configurado (si no, no llega).
+// Si la cuenta no tiene correo, el admin la resetea desde el módulo Usuarios.
+async function olvideContrasena(){
+  var u=((document.getElementById('login-user')||{}).value||'').trim().toLowerCase();
+  var email=(u.indexOf('@')>0)?u:'';
+  if(!email){ email=(prompt('Escribe tu CORREO para enviarte el enlace de recuperación:')||'').trim().toLowerCase(); }
+  if(!email||email.indexOf('@')<1){ alert('Necesito un correo válido.\n\nSi tu cuenta no tiene correo, pídele al administrador que te resetee la contraseña.'); return; }
+  try{
+    if(!supabaseAuth||!supabaseAuth.auth)initSupabaseClient();
+    var redir=window.location.origin+window.location.pathname;
+    var r=await supabaseAuth.auth.resetPasswordForEmail(email,{redirectTo:redir});
+    if(r&&r.error){ alert('No se pudo enviar: '+r.error.message); return; }
+    alert('📧 Si ese correo está registrado, te llegará un enlace para crear una nueva contraseña.\n\nSi no llega, revisa spam o pide al administrador que te la resetee.');
+  }catch(e){ alert('No se pudo enviar el correo de recuperación: '+(e&&e.message||e)); }
 }
 // Enrolar 2FA (desde Configuración, ya autenticado): muestra QR + secreto y verifica el 1er código.
 async function iniciar2FA(){
@@ -433,8 +459,8 @@ async function doLogin(){
         try{
           var aalR = await supabaseAuth.auth.mfa.getAuthenticatorAssuranceLevel();
           var aal = (aalR && aalR.data) ? aalR.data : aalR;
-          if(aal && aal.nextLevel==='aal2' && aal.currentLevel!=='aal2'){
-            try{ await _retoMFA(); }
+          if(aal && aal.nextLevel==='aal2' && aal.currentLevel!=='aal2' && !_dispositivoConfiable(res.data.user.id)){
+            try{ var _trust=await _retoMFA(); if(_trust)_marcarConfiable(res.data.user.id); }
             catch(mfaErr){
               try{ await supabaseAuth.auth.signOut(); }catch(_e){}
               err.textContent='Verificación 2FA '+((mfaErr&&mfaErr.message==='cancelado')?'cancelada':'fallida');
@@ -6400,7 +6426,8 @@ async function renderUsuarios(){
     return '<tr><td style="font-family:var(--m);font-weight:700">'+usr.usuario+'</td><td>'+(usr.nombre||'')+'</td>'+
       '<td><span class="badge bb">'+usr.rol+'</span></td>'+
       '<td><span class="badge '+(activo?'bg':'br')+'">'+(activo?'Activo':'Inactivo')+'</span></td>'+
-      '<td><button onclick="toggleUsuarioActivo(\''+usr.usuario+'\','+(!activo)+')" class="btn '+(activo?'btn-r':'btn-g')+' btn-xs">'+(activo?'Desactivar':'Activar')+'</button></td></tr>';
+      '<td><button onclick="toggleUsuarioActivo(\''+usr.usuario+'\','+(!activo)+')" class="btn '+(activo?'btn-r':'btn-g')+' btn-xs">'+(activo?'Desactivar':'Activar')+'</button> '+
+      '<button onclick="resetUsuario2FA(\''+usr.usuario+'\')" class="btn btn-s btn-xs" title="Quitar el 2FA de este usuario (si perdió su teléfono)">🔐 Reset 2FA</button></td></tr>';
   }).join('')||'<tr><td colspan="5" style="text-align:center;color:var(--text3);padding:14px">Sin usuarios</td></tr>';
 }
 
@@ -6411,11 +6438,21 @@ async function toggleUsuarioActivo(u, activar){
   else alert('No se pudo: '+((j&&j.error)||''));
 }
 
+// El admin/superadmin le quita el 2FA a un usuario que perdió su teléfono (recuperación de acceso).
+async function resetUsuario2FA(u){
+  if(!confirm('¿Quitar el 2FA de "'+u+'"?\n\nÚsalo si perdió su teléfono. Podrá entrar solo con su contraseña y volver a activar el 2FA después.'))return;
+  var j=await btgUsuariosAPI('POST',{accion:'reset2fa',usuario:u});
+  if(j&&j.ok){ audit('2FA reseteado por admin',u); alert('✅ 2FA quitado para '+u+'. Ya puede entrar con su contraseña.'); }
+  else alert('No se pudo: '+((j&&j.error)||''));
+}
 async function crearUsuario(){
-  var u=gv('nu-user').toLowerCase().trim(),p=gv('nu-pass'),nombre=gv('nu-nombre'),rol=gv('nu-rol');
+  var u=gv('nu-user').toLowerCase().trim(),p=gv('nu-pass'),nombre=gv('nu-nombre'),rol=gv('nu-rol'),email=(gv('nu-email')||'').trim().toLowerCase();
   if(!u||!p||!nombre){alert('Completa usuario, contrasena y nombre');return;}
   if(p.length<6){alert('La clave debe tener al menos 6 caracteres');return;}
-  var j=await btgUsuariosAPI('POST',{accion:'crear',usuario:u,password:p,nombre:nombre,rol:rol});
+  // Si esta empresa exige correo (clones), el correo es obligatorio y debe ser válido. En Betangar
+  // (flag apagado) el correo es OPCIONAL → si no se pone, la API genera uno automático (sintético).
+  if(BTG_CONFIG.auth_correo_obligatorio && (!email||email.indexOf('@')<1)){ alert('Esta empresa requiere un CORREO real por usuario (para que puedan recuperar su contraseña).'); return; }
+  var j=await btgUsuariosAPI('POST',{accion:'crear',usuario:u,password:p,nombre:nombre,rol:rol,email:email||null});
   if(j&&j.ok){ audit('Usuario creado',u+' rol:'+rol); ['nu-user','nu-pass','nu-nombre','nu-email'].forEach(function(id){sv(id,'');}); renderUsuarios(); alert('✅ Usuario '+u+' creado.'); }
   else alert('No se pudo crear: '+((j&&j.error)||''));
 }
@@ -9332,6 +9369,13 @@ function aplicarMarca(){
     var sd=document.getElementById('brand-dash');if(sd)sd.textContent=brandNom();
     var rif=document.getElementById('bnc-rif');if(rif&&(!rif.value||rif.value==='J-29566107-0'))rif.value=brandRif();
     if(BTG_CONFIG.empresa_nombre){document.title='Control de Flota — '+brandNom();}
+    // Modelo de acceso: si el cliente exige correo (clones), login por correo + "olvidé mi contraseña".
+    // En Betangar (flag apagado) NO se toca nada: sigue "USUARIO" y sin link → empleados igual que hoy.
+    if(BTG_CONFIG.auth_correo_obligatorio){
+      var lbl=document.getElementById('login-user-label'); if(lbl)lbl.textContent='CORREO';
+      var lu=document.getElementById('login-user'); if(lu)lu.placeholder='correo@empresa.com';
+      var lf=document.getElementById('login-forgot'); if(lf)lf.style.display='block';
+    }
   }catch(e){}
 }
 window.onload=function(){
