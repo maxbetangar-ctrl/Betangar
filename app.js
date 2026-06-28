@@ -11794,8 +11794,12 @@ async function renderConciliacionBNC(){
       var tasa=(typeof getTasaFecha==='function'&&getTasaFecha(f,'dolar'))||TASAS.bcvDolar||cfg.tasa||1;
       var iva=base*0.16, total=base+iva, fielUsd=base*0.10;
       var netoUsd=total-(iva*0.75)-(base*0.02)-(base*0.01)-(base*0.001)-fielUsd; // laboral normalmente 0
+      var baseBs=Math.round(base*tasa*100)/100;
       libros.push({tipo:'ingreso',bs:Math.round(netoUsd*tasa*100)/100,desc:'Fact '+a.fact+' — pago neto',lab:'Fact '+a.fact+' neto',fecha:f,_usado:false});
       libros.push({tipo:'ingreso',bs:Math.round(fielUsd*tasa*100)/100,desc:'Fact '+a.fact+' — fiel cumplimiento 10%',lab:'Fact '+a.fact+' fiel 10%',fecha:f,_usado:false});
+      // EGRESO que YO debo pagar: Responsabilidad Social 3% del monto base (ley). Lo transfiere
+      // Betangar (lunes/martes). Se concilia contra la salida real del banco.
+      libros.push({tipo:'egreso',bs:Math.round(baseBs*0.03*100)/100,desc:'Fact '+a.fact+' — Responsabilidad Social 3%',lab:'Fact '+a.fact+' resp. social 3%',clase:'respsocial',fact:a.fact,baseBs:baseBs,fecha:f,_usado:false});
     });
     BNC_MOV.forEach(function(m){
       if(m.tipo==='credito')return; // los ingresos los modela la Alcaldía arriba
@@ -11809,7 +11813,7 @@ async function renderConciliacionBNC(){
       if(lib){lib._usado=true;b._conc=true;b._label=lib.lab;}
     });
     var faltaReg=bancoMovs.filter(function(b){return !b._conc;});   // en banco, no en libros
-    var enTransito=libros.filter(function(l){return !l._usado;});   // en libros, no en banco
+    var enTransito=libros.filter(function(l){return !l._usado&&l.clase!=='respsocial';}); // resp.social tiene su propia tarjeta
     var nConc=bancoMovs.length-faltaReg.length;
     // ── 4) Saldos del período (neto = ingresos − egresos) ──
     var sum=function(arr,t){return arr.filter(function(x){return x.tipo===t;}).reduce(function(s,x){return s+x.bs;},0);};
@@ -11835,6 +11839,17 @@ async function renderConciliacionBNC(){
       html+='</tbody></table></div>';
     }else html+='<div style="font-size:11px;color:var(--text3);padding:8px">Sin movimientos del banco en el rango (activa el ClientID de producción del BNC para traer el estado de cuenta completo).</div>';
     html+='</div>';
+    // ── Registro Responsabilidad Social 3% por factura (egreso de ley; ✅ si el banco ya lo refleja) ──
+    var resp=libros.filter(function(l){return l.clase==='respsocial';});
+    if(resp.length){
+      var rPag=resp.filter(function(r){return r._usado;}), rPen=resp.filter(function(r){return !r._usado;});
+      var totPen=rPen.reduce(function(s,r){return s+r.bs;},0);
+      html+='<div class="card" style="margin-bottom:12px"><div style="font-size:12px;font-weight:700;margin-bottom:6px">💛 Responsabilidad Social 3% por factura</div>'+
+        '<div style="font-size:11px;margin-bottom:8px"><span style="color:var(--green)">✅ Pagadas '+rPag.length+'</span> · <span style="color:var(--yellow)">⚠️ Pendientes '+rPen.length+' (Bs '+fmt(totPen)+')</span></div>'+
+        '<div class="tw" style="max-height:240px;overflow:auto"><table style="font-size:11px"><thead><tr><th>Factura</th><th style="text-align:right">Base Bs</th><th style="text-align:right">3% a pagar</th><th style="text-align:center">Estado</th></tr></thead><tbody>'+
+        resp.map(function(r){return '<tr><td style="font-size:10px">'+(r.fact||'')+'</td><td style="text-align:right;font-family:var(--m);font-size:10px;color:var(--text3)">'+fmt(r.baseBs)+'</td><td style="text-align:right;font-family:var(--m);color:var(--red)">'+fmt(r.bs)+'</td><td style="text-align:center">'+(r._usado?'<span style="color:var(--green);font-weight:700">✅ pagado</span>':'<span style="color:var(--yellow);font-weight:700">⚠️ pendiente</span>')+'</td></tr>';}).join('')+
+        '</tbody></table></div></div>';
+    }
     if(enTransito.length){
       html+='<div class="card" style="margin-bottom:12px;border-color:rgba(251,191,36,.3)"><div style="font-size:12px;font-weight:700;color:var(--yellow);margin-bottom:6px">⚠️ Esperado, el banco aún no lo refleja ('+enTransito.length+')</div>'+
         '<div style="font-size:10px;color:var(--text3);margin-bottom:8px">Entradas que la Alcaldía aún no deposita (ej: la <b>fiel cumplimiento</b> que llega lunes/martes) o pagos que registraste y el banco no muestra (en tránsito / pendientes de firma en BNCNET).</div>'+
