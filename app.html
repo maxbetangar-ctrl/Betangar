@@ -478,6 +478,8 @@ tr:hover td{background:rgba(45,255,122,.02)}
       <div class="card card-sm"><div style="font-size:9px;color:var(--text3)">BALANCE</div><div style="font-family:var(--m);font-size:16px;font-weight:700;color:var(--blue)" id="bnc-tot-bal">Bs 0</div></div>
       <div class="card card-sm"><div style="font-size:9px;color:var(--text3)">TRANSACCIONES</div><div style="font-family:var(--m);font-size:16px;font-weight:700;color:var(--teal)" id="bnc-tot-num">0</div></div>
     </div>
+    <div class="card" style="margin-bottom:12px"><div class="st" style="margin-bottom:8px">🏦 Movimientos reales del banco (BNC) <span style="font-size:10px;color:var(--text3);font-weight:400">— lo que reporta el banco por notificación</span></div><div id="bnc-mov-reales"><div style="text-align:center;color:var(--text3);padding:14px;font-size:12px">Cargando…</div></div></div>
+    <div class="st" style="margin-bottom:8px;font-size:12px;color:var(--text3)">Registro interno (pagos, conciliaciones, manuales)</div>
     <div class="tw"><table><thead><tr><th>Fecha</th><th>Tipo</th><th>Descripcion</th><th>Referencia</th><th>Monto Bs</th><th>USD equiv</th><th>Conciliado</th><th></th></tr></thead><tbody id="tb-bnc-mov"></tbody></table></div>
   </div>
   <div id="tab-bnc-conc" style="display:none">
@@ -2119,7 +2121,7 @@ tr:hover td{background:rgba(45,255,122,.02)}
   <div id="conc-resultado"></div>
 </div>
 
-<script src="app.js?v=20260627c"></script>
+<script src="app.js?v=20260628a"></script>
 
 <!-- Modal global -->
 <div id="modal" class="moverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9990;align-items:center;justify-content:center;padding:16px">

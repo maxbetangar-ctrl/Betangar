@@ -1086,13 +1086,16 @@ async function cargarDatosDB(){
       supabase.from('nomina_historial').select('*').order('semana',{ascending:true}),
       supabase.from('tipos_unidad').select('*'),
       supabase.from('unidades').select('*'),
-      supabase.from('operaciones').select('*')
+      supabase.from('operaciones').select('*'),
+      supabase.from('bnc_movimientos').select('*')
     ]);
     // allSettled: una consulta que falle (red, RLS de UNA tabla, etc.) NO tumba a las demás.
     // Antes, con Promise.all, un solo error transitorio dejaba TODO en 0 (incluidas planillas).
     var _res=_resS.map(function(x){return x.status==='fulfilled'?x.value:{data:null,error:((x.reason&&x.reason.message)||'consulta falló')};});
-    var p=_res[0],a=_res[1],e=_res[2],ga=_res[3],cxp=_res[4],pv=_res[5],pr=_res[6],ml=_res[7],inv=_res[8],co=_res[9],gv2=_res[10],palc=_res[11],km=_res[12],aul=_res[13],nh=_res[14],tu=_res[15],un=_res[16],op=_res[17];
+    var p=_res[0],a=_res[1],e=_res[2],ga=_res[3],cxp=_res[4],pv=_res[5],pr=_res[6],ml=_res[7],inv=_res[8],co=_res[9],gv2=_res[10],palc=_res[11],km=_res[12],aul=_res[13],nh=_res[14],tu=_res[15],un=_res[16],op=_res[17],bm=_res[18];
     if(nh&&!nh.error&&Array.isArray(nh.data))NOMINA_HIST=nh.data;
+    // Movimientos BNC persistidos (tracking interno: pagos pendientes, conciliaciones, manuales).
+    if(bm&&!bm.error&&Array.isArray(bm.data))BNC_MOV=bm.data.map(function(x){return{id:x.id,fecha:x.fecha||'',monto:Number(x.monto)||0,tipo:x.tipo||'',desc:x.descripcion||'',ref:x.referencia||'',conciliado:!!x.conciliado,pendienteAutorizacion:!!x.pendiente_autorizacion,detalle:x.detalle||null};});
     // FASE 1 multi-contrato (aditivo, no toca el aseo): tipos de unidad, unidades, operaciones.
     if(tu&&!tu.error&&Array.isArray(tu.data))TIPOS_UNIDAD=tu.data;
     if(un&&!un.error&&Array.isArray(un.data))UNIDADES=un.data;
@@ -1607,6 +1610,19 @@ function audit(accion,detalle){
   AUDITORIA_LOG.push(row);
   // Norma #6: nada vive solo en memoria. Persistir en Supabase (best-effort, no rompe nada).
   try{ if(DB_READY&&supabase&&!DEMO_MODE){ supabase.from('auditoria').insert([row]).then(function(res){ if(res&&res.error)console.error('audit persist:',res.error.message); }); } }catch(e){}
+}
+// ── Movimientos BNC: persistencia (antes BNC_MOV vivía solo en memoria → se perdía al recargar) ──
+function bncMovRow(m){
+  return { id:String(m.id), fecha:m.fecha||null, monto:Number(m.monto)||0, tipo:m.tipo||null,
+    descripcion:m.desc||null, referencia:m.ref||null, conciliado:!!m.conciliado,
+    pendiente_autorizacion:!!m.pendienteAutorizacion, detalle:m.detalle||null };
+}
+function bncMovPush(m){ // agrega a memoria Y persiste (upsert por id, idempotente)
+  BNC_MOV.push(m);
+  try{ if(DB_READY&&supabase&&!DEMO_MODE){ supabase.from('bnc_movimientos').upsert([bncMovRow(m)],{onConflict:'id'}).then(function(res){ if(res&&res.error)console.error('bnc_mov persist:',res.error.message); }); } }catch(e){}
+}
+function bncMovGuardar(id){ // re-persiste un movimiento ya existente tras cambiarlo (conciliar/confirmar)
+  try{ var m=BNC_MOV.find(function(x){return String(x.id)===String(id);}); if(m&&DB_READY&&supabase&&!DEMO_MODE){ supabase.from('bnc_movimientos').upsert([bncMovRow(m)],{onConflict:'id'}).then(function(res){ if(res&&res.error)console.error('bnc_mov upd:',res.error.message); }); } }catch(e){}
 }
 function g(id){return document.getElementById(id);}
 function gv(id){var el=g(id);return el?el.value:'';}
@@ -2988,7 +3004,7 @@ async function guardarAbono(){
   }
   audit('Abono registrado','$'+ab.m+' Fact:'+ab.fact);
   // Conciliar en BNC automaticamente
-  BNC_MOV.push({id:Date.now()+'',fecha:ab.f,monto:ab.m*(TASAS.bcvDolar||cfg.tasa),tipo:'credito',desc:'Pago Alcaldia Fact.'+ab.fact,ref:ab.ref,conciliado:true});
+  bncMovPush({id:Date.now()+'',fecha:ab.f,monto:ab.m*(TASAS.bcvDolar||cfg.tasa),tipo:'credito',desc:'Pago Alcaldia Fact.'+ab.fact,ref:ab.ref,conciliado:true});
   // Aviso a socios (Maximo y Francisco)
   sendWA('Abono registrado\n'+
     '💰 Monto: $ '+Number(ab.m||0).toLocaleString('es-VE',{minimumFractionDigits:2,maximumFractionDigits:2})+'\n'+
@@ -3673,7 +3689,7 @@ async function montarNominaBNC(){
   }
   // Cola en memoria para la UI del banco (igual que antes).
   pagos.forEach(function(p){
-    BNC_MOV.push({id:Date.now()+'_'+p.cuenta,fecha:new Date().toISOString().split('T')[0],monto:p.montoBs,tipo:'pago_nomina_pend',desc:'NOMINA: '+p.empleado,ref:'',conciliado:false,detalle:p,pendienteAutorizacion:true});
+    bncMovPush({id:Date.now()+'_'+p.cuenta,fecha:new Date().toISOString().split('T')[0],monto:p.montoBs,tipo:'pago_nomina_pend',desc:'NOMINA: '+p.empleado,ref:'',conciliado:false,detalle:p,pendienteAutorizacion:true});
   });
   var porAut=BNC_MOV.filter(function(m){return m.pendienteAutorizacion;}).length;
   if(g('bnc-por-aut'))g('bnc-por-aut').textContent=porAut;
@@ -4296,7 +4312,7 @@ function registrarMovManual(){
 function guardarMovManual(){
   var monto=parseFloat(document.getElementById('mm-monto').value)||0;
   if(!monto){alert('Ingresa el monto');return;}
-  BNC_MOV.push({id:Date.now()+'',fecha:document.getElementById('mm-fecha').value,monto:monto,tipo:document.getElementById('mm-tipo').value,desc:document.getElementById('mm-desc').value,ref:document.getElementById('mm-ref').value,conciliado:false,pendienteAutorizacion:false});
+  bncMovPush({id:Date.now()+'',fecha:document.getElementById('mm-fecha').value,monto:monto,tipo:document.getElementById('mm-tipo').value,desc:document.getElementById('mm-desc').value,ref:document.getElementById('mm-ref').value,conciliado:false,pendienteAutorizacion:false});
   audit('Movimiento BNC manual',monto+'Bs');
   closeModal();renderBNCDash();renderMovBNC();
 }
@@ -4314,9 +4330,28 @@ function renderMovBNC(){
   var tasa=TASAS.bcvDolar||cfg.tasa;
   var tb=g('tb-bnc-mov');
   if(tb)tb.innerHTML=f.slice().reverse().map(function(m){return'<tr><td>'+formatFecha(m.fecha)+'</td><td><span class="badge '+(m.tipo==='credito'?'bg':'br')+'">'+(m.tipo==='pago_nomina_pend'?'NOMINA':m.tipo.toUpperCase())+'</span></td><td style="font-size:11px">'+m.desc+'</td><td style="font-family:var(--m)">'+m.ref+'</td><td style="font-family:var(--m);color:'+(m.tipo==='credito'?'var(--green)':'var(--red)')+'">Bs '+m.monto.toLocaleString('es-VE',{maximumFractionDigits:0})+'</td><td style="font-family:var(--m)">$'+(m.monto/tasa).toFixed(2)+'</td><td>'+(m.conciliado?'<span class="badge bg">SI</span>':m.pendienteAutorizacion?'<span class="badge by">Pend. Firma</span>':'<span class="badge bt">No</span>')+'</td><td>'+((!m.conciliado&&!m.pendienteAutorizacion)?'<button class="btn btn-g btn-xs" onclick="conciliarMov(\''+m.id+'\')">Conciliar</button>':'')+'</td></tr>';}).join('')||'<tr><td colspan="8" style="text-align:center;color:var(--text3);padding:20px">Sin movimientos</td></tr>';
+  try{cargarMovRealesBNC();}catch(e){}
+}
+// Movimientos REALES del banco (los empuja el webhook BNC a bnc_notificaciones). Esto es lo
+// que de verdad pasó en la cuenta; el registro interno (BNC_MOV) es el tracking de la app.
+async function cargarMovRealesBNC(){
+  var el=g('bnc-mov-reales'); if(!el)return;
+  if(!DB_READY||!supabase){el.innerHTML='<div style="color:var(--text3);font-size:12px;padding:10px">Conecta la base para ver los movimientos del banco.</div>';return;}
+  try{
+    var r=await supabase.from('bnc_notificaciones').select('*').order('fecha_recibido',{ascending:false}).limit(20);
+    if(r.error){el.innerHTML='<div style="color:var(--text3);font-size:12px;padding:10px">No se pudieron cargar: '+r.error.message+'</div>';return;}
+    var movs=r.data||[];
+    if(!movs.length){el.innerHTML='<div style="text-align:center;color:var(--text3);padding:14px;font-size:12px">El banco aún no ha reportado movimientos (llegan por la notificación del BNC).</div>';return;}
+    el.innerHTML='<div class="tw"><table><thead><tr><th>Fecha</th><th>Descripcion</th><th>Referencia</th><th>Monto</th><th>Estado</th></tr></thead><tbody>'+
+      movs.map(function(n){
+        var monto=parseFloat(n.monto||0); var mon=String(n.moneda||'').toUpperCase();
+        var montoTxt=(mon==='USD'||mon==='$')?('$'+monto.toFixed(2)):('Bs '+monto.toLocaleString('es-VE',{maximumFractionDigits:0}));
+        return '<tr><td>'+String(n.fecha_recibido||'').slice(0,16).replace('T',' ')+'</td><td style="font-size:11px">'+(n.descripcion||'—')+'</td><td style="font-family:var(--m);font-size:10px">'+(n.referencia||'—')+'</td><td style="font-family:var(--m);color:var(--green)">'+montoTxt+'</td><td>'+(n.procesado?'<span class="badge bg">Procesado</span>':'<span class="badge by">Nuevo</span>')+'</td></tr>';
+      }).join('')+'</tbody></table></div>';
+  }catch(e){el.innerHTML='<div style="color:var(--text3);font-size:12px;padding:10px">Error: '+(e.message||e)+'</div>';}
 }
 
-function conciliarMov(id){var mov=BNC_MOV.find(function(m){return m.id===id;});if(!mov)return;mov.conciliado=true;audit('Movimiento BNC conciliado',id);renderMovBNC();renderConciliacion();}
+function conciliarMov(id){var mov=BNC_MOV.find(function(m){return m.id===id;});if(!mov)return;mov.conciliado=true;bncMovGuardar(id);audit('Movimiento BNC conciliado',id);renderMovBNC();renderConciliacion();}
 
 function conciliarAutomatico(){
   var count=0;var tasa=TASAS.bcvDolar||cfg.tasa;
@@ -4324,7 +4359,7 @@ function conciliarAutomatico(){
     if(mov.conciliado||mov.tipo!=='credito')return;
     var montoUsd=mov.monto/tasa;
     var ab=ABONOS.find(function(a){return !a._conciliado&&Math.abs(a.m-montoUsd)<200;});
-    if(ab){mov.conciliado=true;ab._conciliado=true;count++;}
+    if(ab){mov.conciliado=true;ab._conciliado=true;count++;bncMovGuardar(mov.id);}
   });
   audit('Conciliacion automatica BNC',count+' movimientos');
   alert('✅ Conciliacion automatica: '+count+' movimientos conciliados.');
@@ -4365,7 +4400,7 @@ function confirmarPagoBNC(id){
   solicitarToken('Confirmar pago BNC ejecutado #'+id,function(motivo){
   var mov=BNC_MOV.find(function(m){return m.id===id;});
   if(!mov)return;
-  mov.pendienteAutorizacion=false;mov.conciliado=true;
+  mov.pendienteAutorizacion=false;mov.conciliado=true;bncMovGuardar(id);
   var pend=BNC_MOV.filter(function(m){return m.pendienteAutorizacion;}).length;
   if(g('bnc-por-aut'))g('bnc-por-aut').textContent=pend;
   audit('Pago BNC confirmado ejecutado','#'+id+' — '+motivo);
@@ -4572,7 +4607,7 @@ function pagarCXP(id){
   var ref=prompt('Numero de referencia BNC del pago:');if(ref===null)return;
   c.estado='pagado';c.fechaPago=new Date().toISOString().split('T')[0];c.refBnc=ref;
   // Agregar como movimiento debito en BNC
-  BNC_MOV.push({id:Date.now()+'',fecha:c.fechaPago,monto:c.netoPagar*(TASAS.bcvDolar||cfg.tasa),tipo:'debito',desc:'PAGO '+c.prov+' '+c.nota,ref:ref,conciliado:true,pendienteAutorizacion:false});
+  bncMovPush({id:Date.now()+'',fecha:c.fechaPago,monto:c.netoPagar*(TASAS.bcvDolar||cfg.tasa),tipo:'debito',desc:'PAGO '+c.prov+' '+c.nota,ref:ref,conciliado:true,pendienteAutorizacion:false});
   audit('CXP pagada',c.prov+' $'+c.netoPagar.toFixed(2));
   alert('✅ Pago registrado.');
   renderCXP();
@@ -4583,7 +4618,7 @@ function montarPagoBNC(id){
   if(!BNC_CONFIG.guid){alert('Configura las credenciales BNC primero');return;}
   var pv=PROVEEDORES.find(function(p){return p.id===c.provId;});
   var montoBs=c.netoPagar*(TASAS.bcvDolar||cfg.tasa);
-  BNC_MOV.push({id:Date.now()+'',fecha:new Date().toISOString().split('T')[0],monto:montoBs,tipo:'debito',desc:'PAGO PROVEEDOR: '+c.prov+' '+c.nota,ref:'',conciliado:false,pendienteAutorizacion:true,detalle:pv});
+  bncMovPush({id:Date.now()+'',fecha:new Date().toISOString().split('T')[0],monto:montoBs,tipo:'debito',desc:'PAGO PROVEEDOR: '+c.prov+' '+c.nota,ref:'',conciliado:false,pendienteAutorizacion:true,detalle:pv});
   var pend=BNC_MOV.filter(function(m){return m.pendienteAutorizacion;}).length;
   if(g('bnc-por-aut'))g('bnc-por-aut').textContent=pend;
   sendWA('🏦 BETANGAR: Pago montado en BNC\nProveedor: '+c.prov+'\nMonto: Bs '+montoBs.toLocaleString('es-VE',{maximumFractionDigits:0})+'\nAutorizar en BNCNET',null,true);
@@ -6024,7 +6059,7 @@ function registrarPagoNom(){
   // Persistir el pago en Supabase (antes solo quedaba en memoria → se perdía al recargar).
   try{ if(DB_READY&&supabase&&!DEMO_MODE){ supabase.from('pagos_nomina').insert([{fecha:gv('np-fecha'),sem:gv('np-sem'),mes:gv('np-mes'),total_bs:total,ref:ref}]).then(function(res){ if(res&&res.error)console.error('pagos_nomina persist:',res.error.message); }); } }catch(e){}
   // Agregar como debito BNC
-  BNC_MOV.push({id:Date.now()+'',fecha:gv('np-fecha'),monto:total,tipo:'debito',desc:'NOMINA '+gv('np-sem')+' '+gv('np-mes'),ref:ref,conciliado:true,pendienteAutorizacion:false});
+  bncMovPush({id:Date.now()+'',fecha:gv('np-fecha'),monto:total,tipo:'debito',desc:'NOMINA '+gv('np-sem')+' '+gv('np-mes'),ref:ref,conciliado:true,pendienteAutorizacion:false});
   audit('Nomina pagada','Bs'+total+' ref:'+ref);
   alert('✅ Pago de nomina registrado. Bs'+total.toFixed(0));
   var hist=g('np-historial');
