@@ -11693,51 +11693,79 @@ async function renderConciliacionBNC(){
   var desde=gv('conc-desde')||ymd,hasta=gv('conc-hasta')||ymd;
   el.innerHTML='<div style="padding:16px;color:var(--text3);font-size:12px">🔄 Consultando el BNC y conciliando '+desde+' → '+hasta+'...</div>';
   var fmt=function(n){return Number(n||0).toLocaleString('es-VE',{minimumFractionDigits:2,maximumFractionDigits:2});};
+  var tasa=TASAS.bcvDolar||cfg.tasa||1;
+  var aBs=function(monto,moneda){var u=String(moneda||'').toUpperCase();return (u==='USD'||u==='$')?monto*tasa:monto;};
   try{
-    var hdr={'Content-Type':'application/json','Authorization':'Bearer '+SUPA_KEY};
-    var rs=await fetch(SUPA_URL+'/functions/v1/bnc-saldo',{method:'POST',headers:hdr,body:JSON.stringify({action:'saldo'}),signal:AbortSignal.timeout(30000)});
-    var ds=await rs.json();
-    if(!ds||!ds.ok||!ds.saldos){el.innerHTML='<div style="padding:16px;color:var(--text3);font-size:12px">No se pudieron obtener las cuentas del BNC'+((ds&&ds.step==='saldo')?' — configura el ClientID de producción en Config BNC':'')+'.</div>';return;}
-    var cuentas=Object.keys(ds.saldos);
-    var sandbox=cuentas.indexOf('01910001482101010049')>=0;
-    var notifs=[];
-    try{var rn=await supabase.from('bnc_notificaciones').select('id,referencia,monto,moneda,fecha_recibido,descripcion').gte('fecha_recibido',desde).lte('fecha_recibido',hasta+'T23:59:59').order('fecha_recibido',{ascending:false});if(!rn.error&&rn.data)notifs=rn.data.map(function(n){return{ref:n.referencia,monto:Math.round(parseFloat(n.monto||0)*100)/100,fecha:n.fecha_recibido,desc:n.descripcion,usada:false};});}catch(e){}
-    var html=sandbox?'<div style="font-size:10px;color:var(--yellow);margin-bottom:8px">⚠️ DATOS DE PRUEBA (sandbox). Con el ClientID de producción se concilian tus cuentas reales.</div>':'';
-    for(var ci=0;ci<cuentas.length;ci++){
-      var acc=cuentas[ci];
-      var moneda=(ds.saldos[acc]&&ds.saldos[acc].CurrencyCode)||'VES';
-      var rm=await fetch(SUPA_URL+'/functions/v1/bnc-saldo',{method:'POST',headers:hdr,body:JSON.stringify({action:'movimientos_fecha',account_number:acc,start_date:desde,end_date:hasta}),signal:AbortSignal.timeout(40000)});
-      var dm=await rm.json();
-      var movs=(dm&&dm.ok&&Array.isArray(dm.movimientos))?dm.movimientos:[];
-      var ingTot=0,egrTot=0,nConc=0,nIng=0,filasHtml='';
-      movs.forEach(function(m){
-        var amt=Math.round(parseFloat(m.Amount||0)*100)/100;
-        var sd=String(m.BalanceDelta||'').toLowerCase();
-        var esIng=sd.indexOf('ingreso')>=0||sd.indexOf('credito')>=0||sd.indexOf('crédito')>=0;
-        if(esIng){ingTot+=amt;nIng++;}else egrTot+=amt;
-        var conc=false;
-        if(esIng){var mt=notifs.find(function(n){return !n.usada&&Math.abs(n.monto-amt)<0.01;});if(mt){conc=true;mt.usada=true;nConc++;}}
-        var refs=[m.ReferenceA,m.ReferenceB,m.ReferenceC,m.ReferenceD].filter(Boolean).join(' / ');
-        var estado=!esIng?'<span style="color:var(--text3)">—</span>':(conc?'<span style="color:var(--green);font-weight:700">✅</span>':'<span style="color:var(--yellow);font-weight:700">⚠️ sin registrar</span>');
-        filasHtml+='<tr><td style="font-size:10px">'+(m.Date||'')+'</td><td style="font-size:10px">'+String(m.Type||'').trim()+'</td><td style="font-size:9px;color:var(--text3)">'+refs+'</td><td style="text-align:right;font-family:var(--m);color:'+(esIng?'var(--green)':'var(--red)')+'">'+(esIng?'+':'-')+fmt(amt)+'</td><td style="text-align:center">'+estado+'</td></tr>';
-      });
-      html+='<div class="card" style="margin-bottom:12px">'+
-        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><span style="font-family:var(--m);font-size:12px;font-weight:700">'+acc+'</span><span style="font-size:10px;color:var(--text3)">'+moneda+' · '+movs.length+' mov</span></div>'+
-        '<div style="display:flex;gap:12px;margin-bottom:10px;flex-wrap:wrap;font-size:11px">'+
-          '<span style="color:var(--green)">▲ Ingresos '+fmt(ingTot)+'</span>'+
-          '<span style="color:var(--red)">▼ Egresos '+fmt(egrTot)+'</span>'+
-          '<span style="color:var(--text2)">Conciliados '+nConc+'/'+nIng+'</span>'+
-        '</div>'+
-        (movs.length?('<div class="tw" style="max-height:340px;overflow:auto"><table style="font-size:11px"><thead><tr><th>Fecha</th><th>Tipo</th><th>Ref</th><th style="text-align:right">Monto</th><th style="text-align:center">Estado</th></tr></thead><tbody>'+filasHtml+'</tbody></table></div>'):'<div style="font-size:11px;color:var(--text3)">Sin movimientos en el rango.</div>')+
-      '</div>';
+    // ── 1) LADO BANCO: movimientos reales (API por cuenta; fallback a notificaciones del webhook) ──
+    var bancoMovs=[],sandbox=false,fuente='API BNC';
+    try{
+      var hdr={'Content-Type':'application/json','Authorization':'Bearer '+SUPA_KEY};
+      var rs=await fetch(SUPA_URL+'/functions/v1/bnc-saldo',{method:'POST',headers:hdr,body:JSON.stringify({action:'saldo'}),signal:AbortSignal.timeout(30000)});
+      var ds=await rs.json();
+      if(ds&&ds.ok&&ds.saldos){
+        var cuentas=Object.keys(ds.saldos);sandbox=cuentas.indexOf('01910001482101010049')>=0;
+        for(var ci=0;ci<cuentas.length;ci++){
+          var acc=cuentas[ci];var moneda=(ds.saldos[acc]&&ds.saldos[acc].CurrencyCode)||'VES';
+          var rm=await fetch(SUPA_URL+'/functions/v1/bnc-saldo',{method:'POST',headers:hdr,body:JSON.stringify({action:'movimientos_fecha',account_number:acc,start_date:desde,end_date:hasta}),signal:AbortSignal.timeout(40000)});
+          var dm=await rm.json();var movs=(dm&&dm.ok&&Array.isArray(dm.movimientos))?dm.movimientos:[];
+          movs.forEach(function(m){
+            var amt=Math.round(parseFloat(m.Amount||0)*100)/100;
+            var sd=String(m.BalanceDelta||'').toLowerCase();
+            var esIng=sd.indexOf('ingreso')>=0||sd.indexOf('credito')>=0||sd.indexOf('crédito')>=0;
+            var refs=[m.ReferenceA,m.ReferenceB,m.ReferenceC,m.ReferenceD].filter(Boolean).join(' / ');
+            bancoMovs.push({fecha:m.Date||'',tipo:esIng?'ingreso':'egreso',bs:Math.round(aBs(amt,moneda)*100)/100,ref:refs,desc:String(m.Type||'').trim(),_conc:false});
+          });
+        }
+      }
+    }catch(e){}
+    if(!bancoMovs.length){
+      try{var rn=await supabase.from('bnc_notificaciones').select('referencia,monto,moneda,fecha_recibido,descripcion').gte('fecha_recibido',desde).lte('fecha_recibido',hasta+'T23:59:59');
+        if(!rn.error&&rn.data&&rn.data.length){fuente='Notificaciones BNC (la API de producción aún no está activa → solo ingresos)';rn.data.forEach(function(n){var amt=Math.round(parseFloat(n.monto||0)*100)/100;bancoMovs.push({fecha:n.fecha_recibido,tipo:'ingreso',bs:Math.round(aBs(amt,n.moneda)*100)/100,ref:n.referencia||'',desc:n.descripcion||'',_conc:false});});}
+      }catch(e){}
     }
-    var huer=notifs.filter(function(n){return !n.usada;});
-    if(huer.length){
-      var hh='';huer.forEach(function(n){hh+='<tr><td style="font-size:10px">'+String(n.fecha||'').slice(0,16).replace('T',' ')+'</td><td style="font-size:10px">'+(n.ref||'')+'</td><td style="font-size:9px;color:var(--text3)">'+(n.desc||'')+'</td><td style="text-align:right;font-family:var(--m)">'+fmt(n.monto)+'</td></tr>';});
-      html+='<div class="card" style="margin-bottom:12px;border-color:rgba(251,191,36,.3)">'+
-        '<div style="font-size:12px;font-weight:700;color:var(--yellow);margin-bottom:8px">⚠️ Notificaciones en la app sin movimiento BNC ('+huer.length+')</div>'+
-        '<div class="tw" style="max-height:220px;overflow:auto"><table style="font-size:11px"><thead><tr><th>Fecha</th><th>Ref</th><th>Desc</th><th style="text-align:right">Monto</th></tr></thead><tbody>'+hh+'</tbody></table></div>'+
-      '</div>';
+    // ── 2) LADO LIBROS: lo que la app registró (BNC_MOV) en el rango, en Bs ──
+    var libros=BNC_MOV.filter(function(m){var f=String(m.fecha||'').slice(0,10);return (!desde||f>=desde)&&(!hasta||f<=hasta);}).map(function(m){
+      return {tipo:(m.tipo==='credito'?'ingreso':'egreso'),bs:Math.round((Number(m.monto)||0)*100)/100,desc:m.desc||'',ref:m.ref||'',pend:!!m.pendienteAutorizacion,fecha:m.fecha||'',_usado:false};
+    });
+    // ── 3) MATCH banco ↔ libros (misma dirección + monto Bs con tolerancia 0.5%) ──
+    bancoMovs.forEach(function(b){
+      var tol=Math.max(1,b.bs*0.005);
+      var lib=libros.find(function(l){return !l._usado&&l.tipo===b.tipo&&Math.abs(l.bs-b.bs)<=tol;});
+      if(lib){lib._usado=true;b._conc=true;}
+    });
+    var faltaReg=bancoMovs.filter(function(b){return !b._conc;});   // en banco, no en libros
+    var enTransito=libros.filter(function(l){return !l._usado;});   // en libros, no en banco
+    var nConc=bancoMovs.length-faltaReg.length;
+    // ── 4) Saldos del período (neto = ingresos − egresos) ──
+    var sum=function(arr,t){return arr.filter(function(x){return x.tipo===t;}).reduce(function(s,x){return s+x.bs;},0);};
+    var netoBanco=sum(bancoMovs,'ingreso')-sum(bancoMovs,'egreso');
+    var netoLib=sum(libros,'ingreso')-sum(libros,'egreso');
+    var dif=Math.round((netoBanco-netoLib)*100)/100;
+    // ── 5) RENDER ──
+    var html='';
+    if(sandbox)html+='<div style="font-size:10px;color:var(--yellow);margin-bottom:8px">⚠️ DATOS DE PRUEBA (sandbox). Con el ClientID de producción se concilian tus cuentas reales.</div>';
+    html+='<div style="font-size:10px;color:var(--text3);margin-bottom:8px">Fuente banco: '+fuente+'</div>';
+    html+='<div class="card" style="margin-bottom:12px"><div style="font-size:12px;font-weight:700;margin-bottom:10px">Resumen '+desde+' → '+hasta+'</div>'+
+      '<div style="display:flex;gap:16px;flex-wrap:wrap;font-size:12px;margin-bottom:10px">'+
+        '<div><div style="font-size:9px;color:var(--text3)">SEGÚN BANCO (neto)</div><div style="font-family:var(--m);font-weight:700;color:var(--blue)">Bs '+fmt(netoBanco)+'</div></div>'+
+        '<div><div style="font-size:9px;color:var(--text3)">SEGÚN LIBROS (neto)</div><div style="font-family:var(--m);font-weight:700;color:var(--teal)">Bs '+fmt(netoLib)+'</div></div>'+
+        '<div><div style="font-size:9px;color:var(--text3)">DIFERENCIA</div><div style="font-family:var(--m);font-weight:700;color:'+(Math.abs(dif)<1?'var(--green)':'var(--yellow)')+'">Bs '+fmt(dif)+(Math.abs(dif)<1?' ✓ cuadra':'')+'</div></div>'+
+      '</div>'+
+      '<div style="display:flex;gap:14px;flex-wrap:wrap;font-size:11px"><span style="color:var(--green)">✅ Conciliados '+nConc+'</span><span style="color:var(--red)">🔴 Falta registrar '+faltaReg.length+'</span><span style="color:var(--yellow)">⚠️ En tránsito '+enTransito.length+'</span></div>'+
+    '</div>';
+    html+='<div class="card" style="margin-bottom:12px"><div style="font-size:12px;font-weight:700;margin-bottom:8px">🏦 Movimientos del banco</div>';
+    if(bancoMovs.length){
+      html+='<div class="tw" style="max-height:360px;overflow:auto"><table style="font-size:11px"><thead><tr><th>Fecha</th><th>Detalle</th><th>Ref</th><th style="text-align:right">Monto Bs</th><th style="text-align:center">Estado</th></tr></thead><tbody>';
+      bancoMovs.forEach(function(b){html+='<tr><td style="font-size:10px">'+String(b.fecha||'').slice(0,16).replace('T',' ')+'</td><td style="font-size:10px">'+(b.desc||'—')+'</td><td style="font-size:9px;color:var(--text3)">'+(b.ref||'')+'</td><td style="text-align:right;font-family:var(--m);color:'+(b.tipo==='ingreso'?'var(--green)':'var(--red)')+'">'+(b.tipo==='ingreso'?'+':'-')+fmt(b.bs)+'</td><td style="text-align:center">'+(b._conc?'<span style="color:var(--green);font-weight:700">✅ cuadra</span>':'<span style="color:var(--red);font-weight:700">🔴 falta registrar</span>')+'</td></tr>';});
+      html+='</tbody></table></div>';
+    }else html+='<div style="font-size:11px;color:var(--text3);padding:8px">Sin movimientos del banco en el rango (activa el ClientID de producción del BNC para traer el estado de cuenta completo).</div>';
+    html+='</div>';
+    if(enTransito.length){
+      html+='<div class="card" style="margin-bottom:12px;border-color:rgba(251,191,36,.3)"><div style="font-size:12px;font-weight:700;color:var(--yellow);margin-bottom:6px">⚠️ Registrado en la app, el banco aún no lo refleja ('+enTransito.length+')</div>'+
+        '<div style="font-size:10px;color:var(--text3);margin-bottom:8px">Pagos/cobros que asentaste pero que no aparecen en el banco del período (en tránsito o pendientes de firma en BNCNET).</div>'+
+        '<div class="tw" style="max-height:260px;overflow:auto"><table style="font-size:11px"><thead><tr><th>Fecha</th><th>Detalle</th><th>Tipo</th><th style="text-align:right">Monto Bs</th></tr></thead><tbody>';
+      enTransito.forEach(function(l){html+='<tr><td style="font-size:10px">'+String(l.fecha||'').slice(0,10)+'</td><td style="font-size:10px">'+(l.desc||'—')+(l.pend?' <span class="badge by">Pend. firma</span>':'')+'</td><td style="font-size:10px">'+(l.tipo==='ingreso'?'Entrada':'Salida')+'</td><td style="text-align:right;font-family:var(--m)">'+fmt(l.bs)+'</td></tr>';});
+      html+='</tbody></table></div></div>';
     }
     el.innerHTML=html||'<div style="padding:16px;color:var(--text3);font-size:12px">Sin datos para el rango.</div>';
   }catch(e){el.innerHTML='<div style="padding:16px;color:var(--text3);font-size:12px">Error al conciliar: '+(e.message||e)+'</div>';}
