@@ -4346,7 +4346,9 @@ async function cargarMovRealesBNC(){
   var desde=gv('bnc-mov-des')||ymd(new Date(hoy.getTime()-30*86400000));
   // Caché corto por rango (evita martillar la API en cada render del tab).
   if(window._movRealesCache&&window._movRealesCache.k===(desde+'|'+hasta)&&(Date.now()-window._movRealesCache.ts<30000)){el.innerHTML=window._movRealesCache.html;return;}
-  el.innerHTML='<div style="text-align:center;color:var(--text3);padding:14px;font-size:12px">🔄 Consultando el estado de cuenta del banco…</div>';
+  // Vista rápida: las ENTRADAS (notificaciones) al instante, con aviso de que faltan las salidas;
+  // se reemplaza por el estado de cuenta completo cuando el banco responde.
+  try{ el.innerHTML=await _movRealesNotifsHTML('preview'); }catch(e){ el.innerHTML='<div style="text-align:center;color:var(--text3);padding:14px;font-size:12px">🔄 Consultando el estado de cuenta del banco…</div>'; }
   var html='';
   try{
     var hdr={'Content-Type':'application/json','Authorization':'Bearer '+SUPA_KEY};
@@ -4387,15 +4389,19 @@ async function cargarMovRealesBNC(){
   window._movRealesCache={k:desde+'|'+hasta,ts:Date.now(),html:html};
   el.innerHTML=html;
 }
-// Respaldo: las notificaciones del webhook (entrada/salida por cuenta propia), si la API no responde.
-async function _movRealesNotifsHTML(){
+// Notificaciones del webhook (entrada/salida por cuenta propia). modo='preview' = vista rápida
+// mientras carga el estado de cuenta; modo='fallback' (default) = la API no respondió.
+async function _movRealesNotifsHTML(modo){
   var mias={}; (BNC_CUENTAS||[]).forEach(function(c){var d=String(c.num||'').replace(/\D/g,''); if(d)mias[d]=true;});
   var soloDig=function(s){return String(s||'').replace(/\D/g,'');};
   var r=await supabase.from('bnc_notificaciones').select('*').order('fecha_recibido',{ascending:false}).limit(25);
   if(r.error)return '<div style="color:var(--text3);font-size:12px;padding:10px">No se pudieron cargar: '+r.error.message+'</div>';
   var movs=r.data||[];
   if(!movs.length)return '<div style="text-align:center;color:var(--text3);padding:14px;font-size:12px">Sin movimientos del banco en el rango.</div>';
-  return '<div style="font-size:10px;color:var(--yellow);margin-bottom:6px">⚠️ El estado de cuenta del banco no respondió; mostrando las notificaciones recibidas.</div>'+
+  var banner=(modo==='preview')
+    ? '<div style="font-size:10px;color:var(--blue);margin-bottom:6px">🔄 Trayendo del banco también las SALIDAS (egresos)… las entradas ya están abajo.</div>'
+    : '<div style="font-size:10px;color:var(--yellow);margin-bottom:6px">⚠️ El estado de cuenta del banco no respondió; mostrando las notificaciones recibidas.</div>';
+  return banner+
     '<div class="tw"><table><thead><tr><th>Fecha</th><th>Tipo</th><th>Detalle</th><th>Referencia</th><th style="text-align:right">Monto</th></tr></thead><tbody>'+
     movs.map(function(n){
       var monto=parseFloat(n.monto||0); var mon=String(n.moneda||'').toUpperCase();
