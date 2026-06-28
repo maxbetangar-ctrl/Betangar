@@ -15,6 +15,9 @@ var BTG_CONFIG = {
   empresa_ciudad: 'Maracaibo, Edo. Zulia',                 // ← ciudad/estado (encabezados)
   empresa_contrato: 'Contrato Aseo Urbano — Alcaldía de Maracaibo', // ← descripción del contrato/cliente principal
   empresa_email: 'betangar@gmail.com',                     // ← correo (pie de impresos)
+  sentry_key: '819c371b3a4d68cbe4773a1c9c69b4d8',          // ← Sentry: clave pública del proyecto (va en el
+                                                           //   <script> loader de app.html). Al clonar: proyecto
+                                                           //   Sentry propio O el mismo, y se etiqueta por empresa.
   auth_correo_obligatorio: false,                          // ← Betangar: APAGADO (empleados siguen igual,
                                                            //   login por usuario, sin forzar correo). Los
                                                            //   CLONES nuevos lo ponen en true → login por
@@ -33,6 +36,9 @@ function brandCiudad(){ return BTG_CONFIG.empresa_ciudad||''; }
 function brandContrato(){ return BTG_CONFIG.empresa_contrato||''; }
 function brandEmail(){ return BTG_CONFIG.empresa_email||''; }
 // La anon key es pública por diseño; la protección real es RLS en Supabase.
+// Sentry: etiqueta cada error con la EMPRESA → en el tablero ves de qué cliente vino (1 proyecto,
+// todos los clientes identificados). El loader (app.html) ya inició el SDK.
+try{ if(window.Sentry){ var _stag=function(){ try{ Sentry.setTag('empresa',BTG_CONFIG.licencia_ref||'betangar'); Sentry.setTag('empresa_nombre',BTG_CONFIG.empresa_nombre||''); }catch(e){} }; if(typeof Sentry.onLoad==='function')Sentry.onLoad(_stag); else _stag(); } }catch(e){}
 var SUPA_URL=BTG_CONFIG.data_url;
 var SUPA_KEY=BTG_CONFIG.data_key;
 var EJS_KEY='Uyqw-MYDuZEOqhxeJ',EJS_SVC='service_h2b7fbm',EJS_TPL='template_he74cd4';
@@ -590,6 +596,7 @@ function _iniciarSesionCore(){
   var db=document.getElementById('demo-banner');if(db)db.style.display=DEMO_MODE?'block':'none';
   ['login-logo-img','nav-logo-img','dash-logo'].forEach(function(id){var el=document.getElementById(id);if(el)el.src=LOGO_SVG;});
   try{ if(typeof render2FAEstado==='function')render2FAEstado(); }catch(e){} // estado del 2FA en Configuración
+  try{ if(window.Sentry&&SESION){ Sentry.setUser({username:SESION.usuario}); Sentry.setTag('rol',SESION.rol||''); } }catch(e){} // contexto para depurar errores
   var galCams=document.getElementById('gal-cams');if(galCams)galCams.textContent=Object.keys(FLOTA).length;
   var fEl=document.getElementById('fecha-top');
   if(fEl)fEl.textContent=new Date().toLocaleDateString('es-VE',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
