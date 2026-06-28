@@ -1841,6 +1841,11 @@ tr:hover td{background:rgba(45,255,122,.02)}
     <div class="sw" id="sw-cfg-combustible" onclick="switchCfgTab('combustible')">⛽ Combustible</div>
   </div>
   <div id="tab-cfg-general">
+    <div class="card" style="margin-bottom:12px;border-color:rgba(125,201,65,.3)">
+      <div class="st" style="margin-bottom:8px">🔐 Seguridad — Verificación en dos pasos (2FA)</div>
+      <div style="font-size:11px;color:var(--text3);margin-bottom:10px">Suma una segunda capa a tu cuenta: además de la contraseña, un código de tu teléfono (Google Authenticator / Authy). Recomendado para administradores — ISO 27001 A.9.</div>
+      <div id="cfg-2fa-estado" style="display:flex;align-items:center;flex-wrap:wrap;gap:6px">Cargando…</div>
+    </div>
     <div class="g2">
       <div class="card">
         <div class="st" style="margin-bottom:10px">Parametros del Sistema</div>
@@ -2142,7 +2147,7 @@ tr:hover td{background:rgba(45,255,122,.02)}
   <div id="conc-resultado"></div>
 </div>
 
-<script src="app.js?v=20260628j"></script>
+<script src="app.js?v=20260628k"></script>
 
 <!-- Modal global -->
 <div id="modal" class="moverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9990;align-items:center;justify-content:center;padding:16px">

@@ -287,6 +287,114 @@ var LOGO_SVG='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAACAAAAAONCAYAAAASjoDM
 // ═══════════════════════════════════════════════════
 // LOGIN & SESSION
 // ═══════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════
+// 2FA / MFA (TOTP) vía Supabase Auth — ISO 27001 A.9 (control de acceso fuerte)
+// Opt-in: cada usuario activa su 2FA desde Configuración. El login exige el código si hay factor.
+// ══════════════════════════════════════════════════════
+function _mfaOverlay(inner){
+  var ov=document.createElement('div');
+  ov.style.cssText='position:fixed;inset:0;background:rgba(4,12,24,.72);z-index:100001;display:flex;align-items:center;justify-content:center;padding:20px;font-family:sans-serif';
+  ov.innerHTML='<div style="background:#0f2340;border:1px solid #1e3a5f;border-radius:16px;max-width:400px;width:100%;padding:24px;color:#fff;box-shadow:0 20px 60px rgba(0,0,0,.5)">'+inner+'</div>';
+  document.body.appendChild(ov);
+  return ov;
+}
+// Pide el código de 6 dígitos (login). Devuelve Promesa<string>; rechaza con 'cancelado'.
+function _pedirCodigoMFA(titulo,sub){
+  return new Promise(function(resolve,reject){
+    var ov=_mfaOverlay(
+      '<div style="font-size:18px;font-weight:800;margin-bottom:6px">🔐 '+(titulo||'Verificación en dos pasos')+'</div>'+
+      '<div style="font-size:12px;color:#9fb4cc;margin-bottom:14px">'+(sub||'Escribe el código de 6 dígitos de tu app de autenticación.')+'</div>'+
+      '<input id="_mfa-code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" style="width:100%;box-sizing:border-box;padding:12px;font-size:22px;letter-spacing:8px;text-align:center;border-radius:8px;border:1px solid #2a4a6a;background:#0a1628;color:#fff;font-family:monospace" placeholder="------">'+
+      '<div id="_mfa-err" style="color:#f87171;font-size:11px;min-height:14px;margin-top:6px"></div>'+
+      '<div style="display:flex;gap:8px;margin-top:12px">'+
+        '<button id="_mfa-ok" style="flex:1;padding:11px;border:0;border-radius:8px;background:#15803d;color:#fff;font-weight:700;cursor:pointer">Verificar</button>'+
+        '<button id="_mfa-cancel" style="padding:11px 14px;border:1px solid #2a4a6a;border-radius:8px;background:transparent;color:#9fb4cc;cursor:pointer">Cancelar</button>'+
+      '</div>');
+    var inp=ov.querySelector('#_mfa-code'); inp.focus();
+    function done(){ var c=(inp.value||'').trim(); if(c.length<6){ov.querySelector('#_mfa-err').textContent='Código incompleto';return;} document.body.removeChild(ov); resolve(c); }
+    ov.querySelector('#_mfa-ok').onclick=done;
+    inp.onkeydown=function(e){ if(e.key==='Enter')done(); };
+    ov.querySelector('#_mfa-cancel').onclick=function(){ document.body.removeChild(ov); reject(new Error('cancelado')); };
+  });
+}
+// Reto MFA en el login: lista el factor verificado, challenge + verify con el código.
+async function _retoMFA(){
+  var fr=await supabaseAuth.auth.mfa.listFactors();
+  var fd=(fr&&fr.data)?fr.data:fr;
+  var totp=(fd&&fd.totp&&fd.totp[0])||(fd&&fd.all&&fd.all.find(function(x){return x.factor_type==='totp'&&x.status==='verified';}));
+  if(!totp) throw new Error('sin factor');
+  var ch=await supabaseAuth.auth.mfa.challenge({factorId:totp.id});
+  if(ch&&ch.error) throw new Error(ch.error.message);
+  var challengeId=(ch&&ch.data)?ch.data.id:ch.id;
+  var code=await _pedirCodigoMFA();
+  var v=await supabaseAuth.auth.mfa.verify({factorId:totp.id,challengeId:challengeId,code:code});
+  if(v&&v.error) throw new Error(v.error.message||'código inválido');
+}
+// Enrolar 2FA (desde Configuración, ya autenticado): muestra QR + secreto y verifica el 1er código.
+async function iniciar2FA(){
+  if(!supabaseAuth||!supabaseAuth.auth){alert('Auth no disponible. Inicia sesión de nuevo.');return;}
+  try{
+    // Si ya hay un factor verificado, ofrecer quitarlo en vez de duplicar.
+    var fr=await supabaseAuth.auth.mfa.listFactors(); var fd=(fr&&fr.data)?fr.data:fr;
+    var yaTiene=(fd&&fd.totp&&fd.totp.length)||(fd&&fd.all&&fd.all.some(function(x){return x.factor_type==='totp'&&x.status==='verified';}));
+    if(yaTiene){ if(typeof render2FAEstado==='function')render2FAEstado(); alert('Ya tienes 2FA activo en esta cuenta.'); return; }
+    var e=await supabaseAuth.auth.mfa.enroll({factorType:'totp',friendlyName:'Betangar '+(SESION?SESION.usuario:'')+' '+Date.now()});
+    if(e&&e.error){alert('No se pudo iniciar 2FA: '+e.error.message);return;}
+    var d=(e&&e.data)?e.data:e; var factorId=d.id; var qr=d.totp.qr_code; var secret=d.totp.secret;
+    var ov=_mfaOverlay(
+      '<div style="font-size:18px;font-weight:800;margin-bottom:6px">🔐 Activar 2FA</div>'+
+      '<div style="font-size:12px;color:#9fb4cc;margin-bottom:12px">1) Escanea el código con Google Authenticator / Authy.<br>2) Escribe el código de 6 dígitos que aparece.</div>'+
+      '<div style="background:#fff;border-radius:10px;padding:10px;display:flex;justify-content:center;margin-bottom:10px"><img src="'+qr+'" alt="QR 2FA" style="width:180px;height:180px"></div>'+
+      '<div style="font-size:10px;color:#7e93ab;text-align:center;margin-bottom:10px">¿No puedes escanear? Clave: <code style="color:#a3e635;word-break:break-all">'+secret+'</code></div>'+
+      '<input id="_mfa-enroll-code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" style="width:100%;box-sizing:border-box;padding:12px;font-size:22px;letter-spacing:8px;text-align:center;border-radius:8px;border:1px solid #2a4a6a;background:#0a1628;color:#fff;font-family:monospace" placeholder="------">'+
+      '<div id="_mfa-enroll-err" style="color:#f87171;font-size:11px;min-height:14px;margin-top:6px"></div>'+
+      '<div style="display:flex;gap:8px;margin-top:12px">'+
+        '<button id="_mfa-enroll-ok" style="flex:1;padding:11px;border:0;border-radius:8px;background:#15803d;color:#fff;font-weight:700;cursor:pointer">Activar</button>'+
+        '<button id="_mfa-enroll-cancel" style="padding:11px 14px;border:1px solid #2a4a6a;border-radius:8px;background:transparent;color:#9fb4cc;cursor:pointer">Cancelar</button>'+
+      '</div>');
+    var inp=ov.querySelector('#_mfa-enroll-code'); inp.focus();
+    var errEl=ov.querySelector('#_mfa-enroll-err');
+    function cerrar(){ try{document.body.removeChild(ov);}catch(_){} }
+    ov.querySelector('#_mfa-enroll-cancel').onclick=async function(){ try{await supabaseAuth.auth.mfa.unenroll({factorId:factorId});}catch(_){} cerrar(); };
+    async function activar(){
+      var code=(inp.value||'').trim(); if(code.length<6){errEl.textContent='Código incompleto';return;}
+      errEl.textContent='Verificando…';
+      try{
+        var ch=await supabaseAuth.auth.mfa.challenge({factorId:factorId}); if(ch&&ch.error)throw new Error(ch.error.message);
+        var challengeId=(ch&&ch.data)?ch.data.id:ch.id;
+        var v=await supabaseAuth.auth.mfa.verify({factorId:factorId,challengeId:challengeId,code:code});
+        if(v&&v.error)throw new Error(v.error.message||'código inválido');
+        cerrar(); audit('2FA activado',SESION?SESION.usuario:''); alert('✅ 2FA activado. La próxima vez que entres te pedirá el código.');
+        if(typeof render2FAEstado==='function')render2FAEstado();
+      }catch(err2){ errEl.textContent='Código inválido, intenta de nuevo'; }
+    }
+    ov.querySelector('#_mfa-enroll-ok').onclick=activar;
+    inp.onkeydown=function(e){ if(e.key==='Enter')activar(); };
+  }catch(err){ alert('Error 2FA: '+(err&&err.message||err)); }
+}
+// Desactivar 2FA (pide confirmación; quita todos los factores TOTP de la cuenta).
+async function desactivar2FA(){
+  if(!confirm('¿Quitar el 2FA de tu cuenta? Volverás a entrar solo con usuario y contraseña.'))return;
+  try{
+    var fr=await supabaseAuth.auth.mfa.listFactors(); var fd=(fr&&fr.data)?fr.data:fr;
+    var lista=(fd&&fd.all)?fd.all:[].concat(fd&&fd.totp||[]);
+    for(var i=0;i<lista.length;i++){ if(lista[i].factor_type==='totp'){ try{await supabaseAuth.auth.mfa.unenroll({factorId:lista[i].id});}catch(_){} } }
+    audit('2FA desactivado',SESION?SESION.usuario:''); alert('2FA desactivado.');
+    if(typeof render2FAEstado==='function')render2FAEstado();
+  }catch(err){ alert('No se pudo desactivar: '+(err&&err.message||err)); }
+}
+// Pinta el estado del 2FA en la tarjeta de Configuración (si existe el contenedor).
+async function render2FAEstado(){
+  var el=document.getElementById('cfg-2fa-estado'); if(!el)return;
+  if(!supabaseAuth||!supabaseAuth.auth){ el.innerHTML='<span style="color:var(--text3);font-size:11px">Inicia sesión para gestionar el 2FA.</span>'; return; }
+  try{
+    var fr=await supabaseAuth.auth.mfa.listFactors(); var fd=(fr&&fr.data)?fr.data:fr;
+    var activo=(fd&&fd.totp&&fd.totp.length)||(fd&&fd.all&&fd.all.some(function(x){return x.factor_type==='totp'&&x.status==='verified';}));
+    if(activo){ el.innerHTML='<span style="color:var(--green);font-size:12px;font-weight:700">✅ 2FA activo</span> <button class="btn btn-r btn-xs" style="margin-left:8px" onclick="desactivar2FA()">Quitar</button>'; }
+    else{ el.innerHTML='<span style="color:var(--yellow);font-size:12px">⚠️ 2FA no activo</span> <button class="btn btn-g btn-xs" style="margin-left:8px" onclick="iniciar2FA()">Activar 2FA</button>'; }
+  }catch(e){ el.innerHTML='<button class="btn btn-g btn-xs" onclick="iniciar2FA()">Activar 2FA</button>'; }
+}
+
 async function doLogin(){
   var u=document.getElementById('login-user').value.trim().toLowerCase();
   var p=document.getElementById('login-pass').value;
@@ -309,6 +417,23 @@ async function doLogin(){
       var res = await supabaseAuth.auth.signInWithPassword({ email: em, password: p });
       if(res && res.error){ authMsg = res.error.message || 'auth error'; }
       else if(res && res.data && res.data.user){
+        // 2FA (ISO 27001 A.9): si el usuario tiene un factor TOTP verificado, exigir el código
+        // de 6 dígitos ANTES de entrar. Si nadie tiene 2FA, getAAL devuelve aal1 → no pide nada
+        // (login idéntico al de hoy). Es OPT-IN: cada admin activa su 2FA desde Configuración.
+        try{
+          var aalR = await supabaseAuth.auth.mfa.getAuthenticatorAssuranceLevel();
+          var aal = (aalR && aalR.data) ? aalR.data : aalR;
+          if(aal && aal.nextLevel==='aal2' && aal.currentLevel!=='aal2'){
+            try{ await _retoMFA(); }
+            catch(mfaErr){
+              try{ await supabaseAuth.auth.signOut(); }catch(_e){}
+              err.textContent='Verificación 2FA '+((mfaErr&&mfaErr.message==='cancelado')?'cancelada':'fallida');
+              err.style.display='block'; document.getElementById('login-pass').value='';
+              setTimeout(function(){err.style.display='none';err.textContent='Usuario o contrasena incorrectos';},5000);
+              return;
+            }
+          }
+        }catch(eMfa){}
         var meta = res.data.user.user_metadata || {};
         var rol=meta.rol, nombre=meta.nombre||u, usuario=meta.usuario||u, demo=!!meta.demo, activo=true;
         // enriquecer con btg_usuarios si se puede, pero SIN bloquear si falla
@@ -450,6 +575,7 @@ function _iniciarSesionCore(){
   DEMO_MODE=SESION.demo;
   var db=document.getElementById('demo-banner');if(db)db.style.display=DEMO_MODE?'block':'none';
   ['login-logo-img','nav-logo-img','dash-logo'].forEach(function(id){var el=document.getElementById(id);if(el)el.src=LOGO_SVG;});
+  try{ if(typeof render2FAEstado==='function')render2FAEstado(); }catch(e){} // estado del 2FA en Configuración
   var galCams=document.getElementById('gal-cams');if(galCams)galCams.textContent=Object.keys(FLOTA).length;
   var fEl=document.getElementById('fecha-top');
   if(fEl)fEl.textContent=new Date().toLocaleDateString('es-VE',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
@@ -6654,8 +6780,19 @@ function renderAlertaDuplicadasRRHH(){
 // SISTEMA DE TOKEN DE MODIFICACION
 // ═══════════════════════════════════════════════════
 
+// Código numérico de 6 dígitos con CSPRNG (crypto). Math.random NO es criptográfico (predecible)
+// → para tokens de aprobación de acciones sensibles usamos crypto.getRandomValues. Fallback solo
+// si el navegador no expone crypto (no debería en navegadores actuales).
 function generarCodigo(){
-  return String(Math.floor(100000+Math.random()*900000));
+  try{ var a=new Uint32Array(1); (window.crypto||window.msCrypto).getRandomValues(a); return String(100000+(a[0]%900000)); }
+  catch(e){ return String(Math.floor(100000+Math.random()*900000)); }
+}
+// Código alfanumérico seguro (charset sin caracteres ambiguos 0/O/1/I).
+function _codigoAlfaSeguro(n){
+  n=n||6;
+  try{ var a=new Uint8Array(n); (window.crypto||window.msCrypto).getRandomValues(a);
+    var ch='ABCDEFGHJKLMNPQRSTUVWXYZ23456789',s=''; for(var i=0;i<n;i++)s+=ch[a[i]%ch.length]; return s; }
+  catch(e){ return Math.random().toString(36).substr(2,n).toUpperCase(); }
 }
 
 function esSuperAdmin(){
@@ -8920,7 +9057,7 @@ function guardarReposicion(){
 var TOKENS_PENDIENTES = {};
 
 function generarTokenAprobacion(accion, datos, callback){
-  var token = Math.random().toString(36).substr(2,6).toUpperCase();
+  var token = _codigoAlfaSeguro(6);
   var expira = Date.now() + 30*60*1000; // 30 minutos
   TOKENS_PENDIENTES[token] = {accion:accion, datos:datos, callback:callback, expira:expira};
   // P0: registrar la acción local para que el polling la ejecute al aprobar el superadmin
