@@ -11786,7 +11786,7 @@ async function renderConciliacionBNC(){
     //  CUMPLIMIENTO 10%. Se calculan con la misma fórmula que calcPagoAlc, en Bs a la tasa del
     //  día de la factura. EGRESOS = pagos registrados en el banco (BNC_MOV débitos).
     var _diasAntes=function(f,n){var d=new Date(String(f)+'T00:00:00');d.setDate(d.getDate()-n);return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');};
-    var winIni=_diasAntes(desde,15); // ventana hacia atrás: la fiel puede ser de una factura previa al rango
+    var winIni=_diasAntes(desde,7); // ventana atrás CORTA: solo para fiel/resp que caen días después de una factura justo previa
     var libros=[];
     (ABONOS||[]).forEach(function(a){
       var f=String(a.f||'').slice(0,10); if(f&&(f<winIni||f>hasta))return;
@@ -11795,7 +11795,10 @@ async function renderConciliacionBNC(){
       var iva=base*0.16, total=base+iva, fielUsd=base*0.10;
       var netoUsd=total-(iva*0.75)-(base*0.02)-(base*0.01)-(base*0.001)-fielUsd; // laboral normalmente 0
       var baseBs=Math.round(base*tasa*100)/100;
-      libros.push({tipo:'ingreso',bs:Math.round(netoUsd*tasa*100)/100,desc:'Fact '+a.fact+' — pago neto',lab:'Fact '+a.fact+' neto',fecha:f,_usado:false});
+      var enRango=(f>=desde);
+      // El NETO entra el MISMO día de la factura → solo si la factura cae dentro del rango (no antes).
+      if(enRango)libros.push({tipo:'ingreso',bs:Math.round(netoUsd*tasa*100)/100,desc:'Fact '+a.fact+' — pago neto',lab:'Fact '+a.fact+' neto',fecha:f,_usado:false});
+      // La fiel 10% (y el 3% resp. social) caen días después → pueden ser de una factura justo previa al rango.
       libros.push({tipo:'ingreso',bs:Math.round(fielUsd*tasa*100)/100,desc:'Fact '+a.fact+' — fiel cumplimiento 10%',lab:'Fact '+a.fact+' fiel 10%',fecha:f,_usado:false});
       // EGRESO que YO debo pagar: Responsabilidad Social 3% del monto base (ley). Lo transfiere
       // Betangar (lunes/martes). Se concilia contra la salida real del banco.
