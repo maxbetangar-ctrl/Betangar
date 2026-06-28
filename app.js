@@ -4334,33 +4334,78 @@ function renderMovBNC(){
 }
 // Movimientos REALES del banco (los empuja el webhook BNC a bnc_notificaciones). Esto es lo
 // que de verdad pasó en la cuenta; el registro interno (BNC_MOV) es el tracking de la app.
+// Estado de cuenta REAL del banco (API BNC): trae ENTRADAS y SALIDAS del período. Respaldo:
+// las notificaciones (que suelen ser solo entradas) si la API no responde. Caché 30s para no
+// consultar el banco en cada render.
 async function cargarMovRealesBNC(){
   var el=g('bnc-mov-reales'); if(!el)return;
   if(!DB_READY||!supabase){el.innerHTML='<div style="color:var(--text3);font-size:12px;padding:10px">Conecta la base para ver los movimientos del banco.</div>';return;}
-  // Mis cuentas (solo dígitos) para saber si una notificación es ENTRADA (me pagan: destino mío)
-  // o SALIDA (yo pago: origen mío). El webhook del BNC suele avisar solo de entradas.
+  var ymd=function(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');};
+  var hoy=new Date();
+  var hasta=gv('bnc-mov-hta')||ymd(hoy);
+  var desde=gv('bnc-mov-des')||ymd(new Date(hoy.getTime()-30*86400000));
+  // Caché corto por rango (evita martillar la API en cada render del tab).
+  if(window._movRealesCache&&window._movRealesCache.k===(desde+'|'+hasta)&&(Date.now()-window._movRealesCache.ts<30000)){el.innerHTML=window._movRealesCache.html;return;}
+  el.innerHTML='<div style="text-align:center;color:var(--text3);padding:14px;font-size:12px">🔄 Consultando el estado de cuenta del banco…</div>';
+  var html='';
+  try{
+    var hdr={'Content-Type':'application/json','Authorization':'Bearer '+SUPA_KEY};
+    var rs=await fetch(SUPA_URL+'/functions/v1/bnc-saldo',{method:'POST',headers:hdr,body:JSON.stringify({action:'saldo'}),signal:AbortSignal.timeout(30000)});
+    var ds=await rs.json(); var bancoMovs=[];
+    if(ds&&ds.ok&&ds.saldos){
+      var cuentas=Object.keys(ds.saldos);
+      for(var ci=0;ci<cuentas.length;ci++){
+        var acc=cuentas[ci];var moneda=(ds.saldos[acc]&&ds.saldos[acc].CurrencyCode)||'VES';
+        var rm=await fetch(SUPA_URL+'/functions/v1/bnc-saldo',{method:'POST',headers:hdr,body:JSON.stringify({action:'movimientos_fecha',account_number:acc,start_date:desde,end_date:hasta}),signal:AbortSignal.timeout(40000)});
+        var dm=await rm.json(); var movs=(dm&&dm.ok&&Array.isArray(dm.movimientos))?dm.movimientos:[];
+        movs.forEach(function(m){
+          var amt=Math.round(parseFloat(m.Amount||0)*100)/100;
+          var sd=String(m.BalanceDelta||'').toLowerCase();
+          var esEnt=sd.indexOf('ingreso')>=0||sd.indexOf('credito')>=0||sd.indexOf('crédito')>=0;
+          var refs=[m.ReferenceA,m.ReferenceB,m.ReferenceC,m.ReferenceD].filter(Boolean).join(' / ');
+          bancoMovs.push({fecha:String(m.Date||''),entrada:esEnt,monto:amt,moneda:moneda,ref:refs,desc:String(m.Type||'').trim()});
+        });
+      }
+    }
+    if(bancoMovs.length){
+      bancoMovs.sort(function(a,b){return b.fecha.localeCompare(a.fecha);});
+      html='<div class="tw"><table><thead><tr><th>Fecha</th><th>Tipo</th><th>Detalle</th><th>Ref</th><th style="text-align:right">Monto</th></tr></thead><tbody>'+
+        bancoMovs.slice(0,60).map(function(b){
+          var mon=String(b.moneda||'').toUpperCase();
+          var montoNum=(mon==='USD'||mon==='$')?('$'+b.monto.toLocaleString('es-VE',{minimumFractionDigits:2,maximumFractionDigits:2})):('Bs '+b.monto.toLocaleString('es-VE',{maximumFractionDigits:0}));
+          var col=b.entrada?'var(--green)':'var(--red)';
+          var badge=b.entrada?'<span class="badge bg">↓ Entrada</span>':'<span class="badge br">↑ Salida</span>';
+          return '<tr><td style="font-size:10px">'+b.fecha+'</td><td>'+badge+'</td><td style="font-size:11px">'+(b.desc||'—')+'</td><td style="font-family:var(--m);font-size:9px;color:var(--text3)">'+(b.ref||'')+'</td><td style="text-align:right;font-family:var(--m);font-weight:700;color:'+col+'">'+(b.entrada?'+':'−')+' '+montoNum+'</td></tr>';
+        }).join('')+'</tbody></table></div>'+
+        '<div style="font-size:10px;color:var(--text3);margin-top:6px">Estado de cuenta del banco '+desde+' → '+hasta+' (entradas y salidas reales del BNC).</div>';
+    }else{
+      html=await _movRealesNotifsHTML();
+    }
+  }catch(e){
+    try{ html=await _movRealesNotifsHTML(); }catch(e2){ html='<div style="color:var(--text3);font-size:12px;padding:10px">No se pudo consultar el banco: '+(e.message||e)+'</div>'; }
+  }
+  window._movRealesCache={k:desde+'|'+hasta,ts:Date.now(),html:html};
+  el.innerHTML=html;
+}
+// Respaldo: las notificaciones del webhook (entrada/salida por cuenta propia), si la API no responde.
+async function _movRealesNotifsHTML(){
   var mias={}; (BNC_CUENTAS||[]).forEach(function(c){var d=String(c.num||'').replace(/\D/g,''); if(d)mias[d]=true;});
   var soloDig=function(s){return String(s||'').replace(/\D/g,'');};
-  try{
-    var r=await supabase.from('bnc_notificaciones').select('*').order('fecha_recibido',{ascending:false}).limit(25);
-    if(r.error){el.innerHTML='<div style="color:var(--text3);font-size:12px;padding:10px">No se pudieron cargar: '+r.error.message+'</div>';return;}
-    var movs=r.data||[];
-    if(!movs.length){el.innerHTML='<div style="text-align:center;color:var(--text3);padding:14px;font-size:12px">El banco aún no ha reportado movimientos (llegan por la notificación del BNC).</div>';return;}
-    el.innerHTML='<div class="tw"><table><thead><tr><th>Fecha</th><th>Tipo</th><th>Detalle</th><th>Referencia</th><th style="text-align:right">Monto</th></tr></thead><tbody>'+
-      movs.map(function(n){
-        var monto=parseFloat(n.monto||0); var mon=String(n.moneda||'').toUpperCase();
-        var dest=soloDig(n.cuenta_destino), orig=soloDig(n.cuenta_origen);
-        // entrada = me pagan (destino es mi cuenta); salida = yo pago (origen es mi cuenta).
-        var esEntrada = mias[dest] ? true : (mias[orig] ? false : true);
-        var signo = esEntrada?'+':'−';
-        var col = esEntrada?'var(--green)':'var(--red)';
-        var montoNum=(mon==='USD'||mon==='$')?('$'+monto.toLocaleString('es-VE',{minimumFractionDigits:2,maximumFractionDigits:2})):('Bs '+monto.toLocaleString('es-VE',{maximumFractionDigits:0}));
-        var detalle=n.descripcion||n.tipo_label||n.tipo||'—';
-        var badge=esEntrada?'<span class="badge bg">↓ Entrada</span>':'<span class="badge br">↑ Salida</span>';
-        return '<tr><td style="font-size:10px">'+String(n.fecha_recibido||'').slice(0,16).replace('T',' ')+'</td><td>'+badge+'</td><td style="font-size:11px">'+detalle+'</td><td style="font-family:var(--m);font-size:10px">'+(n.referencia||'—')+'</td><td style="text-align:right;font-family:var(--m);font-weight:700;color:'+col+'">'+signo+' '+montoNum+'</td></tr>';
-      }).join('')+'</tbody></table></div>'+
-      '<div style="font-size:10px;color:var(--text3);margin-top:6px">Estas son las <b>notificaciones</b> del banco (normalmente <b>entradas</b>/pagos recibidos). Para el estado de cuenta completo con entradas y salidas, usa <b>Conciliación</b>.</div>';
-  }catch(e){el.innerHTML='<div style="color:var(--text3);font-size:12px;padding:10px">Error: '+(e.message||e)+'</div>';}
+  var r=await supabase.from('bnc_notificaciones').select('*').order('fecha_recibido',{ascending:false}).limit(25);
+  if(r.error)return '<div style="color:var(--text3);font-size:12px;padding:10px">No se pudieron cargar: '+r.error.message+'</div>';
+  var movs=r.data||[];
+  if(!movs.length)return '<div style="text-align:center;color:var(--text3);padding:14px;font-size:12px">Sin movimientos del banco en el rango.</div>';
+  return '<div style="font-size:10px;color:var(--yellow);margin-bottom:6px">⚠️ El estado de cuenta del banco no respondió; mostrando las notificaciones recibidas.</div>'+
+    '<div class="tw"><table><thead><tr><th>Fecha</th><th>Tipo</th><th>Detalle</th><th>Referencia</th><th style="text-align:right">Monto</th></tr></thead><tbody>'+
+    movs.map(function(n){
+      var monto=parseFloat(n.monto||0); var mon=String(n.moneda||'').toUpperCase();
+      var dest=soloDig(n.cuenta_destino), orig=soloDig(n.cuenta_origen);
+      var esEnt = mias[dest] ? true : (mias[orig] ? false : true);
+      var col = esEnt?'var(--green)':'var(--red)';
+      var montoNum=(mon==='USD'||mon==='$')?('$'+monto.toLocaleString('es-VE',{minimumFractionDigits:2,maximumFractionDigits:2})):('Bs '+monto.toLocaleString('es-VE',{maximumFractionDigits:0}));
+      var badge=esEnt?'<span class="badge bg">↓ Entrada</span>':'<span class="badge br">↑ Salida</span>';
+      return '<tr><td style="font-size:10px">'+String(n.fecha_recibido||'').slice(0,16).replace('T',' ')+'</td><td>'+badge+'</td><td style="font-size:11px">'+(n.descripcion||n.tipo_label||n.tipo||'—')+'</td><td style="font-family:var(--m);font-size:10px">'+(n.referencia||'—')+'</td><td style="text-align:right;font-family:var(--m);font-weight:700;color:'+col+'">'+(esEnt?'+':'−')+' '+montoNum+'</td></tr>';
+    }).join('')+'</tbody></table></div>';
 }
 
 function conciliarMov(id){var mov=BNC_MOV.find(function(m){return m.id===id;});if(!mov)return;mov.conciliado=true;bncMovGuardar(id);audit('Movimiento BNC conciliado',id);renderMovBNC();renderConciliacion();}
