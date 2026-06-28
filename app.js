@@ -392,6 +392,48 @@ async function gestionar2FA(){
     if(activo){ desactivar2FA(); } else { iniciar2FA(); }
   }catch(e){ iniciar2FA(); }
 }
+// Enrolamiento OBLIGATORIO de 2FA para roles de oficina sensibles. Devuelve Promesa<bool>:
+// true si quedó activado; false si canceló (→ se aborta el login). Bloquea hasta resolver.
+function forzar2FA(rol){
+  return new Promise(function(resolve){
+    if(!supabaseAuth||!supabaseAuth.auth){resolve(false);return;}
+    (async function(){
+      try{
+        var e=await supabaseAuth.auth.mfa.enroll({factorType:'totp',friendlyName:'Betangar '+(rol||'')+' '+Date.now()});
+        if(e&&e.error){alert('No se pudo iniciar 2FA: '+e.error.message);resolve(false);return;}
+        var d=(e&&e.data)?e.data:e; var factorId=d.id; var qr=d.totp.qr_code; var secret=d.totp.secret;
+        var ov=_mfaOverlay(
+          '<div style="font-size:18px;font-weight:800;margin-bottom:6px">🔐 Activá tu 2FA (obligatorio)</div>'+
+          '<div style="font-size:12px;color:#9fb4cc;margin-bottom:12px">Tu rol ('+(rol||'')+') maneja datos sensibles, así que necesitas verificación en dos pasos para entrar.<br>1) Escaneá el QR con Google Authenticator / Authy.<br>2) Escribí el código de 6 dígitos.</div>'+
+          '<div style="background:#fff;border-radius:10px;padding:10px;display:flex;justify-content:center;margin-bottom:10px"><img src="'+qr+'" alt="QR 2FA" style="width:170px;height:170px"></div>'+
+          '<div style="font-size:10px;color:#7e93ab;text-align:center;margin-bottom:10px">¿No puedes escanear? Clave: <code style="color:#a3e635;word-break:break-all">'+secret+'</code></div>'+
+          '<input id="_f2-code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" style="width:100%;box-sizing:border-box;padding:12px;font-size:22px;letter-spacing:8px;text-align:center;border-radius:8px;border:1px solid #2a4a6a;background:#0a1628;color:#fff;font-family:monospace" placeholder="------">'+
+          '<div id="_f2-err" style="color:#f87171;font-size:11px;min-height:14px;margin-top:6px"></div>'+
+          '<div style="display:flex;gap:8px;margin-top:12px">'+
+            '<button id="_f2-ok" style="flex:1;padding:11px;border:0;border-radius:8px;background:#15803d;color:#fff;font-weight:700;cursor:pointer">Activar y entrar</button>'+
+            '<button id="_f2-cancel" style="padding:11px 14px;border:1px solid #2a4a6a;border-radius:8px;background:transparent;color:#9fb4cc;cursor:pointer">Cancelar</button>'+
+          '</div>');
+        var inp=ov.querySelector('#_f2-code'); inp.focus();
+        var errEl=ov.querySelector('#_f2-err');
+        function cerrar(){try{document.body.removeChild(ov);}catch(_){}}
+        ov.querySelector('#_f2-cancel').onclick=async function(){ try{await supabaseAuth.auth.mfa.unenroll({factorId:factorId});}catch(_){} cerrar(); resolve(false); };
+        async function activar(){
+          var code=(inp.value||'').trim(); if(code.length<6){errEl.textContent='Código incompleto';return;}
+          errEl.textContent='Verificando…';
+          try{
+            var ch=await supabaseAuth.auth.mfa.challenge({factorId:factorId}); if(ch&&ch.error)throw new Error(ch.error.message);
+            var challengeId=(ch&&ch.data)?ch.data.id:ch.id;
+            var v=await supabaseAuth.auth.mfa.verify({factorId:factorId,challengeId:challengeId,code:code});
+            if(v&&v.error)throw new Error(v.error.message||'código inválido');
+            cerrar(); try{audit('2FA activado (obligatorio)',rol||'');}catch(_){} resolve(true);
+          }catch(err2){ errEl.textContent='Código inválido, intenta de nuevo'; }
+        }
+        ov.querySelector('#_f2-ok').onclick=activar;
+        inp.onkeydown=function(ev){ if(ev.key==='Enter')activar(); };
+      }catch(err){ alert('Error activando 2FA: '+(err&&err.message||err)); resolve(false); }
+    })();
+  });
+}
 // Desactivar 2FA (pide confirmación; quita todos los factores TOTP de la cuenta).
 async function desactivar2FA(){
   if(!confirm('¿Quitar el 2FA de tu cuenta? Volverás a entrar solo con usuario y contraseña.'))return;
@@ -462,6 +504,17 @@ async function doLogin(){
           if(ur && ur.data){ rol=ur.data.rol||rol; nombre=ur.data.nombre||nombre; usuario=ur.data.usuario||usuario; demo=!!ur.data.demo; activo=ur.data.activo!==false; }
         }catch(e2){}
         if(!activo){ err.textContent='Usuario desactivado. Contacta al administrador.'; err.style.display='block'; setTimeout(function(){err.style.display='none';err.textContent='Usuario o contrasena incorrectos';},4000); return; }
+        // 2FA OBLIGATORIO para roles de oficina sensibles (manejan dinero/PII). Operativos y operador
+        // quedan simples (decisión de Máximo). Si el rol lo exige y AÚN no tiene 2FA, se fuerza a
+        // activarlo ahora (bloquea la entrada hasta hacerlo). Quien ya lo tiene fue retado arriba.
+        if(['superadmin','admin','rrhh'].indexOf(rol)>=0){
+          var _tiene2FA=false;
+          try{ var _f=await supabaseAuth.auth.mfa.listFactors(); var _fd=(_f&&_f.data)?_f.data:_f; _tiene2FA=!!((_fd&&_fd.totp&&_fd.totp.length)||(_fd&&_fd.all&&_fd.all.some(function(x){return x.factor_type==='totp'&&x.status==='verified';}))); }catch(e){}
+          if(!_tiene2FA){
+            var _ok2fa=false; try{ _ok2fa=await forzar2FA(rol); }catch(e){ _ok2fa=false; }
+            if(!_ok2fa){ try{ await supabaseAuth.auth.signOut(); }catch(_e){} err.textContent='Tu rol requiere activar la verificación en dos pasos (2FA) para entrar.'; err.style.display='block'; setTimeout(function(){err.style.display='none';err.textContent='Usuario o contrasena incorrectos';},5000); return; }
+          }
+        }
         if(rol){ _entrarSesion({usuario:usuario, rol:rol, nombre:nombre, demo:demo}); return; }
       }
     } else { authMsg='Supabase no cargó'; }
@@ -6520,9 +6573,11 @@ async function crearUsuario(){
   var u=gv('nu-user').toLowerCase().trim(),p=gv('nu-pass'),nombre=gv('nu-nombre'),rol=gv('nu-rol'),email=(gv('nu-email')||'').trim().toLowerCase();
   if(!u||!p||!nombre){alert('Completa usuario, contrasena y nombre');return;}
   if(p.length<6){alert('La clave debe tener al menos 6 caracteres');return;}
-  // Si esta empresa exige correo (clones), el correo es obligatorio y debe ser válido. En Betangar
-  // (flag apagado) el correo es OPCIONAL → si no se pone, la API genera uno automático (sintético).
-  if(BTG_CONFIG.auth_correo_obligatorio && (!email||email.indexOf('@')<1)){ alert('Esta empresa requiere un CORREO real por usuario (para que puedan recuperar su contraseña).'); return; }
+  // Correo OBLIGATORIO para roles de oficina sensibles (superadmin/admin/rrhh): entran con correo+2FA
+  // y deben poder recuperar su clave. También si la empresa exige correo a todos (clones, flag on).
+  // Operativos y operador: correo opcional (la API genera uno sintético si no se pone).
+  var _rolOficina2fa=['superadmin','admin','rrhh'].indexOf(rol)>=0;
+  if((BTG_CONFIG.auth_correo_obligatorio||_rolOficina2fa) && (!email||email.indexOf('@')<1)){ alert((_rolOficina2fa?'El rol '+rol+' ':'Esta empresa ')+'requiere un CORREO real (para entrar por correo, 2FA y recuperar la clave).'); return; }
   var j=await btgUsuariosAPI('POST',{accion:'crear',usuario:u,password:p,nombre:nombre,rol:rol,email:email||null});
   if(j&&j.ok){ audit('Usuario creado',u+' rol:'+rol); ['nu-user','nu-pass','nu-nombre','nu-email'].forEach(function(id){sv(id,'');}); renderUsuarios(); alert('✅ Usuario '+u+' creado.'); }
   else alert('No se pudo crear: '+((j&&j.error)||''));
