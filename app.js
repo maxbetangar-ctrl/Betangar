@@ -3749,14 +3749,38 @@ async function guardarNominaHist(){
     :((yaExistia&&(nPrest||nMulta))?'\n\n(Esta semana ya estaba guardada → las cuotas NO se vuelven a avanzar.)':'');
   if(!confirm('¿Guardar la nómina de "'+n.sem+'" ('+n.mes+') en el historial?\nTotal $'+row.total_usd.toFixed(0)+' · '+n.choferes.length+' choferes, '+n.ayudantes.length+' ayudantes.'+avisoDesc+'\n(Si ya existe esa semana, se reemplaza.)'))return;
   if(!(DB_READY&&supabase)){alert('Sin conexión a la base.');return;}
-  var res=await supabase.from('nomina_historial').upsert(row,{onConflict:'id'}).select();
-  if(res.error){mostrarToast('No se pudo guardar: '+res.error.message,'error');return;}
-  var idx=NOMINA_HIST.findIndex(function(x){return x.id===id;});
-  if(idx>=0)NOMINA_HIST[idx]=row; else NOMINA_HIST.push(row);
-  // AVANCE REAL de las cuotas — solo la primera vez que se guarda esta semana.
-  if(!yaExistia){ try{ await aplicarAvanceDescuentos(n); }catch(e){console.log('avance desc err',e);} }
-  renderNominaHist(); audit('Nómina guardada en historial',id+' $'+row.total_usd.toFixed(0));
+  // ATÓMICO (cierra el crítico de doble-cobro): la RPC avanzar_nomina guarda la nómina Y avanza las
+  // cuotas de préstamos/multas en UNA transacción (todo-o-nada). Las cuotas que se completan se
+  // predicen ANTES (desde memoria) para el WhatsApp. Tras éxito, se RECARGA desde la BD (sin drift).
+  var prestPayload=(n._prestAplicar||[]).map(function(d){return {id:d.id,cuota:d.cuota};});
+  var multaPayload=(n._multaAplicar||[]).map(function(d){return {id:d.id,cuotaBs:d.cuotaBs};});
+  var prestCompletan=[];
+  if(!yaExistia)(n._prestAplicar||[]).forEach(function(d){var p=PRESTAMOS.find(function(x){return x.id===d.id;});if(p&&p.estado==='activo'&&(p.semanasPagadas||0)+1>=p.semanas)prestCompletan.push({nombre:d.empNombre||p.empNombre,monto:d.montoUsd||p.montoUsd});});
+  var rpc=await supabase.rpc('avanzar_nomina',{p_row:row,p_prestamos:prestPayload,p_multas:multaPayload});
+  if(rpc.error){
+    // Si la migración add_rpc_avanzar_nomina.sql aún no corrió, NO bloquear: camino anterior.
+    if(String(rpc.error.code)==='PGRST202'||/avanzar_nomina|could not find|does not exist|not found/i.test(rpc.error.message||'')){
+      var res=await supabase.from('nomina_historial').upsert(row,{onConflict:'id'}).select();
+      if(res.error){mostrarToast('No se pudo guardar: '+res.error.message,'error');return;}
+      var idx=NOMINA_HIST.findIndex(function(x){return x.id===id;}); if(idx>=0)NOMINA_HIST[idx]=row; else NOMINA_HIST.push(row);
+      if(!yaExistia){ try{ await aplicarAvanceDescuentos(n); }catch(e){console.log('avance desc err',e);} }
+    } else { mostrarToast('No se pudo guardar la nómina: '+rpc.error.message,'error'); return; }
+  } else {
+    // Éxito atómico → recargar el estado real desde la BD y avisar préstamos completados.
+    await _recargarNomPrestMulta();
+    prestCompletan.forEach(function(c){ sendWA('💳 Prestamo de '+(c.nombre||'')+' completamente pagado (USD '+(c.monto||'')+')',['rrhh']); });
+  }
+  renderNominaHist();
+  try{if(typeof renderPrestamos==='function')renderPrestamos();}catch(e){}
+  try{if(typeof renderMultas==='function')renderMultas();}catch(e){}
+  audit('Nómina guardada en historial',id+' $'+row.total_usd.toFixed(0));
   mostrarToast('✅ Nómina "'+n.sem+'" guardada'+((!yaExistia&&(nPrest||nMulta))?' (cuotas avanzadas)':'')+' en el historial','exito');
+}
+// Recarga préstamos/multas/nómina desde la BD tras la RPC atómica (estado real, sin drift de memoria).
+async function _recargarNomPrestMulta(){
+  try{ var pr=await supabase.from('prestamos').select('*'); if(pr&&!pr.error&&pr.data)PRESTAMOS=pr.data.map(function(x){return{id:x.id,empId:x.emp_id,empNombre:x.emp_nombre,fecha:x.fecha,montoUsd:parseFloat(x.monto_usd)||0,semanas:parseInt(x.semanas)||1,cuotaUsd:parseFloat(x.cuota_usd)||0,pagado:parseFloat(x.pagado)||0,semanasPagadas:parseInt(x.semanas_pagadas)||0,motivo:x.motivo||'',estado:x.estado||'activo'};}); }catch(e){}
+  try{ var ml=await supabase.from('multas').select('*'); if(ml&&!ml.error&&ml.data)MULTAS=ml.data.map(function(x){return{id:x.id,camId:x.cam_id,fecha:x.fecha,desc:x.descripcion||'',montoBs:parseFloat(x.monto_bs)||0,ref:x.ref||'',resp:x.responsable||'empresa',choferId:x.chofer_id||'',cuotas:parseInt(x.cuotas)||1,cuotaBs:parseFloat(x.cuota_bs)||0,pagadoBs:parseFloat(x.pagado_bs)||0,cuotasPagas:parseInt(x.cuotas_pagas)||0,estado:x.estado||'activo'};}); }catch(e){}
+  try{ var nh=await supabase.from('nomina_historial').select('*'); if(nh&&!nh.error&&Array.isArray(nh.data))NOMINA_HIST=nh.data; }catch(e){}
 }
 // Aplica el AVANCE real de las cuotas que calcNom marcó para esta semana (_ultimaNomina._prestAplicar/
 // _multaAplicar): sube semanas_pagadas / cuotas_pagas, marca 'pagado' al completar (WhatsApp UNA vez)
