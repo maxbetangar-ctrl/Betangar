@@ -4337,17 +4337,29 @@ function renderMovBNC(){
 async function cargarMovRealesBNC(){
   var el=g('bnc-mov-reales'); if(!el)return;
   if(!DB_READY||!supabase){el.innerHTML='<div style="color:var(--text3);font-size:12px;padding:10px">Conecta la base para ver los movimientos del banco.</div>';return;}
+  // Mis cuentas (solo dígitos) para saber si una notificación es ENTRADA (me pagan: destino mío)
+  // o SALIDA (yo pago: origen mío). El webhook del BNC suele avisar solo de entradas.
+  var mias={}; (BNC_CUENTAS||[]).forEach(function(c){var d=String(c.num||'').replace(/\D/g,''); if(d)mias[d]=true;});
+  var soloDig=function(s){return String(s||'').replace(/\D/g,'');};
   try{
-    var r=await supabase.from('bnc_notificaciones').select('*').order('fecha_recibido',{ascending:false}).limit(20);
+    var r=await supabase.from('bnc_notificaciones').select('*').order('fecha_recibido',{ascending:false}).limit(25);
     if(r.error){el.innerHTML='<div style="color:var(--text3);font-size:12px;padding:10px">No se pudieron cargar: '+r.error.message+'</div>';return;}
     var movs=r.data||[];
     if(!movs.length){el.innerHTML='<div style="text-align:center;color:var(--text3);padding:14px;font-size:12px">El banco aún no ha reportado movimientos (llegan por la notificación del BNC).</div>';return;}
-    el.innerHTML='<div class="tw"><table><thead><tr><th>Fecha</th><th>Descripcion</th><th>Referencia</th><th>Monto</th><th>Estado</th></tr></thead><tbody>'+
+    el.innerHTML='<div class="tw"><table><thead><tr><th>Fecha</th><th>Tipo</th><th>Detalle</th><th>Referencia</th><th style="text-align:right">Monto</th></tr></thead><tbody>'+
       movs.map(function(n){
         var monto=parseFloat(n.monto||0); var mon=String(n.moneda||'').toUpperCase();
-        var montoTxt=(mon==='USD'||mon==='$')?('$'+monto.toFixed(2)):('Bs '+monto.toLocaleString('es-VE',{maximumFractionDigits:0}));
-        return '<tr><td>'+String(n.fecha_recibido||'').slice(0,16).replace('T',' ')+'</td><td style="font-size:11px">'+(n.descripcion||'—')+'</td><td style="font-family:var(--m);font-size:10px">'+(n.referencia||'—')+'</td><td style="font-family:var(--m);color:var(--green)">'+montoTxt+'</td><td>'+(n.procesado?'<span class="badge bg">Procesado</span>':'<span class="badge by">Nuevo</span>')+'</td></tr>';
-      }).join('')+'</tbody></table></div>';
+        var dest=soloDig(n.cuenta_destino), orig=soloDig(n.cuenta_origen);
+        // entrada = me pagan (destino es mi cuenta); salida = yo pago (origen es mi cuenta).
+        var esEntrada = mias[dest] ? true : (mias[orig] ? false : true);
+        var signo = esEntrada?'+':'−';
+        var col = esEntrada?'var(--green)':'var(--red)';
+        var montoNum=(mon==='USD'||mon==='$')?('$'+monto.toLocaleString('es-VE',{minimumFractionDigits:2,maximumFractionDigits:2})):('Bs '+monto.toLocaleString('es-VE',{maximumFractionDigits:0}));
+        var detalle=n.descripcion||n.tipo_label||n.tipo||'—';
+        var badge=esEntrada?'<span class="badge bg">↓ Entrada</span>':'<span class="badge br">↑ Salida</span>';
+        return '<tr><td style="font-size:10px">'+String(n.fecha_recibido||'').slice(0,16).replace('T',' ')+'</td><td>'+badge+'</td><td style="font-size:11px">'+detalle+'</td><td style="font-family:var(--m);font-size:10px">'+(n.referencia||'—')+'</td><td style="text-align:right;font-family:var(--m);font-weight:700;color:'+col+'">'+signo+' '+montoNum+'</td></tr>';
+      }).join('')+'</tbody></table></div>'+
+      '<div style="font-size:10px;color:var(--text3);margin-top:6px">Estas son las <b>notificaciones</b> del banco (normalmente <b>entradas</b>/pagos recibidos). Para el estado de cuenta completo con entradas y salidas, usa <b>Conciliación</b>.</div>';
   }catch(e){el.innerHTML='<div style="color:var(--text3);font-size:12px;padding:10px">Error: '+(e.message||e)+'</div>';}
 }
 
