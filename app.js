@@ -2086,6 +2086,17 @@ function renderDash(){
   if(!(SESION&&SESION.rol==='rrhh')){g('s-porcobrar').textContent='$'+porcobrar.toLocaleString();if(g('s-porcobrar-sub'))g('s-porcobrar-sub').textContent=Math.max(0,totalV-vCobV).toLocaleString()+' viajes';}
   g('s-pbar').style.width=pct+'%';
   if(BNC_SALDO>0&&puedeVerSaldo()){g('s-saldo-bnc').textContent='Bs '+(BNC_SALDO/1000).toFixed(0)+'k';g('s-saldo-sub').textContent='Actualizado';}
+  // Utilidad Real = cobrado − TODOS los gastos (reemplaza el card "Resumen Financiero" redundante).
+  if(g('s-util')){
+    if(SESION&&SESION.rol==='rrhh'){ g('s-util').textContent='—'; if(g('s-util-sub'))g('s-util-sub').textContent='Restringido'; }
+    else {
+      var _ur=_utilReal(totalCob);
+      g('s-util').textContent='$'+Math.round(_ur).toLocaleString('es-VE');
+      g('s-util').style.color=_ur>=0?'var(--green)':'var(--red)';
+      var _su=g('stat-util'); if(_su)_su.style.borderTopColor=_ur>=0?'var(--green)':'var(--red)';
+      if(g('s-util-sub'))g('s-util-sub').textContent='cobrado − todos los gastos';
+    }
+  }
   // Charts
   var se=g('c-sem-svg');if(se)se.innerHTML=svgLine(SEM_HIST.map(function(s){return s.v;}),SEM_HIST.map(function(s){return s.s;}),'#a3e635');
   var cams=Object.keys(VX);
@@ -2370,6 +2381,22 @@ function renderAlertasCriticas(){
   el.innerHTML=al.slice(0,3).map(function(a){return'<div class="alert-'+(a.t==='r'?'r':'w')+'" style="margin-bottom:6px">'+a.txt+'</div>';}).join('');
 }
 
+// TODOS los gastos reales (fuente ÚNICA para Utilidad Real — la usan el dashboard Y el financiero,
+// para que no haya 2 fórmulas distintas). Incluye CxP PENDIENTES (Máximo: cuentan aunque no se hayan
+// pagado) y multas que paga la empresa. Préstamos NO (capital prestado que se recupera, no es gasto).
+function _totalEgresos(totalCob){
+  totalCob=totalCob||0;
+  var egNom=REGS.reduce(function(s,r){return s+(r.t*(cfg.chofer+cfg.ayud));},0);          // nómina
+  var egGas=GASOIL.reduce(function(s,g){return s+(g.m||0);},0);                            // combustible
+  var eg75=totalCob*0.075;                                                                 // 7.5% Betangar
+  var egFijos=(typeof GASTOS_FIJOS!=='undefined'?GASTOS_FIJOS:[]).reduce(function(s,gf){return s+(gf.monto||0);},0);
+  var egVars=(typeof GASTOS_VARIABLES!=='undefined'?GASTOS_VARIABLES:[]).reduce(function(s,gv){return s+(gv.usd||0);},0);
+  var egCxP=(typeof CXP!=='undefined'?CXP:[]).reduce(function(s,c){return s+(parseFloat(c.neto_pagar||c.netoPagar||c.total_usd||0)||0);},0); // TODAS (pagadas + pendientes)
+  var tasa=TASAS.bcvDolar||cfg.tasa||1;
+  var egMul=(typeof MULTAS!=='undefined'?MULTAS:[]).filter(function(m){return m.resp!=='chofer';}).reduce(function(s,m){return s+((m.montoBs||0)/tasa);},0); // multas que paga la empresa
+  return egNom+egGas+eg75+egFijos+egVars+egCxP+egMul;
+}
+function _utilReal(totalCob){ return (totalCob||0) - _totalEgresos(totalCob); }
 function renderDashFinanciero(totalM,totalCob,porcobrar){
   var el=g('dash-financiero');if(!el)return;
   totalM=totalM||REGS.reduce(function(s,r){return s+r.m;},0);
@@ -6261,14 +6288,11 @@ function renderFinDash(){
   var eg75=totalCob*0.075;
   var egFijos=GASTOS_FIJOS.reduce(function(s,gf){return s+gf.monto;},0);
   var egVars=GASTOS_VARIABLES.reduce(function(s,gv){return s+(gv.usd||0);},0);
-  // CxP pagadas como egreso real (neto pagado al proveedor)
-  var egCxP=CXP.filter(function(c){return c.estado==='pagada';}).reduce(function(s,c){return s+parseFloat(c.neto_pagar||c.netoPagar||0);},0);
-  // Multas pagadas por la empresa (no las que paga el chofer de su nómina)
-  var egMul=MULTAS.filter(function(m){return m.resp!=='chofer';}).reduce(function(s,m){return s+(m.cuotaBs?m.cuotaBs/(TASAS.bcvDolar||cfg.tasa):0);},0);
-  // Préstamos desembolsados (capital entregado)
-  var egPrest=PRESTAMOS.reduce(function(s,p){return s+parseFloat(p.montoUsd||0);},0);
-  var totalEg=egNom+egGas+eg75+egFijos+egVars+egCxP;
+  // CxP — TODAS (pagadas + pendientes): son gasto/obligación real (Máximo: cuentan aunque no se hayan pagado)
+  var egCxP=CXP.reduce(function(s,c){return s+(parseFloat(c.neto_pagar||c.netoPagar||c.total_usd||0)||0);},0);
   var utilBruta=totalCob-egNom-egGas;
+  // Total de egresos y Utilidad Neta = MISMA fuente única que el dashboard (_totalEgresos), para que coincidan.
+  var totalEg=_totalEgresos(totalCob);
   var utilNeta=totalCob-totalEg;
   el.innerHTML=
     '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px;margin-bottom:12px">'+
@@ -6279,7 +6303,7 @@ function renderFinDash(){
     '<div class="stat b"><div class="stat-lbl">Nomina Total</div><div class="stat-val" style="font-size:16px;color:var(--blue)">$'+egNom.toLocaleString()+'</div></div>'+
     '<div class="stat" style="border-top-color:var(--orange)"><div class="stat-lbl">Gastos Fijos</div><div class="stat-val" style="font-size:16px;color:var(--orange)">$'+egFijos.toLocaleString()+'</div></div>'+
     '<div class="stat" style="border-top-color:var(--purple)"><div class="stat-lbl">Gasoil</div><div class="stat-val" style="font-size:16px;color:var(--purple)">$'+egGas.toFixed(0)+'</div></div>'+
-    '<div class="stat" style="border-top-color:#e879f9"><div class="stat-lbl">CxP Pagadas</div><div class="stat-val" style="font-size:16px;color:#e879f9">$'+egCxP.toFixed(0)+'</div></div>'+
+    '<div class="stat" style="border-top-color:#e879f9"><div class="stat-lbl">CxP (todas)</div><div class="stat-val" style="font-size:16px;color:#e879f9">$'+egCxP.toFixed(0)+'</div></div>'+
     '<div class="stat" style="border-top-color:'+(utilNeta>=0?'var(--green)':'var(--red)')+'"><div class="stat-lbl">Utilidad Neta</div><div class="stat-val" style="font-size:16px;color:'+(utilNeta>=0?'var(--green)':'var(--red)')+'">$'+utilNeta.toFixed(0)+'</div></div>'+
     '</div>'+
     '<div class="cbox"><div class="ctitle">Distribucion de Ingresos</div>'+svgDonut([egNom,egGas,eg75,egFijos,egCxP,Math.max(1,utilNeta)],['Nomina','Gasoil','7.5%','Fijos','CxP','Utilidad'],['#60a5fa','#fbbf24','#a78bfa','#fb923c','#e879f9','#22c55e'])+'</div>';
