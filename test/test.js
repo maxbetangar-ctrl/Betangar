@@ -53,8 +53,8 @@ eq("más de 7 días sin tasa previa → null", app.getTasaFecha('2026-07-01', 'd
 
 // ── compCostoUnit: precio $/L FIJO por fuente (sin DOM → usa defaults) ──
 console.log('\ncompCostoUnit (defaults, sin inputs en el DOM stub):');
-app.compCostoUnit('tumaca', function (v) { eq("tumaca default 0.54", v, 0.54); });
-app.compCostoUnit('boscan', function (v) { eq("boscan default 0.50", v, 0.50); });
+app.compCostoUnit('tumaca', function (v) { eq("tumaca default 0.83", v, 0.83); });
+app.compCostoUnit('boscan', function (v) { eq("boscan default 0.78", v, 0.78); });
 
 // ── _nombreCanonico: alias de nombres mal escritos en planillas ──
 console.log('\n_nombreCanonico (alias de typos):');
@@ -72,6 +72,35 @@ eq("dos IMAU en la fila = 2× viajes", app.imauViajesPlanilla([{ay1:'IMAU',ay2:'
 eq("sin IMAU = 0", app.imauViajesPlanilla([{ay1:'PEDRO',ay2:'',t:5}]), 0);
 eq("'IMAU' parcial NO cuenta (exacto)", app.imauViajesPlanilla([{ay1:'IMAUX',t:5}]), 0);
 eq("lista vacía = 0", app.imauViajesPlanilla([]), 0);
+
+// ── DINERO: retenciones (money.js) — la fórmula que cobra/concilia. Si cambia un %, esto avisa. ──
+console.log('\ncalcRetenciones / perfilRetencion (money.js):');
+const aprox = (name, got, exp) => ok(name + ' (' + got + '≈' + exp + ')', Math.abs(got - exp) < 0.005);
+ok('calcRetenciones definida', typeof app.calcRetenciones === 'function');
+ok('perfilRetencion definida', typeof app.perfilRetencion === 'function');
+if (typeof app.calcRetenciones === 'function') {
+  const r = app.calcRetenciones(10000, app.RET_DEFAULT, null);
+  aprox('IVA 16%', r.iva, 1600);
+  aprox('total c/IVA', r.total, 11600);
+  aprox('ret IVA 75%', r.retIVA, 1200);
+  aprox('ret ISLR 2%', r.retISLR, 200);
+  aprox('ret Municipal 1%', r.retMun, 100);
+  aprox('timbre 0.1%', r.timbre, 10);
+  aprox('fiel 10%', r.fiel, 1000);
+  aprox('NETO Alcaldía', r.neto, 9090);
+  aprox('resp. social 3%', r.respSocial, 300);
+  const sumaRet = r.retIVA + r.retISLR + r.retMun + r.timbre + r.fiel + r.laboral;
+  aprox('neto + retenciones = total (no se pierde un centavo)', r.neto + sumaRet, r.total);
+  aprox('laboral manual 500 -> neto 8590', app.calcRetenciones(10000, app.RET_DEFAULT, 500).neto, 8590);
+  const p = app.perfilRetencion({ id: 'X', retenciones: { fiel: 0, respSocial: 0, retISLR: 0.03 } });
+  aprox('perfil propio: ISLR 3%', p.retISLR, 0.03);
+  aprox('perfil propio: IVA sigue default', p.iva, 0.16);
+  const r2 = app.calcRetenciones(10000, p, 0);
+  aprox('contrato sin fiel -> 0', r2.fiel, 0);
+  aprox('contrato sin resp.social -> 0', r2.respSocial, 0);
+  ok('perfilRetencion(null) = RET_DEFAULT', JSON.stringify(app.perfilRetencion(null)) === JSON.stringify(app.RET_DEFAULT));
+  aprox('base invalida -> neto 0', app.calcRetenciones('abc', app.RET_DEFAULT, null).neto, 0);
+}
 
 // ── Resumen ──
 console.log('\n──────────────');

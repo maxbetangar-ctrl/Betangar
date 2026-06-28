@@ -6,6 +6,7 @@ const fs = require('fs');
 const vm = require('vm');
 const path = require('path');
 
+const moneyCode = fs.readFileSync(path.join(__dirname, '..', 'money.js'), 'utf8');
 const code = fs.readFileSync(path.join(__dirname, '..', 'app.js'), 'utf8');
 
 const noop = function () {};
@@ -47,6 +48,9 @@ sandbox.self = sandbox;
 sandbox.globalThis = sandbox;
 
 vm.createContext(sandbox);
+// money.js primero (igual que en app.html) → calcRetenciones/perfilRetencion quedan globales.
+try { vm.runInContext(moneyCode, sandbox, { filename: 'money.js' }); }
+catch (e) { if (process.env.HARNESS_DEBUG) console.error('[harness] money.js:', e.message); }
 try {
   vm.runInContext(code, sandbox, { filename: 'app.js' });
 } catch (e) {

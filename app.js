@@ -198,31 +198,9 @@ var cfg={tarifa:(function(){
 })(),chofer:10,ayud:5,km:5000,tanque:4600,tasa:600,imau:2.5,tipos_mant:['Solo registro km','GARANTIA (Servicio 5000km)','CORRECTIVO','PREVENTIVO','CAMBIO DE ACEITE','CAMBIO FILTROS','FRENOS','SUSPENSION','ELECTRICO','MOTOR','TRANSMISION','OTROS'],mant_programados:[{id:'lavado',nombre:'Lavado',dias:7,campo:'lavado'},{id:'engrase',nombre:'Engrase',dias:15,campo:'engrase'},{id:'aceite',nombre:'Cambio de Aceite',dias:90,campo:'aceite'}],unidades_areas:['ADM - Administrativo','OPERATIVO - Jefe Operaciones','PORTERIA - Vigilancia','MANT - Mantenimiento','TRANS - Transporte','JAC-B001','JAC-B002','JAC-B003','JAC-B004','JAC-B005','JAC-B006','JAC-B007','JAC-B008','JAC-B009','JAC-B010','JAC-B011','JAC-B012','SRV-001','PEUGEOT-001','MOTO-001']};
 
 // ── PERFIL DE RETENCIONES (configurable POR CONTRATO) ──
-// Las tasas del contrato de la Alcaldía (IMAU Maracaibo) son el perfil POR DEFECTO. Cada contrato
-// puede traer su propio perfil (columna `retenciones` JSON en la tabla contratos); perfilRetencion()
-// hace merge sobre este default. Al clonar para un cliente con otra facturación: o cambias este
-// default, o creas su contrato con su propio perfil y lo eliges al registrar el pago.
-var RET_DEFAULT={iva:0.16, retIVA:0.75, retISLR:0.02, retMun:0.01, timbre:0.001, fiel:0.10, laboral:0, respSocial:0.03, fielDevuelve:true};
-// Devuelve el perfil de retenciones de un contrato (merge sobre el default). Acepta el objeto
-// contrato o su id (string). null/sin perfil → perfil Alcaldía (comportamiento histórico).
-function perfilRetencion(contrato){
-  var c=contrato;
-  if(typeof contrato==='string'&&contrato){ c=(typeof CONTRATOS!=='undefined'?CONTRATOS:[]).find(function(x){return String(x.id)===String(contrato);}); }
-  var p={}; for(var k in RET_DEFAULT)p[k]=RET_DEFAULT[k];
-  if(c&&c.retenciones&&typeof c.retenciones==='object'){ for(var k2 in c.retenciones){ var v=c.retenciones[k2]; if(v!==''&&v!=null&&!(typeof v==='number'&&isNaN(v)))p[k2]=v; } }
-  return p;
-}
-// Calcula el desglose de retenciones de UNA factura. base USD; perfil de perfilRetencion();
-// laboralUsd = monto MANUAL de retención laboral (override). Si no se pasa, usa perfil.laboral×base.
-// Fuente ÚNICA de la fórmula: la usan el preview (calcPagoAlc), el guardado y la conciliación.
-function calcRetenciones(base, perfil, laboralUsd){
-  var p=perfil||RET_DEFAULT; base=Number(base)||0;
-  var iva=base*p.iva, total=base+iva;
-  var retIVA=iva*p.retIVA, retISLR=base*p.retISLR, retMun=base*p.retMun, timbre=base*p.timbre, fiel=base*p.fiel;
-  var laboral=(laboralUsd!=null&&laboralUsd!==''&&!isNaN(parseFloat(laboralUsd)))?parseFloat(laboralUsd):base*(p.laboral||0);
-  var neto=total-retIVA-retISLR-retMun-timbre-fiel-laboral;
-  return {base:base,iva:iva,total:total,retIVA:retIVA,retISLR:retISLR,retMun:retMun,timbre:timbre,fiel:fiel,laboral:laboral,neto:neto,respSocial:base*(p.respSocial||0)};
-}
+// RET_DEFAULT, perfilRetencion() y calcRetenciones() viven ahora en money.js (cargado ANTES que
+// app.js en app.html) → matemática de dinero PURA y con pruebas automatizadas (tests/money.test.js).
+// Aquí solo se usan; no se redefinen.
 
 // PRECIO $/L de REFERENCIA por fuente. Dos usos: (1) DEFAULT del precio de compra (editable en
 // cada compra, porque varía entre una y otra) y (2) FALLBACK de costeo cuando el tanque aún no
