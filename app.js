@@ -705,7 +705,7 @@ function _iniciarSesionCore(){
     verificarAlertasServicio(); // Alertas servicio 5000km
     renderWidgetFlota();    // Widget estado flota
     cargarWidgetRutas();    // Widget rutas operativo
-    cargarWidgetJAC();      // Widget KM semana JAC
+    renderDashKmServicio(); // Panel KM/Servicio por unidad (reemplaza el viejo Reporte JAC)
     cargarPanelChoferes();  // Panel viajes choferes
     renderWidgetFlota();    // Widget viajes flota
     calcRanking&&calcRanking();
@@ -2097,6 +2097,7 @@ function renderDash(){
       if(g('s-util-sub'))g('s-util-sub').textContent='cobrado − todos los gastos';
     }
   }
+  try{renderDashKmServicio();}catch(e){} // refresca KM/Servicio con el km más fresco del checklist
   // Charts
   var se=g('c-sem-svg');if(se)se.innerHTML=svgLine(SEM_HIST.map(function(s){return s.v;}),SEM_HIST.map(function(s){return s.s;}),'#a3e635');
   var cams=Object.keys(VX);
@@ -11406,6 +11407,31 @@ function cargarWidgetRutas(){
   });
 }
 
+// Panel del dashboard: KM actual de cada unidad (del CHECKLIST del chofer vía kmActualCam — fuente
+// correcta, no el d.km viejo que daba 1km) + próximo mantenimiento y cuánto falta. Ordenado por
+// urgencia (lo que está más cerca del servicio, arriba). Reemplaza al viejo "Reporte JAC".
+function renderDashKmServicio(){
+  var el=g('dash-kmserv'); if(!el)return;
+  var cams={};
+  Object.keys(KM_DATA||{}).forEach(function(c){cams[c]=1;});
+  if(typeof FLOTA!=='undefined')Object.keys(FLOTA).forEach(function(c){cams[c]=1;});
+  var lista=Object.keys(cams).filter(function(c){return /^JAC-/.test(c);}).map(function(c){
+    var km=kmActualCam(c), prox=proxServicio(km);
+    return {cam:c, km:km, prox:prox, falta:prox-km};
+  }).filter(function(x){return x.km>0;}).sort(function(a,b){return a.falta-b.falta;});
+  if(!lista.length){ el.innerHTML='<div style="color:var(--text3);font-size:12px;padding:6px">Sin km cargados aún. Los carga el chofer en su checklist diario.</div>'; return; }
+  el.innerHTML='<table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="color:var(--text3);font-size:9px;text-transform:uppercase;letter-spacing:.5px"><th style="text-align:left;padding:4px">Unidad</th><th style="text-align:right;padding:4px">KM actual</th><th style="text-align:right;padding:4px">Próx. servicio</th><th style="text-align:right;padding:4px">Faltan</th></tr></thead><tbody>'+
+    lista.map(function(x){
+      var col=x.falta<=500?'var(--red)':(x.falta<=1500?'var(--yellow)':'var(--green2)');
+      var ic=x.falta<=500?'🔴':(x.falta<=1500?'🟡':'🟢');
+      return '<tr style="border-top:1px solid var(--border)">'+
+        '<td style="padding:5px;font-weight:700">'+ic+' '+x.cam.replace('JAC-','')+'</td>'+
+        '<td style="padding:5px;text-align:right;font-family:var(--m)">'+x.km.toLocaleString()+'</td>'+
+        '<td style="padding:5px;text-align:right;font-family:var(--m);color:var(--text2)">'+x.prox.toLocaleString()+'</td>'+
+        '<td style="padding:5px;text-align:right;font-family:var(--m);font-weight:700;color:'+col+'">'+x.falta.toLocaleString()+' km</td>'+
+      '</tr>';
+    }).join('')+'</tbody></table>';
+}
 function cargarWidgetJAC(){
   var cont = document.getElementById('dash-jac-widget');
   if(!cont) return;

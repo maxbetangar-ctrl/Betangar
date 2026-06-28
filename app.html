@@ -334,10 +334,10 @@ tr:hover td{background:rgba(45,255,122,.02)}
     <div class="card"><div class="sh" style="display:flex;justify-content:space-between;align-items:center"><div class="st">📍 Rutas Hoy</div><div id="rutas-resumen" style="font-size:10px;color:var(--text3)"></div></div><div id="rutas-status" style="margin-top:8px"></div></div>
     <div class="card" style="margin-bottom:10px">
       <div class="sh" style="display:flex;justify-content:space-between;align-items:center">
-        <div class="st">📊 Reporte JAC — KM Semana</div>
-        <button onclick="generarReporteJAC()" class="btn btn-s btn-sm" style="font-size:10px">📄 Generar</button>
+        <div class="st">🔧 KM / Servicio por Unidad</div>
+        <button onclick="sp('km')" class="btn btn-s btn-sm" style="font-size:10px">Ver todo</button>
       </div>
-      <div id="dash-jac-widget" style="margin-top:8px">
+      <div id="dash-kmserv" style="margin-top:8px">
         <div style="color:var(--text3);font-size:12px">Cargando...</div>
       </div>
     </div>
@@ -2155,7 +2155,7 @@ tr:hover td{background:rgba(45,255,122,.02)}
 </div>
 
 <script src="money.js?v=20260628n"></script>
-<script src="app.js?v=20260628x"></script>
+<script src="app.js?v=20260628y"></script>
 
 <!-- Modal global -->
 <div id="modal" class="moverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9990;align-items:center;justify-content:center;padding:16px">
