@@ -1522,8 +1522,11 @@ function descartarFallidos(){
   COLA_FALLIDOS=[];guardarFallidosLS();actualizarBannerCola();
   if(typeof mostrarToast==='function')mostrarToast('Registros fallidos descartados','info');
 }
-function guardarEnCola(t,d){
-  COLA_OFFLINE.push({t:t,d:d,_try:0});
+// Clave de conflicto por tabla con UNIQUE → la cola debe reintentar como UPSERT, no INSERT plano
+// (si no, una planilla/abono/contrato hecho offline choca con su UNIQUE y cae al dead-letter).
+var _COLA_ONCONFLICT={planillas:'p',abonos:'fact',contratos:'id',prestamos:'id',multas:'id',empleados:'id',pagos_alcaldia:'id',gastos_variables:'id',bnc_movimientos:'id'};
+function guardarEnCola(t,d,oc){
+  COLA_OFFLINE.push({t:t,d:d,_try:0,oc:oc||_COLA_ONCONFLICT[t]||null});
   guardarColaLS();
   actualizarBannerCola();
 }
@@ -1533,14 +1536,19 @@ function vaciarColaOffline(){
   COLA_OFFLINE=[];guardarColaLS();actualizarBannerCola();
   if(typeof mostrarToast==='function')mostrarToast('Cola offline vaciada','info');
 }
+var _procesandoCola=false;
 async function procesarColaOffline(){
+  if(_procesandoCola)return; // candado: la cola se dispara desde 3 sitios (init, intervalo 60s, botón)
   if(!COLA_OFFLINE.length||!DB_READY||!supabase)return;
+  _procesandoCola=true;
+  try{
   var pendientes=[...COLA_OFFLINE];
   COLA_OFFLINE=[];
   for(var i=0;i<pendientes.length;i++){
     var item=pendientes[i];
     try{
-      var r=await supabase.from(item.t).insert([item.d]);
+      // UPSERT si la tabla tiene clave de conflicto (no perder/duplicar al reintentar); si no, INSERT.
+      var r=item.oc?await supabase.from(item.t).upsert([item.d],{onConflict:item.oc}):await supabase.from(item.t).insert([item.d]);
       if(r.error){
         // El servidor respondió con error (ej. duplicado/constraint): NO reintentar infinito →
         // al DEAD-LETTER (visible), no se pierde en silencio.
@@ -1561,6 +1569,7 @@ async function procesarColaOffline(){
   guardarColaLS();
   actualizarBannerCola();
   if(COLA_OFFLINE.length===0)console.log('[Cola offline] Todo sincronizado ✅');
+  }finally{_procesandoCola=false;}
 }
 async function dbIn(t,d){
   if(DEMO_MODE)return null;
@@ -1616,7 +1625,7 @@ async function guardar(tabla, filas, opts){
   var arr=Array.isArray(filas)?filas:[filas];
   if(typeof DEMO_MODE!=='undefined'&&DEMO_MODE)return {ok:false,demo:true};
   if(!DB_READY||!supabase){
-    arr.forEach(function(f){if(typeof guardarEnCola==='function')guardarEnCola(tabla,f);});
+    arr.forEach(function(f){if(typeof guardarEnCola==='function')guardarEnCola(tabla,f,opts.onConflict);});
     if(typeof mostrarToast==='function')mostrarToast('Sin conexión: "'+tabla+'" quedó en cola offline','error');
     return {ok:false,encolado:true};
   }
@@ -1630,7 +1639,7 @@ async function guardar(tabla, filas, opts){
     if(opts.audit&&typeof audit==='function')audit(opts.audit,opts.auditDetalle||'');
     return {ok:true,data:res.data};
   }catch(e){
-    arr.forEach(function(f){if(typeof guardarEnCola==='function')guardarEnCola(tabla,f);});
+    arr.forEach(function(f){if(typeof guardarEnCola==='function')guardarEnCola(tabla,f,opts.onConflict);});
     if(typeof mostrarToast==='function')mostrarToast('Sin conexión: "'+tabla+'" quedó en cola offline','error');
     return {ok:false,encolado:true,error:e};
   }
@@ -2585,7 +2594,7 @@ function exportHistExcel(){
 //   ok=true  → ✅ verde, en la nube (Supabase), se cierra solo a los 6s.
 //   ok=false → ⚠️ rojo, SOLO en este equipo (localStorage); PERSISTE hasta que el usuario lo cierre,
 //              porque cerrar la app sin volver a importar con internet PIERDE los datos en otro equipo.
-function avisarEstadoGuardado(ok,n){
+function avisarEstadoGuardado(ok,n,detalle){
   try{
     var prev=document.getElementById('aviso-guardado');if(prev&&prev.parentNode)prev.parentNode.removeChild(prev);
     var box=document.createElement('div');
@@ -2597,7 +2606,7 @@ function avisarEstadoGuardado(ok,n){
       box.appendChild(document.createElement('div'));
       setTimeout(function(){if(box.parentNode)box.parentNode.removeChild(box);},6000);
     }else{
-      box.innerHTML='<b>⚠️ Guardado SOLO en este equipo</b><br>'+n+' planilla(s) quedaron en este navegador, <u>NO en la nube</u>. Si cierras sin reintentar, en otro equipo no aparecerán.<br><br>👉 Revisa tu internet/sesión y vuelve a importar el Excel.';
+      box.innerHTML='<b>⚠️ NO se guardó todo en la nube</b><br>'+n+' planilla(s) guardadas, pero hubo errores guardando en Supabase'+(detalle?':<br><span style="font-size:11px;color:var(--text2)">'+detalle+'</span>':'.')+'<br><br>👉 Revisa tu internet/sesión y vuelve a importar el Excel (no se duplica).';
       var btn=document.createElement('button');
       btn.textContent='Entendido';
       btn.style.cssText='margin-top:10px;background:var(--red);color:#fff;border:none;border-radius:8px;padding:7px 14px;font-size:12px;cursor:pointer;font-weight:700';
@@ -2750,6 +2759,7 @@ async function guardarImportacionEnDB(resultado){
 
     var LOTE=50;
     var guardadas=0;
+    var fallos=[]; // acumula errores REALES del servidor (antes se tragaban → "✅" falso)
     for(var i=0;i<recienAgregadas.length;i+=LOTE){
       var lote=recienAgregadas.slice(i,i+LOTE);
       var rows=lote.map(function(r){
@@ -2768,10 +2778,10 @@ async function guardarImportacionEnDB(resultado){
         return row;
       });
       try{
-        await supabase.from('planillas').upsert(rows,{onConflict:'p'});
-        guardadas+=lote.length;
-        progEl.textContent='💾 Guardando planillas: '+guardadas+'/'+recienAgregadas.length+'...';
-      }catch(e){console.log('Error lote planillas',e);}
+        var rp=await supabase.from('planillas').upsert(rows,{onConflict:'p'});
+        if(rp&&rp.error){fallos.push('planillas: '+rp.error.message);}
+        else{ guardadas+=lote.length; progEl.textContent='💾 Guardando planillas: '+guardadas+'/'+recienAgregadas.length+'...'; }
+      }catch(e){fallos.push('planillas (red): '+(e&&e.message||e));}
     }
 
     // 2. Guardar abonos nuevos
@@ -2783,8 +2793,8 @@ async function guardarImportacionEnDB(resultado){
       // factura ya existia, Postgres rechazaba el LOTE ENTERO en silencio y los abonos
       // nuevos legitimos NO se guardaban. Con upsert, lo existente se actualiza y lo nuevo
       // entra; nunca se duplica (lo garantiza UNIQUE) ni se pierde el lote.
-      try{await supabase.from('abonos').upsert(abRows,{onConflict:'fact'});}
-      catch(e){console.log('Error abonos',e);}
+      try{var ra=await supabase.from('abonos').upsert(abRows,{onConflict:'fact'});if(ra&&ra.error)fallos.push('abonos: '+ra.error.message);}
+      catch(e){fallos.push('abonos (red): '+(e&&e.message||e));}
     }
 
     // 3. Guardar gasoil nuevo
@@ -2792,22 +2802,29 @@ async function guardarImportacionEnDB(resultado){
       progEl.textContent='💾 Guardando gasoil...';
       var gasoilNuevo=GASOIL.slice(-resultado.gasoil);
       var gRows=gasoilNuevo.map(function(g){return{f:g.f,cam:g.cam,lit:g.lit,src:g.src,m:g.m};});
-      try{await supabase.from('gasoil').insert(gRows);}
-      catch(e){console.log('Error gasoil',e);}
+      try{var rg=await supabase.from('gasoil').insert(gRows);if(rg&&rg.error)fallos.push('gasoil: '+rg.error.message);}
+      catch(e){fallos.push('gasoil (red): '+(e&&e.message||e));}
     }
 
-    // Guardar otras tablas que tengan datos nuevos
-    if(CONTRATOS.length){try{await supabase.from('contratos').upsert(CONTRATOS.map(function(c){return{id:c.id,nombre:c.nombre,parte:c.parte,monto:c.monto,inicio:c.inicio,vencimiento:c.venc,condiciones:c.cond,estado:c.estado};}),{onConflict:'id'});}catch(e2){}}
-    if(PRESTAMOS.length){try{await supabase.from('prestamos').upsert(PRESTAMOS.map(function(p){return{id:p.id,emp_id:p.empId,emp_nombre:p.empNombre,fecha:p.fecha,monto_usd:p.montoUsd,semanas:p.semanas,cuota_usd:p.cuotaUsd,pagado:p.pagado,semanas_pagadas:p.semanasPagadas,motivo:p.motivo,estado:p.estado};}),{onConflict:'id'});}catch(e2){}}
-    if(MULTAS.length){try{await supabase.from('multas').upsert(MULTAS.map(function(m){return{id:m.id,cam_id:m.camId,fecha:m.fecha,descripcion:m.desc,monto_bs:m.montoBs,ref:m.ref,responsable:m.resp,chofer_id:m.choferId,cuotas:m.cuotas,cuota_bs:m.cuotaBs,pagado_bs:m.pagadoBs,cuotas_pagas:m.cuotasPagas,estado:m.estado};}),{onConflict:'id'});}catch(e2){}}
-    if(PAGOS_ALC.length){try{await supabase.from('pagos_alcaldia').upsert(PAGOS_ALC.map(function(p){return{id:p.id,fecha:p.fecha,factura:p.fact,referencia:p.ref,viajes:p.viajes,tasa:p.tasa,base_usd:p.base,iva_usd:p.iva,total_usd:p.total,neto_usd:p.neto,fiel_usd:p.fiel,fiel_devuelto:p.fielDevuelto,pct75_pagado:p.pct75};}),{onConflict:'id'});}catch(e2){}}
-    if(GASTOS_VARIABLES.length){try{await supabase.from('gastos_variables').upsert(GASTOS_VARIABLES.map(function(x){return{id:x.id,fecha:x.fecha,categoria:x.cat,descripcion:x.desc,monto_bs:x.bs,monto_usd:x.usd,referencia:x.ref,factura:x.fact};}),{onConflict:'id'});}catch(e2){}}
-    progEl.style.borderColor='var(--green)';
+    // Guardar otras tablas que tengan datos nuevos. Antes con catch(e2){} VAC\u00cdO \u2192 errores del
+    // servidor (RLS/constraint) se tragaban y se declaraba "\u2705" en falso. Ahora se chequea res.error.
+    var _otra=async function(nombre,prom){try{var r=await prom;if(r&&r.error)fallos.push(nombre+': '+r.error.message);}catch(e){fallos.push(nombre+' (red): '+(e&&e.message||e));}};
+    if(CONTRATOS.length)await _otra('contratos',supabase.from('contratos').upsert(CONTRATOS.map(function(c){return{id:c.id,nombre:c.nombre,parte:c.parte,monto:c.monto,inicio:c.inicio,vencimiento:c.venc,condiciones:c.cond,estado:c.estado};}),{onConflict:'id'}));
+    if(PRESTAMOS.length)await _otra('prestamos',supabase.from('prestamos').upsert(PRESTAMOS.map(function(p){return{id:p.id,emp_id:p.empId,emp_nombre:p.empNombre,fecha:p.fecha,monto_usd:p.montoUsd,semanas:p.semanas,cuota_usd:p.cuotaUsd,pagado:p.pagado,semanas_pagadas:p.semanasPagadas,motivo:p.motivo,estado:p.estado};}),{onConflict:'id'}));
+    if(MULTAS.length)await _otra('multas',supabase.from('multas').upsert(MULTAS.map(function(m){return{id:m.id,cam_id:m.camId,fecha:m.fecha,descripcion:m.desc,monto_bs:m.montoBs,ref:m.ref,responsable:m.resp,chofer_id:m.choferId,cuotas:m.cuotas,cuota_bs:m.cuotaBs,pagado_bs:m.pagadoBs,cuotas_pagas:m.cuotasPagas,estado:m.estado};}),{onConflict:'id'}));
+    if(PAGOS_ALC.length)await _otra('pagos_alcaldia',supabase.from('pagos_alcaldia').upsert(PAGOS_ALC.map(function(p){return{id:p.id,fecha:p.fecha,factura:p.fact,referencia:p.ref,viajes:p.viajes,tasa:p.tasa,base_usd:p.base,iva_usd:p.iva,total_usd:p.total,neto_usd:p.neto,fiel_usd:p.fiel,fiel_devuelto:p.fielDevuelto,pct75_pagado:p.pct75};}),{onConflict:'id'}));
+    if(GASTOS_VARIABLES.length)await _otra('gastos_variables',supabase.from('gastos_variables').upsert(GASTOS_VARIABLES.map(function(x){return{id:x.id,fecha:x.fecha,categoria:x.cat,descripcion:x.desc,monto_bs:x.bs,monto_usd:x.usd,referencia:x.ref,factura:x.fact};}),{onConflict:'id'}));
+    progEl.style.borderColor=fallos.length?'var(--red)':'var(--green)';
     try{localStorage.setItem('betangar_regs',JSON.stringify(REGS));localStorage.setItem('betangar_abonos',JSON.stringify(ABONOS));}catch(e3){}
     if(progEl.parentNode)progEl.parentNode.removeChild(progEl);
-    // CONFIRMACION VISIBLE: qued\u00f3 en la nube (Supabase). Se cierra solo.
-    avisarEstadoGuardado(true,guardadas);
-    audit('Importacion Excel guardada en DB',guardadas+' planillas');
+    // CONFIRMACI\u00d3N HONESTA: \u00e9xito solo si NO hubo errores; si los hubo, se avisa con detalle.
+    if(fallos.length){
+      avisarEstadoGuardado(false,guardadas,fallos.slice(0,4).join(' \u00b7 '));
+      audit('Importacion Excel CON ERRORES',guardadas+' planillas; fallos: '+fallos.join(' | ').slice(0,300));
+    } else {
+      avisarEstadoGuardado(true,guardadas);
+      audit('Importacion Excel guardada en DB',guardadas+' planillas');
+    }
 
   }catch(e){
     progEl.style.borderColor='var(--red)';
@@ -6362,16 +6379,21 @@ function calcularNomina(){
   return [];
 }
 
-function registrarPagoNom(){
+async function registrarPagoNom(){
   var ref=gv('np-ref');var total=parseFloat(gv('np-total-bs'))||0;
   if(!total){alert('Calcula la nomina primero');return;}
-  NOMINA_PAGOS.push({fecha:gv('np-fecha'),sem:gv('np-sem'),mes:gv('np-mes'),totalBs:total,ref:ref});
-  // Persistir el pago en Supabase (antes solo quedaba en memoria → se perdía al recargar).
-  try{ if(DB_READY&&supabase&&!DEMO_MODE){ supabase.from('pagos_nomina').insert([{fecha:gv('np-fecha'),sem:gv('np-sem'),mes:gv('np-mes'),total_bs:total,ref:ref}]).then(function(res){ if(res&&res.error)console.error('pagos_nomina persist:',res.error.message); }); } }catch(e){}
+  var row={fecha:gv('np-fecha'),sem:gv('np-sem'),mes:gv('np-mes'),total_bs:total,ref:ref};
+  // Persistir PRIMERO con guardar() (chequea error real + encola si no hay conexión). Antes era un
+  // insert "fire-and-forget" que mostraba "✅" SIEMPRE → el pago (dinero) se perdía en silencio.
+  var res=await guardar('pagos_nomina',row,{audit:'Nomina pagada',auditDetalle:'Bs'+total+' ref:'+ref});
+  if(!res.ok && !res.encolado && !res.demo){
+    alert('⚠️ NO se pudo registrar el pago de nómina: '+((res.error&&res.error.message)||'error de guardado')+'\n\nNO se guardó. Revisa conexión/sesión e intenta de nuevo.');
+    return;
+  }
+  NOMINA_PAGOS.push({fecha:row.fecha,sem:row.sem,mes:row.mes,totalBs:total,ref:ref});
   // Agregar como debito BNC
-  bncMovPush({id:Date.now()+'',fecha:gv('np-fecha'),monto:total,tipo:'debito',desc:'NOMINA '+gv('np-sem')+' '+gv('np-mes'),ref:ref,conciliado:true,pendienteAutorizacion:false});
-  audit('Nomina pagada','Bs'+total+' ref:'+ref);
-  alert('✅ Pago de nomina registrado. Bs'+total.toFixed(0));
+  bncMovPush({id:Date.now()+'',fecha:row.fecha,monto:total,tipo:'debito',desc:'NOMINA '+row.sem+' '+row.mes,ref:ref,conciliado:true,pendienteAutorizacion:false});
+  alert(res.encolado?('⏳ Sin conexión: el pago quedó EN COLA y se guardará al reconectar. Bs'+total.toFixed(0)):('✅ Pago de nomina registrado. Bs'+total.toFixed(0)));
   var hist=g('np-historial');
   if(hist)hist.innerHTML='<div class="tw"><table><thead><tr><th>Fecha</th><th>Semana</th><th>Mes</th><th>Total Bs</th><th>Ref</th></tr></thead><tbody>'+NOMINA_PAGOS.slice().reverse().map(function(p){return'<tr><td>'+formatFecha(p.fecha)+'</td><td>'+p.sem+'</td><td>'+p.mes+'</td><td style="font-family:var(--m);font-weight:700;color:var(--yellow)">Bs '+p.totalBs.toFixed(0)+'</td><td style="font-family:var(--m);font-size:10px">'+p.ref+'</td></tr>';}).join('')+'</tbody></table></div>';
 }
@@ -9451,8 +9473,8 @@ function portCargarHoy(){
     lista.innerHTML=res.data.map(function(r){
       return '<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border)">'+
         '<div style="width:8px;height:8px;border-radius:50%;background:'+(colores[r.tipo]||'#888')+';flex-shrink:0"></div>'+
-        '<div style="flex:1"><div style="font-size:13px;color:var(--text1)">'+(r.nombre||r.detalle||r.tipo)+'</div>'+
-        '<div style="font-size:10px;color:var(--text3)">'+r.hora+' · '+(r.subtipo||r.tipo)+'</div></div></div>';
+        '<div style="flex:1"><div style="font-size:13px;color:var(--text1)">'+_escHtml(r.nombre||r.detalle||r.tipo)+'</div>'+
+        '<div style="font-size:10px;color:var(--text3)">'+_escHtml(r.hora)+' · '+_escHtml(r.subtipo||r.tipo)+'</div></div></div>';
     }).join('');
   }).catch(function(){lista.innerHTML='<span style="color:var(--red);font-size:12px">Error cargando registros</span>';});
 }
