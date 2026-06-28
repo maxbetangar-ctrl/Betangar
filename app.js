@@ -1440,8 +1440,13 @@ async function cargarDatosDB(){
 }
 // ── COLA OFFLINE ──
 var COLA_OFFLINE=[];
+// DEAD-LETTER: registros que NO se pudieron guardar (error de servidor o 3 reintentos de red).
+// Antes se DESCARTABAN en silencio (pérdida invisible). Ahora caen aquí, visibles, para revisar/
+// reintentar/descartar a mano → tolerancia a fallos sin perder datos (ISO 25010).
+var COLA_FALLIDOS=[];
 // Cargar cola offline desde localStorage al iniciar (una sola clave)
 try{var _co=localStorage.getItem('betangar_cola_off');if(_co)COLA_OFFLINE=JSON.parse(_co);}catch(e){}
+try{var _cf=localStorage.getItem('betangar_cola_fallidos');if(_cf)COLA_FALLIDOS=JSON.parse(_cf);}catch(e){}
 try{localStorage.removeItem('btg_cola_offline');}catch(e){} // limpiar clave vieja en desuso
 // Reintento automático periódico: si hay conexión, vacía la cola sola (no espera al init).
 try{setInterval(function(){try{if(typeof procesarColaOffline==='function')procesarColaOffline();}catch(e){}},60000);}catch(e){}
@@ -1468,14 +1473,47 @@ async function refrescarPesado(){
 }
 try{setInterval(refrescarPesado,180000);}catch(e){}
 function guardarColaLS(){try{localStorage.setItem('betangar_cola_off',JSON.stringify(COLA_OFFLINE));}catch(e){}}
+function guardarFallidosLS(){try{localStorage.setItem('betangar_cola_fallidos',JSON.stringify(COLA_FALLIDOS));}catch(e){}}
+// Manda un registro al dead-letter (no se pierde; queda visible para revisar).
+function _aFallidos(item,motivo){
+  COLA_FALLIDOS.push({t:item.t,d:item.d,motivo:motivo||'',cuando:(typeof fechaVE==='function'?fechaVE():'')});
+  if(COLA_FALLIDOS.length>200)COLA_FALLIDOS=COLA_FALLIDOS.slice(-200); // tope sano
+  guardarFallidosLS();
+}
 function actualizarBannerCola(){
   var b=document.getElementById('db-status-banner');if(!b)return;
+  var html='';
   if(COLA_OFFLINE.length>0){
-    b.style.display='block';b.style.background='rgba(255,165,0,.15)';
-    b.innerHTML='📵 '+COLA_OFFLINE.length+' registro(s) en espera de guardarse'+
+    html+='📵 '+COLA_OFFLINE.length+' registro(s) en espera de guardarse'+
       ' <button onclick="procesarColaOffline()" style="margin-left:8px;background:#22c55e;color:#fff;border:none;border-radius:5px;padding:3px 9px;font-size:11px;font-weight:700;cursor:pointer">Reintentar</button>'+
       ' <button onclick="vaciarColaOffline()" style="background:#ef4444;color:#fff;border:none;border-radius:5px;padding:3px 9px;font-size:11px;font-weight:700;cursor:pointer">Descartar</button>';
-  } else { b.style.display='none'; }
+  }
+  if(COLA_FALLIDOS.length>0){
+    html+=(html?'<br>':'')+'⚠️ '+COLA_FALLIDOS.length+' registro(s) NO se pudieron guardar — revisar'+
+      ' <button onclick="reintentarFallidos()" style="margin-left:8px;background:#22c55e;color:#fff;border:none;border-radius:5px;padding:3px 9px;font-size:11px;font-weight:700;cursor:pointer">Reintentar</button>'+
+      ' <button onclick="verFallidos()" style="background:#3b82f6;color:#fff;border:none;border-radius:5px;padding:3px 9px;font-size:11px;font-weight:700;cursor:pointer">Ver</button>'+
+      ' <button onclick="descartarFallidos()" style="background:#ef4444;color:#fff;border:none;border-radius:5px;padding:3px 9px;font-size:11px;font-weight:700;cursor:pointer">Descartar</button>';
+  }
+  if(html){ b.style.display='block'; b.style.background=COLA_FALLIDOS.length>0?'rgba(239,68,68,.15)':'rgba(255,165,0,.15)'; b.innerHTML=html; }
+  else { b.style.display='none'; }
+}
+function verFallidos(){
+  if(!COLA_FALLIDOS.length){alert('No hay registros fallidos.');return;}
+  var txt=COLA_FALLIDOS.map(function(f,i){return (i+1)+') '+f.t+' — '+(f.motivo||'')+' ('+(f.cuando||'')+')';}).join('\n');
+  alert('Registros que NO se pudieron guardar:\n\n'+txt+'\n\nUsa "Reintentar" o "Descartar".');
+}
+function reintentarFallidos(){
+  if(!COLA_FALLIDOS.length)return;
+  // Devolverlos a la cola normal y procesar (les reinicia los intentos).
+  COLA_FALLIDOS.forEach(function(f){COLA_OFFLINE.push({t:f.t,d:f.d,_try:0});});
+  COLA_FALLIDOS=[];guardarFallidosLS();guardarColaLS();actualizarBannerCola();
+  procesarColaOffline();
+}
+function descartarFallidos(){
+  if(!COLA_FALLIDOS.length)return;
+  if(!confirm('¿Descartar '+COLA_FALLIDOS.length+' registro(s) fallido(s)? No se guardarán.'))return;
+  COLA_FALLIDOS=[];guardarFallidosLS();actualizarBannerCola();
+  if(typeof mostrarToast==='function')mostrarToast('Registros fallidos descartados','info');
 }
 function guardarEnCola(t,d){
   COLA_OFFLINE.push({t:t,d:d,_try:0});
@@ -1497,18 +1535,20 @@ async function procesarColaOffline(){
     try{
       var r=await supabase.from(item.t).insert([item.d]);
       if(r.error){
-        // El servidor respondió con error (ej. duplicado/constraint): NO reintentar infinito → descartar.
-        console.log('[Cola offline] descartado por error del servidor:',r.error.message);
-        if(typeof mostrarToast==='function')mostrarToast('Un registro en cola ('+item.t+') no se pudo guardar: '+r.error.message,'error');
+        // El servidor respondió con error (ej. duplicado/constraint): NO reintentar infinito →
+        // al DEAD-LETTER (visible), no se pierde en silencio.
+        console.log('[Cola offline] a revisar por error del servidor:',r.error.message);
+        _aFallidos(item,'error del servidor: '+r.error.message);
+        if(typeof mostrarToast==='function')mostrarToast('Un registro ('+item.t+') no se pudo guardar; quedó en "revisar".','error');
       } else {
         console.log('[Cola offline] Sincronizado:',item.t);
       }
     }catch(e){
-      // Falla de red real (sin respuesta): reintentar, pero descartar tras 3 intentos
-      // para que la cola nunca quede atascada para siempre.
+      // Falla de red real (sin respuesta): reintentar, pero tras 3 intentos al DEAD-LETTER
+      // (visible) para que la cola nunca quede atascada y nada se pierda en silencio.
       item._try=(item._try||0)+1;
       if(item._try<3){COLA_OFFLINE.push(item);}
-      else{console.log('[Cola offline] descartado tras 3 intentos:',item.t);}
+      else{ console.log('[Cola offline] a revisar tras 3 intentos:',item.t); _aFallidos(item,'sin conexión tras 3 intentos'); }
     }
   }
   guardarColaLS();
