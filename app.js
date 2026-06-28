@@ -7088,7 +7088,7 @@ async function pedirNuevoToken(){
   }
 }
 
-function validarToken(){
+async function validarToken(){
   var codigo=g('tok-codigo')?g('tok-codigo').value.trim():'';
   var motivo=g('tok-motivo')?g('tok-motivo').value.trim():'';
   var errEl=g('tok-error');
@@ -7098,7 +7098,22 @@ function validarToken(){
   var _local=PENDING_TOKEN_CB[_tk];
   var _matchActivo=TOKEN_ACTIVO&&codigo===TOKEN_ACTIVO.codigo;
   if(!_matchActivo&&!_local){if(errEl){errEl.style.display='block';errEl.style.color='var(--red)';errEl.textContent='Codigo incorrecto o sin acción pendiente en esta sesión.';}return;}
-  // Token valido
+  // ── SERVER-AUTHORITATIVE (cierre del bypass crítico): NO basta con que el código coincida con el
+  // generado en ESTE navegador. Antes, el propio solicitante leía TOKEN_ACTIVO.codigo en la consola
+  // y se auto-aprobaba. Ahora se EXIGE al servidor que el superadmin lo haya APROBADO (aprobado=true)
+  // y que no esté usado, antes de ejecutar la acción. (El enforcement a nivel de datos es la Tanda RLS.)
+  if(errEl){errEl.style.display='block';errEl.style.color='var(--text2)';errEl.textContent='Verificando aprobación del administrador…';}
+  try{
+    await _ensureJWT();
+    var _vurl=SUPA_URL+'/rest/v1/tokens_pendientes?select=id,aprobado,usado&token=eq.'+encodeURIComponent(codigo)+'&order=created_at.desc&limit=1';
+    var _vr=await fetch(_vurl,{headers:_tokRestHdr({})});
+    var _vrows=_vr.ok?await _vr.json():null;
+    var _vrow=_vrows&&_vrows[0];
+    if(!_vrow){ if(errEl){errEl.style.color='var(--red)';errEl.textContent='Ese código no está registrado en el servidor. Solicita el token de nuevo.';} return; }
+    if(_vrow.usado===true){ if(errEl){errEl.style.color='var(--red)';errEl.textContent='Ese token ya fue usado.';} return; }
+    if(!(_vrow.aprobado===true||_vrow.aprobado==='true')){ if(errEl){errEl.style.color='var(--red)';errEl.textContent='⏳ El administrador aún NO ha aprobado este token. Espera su aprobación.';} return; }
+  }catch(e){ if(errEl){errEl.style.color='var(--red)';errEl.textContent='No se pudo verificar la aprobación (revisa conexión/sesión). Intenta de nuevo.';} return; }
+  // Aprobado por el servidor → ejecutar.
   var _accion=TOKEN_ACTIVO?TOKEN_ACTIVO.accion:(window._tokenAccion||'modificacion');
   audit('Token validado',SESION.nombre+' ejecuto: '+_accion+' -- Motivo: '+motivo);
   // Marcar como usado en el panel de tokens pendientes (fetch a PostgREST)
