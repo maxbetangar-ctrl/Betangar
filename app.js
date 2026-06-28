@@ -372,6 +372,16 @@ async function iniciar2FA(){
     inp.onkeydown=function(e){ if(e.key==='Enter')activar(); };
   }catch(err){ alert('Error 2FA: '+(err&&err.message||err)); }
 }
+// Acceso UNIVERSAL al 2FA (menú lateral, todos los roles): si ya está activo ofrece quitarlo,
+// si no, lo activa. Así cualquier usuario (no solo admin/config) protege su propia cuenta.
+async function gestionar2FA(){
+  if(!supabaseAuth||!supabaseAuth.auth){alert('Auth no disponible. Inicia sesión de nuevo.');return;}
+  try{
+    var fr=await supabaseAuth.auth.mfa.listFactors(); var fd=(fr&&fr.data)?fr.data:fr;
+    var activo=(fd&&fd.totp&&fd.totp.length)||(fd&&fd.all&&fd.all.some(function(x){return x.factor_type==='totp'&&x.status==='verified';}));
+    if(activo){ desactivar2FA(); } else { iniciar2FA(); }
+  }catch(e){ iniciar2FA(); }
+}
 // Desactivar 2FA (pide confirmación; quita todos los factores TOTP de la cuenta).
 async function desactivar2FA(){
   if(!confirm('¿Quitar el 2FA de tu cuenta? Volverás a entrar solo con usuario y contraseña.'))return;
