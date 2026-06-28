@@ -9425,8 +9425,131 @@ function aplicarMarca(){
     }
   }catch(e){}
 }
+// ── TOOLTIPS: descripción al pasar el mouse por botones (reduce "¿para qué es este botón?") ──
+// Diccionario función→texto. aplicarTooltips() pone el title en cada [onclick] que coincida, sin
+// pisar títulos ya puestos. Un MutationObserver lo re-aplica a lo que se dibuja dinámicamente.
+var TOOLTIPS={
+  doLogin:'Entrar al sistema con tu usuario/correo y contraseña',
+  cerrarSesion:'Cerrar tu sesión y volver a la pantalla de inicio',
+  olvideContrasena:'Recibir por correo un enlace para restablecer tu contraseña',
+  gestionar2FA:'Activar o quitar la verificación en dos pasos (2FA) de tu cuenta',
+  iniciar2FA:'Activar verificación en dos pasos (2FA) con tu teléfono',
+  desactivar2FA:'Quitar la verificación en dos pasos de tu cuenta',
+  toggleMenu:'Abrir el menú de secciones',
+  imprimirPagina:'Imprimir o guardar como PDF la vista actual',
+  exportExcelCompleto:'Descargar TODOS los datos del sistema en un archivo Excel',
+  // Planillas / operación
+  guardarPlanilla:'Guardar esta planilla de viajes',
+  asignarTemporal:'Asignar un trabajador temporal a la planilla',
+  limpiarTemporal:'Quitar el trabajador temporal asignado',
+  // Alcaldía / cobros
+  guardarPagoAlcaldia:'Registrar un pago recibido de la Alcaldía (calcula neto y retenciones)',
+  guardarAbono:'Registrar un abono/cobro recibido',
+  enviarRecordatorioCobranza:'Enviar por WhatsApp un recordatorio de cobranza',
+  // Nómina
+  calcularNomina:'Calcular la nómina de la semana/mes seleccionado',
+  registrarPagoNom:'Registrar el pago de la nómina (queda en el historial y en el banco)',
+  montarNominaBNC:'Preparar el lote de pagos de nómina para enviar al banco BNC',
+  imprimirNomina:'Imprimir/PDF de la nómina',
+  exportNomExcel:'Descargar la nómina en Excel',
+  guardarNominaHist:'Guardar esta semana de nómina en el historial',
+  renderNominaHist:'Ver el historial de nóminas pagadas',
+  // Empleados / RRHH
+  guardarEmpleado:'Guardar los datos del empleado',
+  guardarPrestamo:'Registrar un préstamo a un empleado (se descuenta en cuotas de la nómina)',
+  guardarMulta:'Registrar una multa a un empleado (se descuenta en cuotas)',
+  imprimirCarnets:'Imprimir los carnets de identificación del personal',
+  marcarTodosPresente:'Marcar a todo el personal como presente hoy',
+  // Banco / BNC
+  consultarSaldoBNC:'Consultar el saldo real en el banco BNC',
+  bncProbarSaldo:'Probar la conexión con el BNC trayendo el saldo',
+  bncTestConexion:'Probar que las credenciales del BNC funcionan',
+  testBNC:'Probar la conexión con el banco BNC',
+  bncGuardarConfig:'Guardar las credenciales/configuración del BNC',
+  guardarConfigBNC:'Guardar la configuración del banco BNC',
+  registrarMovManual:'Registrar manualmente un movimiento bancario',
+  renderMovBNC:'Ver los movimientos del banco',
+  renderConciliacionBNC:'Conciliar: cruzar los movimientos del banco con lo registrado en la app',
+  conciliarAutomatico:'Intentar emparejar automáticamente banco vs registros',
+  asociarPagoBNC:'Asociar un movimiento del banco a un pago/cobro',
+  ignorarPagoBNC:'Marcar este movimiento del banco como ignorado',
+  imprimirReporteBancario:'Imprimir/PDF del reporte del banco',
+  // Combustible
+  guardarCompraCombustible:'Registrar una compra de combustible al tanque',
+  addCombustible:'Agregar/surtir combustible a una unidad',
+  guardarMedicionTanque:'Guardar la medición (cubicación) del tanque',
+  nuevoVehiculoComb:'Agregar un vehículo al control de combustible',
+  previsualizarCambioPrecio:'Ver cómo quedaría el cambio de precio antes de aplicarlo',
+  confirmarCambioPrecio:'Aplicar el cambio de precio del combustible',
+  imprimirCombustible:'Imprimir/PDF del combustible',
+  imprimirReporteCombustible:'Imprimir/PDF del reporte de combustible',
+  generarReporteCombustible:'Generar el reporte de combustible',
+  analizarReporteGemini:'Analizar el reporte con inteligencia artificial (Gemini)',
+  // Mantenimiento / flota
+  agregarCamion:'Agregar una unidad/camión a la flota',
+  guardarKm:'Guardar el kilometraje de la unidad',
+  guardarMantProg:'Guardar un mantenimiento programado',
+  registrarCambioLl:'Registrar un cambio de llantas',
+  ordenServicio:'Generar una orden de servicio de mantenimiento',
+  imprimirMantenimiento:'Imprimir/PDF de mantenimiento',
+  // Proveedores / CxP / caja
+  guardarProveedor:'Guardar los datos del proveedor',
+  guardarCXP:'Registrar una cuenta por pagar',
+  guardarCxP:'Registrar una cuenta por pagar',
+  confirmarPagoCxP:'Confirmar el pago de esta cuenta por pagar',
+  abrirGastoCaja:'Registrar un gasto de caja chica',
+  guardarGastoCaja:'Guardar el gasto de caja chica',
+  abrirReposicionCaja:'Reponer fondo a la caja chica',
+  guardarReposicion:'Guardar la reposición de caja chica',
+  guardarGastoVar:'Registrar un gasto variable',
+  guardarGastoFijo:'Guardar un gasto fijo mensual',
+  // Inventario
+  guardarItemInv:'Guardar un artículo del inventario',
+  registrarUsoInv:'Registrar el uso/salida de un artículo del inventario',
+  // Contratos
+  guardarContrato:'Guardar el contrato (incluye sus retenciones si aplica)',
+  // Documentos
+  guardarDocCam:'Guardar un documento de la unidad (con su vencimiento)',
+  guardarDocEmp:'Guardar un documento del empleado (con su vencimiento)',
+  // Config / usuarios
+  guardarConfig:'Guardar la configuración del sistema',
+  cambiarContrasena:'Cambiar la contraseña de un usuario',
+  crearUsuario:'Crear un nuevo usuario del sistema',
+  guardarConfigWA:'Guardar la configuración de WhatsApp',
+  guardarGeminiKey:'Guardar la clave de la IA (Gemini)',
+  guardarCfgCorrelativo:'Guardar el correlativo (numeración) de documentos',
+  // Reportes / WhatsApp / Excel genéricos
+  enviarMensajeWA:'Enviar un mensaje por WhatsApp',
+  enviarReporteJAC:'Enviar el reporte a JAC por WhatsApp',
+  enviarResumenAnomaliasWA:'Enviar por WhatsApp el resumen de anomalías de RRHH',
+  generarQRChoferes:'Generar los códigos QR para los choferes (app del chofer)',
+  renderSaludDatos:'Ver el panel de Salud de Datos (qué se está guardando bien)',
+  exportarAuditoria:'Descargar el registro de auditoría',
+  exportarAsistencia:'Descargar la asistencia en Excel'
+};
+function aplicarTooltips(){
+  try{
+    var els=document.querySelectorAll('[onclick]');
+    for(var i=0;i<els.length;i++){
+      var el=els[i]; if(el.getAttribute('title'))continue;
+      var oc=el.getAttribute('onclick')||'';
+      for(var fn in TOOLTIPS){ if(oc.indexOf(fn+'(')>=0){ el.setAttribute('title',TOOLTIPS[fn]); break; } }
+    }
+  }catch(e){}
+}
+var _ttPend=false;
+function _initTooltipsObserver(){
+  try{
+    aplicarTooltips();
+    if(window.MutationObserver&&document.body){
+      var obs=new MutationObserver(function(){ if(_ttPend)return; _ttPend=true; setTimeout(function(){_ttPend=false;aplicarTooltips();},600); });
+      obs.observe(document.body,{childList:true,subtree:true});
+    }
+  }catch(e){}
+}
 window.onload=function(){
   aplicarMarca();
+  _initTooltipsObserver();
   var uEl=document.getElementById('login-user');if(uEl)uEl.focus();
   // Atajo dev: auto-login si URL tiene ?dev
   if(window.location.search.includes('dev')){
