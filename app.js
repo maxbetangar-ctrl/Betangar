@@ -1910,10 +1910,16 @@ function bncMovRow(m){
 }
 function bncMovPush(m){ // agrega a memoria Y persiste (upsert por id, idempotente)
   BNC_MOV.push(m);
-  try{ if(DB_READY&&supabase&&!DEMO_MODE){ supabase.from('bnc_movimientos').upsert([bncMovRow(m)],{onConflict:'id'}).then(function(res){ if(res&&res.error)console.error('bnc_mov persist:',res.error.message); }); } }catch(e){}
+  if(DEMO_MODE)return;
+  if(!(DB_READY&&supabase)){ if(typeof guardarEnCola==='function')guardarEnCola('bnc_movimientos',bncMovRow(m),'id'); return; }
+  try{ supabase.from('bnc_movimientos').upsert([bncMovRow(m)],{onConflict:'id'}).then(function(res){ if(res&&res.error){ console.error('bnc_mov persist:',res.error.message); if(typeof guardarEnCola==='function')guardarEnCola('bnc_movimientos',bncMovRow(m),'id'); } }); }
+  catch(e){ if(typeof guardarEnCola==='function')guardarEnCola('bnc_movimientos',bncMovRow(m),'id'); }
 }
 function bncMovGuardar(id){ // re-persiste un movimiento ya existente tras cambiarlo (conciliar/confirmar)
-  try{ var m=BNC_MOV.find(function(x){return String(x.id)===String(id);}); if(m&&DB_READY&&supabase&&!DEMO_MODE){ supabase.from('bnc_movimientos').upsert([bncMovRow(m)],{onConflict:'id'}).then(function(res){ if(res&&res.error)console.error('bnc_mov upd:',res.error.message); }); } }catch(e){}
+  var m=BNC_MOV.find(function(x){return String(x.id)===String(id);}); if(!m||DEMO_MODE)return;
+  if(!(DB_READY&&supabase)){ if(typeof guardarEnCola==='function')guardarEnCola('bnc_movimientos',bncMovRow(m),'id'); return; }
+  try{ supabase.from('bnc_movimientos').upsert([bncMovRow(m)],{onConflict:'id'}).then(function(res){ if(res&&res.error){ console.error('bnc_mov upd:',res.error.message); if(typeof guardarEnCola==='function')guardarEnCola('bnc_movimientos',bncMovRow(m),'id'); } }); }
+  catch(e){ if(typeof guardarEnCola==='function')guardarEnCola('bnc_movimientos',bncMovRow(m),'id'); }
 }
 function g(id){return document.getElementById(id);}
 function gv(id){var el=g(id);return el?el.value:'';}
@@ -4023,20 +4029,21 @@ async function montarNominaBNC(){
   // IDEMPOTENCIA: si este período ya se montó, pedir confirmación explícita (evita doble pago BNC).
   var periodo=(mes||'')+'|'+(sem||'');
   if(DB_READY&&supabase&&!DEMO_MODE){
-    try{
-      var ex=await supabase.from('pagos_bnc').select('id').eq('periodo',periodo).limit(1);
-      if(ex&&ex.data&&ex.data.length){
-        if(!confirm('⚠ Ya montaste el pago BNC de este período ('+periodo+').\n¿Montarlo OTRA VEZ? Esto puede DUPLICAR el pago al banco.'))return;
-      }
-    }catch(e){}
+    var ex; try{ ex=await supabase.from('pagos_bnc').select('id').eq('periodo',periodo).limit(1); }catch(e){ ex={error:e}; }
+    if(ex&&ex.error){
+      // No pudimos verificar duplicado → NO seguir a ciegas (evita doble pago si ya se montó).
+      if(!confirm('⚠ No se pudo VERIFICAR si este período ('+periodo+') ya se montó (error/conexión).\n¿Continuar de todos modos? Si ya lo montaste antes, esto puede DUPLICAR el pago al banco.'))return;
+    } else if(ex&&ex.data&&ex.data.length){
+      if(!confirm('⚠ Ya montaste el pago BNC de este período ('+periodo+').\n¿Montarlo OTRA VEZ? Esto puede DUPLICAR el pago al banco.'))return;
+    }
   }
   // Persistir el lote en pagos_bnc (historial/forense + base de la idempotencia).
   if(DB_READY&&supabase&&!DEMO_MODE){
     try{
       var rows=pagos.map(function(p){return {periodo:periodo,empleado:p.empleado,cuenta:p.cuenta,banco:p.banco,tipo_cuenta:p.tipo,monto_bs:p.montoBs,monto_usd:p.montoUsd,ref:'',estado:'pendiente_autorizacion',fecha:new Date().toISOString().split('T')[0]};});
       var rp=await supabase.from('pagos_bnc').insert(rows);
-      if(rp&&rp.error)console.error('pagos_bnc persist:',rp.error.message);
-    }catch(e){console.error('pagos_bnc:',e);}
+      if(rp&&rp.error&&typeof mostrarToast==='function')mostrarToast('⚠ El registro del lote BNC NO se guardó ('+rp.error.message+'). La próxima vez la app no detectará este montaje como duplicado — anótalo.','error');
+    }catch(e){ if(typeof mostrarToast==='function')mostrarToast('⚠ El registro del lote BNC NO se guardó (sin conexión). La idempotencia no quedará registrada.','error'); }
   }
   // Cola en memoria para la UI del banco (igual que antes).
   pagos.forEach(function(p){
@@ -6559,11 +6566,16 @@ function imprimirReporteFinanciero(){
 async function btgUsuariosAPI(method, body){
   var token='';
   try{ var s=await supabaseAuth.auth.getSession(); token=(s&&s.data&&s.data.session)?s.data.session.access_token:''; }catch(e){}
-  var r=await fetch('https://www.preescolargeppetto.com/api/btg-usuarios',{
-    method:method, headers:{'Content-Type':'application/json', Authorization:'Bearer '+token},
-    body: method==='GET'?undefined:JSON.stringify(body||{})
-  });
-  return await r.json();
+  // Timeout + try/catch: depende de un dominio externo (geppetto); si cae o tarda, NO colgar la UI.
+  try{
+    var r=await fetch('https://www.preescolargeppetto.com/api/btg-usuarios',{
+      method:method, headers:{'Content-Type':'application/json', Authorization:'Bearer '+token},
+      body: method==='GET'?undefined:JSON.stringify(body||{}),
+      signal: AbortSignal.timeout(20000)
+    });
+    if(!r.ok){ var t=''; try{t=await r.text();}catch(e){} return {ok:false, error:'HTTP '+r.status+(t?' '+t.slice(0,140):'')}; }
+    return await r.json();
+  }catch(e){ return {ok:false, error:(e&&e.name==='TimeoutError')?'el servicio de usuarios no respondió (timeout)':((e&&e.message)||'sin conexión')}; }
 }
 
 async function renderUsuarios(){
