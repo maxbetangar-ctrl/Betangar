@@ -281,8 +281,10 @@ var LOGO_SVG='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAACAAAAAONCAYAAAASjoDM
 // ══════════════════════════════════════════════════════
 function _mfaOverlay(inner){
   var ov=document.createElement('div');
-  ov.style.cssText='position:fixed;inset:0;background:rgba(4,12,24,.72);z-index:100001;display:flex;align-items:center;justify-content:center;padding:20px;font-family:sans-serif';
-  ov.innerHTML='<div style="background:#0f2340;border:1px solid #1e3a5f;border-radius:16px;max-width:400px;width:100%;padding:24px;color:#fff;box-shadow:0 20px 60px rgba(0,0,0,.5)">'+inner+'</div>';
+  // overflow-y:auto + align-items:flex-start → si el contenido (QR+clave+input) es más alto que la
+  // pantalla, el modal hace SCROLL en vez de recortar el QR (antes se cortaba en pantallas cortas).
+  ov.style.cssText='position:fixed;inset:0;background:rgba(4,12,24,.72);z-index:100001;display:flex;align-items:flex-start;justify-content:center;padding:20px;font-family:sans-serif;overflow-y:auto';
+  ov.innerHTML='<div style="background:#0f2340;border:1px solid #1e3a5f;border-radius:16px;max-width:400px;width:100%;padding:24px;color:#fff;box-shadow:0 20px 60px rgba(0,0,0,.5);margin:auto;max-height:none">'+inner+'</div>';
   document.body.appendChild(ov);
   return ov;
 }
@@ -354,7 +356,7 @@ async function iniciar2FA(){
     var ov=_mfaOverlay(
       '<div style="font-size:18px;font-weight:800;margin-bottom:6px">🔐 Activar 2FA</div>'+
       '<div style="font-size:12px;color:#9fb4cc;margin-bottom:12px">1) Escanea el código con Google Authenticator / Authy.<br>2) Escribe el código de 6 dígitos que aparece.</div>'+
-      '<div style="background:#fff;border-radius:10px;padding:10px;display:flex;justify-content:center;margin-bottom:10px"><img src="'+qr+'" alt="QR 2FA" style="width:180px;height:180px"></div>'+
+      '<div style="background:#fff;border-radius:10px;padding:16px;display:flex;justify-content:center;margin-bottom:10px"><img src="'+qr+'" alt="QR 2FA" style="width:200px;height:200px;max-width:100%;display:block;image-rendering:pixelated"></div>'+
       '<div style="font-size:10px;color:#7e93ab;text-align:center;margin-bottom:10px">¿No puedes escanear? Clave: <code style="color:#a3e635;word-break:break-all">'+secret+'</code></div>'+
       '<input id="_mfa-enroll-code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" style="width:100%;box-sizing:border-box;padding:12px;font-size:22px;letter-spacing:8px;text-align:center;border-radius:8px;border:1px solid #2a4a6a;background:#0a1628;color:#fff;font-family:monospace" placeholder="------">'+
       '<div id="_mfa-enroll-err" style="color:#f87171;font-size:11px;min-height:14px;margin-top:6px"></div>'+
@@ -405,7 +407,7 @@ function forzar2FA(rol){
         var ov=_mfaOverlay(
           '<div style="font-size:18px;font-weight:800;margin-bottom:6px">🔐 Activá tu 2FA (obligatorio)</div>'+
           '<div style="font-size:12px;color:#9fb4cc;margin-bottom:12px">Tu rol ('+(rol||'')+') maneja datos sensibles, así que necesitas verificación en dos pasos para entrar.<br>1) Escaneá el QR con Google Authenticator / Authy.<br>2) Escribí el código de 6 dígitos.</div>'+
-          '<div style="background:#fff;border-radius:10px;padding:10px;display:flex;justify-content:center;margin-bottom:10px"><img src="'+qr+'" alt="QR 2FA" style="width:170px;height:170px"></div>'+
+          '<div style="background:#fff;border-radius:10px;padding:16px;display:flex;justify-content:center;margin-bottom:10px"><img src="'+qr+'" alt="QR 2FA" style="width:200px;height:200px;max-width:100%;display:block;image-rendering:pixelated"></div>'+
           '<div style="font-size:10px;color:#7e93ab;text-align:center;margin-bottom:10px">¿No puedes escanear? Clave: <code style="color:#a3e635;word-break:break-all">'+secret+'</code></div>'+
           '<input id="_f2-code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" style="width:100%;box-sizing:border-box;padding:12px;font-size:22px;letter-spacing:8px;text-align:center;border-radius:8px;border:1px solid #2a4a6a;background:#0a1628;color:#fff;font-family:monospace" placeholder="------">'+
           '<div id="_f2-err" style="color:#f87171;font-size:11px;min-height:14px;margin-top:6px"></div>'+
