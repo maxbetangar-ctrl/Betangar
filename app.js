@@ -356,7 +356,7 @@ async function iniciar2FA(){
     var ov=_mfaOverlay(
       '<div style="font-size:18px;font-weight:800;margin-bottom:6px">🔐 Activar 2FA</div>'+
       '<div style="font-size:12px;color:#9fb4cc;margin-bottom:12px">1) Escanea el código con Google Authenticator / Authy.<br>2) Escribe el código de 6 dígitos que aparece.</div>'+
-      '<div style="background:#fff;border-radius:10px;padding:16px;display:flex;justify-content:center;margin-bottom:10px"><img src="'+qr+'" alt="QR 2FA" style="width:200px;height:200px;max-width:100%;display:block;image-rendering:pixelated"></div>'+
+      '<div style="background:#fff;border-radius:10px;padding:16px;display:flex;justify-content:center;margin-bottom:10px"><img id="_qr2fa" alt="QR 2FA" style="width:200px;height:200px;max-width:100%;display:block"></div>'+
       '<div style="font-size:10px;color:#7e93ab;text-align:center;margin-bottom:10px">¿No puedes escanear? Clave: <code style="color:#a3e635;word-break:break-all">'+secret+'</code></div>'+
       '<input id="_mfa-enroll-code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" style="width:100%;box-sizing:border-box;padding:12px;font-size:22px;letter-spacing:8px;text-align:center;border-radius:8px;border:1px solid #2a4a6a;background:#0a1628;color:#fff;font-family:monospace" placeholder="------">'+
       '<div id="_mfa-enroll-err" style="color:#f87171;font-size:11px;min-height:14px;margin-top:6px"></div>'+
@@ -364,6 +364,7 @@ async function iniciar2FA(){
         '<button id="_mfa-enroll-ok" style="flex:1;padding:11px;border:0;border-radius:8px;background:#15803d;color:#fff;font-weight:700;cursor:pointer">Activar</button>'+
         '<button id="_mfa-enroll-cancel" style="padding:11px 14px;border:1px solid #2a4a6a;border-radius:8px;background:transparent;color:#9fb4cc;cursor:pointer">Cancelar</button>'+
       '</div>');
+    try{var _q=ov.querySelector('#_qr2fa');if(_q)_q.src=qr;}catch(_e){} // src por JS: el SVG trae comillas que rompían el atributo
     var inp=ov.querySelector('#_mfa-enroll-code'); inp.focus();
     var errEl=ov.querySelector('#_mfa-enroll-err');
     function cerrar(){ try{document.body.removeChild(ov);}catch(_){} }
@@ -407,7 +408,7 @@ function forzar2FA(rol){
         var ov=_mfaOverlay(
           '<div style="font-size:18px;font-weight:800;margin-bottom:6px">🔐 Activá tu 2FA (obligatorio)</div>'+
           '<div style="font-size:12px;color:#9fb4cc;margin-bottom:12px">Tu rol ('+(rol||'')+') maneja datos sensibles, así que necesitas verificación en dos pasos para entrar.<br>1) Escaneá el QR con Google Authenticator / Authy.<br>2) Escribí el código de 6 dígitos.</div>'+
-          '<div style="background:#fff;border-radius:10px;padding:16px;display:flex;justify-content:center;margin-bottom:10px"><img src="'+qr+'" alt="QR 2FA" style="width:200px;height:200px;max-width:100%;display:block;image-rendering:pixelated"></div>'+
+          '<div style="background:#fff;border-radius:10px;padding:16px;display:flex;justify-content:center;margin-bottom:10px"><img id="_qr2fa" alt="QR 2FA" style="width:200px;height:200px;max-width:100%;display:block"></div>'+
           '<div style="font-size:10px;color:#7e93ab;text-align:center;margin-bottom:10px">¿No puedes escanear? Clave: <code style="color:#a3e635;word-break:break-all">'+secret+'</code></div>'+
           '<input id="_f2-code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" style="width:100%;box-sizing:border-box;padding:12px;font-size:22px;letter-spacing:8px;text-align:center;border-radius:8px;border:1px solid #2a4a6a;background:#0a1628;color:#fff;font-family:monospace" placeholder="------">'+
           '<div id="_f2-err" style="color:#f87171;font-size:11px;min-height:14px;margin-top:6px"></div>'+
@@ -415,6 +416,7 @@ function forzar2FA(rol){
             '<button id="_f2-ok" style="flex:1;padding:11px;border:0;border-radius:8px;background:#15803d;color:#fff;font-weight:700;cursor:pointer">Activar y entrar</button>'+
             '<button id="_f2-cancel" style="padding:11px 14px;border:1px solid #2a4a6a;border-radius:8px;background:transparent;color:#9fb4cc;cursor:pointer">Cancelar</button>'+
           '</div>');
+        try{var _q=ov.querySelector('#_qr2fa');if(_q)_q.src=qr;}catch(_e){} // src por JS: el SVG trae comillas que rompían el atributo
         var inp=ov.querySelector('#_f2-code'); inp.focus();
         var errEl=ov.querySelector('#_f2-err');
         function cerrar(){try{document.body.removeChild(ov);}catch(_){}}
