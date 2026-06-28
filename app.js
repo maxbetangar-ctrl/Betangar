@@ -11780,15 +11780,33 @@ async function renderConciliacionBNC(){
         if(!rn.error&&rn.data&&rn.data.length){fuente='Notificaciones BNC (la API de producción aún no está activa → solo ingresos)';rn.data.forEach(function(n){var amt=Math.round(parseFloat(n.monto||0)*100)/100;bancoMovs.push({fecha:n.fecha_recibido,tipo:'ingreso',bs:Math.round(aBs(amt,n.moneda)*100)/100,ref:n.referencia||'',desc:n.descripcion||'',_conc:false});});}
       }catch(e){}
     }
-    // ── 2) LADO LIBROS: lo que la app registró (BNC_MOV) en el rango, en Bs ──
-    var libros=BNC_MOV.filter(function(m){var f=String(m.fecha||'').slice(0,10);return (!desde||f>=desde)&&(!hasta||f<=hasta);}).map(function(m){
-      return {tipo:(m.tipo==='credito'?'ingreso':'egreso'),bs:Math.round((Number(m.monto)||0)*100)/100,desc:m.desc||'',ref:m.ref||'',pend:!!m.pendienteAutorizacion,fecha:m.fecha||'',_usado:false};
+    // ── 2) LADO LIBROS: lo que la app ESPERA del banco ──
+    //  INGRESOS = depósitos esperados de la Alcaldía por cada factura (abono): la Alcaldía
+    //  deposita en 2 partes → el NETO (total − retenciones) y, lunes/martes, la FIEL
+    //  CUMPLIMIENTO 10%. Se calculan con la misma fórmula que calcPagoAlc, en Bs a la tasa del
+    //  día de la factura. EGRESOS = pagos registrados en el banco (BNC_MOV débitos).
+    var _diasAntes=function(f,n){var d=new Date(String(f)+'T00:00:00');d.setDate(d.getDate()-n);return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');};
+    var winIni=_diasAntes(desde,15); // ventana hacia atrás: la fiel puede ser de una factura previa al rango
+    var libros=[];
+    (ABONOS||[]).forEach(function(a){
+      var f=String(a.f||'').slice(0,10); if(f&&(f<winIni||f>hasta))return;
+      var base=Number(a.m)||0; if(base<=0)return;
+      var tasa=(typeof getTasaFecha==='function'&&getTasaFecha(f,'dolar'))||TASAS.bcvDolar||cfg.tasa||1;
+      var iva=base*0.16, total=base+iva, fielUsd=base*0.10;
+      var netoUsd=total-(iva*0.75)-(base*0.02)-(base*0.01)-(base*0.001)-fielUsd; // laboral normalmente 0
+      libros.push({tipo:'ingreso',bs:Math.round(netoUsd*tasa*100)/100,desc:'Fact '+a.fact+' — pago neto',lab:'Fact '+a.fact+' neto',fecha:f,_usado:false});
+      libros.push({tipo:'ingreso',bs:Math.round(fielUsd*tasa*100)/100,desc:'Fact '+a.fact+' — fiel cumplimiento 10%',lab:'Fact '+a.fact+' fiel 10%',fecha:f,_usado:false});
     });
-    // ── 3) MATCH banco ↔ libros (misma dirección + monto Bs con tolerancia 0.5%) ──
+    BNC_MOV.forEach(function(m){
+      if(m.tipo==='credito')return; // los ingresos los modela la Alcaldía arriba
+      var f=String(m.fecha||'').slice(0,10); if(f&&((desde&&f<desde)||(hasta&&f>hasta)))return;
+      libros.push({tipo:'egreso',bs:Math.round((Number(m.monto)||0)*100)/100,desc:m.desc||'',lab:m.desc||'',pend:!!m.pendienteAutorizacion,fecha:m.fecha||'',_usado:false});
+    });
+    // ── 3) MATCH banco ↔ libros (misma dirección + monto Bs; ingresos 1% por redondeo de tasa) ──
     bancoMovs.forEach(function(b){
-      var tol=Math.max(1,b.bs*0.005);
+      var tol=Math.max(1,b.bs*(b.tipo==='ingreso'?0.01:0.005));
       var lib=libros.find(function(l){return !l._usado&&l.tipo===b.tipo&&Math.abs(l.bs-b.bs)<=tol;});
-      if(lib){lib._usado=true;b._conc=true;}
+      if(lib){lib._usado=true;b._conc=true;b._label=lib.lab;}
     });
     var faltaReg=bancoMovs.filter(function(b){return !b._conc;});   // en banco, no en libros
     var enTransito=libros.filter(function(l){return !l._usado;});   // en libros, no en banco
@@ -11813,13 +11831,13 @@ async function renderConciliacionBNC(){
     html+='<div class="card" style="margin-bottom:12px"><div style="font-size:12px;font-weight:700;margin-bottom:8px">🏦 Movimientos del banco</div>';
     if(bancoMovs.length){
       html+='<div class="tw" style="max-height:360px;overflow:auto"><table style="font-size:11px"><thead><tr><th>Fecha</th><th>Detalle</th><th>Ref</th><th style="text-align:right">Monto Bs</th><th style="text-align:center">Estado</th></tr></thead><tbody>';
-      bancoMovs.forEach(function(b){html+='<tr><td style="font-size:10px">'+String(b.fecha||'').slice(0,16).replace('T',' ')+'</td><td style="font-size:10px">'+(b.desc||'—')+'</td><td style="font-size:9px;color:var(--text3)">'+(b.ref||'')+'</td><td style="text-align:right;font-family:var(--m);color:'+(b.tipo==='ingreso'?'var(--green)':'var(--red)')+'">'+(b.tipo==='ingreso'?'+':'-')+fmt(b.bs)+'</td><td style="text-align:center">'+(b._conc?'<span style="color:var(--green);font-weight:700">✅ cuadra</span>':'<span style="color:var(--red);font-weight:700">🔴 falta registrar</span>')+'</td></tr>';});
+      bancoMovs.forEach(function(b){html+='<tr><td style="font-size:10px">'+String(b.fecha||'').slice(0,16).replace('T',' ')+'</td><td style="font-size:10px">'+(b.desc||'—')+'</td><td style="font-size:9px;color:var(--text3)">'+(b.ref||'')+'</td><td style="text-align:right;font-family:var(--m);color:'+(b.tipo==='ingreso'?'var(--green)':'var(--red)')+'">'+(b.tipo==='ingreso'?'+':'-')+fmt(b.bs)+'</td><td style="text-align:center">'+(b._conc?'<span style="color:var(--green);font-weight:700">✅ '+(b._label||'cuadra')+'</span>':'<span style="color:var(--red);font-weight:700">🔴 '+(b.tipo==='ingreso'?'ingreso sin identificar':'falta registrar')+'</span>')+'</td></tr>';});
       html+='</tbody></table></div>';
     }else html+='<div style="font-size:11px;color:var(--text3);padding:8px">Sin movimientos del banco en el rango (activa el ClientID de producción del BNC para traer el estado de cuenta completo).</div>';
     html+='</div>';
     if(enTransito.length){
-      html+='<div class="card" style="margin-bottom:12px;border-color:rgba(251,191,36,.3)"><div style="font-size:12px;font-weight:700;color:var(--yellow);margin-bottom:6px">⚠️ Registrado en la app, el banco aún no lo refleja ('+enTransito.length+')</div>'+
-        '<div style="font-size:10px;color:var(--text3);margin-bottom:8px">Pagos/cobros que asentaste pero que no aparecen en el banco del período (en tránsito o pendientes de firma en BNCNET).</div>'+
+      html+='<div class="card" style="margin-bottom:12px;border-color:rgba(251,191,36,.3)"><div style="font-size:12px;font-weight:700;color:var(--yellow);margin-bottom:6px">⚠️ Esperado, el banco aún no lo refleja ('+enTransito.length+')</div>'+
+        '<div style="font-size:10px;color:var(--text3);margin-bottom:8px">Entradas que la Alcaldía aún no deposita (ej: la <b>fiel cumplimiento</b> que llega lunes/martes) o pagos que registraste y el banco no muestra (en tránsito / pendientes de firma en BNCNET).</div>'+
         '<div class="tw" style="max-height:260px;overflow:auto"><table style="font-size:11px"><thead><tr><th>Fecha</th><th>Detalle</th><th>Tipo</th><th style="text-align:right">Monto Bs</th></tr></thead><tbody>';
       enTransito.forEach(function(l){html+='<tr><td style="font-size:10px">'+String(l.fecha||'').slice(0,10)+'</td><td style="font-size:10px">'+(l.desc||'—')+(l.pend?' <span class="badge by">Pend. firma</span>':'')+'</td><td style="font-size:10px">'+(l.tipo==='ingreso'?'Entrada':'Salida')+'</td><td style="text-align:right;font-family:var(--m)">'+fmt(l.bs)+'</td></tr>';});
       html+='</tbody></table></div></div>';
