@@ -193,6 +193,33 @@ var cfg={tarifa:(function(){
   return 317.88;
 })(),chofer:10,ayud:5,km:5000,tanque:4600,tasa:600,imau:2.5,tipos_mant:['Solo registro km','GARANTIA (Servicio 5000km)','CORRECTIVO','PREVENTIVO','CAMBIO DE ACEITE','CAMBIO FILTROS','FRENOS','SUSPENSION','ELECTRICO','MOTOR','TRANSMISION','OTROS'],mant_programados:[{id:'lavado',nombre:'Lavado',dias:7,campo:'lavado'},{id:'engrase',nombre:'Engrase',dias:15,campo:'engrase'},{id:'aceite',nombre:'Cambio de Aceite',dias:90,campo:'aceite'}],unidades_areas:['ADM - Administrativo','OPERATIVO - Jefe Operaciones','PORTERIA - Vigilancia','MANT - Mantenimiento','TRANS - Transporte','JAC-B001','JAC-B002','JAC-B003','JAC-B004','JAC-B005','JAC-B006','JAC-B007','JAC-B008','JAC-B009','JAC-B010','JAC-B011','JAC-B012','SRV-001','PEUGEOT-001','MOTO-001']};
 
+// ── PERFIL DE RETENCIONES (configurable POR CONTRATO) ──
+// Las tasas del contrato de la Alcaldía (IMAU Maracaibo) son el perfil POR DEFECTO. Cada contrato
+// puede traer su propio perfil (columna `retenciones` JSON en la tabla contratos); perfilRetencion()
+// hace merge sobre este default. Al clonar para un cliente con otra facturación: o cambias este
+// default, o creas su contrato con su propio perfil y lo eliges al registrar el pago.
+var RET_DEFAULT={iva:0.16, retIVA:0.75, retISLR:0.02, retMun:0.01, timbre:0.001, fiel:0.10, laboral:0, respSocial:0.03, fielDevuelve:true};
+// Devuelve el perfil de retenciones de un contrato (merge sobre el default). Acepta el objeto
+// contrato o su id (string). null/sin perfil → perfil Alcaldía (comportamiento histórico).
+function perfilRetencion(contrato){
+  var c=contrato;
+  if(typeof contrato==='string'&&contrato){ c=(typeof CONTRATOS!=='undefined'?CONTRATOS:[]).find(function(x){return String(x.id)===String(contrato);}); }
+  var p={}; for(var k in RET_DEFAULT)p[k]=RET_DEFAULT[k];
+  if(c&&c.retenciones&&typeof c.retenciones==='object'){ for(var k2 in c.retenciones){ var v=c.retenciones[k2]; if(v!==''&&v!=null&&!(typeof v==='number'&&isNaN(v)))p[k2]=v; } }
+  return p;
+}
+// Calcula el desglose de retenciones de UNA factura. base USD; perfil de perfilRetencion();
+// laboralUsd = monto MANUAL de retención laboral (override). Si no se pasa, usa perfil.laboral×base.
+// Fuente ÚNICA de la fórmula: la usan el preview (calcPagoAlc), el guardado y la conciliación.
+function calcRetenciones(base, perfil, laboralUsd){
+  var p=perfil||RET_DEFAULT; base=Number(base)||0;
+  var iva=base*p.iva, total=base+iva;
+  var retIVA=iva*p.retIVA, retISLR=base*p.retISLR, retMun=base*p.retMun, timbre=base*p.timbre, fiel=base*p.fiel;
+  var laboral=(laboralUsd!=null&&laboralUsd!==''&&!isNaN(parseFloat(laboralUsd)))?parseFloat(laboralUsd):base*(p.laboral||0);
+  var neto=total-retIVA-retISLR-retMun-timbre-fiel-laboral;
+  return {base:base,iva:iva,total:total,retIVA:retIVA,retISLR:retISLR,retMun:retMun,timbre:timbre,fiel:fiel,laboral:laboral,neto:neto,respSocial:base*(p.respSocial||0)};
+}
+
 // PRECIO $/L de REFERENCIA por fuente. Dos usos: (1) DEFAULT del precio de compra (editable en
 // cada compra, porque varía entre una y otra) y (2) FALLBACK de costeo cuando el tanque aún no
 // tiene costo promedio establecido. La surtida a camión NO usa esto: se valúa al COSTO REAL
@@ -1127,7 +1154,7 @@ async function cargarDatosDB(){
     // Supabase es la FUENTE DE VERDAD: si la consulta tuvo éxito (sin error), usar su
     // resultado AUNQUE sea vacío → así, si borraste todos, NO reaparecen. Antes
     // (a.data&&a.data.length) ignoraba el caso vacío y conservaba abonos viejos en memoria.
-    if(!a.error&&Array.isArray(a.data))ABONOS=a.data.map(function(x){return{f:x.f,fact:x.fact,v:x.v,m:x.m,obs:x.obs||'',ref:x.ref||''};});
+    if(!a.error&&Array.isArray(a.data))ABONOS=a.data.map(function(x){return{f:x.f,fact:x.fact,v:x.v,m:x.m,obs:x.obs||'',ref:x.ref||'',contrato:x.contrato||null};});
     // Cargar los abonos PROTEGIDOS (no los pisa el Excel) por núcleo de dígitos.
     if(!a.error&&Array.isArray(a.data))ABONOS_PROTEGIDOS=new Set(a.data.filter(function(x){return x.protegido;}).map(function(x){return _factCore(x.fact);}));
     // EMPLEADOS
@@ -1210,7 +1237,7 @@ async function cargarDatosDB(){
     // INVENTARIO
     if(inv.data&&inv.data.length)INVENTARIO=inv.data.map(function(x){return{id:x.id,nombre:x.nombre,cat:x.categoria||'',unidad:x.unidad||'Unidades',stock:parseInt(x.stock)||0,stockMin:parseInt(x.stock_min)||2,precio:parseFloat(x.precio)||0};});
     // CONTRATOS
-    if(co.data&&co.data.length)CONTRATOS=co.data.map(function(x){return{id:x.id,nombre:x.nombre,parte:x.parte||'',cliente:x.cliente||x.parte||'',monto:parseFloat(x.monto)||0,forma_cobro:x.forma_cobro||'',tarifa_cliente:parseFloat(x.tarifa_cliente)||0,tarifa_operador:parseFloat(x.tarifa_operador)||0,moneda:x.moneda||'USD',inicio:x.inicio||'',venc:x.vencimiento||'',cond:x.condiciones||'',estado:x.estado||'activo'};});
+    if(co.data&&co.data.length)CONTRATOS=co.data.map(function(x){return{id:x.id,nombre:x.nombre,parte:x.parte||'',cliente:x.cliente||x.parte||'',monto:parseFloat(x.monto)||0,forma_cobro:x.forma_cobro||'',tarifa_cliente:parseFloat(x.tarifa_cliente)||0,tarifa_operador:parseFloat(x.tarifa_operador)||0,moneda:x.moneda||'USD',inicio:x.inicio||'',venc:x.vencimiento||'',cond:x.condiciones||'',estado:x.estado||'activo',retenciones:(x.retenciones&&typeof x.retenciones==='object')?x.retenciones:null};});
     // GASTOS VARIABLES
     if(gv2.data&&gv2.data.length)GASTOS_VARIABLES=gv2.data.map(function(x){return{id:x.id,fecha:x.fecha,cat:x.categoria||'',desc:x.descripcion||'',bs:parseFloat(x.monto_bs)||0,usd:parseFloat(x.monto_usd)||0,ref:x.referencia||'',fact:x.factura||''};});
     // PAGOS ALCALDÍA
@@ -3117,7 +3144,7 @@ function abrirEditarAbono(btn){
   var nobs=prompt('Observación:',obs)||obs;
   // Actualizar en array local
   ABONOS=ABONOS.map(function(a){
-    if(a.fact===fact) return {f:nf,fact:a.fact,v:parseInt(nv),m:parseInt(nm),obs:nobs,ref:ref};
+    if(a.fact===fact) return {f:nf,fact:a.fact,v:parseInt(nv),m:parseInt(nm),obs:nobs,ref:ref,contrato:a.contrato||null};
     return a;
   });
   renderAbonos();renderDash();
@@ -5411,21 +5438,30 @@ function renderSemaforo(){
 // ═══════════════════════════════════════════════════
 async function guardarContrato(){
   var nombre=gv('cont-nombre');if(!nombre){alert('Ingresa el nombre del contrato');return;}
+  // Perfil de retenciones del contrato: el usuario escribe PORCENTAJES (ej. 16, 75, 2, 0.1, 10, 3);
+  // se guardan como decimal. Campo vacío = ese rubro usa el default Alcaldía (perfilRetencion).
+  var _rp=function(id){var v=gv(id);return (v===''||v==null)?null:(parseFloat(v)/100);};
+  var ret={};
+  [['cont-ret-iva','iva'],['cont-ret-retiva','retIVA'],['cont-ret-islr','retISLR'],['cont-ret-mun','retMun'],['cont-ret-timbre','timbre'],['cont-ret-fiel','fiel'],['cont-ret-laboral','laboral'],['cont-ret-resp','respSocial']].forEach(function(p){var v=_rp(p[0]);if(v!=null&&!isNaN(v))ret[p[1]]=v;});
+  var retenciones=Object.keys(ret).length?ret:null;
   var cont={id:'CNT'+Date.now(),nombre:nombre,parte:gv('cont-parte'),cliente:gv('cont-parte'),monto:parseFloat(gv('cont-monto'))||0,
     forma_cobro:gv('cont-forma')||'',tarifa_cliente:parseFloat(gv('cont-tarifa-cli'))||0,tarifa_operador:parseFloat(gv('cont-tarifa-op'))||0,moneda:gv('cont-moneda')||'USD',
-    inicio:gv('cont-inicio'),venc:gv('cont-venc'),cond:gv('cont-cond'),estado:'activo'};
+    inicio:gv('cont-inicio'),venc:gv('cont-venc'),cond:gv('cont-cond'),estado:'activo',retenciones:retenciones};
   CONTRATOS.push(cont);
   // Persistencia directa (patrón Betangar: si falla → toast + cola offline)
   var ok=false;
   if(DB_READY&&supabase){
     var row={id:cont.id,nombre:cont.nombre,parte:cont.parte,cliente:cont.cliente,monto:cont.monto,forma_cobro:cont.forma_cobro,tarifa_cliente:cont.tarifa_cliente,tarifa_operador:cont.tarifa_operador,moneda:cont.moneda,inicio:cont.inicio,vencimiento:cont.venc,condiciones:cont.cond,estado:cont.estado};
+    // `retenciones` solo se manda si el contrato lo trae → un contrato normal sigue guardando
+    // aunque la migración add_retenciones_contrato.sql aún no se haya corrido (no toca la columna).
+    if(cont.retenciones)row.retenciones=cont.retenciones;
     try{var res=await supabase.from('contratos').upsert([row],{onConflict:'id'}).select();
       if(res.error){mostrarToast('No se pudo guardar el contrato: '+res.error.message,'error');}else ok=true;
     }catch(e){mostrarToast('Sin conexión al guardar el contrato.','error');}
   }
   if(!ok&&typeof guardarEnCola==='function')guardarEnCola('contratos',{id:cont.id,nombre:cont.nombre,parte:cont.parte,monto:cont.monto,inicio:cont.inicio,vencimiento:cont.venc,condiciones:cont.cond,estado:cont.estado});
   audit('Contrato guardado',nombre+' · '+(cont.forma_cobro||'sin forma de cobro'));
-  ['cont-nombre','cont-parte','cont-monto','cont-tarifa-cli','cont-tarifa-op','cont-inicio','cont-venc','cont-cond'].forEach(function(id){sv(id,'');});
+  ['cont-nombre','cont-parte','cont-monto','cont-tarifa-cli','cont-tarifa-op','cont-inicio','cont-venc','cont-cond','cont-ret-iva','cont-ret-retiva','cont-ret-islr','cont-ret-mun','cont-ret-timbre','cont-ret-fiel','cont-ret-laboral','cont-ret-resp'].forEach(function(id){sv(id,'');});
   if(typeof mostrarToast==='function')mostrarToast(ok?'✅ Contrato guardado':'⚠️ Contrato en cola (sin conexión)',ok?'exito':'error');
   renderContratosLista();
 }
@@ -5443,6 +5479,7 @@ function renderContratosLista(){
       '</div>'+
       '<div style="font-size:11px;color:var(--text2)">'+c.parte+(c.monto?' · $'+c.monto.toLocaleString():'')+'</div>'+
       (c.forma_cobro?'<div style="font-size:10px;color:var(--lime)">💰 Cobro por '+c.forma_cobro+(c.tarifa_cliente?' · cliente '+(c.moneda||'$')+' '+c.tarifa_cliente:'')+(c.tarifa_operador?' · operador '+(c.moneda||'$')+' '+c.tarifa_operador:'')+'</div>':'')+
+      (c.retenciones&&typeof c.retenciones==='object'?'<div style="font-size:10px;color:var(--yellow)">⚙️ Retenciones propias ('+Object.keys(c.retenciones).length+' rubros)</div>':'')+
       (c.inicio?'<div style="font-size:10px;color:var(--text3)">'+c.inicio+' → '+c.venc+'</div>':'')+
       (c.cond?'<div style="font-size:10px;color:var(--text3);margin-top:3px">'+c.cond+'</div>':'')+
       '<button class="btn btn-r btn-xs" style="margin-top:5px">Eliminar</button>';
@@ -5972,29 +6009,28 @@ function calcPagoAlc(){
   }
   var tasa=parseFloat(gv('alc-tasa'))||TASAS.bcvDolar||cfg.tasa;
   if(!viajes){g('alc-calculo').style.display='none';return;}
+  var p=perfilRetencion(gv('alc-contrato'));
   var base=viajes*cfg.tarifa;
-  var iva=base*0.16;var total=base+iva;
-  var retIVA=iva*0.75;var retISLR=base*0.02;var retMun=base*0.01;var timbre=base*0.001;
-  var fiel=base*0.1;
-  var laboral=parseFloat(gv('alc-laboral'))||0;
-  var neto=total-retIVA-retISLR-retMun-timbre-fiel-laboral;
-  var netoBs=neto*tasa;
+  var r=calcRetenciones(base,p,gv('alc-laboral'));
+  var netoBs=r.neto*tasa;
+  var pc=function(x){return (Math.round(x*10000)/100)+'%';}; // 0.16 → "16%"
   g('alc-calculo').style.display='block';
   g('alc-calculo').innerHTML=
     '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:11px">'+
-    '<div>Base USD: <b style="font-family:var(--m)">$'+base.toFixed(2)+'</b></div>'+
-    '<div>IVA 16%: <b style="font-family:var(--m)">$'+iva.toFixed(2)+'</b></div>'+
-    '<div>Total c/IVA: <b style="font-family:var(--m);color:var(--green)">$'+total.toFixed(2)+'</b></div>'+
+    '<div>Base USD: <b style="font-family:var(--m)">$'+r.base.toFixed(2)+'</b></div>'+
+    '<div>IVA '+pc(p.iva)+': <b style="font-family:var(--m)">$'+r.iva.toFixed(2)+'</b></div>'+
+    '<div>Total c/IVA: <b style="font-family:var(--m);color:var(--green)">$'+r.total.toFixed(2)+'</b></div>'+
     '<div>Tasa: <b style="font-family:var(--m)">'+tasa+'</b></div>'+
-    '<div>Ret.IVA 75%: <b style="font-family:var(--m);color:var(--red)">-$'+retIVA.toFixed(2)+'</b></div>'+
-    '<div>Ret.ISLR 2%: <b style="font-family:var(--m);color:var(--red)">-$'+retISLR.toFixed(2)+'</b></div>'+
-    '<div>Ret.Mun 1%: <b style="font-family:var(--m);color:var(--red)">-$'+retMun.toFixed(2)+'</b></div>'+
-    '<div>Timbre 0.1%: <b style="font-family:var(--m);color:var(--red)">-$'+timbre.toFixed(2)+'</b></div>'+
-    '<div>Fiel 10%: <b style="font-family:var(--m);color:var(--yellow)">-$'+fiel.toFixed(2)+'</b></div>'+
-    '<div>Laboral: <b style="font-family:var(--m);color:var(--red)">-$'+laboral.toFixed(2)+'</b></div>'+
+    '<div>Ret.IVA '+pc(p.retIVA)+': <b style="font-family:var(--m);color:var(--red)">-$'+r.retIVA.toFixed(2)+'</b></div>'+
+    '<div>Ret.ISLR '+pc(p.retISLR)+': <b style="font-family:var(--m);color:var(--red)">-$'+r.retISLR.toFixed(2)+'</b></div>'+
+    '<div>Ret.Mun '+pc(p.retMun)+': <b style="font-family:var(--m);color:var(--red)">-$'+r.retMun.toFixed(2)+'</b></div>'+
+    '<div>Timbre '+pc(p.timbre)+': <b style="font-family:var(--m);color:var(--red)">-$'+r.timbre.toFixed(2)+'</b></div>'+
+    '<div>Fiel '+pc(p.fiel)+': <b style="font-family:var(--m);color:var(--yellow)">-$'+r.fiel.toFixed(2)+'</b></div>'+
+    '<div>Laboral: <b style="font-family:var(--m);color:var(--red)">-$'+r.laboral.toFixed(2)+'</b></div>'+
+    (p.respSocial?'<div>Resp. Social '+pc(p.respSocial)+' (egreso): <b style="font-family:var(--m);color:var(--red)">-$'+r.respSocial.toFixed(2)+'</b></div>':'')+
     '</div>'+
     '<div style="margin-top:8px;border-top:1px solid var(--border);padding-top:8px">'+
-    '<b style="font-size:13px;color:var(--green)">NETO: $'+neto.toFixed(2)+'</b> → <b style="color:var(--yellow)">Bs '+netoBs.toFixed(0)+'</b>'+
+    '<b style="font-size:13px;color:var(--green)">NETO: $'+r.neto.toFixed(2)+'</b> → <b style="color:var(--yellow)">Bs '+netoBs.toFixed(0)+'</b>'+
     '</div>';
 }
 
@@ -6003,15 +6039,18 @@ function guardarPagoAlcaldia(){
   var factAlc=normFact(gv('alc-fact'));
   if(!factAlc){alert('Escribe el numero de factura.\n\nLa factura identifica el pago (no la fecha), para que no se duplique.');return;}
   var tasa=parseFloat(gv('alc-tasa'))||cfg.tasa;
-  var base=viajes*cfg.tarifa;var iva=base*0.16;var total=base+iva;
-  var retIVA=iva*0.75;var retISLR=base*0.02;var retMun=base*0.01;var timbre=base*0.001;
-  var fiel=base*0.1;var laboral=parseFloat(gv('alc-laboral'))||0;
-  var neto=total-retIVA-retISLR-retMun-timbre-fiel-laboral;
-  var pago={id:'ALC'+Date.now(),fecha:gv('alc-fecha'),fact:factAlc,ref:gv('alc-ref'),viajes:viajes,tasa:tasa,base:base,iva:iva,total:total,neto:neto,fiel:fiel,fielDevuelto:false,pct75:false};
+  var contratoId=gv('alc-contrato')||'';
+  var p=perfilRetencion(contratoId);
+  var base=viajes*cfg.tarifa;
+  var r=calcRetenciones(base,p,gv('alc-laboral'));
+  var pago={id:'ALC'+Date.now(),fecha:gv('alc-fecha'),fact:factAlc,ref:gv('alc-ref'),viajes:viajes,tasa:tasa,base:base,iva:r.iva,total:r.total,neto:r.neto,fiel:r.fiel,fielDevuelto:false,pct75:false,contrato:contratoId||null};
   PAGOS_ALC.push(pago);
   // Agregar como abono — identidad por FACTURA: si ya existe esa factura no se duplica,
   // se actualiza. Además se PERSISTE con upsert (antes solo quedaba local y se perdia).
-  var abAlc={f:pago.fecha,fact:factAlc,v:viajes,m:neto,obs:'Pago Alcaldia',ref:pago.ref};
+  // `contrato` solo se incluye si se eligió uno distinto al default (así no toca la columna
+  // nueva si la migración aún no corre; el default Alcaldía sigue funcionando igual que antes).
+  var abAlc={f:pago.fecha,fact:factAlc,v:viajes,m:r.neto,obs:'Pago Alcaldia',ref:pago.ref};
+  if(contratoId)abAlc.contrato=contratoId;
   var iAlc=ABONOS.findIndex(function(a){return String(a.fact)===String(factAlc);});
   if(iAlc>=0){
     if(!confirm('Ya existe un abono con la factura '+factAlc+'.\n\nNO se va a duplicar. ¿Actualizarlo con este pago?')){PAGOS_ALC.pop();return;}
@@ -6020,14 +6059,24 @@ function guardarPagoAlcaldia(){
   if(DB_READY&&supabase){
     supabase.from('abonos').upsert(abAlc,{onConflict:'fact'}).then(function(r){if(r&&r.error&&typeof mostrarToast==='function')mostrarToast('No se pudo guardar abono Alcaldia: '+r.error.message,'error');});
   } else { guardarEnCola('abonos',abAlc); }
-  sendWA('💰 Pago Alcaldia recibido:\nFactura: '+pago.fact+'\nViajes: '+viajes+'\nNeto: $ '+Number(neto||0).toLocaleString('es-VE',{minimumFractionDigits:2,maximumFractionDigits:2})+'\nBs: '+fbn(neto,tasa),['admin']);
-  audit('Pago Alcaldia registrado',pago.fact+' $'+neto.toFixed(0));
+  sendWA('💰 Pago Alcaldia recibido:\nFactura: '+pago.fact+'\nViajes: '+viajes+'\nNeto: $ '+Number(pago.neto||0).toLocaleString('es-VE',{minimumFractionDigits:2,maximumFractionDigits:2})+'\nBs: '+fbn(pago.neto,tasa),['admin']);
+  audit('Pago Alcaldia registrado',pago.fact+' $'+pago.neto.toFixed(0));
   ['alc-fact','alc-ref','alc-viajes','alc-tasa'].forEach(function(id){sv(id,'');});g('alc-calculo').style.display='none';
   alert('✅ Pago registrado.');
   renderAlcResumen();renderPagosAlcTabla();renderAbonos();renderDash();
 }
 
+// Llena el selector de contrato del form de Pago Alcaldía con los contratos que tienen perfil
+// de retenciones propio (los demás usan el default Alcaldía, que ya es la opción por defecto).
+function poblarAlcContratos(){
+  var sel=document.getElementById('alc-contrato');if(!sel)return;
+  var prev=sel.value;
+  var conRet=(typeof CONTRATOS!=='undefined'?CONTRATOS:[]).filter(function(c){return c.retenciones&&typeof c.retenciones==='object';});
+  sel.innerHTML='<option value="">Alcaldía (por defecto)</option>'+conRet.map(function(c){return '<option value="'+c.id+'">'+(c.nombre||c.cliente||c.id)+'</option>';}).join('');
+  if(prev)sel.value=prev;
+}
 function renderAlcResumen(){
+  poblarAlcContratos();
   var totalFact=PAGOS_ALC.reduce(function(s,p){return s+p.total;},0);
   var totalNeto=PAGOS_ALC.reduce(function(s,p){return s+p.neto;},0);
   var pct75=totalNeto*0.075;
@@ -11821,17 +11870,20 @@ async function renderConciliacionBNC(){
       var f=String(a.f||'').slice(0,10); if(f&&(f<winIni||f>hasta))return;
       var base=Number(a.m)||0; if(base<=0)return;
       var tasa=(typeof getTasaFecha==='function'&&getTasaFecha(f,'dolar'))||TASAS.bcvDolar||cfg.tasa||1;
-      var iva=base*0.16, total=base+iva, fielUsd=base*0.10;
-      var netoUsd=total-(iva*0.75)-(base*0.02)-(base*0.01)-(base*0.001)-fielUsd; // laboral normalmente 0
+      // Perfil de retenciones del CONTRATO del abono (si lo trae); si no, Alcaldía por defecto.
+      var pr=perfilRetencion(a.contrato);
+      var rc=calcRetenciones(base,pr,null);
+      var fielUsd=rc.fiel, netoUsd=rc.neto, respUsd=rc.respSocial;
       var baseBs=Math.round(base*tasa*100)/100;
+      var fielPct=Math.round((pr.fiel||0)*10000)/100, respPct=Math.round((pr.respSocial||0)*10000)/100;
       var enRango=(f>=desde);
       // El NETO entra el MISMO día de la factura → solo si la factura cae dentro del rango (no antes).
       if(enRango)libros.push({tipo:'ingreso',bs:Math.round(netoUsd*tasa*100)/100,desc:'Fact '+a.fact+' — pago neto',lab:'Fact '+a.fact+' neto',fecha:f,_usado:false});
-      // La fiel 10% (y el 3% resp. social) caen días después → pueden ser de una factura justo previa al rango.
-      libros.push({tipo:'ingreso',bs:Math.round(fielUsd*tasa*100)/100,desc:'Fact '+a.fact+' — fiel cumplimiento 10%',lab:'Fact '+a.fact+' fiel 10%',fecha:f,_usado:false});
-      // EGRESO que YO debo pagar: Responsabilidad Social 3% del monto base (ley). Lo transfiere
+      // La fiel (y la resp. social) caen días después → pueden ser de una factura justo previa al rango.
+      if(fielUsd>0)libros.push({tipo:'ingreso',bs:Math.round(fielUsd*tasa*100)/100,desc:'Fact '+a.fact+' — fiel cumplimiento '+fielPct+'%',lab:'Fact '+a.fact+' fiel '+fielPct+'%',fecha:f,_usado:false});
+      // EGRESO que YO debo pagar: Responsabilidad Social del monto base (ley). Lo transfiere
       // Betangar (lunes/martes). Se concilia contra la salida real del banco.
-      libros.push({tipo:'egreso',bs:Math.round(baseBs*0.03*100)/100,desc:'Fact '+a.fact+' — Responsabilidad Social 3%',lab:'Fact '+a.fact+' resp. social 3%',clase:'respsocial',fact:a.fact,baseBs:baseBs,fecha:f,_usado:false});
+      if(respUsd>0)libros.push({tipo:'egreso',bs:Math.round(respUsd*tasa*100)/100,desc:'Fact '+a.fact+' — Responsabilidad Social '+respPct+'%',lab:'Fact '+a.fact+' resp. social '+respPct+'%',clase:'respsocial',fact:a.fact,baseBs:baseBs,fecha:f,_usado:false});
     });
     BNC_MOV.forEach(function(m){
       if(m.tipo==='credito')return; // los ingresos los modela la Alcaldía arriba
@@ -11876,9 +11928,9 @@ async function renderConciliacionBNC(){
     if(resp.length){
       var rPag=resp.filter(function(r){return r._usado;}), rPen=resp.filter(function(r){return !r._usado;});
       var totPen=rPen.reduce(function(s,r){return s+r.bs;},0);
-      html+='<div class="card" style="margin-bottom:12px"><div style="font-size:12px;font-weight:700;margin-bottom:6px">💛 Responsabilidad Social 3% por factura</div>'+
+      html+='<div class="card" style="margin-bottom:12px"><div style="font-size:12px;font-weight:700;margin-bottom:6px">💛 Responsabilidad Social por factura</div>'+
         '<div style="font-size:11px;margin-bottom:8px"><span style="color:var(--green)">✅ Pagadas '+rPag.length+'</span> · <span style="color:var(--yellow)">⚠️ Pendientes '+rPen.length+' (Bs '+fmt(totPen)+')</span></div>'+
-        '<div class="tw" style="max-height:240px;overflow:auto"><table style="font-size:11px"><thead><tr><th>Factura</th><th style="text-align:right">Base Bs</th><th style="text-align:right">3% a pagar</th><th style="text-align:center">Estado</th></tr></thead><tbody>'+
+        '<div class="tw" style="max-height:240px;overflow:auto"><table style="font-size:11px"><thead><tr><th>Factura</th><th style="text-align:right">Base Bs</th><th style="text-align:right">A pagar</th><th style="text-align:center">Estado</th></tr></thead><tbody>'+
         resp.map(function(r){return '<tr><td style="font-size:10px">'+(r.fact||'')+'</td><td style="text-align:right;font-family:var(--m);font-size:10px;color:var(--text3)">'+fmt(r.baseBs)+'</td><td style="text-align:right;font-family:var(--m);color:var(--red)">'+fmt(r.bs)+'</td><td style="text-align:center">'+(r._usado?'<span style="color:var(--green);font-weight:700">✅ pagado</span>':'<span style="color:var(--yellow);font-weight:700">⚠️ pendiente</span>')+'</td></tr>';}).join('')+
         '</tbody></table></div></div>';
     }

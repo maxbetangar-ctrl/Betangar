@@ -1048,6 +1048,26 @@ tr:hover td{background:rgba(45,255,122,.02)}
         <div class="fg"><label>Fecha Vencimiento</label><input type="date" class="fc" id="cont-venc"></div>
       </div>
       <div class="fg"><label>Condiciones importantes</label><textarea class="fc" id="cont-cond" rows="3" placeholder="Resumen de condiciones clave..."></textarea></div>
+      <details style="margin:6px 0 10px">
+        <summary style="cursor:pointer;font-size:12px;font-weight:700;color:var(--lime)">⚙️ Retenciones de este contrato (opcional)</summary>
+        <div style="font-size:10px;color:var(--text3);margin:6px 0 8px">Escribe el <b>porcentaje</b> (ej. 16, 75, 2, 0.1, 10, 3). Lo que dejes <b>vacío</b> usa el valor del contrato de la Alcaldía por defecto. Esto permite vender/clonar a empresas con otra facturación sin tocar código.</div>
+        <div class="fr2">
+          <div class="fg"><label>IVA % (16)</label><input type="number" step="0.01" class="fc" id="cont-ret-iva" placeholder="16" style="font-family:var(--m)"></div>
+          <div class="fg"><label>Ret. IVA % del IVA (75)</label><input type="number" step="0.01" class="fc" id="cont-ret-retiva" placeholder="75" style="font-family:var(--m)"></div>
+        </div>
+        <div class="fr2">
+          <div class="fg"><label>Ret. ISLR % (2)</label><input type="number" step="0.01" class="fc" id="cont-ret-islr" placeholder="2" style="font-family:var(--m)"></div>
+          <div class="fg"><label>Ret. Municipal % (1)</label><input type="number" step="0.01" class="fc" id="cont-ret-mun" placeholder="1" style="font-family:var(--m)"></div>
+        </div>
+        <div class="fr2">
+          <div class="fg"><label>Timbre fiscal % (0.1)</label><input type="number" step="0.01" class="fc" id="cont-ret-timbre" placeholder="0.1" style="font-family:var(--m)"></div>
+          <div class="fg"><label>Fiel cumplimiento % (10)</label><input type="number" step="0.01" class="fc" id="cont-ret-fiel" placeholder="10" style="font-family:var(--m)"></div>
+        </div>
+        <div class="fr2">
+          <div class="fg"><label>Ret. Laboral % (0)</label><input type="number" step="0.01" class="fc" id="cont-ret-laboral" placeholder="0" style="font-family:var(--m)"></div>
+          <div class="fg"><label>Resp. Social % egreso (3)</label><input type="number" step="0.01" class="fc" id="cont-ret-resp" placeholder="3" style="font-family:var(--m)"></div>
+        </div>
+      </details>
       <button class="btn btn-g btn-sm" style="width:100%" onclick="guardarContrato()">Guardar</button>
     </div>
     <div class="card"><div class="st" style="margin-bottom:10px">Contratos Activos</div><div id="cont-lista"></div></div>
@@ -1743,6 +1763,7 @@ tr:hover td{background:rgba(45,255,122,.02)}
     <div class="g2" style="margin-bottom:10px">
       <div class="card">
         <div class="st" style="margin-bottom:10px">Registrar Pago Alcaldia</div>
+        <div class="fg"><label>Contrato (retenciones)</label><select class="fc" id="alc-contrato" onchange="calcPagoAlc()"><option value="">Alcaldía (por defecto)</option></select></div>
         <div class="fr2"><div class="fg"><label>Fecha</label><input class="fc" id="alc-fecha" type="date"></div><div class="fg"><label>N. Factura</label><input class="fc" id="alc-fact" placeholder="G-20006020-X" style="font-family:var(--m)"></div></div>
         <div class="fr2"><div class="fg"><label>Viajes facturados</label><input class="fc" id="alc-viajes" type="number" placeholder="59" oninput="calcPagoAlc()"></div><div class="fg"><label>Tasa BCV $ del dia</label><input class="fc" id="alc-tasa" type="number" placeholder="483.86" oninput="calcPagoAlc()" style="font-family:var(--m)"></div></div>
         <div class="fg"><label>N. Referencia BNC</label><input class="fc" id="alc-ref" placeholder="00000000000" style="font-family:var(--m)"></div>
@@ -2121,7 +2142,7 @@ tr:hover td{background:rgba(45,255,122,.02)}
   <div id="conc-resultado"></div>
 </div>
 
-<script src="app.js?v=20260628i"></script>
+<script src="app.js?v=20260628j"></script>
 
 <!-- Modal global -->
 <div id="modal" class="moverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9990;align-items:center;justify-content:center;padding:16px">
