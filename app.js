@@ -1348,7 +1348,7 @@ async function cargarDatosDB(){
       var d=parseInt(r.d)||0,n=parseInt(r.n)||0;
       var t=parseInt(r.t)||0;if(t===0&&(d>0||n>0))t=d+n;
       return{p:r.p,f:r.f,mes:r.mes||'',cam:r.cam,ch:r.ch,r:r.r||'',par:r.par||'',
-             d:d,n:n,t:t,sem:r.sem||'',m:parseFloat(r.m)||t*(cfg.tarifa||316.88),
+             d:d,n:n,t:t,sem:r.sem||'',m:parseFloat(r.m)||t*(cfg.tarifa||317.88),
              obs:r.obs||'',inc:r.inc||'',incDesc:r.inc_desc||'',
              ay1:r.ay1||'',ay2:r.ay2||'',ay3:r.ay3||'',gasoil:parseFloat(r.gasoil)||0,
              km:parseFloat(r.km)||0,mant:r.mant||''};
@@ -2115,7 +2115,7 @@ function renderDash(){
   try{actualizarUltimaPlanilla();}catch(e){}
   g('s-viajes-sub').textContent=ultSemTxt;
   g('s-ejec').textContent='$'+totalM.toLocaleString();
-  if(g('s-ejec-sub'))g('s-ejec-sub').textContent=ultF?('📅 Cargado al '+formatFecha(ultF)):'@ $316,88/viaje';
+  if(g('s-ejec-sub'))g('s-ejec-sub').textContent=ultF?('📅 Cargado al '+formatFecha(ultF)):('@ $'+(cfg.tarifa||317.88).toFixed(2)+'/viaje');
   if(SESION&&SESION.rol==='rrhh'){g('s-cobrado')&&(g('s-cobrado').textContent='—');g('s-cobrado-sub')&&(g('s-cobrado-sub').textContent='Restringido');}else g('s-cobrado').textContent='$'+totalCob.toLocaleString();
   g('s-cobrado-sub').textContent=vCobV+' viajes';
   if(!(SESION&&SESION.rol==='rrhh')){g('s-porcobrar').textContent='$'+porcobrar.toLocaleString();if(g('s-porcobrar-sub'))g('s-porcobrar-sub').textContent=Math.max(0,totalV-vCobV).toLocaleString()+' viajes';}
@@ -2187,9 +2187,9 @@ function imprimirDashboard(){
   // Flota
   var cams=Object.keys(FLOTA),op=0,tal=0,ino=0;
   var flotaRows=cams.map(function(cam){
-    var est=(FLOTA[cam].estado||'operativo');
+    var est=_estadoCamReal(cam); // fuente única (igual que el widget y la disponibilidad)
     if(est==='operativo')op++;else if(est==='taller')tal++;else ino++;
-    var km=(KM_DATA[cam]&&KM_DATA[cam].km)?KM_DATA[cam].km.toLocaleString('es-VE'):'--';
+    var km=(typeof kmActualCam==='function'?kmActualCam(cam):((KM_DATA[cam]&&KM_DATA[cam].km)||0)); km=km?km.toLocaleString('es-VE'):'--';
     var col=est==='operativo'?'#4ade80':est==='taller'?'#fbbf24':'#f87171';
     return '<tr><td style="font-weight:700">'+cam.replace('JAC-','')+'</td><td style="color:'+col+';font-weight:700">'+est.toUpperCase()+'</td><td style="text-align:right;font-family:monospace">'+km+'</td><td style="font-size:8px">'+(FLOTA[cam].chofer||'--')+'</td></tr>';
   }).join('');
@@ -2211,7 +2211,7 @@ function imprimirDashboard(){
   var vencRows=venc.slice(0,12).map(function(a){return '<tr><td>'+a.txt+'</td><td style="text-align:right;color:'+(a.dias<0?'#f87171':'#fbbf24')+';font-weight:700">'+(a.dias<0?'VENCIDO '+Math.abs(a.dias)+'d':'en '+a.dias+'d')+'</td></tr>';}).join('')||'<tr><td colspan="2" style="color:#4ade80">Todo al día</td></tr>';
   // Alertas
   var al=[];
-  Object.keys(FLOTA).filter(function(k){return (FLOTA[k].estado||'operativo')==='operativo';}).forEach(function(cam){var u=REGS.filter(function(r){return r.cam===cam;}).sort(function(a,b){return b.f.localeCompare(a.f);})[0];if(!u||diasDesde(u.f)>=3)al.push('🚛 '+cam.replace('JAC-','')+' — '+(u?diasDesde(u.f):'?')+'+ días sin planilla');});
+  Object.keys(FLOTA).filter(function(k){return _estadoCamReal(k)==='operativo';}).forEach(function(cam){var u=REGS.filter(function(r){return r.cam===cam;}).sort(function(a,b){return b.f.localeCompare(a.f);})[0];if(!u||diasDesde(u.f)>=3)al.push('🚛 '+cam.replace('JAC-','')+' — '+(u?diasDesde(u.f):'?')+'+ días sin planilla');});
   Object.keys(KM_DATA).forEach(function(cam){var _km=kmActualCam(cam);if(_km>0){var _ps=proxServicio(_km);if(_ps-_km<=500)al.push('🔧 '+cam.replace('JAC-','')+' — Servicio próximo ('+(_ps-_km).toLocaleString()+' km → '+_ps.toLocaleString()+')');}});
   var alertHtml=al.length?(al.slice(0,8).map(function(a){return '<div style="padding:3px 0;border-bottom:1px solid #243140">'+a+'</div>';}).join('')+(al.length>8?'<div class="mut" style="padding-top:3px">…y '+(al.length-8)+' más</div>':'')):'<div style="color:#4ade80;padding:4px 0">Sin alertas críticas ✓</div>';
   // Últimas planillas
@@ -2238,7 +2238,7 @@ function imprimirDashboard(){
     '<div class="mut" style="margin-bottom:6px">Tasas del día: '+tasasTxt+'</div>'+
     '<div class="kpis">'+
       kpi('Total Viajes',fmt(totalV),(ultF?'Cargado al '+formatFecha(ultF):''))+
-      kpi('Ejecutado',usd(totalM),'@ $316,88/viaje','#a3e635')+
+      kpi('Ejecutado',usd(totalM),'@ $'+(cfg.tarifa||317.88).toFixed(2)+'/viaje','#a3e635')+
       kpi('Cobrado',usd(totalCob),fmt(vCobV)+' viajes · '+pct+'%','#4ade80')+
       kpi('Por Cobrar',usd(porcobrar),fmt(vPorCob)+' viajes','#f87171')+
       kpi('Flota',op+' oper · '+tal+' taller'+(ino?' · '+ino+' inop':''),cams.length+' unidades')+
@@ -2401,7 +2401,7 @@ function renderVencimientosDash(){
 function renderAlertasCriticas(){
   var el=g('dash-alertas');if(!el)return;
   var al=[];
-  Object.keys(FLOTA).filter(function(k){return FLOTA[k].estado==='operativo';}).forEach(function(cam){
+  Object.keys(FLOTA).filter(function(k){return _estadoCamReal(k)==='operativo';}).forEach(function(cam){
     var ult=REGS.filter(function(r){return r.cam===cam;}).sort(function(a,b){return b.f.localeCompare(a.f);})[0];
     if(!ult||diasDesde(ult.f)>=3)al.push({t:'r',txt:'🚛 '+cam+' — '+(ult?diasDesde(ult.f):'?')+'+ dias sin planilla'});
   });
@@ -2449,10 +2449,10 @@ function renderDashFinanciero(totalM,totalCob,porcobrar){
   totalCob=totalCob||Math.min(ABONOS.reduce(function(s,a){return s+a.m;},0),totalM);
   porcobrar=porcobrar||Math.max(0,totalM-totalCob);
   var pct=totalM>0?Math.round((totalCob/totalM)*100):0;
-  var egNom=REGS.reduce(function(s,r){return s+(r.t*(cfg.chofer+cfg.ayud));},0);
-  var egGas=GASOIL.reduce(function(s,g){return s+(g.m||0);},0);
-  var eg75=totalCob*0.075;
-  var utilReal=totalCob-egNom-egGas-eg75;
+  // FUENTE ÚNICA: la Utilidad Real usa el MISMO motor que el dashboard/financiero/consolidado
+  // (_totalEgresos resta TODO: nómina+gasoil+7.5%+fijos+variables+CxP+multas). Antes acá se restaba
+  // solo nómina+gasoil+7.5% → inflaba la ganancia y contradecía la otra tarjeta. (auditoría fuente única)
+  var utilReal=(typeof _utilReal==='function')?_utilReal(totalCob):(totalCob-_totalEgresos(totalCob));
   el.innerHTML='<div style="font-size:10px;font-weight:800;color:var(--text3);letter-spacing:1px;text-transform:uppercase;margin-bottom:8px">Resumen Financiero</div>'+
     '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px;margin-bottom:10px">'+
     '<div class="card card-sm" style="border-top:3px solid var(--green)"><div class="stat-lbl">Facturado</div><div style="font-family:var(--m);font-size:16px;font-weight:900;color:var(--green)">$'+Math.round(totalM).toLocaleString('es-VE')+'</div><div class="stat-sub">'+REGS.reduce(function(s,r){return s+r.t;},0)+' viajes</div></div>'+
@@ -2533,7 +2533,7 @@ function guardarEdicionPlanilla(pOriginal){
     par:document.getElementById('ep-par').value,
     d:d,n:n,t:t,
     mes:REGS[idx].mes,sem:REGS[idx].sem,
-    m:t*(cfg.tarifa||316.88),
+    m:t*(cfg.tarifa||317.88),
     obs:document.getElementById('ep-obs').value,
     inc:REGS[idx].inc||'',incDesc:REGS[idx].incDesc||'',
     ay1:_ay1,ay2:_ay2,ay3:_ay3,
@@ -2971,7 +2971,7 @@ function procesarExcelBetangar(wb){
   var resultado={planillas:0,planillasIgnoradas:0,actualizadas:[],abonos:0,gasoil:0,duplicadas:[],nuevasRegs:[],nombresSinIdentificar:[]};
   var _sinIdentMap={}; // nombre normalizado -> {nombre,cam,fecha,rol,veces} de chofer/ayudante que NO casa con ningún empleado
   // PRECIO: siempre usa el configurado en la app, ignora cualquier precio del Excel
-  var TARIFA=cfg.tarifa||316.88;
+  var TARIFA=cfg.tarifa||317.88;
 
   // ── HELPERS ──
   // Convierte serial Excel, Date JS, o string a 'YYYY-MM-DD'
@@ -3327,7 +3327,7 @@ function calcMontoAbono(){
   var vEl=g('ab-v');var mEl=g('ab-m');var lblEl=g('ab-v-calc');
   if(!vEl||!mEl)return;
   var v=parseInt(vEl.value)||0;
-  var tarifa=cfg.tarifa||316.88;
+  var tarifa=cfg.tarifa||317.88;
   if(v>0){
     var monto=v*tarifa;
     mEl.value=monto;
@@ -4821,14 +4821,17 @@ function imprimirMantenimiento(){
   var venc=0,prx=0,ok=0;
   var filas=cams.map(function(cam,i){
     var d=KM_DATA[cam]||{km:0,ultsrv:0,lavado:'—',engrase:'—'};
-    var prox=(parseFloat(d.ultsrv)||0)+kmCfg;
-    var rest=prox-(parseFloat(d.km)||0);
+    // KM actual de la FUENTE ÚNICA (kmActualCam) y próximo servicio con proxServicio — igual que el
+    // panel "KM/Servicio por Unidad". Antes usaba d.km crudo → declaraba VENCIDO/AL DÍA distinto.
+    var km=(typeof kmActualCam==='function')?kmActualCam(cam):(parseFloat(d.km)||0);
+    var prox=(typeof proxServicio==='function')?proxServicio(km):((parseFloat(d.ultsrv)||0)+kmCfg);
+    var rest=prox-km;
     var est=rest<=0?'VENCIDO':rest<=500?'PROXIMO':'AL DIA';
     var bk=est==='AL DIA'?'bk-ok':est==='PROXIMO'?'bk-warn':'bk-err';
     if(est==='VENCIDO')venc++;else if(est==='PROXIMO')prx++;else ok++;
     return '<tr style="background:'+(i%2===0?'#fff':'#f5f9ff')+'">'+
       '<td class="bv"><b>'+cam+'</b></td>'+
-      '<td class="mono" style="text-align:right">'+(d.km||0).toLocaleString()+'</td>'+
+      '<td class="mono" style="text-align:right">'+(km||0).toLocaleString()+'</td>'+
       '<td class="mono" style="text-align:right">'+(d.ultsrv||0).toLocaleString()+'</td>'+
       '<td class="mono" style="text-align:right">'+prox.toLocaleString()+'</td>'+
       '<td class="mono" style="text-align:right;color:'+(rest<=0?'#dc2626':rest<=500?'#d97706':'#16a34a')+';font-weight:700">'+(rest>0?rest.toLocaleString():'VENC')+'</td>'+
@@ -9797,7 +9800,7 @@ async function verificarBNCvsAbonos(){
     var montoPago = parseFloat(pago.monto||0);
     if(!montoPago)return;
     // Calcular cuántos viajes representa ese monto
-    var viajesEquiv = Math.round(montoPago/(cfg.tarifa||316.88));
+    var viajesEquiv = Math.round(montoPago/(cfg.tarifa||317.88));
     // Buscar si hay semanas sin pago cercanas a ese monto
     var semanasSinPago = calcSemanasAbiertas();
     var match = semanasSinPago.filter(function(s){
@@ -9859,7 +9862,7 @@ function registrarAbonoDesdeWNC(){
   if(!BNC_ABONO_PENDIENTE)return;
   var pago = BNC_ABONO_PENDIENTE.pago;
   var monto = parseFloat(pago.monto||0);
-  var viajes = Math.round(monto/(cfg.tarifa||316.88));
+  var viajes = Math.round(monto/(cfg.tarifa||317.88));
   // Pre-llenar formulario de abono
   sp('abonos');
   setTimeout(function(){
@@ -10748,9 +10751,9 @@ function mecRenderizar(){
       '</div>';
   }
 
-  var op=camiones.filter(function(c){return (KM_DATA[c].estado||'operativo')==='operativo';}).length;
-  var tall=camiones.filter(function(c){return KM_DATA[c].estado==='taller';}).length;
-  var inop=camiones.filter(function(c){return KM_DATA[c].estado==='inoperativo';}).length;
+  var op=camiones.filter(function(c){return _estadoCamReal(c)==='operativo';}).length;
+  var tall=camiones.filter(function(c){return _estadoCamReal(c)==='taller';}).length;
+  var inop=camiones.length-op-tall;
   var sh=document.getElementById('mec-stats');
   if(sh)sh.innerHTML='<span style="color:#1d9e75;font-size:13px">🟢 '+op+'</span> &nbsp;<span style="color:#ef9f27;font-size:13px">🔧 '+tall+'</span> &nbsp;<span style="color:#e24b4a;font-size:13px">🔴 '+inop+'</span>';
 
@@ -11028,9 +11031,9 @@ function operResumenFlota(){
   if(!el)return;
   var cams=Object.keys(KM_DATA);
   if(!cams.length){el.textContent='Sin datos de flota';return;}
-  var op=cams.filter(function(c){return(KM_DATA[c].estado||'operativo')==='operativo';}).length;
-  var tall=cams.filter(function(c){return KM_DATA[c].estado==='taller';}).length;
-  var inop=cams.filter(function(c){return KM_DATA[c].estado==='inoperativo';}).length;
+  var op=cams.filter(function(c){return _estadoCamReal(c)==='operativo';}).length;
+  var tall=cams.filter(function(c){return _estadoCamReal(c)==='taller';}).length;
+  var inop=cams.length-op-tall;
   el.innerHTML='<span style="color:#1d9e75">🟢 '+op+' operativas</span> &nbsp;'+
     '<span style="color:#ef9f27">🔧 '+tall+' en taller</span> &nbsp;'+
     '<span style="color:#e24b4a">🔴 '+inop+' inoperativas</span>';
@@ -12788,7 +12791,7 @@ function genRptEjecucion(){
   // DETALLE planilla por planilla (formato Alcaldía): lista plana del rango filtrado.
   var regs=f.slice().sort(function(a,b){return a.f!==b.f?(a.f<b.f?-1:1):(String(a.p)<String(b.p)?-1:1);});
   var rows=regs.map(function(r,k){
-    var monto=(typeof r.m==='number'&&r.m)?r.m:(r.t*(cfg.tarifa||316.88));
+    var monto=(typeof r.m==='number'&&r.m)?r.m:(r.t*(cfg.tarifa||317.88));
     tv+=r.t;tm+=monto;tD+=(r.d||0);tN+=(r.n||0);cnt++;
     var lun=getLunesDeRango(r.f),dom=getDomingoDeSemana(lun);
     return '<tr style="background:'+(k%2===0?'#fff':'#f4f7fb')+'">'+
@@ -12805,7 +12808,7 @@ function genRptEjecucion(){
       '<div style="font-size:12px;color:#555">RIF: '+brandRif()+' | '+brandCiudad()+'</div>'+
       '<div style="font-size:15px;font-weight:900;margin-top:12px;color:#1e3a5f">RESUMEN VIAJES DIARIOS COMPACTADORES — MUNICIPIO MARACAIBO</div>'+
       '<div style="font-size:13px;font-weight:800;margin-top:6px;color:#0f2544">DESDE '+fmtFechaCorta(des||ls[0])+'   HASTA '+fmtFechaCorta(hta||getDomingoDeSemana(ls[ls.length-1]))+'</div>'+
-      '<div style="font-size:11px;color:#777;margin-top:2px">Tarifa por viaje: $'+(cfg.tarifa||316.88).toLocaleString('es-VE',{minimumFractionDigits:2})+'</div></div>'+
+      '<div style="font-size:11px;color:#777;margin-top:2px">Tarifa por viaje: $'+(cfg.tarifa||317.88).toLocaleString('es-VE',{minimumFractionDigits:2})+'</div></div>'+
     '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:20px">'+
       '<div style="background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:12px;text-align:center"><div style="font-size:10px;color:#16a34a;font-weight:700;text-transform:uppercase">Total Viajes</div><div style="font-size:30px;font-weight:900">'+tv+'</div></div>'+
       '<div style="background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:12px;text-align:center"><div style="font-size:10px;color:#16a34a;font-weight:700;text-transform:uppercase">Monto USD</div><div style="font-size:24px;font-weight:900;color:#16a34a">$'+tm.toLocaleString('es-VE',{minimumFractionDigits:2})+'</div></div>'+
@@ -12936,7 +12939,7 @@ function exportAlcaldiaExcel(){
 var PC_PREVIEW=null;
 function cargarPrecioActual(){
   var el=document.getElementById('precio-actual-display'),el2=document.getElementById('precio-vigente-desde');
-  if(el)el.textContent='$'+(cfg.tarifa||316.88);
+  if(el)el.textContent='$'+(cfg.tarifa||317.88);
   if(el2)el2.textContent='Tarifa configurada actualmente';
   cargarHistorialPrecios();
   var hoy=fechaVE();
