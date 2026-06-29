@@ -44,10 +44,13 @@ begin
         estado = case when coalesce(semanas_pagadas,0)+1 >= semanas then 'pagado' else estado end
       where id = (e->>'id') and estado='activo' and coalesce(semanas_pagadas,0) < semanas;
     end loop;
+    -- pagado_bs acumula el Bs REAL pagado, congelado a la tasa del día del pago (cuotaBs lo trae el
+    -- JS ya convertido: cuotaUsd × tasa$ del día). pagado_div acumula la divisa descontada (progreso).
     for e in select value from jsonb_array_elements(coalesce(p_multas,'[]'::jsonb)) loop
       update multas set
         cuotas_pagas = coalesce(cuotas_pagas,0)+1,
         pagado_bs = coalesce(pagado_bs,0) + coalesce(nullif(e->>'cuotaBs','')::numeric,0),
+        pagado_div = coalesce(pagado_div,0) + coalesce(nullif(e->>'cuotaDiv','')::numeric,0),
         estado = case when coalesce(cuotas_pagas,0)+1 >= cuotas then 'pagado' else estado end
       where id = (e->>'id') and estado='activo' and coalesce(cuotas_pagas,0) < cuotas;
     end loop;

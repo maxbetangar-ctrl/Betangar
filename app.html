@@ -257,6 +257,7 @@ tr:hover td{background:rgba(45,255,122,.02)}
     <div class="menu-item" onclick="abrirAnalisis()" id="mi-ranking">📊 Analisis</div>
     <div class="menu-group">SISTEMA</div>
     <div class="menu-item" onclick="sp('contratos')" id="mi-contratos">📋 Contratos</div>
+    <div class="menu-item" onclick="sp('multicontrato')" id="mi-multicontrato">🚚 Operación / Contratos</div>
     <div class="menu-item" onclick="sp('usuarios')" id="mi-usuarios">🔐 Usuarios</div>
     <div class="menu-item" onclick="sp('auditoria')" id="mi-auditoria">🔍 Auditoria</div>
     <div class="menu-item" onclick="sp('salud')" id="mi-salud">🩺 Salud de Datos</div>
@@ -910,10 +911,12 @@ tr:hover td{background:rgba(45,255,122,.02)}
         <div class="fg"><label>Fecha</label><input type="date" class="fc" id="mul-fecha"></div>
       </div>
       <div class="fg"><label>Que paso</label><input class="fc" id="mul-desc" placeholder="Ej: Choque leve en semaforo, exceso de velocidad..."></div>
-      <div class="fr2">
-        <div class="fg"><label>Monto de la multa (Bs)</label><input type="number" class="fc" id="mul-monto-bs" placeholder="0" style="font-family:var(--m)"></div>
+      <div class="fr3">
+        <div class="fg"><label>Moneda</label><select class="fc" id="mul-moneda" onchange="calcMultaRefBs()"><option value="USD">Dólar (BCV $)</option><option value="EUR">Euro (BCV €)</option></select></div>
+        <div class="fg"><label>Monto de la multa</label><input type="number" class="fc" id="mul-monto" placeholder="0" style="font-family:var(--m)" oninput="calcMultaRefBs()"></div>
         <div class="fg"><label>N. Multa</label><input class="fc" id="mul-ref" placeholder="MUL-2026-001" style="font-family:var(--m)"></div>
       </div>
+      <div id="mul-ref-bs" style="font-size:11px;color:var(--text3);margin:-4px 0 8px">≈ Bs — (referencia a la tasa de hoy; el cobro se congela en Bs recién al pagar cada cuota)</div>
       <div class="fg"><label>Quien es responsable</label><select class="fc" id="mul-resp" onchange="toggleMulChofer(this.value)"><option value="empresa">La Empresa (falla operativa)</option><option value="chofer">El Chofer</option></select></div>
       <div id="mul-chofer-box" style="display:none">
         <div class="alert-b" style="margin-bottom:8px">El descuento se aplica en cuotas en la nomina del chofer.</div>
@@ -932,7 +935,7 @@ tr:hover td{background:rgba(45,255,122,.02)}
       <div class="card"><div class="st" style="margin-bottom:8px">Por Chofer</div><div id="mul-por-chofer" style="font-size:12px;color:var(--text3)">Sin multas</div></div>
     </div>
   </div>
-  <div class="tw"><table><thead><tr><th>Fecha</th><th>Camion</th><th>Descripcion</th><th>Monto Bs</th><th>Responsable</th><th>Cuotas</th><th>Pagado Bs</th><th>Restante Bs</th><th>Estado</th><th></th></tr></thead><tbody id="tb-multas"></tbody></table></div>
+  <div class="tw"><table><thead><tr><th>Fecha</th><th>Camion</th><th>Descripcion</th><th>Monto</th><th>Responsable</th><th>Cuotas</th><th>Pagado (Bs)</th><th>Restante</th><th>Estado</th><th></th></tr></thead><tbody id="tb-multas"></tbody></table></div>
 </div>
 
 <!-- INVENTARIO -->
@@ -1080,6 +1083,121 @@ tr:hover td{background:rgba(45,255,122,.02)}
     <div class="card"><div class="st" style="margin-bottom:10px">Contratos Activos</div><div id="cont-lista"></div></div>
   </div>
 </div>
+<!-- MULTI-CONTRATO (Operación: unidades, operaciones, P&L, consolidado) -->
+<div id="p-multicontrato" class="page">
+  <div id="mc-subnav" style="margin-bottom:10px"></div>
+  <!-- TAB: UNIDADES -->
+  <div id="tab-mc-unidades">
+    <div class="g2" style="margin-bottom:10px">
+      <div class="card">
+        <div class="st" style="margin-bottom:10px">Registrar Unidad</div>
+        <div class="fg"><label>Placa / Identificador</label><input class="fc" id="mc-uni-placa" placeholder="ABC-123 / Chuto 01"></div>
+        <div class="fr2">
+          <div class="fg"><label>Tipo de unidad</label><select class="fc" id="mc-uni-tipo"></select></div>
+          <div class="fg"><label>Contrato habitual (opcional)</label><select class="fc" id="mc-uni-contrato"></select></div>
+        </div>
+        <div class="fg"><label>Descripción (opcional)</label><input class="fc" id="mc-uni-desc" placeholder="Marca/modelo/nota"></div>
+        <div class="fg"><label>Estado</label><select class="fc" id="mc-uni-estado"><option value="operativa">Operativa</option><option value="mantenimiento">En mantenimiento</option><option value="inactiva">Inactiva</option></select></div>
+        <button class="btn btn-g" style="width:100%" onclick="guardarUnidadMC()">Guardar unidad</button>
+      </div>
+      <div class="card">
+        <div class="st" style="margin-bottom:10px">Tipos de unidad</div>
+        <div class="fr2">
+          <div class="fg"><label>Nombre</label><input class="fc" id="mc-tipo-nombre" placeholder="Compactador / Chuto / Cisterna"></div>
+          <div class="fg"><label>¿Qué mide?</label><input class="fc" id="mc-tipo-mide" placeholder="viaje / hora / flete / km / tonelada"></div>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-g btn-sm" style="flex:1" onclick="guardarTipoUnidad()">+ Agregar tipo</button>
+          <button class="btn btn-s btn-sm" style="flex:1" onclick="seedTiposUnidad()" title="Carga tipos comunes (compactador, chuto, cisterna, volteo, montacarga) si no hay ninguno">Cargar sugeridos</button>
+        </div>
+        <div id="mc-tipos-lista" style="margin-top:10px;font-size:12px"></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="st" style="margin-bottom:10px;display:flex;justify-content:space-between;align-items:center">
+        <span>Unidades registradas</span>
+        <button class="btn btn-s btn-sm" onclick="importarFlotaJAC()" title="Crea una unidad por cada camión JAC de la flota y las asigna al contrato elegido. NO toca la flota actual.">📥 Importar flota JAC</button>
+      </div>
+      <div class="tw"><table><thead><tr><th>Placa</th><th>Tipo</th><th>Contrato</th><th>Estado</th><th></th></tr></thead><tbody id="mc-uni-tabla"></tbody></table></div>
+    </div>
+  </div>
+  <!-- TAB: OPERACIONES (Paso 4) -->
+  <div id="tab-mc-operaciones" style="display:none">
+    <div class="g2" style="margin-bottom:10px">
+      <div class="card">
+        <div class="st" style="margin-bottom:10px">Registrar Operación</div>
+        <div class="fr2">
+          <div class="fg"><label>Unidad</label><select class="fc" id="mc-op-unidad" onchange="mcOpUnidadChange()"></select></div>
+          <div class="fg"><label>Contrato (cliente de esta operación)</label><select class="fc" id="mc-op-contrato" onchange="mcOpInfoContrato()"></select></div>
+        </div>
+        <div style="font-size:10px;color:var(--text3);margin:-2px 0 8px">El mismo camión puede trabajarle a distintos clientes; elegí a quién se le hizo este viaje/día.</div>
+        <div class="fr2">
+          <div class="fg"><label>Fecha</label><input type="date" class="fc" id="mc-op-fecha"></div>
+          <div class="fg"><label id="mc-op-cant-lbl">Cantidad</label><input type="number" step="0.01" class="fc" id="mc-op-cantidad" placeholder="0" oninput="mcOpPreview()"></div>
+        </div>
+        <div id="mc-op-info" style="font-size:11px;color:var(--lime);margin-bottom:8px"></div>
+        <div class="fr2">
+          <div class="fg"><label>Operador (opcional)</label><input class="fc" id="mc-op-operador" list="dl-chofer" placeholder="Nombre del operador"></div>
+          <div class="fg"></div>
+        </div>
+        <div class="fg"><label>Nota (opcional)</label><input class="fc" id="mc-op-nota" placeholder="Detalle de la operación"></div>
+        <div id="mc-op-preview" style="font-size:12px;background:var(--bg3);border-radius:8px;padding:8px;margin-bottom:8px;color:var(--text2)">Elegí una unidad y la cantidad.</div>
+        <button class="btn btn-g" style="width:100%" onclick="guardarOperacionMC()">Guardar operación</button>
+      </div>
+      <div class="card">
+        <div class="st" style="margin-bottom:10px">Filtrar</div>
+        <div class="fr2">
+          <div class="fg"><label>Desde</label><input type="date" class="fc" id="mc-op-des" onchange="renderOperacionesMC()"></div>
+          <div class="fg"><label>Hasta</label><input type="date" class="fc" id="mc-op-hta" onchange="renderOperacionesMC()"></div>
+        </div>
+        <div class="fg"><label>Contrato</label><select class="fc" id="mc-op-filtro-contrato" onchange="renderOperacionesMC()"></select></div>
+        <div id="mc-op-totales" style="font-size:12px;margin-top:6px"></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="st" style="margin-bottom:10px">Operaciones registradas</div>
+      <div class="tw"><table><thead><tr><th>Fecha</th><th>Unidad</th><th>Contrato</th><th>Cantidad</th><th>Ingreso</th><th>Pago operador</th><th>Operador</th><th></th></tr></thead><tbody id="mc-op-tabla"></tbody></table></div>
+    </div>
+  </div>
+  <!-- TAB: P&L POR CONTRATO (Paso 5) -->
+  <div id="tab-mc-pnl" style="display:none">
+    <div class="card" style="margin-bottom:10px">
+      <div class="fr3">
+        <div class="fg"><label>Desde</label><input type="date" class="fc" id="mc-pnl-des" onchange="renderPnlContratos()"></div>
+        <div class="fg"><label>Hasta</label><input type="date" class="fc" id="mc-pnl-hta" onchange="renderPnlContratos()"></div>
+        <div class="fg" style="display:flex;align-items:flex-end"><button class="btn btn-s btn-sm" style="width:100%" onclick="sv('mc-pnl-des','');sv('mc-pnl-hta','');renderPnlContratos()">Todo</button></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="st" style="margin-bottom:10px">Ganancia por contrato (operaciones)</div>
+      <div class="tw"><table><thead><tr><th>Contrato</th><th>Operaciones</th><th>Ingreso ($)</th><th>Pago operadores ($)</th><th>Margen ($)</th><th>Margen %</th></tr></thead><tbody id="mc-pnl-tabla"></tbody></table></div>
+      <div style="font-size:10px;color:var(--text3);margin-top:6px">Montos llevados a USD a la tasa de hoy (contratos en Bs/€ se convierten para comparar). El aseo (Alcaldía) va por su flujo de planillas/cobranza — ver pestaña Consolidado.</div>
+    </div>
+  </div>
+  <!-- TAB: NÓMINA OPERADORES (Paso 7) -->
+  <div id="tab-mc-nomina" style="display:none">
+    <div class="card" style="margin-bottom:10px">
+      <div class="fr3">
+        <div class="fg"><label>Desde</label><input type="date" class="fc" id="mc-nom-des" onchange="renderNominaOperadores()"></div>
+        <div class="fg"><label>Hasta</label><input type="date" class="fc" id="mc-nom-hta" onchange="renderNominaOperadores()"></div>
+        <div class="fg" style="display:flex;align-items:flex-end"><button class="btn btn-s btn-sm" style="width:100%" onclick="sv('mc-nom-des','');sv('mc-nom-hta','');renderNominaOperadores()">Todo</button></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="st" style="margin-bottom:10px">Pago a operadores (por operaciones de contratos)</div>
+      <div class="tw"><table><thead><tr><th>Operador</th><th>Operaciones</th><th>Contratos</th><th>A pagar ($)</th></tr></thead><tbody id="mc-nom-tabla"></tbody></table></div>
+      <div style="font-size:10px;color:var(--text3);margin-top:6px">Suma el <b>pago al operador</b> (tarifa_operador × cantidad) de cada operación, llevado a USD. Es independiente de la nómina del aseo (planillas/viajes). El operador se toma del campo "Operador" de cada operación.</div>
+    </div>
+  </div>
+  <!-- TAB: CONSOLIDADO (Paso 6) -->
+  <div id="tab-mc-consolidado" style="display:none">
+    <div class="card">
+      <div class="st" style="margin-bottom:10px">Consolidado de la empresa (≈USD)</div>
+      <div id="mc-consol-cuerpo" style="font-size:13px"></div>
+      <div style="font-size:10px;color:var(--text3);margin-top:8px">Une la utilidad del <b>aseo/Alcaldía</b> (cobrado − todos los gastos, misma fórmula del Dashboard / Utilidad Real) con el <b>margen de los contratos nuevos</b> (operaciones). No dobla-cuenta: el aseo vive en planillas/nómina; los contratos nuevos en operaciones.</div>
+    </div>
+  </div>
+</div>
 <!-- PLANILLA -->
 <div id="p-planilla" class="page">
   <div id="plan-dup-alert" style="display:none;background:rgba(248,113,113,.1);border:1px solid rgba(248,113,113,.4);border-radius:10px;padding:12px 16px;margin-bottom:10px">
@@ -1093,7 +1211,7 @@ tr:hover td{background:rgba(45,255,122,.02)}
   <div id="alert-plan" class="alert-ok">Planilla guardada correctamente</div>
   <div class="g2">
     <div class="card">
-      <div class="sh"><div class="st">Nueva Planilla</div><div id="rp-ultima" style="font-size:11px;color:var(--green);font-weight:700;font-family:var(--m)"></div></div>
+      <div class="sh"><div class="st">Nueva Planilla</div><div style="display:flex;align-items:center;gap:8px"><button class="btn btn-s btn-sm" onclick="abrirPlanillaEspecial()" title="Pago por una actividad fuera de viajes (traslado de patio a autolavado, etc.). Suma a la nómina.">⭐ Planilla especial</button><div id="rp-ultima" style="font-size:11px;color:var(--green);font-weight:700;font-family:var(--m)"></div></div></div>
       <div class="fr4">
         <div class="fg"><label>N Planilla</label><input class="fc" id="rp-num" type="number" placeholder="00416" style="font-family:var(--m)"></div>
         <div class="fg"><label>Fecha</label><input class="fc" id="rp-fecha" type="date" onchange="autoData()"></div>
@@ -1320,6 +1438,15 @@ tr:hover td{background:rgba(45,255,122,.02)}
     <div style="min-width:0"><div class="st" style="margin-bottom:6px">Choferes</div><div class="tw"><table><thead><tr><th>#</th><th>Chofer</th><th>Unidad</th><th>Viajes</th><th>Dias</th><th>Sueldo $</th><th>Desc $</th><th>Total $</th></tr></thead><tbody id="tb-nom-ch"></tbody></table></div></div>
     <div style="min-width:0"><div class="sh" style="margin-bottom:6px"><div class="st">Ayudantes</div><div style="font-size:11px;color:var(--blue)" id="nm-ay-total">-</div></div><div class="tw"><table><thead><tr><th>#</th><th>Ayudante</th><th>Tipo</th><th>Unidad</th><th>Viajes</th><th>Sueldo $</th><th>Desc $</th><th>Total $</th></tr></thead><tbody id="tb-nom-ay"></tbody></table></div></div>
   </div>
+  <!-- ACTIVIDADES ESPECIALES (planilla especial): pagos fuera de viajes, suman al total de la semana -->
+  <div class="card" style="margin-top:10px;border:1px solid var(--teal)">
+    <div class="sh" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;margin-bottom:8px">
+      <div class="st">⭐ Actividades especiales (traslados, etc.)</div>
+      <button class="btn btn-g btn-sm" onclick="abrirPlanillaEspecial()">+ Planilla especial</button>
+    </div>
+    <div class="tw"><table><thead><tr><th>Fecha</th><th>Trabajador</th><th>Actividad</th><th>Detalle</th><th>Paga $</th><th></th></tr></thead><tbody id="nm-extras-tabla"></tbody></table></div>
+    <div style="font-size:10px;color:var(--text3);margin-top:6px">Estos pagos se SUMAN al total de la nómina del período y la auditoría los reconoce. Se registran con el botón "Planilla especial" (también disponible en Registro Diario).</div>
+  </div>
   <!-- COTEJO PLANILLA vs ASISTENCIA (anomalías RRHH) — pegado a Choferes/Ayudantes para auditar de inmediato -->
   <div class="card" style="margin-top:10px;border:1px solid var(--amber)">
     <div class="sh" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">
@@ -1355,6 +1482,18 @@ tr:hover td{background:rgba(45,255,122,.02)}
       <div id="aud-resumen" style="font-size:11px"></div>
     </div>
     <div id="aud-lista" class="tw"></div>
+    <!-- GESTOR DE ALIAS DE NOMBRES — arregla el cotejo cuando la planilla trae el nombre corto/mal escrito -->
+    <div style="margin-top:12px;border-top:1px dashed var(--border);padding-top:10px">
+      <div class="st" style="margin-bottom:6px;font-size:13px">🔤 Alias de nombres (planilla ↔ nombre completo)</div>
+      <div style="font-size:11px;color:var(--text3);margin-bottom:8px">Si el cotejo "no reconoce" a alguien (la planilla trae el nombre corto/mal escrito), mapealo acá. Se guarda en la base y el cotejo lo reconoce al instante.</div>
+      <div class="fr2">
+        <div class="fg"><label>Nombre como sale en la planilla</label><input class="fc" id="alias-corto" placeholder="Alexander Hernandez"></div>
+        <div class="fg"><label>Nombre completo (empleado)</label><input class="fc" id="alias-full" list="dl-alias-emp" placeholder="ALEXANDER ... HERNANDEZ ..."></div>
+      </div>
+      <datalist id="dl-alias-emp"></datalist>
+      <button class="btn btn-g btn-sm" onclick="agregarAlias()">Guardar alias</button>
+      <div id="alias-lista" style="margin-top:10px"></div>
+    </div>
   </div>
 
   <!-- HISTORIAL DE NÓMINA (gasto total de la empresa, soporte por persona auditable) -->
@@ -2155,7 +2294,7 @@ tr:hover td{background:rgba(45,255,122,.02)}
 </div>
 
 <script src="money.js?v=20260628n"></script>
-<script src="app.js?v=20260628z"></script>
+<script src="app.js?v=20260629c"></script>
 
 <!-- Modal global -->
 <div id="modal" class="moverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9990;align-items:center;justify-content:center;padding:16px">

@@ -102,7 +102,218 @@ if (typeof app.calcRetenciones === 'function') {
   aprox('base invalida -> neto 0', app.calcRetenciones('abc', app.RET_DEFAULT, null).neto, 0);
 }
 
-// ── Resumen ──
-console.log('\n──────────────');
-console.log('PASS: ' + pass + '   FAIL: ' + fail);
-process.exit(fail > 0 ? 1 : 0);
+// ── PERSISTENCIA: cola offline / dead-letter / reintento (la capa donde vivían los bugs) ──
+// Es justo lo que el audit pedía cubrir: que un fallo NO se pierda en silencio (cae al
+// dead-letter), que la red reintente y tras 3 intentos también caiga al dead-letter, y que
+// la cola reintente como UPSERT (no INSERT) cuando la tabla tiene clave de conflicto.
+function respCola(b){
+  if(b==='neterr')return Promise.reject(new Error('sin red'));        // falla de red → reintentar
+  if(b==='srverr')return Promise.resolve({error:{message:'dup key'}}); // error de servidor → dead-letter
+  return Promise.resolve({error:null});                                // ok
+}
+function mkSupa(behavior, calls){
+  return { from:function(t){ return {
+    insert:function(rows){ calls.push({t:t,method:'insert'}); return respCola(behavior); },
+    upsert:function(rows,opts){ calls.push({t:t,method:'upsert',oc:opts&&opts.onConflict}); return respCola(behavior); }
+  };}};
+}
+function resetCola(){ app.COLA_OFFLINE=[]; app.COLA_FALLIDOS=[]; app._procesandoCola=false; }
+
+(async function runAsync(){
+  console.log('\nguardarEnCola (onConflict por tabla):');
+  ok('guardarEnCola definida', typeof app.guardarEnCola === 'function');
+  ok('procesarColaOffline definida', typeof app.procesarColaOffline === 'function');
+  resetCola();
+  app.guardarEnCola('abonos', { fact: 'M1', m: 5 });
+  eq('abonos → onConflict "fact"', app.COLA_OFFLINE[0].oc, 'fact');
+  app.guardarEnCola('planillas', { p: '00251' });
+  eq('planillas → onConflict "p"', app.COLA_OFFLINE[1].oc, 'p');
+  app.guardarEnCola('km_data', { cam: 'JAC-B001' });
+  eq('tabla sin clave → oc null', app.COLA_OFFLINE[2].oc, null);
+  app.guardarEnCola('abonos', { fact: 'M2' }, 'custom');
+  eq('oc explícito gana sobre el mapa', app.COLA_OFFLINE[3].oc, 'custom');
+  eq('_try arranca en 0', app.COLA_OFFLINE[0]._try, 0);
+
+  app.DB_READY = true;
+
+  console.log('\nprocesarColaOffline — ÉXITO:');
+  resetCola();
+  var calls = [];
+  app.supabase = mkSupa('ok', calls);
+  app.COLA_OFFLINE = [{ t: 'abonos', d: { fact: 'M9' }, _try: 0, oc: 'fact' }];
+  await app.procesarColaOffline();
+  eq('cola vacía tras sincronizar', app.COLA_OFFLINE.length, 0);
+  eq('nada al dead-letter', app.COLA_FALLIDOS.length, 0);
+  eq('con oc → reintenta como UPSERT (no INSERT)', calls[0] && calls[0].method, 'upsert');
+  eq('UPSERT lleva el onConflict', calls[0] && calls[0].oc, 'fact');
+
+  console.log('\nprocesarColaOffline — sin clave usa INSERT:');
+  resetCola();
+  var calls2 = [];
+  app.supabase = mkSupa('ok', calls2);
+  app.COLA_OFFLINE = [{ t: 'km_data', d: { cam: 'X' }, _try: 0, oc: null }];
+  await app.procesarColaOffline();
+  eq('sin oc → INSERT plano', calls2[0] && calls2[0].method, 'insert');
+
+  console.log('\nprocesarColaOffline — ERROR DE SERVIDOR → dead-letter (no se pierde):');
+  resetCola();
+  app.supabase = mkSupa('srverr', []);
+  app.COLA_OFFLINE = [{ t: 'abonos', d: { fact: 'DUP' }, _try: 0, oc: 'fact' }];
+  await app.procesarColaOffline();
+  eq('no se reencola (error del servidor no es de red)', app.COLA_OFFLINE.length, 0);
+  eq('cae al dead-letter visible', app.COLA_FALLIDOS.length, 1);
+  ok('dead-letter guarda el motivo', /servidor/.test((app.COLA_FALLIDOS[0] || {}).motivo || ''));
+
+  console.log('\nprocesarColaOffline — RED falla: reintenta y a los 3 intentos → dead-letter:');
+  resetCola();
+  app.supabase = mkSupa('neterr', []);
+  app.COLA_OFFLINE = [{ t: 'planillas', d: { p: '1' }, _try: 0, oc: 'p' }];
+  await app.procesarColaOffline();
+  eq('1er fallo de red → reencolado', app.COLA_OFFLINE.length, 1);
+  eq('_try incrementado a 1', app.COLA_OFFLINE[0]._try, 1);
+  eq('aún no al dead-letter', app.COLA_FALLIDOS.length, 0);
+  await app.procesarColaOffline(); // intento 2
+  eq('_try=2 sigue reencolado', app.COLA_OFFLINE.length === 1 && app.COLA_OFFLINE[0]._try, 2);
+  await app.procesarColaOffline(); // intento 3 → dead-letter
+  eq('tras 3 intentos sale de la cola', app.COLA_OFFLINE.length, 0);
+  eq('tras 3 intentos → dead-letter (no se pierde en silencio)', app.COLA_FALLIDOS.length, 1);
+
+  console.log('\nexportNomExcel (arma hojas desde _ultimaNomina):');
+  ok('exportNomExcel definida', typeof app.exportNomExcel === 'function');
+  var sheets = [];
+  app.XLSX = {
+    utils: {
+      book_new: function () { return {}; },
+      json_to_sheet: function (rows) { return { __rows: rows }; },
+      book_append_sheet: function (wb, ws, name) { sheets.push({ name: name, rows: ws.__rows }); }
+    },
+    writeFile: function (wb, fname) { sheets._fname = fname; }
+  };
+  app.TASAS.bcvDolar = 617; // simula tasa ya cargada de la API (si no, exportNomExcel pediría la manual)
+  app._ultimaNomina = {
+    sem: 'S1', mes: '2026-06', tasa: 617, totCh: 100, totAy: 50, totAdm: 0, totImau: 0, totBs: 92550,
+    fdesde: '2026-06-01', fhasta: '2026-06-07',
+    choferes: [{ n: 'JUAN', u: 'JAC-B001', viajes: 10, pat: 0, usd: 80, bs: 49360 }],
+    ayudantes: [{ n: 'PEDRO', u: 'JAC-B001', tipo: 'interno', viajes: 8, pat: 0, usd: 40, bs: 24680 }]
+  };
+  app.exportNomExcel();
+  eq('genera 3 hojas (Choferes, Ayudantes, Resumen)', sheets.map(function (s) { return s.name; }), ['Choferes', 'Ayudantes', 'Resumen']);
+  eq('hoja Choferes lleva el neto $', (sheets[0].rows[0] || {})['Neto $'], 80);
+  ok('nombre de archivo con sufijo de semana', /S1/.test(sheets._fname || ''));
+  var resumen = sheets[2].rows;
+  ok('Resumen incluye la tasa', resumen.some(function (r) { return r.Concepto === 'Tasa Bs/$' && r.Valor === 617; }));
+  sheets.length = 0;
+  app._ultimaNomina = null;
+  app.exportNomExcel(); // sin nómina calculada → no debe armar hojas ni lanzar
+  eq('sin nómina calculada no exporta', sheets.length, 0);
+
+  console.log('\ntasaOManual (prioridad API, manual solo si falla):');
+  ok('tasaOManual definida', typeof app.tasaOManual === 'function');
+  app.TASAS.bcvDolar = 620;
+  var gotTasa = null, llamado = 0;
+  app.tasaOManual('bcvDolar', function (v) { gotTasa = v; llamado++; });
+  eq('con tasa de la API → callback directo con esa tasa (sin pedir manual)', gotTasa, 620);
+  eq('callback se ejecuta una sola vez', llamado, 1);
+  eq('getTasa devuelve la de la API', app.getTasa('bcvDolar'), 620);
+  app.TASAS.bcvDolar = 0;
+  eq('sin tasa cargada getTasa → null (no inventa un número)', app.getTasa('bcvDolar'), null);
+
+  console.log('\nmulta en divisa (USD/EUR) → USD para nómina, congela Bs al pagar:');
+  ok('_multaDivToUsd definida', typeof app._multaDivToUsd === 'function');
+  ok('_multaCuotaUsd definida', typeof app._multaCuotaUsd === 'function');
+  app.TASAS.bcvDolar = 617;
+  app.TASAS.bcvEuro = 634;
+  eq('USD se queda igual', app._multaDivToUsd(100, 'USD'), 100);
+  eq('EUR → USD vía euro/dolar (100€ × 634/617)', Math.round(app._multaDivToUsd(100, 'EUR') * 100) / 100, Math.round(100 * 634 / 617 * 100) / 100);
+  eq('EUR sin tasa euro → 0 (no inventa)', (function () { app.TASAS.bcvEuro = 0; var r = app._multaDivToUsd(100, 'EUR'); app.TASAS.bcvEuro = 634; return r; })(), 0);
+  // multa USD: cuota en USD directa; legacy Bs: cuotaBs/tasa
+  eq('cuota USD multa nueva', app._multaCuotaUsd({ moneda: 'USD', cuotaDiv: 25 }), 25);
+  eq('cuota legacy Bs → USD (15420/617=25)', Math.round(app._multaCuotaUsd({ cuotaBs: 15420 })), 25);
+  eq('monto empresa EUR → USD', Math.round(app._multaMontoUsd({ moneda: 'EUR', montoDiv: 200 })), Math.round(200 * 634 / 617));
+  // Congelamiento al pagar: cuotaBs frozen = cuotaUsd × tasa$ del día del pago
+  var cuotaUsdUSD = app._multaCuotaUsd({ moneda: 'USD', cuotaDiv: 25 });
+  eq('congela 25 USD a Bs con tasa pago 620 = 15500', Math.round(cuotaUsdUSD * 620), 15500);
+  eq('restante divisa (4 cuotas, 1 paga, 25$ c/u) = $75', app._multaRestTxt({ moneda: 'USD', resp: 'chofer', cuotas: 4, cuotasPagas: 1, cuotaDiv: 25 }), '$75');
+
+  console.log('\nmulti-contrato Paso 3 (unidades ↔ contratos):');
+  ok('abrirMultiContrato definida', typeof app.abrirMultiContrato === 'function');
+  ok('guardarUnidadMC definida', typeof app.guardarUnidadMC === 'function');
+  ok('switchMCTab definida', typeof app.switchMCTab === 'function');
+  app.CONTRATOS = [{ id: 'CNT1', nombre: 'Alcaldía Maracaibo', estado: 'activo' }];
+  eq('_contratoNombre mapea id→nombre (enlace unidad↔contrato)', app._contratoNombre('CNT1'), 'Alcaldía Maracaibo');
+  eq('_contratoNombre id desconocido → el id', app._contratoNombre('XX'), 'XX');
+
+  console.log('\nmulti-contrato Paso 4 (operaciones → ingreso/egreso, conversión a USD):');
+  ok('guardarOperacionMC definida', typeof app.guardarOperacionMC === 'function');
+  app.TASAS.bcvDolar = 617; app.TASAS.bcvEuro = 634;
+  eq('contrato USD → monto se queda', app._mcDivAUsd(100, { moneda: 'USD' }), 100);
+  eq('contrato Bs → /tasa (61700/617=100)', Math.round(app._mcDivAUsd(61700, { moneda: 'Bs' })), 100);
+  eq('contrato EUR → vía euro/dolar', Math.round(app._mcDivAUsd(100, { moneda: 'EUR' })), Math.round(100 * 634 / 617));
+  eq('sin contrato (USD por defecto) se queda', app._mcDivAUsd(50, null), 50);
+  app.OPERACIONES = [
+    { id: 'O1', contrato_id: 'CNT1', fecha: '2026-06-10', monto_cliente: 100, monto_operador: 40 },
+    { id: 'O2', contrato_id: 'CNT1', fecha: '2026-07-01', monto_cliente: 200, monto_operador: 80 }
+  ];
+  eq('filtro por rango incluye solo junio', app._operacionesFiltradas('2026-06-01', '2026-06-30', null).length, 1);
+  eq('filtro por contrato trae las 2', app._operacionesFiltradas(null, null, 'CNT1').length, 2);
+
+  console.log('\nmulti-contrato Paso 5/6 (P&L por contrato + consolidado):');
+  ok('_pnlPorContrato definida', typeof app._pnlPorContrato === 'function');
+  app.CONTRATOS = [{ id: 'CNT1', nombre: 'PDVSA', moneda: 'USD', estado: 'activo' }];
+  app.OPERACIONES = [
+    { id: 'O1', contrato_id: 'CNT1', fecha: '2026-06-10', monto_cliente: 100, monto_operador: 40 },
+    { id: 'O2', contrato_id: 'CNT1', fecha: '2026-06-11', monto_cliente: 50, monto_operador: 20 }
+  ];
+  var pnl = app._pnlPorContrato('', '');
+  eq('agrupa en 1 contrato', pnl.length, 1);
+  eq('ingreso sumado (100+50)', pnl[0].ingreso, 150);
+  eq('pago operadores sumado (40+20)', pnl[0].pago, 60);
+  eq('margen = ingreso − pago', pnl[0].margen, 90);
+
+  console.log('\nmulti-contrato Paso 7 (nómina operadores):');
+  ok('_nominaOperadores definida', typeof app._nominaOperadores === 'function');
+  app.OPERACIONES = [
+    { id: 'O1', contrato_id: 'CNT1', operador: 'JUAN', monto_operador: 40 },
+    { id: 'O2', contrato_id: 'CNT1', operador: 'JUAN', monto_operador: 20 },
+    { id: 'O3', contrato_id: 'CNT1', operador: 'PEDRO', monto_operador: 30 }
+  ];
+  var nom = app._nominaOperadores('', '');
+  eq('agrupa 2 operadores', nom.length, 2);
+  eq('JUAN suma 60 y va primero (mayor pago)', nom[0].operador + '=' + nom[0].pago, 'JUAN=60');
+
+  console.log('\nmulti-contrato: 1 unidad → varios clientes en días distintos (caso venta):');
+  app.CONTRATOS = [
+    { id: 'CA', nombre: 'PDVSA', moneda: 'USD', forma_cobro: 'viaje', tarifa_cliente: 50, tarifa_operador: 10, estado: 'activo' },
+    { id: 'CB', nombre: 'Empresa X', moneda: 'USD', forma_cobro: 'viaje', tarifa_cliente: 80, tarifa_operador: 15, estado: 'activo' }
+  ];
+  // mismo camión UN1: lunes le trabaja a PDVSA, martes a Empresa X
+  app.OPERACIONES = [
+    { id: 'OP1', contrato_id: 'CA', unidad_id: 'UN1', fecha: '2026-06-10', operador: 'JUAN', monto_cliente: 150, monto_operador: 30 },
+    { id: 'OP2', contrato_id: 'CB', unidad_id: 'UN1', fecha: '2026-06-11', operador: 'JUAN', monto_cliente: 160, monto_operador: 30 }
+  ];
+  var pm = app._pnlPorContrato('', '');
+  eq('P&L separa por cliente (2 filas) aunque sea el mismo camión', pm.length, 2);
+  var nm2 = app._nominaOperadores('', '');
+  eq('nómina junta al operador entre clientes (JUAN 1 fila)', nm2.length, 1);
+  eq('JUAN cobra 60 (30+30) por los 2 clientes', nm2[0].pago, 60);
+
+  console.log('\nnómina: alias de nombres + planilla especial:');
+  ok('agregarAlias definida', typeof app.agregarAlias === 'function');
+  app._ALIAS_NOMBRES[app._normNom('Alexander Hernandez')] = 'ALEXANDER JOSE HERNANDEZ PEREZ';
+  eq('alias resuelve nombre corto → completo (cotejo lo reconoce)', app._nombreCanonico('Alexander Hernandez'), 'ALEXANDER JOSE HERNANDEZ PEREZ');
+  ok('guardarPlanillaEspecial definida', typeof app.guardarPlanillaEspecial === 'function');
+  app.EMPLEADOS = [{ id: 'E1', nombre: 'JUAN PEREZ', cargo: 'Chofer' }, { id: 'E2', nombre: 'PEDRO LOPEZ', cargo: 'Ayudante', tipoAy: 'interno' }];
+  eq('extra monto fijo = el monto', app._extraUsd({ modo: 'monto', monto: 15 }), 15);
+  eq('extra viajes chofer (2 × $10)', app._extraUsd({ modo: 'viajes', viajes: 2, empId: 'E1' }), 20);
+  eq('extra viajes ayudante (3 × $5)', app._extraUsd({ modo: 'viajes', viajes: 3, empId: 'E2' }), 15);
+  app.NOMINA_EXTRAS = [
+    { id: 'NE1', fecha: '2026-06-10', empId: 'E1', modo: 'monto', monto: 15 },
+    { id: 'NE2', fecha: '2026-07-01', empId: 'E1', modo: 'monto', monto: 20 }
+  ];
+  eq('extras filtrados por período (solo junio)', app._extrasNominaPeriodo('2026-06-01', '2026-06-30').length, 1);
+
+  // ── Resumen ──
+  console.log('\n──────────────');
+  console.log('PASS: ' + pass + '   FAIL: ' + fail);
+  process.exit(fail > 0 ? 1 : 0);
+})();

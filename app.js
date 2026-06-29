@@ -201,7 +201,7 @@ var cfg={tarifa:(function(){
   // Cargar tarifa guardada de localStorage si existe
   try{var t=parseFloat(localStorage.getItem('betangar_cfg_tarifa'));if(t&&t>100)return t;}catch(e){}
   return 317.88;
-})(),chofer:10,ayud:5,km:5000,tanque:4600,tasa:600,imau:2.5,tipos_mant:['Solo registro km','GARANTIA (Servicio 5000km)','CORRECTIVO','PREVENTIVO','CAMBIO DE ACEITE','CAMBIO FILTROS','FRENOS','SUSPENSION','ELECTRICO','MOTOR','TRANSMISION','OTROS'],mant_programados:[{id:'lavado',nombre:'Lavado',dias:7,campo:'lavado'},{id:'engrase',nombre:'Engrase',dias:15,campo:'engrase'},{id:'aceite',nombre:'Cambio de Aceite',dias:90,campo:'aceite'}],unidades_areas:['ADM - Administrativo','OPERATIVO - Jefe Operaciones','PORTERIA - Vigilancia','MANT - Mantenimiento','TRANS - Transporte','JAC-B001','JAC-B002','JAC-B003','JAC-B004','JAC-B005','JAC-B006','JAC-B007','JAC-B008','JAC-B009','JAC-B010','JAC-B011','JAC-B012','SRV-001','PEUGEOT-001','MOTO-001']};
+})(),chofer:10,ayud:5,km:5000,tanque:4600,tasa:0,imau:2.5,tipos_mant:['Solo registro km','GARANTIA (Servicio 5000km)','CORRECTIVO','PREVENTIVO','CAMBIO DE ACEITE','CAMBIO FILTROS','FRENOS','SUSPENSION','ELECTRICO','MOTOR','TRANSMISION','OTROS'],mant_programados:[{id:'lavado',nombre:'Lavado',dias:7,campo:'lavado'},{id:'engrase',nombre:'Engrase',dias:15,campo:'engrase'},{id:'aceite',nombre:'Cambio de Aceite',dias:90,campo:'aceite'}],unidades_areas:['ADM - Administrativo','OPERATIVO - Jefe Operaciones','PORTERIA - Vigilancia','MANT - Mantenimiento','TRANS - Transporte','JAC-B001','JAC-B002','JAC-B003','JAC-B004','JAC-B005','JAC-B006','JAC-B007','JAC-B008','JAC-B009','JAC-B010','JAC-B011','JAC-B012','SRV-001','PEUGEOT-001','MOTO-001']};
 
 // ── PERFIL DE RETENCIONES (configurable POR CONTRATO) ──
 // RET_DEFAULT, perfilRetencion() y calcRetenciones() viven ahora en money.js (cargado ANTES que
@@ -245,9 +245,9 @@ var USUARIOS={
 };
 
 var PERMISOS={
-  superadmin:['dashboard','banco-bnc','conciliacion','checklist','mensajes-wa','planilla','historico','reporte','abonos','banco','proveedores','financiero','nomina','asistencia','combustible','control-combustible','km','documentos','inventario','llantas','metas','empleados','prestamos','multas','stats','ranking','rentabilidad','contratos','usuarios','auditoria','salud','config','galeria','porteria','mecanico','operativo','cxp','cajachica'],
-  admin:['dashboard','conciliacion','checklist','planilla','historico','reporte','abonos','banco','proveedores','financiero','nomina','asistencia','combustible','control-combustible','km','documentos','inventario','llantas','metas','empleados','prestamos','multas','stats','ranking','rentabilidad','contratos','usuarios','auditoria','salud','config','galeria','porteria','mecanico','operativo','cxp','cajachica'],
-  operador:['dashboard','planilla','historico','reporte','abonos','banco','proveedores','financiero','nomina','asistencia','combustible','control-combustible','km','documentos','inventario','llantas','metas','empleados','prestamos','multas','stats','ranking','rentabilidad','contratos','galeria'],
+  superadmin:['dashboard','banco-bnc','conciliacion','checklist','mensajes-wa','planilla','historico','reporte','abonos','banco','proveedores','financiero','nomina','asistencia','combustible','control-combustible','km','documentos','inventario','llantas','metas','empleados','prestamos','multas','stats','ranking','rentabilidad','contratos','multicontrato','usuarios','auditoria','salud','config','galeria','porteria','mecanico','operativo','cxp','cajachica'],
+  admin:['dashboard','conciliacion','checklist','planilla','historico','reporte','abonos','banco','proveedores','financiero','nomina','asistencia','combustible','control-combustible','km','documentos','inventario','llantas','metas','empleados','prestamos','multas','stats','ranking','rentabilidad','contratos','multicontrato','usuarios','auditoria','salud','config','galeria','porteria','mecanico','operativo','cxp','cajachica'],
+  operador:['dashboard','planilla','historico','reporte','abonos','banco','proveedores','financiero','nomina','asistencia','combustible','control-combustible','km','documentos','inventario','llantas','metas','empleados','prestamos','multas','stats','ranking','rentabilidad','contratos','multicontrato','galeria'],
   rrhh:['dashboard','mensajes-wa','planilla','historico','reporte','nomina','asistencia','combustible','km','documentos','inventario','llantas','metas','empleados','prestamos','multas','ranking','galeria'],
   visualizador:['dashboard','reporte','abonos','banco','financiero','stats','ranking','rentabilidad','contratos','galeria'],
   directivo:['dashboard','historico','reporte','abonos','financiero','stats','ranking','rentabilidad'],
@@ -265,7 +265,7 @@ var NAV_LABELS={
   abonos:'Abonos / Cobros',banco:'Banco BNC',conciliacion:'Conciliación Bancaria',proveedores:'Proveedores',financiero:'Financiero',
   nomina:'Nomina',asistencia:'Asistencia',combustible:'Combustible','control-combustible':'Control Combustible',km:'Km / Servicio',
   documentos:'Documentos',inventario:'Inventario',llantas:'Llantas',metas:'Metas',
-  empleados:'Empleados',prestamos:'Prestamos',multas:'Multas',stats:'Estadisticas',rentabilidad:'Rentabilidad x Camion',salud:'Salud de Datos',
+  empleados:'Empleados',prestamos:'Prestamos',multas:'Multas',stats:'Estadisticas',rentabilidad:'Rentabilidad x Camion',salud:'Salud de Datos',multicontrato:'Operación / Contratos',
   porteria:'Porteria',mecanico:'Mecanico',checklist:'Check List',operativo:'Operativo',ranking:'Ranking',contratos:'Contratos',usuarios:'Usuarios',auditoria:'Auditoria',
   config:'Configuracion',galeria:'Galeria','mensajes-wa':'Mensajes WA',cxp:'Cuentas x Pagar',cajachica:'Caja Chica'
 };
@@ -1169,6 +1169,7 @@ function sp(id){
     if(id==='llantas'){renderMantSubnav('llantas');renderLlantas();}
     if(id==='metas'){renderAnalisisSubnav('metas');prefillMeta();}
     if(id==='contratos')renderContratosLista();
+    if(id==='multicontrato')abrirMultiContrato();
     if(id==='config'){renderFlotaCfgLista();renderNomAdm();renderWANums();renderWAEmpresarial();renderRecordatorios();renderCfgCorrelativo();}
     if(id==='cxp'){cargarCxP();}
     if(id==='cajachica'){renderFinanzasSubnav('cajachica');renderCajaChica();}
@@ -1437,7 +1438,7 @@ async function cargarDatosDB(){
     // PRESTAMOS
     if(pr.data&&pr.data.length)PRESTAMOS=pr.data.map(function(x){return{id:x.id,empId:x.emp_id,empNombre:x.emp_nombre,fecha:x.fecha,montoUsd:parseFloat(x.monto_usd)||0,semanas:parseInt(x.semanas)||1,cuotaUsd:parseFloat(x.cuota_usd)||0,pagado:parseFloat(x.pagado)||0,semanasPagadas:parseInt(x.semanas_pagadas)||0,motivo:x.motivo||'',estado:x.estado||'activo'};});
     // MULTAS
-    if(ml.data&&ml.data.length)MULTAS=ml.data.map(function(x){return{id:x.id,camId:x.cam_id,fecha:x.fecha,desc:x.descripcion||'',montoBs:parseFloat(x.monto_bs)||0,ref:x.ref||'',resp:x.responsable||'empresa',choferId:x.chofer_id||'',cuotas:parseInt(x.cuotas)||1,cuotaBs:parseFloat(x.cuota_bs)||0,pagadoBs:parseFloat(x.pagado_bs)||0,cuotasPagas:parseInt(x.cuotas_pagas)||0,estado:x.estado||'activo'};});
+    if(ml.data&&ml.data.length)MULTAS=ml.data.map(function(x){return{id:x.id,camId:x.cam_id,fecha:x.fecha,desc:x.descripcion||'',montoBs:parseFloat(x.monto_bs)||0,ref:x.ref||'',resp:x.responsable||'empresa',choferId:x.chofer_id||'',cuotas:parseInt(x.cuotas)||1,cuotaBs:parseFloat(x.cuota_bs)||0,pagadoBs:parseFloat(x.pagado_bs)||0,cuotasPagas:parseInt(x.cuotas_pagas)||0,estado:x.estado||'activo',moneda:x.moneda||'',montoDiv:parseFloat(x.monto_div)||0,cuotaDiv:parseFloat(x.cuota_div)||0,pagadoDiv:parseFloat(x.pagado_div)||0};});
     // INVENTARIO
     if(inv.data&&inv.data.length)INVENTARIO=inv.data.map(function(x){return{id:x.id,nombre:x.nombre,cat:x.categoria||'',unidad:x.unidad||'Unidades',stock:parseInt(x.stock)||0,stockMin:parseInt(x.stock_min)||2,precio:parseFloat(x.precio)||0};});
     // CONTRATOS
@@ -1581,7 +1582,7 @@ function descartarFallidos(){
 }
 // Clave de conflicto por tabla con UNIQUE → la cola debe reintentar como UPSERT, no INSERT plano
 // (si no, una planilla/abono/contrato hecho offline choca con su UNIQUE y cae al dead-letter).
-var _COLA_ONCONFLICT={planillas:'p',abonos:'fact',contratos:'id',prestamos:'id',multas:'id',empleados:'id',pagos_alcaldia:'id',gastos_variables:'id',bnc_movimientos:'id'};
+var _COLA_ONCONFLICT={planillas:'p',abonos:'fact',contratos:'id',prestamos:'id',multas:'id',empleados:'id',pagos_alcaldia:'id',gastos_variables:'id',bnc_movimientos:'id',tipos_unidad:'id',unidades:'id',operaciones:'id',nomina_extras:'id'};
 function guardarEnCola(t,d,oc){
   COLA_OFFLINE.push({t:t,d:d,_try:0,oc:oc||_COLA_ONCONFLICT[t]||null});
   guardarColaLS();
@@ -1768,7 +1769,7 @@ function renderTasas(){
     (prom?'<span style="background:rgba(167,139,250,.1);border:1px solid rgba(167,139,250,.2);border-radius:6px;padding:2px 8px;font-size:10px">Prom. <b style="color:var(--purple)">'+prom.toFixed(2)+'</b></span>':'')+
     '<button onclick="cargarTasas()" style="font-size:9px;background:none;border:1px solid var(--border);border-radius:4px;color:var(--text3);padding:2px 6px;cursor:pointer" title="Actualizar tasas">↻ actualizar</button>'+
     '<button onclick="verHistorialTasas()" style="font-size:9px;background:none;border:1px solid var(--border);border-radius:4px;color:var(--text3);padding:2px 6px;cursor:pointer" title="Ver historial de tasas guardadas">📋 historial</button>'+
-    (TASAS.bcvDolar?'':'<span style="font-size:9px;color:var(--red)">⚠ Sin conexión a API — usando tasas por defecto</span>')+
+    (TASAS.bcvDolar?'':'<span style="font-size:9px;color:var(--red)">⚠ Sin conexión a la API del BCV — se pedirá la tasa manual al usarla</span>')+
   '</div>';
 }
 // Modal: historial de tasas BCV guardadas por día (tasas_diarias). Abonos/CxP cierran a la
@@ -1819,40 +1820,68 @@ function tasaOManual(tipo, callback){
 }
 
 function mostrarModalTasaManual(tipo, callback){
-  // Crear modal si no existe
+  // Modal con DOS casillas (BCV dólar y BCV euro). NUNCA se inventa una tasa: si la API del BCV no
+  // respondió, se le pide al usuario que entre a bcv.org.ve y la copie. La que pidió la operación
+  // (tipo) es obligatoria; la otra es opcional (se guarda si la ponen). Pre-llena con lo ya cargado.
+  tipo = tipo || 'bcvDolar';
   var modalId = 'modal-tasa-manual';
   var existing = g(modalId);
   if(existing) existing.remove();
   var modal = document.createElement('div');
   modal.id = modalId;
   modal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.8);z-index:9999;display:flex;align-items:center;justify-content:center';
-  var tipoLabel = tipo==='bcvDolar'?'BCV Dólar':tipo==='bcvEuro'?'BCV Euro':tipo==='binance'?'Binance':'Promedio';
+  var preD = (TASAS.bcvDolar&&TASAS.bcvDolar>0)?TASAS.bcvDolar:'';
+  var preE = (TASAS.bcvEuro&&TASAS.bcvEuro>0)?TASAS.bcvEuro:'';
+  var reqEuro = (tipo==='bcvEuro'); // si la operación pidió euro, el euro es obligatorio
   modal.innerHTML =
-    '<div style="background:var(--bg2);border-radius:16px;padding:24px;max-width:340px;width:90%;text-align:center">'+
+    '<div style="background:var(--bg2);border-radius:16px;padding:24px;max-width:360px;width:90%;text-align:center">'+
     '<div style="font-size:16px;font-weight:900;margin-bottom:8px">⚠️ Tasa BCV no disponible</div>'+
-    '<div style="font-size:12px;color:var(--text3);margin-bottom:16px">No se pudo conectar a la API del BCV.<br>Ingresa la tasa <b>'+tipoLabel+'</b> manualmente:</div>'+
-    '<input id="inp-tasa-manual" type="number" class="fc" placeholder="Ej: 92.50" style="text-align:center;font-size:20px;font-family:var(--m);margin-bottom:12px">'+
-    '<div style="font-size:10px;color:var(--text3);margin-bottom:12px">Esta tasa se usará solo para esta operación.</div>'+
+    '<div style="font-size:12px;color:var(--text3);margin-bottom:16px">No se pudo conectar a la API del BCV.<br>'+
+      'Ingresá por favor a <b>bcv.org.ve</b> y dame la <b>tasa BCV dólar</b> y la <b>tasa BCV euro</b>:</div>'+
+    '<div style="text-align:left;margin-bottom:6px;font-size:11px;color:var(--text2);font-weight:700">BCV Dólar (Bs/$)'+(reqEuro?'':' <span style="color:var(--red)">*</span>')+'</div>'+
+    '<input id="inp-tasa-dolar" type="number" inputmode="decimal" class="fc" placeholder="Ej: 617.64" value="'+preD+'" style="text-align:center;font-size:20px;font-family:var(--m);margin-bottom:12px">'+
+    '<div style="text-align:left;margin-bottom:6px;font-size:11px;color:var(--text2);font-weight:700">BCV Euro (Bs/€)'+(reqEuro?' <span style="color:var(--red)">*</span>':'')+'</div>'+
+    '<input id="inp-tasa-euro" type="number" inputmode="decimal" class="fc" placeholder="Ej: 634.40" value="'+preE+'" style="text-align:center;font-size:20px;font-family:var(--m);margin-bottom:12px">'+
+    '<div style="font-size:10px;color:var(--text3);margin-bottom:12px">Se guardan como la tasa del día (se usan en toda la app).</div>'+
+    '<div id="err-tasa-manual" style="color:var(--red);font-size:11px;margin-bottom:8px;display:none"></div>'+
     '<div style="display:flex;gap:8px">'+
-    '<button class="btn btn-g" id="btn-confirmar-tasa" style="flex:1">✅ Usar esta tasa</button>'+
+    '<button class="btn btn-g" id="btn-confirmar-tasa" style="flex:1">✅ Usar estas tasas</button>'+
     '<button class="btn btn-s" id="btn-cancelar-tasa" style="flex:1">Cancelar</button>'+
     '</div></div>';
   document.body.appendChild(modal);
-  // Cuando confirma, ejecutar callback
+  setTimeout(function(){try{var f=document.getElementById(reqEuro?'inp-tasa-euro':'inp-tasa-dolar');if(f)f.focus();}catch(e){}},60);
   var btnCancel = modal.querySelector('#btn-cancelar-tasa');
   if(btnCancel) btnCancel.onclick = function(){ modal.remove(); };
   var btn = modal.querySelector('#btn-confirmar-tasa');
   btn.onclick = function(){
-    var t = parseFloat(document.getElementById('inp-tasa-manual').value);
-    if(!t||t<10){alert('Ingresa una tasa válida mayor a 10');return;}
+    var d = parseFloat(document.getElementById('inp-tasa-dolar').value);
+    var e = parseFloat(document.getElementById('inp-tasa-euro').value);
+    var err = document.getElementById('err-tasa-manual');
+    function _err(m){ if(err){err.style.display='block';err.textContent=m;} else alert(m); }
+    // La casilla que la operación necesita es obligatoria; pedimos al menos > 10 (no se invent nada).
+    if(reqEuro){ if(!e||e<10){_err('Ingresá la tasa BCV euro (Bs/€), mayor a 10.');return;} }
+    else { if(!d||d<10){_err('Ingresá la tasa BCV dólar (Bs/$), mayor a 10.');return;} }
+    if(d&&d>10) TASAS.bcvDolar = d;
+    if(e&&e>10) TASAS.bcvEuro  = e;
     modal.remove();
-    TASAS.bcvDolar = tipo==='bcvDolar'?t:TASAS.bcvDolar;
-    TASAS.bcvEuro  = tipo==='bcvEuro'?t:TASAS.bcvEuro;
-    TASAS.binance  = tipo==='binance'?t:TASAS.binance;
     TASAS_DISPONIBLES = true;
-    renderTasas();
-    if(callback) callback(t);
+    // Persistir como la tasa del día (igual que la carga automática) para no volver a pedirla.
+    try{ if(typeof _persistirTasasManual==='function')_persistirTasasManual(); }catch(_e){}
+    try{ renderTasas(); }catch(_e){}
+    var val = (tipo==='bcvEuro')?TASAS.bcvEuro:(tipo==='binance'?(TASAS.binance||TASAS.bcvDolar):TASAS.bcvDolar);
+    if(callback) callback(val);
   };
+}
+// Guarda las tasas (entradas manualmente) como la tasa del día en Supabase, para que toda la app
+// y los próximos días las usen y no se vuelva a pedir. No rompe si no hay conexión.
+async function _persistirTasasManual(){
+  try{
+    if(!(DB_READY&&supabase))return;
+    var hoy=new Date().toISOString().slice(0,10);
+    await supabase.from('configuracion').upsert([{clave:'tasas_bcv',valor:JSON.stringify({bcvDolar:TASAS.bcvDolar,bcvEuro:TASAS.bcvEuro,binance:TASAS.binance,fecha:hoy,fuente:'manual'})}],{onConflict:'clave',ignoreDuplicates:false});
+    await supabase.from('tasas_diarias').upsert([{fecha:hoy,bcv_dolar:TASAS.bcvDolar,bcv_euro:TASAS.bcvEuro,binance:TASAS.binance||null,fuente:'manual'}],{onConflict:'fecha'});
+    if(typeof TASAS_DIARIAS!=='undefined')TASAS_DIARIAS[hoy]={dolar:TASAS.bcvDolar,euro:TASAS.bcvEuro,binance:TASAS.binance,fuente:'manual'};
+  }catch(e){console.log('persistir tasas manual:',e&&e.message);}
 }
 // ═══════════════════════════════════════════════════
 // HELPERS
@@ -2399,8 +2428,9 @@ function _totalEgresos(totalCob){
   var egFijos=(typeof GASTOS_FIJOS!=='undefined'?GASTOS_FIJOS:[]).reduce(function(s,gf){return s+(gf.monto||0);},0);
   var egVars=(typeof GASTOS_VARIABLES!=='undefined'?GASTOS_VARIABLES:[]).reduce(function(s,gv){return s+(gv.usd||0);},0);
   var egCxP=(typeof CXP!=='undefined'?CXP:[]).reduce(function(s,c){return s+(parseFloat(c.neto_pagar||c.netoPagar||c.total_usd||0)||0);},0); // TODAS (pagadas + pendientes)
-  var tasa=TASAS.bcvDolar||cfg.tasa||1;
-  var egMul=(typeof MULTAS!=='undefined'?MULTAS:[]).filter(function(m){return m.resp!=='chofer';}).reduce(function(s,m){return s+((m.montoBs||0)/tasa);},0); // multas que paga la empresa
+  // Multas que paga la EMPRESA, en USD. _multaMontoUsd soporta divisa (USD/EUR) y legacy Bs;
+  // si no hay tasa real para una multa en Bs/EUR, devuelve 0 (no inventa) — ver helper.
+  var egMul=(typeof MULTAS!=='undefined'?MULTAS:[]).filter(function(m){return m.resp!=='chofer';}).reduce(function(s,m){return s+_multaMontoUsd(m);},0);
   return egNom+egGas+eg75+egFijos+egVars+egCxP+egMul;
 }
 function _utilReal(totalCob){ return (totalCob||0) - _totalEgresos(totalCob); }
@@ -2517,12 +2547,12 @@ function guardarEdicionPlanilla(pOriginal){
     if(i<0)i=idx;
     // Si cambia el número, eliminar el registro viejo de Supabase
     if(p!==pOriginal){
-      if(DB_READY)supabase.from('planillas').delete().eq('p',pOriginal).then(function(){});
+      if(DB_READY&&supabase)supabase.from('planillas').delete().eq('p',pOriginal).then(function(r){if(r&&r.error)console.error('Error elim planilla vieja:',r.error);});
     }
     REGS[i]=nuevo;
-    // Guardar en Supabase
-    if(DB_READY){
-      supabase.from('planillas').upsert(dbSet,{onConflict:'p'}).then(function(){});
+    // Guardar en Supabase (chequear error: no .then vacío, para no decir "✅" si la nube falló)
+    if(DB_READY&&supabase){
+      supabase.from('planillas').upsert(dbSet,{onConflict:'p'}).then(function(r){if(r&&r.error){console.error('Error guardar planilla editada:',r.error);if(typeof mostrarToast==='function')mostrarToast('No se pudo guardar la edición de la planilla #'+p+' en la nube: '+r.error.message,'error');}});
     }
     audit('Planilla EDITADA','#'+pOriginal+' → #'+p+' — '+motivo);
     closeModal();
@@ -2640,7 +2670,9 @@ function renderPlanHoy(){
 function eliminarPlanilla(p){
   solicitarToken('Eliminar planilla #'+p,function(motivo){
     REGS=REGS.filter(function(r){return r.p!==p;});
-    if(DB_READY)supabase.from('planillas').delete().eq('p',p).then(function(){});
+    // No usar .then vacío: chequear el error para no divergir memoria vs BD (si el borrado falla
+    // en la nube, avisar). El borrado server-side también lo cubre el superadmin (accionData op:del).
+    if(DB_READY&&supabase)supabase.from('planillas').delete().eq('p',p).then(function(r){if(r&&r.error){console.error('Error elim planilla:',r.error);if(typeof mostrarToast==='function')mostrarToast('No se pudo borrar la planilla #'+p+' en la nube: '+r.error.message,'error');}});
     audit('Planilla ELIMINADA','#'+p+' — '+motivo);
     renderPlanHoy();renderDash();filtH();
   },{op:'del',tabla:'planillas',col:'p',val:p});
@@ -2902,7 +2934,7 @@ async function guardarImportacionEnDB(resultado){
     var _otra=async function(nombre,prom){try{var r=await prom;if(r&&r.error)fallos.push(nombre+': '+r.error.message);}catch(e){fallos.push(nombre+' (red): '+(e&&e.message||e));}};
     if(CONTRATOS.length)await _otra('contratos',supabase.from('contratos').upsert(CONTRATOS.map(function(c){return{id:c.id,nombre:c.nombre,parte:c.parte,monto:c.monto,inicio:c.inicio,vencimiento:c.venc,condiciones:c.cond,estado:c.estado};}),{onConflict:'id'}));
     if(PRESTAMOS.length)await _otra('prestamos',supabase.from('prestamos').upsert(PRESTAMOS.map(function(p){return{id:p.id,emp_id:p.empId,emp_nombre:p.empNombre,fecha:p.fecha,monto_usd:p.montoUsd,semanas:p.semanas,cuota_usd:p.cuotaUsd,pagado:p.pagado,semanas_pagadas:p.semanasPagadas,motivo:p.motivo,estado:p.estado};}),{onConflict:'id'}));
-    if(MULTAS.length)await _otra('multas',supabase.from('multas').upsert(MULTAS.map(function(m){return{id:m.id,cam_id:m.camId,fecha:m.fecha,descripcion:m.desc,monto_bs:m.montoBs,ref:m.ref,responsable:m.resp,chofer_id:m.choferId,cuotas:m.cuotas,cuota_bs:m.cuotaBs,pagado_bs:m.pagadoBs,cuotas_pagas:m.cuotasPagas,estado:m.estado};}),{onConflict:'id'}));
+    if(MULTAS.length)await _otra('multas',supabase.from('multas').upsert(MULTAS.map(function(m){return{id:m.id,cam_id:m.camId,fecha:m.fecha,descripcion:m.desc,monto_bs:m.montoBs,ref:m.ref,responsable:m.resp,chofer_id:m.choferId,cuotas:m.cuotas,cuota_bs:m.cuotaBs,pagado_bs:m.pagadoBs,cuotas_pagas:m.cuotasPagas,estado:m.estado,moneda:m.moneda||null,monto_div:m.montoDiv||null,cuota_div:m.cuotaDiv||null,pagado_div:m.pagadoDiv||0};}),{onConflict:'id'}));
     if(PAGOS_ALC.length)await _otra('pagos_alcaldia',supabase.from('pagos_alcaldia').upsert(PAGOS_ALC.map(function(p){return{id:p.id,fecha:p.fecha,factura:p.fact,referencia:p.ref,viajes:p.viajes,tasa:p.tasa,base_usd:p.base,iva_usd:p.iva,total_usd:p.total,neto_usd:p.neto,fiel_usd:p.fiel,fiel_devuelto:p.fielDevuelto,pct75_pagado:p.pct75};}),{onConflict:'id'}));
     if(GASTOS_VARIABLES.length)await _otra('gastos_variables',supabase.from('gastos_variables').upsert(GASTOS_VARIABLES.map(function(x){return{id:x.id,fecha:x.fecha,categoria:x.cat,descripcion:x.desc,monto_bs:x.bs,monto_usd:x.usd,referencia:x.ref,factura:x.fact};}),{onConflict:'id'}));
     progEl.style.borderColor=fallos.length?'var(--red)':'var(--green)';
@@ -3409,21 +3441,25 @@ function renderAbonos(){
   }
 }
 function eliminarAbono(fact){
-  if(!confirm('¿Eliminar factura #'+fact+'? Esta acción no se puede deshacer.')) return;
-  ABONOS=ABONOS.filter(function(a){return String(a.fact)!==String(fact);});
-  renderAbonos();renderDash();
-  try{localStorage.setItem('betangar_abonos',JSON.stringify(ABONOS));}catch(e){}
-  // FIX: antes el borrado solo iba a Supabase si DB_READY era true; si el cliente
-  // supabase-js no estaba listo, se borraba SOLO local y al recargar (F5) el abono
-  // reaparecia desde la base. Ahora se borra via REST directo con la anon key (no depende
-  // de DB_READY) y se AVISA si falla, para que el borrado quede de verdad.
-  fetch(SUPA_URL+'/rest/v1/abonos?fact=eq.'+encodeURIComponent(fact),{
-    method:'DELETE',
-    headers:_tokRestHdr({'Prefer':'return=minimal'})
-  }).then(function(r){
-    if(!r.ok){r.text().then(function(t){if(typeof mostrarToast==='function')mostrarToast('No se pudo borrar el abono en la nube ('+fact+'): '+t,'error');});}
-    else{console.log('Abono eliminado de Supabase: fact='+fact);if(typeof mostrarToast==='function')mostrarToast('🗑️ Abono '+fact+' eliminado','exito');}
-  }).catch(function(e){if(typeof mostrarToast==='function')mostrarToast('Sin conexion: el borrado del abono '+fact+' no se guardo. Reintenta.','error');});
+  // El abono es DINERO (cobro): igual que préstamos/multas/planilla, borrarlo exige TOKEN de
+  // autorización. El token reemplaza al confirm: si no es superadmin, Maximo/Francisco aprueban
+  // y la acción la ejecuta el superadmin server-side (accionData op:'del').
+  var ab=ABONOS.find(function(a){return String(a.fact)===String(fact);});
+  solicitarToken('Eliminar abono Fact #'+fact+(ab?' ($'+ab.m+')':''),function(motivo){
+    ABONOS=ABONOS.filter(function(a){return String(a.fact)!==String(fact);});
+    renderAbonos();renderDash();
+    try{localStorage.setItem('betangar_abonos',JSON.stringify(ABONOS));}catch(e){}
+    // Borrado via REST directo con el JWT de sesión (no depende de DB_READY) y se AVISA si falla,
+    // para que el borrado quede de verdad. (Antes, sin DB_READY listo, reaparecía al recargar.)
+    fetch(SUPA_URL+'/rest/v1/abonos?fact=eq.'+encodeURIComponent(fact),{
+      method:'DELETE',
+      headers:_tokRestHdr({'Prefer':'return=minimal'})
+    }).then(function(r){
+      if(!r.ok){r.text().then(function(t){if(typeof mostrarToast==='function')mostrarToast('No se pudo borrar el abono en la nube ('+fact+'): '+t,'error');});}
+      else{console.log('Abono eliminado de Supabase: fact='+fact);if(typeof mostrarToast==='function')mostrarToast('🗑️ Abono '+fact+' eliminado','exito');}
+    }).catch(function(e){if(typeof mostrarToast==='function')mostrarToast('Sin conexion: el borrado del abono '+fact+' no se guardo. Reintenta.','error');});
+    audit('Abono ELIMINADO','Fact #'+fact+(ab?' $'+ab.m:'')+' — '+motivo);
+  },{op:'del',tabla:'abonos',col:'fact',val:String(fact)});
 }
 
 function abrirEditarAbono(btn){
@@ -3437,26 +3473,34 @@ function abrirEditarAbono(btn){
   var nv=prompt('Viajes pagados:',v); if(!nv)return;
   var nm=prompt('Monto $:',m); if(!nm)return;
   var nobs=prompt('Observación:',obs)||obs;
-  // Actualizar en array local
-  ABONOS=ABONOS.map(function(a){
-    if(a.fact===fact) return {f:nf,fact:a.fact,v:parseInt(nv),m:parseInt(nm),obs:nobs,ref:ref,contrato:a.contrato||null};
-    return a;
-  });
-  renderAbonos();renderDash();
-  try{localStorage.setItem('betangar_abonos',JSON.stringify(ABONOS));}catch(e){}
-  // Actualizar en Supabase via REST directo (no depende de DB_READY, igual que el borrado)
-  fetch(SUPA_URL+'/rest/v1/abonos?fact=eq.'+encodeURIComponent(fact),{
-    method:'PATCH',
-    headers:_tokRestHdr({'Content-Type':'application/json','Prefer':'return=minimal'}),
-    body:JSON.stringify({f:nf,v:parseInt(nv),m:parseInt(nm),obs:nobs})
-  }).then(function(r){
-    if(!r.ok){r.text().then(function(t){if(typeof mostrarToast==='function')mostrarToast('No se pudo actualizar el abono: '+t,'error');});}
-    else if(typeof mostrarToast==='function')mostrarToast('✏ Abono '+fact+' actualizado','exito');
-  }).catch(function(e){if(typeof mostrarToast==='function')mostrarToast('Sin conexion: el cambio del abono no se guardo. Reintenta.','error');});
+  // El abono es DINERO: editarlo exige TOKEN. El set (columnas de BD) se serializa en accionData
+  // para que el superadmin aplique el PATCH server-side al aprobar (op:'upd').
+  var dbSet={f:nf,v:parseInt(nv),m:parseInt(nm),obs:nobs};
+  solicitarToken('Editar abono Fact #'+fact,function(motivo){
+    // Actualizar en array local
+    ABONOS=ABONOS.map(function(a){
+      if(String(a.fact)===String(fact)) return {f:nf,fact:a.fact,v:parseInt(nv),m:parseInt(nm),obs:nobs,ref:ref,contrato:a.contrato||null};
+      return a;
+    });
+    renderAbonos();renderDash();
+    try{localStorage.setItem('betangar_abonos',JSON.stringify(ABONOS));}catch(e){}
+    // Actualizar en Supabase via REST directo (no depende de DB_READY, igual que el borrado)
+    fetch(SUPA_URL+'/rest/v1/abonos?fact=eq.'+encodeURIComponent(fact),{
+      method:'PATCH',
+      headers:_tokRestHdr({'Content-Type':'application/json','Prefer':'return=minimal'}),
+      body:JSON.stringify(dbSet)
+    }).then(function(r){
+      if(!r.ok){r.text().then(function(t){if(typeof mostrarToast==='function')mostrarToast('No se pudo actualizar el abono: '+t,'error');});}
+      else if(typeof mostrarToast==='function')mostrarToast('✏ Abono '+fact+' actualizado','exito');
+    }).catch(function(e){if(typeof mostrarToast==='function')mostrarToast('Sin conexion: el cambio del abono no se guardo. Reintenta.','error');});
+    audit('Abono EDITADO','Fact #'+fact+' → $'+dbSet.m+' — '+motivo);
+  },{op:'upd',tabla:'abonos',col:'fact',val:String(fact),set:dbSet});
 }
 function imprimirAbonos(){
   if(!ABONOS.length){alert('Sin abonos registrados');return;}
-  var tasa=TASAS.bcvDolar||cfg.tasa||600;
+  // Prioridad: tasa de la API. Si no hay, pedirla manual (modal dólar+euro) y reintentar.
+  var tasa=TASAS.bcvDolar||cfg.tasa;
+  if(!tasa){ tasaOManual('bcvDolar', function(){ imprimirAbonos(); }); return; }
   var totalM=ABONOS.reduce(function(s,a){return s+a.m;},0);
   var totalV=ABONOS.reduce(function(s,a){return s+a.v;},0);
   var abOrd=ABONOS.slice().sort(function(a,b){
@@ -3564,8 +3608,135 @@ function renderImauApoyo(){
     '<tr><td colspan="2" style="padding-top:6px"><button onclick="agregarImauApoyo()" class="btn btn-s btn-xs">+ Agregar apoyo / supervisor</button></td></tr>';
 }
 function agregarImauApoyo(){ var n=prompt('Nombre del apoyo/supervisor IMAU:'); if(!n||!n.trim())return; IMAU_APOYO[n.trim().toUpperCase()]=0; guardarImauApoyo(); renderImauApoyo(); }
-// Al cambiar de semana/mes: cargar patio + fijos IMAU y recalcular.
-function recalcNom(){ Promise.all([cargarPatioDias(),cargarPatioNota(),cargarImauApoyo()]).then(function(){try{calcNom();}catch(e){}}).catch(function(){try{calcNom();}catch(e){}}); }
+// ── ALIAS DE NOMBRES persistentes en BD (arregla el cotejo y la nómina cuando la planilla trae
+// el nombre corto/mal escrito). _ALIAS_NOMBRES (arriba) trae 6 fijos; estos se MEZCLAN encima y se
+// guardan en configuracion (clave 'alias_nombres') → no se pierden y sirven para vender/clonar.
+var _ALIAS_USER={};
+async function cargarAliasNombres(){
+  if(!(DB_READY&&supabase))return;
+  try{ var r=await supabase.from('configuracion').select('valor').eq('clave','alias_nombres').maybeSingle();
+    if(r&&r.data&&r.data.valor){ var v=JSON.parse(r.data.valor); if(v&&typeof v==='object'){ _ALIAS_USER=v; for(var k in v)_ALIAS_NOMBRES[k]=v[k]; } }
+  }catch(e){console.log('alias load:',e&&e.message);}
+}
+async function guardarAliasNombresDB(){
+  try{ if(DB_READY&&supabase){var r=await supabase.from('configuracion').upsert([{clave:'alias_nombres',valor:JSON.stringify(_ALIAS_USER)}],{onConflict:'clave'}); if(r&&r.error&&typeof mostrarToast==='function')mostrarToast('No se pudo guardar el alias: '+r.error.message,'error');} }catch(e){if(typeof mostrarToast==='function')mostrarToast('Sin conexión al guardar el alias','error');}
+  try{localStorage.setItem('btg_alias_nombres',JSON.stringify(_ALIAS_USER));}catch(e){}
+}
+function agregarAlias(){
+  var corto=(gv('alias-corto')||'').trim(), full=(gv('alias-full')||'').trim();
+  if(!corto||!full){alert('Escribí el nombre como sale en la planilla y el nombre completo.');return;}
+  var key=(typeof _normNom==='function')?_normNom(corto):corto.toUpperCase();
+  _ALIAS_USER[key]=full.toUpperCase(); _ALIAS_NOMBRES[key]=full.toUpperCase();
+  guardarAliasNombresDB();
+  audit('Alias de nombre agregado',corto+' → '+full);
+  sv('alias-corto','');sv('alias-full','');
+  renderAliasManager();
+  try{recalcNom();}catch(e){} // refresca cotejo/nómina con el alias nuevo
+  if(typeof mostrarToast==='function')mostrarToast('✅ Alias guardado — el cotejo ya lo reconoce','exito');
+}
+function elimAlias(key){
+  if(!confirm('¿Eliminar este alias?'))return;
+  delete _ALIAS_USER[key]; delete _ALIAS_NOMBRES[key];
+  guardarAliasNombresDB(); renderAliasManager(); try{recalcNom();}catch(e){}
+}
+function renderAliasManager(){
+  var el=g('alias-lista'); if(!el)return;
+  var dl=g('dl-alias-emp'); if(dl)dl.innerHTML=(typeof EMPLEADOS!=='undefined'?EMPLEADOS:[]).map(function(e){return '<option value="'+String(e.nombre).replace(/"/g,'&quot;')+'">';}).join('');
+  var keys=Object.keys(_ALIAS_USER);
+  if(!keys.length){el.innerHTML='<div style="color:var(--text3);font-size:12px;padding:6px">Sin alias propios todavía (hay 6 fijos en el sistema). Agregá uno arriba si el cotejo no reconoce a alguien.</div>';return;}
+  el.innerHTML=keys.map(function(k){return '<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid var(--border);font-size:12px"><span>'+k+' → <b>'+_ALIAS_USER[k]+'</b></span><button class="btn btn-r btn-xs" onclick="elimAlias(\''+k.replace(/'/g,"")+'\')">x</button></div>';}).join('');
+}
+
+// ── PLANILLA ESPECIAL (pagos por actividades fuera de viajes: traslados patio→autolavado, etc.).
+// NOMINA_EXTRAS persiste en la tabla nomina_extras. calcNom suma estos pagos al total de la semana
+// (sección "Actividades especiales") y la auditoría los reconoce → la nómina cuadra. Dos modos:
+// 'viajes' (N viajes-equivalente × la tarifa del trabajador) o 'monto' (monto fijo $).
+var NOMINA_EXTRAS=[];
+async function cargarNominaExtras(){
+  if(!(DB_READY&&supabase))return;
+  try{ var r=await supabase.from('nomina_extras').select('*').order('fecha',{ascending:false});
+    if(r&&!r.error&&Array.isArray(r.data))NOMINA_EXTRAS=r.data.map(function(x){return{id:x.id,fecha:x.fecha,empId:x.emp_id||'',empNombre:x.emp_nombre||'',actividad:x.actividad||'',modo:x.modo||'viajes',viajes:parseFloat(x.viajes)||0,monto:parseFloat(x.monto)||0};});
+  }catch(e){console.log('extras load:',e&&e.message);}
+}
+// Valor en USD que paga un extra: 'monto' = el monto; 'viajes' = viajes × tarifa del trabajador.
+function _extraUsd(x){
+  if(!x)return 0;
+  if(x.modo==='monto')return parseFloat(x.monto)||0;
+  var emp=(typeof EMPLEADOS!=='undefined'?EMPLEADOS:[]).find(function(e){return String(e.id)===String(x.empId)||_nombreCanonico(e.nombre).toUpperCase()===_nombreCanonico(x.empNombre).toUpperCase();});
+  var rate=(typeof cfg!=='undefined'&&cfg.chofer)?cfg.chofer:10;
+  if(emp&&emp.cargo==='Ayudante')rate=(emp.tipoAy==='imau')?((cfg&&cfg.imau)||2.5):((cfg&&cfg.ayud)||5);
+  return (parseFloat(x.viajes)||0)*rate;
+}
+function _extrasNominaPeriodo(desde,hasta){
+  return (NOMINA_EXTRAS||[]).filter(function(x){
+    if(!x.fecha)return false;
+    if(desde&&x.fecha<desde)return false;
+    if(hasta&&x.fecha>hasta)return false;
+    return true;
+  });
+}
+// Al cambiar de semana/mes: cargar patio + fijos IMAU + alias + extras y recalcular.
+function recalcNom(){ Promise.all([cargarPatioDias(),cargarPatioNota(),cargarImauApoyo(),cargarAliasNombres(),cargarNominaExtras()]).then(function(){try{calcNom();}catch(e){}try{renderAliasManager();}catch(e){}}).catch(function(){try{calcNom();}catch(e){}}); }
+// Render de la sección "Actividades especiales" de la nómina (extras del período).
+function renderNominaExtras(extrasP){
+  var tb=g('nm-extras-tabla'); if(!tb)return;
+  var lista=extrasP||[]; var tot=0;
+  if(!lista.length){tb.innerHTML='<tr><td colspan="6" style="text-align:center;color:var(--text3);padding:10px">Sin actividades especiales en este período</td></tr>';return;}
+  tb.innerHTML=lista.map(function(x){
+    var u=_extraUsd(x); tot+=u;
+    var detalle=x.modo==='monto'?'monto fijo':((x.viajes||0)+' viaje-equiv');
+    return '<tr><td>'+formatFecha(x.fecha)+'</td><td style="font-weight:700">'+(x.empNombre||'—')+'</td>'+
+      '<td style="font-size:11px">'+(x.actividad||'—')+'</td><td style="font-size:10px;color:var(--text3)">'+detalle+'</td>'+
+      '<td style="font-family:var(--m);color:var(--yellow)">$'+u.toFixed(2)+'</td>'+
+      '<td><button class="btn btn-r btn-xs" onclick="elimNominaExtra(\''+x.id+'\')">x</button></td></tr>';
+  }).join('')+'<tr class="tr-tot"><td colspan="4">TOTAL ACTIVIDADES ESPECIALES</td><td style="font-family:var(--m);font-weight:700;color:var(--yellow)">$'+tot.toFixed(2)+'</td><td></td></tr>';
+}
+// Modal "Planilla especial" (desde Registro Diario): paga una actividad fuera de viajes.
+function abrirPlanillaEspecial(){
+  var emps=(typeof EMPLEADOS!=='undefined'?EMPLEADOS:[]).filter(function(e){return e.nombre;}).slice().sort(function(a,b){return String(a.nombre).localeCompare(String(b.nombre));});
+  var opts=emps.map(function(e){return '<option value="'+e.id+'">'+e.nombre+' ('+(e.cargo||'')+')</option>';}).join('');
+  var html='<div class="fg"><label>Fecha</label><input type="date" class="fc" id="pe-fecha" value="'+fechaVE()+'"></div>'+
+    '<div class="fg"><label>Trabajador</label><select class="fc" id="pe-emp"><option value="">— elegir —</option>'+opts+'</select></div>'+
+    '<div class="fg"><label>Actividad</label><input class="fc" id="pe-actividad" placeholder="Ej: Traslado de unidad de patio a autolavado"></div>'+
+    '<div class="fg"><label>Cómo se paga</label><select class="fc" id="pe-modo" onchange="peToggleModo(this.value)"><option value="viajes">Por viajes-equivalente (× su tarifa)</option><option value="monto">Monto fijo $</option></select></div>'+
+    '<div class="fg" id="pe-fg-viajes"><label>Viajes-equivalente</label><input type="number" min="0" step="0.5" class="fc" id="pe-viajes" placeholder="1"></div>'+
+    '<div class="fg" id="pe-fg-monto" style="display:none"><label>Monto fijo $</label><input type="number" min="0" step="0.01" class="fc" id="pe-monto" placeholder="0.00"></div>'+
+    '<button class="btn btn-g" style="width:100%;margin-top:6px" onclick="guardarPlanillaEspecial()">Guardar actividad</button>';
+  openModal('Planilla especial — pago por actividad',html);
+}
+function peToggleModo(v){ if(g('pe-fg-viajes'))g('pe-fg-viajes').style.display=v==='viajes'?'block':'none'; if(g('pe-fg-monto'))g('pe-fg-monto').style.display=v==='monto'?'block':'none'; }
+async function guardarPlanillaEspecial(){
+  var empId=gv('pe-emp'); if(!empId){alert('Elegí el trabajador');return;}
+  var emp=(typeof EMPLEADOS!=='undefined'?EMPLEADOS:[]).find(function(e){return String(e.id)===String(empId);});
+  var actividad=(gv('pe-actividad')||'').trim(); if(!actividad){alert('Describí la actividad');return;}
+  var modo=gv('pe-modo')||'viajes';
+  var viajes=modo==='viajes'?(parseFloat(gv('pe-viajes'))||0):0;
+  var monto=modo==='monto'?(parseFloat(gv('pe-monto'))||0):0;
+  if(modo==='viajes'&&viajes<=0){alert('Ingresá los viajes-equivalente');return;}
+  if(modo==='monto'&&monto<=0){alert('Ingresá el monto');return;}
+  var row={id:'NE'+Date.now(),fecha:gv('pe-fecha')||fechaVE(),empId:empId,empNombre:emp?emp.nombre:'',actividad:actividad,modo:modo,viajes:viajes,monto:monto};
+  NOMINA_EXTRAS.push(row);
+  var ok=false;
+  var dbRow={id:row.id,fecha:row.fecha,emp_id:row.empId,emp_nombre:row.empNombre,actividad:row.actividad,modo:row.modo,viajes:row.viajes,monto:row.monto};
+  if(DB_READY&&supabase){
+    try{var res=await supabase.from('nomina_extras').insert([dbRow]);
+      if(res&&res.error){mostrarToast('No se pudo guardar: '+res.error.message,'error');}else ok=true;
+    }catch(e){mostrarToast('Sin conexión al guardar la actividad.','error');}
+  }
+  if(!ok&&typeof guardarEnCola==='function')guardarEnCola('nomina_extras',dbRow,'id');
+  audit('Planilla especial',row.empNombre+' · '+actividad+' · '+(modo==='monto'?('$'+monto):(viajes+' viaje-equiv')));
+  closeModal();
+  try{recalcNom();}catch(e){}
+  if(typeof mostrarToast==='function')mostrarToast(ok?'✅ Actividad registrada (suma a la nómina)':'⚠️ En cola (sin conexión)',ok?'exito':'error');
+}
+function elimNominaExtra(id){
+  if(!confirm('¿Eliminar esta actividad especial?'))return;
+  NOMINA_EXTRAS=NOMINA_EXTRAS.filter(function(x){return String(x.id)!==String(id);});
+  if(DB_READY&&supabase)supabase.from('nomina_extras').delete().eq('id',id).then(function(r){if(r&&r.error&&typeof mostrarToast==='function')mostrarToast('No se pudo eliminar: '+r.error.message,'error');});
+  audit('Actividad especial eliminada',String(id));
+  try{recalcNom();}catch(e){}
+}
+
 function calcNom(){
   var mes=gv('nm-mes'),sem=gv('nm-sem');
   var des=gv('nm-des'),hta=gv('nm-hta');
@@ -3648,12 +3819,15 @@ function calcNom(){
   // Descuentos multas — CÁLCULO PURO (avance real al "Guardar esta semana", igual que préstamos).
   MULTAS.filter(function(m){return m.resp==='chofer'&&m.estado==='activo';}).forEach(function(m){
     if((m.cuotasPagas||0)>=m.cuotas)return; // ya saldada
-    var cuotaBs=m.cuotaBs;
     // La multa es de un camión → se descuenta al chofer ASIGNADO a ese camión (por nombre).
     var empCh=EMPLEADOS.find(function(e){return e.cargo==='Chofer'&&e.unidad===m.camId;});
     var chKeyM=empCh?_nombreCanonico(empCh.nombre||'').toUpperCase():'';
-    if(chKeyM&&chMap[chKeyM]){var usd=cuotaBs/(TASAS.bcvDolar||cfg.tasa);chMap[chKeyM].descuentos+=usd;}
-    _multaAplicar.push({id:m.id,cuotaBs:cuotaBs});
+    // La cuota de la multa puede estar en DIVISA (USD/EUR) o en Bs (legacy). _multaCuotaUsd la pasa
+    // a USD (la nómina se calcula en USD). El congelado a Bs se hace al PAGAR (no aquí).
+    var cuotaUsd=_multaCuotaUsd(m);
+    if(chKeyM&&chMap[chKeyM]&&cuotaUsd>0)chMap[chKeyM].descuentos+=cuotaUsd;
+    // Se lleva moneda/cuotaDiv para congelar a la tasa del día del pago; y cuotaBs para legacy.
+    _multaAplicar.push({id:m.id,cuotaUsd:cuotaUsd,moneda:m.moneda||'',cuotaDiv:m.cuotaDiv||0,cuotaBs:m.cuotaBs||0});
   });
   // ── ASISTENCIA A PATIO (opcional, interruptor nm-patio) ──────────────────────────────
   // Regla (Máximo): día CON viajes → solo viajes; día SIN viajes pero PRESENTE en patio ('P')
@@ -3690,20 +3864,28 @@ function calcNom(){
   var totImauPlan=imauVj*((typeof cfg!=='undefined'&&cfg.imau)?cfg.imau:2.5);
   var totImauFijo=(typeof imauTotal==='function')?imauTotal():0;
   var totImau=totImauPlan+totImauFijo;
-  var totUsd=totOp+totAdm+totImau;
+  // ACTIVIDADES ESPECIALES (planilla especial): pagos fuera de viajes en el MISMO período. Suman al
+  // total → la nómina cuadra. Rango = des/hta si están, si no el min/max de las planillas del filtro.
+  var _pDesde=des||(f.length?f.reduce(function(m,r){return r.f<m?r.f:m;},f[0].f):null);
+  var _pHasta=hta||(f.length?f.reduce(function(m,r){return r.f>m?r.f:m;},f[0].f):null);
+  var _extrasP=_extrasNominaPeriodo(_pDesde,_pHasta);
+  var totExtras=_extrasP.reduce(function(s,x){return s+_extraUsd(x);},0);
+  var totUsd=totOp+totAdm+totImau+totExtras;
   var totBs=totUsd*tasa;
+  renderNominaExtras(_extrasP);
   if(g('nm-imau'))g('nm-imau').textContent='$'+totImau.toFixed(0)+(imauVj?' ('+imauVj+' viajes×$'+(((typeof cfg!=='undefined'&&cfg.imau)?cfg.imau:2.5))+' + fijos $'+totImauFijo.toFixed(0)+')':' (fijos)');
   try{renderImauApoyo();}catch(e){}
   // Guardar el último cálculo para poder "Guardar en historial" (nutrir nomina_historial).
   _ultimaNomina={
     _prestAplicar:_prestAplicar, _multaAplicar:_multaAplicar, // descuentos a avanzar SOLO al guardar la semana
-    sem:sem||'', mes:mes||'', tasa:tasa, totCh:totCh, totAy:totAy, totAdm:totAdm, totImau:totImau, totBs:totBs,
+    sem:sem||'', mes:mes||'', tasa:tasa, totCh:totCh, totAy:totAy, totAdm:totAdm, totImau:totImau, totExtras:totExtras, totBs:totBs,
     fdesde: f.length?f.reduce(function(m,r){return r.f<m?r.f:m;},f[0].f):null,
     fhasta: f.length?f.reduce(function(m,r){return r.f>m?r.f:m;},f[0].f):null,
     choferes: Object.values(chMap).map(function(c){var k=_nombreCanonico(c.ch).toUpperCase();var pat=(c.patio||0)+(parseInt(PATIO_DIAS[k])||0);var u=Math.max(0,(c.montoViajes||0)+pat*cfg.chofer-c.descuentos);return {n:c.ch,u:Array.from(c.cams||[]).join(','),viajes:c.viajes+pat,pat:pat,usd:Math.round(u*100)/100,bs:Math.round(u*tasa*100)/100};}),
-    ayudantes: Object.values(ayMap).map(function(a){var patAy=(a.emp.tipoAy!=='imau')?(parseInt(PATIO_DIAS[a.emp.id])||0):0;var patTot=(a.patio||0)+patAy;var v=a.viajes+patAy;var u=Math.max(0,v*a.tasa+(a.recargoDom||0)-a.descuentos);return {n:a.emp.nombre,u:a.emp.unidad,viajes:v,pat:patTot,usd:Math.round(u*100)/100,bs:Math.round(u*tasa*100)/100,tipo:a.emp.tipoAy||'interno'};})
+    ayudantes: Object.values(ayMap).map(function(a){var patAy=(a.emp.tipoAy!=='imau')?(parseInt(PATIO_DIAS[a.emp.id])||0):0;var patTot=(a.patio||0)+patAy;var v=a.viajes+patAy;var u=Math.max(0,v*a.tasa+(a.recargoDom||0)-a.descuentos);return {n:a.emp.nombre,u:a.emp.unidad,viajes:v,pat:patTot,usd:Math.round(u*100)/100,bs:Math.round(u*tasa*100)/100,tipo:a.emp.tipoAy||'interno'};}),
+    extras: _extrasP.map(function(x){return {fecha:x.fecha,n:x.empNombre,actividad:x.actividad,modo:x.modo,viajes:x.viajes,monto:x.monto,usd:Math.round(_extraUsd(x)*100)/100};})
   };
-  if(g('nm-tot'))g('nm-tot').textContent='$'+fmtMon(totUsd)+' (op $'+fmtMon(totOp)+(totImau>0?' + IMAU $'+fmtMon(totImau):'')+(totAdm>0?' + adm $'+fmtMon(totAdm):'')+')'+' = Bs '+(totBs/1000).toFixed(0)+'k';
+  if(g('nm-tot'))g('nm-tot').textContent='$'+fmtMon(totUsd)+' (op $'+fmtMon(totOp)+(totImau>0?' + IMAU $'+fmtMon(totImau):'')+(totAdm>0?' + adm $'+fmtMon(totAdm):'')+(totExtras>0?' + especial $'+fmtMon(totExtras):'')+')'+' = Bs '+(totBs/1000).toFixed(0)+'k';
   if(g('nm-ch'))g('nm-ch').textContent='$'+fmtMon(totCh)+' (Bs '+(totCh*tasa/1000).toFixed(0)+'k)';
   if(g('nm-ay'))g('nm-ay').textContent='$'+fmtMon(totAy)+' (Bs '+(totAy*tasa/1000).toFixed(0)+'k)';
   var desc=g('nm-descuentos');if(desc)desc.innerHTML=descBanners.join('');
@@ -3719,8 +3901,11 @@ function calcNom(){
     var _badgeInact=(_inact&&_empCh)?' <span style="font-size:8px;color:var(--amber)" title="Chofer INACTIVO en la Lista Maestra pero con viajes en la planilla — revisar">⚠️ inactivo</span> <button class="btn btn-s" style="font-size:8px;padding:1px 5px" onclick="corregirInactivoNomina(\''+_empCh.id+'\')" title="Corregir: reactivar (si sí trabajó) o arreglar la planilla (si fue empleado equivocado). Pide token.">✏️ corregir</button>':'';
     return '<tr'+(_inact?' style="background:rgba(245,158,11,.07)"':'')+'><td style="font-family:var(--m)">'+(i+1)+'</td><td style="font-weight:700">'+c.ch+_badgeInact+'</td>'+
       '<td style="font-size:10px">'+Array.from(c.cams||[]).join(', ')+'</td>'+
-      '<td style="color:var(--green)">'+c.viajes+(c.viajesDom>0?' <span style="font-size:8px;color:var(--teal)" title="viajes en domingo/feriado pagados a 1.5×">+'+c.viajesDom+'D</span>':'')+(c.patio>0?' <span style="font-size:8px;color:var(--amber)" title="patio por asistencia">+'+c.patio+'P</span>':'')+
-        ' <input type="number" min="0" value="'+patM+'" title="Días de actividad sin viaje (patio/traslado/lavado): +1 viaje c/u" onchange="setPatioDias(\''+key.replace(/'/g,"")+'\',this.value)" style="width:30px;font-size:9px;background:var(--bg3);border:1px solid var(--border);color:var(--amber);border-radius:4px;padding:1px 2px;text-align:center"><span style="font-size:8px;color:var(--amber)">P</span>'+(patM>0?(' <input type="text" value="'+String(PATIO_NOTA[key]||'').replace(/"/g,'&quot;')+'" placeholder="actividad" title="¿Qué actividad? patio / traslado a autolavado / lavado de domingo..." onchange="setPatioNota(\''+key.replace(/'/g,"")+'\',this.value)" style="width:95px;font-size:9px;background:var(--bg3);border:1px solid var(--border);color:var(--text2);border-radius:4px;padding:1px 4px">'):'')+'</td>'+
+      '<td style="color:var(--green)"><div style="display:flex;align-items:center;justify-content:space-between;gap:6px">'+
+        '<span style="display:flex;align-items:center;gap:3px"><b>'+c.viajes+'</b>'+
+        ' <input type="number" min="0" value="'+patM+'" title="Días de actividad sin viaje (patio/traslado/lavado): +1 viaje c/u" onchange="setPatioDias(\''+key.replace(/'/g,"")+'\',this.value)" style="width:30px;font-size:9px;background:var(--bg3);border:1px solid var(--border);color:var(--amber);border-radius:4px;padding:1px 2px;text-align:center"><span style="font-size:8px;color:var(--amber)">P</span>'+(patM>0?(' <input type="text" value="'+String(PATIO_NOTA[key]||'').replace(/"/g,'&quot;')+'" placeholder="actividad" title="¿Qué actividad? patio / traslado a autolavado / lavado de domingo..." onchange="setPatioNota(\''+key.replace(/'/g,"")+'\',this.value)" style="width:85px;font-size:9px;background:var(--bg3);border:1px solid var(--border);color:var(--text2);border-radius:4px;padding:1px 4px">'):'')+'</span>'+
+        '<span style="display:flex;gap:3px;white-space:nowrap">'+(c.viajesDom>0?'<span style="font-size:8px;color:var(--teal)" title="viajes en domingo/feriado pagados a 1.5×">+'+c.viajesDom+'D</span>':'')+(c.patio>0?'<span style="font-size:8px;color:var(--amber)" title="patio por asistencia">+'+c.patio+'P</span>':'')+'</span>'+
+        '</div></td>'+
       '<td>'+c.dias.size+'</td>'+
       '<td style="font-family:var(--m)">$'+fmtMon(sueldo)+(c.viajesDom>0?' <span style="font-size:8px;color:var(--teal)" title="incluye recargo domingo 1.5×">▲</span>':'')+'</td>'+
       '<td style="font-family:var(--m);color:var(--red)">'+(c.descuentos>0?'-$'+fmtMon(c.descuentos):'—')+'</td>'+
@@ -3739,7 +3924,10 @@ function calcNom(){
     return'<tr'+(_inactAy?' style="background:rgba(245,158,11,.07)"':'')+'><td>'+(i+1)+'</td><td style="font-weight:700">'+a.emp.nombre+_badgeInactAy+'</td>'+
       '<td><span class="badge '+(esImau?'bp':'bt')+'">'+( a.emp.tipoAy||'interno')+'</span></td>'+
       '<td style="font-size:10px">'+a.emp.unidad+(nota?'<br><span style="color:var(--text3);font-size:9px">'+nota+'</span>':'')+'</td>'+
-      '<td style="color:var(--green)">'+a.viajes+(a.viajesDom>0?' <span style="font-size:8px;color:var(--teal)" title="viajes en domingo/feriado pagados a 1.5×">+'+a.viajesDom+'D</span>':'')+inputPatio+'</td>'+
+      '<td style="color:var(--green)"><div style="display:flex;align-items:center;justify-content:space-between;gap:6px">'+
+        '<span style="display:flex;align-items:center;gap:3px"><b>'+a.viajes+'</b>'+inputPatio+'</span>'+
+        '<span style="display:flex;gap:3px;white-space:nowrap">'+(a.viajesDom>0?'<span style="font-size:8px;color:var(--teal)" title="viajes en domingo/feriado pagados a 1.5×">+'+a.viajesDom+'D</span>':'')+'</span>'+
+        '</div></td>'+
       '<td style="font-family:var(--m)">$'+fmtMon(sueldo)+(a.recargoDom>0?' <span style="font-size:8px;color:var(--teal)" title="incluye recargo domingo 1.5×">▲</span>':'')+'</td>'+
       '<td style="font-family:var(--m);color:var(--red)">'+(a.descuentos>0?'-$'+fmtMon(a.descuentos):'—')+'</td>'+
       '<td style="font-family:var(--m);font-weight:700;color:var(--yellow)">$'+fmtMon(total)+'</td></tr>';
@@ -3832,9 +4020,9 @@ async function guardarNominaHist(){
   var nPrest=(n._prestAplicar||[]).length, nMulta=(n._multaAplicar||[]).length;
   var row={id:id, semana:n.sem, periodo:(n.fdesde||'')+(n.fhasta?(' a '+n.fhasta):''),
     fecha_desde:n.fdesde||null, fecha_hasta:n.fhasta||null,
-    total_usd:Math.round((n.totCh+n.totAy+(n.totAdm||0)+(n.totImau||0))*100)/100, total_bs:Math.round(n.totBs*100)/100,
+    total_usd:Math.round((n.totCh+n.totAy+(n.totAdm||0)+(n.totImau||0)+(n.totExtras||0))*100)/100, total_bs:Math.round(n.totBs*100)/100,
     op_usd:Math.round((n.totCh+n.totAy)*100)/100, adm_usd:Math.round((n.totAdm||0)*100)/100, imau_bs:Math.round((n.totImau||0)*(n.tasa||0)*100)/100, tasa:n.tasa,
-    detalle:{choferes:n.choferes,ayudantes:n.ayudantes,imau:[]}, fuente:'app'};
+    detalle:{choferes:n.choferes,ayudantes:n.ayudantes,imau:[],extras:n.extras||[]}, fuente:'app'};
   var avisoDesc=(!yaExistia&&(nPrest||nMulta))
     ?('\n\n⚠️ Esto avanzará 1 cuota a '+nPrest+' préstamo(s) y '+nMulta+' multa(s) activas (el descuento de ESTA semana).')
     :((yaExistia&&(nPrest||nMulta))?'\n\n(Esta semana ya estaba guardada → las cuotas NO se vuelven a avanzar.)':'');
@@ -3844,7 +4032,14 @@ async function guardarNominaHist(){
   // cuotas de préstamos/multas en UNA transacción (todo-o-nada). Las cuotas que se completan se
   // predicen ANTES (desde memoria) para el WhatsApp. Tras éxito, se RECARGA desde la BD (sin drift).
   var prestPayload=(n._prestAplicar||[]).map(function(d){return {id:d.id,cuota:d.cuota};});
-  var multaPayload=(n._multaAplicar||[]).map(function(d){return {id:d.id,cuotaBs:d.cuotaBs};});
+  // CONGELAR A Bs A LA TASA DEL DÍA DEL PAGO: para multas en divisa, cuotaBs = cuotaUsd × tasa$ del
+  // día (n.tasa); ese Bs es el que la RPC suma a pagado_bs (queda congelado). Para legacy Bs, cuotaBs
+  // ya viene en Bs. Es exactamente el Bs descontado del sueldo esta semana (consistente con calcNom).
+  var _tasaPago=n.tasa||TASAS.bcvDolar||0;
+  var multaPayload=(n._multaAplicar||[]).map(function(d){
+    var cuotaBs=d.moneda?((d.cuotaUsd||0)*_tasaPago):(d.cuotaBs||0);
+    return {id:d.id,cuotaBs:Math.round((cuotaBs||0)*100)/100,cuotaDiv:d.cuotaDiv||0};
+  });
   var prestCompletan=[];
   if(!yaExistia)(n._prestAplicar||[]).forEach(function(d){var p=PRESTAMOS.find(function(x){return x.id===d.id;});if(p&&p.estado==='activo'&&(p.semanasPagadas||0)+1>=p.semanas)prestCompletan.push({nombre:d.empNombre||p.empNombre,monto:d.montoUsd||p.montoUsd});});
   var rpc=await supabase.rpc('avanzar_nomina',{p_row:row,p_prestamos:prestPayload,p_multas:multaPayload});
@@ -3870,7 +4065,7 @@ async function guardarNominaHist(){
 // Recarga préstamos/multas/nómina desde la BD tras la RPC atómica (estado real, sin drift de memoria).
 async function _recargarNomPrestMulta(){
   try{ var pr=await supabase.from('prestamos').select('*'); if(pr&&!pr.error&&pr.data)PRESTAMOS=pr.data.map(function(x){return{id:x.id,empId:x.emp_id,empNombre:x.emp_nombre,fecha:x.fecha,montoUsd:parseFloat(x.monto_usd)||0,semanas:parseInt(x.semanas)||1,cuotaUsd:parseFloat(x.cuota_usd)||0,pagado:parseFloat(x.pagado)||0,semanasPagadas:parseInt(x.semanas_pagadas)||0,motivo:x.motivo||'',estado:x.estado||'activo'};}); }catch(e){}
-  try{ var ml=await supabase.from('multas').select('*'); if(ml&&!ml.error&&ml.data)MULTAS=ml.data.map(function(x){return{id:x.id,camId:x.cam_id,fecha:x.fecha,desc:x.descripcion||'',montoBs:parseFloat(x.monto_bs)||0,ref:x.ref||'',resp:x.responsable||'empresa',choferId:x.chofer_id||'',cuotas:parseInt(x.cuotas)||1,cuotaBs:parseFloat(x.cuota_bs)||0,pagadoBs:parseFloat(x.pagado_bs)||0,cuotasPagas:parseInt(x.cuotas_pagas)||0,estado:x.estado||'activo'};}); }catch(e){}
+  try{ var ml=await supabase.from('multas').select('*'); if(ml&&!ml.error&&ml.data)MULTAS=ml.data.map(function(x){return{id:x.id,camId:x.cam_id,fecha:x.fecha,desc:x.descripcion||'',montoBs:parseFloat(x.monto_bs)||0,ref:x.ref||'',resp:x.responsable||'empresa',choferId:x.chofer_id||'',cuotas:parseInt(x.cuotas)||1,cuotaBs:parseFloat(x.cuota_bs)||0,pagadoBs:parseFloat(x.pagado_bs)||0,cuotasPagas:parseInt(x.cuotas_pagas)||0,estado:x.estado||'activo',moneda:x.moneda||'',montoDiv:parseFloat(x.monto_div)||0,cuotaDiv:parseFloat(x.cuota_div)||0,pagadoDiv:parseFloat(x.pagado_div)||0};}); }catch(e){}
   try{ var nh=await supabase.from('nomina_historial').select('*'); if(nh&&!nh.error&&Array.isArray(nh.data))NOMINA_HIST=nh.data; }catch(e){}
 }
 // Aplica el AVANCE real de las cuotas que calcNom marcó para esta semana (_ultimaNomina._prestAplicar/
@@ -3887,16 +4082,20 @@ async function aplicarAvanceDescuentos(n){
     if(p.semanasPagadas>=p.semanas){p.estado='pagado'; sendWA('💳 Prestamo de '+(d.empNombre||p.empNombre)+' completamente pagado (USD '+(d.montoUsd||p.montoUsd)+')',['rrhh']);}
     prestTocados.push(p);
   });
+  var _tasaPagoM=n.tasa||TASAS.bcvDolar||0;
   (n._multaAplicar||[]).forEach(function(d){
     var m=MULTAS.find(function(x){return x.id===d.id;});
     if(!m||m.estado!=='activo'||(m.cuotasPagas||0)>=m.cuotas)return;
-    m.pagadoBs=(m.pagadoBs||0)+d.cuotaBs; m.cuotasPagas=(m.cuotasPagas||0)+1;
+    // Congelar a Bs a la tasa del día del pago (divisa) o usar el Bs legacy.
+    var cuotaBs=d.moneda?((d.cuotaUsd||0)*_tasaPagoM):(d.cuotaBs||0);
+    m.pagadoBs=(m.pagadoBs||0)+cuotaBs; m.cuotasPagas=(m.cuotasPagas||0)+1;
+    if(d.moneda)m.pagadoDiv=(m.pagadoDiv||0)+(d.cuotaDiv||0);
     if(m.cuotasPagas>=m.cuotas)m.estado='pagado';
     multaTocadas.push(m);
   });
   if(DB_READY&&supabase){
     if(prestTocados.length){var rp=await supabase.from('prestamos').upsert(prestTocados.map(function(p){return{id:p.id,emp_id:p.empId,emp_nombre:p.empNombre,fecha:p.fecha,monto_usd:p.montoUsd,semanas:p.semanas,cuota_usd:p.cuotaUsd,pagado:p.pagado,semanas_pagadas:p.semanasPagadas,motivo:p.motivo,estado:p.estado};}),{onConflict:'id'}); if(rp&&rp.error)mostrarToast('Cuotas de préstamo no persistieron: '+rp.error.message,'error');}
-    if(multaTocadas.length){var rm=await supabase.from('multas').upsert(multaTocadas.map(function(m){return{id:m.id,cam_id:m.camId,fecha:m.fecha,descripcion:m.desc,monto_bs:m.montoBs,ref:m.ref,responsable:m.resp,chofer_id:m.choferId,cuotas:m.cuotas,cuota_bs:m.cuotaBs,pagado_bs:m.pagadoBs,cuotas_pagas:m.cuotasPagas,estado:m.estado};}),{onConflict:'id'}); if(rm&&rm.error)mostrarToast('Cuotas de multa no persistieron: '+rm.error.message,'error');}
+    if(multaTocadas.length){var rm=await supabase.from('multas').upsert(multaTocadas.map(function(m){return{id:m.id,cam_id:m.camId,fecha:m.fecha,descripcion:m.desc,monto_bs:m.montoBs,ref:m.ref,responsable:m.resp,chofer_id:m.choferId,cuotas:m.cuotas,cuota_bs:m.cuotaBs,pagado_bs:m.pagadoBs,cuotas_pagas:m.cuotasPagas,estado:m.estado,moneda:m.moneda||null,monto_div:m.montoDiv||null,cuota_div:m.cuotaDiv||null,pagado_div:m.pagadoDiv||0};}),{onConflict:'id'}); if(rm&&rm.error)mostrarToast('Cuotas de multa no persistieron: '+rm.error.message,'error');}
   }
   try{if(typeof renderPrestamos==='function')renderPrestamos();}catch(e){}
   try{if(typeof renderMultas==='function')renderMultas();}catch(e){}
@@ -3922,16 +4121,23 @@ function _audConstruir(h,tolPatio){
     [r.ay1,r.ay2,r.ay3].forEach(function(nm){if(!nm)return;var ak=_normNom(_nombreCanonico(nm));if(ak){ayV[ak]=(ayV[ak]||0)+t;ayD[ak]=(ayD[ak]||0)+dom;}});
   });
   var d=h.detalle||{}, filas=[], nFlag=0, sumOver=0;
+  // Pagos por ACTIVIDADES ESPECIALES (planilla especial) de esa semana, por trabajador → se SUMAN
+  // a "corresponde" para que el cotejo cuadre (el pagado ya los incluye). Se enlaza por nombre canónico.
+  function _extrasUsdDe(nombre){
+    var kk=_nombreCanonico(nombre).toUpperCase();
+    return (d.extras||[]).reduce(function(s,e){return s+(_nombreCanonico(e.n).toUpperCase()===kk?(parseFloat(e.usd)||0):0);},0);
+  }
   function chk(arr,vmap,dmap,keyFn,rateFn,rol){
     (arr||[]).forEach(function(p){
       var key=keyFn(p.n), rate=rateFn(p);
       var vj=vmap[key]||0, dom=dmap[key]||0, pat=parseInt(p.pat)||0;
-      var corr=Math.round((vj*rate+dom*rate*0.5+pat*rate)*100)/100;
+      var ext=_extrasUsdDe(p.n);
+      var corr=Math.round((vj*rate+dom*rate*0.5+pat*rate+ext)*100)/100;
       var pag=parseFloat(p.usd)||0;
       var tol=(tolPatio?rate*2:0)+1, diff=Math.round((pag-corr)*100)/100;
       var flag=(corr===0&&pag>0)?'GHOST':(diff>tol?'OVER':'');
       if(flag){nFlag++;sumOver+=Math.max(0,diff);}
-      filas.push({rol:rol,n:p.n,vj:vj,dom:dom,pat:pat,corr:corr,pag:pag,diff:diff,flag:flag});
+      filas.push({rol:rol,n:p.n,vj:vj,dom:dom,pat:pat,ext:ext,corr:corr,pag:pag,diff:diff,flag:flag});
     });
   }
   var rCh=function(){return (typeof cfg!=='undefined'&&cfg.chofer)?cfg.chofer:10;};
@@ -4057,13 +4263,52 @@ async function montarNominaBNC(){
   alert('✅ Nomina montada en BNC.\n'+pagos.length+' pagos pendientes de autorizar.\nSe envio WhatsApp al firmante.\n\n⚠ El firmante debe ingresar a BNCNET para autorizar.');
 }
 
-function exportNomExcel(){alert('Exportando nomina a Excel...');}
+function exportNomExcel(){
+  if(typeof XLSX==='undefined'){alert('Excel no disponible (XLSX no cargado).');return;}
+  var n=(typeof _ultimaNomina!=='undefined')?_ultimaNomina:null;
+  if(!n||((!n.choferes||!n.choferes.length)&&(!n.ayudantes||!n.ayudantes.length))){
+    alert('Primero calculá la nómina (elegí mes/semana) y luego exportá.');return;
+  }
+  // Prioridad: tasa de la API. Si no hay, pedirla manual (modal dólar+euro), recalcular la nómina
+  // (para que los Bs salgan con la tasa real, no inventada) y reexportar.
+  if(!(TASAS.bcvDolar||cfg.tasa)){ tasaOManual('bcvDolar', function(){ try{calcNom();}catch(e){} exportNomExcel(); }); return; }
+  var tasa=n.tasa||TASAS.bcvDolar||cfg.tasa;
+  var wb=XLSX.utils.book_new();
+  // Hoja Choferes: neto por persona (mismo dato del cálculo oficial calcNom → _ultimaNomina).
+  var rowsCh=(n.choferes||[]).map(function(c){return {
+    Nombre:c.n, Unidades:c.u||'', Viajes:c.viajes, Patio:c.pat||0, 'Neto $':c.usd, 'Neto Bs':c.bs
+  };});
+  if(rowsCh.length)XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(rowsCh),'Choferes');
+  // Hoja Ayudantes (incluye tipo interno/imau).
+  var rowsAy=(n.ayudantes||[]).map(function(a){return {
+    Nombre:a.n, Unidad:a.u||'', Tipo:a.tipo||'interno', Viajes:a.viajes, Patio:a.pat||0, 'Neto $':a.usd, 'Neto Bs':a.bs
+  };});
+  if(rowsAy.length)XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(rowsAy),'Ayudantes');
+  // Hoja Resumen: totales del período y la tasa con la que se convirtió a Bs (auditable).
+  var resumen=[
+    {Concepto:'Período', Valor:((n.mes||'')+' '+(n.sem||'')).trim()},
+    {Concepto:'Desde', Valor:n.fdesde||''},
+    {Concepto:'Hasta', Valor:n.fhasta||''},
+    {Concepto:'Tasa Bs/$', Valor:tasa},
+    {Concepto:'Total Choferes $', Valor:Math.round((n.totCh||0)*100)/100},
+    {Concepto:'Total Ayudantes $', Valor:Math.round((n.totAy||0)*100)/100},
+    {Concepto:'Total Admin $', Valor:Math.round((n.totAdm||0)*100)/100},
+    {Concepto:'Total IMAU $', Valor:Math.round((n.totImau||0)*100)/100},
+    {Concepto:'Total Bs', Valor:Math.round(n.totBs||0)}
+  ];
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(resumen),'Resumen');
+  var sufijo=String(n.sem||n.mes||'export').replace(/[^\w-]/g,'_')||'export';
+  XLSX.writeFile(wb,'Betangar_Nomina_'+sufijo+'.xlsx');
+  audit('Nómina exportada a Excel',((n.mes||'')+' '+(n.sem||'')).trim());
+}
 function imprimirNomina(){
   var mes=document.getElementById('nm-mes')?document.getElementById('nm-mes').value:'';
   var sem=document.getElementById('nm-sem')?document.getElementById('nm-sem').value:'';
   var tbCh=document.getElementById('tb-nom-ch');
   var tbAy=document.getElementById('tb-nom-ay');
-  var tasa=TASAS.bcvDolar||cfg.tasa||600;
+  // NO inventar tasa: si no hay BCV, pedirla manual (modal con dólar+euro) y reintentar la impresión.
+  var tasa=TASAS.bcvDolar||cfg.tasa;
+  if(!tasa){ tasaOManual('bcvDolar', function(){ imprimirNomina(); }); return; }
   var totCh=parseFloat((document.getElementById('nm-ch')||{textContent:'0'}).textContent.replace('$','').replace('(','').replace(/[^0-9.]/g,''))||0;
   var totAy=parseFloat((document.getElementById('nm-ay')||{textContent:'0'}).textContent.replace('$','').replace('(','').replace(/[^0-9.]/g,''))||0;
   var stats=mkStat('Nomina Choferes','$'+totCh.toFixed(0),'Bs '+(totCh*tasa/1000).toFixed(0)+'k','verde')+
@@ -5492,55 +5737,110 @@ function renderPrestamos(){
 }
 function toggleMulChofer(v){if(g('mul-chofer-box'))g('mul-chofer-box').style.display=v==='chofer'?'block':'none';}
 
+// ── MULTAS EN DIVISA ────────────────────────────────────────────────────────
+// Una multa nueva vive en DIVISA (USD/EUR): la deuda se congela en su divisa hasta que se paga,
+// y al pagar cada cuota se convierte a Bs a la tasa del día del pago (ver aplicarAvanceDescuentos /
+// multaPayload). Las multas viejas (sin `moneda`) siguen en Bs (legacy). Estos helpers devuelven
+// el valor en USD para la nómina (que se calcula en USD) y los egresos. NUNCA inventan tasa.
+function _multaDivToUsd(monto, moneda){
+  monto=parseFloat(monto)||0; if(!monto)return 0;
+  if(moneda==='USD')return monto;
+  if(moneda==='EUR'){ var d=TASAS.bcvDolar, e=TASAS.bcvEuro; return (d&&e)?monto*e/d:0; }
+  return 0;
+}
+function _multaCuotaUsd(m){
+  if(m&&m.moneda)return _multaDivToUsd(m.cuotaDiv||0, m.moneda);
+  var tr=TASAS.bcvDolar||cfg.tasa; return tr?(((m&&m.cuotaBs)||0)/tr):0; // legacy Bs
+}
+function _multaMontoUsd(m){
+  if(m&&m.moneda)return _multaDivToUsd(m.montoDiv||0, m.moneda);
+  var tr=TASAS.bcvDolar||cfg.tasa; return tr?(((m&&m.montoBs)||0)/tr):0; // legacy Bs
+}
+// Símbolo y texto del monto/restante de una multa para mostrar (divisa nueva o Bs legacy).
+function _divSimbolo(moneda){ return moneda==='EUR'?'€':(moneda==='USD'?'$':'Bs'); }
+function _multaMontoTxt(m){
+  if(m&&m.moneda)return _divSimbolo(m.moneda)+(parseFloat(m.montoDiv)||0).toLocaleString('es-VE',{maximumFractionDigits:2});
+  return 'Bs '+(parseFloat(m&&m.montoBs)||0).toLocaleString('es-VE',{maximumFractionDigits:0});
+}
+// Referencia EN VIVO de cuánto sería en Bs HOY (solo informativo: el cobro se congela al pagar).
+function calcMultaRefBs(){
+  var el=g('mul-ref-bs'); if(!el)return;
+  var moneda=(gv('mul-moneda')||'USD').toUpperCase();
+  var monto=parseFloat(gv('mul-monto'))||0;
+  var tasa=(moneda==='EUR')?TASAS.bcvEuro:TASAS.bcvDolar;
+  if(!monto){ el.textContent='≈ Bs — (referencia a la tasa de hoy; el cobro se congela en Bs recién al pagar cada cuota)'; return; }
+  if(!tasa){ el.textContent='Sin tasa '+(moneda==='EUR'?'BCV €':'BCV $')+' de hoy — se pedirá al pagar. El monto en '+moneda+' es el que manda.'; return; }
+  el.textContent='≈ Bs '+(monto*tasa).toLocaleString('es-VE',{maximumFractionDigits:0})+' a la tasa de hoy (referencia; se congela al pagar cada cuota)';
+}
+
 function guardarMulta(){
-  var camId=gv('mul-cam'),desc=gv('mul-desc'),montoBs=parseFloat(gv('mul-monto-bs'))||0;
-  if(!camId||!desc||!montoBs){alert('Completa camion, descripcion y monto');return;}
+  var camId=gv('mul-cam'),desc=gv('mul-desc');
+  var moneda=(gv('mul-moneda')||'USD').toUpperCase(); if(moneda!=='EUR')moneda='USD';
+  var monto=parseFloat(gv('mul-monto'))||0;
+  if(!camId||!desc||!monto){alert('Completa camion, descripcion y monto');return;}
   var resp=gv('mul-resp');
-  var item={id:'MUL'+Date.now(),camId:camId,fecha:gv('mul-fecha'),desc:desc,montoBs:montoBs,ref:gv('mul-ref'),resp:resp,choferId:resp==='chofer'?gv('mul-chofer'):'',cuotas:parseInt(gv('mul-cuotas'))||1,cuotaBs:resp==='chofer'?montoBs/(parseInt(gv('mul-cuotas'))||1):0,pagadoBs:0,cuotasPagas:0,estado:'activo'};
+  var cuotasN=parseInt(gv('mul-cuotas'))||1;
+  // Modelo nuevo: la multa se guarda en DIVISA (monto_div). El Bs NO se congela hasta pagar cada
+  // cuota (pagado_bs, en aplicarAvanceDescuentos). montoBs/cuotaBs quedan en 0 (legacy).
+  var item={id:'MUL'+Date.now(),camId:camId,fecha:gv('mul-fecha'),desc:desc,
+    moneda:moneda, montoDiv:monto, cuotaDiv: resp==='chofer'? monto/cuotasN : 0, pagadoDiv:0,
+    montoBs:0, ref:gv('mul-ref'),resp:resp,choferId:resp==='chofer'?gv('mul-chofer'):'',
+    cuotas:cuotasN, cuotaBs:0, pagadoBs:0, cuotasPagas:0, estado:'activo'};
   MULTAS.push(item);
   if(DB_READY&&supabase){
     supabase.from('multas').insert([{
       id:item.id,cam_id:item.camId,fecha:item.fecha,
-      descripcion:item.desc,monto_bs:item.montoBs,ref:item.ref,
+      descripcion:item.desc,monto_bs:0,ref:item.ref,
       responsable:item.resp,chofer_id:item.choferId,
-      cuotas:item.cuotas,cuota_bs:item.cuotaBs,
-      pagado_bs:0,cuotas_pagas:0,estado:'activo'
+      cuotas:item.cuotas,cuota_bs:0,pagado_bs:0,cuotas_pagas:0,estado:'activo',
+      moneda:item.moneda,monto_div:item.montoDiv,cuota_div:item.cuotaDiv,pagado_div:0
     }]).then(function(r){if(r.error)console.error('Error multa:',r.error);});
   }
-  audit('Multa registrada',camId+' Bs'+montoBs);
-  alert('✅ Multa registrada.'+(resp==='chofer'?' Se descontara en nomina.':''));
-  ['mul-desc','mul-monto-bs','mul-ref','mul-cuotas'].forEach(function(id){sv(id,'');});
+  audit('Multa registrada',camId+' '+moneda+' '+monto);
+  alert('✅ Multa registrada en '+moneda+' '+monto+(resp==='chofer'?'.\nSe descontará en nómina; cada cuota se congela en Bs a la tasa del día en que se paga.':'.'));
+  ['mul-desc','mul-monto','mul-ref','mul-cuotas'].forEach(function(id){sv(id,'');});
   renderMultas();
 }
 
+// Cuotas que faltan por pagar de una multa de chofer.
+function _multaCuotasRest(m){ return Math.max(0,(parseInt(m.cuotas)||1)-(parseInt(m.cuotasPagas)||0)); }
+// Restante (lo que aún se debe) en su divisa/Bs, como texto para mostrar.
+function _multaRestTxt(m){
+  if(m&&m.moneda){ // divisa: restante = cuotas que faltan × cuota_div (chofer) o monto_div (empresa)
+    var rd=(m.resp==='chofer')?_multaCuotasRest(m)*(parseFloat(m.cuotaDiv)||0):(parseFloat(m.montoDiv)||0)-((parseFloat(m.pagadoDiv)||0));
+    return _divSimbolo(m.moneda)+Math.max(0,rd).toLocaleString('es-VE',{maximumFractionDigits:2});
+  }
+  return 'Bs '+Math.max(0,(parseFloat(m&&m.montoBs)||0)-(parseFloat(m&&m.pagadoBs)||0)).toLocaleString('es-VE',{maximumFractionDigits:0});
+}
 function renderMultas(){
   var activas=MULTAS.filter(function(m){return m.estado==='activo';});
-  var totalBs=activas.reduce(function(s,m){return s+m.montoBs;},0);
+  // Total en USD (las multas pueden estar en distintas divisas → USD es el común denominador).
+  var totalUsd=activas.reduce(function(s,m){return s+_multaMontoUsd(m);},0);
   if(g('mul-activas'))g('mul-activas').textContent=activas.length;
-  if(g('mul-total'))g('mul-total').textContent='Bs '+totalBs.toLocaleString('es-VE',{maximumFractionDigits:0});
+  if(g('mul-total'))g('mul-total').textContent='$'+totalUsd.toLocaleString('es-VE',{maximumFractionDigits:0});
   var pcEl=g('mul-por-chofer');
   if(pcEl){
     var chMap={};
     activas.filter(function(m){return m.resp==='chofer'&&m.choferId;}).forEach(function(m){
       if(!chMap[m.choferId])chMap[m.choferId]={nombre:EMPLEADOS.find(function(e){return e.id===m.choferId;})||{nombre:'--'},total:0};
-      chMap[m.choferId].total+=m.montoBs-m.pagadoBs;
+      // pendiente del chofer en USD = cuotas que faltan × cuota en USD
+      chMap[m.choferId].total+=_multaCuotasRest(m)*_multaCuotaUsd(m);
     });
     pcEl.innerHTML=Object.values(chMap).length?Object.values(chMap).map(function(c){
-      return '<div style="display:flex;justify-content:space-between;font-size:12px;padding:4px 0;border-bottom:1px solid var(--border)"><span>'+c.nombre.nombre+'</span><span style="font-family:var(--m);color:var(--red)">Bs '+c.total.toFixed(0)+'</span></div>';
+      return '<div style="display:flex;justify-content:space-between;font-size:12px;padding:4px 0;border-bottom:1px solid var(--border)"><span>'+c.nombre.nombre+'</span><span style="font-family:var(--m);color:var(--red)">$'+c.total.toLocaleString('es-VE',{maximumFractionDigits:2})+'</span></div>';
     }).join(''):'<div style="color:var(--text3);font-size:12px;padding:8px">Sin multas a choferes</div>';
   }
   var tb=g('tb-multas');
   if(tb){
     var rows=MULTAS.slice().reverse().map(function(m){
-      var rest=m.montoBs-m.pagadoBs;
       var tr=document.createElement('tr');
       tr.innerHTML='<td>'+formatFecha(m.fecha)+'</td><td style="font-weight:700">'+m.camId+'</td>'+
         '<td style="font-size:11px">'+m.desc+'</td>'+
-        '<td style="font-family:var(--m)">Bs '+m.montoBs.toFixed(0)+'</td>'+
+        '<td style="font-family:var(--m)">'+_multaMontoTxt(m)+'</td>'+
         '<td><span class="badge '+(m.resp==='empresa'?'bb':'br')+'">'+m.resp.toUpperCase()+'</span></td>'+
         '<td>'+m.cuotas+'</td>'+
-        '<td style="font-family:var(--m);color:var(--teal)">Bs '+m.pagadoBs.toFixed(0)+'</td>'+
-        '<td style="font-family:var(--m);color:var(--red)">Bs '+rest.toFixed(0)+'</td>'+
+        '<td style="font-family:var(--m);color:var(--teal)" title="Bs realmente pagado, congelado a la tasa del día de cada cuota">Bs '+(parseFloat(m.pagadoBs)||0).toFixed(0)+'</td>'+
+        '<td style="font-family:var(--m);color:var(--red)">'+_multaRestTxt(m)+'</td>'+
         '<td><span class="badge '+(m.estado==='activo'?'by':'bg')+'">'+m.estado.toUpperCase()+'</span></td>'+
         '<td><button class="btn btn-r btn-xs" onclick="elimMulta(\''+m.id+'\')">x</button></td>';
       return tr.outerHTML;
@@ -5810,6 +6110,340 @@ function renderContratosLista(){
     // 'alertas-diarias' (con anti-duplicado por alertas_log).
   });
 }
+// ═══════════════════════════════════════════════════════════════════════════
+// MULTI-CONTRATO (Operación): Unidades · Operaciones · P&L · Consolidado.
+// ADITIVO: el aseo (Alcaldía) sigue por REGS/planillas/abonos; esto suma los contratos nuevos.
+// Tablas: tipos_unidad, unidades, operaciones (RLS authenticated). Globales TIPOS_UNIDAD/UNIDADES/OPERACIONES.
+// ═══════════════════════════════════════════════════════════════════════════
+function abrirMultiContrato(){ switchMCTab('unidades'); }
+function renderMCSubnav(activo){
+  var el=g('mc-subnav'); if(!el)return;
+  var tabs=[['unidades','🚚 Unidades'],['operaciones','📋 Operaciones'],['pnl','📈 P&L por contrato'],['nomina','💵 Nómina operadores'],['consolidado','🧮 Consolidado']];
+  el.innerHTML='<div style="display:flex;gap:6px;flex-wrap:wrap">'+tabs.map(function(t){
+    return '<button class="btn '+(t[0]===activo?'btn-g':'btn-s')+' btn-sm" onclick="switchMCTab(\''+t[0]+'\')">'+t[1]+'</button>';
+  }).join('')+'</div>';
+}
+function switchMCTab(t){
+  ['unidades','operaciones','pnl','nomina','consolidado'].forEach(function(x){var el=g('tab-mc-'+x);if(el)el.style.display=x===t?'block':'none';});
+  renderMCSubnav(t);
+  if(t==='unidades')renderUnidadesMC();
+  else if(t==='operaciones')renderOperacionesMC();
+  else if(t==='pnl')renderPnlContratos();
+  else if(t==='nomina')renderNominaOperadores();
+  else if(t==='consolidado')renderConsolidadoMC();
+}
+// helpers
+function _contratoNombre(id){ var c=(CONTRATOS||[]).find(function(x){return String(x.id)===String(id);}); return c?c.nombre:(id||'—'); }
+function _fillContratoSelectMC(selId, sel){
+  var el=g(selId); if(!el)return;
+  var act=(CONTRATOS||[]).filter(function(c){return c.estado!=='inactivo';});
+  el.innerHTML='<option value="">— contrato —</option>'+act.map(function(c){return '<option value="'+c.id+'"'+(String(c.id)===String(sel)?' selected':'')+'>'+c.nombre+'</option>';}).join('');
+  if(!act.length)el.innerHTML='<option value="">(creá un contrato primero)</option>';
+}
+function _fillTipoUnidadSelect(selId, sel){
+  var el=g(selId); if(!el)return;
+  var act=(TIPOS_UNIDAD||[]).filter(function(t){return t.activo!==false;});
+  el.innerHTML='<option value="">— tipo —</option>'+act.map(function(t){return '<option value="'+t.nombre+'"'+(t.nombre===sel?' selected':'')+'>'+t.nombre+(t.mide?' ('+t.mide+')':'')+'</option>';}).join('');
+}
+// TIPOS DE UNIDAD
+function renderTiposUnidadLista(){
+  var el=g('mc-tipos-lista'); if(!el)return;
+  if(!(TIPOS_UNIDAD||[]).length){el.innerHTML='<div style="color:var(--text3)">Sin tipos. Usá "Cargar sugeridos" o agregá uno.</div>';return;}
+  el.innerHTML=TIPOS_UNIDAD.map(function(t){
+    return '<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid var(--border)"><span>'+(t.nombre||'—')+(t.mide?' <span style="color:var(--text3);font-size:10px">('+t.mide+')</span>':'')+'</span><button class="btn btn-r btn-xs" onclick="elimTipoUnidad(\''+t.id+'\')">x</button></div>';
+  }).join('');
+}
+async function guardarTipoUnidad(){
+  var nombre=(gv('mc-tipo-nombre')||'').trim(); if(!nombre){alert('Escribí el nombre del tipo');return;}
+  var mide=(gv('mc-tipo-mide')||'').trim().toLowerCase();
+  var row={id:'TU'+Date.now(),nombre:nombre,mide:mide,activo:true};
+  TIPOS_UNIDAD.push(row);
+  var ok=await _mcGuardar('tipos_unidad',row);
+  audit('Tipo de unidad agregado',nombre+(mide?' ('+mide+')':''));
+  sv('mc-tipo-nombre','');sv('mc-tipo-mide','');
+  renderTiposUnidadLista();_fillTipoUnidadSelect('mc-uni-tipo');
+  if(typeof mostrarToast==='function')mostrarToast(ok?'✅ Tipo agregado':'⚠️ En cola (sin conexión)',ok?'exito':'error');
+}
+function elimTipoUnidad(id){
+  if(!confirm('¿Eliminar este tipo de unidad?'))return;
+  TIPOS_UNIDAD=TIPOS_UNIDAD.filter(function(t){return String(t.id)!==String(id);});
+  if(DB_READY&&supabase)supabase.from('tipos_unidad').delete().eq('id',id).then(function(r){if(r&&r.error&&typeof mostrarToast==='function')mostrarToast('No se pudo eliminar el tipo: '+r.error.message,'error');});
+  audit('Tipo de unidad eliminado',String(id));
+  renderTiposUnidadLista();_fillTipoUnidadSelect('mc-uni-tipo');
+}
+async function seedTiposUnidad(){
+  if((TIPOS_UNIDAD||[]).length){ if(!confirm('Ya hay tipos cargados. ¿Agregar igual los sugeridos que falten?'))return; }
+  var sug=[['Compactador','viaje'],['Chuto / Gandola','flete'],['Cisterna','flete'],['Volteo','viaje'],['Montacarga','hora'],['Vehículo liviano','km']];
+  var nuevos=sug.filter(function(s){return !(TIPOS_UNIDAD||[]).some(function(t){return (t.nombre||'').toLowerCase()===s[0].toLowerCase();});})
+    .map(function(s,i){return {id:'TU'+Date.now()+'_'+i,nombre:s[0],mide:s[1],activo:true};});
+  if(!nuevos.length){alert('Ya están todos los tipos sugeridos.');return;}
+  nuevos.forEach(function(r){TIPOS_UNIDAD.push(r);});
+  if(DB_READY&&supabase){ var res=await supabase.from('tipos_unidad').upsert(nuevos,{onConflict:'id'}); if(res&&res.error&&typeof mostrarToast==='function')mostrarToast('No se pudieron guardar los tipos: '+res.error.message,'error'); }
+  audit('Tipos de unidad sugeridos cargados',String(nuevos.length));
+  renderTiposUnidadLista();_fillTipoUnidadSelect('mc-uni-tipo');
+  if(typeof mostrarToast==='function')mostrarToast('✅ '+nuevos.length+' tipo(s) cargados','exito');
+}
+// UNIDADES
+function renderUnidadesMC(){
+  _fillTipoUnidadSelect('mc-uni-tipo');
+  _fillContratoSelectMC('mc-uni-contrato');
+  renderTiposUnidadLista();
+  renderUnidadesTabla();
+}
+function renderUnidadesTabla(){
+  var tb=g('mc-uni-tabla'); if(!tb)return;
+  if(!(UNIDADES||[]).length){tb.innerHTML='<tr><td colspan="5" style="text-align:center;color:var(--text3);padding:16px">Sin unidades registradas</td></tr>';return;}
+  tb.innerHTML=UNIDADES.map(function(u){
+    var est=u.estado||'operativa';
+    var badge=est==='operativa'?'bg':(est==='mantenimiento'?'by':'br');
+    return '<tr><td style="font-weight:700">'+(u.placa||'—')+'</td><td>'+(u.tipo||'—')+'</td>'+
+      '<td style="font-size:11px">'+_contratoNombre(u.contrato_id)+'</td>'+
+      '<td><span class="badge '+badge+'">'+est+'</span></td>'+
+      '<td><button class="btn btn-r btn-xs" onclick="elimUnidadMC(\''+u.id+'\')">x</button></td></tr>';
+  }).join('');
+}
+async function guardarUnidadMC(){
+  var placa=(gv('mc-uni-placa')||'').trim(); if(!placa){alert('Escribí la placa/identificador');return;}
+  var tipo=gv('mc-uni-tipo'), contrato_id=gv('mc-uni-contrato')||null;
+  if(!tipo){alert('Elegí el tipo de unidad (o agregá uno).');return;}
+  // contrato_id es OPCIONAL: es el "contrato habitual" (pre-llena el de la operación). Una unidad
+  // puede trabajarle a varios clientes; el contrato real se elige en cada operación.
+  var row={id:'UN'+Date.now(),placa:placa,tipo:tipo,descripcion:gv('mc-uni-desc')||'',estado:gv('mc-uni-estado')||'operativa',contrato_id:contrato_id,activo:true};
+  UNIDADES.push(row);
+  var ok=await _mcGuardar('unidades',row);
+  audit('Unidad registrada',placa+' · '+tipo+' · '+_contratoNombre(contrato_id));
+  ['mc-uni-placa','mc-uni-desc'].forEach(function(id){sv(id,'');});
+  renderUnidadesTabla();
+  if(typeof mostrarToast==='function')mostrarToast(ok?'✅ Unidad guardada':'⚠️ En cola (sin conexión)',ok?'exito':'error');
+}
+function elimUnidadMC(id){
+  if(!confirm('¿Eliminar esta unidad?'))return;
+  UNIDADES=UNIDADES.filter(function(u){return String(u.id)!==String(id);});
+  if(DB_READY&&supabase)supabase.from('unidades').delete().eq('id',id).then(function(r){if(r&&r.error&&typeof mostrarToast==='function')mostrarToast('No se pudo eliminar la unidad: '+r.error.message,'error');});
+  audit('Unidad eliminada',String(id));
+  renderUnidadesTabla();
+}
+async function importarFlotaJAC(){
+  var contrato_id=gv('mc-uni-contrato');
+  if(!contrato_id){alert('Primero elegí arriba (campo "Contrato") el contrato al que asignar la flota JAC.');return;}
+  var jac=Object.keys(FLOTA||{}).filter(function(k){return k.indexOf('JAC')===0;});
+  if(!jac.length){alert('No hay camiones JAC en la flota.');return;}
+  var faltan=jac.filter(function(p){return !(UNIDADES||[]).some(function(u){return (u.placa||'')===p;});});
+  if(!faltan.length){alert('Todos los JAC ya están como unidades.');return;}
+  if(!confirm('Crear '+faltan.length+' unidad(es) JAC (tipo Compactador) en el contrato "'+_contratoNombre(contrato_id)+'"?\nNO toca la flota actual.'))return;
+  if(!(TIPOS_UNIDAD||[]).some(function(t){return (t.nombre||'').toLowerCase()==='compactador';})){
+    var tcomp={id:'TU'+Date.now()+'_c',nombre:'Compactador',mide:'viaje',activo:true};
+    TIPOS_UNIDAD.push(tcomp); if(DB_READY&&supabase)await supabase.from('tipos_unidad').upsert([tcomp],{onConflict:'id'});
+  }
+  var nuevos=faltan.map(function(p,i){return {id:'UN'+Date.now()+'_'+i,placa:p,tipo:'Compactador',descripcion:(FLOTA[p]&&FLOTA[p].chofer?'Chofer: '+FLOTA[p].chofer:''),estado:'operativa',contrato_id:contrato_id,activo:true};});
+  nuevos.forEach(function(r){UNIDADES.push(r);});
+  if(DB_READY&&supabase){ var res=await supabase.from('unidades').upsert(nuevos,{onConflict:'id'}); if(res&&res.error&&typeof mostrarToast==='function')mostrarToast('No se pudieron guardar las unidades: '+res.error.message,'error'); }
+  audit('Flota JAC importada a unidades',nuevos.length+' al contrato '+_contratoNombre(contrato_id));
+  renderUnidadesTabla();
+  if(typeof mostrarToast==='function')mostrarToast('✅ '+nuevos.length+' unidad(es) JAC creadas','exito');
+}
+// Guardado genérico de una fila multi-contrato (upsert + error toast + cola offline). Devuelve ok.
+async function _mcGuardar(tabla,row){
+  if(DB_READY&&supabase){
+    try{ var res=await supabase.from(tabla).upsert([row],{onConflict:'id'}); if(res&&res.error){if(typeof mostrarToast==='function')mostrarToast('No se pudo guardar ('+tabla+'): '+res.error.message,'error');}else return true; }
+    catch(e){ if(typeof mostrarToast==='function')mostrarToast('Sin conexión al guardar '+tabla,'error'); }
+  }
+  if(typeof guardarEnCola==='function')guardarEnCola(tabla,row,'id');
+  return false;
+}
+
+// ── OPERACIONES (Paso 4): "planilla genérica" por unidad/fecha. El ingreso (monto_cliente) y el
+// pago al operador (monto_operador) se calculan con las tarifas del CONTRATO de la unidad y se
+// CONGELAN al registrar (si luego cambian las tarifas, lo viejo no se altera). Moneda = la del contrato.
+function _unidadById(id){ return (UNIDADES||[]).find(function(u){return String(u.id)===String(id);}); }
+function _contratoById(id){ return (CONTRATOS||[]).find(function(c){return String(c.id)===String(id);}); }
+function mcCantLabel(forma){
+  return {viaje:'Viajes',hora:'Horas',flete:'Fletes',km:'Km',tonelada:'Toneladas',fijo:'Cantidad'}[forma]||'Cantidad';
+}
+function _opContratoDeUnidad(unidadId){ var u=_unidadById(unidadId); return u?_contratoById(u.contrato_id):null; }
+// El contrato de la operación = el ELEGIDO en el selector (un camión puede trabajarle a varios
+// clientes). La unidad solo aporta un "contrato habitual" que pre-llena el selector.
+function _opContratoActual(){ return _contratoById(gv('mc-op-contrato')); }
+// Al cambiar la unidad: pre-llenar el contrato con el "habitual" de la unidad (si tiene), sin trancar.
+function mcOpUnidadChange(){
+  var u=_unidadById(gv('mc-op-unidad')); var sel=g('mc-op-contrato');
+  if(u&&u.contrato_id&&sel&&_contratoById(u.contrato_id))sel.value=u.contrato_id;
+  mcOpInfoContrato();
+}
+function mcOpInfoContrato(){
+  var c=_opContratoActual(); var info=g('mc-op-info'), lbl=g('mc-op-cant-lbl');
+  if(!c){ if(info)info.innerHTML='<span style="color:var(--text3)">Elegí el contrato (cliente) de esta operación.</span>'; if(lbl)lbl.textContent='Cantidad'; mcOpPreview(); return; }
+  if(lbl)lbl.textContent=mcCantLabel(c.forma_cobro);
+  if(info)info.innerHTML='Contrato <b>'+c.nombre+'</b> · cobro por '+(c.forma_cobro||'—')+' · cliente '+(c.moneda||'$')+' '+(c.tarifa_cliente||0)+' · operador '+(c.moneda||'$')+' '+(c.tarifa_operador||0);
+  mcOpPreview();
+}
+function mcOpPreview(){
+  var pv=g('mc-op-preview'); if(!pv)return;
+  var c=_opContratoActual(); var cant=parseFloat(gv('mc-op-cantidad'))||0;
+  if(!c||!cant){ pv.textContent='Elegí unidad, contrato y cantidad.'; return; }
+  var mon=c.moneda||'$';
+  var ing=cant*(parseFloat(c.tarifa_cliente)||0), pag=cant*(parseFloat(c.tarifa_operador)||0);
+  pv.innerHTML='Ingreso (cliente): <b style="color:var(--green)">'+mon+' '+ing.toLocaleString('es-VE',{maximumFractionDigits:2})+'</b> · '+
+    'Pago operador: <b style="color:var(--yellow)">'+mon+' '+pag.toLocaleString('es-VE',{maximumFractionDigits:2})+'</b> · '+
+    'Margen: <b>'+mon+' '+(ing-pag).toLocaleString('es-VE',{maximumFractionDigits:2})+'</b>';
+}
+async function guardarOperacionMC(){
+  var unidadId=gv('mc-op-unidad'); if(!unidadId){alert('Elegí la unidad');return;}
+  var c=_opContratoActual(); if(!c){alert('Elegí el contrato (cliente) de esta operación.');return;}
+  var cant=parseFloat(gv('mc-op-cantidad'))||0; if(cant<=0){alert('Ingresá la cantidad ('+mcCantLabel(c.forma_cobro)+')');return;}
+  var fecha=gv('mc-op-fecha')||fechaVE();
+  var row={id:'OP'+Date.now(),contrato_id:c.id,unidad_id:unidadId,fecha:fecha,cantidad:cant,
+    operador:(gv('mc-op-operador')||'').trim(),nota:(gv('mc-op-nota')||'').trim(),
+    monto_cliente:Math.round(cant*(parseFloat(c.tarifa_cliente)||0)*100)/100,
+    monto_operador:Math.round(cant*(parseFloat(c.tarifa_operador)||0)*100)/100};
+  OPERACIONES.push(row);
+  var ok=await _mcGuardar('operaciones',row);
+  audit('Operación registrada',_contratoNombre(c.id)+' · '+(_unidadById(unidadId)||{}).placa+' · '+cant+' '+mcCantLabel(c.forma_cobro)+' · ingreso '+(c.moneda||'$')+row.monto_cliente);
+  ['mc-op-cantidad','mc-op-operador','mc-op-nota'].forEach(function(id){sv(id,'');});
+  mcOpPreview(); renderOperacionesMC();
+  if(typeof mostrarToast==='function')mostrarToast(ok?'✅ Operación guardada':'⚠️ En cola (sin conexión)',ok?'exito':'error');
+}
+function elimOperacionMC(id){
+  if(!confirm('¿Eliminar esta operación?'))return;
+  OPERACIONES=OPERACIONES.filter(function(o){return String(o.id)!==String(id);});
+  if(DB_READY&&supabase)supabase.from('operaciones').delete().eq('id',id).then(function(r){if(r&&r.error&&typeof mostrarToast==='function')mostrarToast('No se pudo eliminar la operación: '+r.error.message,'error');});
+  audit('Operación eliminada',String(id));
+  renderOperacionesMC();
+}
+// Operaciones filtradas por el rango/contrato de los filtros (reusable por P&L/consolidado).
+function _operacionesFiltradas(des,hta,contratoId){
+  return (OPERACIONES||[]).filter(function(o){
+    if(des&&o.fecha<des)return false;
+    if(hta&&o.fecha>hta)return false;
+    if(contratoId&&String(o.contrato_id)!==String(contratoId))return false;
+    return true;
+  });
+}
+function renderOperacionesMC(){
+  // Selects: unidades operativas para registrar; filtro de contrato.
+  var su=g('mc-op-unidad');
+  if(su){
+    var ops=(UNIDADES||[]).filter(function(u){return u.estado!=='inactiva';});
+    var prev=su.value;
+    su.innerHTML='<option value="">— unidad —</option>'+ops.map(function(u){return '<option value="'+u.id+'">'+(u.placa||u.id)+' ('+(u.tipo||'?')+' · '+_contratoNombre(u.contrato_id)+')</option>';}).join('');
+    if(prev)su.value=prev;
+  }
+  _fillContratoSelectMC('mc-op-contrato');        // contrato de la operación (elegible por viaje/día)
+  _fillContratoSelectMC('mc-op-filtro-contrato'); // filtro de la lista; "— contrato —" = todos
+  mcOpUnidadChange();
+  var des=gv('mc-op-des'),hta=gv('mc-op-hta'),cf=gv('mc-op-filtro-contrato');
+  var lista=_operacionesFiltradas(des,hta,cf).slice().sort(function(a,b){return a.fecha<b.fecha?1:-1;});
+  var tb=g('mc-op-tabla');
+  if(tb){
+    tb.innerHTML=lista.length?lista.map(function(o){
+      var c=_contratoById(o.contrato_id), mon=c?(c.moneda||'$'):'$';
+      var u=_unidadById(o.unidad_id);
+      return '<tr><td>'+formatFecha(o.fecha)+'</td><td style="font-weight:700">'+((u&&u.placa)||'—')+'</td>'+
+        '<td style="font-size:11px">'+_contratoNombre(o.contrato_id)+'</td>'+
+        '<td style="text-align:center">'+o.cantidad+'</td>'+
+        '<td style="font-family:var(--m);color:var(--green)">'+mon+' '+(parseFloat(o.monto_cliente)||0).toLocaleString('es-VE',{maximumFractionDigits:2})+'</td>'+
+        '<td style="font-family:var(--m);color:var(--yellow)">'+mon+' '+(parseFloat(o.monto_operador)||0).toLocaleString('es-VE',{maximumFractionDigits:2})+'</td>'+
+        '<td style="font-size:11px">'+(o.operador||'—')+'</td>'+
+        '<td><button class="btn btn-r btn-xs" onclick="elimOperacionMC(\''+o.id+'\')">x</button></td></tr>';
+    }).join(''):'<tr><td colspan="8" style="text-align:center;color:var(--text3);padding:16px">Sin operaciones en el rango</td></tr>';
+  }
+  // Totales (en USD para poder sumar entre monedas, usando la tasa del día como referencia).
+  var totEl=g('mc-op-totales');
+  if(totEl){
+    var ing=0,pag=0;
+    lista.forEach(function(o){ var c=_contratoById(o.contrato_id); var k=_mcDivAUsd(o.monto_cliente,c), kp=_mcDivAUsd(o.monto_operador,c); ing+=k; pag+=kp; });
+    totEl.innerHTML='<div style="display:flex;justify-content:space-between"><span>Ingreso (≈USD)</span><b style="color:var(--green)">$'+ing.toLocaleString('es-VE',{maximumFractionDigits:2})+'</b></div>'+
+      '<div style="display:flex;justify-content:space-between"><span>Pago operadores (≈USD)</span><b style="color:var(--yellow)">$'+pag.toLocaleString('es-VE',{maximumFractionDigits:2})+'</b></div>'+
+      '<div style="display:flex;justify-content:space-between;border-top:1px solid var(--border);margin-top:4px;padding-top:4px"><span>Margen (≈USD)</span><b>$'+(ing-pag).toLocaleString('es-VE',{maximumFractionDigits:2})+'</b></div>'+
+      '<div style="font-size:9px;color:var(--text3);margin-top:3px">'+lista.length+' operación(es). USD a la tasa de hoy (los contratos en Bs se convierten para poder sumar).</div>';
+  }
+}
+// Convierte un monto en la MONEDA del contrato a USD (para sumar/consolidar entre contratos).
+// USD se queda; Bs se divide por la tasa; sin tasa real devuelve 0 (no inventa). EUR vía euro/dolar.
+function _mcDivAUsd(monto, contrato){
+  monto=parseFloat(monto)||0; if(!monto)return 0;
+  var mon=(contrato&&contrato.moneda)||'USD';
+  if(mon==='USD'||mon==='$')return monto;
+  if(mon==='EUR'||mon==='€'){ var d=TASAS.bcvDolar,e=TASAS.bcvEuro; return (d&&e)?monto*e/d:0; }
+  // Bs
+  var tr=TASAS.bcvDolar||cfg.tasa; return tr?monto/tr:0;
+}
+
+// ── P&L POR CONTRATO (Paso 5) + CONSOLIDADO (Paso 6) ────────────────────────
+// Agrupa las operaciones por contrato y da ingreso/pago/margen en USD (para comparar entre monedas).
+function _pnlPorContrato(des,hta){
+  var ops=_operacionesFiltradas(des,hta,null), byC={};
+  ops.forEach(function(o){
+    var c=_contratoById(o.contrato_id), k=o.contrato_id||'(sin contrato)';
+    if(!byC[k])byC[k]={nombre:c?c.nombre:'(sin contrato)',ops:0,ingreso:0,pago:0};
+    byC[k].ops++; byC[k].ingreso+=_mcDivAUsd(o.monto_cliente,c); byC[k].pago+=_mcDivAUsd(o.monto_operador,c);
+  });
+  return Object.keys(byC).map(function(k){var r=byC[k];r.margen=r.ingreso-r.pago;return r;}).sort(function(a,b){return b.margen-a.margen;});
+}
+function renderPnlContratos(){
+  var tb=g('mc-pnl-tabla'); if(!tb)return;
+  var rows=_pnlPorContrato(gv('mc-pnl-des'),gv('mc-pnl-hta'));
+  if(!rows.length){tb.innerHTML='<tr><td colspan="6" style="text-align:center;color:var(--text3);padding:16px">Sin operaciones registradas todavía</td></tr>';return;}
+  var tIng=0,tPag=0;
+  tb.innerHTML=rows.map(function(r){
+    tIng+=r.ingreso;tPag+=r.pago;
+    var pct=r.ingreso>0?Math.round(r.margen/r.ingreso*100):0;
+    return '<tr><td style="font-weight:700">'+r.nombre+'</td><td style="text-align:center">'+r.ops+'</td>'+
+      '<td style="font-family:var(--m);color:var(--green)">$'+r.ingreso.toLocaleString('es-VE',{maximumFractionDigits:2})+'</td>'+
+      '<td style="font-family:var(--m);color:var(--yellow)">$'+r.pago.toLocaleString('es-VE',{maximumFractionDigits:2})+'</td>'+
+      '<td style="font-family:var(--m);font-weight:700;color:'+(r.margen>=0?'var(--green)':'var(--red)')+'">$'+r.margen.toLocaleString('es-VE',{maximumFractionDigits:2})+'</td>'+
+      '<td style="text-align:center">'+pct+'%</td></tr>';
+  }).join('')+'<tr class="tr-tot"><td>TOTAL</td><td></td><td style="font-family:var(--m);font-weight:700;color:var(--green)">$'+tIng.toLocaleString('es-VE',{maximumFractionDigits:2})+'</td><td style="font-family:var(--m);font-weight:700;color:var(--yellow)">$'+tPag.toLocaleString('es-VE',{maximumFractionDigits:2})+'</td><td style="font-family:var(--m);font-weight:800">$'+(tIng-tPag).toLocaleString('es-VE',{maximumFractionDigits:2})+'</td><td></td></tr>';
+}
+function renderConsolidadoMC(){
+  var el=g('mc-consol-cuerpo'); if(!el)return;
+  // ASEO/ALCALDÍA: misma fórmula del Dashboard (Utilidad Real) → fuente única _totalEgresos, sin recalcular.
+  var cobrado=(typeof ABONOS!=='undefined'?ABONOS:[]).reduce(function(s,a){return s+(parseFloat(a.m)||0);},0);
+  var egAseo=(typeof _totalEgresos==='function')?_totalEgresos(cobrado):0;
+  var utilAseo=cobrado-egAseo;
+  // CONTRATOS NUEVOS: margen de operaciones (separado del aseo → no dobla-cuenta).
+  var pnl=_pnlPorContrato('','');
+  var ingC=pnl.reduce(function(s,r){return s+r.ingreso;},0), pagC=pnl.reduce(function(s,r){return s+r.pago;},0), margenC=ingC-pagC;
+  var total=utilAseo+margenC;
+  function fila(lbl,val,col){return '<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border)"><span>'+lbl+'</span><b style="font-family:var(--m);color:'+(col||'var(--text)')+'">$'+val.toLocaleString('es-VE',{maximumFractionDigits:0})+'</b></div>';}
+  el.innerHTML=
+    '<div style="font-size:11px;color:var(--text3);margin:4px 0 2px;text-transform:uppercase;letter-spacing:1px">Aseo / Alcaldía</div>'+
+    fila('Cobrado',cobrado,'var(--green)')+
+    fila('Gastos (nómina+gasoil+7.5%+fijos+variables+CxP+multas)',egAseo,'var(--red)')+
+    fila('Utilidad aseo',utilAseo,utilAseo>=0?'var(--green)':'var(--red)')+
+    '<div style="font-size:11px;color:var(--text3);margin:10px 0 2px;text-transform:uppercase;letter-spacing:1px">Contratos nuevos (operaciones)</div>'+
+    fila('Ingreso contratos',ingC,'var(--green)')+
+    fila('Pago operadores',pagC,'var(--yellow)')+
+    fila('Margen contratos',margenC,margenC>=0?'var(--green)':'var(--red)')+
+    '<div style="display:flex;justify-content:space-between;padding:10px 0 2px;margin-top:6px;border-top:2px solid var(--lime)"><span style="font-weight:800">UTILIDAD CONSOLIDADA EMPRESA</span><b style="font-family:var(--m);font-size:16px;color:'+(total>=0?'var(--green)':'var(--red)')+'">$'+total.toLocaleString('es-VE',{maximumFractionDigits:0})+'</b></div>';
+}
+
+// ── NÓMINA DE OPERADORES (Paso 7): pago al operador según operaciones de su contrato (monto_operador).
+// Agrupa por nombre de operador, en USD. Independiente del aseo (calcNom/planillas) → no dobla-cuenta.
+function _nominaOperadores(des,hta){
+  var ops=_operacionesFiltradas(des,hta,null), by={};
+  ops.forEach(function(o){
+    var nom=(o.operador||'').trim()||'(sin operador)';
+    var c=_contratoById(o.contrato_id);
+    if(!by[nom])by[nom]={operador:nom,ops:0,pago:0,contratos:{}};
+    by[nom].ops++; by[nom].pago+=_mcDivAUsd(o.monto_operador,c);
+    if(c)by[nom].contratos[c.nombre]=1;
+  });
+  return Object.keys(by).map(function(k){var r=by[k];r.contratosTxt=Object.keys(r.contratos).join(', ');return r;}).sort(function(a,b){return b.pago-a.pago;});
+}
+function renderNominaOperadores(){
+  var tb=g('mc-nom-tabla'); if(!tb)return;
+  var rows=_nominaOperadores(gv('mc-nom-des'),gv('mc-nom-hta'));
+  if(!rows.length){tb.innerHTML='<tr><td colspan="4" style="text-align:center;color:var(--text3);padding:16px">Sin operaciones con operador en el rango</td></tr>';return;}
+  var tot=0;
+  tb.innerHTML=rows.map(function(r){
+    tot+=r.pago;
+    return '<tr><td style="font-weight:700">'+r.operador+'</td><td style="text-align:center">'+r.ops+'</td>'+
+      '<td style="font-size:11px;color:var(--text2)">'+(r.contratosTxt||'—')+'</td>'+
+      '<td style="font-family:var(--m);font-weight:700;color:var(--yellow)">$'+r.pago.toLocaleString('es-VE',{maximumFractionDigits:2})+'</td></tr>';
+  }).join('')+'<tr class="tr-tot"><td colspan="3">TOTAL A PAGAR</td><td style="font-family:var(--m);font-weight:800;color:var(--yellow)">$'+tot.toLocaleString('es-VE',{maximumFractionDigits:2})+'</td></tr>';
+}
+
 function renderStats(){
   var acEl=g('c-acum-svg');
   if(acEl)acEl.innerHTML=svgLine(SEM_HIST.map(function(s){return s.v;}),SEM_HIST.map(function(s){return s.s;}),'#a3e635');
@@ -6439,11 +7073,14 @@ function agregarGastoFijo(){
   renderGastosFijos();
 }
 
-function calcGastoVar(){var usd=parseFloat(gv('gv-usd'))||0;var tasa=TASAS.bcvDolar||cfg.tasa||500;var bs=usd*tasa;var el=document.getElementById('gv-bs');if(el)el.value=bs>0?bs.toFixed(0):'';}
+function calcGastoVar(){var usd=parseFloat(gv('gv-usd'))||0;var tasa=TASAS.bcvDolar||cfg.tasa;var bs=usd*(tasa||0);var el=document.getElementById('gv-bs');if(el)el.value=bs>0?bs.toFixed(0):'';}
 
 function guardarGastoVar(){
   var desc=gv('gv-desc');if(!desc){alert('Ingresa la descripcion');return;}
-  var usd=parseFloat(gv('gv-usd'))||0;var tasa=TASAS.bcvDolar||cfg.tasa||500;var bs=usd*tasa;
+  // Prioridad: tasa de la API. Si no hay, pedirla manual (modal dólar+euro) y reintentar.
+  var tasa=TASAS.bcvDolar||cfg.tasa;
+  if(!tasa){ tasaOManual('bcvDolar', function(){ guardarGastoVar(); }); return; }
+  var usd=parseFloat(gv('gv-usd'))||0;var bs=usd*tasa;
   var item={id:'GV'+Date.now(),fecha:gv('gv-fecha'),cat:gv('gv-cat'),desc:desc,bs:bs,usd:usd,ref:gv('gv-ref'),fact:gv('gv-fact')};
   GASTOS_VARIABLES.push(item);
   if(DB_READY&&supabase){
@@ -6527,10 +7164,12 @@ function agregarCuenta(){
 }
 
 function imprimirReporteFinanciero(){
+  // Prioridad: tasa de la API. Si no hay, pedirla manual (modal dólar+euro) y reintentar.
+  var tasa=TASAS.bcvDolar||cfg.tasa;
+  if(!tasa){ tasaOManual('bcvDolar', function(){ imprimirReporteFinanciero(); }); return; }
   var totalFact=REGS.reduce(function(s,r){return s+r.m;},0);
   var totalCob=ABONOS.reduce(function(s,a){return s+a.m;},0);
   var porCobrar=Math.max(0,totalFact-totalCob);
-  var tasa=TASAS.bcvDolar||cfg.tasa||600;
   var pct=totalFact>0?Math.round((totalCob/totalFact)*100):0;
   var porMes={};
   REGS.forEach(function(r){if(!porMes[r.mes])porMes[r.mes]={mes:r.mes,viajes:0,monto:0};porMes[r.mes].viajes+=r.t;porMes[r.mes].monto+=r.m;});
@@ -7550,6 +8189,11 @@ function recargarTrasTokenAccion(ad){
         if(iU>=0)REGS[iU]=rowU;
         if(typeof renderPlanHoy==='function')renderPlanHoy(); if(typeof renderDash==='function')renderDash(); if(typeof filtH==='function')filtH();
       }
+      else if(ad.tabla==='abonos'&&ad.set&&typeof ABONOS!=='undefined'){
+        var sA=ad.set, iA=ABONOS.findIndex(function(x){return String(x[col])===val;});
+        if(iA>=0)ABONOS[iA]=Object.assign({},ABONOS[iA],{f:sA.f,v:sA.v,m:sA.m,obs:sA.obs});
+        if(typeof renderAbonos==='function')renderAbonos(); if(typeof renderDash==='function')renderDash();
+      }
       return;
     }
     if(ad.tabla==='gasoil'){ if(typeof GASOIL!=='undefined')GASOIL=GASOIL.filter(function(x){return String(x[col])!==val;}); if(typeof renderGasoil==='function')renderGasoil(); }
@@ -7559,6 +8203,7 @@ function recargarTrasTokenAccion(ad){
     else if(ad.tabla==='multas'){ if(typeof MULTAS!=='undefined')MULTAS=MULTAS.filter(function(x){return String(x[col])!==val;}); if(typeof renderMultas==='function')renderMultas(); }
     else if(ad.tabla==='contratos'){ if(typeof CONTRATOS!=='undefined')CONTRATOS=CONTRATOS.filter(function(x){return String(x[col])!==val;}); if(typeof renderContratos==='function')renderContratos(); }
     else if(ad.tabla==='gastos_variables'){ if(typeof GASTOS_VARIABLES!=='undefined')GASTOS_VARIABLES=GASTOS_VARIABLES.filter(function(x){return String(x[col])!==val;}); if(typeof renderGastos==='function')renderGastos(); }
+    else if(ad.tabla==='abonos'){ if(typeof ABONOS!=='undefined')ABONOS=ABONOS.filter(function(x){return String(x[col])!==val;}); if(typeof renderAbonos==='function')renderAbonos(); if(typeof renderDash==='function')renderDash(); }
   }catch(e){console.log('recargarTrasTokenAccion:',e&&e.message);}
 }
 
@@ -9136,8 +9781,8 @@ function calcSaldoCaja(){
     .filter(function(g){return g.fecha>=ultimaRep.fecha;})
     .reduce(function(s,g){return s+parseFloat(g.montoBs||0);},0);
   var saldoBs=montoInicialBs-gastadoBs;
-  var tasa=ultimaRep.tasa||TASAS.bcvDolar||cfg.tasa||1;
-  return{saldoBs:saldoBs,saldoUsd:saldoBs/tasa};
+  var tasa=ultimaRep.tasa||TASAS.bcvDolar||cfg.tasa; // sin tasa real NO se inventa (no /1)
+  return{saldoBs:saldoBs,saldoUsd:tasa?saldoBs/tasa:0};
 }
 
 function renderCajaChica(){
@@ -9262,7 +9907,8 @@ function abrirReposicionCaja(){
 
 function guardarReposicion(){
   var fecha=gv('cc-rep-fecha');
-  var tasa=parseFloat(gv('cc-rep-tasa'))||TASAS.bcvDolar||cfg.tasa||1;
+  var tasa=parseFloat(gv('cc-rep-tasa'))||TASAS.bcvDolar||cfg.tasa;
+  if(!tasa){ tasaOManual('bcvDolar', function(){ guardarReposicion(); }); return; } // no inventar tasa
   var montoBs=CAJACHICA.montoFijo*tasa;
   var rep={fecha:fecha,tasa:tasa,montoBs:montoBs,montoUsd:CAJACHICA.montoFijo};
   CAJACHICA.reposiciones.push(rep);
@@ -12001,11 +12647,13 @@ function rptSemanaPasada(){
   genRptEjecucion();
 }
 function genRptEjecucion(){
+  // Prioridad: tasa de la API. Si no hay, pedirla manual (modal dólar+euro) y reintentar.
+  if(!(TASAS.bcvDolar||cfg.tasa)){ tasaOManual('bcvDolar', function(){ genRptEjecucion(); }); return; }
   var des=gv('rr-des'),hta=gv('rr-hta');
   var f=REGS.filter(function(r){if(des&&r.f<des)return false;if(hta&&r.f>hta)return false;return true;});
   if(!f.length){document.getElementById('rpt-area').innerHTML='<div style="text-align:center;color:var(--text3);padding:30px">Sin planillas para el periodo</div>';return;}
   var sem=agruparPorSemanas(f),ls=Object.keys(sem).sort(),tv=0,tm=0,tD=0,tN=0,cnt=0;
-  var tasa=TASAS&&TASAS.bcvDolar?TASAS.bcvDolar:(cfg.tasa||600);
+  var tasa=TASAS.bcvDolar||cfg.tasa;
   function _td(x,al,ex){return '<td style="padding:4px 6px;border:1px solid #d8dee6;font-size:10px;'+(al?'text-align:'+al+';':'')+(ex||'')+'">'+x+'</td>';}
   // DETALLE planilla por planilla (formato Alcaldía): lista plana del rango filtrado.
   var regs=f.slice().sort(function(a,b){return a.f!==b.f?(a.f<b.f?-1:1):(String(a.p)<String(b.p)?-1:1);});
@@ -12045,13 +12693,15 @@ function genRptEjecucion(){
 // REPORTE 2 — ESTADO DE CUENTA ALCALDIA
 // ══════════════════════════════════════════════════════
 function genRptAlcaldia(){
+  // Prioridad: tasa de la API. Si no hay, pedirla manual (modal dólar+euro) y reintentar.
+  if(!(TASAS.bcvDolar||cfg.tasa)){ tasaOManual('bcvDolar', function(){ genRptAlcaldia(); }); return; }
   var des=gv('alc-des'),hta=gv('alc-hta');
   var pf=REGS.filter(function(r){if(des&&r.f<des)return false;if(hta&&r.f>hta)return false;return true;});
   if(!pf.length){document.getElementById('rpt-alcaldia-area').innerHTML='<div style="text-align:center;color:var(--text3);padding:30px">Sin planillas para el periodo</div>';return;}
   // Motor único compartido (misma lógica FIFO de siempre, ahora centralizada)
   var _R=calcCobranzaSemanas(des,hta);
   var sl=_R.semanas,af=_R.abonos,ls=_R.ls,te=_R.totalEjecutado,ta=_R.totalAbonado,tv=_R.totalViajes,sp=_R.saldoPendiente,pct=_R.pct,ultima=_R.ultimaCerrada;
-  var tasa=TASAS&&TASAS.bcvDolar?TASAS.bcvDolar:(cfg.tasa||600);
+  var tasa=TASAS.bcvDolar||cfg.tasa;
   var sc=sl.filter(function(s){return s.estado==='cerrada';}).length;
   var spar=sl.filter(function(s){return s.estado==='parcial';}).length;
   var spe=sl.filter(function(s){return s.estado==='pendiente';}).length;
@@ -12118,7 +12768,37 @@ function printRptAlcaldia(){
   w.document.write(el.innerHTML);w.document.write('</body></html>');
   w.document.close();setTimeout(function(){w.print();},500);
 }
-function exportAlcaldiaExcel(){alert('Export Excel — proxima version');}
+function exportAlcaldiaExcel(){
+  if(typeof XLSX==='undefined'){alert('Excel no disponible (XLSX no cargado).');return;}
+  var des=gv('alc-des'),hta=gv('alc-hta');
+  var pf=REGS.filter(function(r){if(des&&r.f<des)return false;if(hta&&r.f>hta)return false;return true;});
+  if(!pf.length){alert('Sin planillas en el rango de la Alcaldía.');return;}
+  var R=calcCobranzaSemanas(des,hta);
+  var wb=XLSX.utils.book_new();
+  // Hoja Semanas: estado de cuenta (todo en USD, que es como se factura a la Alcaldía).
+  var semRows=(R.semanas||[]).map(function(s){return {
+    Semana:s.idx, Lunes:s.lunes, Domingo:s.dom, Viajes:s.viajes,
+    'Ejecutado $':Math.round((s.monto||0)*100)/100, 'Abonado $':Math.round((s.abonado||0)*100)/100,
+    'Pendiente $':Math.round((s.montoPendiente||0)*100)/100, Estado:s.estado
+  };});
+  if(semRows.length)XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(semRows),'Semanas');
+  // Hoja Planillas: detalle plano del rango.
+  var detRows=pf.slice().sort(function(a,b){return a.f<b.f?-1:1;}).map(function(r){return {
+    Fecha:r.f, Mes:r.mes, Planilla:r.p, Camion:r.cam, Parroquia:r.par,
+    Diurno:r.d, Nocturno:r.n, Viajes:r.t, Semana:r.sem, 'Monto $':r.m
+  };});
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(detRows),'Planillas');
+  // Hoja Resumen.
+  var totV=pf.reduce(function(s,r){return s+r.t;},0), totM=pf.reduce(function(s,r){return s+r.m;},0);
+  var totAb=(R.totalAbonado!=null)?R.totalAbonado:0;
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet([
+    {Concepto:'Desde',Valor:des||''},{Concepto:'Hasta',Valor:hta||''},
+    {Concepto:'Viajes totales',Valor:totV},{Concepto:'Ejecutado $',Valor:Math.round(totM*100)/100},
+    {Concepto:'Abonado $',Valor:Math.round(totAb*100)/100},{Concepto:'Saldo $',Valor:Math.round((totM-totAb)*100)/100}
+  ]),'Resumen');
+  XLSX.writeFile(wb,'Betangar_Alcaldia_'+(des||'inicio')+'_a_'+(hta||'hoy')+'.xlsx');
+  audit('Estado de cuenta Alcaldía exportado',(des||'')+' a '+(hta||''));
+}
 
 // ══════════════════════════════════════════════════════
 // GESTION DE PRECIOS
@@ -12234,7 +12914,7 @@ function getTasaFecha(fecha, tipo){
   return null;
 }
 async function cargarTasas(){
-  if(!TASAS.bcvDolar)TASAS.bcvDolar=cfg.tasa||600;
+  if(!TASAS.bcvDolar)TASAS.bcvDolar=cfg.tasa||0; // sin hardcode: si la API aún no respondió, queda 0 → se pedirá manual al usarla
   renderTasas();
   cargarTasasDiarias();
   if(DB_READY&&supabase){
@@ -12273,8 +12953,10 @@ async function cargarTasas(){
       }catch(e){}
     }
   } else {
-    if(!TASAS.bcvDolar||TASAS.bcvDolar<100){TASAS.bcvDolar=cfg.tasa||600;TASAS.fuente='fallback';}
-    TASAS.bcvEuro=TASAS.bcvEuro||Math.round(TASAS.bcvDolar*1.08);TASAS.binance=(binN&&binN>100)?binN:(TASAS.binance||TASAS.bcvDolar);TASAS.promedio=((TASAS.bcvDolar+TASAS.binance)/2);
+    // API no disponible: NO inventar tasa. Si no hay valor real, queda 0 → la app pedirá la tasa
+    // manual (modal dólar+euro) cuando una operación la necesite. fuente 'sin-tasa' lo refleja.
+    if(!TASAS.bcvDolar||TASAS.bcvDolar<100){TASAS.bcvDolar=cfg.tasa||0;TASAS.fuente=TASAS.bcvDolar?'config':'sin-tasa';}
+    if(TASAS.bcvDolar){ TASAS.binance=(binN&&binN>100)?binN:(TASAS.binance||TASAS.bcvDolar);TASAS.promedio=((TASAS.bcvDolar+TASAS.binance)/2); }
   }
   renderTasas();autoLlenarTasasEnFormularios();return TASAS;
 }
@@ -12343,13 +13025,16 @@ function _pintarBncResumen(el,d){
 // ── Módulo Conciliación Bancaria: cruza movimientos reales del BNC vs notificaciones de la app ──
 async function renderConciliacionBNC(){
   var el=g('conc-resultado');if(!el)return;
+  // Prioridad: tasa de la API. La conciliación convierte USD↔Bs: sin tasa real daría falsos
+  // descuadres, así que se pide manual (modal dólar+euro) y se reintenta. Nunca tasa inventada.
+  if(!(TASAS.bcvDolar||cfg.tasa)){ tasaOManual('bcvDolar', function(){ renderConciliacionBNC(); }); return; }
   var hoy=new Date();var ymd=hoy.getFullYear()+'-'+String(hoy.getMonth()+1).padStart(2,'0')+'-'+String(hoy.getDate()).padStart(2,'0');
   if(g('conc-desde')&&!g('conc-desde').value)g('conc-desde').value=ymd;
   if(g('conc-hasta')&&!g('conc-hasta').value)g('conc-hasta').value=ymd;
   var desde=gv('conc-desde')||ymd,hasta=gv('conc-hasta')||ymd;
   el.innerHTML='<div style="padding:16px;color:var(--text3);font-size:12px">🔄 Consultando el BNC y conciliando '+desde+' → '+hasta+'...</div>';
   var fmt=function(n){return Number(n||0).toLocaleString('es-VE',{minimumFractionDigits:2,maximumFractionDigits:2});};
-  var tasa=TASAS.bcvDolar||cfg.tasa||1;
+  var tasa=TASAS.bcvDolar||cfg.tasa;
   var aBs=function(monto,moneda){var u=String(moneda||'').toUpperCase();return (u==='USD'||u==='$')?monto*tasa:monto;};
   try{
     // ── 1) LADO BANCO: movimientos reales (API por cuenta; fallback a notificaciones del webhook) ──
@@ -12390,7 +13075,7 @@ async function renderConciliacionBNC(){
     (ABONOS||[]).forEach(function(a){
       var f=String(a.f||'').slice(0,10); if(f&&(f<winIni||f>hasta))return;
       var base=Number(a.m)||0; if(base<=0)return;
-      var tasa=(typeof getTasaFecha==='function'&&getTasaFecha(f,'dolar'))||TASAS.bcvDolar||cfg.tasa||1;
+      var tasa=(typeof getTasaFecha==='function'&&getTasaFecha(f,'dolar'))||TASAS.bcvDolar||cfg.tasa; // garantizada por el guard del tope de renderConciliacionBNC
       // Perfil de retenciones del CONTRATO del abono (si lo trae); si no, Alcaldía por defecto.
       var pr=perfilRetencion(a.contrato);
       var rc=calcRetenciones(base,pr,null);
