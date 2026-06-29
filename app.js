@@ -2278,19 +2278,27 @@ function estadoDelChecklist(cam){
   ['danio_frontal','danio_lateral_izq','danio_lateral_der','danio_posterior','danio_techo'].forEach(function(d){var v=String(c[d]||'').trim();if(v&&v!=='0'&&v!=='ok')crit=true;});
   return crit?'taller':'operativo';
 }
+// FUENTE ÚNICA del estado real de un camión (la MISMA que usa el widget de flota y la disponibilidad).
+// Prioridad: override manual de sesión > checklist de hoy > último estado conocido (km_data) > FLOTA.
+// Normaliza taller_* → taller. Operativo SOLO si devuelve 'operativo'.
+function _estadoCamReal(cam){
+  var f=(typeof FLOTA!=='undefined'&&FLOTA[cam])||{};
+  var estCl=(typeof estadoDelChecklist==='function')?estadoDelChecklist(cam):null;
+  var ov=(typeof _estadoOverride!=='undefined')?_estadoOverride[cam]:null;
+  var est=ov||estCl||((typeof KM_DATA!=='undefined'&&KM_DATA[cam]&&KM_DATA[cam].estado))||f.estado||'operativo';
+  if(String(est).indexOf('taller')===0)est='taller';
+  return est;
+}
 function renderFlotaDash(){
   var cams=Object.keys(FLOTA);
   var op=0,tal=0;
   var html='<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:5px">';
   cams.forEach(function(cam){
     var f=FLOTA[cam];
-    // Estado ENLAZADO con chofer/mecánico: leer km_data.estado (donde ellos escriben),
-    // con fallback al estado local de oficina. El auto-refresco recarga km_data cada 60s.
-    // Prioridad: override manual de sesión > checklist de hoy > último estado conocido.
+    // Estado ENLAZADO con chofer/mecánico vía fuente única _estadoCamReal (= la que usa Disponibilidad).
     var estCl=estadoDelChecklist(cam);
     var deChecklist=(!_estadoOverride[cam]&&estCl!=null);
-    var est=_estadoOverride[cam]||estCl||(KM_DATA[cam]&&KM_DATA[cam].estado)||f.estado||'operativo';
-    if(String(est).indexOf('taller')===0) est='taller';   // taller_jac / taller_betangar -> taller
+    var est=_estadoCamReal(cam);
     var km=KM_DATA[cam]?KM_DATA[cam].km:0;
     var c=est==='operativo'?'var(--green)':est==='taller'?'var(--yellow)':'var(--red)';
     var bg=est==='operativo'?'rgba(163,230,53,.07)':est==='taller'?'rgba(251,191,36,.07)':'rgba(248,113,113,.07)';
@@ -14248,9 +14256,10 @@ function calcRentabilidadCamiones(des,hta){
 function calcDisponibilidadFlota(){
   var jac=Object.keys(typeof FLOTA!=='undefined'?FLOTA:{}).filter(function(k){return k.indexOf('JAC')===0;});
   var fuera=[];
+  // MISMA fuente que el widget de flota (_estadoCamReal): operativo solo si el estado real es 'operativo'.
   jac.forEach(function(cam){
-    var est=String((typeof KM_DATA!=='undefined'&&KM_DATA[cam]&&KM_DATA[cam].estado)||'').toLowerCase();
-    if(/taller|mant|da[ñn]|repar|inactiv|fuera|parad|averi|accident|baja/.test(est))fuera.push({cam:cam,estado:est});
+    var est=(typeof _estadoCamReal==='function')?_estadoCamReal(cam):'operativo';
+    if(est!=='operativo')fuera.push({cam:cam,estado:est});
   });
   var total=jac.length, operativas=total-fuera.length;
   var pct=total>0?Math.round(operativas/total*100):0;

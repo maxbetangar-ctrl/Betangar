@@ -324,6 +324,13 @@ function resetCola(){ app.COLA_OFFLINE=[]; app.COLA_FALLIDOS=[]; app._procesando
   app.KM_DATA = {};
   eq('todas operativas → 100%', app.calcDisponibilidadFlota().pct, 100);
   ok('100% no está en riesgo', app.calcDisponibilidadFlota().enRiesgo === false);
+  // interconexión: disponibilidad usa la MISMA fuente que el widget (_estadoCamReal), no solo KM_DATA
+  ok('_estadoCamReal definida (fuente única)', typeof app._estadoCamReal === 'function');
+  app.FLOTA = { 'JAC-B001': {}, 'JAC-B002': { estado: 'taller' }, 'JAC-B003': { estado: 'operativo' }, 'JAC-B004': {} };
+  app.KM_DATA = {};
+  var d2 = app.calcDisponibilidadFlota();
+  eq('cuenta el taller de FLOTA.estado, no solo KM_DATA (3/4 operativas)', d2.operativas, 3);
+  ok('el camión en taller aparece en "fuera"', d2.fuera.some(function (x) { return x.cam === 'JAC-B002'; }));
   // #1 flag de costo por viaje sobre el promedio +15%
   ok('calcRentabilidadCamiones definida', typeof app.calcRentabilidadCamiones === 'function');
   app.REGS = [
