@@ -389,6 +389,12 @@ function resetCola(){ app.COLA_OFFLINE=[]; app.COLA_FALLIDOS=[]; app._procesando
   app.INV_MOV = [{ tipo: 'Uso', cam: 'JAC-B001', item: 'Alternador', fecha: '2024-01-01' }];
   eq('cambio viejo (>4 meses) no alerta', app._garantiaAlerta('Alternador', 'JAC-B001'), null);
 
+  console.log('\n#F multa al chofer correcto (_choferDeMulta — fuente única):');
+  ok('_choferDeMulta definida', typeof app._choferDeMulta === 'function');
+  app.EMPLEADOS = [{ id: 'C1', nombre: 'JUAN', cargo: 'Chofer', unidad: 'JAC-B001' }, { id: 'C2', nombre: 'PEDRO', cargo: 'Chofer', unidad: 'JAC-B009' }];
+  eq('usa el choferId REGISTRADO (no el actual del camión)', app._choferDeMulta({ choferId: 'C2', camId: 'JAC-B001' }).id, 'C2');
+  eq('sin choferId → cae al chofer del camión', app._choferDeMulta({ camId: 'JAC-B001' }).id, 'C1');
+
   // ── Resumen ──
   console.log('\n──────────────');
   console.log('PASS: ' + pass + '   FAIL: ' + fail);

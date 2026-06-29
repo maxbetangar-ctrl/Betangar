@@ -3818,25 +3818,34 @@ function calcNom(){
       if(pagadasYa<p.semanas){
         // Aplicar descuento al EMPLEADO (chofer por su nombre, ya no por camión) o al ayudante.
         var chKeyEmp=_nombreCanonico(empObj.nombre||'').toUpperCase();
-        if(chMap[chKeyEmp])chMap[chKeyEmp].descuentos+=cuota;
-        else if(ayMap[p.empId])ayMap[p.empId].descuentos+=cuota;
-        _prestAplicar.push({id:p.id,cuota:cuota,empNombre:empObj.nombre,montoUsd:p.montoUsd});
-        descBanners.push('<div class="alert-b" style="margin-bottom:4px;font-size:11px">💳 Descuento prestamo: <b>'+empObj.nombre+'</b> — $'+cuota.toFixed(2)+'/semana ('+(pagadasYa+1)+'/'+p.semanas+')</div>');
+        var _aplicado=false;
+        if(chMap[chKeyEmp]){chMap[chKeyEmp].descuentos+=cuota;_aplicado=true;}
+        else if(ayMap[p.empId]){ayMap[p.empId].descuentos+=cuota;_aplicado=true;}
+        // La cuota SOLO avanza si REALMENTE se descontó del sueldo de esta semana. Si el empleado no
+        // trabajó/no está en la nómina, no se descuenta nada → la cuota NO debe avanzar (antes avanzaba
+        // igual → la deuda figuraba "pagada" sin que nadie pagara).
+        if(_aplicado){
+          _prestAplicar.push({id:p.id,cuota:cuota,empNombre:empObj.nombre,montoUsd:p.montoUsd});
+          descBanners.push('<div class="alert-b" style="margin-bottom:4px;font-size:11px">💳 Descuento prestamo: <b>'+empObj.nombre+'</b> — $'+cuota.toFixed(2)+'/semana ('+(pagadasYa+1)+'/'+p.semanas+')</div>');
+        }
       }
     }
   });
   // Descuentos multas — CÁLCULO PURO (avance real al "Guardar esta semana", igual que préstamos).
   MULTAS.filter(function(m){return m.resp==='chofer'&&m.estado==='activo';}).forEach(function(m){
     if((m.cuotasPagas||0)>=m.cuotas)return; // ya saldada
-    // La multa es de un camión → se descuenta al chofer ASIGNADO a ese camión (por nombre).
-    var empCh=EMPLEADOS.find(function(e){return e.cargo==='Chofer'&&e.unidad===m.camId;});
+    // El chofer que DEBE la multa = el REGISTRADO (m.choferId); solo si está vacío, el chofer actual del
+    // camión. Antes se usaba siempre el chofer actual → se le cobraba a OTRO distinto del que la pantalla
+    // muestra debiendo. Ahora calcNom, renderMultas y el scoring coinciden (_choferDeMulta).
+    var empCh=_choferDeMulta(m);
     var chKeyM=empCh?_nombreCanonico(empCh.nombre||'').toUpperCase():'';
-    // La cuota de la multa puede estar en DIVISA (USD/EUR) o en Bs (legacy). _multaCuotaUsd la pasa
-    // a USD (la nómina se calcula en USD). El congelado a Bs se hace al PAGAR (no aquí).
+    // La cuota puede estar en DIVISA (USD/EUR) o Bs (legacy); _multaCuotaUsd la pasa a USD. El congelado
+    // a Bs se hace al PAGAR. La cuota SOLO avanza si REALMENTE se descontó del sueldo de esta semana.
     var cuotaUsd=_multaCuotaUsd(m);
-    if(chKeyM&&chMap[chKeyM]&&cuotaUsd>0)chMap[chKeyM].descuentos+=cuotaUsd;
-    // Se lleva moneda/cuotaDiv para congelar a la tasa del día del pago; y cuotaBs para legacy.
-    _multaAplicar.push({id:m.id,cuotaUsd:cuotaUsd,moneda:m.moneda||'',cuotaDiv:m.cuotaDiv||0,cuotaBs:m.cuotaBs||0});
+    if(chKeyM&&chMap[chKeyM]&&cuotaUsd>0){
+      chMap[chKeyM].descuentos+=cuotaUsd;
+      _multaAplicar.push({id:m.id,cuotaUsd:cuotaUsd,moneda:m.moneda||'',cuotaDiv:m.cuotaDiv||0,cuotaBs:m.cuotaBs||0});
+    }
   });
   // ── ASISTENCIA A PATIO (opcional, interruptor nm-patio) ──────────────────────────────
   // Regla (Máximo): día CON viajes → solo viajes; día SIN viajes pero PRESENTE en patio ('P')
@@ -5763,6 +5772,12 @@ function _multaDivToUsd(monto, moneda){
 function _multaCuotaUsd(m){
   if(m&&m.moneda)return _multaDivToUsd(m.cuotaDiv||0, m.moneda);
   var tr=TASAS.bcvDolar||cfg.tasa; return tr?(((m&&m.cuotaBs)||0)/tr):0; // legacy Bs
+}
+// FUENTE ÚNICA del chofer que DEBE una multa: el registrado (m.choferId); si está vacío, el chofer
+// ACTUAL del camión. La usan calcNom (descuento), renderMultas (panel) y calcScoringChoferes → coherentes.
+function _choferDeMulta(m){
+  if(m&&m.choferId){ var e=(typeof EMPLEADOS!=='undefined'?EMPLEADOS:[]).find(function(x){return String(x.id)===String(m.choferId);}); if(e)return e; }
+  return (typeof EMPLEADOS!=='undefined'?EMPLEADOS:[]).find(function(e){return e.cargo==='Chofer'&&e.unidad===(m&&m.camId);})||null;
 }
 function _multaMontoUsd(m){
   if(m&&m.moneda)return _multaDivToUsd(m.montoDiv||0, m.moneda);
