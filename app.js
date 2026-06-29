@@ -1165,7 +1165,7 @@ function sp(id){
     if(id==='asistencia')renderAsistencia();
     if(id==='prestamos'){renderRRHHSubnav('prestamos');poblarEmps();renderPrestamos();}
     if(id==='multas'){renderRRHHSubnav('multas');poblarCams();renderMultas();}
-    if(id==='inventario'){renderInventario();try{renderComprasSugeridas();}catch(e){}}
+    if(id==='inventario'){cargarInvMov().then(function(){renderInventario();}).catch(function(){renderInventario();});try{renderComprasSugeridas();}catch(e){}}
     if(id==='llantas'){renderMantSubnav('llantas');cargarLlantas().then(function(){renderLlantas();}).catch(function(){renderLlantas();});}
     if(id==='metas'){renderAnalisisSubnav('metas');prefillMeta();}
     if(id==='contratos')renderContratosLista();
@@ -1582,7 +1582,7 @@ function descartarFallidos(){
 }
 // Clave de conflicto por tabla con UNIQUE → la cola debe reintentar como UPSERT, no INSERT plano
 // (si no, una planilla/abono/contrato hecho offline choca con su UNIQUE y cae al dead-letter).
-var _COLA_ONCONFLICT={planillas:'p',abonos:'fact',contratos:'id',prestamos:'id',multas:'id',empleados:'id',pagos_alcaldia:'id',gastos_variables:'id',bnc_movimientos:'id',tipos_unidad:'id',unidades:'id',operaciones:'id',nomina_extras:'id',llantas:'id'};
+var _COLA_ONCONFLICT={planillas:'p',abonos:'fact',contratos:'id',prestamos:'id',multas:'id',empleados:'id',pagos_alcaldia:'id',gastos_variables:'id',bnc_movimientos:'id',tipos_unidad:'id',unidades:'id',operaciones:'id',nomina_extras:'id',llantas:'id',inv_movimientos:'id'};
 function guardarEnCola(t,d,oc){
   COLA_OFFLINE.push({t:t,d:d,_try:0,oc:oc||_COLA_ONCONFLICT[t]||null});
   guardarColaLS();
@@ -5869,19 +5869,61 @@ async function guardarItemInv(){
   renderInventario();alert('✅ '+nombre+' agregado al inventario.');
 }
 
+// ── AUDITORÍA DE INSUMOS (#2): movimientos persistentes + factura + foto + alerta de garantía ──
+async function cargarInvMov(){
+  if(!(DB_READY&&supabase))return;
+  try{var r=await supabase.from('inv_movimientos').select('*').order('fecha',{ascending:false});
+    if(r&&!r.error&&Array.isArray(r.data))INV_MOV=r.data.map(function(m){return{fecha:m.fecha,item:m.item,tipo:m.tipo,cantidad:parseFloat(m.cantidad)||0,cam:m.cam||'',motivo:m.motivo||'',stockResult:m.stock_result,factura:m.factura||'',fotoUrl:m.foto_url||'',precio:parseFloat(m.precio)||0};});
+  }catch(e){console.log('inv_mov load:',e&&e.message);}
+}
+function _pushInvMov(row){
+  INV_MOV.push({fecha:row.fecha,item:row.item,tipo:row.tipo,cantidad:row.cantidad,cam:row.cam,motivo:row.motivo,stockResult:row.stockResult,factura:row.factura,fotoUrl:row.fotoUrl,precio:row.precio});
+  var db={id:row.id,fecha:row.fecha,item:row.item,item_id:row.item_id||null,tipo:row.tipo,cantidad:row.cantidad,cam:row.cam||null,motivo:row.motivo||null,stock_result:row.stockResult,factura:row.factura||null,foto_url:row.fotoUrl||null,precio:row.precio||0};
+  if(DB_READY&&supabase){ supabase.from('inv_movimientos').insert([db]).then(function(r){if(r&&r.error)console.log('inv_mov save:',r.error.message);}); }
+  else if(typeof guardarEnCola==='function'){ guardarEnCola('inv_movimientos',db,'id'); }
+}
+// ¿Esta misma pieza ya se cambió en este camión en los últimos N meses? (cfg.garantiaMeses, default 4)
+function _garantiaAlerta(itemNombre,cam){
+  var meses=parseInt(cfg.garantiaMeses)||4;
+  var limite=new Date(Date.now()-meses*30*86400000).toISOString().slice(0,10);
+  var prev=(INV_MOV||[]).filter(function(m){return m.tipo==='Uso'&&m.cam===cam&&m.item===itemNombre&&(m.fecha||'')>=limite;});
+  if(!prev.length)return null;
+  prev.sort(function(a,b){return a.fecha<b.fecha?1:-1;});
+  return {meses:meses,ultima:prev[0].fecha,n:prev.length};
+}
+async function _subirFotoInsumo(file){
+  if(!file||!(DB_READY&&supabase&&supabase.storage))return null;
+  try{
+    var nm=(''+(file.name||'foto.jpg')).replace(/[^\w.\-]/g,'_');
+    var r=await supabase.storage.from('insumos').upload(Date.now()+'_'+nm,file,{upsert:false});
+    if(r&&r.error){if(typeof mostrarToast==='function')mostrarToast('No se pudo subir la foto: '+r.error.message,'error');return null;}
+    var path=(r&&r.data&&r.data.path)||(Date.now()+'_'+nm);
+    var pub=supabase.storage.from('insumos').getPublicUrl(path);
+    return (pub&&pub.data&&pub.data.publicUrl)||null;
+  }catch(e){if(typeof mostrarToast==='function')mostrarToast('Error subiendo la foto','error');return null;}
+}
 async function registrarUsoInv(){
   var itemId=gv('inv-uso-item'),cam=gv('inv-uso-cam'),cant=parseInt(gv('inv-uso-cant'))||1,motivo=gv('inv-uso-motivo');
   if(!itemId||!cam){alert('Selecciona item y camion');return;}
+  var factura=(gv('inv-uso-factura')||'').trim();
+  if(!factura){alert('Falta el N° de FACTURA. No se registra un repuesto sin factura (control anti-fuga).');return;}
   var item=INVENTARIO.find(function(x){return x.id===itemId;});if(!item){alert('Item no encontrado');return;}
   if(item.stock<cant){alert('Stock insuficiente. Disponible: '+item.stock);return;}
+  // Validación de GARANTÍA / falla recurrente.
+  var gar=_garantiaAlerta(item.nombre,cam);
+  if(gar&&!confirm('⚠️ "'+item.nombre+'" ya se cambió en '+cam+' hace poco (última: '+gar.ultima+', '+gar.n+' vez/veces en '+gar.meses+' meses).\n\n¿Es GARANTÍA o falla recurrente? Revisá si el proveedor responde o si el camión tiene un problema de fondo.\n\n¿Registrar igual?'))return;
+  // Foto de la pieza vieja (recomendada) → Storage.
+  var fEl=document.getElementById('inv-uso-foto'); var file=fEl&&fEl.files&&fEl.files[0];
+  var fotoUrl=file?(await _subirFotoInsumo(file)):null;
   item.stock-=cant;
   if(DB_READY&&supabase){try{await supabase.from('inventario').update({stock:item.stock}).eq('id',item.id);}catch(e){}}
   try{localStorage.setItem('btg_inventario',JSON.stringify(INVENTARIO));}catch(e){}
-  INV_MOV.push({fecha:new Date().toISOString().split('T')[0],item:item.nombre,tipo:'Uso',cantidad:-cant,cam:cam,motivo:motivo,stockResult:item.stock});
+  _pushInvMov({id:'IM'+Date.now(),fecha:fechaVE(),item:item.nombre,item_id:item.id,tipo:'Uso',cantidad:-cant,cam:cam,motivo:motivo,stockResult:item.stock,factura:factura,fotoUrl:fotoUrl,precio:item.precio||0});
   if(item.stock<=item.stockMin)sendWA('📦 STOCK CRITICO: '+item.nombre+' — Solo '+item.stock+' '+item.unidad+' restantes',['mecanica']);
-  audit('Uso inventario',item.nombre+' x'+cant+' en '+cam);
-  ['inv-uso-cant','inv-uso-motivo'].forEach(function(id){sv(id,'');});
+  audit('Uso inventario',item.nombre+' x'+cant+' en '+cam+' (Fact '+factura+')');
+  ['inv-uso-cant','inv-uso-motivo','inv-uso-factura'].forEach(function(id){sv(id,'');}); if(fEl)fEl.value='';
   renderInventario();
+  if(typeof mostrarToast==='function')mostrarToast('✅ Uso registrado (Fact '+factura+')'+(fotoUrl?' con foto':''),'exito');
 }
 
 async function eliminarItemInv(id){
@@ -5918,7 +5960,7 @@ function renderInventario(){
       '<div style="font-size:9px;color:var(--text3);margin-bottom:5px">Min: '+item.stockMin+' · $'+item.precio+'/u · Val: $'+(item.stock*item.precio).toFixed(0)+'</div>'+
       '<div class="pbar"><div class="pfill" style="width:'+pct+'%;background:'+c+'"></div></div>'+
       '<div style="display:flex;gap:4px;margin-top:8px">'+
-        '<button onclick="INV_MOV.push({fecha:new Date().toISOString().split(\'T\')[0],item:\''+item.nombre+'\',tipo:\'Entrada\',cantidad:1,cam:\'\',motivo:\'Manual\',stockResult:++INVENTARIO.find(function(x){return x.id===\''+item.id+'\';}).stock});renderInventario();" class="btn btn-g btn-xs">+1</button>'+
+        '<button onclick="entradaInvRapida(\''+item.id+'\')" class="btn btn-g btn-xs">+1</button>'+
         '<button onclick="switchInvTab(\'usar\')" class="btn btn-s btn-xs">Usar</button>'+
         '<button onclick="eliminarItemInv(\''+item.id+'\')" class="btn btn-xs" style="background:var(--red);color:#fff;margin-left:auto">🗑</button>'+
       '</div>'+
@@ -5926,9 +5968,17 @@ function renderInventario(){
   }).join(''):'<div style="color:var(--text3);font-size:12px;padding:20px">Sin items en inventario. Agrega repuestos desde la tab "+ Agregar".</div>';
 }
 
+function entradaInvRapida(itemId){
+  var item=INVENTARIO.find(function(x){return x.id===itemId;}); if(!item)return;
+  item.stock=(parseInt(item.stock)||0)+1;
+  if(DB_READY&&supabase)supabase.from('inventario').update({stock:item.stock}).eq('id',item.id).then(function(r){if(r&&r.error)console.log('inv stock:',r.error.message);});
+  try{localStorage.setItem('btg_inventario',JSON.stringify(INVENTARIO));}catch(e){}
+  _pushInvMov({id:'IM'+Date.now(),fecha:fechaVE(),item:item.nombre,item_id:item.id,tipo:'Entrada',cantidad:1,cam:'',motivo:'Manual',stockResult:item.stock,factura:'',fotoUrl:null,precio:item.precio||0});
+  renderInventario();
+}
 function renderInvHist(){
   var tb=g('tb-inv-hist');
-  if(tb)tb.innerHTML=INV_MOV.slice().reverse().map(function(m){return'<tr><td>'+formatFecha(m.fecha)+'</td><td style="font-weight:700">'+m.item+'</td><td><span class="badge '+(m.tipo==='Entrada'?'bg':'by')+'">'+m.tipo+'</span></td><td style="font-family:var(--m);color:'+(m.cantidad>0?'var(--green)':'var(--red)')+'">'+m.cantidad+'</td><td>'+m.cam+'</td><td style="font-size:11px">'+m.motivo+'</td><td style="font-family:var(--m)">'+m.stockResult+'</td></tr>';}).join('')||'<tr><td colspan="7" style="text-align:center;color:var(--text3);padding:20px">Sin movimientos</td></tr>';
+  if(tb)tb.innerHTML=INV_MOV.slice().reverse().map(function(m){return'<tr><td>'+formatFecha(m.fecha)+'</td><td style="font-weight:700">'+m.item+'</td><td><span class="badge '+(m.tipo==='Entrada'?'bg':'by')+'">'+m.tipo+'</span></td><td style="font-family:var(--m);color:'+(m.cantidad>0?'var(--green)':'var(--red)')+'">'+m.cantidad+'</td><td>'+(m.cam||'')+'</td><td style="font-size:11px">'+(m.motivo||'')+'</td><td style="font-family:var(--m)">'+m.stockResult+'</td><td style="font-family:var(--m);font-size:10px">'+(m.factura||'—')+'</td><td>'+(m.fotoUrl?'<a href="'+m.fotoUrl+'" target="_blank" style="color:var(--teal);font-size:10px">📷 ver</a>':'—')+'</td></tr>';}).join('')||'<tr><td colspan="9" style="text-align:center;color:var(--text3);padding:20px">Sin movimientos</td></tr>';
 }
 
 // ═══════════════════════════════════════════════════

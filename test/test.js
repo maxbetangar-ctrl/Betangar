@@ -372,6 +372,16 @@ function resetCola(){ app.COLA_OFFLINE=[]; app.COLA_FALLIDOS=[]; app._procesando
   eq('2 marcas comparadas', rm.length, 2);
   eq('Pirelli rinde más (menor $/mm) va primero', rm[0].marca, 'Pirelli');
 
+  console.log('\n#2 auditoría de insumos (alerta de garantía):');
+  ok('_garantiaAlerta definida', typeof app._garantiaAlerta === 'function');
+  var hoyG = new Date().toISOString().slice(0, 10);
+  app.INV_MOV = [{ tipo: 'Uso', cam: 'JAC-B001', item: 'Alternador', fecha: hoyG }];
+  ok('detecta cambio reciente de la misma pieza (¿garantía?)', app._garantiaAlerta('Alternador', 'JAC-B001') !== null);
+  eq('otra pieza no alerta', app._garantiaAlerta('Filtro', 'JAC-B001'), null);
+  eq('otro camión no alerta', app._garantiaAlerta('Alternador', 'JAC-B002'), null);
+  app.INV_MOV = [{ tipo: 'Uso', cam: 'JAC-B001', item: 'Alternador', fecha: '2024-01-01' }];
+  eq('cambio viejo (>4 meses) no alerta', app._garantiaAlerta('Alternador', 'JAC-B001'), null);
+
   // ── Resumen ──
   console.log('\n──────────────');
   console.log('PASS: ' + pass + '   FAIL: ' + fail);

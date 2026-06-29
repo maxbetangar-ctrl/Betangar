@@ -985,11 +985,16 @@ tr:hover td{background:rgba(45,255,122,.02)}
         <div class="fg"><label>Cantidad usada</label><input type="number" class="fc" id="inv-uso-cant" placeholder="1" style="font-family:var(--m)"></div>
       </div>
       <div class="fg"><label>Para que se uso</label><input class="fc" id="inv-uso-motivo" placeholder="Cambio preventivo, falla, etc..."></div>
+      <div class="fr2">
+        <div class="fg"><label>N° de Factura <span style="color:var(--red)">*</span></label><input class="fc" id="inv-uso-factura" placeholder="Obligatorio" style="font-family:var(--m)"></div>
+        <div class="fg"><label>Foto de la pieza vieja</label><input type="file" accept="image/*" capture="environment" class="fc" id="inv-uso-foto" style="font-size:11px;padding:5px"></div>
+      </div>
+      <div style="font-size:10px;color:var(--text3);margin:-2px 0 8px">No se registra el repuesto sin <b>factura</b>. La <b>foto</b> de la pieza vieja queda como respaldo (anti-fuga). El sistema avisa si esta pieza ya se cambió hace poco (¿garantía?).</div>
       <button class="btn btn-g" style="width:100%" onclick="registrarUsoInv()">Registrar Uso</button>
     </div>
   </div>
   <div id="tab-inv-hist" style="display:none">
-    <div class="tw"><table><thead><tr><th>Fecha</th><th>Item</th><th>Tipo</th><th>Cantidad</th><th>Camion</th><th>Motivo</th><th>Stock Result.</th></tr></thead><tbody id="tb-inv-hist"></tbody></table></div>
+    <div class="tw"><table><thead><tr><th>Fecha</th><th>Item</th><th>Tipo</th><th>Cantidad</th><th>Camion</th><th>Motivo</th><th>Stock Result.</th><th>Factura</th><th>Foto</th></tr></thead><tbody id="tb-inv-hist"></tbody></table></div>
   </div>
   <!-- #3 COMPRAS SUGERIDAS (predictibilidad: servicios próximos + insumos bajo mínimo) -->
   <div class="card" style="margin-top:10px;border:1px solid var(--blue)">
@@ -2313,7 +2318,7 @@ tr:hover td{background:rgba(45,255,122,.02)}
 </div>
 
 <script src="money.js?v=20260628n"></script>
-<script src="app.js?v=20260629f"></script>
+<script src="app.js?v=20260629g"></script>
 
 <!-- Modal global -->
 <div id="modal" class="moverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9990;align-items:center;justify-content:center;padding:16px">
