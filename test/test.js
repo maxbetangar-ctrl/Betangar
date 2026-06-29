@@ -312,6 +312,30 @@ function resetCola(){ app.COLA_OFFLINE=[]; app.COLA_FALLIDOS=[]; app._procesando
   ];
   eq('extras filtrados por período (solo junio)', app._extrasNominaPeriodo('2026-06-01', '2026-06-30').length, 1);
 
+  console.log('\ninteligencia de flota (#6 disponibilidad + #1 costo):');
+  ok('calcDisponibilidadFlota definida', typeof app.calcDisponibilidadFlota === 'function');
+  app.FLOTA = { 'JAC-B001': {}, 'JAC-B002': {}, 'JAC-B003': {} };
+  app.KM_DATA = { 'JAC-B002': { estado: 'En taller' } };
+  var disp = app.calcDisponibilidadFlota();
+  eq('total flota JAC', disp.total, 3);
+  eq('2 operativas (1 en taller)', disp.operativas, 2);
+  eq('67% disponibilidad', disp.pct, 67);
+  ok('en riesgo (67% < 80%)', disp.enRiesgo === true);
+  app.KM_DATA = {};
+  eq('todas operativas → 100%', app.calcDisponibilidadFlota().pct, 100);
+  ok('100% no está en riesgo', app.calcDisponibilidadFlota().enRiesgo === false);
+  // #1 flag de costo por viaje sobre el promedio +15%
+  ok('calcRentabilidadCamiones definida', typeof app.calcRentabilidadCamiones === 'function');
+  app.REGS = [
+    { cam: 'JAC-B001', f: '2026-06-10', t: 10, m: 3000 },
+    { cam: 'JAC-B002', f: '2026-06-10', t: 10, m: 3000 }
+  ];
+  app.GASOIL = [];
+  var Rr = app.calcRentabilidadCamiones('', '');
+  ok('cada fila trae costoViaje', Rr.rows.every(function (r) { return typeof r.costoViaje === 'number'; }));
+  ok('cada fila trae el flag sobreCosto', Rr.rows.every(function (r) { return typeof r.sobreCosto === 'boolean'; }));
+  ok('avgCostoViaje calculado', typeof Rr.avgCostoViaje === 'number');
+
   // ── Resumen ──
   console.log('\n──────────────');
   console.log('PASS: ' + pass + '   FAIL: ' + fail);

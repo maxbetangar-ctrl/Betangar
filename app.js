@@ -2154,6 +2154,7 @@ function renderDash(){
   // Flota
   renderFlotaDash();renderRankingTop5();renderMetasDash();renderVencimientosDash();renderAlertasCriticas();
   try{renderChecklistAnomalias();}catch(e){}
+  try{renderInteligenciaFlota();}catch(e){} // 🧠 panel de inteligencia para el dueño/gerente
   updTank();
 }
 
@@ -14101,12 +14102,70 @@ function calcRentabilidadCamiones(des,hta){
     var nominaChofer=x.viajes*tarChofer, nominaAyud=x.ayViajes*tarAyud, nomina=nominaChofer+nominaAyud;
     var utilidad=x.ingreso-combustible-nomina;
     var margen=x.ingreso>0?(utilidad/x.ingreso*100):0;
+    var costoOp=combustible+nomina; // costo operativo confiable (repuestos por camión se suma cuando se capture, ver #2/#3)
     return {cam:c,viajes:x.viajes,ingreso:x.ingreso,combustible:combustible,litros:litros,
       nomina:nomina,nominaChofer:nominaChofer,nominaAyud:nominaAyud,utilidad:utilidad,margen:margen,
+      costoOp:costoOp,costoViaje:x.viajes>0?costoOp/x.viajes:0,
       lViaje:x.viajes>0?litros/x.viajes:0,utilPorViaje:x.viajes>0?utilidad/x.viajes:0};
   }).sort(function(a,b){return b.utilidad-a.utilidad;});
+  // INTELIGENCIA: costo operativo por viaje vs PROMEDIO de la flota. Si un camión supera el promedio
+  // en +15% se marca (probable falla oculta / mal uso → revisar). Promedio solo sobre los que rodaron.
+  var conV=rows.filter(function(r){return r.viajes>0;});
+  var avgCV=conV.length?conV.reduce(function(s,r){return s+r.costoViaje;},0)/conV.length:0;
+  rows.forEach(function(r){
+    r.avgCostoViaje=avgCV;
+    r.sobreCostoPct=avgCV>0?Math.round((r.costoViaje/avgCV-1)*100):0;
+    r.sobreCosto=(avgCV>0&&r.viajes>0&&r.costoViaje>avgCV*1.15);
+  });
   var tot=rows.reduce(function(s,r){return{ingreso:s.ingreso+r.ingreso,combustible:s.combustible+r.combustible,nomina:s.nomina+r.nomina,utilidad:s.utilidad+r.utilidad,viajes:s.viajes+r.viajes};},{ingreso:0,combustible:0,nomina:0,utilidad:0,viajes:0});
-  return {rows:rows,total:tot};
+  return {rows:rows,total:tot,avgCostoViaje:avgCV};
+}
+
+// ── #6 DISPONIBILIDAD DE FLOTA vs CONTRATO ──────────────────────────────────
+// % de camiones JAC operativos. Si cae bajo el umbral (cfg.dispMin, default 80%) → riesgo de
+// incumplir el contrato (IMAU). Reusa el estado que ya fijan chofer/mecánico (KM_DATA[cam].estado).
+function calcDisponibilidadFlota(){
+  var jac=Object.keys(typeof FLOTA!=='undefined'?FLOTA:{}).filter(function(k){return k.indexOf('JAC')===0;});
+  var fuera=[];
+  jac.forEach(function(cam){
+    var est=String((typeof KM_DATA!=='undefined'&&KM_DATA[cam]&&KM_DATA[cam].estado)||'').toLowerCase();
+    if(/taller|mant|da[ñn]|repar|inactiv|fuera|parad|averi|accident|baja/.test(est))fuera.push({cam:cam,estado:est});
+  });
+  var total=jac.length, operativas=total-fuera.length;
+  var pct=total>0?Math.round(operativas/total*100):0;
+  var umbral=parseInt(cfg.dispMin)||80;
+  return {total:total,operativas:operativas,fuera:fuera,pct:pct,umbral:umbral,enRiesgo:(total>0&&pct<umbral)};
+}
+
+// ── PANEL "INTELIGENCIA DE FLOTA" del Dashboard (lo ve el dueño/gerente) ─────
+// Cada tarjeta llama a la función del MÓDULO correspondiente (motor único, no recalcula). Click → módulo.
+function _intelCard(color,titulo,valor,detalle,onclick){
+  return '<div onclick="'+onclick+'" style="cursor:pointer;background:var(--card);border:1px solid var(--border);border-left:4px solid '+color+';border-radius:10px;padding:12px 14px">'+
+    '<div style="font-size:11px;color:var(--text3);font-weight:700">'+titulo+'</div>'+
+    '<div style="font-size:16px;font-weight:800;color:'+color+';margin:3px 0">'+valor+'</div>'+
+    '<div style="font-size:11px;color:var(--text2)">'+detalle+'</div></div>';
+}
+function renderInteligenciaFlota(){
+  var el=g('dash-inteligencia'); if(!el)return;
+  var cards=[];
+  // #6 Disponibilidad vs contrato
+  try{
+    var d=calcDisponibilidadFlota();
+    cards.push(_intelCard(d.enRiesgo?'#ef4444':'#22c55e','🚛 Disponibilidad de flota',
+      d.operativas+'/'+d.total+' operativas ('+d.pct+'%)',
+      d.enRiesgo?('⚠️ Bajo el '+d.umbral+'% — riesgo de incumplir contrato'+(d.fuera.length?': '+d.fuera.map(function(x){return x.cam.replace('JAC-','');}).join(', '):'')):'✓ Por encima del umbral ('+d.umbral+'%)',
+      "sp('multicontrato')"));
+  }catch(e){}
+  // #1 Costo operativo por camión (sobre el promedio +15%)
+  try{
+    var R=calcRentabilidadCamiones('','');
+    var caros=R.rows.filter(function(r){return r.sobreCosto;}).sort(function(a,b){return b.sobreCostoPct-a.sobreCostoPct;});
+    cards.push(_intelCard(caros.length?'#f59e0b':'#22c55e','💸 Costo operativo por camión',
+      caros.length?(caros.length+' sobre el promedio de la flota'):'Todos cerca del promedio',
+      caros.length?('Revisar: '+caros.slice(0,4).map(function(r){return r.cam.replace('JAC-','')+' (+'+r.sobreCostoPct+'%)';}).join(', ')+' — posible falla oculta o mal uso'):'✓ Sin desvíos de costo >15%',
+      "sp('rentabilidad')"));
+  }catch(e){}
+  el.innerHTML=cards.length?('<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px">'+cards.join('')+'</div>'):'';
 }
 
 function renderRentabilidad(){
