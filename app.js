@@ -5419,12 +5419,21 @@ function calcRet(){
   g('ret-calc').style.display='block';
 }
 
+// Retenciones a proveedores: lee los campos REALES que escribe guardarCxP (ret_iva_usd/ret_islr_usd/
+// base_usd/iva_usd/prov_nombre, estado 'pagada'). Antes leía retUsd/retPct/baseUsd (camelCase que NADIE
+// escribe) → la pestaña siempre decía "Sin retenciones / $0" aunque hubiera IVA retenido. (fuente única)
+function _retCxp(c){ return (parseFloat(c&&c.ret_iva_usd)||0)+(parseFloat(c&&c.ret_islr_usd)||0); }
 function renderRetenciones(){
-  var rets=CXP.filter(function(c){return c.retUsd>0;});
+  var rets=CXP.filter(function(c){return _retCxp(c)>0;});
   var tb=g('tb-ret');
-  if(tb)tb.innerHTML=rets.map(function(c){return'<tr><td>'+formatFecha(c.fecha)+'</td><td>'+c.prov+'</td><td>'+c.factura+'</td><td>$'+c.baseUsd.toFixed(2)+'</td><td>$'+c.ivaUsd.toFixed(2)+'</td><td>'+c.retPct+'%</td><td>$'+c.retUsd.toFixed(2)+'</td><td>Bs '+(c.retUsd*(TASAS.bcvDolar||cfg.tasa)).toFixed(0)+'</td><td><span class="badge '+(c.estado==='pagado'?'bg':'by')+'">'+(c.estado==='pagado'?'Pagado':'Pendiente')+'</span></td></tr>';}).join('')||'<tr><td colspan="9" style="text-align:center;color:var(--text3);padding:20px">Sin retenciones registradas</td></tr>';
+  if(tb)tb.innerHTML=rets.map(function(c){
+    var ret=_retCxp(c), base=parseFloat(c.base_usd)||0, iva=parseFloat(c.iva_usd)||0;
+    var pct=base>0?Math.round(ret/base*100):0;
+    var pagada=(c.estado==='pagada'||c.estado==='pagado');
+    return '<tr><td>'+formatFecha(c.fecha)+'</td><td>'+(c.prov_nombre||c.prov||'')+'</td><td>'+(c.factura||'')+'</td><td>$'+base.toFixed(2)+'</td><td>$'+iva.toFixed(2)+'</td><td>'+pct+'%</td><td>$'+ret.toFixed(2)+'</td><td>Bs '+(ret*(TASAS.bcvDolar||cfg.tasa||0)).toFixed(0)+'</td><td><span class="badge '+(pagada?'bg':'by')+'">'+(pagada?'Pagado':'Pendiente')+'</span></td></tr>';
+  }).join('')||'<tr><td colspan="9" style="text-align:center;color:var(--text3);padding:20px">Sin retenciones registradas</td></tr>';
   var res=g('ret-resumen');
-  if(res){var totalRet=rets.reduce(function(s,c){return s+c.retUsd;},0);res.innerHTML='<div style="font-size:12px;color:var(--text2)">Total retenciones generadas: <b style="color:var(--red)">$'+totalRet.toFixed(2)+'</b></div>';}
+  if(res){var totalRet=rets.reduce(function(s,c){return s+_retCxp(c);},0);res.innerHTML='<div style="font-size:12px;color:var(--text2)">Total retenciones generadas: <b style="color:var(--red)">$'+totalRet.toFixed(2)+'</b></div>';}
 }
 
 // ═══════════════════════════════════════════════════
