@@ -3877,8 +3877,8 @@ function calcNom(){
     });
   }
   var tvTot=f.reduce(function(s,r){return s+r.t;},0);
-  var totCh=Object.values(chMap).reduce(function(s,c){var k=_nombreCanonico(c.ch).toUpperCase();var pat=(c.patio||0)+(parseInt(PATIO_DIAS[k])||0);return s+Math.max(0,(c.montoViajes||0)+pat*cfg.chofer-c.descuentos);},0);
-  var totAy=Object.values(ayMap).reduce(function(s,a){var patAy=(a.emp.tipoAy!=='imau')?(parseInt(PATIO_DIAS[a.emp.id])||0):0;return s+Math.max(0,((a.viajes+patAy)*a.tasa)+(a.recargoDom||0)-a.descuentos);},0);
+  var totCh=Object.values(chMap).reduce(function(s,c){var k=_nombreCanonico(c.ch).toUpperCase();var pat=_patioEfectivo(c.patio,PATIO_DIAS[k]);return s+Math.max(0,(c.montoViajes||0)+pat*cfg.chofer-c.descuentos);},0);
+  var totAy=Object.values(ayMap).reduce(function(s,a){var vp=_ayPatio(a);return s+Math.max(0,(vp.viajes*a.tasa)+(a.recargoDom||0)-a.descuentos);},0);
   if(g('nm-tv'))g('nm-tv').textContent=tvTot;
   if(g('nm-ch'))g('nm-ch').textContent='$'+totCh.toFixed(0);
   if(g('nm-ay'))g('nm-ay').textContent='$'+totAy.toFixed(0);
@@ -3910,8 +3910,8 @@ function calcNom(){
     sem:sem||'', mes:mes||'', tasa:tasa, totCh:totCh, totAy:totAy, totAdm:totAdm, totImau:totImau, totExtras:totExtras, totBs:totBs,
     fdesde: f.length?f.reduce(function(m,r){return r.f<m?r.f:m;},f[0].f):null,
     fhasta: f.length?f.reduce(function(m,r){return r.f>m?r.f:m;},f[0].f):null,
-    choferes: Object.values(chMap).map(function(c){var k=_nombreCanonico(c.ch).toUpperCase();var pat=(c.patio||0)+(parseInt(PATIO_DIAS[k])||0);var u=Math.max(0,(c.montoViajes||0)+pat*cfg.chofer-c.descuentos);return {n:c.ch,u:Array.from(c.cams||[]).join(','),viajes:c.viajes+pat,pat:pat,usd:Math.round(u*100)/100,bs:Math.round(u*tasa*100)/100};}),
-    ayudantes: Object.values(ayMap).map(function(a){var patAy=(a.emp.tipoAy!=='imau')?(parseInt(PATIO_DIAS[a.emp.id])||0):0;var patTot=(a.patio||0)+patAy;var v=a.viajes+patAy;var u=Math.max(0,v*a.tasa+(a.recargoDom||0)-a.descuentos);return {n:a.emp.nombre,u:a.emp.unidad,viajes:v,pat:patTot,usd:Math.round(u*100)/100,bs:Math.round(u*tasa*100)/100,tipo:a.emp.tipoAy||'interno'};}),
+    choferes: Object.values(chMap).map(function(c){var k=_nombreCanonico(c.ch).toUpperCase();var pat=_patioEfectivo(c.patio,PATIO_DIAS[k]);var u=Math.max(0,(c.montoViajes||0)+pat*cfg.chofer-c.descuentos);return {n:c.ch,u:Array.from(c.cams||[]).join(','),viajes:(c.viajes-(c.patio||0))+pat,pat:pat,usd:Math.round(u*100)/100,bs:Math.round(u*tasa*100)/100};}),
+    ayudantes: Object.values(ayMap).map(function(a){var vp=_ayPatio(a);var v=vp.viajes;var patTot=vp.patio;var u=Math.max(0,v*a.tasa+(a.recargoDom||0)-a.descuentos);return {n:a.emp.nombre,u:a.emp.unidad,viajes:v,pat:patTot,usd:Math.round(u*100)/100,bs:Math.round(u*tasa*100)/100,tipo:a.emp.tipoAy||'interno'};}),
     extras: _extrasP.map(function(x){return {fecha:x.fecha,n:x.empNombre,actividad:x.actividad,modo:x.modo,viajes:x.viajes,monto:x.monto,usd:Math.round(_extraUsd(x)*100)/100};})
   };
   if(g('nm-tot'))g('nm-tot').textContent='$'+fmtMon(totUsd)+' (op $'+fmtMon(totOp)+(totImau>0?' + IMAU $'+fmtMon(totImau):'')+(totAdm>0?' + adm $'+fmtMon(totAdm):'')+(totExtras>0?' + especial $'+fmtMon(totExtras):'')+')'+' = Bs '+(totBs/1000).toFixed(0)+'k';
@@ -3921,8 +3921,9 @@ function calcNom(){
   var tbCh=g('tb-nom-ch');
   if(tbCh)tbCh.innerHTML=Object.values(chMap).map(function(c,i){
     var key=_nombreCanonico(c.ch).toUpperCase();
-    var patM=parseInt(PATIO_DIAS[key])||0, patTot=(c.patio||0)+patM;
+    var patM=parseInt(PATIO_DIAS[key])||0, patTot=_patioEfectivo(c.patio,patM); // manual manda (no doble)
     var sueldo=(c.montoViajes||0)+patTot*cfg.chofer, total=Math.max(0,sueldo-c.descuentos);
+    var vjCh=(c.viajes-(c.patio||0))+patTot; // viajes efectivos para mostrar (sin doble patio)
     // Chofer INACTIVO con viajes: se cuenta/paga igual (regla "el viaje siempre se paga"), pero
     // se marca ⚠️ para que RRHH revise (apareció en planilla estando dado de baja en el roster).
     var _empCh=(typeof _empPorNombre==='function')?_empPorNombre(c.ch):null;
@@ -3931,9 +3932,9 @@ function calcNom(){
     return '<tr'+(_inact?' style="background:rgba(245,158,11,.07)"':'')+'><td style="font-family:var(--m)">'+(i+1)+'</td><td style="font-weight:700">'+c.ch+_badgeInact+'</td>'+
       '<td style="font-size:10px">'+Array.from(c.cams||[]).join(', ')+'</td>'+
       '<td style="color:var(--green)"><div style="display:flex;align-items:center;justify-content:space-between;gap:6px">'+
-        '<span style="display:flex;align-items:center;gap:3px"><b>'+c.viajes+'</b>'+
-        ' <input type="number" min="0" value="'+patM+'" title="Días de actividad sin viaje (patio/traslado/lavado): +1 viaje c/u" onchange="setPatioDias(\''+key.replace(/'/g,"")+'\',this.value)" style="width:30px;font-size:9px;background:var(--bg3);border:1px solid var(--border);color:var(--amber);border-radius:4px;padding:1px 2px;text-align:center"><span style="font-size:8px;color:var(--amber)">P</span>'+(patM>0?(' <input type="text" value="'+String(PATIO_NOTA[key]||'').replace(/"/g,'&quot;')+'" placeholder="actividad" title="¿Qué actividad? patio / traslado a autolavado / lavado de domingo..." onchange="setPatioNota(\''+key.replace(/'/g,"")+'\',this.value)" style="width:85px;font-size:9px;background:var(--bg3);border:1px solid var(--border);color:var(--text2);border-radius:4px;padding:1px 4px">'):'')+'</span>'+
-        '<span style="display:flex;gap:3px;white-space:nowrap">'+(c.viajesDom>0?'<span style="font-size:8px;color:var(--teal)" title="viajes en domingo/feriado pagados a 1.5×">+'+c.viajesDom+'D</span>':'')+(c.patio>0?'<span style="font-size:8px;color:var(--amber)" title="patio por asistencia">+'+c.patio+'P</span>':'')+'</span>'+
+        '<span style="display:flex;align-items:center;gap:3px"><b>'+vjCh+'</b>'+
+        ' <input type="number" min="0" value="'+patM+'" title="Días de actividad sin viaje (patio/traslado/lavado): +1 viaje c/u. Si lo cargás a mano, manda sobre el automático de asistencia." onchange="setPatioDias(\''+key.replace(/'/g,"")+'\',this.value)" style="width:30px;font-size:9px;background:var(--bg3);border:1px solid var(--border);color:var(--amber);border-radius:4px;padding:1px 2px;text-align:center"><span style="font-size:8px;color:var(--amber)">P</span>'+(patM>0?(' <input type="text" value="'+String(PATIO_NOTA[key]||'').replace(/"/g,'&quot;')+'" placeholder="actividad" title="¿Qué actividad? patio / traslado a autolavado / lavado de domingo..." onchange="setPatioNota(\''+key.replace(/'/g,"")+'\',this.value)" style="width:85px;font-size:9px;background:var(--bg3);border:1px solid var(--border);color:var(--text2);border-radius:4px;padding:1px 4px">'):'')+'</span>'+
+        '<span style="display:flex;gap:3px;white-space:nowrap">'+(c.viajesDom>0?'<span style="font-size:8px;color:var(--teal)" title="viajes en domingo/feriado pagados a 1.5×">+'+c.viajesDom+'D</span>':'')+((patM>0?0:(c.patio||0))>0?'<span style="font-size:8px;color:var(--amber)" title="patio por asistencia">+'+(c.patio||0)+'P</span>':'')+'</span>'+
         '</div></td>'+
       '<td>'+c.dias.size+'</td>'+
       '<td style="font-family:var(--m)">$'+fmtMon(sueldo)+(c.viajesDom>0?' <span style="font-size:8px;color:var(--teal)" title="incluye recargo domingo 1.5×">▲</span>':'')+'</td>'+
@@ -3943,7 +3944,7 @@ function calcNom(){
   if(tbAy)tbAy.innerHTML=Object.values(ayMap).sort(function(a,b){return b.viajes-a.viajes;}).map(function(a,i){
     var esImau=(a.emp.tipoAy==='imau');
     var patAyM=esImau?0:(parseInt(PATIO_DIAS[a.emp.id])||0); // días de patio manual (IMAU no cobra patio)
-    var vTot=a.viajes+patAyM;
+    var vp=_ayPatio(a); var vTot=vp.viajes; // viajes efectivos (manual manda; sin doble patio)
     var sueldo=vTot*a.tasa+(a.recargoDom||0);var total=Math.max(0,sueldo-a.descuentos);
     var nota=a.porNombre>0&&a.porCam>0?'('+a.porNombre+'v nombre + '+a.porCam+'v camión)':'';
     var inputPatio=esImau?'':(' <input type="number" min="0" value="'+patAyM+'" title="Días de actividad sin viaje (patio/traslado/lavado): +1 viaje c/u" onchange="setPatioDias(\''+a.emp.id+'\',this.value)" style="width:30px;font-size:9px;background:var(--bg3);border:1px solid var(--border);color:var(--amber);border-radius:4px;padding:1px 2px;text-align:center"><span style="font-size:8px;color:var(--amber)">P</span>'+(patAyM>0?(' <input type="text" value="'+String(PATIO_NOTA[a.emp.id]||'').replace(/"/g,'&quot;')+'" placeholder="actividad" title="¿Qué actividad? patio / traslado a autolavado / lavado de domingo..." onchange="setPatioNota(\''+a.emp.id+'\',this.value)" style="width:95px;font-size:9px;background:var(--bg3);border:1px solid var(--border);color:var(--text2);border-radius:4px;padding:1px 4px">'):''));
@@ -3954,7 +3955,7 @@ function calcNom(){
       '<td><span class="badge '+(esImau?'bp':'bt')+'">'+( a.emp.tipoAy||'interno')+'</span></td>'+
       '<td style="font-size:10px">'+a.emp.unidad+(nota?'<br><span style="color:var(--text3);font-size:9px">'+nota+'</span>':'')+'</td>'+
       '<td style="color:var(--green)"><div style="display:flex;align-items:center;justify-content:space-between;gap:6px">'+
-        '<span style="display:flex;align-items:center;gap:3px"><b>'+a.viajes+'</b>'+inputPatio+'</span>'+
+        '<span style="display:flex;align-items:center;gap:3px"><b>'+vTot+'</b>'+inputPatio+'</span>'+
         '<span style="display:flex;gap:3px;white-space:nowrap">'+(a.viajesDom>0?'<span style="font-size:8px;color:var(--teal)" title="viajes en domingo/feriado pagados a 1.5×">+'+a.viajesDom+'D</span>':'')+'</span>'+
         '</div></td>'+
       '<td style="font-family:var(--m)">$'+fmtMon(sueldo)+(a.recargoDom>0?' <span style="font-size:8px;color:var(--teal)" title="incluye recargo domingo 1.5×">▲</span>':'')+'</td>'+
@@ -5798,6 +5799,17 @@ function _multaCuotaUsd(m){
 function _choferDeMulta(m){
   if(m&&m.choferId){ var e=(typeof EMPLEADOS!=='undefined'?EMPLEADOS:[]).find(function(x){return String(x.id)===String(m.choferId);}); if(e)return e; }
   return (typeof EMPLEADOS!=='undefined'?EMPLEADOS:[]).find(function(e){return e.cargo==='Chofer'&&e.unidad===(m&&m.camId);})||null;
+}
+// PATIO — "el MANUAL manda" (decisión de Máximo): si hay patio cargado a mano (PATIO_DIAS) ese vale;
+// si no, el automático de la asistencia. NUNCA se suman (antes se pagaba el patio dos veces).
+function _patioEfectivo(auto, manual){ manual=parseInt(manual)||0; return manual>0?manual:(parseInt(auto)||0); }
+// Ayudante: a.viajes YA trae dentro el patio de asistencia (a.patio). Devuelve viajes y patio EFECTIVOS
+// (saca el de asistencia y aplica "manual manda") para que el pago no duplique el patio.
+function _ayPatio(a){
+  var asisP=parseInt(a&&a.patio)||0;
+  var manual=(a&&a.emp&&a.emp.tipoAy==='imau')?0:(parseInt(PATIO_DIAS[a&&a.emp&&a.emp.id])||0);
+  var ef=_patioEfectivo(asisP, manual);
+  return { viajes:(parseInt(a&&a.viajes)||0)-asisP+ef, patio:ef };
 }
 function _multaMontoUsd(m){
   if(m&&m.moneda)return _multaDivToUsd(m.montoDiv||0, m.moneda);

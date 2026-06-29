@@ -405,6 +405,17 @@ function resetCola(){ app.COLA_OFFLINE=[]; app.COLA_FALLIDOS=[]; app._procesando
   // Antes: egGas(1000+300) + egCxP(1000+200) = 2500 (combustible 2-3 veces). Ahora: compra 1000 (una vez) + repuesto 200 = 1200.
   eq('combustible una sola vez: 1000 compra + 200 repuesto = 1200 (no 2500)', app._totalEgresos(0), 1200);
 
+  console.log('\n#C patio "manual manda" (sin doble pago):');
+  ok('_patioEfectivo definida', typeof app._patioEfectivo === 'function');
+  eq('manual cargado manda (manual=2, asistencia=3 → 2)', app._patioEfectivo(3, 2), 2);
+  eq('sin manual usa asistencia (manual=0, asistencia=3 → 3)', app._patioEfectivo(3, 0), 3);
+  eq('ninguno → 0', app._patioEfectivo(0, 0), 0);
+  // ayudante: a.viajes ya trae el patio de asistencia (a.patio). Con manual debe NO duplicar.
+  app.PATIO_DIAS = { 'E9': 2 };
+  var vpa = app._ayPatio({ viajes: 12, patio: 3, emp: { id: 'E9', tipoAy: 'interno' } }); // 12 incluye 3 de asistencia; manual=2 manda
+  eq('ayudante: viajes efectivos = (12-3)+2 = 11 (no 12+2=14)', vpa.viajes, 11);
+  eq('ayudante: patio efectivo = 2 (manual)', vpa.patio, 2);
+
   // ── Resumen ──
   console.log('\n──────────────');
   console.log('PASS: ' + pass + '   FAIL: ' + fail);
