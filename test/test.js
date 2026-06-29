@@ -426,6 +426,12 @@ function resetCola(){ app.COLA_OFFLINE=[]; app.COLA_FALLIDOS=[]; app._procesando
   ok('_cxpPagada acepta pagada y pagado', app._cxpPagada({ estado: 'pagada' }) === true && app._cxpPagada({ estado: 'pagado' }) === true);
   ok('_cxpPagada false en pendiente', app._cxpPagada({ estado: 'pendiente' }) === false);
 
+  console.log('\n#K matching alias-aware (_empPorNombre no marca "no identificado" a quien la nómina paga):');
+  app.EMPLEADOS = [{ id: 'E1', nombre: 'YIRBER LENITHON GONZALEZ MONTIEL', cargo: 'Chofer' }];
+  app._ALIAS_NOMBRES[app._normNom('Yiber Gonzalez')] = 'YIRBER LENITHON GONZALEZ MONTIEL';
+  var emA = app._empPorNombre('Yiber Gonzalez');
+  ok('_empPorNombre resuelve por alias (corto→empleado completo)', emA && emA.id === 'E1');
+
   // ── Resumen ──
   console.log('\n──────────────');
   console.log('PASS: ' + pass + '   FAIL: ' + fail);

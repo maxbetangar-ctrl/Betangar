@@ -7313,7 +7313,10 @@ function calcularNomina(){
 async function registrarPagoNom(){
   var ref=gv('np-ref');var total=parseFloat(gv('np-total-bs'))||0;
   if(!total){alert('Calcula la nomina primero');return;}
-  var row={fecha:gv('np-fecha'),sem:gv('np-sem'),mes:gv('np-mes'),total_bs:total,ref:ref};
+  // Guardar también total_usd (Bs / tasa del día del pago): el resumen semanal de WhatsApp lo lee y antes
+  // salía $0 porque pagos_nomina nunca tenía total_usd. (auditoría fuente única)
+  var _tasaNom=(typeof getTasaFecha==='function'&&getTasaFecha(gv('np-fecha'),'dolar'))||(typeof getTasa==='function'&&getTasa('bcvDolar'))||TASAS.bcvDolar||cfg.tasa||0;
+  var row={fecha:gv('np-fecha'),sem:gv('np-sem'),mes:gv('np-mes'),total_bs:total,total_usd:(_tasaNom>0?Math.round(total/_tasaNom*100)/100:0),ref:ref};
   // Persistir PRIMERO con guardar() (chequea error real + encola si no hay conexión). Antes era un
   // insert "fire-and-forget" que mostraba "✅" SIEMPRE → el pago (dinero) se perdía en silencio.
   var res=await guardar('pagos_nomina',row,{audit:'Nomina pagada',auditDetalle:'Bs'+total+' ref:'+ref});
@@ -14020,6 +14023,9 @@ function _nomCasa(a,b){
 // candidatos → no casa (se lista aparte para revisión manual).
 function _empPorNombre(nombre){
   var n=_normNom(nombre); if(!n)return null;
+  // Alias-aware (fuente única con _nombreCanonico): si el nombre corto/mal escrito tiene alias, resolverlo
+  // al nombre completo ANTES de casar → así no se marca "no identificado" a quien la nómina sí paga.
+  if(typeof _ALIAS_NOMBRES!=='undefined'&&_ALIAS_NOMBRES[n]){ n=_normNom(_ALIAS_NOMBRES[n]); }
   var emps=(typeof EMPLEADOS!=='undefined'?EMPLEADOS:[]);
   // 1) match exacto normalizado
   for(var i=0;i<emps.length;i++){if(_normNom(emps[i].nombre)===n)return emps[i];}
