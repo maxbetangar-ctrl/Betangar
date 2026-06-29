@@ -1166,7 +1166,7 @@ function sp(id){
     if(id==='prestamos'){renderRRHHSubnav('prestamos');poblarEmps();renderPrestamos();}
     if(id==='multas'){renderRRHHSubnav('multas');poblarCams();renderMultas();}
     if(id==='inventario'){renderInventario();try{renderComprasSugeridas();}catch(e){}}
-    if(id==='llantas'){renderMantSubnav('llantas');renderLlantas();}
+    if(id==='llantas'){renderMantSubnav('llantas');cargarLlantas().then(function(){renderLlantas();}).catch(function(){renderLlantas();});}
     if(id==='metas'){renderAnalisisSubnav('metas');prefillMeta();}
     if(id==='contratos')renderContratosLista();
     if(id==='multicontrato')abrirMultiContrato();
@@ -1582,7 +1582,7 @@ function descartarFallidos(){
 }
 // Clave de conflicto por tabla con UNIQUE → la cola debe reintentar como UPSERT, no INSERT plano
 // (si no, una planilla/abono/contrato hecho offline choca con su UNIQUE y cae al dead-letter).
-var _COLA_ONCONFLICT={planillas:'p',abonos:'fact',contratos:'id',prestamos:'id',multas:'id',empleados:'id',pagos_alcaldia:'id',gastos_variables:'id',bnc_movimientos:'id',tipos_unidad:'id',unidades:'id',operaciones:'id',nomina_extras:'id'};
+var _COLA_ONCONFLICT={planillas:'p',abonos:'fact',contratos:'id',prestamos:'id',multas:'id',empleados:'id',pagos_alcaldia:'id',gastos_variables:'id',bnc_movimientos:'id',tipos_unidad:'id',unidades:'id',operaciones:'id',nomina_extras:'id',llantas:'id'};
 function guardarEnCola(t,d,oc){
   COLA_OFFLINE.push({t:t,d:d,_try:0,oc:oc||_COLA_ONCONFLICT[t]||null});
   guardarColaLS();
@@ -5934,6 +5934,57 @@ function renderInvHist(){
 // ═══════════════════════════════════════════════════
 // LLANTAS
 // ═══════════════════════════════════════════════════
+// ── LLANTAS: persistencia + gestión por dibujo (mm) ─────────────────────────
+function _llId(cam,pos){ return cam+'|'+pos; }
+// Estado derivado de la profundidad: <3mm Cambiar, 3-6 Regular, >=6 Buena (umbral configurable cfg.llMm).
+function _estadoLlMm(mm){ mm=parseFloat(mm); if(isNaN(mm))return null; var min=parseFloat(cfg.llMmMin)||3, ok=parseFloat(cfg.llMmOk)||6; return mm<min?'Cambiar Urgente':(mm<ok?'Regular':'Buena'); }
+async function _guardarLlanta(cam,ll){
+  if(DB_READY&&supabase){
+    try{var r=await supabase.from('llantas').upsert([{id:_llId(cam,ll.posicion),cam:cam,posicion:ll.posicion,estado:ll.estado,km:ll.km||0,fecha:ll.fecha||null,marca:ll.marca||null,precio:ll.precio||0,mm:(ll.mm!=null?ll.mm:null),mm_inicial:(ll.mmInicial!=null?ll.mmInicial:null),km_instalada:ll.kmInstalada||0,fecha_instalada:ll.fechaInstalada||null}],{onConflict:'id'});
+      if(r&&r.error){if(typeof mostrarToast==='function')mostrarToast('No se pudo guardar la llanta: '+r.error.message,'error');return;}
+      return;
+    }catch(e){}
+  }
+  if(typeof guardarEnCola==='function')guardarEnCola('llantas',{id:_llId(cam,ll.posicion),cam:cam,posicion:ll.posicion,estado:ll.estado,km:ll.km||0,fecha:ll.fecha||null,marca:ll.marca||null,precio:ll.precio||0,mm:(ll.mm!=null?ll.mm:null),mm_inicial:(ll.mmInicial!=null?ll.mmInicial:null),km_instalada:ll.kmInstalada||0,fecha_instalada:ll.fechaInstalada||null},'id');
+}
+async function cargarLlantas(){
+  if(!(DB_READY&&supabase))return;
+  try{
+    var r=await supabase.from('llantas').select('*');
+    if(r&&!r.error&&Array.isArray(r.data)&&r.data.length){
+      r.data.forEach(function(row){
+        if(!LLANTAS[row.cam])LLANTAS[row.cam]=POS_LL.map(function(p){return{posicion:p,estado:'Buena',km:0,fecha:''};});
+        var ll=LLANTAS[row.cam].find(function(l){return l.posicion===row.posicion;});
+        var data={posicion:row.posicion,estado:row.estado||'Buena',km:parseFloat(row.km)||0,fecha:row.fecha||'',marca:row.marca||'',precio:parseFloat(row.precio)||0,mm:(row.mm!=null?parseFloat(row.mm):null),mmInicial:(row.mm_inicial!=null?parseFloat(row.mm_inicial):null),kmInstalada:parseFloat(row.km_instalada)||0,fechaInstalada:row.fecha_instalada||''};
+        if(ll)Object.assign(ll,data); else LLANTAS[row.cam].push(data);
+      });
+    }
+  }catch(e){console.log('llantas load:',e&&e.message);}
+}
+// Inspección: medir la profundidad actual (mm) sin reiniciar la vida útil. Estado se deriva del mm.
+function medirLlanta(cam,idx){
+  var ll=LLANTAS[cam]&&LLANTAS[cam][idx]; if(!ll)return;
+  var v=prompt('Profundidad del dibujo (mm) de '+ll.posicion+(ll.marca?' ('+ll.marca+')':'')+':', (ll.mm!=null?ll.mm:''));
+  if(v===null)return;
+  var mm=parseFloat(v); if(isNaN(mm)||mm<0){alert('Profundidad inválida');return;}
+  ll.mm=mm; if(ll.mmInicial==null||mm>ll.mmInicial)ll.mmInicial=mm;
+  ll.estado=_estadoLlMm(mm)||ll.estado;
+  _guardarLlanta(cam,ll);
+  audit('Inspección llanta',cam+' '+ll.posicion+' '+mm+'mm → '+ll.estado);
+  renderLlantas();
+}
+// Costo por mm de vida consumida de una llanta (precio / mm gastados). null si no hay datos.
+function _llCostoMm(ll){ if(!ll||!ll.precio||ll.mmInicial==null||ll.mm==null)return null; var gast=ll.mmInicial-ll.mm; return gast>0?ll.precio/gast:null; }
+// Rendimiento por MARCA: promedio de costo/mm (menor = rinde más). Para saber qué marca conviene.
+function _llRendimientoMarca(){
+  var by={};
+  Object.keys(LLANTAS||{}).forEach(function(cam){ (LLANTAS[cam]||[]).forEach(function(ll){
+    var cm=_llCostoMm(ll); if(cm==null||!ll.marca)return;
+    var m=ll.marca.toUpperCase(); if(!by[m])by[m]={marca:ll.marca,n:0,sum:0}; by[m].n++; by[m].sum+=cm;
+  });});
+  return Object.keys(by).map(function(k){var r=by[k];r.costoMm=r.sum/r.n;return r;}).sort(function(a,b){return a.costoMm-b.costoMm;});
+}
+
 function renderLlantas(){
   var buenas=0,regular=0,cambiar=0,total=0;
   var grid=g('llantas-grid');if(!grid)return;
@@ -5945,10 +5996,13 @@ function renderLlantas(){
     lls.forEach(function(ll){
       var c=ll.estado==='Buena'?'var(--green)':ll.estado==='Regular'?'var(--yellow)':'var(--red)';
       if(ll.estado==='Buena')buenas++;else if(ll.estado==='Regular')regular++;else cambiar++;
-      html+='<div style="background:var(--bg3);border:1px solid '+c+';border-radius:5px;padding:4px 6px;cursor:pointer" onclick="ciclarLlanta(\''+cam+'\','+lls.indexOf(ll)+')">'+
+      var _cm=_llCostoMm(ll);
+      html+='<div style="background:var(--bg3);border:1px solid '+c+';border-radius:5px;padding:4px 6px;cursor:pointer" title="Click para medir la profundidad (mm)" onclick="medirLlanta(\''+cam+'\','+lls.indexOf(ll)+')">'+
         '<div style="font-size:8px;color:var(--text3)">'+ll.posicion.slice(0,12)+'</div>'+
-        '<div style="font-size:10px;color:'+c+';font-weight:700">'+ll.estado+'</div>'+
-        (ll.km?'<div style="font-size:8px;color:var(--text3)">'+ll.km.toLocaleString()+'km</div>':'')+'</div>';
+        '<div style="font-size:10px;color:'+c+';font-weight:700">'+ll.estado+(ll.mm!=null?' · '+ll.mm+'mm':'')+'</div>'+
+        (ll.marca?'<div style="font-size:8px;color:var(--text2)">'+ll.marca+'</div>':'')+
+        (ll.km?'<div style="font-size:8px;color:var(--text3)">'+ll.km.toLocaleString()+'km</div>':'')+
+        (_cm!=null?'<div style="font-size:8px;color:var(--teal)">$'+_cm.toFixed(2)+'/mm</div>':'')+'</div>';
     });
     html+='</div></div>';
   });
@@ -5957,6 +6011,13 @@ function renderLlantas(){
   if(g('ll-buenas'))g('ll-buenas').textContent=buenas;
   if(g('ll-regular'))g('ll-regular').textContent=regular;
   if(g('ll-cambiar'))g('ll-cambiar').textContent=cambiar;
+  // Rendimiento por marca: qué marca cuesta menos por mm de vida útil (rinde más).
+  var rmEl=g('ll-marca-rendimiento');
+  if(rmEl){
+    var rm=_llRendimientoMarca();
+    rmEl.innerHTML=rm.length?('<div class="st" style="font-size:12px;margin-bottom:6px">🏁 Rendimiento por marca (menor $/mm = rinde más)</div><div class="tw"><table><thead><tr><th>Marca</th><th>Llantas</th><th>Costo $/mm</th></tr></thead><tbody>'+
+      rm.map(function(r,i){return '<tr><td style="font-weight:700">'+(i===0?'🥇 ':'')+r.marca+'</td><td style="text-align:center">'+r.n+'</td><td style="font-family:var(--m);color:var(--teal)">$'+r.costoMm.toFixed(2)+'</td></tr>';}).join('')+'</tbody></table></div>'):'';
+  }
   if(cambiar>0){
     var hoyLL=fechaVE();
     var keyLL='btg_wa_ll_'+hoyLL;
@@ -5977,10 +6038,20 @@ function ciclarLlanta(cam,idx){
 function registrarCambioLl(){
   var cam=gv('ll-cam'),pos=gv('ll-pos'),km=parseInt(gv('ll-km'))||0,fecha=gv('ll-fecha');
   if(!cam||!pos){alert('Selecciona camion y posicion');return;}
+  if(!LLANTAS[cam])LLANTAS[cam]=POS_LL.map(function(p){return{posicion:p,estado:'Buena',km:0,fecha:''};});
   var ll=LLANTAS[cam].find(function(l){return l.posicion===pos;});
-  if(ll){ll.estado='Buena';ll.km=km;ll.fecha=fecha;}
-  audit('Cambio llanta',cam+' '+pos+' '+km+'km');
-  alert('✅ Cambio de llanta registrado. '+pos+' ahora en Buen Estado.');
+  if(!ll){ll={posicion:pos};LLANTAS[cam].push(ll);}
+  var marca=(gv('ll-marca')||'').trim(), precio=parseFloat(gv('ll-precio'))||0;
+  var mm=(gv('ll-mm')!==''&&gv('ll-mm')!=null)?parseFloat(gv('ll-mm')):null;
+  // Llanta NUEVA: reinicia la vida útil (mm inicial = mm de hoy, km y fecha de instalación).
+  ll.marca=marca||ll.marca||''; if(precio)ll.precio=precio;
+  if(mm!=null){ll.mm=mm;ll.mmInicial=mm;}
+  ll.km=km; ll.kmInstalada=km; ll.fecha=fecha; ll.fechaInstalada=fecha;
+  ll.estado=(mm!=null?_estadoLlMm(mm):'Buena')||'Buena';
+  _guardarLlanta(cam,ll);
+  audit('Cambio llanta',cam+' '+pos+' '+km+'km'+(marca?' '+marca:'')+(mm!=null?' '+mm+'mm':''));
+  if(typeof mostrarToast==='function')mostrarToast('✅ Llanta nueva registrada en '+pos,'exito');
+  ['ll-km','ll-marca','ll-precio','ll-mm'].forEach(function(id){sv(id,'');});
   renderLlantas();
 }
 

@@ -355,6 +355,23 @@ function resetCola(){ app.COLA_OFFLINE=[]; app.COLA_FALLIDOS=[]; app._procesando
   ok('scorea al chofer', sc.rows.length === 1 && sc.rows[0].id === 'C1');
   eq('2 multas → score 100−16 = 84', sc.rows[0].score, 84);
 
+  console.log('\n#5 llantas por mm (estado + costo/mm + rendimiento por marca):');
+  ok('_estadoLlMm definida', typeof app._estadoLlMm === 'function');
+  eq('mm<3 → Cambiar Urgente', app._estadoLlMm(2), 'Cambiar Urgente');
+  eq('mm 4 → Regular', app._estadoLlMm(4), 'Regular');
+  eq('mm 8 → Buena', app._estadoLlMm(8), 'Buena');
+  eq('costo/mm = precio / mm gastados (300/(14-6)=37.5)', app._llCostoMm({ precio: 300, mmInicial: 14, mm: 6 }), 37.5);
+  eq('costo/mm null si falta dato', app._llCostoMm({ precio: 300, mm: 6 }), null);
+  app.LLANTAS = {
+    'JAC-B001': [
+      { posicion: 'DI', marca: 'Goodyear', precio: 300, mmInicial: 14, mm: 6 },   // 300/8 = 37.5
+      { posicion: 'DD', marca: 'Pirelli', precio: 200, mmInicial: 14, mm: 4 }     // 200/10 = 20 (rinde más)
+    ]
+  };
+  var rm = app._llRendimientoMarca();
+  eq('2 marcas comparadas', rm.length, 2);
+  eq('Pirelli rinde más (menor $/mm) va primero', rm[0].marca, 'Pirelli');
+
   // ── Resumen ──
   console.log('\n──────────────');
   console.log('PASS: ' + pass + '   FAIL: ' + fail);
