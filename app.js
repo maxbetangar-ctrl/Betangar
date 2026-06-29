@@ -2429,14 +2429,25 @@ function renderAlertasCriticas(){
 // TODOS los gastos reales (fuente ÚNICA para Utilidad Real — la usan el dashboard Y el financiero,
 // para que no haya 2 fórmulas distintas). Incluye CxP PENDIENTES (Máximo: cuentan aunque no se hayan
 // pagado) y multas que paga la empresa. Préstamos NO (capital prestado que se recupera, no es gasto).
+// ¿Es una CxP de COMPRA DE COMBUSTIBLE (generada automáticamente desde el módulo Combustible)?
+// Se EXCLUYE de egCxP para no duplicar: el combustible se cuenta UNA vez por la compra en GASOIL.
+function _esCxpCombustible(c){
+  if(!c)return false;
+  var d=String(c.descripcion||c.desc||'').toLowerCase();
+  var n=String(c.nota||'').toLowerCase();
+  return d.indexOf('compra combustible')===0 || n.indexOf('desde combustible')>=0;
+}
 function _totalEgresos(totalCob){
   totalCob=totalCob||0;
   var egNom=REGS.reduce(function(s,r){return s+(r.t*(cfg.chofer+cfg.ayud));},0);          // nómina
-  var egGas=GASOIL.reduce(function(s,g){return s+(g.m||0);},0);                            // combustible
+  // Combustible: SOLO las COMPRAS (no los despachos = movimiento interno del tanque ya pagado). La
+  // compra se cuenta UNA vez (decisión de Máximo). Las CxP de combustible se excluyen de egCxP abajo
+  // para no duplicar. Antes egGas sumaba compras+despachos + la CxP → mismo combustible 2-3 veces.
+  var egGas=GASOIL.reduce(function(s,g){return s+(_rentEsCompra(g)?(parseFloat(g.m)||0):0);},0);
   var eg75=totalCob*0.075;                                                                 // 7.5% Betangar
   var egFijos=(typeof GASTOS_FIJOS!=='undefined'?GASTOS_FIJOS:[]).reduce(function(s,gf){return s+(gf.monto||0);},0);
   var egVars=(typeof GASTOS_VARIABLES!=='undefined'?GASTOS_VARIABLES:[]).reduce(function(s,gv){return s+(gv.usd||0);},0);
-  var egCxP=(typeof CXP!=='undefined'?CXP:[]).reduce(function(s,c){return s+(parseFloat(c.neto_pagar||c.netoPagar||c.total_usd||0)||0);},0); // TODAS (pagadas + pendientes)
+  var egCxP=(typeof CXP!=='undefined'?CXP:[]).filter(function(c){return !_esCxpCombustible(c);}).reduce(function(s,c){return s+(parseFloat(c.neto_pagar||c.netoPagar||c.total_usd||0)||0);},0); // TODAS menos las de combustible (ya en egGas)
   // Multas que paga la EMPRESA, en USD. _multaMontoUsd soporta divisa (USD/EUR) y legacy Bs;
   // si no hay tasa real para una multa en Bs/EUR, devuelve 0 (no inventa) — ver helper.
   var egMul=(typeof MULTAS!=='undefined'?MULTAS:[]).filter(function(m){return m.resp!=='chofer';}).reduce(function(s,m){return s+_multaMontoUsd(m);},0);
@@ -7074,12 +7085,13 @@ function renderFinDash(){
   var totalCob=Math.min(ABONOS.reduce(function(s,a){return s+a.m;},0),totalFact);
   var porcobrar=Math.max(0,totalFact-totalCob);
   var egNom=REGS.reduce(function(s,r){return s+(r.t*(cfg.chofer+cfg.ayud));},0);
-  var egGas=GASOIL.reduce(function(s,g){return s+(g.m||0);},0);
+  // Combustible = solo COMPRAS (no despachos); las CxP de combustible se excluyen de egCxP (= _totalEgresos)
+  var egGas=GASOIL.reduce(function(s,g){return s+(_rentEsCompra(g)?(parseFloat(g.m)||0):0);},0);
   var eg75=totalCob*0.075;
   var egFijos=GASTOS_FIJOS.reduce(function(s,gf){return s+gf.monto;},0);
   var egVars=GASTOS_VARIABLES.reduce(function(s,gv){return s+(gv.usd||0);},0);
-  // CxP — TODAS (pagadas + pendientes): son gasto/obligación real (Máximo: cuentan aunque no se hayan pagado)
-  var egCxP=CXP.reduce(function(s,c){return s+(parseFloat(c.neto_pagar||c.netoPagar||c.total_usd||0)||0);},0);
+  // CxP — TODAS (pagadas + pendientes) MENOS las de combustible (ya contadas en egGas, sin duplicar)
+  var egCxP=CXP.filter(function(c){return !_esCxpCombustible(c);}).reduce(function(s,c){return s+(parseFloat(c.neto_pagar||c.netoPagar||c.total_usd||0)||0);},0);
   var utilBruta=totalCob-egNom-egGas;
   // Total de egresos y Utilidad Neta = MISMA fuente única que el dashboard (_totalEgresos), para que coincidan.
   var totalEg=_totalEgresos(totalCob);

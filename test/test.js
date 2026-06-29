@@ -395,6 +395,16 @@ function resetCola(){ app.COLA_OFFLINE=[]; app.COLA_FALLIDOS=[]; app._procesando
   eq('usa el choferId REGISTRADO (no el actual del camión)', app._choferDeMulta({ choferId: 'C2', camId: 'JAC-B001' }).id, 'C2');
   eq('sin choferId → cae al chofer del camión', app._choferDeMulta({ camId: 'JAC-B001' }).id, 'C1');
 
+  console.log('\n#B combustible cuenta UNA vez (compra vía CxP, sin doble conteo):');
+  ok('_esCxpCombustible definida', typeof app._esCxpCombustible === 'function');
+  ok('detecta CxP de compra de combustible', app._esCxpCombustible({ descripcion: 'Compra combustible 100 L @ $0.8/L' }) === true);
+  ok('CxP normal NO es de combustible', app._esCxpCombustible({ descripcion: 'Repuesto alternador' }) === false);
+  app.REGS = []; app.GASTOS_FIJOS = []; app.GASTOS_VARIABLES = []; app.MULTAS = [];
+  app.GASOIL = [{ cam: 'COMPRA · Tumaca', m: 1000, tipo_operacion: 'compra' }, { cam: 'JAC-B001', m: 300 }];
+  app.CXP = [{ descripcion: 'Compra combustible 1000 L', neto_pagar: 1000 }, { descripcion: 'Repuesto', neto_pagar: 200 }];
+  // Antes: egGas(1000+300) + egCxP(1000+200) = 2500 (combustible 2-3 veces). Ahora: compra 1000 (una vez) + repuesto 200 = 1200.
+  eq('combustible una sola vez: 1000 compra + 200 repuesto = 1200 (no 2500)', app._totalEgresos(0), 1200);
+
   // ── Resumen ──
   console.log('\n──────────────');
   console.log('PASS: ' + pass + '   FAIL: ' + fail);
