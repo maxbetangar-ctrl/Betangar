@@ -416,6 +416,16 @@ function resetCola(){ app.COLA_OFFLINE=[]; app.COLA_FALLIDOS=[]; app._procesando
   eq('ayudante: viajes efectivos = (12-3)+2 = 11 (no 12+2=14)', vpa.viajes, 11);
   eq('ayudante: patio efectivo = 2 (manual)', vpa.patio, 2);
 
+  console.log('\n#A CXP normalizada (sin $NaN, pagado=pagada):');
+  ok('_normCxpRow definida', typeof app._normCxpRow === 'function');
+  var cxRaw = { id: 'CX1', neto_pagar: 500, base_usd: 430, total_usd: 500, estado: 'pendiente', prov_nombre: 'Tumaca' };
+  var cn = app._normCxpRow(cxRaw);
+  eq('fila cruda snake_case → también trae netoPagar (legacy no ve NaN)', cn.netoPagar, 500);
+  eq('conserva neto_pagar (módulo nuevo)', cn.neto_pagar, 500);
+  eq('prov en ambos nombres', cn.prov, 'Tumaca');
+  ok('_cxpPagada acepta pagada y pagado', app._cxpPagada({ estado: 'pagada' }) === true && app._cxpPagada({ estado: 'pagado' }) === true);
+  ok('_cxpPagada false en pendiente', app._cxpPagada({ estado: 'pendiente' }) === false);
+
   // ── Resumen ──
   console.log('\n──────────────');
   console.log('PASS: ' + pass + '   FAIL: ' + fail);

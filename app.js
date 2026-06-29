@@ -1416,7 +1416,7 @@ async function cargarDatosDB(){
       });
     }catch(e){}
     // CXP
-    if(cxp.data&&cxp.data.length)CXP=cxp.data.map(function(x){return{id:x.id,fecha:x.fecha,provId:x.prov_id,prov:x.prov_nombre,nota:x.nota||'',factura:x.factura||'',desc:x.descripcion||'',baseUsd:parseFloat(x.base_usd)||0,ivaPct:parseFloat(x.iva_pct)||0,ivaUsd:parseFloat(x.iva_usd)||0,totalUsd:parseFloat(x.total_usd)||0,tasaTipo:x.tasa_tipo||'bcvDolar',tasaVal:parseFloat(x.tasa_val)||0,retPct:parseFloat(x.ret_pct)||0,retUsd:parseFloat(x.ret_usd)||0,netoPagar:parseFloat(x.neto_pagar)||0,neto_pagar:parseFloat(x.neto_pagar)||0,fechaVenc:x.fecha_venc||'',estado:x.estado||'pendiente',fechaPago:x.fecha_pago||'',refBnc:x.ref_bnc||''};});
+    if(cxp.data&&cxp.data.length)CXP=cxp.data.map(_normCxpRow); // mismo normalizador que cargarCxP (ambos esquemas → sin $NaN)
     // PROVEEDORES
     if(pv.data&&pv.data.length)PROVEEDORES=pv.data.map(function(x){return{
         id:x.id,nombre:x.nombre,rif:x.rif||'',
@@ -5263,7 +5263,7 @@ function renderCXP(){
   var tasa=TASAS.bcvDolar||cfg.tasa;
   if(g('cxp-stat-pend'))g('cxp-stat-pend').textContent='$'+pend.reduce(function(s,c){return s+parseFloat(c.netoPagar||c.neto_pagar||0);},0).toFixed(0);
   var mesActual=new Date().toISOString().slice(0,7);
-  var pagadasMes=CXP.filter(function(c){return c.estado==='pagado'&&(c.fechaPago||'').startsWith(mesActual);});
+  var pagadasMes=CXP.filter(function(c){return _cxpPagada(c)&&((c.fechaPago||c.fecha_pago||'')).startsWith(mesActual);});
   var totalRetIVA=pagadasMes.reduce(function(s,c){return s+parseFloat(c.ret_iva_usd||c.retUsd||0);},0);
   var totalRetISLR=pagadasMes.reduce(function(s,c){return s+parseFloat(c.ret_islr_usd||0);},0);
   if(g('cxp-kpi-iva'))g('cxp-kpi-iva').textContent='$'+totalRetIVA.toFixed(2);
@@ -9113,10 +9113,34 @@ var CXP = [];
 var CXP_PAGAR_ID = null;
 var CXP_BNC_PENDIENTE = null;
 
+// Normaliza una fila de `cxp` para que tenga AMBOS esquemas: camelCase (módulo legacy renderCXP) y
+// snake_case (módulo nuevo renderCxP/retenciones). Así las DOS pantallas muestran lo MISMO sin importar
+// qué loader corrió. El $NaN venía de que cargarCxP cargaba crudo (snake_case) y renderCXP leía netoPagar.
+function _normCxpRow(x){
+  x=x||{};
+  var neto=parseFloat(x.neto_pagar!=null?x.neto_pagar:x.netoPagar)||0;
+  return {
+    id:x.id,fecha:x.fecha,provId:x.prov_id||x.provId,prov:x.prov_nombre||x.prov||'',prov_nombre:x.prov_nombre||x.prov||'',
+    nota:x.nota||'',factura:x.factura||'',desc:x.descripcion||x.desc||'',descripcion:x.descripcion||x.desc||'',
+    baseUsd:parseFloat(x.base_usd)||0,base_usd:parseFloat(x.base_usd)||0,
+    ivaPct:parseFloat(x.iva_pct)||0,iva_pct:parseFloat(x.iva_pct)||0,
+    ivaUsd:parseFloat(x.iva_usd)||0,iva_usd:parseFloat(x.iva_usd)||0,
+    totalUsd:parseFloat(x.total_usd)||0,total_usd:parseFloat(x.total_usd)||0,
+    ret_iva_usd:parseFloat(x.ret_iva_usd)||0,ret_islr_usd:parseFloat(x.ret_islr_usd)||0,
+    ret_iva_pct:parseFloat(x.ret_iva_pct)||0,ret_islr_pct:parseFloat(x.ret_islr_pct)||0,
+    tasaTipo:x.tasa_tipo||'bcvDolar',tasa_tipo:x.tasa_tipo||'bcvDolar',tasaVal:parseFloat(x.tasa_val)||0,tasa_val:parseFloat(x.tasa_val)||0,
+    retPct:parseFloat(x.ret_pct)||0,retUsd:parseFloat(x.ret_usd)||0,
+    netoPagar:neto,neto_pagar:neto,
+    fechaVenc:x.fecha_venc||'',fecha_venc:x.fecha_venc||'',
+    estado:x.estado||'pendiente', fechaPago:x.fecha_pago||'',fecha_pago:x.fecha_pago||'',refBnc:x.ref_bnc||'',ref_bnc:x.ref_bnc||''
+  };
+}
+// ¿Una CxP está pagada? Acepta 'pagada' (módulo nuevo) y 'pagado' (legacy) — antes no coincidían.
+function _cxpPagada(c){ var e=String((c&&c.estado)||'').toLowerCase(); return e==='pagada'||e==='pagado'; }
 async function cargarCxP(){
   if(!DB_READY||!supabase)return;
   var res = await supabase.from('cxp').select('*').order('fecha_venc',{ascending:true});
-  if(!res.error&&res.data) CXP = res.data;
+  if(!res.error&&res.data) CXP = res.data.map(_normCxpRow);
   renderCxP();
   verificarPagoBNCpendiente();
 }
