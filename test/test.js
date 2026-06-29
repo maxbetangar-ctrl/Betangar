@@ -336,6 +336,25 @@ function resetCola(){ app.COLA_OFFLINE=[]; app.COLA_FALLIDOS=[]; app._procesando
   ok('cada fila trae el flag sobreCosto', Rr.rows.every(function (r) { return typeof r.sobreCosto === 'boolean'; }));
   ok('avgCostoViaje calculado', typeof Rr.avgCostoViaje === 'number');
 
+  console.log('\ninteligencia de flota (#3 compras + #4 scoring):');
+  ok('calcComprasSugeridas definida', typeof app.calcComprasSugeridas === 'function');
+  app.FLOTA = { 'JAC-B001': {} };
+  app.KM_DATA = { 'JAC-B001': { km: 59800 } }; // a 200 km del próximo servicio (60000)
+  app.INVENTARIO = [{ nombre: 'Filtro aceite', stock: 1, stockMin: 3, precio: 10 }, { nombre: 'Correa', stock: 5, stockMin: 2, precio: 20 }];
+  app.REGS = [];
+  var cs = app.calcComprasSugeridas();
+  ok('detecta servicio próximo (faltan ≤1000 km)', cs.servicios.some(function (s) { return s.cam === 'JAC-B001'; }));
+  eq('detecta 1 insumo bajo mínimo (filtro)', cs.bajos.length, 1);
+  eq('sugiere reponer filtro (min×2 − stock = 5)', cs.bajos[0].sugerido, 5);
+  ok('calcScoringChoferes definida', typeof app.calcScoringChoferes === 'function');
+  app.EMPLEADOS = [{ id: 'C1', nombre: 'JUAN PEREZ', cargo: 'Chofer', activo: true }];
+  app.REGS = [{ cam: 'JAC-B001', f: '2026-06-10', t: 10, ch: 'JUAN PEREZ' }];
+  app.MULTAS = [{ resp: 'chofer', choferId: 'C1', fecha: '2026-06-10' }, { resp: 'chofer', choferId: 'C1', fecha: '2026-06-11' }];
+  app.GASOIL = [];
+  var sc = app.calcScoringChoferes('', '');
+  ok('scorea al chofer', sc.rows.length === 1 && sc.rows[0].id === 'C1');
+  eq('2 multas → score 100−16 = 84', sc.rows[0].score, 84);
+
   // ── Resumen ──
   console.log('\n──────────────');
   console.log('PASS: ' + pass + '   FAIL: ' + fail);

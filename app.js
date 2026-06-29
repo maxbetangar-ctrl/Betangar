@@ -1149,7 +1149,7 @@ function sp(id){
     if(id==='historico'){poblarSems();filtH();}
     if(id==='stats'){renderAnalisisSubnav('stats');renderStats();}
     if(id==='ranking'){renderAnalisisSubnav('ranking');calcRanking();}
-    if(id==='empleados'){renderRRHHSubnav('empleados');renderEmpleados();renderCumpleanos();renderBancario();renderCarnetsPreview();}
+    if(id==='empleados'){renderRRHHSubnav('empleados');renderEmpleados();renderCumpleanos();renderBancario();renderCarnetsPreview();try{renderScoringChoferes();}catch(e){}}
     if(id==='usuarios')renderUsuarios();
     if(id==='financiero'){renderFinanzasSubnav('financiero');renderFinDash();renderGastosFijos();renderProveedoresLista();renderBancoFin();autoLlenarTasasEnFormularios();}
     if(id==='abonos'){renderAbonos();calcMontoAbono();}
@@ -1165,7 +1165,7 @@ function sp(id){
     if(id==='asistencia')renderAsistencia();
     if(id==='prestamos'){renderRRHHSubnav('prestamos');poblarEmps();renderPrestamos();}
     if(id==='multas'){renderRRHHSubnav('multas');poblarCams();renderMultas();}
-    if(id==='inventario')renderInventario();
+    if(id==='inventario'){renderInventario();try{renderComprasSugeridas();}catch(e){}}
     if(id==='llantas'){renderMantSubnav('llantas');renderLlantas();}
     if(id==='metas'){renderAnalisisSubnav('metas');prefillMeta();}
     if(id==='contratos')renderContratosLista();
@@ -14145,6 +14145,81 @@ function _intelCard(color,titulo,valor,detalle,onclick){
     '<div style="font-size:16px;font-weight:800;color:'+color+';margin:3px 0">'+valor+'</div>'+
     '<div style="font-size:11px;color:var(--text2)">'+detalle+'</div></div>';
 }
+// ── #3 COMPRAS SUGERIDAS (predictibilidad) ──────────────────────────────────
+// Servicios próximos (km/día estimado de planillas × cuánto falta para el próximo servicio) +
+// insumos bajo el mínimo. Reusa kmActualCam/proxServicio (Mantenimiento) e INVENTARIO (stock_min).
+function _kmPorDiaCam(cam){
+  var pts=(typeof REGS!=='undefined'?REGS:[]).filter(function(r){return r.cam===cam&&parseFloat(r.km)>0&&r.f;}).map(function(r){return {f:r.f,km:parseFloat(r.km)};}).sort(function(a,b){return a.f<b.f?-1:1;});
+  if(pts.length<2)return 0;
+  var dias=(new Date(pts[pts.length-1].f)-new Date(pts[0].f))/86400000, dkm=pts[pts.length-1].km-pts[0].km;
+  return (dias>0&&dkm>0)?dkm/dias:0;
+}
+function calcComprasSugeridas(){
+  var jac=Object.keys(typeof FLOTA!=='undefined'?FLOTA:{}).filter(function(k){return k.indexOf('JAC')===0;});
+  var servicios=[];
+  jac.forEach(function(cam){
+    var km=(typeof kmActualCam==='function')?kmActualCam(cam):0; if(!km)return;
+    var prox=(typeof proxServicio==='function')?proxServicio(km):0, falta=prox-km;
+    var kmDia=_kmPorDiaCam(cam)||(parseFloat(cfg.kmDia)||0);
+    var dias=kmDia>0?Math.round(falta/kmDia):null;
+    if(falta<=1000||(dias!=null&&dias<=14))servicios.push({cam:cam,km:km,prox:prox,falta:falta,kmDia:Math.round(kmDia),dias:dias});
+  });
+  servicios.sort(function(a,b){return (a.dias==null?9999:a.dias)-(b.dias==null?9999:b.dias);});
+  var bajos=(typeof INVENTARIO!=='undefined'?INVENTARIO:[]).filter(function(it){return (parseInt(it.stock)||0)<=(parseInt(it.stockMin)||0);})
+    .map(function(it){return {nombre:it.nombre,stock:parseInt(it.stock)||0,min:parseInt(it.stockMin)||0,sugerido:Math.max((parseInt(it.stockMin)||0)*2-(parseInt(it.stock)||0),1),precio:parseFloat(it.precio)||0};});
+  return {servicios:servicios,bajos:bajos};
+}
+function renderComprasSugeridas(){
+  var el=g('inv-compras-sugeridas'); if(!el)return;
+  var R=calcComprasSugeridas();
+  var h='';
+  h+='<div style="font-weight:700;font-size:12px;margin-bottom:4px">🔧 Servicios próximos (≤2 semanas o ≤1000 km)</div>';
+  h+=R.servicios.length?('<div class="tw"><table><thead><tr><th>Unidad</th><th>Km actual</th><th>Próx. servicio</th><th>Faltan km</th><th>~Días</th></tr></thead><tbody>'+
+    R.servicios.map(function(s){var rojo=(s.dias!=null&&s.dias<=7)||s.falta<=300;return '<tr><td style="font-weight:700">'+s.cam+'</td><td class="bv" style="text-align:right">'+s.km.toLocaleString()+'</td><td style="text-align:right">'+s.prox.toLocaleString()+'</td><td style="text-align:right;color:'+(rojo?'var(--red)':'var(--amber)')+'">'+Math.max(0,s.falta).toLocaleString()+'</td><td style="text-align:center;color:'+(rojo?'var(--red)':'var(--text2)')+'">'+(s.dias==null?'—':s.dias+'d')+'</td></tr>';}).join('')+'</tbody></table></div>'):'<div style="color:var(--text3);font-size:12px;padding:6px">Ningún servicio próximo. (Necesita km en planillas/checklist para estimar días.)</div>';
+  h+='<div style="font-weight:700;font-size:12px;margin:10px 0 4px">📦 Insumos bajo el mínimo</div>';
+  h+=R.bajos.length?('<div class="tw"><table><thead><tr><th>Item</th><th>Stock</th><th>Mínimo</th><th>Sugerido comprar</th></tr></thead><tbody>'+
+    R.bajos.map(function(b){return '<tr><td>'+b.nombre+'</td><td style="text-align:center;color:var(--red)">'+b.stock+'</td><td style="text-align:center">'+b.min+'</td><td style="text-align:center;font-weight:700;color:var(--green)">'+b.sugerido+'</td></tr>';}).join('')+'</tbody></table></div>'):'<div style="color:var(--text3);font-size:12px;padding:6px">Todo el inventario por encima del mínimo.</div>';
+  el.innerHTML=h;
+}
+
+// ── #4 SCORING DEL CONDUCTOR (sin GPS — proxy con datos que ya se capturan) ──
+// Score 100 base. Penaliza por multas de chofer y por consumo ineficiente (L/viaje de los camiones
+// que manejó vs el promedio de la flota). NO usa telemetría (eso necesita hardware GPS = pendiente).
+function calcScoringChoferes(des,hta){
+  var R=(typeof calcRentabilidadCamiones==='function')?calcRentabilidadCamiones(des,hta):{rows:[]};
+  var lViajeCam={}, sumLV=0, nLV=0;
+  R.rows.forEach(function(r){ if(r.viajes>0){ lViajeCam[r.cam]=r.lViaje; sumLV+=r.lViaje; nLV++; } });
+  var avgLV=nLV?sumLV/nLV:0;
+  var choferes=(typeof EMPLEADOS!=='undefined'?EMPLEADOS:[]).filter(function(e){return e.cargo==='Chofer'&&e.activo!==false;});
+  var rows=choferes.map(function(e){
+    var ck=_nombreCanonico(e.nombre).toUpperCase();
+    // planillas que manejó en el rango → viajes y camiones
+    var pf=(typeof REGS!=='undefined'?REGS:[]).filter(function(r){if(des&&r.f<des)return false;if(hta&&r.f>hta)return false;return _nombreCanonico(r.ch||'').toUpperCase()===ck;});
+    var viajes=pf.reduce(function(s,r){return s+(parseInt(r.t)||0);},0);
+    var cams={}; pf.forEach(function(r){cams[r.cam]=1;});
+    // eficiencia: promedio de L/viaje de los camiones que manejó
+    var lvs=Object.keys(cams).map(function(c){return lViajeCam[c]||0;}).filter(function(x){return x>0;});
+    var lViaje=lvs.length?lvs.reduce(function(s,x){return s+x;},0)/lvs.length:0;
+    var multas=(typeof MULTAS!=='undefined'?MULTAS:[]).filter(function(m){return m.resp==='chofer'&&String(m.choferId)===String(e.id)&&(!des||(m.fecha||'')>=des)&&(!hta||(m.fecha||'')<=hta);}).length;
+    var score=100; var notas=[];
+    if(multas){score-=multas*8;notas.push(multas+' multa(s)');}
+    if(avgLV>0&&lViaje>avgLV*1.15){score-=20;notas.push('consumo alto ('+lViaje.toFixed(1)+' L/viaje vs '+avgLV.toFixed(1)+')');}
+    score=Math.max(0,Math.min(100,Math.round(score)));
+    return {nombre:e.nombre,id:e.id,viajes:viajes,cams:Object.keys(cams).length,lViaje:lViaje,multas:multas,score:score,notas:notas.join(' · ')||'sin observaciones'};
+  }).filter(function(r){return r.viajes>0||r.multas>0;}).sort(function(a,b){return b.score-a.score;});
+  return {rows:rows,avgLV:avgLV};
+}
+function renderScoringChoferes(){
+  var el=g('emp-scoring'); if(!el)return;
+  var R=calcScoringChoferes('','');
+  if(!R.rows.length){el.innerHTML='<div style="color:var(--text3);font-size:12px;padding:6px">Sin datos de choferes en planillas todavía.</div>';return;}
+  el.innerHTML='<div class="tw"><table><thead><tr><th>Conductor</th><th>Score</th><th>Viajes</th><th>L/viaje</th><th>Multas</th><th>Observaciones</th></tr></thead><tbody>'+
+    R.rows.map(function(r){var col=r.score>=85?'var(--green2)':r.score>=70?'var(--yellow)':'var(--red)';var sem=r.score>=85?'🟢':r.score>=70?'🟡':'🔴';
+      return '<tr><td style="font-weight:700">'+sem+' '+r.nombre+'</td><td style="font-family:var(--m);font-weight:800;color:'+col+'">'+r.score+'</td><td style="text-align:center">'+r.viajes+'</td><td style="text-align:center">'+(r.lViaje?r.lViaje.toFixed(1):'—')+'</td><td style="text-align:center;color:'+(r.multas?'var(--red)':'var(--text3)')+'">'+r.multas+'</td><td style="font-size:11px;color:var(--text2)">'+r.notas+'</td></tr>';
+    }).join('')+'</tbody></table></div>'+
+    '<div style="font-size:10px;color:var(--text3);margin-top:6px">Estimado SIN telemetría (no usa GPS): se basa en multas y en el consumo de los camiones que manejó. La telemetría real (frenadas/velocidad) necesita hardware GPS — pendiente.</div>';
+}
+
 function renderInteligenciaFlota(){
   var el=g('dash-inteligencia'); if(!el)return;
   var cards=[];
@@ -14164,6 +14239,24 @@ function renderInteligenciaFlota(){
       caros.length?(caros.length+' sobre el promedio de la flota'):'Todos cerca del promedio',
       caros.length?('Revisar: '+caros.slice(0,4).map(function(r){return r.cam.replace('JAC-','')+' (+'+r.sobreCostoPct+'%)';}).join(', ')+' — posible falla oculta o mal uso'):'✓ Sin desvíos de costo >15%',
       "sp('rentabilidad')"));
+  }catch(e){}
+  // #3 Compras sugeridas (servicios próximos + insumos bajo mínimo)
+  try{
+    var cs=calcComprasSugeridas();
+    var nServ=cs.servicios.length, nBajos=cs.bajos.length, totalCs=nServ+nBajos;
+    cards.push(_intelCard(totalCs?'#38bdf8':'#22c55e','🛒 Compras / servicios por venir',
+      totalCs?(nServ+' servicio(s) próximo(s)'+(nBajos?' · '+nBajos+' insumo(s) bajo mínimo':'')):'Nada urgente por comprar',
+      nServ?('Próximo: '+cs.servicios.slice(0,3).map(function(s){return s.cam.replace('JAC-','')+(s.dias!=null?' ('+s.dias+'d)':'');}).join(', ')):(nBajos?'Reponer: '+cs.bajos.slice(0,3).map(function(b){return b.nombre;}).join(', '):'✓ Inventario y servicios al día'),
+      "sp('inventario')"));
+  }catch(e){}
+  // #4 Salud del conductor (scoring sin GPS)
+  try{
+    var sc=calcScoringChoferes('','');
+    var malos=sc.rows.filter(function(r){return r.score<70;});
+    cards.push(_intelCard(malos.length?'#ef4444':'#22c55e','🧑‍✈️ Salud del conductor',
+      malos.length?(malos.length+' conductor(es) en rojo'):(sc.rows.length?'Todos en verde/amarillo':'Sin datos aún'),
+      malos.length?('Capacitar/revisar: '+malos.slice(0,3).map(function(r){return r.nombre.split(' ')[0]+' ('+r.score+')';}).join(', ')):'✓ Sin conductores críticos',
+      "sp('empleados')"));
   }catch(e){}
   el.innerHTML=cards.length?('<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px">'+cards.join('')+'</div>'):'';
 }
