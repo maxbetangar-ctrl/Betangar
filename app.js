@@ -4926,9 +4926,11 @@ async function consultarSaldoBNC(){
       var bal=Number(c.Balance!=null?c.Balance:(c.balance||0));
       if(mon==='VES')totVES+=bal;
     });
-    BNC_SALDO=totVES;
     BNC_CONFIG.guid=BNC_CONFIG.guid||'✓'; // el saldo llegó → hay credenciales válidas en el servidor
-    renderBNCDash();renderDash();
+    // FUENTE ÚNICA del Saldo BNC: NO fijar un número paralelo acá. Se refresca el RESUMEN del día (es el
+    // canónico, el MISMO que muestra la tabla "Saldos en cuenta") → el KPI y la tabla SIEMPRE cuadran.
+    // Antes este 'saldo' en vivo competía con el resumen y el KPI mostraba uno distinto al de la tabla.
+    if(typeof renderBncDashResumen==='function')renderBncDashResumen(true); else {BNC_SALDO=totVES;renderBNCDash();renderDash();}
     if(fe)fe.textContent='Actualizado: '+new Date().toLocaleString('es-VE')+' · '+ks.length+' cuenta(s)';
   }catch(e){
     if(fe)fe.textContent='❌ '+(e.name==='TimeoutError'?'El BNC no respondió a tiempo':e.message);
@@ -5139,9 +5141,8 @@ async function testBNC(){
       var det=(d&&(d.error||(d.respuesta&&(d.respuesta.message||d.respuesta.Message))))||'sin respuesta';
       res.style.color='var(--red)';res.textContent='❌ Error en paso «'+((d&&d.step)||'?')+'»: '+det;return;
     }
-    var s=d.saldos||{};var ks=Object.keys(s);var totVES=0;
-    ks.forEach(function(k){var c=s[k]||{};if((c.CurrencyCode||c.currencyCode||'VES').toUpperCase()==='VES')totVES+=Number(c.Balance!=null?c.Balance:(c.balance||0));});
-    if(totVES>0){BNC_SALDO=totVES;renderBNCDash();renderDash();}
+    var s=d.saldos||{};var ks=Object.keys(s);
+    // testBNC es SOLO prueba de conexión: NO fija BNC_SALDO (el saldo lo maneja el resumen = fuente única).
     res.style.color='var(--green)';res.textContent='✅ Conexion BNC OK — '+ks.length+' cuenta(s) consultada(s).';
   }catch(e){res.style.color='var(--red)';res.textContent='❌ '+(e.name==='TimeoutError'?'El BNC no respondio a tiempo':e.message);}
 }
