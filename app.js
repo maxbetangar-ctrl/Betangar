@@ -4160,22 +4160,22 @@ function _audConstruir(h,tolPatio){
   var chV={},chD={},ayV={},ayD={};
   pw.forEach(function(r){
     var t=parseInt(r.t)||0, dom=_esDomingoOferiado(r.f)?t:0;
-    var ck=_nombreCanonico(r.ch||TEMPORALES[r.cam]||'').toUpperCase(); if(ck){chV[ck]=(chV[ck]||0)+t;chD[ck]=(chD[ck]||0)+dom;}
+    var ck=_normNom(_nombreCanonico(r.ch||TEMPORALES[r.cam]||'')); if(ck){chV[ck]=(chV[ck]||0)+t;chD[ck]=(chD[ck]||0)+dom;}
     [r.ay1,r.ay2,r.ay3].forEach(function(nm){if(!nm)return;var ak=_normNom(_nombreCanonico(nm));if(ak){ayV[ak]=(ayV[ak]||0)+t;ayD[ak]=(ayD[ak]||0)+dom;}});
   });
   // Presencia en TODAS las planillas (cualquier fecha) → distingue "sin planilla en el sistema"
   // (ex-chofer / semana vieja anterior a las planillas) de "tiene planilla pero en otra fecha".
   var chAll={}, ayAll={};
   (REGS||[]).forEach(function(r){
-    var ck=_nombreCanonico(r.ch||TEMPORALES[r.cam]||'').toUpperCase(); if(ck)chAll[ck]=1;
+    var ck=_normNom(_nombreCanonico(r.ch||TEMPORALES[r.cam]||'')); if(ck)chAll[ck]=1;
     [r.ay1,r.ay2,r.ay3].forEach(function(nm){if(!nm)return;var ak=_normNom(_nombreCanonico(nm));if(ak)ayAll[ak]=1;});
   });
   var d=h.detalle||{}, filas=[], nFlag=0, sumOver=0, nSin=0;
   // Pagos por ACTIVIDADES ESPECIALES (planilla especial) de esa semana, por trabajador → se SUMAN
   // a "corresponde" para que el cotejo cuadre (el pagado ya los incluye). Se enlaza por nombre canónico.
   function _extrasUsdDe(nombre){
-    var kk=_nombreCanonico(nombre).toUpperCase();
-    return (d.extras||[]).reduce(function(s,e){return s+(_nombreCanonico(e.n).toUpperCase()===kk?(parseFloat(e.usd)||0):0);},0);
+    var kk=_normNom(_nombreCanonico(nombre));
+    return (d.extras||[]).reduce(function(s,e){return s+(_normNom(_nombreCanonico(e.n))===kk?(parseFloat(e.usd)||0):0);},0);
   }
   function chk(arr,vmap,dmap,allMap,keyFn,rateFn,rol){
     (arr||[]).forEach(function(p){
@@ -4199,7 +4199,7 @@ function _audConstruir(h,tolPatio){
   }
   var rCh=function(){return (typeof cfg!=='undefined'&&cfg.chofer)?cfg.chofer:10;};
   var rAy=function(p){return (p&&p.tipo==='imau')?((typeof cfg!=='undefined'&&cfg.imau)?cfg.imau:2.5):((typeof cfg!=='undefined'&&cfg.ayud)?cfg.ayud:5);};
-  chk(d.choferes,chV,chD,chAll,function(n){return _nombreCanonico(n).toUpperCase();},rCh,'Chofer');
+  chk(d.choferes,chV,chD,chAll,function(n){return _normNom(_nombreCanonico(n));},rCh,'Chofer'); // _normNom en AMBOS lados (igual que ayudantes): colapsa espacios dobles y acentos → no marca "sin planilla" por "JOSE  ELITE" vs "JOSE ELITE"
   chk(d.ayudantes,ayV,ayD,ayAll,function(n){return _normNom(_nombreCanonico(n));},rAy,'Ayud'); // _nombreCanonico (alias-aware) en AMBOS lados — resuelve corto↔completo incl. nombres pegados como MANUELFRANCISCO
   var _rank={OVER:3,OTRA_FECHA:2,'':1,SIN_SISTEMA:0}; // OVER arriba, SIN_SISTEMA (informativo) al fondo
   filas.sort(function(a,b){return (_rank[b.flag]-_rank[a.flag])||b.diff-a.diff;});

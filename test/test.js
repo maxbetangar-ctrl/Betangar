@@ -482,6 +482,20 @@ function resetCola(){ app.COLA_OFFLINE=[]; app.COLA_FALLIDOS=[]; app._procesando
   var agSinRango = app._audConstruir({ semana: 'SEM-VIEJA', detalle: { choferes: [], ayudantes: [], extras: [] } }, false);
   ok('sinRango=true cuando el historial no tiene fecha_desde/hasta', agSinRango.sinRango === true);
 
+  // #C matching de choferes robusto a espacios dobles / acentos (_normNom en ambos lados):
+  // planilla "JOSE  ELITE" (doble espacio, viene del nombre del empleado) vs historial "JOSE ELITE" (un espacio)
+  app.EMPLEADOS = [];
+  app.REGS = [{ cam: 'JAC-B005', f: '2026-06-10', t: 9, ch: 'JOSE  ELITE ARANGUREN GONZALEZ' }];
+  var hC = {
+    semana: 'SEM-Y', fecha_desde: '2026-06-08', fecha_hasta: '2026-06-14',
+    detalle: { choferes: [{ n: 'JOSE ELITE ARANGUREN GONZALEZ', usd: 90, pat: 0 }], ayudantes: [], extras: [] }
+  };
+  var agC = app._audConstruir(hC, false);
+  var fJose = agC.filas.find(function (x) { return /ARANGUREN/.test(x.n); });
+  eq('chofer con doble espacio SÍ se reconoce (9 viajes)', fJose.vj, 9);
+  ok('no lo marca "sin planilla en el sistema"', fJose.flag !== 'SIN_SISTEMA');
+  eq('cuadra: corr 90 = pag 90, diff 0', fJose.diff, 0);
+
   // ── Resumen ──
   console.log('\n──────────────');
   console.log('PASS: ' + pass + '   FAIL: ' + fail);
