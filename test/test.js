@@ -448,6 +448,12 @@ function resetCola(){ app.COLA_OFFLINE=[]; app.COLA_FALLIDOS=[]; app._procesando
   eq('saldo = 15000 − (4000+1000) del período, ignora el viejo = 10000', sc2.saldoBs, 10000);
   eq('saldo USD = 10000/100 = 100', sc2.saldoUsd, 100);
 
+  console.log('\n#1 planilla especial: mes de la fecha (mismo formato que las planillas):');
+  ok('_mesDeF definida', typeof app._mesDeF === 'function');
+  eq('_mesDeF jun-26', app._mesDeF('2026-06-30'), 'jun-26');
+  eq('_mesDeF ene-26', app._mesDeF('2026-01-05'), 'ene-26');
+  eq('_mesDeF dic-25', app._mesDeF('2025-12-15'), 'dic-25');
+
   // ── Resumen ──
   console.log('\n──────────────');
   console.log('PASS: ' + pass + '   FAIL: ' + fail);

@@ -3635,23 +3635,26 @@ var _ALIAS_USER={};
 async function cargarAliasNombres(){
   if(!(DB_READY&&supabase))return;
   try{ var r=await supabase.from('configuracion').select('valor').eq('clave','alias_nombres').maybeSingle();
-    if(r&&r.data&&r.data.valor){ var v=JSON.parse(r.data.valor); if(v&&typeof v==='object'){ _ALIAS_USER=v; for(var k in v)_ALIAS_NOMBRES[k]=v[k]; } }
+    if(r&&r.data&&r.data.valor){ var v=JSON.parse(r.data.valor); if(v&&typeof v==='object'){ for(var k in v){ _ALIAS_USER[k]=v[k]; _ALIAS_NOMBRES[k]=v[k]; } } }
   }catch(e){console.log('alias load:',e&&e.message);}
 }
 async function guardarAliasNombresDB(){
   try{ if(DB_READY&&supabase){var r=await supabase.from('configuracion').upsert([{clave:'alias_nombres',valor:JSON.stringify(_ALIAS_USER)}],{onConflict:'clave'}); if(r&&r.error&&typeof mostrarToast==='function')mostrarToast('No se pudo guardar el alias: '+r.error.message,'error');} }catch(e){if(typeof mostrarToast==='function')mostrarToast('Sin conexión al guardar el alias','error');}
   try{localStorage.setItem('btg_alias_nombres',JSON.stringify(_ALIAS_USER));}catch(e){}
 }
-function agregarAlias(){
+async function agregarAlias(){
   var corto=(gv('alias-corto')||'').trim(), full=(gv('alias-full')||'').trim();
   if(!corto||!full){alert('Escribí el nombre como sale en la planilla y el nombre completo.');return;}
   var key=(typeof _normNom==='function')?_normNom(corto):corto.toUpperCase();
   _ALIAS_USER[key]=full.toUpperCase(); _ALIAS_NOMBRES[key]=full.toUpperCase();
-  guardarAliasNombresDB();
+  // AWAIT antes de refrescar: antes guardaba async y recalcNom recargaba de la BD pisando el alias
+  // recién puesto (carrera) → "guardaba pero no listaba ni aplicaba". Ahora se persiste primero.
+  await guardarAliasNombresDB();
   audit('Alias de nombre agregado',corto+' → '+full);
   sv('alias-corto','');sv('alias-full','');
   renderAliasManager();
-  try{recalcNom();}catch(e){} // refresca cotejo/nómina con el alias nuevo
+  try{calcNom();}catch(e){}                     // recomputa la nómina y el cotejo en vivo con el alias
+  try{renderAuditoriaPagos();}catch(e){}         // refresca la pestaña Auditoría de Pagos
   if(typeof mostrarToast==='function')mostrarToast('✅ Alias guardado — el cotejo ya lo reconoce','exito');
 }
 function elimAlias(key){
@@ -3687,6 +3690,9 @@ function _extraUsd(x){
   if(emp&&emp.cargo==='Ayudante')rate=(emp.tipoAy==='imau')?((cfg&&cfg.imau)||2.5):((cfg&&cfg.ayud)||5);
   return (parseFloat(x.viajes)||0)*rate;
 }
+// Mes en formato Betangar ('jun-26') de una fecha YYYY-MM-DD — MISMO formato que r.mes de las planillas
+// (autoData usa exactamente esto). Para filtrar las actividades especiales por el mismo mes/semana.
+function _mesDeF(f){ if(!f)return ''; var ms=['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic']; var d=new Date(String(f).slice(0,10)+'T12:00:00'); return ms[d.getMonth()]+'-'+String(d.getFullYear()).slice(2); }
 function _extrasNominaPeriodo(desde,hasta){
   return (NOMINA_EXTRAS||[]).filter(function(x){
     if(!x.fecha)return false;
@@ -3893,11 +3899,17 @@ function calcNom(){
   var totImauPlan=imauVj*((typeof cfg!=='undefined'&&cfg.imau)?cfg.imau:2.5);
   var totImauFijo=(typeof imauTotal==='function')?imauTotal():0;
   var totImau=totImauPlan+totImauFijo;
-  // ACTIVIDADES ESPECIALES (planilla especial): pagos fuera de viajes en el MISMO período. Suman al
-  // total → la nómina cuadra. Rango = des/hta si están, si no el min/max de las planillas del filtro.
-  var _pDesde=des||(f.length?f.reduce(function(m,r){return r.f<m?r.f:m;},f[0].f):null);
-  var _pHasta=hta||(f.length?f.reduce(function(m,r){return r.f>m?r.f:m;},f[0].f):null);
-  var _extrasP=_extrasNominaPeriodo(_pDesde,_pHasta);
+  // ACTIVIDADES ESPECIALES (planilla especial): se filtran con el MISMO criterio que las planillas
+  // (mes 'jun-26' vía _mesDeF, semana vía getSem, o rango des/hta) → suman aunque NO exista una planilla
+  // en la fecha exacta del traslado. Antes dependían del min/max de las planillas y a veces no sumaban.
+  var _extrasP=(typeof NOMINA_EXTRAS!=='undefined'?NOMINA_EXTRAS:[]).filter(function(x){
+    if(!x.fecha)return false;
+    if(mes&&_mesDeF(x.fecha)!==mes)return false;
+    if(sem&&(typeof getSem==='function'?getSem(x.fecha):'')!==sem)return false;
+    if(des&&x.fecha<des)return false;
+    if(hta&&x.fecha>hta)return false;
+    return true;
+  });
   var totExtras=_extrasP.reduce(function(s,x){return s+_extraUsd(x);},0);
   var totUsd=totOp+totAdm+totImau+totExtras;
   var totBs=totUsd*tasa;
@@ -3933,7 +3945,7 @@ function calcNom(){
       '<td style="font-size:10px">'+Array.from(c.cams||[]).join(', ')+'</td>'+
       '<td style="color:var(--green)"><div style="display:flex;align-items:center;justify-content:space-between;gap:6px">'+
         '<span style="display:flex;align-items:center;gap:3px"><b>'+vjCh+'</b>'+
-        ' <input type="number" min="0" value="'+patM+'" title="Días de actividad sin viaje (patio/traslado/lavado): +1 viaje c/u. Si lo cargás a mano, manda sobre el automático de asistencia." onchange="setPatioDias(\''+key.replace(/'/g,"")+'\',this.value)" style="width:30px;font-size:9px;background:var(--bg3);border:1px solid var(--border);color:var(--amber);border-radius:4px;padding:1px 2px;text-align:center"><span style="font-size:8px;color:var(--amber)">P</span>'+(patM>0?(' <input type="text" value="'+String(PATIO_NOTA[key]||'').replace(/"/g,'&quot;')+'" placeholder="actividad" title="¿Qué actividad? patio / traslado a autolavado / lavado de domingo..." onchange="setPatioNota(\''+key.replace(/'/g,"")+'\',this.value)" style="width:85px;font-size:9px;background:var(--bg3);border:1px solid var(--border);color:var(--text2);border-radius:4px;padding:1px 4px">'):'')+'</span>'+
+        ' <input type="number" min="0" value="'+patM+'" title="Días de actividad sin viaje (patio/traslado/lavado): +1 viaje c/u. Si lo cargás a mano, manda sobre el automático de asistencia." onchange="setPatioDias(\''+key.replace(/'/g,"")+'\',this.value)" style="width:30px;font-size:9px;background:var(--bg3);border:1px solid var(--border);color:var(--amber);border-radius:4px;padding:1px 2px;text-align:center"><span style="font-size:8px;color:var(--amber)">P</span></span>'+
         '<span style="display:flex;gap:3px;white-space:nowrap">'+(c.viajesDom>0?'<span style="font-size:8px;color:var(--teal)" title="viajes en domingo/feriado pagados a 1.5×">+'+c.viajesDom+'D</span>':'')+((patM>0?0:(c.patio||0))>0?'<span style="font-size:8px;color:var(--amber)" title="patio por asistencia">+'+(c.patio||0)+'P</span>':'')+'</span>'+
         '</div></td>'+
       '<td>'+c.dias.size+'</td>'+
@@ -3947,7 +3959,7 @@ function calcNom(){
     var vp=_ayPatio(a); var vTot=vp.viajes; // viajes efectivos (manual manda; sin doble patio)
     var sueldo=vTot*a.tasa+(a.recargoDom||0);var total=Math.max(0,sueldo-a.descuentos);
     var nota=a.porNombre>0&&a.porCam>0?'('+a.porNombre+'v nombre + '+a.porCam+'v camión)':'';
-    var inputPatio=esImau?'':(' <input type="number" min="0" value="'+patAyM+'" title="Días de actividad sin viaje (patio/traslado/lavado): +1 viaje c/u" onchange="setPatioDias(\''+a.emp.id+'\',this.value)" style="width:30px;font-size:9px;background:var(--bg3);border:1px solid var(--border);color:var(--amber);border-radius:4px;padding:1px 2px;text-align:center"><span style="font-size:8px;color:var(--amber)">P</span>'+(patAyM>0?(' <input type="text" value="'+String(PATIO_NOTA[a.emp.id]||'').replace(/"/g,'&quot;')+'" placeholder="actividad" title="¿Qué actividad? patio / traslado a autolavado / lavado de domingo..." onchange="setPatioNota(\''+a.emp.id+'\',this.value)" style="width:95px;font-size:9px;background:var(--bg3);border:1px solid var(--border);color:var(--text2);border-radius:4px;padding:1px 4px">'):''));
+    var inputPatio=esImau?'':(' <input type="number" min="0" value="'+patAyM+'" title="Días de actividad sin viaje (patio/traslado/lavado): +1 viaje c/u" onchange="setPatioDias(\''+a.emp.id+'\',this.value)" style="width:30px;font-size:9px;background:var(--bg3);border:1px solid var(--border);color:var(--amber);border-radius:4px;padding:1px 2px;text-align:center"><span style="font-size:8px;color:var(--amber)">P</span>');
     // Ayudante INACTIVO con viajes: se paga igual pero se marca ⚠️ (apareció en planilla dado de baja).
     var _inactAy=(a.emp.activo===false);
     var _badgeInactAy=_inactAy?' <span style="font-size:8px;color:var(--amber)" title="Ayudante INACTIVO en la Lista Maestra pero con viajes en la planilla — revisar">⚠️ inactivo</span> <button class="btn btn-s" style="font-size:8px;padding:1px 5px" onclick="corregirInactivoNomina(\''+a.emp.id+'\')" title="Corregir: reactivar (si sí trabajó) o arreglar la planilla (si fue empleado equivocado). Pide token.">✏️ corregir</button>':'';
