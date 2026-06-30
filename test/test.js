@@ -432,6 +432,22 @@ function resetCola(){ app.COLA_OFFLINE=[]; app.COLA_FALLIDOS=[]; app._procesando
   var emA = app._empPorNombre('Yiber Gonzalez');
   ok('_empPorNombre resuelve por alias (corto→empleado completo)', emA && emA.id === 'E1');
 
+  console.log('\n#J caja chica (saldo desde la última reposición, sin borrar gastos del período):');
+  ok('calcSaldoCaja definida', typeof app.calcSaldoCaja === 'function');
+  app.TASAS.bcvDolar = 100;
+  app.CAJACHICA = {
+    montoFijo: 150,
+    reposiciones: [{ fecha: '2026-06-01', tasa: 100, montoBs: 15000, montoUsd: 150 }],
+    gastos: [
+      { fecha: '2026-05-20', concepto: 'viejo (otro período)', montoBs: 9000, factura: 'no' }, // antes de la reposición → NO cuenta
+      { fecha: '2026-06-10', concepto: 'gasto1', montoBs: 4000, factura: 'si' },
+      { fecha: '2026-06-12', concepto: 'gasto2', montoBs: 1000, factura: 'no' }
+    ]
+  };
+  var sc2 = app.calcSaldoCaja();
+  eq('saldo = 15000 − (4000+1000) del período, ignora el viejo = 10000', sc2.saldoBs, 10000);
+  eq('saldo USD = 10000/100 = 100', sc2.saldoUsd, 100);
+
   // ── Resumen ──
   console.log('\n──────────────');
   console.log('PASS: ' + pass + '   FAIL: ' + fail);

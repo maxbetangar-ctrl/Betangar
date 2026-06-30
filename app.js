@@ -1172,7 +1172,7 @@ function sp(id){
     if(id==='multicontrato')abrirMultiContrato();
     if(id==='config'){renderFlotaCfgLista();renderNomAdm();renderWANums();renderWAEmpresarial();renderRecordatorios();renderCfgCorrelativo();}
     if(id==='cxp'){cargarCxP();}
-    if(id==='cajachica'){renderFinanzasSubnav('cajachica');renderCajaChica();}
+    if(id==='cajachica'){renderFinanzasSubnav('cajachica');cargarCajaChica().then(function(){renderCajaChica();}).catch(function(){renderCajaChica();});}
     if(id==='proveedores'){setTimeout(function(){switchProvTab('cxp');cargarCxP();},100);}
     if(id==='auditoria')renderAuditoria();
     // Módulos especiales
@@ -9980,6 +9980,17 @@ try{
 function guardarCajaChicaLS(){
   try{localStorage.setItem('btg_cajachica',JSON.stringify(CAJACHICA));}catch(e){}
 }
+// Cargar caja chica desde Supabase (verdad) — antes SOLO leía localStorage → en otro equipo salía 0.
+async function cargarCajaChica(){
+  if(!(DB_READY&&supabase))return;
+  try{
+    var rg=await supabase.from('caja_chica').select('*').order('fecha',{ascending:true});
+    var rr=await supabase.from('caja_chica_reposiciones').select('*').order('fecha',{ascending:true});
+    if(rg&&!rg.error&&Array.isArray(rg.data))CAJACHICA.gastos=rg.data.map(function(x){return{id:x.id||('CC'+(x.created_at||x.fecha||'')),fecha:x.fecha,concepto:x.concepto||'',montoBs:parseFloat(x.monto_bs)||0,montoUsd:parseFloat(x.monto_usd)||0,factura:(x.con_factura?'si':'no'),tasa:parseFloat(x.tasa)||0};});
+    if(rr&&!rr.error&&Array.isArray(rr.data))CAJACHICA.reposiciones=rr.data.map(function(x){return{fecha:x.fecha,tasa:parseFloat(x.tasa)||0,montoBs:parseFloat(x.monto_bs)||0,montoUsd:parseFloat(x.monto_usd)||CAJACHICA.montoFijo};});
+    guardarCajaChicaLS();
+  }catch(e){console.log('cajachica load:',e&&e.message);}
+}
 
 function calcSaldoCaja(){
   var ultimaRep=CAJACHICA.reposiciones.length?
@@ -10002,8 +10013,12 @@ function renderCajaChica(){
   var gastadoHoy=CAJACHICA.gastos
     .filter(function(g){return g.fecha===hoy;})
     .reduce(function(s,g){return s+parseFloat(g.montoBs||0);},0);
-  var conFact=CAJACHICA.gastos.reduce(function(s,g){return g.factura==='si'?s+parseFloat(g.montoBs||0):s;},0);
-  var sinFact=CAJACHICA.gastos.reduce(function(s,g){return g.factura!=='si'?s+parseFloat(g.montoBs||0):s;},0);
+  // Con/Sin factura del PERÍODO ACTUAL (desde la última reposición) → reconcilia con el saldo (que usa
+  // el mismo corte). Antes sumaba TODO el histórico y no cuadraba con el saldo.
+  var _repFecha=CAJACHICA.reposiciones.length?CAJACHICA.reposiciones[CAJACHICA.reposiciones.length-1].fecha:'';
+  var _gPeriodo=CAJACHICA.gastos.filter(function(g){return !_repFecha||g.fecha>=_repFecha;});
+  var conFact=_gPeriodo.reduce(function(s,g){return g.factura==='si'?s+parseFloat(g.montoBs||0):s;},0);
+  var sinFact=_gPeriodo.reduce(function(s,g){return g.factura!=='si'?s+parseFloat(g.montoBs||0):s;},0);
 
   var elSaldoBs=g('cc-saldo-bs');if(elSaldoBs)elSaldoBs.textContent='Bs '+saldo.saldoBs.toFixed(0);
   var elSaldoUsd=g('cc-saldo-usd');if(elSaldoUsd)elSaldoUsd.textContent='$'+saldo.saldoUsd.toFixed(2);
@@ -10121,7 +10136,8 @@ function guardarReposicion(){
   var montoBs=CAJACHICA.montoFijo*tasa;
   var rep={fecha:fecha,tasa:tasa,montoBs:montoBs,montoUsd:CAJACHICA.montoFijo};
   CAJACHICA.reposiciones.push(rep);
-  CAJACHICA.gastos=CAJACHICA.gastos.filter(function(g){return g.fecha<fecha;});
+  // NO purgar gastos acá (antes el filtro estaba INVERTIDO: conservaba los viejos y borraba los nuevos).
+  // Se conserva el historial completo; calcSaldoCaja y los totales filtran por la última reposición.
   guardarCajaChicaLS();
   if(DB_READY&&supabase){
     supabase.from('caja_chica_reposiciones').insert([{
