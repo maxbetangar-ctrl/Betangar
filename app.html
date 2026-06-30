@@ -1498,6 +1498,7 @@ tr:hover td{background:rgba(45,255,122,.02)}
       <select class="fc" id="aud-sem" onchange="renderAuditoriaPagos()" style="font-size:12px;max-width:220px;padding:5px 8px"></select>
       <label style="font-size:11px;color:var(--text3);cursor:pointer"><input type="checkbox" id="aud-patio" checked onchange="renderAuditoriaPagos()"> tolerar patio (±2 días)</label>
       <button class="btn btn-s btn-sm" onclick="imprimirAuditoriaPagos()">🖨️ Imprimir</button>
+      <button class="btn btn-y btn-sm" onclick="reguardarTodasNominas()" title="Recalcula cada semana del historial con el motor actual (arregla doble-conteos y patio viejos). No avanza cuotas. No toca semanas sin rango de fechas.">♻️ Re-guardar todas</button>
       <div id="aud-resumen" style="font-size:11px"></div>
     </div>
     <div id="aud-lista" class="tw"></div>
@@ -2318,7 +2319,7 @@ tr:hover td{background:rgba(45,255,122,.02)}
 </div>
 
 <script src="money.js?v=20260628n"></script>
-<script src="app.js?v=20260630c"></script>
+<script src="app.js?v=20260630d"></script>
 
 <!-- Modal global -->
 <div id="modal" class="moverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9990;align-items:center;justify-content:center;padding:16px">

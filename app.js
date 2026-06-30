@@ -3714,21 +3714,24 @@ function renderNominaExtras(extrasP){
     return '<tr><td>'+formatFecha(x.fecha)+'</td><td style="font-weight:700">'+(x.empNombre||'—')+'</td>'+
       '<td style="font-size:11px">'+(x.actividad||'—')+'</td><td style="font-size:10px;color:var(--text3)">'+detalle+'</td>'+
       '<td style="font-family:var(--m);color:var(--yellow)">$'+u.toFixed(2)+'</td>'+
-      '<td><button class="btn btn-r btn-xs" onclick="elimNominaExtra(\''+x.id+'\')">x</button></td></tr>';
+      '<td style="white-space:nowrap"><button class="btn btn-s btn-xs" title="Editar" onclick="abrirPlanillaEspecial(\''+x.id+'\')">✏️</button> <button class="btn btn-r btn-xs" onclick="elimNominaExtra(\''+x.id+'\')">x</button></td></tr>';
   }).join('')+'<tr class="tr-tot"><td colspan="4">TOTAL ACTIVIDADES ESPECIALES</td><td style="font-family:var(--m);font-weight:700;color:var(--yellow)">$'+tot.toFixed(2)+'</td><td></td></tr>';
 }
 // Modal "Planilla especial" (desde Registro Diario): paga una actividad fuera de viajes.
-function abrirPlanillaEspecial(){
+function abrirPlanillaEspecial(editId){
   var emps=(typeof EMPLEADOS!=='undefined'?EMPLEADOS:[]).filter(function(e){return e.nombre;}).slice().sort(function(a,b){return String(a.nombre).localeCompare(String(b.nombre));});
-  var opts=emps.map(function(e){return '<option value="'+e.id+'">'+e.nombre+' ('+(e.cargo||'')+')</option>';}).join('');
-  var html='<div class="fg"><label>Fecha</label><input type="date" class="fc" id="pe-fecha" value="'+fechaVE()+'"></div>'+
+  var ed=editId?(NOMINA_EXTRAS||[]).find(function(x){return String(x.id)===String(editId);}):null;
+  var opts=emps.map(function(e){return '<option value="'+e.id+'"'+(ed&&String(ed.empId)===String(e.id)?' selected':'')+'>'+e.nombre+' ('+(e.cargo||'')+')</option>';}).join('');
+  var modoEd=ed?(ed.modo||'viajes'):'viajes';
+  var html='<input type="hidden" id="pe-id" value="'+(ed?ed.id:'')+'">'+
+    '<div class="fg"><label>Fecha</label><input type="date" class="fc" id="pe-fecha" value="'+(ed?ed.fecha:fechaVE())+'"></div>'+
     '<div class="fg"><label>Trabajador</label><select class="fc" id="pe-emp"><option value="">— elegir —</option>'+opts+'</select></div>'+
-    '<div class="fg"><label>Actividad</label><input class="fc" id="pe-actividad" placeholder="Ej: Traslado de unidad de patio a autolavado"></div>'+
-    '<div class="fg"><label>Cómo se paga</label><select class="fc" id="pe-modo" onchange="peToggleModo(this.value)"><option value="viajes">Por viajes-equivalente (× su tarifa)</option><option value="monto">Monto fijo $</option></select></div>'+
-    '<div class="fg" id="pe-fg-viajes"><label>Viajes-equivalente</label><input type="number" min="0" step="0.5" class="fc" id="pe-viajes" placeholder="1"></div>'+
-    '<div class="fg" id="pe-fg-monto" style="display:none"><label>Monto fijo $</label><input type="number" min="0" step="0.01" class="fc" id="pe-monto" placeholder="0.00"></div>'+
-    '<button class="btn btn-g" style="width:100%;margin-top:6px" onclick="guardarPlanillaEspecial()">Guardar actividad</button>';
-  openModal('Planilla especial — pago por actividad',html);
+    '<div class="fg"><label>Actividad</label><input class="fc" id="pe-actividad" placeholder="Ej: Traslado de unidad de patio a autolavado" value="'+(ed?String(ed.actividad||'').replace(/"/g,'&quot;'):'')+'"></div>'+
+    '<div class="fg"><label>Cómo se paga</label><select class="fc" id="pe-modo" onchange="peToggleModo(this.value)"><option value="viajes"'+(modoEd==='viajes'?' selected':'')+'>Por viajes-equivalente (× su tarifa)</option><option value="monto"'+(modoEd==='monto'?' selected':'')+'>Monto fijo $</option></select></div>'+
+    '<div class="fg" id="pe-fg-viajes" style="display:'+(modoEd==='viajes'?'block':'none')+'"><label>Viajes-equivalente</label><input type="number" min="0" step="0.5" class="fc" id="pe-viajes" placeholder="1" value="'+(ed&&modoEd==='viajes'?(ed.viajes||''):'')+'"></div>'+
+    '<div class="fg" id="pe-fg-monto" style="display:'+(modoEd==='monto'?'block':'none')+'"><label>Monto fijo $</label><input type="number" min="0" step="0.01" class="fc" id="pe-monto" placeholder="0.00" value="'+(ed&&modoEd==='monto'?(ed.monto||''):'')+'"></div>'+
+    '<button class="btn btn-g" style="width:100%;margin-top:6px" onclick="guardarPlanillaEspecial()">'+(ed?'Guardar cambios':'Guardar actividad')+'</button>';
+  openModal((ed?'Editar':'')+' Planilla especial — pago por actividad',html);
 }
 function peToggleModo(v){ if(g('pe-fg-viajes'))g('pe-fg-viajes').style.display=v==='viajes'?'block':'none'; if(g('pe-fg-monto'))g('pe-fg-monto').style.display=v==='monto'?'block':'none'; }
 async function guardarPlanillaEspecial(){
@@ -3740,20 +3743,22 @@ async function guardarPlanillaEspecial(){
   var monto=modo==='monto'?(parseFloat(gv('pe-monto'))||0):0;
   if(modo==='viajes'&&viajes<=0){alert('Ingresá los viajes-equivalente');return;}
   if(modo==='monto'&&monto<=0){alert('Ingresá el monto');return;}
-  var row={id:'NE'+Date.now(),fecha:gv('pe-fecha')||fechaVE(),empId:empId,empNombre:emp?emp.nombre:'',actividad:actividad,modo:modo,viajes:viajes,monto:monto};
-  NOMINA_EXTRAS.push(row);
+  var editId=(gv('pe-id')||'').trim();
+  var row={id:editId||('NE'+Date.now()),fecha:gv('pe-fecha')||fechaVE(),empId:empId,empNombre:emp?emp.nombre:'',actividad:actividad,modo:modo,viajes:viajes,monto:monto};
+  if(editId){ var ix=NOMINA_EXTRAS.findIndex(function(x){return String(x.id)===String(editId);}); if(ix>=0)NOMINA_EXTRAS[ix]=row; else NOMINA_EXTRAS.push(row); }
+  else NOMINA_EXTRAS.push(row);
   var ok=false;
   var dbRow={id:row.id,fecha:row.fecha,emp_id:row.empId,emp_nombre:row.empNombre,actividad:row.actividad,modo:row.modo,viajes:row.viajes,monto:row.monto};
   if(DB_READY&&supabase){
-    try{var res=await supabase.from('nomina_extras').insert([dbRow]);
+    try{var res=await supabase.from('nomina_extras').upsert([dbRow],{onConflict:'id'}); // upsert: sirve para alta y edición
       if(res&&res.error){mostrarToast('No se pudo guardar: '+res.error.message,'error');}else ok=true;
     }catch(e){mostrarToast('Sin conexión al guardar la actividad.','error');}
   }
   if(!ok&&typeof guardarEnCola==='function')guardarEnCola('nomina_extras',dbRow,'id');
-  audit('Planilla especial',row.empNombre+' · '+actividad+' · '+(modo==='monto'?('$'+monto):(viajes+' viaje-equiv')));
+  audit(editId?'Planilla especial editada':'Planilla especial',row.empNombre+' · '+actividad+' · '+(modo==='monto'?('$'+monto):(viajes+' viaje-equiv')));
   closeModal();
   try{recalcNom();}catch(e){}
-  if(typeof mostrarToast==='function')mostrarToast(ok?'✅ Actividad registrada (suma a la nómina)':'⚠️ En cola (sin conexión)',ok?'exito':'error');
+  if(typeof mostrarToast==='function')mostrarToast(ok?(editId?'✅ Actividad actualizada':'✅ Actividad registrada (suma a la nómina)'):'⚠️ En cola (sin conexión)',ok?'exito':'error');
 }
 function elimNominaExtra(id){
   if(!confirm('¿Eliminar esta actividad especial?'))return;
@@ -3922,8 +3927,8 @@ function calcNom(){
     sem:sem||'', mes:mes||'', tasa:tasa, totCh:totCh, totAy:totAy, totAdm:totAdm, totImau:totImau, totExtras:totExtras, totBs:totBs,
     fdesde: f.length?f.reduce(function(m,r){return r.f<m?r.f:m;},f[0].f):null,
     fhasta: f.length?f.reduce(function(m,r){return r.f>m?r.f:m;},f[0].f):null,
-    choferes: Object.values(chMap).map(function(c){var k=_nombreCanonico(c.ch).toUpperCase();var pat=_patioEfectivo(c.patio,PATIO_DIAS[k]);var u=Math.max(0,(c.montoViajes||0)+pat*cfg.chofer-c.descuentos);return {n:c.ch,u:Array.from(c.cams||[]).join(','),viajes:(c.viajes-(c.patio||0))+pat,pat:pat,usd:Math.round(u*100)/100,bs:Math.round(u*tasa*100)/100};}),
-    ayudantes: Object.values(ayMap).map(function(a){var vp=_ayPatio(a);var v=vp.viajes;var patTot=vp.patio;var u=Math.max(0,v*a.tasa+(a.recargoDom||0)-a.descuentos);return {n:a.emp.nombre,u:a.emp.unidad,viajes:v,pat:patTot,usd:Math.round(u*100)/100,bs:Math.round(u*tasa*100)/100,tipo:a.emp.tipoAy||'interno'};}),
+    choferes: Object.values(chMap).map(function(c){var k=_nombreCanonico(c.ch).toUpperCase();var pat=_patioEfectivo(c.patio,PATIO_DIAS[k]);var u=Math.max(0,(c.montoViajes||0)+pat*cfg.chofer-c.descuentos);return {n:c.ch,u:Array.from(c.cams||[]).join(','),viajes:(c.viajes-(c.patio||0)),pat:pat,usd:Math.round(u*100)/100,bs:Math.round(u*tasa*100)/100};}),
+    ayudantes: Object.values(ayMap).map(function(a){var vp=_ayPatio(a);var v=vp.viajes;var patTot=vp.patio;var u=Math.max(0,v*a.tasa+(a.recargoDom||0)-a.descuentos);return {n:a.emp.nombre,u:a.emp.unidad,viajes:(parseInt(a.viajes)||0)-(parseInt(a.patio)||0),pat:patTot,usd:Math.round(u*100)/100,bs:Math.round(u*tasa*100)/100,tipo:a.emp.tipoAy||'interno'};}),
     extras: _extrasP.map(function(x){return {fecha:x.fecha,n:x.empNombre,actividad:x.actividad,modo:x.modo,viajes:x.viajes,monto:x.monto,usd:Math.round(_extraUsd(x)*100)/100};})
   };
   if(g('nm-tot'))g('nm-tot').textContent='$'+fmtMon(totUsd)+' (op $'+fmtMon(totOp)+(totImau>0?' + IMAU $'+fmtMon(totImau):'')+(totAdm>0?' + adm $'+fmtMon(totAdm):'')+(totExtras>0?' + especial $'+fmtMon(totExtras):'')+')'+' = Bs '+(totBs/1000).toFixed(0)+'k';
@@ -3935,7 +3940,7 @@ function calcNom(){
     var key=_nombreCanonico(c.ch).toUpperCase();
     var patM=parseInt(PATIO_DIAS[key])||0, patTot=_patioEfectivo(c.patio,patM); // manual manda (no doble)
     var sueldo=(c.montoViajes||0)+patTot*cfg.chofer, total=Math.max(0,sueldo-c.descuentos);
-    var vjCh=(c.viajes-(c.patio||0))+patTot; // viajes efectivos para mostrar (sin doble patio)
+    var vjCh=(c.viajes-(c.patio||0)); // SOLO viajes de planilla — el patio NO infla los viajes (suma solo al sueldo). Se muestra aparte en el campo/badge "P".
     // Chofer INACTIVO con viajes: se cuenta/paga igual (regla "el viaje siempre se paga"), pero
     // se marca ⚠️ para que RRHH revise (apareció en planilla estando dado de baja en el roster).
     var _empCh=(typeof _empPorNombre==='function')?_empPorNombre(c.ch):null;
@@ -3949,14 +3954,15 @@ function calcNom(){
         '<span style="display:flex;gap:3px;white-space:nowrap">'+(c.viajesDom>0?'<span style="font-size:8px;color:var(--teal)" title="viajes en domingo/feriado pagados a 1.5×">+'+c.viajesDom+'D</span>':'')+((patM>0?0:(c.patio||0))>0?'<span style="font-size:8px;color:var(--amber)" title="patio por asistencia">+'+(c.patio||0)+'P</span>':'')+'</span>'+
         '</div></td>'+
       '<td>'+c.dias.size+'</td>'+
-      '<td style="font-family:var(--m)">$'+fmtMon(sueldo)+(c.viajesDom>0?' <span style="font-size:8px;color:var(--teal)" title="incluye recargo domingo 1.5×">▲</span>':'')+'</td>'+
+      '<td style="font-family:var(--m)">$'+fmtMon(sueldo)+(c.viajesDom>0?' <span style="font-size:8px;color:var(--teal)" title="incluye recargo domingo 1.5×">▲</span>':'')+(patTot>0?' <span style="font-size:8px;color:var(--amber)" title="incluye '+patTot+' día(s) de patio × tarifa (no son viajes)">+'+patTot+'P</span>':'')+'</td>'+
       '<td style="font-family:var(--m);color:var(--red)">'+(c.descuentos>0?'-$'+fmtMon(c.descuentos):'—')+'</td>'+
       '<td style="font-family:var(--m);font-weight:700;color:var(--yellow)">$'+fmtMon(total)+'</td></tr>';}).join('');
   var tbAy=g('tb-nom-ay');
   if(tbAy)tbAy.innerHTML=Object.values(ayMap).sort(function(a,b){return b.viajes-a.viajes;}).map(function(a,i){
     var esImau=(a.emp.tipoAy==='imau');
     var patAyM=esImau?0:(parseInt(PATIO_DIAS[a.emp.id])||0); // días de patio manual (IMAU no cobra patio)
-    var vp=_ayPatio(a); var vTot=vp.viajes; // viajes efectivos (manual manda; sin doble patio)
+    var vp=_ayPatio(a); var vTot=vp.viajes; // viajes + patio efectivo → para el SUELDO (manual manda; sin doble patio)
+    var vjPlanAy=(parseInt(a.viajes)||0)-(parseInt(a.patio)||0); // SOLO viajes de planilla para MOSTRAR (el patio no infla los viajes)
     var sueldo=vTot*a.tasa+(a.recargoDom||0);var total=Math.max(0,sueldo-a.descuentos);
     var nota=a.porNombre>0&&a.porCam>0?'('+a.porNombre+'v nombre + '+a.porCam+'v camión)':'';
     var inputPatio=esImau?'':(' <input type="number" min="0" value="'+patAyM+'" title="Días de actividad sin viaje (patio/traslado/lavado): +1 viaje c/u" onchange="setPatioDias(\''+a.emp.id+'\',this.value)" style="width:30px;font-size:9px;background:var(--bg3);border:1px solid var(--border);color:var(--amber);border-radius:4px;padding:1px 2px;text-align:center"><span style="font-size:8px;color:var(--amber)">P</span>');
@@ -3967,10 +3973,10 @@ function calcNom(){
       '<td><span class="badge '+(esImau?'bp':'bt')+'">'+( a.emp.tipoAy||'interno')+'</span></td>'+
       '<td style="font-size:10px">'+a.emp.unidad+(nota?'<br><span style="color:var(--text3);font-size:9px">'+nota+'</span>':'')+'</td>'+
       '<td style="color:var(--green)"><div style="display:flex;align-items:center;justify-content:space-between;gap:6px">'+
-        '<span style="display:flex;align-items:center;gap:3px"><b>'+vTot+'</b>'+inputPatio+'</span>'+
+        '<span style="display:flex;align-items:center;gap:3px"><b>'+vjPlanAy+'</b>'+inputPatio+'</span>'+
         '<span style="display:flex;gap:3px;white-space:nowrap">'+(a.viajesDom>0?'<span style="font-size:8px;color:var(--teal)" title="viajes en domingo/feriado pagados a 1.5×">+'+a.viajesDom+'D</span>':'')+'</span>'+
         '</div></td>'+
-      '<td style="font-family:var(--m)">$'+fmtMon(sueldo)+(a.recargoDom>0?' <span style="font-size:8px;color:var(--teal)" title="incluye recargo domingo 1.5×">▲</span>':'')+'</td>'+
+      '<td style="font-family:var(--m)">$'+fmtMon(sueldo)+(a.recargoDom>0?' <span style="font-size:8px;color:var(--teal)" title="incluye recargo domingo 1.5×">▲</span>':'')+((vp.patio||0)>0?' <span style="font-size:8px;color:var(--amber)" title="incluye '+vp.patio+' día(s) de patio × tarifa (no son viajes)">+'+vp.patio+'P</span>':'')+'</td>'+
       '<td style="font-family:var(--m);color:var(--red)">'+(a.descuentos>0?'-$'+fmtMon(a.descuentos):'—')+'</td>'+
       '<td style="font-family:var(--m);font-weight:700;color:var(--yellow)">$'+fmtMon(total)+'</td></tr>';
   }).join('');
@@ -4037,9 +4043,32 @@ function verNominaHistDetalle(sem){
       '<table style="width:100%;font-size:11px"><thead><tr>'+cols.map(function(c){return '<th style="text-align:left;padding:3px">'+c[0]+'</th>';}).join('')+'</tr></thead><tbody>'+
       arr.map(function(p){return '<tr>'+cols.map(function(c){var v=p[c[1]];return '<td style="padding:3px;border-bottom:1px solid var(--border)">'+(v!=null?v:'')+'</td>';}).join('')+'</tr>';}).join('')+'</tbody></table>';
   }
-  var html=tabla('Choferes',d.choferes,[['Chofer','n'],['Unidad','u'],['Viajes','viajes'],['$','usd'],['Bs','bs']])+
-    tabla('Ayudantes',d.ayudantes,[['Ayudante','n'],['Unidad','u'],['Viajes','viajes'],['$','usd'],['Bs','bs']])+
-    tabla('Apoyo IMAU',d.imau,[['Nombre','n'],['Rol','rol'],['$','usd'],['Bs','bs']]);
+  // RE-CLASIFICAR por el CARGO REAL de cada persona: los historiales viejos guardaron a TODOS
+  // bajo "choferes" (ayudantes/imau vacíos), por eso se veían mezclados. Acá los separamos en
+  // 4 listas usando el empleado (cargo + tipoAy) o el tipo guardado en la fila.
+  var grupos={Choferes:[],Ayudantes:[],IMAU:[],ADM:[]};
+  [].concat(d.choferes||[],d.ayudantes||[],d.imau||[]).forEach(function(p){
+    var emp=(typeof _empPorNombre==='function')?_empPorNombre(p.n):null;
+    var cargo=emp?emp.cargo:'';
+    var esImau=(p.tipo==='imau')||(emp&&emp.tipoAy==='imau');
+    if(esImau) grupos.IMAU.push(p);
+    else if(cargo==='Ayudante'||p.tipo==='interno') grupos.Ayudantes.push(p);
+    else if(cargo&&cargo!=='Chofer') grupos.ADM.push(p);   // mecánico, vigilante, operativo, admin…
+    else grupos.Choferes.push(p);                            // chofer o sin clasificar (data vieja)
+  });
+  (d.adm||[]).forEach(function(p){grupos.ADM.push(p);});     // ADM fijos guardados aparte (saves nuevos)
+  function _sum(arr,k){return (arr||[]).reduce(function(s,p){return s+(parseFloat(p[k])||0);},0);}
+  var _cols=[['Nombre','n'],['Unidad','u'],['Viajes','viajes'],['$','usd'],['Bs','bs']];
+  function tablaG(titulo,arr,color){
+    if(!arr||!arr.length)return '';
+    return '<div style="font-weight:700;margin:10px 0 4px;color:'+color+'">'+titulo+' ('+arr.length+') · $'+_sum(arr,'usd').toLocaleString('es-VE',{maximumFractionDigits:0})+'</div>'+
+      '<table style="width:100%;font-size:11px"><thead><tr>'+_cols.map(function(c){return '<th style="text-align:left;padding:3px">'+c[0]+'</th>';}).join('')+'</tr></thead><tbody>'+
+      arr.map(function(p){return '<tr>'+_cols.map(function(c){var v=p[c[1]];return '<td style="padding:3px;border-bottom:1px solid var(--border)">'+(v!=null?v:'')+'</td>';}).join('')+'</tr>';}).join('')+'</tbody></table>';
+  }
+  var html=tablaG('🚛 Choferes',grupos.Choferes,'var(--blue)')+
+    tablaG('👷 Ayudantes',grupos.Ayudantes,'var(--teal)')+
+    tablaG('🟣 IMAU',grupos.IMAU,'var(--purple)')+
+    tablaG('🏢 Administrativos',grupos.ADM,'var(--amber)');
   if(!html)html='<div style="color:var(--text3);padding:8px">Esta semana no tiene detalle por persona.</div>';
   var prev=document.getElementById('nm-hist-modal'); if(prev)prev.remove();
   var ov=document.createElement('div'); ov.id='nm-hist-modal';
@@ -4064,7 +4093,7 @@ async function guardarNominaHist(){
     fecha_desde:n.fdesde||null, fecha_hasta:n.fhasta||null,
     total_usd:Math.round((n.totCh+n.totAy+(n.totAdm||0)+(n.totImau||0)+(n.totExtras||0))*100)/100, total_bs:Math.round(n.totBs*100)/100,
     op_usd:Math.round((n.totCh+n.totAy)*100)/100, adm_usd:Math.round((n.totAdm||0)*100)/100, imau_bs:Math.round((n.totImau||0)*(n.tasa||0)*100)/100, tasa:n.tasa,
-    detalle:{choferes:n.choferes,ayudantes:n.ayudantes,imau:[],extras:n.extras||[]}, fuente:'app'};
+    detalle:{choferes:n.choferes,ayudantes:n.ayudantes,imau:[],adm:(typeof NOM_ADM!=='undefined'?NOM_ADM:[]).map(function(a){var u=Math.round(((parseFloat(a.monto)||0)/4)*100)/100;return {n:a.cargo,u:'fijo semanal',usd:u,bs:Math.round(u*(n.tasa||0)*100)/100};}),extras:n.extras||[]}, fuente:'app'};
   var avisoDesc=(!yaExistia&&(nPrest||nMulta))
     ?('\n\n⚠️ Esto avanzará 1 cuota a '+nPrest+' préstamo(s) y '+nMulta+' multa(s) activas (el descuento de ESTA semana).')
     :((yaExistia&&(nPrest||nMulta))?'\n\n(Esta semana ya estaba guardada → las cuotas NO se vuelven a avanzar.)':'');
@@ -4103,6 +4132,52 @@ async function guardarNominaHist(){
   try{if(typeof renderMultas==='function')renderMultas();}catch(e){}
   audit('Nómina guardada en historial',id+' $'+row.total_usd.toFixed(0));
   mostrarToast('✅ Nómina "'+n.sem+'" guardada'+((!yaExistia&&(nPrest||nMulta))?' (cuotas avanzadas)':'')+' en el historial','exito');
+}
+// ── RE-GUARDAR TODAS LAS SEMANAS con el MOTOR ACTUAL.
+// Las semanas viejas se guardaron con cálculos viejos (doble-conteo de ayudante, patio metido en
+// "viajes" sin el campo pat) → el cotejo las marca con diferencias falsas. Esto recalcula CADA
+// semana por su RANGO DE FECHAS exacto y sobrescribe su fila del historial (mismo id/semana).
+// NO avanza cuotas de préstamos/multas (no pasa por la RPC; upsert directo). NO toca las semanas
+// SIN rango de fechas (legacy pre-planilla: no se pueden recalcular sin saber qué planillas son).
+async function reguardarTodasNominas(){
+  if(!(DB_READY&&supabase)){alert('Sin conexión a la base.');return;}
+  var recalculables=(NOMINA_HIST||[]).filter(function(h){return h.fecha_desde&&h.fecha_hasta;});
+  var sinRango=(NOMINA_HIST||[]).length-recalculables.length;
+  if(!recalculables.length){alert('Ninguna semana tiene rango de fechas guardado → no hay nada recalculable.\n(Las '+sinRango+' semanas viejas no se pueden recalcular sin saber qué planillas les tocan.)');return;}
+  if(!confirm('¿Recalcular y RE-GUARDAR '+recalculables.length+' semana(s) con el motor actual?\n\n• Arregla doble-conteos y patio de cálculos viejos.\n• NO avanza cuotas de préstamos/multas.\n• Sobrescribe los totales y el detalle viejos por los recalculados.\n'+(sinRango?('• '+sinRango+' semana(s) SIN rango de fechas NO se tocan.\n'):'')+'\n¿Continuar?'))return;
+  // Guardar la selección actual de los filtros de nómina para restaurarla al final.
+  var sMes=gv('nm-mes'),sSem=gv('nm-sem'),sDes=gv('nm-des'),sHta=gv('nm-hta');
+  var rows=[], saltadas=0;
+  for(var i=0;i<recalculables.length;i++){
+    var h=recalculables[i];
+    // Forzar el cálculo por RANGO DE FECHAS exacto (limpia mes/sem para no doble-filtrar).
+    sv('nm-mes','');sv('nm-sem','');sv('nm-des',h.fecha_desde);sv('nm-hta',h.fecha_hasta);
+    try{calcNom();}catch(e){saltadas++;continue;}
+    var n=_ultimaNomina;
+    if(!n||!((n.choferes&&n.choferes.length)||(n.ayudantes&&n.ayudantes.length))){saltadas++;continue;} // no recomputó nada → no pisar
+    // PRESERVAR LA TASA HISTÓRICA: el Bs se congeló a la tasa del día que se pagó esa semana. NO la
+    // pisamos con la tasa de HOY (eso corrompería los Bs históricos). Recalculamos solo los USD y la
+    // separación; los Bs se reconvierten desde el USD recalculado × la tasa GUARDADA de esa semana.
+    var tasaHist=parseFloat(h.tasa)||0;
+    var totUsd=Math.round((n.totCh+n.totAy+(n.totAdm||0)+(n.totImau||0)+(n.totExtras||0))*100)/100;
+    function _conBs(arr){return (arr||[]).map(function(p){return {n:p.n,u:p.u,viajes:p.viajes,pat:p.pat,tipo:p.tipo,usd:p.usd,bs:tasaHist>0?Math.round((parseFloat(p.usd)||0)*tasaHist*100)/100:0};});}
+    var admArr=(typeof NOM_ADM!=='undefined'?NOM_ADM:[]).map(function(a){var u=Math.round(((parseFloat(a.monto)||0)/4)*100)/100;return {n:a.cargo,u:'fijo semanal',usd:u,bs:tasaHist>0?Math.round(u*tasaHist*100)/100:0};});
+    rows.push({id:h.id, semana:h.semana, periodo:h.periodo||((h.fecha_desde||'')+(h.fecha_hasta?(' a '+h.fecha_hasta):'')),
+      fecha_desde:h.fecha_desde, fecha_hasta:h.fecha_hasta,
+      total_usd:totUsd, total_bs:tasaHist>0?Math.round(totUsd*tasaHist*100)/100:(parseFloat(h.total_bs)||0),
+      op_usd:Math.round((n.totCh+n.totAy)*100)/100, adm_usd:Math.round((n.totAdm||0)*100)/100, imau_bs:tasaHist>0?Math.round((n.totImau||0)*tasaHist*100)/100:0, tasa:h.tasa||null,
+      detalle:{choferes:_conBs(n.choferes),ayudantes:_conBs(n.ayudantes),imau:[],adm:admArr,extras:n.extras||[]}, fuente:'app-reguardado'});
+  }
+  // Restaurar la selección original y recalcular para el usuario.
+  sv('nm-mes',sMes);sv('nm-sem',sSem);sv('nm-des',sDes);sv('nm-hta',sHta);try{calcNom();}catch(e){}
+  if(!rows.length){alert('No se pudo recalcular ninguna semana (sin planillas en sus rangos).');return;}
+  var res=await supabase.from('nomina_historial').upsert(rows,{onConflict:'id'}).select();
+  if(res.error){mostrarToast('No se pudo re-guardar: '+res.error.message,'error');return;}
+  rows.forEach(function(rw){var idx=NOMINA_HIST.findIndex(function(x){return x.id===rw.id;});if(idx>=0)NOMINA_HIST[idx]=rw;});
+  audit('Nómina re-guardada con motor actual',rows.length+' semanas'+(saltadas?(' ('+saltadas+' sin planillas)'):''));
+  try{renderNominaHist();}catch(e){}
+  try{renderAuditoriaPagos();}catch(e){}
+  mostrarToast('✅ '+rows.length+' semana(s) re-guardadas con el motor actual'+(sinRango?(' · '+sinRango+' viejas sin rango, no tocadas'):'')+(saltadas?(' · '+saltadas+' sin planillas'):''),'exito');
 }
 // Recarga préstamos/multas/nómina desde la BD tras la RPC atómica (estado real, sin drift de memoria).
 async function _recargarNomPrestMulta(){
