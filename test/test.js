@@ -454,6 +454,34 @@ function resetCola(){ app.COLA_OFFLINE=[]; app.COLA_FALLIDOS=[]; app._procesando
   eq('_mesDeF ene-26', app._mesDeF('2026-01-05'), 'ene-26');
   eq('_mesDeF dic-25', app._mesDeF('2025-12-15'), 'dic-25');
 
+  console.log('\n#2 cotejo: 3 estados (OK / planilla en otra fecha / sin planilla en el sistema):');
+  ok('_audConstruir definida', typeof app._audConstruir === 'function');
+  app.cfg = { chofer: 10, ayud: 5, imau: 2.5, tarifa: 317.88 };
+  app.EMPLEADOS = [];
+  app.TEMPORALES = {};
+  app.REGS = [
+    { cam: 'JAC-B001', f: '2026-06-10', t: 10, ch: 'JUAN PEREZ' },   // dentro del rango de la semana
+    { cam: 'JAC-B002', f: '2026-01-05', t: 8, ch: 'PEDRO OTRA' }     // SÍ tiene planilla, pero FUERA del rango
+  ];
+  var hAud = {
+    semana: 'SEM-X', fecha_desde: '2026-06-08', fecha_hasta: '2026-06-14',
+    detalle: { choferes: [
+      { n: 'JUAN PEREZ', usd: 100, pat: 0 },  // 10 viajes × $10 = $100 → cuadra
+      { n: 'PEDRO OTRA', usd: 50, pat: 0 },   // planilla en otra fecha → a revisar, NO infla el $
+      { n: 'EX CHOFER',  usd: 40, pat: 0 }    // sin planilla en ningún lado → informativo
+    ], ayudantes: [], extras: [] }
+  };
+  var agA = app._audConstruir(hAud, false);
+  function _filaDe(n){ return agA.filas.find(function(x){ return x.n === n; }); }
+  eq('JUAN (cuadra) flag vacío', _filaDe('JUAN PEREZ').flag, '');
+  eq('PEDRO → OTRA_FECHA (tiene planilla pero fuera de rango)', _filaDe('PEDRO OTRA').flag, 'OTRA_FECHA');
+  eq('EX CHOFER → SIN_SISTEMA (no hay planilla suya)', _filaDe('EX CHOFER').flag, 'SIN_SISTEMA');
+  eq('nSin cuenta solo el ex-chofer', agA.nSin, 1);
+  eq('sumOver NO se infla con pagos sin planilla', agA.sumOver, 0);
+  eq('nFlag cuenta el OTRA_FECHA a revisar', agA.nFlag, 1);
+  var agSinRango = app._audConstruir({ semana: 'SEM-VIEJA', detalle: { choferes: [], ayudantes: [], extras: [] } }, false);
+  ok('sinRango=true cuando el historial no tiene fecha_desde/hasta', agSinRango.sinRango === true);
+
   // ── Resumen ──
   console.log('\n──────────────');
   console.log('PASS: ' + pass + '   FAIL: ' + fail);
