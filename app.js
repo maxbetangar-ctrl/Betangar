@@ -5432,32 +5432,91 @@ function renderPreventivoEstado(){
       return '<tr style="'+(e.estado==='vencido'?'background:rgba(220,38,38,.10)':'')+'"><td style="font-weight:700">'+_mEsc(e.cam)+'</td><td>'+_mEsc(e.nombre)+(e.critico?' <span title="seguridad" style="color:var(--red)">⚠</span>':'')+'</td><td>'+(e.que==='Cambiar'?'🔧 Cambiar':'🔎 Revisar')+'</td><td style="font-family:var(--m)">'+e.vencTxt+'</td><td style="font-family:var(--m);color:'+(e.estado==='vencido'?'var(--red)':'var(--amber)')+'">'+_restTxt(e)+'</td><td>'+_mantBadge(e.estado)+'</td></tr>';
     }).join('')+'</tbody></table>';
 }
-// Config del CATÁLOGO de ítems (intervalos por km/tiempo, por tipo).
+// Slug para ids determinísticos del plan sugerido (import idempotente).
+function _slugComp(s){ return String(s||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,''); }
+// IMPORTAR el plan sugerido (planes-preventivos.json) → mant_items como plantillas por combinación.
+async function importarPlanSugerido(){
+  if(!confirm('¿Importar el PLAN PREVENTIVO SUGERIDO (por tipo+combustible)? Se agrega/actualiza al catálogo. Quedan como SUGERIDOS; los ajustás con autorización.\n\nCada unidad hereda su plan al asignarle tipo+combustible en 🚛 Unidades.'))return;
+  var plan=null;
+  try{ var resp=await fetch('planes-preventivos.json?cb='+Date.now()); plan=await resp.json(); }catch(e){ alert('No se pudo leer el plan sugerido: '+((e&&e.message)||e)); return; }
+  if(!Array.isArray(plan)||!plan.length){alert('El plan sugerido está vacío.');return;}
+  if(!(DB_READY&&supabase)){alert('Sin conexión a la base.');return;}
+  var rows=[], n=0;
+  plan.forEach(function(comb){ (comb.items||[]).forEach(function(it,idx){
+    rows.push({id:'PL-'+_slugComp(comb.tipo)+'-'+_slugComp(comb.combustible)+'-'+_slugComp(it.componente),
+      nombre:it.componente,categoria:'',base:it.base||'km',intervalo:0,inspeccion:parseFloat(it.inspeccion)||0,
+      sustitucion:parseFloat(it.sustitucion)||0,aviso_anticipo:parseFloat(it.aviso_anticipo)||0,tipo:comb.tipo||'',
+      combustible:comb.combustible||'',tipo_unidad:'',critico_seguridad:it.critico_seguridad===true,fuente:'sugerido',
+      activo:true,orden:idx+1});
+    n++;
+  }); });
+  var ok=true, err='';
+  for(var i=0;i<rows.length;i+=100){ try{ var r=await supabase.from('mant_items').upsert(rows.slice(i,i+100),{onConflict:'id'}); if(r&&r.error){ok=false;err=r.error.message;break;} }catch(e){ok=false;err=(e&&e.message)||e;break;} }
+  if(!ok){ mostrarToast('No se pudo importar: '+err,'error'); return; }
+  // Quitar los ítems GENÉRICOS de la semilla vieja (aplican a "todas") → duplicarían a las plantillas.
+  try{ var seedIds=_seedMantItemsDefault().map(function(s){return s.id;}); await supabase.from('mant_items').delete().in('id',seedIds); }catch(e){}
+  await cargarMantItems();
+  audit('Plan preventivo sugerido importado',n+' ítems · '+plan.length+' combinaciones');
+  try{renderMantCatalogo();}catch(e){} try{renderPreventivoEstado();}catch(e){}
+  mostrarToast('✅ Importadas '+plan.length+' combinaciones ('+n+' ítems). Asigná tipo+combustible a cada unidad y hereda su plan.','exito');
+}
+// Editar los ciclos requiere TOKEN de SuperAdmin (el mecánico puede ajustar, pero con autorización).
+function editarCiclosMant(){
+  if(typeof solicitarToken==='function'){ solicitarToken('Editar ciclos de mantenimiento (requiere SuperAdmin)',function(){ window._ciclosEditable=true; try{renderMantCatalogo();}catch(e){} if(typeof mostrarToast==='function')mostrarToast('🔓 Edición de ciclos habilitada','exito'); }); }
+  else { window._ciclosEditable=true; renderMantCatalogo(); }
+}
+function cerrarEdicionCiclos(){ window._ciclosEditable=false; try{renderMantCatalogo();}catch(e){} }
+// Catálogo de CICLOS (plan sugerido) — agrupado por combinación. Solo lectura salvo edición con token.
+var _CI='background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:3px 6px;border-radius:5px;font-size:11px;';
 function renderMantCatalogo(){
   var el=g('prev-catalogo'); if(!el)return;
-  var its=(MANT_ITEMS||[]).slice().sort(function(a,b){return (a.orden||0)-(b.orden||0);});
-  el.innerHTML='<table><thead><tr><th>Ítem</th><th>Cada</th><th>Base</th><th>Avisar antes</th><th>Tipo</th><th>Activo</th><th></th></tr></thead><tbody>'+
-    its.map(function(x){var i=MANT_ITEMS.indexOf(x);return '<tr>'+
-      '<td><input value="'+_mEsc(x.nombre)+'" onchange="MANT_ITEMS['+i+'].nombre=this.value;guardarMantItem('+i+')" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:3px 6px;border-radius:5px;width:150px;font-size:11px"></td>'+
-      '<td><input type="number" value="'+x.intervalo+'" onchange="MANT_ITEMS['+i+'].intervalo=parseFloat(this.value)||0;guardarMantItem('+i+')" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:3px 6px;border-radius:5px;width:70px;font-family:var(--m)"></td>'+
-      '<td><select onchange="MANT_ITEMS['+i+'].base=this.value;guardarMantItem('+i+')" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:3px 4px;border-radius:5px;font-size:11px"><option value="km"'+(x.base==='km'?' selected':'')+'>km</option><option value="dias"'+(x.base==='dias'?' selected':'')+'>días</option><option value="meses"'+(x.base==='meses'?' selected':'')+'>meses</option></select></td>'+
-      '<td><input type="number" value="'+(x.avisoAnticipo||0)+'" onchange="MANT_ITEMS['+i+'].avisoAnticipo=parseFloat(this.value)||0;guardarMantItem('+i+')" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:3px 6px;border-radius:5px;width:70px;font-family:var(--m)"></td>'+
-      '<td><select title="A qué le aplica: todas, un tipo de unidad, o por combustible" onchange="MANT_ITEMS['+i+'].tipoUnidad=this.value;guardarMantItem('+i+')" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:3px 4px;border-radius:5px;font-size:11px;max-width:120px">'+_optAplicaItem(x.tipoUnidad||'')+'</select></td>'+
-      '<td style="text-align:center"><input type="checkbox"'+(x.activo?' checked':'')+' onchange="MANT_ITEMS['+i+'].activo=this.checked;guardarMantItem('+i+')"></td>'+
-      '<td><button class="btn btn-r btn-xs" onclick="elimMantItemCat(\''+_mEsc(x.id)+'\')">×</button></td></tr>';}).join('')+
-    '<tr><td colspan="7" style="padding-top:6px"><button class="btn btn-s btn-xs" onclick="agregarMantItemCat()">+ Agregar ítem</button></td></tr>'+
-    '</tbody></table>';
+  var edit=!!window._ciclosEditable;
+  var grupos={};
+  (MANT_ITEMS||[]).forEach(function(x){ var key=(x.tipo||x.combustible)?((x.tipo||'—')+' · '+(x.combustible||'—')):('General ('+(x.tipoUnidad||'todas')+')'); (grupos[key]=grupos[key]||[]).push(x); });
+  var html='<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">'+
+    '<button class="btn btn-g btn-sm" onclick="importarPlanSugerido()">📥 Importar plan sugerido</button>'+
+    (edit?'<button class="btn btn-y btn-sm" onclick="cerrarEdicionCiclos()">✅ Terminar edición</button>':'<button class="btn btn-s btn-sm" onclick="editarCiclosMant()">🔒 Editar ciclos (requiere autorización)</button>')+
+    '</div>'+
+    '<div style="font-size:11px;color:var(--text3);margin-bottom:6px">Plan <b>SUGERIDO</b> por tipo+combustible; la unidad hereda el suyo al asignarle tipo/combustible en 🚛 Unidades.'+(edit?' <b style="color:var(--amber)">— MODO EDICIÓN activo</b>':' Editar los ciclos pide token de SuperAdmin.')+'</div>';
+  var keys=Object.keys(grupos).sort();
+  if(!keys.length){el.innerHTML=html+'<div style="color:var(--text3);padding:8px">Sin ítems. Tocá "📥 Importar plan sugerido".</div>';return;}
+  keys.forEach(function(key){
+    var items=grupos[key];
+    html+='<div style="font-weight:700;margin:10px 0 4px;color:var(--blue)">'+_mEsc(key)+' <span style="font-size:10px;color:var(--text3)">('+items.length+')</span></div>'+
+      '<table><thead><tr><th>Ítem</th><th>Base</th><th>🔎 Revisar</th><th>🔧 Cambiar</th><th>Avisar</th><th>Crít.</th>'+(edit?'<th></th>':'')+'</tr></thead><tbody>';
+    items.forEach(function(x){ var i=MANT_ITEMS.indexOf(x);
+      if(edit){
+        html+='<tr>'+
+          '<td><input value="'+_mEsc(x.nombre)+'" onchange="MANT_ITEMS['+i+'].nombre=this.value;guardarMantItem('+i+')" style="'+_CI+'width:150px"></td>'+
+          '<td><select onchange="MANT_ITEMS['+i+'].base=this.value;guardarMantItem('+i+')" style="'+_CI+'"><option value="km"'+(x.base==='km'?' selected':'')+'>km</option><option value="horas"'+(x.base==='horas'?' selected':'')+'>horas</option><option value="dias"'+(x.base==='dias'?' selected':'')+'>días</option><option value="meses"'+(x.base==='meses'?' selected':'')+'>meses</option></select></td>'+
+          '<td><input type="number" value="'+(x.inspeccion||0)+'" onchange="MANT_ITEMS['+i+'].inspeccion=parseFloat(this.value)||0;guardarMantItem('+i+')" style="'+_CI+'width:80px;font-family:var(--m)"></td>'+
+          '<td><input type="number" value="'+(x.sustitucion||x.intervalo||0)+'" onchange="MANT_ITEMS['+i+'].sustitucion=parseFloat(this.value)||0;guardarMantItem('+i+')" style="'+_CI+'width:80px;font-family:var(--m)"></td>'+
+          '<td><input type="number" value="'+(x.avisoAnticipo||0)+'" onchange="MANT_ITEMS['+i+'].avisoAnticipo=parseFloat(this.value)||0;guardarMantItem('+i+')" style="'+_CI+'width:70px;font-family:var(--m)"></td>'+
+          '<td style="text-align:center"><input type="checkbox"'+(x.critico?' checked':'')+' onchange="MANT_ITEMS['+i+'].critico=this.checked;guardarMantItem('+i+')"></td>'+
+          '<td><button class="btn btn-r btn-xs" onclick="elimMantItemCat(\''+_mEsc(x.id)+'\')">×</button></td></tr>';
+      } else {
+        var chg=(x.sustitucion||x.intervalo);
+        html+='<tr><td>'+_mEsc(x.nombre)+(x.critico?' <span style="color:var(--red)" title="seguridad">⚠</span>':'')+'</td><td>'+_mEsc(x.base)+'</td>'+
+          '<td style="font-family:var(--m)">'+(x.inspeccion?x.inspeccion.toLocaleString():'—')+'</td>'+
+          '<td style="font-family:var(--m)">'+(chg?chg.toLocaleString():'—')+'</td>'+
+          '<td style="font-family:var(--m)">'+(x.avisoAnticipo||0)+'</td>'+
+          '<td style="text-align:center">'+(x.critico?'✔':'')+'</td></tr>';
+      }
+    });
+    html+='</tbody></table>'+(edit?'<button class="btn btn-s btn-xs" style="margin:4px 0" onclick="agregarMantItemCat()">+ Agregar ítem</button>':'');
+  });
+  el.innerHTML=html;
 }
 async function guardarMantItem(i){
   var x=MANT_ITEMS[i]; if(!x)return;
   try{renderPreventivoEstado();}catch(e){}
   if(!(DB_READY&&supabase))return;
-  var row={id:x.id,nombre:x.nombre,categoria:x.categoria||'',base:x.base,intervalo:x.intervalo,aviso_anticipo:x.avisoAnticipo||0,tipo_unidad:x.tipoUnidad||'',activo:x.activo!==false,orden:x.orden||0};
+  var row={id:x.id,nombre:x.nombre,categoria:x.categoria||'',base:x.base,intervalo:x.intervalo||0,inspeccion:x.inspeccion||0,sustitucion:x.sustitucion||0,aviso_anticipo:x.avisoAnticipo||0,tipo:x.tipo||'',combustible:x.combustible||'',tipo_unidad:x.tipoUnidad||'',critico_seguridad:!!x.critico,fuente:x.fuente||'',activo:x.activo!==false,orden:x.orden||0};
   try{ var r=await supabase.from('mant_items').upsert([row],{onConflict:'id'}); if(r&&r.error&&typeof mostrarToast==='function')mostrarToast('No se pudo guardar el ítem: '+r.error.message,'error'); }catch(e){}
 }
 function agregarMantItemCat(){
   var id='item_'+Date.now();
-  MANT_ITEMS.push({id:id,nombre:'Nuevo ítem',categoria:'',base:'km',intervalo:5000,avisoAnticipo:500,tipoUnidad:'',activo:true,orden:(MANT_ITEMS.length+1)});
+  MANT_ITEMS.push({id:id,nombre:'Nuevo ítem',categoria:'',base:'km',intervalo:0,inspeccion:0,sustitucion:5000,avisoAnticipo:500,tipo:'',combustible:'',tipoUnidad:'',critico:false,fuente:'',activo:true,orden:(MANT_ITEMS.length+1)});
   renderMantCatalogo(); guardarMantItem(MANT_ITEMS.length-1);
 }
 function elimMantItemCat(id){
