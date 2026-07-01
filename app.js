@@ -5055,13 +5055,13 @@ function _poblarKmItem(){
   s.innerHTML='<option value="">— ninguno (solo historial) —</option>'+(MANT_ITEMS||[]).filter(function(x){return x.activo;}).map(function(x){return '<option value="'+_mEsc(x.id)+'">'+_mEsc(x.nombre)+'</option>';}).join('');
   if(cur)s.value=cur;
 }
-// Autocompleta el km del trabajo con el km ACTUAL de la unidad (que nutre el chofer a diario).
+// El km del MANTENIMIENTO se ingresa a MANO (es el que tenía la unidad al hacerse el trabajo,
+// que pudo ser otro día/otro km). Solo mostramos el km actual del chofer como REFERENCIA.
 function _hvPrefillKm(){
   var cam=gv('hv-cam'), h=g('hv-km-hint');
   if(!cam){if(h)h.textContent='';return;}
   var km=(typeof kmActualCam==='function')?kmActualCam(cam):((KM_DATA[cam]&&KM_DATA[cam].km)||0);
-  if(km>0)sv('hv-km',km);
-  if(h)h.textContent=km>0?('km actual del chofer: '+km.toLocaleString()+' — editá si el trabajo fue a otro km'):'aún sin km del chofer';
+  if(h)h.textContent=km>0?('referencia — km actual del chofer: '+km.toLocaleString()+'. Poné el km que tenía al hacerse este trabajo.'):'poné el km que tenía la unidad al hacerse este trabajo';
 }
 function subirFotoHV(input){
   var f=input&&input.files&&input.files[0]; if(!f)return;
@@ -5075,6 +5075,7 @@ async function registrarMantItem(){
   var costo=parseFloat(gv('hv-costo'))||0, prov=(gv('hv-prov')||'').trim(), nota=(gv('hv-nota')||'').trim();
   if(!cam){alert('Elegí la unidad');return;}
   if(!itemId){alert('Elegí el ítem (qué se le hizo)');return;}
+  if(km<=0){ if(!confirm('No ingresaste el KM que tenía la unidad al hacerse este trabajo.\n(Es manual porque el trabajo pudo hacerse otro día / a otro km.)\n\n¿Registrar igual sin km?'))return; }
   var it=_mantItem(itemId);
   var foto=window._hvFotoUrl||'';
   var id='MT'+Date.now();
