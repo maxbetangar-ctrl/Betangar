@@ -1158,7 +1158,7 @@ function sp(id){
     if(id==='control-combustible'){renderCombSubnav('control-combustible');renderControlComb();}
     if(id==='rentabilidad'){renderAnalisisSubnav('rentabilidad');renderRentabilidad();}
     if(id==='salud'){renderSaludDatos();}
-    if(id==='km'){renderMantSubnav('km');renderKm();renderTiposMant();Promise.all([cargarMantItems(),cargarMantenimientos(),cargarUnidadConfig()]).then(function(){try{renderHistMant();}catch(e){}try{_poblarKmItem();}catch(e){}}).catch(function(){});}
+    if(id==='km'){renderMantSubnav('km');renderKm();renderTiposMant();_cargarMantTodo().then(function(){try{renderHistMant();}catch(e){}try{_poblarKmItem();}catch(e){}}).catch(function(){});}
     if(id==='banco'){renderBancoSubnav('banco');renderBNCDash();}
     if(id==='proveedores'){renderFinanzasSubnav('proveedores');renderCXP();renderProveedoresLista();renderRetenciones();}
     if(id==='documentos'){renderDocAlertas();renderDocTablas();}
@@ -4807,7 +4807,7 @@ function imprimirCombustible(){
 // ═══════════════════════════════════════════════════
 // KM / MANTENIMIENTO
 // ═══════════════════════════════════════════════════
-function switchKmTab(t){['odo','lav','eng','prog','hist','hv'].forEach(function(x){var el=g('tab-km-'+x);var sw=g('sw-km-'+x);if(el)el.style.display=x===t?'block':'none';if(sw){sw.classList.remove('on');if(x===t)sw.classList.add('on');}});if(t==='odo')renderKm();if(t==='lav')renderLavados();if(t==='eng')renderEngrases();if(t==='prog')renderPreventivo();if(t==='hist')renderHistMant();if(t==='hv'){Promise.all([cargarMantItems(),cargarMantenimientos(),cargarUnidadConfig()]).then(function(){renderHojaVida();}).catch(function(){renderHojaVida();});}}
+function switchKmTab(t){['odo','lav','eng','prog','hist','hv'].forEach(function(x){var el=g('tab-km-'+x);var sw=g('sw-km-'+x);if(el)el.style.display=x===t?'block':'none';if(sw){sw.classList.remove('on');if(x===t)sw.classList.add('on');}});if(t==='odo')renderKm();if(t==='lav')renderLavados();if(t==='eng')renderEngrases();if(t==='prog')renderPreventivo();if(t==='hist')renderHistMant();if(t==='hv'){_cargarMantTodo().then(function(){renderHojaVida();}).catch(function(){renderHojaVida();});}}
 
 async function borrarOdo(cam){
   if(!KM_DATA[cam])return;
@@ -4834,22 +4834,16 @@ async function borrarEngrase(cam){
   audit('Engrase borrado',cam);renderEngrases();
 }
 function renderKm(){
-  var alertas=[];var rows=[];
+  // Kilometraje = SOLO overview del km por unidad (nutrido del chofer). Las alertas de servicio/
+  // preventivo se convergieron en el tab ⏰ Preventivo (un solo lugar, no duplicar).
+  var rows=[];
   var cams=Object.keys(FLOTA).filter(function(k){return k.startsWith('JAC-B');});
   cams.forEach(function(cam){
-    var d=KM_DATA[cam]||{km:0,ultsrv:0,mant:[]};
-    var km=kmActualCam(cam); // km más fresco: lo que cargó el chofer (no el valor viejo de la tabla)
-    var proximo=proxServicio(km);
-    var restante=proximo-km;
-    var est,estClass;
-    if(restante<=500){est='PROXIMO';estClass='by';alertas.push('⚠ '+cam+': servicio en '+restante.toLocaleString()+' km (próximo: '+proximo.toLocaleString()+')');}
-    else{est='OK';estClass='bg';}
-    rows.push('<tr><td style="font-weight:700">'+cam+'</td><td style="font-size:11px">'+FLOTA[cam].chofer+'</td><td style="font-family:var(--m);color:var(--teal)">'+(km?km.toLocaleString():'--')+'</td><td style="font-family:var(--m)">'+(d.ultsrv?d.ultsrv.toLocaleString():'--')+'</td><td style="font-family:var(--m)">'+proximo.toLocaleString()+'</td><td style="font-family:var(--m);color:'+(restante<500?'var(--red)':'var(--text)')+'">'+restante.toLocaleString()+'</td><td><span class="badge '+estClass+'">'+est+'</span></td><td style="font-size:10px;color:var(--text3)">'+(d.nota||'')+'</td><td>'+((km||d.ultsrv)?'<button onclick="borrarOdo(\''+cam+'\')" class="btn btn-xs" style="background:var(--red);color:#fff">🗑</button>':'')+'</td></tr>');
+    var d=KM_DATA[cam]||{km:0};
+    var km=kmActualCam(cam); // km más fresco: lo que cargó el chofer
+    rows.push('<tr><td style="font-weight:700">'+cam+'</td><td style="font-size:11px">'+FLOTA[cam].chofer+'</td><td style="font-family:var(--m);color:var(--teal)">'+(km?km.toLocaleString():'--')+'</td><td style="font-size:11px;color:var(--text3)">'+(d.f?formatFecha(d.f):'--')+'</td><td style="font-size:10px;color:var(--text3)">'+(d.nota||'')+'</td><td>'+(km?'<button onclick="borrarOdo(\''+cam+'\')" class="btn btn-xs" style="background:var(--red);color:#fff">🗑</button>':'')+'</td></tr>');
   });
   var tb=g('tb-km');if(tb)tb.innerHTML=rows.join('');
-  var al=g('alertas-km');if(al)al.innerHTML=alertas.map(function(a){return'<div class="alert-w" style="margin-bottom:4px">'+a+'</div>';}).join('')||'<div style="color:var(--green);font-size:12px;padding:8px">✓ Todo al dia</div>';
-  // WhatsApp de service/KM MOVIDO al servidor (cron alertas-diarias, "SERVICE PRÓXIMO"):
-  // ya no se envía desde el cliente, para no depender de que la app esté abierta ni duplicar.
 }
 async function guardarKm(){
   var cam=gv('km-cam'),km=parseInt(gv('km-val'))||0,f=gv('km-f'),mant=gv('km-mant'),desc=gv('km-desc'),itemId=gv('km-item')||'';
@@ -5017,6 +5011,30 @@ async function cargarUnidadConfig(){
   if(!(DB_READY&&supabase))return;
   try{ var r=await supabase.from('unidad_config').select('*'); if(r&&!r.error&&Array.isArray(r.data)){var o={};r.data.forEach(function(x){o[x.cam]={tipo:x.tipo||'',combustible:x.combustible||'',uso:x.uso||''};});UNIDAD_CONFIG=o;} }catch(e){}
 }
+// Continuidad: trae el ÚLTIMO lavado/engrase que estaba en KM_DATA (sistema viejo) al nuevo
+// historial `mantenimientos`, una sola vez, para no perder el dato al converger los tabs.
+// Idempotente: id determinístico + solo si no hay ya un evento de ese ítem para esa unidad.
+async function _migrarLavadoEngrase(){
+  if(!(DB_READY&&supabase))return;
+  var seeds=[];
+  Object.keys(KM_DATA||{}).forEach(function(cam){
+    [['lavado','lavado'],['engrase','engrase']].forEach(function(p){
+      var f=KM_DATA[cam]&&KM_DATA[cam][p[0]];
+      if(f&&/^\d{4}-\d{2}-\d{2}/.test(String(f))){
+        var itemId=p[1];
+        if(!(MANTENIMIENTOS||[]).some(function(m){return m.cam===cam&&m.itemId===itemId;})){
+          var id='MTseed-'+cam+'-'+itemId, fecha=String(f).slice(0,10), km=(KM_DATA[cam].km||0);
+          var nombre=itemId==='lavado'?'Lavado':'Engrase';
+          MANTENIMIENTOS.unshift({id:id,cam:cam,fecha:fecha,km:km,itemId:itemId,tipo:nombre,desc:'(migrado del registro anterior)',costo:0,proveedor:'',foto:''});
+          seeds.push({id:id,cam:cam,f:fecha,km:km,item_id:itemId,tipo:nombre,desc_trabajo:'(migrado del registro anterior)',costo_usd:0,proveedor:'',foto_url:''});
+        }
+      }
+    });
+  });
+  if(seeds.length){ try{ await supabase.from('mantenimientos').upsert(seeds,{onConflict:'id'}); }catch(e){} }
+}
+// Loader único del módulo de mantenimiento (catálogo + historial + tipos + continuidad).
+function _cargarMantTodo(){ return Promise.all([cargarMantItems(),cargarMantenimientos(),cargarUnidadConfig()]).then(function(){ return _migrarLavadoEngrase(); }); }
 function _mantItem(id){ return (MANT_ITEMS||[]).find(function(x){return x.id===id;}); }
 function _tipoDeUnidad(cam){ var c=(UNIDAD_CONFIG||{})[cam]; return c?c.tipo:''; }
 // Ítems que le aplican a una unidad: los globales ('' = todas) + los de su tipo.
@@ -5210,7 +5228,7 @@ function calcMantPreventivo(){
 }
 // Orquesta el tab Preventivo (carga fuente única + pinta las 3 secciones).
 function renderPreventivo(){
-  Promise.all([cargarMantItems(),cargarMantenimientos(),cargarUnidadConfig()]).then(function(){
+  _cargarMantTodo().then(function(){
     try{renderPreventivoEstado();}catch(e){} try{renderMantCatalogo();}catch(e){} try{renderUnidadTipos();}catch(e){}
   }).catch(function(){try{renderPreventivoEstado();}catch(e){}try{renderMantCatalogo();}catch(e){}try{renderUnidadTipos();}catch(e){}});
 }
