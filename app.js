@@ -4987,7 +4987,7 @@ async function cargarMantItems(){
   try{
     var r=await supabase.from('mant_items').select('*').order('orden',{ascending:true});
     if(r&&!r.error&&Array.isArray(r.data)&&r.data.length){
-      MANT_ITEMS=r.data.map(function(x){return {id:x.id,nombre:x.nombre||'',categoria:x.categoria||'',base:x.base||'km',intervalo:parseFloat(x.intervalo)||0,avisoAnticipo:parseFloat(x.aviso_anticipo)||0,tipoUnidad:x.tipo_unidad||'',activo:x.activo!==false,orden:parseInt(x.orden)||0};});
+      MANT_ITEMS=r.data.map(function(x){return {id:x.id,nombre:x.nombre||'',categoria:x.categoria||'',base:x.base||'km',intervalo:parseFloat(x.intervalo)||0,inspeccion:parseFloat(x.inspeccion)||0,sustitucion:parseFloat(x.sustitucion)||0,avisoAnticipo:parseFloat(x.aviso_anticipo)||0,tipoUnidad:x.tipo_unidad||'',tipo:x.tipo||'',combustible:x.combustible||'',critico:x.critico_seguridad===true,fuente:x.fuente||'',activo:x.activo!==false,orden:parseInt(x.orden)||0};});
     } else {
       MANT_ITEMS=_seedMantItemsDefault();                 // tabla vacía o inexistente → semilla local (fail-open)
       if(r&&!r.error&&Array.isArray(r.data)&&!r.data.length){ try{ await _sembrarMantItems(); }catch(e){} }
@@ -5004,7 +5004,7 @@ async function cargarMantenimientos(){
   try{
     var r=await supabase.from('mantenimientos').select('*').order('f',{ascending:false}).limit(5000);
     if(r&&!r.error&&Array.isArray(r.data)){
-      MANTENIMIENTOS=r.data.map(function(x){return {id:x.id||('MT'+(x.cam||'')+'-'+(x.f||'')+'-'+(x.km||0)+'-'+(x.item_id||x.tipo||'')),cam:x.cam||'',fecha:x.f||'',km:parseInt(x.km)||0,itemId:x.item_id||'',tipo:x.tipo||'',desc:x.desc_trabajo||'',costo:parseFloat(x.costo_usd)||0,proveedor:x.proveedor||'',foto:x.foto_url||''};});
+      MANTENIMIENTOS=r.data.map(function(x){return {id:x.id||('MT'+(x.cam||'')+'-'+(x.f||'')+'-'+(x.km||0)+'-'+(x.item_id||x.tipo||'')),cam:x.cam||'',fecha:x.f||'',km:parseInt(x.km)||0,horas:parseInt(x.horas)||0,itemId:x.item_id||'',tipo:x.tipo||'',tipoTrabajo:x.tipo_trabajo||'',desc:x.desc_trabajo||'',costo:parseFloat(x.costo_usd)||0,proveedor:x.proveedor||'',foto:x.foto_url||''};});
     }
   }catch(e){ console.log('mantenimientos load:',e&&e.message); }
 }
@@ -5012,10 +5012,10 @@ async function cargarUnidadConfig(){
   if(!(DB_READY&&supabase))return;
   try{
     // Columnas LIVIANAS (sin foto ni titulo_pdf → no cargamos blobs de todas las unidades a memoria).
-    var cols='cam,tipo,combustible,uso,nombre,marca,modelo,anio,placa,vin,serial_motor,serial_carroceria,titular,chofer,activo,notas';
+    var cols='cam,tipo,combustible,uso,nombre,marca,modelo,anio,placa,vin,serial_motor,serial_carroceria,titular,chofer,activo,notas,medida,horas_actuales';
     var r=await supabase.from('unidad_config').select(cols);
     if(r&&r.error){ r=await supabase.from('unidad_config').select('*'); } // fail-open si faltan columnas (migración no corrida)
-    if(r&&!r.error&&Array.isArray(r.data)){var o={};r.data.forEach(function(x){o[x.cam]={tipo:x.tipo||'',combustible:x.combustible||'',uso:x.uso||'',nombre:x.nombre||'',marca:x.marca||'',modelo:x.modelo||'',anio:x.anio||'',placa:x.placa||'',vin:x.vin||'',serialMotor:x.serial_motor||'',serialCarroceria:x.serial_carroceria||'',titular:x.titular||'',chofer:x.chofer||'',activo:x.activo!==false,notas:x.notas||''};});UNIDAD_CONFIG=o;}
+    if(r&&!r.error&&Array.isArray(r.data)){var o={};r.data.forEach(function(x){o[x.cam]={tipo:x.tipo||'',combustible:x.combustible||'',uso:x.uso||'',nombre:x.nombre||'',marca:x.marca||'',modelo:x.modelo||'',anio:x.anio||'',placa:x.placa||'',vin:x.vin||'',serialMotor:x.serial_motor||'',serialCarroceria:x.serial_carroceria||'',titular:x.titular||'',chofer:x.chofer||'',activo:x.activo!==false,notas:x.notas||'',medida:x.medida||'',horasActuales:parseFloat(x.horas_actuales)||0};});UNIDAD_CONFIG=o;}
   }catch(e){}
 }
 // Continuidad: trae el ÚLTIMO lavado/engrase que estaba en KM_DATA (sistema viejo) al nuevo
@@ -5044,17 +5044,37 @@ async function _migrarLavadoEngrase(){
 function _cargarMantTodo(){ return Promise.all([cargarMantItems(),cargarMantenimientos(),cargarUnidadConfig(),cargarTiposUnidadMant()]).then(function(){ return _migrarLavadoEngrase(); }); }
 function _mantItem(id){ return (MANT_ITEMS||[]).find(function(x){return x.id===id;}); }
 function _tipoDeUnidad(cam){ var c=(UNIDAD_CONFIG||{})[cam]; return c?c.tipo:''; }
-// Ítems que le aplican a una unidad: los globales ('' = todas) + los de su tipo.
-function _hvItemsDeUnidad(cam){
-  // El ítem aplica si su "tipoUnidad" está vacío (todas), o coincide con el TIPO o el COMBUSTIBLE
-  // de la unidad (ej: filtro-trampa 'diesel' aplica a cualquier unidad diésel). Case-insensitive.
+// Cómo se MIDE la unidad: km (rueda, auto del chofer) · horas (equipo con horímetro) · tiempo (calendario).
+// Default: si no está seteada, se infiere de su plantilla (medida de sus ítems); si no, km.
+function medidaUnidad(cam){
+  var c=(UNIDAD_CONFIG||{})[cam]||{};
+  if(c.medida)return c.medida;
+  // inferir de la plantilla de su combinación
+  var its=_itemsPlantilla(cam);
+  if(its.some(function(it){return it.base==='horas';})&&!its.some(function(it){return it.base==='km';}))return 'horas';
+  return 'km';
+}
+function horasActualUnidad(cam){ var c=(UNIDAD_CONFIG||{})[cam]||{}; return parseInt(c.horasActuales)||0; }
+// Ítems (plantilla) que le aplican a una unidad. PLANTILLA por combinación: si el ítem trae
+// tipo+combustible, deben coincidir AMBOS con la unidad (pickup diésel ≠ pickup gasolina).
+// Ítems legacy/globales (sin tipo/combustible): tipoUnidad vacío = todas, o coincide tipo/combustible.
+function _itemsPlantilla(cam){
   var c=(UNIDAD_CONFIG||{})[cam]||{};
   var tipo=String(c.tipo||'').toLowerCase(), comb=String(c.combustible||'').toLowerCase();
-  return (MANT_ITEMS||[]).filter(function(it){var tu=String(it.tipoUnidad||'').toLowerCase(); return it.activo&&(!tu||tu===tipo||tu===comb);});
+  return (MANT_ITEMS||[]).filter(function(it){
+    if(!it.activo)return false;
+    if(it.tipo||it.combustible){ // plantilla por combinación → match tipo Y combustible
+      return String(it.tipo||'').toLowerCase()===tipo && (!it.combustible||String(it.combustible).toLowerCase()===comb);
+    }
+    var tu=String(it.tipoUnidad||'').toLowerCase(); // legacy
+    return (!tu||tu===tipo||tu===comb);
+  });
 }
+function _hvItemsDeUnidad(cam){ return _itemsPlantilla(cam); } // alias (compat)
 // Último evento de un ítem en una unidad — FUENTE ÚNICA: MANTENIMIENTOS persistido.
-function _ultimoMantItem(cam,itemId){
-  var evs=(MANTENIMIENTOS||[]).filter(function(m){return m.cam===cam&&(itemId?m.itemId===itemId:true)&&m.fecha;});
+// tipoTrabajo opcional: 'cambio' devuelve el último CAMBIO (para el ciclo de sustitución).
+function _ultimoMantItem(cam,itemId,tipoTrabajo){
+  var evs=(MANTENIMIENTOS||[]).filter(function(m){return m.cam===cam&&(itemId?m.itemId===itemId:true)&&m.fecha&&(!tipoTrabajo||m.tipoTrabajo===tipoTrabajo);});
   if(!evs.length)return null;
   evs.sort(function(a,b){return a.fecha<b.fecha?1:(a.fecha>b.fecha?-1:0);});
   return evs[0];
@@ -5325,32 +5345,53 @@ function imprimirHojaVida(){
 // Reemplaza el viejo panel cfg.mant_programados (lavado/engrase/aceite) → un solo motor.
 function _diasEntreISO(desdeISO,hastaISO){ var a=new Date(String(hastaISO).slice(0,10)+'T12:00:00'),b=new Date(String(desdeISO).slice(0,10)+'T12:00:00'); return Math.round((a-b)/86400000); }
 // PURA (testeable): estado preventivo dado el último cambio, el km actual y hoy.
-function _mantEstadoCalc(base,intervalo,aviso,ultimo,kmActual,hoyISO){
+// PURA (testeable). base 'km'/'horas' usa la lectura de uso (ultimo.km / ultimo.horas);
+// 'dias'/'meses' por calendario. lecturaActual = km u horas actuales de la unidad (null = no se mide).
+function _mantEstadoCalc(base,intervalo,aviso,ultimo,lecturaActual,hoyISO){
   aviso=parseFloat(aviso)||0; intervalo=parseFloat(intervalo)||0;
   if(!intervalo)return {estado:'sin_intervalo',restante:null,venc:null,vencTxt:'',unidad:base};
   if(!ultimo)return {estado:'sin_dato',restante:null,venc:null,vencTxt:'',unidad:base};
-  if(base==='km'){
-    var venc=(parseInt(ultimo.km)||0)+intervalo, restante=venc-(parseInt(kmActual)||0);
-    return {estado:restante<=0?'vencido':(restante<=aviso?'proximo':'al_dia'),restante:restante,venc:venc,vencTxt:venc.toLocaleString()+' km',unidad:'km'};
+  if(base==='km'||base==='horas'){
+    if(lecturaActual==null)return {estado:'sin_medida',restante:null,venc:null,vencTxt:'',unidad:base};
+    var ref=base==='km'?(parseInt(ultimo.km)||0):(parseInt(ultimo.horas)||0);
+    var suf=base==='km'?' km':' h';
+    var venc=ref+intervalo, restante=venc-(parseInt(lecturaActual)||0);
+    return {estado:restante<=0?'vencido':(restante<=aviso?'proximo':'al_dia'),restante:restante,venc:venc,vencTxt:venc.toLocaleString()+suf,unidad:base};
   }
   var dias=base==='meses'?intervalo*30:intervalo;
   var vencF=addDays(ultimo.fecha,dias), restD=_diasEntreISO(hoyISO,vencF);
   return {estado:restD<0?'vencido':(restD<=aviso?'proximo':'al_dia'),restante:restD,venc:vencF,vencTxt:formatFecha(vencF),unidad:'dias'};
 }
+var _MANT_RANK={vencido:3,proximo:2,al_dia:1,sin_dato:0,sin_medida:0,sin_intervalo:-1};
+function _mantPeor(a,b){ return (_MANT_RANK[(b&&b.estado)||'']||0) > (_MANT_RANK[(a&&a.estado)||'']||0) ? b : a; }
+// Estado de un ítem en una unidad con DOBLE INTERVALO: inspección (revisar) y sustitución (cambiar).
+// La inspección cuenta desde el último evento cualquiera; el cambio desde el último 'cambio'.
 function _mantEstado(cam,it){
-  var u=_ultimoMantItem(cam,it.id);
-  var kmAct=(typeof kmActualCam==='function')?kmActualCam(cam):((KM_DATA[cam]&&KM_DATA[cam].km)||0);
-  var r=_mantEstadoCalc(it.base,it.intervalo,it.avisoAnticipo,u,kmAct,fechaVE());
-  r.cam=cam; r.itemId=it.id; r.nombre=it.nombre; r.base=it.base; r.ultimo=u;
-  return r;
+  var lastAny=_ultimoMantItem(cam,it.id);
+  var lastCambio=_ultimoMantItem(cam,it.id,'cambio')||lastAny;
+  var med=(typeof medidaUnidad==='function')?medidaUnidad(cam):'km';
+  // lectura de uso según la BASE del ítem: km o horas de la unidad (o null si la unidad va por 'tiempo').
+  function _lect(base){ if(base==='km')return (med==='tiempo')?null:((typeof kmActualCam==='function')?kmActualCam(cam):((KM_DATA[cam]&&KM_DATA[cam].km)||0)); if(base==='horas')return (med==='tiempo')?null:horasActualUnidad(cam); return null; }
+  var hoy=fechaVE();
+  // Compatibilidad: ítems viejos con "intervalo" único → lo tratamos como cambio.
+  var iInsp=it.inspeccion||0, iSust=it.sustitucion||it.intervalo||0;
+  var insp=iInsp>0?_mantEstadoCalc(it.base,iInsp,it.avisoAnticipo,lastAny,_lect(it.base),hoy):null;
+  var cambio=iSust>0?_mantEstadoCalc(it.base,iSust,it.avisoAnticipo,lastCambio,_lect(it.base),hoy):null;
+  var peor=_mantPeor(insp,cambio)||insp||cambio||{estado:'sin_intervalo'};
+  return {cam:cam,itemId:it.id,nombre:it.nombre,base:it.base,critico:!!it.critico,ultimo:lastAny,insp:insp,cambio:cambio,estado:peor.estado,restante:peor.restante,venc:peor.venc,vencTxt:peor.vencTxt,unidad:peor.unidad};
 }
 // Lista de vencidos/próximos de TODA la flota, ordenada por urgencia.
 function calcMantPreventivo(){
   var out=[];
   _hvUnidades().forEach(function(cam){
-    _hvItemsDeUnidad(cam).forEach(function(it){
+    _itemsPlantilla(cam).forEach(function(it){
       var e=_mantEstado(cam,it);
-      if(e.estado==='vencido'||e.estado==='proximo')out.push(e);
+      [['Revisar',e.insp],['Cambiar',e.cambio]].forEach(function(p){
+        var s=p[1]; if(!s)return;
+        if(s.estado==='vencido'||s.estado==='proximo'){
+          out.push({cam:cam,nombre:it.nombre,que:p[0],critico:!!it.critico,estado:s.estado,restante:s.restante,venc:s.venc,vencTxt:s.vencTxt,unidad:s.unidad});
+        }
+      });
     });
   });
   out.sort(function(a,b){var ra=a.estado==='vencido'?0:1,rb=b.estado==='vencido'?0:1;return ra-rb||(a.restante||0)-(b.restante||0);});
@@ -5385,10 +5426,10 @@ function renderPreventivoEstado(){
   var el=g('prev-estado'); if(!el)return;
   var lista=calcMantPreventivo();
   if(!lista.length){el.innerHTML='<div style="color:var(--green);font-size:12px;padding:10px">✓ Nada vencido ni por vencer con los intervalos actuales.</div>';return;}
-  el.innerHTML='<table><thead><tr><th>Unidad</th><th>Ítem</th><th>Vence</th><th>Restante</th><th>Estado</th></tr></thead><tbody>'+
+  function _restTxt(e){var suf=e.unidad==='km'?' km':e.unidad==='horas'?' h':' días';return e.restante>=0?('faltan '+Math.abs(e.restante).toLocaleString()+suf):('vencido hace '+Math.abs(e.restante).toLocaleString()+suf);}
+  el.innerHTML='<table><thead><tr><th>Unidad</th><th>Ítem</th><th>Acción</th><th>Vence</th><th>Restante</th><th>Estado</th></tr></thead><tbody>'+
     lista.map(function(e){
-      var rest = e.unidad==='km' ? (e.restante>0?e.restante.toLocaleString()+' km':Math.abs(e.restante).toLocaleString()+' km pasado') : (e.restante>=0?e.restante+' días':Math.abs(e.restante)+' días pasado');
-      return '<tr style="'+(e.estado==='vencido'?'background:rgba(220,38,38,.10)':'')+'"><td style="font-weight:700">'+_mEsc(e.cam)+'</td><td>'+_mEsc(e.nombre)+'</td><td style="font-family:var(--m)">'+e.vencTxt+'</td><td style="font-family:var(--m);color:'+(e.estado==='vencido'?'var(--red)':'var(--amber)')+'">'+rest+'</td><td>'+_mantBadge(e.estado)+'</td></tr>';
+      return '<tr style="'+(e.estado==='vencido'?'background:rgba(220,38,38,.10)':'')+'"><td style="font-weight:700">'+_mEsc(e.cam)+'</td><td>'+_mEsc(e.nombre)+(e.critico?' <span title="seguridad" style="color:var(--red)">⚠</span>':'')+'</td><td>'+(e.que==='Cambiar'?'🔧 Cambiar':'🔎 Revisar')+'</td><td style="font-family:var(--m)">'+e.vencTxt+'</td><td style="font-family:var(--m);color:'+(e.estado==='vencido'?'var(--red)':'var(--amber)')+'">'+_restTxt(e)+'</td><td>'+_mantBadge(e.estado)+'</td></tr>';
     }).join('')+'</tbody></table>';
 }
 // Config del CATÁLOGO de ítems (intervalos por km/tiempo, por tipo).

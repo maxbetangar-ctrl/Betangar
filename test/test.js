@@ -554,6 +554,30 @@ function resetCola(){ app.COLA_OFFLINE=[]; app.COLA_FALLIDOS=[]; app._procesando
   eq('unidadInfo trae el VIN de la ficha', app.unidadInfo('JAC-B001').vin, 'VIN123');
   eq('unidadInfo vacío si la unidad no existe', JSON.stringify(app.unidadInfo('NADA')), '{}');
 
+  console.log('\nPreventivo v2 (base horas · doble intervalo · plantilla por combinación):');
+  eq('horas vencido', app._mantEstadoCalc('horas', 250, 25, { horas: 100 }, 400, '2026-06-30').estado, 'vencido');
+  eq('horas al día', app._mantEstadoCalc('horas', 250, 25, { horas: 100 }, 300, '2026-06-30').estado, 'al_dia');
+  eq('km sin lectura (unidad por tiempo) → sin_medida', app._mantEstadoCalc('km', 5000, 500, { km: 0 }, null, '2026-06-30').estado, 'sin_medida');
+  // Plantilla por combinación: la unidad hereda SOLO la de su tipo+combustible.
+  app.MANT_ITEMS = [
+    { id: 'a', nombre: 'Aceite', base: 'km', inspeccion: 5000, sustitucion: 10000, avisoAnticipo: 500, tipo: 'Pickup', combustible: 'diesel', activo: true },
+    { id: 'b', nombre: 'Aceite', base: 'km', inspeccion: 5000, sustitucion: 15000, avisoAnticipo: 500, tipo: 'Camión', combustible: 'diesel', activo: true }
+  ];
+  app.UNIDAD_CONFIG = { 'U1': { tipo: 'Pickup', combustible: 'diesel' } };
+  eq('unidad hereda solo su combinación (1 ítem)', app._itemsPlantilla('U1').length, 1);
+  eq('hereda el de su tipo (Pickup)', app._itemsPlantilla('U1')[0].tipo, 'Pickup');
+  app.UNIDAD_CONFIG = { 'U1': { tipo: 'Pickup', combustible: 'gasolina' } };
+  eq('otra combinación (gasolina) NO hereda el de diésel', app._itemsPlantilla('U1').length, 0);
+  // Doble intervalo end-to-end: inspección vencida, cambio al día.
+  app.REGS = []; app.CHECKLIST_DATA = []; app.KM_DATA = { 'U1': { km: 6000 } };
+  app.UNIDAD_CONFIG = { 'U1': { tipo: 'Pickup', combustible: 'diesel' } };
+  app.MANT_ITEMS = [{ id: 'a', nombre: 'Aceite', base: 'km', inspeccion: 5000, sustitucion: 10000, avisoAnticipo: 500, tipo: 'Pickup', combustible: 'diesel', activo: true }];
+  app.MANTENIMIENTOS = [{ id: 'm1', cam: 'U1', itemId: 'a', fecha: '2026-01-01', km: 1000, tipoTrabajo: 'cambio' }];
+  var eDob = app._mantEstado('U1', app.MANT_ITEMS[0]);
+  ok('doble intervalo: calcula inspección y cambio', !!(eDob.insp && eDob.cambio));
+  eq('inspección vencida (1000+5000=6000, km 6000)', eDob.insp.estado, 'vencido');
+  eq('cambio al día (1000+10000=11000)', eDob.cambio.estado, 'al_dia');
+
   // ── Resumen ──
   console.log('\n──────────────');
   console.log('PASS: ' + pass + '   FAIL: ' + fail);
