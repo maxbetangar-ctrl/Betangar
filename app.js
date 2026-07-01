@@ -1158,7 +1158,7 @@ function sp(id){
     if(id==='control-combustible'){renderCombSubnav('control-combustible');renderControlComb();}
     if(id==='rentabilidad'){renderAnalisisSubnav('rentabilidad');renderRentabilidad();}
     if(id==='salud'){renderSaludDatos();}
-    if(id==='km'){renderMantSubnav('km');renderKm();renderTiposMant();Promise.all([cargarMantItems(),cargarMantenimientos(),cargarUnidadConfig()]).then(function(){try{renderHistMant();}catch(e){}}).catch(function(){});}
+    if(id==='km'){renderMantSubnav('km');renderKm();renderTiposMant();Promise.all([cargarMantItems(),cargarMantenimientos(),cargarUnidadConfig()]).then(function(){try{renderHistMant();}catch(e){}try{_poblarKmItem();}catch(e){}}).catch(function(){});}
     if(id==='banco'){renderBancoSubnav('banco');renderBNCDash();}
     if(id==='proveedores'){renderFinanzasSubnav('proveedores');renderCXP();renderProveedoresLista();renderRetenciones();}
     if(id==='documentos'){renderDocAlertas();renderDocTablas();}
@@ -4852,7 +4852,7 @@ function renderKm(){
   // ya no se envía desde el cliente, para no depender de que la app esté abierta ni duplicar.
 }
 async function guardarKm(){
-  var cam=gv('km-cam'),km=parseInt(gv('km-val'))||0,f=gv('km-f'),mant=gv('km-mant'),desc=gv('km-desc');
+  var cam=gv('km-cam'),km=parseInt(gv('km-val'))||0,f=gv('km-f'),mant=gv('km-mant'),desc=gv('km-desc'),itemId=gv('km-item')||'';
   if(!cam||!km){alert('Completa camion y km');return;}
   if(!KM_DATA[cam])KM_DATA[cam]={km:0,f:'',ultsrv:0,mant:[],lavado:'',engrase:''};
   // BLINDAJE: el odómetro no retrocede. Si el km nuevo es MENOR que el último registrado,
@@ -4865,6 +4865,14 @@ async function guardarKm(){
   }
   KM_DATA[cam].km=km;KM_DATA[cam].f=f;
   if(mant){KM_DATA[cam].mant.push({f:f,km:km,tipo:mant,desc:desc});if(mant.includes('5000'))KM_DATA[cam].ultsrv=km;}
+  // FUENTE ÚNICA: si se registró un mantenimiento, va a la MISMA tabla `mantenimientos` que la
+  // Hoja de vida, con id + ítem del catálogo (si se eligió) → alimenta el historial Y el preventivo,
+  // y se refleja al instante (sin recargar). Un solo registro, no dos.
+  var _mid=null, _mdesc='';
+  if(mant){
+    _mid='MT'+Date.now(); _mdesc=(desc?desc+' ':'')+'(por '+(SESION?SESION.nombre:'?')+')';
+    if(typeof MANTENIMIENTOS!=='undefined')MANTENIMIENTOS.unshift({id:_mid,cam:cam,fecha:f,km:km,itemId:itemId,tipo:mant,desc:_mdesc,costo:0,proveedor:'',foto:''});
+  }
   // Guardar en Supabase
   if(DB_READY&&supabase){
     var kmUpdate={cam:cam,km:km,f:f,updated_by:SESION?SESION.nombre:''};
@@ -4873,14 +4881,14 @@ async function guardarKm(){
       if(r.error)console.error('Error km_data:',r.error);
     });
     if(mant){
-      supabase.from('mantenimientos').insert([{
-        cam:cam,f:f,km:km,tipo:mant,
-        desc_trabajo:(desc?desc+' ':'')+'(por '+(SESION?SESION.nombre:'?')+')'
-      }]).then(function(r){if(r&&r.error)console.log('mantenimientos:',r.error.message);});
+      supabase.from('mantenimientos').upsert([{
+        id:_mid,cam:cam,f:f,km:km,item_id:itemId,tipo:mant,
+        desc_trabajo:_mdesc,costo_usd:0,proveedor:'',foto_url:''
+      }],{onConflict:'id'}).then(function(r){if(r&&r.error)console.log('mantenimientos:',r.error.message);});
     }
   }
   audit('Km registrado',cam+' '+km+'km'+(mant?' — '+mant:''));
-  renderKm();sv('km-val','');sv('km-mant','');sv('km-desc','');
+  renderKm();try{if(typeof renderHistMant==='function')renderHistMant();}catch(e){}sv('km-val','');sv('km-mant','');sv('km-desc','');sv('km-item','');
   alert('✅ KM registrado correctamente.');
 }
 function renderLavados(){
@@ -5040,6 +5048,12 @@ function _hvPoblarSelects(){
   var optIver='<option value="">Todos los ítems</option>'+its.map(function(x){return '<option value="'+_mEsc(x.id)+'">'+_mEsc(x.nombre)+'</option>';}).join('');
   _setSelPreserve('hv-cam',optU); _setSelPreserve('hv-item',optI);
   _setSelPreserve('hv-ver-cam',optUver); _setSelPreserve('hv-ver-item',optIver);
+}
+// Puebla el selector de ítem del catálogo en la pestaña Odómetro (para vincular el registro al preventivo).
+function _poblarKmItem(){
+  var s=g('km-item'); if(!s)return; var cur=s.value;
+  s.innerHTML='<option value="">— ninguno (solo historial) —</option>'+(MANT_ITEMS||[]).filter(function(x){return x.activo;}).map(function(x){return '<option value="'+_mEsc(x.id)+'">'+_mEsc(x.nombre)+'</option>';}).join('');
+  if(cur)s.value=cur;
 }
 function subirFotoHV(input){
   var f=input&&input.files&&input.files[0]; if(!f)return;
