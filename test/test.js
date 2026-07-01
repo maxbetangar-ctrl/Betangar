@@ -517,6 +517,11 @@ function resetCola(){ app.COLA_OFFLINE=[]; app.COLA_FALLIDOS=[]; app._procesando
   ok('unidad sin tipo NO hereda el ítem diésel (filtro trampa)', !itsAll.some(function (x) { return x.id === 'filtro_trampa'; }));
   app.UNIDAD_CONFIG = { 'JAC-B001': { tipo: 'diesel' } };
   ok('unidad diésel SÍ hereda el filtro trampa', app._hvItemsDeUnidad('JAC-B001').some(function (x) { return x.id === 'filtro_trampa'; }));
+  // Herencia por COMBUSTIBLE (no por tipo): un Camión diésel hereda el filtro trampa; uno gasolina no.
+  app.UNIDAD_CONFIG = { 'JAC-B001': { tipo: 'Camión', combustible: 'diesel' } };
+  ok('camión diésel hereda el filtro trampa (por combustible)', app._hvItemsDeUnidad('JAC-B001').some(function (x) { return x.id === 'filtro_trampa'; }));
+  app.UNIDAD_CONFIG = { 'JAC-B001': { tipo: 'Camión', combustible: 'gasolina' } };
+  ok('camión gasolina NO hereda el filtro trampa', !app._hvItemsDeUnidad('JAC-B001').some(function (x) { return x.id === 'filtro_trampa'; }));
   app.MANTENIMIENTOS = [
     { id: 'm1', cam: 'JAC-B001', fecha: '2026-01-10', km: 1000, itemId: 'bateria' },
     { id: 'm2', cam: 'JAC-B001', fecha: '2026-06-01', km: 8000, itemId: 'bateria' },

@@ -5041,13 +5041,16 @@ async function _migrarLavadoEngrase(){
   if(seeds.length){ try{ await supabase.from('mantenimientos').upsert(seeds,{onConflict:'id'}); }catch(e){} }
 }
 // Loader único del módulo de mantenimiento (catálogo + historial + tipos + continuidad).
-function _cargarMantTodo(){ return Promise.all([cargarMantItems(),cargarMantenimientos(),cargarUnidadConfig()]).then(function(){ return _migrarLavadoEngrase(); }); }
+function _cargarMantTodo(){ return Promise.all([cargarMantItems(),cargarMantenimientos(),cargarUnidadConfig(),cargarTiposUnidadMant()]).then(function(){ return _migrarLavadoEngrase(); }); }
 function _mantItem(id){ return (MANT_ITEMS||[]).find(function(x){return x.id===id;}); }
 function _tipoDeUnidad(cam){ var c=(UNIDAD_CONFIG||{})[cam]; return c?c.tipo:''; }
 // Ítems que le aplican a una unidad: los globales ('' = todas) + los de su tipo.
 function _hvItemsDeUnidad(cam){
-  var tipo=_tipoDeUnidad(cam);
-  return (MANT_ITEMS||[]).filter(function(it){return it.activo&&(!it.tipoUnidad||it.tipoUnidad===tipo);});
+  // El ítem aplica si su "tipoUnidad" está vacío (todas), o coincide con el TIPO o el COMBUSTIBLE
+  // de la unidad (ej: filtro-trampa 'diesel' aplica a cualquier unidad diésel). Case-insensitive.
+  var c=(UNIDAD_CONFIG||{})[cam]||{};
+  var tipo=String(c.tipo||'').toLowerCase(), comb=String(c.combustible||'').toLowerCase();
+  return (MANT_ITEMS||[]).filter(function(it){var tu=String(it.tipoUnidad||'').toLowerCase(); return it.activo&&(!tu||tu===tipo||tu===comb);});
 }
 // Último evento de un ítem en una unidad — FUENTE ÚNICA: MANTENIMIENTOS persistido.
 function _ultimoMantItem(cam,itemId){
@@ -5182,6 +5185,16 @@ function renderHojaVida(){
 // órdenes de servicio y cualquier módulo. Datos detrás de RLS autenticado (no anon).
 // foto/PDF se cargan BAJO DEMANDA (no viven en memoria para todas las unidades).
 // ═══════════════════════════════════════════════════════════════════════
+// Tipos de unidad/equipo para el SELECTOR (evita que se escriban distinto). Editable y persistente.
+// Incluye vehículos y EQUIPOS (plantas eléctricas, montacargas…) para llevarles mantenimiento igual.
+var TIPOS_UNIDAD_MANT=['Camión','Camioneta','Automóvil','Moto','Autobús','Planta eléctrica','Montacargas','Retroexcavadora','Grúa','Remolque','Cisterna','Compactador','Otro'];
+async function cargarTiposUnidadMant(){ if(!(DB_READY&&supabase))return; try{ var r=await supabase.from('configuracion').select('valor').eq('clave','tipos_unidad_mant').maybeSingle(); if(r&&r.data&&r.data.valor){var v=JSON.parse(r.data.valor); if(Array.isArray(v)&&v.length)TIPOS_UNIDAD_MANT=v;} }catch(e){} }
+function guardarTiposUnidadMant(){ if(!(DB_READY&&supabase))return; try{ supabase.from('configuracion').upsert([{clave:'tipos_unidad_mant',valor:JSON.stringify(TIPOS_UNIDAD_MANT)}],{onConflict:'clave'}).then(function(r){if(r&&r.error)console.log('tipos_unidad_mant:',r.error.message);}); }catch(e){} }
+function agregarTipoUnidadMant(){ var t=(prompt('Nuevo tipo de unidad/equipo (ej: Planta eléctrica, Montacargas):')||'').trim(); if(!t)return; if(TIPOS_UNIDAD_MANT.indexOf(t)<0){TIPOS_UNIDAD_MANT.push(t);guardarTiposUnidadMant();} var s=g('u-tipo'); if(s){ if(![].slice.call(s.options).some(function(o){return o.value===t||o.textContent===t;})){var o=document.createElement('option');o.textContent=t;s.appendChild(o);} s.value=t; } try{renderMantCatalogo();}catch(e){} }
+// Opciones del selector de TIPO de una unidad.
+function _optTipoUnidad(sel){ var opts='<option value="">— elegí —</option>'; TIPOS_UNIDAD_MANT.forEach(function(t){opts+='<option'+(sel===t?' selected':'')+'>'+_mEsc(t)+'</option>';}); if(sel&&TIPOS_UNIDAD_MANT.indexOf(sel)<0)opts+='<option selected>'+_mEsc(sel)+'</option>'; return opts; }
+// Opciones del "aplica a" de un ítem del catálogo: todas · tipos · por combustible.
+function _optAplicaItem(sel){ var cbs=['diesel','gasolina','gas','electrico']; var opts='<option value="">todas</option>'; TIPOS_UNIDAD_MANT.forEach(function(t){opts+='<option'+(sel===t?' selected':'')+'>'+_mEsc(t)+'</option>';}); cbs.forEach(function(cb){opts+='<option value="'+cb+'"'+(sel===cb?' selected':'')+'>solo '+cb+'</option>';}); if(sel&&TIPOS_UNIDAD_MANT.indexOf(sel)<0&&cbs.indexOf(sel)<0)opts+='<option selected>'+_mEsc(sel)+'</option>'; return opts; }
 function _unidadesLista(){
   var set={};
   Object.keys(FLOTA||{}).forEach(function(c){set[c]=1;});
@@ -5224,8 +5237,8 @@ async function abrirEditarUnidad(cam){
     '<div class="fr2">'+inp('u-placa','Placa',c.placa)+inp('u-vin','VIN',c.vin)+'</div>'+
     '<div class="fr2">'+inp('u-smotor','Serial de motor',c.serialMotor)+inp('u-scarr','Serial de carrocería',c.serialCarroceria)+'</div>'+
     '<div class="fr3">'+
-      '<div class="fg"><label>Tipo</label><input class="fc" id="u-tipo" value="'+_mEsc(c.tipo||'')+'" placeholder="camión/camioneta/carro"></div>'+
-      '<div class="fg"><label>Combustible</label><select class="fc" id="u-comb"><option value=""'+(!c.combustible?' selected':'')+'>—</option><option value="diesel"'+(c.combustible==='diesel'?' selected':'')+'>diésel</option><option value="gasolina"'+(c.combustible==='gasolina'?' selected':'')+'>gasolina</option></select></div>'+
+      '<div class="fg"><label>Tipo de unidad/equipo</label><div style="display:flex;gap:4px"><select class="fc" id="u-tipo">'+_optTipoUnidad(c.tipo)+'</select><button class="btn btn-s btn-sm" title="Agregar un tipo nuevo" onclick="agregarTipoUnidadMant()">＋</button></div></div>'+
+      '<div class="fg"><label>Combustible</label><select class="fc" id="u-comb"><option value=""'+(!c.combustible?' selected':'')+'>—</option><option value="diesel"'+(c.combustible==='diesel'?' selected':'')+'>Diésel</option><option value="gasolina"'+(c.combustible==='gasolina'?' selected':'')+'>Gasolina</option><option value="gas"'+(c.combustible==='gas'?' selected':'')+'>Gas</option><option value="electrico"'+(c.combustible==='electrico'?' selected':'')+'>Eléctrico</option></select></div>'+
       '<div class="fg"><label>Uso</label><select class="fc" id="u-uso"><option value=""'+(!c.uso?' selected':'')+'>—</option><option value="viajes"'+(c.uso==='viajes'?' selected':'')+'>viajes</option><option value="personal"'+(c.uso==='personal'?' selected':'')+'>personal</option></select></div>'+
     '</div>'+
     '<div class="fr2">'+inp('u-titular','Título a nombre de',c.titular)+inp('u-chofer','Chofer asignado',choferDef)+'</div>'+
@@ -5388,7 +5401,7 @@ function renderMantCatalogo(){
       '<td><input type="number" value="'+x.intervalo+'" onchange="MANT_ITEMS['+i+'].intervalo=parseFloat(this.value)||0;guardarMantItem('+i+')" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:3px 6px;border-radius:5px;width:70px;font-family:var(--m)"></td>'+
       '<td><select onchange="MANT_ITEMS['+i+'].base=this.value;guardarMantItem('+i+')" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:3px 4px;border-radius:5px;font-size:11px"><option value="km"'+(x.base==='km'?' selected':'')+'>km</option><option value="dias"'+(x.base==='dias'?' selected':'')+'>días</option><option value="meses"'+(x.base==='meses'?' selected':'')+'>meses</option></select></td>'+
       '<td><input type="number" value="'+(x.avisoAnticipo||0)+'" onchange="MANT_ITEMS['+i+'].avisoAnticipo=parseFloat(this.value)||0;guardarMantItem('+i+')" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:3px 6px;border-radius:5px;width:70px;font-family:var(--m)"></td>'+
-      '<td><input value="'+_mEsc(x.tipoUnidad||'')+'" placeholder="todas" title="Vacío = aplica a todas las unidades; o el tipo (diesel/gasolina)" onchange="MANT_ITEMS['+i+'].tipoUnidad=this.value.trim();guardarMantItem('+i+')" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:3px 6px;border-radius:5px;width:90px;font-size:11px"></td>'+
+      '<td><select title="A qué le aplica: todas, un tipo de unidad, o por combustible" onchange="MANT_ITEMS['+i+'].tipoUnidad=this.value;guardarMantItem('+i+')" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:3px 4px;border-radius:5px;font-size:11px;max-width:120px">'+_optAplicaItem(x.tipoUnidad||'')+'</select></td>'+
       '<td style="text-align:center"><input type="checkbox"'+(x.activo?' checked':'')+' onchange="MANT_ITEMS['+i+'].activo=this.checked;guardarMantItem('+i+')"></td>'+
       '<td><button class="btn btn-r btn-xs" onclick="elimMantItemCat(\''+_mEsc(x.id)+'\')">×</button></td></tr>';}).join('')+
     '<tr><td colspan="7" style="padding-top:6px"><button class="btn btn-s btn-xs" onclick="agregarMantItemCat()">+ Agregar ítem</button></td></tr>'+
