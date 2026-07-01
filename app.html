@@ -1802,7 +1802,7 @@ tr:hover td{background:rgba(45,255,122,.02)}
     </div>
     <div class="card">
       <div class="sh" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px"><div class="st">Hoja de vida (historial)</div>
-        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center"><select class="fc" id="hv-ver-item" onchange="renderHojaVida()" style="max-width:180px;padding:6px 8px;font-size:11px"><option value="">Todos los ítems</option></select><input class="fc" id="hv-ver-des" type="date" onchange="renderHojaVida()" style="padding:6px 8px;font-size:11px" title="Desde"><input class="fc" id="hv-ver-hta" type="date" onchange="renderHojaVida()" style="padding:6px 8px;font-size:11px" title="Hasta"></div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center"><select class="fc" id="hv-ver-item" onchange="renderHojaVida()" style="max-width:180px;padding:6px 8px;font-size:11px"><option value="">Todos los ítems</option></select><button class="btn btn-s btn-sm" onclick="imprimirHojaVida()">🖨️ Imprimir reporte</button><input class="fc" id="hv-ver-des" type="date" onchange="renderHojaVida()" style="padding:6px 8px;font-size:11px" title="Desde"><input class="fc" id="hv-ver-hta" type="date" onchange="renderHojaVida()" style="padding:6px 8px;font-size:11px" title="Hasta"></div>
       </div>
       <div id="hv-timeline" class="tw" style="margin-top:8px"></div>
     </div>

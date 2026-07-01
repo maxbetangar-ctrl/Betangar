@@ -5124,6 +5124,30 @@ function renderHojaVida(){
     '<tr class="tr-tot"><td colspan="4">TOTAL ('+evs.length+' registros)</td><td style="font-family:var(--m);font-weight:700;color:var(--yellow)">$'+totCosto.toLocaleString()+'</td><td colspan="3"></td></tr>'+
     '</tbody></table>';
 }
+// Reporte imprimible de la HOJA DE VIDA por unidad y período (lo pidió el cliente:
+// "un reporte por camión que diga todo lo que se le ha hecho"). Usa el filtro actual.
+function imprimirHojaVida(){
+  var cam=gv('hv-ver-cam')||'', des=gv('hv-ver-des')||'', hta=gv('hv-ver-hta')||'', itemF=gv('hv-ver-item')||'';
+  var evs=(MANTENIMIENTOS||[]).filter(function(m){return (!cam||m.cam===cam)&&(!itemF||m.itemId===itemF)&&(!des||m.fecha>=des)&&(!hta||m.fecha<=hta);});
+  if(!evs.length){alert('No hay mantenimientos para ese filtro.');return;}
+  var totCosto=evs.reduce(function(s,m){return s+(m.costo||0);},0);
+  var periodo=(des?formatFecha(des):'inicio')+' a '+(hta?formatFecha(hta):'hoy');
+  var stats=mkStat('Unidad',cam||'Toda la flota','','azul')+
+    mkStat('Período',periodo,'','amari')+
+    mkStat('Registros',evs.length,'mantenimientos','verde')+
+    mkStat('Costo total','$'+totCosto.toLocaleString(),'en el período','rojo');
+  var body='<table><thead><tr><th>Fecha</th><th>Unidad</th><th>Ítem</th><th>Km</th><th>Costo</th><th>Proveedor</th><th>Nota</th></tr></thead><tbody>'+
+    evs.map(function(m,i){var it=_mantItem(m.itemId);return '<tr style="background:'+(i%2?'#f5f9ff':'#fff')+'"><td>'+formatFecha(m.fecha)+'</td><td><b>'+_mEsc(m.cam)+'</b></td><td>'+_mEsc(it?it.nombre:(m.tipo||'—'))+'</td><td class="gv">'+(m.km?m.km.toLocaleString():'—')+'</td><td class="gv">'+(m.costo?'$'+m.costo.toLocaleString():'—')+'</td><td>'+_mEsc(m.proveedor||'—')+'</td><td>'+_mEsc(m.desc||'')+'</td></tr>';}).join('')+
+    '<tr class="tr-tot"><td colspan="4">TOTAL</td><td class="gv">$'+totCosto.toLocaleString()+'</td><td colspan="2">'+evs.length+' registros</td></tr>'+
+    '</tbody></table>';
+  if(cam){
+    var prev=_hvItemsDeUnidad(cam).map(function(it){return _mantEstado(cam,it);});
+    body+='<h3 style="margin-top:18px;font-size:14px">Estado preventivo — '+_mEsc(cam)+'</h3>'+
+      '<table><thead><tr><th>Ítem</th><th>Última vez</th><th>Próximo</th><th>Estado</th></tr></thead><tbody>'+
+      prev.map(function(e){return '<tr><td>'+_mEsc(e.nombre)+'</td><td>'+(e.ultimo?formatFecha(e.ultimo.fecha):'—')+'</td><td>'+(e.vencTxt||'—')+'</td><td style="font-weight:700;color:'+(e.estado==='vencido'?'#dc2626':e.estado==='proximo'?'#b45309':'#16a34a')+'">'+(e.estado==='vencido'?'VENCIDO':e.estado==='proximo'?'POR VENCER':e.estado==='al_dia'?'Al día':'— sin dato —')+'</td></tr>';}).join('')+'</tbody></table>';
+  }
+  abrirImpresionPremium('Hoja de vida — '+(cam||'Flota'),'Historial de mantenimiento · '+periodo,stats,body);
+}
 // ── PREVENTIVO (motor + panel "Próximos a vencer") — FlotaMax Fase 1B ──────────
 // Fuente única: último evento (MANTENIMIENTOS) + intervalo del ítem (MANT_ITEMS).
 // Reemplaza el viejo panel cfg.mant_programados (lavado/engrase/aceite) → un solo motor.
