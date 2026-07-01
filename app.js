@@ -5411,6 +5411,28 @@ async function _procesarEmpleadosExcel(rows,input){
   if(input)input.value='';
   mostrarToast('✅ '+rowsDb.length+' empleados importados.','exito');
 }
+// Plantilla de RECOLECCIÓN de datos de la empresa (identidad + cuentas). La identidad es config del
+// clon (se setea al dar de alta la empresa); esta hoja sirve para que el cliente la complete y enviarla.
+function descargarPlantillaEmpresa(){
+  if(typeof XLSX==='undefined'){alert('XLSX no disponible');return;}
+  var empresa=[
+    {Dato:'Nombre de la empresa',Valor:''},{Dato:'RIF',Valor:''},{Dato:'Direccion',Valor:''},
+    {Dato:'Ciudad / Estado',Valor:''},{Dato:'Telefono',Valor:''},{Dato:'Email',Valor:''},
+    {Dato:'Actividad / contrato principal',Valor:''},{Dato:'Nombre del contacto',Valor:''},
+    {Dato:'Cargo del contacto',Valor:''},{Dato:'Logo (enviar aparte como imagen PNG)',Valor:''}
+  ];
+  var cuentas=[{Banco:'',Titular:'',RIF_Titular:'','N de Cuenta':'',Tipo:'Corriente'},{Banco:'',Titular:'',RIF_Titular:'','N de Cuenta':'',Tipo:''}];
+  var wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(empresa),'Datos de la empresa');
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(cuentas,{header:['Banco','Titular','RIF_Titular','N de Cuenta','Tipo']}),'Cuentas bancarias');
+  var info=[{Nota:'Complete la columna Valor en "Datos de la empresa" y la hoja "Cuentas bancarias".'},
+    {Nota:'El LOGO va aparte: enviar imagen PNG/JPG (fondo transparente si se puede).'},
+    {Nota:'Con esta info se configura el alta de la empresa en el sistema.'},
+    {Nota:'Las UNIDADES y los EMPLEADOS se cargan con sus propias plantillas.'}];
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(info),'Instrucciones');
+  XLSX.writeFile(wb,'FlotaMax_Datos_Empresa.xlsx');
+  if(typeof mostrarToast==='function')mostrarToast('⬇️ Plantilla de datos de la empresa descargada.','exito');
+}
 // Reporte IMPRIMIBLE de la ficha de la unidad (todos los datos + foto). La foto se trae bajo demanda.
 async function imprimirFichaUnidad(cam){
   if(!cam)return;

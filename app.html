@@ -2065,6 +2065,15 @@ tr:hover td{background:rgba(45,255,122,.02)}
     <div class="sw" id="sw-cfg-combustible" onclick="switchCfgTab('combustible')">⛽ Combustible</div>
   </div>
   <div id="tab-cfg-general">
+    <div class="card" style="margin-bottom:12px;border-color:rgba(59,130,246,.35)">
+      <div class="st" style="margin-bottom:6px">🚀 Kit de alta de cliente nuevo (plantillas Excel)</div>
+      <div style="font-size:11px;color:var(--text3);margin-bottom:10px">Descargá estas 3 plantillas, mandáselas al cliente para que las llene, y cargá su flota y su personal en minutos. Con "Datos de la empresa" se configura el alta (identidad + cuentas + logo).</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn btn-s btn-sm" onclick="descargarPlantillaEmpresa()">🏢 Datos de la empresa</button>
+        <button class="btn btn-s btn-sm" onclick="descargarPlantillaUnidades()">🚛 Unidades y equipos</button>
+        <button class="btn btn-s btn-sm" onclick="descargarPlantillaEmpleados()">👤 Empleados</button>
+      </div>
+    </div>
     <div class="card" style="margin-bottom:12px;border-color:rgba(125,201,65,.3)">
       <div class="st" style="margin-bottom:8px">🔐 Seguridad — Verificación en dos pasos (2FA)</div>
       <div style="font-size:11px;color:var(--text3);margin-bottom:10px">Suma una segunda capa a tu cuenta: además de la contraseña, un código de tu teléfono (Google Authenticator / Authy). Recomendado para administradores — ISO 27001 A.9.</div>
@@ -2372,7 +2381,7 @@ tr:hover td{background:rgba(45,255,122,.02)}
 </div>
 
 <script src="money.js?v=20260628n"></script>
-<script src="app.js?v=20260702f"></script>
+<script src="app.js?v=20260702g"></script>
 
 <!-- Modal global -->
 <div id="modal" class="moverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9990;align-items:center;justify-content:center;padding:16px">
