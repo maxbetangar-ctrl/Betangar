@@ -1723,12 +1723,12 @@ tr:hover td{background:rgba(45,255,122,.02)}
 <div id="p-km" class="page">
   <div id="subnav-km"></div>
   <div class="switch-row" style="margin-bottom:10px">
-    <div class="sw on" id="sw-km-odo" onclick="switchKmTab('odo')">Odometro</div>
+    <div class="sw on" id="sw-km-odo" onclick="switchKmTab('odo')">Kilometraje</div>
     <div class="sw" id="sw-km-lav" onclick="switchKmTab('lav')">Lavado (45d)</div>
     <div class="sw" id="sw-km-eng" onclick="switchKmTab('eng')">Engrase (15d)</div>
     <div class="sw" id="sw-km-prog" onclick="switchKmTab('prog')">⏰ Preventivo</div>
     <div class="sw" id="sw-km-hist" onclick="switchKmTab('hist')">Historial</div>
-    <div class="sw" id="sw-km-hv" onclick="switchKmTab('hv')">📋 Hoja de vida</div>
+    <div class="sw" id="sw-km-hv" onclick="switchKmTab('hv')">🔧 Mantenimiento</div>
     <button class="btn btn-s btn-sm" style="margin-left:auto" onclick="imprimirMantenimiento()">Imprimir</button>
     <button class="btn btn-s btn-sm" onclick="emailMantenimiento()">✉ Correo</button>
     <button class="btn btn-y btn-sm" onclick="enviarReporteJAC()">📧 Reporte JAC</button>
@@ -1737,12 +1737,11 @@ tr:hover td{background:rgba(45,255,122,.02)}
   <div id="tab-km-odo">
     <div class="g2" style="margin-bottom:10px">
       <div class="card">
-        <div class="sh"><div class="st">Registro Odometro</div></div>
+        <div class="sh"><div class="st">Actualizar kilometraje</div></div>
+        <div style="font-size:11px;color:var(--text3);margin-bottom:8px">El km se nutre solo del que carga el chofer a diario (checklist). Esto es solo para una <b>corrección manual</b> si hiciera falta. Para registrar un <b>mantenimiento</b>, usá el tab <b>🔧 Mantenimiento</b>.</div>
         <div class="fr3"><div class="fg"><label>Camion</label><select class="fc" id="km-cam"><option value="">-</option></select></div><div class="fg"><label>Km Odometro</label><input class="fc" id="km-val" type="number" placeholder="0" style="font-family:var(--m)"></div><div class="fg"><label>Fecha</label><input class="fc" id="km-f" type="date"></div></div>
-        <div class="fr2"><div class="fg"><label>Tipo Mantenimiento</label><select class="fc" id="km-mant"></select><button onclick="agregarTipoMant()" class="btn btn-s btn-sm" style="margin-top:4px;font-size:11px">+ Tipo nuevo</button></div><div class="fg"><label>Descripcion</label><input class="fc" id="km-desc" placeholder="Que se hizo..."></div></div>
-        <div class="fg"><label>Ítem preventivo (opcional)</label><select class="fc" id="km-item"><option value="">— ninguno (solo historial) —</option></select><small style="color:var(--text3);font-size:10px">Vinculalo con un ítem del catálogo para que este registro reinicie su preventivo (además de ir a la Hoja de vida)</small></div>
         <div class="fr2"><div class="fg"><label>💰 Valor Mercado del Camión ($)</label><input class="fc" id="km-vmercado" type="number" placeholder="Ej: 35000" step="500"><small style="color:var(--text3);font-size:10px">Valor real actual en el mercado (actualizar cuando cambie)</small></div><div class="fg"></div></div>
-        <button class="btn btn-g btn-sm" style="width:100%" onclick="guardarKm()">Registrar</button>
+        <button class="btn btn-g btn-sm" style="width:100%" onclick="guardarKm()">Actualizar km</button>
       </div>
       <div class="card"><div class="sh"><div class="st">Alertas Servicio</div></div><div id="alertas-km"></div></div>
     </div>
@@ -1789,8 +1788,8 @@ tr:hover td{background:rgba(45,255,122,.02)}
     <div class="g2" style="margin-bottom:10px">
       <div class="card">
         <div class="sh"><div class="st">📋 Registrar mantenimiento</div></div>
-        <div class="fr2"><div class="fg"><label>Unidad</label><select class="fc" id="hv-cam"><option value="">— unidad —</option></select></div><div class="fg"><label>Ítem (qué se le hizo)</label><select class="fc" id="hv-item"><option value="">— ítem —</option></select></div></div>
-        <div class="fr3"><div class="fg"><label>Fecha</label><input class="fc" id="hv-fecha" type="date"></div><div class="fg"><label>Km</label><input class="fc" id="hv-km" type="number" placeholder="0" style="font-family:var(--m)"></div><div class="fg"><label>Costo $</label><input class="fc" id="hv-costo" type="number" placeholder="0.00" style="font-family:var(--m)"></div></div>
+        <div class="fr2"><div class="fg"><label>Unidad</label><select class="fc" id="hv-cam" onchange="_hvPrefillKm()"><option value="">— unidad —</option></select></div><div class="fg"><label>Ítem (qué se le hizo)</label><select class="fc" id="hv-item"><option value="">— ítem —</option></select></div></div>
+        <div class="fr3"><div class="fg"><label>Fecha</label><input class="fc" id="hv-fecha" type="date"></div><div class="fg"><label>Km</label><input class="fc" id="hv-km" type="number" placeholder="0" style="font-family:var(--m)"><small id="hv-km-hint" style="color:var(--text3);font-size:10px;display:block"></small></div><div class="fg"><label>Costo $</label><input class="fc" id="hv-costo" type="number" placeholder="0.00" style="font-family:var(--m)"></div></div>
         <div class="fr2"><div class="fg"><label>Proveedor / taller</label><input class="fc" id="hv-prov" placeholder="Opcional"></div><div class="fg"><label>Nota</label><input class="fc" id="hv-nota" placeholder="Detalle opcional"></div></div>
         <div class="fg"><label>Foto (opcional, máx 2MB)</label><input class="fc" id="hv-foto" type="file" accept="image/*" onchange="subirFotoHV(this)"><div id="hv-foto-prev" style="margin-top:6px"></div></div>
         <button class="btn btn-g btn-sm" style="width:100%" onclick="registrarMantItem()">Registrar en la hoja de vida</button>
@@ -2362,7 +2361,7 @@ tr:hover td{background:rgba(45,255,122,.02)}
 </div>
 
 <script src="money.js?v=20260628n"></script>
-<script src="app.js?v=20260630h"></script>
+<script src="app.js?v=20260630i"></script>
 
 <!-- Modal global -->
 <div id="modal" class="moverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9990;align-items:center;justify-content:center;padding:16px">
