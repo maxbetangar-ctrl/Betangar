@@ -5204,7 +5204,7 @@ function renderUnidades(){
         '<td>'+_mEsc(c.tipo||'—')+(c.combustible?' <span style="font-size:9px;color:var(--text3)">('+_mEsc(c.combustible)+')</span>':'')+'</td>'+
         '<td style="font-size:11px">'+_mEsc(c.chofer||(FLOTA[cam]&&FLOTA[cam].chofer)||'—')+'</td>'+
         '<td style="text-align:center">'+(c.activo===false?'—':'✓')+'</td>'+
-        '<td><button class="btn btn-s btn-xs" onclick="abrirEditarUnidad(\''+_mEsc(cam)+'\')">✏️ ficha</button></td></tr>';
+        '<td style="white-space:nowrap"><button class="btn btn-s btn-xs" onclick="abrirEditarUnidad(\''+_mEsc(cam)+'\')">✏️ ficha</button> <button class="btn btn-s btn-xs" title="Imprimir ficha" onclick="imprimirFichaUnidad(\''+_mEsc(cam)+'\')">🖨️</button></td></tr>';
     }).join('')+'</tbody></table>'+(cams.length?'':'<div style="color:var(--text3);font-size:12px;padding:10px">Sin unidades. Agregá una con "＋ Agregar unidad".</div>');
 }
 async function abrirEditarUnidad(cam){
@@ -5234,7 +5234,7 @@ async function abrirEditarUnidad(cam){
       '<div class="fg"><label>Título del vehículo (PDF, máx 4MB)</label><input class="fc" id="u-pdf" type="file" accept="application/pdf" onchange="subirTituloUnidad(this)"><div id="u-pdf-prev" style="margin-top:6px;font-size:11px">'+(pdf?'<a href="'+_mEsc(pdf)+'" target="_blank" style="color:var(--teal)">📄 ver título cargado</a>':'')+'</div></div>'+
     '</div>'+
     '<label style="display:flex;align-items:center;gap:6px;font-size:12px;margin:6px 0"><input type="checkbox" id="u-activo"'+(c.activo!==false?' checked':'')+'> Unidad activa</label>'+
-    '<button class="btn btn-g" style="width:100%;margin-top:6px" onclick="guardarUnidad()">'+(nueva?'Crear unidad':'Guardar ficha')+'</button>';
+    '<div style="display:flex;gap:8px;margin-top:6px"><button class="btn btn-g" style="flex:1" onclick="guardarUnidad()">'+(nueva?'Crear unidad':'Guardar ficha')+'</button>'+(nueva?'':'<button class="btn btn-s" onclick="imprimirFichaUnidad(\''+_mEsc(cam)+'\')">🖨️ Imprimir</button>')+'</div>';
   openModal((nueva?'Nueva unidad':'Ficha — '+cam),html);
 }
 function subirFotoUnidad(input){var f=input&&input.files&&input.files[0];if(!f)return;if(f.size>2*1024*1024){alert('La foto es muy grande (máx 2MB).');input.value='';return;}var rd=new FileReader();rd.onload=function(e){window._unidadFoto=e.target.result;var p=g('u-foto-prev');if(p)p.innerHTML='<img src="'+e.target.result+'" style="width:64px;height:64px;object-fit:cover;border-radius:6px;border:1px solid var(--border)">';};rd.readAsDataURL(f);}
@@ -5252,6 +5252,25 @@ async function guardarUnidad(){
   if(typeof closeModal==='function')closeModal();
   renderUnidades();
   if(typeof mostrarToast==='function')mostrarToast(ok?'✅ Unidad guardada':'⚠️ No se confirmó el guardado (revisá conexión)',ok?'exito':'error');
+}
+// Reporte IMPRIMIBLE de la ficha de la unidad (todos los datos + foto). La foto se trae bajo demanda.
+async function imprimirFichaUnidad(cam){
+  if(!cam)return;
+  var c=(typeof unidadInfo==='function')?unidadInfo(cam):{};
+  var foto='';
+  if(DB_READY&&supabase){ try{ var r=await supabase.from('unidad_config').select('foto').eq('cam',cam).maybeSingle(); if(r&&r.data)foto=r.data.foto||''; }catch(e){} }
+  var choferU=c.chofer||(FLOTA[cam]&&FLOTA[cam].chofer)||'';
+  var stats=mkStat('N° unidad',cam,'','azul')+mkStat('Placa',c.placa||'—','','amari')+mkStat('Tipo',(c.tipo||'—'),(c.combustible||''),'verde')+mkStat('Chofer',choferU||'—','','rojo');
+  function fila(k,v){return '<tr><td style="font-weight:700;width:210px;background:#f8fafc">'+k+'</td><td>'+_mEsc(v||'—')+'</td></tr>';}
+  var body=(foto?'<div style="text-align:center;margin-bottom:12px"><img src="'+_mEsc(foto)+'" style="max-width:220px;max-height:180px;border-radius:8px;border:1px solid #ddd"></div>':'')+
+    '<table>'+
+    fila('Nombre / alias',c.nombre)+fila('Marca',c.marca)+fila('Modelo',c.modelo)+fila('Año',c.anio)+
+    fila('Placa',c.placa)+fila('VIN',c.vin)+fila('Serial de motor',c.serialMotor)+fila('Serial de carrocería',c.serialCarroceria)+
+    fila('Tipo',c.tipo)+fila('Combustible',c.combustible)+fila('Uso',c.uso)+
+    fila('Título a nombre de',c.titular)+fila('Chofer asignado',choferU)+fila('Notas',c.notas)+
+    '</table>';
+  abrirImpresionPremium('Ficha de unidad — '+cam,'Datos de la unidad · '+formatFecha(new Date()),stats,body);
+  audit('Ficha de unidad impresa',cam);
 }
 // Reporte imprimible de la HOJA DE VIDA por unidad y período (lo pidió el cliente:
 // "un reporte por camión que diga todo lo que se le ha hecho"). Usa el filtro actual.
