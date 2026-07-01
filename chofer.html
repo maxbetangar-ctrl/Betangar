@@ -573,9 +573,8 @@ document.addEventListener('DOMContentLoaded', function(){
   // Mostrar info
   document.getElementById('cam-display').textContent  = cam;
   document.getElementById('chofer-display').textContent = chofer;
-  document.getElementById('fecha-display').textContent  = now.toLocaleDateString('es-VE',{
-    weekday:'long', day:'numeric', month:'long', year:'numeric'
-  });
+  var _dch=['domingo','lunes','martes','miércoles','jueves','viernes','sábado'];
+  document.getElementById('fecha-display').textContent = _dch[now.getDay()]+' '+String(now.getDate()).padStart(2,'0')+'/'+String(now.getMonth()+1).padStart(2,'0')+'/'+now.getFullYear();
 
   // Prellenar hora salida
   var hh = String(now.getHours()).padStart(2,'0');
@@ -1290,7 +1289,7 @@ async function enviarNotificacionWA(reg){
 
     // Titular pedido: notifica de inmediato a socios y mecánico que el chofer completó el checklist
     var msg = '✅ '+cam+' - '+chofer+' completó el checklist ('+modo+') a las '+hora+'\n'+
-              'Fecha: '+new Date().toLocaleDateString('es-VE')+'\n'+
+              'Fecha: '+(function(){var d=new Date();return String(d.getDate()).padStart(2,'0')+'/'+String(d.getMonth()+1).padStart(2,'0')+'/'+d.getFullYear();})()+'\n'+
               'KM: '+km+'\n'+
               'Estado: '+estado;
     if(reg.observaciones) msg += '\nObs: '+reg.observaciones.slice(0,100);

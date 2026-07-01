@@ -496,6 +496,18 @@ function resetCola(){ app.COLA_OFFLINE=[]; app.COLA_FALLIDOS=[]; app._procesando
   ok('no lo marca "sin planilla en el sistema"', fJose.flag !== 'SIN_SISTEMA');
   eq('cuadra: corr 90 = pag 90, diff 0', fJose.diff, 0);
 
+  console.log('\ndd/mm/yyyy en todo el software (formatFecha / fmtFechaHora / fmtFechaDow):');
+  ok('formatFecha definida', typeof app.formatFecha === 'function');
+  eq('formatFecha YYYY-MM-DD → dd/mm/yyyy', app.formatFecha('2026-06-07'), '07/06/2026');
+  eq('formatFecha con hora (slice) → dd/mm/yyyy', app.formatFecha('2026-06-07T12:00:00'), '07/06/2026');
+  eq('formatFecha Date → dd/mm/yyyy', app.formatFecha(new Date(2026, 5, 7)), '07/06/2026');
+  eq('formatFecha ya formateado se respeta', app.formatFecha('07/06/2026'), '07/06/2026');
+  eq('formatFecha vacío → ""', app.formatFecha(''), '');
+  ok('fmtFechaHora definida', typeof app.fmtFechaHora === 'function');
+  eq('fmtFechaHora → dd/mm/yyyy HH:MM', app.fmtFechaHora(new Date(2026, 5, 7, 9, 5)), '07/06/2026 09:05');
+  ok('fmtFechaDow definida', typeof app.fmtFechaDow === 'function');
+  eq('fmtFechaDow → día + dd/mm/yyyy', app.fmtFechaDow(new Date(2026, 5, 7)), 'domingo 07/06/2026');
+
   // ── Resumen ──
   console.log('\n──────────────');
   console.log('PASS: ' + pass + '   FAIL: ' + fail);
