@@ -5211,7 +5211,9 @@ function renderHojaVida(){
 // ═══════════════════════════════════════════════════════════════════════
 // Tipos de unidad/equipo para el SELECTOR (evita que se escriban distinto). Editable y persistente.
 // Incluye vehículos y EQUIPOS (plantas eléctricas, montacargas…) para llevarles mantenimiento igual.
-var TIPOS_UNIDAD_MANT=['Camión','Camioneta','Automóvil','Moto','Autobús','Planta eléctrica','Montacargas','Retroexcavadora','Grúa','Remolque','Cisterna','Compactador','Otro'];
+// Los nombres deben COINCIDIR con los "tipo" de las plantillas (planes-preventivos.json) para que
+// la unidad herede su plan. El importador agrega los que falten (merge). Ver importarPlanSugerido.
+var TIPOS_UNIDAD_MANT=['Pickup','Sedán','Camión','Autobús','Moto','Cisterna','Compactador de basura','Planta eléctrica','Montacargas','Retroexcavadora','Grúa','Remolque','Otro'];
 async function cargarTiposUnidadMant(){ if(!(DB_READY&&supabase))return; try{ var r=await supabase.from('configuracion').select('valor').eq('clave','tipos_unidad_mant').maybeSingle(); if(r&&r.data&&r.data.valor){var v=JSON.parse(r.data.valor); if(Array.isArray(v)&&v.length)TIPOS_UNIDAD_MANT=v;} }catch(e){} }
 function guardarTiposUnidadMant(){ if(!(DB_READY&&supabase))return; try{ supabase.from('configuracion').upsert([{clave:'tipos_unidad_mant',valor:JSON.stringify(TIPOS_UNIDAD_MANT)}],{onConflict:'clave'}).then(function(r){if(r&&r.error)console.log('tipos_unidad_mant:',r.error.message);}); }catch(e){} }
 function agregarTipoUnidadMant(){ var t=(prompt('Nuevo tipo de unidad/equipo (ej: Planta eléctrica, Montacargas):')||'').trim(); if(!t)return; if(TIPOS_UNIDAD_MANT.indexOf(t)<0){TIPOS_UNIDAD_MANT.push(t);guardarTiposUnidadMant();} var s=g('u-tipo'); if(s){ if(![].slice.call(s.options).some(function(o){return o.value===t||o.textContent===t;})){var o=document.createElement('option');o.textContent=t;s.appendChild(o);} s.value=t; } try{renderMantCatalogo();}catch(e){} }
@@ -5463,6 +5465,9 @@ async function importarPlanSugerido(){
   if(!ok){ mostrarToast('No se pudo importar: '+err,'error'); return; }
   // Quitar los ítems GENÉRICOS de la semilla vieja (aplican a "todas") → duplicarían a las plantillas.
   try{ var seedIds=_seedMantItemsDefault().map(function(s){return s.id;}); await supabase.from('mant_items').delete().in('id',seedIds); }catch(e){}
+  // Alinear el SELECTOR de tipos con los de las plantillas (para que la unidad herede al elegir su tipo).
+  var _add=false; plan.forEach(function(comb){ if(comb.tipo&&TIPOS_UNIDAD_MANT.indexOf(comb.tipo)<0){TIPOS_UNIDAD_MANT.push(comb.tipo);_add=true;} });
+  if(_add){try{guardarTiposUnidadMant();}catch(e){}}
   await cargarMantItems();
   audit('Plan preventivo sugerido importado',n+' ítems · '+plan.length+' combinaciones');
   try{renderMantCatalogo();}catch(e){} try{renderPreventivoEstado();}catch(e){}
