@@ -5265,7 +5265,17 @@ function imprimirHojaVida(){
     mkStat('Período',periodo,'','amari')+
     mkStat('Registros',evs.length,'mantenimientos','verde')+
     mkStat('Costo total','$'+totCosto.toLocaleString(),'en el período','rojo');
-  var body='<table><thead><tr><th>Fecha</th><th>Unidad</th><th>Ítem</th><th>Km</th><th>Costo</th><th>Proveedor</th><th>Nota</th></tr></thead><tbody>'+
+  // Franja COMPACTA de identidad de la unidad (arriba de la hoja, poco espacio): N° · marca · modelo · año.
+  var ui = cam ? ((typeof unidadInfo==='function')?unidadInfo(cam):{}) : {};
+  var identidad = cam ? ('<div style="border:1px solid #d1d5db;border-radius:6px;padding:6px 12px;margin-bottom:12px;background:#f8fafc;font-size:12px;display:flex;gap:16px;flex-wrap:wrap;align-items:baseline">'+
+    '<span style="font-size:16px;font-weight:800">'+_mEsc(cam)+'</span>'+
+    '<span><b>Marca:</b> '+_mEsc(ui.marca||'—')+'</span>'+
+    '<span><b>Modelo:</b> '+_mEsc(ui.modelo||'—')+'</span>'+
+    '<span><b>Año:</b> '+_mEsc(ui.anio||'—')+'</span>'+
+    (ui.placa?'<span><b>Placa:</b> '+_mEsc(ui.placa)+'</span>':'')+
+    (ui.vin?'<span style="color:#6b7280"><b>VIN:</b> '+_mEsc(ui.vin)+'</span>':'')+
+    '</div>') : '';
+  var body=identidad+'<table><thead><tr><th>Fecha</th><th>Unidad</th><th>Ítem</th><th>Km</th><th>Costo</th><th>Proveedor</th><th>Nota</th></tr></thead><tbody>'+
     evs.map(function(m,i){var it=_mantItem(m.itemId);return '<tr style="background:'+(i%2?'#f5f9ff':'#fff')+'"><td>'+formatFecha(m.fecha)+'</td><td><b>'+_mEsc(m.cam)+'</b></td><td>'+_mEsc(it?it.nombre:(m.tipo||'—'))+'</td><td class="gv">'+(m.km?m.km.toLocaleString():'—')+'</td><td class="gv">'+(m.costo?'$'+m.costo.toLocaleString():'—')+'</td><td>'+_mEsc(m.proveedor||'—')+'</td><td>'+_mEsc(m.desc||'')+'</td></tr>';}).join('')+
     '<tr class="tr-tot"><td colspan="4">TOTAL</td><td class="gv">$'+totCosto.toLocaleString()+'</td><td colspan="2">'+evs.length+' registros</td></tr>'+
     '</tbody></table>';
