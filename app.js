@@ -5238,7 +5238,8 @@ function renderUnidades(){
   });
   el.innerHTML='<table><thead><tr><th>N° unidad</th><th>Marca / Modelo / Año</th><th>Placa</th><th>Tipo</th><th>Chofer</th><th>Activa</th><th></th></tr></thead><tbody>'+
     cams.map(function(cam){var c=UNIDAD_CONFIG[cam]||{};
-      return '<tr'+(c.activo===false?' style="opacity:.5"':'')+'><td style="font-weight:700">'+_mEsc(cam)+'</td>'+
+      var _par=(typeof _unidadParada==='function')?_unidadParada(cam):{parada:false};
+      return '<tr'+(c.activo===false?' style="opacity:.5"':'')+'><td style="font-weight:700">'+_mEsc(cam)+(_par.parada?' <span class="badge by" title="Sin rodar hace '+_par.dias+' días — igual le vence batería/cauchos por tiempo">🅿️ parada</span>':'')+'</td>'+
         '<td>'+_mEsc([c.marca,c.modelo,c.anio].filter(Boolean).join(' · ')||'—')+'</td>'+
         '<td style="font-family:var(--m)">'+_mEsc(c.placa||'—')+'</td>'+
         '<td>'+_mEsc(c.tipo||'—')+(c.combustible?' <span style="font-size:9px;color:var(--text3)">('+_mEsc(c.combustible)+')</span>':'')+'</td>'+
@@ -5426,6 +5427,20 @@ function enviarRecordatoriosMant(){
   audit('Recordatorio mantenimiento enviado',venc.length+' vencidos · '+prox.length+' próximos');
   if(typeof mostrarToast==='function')mostrarToast('📲 Recordatorio enviado (mecánico, gerencia, operaciones)','exito');
 }
+// Última señal de MOVIMIENTO de la unidad (km del chofer, viajes o planillas) → para detectar "parada".
+function _ultimaActividadCam(cam){
+  var fs=[]; var d=(KM_DATA||{})[cam]; if(d&&d.f)fs.push(String(d.f).slice(0,10));
+  (typeof REGS!=='undefined'?REGS:[]).forEach(function(r){if(r&&r.cam===cam&&r.f)fs.push(String(r.f).slice(0,10));});
+  (typeof VIAJES_CHOFER!=='undefined'?VIAJES_CHOFER:[]).forEach(function(v){if(v&&v.cam===cam&&v.fecha)fs.push(String(v.fecha).slice(0,10));});
+  if(!fs.length)return null; fs.sort(); return fs[fs.length-1];
+}
+// UNIDAD PARADA: sin movimiento hace > N días (90). Igual le vencen batería/cauchos por TIEMPO.
+function _unidadParada(cam,dias){
+  dias=dias||90; var ult=_ultimaActividadCam(cam);
+  if(!ult)return {parada:false,dias:0,ultima:null};
+  var d=(typeof diasDesde==='function')?diasDesde(ult):0;
+  return {parada:d>dias,dias:d,ultima:ult};
+}
 function _mantBadge(est){
   if(est==='vencido')return '<span class="badge br">🔴 Vencido</span>';
   if(est==='proximo')return '<span class="badge by">🟡 Próximo</span>';
@@ -5434,10 +5449,13 @@ function _mantBadge(est){
 }
 function renderPreventivoEstado(){
   var el=g('prev-estado'); if(!el)return;
+  // 🅿️ Unidades PARADAS (>90 días sin movimiento) — igual les vence batería/cauchos por tiempo.
+  var paradas=_hvUnidades().map(function(cam){return {cam:cam,p:_unidadParada(cam)};}).filter(function(x){return x.p.parada;});
+  var paradasHtml=paradas.length?('<div style="background:rgba(245,158,11,.12);border:1px solid var(--amber);border-radius:6px;padding:6px 9px;margin-bottom:8px;font-size:11px;color:var(--amber)">🅿️ <b>'+paradas.length+' unidad(es) PARADA(S)</b> (sin rodar hace +90 días): '+paradas.map(function(x){return _mEsc(x.cam)+' ('+x.p.dias+'d)';}).join(', ')+'. Igual les vence <b>batería y cauchos</b> por tiempo.</div>'):'';
   var lista=calcMantPreventivo();
-  if(!lista.length){el.innerHTML='<div style="color:var(--green);font-size:12px;padding:10px">✓ Nada vencido ni por vencer con los intervalos actuales.</div>';return;}
+  if(!lista.length){el.innerHTML=paradasHtml+'<div style="color:var(--green);font-size:12px;padding:10px">✓ Nada vencido ni por vencer con los intervalos actuales.</div>';return;}
   function _restTxt(e){var suf=e.unidad==='km'?' km':e.unidad==='horas'?' h':' días';return e.restante>=0?('faltan '+Math.abs(e.restante).toLocaleString()+suf):('vencido hace '+Math.abs(e.restante).toLocaleString()+suf);}
-  el.innerHTML='<table><thead><tr><th>Unidad</th><th>Ítem</th><th>Acción</th><th>Vence</th><th>Restante</th><th>Estado</th></tr></thead><tbody>'+
+  el.innerHTML=paradasHtml+'<table><thead><tr><th>Unidad</th><th>Ítem</th><th>Acción</th><th>Vence</th><th>Restante</th><th>Estado</th></tr></thead><tbody>'+
     lista.map(function(e){
       return '<tr style="'+(e.estado==='vencido'?'background:rgba(220,38,38,.10)':'')+'"><td style="font-weight:700">'+_mEsc(e.cam)+'</td><td>'+_mEsc(e.nombre)+(e.critico?' <span title="seguridad" style="color:var(--red)">⚠</span>':'')+'</td><td>'+(e.que==='Cambiar'?'🔧 Cambiar':'🔎 Revisar')+'</td><td style="font-family:var(--m)">'+e.vencTxt+'</td><td style="font-family:var(--m);color:'+(e.estado==='vencido'?'var(--red)':'var(--amber)')+'">'+_restTxt(e)+'</td><td>'+_mantBadge(e.estado)+'</td></tr>';
     }).join('')+'</tbody></table>';

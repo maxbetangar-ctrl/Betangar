@@ -581,6 +581,11 @@ function resetCola(){ app.COLA_OFFLINE=[]; app.COLA_FALLIDOS=[]; app._procesando
   app.UNIDAD_CONFIG = { 'U1': { medida: 'horas', horasActuales: 340 } };
   eq('medidaUnidad explícita = horas', app.medidaUnidad('U1'), 'horas');
   eq('horasActualUnidad = 340', app.horasActualUnidad('U1'), 340);
+  // Flag "Unidad Parada"
+  app.KM_DATA = { 'P1': { f: '2020-01-01' } }; app.REGS = []; app.VIAJES_CHOFER = [];
+  ok('parada: sin rodar hace años → true', app._unidadParada('P1').parada === true);
+  app.KM_DATA = {}; app.REGS = []; app.VIAJES_CHOFER = [];
+  ok('sin datos de movimiento → no marcada parada', app._unidadParada('P9').parada === false);
 
   // ── Resumen ──
   console.log('\n──────────────');
