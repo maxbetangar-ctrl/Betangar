@@ -542,6 +542,13 @@ function resetCola(){ app.COLA_OFFLINE=[]; app.COLA_FALLIDOS=[]; app._procesando
   eq('sin registro → sin_dato', app._mantEstadoCalc('km', 5000, 500, null, 9000, '2026-06-30').estado, 'sin_dato');
   eq('sin intervalo → sin_intervalo', app._mantEstadoCalc('km', 0, 0, { km: 0, fecha: '2026-01-01' }, 100, '2026-06-30').estado, 'sin_intervalo');
 
+  console.log('\nRegistro de Unidades (ficha = fuente única para otros módulos):');
+  ok('unidadInfo definida', typeof app.unidadInfo === 'function');
+  app.UNIDAD_CONFIG = { 'JAC-B001': { placa: 'AB123CD', vin: 'VIN123', tipo: 'camion' } };
+  eq('unidadInfo trae la placa de la ficha', app.unidadInfo('JAC-B001').placa, 'AB123CD');
+  eq('unidadInfo trae el VIN de la ficha', app.unidadInfo('JAC-B001').vin, 'VIN123');
+  eq('unidadInfo vacío si la unidad no existe', JSON.stringify(app.unidadInfo('NADA')), '{}');
+
   // ── Resumen ──
   console.log('\n──────────────');
   console.log('PASS: ' + pass + '   FAIL: ' + fail);

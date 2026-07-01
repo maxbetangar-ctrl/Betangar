@@ -4506,14 +4506,14 @@ function ordenServicio(){
   var cams=String(inp).split(/[,;\s]+/).map(function(n){var d=String(n).replace(/\D/g,'');return d?'JAC-B'+d.padStart(3,'0'):'';}).filter(function(c,i,arr){return c&&FLOTA[c]&&arr.indexOf(c)===i;});
   if(!cams.length){alert('No reconocí ninguna unidad válida. Usa solo números, por ejemplo: 1,2,3');return;}
   var filas=cams.map(function(cam,i){
-    var d=KM_DATA[cam]||{km:0}, fl=FLOTA[cam]||{};
+    var fl=FLOTA[cam]||{}, ui=(typeof unidadInfo==='function')?unidadInfo(cam):{}; // placa/VIN de la FICHA (fuente única)
     return '<tr style="background:'+(i%2===0?'#fff':'#f5f9ff')+'">'+
-      '<td class="bv"><b>'+cam+'</b></td>'+
-      '<td class="mono">'+(fl.placa||'—')+'</td>'+
-      '<td class="mono" style="font-size:10px">'+(fl.vin||'—')+'</td>'+
+      '<td class="bv"><b>'+_mEsc(cam)+'</b></td>'+
+      '<td class="mono">'+_mEsc(ui.placa||fl.placa||'—')+'</td>'+
+      '<td class="mono" style="font-size:10px">'+_mEsc(ui.vin||fl.vin||'—')+'</td>'+
       '<td class="mono" style="text-align:right">'+kmActualCam(cam).toLocaleString()+'</td>'+
       '<td class="mono" style="text-align:right">'+proxServicio(kmActualCam(cam)).toLocaleString()+'</td>'+
-      '<td style="font-size:11px">'+(fl.chofer||'—')+'</td></tr>';
+      '<td style="font-size:11px">'+_mEsc(ui.chofer||fl.chofer||'—')+'</td></tr>';
   }).join('');
   var body='<table><thead><tr><th>Unidad</th><th>Placa</th><th>VIN</th><th style="text-align:right">KM Actual</th><th style="text-align:right">Próx. Servicio</th><th>Chofer</th></tr></thead><tbody>'+filas+'</tbody></table>'+
     '<p style="margin-top:12px;font-size:11px;color:#374151">Unidades a ingresar a mantenimiento: <b>'+cams.length+'</b> ('+cams.join(', ')+'). Intervalo de servicio: '+((cfg.km||5000).toLocaleString())+' km.</p>';
@@ -4807,7 +4807,7 @@ function imprimirCombustible(){
 // ═══════════════════════════════════════════════════
 // KM / MANTENIMIENTO
 // ═══════════════════════════════════════════════════
-function switchKmTab(t){['odo','lav','eng','prog','hist','hv'].forEach(function(x){var el=g('tab-km-'+x);var sw=g('sw-km-'+x);if(el)el.style.display=x===t?'block':'none';if(sw){sw.classList.remove('on');if(x===t)sw.classList.add('on');}});if(t==='odo')renderKm();if(t==='lav')renderLavados();if(t==='eng')renderEngrases();if(t==='prog')renderPreventivo();if(t==='hist')renderHistMant();if(t==='hv'){_cargarMantTodo().then(function(){renderHojaVida();}).catch(function(){renderHojaVida();});}}
+function switchKmTab(t){['odo','lav','eng','prog','hist','hv','unidades'].forEach(function(x){var el=g('tab-km-'+x);var sw=g('sw-km-'+x);if(el)el.style.display=x===t?'block':'none';if(sw){sw.classList.remove('on');if(x===t)sw.classList.add('on');}});if(t==='unidades'){_cargarMantTodo().then(function(){renderUnidades();}).catch(function(){renderUnidades();});}if(t==='odo')renderKm();if(t==='lav')renderLavados();if(t==='eng')renderEngrases();if(t==='prog')renderPreventivo();if(t==='hist')renderHistMant();if(t==='hv'){_cargarMantTodo().then(function(){renderHojaVida();}).catch(function(){renderHojaVida();});}}
 
 async function borrarOdo(cam){
   if(!KM_DATA[cam])return;
@@ -5009,7 +5009,13 @@ async function cargarMantenimientos(){
 }
 async function cargarUnidadConfig(){
   if(!(DB_READY&&supabase))return;
-  try{ var r=await supabase.from('unidad_config').select('*'); if(r&&!r.error&&Array.isArray(r.data)){var o={};r.data.forEach(function(x){o[x.cam]={tipo:x.tipo||'',combustible:x.combustible||'',uso:x.uso||''};});UNIDAD_CONFIG=o;} }catch(e){}
+  try{
+    // Columnas LIVIANAS (sin foto ni titulo_pdf → no cargamos blobs de todas las unidades a memoria).
+    var cols='cam,tipo,combustible,uso,nombre,marca,modelo,anio,placa,vin,serial_motor,serial_carroceria,titular,chofer,activo,notas';
+    var r=await supabase.from('unidad_config').select(cols);
+    if(r&&r.error){ r=await supabase.from('unidad_config').select('*'); } // fail-open si faltan columnas (migración no corrida)
+    if(r&&!r.error&&Array.isArray(r.data)){var o={};r.data.forEach(function(x){o[x.cam]={tipo:x.tipo||'',combustible:x.combustible||'',uso:x.uso||'',nombre:x.nombre||'',marca:x.marca||'',modelo:x.modelo||'',anio:x.anio||'',placa:x.placa||'',vin:x.vin||'',serialMotor:x.serial_motor||'',serialCarroceria:x.serial_carroceria||'',titular:x.titular||'',chofer:x.chofer||'',activo:x.activo!==false,notas:x.notas||''};});UNIDAD_CONFIG=o;}
+  }catch(e){}
 }
 // Continuidad: trae el ÚLTIMO lavado/engrase que estaba en KM_DATA (sistema viejo) al nuevo
 // historial `mantenimientos`, una sola vez, para no perder el dato al converger los tabs.
@@ -5169,6 +5175,84 @@ function renderHojaVida(){
     '<tr class="tr-tot"><td colspan="4">TOTAL ('+evs.length+' registros)</td><td style="font-family:var(--m);font-weight:700;color:var(--yellow)">$'+totCosto.toLocaleString()+'</td><td colspan="3"></td></tr>'+
     '</tbody></table>';
 }
+// ═══════════════════════════════════════════════════════════════════════
+// REGISTRO DE UNIDADES Y EQUIPOS — ficha completa, FUENTE ÚNICA de datos de cada unidad
+// (marca, modelo, año, placa, VIN, seriales, título/foto). Alimenta mantenimiento,
+// órdenes de servicio y cualquier módulo. Datos detrás de RLS autenticado (no anon).
+// foto/PDF se cargan BAJO DEMANDA (no viven en memoria para todas las unidades).
+// ═══════════════════════════════════════════════════════════════════════
+function _unidadesLista(){
+  var set={};
+  Object.keys(FLOTA||{}).forEach(function(c){set[c]=1;});
+  Object.keys(UNIDAD_CONFIG||{}).forEach(function(c){set[c]=1;});
+  return Object.keys(set).sort();
+}
+// Datos de una unidad para NUTRIR otros módulos (placa, VIN, etc.). Fuente única.
+function unidadInfo(cam){ return (UNIDAD_CONFIG&&UNIDAD_CONFIG[cam])||{}; }
+function renderUnidades(){
+  var el=g('unidades-lista'); if(!el)return;
+  var q=(gv('unidades-buscar')||'').trim().toUpperCase();
+  var cams=_unidadesLista().filter(function(cam){
+    if(!q)return true; var c=UNIDAD_CONFIG[cam]||{};
+    return (cam+' '+(c.marca||'')+' '+(c.modelo||'')+' '+(c.placa||'')+' '+(c.chofer||'')).toUpperCase().indexOf(q)>=0;
+  });
+  el.innerHTML='<table><thead><tr><th>N° unidad</th><th>Marca / Modelo / Año</th><th>Placa</th><th>Tipo</th><th>Chofer</th><th>Activa</th><th></th></tr></thead><tbody>'+
+    cams.map(function(cam){var c=UNIDAD_CONFIG[cam]||{};
+      return '<tr'+(c.activo===false?' style="opacity:.5"':'')+'><td style="font-weight:700">'+_mEsc(cam)+'</td>'+
+        '<td>'+_mEsc([c.marca,c.modelo,c.anio].filter(Boolean).join(' · ')||'—')+'</td>'+
+        '<td style="font-family:var(--m)">'+_mEsc(c.placa||'—')+'</td>'+
+        '<td>'+_mEsc(c.tipo||'—')+(c.combustible?' <span style="font-size:9px;color:var(--text3)">('+_mEsc(c.combustible)+')</span>':'')+'</td>'+
+        '<td style="font-size:11px">'+_mEsc(c.chofer||(FLOTA[cam]&&FLOTA[cam].chofer)||'—')+'</td>'+
+        '<td style="text-align:center">'+(c.activo===false?'—':'✓')+'</td>'+
+        '<td><button class="btn btn-s btn-xs" onclick="abrirEditarUnidad(\''+_mEsc(cam)+'\')">✏️ ficha</button></td></tr>';
+    }).join('')+'</tbody></table>'+(cams.length?'':'<div style="color:var(--text3);font-size:12px;padding:10px">Sin unidades. Agregá una con "＋ Agregar unidad".</div>');
+}
+async function abrirEditarUnidad(cam){
+  var nueva=!cam, c=cam?(UNIDAD_CONFIG[cam]||{}):{};
+  var foto='', pdf='';
+  if(cam&&DB_READY&&supabase){ try{ var r=await supabase.from('unidad_config').select('foto,titulo_pdf').eq('cam',cam).maybeSingle(); if(r&&r.data){foto=r.data.foto||'';pdf=r.data.titulo_pdf||'';} }catch(e){} }
+  window._unidadFoto=foto; window._unidadPdf=pdf;
+  function inp(id,label,val,ph){return '<div class="fg"><label>'+label+'</label><input class="fc" id="'+id+'" value="'+_mEsc(val||'')+'"'+(ph?(' placeholder="'+_mEsc(ph)+'"'):'')+'></div>';}
+  var choferDef=c.chofer||(FLOTA[cam]&&FLOTA[cam].chofer)||'';
+  var html=
+    '<div class="fr2">'+(nueva
+      ?'<div class="fg"><label>N° de unidad (identificador)</label><input class="fc" id="u-cam" placeholder="ej: B001 / JAC-B001"><small style="color:var(--text3);font-size:10px">Así identifica el sistema a la unidad en toda la flota</small></div>'
+      :'<div class="fg"><label>N° de unidad</label><input class="fc" id="u-cam" value="'+_mEsc(cam)+'" readonly style="opacity:.7"></div>')+
+      inp('u-nombre','Nombre / alias',c.nombre,'opcional')+'</div>'+
+    '<div class="fr3">'+inp('u-marca','Marca',c.marca)+inp('u-modelo','Modelo',c.modelo)+inp('u-anio','Año',c.anio)+'</div>'+
+    '<div class="fr2">'+inp('u-placa','Placa',c.placa)+inp('u-vin','VIN',c.vin)+'</div>'+
+    '<div class="fr2">'+inp('u-smotor','Serial de motor',c.serialMotor)+inp('u-scarr','Serial de carrocería',c.serialCarroceria)+'</div>'+
+    '<div class="fr3">'+
+      '<div class="fg"><label>Tipo</label><input class="fc" id="u-tipo" value="'+_mEsc(c.tipo||'')+'" placeholder="camión/camioneta/carro"></div>'+
+      '<div class="fg"><label>Combustible</label><select class="fc" id="u-comb"><option value=""'+(!c.combustible?' selected':'')+'>—</option><option value="diesel"'+(c.combustible==='diesel'?' selected':'')+'>diésel</option><option value="gasolina"'+(c.combustible==='gasolina'?' selected':'')+'>gasolina</option></select></div>'+
+      '<div class="fg"><label>Uso</label><select class="fc" id="u-uso"><option value=""'+(!c.uso?' selected':'')+'>—</option><option value="viajes"'+(c.uso==='viajes'?' selected':'')+'>viajes</option><option value="personal"'+(c.uso==='personal'?' selected':'')+'>personal</option></select></div>'+
+    '</div>'+
+    '<div class="fr2">'+inp('u-titular','Título a nombre de',c.titular)+inp('u-chofer','Chofer asignado',choferDef)+'</div>'+
+    '<div class="fg"><label>Notas</label><input class="fc" id="u-notas" value="'+_mEsc(c.notas||'')+'" placeholder="opcional"></div>'+
+    '<div class="fr2">'+
+      '<div class="fg"><label>Foto (máx 2MB)</label><input class="fc" id="u-foto" type="file" accept="image/*" onchange="subirFotoUnidad(this)"><div id="u-foto-prev" style="margin-top:6px">'+(foto?'<img src="'+_mEsc(foto)+'" style="width:64px;height:64px;object-fit:cover;border-radius:6px;border:1px solid var(--border)">':'')+'</div></div>'+
+      '<div class="fg"><label>Título del vehículo (PDF, máx 4MB)</label><input class="fc" id="u-pdf" type="file" accept="application/pdf" onchange="subirTituloUnidad(this)"><div id="u-pdf-prev" style="margin-top:6px;font-size:11px">'+(pdf?'<a href="'+_mEsc(pdf)+'" target="_blank" style="color:var(--teal)">📄 ver título cargado</a>':'')+'</div></div>'+
+    '</div>'+
+    '<label style="display:flex;align-items:center;gap:6px;font-size:12px;margin:6px 0"><input type="checkbox" id="u-activo"'+(c.activo!==false?' checked':'')+'> Unidad activa</label>'+
+    '<button class="btn btn-g" style="width:100%;margin-top:6px" onclick="guardarUnidad()">'+(nueva?'Crear unidad':'Guardar ficha')+'</button>';
+  openModal((nueva?'Nueva unidad':'Ficha — '+cam),html);
+}
+function subirFotoUnidad(input){var f=input&&input.files&&input.files[0];if(!f)return;if(f.size>2*1024*1024){alert('La foto es muy grande (máx 2MB).');input.value='';return;}var rd=new FileReader();rd.onload=function(e){window._unidadFoto=e.target.result;var p=g('u-foto-prev');if(p)p.innerHTML='<img src="'+e.target.result+'" style="width:64px;height:64px;object-fit:cover;border-radius:6px;border:1px solid var(--border)">';};rd.readAsDataURL(f);}
+function subirTituloUnidad(input){var f=input&&input.files&&input.files[0];if(!f)return;if(f.size>4*1024*1024){alert('El PDF es muy grande (máx 4MB).');input.value='';return;}var rd=new FileReader();rd.onload=function(e){window._unidadPdf=e.target.result;var p=g('u-pdf-prev');if(p)p.innerHTML='<span style="color:var(--green)">📄 título listo para guardar</span>';};rd.readAsDataURL(f);}
+async function guardarUnidad(){
+  var cam=(gv('u-cam')||'').trim();
+  if(!cam){alert('Poné el N° de unidad (identificador)');return;}
+  var reg={cam:cam,nombre:(gv('u-nombre')||'').trim(),marca:(gv('u-marca')||'').trim(),modelo:(gv('u-modelo')||'').trim(),anio:(gv('u-anio')||'').trim(),placa:(gv('u-placa')||'').trim().toUpperCase(),vin:(gv('u-vin')||'').trim().toUpperCase(),serial_motor:(gv('u-smotor')||'').trim(),serial_carroceria:(gv('u-scarr')||'').trim(),tipo:(gv('u-tipo')||'').trim(),combustible:gv('u-comb')||'',uso:gv('u-uso')||'',titular:(gv('u-titular')||'').trim(),chofer:(gv('u-chofer')||'').trim(),notas:(gv('u-notas')||'').trim(),activo:!(g('u-activo')&&!g('u-activo').checked),foto:window._unidadFoto||'',titulo_pdf:window._unidadPdf||''};
+  var ok=false;
+  if(DB_READY&&supabase){ try{ var res=await supabase.from('unidad_config').upsert([reg],{onConflict:'cam'}); if(res&&res.error){mostrarToast('No se pudo guardar: '+res.error.message,'error');} else ok=true; }catch(e){mostrarToast('Sin conexión al guardar la unidad.','error');} }
+  // memoria (fuente única) — SIN los blobs foto/pdf.
+  UNIDAD_CONFIG[cam]={tipo:reg.tipo,combustible:reg.combustible,uso:reg.uso,nombre:reg.nombre,marca:reg.marca,modelo:reg.modelo,anio:reg.anio,placa:reg.placa,vin:reg.vin,serialMotor:reg.serial_motor,serialCarroceria:reg.serial_carroceria,titular:reg.titular,chofer:reg.chofer,activo:reg.activo,notas:reg.notas};
+  window._unidadFoto='';window._unidadPdf='';
+  audit('Unidad guardada',cam+(reg.placa?(' · '+reg.placa):''));
+  if(typeof closeModal==='function')closeModal();
+  renderUnidades();
+  if(typeof mostrarToast==='function')mostrarToast(ok?'✅ Unidad guardada':'⚠️ No se confirmó el guardado (revisá conexión)',ok?'exito':'error');
+}
 // Reporte imprimible de la HOJA DE VIDA por unidad y período (lo pidió el cliente:
 // "un reporte por camión que diga todo lo que se le ha hecho"). Usa el filtro actual.
 function imprimirHojaVida(){
@@ -5301,20 +5385,8 @@ function elimMantItemCat(id){
 // Asignar TIPO / combustible por unidad (para heredar los ítems por tipo).
 function renderUnidadTipos(){
   var el=g('prev-tipos'); if(!el)return;
-  var unidades=_hvUnidades();
-  el.innerHTML='<table><thead><tr><th>Unidad</th><th>Tipo</th><th>Combustible</th></tr></thead><tbody>'+
-    unidades.map(function(cam){var c=UNIDAD_CONFIG[cam]||{};return '<tr><td style="font-weight:700">'+_mEsc(cam)+'</td>'+
-      '<td><input value="'+_mEsc(c.tipo||'')+'" placeholder="ej: camion / camioneta" onchange="guardarUnidadTipo(\''+_mEsc(cam)+'\',\'tipo\',this.value)" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:3px 6px;border-radius:5px;width:130px;font-size:11px"></td>'+
-      '<td><select onchange="guardarUnidadTipo(\''+_mEsc(cam)+'\',\'combustible\',this.value)" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:3px 4px;border-radius:5px;font-size:11px"><option value=""'+(!c.combustible?' selected':'')+'>—</option><option value="diesel"'+(c.combustible==='diesel'?' selected':'')+'>diésel</option><option value="gasolina"'+(c.combustible==='gasolina'?' selected':'')+'>gasolina</option></select></td></tr>';}).join('')+
-    '</tbody></table>';
-}
-async function guardarUnidadTipo(cam,campo,val){
-  if(!UNIDAD_CONFIG[cam])UNIDAD_CONFIG[cam]={tipo:'',combustible:'',uso:''};
-  UNIDAD_CONFIG[cam][campo]=String(val||'').trim();
-  try{renderPreventivoEstado();}catch(e){}
-  if(!(DB_READY&&supabase))return;
-  var c=UNIDAD_CONFIG[cam];
-  try{ var r=await supabase.from('unidad_config').upsert([{cam:cam,tipo:c.tipo||'',combustible:c.combustible||'',uso:c.uso||''}],{onConflict:'cam'}); if(r&&r.error&&typeof mostrarToast==='function')mostrarToast('No se pudo guardar el tipo: '+r.error.message,'error'); }catch(e){}
+  // El tipo/combustible se define en la ficha de la unidad (🚛 Unidades) → una sola fuente, sin duplicar.
+  el.innerHTML='<div style="font-size:12px;color:var(--text3);padding:6px 0">El <b>tipo</b> y <b>combustible</b> de cada unidad se definen en su ficha, en <b>🚛 Unidades</b> (así no se cargan en dos lados). El preventivo hereda los ítems según ese tipo.</div><button class="btn btn-s btn-sm" onclick="switchKmTab(\'unidades\')">Ir a 🚛 Unidades</button>';
 }
 function imprimirMantenimiento(){
   var cams=Object.keys(FLOTA).filter(function(k){return k.startsWith('JAC');}).sort();
