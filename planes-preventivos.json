@@ -1,0 +1,2017 @@
+[
+  {
+    "tipo": "Pickup",
+    "combustible": "diesel",
+    "medida": "km",
+    "items": [
+      {
+        "componente": "Aceite de motor",
+        "base": "km",
+        "inspeccion": 5000,
+        "sustitucion": 10000,
+        "aviso_anticipo": 1000,
+        "critico_seguridad": false,
+        "nota": "Uso severo reduce intervalo"
+      },
+      {
+        "componente": "Filtro de aceite",
+        "base": "km",
+        "inspeccion": 0,
+        "sustitucion": 10000,
+        "aviso_anticipo": 1000,
+        "critico_seguridad": false,
+        "nota": "Cambiar siempre con aceite"
+      },
+      {
+        "componente": "Filtro de aire",
+        "base": "km",
+        "inspeccion": 5000,
+        "sustitucion": 15000,
+        "aviso_anticipo": 2000,
+        "critico_seguridad": false,
+        "nota": "Reducir en zonas polvorientas"
+      },
+      {
+        "componente": "Filtro de combustible",
+        "base": "km",
+        "inspeccion": 5000,
+        "sustitucion": 10000,
+        "aviso_anticipo": 1000,
+        "critico_seguridad": false,
+        "nota": "Vital para proteger inyectores"
+      },
+      {
+        "componente": "Trampa / decantador de agua",
+        "base": "km",
+        "inspeccion": 2500,
+        "sustitucion": 0,
+        "aviso_anticipo": 500,
+        "critico_seguridad": false,
+        "nota": "Purgar agua semanalmente"
+      },
+      {
+        "componente": "Frenos (pastillas/discos)",
+        "base": "km",
+        "inspeccion": 5000,
+        "sustitucion": 25000,
+        "aviso_anticipo": 2000,
+        "critico_seguridad": true,
+        "nota": "Revisar espesor y fugas"
+      },
+      {
+        "componente": "Liquido de frenos",
+        "base": "meses",
+        "inspeccion": 6,
+        "sustitucion": 24,
+        "aviso_anticipo": 1,
+        "critico_seguridad": true,
+        "nota": "Cambiar por absorcion humedad"
+      },
+      {
+        "componente": "Bateria",
+        "base": "meses",
+        "inspeccion": 3,
+        "sustitucion": 36,
+        "aviso_anticipo": 1,
+        "critico_seguridad": false,
+        "nota": "Limpiar bornes y revisar carga"
+      },
+      {
+        "componente": "Refrigerante / anticongelante",
+        "base": "meses",
+        "inspeccion": 6,
+        "sustitucion": 24,
+        "aviso_anticipo": 1,
+        "critico_seguridad": false,
+        "nota": "Verificar punto ebullicion y fugas"
+      },
+      {
+        "componente": "Cauchos / neumaticos",
+        "base": "meses",
+        "inspeccion": 3,
+        "sustitucion": 60,
+        "aviso_anticipo": 1,
+        "critico_seguridad": true,
+        "nota": "Antiguedad maxima recomendada"
+      },
+      {
+        "componente": "Correa(s)",
+        "base": "km",
+        "inspeccion": 10000,
+        "sustitucion": 50000,
+        "aviso_anticipo": 5000,
+        "critico_seguridad": true,
+        "nota": "Inspeccionar grietas y tension"
+      },
+      {
+        "componente": "Suspension / amortiguadores",
+        "base": "km",
+        "inspeccion": 5000,
+        "sustitucion": 60000,
+        "aviso_anticipo": 2000,
+        "critico_seguridad": true,
+        "nota": "Revisar fugas y topes"
+      },
+      {
+        "componente": "Rotulas y direccion",
+        "base": "km",
+        "inspeccion": 5000,
+        "sustitucion": 0,
+        "aviso_anticipo": 1000,
+        "critico_seguridad": true,
+        "nota": "Engrase de terminales"
+      },
+      {
+        "componente": "Caja / transmision",
+        "base": "km",
+        "inspeccion": 10000,
+        "sustitucion": 60000,
+        "aviso_anticipo": 5000,
+        "critico_seguridad": false,
+        "nota": "Verificar nivel y color"
+      },
+      {
+        "componente": "Diferencial",
+        "base": "km",
+        "inspeccion": 10000,
+        "sustitucion": 60000,
+        "aviso_anticipo": 5000,
+        "critico_seguridad": false,
+        "nota": "Revisar respiradero"
+      },
+      {
+        "componente": "Traccion 4x4 (caja transfer)",
+        "base": "km",
+        "inspeccion": 10000,
+        "sustitucion": 60000,
+        "aviso_anticipo": 5000,
+        "critico_seguridad": false,
+        "nota": "Cambio aceite lubricante"
+      },
+      {
+        "componente": "Alineacion y balanceo",
+        "base": "km",
+        "inspeccion": 10000,
+        "sustitucion": 0,
+        "aviso_anticipo": 1000,
+        "critico_seguridad": true,
+        "nota": "Ajustar segun estado de vias"
+      },
+      {
+        "componente": "Filtro de cabina",
+        "base": "km",
+        "inspeccion": 5000,
+        "sustitucion": 15000,
+        "aviso_anticipo": 2000,
+        "critico_seguridad": false,
+        "nota": "Limpieza intermedia obligatoria"
+      }
+    ]
+  },
+  {
+    "tipo": "Pickup",
+    "combustible": "gasolina",
+    "medida": "km",
+    "items": [
+      {
+        "componente": "Aceite de motor",
+        "base": "km",
+        "inspeccion": 3000,
+        "sustitucion": 5000,
+        "aviso_anticipo": 500,
+        "critico_seguridad": false,
+        "nota": "Uso severo urbano frecuente"
+      },
+      {
+        "componente": "Filtro de aceite",
+        "base": "km",
+        "inspeccion": 0,
+        "sustitucion": 5000,
+        "aviso_anticipo": 500,
+        "critico_seguridad": false,
+        "nota": "Cambiar siempre con aceite"
+      },
+      {
+        "componente": "Filtro de aire",
+        "base": "km",
+        "inspeccion": 5000,
+        "sustitucion": 15000,
+        "aviso_anticipo": 1000,
+        "critico_seguridad": false,
+        "nota": "Limpiar/sopletear cada 5k"
+      },
+      {
+        "componente": "Filtro de combustible",
+        "base": "km",
+        "inspeccion": 10000,
+        "sustitucion": 20000,
+        "aviso_anticipo": 2000,
+        "critico_seguridad": false,
+        "nota": "Calidad de gasolina variable"
+      },
+      {
+        "componente": "Bujias",
+        "base": "km",
+        "inspeccion": 10000,
+        "sustitucion": 20000,
+        "aviso_anticipo": 2000,
+        "critico_seguridad": false,
+        "nota": "Revisar color y luz del electrodo"
+      },
+      {
+        "componente": "Frenos (pastillas/discos)",
+        "base": "km",
+        "inspeccion": 5000,
+        "sustitucion": 25000,
+        "aviso_anticipo": 2000,
+        "critico_seguridad": true,
+        "nota": "Inspeccion visual de pastillas"
+      },
+      {
+        "componente": "Liquido de frenos",
+        "base": "meses",
+        "inspeccion": 6,
+        "sustitucion": 24,
+        "aviso_anticipo": 1,
+        "critico_seguridad": true,
+        "nota": "Higroscopico; revisar nivel"
+      },
+      {
+        "componente": "Bateria",
+        "base": "meses",
+        "inspeccion": 3,
+        "sustitucion": 36,
+        "aviso_anticipo": 1,
+        "critico_seguridad": false,
+        "nota": "Limpieza bornes y prueba carga"
+      },
+      {
+        "componente": "Refrigerante / anticongelante",
+        "base": "meses",
+        "inspeccion": 6,
+        "sustitucion": 24,
+        "aviso_anticipo": 1,
+        "critico_seguridad": false,
+        "nota": "Verificar puntos fugas/mangueras"
+      },
+      {
+        "componente": "Cauchos / neumaticos",
+        "base": "meses",
+        "inspeccion": 3,
+        "sustitucion": 60,
+        "aviso_anticipo": 1,
+        "critico_seguridad": true,
+        "nota": "Rotacion cada 10k km"
+      },
+      {
+        "componente": "Correa(s)",
+        "base": "km",
+        "inspeccion": 10000,
+        "sustitucion": 50000,
+        "aviso_anticipo": 5000,
+        "critico_seguridad": true,
+        "nota": "Inspeccion grietas/tension"
+      },
+      {
+        "componente": "Suspension / amortiguadores",
+        "base": "km",
+        "inspeccion": 5000,
+        "sustitucion": 60000,
+        "aviso_anticipo": 2000,
+        "critico_seguridad": true,
+        "nota": "Revisar fugas y topes"
+      },
+      {
+        "componente": "Rotulas y direccion",
+        "base": "km",
+        "inspeccion": 5000,
+        "sustitucion": 0,
+        "aviso_anticipo": 1000,
+        "critico_seguridad": true,
+        "nota": "Engrase de terminales/rotulas"
+      },
+      {
+        "componente": "Caja / transmision",
+        "base": "km",
+        "inspeccion": 10000,
+        "sustitucion": 60000,
+        "aviso_anticipo": 5000,
+        "critico_seguridad": false,
+        "nota": "Revisar nivel y color aceite"
+      },
+      {
+        "componente": "Diferencial",
+        "base": "km",
+        "inspeccion": 10000,
+        "sustitucion": 60000,
+        "aviso_anticipo": 5000,
+        "critico_seguridad": false,
+        "nota": "Revisar respiradero"
+      },
+      {
+        "componente": "Traccion 4x4 (caja transfer)",
+        "base": "km",
+        "inspeccion": 10000,
+        "sustitucion": 60000,
+        "aviso_anticipo": 5000,
+        "critico_seguridad": false,
+        "nota": "Cambio aceite lubricante"
+      },
+      {
+        "componente": "Alineacion y balanceo",
+        "base": "km",
+        "inspeccion": 10000,
+        "sustitucion": 0,
+        "aviso_anticipo": 1000,
+        "critico_seguridad": true,
+        "nota": "Vital por estado de vias"
+      },
+      {
+        "componente": "Filtro de cabina",
+        "base": "km",
+        "inspeccion": 5000,
+        "sustitucion": 15000,
+        "aviso_anticipo": 2000,
+        "critico_seguridad": false,
+        "nota": "Limpieza/reemplazo"
+      }
+    ]
+  },
+  {
+    "tipo": "Sedán",
+    "combustible": "gasolina",
+    "medida": "km",
+    "items": [
+      {
+        "componente": "Aceite de motor",
+        "base": "km",
+        "inspeccion": 3000,
+        "sustitucion": 5000,
+        "aviso_anticipo": 500,
+        "critico_seguridad": false,
+        "nota": "Uso severo urbano frecuente"
+      },
+      {
+        "componente": "Filtro de aceite",
+        "base": "km",
+        "inspeccion": 0,
+        "sustitucion": 5000,
+        "aviso_anticipo": 500,
+        "critico_seguridad": false,
+        "nota": "Cambiar siempre con aceite"
+      },
+      {
+        "componente": "Filtro de aire",
+        "base": "km",
+        "inspeccion": 5000,
+        "sustitucion": 15000,
+        "aviso_anticipo": 1000,
+        "critico_seguridad": false,
+        "nota": "Limpiar cada 5k en zonas con polvo"
+      },
+      {
+        "componente": "Filtro de combustible",
+        "base": "km",
+        "inspeccion": 10000,
+        "sustitucion": 20000,
+        "aviso_anticipo": 2000,
+        "critico_seguridad": false,
+        "nota": "Calidad de gasolina variable"
+      },
+      {
+        "componente": "Bujias",
+        "base": "km",
+        "inspeccion": 10000,
+        "sustitucion": 20000,
+        "aviso_anticipo": 2000,
+        "critico_seguridad": false,
+        "nota": "Revisar luz de electrodo"
+      },
+      {
+        "componente": "Frenos (pastillas/discos)",
+        "base": "km",
+        "inspeccion": 5000,
+        "sustitucion": 20000,
+        "aviso_anticipo": 2000,
+        "critico_seguridad": true,
+        "nota": "Inspeccion visual de pastillas"
+      },
+      {
+        "componente": "Liquido de frenos",
+        "base": "meses",
+        "inspeccion": 6,
+        "sustitucion": 24,
+        "aviso_anticipo": 1,
+        "critico_seguridad": true,
+        "nota": "Higroscopico; revisar nivel"
+      },
+      {
+        "componente": "Bateria",
+        "base": "meses",
+        "inspeccion": 3,
+        "sustitucion": 36,
+        "aviso_anticipo": 1,
+        "critico_seguridad": false,
+        "nota": "Limpiar bornes y prueba carga"
+      },
+      {
+        "componente": "Refrigerante / anticongelante",
+        "base": "meses",
+        "inspeccion": 6,
+        "sustitucion": 24,
+        "aviso_anticipo": 1,
+        "critico_seguridad": false,
+        "nota": "Verificar puntos fugas/mangueras"
+      },
+      {
+        "componente": "Cauchos / neumaticos",
+        "base": "meses",
+        "inspeccion": 3,
+        "sustitucion": 60,
+        "aviso_anticipo": 1,
+        "critico_seguridad": true,
+        "nota": "Rotacion cada 10k km"
+      },
+      {
+        "componente": "Correa(s)",
+        "base": "km",
+        "inspeccion": 10000,
+        "sustitucion": 40000,
+        "aviso_anticipo": 5000,
+        "critico_seguridad": true,
+        "nota": "Inspeccion grietas/tension"
+      },
+      {
+        "componente": "Suspension / amortiguadores",
+        "base": "km",
+        "inspeccion": 5000,
+        "sustitucion": 60000,
+        "aviso_anticipo": 2000,
+        "critico_seguridad": true,
+        "nota": "Revisar fugas y topes"
+      },
+      {
+        "componente": "Rotulas y direccion",
+        "base": "km",
+        "inspeccion": 5000,
+        "sustitucion": 0,
+        "aviso_anticipo": 1000,
+        "critico_seguridad": true,
+        "nota": "Revision de juego axial"
+      },
+      {
+        "componente": "Caja / transmision",
+        "base": "km",
+        "inspeccion": 10000,
+        "sustitucion": 60000,
+        "aviso_anticipo": 5000,
+        "critico_seguridad": false,
+        "nota": "Revisar nivel y color aceite"
+      },
+      {
+        "componente": "Alineacion y balanceo",
+        "base": "km",
+        "inspeccion": 10000,
+        "sustitucion": 0,
+        "aviso_anticipo": 1000,
+        "critico_seguridad": true,
+        "nota": "Vital por estado de vias"
+      },
+      {
+        "componente": "Filtro de cabina",
+        "base": "km",
+        "inspeccion": 5000,
+        "sustitucion": 15000,
+        "aviso_anticipo": 2000,
+        "critico_seguridad": false,
+        "nota": "Salud del operador"
+      }
+    ]
+  },
+  {
+    "tipo": "Camión",
+    "combustible": "diesel",
+    "medida": "km",
+    "items": [
+      {
+        "componente": "Aceite de motor",
+        "base": "km",
+        "inspeccion": 5000,
+        "sustitucion": 15000,
+        "aviso_anticipo": 1500,
+        "critico_seguridad": false,
+        "nota": "Uso severo reduce intervalo"
+      },
+      {
+        "componente": "Filtro de aceite",
+        "base": "km",
+        "inspeccion": 0,
+        "sustitucion": 15000,
+        "aviso_anticipo": 1500,
+        "critico_seguridad": false,
+        "nota": "Cambiar siempre con aceite"
+      },
+      {
+        "componente": "Filtro de aire",
+        "base": "km",
+        "inspeccion": 5000,
+        "sustitucion": 20000,
+        "aviso_anticipo": 2000,
+        "critico_seguridad": false,
+        "nota": "Critico por polvo en rutas"
+      },
+      {
+        "componente": "Filtro de combustible",
+        "base": "km",
+        "inspeccion": 5000,
+        "sustitucion": 15000,
+        "aviso_anticipo": 1500,
+        "critico_seguridad": false,
+        "nota": "Vital para proteger inyectores"
+      },
+      {
+        "componente": "Trampa / decantador de agua",
+        "base": "km",
+        "inspeccion": 2500,
+        "sustitucion": 0,
+        "aviso_anticipo": 500,
+        "critico_seguridad": false,
+        "nota": "Purgar agua semanalmente"
+      },
+      {
+        "componente": "Frenos (zapatas/pastillas)",
+        "base": "km",
+        "inspeccion": 5000,
+        "sustitucion": 20000,
+        "aviso_anticipo": 2000,
+        "critico_seguridad": true,
+        "nota": "Inspeccion visual y ajuste aire"
+      },
+      {
+        "componente": "Liquido de frenos",
+        "base": "meses",
+        "inspeccion": 6,
+        "sustitucion": 24,
+        "aviso_anticipo": 1,
+        "critico_seguridad": true,
+        "nota": "Si aplica sistema hidraulico"
+      },
+      {
+        "componente": "Bateria",
+        "base": "meses",
+        "inspeccion": 3,
+        "sustitucion": 24,
+        "aviso_anticipo": 1,
+        "critico_seguridad": false,
+        "nota": "Limpieza bornes y carga"
+      },
+      {
+        "componente": "Refrigerante / anticongelante",
+        "base": "meses",
+        "inspeccion": 6,
+        "sustitucion": 24,
+        "aviso_anticipo": 1,
+        "critico_seguridad": false,
+        "nota": "Verificar inhibidor corrosion"
+      },
+      {
+        "componente": "Cauchos / neumaticos",
+        "base": "meses",
+        "inspeccion": 3,
+        "sustitucion": 60,
+        "aviso_anticipo": 1,
+        "critico_seguridad": true,
+        "nota": "Rotacion obligatoria cada 10k km"
+      },
+      {
+        "componente": "Correa(s)",
+        "base": "km",
+        "inspeccion": 10000,
+        "sustitucion": 40000,
+        "aviso_anticipo": 4000,
+        "critico_seguridad": true,
+        "nota": "Inspeccion grietas y tension"
+      },
+      {
+        "componente": "Suspension / amortiguadores",
+        "base": "km",
+        "inspeccion": 5000,
+        "sustitucion": 60000,
+        "aviso_anticipo": 5000,
+        "critico_seguridad": true,
+        "nota": "Engrase de puntos criticos"
+      },
+      {
+        "componente": "Rotulas y direccion",
+        "base": "km",
+        "inspeccion": 5000,
+        "sustitucion": 0,
+        "aviso_anticipo": 1000,
+        "critico_seguridad": true,
+        "nota": "Engrase de terminales"
+      },
+      {
+        "componente": "Caja / transmision",
+        "base": "km",
+        "inspeccion": 10000,
+        "sustitucion": 60000,
+        "aviso_anticipo": 5000,
+        "critico_seguridad": false,
+        "nota": "Revisar nivel y fugas"
+      },
+      {
+        "componente": "Diferencial",
+        "base": "km",
+        "inspeccion": 10000,
+        "sustitucion": 60000,
+        "aviso_anticipo": 5000,
+        "critico_seguridad": false,
+        "nota": "Revisar respiradero y nivel"
+      },
+      {
+        "componente": "Alineacion y balanceo",
+        "base": "km",
+        "inspeccion": 10000,
+        "sustitucion": 0,
+        "aviso_anticipo": 1000,
+        "critico_seguridad": true,
+        "nota": "Vital por peso de carga"
+      },
+      {
+        "componente": "Filtro de cabina",
+        "base": "km",
+        "inspeccion": 5000,
+        "sustitucion": 15000,
+        "aviso_anticipo": 1500,
+        "critico_seguridad": false,
+        "nota": "Limpieza intermedia obligatoria"
+      }
+    ]
+  },
+  {
+    "tipo": "Autobús",
+    "combustible": "diesel",
+    "medida": "km",
+    "items": [
+      {
+        "componente": "Aceite de motor",
+        "base": "km",
+        "inspeccion": 5000,
+        "sustitucion": 10000,
+        "aviso_anticipo": 1000,
+        "critico_seguridad": false,
+        "nota": "Ciclo urbano es uso severo"
+      },
+      {
+        "componente": "Filtro de aceite",
+        "base": "km",
+        "inspeccion": 0,
+        "sustitucion": 10000,
+        "aviso_anticipo": 1000,
+        "critico_seguridad": false,
+        "nota": "Cambio mandatorio con aceite"
+      },
+      {
+        "componente": "Filtro de aire",
+        "base": "km",
+        "inspeccion": 5000,
+        "sustitucion": 15000,
+        "aviso_anticipo": 2000,
+        "critico_seguridad": false,
+        "nota": "Limpieza frecuente en ruta urbana"
+      },
+      {
+        "componente": "Filtro de combustible",
+        "base": "km",
+        "inspeccion": 5000,
+        "sustitucion": 10000,
+        "aviso_anticipo": 1000,
+        "critico_seguridad": false,
+        "nota": "Vital para proteger inyectores"
+      },
+      {
+        "componente": "Trampa / decantador de agua",
+        "base": "km",
+        "inspeccion": 2500,
+        "sustitucion": 0,
+        "aviso_anticipo": 500,
+        "critico_seguridad": false,
+        "nota": "Purgar agua semanalmente"
+      },
+      {
+        "componente": "Frenos (balatas/discos)",
+        "base": "km",
+        "inspeccion": 5000,
+        "sustitucion": 15000,
+        "aviso_anticipo": 2000,
+        "critico_seguridad": true,
+        "nota": "Inspeccion diaria de fugas aire"
+      },
+      {
+        "componente": "Liquido de frenos",
+        "base": "meses",
+        "inspeccion": 6,
+        "sustitucion": 24,
+        "aviso_anticipo": 1,
+        "critico_seguridad": true,
+        "nota": "Solo si aplica sistema hidraulico"
+      },
+      {
+        "componente": "Bateria",
+        "base": "meses",
+        "inspeccion": 3,
+        "sustitucion": 24,
+        "aviso_anticipo": 1,
+        "critico_seguridad": false,
+        "nota": "Limpieza de bornes y sulfatacion"
+      },
+      {
+        "componente": "Refrigerante / anticongelante",
+        "base": "meses",
+        "inspeccion": 6,
+        "sustitucion": 24,
+        "aviso_anticipo": 1,
+        "critico_seguridad": false,
+        "nota": "Verificar puntos de fugas"
+      },
+      {
+        "componente": "Cauchos / neumaticos",
+        "base": "meses",
+        "inspeccion": 3,
+        "sustitucion": 50,
+        "aviso_anticipo": 1,
+        "critico_seguridad": true,
+        "nota": "Rotacion cada 10k km"
+      },
+      {
+        "componente": "Correa(s)",
+        "base": "km",
+        "inspeccion": 10000,
+        "sustitucion": 40000,
+        "aviso_anticipo": 4000,
+        "critico_seguridad": true,
+        "nota": "Revisar tension y vibracion"
+      },
+      {
+        "componente": "Suspension / amortiguadores",
+        "base": "km",
+        "inspeccion": 5000,
+        "sustitucion": 50000,
+        "aviso_anticipo": 5000,
+        "critico_seguridad": true,
+        "nota": "Revisar integridad bujes"
+      },
+      {
+        "componente": "Rotulas y direccion",
+        "base": "km",
+        "inspeccion": 5000,
+        "sustitucion": 0,
+        "aviso_anticipo": 1000,
+        "critico_seguridad": true,
+        "nota": "Engrase de terminales"
+      },
+      {
+        "componente": "Caja / transmision",
+        "base": "km",
+        "inspeccion": 10000,
+        "sustitucion": 60000,
+        "aviso_anticipo": 5000,
+        "critico_seguridad": false,
+        "nota": "Revisar nivel y temperatura"
+      },
+      {
+        "componente": "Diferencial",
+        "base": "km",
+        "inspeccion": 10000,
+        "sustitucion": 60000,
+        "aviso_anticipo": 5000,
+        "critico_seguridad": false,
+        "nota": "Revisar fugas sellos"
+      },
+      {
+        "componente": "Alineacion y balanceo",
+        "base": "km",
+        "inspeccion": 10000,
+        "sustitucion": 0,
+        "aviso_anticipo": 1000,
+        "critico_seguridad": true,
+        "nota": "Vital por carga de pasajeros"
+      },
+      {
+        "componente": "Filtro de cabina",
+        "base": "km",
+        "inspeccion": 5000,
+        "sustitucion": 15000,
+        "aviso_anticipo": 1500,
+        "critico_seguridad": false,
+        "nota": "Purificacion aire pasajeros"
+      }
+    ]
+  },
+  {
+    "tipo": "Moto",
+    "combustible": "gasolina",
+    "medida": "km",
+    "items": [
+      {
+        "componente": "Aceite de motor",
+        "base": "km",
+        "inspeccion": 1000,
+        "sustitucion": 3000,
+        "aviso_anticipo": 300,
+        "critico_seguridad": false,
+        "nota": "Motor de alta revolucion"
+      },
+      {
+        "componente": "Filtro de aceite",
+        "base": "km",
+        "inspeccion": 0,
+        "sustitucion": 3000,
+        "aviso_anticipo": 300,
+        "critico_seguridad": false,
+        "nota": "Cambio mandatorio con aceite"
+      },
+      {
+        "componente": "Filtro de aire",
+        "base": "km",
+        "inspeccion": 1000,
+        "sustitucion": 5000,
+        "aviso_anticipo": 500,
+        "critico_seguridad": false,
+        "nota": "Limpiar cada 1k en zonas con polvo"
+      },
+      {
+        "componente": "Filtro de combustible",
+        "base": "km",
+        "inspeccion": 5000,
+        "sustitucion": 10000,
+        "aviso_anticipo": 1000,
+        "critico_seguridad": false,
+        "nota": "Calidad de gasolina variable"
+      },
+      {
+        "componente": "Bujias",
+        "base": "km",
+        "inspeccion": 5000,
+        "sustitucion": 10000,
+        "aviso_anticipo": 1000,
+        "critico_seguridad": false,
+        "nota": "Revisar color y luz electrodo"
+      },
+      {
+        "componente": "Frenos (pastillas/zapatas)",
+        "base": "km",
+        "inspeccion": 1000,
+        "sustitucion": 5000,
+        "aviso_anticipo": 500,
+        "critico_seguridad": true,
+        "nota": "Revisar espesor semanalmente"
+      },
+      {
+        "componente": "Liquido de frenos",
+        "base": "meses",
+        "inspeccion": 6,
+        "sustitucion": 24,
+        "aviso_anticipo": 1,
+        "critico_seguridad": true,
+        "nota": "Higroscopico; revisar nivel"
+      },
+      {
+        "componente": "Bateria",
+        "base": "meses",
+        "inspeccion": 3,
+        "sustitucion": 24,
+        "aviso_anticipo": 1,
+        "critico_seguridad": false,
+        "nota": "Verificar voltaje de carga"
+      },
+      {
+        "componente": "Cauchos / neumaticos",
+        "base": "meses",
+        "inspeccion": 3,
+        "sustitucion": 18,
+        "aviso_anticipo": 1,
+        "critico_seguridad": true,
+        "nota": "Inspeccion de profundidad dibujo"
+      },
+      {
+        "componente": "Correa / Cadena",
+        "base": "km",
+        "inspeccion": 500,
+        "sustitucion": 15000,
+        "aviso_anticipo": 100,
+        "critico_seguridad": true,
+        "nota": "Limpieza, tension y lubricacion"
+      },
+      {
+        "componente": "Suspension / amortiguadores",
+        "base": "km",
+        "inspeccion": 5000,
+        "sustitucion": 20000,
+        "aviso_anticipo": 2000,
+        "critico_seguridad": true,
+        "nota": "Revisar retenes y fugas"
+      },
+      {
+        "componente": "Direccion (rodamientos)",
+        "base": "km",
+        "inspeccion": 5000,
+        "sustitucion": 30000,
+        "aviso_anticipo": 2000,
+        "critico_seguridad": true,
+        "nota": "Engrase y ajuste de juego"
+      },
+      {
+        "componente": "Alineacion y balanceo",
+        "base": "km",
+        "inspeccion": 5000,
+        "sustitucion": 0,
+        "aviso_anticipo": 1000,
+        "critico_seguridad": true,
+        "nota": "Vital para estabilidad"
+      }
+    ]
+  },
+  {
+    "tipo": "Cisterna",
+    "combustible": "diesel",
+    "medida": "km",
+    "items": [
+      {
+        "componente": "Aceite de motor",
+        "base": "km",
+        "inspeccion": 5000,
+        "sustitucion": 15000,
+        "aviso_anticipo": 1500,
+        "critico_seguridad": false,
+        "nota": "Uso severo/carga pesada"
+      },
+      {
+        "componente": "Filtro de aceite",
+        "base": "km",
+        "inspeccion": 0,
+        "sustitucion": 15000,
+        "aviso_anticipo": 1500,
+        "critico_seguridad": false,
+        "nota": "Cambio con aceite"
+      },
+      {
+        "componente": "Filtro de aire",
+        "base": "km",
+        "inspeccion": 5000,
+        "sustitucion": 20000,
+        "aviso_anticipo": 2000,
+        "critico_seguridad": false,
+        "nota": "Critico por polvo en rutas"
+      },
+      {
+        "componente": "Filtro de combustible",
+        "base": "km",
+        "inspeccion": 5000,
+        "sustitucion": 15000,
+        "aviso_anticipo": 1500,
+        "critico_seguridad": false,
+        "nota": "Proteccion inyeccion"
+      },
+      {
+        "componente": "Trampa / decantador de agua",
+        "base": "km",
+        "inspeccion": 2500,
+        "sustitucion": 0,
+        "aviso_anticipo": 500,
+        "critico_seguridad": false,
+        "nota": "Purgar agua semanalmente"
+      },
+      {
+        "componente": "Frenos (zapatas/pastillas)",
+        "base": "km",
+        "inspeccion": 5000,
+        "sustitucion": 20000,
+        "aviso_anticipo": 2000,
+        "critico_seguridad": true,
+        "nota": "Vital por carga dinamica"
+      },
+      {
+        "componente": "Sistema de valvulas",
+        "base": "meses",
+        "inspeccion": 3,
+        "sustitucion": 12,
+        "aviso_anticipo": 1,
+        "critico_seguridad": true,
+        "nota": "Prueba de hermeticidad"
+      },
+      {
+        "componente": "Bateria",
+        "base": "meses",
+        "inspeccion": 3,
+        "sustitucion": 24,
+        "aviso_anticipo": 1,
+        "critico_seguridad": false,
+        "nota": "Limpieza bornes y carga"
+      },
+      {
+        "componente": "Refrigerante / anticongelante",
+        "base": "meses",
+        "inspeccion": 6,
+        "sustitucion": 24,
+        "aviso_anticipo": 1,
+        "critico_seguridad": false,
+        "nota": "Verificar puntos de fugas"
+      },
+      {
+        "componente": "Cauchos / neumaticos",
+        "base": "meses",
+        "inspeccion": 3,
+        "sustitucion": 50,
+        "aviso_anticipo": 1,
+        "critico_seguridad": true,
+        "nota": "Rotacion cada 10k km"
+      },
+      {
+        "componente": "Suspension / amortiguadores",
+        "base": "km",
+        "inspeccion": 5000,
+        "sustitucion": 60000,
+        "aviso_anticipo": 5000,
+        "critico_seguridad": true,
+        "nota": "Revisar integridad tanques"
+      },
+      {
+        "componente": "Rotulas y direccion",
+        "base": "km",
+        "inspeccion": 5000,
+        "sustitucion": 0,
+        "aviso_anticipo": 1000,
+        "critico_seguridad": true,
+        "nota": "Engrase de terminales"
+      },
+      {
+        "componente": "Caja / transmision",
+        "base": "km",
+        "inspeccion": 10000,
+        "sustitucion": 60000,
+        "aviso_anticipo": 5000,
+        "critico_seguridad": false,
+        "nota": "Revisar nivel y fugas"
+      },
+      {
+        "componente": "Diferencial",
+        "base": "km",
+        "inspeccion": 10000,
+        "sustitucion": 60000,
+        "aviso_anticipo": 5000,
+        "critico_seguridad": false,
+        "nota": "Revisar respiradero"
+      },
+      {
+        "componente": "Alineacion y balanceo",
+        "base": "km",
+        "inspeccion": 10000,
+        "sustitucion": 0,
+        "aviso_anticipo": 1000,
+        "critico_seguridad": true,
+        "nota": "Vital por peso de carga"
+      },
+      {
+        "componente": "Empaquetaduras (tanque)",
+        "base": "meses",
+        "inspeccion": 3,
+        "sustitucion": 12,
+        "aviso_anticipo": 1,
+        "critico_seguridad": true,
+        "nota": "Evitar fugas producto"
+      }
+    ]
+  },
+  {
+    "tipo": "Compactador de basura",
+    "combustible": "diesel",
+    "medida": "km",
+    "items": [
+      {
+        "componente": "Aceite de motor",
+        "base": "km",
+        "inspeccion": 5000,
+        "sustitucion": 10000,
+        "aviso_anticipo": 1000,
+        "critico_seguridad": false,
+        "nota": "Ciclo urbano severo (mucho ralenti)"
+      },
+      {
+        "componente": "Filtro de aceite",
+        "base": "km",
+        "inspeccion": 0,
+        "sustitucion": 10000,
+        "aviso_anticipo": 1000,
+        "critico_seguridad": false,
+        "nota": "Cambio con aceite"
+      },
+      {
+        "componente": "Filtro de aire",
+        "base": "km",
+        "inspeccion": 5000,
+        "sustitucion": 15000,
+        "aviso_anticipo": 2000,
+        "critico_seguridad": false,
+        "nota": "Limpieza frecuente por polvo/basura"
+      },
+      {
+        "componente": "Filtro de combustible",
+        "base": "km",
+        "inspeccion": 5000,
+        "sustitucion": 10000,
+        "aviso_anticipo": 1000,
+        "critico_seguridad": false,
+        "nota": "Proteccion inyeccion"
+      },
+      {
+        "componente": "Trampa / decantador de agua",
+        "base": "km",
+        "inspeccion": 2500,
+        "sustitucion": 0,
+        "aviso_anticipo": 500,
+        "critico_seguridad": false,
+        "nota": "Purgar agua semanalmente"
+      },
+      {
+        "componente": "Frenos (zapatas/pastillas)",
+        "base": "km",
+        "inspeccion": 5000,
+        "sustitucion": 15000,
+        "aviso_anticipo": 2000,
+        "critico_seguridad": true,
+        "nota": "Uso severo por arranque/frenado"
+      },
+      {
+        "componente": "Liquido de frenos",
+        "base": "meses",
+        "inspeccion": 6,
+        "sustitucion": 24,
+        "aviso_anticipo": 1,
+        "critico_seguridad": true,
+        "nota": "Revisar nivel y fugas"
+      },
+      {
+        "componente": "Bateria",
+        "base": "meses",
+        "inspeccion": 3,
+        "sustitucion": 24,
+        "aviso_anticipo": 1,
+        "critico_seguridad": false,
+        "nota": "Limpieza bornes y carga"
+      },
+      {
+        "componente": "Refrigerante / anticongelante",
+        "base": "meses",
+        "inspeccion": 6,
+        "sustitucion": 24,
+        "aviso_anticipo": 1,
+        "critico_seguridad": false,
+        "nota": "Verificar puntos de fugas"
+      },
+      {
+        "componente": "Cauchos / neumaticos",
+        "base": "meses",
+        "inspeccion": 3,
+        "sustitucion": 48,
+        "aviso_anticipo": 1,
+        "critico_seguridad": true,
+        "nota": "Inspeccion desgaste irregular"
+      },
+      {
+        "componente": "Correa(s)",
+        "base": "km",
+        "inspeccion": 10000,
+        "sustitucion": 40000,
+        "aviso_anticipo": 4000,
+        "critico_seguridad": true,
+        "nota": "Inspeccion grietas y tension"
+      },
+      {
+        "componente": "Suspension / amortiguadores",
+        "base": "km",
+        "inspeccion": 5000,
+        "sustitucion": 60000,
+        "aviso_anticipo": 5000,
+        "critico_seguridad": true,
+        "nota": "Engrase de puntos criticos"
+      },
+      {
+        "componente": "Rotulas y direccion",
+        "base": "km",
+        "inspeccion": 5000,
+        "sustitucion": 0,
+        "aviso_anticipo": 1000,
+        "critico_seguridad": true,
+        "nota": "Engrase de terminales"
+      },
+      {
+        "componente": "Caja / transmision",
+        "base": "km",
+        "inspeccion": 10000,
+        "sustitucion": 60000,
+        "aviso_anticipo": 5000,
+        "critico_seguridad": false,
+        "nota": "Revisar nivel y fugas"
+      },
+      {
+        "componente": "Diferencial",
+        "base": "km",
+        "inspeccion": 10000,
+        "sustitucion": 60000,
+        "aviso_anticipo": 5000,
+        "critico_seguridad": false,
+        "nota": "Revisar respiradero"
+      },
+      {
+        "componente": "Alineacion y balanceo",
+        "base": "km",
+        "inspeccion": 10000,
+        "sustitucion": 0,
+        "aviso_anticipo": 1000,
+        "critico_seguridad": true,
+        "nota": "Vital por peso de carga"
+      },
+      {
+        "componente": "Filtro de cabina",
+        "base": "km",
+        "inspeccion": 5000,
+        "sustitucion": 15000,
+        "aviso_anticipo": 1500,
+        "critico_seguridad": false,
+        "nota": "Salud del operador"
+      },
+      {
+        "componente": "Sistema hidraulico de compactacion",
+        "base": "meses",
+        "inspeccion": 1,
+        "sustitucion": 12,
+        "aviso_anticipo": 1,
+        "critico_seguridad": true,
+        "nota": "Revisar mangueras, fugas y nivel de aceite hidraulico"
+      },
+      {
+        "componente": "Sistema de compactacion (prensa)",
+        "base": "meses",
+        "inspeccion": 1,
+        "sustitucion": 0,
+        "aviso_anticipo": 1,
+        "critico_seguridad": true,
+        "nota": "Engrase de guias/patines de la prensa"
+      }
+    ]
+  },
+  {
+    "tipo": "Planta eléctrica",
+    "combustible": "diesel",
+    "medida": "horas",
+    "items": [
+      {
+        "componente": "Aceite de motor",
+        "base": "horas",
+        "inspeccion": 50,
+        "sustitucion": 250,
+        "aviso_anticipo": 25,
+        "critico_seguridad": false,
+        "nota": "Cambiar al menos 1 vez al ano"
+      },
+      {
+        "componente": "Filtro de aceite",
+        "base": "horas",
+        "inspeccion": 0,
+        "sustitucion": 250,
+        "aviso_anticipo": 25,
+        "critico_seguridad": false,
+        "nota": "Cambio con aceite"
+      },
+      {
+        "componente": "Filtro de aire",
+        "base": "horas",
+        "inspeccion": 100,
+        "sustitucion": 500,
+        "aviso_anticipo": 50,
+        "critico_seguridad": false,
+        "nota": "Critico por ubicacion del equipo"
+      },
+      {
+        "componente": "Filtro de combustible",
+        "base": "horas",
+        "inspeccion": 100,
+        "sustitucion": 500,
+        "aviso_anticipo": 50,
+        "critico_seguridad": false,
+        "nota": "Calidad de diesel es vital"
+      },
+      {
+        "componente": "Trampa / decantador de agua",
+        "base": "horas",
+        "inspeccion": 50,
+        "sustitucion": 0,
+        "aviso_anticipo": 10,
+        "critico_seguridad": false,
+        "nota": "Purgar agua antes de cada uso"
+      },
+      {
+        "componente": "Bateria (Arranque)",
+        "base": "meses",
+        "inspeccion": 1,
+        "sustitucion": 24,
+        "aviso_anticipo": 1,
+        "critico_seguridad": true,
+        "nota": "Prueba de carga/arranque constante"
+      },
+      {
+        "componente": "Refrigerante",
+        "base": "meses",
+        "inspeccion": 6,
+        "sustitucion": 24,
+        "aviso_anticipo": 1,
+        "critico_seguridad": false,
+        "nota": "Verificar punto de ebullicion"
+      },
+      {
+        "componente": "Correa(s)",
+        "base": "horas",
+        "inspeccion": 100,
+        "sustitucion": 500,
+        "aviso_anticipo": 50,
+        "critico_seguridad": true,
+        "nota": "Inspeccion grietas y tension"
+      },
+      {
+        "componente": "Sistema de escape",
+        "base": "horas",
+        "inspeccion": 100,
+        "sustitucion": 0,
+        "aviso_anticipo": 20,
+        "critico_seguridad": false,
+        "nota": "Revisar fijaciones y fugas gases"
+      },
+      {
+        "componente": "Alternador (Carga bat.)",
+        "base": "horas",
+        "inspeccion": 250,
+        "sustitucion": 0,
+        "aviso_anticipo": 50,
+        "critico_seguridad": false,
+        "nota": "Verificar voltaje de carga"
+      },
+      {
+        "componente": "Tablero de control",
+        "base": "horas",
+        "inspeccion": 100,
+        "sustitucion": 0,
+        "aviso_anticipo": 20,
+        "critico_seguridad": true,
+        "nota": "Limpieza y ajuste de contactos"
+      },
+      {
+        "componente": "Sistema de combustible",
+        "base": "meses",
+        "inspeccion": 3,
+        "sustitucion": 0,
+        "aviso_anticipo": 1,
+        "critico_seguridad": true,
+        "nota": "Verificar fugas en tuberias y tanque"
+      }
+    ]
+  },
+  {
+    "tipo": "Planta eléctrica",
+    "combustible": "gas",
+    "medida": "horas",
+    "items": [
+      {
+        "componente": "Aceite de motor",
+        "base": "horas",
+        "inspeccion": 100,
+        "sustitucion": 500,
+        "aviso_anticipo": 50,
+        "critico_seguridad": false,
+        "nota": "Aceite especifico para gas"
+      },
+      {
+        "componente": "Filtro de aceite",
+        "base": "horas",
+        "inspeccion": 0,
+        "sustitucion": 500,
+        "aviso_anticipo": 50,
+        "critico_seguridad": false,
+        "nota": "Cambio mandatorio con aceite"
+      },
+      {
+        "componente": "Filtro de aire",
+        "base": "horas",
+        "inspeccion": 100,
+        "sustitucion": 500,
+        "aviso_anticipo": 50,
+        "critico_seguridad": false,
+        "nota": "Critico para mezcla aire-gas"
+      },
+      {
+        "componente": "Filtro de gas / regulador",
+        "base": "horas",
+        "inspeccion": 250,
+        "sustitucion": 1000,
+        "aviso_anticipo": 100,
+        "critico_seguridad": true,
+        "nota": "Limpieza/sustitucion filtros gas"
+      },
+      {
+        "componente": "Bujias (ignicion)",
+        "base": "horas",
+        "inspeccion": 250,
+        "sustitucion": 500,
+        "aviso_anticipo": 50,
+        "critico_seguridad": false,
+        "nota": "Gas genera mayor temperatura"
+      },
+      {
+        "componente": "Bateria (Arranque)",
+        "base": "meses",
+        "inspeccion": 1,
+        "sustitucion": 24,
+        "aviso_anticipo": 1,
+        "critico_seguridad": true,
+        "nota": "Prueba de carga constante"
+      },
+      {
+        "componente": "Refrigerante",
+        "base": "meses",
+        "inspeccion": 6,
+        "sustitucion": 24,
+        "aviso_anticipo": 1,
+        "critico_seguridad": false,
+        "nota": "Verificar puntos de fugas"
+      },
+      {
+        "componente": "Correa(s)",
+        "base": "horas",
+        "inspeccion": 100,
+        "sustitucion": 500,
+        "aviso_anticipo": 50,
+        "critico_seguridad": true,
+        "nota": "Inspeccion grietas y tension"
+      },
+      {
+        "componente": "Sistema de escape",
+        "base": "horas",
+        "inspeccion": 100,
+        "sustitucion": 0,
+        "aviso_anticipo": 20,
+        "critico_seguridad": false,
+        "nota": "Revisar temperatura y fugas"
+      },
+      {
+        "componente": "Alternador (Carga bat.)",
+        "base": "horas",
+        "inspeccion": 250,
+        "sustitucion": 0,
+        "aviso_anticipo": 50,
+        "critico_seguridad": false,
+        "nota": "Verificar voltaje de carga"
+      },
+      {
+        "componente": "Tablero de control",
+        "base": "horas",
+        "inspeccion": 100,
+        "sustitucion": 0,
+        "aviso_anticipo": 20,
+        "critico_seguridad": true,
+        "nota": "Limpieza y ajuste de contactos"
+      },
+      {
+        "componente": "Linea de gas (fugas)",
+        "base": "meses",
+        "inspeccion": 1,
+        "sustitucion": 0,
+        "aviso_anticipo": 0,
+        "critico_seguridad": true,
+        "nota": "Deteccion de fugas con sensor"
+      }
+    ]
+  },
+  {
+    "tipo": "Montacargas",
+    "combustible": "diesel",
+    "medida": "horas",
+    "items": [
+      {
+        "componente": "Aceite de motor",
+        "base": "horas",
+        "inspeccion": 50,
+        "sustitucion": 250,
+        "aviso_anticipo": 25,
+        "critico_seguridad": false,
+        "nota": "Uso severo reduce intervalo"
+      },
+      {
+        "componente": "Filtro de aceite",
+        "base": "horas",
+        "inspeccion": 0,
+        "sustitucion": 250,
+        "aviso_anticipo": 25,
+        "critico_seguridad": false,
+        "nota": "Cambiar siempre con aceite"
+      },
+      {
+        "componente": "Filtro de aire",
+        "base": "horas",
+        "inspeccion": 50,
+        "sustitucion": 500,
+        "aviso_anticipo": 50,
+        "critico_seguridad": false,
+        "nota": "Critico por polvo en almacen"
+      },
+      {
+        "componente": "Filtro de combustible",
+        "base": "horas",
+        "inspeccion": 100,
+        "sustitucion": 500,
+        "aviso_anticipo": 50,
+        "critico_seguridad": false,
+        "nota": "Calidad de diesel critica"
+      },
+      {
+        "componente": "Trampa / decantador de agua",
+        "base": "horas",
+        "inspeccion": 50,
+        "sustitucion": 0,
+        "aviso_anticipo": 10,
+        "critico_seguridad": false,
+        "nota": "Purgar agua semanalmente"
+      },
+      {
+        "componente": "Sistema Hidraulico",
+        "base": "horas",
+        "inspeccion": 100,
+        "sustitucion": 1000,
+        "aviso_anticipo": 100,
+        "critico_seguridad": true,
+        "nota": "Revisar fugas en cilindros/mangueras"
+      },
+      {
+        "componente": "Cadenas de elevacion",
+        "base": "horas",
+        "inspeccion": 50,
+        "sustitucion": 0,
+        "aviso_anticipo": 10,
+        "critico_seguridad": true,
+        "nota": "Engrase y revision de tension"
+      },
+      {
+        "componente": "Horquillas (unas)",
+        "base": "horas",
+        "inspeccion": 100,
+        "sustitucion": 0,
+        "aviso_anticipo": 20,
+        "critico_seguridad": true,
+        "nota": "Inspeccion de grietas y desgaste"
+      },
+      {
+        "componente": "Frenos (balatas/discos)",
+        "base": "horas",
+        "inspeccion": 250,
+        "sustitucion": 1000,
+        "aviso_anticipo": 100,
+        "critico_seguridad": true,
+        "nota": "Inspeccion desgaste"
+      },
+      {
+        "componente": "Bateria",
+        "base": "meses",
+        "inspeccion": 1,
+        "sustitucion": 24,
+        "aviso_anticipo": 1,
+        "critico_seguridad": false,
+        "nota": "Limpieza bornes y carga"
+      },
+      {
+        "componente": "Refrigerante",
+        "base": "meses",
+        "inspeccion": 3,
+        "sustitucion": 24,
+        "aviso_anticipo": 1,
+        "critico_seguridad": false,
+        "nota": "Verificar puntos de fugas"
+      },
+      {
+        "componente": "Cauchos",
+        "base": "meses",
+        "inspeccion": 3,
+        "sustitucion": 48,
+        "aviso_anticipo": 1,
+        "critico_seguridad": true,
+        "nota": "Inspeccion desgaste y danos"
+      },
+      {
+        "componente": "Mastil y rodillos",
+        "base": "horas",
+        "inspeccion": 50,
+        "sustitucion": 0,
+        "aviso_anticipo": 10,
+        "critico_seguridad": true,
+        "nota": "Engrase de guias y rodillos"
+      },
+      {
+        "componente": "Direccion / Eje trasero",
+        "base": "horas",
+        "inspeccion": 100,
+        "sustitucion": 0,
+        "aviso_anticipo": 20,
+        "critico_seguridad": true,
+        "nota": "Engrase de puntos de articulacion"
+      }
+    ]
+  },
+  {
+    "tipo": "Montacargas",
+    "combustible": "electrico",
+    "medida": "horas",
+    "items": [
+      {
+        "componente": "Bateria de traccion",
+        "base": "horas",
+        "inspeccion": 50,
+        "sustitucion": 0,
+        "aviso_anticipo": 10,
+        "critico_seguridad": true,
+        "nota": "Revisar nivel electrolito y sulfatacion"
+      },
+      {
+        "componente": "Sistema de carga (Cargador)",
+        "base": "horas",
+        "inspeccion": 100,
+        "sustitucion": 0,
+        "aviso_anticipo": 20,
+        "critico_seguridad": true,
+        "nota": "Limpieza y ajuste de conectores"
+      },
+      {
+        "componente": "Cadenas de elevacion",
+        "base": "horas",
+        "inspeccion": 50,
+        "sustitucion": 0,
+        "aviso_anticipo": 10,
+        "critico_seguridad": true,
+        "nota": "Engrase y revision de tension"
+      },
+      {
+        "componente": "Horquillas (unas)",
+        "base": "horas",
+        "inspeccion": 100,
+        "sustitucion": 0,
+        "aviso_anticipo": 20,
+        "critico_seguridad": true,
+        "nota": "Inspeccion de grietas y desgaste"
+      },
+      {
+        "componente": "Motor de traccion",
+        "base": "horas",
+        "inspeccion": 250,
+        "sustitucion": 0,
+        "aviso_anticipo": 50,
+        "critico_seguridad": true,
+        "nota": "Sopletear polvo de carbones"
+      },
+      {
+        "componente": "Frenos (regenerativos)",
+        "base": "horas",
+        "inspeccion": 250,
+        "sustitucion": 1000,
+        "aviso_anticipo": 100,
+        "critico_seguridad": true,
+        "nota": "Inspeccion de pastillas"
+      },
+      {
+        "componente": "Sistema Hidraulico",
+        "base": "horas",
+        "inspeccion": 100,
+        "sustitucion": 1000,
+        "aviso_anticipo": 100,
+        "critico_seguridad": true,
+        "nota": "Revisar fugas en cilindros/mangueras"
+      },
+      {
+        "componente": "Mastil y rodillos",
+        "base": "horas",
+        "inspeccion": 50,
+        "sustitucion": 0,
+        "aviso_anticipo": 10,
+        "critico_seguridad": true,
+        "nota": "Engrase de guias y rodillos"
+      },
+      {
+        "componente": "Direccion / Eje trasero",
+        "base": "horas",
+        "inspeccion": 100,
+        "sustitucion": 0,
+        "aviso_anticipo": 20,
+        "critico_seguridad": true,
+        "nota": "Engrase de puntos de articulacion"
+      },
+      {
+        "componente": "Cauchos (macizos)",
+        "base": "meses",
+        "inspeccion": 3,
+        "sustitucion": 48,
+        "aviso_anticipo": 1,
+        "critico_seguridad": true,
+        "nota": "Inspeccion desgaste y danos"
+      },
+      {
+        "componente": "Bateria de servicio (12V)",
+        "base": "meses",
+        "inspeccion": 3,
+        "sustitucion": 24,
+        "aviso_anticipo": 1,
+        "critico_seguridad": false,
+        "nota": "Limpieza bornes y prueba carga"
+      }
+    ]
+  },
+  {
+    "tipo": "Retroexcavadora",
+    "combustible": "diesel",
+    "medida": "horas",
+    "items": [
+      {
+        "componente": "Aceite de motor",
+        "base": "horas",
+        "inspeccion": 50,
+        "sustitucion": 250,
+        "aviso_anticipo": 25,
+        "critico_seguridad": false,
+        "nota": "Uso severo/tierra frecuente"
+      },
+      {
+        "componente": "Filtro de aceite",
+        "base": "horas",
+        "inspeccion": 0,
+        "sustitucion": 250,
+        "aviso_anticipo": 25,
+        "critico_seguridad": false,
+        "nota": "Cambio siempre con aceite"
+      },
+      {
+        "componente": "Filtro de aire",
+        "base": "horas",
+        "inspeccion": 50,
+        "sustitucion": 500,
+        "aviso_anticipo": 50,
+        "critico_seguridad": false,
+        "nota": "Critico por polvo en obra"
+      },
+      {
+        "componente": "Filtro de combustible",
+        "base": "horas",
+        "inspeccion": 100,
+        "sustitucion": 500,
+        "aviso_anticipo": 50,
+        "critico_seguridad": false,
+        "nota": "Calidad de diesel critica"
+      },
+      {
+        "componente": "Trampa / decantador de agua",
+        "base": "horas",
+        "inspeccion": 50,
+        "sustitucion": 0,
+        "aviso_anticipo": 10,
+        "critico_seguridad": false,
+        "nota": "Purgar agua semanalmente"
+      },
+      {
+        "componente": "Sistema Hidraulico",
+        "base": "horas",
+        "inspeccion": 100,
+        "sustitucion": 1000,
+        "aviso_anticipo": 100,
+        "critico_seguridad": true,
+        "nota": "Revisar fugas en cilindros/mangueras"
+      },
+      {
+        "componente": "Engrase general (Brazos)",
+        "base": "horas",
+        "inspeccion": 10,
+        "sustitucion": 0,
+        "aviso_anticipo": 5,
+        "critico_seguridad": true,
+        "nota": "Puntos de articulacion (diario)"
+      },
+      {
+        "componente": "Frenos (balatas/discos)",
+        "base": "horas",
+        "inspeccion": 250,
+        "sustitucion": 1000,
+        "aviso_anticipo": 100,
+        "critico_seguridad": true,
+        "nota": "Inspeccion desgaste"
+      },
+      {
+        "componente": "Bateria",
+        "base": "meses",
+        "inspeccion": 1,
+        "sustitucion": 24,
+        "aviso_anticipo": 1,
+        "critico_seguridad": false,
+        "nota": "Limpieza bornes y carga"
+      },
+      {
+        "componente": "Refrigerante",
+        "base": "meses",
+        "inspeccion": 3,
+        "sustitucion": 24,
+        "aviso_anticipo": 1,
+        "critico_seguridad": false,
+        "nota": "Verificar puntos de fugas"
+      },
+      {
+        "componente": "Cauchos / neumaticos",
+        "base": "meses",
+        "inspeccion": 3,
+        "sustitucion": 48,
+        "aviso_anticipo": 1,
+        "critico_seguridad": true,
+        "nota": "Inspeccion desgaste irregular"
+      },
+      {
+        "componente": "Suspension / chasis",
+        "base": "horas",
+        "inspeccion": 250,
+        "sustitucion": 0,
+        "aviso_anticipo": 100,
+        "critico_seguridad": true,
+        "nota": "Revisar integridad estructura"
+      },
+      {
+        "componente": "Caja / transmision",
+        "base": "horas",
+        "inspeccion": 250,
+        "sustitucion": 1000,
+        "aviso_anticipo": 100,
+        "critico_seguridad": false,
+        "nota": "Revisar nivel aceite"
+      },
+      {
+        "componente": "Diferencial",
+        "base": "horas",
+        "inspeccion": 250,
+        "sustitucion": 1000,
+        "aviso_anticipo": 100,
+        "critico_seguridad": false,
+        "nota": "Revisar respiradero"
+      },
+      {
+        "componente": "Filtro de cabina",
+        "base": "horas",
+        "inspeccion": 100,
+        "sustitucion": 500,
+        "aviso_anticipo": 50,
+        "critico_seguridad": false,
+        "nota": "Salud del operador"
+      }
+    ]
+  },
+  {
+    "tipo": "Grúa",
+    "combustible": "diesel",
+    "medida": "horas",
+    "items": [
+      {
+        "componente": "Aceite de motor",
+        "base": "horas",
+        "inspeccion": 50,
+        "sustitucion": 250,
+        "aviso_anticipo": 25,
+        "critico_seguridad": false,
+        "nota": "Uso severo por carga constante"
+      },
+      {
+        "componente": "Filtro de aceite",
+        "base": "horas",
+        "inspeccion": 0,
+        "sustitucion": 250,
+        "aviso_anticipo": 25,
+        "critico_seguridad": false,
+        "nota": "Cambio mandatorio con aceite"
+      },
+      {
+        "componente": "Filtro de aire",
+        "base": "horas",
+        "inspeccion": 50,
+        "sustitucion": 500,
+        "aviso_anticipo": 50,
+        "critico_seguridad": false,
+        "nota": "Critico en zonas de construccion"
+      },
+      {
+        "componente": "Filtro de combustible",
+        "base": "horas",
+        "inspeccion": 100,
+        "sustitucion": 500,
+        "aviso_anticipo": 50,
+        "critico_seguridad": false,
+        "nota": "Calidad de diesel es vital"
+      },
+      {
+        "componente": "Trampa / decantador de agua",
+        "base": "horas",
+        "inspeccion": 50,
+        "sustitucion": 0,
+        "aviso_anticipo": 10,
+        "critico_seguridad": false,
+        "nota": "Purgar agua diariamente"
+      },
+      {
+        "componente": "Sistema Hidraulico",
+        "base": "horas",
+        "inspeccion": 100,
+        "sustitucion": 1000,
+        "aviso_anticipo": 100,
+        "critico_seguridad": true,
+        "nota": "Revisar fugas en cilindros/mangueras"
+      },
+      {
+        "componente": "Cable de acero",
+        "base": "horas",
+        "inspeccion": 10,
+        "sustitucion": 1000,
+        "aviso_anticipo": 5,
+        "critico_seguridad": true,
+        "nota": "Inspeccion fatiga/hilos rotos"
+      },
+      {
+        "componente": "Sistema de gancho/poleas",
+        "base": "horas",
+        "inspeccion": 50,
+        "sustitucion": 0,
+        "aviso_anticipo": 10,
+        "critico_seguridad": true,
+        "nota": "Engrase y revision de holguras"
+      },
+      {
+        "componente": "Frenos (sistema giro/carga)",
+        "base": "horas",
+        "inspeccion": 250,
+        "sustitucion": 1000,
+        "aviso_anticipo": 100,
+        "critico_seguridad": true,
+        "nota": "Inspeccion desgaste"
+      },
+      {
+        "componente": "Bateria",
+        "base": "meses",
+        "inspeccion": 1,
+        "sustitucion": 24,
+        "aviso_anticipo": 1,
+        "critico_seguridad": false,
+        "nota": "Limpieza bornes y carga"
+      },
+      {
+        "componente": "Refrigerante",
+        "base": "meses",
+        "inspeccion": 3,
+        "sustitucion": 24,
+        "aviso_anticipo": 1,
+        "critico_seguridad": false,
+        "nota": "Verificar puntos de fugas"
+      },
+      {
+        "componente": "Cauchos / neumaticos",
+        "base": "meses",
+        "inspeccion": 3,
+        "sustitucion": 48,
+        "aviso_anticipo": 1,
+        "critico_seguridad": true,
+        "nota": "Inspeccion desgaste irregular"
+      },
+      {
+        "componente": "Suspension / chasis",
+        "base": "horas",
+        "inspeccion": 250,
+        "sustitucion": 0,
+        "aviso_anticipo": 100,
+        "critico_seguridad": true,
+        "nota": "Revisar integridad estructura"
+      },
+      {
+        "componente": "Caja / transmision",
+        "base": "horas",
+        "inspeccion": 250,
+        "sustitucion": 1000,
+        "aviso_anticipo": 100,
+        "critico_seguridad": false,
+        "nota": "Revisar nivel aceite"
+      },
+      {
+        "componente": "Filtro de cabina",
+        "base": "horas",
+        "inspeccion": 100,
+        "sustitucion": 500,
+        "aviso_anticipo": 50,
+        "critico_seguridad": false,
+        "nota": "Salud del operador"
+      }
+    ]
+  }
+]
