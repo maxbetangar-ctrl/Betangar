@@ -5300,8 +5300,85 @@ async function guardarUnidad(){
 }
 // ── ONBOARDING: plantilla Excel + carga masiva de unidades (primera integración de datos) ──
 // El cliente llena el Excel, lo subís, y se cargan todas las fichas de un saque.
-function descargarPlantillaUnidades(){
-  if(typeof XLSX==='undefined'){alert('XLSX no disponible');return;}
+// ===== Generador de plantillas Excel PROFESIONALES (ExcelJS) =====
+// Son nuestra cara ante el cliente: banner FlotaMax, encabezados con estilo, bordes,
+// filas de ejemplo, hojas de instrucciones y ancho de columnas. Si ExcelJS no cargó,
+// cae al generador plano con XLSX (mismos datos, sin estilo) para no dejar al usuario sin plantilla.
+var _XL_NAVY='FF0B2E59',_XL_SLATE='FF334155',_XL_LIGHT='FFEEF2F7',_XL_EX='FFF7FAFC',_XL_BRD='FFCBD5E1';
+function _xlBorde(){var t={style:'thin',color:{argb:_XL_BRD}};return {top:t,left:t,bottom:t,right:t};}
+// Crea una hoja con banner de marca + encabezados + filas. opts:{name,subtitulo,headers,widths,rows,ejemplos,vacias,banner}
+function _xlHoja(wb,opts){
+  var headers=opts.headers||[], nCols=Math.max(1,headers.length);
+  var ws=wb.addWorksheet(opts.name,{views:[{state:'frozen',ySplit:4}]});
+  // Fila 1: marca
+  ws.mergeCells(1,1,1,nCols); var b1=ws.getCell(1,1);
+  b1.value=opts.banner||'FLOTAMAX'; b1.font={bold:true,size:20,color:{argb:'FFFFFFFF'}};
+  b1.alignment={vertical:'middle',horizontal:'center'}; b1.fill={type:'pattern',pattern:'solid',fgColor:{argb:_XL_NAVY}};
+  ws.getRow(1).height=30;
+  // Fila 2: bajada
+  ws.mergeCells(2,1,2,nCols); var b2=ws.getCell(2,1);
+  b2.value='Gestion de flota y mantenimiento  ·  por Maxware C.A.';
+  b2.font={italic:true,size:10,color:{argb:'FFFFFFFF'}}; b2.alignment={vertical:'middle',horizontal:'center'};
+  b2.fill={type:'pattern',pattern:'solid',fgColor:{argb:_XL_SLATE}}; ws.getRow(2).height=16;
+  // Fila 3: subtitulo de la hoja
+  ws.mergeCells(3,1,3,nCols); var b3=ws.getCell(3,1);
+  b3.value=opts.subtitulo||''; b3.font={bold:true,size:11,color:{argb:_XL_NAVY}};
+  b3.alignment={vertical:'middle',horizontal:'left',indent:1};
+  b3.fill={type:'pattern',pattern:'solid',fgColor:{argb:_XL_LIGHT}}; ws.getRow(3).height=20;
+  // Fila 4: encabezados
+  headers.forEach(function(h,i){ var c=ws.getCell(4,i+1);
+    c.value=h; c.font={bold:true,size:10,color:{argb:'FFFFFFFF'}};
+    c.alignment={vertical:'middle',horizontal:'center',wrapText:true};
+    c.fill={type:'pattern',pattern:'solid',fgColor:{argb:_XL_NAVY}}; c.border=_xlBorde(); });
+  ws.getRow(4).height=24;
+  ws.autoFilter={from:{row:4,column:1},to:{row:4,column:nCols}};
+  // Filas de datos (ejemplos en gris cursiva; el resto normal)
+  var rows=opts.rows||[], ej=(opts.ejemplos==null?rows.length:opts.ejemplos);
+  rows.forEach(function(r,ri){ var rownum=5+ri;
+    for(var ci=0;ci<nCols;ci++){ var c=ws.getCell(rownum,ci+1); c.value=(r[ci]==null?'':r[ci]); c.border=_xlBorde();
+      if(ri<ej){ c.font={italic:true,size:9,color:{argb:_XL_SLATE}}; c.fill={type:'pattern',pattern:'solid',fgColor:{argb:_XL_EX}}; } } });
+  // Filas vacías con borde para que se vea como formulario
+  var vac=opts.vacias||0, start=5+rows.length;
+  for(var v=0;v<vac;v++){ for(var ci2=0;ci2<nCols;ci2++){ ws.getCell(start+v,ci2+1).border=_xlBorde(); } }
+  // Anchos
+  var widths=opts.widths||[];
+  for(var w=0;w<nCols;w++){ ws.getColumn(w+1).width=widths[w]||16; }
+  return ws;
+}
+async function _xlDescargar(wb,filename){
+  var buf=await wb.xlsx.writeBuffer();
+  var blob=new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+  var a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=filename;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(function(){URL.revokeObjectURL(a.href);},1500);
+}
+async function descargarPlantillaUnidades(){
+  if(typeof ExcelJS==='undefined')return _plantillaUnidadesPlano();
+  try{
+    var headers=['N° Unidad','Nombre/Alias','Marca','Modelo','Año','Placa','VIN','Serial Motor','Serial Carroceria','Tipo','Combustible','Medida','Horas Actuales','Uso','Titular','Chofer','Notas'];
+    var widths=[12,20,14,14,7,12,18,16,16,20,13,10,13,12,22,18,24];
+    var rows=[
+      ['B001','Compactador 1','JAC','X200','2022','AB123CD','','','','Compactador de basura','diesel','km','','trabajo','Inversiones X C.A.','Juan Perez',''],
+      ['P001','Pickup reparto','Toyota','Hilux','2020','XY987ZZ','','','','Pickup','gasolina','km','','viajes','','',''],
+      ['PLT-01','Planta patio','Cummins','C150','2019','','','','','Planta eléctrica','diesel','horas','1250','','','','Respaldo galpon']
+    ];
+    var wb=new ExcelJS.Workbook(); wb.creator='FlotaMax · Maxware C.A.';
+    _xlHoja(wb,{name:'Unidades',subtitulo:'Carga de unidades / vehiculos — llene una fila por unidad (las grises son ejemplos, borrelas)',headers:headers,widths:widths,rows:rows,ejemplos:3,vacias:14});
+    _xlHoja(wb,{name:'Instrucciones',subtitulo:'Como llenar cada columna',headers:['Campo','Como llenarlo'],widths:[26,90],ejemplos:0,rows:[
+      ['N° Unidad','OBLIGATORIO. Identificador unico (ej: B001). Asi reconoce el sistema a la unidad.'],
+      ['Tipo','Debe ser uno de los "Tipos validos" (hoja al lado) para que herede su plan de mantenimiento.'],
+      ['Combustible','diesel / gasolina / gas / electrico'],
+      ['Medida','km (rueda, auto del chofer) / horas (equipos con horimetro) / tiempo (calendario). Vacio = auto segun tipo.'],
+      ['Horas Actuales','Solo si va por horas: lectura actual del horimetro.'],
+      ['Placa / VIN / Seriales','Identificacion del vehiculo (para ordenes de servicio, etc.).']
+    ]});
+    _xlHoja(wb,{name:'Tipos validos',subtitulo:'Use exactamente uno de estos en la columna Tipo',headers:['Tipos validos'],widths:[36],ejemplos:0,rows:(TIPOS_UNIDAD_MANT||[]).map(function(t){return [t];})});
+    await _xlDescargar(wb,'FlotaMax_Plantilla_Unidades.xlsx');
+    if(typeof mostrarToast==='function')mostrarToast('⬇️ Plantilla descargada. Llenala y volvela a subir con "Importar Excel".','exito');
+  }catch(e){ console.error(e); _plantillaUnidadesPlano(); }
+}
+function _plantillaUnidadesPlano(){
+  if(typeof XLSX==='undefined'){alert('No se pudo generar el Excel.');return;}
   var headers=['N° Unidad','Nombre/Alias','Marca','Modelo','Año','Placa','VIN','Serial Motor','Serial Carroceria','Tipo','Combustible','Medida','Horas Actuales','Uso','Titular','Chofer','Notas'];
   var ej1={'N° Unidad':'B001','Nombre/Alias':'Compactador 1','Marca':'JAC','Modelo':'X200','Año':'2022','Placa':'AB123CD','VIN':'','Serial Motor':'','Serial Carroceria':'','Tipo':'Compactador de basura','Combustible':'diesel','Medida':'km','Horas Actuales':'','Uso':'trabajo','Titular':'Inversiones X C.A.','Chofer':'Juan Perez','Notas':''};
   var ej2={'N° Unidad':'P001','Nombre/Alias':'Pickup reparto','Marca':'Toyota','Modelo':'Hilux','Año':'2020','Placa':'XY987ZZ','VIN':'','Serial Motor':'','Serial Carroceria':'','Tipo':'Pickup','Combustible':'gasolina','Medida':'km','Horas Actuales':'','Uso':'viajes','Titular':'','Chofer':'','Notas':''};
@@ -5359,8 +5436,32 @@ async function _procesarUnidadesExcel(rows,input){
   mostrarToast('✅ '+regs.length+' unidades importadas. Cada una hereda su plan por su tipo+combustible.','exito');
 }
 // ── ONBOARDING: plantilla Excel + carga masiva de EMPLEADOS (cédula, banco, cuenta, sueldo/forma pago) ──
-function descargarPlantillaEmpleados(){
-  if(typeof XLSX==='undefined'){alert('XLSX no disponible');return;}
+async function descargarPlantillaEmpleados(){
+  if(typeof ExcelJS==='undefined')return _plantillaEmpleadosPlano();
+  try{
+    var headers=['Nombre Completo','Cedula','RIF','Cargo','Unidad/Area','Banco','Tipo de Cuenta','N de Cuenta','Telefono','WhatsApp','Email','Forma de Pago','Sueldo/Tarifa','Fecha Nacimiento','Fecha Ingreso','Activo (si/no)'];
+    var widths=[24,14,14,16,12,14,14,24,15,15,22,15,13,16,14,13];
+    var rows=[
+      ['JUAN PEREZ','V-12345678','','Chofer','B001','Banesco','Corriente','01340000000000000000','0414-0000000','0414-0000000','','Por viaje','10','1990-05-20','2023-01-15','si'],
+      ['MARIA GOMEZ','V-9876543','','Administrativo','ADM','BNC','Ahorro','01910000000000000000','0424-0000000','','maria@x.com','Sueldo fijo','300','','','si']
+    ];
+    var wb=new ExcelJS.Workbook(); wb.creator='FlotaMax · Maxware C.A.';
+    _xlHoja(wb,{name:'Empleados',subtitulo:'Carga de personal — una fila por empleado (las grises son ejemplos, borrelas)',headers:headers,widths:widths,rows:rows,ejemplos:2,vacias:15});
+    _xlHoja(wb,{name:'Instrucciones',subtitulo:'Como llenar cada columna',headers:['Campo','Como llenarlo'],widths:[32,90],ejemplos:0,rows:[
+      ['Nombre Completo','OBLIGATORIO.'],
+      ['Cargo','Chofer / Ayudante / Mecanico / Vigilante / Operativo / Administrativo / otro.'],
+      ['Banco / Tipo de Cuenta / N de Cuenta','Datos para el pago de nomina.'],
+      ['Forma de Pago','Como se le paga: Por viaje / Sueldo fijo / Quincenal / etc.'],
+      ['Sueldo/Tarifa','Monto en $ (sueldo fijo) o tarifa por viaje, segun la forma de pago.'],
+      ['Fechas','Formato AAAA-MM-DD (ej 1990-05-20).'],
+      ['Activo (si/no)','si = trabaja actualmente; no = dado de baja.']
+    ]});
+    await _xlDescargar(wb,'FlotaMax_Plantilla_Empleados.xlsx');
+    if(typeof mostrarToast==='function')mostrarToast('⬇️ Plantilla de empleados descargada.','exito');
+  }catch(e){ console.error(e); _plantillaEmpleadosPlano(); }
+}
+function _plantillaEmpleadosPlano(){
+  if(typeof XLSX==='undefined'){alert('No se pudo generar el Excel.');return;}
   var headers=['Nombre Completo','Cedula','RIF','Cargo','Unidad/Area','Banco','Tipo de Cuenta','N de Cuenta','Telefono','WhatsApp','Email','Forma de Pago','Sueldo/Tarifa','Fecha Nacimiento','Fecha Ingreso','Activo (si/no)'];
   var ej1={'Nombre Completo':'JUAN PEREZ','Cedula':'V-12345678','RIF':'','Cargo':'Chofer','Unidad/Area':'B001','Banco':'Banesco','Tipo de Cuenta':'Corriente','N de Cuenta':'01340000000000000000','Telefono':'0414-0000000','WhatsApp':'0414-0000000','Email':'','Forma de Pago':'Por viaje','Sueldo/Tarifa':'10','Fecha Nacimiento':'1990-05-20','Fecha Ingreso':'2023-01-15','Activo (si/no)':'si'};
   var ej2={'Nombre Completo':'MARIA GOMEZ','Cedula':'V-9876543','RIF':'','Cargo':'Administrativo','Unidad/Area':'ADM','Banco':'BNC','Tipo de Cuenta':'Ahorro','N de Cuenta':'01910000000000000000','Telefono':'0424-0000000','WhatsApp':'','Email':'maria@x.com','Forma de Pago':'Sueldo fijo','Sueldo/Tarifa':'300','Fecha Nacimiento':'','Fecha Ingreso':'','Activo (si/no)':'si'};
@@ -5413,8 +5514,28 @@ async function _procesarEmpleadosExcel(rows,input){
 }
 // Plantilla de RECOLECCIÓN de datos de la empresa (identidad + cuentas). La identidad es config del
 // clon (se setea al dar de alta la empresa); esta hoja sirve para que el cliente la complete y enviarla.
-function descargarPlantillaEmpresa(){
-  if(typeof XLSX==='undefined'){alert('XLSX no disponible');return;}
+async function descargarPlantillaEmpresa(){
+  if(typeof ExcelJS==='undefined')return _plantillaEmpresaPlano();
+  try{
+    var wb=new ExcelJS.Workbook(); wb.creator='FlotaMax · Maxware C.A.';
+    _xlHoja(wb,{name:'Datos de la empresa',subtitulo:'Complete la columna Valor',headers:['Dato','Valor'],widths:[42,44],ejemplos:0,rows:[
+      ['Nombre de la empresa',''],['RIF',''],['Direccion',''],['Ciudad / Estado',''],
+      ['Telefono',''],['Email',''],['Actividad / contrato principal',''],
+      ['Nombre del contacto',''],['Cargo del contacto',''],['Logo (enviar aparte como imagen PNG)','']
+    ],vacias:2});
+    _xlHoja(wb,{name:'Cuentas bancarias',subtitulo:'Cuentas para cobros/pagos — una por fila',headers:['Banco','Titular','RIF Titular','N de Cuenta','Tipo'],widths:[18,26,16,24,14],ejemplos:0,rows:[],vacias:12});
+    _xlHoja(wb,{name:'Instrucciones',subtitulo:'Lea antes de llenar',headers:['Nota'],widths:[100],ejemplos:0,rows:[
+      ['Complete la columna Valor en "Datos de la empresa" y la hoja "Cuentas bancarias".'],
+      ['El LOGO va aparte: enviar imagen PNG/JPG (fondo transparente si se puede).'],
+      ['Con esta info se configura el alta de la empresa en el sistema.'],
+      ['Las UNIDADES y los EMPLEADOS se cargan con sus propias plantillas.']
+    ]});
+    await _xlDescargar(wb,'FlotaMax_Datos_Empresa.xlsx');
+    if(typeof mostrarToast==='function')mostrarToast('⬇️ Plantilla de datos de la empresa descargada.','exito');
+  }catch(e){ console.error(e); _plantillaEmpresaPlano(); }
+}
+function _plantillaEmpresaPlano(){
+  if(typeof XLSX==='undefined'){alert('No se pudo generar el Excel.');return;}
   var empresa=[
     {Dato:'Nombre de la empresa',Valor:''},{Dato:'RIF',Valor:''},{Dato:'Direccion',Valor:''},
     {Dato:'Ciudad / Estado',Valor:''},{Dato:'Telefono',Valor:''},{Dato:'Email',Valor:''},
