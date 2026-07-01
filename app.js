@@ -5298,6 +5298,119 @@ async function guardarUnidad(){
   renderUnidades();
   if(typeof mostrarToast==='function')mostrarToast(ok?'✅ Unidad guardada':'⚠️ No se confirmó el guardado (revisá conexión)',ok?'exito':'error');
 }
+// ── ONBOARDING: plantilla Excel + carga masiva de unidades (primera integración de datos) ──
+// El cliente llena el Excel, lo subís, y se cargan todas las fichas de un saque.
+function descargarPlantillaUnidades(){
+  if(typeof XLSX==='undefined'){alert('XLSX no disponible');return;}
+  var headers=['N° Unidad','Nombre/Alias','Marca','Modelo','Año','Placa','VIN','Serial Motor','Serial Carroceria','Tipo','Combustible','Medida','Horas Actuales','Uso','Titular','Chofer','Notas'];
+  var ej1={'N° Unidad':'B001','Nombre/Alias':'Compactador 1','Marca':'JAC','Modelo':'X200','Año':'2022','Placa':'AB123CD','VIN':'','Serial Motor':'','Serial Carroceria':'','Tipo':'Compactador de basura','Combustible':'diesel','Medida':'km','Horas Actuales':'','Uso':'trabajo','Titular':'Inversiones X C.A.','Chofer':'Juan Perez','Notas':''};
+  var ej2={'N° Unidad':'P001','Nombre/Alias':'Pickup reparto','Marca':'Toyota','Modelo':'Hilux','Año':'2020','Placa':'XY987ZZ','VIN':'','Serial Motor':'','Serial Carroceria':'','Tipo':'Pickup','Combustible':'gasolina','Medida':'km','Horas Actuales':'','Uso':'viajes','Titular':'','Chofer':'','Notas':''};
+  var ej3={'N° Unidad':'PLT-01','Nombre/Alias':'Planta patio','Marca':'Cummins','Modelo':'C150','Año':'2019','Placa':'','VIN':'','Serial Motor':'','Serial Carroceria':'','Tipo':'Planta eléctrica','Combustible':'diesel','Medida':'horas','Horas Actuales':'1250','Uso':'','Titular':'','Chofer':'','Notas':'Respaldo galpon'};
+  var wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet([ej1,ej2,ej3],{header:headers}),'Unidades');
+  var info=[{Campo:'N° Unidad',Ayuda:'OBLIGATORIO. Identificador unico (ej: B001). Asi reconoce el sistema a la unidad.'},
+    {Campo:'Tipo',Ayuda:'Debe ser uno de los "Tipos validos" (hoja al lado) para que herede su plan de mantenimiento.'},
+    {Campo:'Combustible',Ayuda:'diesel / gasolina / gas / electrico'},
+    {Campo:'Medida',Ayuda:'km (rueda, auto del chofer) / horas (equipos con horimetro) / tiempo (calendario). Vacio = auto segun tipo.'},
+    {Campo:'Horas Actuales',Ayuda:'Solo si va por horas: lectura actual del horimetro.'},
+    {Campo:'Placa / VIN / Seriales',Ayuda:'Identificacion del vehiculo (para ordenes de servicio, etc.).'}];
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(info),'Instrucciones');
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet((TIPOS_UNIDAD_MANT||[]).map(function(t){return {'Tipos validos':t};})),'Tipos validos');
+  XLSX.writeFile(wb,'FlotaMax_Plantilla_Unidades.xlsx');
+  if(typeof mostrarToast==='function')mostrarToast('⬇️ Plantilla descargada. Llenala y volvela a subir con "Importar Excel".','exito');
+}
+function importarUnidadesExcel(input){
+  var file=input&&input.files&&input.files[0]; if(!file)return;
+  var reader=new FileReader();
+  reader.onload=function(e){
+    var rows;
+    try{ var wb=XLSX.read(e.target.result,{type:'binary',cellDates:true}); var sh=wb.Sheets[wb.SheetNames[0]]; rows=XLSX.utils.sheet_to_json(sh,{defval:''}); }
+    catch(err){ alert('No se pudo leer el Excel: '+((err&&err.message)||err)); return; }
+    _procesarUnidadesExcel(rows,input);
+  };
+  reader.readAsBinaryString(file);
+}
+async function _procesarUnidadesExcel(rows,input){
+  if(!rows||!rows.length){alert('El Excel (hoja 1) no tiene filas.');return;}
+  var alias={cam:['n_unidad','no_unidad','numero','numero_unidad','unidad','id','codigo','n'],nombre:['nombre','alias','nombre_alias'],marca:['marca'],modelo:['modelo'],anio:['ano','anio','year','a_o'],placa:['placa','matricula'],vin:['vin'],serial_motor:['serial_motor','serial_de_motor','motor','n_motor'],serial_carroceria:['serial_carroceria','serial_de_carroceria','carroceria','chasis','n_carroceria'],tipo:['tipo','tipo_unidad','tipo_de_unidad','tipo_equipo'],combustible:['combustible','fuel'],medida:['medida','como_se_mide','se_mide'],horas_actuales:['horas','horas_actuales','horimetro'],uso:['uso'],titular:['titular','titulo_a_nombre_de','propietario','dueno'],chofer:['chofer','conductor','operador'],notas:['notas','observaciones','obs']};
+  var col={}; Object.keys(rows[0]).forEach(function(h){var nh=_slugComp(h); Object.keys(alias).forEach(function(f){ if(alias[f].indexOf(nh)>=0)col[f]=h; }); });
+  if(!col.cam){alert('No encontre la columna del N° de Unidad. Usá la plantilla ("⬇️ Plantilla Excel").');return;}
+  function nComb(v){var s=_slugComp(v); if(/diesel|gasoil/.test(s))return 'diesel'; if(/gasolina|nafta/.test(s))return 'gasolina'; if(/gnv|gas/.test(s))return 'gas'; if(/electric/.test(s))return 'electrico'; return '';}
+  function nMed(v){var s=_slugComp(v); if(/hora|horimetro/.test(s))return 'horas'; if(/tiempo|calendario/.test(s))return 'tiempo'; if(/km/.test(s))return 'km'; return '';}
+  function nTipo(v){v=String(v||'').trim(); if(!v)return ''; var m=(TIPOS_UNIDAD_MANT||[]).find(function(t){return _slugComp(t)===_slugComp(v);}); return m||v;}
+  function gv2(r,f){return col[f]?String(r[col[f]]||'').trim():'';}
+  var regs=[], sinCam=0, tiposDesc={};
+  rows.forEach(function(r){
+    var cam=String(r[col.cam]||'').trim(); if(!cam){sinCam++;return;}
+    var tipo=nTipo(gv2(r,'tipo'));
+    if(tipo&&(TIPOS_UNIDAD_MANT||[]).indexOf(tipo)<0)tiposDesc[tipo]=1;
+    regs.push({cam:cam,nombre:gv2(r,'nombre'),marca:gv2(r,'marca'),modelo:gv2(r,'modelo'),anio:gv2(r,'anio'),placa:gv2(r,'placa').toUpperCase(),vin:gv2(r,'vin').toUpperCase(),serial_motor:gv2(r,'serial_motor'),serial_carroceria:gv2(r,'serial_carroceria'),tipo:tipo,combustible:col.combustible?nComb(r[col.combustible]):'',medida:col.medida?nMed(r[col.medida]):'',horas_actuales:col.horas_actuales?(parseFloat(r[col.horas_actuales])||0):0,uso:gv2(r,'uso'),titular:gv2(r,'titular'),chofer:gv2(r,'chofer'),notas:gv2(r,'notas'),activo:true});
+  });
+  if(!regs.length){alert('No hubo filas con N° de Unidad.');return;}
+  if(!confirm('¿Importar '+regs.length+' unidad(es) del Excel? Se crean/actualizan sus fichas (por N° de unidad).'+(sinCam?('\n\n'+sinCam+' fila(s) sin N° se omiten.'):'')+(Object.keys(tiposDesc).length?('\n\n⚠ Tipos que NO están en el plan (no heredarán mantenimiento hasta corregir): '+Object.keys(tiposDesc).join(', ')):'')))return;
+  if(!(DB_READY&&supabase)){alert('Sin conexión a la base.');return;}
+  var ok=true, err='';
+  for(var i=0;i<regs.length;i+=100){ try{ var rr=await supabase.from('unidad_config').upsert(regs.slice(i,i+100),{onConflict:'cam'}); if(rr&&rr.error){ok=false;err=rr.error.message;break;} }catch(ex){ok=false;err=(ex&&ex.message)||ex;break;} }
+  if(!ok){ mostrarToast('No se pudo importar: '+err,'error'); return; }
+  await cargarUnidadConfig();
+  audit('Unidades importadas de Excel',regs.length+' unidades');
+  try{renderUnidades();}catch(e){}
+  if(input)input.value='';
+  mostrarToast('✅ '+regs.length+' unidades importadas. Cada una hereda su plan por su tipo+combustible.','exito');
+}
+// ── ONBOARDING: plantilla Excel + carga masiva de EMPLEADOS (cédula, banco, cuenta, sueldo/forma pago) ──
+function descargarPlantillaEmpleados(){
+  if(typeof XLSX==='undefined'){alert('XLSX no disponible');return;}
+  var headers=['Nombre Completo','Cedula','RIF','Cargo','Unidad/Area','Banco','Tipo de Cuenta','N de Cuenta','Telefono','WhatsApp','Email','Forma de Pago','Sueldo/Tarifa','Fecha Nacimiento','Fecha Ingreso','Activo (si/no)'];
+  var ej1={'Nombre Completo':'JUAN PEREZ','Cedula':'V-12345678','RIF':'','Cargo':'Chofer','Unidad/Area':'B001','Banco':'Banesco','Tipo de Cuenta':'Corriente','N de Cuenta':'01340000000000000000','Telefono':'0414-0000000','WhatsApp':'0414-0000000','Email':'','Forma de Pago':'Por viaje','Sueldo/Tarifa':'10','Fecha Nacimiento':'1990-05-20','Fecha Ingreso':'2023-01-15','Activo (si/no)':'si'};
+  var ej2={'Nombre Completo':'MARIA GOMEZ','Cedula':'V-9876543','RIF':'','Cargo':'Administrativo','Unidad/Area':'ADM','Banco':'BNC','Tipo de Cuenta':'Ahorro','N de Cuenta':'01910000000000000000','Telefono':'0424-0000000','WhatsApp':'','Email':'maria@x.com','Forma de Pago':'Sueldo fijo','Sueldo/Tarifa':'300','Fecha Nacimiento':'','Fecha Ingreso':'','Activo (si/no)':'si'};
+  var wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet([ej1,ej2],{header:headers}),'Empleados');
+  var info=[{Campo:'Nombre Completo',Ayuda:'OBLIGATORIO.'},
+    {Campo:'Cargo',Ayuda:'Chofer / Ayudante / Mecanico / Vigilante / Operativo / Administrativo / otro.'},
+    {Campo:'Banco / Tipo de Cuenta / N de Cuenta',Ayuda:'Datos para el pago de nomina.'},
+    {Campo:'Forma de Pago',Ayuda:'Como se le paga: Por viaje / Sueldo fijo / Quincenal / etc.'},
+    {Campo:'Sueldo/Tarifa',Ayuda:'Monto en $ (sueldo fijo) o tarifa por viaje, segun la forma de pago.'},
+    {Campo:'Fechas',Ayuda:'Formato AAAA-MM-DD (ej 1990-05-20).'},
+    {Campo:'Activo (si/no)',Ayuda:'si = trabaja actualmente; no = dado de baja.'}];
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(info),'Instrucciones');
+  XLSX.writeFile(wb,'FlotaMax_Plantilla_Empleados.xlsx');
+  if(typeof mostrarToast==='function')mostrarToast('⬇️ Plantilla de empleados descargada.','exito');
+}
+function importarEmpleadosExcel(input){
+  var file=input&&input.files&&input.files[0]; if(!file)return;
+  var reader=new FileReader();
+  reader.onload=function(e){ var rows; try{ var wb=XLSX.read(e.target.result,{type:'binary',cellDates:true}); rows=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{defval:''}); }catch(err){ alert('No se pudo leer el Excel: '+((err&&err.message)||err)); return; } _procesarEmpleadosExcel(rows,input); };
+  reader.readAsBinaryString(file);
+}
+async function _procesarEmpleadosExcel(rows,input){
+  if(!rows||!rows.length){alert('El Excel (hoja 1) no tiene filas.');return;}
+  var alias={nombre:['nombre','nombre_completo','nombre_y_apellido','empleado'],cedula:['cedula','ci','documento'],rif:['rif'],cargo:['cargo','puesto'],unidad:['unidad','unidad_area','area','unidad_asignada'],banco:['banco'],tcuenta:['tipo_de_cuenta','tipo_cuenta','tcuenta'],ncuenta:['n_de_cuenta','numero_de_cuenta','numero_cuenta','ncuenta','cuenta'],tel:['telefono','tel','celular'],whatsapp:['whatsapp','wa'],email:['email','correo'],forma_pago:['forma_de_pago','forma_pago','modalidad_pago'],sueldo:['sueldo_tarifa','sueldo','tarifa','salario','monto'],fnac:['fecha_nacimiento','fnac','nacimiento'],fingreso:['fecha_ingreso','fingreso','ingreso'],activo:['activo','activo_si_no','estado']};
+  var col={}; Object.keys(rows[0]).forEach(function(h){var nh=_slugComp(h); Object.keys(alias).forEach(function(f){ if(alias[f].indexOf(nh)>=0)col[f]=h; }); });
+  if(!col.nombre){alert('No encontré la columna "Nombre Completo". Usá la plantilla ("⬇️ Plantilla Excel").');return;}
+  function gv2(r,f){return col[f]?String(r[col[f]]||'').trim():'';}
+  function fdate(v){var s=String(v||'').trim(); var m=s.match(/^(\d{4})-(\d{2})-(\d{2})/); if(m)return m[1]+'-'+m[2]+'-'+m[3]; var m2=s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/); if(m2)return m2[3]+'-'+('0'+m2[2]).slice(-2)+'-'+('0'+m2[1]).slice(-2); return null;}
+  function esActivo(v){var s=_slugComp(v); if(s==='no'||s==='inactivo'||s==='0'||s==='false')return false; return true;}
+  var rowsDb=[], sinNombre=0, ts=Date.now();
+  rows.forEach(function(r,i){
+    var nombre=gv2(r,'nombre'); if(!nombre){sinNombre++;return;}
+    var ced=gv2(r,'cedula');
+    var ex=(EMPLEADOS||[]).find(function(e){return (ced&&e.cedula&&_slugComp(e.cedula)===_slugComp(ced))||_slugComp(e.nombre)===_slugComp(nombre);});
+    var id=ex?ex.id:('E'+String(ts+i).slice(-6));
+    rowsDb.push({id:id,nombre:nombre.toUpperCase(),cargo:gv2(r,'cargo'),unidad:gv2(r,'unidad'),cedula:ced,rif:gv2(r,'rif'),fnac:fdate(gv2(r,'fnac')),fingreso:fdate(gv2(r,'fingreso')),email:gv2(r,'email'),tel:gv2(r,'tel'),banco:gv2(r,'banco'),tcuenta:gv2(r,'tcuenta'),ncuenta:gv2(r,'ncuenta'),whatsapp:gv2(r,'whatsapp'),forma_pago:gv2(r,'forma_pago'),sueldo:parseFloat(gv2(r,'sueldo'))||0,activo:esActivo(gv2(r,'activo'))});
+  });
+  if(!rowsDb.length){alert('No hubo filas con Nombre.');return;}
+  if(!confirm('¿Importar '+rowsDb.length+' empleado(s) del Excel? Se crean/actualizan (match por cédula o nombre).'+(sinNombre?('\n\n'+sinNombre+' fila(s) sin nombre se omiten.'):'')))return;
+  if(!(DB_READY&&supabase)){alert('Sin conexión a la base.');return;}
+  var ok=true,err='';
+  for(var i=0;i<rowsDb.length;i+=100){ try{ var rr=await supabase.from('empleados').upsert(rowsDb.slice(i,i+100),{onConflict:'id'}); if(rr&&rr.error){ok=false;err=rr.error.message;break;} }catch(ex){ok=false;err=(ex&&ex.message)||ex;break;} }
+  if(!ok){ mostrarToast('No se pudo importar: '+err,'error'); return; }
+  try{ var re=await supabase.from('empleados').select('*'); if(re&&!re.error&&re.data)EMPLEADOS=re.data.map(function(x){return {id:x.id,nombre:x.nombre,cargo:x.cargo,unidad:x.unidad,cedula:x.cedula||'',rif:x.rif||'',fnac:x.fnac||'',fingreso:x.fingreso||'',email:x.email||'',tel:x.tel||'',banco:x.banco||'',tcuenta:x.tcuenta||'',ncuenta:x.ncuenta||'',tipoAy:x.tipo_ay||'',imau:!!x.imau,foto:x.foto_url||'',activo:x.activo!==false,whatsapp:x.whatsapp||'',wa_apikey:x.wa_apikey||'',formaPago:x.forma_pago||'',sueldo:parseFloat(x.sueldo)||0};}); }catch(e){}
+  audit('Empleados importados de Excel',rowsDb.length+' empleados');
+  try{renderEmpleados();}catch(e){} try{poblarEmps();}catch(e){} try{poblarCams();}catch(e){}
+  if(input)input.value='';
+  mostrarToast('✅ '+rowsDb.length+' empleados importados.','exito');
+}
 // Reporte IMPRIMIBLE de la ficha de la unidad (todos los datos + foto). La foto se trae bajo demanda.
 async function imprimirFichaUnidad(cam){
   if(!cam)return;

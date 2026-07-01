@@ -1811,7 +1811,7 @@ tr:hover td{background:rgba(45,255,122,.02)}
 <div id="p-unidades" class="page">
   <div class="card">
     <div class="sh" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px"><div class="st">🚛 Unidades y Equipos</div>
-      <div style="display:flex;gap:6px;align-items:center"><input class="fc" id="unidades-buscar" oninput="renderUnidades()" placeholder="Buscar marca/placa/chofer…" style="padding:6px 8px;font-size:11px;max-width:180px"><button class="btn btn-g btn-sm" onclick="abrirEditarUnidad('')">＋ Agregar unidad</button></div>
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><input class="fc" id="unidades-buscar" oninput="renderUnidades()" placeholder="Buscar marca/placa/chofer…" style="padding:6px 8px;font-size:11px;max-width:180px"><button class="btn btn-s btn-sm" onclick="descargarPlantillaUnidades()" title="Descargá el Excel, que el cliente lo llene, y volvé a subirlo">⬇️ Plantilla Excel</button><label class="btn btn-s btn-sm" style="cursor:pointer">📥 Importar Excel<input type="file" accept=".xlsx,.xls" style="display:none" onchange="importarUnidadesExcel(this)"></label><button class="btn btn-g btn-sm" onclick="abrirEditarUnidad('')">＋ Agregar unidad</button></div>
     </div>
     <div style="font-size:11px;color:var(--text3);margin-bottom:6px">Ficha completa de cada unidad (marca, modelo, año, placa, VIN, seriales, título, foto). Es la <b>fuente única</b> de datos para mantenimiento, órdenes de servicio y demás módulos.</div>
     <div id="unidades-lista" class="tw"></div>
@@ -1898,6 +1898,8 @@ tr:hover td{background:rgba(45,255,122,.02)}
       <input class="fc" id="emp-buscar" placeholder="Buscar empleado..." oninput="renderEmpleados()" style="max-width:200px;padding:6px 10px;font-size:12px">
       <select class="fc" id="emp-filtro" onchange="renderEmpleados()" style="max-width:160px;padding:6px 8px;font-size:11px"><option value="">Todos los cargos</option><option>Gerente General</option><option>Administradora</option><option>RRHH</option><option>Operativo</option><option>Supervisor</option><option>Mecanico</option><option>Vigilante</option><option>Chofer</option><option>Ayudante</option></select>
       <label class="ctr" style="font-size:11px;color:var(--text2);cursor:pointer;gap:5px;font-weight:600"><input type="checkbox" id="emp-show-inactivos" onchange="renderEmpleados()" style="width:auto;cursor:pointer">Mostrar inactivos</label>
+      <button class="btn btn-s btn-sm" style="margin-left:auto" onclick="descargarPlantillaEmpleados()" title="Descargá el Excel, que el cliente lo llene con cédulas/cuentas/sueldos, y volvé a subirlo">⬇️ Plantilla Excel</button>
+      <label class="btn btn-s btn-sm" style="cursor:pointer">📥 Importar Excel<input type="file" accept=".xlsx,.xls" style="display:none" onchange="importarEmpleadosExcel(this)"></label>
     </div>
     <div id="emp-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px"></div>
     <!-- #4 SALUD DEL CONDUCTOR (scoring sin GPS): quién cuida y quién castiga la máquina -->
@@ -2370,7 +2372,7 @@ tr:hover td{background:rgba(45,255,122,.02)}
 </div>
 
 <script src="money.js?v=20260628n"></script>
-<script src="app.js?v=20260702e"></script>
+<script src="app.js?v=20260702f"></script>
 
 <!-- Modal global -->
 <div id="modal" class="moverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9990;align-items:center;justify-content:center;padding:16px">
