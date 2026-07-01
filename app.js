@@ -5131,15 +5131,18 @@ function renderHojaVida(){
   var bq=g('hv-buscador-res');
   if(bq){
     if(cam){
-      var items=_hvItemsDeUnidad(cam); var kmAct=(typeof kmActualCam==='function')?kmActualCam(cam):((KM_DATA[cam]&&KM_DATA[cam].km)||0);
-      bq.innerHTML='<table><thead><tr><th>Ítem</th><th>Última vez</th><th>Hace</th><th>Km en ese momento</th></tr></thead><tbody>'+
+      var items=_hvItemsDeUnidad(cam);
+      bq.innerHTML='<table><thead><tr><th>Ítem</th><th>Última vez</th><th>Próximo</th><th>Faltan</th><th>Estado</th></tr></thead><tbody>'+
         items.map(function(it){
-          var u=_ultimoMantItem(cam,it.id);
-          if(!u)return '<tr><td>'+_mEsc(it.nombre)+'</td><td colspan="3" style="color:var(--text3)">— sin registro —</td></tr>';
-          var hace = it.base==='km' ? ((kmAct-u.km)>=0?((kmAct-u.km).toLocaleString()+' km'):'—') : ((typeof diasDesde==='function'?diasDesde(u.fecha):0)+' días');
-          return '<tr><td style="font-weight:600">'+_mEsc(it.nombre)+'</td><td>'+formatFecha(u.fecha)+'</td><td style="color:var(--teal)">'+hace+'</td><td style="font-family:var(--m)">'+(u.km?u.km.toLocaleString():'—')+'</td></tr>';
+          var e=_mantEstado(cam,it);
+          var ultima=e.ultimo?formatFecha(e.ultimo.fecha):'<span style="color:var(--text3)">sin registro</span>';
+          var falta;
+          if(e.estado==='sin_dato'||e.estado==='sin_intervalo') falta='—';
+          else if(e.unidad==='km') falta = e.restante>0 ? ('<span style="color:'+(e.estado==='proximo'?'var(--amber)':'var(--text2)')+'">faltan '+e.restante.toLocaleString()+' km</span>') : ('<span style="color:var(--red)">vencido hace '+Math.abs(e.restante).toLocaleString()+' km</span>');
+          else falta = e.restante>=0 ? ('<span style="color:'+(e.estado==='proximo'?'var(--amber)':'var(--text2)')+'">faltan '+e.restante+' días</span>') : ('<span style="color:var(--red)">vencido hace '+Math.abs(e.restante)+' días</span>');
+          return '<tr style="'+(e.estado==='vencido'?'background:rgba(220,38,38,.08)':'')+'"><td style="font-weight:600">'+_mEsc(it.nombre)+'</td><td>'+ultima+'</td><td style="font-family:var(--m)">'+(e.vencTxt||'—')+'</td><td style="font-family:var(--m)">'+falta+'</td><td>'+_mantBadge(e.estado)+'</td></tr>';
         }).join('')+'</tbody></table>';
-    } else { bq.innerHTML='<div style="color:var(--text3);font-size:12px;padding:8px">Elegí una unidad arriba para ver la "última vez que se hizo cada cosa".</div>'; }
+    } else { bq.innerHTML='<div style="color:var(--text3);font-size:12px;padding:8px">Elegí una unidad arriba para ver, por cada mantenimiento: cuándo se hizo, cuándo toca y cuánto falta (km o días).</div>'; }
   }
   // HISTORIAL / hoja de vida completa (filtrable por unidad, ítem y período).
   var tl=g('hv-timeline'); if(!tl)return;
