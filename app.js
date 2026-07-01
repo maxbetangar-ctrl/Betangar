@@ -4807,7 +4807,7 @@ function imprimirCombustible(){
 // ═══════════════════════════════════════════════════
 // KM / MANTENIMIENTO
 // ═══════════════════════════════════════════════════
-function switchKmTab(t){['odo','lav','eng','prog','hist','hv'].forEach(function(x){var el=g('tab-km-'+x);var sw=g('sw-km-'+x);if(el)el.style.display=x===t?'block':'none';if(sw){sw.classList.remove('on');if(x===t)sw.classList.add('on');}});if(t==='odo')renderKm();if(t==='lav')renderLavados();if(t==='eng')renderEngrases();if(t==='prog')renderMantProg();if(t==='hist')renderHistMant();if(t==='hv'){Promise.all([cargarMantItems(),cargarMantenimientos(),cargarUnidadConfig()]).then(function(){renderHojaVida();}).catch(function(){renderHojaVida();});}}
+function switchKmTab(t){['odo','lav','eng','prog','hist','hv'].forEach(function(x){var el=g('tab-km-'+x);var sw=g('sw-km-'+x);if(el)el.style.display=x===t?'block':'none';if(sw){sw.classList.remove('on');if(x===t)sw.classList.add('on');}});if(t==='odo')renderKm();if(t==='lav')renderLavados();if(t==='eng')renderEngrases();if(t==='prog')renderPreventivo();if(t==='hist')renderHistMant();if(t==='hv'){Promise.all([cargarMantItems(),cargarMantenimientos(),cargarUnidadConfig()]).then(function(){renderHojaVida();}).catch(function(){renderHojaVida();});}}
 
 async function borrarOdo(cam){
   if(!KM_DATA[cam])return;
@@ -5123,6 +5123,129 @@ function renderHojaVida(){
     }).join('')+
     '<tr class="tr-tot"><td colspan="4">TOTAL ('+evs.length+' registros)</td><td style="font-family:var(--m);font-weight:700;color:var(--yellow)">$'+totCosto.toLocaleString()+'</td><td colspan="3"></td></tr>'+
     '</tbody></table>';
+}
+// ── PREVENTIVO (motor + panel "Próximos a vencer") — FlotaMax Fase 1B ──────────
+// Fuente única: último evento (MANTENIMIENTOS) + intervalo del ítem (MANT_ITEMS).
+// Reemplaza el viejo panel cfg.mant_programados (lavado/engrase/aceite) → un solo motor.
+function _diasEntreISO(desdeISO,hastaISO){ var a=new Date(String(hastaISO).slice(0,10)+'T12:00:00'),b=new Date(String(desdeISO).slice(0,10)+'T12:00:00'); return Math.round((a-b)/86400000); }
+// PURA (testeable): estado preventivo dado el último cambio, el km actual y hoy.
+function _mantEstadoCalc(base,intervalo,aviso,ultimo,kmActual,hoyISO){
+  aviso=parseFloat(aviso)||0; intervalo=parseFloat(intervalo)||0;
+  if(!intervalo)return {estado:'sin_intervalo',restante:null,venc:null,vencTxt:'',unidad:base};
+  if(!ultimo)return {estado:'sin_dato',restante:null,venc:null,vencTxt:'',unidad:base};
+  if(base==='km'){
+    var venc=(parseInt(ultimo.km)||0)+intervalo, restante=venc-(parseInt(kmActual)||0);
+    return {estado:restante<=0?'vencido':(restante<=aviso?'proximo':'al_dia'),restante:restante,venc:venc,vencTxt:venc.toLocaleString()+' km',unidad:'km'};
+  }
+  var dias=base==='meses'?intervalo*30:intervalo;
+  var vencF=addDays(ultimo.fecha,dias), restD=_diasEntreISO(hoyISO,vencF);
+  return {estado:restD<0?'vencido':(restD<=aviso?'proximo':'al_dia'),restante:restD,venc:vencF,vencTxt:formatFecha(vencF),unidad:'dias'};
+}
+function _mantEstado(cam,it){
+  var u=_ultimoMantItem(cam,it.id);
+  var kmAct=(typeof kmActualCam==='function')?kmActualCam(cam):((KM_DATA[cam]&&KM_DATA[cam].km)||0);
+  var r=_mantEstadoCalc(it.base,it.intervalo,it.avisoAnticipo,u,kmAct,fechaVE());
+  r.cam=cam; r.itemId=it.id; r.nombre=it.nombre; r.base=it.base; r.ultimo=u;
+  return r;
+}
+// Lista de vencidos/próximos de TODA la flota, ordenada por urgencia.
+function calcMantPreventivo(){
+  var out=[];
+  _hvUnidades().forEach(function(cam){
+    _hvItemsDeUnidad(cam).forEach(function(it){
+      var e=_mantEstado(cam,it);
+      if(e.estado==='vencido'||e.estado==='proximo')out.push(e);
+    });
+  });
+  out.sort(function(a,b){var ra=a.estado==='vencido'?0:1,rb=b.estado==='vencido'?0:1;return ra-rb||(a.restante||0)-(b.restante||0);});
+  return out;
+}
+// Orquesta el tab Preventivo (carga fuente única + pinta las 3 secciones).
+function renderPreventivo(){
+  Promise.all([cargarMantItems(),cargarMantenimientos(),cargarUnidadConfig()]).then(function(){
+    try{renderPreventivoEstado();}catch(e){} try{renderMantCatalogo();}catch(e){} try{renderUnidadTipos();}catch(e){}
+  }).catch(function(){try{renderPreventivoEstado();}catch(e){}try{renderMantCatalogo();}catch(e){}try{renderUnidadTipos();}catch(e){}});
+}
+// Recordatorio por WhatsApp de vencidos/próximos → mecánico, dueño/gerente y jefe de operaciones.
+// (Disparo manual. La automatización diaria por cron es el paso siguiente — ver SQL de follow-up.)
+function enviarRecordatoriosMant(){
+  var lista=calcMantPreventivo();
+  if(!lista.length){alert('No hay mantenimientos vencidos ni próximos.');return;}
+  var venc=lista.filter(function(e){return e.estado==='vencido';}), prox=lista.filter(function(e){return e.estado==='proximo';});
+  var msg='🔧 RECORDATORIO DE MANTENIMIENTO — '+(typeof brandNom==='function'?brandNom():'FlotaMax')+'\n'+formatFecha(new Date())+'\n';
+  if(venc.length)msg+='\n🔴 VENCIDOS ('+venc.length+'):\n'+venc.slice(0,25).map(function(e){return '• '+e.cam+' — '+e.nombre;}).join('\n')+'\n';
+  if(prox.length)msg+='\n🟡 POR VENCER ('+prox.length+'):\n'+prox.slice(0,25).map(function(e){return '• '+e.cam+' — '+e.nombre+' ('+e.vencTxt+')';}).join('\n')+'\n';
+  if(typeof sendWA==='function')sendWA(msg,['mecanico','admin','directivo','operativo']);
+  audit('Recordatorio mantenimiento enviado',venc.length+' vencidos · '+prox.length+' próximos');
+  if(typeof mostrarToast==='function')mostrarToast('📲 Recordatorio enviado (mecánico, gerencia, operaciones)','exito');
+}
+function _mantBadge(est){
+  if(est==='vencido')return '<span class="badge br">🔴 Vencido</span>';
+  if(est==='proximo')return '<span class="badge by">🟡 Próximo</span>';
+  if(est==='al_dia')return '<span class="badge bg">🟢 Al día</span>';
+  return '<span class="badge bt">— sin dato —</span>';
+}
+function renderPreventivoEstado(){
+  var el=g('prev-estado'); if(!el)return;
+  var lista=calcMantPreventivo();
+  if(!lista.length){el.innerHTML='<div style="color:var(--green);font-size:12px;padding:10px">✓ Nada vencido ni por vencer con los intervalos actuales.</div>';return;}
+  el.innerHTML='<table><thead><tr><th>Unidad</th><th>Ítem</th><th>Vence</th><th>Restante</th><th>Estado</th></tr></thead><tbody>'+
+    lista.map(function(e){
+      var rest = e.unidad==='km' ? (e.restante>0?e.restante.toLocaleString()+' km':Math.abs(e.restante).toLocaleString()+' km pasado') : (e.restante>=0?e.restante+' días':Math.abs(e.restante)+' días pasado');
+      return '<tr style="'+(e.estado==='vencido'?'background:rgba(220,38,38,.10)':'')+'"><td style="font-weight:700">'+_mEsc(e.cam)+'</td><td>'+_mEsc(e.nombre)+'</td><td style="font-family:var(--m)">'+e.vencTxt+'</td><td style="font-family:var(--m);color:'+(e.estado==='vencido'?'var(--red)':'var(--amber)')+'">'+rest+'</td><td>'+_mantBadge(e.estado)+'</td></tr>';
+    }).join('')+'</tbody></table>';
+}
+// Config del CATÁLOGO de ítems (intervalos por km/tiempo, por tipo).
+function renderMantCatalogo(){
+  var el=g('prev-catalogo'); if(!el)return;
+  var its=(MANT_ITEMS||[]).slice().sort(function(a,b){return (a.orden||0)-(b.orden||0);});
+  el.innerHTML='<table><thead><tr><th>Ítem</th><th>Cada</th><th>Base</th><th>Avisar antes</th><th>Tipo</th><th>Activo</th><th></th></tr></thead><tbody>'+
+    its.map(function(x){var i=MANT_ITEMS.indexOf(x);return '<tr>'+
+      '<td><input value="'+_mEsc(x.nombre)+'" onchange="MANT_ITEMS['+i+'].nombre=this.value;guardarMantItem('+i+')" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:3px 6px;border-radius:5px;width:150px;font-size:11px"></td>'+
+      '<td><input type="number" value="'+x.intervalo+'" onchange="MANT_ITEMS['+i+'].intervalo=parseFloat(this.value)||0;guardarMantItem('+i+')" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:3px 6px;border-radius:5px;width:70px;font-family:var(--m)"></td>'+
+      '<td><select onchange="MANT_ITEMS['+i+'].base=this.value;guardarMantItem('+i+')" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:3px 4px;border-radius:5px;font-size:11px"><option value="km"'+(x.base==='km'?' selected':'')+'>km</option><option value="dias"'+(x.base==='dias'?' selected':'')+'>días</option><option value="meses"'+(x.base==='meses'?' selected':'')+'>meses</option></select></td>'+
+      '<td><input type="number" value="'+(x.avisoAnticipo||0)+'" onchange="MANT_ITEMS['+i+'].avisoAnticipo=parseFloat(this.value)||0;guardarMantItem('+i+')" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:3px 6px;border-radius:5px;width:70px;font-family:var(--m)"></td>'+
+      '<td><input value="'+_mEsc(x.tipoUnidad||'')+'" placeholder="todas" title="Vacío = aplica a todas las unidades; o el tipo (diesel/gasolina)" onchange="MANT_ITEMS['+i+'].tipoUnidad=this.value.trim();guardarMantItem('+i+')" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:3px 6px;border-radius:5px;width:90px;font-size:11px"></td>'+
+      '<td style="text-align:center"><input type="checkbox"'+(x.activo?' checked':'')+' onchange="MANT_ITEMS['+i+'].activo=this.checked;guardarMantItem('+i+')"></td>'+
+      '<td><button class="btn btn-r btn-xs" onclick="elimMantItemCat(\''+_mEsc(x.id)+'\')">×</button></td></tr>';}).join('')+
+    '<tr><td colspan="7" style="padding-top:6px"><button class="btn btn-s btn-xs" onclick="agregarMantItemCat()">+ Agregar ítem</button></td></tr>'+
+    '</tbody></table>';
+}
+async function guardarMantItem(i){
+  var x=MANT_ITEMS[i]; if(!x)return;
+  try{renderPreventivoEstado();}catch(e){}
+  if(!(DB_READY&&supabase))return;
+  var row={id:x.id,nombre:x.nombre,categoria:x.categoria||'',base:x.base,intervalo:x.intervalo,aviso_anticipo:x.avisoAnticipo||0,tipo_unidad:x.tipoUnidad||'',activo:x.activo!==false,orden:x.orden||0};
+  try{ var r=await supabase.from('mant_items').upsert([row],{onConflict:'id'}); if(r&&r.error&&typeof mostrarToast==='function')mostrarToast('No se pudo guardar el ítem: '+r.error.message,'error'); }catch(e){}
+}
+function agregarMantItemCat(){
+  var id='item_'+Date.now();
+  MANT_ITEMS.push({id:id,nombre:'Nuevo ítem',categoria:'',base:'km',intervalo:5000,avisoAnticipo:500,tipoUnidad:'',activo:true,orden:(MANT_ITEMS.length+1)});
+  renderMantCatalogo(); guardarMantItem(MANT_ITEMS.length-1);
+}
+function elimMantItemCat(id){
+  if(!confirm('¿Eliminar este ítem del catálogo? (no borra el historial ya registrado)'))return;
+  MANT_ITEMS=MANT_ITEMS.filter(function(x){return x.id!==id;});
+  if(DB_READY&&supabase)supabase.from('mant_items').delete().eq('id',id).then(function(r){if(r&&r.error&&typeof mostrarToast==='function')mostrarToast('No se pudo eliminar: '+r.error.message,'error');});
+  renderMantCatalogo(); try{renderPreventivoEstado();}catch(e){}
+}
+// Asignar TIPO / combustible por unidad (para heredar los ítems por tipo).
+function renderUnidadTipos(){
+  var el=g('prev-tipos'); if(!el)return;
+  var unidades=_hvUnidades();
+  el.innerHTML='<table><thead><tr><th>Unidad</th><th>Tipo</th><th>Combustible</th></tr></thead><tbody>'+
+    unidades.map(function(cam){var c=UNIDAD_CONFIG[cam]||{};return '<tr><td style="font-weight:700">'+_mEsc(cam)+'</td>'+
+      '<td><input value="'+_mEsc(c.tipo||'')+'" placeholder="ej: camion / camioneta" onchange="guardarUnidadTipo(\''+_mEsc(cam)+'\',\'tipo\',this.value)" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:3px 6px;border-radius:5px;width:130px;font-size:11px"></td>'+
+      '<td><select onchange="guardarUnidadTipo(\''+_mEsc(cam)+'\',\'combustible\',this.value)" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:3px 4px;border-radius:5px;font-size:11px"><option value=""'+(!c.combustible?' selected':'')+'>—</option><option value="diesel"'+(c.combustible==='diesel'?' selected':'')+'>diésel</option><option value="gasolina"'+(c.combustible==='gasolina'?' selected':'')+'>gasolina</option></select></td></tr>';}).join('')+
+    '</tbody></table>';
+}
+async function guardarUnidadTipo(cam,campo,val){
+  if(!UNIDAD_CONFIG[cam])UNIDAD_CONFIG[cam]={tipo:'',combustible:'',uso:''};
+  UNIDAD_CONFIG[cam][campo]=String(val||'').trim();
+  try{renderPreventivoEstado();}catch(e){}
+  if(!(DB_READY&&supabase))return;
+  var c=UNIDAD_CONFIG[cam];
+  try{ var r=await supabase.from('unidad_config').upsert([{cam:cam,tipo:c.tipo||'',combustible:c.combustible||'',uso:c.uso||''}],{onConflict:'cam'}); if(r&&r.error&&typeof mostrarToast==='function')mostrarToast('No se pudo guardar el tipo: '+r.error.message,'error'); }catch(e){}
 }
 function imprimirMantenimiento(){
   var cams=Object.keys(FLOTA).filter(function(k){return k.startsWith('JAC');}).sort();

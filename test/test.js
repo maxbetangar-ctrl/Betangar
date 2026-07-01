@@ -527,6 +527,21 @@ function resetCola(){ app.COLA_OFFLINE=[]; app.COLA_FALLIDOS=[]; app._procesando
   ok('_ultimoMantItem null si no hay registro', app._ultimoMantItem('JAC-B999', 'bateria') === null);
   eq('_mantItem resuelve por id', app._mantItem('bateria').nombre, 'Batería');
 
+  console.log('\nMantenimiento preventivo (motor puro _mantEstadoCalc):');
+  ok('_mantEstadoCalc definida', typeof app._mantEstadoCalc === 'function');
+  // Por KM: intervalo 5000, último a 1000 km → vence a 6000. Km actual 6200 → vencido.
+  eq('km vencido', app._mantEstadoCalc('km', 5000, 500, { km: 1000, fecha: '2026-01-01' }, 6200, '2026-06-30').estado, 'vencido');
+  // Km actual 5600 → restan 400 ≤ aviso 500 → próximo.
+  eq('km próximo (dentro del aviso)', app._mantEstadoCalc('km', 5000, 500, { km: 1000, fecha: '2026-01-01' }, 5600, '2026-06-30').estado, 'proximo');
+  // Km actual 3000 → restan 3000 → al día.
+  eq('km al día', app._mantEstadoCalc('km', 5000, 500, { km: 1000, fecha: '2026-01-01' }, 3000, '2026-06-30').estado, 'al_dia');
+  // Por MESES: batería 12 meses desde 2025-01-01 → vence 2025-12-27 aprox → hoy 2026-06-30 → vencido.
+  eq('tiempo vencido (batería 12m)', app._mantEstadoCalc('meses', 12, 15, { km: 0, fecha: '2025-01-01' }, 0, '2026-06-30').estado, 'vencido');
+  // Por DÍAS: filtro trampa cada 2 días desde 2026-06-29 → vence 07-01 → hoy 06-30 → resta 1 día ≤ aviso 0? no (1>0) → al día... usar aviso 2 → próximo.
+  eq('días próximo (aviso cubre)', app._mantEstadoCalc('dias', 2, 2, { km: 0, fecha: '2026-06-29' }, 0, '2026-06-30').estado, 'proximo');
+  eq('sin registro → sin_dato', app._mantEstadoCalc('km', 5000, 500, null, 9000, '2026-06-30').estado, 'sin_dato');
+  eq('sin intervalo → sin_intervalo', app._mantEstadoCalc('km', 0, 0, { km: 0, fecha: '2026-01-01' }, 100, '2026-06-30').estado, 'sin_intervalo');
+
   // ── Resumen ──
   console.log('\n──────────────');
   console.log('PASS: ' + pass + '   FAIL: ' + fail);
