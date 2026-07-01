@@ -5121,15 +5121,17 @@ function subirFotoHV(input){
 async function registrarMantItem(){
   var cam=gv('hv-cam'), itemId=gv('hv-item'), fecha=gv('hv-fecha')||fechaVE(), km=parseInt(gv('hv-km'))||0;
   var costo=parseFloat(gv('hv-costo'))||0, prov=(gv('hv-prov')||'').trim(), nota=(gv('hv-nota')||'').trim();
+  var tipoTrab=gv('hv-tipotrabajo')||'cambio', horas=parseInt(gv('hv-horas'))||0;
   if(!cam){alert('Elegí la unidad');return;}
   if(!itemId){alert('Elegí el ítem (qué se le hizo)');return;}
-  if(km<=0){ if(!confirm('No ingresaste el KM que tenía la unidad al hacerse este trabajo.\n(Es manual porque el trabajo pudo hacerse otro día / a otro km.)\n\n¿Registrar igual sin km?'))return; }
+  var esHoras=(typeof medidaUnidad==='function')&&medidaUnidad(cam)==='horas';
+  if(!esHoras&&km<=0){ if(!confirm('No ingresaste el KM que tenía la unidad al hacerse este trabajo.\n(Es manual porque el trabajo pudo hacerse otro día / a otro km.)\n\n¿Registrar igual sin km?'))return; }
   var it=_mantItem(itemId);
   var foto=window._hvFotoUrl||'';
   var id='MT'+Date.now();
   // fila para la tabla `mantenimientos` (snake_case) — MISMA tabla que guardarKm → fuente única
-  var row={id:id,cam:cam,f:fecha,km:km,item_id:itemId,tipo:(it?it.nombre:itemId),desc_trabajo:nota||(it?it.nombre:''),costo_usd:costo,proveedor:prov,foto_url:foto};
-  var mem={id:id,cam:cam,fecha:fecha,km:km,itemId:itemId,tipo:row.tipo,desc:row.desc_trabajo,costo:costo,proveedor:prov,foto:foto};
+  var row={id:id,cam:cam,f:fecha,km:km,horas:horas,item_id:itemId,tipo:(it?it.nombre:itemId),tipo_trabajo:tipoTrab,desc_trabajo:nota||(it?it.nombre:''),costo_usd:costo,proveedor:prov,foto_url:foto};
+  var mem={id:id,cam:cam,fecha:fecha,km:km,horas:horas,itemId:itemId,tipo:row.tipo,tipoTrabajo:tipoTrab,desc:row.desc_trabajo,costo:costo,proveedor:prov,foto:foto};
   var ok=false;
   if(DB_READY&&supabase){
     try{ var res=await supabase.from('mantenimientos').upsert([row],{onConflict:'id'});
@@ -5140,8 +5142,10 @@ async function registrarMantItem(){
   MANTENIMIENTOS.unshift(mem);
   // Coherencia con el odómetro (nunca retrocede): si el km del trabajo es mayor, actualiza KM_DATA.
   if(km>0){ if(!KM_DATA[cam])KM_DATA[cam]={km:0,f:'',ultsrv:0,mant:[],lavado:'',engrase:''}; if(km>=(parseInt(KM_DATA[cam].km)||0)){KM_DATA[cam].km=km;KM_DATA[cam].f=fecha;} }
-  audit('Mantenimiento registrado',cam+' · '+row.tipo+(km?(' · '+km+'km'):'')+(costo?(' · $'+costo):''));
-  window._hvFotoUrl=''; sv('hv-km','');sv('hv-costo','');sv('hv-nota','');sv('hv-prov','');
+  // Coherencia con el horímetro: si la unidad va por horas, actualiza horas_actuales (nunca baja).
+  if(esHoras&&horas>0){ if(!UNIDAD_CONFIG[cam])UNIDAD_CONFIG[cam]={}; if(horas>=(parseInt(UNIDAD_CONFIG[cam].horasActuales)||0)){UNIDAD_CONFIG[cam].horasActuales=horas; if(DB_READY&&supabase){try{supabase.from('unidad_config').upsert([{cam:cam,horas_actuales:horas}],{onConflict:'cam'}).then(function(){});}catch(e){}}} }
+  audit('Mantenimiento registrado',cam+' · '+row.tipo+' ('+tipoTrab+')'+(km?(' · '+km+'km'):'')+(horas?(' · '+horas+'h'):'')+(costo?(' · $'+costo):''));
+  window._hvFotoUrl=''; sv('hv-km','');sv('hv-horas','');sv('hv-costo','');sv('hv-nota','');sv('hv-prov','');
   var fp=g('hv-foto-prev'); if(fp)fp.innerHTML='';
   renderHojaVida();
   if(typeof mostrarToast==='function')mostrarToast(ok?'✅ Mantenimiento guardado en la hoja de vida':'⚠️ En cola (sin conexión)',ok?'exito':'error');
@@ -5261,6 +5265,10 @@ async function abrirEditarUnidad(cam){
       '<div class="fg"><label>Combustible</label><select class="fc" id="u-comb"><option value=""'+(!c.combustible?' selected':'')+'>—</option><option value="diesel"'+(c.combustible==='diesel'?' selected':'')+'>Diésel</option><option value="gasolina"'+(c.combustible==='gasolina'?' selected':'')+'>Gasolina</option><option value="gas"'+(c.combustible==='gas'?' selected':'')+'>Gas</option><option value="electrico"'+(c.combustible==='electrico'?' selected':'')+'>Eléctrico</option></select></div>'+
       '<div class="fg"><label>Uso</label><select class="fc" id="u-uso"><option value=""'+(!c.uso?' selected':'')+'>—</option><option value="viajes"'+(c.uso==='viajes'?' selected':'')+'>viajes</option><option value="personal"'+(c.uso==='personal'?' selected':'')+'>personal</option></select></div>'+
     '</div>'+
+    '<div class="fr2">'+
+      '<div class="fg"><label>Cómo se mide (mantenimiento)</label><select class="fc" id="u-medida" onchange="var h=document.getElementById(\'u-horas-fg\');if(h)h.style.display=this.value===\'horas\'?\'block\':\'none\'"><option value=""'+(!c.medida?' selected':'')+'>auto (según tipo)</option><option value="km"'+(c.medida==='km'?' selected':'')+'>por km (rueda — auto del chofer)</option><option value="horas"'+(c.medida==='horas'?' selected':'')+'>por horas (horímetro)</option><option value="tiempo"'+(c.medida==='tiempo'?' selected':'')+'>por tiempo (calendario)</option></select></div>'+
+      '<div class="fg" id="u-horas-fg" style="display:'+(c.medida==='horas'?'block':'none')+'"><label>Horas actuales</label><input class="fc" id="u-horas" type="number" value="'+(c.horasActuales||'')+'" placeholder="0" style="font-family:var(--m)"><small style="color:var(--text3);font-size:10px">Se actualiza al registrar mantenimiento por horas</small></div>'+
+    '</div>'+
     '<div class="fr2">'+inp('u-titular','Título a nombre de',c.titular)+inp('u-chofer','Chofer asignado',choferDef)+'</div>'+
     '<div class="fg"><label>Notas</label><input class="fc" id="u-notas" value="'+_mEsc(c.notas||'')+'" placeholder="opcional"></div>'+
     '<div class="fr2">'+
@@ -5276,11 +5284,11 @@ function subirTituloUnidad(input){var f=input&&input.files&&input.files[0];if(!f
 async function guardarUnidad(){
   var cam=(gv('u-cam')||'').trim();
   if(!cam){alert('Poné el N° de unidad (identificador)');return;}
-  var reg={cam:cam,nombre:(gv('u-nombre')||'').trim(),marca:(gv('u-marca')||'').trim(),modelo:(gv('u-modelo')||'').trim(),anio:(gv('u-anio')||'').trim(),placa:(gv('u-placa')||'').trim().toUpperCase(),vin:(gv('u-vin')||'').trim().toUpperCase(),serial_motor:(gv('u-smotor')||'').trim(),serial_carroceria:(gv('u-scarr')||'').trim(),tipo:(gv('u-tipo')||'').trim(),combustible:gv('u-comb')||'',uso:gv('u-uso')||'',titular:(gv('u-titular')||'').trim(),chofer:(gv('u-chofer')||'').trim(),notas:(gv('u-notas')||'').trim(),activo:!(g('u-activo')&&!g('u-activo').checked),foto:window._unidadFoto||'',titulo_pdf:window._unidadPdf||''};
+  var reg={cam:cam,nombre:(gv('u-nombre')||'').trim(),marca:(gv('u-marca')||'').trim(),modelo:(gv('u-modelo')||'').trim(),anio:(gv('u-anio')||'').trim(),placa:(gv('u-placa')||'').trim().toUpperCase(),vin:(gv('u-vin')||'').trim().toUpperCase(),serial_motor:(gv('u-smotor')||'').trim(),serial_carroceria:(gv('u-scarr')||'').trim(),tipo:(gv('u-tipo')||'').trim(),combustible:gv('u-comb')||'',uso:gv('u-uso')||'',medida:gv('u-medida')||'',horas_actuales:parseFloat(gv('u-horas'))||0,titular:(gv('u-titular')||'').trim(),chofer:(gv('u-chofer')||'').trim(),notas:(gv('u-notas')||'').trim(),activo:!(g('u-activo')&&!g('u-activo').checked),foto:window._unidadFoto||'',titulo_pdf:window._unidadPdf||''};
   var ok=false;
   if(DB_READY&&supabase){ try{ var res=await supabase.from('unidad_config').upsert([reg],{onConflict:'cam'}); if(res&&res.error){mostrarToast('No se pudo guardar: '+res.error.message,'error');} else ok=true; }catch(e){mostrarToast('Sin conexión al guardar la unidad.','error');} }
   // memoria (fuente única) — SIN los blobs foto/pdf.
-  UNIDAD_CONFIG[cam]={tipo:reg.tipo,combustible:reg.combustible,uso:reg.uso,nombre:reg.nombre,marca:reg.marca,modelo:reg.modelo,anio:reg.anio,placa:reg.placa,vin:reg.vin,serialMotor:reg.serial_motor,serialCarroceria:reg.serial_carroceria,titular:reg.titular,chofer:reg.chofer,activo:reg.activo,notas:reg.notas};
+  UNIDAD_CONFIG[cam]={tipo:reg.tipo,combustible:reg.combustible,uso:reg.uso,medida:reg.medida,horasActuales:reg.horas_actuales,nombre:reg.nombre,marca:reg.marca,modelo:reg.modelo,anio:reg.anio,placa:reg.placa,vin:reg.vin,serialMotor:reg.serial_motor,serialCarroceria:reg.serial_carroceria,titular:reg.titular,chofer:reg.chofer,activo:reg.activo,notas:reg.notas};
   window._unidadFoto='';window._unidadPdf='';
   audit('Unidad guardada',cam+(reg.placa?(' · '+reg.placa):''));
   if(typeof closeModal==='function')closeModal();

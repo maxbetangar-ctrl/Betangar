@@ -1787,6 +1787,7 @@ tr:hover td{background:rgba(45,255,122,.02)}
         <div class="sh"><div class="st">📋 Registrar mantenimiento</div></div>
         <div class="fr2"><div class="fg"><label>Unidad</label><select class="fc" id="hv-cam" onchange="_hvPrefillKm()"><option value="">— unidad —</option></select></div><div class="fg"><label>Ítem (qué se le hizo)</label><select class="fc" id="hv-item"><option value="">— ítem —</option></select></div></div>
         <div class="fr3"><div class="fg"><label>Fecha</label><input class="fc" id="hv-fecha" type="date"></div><div class="fg"><label>Km al hacerse el trabajo</label><input class="fc" id="hv-km" type="number" placeholder="manual" style="font-family:var(--m)"><small id="hv-km-hint" style="color:var(--text3);font-size:10px;display:block"></small></div><div class="fg"><label>Costo $</label><input class="fc" id="hv-costo" type="number" placeholder="0.00" style="font-family:var(--m)"></div></div>
+        <div class="fr2"><div class="fg"><label>Tipo de trabajo</label><select class="fc" id="hv-tipotrabajo"><option value="cambio">🔧 Cambio / sustitución</option><option value="inspeccion">🔎 Inspección / revisión</option><option value="correctivo">🛠 Correctivo</option></select></div><div class="fg"><label>Horas (si va por horímetro)</label><input class="fc" id="hv-horas" type="number" placeholder="0" style="font-family:var(--m)"></div></div>
         <div class="fr2"><div class="fg"><label>Proveedor / taller</label><input class="fc" id="hv-prov" placeholder="Opcional"></div><div class="fg"><label>Nota</label><input class="fc" id="hv-nota" placeholder="Detalle opcional"></div></div>
         <div class="fg"><label>Foto (opcional, máx 2MB)</label><input class="fc" id="hv-foto" type="file" accept="image/*" onchange="subirFotoHV(this)"><div id="hv-foto-prev" style="margin-top:6px"></div></div>
         <button class="btn btn-g btn-sm" style="width:100%" onclick="registrarMantItem()">Registrar en la hoja de vida</button>
@@ -2369,7 +2370,7 @@ tr:hover td{background:rgba(45,255,122,.02)}
 </div>
 
 <script src="money.js?v=20260628n"></script>
-<script src="app.js?v=20260702b"></script>
+<script src="app.js?v=20260702c"></script>
 
 <!-- Modal global -->
 <div id="modal" class="moverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9990;align-items:center;justify-content:center;padding:16px">

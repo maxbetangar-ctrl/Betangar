@@ -577,6 +577,10 @@ function resetCola(){ app.COLA_OFFLINE=[]; app.COLA_FALLIDOS=[]; app._procesando
   ok('doble intervalo: calcula inspección y cambio', !!(eDob.insp && eDob.cambio));
   eq('inspección vencida (1000+5000=6000, km 6000)', eDob.insp.estado, 'vencido');
   eq('cambio al día (1000+10000=11000)', eDob.cambio.estado, 'al_dia');
+  // medida por unidad + horas
+  app.UNIDAD_CONFIG = { 'U1': { medida: 'horas', horasActuales: 340 } };
+  eq('medidaUnidad explícita = horas', app.medidaUnidad('U1'), 'horas');
+  eq('horasActualUnidad = 340', app.horasActualUnidad('U1'), 340);
 
   // ── Resumen ──
   console.log('\n──────────────');
