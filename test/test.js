@@ -508,6 +508,25 @@ function resetCola(){ app.COLA_OFFLINE=[]; app.COLA_FALLIDOS=[]; app._procesando
   ok('fmtFechaDow definida', typeof app.fmtFechaDow === 'function');
   eq('fmtFechaDow → día + dd/mm/yyyy', app.fmtFechaDow(new Date(2026, 5, 7)), 'domingo 07/06/2026');
 
+  console.log('\nMantenimiento — Hoja de vida (fuente única + catálogo por tipo):');
+  ok('_seedMantItemsDefault definida', typeof app._seedMantItemsDefault === 'function');
+  var _seed = app._seedMantItemsDefault();
+  ok('catálogo trae batería y filtro trampa', _seed.some(function (x) { return x.id === 'bateria'; }) && _seed.some(function (x) { return x.id === 'filtro_trampa'; }));
+  app.MANT_ITEMS = _seed; app.UNIDAD_CONFIG = {};
+  var itsAll = app._hvItemsDeUnidad('JAC-B001');
+  ok('unidad sin tipo NO hereda el ítem diésel (filtro trampa)', !itsAll.some(function (x) { return x.id === 'filtro_trampa'; }));
+  app.UNIDAD_CONFIG = { 'JAC-B001': { tipo: 'diesel' } };
+  ok('unidad diésel SÍ hereda el filtro trampa', app._hvItemsDeUnidad('JAC-B001').some(function (x) { return x.id === 'filtro_trampa'; }));
+  app.MANTENIMIENTOS = [
+    { id: 'm1', cam: 'JAC-B001', fecha: '2026-01-10', km: 1000, itemId: 'bateria' },
+    { id: 'm2', cam: 'JAC-B001', fecha: '2026-06-01', km: 8000, itemId: 'bateria' },
+    { id: 'm3', cam: 'JAC-B002', fecha: '2026-06-15', km: 5000, itemId: 'bateria' }
+  ];
+  eq('_ultimoMantItem devuelve el más reciente (por fecha)', app._ultimoMantItem('JAC-B001', 'bateria').fecha, '2026-06-01');
+  eq('_ultimoMantItem respeta la unidad', app._ultimoMantItem('JAC-B002', 'bateria').km, 5000);
+  ok('_ultimoMantItem null si no hay registro', app._ultimoMantItem('JAC-B999', 'bateria') === null);
+  eq('_mantItem resuelve por id', app._mantItem('bateria').nombre, 'Batería');
+
   // ── Resumen ──
   console.log('\n──────────────');
   console.log('PASS: ' + pass + '   FAIL: ' + fail);

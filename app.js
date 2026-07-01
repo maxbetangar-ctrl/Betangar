@@ -1158,7 +1158,7 @@ function sp(id){
     if(id==='control-combustible'){renderCombSubnav('control-combustible');renderControlComb();}
     if(id==='rentabilidad'){renderAnalisisSubnav('rentabilidad');renderRentabilidad();}
     if(id==='salud'){renderSaludDatos();}
-    if(id==='km'){renderMantSubnav('km');renderKm();renderTiposMant();}
+    if(id==='km'){renderMantSubnav('km');renderKm();renderTiposMant();Promise.all([cargarMantItems(),cargarMantenimientos(),cargarUnidadConfig()]).then(function(){try{renderHistMant();}catch(e){}}).catch(function(){});}
     if(id==='banco'){renderBancoSubnav('banco');renderBNCDash();}
     if(id==='proveedores'){renderFinanzasSubnav('proveedores');renderCXP();renderProveedoresLista();renderRetenciones();}
     if(id==='documentos'){renderDocAlertas();renderDocTablas();}
@@ -4807,7 +4807,7 @@ function imprimirCombustible(){
 // ═══════════════════════════════════════════════════
 // KM / MANTENIMIENTO
 // ═══════════════════════════════════════════════════
-function switchKmTab(t){['odo','lav','eng','prog','hist'].forEach(function(x){var el=g('tab-km-'+x);var sw=g('sw-km-'+x);if(el)el.style.display=x===t?'block':'none';if(sw){sw.classList.remove('on');if(x===t)sw.classList.add('on');}});if(t==='odo')renderKm();if(t==='lav')renderLavados();if(t==='eng')renderEngrases();if(t==='prog')renderMantProg();if(t==='hist')renderHistMant();}
+function switchKmTab(t){['odo','lav','eng','prog','hist','hv'].forEach(function(x){var el=g('tab-km-'+x);var sw=g('sw-km-'+x);if(el)el.style.display=x===t?'block':'none';if(sw){sw.classList.remove('on');if(x===t)sw.classList.add('on');}});if(t==='odo')renderKm();if(t==='lav')renderLavados();if(t==='eng')renderEngrases();if(t==='prog')renderMantProg();if(t==='hist')renderHistMant();if(t==='hv'){Promise.all([cargarMantItems(),cargarMantenimientos(),cargarUnidadConfig()]).then(function(){renderHojaVida();}).catch(function(){renderHojaVida();});}}
 
 async function borrarOdo(cam){
   if(!KM_DATA[cam])return;
@@ -4940,7 +4940,190 @@ async function guardarEngrase(){
   renderEngrases();
   alert('✅ Engrase registrado correctamente.');
 }
-function renderHistMant(){var cam=gv('hist-mant-cam'),tipo=gv('hist-mant-tipo');var rows=[];Object.keys(KM_DATA).filter(function(c){return !cam||c===cam;}).forEach(function(c){(KM_DATA[c].mant||[]).filter(function(m){return !tipo||m.tipo===tipo;}).forEach(function(m){rows.push('<tr><td style="font-weight:700">'+c+'</td><td>'+formatFecha(m.f)+'</td><td style="font-family:var(--m)">'+m.km.toLocaleString()+'</td><td><span class="badge by">'+m.tipo+'</span></td><td style="font-size:11px">'+m.desc+'</td></tr>');});});var tb=g('tb-hist-mant');if(tb)tb.innerHTML=rows.join('')||'<tr><td colspan="5" style="text-align:center;color:var(--text3);padding:20px">Sin registros de mantenimiento</td></tr>';}
+function renderHistMant(){
+  // FUENTE ÚNICA: lee de MANTENIMIENTOS (tabla persistida, igual que la Hoja de vida).
+  // Fallback legacy: si aún no se cargó la tabla, muestra lo que quedó en KM_DATA.mant (memoria).
+  var cam=gv('hist-mant-cam'),tipo=gv('hist-mant-tipo');
+  var evs=(MANTENIMIENTOS||[]).filter(function(m){return (!cam||m.cam===cam)&&(!tipo||m.tipo===tipo);});
+  if(!(MANTENIMIENTOS&&MANTENIMIENTOS.length)){
+    Object.keys(KM_DATA).filter(function(c){return !cam||c===cam;}).forEach(function(c){(KM_DATA[c].mant||[]).filter(function(m){return !tipo||m.tipo===tipo;}).forEach(function(m){evs.push({cam:c,fecha:m.f,km:m.km,tipo:m.tipo,desc:m.desc});});});
+  }
+  var rows=evs.map(function(m){return '<tr><td style="font-weight:700">'+_mEsc(m.cam)+'</td><td>'+formatFecha(m.fecha)+'</td><td style="font-family:var(--m)">'+(m.km?m.km.toLocaleString():'—')+'</td><td><span class="badge by">'+_mEsc(m.tipo||'—')+'</span></td><td style="font-size:11px">'+_mEsc(m.desc||'')+'</td></tr>';});
+  var tb=g('tb-hist-mant');if(tb)tb.innerHTML=rows.join('')||'<tr><td colspan="5" style="text-align:center;color:var(--text3);padding:20px">Sin registros de mantenimiento</td></tr>';
+}
+// ═══════════════════════════════════════════════════════════════════════
+// HOJA DE VIDA por unidad (Mantenimiento avanzado — FlotaMax Fase 1)
+// FUENTE ÚNICA: la tabla `mantenimientos` persistida. El registro rápido del
+// odómetro (guardarKm) escribe a la MISMA tabla → un solo historial. Loaders
+// fail-open (si la migración no corrió, cae a semilla/legacy sin romper).
+// ═══════════════════════════════════════════════════════════════════════
+var MANT_ITEMS=[];       // catálogo de ítems mantenibles (mant_items)
+var MANTENIMIENTOS=[];   // historial persistido (tabla mantenimientos) — fuente única de la hoja de vida
+var UNIDAD_CONFIG={};    // cam → {tipo,combustible,uso} (para heredar ítems por tipo; UI en Fase 2)
+function _mEsc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+// Catálogo por defecto (semilla). Editable; se siembra en Supabase si la tabla está vacía.
+function _seedMantItemsDefault(){
+  return [
+    {id:'aceite_motor',nombre:'Aceite de motor',categoria:'Motor',base:'km',intervalo:5000,avisoAnticipo:500,tipoUnidad:'',activo:true,orden:1},
+    {id:'filtro_aceite',nombre:'Filtro de aceite',categoria:'Motor',base:'km',intervalo:5000,avisoAnticipo:500,tipoUnidad:'',activo:true,orden:2},
+    {id:'filtro_aire',nombre:'Filtro de aire',categoria:'Motor',base:'km',intervalo:10000,avisoAnticipo:1000,tipoUnidad:'',activo:true,orden:3},
+    {id:'filtro_combustible',nombre:'Filtro de combustible',categoria:'Combustible',base:'km',intervalo:10000,avisoAnticipo:1000,tipoUnidad:'',activo:true,orden:4},
+    {id:'filtro_trampa',nombre:'Filtro trampa / decantador (drenar)',categoria:'Combustible',base:'dias',intervalo:2,avisoAnticipo:0,tipoUnidad:'diesel',activo:true,orden:5},
+    {id:'bateria',nombre:'Batería',categoria:'Eléctrico',base:'meses',intervalo:12,avisoAnticipo:15,tipoUnidad:'',activo:true,orden:6},
+    {id:'cauchos',nombre:'Cauchos / neumáticos',categoria:'Tren rodante',base:'km',intervalo:40000,avisoAnticipo:3000,tipoUnidad:'',activo:true,orden:7},
+    {id:'rodamientos',nombre:'Rodamientos',categoria:'Tren rodante',base:'km',intervalo:60000,avisoAnticipo:3000,tipoUnidad:'',activo:true,orden:8},
+    {id:'frenos',nombre:'Frenos (pastillas/bandas)',categoria:'Frenos',base:'km',intervalo:20000,avisoAnticipo:2000,tipoUnidad:'',activo:true,orden:9},
+    {id:'correa',nombre:'Correa',categoria:'Motor',base:'km',intervalo:60000,avisoAnticipo:3000,tipoUnidad:'',activo:true,orden:10},
+    {id:'refrigerante',nombre:'Refrigerante',categoria:'Motor',base:'meses',intervalo:12,avisoAnticipo:15,tipoUnidad:'',activo:true,orden:11},
+    {id:'lavado',nombre:'Lavado',categoria:'General',base:'dias',intervalo:7,avisoAnticipo:0,tipoUnidad:'',activo:true,orden:12},
+    {id:'engrase',nombre:'Engrase',categoria:'General',base:'dias',intervalo:15,avisoAnticipo:0,tipoUnidad:'',activo:true,orden:13}
+  ];
+}
+async function cargarMantItems(){
+  if(!(DB_READY&&supabase)){ if(!MANT_ITEMS.length)MANT_ITEMS=_seedMantItemsDefault(); return; }
+  try{
+    var r=await supabase.from('mant_items').select('*').order('orden',{ascending:true});
+    if(r&&!r.error&&Array.isArray(r.data)&&r.data.length){
+      MANT_ITEMS=r.data.map(function(x){return {id:x.id,nombre:x.nombre||'',categoria:x.categoria||'',base:x.base||'km',intervalo:parseFloat(x.intervalo)||0,avisoAnticipo:parseFloat(x.aviso_anticipo)||0,tipoUnidad:x.tipo_unidad||'',activo:x.activo!==false,orden:parseInt(x.orden)||0};});
+    } else {
+      MANT_ITEMS=_seedMantItemsDefault();                 // tabla vacía o inexistente → semilla local (fail-open)
+      if(r&&!r.error&&Array.isArray(r.data)&&!r.data.length){ try{ await _sembrarMantItems(); }catch(e){} }
+    }
+  }catch(e){ if(!MANT_ITEMS.length)MANT_ITEMS=_seedMantItemsDefault(); }
+}
+async function _sembrarMantItems(){
+  if(!(DB_READY&&supabase))return;
+  var rows=_seedMantItemsDefault().map(function(x){return {id:x.id,nombre:x.nombre,categoria:x.categoria,base:x.base,intervalo:x.intervalo,aviso_anticipo:x.avisoAnticipo,tipo_unidad:x.tipoUnidad,activo:x.activo,orden:x.orden};});
+  try{ await supabase.from('mant_items').upsert(rows,{onConflict:'id'}); }catch(e){}
+}
+async function cargarMantenimientos(){
+  if(!(DB_READY&&supabase))return;
+  try{
+    var r=await supabase.from('mantenimientos').select('*').order('f',{ascending:false}).limit(5000);
+    if(r&&!r.error&&Array.isArray(r.data)){
+      MANTENIMIENTOS=r.data.map(function(x){return {id:x.id||('MT'+(x.cam||'')+'-'+(x.f||'')+'-'+(x.km||0)+'-'+(x.item_id||x.tipo||'')),cam:x.cam||'',fecha:x.f||'',km:parseInt(x.km)||0,itemId:x.item_id||'',tipo:x.tipo||'',desc:x.desc_trabajo||'',costo:parseFloat(x.costo_usd)||0,proveedor:x.proveedor||'',foto:x.foto_url||''};});
+    }
+  }catch(e){ console.log('mantenimientos load:',e&&e.message); }
+}
+async function cargarUnidadConfig(){
+  if(!(DB_READY&&supabase))return;
+  try{ var r=await supabase.from('unidad_config').select('*'); if(r&&!r.error&&Array.isArray(r.data)){var o={};r.data.forEach(function(x){o[x.cam]={tipo:x.tipo||'',combustible:x.combustible||'',uso:x.uso||''};});UNIDAD_CONFIG=o;} }catch(e){}
+}
+function _mantItem(id){ return (MANT_ITEMS||[]).find(function(x){return x.id===id;}); }
+function _tipoDeUnidad(cam){ var c=(UNIDAD_CONFIG||{})[cam]; return c?c.tipo:''; }
+// Ítems que le aplican a una unidad: los globales ('' = todas) + los de su tipo.
+function _hvItemsDeUnidad(cam){
+  var tipo=_tipoDeUnidad(cam);
+  return (MANT_ITEMS||[]).filter(function(it){return it.activo&&(!it.tipoUnidad||it.tipoUnidad===tipo);});
+}
+// Último evento de un ítem en una unidad — FUENTE ÚNICA: MANTENIMIENTOS persistido.
+function _ultimoMantItem(cam,itemId){
+  var evs=(MANTENIMIENTOS||[]).filter(function(m){return m.cam===cam&&(itemId?m.itemId===itemId:true)&&m.fecha;});
+  if(!evs.length)return null;
+  evs.sort(function(a,b){return a.fecha<b.fecha?1:(a.fecha>b.fecha?-1:0);});
+  return evs[0];
+}
+function _hvUnidades(){
+  var set={};
+  Object.keys(FLOTA||{}).forEach(function(c){set[c]=1;});
+  Object.keys(UNIDAD_CONFIG||{}).forEach(function(c){set[c]=1;});
+  (MANTENIMIENTOS||[]).forEach(function(m){if(m.cam)set[m.cam]=1;});
+  return Object.keys(set).sort();
+}
+function _setSelPreserve(id,html){var s=g(id);if(!s)return;var cur=s.value;s.innerHTML=html;if(cur){s.value=cur;}}
+function _hvPoblarSelects(){
+  var unidades=_hvUnidades();
+  var optU='<option value="">— unidad —</option>'+unidades.map(function(c){return '<option value="'+_mEsc(c)+'">'+_mEsc(c)+'</option>';}).join('');
+  var optUver='<option value="">Todas las unidades</option>'+unidades.map(function(c){return '<option value="'+_mEsc(c)+'">'+_mEsc(c)+'</option>';}).join('');
+  var its=(MANT_ITEMS||[]).filter(function(x){return x.activo;});
+  var optI='<option value="">— ítem (qué se le hizo) —</option>'+its.map(function(x){return '<option value="'+_mEsc(x.id)+'">'+_mEsc(x.nombre)+'</option>';}).join('');
+  var optIver='<option value="">Todos los ítems</option>'+its.map(function(x){return '<option value="'+_mEsc(x.id)+'">'+_mEsc(x.nombre)+'</option>';}).join('');
+  _setSelPreserve('hv-cam',optU); _setSelPreserve('hv-item',optI);
+  _setSelPreserve('hv-ver-cam',optUver); _setSelPreserve('hv-ver-item',optIver);
+}
+function subirFotoHV(input){
+  var f=input&&input.files&&input.files[0]; if(!f)return;
+  if(f.size>2*1024*1024){alert('La foto es muy grande (máx 2MB).');input.value='';return;}
+  var rd=new FileReader();
+  rd.onload=function(e){ window._hvFotoUrl=e.target.result; var p=g('hv-foto-prev'); if(p)p.innerHTML='<img src="'+e.target.result+'" style="width:56px;height:56px;object-fit:cover;border-radius:6px;border:1px solid var(--border)">'; };
+  rd.readAsDataURL(f);
+}
+async function registrarMantItem(){
+  var cam=gv('hv-cam'), itemId=gv('hv-item'), fecha=gv('hv-fecha')||fechaVE(), km=parseInt(gv('hv-km'))||0;
+  var costo=parseFloat(gv('hv-costo'))||0, prov=(gv('hv-prov')||'').trim(), nota=(gv('hv-nota')||'').trim();
+  if(!cam){alert('Elegí la unidad');return;}
+  if(!itemId){alert('Elegí el ítem (qué se le hizo)');return;}
+  var it=_mantItem(itemId);
+  var foto=window._hvFotoUrl||'';
+  var id='MT'+Date.now();
+  // fila para la tabla `mantenimientos` (snake_case) — MISMA tabla que guardarKm → fuente única
+  var row={id:id,cam:cam,f:fecha,km:km,item_id:itemId,tipo:(it?it.nombre:itemId),desc_trabajo:nota||(it?it.nombre:''),costo_usd:costo,proveedor:prov,foto_url:foto};
+  var mem={id:id,cam:cam,fecha:fecha,km:km,itemId:itemId,tipo:row.tipo,desc:row.desc_trabajo,costo:costo,proveedor:prov,foto:foto};
+  var ok=false;
+  if(DB_READY&&supabase){
+    try{ var res=await supabase.from('mantenimientos').upsert([row],{onConflict:'id'});
+      if(res&&res.error){ mostrarToast('No se pudo guardar: '+res.error.message,'error'); } else ok=true;
+    }catch(e){ mostrarToast('Sin conexión al guardar el mantenimiento.','error'); }
+  }
+  if(!ok&&typeof guardarEnCola==='function')guardarEnCola('mantenimientos',row,'id');
+  MANTENIMIENTOS.unshift(mem);
+  // Coherencia con el odómetro (nunca retrocede): si el km del trabajo es mayor, actualiza KM_DATA.
+  if(km>0){ if(!KM_DATA[cam])KM_DATA[cam]={km:0,f:'',ultsrv:0,mant:[],lavado:'',engrase:''}; if(km>=(parseInt(KM_DATA[cam].km)||0)){KM_DATA[cam].km=km;KM_DATA[cam].f=fecha;} }
+  audit('Mantenimiento registrado',cam+' · '+row.tipo+(km?(' · '+km+'km'):'')+(costo?(' · $'+costo):''));
+  window._hvFotoUrl=''; sv('hv-km','');sv('hv-costo','');sv('hv-nota','');sv('hv-prov','');
+  var fp=g('hv-foto-prev'); if(fp)fp.innerHTML='';
+  renderHojaVida();
+  if(typeof mostrarToast==='function')mostrarToast(ok?'✅ Mantenimiento guardado en la hoja de vida':'⚠️ En cola (sin conexión)',ok?'exito':'error');
+}
+function eliminarMantItem(id){
+  if(!confirm('¿Eliminar este registro de mantenimiento?'))return;
+  MANTENIMIENTOS=MANTENIMIENTOS.filter(function(m){return String(m.id)!==String(id);});
+  if(DB_READY&&supabase)supabase.from('mantenimientos').delete().eq('id',id).then(function(r){if(r&&r.error&&typeof mostrarToast==='function')mostrarToast('No se pudo eliminar: '+r.error.message,'error');});
+  audit('Mantenimiento eliminado',String(id));
+  renderHojaVida();
+}
+function renderHojaVida(){
+  _hvPoblarSelects();
+  var cam=gv('hv-ver-cam')||'', itemF=gv('hv-ver-item')||'', des=gv('hv-ver-des')||'', hta=gv('hv-ver-hta')||'';
+  // BUSCADOR RÁPIDO: "última vez que se hizo cada cosa" a la unidad elegida.
+  var bq=g('hv-buscador-res');
+  if(bq){
+    if(cam){
+      var items=_hvItemsDeUnidad(cam); var kmAct=(typeof kmActualCam==='function')?kmActualCam(cam):((KM_DATA[cam]&&KM_DATA[cam].km)||0);
+      bq.innerHTML='<table><thead><tr><th>Ítem</th><th>Última vez</th><th>Hace</th><th>Km en ese momento</th></tr></thead><tbody>'+
+        items.map(function(it){
+          var u=_ultimoMantItem(cam,it.id);
+          if(!u)return '<tr><td>'+_mEsc(it.nombre)+'</td><td colspan="3" style="color:var(--text3)">— sin registro —</td></tr>';
+          var hace = it.base==='km' ? ((kmAct-u.km)>=0?((kmAct-u.km).toLocaleString()+' km'):'—') : ((typeof diasDesde==='function'?diasDesde(u.fecha):0)+' días');
+          return '<tr><td style="font-weight:600">'+_mEsc(it.nombre)+'</td><td>'+formatFecha(u.fecha)+'</td><td style="color:var(--teal)">'+hace+'</td><td style="font-family:var(--m)">'+(u.km?u.km.toLocaleString():'—')+'</td></tr>';
+        }).join('')+'</tbody></table>';
+    } else { bq.innerHTML='<div style="color:var(--text3);font-size:12px;padding:8px">Elegí una unidad arriba para ver la "última vez que se hizo cada cosa".</div>'; }
+  }
+  // HISTORIAL / hoja de vida completa (filtrable por unidad, ítem y período).
+  var tl=g('hv-timeline'); if(!tl)return;
+  var evs=(MANTENIMIENTOS||[]).filter(function(m){
+    if(cam&&m.cam!==cam)return false;
+    if(itemF&&m.itemId!==itemF)return false;
+    if(des&&m.fecha<des)return false;
+    if(hta&&m.fecha>hta)return false;
+    return true;
+  });
+  if(!evs.length){tl.innerHTML='<div style="color:var(--text3);font-size:12px;padding:10px">Sin mantenimientos registrados para ese filtro.</div>';return;}
+  var totCosto=evs.reduce(function(s,m){return s+(m.costo||0);},0);
+  tl.innerHTML='<table><thead><tr><th>Fecha</th><th>Unidad</th><th>Ítem</th><th>Km</th><th>Costo</th><th>Proveedor</th><th>Nota</th><th></th></tr></thead><tbody>'+
+    evs.map(function(m){
+      var it=_mantItem(m.itemId);
+      return '<tr><td>'+formatFecha(m.fecha)+'</td><td style="font-weight:700">'+_mEsc(m.cam)+'</td>'+
+        '<td>'+_mEsc(it?it.nombre:(m.tipo||'—'))+'</td>'+
+        '<td style="font-family:var(--m)">'+(m.km?m.km.toLocaleString():'—')+'</td>'+
+        '<td style="font-family:var(--m);color:var(--yellow)">'+(m.costo?'$'+m.costo.toLocaleString():'—')+'</td>'+
+        '<td style="font-size:11px">'+_mEsc(m.proveedor||'—')+'</td>'+
+        '<td style="font-size:11px">'+_mEsc(m.desc||'')+(m.foto?' <a href="'+_mEsc(m.foto)+'" target="_blank" style="color:var(--teal)">📷</a>':'')+'</td>'+
+        '<td><button class="btn btn-r btn-xs" onclick="eliminarMantItem(\''+_mEsc(m.id)+'\')">×</button></td></tr>';
+    }).join('')+
+    '<tr class="tr-tot"><td colspan="4">TOTAL ('+evs.length+' registros)</td><td style="font-family:var(--m);font-weight:700;color:var(--yellow)">$'+totCosto.toLocaleString()+'</td><td colspan="3"></td></tr>'+
+    '</tbody></table>';
+}
 function imprimirMantenimiento(){
   var cams=Object.keys(FLOTA).filter(function(k){return k.startsWith('JAC');}).sort();
   var kmCfg=cfg.km||5000;
