@@ -433,22 +433,28 @@ body{background:#0f1923;color:#fff;font-family:-apple-system,BlinkMacSystemFont,
   <!-- ══════ TAB ENTREGA ══════ -->
   <div class="tab-page" id="tab-entrega">
     <div class="content">
-      <div style="background:#1a2d3d;border-radius:12px;padding:12px 14px;margin-bottom:14px;font-size:12px;color:rgba(255,255,255,.7);line-height:1.5">
+      <!-- Toggle tipo: Entrega o Mantenimiento -->
+      <div style="display:flex;gap:8px;margin-bottom:12px">
+        <button id="ent-tipo-entrega" onclick="entSetTipo('entrega')" style="flex:1;background:#7dc941;color:#0f1923;border:none;border-radius:10px;padding:12px;font-size:14px;font-weight:800;cursor:pointer">📦 Entrega</button>
+        <button id="ent-tipo-mant" onclick="entSetTipo('mantenimiento')" style="flex:1;background:#111c26;color:rgba(255,255,255,.55);border:1px solid rgba(255,255,255,.15);border-radius:10px;padding:12px;font-size:14px;font-weight:800;cursor:pointer">🔧 Mantenimiento</button>
+      </div>
+
+      <div id="ent-intro" style="background:#1a2d3d;border-radius:12px;padding:12px 14px;margin-bottom:14px;font-size:12px;color:rgba(255,255,255,.7);line-height:1.5">
         📦 <b style="color:#7dc941">Prueba de entrega</b> — tomá la foto <b>en vivo</b> (cámara), el sistema graba la <b>ubicación GPS</b> y la hora. El que recibe confirma abajo.
       </div>
 
       <div id="ent-form">
-        <label style="display:block;font-size:11px;color:rgba(255,255,255,.5);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Cliente / destino</label>
+        <label id="ent-lbl-cliente" style="display:block;font-size:11px;color:rgba(255,255,255,.5);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Cliente / destino</label>
         <input id="ent-cliente" placeholder="Ej: Supermercado La Guaira" style="width:100%;background:#111c26;border:1px solid rgba(255,255,255,.12);color:#fff;border-radius:10px;padding:12px;font-size:15px;margin-bottom:12px">
 
-        <label style="display:block;font-size:11px;color:rgba(255,255,255,.5);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Dirección / referencia (opcional)</label>
+        <label id="ent-lbl-direccion" style="display:block;font-size:11px;color:rgba(255,255,255,.5);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Dirección / referencia (opcional)</label>
         <input id="ent-direccion" placeholder="Ej: Av. Principal, galpón 3" style="width:100%;background:#111c26;border:1px solid rgba(255,255,255,.12);color:#fff;border-radius:10px;padding:12px;font-size:15px;margin-bottom:12px">
 
-        <label style="display:block;font-size:11px;color:rgba(255,255,255,.5);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Foto de la entrega (en vivo)</label>
+        <label id="ent-lbl-foto" style="display:block;font-size:11px;color:rgba(255,255,255,.5);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Foto de la entrega (en vivo)</label>
         <input type="file" id="ent-foto" accept="image/*" capture="environment" onchange="entregaPreviewFoto(this)" style="display:none">
         <button onclick="document.getElementById('ent-foto').click()" style="width:100%;background:#1e3a5f;color:#fff;border:2px dashed rgba(125,201,65,.5);border-radius:12px;padding:16px;font-size:15px;font-weight:700;cursor:pointer;margin-bottom:8px">📷 Tomar foto</button>
         <img id="ent-foto-prev" style="display:none;width:100%;border-radius:12px;margin-bottom:4px;border:1px solid rgba(255,255,255,.1)">
-        <div id="ent-foto-hint" style="display:none;font-size:11px;color:#7dc941;margin-bottom:12px;text-align:center">✅ Así se guarda, con el sello (unidad, GPS y hora). Tocá "Registrar entrega".</div>
+        <div id="ent-foto-hint" style="display:none;font-size:11px;color:#7dc941;margin-bottom:12px;text-align:center">✅ Así se guarda, con el sello (unidad, GPS y hora).</div>
 
         <div id="ent-gps-box" style="background:#111c26;border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:10px 12px;margin-bottom:12px;font-size:12px;color:rgba(255,255,255,.6);display:flex;align-items:center;justify-content:space-between;gap:8px">
           <span id="ent-gps-txt">📍 Ubicación: sin capturar</span>
@@ -458,17 +464,17 @@ body{background:#0f1923;color:#fff;font-family:-apple-system,BlinkMacSystemFont,
         <button id="ent-guardar-btn" onclick="registrarEntrega()" style="width:100%;background:#7dc941;color:#0f1923;border:none;border-radius:12px;padding:16px;font-size:16px;font-weight:800;cursor:pointer">✅ Registrar entrega</button>
       </div>
 
-      <!-- Confirmación del receptor (en el momento) -->
+      <!-- Confirmación del receptor / verificador (en el momento) -->
       <div id="ent-confirm" style="display:none;background:#1a2d3d;border:1px solid rgba(125,201,65,.4);border-radius:12px;padding:14px;margin-top:14px">
-        <div style="font-size:14px;font-weight:800;color:#7dc941;margin-bottom:8px">📝 Confirmación de quien recibe</div>
+        <div id="ent-confirm-title" style="font-size:14px;font-weight:800;color:#7dc941;margin-bottom:8px">📝 Confirmación de quien recibe</div>
         <input id="ent-rec-nombre" placeholder="Nombre de quien recibe" style="width:100%;background:#111c26;border:1px solid rgba(255,255,255,.12);color:#fff;border-radius:10px;padding:12px;font-size:15px;margin-bottom:8px">
         <input id="ent-rec-ci" placeholder="Cédula (opcional)" style="width:100%;background:#111c26;border:1px solid rgba(255,255,255,.12);color:#fff;border-radius:10px;padding:12px;font-size:15px;margin-bottom:10px">
-        <button onclick="entregaConfirmarRecepcion()" style="width:100%;background:#7dc941;color:#0f1923;border:none;border-radius:12px;padding:14px;font-size:15px;font-weight:800;cursor:pointer">Confirmar recepción</button>
+        <button id="ent-confirm-btn" onclick="entregaConfirmarRecepcion()" style="width:100%;background:#7dc941;color:#0f1923;border:none;border-radius:12px;padding:14px;font-size:15px;font-weight:800;cursor:pointer">Confirmar recepción</button>
       </div>
 
-      <!-- Entregas del día -->
+      <!-- Registros del día -->
       <div style="margin-top:20px">
-        <div style="font-size:12px;color:rgba(255,255,255,.4);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">Entregas de hoy</div>
+        <div style="font-size:12px;color:rgba(255,255,255,.4);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">Registros de hoy</div>
         <div id="ent-lista"></div>
       </div>
 
@@ -726,7 +732,46 @@ function switchTab(tab){
 // ════════════════════════════════
 var ENT_FOTO_FILE = null;      // File de la foto tomada
 var ENT_GPS = null;            // {lat,lng,acc}
-var ENT_ULTIMA = null;         // última entrega registrada (para confirmar recepción)
+var ENT_ULTIMA = null;         // último registro (para confirmar recepción/verificación)
+var ENT_TIPO = 'entrega';      // 'entrega' | 'mantenimiento'
+
+// Alterna el tipo de evidencia y reetiqueta el formulario (misma foto+GPS+sello).
+function entSetTipo(t){
+  ENT_TIPO = t;
+  var isMant = (t==='mantenimiento');
+  var be=document.getElementById('ent-tipo-entrega'), bm=document.getElementById('ent-tipo-mant');
+  if(be){ be.style.background=isMant?'#111c26':'#7dc941'; be.style.color=isMant?'rgba(255,255,255,.55)':'#0f1923'; be.style.border=isMant?'1px solid rgba(255,255,255,.15)':'none'; }
+  if(bm){ bm.style.background=isMant?'#7dc941':'#111c26'; bm.style.color=isMant?'#0f1923':'rgba(255,255,255,.55)'; bm.style.border=isMant?'none':'1px solid rgba(255,255,255,.15)'; }
+  var lc=document.getElementById('ent-lbl-cliente'), ld=document.getElementById('ent-lbl-direccion'), lf=document.getElementById('ent-lbl-foto');
+  var ic=document.getElementById('ent-cliente'), idr=document.getElementById('ent-direccion');
+  var intro=document.getElementById('ent-intro'), ct=document.getElementById('ent-confirm-title');
+  var gb=document.getElementById('ent-guardar-btn'), rn=document.getElementById('ent-rec-nombre'), cb=document.getElementById('ent-confirm-btn');
+  if(isMant){
+    if(lc)lc.textContent='Trabajo realizado'; if(ic)ic.placeholder='Ej: Drenado del filtro trampa';
+    if(ld)ld.textContent='Detalle / repuesto (opcional)'; if(idr)idr.placeholder='Ej: cambio de filtro P/N 1234';
+    if(lf)lf.textContent='Foto del mantenimiento (en vivo)';
+    if(intro)intro.innerHTML='🔧 <b style="color:#7dc941">Evidencia de mantenimiento</b> — tomá la foto <b>en vivo</b> del trabajo (drenado, cambio de repuesto…); el sistema graba <b>unidad, GPS y hora</b>. Un supervisor puede verificar abajo.';
+    if(gb)gb.textContent='✅ Registrar mantenimiento';
+    if(ct)ct.textContent='🔧 Verificación (supervisor / mecánico)';
+    if(rn)rn.placeholder='Nombre de quien verifica';
+    if(cb)cb.textContent='Confirmar verificación';
+  }else{
+    if(lc)lc.textContent='Cliente / destino'; if(ic)ic.placeholder='Ej: Supermercado La Guaira';
+    if(ld)ld.textContent='Dirección / referencia (opcional)'; if(idr)idr.placeholder='Ej: Av. Principal, galpón 3';
+    if(lf)lf.textContent='Foto de la entrega (en vivo)';
+    if(intro)intro.innerHTML='📦 <b style="color:#7dc941">Prueba de entrega</b> — tomá la foto <b>en vivo</b> (cámara), el sistema graba la <b>ubicación GPS</b> y la hora. El que recibe confirma abajo.';
+    if(gb)gb.textContent='✅ Registrar entrega';
+    if(ct)ct.textContent='📝 Confirmación de quien recibe';
+    if(rn)rn.placeholder='Nombre de quien recibe';
+    if(cb)cb.textContent='Confirmar recepción';
+  }
+}
+// Línea de concepto para el sello, según el tipo.
+function _entConcepto(){
+  var v=(document.getElementById('ent-cliente').value||'').trim();
+  if(!v) return '';
+  return (ENT_TIPO==='mantenimiento' ? '🔧 ' : 'Entrega: ') + v;
+}
 
 function entregaPreviewFoto(input){
   var f = input.files && input.files[0];
@@ -744,9 +789,8 @@ function entregaPreviewFoto(input){
 // Re-genera la vista previa CON el sello (así el chofer ve exactamente cómo queda guardada).
 async function _entRefreshPreview(){
   if(!ENT_FOTO_FILE) return;
-  var cliente = (document.getElementById('ent-cliente').value||'').trim();
   try{
-    var dataURL = await _entregaWatermark(ENT_FOTO_FILE, cliente?('Entrega: '+cliente):'');
+    var dataURL = await _entregaWatermark(ENT_FOTO_FILE, _entConcepto());
     var img = document.getElementById('ent-foto-prev'); if(img){ img.src = dataURL; img.style.display='block'; }
   }catch(e){}
 }
@@ -783,7 +827,7 @@ function _entregaWatermark(file, concepto, recibido){
         fh + (ENT_GPS ? ('  ·  GPS '+ENT_GPS.lat.toFixed(5)+','+ENT_GPS.lng.toFixed(5)+' (±'+ENT_GPS.acc+'m)') : '  ·  sin GPS')
       ];
       if(concepto) lineas.push(concepto);
-      if(recibido) lineas.push('Recibió: '+recibido);
+      if(recibido) lineas.push(recibido);
       var fs = Math.max(18, Math.round(w*0.034));   // ~un tercio más grande que antes
       var lh = Math.round(fs*1.28), pad = Math.round(fs*0.6);
       var bandH = pad*2 + lineas.length*lh;
@@ -816,14 +860,15 @@ function _tokenEntrega(){
 }
 
 async function registrarEntrega(){
+  var isMant = (ENT_TIPO==='mantenimiento');
   var cliente = (document.getElementById('ent-cliente').value||'').trim();
-  if(!cliente){ mostrarToast('Escribí el cliente/destino','error'); return; }
-  if(!ENT_FOTO_FILE){ mostrarToast('Tomá la foto de la entrega','error'); return; }
+  if(!cliente){ mostrarToast(isMant?'Escribí el trabajo realizado':'Escribí el cliente/destino','error'); return; }
+  if(!ENT_FOTO_FILE){ mostrarToast('Tomá la foto','error'); return; }
   if(!ENT_GPS){ mostrarToast('Falta la ubicación — tocá "Ubicar"','error'); entregaTomarGPS(); return; }
   var btn = document.getElementById('ent-guardar-btn'); btn.disabled = true; var txtOrig = btn.textContent; btn.textContent = 'Guardando…';
   try{
     var direccion = (document.getElementById('ent-direccion').value||'').trim();
-    var dataURL = await _entregaWatermark(ENT_FOTO_FILE, cliente?('Entrega: '+cliente):'');
+    var dataURL = await _entregaWatermark(ENT_FOTO_FILE, _entConcepto());
     var id = (cam||'X')+'-'+Date.now();
     var fotoUrl = '';
     // Subir la foto al bucket 'entregas' (público). Si falla, guardo el dataURL directo (resiliente).
@@ -838,7 +883,7 @@ async function registrarEntrega(){
     if(!fotoUrl) fotoUrl = dataURL; // fallback: la imagen queda embebida
     var now = new Date();
     var row = {
-      id: id, cam: cam||'', chofer: chofer||'', cliente: cliente, direccion: direccion,
+      id: id, cam: cam||'', chofer: chofer||'', cliente: cliente, direccion: direccion, tipo: ENT_TIPO,
       lat: ENT_GPS.lat, lng: ENT_GPS.lng, precision_gps: ENT_GPS.acc,
       foto_url: fotoUrl, fecha: hoy, hora: String(now.getHours()).padStart(2,'0')+':'+String(now.getMinutes()).padStart(2,'0'),
       estado: 'entregada', token: _tokenEntrega()
@@ -851,7 +896,7 @@ async function registrarEntrega(){
     }
     if(!ok) encolarEntrega(row);
     ENT_ULTIMA = row;
-    mostrarToast(ok?'✅ Entrega registrada':'📵 Guardada (se sube al reconectar)','exito');
+    mostrarToast(ok?(isMant?'✅ Mantenimiento registrado':'✅ Entrega registrada'):'📵 Guardado (se sube al reconectar)','exito');
     // Mostrar bloque de confirmación del receptor
     document.getElementById('ent-confirm').style.display = 'block';
     document.getElementById('ent-confirm').scrollIntoView({behavior:'smooth'});
@@ -864,17 +909,19 @@ async function registrarEntrega(){
 }
 
 async function entregaConfirmarRecepcion(){
-  if(!ENT_ULTIMA){ mostrarToast('Registrá la entrega primero','error'); return; }
+  if(!ENT_ULTIMA){ mostrarToast('Registrá primero','error'); return; }
+  var _esMantU = (ENT_ULTIMA.tipo==='mantenimiento');
   var nombre = (document.getElementById('ent-rec-nombre').value||'').trim();
-  if(!nombre){ mostrarToast('Escribí el nombre de quien recibe','error'); return; }
+  if(!nombre){ mostrarToast(_esMantU?'Escribí quién verifica':'Escribí el nombre de quien recibe','error'); return; }
   var ci = (document.getElementById('ent-rec-ci').value||'').trim();
   var patch = { estado:'confirmada', recibido_por:nombre, recibido_ci:ci, recibido_at:new Date().toISOString() };
   ENT_ULTIMA.estado='confirmada'; ENT_ULTIMA.recibido_por=nombre; ENT_ULTIMA.recibido_ci=ci; ENT_ULTIMA.recibido_at=patch.recibido_at;
   // Re-sellar la FOTO FINAL con quién recibió (si aún tenemos el archivo original en memoria).
   if(ENT_FOTO_FILE){
     try{
-      var recTxt = nombre + (ci?(' (CI '+ci+')'):'');
-      var conceptoFinal = (ENT_ULTIMA.cliente?('Entrega: '+ENT_ULTIMA.cliente):'');
+      var esMant = (ENT_ULTIMA.tipo==='mantenimiento');
+      var recTxt = (esMant?'Verificó: ':'Recibió: ') + nombre + (ci?(' (CI '+ci+')'):'');
+      var conceptoFinal = ENT_ULTIMA.cliente ? ((esMant?'🔧 ':'Entrega: ')+ENT_ULTIMA.cliente) : '';
       var dataURL2 = await _entregaWatermark(ENT_FOTO_FILE, conceptoFinal, recTxt);
       var fotoUrl2 = '';
       if(isOnline && supabase){
@@ -896,8 +943,8 @@ async function entregaConfirmarRecepcion(){
     else ok = true;
   }
   if(!ok) encolarEntrega(ENT_ULTIMA);
-  mostrarToast(ok?'✅ Recepción confirmada por '+nombre:'📵 Confirmación guardada (se sube al reconectar)','exito');
-  // Limpiar el formulario para la próxima entrega
+  mostrarToast(ok?((_esMantU?'✅ Verificado por ':'✅ Recepción confirmada por ')+nombre):'📵 Confirmación guardada (se sube al reconectar)','exito');
+  // Limpiar el formulario para el próximo registro
   document.getElementById('ent-cliente').value=''; document.getElementById('ent-direccion').value='';
   document.getElementById('ent-rec-nombre').value=''; document.getElementById('ent-rec-ci').value='';
   document.getElementById('ent-foto-prev').style.display='none'; document.getElementById('ent-foto').value='';
@@ -905,6 +952,7 @@ async function entregaConfirmarRecepcion(){
   document.getElementById('ent-gps-txt').textContent='📍 Ubicación: sin capturar';
   document.getElementById('ent-confirm').style.display='none';
   ENT_FOTO_FILE=null; ENT_GPS=null; ENT_ULTIMA=null;
+  try{ entSetTipo('entrega'); }catch(e){}
   renderEntregasHoy();
 }
 
@@ -936,17 +984,18 @@ async function renderEntregasHoy(){
   }
   // Sumar las que están en cola (aún sin subir)
   COLA_ENT.forEach(function(c){ if(c.cam===cam && c.fecha===hoy && !lista.some(function(x){return x.id===c.id;})) lista.push(c); });
-  if(!lista.length){ cont.innerHTML='<div style="color:rgba(255,255,255,.35);font-size:12px;padding:8px">Sin entregas hoy.</div>'; return; }
+  if(!lista.length){ cont.innerHTML='<div style="color:rgba(255,255,255,.35);font-size:12px;padding:8px">Sin registros hoy.</div>'; return; }
   cont.innerHTML = lista.map(function(e){
     var conf = e.estado==='confirmada';
+    var esMant = (e.tipo==='mantenimiento');
     return '<div style="background:#111c26;border:1px solid '+(conf?'rgba(125,201,65,.35)':'rgba(255,255,255,.1)')+';border-radius:10px;overflow:hidden;margin-bottom:8px">'+
       (e.foto_url?'<img src="'+e.foto_url+'" onclick="window.open(this.src,\'_blank\')" style="width:100%;height:130px;object-fit:cover;display:block;cursor:pointer">':'')+
       '<div style="padding:10px 12px">'+
         '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px">'+
-          '<div style="font-weight:700;font-size:14px">'+(e.cliente||'—')+'</div>'+
-          '<span style="font-size:10px;font-weight:700;padding:3px 8px;border-radius:20px;'+(conf?'background:rgba(125,201,65,.15);color:#7dc941':'background:rgba(239,159,39,.15);color:#ef9f27')+'">'+(conf?'✔ confirmada':'entregada')+'</span>'+
+          '<div style="font-weight:700;font-size:14px">'+(esMant?'🔧 ':'📦 ')+(e.cliente||'—')+'</div>'+
+          '<span style="font-size:10px;font-weight:700;padding:3px 8px;border-radius:20px;'+(conf?'background:rgba(125,201,65,.15);color:#7dc941':'background:rgba(239,159,39,.15);color:#ef9f27')+'">'+(conf?(esMant?'✔ verificado':'✔ confirmada'):(esMant?'sin verificar':'entregada'))+'</span>'+
         '</div>'+
-        '<div style="font-size:11px;color:rgba(255,255,255,.5);margin-top:3px">'+(e.hora||'')+(e.recibido_por?(' · recibió: '+e.recibido_por):'')+'</div>'+
+        '<div style="font-size:11px;color:rgba(255,255,255,.5);margin-top:3px">'+(e.hora||'')+(e.recibido_por?((esMant?' · verificó: ':' · recibió: ')+e.recibido_por):'')+'</div>'+
       '</div>'+
     '</div>';
   }).join('');
