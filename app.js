@@ -4107,7 +4107,8 @@ function renderNominaHist(){
       grupos.forEach(function(gp){
         (d[gp[0]]||[]).forEach(function(p){
           if((p.n||'').toUpperCase().indexOf(filtro)>=0){
-            filas.push({sem:h.semana,per:h.periodo||'',rol:gp[1],viajes:(p.viajes!=null?p.viajes:'-'),usd:parseFloat(p.usd)||0,bs:parseFloat(p.bs)||0,nom:p.n});
+            var _dh=_semDeFecha(h.fecha_desde);
+            filas.push({sem:(_dh?_dh.label:h.semana),per:(_dh?_dh.periodo:(h.periodo||'')),rol:gp[1],viajes:(p.viajes!=null?p.viajes:'-'),usd:parseFloat(p.usd)||0,bs:parseFloat(p.bs)||0,nom:p.n});
             tp+=parseFloat(p.usd)||0; tb+=parseFloat(p.bs)||0;
           }
         });
@@ -4130,11 +4131,30 @@ function renderNominaHist(){
       var celdaBs=sinTasa
         ? '<td style="font-family:var(--m);color:var(--red);font-size:10px">⚠️ Sin tasa registrada</td>'
         : '<td style="font-family:var(--m);color:var(--yellow)">Bs '+(parseFloat(h.total_bs)||0).toLocaleString('es-VE',{maximumFractionDigits:0})+'<br><span style="font-size:9px;color:var(--text3)">tasa '+(parseFloat(h.tasa)||0).toLocaleString('es-VE',{maximumFractionDigits:2})+'</span></td>';
-      return '<tr><td style="font-weight:700">'+h.semana+'</td><td style="font-size:10px;color:var(--text3)">'+(h.periodo||'')+'</td>'+
+      // Rótulo SEM-N + período calculados de la fecha para TODAS las filas (viejas y nuevas), así
+      // el historial se ve consecutivo aunque la fila se haya guardado con el formato viejo "Semana N".
+      var _disp=_semDeFecha(h.fecha_desde);
+      var _semTxt=_disp?_disp.label:h.semana, _perTxt=_disp?_disp.periodo:(h.periodo||'');
+      return '<tr><td style="font-weight:700">'+_semTxt+'</td><td style="font-size:10px;color:var(--text3)">'+_perTxt+'</td>'+
       '<td style="font-family:var(--m);color:var(--green)">$'+(parseFloat(h.total_usd)||0).toLocaleString('es-VE',{maximumFractionDigits:0})+'</td>'+
       celdaBs+
-      '<td style="white-space:nowrap"><button class="btn btn-s btn-xs" onclick="verNominaHistDetalle(\''+h.semana+'\')">ver</button> <button class="btn '+(sinTasa?'btn-r':'btn-s')+' btn-xs" title="Corregir o registrar la tasa Bs/$ de la semana (la del día que se pagó). Recalcula los Bs." onclick="editarTasaHist(\''+h.semana+'\')">'+(sinTasa?'⚠️ tasa':'✏️ tasa')+'</button></td></tr>';}).join('')+
+      '<td style="white-space:nowrap"><button class="btn btn-s btn-xs" onclick="verNominaHistDetalle(\''+h.semana+'\')">ver</button> <button class="btn '+(sinTasa?'btn-r':'btn-s')+' btn-xs" title="Corregir o registrar la tasa Bs/$ de la semana (la del día que se pagó). Recalcula los Bs." onclick="editarTasaHist(\''+h.semana+'\')">'+(sinTasa?'⚠️ tasa':'✏️ tasa')+'</button> <button class="btn btn-r btn-xs" title="Eliminar esta semana del historial" onclick="eliminarNominaHist(\''+String(h.id||h.semana).replace(/\x27/g,"")+'\')">🗑️</button></td></tr>';}).join('')+
     '</tbody></table>';
+}
+// Elimina una semana del historial de nómina. ⚠️ NO revierte las cuotas de préstamos/multas que se
+// hayan avanzado al pagar esa semana (eso queda en préstamos/multas) — se avisa en el confirm.
+async function eliminarNominaHist(id){
+  var h=(NOMINA_HIST||[]).find(function(x){return String(x.id)===String(id)||x.semana===id;});
+  if(!h){alert('No encontré esa semana.');return;}
+  var _d=_semDeFecha(h.fecha_desde); var lbl=_d?_d.label:h.semana; var per=_d?_d.periodo:(h.periodo||'');
+  if(!confirm('¿ELIMINAR "'+lbl+'" ('+per+') del historial?\n\nTotal $'+(parseFloat(h.total_usd)||0).toFixed(0)+'.\n\n⚠️ Esto NO revierte cuotas de préstamos/multas ya avanzadas al pagar esa semana.'))return;
+  if(!(DB_READY&&supabase)){alert('Sin conexión a la base.');return;}
+  var res=await supabase.from('nomina_historial').delete().eq('id',h.id);
+  if(res&&res.error){mostrarToast('No se pudo eliminar: '+res.error.message,'error');return;}
+  NOMINA_HIST=(NOMINA_HIST||[]).filter(function(x){return x.id!==h.id;});
+  audit('Semana de nómina eliminada',lbl+' ('+h.id+')');
+  try{renderNominaHist();}catch(e){}
+  mostrarToast('✅ "'+lbl+'" eliminada del historial','exito');
 }
 // Corregir/registrar la TASA Bs/$ de una semana del historial (la del día que se pagó). Recalcula
 // el total_bs y los bs de cada persona SIN tocar los USD (la verdad operativa está en USD). Arregla
@@ -4206,7 +4226,7 @@ function verNominaHistDetalle(sem){
   ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:13000;display:flex;align-items:center;justify-content:center;padding:16px';
   ov.onclick=function(e){if(e.target===ov)ov.remove();};
   ov.innerHTML='<div style="background:var(--bg2,#16181d);border:1px solid var(--border);border-radius:12px;max-width:580px;width:100%;max-height:88vh;overflow:auto;padding:16px">'+
-    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><div style="font-weight:800">📋 '+sem+' — '+(h.periodo||'')+'</div>'+
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><div style="font-weight:800">📋 '+((_semDeFecha(h.fecha_desde)||{}).label||sem)+' — '+((_semDeFecha(h.fecha_desde)||{}).periodo||h.periodo||'')+'</div>'+
     '<button class="btn btn-r btn-xs" onclick="document.getElementById(\'nm-hist-modal\').remove()">✕</button></div>'+
     '<div style="font-size:11px;color:var(--text3);margin-bottom:6px">Total: $'+(parseFloat(h.total_usd)||0).toLocaleString('es-VE')+' · '+(parseFloat(h.tasa)>0?('Bs '+(parseFloat(h.total_bs)||0).toLocaleString('es-VE')+' · tasa '+h.tasa):'<span style="color:var(--red);font-weight:700">⚠️ Sin tasa registrada</span>')+'</div>'+html+'</div>';
   document.body.appendChild(ov);
@@ -4359,7 +4379,7 @@ async function aplicarAvanceDescuentos(n){
 function llenarAudSem(){
   var sel=g('aud-sem'); if(!sel)return; var cur=sel.value;
   var hist=(NOMINA_HIST||[]).slice().sort(function(a,b){var fa=a.fecha_desde||'',fb=b.fecha_desde||'';if(fa&&fb&&fa!==fb)return fa<fb?-1:1;return a.semana<b.semana?-1:(a.semana>b.semana?1:0);});
-  sel.innerHTML='<option value="">— elegí semana —</option>'+hist.map(function(h){return '<option value="'+h.semana+'">'+h.semana+(h.periodo?(' · '+String(h.periodo).slice(0,22)):'')+'</option>';}).join('');
+  sel.innerHTML='<option value="">— elegí semana —</option>'+hist.map(function(h){var _d=_semDeFecha(h.fecha_desde);var _t=_d?_d.label:h.semana;var _p=_d?_d.periodo:(h.periodo||'');return '<option value="'+h.semana+'">'+_t+(_p?(' · '+String(_p).slice(0,26)):'')+'</option>';}).join('');
   if(cur)sel.value=cur;
 }
 // Construye el cotejo de una semana del historial vs la planilla. Usa el MISMO criterio de
