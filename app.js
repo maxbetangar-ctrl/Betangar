@@ -5706,7 +5706,7 @@ function renderEntregas(){
       var cf=e.estado==='confirmada'; var esMant=(e.tipo==='mantenimiento');
       var gps=(e.lat&&e.lng)?('<a href="https://www.openstreetmap.org/?mlat='+e.lat+'&mlon='+e.lng+'#map=17/'+e.lat+'/'+e.lng+'" target="_blank" rel="noopener" style="color:var(--teal)">📍 '+Number(e.lat).toFixed(5)+', '+Number(e.lng).toFixed(5)+(e.precision_gps?(' (±'+Math.round(e.precision_gps)+'m)'):'')+'</a>'):'<span style="color:var(--text3)">sin GPS</span>';
       return '<div style="background:var(--bg3);border:1px solid '+(cf?'var(--green)':'var(--border)')+';border-radius:10px;overflow:hidden">'+
-        (e.foto_url?'<img src="'+_entEsc(e.foto_url)+'" onclick="window.open(this.src,\'_blank\')" style="width:100%;height:150px;object-fit:cover;cursor:pointer;display:block" title="Ver foto">':'<div style="height:150px;display:flex;align-items:center;justify-content:center;color:var(--text3);font-size:11px">sin foto</div>')+
+        (e.foto_url?'<img src="'+_entEsc(e.foto_url)+'" onclick="_entVerFoto(this.src)" style="width:100%;height:150px;object-fit:cover;cursor:zoom-in;display:block" title="Ver foto">':'<div style="height:150px;display:flex;align-items:center;justify-content:center;color:var(--text3);font-size:11px">sin foto</div>')+
         '<div style="padding:10px">'+
           '<div style="display:flex;justify-content:space-between;align-items:center;gap:6px"><div style="font-weight:700;font-size:13px">'+(esMant?'🔧 ':'📦 ')+_entEsc(e.cliente||'—')+'</div>'+
           '<span style="font-size:9px;font-weight:700;padding:2px 7px;border-radius:12px;'+(cf?'background:rgba(34,197,94,.15);color:var(--green)':'background:rgba(245,158,11,.15);color:var(--amber)')+'">'+(cf?(esMant?'✔ verificado':'✔ confirmada'):(esMant?'sin verificar':'entregada'))+'</span></div>'+
@@ -5719,10 +5719,23 @@ function renderEntregas(){
         '</div></div>';
     }).join('')+'</div>';
 }
+// Visor de foto dentro de la app (lightbox). Sirve para URLs del bucket Y para imágenes embebidas
+// (dataURL) — window.open bloquea las data: URL, por eso NO se abrían en grande.
+function _entVerFoto(src){
+  if(!src)return;
+  var prev=document.getElementById('ent-foto-modal'); if(prev)prev.remove();
+  var ov=document.createElement('div'); ov.id='ent-foto-modal';
+  ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.88);z-index:14000;display:flex;align-items:center;justify-content:center;padding:16px;cursor:zoom-out';
+  ov.onclick=function(){ov.remove();};
+  var img=document.createElement('img'); img.src=src;
+  img.style.cssText='max-width:100%;max-height:100%;border-radius:8px;box-shadow:0 6px 40px rgba(0,0,0,.6)';
+  ov.appendChild(img); document.body.appendChild(ov);
+}
 function _entRenderMapa(lista){
   var cont=g('ent-of-map'); if(!cont||typeof L==='undefined')return;
   if(!_entMapObj){
-    _entMapObj=L.map(cont).setView([10.5,-66.9],6); // Venezuela por defecto
+    // scrollWheelZoom:false → la rueda scrollea la PÁGINA (no hace zoom); el mapa no atrapa el scroll.
+    _entMapObj=L.map(cont,{scrollWheelZoom:false}).setView([10.5,-66.9],6); // Venezuela por defecto
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap'}).addTo(_entMapObj);
   }
   setTimeout(function(){try{_entMapObj.invalidateSize();}catch(e){}},60);
@@ -5733,7 +5746,7 @@ function _entRenderMapa(lista){
     var cf=e.estado==='confirmada';
     var esMant=(e.tipo==='mantenimiento');
     var mk=L.circleMarker([e.lat,e.lng],{radius:8,color:cf?'#22c55e':'#f59e0b',fillColor:cf?'#22c55e':'#f59e0b',fillOpacity:.8,weight:2}).addTo(_entMapObj);
-    mk.bindPopup('<b>'+(esMant?'🔧 ':'📦 ')+_entEsc(e.cliente||'—')+'</b><br>'+_entEsc(e.cam||'')+' · '+formatFecha(e.fecha)+' '+_entEsc(e.hora||'')+(cf?('<br>✔ '+(esMant?'verificó ':'recibió ')+_entEsc(e.recibido_por||'')):(esMant?'<br>sin verificar':'<br>sin confirmar'))+(e.foto_url?('<br><img src="'+_entEsc(e.foto_url)+'" style="width:180px;margin-top:4px;border-radius:4px">'):''));
+    mk.bindPopup('<b>'+(esMant?'🔧 ':'📦 ')+_entEsc(e.cliente||'—')+'</b><br>'+_entEsc(e.cam||'')+' · '+formatFecha(e.fecha)+' '+_entEsc(e.hora||'')+(cf?('<br>✔ '+(esMant?'verificó ':'recibió ')+_entEsc(e.recibido_por||'')):(esMant?'<br>sin verificar':'<br>sin confirmar'))+(e.foto_url?('<br><img src="'+_entEsc(e.foto_url)+'" onclick="_entVerFoto(this.src)" style="width:180px;margin-top:4px;border-radius:4px;cursor:zoom-in">'):''));
     _entMarkers.push(mk); pts.push([e.lat,e.lng]);
   });
   if(pts.length){ try{_entMapObj.fitBounds(pts,{padding:[30,30],maxZoom:15});}catch(e){} }

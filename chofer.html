@@ -975,6 +975,18 @@ async function subirColaEntregas(){
   persistColaEnt();
 }
 
+// Visor de foto (lightbox) — funciona con URL del bucket Y con imágenes embebidas (dataURL),
+// que window.open bloquea (por eso "en grande no abría").
+function _entVerFotoCh(src){
+  if(!src)return;
+  var prev=document.getElementById('ent-foto-modal-ch'); if(prev)prev.remove();
+  var ov=document.createElement('div'); ov.id='ent-foto-modal-ch';
+  ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.9);z-index:20000;display:flex;align-items:center;justify-content:center;padding:12px';
+  ov.onclick=function(){ov.remove();};
+  var img=document.createElement('img'); img.src=src;
+  img.style.cssText='max-width:100%;max-height:100%;border-radius:8px';
+  ov.appendChild(img); document.body.appendChild(ov);
+}
 async function renderEntregasHoy(){
   var cont = document.getElementById('ent-lista'); if(!cont) return;
   var lista = [];
@@ -989,7 +1001,7 @@ async function renderEntregasHoy(){
     var conf = e.estado==='confirmada';
     var esMant = (e.tipo==='mantenimiento');
     return '<div style="background:#111c26;border:1px solid '+(conf?'rgba(125,201,65,.35)':'rgba(255,255,255,.1)')+';border-radius:10px;overflow:hidden;margin-bottom:8px">'+
-      (e.foto_url?'<img src="'+e.foto_url+'" onclick="window.open(this.src,\'_blank\')" style="width:100%;height:130px;object-fit:cover;display:block;cursor:pointer">':'')+
+      (e.foto_url?'<img src="'+e.foto_url+'" onclick="_entVerFotoCh(this.src)" style="width:100%;height:130px;object-fit:cover;display:block;cursor:zoom-in">':'')+
       '<div style="padding:10px 12px">'+
         '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px">'+
           '<div style="font-weight:700;font-size:14px">'+(esMant?'🔧 ':'📦 ')+(e.cliente||'—')+'</div>'+

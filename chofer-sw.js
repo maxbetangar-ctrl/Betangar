@@ -3,7 +3,7 @@
 // PWA Offline-First para choferes
 // ═══════════════════════════════════════════════════
 
-const CACHE_NAME = 'betangar-chofer-v13'; // v13: toggle Entrega/Mantenimiento (misma foto+GPS+sello sirve como evidencia de mantenimiento)
+const CACHE_NAME = 'betangar-chofer-v14'; // v14: visor de foto (lightbox) que sí abre las imágenes embebidas (dataURL) en grande
 
 // Archivos a cachear para funcionar sin internet
 const ARCHIVOS_CACHE = [
