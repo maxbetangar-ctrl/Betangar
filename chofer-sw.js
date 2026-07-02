@@ -3,7 +3,7 @@
 // PWA Offline-First para choferes
 // ═══════════════════════════════════════════════════
 
-const CACHE_NAME = 'betangar-chofer-v11'; // v11: la vista previa de la entrega muestra el sello (unidad/GPS/hora) + foto en la lista del día
+const CACHE_NAME = 'betangar-chofer-v12'; // v12: sello más grande + "Recibió: <nombre>" grabado en la foto final al confirmar la recepción
 
 // Archivos a cachear para funcionar sin internet
 const ARCHIVOS_CACHE = [

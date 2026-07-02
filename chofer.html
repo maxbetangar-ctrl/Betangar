@@ -746,7 +746,7 @@ async function _entRefreshPreview(){
   if(!ENT_FOTO_FILE) return;
   var cliente = (document.getElementById('ent-cliente').value||'').trim();
   try{
-    var dataURL = await _entregaWatermark(ENT_FOTO_FILE, cliente);
+    var dataURL = await _entregaWatermark(ENT_FOTO_FILE, cliente?('Entrega: '+cliente):'');
     var img = document.getElementById('ent-foto-prev'); if(img){ img.src = dataURL; img.style.display='block'; }
   }catch(e){}
 }
@@ -766,7 +766,7 @@ function entregaTomarGPS(){
 
 // Dibuja la foto en un canvas (reescalada) con marca de agua: fecha/hora, GPS, unidad, chofer, cliente.
 // Devuelve una Promise con el dataURL (JPEG). Anti-fraude: la foto sale con el sello encima.
-function _entregaWatermark(file, cliente){
+function _entregaWatermark(file, concepto, recibido){
   return new Promise(function(resolve, reject){
     var img = new Image();
     img.onload = function(){
@@ -775,23 +775,27 @@ function _entregaWatermark(file, cliente){
       var cv = document.getElementById('ent-canvas'); cv.width = w; cv.height = h;
       var ctx = cv.getContext('2d');
       ctx.drawImage(img, 0, 0, w, h);
-      // Franja inferior semitransparente con el sello
+      // Franja inferior semitransparente con el sello (más grande y legible)
       var now = new Date();
       var fh = String(now.getDate()).padStart(2,'0')+'/'+String(now.getMonth()+1).padStart(2,'0')+'/'+now.getFullYear()+' '+String(now.getHours()).padStart(2,'0')+':'+String(now.getMinutes()).padStart(2,'0');
-      var l1 = 'FlotaMax · '+(cam||'')+' · '+(chofer||'');
-      var l2 = fh + (ENT_GPS ? ('  ·  GPS '+ENT_GPS.lat.toFixed(5)+','+ENT_GPS.lng.toFixed(5)+' (±'+ENT_GPS.acc+'m)') : '  ·  sin GPS');
-      var l3 = cliente ? ('Entrega: '+cliente) : '';
-      var fs = Math.max(13, Math.round(w*0.028));
-      var pad = Math.round(fs*0.6), lines = l3?3:2;
-      var bandH = pad*2 + lines*(fs+4);
-      ctx.fillStyle = 'rgba(15,25,35,.62)';
+      var lineas = [
+        'FlotaMax · '+(cam||'')+' · '+(chofer||''),
+        fh + (ENT_GPS ? ('  ·  GPS '+ENT_GPS.lat.toFixed(5)+','+ENT_GPS.lng.toFixed(5)+' (±'+ENT_GPS.acc+'m)') : '  ·  sin GPS')
+      ];
+      if(concepto) lineas.push(concepto);
+      if(recibido) lineas.push('Recibió: '+recibido);
+      var fs = Math.max(18, Math.round(w*0.034));   // ~un tercio más grande que antes
+      var lh = Math.round(fs*1.28), pad = Math.round(fs*0.6);
+      var bandH = pad*2 + lineas.length*lh;
+      ctx.fillStyle = 'rgba(15,25,35,.68)';
       ctx.fillRect(0, h-bandH, w, bandH);
-      ctx.fillStyle = '#7dc941'; ctx.font = 'bold '+fs+'px sans-serif'; ctx.textBaseline='top';
-      ctx.fillText(l1, pad, h-bandH+pad);
-      ctx.fillStyle = '#fff'; ctx.font = fs+'px sans-serif';
-      ctx.fillText(l2, pad, h-bandH+pad+(fs+4));
-      if(l3) ctx.fillText(l3, pad, h-bandH+pad+2*(fs+4));
-      try{ resolve(cv.toDataURL('image/jpeg', 0.82)); }catch(e){ reject(e); }
+      ctx.textBaseline = 'top';
+      lineas.forEach(function(t,i){
+        ctx.fillStyle = (i===0) ? '#7dc941' : '#fff';
+        ctx.font = (i===0?'bold ':'')+fs+'px sans-serif';
+        ctx.fillText(t, pad, h-bandH+pad+i*lh);
+      });
+      try{ resolve(cv.toDataURL('image/jpeg', 0.85)); }catch(e){ reject(e); }
     };
     img.onerror = function(){ reject(new Error('No se pudo leer la foto')); };
     img.src = URL.createObjectURL(file);
@@ -819,7 +823,7 @@ async function registrarEntrega(){
   var btn = document.getElementById('ent-guardar-btn'); btn.disabled = true; var txtOrig = btn.textContent; btn.textContent = 'Guardando…';
   try{
     var direccion = (document.getElementById('ent-direccion').value||'').trim();
-    var dataURL = await _entregaWatermark(ENT_FOTO_FILE, cliente);
+    var dataURL = await _entregaWatermark(ENT_FOTO_FILE, cliente?('Entrega: '+cliente):'');
     var id = (cam||'X')+'-'+Date.now();
     var fotoUrl = '';
     // Subir la foto al bucket 'entregas' (público). Si falla, guardo el dataURL directo (resiliente).
@@ -866,6 +870,25 @@ async function entregaConfirmarRecepcion(){
   var ci = (document.getElementById('ent-rec-ci').value||'').trim();
   var patch = { estado:'confirmada', recibido_por:nombre, recibido_ci:ci, recibido_at:new Date().toISOString() };
   ENT_ULTIMA.estado='confirmada'; ENT_ULTIMA.recibido_por=nombre; ENT_ULTIMA.recibido_ci=ci; ENT_ULTIMA.recibido_at=patch.recibido_at;
+  // Re-sellar la FOTO FINAL con quién recibió (si aún tenemos el archivo original en memoria).
+  if(ENT_FOTO_FILE){
+    try{
+      var recTxt = nombre + (ci?(' (CI '+ci+')'):'');
+      var conceptoFinal = (ENT_ULTIMA.cliente?('Entrega: '+ENT_ULTIMA.cliente):'');
+      var dataURL2 = await _entregaWatermark(ENT_FOTO_FILE, conceptoFinal, recTxt);
+      var fotoUrl2 = '';
+      if(isOnline && supabase){
+        try{
+          var blob2 = _dataURLtoBlob(dataURL2);
+          var path2 = (ENT_ULTIMA.cam||'sin-unidad').replace(/[^\w-]/g,'_')+'/'+ENT_ULTIMA.id+'.jpg';
+          var up2 = await supabase.storage.from('entregas').upload(path2, blob2, { contentType:'image/jpeg', upsert:true });
+          if(!up2.error){ fotoUrl2 = supabase.storage.from('entregas').getPublicUrl(path2).data.publicUrl + '?t=' + Date.now(); }
+        }catch(e){}
+      }
+      if(!fotoUrl2) fotoUrl2 = dataURL2; // fallback embebido
+      patch.foto_url = fotoUrl2; ENT_ULTIMA.foto_url = fotoUrl2;
+    }catch(e){}
+  }
   var ok = false;
   if(isOnline && supabase){
     var res = await supabase.from('entregas').update(patch).eq('id', ENT_ULTIMA.id);
