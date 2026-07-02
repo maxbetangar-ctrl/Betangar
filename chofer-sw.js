@@ -3,7 +3,7 @@
 // PWA Offline-First para choferes
 // ═══════════════════════════════════════════════════
 
-const CACHE_NAME = 'betangar-chofer-v15'; // v15: reverse-geocoding OSM → muestra la CALLE (no solo coordenadas) en el sello y en la app
+const CACHE_NAME = 'betangar-chofer-v16'; // v16: botón "Enviar link a quien recibe" → app receptora (recibir.html) confirma desde otro equipo
 
 // Archivos a cachear para funcionar sin internet
 const ARCHIVOS_CACHE = [

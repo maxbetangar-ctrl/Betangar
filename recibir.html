@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta name="theme-color" content="#0f1923">
+<title>FlotaMax — Confirmar recepción</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+body{background:#0f1923;color:#fff;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;min-height:100vh}
+.wrap{max-width:480px;margin:0 auto;padding:16px}
+.head{text-align:center;padding:16px 0 8px}
+.logo{color:#7dc941;font-size:13px;font-weight:800;letter-spacing:2px;text-transform:uppercase}
+.sub{color:rgba(255,255,255,.5);font-size:12px;margin-top:2px}
+.card{background:#16232f;border:1px solid rgba(255,255,255,.08);border-radius:14px;overflow:hidden;margin-top:14px}
+.card img{width:100%;display:block;cursor:zoom-in}
+.pad{padding:14px}
+.badge{display:inline-block;font-size:11px;font-weight:700;padding:3px 9px;border-radius:20px}
+.b-ent{background:rgba(56,189,248,.15);color:#38bdf8}
+.b-mant{background:rgba(245,158,11,.15);color:#f59e0b}
+.row{font-size:13px;color:rgba(255,255,255,.75);margin-top:6px;line-height:1.5}
+.row b{color:#fff}
+.tit{font-size:18px;font-weight:800;margin-top:4px}
+label{display:block;font-size:11px;color:rgba(255,255,255,.5);text-transform:uppercase;letter-spacing:1px;margin:14px 0 4px}
+input{width:100%;background:#0f1923;border:1px solid rgba(255,255,255,.15);color:#fff;border-radius:10px;padding:13px;font-size:16px}
+.btn{width:100%;background:#7dc941;color:#0f1923;border:none;border-radius:12px;padding:16px;font-size:16px;font-weight:800;cursor:pointer;margin-top:16px}
+.btn:disabled{opacity:.6}
+.ok{background:rgba(125,201,65,.12);border:1px solid rgba(125,201,65,.4);border-radius:12px;padding:16px;text-align:center;margin-top:14px}
+.ok .big{font-size:40px}
+.msg{text-align:center;color:rgba(255,255,255,.6);font-size:14px;padding:30px 10px;line-height:1.6}
+.foot{text-align:center;color:rgba(255,255,255,.3);font-size:11px;margin:18px 0}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="head">
+    <div class="logo">📦 FlotaMax</div>
+    <div class="sub" id="sub">Confirmación de recepción</div>
+  </div>
+  <div id="app"><div class="msg">Cargando…</div></div>
+  <div class="foot">Powered by Maxware C.A.</div>
+</div>
+
+<!-- Visor de foto -->
+<div id="lightbox" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.9);z-index:9999;align-items:center;justify-content:center;padding:12px" onclick="this.style.display='none'">
+  <img id="lightbox-img" style="max-width:100%;max-height:100%;border-radius:8px">
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script>
+var SUPA_URL = 'https://hrkjddehqnzcqwlkklqm.supabase.co';
+var SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhya2pkZGVocW56Y3F3bGtrbHFtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc2NTk1NzIsImV4cCI6MjA5MzIzNTU3Mn0.kqWKthyZfPZ86toql7shGByF-ZhUpcQUS4Jw4RnG_ko';
+var _lib = window.supabase;
+var supabase = (_lib && _lib.createClient) ? _lib.createClient(SUPA_URL, SUPA_KEY) : null;
+
+var TOKEN = new URLSearchParams(location.search).get('t') || '';
+var ENT = null;
+
+function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function el(id){ return document.getElementById(id); }
+function verFoto(src){ if(!src)return; el('lightbox-img').src=src; el('lightbox').style.display='flex'; }
+function fmtFecha(f){ if(!f)return ''; var p=String(f).split('-'); return p.length===3?(p[2]+'/'+p[1]+'/'+p[0]):f; }
+
+async function cargar(){
+  if(!TOKEN){ el('app').innerHTML='<div class="msg">Link inválido. Pedile al chofer que te reenvíe el enlace de la entrega.</div>'; return; }
+  if(!supabase){ el('app').innerHTML='<div class="msg">No se pudo conectar. Revisá tu conexión y recargá.</div>'; return; }
+  try{
+    var r = await supabase.from('entregas').select('*').eq('token', TOKEN).limit(1);
+    if(r.error || !r.data || !r.data.length){ el('app').innerHTML='<div class="msg">No encontramos esta entrega. El link puede estar vencido o ser incorrecto.</div>'; return; }
+    ENT = r.data[0];
+    render();
+  }catch(e){ el('app').innerHTML='<div class="msg">Ocurrió un error al cargar. Recargá la página.</div>'; }
+}
+
+function render(){
+  var e = ENT, esMant = (e.tipo==='mantenimiento');
+  el('sub').textContent = esMant ? 'Verificación de mantenimiento' : 'Confirmación de recepción';
+  var conf = (e.estado==='confirmada');
+  var foto = e.foto_url ? '<img src="'+esc(e.foto_url)+'" onclick="verFoto(this.src)" alt="evidencia">' : '';
+  var info =
+    '<div class="pad">'+
+      '<span class="badge '+(esMant?'b-mant':'b-ent')+'">'+(esMant?'🔧 Mantenimiento':'📦 Entrega')+'</span>'+
+      '<div class="tit">'+esc(e.cliente||'—')+'</div>'+
+      (e.direccion?'<div class="row">'+esc(e.direccion)+'</div>':'')+
+      (e.direccion_gps?'<div class="row">📍 '+esc(e.direccion_gps)+'</div>':'')+
+      '<div class="row">Unidad <b>'+esc(e.cam||'—')+'</b> · '+esc(e.chofer||'')+'</div>'+
+      '<div class="row">'+fmtFecha(e.fecha)+' '+esc(e.hora||'')+'</div>'+
+    '</div>';
+
+  if(conf){
+    el('app').innerHTML = '<div class="card">'+foto+info+'</div>'+
+      '<div class="ok"><div class="big">✅</div><div style="font-weight:700;margin-top:6px">'+(esMant?'Verificado':'Recibido conforme')+'</div>'+
+      '<div style="color:rgba(255,255,255,.6);font-size:13px;margin-top:4px">Por <b>'+esc(e.recibido_por||'')+'</b>'+(e.recibido_ci?(' · CI '+esc(e.recibido_ci)):'')+'</div></div>';
+    return;
+  }
+  el('app').innerHTML = '<div class="card">'+foto+info+'</div>'+
+    '<label>'+(esMant?'Tu nombre (quien verifica)':'Tu nombre (quien recibe)')+'</label>'+
+    '<input id="rec-nombre" placeholder="Nombre y apellido" autocomplete="name">'+
+    '<label>Cédula (opcional)</label>'+
+    '<input id="rec-ci" placeholder="V-12345678" inputmode="numeric">'+
+    '<button class="btn" id="rec-btn" onclick="confirmar()">'+(esMant?'Confirmar verificación':'Confirmar recepción')+'</button>';
+}
+
+async function confirmar(){
+  var esMant = (ENT.tipo==='mantenimiento');
+  var nombre = (el('rec-nombre').value||'').trim();
+  if(!nombre){ alert(esMant?'Escribí tu nombre (quien verifica)':'Escribí tu nombre'); return; }
+  var ci = (el('rec-ci').value||'').trim();
+  var btn = el('rec-btn'); btn.disabled = true; btn.textContent = 'Guardando…';
+  var patch = { estado:'confirmada', recibido_por:nombre, recibido_ci:ci, recibido_at:new Date().toISOString() };
+  try{
+    var r = await supabase.from('entregas').update(patch).eq('token', TOKEN).eq('estado','entregada');
+    if(r.error){ btn.disabled=false; btn.textContent=(esMant?'Confirmar verificación':'Confirmar recepción'); alert('No se pudo confirmar: '+r.error.message); return; }
+    ENT.estado='confirmada'; ENT.recibido_por=nombre; ENT.recibido_ci=ci;
+    render();
+    window.scrollTo(0,0);
+  }catch(e){ btn.disabled=false; btn.textContent=(esMant?'Confirmar verificación':'Confirmar recepción'); alert('Error de conexión. Intentá de nuevo.'); }
+}
+
+cargar();
+</script>
+</body>
+</html>
