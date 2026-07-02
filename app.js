@@ -5715,6 +5715,7 @@ function renderEntregas(){
           (e.direccion?'<div style="font-size:11px;color:var(--text2);margin-top:2px">'+_entEsc(e.direccion)+'</div>':'')+
           '<div style="font-size:11px;margin-top:4px">'+gps+'</div>'+
           (cf?('<div style="font-size:11px;color:var(--green);margin-top:4px">'+(esMant?'Verificó':'Recibió')+': <b>'+_entEsc(e.recibido_por||'')+'</b>'+(e.recibido_ci?(' · CI '+_entEsc(e.recibido_ci)):'')+'</div>'):'')+
+          (esMant?('<div style="margin-top:7px">'+((e.nota&&/^HV:/.test(e.nota))?'<span style="font-size:10px;color:var(--green);font-weight:700">✔ en la hoja de vida</span>':'<button class="btn btn-s btn-xs" onclick="entregaAHojaVida(\''+e.id+'\')" title="Registrar este mantenimiento en la hoja de vida de la unidad, con la foto de evidencia">➕ A la hoja de vida</button>')+'</div>'):'')+
         '</div></div>';
     }).join('')+'</div>';
 }
@@ -5736,6 +5737,34 @@ function _entRenderMapa(lista){
     _entMarkers.push(mk); pts.push([e.lat,e.lng]);
   });
   if(pts.length){ try{_entMapObj.fitBounds(pts,{padding:[30,30],maxZoom:15});}catch(e){} }
+}
+// Enlaza una EVIDENCIA de mantenimiento con la HOJA DE VIDA de la unidad: crea el registro formal
+// en 'mantenimientos' (fuente única de la hoja de vida) llevando la foto sellada como evidencia, y
+// marca la evidencia como enlazada (nota 'HV:<id>') para no duplicar. Lo hace la OFICINA (authenticated,
+// con permiso de escritura en mantenimientos; el chofer anon no puede tocar esa tabla).
+async function entregaAHojaVida(id){
+  var e=(ENTREGAS_OF||[]).find(function(x){return x.id===id;}); if(!e){alert('No encontré el registro.');return;}
+  if((e.tipo||'')!=='mantenimiento'){alert('Solo los registros de MANTENIMIENTO se agregan a la hoja de vida.');return;}
+  if(e.nota&&/^HV:/.test(e.nota)){alert('Este mantenimiento ya está en la hoja de vida.');return;}
+  if(!(DB_READY&&supabase)){alert('Sin conexión a la base.');return;}
+  if(!e.cam){alert('Esta evidencia no tiene unidad asignada — no se puede llevar a la hoja de vida.');return;}
+  var kmTxt=prompt('KM de la unidad al hacer el trabajo (opcional — dejá vacío si no aplica / va por horas):','');
+  if(kmTxt===null)return; // canceló
+  var km=parseInt(String(kmTxt).replace(/[^\d]/g,''))||0;
+  var mantId='MT'+Date.now();
+  var desc=(e.cliente||'Mantenimiento')+(e.direccion?(' — '+e.direccion):'')+(e.recibido_por?(' · verificó '+e.recibido_por):'');
+  var row={id:mantId,cam:e.cam,f:e.fecha||'',km:km,horas:0,item_id:'',tipo:(e.cliente||'Mantenimiento'),tipo_trabajo:'cambio',desc_trabajo:desc,costo_usd:0,proveedor:'',foto_url:e.foto_url||''};
+  var res=await supabase.from('mantenimientos').upsert([row],{onConflict:'id'});
+  if(res&&res.error){mostrarToast('No se pudo agregar a la hoja de vida: '+res.error.message,'error');return;}
+  // Marcar la evidencia como enlazada (sin migración: usa la columna nota).
+  try{ await supabase.from('entregas').update({nota:'HV:'+mantId}).eq('id',e.id); e.nota='HV:'+mantId; }catch(err){}
+  // Reflejar en memoria de la hoja de vida (sin recargar todo).
+  try{ if(typeof MANTENIMIENTOS!=='undefined')MANTENIMIENTOS.unshift({id:mantId,cam:row.cam,fecha:row.f,km:km,horas:0,itemId:'',tipo:row.tipo,tipoTrabajo:'cambio',desc:desc,costo:0,proveedor:'',foto:row.foto_url}); }catch(err){}
+  // Coherencia con el odómetro (nunca retrocede).
+  try{ if(km>0&&typeof KM_DATA!=='undefined'){ if(!KM_DATA[e.cam])KM_DATA[e.cam]={km:0,f:'',ultsrv:0,mant:[],lavado:'',engrase:''}; if(km>=(parseInt(KM_DATA[e.cam].km)||0)){KM_DATA[e.cam].km=km;KM_DATA[e.cam].f=e.fecha||'';} } }catch(err){}
+  audit('Mantenimiento → hoja de vida',row.cam+' · '+row.tipo+(km?(' · '+km+'km'):'')+' (desde evidencia)');
+  mostrarToast('✅ Agregado a la hoja de vida de '+row.cam,'exito');
+  renderEntregas();
 }
 // Reporte IMPRIMIBLE de la ficha de la unidad (todos los datos + foto). La foto se trae bajo demanda.
 async function imprimirFichaUnidad(cam){
