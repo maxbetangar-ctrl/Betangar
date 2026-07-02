@@ -3888,9 +3888,30 @@ function calcNom(){
       for(var dw=0;dw<7;dw++){ if(dset[dw])continue; if(_asisMarca(a.emp.id,mes,sem,dw)==='P'){a.viajes++;a.patio=(a.patio||0)+1;} }
     });
   }
+  // ACTIVIDADES ESPECIALES (planilla especial) del período (MISMO filtro que las planillas). Se
+  // ATRIBUYEN a su trabajador para que sumen a SU total individual (y al historial → el cotejo cuadra:
+  // el 'pagado' de la persona ya incluye su especial). Lo que no case con una fila de chofer/ayudante
+  // (quien SOLO hizo la actividad, sin viajes) queda 'huérfano' y se suma aparte (no se pierde del total).
+  var _extrasP=(typeof NOMINA_EXTRAS!=='undefined'?NOMINA_EXTRAS:[]).filter(function(x){
+    if(!x.fecha)return false;
+    if(mes&&_mesDeF(x.fecha)!==mes)return false;
+    if(sem&&(typeof getSem==='function'?getSem(x.fecha):'')!==sem)return false;
+    if(des&&x.fecha<des)return false;
+    if(hta&&x.fecha>hta)return false;
+    return true;
+  });
+  var totExtras=_extrasP.reduce(function(s,x){return s+_extraUsd(x);},0);
+  var _extraCh={}, _extraAy={}, _extraAtrib=0;
+  _extrasP.forEach(function(x){
+    var u=_extraUsd(x); if(u<=0)return;
+    if(x.empId&&ayMap[x.empId]){ _extraAy[x.empId]=(_extraAy[x.empId]||0)+u; _extraAtrib+=u; return; }
+    var k=_nombreCanonico(x.empNombre||'').toUpperCase();
+    if(k&&chMap[k]){ _extraCh[k]=(_extraCh[k]||0)+u; _extraAtrib+=u; return; }
+  });
+  var totExtrasHuerfano=Math.round((totExtras-_extraAtrib)*100)/100; // lo NO atribuido a una fila → se suma al total aparte
   var tvTot=f.reduce(function(s,r){return s+r.t;},0);
-  var totCh=Object.values(chMap).reduce(function(s,c){var k=_nombreCanonico(c.ch).toUpperCase();var pat=_patioEfectivo(c.patio,PATIO_DIAS[k]);return s+Math.max(0,(c.montoViajes||0)+pat*cfg.chofer-c.descuentos);},0);
-  var totAy=Object.values(ayMap).reduce(function(s,a){var vp=_ayPatio(a);return s+Math.max(0,(vp.viajes*a.tasa)+(a.recargoDom||0)-a.descuentos);},0);
+  var totCh=Object.values(chMap).reduce(function(s,c){var k=_nombreCanonico(c.ch).toUpperCase();var pat=_patioEfectivo(c.patio,PATIO_DIAS[k]);return s+Math.max(0,(c.montoViajes||0)+pat*cfg.chofer-c.descuentos)+(_extraCh[k]||0);},0);
+  var totAy=Object.values(ayMap).reduce(function(s,a){var vp=_ayPatio(a);return s+Math.max(0,(vp.viajes*a.tasa)+(a.recargoDom||0)-a.descuentos)+(_extraAy[a.emp.id]||0);},0);
   if(g('nm-tv'))g('nm-tv').textContent=tvTot;
   if(g('nm-ch'))g('nm-ch').textContent='$'+totCh.toFixed(0);
   if(g('nm-ay'))g('nm-ay').textContent='$'+totAy.toFixed(0);
@@ -3905,19 +3926,7 @@ function calcNom(){
   var totImauPlan=imauVj*((typeof cfg!=='undefined'&&cfg.imau)?cfg.imau:2.5);
   var totImauFijo=(typeof imauTotal==='function')?imauTotal():0;
   var totImau=totImauPlan+totImauFijo;
-  // ACTIVIDADES ESPECIALES (planilla especial): se filtran con el MISMO criterio que las planillas
-  // (mes 'jun-26' vía _mesDeF, semana vía getSem, o rango des/hta) → suman aunque NO exista una planilla
-  // en la fecha exacta del traslado. Antes dependían del min/max de las planillas y a veces no sumaban.
-  var _extrasP=(typeof NOMINA_EXTRAS!=='undefined'?NOMINA_EXTRAS:[]).filter(function(x){
-    if(!x.fecha)return false;
-    if(mes&&_mesDeF(x.fecha)!==mes)return false;
-    if(sem&&(typeof getSem==='function'?getSem(x.fecha):'')!==sem)return false;
-    if(des&&x.fecha<des)return false;
-    if(hta&&x.fecha>hta)return false;
-    return true;
-  });
-  var totExtras=_extrasP.reduce(function(s,x){return s+_extraUsd(x);},0);
-  var totUsd=totOp+totAdm+totImau+totExtras;
+  var totUsd=totOp+totAdm+totImau+totExtrasHuerfano; // totOp YA incluye los especiales atribuidos → solo se suma el huérfano (no se duplica)
   var totBs=totUsd*tasa;
   renderNominaExtras(_extrasP);
   if(g('nm-imau'))g('nm-imau').textContent='$'+totImau.toFixed(0)+(imauVj?' ('+imauVj+' viajes×$'+(((typeof cfg!=='undefined'&&cfg.imau)?cfg.imau:2.5))+' + fijos $'+totImauFijo.toFixed(0)+')':' (fijos)');
@@ -3925,14 +3934,14 @@ function calcNom(){
   // Guardar el último cálculo para poder "Guardar en historial" (nutrir nomina_historial).
   _ultimaNomina={
     _prestAplicar:_prestAplicar, _multaAplicar:_multaAplicar, // descuentos a avanzar SOLO al guardar la semana
-    sem:sem||'', mes:mes||'', tasa:tasa, totCh:totCh, totAy:totAy, totAdm:totAdm, totImau:totImau, totExtras:totExtras, totBs:totBs,
+    sem:sem||'', mes:mes||'', tasa:tasa, totCh:totCh, totAy:totAy, totAdm:totAdm, totImau:totImau, totExtras:totExtrasHuerfano, totBs:totBs,
     fdesde: f.length?f.reduce(function(m,r){return r.f<m?r.f:m;},f[0].f):null,
     fhasta: f.length?f.reduce(function(m,r){return r.f>m?r.f:m;},f[0].f):null,
-    choferes: Object.values(chMap).map(function(c){var k=_nombreCanonico(c.ch).toUpperCase();var pat=_patioEfectivo(c.patio,PATIO_DIAS[k]);var u=Math.max(0,(c.montoViajes||0)+pat*cfg.chofer-c.descuentos);return {n:c.ch,u:Array.from(c.cams||[]).join(','),viajes:(c.viajes-(c.patio||0)),pat:pat,usd:Math.round(u*100)/100,bs:Math.round(u*tasa*100)/100};}),
-    ayudantes: Object.values(ayMap).map(function(a){var vp=_ayPatio(a);var v=vp.viajes;var patTot=vp.patio;var u=Math.max(0,v*a.tasa+(a.recargoDom||0)-a.descuentos);return {n:a.emp.nombre,u:a.emp.unidad,viajes:(parseInt(a.viajes)||0)-(parseInt(a.patio)||0),pat:patTot,usd:Math.round(u*100)/100,bs:Math.round(u*tasa*100)/100,tipo:a.emp.tipoAy||'interno'};}),
+    choferes: Object.values(chMap).map(function(c){var k=_nombreCanonico(c.ch).toUpperCase();var pat=_patioEfectivo(c.patio,PATIO_DIAS[k]);var u=Math.max(0,(c.montoViajes||0)+pat*cfg.chofer-c.descuentos)+(_extraCh[k]||0);return {n:c.ch,u:Array.from(c.cams||[]).join(','),viajes:(c.viajes-(c.patio||0)),pat:pat,esp:Math.round((_extraCh[k]||0)*100)/100,usd:Math.round(u*100)/100,bs:Math.round(u*tasa*100)/100};}),
+    ayudantes: Object.values(ayMap).map(function(a){var vp=_ayPatio(a);var v=vp.viajes;var patTot=vp.patio;var u=Math.max(0,v*a.tasa+(a.recargoDom||0)-a.descuentos)+(_extraAy[a.emp.id]||0);return {n:a.emp.nombre,u:a.emp.unidad,viajes:(parseInt(a.viajes)||0)-(parseInt(a.patio)||0),pat:patTot,esp:Math.round((_extraAy[a.emp.id]||0)*100)/100,usd:Math.round(u*100)/100,bs:Math.round(u*tasa*100)/100,tipo:a.emp.tipoAy||'interno'};}),
     extras: _extrasP.map(function(x){return {fecha:x.fecha,n:x.empNombre,actividad:x.actividad,modo:x.modo,viajes:x.viajes,monto:x.monto,usd:Math.round(_extraUsd(x)*100)/100};})
   };
-  if(g('nm-tot'))g('nm-tot').textContent='$'+fmtMon(totUsd)+' (op $'+fmtMon(totOp)+(totImau>0?' + IMAU $'+fmtMon(totImau):'')+(totAdm>0?' + adm $'+fmtMon(totAdm):'')+(totExtras>0?' + especial $'+fmtMon(totExtras):'')+')'+' = Bs '+(totBs/1000).toFixed(0)+'k';
+  if(g('nm-tot'))g('nm-tot').textContent='$'+fmtMon(totUsd)+' (op $'+fmtMon(totOp)+(totImau>0?' + IMAU $'+fmtMon(totImau):'')+(totAdm>0?' + adm $'+fmtMon(totAdm):'')+(totExtrasHuerfano>0?' + especial $'+fmtMon(totExtrasHuerfano):'')+')'+' = Bs '+(totBs/1000).toFixed(0)+'k';
   if(g('nm-ch'))g('nm-ch').textContent='$'+fmtMon(totCh)+' (Bs '+(totCh*tasa/1000).toFixed(0)+'k)';
   if(g('nm-ay'))g('nm-ay').textContent='$'+fmtMon(totAy)+' (Bs '+(totAy*tasa/1000).toFixed(0)+'k)';
   var desc=g('nm-descuentos');if(desc)desc.innerHTML=descBanners.join('');
@@ -3940,7 +3949,8 @@ function calcNom(){
   if(tbCh)tbCh.innerHTML=Object.values(chMap).map(function(c,i){
     var key=_nombreCanonico(c.ch).toUpperCase();
     var patM=parseInt(PATIO_DIAS[key])||0, patTot=_patioEfectivo(c.patio,patM); // manual manda (no doble)
-    var sueldo=(c.montoViajes||0)+patTot*cfg.chofer, total=Math.max(0,sueldo-c.descuentos);
+    var _exCh=_extraCh[key]||0; // actividades especiales atribuidas a este chofer (suman a SU total)
+    var sueldo=(c.montoViajes||0)+patTot*cfg.chofer, total=Math.max(0,sueldo-c.descuentos)+_exCh;
     var vjCh=(c.viajes-(c.patio||0)); // SOLO viajes de planilla — el patio NO infla los viajes (suma solo al sueldo). Se muestra aparte en el campo/badge "P".
     // Chofer INACTIVO con viajes: se cuenta/paga igual (regla "el viaje siempre se paga"), pero
     // se marca ⚠️ para que RRHH revise (apareció en planilla estando dado de baja en el roster).
@@ -3957,14 +3967,15 @@ function calcNom(){
       '<td>'+c.dias.size+'</td>'+
       '<td style="font-family:var(--m)">$'+fmtMon(sueldo)+(c.viajesDom>0?' <span style="font-size:8px;color:var(--teal)" title="incluye recargo domingo 1.5×">▲</span>':'')+(patTot>0?' <span style="font-size:8px;color:var(--amber)" title="incluye '+patTot+' día(s) de patio × tarifa (no son viajes)">+'+patTot+'P</span>':'')+'</td>'+
       '<td style="font-family:var(--m);color:var(--red)">'+(c.descuentos>0?'-$'+fmtMon(c.descuentos):'—')+'</td>'+
-      '<td style="font-family:var(--m);font-weight:700;color:var(--yellow)">$'+fmtMon(total)+'</td></tr>';}).join('');
+      '<td style="font-family:var(--m);font-weight:700;color:var(--yellow)">$'+fmtMon(total)+(_exCh>0?' <span style="font-size:8px;color:var(--green)" title="incluye $'+fmtMon(_exCh)+' de actividad(es) especial(es)">+$'+fmtMon(_exCh)+' esp</span>':'')+'</td></tr>';}).join('');
   var tbAy=g('tb-nom-ay');
   if(tbAy)tbAy.innerHTML=Object.values(ayMap).sort(function(a,b){return b.viajes-a.viajes;}).map(function(a,i){
     var esImau=(a.emp.tipoAy==='imau');
     var patAyM=esImau?0:(parseInt(PATIO_DIAS[a.emp.id])||0); // días de patio manual (IMAU no cobra patio)
     var vp=_ayPatio(a); var vTot=vp.viajes; // viajes + patio efectivo → para el SUELDO (manual manda; sin doble patio)
     var vjPlanAy=(parseInt(a.viajes)||0)-(parseInt(a.patio)||0); // SOLO viajes de planilla para MOSTRAR (el patio no infla los viajes)
-    var sueldo=vTot*a.tasa+(a.recargoDom||0);var total=Math.max(0,sueldo-a.descuentos);
+    var _exAy=_extraAy[a.emp.id]||0; // actividades especiales atribuidas a este ayudante (suman a SU total)
+    var sueldo=vTot*a.tasa+(a.recargoDom||0);var total=Math.max(0,sueldo-a.descuentos)+_exAy;
     var nota=a.porNombre>0&&a.porCam>0?'('+a.porNombre+'v nombre + '+a.porCam+'v camión)':'';
     var inputPatio=esImau?'':(' <input type="number" min="0" value="'+patAyM+'" title="Días de actividad sin viaje (patio/traslado/lavado): +1 viaje c/u" onchange="setPatioDias(\''+a.emp.id+'\',this.value)" style="width:30px;font-size:9px;background:var(--bg3);border:1px solid var(--border);color:var(--amber);border-radius:4px;padding:1px 2px;text-align:center"><span style="font-size:8px;color:var(--amber)">P</span>');
     // Ayudante INACTIVO con viajes: se paga igual pero se marca ⚠️ (apareció en planilla dado de baja).
@@ -3979,7 +3990,7 @@ function calcNom(){
         '</div></td>'+
       '<td style="font-family:var(--m)">$'+fmtMon(sueldo)+(a.recargoDom>0?' <span style="font-size:8px;color:var(--teal)" title="incluye recargo domingo 1.5×">▲</span>':'')+((vp.patio||0)>0?' <span style="font-size:8px;color:var(--amber)" title="incluye '+vp.patio+' día(s) de patio × tarifa (no son viajes)">+'+vp.patio+'P</span>':'')+'</td>'+
       '<td style="font-family:var(--m);color:var(--red)">'+(a.descuentos>0?'-$'+fmtMon(a.descuentos):'—')+'</td>'+
-      '<td style="font-family:var(--m);font-weight:700;color:var(--yellow)">$'+fmtMon(total)+'</td></tr>';
+      '<td style="font-family:var(--m);font-weight:700;color:var(--yellow)">$'+fmtMon(total)+(_exAy>0?' <span style="font-size:8px;color:var(--green)" title="incluye $'+fmtMon(_exAy)+' de actividad(es) especial(es)">+$'+fmtMon(_exAy)+' esp</span>':'')+'</td></tr>';
   }).join('');
   if(g('nm-ay-total'))g('nm-ay-total').textContent='$'+fmtMon(totAy)+' total ayudantes';
   renderNomAdm();
