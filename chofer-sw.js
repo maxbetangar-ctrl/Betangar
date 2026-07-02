@@ -3,7 +3,7 @@
 // PWA Offline-First para choferes
 // ═══════════════════════════════════════════════════
 
-const CACHE_NAME = 'betangar-chofer-v14'; // v14: visor de foto (lightbox) que sí abre las imágenes embebidas (dataURL) en grande
+const CACHE_NAME = 'betangar-chofer-v15'; // v15: reverse-geocoding OSM → muestra la CALLE (no solo coordenadas) en el sello y en la app
 
 // Archivos a cachear para funcionar sin internet
 const ARCHIVOS_CACHE = [

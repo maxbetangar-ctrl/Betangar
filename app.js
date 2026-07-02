@@ -5704,7 +5704,7 @@ function renderEntregas(){
   cont.innerHTML='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px">'+
     lista.map(function(e){
       var cf=e.estado==='confirmada'; var esMant=(e.tipo==='mantenimiento');
-      var gps=(e.lat&&e.lng)?('<a href="https://www.openstreetmap.org/?mlat='+e.lat+'&mlon='+e.lng+'#map=17/'+e.lat+'/'+e.lng+'" target="_blank" rel="noopener" style="color:var(--teal)">📍 '+Number(e.lat).toFixed(5)+', '+Number(e.lng).toFixed(5)+(e.precision_gps?(' (±'+Math.round(e.precision_gps)+'m)'):'')+'</a>'):'<span style="color:var(--text3)">sin GPS</span>';
+      var gps=(e.lat&&e.lng)?('<a href="https://www.openstreetmap.org/?mlat='+e.lat+'&mlon='+e.lng+'#map=17/'+e.lat+'/'+e.lng+'" target="_blank" rel="noopener" style="color:var(--teal)">'+(e.direccion_gps?'🗺️ ver en mapa':('📍 '+Number(e.lat).toFixed(5)+', '+Number(e.lng).toFixed(5)))+(e.precision_gps?(' <span style="color:var(--text3)">(±'+Math.round(e.precision_gps)+'m)</span>'):'')+'</a>'):'<span style="color:var(--text3)">sin GPS</span>';
       return '<div style="background:var(--bg3);border:1px solid '+(cf?'var(--green)':'var(--border)')+';border-radius:10px;overflow:hidden">'+
         (e.foto_url?'<img src="'+_entEsc(e.foto_url)+'" onclick="_entVerFoto(this.src)" style="width:100%;height:150px;object-fit:cover;cursor:zoom-in;display:block" title="Ver foto">':'<div style="height:150px;display:flex;align-items:center;justify-content:center;color:var(--text3);font-size:11px">sin foto</div>')+
         '<div style="padding:10px">'+
@@ -5713,7 +5713,8 @@ function renderEntregas(){
           '<div style="font-size:11px;color:var(--text3);margin-top:4px">'+_entEsc(e.cam||'')+' · '+_entEsc(e.chofer||'')+'</div>'+
           '<div style="font-size:11px;color:var(--text3)">'+formatFecha(e.fecha)+' '+_entEsc(e.hora||'')+'</div>'+
           (e.direccion?'<div style="font-size:11px;color:var(--text2);margin-top:2px">'+_entEsc(e.direccion)+'</div>':'')+
-          '<div style="font-size:11px;margin-top:4px">'+gps+'</div>'+
+          (e.direccion_gps?'<div style="font-size:11px;color:var(--text2);margin-top:4px">📍 '+_entEsc(e.direccion_gps)+'</div>':'')+
+          '<div style="font-size:11px;margin-top:'+(e.direccion_gps?'2px':'4px')+'">'+gps+'</div>'+
           (cf?('<div style="font-size:11px;color:var(--green);margin-top:4px">'+(esMant?'Verificó':'Recibió')+': <b>'+_entEsc(e.recibido_por||'')+'</b>'+(e.recibido_ci?(' · CI '+_entEsc(e.recibido_ci)):'')+'</div>'):'')+
           (esMant?('<div style="margin-top:7px">'+((e.nota&&/^HV:/.test(e.nota))?'<span style="font-size:10px;color:var(--green);font-weight:700">✔ en la hoja de vida</span>':'<button class="btn btn-s btn-xs" onclick="entregaAHojaVida(\''+e.id+'\')" title="Registrar este mantenimiento en la hoja de vida de la unidad, con la foto de evidencia">➕ A la hoja de vida</button>')+'</div>'):'')+
         '</div></div>';
@@ -5746,7 +5747,7 @@ function _entRenderMapa(lista){
     var cf=e.estado==='confirmada';
     var esMant=(e.tipo==='mantenimiento');
     var mk=L.circleMarker([e.lat,e.lng],{radius:8,color:cf?'#22c55e':'#f59e0b',fillColor:cf?'#22c55e':'#f59e0b',fillOpacity:.8,weight:2}).addTo(_entMapObj);
-    mk.bindPopup('<b>'+(esMant?'🔧 ':'📦 ')+_entEsc(e.cliente||'—')+'</b><br>'+_entEsc(e.cam||'')+' · '+formatFecha(e.fecha)+' '+_entEsc(e.hora||'')+(cf?('<br>✔ '+(esMant?'verificó ':'recibió ')+_entEsc(e.recibido_por||'')):(esMant?'<br>sin verificar':'<br>sin confirmar'))+(e.foto_url?('<br><img src="'+_entEsc(e.foto_url)+'" onclick="_entVerFoto(this.src)" style="width:180px;margin-top:4px;border-radius:4px;cursor:zoom-in">'):''));
+    mk.bindPopup('<b>'+(esMant?'🔧 ':'📦 ')+_entEsc(e.cliente||'—')+'</b><br>'+_entEsc(e.cam||'')+' · '+formatFecha(e.fecha)+' '+_entEsc(e.hora||'')+(e.direccion_gps?('<br>📍 '+_entEsc(e.direccion_gps)):'')+(cf?('<br>✔ '+(esMant?'verificó ':'recibió ')+_entEsc(e.recibido_por||'')):(esMant?'<br>sin verificar':'<br>sin confirmar'))+(e.foto_url?('<br><img src="'+_entEsc(e.foto_url)+'" onclick="_entVerFoto(this.src)" style="width:180px;margin-top:4px;border-radius:4px;cursor:zoom-in">'):''));
     _entMarkers.push(mk); pts.push([e.lat,e.lng]);
   });
   if(pts.length){ try{_entMapObj.fitBounds(pts,{padding:[30,30],maxZoom:15});}catch(e){} }

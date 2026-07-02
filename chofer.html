@@ -800,12 +800,30 @@ function entregaTomarGPS(){
   if(!navigator.geolocation){ el.textContent = '📍 GPS no disponible en este equipo'; return; }
   el.textContent = '📍 Ubicando…';
   navigator.geolocation.getCurrentPosition(function(pos){
-    ENT_GPS = { lat: pos.coords.latitude, lng: pos.coords.longitude, acc: Math.round(pos.coords.accuracy||0) };
-    el.innerHTML = '📍 <b style="color:#7dc941">'+ENT_GPS.lat.toFixed(5)+', '+ENT_GPS.lng.toFixed(5)+'</b> (±'+ENT_GPS.acc+'m)';
+    ENT_GPS = { lat: pos.coords.latitude, lng: pos.coords.longitude, acc: Math.round(pos.coords.accuracy||0), calle:'' };
+    var coords = ENT_GPS.lat.toFixed(5)+', '+ENT_GPS.lng.toFixed(5)+' (±'+ENT_GPS.acc+'m)';
+    el.innerHTML = '📍 <b style="color:#7dc941">'+coords+'</b> · buscando calle…';
+    _entGeocode(ENT_GPS.lat, ENT_GPS.lng).then(function(calle){
+      ENT_GPS.calle = calle || '';
+      el.innerHTML = '📍 ' + (calle ? ('<b style="color:#7dc941">'+calle.replace(/[<>]/g,'')+'</b><br><span style="font-size:11px;color:rgba(255,255,255,.45)">'+coords+'</span>') : ('<b style="color:#7dc941">'+coords+'</b>'));
+      _entRefreshPreview(); // re-estampar el sello con la calle
+    });
   }, function(err){
     ENT_GPS = null;
     el.textContent = '📍 No se pudo ubicar ('+(err&&err.message?err.message:'permiso denegado')+')';
   }, { enableHighAccuracy:true, timeout:12000, maximumAge:0 });
+}
+// Reverse-geocoding GRATIS con OpenStreetMap (Nominatim). 1 consulta por registro (respeta el límite).
+async function _entGeocode(lat, lng){
+  try{
+    var r = await fetch('https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=18&addressdetails=1&accept-language=es&lat='+lat+'&lon='+lng, { headers:{ 'Accept':'application/json' } });
+    if(!r.ok) return '';
+    var j = await r.json(); var a = j.address || {};
+    var l1 = [a.road, a.house_number].filter(Boolean).join(' ');
+    var l2 = [a.neighbourhood||a.suburb||a.quarter, a.city||a.town||a.village||a.municipality||a.county].filter(Boolean).join(', ');
+    var s = [l1, l2].filter(Boolean).join(', ');
+    return s || ((j.display_name||'').split(',').slice(0,3).join(', '));
+  }catch(e){ return ''; }
 }
 
 // Dibuja la foto en un canvas (reescalada) con marca de agua: fecha/hora, GPS, unidad, chofer, cliente.
@@ -826,6 +844,7 @@ function _entregaWatermark(file, concepto, recibido){
         'FlotaMax · '+(cam||'')+' · '+(chofer||''),
         fh + (ENT_GPS ? ('  ·  GPS '+ENT_GPS.lat.toFixed(5)+','+ENT_GPS.lng.toFixed(5)+' (±'+ENT_GPS.acc+'m)') : '  ·  sin GPS')
       ];
+      if(ENT_GPS && ENT_GPS.calle) lineas.push('📍 '+ENT_GPS.calle);
       if(concepto) lineas.push(concepto);
       if(recibido) lineas.push(recibido);
       var fs = Math.max(18, Math.round(w*0.034));   // ~un tercio más grande que antes
@@ -884,7 +903,7 @@ async function registrarEntrega(){
     var now = new Date();
     var row = {
       id: id, cam: cam||'', chofer: chofer||'', cliente: cliente, direccion: direccion, tipo: ENT_TIPO,
-      lat: ENT_GPS.lat, lng: ENT_GPS.lng, precision_gps: ENT_GPS.acc,
+      lat: ENT_GPS.lat, lng: ENT_GPS.lng, precision_gps: ENT_GPS.acc, direccion_gps: (ENT_GPS.calle||''),
       foto_url: fotoUrl, fecha: hoy, hora: String(now.getHours()).padStart(2,'0')+':'+String(now.getMinutes()).padStart(2,'0'),
       estado: 'entregada', token: _tokenEntrega()
     };
