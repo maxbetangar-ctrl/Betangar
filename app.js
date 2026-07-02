@@ -4031,7 +4031,8 @@ function calcNom(){
     ayudantes: Object.values(ayMap).map(function(a){var vp=_ayPatio(a);var v=vp.viajes;var patTot=vp.patio;var u=Math.max(0,v*a.tasa+(a.recargoDom||0)-a.descuentos)+(_extraAy[a.emp.id]||0);return {n:a.emp.nombre,u:a.emp.unidad,viajes:(parseInt(a.viajes)||0)-(parseInt(a.patio)||0),pat:patTot,esp:Math.round((_extraAy[a.emp.id]||0)*100)/100,usd:Math.round(u*100)/100,bs:Math.round(u*tasa*100)/100,tipo:a.emp.tipoAy||'interno'};}),
     extras: _extrasP.map(function(x){return {fecha:x.fecha,n:x.empNombre,actividad:x.actividad,modo:x.modo,viajes:x.viajes,monto:x.monto,usd:Math.round(_extraUsd(x)*100)/100};})
   };
-  if(g('nm-tot'))g('nm-tot').textContent='$'+fmtMon(totUsd)+' (op $'+fmtMon(totOp)+(totImau>0?' + IMAU $'+fmtMon(totImau):'')+(totAdm>0?' + adm $'+fmtMon(totAdm):'')+(totExtrasHuerfano>0?' + especial $'+fmtMon(totExtrasHuerfano):'')+')'+' = Bs '+(totBs/1000).toFixed(0)+'k';
+  // Total de nómina: SOLO el monto total (sin el desglose op/IMAU/adm/especial — pedido de Máximo).
+  if(g('nm-tot'))g('nm-tot').textContent='$'+fmtMon(totUsd)+' = Bs '+(totBs/1000).toFixed(0)+'k';
   if(g('nm-ch'))g('nm-ch').textContent='$'+fmtMon(totCh)+' (Bs '+(totCh*tasa/1000).toFixed(0)+'k)';
   if(g('nm-ay'))g('nm-ay').textContent='$'+fmtMon(totAy)+' (Bs '+(totAy*tasa/1000).toFixed(0)+'k)';
   var desc=g('nm-descuentos');if(desc)desc.innerHTML=descBanners.join('');
