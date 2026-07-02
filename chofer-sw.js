@@ -3,7 +3,7 @@
 // PWA Offline-First para choferes
 // ═══════════════════════════════════════════════════
 
-const CACHE_NAME = 'betangar-chofer-v10'; // v10: módulo Entrega (prueba de entrega: foto en vivo + GPS + confirmación del receptor)
+const CACHE_NAME = 'betangar-chofer-v11'; // v11: la vista previa de la entrega muestra el sello (unidad/GPS/hora) + foto en la lista del día
 
 // Archivos a cachear para funcionar sin internet
 const ARCHIVOS_CACHE = [
