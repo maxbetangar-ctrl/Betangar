@@ -2728,6 +2728,58 @@ function filtH(){
   if(tb)tb.innerHTML=f.slice().sort(function(a,b){if(a.f!==b.f)return a.f<b.f?1:-1;return (parseInt(b.p)||0)-(parseInt(a.p)||0);}).map(function(r){return'<tr><td style="font-family:var(--m)">#'+r.p+'</td><td>'+formatFecha(r.f)+'</td><td><span class="badge bt">'+r.mes+'</span></td><td style="font-weight:700">'+r.cam+'</td><td style="font-size:11px" title="'+String(r.ch||'').replace(/"/g,'&quot;')+'">'+_nombreCanonico(r.ch)+'</td><td style="font-size:10px;color:var(--text2)">'+([r.ay1,r.ay2,r.ay3].filter(Boolean).map(function(nm){return _nombreCanonico(nm);}).join(', ')||'—')+'</td><td style="font-size:11px">'+r.r+'</td><td style="font-size:10px;color:var(--text3)">'+r.par+'</td><td style="color:var(--blue)">'+r.d+'</td><td style="color:var(--purple)">'+r.n+'</td><td style="font-weight:700;color:var(--green)">'+r.t+'</td><td><span class="badge by">'+r.sem+'</span></td><td style="font-family:var(--m);color:var(--yellow)">$'+r.m.toLocaleString()+'</td><td><button onclick="editarPlanilla(\''+r.p+'\')" class="btn btn-xs" style="background:var(--teal);color:#fff;padding:2px 5px">✏</button><button onclick="eliminarPlanilla(\''+r.p+'\')" class="btn btn-r btn-xs">×</button></td></tr>';}).join('')||'<tr><td colspan="14" style="text-align:center;color:var(--text3);padding:20px">Sin resultados</td></tr>';
 }
 function limpH(){['hf-mes','hf-sem','hf-cam','hf-des','hf-hta','hf-per'].forEach(function(id){sv(id,'');});filtH();}
+// ── #8 DETECTOR DE PLANILLAS FALTANTES (huecos en el correlativo) ──────────────────────
+// Detecta los números de planilla AUSENTES entre el menor y el mayor cargado y permite
+// JUSTIFICAR cada faltante (anulada / unidad en taller / no hubo ruta…). Las justificaciones
+// se guardan en la tabla 'configuracion' (clave 'planillas_justif', JSON num→motivo) → SIN
+// migración. Solo cuenta planillas con número NUMÉRICO (ignora DUP…/X…: no son correlativo real).
+var PLAN_JUSTIF=null;
+async function _cargarJustifPlan(){
+  if(PLAN_JUSTIF!==null)return PLAN_JUSTIF;
+  PLAN_JUSTIF={};
+  if(DB_READY&&supabase){ try{ var r=await supabase.from('configuracion').select('valor').eq('clave','planillas_justif').maybeSingle(); if(r&&r.data&&r.data.valor){ PLAN_JUSTIF=JSON.parse(r.data.valor)||{}; } }catch(e){} }
+  return PLAN_JUSTIF;
+}
+async function guardarJustifPlan(num,val){
+  await _cargarJustifPlan();
+  val=String(val||'').trim();
+  if(val)PLAN_JUSTIF[String(num)]=val; else delete PLAN_JUSTIF[String(num)];
+  if(DB_READY&&supabase){ var r=await supabase.from('configuracion').upsert([{clave:'planillas_justif',valor:JSON.stringify(PLAN_JUSTIF)}],{onConflict:'clave'}); if(r&&r.error){mostrarToast('No se pudo guardar la justificación: '+r.error.message,'error');return;} }
+  audit('Justificación de planilla faltante','#'+String(num).padStart(5,'0')+': '+(val||'(borrada)'));
+  var chip=g('jp-estado-'+num); if(chip)chip.textContent=val?'✔ justificada':'';
+  if(typeof mostrarToast==='function')mostrarToast(val?('✅ Justificada #'+String(num).padStart(5,'0')):('Justificación borrada #'+String(num).padStart(5,'0')),'exito');
+}
+async function detectarPlanillasFaltantes(){
+  await _cargarJustifPlan();
+  var nums=(REGS||[]).map(function(r){return /^\d+$/.test(String(r.p))?parseInt(r.p,10):NaN;}).filter(function(n){return !isNaN(n);});
+  if(nums.length<2){alert('Necesito al menos 2 planillas con número para revisar el correlativo.');return;}
+  var min=Math.min.apply(null,nums), max=Math.max.apply(null,nums);
+  var set={}; nums.forEach(function(n){set[n]=1;});
+  var faltan=[]; for(var i=min;i<=max&&faltan.length<=1000;i++){ if(!set[i])faltan.push(i); }
+  var rango=max-min+1, nJust=faltan.filter(function(n){return PLAN_JUSTIF[String(n)];}).length;
+  var cap=400, extra=faltan.length>cap?(faltan.length-cap):0, muestra=faltan.slice(0,cap);
+  var filas=muestra.map(function(n){
+    var motivo=PLAN_JUSTIF[String(n)]||'';
+    return '<tr><td style="font-family:var(--m);font-weight:700">#'+String(n).padStart(5,'0')+'</td>'+
+      '<td><input value="'+motivo.replace(/"/g,'&quot;')+'" placeholder="motivo (anulada / taller / no hubo ruta…)" onchange="guardarJustifPlan('+n+',this.value)" style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:4px 8px;border-radius:5px;font-size:11px"></td>'+
+      '<td style="font-size:10px;color:var(--green);white-space:nowrap" id="jp-estado-'+n+'">'+(motivo?'✔ justificada':'')+'</td></tr>';
+  }).join('');
+  var prev=document.getElementById('plan-falt-modal'); if(prev)prev.remove();
+  var ov=document.createElement('div'); ov.id='plan-falt-modal';
+  ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:13000;display:flex;align-items:flex-start;justify-content:center;padding:24px 16px;overflow-y:auto';
+  ov.onclick=function(e){if(e.target===ov)ov.remove();};
+  var resumen=faltan.length===0
+    ? '<div style="color:var(--green);font-weight:700;padding:10px">✓ Correlativo completo: no faltan planillas entre #'+String(min).padStart(5,'0')+' y #'+String(max).padStart(5,'0')+' ('+rango+' números).</div>'
+    : '<div style="font-size:12px;color:var(--text2);margin-bottom:8px">Entre <b>#'+String(min).padStart(5,'0')+'</b> y <b>#'+String(max).padStart(5,'0')+'</b> ('+rango+' números) faltan <b style="color:var(--red)">'+faltan.length+'</b> planilla(s) · <b style="color:var(--green)">'+nJust+'</b> justificada(s).'+(extra>0?' <span style="color:var(--amber)">Mostrando las primeras '+cap+' (probablemente hay varios talonarios).</span>':'')+'</div>'+
+      '<table style="width:100%;font-size:11px"><thead><tr><th style="text-align:left;padding:4px">Planilla</th><th style="text-align:left;padding:4px">Justificación del faltante</th><th style="padding:4px"></th></tr></thead><tbody>'+filas+'</tbody></table>';
+  ov.innerHTML='<div style="background:var(--bg2,#16181d);border:1px solid var(--border);border-radius:12px;max-width:640px;width:100%;padding:16px">'+
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><div style="font-weight:800">🔎 Planillas faltantes (huecos de correlativo)</div>'+
+    '<button class="btn btn-r btn-xs" onclick="document.getElementById(\'plan-falt-modal\').remove()">✕</button></div>'+
+    '<div style="font-size:10px;color:var(--text3);margin-bottom:8px">Ausencias en la numeración de planillas. Escribí el motivo de cada faltante (se guarda solo al salir del campo). Las <b>DUP</b> no se cuentan como faltante.</div>'+
+    resumen+'</div>';
+  document.body.appendChild(ov);
+  audit('Revisión de planillas faltantes',faltan.length+' huecos ('+String(min).padStart(5,'0')+'–'+String(max).padStart(5,'0')+')');
+}
 function exportHistExcel(){
   if(typeof XLSX==='undefined'){alert('XLSX no cargado');return;}
   var wb=XLSX.utils.book_new();
