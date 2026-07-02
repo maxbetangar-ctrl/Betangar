@@ -4253,15 +4253,40 @@ function _audConstruir(h,tolPatio){
     var kk=_normNom(_nombreCanonico(nombre));
     return (d.extras||[]).reduce(function(s,e){return s+(_normNom(_nombreCanonico(e.n))===kk?(parseFloat(e.usd)||0):0);},0);
   }
+  var rCh=function(){return (typeof cfg!=='undefined'&&cfg.chofer)?cfg.chofer:10;};
+  var rAy=function(p){return (p&&p.tipo==='imau')?((typeof cfg!=='undefined'&&cfg.imau)?cfg.imau:2.5):((typeof cfg!=='undefined'&&cfg.ayud)?cfg.ayud:5);};
+  // FUENTE ÚNICA con calcNom: si por CLAVE canónica no hallamos viajes (nombre corto en el
+  // historial vs completo en la planilla, homónimos que _empPorNombre deja ambiguos, etc.), se
+  // reintenta con el MISMO criterio tolerante que usa la nómina para pagar (_nomCasa: mismo primer
+  // nombre + un apellido compartido). Así el cotejo NO marca "sin planilla" a quien la nómina SÍ
+  // pagó (bug Manuel López: figuraba sin planilla aunque sus planillas existían).
+  function _vjFuzzy(nombre,rol){
+    var v=0,dom=0,enSis=false;
+    (REGS||[]).forEach(function(r){
+      var hit=(rol==='Chofer')?_nomCasa(r.ch||TEMPORALES[r.cam]||'',nombre):(_nomCasa(r.ay1,nombre)||_nomCasa(r.ay2,nombre)||_nomCasa(r.ay3,nombre));
+      if(!hit)return;
+      enSis=true;
+      if(r.f&&(!f0||r.f>=f0)&&(!f1||r.f<=f1)){ var t=parseInt(r.t)||0; v+=t; if(_esDomingoOferiado(r.f))dom+=t; }
+    });
+    return {v:v,dom:dom,enSis:enSis};
+  }
   function chk(arr,vmap,dmap,allMap,keyFn,rateFn,rol){
     (arr||[]).forEach(function(p){
       var key=keyFn(p.n), rate=rateFn(p);
       var vj=vmap[key]||0, dom=dmap[key]||0, pat=parseInt(p.pat)||0;
+      var enSistema=!!allMap[key];
+      // Fallback tolerante (igual que calcNom) cuando la clave exacta no encontró viajes.
+      if(vj===0){ var fz=_vjFuzzy(p.n,rol); if(fz.v>0||fz.enSis){ vj=fz.v; dom=fz.dom; enSistema=enSistema||fz.enSis; } }
       var ext=_extrasUsdDe(p.n);
       var corr=Math.round((vj*rate+dom*rate*0.5+pat*rate+ext)*100)/100;
       var pag=parseFloat(p.usd)||0;
       var tol=(tolPatio?rate*2:0)+1, diff=Math.round((pag-corr)*100)/100;
-      var enSistema=!!allMap[key];
+      // ¿El pagado cuadra si esta persona se hubiera guardado con la tarifa del OTRO rol? (bug
+      // Américo: ayudante guardado a $10/viaje de chofer → pagado 170 vs corresponde 85). Se detecta
+      // para EXPLICAR la diferencia y sugerir "reguardar", en vez de un críptico "cobró de más".
+      var rateOtro=(rol==='Chofer')?((typeof cfg!=='undefined'&&cfg.ayud)?cfg.ayud:5):rCh();
+      var corrOtro=Math.round((vj*rateOtro+dom*rateOtro*0.5+pat*rateOtro+ext)*100)/100;
+      var tarifaMal=(vj>0&&Math.abs(diff)>tol&&Math.round(pag)===Math.round(corrOtro)&&corrOtro!==corr);
       // 3 estados cuando no hay viajes que respalden el pago:
       //  SIN_SISTEMA = la persona NO tiene planilla en ninguna fecha (ex-chofer / semana vieja) → informativo, NO es sobrepago.
       //  OTRA_FECHA  = SÍ tiene planillas, pero ninguna cae en el rango de esta semana → revisar (¿rango/fecha?). No infla el $.
@@ -4270,11 +4295,9 @@ function _audConstruir(h,tolPatio){
       if(flag==='OVER'){nFlag++;sumOver+=Math.max(0,diff);}
       else if(flag==='OTRA_FECHA'){nFlag++;}   // a revisar, pero sin contaminar el "$ de más"
       else if(flag==='SIN_SISTEMA'){nSin++;}    // informativo: no cuenta como anomalía
-      filas.push({rol:rol,n:p.n,vj:vj,dom:dom,pat:pat,ext:ext,corr:corr,pag:pag,diff:diff,flag:flag});
+      filas.push({rol:rol,n:p.n,vj:vj,dom:dom,pat:pat,ext:ext,corr:corr,pag:pag,diff:diff,flag:flag,tarifaMal:tarifaMal});
     });
   }
-  var rCh=function(){return (typeof cfg!=='undefined'&&cfg.chofer)?cfg.chofer:10;};
-  var rAy=function(p){return (p&&p.tipo==='imau')?((typeof cfg!=='undefined'&&cfg.imau)?cfg.imau:2.5):((typeof cfg!=='undefined'&&cfg.ayud)?cfg.ayud:5);};
   chk(d.choferes,chV,chD,chAll,function(n){return _normNom(_nombreCanonico(n));},rCh,'Chofer'); // _normNom en AMBOS lados (igual que ayudantes): colapsa espacios dobles y acentos → no marca "sin planilla" por "JOSE  ELITE" vs "JOSE ELITE"
   chk(d.ayudantes,ayV,ayD,ayAll,function(n){return _normNom(_nombreCanonico(n));},rAy,'Ayud'); // _nombreCanonico (alias-aware) en AMBOS lados — resuelve corto↔completo incl. nombres pegados como MANUELFRANCISCO
   var _rank={OVER:3,OTRA_FECHA:2,'':1,SIN_SISTEMA:0}; // OVER arriba, SIN_SISTEMA (informativo) al fondo
@@ -4298,7 +4321,7 @@ function renderAuditoriaPagos(){
       '<td style="font-size:11px;font-weight:'+(alarma?'700':'400')+';color:'+(x.flag==='SIN_SISTEMA'?'var(--text3)':'inherit')+'">'+x.n+'</td><td style="color:var(--green)">'+x.vj+(x.dom>0?' <span style="font-size:8px;color:var(--teal)" title="viajes domingo ×1.5">+'+x.dom+'D</span>':'')+(x.pat>0?' <span style="font-size:8px;color:var(--amber)" title="días de patio (fuera de planilla)">+'+x.pat+'P</span>':'')+'</td>'+
       '<td style="font-family:var(--m)">$'+x.corr+'</td><td style="font-family:var(--m)">$'+x.pag.toFixed(0)+'</td>'+
       '<td style="font-family:var(--m);font-weight:700;color:'+(x.diff>0?'var(--red)':x.diff<0?'var(--amber)':'var(--green)')+'">'+(x.diff>0?'+':'')+'$'+x.diff.toFixed(0)+'</td>'+
-      '<td style="font-size:10px">'+(x.flag==='OVER'?'🚩 cobró de más':x.flag==='OTRA_FECHA'?'⚠️ planilla en otra fecha':x.flag==='SIN_SISTEMA'?'<span style="color:var(--text3)">— sin planilla en el sistema</span>':(x.diff<0?'falta cargar?':'✓'))+'</td></tr>';}).join('')+
+      '<td style="font-size:10px">'+(x.flag==='OVER'?(x.tarifaMal?'⚠️ tarifa/rol equivocado — reguardá':'🚩 cobró de más'):x.flag==='OTRA_FECHA'?'⚠️ planilla en otra fecha':x.flag==='SIN_SISTEMA'?'<span style="color:var(--text3)">— sin planilla en el sistema</span>':(x.diff<0?'falta cargar?':'✓'))+'</td></tr>';}).join('')+
     '</tbody></table>';
 }
 // Imprimir la auditoría para llevarla a Operaciones/RRHH con bases.
@@ -4316,7 +4339,7 @@ function imprimirAuditoriaPagos(){
   var body='<style>@media print{tr{page-break-inside:avoid!important;break-inside:avoid!important}thead{display:table-header-group}table{page-break-inside:auto;width:100%;border-collapse:collapse}td,th{padding:4px 6px}}</style>'+
     '<p style="font-size:12px;color:#555;margin-bottom:8px">Cotejo: <b>lo pagado</b> (relación de nómina) vs <b>lo que corresponde</b> = viajes de la planilla × tarifa, con <b>recargo de domingo 1.5×</b> (D) y <b>días de patio</b> (P) que se cargan a mano fuera de la planilla. Las filas resaltadas requieren explicación de Operaciones / RRHH.</p>'+
     '<table><thead><tr><th>Rol</th><th>Persona</th><th style="text-align:center">Viajes</th><th>Corresponde</th><th>Pagado</th><th>Diferencia</th><th>Estado</th></tr></thead><tbody>'+
-    filas.map(function(x,i){var alarma=(x.flag==='OVER'||x.flag==='OTRA_FECHA');return '<tr style="background:'+(alarma?'#fee2e2':x.flag==='SIN_SISTEMA'?'#f1f5f9':(i%2?'#f5f9ff':'#fff'))+'"><td>'+x.rol+'</td><td>'+(x.flag==='SIN_SISTEMA'?'<span style="color:#94a3b8">'+x.n+'</span>':'<b>'+x.n+'</b>')+'</td><td style="text-align:center;font-weight:700">'+x.vj+(x.dom>0?' (+'+x.dom+'D)':'')+(x.pat>0?' (+'+x.pat+'P)':'')+'</td><td class="gv">$'+x.corr+'</td><td class="gv">$'+x.pag.toFixed(0)+'</td><td class="gv" style="color:'+(x.diff>0?'#dc2626':x.diff<0?'#b45309':'#16a34a')+';font-weight:700">'+(x.diff>0?'+':'')+'$'+x.diff.toFixed(0)+'</td><td style="font-weight:700;color:'+(alarma?'#dc2626':x.flag==='SIN_SISTEMA'?'#94a3b8':'#16a34a')+'">'+(x.flag==='OVER'?'COBRÓ DE MÁS':x.flag==='OTRA_FECHA'?'PLANILLA EN OTRA FECHA':x.flag==='SIN_SISTEMA'?'SIN PLANILLA EN EL SISTEMA':(x.diff<0?'¿falta cargar?':'OK'))+'</td></tr>';}).join('')+
+    filas.map(function(x,i){var alarma=(x.flag==='OVER'||x.flag==='OTRA_FECHA');return '<tr style="background:'+(alarma?'#fee2e2':x.flag==='SIN_SISTEMA'?'#f1f5f9':(i%2?'#f5f9ff':'#fff'))+'"><td>'+x.rol+'</td><td>'+(x.flag==='SIN_SISTEMA'?'<span style="color:#94a3b8">'+x.n+'</span>':'<b>'+x.n+'</b>')+'</td><td style="text-align:center;font-weight:700">'+x.vj+(x.dom>0?' (+'+x.dom+'D)':'')+(x.pat>0?' (+'+x.pat+'P)':'')+'</td><td class="gv">$'+x.corr+'</td><td class="gv">$'+x.pag.toFixed(0)+'</td><td class="gv" style="color:'+(x.diff>0?'#dc2626':x.diff<0?'#b45309':'#16a34a')+';font-weight:700">'+(x.diff>0?'+':'')+'$'+x.diff.toFixed(0)+'</td><td style="font-weight:700;color:'+(alarma?'#dc2626':x.flag==='SIN_SISTEMA'?'#94a3b8':'#16a34a')+'">'+(x.flag==='OVER'?(x.tarifaMal?'TARIFA/ROL EQUIVOCADO — REGUARDAR':'COBRÓ DE MÁS'):x.flag==='OTRA_FECHA'?'PLANILLA EN OTRA FECHA':x.flag==='SIN_SISTEMA'?'SIN PLANILLA EN EL SISTEMA':(x.diff<0?'¿falta cargar?':'OK'))+'</td></tr>';}).join('')+
     '<tr class="tr-tot"><td colspan="5">SOBREPAGO TOTAL A REVISAR</td><td class="gv" style="color:#dc2626">+$'+sumOver.toFixed(0)+'</td><td>'+nFlag+' casos</td></tr>'+
     '</tbody></table>';
   abrirImpresionPremium('Auditoría de Pagos de Nómina','Cotejo planilla vs pagado — '+(h.periodo||h.semana),stats,body);
