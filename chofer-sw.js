@@ -3,7 +3,7 @@
 // PWA Offline-First para choferes
 // ═══════════════════════════════════════════════════
 
-const CACHE_NAME = 'betangar-chofer-v16'; // v16: botón "Enviar link a quien recibe" → app receptora (recibir.html) confirma desde otro equipo
+const CACHE_NAME = 'betangar-chofer-v17'; // v17: panel de envío del link (número WhatsApp + copiar + compartir) + HTML siempre fresco de la red
 
 // Archivos a cachear para funcionar sin internet
 const ARCHIVOS_CACHE = [
@@ -54,9 +54,13 @@ self.addEventListener('fetch', function(event) {
     return;
   }
 
+  // El DOCUMENTO (chofer.html) se pide SIEMPRE fresco a la red (bypass de la caché HTTP de
+  // GitHub Pages) para que el chofer no se quede con una versión vieja. El resto: network-first normal.
+  var esDoc = (event.request.mode === 'navigate') || url.indexOf('chofer.html') >= 0;
+
   // Para el chofer.html y sus recursos: Network First
   event.respondWith(
-    fetch(event.request)
+    (esDoc ? fetch(url, { cache: 'no-store' }) : fetch(event.request))
       .then(function(response) {
         // Si la respuesta es válida, actualizar cache
         if (response && response.status === 200) {

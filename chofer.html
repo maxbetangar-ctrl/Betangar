@@ -466,9 +466,25 @@ body{background:#0f1923;color:#fff;font-family:-apple-system,BlinkMacSystemFont,
 
       <!-- Confirmación del receptor / verificador -->
       <div id="ent-confirm" style="display:none;background:#1a2d3d;border:1px solid rgba(125,201,65,.4);border-radius:12px;padding:14px;margin-top:14px">
-        <button onclick="entCompartirLink()" style="width:100%;background:#1e3a5f;color:#7dc941;border:1px solid #7dc941;border-radius:12px;padding:13px;font-size:15px;font-weight:800;cursor:pointer;margin-bottom:10px">📲 Enviar link a quien recibe</button>
-        <div style="text-align:center;font-size:11px;color:rgba(255,255,255,.35);margin-bottom:10px">— o confirmalo acá mismo —</div>
-        <div id="ent-confirm-title" style="font-size:14px;font-weight:800;color:#7dc941;margin-bottom:8px">📝 Confirmación de quien recibe</div>
+        <div style="font-size:15px;font-weight:800;color:#7dc941;margin-bottom:2px">✅ Registrado</div>
+        <div style="font-size:12px;color:rgba(255,255,255,.6);margin-bottom:12px">Ahora que lo confirme quien recibe — de una de estas 2 formas:</div>
+
+        <!-- OPCIÓN 1: enviar link a su WhatsApp -->
+        <div style="font-size:12px;font-weight:700;color:#fff;margin-bottom:6px">📲 Opción 1 · Enviarle el link a su teléfono</div>
+        <div style="display:flex;gap:6px;margin-bottom:8px">
+          <input id="ent-wa-num" placeholder="WhatsApp (ej: 0414-1234567)" inputmode="tel" style="flex:1;background:#111c26;border:1px solid rgba(255,255,255,.12);color:#fff;border-radius:10px;padding:12px;font-size:15px">
+          <button onclick="entEnviarWhatsApp()" style="background:#25D366;color:#0f1923;border:none;border-radius:10px;padding:0 16px;font-size:14px;font-weight:800;cursor:pointer;white-space:nowrap">Enviar</button>
+        </div>
+        <div style="display:flex;gap:6px;margin-bottom:8px">
+          <input id="ent-link" readonly onclick="this.select()" style="flex:1;background:#0c141c;border:1px solid rgba(255,255,255,.1);color:rgba(255,255,255,.6);border-radius:10px;padding:10px;font-size:11px">
+          <button onclick="entCopiarLink()" style="background:#1e3a5f;color:#7dc941;border:1px solid #7dc941;border-radius:10px;padding:0 14px;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap">Copiar</button>
+        </div>
+        <button onclick="entCompartirLink()" style="width:100%;background:transparent;color:rgba(255,255,255,.55);border:1px solid rgba(255,255,255,.15);border-radius:10px;padding:10px;font-size:13px;font-weight:700;cursor:pointer">Compartir por otra app…</button>
+
+        <div style="text-align:center;font-size:11px;color:rgba(255,255,255,.3);margin:12px 0">— o —</div>
+
+        <!-- OPCIÓN 2: confirmar en este teléfono -->
+        <div id="ent-confirm-title" style="font-size:12px;font-weight:700;color:#fff;margin-bottom:6px">📝 Opción 2 · Confirmar acá mismo (quien recibe firma en tu teléfono)</div>
         <input id="ent-rec-nombre" placeholder="Nombre de quien recibe" style="width:100%;background:#111c26;border:1px solid rgba(255,255,255,.12);color:#fff;border-radius:10px;padding:12px;font-size:15px;margin-bottom:8px">
         <input id="ent-rec-ci" placeholder="Cédula (opcional)" style="width:100%;background:#111c26;border:1px solid rgba(255,255,255,.12);color:#fff;border-radius:10px;padding:12px;font-size:15px;margin-bottom:10px">
         <button id="ent-confirm-btn" onclick="entregaConfirmarRecepcion()" style="width:100%;background:#7dc941;color:#0f1923;border:none;border-radius:12px;padding:14px;font-size:15px;font-weight:800;cursor:pointer">Confirmar recepción</button>
@@ -768,14 +784,44 @@ function entSetTipo(t){
     if(cb)cb.textContent='Confirmar recepción';
   }
 }
-// Comparte el link de la app receptora (recibir.html?t=<token>) para que el receptor confirme
-// desde SU teléfono. Usa el share nativo del celular; si no, abre WhatsApp.
+// URL de la app receptora (recibir.html?t=<token>) para que el receptor confirme desde SU teléfono.
+function _entLinkURL(){ return (ENT_ULTIMA&&ENT_ULTIMA.token) ? (location.origin+'/recibir.html?t='+ENT_ULTIMA.token) : ''; }
+function _entLinkTexto(){
+  var esMant = (ENT_ULTIMA&&ENT_ULTIMA.tipo==='mantenimiento');
+  return (esMant?'Confirmá la verificación del mantenimiento':'Confirmá la recepción de la entrega')+' de "'+((ENT_ULTIMA&&ENT_ULTIMA.cliente)||'')+'" (unidad '+((ENT_ULTIMA&&ENT_ULTIMA.cam)||'')+'):\n'+_entLinkURL();
+}
+// Normaliza un teléfono venezolano a formato internacional para wa.me (58XXXXXXXXXX, sin + ni 0).
+function _entTelWa(raw){
+  var d = String(raw||'').replace(/\D/g,'');
+  if(!d) return '';
+  if(d.indexOf('58')===0 && d.length>=12) return d;   // ya trae 58
+  if(d.charAt(0)==='0') d = d.slice(1);                // 0414... -> 414...
+  if(d.length===10) return '58'+d;                     // 414XXXXXXX -> 58414XXXXXXX
+  return d.length>=11 ? d : '58'+d;                    // fallback
+}
+// Enviar el link por WhatsApp AL NÚMERO que escribió el chofer.
+function entEnviarWhatsApp(){
+  if(!ENT_ULTIMA || !ENT_ULTIMA.token){ mostrarToast('Registrá primero','error'); return; }
+  if(!isOnline){ mostrarToast('⚠️ Sin conexión: el link funcionará cuando suba el registro.','error'); }
+  var num = _entTelWa(document.getElementById('ent-wa-num').value);
+  if(!num){ mostrarToast('Escribí el número de WhatsApp de quien recibe','error'); return; }
+  window.open('https://wa.me/'+num+'?text='+encodeURIComponent(_entLinkTexto()), '_blank');
+}
+// Copiar el link al portapapeles.
+function entCopiarLink(){
+  var url = _entLinkURL(); if(!url){ mostrarToast('Registrá primero','error'); return; }
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(url).then(function(){ mostrarToast('✅ Link copiado','exito'); }).catch(function(){ _entCopiarFallback(url); });
+  }else{ _entCopiarFallback(url); }
+}
+function _entCopiarFallback(url){
+  var i=document.getElementById('ent-link'); if(i){ i.focus(); i.select(); try{document.execCommand('copy'); mostrarToast('✅ Link copiado','exito');}catch(e){ mostrarToast('Copialo manualmente','error'); } }
+}
+// Compartir por el menú nativo del celular (WhatsApp, Telegram, etc.) o WhatsApp genérico.
 function entCompartirLink(){
   if(!ENT_ULTIMA || !ENT_ULTIMA.token){ mostrarToast('Registrá primero','error'); return; }
-  var url = location.origin + '/recibir.html?t=' + ENT_ULTIMA.token;
-  var esMant = (ENT_ULTIMA.tipo==='mantenimiento');
-  var txt = (esMant?'Confirmá la verificación del mantenimiento':'Confirmá la recepción de la entrega')+' de "'+(ENT_ULTIMA.cliente||'')+'" (unidad '+(ENT_ULTIMA.cam||'')+'):\n'+url;
-  if(!isOnline){ mostrarToast('⚠️ Sin conexión: el link recién funcionará cuando suba el registro.','error'); }
+  if(!isOnline){ mostrarToast('⚠️ Sin conexión: el link funcionará cuando suba el registro.','error'); }
+  var url = _entLinkURL(), txt = _entLinkTexto();
   if(navigator.share){ navigator.share({ title:'FlotaMax', text:txt, url:url }).catch(function(){}); }
   else{ window.open('https://wa.me/?text='+encodeURIComponent(txt), '_blank'); }
 }
@@ -929,7 +975,9 @@ async function registrarEntrega(){
     if(!ok) encolarEntrega(row);
     ENT_ULTIMA = row;
     mostrarToast(ok?(isMant?'✅ Mantenimiento registrado':'✅ Entrega registrada'):'📵 Guardado (se sube al reconectar)','exito');
-    // Mostrar bloque de confirmación del receptor
+    // Mostrar bloque de confirmación + rellenar el link para enviar
+    var _lk=document.getElementById('ent-link'); if(_lk)_lk.value=_entLinkURL();
+    var _wn=document.getElementById('ent-wa-num'); if(_wn)_wn.value='';
     document.getElementById('ent-confirm').style.display = 'block';
     document.getElementById('ent-confirm').scrollIntoView({behavior:'smooth'});
     renderEntregasHoy();
