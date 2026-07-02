@@ -587,6 +587,16 @@ function resetCola(){ app.COLA_OFFLINE=[]; app.COLA_FALLIDOS=[]; app._procesando
   app.KM_DATA = {}; app.REGS = []; app.VIAJES_CHOFER = [];
   ok('sin datos de movimiento → no marcada parada', app._unidadParada('P9').parada === false);
 
+  // ── Semana secuencial SEM-N (ancla SEM-16 = lunes 15/06/2026) ──
+  console.log('\nSemana secuencial (SEM-N):');
+  eq('15/06/2026 (lunes) → SEM-16', app._semDeFecha('2026-06-15').label, 'SEM-16');
+  eq('21/06/2026 (domingo, misma semana) → SEM-16', app._semDeFecha('2026-06-21').label, 'SEM-16');
+  eq('08/06/2026 → SEM-15', app._semDeFecha('2026-06-08').label, 'SEM-15');
+  eq('22/06/2026 → SEM-17', app._semDeFecha('2026-06-22').label, 'SEM-17');
+  eq('01/06/2026 → SEM-14', app._semDeFecha('2026-06-01').label, 'SEM-14');
+  eq('período legible', app._semDeFecha('2026-06-15').periodo, 'Del 15 de junio al 21 de junio de 2026');
+  ok('sin fecha → null', app._semDeFecha('') === null);
+
   // ── Resumen ──
   console.log('\n──────────────');
   console.log('PASS: ' + pass + '   FAIL: ' + fail);

@@ -1889,6 +1889,23 @@ async function _persistirTasasManual(){
 // HELPERS
 // ═══════════════════════════════════════════════════
 function getSem(f){var d=f?new Date(f+'T12:00:00'):new Date();var dia=d.getDate();if(dia<=7)return'Semana 1';if(dia<=14)return'Semana 2';if(dia<=21)return'Semana 3';if(dia<=28)return'Semana 4';return'Semana 5';}
+// ── SEMANA SECUENCIAL (SEM-N, lunes–domingo) ──────────────────────────────────────────────
+// Numeración propia de la empresa (NO ISO): ANCLA SEM-16 = lunes 15/06/2026. Se continúa la
+// secuencia del historial (…SEM-15=8–14 jun, SEM-16=15–21 jun, SEM-17=22–28…). El número se
+// calcula por la diferencia de semanas contra el ancla, así el rótulo del historial es correcto
+// y consecutivo sin depender del selector mensual "Semana 1-5".
+function _lunesSem(fISO){ var d=new Date(String(fISO).slice(0,10)+'T12:00:00'); var g=d.getDay(); d.setDate(d.getDate()+(g===0?-6:1-g)); d.setHours(12,0,0,0); return d; }
+var _SEM_MESES=['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+function _fechaLargaES(d){ return d.getDate()+' de '+_SEM_MESES[d.getMonth()]; }
+function _semDeFecha(fISO){
+  if(!fISO) return null;
+  var lun=_lunesSem(fISO), dom=new Date(lun); dom.setDate(dom.getDate()+6);
+  var ancla=new Date('2026-06-15T12:00:00'); // SEM-16
+  var num=16+Math.round((lun-ancla)/(7*86400000));
+  return { num:num, label:'SEM-'+num, lunes:lun, domingo:dom, year:dom.getFullYear(),
+    periodo:'Del '+_fechaLargaES(lun)+' al '+_fechaLargaES(dom)+' de '+dom.getFullYear() };
+}
+function _isoLocal(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
 // Mes EN CURSO en formato Betangar ('jun-26'). Reemplaza el 'abr-26' que estaba hardcodeado como
 // "mes actual" en varios sitios (defaults de nómina/asistencia/metas/dashboard). OJO: los <select>
 // de mes solo tienen opciones hasta 2026; al llegar 2027 hay que ampliarlas o el default no casará.
@@ -1991,6 +2008,26 @@ function poblarSems(){
     var cur=sel.value;
     sel.innerHTML='<option value="">Todas</option>';
     ['Semana 1','Semana 2','Semana 3','Semana 4','Semana 5'].forEach(function(s){sel.innerHTML+='<option'+(cur===s?' selected':'')+'>'+s+'</option>';});
+  });
+}
+// Selector de semana de NÓMINA anotado con las fechas y el SEM-N (según el mes elegido), para
+// no confundirse al elegir la semana (ej. "Semana 3 · 15–21 · SEM-16"). El VALUE queda "Semana N"
+// (lo que filtra calcNom por r.sem); solo cambia el texto mostrado.
+function poblarSemsNom(){
+  var sel=g('nm-sem'); if(!sel)return;
+  var cur=sel.value, mes=gv('nm-mes'), ym=null;
+  if(mes){ var pp=String(mes).split('-'); var mi=['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'].indexOf(pp[0]); if(mi>=0)ym={mi:mi,yy:2000+(parseInt(pp[1])||0)}; }
+  var rangos=[[1,7],[8,14],[15,21],[22,28],[29,31]];
+  sel.innerHTML='<option value="">Todas</option>';
+  ['Semana 1','Semana 2','Semana 3','Semana 4','Semana 5'].forEach(function(s,i){
+    var extra='';
+    if(ym){
+      var last=new Date(ym.yy,ym.mi+1,0).getDate(), d1=rangos[i][0], d2=Math.min(rangos[i][1],last);
+      if(d1>last) return; // ese mes no tiene esa semana (ej. Semana 5 en meses de 28)
+      var wk=_semDeFecha(_isoLocal(new Date(ym.yy,ym.mi,d1)));
+      extra=' · '+d1+'–'+d2+(wk?(' · '+wk.label):'');
+    }
+    sel.innerHTML+='<option value="'+s+'"'+(cur===s?' selected':'')+'>'+s+extra+'</option>';
   });
 }
 
@@ -3756,7 +3793,7 @@ function _extrasNominaPeriodo(desde,hasta){
   });
 }
 // Al cambiar de semana/mes: cargar patio + fijos IMAU + alias + extras y recalcular.
-function recalcNom(){ Promise.all([cargarPatioDias(),cargarPatioNota(),cargarImauApoyo(),cargarAliasNombres(),cargarNominaExtras()]).then(function(){try{calcNom();}catch(e){}try{renderAliasManager();}catch(e){}}).catch(function(){try{calcNom();}catch(e){}}); }
+function recalcNom(){ try{poblarSemsNom();}catch(e){} Promise.all([cargarPatioDias(),cargarPatioNota(),cargarImauApoyo(),cargarAliasNombres(),cargarNominaExtras()]).then(function(){try{calcNom();}catch(e){}try{renderAliasManager();}catch(e){}}).catch(function(){try{calcNom();}catch(e){}}); }
 // Render de la sección "Actividades especiales" de la nómina (extras del período).
 function renderNominaExtras(extrasP){
   var tb=g('nm-extras-tabla'); if(!tb)return;
@@ -4056,7 +4093,7 @@ function calcNom(){
 function renderNominaHist(){
   try{llenarAudSem();}catch(e){}
   var lista=g('nm-hist-lista'); if(!lista)return;
-  var hist=(NOMINA_HIST||[]).slice().sort(function(a,b){return (a.semana<b.semana?-1:(a.semana>b.semana?1:0));});
+  var hist=(NOMINA_HIST||[]).slice().sort(function(a,b){var fa=a.fecha_desde||'',fb=b.fecha_desde||'';if(fa&&fb&&fa!==fb)return fa<fb?-1:1;return (a.semana<b.semana?-1:(a.semana>b.semana?1:0));});
   var totU=hist.reduce(function(s,h){return s+(parseFloat(h.total_usd)||0);},0);
   var totB=hist.reduce(function(s,h){return s+(parseFloat(h.total_bs)||0);},0);
   var te=g('nm-hist-total'); if(te)te.textContent='$'+totU.toLocaleString('es-VE',{maximumFractionDigits:0})+' · Bs '+(totB/1000000).toFixed(1)+'M · '+hist.length+' sem';
@@ -4183,7 +4220,12 @@ async function guardarNominaHist(){
   // el avance de préstamos/multas ocurre SOLO la primera vez que se paga/guarda la semana.
   var yaExistia=NOMINA_HIST.some(function(x){return x.id===id;});
   var nPrest=(n._prestAplicar||[]).length, nMulta=(n._multaAplicar||[]).length;
-  var row={id:id, semana:n.sem, periodo:(n.fdesde||'')+(n.fhasta?(' a '+n.fhasta):''),
+  // Rótulo SEM-N secuencial + período en formato legible, derivados de la SEMANA real de las
+  // planillas (lunes–domingo), no del selector mensual "Semana 1-5". Fallback al valor viejo si no hay fecha.
+  var _wk=_semDeFecha(n.fdesde);
+  var _semLabel=_wk?_wk.label:n.sem;
+  var _periodo=_wk?_wk.periodo:((n.fdesde||'')+(n.fhasta?(' a '+n.fhasta):''));
+  var row={id:id, semana:_semLabel, periodo:_periodo,
     fecha_desde:n.fdesde||null, fecha_hasta:n.fhasta||null,
     total_usd:Math.round((n.totCh+n.totAy+(n.totAdm||0)+(n.totImau||0)+(n.totExtras||0))*100)/100, total_bs:Math.round(n.totBs*100)/100,
     op_usd:Math.round((n.totCh+n.totAy)*100)/100, adm_usd:Math.round((n.totAdm||0)*100)/100, imau_bs:Math.round((n.totImau||0)*(n.tasa||0)*100)/100, tasa:n.tasa,
@@ -4191,7 +4233,7 @@ async function guardarNominaHist(){
   var avisoDesc=(!yaExistia&&(nPrest||nMulta))
     ?('\n\n⚠️ Esto avanzará 1 cuota a '+nPrest+' préstamo(s) y '+nMulta+' multa(s) activas (el descuento de ESTA semana).')
     :((yaExistia&&(nPrest||nMulta))?'\n\n(Esta semana ya estaba guardada → las cuotas NO se vuelven a avanzar.)':'');
-  if(!confirm('¿Guardar la nómina de "'+n.sem+'" ('+n.mes+') en el historial?\nTotal $'+row.total_usd.toFixed(0)+' · '+n.choferes.length+' choferes, '+n.ayudantes.length+' ayudantes.'+avisoDesc+'\n(Si ya existe esa semana, se reemplaza.)'))return;
+  if(!confirm('¿Guardar la nómina de "'+_semLabel+'" ('+_periodo+') en el historial?\nTotal $'+row.total_usd.toFixed(0)+' · '+n.choferes.length+' choferes, '+n.ayudantes.length+' ayudantes.'+avisoDesc+'\n(Si ya existe esa semana, se reemplaza.)'))return;
   if(!(DB_READY&&supabase)){alert('Sin conexión a la base.');return;}
   // ATÓMICO (cierra el crítico de doble-cobro): la RPC avanzar_nomina guarda la nómina Y avanza las
   // cuotas de préstamos/multas en UNA transacción (todo-o-nada). Las cuotas que se completan se
@@ -4256,7 +4298,8 @@ async function reguardarTodasNominas(){
     var totUsd=Math.round((n.totCh+n.totAy+(n.totAdm||0)+(n.totImau||0)+(n.totExtras||0))*100)/100;
     function _conBs(arr){return (arr||[]).map(function(p){return {n:p.n,u:p.u,viajes:p.viajes,pat:p.pat,tipo:p.tipo,usd:p.usd,bs:tasaHist>0?Math.round((parseFloat(p.usd)||0)*tasaHist*100)/100:0};});}
     var admArr=(typeof NOM_ADM!=='undefined'?NOM_ADM:[]).map(function(a){var u=Math.round(((parseFloat(a.monto)||0)/4)*100)/100;return {n:a.cargo,u:'fijo semanal',usd:u,bs:tasaHist>0?Math.round(u*tasaHist*100)/100:0};});
-    rows.push({id:h.id, semana:h.semana, periodo:h.periodo||((h.fecha_desde||'')+(h.fecha_hasta?(' a '+h.fecha_hasta):'')),
+    var _wkR=_semDeFecha(h.fecha_desde);
+    rows.push({id:h.id, semana:_wkR?_wkR.label:h.semana, periodo:_wkR?_wkR.periodo:(h.periodo||((h.fecha_desde||'')+(h.fecha_hasta?(' a '+h.fecha_hasta):''))),
       fecha_desde:h.fecha_desde, fecha_hasta:h.fecha_hasta,
       total_usd:totUsd, total_bs:tasaHist>0?Math.round(totUsd*tasaHist*100)/100:(parseFloat(h.total_bs)||0),
       op_usd:Math.round((n.totCh+n.totAy)*100)/100, adm_usd:Math.round((n.totAdm||0)*100)/100, imau_bs:tasaHist>0?Math.round((n.totImau||0)*tasaHist*100)/100:0, tasa:h.tasa||null,
@@ -4315,7 +4358,7 @@ async function aplicarAvanceDescuentos(n){
 // ── AUDITORÍA DE PAGOS: pagado (historial) vs corresponde (viajes planilla × tarifa + domingo + patio) ──
 function llenarAudSem(){
   var sel=g('aud-sem'); if(!sel)return; var cur=sel.value;
-  var hist=(NOMINA_HIST||[]).slice().sort(function(a,b){return a.semana<b.semana?-1:(a.semana>b.semana?1:0);});
+  var hist=(NOMINA_HIST||[]).slice().sort(function(a,b){var fa=a.fecha_desde||'',fb=b.fecha_desde||'';if(fa&&fb&&fa!==fb)return fa<fb?-1:1;return a.semana<b.semana?-1:(a.semana>b.semana?1:0);});
   sel.innerHTML='<option value="">— elegí semana —</option>'+hist.map(function(h){return '<option value="'+h.semana+'">'+h.semana+(h.periodo?(' · '+String(h.periodo).slice(0,22)):'')+'</option>';}).join('');
   if(cur)sel.value=cur;
 }
