@@ -73,13 +73,14 @@ async function cargar(){
 }
 
 function render(){
-  var e = ENT, esMant = (e.tipo==='mantenimiento');
-  el('sub').textContent = esMant ? 'Verificación de mantenimiento' : 'Confirmación de recepción';
+  var e = ENT, esMant = (e.tipo==='mantenimiento'), esPunto = (e.tipo==='punto');
+  el('sub').textContent = esMant ? 'Verificación de mantenimiento' : (esPunto ? 'Registro de punto / evento' : 'Confirmación de recepción');
   var conf = (e.estado==='confirmada');
   var foto = e.foto_url ? '<img src="'+esc(e.foto_url)+'" onclick="verFoto(this.src)" alt="evidencia">' : '';
+  var badgeTxt = esMant ? '🔧 Mantenimiento' : (esPunto ? '📍 Punto / evento' : '📦 Entrega');
   var info =
     '<div class="pad">'+
-      '<span class="badge '+(esMant?'b-mant':'b-ent')+'">'+(esMant?'🔧 Mantenimiento':'📦 Entrega')+'</span>'+
+      '<span class="badge '+(esMant||esPunto?'b-mant':'b-ent')+'">'+badgeTxt+'</span>'+
       '<div class="tit">'+esc(e.cliente||'—')+'</div>'+
       (e.direccion?'<div class="row">'+esc(e.direccion)+'</div>':'')+
       (e.direccion_gps?'<div class="row">📍 '+esc(e.direccion_gps)+'</div>':'')+
@@ -107,7 +108,7 @@ async function confirmar(){
   if(!nombre){ alert(esMant?'Escribí tu nombre (quien verifica)':'Escribí tu nombre'); return; }
   var ci = (el('rec-ci').value||'').trim();
   var btn = el('rec-btn'); btn.disabled = true; btn.textContent = 'Guardando…';
-  var patch = { estado:'confirmada', recibido_por:nombre, recibido_ci:ci, recibido_at:new Date().toISOString() };
+  var patch = { estado:'confirmada', recibido_por:nombre, recibido_ci:ci, recibido_at:new Date().toISOString(), confirm_via:'link' };
   try{
     var r = await supabase.from('entregas').update(patch).eq('token', TOKEN).eq('estado','entregada');
     if(r.error){ btn.disabled=false; btn.textContent=(esMant?'Confirmar verificación':'Confirmar recepción'); alert('No se pudo confirmar: '+r.error.message); return; }

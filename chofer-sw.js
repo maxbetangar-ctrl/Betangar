@@ -3,7 +3,7 @@
 // PWA Offline-First para choferes
 // ═══════════════════════════════════════════════════
 
-const CACHE_NAME = 'betangar-chofer-v17'; // v17: panel de envío del link (número WhatsApp + copiar + compartir) + HTML siempre fresco de la red
+const CACHE_NAME = 'betangar-chofer-v18'; // v18: tercer tipo 📍 Punto/Evento (aseo) + confirm_via (en sitio/por link) + se quitó el aviso "prueba de entrega"
 
 // Archivos a cachear para funcionar sin internet
 const ARCHIVOS_CACHE = [

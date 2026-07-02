@@ -433,14 +433,11 @@ body{background:#0f1923;color:#fff;font-family:-apple-system,BlinkMacSystemFont,
   <!-- ══════ TAB ENTREGA ══════ -->
   <div class="tab-page" id="tab-entrega">
     <div class="content">
-      <!-- Toggle tipo: Entrega o Mantenimiento -->
-      <div style="display:flex;gap:8px;margin-bottom:12px">
-        <button id="ent-tipo-entrega" onclick="entSetTipo('entrega')" style="flex:1;background:#7dc941;color:#0f1923;border:none;border-radius:10px;padding:12px;font-size:14px;font-weight:800;cursor:pointer">📦 Entrega</button>
-        <button id="ent-tipo-mant" onclick="entSetTipo('mantenimiento')" style="flex:1;background:#111c26;color:rgba(255,255,255,.55);border:1px solid rgba(255,255,255,.15);border-radius:10px;padding:12px;font-size:14px;font-weight:800;cursor:pointer">🔧 Mantenimiento</button>
-      </div>
-
-      <div id="ent-intro" style="background:#1a2d3d;border-radius:12px;padding:12px 14px;margin-bottom:14px;font-size:12px;color:rgba(255,255,255,.7);line-height:1.5">
-        📦 <b style="color:#7dc941">Prueba de entrega</b> — tomá la foto <b>en vivo</b> (cámara), el sistema graba la <b>ubicación GPS</b> y la hora. El que recibe confirma abajo.
+      <!-- Toggle tipo: Entrega / Mantenimiento / Punto o Evento -->
+      <div style="display:flex;gap:6px;margin-bottom:14px">
+        <button id="ent-tipo-entrega" onclick="entSetTipo('entrega')" style="flex:1;background:#7dc941;color:#0f1923;border:none;border-radius:10px;padding:11px 6px;font-size:12px;font-weight:800;cursor:pointer">📦 Entrega</button>
+        <button id="ent-tipo-mant" onclick="entSetTipo('mantenimiento')" style="flex:1;background:#111c26;color:rgba(255,255,255,.55);border:1px solid rgba(255,255,255,.15);border-radius:10px;padding:11px 6px;font-size:12px;font-weight:800;cursor:pointer">🔧 Mant.</button>
+        <button id="ent-tipo-punto" onclick="entSetTipo('punto')" style="flex:1;background:#111c26;color:rgba(255,255,255,.55);border:1px solid rgba(255,255,255,.15);border-radius:10px;padding:11px 6px;font-size:12px;font-weight:800;cursor:pointer">📍 Punto</button>
       </div>
 
       <div id="ent-form">
@@ -751,38 +748,27 @@ function switchTab(tab){
 var ENT_FOTO_FILE = null;      // File de la foto tomada
 var ENT_GPS = null;            // {lat,lng,acc}
 var ENT_ULTIMA = null;         // último registro (para confirmar recepción/verificación)
-var ENT_TIPO = 'entrega';      // 'entrega' | 'mantenimiento'
+var ENT_TIPO = 'entrega';      // 'entrega' | 'mantenimiento' | 'punto'
 
-// Alterna el tipo de evidencia y reetiqueta el formulario (misma foto+GPS+sello).
+// Alterna el tipo de evidencia y reetiqueta el formulario (misma foto+GPS+sello sirve para los 3).
 function entSetTipo(t){
   ENT_TIPO = t;
-  var isMant = (t==='mantenimiento');
-  var be=document.getElementById('ent-tipo-entrega'), bm=document.getElementById('ent-tipo-mant');
-  if(be){ be.style.background=isMant?'#111c26':'#7dc941'; be.style.color=isMant?'rgba(255,255,255,.55)':'#0f1923'; be.style.border=isMant?'1px solid rgba(255,255,255,.15)':'none'; }
-  if(bm){ bm.style.background=isMant?'#7dc941':'#111c26'; bm.style.color=isMant?'#0f1923':'rgba(255,255,255,.55)'; bm.style.border=isMant?'none':'1px solid rgba(255,255,255,.15)'; }
-  var lc=document.getElementById('ent-lbl-cliente'), ld=document.getElementById('ent-lbl-direccion'), lf=document.getElementById('ent-lbl-foto');
-  var ic=document.getElementById('ent-cliente'), idr=document.getElementById('ent-direccion');
-  var intro=document.getElementById('ent-intro'), ct=document.getElementById('ent-confirm-title');
-  var gb=document.getElementById('ent-guardar-btn'), rn=document.getElementById('ent-rec-nombre'), cb=document.getElementById('ent-confirm-btn');
-  if(isMant){
-    if(lc)lc.textContent='Trabajo realizado'; if(ic)ic.placeholder='Ej: Drenado del filtro trampa';
-    if(ld)ld.textContent='Detalle / repuesto (opcional)'; if(idr)idr.placeholder='Ej: cambio de filtro P/N 1234';
-    if(lf)lf.textContent='Foto del mantenimiento (en vivo)';
-    if(intro)intro.innerHTML='🔧 <b style="color:#7dc941">Evidencia de mantenimiento</b> — tomá la foto <b>en vivo</b> del trabajo (drenado, cambio de repuesto…); el sistema graba <b>unidad, GPS y hora</b>. Un supervisor puede verificar abajo.';
-    if(gb)gb.textContent='✅ Registrar mantenimiento';
-    if(ct)ct.textContent='🔧 Verificación (supervisor / mecánico)';
-    if(rn)rn.placeholder='Nombre de quien verifica';
-    if(cb)cb.textContent='Confirmar verificación';
-  }else{
-    if(lc)lc.textContent='Cliente / destino'; if(ic)ic.placeholder='Ej: Supermercado La Guaira';
-    if(ld)ld.textContent='Dirección / referencia (opcional)'; if(idr)idr.placeholder='Ej: Av. Principal, galpón 3';
-    if(lf)lf.textContent='Foto de la entrega (en vivo)';
-    if(intro)intro.innerHTML='📦 <b style="color:#7dc941">Prueba de entrega</b> — tomá la foto <b>en vivo</b> (cámara), el sistema graba la <b>ubicación GPS</b> y la hora. El que recibe confirma abajo.';
-    if(gb)gb.textContent='✅ Registrar entrega';
-    if(ct)ct.textContent='📝 Confirmación de quien recibe';
-    if(rn)rn.placeholder='Nombre de quien recibe';
-    if(cb)cb.textContent='Confirmar recepción';
-  }
+  [['entrega','ent-tipo-entrega'],['mantenimiento','ent-tipo-mant'],['punto','ent-tipo-punto']].forEach(function(p){
+    var b=document.getElementById(p[1]); if(!b)return; var on=(p[0]===t);
+    b.style.background=on?'#7dc941':'#111c26'; b.style.color=on?'#0f1923':'rgba(255,255,255,.55)'; b.style.border=on?'none':'1px solid rgba(255,255,255,.15)';
+  });
+  var C={
+    entrega:{lc:'Cliente / destino',ic:'Ej: Supermercado La Guaira',ld:'Dirección / referencia (opcional)',idr:'Ej: Av. Principal, galpón 3',lf:'Foto de la entrega (en vivo)',gb:'✅ Registrar entrega',ct:'📝 Confirmación de quien recibe',rn:'Nombre de quien recibe',cb:'Confirmar recepción'},
+    mantenimiento:{lc:'Trabajo realizado',ic:'Ej: Drenado del filtro trampa',ld:'Detalle / repuesto (opcional)',idr:'Ej: cambio de filtro P/N 1234',lf:'Foto del mantenimiento (en vivo)',gb:'✅ Registrar mantenimiento',ct:'🔧 Verificación (supervisor / mecánico)',rn:'Nombre de quien verifica',cb:'Confirmar verificación'},
+    punto:{lc:'Punto o evento',ic:'Ej: Recolección Calle 5 / punto crítico esquina X',ld:'Detalle (opcional)',idr:'Ej: contenedor lleno · se dejó limpio',lf:'Foto del punto / evento (en vivo)',gb:'✅ Registrar punto',ct:'📝 Testigo (opcional)',rn:'Nombre del testigo',cb:'Confirmar'}
+  };
+  var c=C[t]||C.entrega;
+  var set=function(id,prop,val){ var e=document.getElementById(id); if(e)e[prop]=val; };
+  set('ent-lbl-cliente','textContent',c.lc); set('ent-cliente','placeholder',c.ic);
+  set('ent-lbl-direccion','textContent',c.ld); set('ent-direccion','placeholder',c.idr);
+  set('ent-lbl-foto','textContent',c.lf);
+  set('ent-guardar-btn','textContent',c.gb); set('ent-confirm-title','textContent',c.ct);
+  set('ent-rec-nombre','placeholder',c.rn); set('ent-confirm-btn','textContent',c.cb);
 }
 // URL de la app receptora (recibir.html?t=<token>) para que el receptor confirme desde SU teléfono.
 function _entLinkURL(){ return (ENT_ULTIMA&&ENT_ULTIMA.token) ? (location.origin+'/recibir.html?t='+ENT_ULTIMA.token) : ''; }
@@ -829,7 +815,8 @@ function entCompartirLink(){
 function _entConcepto(){
   var v=(document.getElementById('ent-cliente').value||'').trim();
   if(!v) return '';
-  return (ENT_TIPO==='mantenimiento' ? '🔧 ' : 'Entrega: ') + v;
+  var pref = ENT_TIPO==='mantenimiento' ? '🔧 ' : (ENT_TIPO==='punto' ? '📍 ' : 'Entrega: ');
+  return pref + v;
 }
 
 function entregaPreviewFoto(input){
@@ -938,9 +925,10 @@ function _tokenEntrega(){
 }
 
 async function registrarEntrega(){
-  var isMant = (ENT_TIPO==='mantenimiento');
+  var isMant = (ENT_TIPO==='mantenimiento'), isPunto = (ENT_TIPO==='punto');
+  var _lblReg = isMant?'Mantenimiento':(isPunto?'Punto':'Entrega');
   var cliente = (document.getElementById('ent-cliente').value||'').trim();
-  if(!cliente){ mostrarToast(isMant?'Escribí el trabajo realizado':'Escribí el cliente/destino','error'); return; }
+  if(!cliente){ mostrarToast(isMant?'Escribí el trabajo realizado':(isPunto?'Escribí el punto o evento':'Escribí el cliente/destino'),'error'); return; }
   if(!ENT_FOTO_FILE){ mostrarToast('Tomá la foto','error'); return; }
   if(!ENT_GPS){ mostrarToast('Falta la ubicación — tocá "Ubicar"','error'); entregaTomarGPS(); return; }
   var btn = document.getElementById('ent-guardar-btn'); btn.disabled = true; var txtOrig = btn.textContent; btn.textContent = 'Guardando…';
@@ -974,7 +962,7 @@ async function registrarEntrega(){
     }
     if(!ok) encolarEntrega(row);
     ENT_ULTIMA = row;
-    mostrarToast(ok?(isMant?'✅ Mantenimiento registrado':'✅ Entrega registrada'):'📵 Guardado (se sube al reconectar)','exito');
+    mostrarToast(ok?('✅ '+_lblReg+(isMant||isPunto?' registrado':' registrada')):'📵 Guardado (se sube al reconectar)','exito');
     // Mostrar bloque de confirmación + rellenar el link para enviar
     var _lk=document.getElementById('ent-link'); if(_lk)_lk.value=_entLinkURL();
     var _wn=document.getElementById('ent-wa-num'); if(_wn)_wn.value='';
@@ -994,7 +982,7 @@ async function entregaConfirmarRecepcion(){
   var nombre = (document.getElementById('ent-rec-nombre').value||'').trim();
   if(!nombre){ mostrarToast(_esMantU?'Escribí quién verifica':'Escribí el nombre de quien recibe','error'); return; }
   var ci = (document.getElementById('ent-rec-ci').value||'').trim();
-  var patch = { estado:'confirmada', recibido_por:nombre, recibido_ci:ci, recibido_at:new Date().toISOString() };
+  var patch = { estado:'confirmada', recibido_por:nombre, recibido_ci:ci, recibido_at:new Date().toISOString(), confirm_via:'sitio' };
   ENT_ULTIMA.estado='confirmada'; ENT_ULTIMA.recibido_por=nombre; ENT_ULTIMA.recibido_ci=ci; ENT_ULTIMA.recibido_at=patch.recibido_at;
   // Re-sellar la FOTO FINAL con quién recibió (si aún tenemos el archivo original en memoria).
   if(ENT_FOTO_FILE){
