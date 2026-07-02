@@ -4013,7 +4013,7 @@ function renderNominaHist(){
     // FILTRO POR PERSONA: busca al chofer/ayudante/imau en el detalle de cada semana.
     var filas=[],tp=0,tb=0;
     hist.forEach(function(h){
-      var d=h.detalle||{}; var grupos=[['choferes','Chofer'],['ayudantes','Ayudante'],['imau','IMAU']];
+      var d=h.detalle||{}; var grupos=[['choferes','Chofer'],['ayudantes','Ayudante'],['imau','IMAU'],['adm','Administrativo']];
       grupos.forEach(function(gp){
         (d[gp[0]]||[]).forEach(function(p){
           if((p.n||'').toUpperCase().indexOf(filtro)>=0){
@@ -4039,12 +4039,41 @@ function renderNominaHist(){
       var sinTasa=!(parseFloat(h.tasa)>0);
       var celdaBs=sinTasa
         ? '<td style="font-family:var(--m);color:var(--red);font-size:10px">⚠️ Sin tasa registrada</td>'
-        : '<td style="font-family:var(--m);color:var(--yellow)">Bs '+(parseFloat(h.total_bs)||0).toLocaleString('es-VE',{maximumFractionDigits:0})+'</td>';
+        : '<td style="font-family:var(--m);color:var(--yellow)">Bs '+(parseFloat(h.total_bs)||0).toLocaleString('es-VE',{maximumFractionDigits:0})+'<br><span style="font-size:9px;color:var(--text3)">tasa '+(parseFloat(h.tasa)||0).toLocaleString('es-VE',{maximumFractionDigits:2})+'</span></td>';
       return '<tr><td style="font-weight:700">'+h.semana+'</td><td style="font-size:10px;color:var(--text3)">'+(h.periodo||'')+'</td>'+
       '<td style="font-family:var(--m);color:var(--green)">$'+(parseFloat(h.total_usd)||0).toLocaleString('es-VE',{maximumFractionDigits:0})+'</td>'+
       celdaBs+
-      '<td><button class="btn btn-s btn-xs" onclick="verNominaHistDetalle(\''+h.semana+'\')">ver</button></td></tr>';}).join('')+
+      '<td style="white-space:nowrap"><button class="btn btn-s btn-xs" onclick="verNominaHistDetalle(\''+h.semana+'\')">ver</button> <button class="btn '+(sinTasa?'btn-r':'btn-s')+' btn-xs" title="Corregir o registrar la tasa Bs/$ de la semana (la del día que se pagó). Recalcula los Bs." onclick="editarTasaHist(\''+h.semana+'\')">'+(sinTasa?'⚠️ tasa':'✏️ tasa')+'</button></td></tr>';}).join('')+
     '</tbody></table>';
+}
+// Corregir/registrar la TASA Bs/$ de una semana del historial (la del día que se pagó). Recalcula
+// el total_bs y los bs de cada persona SIN tocar los USD (la verdad operativa está en USD). Arregla
+// tasas mal guardadas (ej. Sem 02 = 1907) y las semanas sin tasa (no se puede recalcular sola: no
+// se sabe qué día se pagó → el usuario ingresa la tasa correcta).
+async function editarTasaHist(sem){
+  var h=(NOMINA_HIST||[]).find(function(x){return x.semana===sem;}); if(!h){alert('Sin datos de esa semana');return;}
+  var actual=parseFloat(h.tasa)||0;
+  var v=prompt('Tasa Bs/$ de "'+sem+'" (la del día en que se pagó esa nómina):', actual>0?actual:'');
+  if(v===null)return;
+  // Parseo tolerante al formato VE: "1.907,00"→1907 · "145,50"→145,5 · "145.50"→145,5 · "1907"→1907
+  var raw=String(v).trim().replace(/[^\d.,]/g,''); var t;
+  if(raw.indexOf('.')>=0&&raw.indexOf(',')>=0){ t=parseFloat(raw.replace(/\./g,'').replace(',','.')); }
+  else if(raw.indexOf(',')>=0){ t=parseFloat(raw.replace(',','.')); }
+  else { t=parseFloat(raw); }
+  if(!(t>0)){alert('Tasa inválida. Ingresá un número mayor a 0 (ej: 145,50).');return;}
+  var totUsd=parseFloat(h.total_usd)||0;
+  var d=h.detalle||{};
+  function reBs(arr){return (arr||[]).map(function(p){return Object.assign({},p,{bs:Math.round((parseFloat(p.usd)||0)*t*100)/100});});}
+  var nuevoDetalle=Object.assign({},d,{choferes:reBs(d.choferes),ayudantes:reBs(d.ayudantes),imau:reBs(d.imau),adm:reBs(d.adm)});
+  var totBs=Math.round(totUsd*t*100)/100;
+  if(!(DB_READY&&supabase)){alert('Sin conexión a la base.');return;}
+  var res=await supabase.from('nomina_historial').update({tasa:t,total_bs:totBs,detalle:nuevoDetalle}).eq('id',h.id).select();
+  if(res&&res.error){mostrarToast('No se pudo actualizar la tasa: '+res.error.message,'error');return;}
+  var idx=NOMINA_HIST.findIndex(function(x){return x.id===h.id;});
+  if(idx>=0)NOMINA_HIST[idx]=Object.assign({},h,{tasa:t,total_bs:totBs,detalle:nuevoDetalle});
+  audit('Tasa de nómina corregida',sem+' → '+t+' Bs/$ (Bs '+totBs.toFixed(0)+')');
+  try{renderNominaHist();}catch(e){}
+  mostrarToast('✅ Tasa de "'+sem+'" = '+t.toLocaleString('es-VE',{maximumFractionDigits:2})+' Bs/$ · Bs '+totBs.toLocaleString('es-VE',{maximumFractionDigits:0}),'exito');
 }
 function verNominaHistDetalle(sem){
   var h=(NOMINA_HIST||[]).find(function(x){return x.semana===sem;}); if(!h){alert('Sin datos');return;}
