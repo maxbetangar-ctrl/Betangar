@@ -177,6 +177,7 @@ body{background:#0f1923;color:#fff;font-family:-apple-system,BlinkMacSystemFont,
   <div class="tabs">
     <div class="tab active" id="tab-viajes-btn" onclick="switchTab('viajes')">🚛 Viajes</div>
     <div class="tab" id="tab-checklist-btn" onclick="switchTab('checklist')">📋 Checklist</div>
+    <div class="tab" id="tab-entrega-btn" onclick="switchTab('entrega')">📦 Entrega</div>
   </div>
 
   <!-- ══════ TAB VIAJES ══════ -->
@@ -429,6 +430,52 @@ body{background:#0f1923;color:#fff;font-family:-apple-system,BlinkMacSystemFont,
     </div>
   </div><!-- /tab-checklist -->
 
+  <!-- ══════ TAB ENTREGA ══════ -->
+  <div class="tab-page" id="tab-entrega">
+    <div class="content">
+      <div style="background:#1a2d3d;border-radius:12px;padding:12px 14px;margin-bottom:14px;font-size:12px;color:rgba(255,255,255,.7);line-height:1.5">
+        📦 <b style="color:#7dc941">Prueba de entrega</b> — tomá la foto <b>en vivo</b> (cámara), el sistema graba la <b>ubicación GPS</b> y la hora. El que recibe confirma abajo.
+      </div>
+
+      <div id="ent-form">
+        <label style="display:block;font-size:11px;color:rgba(255,255,255,.5);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Cliente / destino</label>
+        <input id="ent-cliente" placeholder="Ej: Supermercado La Guaira" style="width:100%;background:#111c26;border:1px solid rgba(255,255,255,.12);color:#fff;border-radius:10px;padding:12px;font-size:15px;margin-bottom:12px">
+
+        <label style="display:block;font-size:11px;color:rgba(255,255,255,.5);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Dirección / referencia (opcional)</label>
+        <input id="ent-direccion" placeholder="Ej: Av. Principal, galpón 3" style="width:100%;background:#111c26;border:1px solid rgba(255,255,255,.12);color:#fff;border-radius:10px;padding:12px;font-size:15px;margin-bottom:12px">
+
+        <label style="display:block;font-size:11px;color:rgba(255,255,255,.5);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Foto de la entrega (en vivo)</label>
+        <input type="file" id="ent-foto" accept="image/*" capture="environment" onchange="entregaPreviewFoto(this)" style="display:none">
+        <button onclick="document.getElementById('ent-foto').click()" style="width:100%;background:#1e3a5f;color:#fff;border:2px dashed rgba(125,201,65,.5);border-radius:12px;padding:16px;font-size:15px;font-weight:700;cursor:pointer;margin-bottom:8px">📷 Tomar foto</button>
+        <img id="ent-foto-prev" style="display:none;width:100%;border-radius:12px;margin-bottom:12px;border:1px solid rgba(255,255,255,.1)">
+
+        <div id="ent-gps-box" style="background:#111c26;border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:10px 12px;margin-bottom:12px;font-size:12px;color:rgba(255,255,255,.6);display:flex;align-items:center;justify-content:space-between;gap:8px">
+          <span id="ent-gps-txt">📍 Ubicación: sin capturar</span>
+          <button onclick="entregaTomarGPS()" style="background:#1e3a5f;color:#7dc941;border:1px solid #7dc941;border-radius:8px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap">Ubicar</button>
+        </div>
+
+        <button id="ent-guardar-btn" onclick="registrarEntrega()" style="width:100%;background:#7dc941;color:#0f1923;border:none;border-radius:12px;padding:16px;font-size:16px;font-weight:800;cursor:pointer">✅ Registrar entrega</button>
+      </div>
+
+      <!-- Confirmación del receptor (en el momento) -->
+      <div id="ent-confirm" style="display:none;background:#1a2d3d;border:1px solid rgba(125,201,65,.4);border-radius:12px;padding:14px;margin-top:14px">
+        <div style="font-size:14px;font-weight:800;color:#7dc941;margin-bottom:8px">📝 Confirmación de quien recibe</div>
+        <input id="ent-rec-nombre" placeholder="Nombre de quien recibe" style="width:100%;background:#111c26;border:1px solid rgba(255,255,255,.12);color:#fff;border-radius:10px;padding:12px;font-size:15px;margin-bottom:8px">
+        <input id="ent-rec-ci" placeholder="Cédula (opcional)" style="width:100%;background:#111c26;border:1px solid rgba(255,255,255,.12);color:#fff;border-radius:10px;padding:12px;font-size:15px;margin-bottom:10px">
+        <button onclick="entregaConfirmarRecepcion()" style="width:100%;background:#7dc941;color:#0f1923;border:none;border-radius:12px;padding:14px;font-size:15px;font-weight:800;cursor:pointer">Confirmar recepción</button>
+      </div>
+
+      <!-- Entregas del día -->
+      <div style="margin-top:20px">
+        <div style="font-size:12px;color:rgba(255,255,255,.4);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">Entregas de hoy</div>
+        <div id="ent-lista"></div>
+      </div>
+
+      <canvas id="ent-canvas" style="display:none"></canvas>
+      <div style="height:20px"></div>
+    </div>
+  </div><!-- /tab-entrega -->
+
 </div><!-- /app-main -->
 
 <!-- MODAL INCIDENCIA -->
@@ -589,6 +636,7 @@ document.addEventListener('DOMContentLoaded', function(){
   // Cargar datos locales
   cargarColaLocal();
   cargarColaCL();
+  cargarColaEnt();
   cargarViajesLocal();
   renderBotones();
   actualizarContador();
@@ -664,11 +712,204 @@ function actualizarConexion(online){
 
 // ── TABS ──
 function switchTab(tab){
-  ['viajes','checklist'].forEach(function(t){
+  ['viajes','checklist','entrega'].forEach(function(t){
     document.getElementById('tab-'+t).classList.toggle('active', t===tab);
     document.getElementById('tab-'+t+'-btn').classList.toggle('active', t===tab);
   });
   if(tab==='checklist') renderChecklistModo();
+  if(tab==='entrega') renderEntregasHoy();
+}
+
+// ════════════════════════════════
+// MÓDULO ENTREGAS (prueba de entrega: foto en vivo + GPS + confirmación)
+// ════════════════════════════════
+var ENT_FOTO_FILE = null;      // File de la foto tomada
+var ENT_GPS = null;            // {lat,lng,acc}
+var ENT_ULTIMA = null;         // última entrega registrada (para confirmar recepción)
+
+function entregaPreviewFoto(input){
+  var f = input.files && input.files[0];
+  if(!f){ return; }
+  ENT_FOTO_FILE = f;
+  var img = document.getElementById('ent-foto-prev');
+  img.src = URL.createObjectURL(f);
+  img.style.display = 'block';
+  // Al tomar la foto, capturar la ubicación automáticamente (si aún no).
+  if(!ENT_GPS) entregaTomarGPS();
+}
+
+function entregaTomarGPS(){
+  var el = document.getElementById('ent-gps-txt');
+  if(!navigator.geolocation){ el.textContent = '📍 GPS no disponible en este equipo'; return; }
+  el.textContent = '📍 Ubicando…';
+  navigator.geolocation.getCurrentPosition(function(pos){
+    ENT_GPS = { lat: pos.coords.latitude, lng: pos.coords.longitude, acc: Math.round(pos.coords.accuracy||0) };
+    el.innerHTML = '📍 <b style="color:#7dc941">'+ENT_GPS.lat.toFixed(5)+', '+ENT_GPS.lng.toFixed(5)+'</b> (±'+ENT_GPS.acc+'m)';
+  }, function(err){
+    ENT_GPS = null;
+    el.textContent = '📍 No se pudo ubicar ('+(err&&err.message?err.message:'permiso denegado')+')';
+  }, { enableHighAccuracy:true, timeout:12000, maximumAge:0 });
+}
+
+// Dibuja la foto en un canvas (reescalada) con marca de agua: fecha/hora, GPS, unidad, chofer, cliente.
+// Devuelve una Promise con el dataURL (JPEG). Anti-fraude: la foto sale con el sello encima.
+function _entregaWatermark(file, cliente){
+  return new Promise(function(resolve, reject){
+    var img = new Image();
+    img.onload = function(){
+      var maxW = 1280, escala = Math.min(1, maxW / (img.width||maxW));
+      var w = Math.round((img.width||maxW)*escala), h = Math.round((img.height||maxW)*escala);
+      var cv = document.getElementById('ent-canvas'); cv.width = w; cv.height = h;
+      var ctx = cv.getContext('2d');
+      ctx.drawImage(img, 0, 0, w, h);
+      // Franja inferior semitransparente con el sello
+      var now = new Date();
+      var fh = String(now.getDate()).padStart(2,'0')+'/'+String(now.getMonth()+1).padStart(2,'0')+'/'+now.getFullYear()+' '+String(now.getHours()).padStart(2,'0')+':'+String(now.getMinutes()).padStart(2,'0');
+      var l1 = 'FlotaMax · '+(cam||'')+' · '+(chofer||'');
+      var l2 = fh + (ENT_GPS ? ('  ·  GPS '+ENT_GPS.lat.toFixed(5)+','+ENT_GPS.lng.toFixed(5)+' (±'+ENT_GPS.acc+'m)') : '  ·  sin GPS');
+      var l3 = cliente ? ('Entrega: '+cliente) : '';
+      var fs = Math.max(13, Math.round(w*0.028));
+      var pad = Math.round(fs*0.6), lines = l3?3:2;
+      var bandH = pad*2 + lines*(fs+4);
+      ctx.fillStyle = 'rgba(15,25,35,.62)';
+      ctx.fillRect(0, h-bandH, w, bandH);
+      ctx.fillStyle = '#7dc941'; ctx.font = 'bold '+fs+'px sans-serif'; ctx.textBaseline='top';
+      ctx.fillText(l1, pad, h-bandH+pad);
+      ctx.fillStyle = '#fff'; ctx.font = fs+'px sans-serif';
+      ctx.fillText(l2, pad, h-bandH+pad+(fs+4));
+      if(l3) ctx.fillText(l3, pad, h-bandH+pad+2*(fs+4));
+      try{ resolve(cv.toDataURL('image/jpeg', 0.82)); }catch(e){ reject(e); }
+    };
+    img.onerror = function(){ reject(new Error('No se pudo leer la foto')); };
+    img.src = URL.createObjectURL(file);
+  });
+}
+
+function _dataURLtoBlob(dataURL){
+  var parts = dataURL.split(','), mime = (parts[0].match(/:(.*?);/)||[])[1] || 'image/jpeg';
+  var bin = atob(parts[1]), n = bin.length, u8 = new Uint8Array(n);
+  while(n--){ u8[n] = bin.charCodeAt(n); }
+  return new Blob([u8], { type: mime });
+}
+
+function _tokenEntrega(){
+  try{ var a = new Uint8Array(8); (window.crypto||window.msCrypto).getRandomValues(a);
+    return Array.from(a).map(function(b){return b.toString(16).padStart(2,'0');}).join(''); }
+  catch(e){ return 'e'+Date.now().toString(36); }
+}
+
+async function registrarEntrega(){
+  var cliente = (document.getElementById('ent-cliente').value||'').trim();
+  if(!cliente){ mostrarToast('Escribí el cliente/destino','error'); return; }
+  if(!ENT_FOTO_FILE){ mostrarToast('Tomá la foto de la entrega','error'); return; }
+  if(!ENT_GPS){ mostrarToast('Falta la ubicación — tocá "Ubicar"','error'); entregaTomarGPS(); return; }
+  var btn = document.getElementById('ent-guardar-btn'); btn.disabled = true; var txtOrig = btn.textContent; btn.textContent = 'Guardando…';
+  try{
+    var direccion = (document.getElementById('ent-direccion').value||'').trim();
+    var dataURL = await _entregaWatermark(ENT_FOTO_FILE, cliente);
+    var id = (cam||'X')+'-'+Date.now();
+    var fotoUrl = '';
+    // Subir la foto al bucket 'entregas' (público). Si falla, guardo el dataURL directo (resiliente).
+    if(isOnline && supabase){
+      try{
+        var blob = _dataURLtoBlob(dataURL);
+        var path = (cam||'sin-unidad').replace(/[^\w-]/g,'_')+'/'+id+'.jpg';
+        var up = await supabase.storage.from('entregas').upload(path, blob, { contentType:'image/jpeg', upsert:true });
+        if(!up.error){ fotoUrl = supabase.storage.from('entregas').getPublicUrl(path).data.publicUrl; }
+      }catch(e){ /* cae al dataURL */ }
+    }
+    if(!fotoUrl) fotoUrl = dataURL; // fallback: la imagen queda embebida
+    var now = new Date();
+    var row = {
+      id: id, cam: cam||'', chofer: chofer||'', cliente: cliente, direccion: direccion,
+      lat: ENT_GPS.lat, lng: ENT_GPS.lng, precision_gps: ENT_GPS.acc,
+      foto_url: fotoUrl, fecha: hoy, hora: String(now.getHours()).padStart(2,'0')+':'+String(now.getMinutes()).padStart(2,'0'),
+      estado: 'entregada', token: _tokenEntrega()
+    };
+    var ok = false;
+    if(isOnline && supabase){
+      var res = await supabase.from('entregas').insert([row]);
+      if(res && res.error){ mostrarToast('No se pudo guardar: '+res.error.message,'error'); }
+      else ok = true;
+    }
+    if(!ok) encolarEntrega(row);
+    ENT_ULTIMA = row;
+    mostrarToast(ok?'✅ Entrega registrada':'📵 Guardada (se sube al reconectar)','exito');
+    // Mostrar bloque de confirmación del receptor
+    document.getElementById('ent-confirm').style.display = 'block';
+    document.getElementById('ent-confirm').scrollIntoView({behavior:'smooth'});
+    renderEntregasHoy();
+  }catch(e){
+    mostrarToast('Error al registrar: '+(e&&e.message?e.message:e),'error');
+  }finally{
+    btn.disabled = false; btn.textContent = txtOrig;
+  }
+}
+
+async function entregaConfirmarRecepcion(){
+  if(!ENT_ULTIMA){ mostrarToast('Registrá la entrega primero','error'); return; }
+  var nombre = (document.getElementById('ent-rec-nombre').value||'').trim();
+  if(!nombre){ mostrarToast('Escribí el nombre de quien recibe','error'); return; }
+  var ci = (document.getElementById('ent-rec-ci').value||'').trim();
+  var patch = { estado:'confirmada', recibido_por:nombre, recibido_ci:ci, recibido_at:new Date().toISOString() };
+  ENT_ULTIMA.estado='confirmada'; ENT_ULTIMA.recibido_por=nombre; ENT_ULTIMA.recibido_ci=ci; ENT_ULTIMA.recibido_at=patch.recibido_at;
+  var ok = false;
+  if(isOnline && supabase){
+    var res = await supabase.from('entregas').update(patch).eq('id', ENT_ULTIMA.id);
+    if(res && res.error){ mostrarToast('No se pudo confirmar: '+res.error.message,'error'); }
+    else ok = true;
+  }
+  if(!ok) encolarEntrega(ENT_ULTIMA);
+  mostrarToast(ok?'✅ Recepción confirmada por '+nombre:'📵 Confirmación guardada (se sube al reconectar)','exito');
+  // Limpiar el formulario para la próxima entrega
+  document.getElementById('ent-cliente').value=''; document.getElementById('ent-direccion').value='';
+  document.getElementById('ent-rec-nombre').value=''; document.getElementById('ent-rec-ci').value='';
+  document.getElementById('ent-foto-prev').style.display='none'; document.getElementById('ent-foto').value='';
+  document.getElementById('ent-gps-txt').textContent='📍 Ubicación: sin capturar';
+  document.getElementById('ent-confirm').style.display='none';
+  ENT_FOTO_FILE=null; ENT_GPS=null; ENT_ULTIMA=null;
+  renderEntregasHoy();
+}
+
+// Cola offline de entregas (upsert por id al reconectar).
+var COLA_ENT = [];
+function cargarColaEnt(){ try{ var s=localStorage.getItem('btg_cola_ent'); if(s) COLA_ENT=JSON.parse(s); }catch(e){ COLA_ENT=[]; } }
+function persistColaEnt(){ try{ if(COLA_ENT.length) localStorage.setItem('btg_cola_ent',JSON.stringify(COLA_ENT)); else localStorage.removeItem('btg_cola_ent'); }catch(e){} }
+function encolarEntrega(row){
+  COLA_ENT = COLA_ENT.filter(function(r){ return r.id!==row.id; });
+  COLA_ENT.push(row); persistColaEnt();
+}
+async function subirColaEntregas(){
+  if(!(isOnline && supabase) || !COLA_ENT.length) return;
+  var pend = COLA_ENT.slice(); COLA_ENT = [];
+  for(var i=0;i<pend.length;i++){
+    try{ var r = await supabase.from('entregas').upsert([pend[i]],{onConflict:'id'});
+      if(r && r.error){ COLA_ENT.push(pend[i]); } }
+    catch(e){ COLA_ENT.push(pend[i]); }
+  }
+  persistColaEnt();
+}
+
+async function renderEntregasHoy(){
+  var cont = document.getElementById('ent-lista'); if(!cont) return;
+  var lista = [];
+  if(isOnline && supabase){
+    try{ var r = await supabase.from('entregas').select('*').eq('cam',cam).eq('fecha',hoy).order('hora',{ascending:false});
+      if(r && !r.error && r.data) lista = r.data; }catch(e){}
+  }
+  // Sumar las que están en cola (aún sin subir)
+  COLA_ENT.forEach(function(c){ if(c.cam===cam && c.fecha===hoy && !lista.some(function(x){return x.id===c.id;})) lista.push(c); });
+  if(!lista.length){ cont.innerHTML='<div style="color:rgba(255,255,255,.35);font-size:12px;padding:8px">Sin entregas hoy.</div>'; return; }
+  cont.innerHTML = lista.map(function(e){
+    var conf = e.estado==='confirmada';
+    return '<div style="background:#111c26;border:1px solid '+(conf?'rgba(125,201,65,.35)':'rgba(255,255,255,.1)')+';border-radius:10px;padding:10px 12px;margin-bottom:8px">'+
+      '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px">'+
+        '<div style="font-weight:700;font-size:14px">'+(e.cliente||'—')+'</div>'+
+        '<span style="font-size:10px;font-weight:700;padding:3px 8px;border-radius:20px;'+(conf?'background:rgba(125,201,65,.15);color:#7dc941':'background:rgba(239,159,39,.15);color:#ef9f27')+'">'+(conf?'✔ confirmada':'entregada')+'</span>'+
+      '</div>'+
+      '<div style="font-size:11px;color:rgba(255,255,255,.5);margin-top:3px">'+(e.hora||'')+(e.recibido_por?(' · recibió: '+e.recibido_por):'')+'</div>'+
+    '</div>';
+  }).join('');
 }
 
 // ════════════════════════════════
@@ -829,6 +1070,9 @@ function agregarChecklistCola(reg){
 // isOnline). Al primer éxito marca "En línea". Los que fallen se quedan en su cola.
 function sincronizarCola(){
   if(!supabase) return;
+
+  // ── Entregas ──
+  try{ subirColaEntregas(); }catch(e){}
 
   // ── Viajes ──
   if(COLA_LOCAL.length){
