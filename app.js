@@ -2456,7 +2456,7 @@ function renderAlertasCriticas(){
         nm=String(nm||'').trim(); if(!nm||nm==='-'||nm.toUpperCase()==='IMAU')return;
         var k=(typeof _normNom==='function')?_normNom(nm):nm.toUpperCase();
         if(_vistos[k])return; _vistos[k]=1;
-        if(typeof _empPorNombre==='function' && !_empPorNombre(nm))_sinId++;
+        if(typeof _empPorNombre==='function' && !_empPorNombre(nm) && !(typeof _ALIAS_NOMBRES!=='undefined'&&_ALIAS_NOMBRES[k]))_sinId++;
       });
     });
     if(_sinId>0)al.push({t:'w',txt:'🕵️ '+_sinId+' nombre(s) en planillas SIN IDENTIFICAR — agrégalos a la Lista Maestra (PARAMETROS) o corrige el Excel. Revísalos en Nómina ▸ Cotejo.'});
@@ -3312,8 +3312,9 @@ function procesarExcelBetangar(wb){
       // "IMAU" (es una marca, no persona) y guiones/vacíos. Deduplica por nombre normalizado.
       [['chofer',nr.ch],['ayudante',nr.ay1],['ayudante',nr.ay2]].forEach(function(_x){
         var _nm=String(_x[1]||'').trim(); if(!_nm||_nm==='-'||_nm.toUpperCase()==='IMAU')return;
-        if(typeof _empPorNombre==='function' && !_empPorNombre(_nm)){
-          var _k=(typeof _normNom==='function')?_normNom(_nm):_nm.toUpperCase();
+        var _kAl=(typeof _normNom==='function')?_normNom(_nm):_nm.toUpperCase();
+        if(typeof _empPorNombre==='function' && !_empPorNombre(_nm) && !(typeof _ALIAS_NOMBRES!=='undefined'&&_ALIAS_NOMBRES[_kAl])){
+          var _k=_kAl;
           if(!_sinIdentMap[_k])_sinIdentMap[_k]={nombre:_nm,cam:nr.cam,fecha:nr.f,rol:_x[0],veces:0};
           _sinIdentMap[_k].veces++;
         }
@@ -4209,19 +4210,35 @@ function verNominaHistDetalle(sem){
     else grupos.Choferes.push(p);                            // chofer o sin clasificar (data vieja)
   });
   (d.adm||[]).forEach(function(p){grupos.ADM.push(p);});     // ADM fijos guardados aparte (saves nuevos)
+  // Las 4 listas SIEMPRE visibles: si la semana no guardó IMAU/ADM (saves viejos), se RECONSTRUYEN.
+  var _tasaH=parseFloat(h.tasa)||0, _imauRecon=false, _admRecon=false;
+  // IMAU: de las planillas de la semana (viajes anónimos "IMAU" × tarifa) + los fijos de apoyo.
+  if(!grupos.IMAU.length && h.fecha_desde){
+    var _rateI=(typeof cfg!=='undefined'&&cfg.imau)?cfg.imau:2.5;
+    (typeof REGS!=='undefined'?REGS:[]).filter(function(r){return r.f&&r.f>=h.fecha_desde&&(!h.fecha_hasta||r.f<=h.fecha_hasta);}).forEach(function(r){
+      var nI=[r.ay1,r.ay2,r.ay3].filter(function(nm){return nm&&String(nm).trim().toUpperCase()==='IMAU';}).length;
+      if(nI>0){ var vj=nI*(parseInt(r.t)||0); var u=Math.round(vj*_rateI*100)/100;
+        grupos.IMAU.push({n:'IMAU (plan. #'+r.p+')',u:(r.cam||'')+' · '+formatFecha(r.f),viajes:vj,usd:u,bs:_tasaH>0?Math.round(u*_tasaH*100)/100:''}); _imauRecon=true; }
+    });
+    Object.keys(typeof IMAU_APOYO!=='undefined'?IMAU_APOYO:{}).forEach(function(k){var m=parseFloat(IMAU_APOYO[k])||0;if(m>0){grupos.IMAU.push({n:k,u:'fijo semanal',viajes:'-',usd:m,bs:_tasaH>0?Math.round(m*_tasaH*100)/100:''});_imauRecon=true;}});
+  }
+  // ADM: si no vino en el detalle, mostrar la lista administrativa actual (monto mensual → semanal /4).
+  if(!grupos.ADM.length){
+    (typeof NOM_ADM!=='undefined'?NOM_ADM:[]).forEach(function(a){var u=Math.round(((parseFloat(a.monto)||0)/4)*100)/100;if(u>0){grupos.ADM.push({n:a.cargo,u:'fijo semanal',viajes:'-',usd:u,bs:_tasaH>0?Math.round(u*_tasaH*100)/100:''});_admRecon=true;}});
+  }
   function _sum(arr,k){return (arr||[]).reduce(function(s,p){return s+(parseFloat(p[k])||0);},0);}
   var _cols=[['Nombre','n'],['Unidad','u'],['Viajes','viajes'],['$','usd'],['Bs','bs']];
   function tablaG(titulo,arr,color){
-    if(!arr||!arr.length)return '';
+    arr=arr||[];
+    if(!arr.length)return '<div style="font-weight:700;margin:10px 0 2px;color:'+color+'">'+titulo+' (0)</div><div style="font-size:10px;color:var(--text3);padding:1px 3px 4px">— sin registros esta semana —</div>';
     return '<div style="font-weight:700;margin:10px 0 4px;color:'+color+'">'+titulo+' ('+arr.length+') · $'+_sum(arr,'usd').toLocaleString('es-VE',{maximumFractionDigits:0})+'</div>'+
       '<table style="width:100%;font-size:11px"><thead><tr>'+_cols.map(function(c){return '<th style="text-align:left;padding:3px">'+c[0]+'</th>';}).join('')+'</tr></thead><tbody>'+
       arr.map(function(p){return '<tr>'+_cols.map(function(c){var v=p[c[1]];return '<td style="padding:3px;border-bottom:1px solid var(--border)">'+(v!=null?v:'')+'</td>';}).join('')+'</tr>';}).join('')+'</tbody></table>';
   }
   var html=tablaG('🚛 Choferes',grupos.Choferes,'var(--blue)')+
     tablaG('👷 Ayudantes',grupos.Ayudantes,'var(--teal)')+
-    tablaG('🟣 IMAU',grupos.IMAU,'var(--purple)')+
-    tablaG('🏢 Administrativos',grupos.ADM,'var(--amber)');
-  if(!html)html='<div style="color:var(--text3);padding:8px">Esta semana no tiene detalle por persona.</div>';
+    tablaG('🟣 IMAU'+(_imauRecon?' · reconstruido de las planillas':''),grupos.IMAU,'var(--purple)')+
+    tablaG('🏢 Administrativos'+(_admRecon?' · lista actual':''),grupos.ADM,'var(--amber)');
   var prev=document.getElementById('nm-hist-modal'); if(prev)prev.remove();
   var ov=document.createElement('div'); ov.id='nm-hist-modal';
   ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:13000;display:flex;align-items:center;justify-content:center;padding:16px';
@@ -15389,6 +15406,9 @@ function detectarAnomaliasRRHH(planillas){
     personas.forEach(function(p){
       if(!p.name||!String(p.name).trim())return;
       var emp=_empPorNombre(p.name);
+      // Si el usuario ya guardó un ALIAS para este nombre, lo consideramos IDENTIFICADO aunque el
+      // nombre completo no esté (todavía) en la Lista Maestra → no volver a marcarlo "sin identificar".
+      if(!emp && typeof _ALIAS_NOMBRES!=='undefined' && _ALIAS_NOMBRES[_normNom(p.name)]) return;
       if(!emp){var kn=_normNom(p.name)+'|'+r.f;if(!nocas[kn])nocas[kn]={nombre:p.name,cam:r.cam,fecha:r.f,viajes:0};nocas[kn].viajes+=(parseInt(r.t)||0);return;}
       var id=emp.id+'|'+r.f;
       if(!acc[id])acc[id]={id:id,emp_id:emp.id,emp_nombre:emp.nombre,cam:r.cam,rol:p.rol,fecha:r.f,mes:r.mes,sem:r.sem,viajes:0};
