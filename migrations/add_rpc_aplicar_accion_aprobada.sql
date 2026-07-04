@@ -23,7 +23,8 @@ declare
   ad jsonb; v_op text; v_tabla text; v_col text; v_val text; v_set jsonb;
   k text; sets text[] := array[]::text[];
   permitidas text[] := array['planillas','abonos','gastos_variables','gastos_fijos',
-                             'cxp','prestamos','multas','contratos','gasoil','nomina_historial'];
+                             'cxp','prestamos','multas','contratos','gasoil','gasol',
+                             'empleados','nomina_historial'];
 begin
   select * into v_row from public.tokens_pendientes where token = p_token order by created_at desc limit 1;
   if not found then return jsonb_build_object('ok', false, 'error', 'token inexistente'); end if;
