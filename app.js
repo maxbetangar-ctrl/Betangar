@@ -1332,12 +1332,13 @@ async function cargarDatosDB(){
       supabase.from('tipos_unidad').select('*'),
       supabase.from('unidades').select('*'),
       supabase.from('operaciones').select('*'),
-      supabase.from('bnc_movimientos').select('*')
+      supabase.from('bnc_movimientos').select('*'),
+      supabase.from('gastos_fijos').select('*')
     ]);
     // allSettled: una consulta que falle (red, RLS de UNA tabla, etc.) NO tumba a las demás.
     // Antes, con Promise.all, un solo error transitorio dejaba TODO en 0 (incluidas planillas).
     var _res=_resS.map(function(x){return x.status==='fulfilled'?x.value:{data:null,error:((x.reason&&x.reason.message)||'consulta falló')};});
-    var p=_res[0],a=_res[1],e=_res[2],ga=_res[3],cxp=_res[4],pv=_res[5],pr=_res[6],ml=_res[7],inv=_res[8],co=_res[9],gv2=_res[10],palc=_res[11],km=_res[12],aul=_res[13],nh=_res[14],tu=_res[15],un=_res[16],op=_res[17],bm=_res[18];
+    var p=_res[0],a=_res[1],e=_res[2],ga=_res[3],cxp=_res[4],pv=_res[5],pr=_res[6],ml=_res[7],inv=_res[8],co=_res[9],gv2=_res[10],palc=_res[11],km=_res[12],aul=_res[13],nh=_res[14],tu=_res[15],un=_res[16],op=_res[17],bm=_res[18],gf2=_res[19];
     if(nh&&!nh.error&&Array.isArray(nh.data))NOMINA_HIST=nh.data;
     // Movimientos BNC persistidos (tracking interno: pagos pendientes, conciliaciones, manuales).
     if(bm&&!bm.error&&Array.isArray(bm.data))BNC_MOV=bm.data.map(function(x){return{id:x.id,fecha:x.fecha||'',monto:Number(x.monto)||0,tipo:x.tipo||'',desc:x.descripcion||'',ref:x.referencia||'',conciliado:!!x.conciliado,pendienteAutorizacion:!!x.pendiente_autorizacion,detalle:x.detalle||null};});
@@ -1345,6 +1346,9 @@ async function cargarDatosDB(){
     if(tu&&!tu.error&&Array.isArray(tu.data))TIPOS_UNIDAD=tu.data;
     if(un&&!un.error&&Array.isArray(un.data))UNIDADES=un.data;
     if(op&&!op.error&&Array.isArray(op.data))OPERACIONES=op.data;
+    // A1: gastos fijos desde la BD (fuente de verdad; ya no se pierden al recargar). Si la consulta
+    // falla (RLS/red), NO se toca el array → conserva el seed en memoria (no borra la vista).
+    if(gf2&&!gf2.error&&Array.isArray(gf2.data))GASTOS_FIJOS=gf2.data.map(function(x){return{id:x.id,nombre:x.nombre,monto:parseFloat(x.monto)||0,tasa:x.tasa,dia:parseInt(x.dia)||0,activo:x.activo!==false,pagos:[]};});
     // PLANILLAS
     if(p.data&&p.data.length)REGS=p.data.map(function(r){
       var d=parseInt(r.d)||0,n=parseInt(r.n)||0;
@@ -1584,7 +1588,7 @@ function descartarFallidos(){
 }
 // Clave de conflicto por tabla con UNIQUE → la cola debe reintentar como UPSERT, no INSERT plano
 // (si no, una planilla/abono/contrato hecho offline choca con su UNIQUE y cae al dead-letter).
-var _COLA_ONCONFLICT={planillas:'p',abonos:'fact',contratos:'id',prestamos:'id',multas:'id',empleados:'id',pagos_alcaldia:'id',gastos_variables:'id',bnc_movimientos:'id',tipos_unidad:'id',unidades:'id',operaciones:'id',nomina_extras:'id',llantas:'id',inv_movimientos:'id'};
+var _COLA_ONCONFLICT={planillas:'p',abonos:'fact',contratos:'id',prestamos:'id',multas:'id',empleados:'id',pagos_alcaldia:'id',gastos_variables:'id',gastos_fijos:'id',bnc_movimientos:'id',tipos_unidad:'id',unidades:'id',operaciones:'id',nomina_extras:'id',llantas:'id',inv_movimientos:'id'};
 function guardarEnCola(t,d,oc){
   COLA_OFFLINE.push({t:t,d:d,_try:0,oc:oc||_COLA_ONCONFLICT[t]||null});
   guardarColaLS();
@@ -8555,7 +8559,15 @@ function renderGastosFijos(){
 }
 function agregarGastoFijo(){
   var nombre=gv('gf-nombre');if(!nombre){alert('Ingresa el nombre');return;}
-  GASTOS_FIJOS.push({id:'GF'+Date.now(),nombre:nombre,monto:parseFloat(gv('gf-monto'))||0,tasa:gv('gf-tasa'),dia:parseInt(gv('gf-dia'))||0,activo:true,pagos:[]});
+  var gf={id:'GF'+Date.now(),nombre:nombre,monto:parseFloat(gv('gf-monto'))||0,tasa:gv('gf-tasa'),dia:parseInt(gv('gf-dia'))||0,activo:true,pagos:[]};
+  GASTOS_FIJOS.push(gf);
+  // A1 (auditoría 2026-07-04): PERSISTIR en Supabase. Antes GASTOS_FIJOS vivía solo en memoria +
+  // seed hardcodeado → todo alta/edición se perdía al recargar y la Utilidad Real (que resta
+  // egFijos en _totalEgresos) quedaba anclada a costos fijos ficticios. Cola offline si falla.
+  var row={id:gf.id,nombre:gf.nombre,monto:gf.monto,tasa:gf.tasa,dia:gf.dia,activo:true};
+  if(DB_READY&&supabase){ supabase.from('gastos_fijos').upsert(row,{onConflict:'id'}).then(function(r){if(r&&r.error&&typeof mostrarToast==='function')mostrarToast('No se pudo guardar el gasto fijo: '+r.error.message,'error');}); }
+  else { guardarEnCola('gastos_fijos',row); }
+  audit('Gasto Fijo agregado',gf.nombre+' $'+gf.monto);
   ['gf-nombre','gf-monto','gf-dia'].forEach(function(id){sv(id,'');});
   renderGastosFijos();
 }
@@ -9765,9 +9777,12 @@ function elimGastoFijo(id){
   if(!gf)return;
   solicitarToken('Eliminar gasto fijo: '+gf.nombre,function(mot){
     GASTOS_FIJOS=GASTOS_FIJOS.filter(function(x){return x.id!==id;});
+    // A1: borrar TAMBIÉN en la nube (antes solo memoria → reaparecía al recargar y seguía restando
+    // en la Utilidad Real). accionData → el superadmin lo elimina server-side al aprobar el token.
+    if(DB_READY&&supabase)supabase.from('gastos_fijos').delete().eq('id',id).then(function(r){if(r&&r.error)console.error('Error elim gasto fijo:',r.error);});
     audit('Gasto Fijo ELIMINADO',gf.nombre+' -- '+mot);
     renderGastosFijos();
-  });
+  },{op:'del',tabla:'gastos_fijos',col:'id',val:id});
 }
 function elimContrato(id){
   var c=CONTRATOS.find(function(x){return x.id===id;});
