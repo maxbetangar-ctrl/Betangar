@@ -1449,7 +1449,7 @@ async function cargarDatosDB(){
     if(gv2.data&&gv2.data.length)GASTOS_VARIABLES=gv2.data.map(function(x){return{id:x.id,fecha:x.fecha,cat:x.categoria||'',desc:x.descripcion||'',bs:parseFloat(x.monto_bs)||0,usd:parseFloat(x.monto_usd)||0,ref:x.referencia||'',fact:x.factura||''};});
     // PAGOS ALCALDÍA
     // Fuente de verdad Supabase: usar resultado aunque sea vacío (sin error) → no reaparecen seeds.
-    if(!palc.error&&Array.isArray(palc.data))PAGOS_ALC=palc.data.map(function(x){return{id:x.id,fecha:x.fecha,fact:x.factura,ref:x.referencia||'',viajes:parseInt(x.viajes)||0,tasa:parseFloat(x.tasa)||0,base:parseFloat(x.base_usd)||0,iva:parseFloat(x.iva_usd)||0,total:parseFloat(x.total_usd)||0,neto:parseFloat(x.neto_usd)||0,fiel:parseFloat(x.fiel_usd)||0,fielDevuelto:x.fiel_devuelto||false,pct75:x.pct75_pagado||false};});
+    if(!palc.error&&Array.isArray(palc.data))PAGOS_ALC=palc.data.map(function(x){var _b=parseFloat(x.base_usd)||0,_iva=_b*0.16;return{id:x.id,fecha:x.fecha,fact:x.factura,ref:x.referencia||'',viajes:parseInt(x.viajes)||0,tasa:parseFloat(x.tasa_bcv)||0,base:_b,iva:_iva,total:_b+_iva,neto:parseFloat(x.neto_usd)||0,fiel:parseFloat(x.fiel_usd)||0,fielDevuelto:x.fiel_devuelto||false,pct75:x.pct75_pagado||false};});
     // KM DATA
     if(km.data&&km.data.length)km.data.forEach(function(x){
       if(!KM_DATA[x.cam])KM_DATA[x.cam]={mant:[]};
@@ -3046,7 +3046,7 @@ async function guardarImportacionEnDB(resultado){
     if(CONTRATOS.length)await _otra('contratos',supabase.from('contratos').upsert(CONTRATOS.map(function(c){return{id:c.id,nombre:c.nombre,parte:c.parte,monto:c.monto,inicio:c.inicio,vencimiento:c.venc,condiciones:c.cond,estado:c.estado};}),{onConflict:'id'}));
     if(PRESTAMOS.length)await _otra('prestamos',supabase.from('prestamos').upsert(PRESTAMOS.map(function(p){return{id:p.id,emp_id:p.empId,emp_nombre:p.empNombre,fecha:p.fecha,monto_usd:p.montoUsd,semanas:p.semanas,cuota_usd:p.cuotaUsd,pagado:p.pagado,semanas_pagadas:p.semanasPagadas,motivo:p.motivo,estado:p.estado};}),{onConflict:'id'}));
     if(MULTAS.length)await _otra('multas',supabase.from('multas').upsert(MULTAS.map(function(m){return{id:m.id,cam_id:m.camId,fecha:m.fecha,descripcion:m.desc,monto_bs:m.montoBs,ref:m.ref,responsable:m.resp,chofer_id:m.choferId,cuotas:m.cuotas,cuota_bs:m.cuotaBs,pagado_bs:m.pagadoBs,cuotas_pagas:m.cuotasPagas,estado:m.estado,moneda:m.moneda||null,monto_div:m.montoDiv||null,cuota_div:m.cuotaDiv||null,pagado_div:m.pagadoDiv||0};}),{onConflict:'id'}));
-    if(PAGOS_ALC.length)await _otra('pagos_alcaldia',supabase.from('pagos_alcaldia').upsert(PAGOS_ALC.map(function(p){return{id:p.id,fecha:p.fecha,factura:p.fact,referencia:p.ref,viajes:p.viajes,tasa:p.tasa,base_usd:p.base,iva_usd:p.iva,total_usd:p.total,neto_usd:p.neto,fiel_usd:p.fiel,fiel_devuelto:p.fielDevuelto,pct75_pagado:p.pct75};}),{onConflict:'id'}));
+    if(PAGOS_ALC.length)await _otra('pagos_alcaldia',supabase.from('pagos_alcaldia').upsert(PAGOS_ALC.map(function(p){return{id:p.id,fecha:p.fecha,factura:p.fact,referencia:p.ref,viajes:p.viajes,tasa_bcv:p.tasa,base_usd:p.base,neto_usd:p.neto,fiel_usd:p.fiel,pct75_usd:Math.round(((p.neto||0)*0.075)*100)/100,neto_bs:Math.round(((p.neto||0)*(p.tasa||0))*100)/100,fiel_devuelto:p.fielDevuelto,pct75_pagado:p.pct75};}),{onConflict:'id'}));
     if(GASTOS_VARIABLES.length)await _otra('gastos_variables',supabase.from('gastos_variables').upsert(GASTOS_VARIABLES.map(function(x){return{id:x.id,fecha:x.fecha,categoria:x.cat,descripcion:x.desc,monto_bs:x.bs,monto_usd:x.usd,referencia:x.ref,factura:x.fact};}),{onConflict:'id'}));
     progEl.style.borderColor=fallos.length?'var(--red)':'var(--green)';
     try{localStorage.setItem('betangar_regs',JSON.stringify(REGS));localStorage.setItem('betangar_abonos',JSON.stringify(ABONOS));}catch(e3){}
@@ -8488,11 +8488,12 @@ function guardarPagoAlcaldia(){
     supabase.from('abonos').upsert(abAlc,{onConflict:'fact'}).then(function(r){if(r&&r.error&&typeof mostrarToast==='function')mostrarToast('No se pudo guardar abono Alcaldia: '+r.error.message,'error');});
   } else { guardarEnCola('abonos',abAlc); }
   // C1 (auditoría 2026-07-04): PERSISTIR el DETALLE del pago en pagos_alcaldia AL REGISTRARLO.
-  // Antes esta tabla solo se escribía desde la importación masiva (guardarImportacionEnDB) → el
-  // desglose de retenciones, el FIEL CUMPLIMIENTO (10% que la Alcaldía debe devolver) y el 7.5%
-  // de un pago cargado a mano se PERDÍAN al recargar (solo sobrevivía el abono neto). Mismo mapeo
-  // y onConflict que el guardado masivo (probado en producción); cae a la cola offline si falla.
-  var palcRow={id:pago.id,fecha:pago.fecha,factura:pago.fact,referencia:pago.ref,viajes:pago.viajes,tasa:pago.tasa,base_usd:pago.base,iva_usd:pago.iva,total_usd:pago.total,neto_usd:pago.neto,fiel_usd:pago.fiel,fiel_devuelto:pago.fielDevuelto,pct75_pagado:pago.pct75};
+  // Antes NINGUNA vía persistía (tabla vacía): el código escribía columnas que no existen
+  // (iva_usd/total_usd) y 'tasa' en vez de 'tasa_bcv' → el desglose, el FIEL CUMPLIMIENTO (10%
+  // que la Alcaldía debe devolver) y el 7.5% se PERDÍAN al recargar (solo sobrevivía el abono
+  // neto). Mapeo AL SCHEMA REAL (tasa_bcv/pct75_usd/neto_bs). iva/total no se guardan: son
+  // derivables de base (iva=base×0.16, total=base+iva) y se recalculan al cargar. Cola offline si falla.
+  var palcRow={id:pago.id,fecha:pago.fecha,factura:pago.fact,referencia:pago.ref,viajes:pago.viajes,tasa_bcv:pago.tasa,base_usd:pago.base,neto_usd:pago.neto,fiel_usd:pago.fiel,pct75_usd:Math.round((pago.neto*0.075)*100)/100,neto_bs:Math.round((pago.neto*pago.tasa)*100)/100,fiel_devuelto:pago.fielDevuelto,pct75_pagado:pago.pct75};
   if(DB_READY&&supabase){
     supabase.from('pagos_alcaldia').upsert(palcRow,{onConflict:'id'}).then(function(r){if(r&&r.error&&typeof mostrarToast==='function')mostrarToast('No se pudo guardar el detalle del pago Alcaldia: '+r.error.message,'error');});
   } else { guardarEnCola('pagos_alcaldia',palcRow); }
