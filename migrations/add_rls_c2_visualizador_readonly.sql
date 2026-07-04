@@ -4,6 +4,7 @@
 -- ESCRITURA (ins/upd/del): solo roles que escriben a diario. NO visualizador. NO null.
 -- Cierra: visualizador ya no escribe dinero por API; cuenta sin rol tampoco (sí lee).
 -- No cambia el trabajo de admin/operador/rrhh/directivo. Reversible (ROLLBACK abajo).
+-- Salta las VISTAS (bnc_config_estado) con el filtro BASE TABLE (no admiten create policy).
 -- Correr en el SQL Editor de Supabase (proyecto hrkjddehqnzcqwlkklqm).
 -- ════════════════════════════════════════════════════════════════════════════
 do $$
@@ -20,17 +21,19 @@ declare
   q text;
 begin
   foreach t in array s loop
-    q := quote_ident(t);
-    execute 'drop policy if exists btg_auth_all on public.'||q;
-    execute 'drop policy if exists btg_rol_oficina on public.'||q;
-    execute 'drop policy if exists btg_rol_lectura on public.'||q;
-    execute 'drop policy if exists btg_rol_ins on public.'||q;
-    execute 'drop policy if exists btg_rol_upd on public.'||q;
-    execute 'drop policy if exists btg_rol_del on public.'||q;
-    execute 'create policy btg_rol_lectura on public.'||q||' for select to authenticated using ('||r||')';
-    execute 'create policy btg_rol_ins on public.'||q||' for insert to authenticated with check ('||w||')';
-    execute 'create policy btg_rol_upd on public.'||q||' for update to authenticated using ('||w||') with check ('||w||')';
-    execute 'create policy btg_rol_del on public.'||q||' for delete to authenticated using ('||w||')';
+    if exists(select 1 from information_schema.tables where table_schema='public' and table_name=t and table_type='BASE TABLE') then
+      q := quote_ident(t);
+      execute 'drop policy if exists btg_auth_all on public.'||q;
+      execute 'drop policy if exists btg_rol_oficina on public.'||q;
+      execute 'drop policy if exists btg_rol_lectura on public.'||q;
+      execute 'drop policy if exists btg_rol_ins on public.'||q;
+      execute 'drop policy if exists btg_rol_upd on public.'||q;
+      execute 'drop policy if exists btg_rol_del on public.'||q;
+      execute 'create policy btg_rol_lectura on public.'||q||' for select to authenticated using ('||r||')';
+      execute 'create policy btg_rol_ins on public.'||q||' for insert to authenticated with check ('||w||')';
+      execute 'create policy btg_rol_upd on public.'||q||' for update to authenticated using ('||w||') with check ('||w||')';
+      execute 'create policy btg_rol_del on public.'||q||' for delete to authenticated using ('||w||')';
+    end if;
   end loop;
 end $$;
 
@@ -46,12 +49,14 @@ end $$;
 --   c text := 'app_rol() is null or app_rol() = any(array[''superadmin'',''admin'',''operador'',''rrhh'',''visualizador'',''directivo'',''demo_admin'',''demo_operador'',''demo_rrhh''])';
 -- begin
 --   foreach t in array s loop
---     q := quote_ident(t);
---     execute 'drop policy if exists btg_rol_lectura on public.'||q;
---     execute 'drop policy if exists btg_rol_ins on public.'||q;
---     execute 'drop policy if exists btg_rol_upd on public.'||q;
---     execute 'drop policy if exists btg_rol_del on public.'||q;
---     execute 'create policy btg_rol_oficina on public.'||q||' for all to authenticated using ('||c||') with check ('||c||')';
+--     if exists(select 1 from information_schema.tables where table_schema='public' and table_name=t and table_type='BASE TABLE') then
+--       q := quote_ident(t);
+--       execute 'drop policy if exists btg_rol_lectura on public.'||q;
+--       execute 'drop policy if exists btg_rol_ins on public.'||q;
+--       execute 'drop policy if exists btg_rol_upd on public.'||q;
+--       execute 'drop policy if exists btg_rol_del on public.'||q;
+--       execute 'create policy btg_rol_oficina on public.'||q||' for all to authenticated using ('||c||') with check ('||c||')';
+--     end if;
 --   end loop;
 -- end $$;
 -- ════════════════════════════════════════════════════════════════════════════
