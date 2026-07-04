@@ -3,7 +3,7 @@
 // PWA Offline-First para choferes
 // ═══════════════════════════════════════════════════
 
-const CACHE_NAME = 'betangar-chofer-v21'; // v21: login por unidad (clave) para clientes nuevos — apagado en Betangar (BTG_CHOFER_CONFIG.login=false); los 12 JAC directos sin login. Sesión persistente Supabase Auth
+const CACHE_NAME = 'betangar-chofer-v22'; // v22: botón "cerrar sesión" para unidades con login (oculto en Betangar/12 JAC)
 
 // Archivos a cachear para funcionar sin internet
 const ARCHIVOS_CACHE = [

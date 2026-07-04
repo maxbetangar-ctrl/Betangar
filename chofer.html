@@ -161,6 +161,7 @@ body{background:#0f1923;color:#fff;font-family:-apple-system,BlinkMacSystemFont,
   <div class="cam-name" id="cam-display">Cargando...</div>
   <div class="chofer-name" id="chofer-display"></div>
   <div class="fecha" id="fecha-display"></div>
+  <button id="btn-cerrar-sesion" onclick="cerrarSesionUnidad()" style="display:none;margin-top:8px;background:rgba(248,96,96,.15);color:#ef6060;border:1px solid rgba(248,96,96,.35);border-radius:8px;padding:5px 12px;font-size:11px;font-weight:700;cursor:pointer">⎋ Cerrar sesión</button>
 </div>
 
 <!-- ERROR SCREEN (QR inválido) -->
@@ -721,6 +722,11 @@ function enviarLoginUnidad(){
     arrancarApp();
   }).catch(function(){ if(errEl) errEl.textContent='Sin conexión. Intentá de nuevo.'; if(btn){ btn.disabled=false; btn.textContent='Entrar'; } });
 }
+function cerrarSesionUnidad(){
+  if(!confirm('¿Cerrar sesión de esta unidad? Tendrás que volver a poner la clave.'))return;
+  try{ if(supabase&&supabase.auth) supabase.auth.signOut(); }catch(e){}
+  setTimeout(function(){ window.location.reload(); }, 200);
+}
 
 // Arranca la app (cuerpo original del init). Se llama con `cam` y `chofer` ya definidos.
 function arrancarApp(){
@@ -744,6 +750,8 @@ function arrancarApp(){
   var appMain = document.getElementById('app-main');
   appMain.style.display = 'flex';
   appMain.style.flexDirection = 'column';
+  // Botón cerrar sesión: solo en unidades con login (Betangar aseo no lo ve).
+  if(BTG_CHOFER_CONFIG.login){ var _bcs=document.getElementById('btn-cerrar-sesion'); if(_bcs)_bcs.style.display='inline-block'; }
 
   // Cargar datos locales
   cargarColaLocal();
