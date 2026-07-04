@@ -5455,7 +5455,7 @@ function renderUnidades(){
         '<td>'+_mEsc(c.tipo||'—')+(c.combustible?' <span style="font-size:9px;color:var(--text3)">('+_mEsc(c.combustible)+')</span>':'')+'</td>'+
         '<td style="font-size:11px">'+_mEsc(c.chofer||(FLOTA[cam]&&FLOTA[cam].chofer)||'—')+'</td>'+
         '<td style="text-align:center">'+(c.activo===false?'—':'✓')+'</td>'+
-        '<td style="white-space:nowrap"><button class="btn btn-s btn-xs" onclick="abrirEditarUnidad(\''+_mEsc(cam)+'\')">✏️ ficha</button> <button class="btn btn-s btn-xs" title="Imprimir ficha" onclick="imprimirFichaUnidad(\''+_mEsc(cam)+'\')">🖨️</button></td></tr>';
+        '<td style="white-space:nowrap"><button class="btn btn-s btn-xs" onclick="abrirEditarUnidad(\''+_mEsc(cam)+'\')">✏️ ficha</button> <button class="btn btn-s btn-xs" title="Ver e imprimir el código QR de esta unidad (abre la app del chofer)" onclick="generarQRUnidad(\''+_mEsc(cam)+'\')">📲 QR</button> <button class="btn btn-s btn-xs" title="Imprimir ficha" onclick="imprimirFichaUnidad(\''+_mEsc(cam)+'\')">🖨️</button></td></tr>';
     }).join('')+'</tbody></table>'+(cams.length?'':'<div style="color:var(--text3);font-size:12px;padding:10px">Sin unidades. Agregá una con "＋ Agregar unidad".</div>');
 }
 async function abrirEditarUnidad(cam){
@@ -13360,11 +13360,16 @@ function generarQRChoferes(){
 // (betangar.com/chofer.html?cam=…) → el QR sale IDÉNTICO al que ya está pegado en el carro.
 function generarQRUnidad(cam){
   cam = cam || (typeof gv==='function' ? gv('hv-ver-cam') : '') || '';
-  if(!cam){ alert('Elegí primero una unidad en el selector de arriba.'); return; }
-  var info = (typeof FLOTA!=='undefined' && FLOTA[cam]) ? FLOTA[cam] : {};
-  var placa = info.placa || '';
-  var chofer = info.chofer || '';
-  var url = 'https://betangar.com/chofer.html?cam=' + cam;
+  if(!cam){ alert('Elegí primero una unidad.'); return; }
+  // Fuente de datos: FLOTA (las 12 JAC fijas) o UNIDAD_CONFIG (registro maestro, unidades nuevas).
+  var f = (typeof FLOTA!=='undefined' && FLOTA[cam]) ? FLOTA[cam] : null;
+  var c = (typeof UNIDAD_CONFIG!=='undefined' && UNIDAD_CONFIG[cam]) ? UNIDAD_CONFIG[cam] : {};
+  var placa = (f&&f.placa) || c.placa || '';
+  var chofer = c.chofer || (f&&f.chofer) || '';
+  // Base = dominio actual (en Betangar producción = betangar.com → QR idéntico al ya impreso;
+  // en un clon FlotaMax = su propio dominio, automáticamente correcto).
+  var base = (typeof location!=='undefined' && location.origin) ? location.origin : 'https://betangar.com';
+  var url = base + '/chofer.html?cam=' + cam;
   var qrSrc = 'https://api.qrserver.com/v1/create-qr-code/?size=320x320&margin=8&data=' + encodeURIComponent(url);
   var logo = (typeof LOGO_SVG!=='undefined') ? LOGO_SVG : '';
   var html = getStyleImprimir() + '<body style="text-align:center">' +
