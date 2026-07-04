@@ -31,8 +31,21 @@ var BTG_CONFIG = {
   data_key: ANON_CENTRAL,                                  // ← anon key de ESA base
   lic_url:  'https://hrkjddehqnzcqwlkklqm.supabase.co',   // ← CENTRAL (no cambiar)
   lic_key:  ANON_CENTRAL,                                  // ← anon key central (no cambiar)
-  licencia_ref: 'betangar'                                 // ← su id en la tabla licencias
+  licencia_ref: 'betangar',                                // ← su id en la tabla licencias
+  accent: null                                             // ← color de marca del CLON. null = lima Betangar.
+                                                           //   Ej: {green:'#2563eb',green2:'#1d4ed8',green3:'#1e40af'}
+                                                           //   (verde/verde2/verde3: base, hover y oscuro del acento).
 };
+// Aplica el acento de marca del clon (si BTG_CONFIG.accent está definido) sobre las variables CSS.
+// Inline en <html> → pisa tanto el tema oscuro como el claro = marca consistente. Betangar: no toca nada.
+function aplicarMarcaAccent(){
+  try{ var a=BTG_CONFIG.accent; if(!a)return; var s=document.documentElement.style;
+    if(a.green){ s.setProperty('--green',a.green); s.setProperty('--lime',a.green); }
+    if(a.green2)s.setProperty('--green2',a.green2);
+    if(a.green3)s.setProperty('--green3',a.green3);
+  }catch(e){}
+}
+aplicarMarcaAccent();
 // Atajos de marca para los encabezados/pies de impresión (leen de BTG_CONFIG → al clonar, cambia SOLO el config).
 function brandNom(){ return BTG_CONFIG.empresa_nombre||''; }
 function brandNomUp(){ return (BTG_CONFIG.empresa_nombre||'').toUpperCase(); }
@@ -5461,7 +5474,7 @@ function renderUnidades(){
         '<td style="font-size:11px">'+_mEsc(c.chofer||(FLOTA[cam]&&FLOTA[cam].chofer)||'—')+'</td>'+
         '<td style="text-align:center">'+(c.activo===false?'—':'✓')+'</td>'+
         '<td style="white-space:nowrap"><button class="btn btn-s btn-xs" onclick="abrirEditarUnidad(\''+_mEsc(cam)+'\')">✏️ ficha</button> <button class="btn btn-s btn-xs" title="Ver e imprimir el código QR de esta unidad (abre la app del chofer)" onclick="generarQRUnidad(\''+_mEsc(cam)+'\')">📲 QR</button> <button class="btn btn-s btn-xs" title="Imprimir ficha" onclick="imprimirFichaUnidad(\''+_mEsc(cam)+'\')">🖨️</button></td></tr>';
-    }).join('')+'</tbody></table>'+(cams.length?'':'<div style="color:var(--text3);font-size:12px;padding:10px">Sin unidades. Agregá una con "＋ Agregar unidad".</div>');
+    }).join('')+'</tbody></table>'+(cams.length?'':'<div class="empty-state"><span class="ico">🚚</span>Todavía no hay unidades.<br>Agregá la primera con <b>"＋ Agregar unidad"</b> — se genera su QR al instante.</div>');
 }
 async function abrirEditarUnidad(cam){
   var nueva=!cam, c=cam?(UNIDAD_CONFIG[cam]||{}):{};
