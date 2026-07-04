@@ -3462,7 +3462,7 @@ function _factCore(f){ return String(f==null?'':f).replace(/\D/g,'').replace(/^0
 
 async function guardarAbono(){
   var ab={f:gv('ab-f'),fact:normFact(gv('ab-fact')),v:parseInt(gv('ab-v'))||0,m:parseFloat(gv('ab-m'))||0,obs:gv('ab-obs'),ref:gv('ab-ref')};
-  if(!ab.f||!ab.m){alert('Completa fecha y monto');return;}
+  if(!ab.f||!(ab.m>0)){alert('Completa la fecha y un monto MAYOR a 0.');return;}
   // La FACTURA es la identidad del abono (NO la fecha). Exigirla evita que el mismo pago
   // entre dos veces con fechas distintas.
   if(!ab.fact){alert('Escribe el numero de factura.\n\nLa factura es la que identifica el abono (no la fecha), para que el mismo pago no se duplique.');return;}
@@ -3476,11 +3476,16 @@ async function guardarAbono(){
   } else {
     ABONOS.push(ab);
   }
-  // upsert por 'fact': si la factura ya estaba, ACTUALIZA; si es nueva, inserta. Nunca duplica.
+  // A3 (auditoría 2026-07-04): NO dar por registrado si no se guardó. Si el upsert falla (RLS/red),
+  // se ENCOLA (antes solo mostraba toast y el abono se perdía al recargar, pese a que ya se avisó a
+  // socios "registrado"). Con la cola, se sube apenas vuelva la conexión → el aviso es cierto.
+  var _abOk=false;
   if(DB_READY&&supabase){
     var rUp=await supabase.from('abonos').upsert({f:ab.f,fact:ab.fact,v:ab.v,m:ab.m,obs:ab.obs,ref:ab.ref},{onConflict:'fact'});
-    if(rUp&&rUp.error&&typeof mostrarToast==='function')mostrarToast('No se pudo guardar abono: '+rUp.error.message,'error');
-  } else {
+    if(rUp&&rUp.error){ if(typeof mostrarToast==='function')mostrarToast('No se pudo guardar en la nube; quedó en cola: '+rUp.error.message,'error'); }
+    else _abOk=true;
+  }
+  if(!_abOk){
     guardarEnCola('abonos',{f:ab.f,fact:ab.fact,v:ab.v,m:ab.m,obs:ab.obs,ref:ab.ref});
   }
   audit('Abono registrado','$'+ab.m+' Fact:'+ab.fact);
@@ -6379,9 +6384,9 @@ function renderConciliacion(){
     '</div><div style="font-size:12px;color:'+(Math.abs(diff)<50?'var(--green)':'var(--yellow)')+'">Diferencia: $'+diff.toFixed(0)+'</div>';
   var pend=BNC_MOV.filter(function(m){return!m.conciliado&&m.tipo==='credito';});
   var pe=g('conc-pend');
-  if(pe)pe.innerHTML=pend.length?pend.slice(0,5).map(function(m){return'<div style="font-size:12px;padding:5px 0;border-bottom:1px solid var(--border);display:flex;justify-content:space-between"><span>'+formatFecha(m.fecha)+' '+m.desc+'</span><span style="font-family:var(--m);color:var(--green)">Bs '+m.monto.toLocaleString('es-VE',{maximumFractionDigits:0})+'</span></div>';}).join(''):'<div style="color:var(--green);font-size:12px;padding:8px">✓ Todo conciliado</div>';
+  if(pe)pe.innerHTML=pend.length?pend.slice(0,5).map(function(m){return'<div style="font-size:12px;padding:5px 0;border-bottom:1px solid var(--border);display:flex;justify-content:space-between"><span>'+formatFecha(m.fecha)+' '+_escHtml(m.desc)+'</span><span style="font-family:var(--m);color:var(--green)">Bs '+m.monto.toLocaleString('es-VE',{maximumFractionDigits:0})+'</span></div>';}).join(''):'<div style="color:var(--green);font-size:12px;padding:8px">✓ Todo conciliado</div>';
   var tb=g('tb-conc');
-  if(tb)tb.innerHTML=BNC_MOV.filter(function(m){return m.tipo==='credito';}).map(function(m){return'<tr><td>'+formatFecha(m.fecha)+'</td><td style="font-family:var(--m)">Bs '+m.monto.toLocaleString('es-VE',{maximumFractionDigits:0})+'</td><td style="font-family:var(--m)">$'+(m.monto/tasa).toFixed(2)+'</td><td style="font-family:var(--m);font-size:10px">'+m.ref+'</td><td>—</td><td>'+(m.conciliado?'<span class="badge bg">SI</span>':'<span class="badge by">NO</span>')+'</td><td>'+((!m.conciliado)?'<button class="btn btn-g btn-xs" onclick="conciliarMov(\''+m.id+'\')">Conciliar</button>':'')+'</td></tr>';}).join('');
+  if(tb)tb.innerHTML=BNC_MOV.filter(function(m){return m.tipo==='credito';}).map(function(m){return'<tr><td>'+formatFecha(m.fecha)+'</td><td style="font-family:var(--m)">Bs '+m.monto.toLocaleString('es-VE',{maximumFractionDigits:0})+'</td><td style="font-family:var(--m)">$'+(m.monto/tasa).toFixed(2)+'</td><td style="font-family:var(--m);font-size:10px">'+_escHtml(m.ref)+'</td><td>—</td><td>'+(m.conciliado?'<span class="badge bg">SI</span>':'<span class="badge by">NO</span>')+'</td><td>'+((!m.conciliado)?'<button class="btn btn-g btn-xs" onclick="conciliarMov(\''+m.id+'\')">Conciliar</button>':'')+'</td></tr>';}).join('');
 }
 
 function renderPagosPendBNC(){
@@ -6392,7 +6397,7 @@ function renderPagosPendBNC(){
   var totalBs=pend.reduce(function(s,m){return s+m.monto;},0);
   el.innerHTML='<div class="alert-w" style="margin-bottom:10px">Total pendiente: <b>Bs '+totalBs.toLocaleString('es-VE',{maximumFractionDigits:0})+'</b> en '+pend.length+' pagos. El firmante debe aprobar en BNCNET.</div>'+
   '<div class="tw"><table><thead><tr><th>Descripcion</th><th>Beneficiario</th><th>Monto Bs</th><th>Fecha</th><th></th></tr></thead><tbody>'+
-  pend.map(function(m){return'<tr><td style="font-size:11px">'+m.desc+'</td><td style="font-size:10px">'+(m.detalle?m.detalle.banco+' '+m.detalle.cuenta:'--')+'</td><td style="font-family:var(--m);color:var(--yellow)">Bs '+m.monto.toLocaleString('es-VE',{maximumFractionDigits:0})+'</td><td>'+formatFecha(m.fecha)+'</td><td><button class="btn btn-g btn-xs" onclick="confirmarPagoBNC(\''+m.id+'\')">Confirmar Ejecutado</button></td></tr>';}).join('')+
+  pend.map(function(m){return'<tr><td style="font-size:11px">'+_escHtml(m.desc)+'</td><td style="font-size:10px">'+(m.detalle?_escHtml(m.detalle.banco+' '+m.detalle.cuenta):'--')+'</td><td style="font-family:var(--m);color:var(--yellow)">Bs '+m.monto.toLocaleString('es-VE',{maximumFractionDigits:0})+'</td><td>'+formatFecha(m.fecha)+'</td><td><button class="btn btn-g btn-xs" onclick="confirmarPagoBNC(\''+m.id+'\')">Confirmar Ejecutado</button></td></tr>';}).join('')+
   '</tbody></table></div>';
 }
 
@@ -6502,7 +6507,7 @@ function calcCXP(){
 
 function guardarCXP(){
   var pid=gv('cxp-prov');var monto=parseFloat(gv('cxp-monto'))||0;
-  if(!pid||!monto){alert('Selecciona proveedor e ingresa el monto');return;}
+  if(!pid||!(monto>0)){alert('Selecciona proveedor e ingresa un monto MAYOR a 0.');return;}
   var pv=PROVEEDORES.find(function(p){return p.id===pid;});
   var ivaPct=parseFloat(gv('cxp-iva'))||0;
   var tasaTipo=gv('cxp-tasa');var tasa=getTasa(tasaTipo);if(!tasa){tasaOManual(tasaTipo,function(t){tasa=t;calcCXP();});return;}
@@ -8580,6 +8585,7 @@ function guardarGastoVar(){
   var tasa=TASAS.bcvDolar||cfg.tasa;
   if(!tasa){ tasaOManual('bcvDolar', function(){ guardarGastoVar(); }); return; }
   var usd=parseFloat(gv('gv-usd'))||0;var bs=usd*tasa;
+  if(!(usd>0)){alert('Ingresa un monto en USD MAYOR a 0.');return;} // M6: no aceptar $0 ni negativos
   var item={id:'GV'+Date.now(),fecha:gv('gv-fecha'),cat:gv('gv-cat'),desc:desc,bs:bs,usd:usd,ref:gv('gv-ref'),fact:gv('gv-fact')};
   GASTOS_VARIABLES.push(item);
   if(DB_READY&&supabase){
@@ -8777,7 +8783,9 @@ async function cambiarContrasena(){
 
 function renderAuditoria(){
   var tb=g('tb-auditoria');if(!tb)return;
-  tb.innerHTML=AUDITORIA_LOG.slice().reverse().slice(0,50).map(function(a){return'<tr><td style="font-size:10px;font-family:var(--m)">'+formatFecha(a.fecha)+'</td><td><span class="badge by">'+a.usuario+'</span></td><td style="font-size:11px">'+a.accion+'</td><td style="font-size:11px;color:var(--text2)">'+a.detalle+'</td></tr>';}).join('')||'<tr><td colspan="4" style="text-align:center;color:var(--text3);padding:20px">Sin registros de auditoria</td></tr>';
+  // M2 (auditoría 2026-07-04): escapar los campos (usuario/accion/detalle) — cualquier autenticado
+  // puede INSERT en `auditoria` con un payload XSS que ejecutaría como SUPERADMIN al abrir este panel.
+  tb.innerHTML=AUDITORIA_LOG.slice().reverse().slice(0,50).map(function(a){return'<tr><td style="font-size:10px;font-family:var(--m)">'+formatFecha(a.fecha)+'</td><td><span class="badge by">'+_escHtml(a.usuario)+'</span></td><td style="font-size:11px">'+_escHtml(a.accion)+'</td><td style="font-size:11px;color:var(--text2)">'+_escHtml(a.detalle)+'</td></tr>';}).join('')||'<tr><td colspan="4" style="text-align:center;color:var(--text3);padding:20px">Sin registros de auditoria</td></tr>';
 }
 
 function exportarAuditoria(){
@@ -9721,7 +9729,8 @@ function recargarTrasTokenAccion(ad){
     else if(ad.tabla==='prestamos'){ if(typeof PRESTAMOS!=='undefined')PRESTAMOS=PRESTAMOS.filter(function(x){return String(x[col])!==val;}); if(typeof renderPrestamos==='function')renderPrestamos(); }
     else if(ad.tabla==='multas'){ if(typeof MULTAS!=='undefined')MULTAS=MULTAS.filter(function(x){return String(x[col])!==val;}); if(typeof renderMultas==='function')renderMultas(); }
     else if(ad.tabla==='contratos'){ if(typeof CONTRATOS!=='undefined')CONTRATOS=CONTRATOS.filter(function(x){return String(x[col])!==val;}); if(typeof renderContratos==='function')renderContratos(); }
-    else if(ad.tabla==='gastos_variables'){ if(typeof GASTOS_VARIABLES!=='undefined')GASTOS_VARIABLES=GASTOS_VARIABLES.filter(function(x){return String(x[col])!==val;}); if(typeof renderGastos==='function')renderGastos(); }
+    else if(ad.tabla==='gastos_variables'){ if(typeof GASTOS_VARIABLES!=='undefined')GASTOS_VARIABLES=GASTOS_VARIABLES.filter(function(x){return String(x[col])!==val;}); if(typeof renderGastos==='function')renderGastos(); if(typeof renderGastosVariables==='function')renderGastosVariables(); }
+    else if(ad.tabla==='gastos_fijos'){ if(typeof GASTOS_FIJOS!=='undefined')GASTOS_FIJOS=GASTOS_FIJOS.filter(function(x){return String(x[col])!==val;}); if(typeof renderGastosFijos==='function')renderGastosFijos(); }
     else if(ad.tabla==='abonos'){ if(typeof ABONOS!=='undefined')ABONOS=ABONOS.filter(function(x){return String(x[col])!==val;}); if(typeof renderAbonos==='function')renderAbonos(); if(typeof renderDash==='function')renderDash(); }
   }catch(e){console.log('recargarTrasTokenAccion:',e&&e.message);}
 }
@@ -9768,9 +9777,12 @@ function elimGastoVar(id){
   if(!x)return;
   solicitarToken('Eliminar gasto: '+x.desc,function(mot){
     GASTOS_VARIABLES=GASTOS_VARIABLES.filter(function(g){return g.id!==id;});
+    // M1 (auditoría 2026-07-04): borrar TAMBIÉN en la nube (antes solo memoria → reaparecía al
+    // recargar y seguía restando en la Utilidad Real). accionData → el superadmin lo aplica al aprobar.
+    if(DB_READY&&supabase)supabase.from('gastos_variables').delete().eq('id',id).then(function(r){if(r&&r.error)console.error('Error elim gasto variable:',r.error);});
     audit('Gasto Variable ELIMINADO',x.desc+' -- '+mot);
     renderGastosVariables();
-  });
+  },{op:'del',tabla:'gastos_variables',col:'id',val:id});
 }
 function elimGastoFijo(id){
   var gf=GASTOS_FIJOS.find(function(x){return x.id===id;});
@@ -9789,9 +9801,11 @@ function elimContrato(id){
   if(!c)return;
   solicitarToken('Eliminar contrato: '+c.nombre,function(mot){
     CONTRATOS=CONTRATOS.filter(function(x){return x.id!==id;});
+    // M1: borrar TAMBIÉN en la nube (antes solo memoria → reaparecía al recargar).
+    if(DB_READY&&supabase)supabase.from('contratos').delete().eq('id',id).then(function(r){if(r&&r.error)console.error('Error elim contrato:',r.error);});
     audit('Contrato ELIMINADO',c.nombre+' -- '+mot);
     renderContratosLista();
-  });
+  },{op:'del',tabla:'contratos',col:'id',val:id});
 }
 function editP(p){editarPlanilla(p);}
 
@@ -11426,7 +11440,7 @@ function guardarGastoCaja(){
   var concepto=gv('cc-concepto');
   var montoBs=parseFloat(gv('cc-monto-bs'))||0;
   var factura=gv('cc-factura')||'no';
-  if(!concepto||!montoBs){alert('Ingresa el concepto y el monto');return;}
+  if(!concepto||!(montoBs>0)){alert('Ingresa el concepto y un monto MAYOR a 0.');return;} // M6: no $0/negativos
   var tasa=getTasa('bcvDolar');
   if(!tasa){tasaOManual('bcvDolar',function(t){tasa=t;calcCajachica();});return;}
   var gasto={
