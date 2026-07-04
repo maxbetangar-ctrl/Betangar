@@ -8487,6 +8487,15 @@ function guardarPagoAlcaldia(){
   if(DB_READY&&supabase){
     supabase.from('abonos').upsert(abAlc,{onConflict:'fact'}).then(function(r){if(r&&r.error&&typeof mostrarToast==='function')mostrarToast('No se pudo guardar abono Alcaldia: '+r.error.message,'error');});
   } else { guardarEnCola('abonos',abAlc); }
+  // C1 (auditoría 2026-07-04): PERSISTIR el DETALLE del pago en pagos_alcaldia AL REGISTRARLO.
+  // Antes esta tabla solo se escribía desde la importación masiva (guardarImportacionEnDB) → el
+  // desglose de retenciones, el FIEL CUMPLIMIENTO (10% que la Alcaldía debe devolver) y el 7.5%
+  // de un pago cargado a mano se PERDÍAN al recargar (solo sobrevivía el abono neto). Mismo mapeo
+  // y onConflict que el guardado masivo (probado en producción); cae a la cola offline si falla.
+  var palcRow={id:pago.id,fecha:pago.fecha,factura:pago.fact,referencia:pago.ref,viajes:pago.viajes,tasa:pago.tasa,base_usd:pago.base,iva_usd:pago.iva,total_usd:pago.total,neto_usd:pago.neto,fiel_usd:pago.fiel,fiel_devuelto:pago.fielDevuelto,pct75_pagado:pago.pct75};
+  if(DB_READY&&supabase){
+    supabase.from('pagos_alcaldia').upsert(palcRow,{onConflict:'id'}).then(function(r){if(r&&r.error&&typeof mostrarToast==='function')mostrarToast('No se pudo guardar el detalle del pago Alcaldia: '+r.error.message,'error');});
+  } else { guardarEnCola('pagos_alcaldia',palcRow); }
   sendWA('💰 Pago Alcaldia recibido:\nFactura: '+pago.fact+'\nViajes: '+viajes+'\nNeto: $ '+Number(pago.neto||0).toLocaleString('es-VE',{minimumFractionDigits:2,maximumFractionDigits:2})+'\nBs: '+fbn(pago.neto,tasa),['admin']);
   audit('Pago Alcaldia registrado',pago.fact+' $'+pago.neto.toFixed(0));
   ['alc-fact','alc-ref','alc-viajes','alc-tasa'].forEach(function(id){sv(id,'');});g('alc-calculo').style.display='none';
