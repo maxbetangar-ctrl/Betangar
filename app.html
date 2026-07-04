@@ -1289,7 +1289,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
   <div id="alert-plan" class="alert-ok">Planilla guardada correctamente</div>
   <div class="g2">
     <div class="card">
-      <div class="sh"><div class="st">Nueva Planilla</div><div style="display:flex;align-items:center;gap:8px"><button class="btn btn-s btn-sm" onclick="abrirPlanillaEspecial()" title="Pago por una actividad fuera de viajes (traslado de patio a autolavado, etc.). Suma a la nómina.">⭐ Planilla especial</button><div id="rp-ultima" style="font-size:11px;color:var(--green);font-weight:700;font-family:var(--m)"></div></div></div>
+      <div class="sh"><div class="st">Nueva Planilla</div><div style="display:flex;align-items:center;gap:8px"><button class="btn btn-s btn-sm" onclick="abrirCierrePeriodo()" title="Cerrar/reabrir meses: protege las planillas de un período ya cuadrado para que no se editen por error (solo admin).">🔒 Cierre de período</button><button class="btn btn-s btn-sm" onclick="abrirPlanillaEspecial()" title="Pago por una actividad fuera de viajes (traslado de patio a autolavado, etc.). Suma a la nómina.">⭐ Planilla especial</button><div id="rp-ultima" style="font-size:11px;color:var(--green);font-weight:700;font-family:var(--m)"></div></div></div>
       <div class="fr4">
         <div class="fg"><label>N Planilla</label><input class="fc" id="rp-num" type="number" placeholder="00416" style="font-family:var(--m)"></div>
         <div class="fg"><label>Fecha</label><input class="fc" id="rp-fecha" type="date" onchange="autoData()"></div>
@@ -2440,7 +2440,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
 </div>
 
 <script src="money.js?v=20260628n"></script>
-<script src="app.js?v=20260704l"></script>
+<script src="app.js?v=20260704m"></script>
 
 <!-- Modal global -->
 <div id="modal" class="moverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9990;align-items:center;justify-content:center;padding:16px">

@@ -94,6 +94,19 @@ var WA=[
 // mecanica  → km servicio, lavado, engrase, llantas, inventario repuestos
 // operativo → camiones inactivos, metas, documentos vencidos, combustible
 var AUDITORIA_LOG=[],NOMINA_PAGOS=[],GASTOS_VARIABLES=[],CXP=[],CONTRATOS=[],PRESTAMOS=[],MULTAS=[],INVENTARIO=[],INV_MOV=[],DOCS_CAM={},DOCS_EMP={},ASISTENCIA={},METAS={},TEMPORALES={};
+var PERIODOS_CERRADOS=[]; // meses cerrados 'YYYY-MM' (candado de edición de planillas). Persiste en configuracion.
+// ── CIERRE DE PERÍODO (integridad: no editar planillas de meses cerrados) ──
+function _periodoDeF(f){ return (f&&String(f).length>=7)?String(f).slice(0,7):''; }
+function _periodoCerrado(f){ var m=_periodoDeF(f); return !!m && PERIODOS_CERRADOS.indexOf(m)>=0; }
+function _bloqueoPeriodo(f,accion){
+  if(!_periodoCerrado(f))return false;
+  alert('🔒 El período '+_periodoDeF(f)+' está CERRADO.\n\nNo se puede '+(accion||'modificar')+' una planilla de un período cerrado. Para corregirlo, reabrí el mes en Planillas → "🔒 Cierre de período" (solo admin) y volvé a cerrarlo al terminar.');
+  return true;
+}
+function _guardarPeriodosCerrados(){
+  if(!(DB_READY&&supabase))return;
+  try{ supabase.from('configuracion').upsert([{clave:'periodos_cerrados',valor:JSON.stringify(PERIODOS_CERRADOS)}],{onConflict:'clave'}).then(function(r){ if(r&&r.error&&typeof mostrarToast==='function')mostrarToast('No se pudo guardar el cierre: '+r.error.message,'error'); }); }catch(e){}
+}
 var CUENTAS_BANCO=[{id:'B001',banco:'BNC',nombre:'Betangar CA',ncuenta:'',tipo:'Corriente'}];
 
 var FLOTA={
@@ -1436,6 +1449,7 @@ async function cargarDatosDB(){
           else if(row.clave==='docs_emp')DOCS_EMP=v||{};
           else if(row.clave==='metas_data')METAS=v||{};
           else if(row.clave==='nom_adm'){if(Array.isArray(v))NOM_ADM=v;}
+          else if(row.clave==='periodos_cerrados'){if(Array.isArray(v))PERIODOS_CERRADOS=v;}
         }catch(e){}
       });
     }catch(e){}
@@ -2589,6 +2603,8 @@ function guardarEdicionPlanilla(pOriginal){
   var accion='Editar planilla #'+pOriginal+(nuevoNum!==pOriginal.replace('DUP','')?' → nuevo #'+nuevoNum:'');
   var idx=REGS.findIndex(function(x){return x.p===pOriginal;});
   if(idx<0){alert('No encontrada');return;}
+  if(_bloqueoPeriodo(REGS[idx].f,'editar'))return;                          // período de origen cerrado
+  if(_bloqueoPeriodo(document.getElementById('ep-fecha').value,'editar'))return; // no mover a un mes cerrado
   // Calcular la fila YA, con los valores del formulario presentes. Hay que hacerlo ANTES de pedir el
   // token: el payload se serializa en accion_data para que el SuperAdmin aplique el cambio al aprobar
   // (en un solo navegador la sesión del solicitante ya no existe para reusar el DOM).
@@ -2709,6 +2725,7 @@ function _nombreCanonico(n){
 async function guardarPlanilla(){
   var p=gv('rp-num');var f=gv('rp-fecha');var c=gv('rp-cam');var ch=gv('rp-chofer');
   if(!p||!f||!c||!ch){alert('Completa: Planilla, Fecha, Camion, Chofer');return;}
+  if(_bloqueoPeriodo(f,'crear'))return;
   var tot=cntD+cntN;if(!tot){alert('Registra al menos 1 viaje');return;}
   var ns=String(p).padStart(5,'0');
   if(REGS.some(function(r){return r.p===ns;})){alert('Ya existe la planilla #'+ns);return;}
@@ -2752,7 +2769,34 @@ function renderPlanHoy(){
   var totD=g('tot-dia');if(totD){var tv=hoyR.reduce(function(s,r){return s+r.t;},0);var tm=hoyR.reduce(function(s,r){return s+r.m;},0);totD.textContent=tv+' viajes - $'+tm.toLocaleString();}
 }
 
+// Panel de cierre de período (admin): cerrar/reabrir meses para proteger el histórico de planillas.
+function abrirCierrePeriodo(){
+  var rol=(typeof SESION!=='undefined'&&SESION)?SESION.rol:'';
+  if(['superadmin','admin','directivo'].indexOf(rol)<0){ alert('Solo administración puede cerrar o reabrir períodos.'); return; }
+  var set={}; (REGS||[]).forEach(function(r){ var m=_periodoDeF(r.f); if(m)set[m]=1; });
+  PERIODOS_CERRADOS.forEach(function(m){set[m]=1;});
+  var meses=Object.keys(set).sort().reverse();
+  var MES=['','ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+  var filas=meses.length?meses.map(function(m){
+    var cerr=PERIODOS_CERRADOS.indexOf(m)>=0, mm=m.split('-');
+    var lbl=(MES[parseInt(mm[1])]||mm[1])+' '+mm[0];
+    return '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;border:1px solid var(--border);border-radius:8px;margin-bottom:6px;background:var(--card2)">'+
+      '<span style="font-weight:700">'+lbl+' '+(cerr?'<span class="badge br">🔒 cerrado</span>':'<span class="badge bg">abierto</span>')+'</span>'+
+      '<button class="btn '+(cerr?'btn-y':'btn-r')+' btn-sm" onclick="togglePeriodoCierre(\''+m+'\')">'+(cerr?'Reabrir':'🔒 Cerrar')+'</button></div>';
+  }).join(''):'<div class="empty-state"><span class="ico">🗓️</span>No hay planillas todavía.</div>';
+  openModal('🔒 Cierre de período',
+    '<div style="font-size:12px;color:var(--text3);margin-bottom:10px">Cerrá un mes cuando ya cuadraste su nómina y cobranza. Las planillas de un mes cerrado <b>no se pueden crear, editar ni borrar</b> — se protege el histórico. Reversible: podés reabrirlo si hay que corregir.</div>'+filas);
+}
+function togglePeriodoCierre(m){
+  var i=PERIODOS_CERRADOS.indexOf(m);
+  if(i>=0){ if(!confirm('¿Reabrir '+m+'? Se podrán volver a editar sus planillas.'))return; PERIODOS_CERRADOS.splice(i,1); audit('Período REABIERTO',m); }
+  else { if(!confirm('¿Cerrar '+m+'? No se podrán crear/editar/borrar planillas de ese mes (reversible).'))return; PERIODOS_CERRADOS.push(m); audit('Período CERRADO',m); }
+  _guardarPeriodosCerrados();
+  abrirCierrePeriodo();
+}
 function eliminarPlanilla(p){
+  var _rp=REGS.find(function(r){return r.p===p;});
+  if(_rp&&_bloqueoPeriodo(_rp.f,'eliminar'))return;
   solicitarToken('Eliminar planilla #'+p,function(motivo){
     REGS=REGS.filter(function(r){return r.p!==p;});
     // No usar .then vacío: chequear el error para no divergir memoria vs BD (si el borrado falla
