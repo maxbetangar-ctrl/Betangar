@@ -13355,6 +13355,33 @@ function generarQRChoferes(){
   abrirVentanaImpresion(html);
 }
 
+// QR de UNA unidad (para su hoja de vida): tarjeta branded con logo + placa + número,
+// lista para ver e imprimir. Usa EL MISMO esquema de URL que los QR ya impresos
+// (betangar.com/chofer.html?cam=…) → el QR sale IDÉNTICO al que ya está pegado en el carro.
+function generarQRUnidad(cam){
+  cam = cam || (typeof gv==='function' ? gv('hv-ver-cam') : '') || '';
+  if(!cam){ alert('Elegí primero una unidad en el selector de arriba.'); return; }
+  var info = (typeof FLOTA!=='undefined' && FLOTA[cam]) ? FLOTA[cam] : {};
+  var placa = info.placa || '';
+  var chofer = info.chofer || '';
+  var url = 'https://betangar.com/chofer.html?cam=' + cam;
+  var qrSrc = 'https://api.qrserver.com/v1/create-qr-code/?size=320x320&margin=8&data=' + encodeURIComponent(url);
+  var logo = (typeof LOGO_SVG!=='undefined') ? LOGO_SVG : '';
+  var html = getStyleImprimir() + '<body style="text-align:center">' +
+    '<div style="max-width:420px;margin:24px auto;border:2px solid #1e3a5f;border-radius:14px;padding:24px 20px">' +
+      (logo?'<img src="'+logo+'" style="height:58px;width:auto;margin-bottom:8px"><br>':'') +
+      '<div style="font-size:16px;font-weight:900;color:#1e3a5f">'+brandNomUp()+'</div>' +
+      '<div style="font-size:11px;color:#555;margin-bottom:14px">App del chofer · escaneá para abrir tu unidad</div>' +
+      '<img src="'+qrSrc+'" style="width:300px;height:300px" alt="QR '+cam+'"><br>' +
+      '<div style="font-size:30px;font-weight:900;color:#111;margin-top:12px">'+cam+'</div>' +
+      (placa?'<div style="font-size:16px;font-weight:700;color:#333;margin-top:4px">Placa: '+placa+'</div>':'') +
+      (chofer?'<div style="font-size:12px;color:#666;margin-top:2px">'+chofer+'</div>':'') +
+      '<div style="font-size:9px;color:#999;margin-top:12px;word-break:break-all">'+url+'</div>' +
+    '</div>' +
+    '</body></html>';
+  abrirVentanaImpresion(html);
+}
+
 // Resumen semanal de pagos los sabados
 function checkResumenPagosSabado(){
   var now=new Date();
