@@ -3,7 +3,7 @@
 // PWA Offline-First para choferes
 // ═══════════════════════════════════════════════════
 
-const CACHE_NAME = 'betangar-chofer-v18'; // v18: tercer tipo 📍 Punto/Evento (aseo) + confirm_via (en sitio/por link) + se quitó el aviso "prueba de entrega"
+const CACHE_NAME = 'betangar-chofer-v19'; // v19: odómetro nunca baja desde el checklist del chofer (solo sube; typo con km menor ya no corrompe km_data ni el cálculo de próximo servicio)
 
 // Archivos a cachear para funcionar sin internet
 const ARCHIVOS_CACHE = [

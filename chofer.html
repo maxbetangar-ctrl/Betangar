@@ -1654,9 +1654,13 @@ async function guardarChecklist(){
       // inoperativo). Así el estado que reporta el chofer SÍ se enlaza con el dashboard.
       var estDash = CL_ESTADO==='inoperativo' ? 'inoperativo' : (String(CL_ESTADO).indexOf('taller')===0 ? 'taller' : 'operativo');
       var kmVal = CL_MODO==='salida' ? (parseInt(gv('cl-km-salida'))||0) : (parseInt(gv('cl-km-llegada'))||0);
-      var kmPatch = { estado: estDash, nota_estado: gv('cl-motivo') || '' };
-      if(kmVal > 0) kmPatch.km = kmVal;
-      await supabase.from('km_data').update(kmPatch).eq('cam', cam);
+      // El estado/nota SIEMPRE se actualiza. El KM (odómetro) SOLO si SUBE: un typo del chofer con un
+      // km MENOR bajaría el odómetro del dashboard y corrompería el cálculo de próximo servicio
+      // (proxServicio). El resto de la app ya protege esto (kmActualCam usa Math.max; el guardado de
+      // km en oficina confirma si baja) — el checklist del chofer era la ÚNICA excepción. El filtro
+      // or(km.is.null,km.lt.kmVal) => solo actualiza si el km actual es NULL (primer registro) o menor.
+      await supabase.from('km_data').update({ estado: estDash, nota_estado: gv('cl-motivo') || '' }).eq('cam', cam);
+      if(kmVal > 0) await supabase.from('km_data').update({ km: kmVal }).eq('cam', cam).or('km.is.null,km.lt.'+kmVal);
     }
   } else {
     // Sin conexión (o supabase aún no listo): a la cola para que suba al reconectar.
