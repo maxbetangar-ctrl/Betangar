@@ -551,7 +551,11 @@ window.__supaLib = window.supabase || null;
 // por el Supabase de ESA empresa, y abajo el mapa FLOTA_CHOFERES con sus camiones/choferes.
 var BTG_CHOFER_CONFIG = {
   data_url: 'https://hrkjddehqnzcqwlkklqm.supabase.co',
-  data_key: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhya2pkZGVocW56Y3F3bGtrbHFtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc2NTk1NzIsImV4cCI6MjA5MzIzNTU3Mn0.kqWKthyZfPZ86toql7shGByF-ZhUpcQUS4Jw4RnG_ko'
+  data_key: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhya2pkZGVocW56Y3F3bGtrbHFtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc2NTk1NzIsImV4cCI6MjA5MzIzNTU3Mn0.kqWKthyZfPZ86toql7shGByF-ZhUpcQUS4Jw4RnG_ko',
+  // Unidades NUEVAS (no en FLOTA_CHOFERES) se resuelven desde la tabla unidad_config.
+  // login: false = sin clave (Betangar aseo, no complicar a los choferes actuales).
+  //        true  = pide clave por unidad (clientes nuevos / clones FlotaMax).
+  login: false
 };
 var SUPA_URL = BTG_CHOFER_CONFIG.data_url;
 var SUPA_KEY = BTG_CHOFER_CONFIG.data_key;
@@ -626,14 +630,53 @@ if('serviceWorker' in navigator){
 document.addEventListener('DOMContentLoaded', function(){
   var params = new URLSearchParams(window.location.search);
   cam = (params.get('cam') || '').toUpperCase().trim();
+  if(!cam){ mostrarErrorCam(); return; }
 
-  // Validar que sea un camión conocido
-  if(!cam || !FLOTA_CHOFERES[cam]){
-    document.getElementById('error-screen').style.display = 'flex';
+  if(FLOTA_CHOFERES[cam]){
+    // Unidad JAC fija (Betangar aseo): flujo de siempre, sin login, offline-first. SIN CAMBIOS.
+    chofer = FLOTA_CHOFERES[cam];
+    arrancarApp();
     return;
   }
+  // Unidad NUEVA (no hardcodeada): resolver desde unidad_config (requiere red).
+  resolverUnidadNueva();
+});
 
-  chofer = FLOTA_CHOFERES[cam];
+// Resuelve una unidad NUEVA (FlotaMax) desde unidad_config. Los 12 JAC NO pasan por aquí
+// (van directo por FLOTA_CHOFERES) → cero riesgo para la operación viva del aseo.
+function resolverUnidadNueva(){
+  var lib = window.__supaLib || window.supabase;
+  var fn = (lib && lib.createClient) ? lib.createClient : (window.createClient||null);
+  if(!fn){ setTimeout(resolverUnidadNueva, 500); return; }
+  var sb;
+  try{ sb = fn(SUPA_URL, SUPA_KEY); }catch(e){ mostrarErrorCam('No se pudo iniciar. Reintentá.'); return; }
+  // unidad_config está cerrada a anon; el RPC unidad_publica (SECURITY DEFINER) devuelve
+  // solo los datos mínimos de ESTA unidad (por su cam), sin exponer el registro completo.
+  sb.rpc('unidad_publica', { p_cam: cam })
+    .then(function(r){
+      var u = (r && !r.error && Array.isArray(r.data) && r.data.length) ? r.data[0] : null;
+      if(u){
+        chofer = u.chofer || u.nombre || u.placa || 'CHOFER';
+        // (Paso 2b) si BTG_CHOFER_CONFIG.login → pedir clave por unidad antes de arrancarApp().
+        arrancarApp();
+      } else if(r && r.error){
+        mostrarErrorCam('No se pudo verificar la unidad.<br>Reintentá con internet.');
+      } else {
+        mostrarErrorCam('Esta unidad no está registrada o está inactiva.<br>Pedí en oficina que la den de alta.');
+      }
+    })
+    .catch(function(){
+      mostrarErrorCam('Sin conexión: no se pudo verificar la unidad.<br>Conectate a internet e intentá de nuevo.');
+    });
+}
+
+function mostrarErrorCam(msg){
+  try{ var em = document.querySelector('#error-screen .error-msg'); if(em && msg){ em.innerHTML = msg; } }catch(e){}
+  var es = document.getElementById('error-screen'); if(es) es.style.display = 'flex';
+}
+
+// Arranca la app (cuerpo original del init). Se llama con `cam` y `chofer` ya definidos.
+function arrancarApp(){
   var now = new Date();
   // HOY en hora de Venezuela (UTC-4). Antes usaba UTC (toISOString) y de noche marcaba el
   // día siguiente → el viaje/checklist quedaba con otra fecha y el dashboard no lo veía "hoy".
@@ -692,7 +735,7 @@ document.addEventListener('DOMContentLoaded', function(){
   // Refresh cada 30s: SIEMPRE intenta sincronizar (no depende de isOnline, que en
   // algunos teléfonos quedaba en "Sin conexión" aunque sí había internet → nada subía).
   setInterval(function(){ sincronizarCola(); }, 30000);
-});
+}
 
 // ── SUPABASE ──
 function iniciarSupabase(){

@@ -5497,6 +5497,7 @@ function subirTituloUnidad(input){var f=input&&input.files&&input.files[0];if(!f
 async function guardarUnidad(){
   var cam=(gv('u-cam')||'').trim();
   if(!cam){alert('Poné el N° de unidad (identificador)');return;}
+  var esNueva=!(typeof UNIDAD_CONFIG!=='undefined' && UNIDAD_CONFIG[cam]); // ¿alta de unidad nueva?
   var reg={cam:cam,nombre:(gv('u-nombre')||'').trim(),marca:(gv('u-marca')||'').trim(),modelo:(gv('u-modelo')||'').trim(),anio:(gv('u-anio')||'').trim(),placa:(gv('u-placa')||'').trim().toUpperCase(),vin:(gv('u-vin')||'').trim().toUpperCase(),serial_motor:(gv('u-smotor')||'').trim(),serial_carroceria:(gv('u-scarr')||'').trim(),tipo:(gv('u-tipo')||'').trim(),combustible:gv('u-comb')||'',uso:gv('u-uso')||'',medida:gv('u-medida')||'',horas_actuales:parseFloat(gv('u-horas'))||0,titular:(gv('u-titular')||'').trim(),chofer:(gv('u-chofer')||'').trim(),notas:(gv('u-notas')||'').trim(),activo:!(g('u-activo')&&!g('u-activo').checked),foto:window._unidadFoto||'',titulo_pdf:window._unidadPdf||''};
   var ok=false;
   if(DB_READY&&supabase){ try{ var res=await supabase.from('unidad_config').upsert([reg],{onConflict:'cam'}); if(res&&res.error){mostrarToast('No se pudo guardar: '+res.error.message,'error');} else ok=true; }catch(e){mostrarToast('Sin conexión al guardar la unidad.','error');} }
@@ -5507,6 +5508,8 @@ async function guardarUnidad(){
   if(typeof closeModal==='function')closeModal();
   renderUnidades();
   if(typeof mostrarToast==='function')mostrarToast(ok?'✅ Unidad guardada':'⚠️ No se confirmó el guardado (revisá conexión)',ok?'exito':'error');
+  // Unidad NUEVA registrada → generar su QR de una vez (listo para ver e imprimir).
+  if(ok && esNueva && typeof generarQRUnidad==='function'){ setTimeout(function(){ generarQRUnidad(cam); }, 350); }
 }
 // ── ONBOARDING: plantilla Excel + carga masiva de unidades (primera integración de datos) ──
 // El cliente llena el Excel, lo subís, y se cargan todas las fichas de un saque.
