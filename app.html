@@ -1190,8 +1190,12 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
     <div class="card">
       <div class="st" style="margin-bottom:10px;display:flex;justify-content:space-between;align-items:center">
         <span>Unidades registradas</span>
-        <button class="btn btn-s btn-sm" onclick="importarFlotaJAC()" title="Crea una unidad por cada camión JAC de la flota y las asigna al contrato elegido. NO toca la flota actual.">📥 Importar flota JAC</button>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <button class="btn btn-g btn-sm" onclick="importarUnidadesDeRegistro()" title="Trae las unidades que ya cargaste en 'Unidades y Equipos' (el registro maestro) para enlazarlas a los contratos. Así las registrás una sola vez.">📥 De Unidades y Equipos</button>
+          <button class="btn btn-s btn-sm" onclick="importarFlotaJAC()" title="Crea una unidad por cada camión JAC de la flota y las asigna al contrato elegido. NO toca la flota actual.">📥 Importar flota JAC</button>
+        </div>
       </div>
+      <div style="font-size:11px;color:var(--text3);margin:-2px 0 8px">💡 El registro maestro de cada unidad (ficha, foto, QR, título) vive en <b>"Unidades y Equipos"</b>. Registralas <b>una vez</b> allá y traelas acá con "📥 De Unidades y Equipos" para asignarlas a contratos.</div>
       <div class="tw"><table><thead><tr><th>Placa</th><th>Tipo</th><th>Contrato</th><th>Estado</th><th></th></tr></thead><tbody id="mc-uni-tabla"></tbody></table></div>
     </div>
   </div>
@@ -2436,7 +2440,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
 </div>
 
 <script src="money.js?v=20260628n"></script>
-<script src="app.js?v=20260704k"></script>
+<script src="app.js?v=20260704l"></script>
 
 <!-- Modal global -->
 <div id="modal" class="moverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9990;align-items:center;justify-content:center;padding:16px">

@@ -7764,6 +7764,31 @@ async function importarFlotaJAC(){
   renderUnidadesTabla();
   if(typeof mostrarToast==='function')mostrarToast('✅ '+nuevos.length+' unidad(es) JAC creadas','exito');
 }
+// Puente para desenredar los 2 registros de unidad: trae las de "Unidades y Equipos"
+// (unidad_config = registro maestro) a Operación/Contratos, sin re-tipear. Registrás una vez allá.
+async function importarUnidadesDeRegistro(){
+  var contrato_id=gv('mc-uni-contrato')||null;
+  var cams=(typeof _unidadesLista==='function')?_unidadesLista():Object.keys(UNIDAD_CONFIG||{});
+  cams=cams.filter(function(c){ var u=(UNIDAD_CONFIG||{})[c]||{}; return u.activo!==false; });
+  if(!cams.length){alert('No hay unidades en "Unidades y Equipos". Registralas primero ahí (es el registro maestro).');return;}
+  var faltan=cams.filter(function(c){ var u=(UNIDAD_CONFIG||{})[c]||{}; var ident=(u.placa||c);
+    return !(UNIDADES||[]).some(function(x){return (x.placa||'')===ident || (x.placa||'')===c;}); });
+  if(!faltan.length){alert('Todas las unidades de "Unidades y Equipos" ya están acá.');return;}
+  if(!confirm('Traer '+faltan.length+' unidad(es) de "Unidades y Equipos"'+(contrato_id?(' al contrato "'+_contratoNombre(contrato_id)+'"'):'')+'?\nRegistrás las unidades allá una sola vez; acá solo se enlazan a los contratos.'))return;
+  var nuevos=[];
+  for(var i=0;i<faltan.length;i++){
+    var c=faltan[i], u=(UNIDAD_CONFIG||{})[c]||{};
+    var tnombre=((u.tipo||'').trim())||'Unidad';
+    var tipo=(TIPOS_UNIDAD||[]).find(function(t){return (t.nombre||'').toLowerCase()===tnombre.toLowerCase();});
+    if(!tipo){ tipo={id:'TU'+Date.now()+'_'+i,nombre:tnombre,mide:'viaje',activo:true}; TIPOS_UNIDAD.push(tipo); if(DB_READY&&supabase)await supabase.from('tipos_unidad').upsert([tipo],{onConflict:'id'}); }
+    nuevos.push({id:'UN'+Date.now()+'_'+i,placa:(u.placa||c),tipo:tipo.nombre,descripcion:(u.chofer?('Chofer: '+u.chofer):('N° '+c)),estado:'operativa',contrato_id:contrato_id,activo:true});
+  }
+  nuevos.forEach(function(r){UNIDADES.push(r);});
+  if(DB_READY&&supabase){ var res=await supabase.from('unidades').upsert(nuevos,{onConflict:'id'}); if(res&&res.error&&typeof mostrarToast==='function')mostrarToast('No se pudieron guardar: '+res.error.message,'error'); }
+  audit('Unidades traídas del registro maestro',nuevos.length+(contrato_id?(' → '+_contratoNombre(contrato_id)):''));
+  renderUnidadesTabla();
+  if(typeof mostrarToast==='function')mostrarToast('✅ '+nuevos.length+' unidad(es) traídas','exito');
+}
 // Guardado genérico de una fila multi-contrato (upsert + error toast + cola offline). Devuelve ok.
 async function _mcGuardar(tabla,row){
   if(DB_READY&&supabase){
