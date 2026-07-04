@@ -2256,7 +2256,7 @@ function imprimirDashboard(){
   try{
     if(puedeVerSaldo()&&typeof _bncResumenCache!=='undefined'&&_bncResumenCache&&_bncResumenCache.cuentas&&_bncResumenCache.cuentas.length){
       var f2=function(n){return Number(n||0).toLocaleString('es-VE',{minimumFractionDigits:2,maximumFractionDigits:2});};
-      var rowsB=_bncResumenCache.cuentas.map(function(c){var sim=c.moneda==='USD'?'$':'Bs ';return '<tr><td style="font-family:monospace">'+(c.cuenta||'--')+'</td><td>'+c.moneda+'</td><td style="text-align:right;color:#a3e635;font-weight:800">'+sim+f2(c.saldoActual)+'</td><td style="text-align:right;color:#8b97a7">'+sim+f2(c.saldoInicial)+'</td></tr>';}).join('');
+      var rowsB=_bncResumenCache.cuentas.map(function(c){var sim=c.moneda==='USD'?'$':'Bs ';return '<tr><td style="font-family:monospace">'+(c.cuenta||'--')+'</td><td>'+c.moneda+'</td><td style="text-align:right;color:#15803d;font-weight:800">'+sim+f2(c.saldoActual)+'</td><td style="text-align:right;color:#8a94a6">'+sim+f2(c.saldoInicial)+'</td></tr>';}).join('');
       bancosHtml='<h2>Saldos en cuenta — BNC'+(_bncResumenCache.fecha?' (día '+_bncResumenCache.fecha+')':'')+(_bncResumenCache.esPrueba?' · DATOS DE PRUEBA':'')+'</h2><table><thead><tr><th>Cuenta</th><th>Moneda</th><th>Saldo actual</th><th>Inició día</th></tr></thead><tbody>'+rowsB+'</tbody></table>';
     } else if(puedeVerSaldo()){
       bancosHtml='<h2>Saldos en cuenta — BNC</h2><div class="mut">Abre/actualiza el dashboard (botón ↻ de Saldos BNC) antes de imprimir para incluir los saldos.</div>';
@@ -2269,7 +2269,7 @@ function imprimirDashboard(){
     var est=_estadoCamReal(cam); // fuente única (igual que el widget y la disponibilidad)
     if(est==='operativo')op++;else if(est==='taller')tal++;else ino++;
     var km=(typeof kmActualCam==='function'?kmActualCam(cam):((KM_DATA[cam]&&KM_DATA[cam].km)||0)); km=km?km.toLocaleString('es-VE'):'--';
-    var col=est==='operativo'?'#4ade80':est==='taller'?'#fbbf24':'#f87171';
+    var col=est==='operativo'?'#15803d':est==='taller'?'#b45309':'#dc2626';
     return '<tr><td style="font-weight:700">'+cam.replace('JAC-','')+'</td><td style="color:'+col+';font-weight:700">'+est.toUpperCase()+'</td><td style="text-align:right;font-family:monospace">'+km+'</td><td style="font-size:8px">'+(FLOTA[cam].chofer||'--')+'</td></tr>';
   }).join('');
   // Ranking top 5
@@ -2287,39 +2287,43 @@ function imprimirDashboard(){
   Object.keys(DOCS_CAM).forEach(function(cam){var d=DOCS_CAM[cam];['seguro','circulacion','revision'].forEach(function(t){if(d[t]&&d[t].venc){var dr=diasHasta(d[t].venc);if(dr<=30)venc.push({txt:cam.replace('JAC-','')+' '+t,dias:dr});}});});
   Object.keys(DOCS_EMP).forEach(function(eid){var d=DOCS_EMP[eid];var emp=EMPLEADOS.find(function(e){return e.id===eid;});if(!emp)return;['cedula','licencia','medico'].forEach(function(t){if(d[t]&&d[t].venc){var dr=diasHasta(d[t].venc);if(dr<=30)venc.push({txt:emp.nombre.split(' ')[0]+' '+t,dias:dr});}});});
   venc.sort(function(a,b){return a.dias-b.dias;});
-  var vencRows=venc.slice(0,12).map(function(a){return '<tr><td>'+a.txt+'</td><td style="text-align:right;color:'+(a.dias<0?'#f87171':'#fbbf24')+';font-weight:700">'+(a.dias<0?'VENCIDO '+Math.abs(a.dias)+'d':'en '+a.dias+'d')+'</td></tr>';}).join('')||'<tr><td colspan="2" style="color:#4ade80">Todo al día</td></tr>';
+  var vencRows=venc.slice(0,12).map(function(a){return '<tr><td>'+a.txt+'</td><td style="text-align:right;color:'+(a.dias<0?'#dc2626':'#b45309')+';font-weight:700">'+(a.dias<0?'VENCIDO '+Math.abs(a.dias)+'d':'en '+a.dias+'d')+'</td></tr>';}).join('')||'<tr><td colspan="2" style="color:#15803d">Todo al día</td></tr>';
   // Alertas
   var al=[];
   Object.keys(FLOTA).filter(function(k){return _estadoCamReal(k)==='operativo';}).forEach(function(cam){var u=REGS.filter(function(r){return r.cam===cam;}).sort(function(a,b){return b.f.localeCompare(a.f);})[0];if(!u||diasDesde(u.f)>=3)al.push('🚛 '+cam.replace('JAC-','')+' — '+(u?diasDesde(u.f):'?')+'+ días sin planilla');});
   Object.keys(KM_DATA).forEach(function(cam){var _km=kmActualCam(cam);if(_km>0){var _ps=proxServicio(_km);if(_ps-_km<=500)al.push('🔧 '+cam.replace('JAC-','')+' — Servicio próximo ('+(_ps-_km).toLocaleString()+' km → '+_ps.toLocaleString()+')');}});
-  var alertHtml=al.length?(al.slice(0,8).map(function(a){return '<div style="padding:3px 0;border-bottom:1px solid #243140">'+a+'</div>';}).join('')+(al.length>8?'<div class="mut" style="padding-top:3px">…y '+(al.length-8)+' más</div>':'')):'<div style="color:#4ade80;padding:4px 0">Sin alertas críticas ✓</div>';
+  var alertHtml=al.length?(al.slice(0,8).map(function(a){return '<div style="padding:3px 0;border-bottom:1px solid #e5eaf1;color:#374151">'+a+'</div>';}).join('')+(al.length>8?'<div class="mut" style="padding-top:3px">…y '+(al.length-8)+' más</div>':'')):'<div style="color:#15803d;padding:4px 0">Sin alertas críticas ✓</div>';
   // Últimas planillas
   var ult=REGS.slice().reverse().slice(0,8);
   var ultRows=ult.map(function(r){return '<tr><td style="font-family:monospace">#'+r.p+'</td><td>'+formatFecha(r.f)+'</td><td style="font-weight:700">'+r.cam.replace('JAC-','')+'</td><td style="font-size:8px">'+(r.ch||'--')+'</td><td style="text-align:center">'+r.t+'v</td><td style="text-align:right">'+usd(r.m)+'</td></tr>';}).join('')||'<tr><td colspan="6">Sin planillas</td></tr>';
   var gen=fmtFechaHora(new Date());
   var kpi=function(l,v,s,col){return '<div class="kpi"><div class="l">'+l+'</div><div class="v"'+(col?' style="color:'+col+'"':'')+'>'+v+'</div><div class="s">'+(s||'')+'</div></div>';};
   var css='*{margin:0;padding:0;box-sizing:border-box;font-family:Arial,Helvetica,sans-serif;-webkit-print-color-adjust:exact;print-color-adjust:exact}'+
-    '@page{size:letter;margin:0}html,body{background:#0e1726;color:#d7dde5;font-size:10px}'+
+    '@page{size:letter;margin:0}html,body{background:#fff;color:#1f2937;font-size:10px}'+
     '.pg{padding:1.05cm 1.05cm .8cm}.pg.page2{page-break-before:always}'+
-    '.hdr{display:flex;justify-content:space-between;align-items:center;border-bottom:3px solid #a3e635;padding-bottom:7px;margin-bottom:9px}'+
-    '.hdr .emp{font-size:15px;font-weight:800;color:#a3e635}.hdr .rif{font-size:8px;color:#8b97a7;margin-top:2px}.hdr .doc{text-align:right;font-size:8px;color:#8b97a7}'+
-    'h2{font-size:10px;color:#a3e635;border-bottom:1px solid #2a3a4a;margin:9px 0 4px;padding-bottom:2px;text-transform:uppercase;letter-spacing:.4px}'+
-    '.kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}.kpi{border:1px solid #2a3a4a;background:#16202e;border-radius:6px;padding:6px 9px}'+
-    '.kpi .l{font-size:8px;color:#8b97a7;text-transform:uppercase}.kpi .v{font-size:17px;font-weight:800;line-height:1.1;color:#eef2f7}.kpi .s{font-size:8px;color:#8b97a7}'+
-    'table{width:100%;border-collapse:collapse;margin-bottom:3px}th{background:#15803d;color:#fff;font-size:8px;padding:3px 6px;text-align:left;text-transform:uppercase}'+
-    'td{padding:3px 6px;border-bottom:1px solid #243140;font-size:9px;color:#cdd5df}.cols{display:grid;grid-template-columns:1fr 1fr;gap:14px}'+
-    '.bar{height:9px;background:#243140;border-radius:5px;overflow:hidden;margin:3px 0}.bar>i{display:block;height:100%;background:#a3e635}'+
-    '.mut{font-size:9px;color:#8b97a7}.ftr{margin-top:10px;border-top:1px solid #2a3a4a;padding-top:5px;font-size:8px;color:#6b7280;text-align:center}';
-  var hdr='<div class="hdr"><div><div class="emp">'+brandNomUp()+'</div><div class="rif">RIF '+brandRif()+' · '+brandCiudad()+(brandContrato()?' · '+brandContrato():'')+'</div></div>'+
-      '<div class="doc">DASHBOARD DE CONTROL<br>'+gen+'<br>Sistema v9.0</div></div>';
+    '.hdr{display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid #1e3a5f;padding-bottom:9px;margin-bottom:11px}'+
+    '.hdr .lft{display:flex;align-items:center;gap:12px}.hdr img{height:46px;width:auto}'+
+    '.hdr .emp{font-size:16px;font-weight:800;color:#1e3a5f;letter-spacing:.3px}.hdr .rif{font-size:8px;color:#667085;margin-top:2px}'+
+    '.hdr .doc{text-align:right;font-size:8px;color:#667085}.hdr .doc b{display:block;font-size:11px;color:#1e3a5f;font-weight:800;letter-spacing:.5px;margin-bottom:2px}'+
+    'h2{font-size:9.5px;color:#1e3a5f;border-bottom:1px solid #d7dee8;margin:11px 0 5px;padding-bottom:3px;text-transform:uppercase;letter-spacing:.5px;font-weight:800}'+
+    '.kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:7px}.kpi{border:1px solid #dbe3ee;background:#f6f9fc;border-radius:7px;padding:7px 10px;border-top:3px solid #1e3a5f}'+
+    '.kpi .l{font-size:8px;color:#667085;text-transform:uppercase;letter-spacing:.3px}.kpi .v{font-size:17px;font-weight:800;line-height:1.15;color:#1e3a5f}.kpi .s{font-size:8px;color:#8a94a6}'+
+    'table{width:100%;border-collapse:collapse;margin-bottom:4px}th{background:#1e3a5f;color:#fff;font-size:8px;padding:4px 6px;text-align:left;text-transform:uppercase;letter-spacing:.3px}'+
+    'td{padding:3px 6px;border-bottom:1px solid #e5eaf1;font-size:9px;color:#374151}tr:nth-child(even) td{background:#f5f8fb}'+
+    '.cols{display:grid;grid-template-columns:1fr 1fr;gap:16px}'+
+    '.bar{height:9px;background:#e5eaf1;border-radius:5px;overflow:hidden;margin:4px 0}.bar>i{display:block;height:100%;background:#16a34a}'+
+    '.mut{font-size:9px;color:#8a94a6}.ftr{margin-top:12px;border-top:1px solid #d7dee8;padding-top:6px;font-size:8px;color:#94a3b8;text-align:center}';
+  var _logoImg=(typeof LOGO_SVG!=='undefined'&&LOGO_SVG)?'<img src="'+LOGO_SVG+'" alt="logo">':'';
+  var hdr='<div class="hdr"><div class="lft">'+_logoImg+'<div><div class="emp">'+brandNomUp()+'</div><div class="rif">RIF '+brandRif()+' · '+brandCiudad()+(brandContrato()?' · '+brandContrato():'')+'</div></div></div>'+
+      '<div class="doc"><b>DASHBOARD DE CONTROL</b>'+gen+'<br>Sistema v9.0</div></div>';
   var html='<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Dashboard Betangar</title><style>'+css+'</style></head><body>'+
     '<div class="pg">'+hdr+
     '<div class="mut" style="margin-bottom:6px">Tasas del día: '+tasasTxt+'</div>'+
     '<div class="kpis">'+
       kpi('Total Viajes',fmt(totalV),(ultF?'Cargado al '+formatFecha(ultF):''))+
-      kpi('Ejecutado',usd(totalM),'@ $'+(cfg.tarifa||317.88).toFixed(2)+'/viaje','#a3e635')+
-      kpi('Cobrado',usd(totalCob),fmt(vCobV)+' viajes · '+pct+'%','#4ade80')+
-      kpi('Por Cobrar',usd(porcobrar),fmt(vPorCob)+' viajes','#f87171')+
+      kpi('Ejecutado',usd(totalM),'@ $'+(cfg.tarifa||317.88).toFixed(2)+'/viaje','#15803d')+
+      kpi('Cobrado',usd(totalCob),fmt(vCobV)+' viajes · '+pct+'%','#16a34a')+
+      kpi('Por Cobrar',usd(porcobrar),fmt(vPorCob)+' viajes','#dc2626')+
       kpi('Flota',op+' oper · '+tal+' taller'+(ino?' · '+ino+' inop':''),cams.length+' unidades')+
       kpi('Saldo BNC',saldoTxt,'')+
     '</div>'+
