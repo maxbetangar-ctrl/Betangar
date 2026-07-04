@@ -11726,8 +11726,11 @@ function eliminarGasoilConfirmado(ref){
     var del=supabase.from('gasoil').delete();
     if(r.id!=null){ del=del.eq('id',r.id); }
     else { del=del.eq('f',r.f).eq('cam',r.cam).eq('lit',r.lit).eq('src',r.src); }
+    // Silencioso (como gasol): el borrado real de una surtida es por token y lo aplica el
+    // superadmin al aprobar; el borrado directo del solicitante puede recibir 403 (RLS
+    // DELETE solo superadmin) y NO debe alarmar — la surtida ya la borró el superadmin.
     del.then(function(res){
-      if(res&&res.error){console.log('Error eliminando gasoil:',res.error.message);if(typeof mostrarToast==='function')mostrarToast('No se pudo eliminar en Supabase: '+res.error.message,'error');}
+      if(res&&res.error)console.log('Error eliminando gasoil:',res.error.message);
     });
   }
   renderGasoil();
