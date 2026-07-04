@@ -15659,9 +15659,14 @@ function calcRentabilidadCamiones(des,hta){
   (typeof GASOIL!=='undefined'?GASOIL:[]).forEach(function(g){
     if(_rentEsCompra(g))return;
     if(des&&g.f<des)return; if(hta&&g.f>hta)return;
-    if(!map[g.cam])return; // solo camiones con planillas en el rango
-    map[g.cam].combustible=(map[g.cam].combustible||0)+(parseFloat(g.m)||0);
-    map[g.cam].litros=(map[g.cam].litros||0)+(parseFloat(g.lit)||0);
+    var c=g.cam; if(!c||String(c).toUpperCase().indexOf('JAC')!==0)return; // solo camiones JAC
+    // A2 (auditoría 2026-07-04): NO descartar el combustible de un camión SIN planillas en el rango.
+    // Antes `if(!map[g.cam])return` botaba ese costo en silencio (sobrestimaba la ganancia). Ahora se
+    // crea la fila: un camión que quemó combustible sin hacer viajes queda con utilidad negativa = su
+    // combustible (bandera roja real), en vez de desaparecer del cálculo.
+    if(!map[c])map[c]={cam:c,viajes:0,ingreso:0,ayViajes:0};
+    map[c].combustible=(map[c].combustible||0)+(parseFloat(g.m)||0);
+    map[c].litros=(map[c].litros||0)+(parseFloat(g.lit)||0);
   });
   var rows=Object.keys(map).map(function(c){
     var x=map[c];
@@ -15833,12 +15838,31 @@ function renderRentabilidad(){
   var R=calcRentabilidadCamiones(gv('rent-des'),gv('rent-hta'));
   function $m(x){return '$'+Math.round(x||0).toLocaleString('es-VE');}
   var margenTot=R.total.ingreso>0?Math.round(R.total.utilidad/R.total.ingreso*100):0;
+  // A2 (auditoría 2026-07-04): los camiones muestran utilidad OPERATIVA directa (ingreso − comb −
+  // nómina). Los gastos generales NO se reparten por camión (decisión: "operativa directa +
+  // reconciliación"). Se restan abajo para ver la utilidad neta. Mismas fuentes que _totalEgresos
+  // (los gastos fijos ya persisten desde A1). El 7.5% se calcula sobre el facturado del rango.
+  var _egFijos=(typeof GASTOS_FIJOS!=='undefined'?GASTOS_FIJOS:[]).reduce(function(s,x){return s+(x.monto||0);},0);
+  var _egVars=(typeof GASTOS_VARIABLES!=='undefined'?GASTOS_VARIABLES:[]).reduce(function(s,x){return s+(x.usd||0);},0);
+  var _egCxP=(typeof CXP!=='undefined'?CXP:[]).filter(function(c){return typeof _esCxpCombustible==='function'?!_esCxpCombustible(c):true;}).reduce(function(s,c){return s+(parseFloat(c.neto_pagar||c.netoPagar||c.total_usd||0)||0);},0);
+  var _egMul=(typeof MULTAS!=='undefined'?MULTAS:[]).filter(function(m){return m.resp!=='chofer';}).reduce(function(s,m){return s+(typeof _multaMontoUsd==='function'?_multaMontoUsd(m):0);},0);
+  var _eg75=R.total.ingreso*0.075;
+  var _generales=_egFijos+_egVars+_egCxP+_egMul+_eg75;
+  var _utilNeta=R.total.utilidad-_generales;
+  var _recon='<div style="grid-column:1/-1;background:var(--card);border:1px solid var(--border);border-radius:10px;padding:10px 14px;margin-top:4px;font-size:12px">'+
+    '<div style="font-weight:800;color:var(--text2);margin-bottom:6px">🧮 Reconciliación — los camiones muestran utilidad OPERATIVA; los gastos generales no se reparten por camión</div>'+
+    '<div style="display:flex;justify-content:space-between;padding:2px 0"><span>Utilidad operativa (suma de camiones)</span><b style="font-family:var(--m);color:var(--blue)">'+$m(R.total.utilidad)+'</b></div>'+
+    '<div style="display:flex;justify-content:space-between;padding:2px 0;color:var(--text2)"><span>− Gastos generales (fijos '+$m(_egFijos)+' · variables '+$m(_egVars)+' · CxP '+$m(_egCxP)+' · multas '+$m(_egMul)+' · 7.5% '+$m(_eg75)+')</span><b style="font-family:var(--m);color:var(--yellow)">−'+$m(_generales)+'</b></div>'+
+    '<div style="display:flex;justify-content:space-between;padding:6px 0 0;border-top:1px solid var(--border);margin-top:4px"><span style="font-weight:800">= Utilidad neta (sobre lo facturado)</span><b style="font-family:var(--m);font-weight:900;color:'+(_utilNeta>=0?'var(--green2)':'var(--red)')+'">'+$m(_utilNeta)+'</b></div>'+
+    '<div style="font-size:10px;color:var(--text3);margin-top:6px">Nota: aquí el ingreso es lo FACTURADO. La “Utilidad Real” del Dashboard usa lo COBRADO (abonos) y puede diferir. Los gastos generales son del total, no del rango de fechas.</div>'+
+    '</div>';
   var kp=g('rent-kpis');
   if(kp)kp.innerHTML=
-    '<div class="stat" style="border-top-color:var(--green2)"><div class="stat-lbl">Ingreso</div><div class="stat-val" style="font-size:16px;color:var(--green2)">'+$m(R.total.ingreso)+'</div><div class="stat-sub">'+R.total.viajes+' viajes</div></div>'+
-    '<div class="stat y"><div class="stat-lbl">Costos (comb.+nómina)</div><div class="stat-val" style="font-size:16px;color:var(--yellow)">'+$m(R.total.combustible+R.total.nomina)+'</div><div class="stat-sub">⛽ '+$m(R.total.combustible)+' · 👷 '+$m(R.total.nomina)+'</div></div>'+
-    '<div class="stat b"><div class="stat-lbl">Utilidad</div><div class="stat-val" style="font-size:16px;color:var(--blue)">'+$m(R.total.utilidad)+'</div><div class="stat-sub">de los 12 camiones</div></div>'+
-    '<div class="stat"><div class="stat-lbl">Margen</div><div class="stat-val" style="font-size:16px;color:'+(margenTot>=0?'var(--green2)':'var(--red)')+'">'+margenTot+'%</div><div class="stat-sub">utilidad/ingreso</div></div>';
+    '<div class="stat" style="border-top-color:var(--green2)"><div class="stat-lbl">Ingreso (facturado)</div><div class="stat-val" style="font-size:16px;color:var(--green2)">'+$m(R.total.ingreso)+'</div><div class="stat-sub">'+R.total.viajes+' viajes</div></div>'+
+    '<div class="stat y"><div class="stat-lbl">Costos directos (comb.+nómina)</div><div class="stat-val" style="font-size:16px;color:var(--yellow)">'+$m(R.total.combustible+R.total.nomina)+'</div><div class="stat-sub">⛽ '+$m(R.total.combustible)+' · 👷 '+$m(R.total.nomina)+'</div></div>'+
+    '<div class="stat b"><div class="stat-lbl">Utilidad operativa</div><div class="stat-val" style="font-size:16px;color:var(--blue)">'+$m(R.total.utilidad)+'</div><div class="stat-sub">ingreso − comb − nómina</div></div>'+
+    '<div class="stat"><div class="stat-lbl">Margen operativo</div><div class="stat-val" style="font-size:16px;color:'+(margenTot>=0?'var(--green2)':'var(--red)')+'">'+margenTot+'%</div><div class="stat-sub">operativa/ingreso</div></div>'+
+    _recon;
   var tb=g('rent-tabla');
   if(tb)tb.innerHTML=R.rows.map(function(r,i){
     var col=r.utilidad<0?'var(--red)':r.margen>=70?'var(--green2)':r.margen>=40?'var(--yellow)':'#fb923c';
