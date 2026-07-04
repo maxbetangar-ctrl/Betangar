@@ -1468,7 +1468,7 @@ async function cargarDatosDB(){
       KM_DATA[x.cam].modelo=x.nota_estado&&x.cam.startsWith('SRV')?x.nota_estado:'JAC 1035';
     });
     // AUDITORIA LOG
-    if(aul.data&&aul.data.length)AUDITORIA_LOG=aul.data.map(function(x){return{fecha:x.fecha||x.created_at,usuario:x.usuario,accion:x.accion,detalle:x.detalle||''};});
+    if(aul.data&&aul.data.length)AUDITORIA_LOG=aul.data.map(function(x){return{fecha:x.created_at||x.fecha,usuario:x.operador||x.usuario,accion:x.accion,detalle:x.detalle||''};});
     // CONFIG WHATSAPP
     try{
       var wac=await supabase.from('configuracion').select('valor').eq('clave','whatsapp').single();
@@ -1949,10 +1949,14 @@ function fbn(v,t){return'Bs '+((v||0)*(t||getTasa('bcvDolar'))).toLocaleString('
 // el toFixed(0) los redondeaba (87,5 se veía 88) descuadrando lo pagado. Solo display, no cambia cálculo.
 function fmtMon(v){v=Math.round((Number(v)||0)*100)/100;return Number.isInteger(v)?String(v):v.toFixed(2);}
 function audit(accion,detalle){
-  var row={fecha:fmtFechaHora(new Date()),usuario:SESION?SESION.usuario:'?',accion:accion,detalle:detalle||''};
+  var usr=SESION?SESION.usuario:'?';
+  var row={fecha:fmtFechaHora(new Date()),usuario:usr,accion:accion,detalle:detalle||''};
   AUDITORIA_LOG.push(row);
-  // Norma #6: nada vive solo en memoria. Persistir en Supabase (best-effort, no rompe nada).
-  try{ if(DB_READY&&supabase&&!DEMO_MODE){ supabase.from('auditoria').insert([row]).then(function(res){ if(res&&res.error)console.error('audit persist:',res.error.message); }); } }catch(e){}
+  // M3/C1-class (auditoría 2026-07-04): la tabla `auditoria` tiene columnas (operador, accion,
+  // detalle, created_at) — NO {fecha, usuario}. Antes se insertaba row entero → el insert FALLABA
+  // SIEMPRE (columna inexistente) y el rastro NUNCA se guardó (tabla vacía). Ahora inserta las
+  // columnas REALES (operador=usuario; created_at auto). Best-effort: no rompe nada si falla.
+  try{ if(DB_READY&&supabase&&!DEMO_MODE){ supabase.from('auditoria').insert([{operador:usr,accion:accion,detalle:detalle||''}]).then(function(res){ if(res&&res.error)console.error('audit persist:',res.error.message); }); } }catch(e){}
 }
 // ── Movimientos BNC: persistencia (antes BNC_MOV vivía solo en memoria → se perdía al recargar) ──
 function bncMovRow(m){

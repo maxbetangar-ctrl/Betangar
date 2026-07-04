@@ -25,9 +25,9 @@ begin
       from btg_usuarios where auth_user_id = auth.uid() limit 1;
     if v_usuario is null then v_usuario := coalesce(auth.uid()::text,'(sin sesion)'); end if;
     v_det := left((case when TG_OP='DELETE' then to_jsonb(OLD) else to_jsonb(NEW) end)::text, 400);
-    insert into auditoria(fecha, usuario, accion, detalle)
-      values(to_char(now() at time zone 'America/Caracas','DD/MM/YYYY HH24:MI'),
-             v_usuario, 'DB '||TG_TABLE_NAME||' '||TG_OP, v_det);
+    -- Columnas REALES de auditoria: operador, accion, detalle, created_at (auto). NO {fecha, usuario}.
+    insert into auditoria(operador, accion, detalle)
+      values(v_usuario, 'DB '||TG_TABLE_NAME||' '||TG_OP, v_det);
   exception when others then
     null; -- el log JAMÁS bloquea la operación real
   end;
