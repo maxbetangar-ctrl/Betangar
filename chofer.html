@@ -170,6 +170,17 @@ body{background:#0f1923;color:#fff;font-family:-apple-system,BlinkMacSystemFont,
   <div class="error-msg">Este enlace no es válido.<br>Escanea el código QR pegado<br>en tu camión para acceder.</div>
 </div>
 
+<!-- LOGIN POR UNIDAD (solo si BTG_CHOFER_CONFIG.login=true — apagado en Betangar aseo) -->
+<div class="error-screen" id="login-screen" style="display:none">
+  <div class="error-icon">🔒</div>
+  <div class="error-title">Ingresá a tu unidad</div>
+  <div class="error-msg" id="login-unidad-lbl" style="margin-bottom:16px"></div>
+  <input id="login-clave" type="password" inputmode="numeric" placeholder="Clave" autocomplete="current-password" onkeydown="if(event.key==='Enter')enviarLoginUnidad()" style="width:82%;max-width:280px;padding:14px;font-size:18px;text-align:center;border-radius:12px;border:1px solid #2a3f52;background:#0f1a24;color:#fff;margin-bottom:12px;box-sizing:border-box">
+  <button id="login-btn" onclick="enviarLoginUnidad()" style="width:82%;max-width:280px;padding:14px;font-size:16px;font-weight:700;border:none;border-radius:12px;background:#7dc941;color:#04240a;cursor:pointer">Entrar</button>
+  <div id="login-error" style="color:#ef6060;font-size:13px;margin-top:10px;min-height:16px"></div>
+  <div style="color:rgba(255,255,255,.35);font-size:11px;margin-top:14px">Solo la primera vez — después entrás directo.</div>
+</div>
+
 <!-- APP PRINCIPAL -->
 <div id="app-main" style="display:none;flex:1;flex-direction:column;display:none">
 
@@ -555,7 +566,8 @@ var BTG_CHOFER_CONFIG = {
   // Unidades NUEVAS (no en FLOTA_CHOFERES) se resuelven desde la tabla unidad_config.
   // login: false = sin clave (Betangar aseo, no complicar a los choferes actuales).
   //        true  = pide clave por unidad (clientes nuevos / clones FlotaMax).
-  login: false
+  login: false,
+  login_domain: 'flotamax.app'   // dominio del email sintético por unidad (debe coincidir con la edge function de provisión)
 };
 var SUPA_URL = BTG_CHOFER_CONFIG.data_url;
 var SUPA_KEY = BTG_CHOFER_CONFIG.data_key;
@@ -657,8 +669,8 @@ function resolverUnidadNueva(){
       var u = (r && !r.error && Array.isArray(r.data) && r.data.length) ? r.data[0] : null;
       if(u){
         chofer = u.chofer || u.nombre || u.placa || 'CHOFER';
-        // (Paso 2b) si BTG_CHOFER_CONFIG.login → pedir clave por unidad antes de arrancarApp().
-        arrancarApp();
+        if(BTG_CHOFER_CONFIG.login){ supabase = sb; gateLoginUnidad(u); } // clientes nuevos: pedir clave
+        else arrancarApp();                                               // Betangar aseo: directo
       } else if(r && r.error){
         mostrarErrorCam('No se pudo verificar la unidad.<br>Reintentá con internet.');
       } else {
@@ -673,6 +685,41 @@ function resolverUnidadNueva(){
 function mostrarErrorCam(msg){
   try{ var em = document.querySelector('#error-screen .error-msg'); if(em && msg){ em.innerHTML = msg; } }catch(e){}
   var es = document.getElementById('error-screen'); if(es) es.style.display = 'flex';
+}
+
+// ── LOGIN POR UNIDAD (solo cuando BTG_CHOFER_CONFIG.login=true) ──
+// Email sintético por unidad: el chofer teclea solo la CLAVE; el usuario es su número de unidad.
+// DEBE coincidir con la edge function de provisión (unidad_provisionar).
+function synthEmailUnidad(c){
+  var slug=(c||'').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'');
+  return 'u.'+slug+'@'+((BTG_CHOFER_CONFIG&&BTG_CHOFER_CONFIG.login_domain)||'flotamax.app');
+}
+function gateLoginUnidad(u){
+  var lbl=document.getElementById('login-unidad-lbl');
+  if(lbl) lbl.innerHTML='Unidad <b>'+((u&&(u.placa||u.cam))||cam)+'</b>';
+  // Sesión persistente: si ya se logueó antes (aunque haya cerrado la app), entra directo.
+  try{
+    supabase.auth.getSession().then(function(res){
+      var s=res&&res.data&&res.data.session;
+      if(s) arrancarApp(); else _mostrarLogin();
+    }).catch(function(){ _mostrarLogin(); });
+  }catch(e){ _mostrarLogin(); }
+}
+function _mostrarLogin(){
+  var ls=document.getElementById('login-screen'); if(ls) ls.style.display='flex';
+  var ci=document.getElementById('login-clave'); if(ci) setTimeout(function(){ try{ci.focus();}catch(e){} },200);
+}
+function enviarLoginUnidad(){
+  var claveEl=document.getElementById('login-clave'), errEl=document.getElementById('login-error'), btn=document.getElementById('login-btn');
+  var clave=claveEl?claveEl.value:'';
+  if(!clave){ if(errEl) errEl.textContent='Escribí tu clave.'; return; }
+  if(errEl) errEl.textContent='';
+  if(btn){ btn.disabled=true; btn.textContent='Entrando…'; }
+  supabase.auth.signInWithPassword({ email: synthEmailUnidad(cam), password: clave }).then(function(res){
+    if(res&&res.error){ if(errEl) errEl.textContent='Clave incorrecta.'; if(btn){ btn.disabled=false; btn.textContent='Entrar'; } return; }
+    var ls=document.getElementById('login-screen'); if(ls) ls.style.display='none';
+    arrancarApp();
+  }).catch(function(){ if(errEl) errEl.textContent='Sin conexión. Intentá de nuevo.'; if(btn){ btn.disabled=false; btn.textContent='Entrar'; } });
 }
 
 // Arranca la app (cuerpo original del init). Se llama con `cam` y `chofer` ya definidos.
@@ -739,6 +786,7 @@ function arrancarApp(){
 
 // ── SUPABASE ──
 function iniciarSupabase(){
+  if(supabase){ verificarConexion(); return; } // ya creado (p.ej. por el login) → no recrear
   try{
     // Usar la librería capturada en __supaLib (window.supabase quedó pisado por `var supabase`).
     var lib = window.__supaLib || window.supabase;

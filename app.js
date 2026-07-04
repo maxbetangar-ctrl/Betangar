@@ -22,6 +22,11 @@ var BTG_CONFIG = {
                                                            //   login por usuario, sin forzar correo). Los
                                                            //   CLONES nuevos lo ponen en true → login por
                                                            //   correo + "olvidé mi contraseña" autoservicio.
+  chofer_login: false,                                     // ← Betangar: APAGADO (choferes del aseo sin clave,
+                                                           //   12 QR JAC directos). Los CLONES nuevos lo ponen
+                                                           //   en true → cada unidad nueva pide clave (login por
+                                                           //   unidad). Requiere edge function unidad_provisionar
+                                                           //   + BTG_CHOFER_CONFIG.login=true en chofer.html.
   data_url: 'https://hrkjddehqnzcqwlkklqm.supabase.co',   // ← base de ESTA empresa
   data_key: ANON_CENTRAL,                                  // ← anon key de ESA base
   lic_url:  'https://hrkjddehqnzcqwlkklqm.supabase.co',   // ← CENTRAL (no cambiar)
@@ -5484,6 +5489,9 @@ async function abrirEditarUnidad(cam){
     '</div>'+
     '<div class="fr2">'+inp('u-titular','Título a nombre de',c.titular)+inp('u-chofer','Chofer asignado',choferDef)+'</div>'+
     '<div class="fg"><label>Notas</label><input class="fc" id="u-notas" value="'+_mEsc(c.notas||'')+'" placeholder="opcional"></div>'+
+    (BTG_CONFIG.chofer_login
+      ? '<div class="fg"><label>🔑 Clave de acceso (app del chofer)</label><input class="fc" id="u-clave" type="text" placeholder="'+(nueva?'poné una clave para esta unidad':'dejá vacío para no cambiarla')+'"><small style="color:var(--text3);font-size:10px">El chofer entra con el N° de unidad + esta clave (una vez; después queda logueado).</small></div>'
+      : '')+
     '<div class="fr2">'+
       '<div class="fg"><label>Foto (máx 2MB)</label><input class="fc" id="u-foto" type="file" accept="image/*" onchange="subirFotoUnidad(this)"><div id="u-foto-prev" style="margin-top:6px">'+(foto?'<img src="'+_mEsc(foto)+'" style="width:64px;height:64px;object-fit:cover;border-radius:6px;border:1px solid var(--border)">':'')+'</div></div>'+
       '<div class="fg"><label>Título del vehículo (PDF, máx 4MB)</label><input class="fc" id="u-pdf" type="file" accept="application/pdf" onchange="subirTituloUnidad(this)"><div id="u-pdf-prev" style="margin-top:6px;font-size:11px">'+(pdf?'<a href="'+_mEsc(pdf)+'" target="_blank" style="color:var(--teal)">📄 ver título cargado</a>':'')+'</div></div>'+
@@ -5508,6 +5516,15 @@ async function guardarUnidad(){
   if(typeof closeModal==='function')closeModal();
   renderUnidades();
   if(typeof mostrarToast==='function')mostrarToast(ok?'✅ Unidad guardada':'⚠️ No se confirmó el guardado (revisá conexión)',ok?'exito':'error');
+  // Login por unidad (clientes nuevos, chofer_login ON): si se puso clave, provisionar el acceso.
+  if(ok && BTG_CONFIG.chofer_login){
+    var _clave=(gv('u-clave')||'').trim();
+    if(_clave && supabase && supabase.functions){
+      supabase.functions.invoke('unidad_provisionar',{body:{cam:cam,clave:_clave}}).then(function(r){
+        mostrarToast((r&&r.error)?('Unidad guardada, pero el acceso falló: '+(r.error.message||'')):'🔑 Acceso de la unidad listo',(r&&r.error)?'error':'exito');
+      }).catch(function(){ mostrarToast('Unidad guardada; reintentá el acceso con conexión.','error'); });
+    }
+  }
   // Unidad NUEVA registrada → generar su QR de una vez (listo para ver e imprimir).
   if(ok && esNueva && typeof generarQRUnidad==='function'){ setTimeout(function(){ generarQRUnidad(cam); }, 350); }
 }
