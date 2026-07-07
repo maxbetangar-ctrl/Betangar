@@ -65,7 +65,7 @@ async function cargar(){
   if(!TOKEN){ el('app').innerHTML='<div class="msg">Link inválido. Pedile al chofer que te reenvíe el enlace de la entrega.</div>'; return; }
   if(!supabase){ el('app').innerHTML='<div class="msg">No se pudo conectar. Revisá tu conexión y recargá.</div>'; return; }
   try{
-    var r = await supabase.from('entregas').select('*').eq('token', TOKEN).limit(1);
+    var r = await supabase.rpc('entrega_ver', { p_token: TOKEN });
     if(r.error || !r.data || !r.data.length){ el('app').innerHTML='<div class="msg">No encontramos esta entrega. El link puede estar vencido o ser incorrecto.</div>'; return; }
     ENT = r.data[0];
     render();
@@ -108,10 +108,9 @@ async function confirmar(){
   if(!nombre){ alert(esMant?'Escribí tu nombre (quien verifica)':'Escribí tu nombre'); return; }
   var ci = (el('rec-ci').value||'').trim();
   var btn = el('rec-btn'); btn.disabled = true; btn.textContent = 'Guardando…';
-  var patch = { estado:'confirmada', recibido_por:nombre, recibido_ci:ci, recibido_at:new Date().toISOString(), confirm_via:'link' };
   try{
-    var r = await supabase.from('entregas').update(patch).eq('token', TOKEN).eq('estado','entregada');
-    if(r.error){ btn.disabled=false; btn.textContent=(esMant?'Confirmar verificación':'Confirmar recepción'); alert('No se pudo confirmar: '+r.error.message); return; }
+    var r = await supabase.rpc('entrega_confirmar', { p_token: TOKEN, p_nombre: nombre, p_ci: ci, p_via: 'link' });
+    if(r.error || r.data !== true){ btn.disabled=false; btn.textContent=(esMant?'Confirmar verificación':'Confirmar recepción'); alert(r.error ? ('No se pudo confirmar: '+r.error.message) : 'No se pudo confirmar. Puede que ya estuviera confirmada o el link esté vencido.'); return; }
     ENT.estado='confirmada'; ENT.recibido_por=nombre; ENT.recibido_ci=ci;
     render();
     window.scrollTo(0,0);

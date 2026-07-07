@@ -3,7 +3,7 @@
 // PWA Offline-First para choferes
 // ═══════════════════════════════════════════════════
 
-const CACHE_NAME = 'betangar-chofer-v22'; // v22: botón "cerrar sesión" para unidades con login (oculto en Betangar/12 JAC)
+const CACHE_NAME = 'betangar-chofer-v23'; // v23: entregas por RPC (entrega_registrar/confirmar/entregas_del_dia) — candado PII crítico
 
 // Archivos a cachear para funcionar sin internet
 const ARCHIVOS_CACHE = [

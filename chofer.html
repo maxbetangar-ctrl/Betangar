@@ -1055,7 +1055,7 @@ async function registrarEntrega(){
     };
     var ok = false;
     if(isOnline && supabase){
-      var res = await supabase.from('entregas').insert([row]);
+      var res = await supabase.rpc('entrega_registrar', { p: row });
       if(res && res.error){ mostrarToast('No se pudo guardar: '+res.error.message,'error'); }
       else ok = true;
     }
@@ -1105,9 +1105,10 @@ async function entregaConfirmarRecepcion(){
   }
   var ok = false;
   if(isOnline && supabase){
-    var res = await supabase.from('entregas').update(patch).eq('id', ENT_ULTIMA.id);
+    var res = await supabase.rpc('entrega_confirmar', { p_token: ENT_ULTIMA.token, p_nombre: nombre, p_ci: ci, p_via: 'sitio', p_foto_url: (patch.foto_url || null) });
     if(res && res.error){ mostrarToast('No se pudo confirmar: '+res.error.message,'error'); }
-    else ok = true;
+    else if(res && res.data === true){ ok = true; }
+    else { mostrarToast('No se pudo confirmar (la entrega ya no estaba pendiente).','error'); }
   }
   if(!ok) encolarEntrega(ENT_ULTIMA);
   mostrarToast(ok?((_esMantU?'✅ Verificado por ':'✅ Recepción confirmada por ')+nombre):'📵 Confirmación guardada (se sube al reconectar)','exito');
@@ -1135,7 +1136,7 @@ async function subirColaEntregas(){
   if(!(isOnline && supabase) || !COLA_ENT.length) return;
   var pend = COLA_ENT.slice(); COLA_ENT = [];
   for(var i=0;i<pend.length;i++){
-    try{ var r = await supabase.from('entregas').upsert([pend[i]],{onConflict:'id'});
+    try{ var r = await supabase.rpc('entrega_registrar', { p: pend[i] });
       if(r && r.error){ COLA_ENT.push(pend[i]); } }
     catch(e){ COLA_ENT.push(pend[i]); }
   }
@@ -1158,7 +1159,7 @@ async function renderEntregasHoy(){
   var cont = document.getElementById('ent-lista'); if(!cont) return;
   var lista = [];
   if(isOnline && supabase){
-    try{ var r = await supabase.from('entregas').select('*').eq('cam',cam).eq('fecha',hoy).order('hora',{ascending:false});
+    try{ var r = await supabase.rpc('entregas_del_dia', { p_cam: cam, p_fecha: hoy });
       if(r && !r.error && r.data) lista = r.data; }catch(e){}
   }
   // Sumar las que están en cola (aún sin subir)
