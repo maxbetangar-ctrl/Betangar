@@ -3,7 +3,7 @@
 // PWA Offline-First para choferes
 // ═══════════════════════════════════════════════════
 
-const CACHE_NAME = 'betangar-chofer-v23'; // v23: entregas por RPC (entrega_registrar/confirmar/entregas_del_dia) — candado PII crítico
+const CACHE_NAME = 'betangar-chofer-v24'; // v24: foto en ruta secreta por token (no adivinable) — fase 2 candado fotos
 
 // Archivos a cachear para funcionar sin internet
 const ARCHIVOS_CACHE = [
