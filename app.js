@@ -8906,7 +8906,13 @@ function renderGastosVariables(){
   if(res)res.innerHTML='<div class="g2" style="gap:8px"><div class="card card-sm"><div class="stat-lbl">Total Bs</div><div style="font-family:var(--m);font-size:16px;color:var(--red)">Bs '+totalBs.toFixed(0)+'</div></div><div class="card card-sm"><div class="stat-lbl">Total USD equiv</div><div style="font-family:var(--m);font-size:16px;color:var(--yellow)">$'+totalUsd.toFixed(0)+'</div></div></div>';
   var tb=g('tb-gv');
   if(tb){
-    var rows=GASTOS_VARIABLES.slice().reverse().map(function(x){
+    tb.innerHTML='';
+    var arr=GASTOS_VARIABLES.slice().reverse();
+    if(!arr.length){ tb.innerHTML='<tr><td colspan="8" style="text-align:center;color:var(--text3);padding:20px">Sin gastos variables</td></tr>'; return; }
+    // Se ANEXAN nodos DOM reales (no rows.join()→innerHTML): así el .onclick del botón X SOBREVIVE.
+    // Antes se hacía tr.onclick=... y luego return tr.outerHTML → la serialización perdía el handler
+    // y el botón quedaba inerte (no se podía borrar un gasto mal cargado). Pitfall onclick/outerHTML.
+    arr.forEach(function(x){
       var tr=document.createElement('tr');
       tr.innerHTML='<td>'+formatFecha(x.fecha)+'</td><td><span class="badge bt">'+x.cat+'</span></td>'+
         '<td style="font-size:11px">'+x.desc+'</td>'+
@@ -8916,9 +8922,8 @@ function renderGastosVariables(){
         '<td style="font-size:10px">'+x.fact+'</td>'+
         '<td><button class="btn btn-r btn-xs">x</button></td>';
       tr.querySelector('button').onclick=function(){elimGastoVar(x.id);};
-      return tr.outerHTML;
+      tb.appendChild(tr);
     });
-    tb.innerHTML=rows.join('')||'<tr><td colspan="8" style="text-align:center;color:var(--text3);padding:20px">Sin gastos variables</td></tr>';
   }
 }
 function calcularNomina(){
