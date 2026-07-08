@@ -1343,12 +1343,38 @@ async function cargarDatosDB(){
   }
   console.log('Cargando datos de Supabase...');
   try{
+    // Supabase devuelve MÁX. ~1000 filas por consulta. Las tablas que superan ese tope (planillas ya
+    // pasó 1000 y seguirá creciendo — pueden llegar a 100k+; gasoil crece a diario) hay que PAGINARLAS
+    // o se cargan incompletas → aparecen "planillas faltantes" fantasma que en realidad SÍ están en la
+    // BD (reporte RRHH 2026-07-07). Se cuenta primero y se traen TODAS las páginas EN PARALELO,
+    // ordenadas por 'id' (clave estable) para que las páginas no se solapen ni se pisen.
+    var _selectAll = async function(tabla, orderCol){
+      orderCol = orderCol || 'id';
+      var size = 1000;
+      try{
+        var cr = await supabase.from(tabla).select('id',{ count:'exact', head:true });
+        var total = (cr && cr.count!=null) ? cr.count : null;
+        if(total==null){ // sin count: paginación secuencial de respaldo
+          var all=[], from=0;
+          for(;;){ var r=await supabase.from(tabla).select('*').order(orderCol,{ascending:true}).range(from, from+size-1);
+            if(r.error) return { data: all.length?all:null, error:r.error };
+            var c=r.data||[]; all=all.concat(c); if(c.length<size) break; from+=size; if(from>2000000) break; }
+          return { data: all, error:null };
+        }
+        if(total===0) return { data: [], error:null };
+        var reqs=[];
+        for(var i=0; i*size<total; i++){ reqs.push(supabase.from(tabla).select('*').order(orderCol,{ascending:true}).range(i*size, i*size+size-1)); }
+        var rs = await Promise.all(reqs);
+        var out=[]; for(var k=0;k<rs.length;k++){ if(rs[k].error) return { data:null, error:rs[k].error }; out=out.concat(rs[k].data||[]); }
+        return { data: out, error:null };
+      }catch(e){ return { data:null, error:e }; }
+    };
     // Cargar TODAS las tablas EN PARALELO (antes era una tras otra = lento; ahora ~1 ida).
     var _resS = await Promise.allSettled([
-      supabase.from('planillas').select('*'),
+      _selectAll('planillas'),
       supabase.from('abonos').select('*').order('f',{ascending:true}).order('id',{ascending:true}),
       supabase.from('empleados').select('*'),
-      supabase.from('gasoil').select('*'),
+      _selectAll('gasoil'),
       supabase.from('cxp').select('*'),
       supabase.from('proveedores').select('*'),
       supabase.from('prestamos').select('*'),
