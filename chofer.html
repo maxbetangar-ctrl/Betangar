@@ -1814,20 +1814,27 @@ async function guardarChecklist(){
     enCola = true;
   }
 
-  if(guardadoOk || enCola){
-    if(enCola) sincronizarCola();   // intento inmediato (no depende de isOnline)
+  if(guardadoOk){
+    // GUARDADO DE VERDAD en la BD → recién ahí medición, WhatsApp y "registrada".
     mostrarToast(CL_MODO==='salida' ? '☀️ Salida registrada' : '🌙 Llegada registrada');
-
     // Medición del tanque con regla (cm -> litros) -> combustible_mediciones
     try{ await clGuardarMedicionCm(CL_MODO==='salida'?'salida':'llegada'); }catch(e){}
-
-    // Notificar a Máximo por WhatsApp
+    // Notificar a Máximo por WhatsApp (solo cuando sí se guardó, para no avisar de algo que no entró)
     enviarNotificacionWA(registro);
-
     // Pasar a modo llegada si era salida
     if(CL_MODO==='salida'){
       CL_MODO = 'llegada';
-      // Guardar en localStorage para que si cierra el navegador no pierda el modo
+      try{localStorage.setItem('btg_cl_modo_'+cam+'_'+hoy,'llegada');}catch(e){}
+      setTimeout(renderChecklistModo, 800);
+    }
+  } else if(enCola){
+    // SOLO quedó en el teléfono (sin señal o falló el envío). NO decir "registrada": el chofer
+    // debe saber que falta enviarlo, para no cerrar la app creyendo que ya está (bug B003 2026-07-08).
+    sincronizarCola();   // intento inmediato (no depende de isOnline)
+    mostrarToast('⏳ SIN CONEXIÓN: quedó guardado en el teléfono. Se enviará solo al reconectar — NO cierres la app hasta que diga "registrada".','warn');
+    // Avanzar de modo igual para que el chofer pueda seguir; la medición/WA se harán al enviarse.
+    if(CL_MODO==='salida'){
+      CL_MODO = 'llegada';
       try{localStorage.setItem('btg_cl_modo_'+cam+'_'+hoy,'llegada');}catch(e){}
       setTimeout(renderChecklistModo, 800);
     }
