@@ -6502,7 +6502,10 @@ function _diasEntreISO(desdeISO,hastaISO){ var a=new Date(String(hastaISO).slice
 function _mantEstadoCalc(base,intervalo,aviso,ultimo,lecturaActual,hoyISO){
   aviso=parseFloat(aviso)||0; intervalo=parseFloat(intervalo)||0;
   if(!intervalo)return {estado:'sin_intervalo',restante:null,venc:null,vencTxt:'',unidad:base};
-  if(!ultimo)return {estado:'sin_dato',restante:null,venc:null,vencTxt:'',unidad:base};
+  // NUNCA hecho: en km/horas el 1er servicio vence al LLEGAR al intervalo (base 0) → si la unidad ya
+  // pasó el intervalo sin hacerlo, sale VENCIDO (regla de Máximo: el vencimiento solo se quita al
+  // registrar). En base tiempo no hay fecha base → sin_dato.
+  if(!ultimo){ if(base==='km'||base==='horas'){ ultimo={km:0,horas:0}; } else return {estado:'sin_dato',restante:null,venc:null,vencTxt:'',unidad:base}; }
   if(base==='km'||base==='horas'){
     if(lecturaActual==null)return {estado:'sin_medida',restante:null,venc:null,vencTxt:'',unidad:base};
     var ref=base==='km'?(parseInt(ultimo.km)||0):(parseInt(ultimo.horas)||0);
