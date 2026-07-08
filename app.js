@@ -2285,6 +2285,23 @@ async function imprimirDashboard(){
   var vPorCob=Math.max(0,totalV-vCobV);
   var ultF=REGS.reduce(function(mx,r){return (r.f&&r.f>mx)?r.f:mx;},'');
   var saldoTxt=(typeof BNC_SALDO!=='undefined'&&BNC_SALDO>0&&puedeVerSaldo())?('Bs '+Number(BNC_SALDO).toLocaleString('es-VE',{maximumFractionDigits:0})):'—';
+  // UTILIDAD REAL — FUENTE ÚNICA: mismo motor que el dashboard/Financiero (_totalEgresos resta TODO:
+  // nómina real+gasoil compras+7.5%+fijos+variables+CxP+multas empresa). NO se re-deriva aquí (norma).
+  var esRRHH=(typeof SESION!=='undefined'&&SESION&&SESION.rol==='rrhh');
+  var utilReal=(typeof _utilReal==='function')?_utilReal(totalCob):0;
+  var margen=totalCob>0?Math.round(utilReal/totalCob*100):0;
+  // TENDENCIA del mes — facturado (viajes×tarifa) del mes actual vs mes anterior, desde REGS.mes
+  // (mismo campo/formato que usan metas y rankings: 'jul-26'). Comparativo simple, no inventa egresos por mes.
+  var _msN=['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+  var _dn=new Date(),_mi=_dn.getMonth(),_yr=_dn.getFullYear();
+  var _mesActK=_msN[_mi]+'-'+String(_yr).slice(2);
+  var _pmi=_mi-1,_pyr=_yr;if(_pmi<0){_pmi=11;_pyr--;}
+  var _mesAntK=_msN[_pmi]+'-'+String(_pyr).slice(2);
+  var _facAct=REGS.filter(function(r){return r.mes===_mesActK;}).reduce(function(s,r){return s+r.m;},0);
+  var _facAnt=REGS.filter(function(r){return r.mes===_mesAntK;}).reduce(function(s,r){return s+r.m;},0);
+  var _tendPct=_facAnt>0?Math.round((_facAct-_facAnt)/_facAnt*100):(_facAct>0?100:0);
+  var tendTxt=(_tendPct>0?'▲ +':(_tendPct<0?'▼ ':'• '))+_tendPct+'%';
+  var tendCol=_tendPct>0?'#16a34a':(_tendPct<0?'#dc2626':'#8a94a6');
   // Saldos en cuenta (BNC) — desde la caché del dashboard (solo quien puede ver saldo)
   var bancosHtml='';
   try{
@@ -2368,6 +2385,8 @@ async function imprimirDashboard(){
       kpi('Ejecutado',usd(totalM),'@ $'+(cfg.tarifa||317.88).toFixed(2)+'/viaje','#15803d')+
       kpi('Cobrado',usd(totalCob),fmt(vCobV)+' viajes · '+pct+'%','#16a34a')+
       kpi('Por Cobrar',usd(porcobrar),fmt(vPorCob)+' viajes','#dc2626')+
+      kpi('Utilidad Real',esRRHH?'—':usd(utilReal),esRRHH?'Restringido':('Margen '+margen+'% · cobrado − todos los gastos'),esRRHH?'':(utilReal>=0?'#15803d':'#dc2626'))+
+      kpi('Tendencia mes',esRRHH?'—':tendTxt,esRRHH?'Restringido':('Facturado '+_mesActK+' vs '+_mesAntK),esRRHH?'':tendCol)+
       kpi('Flota',op+' oper · '+tal+' taller'+(ino?' · '+ino+' inop':''),cams.length+' unidades · '+(cams.length?Math.round(op/cams.length*100):0)+'% disponible')+
       kpi('Saldo BNC',saldoTxt,'')+
     '</div>'+
