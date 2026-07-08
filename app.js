@@ -5500,6 +5500,28 @@ function _sincronizarCicloMant(cam,itemId,fecha){
     supabase.from('km_data').update(upd).eq('cam',cam).then(function(r){ if(r&&r.error&&typeof mostrarToast==='function')mostrarToast('No se pudo sincronizar el ciclo de '+campo+': '+r.error.message,'error'); });
   }
 }
+// ── ANTI-FRAUDE: intervalo esperado de un ítem + detección de servicio ADELANTADO ──────────────
+// Devuelve {tipo:'km'|'dias', valor:N} con cada cuánto DEBERÍA hacerse el ítem, o null si no se sabe.
+function _intervaloEsperado(it,itemId){
+  if(itemId==='lavado')return {tipo:'dias',valor:45};
+  if(itemId==='engrase')return {tipo:'dias',valor:15};
+  if(!it)return null;
+  var base=String(it.base||'km');
+  if(base==='km'){ var v=parseFloat(it.sustitucion||it.intervalo)||0; return v>0?{tipo:'km',valor:v}:null; }
+  var d=parseFloat(it.intervalo||it.sustitucion)||0; if(d<=0)return null;
+  if(base==='meses')d=d*30; // meses→días aprox
+  return {tipo:'dias',valor:d};
+}
+function _diasEntre(a,b){ var x=new Date(String(a).slice(0,10)+'T12:00:00'), y=new Date(String(b).slice(0,10)+'T12:00:00'); if(isNaN(x)||isNaN(y))return 0; return Math.round((y-x)/86400000); }
+// Parsea lo que escribe el usuario para "cada cuánto": "365"→días · "5000km"/"5000 km"→km.
+function _parseIntervalo(s){ s=String(s||'').toLowerCase().trim(); if(!s)return null; var n=parseFloat(s.replace(/[^\d.]/g,'')); if(!(n>0))return null; return /km/.test(s)?{tipo:'km',valor:n}:{tipo:'dias',valor:n}; }
+// Persiste el intervalo aprendido en el catálogo (para no volver a preguntar).
+function _guardarIntervaloItem(itemId,esp){
+  var it=(MANT_ITEMS||[]).find(function(x){return x.id===itemId;}); if(!it||!esp)return;
+  if(esp.tipo==='km'){ it.base='km'; it.intervalo=esp.valor; it.sustitucion=esp.valor; }
+  else { it.base='dias'; it.intervalo=esp.valor; }
+  if(DB_READY&&supabase){ try{ supabase.from('mant_items').update({base:it.base,intervalo:it.intervalo,sustitucion:it.sustitucion}).eq('id',itemId).then(function(){}); }catch(e){} }
+}
 // FUENTE ÚNICA: lavado/engrase (y todo mantenimiento) se guardan en UNA sola tabla `mantenimientos`.
 // Tanto este módulo (Lavados/Engrases) como la Hoja de vida escriben AQUÍ → no hay 2 sitios que se
 // desconecten (regla de Máximo: si hay varias vías, que todas alimenten la misma BD). km_data.lavado/
@@ -5543,8 +5565,16 @@ function renderHistMant(){
   if(!(MANTENIMIENTOS&&MANTENIMIENTOS.length)){
     Object.keys(KM_DATA).filter(function(c){return !cam||c===cam;}).forEach(function(c){(KM_DATA[c].mant||[]).filter(function(m){return !tipo||m.tipo===tipo;}).forEach(function(m){evs.push({cam:c,fecha:m.f,km:m.km,tipo:m.tipo,desc:m.desc});});});
   }
-  var rows=evs.map(function(m){return '<tr><td style="font-weight:700">'+_mEsc(m.cam)+'</td><td>'+formatFecha(m.fecha)+'</td><td style="font-family:var(--m)">'+(m.km?m.km.toLocaleString():'—')+'</td><td><span class="badge by">'+_mEsc(m.tipo||'—')+'</span></td><td style="font-size:11px">'+_mEsc(m.desc||'')+'</td></tr>';});
-  var tb=g('tb-hist-mant');if(tb)tb.innerHTML=rows.join('')||'<tr><td colspan="5" style="text-align:center;color:var(--text3);padding:20px">Sin registros de mantenimiento</td></tr>';
+  var nAnom=evs.filter(function(m){return m.anomalia;}).length;
+  var rows=evs.map(function(m){
+    var an=m.anomalia;
+    return '<tr'+(an?' style="background:rgba(220,38,38,.10)"':'')+'><td style="font-weight:700">'+_mEsc(m.cam)+'</td><td>'+formatFecha(m.fecha)+'</td><td style="font-family:var(--m)">'+(m.km?m.km.toLocaleString():'—')+'</td><td><span class="badge '+(an?'br':'by')+'">'+(an?'⚠️ ':'')+_mEsc(m.tipo||'—')+'</span></td><td style="font-size:11px">'+_mEsc(m.desc||'')+(an&&m.motivo?(' <span style="color:var(--red);font-weight:700">· ADELANTADO: '+_mEsc(m.motivo)+'</span>'):'')+'</td></tr>';
+  });
+  var tb=g('tb-hist-mant');
+  if(tb){
+    var banner=nAnom?'<tr><td colspan="5" style="background:rgba(220,38,38,.14);color:var(--red);font-weight:700;font-size:11px;padding:6px 8px">⚠️ '+nAnom+' servicio(s) ADELANTADO(s) marcado(s) como anomalía — revisar (posible cambio de pieza antes de tiempo)</td></tr>':'';
+    tb.innerHTML=banner+(rows.join('')||'<tr><td colspan="5" style="text-align:center;color:var(--text3);padding:20px">Sin registros de mantenimiento</td></tr>');
+  }
 }
 // ═══════════════════════════════════════════════════════════════════════
 // HOJA DE VIDA por unidad (Mantenimiento avanzado — FlotaMax Fase 1)
@@ -5596,7 +5626,7 @@ async function cargarMantenimientos(){
   try{
     var r=await supabase.from('mantenimientos').select('*').order('f',{ascending:false}).limit(5000);
     if(r&&!r.error&&Array.isArray(r.data)){
-      MANTENIMIENTOS=r.data.map(function(x){return {id:x.id||('MT'+(x.cam||'')+'-'+(x.f||'')+'-'+(x.km||0)+'-'+(x.item_id||x.tipo||'')),cam:x.cam||'',fecha:x.f||'',km:parseInt(x.km)||0,horas:parseInt(x.horas)||0,itemId:x.item_id||'',tipo:x.tipo||'',tipoTrabajo:x.tipo_trabajo||'',desc:x.desc_trabajo||'',costo:parseFloat(x.costo_usd)||0,proveedor:x.proveedor||'',foto:x.foto_url||''};});
+      MANTENIMIENTOS=r.data.map(function(x){return {id:x.id||('MT'+(x.cam||'')+'-'+(x.f||'')+'-'+(x.km||0)+'-'+(x.item_id||x.tipo||'')),cam:x.cam||'',fecha:x.f||'',km:parseInt(x.km)||0,horas:parseInt(x.horas)||0,itemId:x.item_id||'',tipo:x.tipo||'',tipoTrabajo:x.tipo_trabajo||'',desc:x.desc_trabajo||'',costo:parseFloat(x.costo_usd)||0,proveedor:x.proveedor||'',foto:x.foto_url||'',anomalia:x.anomalia===true,motivo:x.motivo||''};});
     }
   }catch(e){ console.log('mantenimientos load:',e&&e.message); }
 }
@@ -5719,11 +5749,34 @@ async function registrarMantItem(){
   var esHoras=(typeof medidaUnidad==='function')&&medidaUnidad(cam)==='horas';
   if(!esHoras&&km<=0){ if(!confirm('No ingresaste el KM que tenía la unidad al hacerse este trabajo.\n(Es manual porque el trabajo pudo hacerse otro día / a otro km.)\n\n¿Registrar igual sin km?'))return; }
   var it=_mantItem(itemId);
+  // ANTI-FRAUDE: ¿se hace ADELANTADO (antes de su vida útil)? Solo para trabajos que "consumen" vida
+  // (cambio/sustitución/correctivo/lavado/engrase); la inspección no cuenta. Si sí → BLOQUEA hasta que
+  // escriba un MOTIVO, y lo graba como anomalía (tablero) para cazar cambios de piezas antes de tiempo.
+  var anomalia=false, motivo='';
+  if(tipoTrab!=='inspeccion'){
+    var prevEv=_ultimoMantItem(cam,itemId);
+    if(prevEv){
+      var esp=_intervaloEsperado(it,itemId);
+      if(!esp){ // ad-hoc sin intervalo → preguntarlo UNA vez (los programados ya lo tienen)
+        var r=prompt('¿Cada cuánto DEBERÍA durar/repetirse "'+(it?it.nombre:itemId)+'"?\n\nEscribí un número de DÍAS (ej: 365 = una batería que dura 1 año) o agregá "km" para kilómetros (ej: 5000km).\nSirve para avisar si se repite antes de tiempo.');
+        esp=_parseIntervalo(r); if(esp)_guardarIntervaloItem(itemId,esp);
+      }
+      if(esp){
+        var transc=esp.tipo==='km'?(km-(parseInt(prevEv.km)||0)):_diasEntre(prevEv.fecha,fecha);
+        var u=esp.tipo==='km'?'km':'días';
+        if(transc>=0 && transc<esp.valor){
+          var m=prompt('⚠️ NO ES NORMAL\n\n"'+(it?it.nombre:itemId)+'" en '+cam+' se hizo hace '+transc+' '+u+', pero debería durar ~'+esp.valor+' '+u+'.\n\nPara registrarlo igual, ESCRIBÍ EL MOTIVO (obligatorio):');
+          if(!m||!m.trim()){ alert('Cancelado: se requiere un MOTIVO para registrar un servicio adelantado.'); return; }
+          anomalia=true; motivo=m.trim();
+        }
+      }
+    }
+  }
   var foto=window._hvFotoUrl||'';
   var id='MT'+Date.now();
   // fila para la tabla `mantenimientos` (snake_case) — MISMA tabla que guardarKm → fuente única
-  var row={id:id,cam:cam,f:fecha,km:km,horas:horas,item_id:itemId,tipo:(it?it.nombre:itemId),tipo_trabajo:tipoTrab,desc_trabajo:nota||(it?it.nombre:''),costo_usd:costo,proveedor:prov,foto_url:foto};
-  var mem={id:id,cam:cam,fecha:fecha,km:km,horas:horas,itemId:itemId,tipo:row.tipo,tipoTrabajo:tipoTrab,desc:row.desc_trabajo,costo:costo,proveedor:prov,foto:foto};
+  var row={id:id,cam:cam,f:fecha,km:km,horas:horas,item_id:itemId,tipo:(it?it.nombre:itemId),tipo_trabajo:tipoTrab,desc_trabajo:nota||(it?it.nombre:''),costo_usd:costo,proveedor:prov,foto_url:foto,anomalia:anomalia,motivo:motivo};
+  var mem={id:id,cam:cam,fecha:fecha,km:km,horas:horas,itemId:itemId,tipo:row.tipo,tipoTrabajo:tipoTrab,desc:row.desc_trabajo,costo:costo,proveedor:prov,foto:foto,anomalia:anomalia,motivo:motivo};
   var ok=false;
   if(DB_READY&&supabase){
     try{ var res=await supabase.from('mantenimientos').upsert([row],{onConflict:'id'});
