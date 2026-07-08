@@ -15065,9 +15065,25 @@ async function renderConciliacionBNC(){
         // a su empleado (_empPorNombre, alias-aware) y se toman su cédula y su nº de cuenta en solo-dígitos.
         // Los administrativos se guardan como CARGO ("Gerente General (Máximo Betancourt)") → si no casa
         // directo, se intenta con el nombre entre paréntesis. La CUENTA (20 díg.) es más única que la cédula.
-        var _nm=(p&&p.n)||'';
+        var _nm=(p&&p.n)||'', _srch=_nm;
         var _emp=(typeof _empPorNombre==='function')?_empPorNombre(_nm):null;
-        if(!_emp&&typeof _empPorNombre==='function'){var _par=_nm.match(/\(([^)]+)\)/);if(_par)_emp=_empPorNombre(_par[1]);}
+        if(!_emp&&typeof _empPorNombre==='function'){var _par=_nm.match(/\(([^)]+)\)/);if(_par){_srch=_par[1];_emp=_empPorNombre(_srch);}}
+        // HOMÓNIMOS (2 personas mismo nombre+apellido) + INACTIVOS: no tomar la cédula/cuenta equivocada.
+        // Regla de Máximo: cuando hay 2 con mismo nombre+apellido, distinguir por los 2 nombres + 2
+        // apellidos. Se rechaza el empleado resuelto (→ sin identificador, cae a monto) si: (a) está
+        // INACTIVO; o (b) HAY un homónimo (≥2 empleados con el mismo 1er nombre + mismo último apellido del
+        // buscado) Y el match NO es completo (falta algún token ≥3 letras del buscado en el nombre del
+        // empleado). Ej: el ACTIVO "Manuel Francisco Lopez Gonzalez" NO debe tomar la cédula/cuenta del
+        // INACTIVO homónimo "Manuel Gonzalez". Si el match es único (sin homónimo), se acepta igual.
+        if(_emp){
+          var _en=(typeof _normNom==='function')?_normNom(_emp.nombre||''):String(_emp.nombre||'').toUpperCase();
+          var _sn=(typeof _normNom==='function')?_normNom(_srch):String(_srch).toUpperCase();
+          var _sp=_sn.split(' '), _f=_sp[0], _l=_sp[_sp.length-1];
+          var _homs=(typeof EMPLEADOS!=='undefined'?EMPLEADOS:[]).filter(function(e){var et=_normNom(e.nombre||'').split(' ');return et[0]===_f&&et.indexOf(_l)>=0;});
+          var _tk=_sp.filter(function(x){return x.length>=3;});
+          var _full=_tk.length>0&&_tk.every(function(t){return _en.indexOf(t)>=0;});
+          if(_emp.activo===false || (_homs.length>1 && !_full))_emp=null;
+        }
         var _ced=_emp?String(_emp.cedula||'').replace(/\D/g,''):'';
         var _cta=_emp?String(_emp.ncuenta||'').replace(/\D/g,''):'';
         libros.push({tipo:'egreso',bs:bs,desc:'Nómina '+(h.semana||'')+' — '+((p&&p.n)||rol),lab:((p&&p.n)||rol)+' · '+rol,clase:'nomina',rol:rol,persona:(p&&p.n)||'',cedula:_ced,cuenta:_cta,semana:h.semana||'',pagoEst:payIni,fecha:payIni,_usado:false});
