@@ -1348,49 +1348,52 @@ async function cargarDatosDB(){
     // o se cargan incompletas → aparecen "planillas faltantes" fantasma que en realidad SÍ están en la
     // BD (reporte RRHH 2026-07-07). Se cuenta primero y se traen TODAS las páginas EN PARALELO,
     // ordenadas por 'id' (clave estable) para que las páginas no se solapen ni se pisen.
-    var _selectAll = async function(tabla, orderCol){
-      orderCol = orderCol || 'id';
+    var _selectAll = async function(tabla, orderCols){
+      orderCols = (orderCols && orderCols.length) ? orderCols : ['id'];
       var size = 1000;
+      var _pageQ = function(from){ var q=supabase.from(tabla).select('*'); for(var j=0;j<orderCols.length;j++){ q=q.order(orderCols[j],{ascending:true}); } return q.range(from, from+size-1); };
       try{
+        // 1ª página: si cabe (<1000), listo con UNA sola consulta (tablas chicas no pagan de más).
+        var r0 = await _pageQ(0);
+        if(r0.error) return { data:null, error:r0.error };
+        var first = r0.data||[];
+        if(first.length < size) return { data: first, error:null };
+        // Hay más de 1000: contar y traer el resto de páginas EN PARALELO.
         var cr = await supabase.from(tabla).select('id',{ count:'exact', head:true });
         var total = (cr && cr.count!=null) ? cr.count : null;
-        if(total==null){ // sin count: paginación secuencial de respaldo
-          var all=[], from=0;
-          for(;;){ var r=await supabase.from(tabla).select('*').order(orderCol,{ascending:true}).range(from, from+size-1);
-            if(r.error) return { data: all.length?all:null, error:r.error };
-            var c=r.data||[]; all=all.concat(c); if(c.length<size) break; from+=size; if(from>2000000) break; }
+        if(total==null){ // sin count: seguir secuencial de respaldo
+          var all=first.slice(), from=size;
+          for(;;){ var r=await _pageQ(from); if(r.error) return { data:all, error:r.error }; var c=r.data||[]; all=all.concat(c); if(c.length<size) break; from+=size; if(from>2000000) break; }
           return { data: all, error:null };
         }
-        if(total===0) return { data: [], error:null };
-        var reqs=[];
-        for(var i=0; i*size<total; i++){ reqs.push(supabase.from(tabla).select('*').order(orderCol,{ascending:true}).range(i*size, i*size+size-1)); }
-        var rs = await Promise.all(reqs);
-        var out=[]; for(var k=0;k<rs.length;k++){ if(rs[k].error) return { data:null, error:rs[k].error }; out=out.concat(rs[k].data||[]); }
+        var reqs=[]; for(var i=1; i*size<total; i++){ reqs.push(_pageQ(i*size)); }
+        var rs = reqs.length ? await Promise.all(reqs) : [];
+        var out=first.slice(); for(var k=0;k<rs.length;k++){ if(rs[k].error) return { data:null, error:rs[k].error }; out=out.concat(rs[k].data||[]); }
         return { data: out, error:null };
       }catch(e){ return { data:null, error:e }; }
     };
     // Cargar TODAS las tablas EN PARALELO (antes era una tras otra = lento; ahora ~1 ida).
     var _resS = await Promise.allSettled([
       _selectAll('planillas'),
-      supabase.from('abonos').select('*').order('f',{ascending:true}).order('id',{ascending:true}),
-      supabase.from('empleados').select('*'),
+      _selectAll('abonos', ['f','id']),
+      _selectAll('empleados'),
       _selectAll('gasoil'),
-      supabase.from('cxp').select('*'),
-      supabase.from('proveedores').select('*'),
-      supabase.from('prestamos').select('*'),
-      supabase.from('multas').select('*'),
-      supabase.from('inventario').select('*'),
-      supabase.from('contratos').select('*'),
-      supabase.from('gastos_variables').select('*'),
-      supabase.from('pagos_alcaldia').select('*'),
-      supabase.from('km_data').select('*'),
+      _selectAll('cxp'),
+      _selectAll('proveedores'),
+      _selectAll('prestamos'),
+      _selectAll('multas'),
+      _selectAll('inventario'),
+      _selectAll('contratos'),
+      _selectAll('gastos_variables'),
+      _selectAll('pagos_alcaldia'),
+      _selectAll('km_data'),
       supabase.from('auditoria').select('*').order('created_at',{ascending:false}).limit(200),
-      supabase.from('nomina_historial').select('*').order('semana',{ascending:true}),
-      supabase.from('tipos_unidad').select('*'),
-      supabase.from('unidades').select('*'),
-      supabase.from('operaciones').select('*'),
-      supabase.from('bnc_movimientos').select('*'),
-      supabase.from('gastos_fijos').select('*')
+      _selectAll('nomina_historial'),
+      _selectAll('tipos_unidad'),
+      _selectAll('unidades'),
+      _selectAll('operaciones'),
+      _selectAll('bnc_movimientos'),
+      _selectAll('gastos_fijos')
     ]);
     // allSettled: una consulta que falle (red, RLS de UNA tabla, etc.) NO tumba a las demás.
     // Antes, con Promise.all, un solo error transitorio dejaba TODO en 0 (incluidas planillas).
