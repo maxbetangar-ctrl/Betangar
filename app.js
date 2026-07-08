@@ -5843,7 +5843,22 @@ async function registrarMantItem(){
       }
     }
   }
+  // ANTI-FRAUDE (2): COSTO FUERA DE RANGO — si el costo está muy por encima del promedio histórico del
+  // ítem (≥2 eventos con costo), avisa (posible sobreprecio del taller) y lo marca anomalía si se hace igual.
+  if(costo>0){
+    var _prevC=(MANTENIMIENTOS||[]).filter(function(m){return m.itemId===itemId&&(parseFloat(m.costo)||0)>0;});
+    if(_prevC.length>=2){
+      var _avg=_prevC.reduce(function(s,m){return s+(parseFloat(m.costo)||0);},0)/_prevC.length;
+      if(_avg>0 && costo>_avg*1.6){
+        if(!confirm('⚠️ COSTO ALTO\n\n"'+(it?it.nombre:itemId)+'" cuesta $'+costo.toFixed(2)+', muy por encima del promedio histórico ($'+_avg.toFixed(2)+').\n\n¿Registrar de todos modos?'))return;
+        if(!anomalia){anomalia=true; motivo=(motivo?motivo+' · ':'')+'costo alto vs promedio $'+_avg.toFixed(2);}
+      }
+    }
+  }
   var foto=window._hvFotoUrl||'';
+  // ANTI-FRAUDE (3): FOTO OBLIGATORIA en ítems CRÍTICOS/de seguridad (batería, cauchos, frenos...) → así
+  // el taller no puede "decir que lo cambió" sin prueba. Se marca crítico en el catálogo (⏰ Preventivo).
+  if(it&&it.critico&&!foto){ alert('⚠️ FOTO OBLIGATORIA\n\n"'+(it.nombre||itemId)+'" es un ítem CRÍTICO (seguridad): hay que subir la FOTO como prueba del trabajo.\n\nSubí la foto y volvé a registrar.'); return; }
   var id='MT'+Date.now();
   // Si se está CERRANDO una orden de servicio para esta unidad, se enlaza el evento a la orden.
   var _oc=(window._ordCerrando&&window._ordCerrando.cam===cam)?window._ordCerrando.id:'';
@@ -5877,6 +5892,22 @@ function eliminarMantItem(id){
   audit('Mantenimiento eliminado',String(id));
   renderHojaVida();
 }
+// VIDA ÚTIL REAL aprendida: promedio real entre eventos consecutivos de un ítem en una unidad (km o
+// días), a partir del historial. Sirve para comparar con el intervalo configurado y detectar piezas que
+// duran menos de lo normal (fraude/mala calidad). null si <2 eventos.
+function _vidaUtilReal(cam,itemId,base){
+  var evs=(typeof MANTENIMIENTOS!=='undefined'?MANTENIMIENTOS:[]).filter(function(m){return m.cam===cam&&m.itemId===itemId;});
+  if(base==='km'){
+    var kms=evs.map(function(m){return parseFloat(m.km)||0;}).filter(function(k){return k>0;}).sort(function(a,b){return a-b;});
+    if(kms.length<2)return null;
+    var g=0; for(var i=1;i<kms.length;i++)g+=(kms[i]-kms[i-1]);
+    return {tipo:'km',valor:Math.round(g/(kms.length-1)),n:kms.length-1};
+  }
+  var fs=evs.map(function(m){return String(m.fecha||'').slice(0,10);}).filter(function(x){return /^\d{4}-\d{2}-\d{2}/.test(x);}).sort();
+  if(fs.length<2)return null;
+  var gd=0; for(var j=1;j<fs.length;j++)gd+=_diasEntre(fs[j-1],fs[j]);
+  return {tipo:'dias',valor:Math.round(gd/(fs.length-1)),n:fs.length-1};
+}
 function renderHojaVida(){
   _hvPoblarSelects();
   if(g('hv-fecha')&&!gv('hv-fecha'))sv('hv-fecha',fechaVE()); // fecha por defecto = hoy
@@ -5886,7 +5917,7 @@ function renderHojaVida(){
   if(bq){
     if(cam){
       var items=_hvItemsDeUnidad(cam);
-      bq.innerHTML='<table><thead><tr><th>Ítem</th><th>Última vez</th><th>Próximo</th><th>Faltan</th><th>Estado</th></tr></thead><tbody>'+
+      bq.innerHTML='<table><thead><tr><th>Ítem</th><th>Última vez</th><th>Próximo</th><th>Faltan</th><th>Vida real</th><th>Estado</th></tr></thead><tbody>'+
         items.map(function(it){
           var e=_mantEstado(cam,it);
           var ultima=e.ultimo?formatFecha(e.ultimo.fecha):'<span style="color:var(--text3)">sin registro</span>';
@@ -5894,7 +5925,10 @@ function renderHojaVida(){
           if(e.estado==='sin_dato'||e.estado==='sin_intervalo') falta='—';
           else if(e.unidad==='km') falta = e.restante>0 ? ('<span style="color:'+(e.estado==='proximo'?'var(--amber)':'var(--text2)')+'">faltan '+e.restante.toLocaleString()+' km</span>') : ('<span style="color:var(--red)">vencido hace '+Math.abs(e.restante).toLocaleString()+' km</span>');
           else falta = e.restante>=0 ? ('<span style="color:'+(e.estado==='proximo'?'var(--amber)':'var(--text2)')+'">faltan '+e.restante+' días</span>') : ('<span style="color:var(--red)">vencido hace '+Math.abs(e.restante)+' días</span>');
-          return '<tr style="'+(e.estado==='vencido'?'background:rgba(220,38,38,.08)':'')+'"><td style="font-weight:600">'+_mEsc(it.nombre)+'</td><td>'+ultima+'</td><td style="font-family:var(--m)">'+(e.vencTxt||'—')+'</td><td style="font-family:var(--m)">'+falta+'</td><td>'+_mantBadge(e.estado)+'</td></tr>';
+          // Vida útil REAL aprendida: promedio real entre cambios de este ítem en esta unidad (vs el intervalo configurado).
+          var vr=_vidaUtilReal(cam,it.id,e.unidad);
+          var vrTxt=vr?('<span title="promedio real, '+vr.n+' ciclo(s)">~'+vr.valor.toLocaleString()+' '+(vr.tipo==='km'?'km':'días')+'</span>'):'<span style="color:var(--text3)">—</span>';
+          return '<tr style="'+(e.estado==='vencido'?'background:rgba(220,38,38,.08)':'')+'"><td style="font-weight:600">'+_mEsc(it.nombre)+'</td><td>'+ultima+'</td><td style="font-family:var(--m)">'+(e.vencTxt||'—')+'</td><td style="font-family:var(--m)">'+falta+'</td><td style="font-family:var(--m);font-size:11px">'+vrTxt+'</td><td>'+_mantBadge(e.estado)+'</td></tr>';
         }).join('')+'</tbody></table>';
     } else { bq.innerHTML='<div style="color:var(--text3);font-size:12px;padding:8px">Elegí una unidad arriba para ver, por cada mantenimiento: cuándo se hizo, cuándo toca y cuánto falta (km o días).</div>'; }
   }
