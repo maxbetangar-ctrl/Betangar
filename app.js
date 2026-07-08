@@ -4953,16 +4953,50 @@ function enviarReporteJAC(){
   audit('Reporte JAC enviado','12 camiones');
 }
 
-// ORDEN DE SERVICIO: eliges las unidades que vas a llevar a mantenimiento (ej. "1,2,3") y arma un
-// reporte imprimible/PDF con SOLO esas — unidad, placa, VIN, km actual y próximo servicio — listo
-// para enviar al concesionario. Reusa los datos de FLOTA (placa/VIN) y KM_DATA (km).
-function ordenServicio(){
-  var inp=prompt('🔧 ORDEN DE SERVICIO\n\n¿Qué unidades vas a llevar a mantenimiento?\nEscribe los números separados por coma (ej: 1,2,3):');
-  if(inp===null||!String(inp).trim())return;
-  var cams=String(inp).split(/[,;\s]+/).map(function(n){var d=String(n).replace(/\D/g,'');return d?'JAC-B'+d.padStart(3,'0'):'';}).filter(function(c,i,arr){return c&&FLOTA[c]&&arr.indexOf(c)===i;});
-  if(!cams.length){alert('No reconocí ninguna unidad válida. Usa solo números, por ejemplo: 1,2,3');return;}
-  var filas=cams.map(function(cam,i){
-    var fl=FLOTA[cam]||{}, ui=(typeof unidadInfo==='function')?unidadInfo(cam):{}; // placa/VIN de la FICHA (fuente única)
+// ═══ ÓRDENES DE SERVICIO (Fase 1) ═══════════════════════════════════════════
+// La orden se EMITE liviana (unidades, proveedor, tipo de servicio, ítem, notas) para mandar el carro;
+// se GUARDA en BD (ordenes_servicio) y se imprime para el taller. El km es automático (el que carga el
+// chofer a diario, kmActualCam) — solo informativo. Emitir ≠ hacer: el km/costo REALES del trabajo se
+// llenan al CERRAR la orden (Fase 2, registro de mantenimiento). Reusa FLOTA (placa/VIN) y KM_DATA.
+var ORDENES_SERV=[];
+var _ordServCargadas=false;
+async function cargarOrdenesServicio(){
+  if(!(DB_READY&&supabase))return;
+  try{var r=await supabase.from('ordenes_servicio').select('*').order('creado_en',{ascending:false}).limit(2000);
+    if(!r.error&&Array.isArray(r.data))ORDENES_SERV=r.data.map(function(x){return{id:x.id,fecha:x.fecha,cams:Array.isArray(x.cams)?x.cams:[],proveedor:x.proveedor||'',proveedorId:x.proveedor_id||'',tipo:x.tipo_servicio||'',item:x.item||'',notas:x.notas||'',estado:x.estado||'emitida',fechaCierre:x.fecha_cierre||null,costo:parseFloat(x.costo_usd)||0};});
+  }catch(e){console.log('[ordenes_servicio]',e&&e.message);}
+}
+var _OS_TIPO_LBL={lavado:'🧽 Lavado',cambio:'🔧 Cambio/sust.',inspeccion:'🔎 Inspección',correctivo:'🛠 Correctivo',preventivo:'📅 Preventivo',otro:'Otro'};
+var _OS_EST_BADGE={emitida:'<span class="badge by">🟡 Emitida</span>',en_proceso:'<span class="badge bb">🔵 En proceso</span>',hecha:'<span class="badge bg">🟢 Hecha</span>'};
+function _osProvOtro(){var s=g('os-prov'),w=g('os-prov-otro-wrap');if(w)w.style.display=(s&&s.value==='__otro')?'block':'none';}
+function _osPoblarForm(){
+  var sp=g('os-prov');
+  if(sp){var prev=sp.value;sp.innerHTML='<option value="">— elegir —</option>';(typeof PROVEEDORES!=='undefined'?PROVEEDORES:[]).forEach(function(p){sp.innerHTML+='<option value="'+p.id+'">'+_mEsc(p.nombre)+(p.cat?(' · '+_mEsc(p.cat)):'')+'</option>';});sp.innerHTML+='<option value="__otro">➕ Otro (escribir)</option>';if(prev)sp.value=prev;}
+  var f=g('os-fecha');if(f&&!f.value)f.value=(typeof fechaVE==='function')?fechaVE():new Date().toISOString().slice(0,10);
+}
+async function guardarOrdenServicio(){
+  var cams=String(gv('os-cams')||'').split(/[,;\s]+/).map(function(n){var d=String(n).replace(/\D/g,'');return d?'JAC-B'+d.padStart(3,'0'):'';}).filter(function(c,i,arr){return c&&FLOTA[c]&&arr.indexOf(c)===i;});
+  if(!cams.length){alert('Escribe al menos una unidad válida (solo números, ej: 1,2,3).');return;}
+  var provSel=gv('os-prov'), provNom='', provId='';
+  if(provSel==='__otro'){provNom=(gv('os-prov-otro')||'').trim();}
+  else if(provSel){var pv=(typeof PROVEEDORES!=='undefined'?PROVEEDORES:[]).find(function(p){return String(p.id)===String(provSel);});provId=provSel;provNom=pv?pv.nombre:'';}
+  var tipo=gv('os-tipo')||'otro', item=(gv('os-item')||'').trim(), notas=(gv('os-notas')||'').trim();
+  var fecha=gv('os-fecha')||((typeof fechaVE==='function')?fechaVE():new Date().toISOString().slice(0,10));
+  var orden={id:'OS'+Date.now(),fecha:fecha,cams:cams,proveedor:provNom,proveedorId:provId,tipo:tipo,item:item,notas:notas,estado:'emitida',fechaCierre:null,costo:0};
+  var row={id:orden.id,fecha:orden.fecha,cams:orden.cams,proveedor:orden.proveedor,proveedor_id:orden.proveedorId,tipo_servicio:orden.tipo,item:orden.item,notas:orden.notas,estado:'emitida'};
+  var ok=false;
+  if(DB_READY&&supabase){var res=await supabase.from('ordenes_servicio').insert([row]).select();if(res.error){if(typeof mostrarToast==='function')mostrarToast('No se pudo guardar la orden: '+res.error.message,'error');}else ok=true;}
+  if(!ok&&typeof guardarEnCola==='function')guardarEnCola('ordenes_servicio',row);
+  ORDENES_SERV.unshift(orden);
+  audit('Orden de Servicio emitida',orden.id+' · '+cams.join(', ')+' · '+tipo);
+  _osImprimirOrden(orden);
+  ['os-cams','os-item','os-notas'].forEach(function(id){sv(id,'');});
+  renderOrdenesServicio();
+  if(typeof mostrarToast==='function')mostrarToast('✅ Orden '+orden.id+' emitida'+(ok?'':' (en cola)'),'exito');
+}
+function _osImprimirOrden(o){
+  var filas=(o.cams||[]).map(function(cam,i){
+    var fl=FLOTA[cam]||{}, ui=(typeof unidadInfo==='function')?unidadInfo(cam):{};
     return '<tr style="background:'+(i%2===0?'#fff':'#f5f9ff')+'">'+
       '<td class="bv"><b>'+_mEsc(cam)+'</b></td>'+
       '<td class="mono">'+_mEsc(ui.placa||fl.placa||'—')+'</td>'+
@@ -4971,10 +5005,42 @@ function ordenServicio(){
       '<td class="mono" style="text-align:right">'+proxServicio(kmActualCam(cam)).toLocaleString()+'</td>'+
       '<td style="font-size:11px">'+_mEsc(ui.chofer||fl.chofer||'—')+'</td></tr>';
   }).join('');
-  var body='<table><thead><tr><th>Unidad</th><th>Placa</th><th>VIN</th><th style="text-align:right">KM Actual</th><th style="text-align:right">Próx. Servicio</th><th>Chofer</th></tr></thead><tbody>'+filas+'</tbody></table>'+
-    '<p style="margin-top:12px;font-size:11px;color:#374151">Unidades a ingresar a mantenimiento: <b>'+cams.length+'</b> ('+cams.join(', ')+'). Intervalo de servicio: '+((cfg.km||5000).toLocaleString())+' km.</p>';
-  abrirImpresionPremium('Orden de Servicio — '+brandNom(),'Unidades a mantenimiento · '+formatFecha(new Date()),'',body);
-  audit('Orden de Servicio generada',cams.join(', '));
+  // Banner GRANDE con el trabajo a realizar (a simple vista): si hay ítem, va el ítem en grande y el
+  // tipo como subtítulo; si no, va el tipo en grande. -webkit-print-color-adjust para que imprima el color.
+  var titGr=String(o.item?o.item:(_OS_TIPO_LBL[o.tipo]||o.tipo)).toUpperCase();
+  var sub=o.item?(_OS_TIPO_LBL[o.tipo]||o.tipo):'';
+  var banner='<div style="text-align:center;margin:4px 0 16px;padding:16px 12px;border:3px solid #0f4c2e;border-radius:12px;background:#f0fdf4;-webkit-print-color-adjust:exact;print-color-adjust:exact">'+
+    '<div style="font-size:11px;letter-spacing:2px;color:#0f4c2e;text-transform:uppercase;font-weight:700">Trabajo a realizar</div>'+
+    '<div style="font-size:34px;font-weight:900;color:#0f2340;line-height:1.1;margin-top:4px">'+_mEsc(titGr)+'</div>'+
+    (sub?'<div style="font-size:15px;font-weight:700;color:#0f4c2e;margin-top:4px">'+_mEsc(sub)+'</div>':'')+
+  '</div>';
+  var info='<div style="margin-bottom:10px;font-size:12px"><b>Orden:</b> '+_mEsc(o.id)+' &nbsp;·&nbsp; <b>Proveedor / taller:</b> '+_mEsc(o.proveedor||'—')+'</div>';
+  var body=banner+info+
+    '<table><thead><tr><th>Unidad</th><th>Placa</th><th>VIN</th><th style="text-align:right">KM Actual</th><th style="text-align:right">Próx. Servicio</th><th>Chofer</th></tr></thead><tbody>'+filas+'</tbody></table>'+
+    '<p style="margin-top:12px;font-size:11px;color:#374151">Unidades a ingresar a mantenimiento: <b>'+(o.cams||[]).length+'</b> ('+(o.cams||[]).map(function(c){return String(c).replace("JAC-B","");}).join(", ")+'). Intervalo de servicio: '+((cfg.km||5000).toLocaleString())+' km.</p>'+
+    (o.notas?('<p style="margin-top:6px;font-size:11px;color:#374151"><b>Notas:</b> '+_mEsc(o.notas)+'</p>'):'');
+  abrirImpresionPremium('Orden de Servicio '+o.id+' — '+brandNom(),(_OS_TIPO_LBL[o.tipo]||o.tipo)+' · '+formatFecha(o.fecha),'',body);
+}
+function _osImprimirOrdenPorId(id){var o=ORDENES_SERV.find(function(x){return x.id===id;});if(o)_osImprimirOrden(o);}
+function renderOrdenesServicio(){
+  _osPoblarForm();
+  var tb=g('tb-ordenes');
+  if(tb){
+    tb.innerHTML=(ORDENES_SERV||[]).map(function(o){
+      return '<tr>'+
+        '<td class="mono" style="font-size:10px">'+_mEsc(o.id)+'</td>'+
+        '<td>'+formatFecha(o.fecha)+'</td>'+
+        '<td style="font-size:11px">'+(o.cams||[]).map(function(c){return String(c).replace('JAC-B','');}).join(', ')+'</td>'+
+        '<td style="font-size:11px">'+_mEsc(_OS_TIPO_LBL[o.tipo]||o.tipo)+'</td>'+
+        '<td style="font-size:11px">'+_mEsc(o.proveedor||'—')+'</td>'+
+        '<td style="font-size:11px">'+_mEsc(o.item||'—')+'</td>'+
+        '<td>'+(_OS_EST_BADGE[o.estado]||o.estado)+'</td>'+
+        '<td><button class="btn btn-s btn-xs" onclick="_osImprimirOrdenPorId(\''+o.id+'\')">🖨</button></td>'+
+      '</tr>';
+    }).join('')||'<tr><td colspan="8" style="text-align:center;color:var(--text3);padding:20px">Sin órdenes emitidas</td></tr>';
+  }
+  var res=g('os-resumen');
+  if(res){var em=ORDENES_SERV.filter(function(o){return o.estado==='emitida';}).length;var he=ORDENES_SERV.filter(function(o){return o.estado==='hecha';}).length;res.innerHTML='<span style="color:var(--yellow)">🟡 Emitidas '+em+'</span> · <span style="color:var(--green)">🟢 Hechas '+he+'</span> · Total '+ORDENES_SERV.length;}
 }
 
 // ═══════════════════════════════════════════════════
@@ -5263,7 +5329,7 @@ function imprimirCombustible(){
 // ═══════════════════════════════════════════════════
 // KM / MANTENIMIENTO
 // ═══════════════════════════════════════════════════
-function switchKmTab(t){['odo','lav','eng','prog','hist','hv'].forEach(function(x){var el=g('tab-km-'+x);var sw=g('sw-km-'+x);if(el)el.style.display=x===t?'block':'none';if(sw){sw.classList.remove('on');if(x===t)sw.classList.add('on');}});if(t==='odo')renderKm();if(t==='lav')renderLavados();if(t==='eng')renderEngrases();if(t==='prog')renderPreventivo();if(t==='hist')renderHistMant();if(t==='hv'){_cargarMantTodo().then(function(){renderHojaVida();}).catch(function(){renderHojaVida();});}}
+function switchKmTab(t){['odo','lav','eng','prog','hist','hv','ord'].forEach(function(x){var el=g('tab-km-'+x);var sw=g('sw-km-'+x);if(el)el.style.display=x===t?'block':'none';if(sw){sw.classList.remove('on');if(x===t)sw.classList.add('on');}});if(t==='odo')renderKm();if(t==='lav')renderLavados();if(t==='eng')renderEngrases();if(t==='prog')renderPreventivo();if(t==='hist')renderHistMant();if(t==='ord'){if(!_ordServCargadas){_ordServCargadas=true;cargarOrdenesServicio().then(renderOrdenesServicio).catch(renderOrdenesServicio);}else renderOrdenesServicio();}if(t==='hv'){_cargarMantTodo().then(function(){renderHojaVida();}).catch(function(){renderHojaVida();});}}
 
 async function borrarOdo(cam){
   if(!KM_DATA[cam])return;
