@@ -5329,7 +5329,7 @@ function imprimirCombustible(){
 // ═══════════════════════════════════════════════════
 // KM / MANTENIMIENTO
 // ═══════════════════════════════════════════════════
-function switchKmTab(t){['odo','lav','eng','prog','hist','hv','ord'].forEach(function(x){var el=g('tab-km-'+x);var sw=g('sw-km-'+x);if(el)el.style.display=x===t?'block':'none';if(sw){sw.classList.remove('on');if(x===t)sw.classList.add('on');}});if(t==='odo')renderKm();if(t==='lav')renderLavados();if(t==='eng')renderEngrases();if(t==='prog')renderPreventivo();if(t==='hist')renderHistMant();if(t==='ord'){if(!_ordServCargadas){_ordServCargadas=true;cargarOrdenesServicio().then(renderOrdenesServicio).catch(renderOrdenesServicio);}else renderOrdenesServicio();}if(t==='hv'){_cargarMantTodo().then(function(){renderHojaVida();}).catch(function(){renderHojaVida();});}}
+function switchKmTab(t){['odo','lav','eng','prog','hist','hv','ord'].forEach(function(x){var el=g('tab-km-'+x);var sw=g('sw-km-'+x);if(el)el.style.display=x===t?'block':'none';if(sw){sw.classList.remove('on');if(x===t)sw.classList.add('on');}});if(t==='odo')renderKm();if(t==='lav'){renderLavados();if(typeof _cargarMantTodo==='function'&&!(MANTENIMIENTOS&&MANTENIMIENTOS.length))_cargarMantTodo().then(renderLavados).catch(function(){});}if(t==='eng'){renderEngrases();if(typeof _cargarMantTodo==='function'&&!(MANTENIMIENTOS&&MANTENIMIENTOS.length))_cargarMantTodo().then(renderEngrases).catch(function(){});}if(t==='prog')renderPreventivo();if(t==='hist')renderHistMant();if(t==='ord'){if(!_ordServCargadas){_ordServCargadas=true;cargarOrdenesServicio().then(renderOrdenesServicio).catch(renderOrdenesServicio);}else renderOrdenesServicio();}if(t==='hv'){_cargarMantTodo().then(function(){renderHojaVida();}).catch(function(){renderHojaVida();});}}
 
 async function borrarOdo(cam){
   if(!KM_DATA[cam])return;
@@ -5339,22 +5339,27 @@ async function borrarOdo(cam){
     if(_r.error&&typeof mostrarToast==='function')mostrarToast('No se pudo borrar: '+_r.error.message,'error');}catch(e){}}
   audit('Odometro borrado',cam);renderKm();
 }
-async function borrarLavado(cam){
-  if(!KM_DATA[cam])return;
-  if(!confirm('¿Borrar el ultimo lavado registrado de '+cam+'?'))return;
-  KM_DATA[cam].lavado='';
-  if(DB_READY&&supabase){try{var _r=await supabase.from('km_data').update({lavado:null}).eq('cam',cam);
-    if(_r.error&&typeof mostrarToast==='function')mostrarToast('No se pudo borrar: '+_r.error.message,'error');}catch(e){}}
-  audit('Lavado borrado',cam);renderLavados();
+// Borra el ÚLTIMO lavado/engrase de la fuente única (mantenimientos) y recalcula el espejo km_data
+// al evento anterior (o lo vacía). Un solo lugar de borrado, coherente con el registro.
+async function _borrarUltimoServMant(cam,itemId,campoKm,nombre){
+  var evs=(typeof MANTENIMIENTOS!=='undefined'?MANTENIMIENTOS:[]).filter(function(m){return m.cam===cam&&String(m.itemId||'').toLowerCase()===itemId;}).sort(function(a,b){return String(b.fecha||'').localeCompare(String(a.fecha||''));});
+  var last=evs[0];
+  var tieneEspejo=KM_DATA[cam]&&KM_DATA[cam][campoKm];
+  if(!last&&!tieneEspejo)return;
+  if(!confirm('¿Borrar el último '+nombre.toLowerCase()+' registrado de '+cam+'?'))return;
+  if(last){
+    MANTENIMIENTOS=MANTENIMIENTOS.filter(function(m){return String(m.id)!==String(last.id);});
+    if(DB_READY&&supabase){try{var r=await supabase.from('mantenimientos').delete().eq('id',last.id);if(r&&r.error&&typeof mostrarToast==='function')mostrarToast('No se pudo borrar: '+r.error.message,'error');}catch(e){}}
+  }
+  var prev=(typeof MANTENIMIENTOS!=='undefined'?MANTENIMIENTOS:[]).filter(function(m){return m.cam===cam&&String(m.itemId||'').toLowerCase()===itemId;}).sort(function(a,b){return String(b.fecha||'').localeCompare(String(a.fecha||''));})[0];
+  var nuevaF=prev?String(prev.fecha).slice(0,10):null;
+  if(KM_DATA[cam])KM_DATA[cam][campoKm]=nuevaF||'';
+  if(DB_READY&&supabase){var upd={};upd[campoKm]=nuevaF;try{supabase.from('km_data').update(upd).eq('cam',cam).then(function(){});}catch(e){}}
+  audit(nombre+' borrado',cam);
+  if(itemId==='lavado')renderLavados();else renderEngrases();
 }
-async function borrarEngrase(cam){
-  if(!KM_DATA[cam])return;
-  if(!confirm('¿Borrar el ultimo engrase registrado de '+cam+'?'))return;
-  KM_DATA[cam].engrase='';
-  if(DB_READY&&supabase){try{var _r=await supabase.from('km_data').update({engrase:null}).eq('cam',cam);
-    if(_r.error&&typeof mostrarToast==='function')mostrarToast('No se pudo borrar: '+_r.error.message,'error');}catch(e){}}
-  audit('Engrase borrado',cam);renderEngrases();
-}
+async function borrarLavado(cam){ await _borrarUltimoServMant(cam,'lavado','lavado','Lavado'); }
+async function borrarEngrase(cam){ await _borrarUltimoServMant(cam,'engrase','engrase','Engrase'); }
 function renderKm(){
   // Kilometraje = SOLO overview del km por unidad (nutrido del chofer). Las alertas de servicio/
   // preventivo se convergieron en el tab ⏰ Preventivo (un solo lugar, no duplicar).
@@ -5410,7 +5415,7 @@ async function guardarKm(){
 function renderLavados(){
   var rows=[];var alertas=[];
   Object.keys(FLOTA).filter(function(k){return k.startsWith('JAC-B');}).forEach(function(cam){
-    var d=KM_DATA[cam];var ul=d?d.lavado:'';
+    var ul=_ultimoLavado(cam);
     var dias=ul?diasDesde(ul):0;
     var prox=ul?addDays(ul,45):'--';
     var est,c;
@@ -5445,7 +5450,7 @@ function _planLavado(cap){
   cap=parseInt(cap)||2; if(cap<1)cap=1;
   var cams=Object.keys(FLOTA).filter(function(k){return k.startsWith('JAC-B');});
   var lista=cams.map(function(cam){
-    var ul=(KM_DATA[cam]&&KM_DATA[cam].lavado)?String(KM_DATA[cam].lavado).slice(0,10):'';
+    var ul=_ultimoLavado(cam);
     return {cam:cam,ul:ul,due:ul?addDays(ul,45).slice(0,10):'2000-01-01',dias:ul?diasDesde(ul):9999};
   });
   lista.sort(function(a,b){ if(a.due!==b.due)return a.due<b.due?-1:1; return b.dias-a.dias; }); // más vencida primero
@@ -5471,39 +5476,64 @@ function renderPlanLavado(){
   }).join('');
   el.innerHTML='<div class="tw"><table style="font-size:12px"><thead><tr><th>Domingo</th><th style="text-align:center">N°</th><th>Unidades (días desde último lavado)</th></tr></thead><tbody>'+rows+'</tbody></table></div>';
 }
-async function guardarLavado(){
-  var cam=gv('lav-cam'),f=gv('lav-f'),obs=gv('lav-obs')||'';
-  if(!cam){alert('Selecciona camion');return;}
-  if(!KM_DATA[cam])KM_DATA[cam]={km:0,f:'',ultsrv:0,mant:[],lavado:'',engrase:''};
-  KM_DATA[cam].lavado=f;
-  var _ok=false;
-  if(DB_READY&&supabase){
-    // Esquema real: km_data NO tiene lavado_obs; lavados usa 'f' (no 'fecha') y no tiene
-    // registrado_por. (Por eso antes fallaba el guardado de lavado en silencio.)
-    try{
-      await supabase.from('km_data').update({lavado:f}).eq('cam',cam);
-      var _rl=await supabase.from('lavados').insert([{cam:cam,f:f,obs:obs}]);
-      _ok=!_rl.error;
-      if(_rl.error&&typeof mostrarToast==='function')mostrarToast('No se pudo guardar el lavado: '+_rl.error.message,'error');
-    }catch(e){if(typeof mostrarToast==='function')mostrarToast('Sin conexión al guardar el lavado.','error');}
-  }
-  audit('Lavado registrado',cam+' '+f);
-  renderLavados();
-  if(typeof mostrarToast==='function')mostrarToast(_ok?('✅ Lavado registrado: '+cam):'⚠️ Lavado guardado solo localmente','exito');
+// ── FUENTE ÚNICA de ciclos (lavado/engrase) ────────────────────────────────────
+// Un lavado/engrase se puede registrar por DOS vías: el módulo Lavados/Engrases (km_data.lavado) o la
+// HOJA DE VIDA (tabla mantenimientos, ítem 'lavado'/'engrase'). Antes estaban desconectadas → un lavado
+// cargado en la hoja de vida salía "vencido" igual y el plan lo re-agendaba (bug real 05-jul). Estos
+// helpers toman el ÚLTIMO de AMBAS fuentes; y _sincronizarCicloMant() actualiza km_data al registrar en
+// la hoja de vida, para que el ciclo y el plan siempre reflejen la realidad.
+function _ultimoServMant(cam,item){
+  var best=''; (typeof MANTENIMIENTOS!=='undefined'?MANTENIMIENTOS:[]).forEach(function(m){
+    if(m.cam===cam && String(m.itemId||'').toLowerCase()===item){ var f=String(m.fecha||'').slice(0,10); if(f>best)best=f; }
+  }); return best;
 }
-function renderEngrases(){var rows=[];Object.keys(FLOTA).filter(function(k){return k.startsWith('JAC-B');}).forEach(function(cam){var d=KM_DATA[cam];var ul=d?d.engrase:'';var dias=ul?diasDesde(ul):0;var prox=ul?addDays(ul,15):'--';var est,c;if(!ul){est='Sin datos';c='bt';}else if(dias>15){est='VENCIDO '+dias+'d';c='br';}else if(dias>10){est='PROXIMO';c='by';}else{est='OK';c='bg';}rows.push('<tr><td style="font-weight:700">'+cam+'</td><td>'+(ul?formatFecha(ul):'--')+'</td><td style="font-family:var(--m);color:'+(dias>15?'var(--red)':'var(--text)')+'">'+dias+'</td><td>'+(ul?formatFecha(prox):'--')+'</td><td><span class="badge '+c+'">'+est+'</span></td><td>'+(ul?'<button onclick="borrarEngrase(\''+cam+'\')" class="btn btn-xs" style="background:var(--red);color:#fff">🗑</button>':'')+'</td></tr>');});var tb=g('tb-engrases');if(tb)tb.innerHTML=rows.join('');}
-async function guardarEngrase(){
-  var cam=gv('eng-cam'),f=gv('eng-f');
-  if(!cam){alert('Selecciona camion');return;}
+function _ultimoLavado(cam){ var a=(KM_DATA[cam]&&KM_DATA[cam].lavado)?String(KM_DATA[cam].lavado).slice(0,10):''; var b=_ultimoServMant(cam,'lavado'); return a>b?a:b; }
+function _ultimoEngrase(cam){ var a=(KM_DATA[cam]&&KM_DATA[cam].engrase)?String(KM_DATA[cam].engrase).slice(0,10):''; var b=_ultimoServMant(cam,'engrase'); return a>b?a:b; }
+// Al registrar un lavado/engrase en la hoja de vida, alimenta su ciclo (km_data) — solo si es más reciente.
+function _sincronizarCicloMant(cam,itemId,fecha){
+  var campo=(itemId==='lavado')?'lavado':(itemId==='engrase')?'engrase':''; if(!campo)return;
+  var f=String(fecha||'').slice(0,10); if(!cam||!f)return;
   if(!KM_DATA[cam])KM_DATA[cam]={km:0,f:'',ultsrv:0,mant:[],lavado:'',engrase:''};
-  KM_DATA[cam].engrase=f;
-  if(DB_READY&&supabase){
-    await supabase.from('km_data').update({engrase:f}).eq('cam',cam);
-    await supabase.from('engrases').insert([{cam:cam,f:f,obs:(SESION?SESION.nombre:'')}]);
+  if(f<=String(KM_DATA[cam][campo]||'').slice(0,10))return; // no retroceder el ciclo
+  KM_DATA[cam][campo]=f;
+  if(DB_READY&&supabase){ var upd={}; upd[campo]=f;
+    supabase.from('km_data').update(upd).eq('cam',cam).then(function(r){ if(r&&r.error&&typeof mostrarToast==='function')mostrarToast('No se pudo sincronizar el ciclo de '+campo+': '+r.error.message,'error'); });
   }
-  audit('Engrase registrado',cam+' '+f);
+}
+// FUENTE ÚNICA: lavado/engrase (y todo mantenimiento) se guardan en UNA sola tabla `mantenimientos`.
+// Tanto este módulo (Lavados/Engrases) como la Hoja de vida escriben AQUÍ → no hay 2 sitios que se
+// desconecten (regla de Máximo: si hay varias vías, que todas alimenten la misma BD). km_data.lavado/
+// engrase queda solo como ESPEJO/caché (lo refresca _sincronizarCicloMant), no es un segundo registro.
+async function _registrarServicioSimple(cam,itemId,nombre,fecha,obs){
+  var f=String(fecha||fechaVE()).slice(0,10);
+  var km=(typeof kmActualCam==='function')?kmActualCam(cam):((KM_DATA[cam]&&KM_DATA[cam].km)||0);
+  var id='MT'+Date.now();
+  var row={id:id,cam:cam,f:f,km:km,item_id:itemId,tipo:nombre,tipo_trabajo:itemId,desc_trabajo:obs||nombre,costo_usd:0,proveedor:'',foto_url:''};
+  var mem={id:id,cam:cam,fecha:f,km:km,itemId:itemId,tipo:nombre,tipoTrabajo:itemId,desc:row.desc_trabajo,costo:0,proveedor:'',foto:''};
+  var ok=false;
+  if(DB_READY&&supabase){ try{ var res=await supabase.from('mantenimientos').upsert([row],{onConflict:'id'}); if(res&&res.error){if(typeof mostrarToast==='function')mostrarToast('No se pudo guardar: '+res.error.message,'error');}else ok=true; }catch(e){ if(typeof mostrarToast==='function')mostrarToast('Sin conexión al guardar.','error'); } }
+  if(!ok&&typeof guardarEnCola==='function')guardarEnCola('mantenimientos',row,'id');
+  if(typeof MANTENIMIENTOS!=='undefined')MANTENIMIENTOS.unshift(mem);
+  _sincronizarCicloMant(cam,itemId,f); // refresca el espejo km_data del ciclo
+  if(km>0){ if(!KM_DATA[cam])KM_DATA[cam]={km:0,f:'',ultsrv:0,mant:[],lavado:'',engrase:''}; if(km>=(parseInt(KM_DATA[cam].km)||0)){KM_DATA[cam].km=km;KM_DATA[cam].f=f;} }
+  audit(nombre+' registrado',cam+' '+f);
+  if(typeof mostrarToast==='function')mostrarToast(ok?('✅ '+nombre+' registrado: '+cam):('⏳ '+nombre+' en cola (se guardará al reconectar)'),ok?'exito':'error');
+  return ok;
+}
+async function guardarLavado(){
+  var cam=gv('lav-cam'),f=gv('lav-f')||fechaVE(),obs=gv('lav-obs')||'';
+  if(!cam){alert('Selecciona camion');return;}
+  await _registrarServicioSimple(cam,'lavado','Lavado',f,obs);
+  sv('lav-obs','');
+  renderLavados();
+}
+function renderEngrases(){var rows=[];Object.keys(FLOTA).filter(function(k){return k.startsWith('JAC-B');}).forEach(function(cam){var ul=_ultimoEngrase(cam);var dias=ul?diasDesde(ul):0;var prox=ul?addDays(ul,15):'--';var est,c;if(!ul){est='Sin datos';c='bt';}else if(dias>15){est='VENCIDO '+dias+'d';c='br';}else if(dias>10){est='PROXIMO';c='by';}else{est='OK';c='bg';}rows.push('<tr><td style="font-weight:700">'+cam+'</td><td>'+(ul?formatFecha(ul):'--')+'</td><td style="font-family:var(--m);color:'+(dias>15?'var(--red)':'var(--text)')+'">'+dias+'</td><td>'+(ul?formatFecha(prox):'--')+'</td><td><span class="badge '+c+'">'+est+'</span></td><td>'+(ul?'<button onclick="borrarEngrase(\''+cam+'\')" class="btn btn-xs" style="background:var(--red);color:#fff">🗑</button>':'')+'</td></tr>');});var tb=g('tb-engrases');if(tb)tb.innerHTML=rows.join('');}
+async function guardarEngrase(){
+  var cam=gv('eng-cam'),f=gv('eng-f')||fechaVE(),obs=gv('eng-obs')||'';
+  if(!cam){alert('Selecciona camion');return;}
+  await _registrarServicioSimple(cam,'engrase','Engrase',f,obs);
+  sv('eng-obs','');
   renderEngrases();
-  alert('✅ Engrase registrado correctamente.');
 }
 function renderHistMant(){
   // FUENTE ÚNICA: lee de MANTENIMIENTOS (tabla persistida, igual que la Hoja de vida).
@@ -5706,6 +5736,7 @@ async function registrarMantItem(){
   if(km>0){ if(!KM_DATA[cam])KM_DATA[cam]={km:0,f:'',ultsrv:0,mant:[],lavado:'',engrase:''}; if(km>=(parseInt(KM_DATA[cam].km)||0)){KM_DATA[cam].km=km;KM_DATA[cam].f=fecha;} }
   // Coherencia con el horímetro: si la unidad va por horas, actualiza horas_actuales (nunca baja).
   if(esHoras&&horas>0){ if(!UNIDAD_CONFIG[cam])UNIDAD_CONFIG[cam]={}; if(horas>=(parseInt(UNIDAD_CONFIG[cam].horasActuales)||0)){UNIDAD_CONFIG[cam].horasActuales=horas; if(DB_READY&&supabase){try{supabase.from('unidad_config').upsert([{cam:cam,horas_actuales:horas}],{onConflict:'cam'}).then(function(){});}catch(e){}}} }
+  _sincronizarCicloMant(cam,itemId,fecha); // si es lavado/engrase, refresca su ciclo (módulo Lavados/plan)
   audit('Mantenimiento registrado',cam+' · '+row.tipo+' ('+tipoTrab+')'+(km?(' · '+km+'km'):'')+(horas?(' · '+horas+'h'):'')+(costo?(' · $'+costo):''));
   window._hvFotoUrl=''; sv('hv-km','');sv('hv-horas','');sv('hv-costo','');sv('hv-nota','');sv('hv-prov','');
   var fp=g('hv-foto-prev'); if(fp)fp.innerHTML='';
