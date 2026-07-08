@@ -15008,15 +15008,19 @@ async function renderConciliacionBNC(){
       // EGRESO que YO debo pagar: Responsabilidad Social del monto base (ley). Lo transfiere
       // Betangar (lunes/martes). Se concilia contra la salida real del banco.
       if(respUsd>0)libros.push({tipo:'egreso',bs:Math.round(respUsd*tasa*100)/100,desc:'Fact '+a.fact+' — Responsabilidad Social '+respPct+'%',lab:'Fact '+a.fact+' resp. social '+respPct+'%',clase:'respsocial',fact:a.fact,baseBs:baseBs,fecha:f,_usado:false});
-      // 7.5% para MÁXIMO BETANCOURT: de CADA factura de la Alcaldía, el 7.5% del monto que ENTRA
-      // al banco (el neto) se transfiere SIEMPRE a su cuenta personal → EGRESO esperado por factura
-      // que cuadra contra la salida real del banco. Misma definición que renderAlcResumen y
-      // pagos_alcaldia.pct75_usd (neto×0.075): fuente única. Solo para abonos que son pago de
-      // Alcaldía (existen en PAGOS_ALC) — no se aplica a otros clientes/contratos.
+      // 7.5% para MÁXIMO BETANCOURT: de CADA factura de la Alcaldía, el 7.5% de TODO lo que ENTRA
+      // al banco se transfiere SIEMPRE a su cuenta personal → EGRESO esperado por factura que cuadra
+      // contra la salida real del banco. Lo que entra son DOS depósitos en momentos distintos: el
+      // NETO (día de la factura) y la FIEL cumplimiento 10% (lunes/martes) → se modela una línea de
+      // 7.5% por cada uno, para que cada transferencia cuadre por separado. 7.5% = 0.075 (misma
+      // definición que renderAlcResumen / pagos_alcaldia.pct75_usd: fuente única). Solo para abonos
+      // que son pago de Alcaldía (existen en PAGOS_ALC) — no se aplica a otros clientes/contratos.
       var esAlcaldia=(typeof PAGOS_ALC!=='undefined')&&PAGOS_ALC.some(function(p){return String(p.fact)===String(a.fact);});
       if(esAlcaldia){
-        var pct75Usd=neto*0.075;
-        if(pct75Usd>0)libros.push({tipo:'egreso',bs:Math.round(pct75Usd*tasa*100)/100,desc:'Fact '+a.fact+' — 7.5% Máximo Betancourt',lab:'Fact '+a.fact+' 7.5% Máximo',clase:'pct75',fact:a.fact,netoBs:Math.round(neto*tasa*100)/100,fecha:f,_usado:false});
+        var pct75Neto=neto*0.075;
+        if(pct75Neto>0)libros.push({tipo:'egreso',bs:Math.round(pct75Neto*tasa*100)/100,desc:'Fact '+a.fact+' — 7.5% Máximo (neto)',lab:'Fact '+a.fact+' 7.5% Máximo neto',clase:'pct75',fact:a.fact,entra:'neto',entraBs:Math.round(neto*tasa*100)/100,fecha:f,_usado:false});
+        var pct75Fiel=fielUsd*0.075;
+        if(pct75Fiel>0)libros.push({tipo:'egreso',bs:Math.round(pct75Fiel*tasa*100)/100,desc:'Fact '+a.fact+' — 7.5% Máximo (fiel)',lab:'Fact '+a.fact+' 7.5% Máximo fiel',clase:'pct75',fact:a.fact,entra:'fiel',entraBs:Math.round(fielUsd*tasa*100)/100,fecha:f,_usado:false});
       }
     });
     BNC_MOV.forEach(function(m){
@@ -15074,10 +15078,10 @@ async function renderConciliacionBNC(){
       var pPag=p75.filter(function(r){return r._usado;}), pPen=p75.filter(function(r){return !r._usado;});
       var totP75=pPen.reduce(function(s,r){return s+r.bs;},0);
       html+='<div class="card" style="margin-bottom:12px"><div style="font-size:12px;font-weight:700;margin-bottom:6px">💰 7.5% para Máximo Betancourt por factura</div>'+
-        '<div style="font-size:10px;color:var(--text3);margin-bottom:8px">7.5% fijo del neto que entra por cada factura de la Alcaldía, transferido a la cuenta personal. Cuadra contra la salida real del banco.</div>'+
+        '<div style="font-size:10px;color:var(--text3);margin-bottom:8px">7.5% fijo de TODO lo que entra por cada factura de la Alcaldía (neto + fiel cumplimiento), transferido a la cuenta personal. Cuadra contra la salida real del banco.</div>'+
         '<div style="font-size:11px;margin-bottom:8px"><span style="color:var(--green)">✅ Transferidas '+pPag.length+'</span> · <span style="color:var(--yellow)">⚠️ Pendientes '+pPen.length+' (Bs '+fmt(totP75)+')</span></div>'+
-        '<div class="tw" style="max-height:240px;overflow:auto"><table style="font-size:11px"><thead><tr><th>Factura</th><th style="text-align:right">Neto Bs</th><th style="text-align:right">7.5%</th><th style="text-align:center">Estado</th></tr></thead><tbody>'+
-        p75.map(function(r){return '<tr><td style="font-size:10px">'+(r.fact||'')+'</td><td style="text-align:right;font-family:var(--m);font-size:10px;color:var(--text3)">'+fmt(r.netoBs)+'</td><td style="text-align:right;font-family:var(--m);color:var(--teal)">'+fmt(r.bs)+'</td><td style="text-align:center">'+(r._usado?'<span style="color:var(--green);font-weight:700">✅ transferido</span>':'<span style="color:var(--yellow);font-weight:700">⚠️ pendiente</span>')+'</td></tr>';}).join('')+
+        '<div class="tw" style="max-height:240px;overflow:auto"><table style="font-size:11px"><thead><tr><th>Factura</th><th>Sobre</th><th style="text-align:right">Entra Bs</th><th style="text-align:right">7.5%</th><th style="text-align:center">Estado</th></tr></thead><tbody>'+
+        p75.map(function(r){return '<tr><td style="font-size:10px">'+(r.fact||'')+'</td><td style="font-size:10px;color:var(--text3)">'+(r.entra||'')+'</td><td style="text-align:right;font-family:var(--m);font-size:10px;color:var(--text3)">'+fmt(r.entraBs)+'</td><td style="text-align:right;font-family:var(--m);color:var(--teal)">'+fmt(r.bs)+'</td><td style="text-align:center">'+(r._usado?'<span style="color:var(--green);font-weight:700">✅ transferido</span>':'<span style="color:var(--yellow);font-weight:700">⚠️ pendiente</span>')+'</td></tr>';}).join('')+
         '</tbody></table></div></div>';
     }
     if(enTransito.length){
