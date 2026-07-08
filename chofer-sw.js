@@ -3,7 +3,7 @@
 // PWA Offline-First para choferes
 // ═══════════════════════════════════════════════════
 
-const CACHE_NAME = 'betangar-chofer-v24'; // v24: foto en ruta secreta por token (no adivinable) — fase 2 candado fotos
+const CACHE_NAME = 'betangar-chofer-v25'; // v25: candado anti-typo de odómetro (km irreal >1500/día pide confirmar)
 
 // Archivos a cachear para funcionar sin internet
 const ARCHIVOS_CACHE = [

@@ -610,6 +610,8 @@ var CL_COMB_LLE = '';
 var CL_ESTADO = '';
 var CL_MODO = 'salida'; // 'salida' o 'llegada'
 var CL_ID_EXISTENTE = null; // id del registro si ya existe hoy
+var CL_KM_PREV = 0; // último odómetro conocido de la unidad (para detectar km irreales/typos)
+var KM_MAX_DIA = 1500; // en Venezuela es imposible rodar >1500 km en 1 día → si el salto es mayor, es typo
 
 // ── INIT ──
 if('serviceWorker' in navigator){
@@ -1498,6 +1500,12 @@ function renderHistorial(){
 
 function cargarChecklistSupabase(){
   if(!supabase) return;
+  // Odómetro previo de la unidad (para validar que el km que meta el chofer no sea irreal).
+  try{
+    supabase.from('km_data').select('km').eq('cam', cam).limit(1).then(function(rk){
+      if(rk && !rk.error && rk.data && rk.data[0] && rk.data[0].km) CL_KM_PREV = parseInt(rk.data[0].km)||0;
+    });
+  }catch(e){}
   supabase.from('checklist').select('*')
     .eq('cam', cam).eq('fecha', hoy)
     .limit(1)
@@ -1714,6 +1722,42 @@ async function guardarChecklist(){
     registro.km_entrada   = parseInt(gv('cl-km-llegada')) || null;
     registro.hora_entrada = gv('cl-hora-llegada') || hora;
     registro.comb_entrada = CL_COMB_LLE || null;
+  }
+
+  // ── CANDADO anti-typo de odómetro ─────────────────────────────────────────────────────────────
+  // En Venezuela es IMPOSIBLE rodar más de 1.500 km en un día. Si el km que mete el chofer salta más
+  // de eso contra el odómetro previo (o la distancia del día es >1.500), es casi seguro un dígito de
+  // más (ej. 111.878 en vez de 11.878, que fue el caso real de la unidad 5). Se le avisa y se le pide
+  // confirmar; si se equivocó, cancela y lo corrige. Evita corromper el odómetro y el próximo servicio.
+  var _kmIng = (CL_MODO==='salida') ? (parseInt(gv('cl-km-salida'))||0) : (parseInt(gv('cl-km-llegada'))||0);
+  if(_kmIng>0){
+    var _susp='', _ref=0;
+    if(CL_MODO==='salida'){
+      if(CL_KM_PREV>0 && _kmIng > CL_KM_PREV + KM_MAX_DIA){ _susp='salto'; _ref=CL_KM_PREV; }
+    } else {
+      var _kmSal = parseInt(gv('cl-km-salida')) || CL_KM_PREV || 0;
+      if(_kmSal>0 && _kmIng > _kmSal + KM_MAX_DIA){ _susp='dia'; _ref=_kmSal; }
+      else if(_kmSal>0 && _kmIng < _kmSal){ _susp='baja'; _ref=_kmSal; }
+    }
+    if(_susp==='salto' || _susp==='dia'){
+      var _msg = '⚠️ Ese kilometraje parece que NO es real.\n\n'+
+        'Venías en '+_ref.toLocaleString('es-VE')+' km y de pronto pones '+_kmIng.toLocaleString('es-VE')+' km.\n'+
+        'Son '+(_kmIng-_ref).toLocaleString('es-VE')+' km en un día — imposible.\n\n'+
+        '¿Seguro que está bien?\n\n'+
+        '• Aceptar → el número es correcto.\n'+
+        '• Cancelar → me equivoqué, pongo el real.';
+      if(!confirm(_msg)){
+        if(btn){ btn.disabled=false; btn.textContent='Guardar'; }
+        var _f=document.getElementById(CL_MODO==='salida'?'cl-km-salida':'cl-km-llegada');
+        if(_f){ try{ _f.focus(); _f.select(); _f.scrollIntoView({block:'center'}); }catch(e){} }
+        return;
+      }
+    } else if(_susp==='baja'){
+      mostrarToast('El km de llegada ('+_kmIng.toLocaleString('es-VE')+') no puede ser menor que el de salida ('+_ref.toLocaleString('es-VE')+'). Revísalo.','warn');
+      if(btn){ btn.disabled=false; btn.textContent='Guardar'; }
+      var _fb=document.getElementById('cl-km-llegada'); if(_fb){ try{ _fb.focus(); _fb.select(); }catch(e){} }
+      return;
+    }
   }
 
   // Guardar localmente primero
