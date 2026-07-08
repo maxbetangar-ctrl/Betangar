@@ -15051,31 +15051,39 @@ async function renderConciliacionBNC(){
       var det=h.detalle||{};
       var addPersona=function(p,rol){
         var bs=Math.round((parseFloat(p&&p.bs)||0)*100)/100; if(bs<=0)return;
-        // Cédula del trabajador (para cuadrar por referencia): se resuelve el nombre del detalle a su
-        // empleado (_empPorNombre, alias-aware) y se toma su cédula en solo-dígitos. Los administrativos
-        // se guardan como CARGO ("Gerente General (Máximo Betancourt)") → si no casa directo, se intenta
-        // con el nombre entre paréntesis.
+        // CÉDULA y CUENTA del trabajador (para cuadrar por referencia): se resuelve el nombre del detalle
+        // a su empleado (_empPorNombre, alias-aware) y se toman su cédula y su nº de cuenta en solo-dígitos.
+        // Los administrativos se guardan como CARGO ("Gerente General (Máximo Betancourt)") → si no casa
+        // directo, se intenta con el nombre entre paréntesis. La CUENTA (20 díg.) es más única que la cédula.
         var _nm=(p&&p.n)||'';
         var _emp=(typeof _empPorNombre==='function')?_empPorNombre(_nm):null;
         if(!_emp&&typeof _empPorNombre==='function'){var _par=_nm.match(/\(([^)]+)\)/);if(_par)_emp=_empPorNombre(_par[1]);}
         var _ced=_emp?String(_emp.cedula||'').replace(/\D/g,''):'';
-        libros.push({tipo:'egreso',bs:bs,desc:'Nómina '+(h.semana||'')+' — '+((p&&p.n)||rol),lab:((p&&p.n)||rol)+' · '+rol,clase:'nomina',rol:rol,persona:(p&&p.n)||'',cedula:_ced,semana:h.semana||'',pagoEst:payIni,fecha:payIni,_usado:false});
+        var _cta=_emp?String(_emp.ncuenta||'').replace(/\D/g,''):'';
+        libros.push({tipo:'egreso',bs:bs,desc:'Nómina '+(h.semana||'')+' — '+((p&&p.n)||rol),lab:((p&&p.n)||rol)+' · '+rol,clase:'nomina',rol:rol,persona:(p&&p.n)||'',cedula:_ced,cuenta:_cta,semana:h.semana||'',pagoEst:payIni,fecha:payIni,_usado:false});
       };
       (det.choferes||[]).forEach(function(p){addPersona(p,'chofer');});
       (det.ayudantes||[]).forEach(function(p){addPersona(p,'ayudante');});
       (det.adm||[]).forEach(function(p){addPersona(p,'fijo');});
     });
     // ── 3) MATCH banco ↔ libros ──
-    // PRE-PASE por CÉDULA (nómina): cada transferencia de nómina va con la cédula del trabajador en la
-    // referencia (dato de Máximo). Si un débito del banco trae una cédula que casa con un trabajador
-    // esperado y el monto cuadra, se empareja a ESE trabajador exacto → resuelve la ambigüedad de los
-    // montos idénticos (muchos cobran igual por viajes). Lo que no traiga cédula cae al match por monto.
+    // PRE-PASE por CUENTA / CÉDULA (nómina): cada transferencia de nómina va con el nº de cuenta y/o la
+    // cédula del trabajador en la referencia (dato de Máximo). Si un débito del banco trae la CUENTA (20
+    // díg., muy única) o la cédula que casa con un trabajador esperado y el monto cuadra, se empareja a
+    // ESE trabajador exacto → resuelve la ambigüedad de montos idénticos (muchos cobran igual por viajes).
+    // La cuenta se prueba primero (más confiable). Lo que no traiga ninguna cae al match por monto.
     bancoMovs.forEach(function(b){
       if(b._conc||b.tipo!=='egreso')return;
       var refDig=String(b.ref||'').replace(/\D/g,''); if(refDig.length<6)return;
       var tol=Math.max(1,b.bs*0.005);
-      var lib=libros.find(function(l){return !l._usado&&l.clase==='nomina'&&l.cedula&&l.cedula.length>=6&&refDig.indexOf(l.cedula)>=0&&Math.abs(l.bs-b.bs)<=tol;});
-      if(lib){lib._usado=true;b._conc=true;b._label=lib.lab;b._porCedula=true;lib._porCedula=true;}
+      var via='';
+      var lib=libros.find(function(l){
+        if(l._usado||l.clase!=='nomina'||Math.abs(l.bs-b.bs)>tol)return false;
+        if(l.cuenta&&l.cuenta.length>=10&&refDig.indexOf(l.cuenta)>=0){via='cuenta';return true;}
+        if(l.cedula&&l.cedula.length>=6&&refDig.indexOf(l.cedula)>=0){via='cédula';return true;}
+        return false;
+      });
+      if(lib){lib._usado=true;b._conc=true;b._label=lib.lab;b._porCedula=true;lib._porCedula=true;lib._via=via;}
     });
     // Match general por MONTO (misma dirección; ingresos 1% por redondeo de tasa, egresos 0.5%).
     bancoMovs.forEach(function(b){
@@ -15146,7 +15154,7 @@ async function renderConciliacionBNC(){
         '<div style="font-size:10px;color:var(--text3);margin-bottom:8px">Cada trabajador se paga por transferencia individual (choferes y ayudantes cobran por viajes; administrativos sueldo fijo). Se paga <b>lunes–martes</b> de la semana siguiente (antes, jueves). Neto del historial de nómina; cuadra contra la salida real del banco.</div>'+
         '<div style="font-size:11px;margin-bottom:8px"><span style="color:var(--green)">✅ Transferidos '+nPag.length+' (Bs '+fmt(totNomPag)+')</span> · <span style="color:var(--yellow)">⚠️ Pendientes '+nPen.length+' (Bs '+fmt(totNomPen)+')</span></div>'+
         '<div class="tw" style="max-height:300px;overflow:auto"><table style="font-size:11px"><thead><tr><th>Trabajador</th><th>Rol</th><th>Semana</th><th>Pago est.</th><th style="text-align:right">Monto Bs</th><th style="text-align:center">Estado</th></tr></thead><tbody>'+
-        nomOrd.map(function(r){return '<tr><td style="font-size:10px">'+(r.persona||'—')+'</td><td>'+rolBadge(r.rol)+'</td><td style="font-size:9px;color:var(--text3)">'+(r.semana||'')+'</td><td style="font-size:9px;color:var(--text3)">'+(r.pagoEst?formatFecha(r.pagoEst):'')+'</td><td style="text-align:right;font-family:var(--m);color:var(--red)">'+fmt(r.bs)+'</td><td style="text-align:center">'+(r._usado?('<span style="color:var(--green);font-weight:700">✅ pagado'+(r._porCedula?' <span title="cuadrado por cédula" style="font-size:8px;color:var(--teal)">✓céd</span>':'')+'</span>'):'<span style="color:var(--yellow);font-weight:700">⚠️ pendiente</span>')+'</td></tr>';}).join('')+
+        nomOrd.map(function(r){return '<tr><td style="font-size:10px">'+(r.persona||'—')+'</td><td>'+rolBadge(r.rol)+'</td><td style="font-size:9px;color:var(--text3)">'+(r.semana||'')+'</td><td style="font-size:9px;color:var(--text3)">'+(r.pagoEst?formatFecha(r.pagoEst):'')+'</td><td style="text-align:right;font-family:var(--m);color:var(--red)">'+fmt(r.bs)+'</td><td style="text-align:center">'+(r._usado?('<span style="color:var(--green);font-weight:700">✅ pagado'+(r._porCedula?' <span title="cuadrado por '+(r._via||'referencia')+'" style="font-size:8px;color:var(--teal)">✓'+(r._via==='cuenta'?'cta':'céd')+'</span>':'')+'</span>'):'<span style="color:var(--yellow);font-weight:700">⚠️ pendiente</span>')+'</td></tr>';}).join('')+
         '</tbody></table></div></div>';
     }
     if(enTransito.length){
