@@ -15037,14 +15037,21 @@ async function renderConciliacionBNC(){
     // esperado en Bs (su NETO, ya con préstamos/multas descontados) → cuadra contra la transferencia
     // real del banco. Se incluyen las semanas cuyo período cae en el rango (o hasta 7 días antes: se
     // paga la semana siguiente). Origen único: mismo detalle que guarda calcNom (bs por persona).
+    // La nómina se PAGA días después de cerrar la semana: histórico JUEVES, desde hace un tiempo
+    // LUNES–MARTES de la semana siguiente, pagando la semana ANTERIOR (dato de Máximo). Por eso una
+    // semana se concilia en el rango de su PAGO, no de su trabajo → se estima una ventana de pago
+    // [hasta+1, hasta+7] (cubre lun/mar, el viejo jueves y hasta 7 días para quien por casualidad
+    // trabajó un domingo) y la semana entra solo si esa ventana toca el rango [desde,hasta].
+    var _masDias=function(f,n){var p=String(f||'').slice(0,10).split('-');if(p.length<3)return '';var d=new Date(Date.UTC(+p[0],+p[1]-1,+p[2]));d.setUTCDate(d.getUTCDate()+n);return d.toISOString().slice(0,10);};
     (typeof NOMINA_HIST!=='undefined'?NOMINA_HIST:[]).forEach(function(h){
       var hStart=String(h.fecha_desde||'').slice(0,10), hEnd=String(h.fecha_hasta||h.fecha_desde||'').slice(0,10);
-      if(hEnd&&hEnd<winIni)return;      // semana demasiado vieja para el rango
-      if(hStart&&hStart>hasta)return;   // semana posterior al rango
+      var base=hEnd||hStart; if(!base)return;
+      var payIni=_masDias(base,1), payFin=_masDias(base,7); // ventana estimada de pago (lun–mar / jueves / hasta +7 por domingo)
+      if(payIni>hasta||payFin<desde)return; // el pago de esta semana no cae en el rango conciliado
       var det=h.detalle||{};
       var addPersona=function(p,rol){
         var bs=Math.round((parseFloat(p&&p.bs)||0)*100)/100; if(bs<=0)return;
-        libros.push({tipo:'egreso',bs:bs,desc:'Nómina '+(h.semana||'')+' — '+((p&&p.n)||rol),lab:((p&&p.n)||rol)+' · '+rol,clase:'nomina',rol:rol,persona:(p&&p.n)||'',semana:h.semana||'',fecha:hEnd||hStart||'',_usado:false});
+        libros.push({tipo:'egreso',bs:bs,desc:'Nómina '+(h.semana||'')+' — '+((p&&p.n)||rol),lab:((p&&p.n)||rol)+' · '+rol,clase:'nomina',rol:rol,persona:(p&&p.n)||'',semana:h.semana||'',pagoEst:payIni,fecha:payIni,_usado:false});
       };
       (det.choferes||[]).forEach(function(p){addPersona(p,'chofer');});
       (det.ayudantes||[]).forEach(function(p){addPersona(p,'ayudante');});
@@ -15115,10 +15122,10 @@ async function renderConciliacionBNC(){
       // Pendientes primero (lo que falta transferir), luego los ya conciliados.
       var nomOrd=nom.slice().sort(function(a,b){return (a._usado?1:0)-(b._usado?1:0);});
       html+='<div class="card" style="margin-bottom:12px"><div style="font-size:12px;font-weight:700;margin-bottom:6px">👷 Nómina y viajes por trabajador</div>'+
-        '<div style="font-size:10px;color:var(--text3);margin-bottom:8px">Cada trabajador se paga por transferencia individual (choferes y ayudantes cobran por viajes; administrativos sueldo fijo). Neto del historial de nómina; cuadra contra la salida real del banco.</div>'+
+        '<div style="font-size:10px;color:var(--text3);margin-bottom:8px">Cada trabajador se paga por transferencia individual (choferes y ayudantes cobran por viajes; administrativos sueldo fijo). Se paga <b>lunes–martes</b> de la semana siguiente (antes, jueves). Neto del historial de nómina; cuadra contra la salida real del banco.</div>'+
         '<div style="font-size:11px;margin-bottom:8px"><span style="color:var(--green)">✅ Transferidos '+nPag.length+' (Bs '+fmt(totNomPag)+')</span> · <span style="color:var(--yellow)">⚠️ Pendientes '+nPen.length+' (Bs '+fmt(totNomPen)+')</span></div>'+
-        '<div class="tw" style="max-height:300px;overflow:auto"><table style="font-size:11px"><thead><tr><th>Trabajador</th><th>Rol</th><th>Semana</th><th style="text-align:right">Monto Bs</th><th style="text-align:center">Estado</th></tr></thead><tbody>'+
-        nomOrd.map(function(r){return '<tr><td style="font-size:10px">'+(r.persona||'—')+'</td><td>'+rolBadge(r.rol)+'</td><td style="font-size:9px;color:var(--text3)">'+(r.semana||'')+'</td><td style="text-align:right;font-family:var(--m);color:var(--red)">'+fmt(r.bs)+'</td><td style="text-align:center">'+(r._usado?'<span style="color:var(--green);font-weight:700">✅ pagado</span>':'<span style="color:var(--yellow);font-weight:700">⚠️ pendiente</span>')+'</td></tr>';}).join('')+
+        '<div class="tw" style="max-height:300px;overflow:auto"><table style="font-size:11px"><thead><tr><th>Trabajador</th><th>Rol</th><th>Semana</th><th>Pago est.</th><th style="text-align:right">Monto Bs</th><th style="text-align:center">Estado</th></tr></thead><tbody>'+
+        nomOrd.map(function(r){return '<tr><td style="font-size:10px">'+(r.persona||'—')+'</td><td>'+rolBadge(r.rol)+'</td><td style="font-size:9px;color:var(--text3)">'+(r.semana||'')+'</td><td style="font-size:9px;color:var(--text3)">'+(r.pagoEst?formatFecha(r.pagoEst):'')+'</td><td style="text-align:right;font-family:var(--m);color:var(--red)">'+fmt(r.bs)+'</td><td style="text-align:center">'+(r._usado?'<span style="color:var(--green);font-weight:700">✅ pagado</span>':'<span style="color:var(--yellow);font-weight:700">⚠️ pendiente</span>')+'</td></tr>';}).join('')+
         '</tbody></table></div></div>';
     }
     if(enTransito.length){
