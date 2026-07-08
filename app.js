@@ -1282,6 +1282,7 @@ async function cargarDatosMinimos(rol){
           KM_DATA[x.cam].ultsrv=parseFloat(x.ult_srv)||0;
           KM_DATA[x.cam].estado=x.estado||'operativo';
           KM_DATA[x.cam].nota_estado=x.nota_estado||'';
+          KM_DATA[x.cam].estado_desde=x.estado_desde||null; KM_DATA[x.cam].estado_confirmado=!!x.estado_confirmado;
           KM_DATA[x.cam].km_entrada_ayer=parseFloat(x.km_entrada_ayer)||0;
           KM_DATA[x.cam].modelo=x.cam.startsWith('SRV')?(x.nota_estado||'Servicio'):'JAC 1035';
         });
@@ -1526,6 +1527,7 @@ async function cargarDatosDB(){
       KM_DATA[x.cam].estado=x.estado||'operativo';
       KM_DATA[x.cam].km_entrada_ayer=parseFloat(x.km_entrada_ayer)||0;
       KM_DATA[x.cam].nota_estado=x.nota_estado||'';
+      KM_DATA[x.cam].estado_desde=x.estado_desde||null; KM_DATA[x.cam].estado_confirmado=!!x.estado_confirmado;
       KM_DATA[x.cam].modelo=x.nota_estado&&x.cam.startsWith('SRV')?x.nota_estado:'JAC 1035';
     });
     // AUDITORIA LOG
@@ -2403,7 +2405,8 @@ function _estadoCamReal(cam){
 }
 function renderFlotaDash(){
   var cams=Object.keys(FLOTA);
-  var op=0,tal=0;
+  var op=0,tal=0,inop=0;
+  var _esc=(typeof _mEsc==='function')?_mEsc:function(s){return String(s==null?'':s);};
   var html='<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:5px">';
   cams.forEach(function(cam){
     var f=FLOTA[cam];
@@ -2414,16 +2417,96 @@ function renderFlotaDash(){
     var km=KM_DATA[cam]?KM_DATA[cam].km:0;
     var c=est==='operativo'?'var(--green)':est==='taller'?'var(--yellow)':'var(--red)';
     var bg=est==='operativo'?'rgba(163,230,53,.07)':est==='taller'?'rgba(251,191,36,.07)':'rgba(248,113,113,.07)';
-    if(est==='operativo')op++;else tal++;
-    html+='<div style="background:'+bg+';border:1px solid '+c+';border-radius:6px;padding:6px;text-align:center;cursor:pointer" onclick="toggleEstCam(\''+cam+'\')" title="'+(deChecklist?'Estado tomado del checklist de hoy. ':'')+'Clic para forzar el estado (override)">'+
+    if(est==='operativo')op++;else if(est==='taller')tal++;else inop++;
+    // No operativo: días fuera (desde estado_desde; si aún no hay, fallback a días sin planilla) + MOTIVO.
+    var noOp=(est!=='operativo');
+    var motivo=(KM_DATA[cam]&&KM_DATA[cam].nota_estado)||'';
+    var dias=null;
+    if(noOp){
+      var desde=KM_DATA[cam]&&KM_DATA[cam].estado_desde;
+      if(desde){ dias=diasDesde(desde); }
+      else { var ult=(typeof REGS!=='undefined'?REGS:[]).filter(function(r){return r.cam===cam;}).sort(function(a,b){return b.f.localeCompare(a.f);})[0]; if(ult)dias=diasDesde(ult.f); }
+    }
+    var motCorto=motivo.length>26?motivo.slice(0,25)+'…':motivo;
+    var titulo=(noOp&&motivo?('Motivo: '+motivo+'. '):'')+(deChecklist?'Estado del checklist de hoy. ':'')+'Clic para cambiar el estado';
+    html+='<div style="background:'+bg+';border:1px solid '+c+';border-radius:6px;padding:6px;text-align:center;cursor:pointer" onclick="toggleEstCam(\''+cam+'\')" title="'+_esc(titulo)+'">'+
       '<div style="font-family:var(--m);font-size:10px;font-weight:800;color:'+c+'">'+cam.replace('JAC-','')+'</div>'+
-      '<div style="font-size:8px;color:'+c+'">'+est.toUpperCase()+(deChecklist?' 🔧':'')+'</div>'+
+      '<div style="font-size:8px;color:'+c+'">'+est.toUpperCase()+(deChecklist?' 🔧':'')+(noOp&&dias!=null?(' · <b>'+dias+'d</b>'):'')+'</div>'+
       '<div style="font-size:9px;color:var(--text3)">'+(km?km.toLocaleString()+'km':'--')+'</div>'+
+      (noOp&&motivo?('<div style="font-size:8px;color:'+c+';margin-top:2px;line-height:1.2;word-break:break-word">'+_esc(motCorto)+'</div>'):'')+
     '</div>';
   });
   html+='</div>';
   var el=g('flota-status');if(el)el.innerHTML=html;
-  var res=g('flota-resumen');if(res)res.textContent=op+' operativos · '+tal+' en taller';
+  var res=g('flota-resumen');if(res)res.textContent=op+' operativos · '+tal+' en taller'+(inop?(' · '+inop+' inoperativo'+(inop>1?'s':'')):'');
+  try{detectarInoperativosSinMotivo();}catch(e){}
+}
+// Ventana que OBLIGA a explicar por qué una unidad lleva >2 días fuera sin motivo. Se abre a
+// superadmin/admin/rrhh/operador. El PRIMERO que responde lo guarda (fuente única km_data.nota_estado)
+// y se le quita a los demás; al superadmin le queda visible hasta que confirme (su respuesta sobrepone).
+function _diasEstadoCam(cam){
+  var d=KM_DATA[cam]&&KM_DATA[cam].estado_desde;
+  if(d)return diasDesde(d);
+  var ult=(typeof REGS!=='undefined'?REGS:[]).filter(function(r){return r.cam===cam;}).sort(function(a,b){return b.f.localeCompare(a.f);})[0];
+  return ult?diasDesde(ult.f):null;
+}
+function detectarInoperativosSinMotivo(){
+  if(typeof SESION==='undefined'||!SESION)return;
+  var rol=SESION.rol||'';
+  if(['superadmin','admin','operador','rrhh'].indexOf(rol)<0)return;
+  var esSuper=(rol==='superadmin');
+  var prev=document.getElementById('inop-pregunta-modal');
+  if(window._inopDismiss){ if(prev)prev.remove(); return; }
+  if(prev)return;   // ya está abierta → no reconstruir (no pisar lo que el usuario está escribiendo)
+  var pend=[];
+  Object.keys(FLOTA||{}).forEach(function(cam){
+    if(_estadoCamReal(cam)==='operativo')return;
+    var dias=_diasEstadoCam(cam);
+    if(dias==null||dias<=2)return;                // solo MÁS de 2 días
+    var nota=(KM_DATA[cam]&&KM_DATA[cam].nota_estado)||'';
+    var conf=!!(KM_DATA[cam]&&KM_DATA[cam].estado_confirmado);
+    var mostrar=esSuper?!conf:!nota;             // super: hasta confirmar · resto: hasta que haya motivo
+    if(mostrar)pend.push({cam:cam,est:_estadoCamReal(cam),dias:dias,nota:nota});
+  });
+  if(!pend.length){ if(prev)prev.remove(); return; }
+  if(prev)prev.remove();
+  var _esc=(typeof _mEsc==='function')?_mEsc:function(s){return String(s==null?'':s);};
+  var ov=document.createElement('div'); ov.id='inop-pregunta-modal';
+  ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:14000;display:flex;align-items:flex-start;justify-content:center;padding:24px 16px;overflow-y:auto';
+  var filas=pend.map(function(p){
+    var tid='inop-txt-'+p.cam.replace(/[^\w-]/g,'_');
+    return '<div style="background:rgba(248,113,113,.08);border:1px solid var(--red);border-radius:10px;padding:12px;margin-bottom:10px">'+
+      '<div style="font-weight:800;color:var(--red);font-size:14px">🚨 '+p.cam.replace('JAC-','')+' — '+p.est.toUpperCase()+' hace '+p.dias+' días</div>'+
+      (p.nota?('<div style="font-size:11px;color:var(--text2);margin:5px 0">Respuesta actual: <b>'+_esc(p.nota)+'</b>'+(esSuper?' — verificá y corregí si hace falta (tu respuesta manda).':'')+'</div>'):'<div style="font-size:11px;color:var(--text3);margin:5px 0">Nadie ha explicado por qué está fuera.</div>')+
+      '<textarea id="'+tid+'" rows="2" placeholder="¿Por qué está fuera? Averígualo y escribilo aquí…" style="width:100%;background:var(--bg2,#16181d);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px;font-size:12px;box-sizing:border-box">'+_esc(p.nota||'')+'</textarea>'+
+      '<button class="btn btn-g btn-sm" style="margin-top:6px" onclick="guardarMotivoInoperativo(\''+p.cam+'\')">💾 Guardar motivo</button>'+
+    '</div>';
+  }).join('');
+  ov.innerHTML='<div style="background:var(--bg2,#16181d);border:1px solid var(--red);border-radius:12px;max-width:560px;width:100%;padding:16px">'+
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><div style="font-weight:800;font-size:15px">🔎 ¿Por qué están fuera estas unidades?</div>'+
+    '<button class="btn btn-r btn-xs" onclick="window._inopDismiss=true;document.getElementById(\'inop-pregunta-modal\').remove()">Después</button></div>'+
+    '<div style="font-size:11px;color:var(--text3);margin-bottom:10px">Llevan MÁS DE 2 DÍAS fuera y falta el motivo. El primero que responda lo deja guardado para todos.'+(esSuper?' Como superadmin, tu respuesta manda y cierra el aviso.':'')+'</div>'+
+    filas+'</div>';
+  document.body.appendChild(ov);
+}
+async function guardarMotivoInoperativo(cam){
+  var el=document.getElementById('inop-txt-'+cam.replace(/[^\w-]/g,'_')); if(!el)return;
+  var val=(el.value||'').trim();
+  if(!val){alert('Escribí el motivo primero.');return;}
+  var esSuper=(SESION&&SESION.rol==='superadmin');
+  if(!KM_DATA[cam])KM_DATA[cam]={mant:[]};
+  KM_DATA[cam].nota_estado=val;
+  KM_DATA[cam].estado_confirmado=!!esSuper;   // solo el superadmin confirma; el resto deja la respuesta a verificar
+  if(!KM_DATA[cam].estado_desde)KM_DATA[cam].estado_desde=(typeof fechaVE==='function')?fechaVE():new Date().toISOString().slice(0,10);
+  if(DB_READY&&supabase){
+    var r=await supabase.from('km_data').update({nota_estado:val,estado_confirmado:!!esSuper}).eq('cam',cam);
+    if(r&&r.error){alert('No se pudo guardar: '+r.error.message);return;}
+  }
+  if(typeof audit==='function')audit('Motivo inoperativo',cam+': '+val+(esSuper?' (superadmin confirma)':''));
+  if(typeof mostrarToast==='function')mostrarToast('✅ Motivo guardado para '+cam.replace('JAC-',''),'exito');
+  var _m=document.getElementById('inop-pregunta-modal'); if(_m)_m.remove();   // cerrar para reconstruir con lo que quede
+  try{renderFlotaDash();}catch(e){}
+  detectarInoperativosSinMotivo();   // re-evaluar: muestra las que falten (o no abre si ya no hay)
 }
 
 function toggleEstCam(cam){
@@ -2432,15 +2515,29 @@ function toggleEstCam(cam){
   var cur=_estadoOverride[cam]||estadoDelChecklist(cam)||(KM_DATA[cam]&&KM_DATA[cam].estado)||FLOTA[cam].estado||'operativo';
   if(String(cur).indexOf('taller')===0)cur='taller';
   var nv=ests[((ests.indexOf(cur)+1+ests.length)%ests.length)];
+  var nota=(KM_DATA[cam]&&KM_DATA[cam].nota_estado)||'', desde=null;
+  var hoy=(typeof fechaVE==='function')?fechaVE():new Date().toISOString().slice(0,10);
+  if(nv!=='operativo'){
+    // Pedir el MOTIVO real (para saber por qué está fuera y cuántos días lleva). Fuente única: km_data.
+    var motivo=prompt('¿Por qué la unidad '+cam.replace('JAC-','')+' pasa a '+nv.toUpperCase()+'?\n(ej: en taller · cambio de aceite · frenos malos · choque · sin repuesto…)', nota);
+    if(motivo===null)return;                 // canceló → no cambia nada
+    motivo=String(motivo||'').trim();
+    if(!motivo){alert('Necesito el motivo para dejar la unidad como '+nv+'.');return;}
+    nota=motivo;
+    // La fecha de inicio se conserva si YA venía no-operativa (para no reiniciar los días al re-tocar).
+    var yaNoOp=(cur!=='operativo');
+    desde=(yaNoOp&&KM_DATA[cam]&&KM_DATA[cam].estado_desde)?KM_DATA[cam].estado_desde:hoy;
+  } else { nota=''; desde=null; }           // vuelve a operativo → limpia motivo y fecha
   FLOTA[cam].estado=nv;
   if(!KM_DATA[cam])KM_DATA[cam]={mant:[]};
-  KM_DATA[cam].estado=nv;
+  KM_DATA[cam].estado=nv; KM_DATA[cam].nota_estado=nota; KM_DATA[cam].estado_desde=desde;
+  KM_DATA[cam].estado_confirmado=(nv!=='operativo'); // seteo deliberado con motivo = confirmado
   _estadoOverride[cam]=nv;   // override manual: gana sobre el checklist hasta recargar
   renderFlotaDash();
   // PERSISTIR (antes era solo local y se perdía): km_data.estado es la fuente que también
   // leen/escriben el chofer y el mecánico → así oficina y apps quedan ENLAZADAS.
   if(DB_READY&&supabase){
-    supabase.from('km_data').update({estado:nv}).eq('cam',cam).then(function(r){if(r&&r.error)console.log('km_data estado:',r.error.message);});
+    supabase.from('km_data').update({estado:nv,nota_estado:nota,estado_desde:desde,estado_confirmado:(nv!=='operativo'),updated_by:(SESION&&SESION.nombre)||'oficina'}).eq('cam',cam).then(function(r){if(r&&r.error)console.log('km_data estado:',r.error.message);});
     supabase.from('flota_estado').upsert([{unidad:cam,estado:nv,updated_by:(SESION&&SESION.nombre)||'oficina',updated_at:new Date().toISOString()}],{onConflict:'unidad'}).then(function(){});
   }
 }
@@ -12432,11 +12529,17 @@ function mecGuardarEstado(cam){
 
   // Actualizar local
   if(!KM_DATA[cam])KM_DATA[cam]={mant:[]};
+  // Fecha de inicio del estado (para los días fuera): hoy si entra no-operativa; se conserva si ya
+  // venía con nota (no reinicia los días al reeditar); se limpia al volver a operativa. Fuente única km_data.
+  var _hoyMec=(typeof fechaVE==='function')?fechaVE():new Date().toISOString().slice(0,10);
+  var _desdeMec=(estado!=='operativo')?((KM_DATA[cam].estado_desde&&notaAnterior)?KM_DATA[cam].estado_desde:_hoyMec):null;
   KM_DATA[cam].estado=estado;
   KM_DATA[cam].nota_estado=nota;
+  KM_DATA[cam].estado_desde=_desdeMec;
+  KM_DATA[cam].estado_confirmado=(estado!=='operativo'); // el mecánico es autoridad → queda confirmado
   // Guardar en Supabase
   if(DB_READY&&supabase){
-    supabase.from('km_data').update({estado:estado,nota_estado:nota,updated_by:SESION.nombre||''}).eq('cam',cam).then(function(res){
+    supabase.from('km_data').update({estado:estado,nota_estado:nota,estado_desde:_desdeMec,estado_confirmado:(estado!=='operativo'),updated_by:SESION.nombre||''}).eq('cam',cam).then(function(res){
       if(res.error){alert('Error: '+res.error.message);return;}
       mecRenderizar();
       closeModal();
