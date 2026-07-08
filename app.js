@@ -2886,7 +2886,12 @@ var _ALIAS_NOMBRES={
   'ANDRI CUBA':'ANDRY JOSE CUBA SUAREZ',
   'YIBER GONZALEZ':'YIRBER LENITHON GONZALEZ MONTIEL',
   'JONH J DELGADO':'JHON JAIRO DELGADO GONZALEZ',
-  'JESUSANGEL PARRA':'JESUS ANGEL PARRA ATENCIO'
+  'JESUSANGEL PARRA':'JESUS ANGEL PARRA ATENCIO',
+  // Typos de tipeo (misma persona) — el historial de nómina guarda el nombre congelado con el error,
+  // así que estas semanas viejas resuelven al nombre CORREGIDO (que trae cédula/cuenta tras recargar
+  // el Excel). Máximo corrigió el Excel y lo va a recargar; el alias cubre lo ya guardado.
+  'JONH JAIRO DELGADO GONZALEZ':'JHON JAIRO DELGADO GONZALEZ',
+  'MANUELFRANCISCO LOPEZ GONZALEZ':'MANUEL FRANCISCO LOPEZ GONZALEZ'
 };
 // Persistencia del mapa de alias (corto→completo) construido en la importación: se guarda en
 // localStorage y se recarga aquí, para que _nombreCanonico resuelva nombres (ej. MANUEL LOPEZ →
