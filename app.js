@@ -2520,9 +2520,20 @@ function _esCxpCombustible(c){
   var n=String(c.nota||'').toLowerCase();
   return d.indexOf('compra combustible')===0 || n.indexOf('desde combustible')>=0;
 }
+// Nómina REAL (USD) = suma del total de cada semana guardada en el historial (nomina_historial),
+// que es el total del MOTOR OFICIAL calcNom (viajes + IMAU + recargo domingo + patio + sueldos
+// fijos admin − descuentos de préstamos/multas). Antes se restaba una ESTIMACIÓN viajes×tarifa
+// plana que ignoraba todo eso e INFLABA la Utilidad Real (auditoría #2). Fallback a la estimación
+// SOLO si aún no hay semanas guardadas en el historial (para no restar $0).
+function _nominaRealUsd(){
+  if(typeof NOMINA_HIST!=='undefined'&&NOMINA_HIST&&NOMINA_HIST.length){
+    return NOMINA_HIST.reduce(function(s,h){return s+(parseFloat(h.total_usd)||0);},0);
+  }
+  return (typeof REGS!=='undefined'?REGS:[]).reduce(function(s,r){return s+(r.t*(cfg.chofer+cfg.ayud));},0);
+}
 function _totalEgresos(totalCob){
   totalCob=totalCob||0;
-  var egNom=REGS.reduce(function(s,r){return s+(r.t*(cfg.chofer+cfg.ayud));},0);          // nómina
+  var egNom=_nominaRealUsd();          // nómina REAL (historial calcNom), no la estimación viajes×tarifa
   // Combustible: SOLO las COMPRAS (no los despachos = movimiento interno del tanque ya pagado). La
   // compra se cuenta UNA vez (decisión de Máximo). Las CxP de combustible se excluyen de egCxP abajo
   // para no duplicar. Antes egGas sumaba compras+despachos + la CxP → mismo combustible 2-3 veces.
@@ -8520,7 +8531,7 @@ function renderFinDash(){
   var totalFact=REGS.reduce(function(s,r){return s+r.m;},0);
   var totalCob=Math.min(ABONOS.reduce(function(s,a){return s+a.m;},0),totalFact);
   var porcobrar=Math.max(0,totalFact-totalCob);
-  var egNom=REGS.reduce(function(s,r){return s+(r.t*(cfg.chofer+cfg.ayud));},0);
+  var egNom=_nominaRealUsd();  // nómina REAL (historial calcNom) — misma fuente que _totalEgresos (auditoría #2)
   // Combustible = solo COMPRAS (no despachos); las CxP de combustible se excluyen de egCxP (= _totalEgresos)
   var egGas=GASOIL.reduce(function(s,g){return s+(_rentEsCompra(g)?(parseFloat(g.m)||0):0);},0);
   var eg75=totalCob*0.075;
