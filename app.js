@@ -2299,14 +2299,18 @@ function imprimirDashboard(){
   var flotaRows=cams.map(function(cam){
     var est=_estadoCamReal(cam); // fuente única (igual que el widget y la disponibilidad)
     if(est==='operativo')op++;else if(est==='taller')tal++;else ino++;
-    var km=(typeof kmActualCam==='function'?kmActualCam(cam):((KM_DATA[cam]&&KM_DATA[cam].km)||0)); km=km?km.toLocaleString('es-VE'):'--';
+    var kmN=(typeof kmActualCam==='function'?kmActualCam(cam):((KM_DATA[cam]&&KM_DATA[cam].km)||0));
+    var km=kmN?kmN.toLocaleString('es-VE'):'--';
     var col=est==='operativo'?'#15803d':est==='taller'?'#b45309':'#dc2626';
+    // Próximo cambio (servicio): km que faltan según el odómetro (fuente única proxServicio).
+    var prox='--',proxCol='#8a94a6';
+    if(kmN>0&&typeof proxServicio==='function'){var ps=proxServicio(kmN);var falta=ps-kmN;if(falta<=0){prox='VENCIDO';proxCol='#dc2626';}else{prox=falta.toLocaleString('es-VE')+' km';proxCol=(falta<=500?'#b45309':'#8a94a6');}}
     // Para las NO operativas: días fuera + motivo (mismo dato del dashboard, fuente única km_data).
     var noOp=(est!=='operativo');
     var motivo=(KM_DATA[cam]&&KM_DATA[cam].nota_estado)||'';
     var dias=noOp?((typeof _diasEstadoCam==='function')?_diasEstadoCam(cam):null):null;
     var diaMot=noOp?(((dias!=null)?(dias+' días'):'')+((motivo)?(((dias!=null)?' · ':'')+motivo):'')):'—';
-    return '<tr><td style="font-weight:700">'+cam.replace('JAC-','')+'</td><td style="color:'+col+';font-weight:700">'+est.toUpperCase()+'</td><td style="text-align:right;font-family:monospace">'+km+'</td><td style="font-size:8px;color:'+(noOp?col:'#8a94a6')+'">'+(diaMot||'—')+'</td></tr>';
+    return '<tr><td style="font-weight:700">'+cam.replace('JAC-','')+'</td><td style="color:'+col+';font-weight:700">'+est.toUpperCase()+'</td><td style="text-align:right;font-family:monospace">'+km+'</td><td style="text-align:right;font-size:8px;color:'+proxCol+'">'+prox+'</td><td style="font-size:8px;color:'+(noOp?col:'#8a94a6')+'">'+(diaMot||'—')+'</td></tr>';
   }).join('');
   // Ranking top 5
   var chMap={};
@@ -2367,9 +2371,11 @@ function imprimirDashboard(){
     '<div class="bar"><i style="width:'+pct+'%"></i></div>'+
     '<div class="mut">Cobrado '+usd(totalCob)+' de '+usd(totalM)+' ('+pct+'%) · Pendiente '+usd(porcobrar)+' = '+fmt(vPorCob)+' viajes</div>'+
     bancosHtml+
+    '<h2>Estado de flota ('+op+' oper · '+tal+' taller'+(ino?' · '+ino+' inop':'')+')</h2>'+
+    '<table><thead><tr><th>Unidad</th><th>Estado</th><th style="text-align:right">KM</th><th style="text-align:right">Próx. cambio</th><th>Motivo (si está parado)</th></tr></thead><tbody>'+flotaRows+'</tbody></table>'+
     '<div class="cols">'+
-      '<div><h2>Estado de flota ('+op+' oper · '+tal+' taller'+(ino?' · '+ino+' inop':'')+')</h2><table><thead><tr><th>Unidad</th><th>Estado</th><th>KM</th><th>Días / Motivo</th></tr></thead><tbody>'+flotaRows+'</tbody></table></div>'+
       '<div><h2>Meta semana ('+semHoy+')</h2><div class="mut">'+fmt(vMeta)+' / '+fmt(meta.viajesFlota)+' viajes</div><div class="bar"><i style="width:'+pctMeta+'%;background:'+(pctMeta>=80?'#4ade80':pctMeta>=50?'#fbbf24':'#f87171')+'"></i></div><div class="mut">'+pctMeta+'% completado</div></div>'+
+      '<div><h2>Vencimientos próximos (≤30 días)</h2><table><thead><tr><th>Documento</th><th>Vence</th></tr></thead><tbody>'+vencRows+'</tbody></table></div>'+
     '</div>'+
     '<div class="ftr">'+brandNom()+' · '+brandRif()+' · '+brandCiudad()+' · '+brandEmail()+' · Generado '+gen+'</div>'+
     '</div></body></html>';
