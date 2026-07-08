@@ -2297,8 +2297,13 @@ async function imprimirDashboard(){
   var _mesActK=_msN[_mi]+'-'+String(_yr).slice(2);
   var _pmi=_mi-1,_pyr=_yr;if(_pmi<0){_pmi=11;_pyr--;}
   var _mesAntK=_msN[_pmi]+'-'+String(_pyr).slice(2);
-  var _facAct=REGS.filter(function(r){return r.mes===_mesActK;}).reduce(function(s,r){return s+r.m;},0);
-  var _facAnt=REGS.filter(function(r){return r.mes===_mesAntK;}).reduce(function(s,r){return s+r.m;},0);
+  // Comparación JUSTA: mismos días transcurridos de cada mes (mes actual 1..D vs mes anterior 1..D),
+  // D = último día cargado del mes actual. Evita el sesgo de comparar un mes a medias contra uno completo.
+  var _diaDe=function(f){return f?(parseInt(String(f).slice(8,10))||0):0;};
+  var _regsAct=REGS.filter(function(r){return r.mes===_mesActK;});
+  var _Dcorte=_regsAct.reduce(function(mx,r){var d=_diaDe(r.f);return d>mx?d:mx;},0);
+  var _facAct=_regsAct.reduce(function(s,r){return s+r.m;},0);
+  var _facAnt=REGS.filter(function(r){return r.mes===_mesAntK && _diaDe(r.f)<=_Dcorte;}).reduce(function(s,r){return s+r.m;},0);
   var _tendPct=_facAnt>0?Math.round((_facAct-_facAnt)/_facAnt*100):(_facAct>0?100:0);
   var tendTxt=(_tendPct>0?'▲ +':(_tendPct<0?'▼ ':'• '))+_tendPct+'%';
   var tendCol=_tendPct>0?'#16a34a':(_tendPct<0?'#dc2626':'#8a94a6');
@@ -2386,7 +2391,7 @@ async function imprimirDashboard(){
       kpi('Cobrado',usd(totalCob),fmt(vCobV)+' viajes · '+pct+'%','#16a34a')+
       kpi('Por Cobrar',usd(porcobrar),fmt(vPorCob)+' viajes','#dc2626')+
       kpi('Utilidad Real',esRRHH?'—':usd(utilReal),esRRHH?'Restringido':('Margen '+margen+'% · cobrado − todos los gastos'),esRRHH?'':(utilReal>=0?'#15803d':'#dc2626'))+
-      kpi('Tendencia mes',esRRHH?'—':tendTxt,esRRHH?'Restringido':('Facturado '+_mesActK+' vs '+_mesAntK),esRRHH?'':tendCol)+
+      kpi('Tendencia mes',esRRHH?'—':tendTxt,esRRHH?'Restringido':('Facturado '+_mesActK+' vs '+_mesAntK+' · mismos '+_Dcorte+' días'),esRRHH?'':tendCol)+
       kpi('Flota',op+' oper · '+tal+' taller'+(ino?' · '+ino+' inop':''),cams.length+' unidades · '+(cams.length?Math.round(op/cams.length*100):0)+'% disponible')+
       kpi('Saldo BNC',saldoTxt,'')+
     '</div>'+
