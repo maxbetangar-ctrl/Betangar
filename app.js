@@ -4953,6 +4953,21 @@ function enviarReporteJAC(){
   audit('Reporte JAC enviado','12 camiones');
 }
 
+// ═══ HELPERS de FLOTA (agnósticos a la nomenclatura de unidad) ═══════════════
+// Aíslan cómo se nombran las unidades para que el módulo de mantenimiento sirva en CUALQUIER clon
+// (Betangar usa 'JAC-B0XX'; otros clientes usan otra cosa). Al clonar, solo se ajustan estos 3.
+function _flotaUnidades(){ return Object.keys(FLOTA||{}).filter(function(k){return k.indexOf('JAC-B')===0;}); }
+function _unidadCorta(cam){ return String(cam||'').replace('JAC-B','B'); }
+// Resuelve lo que el usuario escribe (número "1,2,3" o el id completo) a una unidad real de la flota,
+// casando por el sufijo numérico (agnóstico: JAC-B001 ↔ "1"). '' si no casa.
+function _resolverUnidad(n){
+  var s=String(n||'').trim(); if(!s)return '';
+  if(FLOTA&&FLOTA[s])return s;
+  var d=s.replace(/\D/g,'').replace(/^0+/,''); if(!d)return '';
+  var keys=_flotaUnidades();
+  for(var i=0;i<keys.length;i++){ if(String(keys[i]).replace(/\D/g,'').replace(/^0+/,'')===d)return keys[i]; }
+  return '';
+}
 // ═══ ÓRDENES DE SERVICIO (Fase 1) ═══════════════════════════════════════════
 // La orden se EMITE liviana (unidades, proveedor, tipo de servicio, ítem, notas) para mandar el carro;
 // se GUARDA en BD (ordenes_servicio) y se imprime para el taller. El km es automático (el que carga el
@@ -4975,7 +4990,7 @@ function _osPoblarForm(){
   var f=g('os-fecha');if(f&&!f.value)f.value=(typeof fechaVE==='function')?fechaVE():new Date().toISOString().slice(0,10);
 }
 async function guardarOrdenServicio(){
-  var cams=String(gv('os-cams')||'').split(/[,;\s]+/).map(function(n){var d=String(n).replace(/\D/g,'');return d?'JAC-B'+d.padStart(3,'0'):'';}).filter(function(c,i,arr){return c&&FLOTA[c]&&arr.indexOf(c)===i;});
+  var cams=String(gv('os-cams')||'').split(/[,;\s]+/).map(function(n){return _resolverUnidad(n);}).filter(function(c,i,arr){return c&&FLOTA[c]&&arr.indexOf(c)===i;});
   if(!cams.length){alert('Escribe al menos una unidad válida (solo números, ej: 1,2,3).');return;}
   var provSel=gv('os-prov'), provNom='', provId='';
   if(provSel==='__otro'){provNom=(gv('os-prov-otro')||'').trim();}
@@ -5030,7 +5045,7 @@ function renderOrdenesServicio(){
       return '<tr>'+
         '<td class="mono" style="font-size:10px">'+_mEsc(o.id)+'</td>'+
         '<td>'+formatFecha(o.fecha)+'</td>'+
-        '<td style="font-size:11px">'+(o.cams||[]).map(function(c){return String(c).replace('JAC-B','');}).join(', ')+'</td>'+
+        '<td style="font-size:11px">'+(o.cams||[]).map(function(c){return _unidadCorta(c);}).join(', ')+'</td>'+
         '<td style="font-size:11px">'+_mEsc(_OS_TIPO_LBL[o.tipo]||o.tipo)+'</td>'+
         '<td style="font-size:11px">'+_mEsc(o.proveedor||'—')+'</td>'+
         '<td style="font-size:11px">'+_mEsc(o.item||'—')+'</td>'+
@@ -5052,9 +5067,9 @@ function _iniciarCierreOrden(id){
   if(!pend.length){alert('Todas las unidades de esta orden ya están registradas.');return;}
   var cam=pend[0];
   if(pend.length>1){
-    var el=prompt('La orden tiene '+pend.length+' unidades pendientes:\n'+pend.map(function(c){return c.replace('JAC-B','');}).join(', ')+'\n\n¿Cuál vas a registrar ahora? (número, ej: '+pend[0].replace('JAC-B','')+')');
+    var el=prompt('La orden tiene '+pend.length+' unidades pendientes:\n'+pend.map(function(c){return _unidadCorta(c);}).join(', ')+'\n\n¿Cuál vas a registrar ahora? (número, ej: '+_unidadCorta(pend[0])+')');
     if(el===null)return;
-    var norm='JAC-B'+String(el).replace(/\D/g,'').padStart(3,'0');
+    var norm=_resolverUnidad(el);
     if(pend.indexOf(norm)>=0)cam=norm;
   }
   window._ordCerrando={id:id,cam:cam};
@@ -5068,7 +5083,7 @@ function _iniciarCierreOrden(id){
     if(g('hv-tipotrabajo'))sv('hv-tipotrabajo',ttPorTipo[o.tipo]||'cambio');
     if(o.proveedor)sv('hv-prov',o.proveedor);
     if(o.item)sv('hv-nota',o.item);
-    if(typeof mostrarToast==='function')mostrarToast('Cerrando orden '+id+' → '+cam.replace('JAC-B','B')+'. Completá km/costo y guardá.','exito');
+    if(typeof mostrarToast==='function')mostrarToast('Cerrando orden '+id+' → '+_unidadCorta(cam)+'. Completá km/costo y guardá.','exito');
   };
   if(typeof _cargarMantTodo==='function' && !(MANT_ITEMS&&MANT_ITEMS.length)){ _cargarMantTodo().then(_fill).catch(_fill); } else { _fill(); }
 }
@@ -5461,7 +5476,7 @@ async function guardarKm(){
 }
 function renderLavados(){
   var rows=[];var alertas=[];
-  Object.keys(FLOTA).filter(function(k){return k.startsWith('JAC-B');}).forEach(function(cam){
+  _flotaUnidades().forEach(function(cam){
     var ul=_ultimoLavado(cam);
     var dias=ul?diasDesde(ul):0;
     var prox=ul?addDays(ul,45):'--';
@@ -5495,7 +5510,7 @@ function _proxDomingos(n){
 }
 function _planLavado(cap){
   cap=parseInt(cap)||2; if(cap<1)cap=1;
-  var cams=Object.keys(FLOTA).filter(function(k){return k.startsWith('JAC-B');});
+  var cams=_flotaUnidades();
   var lista=cams.map(function(cam){
     var ul=_ultimoLavado(cam);
     return {cam:cam,ul:ul,due:ul?addDays(ul,45).slice(0,10):'2000-01-01',dias:ul?diasDesde(ul):9999};
@@ -5517,7 +5532,7 @@ function renderPlanLavado(){
   var rows=plan.map(function(p){
     var uni=p.unidades.map(function(u){
       var col=u.dias>45?'color:var(--red);font-weight:700':(u.dias>35?'color:var(--yellow);font-weight:700':'');
-      return '<span style="'+col+'">'+u.cam.replace('JAC-B','B')+'</span> <small style="color:var(--text3)">('+(u.ul?u.dias+'d':'sin dato')+')</small>';
+      return '<span style="'+col+'">'+_unidadCorta(u.cam)+'</span> <small style="color:var(--text3)">('+(u.ul?u.dias+'d':'sin dato')+')</small>';
     }).join(' &nbsp;·&nbsp; ');
     return '<tr><td style="font-weight:700;white-space:nowrap">'+formatFecha(p.domingo)+'</td><td style="text-align:center;font-family:var(--m)">'+p.unidades.length+'</td><td style="font-size:11px">'+uni+'</td></tr>';
   }).join('');
@@ -5596,7 +5611,7 @@ async function guardarLavado(){
   sv('lav-obs','');
   renderLavados();
 }
-function renderEngrases(){var rows=[];Object.keys(FLOTA).filter(function(k){return k.startsWith('JAC-B');}).forEach(function(cam){var ul=_ultimoEngrase(cam);var dias=ul?diasDesde(ul):0;var prox=ul?addDays(ul,15):'--';var est,c;if(!ul){est='Sin datos';c='bt';}else if(dias>15){est='VENCIDO '+dias+'d';c='br';}else if(dias>10){est='PROXIMO';c='by';}else{est='OK';c='bg';}rows.push('<tr><td style="font-weight:700">'+cam+'</td><td>'+(ul?formatFecha(ul):'--')+'</td><td style="font-family:var(--m);color:'+(dias>15?'var(--red)':'var(--text)')+'">'+dias+'</td><td>'+(ul?formatFecha(prox):'--')+'</td><td><span class="badge '+c+'">'+est+'</span></td><td>'+(ul?'<button onclick="borrarEngrase(\''+cam+'\')" class="btn btn-xs" style="background:var(--red);color:#fff">🗑</button>':'')+'</td></tr>');});var tb=g('tb-engrases');if(tb)tb.innerHTML=rows.join('');}
+function renderEngrases(){var rows=[];_flotaUnidades().forEach(function(cam){var ul=_ultimoEngrase(cam);var dias=ul?diasDesde(ul):0;var prox=ul?addDays(ul,15):'--';var est,c;if(!ul){est='Sin datos';c='bt';}else if(dias>15){est='VENCIDO '+dias+'d';c='br';}else if(dias>10){est='PROXIMO';c='by';}else{est='OK';c='bg';}rows.push('<tr><td style="font-weight:700">'+cam+'</td><td>'+(ul?formatFecha(ul):'--')+'</td><td style="font-family:var(--m);color:'+(dias>15?'var(--red)':'var(--text)')+'">'+dias+'</td><td>'+(ul?formatFecha(prox):'--')+'</td><td><span class="badge '+c+'">'+est+'</span></td><td>'+(ul?'<button onclick="borrarEngrase(\''+cam+'\')" class="btn btn-xs" style="background:var(--red);color:#fff">🗑</button>':'')+'</td></tr>');});var tb=g('tb-engrases');if(tb)tb.innerHTML=rows.join('');}
 async function guardarEngrase(){
   var cam=gv('eng-cam'),f=gv('eng-f')||fechaVE(),obs=gv('eng-obs')||'';
   if(!cam){alert('Selecciona camion');return;}
