@@ -2262,7 +2262,7 @@ function renderDash(){
   var perms=PERMISOS[SESION?SESION.rol:'visualizador']||PERMISOS['admin']||[];
   if(perms.indexOf('financiero')>=0)renderDashFinanciero(totalM,totalCob,porcobrar);
   // Flota
-  renderFlotaDash();renderRankingTop5();renderMetasDash();renderVencimientosDash();renderAlertasCriticas();
+  renderFlotaDash();renderMetasDash();renderVencimientosDash();renderAlertasCriticas();
   try{renderChecklistAnomalias();}catch(e){}
   try{renderInteligenciaFlota();}catch(e){} // 🧠 panel de inteligencia para el dueño/gerente
   updTank();
@@ -2407,7 +2407,7 @@ function renderFlotaDash(){
   var cams=Object.keys(FLOTA);
   var op=0,tal=0,inop=0;
   var _esc=(typeof _mEsc==='function')?_mEsc:function(s){return String(s==null?'':s);};
-  var html='<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:5px">';
+  var html='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(155px,1fr));gap:7px">';
   cams.forEach(function(cam){
     var f=FLOTA[cam];
     // Estado ENLAZADO con chofer/mecánico vía fuente única _estadoCamReal (= la que usa Disponibilidad).
@@ -2427,13 +2427,14 @@ function renderFlotaDash(){
       if(desde){ dias=diasDesde(desde); }
       else { var ult=(typeof REGS!=='undefined'?REGS:[]).filter(function(r){return r.cam===cam;}).sort(function(a,b){return b.f.localeCompare(a.f);})[0]; if(ult)dias=diasDesde(ult.f); }
     }
-    var motCorto=motivo.length>26?motivo.slice(0,25)+'…':motivo;
-    var titulo=(noOp&&motivo?('Motivo: '+motivo+'. '):'')+(deChecklist?'Estado del checklist de hoy. ':'')+'Clic para cambiar el estado';
-    html+='<div style="background:'+bg+';border:1px solid '+c+';border-radius:6px;padding:6px;text-align:center;cursor:pointer" onclick="toggleEstCam(\''+cam+'\')" title="'+_esc(titulo)+'">'+
-      '<div style="font-family:var(--m);font-size:10px;font-weight:800;color:'+c+'">'+cam.replace('JAC-','')+'</div>'+
-      '<div style="font-size:8px;color:'+c+'">'+est.toUpperCase()+(deChecklist?' 🔧':'')+(noOp&&dias!=null?(' · <b>'+dias+'d</b>'):'')+'</div>'+
-      '<div style="font-size:9px;color:var(--text3)">'+(km?km.toLocaleString()+'km':'--')+'</div>'+
-      (noOp&&motivo?('<div style="font-size:8px;color:'+c+';margin-top:2px;line-height:1.2;word-break:break-word">'+_esc(motCorto)+'</div>'):'')+
+    // Dashboard = SOLO VISUALIZAR (el estado se cambia desde los otros módulos: mecánico/checklist,
+    // no desde acá para no cambiarlo por error). El motivo se muestra COMPLETO + tooltip con todo.
+    var titulo=(noOp&&motivo?('Motivo: '+motivo):'')+(deChecklist?((noOp&&motivo?' · ':'')+'Estado tomado del checklist de hoy'):'');
+    html+='<div style="background:'+bg+';border:1px solid '+c+';border-radius:9px;padding:10px 11px" title="'+_esc(titulo)+'">'+
+      '<div style="font-family:var(--m);font-size:14px;font-weight:800;color:'+c+'">'+cam.replace('JAC-','')+'</div>'+
+      '<div style="font-size:10px;font-weight:700;color:'+c+';margin-top:2px">'+est.toUpperCase()+(deChecklist?' 🔧':'')+(noOp&&dias!=null?(' · '+dias+'d'):'')+'</div>'+
+      '<div style="font-size:10px;color:var(--text3);margin-top:1px">'+(km?km.toLocaleString()+' km':'--')+'</div>'+
+      (noOp&&motivo?('<div style="font-size:11px;color:'+c+';margin-top:6px;line-height:1.35;word-break:break-word;text-align:left">📝 '+_esc(motivo)+'</div>'):'')+
     '</div>';
   });
   html+='</div>';
