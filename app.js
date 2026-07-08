@@ -5035,12 +5035,59 @@ function renderOrdenesServicio(){
         '<td style="font-size:11px">'+_mEsc(o.proveedor||'—')+'</td>'+
         '<td style="font-size:11px">'+_mEsc(o.item||'—')+'</td>'+
         '<td>'+(_OS_EST_BADGE[o.estado]||o.estado)+'</td>'+
-        '<td><button class="btn btn-s btn-xs" onclick="_osImprimirOrdenPorId(\''+o.id+'\')">🖨</button></td>'+
+        '<td><button class="btn btn-s btn-xs" onclick="_osImprimirOrdenPorId(\''+o.id+'\')">🖨</button>'+(o.estado!=='hecha'?' <button class="btn btn-g btn-xs" onclick="_iniciarCierreOrden(\''+o.id+'\')">✅ Hecho</button>':'')+'</td>'+
       '</tr>';
     }).join('')||'<tr><td colspan="8" style="text-align:center;color:var(--text3);padding:20px">Sin órdenes emitidas</td></tr>';
   }
   var res=g('os-resumen');
   if(res){var em=ORDENES_SERV.filter(function(o){return o.estado==='emitida';}).length;var he=ORDENES_SERV.filter(function(o){return o.estado==='hecha';}).length;res.innerHTML='<span style="color:var(--yellow)">🟡 Emitidas '+em+'</span> · <span style="color:var(--green)">🟢 Hechas '+he+'</span> · Total '+ORDENES_SERV.length;}
+}
+// CIERRE de una orden: abre el registro de mantenimiento PRE-LLENADO para una unidad pendiente de la
+// orden. Al guardar (registrarMantItem), el evento queda ligado (orden_id) y la orden se actualiza.
+// Emitir ≠ hacer: aquí se llena el km/costo real y pasa por el anti-fraude (si es adelantado, pide motivo).
+function _iniciarCierreOrden(id){
+  var o=(ORDENES_SERV||[]).find(function(x){return x.id===id;}); if(!o){alert('Orden no encontrada');return;}
+  var hechas={}; (MANTENIMIENTOS||[]).forEach(function(m){ if(m.ordenId===id && m.cam)hechas[m.cam]=1; });
+  var pend=(o.cams||[]).filter(function(c){return !hechas[c];});
+  if(!pend.length){alert('Todas las unidades de esta orden ya están registradas.');return;}
+  var cam=pend[0];
+  if(pend.length>1){
+    var el=prompt('La orden tiene '+pend.length+' unidades pendientes:\n'+pend.map(function(c){return c.replace('JAC-B','');}).join(', ')+'\n\n¿Cuál vas a registrar ahora? (número, ej: '+pend[0].replace('JAC-B','')+')');
+    if(el===null)return;
+    var norm='JAC-B'+String(el).replace(/\D/g,'').padStart(3,'0');
+    if(pend.indexOf(norm)>=0)cam=norm;
+  }
+  window._ordCerrando={id:id,cam:cam};
+  // mostrar la pestaña Mantenimiento (hoja de vida) — misma lógica de display que switchKmTab
+  ['odo','lav','eng','prog','hist','hv','ord'].forEach(function(x){var e=g('tab-km-'+x);var sw=g('sw-km-'+x);if(e)e.style.display=x==='hv'?'block':'none';if(sw){sw.classList.remove('on');if(x==='hv')sw.classList.add('on');}});
+  var _fill=function(){
+    renderHojaVida();
+    sv('hv-cam',cam); if(typeof _hvPrefillKm==='function')_hvPrefillKm();
+    var itemPorTipo={lavado:'lavado',engrase:'engrase'}; var it=itemPorTipo[o.tipo]||''; if(it)sv('hv-item',it);
+    var ttPorTipo={lavado:'lavado',cambio:'cambio',inspeccion:'inspeccion',correctivo:'correctivo',preventivo:'cambio'};
+    if(g('hv-tipotrabajo'))sv('hv-tipotrabajo',ttPorTipo[o.tipo]||'cambio');
+    if(o.proveedor)sv('hv-prov',o.proveedor);
+    if(o.item)sv('hv-nota',o.item);
+    if(typeof mostrarToast==='function')mostrarToast('Cerrando orden '+id+' → '+cam.replace('JAC-B','B')+'. Completá km/costo y guardá.','exito');
+  };
+  if(typeof _cargarMantTodo==='function' && !(MANT_ITEMS&&MANT_ITEMS.length)){ _cargarMantTodo().then(_fill).catch(_fill); } else { _fill(); }
+}
+// Tras registrar un mantenimiento ligado a una orden: recalcula su estado (emitida→en_proceso→hecha)
+// según cuántas de sus unidades ya tienen evento ligado. Fuente única: mantenimientos.orden_id.
+function _cerrarOrdenTrasMant(ordenId){
+  var o=(ORDENES_SERV||[]).find(function(x){return x.id===ordenId;}); if(!o)return;
+  var hechas={}; (MANTENIMIENTOS||[]).forEach(function(m){ if(m.ordenId===ordenId && m.cam)hechas[m.cam]=1; });
+  var total=(o.cams||[]).length||1;
+  var nHechas=(o.cams||[]).filter(function(c){return hechas[c];}).length;
+  var nuevo=nHechas>=total?'hecha':(nHechas>0?'en_proceso':'emitida');
+  o.estado=nuevo;
+  var patch={estado:nuevo};
+  if(nuevo==='hecha'){ o.fechaCierre=(typeof fechaVE==='function')?fechaVE():''; patch.fecha_cierre=o.fechaCierre;
+    var costo=0; (MANTENIMIENTOS||[]).forEach(function(m){ if(m.ordenId===ordenId)costo+=(parseFloat(m.costo)||0); }); o.costo=Math.round(costo*100)/100; patch.costo_usd=o.costo;
+  }
+  if(DB_READY&&supabase){ try{ supabase.from('ordenes_servicio').update(patch).eq('id',ordenId).then(function(r){if(r&&r.error&&typeof mostrarToast==='function')mostrarToast('No se pudo actualizar la orden: '+r.error.message,'error');}); }catch(e){} }
+  if(typeof mostrarToast==='function')mostrarToast(nuevo==='hecha'?('🟢 Orden '+ordenId+' COMPLETADA'):('🔵 Orden '+ordenId+' en proceso ('+nHechas+'/'+total+')'),'exito');
+  try{renderOrdenesServicio();}catch(e){}
 }
 
 // ═══════════════════════════════════════════════════
@@ -5626,7 +5673,7 @@ async function cargarMantenimientos(){
   try{
     var r=await supabase.from('mantenimientos').select('*').order('f',{ascending:false}).limit(5000);
     if(r&&!r.error&&Array.isArray(r.data)){
-      MANTENIMIENTOS=r.data.map(function(x){return {id:x.id||('MT'+(x.cam||'')+'-'+(x.f||'')+'-'+(x.km||0)+'-'+(x.item_id||x.tipo||'')),cam:x.cam||'',fecha:x.f||'',km:parseInt(x.km)||0,horas:parseInt(x.horas)||0,itemId:x.item_id||'',tipo:x.tipo||'',tipoTrabajo:x.tipo_trabajo||'',desc:x.desc_trabajo||'',costo:parseFloat(x.costo_usd)||0,proveedor:x.proveedor||'',foto:x.foto_url||'',anomalia:x.anomalia===true,motivo:x.motivo||''};});
+      MANTENIMIENTOS=r.data.map(function(x){return {id:x.id||('MT'+(x.cam||'')+'-'+(x.f||'')+'-'+(x.km||0)+'-'+(x.item_id||x.tipo||'')),cam:x.cam||'',fecha:x.f||'',km:parseInt(x.km)||0,horas:parseInt(x.horas)||0,itemId:x.item_id||'',tipo:x.tipo||'',tipoTrabajo:x.tipo_trabajo||'',desc:x.desc_trabajo||'',costo:parseFloat(x.costo_usd)||0,proveedor:x.proveedor||'',foto:x.foto_url||'',anomalia:x.anomalia===true,motivo:x.motivo||'',ordenId:x.orden_id||''};});
     }
   }catch(e){ console.log('mantenimientos load:',e&&e.message); }
 }
@@ -5774,9 +5821,11 @@ async function registrarMantItem(){
   }
   var foto=window._hvFotoUrl||'';
   var id='MT'+Date.now();
+  // Si se está CERRANDO una orden de servicio para esta unidad, se enlaza el evento a la orden.
+  var _oc=(window._ordCerrando&&window._ordCerrando.cam===cam)?window._ordCerrando.id:'';
   // fila para la tabla `mantenimientos` (snake_case) — MISMA tabla que guardarKm → fuente única
-  var row={id:id,cam:cam,f:fecha,km:km,horas:horas,item_id:itemId,tipo:(it?it.nombre:itemId),tipo_trabajo:tipoTrab,desc_trabajo:nota||(it?it.nombre:''),costo_usd:costo,proveedor:prov,foto_url:foto,anomalia:anomalia,motivo:motivo};
-  var mem={id:id,cam:cam,fecha:fecha,km:km,horas:horas,itemId:itemId,tipo:row.tipo,tipoTrabajo:tipoTrab,desc:row.desc_trabajo,costo:costo,proveedor:prov,foto:foto,anomalia:anomalia,motivo:motivo};
+  var row={id:id,cam:cam,f:fecha,km:km,horas:horas,item_id:itemId,tipo:(it?it.nombre:itemId),tipo_trabajo:tipoTrab,desc_trabajo:nota||(it?it.nombre:''),costo_usd:costo,proveedor:prov,foto_url:foto,anomalia:anomalia,motivo:motivo,orden_id:_oc};
+  var mem={id:id,cam:cam,fecha:fecha,km:km,horas:horas,itemId:itemId,tipo:row.tipo,tipoTrabajo:tipoTrab,desc:row.desc_trabajo,costo:costo,proveedor:prov,foto:foto,anomalia:anomalia,motivo:motivo,ordenId:_oc};
   var ok=false;
   if(DB_READY&&supabase){
     try{ var res=await supabase.from('mantenimientos').upsert([row],{onConflict:'id'});
@@ -5795,6 +5844,7 @@ async function registrarMantItem(){
   var fp=g('hv-foto-prev'); if(fp)fp.innerHTML='';
   renderHojaVida();
   if(typeof mostrarToast==='function')mostrarToast(ok?'✅ Mantenimiento guardado en la hoja de vida':'⚠️ En cola (sin conexión)',ok?'exito':'error');
+  if(_oc){ _cerrarOrdenTrasMant(_oc); window._ordCerrando=null; } // cerrar/actualizar la orden de servicio
 }
 function eliminarMantItem(id){
   if(!confirm('¿Eliminar este registro de mantenimiento?'))return;
