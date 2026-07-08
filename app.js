@@ -1440,8 +1440,12 @@ async function cargarDatosDB(){
       // Fallback localStorage
       try{var _g=localStorage.getItem('btg_gasoil');if(_g)GASOIL=JSON.parse(_g);}catch(e){}
     }
-    // GASOLINA a empleados (beneficio) — para que el costo del dashboard (Utilidad Real) lo incluya.
-    try{ if(typeof cargarGasolinaBenef==='function'){cargarGasolinaBenef().then(function(){_gasBenefCargado=true;}).catch(function(){});} }catch(e){}
+    // GASOLINA personal (tabla gasol): el módulo la GUARDABA pero NO la CARGABA de la BD (solo
+    // localStorage) → en otro equipo salía vacía y no contaba como costo. Ahora se carga de la BD
+    // (fuente única) → alimenta "Gasolina Personal" y el costo (Utilidad Real, egGasol).
+    try{ var _gs=await supabase.from('gasol').select('*').order('f',{ascending:false}).limit(3000);
+      if(_gs&&!_gs.error&&Array.isArray(_gs.data)){ GASOL=_gs.data.map(function(x){return{id:x.id,f:x.f,per:x.per,lit:parseFloat(x.lit)||0,m:parseFloat(x.m)||0};}); try{localStorage.setItem('btg_gasol',JSON.stringify(GASOL));}catch(e){} }
+    }catch(e){}
     // TANQUE: nivel persistido en configuracion (clave 'tanque_nivel') — fuente de verdad
     try{
       var _tn=await supabase.from('configuracion').select('valor').eq('clave','tanque_nivel').maybeSingle();
@@ -2710,10 +2714,10 @@ function _totalEgresos(totalCob){
   // Multas que paga la EMPRESA, en USD. _multaMontoUsd soporta divisa (USD/EUR) y legacy Bs;
   // si no hay tasa real para una multa en Bs/EUR, devuelve 0 (no inventa) — ver helper.
   var egMul=(typeof MULTAS!=='undefined'?MULTAS:[]).filter(function(m){return m.resp!=='chofer';}).reduce(function(s,m){return s+_multaMontoUsd(m);},0);
-  // Gasolina a empleados (beneficio): ES costo real (afecta Utilidad Real). NO es prestacional (no
-  // entra a nómina) — vive en su propia tabla, aparte del gasoil de la flota. Regla de Máximo.
-  var egGasBenef=(typeof GASOLINA_BENEF!=='undefined'?GASOLINA_BENEF:[]).reduce(function(s,x){return s+(parseFloat(x.monto)||0);},0);
-  return egNom+egGas+eg75+egFijos+egVars+egCxP+egMul+egGasBenef;
+  // GASOLINA a empleados (módulo "Gasolina Personal", tabla gasol): ES costo real (afecta Utilidad
+  // Real). NO es prestacional (no entra a nómina). Fuente única = la tabla gasol que ya existe.
+  var egGasol=(typeof GASOL!=='undefined'?GASOL:[]).reduce(function(s,x){return s+(parseFloat(x.m)||0);},0);
+  return egNom+egGas+eg75+egFijos+egVars+egCxP+egMul+egGasol;
 }
 function _utilReal(totalCob){ return (totalCob||0) - _totalEgresos(totalCob); }
 function renderDashFinanciero(totalM,totalCob,porcobrar){
@@ -15632,7 +15636,7 @@ async function ccViajesPorCam(fecha){
 
 /* --------------------------- NAVEGACIÓN / SELECTS --------------------------- */
 function switchCCTab(t){
-  ['dash','med','cam','rep','gas'].forEach(function(x){
+  ['dash','med','cam','rep'].forEach(function(x){
     var el=g('cc-tab-'+x), sw=g('sw-cc-'+x);
     if(el)el.style.display=(x===t)?'block':'none';
     if(sw){sw.classList.remove('on');if(x===t)sw.classList.add('on');}
@@ -15641,60 +15645,8 @@ function switchCCTab(t){
   if(t==='med'){renderCCMediciones();renderCCBalance();}
   if(t==='cam')renderCCPorCamion();
   if(t==='rep'){var ay=g('cc-rep-anio');if(ay&&!ay.value)ay.value=new Date().getFullYear();var me=g('cc-rep-mes');if(me)me.value=String(new Date().getMonth()+1);}
-  if(t==='gas'){ if(!_gasBenefCargado){_gasBenefCargado=true;cargarGasolinaBenef().then(renderGasolinaBenef).catch(renderGasolinaBenef);} else renderGasolinaBenef(); }
 }
 
-// ═══ GASOLINA a EMPLEADOS (beneficio, no prestacional) ═══════════════════════
-var GASOLINA_BENEF=[]; var _gasBenefCargado=false;
-async function cargarGasolinaBenef(){
-  if(!(DB_READY&&supabase))return;
-  try{var r=await supabase.from('gasolina_beneficio').select('*').order('fecha',{ascending:false}).limit(3000);
-    if(!r.error&&Array.isArray(r.data))GASOLINA_BENEF=r.data.map(function(x){return{id:x.id,fecha:x.fecha,empId:x.empleado_id||'',empleado:x.empleado||'',litros:parseFloat(x.litros)||0,monto:parseFloat(x.monto_usd)||0,uso:x.uso||'',nota:x.nota||''};});
-  }catch(e){console.log('[gasolina_beneficio]',e&&e.message);}
-}
-function _gbPoblarEmp(){
-  var s=g('gb-emp'); if(!s)return; var prev=s.value;
-  var emps=(typeof EMPLEADOS!=='undefined'?EMPLEADOS:[]).filter(function(e){return e.activo;}).sort(function(a,b){return String(a.nombre||'').localeCompare(String(b.nombre||''));});
-  s.innerHTML='<option value="">— empleado —</option>'+emps.map(function(e){return '<option value="'+_mEsc(e.id)+'">'+_mEsc(e.nombre)+(e.cargo?(' · '+_mEsc(e.cargo)):'')+'</option>';}).join('');
-  if(prev)s.value=prev;
-}
-async function guardarGasolinaBenef(){
-  var empId=gv('gb-emp'); if(!empId){alert('Elegí el empleado');return;}
-  var emp=(typeof EMPLEADOS!=='undefined'?EMPLEADOS:[]).find(function(e){return String(e.id)===String(empId);});
-  var litros=parseFloat(gv('gb-litros'))||0, monto=parseFloat(gv('gb-monto'))||0;
-  if(monto<=0){alert('Ingresá el costo $ de la gasolina');return;}
-  var fecha=gv('gb-fecha')||((typeof fechaVE==='function')?fechaVE():new Date().toISOString().slice(0,10));
-  var row={id:'GB'+Date.now(),fecha:fecha,empleado_id:empId,empleado:emp?emp.nombre:'',litros:litros,monto_usd:monto,uso:(gv('gb-uso')||'').trim(),nota:(gv('gb-nota')||'').trim()};
-  var ok=false;
-  if(DB_READY&&supabase){var res=await supabase.from('gasolina_beneficio').insert([row]).select();if(res.error){if(typeof mostrarToast==='function')mostrarToast('No se pudo guardar: '+res.error.message,'error');}else ok=true;}
-  if(!ok&&typeof guardarEnCola==='function')guardarEnCola('gasolina_beneficio',row);
-  GASOLINA_BENEF.unshift({id:row.id,fecha:row.fecha,empId:empId,empleado:row.empleado,litros:litros,monto:monto,uso:row.uso,nota:row.nota});
-  audit('Gasolina beneficio empleado',row.empleado+' $'+monto+' ('+litros+'L)');
-  ['gb-litros','gb-monto','gb-uso','gb-nota'].forEach(function(id){sv(id,'');});
-  renderGasolinaBenef();
-  if(typeof mostrarToast==='function')mostrarToast(ok?('✅ Gasolina registrada: '+row.empleado):'⏳ En cola (sin conexión)',ok?'exito':'error');
-}
-function eliminarGasolinaBenef(id){
-  if(!confirm('¿Borrar este registro de gasolina?'))return;
-  GASOLINA_BENEF=GASOLINA_BENEF.filter(function(x){return x.id!==id;});
-  if(DB_READY&&supabase)supabase.from('gasolina_beneficio').delete().eq('id',id).then(function(r){if(r&&r.error&&typeof mostrarToast==='function')mostrarToast('No se pudo borrar: '+r.error.message,'error');});
-  audit('Gasolina beneficio borrado',String(id)); renderGasolinaBenef();
-}
-function renderGasolinaBenef(){
-  _gbPoblarEmp();
-  var fe=g('gb-fecha'); if(fe&&!fe.value)fe.value=(typeof fechaVE==='function')?fechaVE():'';
-  var tb=g('tb-gasben');
-  if(tb)tb.innerHTML=(GASOLINA_BENEF||[]).map(function(x){
-    return '<tr><td>'+formatFecha(x.fecha)+'</td><td style="font-weight:700">'+_mEsc(x.empleado||'—')+'</td><td style="font-family:var(--m)">'+(x.litros||0)+' L</td><td style="text-align:right;font-family:var(--m);color:var(--red)">$'+(x.monto||0).toFixed(2)+'</td><td style="font-size:11px">'+_mEsc(x.uso||'')+'</td><td><button class="btn btn-r btn-xs" onclick="eliminarGasolinaBenef(\''+x.id+'\')">x</button></td></tr>';
-  }).join('')||'<tr><td colspan="6" style="text-align:center;color:var(--text3);padding:20px">Sin registros</td></tr>';
-  var res=g('gb-resumen');
-  if(res){
-    var porEmp={}, total=0;
-    (GASOLINA_BENEF||[]).forEach(function(x){var k=x.empleado||'—';porEmp[k]=(porEmp[k]||0)+(x.monto||0);total+=(x.monto||0);});
-    var filas=Object.keys(porEmp).sort(function(a,b){return porEmp[b]-porEmp[a];}).map(function(n){return '<div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid var(--border)"><span style="font-size:11px">'+_mEsc(n)+'</span><span style="font-family:var(--m);color:var(--yellow)">$'+porEmp[n].toFixed(2)+'</span></div>';}).join('');
-    res.innerHTML=(filas||'<div style="color:var(--text3);font-size:11px">Sin registros aún</div>')+'<div style="display:flex;justify-content:space-between;padding:6px 0;font-weight:700;margin-top:4px;border-top:2px solid var(--border)"><span>TOTAL beneficio</span><span style="font-family:var(--m);color:var(--red)">$'+total.toFixed(2)+'</span></div>';
-  }
-}
 function ccPoblarSelects(){
   // Tanques del galpón en el form de medición
   var selT=g('cc-med-tanque');
