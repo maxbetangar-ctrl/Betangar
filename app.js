@@ -2301,7 +2301,12 @@ function imprimirDashboard(){
     if(est==='operativo')op++;else if(est==='taller')tal++;else ino++;
     var km=(typeof kmActualCam==='function'?kmActualCam(cam):((KM_DATA[cam]&&KM_DATA[cam].km)||0)); km=km?km.toLocaleString('es-VE'):'--';
     var col=est==='operativo'?'#15803d':est==='taller'?'#b45309':'#dc2626';
-    return '<tr><td style="font-weight:700">'+cam.replace('JAC-','')+'</td><td style="color:'+col+';font-weight:700">'+est.toUpperCase()+'</td><td style="text-align:right;font-family:monospace">'+km+'</td><td style="font-size:8px">'+(FLOTA[cam].chofer||'--')+'</td></tr>';
+    // Para las NO operativas: días fuera + motivo (mismo dato del dashboard, fuente única km_data).
+    var noOp=(est!=='operativo');
+    var motivo=(KM_DATA[cam]&&KM_DATA[cam].nota_estado)||'';
+    var dias=noOp?((typeof _diasEstadoCam==='function')?_diasEstadoCam(cam):null):null;
+    var diaMot=noOp?(((dias!=null)?(dias+' días'):'')+((motivo)?(((dias!=null)?' · ':'')+motivo):'')):'—';
+    return '<tr><td style="font-weight:700">'+cam.replace('JAC-','')+'</td><td style="color:'+col+';font-weight:700">'+est.toUpperCase()+'</td><td style="text-align:right;font-family:monospace">'+km+'</td><td style="font-size:8px;color:'+(noOp?col:'#8a94a6')+'">'+(diaMot||'—')+'</td></tr>';
   }).join('');
   // Ranking top 5
   var chMap={};
@@ -2363,16 +2368,9 @@ function imprimirDashboard(){
     '<div class="mut">Cobrado '+usd(totalCob)+' de '+usd(totalM)+' ('+pct+'%) · Pendiente '+usd(porcobrar)+' = '+fmt(vPorCob)+' viajes</div>'+
     bancosHtml+
     '<div class="cols">'+
-      '<div><h2>Flota ('+op+' operativos / '+tal+' taller)</h2><table><thead><tr><th>Unidad</th><th>Estado</th><th>KM</th><th>Chofer</th></tr></thead><tbody>'+flotaRows+'</tbody></table></div>'+
-      '<div><h2>Top 5 Choferes</h2><table><thead><tr><th>#</th><th>Chofer</th><th>Viajes</th></tr></thead><tbody>'+rankRows+'</tbody></table>'+
-        '<h2>Meta semana ('+semHoy+')</h2><div class="mut">'+fmt(vMeta)+' / '+fmt(meta.viajesFlota)+' viajes</div><div class="bar"><i style="width:'+pctMeta+'%;background:'+(pctMeta>=80?'#4ade80':pctMeta>=50?'#fbbf24':'#f87171')+'"></i></div><div class="mut">'+pctMeta+'% completado</div>'+
-      '</div>'+
-    '</div></div>'+
-    '<div class="pg page2">'+hdr+'<div class="cols">'+
-      '<div><h2>Vencimientos próximos (≤30 días)</h2><table><thead><tr><th>Documento</th><th>Vence</th></tr></thead><tbody>'+vencRows+'</tbody></table></div>'+
-      '<div><h2>Alertas operativas</h2>'+alertHtml+'</div>'+
+      '<div><h2>Estado de flota ('+op+' oper · '+tal+' taller'+(ino?' · '+ino+' inop':'')+')</h2><table><thead><tr><th>Unidad</th><th>Estado</th><th>KM</th><th>Días / Motivo</th></tr></thead><tbody>'+flotaRows+'</tbody></table></div>'+
+      '<div><h2>Meta semana ('+semHoy+')</h2><div class="mut">'+fmt(vMeta)+' / '+fmt(meta.viajesFlota)+' viajes</div><div class="bar"><i style="width:'+pctMeta+'%;background:'+(pctMeta>=80?'#4ade80':pctMeta>=50?'#fbbf24':'#f87171')+'"></i></div><div class="mut">'+pctMeta+'% completado</div></div>'+
     '</div>'+
-    '<h2>Últimas planillas</h2><table><thead><tr><th>Planilla</th><th>Fecha</th><th>Unidad</th><th>Chofer</th><th>Viajes</th><th>Monto</th></tr></thead><tbody>'+ultRows+'</tbody></table>'+
     '<div class="ftr">'+brandNom()+' · '+brandRif()+' · '+brandCiudad()+' · '+brandEmail()+' · Generado '+gen+'</div>'+
     '</div></body></html>';
   abrirVentanaImpresion(html);
