@@ -1515,7 +1515,11 @@ async function cargarDatosDB(){
     if(gv2.data&&gv2.data.length)GASTOS_VARIABLES=gv2.data.map(function(x){return{id:x.id,fecha:x.fecha,cat:x.categoria||'',desc:x.descripcion||'',bs:parseFloat(x.monto_bs)||0,usd:parseFloat(x.monto_usd)||0,ref:x.referencia||'',fact:x.factura||''};});
     // PAGOS ALCALDÍA
     // Fuente de verdad Supabase: usar resultado aunque sea vacío (sin error) → no reaparecen seeds.
-    if(!palc.error&&Array.isArray(palc.data))PAGOS_ALC=palc.data.map(function(x){var _b=parseFloat(x.base_usd)||0,_iva=_b*0.16;return{id:x.id,fecha:x.fecha,fact:x.factura,ref:x.referencia||'',viajes:parseInt(x.viajes)||0,tasa:parseFloat(x.tasa_bcv)||0,base:_b,iva:_iva,total:_b+_iva,neto:parseFloat(x.neto_usd)||0,fiel:parseFloat(x.fiel_usd)||0,fielDevuelto:x.fiel_devuelto||false,pct75:x.pct75_pagado||false};});
+    if(!palc.error&&Array.isArray(palc.data)){PAGOS_ALC=palc.data.map(function(x){var _b=parseFloat(x.base_usd)||0,_iva=_b*0.16;return{id:x.id,fecha:x.fecha,fact:x.factura,ref:x.referencia||'',viajes:parseInt(x.viajes)||0,tasa:parseFloat(x.tasa_bcv)||0,base:_b,iva:_iva,total:_b+_iva,neto:parseFloat(x.neto_usd)||0,fiel:parseFloat(x.fiel_usd)||0,fielDevuelto:x.fiel_devuelto||false,pct75:x.pct75_pagado||false};});
+      // Sanar duplicados históricos por FACTURA (bug de guardarPagoAlcaldia ya corregido): si BD
+      // trae 2 filas de la misma factura, quedarse con la ÚLTIMA para no inflar Neto/Facturado/7.5%.
+      var _vist={},_dedup=[]; for(var _i=PAGOS_ALC.length-1;_i>=0;_i--){var _fk=String(PAGOS_ALC[_i].fact||'');if(_fk&&_vist[_fk])continue;if(_fk)_vist[_fk]=1;_dedup.unshift(PAGOS_ALC[_i]);} PAGOS_ALC=_dedup;
+    }
     // KM DATA
     if(km.data&&km.data.length)km.data.forEach(function(x){
       if(!KM_DATA[x.cam])KM_DATA[x.cam]={mant:[]};
@@ -8760,19 +8764,28 @@ function guardarPagoAlcaldia(){
   var p=perfilRetencion(contratoId);
   var base=viajes*cfg.tarifa;
   var r=calcRetenciones(base,p,gv('alc-laboral'));
-  var pago={id:'ALC'+Date.now(),fecha:gv('alc-fecha'),fact:factAlc,ref:gv('alc-ref'),viajes:viajes,tasa:tasa,base:base,iva:r.iva,total:r.total,neto:r.neto,fiel:r.fiel,fielDevuelto:false,pct75:false,contrato:contratoId||null};
-  PAGOS_ALC.push(pago);
-  // Agregar como abono — identidad por FACTURA: si ya existe esa factura no se duplica,
-  // se actualiza. Además se PERSISTE con upsert (antes solo quedaba local y se perdia).
-  // `contrato` solo se incluye si se eligió uno distinto al default (así no toca la columna
-  // nueva si la migración aún no corre; el default Alcaldía sigue funcionando igual que antes).
+  // Identidad por FACTURA (no por fecha) para NO duplicar. Bug histórico (auditoría 2026-07-06):
+  // se hacía PAGOS_ALC.push incondicional con id NUEVO ('ALC'+Date.now()) cada vez y el upsert a
+  // pagos_alcaldia es onConflict:'id' → al ACTUALIZAR un pago quedaban 2 filas (vieja+nueva) en el
+  // array y en BD → Neto Recibido / Facturado / 7.5% de Máximo se DUPLICABAN (sobrevivía al reload
+  // porque la rehidratación tampoco deduplica). Fix: si la factura ya existe, REUTILIZAR su id y
+  // REEMPLAZAR en el array (así el upsert sobrescribe la MISMA fila), preservando los flags
+  // fielDevuelto/pct75 ya marcados. Confirmamos UNA sola vez antes de tocar nada.
+  var iPalc=PAGOS_ALC.findIndex(function(p){return String(p.fact)===String(factAlc);});
+  var iAlc=ABONOS.findIndex(function(a){return String(a.fact)===String(factAlc);});
+  if(iPalc>=0||iAlc>=0){
+    if(!confirm('Ya existe un pago con la factura '+factAlc+'.\n\nNO se va a duplicar. ¿Actualizarlo con este pago?'))return;
+  }
+  var prevPalc=(iPalc>=0)?PAGOS_ALC[iPalc]:null;
+  var pagoId=(prevPalc&&prevPalc.id)?prevPalc.id:'ALC'+Date.now();
+  var pago={id:pagoId,fecha:gv('alc-fecha'),fact:factAlc,ref:gv('alc-ref'),viajes:viajes,tasa:tasa,base:base,iva:r.iva,total:r.total,neto:r.neto,fiel:r.fiel,fielDevuelto:prevPalc?!!prevPalc.fielDevuelto:false,pct75:prevPalc?!!prevPalc.pct75:false,contrato:contratoId||null};
+  if(iPalc>=0){PAGOS_ALC[iPalc]=pago;}else{PAGOS_ALC.push(pago);}
+  // Agregar/actualizar como abono — misma identidad por FACTURA. Se PERSISTE con upsert (antes solo
+  // quedaba local y se perdia). `contrato` solo se incluye si se eligió uno distinto al default (así
+  // no toca la columna nueva si la migración aún no corre; el default Alcaldía sigue igual que antes).
   var abAlc={f:pago.fecha,fact:factAlc,v:viajes,m:r.neto,obs:'Pago Alcaldia',ref:pago.ref};
   if(contratoId)abAlc.contrato=contratoId;
-  var iAlc=ABONOS.findIndex(function(a){return String(a.fact)===String(factAlc);});
-  if(iAlc>=0){
-    if(!confirm('Ya existe un abono con la factura '+factAlc+'.\n\nNO se va a duplicar. ¿Actualizarlo con este pago?')){PAGOS_ALC.pop();return;}
-    ABONOS[iAlc]=abAlc;
-  } else { ABONOS.push(abAlc); }
+  if(iAlc>=0){ABONOS[iAlc]=abAlc;}else{ABONOS.push(abAlc);}
   if(DB_READY&&supabase){
     supabase.from('abonos').upsert(abAlc,{onConflict:'fact'}).then(function(r){if(r&&r.error&&typeof mostrarToast==='function')mostrarToast('No se pudo guardar abono Alcaldia: '+r.error.message,'error');});
   } else { guardarEnCola('abonos',abAlc); }
@@ -14971,12 +14984,20 @@ async function renderConciliacionBNC(){
     var libros=[];
     (ABONOS||[]).forEach(function(a){
       var f=String(a.f||'').slice(0,10); if(f&&(f<winIni||f>hasta))return;
-      var base=Number(a.m)||0; if(base<=0)return;
+      var neto=Number(a.m)||0; if(neto<=0)return;
       var tasa=(typeof getTasaFecha==='function'&&getTasaFecha(f,'dolar'))||TASAS.bcvDolar||cfg.tasa; // garantizada por el guard del tope de renderConciliacionBNC
       // Perfil de retenciones del CONTRATO del abono (si lo trae); si no, Alcaldía por defecto.
       var pr=perfilRetencion(a.contrato);
+      // a.m es el NETO que deposita el banco (guardarPagoAlcaldia guarda m:r.neto), NO la base.
+      // Bug histórico (auditoría 2026-07-06): se tomaba a.m como base y se re-aplicaban las
+      // retenciones (neto-del-neto) → la conciliación NUNCA cuadraba (falsos "falta registrar" /
+      // "en tránsito"). Fix: derivar la base a partir del neto (neto = base×k, con
+      // k=calcRetenciones(1).neto = 0.909 en perfil Alcaldía) para calcular fiel/resp; y usar el
+      // neto TAL CUAL como ingreso esperado (es lo que realmente credita el banco).
+      var k=calcRetenciones(1,pr,null).neto||1;
+      var base=neto/k;
       var rc=calcRetenciones(base,pr,null);
-      var fielUsd=rc.fiel, netoUsd=rc.neto, respUsd=rc.respSocial;
+      var fielUsd=rc.fiel, netoUsd=neto, respUsd=rc.respSocial;
       var baseBs=Math.round(base*tasa*100)/100;
       var fielPct=Math.round((pr.fiel||0)*10000)/100, respPct=Math.round((pr.respSocial||0)*10000)/100;
       var enRango=(f>=desde);
