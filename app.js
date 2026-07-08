@@ -5429,6 +5429,47 @@ function renderLavados(){
   var lavProximos=alertas.filter(function(a){return !a.toLowerCase().includes('vencido');});
   // WhatsApp de lavados MOVIDO al servidor (cron alertas-diarias, "LAVADOS VENCIDOS"):
   // ya no se envía desde el cliente. El panel visual de arriba se mantiene.
+  try{renderPlanLavado();}catch(e){}
+}
+// ── PLAN DE LAVADO POR DOMINGO (escalonado) ────────────────────────────────────
+// Reparte los lavados entre los próximos domingos (solo se lava domingos en autolavado) para NO
+// lavar todas la misma fecha (costo). Ciclo 45 días: cada unidad se agenda en el 1er domingo ≥ su
+// "próximo lavado" (último+45), con tope de N por domingo; las vencidas primero. Con 12 unidades y
+// tope 2 se sostiene el ciclo (~2/semana) y se re-escalona solo al registrar cada lavado.
+function _proxDomingos(n){
+  var hoy=new Date(fechaVE()+'T12:00:00'); var dow=hoy.getDay(); // 0=domingo
+  var d=new Date(hoy); d.setDate(d.getDate()+((dow===0)?0:(7-dow))); // primer domingo ≥ hoy
+  var out=[]; for(var i=0;i<n;i++){ out.push(d.toISOString().slice(0,10)); d.setDate(d.getDate()+7); } return out;
+}
+function _planLavado(cap){
+  cap=parseInt(cap)||2; if(cap<1)cap=1;
+  var cams=Object.keys(FLOTA).filter(function(k){return k.startsWith('JAC-B');});
+  var lista=cams.map(function(cam){
+    var ul=(KM_DATA[cam]&&KM_DATA[cam].lavado)?String(KM_DATA[cam].lavado).slice(0,10):'';
+    return {cam:cam,ul:ul,due:ul?addDays(ul,45).slice(0,10):'2000-01-01',dias:ul?diasDesde(ul):9999};
+  });
+  lista.sort(function(a,b){ if(a.due!==b.due)return a.due<b.due?-1:1; return b.dias-a.dias; }); // más vencida primero
+  var domingos=_proxDomingos(Math.max(10,Math.ceil(cams.length/cap)+6));
+  var plan=domingos.map(function(dom){return {domingo:dom,unidades:[]};});
+  lista.forEach(function(u){
+    for(var i=0;i<plan.length;i++){ if(plan[i].domingo>=u.due && plan[i].unidades.length<cap){ plan[i].unidades.push(u); return; } }
+    // Si su próximo lavado es futuro y no cupo en la ventana, ponerlo en el 1er domingo ≥ su due (aunque exceda el tope).
+    for(var j=0;j<plan.length;j++){ if(plan[j].domingo>=u.due){ plan[j].unidades.push(u); return; } }
+  });
+  return plan.filter(function(p){return p.unidades.length;});
+}
+function renderPlanLavado(){
+  var el=g('plan-lavado'); if(!el)return;
+  var plan=_planLavado(gv('lav-cap'));
+  if(!plan.length){el.innerHTML='<div style="color:var(--text3);font-size:12px;padding:8px">Sin unidades.</div>';return;}
+  var rows=plan.map(function(p){
+    var uni=p.unidades.map(function(u){
+      var col=u.dias>45?'color:var(--red);font-weight:700':(u.dias>35?'color:var(--yellow);font-weight:700':'');
+      return '<span style="'+col+'">'+u.cam.replace('JAC-B','B')+'</span> <small style="color:var(--text3)">('+(u.ul?u.dias+'d':'sin dato')+')</small>';
+    }).join(' &nbsp;·&nbsp; ');
+    return '<tr><td style="font-weight:700;white-space:nowrap">'+formatFecha(p.domingo)+'</td><td style="text-align:center;font-family:var(--m)">'+p.unidades.length+'</td><td style="font-size:11px">'+uni+'</td></tr>';
+  }).join('');
+  el.innerHTML='<div class="tw"><table style="font-size:12px"><thead><tr><th>Domingo</th><th style="text-align:center">N°</th><th>Unidades (días desde último lavado)</th></tr></thead><tbody>'+rows+'</tbody></table></div>';
 }
 async function guardarLavado(){
   var cam=gv('lav-cam'),f=gv('lav-f'),obs=gv('lav-obs')||'';
