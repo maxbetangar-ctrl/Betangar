@@ -61,7 +61,11 @@ body{background:#0f1923;color:#fff;font-family:-apple-system,BlinkMacSystemFont,
 .vb-registrado .viaje-check{display:block;}
 
 /* ── BANNER COLA ── */
-.cola-banner{background:rgba(239,159,39,.1);border:1px solid rgba(239,159,39,.3);border-radius:10px;padding:10px 14px;margin-bottom:12px;font-size:12px;color:#ef9f27;display:none;}
+.cola-banner{background:#c0392b;border:none;border-radius:12px;padding:14px 16px;margin-bottom:12px;font-size:14px;color:#fff;display:none;box-shadow:0 4px 14px rgba(192,57,43,.4);animation:colaPulse 1.6s ease-in-out infinite;}
+.cola-banner-txt{font-weight:700;line-height:1.35;}
+.cola-banner-txt small{display:block;margin-top:4px;font-weight:400;font-size:12px;opacity:.95;}
+.cola-banner-btn{margin-top:10px;width:100%;background:#fff;color:#c0392b;border:none;border-radius:8px;padding:11px;font-weight:800;font-size:14px;cursor:pointer;}
+@keyframes colaPulse{0%,100%{box-shadow:0 4px 14px rgba(192,57,43,.4);}50%{box-shadow:0 4px 24px rgba(192,57,43,.9);}}
 
 /* ── HISTORIAL ── */
 .historial{background:#1a2d3d;border-radius:12px;padding:14px 16px;margin-bottom:16px;}
@@ -197,7 +201,10 @@ body{background:#0f1923;color:#fff;font-family:-apple-system,BlinkMacSystemFont,
     <div class="content">
 
       <div class="cola-banner" id="cola-banner">
-        📵 Pendiente de subir — <span id="cola-count">0</span> registro(s) guardado(s). Se sincronizarán automáticamente.
+        <div class="cola-banner-txt">⚠️ TIENES <span id="cola-count">0</span> REGISTRO(S) SIN ENVIAR
+          <small>Quedaron guardados en tu teléfono. <b>Ábrelo con señal</b> — no cierres la app hasta que desaparezca este aviso.</small>
+        </div>
+        <button type="button" class="cola-banner-btn" onclick="reintentarYDiagnosticar()">🔄 Enviar ahora</button>
       </div>
       <div style="text-align:center;margin:6px 0">
         <button onclick="reintentarYDiagnosticar()" style="background:#1e3a5f;color:#7dc941;border:1px solid #7dc941;border-radius:8px;padding:8px 16px;font-size:12px;font-weight:700;cursor:pointer">🔄 Reintentar / Ver estado</button>
@@ -1289,6 +1296,34 @@ function registrarViaje(num){
   }
 }
 
+// ── ESPEJO IndexedDB para BACKGROUND SYNC (Android) ──
+// El Service Worker NO puede leer localStorage, pero SÍ IndexedDB. Guardamos aquí una copia
+// de los pendientes para que el SW los suba AUNQUE la app esté cerrada (Android/Chrome).
+// localStorage sigue siendo la vía principal; esto es solo respaldo. Es idempotente (upsert
+// onConflict) → subir dos veces no duplica. iPhone no soporta background sync → allí sube al
+// abrir la app (con el banner rojo avisando).
+var __idb = null;
+function idbOpen(){
+  return new Promise(function(res,rej){
+    if(__idb) return res(__idb);
+    try{
+      var rq = indexedDB.open('btg_chofer', 1);
+      rq.onupgradeneeded = function(){ var db=rq.result; if(!db.objectStoreNames.contains('cl')) db.createObjectStore('cl'); if(!db.objectStoreNames.contains('vj')) db.createObjectStore('vj'); };
+      rq.onsuccess = function(){ __idb=rq.result; res(__idb); };
+      rq.onerror = function(){ rej(rq.error); };
+    }catch(e){ rej(e); }
+  });
+}
+function idbPut(store,key,val){ idbOpen().then(function(db){ try{ db.transaction(store,'readwrite').objectStore(store).put(val,key); }catch(e){} }).catch(function(){}); }
+function idbDel(store,key){ idbOpen().then(function(db){ try{ db.transaction(store,'readwrite').objectStore(store).delete(key); }catch(e){} }).catch(function(){}); }
+function pedirBackgroundSync(tag){
+  try{
+    if('serviceWorker' in navigator && 'SyncManager' in window){
+      navigator.serviceWorker.ready.then(function(reg){ if(reg.sync) reg.sync.register(tag).catch(function(){}); }).catch(function(){});
+    }
+  }catch(e){}
+}
+
 // ── COLA OFFLINE ──
 function cargarColaLocal(){
   try{
@@ -1304,6 +1339,8 @@ function agregarACola(reg){
   if(!existe){
     COLA_LOCAL.push(reg);
     try{ localStorage.setItem('btg_cola_chofer', JSON.stringify(COLA_LOCAL)); }catch(e){}
+    idbPut('vj', reg.cam+'|'+reg.fecha+'|'+reg.viaje_num, reg);   // espejo para background sync
+    pedirBackgroundSync('sync-viajes');
   }
   actualizarBannerCola();
 }
@@ -1336,6 +1373,8 @@ function agregarChecklistCola(reg){
   if(existe) COLA_CL = COLA_CL.filter(function(r){ return !(r.cam===reg.cam && r.fecha===reg.fecha); });
   COLA_CL.push(reg);
   persistColaCL();
+  idbPut('cl', reg.cam+'|'+reg.fecha, reg);   // espejo para background sync
+  pedirBackgroundSync('sync-checklist');
   actualizarBannerCola();
 }
 
@@ -1358,7 +1397,7 @@ function sincronizarCola(){
       supabase.from('viajes_chofer').upsert([reg],{onConflict:'fecha,cam,viaje_num'})
       .then(function(res){
         if(res.error){ fall.push(raw); __ultErrSync = 'viaje '+reg.cam+'#'+reg.viaje_num+': '+(res.error.message||res.error.code||'error'); }
-        else { if(!isOnline) actualizarConexion(true); if(VIAJES_HOY[reg.viaje_num]) VIAJES_HOY[reg.viaje_num].sincronizado = true; }
+        else { if(!isOnline) actualizarConexion(true); if(VIAJES_HOY[reg.viaje_num]) VIAJES_HOY[reg.viaje_num].sincronizado = true; idbDel('vj', reg.cam+'|'+reg.fecha+'|'+reg.viaje_num); }
       }, function(e){ fall.push(raw); __ultErrSync = 'viaje (red): '+((e&&e.message)||e); })
       .then(function(){
         if(--rest <= 0){
@@ -1382,6 +1421,7 @@ function sincronizarCola(){
         if(res.error){ fallC.push(reg); __ultErrSync = 'checklist '+reg.cam+': '+(res.error.message||res.error.code||'error'); }
         else {
           if(!isOnline) actualizarConexion(true);
+          idbDel('cl', reg.cam+'|'+reg.fecha);
           if(reg.estado_vehiculo){
             supabase.from('flota_estado').upsert([{ unidad: reg.cam, estado: reg.estado_vehiculo, nota: '', updated_by: reg.conductor || 'chofer', updated_at: new Date().toISOString() }],{onConflict:'unidad'});
             var estD = reg.estado_vehiculo==='inoperativo' ? 'inoperativo' : (String(reg.estado_vehiculo).indexOf('taller')===0 ? 'taller' : 'operativo');

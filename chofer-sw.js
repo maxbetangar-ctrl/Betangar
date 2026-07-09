@@ -3,7 +3,12 @@
 // PWA Offline-First para choferes
 // ═══════════════════════════════════════════════════
 
-const CACHE_NAME = 'betangar-chofer-v26'; // v25: candado anti-typo de odómetro (km irreal >1500/día pide confirmar)
+const CACHE_NAME = 'betangar-chofer-v27'; // v27: BACKGROUND SYNC real (sube checklist/viajes desde IndexedDB aunque la app esté cerrada, Android)
+
+// Credenciales anon (públicas, ya expuestas en chofer.html) para que el SW pueda subir
+// directo por REST cuando la app está cerrada. RLS protege la base igual que en la app.
+const SUPA_URL = 'https://hrkjddehqnzcqwlkklqm.supabase.co';
+const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhya2pkZGVocW56Y3F3bGtrbHFtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc2NTk1NzIsImV4cCI6MjA5MzIzNTU3Mn0.kqWKthyZfPZ86toql7shGByF-ZhUpcQUS4Jw4RnG_ko';
 
 // Archivos a cachear para funcionar sin internet
 const ARCHIVOS_CACHE = [
@@ -86,32 +91,74 @@ self.addEventListener('fetch', function(event) {
   );
 });
 
-// ══ SYNC — sincronizar viajes guardados cuando vuelve internet ══
+// ══ SYNC — background sync: sube los pendientes AUNQUE la app esté cerrada (Android) ══
+// Lee el espejo en IndexedDB (que chofer.html llena al encolar) y sube por REST a Supabase.
+// Además avisa a los clientes abiertos para que refresquen su UI. iPhone no dispara este
+// evento → allí sube cuando el chofer abre la app.
 self.addEventListener('sync', function(event) {
   if (event.tag === 'sync-viajes') {
-    console.log('[SW] Sincronizando viajes pendientes...');
-    event.waitUntil(sincronizarViajes());
+    console.log('[SW] Background sync viajes...');
+    event.waitUntil(Promise.all([
+      flushStore('vj', 'viajes_chofer', 'fecha,cam,viaje_num'),
+      notificarClientes('SYNC_VIAJES')
+    ]));
   }
   if (event.tag === 'sync-checklist') {
-    console.log('[SW] Sincronizando checklists pendientes...');
-    event.waitUntil(sincronizarChecklists());
+    console.log('[SW] Background sync checklist...');
+    event.waitUntil(Promise.all([
+      flushStore('cl', 'checklist', 'fecha,cam'),
+      notificarClientes('SYNC_CHECKLIST')
+    ]));
   }
 });
 
-async function sincronizarViajes() {
-  // Los viajes offline se guardan en localStorage del cliente
-  // El SW notifica a los clientes para que sincronicen
+async function notificarClientes(tipo) {
   const clients = await self.clients.matchAll();
-  clients.forEach(function(client) {
-    client.postMessage({ type: 'SYNC_VIAJES' });
-  });
+  clients.forEach(function(client) { client.postMessage({ type: tipo }); });
 }
 
-async function sincronizarChecklists() {
-  const clients = await self.clients.matchAll();
-  clients.forEach(function(client) {
-    client.postMessage({ type: 'SYNC_CHECKLIST' });
+// ── IndexedDB (el SW no puede leer localStorage, sí IndexedDB) ──
+function idbOpenSW() {
+  return new Promise(function(res, rej) {
+    var rq = indexedDB.open('btg_chofer', 1);
+    rq.onupgradeneeded = function() { var db = rq.result; if (!db.objectStoreNames.contains('cl')) db.createObjectStore('cl'); if (!db.objectStoreNames.contains('vj')) db.createObjectStore('vj'); };
+    rq.onsuccess = function() { res(rq.result); };
+    rq.onerror = function() { rej(rq.error); };
   });
+}
+function idbEntriesSW(db, store) {
+  return new Promise(function(res) {
+    try {
+      var out = [], cur = db.transaction(store, 'readonly').objectStore(store).openCursor();
+      cur.onsuccess = function() { var c = cur.result; if (c) { out.push({ key: c.key, val: c.value }); c.continue(); } else res(out); };
+      cur.onerror = function() { res(out); };
+    } catch (e) { res([]); }
+  });
+}
+function idbDelSW(db, store, key) { try { db.transaction(store, 'readwrite').objectStore(store).delete(key); } catch (e) {} }
+
+// Sube todos los pendientes de un store por REST. Idempotente (on_conflict + merge-duplicates).
+// Borra del espejo solo lo que subió OK; lo que falle (sin señal) queda para el próximo sync.
+async function flushStore(store, tabla, onConflict) {
+  var db;
+  try { db = await idbOpenSW(); } catch (e) { return; }
+  var items = await idbEntriesSW(db, store);
+  for (var i = 0; i < items.length; i++) {
+    var it = items[i];
+    try {
+      var r = await fetch(SUPA_URL + '/rest/v1/' + tabla + '?on_conflict=' + onConflict, {
+        method: 'POST',
+        headers: {
+          'apikey': SUPA_KEY,
+          'Authorization': 'Bearer ' + SUPA_KEY,
+          'Content-Type': 'application/json',
+          'Prefer': 'resolution=merge-duplicates,return=minimal'
+        },
+        body: JSON.stringify(it.val)
+      });
+      if (r.ok) idbDelSW(db, store, it.key);
+    } catch (e) { /* sin señal: se reintenta en el próximo sync */ }
+  }
 }
 
 // ══ MESSAGE — recibir mensajes del cliente ══
