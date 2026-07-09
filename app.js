@@ -5266,6 +5266,14 @@ function guardarCompraCombustible(){
     // Sube el tanque + actualiza su COSTO $/L (promedio ponderado con lo que ya había en el
     // tanque). El despacho a camión usará ESTE costo, no la tasa del día.
     var cap=cfg.tanque||4600;
+    // #29: avisar si la compra EXCEDE la capacidad libre. El tanque topa en 'cap' pero la CxP/gasoil
+    // se registran por los litros COMPRADOS → si sobran por rebose casi siempre es un typo. Se avisa
+    // con el detalle y se deja corregir (cancelar) o confirmar a conciencia (tiene almacenamiento extra).
+    var espacioLibre=Math.max(0, cap-(parseFloat(tankNivel)||0));
+    if(lit > espacioLibre + 0.01){
+      var sobran=Math.round((lit-espacioLibre)*10)/10;
+      if(!confirm('⚠️ El tanque solo tiene espacio para '+Math.round(espacioLibre)+' L (capacidad '+cap+' L, nivel actual '+Math.round(tankNivel)+' L).\n\nEstás comprando '+lit+' L → '+sobran+' L NO caben en el tanque, pero la cuenta por pagar se genera por los '+lit+' L completos.\n\nSi fue un error, cancelá y corregí los litros. ¿Registrar la compra igual?')) return;
+    }
     var nivelPrev=tankNivel;
     tankNivel=Math.min(cap, tankNivel+lit);
     var litEntran=tankNivel-nivelPrev;
@@ -9129,7 +9137,7 @@ function renderAlcResumen(){
   var pct75=totalNeto*0.075;
   var el=g('alc-resumen');
   if(el)el.innerHTML='<div class="g2" style="gap:8px">'+
-    '<div class="card card-sm"><div class="stat-lbl">Facturado Total</div><div style="font-family:var(--m);font-size:16px;font-weight:900;color:var(--green)">$'+totalFact.toFixed(0)+'</div></div>'+
+    '<div class="card card-sm"><div class="stat-lbl">Cobrado bruto (c/IVA)</div><div style="font-family:var(--m);font-size:16px;font-weight:900;color:var(--green)">$'+totalFact.toFixed(0)+'</div></div>'+
     '<div class="card card-sm"><div class="stat-lbl">Neto Recibido</div><div style="font-family:var(--m);font-size:16px;font-weight:900;color:var(--teal)">$'+totalNeto.toFixed(0)+'</div></div>'+
     '</div>';
   var el75=g('alc-75-resumen');
