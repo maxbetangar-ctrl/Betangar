@@ -2495,7 +2495,8 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
     <div id="sit-lista"></div>
   </div>
   <div class="card">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><span class="st">✅ Asistencia de hoy</span><button class="btn btn-s btn-xs" onclick="renderAsistenciaHoy()">↻ Actualizar</button></div>
+    <div class="st" style="margin-bottom:8px">✅ Asistencia</div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px"><input type="date" class="fc" id="asis-fecha" onchange="renderAsistenciaHoy()" style="max-width:160px"><select class="fc" id="asis-sede" onchange="renderAsistenciaHoy()" style="max-width:220px"><option value="">Todas las sedes</option></select><button class="btn btn-s btn-sm" onclick="renderAsistenciaHoy()">↻</button><button class="btn btn-g btn-sm" onclick="imprimirAsistenciaSede()">🖨️ Imprimir reporte</button></div>
     <div id="asis-hoy"></div>
   </div>
 </div>

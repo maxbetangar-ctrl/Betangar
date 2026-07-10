@@ -1153,7 +1153,7 @@ async function renderSitios(){
   var cont=document.getElementById('sit-lista'); if(!cont)return;
   var rows=[];
   if(DB_READY&&supabase){ try{ var r=await supabase.from('sitios_asistencia').select('*').order('nombre'); if(r&&!r.error)rows=r.data||[]; }catch(e){} }
-  window._SITIOS=rows;
+  window._SITIOS=rows; var _ss=document.getElementById('asis-sede'); if(_ss){ var _c=_ss.value; _ss.innerHTML='<option value="">Todas las sedes</option>'+rows.map(function(s){return '<option>'+_fx(s.nombre)+'</option>';}).join(''); _ss.value=_c; }
   if(!rows.length){ cont.innerHTML='<div class="empty-state"><span class="ico">🏢</span>Aún no cargaste sitios. Agregá tus sucursales y la oficina.</div>'; return; }
   cont.innerHTML='<button class="btn btn-g btn-sm" style="width:100%;margin-bottom:8px" onclick="qrTodasSucursales()">🖨️ Imprimir TODOS los QR de sucursales ('+rows.length+')</button>'+rows.map(function(s){
     return '<div style="display:flex;justify-content:space-between;align-items:center;gap:6px;border:1px solid var(--border);border-radius:8px;padding:8px 10px;margin-bottom:5px;background:var(--card2)"><div style="min-width:0"><b style="font-size:13px">'+(s.es_oficina?'🏢 ':'🏪 ')+_fx(s.nombre)+'</b><div style="font-size:10px;color:var(--text3)">'+Number(s.lat).toFixed(5)+', '+Number(s.lng).toFixed(5)+' · radio '+s.radio_m+' m'+(s.activo?'':' · INACTIVO')+'</div></div><span style="white-space:nowrap"><button class="btn btn-s btn-xs" onclick="qrSucursal('+s.id+')">🔳 QR</button> <button class="btn btn-r btn-xs" onclick="elimSitio('+s.id+')">🗑️</button></span></div>';
@@ -1185,14 +1185,32 @@ function sitUsarMiUbic(){
 async function renderAsistenciaHoy(){
   var cont=document.getElementById('asis-hoy'); if(!cont)return;
   var hoy=(typeof fechaVE==='function')?fechaVE():new Date(Date.now()-14400000).toISOString().slice(0,10);
+  var fEl=document.getElementById('asis-fecha'); if(fEl&&!fEl.value)fEl.value=hoy;
+  var fecha=(fEl&&fEl.value)?fEl.value:hoy; var sede=(document.getElementById('asis-sede')||{}).value||'';
   var rows=[];
-  if(DB_READY&&supabase){ try{ var r=await supabase.from('asistencia_dia').select('*').eq('fecha',hoy).order('hora'); if(r&&!r.error)rows=r.data||[]; }catch(e){} }
-  if(!rows.length){ cont.innerHTML='<div class="empty-state"><span class="ico">🕒</span>Nadie ha fichado hoy todavía.</div>'; return; }
+  if(DB_READY&&supabase){ try{ var q=supabase.from('asistencia_dia').select('*').eq('fecha',fecha).order('hora'); if(sede)q=q.eq('sitio_nombre',sede); var r=await q; if(r&&!r.error)rows=r.data||[]; }catch(e){} }
+  window._ASIS_ROWS=rows; window._ASIS_META={fecha:fecha,sede:sede};
+  if(!rows.length){ cont.innerHTML='<div class="empty-state"><span class="ico">🕒</span>Sin asistencia para ese día'+(sede?(' en '+_fx(sede)):'')+'.</div>'; return; }
   cont.innerHTML='<div style="font-size:11px;color:var(--text3);margin-bottom:6px">'+rows.length+' persona(s) presentes</div>'+rows.map(function(a){
     var h=a.hora?new Date(a.hora):null; var hs=h?(String(h.getHours()).padStart(2,'0')+':'+String(h.getMinutes()).padStart(2,'0')):'';
     var via=a.origen==='checklist'?'🚚 checklist':'📲 fichaje';
     return '<div style="display:flex;justify-content:space-between;align-items:center;border:1px solid var(--border);border-radius:8px;padding:8px 10px;margin-bottom:5px;background:var(--card2)"><div><b style="font-size:13px">'+_fx(a.nombre)+'</b><div style="font-size:10px;color:var(--text3)">'+_fx(a.cargo||'')+' · '+via+(a.unidad?' · '+_fx(a.unidad):'')+'</div></div><div style="text-align:right"><div style="font-weight:700;font-size:12px;color:#7dc941">'+hs+'</div><div style="font-size:10px;color:var(--text3)">📍 '+_fx(a.sitio_nombre||'—')+'</div>'+(a.selfie_url?'<a href="'+_fx(a.selfie_url)+'" target="_blank" style="font-size:10px;color:#7dc941">ver selfie</a>':'')+'</div></div>';
   }).join('');
+}
+function imprimirAsistenciaSede(){
+  var rows=window._ASIS_ROWS||[]; var meta=window._ASIS_META||{};
+  if(!rows.length){ if(typeof mostrarToast==='function')mostrarToast('No hay asistencia para ese filtro.','error'); return; }
+  var porSede={}; rows.forEach(function(a){ var s=a.sitio_nombre||'(en ruta / sin sede)'; (porSede[s]=porSede[s]||[]).push(a); });
+  var marca=(typeof brandNomUp==='function'?brandNomUp():'Asistencia');
+  var secciones=Object.keys(porSede).sort().map(function(s){
+    var lst=porSede[s];
+    var filas=lst.map(function(a){ var h=a.hora?new Date(a.hora):null; var hs=h?(String(h.getHours()).padStart(2,'0')+':'+String(h.getMinutes()).padStart(2,'0')):''; var via=a.origen==='checklist'?'Checklist':'Fichaje'; return '<tr><td>'+(a.nombre||'')+'</td><td>'+(a.cargo||'')+'</td><td>'+hs+'</td><td>'+via+(a.unidad?(' ('+a.unidad+')'):'')+'</td></tr>'; }).join('');
+    return '<h3 style="font-size:13px;margin:14px 0 4px;color:#1e3a5f">📍 '+s+' — '+lst.length+' persona(s)</h3><table style="font-size:11px"><thead><tr><th style="text-align:left">Nombre</th><th style="text-align:left">Cargo</th><th>Hora</th><th style="text-align:left">Vía</th></tr></thead><tbody>'+filas+'</tbody></table>';
+  }).join('');
+  var body='<div style="display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid #1e3a5f;padding-bottom:6px"><div style="font-size:18px;font-weight:900;color:#1e3a5f">'+marca+'</div><div style="font-size:11px;color:#666">'+new Date().toLocaleDateString('es-VE')+'</div></div>'+
+    '<h2 style="font-size:15px;margin:12px 0 4px">Reporte de Asistencia — '+(meta.fecha||'')+(meta.sede?(' — '+meta.sede):'')+'</h2>'+
+    '<div style="font-size:12px;color:#444;margin-bottom:6px">Total presentes: '+rows.length+'</div>'+secciones;
+  abrirVentanaImpresion(getStyleImprimir()+'<body>'+body+'</body></html>');
 }
 function qrFichaje(){
   var base=(typeof location!=='undefined'&&location.origin)?location.origin:'';
