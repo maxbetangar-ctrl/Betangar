@@ -1906,8 +1906,14 @@ async function enviarNotificacionWA(reg){
 
     // SIEMPRE Image() — nunca fetch() para callmebot (norma Betangar).
     // Llega a todos los destinatarios con número y API key configurados (socios + mecánico).
+    // Si Wassenger está activo (config), encola en cola_mensajes (el worker lo manda con la etiqueta de la
+    // empresa). Si no, CallMeBot directo (comportamiento previo, cero downtime).
+    var _wsOn=false;
+    try{ if(supabase){ var _wc=await supabase.from('configuracion').select('valor').eq('clave','wassenger').maybeSingle(); if(_wc&&_wc.data&&_wc.data.valor){ var _wv=typeof _wc.data.valor==='string'?JSON.parse(_wc.data.valor):_wc.data.valor; _wsOn=!!(_wv&&_wv.activo===true&&_wv.token); } } }catch(_e){}
     WA_DESTINATARIOS.forEach(function(dest){
-      if(!dest.num||!dest.key)return;
+      if(!dest.num)return;
+      if(_wsOn){ try{ supabase.from('cola_mensajes').insert([{telefono:dest.num,mensaje:msg,tipo:'chofer'}]); }catch(_e2){} return; }
+      if(!dest.key)return;
       var urlD='https://api.callmebot.com/whatsapp.php?phone='+encodeURIComponent(dest.num)+'&text='+encodeURIComponent(msg)+'&apikey='+dest.key;
       var imgD=new Image();imgD.src=urlD;
     });

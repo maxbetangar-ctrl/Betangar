@@ -1551,6 +1551,12 @@ async function cargarDatosDB(){
         console.log('WA config restaurada');
       }
     }catch(e3){}
+    // CONFIG WASSENGER — si está activa (token + activo), TODO el WhatsApp sale por la cola Wassenger
+    // (el worker lo envía con la etiqueta de la empresa). Si no, sigue por CallMeBot (respaldo, cero downtime).
+    try{
+      var wsc=await supabase.from('configuracion').select('valor').eq('clave','wassenger').maybeSingle();
+      if(wsc.data&&wsc.data.valor){ var wsv=typeof wsc.data.valor==='string'?JSON.parse(wsc.data.valor):wsc.data.valor; WASSENGER_ON=!!(wsv&&wsv.activo===true&&wsv.token); console.log('Wassenger '+(WASSENGER_ON?'ACTIVO — WhatsApp por cola':'inactivo — WhatsApp por CallMeBot')); }
+    }catch(eW){}
     // CONFIG GENERAL (tarifa, tasa, etc.)
     try{
       var cfgDB=await supabase.from('configuracion').select('valor').eq('clave','general').single();
@@ -9600,10 +9606,8 @@ function testWhatsApp(){
 // Prueba individual por número — se llama desde el botón junto a cada número
 function testWANumero(num, key, desc){
   if(!num||!key){alert('Completa el numero y la API Key primero');return;}
-  var numLimpio=num.replace(/[\s\-\+]/g,'');
   var msg='BETANGAR - Prueba de numero\n'+desc+'\n'+fmtFechaHora(new Date())+'\nSi recibes esto, el numero esta correctamente configurado.';
-  var img=new Image();
-  img.src='https://api.callmebot.com/whatsapp.php?phone='+encodeURIComponent(numLimpio)+'&text='+encodeURIComponent(msg)+'&apikey='+key;
+  WA_SEND(num, key, msg);
   alert('Mensaje enviado a '+num+'. Verifica que llegue en los proximos 30 segundos.');
 }
 
@@ -9619,17 +9623,32 @@ function testWANumeroIdx(i){
 
 function enviarWADirecto(lista, msg, callback){
   lista.forEach(function(w){
-    var numLimpio=(w.num||'').replace(/[\s\-\+]/g,'');
-    if(!numLimpio||!w.key)return;
-    var img=new Image();
-    img.src='https://api.callmebot.com/whatsapp.php?phone='+encodeURIComponent(numLimpio)+'&text='+encodeURIComponent(msg)+'&apikey='+w.key;
+    if(!w.num)return;
+    WA_SEND(w.num, w.key, msg);
   });
   if(callback)setTimeout(function(){callback(lista);},500);
 }
 
 // ═══════════════════════════════════════════════════
-// WHATSAPP / CALLMEBOT
+// WHATSAPP  (Wassenger cola si está activo; CallMeBot como respaldo)
 // ═══════════════════════════════════════════════════
+var WASSENGER_ON=false; // se setea al cargar la config (configuracion.wassenger: activo && token)
+// PUNTO ÚNICO de envío de WhatsApp. Wassenger activo -> encola en cola_mensajes (el worker lo manda con la
+// etiqueta de la empresa, ej. "♻️ Betangar:"/"🚚 FLOTILLA:"). Si no -> CallMeBot directo (comportamiento previo).
+// El caller pasa el texto tal cual iría por CallMeBot; para Wassenger se quita el prefijo "BETANGAR:" (lo pone el worker).
+function WA_SEND(numero, apikey, texto){
+  var num=String(numero||'').replace(/[\s\-\+]/g,'');
+  if(!num||!texto)return false;
+  if(WASSENGER_ON){
+    var limpio=String(texto).replace(/^\s*BETANGAR\s*[:\-]\s*/i,'').trim();
+    try{ if(typeof DB_READY!=='undefined'&&DB_READY&&supabase){ supabase.from('cola_mensajes').insert([{telefono:num,mensaje:limpio,tipo:'app'}]).then(function(r){ if(r&&r.error)console.log('[cola WA]',r.error.message); }); } }catch(e){ console.log('[cola WA] exc',e); }
+    return true;
+  }
+  if(!apikey)return false; // CallMeBot requiere apikey por número
+  var img=new Image();
+  img.src='https://api.callmebot.com/whatsapp.php?phone='+encodeURIComponent(num)+'&text='+encodeURIComponent(texto)+'&apikey='+encodeURIComponent(apikey);
+  return true;
+}
 // sendWA(msg, roles, force) — envía solo a los roles indicados
 // roles puede ser: 'todos', ['socios','admin'], 'socios', etc.
 // Si no se pasa roles, va a TODOS
@@ -9649,27 +9668,14 @@ function sendWA(msg, roles, force){
     return r.indexOf(w.rol)>=0;
   });
   destinos.forEach(function(w){
-    // Usar Image() en vez de fetch() para evitar bloqueo CORS del browser
-    var numLimpio=(w.num||'').replace(/[\s\-\+]/g,''); var url='https://api.callmebot.com/whatsapp.php?phone='+encodeURIComponent(numLimpio)+'&text='+encodeURIComponent('BETANGAR: '+msg)+'&apikey='+w.key;
-    var img=new Image();
-    img.onload=function(){console.log('WA OK:',w.rol);};
-    img.onerror=function(){console.log('WA respuesta:',w.rol,'(normal si llego)');};
-    img.src=url;
+    WA_SEND(w.num, w.key, 'BETANGAR: '+msg);
   });
 }
 
 // Envío directo a un número/apikey concreto (empleados) — usa Image() igual que sendWA
 function sendWADirecto(numero, apikey, mensaje){
-  if(!numero||!apikey){console.log('[WA directo] FALTA numero o apikey:',numero,apikey);return false;}
-  var numLimpio=String(numero).replace(/[\s\-\+]/g,'');
-  if(!numLimpio)return false;
-  var url='https://api.callmebot.com/whatsapp.php?phone='+encodeURIComponent(numLimpio)+'&text='+encodeURIComponent(mensaje)+'&apikey='+encodeURIComponent(apikey);
-  console.log('[WA directo] enviando a',numLimpio,'→',url);
-  var img=new Image();
-  img.onload=function(){console.log('[WA directo] OK:',numLimpio);};
-  img.onerror=function(){console.log('[WA directo] respuesta de callmebot para',numLimpio,'(normal si llegó el mensaje)');};
-  img.src=url;
-  return true;
+  if(!numero){console.log('[WA directo] FALTA numero:',numero);return false;}
+  return WA_SEND(numero, apikey, mensaje);
 }
 
 // dd/mm/aaaa para mostrar en tablas/reportes. Los inputs type=date siguen usando aaaa-mm-dd.
@@ -10795,9 +10801,8 @@ function _recTpl(msg, e){
 // Enviar WA empresarial adicional para un rol (los mensajes ya traen su propia marca BETANGAR)
 function sendWAEmpresarial(msg, rol){
   var cfg=WA_EMPRESA_ROLES.find(function(r){return r.rol===rol;});
-  if(!cfg||!cfg.activo||!cfg.num||!cfg.key)return;
-  var url='https://api.callmebot.com/whatsapp.php?phone='+encodeURIComponent(cfg.num)+'&text='+encodeURIComponent(msg)+'&apikey='+cfg.key;
-  var img=new Image();img.src=url;
+  if(!cfg||!cfg.activo||!cfg.num)return;
+  WA_SEND(cfg.num, cfg.key, msg);
 }
 
 // ── Render Recordatorios Config ──
@@ -10928,12 +10933,10 @@ function checkRecordatorios(){
       localStorage.setItem(keyRec,'1');
       // Enviar a empleados ACTIVOS con ese rol que tengan WA
       var destsEmp=EMPLEADOS.filter(function(e){
-        return e.activo!==false && e.whatsapp && e.wa_apikey && _recRolMatch(rolCfg.rol, e.cargo);
+        return e.activo!==false && e.whatsapp && (WASSENGER_ON||e.wa_apikey) && _recRolMatch(rolCfg.rol, e.cargo);
       });
       destsEmp.forEach(function(e){
-        var msgFinal=_recTpl(m.msg, e);
-        var url='https://api.callmebot.com/whatsapp.php?phone='+encodeURIComponent(e.whatsapp)+'&text='+encodeURIComponent(msgFinal)+'&apikey='+e.wa_apikey;
-        var img=new Image();img.src=url;
+        WA_SEND(e.whatsapp, e.wa_apikey, _recTpl(m.msg, e));
       });
       // También al número empresarial del rol si está configurado
       sendWAEmpresarial(_recTpl(m.msg, null), rolCfg.rol);
@@ -10945,15 +10948,13 @@ function checkRecordatorios(){
     var keyTodos='btg_rec_todos_'+REC_TODOS.hora.replace(':','')+'_'+hoyStr;
     if(!localStorage.getItem(keyTodos)){
       localStorage.setItem(keyTodos,'1');
-      EMPLEADOS.filter(function(e){return e.activo!==false&&e.whatsapp&&e.wa_apikey;}).forEach(function(e){
-        var url='https://api.callmebot.com/whatsapp.php?phone='+encodeURIComponent(e.whatsapp)+'&text='+encodeURIComponent('BETANGAR: '+REC_TODOS.msg)+'&apikey='+e.wa_apikey;
-        var img=new Image();img.src=url;
+      EMPLEADOS.filter(function(e){return e.activo!==false&&e.whatsapp&&(WASSENGER_ON||e.wa_apikey);}).forEach(function(e){
+        WA_SEND(e.whatsapp, e.wa_apikey, 'BETANGAR: '+REC_TODOS.msg);
       });
       // También a WA empresariales activos (sin socios ni directivo)
       WA_EMPRESA_ROLES.forEach(function(r){
-        if(r.activo&&r.num&&r.key){
-          var url='https://api.callmebot.com/whatsapp.php?phone='+encodeURIComponent(r.num)+'&text='+encodeURIComponent('BETANGAR: '+REC_TODOS.msg)+'&apikey='+r.key;
-          var img=new Image();img.src=url;
+        if(r.activo&&r.num){
+          WA_SEND(r.num, r.key, 'BETANGAR: '+REC_TODOS.msg);
         }
       });
     }
