@@ -279,6 +279,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
     <div class="menu-group">OPERACIONES</div>
     <div class="menu-item" onclick="sp('nomina')" id="mi-nomina">👥 Nomina</div>
     <div class="menu-item" onclick="sp('asistencia')" id="mi-asistencia">✅ Asistencia</div>
+    <div class="menu-item" onclick="sp('fichaje')" id="mi-fichaje">🕒 Fichaje / Sitios</div>
     <div class="menu-item" onclick="sp('porteria')" id="mi-porteria">🛡 Porteria</div>
     <div class="menu-item" onclick="sp('operativo')" id="mi-operativo">🗺 Operativo</div>
     <div class="menu-item" onclick="sp('entregas')" id="mi-entregas">📦 Trazabilidad</div>
@@ -2469,7 +2470,36 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
 </div>
 
 <script src="money.js?v=20260628n"></script>
-<script src="app.js?v=20260710a"></script>
+<div id="p-fichaje" class="page">
+  <div class="card">
+    <div class="st" style="margin-bottom:8px">🕒 Fichaje de asistencia</div>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:10px">Los choferes fichan con el <b>checklist</b> de su unidad. La <b>oficina</b> y los <b>choferes sin ruta</b> fichan acá: nombre + 4 dígitos de cédula + <b>selfie</b>, y el GPS confirma la sucursal solo.</div>
+    <a href="fichar.html" target="_blank" class="btn btn-g btn-sm" style="display:inline-block;text-decoration:none">📲 Abrir pantalla de fichaje</a>
+    <button class="btn btn-s btn-sm" onclick="qrFichaje()" style="margin-left:6px">🔳 QR para la oficina</button>
+  </div>
+  <div class="card">
+    <div class="st" style="margin-bottom:8px">🏢 Sitios de asistencia (geocerca)</div>
+    <div style="font-size:11px;color:var(--text3);margin-bottom:8px">Cargá cada sucursal/oficina con su ubicación. Solo se acepta la asistencia si la persona está <b>dentro del radio</b>. Choferes y jefe de operaciones: cualquier sitio. Oficina: solo los marcados "oficina".</div>
+    <div class="fr3">
+      <div class="fg"><label>Nombre</label><input class="fc" id="sit-nombre" placeholder="Ej: Decándido La Lago"></div>
+      <div class="fg"><label>Radio (m)</label><input class="fc" id="sit-radio" type="number" value="120"></div>
+      <div class="fg"><label>¿Es la oficina?</label><select class="fc" id="sit-ofi"><option value="false">No (sucursal)</option><option value="true">Sí (oficina)</option></select></div>
+    </div>
+    <div class="fr3">
+      <div class="fg"><label>Latitud</label><input class="fc" id="sit-lat" placeholder="10.6600"></div>
+      <div class="fg"><label>Longitud</label><input class="fc" id="sit-lng" placeholder="-71.6400"></div>
+      <div class="fg" style="display:flex;align-items:flex-end;gap:6px"><button class="btn btn-s btn-sm" style="flex:1" onclick="sitUsarMiUbic()">📍 Mi ubicación</button><button class="btn btn-g btn-sm" style="flex:1" onclick="guardarSitio()">💾 Agregar</button></div>
+    </div>
+    <div style="font-size:10px;color:var(--text3);margin:4px 0 8px">Tip: en Google Maps hacé clic derecho sobre el sitio → copiá las coordenadas y pegalas en Latitud/Longitud.</div>
+    <div id="sit-lista"></div>
+  </div>
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><span class="st">✅ Asistencia de hoy</span><button class="btn btn-s btn-xs" onclick="renderAsistenciaHoy()">↻ Actualizar</button></div>
+    <div id="asis-hoy"></div>
+  </div>
+</div>
+
+<script src="app.js?v=20260711a"></script>
 
 <!-- Modal global -->
 <div id="modal" class="moverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9990;align-items:center;justify-content:center;padding:16px">

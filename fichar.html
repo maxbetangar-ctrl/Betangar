@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Fichar asistencia</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHdpZHRoPSc2NCcgaGVpZ2h0PSc2NCcgdmlld0JveD0nMCAwIDY0IDY0Jz48cmVjdCB3aWR0aD0nNjQnIGhlaWdodD0nNjQnIHJ4PScxMycgZmlsbD0nIzBmMjAzOCcvPjx0ZXh0IHg9JzMyJyB5PSc0NycgZm9udC1mYW1pbHk9J0FyaWFsLEhlbHZldGljYSxzYW5zLXNlcmlmJyBmb250LXNpemU9JzQyJyBmb250LXdlaWdodD0nOTAwJyBmaWxsPScjYTNlNjM1JyB0ZXh0LWFuY2hvcj0nbWlkZGxlJz5GPC90ZXh0Pjwvc3ZnPg==">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<style>
+*{box-sizing:border-box;font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif}
+body{margin:0;background:#0f2038;color:#e8eef4;min-height:100vh}
+.wrap{max-width:440px;margin:0 auto;padding:16px;padding-top:max(16px,env(safe-area-inset-top))}
+.top{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+.top b{font-size:18px;font-weight:900}
+.card{background:#16294a;border:1px solid rgba(255,255,255,.08);border-radius:14px;padding:14px;margin-bottom:12px}
+label{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#9fb3c8;margin-bottom:6px}
+input{width:100%;background:#0f2038;border:1px solid rgba(255,255,255,.14);border-radius:10px;padding:12px;color:#e8eef4;font-size:16px}
+.emp{padding:11px 12px;border:1px solid rgba(255,255,255,.1);border-radius:10px;margin-bottom:6px;cursor:pointer;font-size:14px;font-weight:600}
+.emp:active{background:rgba(125,201,65,.12)}
+.emp small{display:block;color:#9fb3c8;font-weight:400;font-size:11px;text-transform:uppercase}
+.btn{width:100%;border:none;border-radius:12px;padding:15px;font-size:16px;font-weight:800;cursor:pointer}
+.btn-g{background:#7dc941;color:#0f2038}
+.btn-o{background:#1e3a5f;color:#fff;border:2px dashed rgba(125,201,65,.5)}
+.btn:disabled{opacity:.5}
+.hint{font-size:12px;color:#9fb3c8;margin-top:8px;text-align:center}
+.gps{font-size:12px;margin-top:6px;text-align:center}
+.ok{color:#7dc941}.bad{color:#ef6b6b}.warn{color:#f5b83d}
+#prev{width:100%;border-radius:12px;margin-top:8px;display:none}
+.res{border-radius:12px;padding:16px;text-align:center;font-weight:700;font-size:15px;margin-top:4px}
+.res.ok{background:rgba(125,201,65,.15);border:1px solid rgba(125,201,65,.4);color:#7dc941}
+.res.bad{background:rgba(239,107,107,.12);border:1px solid rgba(239,107,107,.4);color:#ef6b6b}
+.back{background:none;border:none;color:#9fb3c8;font-size:13px;cursor:pointer;padding:6px 0}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top"><img src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHdpZHRoPSc0MCcgaGVpZ2h0PSc0MCcgdmlld0JveD0nMCAwIDY0IDY0Jz48cmVjdCB3aWR0aD0nNjQnIGhlaWdodD0nNjQnIHJ4PScxMycgZmlsbD0nIzdkYzk0MScvPjx0ZXh0IHg9JzMyJyB5PSc0NycgZm9udC1mYW1pbHk9J0FyaWFsJyBmb250LXNpemU9JzQyJyBmb250LXdlaWdodD0nOTAwJyBmaWxsPScjMGYyMDM4JyB0ZXh0LWFuY2hvcj0nbWlkZGxlJz5GPC90ZXh0Pjwvc3ZnPg==" width="34" height="34"><b>Fichar asistencia</b></div>
+  <div id="sitio-fijo" style="display:none;background:rgba(125,201,65,.15);border:1px solid rgba(125,201,65,.4);border-radius:10px;padding:10px;margin-bottom:12px;font-weight:800;color:#7dc941;text-align:center"></div>
+
+  <div id="paso-emp" class="card">
+    <label>¿Quién sos?</label>
+    <input id="busca" type="text" placeholder="Escribí tu nombre…" autocomplete="off">
+    <div id="lista" style="margin-top:8px;max-height:46vh;overflow:auto"></div>
+    <div class="hint" id="emp-hint">Cargando personal…</div>
+  </div>
+
+  <div id="paso-fichar" class="card" style="display:none">
+    <button class="back" onclick="volver()">← cambiar de persona</button>
+    <div style="font-size:17px;font-weight:900;margin:4px 0 12px" id="sel-nombre"></div>
+    <label>Últimos 4 dígitos de tu cédula</label>
+    <input id="clave" type="tel" inputmode="numeric" maxlength="4" placeholder="0000">
+    <div style="height:12px"></div>
+    <label>Selfie (obligatoria)</label>
+    <button class="btn btn-o" onclick="document.getElementById('selfie').click()">🤳 Tomar selfie</button>
+    <input id="selfie" type="file" accept="image/*" capture="user" style="display:none" onchange="prevSelfie(this)">
+    <img id="prev">
+    <div class="gps" id="gps">📍 Obteniendo ubicación…</div>
+    <div style="height:12px"></div>
+    <button id="btn-fichar" class="btn btn-g" onclick="registrar()">✅ Registrar asistencia</button>
+    <div id="res"></div>
+  </div>
+</div>
+<div id="ok-overlay" style="display:none;position:fixed;inset:0;background:#0f2038;z-index:50;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:24px" onclick="resetFichaje()">
+  <div style="font-size:96px;line-height:1">✅</div>
+  <div style="font-size:30px;font-weight:900;color:#7dc941;margin:12px 0 4px">¡Asistencia agregada!</div>
+  <div id="ok-nombre" style="font-size:22px;font-weight:800"></div>
+  <div id="ok-sitio" style="font-size:15px;color:#9fb3c8;margin-top:8px"></div>
+  <div style="margin-top:26px;font-size:14px;color:#9fb3c8">👉 Tocá la pantalla para el siguiente</div>
+</div>
+<script>
+var SB = supabase.createClient('https://hrkjddehqnzcqwlkklqm.supabase.co', 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhya2pkZGVocW56Y3F3bGtrbHFtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc2NTk1NzIsImV4cCI6MjA5MzIzNTU3Mn0.kqWKthyZfPZ86toql7shGByF-ZhUpcQUS4Jw4RnG_ko');
+var EMPS=[], SEL=null, SELFIE_FILE=null, POS=null, watchId=null, SITIO_FIJO=null;
+// Si el QR es por sucursal (fichar.html?sitio=ID), la sucursal viene del QR (prueba de presencia).
+async function cargarSitioFijo(){
+  try{
+    var sid=new URLSearchParams(location.search).get('sitio'); if(!sid)return;
+    var r=await SB.from('sitios_asistencia').select('id,nombre').eq('id',sid).maybeSingle();
+    if(r&&r.data){ SITIO_FIJO=r.data; var b=document.getElementById('sitio-fijo'); b.style.display='block'; b.textContent='📍 '+r.data.nombre; }
+  }catch(e){}
+}
+
+function $(id){return document.getElementById(id);}
+function esc(s){return String(s||'').replace(/[<>&"]/g,function(c){return ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'})[c];});}
+
+async function cargarEmp(){
+  try{
+    var r = await SB.rpc('empleados_publicos');
+    if(!r.error && r.data){ EMPS=r.data; try{localStorage.setItem('flot_emps',JSON.stringify(EMPS));}catch(e){} }
+  }catch(e){ try{EMPS=JSON.parse(localStorage.getItem('flot_emps')||'[]');}catch(e2){} }
+  render('');
+  $('emp-hint').textContent = EMPS.length? 'Tocá tu nombre.' : 'No se pudo cargar el personal. Revisá la conexión.';
+}
+function render(q){
+  q=(q||'').toUpperCase().trim();
+  var list = EMPS.filter(function(e){return !q || String(e.nombre||'').toUpperCase().indexOf(q)>=0;}).slice(0,40);
+  $('lista').innerHTML = list.map(function(e){
+    return '<div class="emp" onclick="elegir(\''+e.id+'\')">'+esc(e.nombre)+'<small>'+esc(e.cargo||'')+'</small></div>';
+  }).join('') || '<div class="hint">Sin coincidencias.</div>';
+}
+$('busca').addEventListener('input', function(){ render(this.value); });
+
+function elegir(id){
+  SEL = EMPS.filter(function(e){return e.id===id;})[0]; if(!SEL) return;
+  $('sel-nombre').textContent = SEL.nombre;
+  $('paso-emp').style.display='none'; $('paso-fichar').style.display='block';
+  $('clave').value=''; SELFIE_FILE=null; $('prev').style.display='none'; $('res').innerHTML='';
+  iniciarGPS();
+}
+function volver(){ if(watchId!=null){navigator.geolocation.clearWatch(watchId);watchId=null;} $('paso-fichar').style.display='none'; $('paso-emp').style.display='block'; }
+// Aviso GRANDE de éxito + auto-reset para el siguiente (celular compartido / fila de empleados).
+function mostrarOK(nombre, sitio){
+  if(watchId!=null){navigator.geolocation.clearWatch(watchId);watchId=null;}
+  var hora=new Date().toLocaleTimeString('es-VE',{hour:'2-digit',minute:'2-digit'});
+  $('ok-nombre').textContent=nombre||'';
+  $('ok-sitio').textContent='📍 '+(sitio||'')+' · '+hora;
+  var ov=$('ok-overlay'); if(ov)ov.style.display='flex';
+  setTimeout(resetFichaje, 4500);
+}
+function resetFichaje(){
+  var ov=$('ok-overlay'); if(ov)ov.style.display='none';
+  SEL=null; SELFIE_FILE=null; POS=null; var el;
+  if(el=$('clave'))el.value=''; if(el=$('prev'))el.style.display='none'; if(el=$('res'))el.innerHTML=''; if(el=$('busca'))el.value='';
+  render('');
+  $('paso-fichar').style.display='none'; $('paso-emp').style.display='block';
+  try{$('busca').focus();}catch(e){}
+}
+
+// GPS ALTA PRECISIÓN: watch continuo, se queda con la mejor lectura (menor accuracy).
+function iniciarGPS(){
+  POS=null; $('gps').className='gps'; $('gps').textContent='📍 Obteniendo ubicación (alta precisión)…';
+  if(!navigator.geolocation){ $('gps').className='gps bad'; $('gps').textContent='Este dispositivo no da ubicación.'; return; }
+  if(watchId!=null)navigator.geolocation.clearWatch(watchId);
+  watchId = navigator.geolocation.watchPosition(function(p){
+    if(!POS || p.coords.accuracy < POS.acc){ POS={lat:p.coords.latitude,lng:p.coords.longitude,acc:p.coords.accuracy}; pintaGPS(); }
+  }, function(err){ $('gps').className='gps bad'; $('gps').textContent='No se pudo ubicar: '+(err.message||'activá el GPS'); },
+  { enableHighAccuracy:true, maximumAge:0, timeout:25000 });
+}
+function pintaGPS(){
+  if(!POS){return;}
+  var a=Math.round(POS.acc);
+  if(a<=25){ $('gps').className='gps ok'; $('gps').textContent='📍 Ubicación lista · precisión ±'+a+' m'; }
+  else if(a<=60){ $('gps').className='gps warn'; $('gps').textContent='📍 Precisión ±'+a+' m — mejorá saliendo a cielo abierto'; }
+  else { $('gps').className='gps warn'; $('gps').textContent='📍 GPS impreciso (±'+a+' m) — salí a cielo abierto y esperá'; }
+}
+
+function prevSelfie(inp){
+  var f=inp.files&&inp.files[0]; if(!f)return; SELFIE_FILE=f;
+  var img=$('prev'); img.src=URL.createObjectURL(f); img.style.display='block';
+}
+
+// Comprime la selfie a ~640px de ancho, calidad 0.7 (~40-60 KB).
+function comprimir(file){
+  return new Promise(function(res){
+    var img=new Image();
+    img.onload=function(){
+      var w=img.width,h=img.height,max=640; if(w>max){h=Math.round(h*max/w);w=max;}
+      var c=document.createElement('canvas'); c.width=w;c.height=h;
+      c.getContext('2d').drawImage(img,0,0,w,h);
+      c.toBlob(function(b){res(b||file);},'image/jpeg',0.7);
+    };
+    img.onerror=function(){res(file);};
+    img.src=URL.createObjectURL(file);
+  });
+}
+
+async function registrar(){
+  var res=$('res'); res.innerHTML='';
+  if(!SEL){ return; }
+  var clave=($('clave').value||'').replace(/\D/g,'');
+  if(clave.length<4){ res.innerHTML='<div class="res bad">Poné los 4 dígitos de tu cédula.</div>'; return; }
+  if(!SELFIE_FILE){ res.innerHTML='<div class="res bad">Falta la selfie.</div>'; return; }
+  if(!SITIO_FIJO){ // modo general: el GPS es obligatorio y debe ser preciso (en modo QR es tolerante)
+    if(!POS){ res.innerHTML='<div class="res bad">Todavía no hay ubicación. Esperá unos segundos.</div>'; return; }
+    if(POS.acc>80){ res.innerHTML='<div class="res bad">GPS muy impreciso (±'+Math.round(POS.acc)+' m). Salí a cielo abierto y reintentá.</div>'; return; }
+  }
+  var btn=$('btn-fichar'); btn.disabled=true; btn.textContent='Registrando…';
+  try{
+    // 1) subir selfie comprimida
+    var blob=await comprimir(SELFIE_FILE);
+    var hoy=new Date(Date.now()-14400000).toISOString().slice(0,10); // fecha VE aprox (para el path)
+    var path='asistencia/'+SEL.id+'_'+hoy+'.jpg';
+    var up=await SB.storage.from('asistencia').upload(path, blob, {contentType:'image/jpeg', upsert:true});
+    var selfieUrl='';
+    if(!up.error){ selfieUrl=SB.storage.from('asistencia').getPublicUrl(path).data.publicUrl; }
+    // 2) registrar (valida ced-4 + geocerca en el servidor)
+    var r=await SB.rpc('fichar_asistencia',{p_id:SEL.id,p_clave:clave,p_lat:POS?POS.lat:null,p_lng:POS?POS.lng:null,p_selfie:selfieUrl,p_origen:SITIO_FIJO?'fichaje_qr':'fichaje',p_unidad:null,p_sitio_id:SITIO_FIJO?SITIO_FIJO.id:null});
+    if(r.error){ res.innerHTML='<div class="res bad">Error: '+esc(r.error.message)+'</div>'; }
+    else if(r.data && r.data.ok){ mostrarOK(SEL.nombre, r.data.sitio); }
+    else { res.innerHTML='<div class="res bad">❌ '+esc((r.data&&r.data.msg)||'No se pudo registrar')+'</div>'; }
+  }catch(e){ res.innerHTML='<div class="res bad">Falló: '+esc(e.message||e)+'</div>'; }
+  finally{ btn.disabled=false; btn.textContent='✅ Registrar asistencia'; }
+}
+
+cargarEmp();
+cargarSitioFijo();
+</script>
+</body>
+</html>

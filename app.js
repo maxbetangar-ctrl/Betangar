@@ -276,15 +276,15 @@ var USUARIOS={
 };
 
 var PERMISOS={
-  superadmin:['dashboard','entregas','banco-bnc','conciliacion','checklist','mensajes-wa','planilla','historico','reporte','abonos','banco','proveedores','financiero','nomina','asistencia','combustible','control-combustible','km','unidades','documentos','inventario','llantas','metas','empleados','prestamos','multas','stats','ranking','rentabilidad','contratos','multicontrato','usuarios','auditoria','salud','config','galeria','porteria','mecanico','operativo','cxp','cajachica'],
-  admin:['dashboard','entregas','conciliacion','checklist','planilla','historico','reporte','abonos','banco','proveedores','financiero','nomina','asistencia','combustible','control-combustible','km','unidades','documentos','inventario','llantas','metas','empleados','prestamos','multas','stats','ranking','rentabilidad','contratos','multicontrato','usuarios','auditoria','salud','config','galeria','porteria','mecanico','operativo','cxp','cajachica'],
-  operador:['dashboard','entregas','planilla','historico','reporte','abonos','banco','proveedores','financiero','nomina','asistencia','combustible','control-combustible','km','unidades','documentos','inventario','llantas','metas','empleados','prestamos','multas','stats','ranking','rentabilidad','contratos','multicontrato','galeria'],
-  rrhh:['dashboard','mensajes-wa','planilla','historico','reporte','nomina','asistencia','combustible','km','unidades','documentos','inventario','llantas','metas','empleados','prestamos','multas','ranking','galeria'],
+  superadmin:['dashboard','entregas','banco-bnc','conciliacion','checklist','mensajes-wa','planilla','historico','reporte','abonos','banco','proveedores','financiero','nomina','asistencia','fichaje','combustible','control-combustible','km','unidades','documentos','inventario','llantas','metas','empleados','prestamos','multas','stats','ranking','rentabilidad','contratos','multicontrato','usuarios','auditoria','salud','config','galeria','porteria','mecanico','operativo','cxp','cajachica'],
+  admin:['dashboard','entregas','conciliacion','checklist','planilla','historico','reporte','abonos','banco','proveedores','financiero','nomina','asistencia','fichaje','combustible','control-combustible','km','unidades','documentos','inventario','llantas','metas','empleados','prestamos','multas','stats','ranking','rentabilidad','contratos','multicontrato','usuarios','auditoria','salud','config','galeria','porteria','mecanico','operativo','cxp','cajachica'],
+  operador:['dashboard','entregas','planilla','historico','reporte','abonos','banco','proveedores','financiero','nomina','asistencia','fichaje','combustible','control-combustible','km','unidades','documentos','inventario','llantas','metas','empleados','prestamos','multas','stats','ranking','rentabilidad','contratos','multicontrato','galeria'],
+  rrhh:['dashboard','mensajes-wa','planilla','historico','reporte','nomina','asistencia','fichaje','combustible','km','unidades','documentos','inventario','llantas','metas','empleados','prestamos','multas','ranking','galeria'],
   visualizador:['dashboard','entregas','reporte','abonos','banco','financiero','stats','ranking','rentabilidad','contratos','galeria'],
   directivo:['dashboard','entregas','historico','reporte','abonos','financiero','stats','ranking','rentabilidad'],
-  demo_admin:['dashboard','checklist','planilla','historico','reporte','abonos','banco','proveedores','financiero','nomina','asistencia','combustible','km','unidades','documentos','inventario','llantas','metas','empleados','prestamos','multas','stats','ranking','rentabilidad','contratos','usuarios','config','galeria'],
-  demo_operador:['dashboard','planilla','historico','reporte','abonos','banco','proveedores','financiero','nomina','asistencia','combustible','km','unidades','documentos','inventario','llantas','metas','empleados','prestamos','multas','stats','ranking','rentabilidad','contratos','galeria'],
-  demo_rrhh:['dashboard','mensajes-wa','planilla','historico','reporte','nomina','asistencia','combustible','km','unidades','documentos','inventario','llantas','metas','empleados','prestamos','multas','ranking','galeria'],
+  demo_admin:['dashboard','checklist','planilla','historico','reporte','abonos','banco','proveedores','financiero','nomina','asistencia','fichaje','combustible','km','unidades','documentos','inventario','llantas','metas','empleados','prestamos','multas','stats','ranking','rentabilidad','contratos','usuarios','config','galeria'],
+  demo_operador:['dashboard','planilla','historico','reporte','abonos','banco','proveedores','financiero','nomina','asistencia','fichaje','combustible','km','unidades','documentos','inventario','llantas','metas','empleados','prestamos','multas','stats','ranking','rentabilidad','contratos','galeria'],
+  demo_rrhh:['dashboard','mensajes-wa','planilla','historico','reporte','nomina','asistencia','fichaje','combustible','km','unidades','documentos','inventario','llantas','metas','empleados','prestamos','multas','ranking','galeria'],
   asistencia:['asistencia'],
   vigilante:['porteria'],
   mecanico:['mecanico','checklist','llantas','km','unidades'],
@@ -294,7 +294,7 @@ var PERMISOS={
 var NAV_LABELS={
   dashboard:'Dashboard',planilla:'Registro Diario',historico:'Historico',reporte:'Cobranza / Alcaldia',
   abonos:'Abonos / Cobros',banco:'Banco BNC',conciliacion:'Conciliación Bancaria',proveedores:'Proveedores',financiero:'Financiero',
-  nomina:'Nomina',asistencia:'Asistencia',combustible:'Combustible','control-combustible':'Control Combustible',km:'Km / Servicio',
+  nomina:'Nomina',asistencia:'Asistencia',fichaje:'Fichaje / Sitios',combustible:'Combustible','control-combustible':'Control Combustible',km:'Km / Servicio',
   documentos:'Documentos',inventario:'Inventario',llantas:'Llantas',metas:'Metas',
   empleados:'Empleados',unidades:'Unidades y Equipos',prestamos:'Prestamos',multas:'Multas',stats:'Estadisticas',rentabilidad:'Rentabilidad x Camion',salud:'Salud de Datos',multicontrato:'Operación / Contratos',
   porteria:'Porteria',mecanico:'Mecanico',checklist:'Check List',operativo:'Operativo',ranking:'Ranking',contratos:'Contratos',usuarios:'Usuarios',auditoria:'Auditoria',
@@ -1146,6 +1146,81 @@ function abrirAnalisis(){
   for(var i=0;i<orden.length;i++){if(perms.indexOf(orden[i])>=0){sp(orden[i]);return;}}
   alert('No tienes permiso para esta sección');
 }
+// ══════════════ FICHAJE / SITIOS DE ASISTENCIA (geocerca) ══════════════
+function _fx(s){return String(s==null?'':s).replace(/[<>&"]/g,function(c){return ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'})[c];});}
+async function renderFichaje(){ renderSitios(); renderAsistenciaHoy(); }
+async function renderSitios(){
+  var cont=document.getElementById('sit-lista'); if(!cont)return;
+  var rows=[];
+  if(DB_READY&&supabase){ try{ var r=await supabase.from('sitios_asistencia').select('*').order('nombre'); if(r&&!r.error)rows=r.data||[]; }catch(e){} }
+  window._SITIOS=rows;
+  if(!rows.length){ cont.innerHTML='<div class="empty-state"><span class="ico">🏢</span>Aún no cargaste sitios. Agregá tus sucursales y la oficina.</div>'; return; }
+  cont.innerHTML='<button class="btn btn-g btn-sm" style="width:100%;margin-bottom:8px" onclick="qrTodasSucursales()">🖨️ Imprimir TODOS los QR de sucursales ('+rows.length+')</button>'+rows.map(function(s){
+    return '<div style="display:flex;justify-content:space-between;align-items:center;gap:6px;border:1px solid var(--border);border-radius:8px;padding:8px 10px;margin-bottom:5px;background:var(--card2)"><div style="min-width:0"><b style="font-size:13px">'+(s.es_oficina?'🏢 ':'🏪 ')+_fx(s.nombre)+'</b><div style="font-size:10px;color:var(--text3)">'+Number(s.lat).toFixed(5)+', '+Number(s.lng).toFixed(5)+' · radio '+s.radio_m+' m'+(s.activo?'':' · INACTIVO')+'</div></div><span style="white-space:nowrap"><button class="btn btn-s btn-xs" onclick="qrSucursal('+s.id+')">🔳 QR</button> <button class="btn btn-r btn-xs" onclick="elimSitio('+s.id+')">🗑️</button></span></div>';
+  }).join('');
+}
+async function guardarSitio(){
+  var nombre=(gv('sit-nombre')||'').trim(), lat=parseFloat(gv('sit-lat')), lng=parseFloat(gv('sit-lng')), radio=parseInt(gv('sit-radio'),10)||120, ofi=gv('sit-ofi')==='true';
+  if(!nombre){alert('Poné el nombre del sitio');return;}
+  if(!(lat>=-90&&lat<=90)||!(lng>=-180&&lng<=180)){alert('Latitud/Longitud inválidas. Pegalas de Google Maps o usá "Mi ubicación".');return;}
+  if(DB_READY&&supabase){ var r=await supabase.from('sitios_asistencia').insert([{nombre:nombre,lat:lat,lng:lng,radio_m:radio,es_oficina:ofi,activo:true}]); if(r&&r.error){alert('No se pudo guardar: '+r.error.message);return;} }
+  if(typeof mostrarToast==='function')mostrarToast('✅ Sitio agregado','exito');
+  ['sit-nombre','sit-lat','sit-lng'].forEach(function(id){var e=document.getElementById(id);if(e)e.value='';});
+  renderSitios();
+}
+async function elimSitio(id){
+  if(!confirm('¿Borrar este sitio?'))return;
+  if(DB_READY&&supabase){ try{ await supabase.from('sitios_asistencia').delete().eq('id',id); }catch(e){} }
+  renderSitios();
+}
+function sitUsarMiUbic(){
+  if(!navigator.geolocation){alert('Este dispositivo no da ubicación');return;}
+  if(typeof mostrarToast==='function')mostrarToast('📍 Obteniendo tu ubicación…','info');
+  navigator.geolocation.getCurrentPosition(function(p){
+    var la=document.getElementById('sit-lat'), lo=document.getElementById('sit-lng');
+    if(la)la.value=p.coords.latitude.toFixed(6); if(lo)lo.value=p.coords.longitude.toFixed(6);
+    if(typeof mostrarToast==='function')mostrarToast('Ubicación tomada (±'+Math.round(p.coords.accuracy)+' m)','exito');
+  }, function(err){ alert('No se pudo ubicar: '+(err.message||'activá el GPS')); }, {enableHighAccuracy:true,maximumAge:0,timeout:20000});
+}
+async function renderAsistenciaHoy(){
+  var cont=document.getElementById('asis-hoy'); if(!cont)return;
+  var hoy=(typeof fechaVE==='function')?fechaVE():new Date(Date.now()-14400000).toISOString().slice(0,10);
+  var rows=[];
+  if(DB_READY&&supabase){ try{ var r=await supabase.from('asistencia_dia').select('*').eq('fecha',hoy).order('hora'); if(r&&!r.error)rows=r.data||[]; }catch(e){} }
+  if(!rows.length){ cont.innerHTML='<div class="empty-state"><span class="ico">🕒</span>Nadie ha fichado hoy todavía.</div>'; return; }
+  cont.innerHTML='<div style="font-size:11px;color:var(--text3);margin-bottom:6px">'+rows.length+' persona(s) presentes</div>'+rows.map(function(a){
+    var h=a.hora?new Date(a.hora):null; var hs=h?(String(h.getHours()).padStart(2,'0')+':'+String(h.getMinutes()).padStart(2,'0')):'';
+    var via=a.origen==='checklist'?'🚚 checklist':'📲 fichaje';
+    return '<div style="display:flex;justify-content:space-between;align-items:center;border:1px solid var(--border);border-radius:8px;padding:8px 10px;margin-bottom:5px;background:var(--card2)"><div><b style="font-size:13px">'+_fx(a.nombre)+'</b><div style="font-size:10px;color:var(--text3)">'+_fx(a.cargo||'')+' · '+via+(a.unidad?' · '+_fx(a.unidad):'')+'</div></div><div style="text-align:right"><div style="font-weight:700;font-size:12px;color:#7dc941">'+hs+'</div><div style="font-size:10px;color:var(--text3)">📍 '+_fx(a.sitio_nombre||'—')+'</div>'+(a.selfie_url?'<a href="'+_fx(a.selfie_url)+'" target="_blank" style="font-size:10px;color:#7dc941">ver selfie</a>':'')+'</div></div>';
+  }).join('');
+}
+function qrFichaje(){
+  var base=(typeof location!=='undefined'&&location.origin)?location.origin:'';
+  var url=base+'/fichar.html';
+  var html=getStyleImprimir()+'<body style="text-align:center"><div style="max-width:400px;margin:24px auto;border:2px solid #1e3a5f;border-radius:14px;padding:24px"><div style="font-size:18px;font-weight:900;color:#1e3a5f;margin-bottom:6px">Fichar asistencia — '+brandNomUp()+'</div><div style="font-size:11px;color:#555;margin-bottom:14px">Escaneá para fichar tu entrada (nombre + 4 dígitos + selfie)</div><img src="https://api.qrserver.com/v1/create-qr-code/?size=300x300&margin=8&data='+encodeURIComponent(url)+'" style="width:280px;height:280px"><div style="font-size:10px;color:#999;margin-top:10px;word-break:break-all">'+url+'</div></div></body></html>';
+  abrirVentanaImpresion(html);
+}
+
+// QR POR SUCURSAL: fichar.html?sitio=ID → toma la sucursal sola y solo pide selfie. Lleva el nombre impreso.
+function _qrCardSucursal(s,url){
+  return '<div style="width:360px;margin:10px;border:2px solid #1e3a5f;border-radius:14px;padding:20px;text-align:center;page-break-inside:avoid;display:inline-block;vertical-align:top">'+
+    '<div style="font-size:12px;color:#555;margin-bottom:3px">Fichar asistencia — '+brandNomUp()+'</div>'+
+    '<div style="font-size:19px;font-weight:900;color:#1e3a5f;margin-bottom:10px">'+(s.es_oficina?'🏢 ':'🏪 ')+_fx(s.nombre)+'</div>'+
+    '<img src="https://api.qrserver.com/v1/create-qr-code/?size=300x300&margin=8&data='+encodeURIComponent(url)+'" style="width:260px;height:260px"><br>'+
+    '<div style="font-size:12px;color:#333;margin-top:8px">Escaneá y tomate la selfie.</div>'+
+    '<div style="font-size:9px;color:#999;margin-top:5px;word-break:break-all">'+url+'</div></div>';
+}
+function _urlSitio(id){ var base=(typeof location!=='undefined'&&location.origin)?location.origin:''; return base+'/fichar.html?sitio='+id; }
+function qrSucursal(id){
+  var s=(window._SITIOS||[]).filter(function(x){return String(x.id)===String(id);})[0]; if(!s){ alert('Sitio no encontrado'); return; }
+  abrirVentanaImpresion(getStyleImprimir()+'<body style="text-align:center">'+_qrCardSucursal(s,_urlSitio(s.id))+'</body></html>');
+}
+function qrTodasSucursales(){
+  var sitios=(window._SITIOS||[]); if(!sitios.length){ alert('No hay sitios cargados.'); return; }
+  var cards=sitios.map(function(s){ return _qrCardSucursal(s,_urlSitio(s.id)); }).join('');
+  abrirVentanaImpresion(getStyleImprimir()+'<body><div style="text-align:center;font-size:16px;font-weight:900;margin:10px 0">QR de asistencia por sucursal — '+brandNomUp()+' ('+sitios.length+')</div><div style="text-align:center">'+cards+'</div></body></html>');
+}
+
 function sp(id){
   // Abonos se fundió en Cobranza/Alcaldía → pestaña Pagos. Redirigir para no romper accesos directos.
   if(id==='abonos'){ sp('reporte'); setTimeout(function(){try{switchRptTab('pagos');}catch(e){}},0); return; }
@@ -1194,7 +1269,7 @@ function sp(id){
     if(id==='banco'){renderBancoSubnav('banco');renderBNCDash();}
     if(id==='proveedores'){renderFinanzasSubnav('proveedores');renderCXP();renderProveedoresLista();renderRetenciones();}
     if(id==='documentos'){renderDocAlertas();renderDocTablas();}
-    if(id==='asistencia')renderAsistencia();
+    if(id==='asistencia')renderAsistencia();if(id==='fichaje')renderFichaje();
     if(id==='prestamos'){renderRRHHSubnav('prestamos');poblarEmps();renderPrestamos();}
     if(id==='multas'){renderRRHHSubnav('multas');poblarCams();renderMultas();}
     if(id==='inventario'){cargarInvMov().then(function(){renderInventario();}).catch(function(){renderInventario();});try{renderComprasSugeridas();}catch(e){}}
