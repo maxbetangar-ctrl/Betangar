@@ -5723,7 +5723,7 @@ function _guardarIntervaloItem(itemId,esp){
 async function _registrarServicioSimple(cam,itemId,nombre,fecha,obs){
   var f=String(fecha||fechaVE()).slice(0,10);
   var km=(typeof kmActualCam==='function')?kmActualCam(cam):((KM_DATA[cam]&&KM_DATA[cam].km)||0);
-  var id='MT'+Date.now();
+  var id=_editId||('MT'+Date.now());
   var row={id:id,cam:cam,f:f,km:km,item_id:itemId,tipo:nombre,tipo_trabajo:itemId,desc_trabajo:obs||nombre,costo_usd:0,proveedor:'',foto_url:''};
   var mem={id:id,cam:cam,fecha:f,km:km,itemId:itemId,tipo:nombre,tipoTrabajo:itemId,desc:row.desc_trabajo,costo:0,proveedor:'',foto:''};
   var ok=false;
@@ -5938,6 +5938,7 @@ async function registrarMantItem(){
   var cam=gv('hv-cam'), itemId=gv('hv-item'), fecha=gv('hv-fecha')||fechaVE(), km=parseInt(gv('hv-km'))||0;
   var costo=parseFloat(gv('hv-costo'))||0, prov=(gv('hv-prov')||'').trim(), nota=(gv('hv-nota')||'').trim();
   var tipoTrab=gv('hv-tipotrabajo')||'cambio', horas=parseInt(gv('hv-horas'))||0;
+  var _editId=window._hvEditId||''; if(_editId){ MANTENIMIENTOS=(MANTENIMIENTOS||[]).filter(function(m){return String(m.id)!==String(_editId);}); }
   if(!cam){alert('Elegí la unidad');return;}
   if(!itemId){alert('Elegí el ítem (qué se le hizo)');return;}
   var esHoras=(typeof medidaUnidad==='function')&&medidaUnidad(cam)==='horas';
@@ -5947,7 +5948,7 @@ async function registrarMantItem(){
   // (cambio/sustitución/correctivo/lavado/engrase); la inspección no cuenta. Si sí → BLOQUEA hasta que
   // escriba un MOTIVO, y lo graba como anomalía (tablero) para cazar cambios de piezas antes de tiempo.
   var anomalia=false, motivo='';
-  if(tipoTrab!=='inspeccion'){
+  if(!_editId && tipoTrab!=='inspeccion'){
     var prevEv=_ultimoMantItem(cam,itemId);
     if(prevEv){
       var esp=_intervaloEsperado(it,itemId);
@@ -5981,7 +5982,7 @@ async function registrarMantItem(){
   var foto=window._hvFotoUrl||'';
   // ANTI-FRAUDE (3): FOTO OBLIGATORIA en ítems CRÍTICOS/de seguridad (batería, cauchos, frenos...) → así
   // el taller no puede "decir que lo cambió" sin prueba. Se marca crítico en el catálogo (⏰ Preventivo).
-  if(it&&it.critico&&!foto){ alert('⚠️ FOTO OBLIGATORIA\n\n"'+(it.nombre||itemId)+'" es un ítem CRÍTICO (seguridad): hay que subir la FOTO como prueba del trabajo.\n\nSubí la foto y volvé a registrar.'); return; }
+  if(!_editId && it&&it.critico&&!foto){ alert('⚠️ FOTO OBLIGATORIA\n\n"'+(it.nombre||itemId)+'" es un ítem CRÍTICO (seguridad): hay que subir la FOTO como prueba del trabajo.\n\nSubí la foto y volvé a registrar.'); return; }
   var id='MT'+Date.now();
   // Si se está CERRANDO una orden de servicio para esta unidad, se enlaza el evento a la orden.
   var _oc=(window._ordCerrando&&window._ordCerrando.cam===cam)?window._ordCerrando.id:'';
@@ -6001,12 +6002,27 @@ async function registrarMantItem(){
   // Coherencia con el horímetro: si la unidad va por horas, actualiza horas_actuales (nunca baja).
   if(esHoras&&horas>0){ if(!UNIDAD_CONFIG[cam])UNIDAD_CONFIG[cam]={}; if(horas>=(parseInt(UNIDAD_CONFIG[cam].horasActuales)||0)){UNIDAD_CONFIG[cam].horasActuales=horas; if(DB_READY&&supabase){try{supabase.from('unidad_config').upsert([{cam:cam,horas_actuales:horas}],{onConflict:'cam'}).then(function(){});}catch(e){}}} }
   _sincronizarCicloMant(cam,itemId,fecha); // si es lavado/engrase, refresca su ciclo (módulo Lavados/plan)
-  audit('Mantenimiento registrado',cam+' · '+row.tipo+' ('+tipoTrab+')'+(km?(' · '+km+'km'):'')+(horas?(' · '+horas+'h'):'')+(costo?(' · $'+costo):''));
+  audit(_editId?'Mantenimiento editado':'Mantenimiento registrado',cam+' · '+row.tipo+' ('+tipoTrab+')'+(km?(' · '+km+'km'):'')+(horas?(' · '+horas+'h'):'')+(costo?(' · $'+costo):''));
+  window._hvEditId=''; var _gb=g('hv-guardar-btn'); if(_gb)_gb.textContent='Registrar en la hoja de vida';
   window._hvFotoUrl=''; sv('hv-km','');sv('hv-horas','');sv('hv-costo','');sv('hv-nota','');sv('hv-prov','');
   var fp=g('hv-foto-prev'); if(fp)fp.innerHTML='';
   renderHojaVida();
   if(typeof mostrarToast==='function')mostrarToast(ok?'✅ Mantenimiento guardado en la hoja de vida':'⚠️ En cola (sin conexión)',ok?'exito':'error');
   if(_oc){ _cerrarOrdenTrasMant(_oc); window._ordCerrando=null; } // cerrar/actualizar la orden de servicio
+}
+function editarMantItem(id){
+  var m=(MANTENIMIENTOS||[]).filter(function(x){return String(x.id)===String(id);})[0];
+  if(!m){alert('Registro no encontrado');return;}
+  try{ if(typeof _hvPoblarSelects==='function')_hvPoblarSelects(); }catch(e){}
+  sv('hv-cam',m.cam||''); sv('hv-item',m.itemId||''); sv('hv-fecha',m.fecha||'');
+  sv('hv-km',m.km||''); sv('hv-costo',m.costo||''); sv('hv-horas',m.horas||'');
+  sv('hv-tipotrabajo',m.tipoTrabajo||'cambio'); sv('hv-prov',m.proveedor||''); sv('hv-nota',m.desc||'');
+  window._hvFotoUrl=m.foto||'';
+  var fp=g('hv-foto-prev'); if(fp)fp.innerHTML=m.foto?('<img src="'+_mEsc(m.foto)+'" style="max-height:60px;border-radius:6px">'):'';
+  window._hvEditId=id;
+  var b=g('hv-guardar-btn'); if(b)b.textContent='💾 Guardar cambios';
+  try{ var f=g('hv-cam'); if(f)f.scrollIntoView({behavior:'smooth',block:'center'}); }catch(e){}
+  if(typeof mostrarToast==='function')mostrarToast('Editando registro — cambiá lo que necesites y guardá','info');
 }
 function eliminarMantItem(id){
   if(!confirm('¿Eliminar este registro de mantenimiento?'))return;
@@ -6075,7 +6091,7 @@ function renderHojaVida(){
         '<td style="font-family:var(--m);color:var(--yellow)">'+(m.costo?'$'+m.costo.toLocaleString():'—')+'</td>'+
         '<td style="font-size:11px">'+_mEsc(m.proveedor||'—')+'</td>'+
         '<td style="font-size:11px">'+_mEsc(m.desc||'')+(m.foto?' <a href="'+_mEsc(m.foto)+'" target="_blank" style="color:var(--teal)">📷</a>':'')+'</td>'+
-        '<td><button class="btn btn-r btn-xs" onclick="eliminarMantItem(\''+_mEsc(m.id)+'\')">×</button></td></tr>';
+        '<td style="white-space:nowrap"><button class="btn btn-s btn-xs" onclick="editarMantItem(\''+_mEsc(m.id)+'\')" title="Editar">✏️</button> <button class="btn btn-r btn-xs" onclick="eliminarMantItem(\''+_mEsc(m.id)+'\')">×</button></td></tr>';
     }).join('')+
     '<tr class="tr-tot"><td colspan="4">TOTAL ('+evs.length+' registros)</td><td style="font-family:var(--m);font-weight:700;color:var(--yellow)">$'+totCosto.toLocaleString()+'</td><td colspan="3"></td></tr>'+
     '</tbody></table>';

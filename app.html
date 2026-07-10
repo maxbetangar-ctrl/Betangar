@@ -1881,7 +1881,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
         <div class="fr2"><div class="fg"><label>Tipo de trabajo</label><select class="fc" id="hv-tipotrabajo"><option value="cambio">🔧 Cambio / sustitución</option><option value="inspeccion">🔎 Inspección / revisión</option><option value="correctivo">🛠 Correctivo</option><option value="lavado">🧽 Lavado / limpieza</option></select></div><div class="fg"><label>Horas (si va por horímetro)</label><input class="fc" id="hv-horas" type="number" placeholder="0" style="font-family:var(--m)"></div></div>
         <div class="fr2"><div class="fg"><label>Proveedor / taller</label><input class="fc" id="hv-prov" placeholder="Opcional"></div><div class="fg"><label>Nota</label><input class="fc" id="hv-nota" placeholder="Detalle opcional"></div></div>
         <div class="fg"><label>Foto (opcional, máx 2MB)</label><input class="fc" id="hv-foto" type="file" accept="image/*" onchange="subirFotoHV(this)"><div id="hv-foto-prev" style="margin-top:6px"></div></div>
-        <button class="btn btn-g btn-sm" style="width:100%" onclick="registrarMantItem()">Registrar en la hoja de vida</button>
+        <button class="btn btn-g btn-sm" style="width:100%" id="hv-guardar-btn" onclick="registrarMantItem()">Registrar en la hoja de vida</button>
       </div>
       <div class="card">
         <div class="sh"><div class="st">🔎 Estado por unidad: cuándo se hizo y cuánto falta</div></div>
@@ -2502,7 +2502,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
   </div>
 </div>
 
-<script src="app.js?v=20260711nom"></script>
+<script src="app.js?v=20260711km"></script>
 
 <!-- Modal global -->
 <div id="modal" class="moverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9990;align-items:center;justify-content:center;padding:16px">
