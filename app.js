@@ -4030,7 +4030,7 @@ function setPatioDias(chKey,val){
   if(n)PATIO_DIAS[chKey]=n; else delete PATIO_DIAS[chKey];
   guardarPatioDias(); try{calcNom();}catch(e){}
 }
-function _patioKeyDB(){return 'patio_'+(gv('nm-mes')||'')+'_'+(gv('nm-sem')||'');}
+function _patioKeyDB(){var des=gv('nm-des'); if(des){try{return 'patio_sem_'+_isoLocal(_lunesSem(des));}catch(e){}} return 'patio_'+(gv('nm-mes')||'')+'_'+(gv('nm-sem')||'');}
 function guardarPatioDias(){
   if(!(DB_READY&&supabase))return;
   try{supabase.from('configuracion').upsert([{clave:_patioKeyDB(),valor:JSON.stringify(PATIO_DIAS)}],{onConflict:'clave'}).then(function(r){if(r&&r.error)console.log('patio save:',r.error.message);});}catch(e){}
@@ -4051,7 +4051,7 @@ function setPatioNota(key,val){
   if(t)PATIO_NOTA[key]=t; else delete PATIO_NOTA[key];
   guardarPatioNota(); // no recalcula: la nota no cambia el pago (evita perder foco al teclear)
 }
-function _patioNotaKeyDB(){return 'patnota_'+(gv('nm-mes')||'')+'_'+(gv('nm-sem')||'');}
+function _patioNotaKeyDB(){var des=gv('nm-des'); if(des){try{return 'patnota_sem_'+_isoLocal(_lunesSem(des));}catch(e){}} return 'patnota_'+(gv('nm-mes')||'')+'_'+(gv('nm-sem')||'');}
 function guardarPatioNota(){
   if(!(DB_READY&&supabase))return;
   try{supabase.from('configuracion').upsert([{clave:_patioNotaKeyDB(),valor:JSON.stringify(PATIO_NOTA)}],{onConflict:'clave'}).then(function(r){if(r&&r.error)console.log('patnota save:',r.error.message);});}catch(e){}
@@ -4160,7 +4160,7 @@ function _extrasNominaPeriodo(desde,hasta){
   });
 }
 // Al cambiar de semana/mes: cargar patio + fijos IMAU + alias + extras y recalcular.
-function recalcNom(){ try{poblarSemsNom();}catch(e){} Promise.all([cargarPatioDias(),cargarPatioNota(),cargarImauApoyo(),cargarAliasNombres(),cargarNominaExtras()]).then(function(){try{calcNom();}catch(e){}try{renderAliasManager();}catch(e){}}).catch(function(){try{calcNom();}catch(e){}}); }
+function recalcNom(){ try{poblarSemsNom();}catch(e){} try{poblarSemanasNom();}catch(e){} Promise.all([cargarPatioDias(),cargarPatioNota(),cargarImauApoyo(),cargarAliasNombres(),cargarNominaExtras()]).then(function(){try{calcNom();}catch(e){}try{renderAliasManager();}catch(e){}}).catch(function(){try{calcNom();}catch(e){}}); }
 // Render de la sección "Actividades especiales" de la nómina (extras del período).
 function renderNominaExtras(extrasP){
   var tb=g('nm-extras-tabla'); if(!tb)return;
@@ -4226,6 +4226,22 @@ function elimNominaExtra(id){
   try{recalcNom();}catch(e){}
 }
 
+function _nmSetSemana(lunISO){
+  if(!lunISO)return;
+  var s=_semDeFecha(lunISO); if(!s)return;
+  if(g('nm-des'))g('nm-des').value=_isoLocal(s.lunes);
+  if(g('nm-hta'))g('nm-hta').value=_isoLocal(s.domingo);
+  if(g('nm-mes'))g('nm-mes').value=''; if(g('nm-sem'))g('nm-sem').value='';
+  if(typeof cargarPatioDias==='function'&&typeof cargarPatioNota==='function'){ Promise.all([cargarPatioDias(),cargarPatioNota()]).then(function(){ try{calcNom();}catch(e){} }); }
+  else { try{calcNom();}catch(e){} }
+}
+function poblarSemanasNom(){
+  var sel=g('nm-semana'); if(!sel)return;
+  var hoy=new Date(); var seen={}, opts=[];
+  for(var i=0;i<14;i++){ var d=new Date(hoy.getTime()-i*7*86400000); var s=_semDeFecha(_isoLocal(d)); if(s&&!seen[s.num]){seen[s.num]=1;opts.push(s);} }
+  var cur=sel.value;
+  sel.innerHTML='<option value="">— Semana (SEM-N) —</option>'+opts.map(function(s){var lv=_isoLocal(s.lunes);return '<option value="'+lv+'"'+(cur===lv?' selected':'')+'>'+s.label+' · '+_fechaLargaES(s.lunes)+'–'+_fechaLargaES(s.domingo)+'</option>';}).join('');
+}
 function calcNom(){
   var mes=gv('nm-mes'),sem=gv('nm-sem');
   var des=gv('nm-des'),hta=gv('nm-hta');
@@ -4258,19 +4274,19 @@ function calcNom(){
   // Incluye ayudantes INACTIVOS también: si aparecen con viajes en planilla se cuentan/pagan
   // igual (regla "el viaje siempre se paga") y se marcan ⚠️. Sin viajes, el if(viajes>0) los
   // deja fuera, así que un ex-ayudante sin actividad no ensucia la nómina.
-  EMPLEADOS.filter(function(e){return e.cargo==='Ayudante';}).forEach(function(e){
+  EMPLEADOS.forEach(function(e){
     // Buscar viajes POR NOMBRE en todas las planillas (independiente del camión)
     // Match tolerante (nombre corto en planilla vs completo en empleados) pero conservador:
     // _nomCasa exige mismo PRIMER nombre + ≥1 apellido en común (no casa homónimos de apellido).
     var rNom=f.filter(function(r){
-      return _nomCasa(r.ay1,e.nombre)||_nomCasa(r.ay2,e.nombre)||_nomCasa(r.ay3,e.nombre);
+      return (_nomCasa(r.ay1,e.nombre)||_nomCasa(r.ay2,e.nombre)||_nomCasa(r.ay3,e.nombre)) && !_nomCasa(r.ch,e.nombre);
     });
     var vNom=rNom.reduce(function(s,r){return s+r.t;},0);
     // Viajes hechos en DOMINGO/feriado nacional → pagan 1.5× (igual que choferes). Aplica a TODOS.
     var vNomDom=rNom.reduce(function(s,r){return s+(_esDomingoOferiado(r.f)?(parseInt(r.t)||0):0);},0);
     // También buscar por camión asignado si ay1/ay2 están vacíos (planillas viejas sin ayudante registrado)
     var vCam=0,vCamDom=0;
-    if(vNom===0){
+    if(vNom===0 && e.cargo==='Ayudante'){
       var rCam=f.filter(function(r){
         return r.cam===e.unidad&&!r.ay1&&!r.ay2&&!r.ay3;
       });
@@ -4617,7 +4633,7 @@ function verNominaHistDetalle(sem){
 }
 // Guardar la nómina calculada (último calcNom) en el historial → nutre nomina_historial.
 async function guardarNominaHist(){
-  if(!_ultimaNomina||!_ultimaNomina.sem){alert('Calcula la nómina y elige una SEMANA primero.');return;}
+  if(!_ultimaNomina||(!_ultimaNomina.sem&&!_ultimaNomina.fdesde)){alert('Calcula la nómina y elegí una semana (SEM-N) o un rango de fechas primero.');return;}
   var n=_ultimaNomina;
   var id='APP-'+(n.mes||'').replace(/\s+/g,'')+'-'+(n.sem||'').replace(/\s+/g,'');
   // ¿Ya se guardó esta semana? Si sí, NO se vuelven a avanzar las cuotas (guardia anti-doble):

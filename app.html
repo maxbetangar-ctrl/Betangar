@@ -1497,6 +1497,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
 <!-- NOMINA -->
 <div id="p-nomina" class="page">
   <div style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:10px 14px;margin-bottom:10px;display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
+    <div class="fg" style="margin:0"><label style="font-size:10px;color:var(--text3)">📅 Semana (paga)</label><select class="fc" id="nm-semana" onchange="_nmSetSemana(this.value)" style="padding:6px 8px;font-size:11px;min-width:190px"><option value="">— Semana (SEM-N) —</option></select></div>
     <div class="fg" style="margin:0"><label style="font-size:10px;color:var(--text3)">Mes</label><select class="fc" id="nm-mes" onchange="recalcNom()" style="padding:6px 8px;font-size:11px"><option value="ene-26">Enero 2026</option><option value="feb-26">Febrero 2026</option><option value="mar-26">Marzo 2026</option><option value="abr-26">Abril 2026</option><option value="may-26">Mayo 2026</option><option value="jun-26">Junio 2026</option><option value="jul-26">Julio 2026</option><option value="ago-26">Agosto 2026</option><option value="sep-26">Septiembre 2026</option><option value="oct-26">Octubre 2026</option><option value="nov-26">Noviembre 2026</option><option value="dic-26">Diciembre 2026</option><option value="">Todos</option></select></div>
     <div class="fg" style="margin:0"><label style="font-size:10px;color:var(--text3)">Semana</label><select class="fc" id="nm-sem" onchange="recalcNom()" style="padding:6px 8px;font-size:11px"><option value="">Todas</option></select></div>
     <div class="fg" style="margin:0"><label style="font-size:10px;color:var(--text3)">Desde</label><input type="date" class="fc" id="nm-des" onchange="calcNom()" style="padding:6px 8px;font-size:11px"></div>
@@ -2501,7 +2502,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
   </div>
 </div>
 
-<script src="app.js?v=20260711a"></script>
+<script src="app.js?v=20260711nom"></script>
 
 <!-- Modal global -->
 <div id="modal" class="moverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9990;align-items:center;justify-content:center;padding:16px">
