@@ -4420,7 +4420,7 @@ function calcNom(){
       '<td style="color:var(--green)"><div style="display:flex;align-items:center;justify-content:space-between;gap:6px">'+
         '<span style="display:flex;align-items:center;gap:3px"><b>'+vjCh+'</b>'+
         ' <input type="number" min="0" value="'+patM+'" title="Días de actividad sin viaje (patio/traslado/lavado): +1 viaje c/u. Si lo cargás a mano, manda sobre el automático de asistencia." onchange="setPatioDias(\''+key.replace(/'/g,"")+'\',this.value)" style="width:30px;font-size:9px;background:var(--bg3);border:1px solid var(--border);color:var(--amber);border-radius:4px;padding:1px 2px;text-align:center"><span style="font-size:8px;color:var(--amber)">P</span></span>'+
-        '<span style="display:flex;gap:3px;white-space:nowrap">'+(c.viajesDom>0?'<span style="font-size:8px;color:var(--teal)" title="viajes en domingo/feriado pagados a 1.5×">+'+c.viajesDom+'D</span>':'')+((patM>0?0:(c.patio||0))>0?'<span style="font-size:8px;color:var(--amber)" title="patio por asistencia">+'+(c.patio||0)+'P</span>':'')+'</span>'+
+        '<span style="display:flex;gap:3px;white-space:nowrap">'+(c.viajesDom>0?'<span style="font-size:8px;color:var(--teal)" title="viajes en domingo/feriado pagados a 1.5×">+'+c.viajesDom+' dom/fer</span>':'')+((patM>0?0:(c.patio||0))>0?'<span style="font-size:8px;color:var(--amber)" title="patio por asistencia">+'+(c.patio||0)+'P</span>':'')+'</span>'+
         '</div></td>'+
       '<td>'+c.dias.size+'</td>'+
       '<td style="font-family:var(--m)">$'+fmtMon(sueldo)+(c.viajesDom>0?' <span style="font-size:8px;color:var(--teal)" title="incluye recargo domingo 1.5×">▲</span>':'')+(patTot>0?' <span style="font-size:8px;color:var(--amber)" title="incluye '+patTot+' día(s) de patio × tarifa (no son viajes)">+'+patTot+'P</span>':'')+'</td>'+
@@ -4444,7 +4444,7 @@ function calcNom(){
       '<td style="font-size:10px">'+a.emp.unidad+(nota?'<br><span style="color:var(--text3);font-size:9px">'+nota+'</span>':'')+'</td>'+
       '<td style="color:var(--green)"><div style="display:flex;align-items:center;justify-content:space-between;gap:6px">'+
         '<span style="display:flex;align-items:center;gap:3px"><b>'+vjPlanAy+'</b>'+inputPatio+'</span>'+
-        '<span style="display:flex;gap:3px;white-space:nowrap">'+(a.viajesDom>0?'<span style="font-size:8px;color:var(--teal)" title="viajes en domingo/feriado pagados a 1.5×">+'+a.viajesDom+'D</span>':'')+'</span>'+
+        '<span style="display:flex;gap:3px;white-space:nowrap">'+(a.viajesDom>0?'<span style="font-size:8px;color:var(--teal)" title="viajes en domingo/feriado pagados a 1.5×">+'+a.viajesDom+' dom/fer</span>':'')+'</span>'+
         '</div></td>'+
       '<td style="font-family:var(--m)">$'+fmtMon(sueldo)+(a.recargoDom>0?' <span style="font-size:8px;color:var(--teal)" title="incluye recargo domingo 1.5×">▲</span>':'')+((vp.patio||0)>0?' <span style="font-size:8px;color:var(--amber)" title="incluye '+vp.patio+' día(s) de patio × tarifa (no son viajes)">+'+vp.patio+'P</span>':'')+'</td>'+
       '<td style="font-family:var(--m);color:var(--red)">'+(a.descuentos>0?'-$'+fmtMon(a.descuentos):'—')+'</td>'+
