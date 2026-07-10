@@ -1011,6 +1011,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
       <div class="stat y"><div class="stat-lbl">Stock Bajo</div><div class="stat-val" style="color:var(--yellow)" id="inv-bajos">0</div></div>
       <div class="stat t"><div class="stat-lbl">Valor Total</div><div class="stat-val" style="font-size:14px;color:var(--teal)" id="inv-valor">$0</div></div>
     </div>
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap"><select class="fc" id="inv-filtro-cat" onchange="renderInventario()" style="max-width:230px"><option value="">Todas las categorías</option><optgroup label="Repuestos"><option>Filtros</option><option>Aceites y Lubricantes</option><option>Frenos</option><option>Motor</option><option>Transmisión</option><option>Suspensión</option><option>Eléctrico</option><option>Llantas / Cauchos</option><option>Repuestos varios</option></optgroup><optgroup label="Otros bienes / insumos"><option>Herramientas</option><option>Equipos</option><option>Mobiliario</option><option>Materiales de oficina</option><option>Insumos de limpieza</option><option>Seguridad / EPP</option><option>Consumibles</option><option>Otros</option></optgroup></select><button class="btn btn-s btn-sm" onclick="imprimirInventario()">🖨️ Imprimir reporte</button></div>
     <div id="inv-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px"></div>
   </div>
   <div id="tab-inv-add" style="display:none">

@@ -7958,17 +7958,39 @@ async function eliminarItemInv(id){
   var sel=g('inv-uso-item');if(sel){for(var i=sel.options.length-1;i>=0;i--){if(sel.options[i].value===id)sel.remove(i);}}
   renderInventario();
 }
+function _invCat(x){ return (x.cat||x.categoria||''); }
+function _invFiltrado(){ var f=(typeof gv==='function'?gv('inv-filtro-cat'):'')||''; return f?INVENTARIO.filter(function(x){return _invCat(x)===f;}):INVENTARIO; }
+function imprimirInventario(){
+  var f=(typeof gv==='function'?gv('inv-filtro-cat'):'')||'';
+  var lista=_invFiltrado().slice().sort(function(a,b){return (_invCat(a)+'|'+(a.nombre||'')).localeCompare(_invCat(b)+'|'+(b.nombre||''));});
+  if(!lista.length){ if(typeof mostrarToast==='function')mostrarToast('No hay items para ese filtro.','error'); return; }
+  var valor=lista.reduce(function(s,x){return s+((x.stock||0)*(x.precio||0));},0);
+  var R='text-align:right';
+  var filas=lista.map(function(x){
+    var est=x.stock===0?'CRÍTICO':((x.stock<=x.stockMin)?'BAJO':'OK');
+    var col=x.stock===0?'#c0392b':((x.stock<=x.stockMin)?'#b8860b':'#2e7d32');
+    return '<tr><td>'+(x.nombre||'')+'</td><td>'+_invCat(x)+'</td><td style="'+R+'">'+(x.stock||0)+'</td><td style="'+R+'">'+(x.stockMin||0)+'</td><td style="'+R+'">$'+(x.precio||0).toFixed(2)+'</td><td style="'+R+'">$'+(((x.stock||0)*(x.precio||0))).toFixed(2)+'</td><td style="color:'+col+';font-weight:700">'+est+'</td></tr>';
+  }).join('');
+  var titulo='Reporte de Inventario — '+(f||'todas las categorías');
+  var marca=(typeof brandNomUp==='function'?brandNomUp():'Inventario');
+  var body='<div style="display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid #1e3a5f;padding-bottom:6px"><div style="font-size:18px;font-weight:900;color:#1e3a5f">'+marca+'</div><div style="font-size:11px;color:#666">'+new Date().toLocaleDateString('es-VE')+'</div></div>'+
+    '<h2 style="font-size:15px;margin:12px 0 4px">'+titulo+'</h2>'+
+    '<table style="font-size:11px"><thead><tr><th style="text-align:left">Item</th><th style="text-align:left">Categoría</th><th style="'+R+'">Stock</th><th style="'+R+'">Mín</th><th style="'+R+'">Precio</th><th style="'+R+'">Valor</th><th>Estado</th></tr></thead><tbody>'+filas+'</tbody></table>'+
+    '<div style="margin-top:10px;font-size:13px;font-weight:700;text-align:right">Items: '+lista.length+' · Valor total: $'+valor.toFixed(2)+'</div>';
+  abrirVentanaImpresion(getStyleImprimir()+'<body>'+body+'</body></html>');
+}
 function renderInventario(){
-  var totItems=INVENTARIO.length;
-  var criticos=INVENTARIO.filter(function(x){return x.stock===0;}).length;
-  var bajos=INVENTARIO.filter(function(x){return x.stock>0&&x.stock<=x.stockMin;}).length;
-  var valor=INVENTARIO.reduce(function(s,x){return s+(x.stock*x.precio);},0);
+  var INV_F=_invFiltrado();
+  var totItems=INV_F.length;
+  var criticos=INV_F.filter(function(x){return x.stock===0;}).length;
+  var bajos=INV_F.filter(function(x){return x.stock>0&&x.stock<=x.stockMin;}).length;
+  var valor=INV_F.reduce(function(s,x){return s+(x.stock*x.precio);},0);
   if(g('inv-total'))g('inv-total').textContent=totItems;
   if(g('inv-criticos'))g('inv-criticos').textContent=criticos;
   if(g('inv-bajos'))g('inv-bajos').textContent=bajos;
   if(g('inv-valor'))g('inv-valor').textContent='$'+valor.toFixed(0);
   var grid=g('inv-grid');
-  if(grid)grid.innerHTML=INVENTARIO.length?INVENTARIO.map(function(item){
+  if(grid)grid.innerHTML=INV_F.length?INV_F.map(function(item){
     var pct=item.stockMin>0?Math.min(100,(item.stock/Math.max(item.stock,item.stockMin*3))*100):50;
     var c=item.stock===0?'var(--red)':item.stock<=item.stockMin?'var(--yellow)':'var(--green)';
     return'<div class="card" style="border-top:3px solid '+c+'">'+
