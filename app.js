@@ -5969,7 +5969,7 @@ function _guardarIntervaloItem(itemId,esp){
 async function _registrarServicioSimple(cam,itemId,nombre,fecha,obs){
   var f=String(fecha||fechaVE()).slice(0,10);
   var km=(typeof kmActualCam==='function')?kmActualCam(cam):((KM_DATA[cam]&&KM_DATA[cam].km)||0);
-  var id=_editId||('MT'+Date.now());
+  var id='MT'+Date.now();
   var row={id:id,cam:cam,f:f,km:km,item_id:itemId,tipo:nombre,tipo_trabajo:itemId,desc_trabajo:obs||nombre,costo_usd:0,proveedor:'',foto_url:''};
   var mem={id:id,cam:cam,fecha:f,km:km,itemId:itemId,tipo:nombre,tipoTrabajo:itemId,desc:row.desc_trabajo,costo:0,proveedor:'',foto:''};
   var ok=false;
@@ -6236,7 +6236,7 @@ async function registrarMantItem(){
   // ANTI-FRAUDE (3): FOTO OBLIGATORIA en ítems CRÍTICOS/de seguridad (batería, cauchos, frenos...) → así
   // el taller no puede "decir que lo cambió" sin prueba. Se marca crítico en el catálogo (⏰ Preventivo).
   if(!_editId && it&&it.critico&&!foto){ alert('⚠️ FOTO OBLIGATORIA\n\n"'+(it.nombre||itemId)+'" es un ítem CRÍTICO (seguridad): hay que subir la FOTO como prueba del trabajo.\n\nSubí la foto y volvé a registrar.'); return; }
-  var id='MT'+Date.now();
+  var id=_editId||('MT'+Date.now()); // en edición reusa el mismo id (upsert actualiza, no duplica)
   // Si se está CERRANDO una orden de servicio para esta unidad, se enlaza el evento a la orden.
   var _oc=(window._ordCerrando&&window._ordCerrando.cam===cam)?window._ordCerrando.id:'';
   // fila para la tabla `mantenimientos` (snake_case) — MISMA tabla que guardarKm → fuente única
