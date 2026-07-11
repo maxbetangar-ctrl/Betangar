@@ -5374,6 +5374,7 @@ async function _ccAgregarLinea(){
     var precioU=cant>0?(Math.round((costo/cant)*100)/100):costo;
     if(destino==='unidad'){
       var km=parseInt(gv('cc-km'))||0, idM='MT'+Date.now();
+      if(km<=0)km=(typeof kmActualCam==='function')?(parseInt(kmActualCam(cam))||0):0; // sin km manual → km actual de la base
       var row={id:idM,cam:cam,f:fecha,km:km,horas:0,item_id:'',tipo:nombre,tipo_trabajo:'cambio',desc_trabajo:nombre+(cant>1?(' x'+cant):''),costo_usd:costo,proveedor:provNom,foto_url:fotoUrl,anomalia:false,motivo:'',orden_id:ordenId,garantia_hasta:garHasta,centro_costo:'',origen:''};
       var mem={id:idM,cam:cam,fecha:fecha,km:km,horas:0,itemId:'',tipo:nombre,tipoTrabajo:'cambio',desc:row.desc_trabajo,costo:costo,proveedor:provNom,foto:fotoUrl,anomalia:false,motivo:'',ordenId:ordenId,garantiaHasta:garHasta,centroCosto:'',origen:''};
       await _ccInsertMant(row,mem);
@@ -6189,7 +6190,8 @@ async function registrarMantItem(){
   if(!cam){alert('Elegí la unidad');return;}
   if(!itemId){alert('Elegí el ítem (qué se le hizo)');return;}
   var esHoras=(typeof medidaUnidad==='function')&&medidaUnidad(cam)==='horas';
-  if(!esHoras&&km<=0){ if(!confirm('No ingresaste el KM que tenía la unidad al hacerse este trabajo.\n(Es manual porque el trabajo pudo hacerse otro día / a otro km.)\n\n¿Registrar igual sin km?'))return; }
+  // Si no pusieron km manual, tomar el km ACTUAL de la unidad desde la base (el odómetro nunca retrocede).
+  if(!esHoras&&km<=0){ km=(typeof kmActualCam==='function')?(parseInt(kmActualCam(cam))||0):0; }
   // Al CERRAR una orden, el costo no se debe colar en $0 (rompe el centro de costos). Avisa —pero no bloquea—
   // porque un trabajo en GARANTÍA o sin cargo sí es $0 legítimo.
   var _cerrandoOrden=(window._ordCerrando&&window._ordCerrando.cam===cam);
