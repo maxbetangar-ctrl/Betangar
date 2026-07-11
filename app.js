@@ -1084,8 +1084,17 @@ function renderMantSubnav(activo){
   ['subnav-checklist','subnav-mecanico','subnav-km','subnav-llantas'].forEach(function(pid){var el=document.getElementById(pid);if(el)el.innerHTML=html;});
 }
 // Entrada de menú unificada "Mantenimiento": abre el primer sub-módulo que el rol pueda ver.
+// OFICINA (superadmin/admin/rrhh) entra directo a Km/Servicio → Órdenes (su trabajo diario es emitir/cerrar
+// órdenes). Los de CAMPO (mecánico/jefe de operaciones/chofer) entran a su primer módulo (Check List).
 function abrirMantenimiento(){
-  var perms=PERMISOS[SESION?SESION.rol:'admin']||PERMISOS['admin']||[];
+  var rol=SESION?SESION.rol:'admin';
+  var perms=PERMISOS[rol]||PERMISOS['admin']||[];
+  var oficina=['superadmin','admin','rrhh','demo_admin','demo_rrhh'];
+  if(oficina.indexOf(rol)>=0 && perms.indexOf('km')>=0){
+    sp('km');
+    if(typeof switchKmTab==='function')switchKmTab('ord');
+    return;
+  }
   var orden=['checklist','mecanico','km','llantas'];
   for(var i=0;i<orden.length;i++){if(perms.indexOf(orden[i])>=0){sp(orden[i]);return;}}
   alert('No tienes permiso para esta sección');
@@ -5102,38 +5111,64 @@ var _ordServCargadas=false;
 async function cargarOrdenesServicio(){
   if(!(DB_READY&&supabase))return;
   try{var r=await supabase.from('ordenes_servicio').select('*').order('creado_en',{ascending:false}).limit(2000);
-    if(!r.error&&Array.isArray(r.data))ORDENES_SERV=r.data.map(function(x){return{id:x.id,fecha:x.fecha,cams:Array.isArray(x.cams)?x.cams:[],proveedor:x.proveedor||'',proveedorId:x.proveedor_id||'',tipo:x.tipo_servicio||'',item:x.item||'',notas:x.notas||'',estado:x.estado||'emitida',fechaCierre:x.fecha_cierre||null,costo:parseFloat(x.costo_usd)||0};});
+    if(!r.error&&Array.isArray(r.data))ORDENES_SERV=r.data.map(function(x){return{id:x.id,fecha:x.fecha,cams:Array.isArray(x.cams)?x.cams:[],proveedor:x.proveedor||'',proveedorId:x.proveedor_id||'',tipo:x.tipo_servicio||'',tipoOrden:x.tipo_orden||'servicio',item:x.item||'',notas:x.notas||'',estado:x.estado||'emitida',fechaCierre:x.fecha_cierre||null,costo:parseFloat(x.costo_usd)||0};});
   }catch(e){console.log('[ordenes_servicio]',e&&e.message);}
 }
 var _OS_TIPO_LBL={lavado:'🧽 Lavado',cambio:'🔧 Cambio/sust.',inspeccion:'🔎 Inspección',correctivo:'🛠 Correctivo',preventivo:'📅 Preventivo',otro:'Otro'};
 var _OS_EST_BADGE={emitida:'<span class="badge by">🟡 Emitida</span>',en_proceso:'<span class="badge bb">🔵 En proceso</span>',hecha:'<span class="badge bg">🟢 Hecha</span>'};
 function _osProvOtro(){var s=g('os-prov'),w=g('os-prov-otro-wrap');if(w)w.style.display=(s&&s.value==='__otro')?'block':'none';}
+// Cambia el formulario de emisión según sea SERVICIO (a una unidad, proveedor predefinido) o COMPRA
+// (repuestos/insumos/lo que sea; destino unidad o Patio; proveedor OPCIONAL — se define al comprar).
+function _osTipoOrden(){
+  var t=gv('os-tipoorden')||'servicio', compra=(t==='compra');
+  var patioChk=g('os-patio'), patio=compra&&patioChk&&patioChk.checked;
+  var patioWrap=g('os-patio-wrap'); if(patioWrap)patioWrap.style.display=compra?'block':'none';
+  if(patioChk&&!compra)patioChk.checked=false;
+  var tipoWrap=g('os-tipo-wrap'); if(tipoWrap)tipoWrap.style.display=compra?'none':'block';
+  var camsLbl=g('os-cams-lbl'); if(camsLbl)camsLbl.textContent=compra?'¿Para cuáles unidades? (ej: 1,2,3)':'Unidades (ej: 1,2,3)';
+  var camsInp=g('os-cams'); if(camsInp){camsInp.disabled=!!patio; camsInp.style.opacity=patio?'0.5':'1'; camsInp.placeholder=patio?'— Patio / uso general —':(compra?'1,2,3 (o marca Patio)':'1,2,3');}
+  var provLbl=g('os-prov-lbl'); if(provLbl)provLbl.textContent=compra?'Proveedor (opcional — se define al comprar)':'Proveedor / taller';
+  var itemLbl=g('os-item-lbl'); if(itemLbl)itemLbl.textContent=compra?'¿Qué se va a comprar?':'Ítem / qué se hará';
+  var itemInp=g('os-item'); if(itemInp)itemInp.placeholder=compra?'Ej: 4 baterías, filtros, materiales de oficina...':'Ej: lavado completo, cambio de aceite, revisión de frenos...';
+  var btn=g('os-btn-lbl'); if(btn)btn.textContent=compra?'🛒 Emitir orden de compra':'📋 Emitir orden';
+  var ayuda=g('os-ayuda'); if(ayuda)ayuda.innerHTML=compra
+    ?'Para mandar a comprar cualquier cosa (repuestos, insumos, oficina). Se imprime para el encargado. El <b>costo, proveedor real, foto y destino</b> se llenan al <b>cerrarla</b> (marcar ✅ Hecho).'
+    :'Para mandar unidades a cualquier trabajo (lavado, mantenimiento, arreglo). Se guarda y queda <b>Emitida</b>; el km/costo se llenan al <b>cerrarla</b> (registrar que se hizo).';
+}
 function _osPoblarForm(){
   var sp=g('os-prov');
   if(sp){var prev=sp.value;sp.innerHTML='<option value="">— elegir —</option>';(typeof PROVEEDORES!=='undefined'?PROVEEDORES:[]).forEach(function(p){sp.innerHTML+='<option value="'+p.id+'">'+_mEsc(p.nombre)+(p.cat?(' · '+_mEsc(p.cat)):'')+'</option>';});sp.innerHTML+='<option value="__otro">➕ Otro (escribir)</option>';if(prev)sp.value=prev;}
   var f=g('os-fecha');if(f&&!f.value)f.value=(typeof fechaVE==='function')?fechaVE():new Date().toISOString().slice(0,10);
+  if(typeof _osTipoOrden==='function')_osTipoOrden();
 }
 async function guardarOrdenServicio(){
-  var cams=String(gv('os-cams')||'').split(/[,;\s]+/).map(function(n){return _resolverUnidad(n);}).filter(function(c,i,arr){return c&&FLOTA[c]&&arr.indexOf(c)===i;});
-  if(!cams.length){alert('Escribe al menos una unidad válida (solo números, ej: 1,2,3).');return;}
+  var tipoOrden=gv('os-tipoorden')||'servicio', esCompra=(tipoOrden==='compra');
+  var patio=esCompra && g('os-patio') && g('os-patio').checked;
+  var cams;
+  if(patio){ cams=['PATIO']; }
+  else { cams=String(gv('os-cams')||'').split(/[,;\s]+/).map(function(n){return _resolverUnidad(n);}).filter(function(c,i,arr){return c&&FLOTA[c]&&arr.indexOf(c)===i;}); }
+  if(!cams.length){alert(esCompra?'Escribe para cuáles unidades es la compra (ej: 1,2,3) o marca 🏭 Patio / uso general.':'Escribe al menos una unidad válida (solo números, ej: 1,2,3).');return;}
   var provSel=gv('os-prov'), provNom='', provId='';
   if(provSel==='__otro'){provNom=(gv('os-prov-otro')||'').trim();}
   else if(provSel){var pv=(typeof PROVEEDORES!=='undefined'?PROVEEDORES:[]).find(function(p){return String(p.id)===String(provSel);});provId=provSel;provNom=pv?pv.nombre:'';}
-  var tipo=gv('os-tipo')||'otro', item=(gv('os-item')||'').trim(), notas=(gv('os-notas')||'').trim();
+  // En compra el proveedor es opcional (se define al comprar); en servicio es el taller predefinido.
+  var tipo=esCompra?'otro':(gv('os-tipo')||'otro'), item=(gv('os-item')||'').trim(), notas=(gv('os-notas')||'').trim();
   var fecha=gv('os-fecha')||((typeof fechaVE==='function')?fechaVE():new Date().toISOString().slice(0,10));
-  var orden={id:'OS'+Date.now(),fecha:fecha,cams:cams,proveedor:provNom,proveedorId:provId,tipo:tipo,item:item,notas:notas,estado:'emitida',fechaCierre:null,costo:0};
-  var row={id:orden.id,fecha:orden.fecha,cams:orden.cams,proveedor:orden.proveedor,proveedor_id:orden.proveedorId,tipo_servicio:orden.tipo,item:orden.item,notas:orden.notas,estado:'emitida'};
+  var orden={id:'OS'+Date.now(),fecha:fecha,cams:cams,proveedor:provNom,proveedorId:provId,tipo:tipo,tipoOrden:tipoOrden,item:item,notas:notas,estado:'emitida',fechaCierre:null,costo:0};
+  var row={id:orden.id,fecha:orden.fecha,cams:orden.cams,proveedor:orden.proveedor,proveedor_id:orden.proveedorId,tipo_servicio:orden.tipo,tipo_orden:tipoOrden,item:orden.item,notas:orden.notas,estado:'emitida'};
   var ok=false;
   if(DB_READY&&supabase){var res=await supabase.from('ordenes_servicio').insert([row]).select();if(res.error){if(typeof mostrarToast==='function')mostrarToast('No se pudo guardar la orden: '+res.error.message,'error');}else ok=true;}
   if(!ok&&typeof guardarEnCola==='function')guardarEnCola('ordenes_servicio',row);
   ORDENES_SERV.unshift(orden);
-  audit('Orden de Servicio emitida',orden.id+' · '+cams.join(', ')+' · '+tipo);
+  audit(esCompra?'Orden de Compra emitida':'Orden de Servicio emitida',orden.id+' · '+cams.join(', ')+' · '+(esCompra?(item||'compra'):tipo));
   _osImprimirOrden(orden);
   ['os-cams','os-item','os-notas'].forEach(function(id){sv(id,'');});
+  if(g('os-patio'))g('os-patio').checked=false; _osTipoOrden();
   renderOrdenesServicio();
-  if(typeof mostrarToast==='function')mostrarToast('✅ Orden '+orden.id+' emitida'+(ok?'':' (en cola)'),'exito');
+  if(typeof mostrarToast==='function')mostrarToast('✅ '+(esCompra?'Orden de compra ':'Orden ')+orden.id+' emitida'+(ok?'':' (en cola)'),'exito');
 }
 function _osImprimirOrden(o){
+  if(o.tipoOrden==='compra'){ return _osImprimirCompra(o); }
   var filas=(o.cams||[]).map(function(cam,i){
     var fl=FLOTA[cam]||{}, ui=(typeof unidadInfo==='function')?unidadInfo(cam):{};
     return '<tr style="background:'+(i%2===0?'#fff':'#f5f9ff')+'">'+
@@ -5160,21 +5195,44 @@ function _osImprimirOrden(o){
     (o.notas?('<p style="margin-top:6px;font-size:11px;color:#374151"><b>Notas:</b> '+_mEsc(o.notas)+'</p>'):'');
   abrirImpresionPremium('Orden de Servicio '+o.id+' — '+brandNom(),(_OS_TIPO_LBL[o.tipo]||o.tipo)+' · '+formatFecha(o.fecha),'',body);
 }
+// Impreso de ORDEN DE COMPRA: el papel que se lleva el encargado a la calle. Muestra en grande qué comprar,
+// el destino (unidades o Patio/uso general) y el proveedor (predefinido o "A DEFINIR"). Sin km/próx. servicio.
+function _osImprimirCompra(o){
+  var esPatio=(o.cams||[]).length===1 && o.cams[0]==='PATIO';
+  var destino=esPatio?'🏭 Patio / uso general':(o.cams||[]).map(function(c){return _unidadCorta(c);}).join(', ');
+  var titGr=String(o.item||'Compra de materiales').toUpperCase();
+  var banner='<div style="text-align:center;margin:4px 0 16px;padding:16px 12px;border:3px solid #7a3b00;border-radius:12px;background:#fff7ed;-webkit-print-color-adjust:exact;print-color-adjust:exact">'+
+    '<div style="font-size:11px;letter-spacing:2px;color:#7a3b00;text-transform:uppercase;font-weight:700">🛒 Orden de compra</div>'+
+    '<div style="font-size:32px;font-weight:900;color:#0f2340;line-height:1.15;margin-top:4px">'+_mEsc(titGr)+'</div>'+
+  '</div>';
+  var info='<table><tbody>'+
+    '<tr><td style="font-weight:700;width:38%">Orden</td><td class="mono">'+_mEsc(o.id)+'</td></tr>'+
+    '<tr><td style="font-weight:700">Destino</td><td><b>'+_mEsc(destino)+'</b></td></tr>'+
+    '<tr><td style="font-weight:700">Proveedor</td><td>'+(o.proveedor?_mEsc(o.proveedor):'<b style="color:#b45309">A DEFINIR (el encargado anota dónde compró)</b>')+'</td></tr>'+
+    (o.notas?('<tr><td style="font-weight:700">Notas</td><td>'+_mEsc(o.notas)+'</td></tr>'):'')+
+  '</tbody></table>';
+  var pie='<p style="margin-top:14px;font-size:11px;color:#374151">Al regresar con la compra, marcá <b>✅ Hecho</b> en el sistema para registrar el <b>costo, proveedor real, foto de la factura, garantía</b> y el destino (unidad / inventario).</p>';
+  abrirImpresionPremium('Orden de Compra '+o.id+' — '+brandNom(),'Compra · '+formatFecha(o.fecha),'',banner+info+pie);
+}
 function _osImprimirOrdenPorId(id){var o=ORDENES_SERV.find(function(x){return x.id===id;});if(o)_osImprimirOrden(o);}
 function renderOrdenesServicio(){
   _osPoblarForm();
   var tb=g('tb-ordenes');
   if(tb){
     tb.innerHTML=(ORDENES_SERV||[]).map(function(o){
+      var esCompra=(o.tipoOrden==='compra');
+      var destino=(o.cams||[]).map(function(c){return c==='PATIO'?'🏭 Patio':_unidadCorta(c);}).join(', ');
+      var tipoCel=esCompra?'<span class="badge" style="background:#fff7ed;color:#7a3b00">🛒 Compra</span>':_mEsc(_OS_TIPO_LBL[o.tipo]||o.tipo);
+      var cerrar=esCompra?'_iniciarCierreCompra':'_iniciarCierreOrden';
       return '<tr>'+
         '<td class="mono" style="font-size:10px">'+_mEsc(o.id)+'</td>'+
         '<td>'+formatFecha(o.fecha)+'</td>'+
-        '<td style="font-size:11px">'+(o.cams||[]).map(function(c){return _unidadCorta(c);}).join(', ')+'</td>'+
-        '<td style="font-size:11px">'+_mEsc(_OS_TIPO_LBL[o.tipo]||o.tipo)+'</td>'+
+        '<td style="font-size:11px">'+destino+'</td>'+
+        '<td style="font-size:11px">'+tipoCel+'</td>'+
         '<td style="font-size:11px">'+_mEsc(o.proveedor||'—')+'</td>'+
         '<td style="font-size:11px">'+_mEsc(o.item||'—')+'</td>'+
         '<td>'+(_OS_EST_BADGE[o.estado]||o.estado)+'</td>'+
-        '<td><button class="btn btn-s btn-xs" onclick="_osImprimirOrdenPorId(\''+o.id+'\')">🖨</button>'+(o.estado!=='hecha'?' <button class="btn btn-g btn-xs" onclick="_iniciarCierreOrden(\''+o.id+'\')">✅ Hecho</button>':'')+'</td>'+
+        '<td><button class="btn btn-s btn-xs" onclick="_osImprimirOrdenPorId(\''+o.id+'\')">🖨</button>'+(o.estado!=='hecha'?' <button class="btn btn-g btn-xs" onclick="'+cerrar+'(\''+o.id+'\')">✅ Hecho</button>':'')+'</td>'+
       '</tr>';
     }).join('')||'<tr><td colspan="8" style="text-align:center;color:var(--text3);padding:20px">Sin órdenes emitidas</td></tr>';
   }
@@ -5210,6 +5268,152 @@ function _iniciarCierreOrden(id){
     if(typeof mostrarToast==='function')mostrarToast('Cerrando orden '+id+' → '+_unidadCorta(cam)+'. Completá km/costo y guardá.','exito');
   };
   if(typeof _cargarMantTodo==='function' && !(MANT_ITEMS&&MANT_ITEMS.length)){ _cargarMantTodo().then(_fill).catch(_fill); } else { _fill(); }
+}
+// ═══ CIERRE de una ORDEN DE COMPRA ═══════════════════════════════════════════
+// Regla universal: cada línea de la compra pregunta ¿se usó/instaló YA (y para quién) o queda en existencia?
+//   • unidad     → fila en mantenimientos (gasto de esa unidad, ya)
+//   • patio      → fila en mantenimientos cam='PATIO' con centro_costo (oficina/herramientas/otros)
+//   • inventario → Entrada a inventario (stock); se vuelve gasto de unidad al instalarse (Registrar Uso)
+// Crédito → abre la CxP prellenada (enlazada por orden_id). Sin doble conteo: caja=CxP una vez; costo de
+// unidad=mantenimientos; valor almacén=inventario. Costo de la orden = suma mant ligados + entradas ligadas.
+function _iniciarCierreCompra(id){
+  var o=(ORDENES_SERV||[]).find(function(x){return x.id===id;}); if(!o){alert('Orden no encontrada');return;}
+  window._ccOrden=id;
+  var esPatio=(o.cams||[]).length===1&&o.cams[0]==='PATIO';
+  var destino=esPatio?'🏭 Patio / uso general':(o.cams||[]).map(function(c){return _unidadCorta(c);}).join(', ');
+  var enc=g('cc-encab'); if(enc)enc.innerHTML='<b>'+_mEsc(o.id)+'</b> · '+_mEsc(o.item||'compra')+' · destino sugerido: '+_mEsc(destino);
+  _ccPoblarProv(); _ccPoblarInv();
+  if(o.proveedorId)sv('cc-prov',o.proveedorId); _ccProvOtro();
+  sv('cc-item',o.item||''); sv('cc-cant','1'); sv('cc-costo',''); sv('cc-garantia',''); sv('cc-pago','contado');
+  if(esPatio){ sv('cc-destino','patio'); }
+  else { sv('cc-destino','unidad'); var primera=(o.cams||[])[0]; if(primera&&primera!=='PATIO')sv('cc-cam',String(primera).replace(/\D/g,'').replace(/^0+/,'')); }
+  _ccDestino(); _ccInvItem();
+  _ccRenderLineas();
+  var m=g('modal-cierre-compra'); if(m)m.style.display='block';
+}
+function _ccCerrarModal(){ var m=g('modal-cierre-compra'); if(m)m.style.display='none'; window._ccOrden=null; try{renderOrdenesServicio();}catch(e){} }
+function _ccProvOtro(){var s=g('cc-prov'),w=g('cc-prov-otro-wrap');if(w)w.style.display=(s&&s.value==='__otro')?'block':'none';}
+function _ccDestino(){
+  var d=gv('cc-destino')||'unidad';
+  var u=g('cc-unidad-wrap'); if(u)u.style.display=(d==='unidad')?'grid':'none';
+  var c=g('cc-centro-wrap'); if(c)c.style.display=(d==='patio')?'block':'none';
+  var i=g('cc-inv-wrap'); if(i)i.style.display=(d==='inventario')?'grid':'none';
+}
+function _ccInvItem(){ var w=g('cc-invnuevo-wrap'); if(w)w.style.display=(gv('cc-invitem')==='__nuevo')?'block':'none'; }
+function _ccPoblarProv(){ var sp=g('cc-prov'); if(!sp)return; sp.innerHTML='<option value="">— elegir —</option>'; (typeof PROVEEDORES!=='undefined'?PROVEEDORES:[]).forEach(function(p){sp.innerHTML+='<option value="'+p.id+'">'+_mEsc(p.nombre)+(p.cat?(' · '+_mEsc(p.cat)):'')+'</option>';}); sp.innerHTML+='<option value="__otro">➕ Otro (escribir)</option>'; }
+function _ccPoblarInv(){ var si=g('cc-invitem'); if(!si)return; si.innerHTML='<option value="__nuevo">➕ Nuevo ítem…</option>'; (INVENTARIO||[]).forEach(function(x){si.innerHTML+='<option value="'+x.id+'">'+_mEsc(x.nombre)+' (stock '+(x.stock||0)+')</option>';}); }
+function _ccLimpiarLinea(){ ['cc-item','cc-costo','cc-cam','cc-km','cc-invnuevo'].forEach(function(id){sv(id,'');}); sv('cc-cant','1'); sv('cc-garantia',''); var f=g('cc-foto'); if(f)f.value=''; }
+function _ccCostoOrden(ordenId){
+  var c=0;
+  (MANTENIMIENTOS||[]).forEach(function(m){ if(m.ordenId===ordenId)c+=(parseFloat(m.costo)||0); });
+  (INV_MOV||[]).forEach(function(m){ if(m.ordenId===ordenId&&m.tipo==='Entrada')c+=((parseFloat(m.cantidad)||0)*(parseFloat(m.precio)||0)); });
+  return Math.round(c*100)/100;
+}
+function _ccActualizarOrden(ordenId,terminar){
+  var o=(ORDENES_SERV||[]).find(function(x){return x.id===ordenId;}); if(!o)return;
+  o.costo=_ccCostoOrden(ordenId);
+  var patch={costo_usd:o.costo};
+  if(terminar){ o.estado='hecha'; o.fechaCierre=(typeof fechaVE==='function')?fechaVE():''; patch.estado='hecha'; patch.fecha_cierre=o.fechaCierre; }
+  else if(o.estado==='emitida'){ o.estado='en_proceso'; patch.estado='en_proceso'; }
+  if(DB_READY&&supabase){ try{ supabase.from('ordenes_servicio').update(patch).eq('id',ordenId).then(function(r){if(r&&r.error&&typeof mostrarToast==='function')mostrarToast('No se pudo actualizar la orden: '+r.error.message,'error');}); }catch(e){} }
+}
+function _ccRenderLineas(){
+  var id=window._ccOrden, box=g('cc-lineas'); if(!box)return;
+  var mant=(MANTENIMIENTOS||[]).filter(function(m){return m.ordenId===id;});
+  var inv=(INV_MOV||[]).filter(function(m){return m.ordenId===id&&m.tipo==='Entrada';});
+  var filas=[];
+  mant.forEach(function(m){
+    var dest=(m.cam==='PATIO')?('🏭 Patio'+(m.centroCosto?(' · '+m.centroCosto):'')):('🔧 '+_unidadCorta(m.cam));
+    filas.push('<tr><td style="font-size:11px">'+_mEsc(m.tipo||m.desc||'—')+'</td><td style="font-size:11px">'+dest+'</td><td style="font-size:11px">'+_mEsc(m.proveedor||'—')+'</td><td class="mono" style="text-align:right">$'+(parseFloat(m.costo)||0).toFixed(2)+'</td></tr>');
+  });
+  inv.forEach(function(m){
+    filas.push('<tr><td style="font-size:11px">'+_mEsc(m.item||'—')+'</td><td style="font-size:11px">📦 Inventario (x'+m.cantidad+')</td><td style="font-size:11px">'+_mEsc(m.factura||'—')+'</td><td class="mono" style="text-align:right">$'+(((parseFloat(m.cantidad)||0)*(parseFloat(m.precio)||0)).toFixed(2))+'</td></tr>');
+  });
+  if(!filas.length){ box.innerHTML='<div style="font-size:12px;color:var(--text3)">Aún no has registrado líneas de esta compra.</div>'; return; }
+  box.innerHTML='<div style="font-size:12px;font-weight:700;margin-bottom:4px">Líneas registradas</div><table style="width:100%"><thead><tr><th style="text-align:left">Qué</th><th style="text-align:left">Destino</th><th style="text-align:left">Proveedor/Fact</th><th style="text-align:right">Costo</th></tr></thead><tbody>'+filas.join('')+'</tbody><tfoot><tr><td colspan="3" style="text-align:right;font-weight:700">Total</td><td class="mono" style="text-align:right;font-weight:700">$'+_ccCostoOrden(id).toFixed(2)+'</td></tr></tfoot></table>';
+}
+async function _ccInsertMant(row,mem){
+  var ok=false;
+  if(DB_READY&&supabase){ try{ var res=await supabase.from('mantenimientos').upsert([row],{onConflict:'id'}); if(res&&res.error){ if(typeof mostrarToast==='function')mostrarToast('No se pudo guardar: '+res.error.message,'error'); } else ok=true; }catch(e){ if(typeof mostrarToast==='function')mostrarToast('Sin conexión al guardar.','error'); } }
+  if(!ok&&typeof guardarEnCola==='function')guardarEnCola('mantenimientos',row,'id');
+  MANTENIMIENTOS.unshift(mem);
+  return ok;
+}
+function _ccAbrirCxP(o,provId,provNom,costo){
+  window._cxpOrdenId=o.id;
+  _ccCerrarModal();
+  if(typeof abrirNuevaCxP==='function')abrirNuevaCxP();
+  if(provId)sv('cxp-prov',provId);
+  sv('cxp-base',costo?String(costo):'');
+  sv('cxp-desc','Compra orden '+o.id+(o.item?(': '+o.item):''));
+  if(provId&&typeof seleccionarProvCxP==='function')seleccionarProvCxP();
+  if(typeof calcularCxP==='function')calcularCxP();
+  if(typeof mostrarToast==='function')mostrarToast('Revisá IVA/retenciones y guardá la CxP (queda enlazada a '+o.id+').','info');
+}
+async function _ccAgregarLinea(){
+  var ordenId=window._ccOrden, o=(ORDENES_SERV||[]).find(function(x){return x.id===ordenId;}); if(!o){alert('Orden no encontrada');return;}
+  var nombre=(gv('cc-item')||'').trim(); if(!nombre){alert('Escribe qué se compró');return;}
+  var cant=parseInt(gv('cc-cant'))||1; if(cant<1)cant=1;
+  var costo=parseFloat(gv('cc-costo'))||0;
+  var destino=gv('cc-destino')||'unidad';
+  var provSel=gv('cc-prov'), provNom='', provId='';
+  if(provSel==='__otro'){provNom=(gv('cc-prov-otro')||'').trim();}
+  else if(provSel){var pv=(typeof PROVEEDORES!=='undefined'?PROVEEDORES:[]).find(function(p){return String(p.id)===String(provSel);});provId=provSel;provNom=pv?pv.nombre:'';}
+  var pago=gv('cc-pago')||'contado';
+  var garDias=parseInt(gv('cc-garantia'))||0;
+  var fecha=(typeof fechaVE==='function')?fechaVE():new Date().toISOString().slice(0,10);
+  var garHasta=null; if(garDias>0){ try{ var _gd=new Date(fecha+'T00:00:00'); _gd.setDate(_gd.getDate()+garDias); garHasta=_gd.toISOString().slice(0,10);}catch(e){} }
+  if(costo<=0){ if(!confirm('¿Registrar esta línea con costo $0? (solo si fue sin cargo / garantía)'))return; }
+  // Validaciones de destino ANTES de tocar nada
+  var cam='';
+  if(destino==='unidad'){ cam=_resolverUnidad(gv('cc-cam')); if(!cam){alert('¿Para cuál unidad? (número, ej: 5)');return;} }
+  var btn=g('cc-add-btn'); if(btn){btn.disabled=true;btn.textContent='Guardando…';}
+  try{
+    var fEl=g('cc-foto'), file=fEl&&fEl.files&&fEl.files[0];
+    var fotoUrl=file?(await _subirFotoInsumo(file)):null;
+    var precioU=cant>0?(Math.round((costo/cant)*100)/100):costo;
+    if(destino==='unidad'){
+      var km=parseInt(gv('cc-km'))||0, idM='MT'+Date.now();
+      var row={id:idM,cam:cam,f:fecha,km:km,horas:0,item_id:'',tipo:nombre,tipo_trabajo:'cambio',desc_trabajo:nombre+(cant>1?(' x'+cant):''),costo_usd:costo,proveedor:provNom,foto_url:fotoUrl,anomalia:false,motivo:'',orden_id:ordenId,garantia_hasta:garHasta,centro_costo:'',origen:''};
+      var mem={id:idM,cam:cam,fecha:fecha,km:km,horas:0,itemId:'',tipo:nombre,tipoTrabajo:'cambio',desc:row.desc_trabajo,costo:costo,proveedor:provNom,foto:fotoUrl,anomalia:false,motivo:'',ordenId:ordenId,garantiaHasta:garHasta,centroCosto:'',origen:''};
+      await _ccInsertMant(row,mem);
+      if(km>0){ if(!KM_DATA[cam])KM_DATA[cam]={km:0,f:'',ultsrv:0,mant:[],lavado:'',engrase:''}; if(km>=(parseInt(KM_DATA[cam].km)||0)){KM_DATA[cam].km=km;KM_DATA[cam].f=fecha;} }
+    } else if(destino==='patio'){
+      var centro=gv('cc-centro')||'otros', idP='MT'+Date.now();
+      var row2={id:idP,cam:'PATIO',f:fecha,km:0,horas:0,item_id:'',tipo:nombre,tipo_trabajo:'compra',desc_trabajo:nombre+(cant>1?(' x'+cant):''),costo_usd:costo,proveedor:provNom,foto_url:fotoUrl,anomalia:false,motivo:'',orden_id:ordenId,garantia_hasta:garHasta,centro_costo:centro,origen:''};
+      var mem2={id:idP,cam:'PATIO',fecha:fecha,km:0,horas:0,itemId:'',tipo:nombre,tipoTrabajo:'compra',desc:row2.desc_trabajo,costo:costo,proveedor:provNom,foto:fotoUrl,anomalia:false,motivo:'',ordenId:ordenId,garantiaHasta:garHasta,centroCosto:centro,origen:''};
+      await _ccInsertMant(row2,mem2);
+    } else { // inventario
+      var invSel=gv('cc-invitem'), item=null;
+      if(invSel==='__nuevo'||!invSel){
+        var nn=((gv('cc-invnuevo')||'').trim())||nombre;
+        item={id:'INV'+Date.now(),nombre:nn,cat:'Repuestos varios',unidad:'u',stock:0,stockMin:2,precio:0};
+        INVENTARIO.push(item);
+        if(DB_READY&&supabase){ try{ await supabase.from('inventario').upsert([{id:item.id,nombre:item.nombre,categoria:item.cat,unidad:item.unidad,stock:item.stock,stock_min:item.stockMin,precio:item.precio}],{onConflict:'id'}); }catch(e){} }
+      } else { item=INVENTARIO.find(function(x){return x.id===invSel;}); if(!item){alert('Elegí el ítem de inventario');return;} }
+      item.stock=(parseInt(item.stock)||0)+cant;
+      item.precio=precioU; // último precio de compra (decisión de Máximo)
+      if(DB_READY&&supabase){ try{ await supabase.from('inventario').update({stock:item.stock,precio:precioU}).eq('id',item.id); }catch(e){} }
+      try{localStorage.setItem('btg_inventario',JSON.stringify(INVENTARIO));}catch(e){}
+      _pushInvMov({id:'IM'+Date.now(),fecha:fecha,item:item.nombre,item_id:item.id,tipo:'Entrada',cantidad:cant,cam:'',motivo:'Compra orden '+ordenId,stockResult:item.stock,factura:provNom||'',fotoUrl:fotoUrl,precio:precioU,orden_id:ordenId,garantiaHasta:garHasta});
+    }
+    _ccActualizarOrden(ordenId,false);
+    audit('Línea de compra registrada',ordenId+' · '+nombre+' · $'+costo+' · '+destino);
+    if(pago==='credito'){ _ccAbrirCxP(o,provId,provNom,costo); return; }
+    _ccLimpiarLinea(); _ccRenderLineas();
+    try{renderOrdenesServicio();}catch(e){}
+    if(typeof mostrarToast==='function')mostrarToast('✅ Línea registrada ('+destino+')','exito');
+  } finally { var b=g('cc-add-btn'); if(b){b.disabled=false;b.textContent='➕ Registrar esta línea';} }
+}
+function _ccTerminar(){
+  var ordenId=window._ccOrden, o=(ORDENES_SERV||[]).find(function(x){return x.id===ordenId;}); if(!o)return;
+  var hayMant=(MANTENIMIENTOS||[]).some(function(m){return m.ordenId===ordenId;});
+  var hayInv=(INV_MOV||[]).some(function(m){return m.ordenId===ordenId&&m.tipo==='Entrada';});
+  if(!hayMant&&!hayInv){ if(!confirm('No registraste ninguna línea de compra. ¿Cerrar la orden igual?'))return; }
+  _ccActualizarOrden(ordenId,true);
+  audit('Orden de compra cerrada',ordenId+' · $'+(o.costo||0));
+  _ccCerrarModal();
+  if(typeof mostrarToast==='function')mostrarToast('🟢 Orden de compra '+ordenId+' completada ($'+(o.costo||0).toFixed(2)+')','exito');
 }
 // Tras registrar un mantenimiento ligado a una orden: recalcula su estado (emitida→en_proceso→hecha)
 // según cuántas de sus unidades ya tienen evento ligado. Fuente única: mantenimientos.orden_id.
@@ -5523,8 +5727,49 @@ function imprimirCombustible(){
 // ═══════════════════════════════════════════════════
 // KM / MANTENIMIENTO
 // ═══════════════════════════════════════════════════
-function switchKmTab(t){['odo','lav','eng','prog','hist','hv','ord'].forEach(function(x){var el=g('tab-km-'+x);var sw=g('sw-km-'+x);if(el)el.style.display=x===t?'block':'none';if(sw){sw.classList.remove('on');if(x===t)sw.classList.add('on');}});if(t==='odo')renderKm();if(t==='lav'){renderLavados();if(typeof _cargarMantTodo==='function'&&!(MANTENIMIENTOS&&MANTENIMIENTOS.length))_cargarMantTodo().then(renderLavados).catch(function(){});}if(t==='eng'){renderEngrases();if(typeof _cargarMantTodo==='function'&&!(MANTENIMIENTOS&&MANTENIMIENTOS.length))_cargarMantTodo().then(renderEngrases).catch(function(){});}if(t==='prog')renderPreventivo();if(t==='hist')renderHistMant();if(t==='ord'){if(!_ordServCargadas){_ordServCargadas=true;cargarOrdenesServicio().then(renderOrdenesServicio).catch(renderOrdenesServicio);}else renderOrdenesServicio();}if(t==='hv'){_cargarMantTodo().then(function(){renderHojaVida();}).catch(function(){renderHojaVida();});}}
+function switchKmTab(t){['odo','lav','eng','prog','hist','hv','ord','costos'].forEach(function(x){var el=g('tab-km-'+x);var sw=g('sw-km-'+x);if(el)el.style.display=x===t?'block':'none';if(sw){sw.classList.remove('on');if(x===t)sw.classList.add('on');}});if(t==='odo')renderKm();if(t==='lav'){renderLavados();if(typeof _cargarMantTodo==='function'&&!(MANTENIMIENTOS&&MANTENIMIENTOS.length))_cargarMantTodo().then(renderLavados).catch(function(){});}if(t==='eng'){renderEngrases();if(typeof _cargarMantTodo==='function'&&!(MANTENIMIENTOS&&MANTENIMIENTOS.length))_cargarMantTodo().then(renderEngrases).catch(function(){});}if(t==='prog')renderPreventivo();if(t==='hist')renderHistMant();if(t==='ord'){if(!_ordServCargadas){_ordServCargadas=true;cargarOrdenesServicio().then(renderOrdenesServicio).catch(renderOrdenesServicio);}else renderOrdenesServicio();}if(t==='costos')renderCentroCostos();if(t==='hv'){_cargarMantTodo().then(function(){renderHojaVida();}).catch(function(){renderHojaVida();});}}
 
+// ═══ CENTRO DE COSTOS (reporte de gasto por unidad/patio) ═════════════════════
+// Fuente única = mantenimientos.costo_usd (servicios, repuestos instalados, compras a unidad/patio,
+// instalaciones desde inventario). NO incluye combustible (gasoil, módulo aparte). Filtra por rango,
+// tipo de trabajo y proveedor. Agrupa por cam (unidad o PATIO) y por tipo.
+var _CC_TIPO_LBL={cambio:'🔧 Sustitución',reparacion:'🔩 Reparación',compra:'🛒 Compra',correctivo:'🛠 Correctivo',inspeccion:'🔎 Inspección',lavado:'🧽 Lavado',engrase:'🛢 Engrase',otro:'Otro','':'Otro'};
+function _ccRepPoblarProv(){
+  var sp=g('cc-rep-prov'); if(!sp)return; var prev=sp.value, provs={};
+  (MANTENIMIENTOS||[]).forEach(function(m){ if(m.proveedor)provs[m.proveedor]=1; });
+  sp.innerHTML='<option value="">Todos</option>'+Object.keys(provs).sort().map(function(p){return '<option value="'+_mEsc(p)+'">'+_mEsc(p)+'</option>';}).join('');
+  if(prev)sp.value=prev;
+}
+function renderCentroCostos(){
+  if(typeof _cargarMantTodo==='function' && !(MANTENIMIENTOS&&MANTENIMIENTOS.length)){ _cargarMantTodo().then(renderCentroCostos).catch(function(){}); return; }
+  _ccRepPoblarProv();
+  var desde=gv('cc-rep-desde')||'', hasta=gv('cc-rep-hasta')||'', tipo=gv('cc-rep-tipo')||'', prov=gv('cc-rep-prov')||'';
+  var porCam={}, porTipo={}, total=0, nTotal=0;
+  (MANTENIMIENTOS||[]).forEach(function(m){
+    if(desde && (m.fecha||'')<desde)return;
+    if(hasta && (m.fecha||'')>hasta)return;
+    if(tipo && (m.tipoTrabajo||'')!==tipo)return;
+    if(prov && (m.proveedor||'')!==prov)return;
+    var c=m.cam||'—', costo=parseFloat(m.costo)||0;
+    if(!porCam[c])porCam[c]={n:0,total:0};
+    porCam[c].n++; porCam[c].total+=costo;
+    var tt=m.tipoTrabajo||'otro'; porTipo[tt]=(porTipo[tt]||0)+costo;
+    total+=costo; nTotal++;
+  });
+  var cams=Object.keys(porCam).sort(function(a,b){return porCam[b].total-porCam[a].total;});
+  var tb=g('cc-rep-tabla');
+  if(tb)tb.innerHTML=cams.map(function(c){
+    var lbl=c==='PATIO'?'🏭 Patio / uso general':_unidadCorta(c);
+    return '<tr><td style="font-weight:600">'+_mEsc(lbl)+'</td><td style="text-align:right">'+porCam[c].n+'</td><td class="mono" style="text-align:right">$'+porCam[c].total.toFixed(2)+'</td></tr>';
+  }).join('')||'<tr><td colspan="3" style="text-align:center;color:var(--text3);padding:16px">Sin gastos en el rango elegido</td></tr>';
+  var res=g('cc-rep-resumen');
+  if(res)res.innerHTML='<div class="card" style="padding:12px;display:flex;gap:22px;flex-wrap:wrap"><div><div style="font-size:10px;color:var(--text3)">TOTAL GASTADO</div><div style="font-size:20px;font-weight:800;color:var(--green)">$'+total.toFixed(2)+'</div></div><div><div style="font-size:10px;color:var(--text3)">EVENTOS</div><div style="font-size:20px;font-weight:800">'+nTotal+'</div></div><div><div style="font-size:10px;color:var(--text3)">UNIDADES / DESTINOS</div><div style="font-size:20px;font-weight:800">'+cams.length+'</div></div></div>';
+  var pt=g('cc-rep-portipo');
+  if(pt){
+    var tks=Object.keys(porTipo).sort(function(a,b){return porTipo[b]-porTipo[a];});
+    pt.innerHTML=tks.length?('<div class="card" style="padding:12px"><div class="st" style="font-size:12px;margin-bottom:6px">Por tipo de gasto</div>'+tks.map(function(t){return '<div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0;border-bottom:1px solid var(--border)"><span>'+(_CC_TIPO_LBL[t]||t)+'</span><span class="mono">$'+porTipo[t].toFixed(2)+'</span></div>';}).join('')+'</div>'):'';
+  }
+}
 async function borrarOdo(cam){
   if(!KM_DATA[cam])return;
   if(!confirm('¿Borrar el odometro registrado de '+cam+'? Se reinicia a sin datos.'))return;
@@ -5820,7 +6065,7 @@ async function cargarMantenimientos(){
   try{
     var r=await supabase.from('mantenimientos').select('*').order('f',{ascending:false}).limit(5000);
     if(r&&!r.error&&Array.isArray(r.data)){
-      MANTENIMIENTOS=r.data.map(function(x){return {id:x.id||('MT'+(x.cam||'')+'-'+(x.f||'')+'-'+(x.km||0)+'-'+(x.item_id||x.tipo||'')),cam:x.cam||'',fecha:x.f||'',km:parseInt(x.km)||0,horas:parseInt(x.horas)||0,itemId:x.item_id||'',tipo:x.tipo||'',tipoTrabajo:x.tipo_trabajo||'',desc:x.desc_trabajo||'',costo:parseFloat(x.costo_usd)||0,proveedor:x.proveedor||'',foto:x.foto_url||'',anomalia:x.anomalia===true,motivo:x.motivo||'',ordenId:x.orden_id||''};});
+      MANTENIMIENTOS=r.data.map(function(x){return {id:x.id||('MT'+(x.cam||'')+'-'+(x.f||'')+'-'+(x.km||0)+'-'+(x.item_id||x.tipo||'')),cam:x.cam||'',fecha:x.f||'',km:parseInt(x.km)||0,horas:parseInt(x.horas)||0,itemId:x.item_id||'',tipo:x.tipo||'',tipoTrabajo:x.tipo_trabajo||'',desc:x.desc_trabajo||'',costo:parseFloat(x.costo_usd)||0,proveedor:x.proveedor||'',foto:x.foto_url||'',anomalia:x.anomalia===true,motivo:x.motivo||'',ordenId:x.orden_id||'',garantiaHasta:x.garantia_hasta||null,centroCosto:x.centro_costo||'',origen:x.origen||''};});
     }
   }catch(e){ console.log('mantenimientos load:',e&&e.message); }
 }
@@ -5938,11 +6183,17 @@ async function registrarMantItem(){
   var cam=gv('hv-cam'), itemId=gv('hv-item'), fecha=gv('hv-fecha')||fechaVE(), km=parseInt(gv('hv-km'))||0;
   var costo=parseFloat(gv('hv-costo'))||0, prov=(gv('hv-prov')||'').trim(), nota=(gv('hv-nota')||'').trim();
   var tipoTrab=gv('hv-tipotrabajo')||'cambio', horas=parseInt(gv('hv-horas'))||0;
+  var garDias=parseInt(gv('hv-garantia'))||0;
+  var garHasta=null; if(garDias>0){ try{ var _gd=new Date(fecha+'T00:00:00'); _gd.setDate(_gd.getDate()+garDias); garHasta=_gd.toISOString().slice(0,10); }catch(e){} }
   var _editId=window._hvEditId||''; if(_editId){ MANTENIMIENTOS=(MANTENIMIENTOS||[]).filter(function(m){return String(m.id)!==String(_editId);}); }
   if(!cam){alert('Elegí la unidad');return;}
   if(!itemId){alert('Elegí el ítem (qué se le hizo)');return;}
   var esHoras=(typeof medidaUnidad==='function')&&medidaUnidad(cam)==='horas';
   if(!esHoras&&km<=0){ if(!confirm('No ingresaste el KM que tenía la unidad al hacerse este trabajo.\n(Es manual porque el trabajo pudo hacerse otro día / a otro km.)\n\n¿Registrar igual sin km?'))return; }
+  // Al CERRAR una orden, el costo no se debe colar en $0 (rompe el centro de costos). Avisa —pero no bloquea—
+  // porque un trabajo en GARANTÍA o sin cargo sí es $0 legítimo.
+  var _cerrandoOrden=(window._ordCerrando&&window._ordCerrando.cam===cam);
+  if(_cerrandoOrden && costo<=0){ if(!confirm('Vas a cerrar esta orden con COSTO $0.\n\nSolo debería quedar en $0 si el trabajo fue en GARANTÍA o sin cargo.\n\n¿Cerrar igual sin costo?'))return; }
   var it=_mantItem(itemId);
   // ANTI-FRAUDE: ¿se hace ADELANTADO (antes de su vida útil)? Solo para trabajos que "consumen" vida
   // (cambio/sustitución/correctivo/lavado/engrase); la inspección no cuenta. Si sí → BLOQUEA hasta que
@@ -5987,8 +6238,8 @@ async function registrarMantItem(){
   // Si se está CERRANDO una orden de servicio para esta unidad, se enlaza el evento a la orden.
   var _oc=(window._ordCerrando&&window._ordCerrando.cam===cam)?window._ordCerrando.id:'';
   // fila para la tabla `mantenimientos` (snake_case) — MISMA tabla que guardarKm → fuente única
-  var row={id:id,cam:cam,f:fecha,km:km,horas:horas,item_id:itemId,tipo:(it?it.nombre:itemId),tipo_trabajo:tipoTrab,desc_trabajo:nota||(it?it.nombre:''),costo_usd:costo,proveedor:prov,foto_url:foto,anomalia:anomalia,motivo:motivo,orden_id:_oc};
-  var mem={id:id,cam:cam,fecha:fecha,km:km,horas:horas,itemId:itemId,tipo:row.tipo,tipoTrabajo:tipoTrab,desc:row.desc_trabajo,costo:costo,proveedor:prov,foto:foto,anomalia:anomalia,motivo:motivo,ordenId:_oc};
+  var row={id:id,cam:cam,f:fecha,km:km,horas:horas,item_id:itemId,tipo:(it?it.nombre:itemId),tipo_trabajo:tipoTrab,desc_trabajo:nota||(it?it.nombre:''),costo_usd:costo,proveedor:prov,foto_url:foto,anomalia:anomalia,motivo:motivo,orden_id:_oc,garantia_hasta:garHasta};
+  var mem={id:id,cam:cam,fecha:fecha,km:km,horas:horas,itemId:itemId,tipo:row.tipo,tipoTrabajo:tipoTrab,desc:row.desc_trabajo,costo:costo,proveedor:prov,foto:foto,anomalia:anomalia,motivo:motivo,ordenId:_oc,garantiaHasta:garHasta};
   var ok=false;
   if(DB_READY&&supabase){
     try{ var res=await supabase.from('mantenimientos').upsert([row],{onConflict:'id'});
@@ -6004,7 +6255,7 @@ async function registrarMantItem(){
   _sincronizarCicloMant(cam,itemId,fecha); // si es lavado/engrase, refresca su ciclo (módulo Lavados/plan)
   audit(_editId?'Mantenimiento editado':'Mantenimiento registrado',cam+' · '+row.tipo+' ('+tipoTrab+')'+(km?(' · '+km+'km'):'')+(horas?(' · '+horas+'h'):'')+(costo?(' · $'+costo):''));
   window._hvEditId=''; var _gb=g('hv-guardar-btn'); if(_gb)_gb.textContent='Registrar en la hoja de vida';
-  window._hvFotoUrl=''; sv('hv-km','');sv('hv-horas','');sv('hv-costo','');sv('hv-nota','');sv('hv-prov','');
+  window._hvFotoUrl=''; sv('hv-km','');sv('hv-horas','');sv('hv-costo','');sv('hv-nota','');sv('hv-prov','');sv('hv-garantia','');
   var fp=g('hv-foto-prev'); if(fp)fp.innerHTML='';
   renderHojaVida();
   if(typeof mostrarToast==='function')mostrarToast(ok?'✅ Mantenimiento guardado en la hoja de vida':'⚠️ En cola (sin conexión)',ok?'exito':'error');
@@ -7941,13 +8192,13 @@ async function guardarItemInv(){
 async function cargarInvMov(){
   if(!(DB_READY&&supabase))return;
   try{var r=await supabase.from('inv_movimientos').select('*').order('fecha',{ascending:false});
-    if(r&&!r.error&&Array.isArray(r.data))INV_MOV=r.data.map(function(m){return{fecha:m.fecha,item:m.item,tipo:m.tipo,cantidad:parseFloat(m.cantidad)||0,cam:m.cam||'',motivo:m.motivo||'',stockResult:m.stock_result,factura:m.factura||'',fotoUrl:m.foto_url||'',precio:parseFloat(m.precio)||0};});
+    if(r&&!r.error&&Array.isArray(r.data))INV_MOV=r.data.map(function(m){return{fecha:m.fecha,item:m.item,itemId:m.item_id||'',tipo:m.tipo,cantidad:parseFloat(m.cantidad)||0,cam:m.cam||'',motivo:m.motivo||'',stockResult:m.stock_result,factura:m.factura||'',fotoUrl:m.foto_url||'',precio:parseFloat(m.precio)||0,ordenId:m.orden_id||'',mantId:m.mant_id||'',garantiaHasta:m.garantia_hasta||null};});
   }catch(e){console.log('inv_mov load:',e&&e.message);}
 }
 function _pushInvMov(row){
-  INV_MOV.push({fecha:row.fecha,item:row.item,tipo:row.tipo,cantidad:row.cantidad,cam:row.cam,motivo:row.motivo,stockResult:row.stockResult,factura:row.factura,fotoUrl:row.fotoUrl,precio:row.precio});
-  var db={id:row.id,fecha:row.fecha,item:row.item,item_id:row.item_id||null,tipo:row.tipo,cantidad:row.cantidad,cam:row.cam||null,motivo:row.motivo||null,stock_result:row.stockResult,factura:row.factura||null,foto_url:row.fotoUrl||null,precio:row.precio||0};
-  if(DB_READY&&supabase){ supabase.from('inv_movimientos').insert([db]).then(function(r){if(r&&r.error)console.log('inv_mov save:',r.error.message);}); }
+  INV_MOV.push({fecha:row.fecha,item:row.item,itemId:row.item_id||'',tipo:row.tipo,cantidad:row.cantidad,cam:row.cam,motivo:row.motivo,stockResult:row.stockResult,factura:row.factura,fotoUrl:row.fotoUrl,precio:row.precio,ordenId:row.orden_id||'',mantId:row.mant_id||'',garantiaHasta:row.garantiaHasta||null});
+  var db={id:row.id,fecha:row.fecha,item:row.item,item_id:row.item_id||null,tipo:row.tipo,cantidad:row.cantidad,cam:row.cam||null,motivo:row.motivo||null,stock_result:row.stockResult,factura:row.factura||null,foto_url:row.fotoUrl||null,precio:row.precio||0,orden_id:row.orden_id||null,mant_id:row.mant_id||null,garantia_hasta:row.garantiaHasta||null};
+  if(DB_READY&&supabase){ supabase.from('inv_movimientos').insert([db]).then(function(r){if(r&&r.error){console.log('inv_mov save:',r.error.message); if(typeof mostrarToast==='function')mostrarToast('No se pudo guardar el movimiento de inventario: '+r.error.message,'error');}}); }
   else if(typeof guardarEnCola==='function'){ guardarEnCola('inv_movimientos',db,'id'); }
 }
 // ¿Esta misma pieza ya se cambió en este camión en los últimos N meses? (cfg.garantiaMeses, default 4)
@@ -7986,12 +8237,25 @@ async function registrarUsoInv(){
   item.stock-=cant;
   if(DB_READY&&supabase){try{await supabase.from('inventario').update({stock:item.stock}).eq('id',item.id);}catch(e){}}
   try{localStorage.setItem('btg_inventario',JSON.stringify(INVENTARIO));}catch(e){}
-  _pushInvMov({id:'IM'+Date.now(),fecha:fechaVE(),item:item.nombre,item_id:item.id,tipo:'Uso',cantidad:-cant,cam:cam,motivo:motivo,stockResult:item.stock,factura:factura,fotoUrl:fotoUrl,precio:item.precio||0});
+  // TRAZABILIDAD: instalar desde stock = el repuesto de reserva se vuelve GASTO de la unidad (o del patio).
+  // Se crea la ficha de mantenimiento (origen='inventario', costo = último precio × cant). NO es plata nueva
+  // (la caja ya salió al comprar); es activo→gasto. Sin orden_id para no inflar una orden ya cerrada.
+  var _mantId='';
+  try{
+    var _costoInst=Math.round((parseFloat(item.precio)||0)*cant*100)/100;
+    var _garH=null; (INV_MOV||[]).filter(function(m){return m.itemId===item.id&&m.tipo==='Entrada'&&m.garantiaHasta;}).sort(function(a,b){return (a.fecha<b.fecha)?1:-1;}).some(function(m){_garH=m.garantiaHasta;return true;});
+    var _kmU=(typeof kmActualCam==='function')?kmActualCam(cam):0;
+    _mantId='MT'+Date.now();
+    var _rowM={id:_mantId,cam:cam,f:fechaVE(),km:_kmU,horas:0,item_id:item.id,tipo:item.nombre,tipo_trabajo:'cambio',desc_trabajo:(motivo||item.nombre)+' (de inventario)',costo_usd:_costoInst,proveedor:'Stock (inventario)',foto_url:fotoUrl,anomalia:false,motivo:'',orden_id:'',garantia_hasta:_garH,centro_costo:(cam==='PATIO'?'otros':''),origen:'inventario'};
+    var _memM={id:_mantId,cam:cam,fecha:fechaVE(),km:_kmU,horas:0,itemId:item.id,tipo:item.nombre,tipoTrabajo:'cambio',desc:_rowM.desc_trabajo,costo:_costoInst,proveedor:'Stock (inventario)',foto:fotoUrl,anomalia:false,motivo:'',ordenId:'',garantiaHasta:_garH,centroCosto:_rowM.centro_costo,origen:'inventario'};
+    if(typeof _ccInsertMant==='function')await _ccInsertMant(_rowM,_memM);
+  }catch(e){ console.log('mant desde uso:',e&&e.message); }
+  _pushInvMov({id:'IM'+Date.now(),fecha:fechaVE(),item:item.nombre,item_id:item.id,tipo:'Uso',cantidad:-cant,cam:cam,motivo:motivo,stockResult:item.stock,factura:factura,fotoUrl:fotoUrl,precio:item.precio||0,mant_id:_mantId});
   if(item.stock<=item.stockMin)sendWA('📦 STOCK CRITICO: '+item.nombre+' — Solo '+item.stock+' '+item.unidad+' restantes',['mecanica']);
   audit('Uso inventario',item.nombre+' x'+cant+' en '+cam+' (Fact '+factura+')');
   ['inv-uso-cant','inv-uso-motivo','inv-uso-factura'].forEach(function(id){sv(id,'');}); if(fEl)fEl.value='';
   renderInventario();
-  if(typeof mostrarToast==='function')mostrarToast('✅ Uso registrado (Fact '+factura+')'+(fotoUrl?' con foto':''),'exito');
+  if(typeof mostrarToast==='function')mostrarToast('✅ Instalado desde stock (Fact '+factura+')'+(fotoUrl?' con foto':'')+' → gasto de '+_unidadCorta(cam)+' $'+((parseFloat(item.precio)||0)*cant).toFixed(2),'exito');
 }
 
 async function eliminarItemInv(id){
@@ -11482,15 +11746,17 @@ async function guardarCxP(){
     estado:'pendiente',
     tasa_tipo:'usd',
     tasa_val:TASAS.bcvDolar||0,
+    orden_id:window._cxpOrdenId||'',
     created_at:new Date().toISOString()
   };
 
   var res=await supabase.from('cxp').insert([nuevaCxP]).select();
   if(res.error){alert('Error guardando: '+res.error.message);return;}
   CXP.push(res.data[0]);
+  window._cxpOrdenId='';
   cerrarModalCxP();
   renderCxP();
-  alert('✅ CxP registrada correctamente.');
+  alert('✅ CxP registrada correctamente.'+(nuevaCxP.orden_id?(' Enlazada a la orden '+nuevaCxP.orden_id+'.'):''));
 }
 
 function abrirPagarCxP(id){

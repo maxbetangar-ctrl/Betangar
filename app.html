@@ -1789,6 +1789,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
   <div class="switch-row" style="margin-bottom:10px">
     <div class="sw" id="sw-km-hv" onclick="switchKmTab('hv')">🔧 Mantenimiento</div>
     <div class="sw" id="sw-km-ord" onclick="switchKmTab('ord')">📋 Órdenes</div>
+    <div class="sw" id="sw-km-costos" onclick="switchKmTab('costos')">💰 Costos</div>
     <div class="sw" id="sw-km-prog" onclick="switchKmTab('prog')">⏰ Preventivo</div>
     <div class="sw on" id="sw-km-odo" onclick="switchKmTab('odo')">Kilometraje</div>
     <button class="btn btn-s btn-sm" style="margin-left:auto" onclick="imprimirMantenimiento()">Imprimir</button>
@@ -1856,14 +1857,15 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
   <div id="tab-km-ord" style="display:none">
     <div class="g2" style="margin-bottom:10px">
       <div class="card">
-        <div class="sh"><div class="st">📋 Emitir orden de servicio</div></div>
-        <div style="font-size:11px;color:var(--text3);margin-bottom:8px">Para mandar unidades a cualquier trabajo (lavado, mantenimiento, arreglo). Se guarda y queda <b>Emitida</b>; el km/costo se llenan al <b>cerrarla</b> (registrar que se hizo).</div>
-        <div class="fr2"><div class="fg"><label>Unidades (ej: 1,2,3)</label><input class="fc" id="os-cams" placeholder="1,2,3"></div><div class="fg"><label>Tipo de servicio</label><select class="fc" id="os-tipo"><option value="lavado">🧽 Lavado / limpieza</option><option value="cambio">🔧 Cambio / sustitución</option><option value="inspeccion">🔎 Inspección / revisión</option><option value="correctivo">🛠 Correctivo</option><option value="preventivo">📅 Preventivo</option><option value="otro">Otro</option></select></div></div>
-        <div class="fr2"><div class="fg"><label>Proveedor / taller</label><select class="fc" id="os-prov" onchange="_osProvOtro()"><option value="">— elegir —</option></select></div><div class="fg"><label>Fecha</label><input class="fc" id="os-fecha" type="date"></div></div>
+        <div class="sh"><div class="st">📋 Emitir orden</div></div>
+        <div style="font-size:11px;color:var(--text3);margin-bottom:8px" id="os-ayuda">Para mandar unidades a cualquier trabajo (lavado, mantenimiento, arreglo). Se guarda y queda <b>Emitida</b>; el km/costo se llenan al <b>cerrarla</b> (registrar que se hizo).</div>
+        <div class="fr2"><div class="fg"><label>Tipo de orden</label><select class="fc" id="os-tipoorden" onchange="_osTipoOrden()"><option value="servicio">🔧 Servicio / Reparación</option><option value="compra">🛒 Compra (repuestos, insumos, lo que sea)</option></select></div><div class="fg" id="os-patio-wrap" style="display:none"><label>Destino</label><label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:normal;font-size:12px;padding-top:8px"><input type="checkbox" id="os-patio" onchange="_osTipoOrden()" style="width:auto"> 🏭 Patio / uso general (no es una unidad)</label></div></div>
+        <div class="fr2"><div class="fg"><label id="os-cams-lbl">Unidades (ej: 1,2,3)</label><input class="fc" id="os-cams" placeholder="1,2,3"></div><div class="fg" id="os-tipo-wrap"><label>Tipo de servicio</label><select class="fc" id="os-tipo"><option value="lavado">🧽 Lavado / limpieza</option><option value="cambio">🔧 Cambio / sustitución</option><option value="inspeccion">🔎 Inspección / revisión</option><option value="correctivo">🛠 Correctivo</option><option value="preventivo">📅 Preventivo</option><option value="otro">Otro</option></select></div></div>
+        <div class="fr2"><div class="fg"><label id="os-prov-lbl">Proveedor / taller</label><select class="fc" id="os-prov" onchange="_osProvOtro()"><option value="">— elegir —</option></select></div><div class="fg"><label>Fecha</label><input class="fc" id="os-fecha" type="date"></div></div>
         <div class="fg" id="os-prov-otro-wrap" style="display:none"><label>Nombre del proveedor (nuevo)</label><input class="fc" id="os-prov-otro" placeholder="Escribe el taller/proveedor"></div>
-        <div class="fg"><label>Ítem / qué se hará</label><input class="fc" id="os-item" placeholder="Ej: lavado completo, cambio de aceite, revisión de frenos..."></div>
+        <div class="fg"><label id="os-item-lbl">Ítem / qué se hará</label><input class="fc" id="os-item" placeholder="Ej: lavado completo, cambio de aceite, revisión de frenos..."></div>
         <div class="fg"><label>Notas</label><input class="fc" id="os-notas" placeholder="Opcional"></div>
-        <button class="btn btn-g btn-sm" style="width:100%" onclick="guardarOrdenServicio()">📋 Emitir orden</button>
+        <button class="btn btn-g btn-sm" style="width:100%" onclick="guardarOrdenServicio()"><span id="os-btn-lbl">📋 Emitir orden</span></button>
       </div>
       <div class="card">
         <div class="sh"><div class="st">Estado</div></div>
@@ -1872,13 +1874,29 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
     </div>
     <div class="tw"><table><thead><tr><th>OS</th><th>Fecha</th><th>Unidades</th><th>Tipo</th><th>Proveedor</th><th>Qué</th><th>Estado</th><th></th></tr></thead><tbody id="tb-ordenes"></tbody></table></div>
   </div>
+  <div id="tab-km-costos" style="display:none">
+    <div class="card" style="margin-bottom:10px">
+      <div class="sh"><div class="st">💰 Centro de Costos — gasto por unidad</div></div>
+      <div style="font-size:11px;color:var(--text3);margin-bottom:8px">Suma de mantenimientos y compras (servicios, repuestos instalados, gasto de patio/oficina). <b>No incluye combustible</b> (tiene su propio módulo).</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
+        <div class="fg" style="margin:0"><label style="font-size:10px">Desde</label><input class="fc" id="cc-rep-desde" type="date" onchange="renderCentroCostos()" style="padding:6px 8px;font-size:11px"></div>
+        <div class="fg" style="margin:0"><label style="font-size:10px">Hasta</label><input class="fc" id="cc-rep-hasta" type="date" onchange="renderCentroCostos()" style="padding:6px 8px;font-size:11px"></div>
+        <div class="fg" style="margin:0"><label style="font-size:10px">Tipo</label><select class="fc" id="cc-rep-tipo" onchange="renderCentroCostos()" style="padding:6px 8px;font-size:11px"><option value="">Todos</option><option value="cambio">Sustitución</option><option value="reparacion">Reparación</option><option value="compra">Compra</option><option value="correctivo">Correctivo</option><option value="inspeccion">Inspección</option><option value="lavado">Lavado</option></select></div>
+        <div class="fg" style="margin:0"><label style="font-size:10px">Proveedor</label><select class="fc" id="cc-rep-prov" onchange="renderCentroCostos()" style="padding:6px 8px;font-size:11px"><option value="">Todos</option></select></div>
+        <button class="btn btn-s btn-sm" onclick="renderCentroCostos()">🔄 Actualizar</button>
+      </div>
+    </div>
+    <div id="cc-rep-resumen" style="margin-bottom:10px"></div>
+    <div class="tw"><table><thead><tr><th>Unidad / Destino</th><th style="text-align:right">Eventos</th><th style="text-align:right">Total $</th></tr></thead><tbody id="cc-rep-tabla"></tbody></table></div>
+    <div id="cc-rep-portipo" style="margin-top:10px"></div>
+  </div>
   <div id="tab-km-hv" style="display:none">
     <div class="g2" style="margin-bottom:10px">
       <div class="card">
         <div class="sh"><div class="st">📋 Registrar mantenimiento</div></div>
         <div class="fr2"><div class="fg"><label>Unidad</label><select class="fc" id="hv-cam" onchange="_hvPrefillKm()"><option value="">— unidad —</option></select></div><div class="fg"><label>Ítem (qué se le hizo)</label><select class="fc" id="hv-item"><option value="">— ítem —</option></select></div></div>
         <div class="fr3"><div class="fg"><label>Fecha</label><input class="fc" id="hv-fecha" type="date"></div><div class="fg"><label>Km al hacerse el trabajo</label><input class="fc" id="hv-km" type="number" placeholder="manual" style="font-family:var(--m)"><small id="hv-km-hint" style="color:var(--text3);font-size:10px;display:block"></small></div><div class="fg"><label>Costo $</label><input class="fc" id="hv-costo" type="number" placeholder="0.00" style="font-family:var(--m)"></div></div>
-        <div class="fr2"><div class="fg"><label>Tipo de trabajo</label><select class="fc" id="hv-tipotrabajo"><option value="cambio">🔧 Cambio / sustitución</option><option value="inspeccion">🔎 Inspección / revisión</option><option value="correctivo">🛠 Correctivo</option><option value="lavado">🧽 Lavado / limpieza</option></select></div><div class="fg"><label>Horas (si va por horímetro)</label><input class="fc" id="hv-horas" type="number" placeholder="0" style="font-family:var(--m)"></div></div>
+        <div class="fr3"><div class="fg"><label>Tipo de trabajo</label><select class="fc" id="hv-tipotrabajo"><option value="cambio">🔧 Sustitución (se cambió la pieza)</option><option value="reparacion">🔩 Reparación (se arregló la misma)</option><option value="inspeccion">🔎 Inspección / revisión</option><option value="correctivo">🛠 Correctivo</option><option value="lavado">🧽 Lavado / limpieza</option></select></div><div class="fg"><label>Garantía (días)</label><input class="fc" id="hv-garantia" type="number" placeholder="0" style="font-family:var(--m)"><small style="color:var(--text3);font-size:10px">Avisa si se repite estando en garantía</small></div><div class="fg"><label>Horas (si va por horímetro)</label><input class="fc" id="hv-horas" type="number" placeholder="0" style="font-family:var(--m)"></div></div>
         <div class="fr2"><div class="fg"><label>Proveedor / taller</label><input class="fc" id="hv-prov" placeholder="Opcional"></div><div class="fg"><label>Nota</label><input class="fc" id="hv-nota" placeholder="Detalle opcional"></div></div>
         <div class="fg"><label>Foto (opcional, máx 2MB)</label><input class="fc" id="hv-foto" type="file" accept="image/*" onchange="subirFotoHV(this)"><div id="hv-foto-prev" style="margin-top:6px"></div></div>
         <button class="btn btn-g btn-sm" style="width:100%" id="hv-guardar-btn" onclick="registrarMantItem()">Registrar en la hoja de vida</button>
@@ -2502,7 +2520,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
   </div>
 </div>
 
-<script src="app.js?v=20260711km"></script>
+<script src="app.js?v=20260711compra5"></script>
 
 <!-- Modal global -->
 <div id="modal" class="moverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9990;align-items:center;justify-content:center;padding:16px">
@@ -2876,6 +2894,37 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
 </div>
 
 <!-- MODAL Nueva CxP -->
+<div id="modal-cierre-compra" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.7);z-index:999;overflow-y:auto">
+  <div style="max-width:660px;margin:24px auto;background:var(--bg2);border-radius:16px;padding:22px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+      <div style="font-weight:700;font-size:16px">🛒 Cerrar orden de compra</div>
+      <button onclick="_ccCerrarModal()" style="background:none;border:none;color:var(--text3);font-size:20px;cursor:pointer">✕</button>
+    </div>
+    <div id="cc-encab" style="font-size:12px;color:var(--text3);margin-bottom:10px"></div>
+    <div id="cc-lineas" style="margin-bottom:12px"></div>
+    <div style="border:1px solid var(--border);border-radius:12px;padding:14px;display:grid;gap:10px">
+      <div style="font-weight:700;font-size:13px">➕ Registrar lo que se compró</div>
+      <div class="fr2"><div class="fg"><label>¿Qué se compró?</label><input class="fc" id="cc-item" placeholder="Ej: Batería 12V"></div><div class="fg"><label>Cantidad</label><input class="fc" id="cc-cant" type="number" value="1" min="1" style="font-family:var(--m)"></div></div>
+      <div class="fr2"><div class="fg"><label>Costo total $ (de esta línea)</label><input class="fc" id="cc-costo" type="number" placeholder="0.00" style="font-family:var(--m)"></div><div class="fg"><label>Proveedor (dónde se compró)</label><select class="fc" id="cc-prov" onchange="_ccProvOtro()"><option value="">— elegir —</option></select></div></div>
+      <div class="fg" id="cc-prov-otro-wrap" style="display:none"><label>Nombre del proveedor (nuevo)</label><input class="fc" id="cc-prov-otro" placeholder="Escribe el proveedor"></div>
+      <div class="fg"><label>¿A dónde va? (centro de costo)</label><select class="fc" id="cc-destino" onchange="_ccDestino()">
+        <option value="unidad">🔧 Se instaló / usó YA en una unidad</option>
+        <option value="patio">🏭 Gasto del patio / uso general (oficina, herramientas…)</option>
+        <option value="inventario">📦 Queda en inventario (existencia / reserva)</option>
+      </select></div>
+      <div class="fr2" id="cc-unidad-wrap"><div class="fg"><label>¿Cuál unidad?</label><input class="fc" id="cc-cam" placeholder="ej: 5"></div><div class="fg"><label>Km al instalarse</label><input class="fc" id="cc-km" type="number" placeholder="manual" style="font-family:var(--m)"></div></div>
+      <div class="fg" id="cc-centro-wrap" style="display:none"><label>Tipo de gasto</label><select class="fc" id="cc-centro"><option value="oficina">🏢 Materiales de oficina</option><option value="herramientas">🔧 Herramientas / equipos</option><option value="otros">📦 Otros (uso general)</option></select></div>
+      <div class="fr2" id="cc-inv-wrap" style="display:none"><div class="fg"><label>Ítem de inventario</label><select class="fc" id="cc-invitem" onchange="_ccInvItem()"><option value="__nuevo">➕ Nuevo ítem…</option></select></div><div class="fg" id="cc-invnuevo-wrap"><label>Nombre del ítem nuevo</label><input class="fc" id="cc-invnuevo" placeholder="Ej: Batería 12V"></div></div>
+      <div class="fr2"><div class="fg"><label>Garantía (días)</label><input class="fc" id="cc-garantia" type="number" placeholder="0" style="font-family:var(--m)"></div><div class="fg"><label>Forma de pago</label><select class="fc" id="cc-pago"><option value="contado">💵 Contado</option><option value="credito">🧾 A crédito (Cuentas por Pagar)</option></select></div></div>
+      <div class="fg"><label>Foto de la factura (recomendada)</label><input class="fc" id="cc-foto" type="file" accept="image/*"></div>
+      <button class="btn btn-g btn-sm" style="width:100%" id="cc-add-btn" onclick="_ccAgregarLinea()">➕ Registrar esta línea</button>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:14px">
+      <button class="btn btn-s btn-sm" style="flex:1" onclick="_ccCerrarModal()">Guardar y seguir después</button>
+      <button class="btn btn-g btn-sm" style="flex:1" onclick="_ccTerminar()">✅ Terminar orden</button>
+    </div>
+  </div>
+</div>
 <div id="modal-cxp" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.7);z-index:999;overflow-y:auto">
   <div style="max-width:600px;margin:40px auto;background:var(--bg2);border-radius:16px;padding:24px">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
