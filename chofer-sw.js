@@ -3,7 +3,8 @@
 // PWA Offline-First para choferes
 // ═══════════════════════════════════════════════════
 
-const CACHE_NAME = 'betangar-chofer-v28'; // v27: BACKGROUND SYNC real (sube checklist/viajes desde IndexedDB aunque la app esté cerrada, Android)
+const CACHE_NAME = 'betangar-chofer-v29'; // v29: huecos chofer — incidencia offline no se pierde (COLA_INC), checklist en cola se fusiona, fecha 'hoy' se recalcula al amanecer
+
 
 // Credenciales anon (públicas, ya expuestas en chofer.html) para que el SW pueda subir
 // directo por REST cuando la app está cerrada. RLS protege la base igual que en la app.

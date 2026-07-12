@@ -743,6 +743,11 @@ function arrancarApp(){
   // HOY en hora de Venezuela (UTC-4). Antes usaba UTC (toISOString) y de noche marcaba el
   // día siguiente → el viaje/checklist quedaba con otra fecha y el dashboard no lo veía "hoy".
   hoy = new Date(Date.now()-14400000).toISOString().slice(0,10);
+  // Si la PWA quedó abierta y AMANECIÓ (Android la conserva en memoria días): al volver a primer plano,
+  // si la fecha real cambió, recargar → no dejar al chofer trabado viendo/registrando con la fecha de ayer.
+  if(!window._hoyWatch){ window._hoyWatch = true; document.addEventListener('visibilitychange', function(){
+    if(document.visibilityState==='visible'){ var hr = new Date(Date.now()-14400000).toISOString().slice(0,10); if(hr!==hoy){ location.reload(); } }
+  }); }
 
   // Mostrar info
   document.getElementById('cam-display').textContent  = cam;
@@ -765,6 +770,7 @@ function arrancarApp(){
   // Cargar datos locales
   cargarColaLocal();
   cargarColaCL();
+  cargarColaINC();
   cargarColaEnt();
   cargarViajesLocal();
   renderBotones();
@@ -1368,10 +1374,18 @@ var COLA_CL = [];
 var __ultErrSync = '';   // último error real de subida (para el botón de diagnóstico)
 function cargarColaCL(){ try{ var s=localStorage.getItem('btg_cola_cl'); if(s) COLA_CL=JSON.parse(s); }catch(e){ COLA_CL=[]; } }
 function persistColaCL(){ try{ if(COLA_CL.length) localStorage.setItem('btg_cola_cl',JSON.stringify(COLA_CL)); else localStorage.removeItem('btg_cola_cl'); }catch(e){} }
+// Cola de INCIDENCIAS (accidente/reporte del chofer). Antes se guardaba en 'btg_inc_'+hoy que NUNCA se
+// resubía → un reporte de accidente sin señal moría en el teléfono. Ahora entra a esta cola que se drena.
+var COLA_INC = [];
+function cargarColaINC(){ try{ var s=localStorage.getItem('btg_cola_inc'); if(s) COLA_INC=JSON.parse(s); }catch(e){ COLA_INC=[]; } }
+function persistColaINC(){ try{ if(COLA_INC.length) localStorage.setItem('btg_cola_inc',JSON.stringify(COLA_INC)); else localStorage.removeItem('btg_cola_inc'); }catch(e){} }
 function agregarChecklistCola(reg){
-  var existe = COLA_CL.some(function(r){ return r.cam===reg.cam && r.fecha===reg.fecha; });
-  if(existe) COLA_CL = COLA_CL.filter(function(r){ return !(r.cam===reg.cam && r.fecha===reg.fecha); });
-  COLA_CL.push(reg);
+  // FUSIONAR (no reemplazar): si ya hay un checklist en cola para este cam+fecha (p.ej. la SALIDA),
+  // la LLEGADA solo trae sus campos de entrada → Object.assign conserva los de salida (km/combustible/
+  // inspección). Antes se descartaba el registro anterior y la oficina perdía el km de salida del día.
+  var i = COLA_CL.findIndex(function(r){ return r.cam===reg.cam && r.fecha===reg.fecha; });
+  if(i>=0){ reg = Object.assign({}, COLA_CL[i], reg); COLA_CL[i] = reg; }
+  else COLA_CL.push(reg);
   persistColaCL();
   idbPut('cl', reg.cam+'|'+reg.fecha, reg);   // espejo para background sync
   pedirBackgroundSync('sync-checklist');
@@ -1432,6 +1446,18 @@ function sincronizarCola(){
       .then(function(){
         if(--restC <= 0){ COLA_CL = fallC; persistColaCL(); actualizarBannerCola(); }
       });
+    });
+  }
+
+  // ── Incidencias (accidente/reporte) ──
+  if(COLA_INC.length){
+    var pendI = COLA_INC.slice(); COLA_INC = []; persistColaINC();
+    var fallI = [], restI = pendI.length;
+    pendI.forEach(function(reg){
+      supabase.from('porteria').insert([reg])
+      .then(function(res){ if(res.error){ fallI.push(reg); } else if(!isOnline){ actualizarConexion(true); } },
+            function(){ fallI.push(reg); })
+      .then(function(){ if(--restI <= 0){ COLA_INC = fallI; persistColaINC(); actualizarBannerCola(); } });
     });
   }
 }
@@ -1969,7 +1995,7 @@ function enviarIncidencia(){
       } else {
         guardarIncidenciaLocal(reg);
       }
-    });
+    }, function(e){ guardarIncidenciaLocal(reg); }); // red caída a mitad: NO perder el reporte
   } else {
     guardarIncidenciaLocal(reg);
   }
@@ -1977,12 +2003,11 @@ function enviarIncidencia(){
 
 function guardarIncidenciaLocal(reg){
   try{
-    var key = 'btg_inc_'+hoy;
-    var saved = JSON.parse(localStorage.getItem(key)||'[]');
-    saved.push(reg);
-    localStorage.setItem(key, JSON.stringify(saved));
-    mostrarToast('Guardado sin conexión','warn');
+    COLA_INC.push(reg); persistColaINC();
+    mostrarToast('Guardado sin conexión — se envía al reconectar','warn');
     cerrarModalIncidencia();
+    if(typeof actualizarBannerCola==='function') actualizarBannerCola();
+    if(typeof pedirBackgroundSync==='function') pedirBackgroundSync('sync-checklist');
   }catch(e){
     mostrarToast('Informa al vigilante al llegar','warn');
     cerrarModalIncidencia();
