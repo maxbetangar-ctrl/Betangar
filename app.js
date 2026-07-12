@@ -63,6 +63,26 @@ var EJS_KEY='Uyqw-MYDuZEOqhxeJ',EJS_SVC='service_h2b7fbm',EJS_TPL='template_he74
 var EJS_RPT_SVC='service_za892jr',EJS_RPT_TPL='template_mcfmlle';
 
 var supabase=null,supabaseAuth=null,DB_READY=false,DEMO_MODE=false,SESION=null;
+// Paginador GLOBAL: trae TODAS las filas esquivando el corte SILENCIOSO de 1000 de PostgREST (a partir
+// de esa fila .select() corta sin avisar → totales/costos incompletos). Gemelo del _selectAll local del
+// arranque, pero accesible desde cualquier recarga de módulo (cxp, inventario, gasolina, etc.).
+async function _selectAllG(tabla, orderCols){
+  if(!(DB_READY&&supabase)) return { data:null, error:{message:'sin conexión'} };
+  orderCols=(orderCols&&orderCols.length)?orderCols:['id'];
+  var size=1000;
+  var _pageQ=function(from){ var q=supabase.from(tabla).select('*'); for(var j=0;j<orderCols.length;j++){ q=q.order(orderCols[j],{ascending:true}); } return q.range(from,from+size-1); };
+  try{
+    var r0=await _pageQ(0); if(r0.error) return { data:null, error:r0.error };
+    var first=r0.data||[]; if(first.length<size) return { data:first, error:null };
+    var cr=await supabase.from(tabla).select('id',{count:'exact',head:true});
+    var total=(cr&&cr.count!=null)?cr.count:null;
+    if(total==null){ var all=first.slice(),from=size; for(;;){ var r=await _pageQ(from); if(r.error) return { data:all, error:r.error }; var c=r.data||[]; all=all.concat(c); if(c.length<size) break; from+=size; if(from>2000000) break; } return { data:all, error:null }; }
+    var reqs=[]; for(var i=1;i*size<total;i++){ reqs.push(_pageQ(i*size)); }
+    var rs=reqs.length?await Promise.all(reqs):[];
+    var out=first.slice(); for(var k=0;k<rs.length;k++){ if(rs[k].error) return { data:null, error:rs[k].error }; out=out.concat(rs[k].data||[]); }
+    return { data:out, error:null };
+  }catch(e){ return { data:null, error:e }; }
+}
 // JWT de la sesión actual, para los fetch REST directos (_tokRestHdr). Se mantiene fresco vía
 // onAuthStateChange. Antes esos fetch usaban la anon key → 401 contra tablas cerradas a anon.
 var _SESSION_JWT='';
@@ -1545,7 +1565,7 @@ async function cargarDatosDB(){
     // GASOLINA personal (tabla gasol): el módulo la GUARDABA pero NO la CARGABA de la BD (solo
     // localStorage) → en otro equipo salía vacía y no contaba como costo. Ahora se carga de la BD
     // (fuente única) → alimenta "Gasolina Personal" y el costo (Utilidad Real, egGasol).
-    try{ var _gs=await supabase.from('gasol').select('*').order('f',{ascending:false}).limit(3000);
+    try{ var _gs=await _selectAllG('gasol',['f','id']); // paginado: gasolina personal entra en la Utilidad Real; el cap fijo de 3000 la inflaría al superarlo
       if(_gs&&!_gs.error&&Array.isArray(_gs.data)){ GASOL=_gs.data.map(function(x){return{id:x.id,f:x.f,per:x.per,lit:parseFloat(x.lit)||0,m:parseFloat(x.m)||0};}); try{localStorage.setItem('btg_gasol',JSON.stringify(GASOL));}catch(e){} }
     }catch(e){}
     // TANQUE: nivel persistido en configuracion (clave 'tanque_nivel') — fuente de verdad
@@ -4747,9 +4767,9 @@ async function reguardarTodasNominas(){
 }
 // Recarga préstamos/multas/nómina desde la BD tras la RPC atómica (estado real, sin drift de memoria).
 async function _recargarNomPrestMulta(){
-  try{ var pr=await supabase.from('prestamos').select('*'); if(pr&&!pr.error&&pr.data)PRESTAMOS=pr.data.map(function(x){return{id:x.id,empId:x.emp_id,empNombre:x.emp_nombre,fecha:x.fecha,montoUsd:parseFloat(x.monto_usd)||0,semanas:parseInt(x.semanas)||1,cuotaUsd:parseFloat(x.cuota_usd)||0,pagado:parseFloat(x.pagado)||0,semanasPagadas:parseInt(x.semanas_pagadas)||0,motivo:x.motivo||'',estado:x.estado||'activo'};}); }catch(e){}
-  try{ var ml=await supabase.from('multas').select('*'); if(ml&&!ml.error&&ml.data)MULTAS=ml.data.map(function(x){return{id:x.id,camId:x.cam_id,fecha:x.fecha,desc:x.descripcion||'',montoBs:parseFloat(x.monto_bs)||0,ref:x.ref||'',resp:x.responsable||'empresa',choferId:x.chofer_id||'',cuotas:parseInt(x.cuotas)||1,cuotaBs:parseFloat(x.cuota_bs)||0,pagadoBs:parseFloat(x.pagado_bs)||0,cuotasPagas:parseInt(x.cuotas_pagas)||0,estado:x.estado||'activo',moneda:x.moneda||'',montoDiv:parseFloat(x.monto_div)||0,cuotaDiv:parseFloat(x.cuota_div)||0,pagadoDiv:parseFloat(x.pagado_div)||0};}); }catch(e){}
-  try{ var nh=await supabase.from('nomina_historial').select('*'); if(nh&&!nh.error&&Array.isArray(nh.data))NOMINA_HIST=nh.data; }catch(e){}
+  try{ var pr=await _selectAllG('prestamos',['id']); if(pr&&!pr.error&&pr.data)PRESTAMOS=pr.data.map(function(x){return{id:x.id,empId:x.emp_id,empNombre:x.emp_nombre,fecha:x.fecha,montoUsd:parseFloat(x.monto_usd)||0,semanas:parseInt(x.semanas)||1,cuotaUsd:parseFloat(x.cuota_usd)||0,pagado:parseFloat(x.pagado)||0,semanasPagadas:parseInt(x.semanas_pagadas)||0,motivo:x.motivo||'',estado:x.estado||'activo'};}); }catch(e){}
+  try{ var ml=await _selectAllG('multas',['id']); if(ml&&!ml.error&&ml.data)MULTAS=ml.data.map(function(x){return{id:x.id,camId:x.cam_id,fecha:x.fecha,desc:x.descripcion||'',montoBs:parseFloat(x.monto_bs)||0,ref:x.ref||'',resp:x.responsable||'empresa',choferId:x.chofer_id||'',cuotas:parseInt(x.cuotas)||1,cuotaBs:parseFloat(x.cuota_bs)||0,pagadoBs:parseFloat(x.pagado_bs)||0,cuotasPagas:parseInt(x.cuotas_pagas)||0,estado:x.estado||'activo',moneda:x.moneda||'',montoDiv:parseFloat(x.monto_div)||0,cuotaDiv:parseFloat(x.cuota_div)||0,pagadoDiv:parseFloat(x.pagado_div)||0};}); }catch(e){}
+  try{ var nh=await _selectAllG('nomina_historial',['id']); if(nh&&!nh.error&&Array.isArray(nh.data))NOMINA_HIST=nh.data; }catch(e){}
 }
 // Aplica el AVANCE real de las cuotas que calcNom marcó para esta semana (_ultimaNomina._prestAplicar/
 // _multaAplicar): sube semanas_pagadas / cuotas_pagas, marca 'pagado' al completar (WhatsApp UNA vez)
@@ -8193,7 +8213,7 @@ async function guardarItemInv(){
 // ── AUDITORÍA DE INSUMOS (#2): movimientos persistentes + factura + foto + alerta de garantía ──
 async function cargarInvMov(){
   if(!(DB_READY&&supabase))return;
-  try{var r=await supabase.from('inv_movimientos').select('*').order('fecha',{ascending:false});
+  try{var r=await _selectAllG('inv_movimientos',['fecha','id']); // paginado: a >1000 filas el costo de repuestos por orden y la alerta de garantía salían truncados
     if(r&&!r.error&&Array.isArray(r.data))INV_MOV=r.data.map(function(m){return{fecha:m.fecha,item:m.item,itemId:m.item_id||'',tipo:m.tipo,cantidad:parseFloat(m.cantidad)||0,cam:m.cam||'',motivo:m.motivo||'',stockResult:m.stock_result,factura:m.factura||'',fotoUrl:m.foto_url||'',precio:parseFloat(m.precio)||0,ordenId:m.orden_id||'',mantId:m.mant_id||'',garantiaHasta:m.garantia_hasta||null};});
   }catch(e){console.log('inv_mov load:',e&&e.message);}
 }
@@ -9489,7 +9509,7 @@ function calcPagoAlc(){
     '</div>';
 }
 
-function guardarPagoAlcaldia(){
+async function guardarPagoAlcaldia(){
   var viajes=parseInt(gv('alc-viajes'))||0;if(!viajes){alert('Ingresa los viajes facturados');return;}
   var factAlc=normFact(gv('alc-fact'));
   if(!factAlc){alert('Escribe el numero de factura.\n\nLa factura identifica el pago (no la fecha), para que no se duplique.');return;}
@@ -9520,9 +9540,16 @@ function guardarPagoAlcaldia(){
   var abAlc={f:pago.fecha,fact:factAlc,v:viajes,m:r.neto,obs:'Pago Alcaldia',ref:pago.ref};
   if(contratoId)abAlc.contrato=contratoId;
   if(iAlc>=0){ABONOS[iAlc]=abAlc;}else{ABONOS.push(abAlc);}
+  // A3 (auditoría dinero 2026-07-12): NO dar por registrado si no se guardó. Antes el upsert era
+  // fire-and-forget y en error solo mostraba toast SIN encolar → el ingreso Alcaldía (el número más
+  // grande) se perdía al recargar pese al "✅ Pago registrado". Ahora se ESPERA y se ENCOLA si falla.
+  var _abOk=false;
   if(DB_READY&&supabase){
-    supabase.from('abonos').upsert(abAlc,{onConflict:'fact'}).then(function(r){if(r&&r.error&&typeof mostrarToast==='function')mostrarToast('No se pudo guardar abono Alcaldia: '+r.error.message,'error');});
-  } else { guardarEnCola('abonos',abAlc); }
+    var _rAb=await supabase.from('abonos').upsert(abAlc,{onConflict:'fact'});
+    if(_rAb&&_rAb.error){ if(typeof mostrarToast==='function')mostrarToast('Abono Alcaldía no subió; quedó en cola: '+_rAb.error.message,'error'); }
+    else _abOk=true;
+  }
+  if(!_abOk) guardarEnCola('abonos',abAlc);
   // C1 (auditoría 2026-07-04): PERSISTIR el DETALLE del pago en pagos_alcaldia AL REGISTRARLO.
   // Antes NINGUNA vía persistía (tabla vacía): el código escribía columnas que no existen
   // (iva_usd/total_usd) y 'tasa' en vez de 'tasa_bcv' → el desglose, el FIEL CUMPLIMIENTO (10%
@@ -9530,9 +9557,13 @@ function guardarPagoAlcaldia(){
   // neto). Mapeo AL SCHEMA REAL (tasa_bcv/pct75_usd/neto_bs). iva/total no se guardan: son
   // derivables de base (iva=base×0.16, total=base+iva) y se recalculan al cargar. Cola offline si falla.
   var palcRow={id:pago.id,fecha:pago.fecha,factura:pago.fact,referencia:pago.ref,viajes:pago.viajes,tasa_bcv:pago.tasa,base_usd:pago.base,neto_usd:pago.neto,fiel_usd:pago.fiel,pct75_usd:Math.round((pago.neto*0.075)*100)/100,neto_bs:Math.round((pago.neto*pago.tasa)*100)/100,fiel_devuelto:pago.fielDevuelto,pct75_pagado:pago.pct75};
+  var _palcOk=false;
   if(DB_READY&&supabase){
-    supabase.from('pagos_alcaldia').upsert(palcRow,{onConflict:'id'}).then(function(r){if(r&&r.error&&typeof mostrarToast==='function')mostrarToast('No se pudo guardar el detalle del pago Alcaldia: '+r.error.message,'error');});
-  } else { guardarEnCola('pagos_alcaldia',palcRow); }
+    var _rPalc=await supabase.from('pagos_alcaldia').upsert(palcRow,{onConflict:'id'});
+    if(_rPalc&&_rPalc.error){ if(typeof mostrarToast==='function')mostrarToast('Detalle del pago Alcaldía no subió; quedó en cola: '+_rPalc.error.message,'error'); }
+    else _palcOk=true;
+  }
+  if(!_palcOk) guardarEnCola('pagos_alcaldia',palcRow);
   sendWA('💰 Pago Alcaldia recibido:\nFactura: '+pago.fact+'\nViajes: '+viajes+'\nNeto: $ '+Number(pago.neto||0).toLocaleString('es-VE',{minimumFractionDigits:2,maximumFractionDigits:2})+'\nBs: '+fbn(pago.neto,tasa),['admin']);
   audit('Pago Alcaldia registrado',pago.fact+' $'+pago.neto.toFixed(0));
   ['alc-fact','alc-ref','alc-viajes','alc-tasa'].forEach(function(id){sv(id,'');});g('alc-calculo').style.display='none';
@@ -11521,7 +11552,7 @@ function _normCxpRow(x){
 function _cxpPagada(c){ var e=String((c&&c.estado)||'').toLowerCase(); return e==='pagada'||e==='pagado'; }
 async function cargarCxP(){
   if(!DB_READY||!supabase)return;
-  var res = await supabase.from('cxp').select('*').order('fecha_venc',{ascending:true});
+  var res = await _selectAllG('cxp',['fecha_venc','id']); // paginado: CxP alimenta la Utilidad Real; a >1000 filas se truncaba y la inflaba
   if(!res.error&&res.data) CXP = res.data.map(_normCxpRow);
   renderCxP();
   verificarPagoBNCpendiente();
