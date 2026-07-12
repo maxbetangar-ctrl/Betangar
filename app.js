@@ -10888,13 +10888,8 @@ function enviarEmail(asunto,cuerpoHtml,destino){
   });
 }
 
-function imprimirAsistencia(){
-  var el=g('asis-tabla');
-  if(!el){alert('No hay tabla de asistencia');return;}
-  var rows=el.querySelectorAll('tbody tr').length;
-  var stats=mkStat('Empleados',rows,'registros','azul');
-  abrirImpresionPremium('Control de Asistencia','Registro de asistencia del personal',stats,'<table>'+el.outerHTML+'</table>');
-}
+// (Se eliminó una 2ª definición POBRE de imprimirAsistencia que pisaba a la buena de arriba: solo
+//  contaba filas y anidaba <table><table> inválido. Ahora gana la de Periodo/Mes/Empleados.)
 
 function emailAbonos(){
   var rows=g('tb-abonos');
@@ -11035,7 +11030,18 @@ function abrirVentanaImpresion(html){
   var w=window.open('','_blank','width=960,height=750');
   if(!w){alert('Permite ventanas emergentes');return;}
   w.document.open();w.document.write(html);w.document.close();
-  setTimeout(function(){w.print();},700);
+  // Esperar a que carguen las imágenes (QR de api.qrserver.com) antes de imprimir: con un timeout FIJO
+  // de 700ms, en conexión lenta el papel salía con los QR en blanco (y es el QR que se pega al camión).
+  var imprimir=function(){ try{ w.focus(); w.print(); }catch(e){} };
+  try{
+    var imgs=w.document.images ? Array.prototype.slice.call(w.document.images) : [];
+    var pend=imgs.filter(function(im){ return !im.complete; });
+    if(!pend.length){ setTimeout(imprimir,300); return; }
+    var restantes=pend.length, listo=false;
+    var done=function(){ if(listo) return; if(--restantes<=0){ listo=true; setTimeout(imprimir,150); } };
+    pend.forEach(function(im){ im.addEventListener('load',done); im.addEventListener('error',done); });
+    setTimeout(function(){ if(!listo){ listo=true; imprimir(); } }, 6000); // tope: nunca colgar la impresión
+  }catch(e){ setTimeout(imprimir,700); }
 }
 
 function bgCSS(){

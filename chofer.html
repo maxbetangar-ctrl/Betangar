@@ -861,6 +861,7 @@ function switchTab(tab){
 // ════════════════════════════════
 var ENT_FOTO_FILE = null;      // File de la foto tomada
 var ENT_GPS = null;            // {lat,lng,acc}
+var ENT_GPS_FAILS = 0;         // intentos fallidos de GPS en esta entrega (para ofrecer "sin GPS")
 var ENT_ULTIMA = null;         // último registro (para confirmar recepción/verificación)
 var ENT_TIPO = 'entrega';      // 'entrega' | 'mantenimiento' | 'punto'
 
@@ -961,6 +962,7 @@ function entregaTomarGPS(){
   el.textContent = '📍 Ubicando…';
   navigator.geolocation.getCurrentPosition(function(pos){
     ENT_GPS = { lat: pos.coords.latitude, lng: pos.coords.longitude, acc: Math.round(pos.coords.accuracy||0), calle:'' };
+    ENT_GPS_FAILS = 0;
     var coords = ENT_GPS.lat.toFixed(5)+', '+ENT_GPS.lng.toFixed(5)+' (±'+ENT_GPS.acc+'m)';
     el.innerHTML = '📍 <b style="color:#7dc941">'+coords+'</b> · buscando calle…';
     _entGeocode(ENT_GPS.lat, ENT_GPS.lng).then(function(calle){
@@ -1044,7 +1046,14 @@ async function registrarEntrega(){
   var cliente = (document.getElementById('ent-cliente').value||'').trim();
   if(!cliente){ mostrarToast(isMant?'Escribí el trabajo realizado':(isPunto?'Escribí el punto o evento':'Escribí el cliente/destino'),'error'); return; }
   if(!ENT_FOTO_FILE){ mostrarToast('Tomá la foto','error'); return; }
-  if(!ENT_GPS){ mostrarToast('Falta la ubicación — tocá "Ubicar"','error'); entregaTomarGPS(); return; }
+  if(!ENT_GPS){
+    // El GPS puede fallar (permiso denegado / sin señal) y dejaba al chofer TRABADO sin poder registrar
+    // la entrega, aunque el sello ya soporta "sin GPS". Tras 2 intentos, ofrecer registrar sin ubicación.
+    ENT_GPS_FAILS++;
+    if(ENT_GPS_FAILS < 2){ mostrarToast('Falta la ubicación — tocá "Ubicar"','error'); entregaTomarGPS(); return; }
+    if(!confirm('No se pudo obtener el GPS (¿permiso denegado o sin señal?).\n\n¿Registrar la entrega SIN ubicación? Quedará marcada "sin GPS".')){ entregaTomarGPS(); return; }
+    // continúa sin GPS (el sello lo marca "sin GPS")
+  }
   var btn = document.getElementById('ent-guardar-btn'); btn.disabled = true; var txtOrig = btn.textContent; btn.textContent = 'Guardando…';
   try{
     var direccion = (document.getElementById('ent-direccion').value||'').trim();
@@ -1436,10 +1445,15 @@ function sincronizarCola(){
         else {
           if(!isOnline) actualizarConexion(true);
           idbDel('cl', reg.cam+'|'+reg.fecha);
+          try{ if(typeof enviarNotificacionWA==='function') enviarNotificacionWA(reg); }catch(e){} // WA del checklist que no salió offline
           if(reg.estado_vehiculo){
             supabase.from('flota_estado').upsert([{ unidad: reg.cam, estado: reg.estado_vehiculo, nota: '', updated_by: reg.conductor || 'chofer', updated_at: new Date().toISOString() }],{onConflict:'unidad'});
             var estD = reg.estado_vehiculo==='inoperativo' ? 'inoperativo' : (String(reg.estado_vehiculo).indexOf('taller')===0 ? 'taller' : 'operativo');
             supabase.from('km_data').update({ estado: estD }).eq('cam', reg.cam);
+            // Odómetro: la ruta online sí actualiza km_data.km (con candado). Por cola faltaba → "Próx.
+            // aceite"/proxServicio del dashboard quedaban desfasados. Solo sube si el km es NULL o menor.
+            var kmC = Math.max(parseInt(reg.km_salida)||0, parseInt(reg.km_entrada)||0);
+            if(kmC > 0) supabase.from('km_data').update({ km: kmC }).eq('cam', reg.cam).or('km.is.null,km.lt.'+kmC);
           }
         }
       }, function(){ fallC.push(reg); })
@@ -1448,6 +1462,16 @@ function sincronizarCola(){
       });
     });
   }
+
+  // ── Mediciones de tanque pendientes (btg_medcm_*) — antes se guardaban y nunca se resubían ──
+  try{
+    var medKeys=[]; for(var mi=0; mi<localStorage.length; mi++){ var mk=localStorage.key(mi); if(mk && mk.indexOf('btg_medcm_')===0) medKeys.push(mk); }
+    medKeys.forEach(function(mk){
+      var row; try{ row=JSON.parse(localStorage.getItem(mk)); }catch(e){ localStorage.removeItem(mk); return; }
+      if(!row){ localStorage.removeItem(mk); return; }
+      supabase.from('combustible_mediciones').insert([row]).then(function(res){ if(!res.error) localStorage.removeItem(mk); }, function(){});
+    });
+  }catch(e){}
 
   // ── Incidencias (accidente/reporte) ──
   if(COLA_INC.length){
@@ -1836,11 +1860,18 @@ async function guardarChecklist(){
   if(isOnline && supabase){
     var res;
     if(CL_ID_EXISTENTE){
-      // UPDATE — solo si llenado_por no es 'mecanico'
+      // UPDATE — solo si llenado_por no es 'mecanico'. CON .select(): sin él, si el mecánico ya tomó el
+      // registro se actualizan 0 filas, res.error queda null → "🌙 Llegada registrada" FALSO y se pierden
+      // los datos de llegada (km/combustible) en silencio. Ahora 0 filas = bloqueado (avisar, no fingir).
       res = await supabase.from('checklist')
         .update(registro)
         .eq('id', CL_ID_EXISTENTE)
-        .neq('llenado_por','mecanico');
+        .neq('llenado_por','mecanico')
+        .select();
+      if(!res.error && (!res.data || res.data.length===0)){
+        mostrarToast('El mecánico ya registró este checklist hoy — avísale a la oficina','warn');
+        return;
+      }
     } else {
       // INSERT
       res = await supabase.from('checklist').upsert([registro],{onConflict:'fecha,cam'}).select();
@@ -1879,6 +1910,11 @@ async function guardarChecklist(){
     agregarChecklistCola(registro);
     enCola = true;
   }
+
+  // Si fue a la COLA (sin señal), guardar la medición del tanque en localStorage para resubirla al
+  // reconectar. Antes clGuardarMedicionCm solo se llamaba al éxito online → los días sin señal la
+  // medición diaria (obligatoria para reconciliar el tanque) se perdía. (Guarda offline por sí sola.)
+  if(enCola){ try{ await clGuardarMedicionCm(CL_MODO==='salida'?'salida':'llegada'); }catch(e){} }
 
   if(guardadoOk){
     // GUARDADO DE VERDAD en la BD → recién ahí medición, WhatsApp y "registrada".
