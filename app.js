@@ -6138,7 +6138,13 @@ async function cargarUnidadConfig(){
     var cols='cam,tipo,combustible,uso,nombre,marca,modelo,anio,placa,vin,serial_motor,serial_carroceria,titular,chofer,activo,notas,medida,horas_actuales';
     var r=await supabase.from('unidad_config').select(cols);
     if(r&&r.error){ r=await supabase.from('unidad_config').select('*'); } // fail-open si faltan columnas (migración no corrida)
-    if(r&&!r.error&&Array.isArray(r.data)){var o={};r.data.forEach(function(x){o[x.cam]={tipo:x.tipo||'',combustible:x.combustible||'',uso:x.uso||'',nombre:x.nombre||'',marca:x.marca||'',modelo:x.modelo||'',anio:x.anio||'',placa:x.placa||'',vin:x.vin||'',serialMotor:x.serial_motor||'',serialCarroceria:x.serial_carroceria||'',titular:x.titular||'',chofer:x.chofer||'',activo:x.activo!==false,notas:x.notas||'',medida:x.medida||'',horasActuales:parseFloat(x.horas_actuales)||0};});UNIDAD_CONFIG=o;}
+    if(r&&!r.error&&Array.isArray(r.data)){var o={};r.data.forEach(function(x){o[x.cam]={tipo:x.tipo||'',combustible:x.combustible||'',uso:x.uso||'',nombre:x.nombre||'',marca:x.marca||'',modelo:x.modelo||'',anio:x.anio||'',placa:x.placa||'',vin:x.vin||'',serialMotor:x.serial_motor||'',serialCarroceria:x.serial_carroceria||'',titular:x.titular||'',chofer:x.chofer||'',activo:x.activo!==false,notas:x.notas||'',medida:x.medida||'',horasActuales:parseFloat(x.horas_actuales)||0};});UNIDAD_CONFIG=o;
+      // FUENTE ÚNICA de placa/chofer/vin: `unidad_config` (registro maestro) MANDA sobre el FLOTA horneado
+      // para las unidades que ya estén en FLOTA. En Betangar los 12 JAC no están en unidad_config → no-op;
+      // protege a los clones (FlotaMax/Flotilla) donde el FLOTA horneado se desfasó y el QR/informe imprimía
+      // la placa de OTRA unidad. No agrega unidades nuevas a FLOTA (solo corrige las existentes).
+      try{ Object.keys(o).forEach(function(cam){ if(typeof FLOTA!=='undefined'&&FLOTA[cam]){ if(o[cam].placa)FLOTA[cam].placa=o[cam].placa; if(o[cam].chofer)FLOTA[cam].chofer=o[cam].chofer; if(o[cam].vin)FLOTA[cam].vin=o[cam].vin; } }); }catch(e){}
+    }
   }catch(e){}
 }
 // Continuidad: trae el ÚLTIMO lavado/engrase que estaba en KM_DATA (sistema viejo) al nuevo
