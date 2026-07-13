@@ -29,6 +29,11 @@ var BTG_CONFIG = {
                                                            //   + BTG_CHOFER_CONFIG.login=true en chofer.html.
   data_url: 'https://hrkjddehqnzcqwlkklqm.supabase.co',   // ← base de ESTA empresa
   data_key: ANON_CENTRAL,                                  // ← anon key de ESA base
+  usuarios_api: 'https://www.preescolargeppetto.com/api/btg-usuarios', // ← backend de gestión de usuarios.
+                                                           //   Betangar NO tiene backend propio → usa la API Next
+                                                           //   (service_role + token del superadmin), multi-tenant
+                                                           //   por JWT. CONFIGURABLE por clon (antes horneado en el
+                                                           //   fetch): un clon con backend propio apunta al suyo.
   lic_url:  'https://hrkjddehqnzcqwlkklqm.supabase.co',   // ← CENTRAL (no cambiar)
   lic_key:  ANON_CENTRAL,                                  // ← anon key central (no cambiar)
   licencia_ref: 'betangar',                                // ← su id en la tabla licencias
@@ -9778,7 +9783,7 @@ async function btgUsuariosAPI(method, body){
   try{ var s=await supabaseAuth.auth.getSession(); token=(s&&s.data&&s.data.session)?s.data.session.access_token:''; }catch(e){}
   // Timeout + try/catch: depende de un dominio externo (geppetto); si cae o tarda, NO colgar la UI.
   try{
-    var r=await fetch('https://www.preescolargeppetto.com/api/btg-usuarios',{
+    var r=await fetch((BTG_CONFIG.usuarios_api||'https://www.preescolargeppetto.com/api/btg-usuarios'),{
       method:method, headers:{'Content-Type':'application/json', Authorization:'Bearer '+token},
       body: method==='GET'?undefined:JSON.stringify(body||{}),
       signal: AbortSignal.timeout(20000)
