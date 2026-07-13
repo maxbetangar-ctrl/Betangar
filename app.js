@@ -805,6 +805,12 @@ function aplicarPermisos(){
     var mi=document.getElementById('mi-'+p);
     if(mi)mi.style.display=perms.indexOf(p)>=0?'flex':'none';
   });
+  // El item de menú "💰 Finanzas" (mi-financiero → abrirFinanzas) es un HUB que agrupa
+  // proveedores/financiero/cajachica. Antes solo aparecía con la llave 'financiero' → un rol con
+  // 'proveedores' pero sin 'financiero' (RRHH) NUNCA veía la entrada y no podía llegar a Proveedores.
+  // Ahora se muestra si el rol tiene CUALQUIERA de los sub-módulos (abrirFinanzas abre el primero que tenga).
+  var miFin=document.getElementById('mi-financiero');
+  if(miFin)miFin.style.display=(['financiero','proveedores','cajachica'].some(function(k){return perms.indexOf(k)>=0;}))?'flex':'none';
   // Botón cerrar sesión siempre visible para TODOS los roles
   var miLogout=document.getElementById('mi-cerrar-sesion');
   if(miLogout)miLogout.style.display='flex';
@@ -1332,7 +1338,13 @@ function sp(id){
     if(id==='config'){renderFlotaCfgLista();renderNomAdm();renderWANums();renderWAEmpresarial();renderRecordatorios();renderCfgCorrelativo();}
     if(id==='cxp'){cargarCxP();}
     if(id==='cajachica'){renderFinanzasSubnav('cajachica');cargarCajaChica().then(function(){renderCajaChica();}).catch(function(){renderCajaChica();});}
-    if(id==='proveedores'){setTimeout(function(){switchProvTab('cxp');cargarCxP();},100);}
+    if(id==='proveedores'){setTimeout(function(){
+      var _p=PERMISOS[SESION?SESION.rol:'admin']||PERMISOS['admin']||[];
+      // Roles de finanzas (admin/operador…) caen en Cuentas por Pagar; los enfocados en el registro
+      // (RRHH, sin 'financiero') caen directo en la LISTA de proveedores (donde se crea/edita).
+      if(_p.indexOf('financiero')>=0){ switchProvTab('cxp'); cargarCxP(); }
+      else { switchProvTab('lista'); }
+    },100);}
     if(id==='auditoria')renderAuditoria();
     if(id==='entregas'){cargarEntregas().then(function(){renderEntregas();}).catch(function(){renderEntregas();});}
     // Módulos especiales
