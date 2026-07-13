@@ -5152,7 +5152,7 @@ async function cargarOrdenesServicio(){
   }catch(e){console.log('[ordenes_servicio]',e&&e.message);}
 }
 var _OS_TIPO_LBL={lavado:'🧽 Lavado',cambio:'🔧 Cambio/sust.',inspeccion:'🔎 Inspección',correctivo:'🛠 Correctivo',preventivo:'📅 Preventivo',otro:'Otro'};
-var _OS_EST_BADGE={emitida:'<span class="badge by">🟡 Emitida</span>',en_proceso:'<span class="badge bb">🔵 En proceso</span>',hecha:'<span class="badge bg">🟢 Hecha</span>'};
+var _OS_EST_BADGE={emitida:'<span class="badge by">🟡 Emitida</span>',en_proceso:'<span class="badge bb">🔵 En proceso</span>',hecha:'<span class="badge bg">🟢 Hecha</span>',cancelada:'<span class="badge" style="background:#fee2e2;color:#991b1b">⛔ Cancelada</span>'};
 function _osProvOtro(){var s=g('os-prov'),w=g('os-prov-otro-wrap');if(w)w.style.display=(s&&s.value==='__otro')?'block':'none';}
 // Cambia el formulario de emisión según sea SERVICIO (a una unidad, proveedor predefinido) o COMPRA
 // (repuestos/insumos/lo que sea; destino unidad o Patio; proveedor OPCIONAL — se define al comprar).
@@ -5252,6 +5252,30 @@ function _osImprimirCompra(o){
   abrirImpresionPremium('Orden de Compra '+o.id+' — '+brandNom(),'Compra · '+formatFecha(o.fecha),'',banner+info+pie);
 }
 function _osImprimirOrdenPorId(id){var o=ORDENES_SERV.find(function(x){return x.id===id;});if(o)_osImprimirOrden(o);}
+// CANCELAR una orden SIN borrarla: queda el registro con estado 'cancelada' + motivo sellado en notas
+// + rastro en auditoría (quién/cuándo/por qué). Nunca se elimina → historial intacto para revisión.
+async function _osCancelarOrden(id){
+  var o=(ORDENES_SERV||[]).find(function(x){return x.id===id;}); if(!o){alert('Orden no encontrada');return;}
+  if(o.estado==='hecha'){alert('Esta orden ya fue marcada como HECHA; no se puede cancelar (quedó ligada a un mantenimiento).');return;}
+  if(o.estado==='cancelada'){alert('Esta orden ya está cancelada.');return;}
+  var motivo=prompt('¿Por qué se cancela la orden '+id+'?\n\nEl registro NO se borra: queda en el historial marcado como CANCELADA con este motivo.');
+  if(motivo===null)return; // cerró el prompt
+  motivo=(motivo||'').trim(); if(!motivo){alert('Escribí el motivo de la cancelación.');return;}
+  var usr=SESION?SESION.usuario:'?';
+  var sello='⛔ CANCELADA '+fmtFechaHora(new Date())+' por '+usr+': '+motivo;
+  var notasNuevas=(o.notas?o.notas+'\n':'')+sello;
+  var ok=false;
+  if(DB_READY&&supabase){
+    var res=await supabase.from('ordenes_servicio').update({estado:'cancelada',notas:notasNuevas}).eq('id',id).select();
+    if(res.error){ mostrarToast('No se pudo cancelar la orden: '+res.error.message,'error'); return; }
+    ok=true;
+  }
+  if(!ok){ mostrarToast('Sin conexión: no se pudo cancelar la orden. Reintentá con internet.','error'); return; }
+  o.estado='cancelada'; o.notas=notasNuevas;
+  audit('Orden de servicio cancelada','OS '+id+' — '+motivo+' — unidades: '+((o.cams||[]).join(', ')||'—'));
+  renderOrdenesServicio();
+  mostrarToast('⛔ Orden '+id+' cancelada (queda en el historial)','exito');
+}
 function renderOrdenesServicio(){
   _osPoblarForm();
   var tb=g('tb-ordenes');
@@ -5269,12 +5293,12 @@ function renderOrdenesServicio(){
         '<td style="font-size:11px">'+_mEsc(o.proveedor||'—')+'</td>'+
         '<td style="font-size:11px">'+_mEsc(o.item||'—')+'</td>'+
         '<td>'+(_OS_EST_BADGE[o.estado]||o.estado)+'</td>'+
-        '<td><button class="btn btn-s btn-xs" onclick="_osImprimirOrdenPorId(\''+o.id+'\')">🖨</button>'+(o.estado!=='hecha'?' <button class="btn btn-g btn-xs" onclick="'+cerrar+'(\''+o.id+'\')">✅ Hecho</button>':'')+'</td>'+
+        '<td><button class="btn btn-s btn-xs" onclick="_osImprimirOrdenPorId(\''+o.id+'\')">🖨</button>'+((o.estado!=='hecha'&&o.estado!=='cancelada')?' <button class="btn btn-g btn-xs" onclick="'+cerrar+'(\''+o.id+'\')">✅ Hecho</button> <button class="btn btn-xs" style="background:#fee2e2;color:#991b1b" title="Cancelar la orden sin borrarla (queda en el historial)" onclick="_osCancelarOrden(\''+o.id+'\')">⛔ Cancelar</button>':'')+'</td>'+
       '</tr>';
     }).join('')||'<tr><td colspan="8" style="text-align:center;color:var(--text3);padding:20px">Sin órdenes emitidas</td></tr>';
   }
   var res=g('os-resumen');
-  if(res){var em=ORDENES_SERV.filter(function(o){return o.estado==='emitida';}).length;var he=ORDENES_SERV.filter(function(o){return o.estado==='hecha';}).length;res.innerHTML='<span style="color:var(--yellow)">🟡 Emitidas '+em+'</span> · <span style="color:var(--green)">🟢 Hechas '+he+'</span> · Total '+ORDENES_SERV.length;}
+  if(res){var em=ORDENES_SERV.filter(function(o){return o.estado==='emitida';}).length;var he=ORDENES_SERV.filter(function(o){return o.estado==='hecha';}).length;var ca=ORDENES_SERV.filter(function(o){return o.estado==='cancelada';}).length;res.innerHTML='<span style="color:var(--yellow)">🟡 Emitidas '+em+'</span> · <span style="color:var(--green)">🟢 Hechas '+he+'</span>'+(ca?' · <span style="color:#991b1b">⛔ Canceladas '+ca+'</span>':'')+' · Total '+ORDENES_SERV.length;}
 }
 // CIERRE de una orden: abre el registro de mantenimiento PRE-LLENADO para una unidad pendiente de la
 // orden. Al guardar (registrarMantItem), el evento queda ligado (orden_id) y la orden se actualiza.
