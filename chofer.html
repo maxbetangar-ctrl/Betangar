@@ -1971,7 +1971,9 @@ async function enviarNotificacionWA(reg){
     // Si Wassenger está activo (config), encola en cola_mensajes (el worker lo manda con la etiqueta de la
     // empresa). Si no, CallMeBot directo (comportamiento previo, cero downtime).
     var _wsOn=false;
-    try{ if(supabase){ var _wc=await supabase.from('configuracion').select('valor').eq('clave','wassenger').maybeSingle(); if(_wc&&_wc.data&&_wc.data.valor){ var _wv=typeof _wc.data.valor==='string'?JSON.parse(_wc.data.valor):_wc.data.valor; _wsOn=!!(_wv&&_wv.activo===true&&_wv.token); } } }catch(_e){}
+    // Wassenger: se consulta por RPC (wassenger_estado) que devuelve el estado SIN el token.
+    // El token ya NO es legible por la llave anon del chofer (queda dentro de la funcion SECURITY DEFINER).
+    try{ if(supabase){ var _wc=await supabase.rpc('wassenger_estado'); if(_wc&&!_wc.error&&_wc.data){ _wsOn=(_wc.data.activo===true&&_wc.data.tiene_token===true); } } }catch(_e){}
     WA_DESTINATARIOS.forEach(function(dest){
       if(!dest.num)return;
       if(_wsOn){ try{ supabase.from('cola_mensajes').insert([{telefono:dest.num,mensaje:msg,tipo:'chofer'}]); }catch(_e2){} return; }
