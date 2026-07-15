@@ -593,7 +593,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
   <div class="switch-row">
     <div class="sw on" id="sw-prov-cxp" onclick="switchProvTab('cxp')">📋 Cuentas x Pagar</div>
     <div class="sw" id="sw-prov-lista" onclick="switchProvTab('lista')">Proveedores</div>
-    <div class="sw" id="sw-prov-ret" onclick="switchProvTab('ret')">Retenciones IVA</div>
+    <div class="sw" id="sw-prov-ret" onclick="switchProvTab('ret')">🧾 Facturas y Retenciones (Bs)</div>
     <div class="sw" id="sw-prov-hist" onclick="switchProvTab('hist')">Historial</div>
   </div>
   <!-- TAB CUENTAS X PAGAR -->
@@ -615,87 +615,37 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
       <div class="card">
         <div class="st" style="margin-bottom:12px">📋 Nueva Cuenta por Pagar</div>
 
-        <!-- Tipo de documento -->
-        <div class="fg" style="margin-bottom:8px">
-          <label>Tipo de documento</label>
-          <select class="fc" id="cxp-tipo-doc" onchange="toggleCxPTipoDoc()">
-            <option value="con_factura">Con factura</option>
-            <option value="nota_debito">Nota de débito (sin factura aún)</option>
-            <option value="sin_soporte">Sin soporte fiscal (informal)</option>
-          </select>
-        </div>
+        <div style="font-size:11px;color:var(--text2);background:var(--bg3);border-radius:8px;padding:8px 10px;margin-bottom:10px">La deuda se lleva <b>en dólares</b> (base imponible). El IVA y las retenciones se cargan aparte, en la pestaña <b>Facturas y Retenciones (Bs)</b>, cuando llegue la factura.</div>
 
         <div class="fr2">
           <div class="fg"><label>Proveedor</label><select class="fc" id="cxp-prov" onchange="autoLlenarProv()"><option value="">-- Seleccionar --</option></select></div>
           <div class="fg"><label>Fecha</label><input type="date" class="fc" id="cxp-fecha"></div>
         </div>
         <div class="fr2">
-          <div class="fg"><label id="cxp-doc1-lbl">N° Factura</label><input class="fc" id="cxp-factura" placeholder="F-001" style="font-family:var(--m)"></div>
-          <div class="fg"><label>N° Nota / Control</label><input class="fc" id="cxp-nota" placeholder="NE-001" style="font-family:var(--m)"></div>
+          <div class="fg"><label>Orden / Servicio</label><input class="fc" id="cxp-orden" placeholder="(se enlaza desde Órdenes)" style="font-family:var(--m);opacity:.85" readonly></div>
+          <div class="fg"><label>Referencia interna (opcional)</label><input class="fc" id="cxp-nota" placeholder="Nota / N° orden interno" style="font-family:var(--m)"></div>
         </div>
         <div class="fg"><label>Descripción del servicio/compra</label><input class="fc" id="cxp-desc" placeholder="Ej: Cambio de aceite y filtros JAC-B001..."></div>
 
-        <!-- Montos -->
-        <div class="fr3">
-          <div class="fg"><label>Base USD (sin IVA)</label><input type="number" class="fc" id="cxp-monto" placeholder="0.00" oninput="calcCXP()" style="font-family:var(--m)"></div>
-          <div class="fg"><label>IVA</label><select class="fc" id="cxp-iva" onchange="calcCXP()"><option value="0">Sin IVA</option><option value="16" selected>16%</option><option value="8">8%</option></select></div>
-          <div class="fg"><label>Tasa de pago</label><select class="fc" id="cxp-tasa" onchange="calcCXP()"><option value="bcvDolar">BCV Dólar</option><option value="bcvEuro">BCV Euro</option><option value="binance">Binance</option><option value="promedio">Promedio</option></select></div>
-        </div>
-
-        <!-- Retenciones SENIAT (ocultas si sin soporte) -->
-        <div id="cxp-ret-row" class="fr2" style="margin-bottom:8px">
-          <div class="fg"><label>Tipo contribuyente</label>
-            <select class="fc" id="cxp-contrib" onchange="calcCXP()">
-              <option value="ordinario">Ordinario (ret. IVA 75%)</option>
-              <option value="especial">Especial (ret. IVA 100%)</option>
-              <option value="no_contrib">No contribuyente (sin ret. IVA)</option>
-            </select>
-          </div>
-          <div class="fg"><label>Actividad ISLR</label>
-            <select class="fc" id="cxp-actividad" onchange="calcCXP()">
-              <option value="0">Sin ISLR</option>
-              <option value="1">Fletes / Transporte (1%)</option>
-              <option value="2">Servicios / Mecánica (2%)</option>
-              <option value="3">Honorarios profesionales (3%)</option>
-              <option value="5">Arrendamiento (5%)</option>
+        <div class="fr2">
+          <div class="fg"><label>Base imponible $ (lo que se debe)</label><input type="number" class="fc" id="cxp-monto" placeholder="0.00" oninput="calcCXP()" style="font-family:var(--m)"></div>
+          <div class="fg"><label>Plazo de pago</label>
+            <select class="fc" id="cxp-plazo">
+              <option value="0">Inmediato</option>
+              <option value="15">15 días</option>
+              <option value="30" selected>30 días</option>
+              <option value="45">45 días</option>
+              <option value="60">60 días</option>
             </select>
           </div>
         </div>
 
-        <!-- Plazo -->
-        <div class="fg"><label>Plazo de pago</label>
-          <select class="fc" id="cxp-plazo">
-            <option value="0">Inmediato</option>
-            <option value="15">15 días</option>
-            <option value="30" selected>30 días</option>
-            <option value="45">45 días</option>
-            <option value="60">60 días</option>
-          </select>
+        <!-- Equivalencia Bs de referencia -->
+        <div id="cxp-calculo" style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:10px;margin-bottom:10px;display:none;font-size:12px">
+          <div>Deuda: <b id="cxp-c-base" style="font-family:var(--m);color:var(--green)">$0</b> <span style="color:var(--text3)">≈</span> <b id="cxp-c-bs" style="font-family:var(--m);color:var(--yellow)">Bs 0</b> <span style="color:var(--text3);font-size:10px">(referencia a tasa BCV de hoy)</span></div>
         </div>
 
-        <!-- Cálculo automático -->
-        <div id="cxp-calculo" style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:10px;margin-bottom:10px;display:none;font-size:11px">
-          <div style="font-weight:700;color:var(--green);margin-bottom:6px">Cálculo automático:</div>
-          <div class="fr2">
-            <div>Base USD: <b id="cxp-c-base" style="font-family:var(--m)">$0</b></div>
-            <div>IVA (16%): <b id="cxp-c-iva" style="font-family:var(--m)">$0</b></div>
-          </div>
-          <div class="fr2" style="margin-top:4px">
-            <div>Total USD: <b id="cxp-c-tot" style="font-family:var(--m);color:var(--green)">$0</b></div>
-            <div>En Bs: <b id="cxp-c-bs" style="font-family:var(--m);color:var(--yellow)">Bs 0</b></div>
-          </div>
-          <div id="cxp-c-ret-w" style="margin-top:4px;display:none">
-            <div class="fr2">
-              <div>Ret. IVA: <b id="cxp-c-ret-iva" style="font-family:var(--m);color:var(--red)">-$0</b></div>
-              <div>Ret. ISLR: <b id="cxp-c-ret-islr" style="font-family:var(--m);color:var(--red)">-$0</b></div>
-            </div>
-          </div>
-          <div id="cxp-c-neto-w" style="margin-top:6px;border-top:1px solid var(--border);padding-top:6px;display:none">
-            NETO A PAGAR: <b id="cxp-c-neto" style="font-family:var(--m);font-size:13px;color:var(--green)">$0</b>
-          </div>
-        </div>
-
-        <button class="btn btn-g" style="width:100%" onclick="guardarCXP()">✔ Registrar Cuenta por Pagar</button>
+        <button class="btn btn-g" style="width:100%" onclick="guardarCXP()">✔ Registrar deuda por pagar</button>
       </div>
 
       <!-- PANEL DERECHO: Stats + Próximas a vencer -->
@@ -705,8 +655,8 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
           <div class="stat y"><div class="stat-lbl">Vencidas</div><div class="stat-val" style="font-size:16px;color:var(--yellow)" id="cxp-stat-venc">$0</div><div class="stat-sub" id="cxp-cnt-venc">0 facturas</div></div>
         </div>
         <div class="g2" style="margin-bottom:8px">
-          <div class="stat" style="border-top:3px solid var(--blue)"><div class="stat-lbl">Ret. IVA Mes</div><div class="stat-val" style="font-size:14px;color:var(--blue)" id="cxp-kpi-iva">$0.00</div></div>
-          <div class="stat" style="border-top:3px solid var(--teal)"><div class="stat-lbl">Ret. ISLR Mes</div><div class="stat-val" style="font-size:14px;color:var(--teal)" id="cxp-kpi-islr">$0.00</div></div>
+          <div class="stat" style="border-top:3px solid var(--blue)"><div class="stat-lbl">Ret. IVA Mes (Bs)</div><div class="stat-val" style="font-size:13px;color:var(--blue)" id="cxp-kpi-iva">Bs 0</div></div>
+          <div class="stat" style="border-top:3px solid var(--teal)"><div class="stat-lbl">Ret. ISLR Mes (Bs)</div><div class="stat-val" style="font-size:13px;color:var(--teal)" id="cxp-kpi-islr">Bs 0</div></div>
         </div>
         <div class="card"><div class="st" style="margin-bottom:8px">⏰ Próximas a Vencer</div><div id="cxp-proximas" style="font-size:12px;color:var(--text3)">Sin facturas pendientes</div></div>
       </div>
@@ -730,11 +680,9 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
         <table>
           <thead>
             <tr>
-              <th>Fecha</th><th>Proveedor</th><th>Nota</th><th>Descripción</th>
-              <th>Base $</th><th>IVA</th><th>Total $</th>
-              <th>Ret.IVA</th><th>Ret.ISLR</th>
-              <th>A Pagar $</th><th>En Bs hoy</th>
-              <th>Vence</th><th>Estado</th><th>Comprobante</th><th></th>
+              <th>Fecha</th><th>Proveedor</th><th>Orden</th><th>Descripción</th>
+              <th>Deuda $</th><th>Abonado $</th><th>Saldo $</th>
+              <th>Facturas</th><th>Vence</th><th>Estado</th><th></th>
             </tr>
           </thead>
           <tbody id="tb-cxp"></tbody>
@@ -819,21 +767,69 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
   </div>
   <div id="tab-prov-ret" style="display:none">
     <div class="g2" style="margin-bottom:12px">
-      <div class="card"><div class="st" style="margin-bottom:8px">Resumen Retenciones</div><div id="ret-resumen"></div></div>
+      <!-- FORM: cargar factura (Bs) contra una deuda -->
       <div class="card">
-        <div class="st" style="margin-bottom:8px">Calcular Manual</div>
-        <div class="fg"><label>Proveedor</label><select class="fc" id="ret-prov"><option value="">-- Seleccionar --</option></select></div>
+        <div class="st" style="margin-bottom:10px">🧾 Cargar factura (en Bolívares)</div>
+        <div style="font-size:11px;color:var(--text2);margin-bottom:10px">Una deuda puede tener <b>varias facturas</b> (ej. una de productos y otra de servicios). Cada factura calcula sus retenciones sobre <b>sus bolívares</b>.</div>
+        <div class="fg"><label>Deuda / Orden</label><select class="fc" id="fac-cxp" onchange="facPrefill()"><option value="">-- Seleccionar deuda --</option></select></div>
         <div class="fr2">
-          <div class="fg"><label>Base imponible $</label><input type="number" class="fc" id="ret-base" oninput="calcRet()" placeholder="0.00" style="font-family:var(--m)"></div>
-          <div class="fg"><label>Tasa BCV $</label><input type="number" class="fc" id="ret-tasa" oninput="calcRet()" placeholder="487.12" style="font-family:var(--m)"></div>
+          <div class="fg"><label>N° Factura</label><input class="fc" id="fac-num" placeholder="F-00012345" style="font-family:var(--m)"></div>
+          <div class="fg"><label>N° Control</label><input class="fc" id="fac-control" placeholder="00-00012345" style="font-family:var(--m)"></div>
         </div>
-        <div id="ret-calc" style="background:var(--bg3);border-radius:8px;padding:10px;font-size:11px;display:none">
-          <div class="fr2"><div>IVA 16%: <b id="rc-iva" style="font-family:var(--m)">$0</b></div><div>Retencion: <b id="rc-ret" style="font-family:var(--m);color:var(--red)">$0</b></div></div>
-          <div class="fr2" style="margin-top:5px"><div>A Transferir: <b id="rc-neto" style="font-family:var(--m);color:var(--green)">$0</b></div><div>Ret Bs: <b id="rc-ret-bs" style="font-family:var(--m);color:var(--yellow)">Bs 0</b></div></div>
+        <div class="fr2">
+          <div class="fg"><label>Fecha factura</label><input type="date" class="fc" id="fac-fecha"></div>
+          <div class="fg"><label>Concepto</label>
+            <select class="fc" id="fac-concepto" onchange="facConceptoChg();calcFac()">
+              <option value="servicios">Servicios (aplica ISLR)</option>
+              <option value="bienes">Bienes / productos (sin ISLR)</option>
+            </select>
+          </div>
         </div>
+        <div class="fr2">
+          <div class="fg"><label>Base imponible Bs</label><input type="number" class="fc" id="fac-base" oninput="calcFac()" placeholder="0.00" style="font-family:var(--m)"></div>
+          <div class="fg"><label>% IVA</label>
+            <select class="fc" id="fac-iva" onchange="calcFac()"><option value="16" selected>16%</option><option value="8">8%</option><option value="0">Exento</option><option value="31">31%</option></select>
+          </div>
+        </div>
+        <div class="fr2">
+          <div class="fg"><label>Tipo contribuyente</label>
+            <select class="fc" id="fac-contrib" onchange="calcFac()">
+              <option value="ordinario">Ordinario (ret. IVA 75%)</option>
+              <option value="especial">Especial (ret. IVA 100%)</option>
+              <option value="natural">Persona natural</option>
+              <option value="no_contrib">No contribuyente (sin ret. IVA)</option>
+            </select>
+          </div>
+          <div class="fg"><label>Tasa BCV del día (referencia $)</label><input type="number" class="fc" id="fac-tasa" oninput="calcFac()" placeholder="0.00" style="font-family:var(--m)"></div>
+        </div>
+        <div class="fr3" id="fac-islr-row">
+          <div class="fg"><label>ISLR</label>
+            <select class="fc" id="fac-islr-aplica" onchange="calcFac()"><option value="1">Aplica</option><option value="0">No aplica</option></select>
+          </div>
+          <div class="fg"><label>% ISLR</label><input type="number" class="fc" id="fac-islr-pct" value="2" oninput="calcFac()" style="font-family:var(--m)"></div>
+          <div class="fg"><label>Sustraendo Bs</label><input type="number" class="fc" id="fac-sustraendo" value="0" oninput="calcFac()" style="font-family:var(--m)"></div>
+        </div>
+        <div id="fac-calc" style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:10px;margin:8px 0;font-size:12px;display:none">
+          <div class="fr2"><div>Base: <b id="fc-base" style="font-family:var(--m)">Bs 0</b></div><div>IVA: <b id="fc-iva" style="font-family:var(--m)">Bs 0</b></div></div>
+          <div class="fr2" style="margin-top:4px"><div>Total factura: <b id="fc-total" style="font-family:var(--m);color:var(--yellow)">Bs 0</b></div><div><span style="color:var(--text3)">≈</span> <b id="fc-usd" style="font-family:var(--m);color:var(--text3)">$0</b></div></div>
+          <div class="fr2" style="margin-top:4px"><div>Ret. IVA: <b id="fc-retiva" style="font-family:var(--m);color:var(--red)">-Bs 0</b></div><div>Ret. ISLR: <b id="fc-retislr" style="font-family:var(--m);color:var(--red)">-Bs 0</b></div></div>
+          <div style="margin-top:6px;border-top:1px solid var(--border);padding-top:6px">NETO A PAGAR AL PROVEEDOR: <b id="fc-neto" style="font-family:var(--m);font-size:13px;color:var(--green)">Bs 0</b></div>
+        </div>
+        <button class="btn btn-g" style="width:100%" onclick="guardarFactura()">✔ Guardar factura</button>
+      </div>
+      <!-- RESUMEN del mes (Bs) -->
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <div class="st">Libro de Retenciones (Bs)</div>
+          <div style="display:flex;gap:6px;align-items:center">
+            <input type="month" class="fc" id="ret-mes" onchange="renderRetenciones()" style="padding:4px 6px;font-size:11px">
+            <button class="btn btn-s btn-xs" onclick="exportRetenciones()">⬇️ Excel</button>
+          </div>
+        </div>
+        <div id="ret-resumen"></div>
       </div>
     </div>
-    <div class="tw"><table><thead><tr><th>Fecha</th><th>Proveedor</th><th>Factura</th><th>Base $</th><th>IVA $</th><th>% Ret</th><th>Ret $</th><th>Ret Bs</th><th>Estado</th></tr></thead><tbody id="tb-ret"></tbody></table></div>
+    <div class="tw"><table><thead><tr><th>Fecha</th><th>Proveedor</th><th>Factura</th><th>Concepto</th><th>Base Bs</th><th>IVA Bs</th><th>%Ret</th><th>Ret. IVA Bs</th><th>%ISLR</th><th>Ret. ISLR Bs</th><th>Neto Bs</th><th></th></tr></thead><tbody id="tb-ret"></tbody></table></div>
   </div>
   <div id="tab-prov-hist" style="display:none">
     <div class="g3" style="margin-bottom:10px">
@@ -842,6 +838,39 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
       <div class="stat b"><div class="stat-lbl">Retenciones</div><div class="stat-val" style="font-size:16px;color:var(--blue)" id="hist-pv-ret">$0</div></div>
     </div>
     <div class="tw"><table><thead><tr><th>F.Pago</th><th>Proveedor</th><th>Nota</th><th>Factura</th><th>Base $</th><th>Total $</th><th>Ret $</th><th>Pagado $</th><th>Pagado Bs</th><th>Tasa</th><th>Ref BNC</th></tr></thead><tbody id="tb-pv-hist"></tbody></table></div>
+  </div>
+</div>
+
+<!-- MODAL ABONAR CxP (pago parcial, doble moneda Bs + $) -->
+<div id="abono-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9999;align-items:center;justify-content:center;padding:16px">
+  <div style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;max-width:440px;width:100%;max-height:90vh;display:flex;flex-direction:column">
+    <div style="padding:14px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
+      <div style="font-weight:800">💵 Registrar abono</div>
+      <button class="btn btn-s btn-xs" onclick="cerrarAbonoCxp()">✕</button>
+    </div>
+    <div style="padding:16px;overflow-y:auto">
+      <input type="hidden" id="abono-cxp-id">
+      <div style="font-size:12px;color:var(--text2);margin-bottom:10px" id="abono-info"></div>
+      <div class="fr2">
+        <div class="fg"><label>Fecha</label><input type="date" class="fc" id="abono-fecha"></div>
+        <div class="fg"><label>Método</label>
+          <select class="fc" id="abono-metodo"><option value="transferencia">Transferencia</option><option value="bnc">BNC</option><option value="efectivo">Efectivo Bs</option><option value="divisas">Divisas $</option><option value="pagomovil">Pago móvil</option></select>
+        </div>
+      </div>
+      <div class="fr2">
+        <div class="fg"><label>Monto Bs</label><input type="number" class="fc" id="abono-bs" oninput="calcAbonoCxp()" placeholder="0.00" style="font-family:var(--m)"></div>
+        <div class="fg"><label>Tasa del día</label><input type="number" class="fc" id="abono-tasa" oninput="calcAbonoCxp()" placeholder="0.00" style="font-family:var(--m)"></div>
+      </div>
+      <div style="background:var(--bg3);border-radius:8px;padding:10px;margin-bottom:10px;font-size:12px">
+        Equivale a <b id="abono-usd" style="font-family:var(--m);color:var(--green)">$0.00</b> · Saldo tras abono: <b id="abono-saldo-post" style="font-family:var(--m);color:var(--yellow)">$0.00</b>
+      </div>
+      <div class="fg"><label>Referencia / Nº</label><input class="fc" id="abono-ref" placeholder="Ref bancaria" style="font-family:var(--m)"></div>
+      <div class="fg"><label>Observación (opcional)</label><input class="fc" id="abono-obs" placeholder=""></div>
+    </div>
+    <div style="padding:12px 16px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end">
+      <button class="btn btn-s" onclick="cerrarAbonoCxp()">Cancelar</button>
+      <button class="btn btn-g" onclick="guardarAbonoCxp()">✔ Guardar abono</button>
+    </div>
   </div>
 </div>
 
@@ -2520,7 +2549,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
   </div>
 </div>
 
-<script src="app.js?v=20260713qrplaca"></script>
+<script src="app.js?v=20260715cxp-dos-libros"></script>
 
 <!-- Modal global -->
 <div id="modal" class="moverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9990;align-items:center;justify-content:center;padding:16px">

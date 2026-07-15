@@ -1325,7 +1325,7 @@ function sp(id){
     if(id==='salud'){renderSaludDatos();}
     if(id==='km'){renderMantSubnav('km');renderKm();renderTiposMant();_cargarMantTodo().then(function(){try{renderHistMant();}catch(e){}try{_poblarKmItem();}catch(e){}}).catch(function(){});}
     if(id==='banco'){renderBancoSubnav('banco');renderBNCDash();}
-    if(id==='proveedores'){renderFinanzasSubnav('proveedores');renderCXP();renderProveedoresLista();renderRetenciones();}
+    if(id==='proveedores'){renderFinanzasSubnav('proveedores');cargarCxpAux().then(function(){fillFacCxpSelect();renderCXP();renderRetenciones();});renderCXP();renderProveedoresLista();}
     if(id==='documentos'){renderDocAlertas();renderDocTablas();}
     if(id==='asistencia')renderAsistencia();if(id==='fichaje')renderFichaje();
     if(id==='prestamos'){renderRRHHSubnav('prestamos');poblarEmps();renderPrestamos();}
@@ -1336,7 +1336,7 @@ function sp(id){
     if(id==='contratos')renderContratosLista();
     if(id==='multicontrato')abrirMultiContrato();
     if(id==='config'){renderFlotaCfgLista();renderNomAdm();renderWANums();renderWAEmpresarial();renderRecordatorios();renderCfgCorrelativo();}
-    if(id==='cxp'){cargarCxP();}
+    if(id==='cxp'){cargarCxP();cargarCxpAux().then(function(){if(typeof renderCxP==='function')renderCxP();});}
     if(id==='cajachica'){renderFinanzasSubnav('cajachica');cargarCajaChica().then(function(){renderCajaChica();}).catch(function(){renderCajaChica();});}
     if(id==='proveedores'){setTimeout(function(){
       var _p=PERMISOS[SESION?SESION.rol:'admin']||PERMISOS['admin']||[];
@@ -5403,13 +5403,18 @@ async function _ccInsertMant(row,mem){
 function _ccAbrirCxP(o,provId,provNom,costo){
   window._cxpOrdenId=o.id;
   _ccCerrarModal();
-  if(typeof abrirNuevaCxP==='function')abrirNuevaCxP();
-  if(provId)sv('cxp-prov',provId);
-  sv('cxp-base',costo?String(costo):'');
-  sv('cxp-desc','Compra orden '+o.id+(o.item?(': '+o.item):''));
-  if(provId&&typeof seleccionarProvCxP==='function')seleccionarProvCxP();
-  if(typeof calcularCxP==='function')calcularCxP();
-  if(typeof mostrarToast==='function')mostrarToast('Revisá IVA/retenciones y guardá la CxP (queda enlazada a '+o.id+').','info');
+  // Abre el módulo Proveedores → pestaña Cuentas x Pagar (deuda en $), prellenada y enlazada a la orden.
+  if(typeof sp==='function')sp('proveedores');
+  setTimeout(function(){
+    if(typeof switchProvTab==='function')switchProvTab('cxp');
+    if(provId)sv('cxp-prov',provId);
+    sv('cxp-orden',o.id);
+    sv('cxp-monto',costo?String(costo):'');
+    sv('cxp-desc','Compra orden '+o.id+(o.item?(': '+o.item):''));
+    if(typeof calcCXP==='function')calcCXP();
+    var el=g('cxp-monto'); if(el&&el.scrollIntoView)el.scrollIntoView({behavior:'smooth',block:'center'});
+    if(typeof mostrarToast==='function')mostrarToast('Deuda $ prellenada y enlazada a '+o.id+'. La factura/retención se carga aparte en Bs.','info');
+  },120);
 }
 async function _ccAgregarLinea(){
   var ordenId=window._ccOrden, o=(ORDENES_SERV||[]).find(function(x){return x.id===ordenId;}); if(!o){alert('Orden no encontrada');return;}
@@ -7479,156 +7484,328 @@ async function testBNC(){
 // ═══════════════════════════════════════════════════
 // CUENTAS POR PAGAR (CXP)
 // ═══════════════════════════════════════════════════
-function switchProvTab(t){['cxp','lista','ret','hist'].forEach(function(x){var el=g('tab-prov-'+x);var sw=g('sw-prov-'+x);if(el)el.style.display=x===t?'block':'none';if(sw){sw.classList.remove('on');if(x===t)sw.classList.add('on');}});}
-
-function autoLlenarProv(){
-  var pid=gv('cxp-prov');var pv=PROVEEDORES.find(function(p){return p.id===pid;});
-  if(!pv)return;
-  // Autollenar configuración fiscal del proveedor
-  if(gv('cxp-tasa')!==undefined)sv('cxp-tasa',pv.tasa||'bcvDolar');
-  if(g('cxp-tipo-doc')&&pv.tipo_doc)sv('cxp-tipo-doc',pv.tipo_doc);
-  if(g('cxp-contrib')&&pv.tipo_contrib)sv('cxp-contrib',pv.tipo_contrib);
-  else if(g('cxp-contrib')&&pv.contrib){sv('cxp-contrib',pv.contrib==='si'?'ordinario':'no_contrib');}
-  if(g('cxp-actividad')&&pv.actividad_islr)sv('cxp-actividad',pv.actividad_islr);
-  else if(g('cxp-actividad')&&pv.islrPct)sv('cxp-actividad',String(pv.islrPct));
-  if(g('cxp-tipo-doc'))toggleCxPTipoDoc();
-  calcCXP();
+// ── CxP 2 libros: deuda ($) en cxp; facturas+retenciones (Bs) en cxp_facturas; abonos dual en cxp_pagos ──
+var CXP_FACTURAS=[], CXP_PAGOS=[];
+function _cxpAbonadoUsd(id){return CXP_PAGOS.filter(function(p){return String(p.cxp_id)===String(id);}).reduce(function(s,p){return s+(parseFloat(p.monto_usd)||0);},0);}
+function _cxpSaldoUsd(c){var deuda=parseFloat(c.base_usd||c.baseUsd||0)||0;return deuda-_cxpAbonadoUsd(c.id);}
+function _cxpFacturasDe(id){return CXP_FACTURAS.filter(function(f){return String(f.cxp_id)===String(id);});}
+async function cargarCxpAux(){ // facturas (Bs) + abonos; se llama al abrir Proveedores/CxP
+  if(!DB_READY||!supabase)return;
+  try{
+    // Paginado: son data FISCAL (retenciones) y ABONOS que alimentan el saldo → a >1000 filas
+    // un select('*') las truncaría EN SILENCIO e inflaría el saldo / faltarían retenciones.
+    var rf=await _selectAllG('cxp_facturas',['id']);
+    if(!rf.error&&rf.data)CXP_FACTURAS=rf.data.slice().reverse(); // más recientes primero
+    var rp=await _selectAllG('cxp_pagos',['id']);
+    if(!rp.error&&rp.data)CXP_PAGOS=rp.data;
+  }catch(e){console.log('cargarCxpAux',e&&e.message||e);}
+}
+function switchProvTab(t){
+  ['cxp','lista','ret','hist'].forEach(function(x){var el=g('tab-prov-'+x);var sw=g('sw-prov-'+x);if(el)el.style.display=x===t?'block':'none';if(sw){sw.classList.remove('on');if(x===t)sw.classList.add('on');}});
+  if(t==='cxp')renderCXP();
+  if(t==='ret'){fillFacCxpSelect();renderRetenciones();}
 }
 
+function autoLlenarProv(){ calcCXP(); }
+
+// Deuda en $: solo muestra la equivalencia en Bs de referencia (IVA/retenciones van en el Libro Bs).
 function calcCXP(){
+  var box=g('cxp-calculo'); if(!box)return;
   var monto=parseFloat(gv('cxp-monto'))||0;
-  if(!monto){g('cxp-calculo').style.display='none';return;}
-  var ivaPct=parseFloat(gv('cxp-iva'))||0;
-  var tasaTipo=gv('cxp-tasa');var tasa=getTasa(tasaTipo);if(!tasa){tasaOManual(tasaTipo,function(t){tasa=t;calcCXP();});return;}
-  var contrib=gv('cxp-contrib')||'ordinario';
-  var islrPct=parseFloat(gv('cxp-actividad'))||0;
-  var tipo=gv('cxp-tipo-doc')||'con_factura';
-  var ivaUsd=monto*(ivaPct/100);
-  var totalUsd=monto+ivaUsd;
-  var totalBs=totalUsd*tasa;
-  // Retenciones
-  var retIvaPct=tipo==='sin_soporte'?0:(contrib==='ordinario'?75:contrib==='especial'?100:0);
-  var retIvaUsd=ivaUsd*(retIvaPct/100);
-  var retIslrUsd=monto*(islrPct/100);
-  var netoPagar=totalUsd-retIvaUsd-retIslrUsd;
-  // Mostrar
-  g('cxp-calculo').style.display='block';
+  if(!monto){box.style.display='none';return;}
+  var tasa=getTasa('bcvDolar')||TASAS.bcvDolar||0;
+  box.style.display='block';
   var elBase=g('cxp-c-base');if(elBase)elBase.textContent='$'+monto.toFixed(2);
-  var elIva=g('cxp-c-iva');if(elIva)elIva.textContent='$'+ivaUsd.toFixed(2);
-  var elTot=g('cxp-c-tot');if(elTot)elTot.textContent='$'+totalUsd.toFixed(2);
-  var elBs=g('cxp-c-bs');if(elBs)elBs.textContent='Bs '+totalBs.toFixed(0);
-  var retW=g('cxp-c-ret-w');
-  if(retIvaUsd>0||retIslrUsd>0){
-    if(retW)retW.style.display='block';
-    var elRI=g('cxp-c-ret-iva');if(elRI)elRI.textContent='-$'+retIvaUsd.toFixed(2)+' ('+retIvaPct+'% IVA)';
-    var elRS=g('cxp-c-ret-islr');if(elRS)elRS.textContent='-$'+retIslrUsd.toFixed(2)+' (ISLR '+islrPct+'%)';
-    var netoW=g('cxp-c-neto-w');if(netoW)netoW.style.display='block';
-    var elNeto=g('cxp-c-neto');if(elNeto)elNeto.textContent='$'+netoPagar.toFixed(2);
-  } else {
-    if(retW)retW.style.display='none';
-    var netoW2=g('cxp-c-neto-w');if(netoW2)netoW2.style.display='none';
-  }
+  var elBs=g('cxp-c-bs');if(elBs)elBs.textContent='Bs '+(monto*tasa).toLocaleString('es-VE',{maximumFractionDigits:0});
 }
 
+// Registrar DEUDA (Libro 1, $). total_usd = neto_pagar = base (sin IVA/ret: eso es del Libro Bs).
 function guardarCXP(){
   var pid=gv('cxp-prov');var monto=parseFloat(gv('cxp-monto'))||0;
-  if(!pid||!(monto>0)){alert('Selecciona proveedor e ingresa un monto MAYOR a 0.');return;}
+  if(!pid||!(monto>0)){alert('Seleccioná el proveedor e ingresá la base imponible $ (mayor a 0).');return;}
   var pv=PROVEEDORES.find(function(p){return p.id===pid;});
-  var ivaPct=parseFloat(gv('cxp-iva'))||0;
-  var tasaTipo=gv('cxp-tasa');var tasa=getTasa(tasaTipo);if(!tasa){tasaOManual(tasaTipo,function(t){tasa=t;calcCXP();});return;}
-  var contrib=gv('cxp-contrib')||'ordinario';
-  var islrPct=parseFloat(gv('cxp-actividad'))||0;
-  var tipo=gv('cxp-tipo-doc')||'con_factura';
-  var ivaUsd=monto*(ivaPct/100);
-  var totalUsd=monto+ivaUsd;
-  var retIvaPct=tipo==='sin_soporte'?0:(contrib==='ordinario'?75:contrib==='especial'?100:0);
-  var retIvaUsd=ivaUsd*(retIvaPct/100);
-  var retIslrUsd=monto*(islrPct/100);
-  var netoPagar=totalUsd-retIvaUsd-retIslrUsd;
   var plazo=parseInt(gv('cxp-plazo'))||0;
-  var fechaV=plazo?addDays(gv('cxp-fecha'),plazo):gv('cxp-fecha');
-  var item={
-    id:'CXP'+Date.now(),
-    fecha:gv('cxp-fecha'),
-    provId:pid,prov:pv?pv.nombre:'--',
-    nota:gv('cxp-nota'),factura:gv('cxp-factura'),
-    desc:gv('cxp-desc'),
-    tipo_proveedor:tipo,
-    baseUsd:monto,ivaPct:ivaPct,ivaUsd:ivaUsd,totalUsd:totalUsd,
-    tasaTipo:tasaTipo,tasaVal:tasa,
-    contrib:contrib,
-    ret_iva_pct:retIvaPct,ret_iva_usd:retIvaUsd,
-    islr_pct:islrPct,ret_islr_usd:retIslrUsd,
-    retPct:retIvaPct,retUsd:retIvaUsd,  // compatibilidad
-    netoPagar:netoPagar,neto_pagar:netoPagar,
-    fechaVenc:fechaV,estado:'pendiente',
-    fechaPago:'',refBnc:'',num_comprobante:''
+  var fechaBase=gv('cxp-fecha')||fechaVE();
+  var fechaV=plazo?addDays(fechaBase,plazo):fechaBase;
+  var ordenId=window._cxpOrdenId||null;
+  var id='CXP'+Date.now();
+  var row={
+    id:id, fecha:fechaBase, prov_id:pid, prov_nombre:pv?pv.nombre:'--',
+    nota:gv('cxp-nota')||'', descripcion:gv('cxp-desc')||'',
+    base_usd:monto, iva_pct:0, iva_usd:0, total_usd:monto,   // deuda = base $
+    ret_iva_pct:0, ret_iva_usd:0, ret_islr_pct:0, ret_islr_usd:0,
+    neto_pagar:monto, fecha_venc:fechaV, estado:'pendiente', orden_id:ordenId
   };
-  CXP.push(item);
-  // Guardar en Supabase
   if(DB_READY&&supabase){
-    supabase.from('cxp').insert([{
-      fecha:item.fecha,prov_id:item.provId,prov_nombre:item.prov,
-      nota:item.nota,factura:item.factura,descripcion:item.desc,
-      tipo_proveedor:item.tipo_proveedor,
-      base_usd:item.baseUsd,iva_pct:item.ivaPct,iva_usd:item.ivaUsd,total_usd:item.totalUsd,
-      tasa_tipo:item.tasaTipo,tasa_val:item.tasaVal,
-      ret_iva_pct:item.ret_iva_pct,ret_iva_usd:item.ret_iva_usd,
-      ret_islr_pct:item.islr_pct,ret_islr_usd:item.ret_islr_usd,
-      actividad:gv('cxp-actividad'),
-      neto_pagar:item.netoPagar,fecha_venc:item.fechaVenc,
-      estado:'pendiente'
-    }]).then(function(r){if(r.error)console.log('CxP Supabase error:',r.error.message);});
+    supabase.from('cxp').insert([row]).select().then(function(r){
+      if(r.error){console.log('CxP error:',r.error.message);if(typeof mostrarToast==='function')mostrarToast('No se guardó la deuda: '+r.error.message,'error');return;}
+      var saved=(r.data&&r.data[0])?r.data[0]:row;
+      CXP.push(_normCxpRow(saved));
+      if(typeof renderCxP==='function')renderCxP();
+      renderCXP();
+    });
+  } else {
+    CXP.push(_normCxpRow(row));
   }
-  audit('CXP registrada',pv?pv.nombre+' $'+totalUsd.toFixed(2):'$'+totalUsd.toFixed(2));
-  alert('✅ Cuenta por pagar registrada.');
-  ['cxp-nota','cxp-factura','cxp-desc','cxp-monto'].forEach(function(id){sv(id,'');});
+  window._cxpOrdenId=null;
+  audit('Deuda CxP registrada',(pv?pv.nombre:'')+' $'+monto.toFixed(2));
+  if(typeof mostrarToast==='function')mostrarToast('✅ Deuda registrada: $'+monto.toFixed(2),'exito');
+  ['cxp-nota','cxp-desc','cxp-monto','cxp-orden'].forEach(function(id){sv(id,'');});
   g('cxp-calculo').style.display='none';
   renderCXP();
 }
 
 function renderCXP(){
-  var pend=CXP.filter(function(c){return c.estado==='pendiente';});
-  var venc=pend.filter(function(c){return diasHasta(c.fechaVenc)<=0;});
-  var tasa=TASAS.bcvDolar||cfg.tasa;
-  if(g('cxp-stat-pend'))g('cxp-stat-pend').textContent='$'+pend.reduce(function(s,c){return s+parseFloat(c.netoPagar||c.neto_pagar||0);},0).toFixed(0);
-  var mesActual=new Date().toISOString().slice(0,7);
-  var pagadasMes=CXP.filter(function(c){return _cxpPagada(c)&&((c.fechaPago||c.fecha_pago||'')).startsWith(mesActual);});
-  var totalRetIVA=pagadasMes.reduce(function(s,c){return s+parseFloat(c.ret_iva_usd||c.retUsd||0);},0);
-  var totalRetISLR=pagadasMes.reduce(function(s,c){return s+parseFloat(c.ret_islr_usd||0);},0);
-  if(g('cxp-kpi-iva'))g('cxp-kpi-iva').textContent='$'+totalRetIVA.toFixed(2);
-  if(g('cxp-kpi-islr'))g('cxp-kpi-islr').textContent='$'+totalRetISLR.toFixed(2);
-  if(g('cxp-cnt-pend'))g('cxp-cnt-pend').textContent=pend.length+' facturas';
-  if(g('cxp-stat-venc'))g('cxp-stat-venc').textContent='$'+venc.reduce(function(s,c){return s+c.netoPagar;},0).toFixed(0);
-  if(g('cxp-cnt-venc'))g('cxp-cnt-venc').textContent=venc.length+' facturas';
-  // Proximas
-  var prox=pend.filter(function(c){var dr=diasHasta(c.fechaVenc);return dr>0&&dr<=15;}).sort(function(a,b){return a.fechaVenc.localeCompare(b.fechaVenc);});
+  var filtro=gv('cxp-filtro-estado')||'';
+  var q=(gv('cxp-buscar')||'').toLowerCase();
+  // KPIs: saldo pendiente ($) = deuda - abonos
+  var abiertas=CXP.filter(function(c){return _cxpSaldoUsd(c)>0.005;});
+  var vencidasArr=abiertas.filter(function(c){return diasHasta(c.fecha_venc||c.fechaVenc)<=0;});
+  var totalPend=abiertas.reduce(function(s,c){return s+_cxpSaldoUsd(c);},0);
+  var totalVenc=vencidasArr.reduce(function(s,c){return s+_cxpSaldoUsd(c);},0);
+  if(g('cxp-stat-pend'))g('cxp-stat-pend').textContent='$'+totalPend.toFixed(0);
+  if(g('cxp-cnt-pend'))g('cxp-cnt-pend').textContent=abiertas.length+' deudas';
+  if(g('cxp-stat-venc'))g('cxp-stat-venc').textContent='$'+totalVenc.toFixed(0);
+  if(g('cxp-cnt-venc'))g('cxp-cnt-venc').textContent=vencidasArr.length+' deudas';
+  // Retenciones del mes en Bs (desde las facturas del Libro Bs)
+  _refrescarKpiRetBs();
+  // Próximas a vencer
+  var prox=abiertas.filter(function(c){var dr=diasHasta(c.fecha_venc||c.fechaVenc);return dr>0&&dr<=15;}).sort(function(a,b){return String(a.fecha_venc).localeCompare(String(b.fecha_venc));});
   var proxEl=g('cxp-proximas');
-  if(proxEl)proxEl.innerHTML=prox.length?prox.map(function(c){return'<div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid var(--border)"><div><div style="font-size:11px;font-weight:700">'+c.prov+'</div><div style="font-size:9px;color:var(--text3)">$'+c.netoPagar.toFixed(0)+' — '+c.nota+'</div></div>'+vencBadge(diasHasta(c.fechaVenc))+'</div>';}).join(''):'<div style="color:var(--text3);font-size:12px;padding:8px">Sin facturas proximas</div>';
-  // Tabla
-  var tb=g('tb-cxp');
-  if(tb)tb.innerHTML=CXP.slice().reverse().map(function(c){
-    var dr=c.estado==='pendiente'?diasHasta(c.fechaVenc):99;
-    var bsBoy=c.netoPagar*tasa;
+  if(proxEl)proxEl.innerHTML=prox.length?prox.map(function(c){return'<div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid var(--border)"><div><div style="font-size:11px;font-weight:700">'+(c.prov_nombre||c.prov)+'</div><div style="font-size:9px;color:var(--text3)">Saldo $'+_cxpSaldoUsd(c).toFixed(0)+'</div></div>'+vencBadge(diasHasta(c.fecha_venc||c.fechaVenc))+'</div>';}).join(''):'<div style="color:var(--text3);font-size:12px;padding:8px">Sin deudas próximas</div>';
+  // Tabla deuda
+  var tb=g('tb-cxp'); if(!tb)return;
+  var datos=CXP.slice().reverse().filter(function(c){
+    var saldo=_cxpSaldoUsd(c);
+    if(filtro==='pendiente'&&!(saldo>0.005))return false;
+    if(filtro==='pagado'&&saldo>0.005)return false;
+    if(filtro==='vencida'&&!(saldo>0.005&&diasHasta(c.fecha_venc||c.fechaVenc)<=0))return false;
+    if(q&&!((c.prov_nombre||'').toLowerCase().includes(q)||(c.descripcion||c.desc||'').toLowerCase().includes(q)))return false;
+    return true;
+  });
+  tb.innerHTML=datos.map(function(c){
+    var deuda=parseFloat(c.base_usd||c.baseUsd||0)||0;
+    var abon=_cxpAbonadoUsd(c.id);
+    var saldo=deuda-abon;
+    var pagada=saldo<=0.005;
+    var dr=!pagada?diasHasta(c.fecha_venc||c.fechaVenc):99;
+    var nFac=_cxpFacturasDe(c.id).length;
+    var cid=_mEsc(String(c.id));
     return'<tr>'+
       '<td>'+formatFecha(c.fecha)+'</td>'+
-      '<td style="font-weight:700;font-size:11px">'+c.prov+'</td>'+
-      '<td style="font-family:var(--m);font-size:10px">'+c.nota+'</td>'+
-      '<td style="font-size:10px">'+c.desc.slice(0,25)+'</td>'+
-      '<td style="font-family:var(--m)">$'+c.baseUsd.toFixed(2)+'</td>'+
-      '<td>'+(c.ivaPct?c.ivaPct+'%':'—')+'</td>'+
-      '<td style="font-family:var(--m);font-weight:700">$'+c.totalUsd.toFixed(2)+'</td>'+
-      '<td style="font-family:var(--m);color:var(--red)">'+(c.ret_iva_usd?'-$'+parseFloat(c.ret_iva_usd).toFixed(2):(c.retUsd?'-$'+c.retUsd.toFixed(2):'—'))+'</td>'+
-      '<td style="font-family:var(--m);color:var(--red)">'+(c.ret_islr_usd?'-$'+parseFloat(c.ret_islr_usd).toFixed(2):'—')+'</td>'+
-      '<td style="font-family:var(--m);font-weight:700;color:var(--green)">$'+parseFloat(c.netoPagar||c.neto_pagar||0).toFixed(2)+'</td>'+
-      '<td style="font-family:var(--m);color:var(--yellow)">Bs '+bsBoy.toFixed(0)+'</td>'+
-      '<td>'+vencBadge(dr)+'</td>'+
-      '<td><span class="badge '+(c.estado==='pendiente'?'by':'bg')+'">'+(c.estado==='pendiente'?'PENDIENTE':'PAGADO')+'</span></td>'+
-      '<td>'+(c.num_comprobante?'<button class="btn btn-s btn-xs" onclick="imprimirComprobante(\''+c.id+'\')">🖨️</button>':'')+'</td>'+
+      '<td style="font-weight:700;font-size:11px">'+(c.prov_nombre||c.prov||'')+'</td>'+
+      '<td style="font-family:var(--m);font-size:10px">'+(c.orden_id||c.nota||'—')+'</td>'+
+      '<td style="font-size:10px">'+String(c.descripcion||c.desc||'').slice(0,28)+'</td>'+
+      '<td style="font-family:var(--m)">$'+deuda.toFixed(2)+'</td>'+
+      '<td style="font-family:var(--m);color:var(--teal)">'+(abon?'$'+abon.toFixed(2):'—')+'</td>'+
+      '<td style="font-family:var(--m);font-weight:700;color:'+(pagada?'var(--green)':'var(--lime)')+'">$'+saldo.toFixed(2)+'</td>'+
+      '<td style="text-align:center">'+(nFac?'<span class="badge bt">'+nFac+'</span>':'—')+'</td>'+
+      '<td>'+(pagada?'—':vencBadge(dr))+'</td>'+
+      '<td><span class="badge '+(pagada?'bg':(saldo<deuda?'bt':'by'))+'">'+(pagada?'PAGADA':(abon>0?'ABONADA':'PENDIENTE'))+'</span></td>'+
       '<td style="white-space:nowrap">'+
-        (c.estado==='pendiente'?'<button class="btn btn-g btn-xs" onclick="pagarCXP(\''+c.id+'\')">Pagar</button>':'')+'</td>'+
+        (!pagada?'<button class="btn btn-g btn-xs" onclick="abrirAbonoCxp(\''+cid+'\')">💵 Abonar</button> ':'')+
+        '<button class="btn btn-s btn-xs" onclick="facturarDeuda(\''+cid+'\')">🧾 Facturar</button>'+
+      '</td>'+
     '</tr>';
-  }).join('')||'<tr><td colspan="13" style="text-align:center;color:var(--text3);padding:20px">Sin cuentas por pagar</td></tr>';
+  }).join('')||'<tr><td colspan="11" style="text-align:center;color:var(--text3);padding:20px">Sin deudas por pagar</td></tr>';
+}
+// KPIs de retención del mes en Bs (Libro 2)
+function _refrescarKpiRetBs(){
+  var mes=new Date().toISOString().slice(0,7);
+  var facMes=CXP_FACTURAS.filter(function(f){return String(f.fecha||'').slice(0,7)===mes;});
+  var rIva=facMes.reduce(function(s,f){return s+(parseFloat(f.ret_iva_bs)||0);},0);
+  var rIslr=facMes.reduce(function(s,f){return s+(parseFloat(f.ret_islr_bs)||0);},0);
+  if(g('cxp-kpi-iva'))g('cxp-kpi-iva').textContent='Bs '+rIva.toLocaleString('es-VE',{maximumFractionDigits:0});
+  if(g('cxp-kpi-islr'))g('cxp-kpi-islr').textContent='Bs '+rIslr.toLocaleString('es-VE',{maximumFractionDigits:0});
+}
+// Ir a cargar una factura Bs para una deuda concreta
+function facturarDeuda(id){
+  switchProvTab('ret');
+  setTimeout(function(){ sv('fac-cxp',String(id)); if(typeof facPrefill==='function')facPrefill(); var el=g('fac-cxp'); if(el&&el.scrollIntoView)el.scrollIntoView({behavior:'smooth',block:'center'}); },60);
+}
+
+// ══════════ ABONOS (pago parcial, doble moneda Bs + $) ══════════
+function abrirAbonoCxp(id){
+  var c=CXP.find(function(x){return String(x.id)===String(id);}); if(!c){alert('Deuda no encontrada.');return;}
+  var saldo=_cxpSaldoUsd(c);
+  sv('abono-cxp-id',String(c.id));
+  sv('abono-fecha',fechaVE());
+  sv('abono-tasa',String(getTasa('bcvDolar')||TASAS.bcvDolar||''));
+  sv('abono-bs','');sv('abono-ref','');sv('abono-obs','');
+  var info=g('abono-info'); if(info)info.innerHTML='<b>'+(c.prov_nombre||c.prov||'')+'</b><br>Deuda $'+parseFloat(c.base_usd||0).toFixed(2)+' · Abonado $'+_cxpAbonadoUsd(c.id).toFixed(2)+' · <b style="color:var(--lime)">Saldo $'+saldo.toFixed(2)+'</b>';
+  calcAbonoCxp();
+  var m=g('abono-modal'); if(m)m.style.display='flex';
+}
+function cerrarAbonoCxp(){var m=g('abono-modal'); if(m)m.style.display='none';}
+function calcAbonoCxp(){
+  var id=gv('abono-cxp-id'); var c=CXP.find(function(x){return String(x.id)===String(id);});
+  var bs=parseFloat(gv('abono-bs'))||0; var tasa=parseFloat(gv('abono-tasa'))||0;
+  var usd=tasa>0?bs/tasa:0;
+  var saldo=c?_cxpSaldoUsd(c):0;
+  var el=g('abono-usd'); if(el)el.textContent='$'+usd.toFixed(2);
+  var el2=g('abono-saldo-post'); if(el2)el2.textContent='$'+(saldo-usd).toFixed(2);
+}
+function guardarAbonoCxp(){
+  var id=gv('abono-cxp-id'); var c=CXP.find(function(x){return String(x.id)===String(id);}); if(!c)return;
+  var bs=parseFloat(gv('abono-bs'))||0; var tasa=parseFloat(gv('abono-tasa'))||0;
+  if(!(bs>0)){alert('Ingresá el monto en Bs.');return;}
+  if(!(tasa>0)){alert('Ingresá la tasa del día.');return;}
+  var usd=bs/tasa;
+  var row={cxp_id:String(c.id),fecha:gv('abono-fecha')||fechaVE(),monto_bs:bs,tasa_val:tasa,monto_usd:parseFloat(usd.toFixed(2)),metodo:gv('abono-metodo')||'',ref:gv('abono-ref')||'',obs:gv('abono-obs')||''};
+  var finish=function(saved){
+    CXP_PAGOS.push(saved||row);
+    var saldo=_cxpSaldoUsd(c);
+    if(saldo<=0.005){ // deuda saldada → cerrar (guarda tasa del último pago para el cierre en Bs)
+      c.estado='pagada'; c.fecha_pago=row.fecha; c.fechaPago=row.fecha; c.tasa_val=tasa; c.tasaVal=tasa;
+      if(DB_READY&&supabase)supabase.from('cxp').update({estado:'pagada',fecha_pago:row.fecha,tasa_val:tasa}).eq('id',c.id).then(function(r){if(r.error)console.log('cxp cierre',r.error.message);});
+    }
+    audit('Abono CxP',(c.prov_nombre||'')+' Bs'+bs.toFixed(0)+' ($'+usd.toFixed(2)+')');
+    if(typeof mostrarToast==='function')mostrarToast('💵 Abono registrado: Bs '+bs.toLocaleString('es-VE',{maximumFractionDigits:0})+' ($'+usd.toFixed(2)+')','exito');
+    cerrarAbonoCxp(); renderCXP(); if(typeof renderCxP==='function')renderCxP();
+  };
+  if(DB_READY&&supabase){
+    supabase.from('cxp_pagos').insert([row]).select().then(function(r){
+      if(r.error){alert('No se guardó el abono: '+r.error.message);return;}
+      finish((r.data&&r.data[0])?r.data[0]:row);
+    });
+  } else finish(row);
+}
+
+// ══════════ FACTURAS + RETENCIONES (Bs) — Libro 2 ══════════
+function fillFacCxpSelect(){
+  var sel=g('fac-cxp'); if(!sel)return; var prev=sel.value;
+  sel.innerHTML='<option value="">-- Seleccionar deuda --</option>'+CXP.slice().reverse().map(function(c){
+    var saldo=_cxpSaldoUsd(c);
+    return'<option value="'+_mEsc(String(c.id))+'">'+_mEsc((c.prov_nombre||c.prov||'')+' · '+String(c.descripcion||c.desc||'').slice(0,24)+' · $'+parseFloat(c.base_usd||0).toFixed(0)+(saldo>0.005?'':' (pagada)'))+'</option>';
+  }).join('');
+  if(prev)sel.value=prev;
+}
+function facConceptoChg(){ var ap=g('fac-islr-aplica'); if(ap)ap.value=(gv('fac-concepto')==='servicios')?'1':'0'; }
+function facPrefill(){
+  var id=gv('fac-cxp'); var c=CXP.find(function(x){return String(x.id)===String(id);}); if(!c)return;
+  if(!gv('fac-fecha'))sv('fac-fecha',fechaVE());
+  if(!gv('fac-tasa'))sv('fac-tasa',String(getTasa('bcvDolar')||TASAS.bcvDolar||''));
+  var pv=PROVEEDORES.find(function(p){return String(p.id)===String(c.provId||c.prov_id);});
+  if(pv){ if(pv.tipo_contrib)sv('fac-contrib',pv.tipo_contrib); var ip=pv.islr_pct||pv.islrPct; if(ip)sv('fac-islr-pct',String(ip)); }
+  facConceptoChg(); calcFac();
+}
+function _retIvaPctDe(contrib){ return contrib==='especial'?100:contrib==='no_contrib'?0:75; }
+function _calcFacVals(){
+  var base=parseFloat(gv('fac-base'))||0;
+  var ivaPct=parseFloat(gv('fac-iva'))||0;
+  var iva=base*ivaPct/100;
+  var contrib=gv('fac-contrib')||'ordinario';
+  var retIvaPct=_retIvaPctDe(contrib);
+  var retIva=iva*retIvaPct/100;
+  var islrAplica=gv('fac-islr-aplica')==='1';
+  var islrPct=parseFloat(gv('fac-islr-pct'))||0;
+  var sustr=parseFloat(gv('fac-sustraendo'))||0;
+  var retIslr=islrAplica?Math.max(0,base*islrPct/100-sustr):0;
+  var total=base+iva;
+  var neto=total-retIva-retIslr;
+  var tasa=parseFloat(gv('fac-tasa'))||0;
+  return{base:base,ivaPct:ivaPct,iva:iva,contrib:contrib,retIvaPct:retIvaPct,retIva:retIva,islrAplica:islrAplica,islrPct:islrPct,sustr:sustr,retIslr:retIslr,total:total,neto:neto,tasa:tasa};
+}
+function calcFac(){
+  var box=g('fac-calc'); if(!box)return;
+  var v=_calcFacVals();
+  if(!(v.base>0)){box.style.display='none';return;}
+  box.style.display='block';
+  var f=function(n){return 'Bs '+n.toLocaleString('es-VE',{minimumFractionDigits:2,maximumFractionDigits:2});};
+  if(g('fc-base'))g('fc-base').textContent=f(v.base);
+  if(g('fc-iva'))g('fc-iva').textContent=f(v.iva);
+  if(g('fc-total'))g('fc-total').textContent=f(v.total);
+  if(g('fc-usd'))g('fc-usd').textContent='$'+(v.tasa>0?(v.total/v.tasa):0).toFixed(2);
+  if(g('fc-retiva'))g('fc-retiva').textContent='-'+f(v.retIva);
+  if(g('fc-retislr'))g('fc-retislr').textContent='-'+f(v.retIslr);
+  if(g('fc-neto'))g('fc-neto').textContent=f(v.neto);
+}
+function guardarFactura(){
+  var id=gv('fac-cxp'); var c=CXP.find(function(x){return String(x.id)===String(id);});
+  if(!c){alert('Seleccioná la deuda / orden a la que pertenece la factura.');return;}
+  var v=_calcFacVals();
+  if(!(v.base>0)){alert('Ingresá la base imponible en Bs.');return;}
+  if(!gv('fac-num')){alert('Ingresá el N° de factura.');return;}
+  var row={
+    cxp_id:String(c.id), orden_id:c.orden_id||null, prov_id:c.provId||c.prov_id||null, prov_nombre:c.prov_nombre||c.prov||'',
+    fecha:gv('fac-fecha')||fechaVE(), nro_factura:gv('fac-num')||'', num_control:gv('fac-control')||'',
+    concepto:gv('fac-concepto')||'servicios',
+    base_bs:v.base, iva_pct:v.ivaPct, iva_bs:parseFloat(v.iva.toFixed(2)),
+    tipo_contrib:v.contrib, ret_iva_pct:v.retIvaPct, ret_iva_bs:parseFloat(v.retIva.toFixed(2)),
+    islr_aplica:v.islrAplica, ret_islr_pct:v.islrPct, sustraendo_bs:v.sustr, ret_islr_bs:parseFloat(v.retIslr.toFixed(2)),
+    total_bs:parseFloat(v.total.toFixed(2)), neto_bs:parseFloat(v.neto.toFixed(2)), tasa_val:v.tasa||null
+  };
+  var finish=function(saved){
+    CXP_FACTURAS.unshift(saved||row);
+    audit('Factura Bs cargada',(row.prov_nombre)+' '+row.nro_factura+' Bs'+v.base.toFixed(0));
+    if(typeof mostrarToast==='function')mostrarToast('🧾 Factura guardada · Ret. IVA Bs '+v.retIva.toFixed(0)+(v.retIslr?' · Ret. ISLR Bs '+v.retIslr.toFixed(0):''),'exito');
+    ['fac-num','fac-control','fac-base','fac-sustraendo'].forEach(function(x){sv(x,'');});
+    sv('fac-sustraendo','0'); g('fac-calc').style.display='none';
+    renderRetenciones(); renderCXP();
+  };
+  if(DB_READY&&supabase){
+    supabase.from('cxp_facturas').insert([row]).select().then(function(r){
+      if(r.error){alert('No se guardó la factura: '+r.error.message);return;}
+      finish((r.data&&r.data[0])?r.data[0]:row);
+    });
+  } else finish(row);
+}
+function renderRetenciones(){
+  if(g('ret-mes')&&!gv('ret-mes'))sv('ret-mes',new Date().toISOString().slice(0,7));
+  var mes=gv('ret-mes')||new Date().toISOString().slice(0,7);
+  var facs=CXP_FACTURAS.filter(function(f){return String(f.fecha||'').slice(0,7)===mes;});
+  _refrescarKpiRetBs();
+  var sumBase=facs.reduce(function(s,f){return s+(parseFloat(f.base_bs)||0);},0);
+  var sumIva=facs.reduce(function(s,f){return s+(parseFloat(f.iva_bs)||0);},0);
+  var sumRIva=facs.reduce(function(s,f){return s+(parseFloat(f.ret_iva_bs)||0);},0);
+  var sumRIslr=facs.reduce(function(s,f){return s+(parseFloat(f.ret_islr_bs)||0);},0);
+  var sumNeto=facs.reduce(function(s,f){return s+(parseFloat(f.neto_bs)||0);},0);
+  var fBs=function(n){return 'Bs '+n.toLocaleString('es-VE',{maximumFractionDigits:0});};
+  var res=g('ret-resumen');
+  if(res)res.innerHTML='<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:12px">'+
+    '<div>Facturas: <b>'+facs.length+'</b></div>'+
+    '<div>Base: <b style="font-family:var(--m)">'+fBs(sumBase)+'</b></div>'+
+    '<div>IVA: <b style="font-family:var(--m)">'+fBs(sumIva)+'</b></div>'+
+    '<div>Neto a pagar: <b style="font-family:var(--m);color:var(--green)">'+fBs(sumNeto)+'</b></div>'+
+    '<div>Ret. IVA: <b style="font-family:var(--m);color:var(--blue)">'+fBs(sumRIva)+'</b></div>'+
+    '<div>Ret. ISLR: <b style="font-family:var(--m);color:var(--teal)">'+fBs(sumRIslr)+'</b></div>'+
+    '</div>';
+  var tb=g('tb-ret'); if(!tb)return;
+  tb.innerHTML=facs.map(function(f){
+    return'<tr>'+
+      '<td>'+formatFecha(f.fecha)+'</td>'+
+      '<td style="font-size:11px;font-weight:700">'+(f.prov_nombre||'')+'</td>'+
+      '<td style="font-family:var(--m);font-size:10px">'+(f.nro_factura||'')+'</td>'+
+      '<td style="font-size:10px">'+(f.concepto==='bienes'?'Bienes':'Servicios')+'</td>'+
+      '<td style="font-family:var(--m)">'+(parseFloat(f.base_bs)||0).toLocaleString('es-VE',{maximumFractionDigits:0})+'</td>'+
+      '<td style="font-family:var(--m)">'+(parseFloat(f.iva_bs)||0).toLocaleString('es-VE',{maximumFractionDigits:0})+'</td>'+
+      '<td>'+(parseFloat(f.ret_iva_pct)||0)+'%</td>'+
+      '<td style="font-family:var(--m);color:var(--red)">'+(parseFloat(f.ret_iva_bs)||0).toLocaleString('es-VE',{maximumFractionDigits:0})+'</td>'+
+      '<td>'+(f.islr_aplica?((parseFloat(f.ret_islr_pct)||0)+'%'):'—')+'</td>'+
+      '<td style="font-family:var(--m);color:var(--red)">'+(parseFloat(f.ret_islr_bs)||0).toLocaleString('es-VE',{maximumFractionDigits:0})+'</td>'+
+      '<td style="font-family:var(--m);font-weight:700;color:var(--green)">'+(parseFloat(f.neto_bs)||0).toLocaleString('es-VE',{maximumFractionDigits:0})+'</td>'+
+      '<td><button class="btn btn-xs" style="background:#fee2e2;color:#991b1b" onclick="borrarFactura(\''+f.id+'\')" title="Borrar">🗑️</button></td>'+
+    '</tr>';
+  }).join('')||'<tr><td colspan="12" style="text-align:center;color:var(--text3);padding:16px">Sin facturas cargadas en '+mes+'</td></tr>';
+}
+function borrarFactura(id){
+  var f=CXP_FACTURAS.find(function(x){return String(x.id)===String(id);}); if(!f)return;
+  if(!confirm('¿Borrar la factura '+(f.nro_factura||'')+' y sus retenciones del libro?'))return;
+  var done=function(){ CXP_FACTURAS=CXP_FACTURAS.filter(function(x){return String(x.id)!==String(id);}); renderRetenciones(); renderCXP(); if(typeof mostrarToast==='function')mostrarToast('🗑️ Factura borrada','exito'); };
+  if(DB_READY&&supabase)supabase.from('cxp_facturas').delete().eq('id',id).then(function(r){if(r.error){alert('No se pudo borrar: '+r.error.message);return;}done();});
+  else done();
+}
+function exportRetenciones(){
+  var mes=gv('ret-mes')||new Date().toISOString().slice(0,7);
+  var facs=CXP_FACTURAS.filter(function(f){return String(f.fecha||'').slice(0,7)===mes;});
+  if(!facs.length){alert('No hay facturas en '+mes);return;}
+  var cols=['Fecha','Proveedor','N Factura','N Control','Concepto','Base Bs','IVA %','IVA Bs','Ret IVA %','Ret IVA Bs','ISLR %','Ret ISLR Bs','Total Bs','Neto Bs','Tasa'];
+  var esc=function(v){v=String(v==null?'':v);return /[",;\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v;};
+  var rows=facs.map(function(f){return [f.fecha,f.prov_nombre,f.nro_factura,f.num_control,f.concepto,f.base_bs,f.iva_pct,f.iva_bs,f.ret_iva_pct,f.ret_iva_bs,(f.islr_aplica?f.ret_islr_pct:0),f.ret_islr_bs,f.total_bs,f.neto_bs,f.tasa_val].map(esc).join(';');});
+  var csv='﻿'+cols.join(';')+'\n'+rows.join('\n');
+  var blob=new Blob([csv],{type:'text/csv;charset=utf-8;'});
+  var a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='retenciones_'+mes+'.csv'; a.click();
+  setTimeout(function(){URL.revokeObjectURL(a.href);},1500);
 }
 
 function pagarCXP(id){
@@ -7738,34 +7915,8 @@ function editarProv(id){var pv=PROVEEDORES.find(function(p){return p.id===id;});
 
 function abrirSENIAT(){var rif=gv('pv-rif');window.open('https://declaraciones.seniat.gob.ve/portal/page/portal/MANEJADOR_CONTENIDO_SENIAT/MENU_SENIAT/01MENU_SENIAT/01040INFORMACION_CONTRIBUYENTE?p_rif='+(rif||''),'_blank');}
 
-// Retenciones
-function calcRet(){
-  var prov=PROVEEDORES.find(function(p){return p.id===gv('ret-prov');});
-  var base=parseFloat(gv('ret-base'))||0;var tasa=parseFloat(gv('ret-tasa'))||getTasa('bcvDolar');
-  if(!base){g('ret-calc').style.display='none';return;}
-  var iva=base*0.16;var retPct=prov&&prov.contrib==='si'?prov.retPct:75;
-  var ret=iva*(retPct/100);var neto=base+iva-ret;
-  g('rc-iva').textContent='$'+iva.toFixed(2);g('rc-ret').textContent='$'+ret.toFixed(2);
-  g('rc-neto').textContent='$'+neto.toFixed(2);g('rc-ret-bs').textContent='Bs '+(ret*tasa).toFixed(0);
-  g('ret-calc').style.display='block';
-}
-
-// Retenciones a proveedores: lee los campos REALES que escribe guardarCxP (ret_iva_usd/ret_islr_usd/
-// base_usd/iva_usd/prov_nombre, estado 'pagada'). Antes leía retUsd/retPct/baseUsd (camelCase que NADIE
-// escribe) → la pestaña siempre decía "Sin retenciones / $0" aunque hubiera IVA retenido. (fuente única)
-function _retCxp(c){ return (parseFloat(c&&c.ret_iva_usd)||0)+(parseFloat(c&&c.ret_islr_usd)||0); }
-function renderRetenciones(){
-  var rets=CXP.filter(function(c){return _retCxp(c)>0;});
-  var tb=g('tb-ret');
-  if(tb)tb.innerHTML=rets.map(function(c){
-    var ret=_retCxp(c), base=parseFloat(c.base_usd)||0, iva=parseFloat(c.iva_usd)||0;
-    var pct=base>0?Math.round(ret/base*100):0;
-    var pagada=(c.estado==='pagada'||c.estado==='pagado');
-    return '<tr><td>'+formatFecha(c.fecha)+'</td><td>'+(c.prov_nombre||c.prov||'')+'</td><td>'+(c.factura||'')+'</td><td>$'+base.toFixed(2)+'</td><td>$'+iva.toFixed(2)+'</td><td>'+pct+'%</td><td>$'+ret.toFixed(2)+'</td><td>Bs '+(ret*(TASAS.bcvDolar||cfg.tasa||0)).toFixed(0)+'</td><td><span class="badge '+(pagada?'bg':'by')+'">'+(pagada?'Pagado':'Pendiente')+'</span></td></tr>';
-  }).join('')||'<tr><td colspan="9" style="text-align:center;color:var(--text3);padding:20px">Sin retenciones registradas</td></tr>';
-  var res=g('ret-resumen');
-  if(res){var totalRet=rets.reduce(function(s,c){return s+_retCxp(c);},0);res.innerHTML='<div style="font-size:12px;color:var(--text2)">Total retenciones generadas: <b style="color:var(--red)">$'+totalRet.toFixed(2)+'</b></div>';}
-}
+// (Retenciones ahora en el Libro 2 Bs: ver renderRetenciones / guardarFactura más arriba.
+//  Se eliminaron el calcRet y renderRetenciones viejos que calculaban en $.)
 
 // ═══════════════════════════════════════════════════
 // DOCUMENTOS
@@ -11598,6 +11749,7 @@ function _normCxpRow(x){
     retPct:parseFloat(x.ret_pct)||0,retUsd:parseFloat(x.ret_usd)||0,
     netoPagar:neto,neto_pagar:neto,
     fechaVenc:x.fecha_venc||'',fecha_venc:x.fecha_venc||'',
+    orden_id:x.orden_id||null,
     estado:x.estado||'pendiente', fechaPago:x.fecha_pago||'',fecha_pago:x.fecha_pago||'',refBnc:x.ref_bnc||'',ref_bnc:x.ref_bnc||''
   };
 }
@@ -11621,86 +11773,68 @@ function renderCxP(){
   var hoy        = fechaVE();
 
   var datos = CXP.filter(function(c){
-    if(filtEstado==='vencida'){
-      if(c.estado==='pagada')return false;
-      if((c.fecha_venc||'')<=hoy&&c.estado==='pendiente')return true;
-      return false;
-    }
-    if(filtEstado&&c.estado!==filtEstado)return false;
-    if(filtTipo&&(c.tipo_proveedor||'con_factura')!==filtTipo)return false;
+    var saldo=_cxpSaldoUsd(c); var abierta=saldo>0.005;
+    if(filtEstado==='vencida'){ return abierta&&(c.fecha_venc||'')<=hoy; }
+    if(filtEstado==='pendiente'&&!abierta)return false;
+    if(filtEstado==='pagada'&&abierta)return false;
     if(q&&!(c.prov_nombre||'').toLowerCase().includes(q)&&!(c.descripcion||'').toLowerCase().includes(q))return false;
     return true;
   });
 
-  // KPIs
-  var pendientes = CXP.filter(function(c){return c.estado==='pendiente';});
-  var vencidas   = CXP.filter(function(c){return c.estado==='pendiente'&&(c.fecha_venc||'')<=hoy;});
-  var mesActual  = new Date().toISOString().slice(0,7);
-  var pagadasMes = CXP.filter(function(c){return c.estado==='pagada'&&(c.fecha_pago||'').startsWith(mesActual);});
-  var totalPend  = pendientes.reduce(function(s,c){return s+parseFloat(c.neto_pagar||0);},0);
-  var totalIVA   = pagadasMes.reduce(function(s,c){return s+parseFloat(c.ret_iva_usd||0);},0);
-  var totalISLR  = pagadasMes.reduce(function(s,c){return s+parseFloat(c.ret_islr_usd||0);},0);
-
+  // KPIs: saldo pendiente ($) y retenciones del mes (Bs, Libro 2)
+  var abiertas   = CXP.filter(function(c){return _cxpSaldoUsd(c)>0.005;});
+  var vencidas   = abiertas.filter(function(c){return (c.fecha_venc||'')<=hoy;});
+  var totalPend  = abiertas.reduce(function(s,c){return s+_cxpSaldoUsd(c);},0);
   sv2('cxp-kpi-pendiente','$'+totalPend.toFixed(2));
   sv2('cxp-kpi-vencidas',vencidas.length);
-  sv2('cxp-kpi-iva','$'+totalIVA.toFixed(2));
-  sv2('cxp-kpi-islr','$'+totalISLR.toFixed(2));
+  _refrescarKpiRetBs();
 
   if(!datos.length){
-    lista.innerHTML='<div style="color:var(--text3);padding:20px;text-align:center">Sin cuentas por pagar</div>';
+    lista.innerHTML='<div style="color:var(--text3);padding:20px;text-align:center">Sin deudas por pagar</div>';
     return;
   }
 
   var html='';
   datos.forEach(function(c){
-    var vencida = c.estado==='pendiente'&&(c.fecha_venc||'')<=hoy;
-    var borde   = c.estado==='pagada'?'var(--green)':vencida?'var(--red)':'var(--blue)';
-    var badge   = c.estado==='pagada'?
+    var deuda=parseFloat(c.base_usd||0)||0;
+    var abon=_cxpAbonadoUsd(c.id);
+    var saldo=deuda-abon;
+    var pagada=saldo<=0.005;
+    var vencida = !pagada&&(c.fecha_venc||'')<=hoy;
+    var borde   = pagada?'var(--green)':vencida?'var(--red)':'var(--blue)';
+    var badge   = pagada?
       '<span style="font-size:10px;background:rgba(125,201,65,.15);color:var(--green);border:1px solid var(--green);border-radius:10px;padding:2px 8px">✅ Pagada</span>':
       vencida?
       '<span style="font-size:10px;background:rgba(226,75,74,.15);color:var(--red);border:1px solid var(--red);border-radius:10px;padding:2px 8px">⚠️ Vencida</span>':
-      '<span style="font-size:10px;background:rgba(77,148,255,.15);color:var(--blue);border:1px solid var(--blue);border-radius:10px;padding:2px 8px">⏳ Pendiente</span>';
-
-    var tipoLabel = c.sin_soporte?'Sin soporte fiscal':c.tipo_proveedor==='nota_debito'?'Nota de débito':'Con factura';
-    var docNum = c.factura||c.nota||'—';
+      (abon>0?'<span style="font-size:10px;background:rgba(0,180,180,.15);color:var(--teal);border:1px solid var(--teal);border-radius:10px;padding:2px 8px">◐ Abonada</span>':
+      '<span style="font-size:10px;background:rgba(77,148,255,.15);color:var(--blue);border:1px solid var(--blue);border-radius:10px;padding:2px 8px">⏳ Pendiente</span>');
+    var nFac=_cxpFacturasDe(c.id).length;
+    var cid=_mEsc(String(c.id));
 
     html+='<div class="card" style="border-left:4px solid '+borde+';margin-bottom:10px">';
     html+='<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">';
     html+='<div>';
     html+='<div style="font-weight:700;font-size:14px">'+(c.prov_nombre||'Sin proveedor')+'</div>';
     html+='<div style="font-size:11px;color:var(--text3)">'+(c.descripcion||'')+'</div>';
-    html+='<div style="font-size:10px;color:var(--text3);margin-top:2px">'+tipoLabel+' · Doc: '+docNum+'</div>';
+    html+='<div style="font-size:10px;color:var(--text3);margin-top:2px">'+(c.orden_id?('Orden: '+c.orden_id+' · '):'')+nFac+' factura(s)</div>';
     html+='</div>';
     html+='<div style="text-align:right">';
     html+=badge;
-    html+='<div style="font-size:18px;font-weight:900;color:var(--lime);margin-top:4px">$'+parseFloat(c.neto_pagar||0).toFixed(2)+'</div>';
-    html+='<div style="font-size:10px;color:var(--text3)">Neto a pagar</div>';
+    html+='<div style="font-size:18px;font-weight:900;color:'+(pagada?'var(--green)':'var(--lime)')+';margin-top:4px">$'+saldo.toFixed(2)+'</div>';
+    html+='<div style="font-size:10px;color:var(--text3)">Saldo</div>';
     html+='</div></div>';
 
-    html+='<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:4px;font-size:11px;margin-bottom:10px">';
-    html+='<div><span style="color:var(--text3)">Base:</span> $'+parseFloat(c.base_usd||0).toFixed(2)+'</div>';
-    html+='<div><span style="color:var(--text3)">IVA:</span> $'+parseFloat(c.iva_usd||0).toFixed(2)+'</div>';
-    html+='<div><span style="color:var(--text3)">Ret.IVA:</span> <span style="color:var(--red)">-$'+parseFloat(c.ret_iva_usd||0).toFixed(2)+'</span></div>';
-    html+='<div><span style="color:var(--text3)">Ret.ISLR:</span> <span style="color:var(--red)">-$'+parseFloat(c.ret_islr_usd||0).toFixed(2)+'</span></div>';
+    html+='<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:4px;font-size:11px;margin-bottom:10px">';
+    html+='<div><span style="color:var(--text3)">Deuda:</span> $'+deuda.toFixed(2)+'</div>';
+    html+='<div><span style="color:var(--text3)">Abonado:</span> <span style="color:var(--teal)">$'+abon.toFixed(2)+'</span></div>';
+    html+='<div><span style="color:var(--text3)">Vence:</span> '+(c.fecha_venc||'—')+'</div>';
     html+='</div>';
 
     html+='<div style="display:flex;gap:6px;flex-wrap:wrap">';
-    if(c.estado!=='pagada'){
-      html+='<button class="btn btn-g btn-s" data-cid="'+c.id+'" onclick="abrirPagarCxP(this.dataset.cid)" style="font-size:11px;padding:4px 12px">💳 Pagar</button>';
+    if(!pagada){
+      html+='<button class="btn btn-g btn-s" onclick="abrirAbonoCxp(\''+cid+'\')" style="font-size:11px;padding:4px 12px">💵 Abonar</button>';
     }
-    if(c.num_comprobante){
-      html+='<button class="btn btn-s" data-cid="'+c.id+'" onclick="imprimirComprobante(this.dataset.cid)" style="font-size:11px;padding:4px 12px">🖨️ Comprobante</button>';
-    }
-    if(c.estado==='pagada'){
-      // Cierre congelado: Bs = neto USD × tasa BCV del día de pago (guardada en tasa_val al pagar).
-      var _tc=parseFloat(c.tasa_val)||0;
-      var _bsCerr=_tc>0
-        ? ' · <b style="color:var(--yellow)">Bs '+(parseFloat(c.neto_pagar||0)*_tc).toLocaleString('es-VE',{maximumFractionDigits:0})+'</b> <span style="color:var(--text3)">@'+_tc.toFixed(2)+'</span>'
-        : ' · <span style="color:var(--amber)">⚠️ sin tasa de cierre</span>';
-      html+='<span style="font-size:10px;color:var(--text3);padding:4px">Pagada: '+(c.fecha_pago||'')+(c.ref_bnc?' · Ref: '+c.ref_bnc:'')+_bsCerr+'</span>';
-    } else {
-      html+='<span style="font-size:10px;color:var(--text3);padding:4px">Vence: '+(c.fecha_venc||'Sin fecha')+'</span>';
-    }
+    html+='<button class="btn btn-s" onclick="facturarDeuda(\''+cid+'\')" style="font-size:11px;padding:4px 12px">🧾 Facturar</button>';
     html+='</div></div>';
   });
   lista.innerHTML=html;
