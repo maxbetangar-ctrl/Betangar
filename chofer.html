@@ -194,9 +194,44 @@ body{background:#0f1923;color:#fff;font-family:-apple-system,BlinkMacSystemFont,
     <div class="tab active" id="tab-viajes-btn" onclick="switchTab('viajes')">🚛 Viajes</div>
     <div class="tab" id="tab-checklist-btn" onclick="switchTab('checklist')">📋 Checklist</div>
     <div class="tab" id="tab-entrega-btn" onclick="switchTab('entrega')">📦 Entrega</div>
+    <div class="tab" id="tab-surtir-btn" onclick="switchTab('surtir')">⛽ Surtir</div>
   </div>
 
   <!-- ══════ TAB VIAJES ══════ -->
+  <!-- ══════ TAB SURTIR (combustible por surtida) ══════ -->
+  <div class="tab-page" id="tab-surtir">
+    <div class="content">
+      <div class="card" style="background:#12233b;border:1px solid #24405f;border-radius:12px;padding:16px;margin-bottom:10px">
+        <div style="font-weight:800;font-size:16px;color:#fff;margin-bottom:2px">⛽ Surtir combustible</div>
+        <div style="font-size:12px;color:#9fb3c8;margin-bottom:14px">Registrá cada surtida de tu unidad: de qué tanque, litros, foto del surtidor/recibo y ubicación.</div>
+
+        <div style="font-size:13px;color:#cfe0f0;font-weight:700;margin-bottom:6px">¿De qué tanque surtiste?</div>
+        <div style="display:flex;gap:8px;margin-bottom:14px">
+          <button type="button" id="sur-tanque-galpon_1" onclick="surSetTanque('galpon_1')" style="flex:1;background:#0e2038;border:2px solid #7dc941;border-radius:10px;padding:10px;color:#fff;font-weight:700;cursor:pointer;font-size:13px">🛢️ Galpón 1</button>
+          <button type="button" id="sur-tanque-galpon_2" onclick="surSetTanque('galpon_2')" style="flex:1;background:#0e2038;border:2px solid #24405f;border-radius:10px;padding:10px;color:#fff;font-weight:700;cursor:pointer;font-size:13px">🛢️ Galpón 2</button>
+        </div>
+
+        <div style="font-size:13px;color:#cfe0f0;font-weight:700;margin-bottom:6px">Litros surtidos</div>
+        <input type="number" inputmode="decimal" id="sur-litros" placeholder="0" oninput="surCalc()" style="width:100%;box-sizing:border-box;background:#0e2038;border:1px solid #24405f;border-radius:10px;padding:12px;color:#fff;font-size:18px;font-family:monospace">
+        <div id="sur-costo" style="font-size:12px;color:#7dc941;margin:6px 0 14px">≈ $0.00</div>
+
+        <div style="font-size:13px;color:#cfe0f0;font-weight:700;margin-bottom:6px">Foto del surtidor / recibo</div>
+        <input type="file" id="sur-foto" accept="image/*" capture="environment" onchange="surPreviewFoto(this)" style="display:none">
+        <button type="button" onclick="document.getElementById('sur-foto').click()" style="width:100%;background:#1e3a5f;border:1px solid #4d94ff;border-radius:10px;padding:12px;color:#cfe0f0;font-weight:700;cursor:pointer;margin-bottom:8px">📷 Tomar foto</button>
+        <img id="sur-foto-prev" style="display:none;max-width:100%;border-radius:8px;margin-bottom:10px">
+
+        <button type="button" onclick="surTomarGPS()" style="width:100%;background:#1e3a5f;border:1px solid #4d94ff;border-radius:10px;padding:12px;color:#cfe0f0;font-weight:700;cursor:pointer">📍 Ubicar</button>
+        <div id="sur-gps-txt" style="font-size:12px;color:#9fb3c8;margin:8px 0 4px"></div>
+
+        <button class="btn-guardar" id="sur-btn" onclick="surGuardar()" style="margin-top:8px">✅ Registrar surtida</button>
+      </div>
+      <div class="card" style="background:#12233b;border:1px solid #24405f;border-radius:12px;padding:14px">
+        <div style="font-weight:700;color:#fff;margin-bottom:8px">Tus surtidas de hoy</div>
+        <div id="sur-hoy-lista" style="font-size:12px;color:#9fb3c8">Todavía no registraste ninguna.</div>
+      </div>
+    </div>
+  </div>
+
   <div class="tab-page active" id="tab-viajes">
     <div class="content">
 
@@ -772,6 +807,7 @@ function arrancarApp(){
   cargarColaCL();
   cargarColaINC();
   cargarColaEnt();
+  cargarColaSur();
   cargarViajesLocal();
   renderBotones();
   actualizarContador();
@@ -848,12 +884,14 @@ function actualizarConexion(online){
 
 // ── TABS ──
 function switchTab(tab){
-  ['viajes','checklist','entrega'].forEach(function(t){
-    document.getElementById('tab-'+t).classList.toggle('active', t===tab);
-    document.getElementById('tab-'+t+'-btn').classList.toggle('active', t===tab);
+  ['viajes','checklist','entrega','surtir'].forEach(function(t){
+    var pg=document.getElementById('tab-'+t), bt=document.getElementById('tab-'+t+'-btn');
+    if(pg)pg.classList.toggle('active', t===tab);
+    if(bt)bt.classList.toggle('active', t===tab);
   });
   if(tab==='checklist') renderChecklistModo();
   if(tab==='entrega') renderEntregasHoy();
+  if(tab==='surtir'){ surRenderHoy(); }
 }
 
 // ════════════════════════════════
@@ -1169,6 +1207,115 @@ async function subirColaEntregas(){
   persistColaEnt();
 }
 
+// ════════════════════════════════
+// MÓDULO SURTIR (combustible por surtida: tanque + litros + foto + GPS). Costo real $0,75/L (USD).
+// ════════════════════════════════
+var SUR_FOTO_FILE=null, SUR_GPS=null, SUR_GPS_FAILS=0, SUR_TANQUE='galpon_1', SUR_HOY=[];
+var SUR_TANQUE_LBL={galpon_1:'🛢️ Galpón 1', galpon_2:'🛢️ Galpón 2'};
+var COLA_SUR=[];
+function cargarColaSur(){ try{ var s=localStorage.getItem('btg_cola_sur'); if(s) COLA_SUR=JSON.parse(s)||[]; }catch(e){ COLA_SUR=[]; } }
+function persistColaSur(){ try{ if(COLA_SUR.length) localStorage.setItem('btg_cola_sur',JSON.stringify(COLA_SUR)); else localStorage.removeItem('btg_cola_sur'); }catch(e){} }
+function surEncolar(row){ COLA_SUR=COLA_SUR.filter(function(r){return r.id!==row.id;}); COLA_SUR.push(row); persistColaSur(); }
+async function subirColaSurtidas(){
+  if(!(isOnline && supabase) || !COLA_SUR.length) return;
+  var pend=COLA_SUR.slice(); COLA_SUR=[];
+  for(var i=0;i<pend.length;i++){
+    try{ var r=await supabase.rpc('surtida_registrar',{ p:pend[i] }); if(r&&r.error){ COLA_SUR.push(pend[i]); } }
+    catch(e){ COLA_SUR.push(pend[i]); }
+  }
+  persistColaSur();
+}
+function surSetTanque(t){
+  SUR_TANQUE=t;
+  ['galpon_1','galpon_2'].forEach(function(x){ var b=document.getElementById('sur-tanque-'+x); if(b)b.style.border='2px solid '+(x===t?'#7dc941':'#24405f'); });
+}
+function surCalc(){
+  var l=parseFloat(document.getElementById('sur-litros').value)||0;
+  var el=document.getElementById('sur-costo'); if(el)el.textContent='≈ $'+(l*0.75).toFixed(2)+'   ('+(l||0)+' L × $0,75)';
+}
+function surPreviewFoto(inp){
+  var f=inp.files&&inp.files[0]; if(!f)return; SUR_FOTO_FILE=f;
+  var img=document.getElementById('sur-foto-prev'); if(img){ img.src=URL.createObjectURL(f); img.style.display='block'; }
+}
+function surTomarGPS(){
+  var el=document.getElementById('sur-gps-txt');
+  if(!navigator.geolocation){ if(el)el.textContent='📍 GPS no disponible en este equipo'; return; }
+  if(el)el.textContent='📍 Ubicando…';
+  navigator.geolocation.getCurrentPosition(function(pos){
+    SUR_GPS={lat:pos.coords.latitude,lng:pos.coords.longitude,acc:pos.coords.accuracy};
+    if(el)el.textContent='📍 Ubicación lista ('+Math.round(pos.coords.accuracy)+' m)';
+  }, function(){ if(el)el.textContent='📍 No se pudo ubicar — tocá de nuevo'; }, {enableHighAccuracy:true,maximumAge:0,timeout:8000});
+}
+function _surCompress(file){
+  return new Promise(function(resolve,reject){
+    var img=new Image();
+    img.onload=function(){ try{
+      var mw=1280, sc=Math.min(1,mw/img.width);
+      var cv=document.createElement('canvas'); cv.width=Math.round(img.width*sc); cv.height=Math.round(img.height*sc);
+      cv.getContext('2d').drawImage(img,0,0,cv.width,cv.height);
+      resolve(cv.toDataURL('image/jpeg',0.7));
+    }catch(e){ reject(e); } };
+    img.onerror=reject; img.src=URL.createObjectURL(file);
+  });
+}
+async function surGuardar(){
+  var lit=parseFloat(document.getElementById('sur-litros').value)||0;
+  if(!(lit>0)){ mostrarToast('Ingresá los litros surtidos','error'); return; }
+  if(!SUR_FOTO_FILE){ mostrarToast('Tomá la foto del surtidor/recibo','error'); return; }
+  if(!SUR_GPS){
+    SUR_GPS_FAILS++;
+    if(SUR_GPS_FAILS<2){ mostrarToast('Falta la ubicación — tocá "Ubicar"','error'); surTomarGPS(); return; }
+    if(!confirm('No se pudo obtener el GPS. ¿Registrar la surtida SIN ubicación?')){ surTomarGPS(); return; }
+  }
+  var btn=document.getElementById('sur-btn'); btn.disabled=true; var t0=btn.textContent; btn.textContent='Guardando…';
+  try{
+    var tok=Math.random().toString(36).slice(2)+Date.now().toString(36);
+    var dataURL=await _surCompress(SUR_FOTO_FILE);
+    var fotoUrl='';
+    if(isOnline && supabase && dataURL){
+      try{
+        var blob=_dataURLtoBlob(dataURL);
+        var path='surtidas/'+((cam||'sin-unidad').replace(/[^\w-]/g,'_'))+'/'+tok+'.jpg';
+        var up=await supabase.storage.from('entregas').upload(path,blob,{ contentType:'image/jpeg', upsert:true });
+        if(!up.error){ fotoUrl=supabase.storage.from('entregas').getPublicUrl(path).data.publicUrl; }
+      }catch(e){ /* cae al dataURL */ }
+    }
+    if(!fotoUrl) fotoUrl=dataURL;
+    var now=new Date(), p2=function(n){return String(n).padStart(2,'0');};
+    var row={
+      id:(cam||'X')+'-S-'+Date.now(), fecha:hoy, hora:p2(now.getHours())+':'+p2(now.getMinutes()),
+      cam:cam||'', chofer:chofer||'', tanque:SUR_TANQUE, litros:lit, costo_litro_usd:0.75,
+      foto_url:fotoUrl, lat:(SUR_GPS?SUR_GPS.lat:null), lng:(SUR_GPS?SUR_GPS.lng:null),
+      precision_gps:(SUR_GPS?SUR_GPS.acc:null), token:tok
+    };
+    var ok=false;
+    if(isOnline && supabase){
+      var res=await supabase.rpc('surtida_registrar',{ p:row });
+      if(res && res.error){ mostrarToast('No se pudo guardar: '+res.error.message,'error'); }
+      else ok=true;
+    }
+    if(!ok) surEncolar(row);
+    SUR_HOY.unshift(row); surRenderHoy();
+    mostrarToast(ok?'✅ Surtida registrada':'📵 Guardada (se sube al reconectar)','exito');
+    document.getElementById('sur-litros').value=''; SUR_FOTO_FILE=null; SUR_GPS_FAILS=0;
+    var pv=document.getElementById('sur-foto-prev'); if(pv)pv.style.display='none';
+    var gt=document.getElementById('sur-gps-txt'); if(gt)gt.textContent='';
+    surCalc();
+  }catch(e){ mostrarToast('Error al registrar: '+(e&&e.message?e.message:e),'error'); }
+  finally{ btn.disabled=false; btn.textContent=t0; }
+}
+function surRenderHoy(){
+  var cont=document.getElementById('sur-hoy-lista'); if(!cont)return;
+  var lista=SUR_HOY.slice();
+  COLA_SUR.forEach(function(c){ if(c.cam===cam && c.fecha===hoy && !lista.some(function(x){return x.id===c.id;})) lista.push(c); });
+  if(!lista.length){ cont.innerHTML='Todavía no registraste ninguna.'; return; }
+  cont.innerHTML=lista.map(function(s){
+    return '<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #1c3350">'+
+      '<span>'+(s.hora||'')+' · '+(SUR_TANQUE_LBL[s.tanque]||s.tanque)+'</span>'+
+      '<b style="color:#cfe0f0">'+(parseFloat(s.litros)||0)+' L · $'+((parseFloat(s.litros)||0)*0.75).toFixed(2)+'</b></div>';
+  }).join('');
+}
+
 // Visor de foto (lightbox) — funciona con URL del bucket Y con imágenes embebidas (dataURL),
 // que window.open bloquea (por eso "en grande no abría").
 function _entVerFotoCh(src){
@@ -1408,6 +1555,7 @@ function sincronizarCola(){
 
   // ── Entregas ──
   try{ subirColaEntregas(); }catch(e){}
+  try{ subirColaSurtidas(); }catch(e){}
 
   // ── Viajes ──
   if(COLA_LOCAL.length){

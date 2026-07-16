@@ -3,7 +3,7 @@
 // PWA Offline-First para choferes
 // ═══════════════════════════════════════════════════
 
-const CACHE_NAME = 'betangar-chofer-v30'; // v29: huecos chofer — incidencia offline no se pierde (COLA_INC), checklist en cola se fusiona, fecha 'hoy' se recalcula al amanecer
+const CACHE_NAME = 'betangar-chofer-v31'; // v31: + módulo Surtir combustible (por surtida) // v29: huecos chofer — incidencia offline no se pierde (COLA_INC), checklist en cola se fusiona, fecha 'hoy' se recalcula al amanecer
 
 
 // Credenciales anon (públicas, ya expuestas en chofer.html) para que el SW pueda subir

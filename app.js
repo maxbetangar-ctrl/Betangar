@@ -1299,6 +1299,7 @@ function sp(id){
   try{
     if(id==='dashboard'){
     renderDash();
+    cargarSurtidas().then(renderSurtidasHoy).catch(function(){});
     setTimeout(verificarBNCvsAbonos,1000);
     // Esperar que Supabase esté listo antes de notificar BNC
     var _bncWait=setInterval(function(){
@@ -2359,6 +2360,7 @@ function validarAyudanteUnico(campoId){
 
 function renderDash(){
   try{renderBncDashResumen();}catch(e){}
+  try{renderSurtidasHoy();}catch(e){}
   var totalV=REGS.reduce(function(s,r){return s+r.t;},0);
   var totalM=REGS.reduce(function(s,r){return s+r.m;},0);
   var totalCob=Math.min(ABONOS.reduce(function(s,a){return s+a.m;},0),totalM);
@@ -2430,6 +2432,19 @@ async function imprimirDashboard(){
   // el informe (así siempre salen; antes dependía de haber tocado el botón ↻ del dashboard).
   try{ if(typeof puedeVerSaldo==='function'&&puedeVerSaldo()&&(typeof _bncResumenCache==='undefined'||!_bncResumenCache)&&typeof renderBncDashResumen==='function'){ await renderBncDashResumen(true); } }catch(e){}
   var usd=function(n){return '$'+Number(n||0).toLocaleString('es-VE',{minimumFractionDigits:2,maximumFractionDigits:2});};
+  // ⛽ Combustible surtido HOY (por surtida)
+  try{ await cargarSurtidas(); }catch(e){}
+  var _surEsc=(typeof _mEsc==='function')?_mEsc:function(s){return String(s==null?'':s);};
+  var _surHoy=_surtidasHoy(); var surtHtml='';
+  if(_surHoy.length){
+    var _sLit=_surHoy.reduce(function(a,s){return a+(parseFloat(s.litros)||0);},0);
+    var _sUsd=_surHoy.reduce(function(a,s){return a+_surCostoUsd(s);},0);
+    var _sTasa=TASAS.bcvDolar||0;
+    var _sUn=Object.keys(_surHoy.reduce(function(a,s){if(s.cam)a[s.cam]=1;return a;},{})).length;
+    var _sRows=_surHoy.map(function(s){var l=parseFloat(s.litros)||0,cu=_surCostoUsd(s);return '<tr><td>'+(s.hora||'')+'</td><td style="font-weight:700">'+_surEsc(s.cam||'')+'</td><td>'+_surEsc(_surLbl(s.tanque))+'</td><td style="text-align:right;font-family:monospace">'+l.toLocaleString('es-VE')+' L</td><td style="text-align:right;font-family:monospace">'+usd(cu)+'</td></tr>';}).join('');
+    surtHtml='<h2>⛽ Combustible surtido hoy</h2><table><thead><tr><th>Hora</th><th>Unidad</th><th>Tanque</th><th style="text-align:right">Litros</th><th style="text-align:right">Costo</th></tr></thead><tbody>'+_sRows+
+      '<tr style="font-weight:800;border-top:2px solid #cbd5e1"><td colspan="3">TOTAL '+_sUn+' unidad(es)</td><td style="text-align:right;font-family:monospace">'+_sLit.toLocaleString('es-VE')+' L</td><td style="text-align:right;font-family:monospace">'+usd(_sUsd)+(_sTasa?' <span style="color:#8a94a6">≈ Bs '+(_sUsd*_sTasa).toLocaleString('es-VE',{maximumFractionDigits:0})+'</span>':'')+'</td></tr></tbody></table>';
+  }
   // KPIs (mismos cálculos que el dashboard)
   var totalV=REGS.reduce(function(s,r){return s+r.t;},0);
   var totalM=REGS.reduce(function(s,r){return s+r.m;},0);
@@ -2554,6 +2569,7 @@ async function imprimirDashboard(){
     '<div class="bar"><i style="width:'+pct+'%"></i></div>'+
     '<div class="mut">Cobrado '+usd(totalCob)+' de '+usd(totalM)+' ('+pct+'%) · Pendiente '+usd(porcobrar)+' = '+fmt(vPorCob)+' viajes</div>'+
     bancosHtml+
+    surtHtml+
     '<div class="cols">'+
       '<div><h2>Estado de flota ('+op+' oper · '+tal+' taller'+(ino?' · '+ino+' inop':'')+')</h2>'+
         '<table><thead><tr><th>Unidad</th><th>Estado</th><th style="text-align:right">KM</th><th style="text-align:right">Próx. aceite</th></tr></thead><tbody>'+flotaRows+'</tbody></table></div>'+
@@ -6798,6 +6814,40 @@ async function cargarEntregas(){
   try{ var sel=g('ent-f-cam'); if(sel){ var cur=sel.value; var cams={}; ENTREGAS_OF.forEach(function(e){if(e.cam)cams[e.cam]=1;});
     sel.innerHTML='<option value="">Todas las unidades</option>'+Object.keys(cams).sort().map(function(c){return '<option value="'+c+'">'+c+'</option>';}).join(''); sel.value=cur; } }catch(e){}
 }
+// ⛽ Surtidas de combustible (oficina): carga y resumen del día para dashboard/informe.
+var SURTIDAS=[];
+var TANQUE_LBL={galpon_1:'🛢️ Galpón 1', galpon_2:'🛢️ Galpón 2', principal:'🛢️ Tanque'};
+async function cargarSurtidas(){
+  if(!(DB_READY&&supabase))return;
+  try{
+    var desde=new Date(Date.now()-35*86400000).toISOString().slice(0,10);
+    var r=await supabase.from('surtidas').select('*').gte('fecha',desde).order('fecha',{ascending:false}).order('hora',{ascending:false});
+    if(r&&!r.error&&Array.isArray(r.data))SURTIDAS=r.data;
+  }catch(e){ console.log('surtidas load',e&&e.message); }
+}
+function _surtidasHoy(){ var hoy=fechaVE(); return (SURTIDAS||[]).filter(function(s){return String(s.fecha||'').slice(0,10)===hoy;}); }
+function _surCostoUsd(s){ return parseFloat(s.costo_usd)||((parseFloat(s.litros)||0)*(parseFloat(s.costo_litro_usd)||0.75)); }
+function _surLbl(t){ return TANQUE_LBL[t]||t||''; }
+function renderSurtidasHoy(){
+  var cont=g('dash-surtidas'); if(!cont)return;
+  var arr=_surtidasHoy();
+  var res=g('dash-surtidas-resumen');
+  if(!arr.length){ cont.innerHTML='<div style="color:var(--text3);font-size:12px;padding:6px">Sin surtidas registradas hoy.</div>'; if(res)res.textContent=''; return; }
+  var totLit=arr.reduce(function(a,s){return a+(parseFloat(s.litros)||0);},0);
+  var totUsd=arr.reduce(function(a,s){return a+_surCostoUsd(s);},0);
+  var unids={}; arr.forEach(function(s){if(s.cam)unids[s.cam]=1;});
+  var porTanque={}; arr.forEach(function(s){var t=s.tanque||'principal'; porTanque[t]=(porTanque[t]||0)+(parseFloat(s.litros)||0);});
+  var tasa=TASAS.bcvDolar||0;
+  if(res)res.textContent=Object.keys(unids).length+' unid · '+totLit.toLocaleString('es-VE')+' L · $'+totUsd.toFixed(2);
+  var chips=Object.keys(porTanque).map(function(t){return '<span style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:3px 8px;font-size:11px;margin-right:6px">'+_surLbl(t)+': <b>'+porTanque[t].toLocaleString('es-VE')+' L</b></span>';}).join('');
+  var filas=arr.map(function(s){
+    var l=parseFloat(s.litros)||0, cu=_surCostoUsd(s);
+    return '<tr><td style="font-size:11px">'+(s.hora||'')+'</td><td style="font-weight:700;font-size:11px">'+(s.cam||'')+'</td><td style="font-size:11px">'+_surLbl(s.tanque)+'</td><td style="font-family:var(--m);text-align:right">'+l.toLocaleString('es-VE')+' L</td><td style="font-family:var(--m);text-align:right;color:var(--green)">$'+cu.toFixed(2)+'</td><td style="text-align:center">'+(s.foto_url?'<a href="#" onclick="_surVerFoto(\''+_mEsc(s.foto_url)+'\');return false" style="color:var(--teal)">📷</a>':'')+'</td></tr>';
+  }).join('');
+  cont.innerHTML='<div style="margin-bottom:8px">'+chips+'<span style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:3px 8px;font-size:11px">Total: <b style="color:var(--green)">$'+totUsd.toFixed(2)+'</b>'+(tasa?' ≈ Bs '+(totUsd*tasa).toLocaleString('es-VE',{maximumFractionDigits:0}):'')+'</span></div>'+
+    '<div style="overflow-x:auto"><table style="width:100%"><thead><tr><th>Hora</th><th>Unidad</th><th>Tanque</th><th style="text-align:right">Litros</th><th style="text-align:right">Costo</th><th>Foto</th></tr></thead><tbody>'+filas+'</tbody></table></div>';
+}
+function _surVerFoto(src){ if(!src)return; try{ window.open(src,'_blank'); }catch(e){} }
 function _entEsc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 function renderEntregas(){
   var des=gv('ent-f-des'),hta=gv('ent-f-hta'),camF=gv('ent-f-cam'),estF=gv('ent-f-estado'),tipoF=gv('ent-f-tipo');
