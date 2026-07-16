@@ -216,8 +216,8 @@ body{background:#0f1923;color:#fff;font-family:-apple-system,BlinkMacSystemFont,
         <div id="sur-costo" style="font-size:12px;color:#7dc941;margin:6px 0 14px">≈ $0.00</div>
 
         <div style="font-size:13px;color:#cfe0f0;font-weight:700;margin-bottom:6px">Foto del surtidor / recibo</div>
-        <input type="file" id="sur-foto" accept="image/*" capture="environment" onchange="surPreviewFoto(this)" style="display:none">
-        <button type="button" onclick="document.getElementById('sur-foto').click()" style="width:100%;background:#1e3a5f;border:1px solid #4d94ff;border-radius:10px;padding:12px;color:#cfe0f0;font-weight:700;cursor:pointer;margin-bottom:8px">📷 Tomar foto</button>
+        <input type="file" id="sur-foto" accept="image/*" capture="environment" onchange="surPreviewFoto(this)" style="position:absolute;left:-9999px;width:1px;height:1px;opacity:0">
+        <label for="sur-foto" style="display:block;box-sizing:border-box;text-align:center;width:100%;background:#1e3a5f;border:1px solid #4d94ff;border-radius:10px;padding:12px;color:#cfe0f0;font-weight:700;cursor:pointer;margin-bottom:8px">📷 Tomar foto</label>
         <img id="sur-foto-prev" style="display:none;max-width:100%;border-radius:8px;margin-bottom:10px">
 
         <button type="button" onclick="surTomarGPS()" style="width:100%;background:#1e3a5f;border:1px solid #4d94ff;border-radius:10px;padding:12px;color:#cfe0f0;font-weight:700;cursor:pointer">📍 Ubicar</button>
@@ -502,8 +502,10 @@ body{background:#0f1923;color:#fff;font-family:-apple-system,BlinkMacSystemFont,
         <input id="ent-direccion" placeholder="Ej: Av. Principal, galpón 3" style="width:100%;background:#111c26;border:1px solid rgba(255,255,255,.12);color:#fff;border-radius:10px;padding:12px;font-size:15px;margin-bottom:12px">
 
         <label id="ent-lbl-foto" style="display:block;font-size:11px;color:rgba(255,255,255,.5);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Foto de la entrega (en vivo)</label>
-        <input type="file" id="ent-foto" accept="image/*" capture="environment" onchange="entregaPreviewFoto(this)" style="display:none">
-        <button onclick="document.getElementById('ent-foto').click()" style="width:100%;background:#1e3a5f;color:#fff;border:2px dashed rgba(125,201,65,.5);border-radius:12px;padding:16px;font-size:15px;font-weight:700;cursor:pointer;margin-bottom:8px">📷 Tomar foto</button>
+        <!-- Cámara en Android: el input va con <label> (activación NATIVA) y visible fuera de pantalla (NO display:none),
+             porque varios Android ignoran capture="environment" si el input está oculto y se dispara por JS → abrían galería. -->
+        <input type="file" id="ent-foto" accept="image/*" capture="environment" onchange="entregaPreviewFoto(this)" style="position:absolute;left:-9999px;width:1px;height:1px;opacity:0">
+        <label for="ent-foto" style="display:block;box-sizing:border-box;text-align:center;width:100%;background:#1e3a5f;color:#fff;border:2px dashed rgba(125,201,65,.5);border-radius:12px;padding:16px;font-size:15px;font-weight:700;cursor:pointer;margin-bottom:8px">📷 Tomar foto</label>
         <img id="ent-foto-prev" style="display:none;width:100%;border-radius:12px;margin-bottom:4px;border:1px solid rgba(255,255,255,.1)">
         <div id="ent-foto-hint" style="display:none;font-size:11px;color:#7dc941;margin-bottom:12px;text-align:center">✅ Así se guarda, con el sello (unidad, GPS y hora).</div>
 
