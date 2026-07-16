@@ -592,6 +592,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
 <div id="p-proveedores" class="page">
   <div id="subnav-proveedores"></div>
   <div class="switch-row">
+    <div class="sw" id="sw-prov-ordenes" onclick="switchProvTab('ordenes')">🧾 Órdenes</div>
     <div class="sw on" id="sw-prov-cxp" onclick="switchProvTab('cxp')">📋 Cuentas x Pagar</div>
     <div class="sw" id="sw-prov-lista" onclick="switchProvTab('lista')">Proveedores</div>
     <div class="sw" id="sw-prov-ret" onclick="switchProvTab('ret')">🧾 Facturas y Retenciones (Bs)</div>
@@ -623,7 +624,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
           <div class="fg"><label>Fecha</label><input type="date" class="fc" id="cxp-fecha"></div>
         </div>
         <div class="fr2">
-          <div class="fg"><label>Orden / Servicio</label><input class="fc" id="cxp-orden" placeholder="(se enlaza desde Órdenes)" style="font-family:var(--m);opacity:.85" readonly></div>
+          <div class="fg"><label>Orden / Servicio <span style="font-size:10px;color:var(--text3)">(enlazá una orden abierta)</span></label><select class="fc" id="cxp-orden" onchange="cxpOrdenChg()"><option value="">— Sin orden / manual —</option></select></div>
           <div class="fg"><label>Referencia interna (opcional)</label><input class="fc" id="cxp-nota" placeholder="Nota / N° orden interno" style="font-family:var(--m)"></div>
         </div>
         <div class="fg"><label>Descripción del servicio/compra</label><input class="fc" id="cxp-desc" placeholder="Ej: Cambio de aceite y filtros JAC-B001..."></div>
@@ -839,6 +840,27 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
       <div class="stat b"><div class="stat-lbl">Retenciones</div><div class="stat-val" style="font-size:16px;color:var(--blue)" id="hist-pv-ret">$0</div></div>
     </div>
     <div class="tw"><table><thead><tr><th>F.Pago</th><th>Proveedor</th><th>Nota</th><th>Factura</th><th>Base $</th><th>Total $</th><th>Ret $</th><th>Pagado $</th><th>Pagado Bs</th><th>Tasa</th><th>Ref BNC</th></tr></thead><tbody id="tb-pv-hist"></tbody></table></div>
+  </div>
+  <!-- ÓRDENES DE SERVICIO / COMPRA (movido desde Mantenimiento — es procura/admin). Al cerrar → CxP. -->
+  <div id="tab-prov-ordenes" style="display:none">
+    <div class="g2" style="margin-bottom:10px">
+      <div class="card">
+        <div class="sh"><div class="st">📋 Emitir orden</div></div>
+        <div style="font-size:11px;color:var(--text3);margin-bottom:8px" id="os-ayuda">Para mandar unidades a cualquier trabajo (lavado, mantenimiento, arreglo). Se guarda y queda <b>Emitida</b>; el km/costo se llenan al <b>cerrarla</b> (registrar que se hizo).</div>
+        <div class="fr2"><div class="fg"><label>Tipo de orden</label><select class="fc" id="os-tipoorden" onchange="_osTipoOrden()"><option value="servicio">🔧 Servicio / Reparación</option><option value="compra">🛒 Compra (repuestos, insumos, lo que sea)</option></select></div><div class="fg" id="os-patio-wrap" style="display:none"><label>Destino</label><label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:normal;font-size:12px;padding-top:8px"><input type="checkbox" id="os-patio" onchange="_osTipoOrden()" style="width:auto"> 🏭 Patio / uso general (no es una unidad)</label></div></div>
+        <div class="fr2"><div class="fg"><label id="os-cams-lbl">Unidades (ej: 1,2,3)</label><input class="fc" id="os-cams" placeholder="1,2,3"></div><div class="fg" id="os-tipo-wrap"><label>Tipo de servicio</label><select class="fc" id="os-tipo"><option value="lavado">🧽 Lavado / limpieza</option><option value="cambio">🔧 Cambio / sustitución</option><option value="inspeccion">🔎 Inspección / revisión</option><option value="correctivo">🛠 Correctivo</option><option value="preventivo">📅 Preventivo</option><option value="otro">Otro</option></select></div></div>
+        <div class="fr2"><div class="fg"><label id="os-prov-lbl">Proveedor / taller</label><select class="fc" id="os-prov" onchange="_osProvOtro()"><option value="">— elegir —</option></select></div><div class="fg"><label>Fecha</label><input class="fc" id="os-fecha" type="date"></div></div>
+        <div class="fg" id="os-prov-otro-wrap" style="display:none"><label>Nombre del proveedor (nuevo)</label><input class="fc" id="os-prov-otro" placeholder="Escribe el taller/proveedor"></div>
+        <div class="fg"><label id="os-item-lbl">Ítem / qué se hará</label><input class="fc" id="os-item" placeholder="Ej: lavado completo, cambio de aceite, revisión de frenos..."></div>
+        <div class="fg"><label>Notas</label><input class="fc" id="os-notas" placeholder="Opcional"></div>
+        <button class="btn btn-g btn-sm" style="width:100%" onclick="guardarOrdenServicio()"><span id="os-btn-lbl">📋 Emitir orden</span></button>
+      </div>
+      <div class="card">
+        <div class="sh"><div class="st">Estado</div></div>
+        <div id="os-resumen" style="font-size:12px;color:var(--text3);padding:6px 0"></div>
+      </div>
+    </div>
+    <div class="tw"><table><thead><tr><th>OS</th><th>Fecha</th><th>Unidades</th><th>Tipo</th><th>Proveedor</th><th>Qué</th><th>Estado</th><th></th></tr></thead><tbody id="tb-ordenes"></tbody></table></div>
   </div>
 </div>
 
@@ -1818,14 +1840,13 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
   <div id="subnav-km"></div>
   <div class="switch-row" style="margin-bottom:10px">
     <div class="sw" id="sw-km-hv" onclick="switchKmTab('hv')">🔧 Mantenimiento</div>
-    <div class="sw" id="sw-km-ord" onclick="switchKmTab('ord')">📋 Órdenes</div>
     <div class="sw" id="sw-km-costos" onclick="switchKmTab('costos')">💰 Costos</div>
     <div class="sw" id="sw-km-prog" onclick="switchKmTab('prog')">⏰ Preventivo</div>
     <div class="sw on" id="sw-km-odo" onclick="switchKmTab('odo')">Kilometraje</div>
     <button class="btn btn-s btn-sm" style="margin-left:auto" onclick="imprimirMantenimiento()">Imprimir</button>
     <button class="btn btn-s btn-sm" onclick="emailMantenimiento()">✉ Correo</button>
     <button class="btn btn-y btn-sm" onclick="enviarReporteJAC()">📧 Reporte JAC</button>
-    <button class="btn btn-g btn-sm" onclick="switchKmTab('ord')">🔧 Orden de Servicio</button>
+    <button class="btn btn-g btn-sm" onclick="sp('proveedores');setTimeout(function(){switchProvTab('ordenes');},120)">🧾 Órdenes (Financiero)</button>
   </div>
   <div id="tab-km-odo">
     <div class="g2" style="margin-bottom:10px">
@@ -1884,26 +1905,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
     <div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap"><select class="fc" id="hist-mant-cam" onchange="renderHistMant()" style="max-width:160px;padding:6px 8px;font-size:11px"><option value="">Todos</option></select><select class="fc" id="hist-mant-tipo" onchange="renderHistMant()" style="max-width:200px;padding:6px 8px;font-size:11px"><option value="">Todos los tipos</option><option>GARANTIA (Servicio 5000km)</option><option>CORRECTIVO</option><option>PREVENTIVO</option></select></div>
     <div class="tw"><table><thead><tr><th>Camion</th><th>Fecha</th><th>Km</th><th>Tipo</th><th>Descripcion</th></tr></thead><tbody id="tb-hist-mant"></tbody></table></div>
   </div>
-  <div id="tab-km-ord" style="display:none">
-    <div class="g2" style="margin-bottom:10px">
-      <div class="card">
-        <div class="sh"><div class="st">📋 Emitir orden</div></div>
-        <div style="font-size:11px;color:var(--text3);margin-bottom:8px" id="os-ayuda">Para mandar unidades a cualquier trabajo (lavado, mantenimiento, arreglo). Se guarda y queda <b>Emitida</b>; el km/costo se llenan al <b>cerrarla</b> (registrar que se hizo).</div>
-        <div class="fr2"><div class="fg"><label>Tipo de orden</label><select class="fc" id="os-tipoorden" onchange="_osTipoOrden()"><option value="servicio">🔧 Servicio / Reparación</option><option value="compra">🛒 Compra (repuestos, insumos, lo que sea)</option></select></div><div class="fg" id="os-patio-wrap" style="display:none"><label>Destino</label><label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:normal;font-size:12px;padding-top:8px"><input type="checkbox" id="os-patio" onchange="_osTipoOrden()" style="width:auto"> 🏭 Patio / uso general (no es una unidad)</label></div></div>
-        <div class="fr2"><div class="fg"><label id="os-cams-lbl">Unidades (ej: 1,2,3)</label><input class="fc" id="os-cams" placeholder="1,2,3"></div><div class="fg" id="os-tipo-wrap"><label>Tipo de servicio</label><select class="fc" id="os-tipo"><option value="lavado">🧽 Lavado / limpieza</option><option value="cambio">🔧 Cambio / sustitución</option><option value="inspeccion">🔎 Inspección / revisión</option><option value="correctivo">🛠 Correctivo</option><option value="preventivo">📅 Preventivo</option><option value="otro">Otro</option></select></div></div>
-        <div class="fr2"><div class="fg"><label id="os-prov-lbl">Proveedor / taller</label><select class="fc" id="os-prov" onchange="_osProvOtro()"><option value="">— elegir —</option></select></div><div class="fg"><label>Fecha</label><input class="fc" id="os-fecha" type="date"></div></div>
-        <div class="fg" id="os-prov-otro-wrap" style="display:none"><label>Nombre del proveedor (nuevo)</label><input class="fc" id="os-prov-otro" placeholder="Escribe el taller/proveedor"></div>
-        <div class="fg"><label id="os-item-lbl">Ítem / qué se hará</label><input class="fc" id="os-item" placeholder="Ej: lavado completo, cambio de aceite, revisión de frenos..."></div>
-        <div class="fg"><label>Notas</label><input class="fc" id="os-notas" placeholder="Opcional"></div>
-        <button class="btn btn-g btn-sm" style="width:100%" onclick="guardarOrdenServicio()"><span id="os-btn-lbl">📋 Emitir orden</span></button>
-      </div>
-      <div class="card">
-        <div class="sh"><div class="st">Estado</div></div>
-        <div id="os-resumen" style="font-size:12px;color:var(--text3);padding:6px 0"></div>
-      </div>
-    </div>
-    <div class="tw"><table><thead><tr><th>OS</th><th>Fecha</th><th>Unidades</th><th>Tipo</th><th>Proveedor</th><th>Qué</th><th>Estado</th><th></th></tr></thead><tbody id="tb-ordenes"></tbody></table></div>
-  </div>
+  <!-- Órdenes de Servicio se movió a Financiero → Proveedores (tab-prov-ordenes). Era admin/procura, no mantenimiento. -->
   <div id="tab-km-costos" style="display:none">
     <div class="card" style="margin-bottom:10px">
       <div class="sh"><div class="st">💰 Centro de Costos — gasto por unidad</div></div>
@@ -2551,7 +2553,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
   </div>
 </div>
 
-<script src="app.js?v=20260716nombres-sincasar"></script>
+<script src="app.js?v=20260716ordenes-financiero"></script>
 
 <!-- Modal global -->
 <div id="modal" class="moverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9990;align-items:center;justify-content:center;padding:16px">

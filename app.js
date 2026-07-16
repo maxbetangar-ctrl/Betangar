@@ -1115,15 +1115,15 @@ function renderMantSubnav(activo){
   ['subnav-checklist','subnav-mecanico','subnav-km','subnav-llantas'].forEach(function(pid){var el=document.getElementById(pid);if(el)el.innerHTML=html;});
 }
 // Entrada de menú unificada "Mantenimiento": abre el primer sub-módulo que el rol pueda ver.
-// OFICINA (superadmin/admin/rrhh) entra directo a Km/Servicio → Órdenes (su trabajo diario es emitir/cerrar
-// órdenes). Los de CAMPO (mecánico/jefe de operaciones/chofer) entran a su primer módulo (Check List).
+// (Órdenes de Servicio se movió a Financiero → Proveedores; ya NO vive en Mantenimiento.)
+// OFICINA entra a Km/Mantenimiento; los de CAMPO (mecánico/jefe/chofer) a su primer módulo (Check List).
 function abrirMantenimiento(){
   var rol=SESION?SESION.rol:'admin';
   var perms=PERMISOS[rol]||PERMISOS['admin']||[];
   var oficina=['superadmin','admin','rrhh','demo_admin','demo_rrhh'];
   if(oficina.indexOf(rol)>=0 && perms.indexOf('km')>=0){
     sp('km');
-    if(typeof switchKmTab==='function')switchKmTab('ord');
+    if(typeof switchKmTab==='function')switchKmTab('odo');
     return;
   }
   var orden=['checklist','mecanico','km','llantas'];
@@ -1326,7 +1326,7 @@ function sp(id){
     if(id==='salud'){renderSaludDatos();}
     if(id==='km'){renderMantSubnav('km');renderKm();renderTiposMant();_cargarMantTodo().then(function(){try{renderHistMant();}catch(e){}try{_poblarKmItem();}catch(e){}}).catch(function(){});}
     if(id==='banco'){renderBancoSubnav('banco');renderBNCDash();}
-    if(id==='proveedores'){renderFinanzasSubnav('proveedores');cargarCxpAux().then(function(){fillFacCxpSelect();renderCXP();renderRetenciones();});renderCXP();renderProveedoresLista();}
+    if(id==='proveedores'){renderFinanzasSubnav('proveedores');cargarCxpAux().then(function(){fillFacCxpSelect();renderCXP();renderRetenciones();});if(typeof cargarOrdenesServicio==='function')cargarOrdenesServicio().then(function(){try{fillCxpOrdenSelect();}catch(e){}try{renderOrdenesServicio();}catch(e){}}).catch(function(){});renderCXP();renderProveedoresLista();}
     if(id==='documentos'){renderDocAlertas();renderDocTablas();}
     if(id==='asistencia')renderAsistencia();if(id==='fichaje')renderFichaje();
     if(id==='prestamos'){renderRRHHSubnav('prestamos');poblarEmps();renderPrestamos();}
@@ -5460,8 +5460,9 @@ function _ccAbrirCxP(o,provId,provNom,costo){
   if(typeof sp==='function')sp('proveedores');
   setTimeout(function(){
     if(typeof switchProvTab==='function')switchProvTab('cxp');
+    if(typeof fillCxpOrdenSelect==='function')fillCxpOrdenSelect();
     if(provId)sv('cxp-prov',provId);
-    sv('cxp-orden',o.id);
+    sv('cxp-orden',o.id); window._cxpOrdenId=o.id; // enlaza en el desplegable
     sv('cxp-monto',costo?String(costo):'');
     sv('cxp-desc','Compra orden '+o.id+(o.item?(': '+o.item):''));
     if(typeof calcCXP==='function')calcCXP();
@@ -5847,7 +5848,7 @@ function imprimirCombustible(){
 // ═══════════════════════════════════════════════════
 // KM / MANTENIMIENTO
 // ═══════════════════════════════════════════════════
-function switchKmTab(t){['odo','lav','eng','prog','hist','hv','ord','costos'].forEach(function(x){var el=g('tab-km-'+x);var sw=g('sw-km-'+x);if(el)el.style.display=x===t?'block':'none';if(sw){sw.classList.remove('on');if(x===t)sw.classList.add('on');}});if(t==='odo')renderKm();if(t==='lav'){renderLavados();if(typeof _cargarMantTodo==='function'&&!(MANTENIMIENTOS&&MANTENIMIENTOS.length))_cargarMantTodo().then(renderLavados).catch(function(){});}if(t==='eng'){renderEngrases();if(typeof _cargarMantTodo==='function'&&!(MANTENIMIENTOS&&MANTENIMIENTOS.length))_cargarMantTodo().then(renderEngrases).catch(function(){});}if(t==='prog')renderPreventivo();if(t==='hist')renderHistMant();if(t==='ord'){if(!_ordServCargadas){_ordServCargadas=true;cargarOrdenesServicio().then(renderOrdenesServicio).catch(renderOrdenesServicio);}else renderOrdenesServicio();}if(t==='costos')renderCentroCostos();if(t==='hv'){_cargarMantTodo().then(function(){renderHojaVida();}).catch(function(){renderHojaVida();});}}
+function switchKmTab(t){['odo','lav','eng','prog','hist','hv','costos'].forEach(function(x){var el=g('tab-km-'+x);var sw=g('sw-km-'+x);if(el)el.style.display=x===t?'block':'none';if(sw){sw.classList.remove('on');if(x===t)sw.classList.add('on');}});if(t==='odo')renderKm();if(t==='lav'){renderLavados();if(typeof _cargarMantTodo==='function'&&!(MANTENIMIENTOS&&MANTENIMIENTOS.length))_cargarMantTodo().then(renderLavados).catch(function(){});}if(t==='eng'){renderEngrases();if(typeof _cargarMantTodo==='function'&&!(MANTENIMIENTOS&&MANTENIMIENTOS.length))_cargarMantTodo().then(renderEngrases).catch(function(){});}if(t==='prog')renderPreventivo();if(t==='hist')renderHistMant();if(t==='costos')renderCentroCostos();if(t==='hv'){_cargarMantTodo().then(function(){renderHojaVida();}).catch(function(){renderHojaVida();});}}
 
 // ═══ CENTRO DE COSTOS (reporte de gasto por unidad/patio) ═════════════════════
 // Fuente única = mantenimientos.costo_usd (servicios, repuestos instalados, compras a unidad/patio,
@@ -7588,11 +7589,38 @@ async function cargarCxpAux(){ // facturas (Bs) + abonos; se llama al abrir Prov
   }catch(e){console.log('cargarCxpAux',e&&e.message||e);}
 }
 function switchProvTab(t){
-  ['cxp','lista','ret','hist'].forEach(function(x){var el=g('tab-prov-'+x);var sw=g('sw-prov-'+x);if(el)el.style.display=x===t?'block':'none';if(sw){sw.classList.remove('on');if(x===t)sw.classList.add('on');}});
-  if(t==='cxp')renderCXP();
+  ['ordenes','cxp','lista','ret','hist'].forEach(function(x){var el=g('tab-prov-'+x);var sw=g('sw-prov-'+x);if(el)el.style.display=x===t?'block':'none';if(sw){sw.classList.remove('on');if(x===t)sw.classList.add('on');}});
+  if(t==='cxp'){renderCXP();fillCxpOrdenSelect();}
   if(t==='ret'){fillFacCxpSelect();renderRetenciones();}
+  if(t==='ordenes'){ if(!_ordServCargadas){_ordServCargadas=true;cargarOrdenesServicio().then(renderOrdenesServicio).catch(renderOrdenesServicio);}else renderOrdenesServicio(); }
 }
 
+// Órdenes ABIERTAS (servicio+compra) que todavía NO tienen una CxP enlazada → para el desplegable del form de deuda.
+function _ordenesAbiertasSinCxp(){
+  return (typeof ORDENES_SERV!=='undefined'?ORDENES_SERV:[]).filter(function(o){
+    if(!o||o.estado==='cancelada')return false;
+    return !(typeof CXP!=='undefined'?CXP:[]).some(function(c){return c.orden_id&&String(c.orden_id)===String(o.id);});
+  });
+}
+function fillCxpOrdenSelect(){
+  var sel=g('cxp-orden'); if(!sel)return; var prev=sel.value;
+  var arr=_ordenesAbiertasSinCxp();
+  sel.innerHTML='<option value="">— Sin orden / manual —</option>'+arr.map(function(o){
+    var lbl=(o.tipoOrden==='compra'?'🛒 ':'🔧 ')+o.id+' · '+(o.proveedor||'s/proveedor')+' · '+(o.item||o.tipo||'')+(o.costo?(' · $'+parseFloat(o.costo).toFixed(0)):'');
+    return '<option value="'+_mEsc(String(o.id))+'">'+_mEsc(lbl.slice(0,70))+'</option>';
+  }).join('');
+  if(prev)sel.value=prev;
+}
+// Al elegir una orden en el form de deuda: enlaza y prellena proveedor / base $ / descripción.
+function cxpOrdenChg(){
+  var id=gv('cxp-orden'); window._cxpOrdenId=id||null;
+  if(!id)return;
+  var o=(typeof ORDENES_SERV!=='undefined'?ORDENES_SERV:[]).find(function(x){return String(x.id)===String(id);}); if(!o)return;
+  if(o.proveedorId&&g('cxp-prov')){ sv('cxp-prov',o.proveedorId); if(typeof autoLlenarProv==='function')autoLlenarProv(); }
+  if(parseFloat(o.costo)>0)sv('cxp-monto',String(o.costo));
+  sv('cxp-desc',(o.tipoOrden==='compra'?'Compra':'Servicio')+' orden '+o.id+(o.item?(': '+o.item):''));
+  if(typeof calcCXP==='function')calcCXP();
+}
 function autoLlenarProv(){ calcCXP(); }
 
 // Deuda en $: solo muestra la equivalencia en Bs de referencia (IVA/retenciones van en el Libro Bs).
