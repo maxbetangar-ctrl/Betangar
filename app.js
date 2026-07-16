@@ -9636,7 +9636,7 @@ async function guardarEmpleado(){
 function renderCarnetsPreview(){
   var el=g('carnets-preview');if(!el)return;
   var filtroEmp=gv('carn-emp');
-  var emps=EMPLEADOS.filter(function(e){return e.activo&&(!filtroEmp||e.id===filtroEmp);});
+  var emps=EMPLEADOS.filter(function(e){return e.activo && !e.imau && (!filtroEmp||e.id===filtroEmp);});
   el.innerHTML=emps.map(function(e){
     var c=e.cargo==='Chofer'?'#1e3a5f':e.cargo==='Ayudante'?'#0f3428':'#1a1a3e';
     var cc=e.cargo==='Chofer'?'#a3e635':e.cargo==='Ayudante'?'#14b8a6':'#38bdf8';
@@ -9652,7 +9652,8 @@ function renderCarnetsPreview(){
 }
 
 function imprimirCarnets(){
-  var lista=EMPLEADOS.filter(function(e){return e.activo;});
+  // Carnets = personal de BETANGAR activo (campo + oficina), SIN los del IMAU (son prestados de la Alcaldía).
+  var lista=EMPLEADOS.filter(function(e){return e.activo && !e.imau;});
   if(!lista.length){alert("Sin empleados registrados");return;}
   var logo=typeof LOGO_SVG!=="undefined"?'<img src="'+LOGO_SVG+'" height="35" style="filter:brightness(0) invert(1)">':'';
   var alc=(typeof LOGO_ALCALDIA!=="undefined")?LOGO_ALCALDIA:'';
@@ -9698,7 +9699,7 @@ function imprimirCarnets(){
     '@media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact}'+
     '.card-top{background:linear-gradient(135deg,#1e3a5f,#0f2340)!important}}</style></head><body>'+
     '<div class="titulo">Carnets de Identificación — '+brandNom()+'</div>'+
-    '<div class="sub">'+lista.length+' empleados activos · frente y dorso</div>'+
+    '<div class="sub">'+lista.length+' carnets · personal Betangar activo (sin IMAU) · frente y dorso</div>'+
     '<div class="grid">'+cardsHtml+'</div>'+
     '</body></html>';
   abrirVentanaImpresion(html);
