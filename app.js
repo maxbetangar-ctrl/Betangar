@@ -4495,6 +4495,28 @@ function calcNom(){
   if(g('nm-tot'))g('nm-tot').textContent='$'+fmtMon(totUsd)+' = Bs '+(totBs/1000).toFixed(0)+'k';
   if(g('nm-ch'))g('nm-ch').textContent='$'+fmtMon(totCh)+' (Bs '+(totCh*tasa/1000).toFixed(0)+'k)';
   if(g('nm-ay'))g('nm-ay').textContent='$'+fmtMon(totAy)+' (Bs '+(totAy*tasa/1000).toFixed(0)+'k)';
+  // ⚠️ NOMBRES SIN CASAR: nombres de planilla (chofer/ayudante) que NO corresponden a ningún empleado
+  // (typo del Excel o empleado sin registrar). Misma resolución que la nómina (_empPorNombre alias-aware).
+  var _scEsc=(typeof _mEsc==='function')?_mEsc:function(s){return String(s==null?'':s);};
+  var _scMap={};
+  f.forEach(function(r){
+    [['chofer',r.ch],['ayudante',r.ay1],['ayudante',r.ay2],['ayudante',r.ay3]].forEach(function(pr){
+      var nm=pr[1]; if(!nm||!String(nm).trim())return;
+      var k=(typeof _normNom==='function')?_normNom(nm):String(nm).trim().toUpperCase();
+      if(!_scMap[k])_scMap[k]={nombre:String(nm).trim(),roles:{},viajes:0};
+      _scMap[k].roles[pr[0]]=1; _scMap[k].viajes+=(parseInt(r.t)||0);
+    });
+  });
+  var _sinCasar=Object.keys(_scMap).filter(function(k){
+    var x=_scMap[k];
+    var casa=(typeof _empPorNombre==='function')&&_empPorNombre(x.nombre);
+    var alias=(typeof _ALIAS_NOMBRES!=='undefined')&&_ALIAS_NOMBRES[k];
+    return !casa && !alias;
+  }).map(function(k){return _scMap[k];}).sort(function(a,b){return b.viajes-a.viajes;});
+  if(_sinCasar.length){
+    var _scList=_sinCasar.map(function(x){return '<b>'+_scEsc(x.nombre)+'</b> <span style="color:var(--text3)">('+Object.keys(x.roles).join('/')+', '+x.viajes+' viajes)</span>';}).join(' · ');
+    descBanners.unshift('<div style="margin-bottom:6px;font-size:11px;background:rgba(226,75,74,.12);border:1px solid rgba(226,75,74,.5);color:#e24b4a;padding:8px 10px;border-radius:8px">⚠️ <b>'+_sinCasar.length+' nombre(s) en las planillas NO casan con ningún empleado</b> (typo del Excel o empleado sin registrar):<br>'+_scList+'.<div style="font-size:10px;color:var(--text3);margin-top:4px">Corregí el nombre en el Excel o registrá al empleado. Mientras, esos viajes no se enlazan a una ficha (banco/cédula) y pueden confundirse.</div></div>');
+  }
   var desc=g('nm-descuentos');if(desc)desc.innerHTML=descBanners.join('');
   var tbCh=g('tb-nom-ch');
   if(tbCh)tbCh.innerHTML=Object.values(chMap).map(function(c,i){
