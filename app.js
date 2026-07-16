@@ -9655,34 +9655,50 @@ function imprimirCarnets(){
   var lista=EMPLEADOS.filter(function(e){return e.activo;});
   if(!lista.length){alert("Sin empleados registrados");return;}
   var logo=typeof LOGO_SVG!=="undefined"?'<img src="'+LOGO_SVG+'" height="35" style="filter:brightness(0) invert(1)">':'';
+  var alc=(typeof LOGO_ALCALDIA!=="undefined")?LOGO_ALCALDIA:'';
+  var alcFront=alc?'<img src="'+alc+'" style="position:absolute;top:6px;right:8px;height:26px;background:#fff;border-radius:50%;padding:1px" title="Alcaldía Bolivariana de Maracaibo">':'';
+  var colorCargo={'Chofer':'#7dc941','Ayudante':'#3b82f6','Mecanico':'#f59e0b','Jefe de Operaciones':'#ef4444','Administradora':'#8b5cf6','Vigilante':'#64748b'};
+  var _esc=(typeof _mEsc==='function')?_mEsc:function(s){return String(s==null?'':s);};
   var cardsHtml=lista.map(function(emp){
     var foto=emp.foto?'<img src="'+emp.foto+'" style="width:70px;height:70px;border-radius:50%;object-fit:cover;border:3px solid #7dc941">':
-      '<div style="width:70px;height:70px;border-radius:50%;background:linear-gradient(135deg,#1e3a5f,#2d5282);border:3px solid #7dc941;display:flex;align-items:center;justify-content:center;font-size:24px;color:#fff;font-weight:900">'+emp.nombre.charAt(0)+'</div>';
-    var colorCargo={'Chofer':'#7dc941','Ayudante':'#3b82f6','Mecanico':'#f59e0b','Jefe de Operaciones':'#ef4444','Administradora':'#8b5cf6','Vigilante':'#64748b'};
+      '<div style="width:70px;height:70px;border-radius:50%;background:linear-gradient(135deg,#1e3a5f,#2d5282);border:3px solid #7dc941;display:flex;align-items:center;justify-content:center;font-size:24px;color:#fff;font-weight:900">'+_esc(emp.nombre.charAt(0))+'</div>';
     var colorC=colorCargo[emp.cargo]||'#1e3a5f';
-    return '<div style="width:340px;height:200px;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 4px 15px rgba(0,0,0,.15);display:inline-flex;flex-direction:column;margin:8px;border:1px solid #e2e8f0">'+
-      '<div style="background:linear-gradient(135deg,#1e3a5f,#0f2340);padding:10px 14px;display:flex;justify-content:space-between;align-items:center;border-bottom:3px solid '+colorC+'">'+
-      logo+'<div style="color:#fff;font-size:9px;text-align:right;opacity:.8">CARNET DE IDENTIFICACIÓN</div></div>'+
+    // FRENTE
+    var frente='<div class="carnet" style="width:340px;height:200px;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 4px 15px rgba(0,0,0,.15);display:inline-flex;flex-direction:column;border:1px solid #e2e8f0;position:relative">'+
+      '<div class="card-top" style="background:linear-gradient(135deg,#1e3a5f,#0f2340);padding:10px 14px;display:flex;justify-content:space-between;align-items:center;border-bottom:3px solid '+colorC+';position:relative">'+
+      logo+'<div style="color:#fff;font-size:9px;text-align:right;opacity:.8;margin-right:30px">CARNET DE<br>IDENTIFICACIÓN</div>'+alcFront+'</div>'+
       '<div style="padding:12px 14px;display:flex;gap:12px;flex:1;align-items:center">'+
       '<div>'+foto+'</div>'+
       '<div style="flex:1">'+
-      '<div style="font-size:14px;font-weight:900;color:#1e3a5f;line-height:1.2">'+emp.nombre+'</div>'+
-      '<div style="display:inline-block;background:'+colorC+';color:#fff;font-size:9px;font-weight:700;padding:2px 8px;border-radius:10px;margin:4px 0;text-transform:uppercase">'+emp.cargo+'</div>'+
-      (emp.unidad?'<div style="font-size:11px;color:#555;font-weight:700">'+emp.unidad+'</div>':'')+
-      (emp.cedula?'<div style="font-size:10px;color:#888;margin-top:2px">CI: '+emp.cedula+'</div>':'')+
+      '<div style="font-size:14px;font-weight:900;color:#1e3a5f;line-height:1.2">'+_esc(emp.nombre)+'</div>'+
+      '<div style="display:inline-block;background:'+colorC+';color:#fff;font-size:9px;font-weight:700;padding:2px 8px;border-radius:10px;margin:4px 0;text-transform:uppercase">'+_esc(emp.cargo)+'</div>'+
+      (emp.unidad?'<div style="font-size:11px;color:#555;font-weight:700">'+_esc(emp.unidad)+'</div>':'')+
+      (emp.cedula?'<div style="font-size:10px;color:#888;margin-top:2px">CI: '+_esc(emp.cedula)+'</div>':'')+
       '</div></div>'+
       '<div style="background:#f8fafc;padding:6px 14px;display:flex;justify-content:space-between;font-size:9px;color:#888;border-top:1px solid #e8edf2">'+
       '<span>'+brandNom()+' | '+brandRif()+'</span>'+
       '<span>'+brandCiudad()+'</span>'+
       '</div></div>';
+    // DORSO — logo Alcaldía + mensaje de colaboración
+    var dorso='<div class="carnet" style="width:340px;height:200px;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 4px 15px rgba(0,0,0,.15);display:inline-flex;flex-direction:column;border:1px solid #e2e8f0;align-items:center;justify-content:center;text-align:center;padding:16px 20px;box-sizing:border-box">'+
+      (alc?'<img src="'+alc+'" style="height:56px;margin-bottom:8px">':'<div style="font-weight:800;color:#1e3a5f;margin-bottom:8px">Alcaldía Bolivariana de Maracaibo</div>')+
+      '<div style="font-size:11px;color:#333;line-height:1.45">El portador de este carnet presta el servicio de <b>recolección de desechos sólidos</b> de la ciudad, en conjunto con la <b>Alcaldía Bolivariana de Maracaibo</b>. Agradecemos brindarle <b>toda la colaboración</b> necesaria para el cumplimiento de sus labores.</div>'+
+      '<div style="font-size:9px;color:#888;margin-top:10px;border-top:1px solid #e8edf2;padding-top:6px;width:100%">'+brandNom()+' · '+brandRif()+'</div>'+
+      '</div>';
+    return '<div style="display:inline-flex;gap:10px;margin:8px;align-items:flex-start;vertical-align:top">'+
+      '<div style="text-align:center"><div style="font-size:8px;color:#94a3b8;text-transform:uppercase;letter-spacing:1px;margin-bottom:2px">Frente</div>'+frente+'</div>'+
+      '<div style="text-align:center"><div style="font-size:8px;color:#94a3b8;text-transform:uppercase;letter-spacing:1px;margin-bottom:2px">Dorso</div>'+dorso+'</div>'+
+      '</div>';
   }).join("");
   var html='<html><head><meta charset="UTF-8"><style>'+BG_CSS+
     'body{background:#f0f4f8;padding:20px}'+
-    '.titulo{text-align:center;font-size:18px;font-weight:900;color:#1e3a5f;margin-bottom:20px}'+
+    '.titulo{text-align:center;font-size:18px;font-weight:900;color:#1e3a5f;margin-bottom:6px}'+
+    '.sub{text-align:center;font-size:11px;color:#64748b;margin-bottom:18px}'+
     '.grid{display:flex;flex-wrap:wrap;justify-content:center}'+
     '@media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact}'+
     '.card-top{background:linear-gradient(135deg,#1e3a5f,#0f2340)!important}}</style></head><body>'+
-    '<div class="titulo">Carnets de Identificacion — '+brandNom()+'</div>'+
+    '<div class="titulo">Carnets de Identificación — '+brandNom()+'</div>'+
+    '<div class="sub">'+lista.length+' empleados activos · frente y dorso</div>'+
     '<div class="grid">'+cardsHtml+'</div>'+
     '</body></html>';
   abrirVentanaImpresion(html);
