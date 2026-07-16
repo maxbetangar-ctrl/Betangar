@@ -1570,7 +1570,7 @@ async function cargarDatosDB(){
     // Cargar los abonos PROTEGIDOS (no los pisa el Excel) por núcleo de dígitos.
     if(!a.error&&Array.isArray(a.data))ABONOS_PROTEGIDOS=new Set(a.data.filter(function(x){return x.protegido;}).map(function(x){return _factCore(x.fact);}));
     // EMPLEADOS
-    if(e.data&&e.data.length)EMPLEADOS=e.data.map(function(x){return{id:x.id,nombre:x.nombre,cargo:x.cargo,unidad:x.unidad||'',cedula:x.cedula||'',fnac:x.fnac||'',banco:x.banco||'',tcuenta:x.tcuenta||'',ncuenta:x.ncuenta||'',foto:x.foto_url||'',activo:x.activo!==false,tipoAy:x.tipo_ay||'',email:x.email||'',tel:x.tel||'',whatsapp:x.whatsapp||'',wa_apikey:x.wa_apikey||'',rif:x.rif||'',fingreso:x.fingreso||'',imau:x.imau||false};});
+    if(e.data&&e.data.length)EMPLEADOS=e.data.map(function(x){return{id:x.id,nombre:x.nombre,cargo:x.cargo,unidad:x.unidad||'',cedula:x.cedula||'',fnac:x.fnac||'',banco:x.banco||'',tcuenta:x.tcuenta||'',ncuenta:x.ncuenta||'',foto:x.foto_url||'',activo:x.activo!==false,tipoAy:x.tipo_ay||'',email:x.email||'',tel:x.tel||'',whatsapp:x.whatsapp||'',wa_apikey:x.wa_apikey||'',rif:x.rif||'',fingreso:x.fingreso||'',imau:x.imau||false,multicargo:x.multicargo===true};});
     // GASOIL
     if(ga.data&&ga.data.length){
       GASOIL=ga.data.map(function(x){return{id:x.id,f:x.f,cam:x.cam,lit:x.lit,src:x.src,m:x.m,tipo_operacion:x.tipo_operacion};});
@@ -3377,7 +3377,7 @@ async function guardarImportacionEnDB(resultado){
       id:e.id,nombre:e.nombre,cargo:e.cargo,unidad:e.unidad||'',cedula:e.cedula||'',rif:e.rif||'',
       fnac:e.fnac||null,fingreso:e.fingreso||null,email:e.email||'',tel:e.tel||'',banco:e.banco||'',
       tcuenta:e.tcuenta||'',ncuenta:e.ncuenta||'',tipo_ay:e.tipoAy||'',imau:!!e.imau,foto_url:e.foto||'',
-      activo:e.activo!==false,whatsapp:e.whatsapp||'',wa_apikey:e.wa_apikey||''};}); // fechas vacías → null (Postgres rechaza '' en DATE)
+      activo:e.activo!==false,whatsapp:e.whatsapp||'',wa_apikey:e.wa_apikey||'',multicargo:!!e.multicargo};}); // fechas vacías → null (Postgres rechaza '' en DATE)
     try{var rEmp=await supabase.from('empleados').upsert(empRows,{onConflict:'id'});
       if(rEmp.error){
         // El lote se cayó (una fila mala tumba todo). Reintento UNA POR UNA para salvar las buenas y aislar la mala.
@@ -3561,7 +3561,8 @@ function procesarExcelBetangar(wb){
   // controla qué se lleva a nómina.
   function _syncPersonalExcel(sheetParam){
     if(!sheetParam||typeof _normNom!=='function')return;
-    resultado.personalSync={choferes:0,ayudantes:0,activados:0,inactivados:0,nuevos:0,tocados:[]};
+    resultado.personalSync={choferes:0,ayudantes:0,activados:0,inactivados:0,nuevos:0,nuevos_multicargo:0,tocados:[]};
+    var _impCargo={}; // id → primer cargo visto en ESTE import (para detectar quien está en las 2 hojas)
     function leerRoster(colCorto,colEstado,colCompleto,cargo){
       for(var fr=11;fr<=80;fr++){
         var corto=String(leerCelda(sheetParam,colCorto,fr)||'').trim();
@@ -3580,20 +3581,34 @@ function procesarExcelBetangar(wb){
           return ne===nComp||ne===nCorto||_nomCasa(corto,e.nombre)||_nomCasa(completo,e.nombre);
         });
         if(idx>=0){
-          var e=EMPLEADOS[idx], antesAct=(e.activo!==false), antesNom=e.nombre;
-          e.nombre=completo; e.cargo=cargo;
-          if(cargo==='Ayudante'&&!e.tipoAy)e.tipoAy='interno';
+          var e=EMPLEADOS[idx], antesAct=(e.activo!==false), antesNom=e.nombre, antesCargo=e.cargo, antesMc=!!e.multicargo;
+          e.nombre=completo;
+          // MULTICARGO: si ya está marcado a mano, NO le tocamos el cargo (respeta la decisión).
+          // Si aparece en las DOS hojas del Excel (chofer y ayudante), se marca multicargo y se
+          // conserva el primer cargo visto — antes la 2ª pasada le volteaba el cargo (la confusión).
+          if(e.multicargo){
+            // conservar cargo; solo asegurar tipoAy si corresponde
+          } else if(_impCargo[e.id] && _impCargo[e.id]!==cargo){
+            e.multicargo=true; // estaba en la otra hoja este mismo import
+          } else {
+            e.cargo=cargo;
+          }
+          if((cargo==='Ayudante'||e.cargo==='Ayudante')&&!e.tipoAy)e.tipoAy='interno';
           e.activo=activo;
           if(antesAct&&!activo)resultado.personalSync.inactivados++;
           if(!antesAct&&activo)resultado.personalSync.activados++;
-          if(antesAct!==activo||antesNom!==e.nombre)resultado.personalSync.tocados.push(e);
+          if(!antesMc&&e.multicargo)resultado.personalSync.nuevos_multicargo++;
+          if(antesAct!==activo||antesNom!==e.nombre||antesCargo!==e.cargo||antesMc!==e.multicargo)resultado.personalSync.tocados.push(e);
+          _impCargo[e.id]=_impCargo[e.id]||cargo;
         }else{
-          var nuevo={id:'EX'+String(fr)+(cargo==='Chofer'?'C':'A'),nombre:completo,cargo:cargo,unidad:'',
+          var _nid='EX'+String(fr)+(cargo==='Chofer'?'C':'A');
+          var nuevo={id:_nid,nombre:completo,cargo:cargo,unidad:'',
             cedula:'',rif:'',fnac:'',fingreso:'',email:'',tel:'',banco:'',tcuenta:'',ncuenta:'',
-            tipoAy:(cargo==='Ayudante'?'interno':''),imau:false,foto:'',activo:activo,whatsapp:'',wa_apikey:''};
+            tipoAy:(cargo==='Ayudante'?'interno':''),imau:false,foto:'',activo:activo,whatsapp:'',wa_apikey:'',multicargo:false};
           EMPLEADOS.push(nuevo);
           resultado.personalSync.nuevos++;
           resultado.personalSync.tocados.push(nuevo);
+          _impCargo[_nid]=cargo;
         }
       }
     }
@@ -9343,6 +9358,7 @@ function switchEmpTab(t){['lista','nuevo','carnets','bancario','cumple'].forEach
   if(t==='cumple')renderCumpleanos();
   if(t==='nuevo'){
     ['ne-id','ne-nombre','ne-cargo','ne-unidad','ne-ced','ne-rif','ne-fnac','ne-fingreso','ne-email','ne-tel','ne-banco','ne-tcuenta','ne-ncuenta','ne-imau','ne-tipoAy','ne-whatsapp','ne-wa-apikey'].forEach(function(fid){var el=g(fid);if(el)el.value='';});
+    var _mcn=g('ne-multicargo'); if(_mcn)_mcn.checked=false; try{toggleTipoAy('');}catch(e){}
     sv('ne-foto-b64','');
     var prev=g('ne-foto-preview');if(prev)prev.innerHTML='<span style="font-size:40px;color:var(--text3)">👤</span>';
     var fi=g('ne-foto-input');if(fi)fi.value='';
@@ -9379,16 +9395,22 @@ function renderEmpleados(){
   var betangar=todos.filter(function(e){return !e.imau;}).sort(sortFn);
   var imau=todos.filter(function(e){return e.imau;}).sort(sortFn);
 
-  function card(e){
+  function card(e,split){
+    // ROTA = trabaja como Chofer y Ayudante (marca manual o detectado de las planillas). split={ch,ay} (viajes recientes).
+    var esRot = e.multicargo || (split && ((split.ch||0)>0 && (split.ay||0)>0));
     var borde=e.cargo==='Gerente General'?'#f5c842':e.cargo==='Chofer'?'var(--green)':e.cargo==='Ayudante'?'var(--teal)':'var(--blue)';
     if(e.imau)borde='#ef9f27';
+    if(esRot)borde='#a855f7';
     var inactivo=e.activo===false;
     if(inactivo)borde='var(--text3)';
     var badge=e.imau?'<span style="font-size:9px;background:rgba(239,159,39,.15);color:#ef9f27;border:1px solid rgba(239,159,39,.4);border-radius:10px;padding:1px 6px;margin-left:4px">IMAU</span>':'';
+    if(esRot)badge+='<span style="font-size:9px;background:rgba(168,85,247,.18);color:#c084fc;border:1px solid rgba(168,85,247,.5);border-radius:10px;padding:1px 6px;margin-left:4px" title="Rota entre Chofer y Ayudante — se le paga según el rol real de cada viaje">🔁 Rota</span>';
     if(inactivo)badge+='<span style="font-size:9px;background:rgba(248,113,113,.15);color:var(--red);border:1px solid rgba(248,113,113,.4);border-radius:10px;padding:1px 6px;margin-left:4px">INACTIVO</span>';
-    var h='<div class="card" style="border-top:3px solid '+borde+';cursor:pointer'+(inactivo?';opacity:.6':'')+'" data-eid="'+e.id+'" onclick="empCardClick(this)">';
+    var estiloMulti=(esRot&&!inactivo)?';border:1px dashed #a855f7':'';
+    var h='<div class="card" style="border-top:3px solid '+borde+';cursor:pointer'+estiloMulti+(inactivo?';opacity:.6':'')+'" data-eid="'+e.id+'" onclick="empCardClick(this)">';
     h+='<div style="font-weight:700;font-size:13px">'+e.nombre+badge+'</div>';
-    h+='<div style="font-size:11px;color:var(--text3)">'+e.cargo+' · '+(e.unidad||'')+'</div>';
+    h+='<div style="font-size:11px;color:var(--text3)">'+e.cargo+(esRot?' <span style="color:#c084fc">(rota)</span>':'')+' · '+(e.unidad||'')+'</div>';
+    if(split&&((split.ch||0)>0||(split.ay||0)>0))h+='<div style="font-size:10px;color:#c084fc;margin-top:2px">🚛 '+(split.ch||0)+' viajes · 👷 '+(split.ay||0)+' viajes <span style="color:var(--text3)">(últ. 3 meses)</span></div>';
     if(e.cedula||e.banco)h+='<div style="font-size:10px;color:var(--text3)">'+(e.cedula||'')+(e.banco?' · '+e.banco:'')+'</div>';
     if(e.fingreso)h+='<div style="font-size:10px;color:var(--text3)">📅 Ingreso: '+formatFecha(e.fingreso)+'</div>';
     h+='<div style="display:flex;gap:6px;margin-top:6px">';
@@ -9418,24 +9440,50 @@ function renderEmpleados(){
 
   var html='';
 
+  // ── ROTADORES: quién trabajó de chofer Y de ayudante en las planillas de los últ. ~3 meses. ──
+  // Rol es del VIAJE, no de la persona; el pago ya es por viaje. Acá solo se DETECTA para agruparlos claro.
+  // AUTOMÁTICO: se recalcula en cada render, así que en cuanto entre una planilla nueva donde alguien
+  // salga de chofer y de ayudante, aparece solo en la sección "rotan" (sin marcar nada a mano).
+  var _rotDesde=new Date(Date.now()-90*86400000).toISOString().slice(0,10);
+  var _regsRec=(typeof REGS!=='undefined'?REGS:[]).filter(function(r){return (r.f||'')>=_rotDesde;});
+  var _actMap={};
+  function _rolAct(e){
+    var ch=0, ay=0;
+    _regsRec.forEach(function(r){
+      if(_nomCasa(r.ch,e.nombre)){ ch+=(parseInt(r.t)||0); }
+      else if(_nomCasa(r.ay1,e.nombre)||_nomCasa(r.ay2,e.nombre)||_nomCasa(r.ay3,e.nombre)){ ay+=(parseInt(r.t)||0); }
+    });
+    return {ch:ch, ay:ay};
+  }
+  betangar.forEach(function(e){ var nc=normCargo(e.cargo); if(nc==='chofer'||nc==='ayudante'||e.multicargo)_actMap[e.id]=_rolAct(e); });
+  function esRotador(e){ if(e.multicargo)return true; var a=_actMap[e.id]; return !!(a && a.ch>0 && a.ay>0); }
+
   if(betangar.length){
     html+=secHdr('🏢 Betangar','var(--lime)',betangar.length);
     var grupos=[
       {l:'👔 Dirección',c:['Gerente General']},
       {l:'🏢 Administrativo',c:['Operativo','Administradora','RRHH','Supervisor']},
       {l:'🔧 Operaciones',c:['Mecanico','Vigilante']},
-      {l:'🚛 Choferes',c:['Chofer']},
-      {l:'👷 Ayudantes',c:['Ayudante']}
+      {key:'mixtos',l:'🔁 Chofer y Ayudante (rotan)'},
+      {key:'chofer',l:'🚛 Choferes',c:['Chofer']},
+      {key:'ayud',l:'👷 Ayudantes',c:['Ayudante']}
     ];
     var yaRend=[];
     grupos.forEach(function(grp){
-      var m=betangar.filter(function(e){
-        return grp.c.some(function(c){return normCargo(c)===normCargo(e.cargo);});
-      });
+      var m;
+      if(grp.key==='mixtos'){
+        m=betangar.filter(function(e){var nc=normCargo(e.cargo);return (nc==='chofer'||nc==='ayudante'||e.multicargo)&&esRotador(e);});
+      } else if(grp.key==='chofer'){
+        m=betangar.filter(function(e){return normCargo(e.cargo)==='chofer'&&!esRotador(e);});
+      } else if(grp.key==='ayud'){
+        m=betangar.filter(function(e){return normCargo(e.cargo)==='ayudante'&&!esRotador(e);});
+      } else {
+        m=betangar.filter(function(e){return grp.c.some(function(c){return normCargo(c)===normCargo(e.cargo);});});
+      }
       if(!m.length)return;
       html+=subHdr(grp.l+' ('+m.length+')');
-      html+=m.map(card).join('');
-      m.forEach(function(e){yaRend.push(e.id);});
+      html+=m.map(function(e){return card(e, grp.key==='mixtos'?(_actMap[e.id]||{ch:0,ay:0}):null);}).join('');
+      m.forEach(function(e){if(yaRend.indexOf(e.id)<0)yaRend.push(e.id);});
     });
     var sinGrupo=betangar.filter(function(e){return yaRend.indexOf(e.id)<0;});
     if(sinGrupo.length){
@@ -9446,7 +9494,7 @@ function renderEmpleados(){
 
   if(imau.length){
     html+=secHdr('🟠 Ayudantes IMAU','#ef9f27',imau.length);
-    html+=imau.map(card).join('');
+    html+=imau.map(function(e){return card(e);}).join('');
   }
 
   if(!html)html='<div style="grid-column:1/-1;color:var(--text3);padding:20px;text-align:center">Sin resultados</div>';
@@ -9478,6 +9526,7 @@ function cargarEmp(id){
   sv('ne-ncuenta',e.ncuenta||'');
   sv('ne-tipoAy',e.tipoAy||'');
   toggleTipoAy(e.cargo);
+  var _mc=g('ne-multicargo'); if(_mc)_mc.checked=!!e.multicargo;
   sv('ne-foto-b64','');
   var fi2=g('ne-foto-input');if(fi2)fi2.value='';
   var preview=g('ne-foto-preview');
@@ -9487,7 +9536,7 @@ function cargarEmp(id){
   }
 }
 
-function toggleTipoAy(cargo){var fw=g('fg-tipoAy');if(fw)fw.style.display=cargo==='Ayudante'?'block':'none';}
+function toggleTipoAy(cargo){var fw=g('fg-tipoAy');if(fw)fw.style.display=cargo==='Ayudante'?'block':'none';var mc=g('fg-multicargo');if(mc)mc.style.display=(cargo==='Chofer'||cargo==='Ayudante')?'block':'none';}
 
 function previewFoto(input){
   var file=input.files[0];if(!file)return;
@@ -9515,14 +9564,14 @@ async function guardarEmpleado(){
   var idx=EMPLEADOS.findIndex(function(e){return e.id===id;});
   // Preservar baja: editar un empleado dado de baja NO debe reactivarlo. Nuevos empleados nacen activos.
   var activoPrev=idx>=0?(EMPLEADOS[idx].activo!==false):true;
-  var emp={id:id,nombre:nombre.toUpperCase(),cargo:gv('ne-cargo'),imau:gv('ne-imau')==='true',unidad:gv('ne-unidad'),cedula:gv('ne-ced'),rif:gv('ne-rif')||'',fnac:gv('ne-fnac'),fingreso:gv('ne-fingreso')||'',email:gv('ne-email'),tel:gv('ne-tel')||'',banco:gv('ne-banco'),whatsapp:gv('ne-whatsapp')||'',wa_apikey:gv('ne-wa-apikey')||'',tcuenta:gv('ne-tcuenta'),ncuenta:gv('ne-ncuenta'),tipoAy:gv('ne-tipoAy'),foto:gv('ne-foto-b64')||'',activo:activoPrev};
+  var emp={id:id,nombre:nombre.toUpperCase(),cargo:gv('ne-cargo'),imau:gv('ne-imau')==='true',unidad:gv('ne-unidad'),cedula:gv('ne-ced'),rif:gv('ne-rif')||'',fnac:gv('ne-fnac'),fingreso:gv('ne-fingreso')||'',email:gv('ne-email'),tel:gv('ne-tel')||'',banco:gv('ne-banco'),whatsapp:gv('ne-whatsapp')||'',wa_apikey:gv('ne-wa-apikey')||'',tcuenta:gv('ne-tcuenta'),ncuenta:gv('ne-ncuenta'),tipoAy:gv('ne-tipoAy'),foto:gv('ne-foto-b64')||'',activo:activoPrev,multicargo:(g('ne-multicargo')?g('ne-multicargo').checked:false)};
   if(idx>=0)EMPLEADOS[idx]=emp;else EMPLEADOS.push(emp);
   var resEmp=await supabase.from('empleados').upsert([{
     id:emp.id,nombre:emp.nombre,cargo:emp.cargo,unidad:emp.unidad,
     cedula:emp.cedula,rif:emp.rif||'',fnac:emp.fnac||null,fingreso:emp.fingreso||null,
     email:emp.email,tel:emp.tel||'',banco:emp.banco,tcuenta:emp.tcuenta,
     ncuenta:emp.ncuenta,tipo_ay:emp.tipoAy,imau:emp.imau,foto_url:emp.foto,
-    activo:emp.activo,whatsapp:emp.whatsapp||'',wa_apikey:emp.wa_apikey||''
+    activo:emp.activo,whatsapp:emp.whatsapp||'',wa_apikey:emp.wa_apikey||'',multicargo:!!emp.multicargo
   }],{onConflict:'id'});
   if(resEmp.error){
     console.error('Error guardando empleado:',resEmp.error);
@@ -10521,7 +10570,7 @@ function reactivarEmpleadoNomina(empId){
         id:e.id,nombre:e.nombre,cargo:e.cargo,unidad:e.unidad||'',cedula:e.cedula||'',rif:e.rif||'',
         fnac:e.fnac||'',fingreso:e.fingreso||'',email:e.email||'',tel:e.tel||'',banco:e.banco||'',
         tcuenta:e.tcuenta||'',ncuenta:e.ncuenta||'',tipo_ay:e.tipoAy||'',imau:!!e.imau,foto_url:e.foto||'',
-        activo:true,whatsapp:e.whatsapp||'',wa_apikey:e.wa_apikey||''
+        activo:true,whatsapp:e.whatsapp||'',wa_apikey:e.wa_apikey||'',multicargo:!!e.multicargo
       }],{onConflict:'id'}).then(function(r){if(r&&r.error)console.log('[reactivar]',r.error.message);});
     }
     audit('Empleado reactivado',e.nombre+(motivo?(' — '+motivo):''));

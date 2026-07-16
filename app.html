@@ -2062,6 +2062,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
             </div>
           </div>
           <div class="fg"><label>Cargo</label><select class="fc" id="ne-cargo" onchange="toggleTipoAy(this.value)"><option value="">-- Seleccionar --</option><option>Gerente General</option><option>Administradora</option><option>RRHH</option><option>Operativo</option><option>Supervisor</option><option>Mecanico</option><option>Vigilante</option><option>Chofer</option><option>Ayudante</option><option>Contadora</option><option>Auditora</option></select></div><div class="fg" id="fg-tipoAy" style="display:none"><label>Tipo Ayudante</label><select class="fc" id="ne-tipoAy"><option value="interno">Interno ($5/viaje)</option><option value="imau">IMAU ($2.50/viaje)</option></select></div></div>
+        <div class="fg" id="fg-multicargo" style="display:none;background:rgba(168,85,247,.08);border:1px dashed rgba(168,85,247,.5);border-radius:8px;padding:8px 10px"><label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin:0"><input type="checkbox" id="ne-multicargo" style="width:auto"> 🔁 <b>Rota entre Chofer y Ayudante</b></label><div style="font-size:10px;color:var(--text3);margin-top:4px">El sistema lo detecta solo si en las planillas aparece manejando y ayudando. Marcá esto solo para <b>forzarlo</b> (ej. empleado nuevo sin historial aún). Se le paga según el rol real de cada viaje.</div></div>
         <div class="fg"><label>Unidad / Area</label><select class="fc" id="ne-unidad"></select><button onclick="agregarUnidadArea()" class="btn btn-s btn-sm" style="margin-top:4px;font-size:11px;width:100%">+ Agregar unidad/área</button></div>
         <div class="fg"><label>Fecha de Nacimiento</label><input class="fc" id="ne-fnac" type="date"></div>
           <div class="fg"><label>Fecha de Ingreso</label><input class="fc" id="ne-fingreso" type="date"></div>
@@ -2550,7 +2551,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
   </div>
 </div>
 
-<script src="app.js?v=20260716surtidas"></script>
+<script src="app.js?v=20260716surtidas-multicargo"></script>
 
 <!-- Modal global -->
 <div id="modal" class="moverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9990;align-items:center;justify-content:center;padding:16px">
