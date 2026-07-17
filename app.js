@@ -7580,6 +7580,8 @@ var CXP_FACTURAS=[], CXP_PAGOS=[];
 function _cxpAbonadoUsd(id){return CXP_PAGOS.filter(function(p){return String(p.cxp_id)===String(id);}).reduce(function(s,p){return s+(parseFloat(p.monto_usd)||0);},0);}
 function _cxpSaldoUsd(c){var deuda=parseFloat(c.base_usd||c.baseUsd||0)||0;return deuda-_cxpAbonadoUsd(c.id);}
 function _cxpFacturasDe(id){return CXP_FACTURAS.filter(function(f){return String(f.cxp_id)===String(id);});}
+// Bs SIEMPRE con 2 decimales exactos y sin redondear a entero (los bolívares son céntimos exactos).
+function _bs2(n){return (parseFloat(n)||0).toLocaleString('es-VE',{minimumFractionDigits:2,maximumFractionDigits:2});}
 async function cargarCxpAux(){ // facturas (Bs) + abonos; se llama al abrir Proveedores/CxP
   if(!DB_READY||!supabase)return;
   try{
@@ -7595,6 +7597,7 @@ function switchProvTab(t){
   ['ordenes','cxp','lista','ret','hist'].forEach(function(x){var el=g('tab-prov-'+x);var sw=g('sw-prov-'+x);if(el)el.style.display=x===t?'block':'none';if(sw){sw.classList.remove('on');if(x===t)sw.classList.add('on');}});
   if(t==='cxp'){renderCXP();fillCxpOrdenSelect();}
   if(t==='ret'){fillFacCxpSelect();renderRetenciones();calcFac();}
+  if(t==='hist'){ cargarCxpAux().then(renderHistProv).catch(renderHistProv); }
   if(t==='ordenes'){ if(!_ordServCargadas){_ordServCargadas=true;cargarOrdenesServicio().then(renderOrdenesServicio).catch(renderOrdenesServicio);}else renderOrdenesServicio(); }
 }
 
@@ -7608,12 +7611,21 @@ function _ordenesAbiertasSinCxp(){
 function fillCxpOrdenSelect(){
   var sel=g('cxp-orden'); if(!sel)return; var prev=sel.value;
   var provSel=gv('cxp-prov')||''; // si hay proveedor elegido, mostrar SOLO sus órdenes abiertas
-  var arr=_ordenesAbiertasSinCxp().filter(function(o){ return !provSel || String(o.proveedorId||'')===String(provSel); });
+  var provNomSel=''; if(provSel){var pvv=(typeof PROVEEDORES!=='undefined'?PROVEEDORES:[]).find(function(p){return String(p.id)===String(provSel);}); provNomSel=pvv?(pvv.nombre||''):'';}
+  var _norm=function(s){return String(s||'').trim().toLowerCase();};
+  var arr=_ordenesAbiertasSinCxp().filter(function(o){
+    if(!provSel)return true;
+    if(String(o.proveedorId||'')===String(provSel))return true;
+    // Órdenes con proveedor escrito a mano (sin id): emparejar por nombre para no ocultarlas.
+    if(!o.proveedorId&&provNomSel&&_norm(o.proveedor)===_norm(provNomSel))return true;
+    return false;
+  });
   sel.innerHTML='<option value="">— Sin orden / manual —</option>'+arr.map(function(o){
     var lbl=(o.tipoOrden==='compra'?'🛒 ':'🔧 ')+o.id+' · '+(o.proveedor||'s/proveedor')+' · '+(o.item||o.tipo||'')+(o.costo?(' · $'+parseFloat(o.costo).toFixed(0)):'');
     return '<option value="'+_mEsc(String(o.id))+'">'+_mEsc(lbl.slice(0,70))+'</option>';
   }).join('');
   if(prev)sel.value=prev;
+  window._cxpOrdenId=sel.value||null; // mantener sincronizado con lo realmente visible/seleccionado
 }
 // Al elegir una orden en el form de deuda: enlaza y prellena proveedor / base $ / descripción.
 function cxpOrdenChg(){
@@ -7635,18 +7647,21 @@ function calcCXP(){
   var tasa=getTasa('bcvDolar')||TASAS.bcvDolar||0;
   box.style.display='block';
   var elBase=g('cxp-c-base');if(elBase)elBase.textContent='$'+monto.toFixed(2);
-  var elBs=g('cxp-c-bs');if(elBs)elBs.textContent='Bs '+(monto*tasa).toLocaleString('es-VE',{maximumFractionDigits:0});
+  var elBs=g('cxp-c-bs');if(elBs)elBs.textContent='Bs '+_bs2(monto*tasa);
 }
 
 // Registrar DEUDA (Libro 1, $). total_usd = neto_pagar = base (sin IVA/ret: eso es del Libro Bs).
 function guardarCXP(){
+  if(_cxpEnVuelo)return; // anti doble-click: evita registrar la misma deuda dos veces
   var pid=gv('cxp-prov');var monto=parseFloat(gv('cxp-monto'))||0;
   if(!pid||!(monto>0)){alert('Seleccioná el proveedor e ingresá la base imponible $ (mayor a 0).');return;}
   var pv=PROVEEDORES.find(function(p){return p.id===pid;});
   var plazo=parseInt(gv('cxp-plazo'))||0;
   var fechaBase=gv('cxp-fecha')||fechaVE();
   var fechaV=plazo?addDays(fechaBase,plazo):fechaBase;
-  var ordenId=window._cxpOrdenId||null;
+  // Fuente única = el select visible. Si el usuario cambió de proveedor, la orden se deseleccionó
+  // y NO debe enlazarse una orden obsoleta de otro proveedor (bug del viejo window._cxpOrdenId).
+  var ordenId=gv('cxp-orden')||null;
   var id='CXP'+Date.now();
   var row={
     id:id, fecha:fechaBase, prov_id:pid, prov_nombre:pv?pv.nombre:'--',
@@ -7655,24 +7670,27 @@ function guardarCXP(){
     ret_iva_pct:0, ret_iva_usd:0, ret_islr_pct:0, ret_islr_usd:0,
     neto_pagar:monto, fecha_venc:fechaV, estado:'pendiente', orden_id:ordenId
   };
+  // Éxito (audit/toast/limpiar) SOLO tras confirmar el insert: antes se avisaba "✅" aunque fallara.
+  var exito=function(saved){
+    CXP.push(_normCxpRow(saved||row));
+    window._cxpOrdenId=null;
+    audit('Deuda CxP registrada',(pv?pv.nombre:'')+' $'+monto.toFixed(2));
+    if(typeof mostrarToast==='function')mostrarToast('✅ Deuda registrada: $'+monto.toFixed(2),'exito');
+    ['cxp-nota','cxp-desc','cxp-monto','cxp-orden'].forEach(function(x){sv(x,'');});
+    if(g('cxp-calculo'))g('cxp-calculo').style.display='none';
+    if(typeof renderCxP==='function')renderCxP();
+    renderCXP();
+    _cxpEnVuelo=false;
+  };
+  _cxpEnVuelo=true;
   if(DB_READY&&supabase){
     supabase.from('cxp').insert([row]).select().then(function(r){
-      if(r.error){console.log('CxP error:',r.error.message);if(typeof mostrarToast==='function')mostrarToast('No se guardó la deuda: '+r.error.message,'error');return;}
-      var saved=(r.data&&r.data[0])?r.data[0]:row;
-      CXP.push(_normCxpRow(saved));
-      if(typeof renderCxP==='function')renderCxP();
-      renderCXP();
+      if(r.error){_cxpEnVuelo=false;console.log('CxP error:',r.error.message);if(typeof mostrarToast==='function')mostrarToast('No se guardó la deuda: '+r.error.message,'error');return;}
+      exito((r.data&&r.data[0])?r.data[0]:row);
     });
-  } else {
-    CXP.push(_normCxpRow(row));
-  }
-  window._cxpOrdenId=null;
-  audit('Deuda CxP registrada',(pv?pv.nombre:'')+' $'+monto.toFixed(2));
-  if(typeof mostrarToast==='function')mostrarToast('✅ Deuda registrada: $'+monto.toFixed(2),'exito');
-  ['cxp-nota','cxp-desc','cxp-monto','cxp-orden'].forEach(function(id){sv(id,'');});
-  g('cxp-calculo').style.display='none';
-  renderCXP();
+  } else { exito(row); }
 }
+var _cxpEnVuelo=false;
 
 function renderCXP(){
   var filtro=gv('cxp-filtro-estado')||'';
@@ -7790,7 +7808,7 @@ function imprimirCXP(){
     });
     filasHtml+='<tr class="sub"><td colspan="5">Subtotal '+_mEsc(gr.nom)+' ('+gr.filas.length+')</td><td class="n b">$'+subt.toFixed(2)+'</td><td></td></tr>';
   });
-  var bsGen=tasa>0?' <span style="font-weight:400;font-size:12px;color:#555">≈ Bs '+(totGen*tasa).toLocaleString('es-VE',{maximumFractionDigits:0})+'</span>':'';
+  var bsGen=tasa>0?' <span style="font-weight:400;font-size:12px;color:#555">≈ Bs '+_bs2(totGen*tasa)+'</span>':'';
   var titulo=provFil?('Cuentas por Pagar — '+provNom):'Cuentas por Pagar — General';
   var w=window.open('','_blank');
   w.document.write('<!doctype html><html><head><meta charset="utf-8"><title>'+_mEsc(titulo)+'</title><style>'+
@@ -7809,12 +7827,12 @@ function imprimirCXP(){
 }
 // KPIs de retención del mes en Bs (Libro 2)
 function _refrescarKpiRetBs(){
-  var mes=new Date().toISOString().slice(0,7);
+  var mes=(typeof fechaVE==='function'?fechaVE():new Date().toISOString().slice(0,10)).slice(0,7);
   var facMes=CXP_FACTURAS.filter(function(f){return String(f.fecha||'').slice(0,7)===mes;});
   var rIva=facMes.reduce(function(s,f){return s+(parseFloat(f.ret_iva_bs)||0);},0);
   var rIslr=facMes.reduce(function(s,f){return s+(parseFloat(f.ret_islr_bs)||0);},0);
-  if(g('cxp-kpi-iva'))g('cxp-kpi-iva').textContent='Bs '+rIva.toLocaleString('es-VE',{maximumFractionDigits:0});
-  if(g('cxp-kpi-islr'))g('cxp-kpi-islr').textContent='Bs '+rIslr.toLocaleString('es-VE',{maximumFractionDigits:0});
+  if(g('cxp-kpi-iva'))g('cxp-kpi-iva').textContent='Bs '+_bs2(rIva);
+  if(g('cxp-kpi-islr'))g('cxp-kpi-islr').textContent='Bs '+_bs2(rIslr);
 }
 // Ir a cargar una factura Bs para una deuda concreta
 function facturarDeuda(id){
@@ -7828,8 +7846,11 @@ function abrirAbonoCxp(id){
   var saldo=_cxpSaldoUsd(c);
   sv('abono-cxp-id',String(c.id));
   sv('abono-fecha',fechaVE());
-  sv('abono-tasa',String(getTasa('bcvDolar')||TASAS.bcvDolar||''));
-  sv('abono-bs','');sv('abono-ref','');sv('abono-obs','');
+  var _tasaAb=parseFloat(getTasa('bcvDolar')||TASAS.bcvDolar||0)||0;
+  sv('abono-tasa',String(_tasaAb||''));
+  // Por defecto paga el TOTAL (saldo*tasa); el usuario baja el monto si es abono parcial.
+  sv('abono-bs',(_tasaAb>0&&saldo>0.005)?(saldo*_tasaAb).toFixed(2):'');
+  sv('abono-ref','');sv('abono-obs','');
   var info=g('abono-info'); if(info)info.innerHTML='<b>'+(c.prov_nombre||c.prov||'')+'</b><br>Deuda $'+parseFloat(c.base_usd||0).toFixed(2)+' · Abonado $'+_cxpAbonadoUsd(c.id).toFixed(2)+' · <b style="color:var(--lime)">Saldo $'+saldo.toFixed(2)+'</b>';
   calcAbonoCxp();
   var m=g('abono-modal'); if(m)m.style.display='flex';
@@ -7843,27 +7864,34 @@ function calcAbonoCxp(){
   var el=g('abono-usd'); if(el)el.textContent='$'+usd.toFixed(2);
   var el2=g('abono-saldo-post'); if(el2)el2.textContent='$'+(saldo-usd).toFixed(2);
 }
+var _abonoEnVuelo=false;
 function guardarAbonoCxp(){
+  if(_abonoEnVuelo)return; // anti doble-click: un doble abono infla los pagos y salda de más
   var id=gv('abono-cxp-id'); var c=CXP.find(function(x){return String(x.id)===String(id);}); if(!c)return;
   var bs=parseFloat(gv('abono-bs'))||0; var tasa=parseFloat(gv('abono-tasa'))||0;
   if(!(bs>0)){alert('Ingresá el monto en Bs.');return;}
   if(!(tasa>0)){alert('Ingresá la tasa del día.');return;}
   var usd=bs/tasa;
+  var saldoAntes=_cxpSaldoUsd(c);
+  if(usd>saldoAntes+0.01 && !confirm('El abono ($'+usd.toFixed(2)+') es MAYOR que el saldo ($'+saldoAntes.toFixed(2)+').\n\n¿Registrarlo igual? (la deuda quedará con saldo negativo)'))return;
   var row={cxp_id:String(c.id),fecha:gv('abono-fecha')||fechaVE(),monto_bs:bs,tasa_val:tasa,monto_usd:parseFloat(usd.toFixed(2)),metodo:gv('abono-metodo')||'',ref:gv('abono-ref')||'',obs:gv('abono-obs')||''};
+  _abonoEnVuelo=true;
   var finish=function(saved){
+    _abonoEnVuelo=false;
     CXP_PAGOS.push(saved||row);
     var saldo=_cxpSaldoUsd(c);
     if(saldo<=0.005){ // deuda saldada → cerrar (guarda tasa del último pago para el cierre en Bs)
       c.estado='pagada'; c.fecha_pago=row.fecha; c.fechaPago=row.fecha; c.tasa_val=tasa; c.tasaVal=tasa;
       if(DB_READY&&supabase)supabase.from('cxp').update({estado:'pagada',fecha_pago:row.fecha,tasa_val:tasa}).eq('id',c.id).then(function(r){if(r.error)console.log('cxp cierre',r.error.message);});
     }
-    audit('Abono CxP',(c.prov_nombre||'')+' Bs'+bs.toFixed(0)+' ($'+usd.toFixed(2)+')');
-    if(typeof mostrarToast==='function')mostrarToast('💵 Abono registrado: Bs '+bs.toLocaleString('es-VE',{maximumFractionDigits:0})+' ($'+usd.toFixed(2)+')','exito');
+    audit('Abono CxP',(c.prov_nombre||'')+' Bs'+_bs2(bs)+' ($'+usd.toFixed(2)+')');
+    if(typeof mostrarToast==='function')mostrarToast('💵 Abono registrado: Bs '+_bs2(bs)+' ($'+usd.toFixed(2)+')','exito');
     cerrarAbonoCxp(); renderCXP(); if(typeof renderCxP==='function')renderCxP();
+    if(typeof renderHistProv==='function'&&g('tab-prov-hist')&&g('tab-prov-hist').style.display!=='none')renderHistProv();
   };
   if(DB_READY&&supabase){
     supabase.from('cxp_pagos').insert([row]).select().then(function(r){
-      if(r.error){alert('No se guardó el abono: '+r.error.message);return;}
+      if(r.error){_abonoEnVuelo=false;alert('No se guardó el abono: '+r.error.message);return;}
       finish((r.data&&r.data[0])?r.data[0]:row);
     });
   } else finish(row);
@@ -7872,10 +7900,22 @@ function guardarAbonoCxp(){
 // ══════════ FACTURAS + RETENCIONES (Bs) — Libro 2 ══════════
 function fillFacCxpSelect(){
   var sel=g('fac-cxp'); if(!sel)return; var prev=sel.value;
-  sel.innerHTML='<option value="">-- Seleccionar deuda --</option>'+CXP.slice().reverse().map(function(c){
-    var saldo=_cxpSaldoUsd(c);
-    return'<option value="'+_mEsc(String(c.id))+'">'+_mEsc((c.prov_nombre||c.prov||'')+' · '+String(c.descripcion||c.desc||'').slice(0,24)+' · $'+parseFloat(c.base_usd||0).toFixed(0)+(saldo>0.005?'':' (pagada)'))+'</option>';
-  }).join('');
+  // Mostrar deudas ABIERTAS, saldadas (p.ej. pago BNC antes de que llegue la factura) o que ya
+  // tienen alguna factura (para agregar otra), agrupadas por proveedor.
+  var arr=CXP.filter(function(c){return _cxpSaldoUsd(c)>0.005||_cxpPagada(c)||_cxpFacturasDe(c.id).length;});
+  var grupos={};
+  arr.forEach(function(c){var k=(c.prov_nombre||c.prov||'Sin proveedor'); (grupos[k]=grupos[k]||[]).push(c);});
+  var html='<option value="">-- Seleccionar deuda --</option>';
+  Object.keys(grupos).sort(function(a,b){return a.localeCompare(b);}).forEach(function(k){
+    html+='<optgroup label="'+_mEsc(k)+'">';
+    grupos[k].slice().reverse().forEach(function(c){
+      var saldo=_cxpSaldoUsd(c);
+      var lbl=formatFecha(c.fecha)+' · '+String(c.descripcion||c.desc||c.orden_id||'').slice(0,24)+' · $'+parseFloat(c.base_usd||0).toFixed(0)+(saldo>0.005?'':' (saldada)');
+      html+='<option value="'+_mEsc(String(c.id))+'">'+_mEsc(lbl)+'</option>';
+    });
+    html+='</optgroup>';
+  });
+  sel.innerHTML=html;
   if(prev)sel.value=prev;
 }
 function facConceptoChg(){ var ap=g('fac-islr-aplica'); if(ap)ap.value=(gv('fac-concepto')==='servicios')?'1':'0'; }
@@ -7916,13 +7956,26 @@ function calcFac(){
   if(g('fc-retiva'))g('fc-retiva').textContent='-'+f(v.retIva);
   if(g('fc-retislr'))g('fc-retislr').textContent='-'+f(v.retIslr);
   if(g('fc-neto'))g('fc-neto').textContent=f(v.neto);
+  // Pago inmediato: solo posible si hay tasa (para saldar en $). Sin tasa, se deshabilita.
+  var ck=g('fac-pagar-ya'), det=g('fac-pago-detalle'), hint=g('fac-pago-hint');
+  if(ck){
+    var hayTasa=v.tasa>0;
+    var cc=CXP.find(function(x){return String(x.id)===String(gv('fac-cxp'));});
+    var saldoCc=cc?_cxpSaldoUsd(cc):0;
+    ck.disabled=!hayTasa; if(!hayTasa)ck.checked=false;
+    if(det)det.style.display=ck.checked?'':'none';
+    if(hint)hint.textContent=!hayTasa?'Cargá la tasa BCV del día para poder registrar el pago aquí.':(!cc?'':(ck.checked?(saldoCc>0.005?('Saldará $'+saldoCc.toFixed(2)+' de la deuda. El neto Bs '+_bs2(v.neto)+' es lo que se paga al proveedor.'):'Esta deuda ya está saldada; solo se cargará la factura.'):''));
+  }
 }
+var _facEnVuelo=false;
 function guardarFactura(){
+  if(_facEnVuelo)return; // anti doble-click: la factura ahora también puede generar un pago
   var id=gv('fac-cxp'); var c=CXP.find(function(x){return String(x.id)===String(id);});
   if(!c){alert('Seleccioná la deuda / orden a la que pertenece la factura.');return;}
   var v=_calcFacVals();
   if(!(v.base>0)){alert('Ingresá la base imponible en Bs.');return;}
   if(!gv('fac-num')){alert('Ingresá el N° de factura.');return;}
+  var pagarYa=!!(g('fac-pagar-ya')&&g('fac-pagar-ya').checked&&!g('fac-pagar-ya').disabled&&v.tasa>0);
   var row={
     cxp_id:String(c.id), orden_id:c.orden_id||null, prov_id:c.provId||c.prov_id||null, prov_nombre:c.prov_nombre||c.prov||'',
     fecha:gv('fac-fecha')||fechaVE(), nro_factura:gv('fac-num')||'', num_control:gv('fac-control')||'',
@@ -7932,24 +7985,68 @@ function guardarFactura(){
     islr_aplica:v.islrAplica, ret_islr_pct:v.islrPct, sustraendo_bs:v.sustr, ret_islr_bs:parseFloat(v.retIslr.toFixed(2)),
     total_bs:parseFloat(v.total.toFixed(2)), neto_bs:parseFloat(v.neto.toFixed(2)), tasa_val:v.tasa||null
   };
+  _facEnVuelo=true;
   var finish=function(saved){
     CXP_FACTURAS.unshift(saved||row);
-    audit('Factura Bs cargada',(row.prov_nombre)+' '+row.nro_factura+' Bs'+v.base.toFixed(0));
-    if(typeof mostrarToast==='function')mostrarToast('🧾 Factura guardada · Ret. IVA Bs '+v.retIva.toFixed(0)+(v.retIslr?' · Ret. ISLR Bs '+v.retIslr.toFixed(0):''),'exito');
-    ['fac-num','fac-control','fac-base','fac-sustraendo'].forEach(function(x){sv(x,'');});
-    sv('fac-sustraendo','0'); g('fac-calc').style.display='none';
-    renderRetenciones(); renderCXP();
+    audit('Factura Bs cargada',(row.prov_nombre)+' '+row.nro_factura+' Bs'+v.base.toFixed(2));
+    var toastMsg='🧾 Factura guardada · Ret. IVA Bs '+_bs2(v.retIva)+(v.retIslr?' · Ret. ISLR Bs '+_bs2(v.retIslr):'');
+    var limpiar=function(){
+      _facEnVuelo=false;
+      ['fac-num','fac-control','fac-base','fac-sustraendo','fac-pago-ref'].forEach(function(x){if(g(x))sv(x,'');});
+      sv('fac-sustraendo','0'); g('fac-calc').style.display='none';
+      renderRetenciones(); renderCXP();
+      if(typeof renderHistProv==='function'&&g('tab-prov-hist')&&g('tab-prov-hist').style.display!=='none')renderHistProv();
+      calcFac();
+    };
+    if(pagarYa){
+      _registrarPagoDesdeFactura(c,v,row.nro_factura,function(usdPagado,saldoRest){
+        if(typeof mostrarToast==='function')mostrarToast(toastMsg+(usdPagado>0.005?(' · 💵 Deuda saldada $'+usdPagado.toFixed(2)+(saldoRest>0.005?(' (queda $'+saldoRest.toFixed(2)+')'):'')):''),'exito');
+        limpiar();
+      });
+    } else {
+      if(typeof mostrarToast==='function')mostrarToast(toastMsg,'exito');
+      limpiar();
+    }
   };
   if(DB_READY&&supabase){
     supabase.from('cxp_facturas').insert([row]).select().then(function(r){
-      if(r.error){alert('No se guardó la factura: '+r.error.message);return;}
+      if(r.error){_facEnVuelo=false;alert('No se guardó la factura: '+r.error.message);return;}
       finish((r.data&&r.data[0])?r.data[0]:row);
     });
   } else finish(row);
 }
+// Crea el ABONO que salda la deuda cuando se marca "registrar pago" al cargar la factura.
+// Salda el SALDO $ restante completo (modelo: facturé y pagué). El Bs registrado es el NETO real
+// al proveedor (base+IVA−retenciones); la diferencia con el $ es lo retenido para el SENIAT.
+function _registrarPagoDesdeFactura(c,v,nroFactura,cb){
+  var saldo=_cxpSaldoUsd(c);
+  if(saldo<=0.005){ if(cb)cb(0,saldo); return; } // ya estaba saldada: solo se cargó la factura
+  var row={
+    cxp_id:String(c.id), fecha:gv('fac-fecha')||fechaVE(),
+    monto_bs:parseFloat(v.neto.toFixed(2)), tasa_val:v.tasa, monto_usd:parseFloat(saldo.toFixed(2)),
+    metodo:gv('fac-pago-metodo')||'transferencia',
+    ref:gv('fac-pago-ref')||('FACT '+nroFactura),
+    obs:'Pago neto factura '+nroFactura+' · Bs '+_bs2(v.neto)+((v.retIva||v.retIslr)?(' (ret. IVA Bs '+_bs2(v.retIva)+(v.retIslr?' + ISLR Bs '+_bs2(v.retIslr):'')+')'):'')
+  };
+  var done=function(saved){
+    CXP_PAGOS.push(saved||row);
+    // deuda saldada → cerrar (guarda tasa del pago para el cierre contable en Bs)
+    c.estado='pagada'; c.fecha_pago=row.fecha; c.fechaPago=row.fecha; c.tasa_val=v.tasa; c.tasaVal=v.tasa;
+    if(DB_READY&&supabase)supabase.from('cxp').update({estado:'pagada',fecha_pago:row.fecha,tasa_val:v.tasa}).eq('id',c.id).then(function(r){if(r.error)console.log('cxp cierre fact',r.error.message);});
+    audit('Pago CxP (desde factura)',(c.prov_nombre||'')+' $'+saldo.toFixed(2)+' Bs'+_bs2(v.neto));
+    if(cb)cb(saldo,_cxpSaldoUsd(c));
+  };
+  if(DB_READY&&supabase){
+    supabase.from('cxp_pagos').insert([row]).select().then(function(r){
+      if(r.error){alert('La factura se guardó, pero NO se pudo registrar el pago: '+r.error.message+'\nRegistralo a mano con 💵 Abonar.');if(cb)cb(0,saldo);return;}
+      done((r.data&&r.data[0])?r.data[0]:row);
+    });
+  } else done(row);
+}
 function renderRetenciones(){
-  if(g('ret-mes')&&!gv('ret-mes'))sv('ret-mes',new Date().toISOString().slice(0,7));
-  var mes=gv('ret-mes')||new Date().toISOString().slice(0,7);
+  var mesHoy=(typeof fechaVE==='function'?fechaVE():new Date().toISOString().slice(0,10)).slice(0,7);
+  if(g('ret-mes')&&!gv('ret-mes'))sv('ret-mes',mesHoy);
+  var mes=gv('ret-mes')||mesHoy;
   var facs=CXP_FACTURAS.filter(function(f){return String(f.fecha||'').slice(0,7)===mes;});
   _refrescarKpiRetBs();
   var sumBase=facs.reduce(function(s,f){return s+(parseFloat(f.base_bs)||0);},0);
@@ -7957,7 +8054,7 @@ function renderRetenciones(){
   var sumRIva=facs.reduce(function(s,f){return s+(parseFloat(f.ret_iva_bs)||0);},0);
   var sumRIslr=facs.reduce(function(s,f){return s+(parseFloat(f.ret_islr_bs)||0);},0);
   var sumNeto=facs.reduce(function(s,f){return s+(parseFloat(f.neto_bs)||0);},0);
-  var fBs=function(n){return 'Bs '+n.toLocaleString('es-VE',{maximumFractionDigits:0});};
+  var fBs=function(n){return 'Bs '+_bs2(n);};
   var res=g('ret-resumen');
   if(res)res.innerHTML='<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:12px">'+
     '<div>Facturas: <b>'+facs.length+'</b></div>'+
@@ -7974,13 +8071,13 @@ function renderRetenciones(){
       '<td style="font-size:11px;font-weight:700">'+(f.prov_nombre||'')+'</td>'+
       '<td style="font-family:var(--m);font-size:10px">'+(f.nro_factura||'')+'</td>'+
       '<td style="font-size:10px">'+(f.concepto==='bienes'?'Bienes':'Servicios')+'</td>'+
-      '<td style="font-family:var(--m)">'+(parseFloat(f.base_bs)||0).toLocaleString('es-VE',{maximumFractionDigits:0})+'</td>'+
-      '<td style="font-family:var(--m)">'+(parseFloat(f.iva_bs)||0).toLocaleString('es-VE',{maximumFractionDigits:0})+'</td>'+
+      '<td style="font-family:var(--m)">'+_bs2(f.base_bs)+'</td>'+
+      '<td style="font-family:var(--m)">'+_bs2(f.iva_bs)+'</td>'+
       '<td>'+(parseFloat(f.ret_iva_pct)||0)+'%</td>'+
-      '<td style="font-family:var(--m);color:var(--red)">'+(parseFloat(f.ret_iva_bs)||0).toLocaleString('es-VE',{maximumFractionDigits:0})+'</td>'+
+      '<td style="font-family:var(--m);color:var(--red)">'+_bs2(f.ret_iva_bs)+'</td>'+
       '<td>'+(f.islr_aplica?((parseFloat(f.ret_islr_pct)||0)+'%'):'—')+'</td>'+
-      '<td style="font-family:var(--m);color:var(--red)">'+(parseFloat(f.ret_islr_bs)||0).toLocaleString('es-VE',{maximumFractionDigits:0})+'</td>'+
-      '<td style="font-family:var(--m);font-weight:700;color:var(--green)">'+(parseFloat(f.neto_bs)||0).toLocaleString('es-VE',{maximumFractionDigits:0})+'</td>'+
+      '<td style="font-family:var(--m);color:var(--red)">'+_bs2(f.ret_islr_bs)+'</td>'+
+      '<td style="font-family:var(--m);font-weight:700;color:var(--green)">'+_bs2(f.neto_bs)+'</td>'+
       '<td><button class="btn btn-xs" style="background:#fee2e2;color:#991b1b" onclick="borrarFactura(\''+f.id+'\')" title="Borrar">🗑️</button></td>'+
     '</tr>';
   }).join('')||'<tr><td colspan="12" style="text-align:center;color:var(--text3);padding:16px">Sin facturas cargadas en '+mes+'</td></tr>';
@@ -8003,6 +8100,64 @@ function exportRetenciones(){
   var blob=new Blob([csv],{type:'text/csv;charset=utf-8;'});
   var a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='retenciones_'+mes+'.csv'; a.click();
   setTimeout(function(){URL.revokeObjectURL(a.href);},1500);
+}
+
+// ══════════ HISTORIAL DE PAGOS A PROVEEDORES (pestaña "Historial") ══════════
+// Un renglón por ABONO (cxp_pagos) enlazado con su deuda (CXP) y facturas (cxp_facturas).
+// + filas legacy: deudas 'pagada' SIN abono (flujo viejo BNC) para no dejar el histórico en blanco.
+function renderHistProv(){
+  var tb=g('tb-pv-hist'); if(!tb)return;
+  var mesHoy=(typeof fechaVE==='function'?fechaVE():new Date().toISOString().slice(0,10)).slice(0,7);
+  var filas=[];
+  CXP_PAGOS.forEach(function(p){
+    var c=CXP.find(function(x){return String(x.id)===String(p.cxp_id);})||{};
+    var facs=_cxpFacturasDe(p.cxp_id);
+    var retBs=facs.reduce(function(s,f){return s+(parseFloat(f.ret_iva_bs)||0)+(parseFloat(f.ret_islr_bs)||0);},0);
+    var tasa=parseFloat(p.tasa_val)||parseFloat((facs[0]||{}).tasa_val)||0;
+    filas.push({
+      fecha:p.fecha||'', prov:c.prov_nombre||c.prov||'—',
+      nota:(c.orden_id?('Orden '+c.orden_id+' · '):'')+String(c.descripcion||c.nota||c.desc||''),
+      factura:facs.map(function(f){return f.nro_factura;}).filter(Boolean).join(', ')||'—',
+      baseUsd:parseFloat(c.base_usd||0)||0, totalUsd:parseFloat(c.total_usd||c.base_usd||0)||0,
+      retUsd:(tasa>0?retBs/tasa:0), retBs:retBs,
+      pagUsd:parseFloat(p.monto_usd||0)||0, pagBs:parseFloat(p.monto_bs||0)||0,
+      tasa:tasa, ref:(p.ref||'')+(p.metodo?(' · '+p.metodo):'')
+    });
+  });
+  var idsConAbono={}; CXP_PAGOS.forEach(function(p){idsConAbono[String(p.cxp_id)]=1;});
+  CXP.filter(function(c){return _cxpPagada(c)&&!idsConAbono[String(c.id)];}).forEach(function(c){
+    var tasa=parseFloat(c.tasa_val)||0; var pagUsd=parseFloat(c.neto_pagar||c.base_usd||0)||0;
+    filas.push({
+      fecha:c.fecha_pago||c.fecha||'', prov:c.prov_nombre||c.prov||'—',
+      nota:(c.orden_id?('Orden '+c.orden_id+' · '):'')+String(c.descripcion||c.nota||''),
+      factura:_cxpFacturasDe(c.id).map(function(f){return f.nro_factura;}).filter(Boolean).join(', ')||(c.factura||'—'),
+      baseUsd:parseFloat(c.base_usd||0)||0, totalUsd:parseFloat(c.total_usd||c.base_usd||0)||0,
+      retUsd:parseFloat(c.ret_iva_usd||0)+parseFloat(c.ret_islr_usd||0), retBs:0,
+      pagUsd:pagUsd, pagBs:(tasa>0?pagUsd*tasa:0), tasa:tasa, ref:(c.ref_bnc||'')
+    });
+  });
+  filas.sort(function(a,b){return String(b.fecha).localeCompare(String(a.fecha));});
+  var tot=filas.reduce(function(s,f){return s+f.pagUsd;},0);
+  var mesTot=filas.filter(function(f){return String(f.fecha).slice(0,7)===mesHoy;}).reduce(function(s,f){return s+f.pagUsd;},0);
+  var retTotBs=CXP_FACTURAS.reduce(function(s,f){return s+(parseFloat(f.ret_iva_bs)||0)+(parseFloat(f.ret_islr_bs)||0);},0);
+  if(g('hist-pv-tot'))g('hist-pv-tot').textContent='$'+tot.toFixed(2);
+  if(g('hist-pv-mes'))g('hist-pv-mes').textContent='$'+mesTot.toFixed(2);
+  if(g('hist-pv-ret'))g('hist-pv-ret').textContent='Bs '+_bs2(retTotBs);
+  tb.innerHTML=filas.map(function(f){
+    return '<tr>'+
+      '<td>'+formatFecha(f.fecha)+'</td>'+
+      '<td style="font-weight:700;font-size:11px">'+_mEsc(f.prov)+'</td>'+
+      '<td style="font-size:10px">'+_mEsc(String(f.nota).slice(0,30))+'</td>'+
+      '<td style="font-family:var(--m);font-size:10px">'+_mEsc(f.factura)+'</td>'+
+      '<td style="font-family:var(--m)">$'+f.baseUsd.toFixed(2)+'</td>'+
+      '<td style="font-family:var(--m)">$'+f.totalUsd.toFixed(2)+'</td>'+
+      '<td style="font-family:var(--m);color:var(--blue)" title="Ret. Bs '+_bs2(f.retBs)+'">'+(f.retUsd>0.005?'$'+f.retUsd.toFixed(2):'—')+'</td>'+
+      '<td style="font-family:var(--m);font-weight:700;color:var(--teal)">$'+f.pagUsd.toFixed(2)+'</td>'+
+      '<td style="font-family:var(--m)">'+(f.pagBs>0.005?'Bs '+_bs2(f.pagBs):'—')+'</td>'+
+      '<td style="font-family:var(--m);font-size:10px">'+(f.tasa>0?f.tasa.toFixed(2):'—')+'</td>'+
+      '<td style="font-family:var(--m);font-size:10px">'+_mEsc(f.ref||'—')+'</td>'+
+    '</tr>';
+  }).join('')||'<tr><td colspan="11" style="text-align:center;color:var(--text3);padding:20px">Sin pagos registrados</td></tr>';
 }
 
 function pagarCXP(id){
@@ -12251,12 +12406,15 @@ function abrirPagarCxP(id){
 
 function cerrarModalPagar(){var m=g('modal-pagar-cxp');if(m)m.style.display='none';}
 
+var _pagoCxpEnVuelo=false;
 async function confirmarPagoCxP(){
   if(!CXP_PAGAR_ID)return;
+  if(_pagoCxpEnVuelo)return; // anti doble-click: evita insertar dos abonos por el saldo completo
   var fecha=gv('pagar-fecha')||fechaVE();
   var ref=gv('pagar-ref')||'';
   var c=CXP.find(function(x){return x.id==CXP_PAGAR_ID;});
   if(!c)return;
+  _pagoCxpEnVuelo=true;
 
   // Generar número de comprobante usando correlativo configurable
   var numComp = await siguienteNumCorrelativo();
@@ -12275,12 +12433,24 @@ async function confirmarPagoCxP(){
     tasa_tipo:'bcv_dia_pago'
   }).eq('id',CXP_PAGAR_ID);
 
-  if(res.error){alert('Error: '+res.error.message);return;}
+  if(res.error){_pagoCxpEnVuelo=false;alert('Error: '+res.error.message);return;}
   var idx=CXP.findIndex(function(x){return x.id==CXP_PAGAR_ID;});
   if(idx>=0){CXP[idx].estado='pagada';CXP[idx].fecha_pago=fecha;CXP[idx].ref_bnc=ref;CXP[idx].num_comprobante=numComp;CXP[idx].tasa_val=tasaPago;CXP[idx].tasa_tipo='bcv_dia_pago';}
 
+  // La tabla viva (renderCXP) calcula el saldo por ABONOS (cxp_pagos), no por estado: sin este
+  // abono, la deuda "pagada por BNC" seguiría apareciendo pendiente. Salda el saldo $ restante.
+  var saldoRest=_cxpSaldoUsd(c);
+  if(saldoRest>0.005){
+    var abo={cxp_id:String(c.id),fecha:fecha,monto_bs:parseFloat((saldoRest*(tasaPago||0)).toFixed(2)),tasa_val:tasaPago||null,monto_usd:parseFloat(saldoRest.toFixed(2)),metodo:'bnc',ref:ref||'',obs:'Pago BNC · comprobante '+numComp};
+    var resAbo=await supabase.from('cxp_pagos').insert([abo]).select();
+    if(resAbo.error){console.log('cxp_pagos BNC',resAbo.error.message);alert('El pago se marcó, pero NO se pudo registrar el abono ('+resAbo.error.message+').\nLa deuda podría seguir apareciendo pendiente: registrá el abono a mano con 💵 Abonar.');}
+    else CXP_PAGOS.push((resAbo.data&&resAbo.data[0])?resAbo.data[0]:abo);
+  }
+
   cerrarModalPagar();
   renderCxP();
+  if(typeof renderCXP==='function')renderCXP();
+  if(typeof renderHistProv==='function'&&g('tab-prov-hist')&&g('tab-prov-hist').style.display!=='none')renderHistProv();
 
   // Notificar a socios
   sendWA('CxP pagada: '+c.prov_nombre+' $'+parseFloat(c.neto_pagar).toFixed(2)+' Ref:'+ref+' Comprobante:'+numComp,['socios']);
@@ -12290,6 +12460,7 @@ async function confirmarPagoCxP(){
     imprimirComprobante(CXP_PAGAR_ID);
   }
   CXP_PAGAR_ID=null;
+  _pagoCxpEnVuelo=false;
 }
 
 function imprimirComprobante(id){
