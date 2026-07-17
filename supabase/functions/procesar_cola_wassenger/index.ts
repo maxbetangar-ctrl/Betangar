@@ -67,9 +67,12 @@ Deno.serve(async (req) => {
 });
 
 // Venezuela: 04141234567 / 0414-1234567 → +584141234567
+// U7: antes `if (s.startsWith('58')) return '+' + s` dejaba pasar "580414..." (el 0 de troncal pegado
+// al país, típico de "+58 0414-…") → número INVÁLIDO y el mensaje moría en silencio. Se maneja 580→58.
 function normalizar(t: string): string {
-  let s = (t || '').replace(/[^\d+]/g, '');
-  if (s.startsWith('+')) return s;
+  let s = (t || '').replace(/\D/g, ''); // solo dígitos (quita +, espacios, guiones)
+  if (!s) return '';
+  if (s.startsWith('580')) s = '58' + s.slice(3); // quita el 0 de troncal pegado al país
   if (s.startsWith('58')) return '+' + s;
   if (s.startsWith('0')) return '+58' + s.slice(1);
   if (s.length === 10) return '+58' + s;

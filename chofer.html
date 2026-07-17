@@ -935,6 +935,7 @@ function _entLinkTexto(){
 function _entTelWa(raw){
   var d = String(raw||'').replace(/\D/g,'');
   if(!d) return '';
+  if(d.indexOf('580')===0) d = '58'+d.slice(3);       // "+58 0414…" -> quita el 0 de troncal pegado al país (si no, 5804… = INVÁLIDO)
   if(d.indexOf('58')===0 && d.length>=12) return d;   // ya trae 58
   if(d.charAt(0)==='0') d = d.slice(1);                // 0414... -> 414...
   if(d.length===10) return '58'+d;                     // 414XXXXXXX -> 58414XXXXXXX
