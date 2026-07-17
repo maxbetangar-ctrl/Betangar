@@ -5211,12 +5211,12 @@ function _osProvOtro(){var s=g('os-prov'),w=g('os-prov-otro-wrap');if(w)w.style.
 // (repuestos/insumos/lo que sea; destino unidad o Patio; proveedor OPCIONAL — se define al comprar).
 function _osTipoOrden(){
   var t=gv('os-tipoorden')||'servicio', compra=(t==='compra');
-  var patioChk=g('os-patio'), patio=compra&&patioChk&&patioChk.checked;
+  var destino=compra?(gv('os-destino')||'unidad'):'unidad';
+  var noUnidad=compra&&(destino==='patio'||destino==='inventario'); // no requiere unidad
   var patioWrap=g('os-patio-wrap'); if(patioWrap)patioWrap.style.display=compra?'block':'none';
-  if(patioChk&&!compra)patioChk.checked=false;
   var tipoWrap=g('os-tipo-wrap'); if(tipoWrap)tipoWrap.style.display=compra?'none':'block';
   var camsLbl=g('os-cams-lbl'); if(camsLbl)camsLbl.textContent=compra?'¿Para cuáles unidades? (ej: 1,2,3)':'Unidades (ej: 1,2,3)';
-  var camsInp=g('os-cams'); if(camsInp){camsInp.disabled=!!patio; camsInp.style.opacity=patio?'0.5':'1'; camsInp.placeholder=patio?'— Patio / uso general —':(compra?'1,2,3 (o marca Patio)':'1,2,3');}
+  var camsInp=g('os-cams'); if(camsInp){camsInp.disabled=!!noUnidad; camsInp.style.opacity=noUnidad?'0.5':'1'; camsInp.placeholder=(destino==='patio'?'— Patio / uso general —':(destino==='inventario'?'— Va a inventario —':(compra?'1,2,3':'1,2,3')));}
   var provLbl=g('os-prov-lbl'); if(provLbl)provLbl.textContent=compra?'Proveedor (opcional — se define al comprar)':'Proveedor / taller';
   var itemLbl=g('os-item-lbl'); if(itemLbl)itemLbl.textContent=compra?'¿Qué se va a comprar?':'Ítem / qué se hará';
   var itemInp=g('os-item'); if(itemInp)itemInp.placeholder=compra?'Ej: 4 baterías, filtros, materiales de oficina...':'Ej: lavado completo, cambio de aceite, revisión de frenos...';
@@ -5233,11 +5233,12 @@ function _osPoblarForm(){
 }
 async function guardarOrdenServicio(){
   var tipoOrden=gv('os-tipoorden')||'servicio', esCompra=(tipoOrden==='compra');
-  var patio=esCompra && g('os-patio') && g('os-patio').checked;
+  var destino=esCompra?(gv('os-destino')||'unidad'):'unidad';
   var cams;
-  if(patio){ cams=['PATIO']; }
+  if(destino==='patio'){ cams=['PATIO']; }
+  else if(destino==='inventario'){ cams=['INVENTARIO']; }
   else { cams=String(gv('os-cams')||'').split(/[,;\s]+/).map(function(n){return _resolverUnidad(n);}).filter(function(c,i,arr){return c&&FLOTA[c]&&arr.indexOf(c)===i;}); }
-  if(!cams.length){alert(esCompra?'Escribe para cuáles unidades es la compra (ej: 1,2,3) o marca 🏭 Patio / uso general.':'Escribe al menos una unidad válida (solo números, ej: 1,2,3).');return;}
+  if(!cams.length){alert(esCompra?'Escribe para cuáles unidades es la compra (ej: 1,2,3), o elegí Destino: Patio o Inventario.':'Escribe al menos una unidad válida (solo números, ej: 1,2,3).');return;}
   var provSel=gv('os-prov'), provNom='', provId='';
   if(provSel==='__otro'){provNom=(gv('os-prov-otro')||'').trim();}
   else if(provSel){var pv=(typeof PROVEEDORES!=='undefined'?PROVEEDORES:[]).find(function(p){return String(p.id)===String(provSel);});provId=provSel;provNom=pv?pv.nombre:'';}
@@ -5253,7 +5254,7 @@ async function guardarOrdenServicio(){
   audit(esCompra?'Orden de Compra emitida':'Orden de Servicio emitida',orden.id+' · '+cams.join(', ')+' · '+(esCompra?(item||'compra'):tipo));
   _osImprimirOrden(orden);
   ['os-cams','os-item','os-notas'].forEach(function(id){sv(id,'');});
-  if(g('os-patio'))g('os-patio').checked=false; _osTipoOrden();
+  if(g('os-destino'))g('os-destino').value='unidad'; _osTipoOrden();
   renderOrdenesServicio();
   if(typeof mostrarToast==='function')mostrarToast('✅ '+(esCompra?'Orden de compra ':'Orden ')+orden.id+' emitida'+(ok?'':' (en cola)'),'exito');
 }
@@ -5335,7 +5336,7 @@ function renderOrdenesServicio(){
   if(tb){
     tb.innerHTML=(ORDENES_SERV||[]).map(function(o){
       var esCompra=(o.tipoOrden==='compra');
-      var destino=(o.cams||[]).map(function(c){return c==='PATIO'?'🏭 Patio':_unidadCorta(c);}).join(', ');
+      var destino=(o.cams||[]).map(function(c){return c==='PATIO'?'🏭 Patio':(c==='INVENTARIO'?'📦 Inventario':_unidadCorta(c));}).join(', ');
       var tipoCel=esCompra?'<span class="badge" style="background:#fff7ed;color:#7a3b00">🛒 Compra</span>':_mEsc(_OS_TIPO_LBL[o.tipo]||o.tipo);
       var cerrar=esCompra?'_iniciarCierreCompra':'_iniciarCierreOrden';
       return '<tr>'+
@@ -5394,12 +5395,14 @@ function _iniciarCierreCompra(id){
   var o=(ORDENES_SERV||[]).find(function(x){return x.id===id;}); if(!o){alert('Orden no encontrada');return;}
   window._ccOrden=id;
   var esPatio=(o.cams||[]).length===1&&o.cams[0]==='PATIO';
-  var destino=esPatio?'🏭 Patio / uso general':(o.cams||[]).map(function(c){return _unidadCorta(c);}).join(', ');
+  var esInv=(o.cams||[]).length===1&&o.cams[0]==='INVENTARIO';
+  var destino=esInv?'📦 Inventario (existencia)':(esPatio?'🏭 Patio / uso general':(o.cams||[]).map(function(c){return _unidadCorta(c);}).join(', '));
   var enc=g('cc-encab'); if(enc)enc.innerHTML='<b>'+_mEsc(o.id)+'</b> · '+_mEsc(o.item||'compra')+' · destino sugerido: '+_mEsc(destino);
   _ccPoblarProv(); _ccPoblarInv();
   if(o.proveedorId)sv('cc-prov',o.proveedorId); _ccProvOtro();
   sv('cc-item',o.item||''); sv('cc-cant','1'); sv('cc-costo',''); sv('cc-garantia',''); sv('cc-pago','contado');
-  if(esPatio){ sv('cc-destino','patio'); }
+  if(esInv){ sv('cc-destino','inventario'); }
+  else if(esPatio){ sv('cc-destino','patio'); }
   else { sv('cc-destino','unidad'); var primera=(o.cams||[])[0]; if(primera&&primera!=='PATIO')sv('cc-cam',String(primera).replace(/\D/g,'').replace(/^0+/,'')); }
   _ccDestino(); _ccInvItem();
   _ccRenderLineas();
