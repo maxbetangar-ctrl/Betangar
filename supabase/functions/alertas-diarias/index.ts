@@ -126,9 +126,11 @@ Deno.serve(async (_req: Request) => {
     const stock: string[] = [];
     for (const it of inv) { const s = Number(it.stock || 0), mn = Number(it.stock_min || 0); if (s <= mn) stock.push(`• ${it.nombre}: ${s} (mín ${mn})`); }
 
+    // ── AVISO PRÓXIMO CAMBIO DE ACEITE → Mecánica + Socios (dedicado, no dentro del digest) ──
+    if (srv.length) { await waSend(`\u{1F527} Próximo cambio de aceite\n${srv.join("\n")}`, ["mecanica", "socios"], wa, dry); }
+
     // ── DIGEST OPERATIVO (admin+socios, cada corrida) ──
     let ops = "";
-    if (srv.length) ops += `\n\u{1F527} SERVICE PRÓXIMO:\n${srv.join("\n")}\n`;
     if (lav.length) ops += `\n\u{1F9FC} LAVADOS VENCIDOS:\n${lav.join("\n")}\n`;
     if (sinPlan.length) ops += `\n\u{1F69B} SIN PLANILLA (3+ días):\n${sinPlan.join("\n")}\n`;
     if (fact.length) ops += `\n\u{1F91D} FACTURAS VENCIDAS:\n${fact.join("\n")}\n`;
