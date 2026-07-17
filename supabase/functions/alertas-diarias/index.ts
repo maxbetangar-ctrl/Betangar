@@ -161,7 +161,7 @@ Deno.serve(async (_req: Request) => {
     if (sinPlan.length) opsBase += `\n🚛 SIN PLANILLA (3+ días):\n${sinPlan.join("\n")}\n`;
     if (contr.length) opsBase += `\n📋 CONTRATOS POR VENCER:\n${contr.join("\n")}\n`;
     if (docs.length) opsBase += `\n📄 DOCUMENTOS POR VENCER:\n${docs.join("\n")}\n`;
-    if (stock.length) opsBase += `\n📦 STOCK CRÍTICO:\n${stock.join("\n")}\n`;
+    // Stock crítico: quitado del aviso por pedido de Máximo (no se envía a nadie).
     // Parte de DINERO (facturas vencidas) — solo admin/socios.
     const opsDinero = fact.length ? `\n🤝 FACTURAS VENCIDAS:\n${fact.join("\n")}\n` : "";
     if (opsBase || opsDinero) { await waSend(`🔔 Resumen ${fechaStr}\n${opsBase}${opsDinero}`, ["admin"], wa, dry); }        // admin + socios (con dinero)
