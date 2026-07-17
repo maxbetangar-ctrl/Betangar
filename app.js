@@ -7676,14 +7676,35 @@ function guardarCXP(){
 
 function renderCXP(){
   var filtro=gv('cxp-filtro-estado')||'';
+  var provFil=gv('cxp-filtro-prov')||''; // filtrar por proveedor (afecta tabla + KPI "Por Pagar")
   var q=(gv('cxp-buscar')||'').toLowerCase();
-  // KPIs: saldo pendiente ($) = deuda - abonos
-  var abiertas=CXP.filter(function(c){return _cxpSaldoUsd(c)>0.005;});
+  var _provId=function(c){return String(c.provId||c.prov_id||'');};
+  // Poblar el selector de proveedores (solo los que tienen alguna deuda) conservando la selección
+  var selP=g('cxp-filtro-prov');
+  if(selP){
+    var mapP={};
+    CXP.forEach(function(c){var id=_provId(c); if(id)mapP[id]=(c.prov_nombre||c.prov||id);});
+    var opts=Object.keys(mapP).map(function(id){return{id:id,nom:mapP[id]};}).sort(function(a,b){return a.nom.localeCompare(b.nom);});
+    selP.innerHTML='<option value="">Todos los proveedores</option>'+opts.map(function(o){return'<option value="'+_mEsc(o.id)+'">'+_mEsc(o.nom)+'</option>';}).join('');
+    selP.value=provFil;
+  }
+  // Desglose "Deuda por proveedor" (SIEMPRE sobre todas las deudas abiertas, sin importar el filtro)
+  var abiertasTodas=CXP.filter(function(c){return _cxpSaldoUsd(c)>0.005;});
+  var porProv={};
+  abiertasTodas.forEach(function(c){var id=_provId(c)||'—'; if(!porProv[id])porProv[id]={nom:(c.prov_nombre||c.prov||'Sin proveedor'),saldo:0,n:0}; porProv[id].saldo+=_cxpSaldoUsd(c); porProv[id].n++;});
+  var provArr=Object.keys(porProv).map(function(id){return{id:id,nom:porProv[id].nom,saldo:porProv[id].saldo,n:porProv[id].n};}).sort(function(a,b){return b.saldo-a.saldo;});
+  var ppEl=g('cxp-por-prov');
+  if(ppEl)ppEl.innerHTML=provArr.length?provArr.map(function(p){
+    var act=(provFil&&provFil===p.id)?'background:var(--card2);':'';
+    return'<div onclick="_cxpFiltrarProv(\''+_mEsc(p.id)+'\')" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center;padding:5px 6px;border-bottom:1px solid var(--border);border-radius:6px;'+act+'"><div><div style="font-size:11px;font-weight:700">'+_mEsc(p.nom)+'</div><div style="font-size:9px;color:var(--text3)">'+p.n+' deuda'+(p.n!==1?'s':'')+'</div></div><div style="font-family:var(--m);font-weight:700;color:var(--red)">$'+p.saldo.toFixed(2)+'</div></div>';
+  }).join('')+'<div style="display:flex;justify-content:space-between;padding:7px 6px 2px;margin-top:2px;border-top:2px solid var(--border);font-weight:800"><span style="font-size:11px">TOTAL '+provArr.length+' prov.</span><span style="font-family:var(--m);color:var(--red)">$'+abiertasTodas.reduce(function(s,c){return s+_cxpSaldoUsd(c);},0).toFixed(2)+'</span></div>':'<div style="color:var(--text3);font-size:12px;padding:8px">Sin deudas por pagar</div>';
+  // KPIs: saldo pendiente ($) = deuda - abonos (respeta el filtro de proveedor si hay uno)
+  var abiertas=abiertasTodas.filter(function(c){return !provFil||_provId(c)===provFil;});
   var vencidasArr=abiertas.filter(function(c){return diasHasta(c.fecha_venc||c.fechaVenc)<=0;});
   var totalPend=abiertas.reduce(function(s,c){return s+_cxpSaldoUsd(c);},0);
   var totalVenc=vencidasArr.reduce(function(s,c){return s+_cxpSaldoUsd(c);},0);
   if(g('cxp-stat-pend'))g('cxp-stat-pend').textContent='$'+totalPend.toFixed(0);
-  if(g('cxp-cnt-pend'))g('cxp-cnt-pend').textContent=abiertas.length+' deudas';
+  if(g('cxp-cnt-pend'))g('cxp-cnt-pend').textContent=abiertas.length+' deudas'+(provFil?' (filtrado)':'');
   if(g('cxp-stat-venc'))g('cxp-stat-venc').textContent='$'+totalVenc.toFixed(0);
   if(g('cxp-cnt-venc'))g('cxp-cnt-venc').textContent=vencidasArr.length+' deudas';
   // Retenciones del mes en Bs (desde las facturas del Libro Bs)
@@ -7696,6 +7717,7 @@ function renderCXP(){
   var tb=g('tb-cxp'); if(!tb)return;
   var datos=CXP.slice().reverse().filter(function(c){
     var saldo=_cxpSaldoUsd(c);
+    if(provFil&&_provId(c)!==provFil)return false;
     if(filtro==='pendiente'&&!(saldo>0.005))return false;
     if(filtro==='pagado'&&saldo>0.005)return false;
     if(filtro==='vencida'&&!(saldo>0.005&&diasHasta(c.fecha_venc||c.fechaVenc)<=0))return false;
@@ -7727,6 +7749,63 @@ function renderCXP(){
       '</td>'+
     '</tr>';
   }).join('')||'<tr><td colspan="11" style="text-align:center;color:var(--text3);padding:20px">Sin deudas por pagar</td></tr>';
+}
+// Clic en una fila del desglose "Deuda por proveedor" → filtra (toggle)
+function _cxpFiltrarProv(id){
+  var sel=g('cxp-filtro-prov'); if(!sel)return;
+  sel.value=(sel.value===String(id))?'':String(id); // segundo clic quita el filtro
+  renderCXP();
+}
+// Imprimir Cuentas por Pagar (por proveedor si hay filtro, o general) con totales
+function imprimirCXP(){
+  var provFil=gv('cxp-filtro-prov')||'';
+  var _provId=function(c){return String(c.provId||c.prov_id||'');};
+  var abiertas=CXP.filter(function(c){return _cxpSaldoUsd(c)>0.005;})
+    .filter(function(c){return !provFil||_provId(c)===provFil;})
+    .sort(function(a,b){return String(a.prov_nombre||'').localeCompare(String(b.prov_nombre||''))||String(a.fecha).localeCompare(String(b.fecha));});
+  if(!abiertas.length){mostrarToast('No hay deudas pendientes para imprimir','info');return;}
+  var provNom=provFil?(abiertas[0].prov_nombre||abiertas[0].prov||''):'';
+  var tasa=parseFloat(getTasa('bcvDolar')||TASAS.bcvDolar||0)||0;
+  // Agrupar por proveedor
+  var grupos={};
+  abiertas.forEach(function(c){var id=_provId(c)||'—'; if(!grupos[id])grupos[id]={nom:(c.prov_nombre||c.prov||'Sin proveedor'),filas:[]}; grupos[id].filas.push(c);});
+  var totGen=0,totGenVenc=0,filasHtml='';
+  Object.keys(grupos).sort(function(a,b){return grupos[a].nom.localeCompare(grupos[b].nom);}).forEach(function(id){
+    var gr=grupos[id],subt=0;
+    filasHtml+='<tr class="grp"><td colspan="7">'+_mEsc(gr.nom)+'</td></tr>';
+    gr.filas.forEach(function(c){
+      var deuda=parseFloat(c.base_usd||c.baseUsd||0)||0, abon=_cxpAbonadoUsd(c.id), saldo=deuda-abon;
+      var dr=diasHasta(c.fecha_venc||c.fechaVenc), venc=dr<=0;
+      subt+=saldo; totGen+=saldo; if(venc)totGenVenc+=saldo;
+      var nFac=_cxpFacturasDe(c.id).length;
+      filasHtml+='<tr>'+
+        '<td>'+formatFecha(c.fecha)+'</td>'+
+        '<td>'+_mEsc(String(c.orden_id||c.nota||'—'))+'</td>'+
+        '<td>'+_mEsc(String(c.descripcion||c.desc||'').slice(0,40))+(nFac?' <small>('+nFac+' fact.)</small>':'')+'</td>'+
+        '<td class="n">$'+deuda.toFixed(2)+'</td>'+
+        '<td class="n">'+(abon?'$'+abon.toFixed(2):'—')+'</td>'+
+        '<td class="n b">$'+saldo.toFixed(2)+'</td>'+
+        '<td>'+(venc?'<b style="color:#b91c1c">VENCIDA '+Math.abs(dr)+'d</b>':(c.fecha_venc?formatFecha(c.fecha_venc):'—'))+'</td>'+
+      '</tr>';
+    });
+    filasHtml+='<tr class="sub"><td colspan="5">Subtotal '+_mEsc(gr.nom)+' ('+gr.filas.length+')</td><td class="n b">$'+subt.toFixed(2)+'</td><td></td></tr>';
+  });
+  var bsGen=tasa>0?' <span style="font-weight:400;font-size:12px;color:#555">≈ Bs '+(totGen*tasa).toLocaleString('es-VE',{maximumFractionDigits:0})+'</span>':'';
+  var titulo=provFil?('Cuentas por Pagar — '+provNom):'Cuentas por Pagar — General';
+  var w=window.open('','_blank');
+  w.document.write('<!doctype html><html><head><meta charset="utf-8"><title>'+_mEsc(titulo)+'</title><style>'+
+    'body{font-family:Arial,Helvetica,sans-serif;color:#222;margin:24px}h1{font-size:18px;margin:0 0 2px}'+
+    '.sub-h{color:#666;font-size:12px;margin-bottom:12px}table{width:100%;border-collapse:collapse;font-size:11px}'+
+    'th,td{border:1px solid #ccc;padding:4px 6px;text-align:left}th{background:#0f766e;color:#fff}'+
+    'td.n,th.n{text-align:right;font-family:monospace}td.b{font-weight:700}tr.grp td{background:#e2e8f0;font-weight:800;font-size:12px}'+
+    'tr.sub td{background:#f1f5f9;font-weight:700}.tot{margin-top:16px;text-align:right;font-size:16px;font-weight:800}'+
+    '.tot small{display:block;font-size:11px;color:#b91c1c;font-weight:600}@media print{body{margin:0}}</style></head><body>'+
+    '<h1>'+_mEsc(titulo)+'</h1><div class="sub-h">'+_mEsc((typeof BTG_CONFIG!=='undefined'&&BTG_CONFIG.empresa_nombre)||'')+' · Emitido '+formatFecha(fechaVE())+(tasa?' · Tasa BCV '+tasa.toFixed(2):'')+'</div>'+
+    '<table><thead><tr><th>Fecha</th><th>Orden</th><th>Descripción</th><th class="n">Deuda $</th><th class="n">Abonado $</th><th class="n">Saldo $</th><th>Vence</th></tr></thead><tbody>'+
+    filasHtml+'</tbody></table>'+
+    '<div class="tot">TOTAL POR PAGAR: $'+totGen.toFixed(2)+bsGen+(totGenVenc>0?'<small>De los cuales VENCIDO: $'+totGenVenc.toFixed(2)+'</small>':'')+'</div>'+
+    '<script>window.onload=function(){window.print();}<\/script></body></html>');
+  w.document.close();
 }
 // KPIs de retención del mes en Bs (Libro 2)
 function _refrescarKpiRetBs(){

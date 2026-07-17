@@ -660,6 +660,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
           <div class="stat" style="border-top:3px solid var(--blue)"><div class="stat-lbl">Ret. IVA Mes (Bs)</div><div class="stat-val" style="font-size:13px;color:var(--blue)" id="cxp-kpi-iva">Bs 0</div></div>
           <div class="stat" style="border-top:3px solid var(--teal)"><div class="stat-lbl">Ret. ISLR Mes (Bs)</div><div class="stat-val" style="font-size:13px;color:var(--teal)" id="cxp-kpi-islr">Bs 0</div></div>
         </div>
+        <div class="card" style="margin-bottom:8px"><div class="st" style="margin-bottom:8px">💼 Deuda por proveedor</div><div id="cxp-por-prov" style="font-size:12px;color:var(--text3)">Sin deudas por pagar</div></div>
         <div class="card"><div class="st" style="margin-bottom:8px">⏰ Próximas a Vencer</div><div id="cxp-proximas" style="font-size:12px;color:var(--text3)">Sin facturas pendientes</div></div>
       </div>
     </div>
@@ -669,6 +670,9 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px">
         <div class="st">Historial de Cuentas por Pagar</div>
         <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <select class="fc" id="cxp-filtro-prov" onchange="renderCXP()" style="padding:5px 8px;font-size:11px;max-width:180px">
+            <option value="">Todos los proveedores</option>
+          </select>
           <select class="fc" id="cxp-filtro-estado" onchange="renderCXP()" style="padding:5px 8px;font-size:11px">
             <option value="">Todos</option>
             <option value="pendiente">Pendiente</option>
@@ -676,6 +680,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
             <option value="vencida">Vencida</option>
           </select>
           <input class="fc" id="cxp-buscar" placeholder="Buscar..." oninput="renderCXP()" style="padding:5px 8px;font-size:11px;max-width:140px">
+          <button class="btn btn-s btn-xs" onclick="imprimirCXP()" title="Imprimir (respeta el filtro de proveedor)">🖨️ Imprimir</button>
         </div>
       </div>
       <div class="tw">
@@ -2554,7 +2559,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
 </div>
 
 <script src="logo-alcaldia.js?v=1"></script>
-<script src="app.js?v=20260716factura-bs-fix"></script>
+<script src="app.js?v=20260716cxp-por-proveedor"></script>
 
 <!-- Modal global -->
 <div id="modal" class="moverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9990;align-items:center;justify-content:center;padding:16px">
