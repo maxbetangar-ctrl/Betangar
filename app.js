@@ -10550,7 +10550,8 @@ function _esSilencioNocturno(){ return false; }
 function sendWA(msg, roles, force){
   if(!force && _esSilencioNocturno()){ console.log('WA automático silenciado (horario nocturno):',String(msg).slice(0,50)); return; }
   var destinos=WA.filter(function(w){
-    if(!w.num||!w.key||!w.activo)return false;
+    if(!w.num||!w.activo)return false;
+    if(!WASSENGER_ON&&!w.key)return false; // CallMeBot exige apikey; Wassenger no
     if(!roles||roles==='todos')return true;
     var r=Array.isArray(roles)?roles:[roles];
     // socios reciben todo siempre
