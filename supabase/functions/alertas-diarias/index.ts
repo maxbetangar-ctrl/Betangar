@@ -84,6 +84,13 @@ Deno.serve(async (_req: Request) => {
     try { wa = JSON.parse(cfg[0]?.valor || "[]"); } catch { wa = []; }
     if (!Array.isArray(wa) || !wa.length) return new Response(JSON.stringify({ ok: false, msg: "sin config whatsapp" }), { headers: { "Content-Type": "application/json" } });
 
+    // Mapa unidad → placa (norma: al nombrar una unidad, mostrar también la placa)
+    const ucfg = await sel(`unidad_config?select=cam,placa`);
+    const PLACA: Record<string, string> = {};
+    for (const u of ucfg) { if (u.cam && u.placa) PLACA[String(u.cam)] = String(u.placa); }
+    const U = (cam: string) => PLACA[cam] ? `${cam} (${PLACA[cam]})` : cam;                       // "JAC-B008 (A04EO1P)"
+    const Us = (cam: string) => { const s = String(cam).replace("JAC-", ""); return PLACA[cam] ? `${s} (${PLACA[cam]})` : s; }; // "B008 (A04EO1P)"
+
     const hoy = veNow();
     const hoyD = ymd(hoy);
     const veHour = hoy.getUTCHours();
@@ -106,8 +113,8 @@ Deno.serve(async (_req: Request) => {
     for (const k of km) {
       const cam = String(k.cam || ""); if (!cam.startsWith("JAC-")) continue;
       const kmv = Number(k.km || 0);
-      if (kmv) { let prox = Math.ceil(kmv / 5000) * 5000; if (prox === kmv) prox += 5000; const faltan = prox - kmv; if (faltan <= 700) srv.push(`• ${cam}: faltan ${faltan.toLocaleString("es-VE")} km`); }
-      if (k.lavado) { const dias = -diasHasta(k.lavado); if (!isNaN(dias) && dias > 45) lav.push(`• ${cam}: lavado vencido (${dias} días)`); }
+      if (kmv) { let prox = Math.ceil(kmv / 5000) * 5000; if (prox === kmv) prox += 5000; const faltan = prox - kmv; if (faltan <= 700) srv.push(`• ${U(cam)}: faltan ${faltan.toLocaleString("es-VE")} km`); }
+      if (k.lavado) { const dias = -diasHasta(k.lavado); if (!isNaN(dias) && dias > 45) lav.push(`• ${U(cam)}: lavado vencido (${dias} días)`); }
     }
 
     // 3) CXP vencidas (DINERO — solo admin/socios)
@@ -128,7 +135,7 @@ Deno.serve(async (_req: Request) => {
     try { docsEmp = JSON.parse(cfgDE[0]?.valor || "{}"); } catch { docsEmp = {}; }
     const empName = (id: string) => { const e = emps.find((x: any) => String(x.id) === String(id)); return e ? e.nombre : id; };
     const docs: string[] = [];
-    for (const cam of Object.keys(docsCam)) for (const t of ["seguro", "circulacion", "revision"]) { const d = docsCam[cam] && docsCam[cam][t]; if (!d || !d.venc) continue; const dr = diasHasta(d.venc); if (isNaN(dr) || dr > 30) continue; docs.push(`• ${cam} ${t}: ${dr < 0 ? `VENCIDO hace ${Math.abs(dr)}d` : `vence en ${dr}d`}`); }
+    for (const cam of Object.keys(docsCam)) for (const t of ["seguro", "circulacion", "revision"]) { const d = docsCam[cam] && docsCam[cam][t]; if (!d || !d.venc) continue; const dr = diasHasta(d.venc); if (isNaN(dr) || dr > 30) continue; docs.push(`• ${U(cam)} ${t}: ${dr < 0 ? `VENCIDO hace ${Math.abs(dr)}d` : `vence en ${dr}d`}`); }
     for (const eid of Object.keys(docsEmp)) for (const t of ["cedula", "licencia", "medico"]) { const d = docsEmp[eid] && docsEmp[eid][t]; if (!d || !d.venc) continue; const dr = diasHasta(d.venc); if (isNaN(dr) || dr > 30) continue; docs.push(`• ${empName(eid)} ${t}: ${dr < 0 ? `VENCIDO hace ${Math.abs(dr)}d` : `vence en ${dr}d`}`); }
 
     // 6) SIN PLANILLA (>=3 dias)
@@ -137,7 +144,7 @@ Deno.serve(async (_req: Request) => {
     for (const p of plan) { const c = String(p.cam || ""); if (!c) continue; const f = String(p.f || ""); if (!ultPlan[c] || f > ultPlan[c]) ultPlan[c] = f; }
     const fleet = Array.from(new Set(km.map((k: any) => String(k.cam || "")).filter((c: string) => c.startsWith("JAC-B")))).sort();
     const sinPlan: string[] = [];
-    for (const k of km) { const cam = String(k.cam || ""); if (!cam.startsWith("JAC-")) continue; const est = String(k.estado || "").toLowerCase(); if (est && est !== "operativo") continue; const last = ultPlan[cam]; const d = last ? -diasHasta(last) : 999; if (!isNaN(d) && d >= 3) sinPlan.push(`• ${cam}: ${last ? `${d} días` : "sin registro"} sin planilla`); }
+    for (const k of km) { const cam = String(k.cam || ""); if (!cam.startsWith("JAC-")) continue; const est = String(k.estado || "").toLowerCase(); if (est && est !== "operativo") continue; const last = ultPlan[cam]; const d = last ? -diasHasta(last) : 999; if (!isNaN(d) && d >= 3) sinPlan.push(`• ${U(cam)}: ${last ? `${d} días` : "sin registro"} sin planilla`); }
 
     // 7) STOCK critico
     const inv = await sel(`inventario?select=nombre,stock,stock_min`);
@@ -180,7 +187,7 @@ Deno.serve(async (_req: Request) => {
           const det: string[] = [];
           if (obs) det.push(obs);
           if (mal.length) det.push(`Fallas: ${mal.join(", ")}`);
-          filasAnom.push(`${cam.replace("JAC-", "")}${crit ? " ⚠️" : ""} — ${c.conductor || "--"}\n📝 ${det.join(" | ")}`);
+          filasAnom.push(`${Us(cam)}${crit ? " ⚠️" : ""} — ${c.conductor || "--"}\n📝 ${det.join(" | ")}`);
         }
         if (filasAnom.length) {
           const cab = `🔧 Anomalías del checklist (hoy)\n${filasAnom.length} camión(es) con novedad${nCrit ? ` · ${nCrit} crítico(s)` : ""}\n\n`;
@@ -196,10 +203,9 @@ Deno.serve(async (_req: Request) => {
       if (!(await yaEnviado(key, dry))) {
         const llenos: string[] = [], faltan: string[] = [];
         for (const cam of fleet) {
-          const b = cam.replace("JAC-", "");
           const r = ckByCam[cam];
-          if (r) { const est = String(r.estado_vehiculo || "operativo"); llenos.push(`✅ ${b} - ${r.conductor || "--"}${est.toLowerCase() !== "operativo" ? ` (${est})` : ""}`); }
-          else { faltan.push(`❌ ${b} - NO llenó checklist`); }
+          if (r) { const est = String(r.estado_vehiculo || "operativo"); llenos.push(`✅ ${Us(cam)} - ${r.conductor || "--"}${est.toLowerCase() !== "operativo" ? ` (${est})` : ""}`); }
+          else { faltan.push(`❌ ${Us(cam)} - NO llenó checklist`); }
         }
         let msg = `📋 Checklist ${hoyD}\nLlenaron ${llenos.length} de ${fleet.length} unidades\n`;
         if (llenos.length) msg += `\nLLENARON:\n${llenos.join("\n")}\n`;
@@ -220,7 +226,7 @@ Deno.serve(async (_req: Request) => {
         const totalBnc = bncR.reduce((a: number, r: any) => a + (parseFloat(r.monto) || 0), 0);
         const camsCk = Object.keys(ckByCam).length;
         const cxpPend = cxp.reduce((a: number, c: any) => a + (parseFloat(c.neto_pagar || c.total_usd || 0) || 0), 0);
-        const nov = Object.values(ckByCam).filter((r: any) => r.estado_vehiculo && String(r.estado_vehiculo).toLowerCase() !== "operativo").map((r: any) => `${String(r.cam).replace("JAC-", "")} (${r.estado_vehiculo})`);
+        const nov = Object.values(ckByCam).filter((r: any) => r.estado_vehiculo && String(r.estado_vehiculo).toLowerCase() !== "operativo").map((r: any) => `${Us(r.cam)} (${r.estado_vehiculo})`);
         // Operativo (sin dinero): viajes, combustible, checklists, novedades.
         let base = `🚛 Viajes: ${vj.length}\n⛽ Combustible: ${litros.toLocaleString("es-VE")} L\n📋 Checklists: ${camsCk}/${fleet.length}`;
         if (nov.length) base += `\n⚠️ Novedades: ${nov.join(", ")}`;
