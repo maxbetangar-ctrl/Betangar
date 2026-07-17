@@ -12679,10 +12679,12 @@ var BNC_ABONO_PENDIENTE = null;
 var BNC_ULTIMO_NOTIFICADO = localStorage.getItem('btg_bnc_ultimo')||'';
 
 async function notificarPagosBNCNuevos(){
-  // NOTA: la tabla bnc_notificaciones tiene RLS solo_service_role, así que con la anon key
-  // este SELECT devuelve vacío y esta función NO es la que notifica (es un respaldo inerte;
-  // NO abrir el RLS del banco por seguridad). El WhatsApp de pagos lo envía el servidor en
-  // la edge function 'bnc-webhook' al instante de recibir el pago (corre con service_role).
+  // DESACTIVADO (2026-07-17): esta función RE-NOTIFICABA los MISMOS pagos cada 5 min porque el
+  // update procesado=true fallaba por RLS (tabla solo_service_role) → cientos de WhatsApp repetidos.
+  // El WhatsApp de pagos BNC lo envía SOLO el servidor (edge function 'bnc-webhook', service_role,
+  // al instante de recibir el pago). Este notificador cliente queda como no-op para no duplicar.
+  return;
+  /* eslint-disable no-unreachable */
   if(!DB_READY||!supabase)return;
   var res = await supabase.from('bnc_notificaciones')
     .select('id,tipo,tipo_label,monto,moneda,referencia,deudor_id,concepto,fecha_recibido,ambiente')

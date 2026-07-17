@@ -1,0 +1,77 @@
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+
+const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
+const SUPABASE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+const API_KEY_ESPERADO = "de273ebdea7abce15e73d23cecad3ef70b4cd3b86ff60cf1980e01d7c7911a62";
+
+// MIGRADO a WASSENGER (2026-07-17): 1 mensaje por pago NUEVO (al instante de recibirlo). Ya NO usa
+// CallMeBot ni apikeys por número — encola en cola_mensajes y el worker antepone "♻️ Betangar:" y envía.
+// Destinatarios: socios + administradora (números; Wassenger no necesita apikey por número).
+const WA_DESTINOS = [
+  { num: "584147379886", desc: "Socio - Maximo" },
+  { num: "584142411159", desc: "Socio - Francisco" },
+  { num: "584120276883", desc: "Administradora - Aurelys" },
+];
+
+function parseFechaBNC(fecha: string, hora: string): string {
+  if (!fecha || fecha.length < 8) return new Date().toISOString();
+  const y = fecha.slice(0,4), m = fecha.slice(4,6), d = fecha.slice(6,8);
+  const hh = hora ? hora.slice(0,2) : "00", mm = hora ? hora.slice(2,4) : "00";
+  return `${y}-${m}-${d}T${hh}:${mm}:00Z`;
+}
+
+function labelTipo(tipo: string): string {
+  const t: Record<string,string> = {DEP:"Deposito",TRF:"Transferencia",P2P:"Pago Movil",C2P:"Cobro Movil"};
+  return t[tipo] || tipo;
+}
+
+serve(async (req) => {
+  const apiKey = req.headers.get("x-api-key");
+  if (apiKey !== API_KEY_ESPERADO) {
+    return new Response(JSON.stringify({error:"No autorizado"}), {status:401, headers:{"Content-Type":"application/json"}});
+  }
+  try {
+    const body = await req.json();
+    const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+
+    const { data, error } = await supabase.from("bnc_notificaciones").insert([{
+      payload_raw:    JSON.stringify(body),
+      cuenta_destino: body.CreditorAccount || "",
+      cuenta_origen:  body.DebtorAccount || "",
+      monto:          parseFloat(body.Amount || "0"),
+      referencia:     body.DestinyBankReference || body.OriginBankReference || "",
+      tipo:           body.PaymentType || "",
+      tipo_label:     labelTipo(body.PaymentType || ""),
+      fecha_recibido: parseFechaBNC(body.Date || "", body.Hour || ""),
+      moneda:         body.CurrencyCode === "0840" ? "USD" : "VES",
+      deudor_id:      body.DebtorID || "",
+      concepto:       body.Concept || "",
+      descripcion:    body.Concept || "",
+      banco_origen:   body.OriginBankCode || "",
+      banco_destino:  body.DestinyBankCode || "",
+      procesado:      false,
+    }]).select();
+
+    if (error) {
+      console.error("Error guardando:", JSON.stringify(error));
+      return new Response(JSON.stringify({status:"error_guardado", detalle: error.message}), {status:200, headers:{"Content-Type":"application/json"}});
+    }
+
+    const dFecha = body.Date || "";
+    const dHora  = body.Hour || "";
+    const monto  = parseFloat(body.Amount || "0");
+    const simbolo = body.CurrencyCode === "0840" ? "$" : "Bs ";
+    // Sin prefijo "BETANGAR" — el worker antepone "♻️ Betangar:".
+    const waMsg  = `💰 Pago BNC Recibido\nTipo: ${labelTipo(body.PaymentType||"")}\nMonto: ${simbolo}${monto.toLocaleString("es-VE",{minimumFractionDigits:2})}\nRef: ${body.DestinyBankReference||body.OriginBankReference||""}\nDe: ${body.DebtorID||""}\nConcepto: ${body.Concept||""}\nFecha: ${dFecha.slice(6,8)}/${dFecha.slice(4,6)}/${dFecha.slice(0,4)} ${dHora.slice(0,2)}:${dHora.slice(2,4)}`;
+
+    // Encolar UNA vez por destinatario (el worker Wassenger envía con la etiqueta de empresa).
+    const filas = WA_DESTINOS.map((d) => ({ telefono: d.num, mensaje: waMsg, tipo: "bnc", estado: "pendiente" }));
+    const { error: eCola } = await supabase.from("cola_mensajes").insert(filas);
+    if (eCola) console.error("Error encolando WA:", eCola.message);
+
+    return new Response(JSON.stringify({status:"ok", id:data?.[0]?.id, wa_encolados: filas.length}), {status:200, headers:{"Content-Type":"application/json"}});
+  } catch(e: any) {
+    return new Response(JSON.stringify({status:"error", mensaje:e.message}), {status:200, headers:{"Content-Type":"application/json"}});
+  }
+});
