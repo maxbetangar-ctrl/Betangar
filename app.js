@@ -7594,7 +7594,7 @@ async function cargarCxpAux(){ // facturas (Bs) + abonos; se llama al abrir Prov
 function switchProvTab(t){
   ['ordenes','cxp','lista','ret','hist'].forEach(function(x){var el=g('tab-prov-'+x);var sw=g('sw-prov-'+x);if(el)el.style.display=x===t?'block':'none';if(sw){sw.classList.remove('on');if(x===t)sw.classList.add('on');}});
   if(t==='cxp'){renderCXP();fillCxpOrdenSelect();}
-  if(t==='ret'){fillFacCxpSelect();renderRetenciones();}
+  if(t==='ret'){fillFacCxpSelect();renderRetenciones();calcFac();}
   if(t==='ordenes'){ if(!_ordServCargadas){_ordServCargadas=true;cargarOrdenesServicio().then(renderOrdenesServicio).catch(renderOrdenesServicio);}else renderOrdenesServicio(); }
 }
 
@@ -7607,7 +7607,8 @@ function _ordenesAbiertasSinCxp(){
 }
 function fillCxpOrdenSelect(){
   var sel=g('cxp-orden'); if(!sel)return; var prev=sel.value;
-  var arr=_ordenesAbiertasSinCxp();
+  var provSel=gv('cxp-prov')||''; // si hay proveedor elegido, mostrar SOLO sus órdenes abiertas
+  var arr=_ordenesAbiertasSinCxp().filter(function(o){ return !provSel || String(o.proveedorId||'')===String(provSel); });
   sel.innerHTML='<option value="">— Sin orden / manual —</option>'+arr.map(function(o){
     var lbl=(o.tipoOrden==='compra'?'🛒 ':'🔧 ')+o.id+' · '+(o.proveedor||'s/proveedor')+' · '+(o.item||o.tipo||'')+(o.costo?(' · $'+parseFloat(o.costo).toFixed(0)):'');
     return '<option value="'+_mEsc(String(o.id))+'">'+_mEsc(lbl.slice(0,70))+'</option>';
@@ -7624,7 +7625,7 @@ function cxpOrdenChg(){
   sv('cxp-desc',(o.tipoOrden==='compra'?'Compra':'Servicio')+' orden '+o.id+(o.item?(': '+o.item):''));
   if(typeof calcCXP==='function')calcCXP();
 }
-function autoLlenarProv(){ calcCXP(); }
+function autoLlenarProv(){ calcCXP(); if(typeof fillCxpOrdenSelect==='function')fillCxpOrdenSelect(); }
 
 // Deuda en $: solo muestra la equivalencia en Bs de referencia (IVA/retenciones van en el Libro Bs).
 function calcCXP(){
@@ -7826,9 +7827,8 @@ function _calcFacVals(){
 }
 function calcFac(){
   var box=g('fac-calc'); if(!box)return;
+  box.style.display='block'; // siempre visible: muestra el desglose en Bs en vivo mientras se llena
   var v=_calcFacVals();
-  if(!(v.base>0)){box.style.display='none';return;}
-  box.style.display='block';
   var f=function(n){return 'Bs '+n.toLocaleString('es-VE',{minimumFractionDigits:2,maximumFractionDigits:2});};
   if(g('fc-base'))g('fc-base').textContent=f(v.base);
   if(g('fc-iva'))g('fc-iva').textContent=f(v.iva);
