@@ -3925,14 +3925,16 @@ async function guardarAbono(){
   audit('Abono registrado','$'+ab.m+' Fact:'+ab.fact);
   // Conciliar en BNC automaticamente
   bncMovPush({id:Date.now()+'',fecha:ab.f,monto:ab.m*(TASAS.bcvDolar||cfg.tasa),tipo:'credito',desc:'Pago Alcaldia Fact.'+ab.fact,ref:ab.ref,conciliado:true});
-  // Aviso a socios (Maximo y Francisco)
-  sendWA('Abono registrado\n'+
+  // Aviso: socios (Máximo, Francisco) + admin (Aurelys) + Jonaz (socio limitado que quiere TODO ingreso)
+  var _msgAbono='Abono registrado\n'+
     '💰 Monto: $ '+Number(ab.m||0).toLocaleString('es-VE',{minimumFractionDigits:2,maximumFractionDigits:2})+'\n'+
     '🚛 Viajes: '+ab.v+'\n'+
     '🧾 Factura: '+(ab.fact||'--')+'\n'+
     '📅 Fecha: '+formatFecha(ab.f)+'\n'+
     '🏦 Ref: '+(ab.ref||'--')+'\n'+
-    '👤 Registrado por: '+(SESION&&SESION.nombre?SESION.nombre:'--'),'socios',true);
+    '👤 Registrado por: '+(SESION&&SESION.nombre?SESION.nombre:'--');
+  sendWA(_msgAbono,['admin'],true);                                   // socios + admin (Aurelys)
+  if(typeof WA_SEND==='function')WA_SEND('584143501298','',_msgAbono); // Jonaz (todo ingreso)
   renderAbonos();renderDash();
   ['ab-f','ab-fact','ab-v','ab-m','ab-obs','ab-ref'].forEach(function(id){sv(id,'');});
   var hoy=new Date().toISOString().split('T')[0];sv('ab-f',hoy);
