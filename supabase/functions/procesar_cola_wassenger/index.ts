@@ -37,12 +37,23 @@ Deno.serve(async (req) => {
   }
   const conEtiqueta = (msg: string) => (etiqueta && !msg.startsWith(etiqueta)) ? `${etiqueta}: ${msg}` : msg;
 
+  // 1) Recupera mensajes trabados en 'enviando' por una corrida que murió a mitad (>10 min). enviado_at
+  //    hace de marca de reclamo; si quedó viejo, la fila vuelve a 'pendiente' para reintentar.
+  const staleTs = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+  await sb.from('cola_mensajes').update({ estado: 'pendiente' }).eq('estado', 'enviando').lt('enviado_at', staleTs);
+
   // 2) mensajes pendientes (tanda)
   const { data: pend } = await sb.from('cola_mensajes').select('*').eq('estado', 'pendiente').lt('intentos', 4).order('id').limit(25);
   if (!pend || !pend.length) return json({ ok: true, sent: 0 });
 
   let sent = 0, fail = 0;
   for (const m of pend) {
+    // CLAIM atómico: marca la fila 'enviando' SOLO si sigue 'pendiente'. Si dos corridas del cron se
+    // solapan, únicamente una gana el claim; la otra ve 0 filas y salta → sin doble envío.
+    const { data: claim } = await sb.from('cola_mensajes')
+      .update({ estado: 'enviando', enviado_at: new Date().toISOString() })
+      .eq('id', m.id).eq('estado', 'pendiente').select('id').maybeSingle();
+    if (!claim) continue; // otra corrida ya lo tomó
     try {
       const phone = normalizar(m.telefono);
       const body: any = { phone, message: conEtiqueta(m.mensaje) };
@@ -59,7 +70,8 @@ Deno.serve(async (req) => {
         fail++;
       }
     } catch (e) {
-      await sb.from('cola_mensajes').update({ intentos: (m.intentos || 0) + 1, error: String(e).slice(0, 300) }).eq('id', m.id);
+      // Falló a mitad: devolver a 'pendiente' (o 'fallido' si agotó intentos) para que NO quede trabado en 'enviando'.
+      await sb.from('cola_mensajes').update({ intentos: (m.intentos || 0) + 1, error: String(e).slice(0, 300), estado: (m.intentos || 0) + 1 >= 4 ? 'fallido' : 'pendiente' }).eq('id', m.id);
       fail++;
     }
   }
