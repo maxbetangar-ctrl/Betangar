@@ -63,8 +63,22 @@ Deno.serve(async (req) => {
   const nuevos = candidatos.filter((c) => !yaSet.has(String(c.empleado_id)));
   if (!nuevos.length) return json({ ok: true, encolados: 0, yaFelicitados: candidatos.length });
 
-  // Encolar (el worker antepone la etiqueta de empresa y envía)
-  const filas = nuevos.map((c) => ({ telefono: c.telefono, mensaje: msgCumple(c.nombre), tipo: 'app', estado: 'pendiente' }));
+  // (a) Saludo al festejado
+  const filas: any[] = nuevos.map((c) => ({ telefono: c.telefono, mensaje: msgCumple(c.nombre), tipo: 'app', estado: 'pendiente' }));
+
+  // (b) Aviso "¡Felicítalo!" a TODO el personal activo con teléfono (excepto el festejado). UNA sola vez:
+  // esto corre solo para 'nuevos' (gated por cumple_log), así que no se repite en re-corridas ni por dispositivo.
+  const { data: allEmps } = await sb.from('empleados').select('id,nombre,whatsapp,tel,activo');
+  const personal = (allEmps || []).filter((e: any) => e.activo !== false && (String(e.whatsapp || '').trim() || String(e.tel || '').trim()));
+  for (const c of nuevos) {
+    const nom = primerNombre(c.nombre);
+    for (const e of personal) {
+      if (String(e.id) === String(c.empleado_id)) continue; // no al propio festejado
+      const tel = String(e.whatsapp || '').trim() || String(e.tel || '').trim();
+      filas.push({ telefono: tel, mensaje: `🎂 Hoy es el cumpleaños de ${nom}. ¡Felicítalo! 🎉`, tipo: 'app', estado: 'pendiente' });
+    }
+  }
+
   const { error: errIns } = await sb.from('cola_mensajes').insert(filas);
   if (errIns) return json({ ok: false, error: errIns.message }, 500);
 

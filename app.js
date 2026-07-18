@@ -11562,6 +11562,13 @@ function emailReporteFinanciero(){
 function checkAlertas7AM(){ /* movido al servidor: edge function alertas-diarias */ }
 
 function checkCumpleAlerts(){
+  // DESACTIVADO (2026-07-17): re-enviaba "Hoy es el cumpleaños de X. ¡Felicítalo!" a TODO el personal en CADA
+  // carga de la app. La idempotencia era localStorage = POR DISPOSITIVO, así que cada equipo/oficina que abría
+  // la app lo mandaba otra vez (y a cualquier hora, ej. 4am con la app abierta) → se repetía todo el día.
+  // Ahora TODO el cumpleaños lo maneja el SERVIDOR una sola vez ~9am (cron cumpleanos-betangar): saludo al
+  // festejado + aviso a todo el personal, idempotente por año (cumple_log). Este cliente queda no-op.
+  return;
+  /* eslint-disable no-unreachable */
   var hoy=new Date();
   EMPLEADOS.filter(function(e){return e.fnac&&e.activo;}).forEach(function(e){
     var d=new Date(e.fnac+'T12:00:00');
