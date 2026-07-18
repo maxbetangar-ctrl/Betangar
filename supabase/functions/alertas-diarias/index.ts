@@ -60,8 +60,12 @@ const preview: any[] = [];
 // soloRoles=true → NO incluir el comodín de socios (para mensajes que NO deben ver los socios de más).
 async function waSend(text: string, roles: string[], wa: any[], dry: boolean, soloRoles = false) {
   const dest = wa.filter((w: any) => w.num && w.activo && ((!soloRoles && w.rol === "socios") || roles.includes(w.rol)));
-  if (dry) { preview.push({ to: dest.map((d: any) => d.desc || d.rol), text }); return; }
-  const rows = dest.map((w: any) => ({ telefono: String(w.num).replace(/[\s\-\+]/g, ""), mensaje: text, tipo: "alerta", estado: "pendiente" }));
+  // Dedupe por número: si un mismo teléfono está en el config bajo dos roles (o repetido),
+  // NO debe recibir el MISMO mensaje dos veces en un mismo envío.
+  const vistos = new Set<string>();
+  const uniq = dest.filter((w: any) => { const n = String(w.num).replace(/[\s\-\+]/g, ""); if (!n || vistos.has(n)) return false; vistos.add(n); return true; });
+  if (dry) { preview.push({ to: uniq.map((d: any) => d.desc || d.rol), text }); return; }
+  const rows = uniq.map((w: any) => ({ telefono: String(w.num).replace(/[\s\-\+]/g, ""), mensaje: text, tipo: "alerta", estado: "pendiente" }));
   await enqueue(rows);
 }
 async function yaEnviado(key: string, dry: boolean): Promise<boolean> {

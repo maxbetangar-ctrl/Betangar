@@ -51,9 +51,13 @@ function tpl(msg: string, e: any): string {
 const preview: any[] = [];
 // Encola un mensaje a un número. El worker antepone "♻️ Betangar:" → aquí va SIN prefijo.
 const pend: any[] = [];
+const yaEncolado = new Set<string>(); // evita duplicar mismo num+mensaje en la misma corrida
 function waSend(num: string, text: string, dry: boolean) {
   const n = String(num || "").replace(/[\s\-\+]/g, "");
   if (!n || !text) return;
+  const dedupeKey = `${n}::${text}`;
+  if (yaEncolado.has(dedupeKey)) return; // ya se le mandó este mismo texto (p.ej. empleado + num empresarial)
+  yaEncolado.add(dedupeKey);
   if (dry) { preview.push({ num: n, text }); return; }
   pend.push({ telefono: n, mensaje: text, tipo: "recordatorio", estado: "pendiente" });
 }
@@ -72,7 +76,7 @@ async function yaEnviado(key: string, dry: boolean): Promise<boolean> {
 Deno.serve(async (_req: Request) => {
   try {
     const dry = new URL(_req.url).searchParams.get("dry") === "1";
-    preview.length = 0; pend.length = 0;
+    preview.length = 0; pend.length = 0; yaEncolado.clear();
     const now = veNow();
     const hoy = ymd(now);
     const minNow = now.getUTCHours() * 60 + now.getUTCMinutes();
