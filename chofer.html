@@ -205,10 +205,11 @@ body{background:#0f1923;color:#fff;font-family:-apple-system,BlinkMacSystemFont,
         <div style="font-weight:800;font-size:16px;color:#fff;margin-bottom:2px">⛽ Surtir combustible</div>
         <div style="font-size:12px;color:#9fb3c8;margin-bottom:14px">Registrá cada surtida de tu unidad: de qué tanque, litros, foto del surtidor/recibo y ubicación.</div>
 
-        <div style="font-size:13px;color:#cfe0f0;font-weight:700;margin-bottom:6px">¿De qué tanque surtiste?</div>
-        <div style="display:flex;gap:8px;margin-bottom:14px">
-          <button type="button" id="sur-tanque-galpon_1" onclick="surSetTanque('galpon_1')" style="flex:1;background:#0e2038;border:2px solid #7dc941;border-radius:10px;padding:10px;color:#fff;font-weight:700;cursor:pointer;font-size:13px">🛢️ Galpón 1</button>
-          <button type="button" id="sur-tanque-galpon_2" onclick="surSetTanque('galpon_2')" style="flex:1;background:#0e2038;border:2px solid #24405f;border-radius:10px;padding:10px;color:#fff;font-weight:700;cursor:pointer;font-size:13px">🛢️ Galpón 2</button>
+        <div style="font-size:13px;color:#cfe0f0;font-weight:700;margin-bottom:6px">¿De dónde surtiste?</div>
+        <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">
+          <button type="button" id="sur-tanque-galpon_1" onclick="surSetTanque('galpon_1')" style="flex:1;min-width:90px;background:#0e2038;border:2px solid #7dc941;border-radius:10px;padding:10px;color:#fff;font-weight:700;cursor:pointer;font-size:13px">🛢️ Galpón 1</button>
+          <button type="button" id="sur-tanque-galpon_2" onclick="surSetTanque('galpon_2')" style="flex:1;min-width:90px;background:#0e2038;border:2px solid #24405f;border-radius:10px;padding:10px;color:#fff;font-weight:700;cursor:pointer;font-size:13px">🛢️ Galpón 2</button>
+          <button type="button" id="sur-tanque-estacion" onclick="surSetTanque('estacion')" style="flex:1;min-width:90px;background:#0e2038;border:2px solid #24405f;border-radius:10px;padding:10px;color:#fff;font-weight:700;cursor:pointer;font-size:13px">⛽ Estación</button>
         </div>
 
         <div style="font-size:13px;color:#cfe0f0;font-weight:700;margin-bottom:6px">Litros surtidos</div>
@@ -1209,7 +1210,7 @@ async function subirColaEntregas(){
 // MÓDULO SURTIR (combustible por surtida: tanque + litros + foto + GPS). Costo real $0,75/L (USD).
 // ════════════════════════════════
 var SUR_FOTO_FILE=null, SUR_GPS=null, SUR_GPS_FAILS=0, SUR_TANQUE='galpon_1', SUR_HOY=[];
-var SUR_TANQUE_LBL={galpon_1:'🛢️ Galpón 1', galpon_2:'🛢️ Galpón 2'};
+var SUR_TANQUE_LBL={galpon_1:'🛢️ Galpón 1', galpon_2:'🛢️ Galpón 2', estacion:'⛽ Estación de servicio'};
 var COLA_SUR=[];
 function cargarColaSur(){ try{ var s=localStorage.getItem('btg_cola_sur'); if(s) COLA_SUR=JSON.parse(s)||[]; }catch(e){ COLA_SUR=[]; } }
 function persistColaSur(){ try{ if(COLA_SUR.length) localStorage.setItem('btg_cola_sur',JSON.stringify(COLA_SUR)); else localStorage.removeItem('btg_cola_sur'); }catch(e){} }
@@ -1225,11 +1226,15 @@ async function subirColaSurtidas(){
 }
 function surSetTanque(t){
   SUR_TANQUE=t;
-  ['galpon_1','galpon_2'].forEach(function(x){ var b=document.getElementById('sur-tanque-'+x); if(b)b.style.border='2px solid '+(x===t?'#7dc941':'#24405f'); });
+  ['galpon_1','galpon_2','estacion'].forEach(function(x){ var b=document.getElementById('sur-tanque-'+x); if(b)b.style.border='2px solid '+(x===t?'#7dc941':'#24405f'); });
+  surCalc();
 }
 function surCalc(){
   var l=parseFloat(document.getElementById('sur-litros').value)||0;
-  var el=document.getElementById('sur-costo'); if(el)el.textContent='≈ $'+(l*0.75).toFixed(2)+'   ('+(l||0)+' L × $0,75)';
+  var el=document.getElementById('sur-costo'); if(!el)return;
+  // Estación: el costo lo define administración al cierre del período (convenio). Galpón: estimado referencial.
+  if(SUR_TANQUE==='estacion'){ el.textContent='💵 El costo lo define administración al cierre'; }
+  else { el.textContent='≈ $'+(l*0.812).toFixed(2)+'   (referencial · '+(l||0)+' L)'; }
 }
 function surPreviewFoto(inp){
   var f=inp.files&&inp.files[0]; if(!f)return; SUR_FOTO_FILE=f;
@@ -1282,7 +1287,7 @@ async function surGuardar(){
     var now=new Date(), p2=function(n){return String(n).padStart(2,'0');};
     var row={
       id:(cam||'X')+'-S-'+Date.now(), fecha:hoy, hora:p2(now.getHours())+':'+p2(now.getMinutes()),
-      cam:cam||'', chofer:chofer||'', tanque:SUR_TANQUE, litros:lit, costo_litro_usd:0.75,
+      cam:cam||'', chofer:chofer||'', tanque:SUR_TANQUE, litros:lit, costo_litro_usd:(SUR_TANQUE==='estacion'?null:0.812),
       foto_url:fotoUrl, lat:(SUR_GPS?SUR_GPS.lat:null), lng:(SUR_GPS?SUR_GPS.lng:null),
       precision_gps:(SUR_GPS?SUR_GPS.acc:null), token:tok
     };
@@ -1310,7 +1315,7 @@ function surRenderHoy(){
   cont.innerHTML=lista.map(function(s){
     return '<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #1c3350">'+
       '<span>'+(s.hora||'')+' · '+(SUR_TANQUE_LBL[s.tanque]||s.tanque)+'</span>'+
-      '<b style="color:#cfe0f0">'+(parseFloat(s.litros)||0)+' L · $'+((parseFloat(s.litros)||0)*0.75).toFixed(2)+'</b></div>';
+      '<b style="color:#cfe0f0">'+(parseFloat(s.litros)||0)+' L · '+(s.tanque==='estacion'?'$ lo define admin':'$'+((parseFloat(s.litros)||0)*0.812).toFixed(2))+'</b></div>';
   }).join('');
 }
 
