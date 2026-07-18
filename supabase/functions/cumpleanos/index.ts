@@ -75,7 +75,7 @@ Deno.serve(async (req) => {
     for (const e of personal) {
       if (String(e.id) === String(c.empleado_id)) continue; // no al propio festejado
       const tel = String(e.whatsapp || '').trim() || String(e.tel || '').trim();
-      filas.push({ telefono: tel, mensaje: `🎂 Hoy es el cumpleaños de ${nom}. ¡Felicítalo! 🎉`, tipo: 'app', estado: 'pendiente' });
+      filas.push({ telefono: tel, mensaje: `🎂 *Recordatorio de cumpleaños*\n\nHoy cumple años *${nom}*. Si lo ves hoy en el trabajo, aprovecha para felicitarlo/a en persona 🎉\n\nℹ️ Es un aviso automático de la empresa — *no respondas por aquí* (este número no es el de ${nom}).`, tipo: 'app', estado: 'pendiente' });
     }
   }
 
