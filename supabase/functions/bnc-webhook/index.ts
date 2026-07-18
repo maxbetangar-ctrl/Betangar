@@ -83,8 +83,17 @@ serve(async (req) => {
     const lineaBanco = bancoOrigen ? `\nBanco: ${bancoOrigen}` : "";
     const waMsg  = `💰 Pago BNC Recibido\nTipo: ${labelTipo(body.PaymentType||"")}\nMonto: ${simbolo}${monto.toLocaleString("es-VE",{minimumFractionDigits:2})}${lineaBanco}\nRef: ${body.DestinyBankReference||body.OriginBankReference||""}\nDe: ${body.DebtorID||""}\nFecha: ${dFecha.slice(6,8)}/${dFecha.slice(4,6)}/${dFecha.slice(0,4)} ${dHora.slice(0,2)}:${dHora.slice(2,4)}`;
 
-    // Encolar UNA vez por destinatario (el worker Wassenger envía con la etiqueta de empresa).
-    const filas = WA_DESTINOS.map((d) => ({ telefono: d.num, mensaje: waMsg, tipo: "bnc", estado: "pendiente" }));
+    // Destinatarios = FUENTE ÚNICA: configuracion.whatsapp (socios + admin) unido con la lista base
+    // WA_DESTINOS (garantiza que nadie configurado en código se pierda, ej. socio Jonaz). Dedupe por número.
+    let waCfg: any[] = [];
+    try { const { data: cRow } = await supabase.from("configuracion").select("valor").eq("clave","whatsapp").maybeSingle();
+      waCfg = JSON.parse((cRow?.valor as string) || "[]"); } catch { waCfg = []; }
+    const _nums = new Set<string>(); const dest: string[] = [];
+    const addNum = (n: string) => { const x = String(n||"").replace(/[\s\-\+]/g,""); if (x && !_nums.has(x)) { _nums.add(x); dest.push(x); } };
+    for (const w of (Array.isArray(waCfg)?waCfg:[])) { if (w && w.num && w.activo && (w.rol==="socios"||w.rol==="admin")) addNum(w.num); }
+    for (const d of WA_DESTINOS) addNum(d.num);
+    // Encolar UNA vez por destinatario (el worker Wassenger antepone la etiqueta de empresa).
+    const filas = dest.map((tel) => ({ telefono: tel, mensaje: waMsg, tipo: "bnc", estado: "pendiente" }));
     const { error: eCola } = await supabase.from("cola_mensajes").insert(filas);
     if (eCola) console.error("Error encolando WA:", eCola.message);
 
