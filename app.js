@@ -722,6 +722,9 @@ function _iniciarSesionCore(){
   var mx=REGS.reduce(function(a,r){var v=parseInt(r.p)||0;return v>a?v:a;},0);
   var rpNum=document.getElementById('rp-num');if(rpNum)rpNum.value=String(mx+1).padStart(5,'0');
   aplicarPermisos();
+  // DEEP-LINK: si la URL trae #modulo (ej. betangar.com/app.html#operativo desde el recordatorio de
+  // WhatsApp), abrir ese módulo directo tras login (solo si el rol tiene permiso).
+  try{ var _dh=(location.hash||'').replace(/^#/,'').trim(); if(_dh && (PERMISOS[SESION.rol]||[]).indexOf(_dh)>=0){ setTimeout(function(){ try{ sp(_dh); }catch(e){} },80); } }catch(e){}
   var rolLbl={superadmin:'SuperAdmin',admin:'Admin',operador:'Operador',rrhh:'RRHH',visualizador:'Vista',demo_admin:'Demo',demo_operador:'Demo',demo_rrhh:'Demo'};
   var rolCol={superadmin:'role-admin',admin:'role-admin',operador:'role-operador',rrhh:'role-rrhh',visualizador:'role-visualizador'};
   var rb=SESION.rol==='superadmin'?'superadmin':(SESION.rol.replace('demo_','')||'visualizador');
