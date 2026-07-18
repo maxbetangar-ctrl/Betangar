@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="es"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=600, initial-scale=1">
+<title>Tarjeta de Cumpleaños</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif}
+  html,body{width:600px}
+  body{background:linear-gradient(135deg,#0f2340 0%,#1e3a5f 40%,#0f4c2e 100%);min-height:560px;display:flex;align-items:center;justify-content:center;padding:30px}
+  .card{background:#fff;border-radius:20px;overflow:hidden;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.4)}
+  .card-top{background:linear-gradient(135deg,#1e3a5f,#0f2340);padding:22px 28px;display:flex;justify-content:space-between;align-items:center;border-bottom:4px solid #7dc941}
+  .card-top .brand{color:#fff;text-align:right}
+  .card-top .brand .n{font-size:13px;opacity:.75;font-weight:700}
+  .card-top .brand .r{font-size:11px;opacity:.6}
+  .logo{font-size:22px;font-weight:900;color:#7dc941;letter-spacing:1px}
+  .card-body{padding:38px 30px;text-align:center}
+  .confetti{font-size:26px;margin-bottom:14px;letter-spacing:4px}
+  .emoji{font-size:78px;display:block;margin-bottom:12px}
+  .nombre{font-size:30px;font-weight:900;color:#1e3a5f;margin-bottom:8px;line-height:1.1}
+  .cargo{font-size:13px;color:#7dc941;font-weight:700;text-transform:uppercase;letter-spacing:2px;margin-bottom:6px}
+  .edad{font-size:16px;color:#888;margin-bottom:22px}
+  .msg{font-size:15px;color:#444;line-height:1.7;max-width:420px;margin:0 auto 24px}
+  .firma{border-top:2px solid #e8edf2;padding-top:18px;margin-top:8px}
+  .firma .team{font-size:12px;color:#888;text-transform:uppercase;letter-spacing:1px}
+  .firma .empresa{font-size:15px;font-weight:800;color:#1e3a5f}
+</style></head>
+<body>
+  <div class="card">
+    <div class="card-top">
+      <div class="logo" id="logo">BETANGAR</div>
+      <div class="brand"><div class="n" id="emp-nom">Inversiones Betangar C.A.</div><div class="r">Aseo Urbano · Maracaibo</div></div>
+    </div>
+    <div class="card-body">
+      <div class="confetti">🎊 🎉 🎂 🎉 🎊</div>
+      <span class="emoji">🎂</span>
+      <div class="nombre" id="nombre">—</div>
+      <div class="cargo" id="cargo"></div>
+      <div class="edad" id="edad">🎈 Un día muy especial 🎈</div>
+      <div class="msg">
+        Hoy es un día para celebrar a una persona especial del equipo Betangar.<br>
+        Que este nuevo año de vida esté lleno de éxitos, salud y felicidad.<br><br>
+        <strong>¡Feliz Cumpleaños!</strong>
+      </div>
+      <div class="firma">
+        <div class="team">De parte de todo el equipo</div>
+        <div class="empresa">Inversiones Betangar C.A.</div>
+      </div>
+    </div>
+  </div>
+<script>
+  // Rellena la tarjeta desde los parámetros de la URL: ?nombre=&cargo=&unidad=&edad=
+  var q = new URLSearchParams(location.search);
+  var esc = function(s){ var d=document.createElement('div'); d.textContent=s||''; return d.innerHTML; };
+  var nombre = q.get('nombre') || '';
+  var cargo = q.get('cargo') || '';
+  var unidad = q.get('unidad') || '';
+  var edad = q.get('edad') || '';
+  if(nombre) document.getElementById('nombre').textContent = nombre;
+  document.getElementById('cargo').textContent = cargo + (unidad ? ' — ' + unidad : '');
+  document.getElementById('edad').textContent = edad ? ('🎈 Celebrando ' + edad + ' maravillosos años 🎈') : '🎈 Un día muy especial 🎈';
+</script>
+</body></html>
