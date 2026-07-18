@@ -8143,7 +8143,7 @@ function renderHistProv(){
       baseUsd:parseFloat(c.base_usd||0)||0, totalUsd:parseFloat(c.total_usd||c.base_usd||0)||0,
       retUsd:(tasa>0?retBs/tasa:0), retBs:retBs,
       pagUsd:parseFloat(p.monto_usd||0)||0, pagBs:parseFloat(p.monto_bs||0)||0,
-      tasa:tasa, ref:(p.ref||'')+(p.metodo?(' · '+p.metodo):'')
+      tasa:tasa, ref:(p.ref||'')+(p.metodo?(' · '+p.metodo):''), banco:!!p.conciliado_banco, bancoRef:p.conciliado_ref||''
     });
   });
   var idsConAbono={}; CXP_PAGOS.forEach(function(p){idsConAbono[String(p.cxp_id)]=1;});
@@ -8177,7 +8177,7 @@ function renderHistProv(){
       '<td style="font-family:var(--m);font-weight:700;color:var(--teal)">$'+f.pagUsd.toFixed(2)+'</td>'+
       '<td style="font-family:var(--m)">'+(f.pagBs>0.005?'Bs '+_bs2(f.pagBs):'—')+'</td>'+
       '<td style="font-family:var(--m);font-size:10px">'+(f.tasa>0?f.tasa.toFixed(2):'—')+'</td>'+
-      '<td style="font-family:var(--m);font-size:10px">'+_mEsc(f.ref||'—')+'</td>'+
+      '<td style="font-family:var(--m);font-size:10px">'+_mEsc(f.ref||'—')+(f.banco?(' <span title="Conciliado con el banco'+(f.bancoRef?(' · ref '+_mEsc(f.bancoRef)):'')+'" style="color:var(--green);font-weight:700">🏦</span>'):'')+'</td>'+
     '</tr>';
   }).join('')||'<tr><td colspan="11" style="text-align:center;color:var(--text3);padding:20px">Sin pagos registrados</td></tr>';
 }
@@ -16511,14 +16511,14 @@ async function renderConciliacionBNC(){
         if(l._usado||l.clase!=='cxp'||Math.abs(l.bs-b.bs)>tol)return false;
         return l.refDig&&l.refDig.length>=6&&refDig.indexOf(l.refDig)>=0;
       });
-      if(lib){lib._usado=true;b._conc=true;b._label=lib.lab;lib._via='ref';}
+      if(lib){lib._usado=true;b._conc=true;b._label=lib.lab;lib._via='ref';lib._bancoRef=b.ref;}
     });
     // Match general por MONTO (misma dirección; ingresos 1% por redondeo de tasa, egresos 0.5%).
     bancoMovs.forEach(function(b){
       if(b._conc)return;
       var tol=Math.max(1,b.bs*(b.tipo==='ingreso'?0.01:0.005));
       var lib=libros.find(function(l){return !l._usado&&l.tipo===b.tipo&&Math.abs(l.bs-b.bs)<=tol;});
-      if(lib){lib._usado=true;b._conc=true;b._label=lib.lab;}
+      if(lib){lib._usado=true;b._conc=true;b._label=lib.lab;lib._bancoRef=b.ref;if(lib.clase==='cxp')lib._via='monto';}
     });
     var faltaReg=bancoMovs.filter(function(b){return !b._conc;});   // en banco, no en libros
     var enTransito=libros.filter(function(l){return !l._usado&&l.clase!=='respsocial'&&l.clase!=='pct75'&&l.clase!=='nomina'&&l.clase!=='cxp';}); // resp.social, 7.5% Máximo, nómina y pagos a proveedores tienen su propia tarjeta
@@ -16528,6 +16528,18 @@ async function renderConciliacionBNC(){
     var netoBanco=sum(bancoMovs,'ingreso')-sum(bancoMovs,'egreso');
     var netoLib=sum(libros,'ingreso')-sum(libros,'egreso');
     var dif=Math.round((netoBanco-netoLib)*100)/100;
+    // ── FASE 2: AUTO-PERSISTIR el cruce. Si un pago a proveedor cuadró con un DÉBITO REAL del banco y aún
+    // no estaba guardado como conciliado, se marca solo (idempotente: solo false→true, con .eq('conciliado_banco',false)).
+    // Así queda para siempre y en el Historial, sin depender de que el rango de fechas siga abierto.
+    if(DB_READY&&supabase&&!(typeof DEMO_MODE!=='undefined'&&DEMO_MODE)){
+      libros.filter(function(l){return l.clase==='cxp'&&l._usado&&!l._persistido&&l.pagoId;}).forEach(function(l){
+        var p=(typeof CXP_PAGOS!=='undefined'?CXP_PAGOS:[]).find(function(x){return String(x.id)===String(l.pagoId);});
+        if(p&&p.conciliado_banco)return;
+        if(p){p.conciliado_banco=true;p.conciliado_ref=l._bancoRef||'';p.conciliado_fecha=ymd;} // optimista: evita doble write en re-render
+        l._persistido=true;
+        supabase.from('cxp_pagos').update({conciliado_banco:true,conciliado_ref:l._bancoRef||'',conciliado_fecha:ymd}).eq('id',l.pagoId).eq('conciliado_banco',false).then(function(r){if(r.error)console.log('auto-concilia cxp',r.error.message);});
+      });
+    }
     // ── 5) RENDER ──
     var html='';
     if(sandbox)html+='<div style="font-size:10px;color:var(--yellow);margin-bottom:8px">⚠️ DATOS DE PRUEBA (sandbox). Con el ClientID de producción se concilian tus cuentas reales.</div>';
