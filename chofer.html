@@ -294,7 +294,8 @@ body{background:#0f1923;color:#fff;font-family:-apple-system,BlinkMacSystemFont,
         <div class="cl-row">
           <div class="cl-field">
             <label class="cl-label">KM Salida</label>
-            <input class="cl-input" type="number" id="cl-km-salida" placeholder="0">
+            <input class="cl-input" type="number" id="cl-km-salida" placeholder="0" oninput="_fmtKm(this,'cl-km-salida-h')">
+            <div class="cl-km-hint" id="cl-km-salida-h" style="font-size:12px;color:#6b7280;margin-top:3px;font-weight:600"></div>
           </div>
           <div class="cl-field">
             <label class="cl-label">Hora Salida</label>
@@ -304,7 +305,8 @@ body{background:#0f1923;color:#fff;font-family:-apple-system,BlinkMacSystemFont,
         <div class="cl-row" id="cl-row-llegada" style="display:none">
           <div class="cl-field">
             <label class="cl-label">KM Llegada</label>
-            <input class="cl-input" type="number" id="cl-km-llegada" placeholder="0">
+            <input class="cl-input" type="number" id="cl-km-llegada" placeholder="0" oninput="_fmtKm(this,'cl-km-llegada-h')">
+            <div class="cl-km-hint" id="cl-km-llegada-h" style="font-size:12px;color:#6b7280;margin-top:3px;font-weight:600"></div>
           </div>
           <div class="cl-field">
             <label class="cl-label">Hora Llegada</label>
@@ -1883,6 +1885,9 @@ function selEstado(estado){
 
 function setVal(id, val){ var el=document.getElementById(id); if(el&&val!==null&&val!==undefined) el.value=val; }
 function gv(id){ var el=document.getElementById(id); return el?el.value.trim():''; }
+// Muestra el km con separador de miles debajo del input mientras el chofer escribe (para que note un
+// dígito de más: 1400800 -> "1.400.800 km"). No cambia el valor del input (sigue type=number).
+function _fmtKm(inp, hintId){ var h=document.getElementById(hintId); if(!h)return; var v=parseInt(String(inp.value).replace(/\D/g,''))||0; h.textContent = v>0 ? ('= '+v.toLocaleString('es-VE')+' km') : ''; }
 
 // ── GUARDAR CHECKLIST ──
 // Tabla de cubicación del tanque JAC (cm -> litros). Espejo de combustible_tanques_config(tanque-jac).
@@ -1965,6 +1970,17 @@ async function guardarChecklist(){
   // confirmar; si se equivocó, cancela y lo corrige. Evita corromper el odómetro y el próximo servicio.
   var _kmIng = (CL_MODO==='salida') ? (parseInt(gv('cl-km-salida'))||0) : (parseInt(gv('cl-km-llegada'))||0);
   if(_kmIng>0){
+    // TOPE DURO (NO se puede confirmar para pasarlo): un salto absurdo (dígito de más, ej. 1.400.800
+    // en vez de 16.104) se RECHAZA. Con odómetro previo: no puede subir más de 100.000 km de golpe.
+    // Sin previo (primer registro): no puede pasar de 1.000.000 (ningún camión de la flota llega a eso).
+    var _capDuro = (CL_KM_PREV>0) ? (CL_KM_PREV + 100000) : 1000000;
+    if(_kmIng > _capDuro){
+      mostrarToast('Kilometraje inválido: '+_kmIng.toLocaleString('es-VE')+' es demasiado alto. Revisa el tipeo (sobran dígitos).','error');
+      if(btn){ btn.disabled=false; btn.textContent='Guardar'; }
+      var _fh=document.getElementById(CL_MODO==='salida'?'cl-km-salida':'cl-km-llegada');
+      if(_fh){ try{ _fh.focus(); _fh.select(); _fh.scrollIntoView({block:'center'}); }catch(e){} }
+      return;
+    }
     var _susp='', _ref=0;
     if(CL_MODO==='salida'){
       if(CL_KM_PREV>0 && _kmIng > CL_KM_PREV + KM_MAX_DIA){ _susp='salto'; _ref=CL_KM_PREV; }
