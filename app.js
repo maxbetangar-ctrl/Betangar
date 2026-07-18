@@ -7343,7 +7343,7 @@ function imprimirMantenimiento(){
 // ═══════════════════════════════════════════════════
 // BANCO BNC
 // ═══════════════════════════════════════════════════
-function switchBNCTab(t){['dash','mov','conc','pend','cfg'].forEach(function(x){var el=g('tab-bnc-'+x);var sw=g('sw-bnc-'+x);if(el)el.style.display=x===t?'block':'none';if(sw){sw.classList.remove('on');if(x===t)sw.classList.add('on');}});if(t==='dash')renderBNCDash();if(t==='mov')renderMovBNC();if(t==='conc')renderConciliacion();if(t==='pend')renderPagosPendBNC();}
+function switchBNCTab(t){['dash','mov','pend','cfg'].forEach(function(x){var el=g('tab-bnc-'+x);var sw=g('sw-bnc-'+x);if(el)el.style.display=x===t?'block':'none';if(sw){sw.classList.remove('on');if(x===t)sw.classList.add('on');}});if(t==='dash')renderBNCDash();if(t==='mov')renderMovBNC();if(t==='pend')renderPagosPendBNC();}
 
 function renderBNCDash(){
   if(!BNC_CONFIG.guid){if(g('bnc-saldo-fecha'))g('bnc-saldo-fecha').textContent='Sin conexion — Configura en tab Config API';}
@@ -7521,38 +7521,12 @@ async function _movRealesNotifsHTML(modo){
     }).join('')+'</tbody></table></div>';
 }
 
-function conciliarMov(id){var mov=BNC_MOV.find(function(m){return m.id===id;});if(!mov)return;mov.conciliado=true;bncMovGuardar(id);audit('Movimiento BNC conciliado',id);renderMovBNC();renderConciliacion();}
+function conciliarMov(id){var mov=BNC_MOV.find(function(m){return m.id===id;});if(!mov)return;mov.conciliado=true;bncMovGuardar(id);audit('Movimiento BNC conciliado',id);renderMovBNC();}
 
-function conciliarAutomatico(){
-  var count=0;var tasa=TASAS.bcvDolar||cfg.tasa;
-  BNC_MOV.forEach(function(mov){
-    if(mov.conciliado||mov.tipo!=='credito')return;
-    var montoUsd=mov.monto/tasa;
-    var ab=ABONOS.find(function(a){return !a._conciliado&&Math.abs(a.m-montoUsd)<200;});
-    if(ab){mov.conciliado=true;ab._conciliado=true;count++;bncMovGuardar(mov.id);}
-  });
-  audit('Conciliacion automatica BNC',count+' movimientos');
-  alert('✅ Conciliacion automatica: '+count+' movimientos conciliados.');
-  renderMovBNC();renderConciliacion();
-}
-
-function renderConciliacion(){
-  var tasa=TASAS.bcvDolar||cfg.tasa;
-  var totalBNC=BNC_MOV.filter(function(m){return m.tipo==='credito';}).reduce(function(s,m){return s+m.monto;},0);
-  var totalBNCusd=totalBNC/tasa;
-  var totalCob=ABONOS.reduce(function(s,a){return s+a.m;},0);
-  var diff=totalCob-totalBNCusd;
-  var el=g('conc-estado');
-  if(el)el.innerHTML='<div class="fr2" style="gap:8px;margin-bottom:8px">'+
-    '<div class="card card-sm"><div class="stat-lbl">Registrado Betangar</div><div style="font-family:var(--m);font-size:16px;color:var(--green)">$'+totalCob.toFixed(0)+'</div></div>'+
-    '<div class="card card-sm"><div class="stat-lbl">Movimientos BNC</div><div style="font-family:var(--m);font-size:16px;color:var(--blue)">$'+totalBNCusd.toFixed(0)+'</div></div>'+
-    '</div><div style="font-size:12px;color:'+(Math.abs(diff)<50?'var(--green)':'var(--yellow)')+'">Diferencia: $'+diff.toFixed(0)+'</div>';
-  var pend=BNC_MOV.filter(function(m){return!m.conciliado&&m.tipo==='credito';});
-  var pe=g('conc-pend');
-  if(pe)pe.innerHTML=pend.length?pend.slice(0,5).map(function(m){return'<div style="font-size:12px;padding:5px 0;border-bottom:1px solid var(--border);display:flex;justify-content:space-between"><span>'+formatFecha(m.fecha)+' '+_escHtml(m.desc)+'</span><span style="font-family:var(--m);color:var(--green)">Bs '+m.monto.toLocaleString('es-VE',{maximumFractionDigits:0})+'</span></div>';}).join(''):'<div style="color:var(--green);font-size:12px;padding:8px">✓ Todo conciliado</div>';
-  var tb=g('tb-conc');
-  if(tb)tb.innerHTML=BNC_MOV.filter(function(m){return m.tipo==='credito';}).map(function(m){return'<tr><td>'+formatFecha(m.fecha)+'</td><td style="font-family:var(--m)">Bs '+m.monto.toLocaleString('es-VE',{maximumFractionDigits:0})+'</td><td style="font-family:var(--m)">$'+(m.monto/tasa).toFixed(2)+'</td><td style="font-family:var(--m);font-size:10px">'+_escHtml(m.ref)+'</td><td>—</td><td>'+(m.conciliado?'<span class="badge bg">SI</span>':'<span class="badge by">NO</span>')+'</td><td>'+((!m.conciliado)?'<button class="btn btn-g btn-xs" onclick="conciliarMov(\''+m.id+'\')">Conciliar</button>':'')+'</td></tr>';}).join('');
-}
+// [Unificado 2026-07-18] Se retiraron `conciliarAutomatico` (cruzaba con tolerancia ±$200 y persistía
+// conciliaciones falsas) y `renderConciliacion` (versión vieja, duplicada). La conciliación real y única
+// vive en renderConciliacionBNC (página 'conciliacion' del módulo Banco): banco vs libros por monto/ref,
+// ingresos (Alcaldía) + nómina por trabajador + pagos a proveedores (CxP). Fuente única, sin duplicar.
 
 function renderPagosPendBNC(){
   var pend=BNC_MOV.filter(function(m){return m.pendienteAutorizacion;});
@@ -8208,29 +8182,9 @@ function renderHistProv(){
   }).join('')||'<tr><td colspan="11" style="text-align:center;color:var(--text3);padding:20px">Sin pagos registrados</td></tr>';
 }
 
-function pagarCXP(id){
-  var c=CXP.find(function(x){return x.id===id;});if(!c)return;
-  var ref=prompt('Numero de referencia BNC del pago:');if(ref===null)return;
-  c.estado='pagado';c.fechaPago=new Date().toISOString().split('T')[0];c.refBnc=ref;
-  // Agregar como movimiento debito en BNC
-  bncMovPush({id:Date.now()+'',fecha:c.fechaPago,monto:c.netoPagar*(TASAS.bcvDolar||cfg.tasa),tipo:'debito',desc:'PAGO '+c.prov+' '+c.nota,ref:ref,conciliado:true,pendienteAutorizacion:false});
-  audit('CXP pagada',c.prov+' $'+c.netoPagar.toFixed(2));
-  alert('✅ Pago registrado.');
-  renderCXP();
-}
-
-function montarPagoBNC(id){
-  var c=CXP.find(function(x){return x.id===id;});if(!c)return;
-  if(!BNC_CONFIG.guid){alert('Configura las credenciales BNC primero');return;}
-  var pv=PROVEEDORES.find(function(p){return p.id===c.provId;});
-  var montoBs=c.netoPagar*(TASAS.bcvDolar||cfg.tasa);
-  bncMovPush({id:Date.now()+'',fecha:new Date().toISOString().split('T')[0],monto:montoBs,tipo:'debito',desc:'PAGO PROVEEDOR: '+c.prov+' '+c.nota,ref:'',conciliado:false,pendienteAutorizacion:true,detalle:pv});
-  var pend=BNC_MOV.filter(function(m){return m.pendienteAutorizacion;}).length;
-  if(g('bnc-por-aut'))g('bnc-por-aut').textContent=pend;
-  sendWA('🏦 BETANGAR: Pago montado en BNC\nProveedor: '+c.prov+'\nMonto: Bs '+montoBs.toLocaleString('es-VE',{maximumFractionDigits:0})+'\nAutorizar en BNCNET',null,true);
-  audit('Pago proveedor montado en BNC',c.prov+' Bs'+montoBs.toFixed(0));
-  alert('✅ Pago montado en BNC.\nSe envio WhatsApp al firmante.\n\n⚠ El firmante debe autorizar en BNCNET.');
-}
+// [Retirado 2026-07-18] `pagarCXP` y `montarPagoBNC` eran código MUERTO (sin call-sites): el flujo viejo
+// que creaba débitos espejo 'PAGO …' en BNC_MOV. El pago a proveedor hoy vive en cxp_pagos (Facturar /
+// 💵 Abonar / Confirmar Pago BNC) y se concilia en renderConciliacionBNC. Fuente única, sin espejos.
 
 // Proveedores
 function togglePvContrib(){
@@ -13554,7 +13508,6 @@ var TOOLTIPS={
   registrarMovManual:'Registrar manualmente un movimiento bancario',
   renderMovBNC:'Ver los movimientos del banco',
   renderConciliacionBNC:'Conciliar: cruzar los movimientos del banco con lo registrado en la app',
-  conciliarAutomatico:'Intentar emparejar automáticamente banco vs registros',
   asociarPagoBNC:'Asociar un movimiento del banco a un pago/cobro',
   ignorarPagoBNC:'Marcar este movimiento del banco como ignorado',
   imprimirReporteBancario:'Imprimir/PDF del reporte del banco',
@@ -16369,6 +16322,9 @@ async function renderConciliacionBNC(){
   // Prioridad: tasa de la API. La conciliación convierte USD↔Bs: sin tasa real daría falsos
   // descuadres, así que se pide manual (modal dólar+euro) y se reintenta. Nunca tasa inventada.
   if(!(TASAS.bcvDolar||cfg.tasa)){ tasaOManual('bcvDolar', function(){ renderConciliacionBNC(); }); return; }
+  // La página de conciliación puede abrirse sin pasar por Proveedores → CXP_PAGOS estaría vacío/viejo.
+  // Se recargan los pagos (paginado) para conciliar contra el estado real. CXP (deudas) ya es global.
+  if(typeof cargarCxpAux==='function'){ try{ await cargarCxpAux(); }catch(e){} }
   var hoy=new Date();var ymd=hoy.getFullYear()+'-'+String(hoy.getMonth()+1).padStart(2,'0')+'-'+String(hoy.getDate()).padStart(2,'0');
   if(g('conc-desde')&&!g('conc-desde').value)g('conc-desde').value=ymd;
   if(g('conc-hasta')&&!g('conc-hasta').value)g('conc-hasta').value=ymd;
@@ -16462,6 +16418,19 @@ async function renderConciliacionBNC(){
       var f=String(m.fecha||'').slice(0,10); if(f&&((desde&&f<desde)||(hasta&&f>hasta)))return;
       libros.push({tipo:'egreso',bs:Math.round((Number(m.monto)||0)*100)/100,desc:m.desc||'',lab:m.desc||'',pend:!!m.pendienteAutorizacion,fecha:m.fecha||'',_usado:false});
     });
+    // ── PAGOS A PROVEEDORES (CxP) — SOLO los YA EJECUTADOS (existe cxp_pagos = flujo cerrado). La deuda
+    // se registra en $, pero los Bs reales (monto_bs, lo que SALE del banco) solo se conocen AL PAGAR →
+    // por eso se concilia el PAGO, no la deuda. Métodos que salen por banco: bnc/transferencia/pagomóvil
+    // (efectivo/divisas no pasan por el estado de cuenta). Cuadra contra el débito real por monto_bs.
+    (typeof CXP_PAGOS!=='undefined'?CXP_PAGOS:[]).forEach(function(p){
+      var met=String(p.metodo||'').toLowerCase();
+      if(['bnc','transferencia','pagomovil'].indexOf(met)<0)return;
+      var bs=Math.round((parseFloat(p.monto_bs)||0)*100)/100; if(bs<=0)return;
+      var f=String(p.fecha||'').slice(0,10); if(f&&((desde&&f<desde)||(hasta&&f>hasta)))return;
+      var deu=(typeof CXP!=='undefined'?CXP:[]).find(function(c){return String(c.id)===String(p.cxp_id);});
+      var prov=deu?(deu.prov_nombre||deu.prov||''):'';
+      libros.push({tipo:'egreso',bs:bs,desc:'Pago '+(prov||'proveedor')+(p.ref?(' · '+p.ref):''),lab:'Pago '+(prov||'prov'),clase:'cxp',pagoId:p.id,prov:prov,metodo:met,ref:p.ref||'',refDig:String(p.ref||'').replace(/\D/g,''),fecha:f,_usado:false,_persistido:!!p.conciliado_banco});
+    });
     // ── NÓMINA / VIAJES por TRABAJADOR: cada empleado se paga por TRANSFERENCIA individual desde el
     // banco (choferes y ayudantes cobran SOLO por viajes = viajes×tarifa; administrativos = sueldo
     // fijo). Del historial semanal (nomina_historial.detalle) se expande CADA persona como un egreso
@@ -16532,6 +16501,18 @@ async function renderConciliacionBNC(){
       });
       if(lib){lib._usado=true;b._conc=true;b._label=lib.lab;b._porCedula=true;lib._porCedula=true;lib._via=via;}
     });
+    // PRE-PASE por REFERENCIA (pagos a proveedores): si el débito del banco trae la ref del pago
+    // (nº de factura/operación, ≥6 díg.) y el monto Bs cuadra, se empareja a ESE pago exacto.
+    bancoMovs.forEach(function(b){
+      if(b._conc||b.tipo!=='egreso')return;
+      var refDig=String(b.ref||'').replace(/\D/g,''); if(refDig.length<6)return;
+      var tol=Math.max(1,b.bs*0.005);
+      var lib=libros.find(function(l){
+        if(l._usado||l.clase!=='cxp'||Math.abs(l.bs-b.bs)>tol)return false;
+        return l.refDig&&l.refDig.length>=6&&refDig.indexOf(l.refDig)>=0;
+      });
+      if(lib){lib._usado=true;b._conc=true;b._label=lib.lab;lib._via='ref';}
+    });
     // Match general por MONTO (misma dirección; ingresos 1% por redondeo de tasa, egresos 0.5%).
     bancoMovs.forEach(function(b){
       if(b._conc)return;
@@ -16540,7 +16521,7 @@ async function renderConciliacionBNC(){
       if(lib){lib._usado=true;b._conc=true;b._label=lib.lab;}
     });
     var faltaReg=bancoMovs.filter(function(b){return !b._conc;});   // en banco, no en libros
-    var enTransito=libros.filter(function(l){return !l._usado&&l.clase!=='respsocial'&&l.clase!=='pct75'&&l.clase!=='nomina';}); // resp.social, 7.5% Máximo y nómina tienen su propia tarjeta
+    var enTransito=libros.filter(function(l){return !l._usado&&l.clase!=='respsocial'&&l.clase!=='pct75'&&l.clase!=='nomina'&&l.clase!=='cxp';}); // resp.social, 7.5% Máximo, nómina y pagos a proveedores tienen su propia tarjeta
     var nConc=bancoMovs.length-faltaReg.length;
     // ── 4) Saldos del período (neto = ingresos − egresos) ──
     var sum=function(arr,t){return arr.filter(function(x){return x.tipo===t;}).reduce(function(s,x){return s+x.bs;},0);};
@@ -16604,6 +16585,26 @@ async function renderConciliacionBNC(){
         nomOrd.map(function(r){return '<tr><td style="font-size:10px">'+(r.persona||'—')+'</td><td>'+rolBadge(r.rol)+'</td><td style="font-size:9px;color:var(--text3)">'+(r.semana||'')+'</td><td style="font-size:9px;color:var(--text3)">'+(r.pagoEst?formatFecha(r.pagoEst):'')+'</td><td style="text-align:right;font-family:var(--m);color:var(--red)">'+fmt(r.bs)+'</td><td style="text-align:center">'+(r._usado?('<span style="color:var(--green);font-weight:700">✅ pagado'+(r._porCedula?' <span title="cuadrado por '+(r._via||'referencia')+'" style="font-size:8px;color:var(--teal)">✓'+(r._via==='cuenta'?'cta':'céd')+'</span>':'')+'</span>'):'<span style="color:var(--yellow);font-weight:700">⚠️ pendiente</span>')+'</td></tr>';}).join('')+
         '</tbody></table></div></div>';
     }
+    // ── Pagos a proveedores (CxP): pagos EJECUTADOS que cuadran contra el débito real del banco ──
+    var cxpL=libros.filter(function(l){return l.clase==='cxp';});
+    if(cxpL.length){
+      var cxpConc=cxpL.filter(function(r){return r._usado||r._persistido;}), cxpPen=cxpL.filter(function(r){return !(r._usado||r._persistido);});
+      var totCxpPen=cxpPen.reduce(function(s,r){return s+r.bs;},0), totCxpConc=cxpConc.reduce(function(s,r){return s+r.bs;},0);
+      var cxpOrd=cxpL.slice().sort(function(a,b){return ((a._usado||a._persistido)?1:0)-((b._usado||b._persistido)?1:0);}); // por conciliar primero
+      html+='<div class="card" style="margin-bottom:12px"><div style="font-size:12px;font-weight:700;margin-bottom:6px">🧾 Pagos a proveedores (CxP)</div>'+
+        '<div style="font-size:10px;color:var(--text3);margin-bottom:8px">Solo pagos ya <b>ejecutados</b> (deuda pagada). La deuda es en $, pero se concilia por los <b>Bs reales que salieron del banco</b>. Cuadra automático contra el débito, o márcalo a mano si ya lo viste en BNCNET.</div>'+
+        '<div style="font-size:11px;margin-bottom:8px"><span style="color:var(--green)">✅ Conciliados '+cxpConc.length+' (Bs '+fmt(totCxpConc)+')</span> · <span style="color:var(--yellow)">⚠️ Por conciliar '+cxpPen.length+' (Bs '+fmt(totCxpPen)+')</span></div>'+
+        '<div class="tw" style="max-height:300px;overflow:auto"><table style="font-size:11px"><thead><tr><th>Proveedor</th><th>Fecha</th><th>Método</th><th>Ref</th><th style="text-align:right">Monto Bs</th><th style="text-align:center">Estado</th><th></th></tr></thead><tbody>'+
+        cxpOrd.map(function(r){
+          var ok=r._usado||r._persistido;
+          var via=r._via?(' <span title="cuadrado por '+r._via+'" style="font-size:8px;color:var(--teal)">✓'+r._via+'</span>'):(r._persistido?' <span title="conciliado a mano" style="font-size:8px;color:var(--teal)">✓man</span>':'');
+          var accion=ok
+            ? (r._persistido?'<button class="btn btn-xs" style="background:#fee2e2;color:#991b1b" onclick="concCxpDesmarcar(\''+r.pagoId+'\')" title="Deshacer conciliación">↩</button>':'')
+            : '<button class="btn btn-g btn-xs" onclick="concCxpMarcar(\''+r.pagoId+'\')" title="Marcar conciliado con el banco">✓ Conciliar</button>';
+          return '<tr><td style="font-size:10px">'+_escHtml(r.prov||'—')+'</td><td style="font-size:9px;color:var(--text3)">'+(r.fecha?formatFecha(r.fecha):'')+'</td><td style="font-size:9px;color:var(--text3)">'+_escHtml((r.metodo||'').toUpperCase())+'</td><td style="font-size:9px;color:var(--text3)">'+_escHtml(r.ref||'—')+'</td><td style="text-align:right;font-family:var(--m);color:var(--red)">'+fmt(r.bs)+'</td><td style="text-align:center">'+(ok?('<span style="color:var(--green);font-weight:700">✅ conciliado'+via+'</span>'):'<span style="color:var(--yellow);font-weight:700">⚠️ por conciliar</span>')+'</td><td style="text-align:center">'+accion+'</td></tr>';
+        }).join('')+
+        '</tbody></table></div></div>';
+    }
     if(enTransito.length){
       html+='<div class="card" style="margin-bottom:12px;border-color:rgba(251,191,36,.3)"><div style="font-size:12px;font-weight:700;color:var(--yellow);margin-bottom:6px">⚠️ Esperado, el banco aún no lo refleja ('+enTransito.length+')</div>'+
         '<div style="font-size:10px;color:var(--text3);margin-bottom:8px">Entradas que la Alcaldía aún no deposita (ej: la <b>fiel cumplimiento</b> que llega lunes/martes) o pagos que registraste y el banco no muestra (en tránsito / pendientes de firma en BNCNET).</div>'+
@@ -16613,6 +16614,35 @@ async function renderConciliacionBNC(){
     }
     el.innerHTML=html||'<div style="padding:16px;color:var(--text3);font-size:12px">Sin datos para el rango.</div>';
   }catch(e){el.innerHTML='<div style="padding:16px;color:var(--text3);font-size:12px">Error al conciliar: '+(e.message||e)+'</div>';}
+}
+// Conciliar MANUAL un pago a proveedor con el banco (cuando ya se vio el débito en BNCNET y la API aún
+// no lo trae). Fuente única: se marca en cxp_pagos (sin espejo). No éxito-falso: memoria solo tras confirmar.
+function concCxpMarcar(pagoId){
+  var p=(typeof CXP_PAGOS!=='undefined'?CXP_PAGOS:[]).find(function(x){return String(x.id)===String(pagoId);});
+  if(!p){if(typeof mostrarToast==='function')mostrarToast('Pago no encontrado','error');return;}
+  var refB=(typeof prompt==='function')?(prompt('Referencia del débito del banco (opcional):','')||''):'';
+  var hoy=(typeof fechaVE==='function')?fechaVE():new Date().toISOString().slice(0,10);
+  var aplicar=function(){ p.conciliado_banco=true; p.conciliado_ref=refB; p.conciliado_fecha=hoy; if(typeof audit==='function')audit('Pago CxP conciliado con banco',(p.ref||p.id)+' Bs'+(typeof _bs2==='function'?_bs2(p.monto_bs):p.monto_bs)); if(typeof mostrarToast==='function')mostrarToast('✅ Pago conciliado con el banco','exito'); renderConciliacionBNC(); };
+  if(typeof DEMO_MODE!=='undefined'&&DEMO_MODE){aplicar();return;}
+  if(DB_READY&&supabase){
+    supabase.from('cxp_pagos').update({conciliado_banco:true,conciliado_ref:refB,conciliado_fecha:hoy}).eq('id',pagoId).select().then(function(r){
+      if(r.error){if(typeof mostrarToast==='function')mostrarToast('No se pudo conciliar: '+r.error.message,'error');return;}
+      aplicar();
+    });
+  } else aplicar();
+}
+function concCxpDesmarcar(pagoId){
+  var p=(typeof CXP_PAGOS!=='undefined'?CXP_PAGOS:[]).find(function(x){return String(x.id)===String(pagoId);});
+  if(!p)return;
+  if(typeof confirm==='function'&&!confirm('¿Deshacer la conciliación de este pago con el banco?'))return;
+  var aplicar=function(){ p.conciliado_banco=false; p.conciliado_ref=null; p.conciliado_fecha=null; if(typeof audit==='function')audit('Conciliación de pago CxP deshecha',(p.ref||p.id)); if(typeof mostrarToast==='function')mostrarToast('Conciliación deshecha','info'); renderConciliacionBNC(); };
+  if(typeof DEMO_MODE!=='undefined'&&DEMO_MODE){aplicar();return;}
+  if(DB_READY&&supabase){
+    supabase.from('cxp_pagos').update({conciliado_banco:false,conciliado_ref:null,conciliado_fecha:null}).eq('id',pagoId).select().then(function(r){
+      if(r.error){if(typeof mostrarToast==='function')mostrarToast('No se pudo deshacer: '+r.error.message,'error');return;}
+      aplicar();
+    });
+  } else aplicar();
 }
 
 // Tipos de mantenimiento (KM) — estaban orfanos dentro del HTML de porteria, ahora en el script

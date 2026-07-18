@@ -515,7 +515,6 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
     <!-- Conciliacion y Config API se movieron al sub-nav del hub Banco (paginas standalone, mas
          completas): renderConciliacionBNC (BNC real por fecha) y bncGuardarConfig (RPC con los 9
          params: ClientID prod, webhooks, working key). Los tabs internos viejos quedan obsoletos. -->
-    <div class="sw" id="sw-bnc-conc" onclick="sp('conciliacion')" style="display:none">Conciliacion</div>
     <div class="sw" id="sw-bnc-cfg" onclick="sp('banco-bnc')" style="display:none">Config API</div>
   </div>
   <div id="tab-bnc-dash">
@@ -526,7 +525,6 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
     </div>
     <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
       <button class="btn btn-b" onclick="consultarSaldoBNC()">🔄 Actualizar Saldo</button>
-      <button class="btn btn-g" onclick="conciliarAutomatico()">⚡ Conciliar Automatico</button>
       <button class="btn btn-p" onclick="registrarMovManual()">+ Registrar Movimiento</button>
     </div>
     <div class="card"><div class="st" style="margin-bottom:10px">Ultimos Movimientos</div><div id="bnc-mov-recent"><div style="text-align:center;color:var(--text3);padding:20px;font-size:12px">Configura la API BNC o registra movimientos manualmente</div></div></div>
@@ -548,13 +546,6 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
     <div class="card" style="margin-bottom:12px"><div class="st" style="margin-bottom:8px">🏦 Movimientos reales del banco (BNC) <span style="font-size:10px;color:var(--text3);font-weight:400">— lo que reporta el banco por notificación</span></div><div id="bnc-mov-reales"><div style="text-align:center;color:var(--text3);padding:14px;font-size:12px">Cargando…</div></div></div>
     <div class="st" style="margin-bottom:8px;font-size:12px;color:var(--text3)">Registro interno (pagos, conciliaciones, manuales)</div>
     <div class="tw"><table><thead><tr><th>Fecha</th><th>Tipo</th><th>Descripcion</th><th>Referencia</th><th>Monto Bs</th><th>USD equiv</th><th>Conciliado</th><th></th></tr></thead><tbody id="tb-bnc-mov"></tbody></table></div>
-  </div>
-  <div id="tab-bnc-conc" style="display:none">
-    <div class="g2" style="margin-bottom:12px">
-      <div class="card"><div class="st" style="margin-bottom:8px">Estado Conciliacion</div><div id="conc-estado"></div></div>
-      <div class="card"><div class="st" style="margin-bottom:8px">Sin Conciliar</div><div id="conc-pend"></div></div>
-    </div>
-    <div class="tw"><table><thead><tr><th>Fecha BNC</th><th>Monto Bs</th><th>USD</th><th>Referencia</th><th>Factura</th><th>Estado</th><th></th></tr></thead><tbody id="tb-conc"></tbody></table></div>
   </div>
   <div id="tab-bnc-pend" style="display:none">
     <div class="alert-w">Los pagos montados quedan PENDIENTES en BNCNET. El firmante autorizado debe aprobarlos. La app NUNCA firma por ti.</div>
@@ -2573,7 +2564,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
 </div>
 
 <script src="logo-alcaldia.js?v=1"></script>
-<script src="app.js?v=20260718-cxp-factura-paga-fix"></script>
+<script src="app.js?v=20260718-conciliacion-pagos-proveedores"></script>
 
 <!-- Modal global -->
 <div id="modal" class="moverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9990;align-items:center;justify-content:center;padding:16px">
