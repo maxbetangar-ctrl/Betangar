@@ -2818,7 +2818,14 @@ function renderAlertasCriticas(){
     var ult=REGS.filter(function(r){return r.cam===cam;}).sort(function(a,b){return b.f.localeCompare(a.f);})[0];
     if(!ult||diasDesde(ult.f)>=3)al.push({t:'r',txt:'🚛 '+cam+' — '+(ult?diasDesde(ult.f):'?')+'+ dias sin planilla'});
   });
-  Object.keys(KM_DATA).forEach(function(cam){var _km=kmActualCam(cam);if(!_km)return;var _ps=proxServicio(_km);if(_ps-_km<=500)al.push({t:'r',txt:'🔧 '+cam+' — Servicio próximo ('+(_ps-_km).toLocaleString()+' km → '+_ps.toLocaleString()+')'});});
+  Object.keys(KM_DATA).forEach(function(cam){var _km=kmActualCam(cam);if(!_km)return;
+    var _kmInt=cfg.km||5000, _kmAce=_ultimoAceiteKm(cam);
+    if(_kmAce!=null){ // con evento real: avisar por km RECORRIDO (incluye VENCIDO; antes desaparecía solo)
+      var _rec=_km-_kmAce;
+      if(_rec>=_kmInt)al.push({t:'r',txt:'🛢️ '+cam+' — Aceite VENCIDO ('+_rec.toLocaleString()+' km desde el último cambio)'});
+      else if(_kmInt-_rec<=500)al.push({t:'r',txt:'🔧 '+cam+' — Aceite próximo (faltan '+(_kmInt-_rec).toLocaleString()+' km)'});
+    } else { var _ps=proxServicio(_km);if(_ps-_km<=500)al.push({t:'r',txt:'🔧 '+cam+' — Servicio próximo ('+(_ps-_km).toLocaleString()+' km → '+_ps.toLocaleString()+')'}); }
+  });
   // (El aviso de "préstamo completamente pagado" NO se manda aquí: dibujar el dashboard no debe
   //  disparar WhatsApp. Ese aviso lo manda aplicarAvanceDescuentos una sola vez, al pagar la semana.)
   // BADGE persistente (#opción c): nombres en planillas que NO casan con el roster (sin identificar),
@@ -5475,6 +5482,17 @@ function _ccAbrirCxP(o,provId,provNom,costo){
     if(typeof mostrarToast==='function')mostrarToast('Deuda $ prellenada y enlazada a '+o.id+'. La factura/retención se carga aparte en Bs.','info');
   },120);
 }
+// Casa el texto libre de una línea de compra contra el catálogo (MANT_ITEMS) de forma CONSERVADORA:
+// solo devuelve item_id con match claro (id/nombre exacto normalizado, o el nombre del ítem como tokens
+// contenidos). Si no, '' (comportamiento previo) — nunca adivina un vencimiento (no aflojar la lectura).
+function _ccItemCatalogo(nombre){
+  var n=_slugComp(nombre); if(!n)return '';
+  var items=(typeof MANT_ITEMS!=='undefined'?MANT_ITEMS:[]);
+  var hit=items.find(function(it){return _slugComp(it.id)===n||_slugComp(it.nombre)===n;});
+  if(hit)return hit.id;
+  hit=items.find(function(it){var s=_slugComp(it.nombre); return s&&s.length>=4&&('_'+n+'_').indexOf('_'+s+'_')>=0;});
+  return hit?hit.id:'';
+}
 async function _ccAgregarLinea(){
   var ordenId=window._ccOrden, o=(ORDENES_SERV||[]).find(function(x){return x.id===ordenId;}); if(!o){alert('Orden no encontrada');return;}
   var nombre=(gv('cc-item')||'').trim(); if(!nombre){alert('Escribe qué se compró');return;}
@@ -5500,9 +5518,11 @@ async function _ccAgregarLinea(){
     if(destino==='unidad'){
       var km=parseInt(gv('cc-km'))||0, idM='MT'+Date.now();
       if(km<=0)km=(typeof kmActualCam==='function')?(parseInt(kmActualCam(cam))||0):0; // sin km manual → km actual de la base
-      var row={id:idM,cam:cam,f:fecha,km:km,horas:0,item_id:'',tipo:nombre,tipo_trabajo:'cambio',desc_trabajo:nombre+(cant>1?(' x'+cant):''),costo_usd:costo,proveedor:provNom,foto_url:fotoUrl,anomalia:false,motivo:'',orden_id:ordenId,garantia_hasta:garHasta,centro_costo:'',origen:''};
-      var mem={id:idM,cam:cam,fecha:fecha,km:km,horas:0,itemId:'',tipo:nombre,tipoTrabajo:'cambio',desc:row.desc_trabajo,costo:costo,proveedor:provNom,foto:fotoUrl,anomalia:false,motivo:'',ordenId:ordenId,garantiaHasta:garHasta,centroCosto:'',origen:''};
+      var itemCat=_ccItemCatalogo(nombre); // enlaza con el catálogo → cuenta para los vencimientos (antes item_id='' = invisible)
+      var row={id:idM,cam:cam,f:fecha,km:km,horas:0,item_id:itemCat,tipo:nombre,tipo_trabajo:'cambio',desc_trabajo:nombre+(cant>1?(' x'+cant):''),costo_usd:costo,proveedor:provNom,foto_url:fotoUrl,anomalia:false,motivo:'',orden_id:ordenId,garantia_hasta:garHasta,centro_costo:'',origen:''};
+      var mem={id:idM,cam:cam,fecha:fecha,km:km,horas:0,itemId:itemCat,tipo:nombre,tipoTrabajo:'cambio',desc:row.desc_trabajo,costo:costo,proveedor:provNom,foto:fotoUrl,anomalia:false,motivo:'',ordenId:ordenId,garantiaHasta:garHasta,centroCosto:'',origen:''};
       await _ccInsertMant(row,mem);
+      if(itemCat)_sincronizarCicloMant(cam,itemCat,fecha); // si es lavado/engrase, refresca su ciclo en el espejo
       if(km>0){ if(!KM_DATA[cam])KM_DATA[cam]={km:0,f:'',ultsrv:0,mant:[],lavado:'',engrase:''}; if(km>=(parseInt(KM_DATA[cam].km)||0)){KM_DATA[cam].km=km;KM_DATA[cam].f=fecha;} }
     } else if(destino==='patio'){
       var centro=gv('cc-centro')||'otros', idP='MT'+Date.now();
@@ -6052,6 +6072,17 @@ function _ultimoServMant(cam,item){
     if(m.cam===cam && String(m.itemId||'').toLowerCase()===item){ var f=String(m.fecha||'').slice(0,10); if(f>best)best=f; }
   }); return best;
 }
+// km del ÚLTIMO cambio de aceite real (mantenimientos item_id=aceite_motor), o null si no hay evento.
+// Sirve para avisar VENCIDO por km RECORRIDO (no por redondeo, que nunca vence).
+function _ultimoAceiteKm(cam){
+  var bestF='', bestKm=null;
+  (typeof MANTENIMIENTOS!=='undefined'?MANTENIMIENTOS:[]).forEach(function(m){
+    if(m.cam===cam && String(m.itemId||'').toLowerCase()==='aceite_motor'){
+      var f=String(m.fecha||'').slice(0,10); if(f>=bestF){ var k=parseFloat(m.km)||0; if(k>0){bestF=f;bestKm=k;} }
+    }
+  });
+  return bestKm;
+}
 function _ultimoLavado(cam){ var a=(KM_DATA[cam]&&KM_DATA[cam].lavado)?String(KM_DATA[cam].lavado).slice(0,10):''; var b=_ultimoServMant(cam,'lavado'); return a>b?a:b; }
 function _ultimoEngrase(cam){ var a=(KM_DATA[cam]&&KM_DATA[cam].engrase)?String(KM_DATA[cam].engrase).slice(0,10):''; var b=_ultimoServMant(cam,'engrase'); return a>b?a:b; }
 // Al registrar un lavado/engrase en la hoja de vida, alimenta su ciclo (km_data) — solo si es más reciente.
@@ -6061,8 +6092,10 @@ function _sincronizarCicloMant(cam,itemId,fecha){
   if(!KM_DATA[cam])KM_DATA[cam]={km:0,f:'',ultsrv:0,mant:[],lavado:'',engrase:''};
   if(f<=String(KM_DATA[cam][campo]||'').slice(0,10))return; // no retroceder el ciclo
   KM_DATA[cam][campo]=f;
-  if(DB_READY&&supabase){ var upd={}; upd[campo]=f;
-    supabase.from('km_data').update(upd).eq('cam',cam).then(function(r){ if(r&&r.error&&typeof mostrarToast==='function')mostrarToast('No se pudo sincronizar el ciclo de '+campo+': '+r.error.message,'error'); });
+  if(DB_READY&&supabase){ var upd={cam:cam}; upd[campo]=f;
+    // upsert (no update): si la unidad aún no tiene fila espejo, update sería un no-op silencioso y el
+    // ciclo quedaría desincronizado para siempre → la alerta avisaría en falso.
+    supabase.from('km_data').upsert([upd],{onConflict:'cam'}).then(function(r){ if(r&&r.error&&typeof mostrarToast==='function')mostrarToast('No se pudo sincronizar el ciclo de '+campo+': '+r.error.message,'error'); });
   }
 }
 // ── ANTI-FRAUDE: intervalo esperado de un ítem + detección de servicio ADELANTADO ──────────────

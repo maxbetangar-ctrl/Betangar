@@ -107,14 +107,38 @@ Deno.serve(async (_req: Request) => {
       await waSend(`🎂 HOY cumple años ${e.nombre} (${hoy.getUTCFullYear() - d.getUTCFullYear()} años) — ${e.cargo || ""}`, ["rrhh", "admin", "operativo"], wa, dry);
     }
 
-    // 2) SERVICE + LAVADOS (km_data)
+    // 2) SERVICE + LAVADOS — FUENTE DE VERDAD = mantenimientos (item_id); km_data solo respaldo.
+    // Antes leía únicamente km_data.lavado (espejo frágil) → ignoraba lavados/servicios hechos por
+    // hoja de vida u orden de servicio y avisaba en falso. Ahora cruza contra los eventos reales.
     const km = await sel(`km_data?select=cam,km,lavado,estado`);
+    // Último LAVADO real por cam (MAX fecha de mantenimientos item_id=lavado). item_id filtra pocas filas → sin tope.
+    const mLav = await sel(`mantenimientos?item_id=eq.lavado&select=cam,f&limit=2000`);
+    const ultLav: Record<string, string> = {};
+    for (const m of mLav) { const c = String(m.cam || ""); const f = String(m.f || "").slice(0, 10); if (!c || !f) continue; if (!ultLav[c] || f > ultLav[c]) ultLav[c] = f; }
+    // Último CAMBIO DE ACEITE real por cam (fecha + km) para avisar VENCIDO por km recorrido (no por redondeo).
+    const mAce = await sel(`mantenimientos?item_id=eq.aceite_motor&select=cam,f,km&order=f.desc&limit=2000`);
+    const ultAceKm: Record<string, number> = {};
+    for (const m of mAce) { const c = String(m.cam || ""); if (!c || ultAceKm[c] !== undefined) continue; const kmm = Number(m.km || 0); if (kmm > 0) ultAceKm[c] = kmm; }
     const srv: string[] = [], lav: string[] = [];
     for (const k of km) {
       const cam = String(k.cam || ""); if (!cam.startsWith("JAC-")) continue;
       const kmv = Number(k.km || 0);
-      if (kmv) { let prox = Math.ceil(kmv / 5000) * 5000; if (prox === kmv) prox += 5000; const faltan = prox - kmv; if (faltan <= 700) srv.push(`• ${U(cam)}: faltan ${faltan.toLocaleString("es-VE")} km`); }
-      if (k.lavado) { const dias = -diasHasta(k.lavado); if (!isNaN(dias) && dias > 45) lav.push(`• ${U(cam)}: lavado vencido (${dias} días)`); }
+      if (kmv) {
+        const kmUlt = ultAceKm[cam];
+        if (kmUlt !== undefined) {
+          // Con dato real: avisar por km RECORRIDO desde el último cambio (incluye VENCIDO; antes desaparecía solo).
+          const recorrido = kmv - kmUlt;
+          if (recorrido >= 5000) srv.push(`• ${U(cam)}: aceite VENCIDO (${recorrido.toLocaleString("es-VE")} km desde el último)`);
+          else if (5000 - recorrido <= 700 && 5000 - recorrido >= 0) srv.push(`• ${U(cam)}: faltan ${(5000 - recorrido).toLocaleString("es-VE")} km para el aceite`);
+        } else {
+          // Sin dato de mantenimiento: aviso proactivo por múltiplo de 5.000 (comportamiento previo).
+          let prox = Math.ceil(kmv / 5000) * 5000; if (prox === kmv) prox += 5000; const faltan = prox - kmv; if (faltan <= 700) srv.push(`• ${U(cam)}: faltan ${faltan.toLocaleString("es-VE")} km`);
+        }
+      }
+      // Lavado: MÁXIMO entre el espejo km_data.lavado y el mantenimiento real (sin doble conteo).
+      let fLav = String(k.lavado || "").slice(0, 10);
+      if (ultLav[cam] && (!fLav || ultLav[cam] > fLav)) fLav = ultLav[cam];
+      if (fLav) { const dias = -diasHasta(fLav); if (!isNaN(dias) && dias > 45) lav.push(`• ${U(cam)}: lavado vencido (${dias} días)`); }
     }
 
     // 3) CXP vencidas (DINERO — solo admin/socios)
