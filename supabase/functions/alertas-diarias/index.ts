@@ -48,11 +48,11 @@ const LBL_CL: Record<string, string> = {
   aceite_motor: "Nivel Aceite de Motor", refrigerante: "Refrigerante",
   liquido_hidraulico: "Nivel Líquido Hidráulico", trampa_agua: "Trampa de Agua", fugas: "Fugas",
   presion_aire: "Presión de Aire", tuercas_esparragos: "Tuercas y Espárragos",
-  drenaje_tanques: "Drenaje Tanques de Aire", llanta_repuesto: "Llanta de Repuesto",
+  drenaje_tanques: "Drenaje Tanques de Aire",
   mangueras_hidraulicas: "Mangueras Hidráulicas", puntos_engrase: "Puntos de Engrase",
   botones_parada: "Botones Parada Emergencia", toma_fuerza: "Toma de Fuerza (PTO)",
 };
-const CRIT_CL: Record<string, number> = { freno_mano: 1, freno_servicio: 1, aceite_motor: 1, fugas: 1, presion_aire: 1, tuercas_esparragos: 1, mangueras_hidraulicas: 1, toma_fuerza: 1, llanta_repuesto: 1 };
+const CRIT_CL: Record<string, number> = { freno_mano: 1, freno_servicio: 1, aceite_motor: 1, fugas: 1, presion_aire: 1, tuercas_esparragos: 1, mangueras_hidraulicas: 1, toma_fuerza: 1 };
 const DANIOS_CL: Record<string, string> = { danio_frontal: "Daño frontal", danio_lateral_izq: "Daño lateral izq.", danio_lateral_der: "Daño lateral der.", danio_posterior: "Daño posterior", danio_techo: "Daño techo" };
 
 const preview: any[] = [];

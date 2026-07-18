@@ -2757,7 +2757,7 @@ async function renderChecklistAnomalias(){
   // Mapa campo->etiqueta desde CL_SECCIONES
   var labels={};
   try{Object.keys(CL_SECCIONES).forEach(function(sec){CL_SECCIONES[sec].forEach(function(it){var p=it.split(':');labels[p[0]]=p[1]||p[0];});});}catch(e){}
-  var criticos={freno_mano:1,freno_servicio:1,aceite_motor:1,fugas:1,presion_aire:1,tuercas_esparragos:1,mangueras_hidraulicas:1,toma_fuerza:1,llanta_repuesto:1};
+  var criticos={freno_mano:1,freno_servicio:1,aceite_motor:1,fugas:1,presion_aire:1,tuercas_esparragos:1,mangueras_hidraulicas:1,toma_fuerza:1};
   var danios={danio_frontal:'Daño frontal',danio_lateral_izq:'Daño lateral izq.',danio_lateral_der:'Daño lateral der.',danio_posterior:'Daño posterior',danio_techo:'Daño techo'};
   // Una fila por camión (la medición más reciente del día)
   var porCam={}; data.forEach(function(c){if(!porCam[c.cam]||String(c.created_at)>String(porCam[c.cam].created_at))porCam[c.cam]=c;});
@@ -5439,7 +5439,16 @@ function _ccActualizarOrden(ordenId,terminar){
   var o=(ORDENES_SERV||[]).find(function(x){return x.id===ordenId;}); if(!o)return;
   o.costo=_ccCostoOrden(ordenId);
   var patch={costo_usd:o.costo};
-  if(terminar){ o.estado='hecha'; o.fechaCierre=(typeof fechaVE==='function')?fechaVE():''; patch.estado='hecha'; patch.fecha_cierre=o.fechaCierre; }
+  if(terminar){ o.estado='hecha'; o.fechaCierre=(typeof fechaVE==='function')?fechaVE():''; patch.estado='hecha'; patch.fecha_cierre=o.fechaCierre;
+    // "Hecho" cierra la orden (hoja de vida), NO paga. Si hay deuda con saldo, avisar que sigue en CxP.
+    try{
+      var _deu=(typeof CXP!=='undefined'?CXP:[]).filter(function(c){return c.orden_id&&String(c.orden_id)===String(ordenId)&&_cxpSaldoUsd(c)>0.005;});
+      if(_deu.length&&typeof mostrarToast==='function'){
+        var _sal=_deu.reduce(function(a,c){return a+_cxpSaldoUsd(c);},0);
+        setTimeout(function(){mostrarToast('Orden cerrada. La deuda $'+_sal.toFixed(2)+' con '+(_deu[0].prov_nombre||_deu[0].prov||'el proveedor')+' sigue en Cuentas por Pagar hasta que registres el pago (🧾 Facturar o 💵 Abonar).','info');},600);
+      }
+    }catch(e){}
+  }
   else if(o.estado==='emitida'){ o.estado='en_proceso'; patch.estado='en_proceso'; }
   if(DB_READY&&supabase){ try{ supabase.from('ordenes_servicio').update(patch).eq('id',ordenId).then(function(r){if(r&&r.error&&typeof mostrarToast==='function')mostrarToast('No se pudo actualizar la orden: '+r.error.message,'error');}); }catch(e){} }
 }
@@ -7997,8 +8006,10 @@ function calcFac(){
     var hayTasa=v.tasa>0;
     var cc=CXP.find(function(x){return String(x.id)===String(gv('fac-cxp'));});
     var saldoCc=cc?_cxpSaldoUsd(cc):0;
-    ck.disabled=!hayTasa; if(!hayTasa)ck.checked=false;
-    if(det)det.style.display=ck.checked?'':'none';
+    // Sin tasa: solo DESHABILITAR, NUNCA destildar. calcFac corre con fac-tasa vacío al abrir
+    // la pestaña (switchProvTab) y destildar aquí mataba el pago en silencio (bug Solquiven).
+    ck.disabled=!hayTasa;
+    if(det)det.style.display=(ck.checked&&hayTasa)?'':'none';
     if(hint)hint.textContent=!hayTasa?'Cargá la tasa BCV del día para poder registrar el pago aquí.':(!cc?'':(ck.checked?(saldoCc>0.005?('Saldará $'+saldoCc.toFixed(2)+' de la deuda. El neto Bs '+_bs2(v.neto)+' es lo que se paga al proveedor.'):'Esta deuda ya está saldada; solo se cargará la factura.'):''));
   }
 }
@@ -8010,7 +8021,9 @@ function guardarFactura(){
   var v=_calcFacVals();
   if(!(v.base>0)){alert('Ingresá la base imponible en Bs.');return;}
   if(!gv('fac-num')){alert('Ingresá el N° de factura.');return;}
-  var pagarYa=!!(g('fac-pagar-ya')&&g('fac-pagar-ya').checked&&!g('fac-pagar-ya').disabled&&v.tasa>0);
+  var ckPago=g('fac-pagar-ya');
+  if(ckPago&&ckPago.checked&&!(v.tasa>0)){alert('Marcaste "Registrar ahora el pago" pero falta la tasa BCV del día.\nCargá la tasa, o destildá el pago para guardar solo la factura.');return;}
+  var pagarYa=!!(ckPago&&ckPago.checked&&v.tasa>0);
   var row={
     cxp_id:String(c.id), orden_id:c.orden_id||null, prov_id:c.provId||c.prov_id||null, prov_nombre:c.prov_nombre||c.prov||'',
     fecha:gv('fac-fecha')||fechaVE(), nro_factura:gv('fac-num')||'', num_control:gv('fac-control')||'',
@@ -14637,7 +14650,7 @@ var CL_SECCIONES = {
   motor: ['aceite_motor:Nivel Aceite de Motor','refrigerante:Refrigerante',
     'liquido_hidraulico:Nivel Líquido Hidráulico','trampa_agua:Trampa de Agua','fugas:Fugas'],
   neumaticos: ['presion_aire:Presión de Aire','tuercas_esparragos:Tuercas y Espárragos',
-    'drenaje_tanques:Drenaje Tanques de Aire','llanta_repuesto:Llanta de Repuesto'],
+    'drenaje_tanques:Drenaje Tanques de Aire'],
   compactacion: ['mangueras_hidraulicas:Mangueras Hidráulicas','puntos_engrase:Puntos de Engrase',
     'botones_parada:Botones Parada de Emergencia','toma_fuerza:Toma de Fuerza (PTO)']
 };
