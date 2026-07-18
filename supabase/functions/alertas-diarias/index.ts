@@ -248,8 +248,11 @@ Deno.serve(async (_req: Request) => {
       const key = `resumen_dia_${hoyD}`;
       if (!(await yaEnviado(key, dry))) {
         const vj = await sel(`viajes_chofer?fecha=eq.${hoyD}&select=id`);
-        const gas = await sel(`gasoil?f=eq.${hoyD}&select=lit`);
-        const litros = gas.reduce((a: number, r: any) => a + (parseFloat(r.lit) || 0), 0);
+        // Combustible del día = SURTIDAS del chofer (fuente única post-corte 2026-07-18). El resumen
+        // es siempre de HOY (> corte). Antes leía gasoil (despachos de oficina), que post-corte ya no
+        // refleja lo surtido del día.
+        const gas = await sel(`surtidas?fecha=eq.${hoyD}&select=litros`);
+        const litros = gas.reduce((a: number, r: any) => a + (parseFloat(r.litros) || 0), 0);
         const bncR = await sel(`bnc_notificaciones?fecha_recibido=gte.${hoyD}&select=monto`);
         const totalBnc = bncR.reduce((a: number, r: any) => a + (parseFloat(r.monto) || 0), 0);
         const camsCk = Object.keys(ckByCam).length;

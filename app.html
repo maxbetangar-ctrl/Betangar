@@ -1718,6 +1718,25 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
       <div class="tw" style="max-height:160px;overflow-y:auto"><table><thead><tr><th>Fecha</th><th>Persona</th><th>L</th><th>$</th><th></th></tr></thead><tbody id="tb-gasol"></tbody></table></div>
     </div>
   </div>
+  <div class="card" id="card-surtidas-costeo" style="margin-bottom:10px">
+    <div class="sh"><div class="st">⛽ Surtidas y costeo (por unidad)</div></div>
+    <div id="sc-kpis" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px"></div>
+    <div class="fr2" style="margin-bottom:6px">
+      <div class="fg" style="margin-bottom:0"><label>Desde</label><input class="fc" id="sc-des" type="date" onchange="scRecargar()"></div>
+      <div class="fg" style="margin-bottom:0"><label>Hasta</label><input class="fc" id="sc-hta" type="date" onchange="scRecargar()"></div>
+    </div>
+    <div class="fr2" style="margin-bottom:6px">
+      <div class="fg" style="margin-bottom:0"><label>Unidad</label><select class="fc" id="sc-cam" onchange="renderSurtidasCosteo()"><option value="">Todas</option></select></div>
+      <div class="fg" style="margin-bottom:0"><label>Origen</label><select class="fc" id="sc-origen" onchange="renderSurtidasCosteo()"><option value="">Todos</option><option value="galpon_1">Galpón 1</option><option value="galpon_2">Galpón 2</option><option value="estacion">Estación</option></select></div>
+      <div class="fg" style="margin-bottom:0"><label>Costo</label><select class="fc" id="sc-estado" onchange="renderSurtidasCosteo()"><option value="">Todos</option><option value="def">Definido</option><option value="pend">Pendiente</option></select></div>
+    </div>
+    <div style="text-align:right;margin-bottom:8px">
+      <button class="btn btn-g btn-sm" onclick="abrirModalPeriodo()">💵 Definir costo del período (estación)</button>
+    </div>
+    <div class="tw" style="max-height:280px;overflow-y:auto"><table><thead><tr><th>Fecha</th><th>Unidad</th><th>Origen</th><th>Litros</th><th>$/L</th><th>Costo</th><th>Estado</th></tr></thead><tbody id="sc-body"></tbody></table></div>
+    <div style="font-weight:700;margin:12px 0 4px;font-size:13px">Períodos costeados (estación)</div>
+    <div class="tw" style="max-height:160px;overflow-y:auto"><table><thead><tr><th>Rango</th><th>Estación</th><th>Litros</th><th>$/L mezc.</th><th>Total</th><th>Pago</th></tr></thead><tbody id="sc-periodos"></tbody></table></div>
+  </div>
   <div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:8px">
     <button class="btn btn-s btn-sm" onclick="imprimirCombustible()">Imprimir</button>
     <button class="btn btn-s btn-sm" onclick="emailCombustible()">✉ Correo</button>
@@ -2564,7 +2583,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
 </div>
 
 <script src="logo-alcaldia.js?v=1"></script>
-<script src="app.js?v=20260718-conciliacion-rango15dias"></script>
+<script src="app.js?v=20260718-combustible-estacion"></script>
 
 <!-- Modal global -->
 <div id="modal" class="moverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9990;align-items:center;justify-content:center;padding:16px">

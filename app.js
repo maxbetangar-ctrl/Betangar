@@ -1320,7 +1320,7 @@ function sp(id){
     if(id==='financiero'){renderFinanzasSubnav('financiero');renderFinDash();renderGastosFijos();renderProveedoresLista();renderBancoFin();autoLlenarTasasEnFormularios();}
     if(id==='abonos'){renderAbonos();calcMontoAbono();}
     if(id==='nomina')recalcNom();
-    if(id==='combustible'){renderCombSubnav('combustible');renderComb();renderGasolPersonal();setTimeout(renderGasoil,100);}
+    if(id==='combustible'){renderCombSubnav('combustible');renderComb();renderGasolPersonal();setTimeout(renderGasoil,100);scAbrir();}
     if(id==='control-combustible'){renderCombSubnav('control-combustible');renderControlComb();}
     if(id==='rentabilidad'){renderAnalisisSubnav('rentabilidad');renderRentabilidad();}
     if(id==='salud'){renderSaludDatos();}
@@ -1599,6 +1599,20 @@ async function cargarDatosDB(){
       var _tc=await supabase.from('configuracion').select('valor').eq('clave','tanque_costo').maybeSingle();
       if(_tc&&_tc.data&&_tc.data.valor!=null&&String(_tc.data.valor)!==''){var _tcv=parseFloat(_tc.data.valor);if(!isNaN(_tcv))tankCostoLitro=_tcv;}
     }catch(e){console.log('tanque_costo load:',e&&e.message);}
+    // CORTE de surtidas (clave 'surtidas_corte'): desde esa fecha la verdad del combustible por
+    // camión son las SURTIDAS; el gasoil de planilla post-corte no se importa ni cuenta.
+    try{
+      var _sco=await supabase.from('configuracion').select('valor').eq('clave','surtidas_corte').maybeSingle();
+      if(_sco&&_sco.data&&_sco.data.valor)cfg.surtidasCorte=String(_sco.data.valor).slice(0,10);
+    }catch(e){console.log('surtidas_corte load:',e&&e.message);}
+    // PERÍODOS de estación cargados en el INIT (no solo al abrir Combustible): _totalEgresos suma
+    // costo_total_usd para la Utilidad Real del dashboard/financiero; si no, siempre daría 0.
+    try{
+      var _cpp=await supabase.from('combustible_periodos').select('*').order('created_at',{ascending:false});
+      if(_cpp&&!_cpp.error&&Array.isArray(_cpp.data))COMB_PERIODOS=_cpp.data;
+    }catch(e){console.log('comb_periodos load:',e&&e.message);}
+    // SURTIDAS post-corte para el motor de rentabilidad (necesita cfg.surtidasCorte ya cargado).
+    try{ await cargarSurtidasRent(); }catch(e){}
     // PRECIOS $/L de referencia por fuente (clave 'gasoil_precios') — fuente única para el
     // despacho a camión y el import de planillas. Editable en Config; default Tumaca 0.83 / Boscán 0.78.
     try{
@@ -2885,7 +2899,11 @@ function _totalEgresos(totalCob){
   // GASOLINA a empleados (módulo "Gasolina Personal", tabla gasol): ES costo real (afecta Utilidad
   // Real). NO es prestacional (no entra a nómina). Fuente única = la tabla gasol que ya existe.
   var egGasol=(typeof GASOL!=='undefined'?GASOL:[]).reduce(function(s,x){return s+(parseFloat(x.m)||0);},0);
-  return egNom+egGas+eg75+egFijos+egVars+egCxP+egMul+egGasol;
+  // ⛽ ESTACIÓN (convenio): costo real de los períodos costeados (combustible_periodos.costo_total_usd).
+  // Su CxP se excluye de egCxP por _esCxpCombustible → se cuenta UNA sola vez aquí. El galpón ya está
+  // en egGas (compras); las surtidas de galpón son movimiento interno del tanque (no se suman).
+  var egEst=(typeof COMB_PERIODOS!=='undefined'?COMB_PERIODOS:[]).reduce(function(s,p){return s+(parseFloat(p.costo_total_usd)||0);},0);
+  return egNom+egGas+egEst+eg75+egFijos+egVars+egCxP+egMul+egGasol;
 }
 function _utilReal(totalCob){ return (totalCob||0) - _totalEgresos(totalCob); }
 function renderDashFinanciero(totalM,totalCob,porcobrar){
@@ -3789,7 +3807,10 @@ function procesarExcelBetangar(wb){
       VX[cam]=(VX[cam]||0)+t;
 
       // Gasoil
-      if(gasoilV>0&&gasoilV<10000){
+      // GATE DE CORTE: desde cfg.surtidasCorte la verdad es la SURTIDA del chofer; el gasoil de la
+      // planilla post-corte NO se empuja (evita doble conteo con surtidas en rentabilidad).
+      var _postCorte=(typeof cfg!=='undefined'&&cfg&&cfg.surtidasCorte&&fechaStr>=String(cfg.surtidasCorte).slice(0,10));
+      if(gasoilV>0&&gasoilV<10000&&!_postCorte){
         GASOIL.push({f:fechaStr,cam:cam,lit:gasoilV,src:'Tumaca',m:gasoilV*((parseFloat(tankCostoLitro)>0)?parseFloat(tankCostoLitro):precioGasoil('tumaca'))});
         resultado.gasoil++;
       }
@@ -6911,8 +6932,184 @@ async function cargarSurtidas(){
   }catch(e){ console.log('surtidas load',e&&e.message); }
 }
 function _surtidasHoy(){ var hoy=fechaVE(); return (SURTIDAS||[]).filter(function(s){return String(s.fecha||'').slice(0,10)===hoy;}); }
-function _surCostoUsd(s){ return parseFloat(s.costo_usd)||((parseFloat(s.litros)||0)*(parseFloat(s.costo_litro_usd)||0.75)); }
+function _surCostoUsd(s){ if(s&&s.tanque==='estacion'&&!s.costo_definido)return 0; return parseFloat(s&&s.costo_usd)||0; } // costo HORNEADO (galpón=promedio tanque, estación=mezclado); pendiente=0
+function _surPendiente(s){ return s&&s.tanque==='estacion'&&!s.costo_definido; }
 function _surLbl(t){ return TANQUE_LBL[t]||t||''; }
+
+// ═══════ F2: SURTIDAS Y COSTEO (combustible por origen; admin cuesta las de estación) ═══════
+// Helpers GLOBALES (usd/_surEsc solo existían como locales de imprimirDashboard → ReferenceError en el panel).
+function usd(n){return '$'+Number(n||0).toLocaleString('es-VE',{minimumFractionDigits:2,maximumFractionDigits:2});}
+function _surEsc(s){return (typeof _mEsc==='function')?_mEsc(s):String(s==null?'':s);}
+var SURT_ADMIN=[], COMB_PERIODOS=[], _perTramos=[], SURT_RENT=[];
+// F3: TODAS las surtidas desde el CORTE (cfg.surtidasCorte), PAGINADAS — motor de RENTABILIDAD
+// (SURTIDAS=35d del dashboard y SURT_ADMIN=rango del panel no cubren cualquier rango de rentabilidad).
+async function cargarSurtidasRent(){
+  if(!(DB_READY&&supabase))return;
+  var corte=(typeof cfg!=='undefined'&&cfg&&cfg.surtidasCorte)?String(cfg.surtidasCorte).slice(0,10):'';
+  if(!corte){SURT_RENT=[];return;}
+  try{
+    var all=[],from=0,size=1000;
+    for(;;){
+      var r=await supabase.from('surtidas').select('*').gte('fecha',corte).order('fecha',{ascending:true}).order('id',{ascending:true}).range(from,from+size-1);
+      if(r&&r.error){console.log('surt rent load:',r.error.message);break;}
+      var c=(r&&r.data)||[]; all=all.concat(c);
+      if(c.length<size)break; from+=size; if(from>100000)break;
+    }
+    SURT_RENT=all;
+  }catch(e){console.log('surt rent:',e&&e.message);}
+}
+async function cargarSurtidasCosteo(des,hta){
+  if(!(DB_READY&&supabase))return;
+  try{
+    des=des||new Date(Date.now()-14*86400000).toISOString().slice(0,10);
+    hta=hta||fechaVE();
+    var r=await supabase.from('surtidas').select('*').gte('fecha',des).lte('fecha',hta).order('fecha',{ascending:false}).order('hora',{ascending:false});
+    if(r&&!r.error&&Array.isArray(r.data))SURT_ADMIN=r.data;
+    var rp=await supabase.from('combustible_periodos').select('*').order('created_at',{ascending:false});
+    if(rp&&!rp.error&&Array.isArray(rp.data))COMB_PERIODOS=rp.data;
+  }catch(e){ console.log('surt costeo',e&&e.message); }
+}
+function _scInit(){ // fija fechas por defecto (últimos 14 días) la primera vez
+  var d=g('sc-des'), h=g('sc-hta'); if(!d||!h)return;
+  if(!d.value) d.value=new Date(Date.now()-14*86400000).toISOString().slice(0,10);
+  if(!h.value) h.value=fechaVE();
+}
+function scAbrir(){ _scInit(); scRecargar(); }
+function scRecargar(){ _scInit(); cargarSurtidasCosteo(gv('sc-des'),gv('sc-hta')).then(renderSurtidasCosteo); }
+function _scCostoUsd(s){ return (s.tanque==='estacion'&&!s.costo_definido)?0:(parseFloat(s.costo_usd)||0); }
+function renderSurtidasCosteo(){
+  var cont=g('sc-body'); if(!cont)return;
+  // Poblar selector de unidad (con las que aparezcan)
+  var selC=g('sc-cam'); if(selC){ var cur=selC.value; var cams=Array.from(new Set((SURT_ADMIN||[]).map(function(s){return s.cam;}).filter(Boolean))).sort();
+    selC.innerHTML='<option value="">Todas</option>'+cams.map(function(c){return '<option value="'+c+'">'+c+'</option>';}).join(''); selC.value=cur; }
+  var fc=gv('sc-cam'), fo=gv('sc-origen'), fe=gv('sc-estado');
+  var arr=(SURT_ADMIN||[]).filter(function(s){
+    if(fc && s.cam!==fc)return false;
+    if(fo && s.tanque!==fo)return false;
+    if(fe==='def' && !s.costo_definido)return false;
+    if(fe==='pend' && s.costo_definido)return false;
+    return true;
+  });
+  var litGal=0,litEst=0,litPend=0,totUsd=0;
+  (SURT_ADMIN||[]).forEach(function(s){ var l=parseFloat(s.litros)||0;
+    if(s.tanque==='estacion'){ litEst+=l; if(!s.costo_definido)litPend+=l; } else litGal+=l;
+    totUsd+=_scCostoUsd(s);
+  });
+  var chip=function(lbl,val,col){ return '<div style="flex:1;min-width:110px;background:#0e2038;border:1px solid #24405f;border-radius:10px;padding:8px 10px"><div style="font-size:10px;color:#9fb3c8">'+lbl+'</div><div style="font-size:16px;font-weight:800;color:'+(col||'#fff')+'">'+val+'</div></div>'; };
+  var k=g('sc-kpis'); if(k) k.innerHTML=chip('Litros galpón',Math.round(litGal).toLocaleString('es-VE')+' L')+chip('Litros estación',Math.round(litEst).toLocaleString('es-VE')+' L')+chip('Estación SIN costear',Math.round(litPend).toLocaleString('es-VE')+' L',litPend>0?'#ff6b6b':'#7dc941')+chip('Costo total',usd(totUsd),'#7dc941');
+  if(!arr.length){ cont.innerHTML='<tr><td colspan="7" style="text-align:center;color:#9fb3c8">Sin surtidas en el filtro.</td></tr>'; }
+  else cont.innerHTML=arr.map(function(s){
+    var l=parseFloat(s.litros)||0, pend=(s.tanque==='estacion'&&!s.costo_definido);
+    var cl=pend?'—':('$'+(parseFloat(s.costo_litro_usd)||0).toFixed(3));
+    var co=pend?'<span style="color:#ffb020">⏳ por definir</span>':usd(parseFloat(s.costo_usd)||0);
+    var est=pend?'<span style="color:#ffb020">pendiente</span>':'<span style="color:#7dc941">✅ costeado</span>';
+    return '<tr><td>'+(String(s.fecha||'').slice(8,10)+'/'+String(s.fecha||'').slice(5,7))+'</td><td style="font-weight:700">'+_surEsc(s.cam||'')+'</td><td>'+_surEsc(_surLbl(s.tanque))+'</td><td style="text-align:right;font-family:var(--m)">'+l.toLocaleString('es-VE')+'</td><td style="text-align:right;font-family:var(--m)">'+cl+'</td><td style="text-align:right;font-family:var(--m)">'+co+'</td><td>'+est+'</td></tr>';
+  }).join('');
+  // Períodos
+  var tp=g('sc-periodos'); if(tp){ if(!(COMB_PERIODOS||[]).length){ tp.innerHTML='<tr><td colspan="6" style="text-align:center;color:#9fb3c8">Ninguno todavía.</td></tr>'; }
+    else tp.innerHTML=(COMB_PERIODOS||[]).map(function(p){
+      return '<tr><td>'+_surEsc(String(p.desde||'').slice(5)+'→'+String(p.hasta||'').slice(5))+'</td><td>'+_surEsc(p.estacion_nombre||'')+'</td><td style="text-align:right;font-family:var(--m)">'+(parseFloat(p.litros_facturados)||0).toLocaleString('es-VE')+'</td><td style="text-align:right;font-family:var(--m)">$'+(parseFloat(p.precio_mezclado)||0).toFixed(3)+'</td><td style="text-align:right;font-family:var(--m)">'+usd(parseFloat(p.costo_total_usd)||0)+'</td><td>'+_surEsc(p.pago_estado||'')+'</td></tr>';
+    }).join('');
+  }
+}
+// ── Modal: definir el costo de un período (tramos de precio partido) ──
+function abrirModalPeriodo(){
+  _perTramos=[{litros:'',precio:'',tasaTipo:'bcvDolar'}];
+  var des=gv('sc-des')||new Date(Date.now()-14*86400000).toISOString().slice(0,10);
+  var hta=gv('sc-hta')||fechaVE();
+  var body=''
+    +'<div class="fr2"><div class="fg"><label>Desde</label><input class="fc" id="per-des" type="date" value="'+des+'" onchange="_perCalc()"></div><div class="fg"><label>Hasta</label><input class="fc" id="per-hta" type="date" value="'+hta+'" onchange="_perCalc()"></div></div>'
+    +'<div class="fg"><label>Estación</label><input class="fc" id="per-est" placeholder="Estación de servicio" value="Estación de servicio"></div>'
+    +'<div style="font-weight:700;font-size:13px;margin:8px 0 4px">Tramos de precio (litros @ $/L @ tasa)</div>'
+    +'<div id="per-tramos"></div>'
+    +'<button class="btn btn-s btn-xs" style="margin-top:4px" onclick="_perAddTramo()">+ Agregar tramo</button>'
+    +'<div id="per-calc" style="margin-top:10px;padding:10px;background:#0e2038;border-radius:8px;font-size:13px"></div>'
+    +'<button class="btn btn-g btn-sm" style="width:100%;margin-top:10px" onclick="_perAplicar()">✅ Aplicar costo a las surtidas del período</button>';
+  openModal('Definir costo del período (estación)', body);
+  _perRenderTramos(); _perCalc();
+}
+function _perRenderTramos(){
+  var c=g('per-tramos'); if(!c)return;
+  var opts=['bcvDolar','bcvEuro','binance','promedio'];
+  c.innerHTML=_perTramos.map(function(t,i){
+    return '<div class="fr2" style="align-items:end;margin-bottom:4px"><div class="fg" style="margin:0"><label style="font-size:10px">Litros</label><input class="fc" type="number" value="'+(t.litros||'')+'" oninput="_perSet('+i+',\'litros\',this.value)" placeholder="0"></div>'
+      +'<div class="fg" style="margin:0"><label style="font-size:10px">$/L</label><input class="fc" type="number" step="0.001" value="'+(t.precio||'')+'" oninput="_perSet('+i+',\'precio\',this.value)" placeholder="0.00"></div>'
+      +'<div class="fg" style="margin:0"><label style="font-size:10px">Tasa</label><select class="fc" onchange="_perSet('+i+',\'tasaTipo\',this.value)">'+opts.map(function(o){return '<option value="'+o+'"'+(t.tasaTipo===o?' selected':'')+'>'+o+'</option>';}).join('')+'</select></div>'
+      +'<div class="fg" style="margin:0;max-width:36px"><label style="font-size:10px">&nbsp;</label>'+(_perTramos.length>1?'<button class="btn btn-s btn-xs" onclick="_perDel('+i+')">✕</button>':'')+'</div></div>';
+  }).join('');
+}
+function _perSet(i,k,v){ if(_perTramos[i]){ _perTramos[i][k]=v; _perCalc(); } }
+function _perAddTramo(){ _perTramos.push({litros:'',precio:'',tasaTipo:'bcvDolar'}); _perRenderTramos(); _perCalc(); }
+function _perDel(i){ _perTramos.splice(i,1); _perRenderTramos(); _perCalc(); }
+function _perTasaVal(tt){ return (typeof getTasa==='function'?getTasa(tt):(typeof TASAS!=='undefined'?TASAS[tt]:0))||0; }
+function _perCalc(){
+  var box=g('per-calc'); if(!box)return;
+  var litF=0,cUsd=0,cBs=0;
+  _perTramos.forEach(function(t){ var l=parseFloat(t.litros)||0, pr=parseFloat(t.precio)||0, ta=_perTasaVal(t.tasaTipo);
+    litF+=l; cUsd+=l*pr; cBs+=l*pr*ta; });
+  var mezc=litF>0?cUsd/litF:0;
+  var des=gv('per-des'), hta=gv('per-hta');
+  var target=(SURT_ADMIN||[]).filter(function(s){ return s.tanque==='estacion' && !s.costo_definido && String(s.fecha||'')>=des && String(s.fecha||'')<=hta; });
+  var litSur=target.reduce(function(a,s){return a+(parseFloat(s.litros)||0);},0);
+  var difPct=litF>0?Math.abs(litF-litSur)/litF*100:0;
+  var warn=(difPct>2 && litSur>0)?'<div style="color:#ffb020;margin-top:4px">⚠️ Litros de tramos ('+litF.toLocaleString('es-VE')+') ≠ litros surtidos pendientes ('+litSur.toLocaleString('es-VE')+'). La estación factura por su totalizador; verificá.</div>':'';
+  box.innerHTML='Litros facturados: <b>'+litF.toLocaleString('es-VE')+' L</b> · Surtidas pendientes que cubre: <b>'+target.length+' ('+litSur.toLocaleString('es-VE')+' L)</b><br>'
+    +'Costo total: <b style="color:#7dc941">'+usd(cUsd)+'</b> · Bs '+cBs.toLocaleString('es-VE',{maximumFractionDigits:2})+'<br>'
+    +'Precio mezclado: <b>$'+mezc.toFixed(4)+'/L</b>'+warn;
+  box.dataset.mezc=mezc; box.dataset.cusd=cUsd; box.dataset.cbs=cBs; box.dataset.litf=litF;
+}
+async function _perAplicar(){
+  var des=gv('per-des'), hta=gv('per-hta'), est=gv('per-est')||'Estación de servicio';
+  var tramos=_perTramos.map(function(t){return {litros:parseFloat(t.litros)||0,precio_usd:parseFloat(t.precio)||0,tasa:_perTasaVal(t.tasaTipo),tasa_tipo:t.tasaTipo};}).filter(function(t){return t.litros>0&&t.precio_usd>0;});
+  if(!tramos.length){ alert('Cargá al menos un tramo con litros y precio.'); return; }
+  if(!des||!hta){ alert('Indicá el rango de fechas.'); return; }
+  var litF=tramos.reduce(function(a,t){return a+t.litros;},0);
+  var cUsd=tramos.reduce(function(a,t){return a+t.litros*t.precio_usd;},0);
+  var cBs=tramos.reduce(function(a,t){return a+t.litros*t.precio_usd*t.tasa;},0);
+  var mezc=litF>0?cUsd/litF:0;
+  var tasaPond=cUsd>0?cBs/cUsd:0;
+  var _tq=await supabase.from('surtidas').select('*').eq('tanque','estacion').eq('costo_definido',false).gte('fecha',des).lte('fecha',hta);
+  if(_tq&&_tq.error){ mostrarToast('No se pudieron leer las surtidas: '+_tq.error.message,'error'); return; }
+  var target=(_tq&&_tq.data)||[];
+  var _solapa=(COMB_PERIODOS||[]).some(function(p){return String(p.desde||'')<=hta && String(p.hasta||'')>=des;});
+  if(_solapa && !confirm('⚠️ Ya existe un período costeado que SOLAPA ese rango. Aplicarlo de nuevo DUPLICA el costo total y la CxP en la Utilidad Real. ¿Continuar igual?')) return;
+  if(!target.length && !confirm('No hay surtidas de estación pendientes en ese rango. ¿Guardar el período igual (solo registra el costo/CxP)?')) return;
+  if(!confirm('Aplicar $'+mezc.toFixed(4)+'/L a '+target.length+' surtida(s) y generar la cuenta por pagar de '+usd(cUsd)+'?')) return;
+  var litSur=target.reduce(function(a,s){return a+(parseFloat(s.litros)||0);},0);
+  // 1) Insertar período
+  var perRow={desde:des,hasta:hta,estacion_nombre:est,tramos:tramos,litros_facturados:litF,litros_surtidos:litSur,costo_total_usd:Math.round(cUsd*100)/100,costo_total_bs:Math.round(cBs*100)/100,precio_mezclado:Math.round(mezc*10000)/10000,pago_estado:'pendiente',creado_por:(typeof SESION!=='undefined'&&SESION?SESION.nombre:'')||''};
+  var perId=null;
+  try{ var rp=await supabase.from('combustible_periodos').insert([perRow]).select();
+    if(rp.error){ mostrarToast('No se pudo guardar el período: '+rp.error.message,'error'); return; }
+    if(rp.data&&rp.data[0])perId=rp.data[0].id;
+  }catch(e){ mostrarToast('Sin conexión al guardar el período.','error'); return; }
+  // 2) Actualizar cada surtida (fila a fila; costo depende de sus litros)
+  var okAll=true;
+  for(var i=0;i<target.length;i++){ var s=target[i]; var l=parseFloat(s.litros)||0;
+    var cu=Math.round(l*mezc*100)/100, cbs=Math.round(cu*tasaPond*100)/100;
+    try{ var ru=await supabase.from('surtidas').update({costo_litro_usd:Math.round(mezc*10000)/10000,costo_usd:cu,tasa_bcv:Math.round(tasaPond*100)/100,costo_bs:cbs,costo_definido:true,estacion_nombre:est,desglose:{periodo_id:perId,precio_mezclado:mezc,tasa_pond:tasaPond}}).eq('id',s.id);
+      if(ru.error){ okAll=false; console.log('surtida upd',ru.error.message); }
+    }catch(e){ okAll=false; }
+  }
+  // 3) CxP (descripción DEBE empezar con "Compra combustible" → _esCxpCombustible la excluye de egCxP)
+  var tasaTipo=tramos[0].tasa_tipo||'bcvDolar';
+  var cxpRow={ fecha:hta, fecha_venc:null, prov_nombre:est, tipo_proveedor:'sin_soporte', sin_soporte:true,
+    descripcion:'Compra combustible ESTACIÓN '+litF+' L @ $'+mezc.toFixed(3)+'/L (período '+des+'→'+hta+')', factura:'', nota:'Generada automáticamente desde Combustible',
+    base_usd:Math.round(cUsd*100)/100, iva_pct:0, iva_usd:0, total_usd:Math.round(cUsd*100)/100,
+    ret_iva_pct:0, ret_iva_usd:0, ret_islr_pct:0, ret_islr_usd:0, neto_pagar:Math.round(cUsd*100)/100,
+    estado:'pendiente', tasa_tipo:tasaTipo, tasa_val:tasaPond, created_at:new Date().toISOString() };
+  var cxpId=null;
+  try{ var rc=await supabase.from('cxp').insert([cxpRow]).select();
+    if(rc.error){ console.log('CxP estación error',rc.error.message); mostrarToast('Aviso: no se pudo generar la CxP: '+rc.error.message,'error'); }
+    else if(rc.data&&rc.data[0]){ cxpId=rc.data[0].id; if(typeof CXP!=='undefined'&&CXP)CXP.push(rc.data[0]); }
+  }catch(e){ console.log('CxP estación:',e&&e.message); }
+  if(cxpId&&perId){ try{ await supabase.from('combustible_periodos').update({cxp_id:cxpId}).eq('id',perId); }catch(e){ console.log('period cxp_id:',e&&e.message); } }
+  audit('Costeo combustible estación', est+' '+litF+'L $'+cUsd.toFixed(2)+' → '+target.length+' surtidas');
+  closeModal();
+  mostrarToast((okAll?'✅ ':'⚠️ parcial: ')+'Costeadas '+target.length+' surtidas · '+usd(cUsd)+(cxpId?' · CxP generada':''),okAll?'exito':'error');
+  try{cargarSurtidasRent();}catch(e){}
+  scRecargar();
+}
 function renderSurtidasHoy(){
   var cont=g('dash-surtidas'); if(!cont)return;
   var arr=_surtidasHoy();
@@ -17602,9 +17799,13 @@ function calcRentabilidadCamiones(des,hta){
     var ayCount=((r.ay1&&String(r.ay1).trim())?1:0)+((r.ay2&&String(r.ay2).trim())?1:0)+((r.ay3&&String(r.ay3).trim())?1:0);
     map[c].ayViajes+=ayCount*t;
   });
-  // Combustible (gasoil despachos) por camión, en el rango
+  // Combustible por camión. GATE DE CORTE (cfg.surtidasCorte): desde esa fecha la VERDAD son las
+  // SURTIDAS del chofer (galpón horneado + estación costeada); los despachos GASOIL post-corte NO
+  // cuentan (evita doble conteo). Pre-corte sigue contando GASOIL como siempre.
+  var _corte=(typeof cfg!=='undefined'&&cfg&&cfg.surtidasCorte)?String(cfg.surtidasCorte).slice(0,10):'';
   (typeof GASOIL!=='undefined'?GASOIL:[]).forEach(function(g){
     if(_rentEsCompra(g))return;
+    if(_corte&&String(g.f||'')>=_corte)return; // post-corte: la verdad es la surtida
     if(des&&g.f<des)return; if(hta&&g.f>hta)return;
     var c=g.cam; if(!c||String(c).toUpperCase().indexOf('JAC')!==0)return; // solo camiones JAC
     // A2 (auditoría 2026-07-04): NO descartar el combustible de un camión SIN planillas en el rango.
@@ -17615,6 +17816,19 @@ function calcRentabilidadCamiones(des,hta){
     map[c].combustible=(map[c].combustible||0)+(parseFloat(g.m)||0);
     map[c].litros=(map[c].litros||0)+(parseFloat(g.lit)||0);
   });
+  // SURTIDAS post-corte: galpón = costo horneado; estación = mezclado del período. Las PENDIENTES
+  // (estación sin costear) suman $0 pero se cuentan (combPend*) para bandera visible en la UI.
+  if(_corte){
+    (typeof SURT_RENT!=='undefined'?SURT_RENT:[]).forEach(function(s){
+      var f=String(s.fecha||'').slice(0,10);
+      if(f<_corte)return; if(des&&f<des)return; if(hta&&f>hta)return;
+      var c=s.cam; if(!c||String(c).toUpperCase().indexOf('JAC')!==0)return;
+      if(!map[c])map[c]={cam:c,viajes:0,ingreso:0,ayViajes:0};
+      map[c].combustible=(map[c].combustible||0)+_surCostoUsd(s);
+      map[c].litros=(map[c].litros||0)+(parseFloat(s.litros)||0);
+      if(_surPendiente(s)){map[c].combPendL=(map[c].combPendL||0)+(parseFloat(s.litros)||0);map[c].combPendN=(map[c].combPendN||0)+1;}
+    });
+  }
   var rows=Object.keys(map).map(function(c){
     var x=map[c];
     var combustible=x.combustible||0, litros=x.litros||0;
@@ -17623,6 +17837,7 @@ function calcRentabilidadCamiones(des,hta){
     var margen=x.ingreso>0?(utilidad/x.ingreso*100):0;
     var costoOp=combustible+nomina; // costo operativo confiable (repuestos por camión se suma cuando se capture, ver #2/#3)
     return {cam:c,viajes:x.viajes,ingreso:x.ingreso,combustible:combustible,litros:litros,
+      combPendL:x.combPendL||0,combPendN:x.combPendN||0,
       nomina:nomina,nominaChofer:nominaChofer,nominaAyud:nominaAyud,utilidad:utilidad,margen:margen,
       costoOp:costoOp,costoViaje:x.viajes>0?costoOp/x.viajes:0,
       lViaje:x.viajes>0?litros/x.viajes:0,utilPorViaje:x.viajes>0?utilidad/x.viajes:0};
@@ -17636,7 +17851,7 @@ function calcRentabilidadCamiones(des,hta){
     r.sobreCostoPct=avgCV>0?Math.round((r.costoViaje/avgCV-1)*100):0;
     r.sobreCosto=(avgCV>0&&r.viajes>0&&r.costoViaje>avgCV*1.15);
   });
-  var tot=rows.reduce(function(s,r){return{ingreso:s.ingreso+r.ingreso,combustible:s.combustible+r.combustible,nomina:s.nomina+r.nomina,utilidad:s.utilidad+r.utilidad,viajes:s.viajes+r.viajes};},{ingreso:0,combustible:0,nomina:0,utilidad:0,viajes:0});
+  var tot=rows.reduce(function(s,r){return{ingreso:s.ingreso+r.ingreso,combustible:s.combustible+r.combustible,nomina:s.nomina+r.nomina,utilidad:s.utilidad+r.utilidad,viajes:s.viajes+r.viajes,pendN:s.pendN+(r.combPendN||0),pendL:s.pendL+(r.combPendL||0)};},{ingreso:0,combustible:0,nomina:0,utilidad:0,viajes:0,pendN:0,pendL:0});
   return {rows:rows,total:tot,avgCostoViaje:avgCV};
 }
 
@@ -17803,13 +18018,14 @@ function renderRentabilidad(){
     '<div style="display:flex;justify-content:space-between;padding:6px 0 0;border-top:1px solid var(--border);margin-top:4px"><span style="font-weight:800">= Utilidad neta (sobre lo facturado)</span><b style="font-family:var(--m);font-weight:900;color:'+(_utilNeta>=0?'var(--green2)':'var(--red)')+'">'+$m(_utilNeta)+'</b></div>'+
     '<div style="font-size:10px;color:var(--text3);margin-top:6px">Nota: aquí el ingreso es lo FACTURADO. La “Utilidad Real” del Dashboard usa lo COBRADO (abonos) y puede diferir. Los gastos generales son del total, no del rango de fechas.</div>'+
     '</div>';
+  var _pendWarn=((R.total.pendN||0)>0)?'<div style="grid-column:1/-1;background:rgba(239,68,68,.12);border:1px solid var(--red);border-radius:10px;padding:8px 12px;font-size:12px;color:var(--red);font-weight:700">⏳ '+R.total.pendN+' surtida(s) de ESTACIÓN sin costear ('+Math.round(R.total.pendL)+' L) en el rango — ese combustible NO está restado todavía. Defínelo en Combustible ▸ Surtidas y costeo.</div>':'';
   var kp=g('rent-kpis');
   if(kp)kp.innerHTML=
     '<div class="stat" style="border-top-color:var(--green2)"><div class="stat-lbl">Ingreso (facturado)</div><div class="stat-val" style="font-size:16px;color:var(--green2)">'+$m(R.total.ingreso)+'</div><div class="stat-sub">'+R.total.viajes+' viajes</div></div>'+
     '<div class="stat y"><div class="stat-lbl">Costos directos (comb.+nómina)</div><div class="stat-val" style="font-size:16px;color:var(--yellow)">'+$m(R.total.combustible+R.total.nomina)+'</div><div class="stat-sub">⛽ '+$m(R.total.combustible)+' · 👷 '+$m(R.total.nomina)+'</div></div>'+
     '<div class="stat b"><div class="stat-lbl">Utilidad operativa</div><div class="stat-val" style="font-size:16px;color:var(--blue)">'+$m(R.total.utilidad)+'</div><div class="stat-sub">ingreso − comb − nómina</div></div>'+
     '<div class="stat"><div class="stat-lbl">Margen operativo</div><div class="stat-val" style="font-size:16px;color:'+(margenTot>=0?'var(--green2)':'var(--red)')+'">'+margenTot+'%</div><div class="stat-sub">operativa/ingreso</div></div>'+
-    _recon;
+    _recon+_pendWarn;
   var tb=g('rent-tabla');
   if(tb)tb.innerHTML=R.rows.map(function(r,i){
     var col=r.utilidad<0?'var(--red)':r.margen>=70?'var(--green2)':r.margen>=40?'var(--yellow)':'#fb923c';
@@ -17817,7 +18033,7 @@ function renderRentabilidad(){
     return '<tr><td>'+(i+1)+'</td><td><b>'+r.cam+'</b> '+sem+'</td>'+
       '<td style="text-align:center">'+r.viajes+'</td>'+
       '<td style="font-family:var(--m)">'+$m(r.ingreso)+'</td>'+
-      '<td style="font-family:var(--m);color:var(--yellow)">'+$m(r.combustible)+'</td>'+
+      '<td style="font-family:var(--m);color:var(--yellow)">'+$m(r.combustible)+((r.combPendN||0)>0?' <span title="'+r.combPendN+' surtida(s) de estación SIN costear ('+Math.round(r.combPendL)+' L): ese costo aún NO está sumado" style="color:var(--red);font-weight:800">⏳</span>':'')+'</td>'+
       '<td style="font-family:var(--m);color:var(--yellow)">'+$m(r.nomina)+'</td>'+
       '<td style="font-family:var(--m);font-weight:700;color:'+col+'">'+$m(r.utilidad)+'</td>'+
       '<td style="font-family:var(--m);color:'+col+'">'+Math.round(r.margen)+'%</td>'+
