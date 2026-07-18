@@ -16326,9 +16326,12 @@ async function renderConciliacionBNC(){
   // Se recargan los pagos (paginado) para conciliar contra el estado real. CXP (deudas) ya es global.
   if(typeof cargarCxpAux==='function'){ try{ await cargarCxpAux(); }catch(e){} }
   var hoy=new Date();var ymd=hoy.getFullYear()+'-'+String(hoy.getMonth()+1).padStart(2,'0')+'-'+String(hoy.getDate()).padStart(2,'0');
-  if(g('conc-desde')&&!g('conc-desde').value)g('conc-desde').value=ymd;
+  // Por defecto muestra los últimos 15 días (así al entrar ya se ven los pagos recientes cuadrados solos,
+  // sin tener que ampliar el rango a mano). El usuario puede cambiar el rango cuando quiera.
+  var d15=new Date(hoy);d15.setDate(d15.getDate()-15);var ymd15=d15.getFullYear()+'-'+String(d15.getMonth()+1).padStart(2,'0')+'-'+String(d15.getDate()).padStart(2,'0');
+  if(g('conc-desde')&&!g('conc-desde').value)g('conc-desde').value=ymd15;
   if(g('conc-hasta')&&!g('conc-hasta').value)g('conc-hasta').value=ymd;
-  var desde=gv('conc-desde')||ymd,hasta=gv('conc-hasta')||ymd;
+  var desde=gv('conc-desde')||ymd15,hasta=gv('conc-hasta')||ymd;
   el.innerHTML='<div style="padding:16px;color:var(--text3);font-size:12px">🔄 Consultando el BNC y conciliando '+desde+' → '+hasta+'...</div>';
   var fmt=function(n){return Number(n||0).toLocaleString('es-VE',{minimumFractionDigits:2,maximumFractionDigits:2});};
   var tasa=TASAS.bcvDolar||cfg.tasa;
