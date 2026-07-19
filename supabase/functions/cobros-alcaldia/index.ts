@@ -112,7 +112,10 @@ Deno.serve(async (req) => {
     const silencioso = qs.get("silencioso") === "1";
     const hoy = veHoy();
     // Ventana de trabajo: 45 días atrás cubre de sobra el ciclo factura → neto → fiel.
-    const desde = masDias(hoy, -45);
+    // ?desde=AAAA-MM-DD la amplía, para recuperar histórico viejo de una sola pasada (el BNC guarda
+    // varios meses; se consulta igual en ventanas de ≤30 días). Úsalo con ?silencioso=1.
+    const dParam = qs.get("desde") || "";
+    const desde = /^\d{4}-\d{2}-\d{2}$/.test(dParam) ? dParam : masDias(hoy, -45);
 
     // ── 1) Lo que la app ESPERA cobrar, calculado de cada factura ──────────────────────────────
     const abonos = await sel(`abonos?f=gte.${desde}&select=f,fact,v,m,ref&order=f.desc`);
