@@ -16762,6 +16762,30 @@ async function renderConciliacionBNC(){
       html+='</tbody></table></div>';
     }else html+='<div style="font-size:11px;color:var(--text3);padding:8px">Sin movimientos del banco en el rango (activa el ClientID de producción del BNC para traer el estado de cuenta completo).</div>';
     html+='</div>';
+    // ── Facturas de la Alcaldía (INGRESOS): reconocidas por su REGISTRO (el abono existe). La API de
+    // producción del BNC aún no trae todos los créditos, así que se muestran registradas (como hacía el
+    // sistema anterior); cuando el banco esté activo cada crédito se cruzará solo. La 635 va marcada
+    // como EXCEPCIÓN (la Alcaldía pagó de menos, error identificado). [Stopgap 2026-07-18 — revisar a fondo.]
+    var _EXCEP_ALC={'000635':'La Alcaldía pagó de menos por un error propio ya identificado'};
+    var _ingAlc={};
+    libros.filter(function(l){return l.tipo==='ingreso';}).forEach(function(l){
+      var mm=String(l.desc||'').match(/Fact\s+(\S+)/); var fc=mm?mm[1]:'?';
+      if(!_ingAlc[fc])_ingAlc[fc]={fact:fc,bs:0,fecha:l.fecha||''};
+      _ingAlc[fc].bs+=l.bs;
+    });
+    var _ingArr=Object.keys(_ingAlc).map(function(k){return _ingAlc[k];}).sort(function(a,b){return String(b.fecha).localeCompare(String(a.fecha));});
+    if(_ingArr.length){
+      var _nExc=_ingArr.filter(function(r){return _EXCEP_ALC[String(r.fact)];}).length;
+      html+='<div class="card" style="margin-bottom:12px"><div style="font-size:12px;font-weight:700;margin-bottom:6px">💵 Facturas de la Alcaldía (ingresos)</div>'+
+        '<div style="font-size:10px;color:var(--text3);margin-bottom:8px">Reconocidas por su registro (abono). El estado de cuenta del BNC (API de producción) aún no está activo → se cuadran contra el registro; cuando el banco esté activo, cada crédito se cruzará solo.</div>'+
+        '<div style="font-size:11px;margin-bottom:8px"><span style="color:var(--green)">✅ Reconocidas '+(_ingArr.length-_nExc)+'</span>'+(_nExc?' · <span style="color:var(--yellow)">⚠️ Excepción '+_nExc+'</span>':'')+'</div>'+
+        '<div class="tw" style="max-height:300px;overflow:auto"><table style="font-size:11px"><thead><tr><th>Factura</th><th>Fecha</th><th style="text-align:right">Esperado Bs (neto+fiel)</th><th style="text-align:center">Estado</th></tr></thead><tbody>'+
+        _ingArr.map(function(r){
+          var ex=_EXCEP_ALC[String(r.fact)];
+          return '<tr><td style="font-size:10px">'+_escHtml(r.fact)+'</td><td style="font-size:9px;color:var(--text3)">'+(r.fecha?formatFecha(r.fecha):'')+'</td><td style="text-align:right;font-family:var(--m);color:var(--green)">'+fmt(r.bs)+'</td><td style="text-align:center">'+(ex?'<span style="color:var(--yellow);font-weight:700" title="'+ex+'">⚠️ excepción</span>':'<span style="color:var(--green);font-weight:700">✅ registrado</span>')+'</td></tr>';
+        }).join('')+
+        '</tbody></table></div></div>';
+    }
     // ── Registro Responsabilidad Social 3% por factura (egreso de ley; ✅ si el banco ya lo refleja) ──
     var resp=libros.filter(function(l){return l.clase==='respsocial';});
     if(resp.length){
