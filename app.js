@@ -16545,33 +16545,90 @@ async function renderConciliacionBNC(){
   var tasa=TASAS.bcvDolar||cfg.tasa;
   var aBs=function(monto,moneda){var u=String(moneda||'').toUpperCase();return (u==='USD'||u==='$')?monto*tasa:monto;};
   try{
-    // ── 1) LADO BANCO: movimientos reales (API por cuenta; fallback a notificaciones del webhook) ──
-    var bancoMovs=[],sandbox=false,fuente='API BNC';
+    // ── 1) LADO BANCO: movimientos reales ──
+    // Se usan las DOS fuentes SUMADAS (antes las notificaciones eran solo fallback "si la API no
+    // trajo nada"): el estado de cuenta de la API es el completo, pero las notificaciones del
+    // webhook llegan al instante. Se dedupean entre sí. Ninguna sola alcanza:
+    //   · Las NOTIFICACIONES se pierden. Caso real: el 24/06/2026 entró la fiel de la factura 000632
+    //     (Bs 1.308.798,35) y NO llegó notificación ese día → la conciliación no la veía.
+    //   · La API sí la trae ("fc segun factura EMISOR: INSTITUTO MUNICIPAL DEL ASEO U…", cuenta
+    //     ...2653), con lo que el cruce por monto exacto la reconoce solo.
+    // El BNC devuelve la fecha como dd/mm/aaaa → se normaliza a AAAA-MM-DD (el resto del código
+    // compara fechas como texto ISO; sin esto cualquier filtro por fecha falla en silencio).
+    var _fechaBNC=function(s){var t=String(s||'').trim();var m=t.match(/^(\d{2})\/(\d{2})\/(\d{4})/);return m?(m[3]+'-'+m[2]+'-'+m[1]):t.slice(0,10);};
+    var _masDias30=function(f,n){var p=String(f||'').slice(0,10).split('-');if(p.length<3)return f;var d=new Date(Date.UTC(+p[0],+p[1]-1,+p[2]));d.setUTCDate(d.getUTCDate()+n);return d.toISOString().slice(0,10);};
+    // Ventanas de ≤30 días que cubren [desde,hasta] (tope duro del BNC).
+    var _ventanas30=(function(d,h){
+      var out=[],ini=d;
+      while(ini<=h){
+        var fin=_masDias30(ini,29); if(fin>h)fin=h;
+        out.push([ini,fin]);
+        ini=_masDias30(fin,1);
+      }
+      return out.length?out:[[d,h]];
+    })(desde,hasta);
+    var bancoMovs=[],sandbox=false,fuente='API BNC (estado de cuenta) + notificaciones',cuentasMal=[];
+    var hdr={'Content-Type':'application/json','Authorization':'Bearer '+SUPA_KEY};
+    var apiOk=false;
     try{
-      var hdr={'Content-Type':'application/json','Authorization':'Bearer '+SUPA_KEY};
       var rs=await fetch(SUPA_URL+'/functions/v1/bnc-saldo',{method:'POST',headers:hdr,body:JSON.stringify({action:'saldo'}),signal:AbortSignal.timeout(30000)});
       var ds=await rs.json();
       if(ds&&ds.ok&&ds.saldos){
+        apiOk=true;
         var cuentas=Object.keys(ds.saldos);sandbox=cuentas.indexOf('01910001482101010049')>=0;
         for(var ci=0;ci<cuentas.length;ci++){
           var acc=cuentas[ci];var moneda=(ds.saldos[acc]&&ds.saldos[acc].CurrencyCode)||'VES';
-          var rm=await fetch(SUPA_URL+'/functions/v1/bnc-saldo',{method:'POST',headers:hdr,body:JSON.stringify({action:'movimientos_fecha',account_number:acc,start_date:desde,end_date:hasta}),signal:AbortSignal.timeout(40000)});
-          var dm=await rm.json();var movs=(dm&&dm.ok&&Array.isArray(dm.movimientos))?dm.movimientos:[];
-          movs.forEach(function(m){
-            var amt=Math.round(parseFloat(m.Amount||0)*100)/100;
-            var sd=String(m.BalanceDelta||'').toLowerCase();
-            var esIng=sd.indexOf('ingreso')>=0||sd.indexOf('credito')>=0||sd.indexOf('crédito')>=0;
-            var refs=[m.ReferenceA,m.ReferenceB,m.ReferenceC,m.ReferenceD].filter(Boolean).join(' / ');
-            bancoMovs.push({fecha:m.Date||'',tipo:esIng?'ingreso':'egreso',bs:Math.round(aBs(amt,moneda)*100)/100,ref:refs,desc:String(m.Type||'').trim(),_conc:false});
-          });
+          // try/catch POR CUENTA: si una cuenta falla o tarda, las demás igual se traen. Antes un
+          // solo fallo abortaba el lote entero y la conciliación seguía como si nada (silenciosa)
+          // con datos INCOMPLETOS del banco → falsos "falta registrar".
+          try{
+            var movsAcc=[],falloVentana=false;
+            // El BNC RECHAZA rangos de más de 30 días ("El rango de fecha de la búsqueda debe ser
+            // menor o igual a 30 dias", HTTP 409). Antes, pedir 2 meses devolvía CERO movimientos de
+            // TODAS las cuentas y la conciliación se hacía contra un banco vacío. Se parte solo.
+            for(var vi=0;vi<_ventanas30.length;vi++){
+              var vt=_ventanas30[vi];
+              var rm=await fetch(SUPA_URL+'/functions/v1/bnc-saldo',{method:'POST',headers:hdr,body:JSON.stringify({action:'movimientos_fecha',account_number:acc,start_date:vt[0],end_date:vt[1]}),signal:AbortSignal.timeout(40000)});
+              var dm=await rm.json();
+              if(dm&&dm.ok&&Array.isArray(dm.movimientos))movsAcc=movsAcc.concat(dm.movimientos);
+              else falloVentana=true;
+            }
+            if(falloVentana&&!movsAcc.length){cuentasMal.push(acc);continue;}
+            if(falloVentana)cuentasMal.push(acc+' (parcial)');
+            movsAcc.forEach(function(m){
+              var amt=Math.round(parseFloat(m.Amount||0)*100)/100;
+              var sd=String(m.BalanceDelta||'').toLowerCase();
+              var esIng=sd.indexOf('ingreso')>=0||sd.indexOf('credito')>=0||sd.indexOf('crédito')>=0;
+              var refs=[m.ReferenceA,m.ReferenceB,m.ReferenceC,m.ReferenceD].filter(Boolean).join(' / ');
+              // El CONCEPTO trae quién paga ("EMISOR: INSTITUTO MUNICIPAL DEL ASEO U…"): vale más
+              // que el Type genérico para reconocer el pago a simple vista.
+              var cpt=String(m.Concept||'').replace(/\s+/g,' ').trim();
+              bancoMovs.push({fecha:_fechaBNC(m.Date),tipo:esIng?'ingreso':'egreso',bs:Math.round(aBs(amt,moneda)*100)/100,ref:refs,desc:(cpt||String(m.Type||'').trim()),_conc:false});
+            });
+          }catch(e){cuentasMal.push(acc);}
         }
       }
+    }catch(e){apiOk=false;}
+    // Notificaciones del webhook: se SUMAN, saltando lo que la API ya trajo (misma referencia, o
+    // mismo monto ±0,5% el mismo día). Así no se cuenta un ingreso dos veces.
+    try{
+      var rn=await supabase.from('bnc_notificaciones').select('referencia,monto,moneda,fecha_recibido,descripcion').gte('fecha_recibido',desde).lte('fecha_recibido',hasta+'T23:59:59');
+      if(!rn.error&&rn.data&&rn.data.length){
+        rn.data.forEach(function(n){
+          var amt=Math.round(aBs(Math.round(parseFloat(n.monto||0)*100)/100,n.moneda)*100)/100;
+          var f=String(n.fecha_recibido||'').slice(0,10);
+          var rd=String(n.referencia||'').replace(/\D/g,'');
+          var dup=bancoMovs.some(function(b){
+            if(b.tipo!=='ingreso')return false;
+            if(rd.length>=6&&String(b.ref||'').replace(/\D/g,'').indexOf(rd)>=0)return true;
+            return Math.abs(b.bs-amt)<=Math.max(1,amt*0.005)&&String(b.fecha||'').slice(0,10)===f;
+          });
+          if(!dup)bancoMovs.push({fecha:f,tipo:'ingreso',bs:amt,ref:n.referencia||'',desc:(n.descripcion||'Notificación del banco'),_conc:false,_soloNotif:true});
+        });
+      }
     }catch(e){}
-    if(!bancoMovs.length){
-      try{var rn=await supabase.from('bnc_notificaciones').select('referencia,monto,moneda,fecha_recibido,descripcion').gte('fecha_recibido',desde).lte('fecha_recibido',hasta+'T23:59:59');
-        if(!rn.error&&rn.data&&rn.data.length){fuente='Notificaciones BNC (la API de producción aún no está activa → solo ingresos)';rn.data.forEach(function(n){var amt=Math.round(parseFloat(n.monto||0)*100)/100;bancoMovs.push({fecha:n.fecha_recibido,tipo:'ingreso',bs:Math.round(aBs(amt,n.moneda)*100)/100,ref:n.referencia||'',desc:n.descripcion||'',_conc:false});});}
-      }catch(e){}
-    }
+    if(!apiOk)fuente='⚠️ Solo notificaciones — el estado de cuenta del BNC no respondió (la conciliación puede quedar incompleta)';
+    else if(cuentasMal.length)fuente='⚠️ API BNC + notificaciones — NO se pudieron traer '+cuentasMal.length+' cuenta(s): '+cuentasMal.join(', ')+'. La conciliación está INCOMPLETA.';
     // ── 1.b) COBROS REGISTRADOS DESDE OTROS BANCOS ──
     // La Alcaldía decide al momento del pago desde qué banco transfiere y NO siempre es el mismo
     // (caso real: la fiel 10% de la factura 000632 entró el 24/06/2026 por Bs 1.308.798,35, ref
@@ -16778,7 +16835,16 @@ async function renderConciliacionBNC(){
     bancoMovs.forEach(function(b){
       if(b._conc)return;
       var tol=Math.max(1,b.bs*(b.tipo==='ingreso'?0.03:0.005));
-      var lib=libros.find(function(l){return !l._usado&&l.tipo===b.tipo&&Math.abs(l.bs-b.bs)<=tol;});
+      // MEJOR match, no el PRIMERO que entre en la tolerancia. Con tolerancia amplia dos montos
+      // parecidos se cruzaban al revés: la fiel de la 000634 (Bs 993.187,00) se cuadraba contra el
+      // crédito de la 000633 (Bs 966.118,37) y viceversa — el dinero total daba, pero cada pago
+      // quedaba atribuido a la factura equivocada. Se elige el de MENOR diferencia.
+      var lib=null,mejor=Infinity;
+      libros.forEach(function(l){
+        if(l._usado||l.tipo!==b.tipo)return;
+        var d=Math.abs(l.bs-b.bs);
+        if(d<=tol&&d<mejor){mejor=d;lib=l;}
+      });
       if(lib){lib._usado=true;b._conc=true;b._label=lib.lab;lib._bancoRef=b.ref;lib._bancoBs=b.bs;if(lib.clase==='cxp')lib._via='monto';if(lib.clase==='ingfact'){lib._via='monto';lib._banco=b._otroBanco||'BNC';}}
     });
     var faltaReg=bancoMovs.filter(function(b){return !b._conc;});   // en banco, no en libros
@@ -16815,7 +16881,7 @@ async function renderConciliacionBNC(){
     // ── 5) RENDER ──
     var html='';
     if(sandbox)html+='<div style="font-size:10px;color:var(--yellow);margin-bottom:8px">⚠️ DATOS DE PRUEBA (sandbox). Con el ClientID de producción se concilian tus cuentas reales.</div>';
-    html+='<div style="font-size:10px;color:var(--text3);margin-bottom:8px">Fuente banco: '+fuente+'</div>';
+    html+='<div style="font-size:10px;color:'+(fuente.indexOf('⚠️')===0?'var(--yellow)':'var(--text3)')+';margin-bottom:8px">Fuente banco: '+fuente+'</div>';
     html+='<div class="card" style="margin-bottom:12px"><div style="font-size:12px;font-weight:700;margin-bottom:10px">Resumen '+desde+' → '+hasta+'</div>'+
       '<div style="display:flex;gap:16px;flex-wrap:wrap;font-size:12px;margin-bottom:10px">'+
         '<div><div style="font-size:9px;color:var(--text3)">SEGÚN BANCO (neto)</div><div style="font-family:var(--m);font-weight:700;color:var(--blue)">Bs '+fmt(netoBanco)+'</div></div>'+
@@ -16861,12 +16927,15 @@ async function renderConciliacionBNC(){
           var bco=l._banco?(' <span style="font-size:8px;color:var(--teal)">'+_escHtml(l._banco)+'</span>'):'';
           return '<span style="color:var(--green);font-weight:700">✅ cobrado</span>'+bco+'<span style="font-size:8px;color:var(--teal)" title="cuadrado por '+(l._via||'monto')+'"> ✓'+(l._via||'monto')+'</span>'+dTxt;
         }
-        var btn=' <button class="btn btn-g btn-xs" onclick="concCobroMarcar(\''+_escHtml(String(l.fact))+'\',\''+l.sub+'\','+l.bs+')" title="Registrar que este cobro ya entró (desde el banco que sea)">✓ Cobrado</button>';
+        // El botón es el PARACAÍDAS, no el camino normal: el motor reconoce solo el crédito por su
+        // monto exacto (lo calcula de la factura), venga del banco de origen que venga. Solo hace
+        // falta marcarlo a mano si el movimiento NUNCA nos llegó (el BNC no notificó ese día).
+        var btn=' <button class="btn btn-xs" style="background:var(--bg3);color:var(--text3)" onclick="concCobroMarcar(\''+_escHtml(String(l.fact))+'\',\''+l.sub+'\','+l.bs+')" title="Solo si el banco no avisó: el motor lo reconoce solo cuando el movimiento llega, por su monto exacto">el banco no avisó</button>';
         if(esFiel)return '<span style="color:var(--yellow);font-weight:700" title="La Alcaldía la deposita días después">⏳ por depositar</span>'+btn;
         return '<span style="color:var(--teal);font-weight:700" title="El abono está registrado; ningún banco lo refleja todavía">🟢 registrado</span>'+btn;
       };
       html+='<div class="card" style="margin-bottom:12px"><div style="font-size:12px;font-weight:700;margin-bottom:6px">💵 Cobros por factura (Alcaldía)</div>'+
-        '<div style="font-size:10px;color:var(--text3);margin-bottom:8px">Cada factura entra en <b>2 depósitos</b>: el <b>neto</b> (base − retenciones) y la <b>fiel cumplimiento 10%</b>, días después. <b>✅ banco</b> = cruzó con un crédito real. <b>🟢 registrado</b> = el abono está registrado pero el estado de cuenta del BNC aún no lo trae (API de producción inactiva); cuando se active, se confirma solo.</div>'+
+        '<div style="font-size:10px;color:var(--text3);margin-bottom:8px">Cada factura entra en <b>2 depósitos</b>: el <b>neto</b> (base − retenciones) y la <b>fiel cumplimiento 10%</b>, días después. El sistema calcula de la factura <b>cuánto tiene que entrar</b> y, cuando ese monto cae en el banco, lo reconoce <b>solo</b> — no importa desde qué banco lo hayan transferido. <b>✅ cobrado</b> = ya entró. <b>🟢 registrado / ⏳ por depositar</b> = todavía no cae.</div>'+
         '<div style="font-size:11px;margin-bottom:8px"><span style="color:var(--green)">✅ Confirmados por banco '+_nBanco+'</span> · <span style="color:var(--teal)">🟢 Solo registrados '+_nPend+'</span></div>'+
         '<div class="tw" style="max-height:300px;overflow:auto"><table style="font-size:11px"><thead><tr><th>Factura</th><th>Fecha</th><th style="text-align:right">Neto Bs</th><th style="text-align:center">Estado neto</th><th style="text-align:right">Fiel 10% Bs</th><th style="text-align:center">Estado fiel</th></tr></thead><tbody>'+
         _ingArr.map(function(r){
