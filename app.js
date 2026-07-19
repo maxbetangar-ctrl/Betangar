@@ -16673,11 +16673,16 @@ async function renderConciliacionBNC(){
       // y base×0,10 a la tasa del pago). Fix: DETECTAR cuál de las dos es, usando los VIAJES del
       // propio abono × la tarifa como referencia (misma fuente que la facturación). Sin viajes,
       // se asume BASE (lo que hay en producción). Nunca se inventa: si no casa ninguna, base=m.
+      // Regla CAUSAL (no adivinanza): si la factura existe en `pagos_alcaldia`, la escribió
+      // guardarPagoAlcaldia → m es el NETO. Si no, la tecleó la oficina en Abonar → m es la BASE.
+      // Como respaldo (por si pagos_alcaldia no cargó), se comprueba contra viajes × tarifa.
       var k=calcRetenciones(1,pr,null).neto||1; // 0.909 en perfil Alcaldía
-      var baseRef=(Number(a.v)||0)*(cfg.tarifa||0);
-      var base;
-      if(baseRef>0&&Math.abs(mAb-baseRef*k)<=baseRef*k*0.01) base=mAb/k;   // m es el NETO
-      else base=mAb;                                                        // m es la BASE facturada
+      var esNeto=(typeof PAGOS_ALC!=='undefined')&&PAGOS_ALC.some(function(p){return String(p.fact)===String(a.fact);});
+      if(!esNeto){
+        var baseRef=(Number(a.v)||0)*(cfg.tarifa||0);
+        esNeto=baseRef>0&&Math.abs(mAb-baseRef*k)<=baseRef*k*0.01;
+      }
+      var base=esNeto?(mAb/k):mAb;
       var rc=calcRetenciones(base,pr,null);
       var fielUsd=rc.fiel, netoUsd=rc.neto, respUsd=rc.respSocial;
       var baseBs=Math.round(base*tasa*100)/100;
