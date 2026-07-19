@@ -101,6 +101,10 @@ var TOKEN_DURACION_MS=10*60*1000; // 10 minutos
 var cntD=0,cntN=0,tankNivel=2300;
 var TASAS={bcvDolar:0,bcvEuro:0,binance:0,fecha:''};
 var BNC_MOV=[],BNC_SALDO=0;
+// COBROS_FACT: cobros de factura confirmados, venga por el banco que venga. La Alcaldía decide al
+// momento del pago desde qué banco transfiere (BNC, Banca Amiga, …) y no siempre es el mismo, así
+// que NINGUNA API basta: esto es la fuente única de "esta pata (neto/fiel) de esta factura YA entró".
+var COBROS_FACT=[];
 var BNC_CONFIG={guid:'',mkey:'',cuenta:'',rif:BTG_CONFIG.empresa_rif,amb:'production'};
 // WhatsApp — 6 numeros con roles definidos
 // Cada mensaje se envia SOLO a los roles que corresponden
@@ -1537,12 +1541,16 @@ async function cargarDatosDB(){
       _selectAll('unidades'),
       _selectAll('operaciones'),
       _selectAll('bnc_movimientos'),
-      _selectAll('gastos_fijos')
+      _selectAll('gastos_fijos'),
+      _selectAll('cobros_factura')
     ]);
     // allSettled: una consulta que falle (red, RLS de UNA tabla, etc.) NO tumba a las demás.
     // Antes, con Promise.all, un solo error transitorio dejaba TODO en 0 (incluidas planillas).
     var _res=_resS.map(function(x){return x.status==='fulfilled'?x.value:{data:null,error:((x.reason&&x.reason.message)||'consulta falló')};});
-    var p=_res[0],a=_res[1],e=_res[2],ga=_res[3],cxp=_res[4],pv=_res[5],pr=_res[6],ml=_res[7],inv=_res[8],co=_res[9],gv2=_res[10],palc=_res[11],km=_res[12],aul=_res[13],nh=_res[14],tu=_res[15],un=_res[16],op=_res[17],bm=_res[18],gf2=_res[19];
+    var p=_res[0],a=_res[1],e=_res[2],ga=_res[3],cxp=_res[4],pv=_res[5],pr=_res[6],ml=_res[7],inv=_res[8],co=_res[9],gv2=_res[10],palc=_res[11],km=_res[12],aul=_res[13],nh=_res[14],tu=_res[15],un=_res[16],op=_res[17],bm=_res[18],gf2=_res[19],cbf=_res[20];
+    // Cobros por factura desde CUALQUIER banco (la Alcaldía decide al momento del pago desde cuál
+    // transfiere: BNC, Banca Amiga, la que sea). Fuente única de "esta pata ya se cobró".
+    if(cbf&&!cbf.error&&Array.isArray(cbf.data))COBROS_FACT=cbf.data;
     if(nh&&!nh.error&&Array.isArray(nh.data))NOMINA_HIST=nh.data;
     // Movimientos BNC persistidos (tracking interno: pagos pendientes, conciliaciones, manuales).
     if(bm&&!bm.error&&Array.isArray(bm.data))BNC_MOV=bm.data.map(function(x){return{id:x.id,fecha:x.fecha||'',monto:Number(x.monto)||0,tipo:x.tipo||'',desc:x.descripcion||'',ref:x.referencia||'',conciliado:!!x.conciliado,pendienteAutorizacion:!!x.pendiente_autorizacion,detalle:x.detalle||null};});
@@ -16564,6 +16572,25 @@ async function renderConciliacionBNC(){
         if(!rn.error&&rn.data&&rn.data.length){fuente='Notificaciones BNC (la API de producción aún no está activa → solo ingresos)';rn.data.forEach(function(n){var amt=Math.round(parseFloat(n.monto||0)*100)/100;bancoMovs.push({fecha:n.fecha_recibido,tipo:'ingreso',bs:Math.round(aBs(amt,n.moneda)*100)/100,ref:n.referencia||'',desc:n.descripcion||'',_conc:false});});}
       }catch(e){}
     }
+    // ── 1.b) COBROS REGISTRADOS DESDE OTROS BANCOS ──
+    // La Alcaldía decide al momento del pago desde qué banco transfiere y NO siempre es el mismo
+    // (caso real: la fiel 10% de la factura 000632 entró el 24/06/2026 por Bs 1.308.798,35, ref
+    // 22741784, desde BANCA AMIGA). Ninguna API del BNC va a traer eso. Los cobros registrados en
+    // `cobros_factura` se inyectan como un movimiento de banco más → cruzan con el MISMO motor,
+    // sin lógica paralela. Se saltan los que el BNC ya trae (mismo monto ±0,5% y fecha ±3 días, o
+    // misma referencia) para no contar el ingreso dos veces.
+    (COBROS_FACT||[]).forEach(function(c){
+      var f=String(c.fecha||'').slice(0,10); if(f&&((desde&&f<desde)||(hasta&&f>hasta)))return;
+      var bs=Math.round((parseFloat(c.monto_bs)||0)*100)/100; if(bs<=0)return;
+      var rd=String(c.referencia||'').replace(/\D/g,'');
+      var yaEsta=bancoMovs.some(function(b){
+        if(b.tipo!=='ingreso')return false;
+        if(rd.length>=6&&String(b.ref||'').replace(/\D/g,'').indexOf(rd)>=0)return true;
+        return Math.abs(b.bs-bs)<=Math.max(1,bs*0.005)&&Math.abs(_diasEntre(String(b.fecha||'').slice(0,10),f))<=3;
+      });
+      if(yaEsta)return;
+      bancoMovs.push({fecha:c.fecha||'',tipo:'ingreso',bs:bs,ref:c.referencia||'',desc:(c.banco||'otro banco')+' — Fact '+c.fact+' '+c.pata,_conc:false,_otroBanco:c.banco||''});
+    });
     // ── 2) LADO LIBROS: lo que la app ESPERA del banco ──
     //  INGRESOS = depósitos esperados de la Alcaldía por cada factura (abono): la Alcaldía
     //  deposita en 2 partes → el NETO (total − retenciones) y, lunes/martes, la FIEL
@@ -16741,7 +16768,7 @@ async function renderConciliacionBNC(){
         if(l._usado||l.clase!=='ingfact')return false;
         return l.refDig&&l.refDig.length>=6&&refDig.indexOf(l.refDig)>=0;
       });
-      if(lib){lib._usado=true;b._conc=true;b._label=lib.lab;lib._via='ref';lib._bancoRef=b.ref;lib._bancoBs=b.bs;}
+      if(lib){lib._usado=true;b._conc=true;b._label=lib.lab;lib._via='ref';lib._bancoRef=b.ref;lib._bancoBs=b.bs;lib._banco=b._otroBanco||'BNC';}
     });
     // Match general por MONTO (misma dirección; egresos 0.5%).
     // INGRESOS de factura: 3%. La Alcaldía deposita 1–3 días DESPUÉS de la factura y convierte a la
@@ -16752,7 +16779,7 @@ async function renderConciliacionBNC(){
       if(b._conc)return;
       var tol=Math.max(1,b.bs*(b.tipo==='ingreso'?0.03:0.005));
       var lib=libros.find(function(l){return !l._usado&&l.tipo===b.tipo&&Math.abs(l.bs-b.bs)<=tol;});
-      if(lib){lib._usado=true;b._conc=true;b._label=lib.lab;lib._bancoRef=b.ref;lib._bancoBs=b.bs;if(lib.clase==='cxp')lib._via='monto';if(lib.clase==='ingfact')lib._via='monto';}
+      if(lib){lib._usado=true;b._conc=true;b._label=lib.lab;lib._bancoRef=b.ref;lib._bancoBs=b.bs;if(lib.clase==='cxp')lib._via='monto';if(lib.clase==='ingfact'){lib._via='monto';lib._banco=b._otroBanco||'BNC';}}
     });
     var faltaReg=bancoMovs.filter(function(b){return !b._conc;});   // en banco, no en libros
     var enTransito=libros.filter(function(l){return !l._usado&&l.clase!=='respsocial'&&l.clase!=='pct75'&&l.clase!=='nomina'&&l.clase!=='cxp'&&l.clase!=='ingfact';}); // resp.social, 7.5% Máximo, nómina, proveedores e ingresos por factura tienen su propia tarjeta
@@ -16765,6 +16792,17 @@ async function renderConciliacionBNC(){
     // ── FASE 2: AUTO-PERSISTIR el cruce. Si un pago a proveedor cuadró con un DÉBITO REAL del banco y aún
     // no estaba guardado como conciliado, se marca solo (idempotente: solo false→true, con .eq('conciliado_banco',false)).
     // Así queda para siempre y en el Historial, sin depender de que el rango de fechas siga abierto.
+    // AUTO-PERSISTIR los cobros de factura que cruzaron con un crédito REAL: quedan en
+    // cobros_factura igual que los que se marcan a mano → el estado "ya se cobró" sobrevive
+    // aunque se cierre el rango de fechas o la notificación del banco envejezca. Fuente única,
+    // idempotente por (factura+pata). Solo los que vinieron del banco (no los ya registrados).
+    if(DB_READY&&supabase&&!(typeof DEMO_MODE!=='undefined'&&DEMO_MODE)){
+      libros.filter(function(l){return l.clase==='ingfact'&&l._usado&&l.fact&&!(COBROS_FACT||[]).some(function(c){return String(c.fact)===String(l.fact)&&c.pata===l.sub;});}).forEach(function(l){
+        var row={id:String(l.fact)+'-'+l.sub,fact:String(l.fact),pata:l.sub,fecha:String(l.fecha||'').slice(0,10)||ymd,banco:l._banco||'BNC',referencia:l._bancoRef||'',monto_bs:(l._bancoBs!=null?l._bancoBs:l.bs),obs:'Cruzado automáticamente con el movimiento del banco',creado_por:(SESION&&SESION.nombre)||''};
+        COBROS_FACT.push(row); // optimista: evita doble write en el re-render
+        supabase.from('cobros_factura').upsert([row],{onConflict:'id'}).then(function(r){if(r.error)console.log('auto-cobro factura',r.error.message);});
+      });
+    }
     if(DB_READY&&supabase&&!(typeof DEMO_MODE!=='undefined'&&DEMO_MODE)){
       libros.filter(function(l){return l.clase==='cxp'&&l._usado&&!l._persistido&&l.pagoId;}).forEach(function(l){
         var p=(typeof CXP_PAGOS!=='undefined'?CXP_PAGOS:[]).find(function(x){return String(x.id)===String(l.pagoId);});
@@ -16820,10 +16858,12 @@ async function renderConciliacionBNC(){
         if(l._usado){
           var d=(l._bancoBs!=null)?Math.round((l._bancoBs-l.bs)*100)/100:0;
           var dTxt=(l._bancoBs!=null&&Math.abs(d)>=1)?('<span style="font-size:8px;color:var(--text3)" title="Diferencia por la tasa del día del depósito"> '+(d>0?'+':'')+fmt(d)+'</span>'):'';
-          return '<span style="color:var(--green);font-weight:700">✅ banco</span><span style="font-size:8px;color:var(--teal)" title="cuadrado por '+(l._via||'monto')+'"> ✓'+(l._via||'monto')+'</span>'+dTxt;
+          var bco=l._banco?(' <span style="font-size:8px;color:var(--teal)">'+_escHtml(l._banco)+'</span>'):'';
+          return '<span style="color:var(--green);font-weight:700">✅ cobrado</span>'+bco+'<span style="font-size:8px;color:var(--teal)" title="cuadrado por '+(l._via||'monto')+'"> ✓'+(l._via||'monto')+'</span>'+dTxt;
         }
-        if(esFiel)return '<span style="color:var(--yellow);font-weight:700" title="La Alcaldía la deposita días después (lunes/martes)">⏳ por depositar</span>';
-        return '<span style="color:var(--teal);font-weight:700" title="El abono está registrado; el banco aún no lo refleja (API de producción del BNC inactiva)">🟢 registrado</span>';
+        var btn=' <button class="btn btn-g btn-xs" onclick="concCobroMarcar(\''+_escHtml(String(l.fact))+'\',\''+l.sub+'\','+l.bs+')" title="Registrar que este cobro ya entró (desde el banco que sea)">✓ Cobrado</button>';
+        if(esFiel)return '<span style="color:var(--yellow);font-weight:700" title="La Alcaldía la deposita días después">⏳ por depositar</span>'+btn;
+        return '<span style="color:var(--teal);font-weight:700" title="El abono está registrado; ningún banco lo refleja todavía">🟢 registrado</span>'+btn;
       };
       html+='<div class="card" style="margin-bottom:12px"><div style="font-size:12px;font-weight:700;margin-bottom:6px">💵 Cobros por factura (Alcaldía)</div>'+
         '<div style="font-size:10px;color:var(--text3);margin-bottom:8px">Cada factura entra en <b>2 depósitos</b>: el <b>neto</b> (base − retenciones) y la <b>fiel cumplimiento 10%</b>, días después. <b>✅ banco</b> = cruzó con un crédito real. <b>🟢 registrado</b> = el abono está registrado pero el estado de cuenta del BNC aún no lo trae (API de producción inactiva); cuando se active, se confirma solo.</div>'+
@@ -16903,6 +16943,40 @@ async function renderConciliacionBNC(){
     }
     el.innerHTML=html||'<div style="padding:16px;color:var(--text3);font-size:12px">Sin datos para el rango.</div>';
   }catch(e){el.innerHTML='<div style="padding:16px;color:var(--text3);font-size:12px">Error al conciliar: '+(e.message||e)+'</div>';}
+}
+// Registrar que una pata de una factura (neto / fiel 10%) YA SE COBRÓ, venga del banco que venga.
+// La Alcaldía decide al momento del pago desde cuál transfiere y no siempre es el mismo (BNC, Banca
+// Amiga, …), así que no alcanza con ninguna API: esto lo registra la oficina con su banco y su
+// referencia. Identidad = factura+pata → idempotente, no se puede duplicar el mismo cobro.
+// No éxito-falso: solo se refleja en memoria DESPUÉS de que la BD confirme.
+function concCobroMarcar(fact,pata,bsEsperado){
+  var banco=prompt('¿De qué banco entró el pago de la factura '+fact+' ('+pata+')?\n\n(La Alcaldía cambia de banco según el pago: BNC, Banca Amiga, …)','Banca Amiga');
+  if(banco===null)return; banco=String(banco).trim(); if(!banco){mostrarToast('Escribe el banco','error');return;}
+  var hoy=(typeof fechaVE==='function')?fechaVE():new Date().toISOString().slice(0,10);
+  var fecha=prompt('¿Qué día entró? (AAAA-MM-DD)',hoy);
+  if(fecha===null)return; fecha=String(fecha).trim().slice(0,10);
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(fecha)){mostrarToast('Fecha inválida (usa AAAA-MM-DD)','error');return;}
+  var ref=prompt('Referencia de la transferencia (opcional):','')||'';
+  var mDef=(Number(bsEsperado)||0).toFixed(2);
+  var mIn=prompt('Monto REAL en Bs que entró:\n\n(Lo esperado es '+mDef+'. Si entró distinto, escribe lo que de verdad entró.)',mDef);
+  if(mIn===null)return;
+  var monto=parseFloat(String(mIn).replace(/\./g,'').replace(',','.'));
+  if(!(monto>0)){mostrarToast('Monto inválido','error');return;}
+  var row={id:String(fact)+'-'+pata,fact:String(fact),pata:pata,fecha:fecha,banco:banco,referencia:String(ref).trim(),monto_bs:Math.round(monto*100)/100,obs:'Registrado a mano desde la conciliación',creado_por:(SESION&&SESION.nombre)||''};
+  var aplicar=function(){
+    var i=(COBROS_FACT||[]).findIndex(function(c){return String(c.id)===row.id;});
+    if(i>=0)COBROS_FACT[i]=row; else COBROS_FACT.push(row);
+    audit('Cobro de factura registrado',fact+' '+pata+' — '+banco+' Bs'+row.monto_bs);
+    mostrarToast('✅ Cobro registrado ('+banco+')','exito');
+    renderConciliacionBNC();
+  };
+  if(typeof DEMO_MODE!=='undefined'&&DEMO_MODE){aplicar();return;}
+  if(DB_READY&&supabase){
+    supabase.from('cobros_factura').upsert([row],{onConflict:'id'}).select().then(function(r){
+      if(r.error){mostrarToast('No se pudo registrar: '+r.error.message,'error');return;}
+      aplicar();
+    });
+  } else aplicar();
 }
 // Conciliar MANUAL un pago a proveedor con el banco (cuando ya se vio el débito en BNCNET y la API aún
 // no lo trae). Fuente única: se marca en cxp_pagos (sin espejo). No éxito-falso: memoria solo tras confirmar.
