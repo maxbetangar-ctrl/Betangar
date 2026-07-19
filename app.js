@@ -10348,7 +10348,14 @@ async function guardarPagoAlcaldia(){
   // Agregar/actualizar como abono — misma identidad por FACTURA. Se PERSISTE con upsert (antes solo
   // quedaba local y se perdia). `contrato` solo se incluye si se eligió uno distinto al default (así
   // no toca la columna nueva si la migración aún no corre; el default Alcaldía sigue igual que antes).
-  var abAlc={f:pago.fecha,fact:factAlc,v:viajes,m:r.neto,obs:'Pago Alcaldia',ref:pago.ref};
+  // `abonos.m` = BASE FACTURADA (viajes × tarifa), IGUAL que lo que teclea la oficina en 💵 Abonar.
+  // Antes esta vía guardaba `r.neto` y la otra la base: el MISMO campo con DOS significados
+  // (violación de fuente única). Consecuencias reales: (a) la conciliación asumía neto y con los
+  // abonos reales (base) esperaba un 10% de más → no cruzaba NINGÚN ingreso; (b) "Cobrado" se
+  // compara contra "Facturado" (REGS.m = viajes × tarifa, o sea BASE), así que guardar el neto aquí
+  // hacía que cobrar por esta vía se viera 9,1% MENOS de lo cobrado. El desglose (neto, fiel, 7,5%)
+  // no se pierde: vive en `pagos_alcaldia`, y de la base se deriva con calcRetenciones.
+  var abAlc={f:pago.fecha,fact:factAlc,v:viajes,m:base,obs:'Pago Alcaldia',ref:pago.ref};
   if(contratoId)abAlc.contrato=contratoId;
   if(iAlc>=0){ABONOS[iAlc]=abAlc;}else{ABONOS.push(abAlc);}
   // A3 (auditoría dinero 2026-07-12): NO dar por registrado si no se guardó. Antes el upsert era
@@ -16673,16 +16680,15 @@ async function renderConciliacionBNC(){
       // y base×0,10 a la tasa del pago). Fix: DETECTAR cuál de las dos es, usando los VIAJES del
       // propio abono × la tarifa como referencia (misma fuente que la facturación). Sin viajes,
       // se asume BASE (lo que hay en producción). Nunca se inventa: si no casa ninguna, base=m.
-      // Regla CAUSAL (no adivinanza): si la factura existe en `pagos_alcaldia`, la escribió
-      // guardarPagoAlcaldia → m es el NETO. Si no, la tecleó la oficina en Abonar → m es la BASE.
-      // Como respaldo (por si pagos_alcaldia no cargó), se comprueba contra viajes × tarifa.
+      // `abonos.m` = BASE FACTURADA. Las DOS vías de registro (💵 Abonar y Confirmar Pago Alcaldía)
+      // guardan lo mismo desde el fix de fuente única del 07-19. Se deja igual una red de seguridad
+      // para filas VIEJAS que quedaran con el neto: si m casa con viajes × tarifa × 0,909 (y NO con
+      // viajes × tarifa), entonces esa fila es un neto y se convierte a base. Sin viajes o sin
+      // tarifa no se adivina: se toma como base, que es lo que hay en producción.
       var k=calcRetenciones(1,pr,null).neto||1; // 0.909 en perfil Alcaldía
-      var esNeto=(typeof PAGOS_ALC!=='undefined')&&PAGOS_ALC.some(function(p){return String(p.fact)===String(a.fact);});
-      if(!esNeto){
-        var baseRef=(Number(a.v)||0)*(cfg.tarifa||0);
-        esNeto=baseRef>0&&Math.abs(mAb-baseRef*k)<=baseRef*k*0.01;
-      }
-      var base=esNeto?(mAb/k):mAb;
+      var baseRef=(Number(a.v)||0)*(cfg.tarifa||0);
+      var esNetoViejo=baseRef>0&&Math.abs(mAb-baseRef*k)<=baseRef*k*0.01&&Math.abs(mAb-baseRef)>baseRef*0.01;
+      var base=esNetoViejo?(mAb/k):mAb;
       var rc=calcRetenciones(base,pr,null);
       var fielUsd=rc.fiel, netoUsd=rc.neto, respUsd=rc.respSocial;
       var baseBs=Math.round(base*tasa*100)/100;

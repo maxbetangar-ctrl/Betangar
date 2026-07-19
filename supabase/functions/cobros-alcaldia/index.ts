@@ -120,12 +120,11 @@ Deno.serve(async (req) => {
     // ── 1) Lo que la app ESPERA cobrar, calculado de cada factura ──────────────────────────────
     const abonos = await sel(`abonos?f=gte.${desde}&select=f,fact,v,m,ref&order=f.desc`);
     if (!abonos.length) return json({ ok: true, msg: "sin facturas en el rango" });
-    // ¿`abonos.m` es la BASE facturada o el NETO? Regla CAUSAL: si la factura está en
-    // `pagos_alcaldia`, la escribió guardarPagoAlcaldia con m:neto; si no, la tecleó la oficina en
-    // Abonar (viajes × tarifa = base). No se adivina con la tarifa: la tarifa vive en el
-    // localStorage del navegador, no en la BD, así que aquí no hay forma de saberla.
-    const palc = await sel(`pagos_alcaldia?select=factura`);
-    const esNetoFact = (fact: string) => palc.some((p: any) => String(p.factura) === String(fact));
+    // `abonos.m` = BASE FACTURADA, siempre. Las dos vías de registro (💵 Abonar y Confirmar Pago
+    // Alcaldía) guardan lo mismo desde el fix de fuente única del 07-19; antes Confirmar Pago
+    // guardaba el neto y el mismo campo significaba dos cosas. Aquí no se intenta detectar el caso
+    // viejo: la tarifa vive en el localStorage del navegador, no en la BD, así que el servidor no
+    // tiene con qué comprobarlo — y en producción no hay ninguna fila con el neto.
     const tasas = await sel(`tasas_diarias?fecha=gte.${desde}&select=fecha,bcv_dolar`);
     const tasaDe = (f: string) => {
       const ex = tasas.find((t: any) => String(t.fecha).slice(0, 10) === f);
@@ -145,7 +144,7 @@ Deno.serve(async (req) => {
       const f = String(a.f || "").slice(0, 10);
       const mAb = Number(a.m) || 0; if (mAb <= 0) continue;
       const tasa = tasaDe(f); if (!tasa) continue;
-      const base = esNetoFact(a.fact) ? mAb / K_NETO : mAb;
+      const base = mAb;
       const refAb = soloDig(a.ref);
       patas.push({ fact: String(a.fact), pata: "neto", fechaFact: f, refAbono: refAb, yaGuardado: esCobrado(a.fact, "neto"), esperadoBs: Math.round(base * K_NETO * tasa * 100) / 100 });
       patas.push({ fact: String(a.fact), pata: "fiel", fechaFact: f, refAbono: refAb, yaGuardado: esCobrado(a.fact, "fiel"), esperadoBs: Math.round(base * RET.fiel * tasa * 100) / 100 });
