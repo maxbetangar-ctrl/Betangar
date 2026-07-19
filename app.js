@@ -16574,27 +16574,39 @@ async function renderConciliacionBNC(){
     var libros=[];
     (ABONOS||[]).forEach(function(a){
       var f=String(a.f||'').slice(0,10); if(f&&(f<winIni||f>hasta))return;
-      var neto=Number(a.m)||0; if(neto<=0)return;
+      var mAb=Number(a.m)||0; if(mAb<=0)return;
       var tasa=(typeof getTasaFecha==='function'&&getTasaFecha(f,'dolar'))||TASAS.bcvDolar||cfg.tasa; // garantizada por el guard del tope de renderConciliacionBNC
       // Perfil de retenciones del CONTRATO del abono (si lo trae); si no, Alcaldía por defecto.
       var pr=perfilRetencion(a.contrato);
-      // a.m es el NETO que deposita el banco (guardarPagoAlcaldia guarda m:r.neto), NO la base.
-      // Bug histórico (auditoría 2026-07-06): se tomaba a.m como base y se re-aplicaban las
-      // retenciones (neto-del-neto) → la conciliación NUNCA cuadraba (falsos "falta registrar" /
-      // "en tránsito"). Fix: derivar la base a partir del neto (neto = base×k, con
-      // k=calcRetenciones(1).neto = 0.909 en perfil Alcaldía) para calcular fiel/resp; y usar el
-      // neto TAL CUAL como ingreso esperado (es lo que realmente credita el banco).
-      var k=calcRetenciones(1,pr,null).neto||1;
-      var base=neto/k;
+      // ¿`a.m` es la BASE facturada o el NETO? Las DOS vías de registro guardan cosas distintas
+      // (bug de fuente única, causa raíz de que la conciliación no reconociera NINGÚN ingreso):
+      //   · 💵 Abonar (guardarAbono) → el usuario teclea viajes × tarifa = BASE facturada.
+      //   · Confirmar Pago Alcaldía (guardarPagoAlcaldia) → guarda m:r.neto = NETO.
+      // Antes se asumía SIEMPRE neto y se derivaba la base como m/0.909 → con los abonos reales
+      // (que son BASE) el ingreso esperado quedaba 10% por encima de lo que credita el banco y
+      // NUNCA cruzaba (tolerancia 1%). Verificado contra el banco real (fact 000635: base
+      // $32.955,52 → el BNC acreditó Bs 21.242.007,42 neto + Bs 2.336.854,50 fiel = base×0,909
+      // y base×0,10 a la tasa del pago). Fix: DETECTAR cuál de las dos es, usando los VIAJES del
+      // propio abono × la tarifa como referencia (misma fuente que la facturación). Sin viajes,
+      // se asume BASE (lo que hay en producción). Nunca se inventa: si no casa ninguna, base=m.
+      var k=calcRetenciones(1,pr,null).neto||1; // 0.909 en perfil Alcaldía
+      var baseRef=(Number(a.v)||0)*(cfg.tarifa||0);
+      var base;
+      if(baseRef>0&&Math.abs(mAb-baseRef*k)<=baseRef*k*0.01) base=mAb/k;   // m es el NETO
+      else base=mAb;                                                        // m es la BASE facturada
       var rc=calcRetenciones(base,pr,null);
-      var fielUsd=rc.fiel, netoUsd=neto, respUsd=rc.respSocial;
+      var fielUsd=rc.fiel, netoUsd=rc.neto, respUsd=rc.respSocial;
       var baseBs=Math.round(base*tasa*100)/100;
       var fielPct=Math.round((pr.fiel||0)*10000)/100, respPct=Math.round((pr.respSocial||0)*10000)/100;
       var enRango=(f>=desde);
       // El NETO entra el MISMO día de la factura → solo si la factura cae dentro del rango (no antes).
-      if(enRango)libros.push({tipo:'ingreso',bs:Math.round(netoUsd*tasa*100)/100,desc:'Fact '+a.fact+' — pago neto',lab:'Fact '+a.fact+' neto',fecha:f,_usado:false});
+      // `refDig` = la referencia bancaria que la oficina anotó al registrar el abono. El BNC la trae
+      // DENTRO de su propia referencia (ej. abono ref 00370774 → banco 342800370774) → sirve para
+      // cuadrar el crédito exacto sin depender de la tasa (ver pre-pase de ingresos más abajo).
+      var refDigAb=String(a.ref||'').replace(/\D/g,'');
+      if(enRango)libros.push({tipo:'ingreso',bs:Math.round(netoUsd*tasa*100)/100,desc:'Fact '+a.fact+' — pago neto',lab:'Fact '+a.fact+' neto',clase:'ingfact',fact:a.fact,sub:'neto',usd:netoUsd,refDig:refDigAb,fecha:f,_usado:false});
       // La fiel (y la resp. social) caen días después → pueden ser de una factura justo previa al rango.
-      if(fielUsd>0)libros.push({tipo:'ingreso',bs:Math.round(fielUsd*tasa*100)/100,desc:'Fact '+a.fact+' — fiel cumplimiento '+fielPct+'%',lab:'Fact '+a.fact+' fiel '+fielPct+'%',fecha:f,_usado:false});
+      if(fielUsd>0)libros.push({tipo:'ingreso',bs:Math.round(fielUsd*tasa*100)/100,desc:'Fact '+a.fact+' — fiel cumplimiento '+fielPct+'%',lab:'Fact '+a.fact+' fiel '+fielPct+'%',clase:'ingfact',fact:a.fact,sub:'fiel',usd:fielUsd,refDig:refDigAb,fecha:f,_usado:false});
       // EGRESO que YO debo pagar: Responsabilidad Social del monto base (ley). Lo transfiere
       // Betangar (lunes/martes). Se concilia contra la salida real del banco.
       if(respUsd>0)libros.push({tipo:'egreso',bs:Math.round(respUsd*tasa*100)/100,desc:'Fact '+a.fact+' — Responsabilidad Social '+respPct+'%',lab:'Fact '+a.fact+' resp. social '+respPct+'%',clase:'respsocial',fact:a.fact,baseBs:baseBs,fecha:f,_usado:false});
@@ -16605,7 +16617,10 @@ async function renderConciliacionBNC(){
       // 7.5% por cada uno, para que cada transferencia cuadre por separado. 7.5% = 0.075 (misma
       // definición que renderAlcResumen / pagos_alcaldia.pct75_usd: fuente única). Solo para abonos
       // que son pago de Alcaldía (existen en PAGOS_ALC) — no se aplica a otros clientes/contratos.
-      var esAlcaldia=(typeof PAGOS_ALC!=='undefined')&&PAGOS_ALC.some(function(p){return String(p.fact)===String(a.fact);});
+      // Es Alcaldía si su perfil de retención trae FIEL (perfil Alcaldía). Antes dependía SOLO de
+      // PAGOS_ALC (tabla pagos_alcaldia, hoy VACÍA) → el 7.5% no se calculaba para NINGUNA factura.
+      // [Fix 07-18] Se mantiene el chequeo por PAGOS_ALC como respaldo por si algún día se puebla.
+      var esAlcaldia=(pr&&(pr.fiel||0)>0) || ((typeof PAGOS_ALC!=='undefined')&&PAGOS_ALC.some(function(p){return String(p.fact)===String(a.fact);}));
       if(esAlcaldia){
         var pct75Neto=neto*0.075;
         if(pct75Neto>0)libros.push({tipo:'egreso',bs:Math.round(pct75Neto*tasa*100)/100,desc:'Fact '+a.fact+' — 7.5% Máximo (neto)',lab:'Fact '+a.fact+' 7.5% Máximo neto',clase:'pct75',fact:a.fact,entra:'neto',entraBs:Math.round(neto*tasa*100)/100,fecha:f,_usado:false});
@@ -16716,15 +16731,31 @@ async function renderConciliacionBNC(){
       });
       if(lib){lib._usado=true;b._conc=true;b._label=lib.lab;lib._via='ref';lib._bancoRef=b.ref;}
     });
-    // Match general por MONTO (misma dirección; ingresos 1% por redondeo de tasa, egresos 0.5%).
+    // PRE-PASE por REFERENCIA (ingresos de factura): el crédito de la Alcaldía trae la referencia del
+    // pago DENTRO de la referencia del banco (abono ref 00370774 → banco 342800370774). Cuadra el
+    // crédito exacto SIN depender de la tasa (la Alcaldía deposita días después, a otra tasa).
+    bancoMovs.forEach(function(b){
+      if(b._conc||b.tipo!=='ingreso')return;
+      var refDig=String(b.ref||'').replace(/\D/g,''); if(refDig.length<6)return;
+      var lib=libros.find(function(l){
+        if(l._usado||l.clase!=='ingfact')return false;
+        return l.refDig&&l.refDig.length>=6&&refDig.indexOf(l.refDig)>=0;
+      });
+      if(lib){lib._usado=true;b._conc=true;b._label=lib.lab;lib._via='ref';lib._bancoRef=b.ref;lib._bancoBs=b.bs;}
+    });
+    // Match general por MONTO (misma dirección; egresos 0.5%).
+    // INGRESOS de factura: 3%. La Alcaldía deposita 1–3 días DESPUÉS de la factura y convierte a la
+    // tasa de SU día, no la de la factura (verificado: fact 000635 se pagó a 709,69 y la factura es
+    // del 10/07 a 721,35 = 1,7% de diferencia). Con 1% no cruzaba ninguno. Los créditos de la
+    // Alcaldía son de un orden de magnitud mayor que el resto, así que 3% no genera falsos cruces.
     bancoMovs.forEach(function(b){
       if(b._conc)return;
-      var tol=Math.max(1,b.bs*(b.tipo==='ingreso'?0.01:0.005));
+      var tol=Math.max(1,b.bs*(b.tipo==='ingreso'?0.03:0.005));
       var lib=libros.find(function(l){return !l._usado&&l.tipo===b.tipo&&Math.abs(l.bs-b.bs)<=tol;});
-      if(lib){lib._usado=true;b._conc=true;b._label=lib.lab;lib._bancoRef=b.ref;if(lib.clase==='cxp')lib._via='monto';}
+      if(lib){lib._usado=true;b._conc=true;b._label=lib.lab;lib._bancoRef=b.ref;lib._bancoBs=b.bs;if(lib.clase==='cxp')lib._via='monto';if(lib.clase==='ingfact')lib._via='monto';}
     });
     var faltaReg=bancoMovs.filter(function(b){return !b._conc;});   // en banco, no en libros
-    var enTransito=libros.filter(function(l){return !l._usado&&l.clase!=='respsocial'&&l.clase!=='pct75'&&l.clase!=='nomina'&&l.clase!=='cxp';}); // resp.social, 7.5% Máximo, nómina y pagos a proveedores tienen su propia tarjeta
+    var enTransito=libros.filter(function(l){return !l._usado&&l.clase!=='respsocial'&&l.clase!=='pct75'&&l.clase!=='nomina'&&l.clase!=='cxp'&&l.clase!=='ingfact';}); // resp.social, 7.5% Máximo, nómina, proveedores e ingresos por factura tienen su propia tarjeta
     var nConc=bancoMovs.length-faltaReg.length;
     // ── 4) Saldos del período (neto = ingresos − egresos) ──
     var sum=function(arr,t){return arr.filter(function(x){return x.tipo===t;}).reduce(function(s,x){return s+x.bs;},0);};
@@ -16762,27 +16793,46 @@ async function renderConciliacionBNC(){
       html+='</tbody></table></div>';
     }else html+='<div style="font-size:11px;color:var(--text3);padding:8px">Sin movimientos del banco en el rango (activa el ClientID de producción del BNC para traer el estado de cuenta completo).</div>';
     html+='</div>';
-    // ── Facturas de la Alcaldía (INGRESOS): reconocidas por su REGISTRO (el abono existe). La API de
-    // producción del BNC aún no trae todos los créditos, así que se muestran registradas (como hacía el
-    // sistema anterior); cuando el banco esté activo cada crédito se cruzará solo. La 635 va marcada
-    // como EXCEPCIÓN (la Alcaldía pagó de menos, error identificado). [Stopgap 2026-07-18 — revisar a fondo.]
-    var _EXCEP_ALC={'000635':'La Alcaldía pagó de menos por un error propio ya identificado'};
-    var _ingAlc={};
-    libros.filter(function(l){return l.tipo==='ingreso';}).forEach(function(l){
-      var mm=String(l.desc||'').match(/Fact\s+(\S+)/); var fc=mm?mm[1]:'?';
-      if(!_ingAlc[fc])_ingAlc[fc]={fact:fc,bs:0,fecha:l.fecha||''};
-      _ingAlc[fc].bs+=l.bs;
-    });
-    var _ingArr=Object.keys(_ingAlc).map(function(k){return _ingAlc[k];}).sort(function(a,b){return String(b.fecha).localeCompare(String(a.fecha));});
-    if(_ingArr.length){
-      var _nExc=_ingArr.filter(function(r){return _EXCEP_ALC[String(r.fact)];}).length;
-      html+='<div class="card" style="margin-bottom:12px"><div style="font-size:12px;font-weight:700;margin-bottom:6px">💵 Facturas de la Alcaldía (ingresos)</div>'+
-        '<div style="font-size:10px;color:var(--text3);margin-bottom:8px">Reconocidas por su registro (abono). El estado de cuenta del BNC (API de producción) aún no está activo → se cuadran contra el registro; cuando el banco esté activo, cada crédito se cruzará solo.</div>'+
-        '<div style="font-size:11px;margin-bottom:8px"><span style="color:var(--green)">✅ Reconocidas '+(_ingArr.length-_nExc)+'</span>'+(_nExc?' · <span style="color:var(--yellow)">⚠️ Excepción '+_nExc+'</span>':'')+'</div>'+
-        '<div class="tw" style="max-height:300px;overflow:auto"><table style="font-size:11px"><thead><tr><th>Factura</th><th>Fecha</th><th style="text-align:right">Esperado Bs (neto+fiel)</th><th style="text-align:center">Estado</th></tr></thead><tbody>'+
+    // ── Cobros por FACTURA (ingresos de la Alcaldía): NETO y FIEL 10%, cada uno con su estado real.
+    // Dos niveles de reconocimiento, sin mentir (el equilibrio entre lo viejo y lo nuevo):
+    //   ✅ confirmado por el banco → cruzó con un crédito real (API BNC o notificación), por
+    //      referencia o por monto. Es la verdad dura.
+    //   🟢 registrado → el abono existe (la oficina lo registró) pero el banco todavía no lo refleja:
+    //      la API de producción del BNC no está activa y las notificaciones solo traen una parte.
+    //      Esto es lo que hacía el sistema viejo, que reconocía de inmediato; se mantiene como
+    //      reconocimiento por REGISTRO, distinguido del confirmado por banco.
+    // La FIEL 10% llega días después (lunes/martes) → mientras no llegue queda "⏳ por depositar".
+    var ingF=libros.filter(function(l){return l.clase==='ingfact';});
+    if(ingF.length){
+      var _ingAlc={};
+      ingF.forEach(function(l){
+        var fc=String(l.fact||'?');
+        if(!_ingAlc[fc])_ingAlc[fc]={fact:fc,fecha:l.fecha||'',neto:null,fiel:null};
+        _ingAlc[fc][l.sub==='fiel'?'fiel':'neto']=l;
+      });
+      var _ingArr=Object.keys(_ingAlc).map(function(k){return _ingAlc[k];}).sort(function(a,b){return String(b.fecha).localeCompare(String(a.fecha));});
+      var _nBanco=ingF.filter(function(l){return l._usado;}).length;
+      var _nPend=ingF.length-_nBanco;
+      // Estado de UNA pata (neto o fiel). Si cruzó con el banco muestra también la diferencia real
+      // en Bs contra lo esperado (la tasa del día del depósito no es la de la factura).
+      var _estIng=function(l,esFiel){
+        if(!l)return '<span style="color:var(--text3)">—</span>';
+        if(l._usado){
+          var d=(l._bancoBs!=null)?Math.round((l._bancoBs-l.bs)*100)/100:0;
+          var dTxt=(l._bancoBs!=null&&Math.abs(d)>=1)?('<span style="font-size:8px;color:var(--text3)" title="Diferencia por la tasa del día del depósito"> '+(d>0?'+':'')+fmt(d)+'</span>'):'';
+          return '<span style="color:var(--green);font-weight:700">✅ banco</span><span style="font-size:8px;color:var(--teal)" title="cuadrado por '+(l._via||'monto')+'"> ✓'+(l._via||'monto')+'</span>'+dTxt;
+        }
+        if(esFiel)return '<span style="color:var(--yellow);font-weight:700" title="La Alcaldía la deposita días después (lunes/martes)">⏳ por depositar</span>';
+        return '<span style="color:var(--teal);font-weight:700" title="El abono está registrado; el banco aún no lo refleja (API de producción del BNC inactiva)">🟢 registrado</span>';
+      };
+      html+='<div class="card" style="margin-bottom:12px"><div style="font-size:12px;font-weight:700;margin-bottom:6px">💵 Cobros por factura (Alcaldía)</div>'+
+        '<div style="font-size:10px;color:var(--text3);margin-bottom:8px">Cada factura entra en <b>2 depósitos</b>: el <b>neto</b> (base − retenciones) y la <b>fiel cumplimiento 10%</b>, días después. <b>✅ banco</b> = cruzó con un crédito real. <b>🟢 registrado</b> = el abono está registrado pero el estado de cuenta del BNC aún no lo trae (API de producción inactiva); cuando se active, se confirma solo.</div>'+
+        '<div style="font-size:11px;margin-bottom:8px"><span style="color:var(--green)">✅ Confirmados por banco '+_nBanco+'</span> · <span style="color:var(--teal)">🟢 Solo registrados '+_nPend+'</span></div>'+
+        '<div class="tw" style="max-height:300px;overflow:auto"><table style="font-size:11px"><thead><tr><th>Factura</th><th>Fecha</th><th style="text-align:right">Neto Bs</th><th style="text-align:center">Estado neto</th><th style="text-align:right">Fiel 10% Bs</th><th style="text-align:center">Estado fiel</th></tr></thead><tbody>'+
         _ingArr.map(function(r){
-          var ex=_EXCEP_ALC[String(r.fact)];
-          return '<tr><td style="font-size:10px">'+_escHtml(r.fact)+'</td><td style="font-size:9px;color:var(--text3)">'+(r.fecha?formatFecha(r.fecha):'')+'</td><td style="text-align:right;font-family:var(--m);color:var(--green)">'+fmt(r.bs)+'</td><td style="text-align:center">'+(ex?'<span style="color:var(--yellow);font-weight:700" title="'+ex+'">⚠️ excepción</span>':'<span style="color:var(--green);font-weight:700">✅ registrado</span>')+'</td></tr>';
+          return '<tr><td style="font-size:10px">'+_escHtml(r.fact)+'</td><td style="font-size:9px;color:var(--text3)">'+(r.fecha?formatFecha(r.fecha):'')+'</td>'+
+            '<td style="text-align:right;font-family:var(--m);color:var(--green)">'+(r.neto?fmt(r.neto.bs):'—')+'</td><td style="text-align:center">'+_estIng(r.neto,false)+'</td>'+
+            '<td style="text-align:right;font-family:var(--m);color:var(--green)">'+(r.fiel?fmt(r.fiel.bs):'—')+'</td><td style="text-align:center">'+_estIng(r.fiel,true)+'</td></tr>';
         }).join('')+
         '</tbody></table></div></div>';
     }
