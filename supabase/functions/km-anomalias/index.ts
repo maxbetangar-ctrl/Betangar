@@ -89,7 +89,7 @@ Deno.serve(async (req) => {
                 `Hola ${nom}, el km que registraste (${km.toLocaleString("es-VE")}) no tiene coherencia con el anterior (${prevKm.toLocaleString("es-VE")}) — ${retro ? "no puede ser MENOR" : "es un salto demasiado grande para un día"}. Parece un error de tipeo.\n\n` +
                 `📌 *ES UNA ORDEN:* pon SIEMPRE el kilómetro REAL que marca el tablero, sin dígitos de más ni de menos. Estamos supervisando esto de cerca porque afecta el mantenimiento del camión.\n\n` +
                 `👉 Por favor respóndeme aquí *si lo leíste: Sí o No.* 🙏`;
-              avisos.push({ telefono: String(tel).replace(/[\s\-\+]/g, ""), mensaje: msg, tipo: "supervision", estado: "pendiente", _key: key, _cam: cam, _f: f });
+              avisos.push({ telefono: String(tel).replace(/[\s\-\+]/g, ""), mensaje: msg, tipo: "supervision", estado: "pendiente", _key: key, _cam: cam, _f: f, _chofer: String(r.conductor || "").trim(), _prev: prevKm, _km: km, _tipo: retro ? "retrocede" : "salto grande" });
             }
           }
         }
@@ -101,7 +101,13 @@ Deno.serve(async (req) => {
     if (dry) return json({ ok: true, dry: true, hoy, detectados: avisos.map((a) => ({ cam: a._cam, fecha: a._f, tel: a.telefono })) });
 
     if (avisos.length) {
+      // 1) Aviso a cada chofer.
       await enqueue(avisos.map((a) => ({ telefono: a.telefono, mensaje: a.mensaje, tipo: a.tipo, estado: a.estado })));
+      // 2) Aviso-RESUMEN a Máximo (dueño) para que lo corrija en el sistema — UNO por corrida.
+      const det = avisos.map((a) => `• *${a._cam}* (${a._chofer || "?"}) ${a._f}: ${Number(a._prev).toLocaleString("es-VE")} → ${Number(a._km).toLocaleString("es-VE")} (${a._tipo})`).join("\n");
+      await enqueue([{ telefono: "584147379886",
+        mensaje: `🕵️ *Supervisión de kilometraje* — ${avisos.length} unidad(es) con km incoherente:\n${det}\n\nYa se le escribió al chofer. *Revisa y corrige el km en el sistema* (módulo KM / checklist) para que el aviso de aceite quede bien.`,
+        tipo: "supervision", estado: "pendiente" }]);
       for (const a of avisos) await marcar(a._key);
     }
     return json({ ok: true, hoy, avisados: avisos.length, unidades: avisos.map((a) => a._cam) });

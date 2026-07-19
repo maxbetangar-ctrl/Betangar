@@ -2007,6 +2007,9 @@ async function guardarChecklist(){
         if(_f){ try{ _f.focus(); _f.select(); _f.scrollIntoView({block:'center'}); }catch(e){} }
         return;
       }
+      // El chofer CONFIRMÓ un km sospechoso (le dio "Aceptar") → avisar a Máximo EN EL MOMENTO
+      // (el worker Wassenger lo envía en ~3 min) para que lo revise/corrija en el sistema.
+      try{ if(typeof supabase!=='undefined'&&supabase){ supabase.from('cola_mensajes').insert([{telefono:'584147379886',mensaje:'⚠️ *Km sospechoso confirmado* — Unidad '+cam+' ('+(chofer||'chofer')+') guardó '+_kmIng.toLocaleString('es-VE')+' km viniendo de '+_ref.toLocaleString('es-VE')+' (+'+(_kmIng-_ref).toLocaleString('es-VE')+' en un día). Revísalo y corrígelo en el sistema si es un error.',tipo:'supervision',estado:'pendiente'}]).then(function(){},function(){}); } }catch(e){}
     } else if(_susp==='baja'){
       mostrarToast('El km de llegada ('+_kmIng.toLocaleString('es-VE')+') no puede ser menor que el de salida ('+_ref.toLocaleString('es-VE')+'). Revísalo.','warn');
       if(btn){ btn.disabled=false; btn.textContent='Guardar'; }
