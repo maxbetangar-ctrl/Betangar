@@ -16837,13 +16837,14 @@ async function renderConciliacionBNC(){
     // tasa de SU día, no la de la factura (verificado: fact 000635 se pagó a 709,69 y la factura es
     // del 10/07 a 721,35 = 1,7% de diferencia). Con 1% no cruzaba ninguno. Los créditos de la
     // Alcaldía son de un orden de magnitud mayor que el resto, así que 3% no genera falsos cruces.
-    bancoMovs.forEach(function(b){
-      if(b._conc)return;
+    // MEJOR match, no el PRIMERO que entre en la tolerancia. Con tolerancia amplia dos montos
+    // parecidos se cruzaban al revés: la fiel de la 000634 (Bs 993.187,00) se cuadraba contra el
+    // crédito de la 000633 (Bs 966.118,37) y viceversa — el dinero total daba, pero cada pago
+    // quedaba atribuido a la factura equivocada. Se elige el de MENOR diferencia.
+    var _matchMonto=function(dir){
+      bancoMovs.forEach(function(b){
+      if(b._conc||b.tipo!==dir)return;
       var tol=Math.max(1,b.bs*(b.tipo==='ingreso'?0.03:0.005));
-      // MEJOR match, no el PRIMERO que entre en la tolerancia. Con tolerancia amplia dos montos
-      // parecidos se cruzaban al revés: la fiel de la 000634 (Bs 993.187,00) se cuadraba contra el
-      // crédito de la 000633 (Bs 966.118,37) y viceversa — el dinero total daba, pero cada pago
-      // quedaba atribuido a la factura equivocada. Se elige el de MENOR diferencia.
       var lib=null,mejor=Infinity;
       libros.forEach(function(l){
         if(l._usado||l.tipo!==b.tipo)return;
@@ -16851,7 +16852,24 @@ async function renderConciliacionBNC(){
         if(d<=tol&&d<mejor){mejor=d;lib=l;}
       });
       if(lib){lib._usado=true;b._conc=true;b._label=lib.lab;lib._bancoRef=b.ref;lib._bancoBs=b.bs;if(lib.clase==='cxp')lib._via='monto';if(lib.clase==='ingfact'){lib._via='monto';lib._banco=b._otroBanco||'BNC';}}
+      });
+    };
+    // INGRESOS primero, y recién después los EGRESOS. El orden importa: el 7,5% de Máximo se
+    // transfiere sobre lo que REALMENTE entró, no sobre lo estimado. Estimarlo con la tasa de la
+    // fecha de la factura lo dejaba fuera de la tolerancia de egresos (0,5%) cuando la Alcaldía
+    // depositaba a otra tasa: el 7,5% de la 000635 se esperaba en Bs 1.620.677,87 y la salida real
+    // fue Bs 1.594.498,60 (1,6% de diferencia) → aparecía "⚠️ pendiente" un pago YA hecho.
+    // Con el ingreso ya cuadrado se recalcula sobre el monto real y cuadra al 0,08%.
+    _matchMonto('ingreso');
+    libros.filter(function(l){return l.clase==='pct75'&&l.fact&&l.entra;}).forEach(function(l){
+      var ing=libros.find(function(x){return x.clase==='ingfact'&&String(x.fact)===String(l.fact)&&x.sub===l.entra;});
+      if(ing&&ing._usado&&ing._bancoBs>0){
+        l.entraBs=ing._bancoBs;
+        l.bs=Math.round(ing._bancoBs*0.075*100)/100;
+        l._sobreReal=true;
+      }
     });
+    _matchMonto('egreso');
     var faltaReg=bancoMovs.filter(function(b){return !b._conc;});   // en banco, no en libros
     var enTransito=libros.filter(function(l){return !l._usado&&l.clase!=='respsocial'&&l.clase!=='pct75'&&l.clase!=='nomina'&&l.clase!=='cxp'&&l.clase!=='ingfact';}); // resp.social, 7.5% Máximo, nómina, proveedores e ingresos por factura tienen su propia tarjeta
     var nConc=bancoMovs.length-faltaReg.length;
