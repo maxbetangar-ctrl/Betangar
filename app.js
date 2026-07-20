@@ -15860,36 +15860,22 @@ function generarReporteJAC(){
   abrirVentanaImpresion(html);
 }
 
-function guardarKmLunes(){
-  var hoy=new Date();
-  if(hoy.getDay()!==1)return;
-  var cams=Object.keys(KM_DATA).filter(function(c){return c.startsWith('JAC-');});
-  if(!cams.length||!DB_READY||!supabase)return;
-  var semanaKey='betangar_km_lunes_semana_'+hoy.toISOString().slice(0,10);
-  if(localStorage.getItem(semanaKey))return;
-  var lunes=new Date(hoy);lunes.setDate(hoy.getDate()-7);
-  var sabado=new Date(hoy);sabado.setDate(hoy.getDate()-2);
-  var lunesStr=formatFecha(lunes);
-  var sabadoStr=formatFecha(sabado);
-  var nl='\n';
-  var lineas=cams.map(function(cam){
-    var d=KM_DATA[cam]||{};
-    var kmL=d.km_lunes||d.km||0;
-    var kmS=d.km||0;
-    return cam+': '+kmL.toLocaleString()+' a '+kmS.toLocaleString()+' km ('+(kmS-kmL).toLocaleString()+' km semana)';
-  }).join(nl);
-  var totalRec=cams.reduce(function(s,cam){var d=KM_DATA[cam]||{};return s+((d.km||0)-(d.km_lunes||d.km||0));},0);
-  var msg='REPORTE JAC - KILOMETRAJE SEMANAL'+nl+'Semana: '+lunesStr+' al '+sabadoStr+nl+nl+lineas+nl+nl+'TOTAL FLOTA: '+totalRec.toLocaleString()+' km';
-  sendWA(msg,['socios','operativo']);
-  cams.forEach(function(cam){
-    var km=KM_DATA[cam]?KM_DATA[cam].km:0;
-    if(!km)return;
-    supabase.from('km_data').update({km_lunes:km}).eq('cam',cam).then(function(){
-      if(KM_DATA[cam])KM_DATA[cam].km_lunes=km;
-    });
-  });
-  localStorage.setItem(semanaKey,'1');
-}
+// DESACTIVADA (2026-07-20) — el reporte semanal de km ahora lo manda el SERVIDOR:
+// edge function `km-semanal` + cron los lunes 7:00 am VE. Aquí quedó no-op a propósito.
+//
+// Tenía DOS bugs que se veían juntos en el WhatsApp del 2026-07-20:
+//  1) TRIPLE ENVÍO: esto corre en el navegador al iniciar sesión (línea ~767), y el candado
+//     era `localStorage`, que vive en CADA dispositivo. Tres personas abriendo la app un lunes
+//     = tres mensajes idénticos a todos. El candado nuevo es `alertas_log.alert_key` (UNIQUE),
+//     compartido, así que solo la primera corrida gana.
+//  2) "0 km" EN LOS 12 CAMIONES: restaba `km_lunes` contra `km`, pero la columna `km_lunes`
+//     NUNCA EXISTIÓ en km_data. El read caía a `d.km` (X − X = 0) y el `update({km_lunes:km})`
+//     fallaba en silencio porque el .then() no miraba res.error. Los km sí estaban: en el
+//     checklist diario del chofer (km_salida/km_entrada), que es de donde los toma ahora.
+//
+// Lección (ya nos pasó con los pagos BNC y con los cumpleaños): un WhatsApp automático NO puede
+// dispararse desde el cliente — se manda tantas veces como gente tenga la app abierta.
+function guardarKmLunes(){ /* no-op: ver edge function km-semanal */ }
 
 
 // ══════════════════════════════════════════════════
