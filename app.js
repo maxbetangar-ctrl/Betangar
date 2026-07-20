@@ -6657,12 +6657,30 @@ async function registrarMantItem(){
   var tipoTrab=gv('hv-tipotrabajo')||'cambio', horas=parseInt(gv('hv-horas'))||0;
   var garDias=parseInt(gv('hv-garantia'))||0;
   var garHasta=null; if(garDias>0){ try{ var _gd=new Date(fecha+'T00:00:00'); _gd.setDate(_gd.getDate()+garDias); garHasta=_gd.toISOString().slice(0,10); }catch(e){} }
-  var _editId=window._hvEditId||''; if(_editId){ MANTENIMIENTOS=(MANTENIMIENTOS||[]).filter(function(m){return String(m.id)!==String(_editId);}); }
+  var _editId=window._hvEditId||'';
+  // Guardar el registro ORIGINAL antes de sacarlo de la lista: en una edición hay que poder
+  // conservar su km si el usuario no lo toca (ver más abajo).
+  var _orig=_editId?((MANTENIMIENTOS||[]).filter(function(m){return String(m.id)===String(_editId);})[0]||null):null;
+  if(_editId){ MANTENIMIENTOS=(MANTENIMIENTOS||[]).filter(function(m){return String(m.id)!==String(_editId);}); }
   if(!cam){alert('Elegí la unidad');return;}
   if(!itemId){alert('Elegí el ítem (qué se le hizo)');return;}
   var esHoras=(typeof medidaUnidad==='function')&&medidaUnidad(cam)==='horas';
-  // Si no pusieron km manual, tomar el km ACTUAL de la unidad desde la base (el odómetro nunca retrocede).
-  if(!esHoras&&km<=0){ km=(typeof kmActualCam==='function')?(parseInt(kmActualCam(cam))||0):0; }
+  // KM cuando el usuario no lo escribe. OJO: NO se puede meter el km de HOY en un trabajo VIEJO.
+  // Pasaba con los lavados de carga histórica (km 0): al editarlos solo para ponerles costo y
+  // proveedor, el campo km quedaba vacío y el sistema les clavaba el odómetro actual. Eso deja un
+  // trabajo de hace semanas con el km de hoy → el próximo servicio se calcula contra un km falso
+  // y el histórico de vida útil queda absurdo (reportado por la revisora el 2026-07-20).
+  var _hoyVE=(typeof fechaVE==='function')?fechaVE():new Date().toISOString().slice(0,10);
+  var _esHoy=(String(fecha).slice(0,10)===_hoyVE);
+  if(!esHoras&&km<=0){
+    if(_editId){
+      km=parseInt(_orig&&_orig.km)||0;        // EDITANDO: se respeta el km que ya tenía (aunque sea 0)
+    } else if(_esHoy){
+      km=(typeof kmActualCam==='function')?(parseInt(kmActualCam(cam))||0):0;  // hoy sí: el odómetro es el de ahora
+    }
+    // Trabajo con fecha PASADA y sin km → queda en 0 (dato desconocido). Mejor vacío que inventado:
+    // un km falso rompe el próximo servicio; un km vacío solo se ve como pendiente de completar.
+  }
   // Al CERRAR una orden, el costo no se debe colar en $0 (rompe el centro de costos). Avisa —pero no bloquea—
   // porque un trabajo en GARANTÍA o sin cargo sí es $0 legítimo.
   var _cerrandoOrden=(window._ordCerrando&&window._ordCerrando.cam===cam);
@@ -6722,7 +6740,9 @@ async function registrarMantItem(){
   if(!ok&&typeof guardarEnCola==='function')guardarEnCola('mantenimientos',row,'id');
   MANTENIMIENTOS.unshift(mem);
   // Coherencia con el odómetro (nunca retrocede): si el km del trabajo es mayor, actualiza KM_DATA.
-  if(km>0){ if(!KM_DATA[cam])KM_DATA[cam]={km:0,f:'',ultsrv:0,mant:[],lavado:'',engrase:''}; if(km>=(parseInt(KM_DATA[cam].km)||0)){KM_DATA[cam].km=km;KM_DATA[cam].f=fecha;} }
+  // SOLO si el trabajo es de HOY: cargar un trabajo viejo no puede mover el odómetro actual de la
+  // unidad (si no, un registro histórico mal tipeado adelanta el odómetro de toda la flota).
+  if(km>0&&_esHoy){ if(!KM_DATA[cam])KM_DATA[cam]={km:0,f:'',ultsrv:0,mant:[],lavado:'',engrase:''}; if(km>=(parseInt(KM_DATA[cam].km)||0)){KM_DATA[cam].km=km;KM_DATA[cam].f=fecha;} }
   // Coherencia con el horímetro: si la unidad va por horas, actualiza horas_actuales (nunca baja).
   if(esHoras&&horas>0){ if(!UNIDAD_CONFIG[cam])UNIDAD_CONFIG[cam]={}; if(horas>=(parseInt(UNIDAD_CONFIG[cam].horasActuales)||0)){UNIDAD_CONFIG[cam].horasActuales=horas; if(DB_READY&&supabase){try{supabase.from('unidad_config').upsert([{cam:cam,horas_actuales:horas}],{onConflict:'cam'}).then(function(){});}catch(e){}}} }
   _sincronizarCicloMant(cam,itemId,fecha); // si es lavado/engrase, refresca su ciclo (módulo Lavados/plan)
@@ -6744,6 +6764,14 @@ function editarMantItem(id){
   window._hvFotoUrl=m.foto||'';
   var fp=g('hv-foto-prev'); if(fp)fp.innerHTML=m.foto?('<img src="'+_mEsc(m.foto)+'" style="max-height:60px;border-radius:6px">'):'';
   window._hvEditId=id;
+  // Aviso claro: editar para completar costo/proveedor NO debe inventar el km del trabajo.
+  var _hint=g('hv-km-hint');
+  if(_hint){
+    var _kmOrig=parseInt(m.km)||0;
+    _hint.textContent=_kmOrig>0
+      ? ('editando — este trabajo quedó registrado con '+_kmOrig.toLocaleString()+' km. Si lo dejás vacío, se conserva ese.')
+      : ('editando — este trabajo NO tiene km cargado. Si lo dejás vacío queda sin km (no se le pone el de hoy). Poné el km que tenía la unidad ese día si lo sabés.');
+  }
   var b=g('hv-guardar-btn'); if(b)b.textContent='💾 Guardar cambios';
   try{ var f=g('hv-cam'); if(f)f.scrollIntoView({behavior:'smooth',block:'center'}); }catch(e){}
   if(typeof mostrarToast==='function')mostrarToast('Editando registro — cambiá lo que necesites y guardá','info');
