@@ -51,26 +51,33 @@ async function tomarCandado(key: string, dry: boolean): Promise<boolean> {
   return r.ok;
 }
 
-// Retenciones acumuladas (Bs) de las facturas cargadas en el rango del período.
-async function retencionesDe(desde: string, hasta: string) {
-  const fs = await sel(`cxp_facturas?fecha=gte.${desde}&fecha=lte.${hasta}&select=ret_iva_bs,ret_islr_bs,base_bs,iva_bs`);
+// Retenciones acumuladas del período. LA CIFRA OFICIAL ESTÁ EN BOLÍVARES (`seniat_retenciones`):
+// al SENIAT se le deben Bs exactos, el $ no es la obligación. Se lee la tabla cerrada; si por lo
+// que sea no hubiera fila, se cae a sumar las facturas del rango (mismo dato, calculado al vuelo).
+async function retencionesDe(periodoKey: string, desde: string, hasta: string) {
+  const r = await sel(`seniat_retenciones?periodo=eq.${encodeURIComponent(periodoKey)}&select=*`);
+  if (r.length) {
+    const x = r[0];
+    return { iva: Number(x.ret_iva_bs || 0), islr: Number(x.ret_islr_bs || 0), n: Number(x.facturas || 0), estado: String(x.estado || "pendiente") };
+  }
+  const fs = await sel(`cxp_facturas?fecha=gte.${desde}&fecha=lte.${hasta}&select=ret_iva_bs,ret_islr_bs`);
   let iva = 0, islr = 0, n = 0;
   for (const f of fs) { iva += Number(f.ret_iva_bs || 0); islr += Number(f.ret_islr_bs || 0); n++; }
-  return { iva, islr, n };
+  return { iva, islr, n, estado: "pendiente" };
 }
 
 // Del texto del período ("1ra quincena julio 2026") saca el rango de fechas a sumar.
 const MESES: Record<string, number> = { enero:1, febrero:2, marzo:3, abril:4, mayo:5, junio:6, julio:7, agosto:8, septiembre:9, octubre:10, noviembre:11, diciembre:12 };
-function rangoDePeriodo(periodo: string): { desde: string; hasta: string } | null {
+function rangoDePeriodo(periodo: string): { desde: string; hasta: string; key: string } | null {
   const p = periodo.toLowerCase();
   const mes = Object.keys(MESES).find((m) => p.includes(m));
   const anio = (p.match(/20\d\d/) || [])[0];
   if (!mes || !anio) return null;
   const mm = String(MESES[mes]).padStart(2, "0");
   const ultimo = new Date(Number(anio), MESES[mes], 0).getDate();
-  if (p.includes("1ra quincena")) return { desde: `${anio}-${mm}-01`, hasta: `${anio}-${mm}-15` };
-  if (p.includes("2da quincena")) return { desde: `${anio}-${mm}-16`, hasta: `${anio}-${mm}-${ultimo}` };
-  return { desde: `${anio}-${mm}-01`, hasta: `${anio}-${mm}-${ultimo}` };
+  if (p.includes("1ra quincena")) return { desde: `${anio}-${mm}-01`, hasta: `${anio}-${mm}-15`, key: `${anio}-${mm}-Q1` };
+  if (p.includes("2da quincena")) return { desde: `${anio}-${mm}-16`, hasta: `${anio}-${mm}-${ultimo}`, key: `${anio}-${mm}-Q2` };
+  return { desde: `${anio}-${mm}-01`, hasta: `${anio}-${mm}-${ultimo}`, key: `${anio}-${mm}` };
 }
 
 Deno.serve(async (_req: Request) => {
@@ -109,11 +116,13 @@ Deno.serve(async (_req: Request) => {
       let extra = "";
       const rango = rangoDePeriodo(String(o.periodo || ""));
       if (rango && String(o.obligacion).startsWith("IVA")) {
-        const r = await retencionesDe(rango.desde, rango.hasta);
+        const r = await retencionesDe(rango.key, rango.desde, rango.hasta);
         if (r.n > 0) {
-          extra = `\n\n💰 Retenciones acumuladas del período (${r.n} factura(s)):` +
+          // SIEMPRE en bolívares: es la cifra que se declara y se entera al SENIAT.
+          extra = `\n\n💰 Retenciones a enterar del período (${r.n} factura(s)):` +
             `\n• IVA retenido: Bs ${bs2(r.iva)}` +
             (r.islr > 0 ? `\n• ISLR retenido: Bs ${bs2(r.islr)}` : "") +
+            `\n• TOTAL: Bs ${bs2(r.iva + r.islr)}` +
             `\nEsa plata NO es de la empresa: se le debe al SENIAT.`;
         } else {
           extra = `\n\nℹ️ No hay facturas cargadas en el sistema para ese período.`;

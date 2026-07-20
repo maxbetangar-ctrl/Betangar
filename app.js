@@ -2843,18 +2843,54 @@ async function renderFiscalBanner(){
       '<button class="btn btn-g btn-sm" style="font-size:10px;padding:5px 9px;white-space:nowrap" onclick="marcarDeclarado('+o.id+')">✅ Declarada</button>'+
     '</div>';
   }).join('');
+  // Retenciones acumuladas SIN declarar. Se muestran en BOLÍVARES: es la cifra que se declara y
+  // se paga (el $ es solo referencia, no es la obligación).
+  var ret='';
+  try{
+    var rr=await supabase.from('seniat_retenciones').select('*').neq('estado','pagada').order('periodo',{ascending:true});
+    if(rr&&rr.data&&rr.data.length){
+      var totBs=rr.data.reduce(function(s,x){return s+(parseFloat(x.total_bs)||0);},0);
+      ret='<div style="margin-top:8px;padding-top:8px;border-top:1px dashed var(--border)">'+
+        '<div style="font-size:11px;color:var(--text3);margin-bottom:3px">💰 Retenciones acumuladas por enterar (esta plata es del SENIAT):</div>'+
+        rr.data.map(function(x){
+          return '<div style="display:flex;justify-content:space-between;font-size:11px;padding:2px 0">'+
+            '<span style="color:var(--text2)">'+String(x.etiqueta).replace(/</g,'&lt;')+' · '+x.facturas+' factura(s)</span>'+
+            '<b style="font-family:var(--m)">Bs '+_bs2(x.total_bs)+'</b></div>';
+        }).join('')+
+        (rr.data.length>1?'<div style="display:flex;justify-content:space-between;font-size:12px;padding-top:4px;border-top:1px solid var(--border);margin-top:3px"><b>TOTAL</b><b style="font-family:var(--m);color:#ef4444">Bs '+_bs2(totBs)+'</b></div>':'')+
+      '</div>';
+    }
+  }catch(e){}
   el.innerHTML='<div style="background:rgba(239,68,68,.08);border:1px solid '+col+';border-radius:10px;padding:10px 14px">'+
     '<div style="font-size:13px;font-weight:800;color:'+col+';margin-bottom:6px">🏛️ SENIAT — Declaraciones pendientes'+
     (venc?' · <span style="color:#ef4444">'+venc+' VENCIDA(S)</span>':'')+'</div>'+
-    filas+'</div>';
+    filas+ret+'</div>';
   el.style.display='block';
 }
 function _fmtFecha(f){var p=String(f).slice(0,10).split('-');return p[2]+'/'+p[1]+'/'+p[0];}
+// "1ra quincena julio 2026" → "2026-07-Q1" (clave de seniat_retenciones)
+function _periodoAQuincena(txt){
+  var MES={enero:1,febrero:2,marzo:3,abril:4,mayo:5,junio:6,julio:7,agosto:8,septiembre:9,octubre:10,noviembre:11,diciembre:12};
+  var t=String(txt||'').toLowerCase();
+  var m=Object.keys(MES).filter(function(k){return t.indexOf(k)>=0;})[0];
+  var a=(t.match(/20\d\d/)||[])[0];
+  if(!m||!a)return '';
+  var q=(t.indexOf('1ra quincena')>=0)?'Q1':(t.indexOf('2da quincena')>=0)?'Q2':'';
+  if(!q)return '';
+  return a+'-'+String(MES[m]).padStart(2,'0')+'-'+q;
+}
 async function marcarDeclarado(id){
   var o=FISCAL_PEND.filter(function(x){return String(x.id)===String(id);})[0]; if(!o)return;
   if(!confirm('¿Confirmás que YA se declaró?\n\n'+o.etiqueta+'\nPeríodo: '+o.periodo+'\nFecha límite: '+_fmtFecha(o.fecha_declarar)+'\n\nDeja de avisar por WhatsApp y sale del tablero.'))return;
-  var res=await supabase.from('calendario_fiscal').update({declarado:true,fecha_declarada:(typeof fechaVE==='function')?fechaVE():new Date().toISOString().slice(0,10)}).eq('id',id).select();
+  var hoyD=(typeof fechaVE==='function')?fechaVE():new Date().toISOString().slice(0,10);
+  var res=await supabase.from('calendario_fiscal').update({declarado:true,fecha_declarada:hoyD}).eq('id',id).select();
   if(res.error){mostrarToast('No se pudo marcar: '+res.error.message,'error');return;}
+  // Si era una declaración de IVA, la retención de ESA quincena queda declarada también:
+  // son el mismo acto, no dos tareas separadas.
+  if(String(o.obligacion||'').indexOf('IVA')===0){
+    var q=_periodoAQuincena(o.periodo);
+    if(q){ try{ await supabase.from('seniat_retenciones').update({estado:'declarada',fecha_declarada:hoyD}).eq('periodo',q).neq('estado','pagada'); }catch(e){} }
+  }
   try{ audit('Declaración SENIAT',o.etiqueta+' · '+o.periodo+' marcada como declarada'); }catch(e){}
   mostrarToast('✅ Declaración registrada','exito');
   renderFiscalBanner();
@@ -8082,38 +8118,38 @@ function _etiquetaQuincena(q){
   var p=String(q).split('-'); var m=parseInt(p[1],10)||1;
   return (p[2]==='Q1'?'1ra':'2da')+' quincena '+MES[m-1]+' '+p[0];
 }
-// Rehace la cuenta del SENIAT de la quincena a la que pertenece esa factura, sumando TODAS las
-// retenciones de esa quincena. Idempotente: si se borra una factura, la cuenta baja sola.
-async function _sincronizarCxpSeniat(fechaFactura){
-  var q=_quincenaDe(fechaFactura); if(!q)return;
+// Rehace la retención acumulada de la quincena a la que pertenece esa factura.
+// ⚠️ LA CIFRA OFICIAL ES EN BOLÍVARES (regla de Máximo 2026-07-20: "las retenciones del SENIAT se
+// cierran y guardan en bolívares, no en dólares"). Al SENIAT se le deben Bs EXACTOS: si la deuda
+// viviera en $, al moverse la tasa la obligación cambiaría sola, que es falso. Por eso NO va en
+// `cxp` (esa tabla es toda en $ y es de PROVEEDORES) sino en `seniat_retenciones`.
+// El $ que se guarda es SOLO referencia, cada factura a su propia tasa.
+// Idempotente: si se borra una factura, el acumulado baja solo.
+async function _sincronizarRetencionesSeniat(fechaFactura){
+  var q=_quincenaDe(fechaFactura); if(!q||!DB_READY||!supabase)return;
   var facs=CXP_FACTURAS.filter(function(f){return _quincenaDe(f.fecha)===q;});
-  var retBs=0, retUsd=0, tasa=0;
+  var retIva=0, retIslr=0, usdRef=0;
   facs.forEach(function(f){
-    var r=(parseFloat(f.ret_iva_bs)||0)+(parseFloat(f.ret_islr_bs)||0);
-    retBs+=r;
+    var ri=parseFloat(f.ret_iva_bs)||0, rs=parseFloat(f.ret_islr_bs)||0;
+    retIva+=ri; retIslr+=rs;
     var t=parseFloat(f.tasa_val)||0;
-    if(t>0){ retUsd+=r/t; tasa=t; }   // cada factura a SU tasa
+    if(t>0)usdRef+=(ri+rs)/t;          // cada factura a SU tasa
   });
-  var id='CXP-SENIAT-'+q;
-  var c=CXP.find(function(x){return String(x.id)===id;});
-  if(retBs<=0.005){ // ya no queda retención en la quincena (se borraron las facturas)
-    if(c&&DB_READY&&supabase){ await supabase.from('cxp').delete().eq('id',id); CXP=CXP.filter(function(x){return String(x.id)!==id;}); }
-    return;
-  }
+  var totalBs=retIva+retIslr;
+  if(totalBs<=0.005){ await supabase.from('seniat_retenciones').delete().eq('periodo',q); return; }
+  var p=q.split('-'), anio=+p[0], mes=+p[1], q1=(p[2]==='Q1');
+  var pad=function(n){return String(n).padStart(2,'0');};
+  var ultimo=new Date(anio,mes,0).getDate();
   var row={
-    id:id, prov_nombre:'SENIAT — Retenciones', prov:'SENIAT — Retenciones',
-    descripcion:'Retenciones de IVA/ISLR · '+_etiquetaQuincena(q)+' (se declara según calendario fiscal)',
-    fecha:(typeof fechaVE==='function')?fechaVE():new Date().toISOString().slice(0,10),
-    base_usd:+retUsd.toFixed(2), iva_pct:0, iva_usd:0, total_usd:+retUsd.toFixed(2),
-    ret_iva_usd:0, ret_islr_usd:0, neto_pagar:+retUsd.toFixed(2),
-    tasa_val:tasa||null, estado:(c&&c.estado==='pagada')?'pagada':'pendiente'
+    periodo:q, etiqueta:_etiquetaQuincena(q),
+    desde:anio+'-'+pad(mes)+'-'+(q1?'01':'16'),
+    hasta:anio+'-'+pad(mes)+'-'+(q1?'15':pad(ultimo)),
+    ret_iva_bs:+retIva.toFixed(2), ret_islr_bs:+retIslr.toFixed(2), total_bs:+totalBs.toFixed(2),
+    facturas:facs.length, usd_referencia:+usdRef.toFixed(2), updated_at:new Date().toISOString()
   };
-  if(c){ Object.keys(row).forEach(function(k){c[k]=row[k];}); }
-  else { CXP.push(row); }
-  if(DB_READY&&supabase){
-    var r=await supabase.from('cxp').upsert([row],{onConflict:'id'});
-    if(r.error)console.warn('cxp SENIAT:',r.error.message);
-  }
+  // upsert por período: NO pisa el estado (si ya se declaró/pagó, sigue así).
+  var r=await supabase.from('seniat_retenciones').upsert([row],{onConflict:'periodo'});
+  if(r.error)console.warn('seniat_retenciones:',r.error.message);
 }
 
 // ── LA FACTURA MANDA ────────────────────────────────────────────────────────────────────────
@@ -8580,7 +8616,7 @@ function guardarFactura(){
     // costaba la base sin IVA (Utilidad Real inflada) y el pago no cuadraba con el banco.
     _aplicarFacturasACxp(c);
     // La retención va a la cuenta del SENIAT de esa quincena (una sola, acumulada).
-    try{ _sincronizarCxpSeniat(row.fecha); }catch(e){console.warn('cxp SENIAT',e&&e.message);}
+    try{ _sincronizarRetencionesSeniat(row.fecha); }catch(e){console.warn('cxp SENIAT',e&&e.message);}
     audit('Factura Bs cargada',(row.prov_nombre)+' '+row.nro_factura+' Bs'+v.base.toFixed(2));
     var toastMsg='🧾 Factura guardada · Ret. IVA Bs '+_bs2(v.retIva)+(v.retIslr?' · Ret. ISLR Bs '+_bs2(v.retIslr):'');
     var limpiar=function(){
@@ -8688,7 +8724,7 @@ function borrarFactura(id){
     // base sin IVA. Si no se revirtiera, la deuda quedaría con el IVA de una factura borrada.
     var _c=CXP.find(function(x){return String(x.id)===String(f.cxp_id);});
     // La cuenta del SENIAT baja sola: se recalcula sumando lo que queda en la quincena.
-    try{ _sincronizarCxpSeniat(f.fecha); }catch(e){console.warn('cxp SENIAT',e&&e.message);}
+    try{ _sincronizarRetencionesSeniat(f.fecha); }catch(e){console.warn('cxp SENIAT',e&&e.message);}
     _aplicarFacturasACxp(_c,function(){ renderRetenciones(); renderCXP(); if(typeof renderHistProv==='function')renderHistProv(); });
     renderRetenciones(); renderCXP();
     if(typeof mostrarToast==='function')mostrarToast('🗑️ Factura borrada','exito');
