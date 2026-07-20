@@ -6644,12 +6644,68 @@ function _hvPrefillKm(){
   var km=(typeof kmActualCam==='function')?kmActualCam(cam):((KM_DATA[cam]&&KM_DATA[cam].km)||0);
   if(h)h.textContent=km>0?('referencia — km actual del chofer: '+km.toLocaleString()+'. Poné el km que tenía al hacerse este trabajo.'):'poné el km que tenía la unidad al hacerse este trabajo';
 }
-function subirFotoHV(input){
+// ══════════════════════════════════════════════════════════════════════════════
+// IMÁGENES DE OFICINA — punto único: COMPRIMIR siempre y guardar la foto en Storage.
+//
+// Antes, la foto del empleado, la del mantenimiento y la de la unidad se guardaban
+// CRUDAS en base64 dentro de la fila (hasta 500 KB, 2 MB y 2 MB). Hoy hay 4,75 MB
+// de fotos de empleados viajando en CADA carga de la oficina. Una foto de celular
+// moderno son 3-8 MB: sin comprimir, el problema es cuestión de tiempo.
+// ══════════════════════════════════════════════════════════════════════════════
+function comprimirImagen(file, maxW, calidad){
+  return new Promise(function(resolve,reject){
+    try{
+      var rd=new FileReader();
+      rd.onload=function(e){
+        var img=new Image();
+        img.onload=function(){
+          try{
+            var esc=Math.min(1,(maxW||640)/(img.width||maxW||640));
+            var cv=document.createElement('canvas');
+            cv.width=Math.round((img.width||maxW)*esc); cv.height=Math.round((img.height||maxW)*esc);
+            cv.getContext('2d').drawImage(img,0,0,cv.width,cv.height);
+            resolve(cv.toDataURL('image/jpeg',calidad||0.7));
+          }catch(err){ resolve(e.target.result); }
+        };
+        img.onerror=function(){ resolve(e.target.result); };
+        img.src=e.target.result;
+      };
+      rd.onerror=function(){ reject(new Error('No se pudo leer el archivo')); };
+      rd.readAsDataURL(file);
+    }catch(err){ reject(err); }
+  });
+}
+async function subirImagenSegura(dataURL, bucket, ruta){
+  if(!dataURL) return '';
+  if(!(DB_READY&&supabase)) return '';
+  for(var i=0;i<3;i++){
+    try{
+      var bin=atob(String(dataURL).split(',')[1]||'');
+      var buf=new Uint8Array(bin.length); for(var j=0;j<bin.length;j++)buf[j]=bin.charCodeAt(j);
+      var up=await supabase.storage.from(bucket).upload(ruta,new Blob([buf],{type:'image/jpeg'}),{contentType:'image/jpeg',upsert:true});
+      if(!up.error) return supabase.storage.from(bucket).getPublicUrl(ruta).data.publicUrl;
+    }catch(e){}
+    if(i<2) await new Promise(function(s){setTimeout(s,1000*(i+1));});
+  }
+  return '';
+}
+function _rutaImg(carpeta, id){
+  var d=new Date(), y=d.getFullYear(), m=String(d.getMonth()+1).padStart(2,'0');
+  var t=Math.random().toString(36).slice(2)+Date.now().toString(36);
+  return carpeta+'/'+y+'/'+m+'/'+String(id||'x').replace(/[^\w-]/g,'_')+'-'+t+'.jpg';
+}
+
+async function subirFotoHV(input){
   var f=input&&input.files&&input.files[0]; if(!f)return;
-  if(f.size>2*1024*1024){alert('La foto es muy grande (máx 2MB).');input.value='';return;}
-  var rd=new FileReader();
-  rd.onload=function(e){ window._hvFotoUrl=e.target.result; var p=g('hv-foto-prev'); if(p)p.innerHTML='<img src="'+e.target.result+'" style="width:56px;height:56px;object-fit:cover;border-radius:6px;border:1px solid var(--border)">'; };
-  rd.readAsDataURL(f);
+  if(f.size>8*1024*1024){alert('La foto es muy grande (máx 8MB).');input.value='';return;}
+  var p=g('hv-foto-prev'); if(p)p.innerHTML='<span style="font-size:11px;color:var(--text3)">Subiendo…</span>';
+  try{
+    var dataURL=await comprimirImagen(f,1024,0.7);
+    var url=await subirImagenSegura(dataURL,'asistencia',_rutaImg('mantenimientos',gv('hv-cam')));
+    if(!url){ window._hvFotoUrl=''; if(p)p.innerHTML='<span style="font-size:11px;color:var(--yellow)">No se pudo subir la foto — el registro se guarda igual</span>'; return; }
+    window._hvFotoUrl=url;
+    if(p)p.innerHTML='<img src="'+_mEsc(url)+'" style="width:56px;height:56px;object-fit:cover;border-radius:6px;border:1px solid var(--border)">';
+  }catch(e){ window._hvFotoUrl=''; if(p)p.innerHTML='<span style="font-size:11px;color:var(--yellow)">No se pudo procesar la foto</span>'; }
 }
 async function registrarMantItem(){
   var cam=gv('hv-cam'), itemId=gv('hv-item'), fecha=gv('hv-fecha')||fechaVE(), km=parseInt(gv('hv-km'))||0;
@@ -6930,7 +6986,18 @@ async function abrirEditarUnidad(cam){
     '<div style="display:flex;gap:8px;margin-top:6px"><button class="btn btn-g" style="flex:1" onclick="guardarUnidad()">'+(nueva?'Crear unidad':'Guardar ficha')+'</button>'+(nueva?'':'<button class="btn btn-s" onclick="imprimirFichaUnidad(\''+_mEsc(cam)+'\')">🖨️ Imprimir</button>')+'</div>';
   openModal((nueva?'Nueva unidad':'Ficha — '+cam),html);
 }
-function subirFotoUnidad(input){var f=input&&input.files&&input.files[0];if(!f)return;if(f.size>2*1024*1024){alert('La foto es muy grande (máx 2MB).');input.value='';return;}var rd=new FileReader();rd.onload=function(e){window._unidadFoto=e.target.result;var p=g('u-foto-prev');if(p)p.innerHTML='<img src="'+e.target.result+'" style="width:64px;height:64px;object-fit:cover;border-radius:6px;border:1px solid var(--border)">';};rd.readAsDataURL(f);}
+async function subirFotoUnidad(input){
+  var f=input&&input.files&&input.files[0]; if(!f)return;
+  if(f.size>10*1024*1024){alert('La foto es muy grande (máx 10MB).');input.value='';return;}
+  var p=g('u-foto-prev'); if(p)p.innerHTML='<span style="font-size:11px;color:var(--text3)">Subiendo…</span>';
+  try{
+    var dataURL=await comprimirImagen(f,800,0.7);
+    var url=await subirImagenSegura(dataURL,'asistencia',_rutaImg('unidades',gv('u-cam')));
+    window._unidadFoto = url || dataURL;   // comprimida (~50 KB), no los 2 MB crudos de antes
+    if(p)p.innerHTML='<img src="'+_mEsc(window._unidadFoto)+'" style="width:64px;height:64px;object-fit:cover;border-radius:6px;border:1px solid var(--border)">';
+    if(!url && typeof mostrarToast==='function')mostrarToast('La foto no se pudo subir al servidor; queda en el registro','error');
+  }catch(e){ if(typeof mostrarToast==='function')mostrarToast('No se pudo procesar la foto','error'); }
+}
 function subirTituloUnidad(input){var f=input&&input.files&&input.files[0];if(!f)return;if(f.size>4*1024*1024){alert('El PDF es muy grande (máx 4MB).');input.value='';return;}var rd=new FileReader();rd.onload=function(e){window._unidadPdf=e.target.result;var p=g('u-pdf-prev');if(p)p.innerHTML='<span style="color:var(--green)">📄 título listo para guardar</span>';};rd.readAsDataURL(f);}
 async function guardarUnidad(){
   var cam=(gv('u-cam')||'').trim();
@@ -10525,17 +10592,24 @@ function cargarEmp(id){
 
 function toggleTipoAy(cargo){var fw=g('fg-tipoAy');if(fw)fw.style.display=cargo==='Ayudante'?'block':'none';var mc=g('fg-multicargo');if(mc)mc.style.display=(cargo==='Chofer'||cargo==='Ayudante')?'block':'none';}
 
-function previewFoto(input){
+async function previewFoto(input){
   var file=input.files[0];if(!file)return;
-  if(file.size>512000){alert('Foto demasiado grande. Max 500KB');return;}
-  var reader=new FileReader();
-  reader.onload=function(e){
-    var b64=e.target.result;
-    sv('ne-foto-b64',b64);
-    var preview=g('ne-foto-preview');
-    if(preview)preview.innerHTML='<img src="'+b64+'" style="width:100%;height:100%;object-fit:cover">';
-  };
-  reader.readAsDataURL(file);
+  // Ya no se rechaza por tamaño: se COMPRIME. Antes exigía <500 KB (una foto de celular
+  // son 3-8 MB, o sea que no se podía usar la cámara) y encima guardaba el base64 crudo
+  // en la fila del empleado: hoy son 4,75 MB que viajan en cada carga de la oficina.
+  if(file.size>10*1024*1024){alert('La foto es muy grande (máx 10MB).');input.value='';return;}
+  var preview=g('ne-foto-preview');
+  if(preview)preview.innerHTML='<span style="font-size:11px;color:var(--text3)">Subiendo…</span>';
+  try{
+    var dataURL=await comprimirImagen(file,640,0.7);            // carnet/listado: 640 px sobra (~40 KB)
+    if(preview)preview.innerHTML='<img src="'+dataURL+'" style="width:100%;height:100%;object-fit:cover">';
+    var url=await subirImagenSegura(dataURL,'asistencia',_rutaImg('empleados',gv('ne-id')||gv('ne-ced')));
+    if(url){ sv('ne-foto-b64',url); }
+    else{
+      sv('ne-foto-b64',dataURL);   // comprimida (~40 KB), no los 500 KB crudos de antes
+      if(typeof mostrarToast==='function')mostrarToast('La foto no se pudo subir al servidor; queda guardada en el registro','error');
+    }
+  }catch(e){ if(typeof mostrarToast==='function')mostrarToast('No se pudo procesar la foto','error'); }
 }
 
 async function guardarEmpleado(){

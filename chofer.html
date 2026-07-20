@@ -818,6 +818,7 @@ function arrancarApp(){
   cargarColaINC();
   cargarColaEnt();
   cargarColaSur();
+  cargarColaFotos();
   cargarViajesLocal();
   renderBotones();
   actualizarContador();
@@ -1215,7 +1216,9 @@ function _entregaWatermark(file, concepto, recibido){
         ctx.font = (i===0?'bold ':'')+fs+'px sans-serif';
         ctx.fillText(t, pad, h-bandH+pad+i*lh);
       });
-      try{ resolve(cv.toDataURL('image/jpeg', 0.85)); }catch(e){ reject(e); }
+      // 0.7 (antes 0.85): la foto pasa de ~280 KB a ~110 KB y el sello con fecha, GPS,
+      // unidad y chofer se sigue leyendo perfecto. Sube más rápido en la calle con 4G.
+      try{ resolve(cv.toDataURL('image/jpeg', 0.7)); }catch(e){ reject(e); }
     };
     img.onerror = function(){ reject(new Error('No se pudo leer la foto')); };
     img.src = URL.createObjectURL(file);
@@ -1255,18 +1258,9 @@ async function registrarEntrega(){
     var dataURL = await _entregaWatermark(ENT_FOTO_FILE, _entConcepto());
     var id = (cam||'X')+'-'+Date.now();
     var tok = _tokenEntrega(); // token = ruta SECRETA de la foto (64 bits, no adivinable)
-    var fotoUrl = '';
-    // Subir la foto al bucket 'entregas' (público) en una ruta con el token: solo quien tiene
-    // el token (mismo secreto que protege la fila) puede alcanzar la foto. Si falla, dataURL directo.
-    if(isOnline && supabase){
-      try{
-        var blob = _dataURLtoBlob(dataURL);
-        var path = (cam||'sin-unidad').replace(/[^\w-]/g,'_')+'/'+tok+'.jpg';
-        var up = await supabase.storage.from('entregas').upload(path, blob, { contentType:'image/jpeg', upsert:true });
-        if(!up.error){ fotoUrl = supabase.storage.from('entregas').getPublicUrl(path).data.publicUrl; }
-      }catch(e){ /* cae al dataURL */ }
-    }
-    if(!fotoUrl) fotoUrl = dataURL; // fallback: la imagen queda embebida
+    // La ruta sale del token (secreto, no adivinable): solo quien lo tiene alcanza la foto.
+    // Punto único: reintenta y, si no puede, encola la foto — nunca la mete en la fila.
+    var fotoUrl = await subirFotoSegura(dataURL, 'entrega', cam, tok);
     var now = new Date();
     var row = {
       id: id, cam: cam||'', chofer: chofer||'', cliente: cliente, direccion: direccion, tipo: ENT_TIPO,
@@ -1311,16 +1305,18 @@ async function entregaConfirmarRecepcion(){
       var recTxt = (esMant?'Verificó: ':'Recibió: ') + nombre + (ci?(' (CI '+ci+')'):'');
       var conceptoFinal = ENT_ULTIMA.cliente ? ((esMant?'🔧 ':'Entrega: ')+ENT_ULTIMA.cliente) : '';
       var dataURL2 = await _entregaWatermark(ENT_FOTO_FILE, conceptoFinal, recTxt);
-      var fotoUrl2 = '';
-      if(isOnline && supabase){
-        try{
-          var blob2 = _dataURLtoBlob(dataURL2);
-          var path2 = (ENT_ULTIMA.cam||'sin-unidad').replace(/[^\w-]/g,'_')+'/'+ENT_ULTIMA.token+'.jpg';
-          var up2 = await supabase.storage.from('entregas').upload(path2, blob2, { contentType:'image/jpeg', upsert:true });
-          if(!up2.error){ fotoUrl2 = supabase.storage.from('entregas').getPublicUrl(path2).data.publicUrl + '?t=' + Date.now(); }
-        }catch(e){}
-      }
-      if(!fotoUrl2) fotoUrl2 = dataURL2; // fallback embebido
+      // Re-sello: tiene que pisar la MISMA ruta de la foto original. Se saca de la URL ya
+      // guardada, así sirve igual para las entregas viejas (<unidad>/<token>.jpg) que para
+      // las nuevas (<año>/<mes>/<unidad>/<token>.jpg).
+      var path2='';
+      try{
+        var _u=String(ENT_ULTIMA.foto_url||'');
+        var _i=_u.indexOf('/entregas/');
+        if(_i>=0) path2=_u.slice(_i+10).split('?')[0];
+      }catch(e){}
+      if(!path2) path2=_rutaFoto('entrega', ENT_ULTIMA.cam, ENT_ULTIMA.token);
+      var fotoUrl2 = await subirFotoSegura(dataURL2, 'entrega', ENT_ULTIMA.cam, ENT_ULTIMA.token, path2);
+      if(fotoUrl2) fotoUrl2 += '?t=' + Date.now();   // romper la caché del navegador
       patch.foto_url = fotoUrl2; ENT_ULTIMA.foto_url = fotoUrl2;
     }catch(e){}
   }
@@ -1373,6 +1369,70 @@ var COLA_SUR=[];
 function cargarColaSur(){ try{ var s=localStorage.getItem('btg_cola_sur'); if(s) COLA_SUR=JSON.parse(s)||[]; }catch(e){ COLA_SUR=[]; } }
 function persistColaSur(){ try{ if(COLA_SUR.length) localStorage.setItem('btg_cola_sur',JSON.stringify(COLA_SUR)); else localStorage.removeItem('btg_cola_sur'); }catch(e){} }
 function surEncolar(row){ COLA_SUR=COLA_SUR.filter(function(r){return r.id!==row.id;}); COLA_SUR.push(row); persistColaSur(); }
+
+// ══════════════════════════════════════════════════════════════════════════════
+// SUBIDA DE FOTOS — punto ÚNICO. Antes, si el upload fallaba, la foto se guardaba
+// en base64 DENTRO de la fila. En la app hermana (FLOTILLA) eso llegó a 93 MB en
+// `entregas` y las consultas se caían en el teléfono dejando pantallas vacías sin
+// ningún error. Acá el piloto ya tenía 2 de 7 subidas caídas al mismo fallback.
+//
+// Clave: la ruta se deriva del token, así que la URL final se conoce ANTES de subir.
+// La fila guarda SIEMPRE esa URL; si el upload falla, la foto queda en una cola
+// local y se sube después a ESA MISMA ruta. No hay que corregir la fila.
+// ══════════════════════════════════════════════════════════════════════════════
+var COLA_FOTOS = [];
+var FOTOS_MAX_COLA = 25;   // el localStorage del teléfono no es infinito
+function cargarColaFotos(){ try{ var s=localStorage.getItem('btg_cola_fotos'); if(s)COLA_FOTOS=JSON.parse(s); }catch(e){ COLA_FOTOS=[]; } }
+function persistColaFotos(){
+  try{
+    while(COLA_FOTOS.length>FOTOS_MAX_COLA) COLA_FOTOS.shift();
+    if(COLA_FOTOS.length) localStorage.setItem('btg_cola_fotos',JSON.stringify(COLA_FOTOS));
+    else localStorage.removeItem('btg_cola_fotos');
+  }catch(e){
+    try{ COLA_FOTOS=COLA_FOTOS.slice(Math.floor(COLA_FOTOS.length/2)); localStorage.setItem('btg_cola_fotos',JSON.stringify(COLA_FOTOS)); }catch(_){}
+  }
+}
+function _rutaFoto(tipo, cam, token){
+  // Año/mes en la ruta: permite aplicar retención barriendo carpetas, sin consultar la base.
+  var d=new Date(), y=d.getFullYear(), m=String(d.getMonth()+1).padStart(2,'0');
+  var u=(cam||'sin-unidad').replace(/[^\w-]/g,'_');
+  return (tipo==='surtida'?'surtidas/':'')+y+'/'+m+'/'+u+'/'+token+'.jpg';
+}
+function _urlPublica(path){
+  try{ return supabase.storage.from('entregas').getPublicUrl(path).data.publicUrl; }
+  catch(e){ return SUPA_URL+'/storage/v1/object/public/entregas/'+path; }
+}
+// Devuelve SIEMPRE la URL final. Sube con reintentos; si no puede, encola la foto.
+async function subirFotoSegura(dataURL, tipo, cam, token, rutaFija){
+  if(!dataURL) return '';
+  var path=rutaFija||_rutaFoto(tipo,cam,token), url=_urlPublica(path);
+  var subida=false;
+  if(isOnline && supabase){
+    for(var i=0;i<3 && !subida;i++){
+      try{
+        var up=await supabase.storage.from('entregas').upload(path,_dataURLtoBlob(dataURL),{contentType:'image/jpeg',upsert:true});
+        if(!up.error) subida=true;
+      }catch(e){}
+      if(!subida && i<2) await new Promise(function(s){ setTimeout(s,1200*(i+1)); });
+    }
+  }
+  if(!subida){ COLA_FOTOS.push({path:path,data:dataURL,t:Date.now()}); persistColaFotos(); }
+  return url;
+}
+async function procesarColaFotos(){
+  if(!COLA_FOTOS.length || !isOnline || !supabase) return;
+  var pend=COLA_FOTOS.slice(); COLA_FOTOS=[]; persistColaFotos();
+  var quedan=[];
+  for(var i=0;i<pend.length;i++){
+    try{
+      var up=await supabase.storage.from('entregas').upload(pend[i].path,_dataURLtoBlob(pend[i].data),{contentType:'image/jpeg',upsert:true});
+      if(up.error) quedan.push(pend[i]);
+    }catch(e){ quedan.push(pend[i]); }
+  }
+  COLA_FOTOS=quedan; persistColaFotos();
+  if(pend.length>quedan.length && typeof mostrarToast==='function')
+    mostrarToast('📷 '+(pend.length-quedan.length)+' foto(s) que faltaban ya se subieron','exito');
+}
 async function subirColaSurtidas(){
   if(!(isOnline && supabase) || !COLA_SUR.length) return;
   var pend=COLA_SUR.slice(); COLA_SUR=[];
@@ -1432,16 +1492,7 @@ async function surGuardar(){
   try{
     var tok=Math.random().toString(36).slice(2)+Date.now().toString(36);
     var dataURL=await _surCompress(SUR_FOTO_FILE);
-    var fotoUrl='';
-    if(isOnline && supabase && dataURL){
-      try{
-        var blob=_dataURLtoBlob(dataURL);
-        var path='surtidas/'+((cam||'sin-unidad').replace(/[^\w-]/g,'_'))+'/'+tok+'.jpg';
-        var up=await supabase.storage.from('entregas').upload(path,blob,{ contentType:'image/jpeg', upsert:true });
-        if(!up.error){ fotoUrl=supabase.storage.from('entregas').getPublicUrl(path).data.publicUrl; }
-      }catch(e){ /* cae al dataURL */ }
-    }
-    if(!fotoUrl) fotoUrl=dataURL;
+    var fotoUrl=await subirFotoSegura(dataURL, 'surtida', cam, tok);   // nunca base64 en la fila
     var now=new Date(), p2=function(n){return String(n).padStart(2,'0');};
     var row={
       id:(cam||'X')+'-S-'+Date.now(), fecha:hoy, hora:p2(now.getHours())+':'+p2(now.getMinutes()),
@@ -1714,6 +1765,8 @@ function agregarChecklistCola(reg){
 function sincronizarCola(){
   if(!supabase) return;
 
+  // ── Fotos que no pudieron subir: van PRIMERO, porque las filas ya apuntan a esas rutas ──
+  try{ procesarColaFotos(); }catch(e){}
   // ── Entregas ──
   try{ subirColaEntregas(); }catch(e){}
   try{ subirColaSurtidas(); }catch(e){}

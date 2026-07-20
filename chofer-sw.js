@@ -3,7 +3,7 @@
 // PWA Offline-First para choferes
 // ═══════════════════════════════════════════════════
 
-const CACHE_NAME = 'betangar-chofer-v34'; // v34: entregas — guardar SIN GPS ya no revienta + mensaje que dice qué tocar si la ubicación está bloqueada // v33: quitado ítem "Repuesto" del checklist (no se lleva caucho de repuesto en vía) // v31: + módulo Surtir combustible (por surtida) // v29: huecos chofer — incidencia offline no se pierde (COLA_INC), checklist en cola se fusiona, fecha 'hoy' se recalcula al amanecer
+const CACHE_NAME = 'betangar-chofer-v35'; // v35: fotos nunca en base64 dentro de la fila (cola local + reintentos) + compresión 0.7 // // v34: entregas — guardar SIN GPS ya no revienta + mensaje que dice qué tocar si la ubicación está bloqueada // v33: quitado ítem "Repuesto" del checklist (no se lleva caucho de repuesto en vía) // v31: + módulo Surtir combustible (por surtida) // v29: huecos chofer — incidencia offline no se pierde (COLA_INC), checklist en cola se fusiona, fecha 'hoy' se recalcula al amanecer
 
 
 // Credenciales anon (públicas, ya expuestas en chofer.html) para que el SW pueda subir

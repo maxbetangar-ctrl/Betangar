@@ -62,7 +62,11 @@ Deno.serve(async (req) => {
         method: 'POST', headers: { 'Content-Type': 'application/json', 'Token': cfg.token }, body: JSON.stringify(body),
       });
       if (r.ok || r.status === 201) {
-        await sb.from('cola_mensajes').update({ estado: 'enviado', enviado_at: new Date().toISOString() }).eq('id', m.id);
+        // error:null — al salir bien se BORRA el error del intento fallido anterior. Si no, un
+        // mensaje que se reintentó y llegó queda "enviado" pero mostrando un error viejo, y quien
+        // lo mire va a creer que no salió (pasó el 2026-07-20 con un 502: llegó en el reintento
+        // pero el registro parecía fallido).
+        await sb.from('cola_mensajes').update({ estado: 'enviado', enviado_at: new Date().toISOString(), error: null }).eq('id', m.id);
         sent++;
       } else {
         const t = await r.text();
