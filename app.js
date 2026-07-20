@@ -3011,7 +3011,7 @@ function _totalEgresos(totalCob){
   var eg75=totalCob*0.075;                                                                 // 7.5% Betangar
   var egFijos=(typeof GASTOS_FIJOS!=='undefined'?GASTOS_FIJOS:[]).reduce(function(s,gf){return s+(gf.monto||0);},0);
   var egVars=(typeof GASTOS_VARIABLES!=='undefined'?GASTOS_VARIABLES:[]).reduce(function(s,gv){return s+(gv.usd||0);},0);
-  var egCxP=(typeof CXP!=='undefined'?CXP:[]).filter(function(c){return !_esCxpCombustible(c);}).reduce(function(s,c){return s+(parseFloat(c.neto_pagar||c.netoPagar||c.total_usd||0)||0);},0); // TODAS menos las de combustible (ya en egGas)
+  var egCxP=(typeof CXP!=='undefined'?CXP:[]).filter(function(c){return !_esCxpCombustible(c);}).reduce(function(s,c){return s+_cxpCostoUsd(c);},0); // TODAS menos las de combustible (ya en egGas)
   // Multas que paga la EMPRESA, en USD. _multaMontoUsd soporta divisa (USD/EUR) y legacy Bs;
   // si no hay tasa real para una multa en Bs/EUR, devuelve 0 (no inventa) — ver helper.
   var egMul=(typeof MULTAS!=='undefined'?MULTAS:[]).filter(function(m){return m.resp!=='chofer';}).reduce(function(s,m){return s+_multaMontoUsd(m);},0);
@@ -7962,8 +7962,74 @@ async function testBNC(){
 // ── CxP 2 libros: deuda ($) en cxp; facturas+retenciones (Bs) en cxp_facturas; abonos dual en cxp_pagos ──
 var CXP_FACTURAS=[], CXP_PAGOS=[];
 function _cxpAbonadoUsd(id){return CXP_PAGOS.filter(function(p){return String(p.cxp_id)===String(id);}).reduce(function(s,p){return s+(parseFloat(p.monto_usd)||0);},0);}
-function _cxpSaldoUsd(c){var deuda=parseFloat(c.base_usd||c.baseUsd||0)||0;return deuda-_cxpAbonadoUsd(c.id);}
+// LO QUE SE LE DEBE AL PROVEEDOR = el NETO (base+IVA−retenciones), no la base.
+// Antes medía contra base_usd: con IVA 16% y retención 75%, el saldo nunca cuadraba con lo que
+// realmente sale del banco (caso Solquiven: base $41,01 vs neto real $42,63).
+function _cxpDeudaUsd(c){
+  var neto=parseFloat(c.neto_pagar||c.netoPagar||0)||0; if(neto>0)return neto;
+  var tot=parseFloat(c.total_usd||c.totalUsd||0)||0; if(tot>0)return tot;
+  return parseFloat(c.base_usd||c.baseUsd||0)||0;
+}
+function _cxpSaldoUsd(c){return _cxpDeudaUsd(c)-_cxpAbonadoUsd(c.id);}
+// COSTO REAL de la compra para la empresa = base + IVA (el total facturado). Es lo que debe
+// entrar como GASTO en la Utilidad Real. OJO: NO es el neto: la retención de IVA es plata que
+// igual sale de la empresa, solo que va al SENIAT en vez de al proveedor.
+// Antes los egresos leían `neto_pagar||total_usd` y, como la deuda nacía sin IVA, el gasto se
+// contaba de menos → Utilidad Real inflada ~16% de cada compra facturada.
+function _cxpCostoUsd(c){
+  var tot=parseFloat(c.total_usd||c.totalUsd||0)||0; if(tot>0)return tot;
+  var neto=parseFloat(c.neto_pagar||c.netoPagar||0)||0; if(neto>0)return neto;
+  return parseFloat(c.base_usd||c.baseUsd||0)||0;
+}
 function _cxpFacturasDe(id){return CXP_FACTURAS.filter(function(f){return String(f.cxp_id)===String(id);});}
+
+// ── LA FACTURA MANDA ────────────────────────────────────────────────────────────────────────
+// La deuda nace de la ORDEN, en $ y SIN IVA (`iva_pct:0, total_usd = base`). Cuando llega la
+// factura real (en Bs, con IVA 16% y retención de IVA 75%) hay que traer esos números al libro
+// en dólares: antes NADIE actualizaba la fila `cxp`, así que el sistema seguía creyendo que esa
+// compra costaba la base pelada. Consecuencia real: el gasto se contaba de menos (la Utilidad
+// Real salía inflada ~16% de cada compra facturada) y el pago no cuadraba con el banco.
+// Cada factura se convierte a SU PROPIA tasa (no a la de hoy): el gasto se congela al día que fue.
+function _cxpUsdDesdeFacturas(id){
+  var facs=_cxpFacturasDe(id);
+  if(!facs.length)return null;
+  var a={base:0,iva:0,total:0,retIva:0,retIslr:0,neto:0,tasa:0,ivaPct:0,sinTasa:0};
+  facs.forEach(function(f){
+    var t=parseFloat(f.tasa_val)||0;
+    if(!(t>0)){a.sinTasa++;return;} // sin tasa no hay forma de pasarla a $: se ignora y se avisa
+    a.base+=(parseFloat(f.base_bs)||0)/t;
+    a.iva+=(parseFloat(f.iva_bs)||0)/t;
+    a.total+=(parseFloat(f.total_bs)||0)/t;
+    a.retIva+=(parseFloat(f.ret_iva_bs)||0)/t;
+    a.retIslr+=(parseFloat(f.ret_islr_bs)||0)/t;
+    a.neto+=(parseFloat(f.neto_bs)||0)/t;
+    a.tasa=t; a.ivaPct=parseFloat(f.iva_pct)||a.ivaPct;
+  });
+  return (a.total>0)?a:null;
+}
+// Vuelca a la deuda lo que dicen sus facturas. Si se borró la última factura, la deuda vuelve a
+// su base original (queda como estaba antes de facturar).
+function _aplicarFacturasACxp(c,cb){
+  if(!c){if(cb)cb();return;}
+  var a=_cxpUsdDesdeFacturas(c.id);
+  var upd;
+  if(a){
+    upd={base_usd:+a.base.toFixed(2), iva_pct:a.ivaPct||16, iva_usd:+a.iva.toFixed(2),
+         total_usd:+a.total.toFixed(2), ret_iva_usd:+a.retIva.toFixed(2), ret_islr_usd:+a.retIslr.toFixed(2),
+         neto_pagar:+a.neto.toFixed(2), tasa_val:a.tasa};
+  } else {
+    var base=parseFloat(c.base_usd||c.baseUsd||0)||0;
+    upd={iva_pct:0, iva_usd:0, total_usd:base, ret_iva_usd:0, ret_islr_usd:0, neto_pagar:base};
+  }
+  Object.keys(upd).forEach(function(k){c[k]=upd[k];});
+  c.netoPagar=upd.neto_pagar; c.totalUsd=upd.total_usd;
+  if(DB_READY&&supabase){
+    supabase.from('cxp').update(upd).eq('id',c.id).then(function(r){
+      if(r.error)console.warn('cxp recalc desde factura:',r.error.message);
+      if(cb)cb();
+    });
+  } else if(cb)cb();
+}
 // Bs SIEMPRE con 2 decimales exactos y sin redondear a entero (los bolívares son céntimos exactos).
 function _bs2(n){return (parseFloat(n)||0).toLocaleString('es-VE',{minimumFractionDigits:2,maximumFractionDigits:2});}
 async function cargarCxpAux(){ // facturas (Bs) + abonos; se llama al abrir Proveedores/CxP
@@ -8376,6 +8442,10 @@ function guardarFactura(){
   _facEnVuelo=true;
   var finish=function(saved){
     CXP_FACTURAS.unshift(saved||row);
+    // LA FACTURA MANDA: la deuda pasa a valer lo que dice la factura (base+IVA), y lo que se le
+    // debe al proveedor pasa a ser el neto. Sin esto el sistema seguía creyendo que la compra
+    // costaba la base sin IVA (Utilidad Real inflada) y el pago no cuadraba con el banco.
+    _aplicarFacturasACxp(c);
     audit('Factura Bs cargada',(row.prov_nombre)+' '+row.nro_factura+' Bs'+v.base.toFixed(2));
     var toastMsg='🧾 Factura guardada · Ret. IVA Bs '+_bs2(v.retIva)+(v.retIslr?' · Ret. ISLR Bs '+_bs2(v.retIslr):'');
     var limpiar=function(){
@@ -8409,9 +8479,13 @@ function guardarFactura(){
 function _registrarPagoDesdeFactura(c,v,nroFactura,cb){
   var saldo=_cxpSaldoUsd(c);
   if(saldo<=0.005){ if(cb)cb(0,saldo); return; } // ya estaba saldada: solo se cargó la factura
+  // El $ del pago se deriva de los Bs que REALMENTE salieron del banco, a la tasa del pago.
+  // Antes se guardaba el saldo $ de la deuda (la base sin IVA), y la fila se contradecía sola:
+  // decía $41,005 junto a Bs 31.011,97 con tasa 727,45, que son $42,63.
+  var usdReal=(v.tasa>0)?(v.neto/v.tasa):saldo;
   var row={
     cxp_id:String(c.id), fecha:gv('fac-fecha')||fechaVE(),
-    monto_bs:parseFloat(v.neto.toFixed(2)), tasa_val:v.tasa, monto_usd:parseFloat(saldo.toFixed(2)),
+    monto_bs:parseFloat(v.neto.toFixed(2)), tasa_val:v.tasa, monto_usd:parseFloat(usdReal.toFixed(2)),
     metodo:gv('fac-pago-metodo')||'transferencia',
     ref:gv('fac-pago-ref')||('FACT '+nroFactura),
     obs:'Pago neto factura '+nroFactura+' · Bs '+_bs2(v.neto)+((v.retIva||v.retIslr)?(' (ret. IVA Bs '+_bs2(v.retIva)+(v.retIslr?' + ISLR Bs '+_bs2(v.retIslr):'')+')'):'')
@@ -8421,8 +8495,8 @@ function _registrarPagoDesdeFactura(c,v,nroFactura,cb){
     // deuda saldada → cerrar (guarda tasa del pago para el cierre contable en Bs)
     c.estado='pagada'; c.fecha_pago=row.fecha; c.fechaPago=row.fecha; c.tasa_val=v.tasa; c.tasaVal=v.tasa;
     if(DB_READY&&supabase)supabase.from('cxp').update({estado:'pagada',fecha_pago:row.fecha,tasa_val:v.tasa}).eq('id',c.id).then(function(r){if(r.error)console.log('cxp cierre fact',r.error.message);});
-    audit('Pago CxP (desde factura)',(c.prov_nombre||'')+' $'+saldo.toFixed(2)+' Bs'+_bs2(v.neto));
-    if(cb)cb(saldo,_cxpSaldoUsd(c));
+    audit('Pago CxP (desde factura)',(c.prov_nombre||'')+' $'+usdReal.toFixed(2)+' Bs'+_bs2(v.neto));
+    if(cb)cb(usdReal,_cxpSaldoUsd(c));
   };
   if(DB_READY&&supabase){
     supabase.from('cxp_pagos').insert([row]).select().then(function(r){
@@ -8473,7 +8547,15 @@ function renderRetenciones(){
 function borrarFactura(id){
   var f=CXP_FACTURAS.find(function(x){return String(x.id)===String(id);}); if(!f)return;
   if(!confirm('¿Borrar la factura '+(f.nro_factura||'')+' y sus retenciones del libro?'))return;
-  var done=function(){ CXP_FACTURAS=CXP_FACTURAS.filter(function(x){return String(x.id)!==String(id);}); renderRetenciones(); renderCXP(); if(typeof mostrarToast==='function')mostrarToast('🗑️ Factura borrada','exito'); };
+  var done=function(){
+    CXP_FACTURAS=CXP_FACTURAS.filter(function(x){return String(x.id)!==String(id);});
+    // Revertir el efecto de la factura sobre la deuda: si era la última, la deuda vuelve a su
+    // base sin IVA. Si no se revirtiera, la deuda quedaría con el IVA de una factura borrada.
+    var _c=CXP.find(function(x){return String(x.id)===String(f.cxp_id);});
+    _aplicarFacturasACxp(_c,function(){ renderRetenciones(); renderCXP(); if(typeof renderHistProv==='function')renderHistProv(); });
+    renderRetenciones(); renderCXP();
+    if(typeof mostrarToast==='function')mostrarToast('🗑️ Factura borrada','exito');
+  };
   if(DB_READY&&supabase)supabase.from('cxp_facturas').delete().eq('id',id).then(function(r){if(r.error){alert('No se pudo borrar: '+r.error.message);return;}done();});
   else done();
 }
@@ -10424,7 +10506,7 @@ function renderFinDash(){
   var egFijos=GASTOS_FIJOS.reduce(function(s,gf){return s+gf.monto;},0);
   var egVars=GASTOS_VARIABLES.reduce(function(s,gv){return s+(gv.usd||0);},0);
   // CxP — TODAS (pagadas + pendientes) MENOS las de combustible (ya contadas en egGas, sin duplicar)
-  var egCxP=CXP.filter(function(c){return !_esCxpCombustible(c);}).reduce(function(s,c){return s+(parseFloat(c.neto_pagar||c.netoPagar||c.total_usd||0)||0);},0);
+  var egCxP=CXP.filter(function(c){return !_esCxpCombustible(c);}).reduce(function(s,c){return s+_cxpCostoUsd(c);},0);
   var utilBruta=totalCob-egNom-egGas;
   // Total de egresos y Utilidad Neta = MISMA fuente única que el dashboard (_totalEgresos), para que coincidan.
   var totalEg=_totalEgresos(totalCob);
@@ -12823,7 +12905,14 @@ async function confirmarPagoCxP(){
   // abono, la deuda "pagada por BNC" seguiría apareciendo pendiente. Salda el saldo $ restante.
   var saldoRest=_cxpSaldoUsd(c);
   if(saldoRest>0.005){
-    var abo={cxp_id:String(c.id),fecha:fecha,monto_bs:parseFloat((saldoRest*(tasaPago||0)).toFixed(2)),tasa_val:tasaPago||null,monto_usd:parseFloat(saldoRest.toFixed(2)),metodo:'bnc',ref:ref||'',obs:'Pago BNC · comprobante '+numComp};
+    // Los Bs del abono deben ser los que REALMENTE debitó el banco. Si la deuda tiene factura,
+    // eso es el NETO de la factura (base+IVA−retenciones). Antes se calculaba saldo×tasa, que
+    // no es ningún monto real: la conciliación bancaria cruza por monto_bs y nunca encontraba
+    // el débito (la diferencia era justo el IVA menos las retenciones).
+    var _fx=_cxpFacturasDe(c.id);
+    var _netoBsFact=_fx.reduce(function(s,f){return s+(parseFloat(f.neto_bs)||0);},0);
+    var _bsAbono=(_netoBsFact>0)?_netoBsFact:(saldoRest*(tasaPago||0));
+    var abo={cxp_id:String(c.id),fecha:fecha,monto_bs:parseFloat(_bsAbono.toFixed(2)),tasa_val:tasaPago||null,monto_usd:parseFloat(saldoRest.toFixed(2)),metodo:'bnc',ref:ref||'',obs:'Pago BNC · comprobante '+numComp};
     var resAbo=await supabase.from('cxp_pagos').insert([abo]).select();
     if(resAbo.error){console.log('cxp_pagos BNC',resAbo.error.message);alert('El pago se marcó, pero NO se pudo registrar el abono ('+resAbo.error.message+').\nLa deuda podría seguir apareciendo pendiente: registrá el abono a mano con 💵 Abonar.');}
     else CXP_PAGOS.push((resAbo.data&&resAbo.data[0])?resAbo.data[0]:abo);
@@ -18420,7 +18509,7 @@ function renderRentabilidad(){
   // (los gastos fijos ya persisten desde A1). El 7.5% se calcula sobre el facturado del rango.
   var _egFijos=(typeof GASTOS_FIJOS!=='undefined'?GASTOS_FIJOS:[]).reduce(function(s,x){return s+(x.monto||0);},0);
   var _egVars=(typeof GASTOS_VARIABLES!=='undefined'?GASTOS_VARIABLES:[]).reduce(function(s,x){return s+(x.usd||0);},0);
-  var _egCxP=(typeof CXP!=='undefined'?CXP:[]).filter(function(c){return typeof _esCxpCombustible==='function'?!_esCxpCombustible(c):true;}).reduce(function(s,c){return s+(parseFloat(c.neto_pagar||c.netoPagar||c.total_usd||0)||0);},0);
+  var _egCxP=(typeof CXP!=='undefined'?CXP:[]).filter(function(c){return typeof _esCxpCombustible==='function'?!_esCxpCombustible(c):true;}).reduce(function(s,c){return s+_cxpCostoUsd(c);},0);
   var _egMul=(typeof MULTAS!=='undefined'?MULTAS:[]).filter(function(m){return m.resp!=='chofer';}).reduce(function(s,m){return s+(typeof _multaMontoUsd==='function'?_multaMontoUsd(m):0);},0);
   var _eg75=R.total.ingreso*0.075;
   var _generales=_egFijos+_egVars+_egCxP+_egMul+_eg75;
