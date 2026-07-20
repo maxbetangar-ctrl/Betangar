@@ -1568,7 +1568,10 @@ async function cargarDatosDB(){
       return{p:r.p,f:r.f,mes:r.mes||'',cam:r.cam,ch:r.ch,r:r.r||'',par:r.par||'',
              d:d,n:n,t:t,sem:r.sem||'',m:parseFloat(r.m)||t*(cfg.tarifa||317.88),
              obs:r.obs||'',inc:r.inc||'',incDesc:r.inc_desc||'',
-             ay1:r.ay1||'',ay2:r.ay2||'',ay3:r.ay3||'',gasoil:parseFloat(r.gasoil)||0,
+             ay1:r.ay1||'',ay2:r.ay2||'',ay3:r.ay3||'',
+             // ap1/ap2 = ayudantes de APOYO. Si no se mapean aquí, calcNom NUNCA los ve y siguen
+             // sin cobrar por el sistema (el mapeo es explícito, no un select('*')).
+             ap1:r.ap1||'',ap2:r.ap2||'',gasoil:parseFloat(r.gasoil)||0,
              km:parseFloat(r.km)||0,mant:r.mant||''};
     });
     // ABONOS — ordenar por fecha (y id como desempate) para que SIEMPRE salgan en el mismo
@@ -3158,6 +3161,9 @@ function poblarDatalistsEmpleados(){
   // "IMAU" de primero: los ayudantes IMAU no se escriben con nombre, se marca "IMAU" (la nómina lo cuenta solo).
   var imauOpt='<option value="IMAU">Apoyo IMAU ($2,50/viaje)</option>';
   ['dl-ay1','dl-ay2','dl-ay3'].forEach(function(id){var dl=document.getElementById(id);if(dl)dl.innerHTML=imauOpt+opts(ayud);});
+  // Los de APOYO salen del mismo padrón de ayudantes, pero SIN la opción IMAU (el IMAU es otra
+  // figura y otra tarifa; mezclarlas sería justo el error que nos costó no pagarles bien).
+  ['dl-ap1','dl-ap2'].forEach(function(id){var dl=document.getElementById(id);if(dl)dl.innerHTML=opts(ayud);});
 }
 // Indicador en vivo: ✓ si el nombre escrito está en el expediente, ⚠ si no.
 function valEmpField(inputId,hintId){
@@ -3211,14 +3217,16 @@ async function guardarPlanilla(){
   // Normalizar chofer + ayudantes a nombre canónico de empleado (calidad de datos)
   var chC=_nombreCanonico(ch);
   var ay1=_nombreCanonico(gv('rp-ay1')), ay2=_nombreCanonico(gv('rp-ay2')), ay3=_nombreCanonico(gv('rp-ay3'));
+  // Ayudantes de APOYO (ap1/ap2): NO son los fijos de la unidad. Cobran por escalón diario.
+  var ap1=_nombreCanonico(gv('rp-ap1')), ap2=_nombreCanonico(gv('rp-ap2'));
   // Avisar si algún nombre escrito NO corresponde a un empleado (typo / no registrado)
   var noCasan=[];
-  [['Chofer',ch,chC],['Ayudante 1',gv('rp-ay1'),ay1],['Ayudante 2',gv('rp-ay2'),ay2],['Ayudante 3',gv('rp-ay3'),ay3]].forEach(function(x){
+  [['Chofer',ch,chC],['Ayudante 1',gv('rp-ay1'),ay1],['Ayudante 2',gv('rp-ay2'),ay2],['Ayudante 3',gv('rp-ay3'),ay3],['Apoyo 1',gv('rp-ap1'),ap1],['Apoyo 2',gv('rp-ap2'),ap2]].forEach(function(x){
     if(x[1]&&String(x[1]).trim()&&(typeof _empPorNombre==='function')&&!_empPorNombre(x[1]))noCasan.push(x[0]+': "'+x[1]+'"');
   });
   if(noCasan.length){ if(!confirm('⚠ Estos nombres no coinciden con ningún empleado registrado:\n\n'+noCasan.join('\n')+'\n\nSe guardarán tal cual (la nómina/anomalías podrían no reconocerlos). ¿Continuar?'))return; }
-  var nr={p:ns,f:f,mes:gv('rp-mes'),cam:c,ch:chC,r:gv('rp-ruta'),par:gv('rp-par'),d:cntD,n:cntN,t:tot,sem:gv('rp-sem'),m:tot*cfg.tarifa,obs:gv('rp-obs'),inc:gv('rp-inc'),incDesc:gv('rp-inc-desc'),ay1:ay1,ay2:ay2,ay3:ay3};
-  var row={p:nr.p,f:nr.f,mes:nr.mes,cam:nr.cam,ch:nr.ch,r:nr.r,par:nr.par,d:nr.d,n:nr.n,t:nr.t,sem:nr.sem,m:nr.m,obs:nr.obs,inc:nr.inc,inc_desc:nr.incDesc,ay1:ay1,ay2:ay2,ay3:ay3,gasoil:0,km:0,mant:''};
+  var nr={p:ns,f:f,mes:gv('rp-mes'),cam:c,ch:chC,r:gv('rp-ruta'),par:gv('rp-par'),d:cntD,n:cntN,t:tot,sem:gv('rp-sem'),m:tot*cfg.tarifa,obs:gv('rp-obs'),inc:gv('rp-inc'),incDesc:gv('rp-inc-desc'),ay1:ay1,ay2:ay2,ay3:ay3,ap1:ap1,ap2:ap2};
+  var row={p:nr.p,f:nr.f,mes:nr.mes,cam:nr.cam,ch:nr.ch,r:nr.r,par:nr.par,d:nr.d,n:nr.n,t:nr.t,sem:nr.sem,m:nr.m,obs:nr.obs,inc:nr.inc,inc_desc:nr.incDesc,ay1:ay1,ay2:ay2,ay3:ay3,ap1:ap1,ap2:ap2,gasoil:0,km:0,mant:''};
   // P1: Supabase es la fuente de verdad. Guardar PRIMERO y solo confirmar éxito si responde OK.
   var _res=await dbUp('planillas',row,'p');
   REGS.push(nr);
@@ -3235,6 +3243,9 @@ async function guardarPlanilla(){
     if(typeof mostrarToast==='function')mostrarToast('⚠️ Planilla #'+ns+' quedó EN COLA (sin conexión). Se guardará al reconectar.','error');
   }
   cntD=0;cntN=0;g('cd').textContent=0;g('cn').textContent=0;g('ctot').textContent=0;g('cmonto').textContent='$0';
+  // Los de APOYO se limpian siempre: son eventuales (hoy vino, mañana no). Si el nombre quedara
+  // pegado en el formulario, la siguiente planilla le pagaría un día que no trabajó.
+  ['rp-ap1','rp-ap2'].forEach(function(id){sv(id,'');var v=g(id.replace('rp-','val-'));if(v)v.innerHTML='';});
   sv('rp-num',String(REGS.reduce(function(a,r){return Math.max(a,parseInt(r.p)||0);},0)+1).padStart(5,'0'));
   renderPlanHoy();renderDash();
 }
@@ -4450,6 +4461,15 @@ function poblarSemanasNom(){
   var cur=sel.value;
   sel.innerHTML='<option value="">— Semana (SEM-N) —</option>'+opts.map(function(s){var lv=_isoLocal(s.lunes);return '<option value="'+lv+'"'+(cur===lv?' selected':'')+'>'+s.label+' · '+_fechaLargaES(s.lunes)+'–'+_fechaLargaES(s.domingo)+'</option>';}).join('');
 }
+// Tarifa del ayudante de APOYO — FUENTE ÚNICA. Escalón por DÍA según los viajes de ese día
+// (regla de Gladys/RRHH 2026-07-20, verificada contra los pagos reales del banco).
+// Si algún día cambia, se cambia AQUÍ y en ningún otro lado.
+function tarifaApoyoDia(viajes){
+  var v=parseInt(viajes)||0;
+  if(v>=3)return (cfg.apoyo3!=null?cfg.apoyo3:5);   // del 3er viaje en adelante
+  if(v===2)return (cfg.apoyo2!=null?cfg.apoyo2:2);  // exactamente 2
+  return 0;                                          // 1 viaje o ninguno: no se paga
+}
 function calcNom(){
   var mes=gv('nm-mes'),sem=gv('nm-sem');
   var des=gv('nm-des'),hta=gv('nm-hta');
@@ -4622,7 +4642,10 @@ function calcNom(){
   var totExtrasHuerfano=Math.round((totExtras-_extraAtrib)*100)/100; // lo NO atribuido a una fila → se suma al total aparte
   var tvTot=f.reduce(function(s,r){return s+r.t;},0);
   var totCh=Object.values(chMap).reduce(function(s,c){var k=_nombreCanonico(c.ch).toUpperCase();var pat=_patioEfectivo(c.patio,PATIO_DIAS[k]);return s+Math.max(0,(c.montoViajes||0)+pat*cfg.chofer-c.descuentos)+(_extraCh[k]||0);},0);
-  var totAy=Object.values(ayMap).reduce(function(s,a){var vp=_ayPatio(a);return s+Math.max(0,(vp.viajes*a.tasa)+(a.recargoDom||0)-a.descuentos)+(_extraAy[a.emp.id]||0);},0);
+  // Sueldo BASE de un ayudante, antes de descuentos y extras. Los de APOYO ya traen su monto
+  // calculado por escalón diario (tarifaApoyoDia); los fijos/IMAU van por viajes × tarifa.
+  var _ayBase=function(a){ return a.apoyo ? (a.montoUsd||0) : ((_ayPatio(a).viajes*a.tasa)+(a.recargoDom||0)); };
+  var totAy=Object.values(ayMap).reduce(function(s,a){return s+Math.max(0,_ayBase(a)-a.descuentos)+(_extraAy[a.emp.id]||0);},0);
   if(g('nm-tv'))g('nm-tv').textContent=tvTot;
   if(g('nm-ch'))g('nm-ch').textContent='$'+totCh.toFixed(0);
   if(g('nm-ay'))g('nm-ay').textContent='$'+totAy.toFixed(0);
@@ -4649,7 +4672,7 @@ function calcNom(){
     fdesde: f.length?f.reduce(function(m,r){return r.f<m?r.f:m;},f[0].f):null,
     fhasta: f.length?f.reduce(function(m,r){return r.f>m?r.f:m;},f[0].f):null,
     choferes: Object.values(chMap).map(function(c){var k=_nombreCanonico(c.ch).toUpperCase();var pat=_patioEfectivo(c.patio,PATIO_DIAS[k]);var u=Math.max(0,(c.montoViajes||0)+pat*cfg.chofer-c.descuentos)+(_extraCh[k]||0);return {n:c.ch,u:Array.from(c.cams||[]).join(','),viajes:(c.viajes-(c.patio||0)),pat:pat,esp:Math.round((_extraCh[k]||0)*100)/100,usd:Math.round(u*100)/100,bs:Math.round(u*tasa*100)/100};}),
-    ayudantes: Object.values(ayMap).map(function(a){var vp=_ayPatio(a);var v=vp.viajes;var patTot=vp.patio;var u=Math.max(0,v*a.tasa+(a.recargoDom||0)-a.descuentos)+(_extraAy[a.emp.id]||0);return {n:a.emp.nombre,u:a.emp.unidad,viajes:(parseInt(a.viajes)||0)-(parseInt(a.patio)||0),pat:patTot,esp:Math.round((_extraAy[a.emp.id]||0)*100)/100,usd:Math.round(u*100)/100,bs:Math.round(u*tasa*100)/100,tipo:a.emp.tipoAy||'interno'};}),
+    ayudantes: Object.values(ayMap).map(function(a){var vp=_ayPatio(a);var patTot=a.apoyo?0:vp.patio;var u=Math.max(0,_ayBase(a)-a.descuentos)+(_extraAy[a.emp.id]||0);return {n:a.emp.nombre,u:a.emp.unidad,viajes:(parseInt(a.viajes)||0)-(parseInt(a.patio)||0),pat:patTot,esp:Math.round((_extraAy[a.emp.id]||0)*100)/100,usd:Math.round(u*100)/100,bs:Math.round(u*tasa*100)/100,tipo:a.apoyo?'apoyo':(a.emp.tipoAy||'interno'),dias:a.apoyo?a.diasApoyo:undefined};}),
     extras: _extrasP.map(function(x){return {fecha:x.fecha,n:x.empNombre,actividad:x.actividad,modo:x.modo,viajes:x.viajes,monto:x.monto,usd:Math.round(_extraUsd(x)*100)/100};})
   };
   // Total de nómina: SOLO el monto total (sin el desglose op/IMAU/adm/especial — pedido de Máximo).
@@ -4709,7 +4732,7 @@ function calcNom(){
     var vp=_ayPatio(a); var vTot=vp.viajes; // viajes + patio efectivo → para el SUELDO (manual manda; sin doble patio)
     var vjPlanAy=(parseInt(a.viajes)||0)-(parseInt(a.patio)||0); // SOLO viajes de planilla para MOSTRAR (el patio no infla los viajes)
     var _exAy=_extraAy[a.emp.id]||0; // actividades especiales atribuidas a este ayudante (suman a SU total)
-    var sueldo=vTot*a.tasa+(a.recargoDom||0);var total=Math.max(0,sueldo-a.descuentos)+_exAy;
+    var sueldo=_ayBase(a);var total=Math.max(0,sueldo-a.descuentos)+_exAy;
     var nota=a.porNombre>0&&a.porCam>0?'('+a.porNombre+'v nombre + '+a.porCam+'v camión)':'';
     var inputPatio=esImau?'':(' <input type="number" min="0" value="'+patAyM+'" title="Días de actividad sin viaje (patio/traslado/lavado): +1 viaje c/u" onchange="setPatioDias(\''+a.emp.id+'\',this.value)" style="width:30px;font-size:9px;background:var(--bg3);border:1px solid var(--border);color:var(--amber);border-radius:4px;padding:1px 2px;text-align:center"><span style="font-size:8px;color:var(--amber)">P</span>');
     // Ayudante INACTIVO con viajes: se paga igual pero se marca ⚠️ (apareció en planilla dado de baja).

@@ -1383,6 +1383,24 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
         <input class="fc" id="rp-ay3" placeholder="Buscar empleado..." list="dl-ay3" oninput="valEmpField('rp-ay3','val-ay3')"><div id="val-ay3"></div>
         <datalist id="dl-ay3"></datalist>
       </div>
+      <!-- AYUDANTES DE APOYO: los que ayudan en la recolección sin ser fijos de la unidad.
+           Cobran distinto (escalón por día: 2 viajes=$2, 3 o más=$5), por eso van aparte. -->
+      <div style="background:var(--bg3);border:1px dashed var(--border);border-radius:8px;padding:10px;margin-bottom:10px">
+        <div style="font-size:11px;font-weight:700;color:var(--teal);margin-bottom:2px">🤝 Ayudantes de APOYO <span style="font-weight:400;color:var(--text3)">(si vinieron)</span></div>
+        <div style="font-size:10px;color:var(--text3);margin-bottom:8px">Los que apoyan la recolección sin ser fijos de esta unidad. Cobran por los viajes del día: <b>2 viajes = $2</b> · <b>3 o más = $5</b> (1 viaje no se paga). Anótalos aquí y la nómina los incluye sola.</div>
+        <div class="fr2">
+          <div class="fg">
+            <label>Apoyo 1</label>
+            <input class="fc" id="rp-ap1" placeholder="Buscar empleado..." list="dl-ap1" oninput="valEmpField('rp-ap1','val-ap1')"><div id="val-ap1"></div>
+            <datalist id="dl-ap1"></datalist>
+          </div>
+          <div class="fg">
+            <label>Apoyo 2</label>
+            <input class="fc" id="rp-ap2" placeholder="Buscar empleado..." list="dl-ap2" oninput="valEmpField('rp-ap2','val-ap2')"><div id="val-ap2"></div>
+            <datalist id="dl-ap2"></datalist>
+          </div>
+        </div>
+      </div>
       <div class="fr2">
         <div class="fg"><label>Ruta</label><select class="fc" id="rp-ruta"><option>LOS OLIVOS</option><option>LA VICTORIA</option><option>BAJO SECO</option><option>PANAMERICANA</option><option>RAUL LEONI</option><option>GUAICAIPURO</option><option>NUEVO HORIZONTE</option><option>BARRIO 12 DE MARZO</option><option>BARRIO MODELO</option><option>BARRIO LOS 3 LOCOS</option><option>CARMELO URDANETA</option><option>HATO ESCONDIDO</option><option>ALMA BOLIVARIANA</option><option>LA CONQUISTA</option><option>BARRIO PARAISO</option><option>SABANETA</option><option>EL MILAGRO</option><option>AV UNIVERSIDAD</option><option>AV DELICIAS</option><option>AV 5 DE JULIO</option><option>AV BELLA VISTA</option><option>CIRCUNVALACION 1</option><option>LOS NAVAS</option><option>PINTO SALINAS</option><option>CASCO CENTRAL</option></select></div>
         <div class="fg"><label>Parroquia</label><select class="fc" id="rp-par"><option>CARACCIOLO PARRA PEREZ</option><option>VENANCIO PULGAR</option><option>IDELFONSO VASQUEZ</option><option>JUANA DE AVILA</option><option>COQUIVACOA</option><option>CHIQUINQUIRA</option><option>BOLIVAR</option><option>RAUL LEONI</option><option>JORNADA ESPECIAL</option></select></div>
