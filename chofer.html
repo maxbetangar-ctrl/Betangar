@@ -197,6 +197,18 @@ body{background:#0f1923;color:#fff;font-family:-apple-system,BlinkMacSystemFont,
     <div class="tab" id="tab-surtir-btn" onclick="switchTab('surtir')">⛽ Surtir</div>
   </div>
 
+  <!-- ══════ FALLAS PENDIENTES DE LA UNIDAD ══════
+       Se mantiene visible en TODAS las pestañas hasta que el mecánico o el jefe
+       operativo la marque resuelta. Se cachea en localStorage → se ve sin señal. -->
+  <div id="anom-banner" style="display:none;margin:8px 10px 0;background:rgba(226,75,74,.12);border:1px solid rgba(226,75,74,.45);border-radius:12px;padding:10px 12px">
+    <div style="display:flex;justify-content:space-between;align-items:center;cursor:pointer" onclick="anomToggle()">
+      <div style="font-size:13px;font-weight:800;color:#ff8a8a">⚠️ <span id="anom-titulo">Fallas pendientes</span></div>
+      <div id="anom-flecha" style="font-size:12px;color:rgba(255,255,255,.5)">▼</div>
+    </div>
+    <div id="anom-lista" style="margin-top:8px"></div>
+    <div style="font-size:10px;color:rgba(255,255,255,.4);margin-top:8px">Ya están reportadas. Siguen aquí hasta que el mecánico las arregle.</div>
+  </div>
+
   <!-- ══════ TAB VIAJES ══════ -->
   <!-- ══════ TAB SURTIR (combustible por surtida) ══════ -->
   <div class="tab-page" id="tab-surtir">
@@ -1009,7 +1021,16 @@ function entregaTomarGPS(){
     });
   }, function(err){
     ENT_GPS = null;
-    el.textContent = '📍 No se pudo ubicar ('+(err&&err.message?err.message:'permiso denegado')+')';
+    var code = err && err.code;
+    if(code === 1){        // PERMISSION_DENIED: el navegador tiene la ubicación BLOQUEADA para este sitio
+      el.innerHTML = '📍 <b style="color:#e8734a">Ubicación bloqueada en este teléfono</b>'
+        + '<br><span style="font-size:11px;color:rgba(255,255,255,.6)">Tocá el <b>candado 🔒</b> (o ⓘ) al lado de la dirección, arriba → <b>Permisos</b> → <b>Ubicación</b> → <b>Permitir</b>. Después tocá “Ubicar” otra vez.'
+        + '<br>Si ya está permitida, activá el <b>GPS del teléfono</b> (barra de arriba).</span>';
+    }else if(code === 3){  // TIMEOUT
+      el.innerHTML = '📍 <b style="color:#e8734a">Sin señal de GPS</b> <span style="font-size:11px;color:rgba(255,255,255,.6)">— salí de abajo del techo y tocá “Ubicar” otra vez.</span>';
+    }else{
+      el.innerHTML = '📍 <b style="color:#e8734a">No se pudo ubicar</b> <span style="font-size:11px;color:rgba(255,255,255,.6)">— activá el GPS y tocá “Ubicar” otra vez.</span>';
+    }
   }, { enableHighAccuracy:true, timeout:12000, maximumAge:0 });
 }
 // Reverse-geocoding GRATIS con OpenStreetMap (Nominatim). 1 consulta por registro (respeta el límite).
@@ -1112,7 +1133,7 @@ async function registrarEntrega(){
     var now = new Date();
     var row = {
       id: id, cam: cam||'', chofer: chofer||'', cliente: cliente, direccion: direccion, tipo: ENT_TIPO,
-      lat: ENT_GPS.lat, lng: ENT_GPS.lng, precision_gps: ENT_GPS.acc, direccion_gps: (ENT_GPS.calle||''),
+      lat: (ENT_GPS?ENT_GPS.lat:null), lng: (ENT_GPS?ENT_GPS.lng:null), precision_gps: (ENT_GPS?ENT_GPS.acc:null), direccion_gps: (ENT_GPS?(ENT_GPS.calle||''):''),
       foto_url: fotoUrl, fecha: hoy, hora: String(now.getHours()).padStart(2,'0')+':'+String(now.getMinutes()).padStart(2,'0'),
       estado: 'entregada', token: tok
     };
