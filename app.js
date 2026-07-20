@@ -11,6 +11,12 @@
 var ANON_CENTRAL='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhya2pkZGVocW56Y3F3bGtrbHFtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc2NTk1NzIsImV4cCI6MjA5MzIzNTU3Mn0.kqWKthyZfPZ86toql7shGByF-ZhUpcQUS4Jw4RnG_ko';
 var BTG_CONFIG = {
   empresa_nombre: 'Inversiones Betangar C.A.',
+  // Marca CORTA para el autenticador de 2 pasos (Google Authenticator / Authy). Es lo que la
+  // persona lee en su teléfono junto al código, así que va el nombre que ELLA reconoce (su
+  // empresa), no el del producto (FlotaMax) que no le dice nada. Corto: la pantalla lo trunca.
+  // ⚠️ AL CLONAR: cambiar SIEMPRE. Si queda el del molde, el cliente nuevo ve la marca ajena
+  // en su teléfono cada vez que entra.
+  empresa_marca: 'Betangar',
   empresa_rif: 'J-29566107-0',                             // ← RIF de ESTA empresa (sale en TODO impreso)
   empresa_ciudad: 'Maracaibo, Edo. Zulia',                 // ← ciudad/estado (encabezados)
   empresa_contrato: 'Contrato Aseo Urbano — Alcaldía de Maracaibo', // ← descripción del contrato/cliente principal
@@ -410,7 +416,13 @@ async function iniciar2FA(){
     var fr=await supabaseAuth.auth.mfa.listFactors(); var fd=(fr&&fr.data)?fr.data:fr;
     var yaTiene=(fd&&fd.totp&&fd.totp.length)||(fd&&fd.all&&fd.all.some(function(x){return x.factor_type==='totp'&&x.status==='verified';}));
     if(yaTiene){ if(typeof render2FAEstado==='function')render2FAEstado(); alert('Ya tienes 2FA activo en esta cuenta.'); return; }
-    var e=await supabaseAuth.auth.mfa.enroll({factorType:'totp',friendlyName:'Betangar '+(SESION?SESION.usuario:'')+' '+Date.now()});
+    // issuer = lo que el autenticador muestra como nombre del servicio (y por lo que los
+    // catálogos de logos buscan el ícono). Sin él, Supabase pone el dominio del proyecto:
+    // como Betangar, Geppetto y Ranita COMPARTEN proyecto, las tres salían con el mismo
+    // texto indescifrable y el usuario no sabía de cuál app era cada código.
+    // El friendlyName mantiene el Date.now(): Supabase exige que sea ÚNICO por usuario y sin
+    // eso un re-enrolamiento falla con "ya existe un factor con ese nombre".
+    var e=await supabaseAuth.auth.mfa.enroll({factorType:'totp',issuer:(BTG_CONFIG.empresa_marca||BTG_CONFIG.empresa_nombre||'Betangar'),friendlyName:(SESION?SESION.usuario:'')+' '+Date.now()});
     if(e&&e.error){alert('No se pudo iniciar 2FA: '+e.error.message);return;}
     var d=(e&&e.data)?e.data:e; var factorId=d.id; var qr=d.totp.qr_code; var secret=d.totp.secret;
     var ov=_mfaOverlay(
@@ -2449,6 +2461,7 @@ function renderDash(){
   // Flota
   renderFlotaDash();renderMetasDash();renderVencimientosDash();renderAlertasCriticas();
   try{renderChecklistAnomalias();}catch(e){}
+  try{renderFiscalBanner();}catch(e){}      // 🏛️ declaraciones SENIAT (multa si se pasan)
   try{renderInteligenciaFlota();}catch(e){} // 🧠 panel de inteligencia para el dueño/gerente
   updTank();
 }
@@ -2789,6 +2802,63 @@ function toggleEstCam(cam){
 // Anomalías del checklist de HOY: SOLO lo que está MAL + la observación escrita (compacto).
 // Para el dueño, el mecánico y el jefe de operaciones. No muestra lo que está bien.
 // ══════════════════════════════════════════════════════════════════════════════
+// DECLARACIONES AL SENIAT — banner del dashboard
+// El calendario fiscal 2026 (tabla `calendario_fiscal`) sale del PDF oficial del SENIAT para
+// el RIF J-29566107-0. Una declaración que se pasa es MULTA, así que esto va arriba de todo y
+// no depende de que alguien lea un WhatsApp. La administradora lo ve apenas entra.
+// ══════════════════════════════════════════════════════════════════════════════
+var FISCAL_PEND=[];
+// Roles que manejan plata: a ellos les toca ver esto.
+var _FISCAL_ROLES={admin:1,superadmin:1,operador:1,directivo:1};
+async function renderFiscalBanner(){
+  var el=g('fiscal-banner'); if(!el)return;
+  if(!_FISCAL_ROLES[(SESION&&SESION.rol)||'']){el.style.display='none';return;}
+  if(!DB_READY||!supabase)return;
+  var r=null;
+  try{ r=await supabase.from('calendario_fiscal').select('*').eq('declarado',false).order('fecha_declarar',{ascending:true}); }catch(e){}
+  if(!r||r.error||!r.data){el.style.display='none';return;}
+  FISCAL_PEND=r.data;
+  var hoy=(typeof fechaVE==='function')?fechaVE():new Date().toISOString().slice(0,10);
+  var d0=new Date(hoy+'T12:00:00Z');
+  var items=FISCAL_PEND.map(function(o){
+    var dias=Math.round((new Date(String(o.fecha_declarar).slice(0,10)+'T12:00:00Z')-d0)/86400000);
+    return {o:o,dias:dias};
+  }).filter(function(x){return x.dias<=7;});   // lo de más adelante no satura el dashboard
+  if(!items.length){el.style.display='none';return;}
+  var venc=items.filter(function(x){return x.dias<0;}).length;
+  var hoyN=items.filter(function(x){return x.dias===0;}).length;
+  var col=venc?'#ef4444':(hoyN?'#ef4444':'#f59e0b');
+  var filas=items.map(function(x){
+    var o=x.o, dias=x.dias;
+    var txt=dias<0?('VENCIDA hace '+Math.abs(dias)+' día(s)'):dias===0?'ES HOY':('en '+dias+' día'+(dias>1?'s':''));
+    var c=dias<=0?'#ef4444':(dias<=3?'#f59e0b':'var(--text2)');
+    return '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--border)">'+
+      '<div style="flex:1;min-width:0">'+
+        '<div style="font-size:12px;font-weight:700;color:var(--text1)">'+String(o.etiqueta).replace(/</g,'&lt;')+'</div>'+
+        '<div style="font-size:10px;color:var(--text3)">'+String(o.periodo).replace(/</g,'&lt;')+' · límite '+_fmtFecha(o.fecha_declarar)+'</div>'+
+      '</div>'+
+      '<div style="font-size:11px;font-weight:800;color:'+c+';white-space:nowrap">'+txt+'</div>'+
+      '<button class="btn btn-g btn-sm" style="font-size:10px;padding:5px 9px;white-space:nowrap" onclick="marcarDeclarado('+o.id+')">✅ Declarada</button>'+
+    '</div>';
+  }).join('');
+  el.innerHTML='<div style="background:rgba(239,68,68,.08);border:1px solid '+col+';border-radius:10px;padding:10px 14px">'+
+    '<div style="font-size:13px;font-weight:800;color:'+col+';margin-bottom:6px">🏛️ SENIAT — Declaraciones pendientes'+
+    (venc?' · <span style="color:#ef4444">'+venc+' VENCIDA(S)</span>':'')+'</div>'+
+    filas+'</div>';
+  el.style.display='block';
+}
+function _fmtFecha(f){var p=String(f).slice(0,10).split('-');return p[2]+'/'+p[1]+'/'+p[0];}
+async function marcarDeclarado(id){
+  var o=FISCAL_PEND.filter(function(x){return String(x.id)===String(id);})[0]; if(!o)return;
+  if(!confirm('¿Confirmás que YA se declaró?\n\n'+o.etiqueta+'\nPeríodo: '+o.periodo+'\nFecha límite: '+_fmtFecha(o.fecha_declarar)+'\n\nDeja de avisar por WhatsApp y sale del tablero.'))return;
+  var res=await supabase.from('calendario_fiscal').update({declarado:true,fecha_declarada:(typeof fechaVE==='function')?fechaVE():new Date().toISOString().slice(0,10)}).eq('id',id).select();
+  if(res.error){mostrarToast('No se pudo marcar: '+res.error.message,'error');return;}
+  try{ audit('Declaración SENIAT',o.etiqueta+' · '+o.periodo+' marcada como declarada'); }catch(e){}
+  mostrarToast('✅ Declaración registrada','exito');
+  renderFiscalBanner();
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
 // ANOMALÍAS PENDIENTES (tabla `anomalias`) — FUENTE ÚNICA
 // Antes esto leía la fila del checklist de HOY: una falla reportada ayer y no
 // arreglada DESAPARECÍA de la pantalla. Ahora cada falla es un registro propio
@@ -3011,7 +3081,7 @@ function _totalEgresos(totalCob){
   var eg75=totalCob*0.075;                                                                 // 7.5% Betangar
   var egFijos=(typeof GASTOS_FIJOS!=='undefined'?GASTOS_FIJOS:[]).reduce(function(s,gf){return s+(gf.monto||0);},0);
   var egVars=(typeof GASTOS_VARIABLES!=='undefined'?GASTOS_VARIABLES:[]).reduce(function(s,gv){return s+(gv.usd||0);},0);
-  var egCxP=(typeof CXP!=='undefined'?CXP:[]).filter(function(c){return !_esCxpCombustible(c);}).reduce(function(s,c){return s+_cxpCostoUsd(c);},0); // TODAS menos las de combustible (ya en egGas)
+  var egCxP=(typeof CXP!=='undefined'?CXP:[]).filter(_cxpCuentaEnEgresos).reduce(function(s,c){return s+_cxpCostoUsd(c);},0); // TODAS menos las de combustible (ya en egGas)
   // Multas que paga la EMPRESA, en USD. _multaMontoUsd soporta divisa (USD/EUR) y legacy Bs;
   // si no hay tasa real para una multa en Bs/EUR, devuelve 0 (no inventa) — ver helper.
   var egMul=(typeof MULTAS!=='undefined'?MULTAS:[]).filter(function(m){return m.resp!=='chofer';}).reduce(function(s,m){return s+_multaMontoUsd(m);},0);
@@ -7983,6 +8053,67 @@ function _cxpCostoUsd(c){
 }
 function _cxpFacturasDe(id){return CXP_FACTURAS.filter(function(f){return String(f.cxp_id)===String(id);});}
 
+// ── CUENTA DEL SENIAT (retenciones acumuladas por quincena) ─────────────────────────────────
+// La retención de IVA (75%) es plata que NO se le paga al proveedor pero que la empresa SÍ le
+// debe al SENIAT: se acumula durante la quincena y se declara/paga en la fecha del calendario.
+// Antes esa plata solo existía en el libro en Bs (cxp_facturas): no aparecía como deuda, ni en
+// vencimientos, ni en el flujo de caja — nada la recordaba.
+// Es UNA SOLA cuenta por quincena (pedido de Máximo), no una por factura: cada factura suma.
+// ⚠️ NO es un gasto extra: el IVA ya entra como costo vía _cxpCostoUsd. Esta CxP es solo de
+// TESORERÍA (a quién se le paga) → se EXCLUYE de los egresos, igual que las de combustible.
+// ¿Esta CxP cuenta como GASTO en la Utilidad Real?
+// NO cuentan: las de combustible (su costo ya entra por GASOIL/combustible_periodos) ni la del
+// SENIAT (el IVA ya se contó como costo en la factura; esa cuenta es solo tesorería).
+function _cxpCuentaEnEgresos(c){
+  var esComb=(typeof _esCxpCombustible==='function')?_esCxpCombustible(c):false;
+  return !esComb && !_esCxpSeniat(c);
+}
+function _esCxpSeniat(c){ return String((c&&(c.prov_nombre||c.prov))||'').toUpperCase().indexOf('SENIAT')===0; }
+// Quincena a la que pertenece una fecha: '2026-07-Q1' (01–15) o '2026-07-Q2' (16–fin).
+function _quincenaDe(fecha){
+  var s=String(fecha||'').slice(0,10); if(s.length<10)return '';
+  var d=parseInt(s.slice(8,10),10)||1;
+  return s.slice(0,7)+(d<=15?'-Q1':'-Q2');
+}
+function _etiquetaQuincena(q){
+  var MES=['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+  var p=String(q).split('-'); var m=parseInt(p[1],10)||1;
+  return (p[2]==='Q1'?'1ra':'2da')+' quincena '+MES[m-1]+' '+p[0];
+}
+// Rehace la cuenta del SENIAT de la quincena a la que pertenece esa factura, sumando TODAS las
+// retenciones de esa quincena. Idempotente: si se borra una factura, la cuenta baja sola.
+async function _sincronizarCxpSeniat(fechaFactura){
+  var q=_quincenaDe(fechaFactura); if(!q)return;
+  var facs=CXP_FACTURAS.filter(function(f){return _quincenaDe(f.fecha)===q;});
+  var retBs=0, retUsd=0, tasa=0;
+  facs.forEach(function(f){
+    var r=(parseFloat(f.ret_iva_bs)||0)+(parseFloat(f.ret_islr_bs)||0);
+    retBs+=r;
+    var t=parseFloat(f.tasa_val)||0;
+    if(t>0){ retUsd+=r/t; tasa=t; }   // cada factura a SU tasa
+  });
+  var id='CXP-SENIAT-'+q;
+  var c=CXP.find(function(x){return String(x.id)===id;});
+  if(retBs<=0.005){ // ya no queda retención en la quincena (se borraron las facturas)
+    if(c&&DB_READY&&supabase){ await supabase.from('cxp').delete().eq('id',id); CXP=CXP.filter(function(x){return String(x.id)!==id;}); }
+    return;
+  }
+  var row={
+    id:id, prov_nombre:'SENIAT — Retenciones', prov:'SENIAT — Retenciones',
+    descripcion:'Retenciones de IVA/ISLR · '+_etiquetaQuincena(q)+' (se declara según calendario fiscal)',
+    fecha:(typeof fechaVE==='function')?fechaVE():new Date().toISOString().slice(0,10),
+    base_usd:+retUsd.toFixed(2), iva_pct:0, iva_usd:0, total_usd:+retUsd.toFixed(2),
+    ret_iva_usd:0, ret_islr_usd:0, neto_pagar:+retUsd.toFixed(2),
+    tasa_val:tasa||null, estado:(c&&c.estado==='pagada')?'pagada':'pendiente'
+  };
+  if(c){ Object.keys(row).forEach(function(k){c[k]=row[k];}); }
+  else { CXP.push(row); }
+  if(DB_READY&&supabase){
+    var r=await supabase.from('cxp').upsert([row],{onConflict:'id'});
+    if(r.error)console.warn('cxp SENIAT:',r.error.message);
+  }
+}
+
 // ── LA FACTURA MANDA ────────────────────────────────────────────────────────────────────────
 // La deuda nace de la ORDEN, en $ y SIN IVA (`iva_pct:0, total_usd = base`). Cuando llega la
 // factura real (en Bs, con IVA 16% y retención de IVA 75%) hay que traer esos números al libro
@@ -8446,6 +8577,8 @@ function guardarFactura(){
     // debe al proveedor pasa a ser el neto. Sin esto el sistema seguía creyendo que la compra
     // costaba la base sin IVA (Utilidad Real inflada) y el pago no cuadraba con el banco.
     _aplicarFacturasACxp(c);
+    // La retención va a la cuenta del SENIAT de esa quincena (una sola, acumulada).
+    try{ _sincronizarCxpSeniat(row.fecha); }catch(e){console.warn('cxp SENIAT',e&&e.message);}
     audit('Factura Bs cargada',(row.prov_nombre)+' '+row.nro_factura+' Bs'+v.base.toFixed(2));
     var toastMsg='🧾 Factura guardada · Ret. IVA Bs '+_bs2(v.retIva)+(v.retIslr?' · Ret. ISLR Bs '+_bs2(v.retIslr):'');
     var limpiar=function(){
@@ -8552,6 +8685,8 @@ function borrarFactura(id){
     // Revertir el efecto de la factura sobre la deuda: si era la última, la deuda vuelve a su
     // base sin IVA. Si no se revirtiera, la deuda quedaría con el IVA de una factura borrada.
     var _c=CXP.find(function(x){return String(x.id)===String(f.cxp_id);});
+    // La cuenta del SENIAT baja sola: se recalcula sumando lo que queda en la quincena.
+    try{ _sincronizarCxpSeniat(f.fecha); }catch(e){console.warn('cxp SENIAT',e&&e.message);}
     _aplicarFacturasACxp(_c,function(){ renderRetenciones(); renderCXP(); if(typeof renderHistProv==='function')renderHistProv(); });
     renderRetenciones(); renderCXP();
     if(typeof mostrarToast==='function')mostrarToast('🗑️ Factura borrada','exito');
@@ -10506,7 +10641,7 @@ function renderFinDash(){
   var egFijos=GASTOS_FIJOS.reduce(function(s,gf){return s+gf.monto;},0);
   var egVars=GASTOS_VARIABLES.reduce(function(s,gv){return s+(gv.usd||0);},0);
   // CxP — TODAS (pagadas + pendientes) MENOS las de combustible (ya contadas en egGas, sin duplicar)
-  var egCxP=CXP.filter(function(c){return !_esCxpCombustible(c);}).reduce(function(s,c){return s+_cxpCostoUsd(c);},0);
+  var egCxP=CXP.filter(_cxpCuentaEnEgresos).reduce(function(s,c){return s+_cxpCostoUsd(c);},0);
   var utilBruta=totalCob-egNom-egGas;
   // Total de egresos y Utilidad Neta = MISMA fuente única que el dashboard (_totalEgresos), para que coincidan.
   var totalEg=_totalEgresos(totalCob);
@@ -18509,7 +18644,7 @@ function renderRentabilidad(){
   // (los gastos fijos ya persisten desde A1). El 7.5% se calcula sobre el facturado del rango.
   var _egFijos=(typeof GASTOS_FIJOS!=='undefined'?GASTOS_FIJOS:[]).reduce(function(s,x){return s+(x.monto||0);},0);
   var _egVars=(typeof GASTOS_VARIABLES!=='undefined'?GASTOS_VARIABLES:[]).reduce(function(s,x){return s+(x.usd||0);},0);
-  var _egCxP=(typeof CXP!=='undefined'?CXP:[]).filter(function(c){return typeof _esCxpCombustible==='function'?!_esCxpCombustible(c):true;}).reduce(function(s,c){return s+_cxpCostoUsd(c);},0);
+  var _egCxP=(typeof CXP!=='undefined'?CXP:[]).filter(_cxpCuentaEnEgresos).reduce(function(s,c){return s+_cxpCostoUsd(c);},0);
   var _egMul=(typeof MULTAS!=='undefined'?MULTAS:[]).filter(function(m){return m.resp!=='chofer';}).reduce(function(s,m){return s+(typeof _multaMontoUsd==='function'?_multaMontoUsd(m):0);},0);
   var _eg75=R.total.ingreso*0.075;
   var _generales=_egFijos+_egVars+_egCxP+_egMul+_eg75;
