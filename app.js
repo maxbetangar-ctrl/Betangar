@@ -474,7 +474,9 @@ function forzar2FA(rol){
     if(!supabaseAuth||!supabaseAuth.auth){resolve(false);return;}
     (async function(){
       try{
-        var e=await supabaseAuth.auth.mfa.enroll({factorType:'totp',friendlyName:'Betangar '+(rol||'')+' '+Date.now()});
+        // Mismo issuer que el otro punto de enrolamiento (hay DOS en el archivo): si solo se
+        // arregla uno, la mitad de los usuarios sigue viendo el nombre equivocado.
+        var e=await supabaseAuth.auth.mfa.enroll({factorType:'totp',issuer:(BTG_CONFIG.empresa_marca||BTG_CONFIG.empresa_nombre||'Betangar'),friendlyName:(rol||'')+' '+Date.now()});
         if(e&&e.error){alert('No se pudo iniciar 2FA: '+e.error.message);resolve(false);return;}
         var d=(e&&e.data)?e.data:e; var factorId=d.id; var qr=d.totp.qr_code; var secret=d.totp.secret;
         var ov=_mfaOverlay(
