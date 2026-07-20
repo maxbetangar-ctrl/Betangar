@@ -656,6 +656,9 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
         </div>
         <div class="card" style="margin-bottom:8px"><div class="st" style="margin-bottom:8px">💼 Deuda por proveedor</div><div id="cxp-por-prov" style="font-size:12px;color:var(--text3)">Sin deudas por pagar</div></div>
         <div class="card"><div class="st" style="margin-bottom:8px">⏰ Próximas a Vencer</div><div id="cxp-proximas" style="font-size:12px;color:var(--text3)">Sin facturas pendientes</div></div>
+        <!-- Cuenta por pagar del SENIAT. Va APARTE y en BOLÍVARES a propósito: el resto de este
+             módulo está en dólares, y las retenciones se cierran, declaran y pagan en Bs. -->
+        <div class="card" style="margin-top:8px;border-color:rgba(239,68,68,.35)"><div class="st" style="margin-bottom:8px">🏛️ SENIAT — Retenciones por enterar (Bs)</div><div id="cxp-seniat" style="font-size:12px;color:var(--text3)">Sin retenciones pendientes</div></div>
       </div>
     </div>
 
@@ -2604,7 +2607,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
 </div>
 
 <script src="logo-alcaldia.js?v=1"></script>
-<script src="app.js?v=20260720-km-mantenimiento-editar"></script>
+<script src="app.js?v=20260720-cxp-seniat-bolivares"></script>
 
 <!-- Modal global -->
 <div id="modal" class="moverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9990;align-items:center;justify-content:center;padding:16px">

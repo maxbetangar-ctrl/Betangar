@@ -8339,6 +8339,53 @@ function guardarCXP(){
 }
 var _cxpEnVuelo=false;
 
+// CUENTA POR PAGAR DEL SENIAT — en BOLÍVARES.
+// Máximo (2026-07-20): "no es eliminar la cuenta por pagar del SENIAT, es solo que la guardes en
+// bolívares". Va en su propio bloque y NO entra en los KPI/totales en $ de este módulo: sumar Bs
+// con $ daría un número falso, y la deuda fiscal no se mueve con la tasa.
+async function renderCxpSeniat(){
+  var el=g('cxp-seniat'); if(!el||!DB_READY||!supabase)return;
+  var r=null;
+  try{ r=await supabase.from('seniat_retenciones').select('*').neq('estado','pagada').order('periodo',{ascending:true}); }catch(e){}
+  if(!r||r.error||!r.data||!r.data.length){ el.innerHTML='<div style="color:var(--green2);font-size:12px;padding:6px">✓ Sin retenciones pendientes de enterar</div>'; return; }
+  // Fecha límite de cada quincena, según el calendario fiscal ya cargado.
+  var lim={};
+  try{
+    var cf=await supabase.from('calendario_fiscal').select('periodo,fecha_declarar,declarado').like('obligacion','IVA%');
+    if(cf&&cf.data)cf.data.forEach(function(o){ var q=_periodoAQuincena(o.periodo); if(q)lim[q]={f:o.fecha_declarar,dec:o.declarado}; });
+  }catch(e){}
+  var total=r.data.reduce(function(s,x){return s+(parseFloat(x.total_bs)||0);},0);
+  el.innerHTML=r.data.map(function(x){
+    var L=lim[x.periodo]||{};
+    var badge=x.estado==='declarada'?'<span style="font-size:9px;color:#f59e0b">DECLARADA · falta pagar</span>':'<span style="font-size:9px;color:var(--text3)">por declarar</span>';
+    return '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border)">'+
+      '<div style="flex:1;min-width:0">'+
+        '<div style="font-size:11px;font-weight:700">'+String(x.etiqueta).replace(/</g,'&lt;')+'</div>'+
+        '<div style="font-size:9px;color:var(--text3)">'+x.facturas+' factura(s)'+(L.f?(' · declarar el '+_fmtFecha(L.f)):'')+' · '+badge+'</div>'+
+      '</div>'+
+      '<div style="text-align:right">'+
+        '<div style="font-family:var(--m);font-weight:700;color:var(--red)">Bs '+_bs2(x.total_bs)+'</div>'+
+        '<button class="btn btn-g btn-sm" style="font-size:9px;padding:3px 7px;margin-top:2px" onclick="pagarRetencionSeniat(\''+x.periodo+'\')">Marcar pagada</button>'+
+      '</div>'+
+    '</div>';
+  }).join('')+
+  '<div style="display:flex;justify-content:space-between;padding:7px 0 2px;margin-top:2px;border-top:2px solid var(--border);font-weight:800">'+
+    '<span style="font-size:11px">TOTAL a enterar</span><span style="font-family:var(--m);color:var(--red)">Bs '+_bs2(total)+'</span></div>'+
+  '<div style="font-size:9px;color:var(--text3);margin-top:5px">Esta plata es del SENIAT: se retuvo al proveedor y se entera en la fecha del calendario. Se lleva en bolívares.</div>';
+}
+async function pagarRetencionSeniat(periodo){
+  var ref=prompt('Registrar el PAGO al SENIAT de las retenciones de:\n'+periodo+'\n\nEscribí la referencia del pago (número de planilla / transferencia):');
+  if(ref===null)return;
+  ref=String(ref).trim();
+  if(!ref){ mostrarToast('Hace falta la referencia para registrar el pago','warn'); return; }
+  var hoyD=(typeof fechaVE==='function')?fechaVE():new Date().toISOString().slice(0,10);
+  var res=await supabase.from('seniat_retenciones').update({estado:'pagada',fecha_pago:hoyD,ref_pago:ref}).eq('periodo',periodo).select();
+  if(res.error){ mostrarToast('No se pudo registrar: '+res.error.message,'error'); return; }
+  try{ audit('Pago retenciones SENIAT',periodo+' · ref '+ref); }catch(e){}
+  mostrarToast('✅ Retenciones marcadas como pagadas','exito');
+  renderCxpSeniat(); try{renderFiscalBanner();}catch(e){}
+}
+
 function renderCXP(){
   var filtro=gv('cxp-filtro-estado')||'';
   var provFil=gv('cxp-filtro-prov')||''; // filtrar por proveedor (afecta tabla + KPI "Por Pagar")
@@ -8374,6 +8421,8 @@ function renderCXP(){
   if(g('cxp-cnt-venc'))g('cxp-cnt-venc').textContent=vencidasArr.length+' deudas';
   // Retenciones del mes en Bs (desde las facturas del Libro Bs)
   _refrescarKpiRetBs();
+  // Cuenta por pagar del SENIAT — EN BOLÍVARES, aparte de la deuda en $ de proveedores.
+  renderCxpSeniat();
   // Próximas a vencer
   var prox=abiertas.filter(function(c){var dr=diasHasta(c.fecha_venc||c.fechaVenc);return dr>0&&dr<=15;}).sort(function(a,b){return String(a.fecha_venc).localeCompare(String(b.fecha_venc));});
   var proxEl=g('cxp-proximas');
