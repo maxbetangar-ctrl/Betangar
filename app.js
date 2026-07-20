@@ -2773,38 +2773,128 @@ function toggleEstCam(cam){
 
 // Anomalías del checklist de HOY: SOLO lo que está MAL + la observación escrita (compacto).
 // Para el dueño, el mecánico y el jefe de operaciones. No muestra lo que está bien.
+// ══════════════════════════════════════════════════════════════════════════════
+// ANOMALÍAS PENDIENTES (tabla `anomalias`) — FUENTE ÚNICA
+// Antes esto leía la fila del checklist de HOY: una falla reportada ayer y no
+// arreglada DESAPARECÍA de la pantalla. Ahora cada falla es un registro propio
+// que sigue ABIERTO hasta que el mecánico o el jefe operativo lo cierre, y el
+// chofer la ve en su celular todo ese tiempo.
+// ══════════════════════════════════════════════════════════════════════════════
+var ANOM_ABIERTAS=[];
+// Quién puede cerrar una anomalía (decisión de Máximo 2026-07-20: mecánico + jefe operativo).
+var ANOM_ROLES_CIERRE={mecanico:1,operativo:1,superadmin:1,admin:1};
+
+function anomPuedeCerrar(){ return !!ANOM_ROLES_CIERRE[(SESION&&SESION.rol)||'']; }
+
+function anomNorm(s){
+  return String(s||'').toLowerCase()
+    .normalize('NFD').replace(/[̀-ͯ]/g,'')
+    .replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,'');
+}
+
 async function renderChecklistAnomalias(){
-  var targets=['checklist-anomalias','cl-anomalias'].map(function(id){return document.getElementById(id);}).filter(Boolean);
+  var targets=['checklist-anomalias','cl-anomalias','oper-anomalias'].map(function(id){return document.getElementById(id);}).filter(Boolean);
   if(!targets.length)return;
-  var hoy=(typeof fechaVE==='function')?fechaVE():new Date().toISOString().slice(0,10);
-  var data=(typeof CHECKLIST_DATA!=='undefined'?CHECKLIST_DATA:[]).filter(function(c){return c.fecha===hoy;});
-  if(!data.length && DB_READY && supabase){ try{var r=await supabase.from('checklist').select('*').eq('fecha',hoy);if(!r.error&&r.data)data=r.data;}catch(e){} }
-  // Mapa campo->etiqueta desde CL_SECCIONES
-  var labels={};
-  try{Object.keys(CL_SECCIONES).forEach(function(sec){CL_SECCIONES[sec].forEach(function(it){var p=it.split(':');labels[p[0]]=p[1]||p[0];});});}catch(e){}
-  var criticos={freno_mano:1,freno_servicio:1,aceite_motor:1,fugas:1,presion_aire:1,tuercas_esparragos:1,mangueras_hidraulicas:1,toma_fuerza:1};
-  var danios={danio_frontal:'Daño frontal',danio_lateral_izq:'Daño lateral izq.',danio_lateral_der:'Daño lateral der.',danio_posterior:'Daño posterior',danio_techo:'Daño techo'};
-  // Una fila por camión (la medición más reciente del día)
-  var porCam={}; data.forEach(function(c){if(!porCam[c.cam]||String(c.created_at)>String(porCam[c.cam].created_at))porCam[c.cam]=c;});
-  var filas=[], nCrit=0;
-  Object.keys(porCam).sort().forEach(function(cam){
-    var c=porCam[cam], mal=[], crit=false;
-    for(var k in labels){ if(c[k]==='mal'){ mal.push({l:labels[k],c:!!criticos[k]}); if(criticos[k])crit=true; } }
-    for(var d in danios){ var v=String(c[d]||'').trim(); if(v&&v!=='0'&&v!=='ok'){ mal.push({l:danios[d],c:true}); crit=true; } }
-    var obs=String(c.observaciones||'').trim();
-    if(!mal.length && !obs) return; // sin novedad → no se muestra
-    if(crit)nCrit++;
-    var chips=mal.map(function(m){return '<span style="display:inline-block;font-size:10px;padding:1px 6px;margin:1px;border-radius:8px;'+(m.c?'background:rgba(220,38,38,.15);color:#ef4444;border:1px solid #ef4444':'background:rgba(245,158,11,.12);color:#f59e0b;border:1px solid rgba(245,158,11,.4)')+'">'+(m.c?'🔴 ':'')+m.l+'</span>';}).join('');
-    filas.push('<div style="padding:7px 0;border-bottom:1px solid var(--border)">'+
-      '<div style="display:flex;justify-content:space-between;align-items:center"><b style="font-size:12px">'+cam+(crit?' <span style="color:#ef4444;font-size:9px">CRÍTICO</span>':'')+'</b><span style="font-size:9px;color:var(--text3)">'+(c.conductor||'')+'</span></div>'+
-      (chips?'<div style="margin-top:3px">'+chips+'</div>':'')+
-      (obs?'<div style="margin-top:3px;font-size:11px;color:var(--text2)">📝 '+obs.replace(/</g,'&lt;')+'</div>':'')+
-    '</div>');
+  if(!DB_READY||!supabase){ targets.forEach(function(el){el.innerHTML='<div style="color:var(--text3);font-size:12px;padding:8px">Sin conexión</div>';}); return; }
+  var r=null;
+  try{ r=await supabase.from('anomalias').select('*').eq('estado','abierta').order('critico',{ascending:false}).order('fecha_reporte',{ascending:true}); }catch(e){}
+  if(!r||r.error||!r.data){ targets.forEach(function(el){el.innerHTML='<div style="color:var(--text3);font-size:12px;padding:8px">No se pudieron cargar las anomalías</div>';}); return; }
+  ANOM_ABIERTAS=r.data;
+  if(!ANOM_ABIERTAS.length){
+    targets.forEach(function(el){el.innerHTML='<div style="color:var(--green2);font-size:12px;padding:8px">✓ Sin fallas pendientes en la flota</div>';});
+    return;
+  }
+  var hoyD=new Date();
+  var puedeCerrar=anomPuedeCerrar();
+  // Agrupadas por camión: el mecánico piensa por unidad, no por ítem suelto.
+  var porCam={};
+  ANOM_ABIERTAS.forEach(function(a){ (porCam[a.cam]=porCam[a.cam]||[]).push(a); });
+  var nCrit=ANOM_ABIERTAS.filter(function(a){return a.critico;}).length;
+  var filas=Object.keys(porCam).sort().map(function(cam){
+    var lista=porCam[cam];
+    var crit=lista.some(function(a){return a.critico;});
+    var items=lista.map(function(a){
+      var dias=0;
+      try{
+        var p=String(a.fecha_reporte||'').split('-');
+        if(p.length===3){ var d0=new Date(parseInt(p[0]),parseInt(p[1])-1,parseInt(p[2])); dias=Math.max(0,Math.round((hoyD-d0)/86400000)); }
+      }catch(e){}
+      // Una falla que lleva días abierta es peor que una de hoy → se marca.
+      var alerta=dias>=3?'<span style="color:#ef4444;font-weight:700"> · '+dias+' días abierta</span>':(dias>0?' · hace '+dias+' día'+(dias>1?'s':''):' · hoy');
+      return '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:5px 0;border-bottom:1px dashed var(--border)">'+
+        '<div style="flex:1;min-width:0">'+
+          '<div style="font-size:12px;color:'+(a.critico?'#ef4444':'#f59e0b')+';font-weight:700">'+(a.critico?'🔴 ':'🟡 ')+String(a.label||'').replace(/</g,'&lt;')+'</div>'+
+          (a.detalle?'<div style="font-size:10px;color:var(--text2)">📝 '+String(a.detalle).replace(/</g,'&lt;')+'</div>':'')+
+          '<div style="font-size:9px;color:var(--text3)">'+(a.reportado_por?String(a.reportado_por).replace(/</g,'&lt;')+' ':'')+alerta+'</div>'+
+        '</div>'+
+        (puedeCerrar?'<button class="btn btn-g btn-sm" style="font-size:10px;padding:5px 9px;white-space:nowrap" onclick="anomResolver(\''+a.id+'\')">✅ Resuelta</button>':'')+
+      '</div>';
+    }).join('');
+    return '<div style="padding:7px 0;border-bottom:1px solid var(--border)">'+
+      '<div style="display:flex;justify-content:space-between;align-items:center"><b style="font-size:12px">'+cam+(crit?' <span style="color:#ef4444;font-size:9px">CRÍTICO</span>':'')+'</b>'+
+      '<span style="font-size:9px;color:var(--text3)">'+lista.length+' pendiente(s)</span></div>'+items+'</div>';
   });
-  var html = filas.length
-    ? '<div style="font-size:10px;color:var(--text3);margin-bottom:4px">'+filas.length+' camión(es) con novedad'+(nCrit?' · <b style="color:#ef4444">'+nCrit+' crítico(s)</b>':'')+'</div>'+filas.join('')
-    : '<div style="color:var(--green2);font-size:12px;padding:8px">✓ Sin anomalías reportadas hoy</div>';
+  var html='<div style="font-size:10px;color:var(--text3);margin-bottom:4px">'+ANOM_ABIERTAS.length+' falla(s) pendiente(s) en '+Object.keys(porCam).length+' unidad(es)'+(nCrit?' · <b style="color:#ef4444">'+nCrit+' crítica(s)</b>':'')+'</div>'+filas.join('');
   targets.forEach(function(el){el.innerHTML=html;});
+}
+
+// Cierra una anomalía. Solo mecánico / jefe operativo (y admins).
+// El chofer deja de verla en su celular en cuanto refresca.
+async function anomResolver(id){
+  if(!anomPuedeCerrar()){ mostrarToast('Tu rol no puede cerrar fallas','warn'); return; }
+  var a=ANOM_ABIERTAS.filter(function(x){return x.id===id;})[0];
+  if(!a)return;
+  var nota=prompt('¿Qué se le hizo a "'+a.label+'" ('+a.cam+')?\n\nEscribe brevemente el arreglo (queda en el historial):');
+  if(nota===null)return;                       // canceló
+  nota=String(nota).trim();
+  if(!nota){ mostrarToast('Escribe qué se arregló para poder cerrarla','warn'); return; }
+  if(!DB_READY||!supabase){ mostrarToast('Sin conexión — no se pudo cerrar','error'); return; }
+  var res=await supabase.from('anomalias').update({
+    estado:'resuelta',
+    resuelta_por:(SESION&&SESION.nombre)||'',
+    resuelta_at:new Date().toISOString(),
+    nota_resolucion:nota
+  }).eq('id',id).eq('estado','abierta').select();
+  if(res.error){ mostrarToast('No se pudo cerrar: '+res.error.message,'error'); return; }
+  if(!res.data||!res.data.length){ mostrarToast('Esa falla ya la cerró otra persona','warn'); renderChecklistAnomalias(); return; }
+  try{ audit('anomalia_resuelta',a.cam+' · '+a.label+' → '+nota); }catch(e){}
+  // Avisar a quien depende de esa unidad: el chofer la deja de ver, pero el
+  // supervisor necesita saber que ya está lista.
+  try{
+    sendWA('BETANGAR - Falla resuelta\n\n'+
+      'Unidad: '+a.cam+'\n'+
+      'Falla: '+a.label+'\n'+
+      'Arreglo: '+nota+'\n'+
+      'Por: '+((SESION&&SESION.nombre)||'')+'\n'+
+      'Fecha: '+fmtFechaHora(new Date()),['socios','mecanico','operativo']);
+  }catch(e){}
+  mostrarToast('Falla cerrada — el chofer deja de verla','ok');
+  renderChecklistAnomalias();
+}
+
+// Abre en `anomalias` las fallas que se acaban de marcar en MAL, sin duplicar
+// las que ya están abiertas para esa misma unidad.
+async function anomAbrirDesdeOficina(cam, fallas, detalle, quien){
+  if(!DB_READY||!supabase||!cam||!fallas||!fallas.length)return;
+  var yaAbiertas={};
+  try{
+    var r=await supabase.from('anomalias').select('item_norm').eq('cam',cam).eq('estado','abierta');
+    if(r&&r.data)r.data.forEach(function(a){yaAbiertas[a.item_norm]=1;});
+  }catch(e){}
+  var hoy=(typeof fechaVE==='function')?fechaVE():new Date().toISOString().slice(0,10);
+  var nuevas=fallas.filter(function(f){return !yaAbiertas[anomNorm(f.item)];}).map(function(f){
+    return {cam:cam,item:f.item,item_norm:anomNorm(f.item),label:f.label,critico:!!f.critico,
+            detalle:detalle||'',origen:'mecanico',reportado_por:quien||'',
+            fecha_reporte:hoy,visto_ultima_fecha:hoy,estado:'abierta'};
+  });
+  if(!nuevas.length)return;
+  // UNA POR UNA a propósito: el índice único parcial (cam+item_norm abiertas) hace que
+  // un lote entero falle si otra persona abrió esa misma falla un segundo antes. Así el
+  // duplicado (23505) se ignora y las demás sí entran.
+  for(var i=0;i<nuevas.length;i++){
+    var res=await supabase.from('anomalias').insert([nuevas[i]]);
+    if(res.error&&res.error.code!=='23505')console.warn('anomalias insert:',res.error.message);
+  }
 }
 
 function renderRankingTop5(){
@@ -4417,6 +4507,36 @@ function calcNom(){
     var recargoDom=(vNomDom+vCamDom)*tasaAy*0.5;
     if(viajes>0)ayMap[e.id]={emp:e,viajes:viajes,viajesDom:vNomDom+vCamDom,recargoDom:recargoDom,tasa:tasaAy,descuentos:0,porNombre:vNom,porCam:vCam};
   });
+  // ── AYUDANTES DE APOYO (3er tipo, confirmado por Gladys/RRHH 2026-07-20) ──────────────────
+  // "Son apoyo a los ayudantes que están fijos en cada Unidad". Cobran POR VIAJE, pero NO lineal
+  // como los fijos: es un ESCALÓN POR DÍA según los viajes que hizo la unidad ese día.
+  //   1 viaje  → $0 (no se le paga)
+  //   2 viajes → $2
+  //   3 o más  → $5   (no sube de ahí)
+  // Verificado contra el banco ANTES de programarlo: a la tasa 617,64 todos los pagos reales de la
+  // SEM 16 dan dólares exactos y descomponen en sumas de $5 y $2 con ≤6 días ($27 = 5×$5 + 1×$2,
+  // $30 = 6×$5, $21 = 3×$5 + 3×$2). El escalón NO aplica a los ayudantes fijos ni a los IMAU.
+  // Se anotan en ap1/ap2 de la planilla (ay1..ay3 son los FIJOS de la unidad).
+  var apMap={};
+  f.forEach(function(r){
+    var vj=parseInt(r.t)||0;
+    var pago=tarifaApoyoDia(vj); if(pago<=0)return;   // 1 viaje o ninguno: no se paga
+    [r.ap1,r.ap2].forEach(function(nom){
+      if(!nom||!String(nom).trim())return;
+      var e=_empPorNombre(String(nom).trim()); if(!e)return;
+      if(!apMap[e.id])apMap[e.id]={emp:e,dias:0,viajes:0,montoUsd:0,descuentos:0,detalleDias:[]};
+      apMap[e.id].dias++; apMap[e.id].viajes+=vj; apMap[e.id].montoUsd+=pago;
+      apMap[e.id].detalleDias.push({f:r.f,cam:r.cam,viajes:vj,usd:pago});
+    });
+  });
+  // Entran al MISMO ayMap para que el resto del módulo (totales, detalle, tabla, préstamos) los
+  // trate igual. La diferencia es `apoyo:true` + `montoUsd` ya calculado: no se multiplica por tasa.
+  Object.keys(apMap).forEach(function(id){
+    var a=apMap[id];
+    ayMap[id]={emp:a.emp,viajes:a.viajes,viajesDom:0,recargoDom:0,tasa:0,descuentos:0,porNombre:a.viajes,porCam:0,
+               apoyo:true,montoUsd:a.montoUsd,diasApoyo:a.dias,detalleDias:a.detalleDias};
+  });
+
   // Descuentos prestamos — CÁLCULO PURO. Solo MUESTRA la cuota que se descontaría esta semana;
   // NO avanza la cuota (semanas_pagadas), NO marca pagado, NO manda WhatsApp. El AVANCE real
   // ocurre UNA sola vez al "Guardar esta semana" (guardarNominaHist→aplicarAvanceDescuentos),
@@ -14253,6 +14373,7 @@ function operIniciar(){
   }
   operCargarStats();
   operResumenFlota();
+  try{renderChecklistAnomalias();}catch(e){}  // fallas pendientes (puede cerrarlas)
   operProgramarRecordatorio();
 }
 
@@ -15128,6 +15249,26 @@ function clGuardar(){
         return (criticos.indexOf(k)>=0?'🔴 ':'⚠️ ')+label;
       }).join('\n');
       
+      // Cada falla queda ABIERTA hasta que la cierren: el chofer la ve en su celular
+      // todos los días, no solo el día que se reportó.
+      try{
+        var _fallasAnom=malos.map(function(k){
+          var _lbl='';
+          Object.keys(CL_SECCIONES).forEach(function(sec){
+            CL_SECCIONES[sec].forEach(function(item){if(item.startsWith(k+':'))_lbl=item.split(':')[1];});
+          });
+          return {item:k,label:_lbl||k.replace(/_/g,' '),critico:criticos.indexOf(k)>=0};
+        });
+        // Los daños de carrocería también son falla pendiente (siempre críticos).
+        var _dLbl={danio_frontal:'Daño frontal',danio_lateral_izq:'Daño lateral izq.',danio_lateral_der:'Daño lateral der.',danio_posterior:'Daño posterior',danio_techo:'Daño techo'};
+        Object.keys(_dLbl).forEach(function(dk){
+          var v=String(reg[dk]||'').trim();
+          if(v&&v!=='0'&&v!=='ok')_fallasAnom.push({item:dk,label:_dLbl[dk],critico:true});
+        });
+        anomAbrirDesdeOficina(cam,_fallasAnom,reg.observaciones,SESION.nombre||'Mecánico')
+          .then(function(){try{renderChecklistAnomalias();}catch(e){}});
+      }catch(e){console.warn('anomalias:',e&&e.message);}
+
       var msg='BETANGAR - CHECKLIST CON FALLAS\n\n'+
         'Unidad: '+cam+'\n'+
         'Fallas: '+malos.length+' item(s)\n'+listaFallas+

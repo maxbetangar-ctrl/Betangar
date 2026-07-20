@@ -822,6 +822,7 @@ function arrancarApp(){
   renderBotones();
   actualizarContador();
   renderHistorial();
+  anomLeerCache();   // fallas pendientes al instante, aunque no haya señal
 
   // Verificar si ya llenó la salida hoy (modo llegada) desde localStorage
   var modoGuardado = localStorage.getItem('btg_cl_modo_'+cam+'_'+hoy);
@@ -853,6 +854,141 @@ function arrancarApp(){
   setInterval(function(){ sincronizarCola(); }, 30000);
 }
 
+// ══════════════════════════════════════════════════════════════════════════════
+// FALLAS PENDIENTES (tabla `anomalias`)
+// El chofer NO las cierra: solo las ve. Se abren solas cuando alguien marca un
+// ítem en MAL en el checklist, y siguen abiertas (día tras día) hasta que el
+// mecánico o el jefe operativo las marque resueltas desde la app de oficina.
+// Se cachean en localStorage para que se vean SIN SEÑAL.
+// ══════════════════════════════════════════════════════════════════════════════
+var ANOM_LIST = [];
+var ANOM_ABIERTO = true;
+// Ítems que dejan el camión inseguro → se marcan como críticos (rojo).
+var ANOM_CRITICOS = {frenos:1, aceite:1, agua:1, 'neuma-del':1, 'neuma-tra':1};
+
+// Clave de deduplicación: misma falla del mismo camión = UNA sola anomalía abierta,
+// aunque se reporte todos los días. Sin acentos, sin signos, en minúscula.
+function anomNorm(s){
+  return String(s||'').toLowerCase()
+    .normalize('NFD').replace(/[̀-ͯ]/g,'')
+    .replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,'');
+}
+
+function anomCacheKey(){ return 'btg_anom_'+cam; }
+
+function anomGuardarCache(){
+  try{ localStorage.setItem(anomCacheKey(), JSON.stringify(ANOM_LIST)); }catch(e){}
+}
+
+function anomLeerCache(){
+  try{
+    var raw = localStorage.getItem(anomCacheKey());
+    if(raw){ ANOM_LIST = JSON.parse(raw) || []; anomRender(); }
+  }catch(e){}
+}
+
+function anomToggle(){
+  ANOM_ABIERTO = !ANOM_ABIERTO;
+  var l = document.getElementById('anom-lista');
+  var f = document.getElementById('anom-flecha');
+  if(l) l.style.display = ANOM_ABIERTO ? 'block' : 'none';
+  if(f) f.textContent  = ANOM_ABIERTO ? '▼' : '▶';
+}
+
+function anomRender(){
+  var box = document.getElementById('anom-banner');
+  if(!box) return;
+  if(!ANOM_LIST.length){ box.style.display='none'; return; }
+  box.style.display = 'block';
+  var nCrit = ANOM_LIST.filter(function(a){ return a.critico; }).length;
+  // Crítica pendiente → el banner se pone rojo fuerte; si no, ámbar.
+  box.style.background  = nCrit ? 'rgba(226,75,74,.14)' : 'rgba(239,159,39,.12)';
+  box.style.borderColor = nCrit ? 'rgba(226,75,74,.55)' : 'rgba(239,159,39,.45)';
+  var t = document.getElementById('anom-titulo');
+  if(t){
+    t.textContent = ANOM_LIST.length===1 ? '1 falla pendiente en tu camión'
+                                         : ANOM_LIST.length+' fallas pendientes en tu camión';
+    t.parentNode.style.color = nCrit ? '#ff8a8a' : '#ffc46b';
+  }
+  var hoy0 = new Date();
+  var lista = document.getElementById('anom-lista');
+  if(!lista) return;
+  lista.innerHTML = ANOM_LIST.map(function(a){
+    var dias = 0;
+    try{
+      var p = String(a.fecha_reporte||'').split('-');
+      if(p.length===3){
+        var d0 = new Date(parseInt(p[0]), parseInt(p[1])-1, parseInt(p[2]));
+        dias = Math.max(0, Math.round((hoy0-d0)/86400000));
+      }
+    }catch(e){}
+    var desde = dias===0 ? 'hoy' : dias===1 ? 'desde ayer' : 'hace '+dias+' días';
+    return '<div style="background:rgba(0,0,0,.25);border-radius:9px;padding:8px 10px;margin-bottom:6px">'+
+      '<div style="font-size:13px;font-weight:700;color:'+(a.critico?'#ff8a8a':'#ffc46b')+'">'+
+        (a.critico?'🔴 ':'🟡 ')+String(a.label||'').replace(/</g,'&lt;')+'</div>'+
+      (a.detalle?'<div style="font-size:11px;color:rgba(255,255,255,.65);margin-top:2px">📝 '+String(a.detalle).replace(/</g,'&lt;')+'</div>':'')+
+      '<div style="font-size:10px;color:rgba(255,255,255,.4);margin-top:3px">Reportada '+desde+
+        (a.reportado_por?' · por '+String(a.reportado_por).replace(/</g,'&lt;'):'')+'</div>'+
+    '</div>';
+  }).join('');
+}
+
+// Trae las abiertas de ESTA unidad. Si no hay señal, se queda con el caché.
+function anomCargar(){
+  if(!supabase || !cam) return;
+  supabase.from('anomalias').select('*')
+    .eq('cam', cam).eq('estado','abierta')
+    .order('critico',{ascending:false}).order('fecha_reporte',{ascending:true})
+    .then(function(res){
+      if(res.error || !res.data) return; // sin señal / error → queda el caché
+      ANOM_LIST = res.data;
+      anomGuardarCache();
+      anomRender();
+    }, function(){});
+}
+
+// Abre en `anomalias` los ítems que el chofer acaba de marcar en MAL.
+// Si esa falla YA está abierta, NO la duplica (índice único parcial cam+item_norm).
+function anomAbrirDesdeChecklist(fallas, obs, quien){
+  if(!supabase || !cam || !fallas || !fallas.length) return Promise.resolve();
+  return supabase.from('anomalias').select('item_norm')
+    .eq('cam', cam).eq('estado','abierta')
+    .then(function(res){
+      var yaAbiertas = {};
+      if(res && res.data) res.data.forEach(function(a){ yaAbiertas[a.item_norm]=1; });
+      var nuevas = [];
+      fallas.forEach(function(k){
+        var norm = anomNorm(k);
+        if(yaAbiertas[norm]) return; // ya está reportada y sin resolver → no duplicar
+        var lblEl = document.querySelector('#ci-'+k+' .cl-item-name');
+        var label = lblEl ? lblEl.textContent.trim() : k.replace(/-/g,' ');
+        nuevas.push({
+          cam: cam, item: k, item_norm: norm, label: label,
+          critico: !!ANOM_CRITICOS[k],
+          detalle: obs || '',
+          origen: 'chofer',
+          reportado_por: quien || '',
+          fecha_reporte: hoy,
+          visto_ultima_fecha: hoy,
+          estado: 'abierta'
+        });
+      });
+      if(!nuevas.length) return;
+      // UNA POR UNA: el índice único parcial hace fallar el LOTE entero si esa falla ya
+      // la abrió el mecánico. Así el duplicado (23505) se ignora y las demás sí entran.
+      var cadena = Promise.resolve();
+      nuevas.forEach(function(n){
+        cadena = cadena.then(function(){
+          return supabase.from('anomalias').insert([n]).then(function(r){
+            if(r && r.error && r.error.code!=='23505') console.warn('anomalias insert:', r.error.message);
+          }, function(){});
+        });
+      });
+      return cadena;
+    }, function(){})
+    .then(function(){ anomCargar(); }, function(){ anomCargar(); });
+}
+
 // ── SUPABASE ──
 function iniciarSupabase(){
   if(supabase){ verificarConexion(); return; } // ya creado (p.ej. por el login) → no recrear
@@ -878,6 +1014,7 @@ function verificarConexion(){
       cargarViajesSupabase();
       cargarChecklistSupabase();
       cargarSemanaSupabase();
+      anomCargar();          // refresca las fallas pendientes (y el caché offline)
       sincronizarCola();
     }
   }).catch(function(){ actualizarConexion(false); });
@@ -1977,6 +2114,9 @@ async function guardarChecklist(){
   if(fallas.length){
     var resumen = 'Fallas: '+fallas.join(', ').replace(/-/g,' ');
     registro.observaciones = registro.observaciones ? (registro.observaciones+' | '+resumen) : resumen;
+    // Abre cada falla como anomalía PERSISTENTE: no depende de la fila del día,
+    // sigue viva hasta que la cierren desde la oficina.
+    try{ anomAbrirDesdeChecklist(fallas, gv('cl-observaciones'), registro.conductor); }catch(e){}
   }
 
   if(CL_MODO==='salida'){

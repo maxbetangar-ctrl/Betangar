@@ -2583,7 +2583,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
 </div>
 
 <script src="logo-alcaldia.js?v=1"></script>
-<script src="app.js?v=20260719-fix-neto-undefined"></script>
+<script src="app.js?v=20260720-anomalias-persistentes"></script>
 
 <!-- Modal global -->
 <div id="modal" class="moverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9990;align-items:center;justify-content:center;padding:16px">
@@ -2779,6 +2779,14 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
       <div id="oper-flota-resumen" style="font-size:13px;color:var(--text3);padding:4px 0">Cargando...</div>
     </div>
 
+    <div class="card" style="margin-bottom:14px">
+      <div class="sh" style="display:flex;justify-content:space-between;align-items:center">
+        <div class="st">⚠️ Fallas pendientes de la flota</div>
+        <div style="font-size:9px;color:var(--text3)">el chofer las ve hasta que se cierren</div>
+      </div>
+      <div id="oper-anomalias" style="margin-top:6px"><div style="color:var(--text3);font-size:12px">Cargando…</div></div>
+    </div>
+
     <div class="card">
       <div class="sh"><div class="st">📊 Cumplimiento histórico</div></div>
       <div id="oper-stats" style="padding:4px 0">
@@ -2805,7 +2813,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
       </div>
     </div>
 
-    <div class="card" style="margin:10px 0"><div class="sh" style="display:flex;justify-content:space-between;align-items:center"><div class="st">🔧 Anomalías de hoy</div><div style="font-size:9px;color:var(--text3)">solo lo que está mal + observación</div></div><div id="cl-anomalias" style="margin-top:6px"><div style="color:var(--text3);font-size:12px">Cargando…</div></div></div>
+    <div class="card" style="margin:10px 0"><div class="sh" style="display:flex;justify-content:space-between;align-items:center"><div class="st">🔧 Fallas pendientes</div><div style="font-size:9px;color:var(--text3)">siguen abiertas hasta que las cierres</div></div><div id="cl-anomalias" style="margin-top:6px"><div style="color:var(--text3);font-size:12px">Cargando…</div></div></div>
 
     <!-- Selector de camión -->
     <div class="card" style="margin-bottom:12px">

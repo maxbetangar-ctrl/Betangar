@@ -32,6 +32,9 @@ function diasHasta(fechaStr: string): number {
 }
 
 // Etiquetas del checklist (mismo mapa que CL_SECCIONES del dashboard).
+// NOTA (2026-07-20): ya no se usan para armar el aviso de fallas — eso ahora sale de la
+// tabla `anomalias` (fuente única, con su propio label). Se conservan como catálogo de
+// referencia de los ítems del checklist.
 const LBL_CL: Record<string, string> = {
   luz_delantera_alta: "Luz Delantera Alta", luz_delantera_baja: "Luz Delantera Baja",
   luces_emergencia: "Luces de Emergencia", luces_neblineros: "Luces Neblineros",
@@ -200,27 +203,32 @@ Deno.serve(async (_req: Request) => {
     const ckByCam: Record<string, any> = {};
     for (const r of ckRows) { const c = String(r.cam || ""); if (!c) continue; if (!ckByCam[c] || String(r.created_at) > String(ckByCam[c].created_at)) ckByCam[c] = r; }
 
-    // ── ANOMALÍAS DEL CHECKLIST (solo lo MALO + observación) → Mecánica + Operativo + Socios ──
+    // ── FALLAS PENDIENTES (tabla `anomalias` = FUENTE ÚNICA) → Mecánica + Operativo + Socios ──
+    // Antes esto leía la fila del checklist de HOY: una falla reportada ayer y NO arreglada
+    // desaparecía del aviso (y de la pantalla). Ahora lista lo que sigue ABIERTO, con los días
+    // que lleva sin resolver — es exactamente lo que el chofer ve en su celular.
     if (veHour < 12) {
       const key = `checklist_fallas_${hoyD}`;
       if (!(await yaEnviado(key, dry))) {
+        const abiertas = await sel(`anomalias?estado=eq.abierta&select=cam,label,critico,detalle,fecha_reporte&order=critico.desc,fecha_reporte.asc`);
+        const porCamA: Record<string, any[]> = {};
+        for (const a of abiertas) { const c = String(a.cam || ""); if (!c) continue; (porCamA[c] = porCamA[c] || []).push(a); }
         const filasAnom: string[] = []; let nCrit = 0;
-        for (const cam of Object.keys(ckByCam).sort()) {
-          const c = ckByCam[cam]; const mal: string[] = []; let crit = false;
-          for (const k of Object.keys(LBL_CL)) { if (c[k] === "mal") { mal.push(LBL_CL[k]); if (CRIT_CL[k]) crit = true; } }
-          for (const d of Object.keys(DANIOS_CL)) { const v = String(c[d] || "").trim(); if (v && v !== "0" && v !== "ok") { mal.push(DANIOS_CL[d]); crit = true; } }
-          const obs = [String(c.observaciones || "").trim(), String(c.chofer_observaciones || "").trim()].filter(Boolean).join(" · ");
-          if (!mal.length && !obs) continue;
+        for (const cam of Object.keys(porCamA).sort()) {
+          const lista = porCamA[cam];
+          const crit = lista.some((a: any) => !!a.critico);
           if (crit) nCrit++;
-          const det: string[] = [];
-          if (obs) det.push(obs);
-          if (mal.length) det.push(`Fallas: ${mal.join(", ")}`);
-          filasAnom.push(`${Us(cam)}${crit ? " ⚠️" : ""} — ${c.conductor || "--"}\n📝 ${det.join(" | ")}`);
+          const items = lista.map((a: any) => {
+            const d = -diasHasta(String(a.fecha_reporte || ""));
+            const ant = isNaN(d) ? "" : (d <= 0 ? " (hoy)" : ` (${d} día${d > 1 ? "s" : ""} sin resolver)`);
+            return `${a.critico ? "🔴" : "🟡"} ${a.label}${ant}${a.detalle ? ` — ${a.detalle}` : ""}`;
+          });
+          filasAnom.push(`${Us(cam)}${crit ? " ⚠️" : ""}\n${items.join("\n")}`);
         }
         if (filasAnom.length) {
-          const cab = `🔧 Anomalías del checklist (hoy)\n${filasAnom.length} camión(es) con novedad${nCrit ? ` · ${nCrit} crítico(s)` : ""}\n\n`;
+          const cab = `🔧 Fallas pendientes\n${abiertas.length} falla(s) en ${filasAnom.length} unidad(es)${nCrit ? ` · ${nCrit} unidad(es) con falla crítica` : ""}\n\n`;
           await waSend(cab + filasAnom.join("\n\n"), ["mecanica", "operativo"], wa, dry);
-          sent.anomalias = filasAnom.length;
+          sent.anomalias = abiertas.length;
         }
       }
     }
