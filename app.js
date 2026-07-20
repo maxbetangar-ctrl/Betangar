@@ -16717,8 +16717,8 @@ async function renderConciliacionBNC(){
       // [Fix 07-18] Se mantiene el chequeo por PAGOS_ALC como respaldo por si algún día se puebla.
       var esAlcaldia=(pr&&(pr.fiel||0)>0) || ((typeof PAGOS_ALC!=='undefined')&&PAGOS_ALC.some(function(p){return String(p.fact)===String(a.fact);}));
       if(esAlcaldia){
-        var pct75Neto=neto*0.075;
-        if(pct75Neto>0)libros.push({tipo:'egreso',bs:Math.round(pct75Neto*tasa*100)/100,desc:'Fact '+a.fact+' — 7.5% Máximo (neto)',lab:'Fact '+a.fact+' 7.5% Máximo neto',clase:'pct75',fact:a.fact,entra:'neto',entraBs:Math.round(neto*tasa*100)/100,fecha:f,_usado:false});
+        var pct75Neto=netoUsd*0.075;
+        if(pct75Neto>0)libros.push({tipo:'egreso',bs:Math.round(pct75Neto*tasa*100)/100,desc:'Fact '+a.fact+' — 7.5% Máximo (neto)',lab:'Fact '+a.fact+' 7.5% Máximo neto',clase:'pct75',fact:a.fact,entra:'neto',entraBs:Math.round(netoUsd*tasa*100)/100,fecha:f,_usado:false});
         var pct75Fiel=fielUsd*0.075;
         if(pct75Fiel>0)libros.push({tipo:'egreso',bs:Math.round(pct75Fiel*tasa*100)/100,desc:'Fact '+a.fact+' — 7.5% Máximo (fiel)',lab:'Fact '+a.fact+' 7.5% Máximo fiel',clase:'pct75',fact:a.fact,entra:'fiel',entraBs:Math.round(fielUsd*tasa*100)/100,fecha:f,_usado:false});
       }
