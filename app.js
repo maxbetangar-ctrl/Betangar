@@ -2615,13 +2615,25 @@ async function imprimirDashboard(){
 // queda como override de la sesión.
 var _CL_CRITICOS=['freno_mano','freno_servicio','aceite_motor','fugas','presion_aire','tuercas_esparragos','mangueras_hidraulicas','toma_fuerza','refrigerante','liquido_hidraulico'];
 var _estadoOverride={};
+// Camiones con AL MENOS UNA anomalía crítica abierta (lo llena renderChecklistAnomalias).
+var _ANOM_CRIT_CAM={};
 function estadoDelChecklist(cam){
   var hoy=(typeof ccHoy==='function')?ccHoy():(typeof fechaVE==='function'?fechaVE():'');
   var c=(typeof checklistCamFecha==='function')?checklistCamFecha(cam,hoy):null;
   if(!c)return null;
+  // 1) LO QUE MARCÓ EL CHOFER. Es lo único que se llena de verdad: su PWA guarda
+  //    `estado_vehiculo`, NO las columnas por ítem. Antes se ignoraba, así que un camión que
+  //    el chofer mandaba a taller seguía saliendo "operativo" en el dashboard (bug 2026-07-20).
+  var ev=String(c.estado_vehiculo||'').toLowerCase().trim();
+  if(ev&&ev!=='operativo')return ev.indexOf('taller')===0?'taller':ev;
+  // 2) Ítems críticos del checklist del mecánico (solo si alguien lo llenó; hoy nadie lo usa).
   var crit=_CL_CRITICOS.some(function(k){return c[k]==='mal';});
   ['danio_frontal','danio_lateral_izq','danio_lateral_der','danio_posterior','danio_techo'].forEach(function(d){var v=String(c[d]||'').trim();if(v&&v!=='0'&&v!=='ok')crit=true;});
-  return crit?'taller':'operativo';
+  if(crit)return 'taller';
+  // 3) Anomalía CRÍTICA todavía abierta (frenos, aceite, agua, cauchos) → el camión no está sano
+  //    aunque el chofer haya salido con él. Deja de estarlo cuando el mecánico la cierra.
+  if(_ANOM_CRIT_CAM[cam])return 'taller';
+  return 'operativo';
 }
 // FUENTE ÚNICA del estado real de un camión (la MISMA que usa el widget de flota y la disponibilidad).
 // Prioridad: override manual de sesión > checklist de hoy > último estado conocido (km_data) > FLOTA.
@@ -2803,6 +2815,9 @@ async function renderChecklistAnomalias(){
   try{ r=await supabase.from('anomalias').select('*').eq('estado','abierta').order('critico',{ascending:false}).order('fecha_reporte',{ascending:true}); }catch(e){}
   if(!r||r.error||!r.data){ targets.forEach(function(el){el.innerHTML='<div style="color:var(--text3);font-size:12px;padding:8px">No se pudieron cargar las anomalías</div>';}); return; }
   ANOM_ABIERTAS=r.data;
+  // Alimenta la fuente única del estado del camión: una falla crítica sin resolver = taller.
+  _ANOM_CRIT_CAM={};
+  ANOM_ABIERTAS.forEach(function(a){ if(a.critico)_ANOM_CRIT_CAM[a.cam]=1; });
   if(!ANOM_ABIERTAS.length){
     targets.forEach(function(el){el.innerHTML='<div style="color:var(--green2);font-size:12px;padding:8px">✓ Sin fallas pendientes en la flota</div>';});
     return;
