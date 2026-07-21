@@ -1480,7 +1480,13 @@ function _acRender(){
   var cerradas=J.filter(function(j){return j.consumo!=null;});
   var totCons=cerradas.reduce(function(s,j){return s+j.consumo;},0);
   var totKm=J.reduce(function(s,j){return s+(j.km||0);},0);
-  var rendFlota=(totCons>0&&totKm>0)?(totKm/totCons):null;
+  // El RENDIMIENTO se calcula SOLO con las jornadas que tienen consumo Y km. Si se dividen los km
+  // de todas las jornadas entre el consumo de las pocas que cerraron, sale un número inflado y
+  // falso: daba 11,29 km/L en una flota de aseo que anda por 1 km/L (bug visto en vivo 2026-07-21).
+  var cuadr=J.filter(function(j){return j.consumo!=null&&j.consumo>0&&j.km!=null&&j.km>0;});
+  var kmC=cuadr.reduce(function(s,j){return s+j.km;},0);
+  var consC=cuadr.reduce(function(s,j){return s+j.consumo;},0);
+  var rendFlota=(consC>0&&kmC>0)?(kmC/consC):null;
   var costoL=_acCostoL();
   var costoTot=(costoL>0)?(totCons*costoL):null;
   var altas=AC_ANOM.filter(function(a){return a.sev==='alta';});
@@ -1495,8 +1501,8 @@ function _acRender(){
   html+='<div class="g4" style="margin-bottom:10px">'+
     _acCard('Consumo del período',_acFmt(totCons,1)+' L','Gasoil que salió de los tanques, cuadrado con la regla')+
     _acCard('Costo',costoTot!=null?('$'+_acFmt(costoTot,2)):'—',costoL>0?('a $'+_acFmt(costoL,3)+'/L, el costo real vigente'):'falta cargar el costo por litro')+
-    _acCard('Rendimiento de flota',rendFlota!=null?(_acFmt(rendFlota,2)+' km/L'):'—','Km por litro. Si baja de un período a otro, mirá las anomalías antes de culpar a los camiones')+
-    _acCard('Costo por km',(costoTot!=null&&totKm>0)?('$'+_acFmt(costoTot/totKm,3)):'—','Lo que te cuesta en gasoil mover un camión un kilómetro')+
+    _acCard('Rendimiento de flota',rendFlota!=null?(_acFmt(rendFlota,2)+' km/L'):'—','Km por litro, sobre '+cuadr.length+' de '+J.length+' jornadas (solo las que tienen las dos mediciones y km). Si baja de un período a otro, mirá las anomalías antes de culpar a los camiones')+
+    _acCard('Costo por km',(costoL>0&&rendFlota!=null)?('$'+_acFmt(costoL/rendFlota,3)):'—','Lo que te cuesta en gasoil mover un camión un kilómetro. Sale de las jornadas cuadradas, no de todas')+
   '</div>';
   html+='<div class="g4" style="margin-bottom:10px">'+
     _acCard('Litros sin explicar',_acFmt(litrosSinExplicar,1)+' L',
