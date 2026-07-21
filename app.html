@@ -2609,7 +2609,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
 </div>
 
 <script src="logo-alcaldia.js?v=1"></script>
-<script src="app.js?v=20260721f-orden-proveedor"></script>
+<script src="app.js?v=20260721g-cantidad-decimal"></script>
 
 <!-- Modal global -->
 <div id="modal" class="moverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9990;align-items:center;justify-content:center;padding:16px">
@@ -3001,7 +3001,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
     <div id="cc-lineas" style="margin-bottom:12px"></div>
     <div style="border:1px solid var(--border);border-radius:12px;padding:14px;display:grid;gap:10px">
       <div style="font-weight:700;font-size:13px">➕ Registrar lo que se compró</div>
-      <div class="fr2"><div class="fg"><label>¿Qué se compró?</label><input class="fc" id="cc-item" placeholder="Ej: Batería 12V"></div><div class="fg"><label>Cantidad</label><input class="fc" id="cc-cant" type="number" value="1" min="1" style="font-family:var(--m)"></div></div>
+      <div class="fr2"><div class="fg"><label>¿Qué se compró?</label><input class="fc" id="cc-item" placeholder="Ej: Batería 12V"></div><div class="fg"><label>Cantidad</label><input class="fc" id="cc-cant" type="number" value="1" min="0.01" step="any" title="Acepta decimales: 22.4 metros, 3.5 litros, 0.5 kg" style="font-family:var(--m)"></div></div>
       <div class="fr2"><div class="fg"><label>Costo total $ (de esta línea)</label><input class="fc" id="cc-costo" type="number" placeholder="0.00" style="font-family:var(--m)"></div><div class="fg"><label>Proveedor (dónde se compró)</label><select class="fc" id="cc-prov" onchange="_ccProvOtro()"><option value="">— elegir —</option></select></div></div>
       <div class="fg" id="cc-prov-otro-wrap" style="display:none"><label>Nombre del proveedor (nuevo)</label><input class="fc" id="cc-prov-otro" placeholder="Escribe el proveedor"></div>
       <div class="fg"><label>¿A dónde va? (centro de costo)</label><select class="fc" id="cc-destino" onchange="_ccDestino()">

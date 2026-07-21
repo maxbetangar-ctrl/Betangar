@@ -5968,7 +5968,10 @@ function _ccItemCatalogo(nombre){
 async function _ccAgregarLinea(){
   var ordenId=window._ccOrden, o=(ORDENES_SERV||[]).find(function(x){return x.id===ordenId;}); if(!o){alert('Orden no encontrada');return;}
   var nombre=(gv('cc-item')||'').trim(); if(!nombre){alert('Escribe qué se compró');return;}
-  var cant=parseInt(gv('cc-cant'))||1; if(cant<1)cant=1;
+  // parseFloat, NO parseInt: hay materiales por METRO/LITRO/KG (22.40 mts de manguera se
+  // guardaba como 22 y se perdían 40 cm en cada carga). Se redondea a 2 decimales.
+  var cant=parseFloat(String(gv('cc-cant')||'').replace(',','.'))||1; if(cant<=0)cant=1;
+  cant=Math.round(cant*100)/100;
   var costo=parseFloat(gv('cc-costo'))||0;
   var destino=gv('cc-destino')||'unidad';
   var provSel=gv('cc-prov'), provNom='', provId='';
@@ -6009,7 +6012,7 @@ async function _ccAgregarLinea(){
         INVENTARIO.push(item);
         if(DB_READY&&supabase){ try{ await supabase.from('inventario').upsert([{id:item.id,nombre:item.nombre,categoria:item.cat,unidad:item.unidad,stock:item.stock,stock_min:item.stockMin,precio:item.precio}],{onConflict:'id'}); }catch(e){} }
       } else { item=INVENTARIO.find(function(x){return x.id===invSel;}); if(!item){alert('Elegí el ítem de inventario');return;} }
-      item.stock=(parseInt(item.stock)||0)+cant;
+      item.stock=Math.round(((parseFloat(item.stock)||0)+cant)*100)/100; // decimal: metros/litros/kg
       item.precio=precioU; // último precio de compra (decisión de Máximo)
       if(DB_READY&&supabase){ try{ await supabase.from('inventario').update({stock:item.stock,precio:precioU}).eq('id',item.id); }catch(e){} }
       try{localStorage.setItem('btg_inventario',JSON.stringify(INVENTARIO));}catch(e){}
