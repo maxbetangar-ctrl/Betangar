@@ -1809,7 +1809,7 @@ function sincronizarCola(){
           idbDel('cl', reg.cam+'|'+reg.fecha);
           try{ if(typeof enviarNotificacionWA==='function') enviarNotificacionWA(reg); }catch(e){} // WA del checklist que no salió offline
           if(reg.estado_vehiculo){
-            supabase.from('flota_estado').upsert([{ unidad: reg.cam, estado: reg.estado_vehiculo, nota: '', updated_by: reg.conductor || 'chofer', updated_at: new Date().toISOString() }],{onConflict:'unidad'});
+            // 2026-07-21: quitado el upsert a `flota_estado` (tabla sin lectores) — ver chofer.html abajo.
             var estD = reg.estado_vehiculo==='inoperativo' ? 'inoperativo' : (String(reg.estado_vehiculo).indexOf('taller')===0 ? 'taller' : 'operativo');
             supabase.from('km_data').update({ estado: estD }).eq('cam', reg.cam);
             // Odómetro: la ruta online sí actualiza km_data.km (con candado). Por cola faltaba → "Próx.
@@ -2266,15 +2266,11 @@ async function guardarChecklist(){
       enCola = true;
     }
 
-    // Actualizar flota_estado si hay cambio de estado
+    // Guardar el estado que reportó el chofer
     if(guardadoOk && CL_ESTADO){
-      // Columnas REALES de flota_estado: unidad (no 'cam'), estado, nota (no 'motivo'),
-      // updated_by, updated_at. onConflict 'unidad' (igual que el dashboard en app.html).
-      // Antes usaba cam/motivo/fecha_cambio → 400 y el estado nunca se actualizaba.
-      await supabase.from('flota_estado')
-        .upsert([{ unidad: cam, estado: CL_ESTADO, nota: gv('cl-motivo') || '', updated_by: chofer || 'chofer', updated_at: new Date().toISOString() }],
-                { onConflict: 'unidad' });
-      // El DASHBOARD lee el estado del camión de km_data.estado (NO de flota_estado) →
+      // 2026-07-21: se quitó el upsert a `flota_estado`. Nadie leía esa tabla (verificado en las 2
+      // bases, incluidas vistas/funciones/triggers/crons); el dashboard siempre leyó km_data.
+      // El DASHBOARD lee el estado del camión de km_data.estado →
       // actualizarlo ahí también, mapeado al vocabulario del dashboard (operativo/taller/
       // inoperativo). Así el estado que reporta el chofer SÍ se enlaza con el dashboard.
       var estDash = CL_ESTADO==='inoperativo' ? 'inoperativo' : (String(CL_ESTADO).indexOf('taller')===0 ? 'taller' : 'operativo');
