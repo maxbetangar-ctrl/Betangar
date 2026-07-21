@@ -6662,7 +6662,20 @@ function _hvPoblarSelects(){
   var optIver='<option value="">Todos los ítems</option>'+its.map(function(x){return '<option value="'+_mEsc(x.id)+'">'+_mEsc(x.nombre)+'</option>';}).join('');
   _setSelPreserve('hv-cam',optU); _setSelPreserve('hv-item',optI);
   _setSelPreserve('hv-ver-cam',optUver); _setSelPreserve('hv-ver-item',optIver);
+  // Espejo del filtro de unidad en la barra del historial (mismo valor, dos lugares visibles).
+  _setSelPreserve('hv-hist-cam',optUver);
+  var sv1=g('hv-ver-cam'), sv2=g('hv-hist-cam');
+  if(sv1&&sv2&&sv2.value!==sv1.value) sv2.value=sv1.value;
 }
+// FUENTE ÚNICA del filtro de unidad de Mantenimiento = 'hv-ver-cam'. El select de la barra
+// del historial ('hv-hist-cam') es un espejo: los dos escriben acá y se sincronizan.
+function _hvSetCam(v){
+  var a=g('hv-ver-cam'), b=g('hv-hist-cam');
+  if(a)a.value=v||''; if(b)b.value=v||'';
+  renderHojaVida();
+}
+// Unidad elegida en Mantenimiento (la usa el QR y cualquier acción "de esta unidad").
+function _hvCamSel(){ return (typeof gv==='function' ? (gv('hv-ver-cam')||gv('hv-hist-cam')||'') : ''); }
 // Puebla el selector de ítem del catálogo en la pestaña Odómetro (para vincular el registro al preventivo).
 function _poblarKmItem(){
   var s=g('km-item'); if(!s)return; var cur=s.value;
@@ -8539,9 +8552,13 @@ function renderCXP(){
     return true;
   });
   tb.innerHTML=datos.map(function(c){
-    var deuda=parseFloat(c.base_usd||c.baseUsd||0)||0;
+    // FUENTE ÚNICA del saldo = _cxpDeudaUsd (neto_pagar → total_usd → base_usd), la misma que usan
+    // el desglose por proveedor, los KPI y el filtro de arriba. Antes esta fila medía contra
+    // `base_usd` (la base SIN IVA) y el renglón se contradecía con el panel: en Solquiven quedaba
+    // base $40,99 − abonado $42,63 = −$1,64 "de diferencia" en una deuda saldada.
+    var deuda=_cxpDeudaUsd(c);
     var abon=_cxpAbonadoUsd(c.id);
-    var saldo=deuda-abon;
+    var saldo=_cxpSaldoUsd(c);
     var pagada=saldo<=0.005;
     var dr=!pagada?diasHasta(c.fecha_venc||c.fechaVenc):99;
     var nFac=_cxpFacturasDe(c.id).length;
@@ -8588,7 +8605,7 @@ function imprimirCXP(){
     var gr=grupos[id],subt=0;
     filasHtml+='<tr class="grp"><td colspan="7">'+_mEsc(gr.nom)+'</td></tr>';
     gr.filas.forEach(function(c){
-      var deuda=parseFloat(c.base_usd||c.baseUsd||0)||0, abon=_cxpAbonadoUsd(c.id), saldo=deuda-abon;
+      var deuda=_cxpDeudaUsd(c), abon=_cxpAbonadoUsd(c.id), saldo=_cxpSaldoUsd(c); // fuente única
       var dr=diasHasta(c.fecha_venc||c.fechaVenc), venc=dr<=0;
       subt+=saldo; totGen+=saldo; if(venc)totGenVenc+=saldo;
       var nFac=_cxpFacturasDe(c.id).length;
@@ -8633,7 +8650,17 @@ function _refrescarKpiRetBs(){
 // Ir a cargar una factura Bs para una deuda concreta
 function facturarDeuda(id){
   switchProvTab('ret');
-  setTimeout(function(){ sv('fac-cxp',String(id)); if(typeof facPrefill==='function')facPrefill(); var el=g('fac-cxp'); if(el&&el.scrollIntoView)el.scrollIntoView({behavior:'smooth',block:'center'}); },60);
+  setTimeout(function(){
+    var el=g('fac-cxp'); if(!el)return;
+    sv('fac-cxp',String(id));
+    // Si la deuda está cerrada (saldada + ya facturada) no está en la lista corta: la traemos
+    // marcando "mostrar cerradas", para que el botón 🧾 Facturar del renglón nunca quede inerte.
+    if(String(el.value)!==String(id)){
+      var ck=g('fac-cxp-cerradas'); if(ck){ ck.checked=true; fillFacCxpSelect(); sv('fac-cxp',String(id)); }
+    }
+    if(typeof facPrefill==='function')facPrefill();
+    if(el.scrollIntoView)el.scrollIntoView({behavior:'smooth',block:'center'});
+  },60);
 }
 
 // ══════════ ABONOS (pago parcial, doble moneda Bs + $) ══════════
@@ -8647,7 +8674,7 @@ function abrirAbonoCxp(id){
   // Por defecto paga el TOTAL (saldo*tasa); el usuario baja el monto si es abono parcial.
   sv('abono-bs',(_tasaAb>0&&saldo>0.005)?(saldo*_tasaAb).toFixed(2):'');
   sv('abono-ref','');sv('abono-obs','');
-  var info=g('abono-info'); if(info)info.innerHTML='<b>'+(c.prov_nombre||c.prov||'')+'</b><br>Deuda $'+parseFloat(c.base_usd||0).toFixed(2)+' · Abonado $'+_cxpAbonadoUsd(c.id).toFixed(2)+' · <b style="color:var(--lime)">Saldo $'+saldo.toFixed(2)+'</b>';
+  var info=g('abono-info'); if(info)info.innerHTML='<b>'+(c.prov_nombre||c.prov||'')+'</b><br>Deuda $'+_cxpDeudaUsd(c).toFixed(2)+' · Abonado $'+_cxpAbonadoUsd(c.id).toFixed(2)+' · <b style="color:var(--lime)">Saldo $'+saldo.toFixed(2)+'</b>';
   calcAbonoCxp();
   var m=g('abono-modal'); if(m)m.style.display='flex';
 }
@@ -8696,9 +8723,19 @@ function guardarAbonoCxp(){
 // ══════════ FACTURAS + RETENCIONES (Bs) — Libro 2 ══════════
 function fillFacCxpSelect(){
   var sel=g('fac-cxp'); if(!sel)return; var prev=sel.value;
-  // Mostrar deudas ABIERTAS, saldadas (p.ej. pago BNC antes de que llegue la factura) o que ya
-  // tienen alguna factura (para agregar otra), agrupadas por proveedor.
-  var arr=CXP.filter(function(c){return _cxpSaldoUsd(c)>0.005||_cxpPagada(c)||_cxpFacturasDe(c.id).length;});
+  // Qué se ofrece para facturar:
+  //  • deudas ABIERTAS (con o sin factura previa: una deuda puede llevar varias facturas), y
+  //  • saldadas SIN factura todavía (caso típico: se pagó por BNC y la factura llegó después).
+  // Una deuda CERRADA (saldada Y ya con su factura + retención emitidas) NO se ofrece: su ciclo
+  // fiscal terminó y solo ensuciaba la lista (caso Solquiven, factura F-00002875 ya retenida).
+  // El check "mostrar cerradas" las trae de vuelta si hiciera falta cargar una factura adicional.
+  var verTodas=!!(g('fac-cxp-cerradas')&&g('fac-cxp-cerradas').checked);
+  var arr=CXP.filter(function(c){
+    var abierta=_cxpSaldoUsd(c)>0.005;
+    var cerrada=!abierta&&_cxpFacturasDe(c.id).length>0;
+    if(cerrada)return verTodas;
+    return abierta||_cxpPagada(c);
+  });
   var grupos={};
   arr.forEach(function(c){var k=(c.prov_nombre||c.prov||'Sin proveedor'); (grupos[k]=grupos[k]||[]).push(c);});
   var html='<option value="">-- Seleccionar deuda --</option>';
@@ -8706,7 +8743,7 @@ function fillFacCxpSelect(){
     html+='<optgroup label="'+_mEsc(k)+'">';
     grupos[k].slice().reverse().forEach(function(c){
       var saldo=_cxpSaldoUsd(c);
-      var lbl=formatFecha(c.fecha)+' · '+String(c.descripcion||c.desc||c.orden_id||'').slice(0,24)+' · $'+parseFloat(c.base_usd||0).toFixed(0)+(saldo>0.005?'':' (saldada)');
+      var lbl=formatFecha(c.fecha)+' · '+String(c.descripcion||c.desc||c.orden_id||'').slice(0,24)+' · $'+_cxpDeudaUsd(c).toFixed(0)+(saldo>0.005?'':(_cxpFacturasDe(c.id).length?' (cerrada)':' (saldada)'));
       html+='<option value="'+_mEsc(String(c.id))+'">'+_mEsc(lbl)+'</option>';
     });
     html+='</optgroup>';
@@ -13030,9 +13067,9 @@ function renderCxP(){
 
   var html='';
   datos.forEach(function(c){
-    var deuda=parseFloat(c.base_usd||0)||0;
+    var deuda=_cxpDeudaUsd(c); // fuente única (ver renderCXP): nunca base_usd suelta
     var abon=_cxpAbonadoUsd(c.id);
-    var saldo=deuda-abon;
+    var saldo=_cxpSaldoUsd(c);
     var pagada=saldo<=0.005;
     var vencida = !pagada&&(c.fecha_venc||'')<=hoy;
     var borde   = pagada?'var(--green)':vencida?'var(--red)':'var(--blue)';
@@ -15893,9 +15930,45 @@ function generarQRChoferes(){
 // QR de UNA unidad (para su hoja de vida): tarjeta branded con logo + placa + número,
 // lista para ver e imprimir. Usa EL MISMO esquema de URL que los QR ya impresos
 // (betangar.com/chofer.html?cam=…) → el QR sale IDÉNTICO al que ya está pegado en el carro.
+// Si no hay unidad elegida, NO se muere con un alert: abre el selector de unidades
+// (el reclamo era "no funciona / no da la selección de la unidad").
+function _elegirUnidadQR(){
+  var unidades = (typeof _hvUnidades==='function') ? _hvUnidades() : [];
+  if(!unidades.length){ alert('No hay unidades cargadas todavía.'); return; }
+  var id='modal-qr-unidad', old=g(id); if(old) old.remove();
+  var m=document.createElement('div'); m.id=id;
+  m.style.cssText='position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.8);z-index:9999;display:flex;align-items:center;justify-content:center';
+  m.innerHTML='<div style="background:var(--bg2);border-radius:16px;padding:20px;max-width:420px;width:92%;max-height:82vh;display:flex;flex-direction:column">'+
+    '<div style="font-size:15px;font-weight:900;margin-bottom:4px">📲 QR de la unidad</div>'+
+    '<div style="font-size:11px;color:var(--text3);margin-bottom:10px">Elegí la unidad para ver e imprimir su código QR.</div>'+
+    '<input id="qru-busq" class="fc" placeholder="Buscar unidad…" style="margin-bottom:8px;padding:6px 8px;font-size:12px">'+
+    '<div id="qru-lista" style="overflow:auto;flex:1;display:flex;flex-direction:column;gap:6px"></div>'+
+    '<button class="btn btn-s" id="qru-cerrar" style="margin-top:10px">Cancelar</button>'+
+    '</div>';
+  document.body.appendChild(m);
+  function pintar(){
+    var q=(document.getElementById('qru-busq').value||'').toUpperCase();
+    var l=document.getElementById('qru-lista');
+    var vis=unidades.filter(function(c){return !q||c.toUpperCase().indexOf(q)>=0;});
+    l.innerHTML='';
+    if(!vis.length){ l.innerHTML='<div style="color:var(--text3);font-size:12px;padding:8px">Sin resultados</div>'; return; }
+    vis.forEach(function(c){
+      var b=document.createElement('button');
+      b.className='btn btn-s'; b.style.cssText='text-align:left;font-weight:700';
+      b.textContent=c;
+      b.onclick=function(){ m.remove(); if(typeof _hvSetCam==='function')_hvSetCam(c); generarQRUnidad(c); };
+      l.appendChild(b);
+    });
+  }
+  document.getElementById('qru-busq').oninput=pintar;
+  document.getElementById('qru-cerrar').onclick=function(){ m.remove(); };
+  m.onclick=function(e){ if(e.target===m) m.remove(); };
+  pintar();
+  setTimeout(function(){try{document.getElementById('qru-busq').focus();}catch(e){}},60);
+}
 function generarQRUnidad(cam){
-  cam = cam || (typeof gv==='function' ? gv('hv-ver-cam') : '') || '';
-  if(!cam){ alert('Elegí primero una unidad.'); return; }
+  cam = cam || (typeof _hvCamSel==='function' ? _hvCamSel() : '') || '';
+  if(!cam){ _elegirUnidadQR(); return; }
   // Fuente de datos: FLOTA (las 12 JAC fijas) o UNIDAD_CONFIG (registro maestro, unidades nuevas).
   var f = (typeof FLOTA!=='undefined' && FLOTA[cam]) ? FLOTA[cam] : null;
   var c = (typeof UNIDAD_CONFIG!=='undefined' && UNIDAD_CONFIG[cam]) ? UNIDAD_CONFIG[cam] : {};

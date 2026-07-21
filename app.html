@@ -775,7 +775,9 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
       <div class="card">
         <div class="st" style="margin-bottom:10px">🧾 Cargar factura (en Bolívares)</div>
         <div style="font-size:11px;color:var(--text2);margin-bottom:10px">Una deuda puede tener <b>varias facturas</b> (ej. una de productos y otra de servicios). Cada factura calcula sus retenciones sobre <b>sus bolívares</b>.</div>
-        <div class="fg"><label>Deuda / Orden</label><select class="fc" id="fac-cxp" onchange="facPrefill()"><option value="">-- Seleccionar deuda --</option></select></div>
+        <div class="fg"><label>Deuda / Orden</label><select class="fc" id="fac-cxp" onchange="facPrefill()"><option value="">-- Seleccionar deuda --</option></select>
+          <label style="display:flex;align-items:center;gap:5px;font-size:10px;color:var(--text3);margin-top:4px;cursor:pointer"><input type="checkbox" id="fac-cxp-cerradas" onchange="fillFacCxpSelect()"> Mostrar también las cerradas (saldadas y ya facturadas)</label>
+        </div>
         <div class="fr2">
           <div class="fg"><label>N° Factura</label><input class="fc" id="fac-num" placeholder="F-00012345" style="font-family:var(--m)"></div>
           <div class="fg"><label>N° Control</label><input class="fc" id="fac-control" placeholder="00-00012345" style="font-family:var(--m)"></div>
@@ -827,7 +829,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
           </label>
           <div class="fr2" id="fac-pago-detalle" style="margin-top:6px">
             <div class="fg" style="margin-bottom:0"><label>Método de pago</label>
-              <select class="fc" id="fac-pago-metodo"><option value="transferencia">Transferencia</option><option value="bnc">BNC</option><option value="efectivo">Efectivo Bs</option><option value="divisas">Divisas $</option><option value="pagomovil">Pago móvil</option></select>
+              <select class="fc" id="fac-pago-metodo"><option value="bnc">Transferencia BNC (nuestro banco)</option><option value="transferencia">Transferencia otro banco</option><option value="pagomovil">Pago móvil</option><option value="efectivo">Efectivo Bs (no pasa por banco)</option><option value="divisas">Divisas $ (no pasa por banco)</option></select>
             </div>
             <div class="fg" style="margin-bottom:0"><label>Referencia / Nº</label><input class="fc" id="fac-pago-ref" placeholder="Ref bancaria" style="font-family:var(--m)"></div>
           </div>
@@ -893,7 +895,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
       <div class="fr2">
         <div class="fg"><label>Fecha</label><input type="date" class="fc" id="abono-fecha"></div>
         <div class="fg"><label>Método</label>
-          <select class="fc" id="abono-metodo"><option value="transferencia">Transferencia</option><option value="bnc">BNC</option><option value="efectivo">Efectivo Bs</option><option value="divisas">Divisas $</option><option value="pagomovil">Pago móvil</option></select>
+          <select class="fc" id="abono-metodo"><option value="bnc">Transferencia BNC (nuestro banco)</option><option value="transferencia">Transferencia otro banco</option><option value="pagomovil">Pago móvil</option><option value="efectivo">Efectivo Bs (no pasa por banco)</option><option value="divisas">Divisas $ (no pasa por banco)</option></select>
         </div>
       </div>
       <div class="fr2">
@@ -1988,13 +1990,13 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
       </div>
       <div class="card">
         <div class="sh"><div class="st">🔎 Estado por unidad: cuándo se hizo y cuánto falta</div></div>
-        <div class="fg"><label>Unidad</label><select class="fc" id="hv-ver-cam" onchange="renderHojaVida()"><option value="">— elegí una unidad —</option></select></div>
+        <div class="fg"><label>Unidad</label><select class="fc" id="hv-ver-cam" onchange="_hvSetCam(this.value)"><option value="">— elegí una unidad —</option></select></div>
         <div id="hv-buscador-res" style="margin-top:6px"></div>
       </div>
     </div>
     <div class="card">
       <div class="sh" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px"><div class="st">Hoja de vida (historial)</div>
-        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center"><select class="fc" id="hv-ver-item" onchange="renderHojaVida()" style="max-width:180px;padding:6px 8px;font-size:11px"><option value="">Todos los ítems</option></select><button class="btn btn-s btn-sm" onclick="imprimirHojaVida()">🖨️ Imprimir reporte</button><button class="btn btn-s btn-sm" onclick="generarQRUnidad()" title="Ver e imprimir el código QR de esta unidad (el que abre la app del chofer)">📲 QR de la unidad</button><input class="fc" id="hv-ver-des" type="date" onchange="renderHojaVida()" style="padding:6px 8px;font-size:11px" title="Desde"><input class="fc" id="hv-ver-hta" type="date" onchange="renderHojaVida()" style="padding:6px 8px;font-size:11px" title="Hasta"></div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center"><select class="fc" id="hv-hist-cam" onchange="_hvSetCam(this.value)" style="max-width:160px;padding:6px 8px;font-size:11px" title="Filtrar el historial por unidad"><option value="">Todas las unidades</option></select><select class="fc" id="hv-ver-item" onchange="renderHojaVida()" style="max-width:180px;padding:6px 8px;font-size:11px"><option value="">Todos los ítems</option></select><button class="btn btn-s btn-sm" onclick="imprimirHojaVida()">🖨️ Imprimir reporte</button><button class="btn btn-s btn-sm" onclick="generarQRUnidad()" title="Ver e imprimir el código QR de esta unidad (el que abre la app del chofer)">📲 QR de la unidad</button><input class="fc" id="hv-ver-des" type="date" onchange="renderHojaVida()" style="padding:6px 8px;font-size:11px" title="Desde"><input class="fc" id="hv-ver-hta" type="date" onchange="renderHojaVida()" style="padding:6px 8px;font-size:11px" title="Hasta"></div>
       </div>
       <div id="hv-timeline" class="tw" style="margin-top:8px"></div>
     </div>
@@ -2607,7 +2609,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
 </div>
 
 <script src="logo-alcaldia.js?v=1"></script>
-<script src="app.js?v=20260721b-fix-vin"></script>
+<script src="app.js?v=20260721c-mant-cxp"></script>
 
 <!-- Modal global -->
 <div id="modal" class="moverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9990;align-items:center;justify-content:center;padding:16px">
