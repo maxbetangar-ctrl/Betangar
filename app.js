@@ -1747,7 +1747,12 @@ async function cargarDatosDB(){
     // CONFIG WASSENGER — si está activa (token + activo), TODO el WhatsApp sale por la cola Wassenger
     // (el worker lo envía con la etiqueta de la empresa). Si no, sigue por CallMeBot (respaldo, cero downtime).
     try{
-      var wsc=await supabase.from('configuracion').select('valor').eq('clave','wassenger').maybeSingle();
+      // Por RPC `wassenger_estado` (SECURITY DEFINER): devuelve activo/tiene_token SIN el token.
+      // Antes leía la fila `configuracion.wassenger` DIRECTO, así que el token de WhatsApp de la
+      // empresa viajaba al navegador de cualquier usuario logueado. La PWA del chofer ya usaba la
+      // RPC; la oficina no. (2026-07-21)
+      var wsr=await supabase.rpc('wassenger_estado');
+      var wsc={data:null}; if(!wsr.error&&wsr.data){ var _w=(typeof wsr.data==='string')?JSON.parse(wsr.data):wsr.data; wsc={data:{valor:JSON.stringify({activo:_w.activo,token:(_w.tiene_token?'***':'')})}}; }
       if(wsc.data&&wsc.data.valor){ var wsv=typeof wsc.data.valor==='string'?JSON.parse(wsc.data.valor):wsc.data.valor; WASSENGER_ON=!!(wsv&&wsv.activo===true&&wsv.token); console.log('Wassenger '+(WASSENGER_ON?'ACTIVO — WhatsApp por cola':'inactivo — WhatsApp por CallMeBot')); }
     }catch(eW){}
     // CONFIG GENERAL (tarifa, tasa, etc.)
