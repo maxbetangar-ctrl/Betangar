@@ -1427,9 +1427,12 @@ function _acAnomalias(todas,desde,hasta,ref){
     }
   });
 
+  // OJO con el ||: orden['alta'] es 0 y `0||9` devuelve 9 (el cero es falsy en JS), asi que las
+  // GRAVES quedaban al final, que es justo lo contrario de lo que hace falta. Se compara con null.
   var orden={alta:0,media:1,baja:2};
+  var pri=function(s){ var v=orden[s]; return (v==null)?9:v; };
   return out.sort(function(a,b){
-    var c=(orden[a.sev]||9)-(orden[b.sev]||9); if(c)return c;
+    var c=pri(a.sev)-pri(b.sev); if(c)return c;
     return String(b.fecha).localeCompare(String(a.fecha));
   });
 }
