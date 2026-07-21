@@ -322,9 +322,9 @@ var USUARIOS={
 };
 
 var PERMISOS={
-  superadmin:['dashboard','entregas','banco-bnc','conciliacion','checklist','mensajes-wa','planilla','historico','reporte','abonos','banco','proveedores','financiero','nomina','asistencia','fichaje','combustible','control-combustible','km','unidades','documentos','inventario','llantas','metas','empleados','prestamos','multas','stats','ranking','rentabilidad','contratos','multicontrato','usuarios','auditoria','salud','config','galeria','porteria','mecanico','operativo','cxp','cajachica'],
-  admin:['dashboard','entregas','conciliacion','checklist','planilla','historico','reporte','abonos','banco','proveedores','financiero','nomina','asistencia','fichaje','combustible','control-combustible','km','unidades','documentos','inventario','llantas','metas','empleados','prestamos','multas','stats','ranking','rentabilidad','contratos','multicontrato','usuarios','auditoria','salud','config','galeria','porteria','mecanico','operativo','cxp','cajachica'],
-  operador:['dashboard','entregas','planilla','historico','reporte','abonos','banco','proveedores','financiero','nomina','asistencia','fichaje','combustible','control-combustible','km','unidades','documentos','inventario','llantas','metas','empleados','prestamos','multas','stats','ranking','rentabilidad','contratos','multicontrato','galeria'],
+  superadmin:['dashboard','entregas','banco-bnc','conciliacion','checklist','mensajes-wa','planilla','historico','reporte','abonos','banco','proveedores','financiero','nomina','asistencia','fichaje','combustible','control-combustible','aud-combustible','km','unidades','documentos','inventario','llantas','metas','empleados','prestamos','multas','stats','ranking','rentabilidad','contratos','multicontrato','usuarios','auditoria','salud','config','galeria','porteria','mecanico','operativo','cxp','cajachica'],
+  admin:['dashboard','entregas','conciliacion','checklist','planilla','historico','reporte','abonos','banco','proveedores','financiero','nomina','asistencia','fichaje','combustible','control-combustible','aud-combustible','km','unidades','documentos','inventario','llantas','metas','empleados','prestamos','multas','stats','ranking','rentabilidad','contratos','multicontrato','usuarios','auditoria','salud','config','galeria','porteria','mecanico','operativo','cxp','cajachica'],
+  operador:['dashboard','entregas','planilla','historico','reporte','abonos','banco','proveedores','financiero','nomina','asistencia','fichaje','combustible','control-combustible','aud-combustible','km','unidades','documentos','inventario','llantas','metas','empleados','prestamos','multas','stats','ranking','rentabilidad','contratos','multicontrato','galeria'],
   rrhh:['dashboard','mensajes-wa','planilla','historico','reporte','proveedores','nomina','asistencia','fichaje','combustible','km','unidades','documentos','inventario','llantas','metas','empleados','prestamos','multas','ranking','galeria'],
   visualizador:['dashboard','entregas','reporte','abonos','banco','financiero','stats','ranking','rentabilidad','contratos','galeria'],
   directivo:['dashboard','entregas','historico','reporte','abonos','financiero','stats','ranking','rentabilidad'],
@@ -338,6 +338,7 @@ var PERMISOS={
 };
 
 var NAV_LABELS={
+  'aud-combustible':'Auditoría de Combustible',
   dashboard:'Dashboard',planilla:'Registro Diario',historico:'Historico',reporte:'Cobranza / Alcaldia',
   abonos:'Abonos / Cobros',banco:'Banco BNC',conciliacion:'Conciliación Bancaria',proveedores:'Proveedores',financiero:'Financiero',
   nomina:'Nomina',asistencia:'Asistencia',fichaje:'Fichaje / Sitios',combustible:'Combustible','control-combustible':'Control Combustible',km:'Km / Servicio',
@@ -1106,6 +1107,523 @@ async function bncRenderCuentas(){
 // Control y Alertas (módulo nuevo 'control-combustible'). Son dos páginas que ahora comparten una
 // sola entrada de menú; cada botón solo aparece si el rol tiene ese permiso (mismo criterio que el
 // menú vía aplicarPermisos). NO altera la lógica de ninguno de los dos módulos.
+// ══════════════════════════════════════════════════════════════════════════════════════════════
+// AUDITORÍA DE COMBUSTIBLE — dashboard con período seleccionable, cuadre por cubicación y anomalías.
+//
+// Pedido de Máximo (2026-07-21): "estadísticas, auditoría de anomalías, dashboard interno que
+// explique todo bien, período a elegir, y que los cálculos de la cubicación coincidan con lo que
+// están poniendo en los tanques — una auditoría completa".
+//
+// De dónde sale cada número (NO se inventa ningún campo):
+//   · `combustible_mediciones`  → altura_cm de la regla, por unidad, momento salida/llegada.
+//   · `combustible_tanques_config.tabla_cubicacion` → cm ➜ litros (el JAC es lineal 13,04 L/cm;
+//     los del galpón son cilindros: tabla NO lineal, se interpola entre puntos).
+//   · `gasoil` → compras (entran al galpón) y despachos (salen del galpón hacia un camión).
+//   · `checklist` → km_salida / km_entrada.
+//   · `configuracion.tanque_costo` → $/L vigente, para valorizar los faltantes.
+//
+// MODO: si hay tanques configurados ➜ auditoría por CUBICACIÓN (Betangar). Si no ➜ modo SURTIDAS
+// (Flotilla). Se decide por los datos, nunca por el nombre de la empresa: es un clon.
+// ══════════════════════════════════════════════════════════════════════════════════════════════
+var AC_TANQUES=[], AC_MED=[], AC_GASOIL=[], AC_CK=[], AC_JORNADAS=[], AC_ANOM=[], AC_META={};
+var _acCargando=false;
+
+// Ruido de la medición: la regla se lee a ±0,5 cm. En el tanque del camión (13,04 L/cm) eso es
+// ±6,5 L por lectura, y un cuadre usa DOS lecturas → ±13 L. Se redondea a 15.
+var AC_TOL_CAMION=15;
+var AC_TOL_GALPON=25;   // el galpón mueve ~23,6 L/cm en la zona media → 2 lecturas ≈ ±24 L
+
+function _acHoy(){ return (typeof fechaVE==='function')?fechaVE():new Date().toISOString().slice(0,10); }
+function _acMenos(n,base){ var d=new Date((base||_acHoy())+'T12:00:00'); d.setDate(d.getDate()-n); return d.toISOString().slice(0,10); }
+function _acNum(v){ var n=parseFloat(v); return isFinite(n)?n:null; }
+function _acFmt(n,d){ return (n==null)?'—':Number(n).toLocaleString('es-VE',{minimumFractionDigits:(d==null?0:d),maximumFractionDigits:(d==null?0:d)}); }
+function _acCostoL(){ var c=_acNum(AC_META.costoL); return (c&&c>0)?c:0; }
+function _acUsd(l){ var c=_acCostoL(); return (c>0&&l!=null)?(Math.abs(l)*c):null; }
+
+// ── CUBICACIÓN: altura en cm ➜ litros, con la tabla del tanque ────────────────────────────────
+// Interpola entre los dos puntos vecinos. Sin esto, una altura de 7,3 cm en un cilindro daría un
+// número muy distinto al real: la tabla no es una recta (0→0, 10→105, 50→1029, 100→2210).
+function _acCubicar(tanque,alturaCm){
+  var h=_acNum(alturaCm); if(h==null||!tanque||!tanque.tabla)return null;
+  var t=tanque.tabla;
+  if(t[String(h)]!=null)return _acNum(t[String(h)]);
+  var puntos=Object.keys(t).map(function(k){return _acNum(k);}).filter(function(x){return x!=null;}).sort(function(a,b){return a-b;});
+  if(!puntos.length)return null;
+  if(h<=puntos[0])return _acNum(t[String(puntos[0])]);
+  if(h>=puntos[puntos.length-1])return _acNum(t[String(puntos[puntos.length-1])]);
+  for(var i=1;i<puntos.length;i++){
+    if(h<=puntos[i]){
+      var h0=puntos[i-1], h1=puntos[i], l0=_acNum(t[String(h0)]), l1=_acNum(t[String(h1)]);
+      if(l0==null||l1==null||h1===h0)return null;
+      return Math.round((l0+(h-h0)*(l1-l0)/(h1-h0))*100)/100;
+    }
+  }
+  return null;
+}
+function _acTanqueDe(m){
+  var id=String(m.tanque_id||'');
+  var t=AC_TANQUES.find(function(x){return String(x.id)===id;});
+  if(t)return t;
+  return AC_TANQUES.find(function(x){return x.tipo==='vehiculo';})||AC_TANQUES[0]||null;
+}
+function _acEsGalpon(m){ var t=_acTanqueDe(m); return !!(t&&t.tipo==='galpon'); }
+
+// ── DEDUPE de mediciones ──────────────────────────────────────────────────────────────────────
+// Hay filas repetidas (misma unidad, fecha, momento y altura, 2-3 veces): doble toque al guardar.
+// Se colapsan SOLO las idénticas: dos mediciones legítimas distintas nunca dan la misma altura
+// exacta en el mismo momento, y si la dieran el consumo sale igual. NO se borra nada de la BD.
+function _acDedupe(filas){
+  var vistos={}, out=[], dup=0;
+  (filas||[]).slice().sort(function(a,b){ return String(a.created_at||'').localeCompare(String(b.created_at||'')); })
+  .forEach(function(m){
+    var k=[m.vehiculo_id,m.fecha,m.momento,m.altura_cm].join('|');
+    if(vistos[k]){ dup++; return; }
+    vistos[k]=1; out.push(m);
+  });
+  AC_META.duplicadas=dup;
+  return out;
+}
+
+// ── Carga de datos del período (+1 día antes: la merma nocturna necesita la llegada previa) ────
+async function acCargar(desde,hasta){
+  var desdeExt=_acMenos(1,desde);
+  var q=[
+    supabase.from('combustible_tanques_config').select('*'),
+    supabase.from('combustible_mediciones').select('*').gte('fecha',desdeExt).lte('fecha',hasta).order('fecha'),
+    supabase.from('gasoil').select('*').gte('f',desdeExt).lte('f',hasta),
+    supabase.from('checklist').select('fecha,cam,conductor,km_salida,km_entrada').gte('fecha',desdeExt).lte('fecha',hasta),
+    supabase.from('configuracion').select('valor').eq('clave','tanque_costo').maybeSingle()
+  ];
+  var r=await Promise.all(q);
+  if(r[0].error)throw new Error('tanques: '+r[0].error.message);
+  if(r[1].error)throw new Error('mediciones: '+r[1].error.message);
+  if(r[2].error)throw new Error('gasoil: '+r[2].error.message);
+  if(r[3].error)throw new Error('checklist: '+r[3].error.message);
+  AC_TANQUES=(r[0].data||[]).map(function(t){
+    var tabla=t.tabla_cubicacion; if(typeof tabla==='string'){ try{tabla=JSON.parse(tabla);}catch(e){tabla=null;} }
+    return {id:t.id,nombre:t.nombre,tipo:t.tipo,cap:_acNum(t.capacidad_litros),hmax:_acNum(t.altura_max_cm),tabla:tabla};
+  });
+  AC_MED=_acDedupe(r[1].data||[]);
+  AC_GASOIL=r[2].data||[];
+  AC_CK=r[3].data||[];
+  var cst=null; try{ cst=r[4]&&r[4].data?String(r[4].data.valor).replace(/"/g,''):null; }catch(e){}
+  AC_META.costoL=_acNum(cst);
+  AC_META.modo=AC_TANQUES.length?'cubicacion':'surtidas';
+}
+
+// ── JORNADAS: una salida + su llegada, por unidad ─────────────────────────────────────────────
+// Se emparejan en orden. Si un camión sale y entra dos veces el mismo día, salen DOS jornadas y no
+// una mezclada. Una salida sin su llegada queda marcada (no se puede cuadrar).
+function _acArmarJornadas(desde,hasta){
+  var porUnidad={};
+  AC_MED.filter(function(m){return !_acEsGalpon(m);}).forEach(function(m){
+    var u=String(m.vehiculo_id||''); if(!u)return;
+    (porUnidad[u]=porUnidad[u]||[]).push(m);
+  });
+  var jor=[];
+  Object.keys(porUnidad).forEach(function(u){
+    var lista=porUnidad[u].sort(function(a,b){
+      var c=String(a.fecha).localeCompare(String(b.fecha)); if(c)return c;
+      return String(a.created_at||'').localeCompare(String(b.created_at||''));
+    });
+    var abierta=null;
+    lista.forEach(function(m){
+      var t=_acTanqueDe(m), litros=_acCubicar(t,m.altura_cm);
+      var rec=_acNum(m.litros_calculados);
+      if(String(m.momento)==='salida'){
+        if(abierta)jor.push(abierta);                     // salida sin llegada: queda sin cerrar
+        abierta={cam:u,fecha:String(m.fecha).slice(0,10),salida:litros,salidaCm:_acNum(m.altura_cm),
+                 salidaRec:rec,llegada:null,llegadaCm:null,llegadaRec:null,por:m.registrado_por||'',
+                 fechaLl:null,tanque:t};
+      } else if(String(m.momento)==='llegada'){
+        if(abierta){ abierta.llegada=litros; abierta.llegadaCm=_acNum(m.altura_cm); abierta.llegadaRec=rec;
+                     abierta.fechaLl=String(m.fecha).slice(0,10); jor.push(abierta); abierta=null; }
+        else jor.push({cam:u,fecha:String(m.fecha).slice(0,10),salida:null,salidaCm:null,salidaRec:null,
+                       llegada:litros,llegadaCm:_acNum(m.altura_cm),llegadaRec:rec,por:m.registrado_por||'',
+                       fechaLl:String(m.fecha).slice(0,10),tanque:t});
+      }
+    });
+    if(abierta)jor.push(abierta);
+  });
+
+  // Despachos y km del día, y el cálculo del consumo.
+  jor.forEach(function(j){
+    j.desp=AC_GASOIL.filter(function(g){
+      return String(g.cam)===j.cam && String(g.f).slice(0,10)===j.fecha && String(g.tipo_operacion||'')!=='compra';
+    }).reduce(function(s,g){ return s+(_acNum(g.lit)||0); },0);
+    var ck=AC_CK.find(function(c){ return String(c.cam)===j.cam && String(c.fecha).slice(0,10)===j.fecha; });
+    var kmS=ck?_acNum(ck.km_salida):null, kmE=ck?_acNum(ck.km_entrada):null;
+    j.chofer=ck?String(ck.conductor||''):'';
+    j.km=(kmS!=null&&kmE!=null&&kmE>=kmS)?(kmE-kmS):null;
+    j.kmS=kmS; j.kmE=kmE;
+    // CONSUMO = lo que tenía al salir + lo que le despacharon − lo que le quedó al llegar.
+    j.consumo=(j.salida!=null&&j.llegada!=null)?Math.round((j.salida+j.desp-j.llegada)*100)/100:null;
+    // Rendimiento solo con números que aguanten: con menos de 10 L o 5 km, el ruido de la regla manda.
+    j.rend=(j.consumo!=null&&j.consumo>=10&&j.km!=null&&j.km>=5)?(j.km/j.consumo):null;
+  });
+  // Solo las jornadas que arrancan dentro del período pedido (el día extra es para el nocturno).
+  AC_JORNADAS=jor.filter(function(j){ return j.fecha>=desde && j.fecha<=hasta; });
+  return jor; // completa, para el cálculo nocturno
+}
+
+// Referencia de rendimiento de CADA unidad: mediana de sus jornadas válidas. Mediana y no promedio
+// para que un día ya robado no corra la vara. Si no hay historia, se usa el rango de arranque.
+function _acRefRend(todas){
+  var porU={};
+  (todas||[]).forEach(function(j){ if(j.rend!=null&&j.rend>0)(porU[j.cam]=porU[j.cam]||[]).push(j.rend); });
+  var ref={};
+  Object.keys(porU).forEach(function(u){
+    var a=porU[u].sort(function(x,y){return x-y;});
+    ref[u]={mediana:a[Math.floor(a.length/2)],n:a.length};
+  });
+  return ref;
+}
+
+// ── CUADRE DEL TANQUE DEL GALPÓN ──────────────────────────────────────────────────────────────
+// nivel medido al inicio + compras − despachos = nivel esperado al final, contra la regla.
+// Si no hay medición física de galpón en el período, se dice: no se inventa precisión.
+function _acCuadreGalpon(desde,hasta){
+  var medG=AC_MED.filter(_acEsGalpon).sort(function(a,b){
+    var c=String(a.fecha).localeCompare(String(b.fecha)); if(c)return c;
+    return String(a.created_at||'').localeCompare(String(b.created_at||''));
+  });
+  var compras=0, despachos=0;
+  AC_GASOIL.forEach(function(g){
+    var f=String(g.f).slice(0,10); if(f<desde||f>hasta)return;
+    var l=_acNum(g.lit)||0;
+    if(String(g.tipo_operacion||'')==='compra')compras+=l; else despachos+=l;
+  });
+  var enRango=medG.filter(function(m){ var f=String(m.fecha).slice(0,10); return f>=desde&&f<=hasta; });
+  var res={compras:compras,despachos:despachos,mediciones:enRango.length,hay:false};
+  if(enRango.length>=2){
+    var pri=enRango[0], ult=enRango[enRango.length-1];
+    var lIni=_acCubicar(_acTanqueDe(pri),pri.altura_cm), lFin=_acCubicar(_acTanqueDe(ult),ult.altura_cm);
+    if(lIni!=null&&lFin!=null){
+      // Movimientos ENTRE la primera y la última medición (no todo el período).
+      var c2=0,d2=0;
+      AC_GASOIL.forEach(function(g){
+        var f=String(g.f).slice(0,10);
+        if(f<String(pri.fecha).slice(0,10)||f>String(ult.fecha).slice(0,10))return;
+        var l=_acNum(g.lit)||0;
+        if(String(g.tipo_operacion||'')==='compra')c2+=l; else d2+=l;
+      });
+      res.hay=true; res.ini=lIni; res.fin=lFin; res.comprasE=c2; res.despachosE=d2;
+      res.esperado=Math.round((lIni+c2-d2)*100)/100;
+      res.dif=Math.round((lFin-res.esperado)*100)/100;
+      res.mov=c2+d2;
+      res.tol=Math.max(AC_TOL_GALPON, res.mov*0.015);
+      res.desde=String(pri.fecha).slice(0,10); res.hasta=String(ult.fecha).slice(0,10);
+    }
+  }
+  return res;
+}
+
+// ── REGLAS DE ANOMALÍA ────────────────────────────────────────────────────────────────────────
+function _acAnomalias(todas,desde,hasta,ref){
+  var out=[];
+  var add=function(sev,cod,titulo,texto,cam,fecha,litros){
+    out.push({sev:sev,cod:cod,titulo:titulo,texto:texto,cam:cam||'',fecha:fecha||'',litros:(litros==null?null:Math.round(litros*100)/100)});
+  };
+  var U=function(c){ return (typeof _lblUnidad==='function')?_lblUnidad(c):c; };
+  var $ = function(l){ var v=_acUsd(l); return v==null?'':(' ≈ $'+_acFmt(v,2)); };
+
+  // R1 — MERMA NOCTURNA: salió con menos de lo que dejó al llegar el día anterior, sin despacho.
+  // Un camión estacionado no consume: es la ventana clásica de sustracción.
+  var porU={};
+  (todas||[]).forEach(function(j){ (porU[j.cam]=porU[j.cam]||[]).push(j); });
+  Object.keys(porU).forEach(function(u){
+    var lista=porU[u].sort(function(a,b){ return String(a.fecha).localeCompare(String(b.fecha)); });
+    for(var i=1;i<lista.length;i++){
+      var ant=lista[i-1], hoy=lista[i];
+      if(ant.llegada==null||hoy.salida==null)continue;
+      if(hoy.fecha<desde||hoy.fecha>hasta)continue;
+      // despachos entre la llegada anterior y la salida de hoy
+      var dNoche=AC_GASOIL.filter(function(g){
+        var f=String(g.f).slice(0,10);
+        return String(g.cam)===u && String(g.tipo_operacion||'')!=='compra' &&
+               f>(ant.fechaLl||ant.fecha) && f<=hoy.fecha;
+      }).reduce(function(s,g){return s+(_acNum(g.lit)||0);},0);
+      var delta=Math.round((hoy.salida-ant.llegada-dNoche)*100)/100;
+      if(delta<-AC_TOL_CAMION){
+        add('alta','R1','Merma estacionada',
+          'La unidad '+U(u)+' amaneció el '+formatFecha(hoy.fecha)+' con '+_acFmt(Math.abs(delta),1)+' L menos de los que dejó al llegar'+
+          (ant.fechaLl?(' el '+formatFecha(ant.fechaLl)):'')+', y no hay despacho que lo explique. Un camión estacionado no consume. '+
+          'Revisá quién tuvo acceso a la unidad esa noche y confirmá que las dos lecturas de regla estén bien tomadas.'+$(delta),
+          u,hoy.fecha,delta);
+      } else if(delta>AC_TOL_CAMION){
+        add('media','R5','Apareció combustible',
+          'La unidad '+U(u)+' salió el '+formatFecha(hoy.fecha)+' con '+_acFmt(delta,1)+' L MÁS de los que había dejado, sin despacho registrado. '+
+          'Puede ser una carga por fuera que no se anotó, o una lectura de regla equivocada. Confirmá con el chofer dónde cargó.',
+          u,hoy.fecha,delta);
+      }
+    }
+  });
+
+  AC_JORNADAS.forEach(function(j){
+    // R2 — DESPACHO CORTO: salieron X litros del galpón pero el tanque del camión no subió igual.
+    if(j.desp>0&&j.salida!=null&&j.llegada!=null&&j.consumo!=null){
+      // Se compara el despacho contra lo que el tanque ganó de más respecto de un consumo normal.
+      var refU=ref[j.cam]&&ref[j.cam].n>=3?ref[j.cam].mediana:null;
+      if(refU&&j.km!=null&&j.km>0){
+        var espera=j.km/refU;                       // litros que ese recorrido debería haber quemado
+        var corto=Math.round((j.consumo-espera)*100)/100;
+        var lim=Math.max(20,espera*0.35);
+        if(corto>lim){
+          add('alta','R4','Consumo por encima de lo normal',
+            'La unidad '+U(j.cam)+' consumió '+_acFmt(j.consumo,1)+' L para '+_acFmt(j.km)+' km el '+formatFecha(j.fecha)+
+            ' ('+_acFmt(j.km/j.consumo,2)+' km/L), cuando normalmente rinde '+_acFmt(refU,2)+' km/L. Son '+_acFmt(corto,1)+' L de más'+$(corto)+
+            '. Revisá si hubo mucho ralentí o compactador trabajando, alguna cola larga, o si conviene medir el tanque con más cuidado esos días.',
+            j.cam,j.fecha,corto);
+        }
+      }
+    }
+    // R5b — CONSUMO NEGATIVO: llegó con más de lo que salió + lo despachado. Físicamente imposible.
+    if(j.consumo!=null&&j.consumo<-AC_TOL_CAMION){
+      add('media','R5','Llegó con más de lo que salió',
+        'La unidad '+U(j.cam)+' llegó el '+formatFecha(j.fechaLl||j.fecha)+' con '+_acFmt(Math.abs(j.consumo),1)+' L más de los que salió, contando lo despachado. '+
+        'Eso no puede pasar rodando: o cargó en otro lado sin registrarlo, o una de las dos lecturas de regla está mal.',
+        j.cam,j.fecha,j.consumo);
+    }
+    // R7 — DÍA SIN MEDICIÓN: trabajó pero falta una de las dos lecturas → ese día no se puede cuadrar.
+    if(j.km!=null&&j.km>0&&(j.salida==null||j.llegada==null)){
+      add('media','R7','Falta una medición',
+        'El '+formatFecha(j.fecha)+' la unidad '+U(j.cam)+' trabajó ('+_acFmt(j.km)+' km) pero no se midió el tanque a la '+
+        (j.salida==null?'SALIDA':'LLEGADA')+'. Sin esa lectura el consumo de ese día no se puede cuadrar. '+
+        'Recordale al responsable que la regla se pasa siempre, al salir y al llegar.',
+        j.cam,j.fecha,null);
+    }
+    // R8 — MEDICIÓN QUE NO CUADRA CON LA TABLA: altura fuera de rango, o litros guardados != cubicación.
+    var t=j.tanque;
+    if(t){
+      [['salida',j.salidaCm,j.salidaRec,j.salida],['llegada',j.llegadaCm,j.llegadaRec,j.llegada]].forEach(function(p){
+        var cm=p[1], rec=p[2], calc=p[3];
+        if(cm==null)return;
+        if(t.hmax&&(cm<0||cm>t.hmax)){
+          add('media','R8','Medición fuera de rango',
+            'La medición de '+p[0]+' de la unidad '+U(j.cam)+' del '+formatFecha(j.fecha)+' marca '+_acFmt(cm,1)+' cm, y ese tanque llega hasta '+
+            _acFmt(t.hmax,0)+' cm. Revisá cómo se cargó esa medición.',
+            j.cam,j.fecha,null);
+        } else if(rec!=null&&calc!=null&&Math.abs(rec-calc)>2){
+          add('media','R8','Litros que no cuadran con la tabla',
+            'En la unidad '+U(j.cam)+' ('+formatFecha(j.fecha)+', '+p[0]+') la regla marca '+_acFmt(cm,1)+' cm: por la tabla de cubicación son '+
+            _acFmt(calc,2)+' L, pero quedaron guardados '+_acFmt(rec,2)+' L. Revisá cómo se registró.',
+            j.cam,j.fecha,null);
+        }
+      });
+    }
+    // R10 — KM IMPOSIBLE
+    if(j.kmS!=null&&j.kmE!=null&&j.kmE<j.kmS){
+      add('media','R10','Kilometraje al revés',
+        'La unidad '+U(j.cam)+' entró el '+formatFecha(j.fecha)+' con menos kilómetros ('+_acFmt(j.kmE)+') de los que tenía al salir ('+_acFmt(j.kmS)+'). '+
+        'Revisá el odómetro y cómo se anotó el checklist.',
+        j.cam,j.fecha,null);
+    }
+    // R9 — DESPACHO SIN RESPALDO: le cargaron pero ese día no se midió el tanque.
+    if(j.desp>0&&(j.salida==null||j.llegada==null)){
+      add('media','R9','Despacho sin forma de verificar',
+        'Hay un despacho de '+_acFmt(j.desp,1)+' L a la unidad '+U(j.cam)+' el '+formatFecha(j.fecha)+', pero ese día falta una medición del tanque. '+
+        'El despacho quedó sin manera de comprobarse. Pedí que toda carga vaya con su lectura de regla antes y después.',
+        j.cam,j.fecha,j.desp);
+    }
+  });
+
+  var orden={alta:0,media:1,baja:2};
+  return out.sort(function(a,b){
+    var c=(orden[a.sev]||9)-(orden[b.sev]||9); if(c)return c;
+    return String(b.fecha).localeCompare(String(a.fecha));
+  });
+}
+
+// ── FUNCIÓN PRINCIPAL: buscar el período y pintar todo ────────────────────────────────────────
+function acPreset(p){
+  var hoy=_acHoy(), d=hoy;
+  if(p==='semana')d=_acMenos(6);
+  else if(p==='quincena')d=_acMenos(14);
+  else if(p==='mes')d=_acMenos(29);
+  sv('ac-desde',d); sv('ac-hasta',hoy); acBuscar();
+}
+async function acBuscar(){
+  if(_acCargando)return;
+  var desde=gv('ac-desde')||_acMenos(14), hasta=gv('ac-hasta')||_acHoy();
+  if(desde>hasta){ var t=desde; desde=hasta; hasta=t; }
+  sv('ac-desde',desde); sv('ac-hasta',hasta);
+  var cont=g('ac-cuerpo'); if(!cont)return;
+  if(!(DB_READY&&supabase)){ cont.innerHTML='<div style="padding:14px;color:var(--text3)">Sin conexión con la base de datos.</div>'; return; }
+  _acCargando=true;
+  cont.innerHTML='<div style="padding:18px;text-align:center;color:var(--text3)">Analizando el período…</div>';
+  try{
+    await acCargar(desde,hasta);
+    var todas=_acArmarJornadas(desde,hasta);
+    var ref=_acRefRend(todas);
+    AC_ANOM=_acAnomalias(todas,desde,hasta,ref);
+    AC_META.galpon=_acCuadreGalpon(desde,hasta);
+    AC_META.desde=desde; AC_META.hasta=hasta; AC_META.ref=ref;
+    _acRender();
+  }catch(e){
+    cont.innerHTML='<div style="padding:14px;color:var(--red)">No se pudo analizar: '+_mEsc((e&&e.message)||String(e))+'</div>';
+  } finally { _acCargando=false; }
+}
+
+function _acCard(lbl,val,sub,color){
+  return '<div class="card card-sm"'+(color?(' style="border-top:3px solid '+color+'"'):'')+'>'+
+    '<div class="stat-lbl">'+lbl+'</div>'+
+    '<div style="font-family:var(--m);font-size:17px;font-weight:800">'+val+'</div>'+
+    (sub?('<div style="font-size:9px;color:var(--text3);line-height:1.3;margin-top:2px">'+sub+'</div>'):'')+'</div>';
+}
+
+function _acRender(){
+  var cont=g('ac-cuerpo'); if(!cont)return;
+  var J=AC_JORNADAS, U=function(c){ return (typeof _lblUnidad==='function')?_lblUnidad(c):c; };
+  var cerradas=J.filter(function(j){return j.consumo!=null;});
+  var totCons=cerradas.reduce(function(s,j){return s+j.consumo;},0);
+  var totKm=J.reduce(function(s,j){return s+(j.km||0);},0);
+  var rendFlota=(totCons>0&&totKm>0)?(totKm/totCons):null;
+  var costoL=_acCostoL();
+  var costoTot=(costoL>0)?(totCons*costoL):null;
+  var altas=AC_ANOM.filter(function(a){return a.sev==='alta';});
+  var litrosSinExplicar=altas.reduce(function(s,a){return s+((a.litros!=null&&a.litros<0)?Math.abs(a.litros):(a.litros>0?a.litros:0));},0);
+  var g_=AC_META.galpon||{};
+  // Calidad del dato: días con las dos mediciones y km, sobre el total de jornadas.
+  var completas=J.filter(function(j){return j.salida!=null&&j.llegada!=null&&j.km!=null;}).length;
+  var pctAud=J.length?Math.round(completas*100/J.length):0;
+
+  var html='';
+  // ── KPIs
+  html+='<div class="g4" style="margin-bottom:10px">'+
+    _acCard('Consumo del período',_acFmt(totCons,1)+' L','Gasoil que salió de los tanques, cuadrado con la regla')+
+    _acCard('Costo',costoTot!=null?('$'+_acFmt(costoTot,2)):'—',costoL>0?('a $'+_acFmt(costoL,3)+'/L, el costo real vigente'):'falta cargar el costo por litro')+
+    _acCard('Rendimiento de flota',rendFlota!=null?(_acFmt(rendFlota,2)+' km/L'):'—','Km por litro. Si baja de un período a otro, mirá las anomalías antes de culpar a los camiones')+
+    _acCard('Costo por km',(costoTot!=null&&totKm>0)?('$'+_acFmt(costoTot/totKm,3)):'—','Lo que te cuesta en gasoil mover un camión un kilómetro')+
+  '</div>';
+  html+='<div class="g4" style="margin-bottom:10px">'+
+    _acCard('Litros sin explicar',_acFmt(litrosSinExplicar,1)+' L',
+      (litrosSinExplicar>0&&costoL>0)?('≈ $'+_acFmt(litrosSinExplicar*costoL,2)+' — gasoil que ningún registro justifica'):'De las anomalías graves del período',
+      litrosSinExplicar>0?'var(--red)':'var(--green)')+
+    _acCard('Anomalías',String(AC_ANOM.length),altas.length+' graves · '+(AC_ANOM.length-altas.length)+' por revisar',altas.length?'var(--red)':'var(--green)')+
+    _acCard('Días auditables',pctAud+'%',completas+' de '+J.length+' jornadas con salida, llegada y km. Por debajo de 90% el resto de los números queda cojo',
+      pctAud>=90?'var(--green)':'var(--yellow)')+
+    _acCard('Jornadas analizadas',String(J.length),(AC_META.duplicadas?('se ignoraron '+AC_META.duplicadas+' mediciones repetidas'):'sin mediciones repetidas'))+
+  '</div>';
+
+  // ── Cuadre del galpón
+  if(AC_META.modo==='cubicacion'){
+    html+='<div class="card" style="margin-bottom:10px"><div class="st" style="margin-bottom:6px">🛢️ Cuadre del tanque del galpón</div>';
+    if(g_.hay){
+      var fuera=Math.abs(g_.dif)>g_.tol;
+      html+='<div style="font-size:12px;line-height:1.7">'+
+        'Entre el '+formatFecha(g_.desde)+' y el '+formatFecha(g_.hasta)+':<br>'+
+        'Arrancó con <b>'+_acFmt(g_.ini,1)+' L</b> · entraron <b>'+_acFmt(g_.comprasE,1)+' L</b> de compras · salieron <b>'+_acFmt(g_.despachosE,1)+' L</b> en despachos.<br>'+
+        'Debería tener <b>'+_acFmt(g_.esperado,1)+' L</b> y la regla marca <b>'+_acFmt(g_.fin,1)+' L</b>.'+
+        '<div style="margin-top:8px;padding:8px 10px;border-radius:8px;background:'+(fuera?'rgba(248,113,113,.1)':'rgba(163,230,53,.08)')+';border:1px solid '+(fuera?'var(--red)':'var(--green)')+'">'+
+          (fuera?('⚠️ <b>Descuadre de '+_acFmt(g_.dif,1)+' L</b>'+(g_.mov>0?(' ('+_acFmt(Math.abs(g_.dif)*100/g_.mov,1)+'% de lo movido)'):'')+
+                  (_acUsd(g_.dif)!=null?(' ≈ $'+_acFmt(_acUsd(g_.dif),2)):'')+'. '+
+                  (g_.dif<0?'Falta gasoil: salió sin que quedara registrado, o hay una compra anotada de más.':'Sobra gasoil: falta anotar una compra, o se anotó un despacho que no se hizo.')+
+                  ' Tolerancia del método: ±'+_acFmt(g_.tol,0)+' L.')
+                :('✅ Cuadra. Diferencia de '+_acFmt(g_.dif,1)+' L, dentro del margen de la regla (±'+_acFmt(g_.tol,0)+' L).'))+
+        '</div></div>';
+    } else {
+      html+='<div style="font-size:12px;color:var(--text2)">En este período hay '+(g_.mediciones||0)+' medición(es) física(s) del galpón: hacen falta al menos 2 para cuadrarlo. '+
+        'Entraron '+_acFmt(g_.compras,1)+' L en compras y salieron '+_acFmt(g_.despachos,1)+' L en despachos. '+
+        '<b>Sin dos lecturas de regla no se puede saber si falta gasoil</b> — no lo damos por bueno ni por malo.</div>';
+    }
+    html+='</div>';
+  }
+
+  // ── Anomalías
+  html+='<div class="card" style="margin-bottom:10px"><div class="st" style="margin-bottom:4px">🔎 Auditoría — lo que no cuadra</div>'+
+    '<div style="font-size:10px;color:var(--text3);margin-bottom:8px">Que algo aparezca acá no significa robo: significa que hay que preguntar.</div>';
+  if(!AC_ANOM.length){
+    html+='<div style="color:var(--green2);font-size:12px;padding:6px">✅ No se encontraron anomalías en el período.</div>';
+  } else {
+    html+=AC_ANOM.map(function(a){
+      var col=a.sev==='alta'?'var(--red)':(a.sev==='media'?'var(--yellow)':'var(--text3)');
+      var ico=a.sev==='alta'?'🔴':(a.sev==='media'?'🟡':'⚪');
+      return '<div style="padding:8px 10px;margin-bottom:6px;border-left:3px solid '+col+';background:var(--bg3);border-radius:0 8px 8px 0">'+
+        '<div style="font-size:11px;font-weight:800;color:'+col+'">'+ico+' '+_mEsc(a.titulo)+
+          (a.cam?(' · '+_mEsc(U(a.cam))):'')+(a.fecha?(' · '+formatFecha(a.fecha)):'')+'</div>'+
+        '<div style="font-size:11px;color:var(--text2);line-height:1.5;margin-top:3px">'+_mEsc(a.texto)+'</div>'+
+      '</div>';
+    }).join('');
+  }
+  html+='</div>';
+
+  // ── Por unidad
+  var porU={};
+  J.forEach(function(j){
+    var u=j.cam; if(!porU[u])porU[u]={cam:u,dias:0,km:0,cons:0,desp:0,rends:[]};
+    porU[u].dias++; porU[u].km+=(j.km||0); if(j.consumo!=null)porU[u].cons+=j.consumo; porU[u].desp+=(j.desp||0);
+    if(j.rend!=null)porU[u].rends.push(j.rend);
+  });
+  var filas=Object.keys(porU).sort().map(function(u){
+    var r=porU[u], rend=(r.cons>0&&r.km>0)?(r.km/r.cons):null;
+    var refU=AC_META.ref&&AC_META.ref[u]?AC_META.ref[u]:null;
+    var senal='—', colS='var(--text3)';
+    if(rend!=null&&refU&&refU.n>=3){
+      var d=(rend-refU.mediana)/refU.mediana;
+      if(d<-0.25){senal='consume más de lo suyo';colS='var(--red)';}
+      else if(d>0.25){senal='rinde mejor que su normal';colS='var(--green)';}
+      else {senal='dentro de lo normal';colS='var(--text2)';}
+    }
+    var nAn=AC_ANOM.filter(function(a){return a.cam===u;}).length;
+    return '<tr>'+
+      '<td style="font-weight:700;font-size:11px">'+_mEsc(U(u))+'</td>'+
+      '<td style="text-align:right;font-family:var(--m);font-size:11px">'+r.dias+'</td>'+
+      '<td style="text-align:right;font-family:var(--m);font-size:11px">'+_acFmt(r.km)+'</td>'+
+      '<td style="text-align:right;font-family:var(--m);font-size:11px">'+_acFmt(r.cons,1)+'</td>'+
+      '<td style="text-align:right;font-family:var(--m);font-size:11px">'+(costoL>0?('$'+_acFmt(r.cons*costoL,2)):'—')+'</td>'+
+      '<td style="text-align:right;font-family:var(--m);font-size:11px;font-weight:700">'+(rend!=null?_acFmt(rend,2):'—')+'</td>'+
+      '<td style="font-size:10px;color:'+colS+'">'+senal+'</td>'+
+      '<td style="text-align:right;font-size:11px">'+(nAn?('<span style="color:var(--red);font-weight:700">'+nAn+'</span>'):'—')+'</td>'+
+    '</tr>';
+  }).join('');
+  html+='<div class="card" style="margin-bottom:10px"><div class="st" style="margin-bottom:6px">📊 Por unidad</div>'+
+    '<div class="tw"><table><thead><tr><th>Unidad</th><th style="text-align:right">Jornadas</th><th style="text-align:right">Km</th>'+
+    '<th style="text-align:right">Litros</th><th style="text-align:right">Costo</th><th style="text-align:right">Km/L</th><th>Señal</th><th style="text-align:right">Alertas</th>'+
+    '</tr></thead><tbody>'+(filas||'<tr><td colspan="8" style="text-align:center;color:var(--text3);padding:12px">Sin datos en el período</td></tr>')+'</tbody></table></div></div>';
+
+  // ── Detalle
+  var det=J.slice().sort(function(a,b){return String(b.fecha).localeCompare(String(a.fecha));}).map(function(j){
+    return '<tr>'+
+      '<td style="font-size:11px;white-space:nowrap">'+formatFecha(j.fecha)+'</td>'+
+      '<td style="font-size:11px;font-weight:700">'+_mEsc(U(j.cam))+'</td>'+
+      '<td style="font-size:10px;color:var(--text2)">'+_mEsc(j.chofer||'—')+'</td>'+
+      '<td style="text-align:right;font-family:var(--m);font-size:11px">'+(j.salidaCm!=null?(_acFmt(j.salidaCm,1)+' cm'):'—')+'</td>'+
+      '<td style="text-align:right;font-family:var(--m);font-size:11px">'+_acFmt(j.salida,1)+'</td>'+
+      '<td style="text-align:right;font-family:var(--m);font-size:11px">'+(j.desp>0?_acFmt(j.desp,1):'—')+'</td>'+
+      '<td style="text-align:right;font-family:var(--m);font-size:11px">'+(j.llegadaCm!=null?(_acFmt(j.llegadaCm,1)+' cm'):'—')+'</td>'+
+      '<td style="text-align:right;font-family:var(--m);font-size:11px">'+_acFmt(j.llegada,1)+'</td>'+
+      '<td style="text-align:right;font-family:var(--m);font-size:11px;font-weight:700">'+_acFmt(j.consumo,1)+'</td>'+
+      '<td style="text-align:right;font-family:var(--m);font-size:11px">'+_acFmt(j.km)+'</td>'+
+      '<td style="text-align:right;font-family:var(--m);font-size:11px">'+(j.rend!=null?_acFmt(j.rend,2):'—')+'</td>'+
+    '</tr>';
+  }).join('');
+  html+='<div class="card"><div class="st" style="margin-bottom:6px">📋 Detalle por jornada</div>'+
+    '<div style="font-size:10px;color:var(--text3);margin-bottom:6px">Consumo = lo que tenía al salir + lo que le despacharon − lo que le quedó al llegar.</div>'+
+    '<div class="tw"><table><thead><tr><th>Fecha</th><th>Unidad</th><th>Chofer</th>'+
+    '<th style="text-align:right">Regla sal.</th><th style="text-align:right">L salida</th><th style="text-align:right">Despacho</th>'+
+    '<th style="text-align:right">Regla lleg.</th><th style="text-align:right">L llegada</th>'+
+    '<th style="text-align:right">Consumo</th><th style="text-align:right">Km</th><th style="text-align:right">Km/L</th>'+
+    '</tr></thead><tbody>'+(det||'<tr><td colspan="11" style="text-align:center;color:var(--text3);padding:12px">Sin jornadas en el período</td></tr>')+'</tbody></table></div></div>';
+
+  cont.innerHTML=html;
+}
+
+function acExcel(){
+  if(!AC_JORNADAS.length){alert('Buscá un período primero.');return;}
+  if(typeof XLSX==='undefined'){alert('No se pudo cargar el exportador.');return;}
+  var wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(AC_JORNADAS.map(function(j){
+    return {Fecha:j.fecha,Unidad:j.cam,Chofer:j.chofer||'','Regla salida cm':j.salidaCm,'Litros salida':j.salida,
+      Despacho:j.desp,'Regla llegada cm':j.llegadaCm,'Litros llegada':j.llegada,Consumo:j.consumo,Km:j.km,
+      'Km/L':(j.rend!=null?Math.round(j.rend*100)/100:'')};
+  })),'Jornadas');
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(AC_ANOM.map(function(a){
+    return {Severidad:a.sev,Regla:a.cod,Tipo:a.titulo,Unidad:a.cam,Fecha:a.fecha,Litros:a.litros,Detalle:a.texto};
+  })),'Anomalias');
+  XLSX.writeFile(wb,brandArchivo()+'_Auditoria_Combustible_'+AC_META.desde+'_a_'+AC_META.hasta+'.xlsx');
+  audit('Auditoría de combustible exportada',AC_META.desde+' a '+AC_META.hasta+' · '+AC_JORNADAS.length+' jornadas · '+AC_ANOM.length+' anomalías');
+}
+
 function renderCombSubnav(activo){
   var perms=PERMISOS[SESION?SESION.rol:'admin']||PERMISOS['admin']||[];
   function tab(id,label){
@@ -1114,8 +1632,8 @@ function renderCombSubnav(activo){
   }
   var visibles=(perms.indexOf('combustible')>=0?1:0)+(perms.indexOf('control-combustible')>=0?1:0);
   // Si el rol solo tiene acceso a uno, no mostramos una barra de un solo botón.
-  var html=visibles>=2?('<div class="switch-row" style="margin-bottom:10px">'+tab('combustible','⛽ Operación')+tab('control-combustible','📊 Control y Alertas')+'</div>'):'';
-  ['subnav-combustible','subnav-control-combustible'].forEach(function(pid){var el=document.getElementById(pid);if(el)el.innerHTML=html;});
+  var html=visibles>=2?('<div class="switch-row" style="margin-bottom:10px">'+tab('combustible','⛽ Operación')+tab('control-combustible','📊 Control y Alertas')+tab('aud-combustible','🔎 Auditoría')+'</div>'):'';
+  ['subnav-combustible','subnav-control-combustible','subnav-aud-combustible'].forEach(function(pid){var el=document.getElementById(pid);if(el)el.innerHTML=html;});
 }
 // Sub-navegación del módulo Banco UNIFICADO: Saldos ('banco') / Conciliación ('conciliacion') /
 // Config BNC ('banco-bnc'). Tres páginas que ahora comparten una sola entrada de menú. Cada botón
@@ -1354,6 +1872,10 @@ function sp(id){
     if(id==='nomina')recalcNom();
     if(id==='combustible'){renderCombSubnav('combustible');renderComb();renderGasolPersonal();setTimeout(renderGasoil,100);scAbrir();}
     if(id==='control-combustible'){renderCombSubnav('control-combustible');renderControlComb();}
+    // Auditoría de combustible: no se auto-analiza al entrar (la consulta pega a 4 tablas).
+    // Se dejan las fechas de los últimos 14 días y la persona toca Analizar.
+    if(id==='aud-combustible'){ renderCombSubnav('aud-combustible');
+      if(!gv('ac-desde'))sv('ac-desde',_acMenos(14)); if(!gv('ac-hasta'))sv('ac-hasta',_acHoy()); }
     if(id==='rentabilidad'){renderAnalisisSubnav('rentabilidad');renderRentabilidad();}
     if(id==='salud'){renderSaludDatos();}
     if(id==='km'){renderMantSubnav('km');renderKm();renderTiposMant();_cargarMantTodo().then(function(){try{renderHistMant();}catch(e){}try{_poblarKmItem();}catch(e){}}).catch(function(){});}

@@ -1771,6 +1771,31 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
 </div>
 
 <!-- ============ CONTROL DE COMBUSTIBLE (módulo nuevo, configurable) ============ -->
+<!-- AUDITORÍA DE COMBUSTIBLE ─────────────────────────────────────────────────────────────────────
+     Dashboard con período a elegir. Cruza la CUBICACIÓN (altura de regla ➜ litros, tabla del
+     tanque) con los despachos y los km, para saber si el gasoil que salió coincide con el que se
+     usó. Pedido de Máximo 2026-07-21: "una auditoría completa". -->
+<div id="p-aud-combustible" class="page">
+  <div id="subnav-aud-combustible"></div>
+  <div class="card" style="margin-bottom:10px">
+    <div class="st" style="margin-bottom:8px">📅 Período a analizar</div>
+    <div class="fr3">
+      <div class="fg"><label>Desde</label><input class="fc" type="date" id="ac-desde"></div>
+      <div class="fg"><label>Hasta</label><input class="fc" type="date" id="ac-hasta"></div>
+      <div class="fg" style="display:flex;align-items:flex-end;gap:6px">
+        <button class="btn btn-g btn-sm" style="flex:1" onclick="acBuscar()">🔎 Analizar</button>
+        <button class="btn btn-s btn-sm" onclick="acExcel()">📊 Excel</button>
+      </div>
+    </div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap">
+      <button class="btn btn-s btn-xs" onclick="acPreset('semana')">Últimos 7 días</button>
+      <button class="btn btn-s btn-xs" onclick="acPreset('quincena')">Quincena</button>
+      <button class="btn btn-s btn-xs" onclick="acPreset('mes')">Último mes</button>
+    </div>
+  </div>
+  <div id="ac-cuerpo"><div style="padding:18px;text-align:center;color:var(--text3)">Elegí un período y tocá <b>Analizar</b>.</div></div>
+</div>
+
 <div id="p-control-combustible" class="page">
   <div id="subnav-control-combustible"></div>
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px">
@@ -2609,7 +2634,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
 </div>
 
 <script src="logo-alcaldia.js?v=1"></script>
-<script src="app.js?v=20260721j-rif-cuenta"></script>
+<script src="app.js?v=20260721k-auditoria-combustible"></script>
 
 <!-- Modal global -->
 <div id="modal" class="moverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9990;align-items:center;justify-content:center;padding:16px">
