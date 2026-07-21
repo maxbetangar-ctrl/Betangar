@@ -5697,7 +5697,7 @@ async function guardarOrdenServicio(){
     // " AUTO PERIQUITO Y LUBRICANTES FREDD, C.A."). Lo reportó la contadora el 2026-07-21.
     // AHORA: el proveedor se REGISTRA en el momento y la orden queda enlazada. No se bloquea el
     // trabajo (no hay que salir a crearlo antes) y no puede volver a quedar suelta.
-    provNom=(gv('os-prov-otro')||'').trim();
+    provNom=_provNombreLimpio(gv('os-prov-otro'));
     if(!provNom){alert('Escribí el nombre del proveedor / taller.');return;}
     var _pe=_provBuscarParecido(provNom);
     if(_pe){
@@ -9183,6 +9183,10 @@ function toggleRetIVA(v){if(g('pv-ret-w'))g('pv-ret-w').style.display=v==='si'?'
 // ── Proveedor al vuelo desde una ORDEN ──────────────────────────────────────────────────────────
 // Nombre comparable: sin acentos, sin puntuación y sin las coletillas de razón social (C.A., S.A.,
 // RL, SRL, CIA). Así "Lubricantes FREDD CA" y " LUBRICANTES FREDD, C.A." se reconocen como el mismo.
+// Nombre de proveedor LIMPIO para guardar: sin espacios al principio/final ni dobles adentro.
+// Un espacio invisible rompe cualquier comparación y deja la orden sin enlazar (pasó con
+// " AUTO PERIQUITO..." y "LA CASA DEL  CAMION"). Se limpia al ENTRAR, no al comparar.
+function _provNombreLimpio(s){ return String(s||'').replace(/\s+/g,' ').trim(); }
 function _provNorm(s){
   return String(s||'').normalize('NFD').replace(/[̀-ͯ]/g,'')
     .toLowerCase().replace(/[^a-z0-9 ]+/g,' ')
@@ -9247,7 +9251,7 @@ function _provBuscarParecido(nombre){
 // Registra un proveedor con lo mínimo (nombre) para que la orden quede enlazada. Los datos
 // fiscales se completan después en su módulo. Devuelve {id,nombre} o null si no se pudo guardar.
 async function _provCrearRapido(nombre){
-  var nom=String(nombre||'').trim(); if(!nom)return null;
+  var nom=_provNombreLimpio(nombre); if(!nom)return null;
   var pv={id:'P'+Date.now(),nombre:nom,rif:'',banco:'',tcuenta:'',ncuenta:'',tel:'',cat:'',
           tasa:'bcvDolar',tipo_doc:'con_factura',tipo_contrib:'ordinario',actividad_islr:'0',
           notas:'Registrado automáticamente al emitir una orden — completar datos fiscales',
@@ -9267,7 +9271,7 @@ async function _provCrearRapido(nombre){
   return pv;
 }
 function guardarProveedor(){
-  var nombre=gv('pv-nombre');if(!nombre){alert('Ingresa el nombre del proveedor');return;}
+  var nombre=_provNombreLimpio(gv('pv-nombre'));if(!nombre){alert('Ingresa el nombre del proveedor');return;}
   var id=gv('pv-edit-id')||('P'+Date.now());
   var tipoDoc=gv('pv-tipo-doc')||'con_factura';
   var tipoContrib=gv('pv-tipo-contrib')||'ordinario';
