@@ -1359,12 +1359,12 @@ function _acAnomalias(todas,desde,hasta,ref){
           'La unidad '+U(u)+' amaneció el '+formatFecha(hoy.fecha)+' con '+_acFmt(Math.abs(delta),1)+' L menos de los que dejó al llegar'+
           (ant.fechaLl?(' el '+formatFecha(ant.fechaLl)):'')+', y no hay despacho que lo explique. Un camión estacionado no consume. '+
           'Revisá quién tuvo acceso a la unidad esa noche y confirmá que las dos lecturas de regla estén bien tomadas.'+$(delta),
-          u,hoy.fecha,delta);
+          u,hoy.fecha,delta,(hoy.chofer||ant.chofer||''));
       } else if(delta>AC_TOL_CAMION){
         add('media','R5','Apareció combustible',
           'La unidad '+U(u)+' salió el '+formatFecha(hoy.fecha)+' con '+_acFmt(delta,1)+' L MÁS de los que había dejado, sin despacho registrado. '+
           'Puede ser una carga por fuera que no se anotó, o una lectura de regla equivocada. Confirmá con el chofer dónde cargó.',
-          u,hoy.fecha,delta);
+          u,hoy.fecha,delta,(hoy.chofer||ant.chofer||''));
       }
     }
   });
