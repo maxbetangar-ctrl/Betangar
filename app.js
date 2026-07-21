@@ -5690,7 +5690,28 @@ async function guardarOrdenServicio(){
   }
   if(!cams.length){alert(esCompra?'Escribe para cuáles unidades es la compra (ej: 1,2,3), o elegí Destino: Patio o Inventario.':'Escribe al menos una unidad válida (solo números, ej: 1,2,3).');return;}
   var provSel=gv('os-prov'), provNom='', provId='';
-  if(provSel==='__otro'){provNom=(gv('os-prov-otro')||'').trim();}
+  if(provSel==='__otro'){
+    // ANTES: el nombre escrito a mano se guardaba SIN proveedor_id → la orden quedaba huérfana y
+    // NUNCA aparecía al registrar la Cuenta por Pagar (el enlace exige el id, y el respaldo por
+    // nombre pedía coincidencia exacta: "Lubricantes FREDD CA" jamás iba a casar con
+    // " AUTO PERIQUITO Y LUBRICANTES FREDD, C.A."). Lo reportó la contadora el 2026-07-21.
+    // AHORA: el proveedor se REGISTRA en el momento y la orden queda enlazada. No se bloquea el
+    // trabajo (no hay que salir a crearlo antes) y no puede volver a quedar suelta.
+    provNom=(gv('os-prov-otro')||'').trim();
+    if(!provNom){alert('Escribí el nombre del proveedor / taller.');return;}
+    var _pe=_provBuscarParecido(provNom);
+    if(_pe){
+      // Ya hay uno parecido: se ofrece usarlo para no duplicar ("INCONSUMCA" vs "INCONSUMMCA, C.A.").
+      if(confirm('Ya existe un proveedor parecido:\n\n  '+_pe.nombre+'\n\n¿Es el mismo?\n\nAceptar = uso ese (recomendado)\nCancelar = registro "'+provNom+'" como uno nuevo')){
+        provId=_pe.id; provNom=_pe.nombre;
+      }
+    }
+    if(!provId){
+      var _nue=await _provCrearRapido(provNom);
+      if(_nue&&_nue.id){ provId=_nue.id; provNom=_nue.nombre; }
+      else if(!confirm('No pude registrar el proveedor "'+provNom+'".\n\n¿Emitir la orden igual? (después habrá que enlazarla a mano en Cuentas por Pagar)')) return;
+    }
+  }
   else if(provSel){var pv=(typeof PROVEEDORES!=='undefined'?PROVEEDORES:[]).find(function(p){return String(p.id)===String(provSel);});provId=provSel;provNom=pv?pv.nombre:'';}
   // En compra el proveedor es opcional (se define al comprar); en servicio es el taller predefinido.
   var tipo=esCompra?'otro':(gv('os-tipo')||'otro'), item=(gv('os-item')||'').trim(), notas=(gv('os-notas')||'').trim();
@@ -8483,12 +8504,18 @@ function fillCxpOrdenSelect(){
   var sel=g('cxp-orden'); if(!sel)return; var prev=sel.value;
   var provSel=gv('cxp-prov')||''; // si hay proveedor elegido, mostrar SOLO sus órdenes abiertas
   var provNomSel=''; if(provSel){var pvv=(typeof PROVEEDORES!=='undefined'?PROVEEDORES:[]).find(function(p){return String(p.id)===String(provSel);}); provNomSel=pvv?(pvv.nombre||''):'';}
-  var _norm=function(s){return String(s||'').trim().toLowerCase();};
   var arr=_ordenesAbiertasSinCxp().filter(function(o){
     if(!provSel)return true;
     if(String(o.proveedorId||'')===String(provSel))return true;
-    // Órdenes con proveedor escrito a mano (sin id): emparejar por nombre para no ocultarlas.
-    if(!o.proveedorId&&provNomSel&&_norm(o.proveedor)===_norm(provNomSel))return true;
+    // Órdenes viejas con el proveedor escrito a mano (sin id): se emparejan por nombre TOLERANTE.
+    // Antes exigía coincidencia EXACTA y por eso no aparecían nunca: nadie escribe igualito la
+    // razón social ("Lubricantes FREDD CA" vs " AUTO PERIQUITO Y LUBRICANTES FREDD, C.A.").
+    // _provNorm ignora acentos, puntuación y las coletillas C.A./S.A., y acepta que uno contenga
+    // al otro. Las órdenes nuevas ya nacen con proveedor_id, así que esto es solo para el historial.
+    if(!o.proveedorId&&provNomSel){
+      var a=_provNorm(o.proveedor), b=_provNorm(provNomSel);
+      if(a&&b&&(a===b||a.indexOf(b)>=0||b.indexOf(a)>=0))return true;
+    }
     return false;
   });
   sel.innerHTML='<option value="">— Sin orden / manual —</option>'+arr.map(function(o){
@@ -9150,6 +9177,50 @@ function togglePvContrib(){
 
 function toggleRetIVA(v){if(g('pv-ret-w'))g('pv-ret-w').style.display=v==='si'?'block':'none';if(g('pv-islr-w'))g('pv-islr-w').style.display=v==='si'?'block':'none';}
 
+// ── Proveedor al vuelo desde una ORDEN ──────────────────────────────────────────────────────────
+// Nombre comparable: sin acentos, sin puntuación y sin las coletillas de razón social (C.A., S.A.,
+// RL, SRL, CIA). Así "Lubricantes FREDD CA" y " LUBRICANTES FREDD, C.A." se reconocen como el mismo.
+function _provNorm(s){
+  return String(s||'').normalize('NFD').replace(/[̀-ͯ]/g,'')
+    .toLowerCase().replace(/[^a-z0-9 ]+/g,' ')
+    .replace(/\b(c\s*a|s\s*a|rl|srl|cia|compania)\b/g,' ')
+    .replace(/\s+/g,' ').trim();
+}
+// Busca un proveedor ya registrado que sea "el mismo" aunque esté escrito distinto: igual
+// normalizado, o uno contiene al otro (ej. "Lubricantes FREDD" dentro de "Auto Periquito y
+// Lubricantes FREDD"). Devuelve null si no hay nada parecido.
+function _provBuscarParecido(nombre){
+  var n=_provNorm(nombre); if(n.length<3)return null;
+  var lista=(typeof PROVEEDORES!=='undefined'?PROVEEDORES:[]);
+  var exacto=lista.find(function(p){return _provNorm(p.nombre)===n;});
+  if(exacto)return exacto;
+  return lista.find(function(p){
+    var pn=_provNorm(p.nombre); if(pn.length<3)return false;
+    return pn.indexOf(n)>=0 || n.indexOf(pn)>=0;
+  })||null;
+}
+// Registra un proveedor con lo mínimo (nombre) para que la orden quede enlazada. Los datos
+// fiscales se completan después en su módulo. Devuelve {id,nombre} o null si no se pudo guardar.
+async function _provCrearRapido(nombre){
+  var nom=String(nombre||'').trim(); if(!nom)return null;
+  var pv={id:'P'+Date.now(),nombre:nom,rif:'',banco:'',tcuenta:'',ncuenta:'',tel:'',cat:'',
+          tasa:'bcvDolar',tipo_doc:'con_factura',tipo_contrib:'ordinario',actividad_islr:'0',
+          notas:'Registrado automáticamente al emitir una orden — completar datos fiscales',
+          contrib:'',ret_pct:75,islr_pct:0,activo:true};
+  if(DB_READY&&supabase){
+    var r=await supabase.from('proveedores').upsert([{
+      id:pv.id,nombre:pv.nombre,rif:pv.rif,banco:pv.banco,tcuenta:pv.tcuenta,ncuenta:pv.ncuenta,
+      tel:pv.tel,categoria:pv.cat,tasa:pv.tasa,tipo_doc:pv.tipo_doc,tipo_contrib:pv.tipo_contrib,
+      actividad_islr:pv.actividad_islr,notas:pv.notas,contrib:pv.contrib,ret_pct:pv.ret_pct,
+      islr_pct:pv.islr_pct,activo:true
+    }],{onConflict:'id',ignoreDuplicates:false});
+    if(r&&r.error){ console.log('[prov rapido]',r.error.message); return null; }
+  }
+  if(typeof PROVEEDORES!=='undefined')PROVEEDORES.push(pv);
+  try{ if(typeof renderProveedores==='function')renderProveedores(); }catch(e){}
+  try{ if(typeof mostrarToast==='function')mostrarToast('✅ Proveedor "'+nom+'" registrado y enlazado a la orden','exito'); }catch(e){}
+  return pv;
+}
 function guardarProveedor(){
   var nombre=gv('pv-nombre');if(!nombre){alert('Ingresa el nombre del proveedor');return;}
   var id=gv('pv-edit-id')||('P'+Date.now());
