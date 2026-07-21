@@ -9186,6 +9186,29 @@ function toggleRetIVA(v){if(g('pv-ret-w'))g('pv-ret-w').style.display=v==='si'?'
 // Nombre de proveedor LIMPIO para guardar: sin espacios al principio/final ni dobles adentro.
 // Un espacio invisible rompe cualquier comparación y deja la orden sin enlazar (pasó con
 // " AUTO PERIQUITO..." y "LA CASA DEL  CAMION"). Se limpia al ENTRAR, no al comparar.
+// ── RIF y CUENTA BANCARIA: se aceptan como los escriba la gente, se GUARDAN unificados ─────────
+// Venían de las dos formas ('J-501030235' y 'J-31122134-4'), con espacios pegados y a veces en
+// minúscula. Se normaliza al ENTRAR el dato; para comparar se usan solo los dígitos.
+function _soloDig(s){ return String(s||'').replace(/\D/g,''); }
+// RIF oficial del SENIAT: LETRA-8dígitos-verificador (J-12345678-9).
+// Si no trae los 9 dígitos NO se inventa el verificador: se deja lo que hay, limpio.
+function _rifFmt(s){
+  var t=String(s||'').trim().toUpperCase();
+  var letra=(t.match(/[JVGEP]/)||[''])[0];
+  var d=_soloDig(t);
+  if(!letra&&!d)return '';
+  if(!letra)letra='J';
+  if(d.length===9)return letra+'-'+d.slice(0,8)+'-'+d.slice(8);
+  return d?(letra+'-'+d):letra;
+}
+// Cuenta bancaria venezolana: 20 dígitos, se muestran 4-4-2-10 (0105-0699-95-1699218897).
+function _cuentaFmt(s){
+  var d=_soloDig(s);
+  if(d.length===20)return d.slice(0,4)+'-'+d.slice(4,8)+'-'+d.slice(8,10)+'-'+d.slice(10);
+  return d;
+}
+// Para comparar/buscar: dos RIF son el mismo si coinciden sus dígitos, sin importar los guiones.
+function _rifIgual(a,b){ var x=_soloDig(a),y=_soloDig(b); return !!x&&x===y; }
 function _provNombreLimpio(s){ return String(s||'').replace(/\s+/g,' ').trim(); }
 function _provNorm(s){
   return String(s||'').normalize('NFD').replace(/[̀-ͯ]/g,'')
@@ -9278,8 +9301,8 @@ function guardarProveedor(){
   var actividadIslr=gv('pv-actividad-islr')||'0';
   var retIvaPct=tipoContrib==='especial'?100:tipoContrib==='ordinario'?75:0;
   var pv={
-    id:id,nombre:nombre,rif:gv('pv-rif'),
-    banco:gv('pv-banco'),tcuenta:gv('pv-tcuenta'),ncuenta:gv('pv-ncuenta'),
+    id:id,nombre:nombre,rif:_rifFmt(gv('pv-rif')),
+    banco:gv('pv-banco'),tcuenta:gv('pv-tcuenta'),ncuenta:_cuentaFmt(gv('pv-ncuenta')),
     tel:gv('pv-tel'),cat:gv('pv-cat'),
     tasa:gv('pv-tasa')||'bcvDolar',
     tipo_doc:tipoDoc,
@@ -9333,7 +9356,7 @@ function renderProveedoresLista(){
 
 function editarProv(id){var pv=PROVEEDORES.find(function(p){return p.id===id;});if(!pv)return;sv('pv-nombre',pv.nombre);sv('pv-rif',pv.rif);sv('pv-banco',pv.banco);sv('pv-tcuenta',pv.tcuenta);sv('pv-ncuenta',pv.ncuenta);sv('pv-tel',pv.tel);sv('pv-cat',pv.cat);sv('pv-tasa',pv.tasa);sv('pv-contrib',pv.contrib);sv('pv-ret-pct',pv.retPct);sv('pv-islr-pct',pv.islrPct);sv('pv-edit-id',pv.id);toggleRetIVA(pv.contrib);switchProvTab('lista');}
 
-function abrirSENIAT(){var rif=gv('pv-rif');window.open('https://declaraciones.seniat.gob.ve/portal/page/portal/MANEJADOR_CONTENIDO_SENIAT/MENU_SENIAT/01MENU_SENIAT/01040INFORMACION_CONTRIBUYENTE?p_rif='+(rif||''),'_blank');}
+function abrirSENIAT(){var rif=_rifFmt(gv('pv-rif')).replace(/-/g,'');window.open('https://declaraciones.seniat.gob.ve/portal/page/portal/MANEJADOR_CONTENIDO_SENIAT/MENU_SENIAT/01MENU_SENIAT/01040INFORMACION_CONTRIBUYENTE?p_rif='+(rif||''),'_blank');}
 
 // (Retenciones ahora en el Libro 2 Bs: ver renderRetenciones / guardarFactura más arriba.
 //  Se eliminaron el calcRet y renderRetenciones viejos que calculaban en $.)
@@ -10926,7 +10949,7 @@ async function guardarEmpleado(){
   var idx=EMPLEADOS.findIndex(function(e){return e.id===id;});
   // Preservar baja: editar un empleado dado de baja NO debe reactivarlo. Nuevos empleados nacen activos.
   var activoPrev=idx>=0?(EMPLEADOS[idx].activo!==false):true;
-  var emp={id:id,nombre:nombre.toUpperCase(),cargo:gv('ne-cargo'),imau:gv('ne-imau')==='true',unidad:gv('ne-unidad'),cedula:gv('ne-ced'),rif:gv('ne-rif')||'',fnac:gv('ne-fnac'),fingreso:gv('ne-fingreso')||'',email:gv('ne-email'),tel:gv('ne-tel')||'',banco:gv('ne-banco'),whatsapp:gv('ne-whatsapp')||'',wa_apikey:gv('ne-wa-apikey')||'',tcuenta:gv('ne-tcuenta'),ncuenta:gv('ne-ncuenta'),tipoAy:gv('ne-tipoAy'),foto:gv('ne-foto-b64')||'',activo:activoPrev,multicargo:(g('ne-multicargo')?g('ne-multicargo').checked:false)};
+  var emp={id:id,nombre:nombre.toUpperCase(),cargo:gv('ne-cargo'),imau:gv('ne-imau')==='true',unidad:gv('ne-unidad'),cedula:gv('ne-ced'),rif:_rifFmt(gv('ne-rif'))||'',fnac:gv('ne-fnac'),fingreso:gv('ne-fingreso')||'',email:gv('ne-email'),tel:gv('ne-tel')||'',banco:gv('ne-banco'),whatsapp:gv('ne-whatsapp')||'',wa_apikey:gv('ne-wa-apikey')||'',tcuenta:gv('ne-tcuenta'),ncuenta:_cuentaFmt(gv('ne-ncuenta')),tipoAy:gv('ne-tipoAy'),foto:gv('ne-foto-b64')||'',activo:activoPrev,multicargo:(g('ne-multicargo')?g('ne-multicargo').checked:false)};
   if(idx>=0)EMPLEADOS[idx]=emp;else EMPLEADOS.push(emp);
   var resEmp=await supabase.from('empleados').upsert([{
     id:emp.id,nombre:emp.nombre,cargo:emp.cargo,unidad:emp.unidad,
