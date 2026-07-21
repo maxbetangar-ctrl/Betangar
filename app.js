@@ -11342,7 +11342,7 @@ function renderFlotaCfgLista(){
         '<span style="font-weight:800;color:var(--green)">'+cam+'</span>'+
         '<span class="badge '+(f.estado==='operativo'?'bg':f.estado==='taller'?'by':'br')+'">'+f.estado+'</span>'+
       '</div>'+
-      '<div style="font-size:10px;color:var(--text2)">'+f.placa+' · VIN: '+f.vin.slice(-6)+'</div>'+
+      '<div style="font-size:10px;color:var(--text2)">'+(f.placa||'--')+(f.vin?' · VIN: '+String(f.vin).slice(-6):'')+'</div>'+
       '<div style="font-size:11px;color:var(--text)">'+f.chofer+(km?' · '+km.toLocaleString()+'km':'')+'</div>'+
     '</div>';
   }).join('')||'<div style="color:var(--text3);font-size:12px">Sin unidades</div>';
