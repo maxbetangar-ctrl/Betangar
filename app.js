@@ -5526,11 +5526,112 @@ function _unidadCorta(cam){ return String(cam||'').replace('JAC-B','B'); }
 function _resolverUnidad(n){
   var s=String(n||'').trim(); if(!s)return '';
   if(FLOTA&&FLOTA[s])return s;
+  var keys=_flotaUnidades(), up=s.toUpperCase();
+  // 1) id exacto sin importar mayúsculas
+  for(var k=0;k<keys.length;k++){ if(String(keys[k]).toUpperCase()===up)return keys[k]; }
+  // 2) por PLACA: muchas empresas conocen la unidad por la placa, no por el numerito
+  var pl=up.replace(/[^A-Z0-9]/g,'');
+  if(pl){ for(var p=0;p<keys.length;p++){ var pk=String(_placaDe(keys[p])||'').toUpperCase().replace(/[^A-Z0-9]/g,''); if(pk&&pk===pl)return keys[p]; } }
+  // 3) por sufijo numerico (agnostico: JAC-B001 <-> "1")
   var d=s.replace(/\D/g,'').replace(/^0+/,''); if(!d)return '';
-  var keys=_flotaUnidades();
   for(var i=0;i<keys.length;i++){ if(String(keys[i]).replace(/\D/g,'').replace(/^0+/,'')===d)return keys[i]; }
   return '';
 }
+// ══════════════════════════════════════════════════════════════════════════════
+// UNIDADES EN ÓRDENES (servicio y compra): se ESCRIBEN, se BUSCAN y se ELIGEN
+// ══════════════════════════════════════════════════════════════════════════════
+// El campo sigue siendo de texto libre (se puede tirar "1,3,7" de corrido, que es lo más rápido
+// cuando ya te la sabés), pero ahora además: (a) resuelve por id, por número y por PLACA,
+// (b) muestra en vivo qué entendió y qué NO existe, y (c) tiene buscador + selector con checks.
+// Antes, lo que no casaba se descartaba EN SILENCIO: escribías "13" (que no existe) y la orden
+// salía con una unidad menos sin avisar.
+function _placaDe(cam){
+  if(typeof camPlaca==='function')return camPlaca(cam);
+  try{
+    var f=(typeof FLOTA!=='undefined'&&FLOTA[cam])?FLOTA[cam]:null;
+    var c=(typeof UNIDAD_CONFIG!=='undefined'&&UNIDAD_CONFIG[cam])?UNIDAD_CONFIG[cam]:null;
+    return (f&&f.placa)||(c&&c.placa)||'';
+  }catch(e){return '';}
+}
+// Etiqueta visible de una unidad: "FC01 · ABC123" (id + placa) cuando hay placa.
+function _lblUnidad(cam){
+  if(typeof camLabel==='function')return camLabel(cam);
+  var p=_placaDe(cam); return p?(cam+' · '+p):String(cam||'');
+}
+// FUENTE ÚNICA de lo que el usuario escribió → unidades reales. La usan el aviso en vivo,
+// el selector y el guardado de la orden: los tres no pueden discrepar.
+function _osCamsParse(txt){
+  var s=(txt!=null?txt:((typeof gv==='function'?gv('os-cams'):'')||''));
+  var toks=String(s).split(/[,;\s]+/).map(function(t){return t.trim();}).filter(Boolean);
+  var cams=[], malos=[];
+  toks.forEach(function(t){
+    var c=_resolverUnidad(t);
+    if(!c){ if(malos.indexOf(t)<0)malos.push(t); return; }
+    if(cams.indexOf(c)<0)cams.push(c);
+  });
+  return {cams:cams, malos:malos};
+}
+function _osCamsHint(){
+  var el=g('os-cams-hint'); if(!el)return;
+  var r=_osCamsParse();
+  if(!r.cams.length&&!r.malos.length){ el.innerHTML=''; return; }
+  var ok=r.cams.length?('<span style="color:var(--green)">✓ '+r.cams.map(function(c){return _mEsc(_lblUnidad(c));}).join(' · ')+'</span>'):'';
+  var bad=r.malos.length?('<span style="color:var(--red)">✗ no existe'+(r.malos.length>1?'n':'')+': '+r.malos.map(function(t){return _mEsc(t);}).join(', ')+'</span>'):'';
+  el.innerHTML=ok+(ok&&bad?' &nbsp;— &nbsp;':'')+bad;
+}
+// Buscador + selector con checks. Arranca marcado con lo que ya está escrito y al aceptar
+// reescribe el campo: escribir y elegir son dos caminos al MISMO texto.
+function abrirSelectorUnidadesOS(){
+  var inp=g('os-cams');
+  if(inp&&inp.disabled){ alert('Esta orden no va a una unidad (Destino: patio o inventario).'); return; }
+  var unidades=(typeof _flotaUnidades==='function')?_flotaUnidades():Object.keys(FLOTA||{});
+  if(!unidades.length){ alert('No hay unidades cargadas todavía.'); return; }
+  var sel={}; _osCamsParse().cams.forEach(function(c){sel[c]=1;});
+  var id='modal-os-unidades', old=g(id); if(old)old.remove();
+  var m=document.createElement('div'); m.id=id;
+  m.style.cssText='position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.8);z-index:9999;display:flex;align-items:center;justify-content:center;padding:12px';
+  m.innerHTML='<div style="background:var(--bg2);border-radius:16px;padding:20px;max-width:460px;width:100%;max-height:86vh;display:flex;flex-direction:column">'+
+    '<div style="font-size:15px;font-weight:900;margin-bottom:4px">🚛 Elegir unidades</div>'+
+    '<div style="font-size:11px;color:var(--text3);margin-bottom:10px">Buscá por número, identificador o placa. También podés escribirlas a mano en el campo.</div>'+
+    '<input id="osu-busq" class="fc" placeholder="Buscar unidad o placa…" style="margin-bottom:6px;padding:6px 8px;font-size:12px">'+
+    '<div style="display:flex;gap:6px;margin-bottom:6px"><button class="btn btn-s btn-xs" id="osu-todas">Marcar todas</button><button class="btn btn-s btn-xs" id="osu-ninguna">Ninguna</button><span id="osu-cuenta" style="margin-left:auto;font-size:11px;color:var(--text3);align-self:center"></span></div>'+
+    '<div id="osu-lista" style="overflow:auto;flex:1;display:flex;flex-direction:column;gap:2px;border-top:0.5px solid var(--border);padding-top:6px"></div>'+
+    '<div style="display:flex;gap:8px;margin-top:10px"><button class="btn btn-g" id="osu-ok" style="flex:1">✅ Usar estas unidades</button><button class="btn btn-s" id="osu-cancel" style="flex:1">Cancelar</button></div>'+
+    '</div>';
+  document.body.appendChild(m);
+  var busq=m.querySelector('#osu-busq'), lista=m.querySelector('#osu-lista'), cuenta=m.querySelector('#osu-cuenta');
+  function visibles(){
+    var q=(busq.value||'').toUpperCase().trim();
+    return unidades.filter(function(c){return !q||_lblUnidad(c).toUpperCase().indexOf(q)>=0;});
+  }
+  function pintar(){
+    var vis=visibles();
+    cuenta.textContent=Object.keys(sel).length+' elegida(s)';
+    if(!vis.length){ lista.innerHTML='<div style="color:var(--text3);font-size:12px;padding:8px">Sin resultados</div>'; return; }
+    lista.innerHTML='';
+    vis.forEach(function(c){
+      var row=document.createElement('label');
+      row.style.cssText='display:flex;align-items:center;gap:8px;padding:6px 4px;border-bottom:0.5px solid var(--border);cursor:pointer;font-size:13px';
+      var ck=document.createElement('input'); ck.type='checkbox'; ck.checked=!!sel[c];
+      ck.onchange=function(){ if(ck.checked)sel[c]=1; else delete sel[c]; cuenta.textContent=Object.keys(sel).length+' elegida(s)'; };
+      var tx=document.createElement('span'); tx.textContent=_lblUnidad(c); tx.style.fontWeight='700';
+      row.appendChild(ck); row.appendChild(tx); lista.appendChild(row);
+    });
+  }
+  busq.oninput=pintar;
+  m.querySelector('#osu-todas').onclick=function(){ visibles().forEach(function(c){sel[c]=1;}); pintar(); };
+  m.querySelector('#osu-ninguna').onclick=function(){ visibles().forEach(function(c){delete sel[c];}); pintar(); };
+  m.querySelector('#osu-cancel').onclick=function(){ m.remove(); };
+  m.onclick=function(e){ if(e.target===m)m.remove(); };
+  m.querySelector('#osu-ok').onclick=function(){
+    var elegidas=unidades.filter(function(c){return sel[c];});
+    if(typeof sv==='function')sv('os-cams',elegidas.join(', '));
+    m.remove(); _osCamsHint();
+  };
+  pintar();
+  setTimeout(function(){try{busq.focus();}catch(e){}},60);
+}
+
 // ═══ ÓRDENES DE SERVICIO (Fase 1) ═══════════════════════════════════════════
 // La orden se EMITE liviana (unidades, proveedor, tipo de servicio, ítem, notas) para mandar el carro;
 // se GUARDA en BD (ordenes_servicio) y se imprime para el taller. El km es automático (el que carga el
@@ -5556,7 +5657,7 @@ function _osTipoOrden(){
   var patioWrap=g('os-patio-wrap'); if(patioWrap)patioWrap.style.display=compra?'block':'none';
   var tipoWrap=g('os-tipo-wrap'); if(tipoWrap)tipoWrap.style.display=compra?'none':'block';
   var camsLbl=g('os-cams-lbl'); if(camsLbl)camsLbl.textContent=compra?'¿Para cuáles unidades? (ej: 1,2,3)':'Unidades (ej: 1,2,3)';
-  var camsInp=g('os-cams'); if(camsInp){camsInp.disabled=!!noUnidad; camsInp.style.opacity=noUnidad?'0.5':'1'; camsInp.placeholder=(destino==='patio'?'— Patio / uso general —':(destino==='inventario'?'— Va a inventario —':(compra?'1,2,3':'1,2,3')));}
+  var camsInp=g('os-cams'); if(camsInp){camsInp.disabled=!!noUnidad; camsInp.style.opacity=noUnidad?'0.5':'1'; camsInp.placeholder=(destino==='patio'?'— Patio / uso general —':(destino==='inventario'?'— Va a inventario —':(compra?'1,2,3':'1,2,3')));} if(typeof _osCamsHint==='function')_osCamsHint();
   var provLbl=g('os-prov-lbl'); if(provLbl)provLbl.textContent=compra?'Proveedor (opcional — se define al comprar)':'Proveedor / taller';
   var itemLbl=g('os-item-lbl'); if(itemLbl)itemLbl.textContent=compra?'¿Qué se va a comprar?':'Ítem / qué se hará';
   var itemInp=g('os-item'); if(itemInp)itemInp.placeholder=compra?'Ej: 4 baterías, filtros, materiales de oficina...':'Ej: lavado completo, cambio de aceite, revisión de frenos...';
@@ -5577,7 +5678,11 @@ async function guardarOrdenServicio(){
   var cams;
   if(destino==='patio'){ cams=['PATIO']; }
   else if(destino==='inventario'){ cams=['INVENTARIO']; }
-  else { cams=String(gv('os-cams')||'').split(/[,;\s]+/).map(function(n){return _resolverUnidad(n);}).filter(function(c,i,arr){return c&&FLOTA[c]&&arr.indexOf(c)===i;}); }
+  else {
+    var _r=_osCamsParse(); cams=_r.cams.filter(function(c){return FLOTA[c];});
+    // Lo que no se reconoce YA NO se descarta en silencio: se avisa antes de emitir la orden.
+    if(_r.malos.length && !confirm('No reconozco: '+_r.malos.join(', ')+'\n\n'+(cams.length?('La orden saldría solo para: '+cams.map(_lblUnidad).join(', ')):'No quedaría ninguna unidad.')+'\n\n¿Emitir igual?')) return;
+  }
   if(!cams.length){alert(esCompra?'Escribe para cuáles unidades es la compra (ej: 1,2,3), o elegí Destino: Patio o Inventario.':'Escribe al menos una unidad válida (solo números, ej: 1,2,3).');return;}
   var provSel=gv('os-prov'), provNom='', provId='';
   if(provSel==='__otro'){provNom=(gv('os-prov-otro')||'').trim();}
@@ -5594,6 +5699,7 @@ async function guardarOrdenServicio(){
   audit(esCompra?'Orden de Compra emitida':'Orden de Servicio emitida',orden.id+' · '+cams.join(', ')+' · '+(esCompra?(item||'compra'):tipo));
   _osImprimirOrden(orden);
   ['os-cams','os-item','os-notas'].forEach(function(id){sv(id,'');});
+  if(typeof _osCamsHint==='function')_osCamsHint();
   if(g('os-destino'))g('os-destino').value='unidad'; _osTipoOrden();
   renderOrdenesServicio();
   if(typeof mostrarToast==='function')mostrarToast('✅ '+(esCompra?'Orden de compra ':'Orden ')+orden.id+' emitida'+(ok?'':' (en cola)'),'exito');
@@ -15946,16 +16052,17 @@ function _elegirUnidadQR(){
     '<button class="btn btn-s" id="qru-cerrar" style="margin-top:10px">Cancelar</button>'+
     '</div>';
   document.body.appendChild(m);
+  var _lblU=function(c){ return (typeof camLabel==='function')?camLabel(c):c; };
   function pintar(){
     var q=(document.getElementById('qru-busq').value||'').toUpperCase();
     var l=document.getElementById('qru-lista');
-    var vis=unidades.filter(function(c){return !q||c.toUpperCase().indexOf(q)>=0;});
+    var vis=unidades.filter(function(c){return !q||_lblU(c).toUpperCase().indexOf(q)>=0;});
     l.innerHTML='';
     if(!vis.length){ l.innerHTML='<div style="color:var(--text3);font-size:12px;padding:8px">Sin resultados</div>'; return; }
     vis.forEach(function(c){
       var b=document.createElement('button');
       b.className='btn btn-s'; b.style.cssText='text-align:left;font-weight:700';
-      b.textContent=c;
+      b.textContent=_lblU(c);
       b.onclick=function(){ m.remove(); if(typeof _hvSetCam==='function')_hvSetCam(c); generarQRUnidad(c); };
       l.appendChild(b);
     });
