@@ -37,6 +37,17 @@ Deno.serve(async (req) => {
   }
   const conEtiqueta = (msg: string) => (etiqueta && !msg.startsWith(etiqueta)) ? `${etiqueta}: ${msg}` : msg;
 
+  // 0) CADUCAR lo viejo ANTES de enviar nada. Va primero a propósito: si la cola venía represada,
+  //    esto evita el aluvión de mensajes de ayer en cuanto el servicio vuelve.
+  //    Norma de Máximo (2026-07-21): "lo que se haya pasado de ayer ya no lo envíes hoy". Un aviso
+  //    operativo es de SU día: al día siguiente confunde a quien lo recibe, que ya actuó o ya no
+  //    puede actuar. Se DESCARTAN (no se borran) dejando el motivo escrito.
+  const VIGENCIA_HORAS = 12;
+  const corte = new Date(Date.now() - VIGENCIA_HORAS * 60 * 60 * 1000).toISOString();
+  const { data: caducados } = await sb.from('cola_mensajes')
+    .update({ estado: 'descartado', error: `caducado: encolado hace mas de ${VIGENCIA_HORAS}h; un aviso operativo es de su dia y no se reenvia despues` })
+    .eq('estado', 'pendiente').lt('created_at', corte).select('id');
+
   // 1) Recupera mensajes trabados en 'enviando' por una corrida que murió a mitad (>10 min). enviado_at
   //    hace de marca de reclamo; si quedó viejo, la fila vuelve a 'pendiente' para reintentar.
   const staleTs = new Date(Date.now() - 10 * 60 * 1000).toISOString();
@@ -44,7 +55,7 @@ Deno.serve(async (req) => {
 
   // 2) mensajes pendientes (tanda)
   const { data: pend } = await sb.from('cola_mensajes').select('*').eq('estado', 'pendiente').lt('intentos', 4).order('id').limit(25);
-  if (!pend || !pend.length) return json({ ok: true, sent: 0 });
+  if (!pend || !pend.length) return json({ ok: true, sent: 0, caducados: caducados?.length || 0 });
 
   let sent = 0, fail = 0;
   for (const m of pend) {
@@ -70,8 +81,18 @@ Deno.serve(async (req) => {
         sent++;
       } else {
         const t = await r.text();
-        await sb.from('cola_mensajes').update({ intentos: (m.intentos || 0) + 1, error: t.slice(0, 300), estado: (m.intentos || 0) + 1 >= 4 ? 'fallido' : 'pendiente' }).eq('id', m.id);
+        // 429 = cuota del plan agotada. NO gastar intentos: si se queman los 4, el mensaje muere
+        // como 'fallido' aunque el problema sea de cuota y no del mensaje. Pasó el 2026-07-20 con
+        // el trial agotado: se perdieron 6 avisos reales (resúmenes del día y recordatorios). Se
+        // deja 'pendiente' SIN incrementar el intento y se corta la tanda: seguir no tiene sentido.
+        const esCuota = r.status === 429;
+        await sb.from('cola_mensajes').update({
+          intentos: esCuota ? (m.intentos || 0) : (m.intentos || 0) + 1,
+          error: t.slice(0, 300),
+          estado: (!esCuota && (m.intentos || 0) + 1 >= 4) ? 'fallido' : 'pendiente',
+        }).eq('id', m.id);
         fail++;
+        if (esCuota) return json({ ok: false, sent, fail, caducados: caducados?.length || 0, nota: 'cuota Wassenger agotada (429) — la cola queda intacta, no se gastaron intentos' });
       }
     } catch (e) {
       // Falló a mitad: devolver a 'pendiente' (o 'fallido' si agotó intentos) para que NO quede trabado en 'enviando'.
@@ -79,7 +100,7 @@ Deno.serve(async (req) => {
       fail++;
     }
   }
-  return json({ ok: true, sent, fail });
+  return json({ ok: true, sent, fail, caducados: caducados?.length || 0 });
 });
 
 // Venezuela: 04141234567 / 0414-1234567 → +584141234567
