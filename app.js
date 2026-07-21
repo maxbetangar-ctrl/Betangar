@@ -9192,14 +9192,56 @@ function _provNorm(s){
 // Busca un proveedor ya registrado que sea "el mismo" aunque esté escrito distinto: igual
 // normalizado, o uno contiene al otro (ej. "Lubricantes FREDD" dentro de "Auto Periquito y
 // Lubricantes FREDD"). Devuelve null si no hay nada parecido.
+// Palabras del rubro que NO distinguen a un proveedor: si dos nombres solo comparten una de estas,
+// NO son el mismo ("Cauchera Pérez" y "Cauchera López" comparten "cauchera" y son distintos).
+var _PROV_GENERICAS=['taller','tallere','servicio','servicios','repuesto','repuestos','auto','autos',
+  'lubricante','lubricantes','cauchera','caucho','cauchos','inversiones','distribuidora','comercial',
+  'suministro','suministros','importadora','grupo','centro','casa','camion','camiones','maracaibo',
+  'venezolana','venezolanas','general','industrial','mantenimiento','transporte','concesionario'];
+// Distancia de edición acotada: ¿cuántas letras hay que cambiar para pasar de a a b? Se usa para
+// pescar erratas de una o dos letras ("INCONSUMCA" vs "INCONSUMMCA").
+function _provDist(a,b){
+  if(Math.abs(a.length-b.length)>2)return 99;
+  var m=a.length,n=b.length,prev=[],cur=[],i,j;
+  for(j=0;j<=n;j++)prev[j]=j;
+  for(i=1;i<=m;i++){
+    cur[0]=i;
+    for(j=1;j<=n;j++){
+      cur[j]=Math.min(prev[j]+1,cur[j-1]+1,prev[j-1]+(a.charAt(i-1)===b.charAt(j-1)?0:1));
+    }
+    for(j=0;j<=n;j++)prev[j]=cur[j];
+  }
+  return prev[n];
+}
+// ¿El nombre escrito a mano corresponde a un proveedor ya registrado? Reconoce, en este orden:
+//  1) igual normalizado          2) uno contiene al otro ("Servicar autolavado" → "SERVICAR, C.A.")
+//  3) errata de 1-2 letras       ("INCONSUMCA" → "INCONSUMMCA, C.A.")
+//  4) apellido/palabra distintiva compartida ("Cauchera paccini" → "HUMBERTO PACCINI")
+// Los casos 3 y 4 los confirmó Máximo el 2026-07-21: eran el mismo proveedor y el sistema no los unía.
+// Solo SUGIERE: al crear se pregunta "¿es el mismo?" y en CxP la persona elige la orden.
 function _provBuscarParecido(nombre){
   var n=_provNorm(nombre); if(n.length<3)return null;
   var lista=(typeof PROVEEDORES!=='undefined'?PROVEEDORES:[]);
   var exacto=lista.find(function(p){return _provNorm(p.nombre)===n;});
   if(exacto)return exacto;
-  return lista.find(function(p){
+  var porContener=lista.find(function(p){
     var pn=_provNorm(p.nombre); if(pn.length<3)return false;
     return pn.indexOf(n)>=0 || n.indexOf(pn)>=0;
+  });
+  if(porContener)return porContener;
+  var porErrata=lista.find(function(p){
+    var pn=_provNorm(p.nombre); if(pn.length<6||n.length<6)return false;
+    if(_provDist(pn,n)<=2)return true;
+    // también si la errata está en la primera palabra (razón social con coletillas detrás)
+    var p1=pn.split(' ')[0], n1=n.split(' ')[0];
+    return p1.length>=6&&n1.length>=6&&_provDist(p1,n1)<=2;
+  });
+  if(porErrata)return porErrata;
+  var palabras=n.split(' ').filter(function(w){return w.length>=5&&_PROV_GENERICAS.indexOf(w)<0;});
+  if(!palabras.length)return null;
+  return lista.find(function(p){
+    var pw=_provNorm(p.nombre).split(' ');
+    return palabras.some(function(w){return pw.indexOf(w)>=0;});
   })||null;
 }
 // Registra un proveedor con lo mínimo (nombre) para que la orden quede enlazada. Los datos
