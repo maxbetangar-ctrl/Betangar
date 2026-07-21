@@ -147,7 +147,9 @@ var CUENTAS_BANCO=[{id:'B001',banco:'BNC',nombre:'Betangar CA',ncuenta:'',tipo:'
 var FLOTA={
   'JAC-B001':{placa:'A06ER7P',vin:'8XR2RDH87TU000121',chofer:'REINALDO FARIA',ay1:'MISAEL RINCON',ay2:'JACKSON RINCON',estado:'operativo'},
   'JAC-B002':{placa:'A19EP3P',vin:'8XR2RDH87TU000118',chofer:'JOSE ARANGURE',ay1:'AMERICO GONZALEZ',ay2:'DARWIN ESCORCIA',estado:'operativo'},
-  'JAC-B003':{placa:'A20EP2P',vin:'8XR2RDH87TU000099',chofer:'MANUEL GONZALEZ',ay1:'',ay2:'',estado:'taller',nota:'EN CONCESIONARIO'},
+  // Estado semilla = último recurso si no carga la BD. Estaba en 'taller / EN CONCESIONARIO' desde el
+  // arranque y la unidad hace meses que trabaja: si fallaba la carga, el dashboard la reportaba en taller.
+  'JAC-B003':{placa:'A20EP2P',vin:'8XR2RDH87TU000099',chofer:'MANUEL GONZALEZ',ay1:'',ay2:'',estado:'operativo'},
   'JAC-B004':{placa:'A19EP9P',vin:'8XR2RDH8XTU000100',chofer:'MELVIN BARBOZA',ay1:'MANUEL LOPEZ',ay2:'JAIRO FUENMAYOR',estado:'operativo'},
   'JAC-B005':{placa:'A09EN9P',vin:'8XR2RDH85TU000120',chofer:'HELY URDANETA',ay1:'YIBER GONZALEZ',ay2:'OMAR LOPEZ',estado:'operativo'},
   'JAC-B006':{placa:'A03ER2P',vin:'8XR2RDH87TU000149',chofer:'JHAN ROA',ay1:'EDECIO LEDEZMA',ay2:'ELIO FERNANDEZ',estado:'operativo'},
@@ -2549,6 +2551,8 @@ async function imprimirDashboard(){
     var dias=noOp?((typeof _diasEstadoCam==='function')?_diasEstadoCam(cam):null):null;
     var estCell='<span style="color:'+col+';font-weight:700">'+est.toUpperCase()+'</span>';
     if(noOp){var sub=((dias!=null)?dias+' días':'')+((motivo)?(((dias!=null)?' · ':'')+motivo):((dias!=null)?'':'sin motivo'));estCell+='<div style="font-size:8px;color:'+col+';line-height:1.25;word-break:break-word">'+sub+'</div>';}
+    // Operativa con falla crítica pendiente: el papel avisa igual que la pantalla (misma fuente).
+    else if(typeof _camFallaCritica==='function'&&_camFallaCritica(cam)){estCell+='<div style="font-size:8px;color:#b45309;line-height:1.25;word-break:break-word">⚠️ falla pendiente: '+_camFallaCriticaTxt(cam)+'</div>';}
     return '<tr><td style="font-weight:700">'+cam.replace('JAC-','')+'</td><td>'+estCell+'</td><td style="text-align:right;font-family:monospace">'+km+'</td><td style="text-align:right;font-size:8px;color:'+proxCol+'">'+prox+'</td></tr>';
   }).join('');
   // Ranking top 5
@@ -2645,10 +2649,20 @@ function estadoDelChecklist(cam){
   var crit=_CL_CRITICOS.some(function(k){return c[k]==='mal';});
   ['danio_frontal','danio_lateral_izq','danio_lateral_der','danio_posterior','danio_techo'].forEach(function(d){var v=String(c[d]||'').trim();if(v&&v!=='0'&&v!=='ok')crit=true;});
   if(crit)return 'taller';
-  // 3) Anomalía CRÍTICA todavía abierta (frenos, aceite, agua, cauchos) → el camión no está sano
-  //    aunque el chofer haya salido con él. Deja de estarlo cuando el mecánico la cierra.
-  if(_ANOM_CRIT_CAM[cam])return 'taller';
+  // 3) Anomalía CRÍTICA abierta: AVISA, NO manda a taller (decisión de Máximo 2026-07-20).
+  //    Antes `_ANOM_CRIT_CAM[cam] → 'taller'` le pasaba por encima al chofer, al mecánico y a
+  //    flota_estado: la B003 salió a trabajar todos los días con el aceite pendiente y el
+  //    dashboard la reportaba EN TALLER. El estado lo manda una PERSONA (chofer/mecánico/oficina);
+  //    la falla pendiente se muestra como advertencia (ver _camFallaCritica / badge ⚠️).
   return 'operativo';
+}
+// ¿La unidad tiene alguna falla CRÍTICA abierta? No cambia el estado: pinta el aviso.
+function _camFallaCritica(cam){ return !!_ANOM_CRIT_CAM[cam]; }
+// Texto corto de las fallas críticas abiertas (para el tooltip y el impreso).
+function _camFallaCriticaTxt(cam){
+  if(typeof ANOM_ABIERTAS==='undefined')return '';
+  return ANOM_ABIERTAS.filter(function(a){return a.cam===cam&&a.critico;})
+    .map(function(a){return String(a.label||a.item_norm||'').trim();}).filter(Boolean).join(', ');
 }
 // FUENTE ÚNICA del estado real de un camión (la MISMA que usa el widget de flota y la disponibilidad).
 // Prioridad: override manual de sesión > checklist de hoy > último estado conocido (km_data) > FLOTA.
@@ -2657,7 +2671,12 @@ function _estadoCamReal(cam){
   var f=(typeof FLOTA!=='undefined'&&FLOTA[cam])||{};
   var estCl=(typeof estadoDelChecklist==='function')?estadoDelChecklist(cam):null;
   var ov=(typeof _estadoOverride!=='undefined')?_estadoOverride[cam]:null;
-  var est=ov||estCl||((typeof KM_DATA!=='undefined'&&KM_DATA[cam]&&KM_DATA[cam].estado))||f.estado||'operativo';
+  var kd=(typeof KM_DATA!=='undefined'&&KM_DATA[cam])||null;
+  // Si el mecánico/oficina la sacó de circulación HOY (con motivo → estado_confirmado), esa decisión
+  // manda sobre el checklist de la mañana: el camión entró al taller DESPUÉS de que el chofer lo revisó.
+  var hoyE=(typeof fechaVE==='function')?fechaVE():new Date().toISOString().slice(0,10);
+  var mecHoy=(kd&&kd.estado_confirmado&&kd.estado&&kd.estado!=='operativo'&&kd.estado_desde===hoyE)?kd.estado:null;
+  var est=ov||mecHoy||estCl||(kd&&kd.estado)||f.estado||'operativo';
   if(String(est).indexOf('taller')===0)est='taller';
   return est;
 }
@@ -2679,20 +2698,18 @@ function renderFlotaDash(){
     // No operativo: días fuera (desde estado_desde; si aún no hay, fallback a días sin planilla) + MOTIVO.
     var noOp=(est!=='operativo');
     var motivo=(KM_DATA[cam]&&KM_DATA[cam].nota_estado)||'';
-    var dias=null;
-    if(noOp){
-      var desde=KM_DATA[cam]&&KM_DATA[cam].estado_desde;
-      if(desde){ dias=diasDesde(desde); }
-      else { var ult=(typeof REGS!=='undefined'?REGS:[]).filter(function(r){return r.cam===cam;}).sort(function(a,b){return b.f.localeCompare(a.f);})[0]; if(ult)dias=diasDesde(ult.f); }
-    }
+    var dias=noOp?_diasEstadoCam(cam):null;   // fuente única: km_data.estado_desde (null = no se inventa)
+    var falla=(!noOp&&_camFallaCritica(cam))?_camFallaCriticaTxt(cam):'';   // operativa CON falla pendiente
     // Dashboard = SOLO VISUALIZAR (el estado se cambia desde los otros módulos: mecánico/checklist,
     // no desde acá para no cambiarlo por error). El motivo se muestra COMPLETO + tooltip con todo.
-    var titulo=(noOp&&motivo?('Motivo: '+motivo):'')+(deChecklist?((noOp&&motivo?' · ':'')+'Estado tomado del checklist de hoy'):'');
+    var titulo=(noOp&&motivo?('Motivo: '+motivo):'')+(deChecklist?((noOp&&motivo?' · ':'')+'Estado tomado del checklist de hoy'):'')+(falla?(' · Operativa con falla pendiente: '+falla):'');
     html+='<div style="background:'+bg+';border:1px solid '+c+';border-radius:9px;padding:10px 11px" title="'+_esc(titulo)+'">'+
       '<div style="font-family:var(--m);font-size:14px;font-weight:800;color:'+c+'">'+cam.replace('JAC-','')+'</div>'+
       '<div style="font-size:10px;font-weight:700;color:'+c+';margin-top:2px">'+est.toUpperCase()+(deChecklist?' 🔧':'')+(noOp&&dias!=null?(' · '+dias+'d'):'')+'</div>'+
       '<div style="font-size:10px;color:var(--text3);margin-top:1px">'+(km?km.toLocaleString()+' km':'--')+'</div>'+
       (noOp&&motivo?('<div style="font-size:11px;color:'+c+';margin-top:6px;line-height:1.35;word-break:break-word;text-align:left">📝 '+_esc(motivo)+'</div>'):'')+
+      // Operativa PERO con falla crítica sin resolver: se avisa, no se la saca de circulación.
+      (falla?('<div style="font-size:10px;color:var(--yellow);margin-top:6px;line-height:1.3;word-break:break-word;text-align:left">⚠️ Falla pendiente: '+_esc(falla)+'</div>'):'')+
     '</div>';
   });
   html+='</div>';
@@ -2703,11 +2720,13 @@ function renderFlotaDash(){
 // Ventana que OBLIGA a explicar por qué una unidad lleva >2 días fuera sin motivo. Se abre a
 // superadmin/admin/rrhh/operador. El PRIMERO que responde lo guarda (fuente única km_data.nota_estado)
 // y se le quita a los demás; al superadmin le queda visible hasta que confirme (su respuesta sobrepone).
+// DÍAS FUERA = SOLO desde km_data.estado_desde (fecha real en que salió de circulación).
+// Antes, si no había estado_desde, contaba los días desde la ÚLTIMA PLANILLA cargada y lo rotulaba
+// "N días en taller": la B003 salía "TALLER hace 3 días" cuando en realidad eran 3 días sin planilla
+// y estaba trabajando (bug 2026-07-20). Si no hay fecha real, no se inventa número: devuelve null.
 function _diasEstadoCam(cam){
   var d=KM_DATA[cam]&&KM_DATA[cam].estado_desde;
-  if(d)return diasDesde(d);
-  var ult=(typeof REGS!=='undefined'?REGS:[]).filter(function(r){return r.cam===cam;}).sort(function(a,b){return b.f.localeCompare(a.f);})[0];
-  return ult?diasDesde(ult.f):null;
+  return d?diasDesde(d):null;
 }
 function detectarInoperativosSinMotivo(){
   if(typeof SESION==='undefined'||!SESION)return;
@@ -2926,6 +2945,9 @@ async function renderChecklistAnomalias(){
   // Alimenta la fuente única del estado del camión: una falla crítica sin resolver = taller.
   _ANOM_CRIT_CAM={};
   ANOM_ABIERTAS.forEach(function(a){ if(a.critico)_ANOM_CRIT_CAM[a.cam]=1; });
+  // Las anomalías cargan DESPUÉS que el widget de flota: si no se repinta, la pantalla queda con un
+  // estado y el aviso/impreso con otro (bug 2026-07-20: widget "OPERATIVO" y papel/aviso "TALLER").
+  try{ if(typeof renderFlotaDash==='function')renderFlotaDash(); }catch(e){}
   if(!ANOM_ABIERTAS.length){
     targets.forEach(function(el){el.innerHTML='<div style="color:var(--green2);font-size:12px;padding:8px">✓ Sin fallas pendientes en la flota</div>';});
     return;
@@ -15734,12 +15756,17 @@ function clGuardar(){
         'Falla critica checklist '+hoy+': '+listaFallas.replace(/[🔴⚠️]/g,'').trim():
         'Checklist '+hoy+' con observaciones menores';
       
+      // estado_desde = día en que SALIÓ de circulación (se conserva si ya venía fuera, se limpia al
+      // volver a operativa). Sin esto quedaba NULL en toda la flota y los "días fuera" salían de la
+      // última planilla → el dashboard decía "N días en taller" siendo días sin planilla (2026-07-20).
+      var _desdeCk=(nuevoEstado!=='operativo')?((KM_DATA[cam]&&KM_DATA[cam].estado_desde)||hoy):null;
       supabase.from('km_data').update({
         estado:nuevoEstado,
         nota_estado:notaAuto,
+        estado_desde:_desdeCk,
         updated_by:SESION.nombre||'Mecanico'
       }).eq('cam',cam).then(function(){
-        if(KM_DATA[cam]){KM_DATA[cam].estado=nuevoEstado;KM_DATA[cam].nota_estado=notaAuto;}
+        if(KM_DATA[cam]){KM_DATA[cam].estado=nuevoEstado;KM_DATA[cam].nota_estado=notaAuto;KM_DATA[cam].estado_desde=_desdeCk;}
       });
       
       if(tieneCritico){
@@ -15753,12 +15780,14 @@ function clGuardar(){
       var motEl=document.getElementById('cl-motivo');
       var motivoFinal=motEl&&estadoFinal!=='operativo'?motEl.value.trim():'';
       var notaFinal=estadoFinal==='operativo'?'Checklist OK — '+hoy:motivoFinal||'Sin especificar';
+      var _desdeCk2=(estadoFinal!=='operativo')?((KM_DATA[cam]&&KM_DATA[cam].estado_desde)||hoy):null;
       supabase.from('km_data').update({
         estado:estadoFinal,
         nota_estado:notaFinal,
+        estado_desde:_desdeCk2,
         updated_by:SESION.nombre||'Mecanico'
       }).eq('cam',cam).then(function(){
-        if(KM_DATA[cam]){KM_DATA[cam].estado=estadoFinal;KM_DATA[cam].nota_estado=notaFinal;}
+        if(KM_DATA[cam]){KM_DATA[cam].estado=estadoFinal;KM_DATA[cam].nota_estado=notaFinal;KM_DATA[cam].estado_desde=_desdeCk2;}
         renderWidgetFlota();
       });
       // Notificar checklist OK solo cuando el estado no es operativo (para no spam)
