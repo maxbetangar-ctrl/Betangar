@@ -1192,7 +1192,8 @@ async function acCargar(desde,hasta){
     supabase.from('combustible_mediciones').select('*').gte('fecha',desdeExt).lte('fecha',hasta).order('fecha'),
     supabase.from('gasoil').select('*').gte('f',desdeExt).lte('f',hasta),
     supabase.from('checklist').select('fecha,cam,conductor,km_salida,km_entrada').gte('fecha',desdeExt).lte('fecha',hasta),
-    supabase.from('configuracion').select('valor').eq('clave','tanque_costo').maybeSingle()
+    supabase.from('configuracion').select('valor').eq('clave','tanque_costo').maybeSingle(),
+    supabase.from('configuracion').select('valor').eq('clave','aud_comb_rend_ref').maybeSingle()
   ];
   var r=await Promise.all(q);
   if(r[0].error)throw new Error('tanques: '+r[0].error.message);
@@ -1208,6 +1209,12 @@ async function acCargar(desde,hasta){
   AC_CK=r[3].data||[];
   var cst=null; try{ cst=r[4]&&r[4].data?String(r[4].data.valor).replace(/"/g,''):null; }catch(e){}
   AC_META.costoL=_acNum(cst);
+  // Rendimiento de referencia FIJO (km/L). Si esta configurado (Betangar: 1,9 para los JAC 1131 de
+  // aseo), manda sobre la mediana de los propios datos: un numero conocido cazando el robo que la
+  // mediana esconderia si toda la flota pierde combustible. Si no esta (Flotilla), cada unidad usa
+  // su propia mediana (flota mixta, cada tipo rinde distinto).
+  var rr=null; try{ rr=r[5]&&r[5].data?String(r[5].data.valor).replace(/"/g,''):null; }catch(e){}
+  AC_META.rendRef=_acNum(rr);
   AC_META.modo=AC_TANQUES.length?'cubicacion':'surtidas';
 }
 
@@ -1269,9 +1276,17 @@ function _acArmarJornadas(desde,hasta){
 // Referencia de rendimiento de CADA unidad: mediana de sus jornadas válidas. Mediana y no promedio
 // para que un día ya robado no corra la vara. Si no hay historia, se usa el rango de arranque.
 function _acRefRend(todas){
+  var ref={};
+  var fija=(typeof AC_META!=='undefined')?_acNum(AC_META.rendRef):null;
+  if(fija&&fija>0){
+    // Referencia FIJA para toda la flota (Betangar JAC 1131 aseo = 1,9). n alto para que las reglas
+    // que exigen historial la acepten sin esperar a juntar jornadas.
+    Object.keys((typeof FLOTA!=='undefined'&&FLOTA)||{}).forEach(function(u){ ref[u]={mediana:fija,n:99,fija:true}; });
+    (todas||[]).forEach(function(j){ if(!ref[j.cam])ref[j.cam]={mediana:fija,n:99,fija:true}; });
+    return ref;
+  }
   var porU={};
   (todas||[]).forEach(function(j){ if(j.rend!=null&&j.rend>0)(porU[j.cam]=porU[j.cam]||[]).push(j.rend); });
-  var ref={};
   Object.keys(porU).forEach(function(u){
     var a=porU[u].sort(function(x,y){return x-y;});
     ref[u]={mediana:a[Math.floor(a.length/2)],n:a.length};
@@ -1588,9 +1603,10 @@ function _acRender(){
     var senal='—', colS='var(--text3)';
     if(rend!=null&&refU&&refU.n>=3){
       var d=(rend-refU.mediana)/refU.mediana;
-      if(d<-0.25){senal='consume más de lo suyo';colS='var(--red)';}
-      else if(d>0.25){senal='rinde mejor que su normal';colS='var(--green)';}
-      else {senal='dentro de lo normal';colS='var(--text2)';}
+      var vs=refU.fija?('lo esperado ('+_acFmt(refU.mediana,1)+' km/L)'):'su normal';
+      if(d<-0.25){senal='rinde por debajo de '+vs;colS='var(--red)';}
+      else if(d>0.25){senal='rinde mejor que '+vs;colS='var(--green)';}
+      else {senal='dentro de '+vs;colS='var(--text2)';}
     }
     var nAn=AC_ANOM.filter(function(a){return a.cam===u;}).length;
     return '<tr>'+
