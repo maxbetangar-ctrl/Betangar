@@ -17042,50 +17042,38 @@ function renderMensajesWA(){
 }
 
 async function enviarMensajeMasivo(){
-  var msg = document.getElementById('msg-wa-texto')?document.getElementById('msg-wa-texto').value.trim():'';
+  var msg = (document.getElementById('msg-wa-texto')||{}).value; msg=(msg||'').trim();
   if(!msg){ alert('Escribe el mensaje primero'); return; }
-  var dest = document.getElementById('msg-wa-dest')?document.getElementById('msg-wa-dest').value:'todos';
-  if(!confirm('Enviar a: '+dest+'\n\n"'+msg.slice(0,100)+'"\n\n¿Confirmas?')) return;
-
+  var dest = (document.getElementById('msg-wa-dest')||{}).value || 'todos';
+  // Solo SUPERADMIN/ADMIN pueden mandar un comunicado a todo el personal.
+  var rol=(SESION&&SESION.rol)||'';
+  if(['superadmin','admin'].indexOf(rol)<0){ alert('Solo un administrador puede enviar comunicados masivos.'); return; }
+  // 'todos' = sin filtro de cargo; el resto mapea al cargo real.
+  var mapa={choferes:['chofer'],ayudantes:['ayudante'],mecanico:['mecanico'],operativo:['operativo'],vigilante:['vigilante']};
+  var roles=mapa[dest]||null;
+  if(!confirm('Enviar a: '+dest+'\n\nSolo le llegara a quienes YA pueden recibir (los que escribieron al numero). A los que falten los veras en el resultado para avisarles aparte.\n\n"'+msg.slice(0,120)+'"\n\n¿Confirmas?')) return;
   var btn = document.getElementById('msg-wa-btn');
   if(btn){ btn.textContent='Enviando...'; btn.disabled=true; }
-
-  // Filtrar empleados según destino
-  var cargos = {choferes:'Chofer',ayudantes:'Ayudante',mecanico:'Mecanico',operativo:'Operativo',vigilante:'Vigilante'};
-  var destinatarios = EMPLEADOS.filter(function(e){
-    if(!e.activo||!e.whatsapp||!e.wa_apikey) return false;
-    if(dest==='todos') return true;
-    return e.cargo===cargos[dest];
-  });
-
-  var enviados=0, fallidos=0;
-  var fechaHoy = fmtFechaDow(new Date());
-  var msgCompleto = brandTag()+' - Mensaje Oficial\n'+fechaHoy+'\n\n'+msg;
-
-
-
-
-  for(var i=0;i<destinatarios.length;i++){
-    var emp = destinatarios[i];
-    try{
-      // Image() en vez de fetch() — callmebot bloquea CORS y fetch falla siempre
-      if(sendWADirecto(emp.whatsapp,emp.wa_apikey,msgCompleto))enviados++; else fallidos++;
-    }catch(e){ fallidos++; }
-    await new Promise(function(r){setTimeout(r,600);}); // Pausa entre mensajes
-  }
-
-  // Guardar en historial
-  if(DB_READY&&supabase){
-    supabase.from('mensajes_wa').insert([{
-      mensaje:msg, destinatarios:dest,
-      enviados:enviados, fallidos:fallidos,
-      enviado_por:SESION.nombre||''
-    }]).then(function(){renderMensajesWA();});
-  }
-
-  if(btn){ btn.textContent='Enviar'; btn.disabled=false; }
-  alert('Mensaje enviado:\n'+enviados+' recibidos · '+fallidos+' fallidos');
-  if(document.getElementById('msg-wa-texto')) document.getElementById('msg-wa-texto').value='';
+  try{
+    // Token del usuario logueado (el servidor verifica que sea admin; el secreto no viaja al navegador).
+    var tok=''; try{ var _s=await supabaseAuth.auth.getSession(); tok=(_s&&_s.data&&_s.data.session&&_s.data.session.access_token)||''; }catch(e){}
+    if(!tok){ alert('No pude confirmar tu sesion. Cerra sesion y volve a entrar.'); if(btn){btn.textContent='Enviar';btn.disabled=false;} return; }
+    var r=await fetch(SUPA_URL+'/functions/v1/enviar-personal',{
+      method:'POST',
+      headers:{'Content-Type':'application/json','apikey':SUPA_KEY,'Authorization':'Bearer '+tok},
+      body:JSON.stringify({empresa:(BTG_CONFIG.rubro==='transporte'?'flot':'bet'),mensaje:msg,roles:roles})
+    });
+    var j=await r.json();
+    if(!j.ok){ alert('No se pudo enviar: '+(j.error||'error')); if(btn){btn.textContent='Enviar';btn.disabled=false;} return; }
+    try{ if(DB_READY&&supabase)supabase.from('mensajes_wa').insert([{mensaje:msg,destinatarios:dest,enviados:j.enviados||0,fallidos:(j.omitidos_frios||[]).length,enviado_por:(SESION&&SESION.nombre)||''}]).then(function(){try{renderMensajesWA();}catch(e){}}); }catch(e){}
+    var frios=j.omitidos_frios||[];
+    var txt='✅ Comunicado encolado para '+(j.enviados||0)+' persona(s) que ya reciben.';
+    if(j.sin_numero)txt+='\n('+j.sin_numero+' sin numero cargado)';
+    if(frios.length)txt+='\n\n⚠️ '+frios.length+' aun NO reciben (no han escrito al numero):\n'+frios.slice(0,15).join(', ')+(frios.length>15?'...':'')+'\n\nPediles que guarden el numero y le escriban un "hola"; despues les reenvias.';
+    alert(txt);
+    if(document.getElementById('msg-wa-texto')) document.getElementById('msg-wa-texto').value='';
+  }catch(e){ alert('Fallo el envio: '+((e&&e.message)||e)); }
+  finally{ if(btn){ btn.textContent='Enviar'; btn.disabled=false; } }
 }
 
 function cargarWidgetRutas(){
