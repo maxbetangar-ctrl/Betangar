@@ -2187,7 +2187,7 @@ async function cargarDatosDB(){
              // ap1/ap2 = ayudantes de APOYO. Si no se mapean aquí, calcNom NUNCA los ve y siguen
              // sin cobrar por el sistema (el mapeo es explícito, no un select('*')).
              ap1:r.ap1||'',ap2:r.ap2||'',gasoil:parseFloat(r.gasoil)||0,
-             km:parseFloat(r.km)||0,mant:r.mant||''};
+             km:parseFloat(r.km)||0,mant:r.mant||'',vertedero:r.vertedero||''};
     });
     // ABONOS — ordenar por fecha (y id como desempate) para que SIEMPRE salgan en el mismo
     // orden. Sin .order() PostgREST devuelve las filas en orden arbitrario que cambia tras
@@ -3823,6 +3823,7 @@ function editarPlanilla(p){
   html+='<div class="fg"><label>Ruta</label><input class="fc" id="ep-ruta" value="'+r.r+'"></div>';
   html+='<div class="fg"><label>Parroquia</label><input class="fc" id="ep-par" value="'+r.par+'"></div>';
   html+='</div>';
+  html+='<div class="fg"><label>Vertedero (nocturno en Resimara = 1.5×)</label><select class="fc" id="ep-vert"><option'+((r.vertedero||'La Concepción')==='Resimara'?'':' selected')+'>La Concepción</option><option'+((r.vertedero||'')==='Resimara'?' selected':'')+'>Resimara</option></select></div>';
   html+='<div class="fg"><label>Observaciones</label><input class="fc" id="ep-obs" value="'+r.obs+'"></div>';
   html+='<button class="btn btn-g" style="width:100%;margin-top:8px" onclick="guardarEdicionPlanilla(window._editP)">Guardar cambios</button>';
   openModal('Editar Planilla #'+p,html);
@@ -3859,7 +3860,8 @@ function guardarEdicionPlanilla(pOriginal){
     obs:document.getElementById('ep-obs').value,
     inc:REGS[idx].inc||'',incDesc:REGS[idx].incDesc||'',
     ay1:_ay1,ay2:_ay2,ay3:_ay3,
-    gasoil:REGS[idx].gasoil||0,km:REGS[idx].km||0,mant:REGS[idx].mant||''
+    gasoil:REGS[idx].gasoil||0,km:REGS[idx].km||0,mant:REGS[idx].mant||'',
+    vertedero:(document.getElementById('ep-vert')?document.getElementById('ep-vert').value:(REGS[idx].vertedero||'La Concepción'))
   };
   // Payload en forma de columnas de BD (inc_desc, no incDesc) para el PATCH server-side del SuperAdmin.
   var dbSet={
@@ -3868,7 +3870,7 @@ function guardarEdicionPlanilla(pOriginal){
     d:nuevo.d,n:nuevo.n,t:nuevo.t,sem:nuevo.sem,
     m:nuevo.m,obs:nuevo.obs,inc:nuevo.inc,
     inc_desc:nuevo.incDesc,ay1:nuevo.ay1,ay2:nuevo.ay2,ay3:nuevo.ay3,
-    gasoil:nuevo.gasoil,km:nuevo.km,mant:nuevo.mant
+    gasoil:nuevo.gasoil,km:nuevo.km,mant:nuevo.mant,vertedero:nuevo.vertedero
   };
   // El WHERE del PATCH usa el número ORIGINAL; si el número cambió, el propio set reescribe 'p'.
   var accionData={op:'upd',tabla:'planillas',col:'p',val:pOriginal,set:dbSet};
@@ -3978,8 +3980,9 @@ async function guardarPlanilla(){
     if(x[1]&&String(x[1]).trim()&&(typeof _empPorNombre==='function')&&!_empPorNombre(x[1]))noCasan.push(x[0]+': "'+x[1]+'"');
   });
   if(noCasan.length){ if(!confirm('⚠ Estos nombres no coinciden con ningún empleado registrado:\n\n'+noCasan.join('\n')+'\n\nSe guardarán tal cual (la nómina/anomalías podrían no reconocerlos). ¿Continuar?'))return; }
-  var nr={p:ns,f:f,mes:gv('rp-mes'),cam:c,ch:chC,r:gv('rp-ruta'),par:gv('rp-par'),d:cntD,n:cntN,t:tot,sem:gv('rp-sem'),m:tot*cfg.tarifa,obs:gv('rp-obs'),inc:gv('rp-inc'),incDesc:gv('rp-inc-desc'),ay1:ay1,ay2:ay2,ay3:ay3,ap1:ap1,ap2:ap2};
-  var row={p:nr.p,f:nr.f,mes:nr.mes,cam:nr.cam,ch:nr.ch,r:nr.r,par:nr.par,d:nr.d,n:nr.n,t:nr.t,sem:nr.sem,m:nr.m,obs:nr.obs,inc:nr.inc,inc_desc:nr.incDesc,ay1:ay1,ay2:ay2,ay3:ay3,ap1:ap1,ap2:ap2,gasoil:0,km:0,mant:''};
+  var vert=gv('rp-vert')||'La Concepción';
+  var nr={p:ns,f:f,mes:gv('rp-mes'),cam:c,ch:chC,r:gv('rp-ruta'),par:gv('rp-par'),d:cntD,n:cntN,t:tot,sem:gv('rp-sem'),m:tot*cfg.tarifa,obs:gv('rp-obs'),inc:gv('rp-inc'),incDesc:gv('rp-inc-desc'),ay1:ay1,ay2:ay2,ay3:ay3,ap1:ap1,ap2:ap2,vertedero:vert};
+  var row={p:nr.p,f:nr.f,mes:nr.mes,cam:nr.cam,ch:nr.ch,r:nr.r,par:nr.par,d:nr.d,n:nr.n,t:nr.t,sem:nr.sem,m:nr.m,obs:nr.obs,inc:nr.inc,inc_desc:nr.incDesc,ay1:ay1,ay2:ay2,ay3:ay3,ap1:ap1,ap2:ap2,gasoil:0,km:0,mant:'',vertedero:vert};
   // P1: Supabase es la fuente de verdad. Guardar PRIMERO y solo confirmar éxito si responde OK.
   var _res=await dbUp('planillas',row,'p');
   REGS.push(nr);
@@ -3999,6 +4002,7 @@ async function guardarPlanilla(){
   // Los de APOYO se limpian siempre: son eventuales (hoy vino, mañana no). Si el nombre quedara
   // pegado en el formulario, la siguiente planilla le pagaría un día que no trabajó.
   ['rp-ap1','rp-ap2'].forEach(function(id){sv(id,'');var v=g(id.replace('rp-','val-'));if(v)v.innerHTML='';});
+  sv('rp-vert','La Concepción'); // vuelve al vertedero normal: Resimara es la excepción, no se hereda a la próxima
   sv('rp-num',String(REGS.reduce(function(a,r){return Math.max(a,parseInt(r.p)||0);},0)+1).padStart(5,'0'));
   renderPlanHoy();renderDash();
 }
@@ -4317,7 +4321,7 @@ async function guardarImportacionEnDB(resultado){
           sem:r.sem,m:r.m,obs:r.obs||'',
           inc:r.inc||'',inc_desc:r.incDesc||'',
           ay1:r.ay1||'',ay2:r.ay2||'',
-          mant:r.mant||''
+          mant:r.mant||'',vertedero:r.vertedero||'La Concepción'
         };
         // gasoil y km: solo actualizar si el Excel trae valor real (>0)
         if(r.gasoil&&r.gasoil>0)row.gasoil=r.gasoil;
@@ -4536,6 +4540,7 @@ function procesarExcelBetangar(wb){
       var cMant   =leerCelda(sheetRV,'R',fila);
       var cKm     =leerCelda(sheetRV,'S',fila);
       var cObs    =leerCelda(sheetRV,'T',fila);
+      var cVert   =leerCelda(sheetRV,'U',fila); // U=vertedero (La Concepción / Resimara). Vacío = La Concepción.
 
       // Validar fila: debe tener camion JAC y fecha
       var cam=String(cCam||'').trim();
@@ -4633,7 +4638,9 @@ function procesarExcelBetangar(wb){
         ay1:ay1,ay2:ay2,
         gasoil:gasoilV,
         km:parseFloat(cKm)||0,
-        mant:String(cMant||'').trim()
+        mant:String(cMant||'').trim(),
+        // Vertedero: solo importa si es Resimara (para el 1.5× nocturno); cualquier otra cosa = La Concepción.
+        vertedero:(/resimara/i.test(String(cVert||''))?'Resimara':'La Concepción')
       };
       // DETECTAR nombres NO reconocidos (no casan con ningún empleado del roster) para AVISAR a
       // RRHH al importar — antes se guardaban callados con el nombre corto, sin alerta. Excluye
@@ -4653,7 +4660,8 @@ function procesarExcelBetangar(wb){
         var _ex=REGS[_idxExist];
         var _cambio=(_ex.ch!==nr.ch)||(_ex.d!==nr.d)||(_ex.n!==nr.n)||(_ex.t!==nr.t)||
                     (_ex.r!==nr.r)||(_ex.par!==nr.par)||(_ex.cam!==nr.cam)||(_ex.f!==nr.f)||(_ex.sem!==nr.sem)||
-                    ((_ex.ay1||'')!==(nr.ay1||''))||((_ex.ay2||'')!==(nr.ay2||''))||((_ex.obs||'')!==(nr.obs||''));
+                    ((_ex.ay1||'')!==(nr.ay1||''))||((_ex.ay2||'')!==(nr.ay2||''))||((_ex.obs||'')!==(nr.obs||''))||
+                    ((_ex.vertedero||'')!==(nr.vertedero||''));
         if(!_cambio){resultado.planillasIgnoradas++;continue;} // idéntica → no tocar
         // Conservar gasoil/km que maneja la app si el Excel no trae valor real
         if(!(nr.gasoil>0)&&_ex.gasoil>0)nr.gasoil=_ex.gasoil;
@@ -4994,6 +5002,10 @@ function _esDomingoOferiado(f){
   var p=f.split('-');
   return new Date(Date.UTC(+p[0],+p[1]-1,+p[2])).getUTCDay()===0; // 0 = domingo
 }
+// NOCTURNO EN RESIMARA: los viajes NOCTURNOS (col n) botados en el vertedero Resimara se pagan 1.5×.
+// Requiere las DOS condiciones (de noche Y en Resimara). El diurno y La Concepción pagan normal.
+// NO se apila con el 1.5× de domingo/feriado (queda en 1.5× una sola vez).
+function _esResimaraNoche(r){ return (parseInt(r&&r.n)||0)>0 && /resimara/i.test(String((r&&r.vertedero)||'')); }
 // Días de PATIO por chofer (manual): si el camión no salió pero el chofer cumplió patio, se le
 // paga +1 viaje por día. Clave = nombre canónico en MAYÚSCULA. Persiste por semana.
 var PATIO_DIAS={};
@@ -5251,9 +5263,14 @@ function calcNom(){
     if(!chKey)return; // planilla sin chofer: no se puede pagar a nadie
     if(!chMap[chKey])chMap[chKey]={ch:nomCh,cams:new Set(),viajes:0,viajesDom:0,montoViajes:0,dias:new Set(),diasViaje:new Set(),descuentos:0,patio:0};
     chMap[chKey].viajes+=r.t;chMap[chKey].dias.add(r.f);chMap[chKey].cams.add(r.cam);
-    // Monto de los viajes con recargo 1.5× si la planilla es de domingo/feriado nacional.
-    chMap[chKey].montoViajes+=(parseInt(r.t)||0)*cfg.chofer*(_esDomingoOferiado(r.f)?1.5:1);
-    chMap[chKey].viajesDom+=(_esDomingoOferiado(r.f)?(parseInt(r.t)||0):0); // conteo viajes domingo (para badge +xD/▲)
+    // Monto de los viajes. Recargo 1.5×: (a) domingo/feriado → TODOS; (b) nocturno en Resimara → solo los
+    // nocturnos. NO se apila: un nocturno que sea domingo Y Resimara paga 1.5× una sola vez.
+    var _dCh=parseInt(r.d)||0,_nCh=parseInt(r.n)||0,_tCh=parseInt(r.t)||0;
+    if(_dCh+_nCh===0&&_tCh>0)_dCh=_tCh; // legacy sin desglose diurno/nocturno → todo diurno
+    var _domCh=_esDomingoOferiado(r.f),_resNCh=_esResimaraNoche(r);
+    var _fdCh=_domCh?1.5:1, _fnCh=(_domCh||_resNCh)?1.5:1;
+    chMap[chKey].montoViajes+=(_dCh*_fdCh+_nCh*_fnCh)*cfg.chofer;
+    chMap[chKey].viajesDom+=(_domCh?(parseInt(r.t)||0):0); // conteo viajes domingo (para badge +xD/▲)
     if((parseInt(r.t)||0)>0)chMap[chKey].diasViaje.add(_asisDow(r.f));
   });
   // Incluye ayudantes INACTIVOS también: si aparecen con viajes en planilla se cuentan/pagan
@@ -5269,19 +5286,23 @@ function calcNom(){
     var vNom=rNom.reduce(function(s,r){return s+r.t;},0);
     // Viajes hechos en DOMINGO/feriado nacional → pagan 1.5× (igual que choferes). Aplica a TODOS.
     var vNomDom=rNom.reduce(function(s,r){return s+(_esDomingoOferiado(r.f)?(parseInt(r.t)||0):0);},0);
+    // Viajes con RECARGO 1.5× = domingo (TODOS los del día) O nocturno-en-Resimara (solo los nocturnos).
+    // NO se apila: un día domingo cuenta r.t una vez (el nocturno-Resimara ya va incluido).
+    var bonusNom=rNom.reduce(function(s,r){ if(_esDomingoOferiado(r.f))return s+(parseInt(r.t)||0); if(_esResimaraNoche(r))return s+(parseInt(r.n)||0); return s;},0);
     // También buscar por camión asignado si ay1/ay2 están vacíos (planillas viejas sin ayudante registrado)
-    var vCam=0,vCamDom=0;
+    var vCam=0,vCamDom=0,bonusCam=0;
     if(vNom===0 && e.cargo==='Ayudante'){
       var rCam=f.filter(function(r){
         return r.cam===e.unidad&&!r.ay1&&!r.ay2&&!r.ay3;
       });
       vCam=rCam.reduce(function(s,r){return s+r.t;},0);
       vCamDom=rCam.reduce(function(s,r){return s+(_esDomingoOferiado(r.f)?(parseInt(r.t)||0):0);},0);
+      bonusCam=rCam.reduce(function(s,r){ if(_esDomingoOferiado(r.f))return s+(parseInt(r.t)||0); if(_esResimaraNoche(r))return s+(parseInt(r.n)||0); return s;},0);
     }
     var viajes=vNom+vCam;
     var tasaAy=e.tipoAy==='imau'?cfg.imau:cfg.ayud;
-    // recargoDom = 0.5 extra por cada viaje de domingo (el viaje base ya va en viajes×tasa).
-    var recargoDom=(vNomDom+vCamDom)*tasaAy*0.5;
+    // recargoDom = 0.5 extra por cada viaje con recargo (domingo o nocturno-Resimara); el viaje base ya va en viajes×tasa.
+    var recargoDom=(bonusNom+bonusCam)*tasaAy*0.5;
     if(viajes>0)ayMap[e.id]={emp:e,viajes:viajes,viajesDom:vNomDom+vCamDom,recargoDom:recargoDom,tasa:tasaAy,descuentos:0,porNombre:vNom,porCam:vCam};
   });
   // ── AYUDANTES DE APOYO (3er tipo, confirmado por Gladys/RRHH 2026-07-20) ──────────────────
@@ -5298,6 +5319,9 @@ function calcNom(){
   f.forEach(function(r){
     var vj=parseInt(r.t)||0;
     var pago=tarifaApoyoDia(vj); if(pago<=0)return;   // 1 viaje o ninguno: no se paga
+    // Nocturno en Resimara: el día de apoyo se paga 1.5× (el apoyo va en ese viaje). El escalón es
+    // por día, así que se multiplica el pago del día. No aplica recargo de domingo al apoyo (nunca lo tuvo).
+    if(_esResimaraNoche(r)) pago=Math.round(pago*1.5*100)/100;
     [r.ap1,r.ap2].forEach(function(nom){
       if(!nom||!String(nom).trim())return;
       var e=_empPorNombre(String(nom).trim()); if(!e)return;
