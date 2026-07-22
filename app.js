@@ -1945,7 +1945,12 @@ function sp(id){
     if(id==='banco'){renderBancoSubnav('banco');renderBNCDash();}
     if(id==='proveedores'){renderFinanzasSubnav('proveedores');cargarCxpAux().then(function(){fillFacCxpSelect();renderCXP();renderRetenciones();});if(typeof cargarOrdenesServicio==='function')cargarOrdenesServicio().then(function(){try{fillCxpOrdenSelect();}catch(e){}try{renderOrdenesServicio();}catch(e){}}).catch(function(){});renderCXP();renderProveedoresLista();}
     if(id==='documentos'){renderDocAlertas();renderDocTablas();}
-    if(id==='asistencia')renderAsistencia();if(id==='fichaje')renderFichaje();
+    if(id==='asistencia'){
+      // Al abrir, posicionarse en la semana/mes ACTUAL (si no, arrancaba en "Semana 1" y parecía vacío).
+      try{var _sm=g('asis-mes');if(_sm&&typeof mesBtg==='function'){var _mv=mesBtg();if([].some.call(_sm.options,function(o){return o.value===_mv;}))_sm.value=_mv;}}catch(e){}
+      try{var _ss=g('asis-sem');if(_ss&&typeof getSem==='function'){_ss.value=getSem(null);}}catch(e){}
+      renderAsistencia();cargarFichajesAsistencia(true).then(function(){renderAsistencia();}).catch(function(){});
+    }if(id==='fichaje')renderFichaje();
     if(id==='prestamos'){renderRRHHSubnav('prestamos');poblarEmps();renderPrestamos();}
     if(id==='multas'){renderRRHHSubnav('multas');poblarCams();renderMultas();}
     if(id==='inventario'){cargarInvMov().then(function(){renderInventario();}).catch(function(){renderInventario();});try{renderComprasSugeridas();}catch(e){}}
@@ -2024,7 +2029,7 @@ async function cargarDatosMinimos(rol){
                cedula:x.cedula||'',rif:x.rif||'',fnac:x.fnac||'',fingreso:x.fingreso||'',
                tel:x.tel||'',email:x.email||'',banco:x.banco||'',tcuenta:x.tcuenta||'',
                ncuenta:x.ncuenta||'',whatsapp:x.whatsapp||'',wa_apikey:x.wa_apikey||'',
-               foto:x.foto_url||'',imau:x.imau||false};
+               foto:x.foto_url||'',imau:x.imau||false,asisteSiempre:x.asiste_siempre===true};
       });
     }
 
@@ -2194,7 +2199,7 @@ async function cargarDatosDB(){
     // Cargar los abonos PROTEGIDOS (no los pisa el Excel) por núcleo de dígitos.
     if(!a.error&&Array.isArray(a.data))ABONOS_PROTEGIDOS=new Set(a.data.filter(function(x){return x.protegido;}).map(function(x){return _factCore(x.fact);}));
     // EMPLEADOS
-    if(e.data&&e.data.length)EMPLEADOS=e.data.map(function(x){return{id:x.id,nombre:x.nombre,cargo:x.cargo,unidad:x.unidad||'',cedula:x.cedula||'',fnac:x.fnac||'',banco:x.banco||'',tcuenta:x.tcuenta||'',ncuenta:x.ncuenta||'',foto:x.foto_url||'',activo:x.activo!==false,tipoAy:x.tipo_ay||'',email:x.email||'',tel:x.tel||'',whatsapp:x.whatsapp||'',wa_apikey:x.wa_apikey||'',rif:x.rif||'',fingreso:x.fingreso||'',imau:x.imau||false,multicargo:x.multicargo===true};});
+    if(e.data&&e.data.length)EMPLEADOS=e.data.map(function(x){return{id:x.id,nombre:x.nombre,cargo:x.cargo,unidad:x.unidad||'',cedula:x.cedula||'',fnac:x.fnac||'',banco:x.banco||'',tcuenta:x.tcuenta||'',ncuenta:x.ncuenta||'',foto:x.foto_url||'',activo:x.activo!==false,tipoAy:x.tipo_ay||'',email:x.email||'',tel:x.tel||'',whatsapp:x.whatsapp||'',wa_apikey:x.wa_apikey||'',rif:x.rif||'',fingreso:x.fingreso||'',imau:x.imau||false,multicargo:x.multicargo===true,asisteSiempre:x.asiste_siempre===true};});
     // GASOIL
     if(ga.data&&ga.data.length){
       GASOIL=ga.data.map(function(x){return{id:x.id,f:x.f,cam:x.cam,lit:x.lit,src:x.src,m:x.m,tipo_operacion:x.tipo_operacion};});
@@ -2254,6 +2259,8 @@ async function cargarDatosDB(){
       if(_as&&_as.data&&_as.data.valor){try{ASISTENCIA=JSON.parse(_as.data.valor)||{};}catch(e){}}
       else{try{var _al=localStorage.getItem('btg_asistencia');if(_al)ASISTENCIA=JSON.parse(_al)||{};}catch(e){}}
     }catch(e){try{var _al2=localStorage.getItem('btg_asistencia');if(_al2)ASISTENCIA=JSON.parse(_al2)||{};}catch(e2){}}
+    // FICHAJES REALES (app: selfie+GPS+geocerca) desde asistencia_dia -> alimentan el tablero de Asistencia y el cotejo RRHH.
+    try{ await cargarFichajesAsistencia(true); }catch(e){}
     // DOCUMENTOS y METAS: persistidos en configuracion (JSON)
     try{
       var _dm=await supabase.from('configuracion').select('clave,valor').in('clave',['docs_cam','docs_emp','metas_data','nom_adm']);
@@ -10105,6 +10112,54 @@ function guardarAsistencia(){
       .then(function(res){if(res&&res.error)console.log('asistencia save:',res.error.message);});}catch(e){}
   }
 }
+// ── FICHAJES REALES (asistencia_dia) → fuente de PRESENCIA que alimenta el tablero y el cotejo RRHH ──
+// El fichaje con la app (nombre+cédula-4+selfie+GPS+geocerca) cae en asistencia_dia. Se overlaya sobre
+// el tablero manual: quien fichó ese día aparece PRESENTE automáticamente; la oficina solo marca a mano
+// las excepciones (Ausente/Justificado). La marca MANUAL siempre manda sobre el fichaje.
+var FICHAJES_SET=null; // Set de 'empleado_id|YYYY-MM-DD'
+async function cargarFichajesAsistencia(force){
+  if(FICHAJES_SET && !force) return FICHAJES_SET;
+  var s=new Set();
+  if(DB_READY&&supabase){
+    try{
+      var desde=new Date(Date.now()-14400000-150*86400000).toISOString().slice(0,10); // ~5 meses (VE)
+      var r=await supabase.from('asistencia_dia').select('empleado_id,fecha').gte('fecha',desde).limit(2000);
+      if(r&&!r.error&&r.data){ r.data.forEach(function(x){ if(x.empleado_id&&x.fecha) s.add(x.empleado_id+'|'+x.fecha); }); }
+    }catch(e){ console.log('[fichajes] carga',e&&e.message); }
+  }
+  FICHAJES_SET=s; return s;
+}
+// Fecha real (YYYY-MM-DD) de una celda del tablero (mes 'jul-26' + 'Semana N' + dow Lun=0..Dom=6).
+// Usa la MISMA convención que getSem (Semana por bloque de días del mes: 1-7,8-14,15-21,22-28,29+).
+function _fechaDeCelda(mes,sem,dow){
+  var ms=['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+  var parts=String(mes||'').split('-'); var mi=ms.indexOf(parts[0]); if(mi<0)return null;
+  var yy=2000+(parseInt(parts[1],10)||0);
+  var n=parseInt(String(sem||'').replace(/\D/g,''),10)||0; if(n<1)return null;
+  var lo=(n-1)*7+1, hi=(n>=5?31:n*7);
+  for(var day=lo;day<=hi;day++){
+    var d=new Date(yy,mi,day,12,0,0); if(d.getMonth()!==mi)break; // día fuera del mes
+    var dw=d.getDay(); var idx=(dw===0?6:dw-1);
+    if(idx===dow) return _isoLocal(d);
+  }
+  return null;
+}
+// ¿El empleado está marcado como "asiste siempre" (presente fijo, no ficha)?
+function _asisteSiempre(empId){
+  var e=(typeof EMPLEADOS!=='undefined')?EMPLEADOS.filter(function(x){return x.id===empId;})[0]:null;
+  return !!(e&&e.asisteSiempre);
+}
+// Marca EFECTIVA de una celda: manual (manda) > fichaje real > presente fijo (asiste siempre, Lun-Sáb).
+function _asisEfectiva(empId,mes,sem,dow){
+  var key=mes+'-'+sem;
+  var manual=(ASISTENCIA[key]&&ASISTENCIA[key][empId+'_dia_'+dow+'_'+key])||'';
+  if(manual) return {v:manual, fich:false, manual:true, fijo:false};
+  var cd=_fechaDeCelda(mes,sem,dow);
+  var fich=!!(cd&&FICHAJES_SET&&FICHAJES_SET.has(empId+'|'+cd));
+  if(fich) return {v:'P', fich:true, manual:false, fijo:false};
+  if(dow<=5 && _asisteSiempre(empId)) return {v:'P', fich:false, manual:false, fijo:true};
+  return {v:'', fich:false, manual:false, fijo:false};
+}
 function renderAsistencia(){
   var sem=gv('asis-sem'),mes=gv('asis-mes');
   var key=mes+'-'+sem;
@@ -10125,7 +10180,7 @@ function renderAsistencia(){
   var _diaIdx=_dowVE===0?6:_dowVE-1; // Lun=0..Sab=5, Dom=6
   var total=emps.length,pres=0,aus=0;
   emps.forEach(function(emp){
-    var v=ASISTENCIA[key][emp.id+'_dia_'+_diaIdx+'_'+key]||'';
+    var v=_asisEfectiva(emp.id,mes,sem,_diaIdx).v;
     if(v==='P')pres++; else if(v==='A')aus++;
   });
   if(g('asis-total'))g('asis-total').textContent=total;
@@ -10139,24 +10194,31 @@ function renderAsistencia(){
     html+='<tr><td style="padding:5px;border-top:1px solid var(--border);font-weight:600">'+emp.nombre+'</td><td style="padding:5px;border-top:1px solid var(--border);font-size:10px;color:var(--text3)">'+emp.cargo+'</td>';
     var semTotal=0;
     for(var d=0;d<7;d++){
-      var dk=emp.id+'_dia_'+d+'_'+key;
-      var v=ASISTENCIA[key][dk]||'';
+      var ef=_asisEfectiva(emp.id,mes,sem,d); var v=ef.v;
       var color=v==='P'?'var(--green)':v==='A'?'var(--red)':v==='J'?'var(--yellow)':'var(--text3)';
-      html+='<td style="padding:5px;border-top:1px solid var(--border);text-align:center"><button onclick="marcarAsistencia(\''+emp.id+'\','+d+',\''+key+'\')" style="background:none;border:1px solid var(--border);border-radius:4px;width:24px;height:24px;cursor:pointer;font-size:10px;font-weight:700;color:'+color+'">'+(v||'·')+'</button></td>';
+      // Fondo verde tenue cuando la P es derivada (fichaje de la app o "asiste siempre"), no marca manual.
+      var deriv=(ef.fich||ef.fijo)&&!ef.manual;
+      var bg=deriv?'rgba(125,201,65,.16)':'none';
+      var ttl=deriv?(ef.fijo?' title="Asiste siempre (presente fijo)"':' title="Fichó con la app (selfie+GPS)"'):'';
+      html+='<td style="padding:5px;border-top:1px solid var(--border);text-align:center"><button onclick="marcarAsistencia(\''+emp.id+'\','+d+',\''+key+'\')"'+ttl+' style="background:'+bg+';border:1px solid var(--border);border-radius:4px;width:24px;height:24px;cursor:pointer;font-size:10px;font-weight:700;color:'+color+'">'+(v||'·')+'</button></td>';
       if(v==='P')semTotal++;
     }
     html+='<td style="padding:5px;border-top:1px solid var(--border);text-align:center;font-family:var(--m);font-weight:700;color:var(--green)">'+semTotal+'/6</td></tr>';
   });
   html+='</tbody></table>';
-  html+='<div style="font-size:10px;color:var(--text3);margin-top:6px">Clic en cada dia para cambiar: · → P (Presente) → A (Ausente) → J (Justificado) → ·</div>';
+  html+='<div style="font-size:10px;color:var(--text3);margin-top:6px">🟢 fondo verde = fichó con la app. Clic para corregir a mano: · → P → A (Ausente) → J (Justificado) → ·</div>';
   var at=g('asis-tabla');if(at)at.innerHTML=html;
 }
 
 function marcarAsistencia(empId,dia,key){
+  if(!ASISTENCIA[key])ASISTENCIA[key]={};
   var dk=empId+'_dia_'+dia+'_'+key;
   var ciclo=['','P','A','J'];
-  var cur=ASISTENCIA[key][dk]||'';
-  var idx=ciclo.indexOf(cur);
+  // Se cicla desde el valor EFECTIVO (si hay fichaje mostrando 'P', el primer clic va a 'A' para corregir).
+  var m=String(key).split('-'); var sem=m.pop(); var mes=m.join('-');
+  var manual=ASISTENCIA[key][dk]||'';
+  var base= manual || _asisEfectiva(empId,mes,sem,dia).v;
+  var idx=ciclo.indexOf(base); if(idx<0)idx=0;
   ASISTENCIA[key][dk]=ciclo[(idx+1)%ciclo.length];
   guardarAsistencia();
   renderAsistencia();
@@ -10199,7 +10261,8 @@ function exportarAsistencia(){
   });
   var data=emps.map(function(emp){
     var row={Nombre:emp.nombre,Cargo:emp.cargo,Unidad:emp.unidad};
-    ['L','M','Mi','J','V','S'].forEach(function(d,i){row[d]=ASISTENCIA[key]&&ASISTENCIA[key][emp.id+'_dia_'+i+'_'+key]||'';});
+    // Efectivo = marca manual o, si no hay, el fichaje real (igual que la pantalla).
+    ['L','M','Mi','J','V','S'].forEach(function(d,i){row[d]=_asisEfectiva(emp.id,mes,sem,i).v;});
     return row;
   });
   if(typeof XLSX!=='undefined'){var wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(data),'Asistencia');XLSX.writeFile(wb,brandArchivo()+'_Asistencia_'+key+'.xlsx');}
@@ -19325,16 +19388,24 @@ function _asisDow(fecha){var d=new Date(fecha+'T12:00:00');if(isNaN(d))return -1
 function _asisKey(mes,sem){return (mes||'')+'-'+(sem||'');}
 function _asisMarca(empId,mes,sem,dow){
   var key=_asisKey(mes,sem); var blk=(typeof ASISTENCIA!=='undefined'&&ASISTENCIA[key])?ASISTENCIA[key]:null;
-  if(!blk)return null; // null = no hay datos de asistencia esa semana
-  var v=blk[empId+'_dia_'+dow+'_'+key];
-  return (v===undefined||v===null)?'':v; // '' = sin marca pero la semana sí se llevó
+  // La marca MANUAL manda; si no hay, se deriva del FICHAJE real (asistencia_dia).
+  var manual = blk ? blk[empId+'_dia_'+dow+'_'+key] : null;
+  if(manual) return manual;
+  var cd=(typeof _fechaDeCelda==='function')?_fechaDeCelda(mes,sem,dow):null;
+  if(cd && typeof FICHAJES_SET!=='undefined' && FICHAJES_SET && FICHAJES_SET.has(empId+'|'+cd)) return 'P';
+  if(dow<=5 && typeof _asisteSiempre==='function' && _asisteSiempre(empId)) return 'P'; // presente fijo Lun-Sáb
+  if(blk) return ''; // '' = semana con datos pero este día sin marca
+  return null; // null = no hay datos de asistencia esa semana (ni manual ni fichaje)
 }
 // ¿Esta persona tiene ALGUNA marca de asistencia en la semana? (para no marcar "sin marca"
-// a quien nadie registró — solo a quien SÍ se lleva pero le falta ese día).
+// a quien nadie registró — solo a quien SÍ se lleva pero le falta ese día). Cuenta manual Y fichajes.
 function _empTieneAsistenciaSemana(empId,mes,sem){
   var key=_asisKey(mes,sem); var blk=(typeof ASISTENCIA!=='undefined'&&ASISTENCIA[key])?ASISTENCIA[key]:null;
-  if(!blk)return false;
-  for(var d=0;d<7;d++){if(blk[empId+'_dia_'+d+'_'+key])return true;}
+  if(typeof _asisteSiempre==='function' && _asisteSiempre(empId)) return true; // presente fijo
+  if(blk){for(var d=0;d<7;d++){if(blk[empId+'_dia_'+d+'_'+key])return true;}}
+  if(typeof FICHAJES_SET!=='undefined' && FICHAJES_SET){
+    for(var d2=0;d2<7;d2++){ var cd=(typeof _fechaDeCelda==='function')?_fechaDeCelda(mes,sem,d2):null; if(cd&&FICHAJES_SET.has(empId+'|'+cd))return true; }
+  }
   return false;
 }
 
