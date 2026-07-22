@@ -5132,7 +5132,11 @@ function _extrasNominaPeriodo(desde,hasta){
   });
 }
 // Al cambiar de semana/mes: cargar patio + fijos IMAU + alias + extras y recalcular.
-function recalcNom(){ try{poblarSemsNom();}catch(e){} try{poblarSemanasNom();}catch(e){} Promise.all([cargarPatioDias(),cargarPatioNota(),cargarImauApoyo(),cargarAliasNombres(),cargarNominaExtras()]).then(function(){try{calcNom();}catch(e){}try{renderAliasManager();}catch(e){}}).catch(function(){try{calcNom();}catch(e){}}); }
+// Preferencia "Contar patio" (patio automático desde la asistencia). Por defecto ENCENDIDO: el día sin
+// viaje pero PRESENTE (fichaje real) paga 1 viaje de patio. Máximo puede apagarlo y queda pegado.
+function _setPatioPref(on){ try{localStorage.setItem('btg_patio_auto', on?'1':'0');}catch(e){} }
+function _restaurarPatioPref(){ var el=g('nm-patio'); if(!el)return; var v=null; try{v=localStorage.getItem('btg_patio_auto');}catch(e){} el.checked=(v===null? true : v==='1'); }
+function recalcNom(){ try{_restaurarPatioPref();}catch(e){} try{poblarSemsNom();}catch(e){} try{poblarSemanasNom();}catch(e){} Promise.all([cargarPatioDias(),cargarPatioNota(),cargarImauApoyo(),cargarAliasNombres(),cargarNominaExtras()]).then(function(){try{calcNom();}catch(e){}try{renderAliasManager();}catch(e){}}).catch(function(){try{calcNom();}catch(e){}}); }
 // Render de la sección "Actividades especiales" de la nómina (extras del período).
 function renderNominaExtras(extrasP){
   var tb=g('nm-extras-tabla'); if(!tb)return;

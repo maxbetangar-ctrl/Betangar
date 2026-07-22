@@ -1590,7 +1590,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
     <div class="fg" style="margin:0"><label style="font-size:10px;color:var(--text3)">Semana</label><select class="fc" id="nm-sem" onchange="recalcNom()" style="padding:6px 8px;font-size:11px"><option value="">Todas</option></select></div>
     <div class="fg" style="margin:0"><label style="font-size:10px;color:var(--text3)">Desde</label><input type="date" class="fc" id="nm-des" onchange="calcNom()" style="padding:6px 8px;font-size:11px"></div>
     <div class="fg" style="margin:0"><label style="font-size:10px;color:var(--text3)">Hasta</label><input type="date" class="fc" id="nm-hta" onchange="calcNom()" style="padding:6px 8px;font-size:11px"></div>
-    <label style="font-size:11px;color:var(--text3);display:flex;align-items:center;gap:5px;cursor:pointer" title="Día sin viaje pero presente en patio ('P' en Asistencia) = +1 viaje. Solo Betangar; IMAU no. Requiere elegir Semana."><input type="checkbox" id="nm-patio" onchange="calcNom()"> 🏭 Contar patio</label>
+    <label style="font-size:11px;color:var(--text3);display:flex;align-items:center;gap:5px;cursor:pointer" title="Día sin viaje pero presente en patio ('P' en Asistencia) = +1 viaje. Solo Betangar; IMAU no. Requiere elegir Semana."><input type="checkbox" id="nm-patio" checked onchange="_setPatioPref(this.checked);calcNom()"> 🏭 Contar patio</label>
     <button class="btn btn-s btn-sm" onclick="exportNomExcel()">Excel</button>
     <button class="btn btn-s btn-sm" onclick="imprimirNomina()">Imprimir</button>
     <button class="btn btn-s btn-sm" onclick="emailNomina()">✉ Correo</button>
@@ -2635,7 +2635,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
 </div>
 
 <script src="logo-alcaldia.js?v=1"></script>
-<script src="app.js?v=20260722-asistencia-fichajes"></script>
+<script src="app.js?v=20260722b-patio-auto"></script>
 
 <!-- Modal global -->
 <div id="modal" class="moverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9990;align-items:center;justify-content:center;padding:16px">
