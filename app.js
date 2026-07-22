@@ -1193,7 +1193,8 @@ async function acCargar(desde,hasta){
     supabase.from('gasoil').select('*').gte('f',desdeExt).lte('f',hasta),
     supabase.from('checklist').select('fecha,cam,conductor,km_salida,km_entrada').gte('fecha',desdeExt).lte('fecha',hasta),
     supabase.from('configuracion').select('valor').eq('clave','tanque_costo').maybeSingle(),
-    supabase.from('configuracion').select('valor').eq('clave','aud_comb_rend_ref').maybeSingle()
+    supabase.from('configuracion').select('valor').eq('clave','aud_comb_rend_ref').maybeSingle(),
+    supabase.from('unidad_config').select('cam,modelo,marca')
   ];
   var r=await Promise.all(q);
   if(r[0].error)throw new Error('tanques: '+r[0].error.message);
@@ -1213,8 +1214,13 @@ async function acCargar(desde,hasta){
   // aseo), manda sobre la mediana de los propios datos: un numero conocido cazando el robo que la
   // mediana esconderia si toda la flota pierde combustible. Si no esta (Flotilla), cada unidad usa
   // su propia mediana (flota mixta, cada tipo rinde distinto).
-  var rr=null; try{ rr=r[5]&&r[5].data?String(r[5].data.valor).replace(/"/g,''):null; }catch(e){}
-  AC_META.rendRef=_acNum(rr);
+  // Mapa modelo->km/L de referencia (POR MODELO, aclaracion de Maximo: cada tipo de carro rinde
+  // distinto). La clave se busca CONTENIDA en el modelo de la unidad: "1131" casa con "HFC-1131KR1".
+  var mapaRef={}; try{ if(r[5]&&r[5].data){ var _v=r[5].data.valor; mapaRef=(typeof _v==='string')?JSON.parse(_v):(_v||{}); } }catch(e){ mapaRef={}; }
+  AC_META.rendRefMapa=mapaRef;
+  // Modelo de cada unidad (para elegir su referencia).
+  var modeloCam={}; try{ (r[6]&&r[6].data||[]).forEach(function(x){ if(x.cam)modeloCam[x.cam]=String(x.modelo||''); }); }catch(e){}
+  AC_META.modeloCam=modeloCam;
   AC_META.modo=AC_TANQUES.length?'cubicacion':'surtidas';
 }
 
@@ -1275,18 +1281,26 @@ function _acArmarJornadas(desde,hasta){
 
 // Referencia de rendimiento de CADA unidad: mediana de sus jornadas válidas. Mediana y no promedio
 // para que un día ya robado no corra la vara. Si no hay historia, se usa el rango de arranque.
+// km/L de referencia FIJO para una unidad segun su MODELO (o null si su modelo no tiene entrada).
+function _acRefModelo(cam){
+  var mapa=(typeof AC_META!=='undefined'&&AC_META.rendRefMapa)||{};
+  var modelo=String((typeof AC_META!=='undefined'&&AC_META.modeloCam&&AC_META.modeloCam[cam])||'').toLowerCase();
+  if(!modelo)return null;
+  var val=null;
+  Object.keys(mapa).forEach(function(k){ if(k&&modelo.indexOf(String(k).toLowerCase())>=0){ var v=_acNum(mapa[k]); if(v&&v>0)val=v; } });
+  return val;
+}
 function _acRefRend(todas){
   var ref={};
-  var fija=(typeof AC_META!=='undefined')?_acNum(AC_META.rendRef):null;
-  if(fija&&fija>0){
-    // Referencia FIJA para toda la flota (Betangar JAC 1131 aseo = 1,9). n alto para que las reglas
-    // que exigen historial la acepten sin esperar a juntar jornadas.
-    Object.keys((typeof FLOTA!=='undefined'&&FLOTA)||{}).forEach(function(u){ ref[u]={mediana:fija,n:99,fija:true}; });
-    (todas||[]).forEach(function(j){ if(!ref[j.cam])ref[j.cam]={mediana:fija,n:99,fija:true}; });
-    return ref;
-  }
+  // 1) Referencia FIJA por modelo (Betangar: JAC 1131 = 1,9). Se aplica a las unidades cuyo modelo
+  //    figura en el mapa. Es a proposito un numero conocido y no la mediana: si TODA la flota pierde
+  //    combustible, la mediana tambien baja y no salta nada; el estandar del modelo lo caza.
+  Object.keys((typeof FLOTA!=='undefined'&&FLOTA)||{}).forEach(function(u){
+    var f=_acRefModelo(u); if(f)ref[u]={mediana:f,n:99,fija:true};
+  });
+  // 2) El resto (modelos sin referencia configurada, ej. otros carros en el futuro): su propia mediana.
   var porU={};
-  (todas||[]).forEach(function(j){ if(j.rend!=null&&j.rend>0)(porU[j.cam]=porU[j.cam]||[]).push(j.rend); });
+  (todas||[]).forEach(function(j){ if(!ref[j.cam]&&j.rend!=null&&j.rend>0)(porU[j.cam]=porU[j.cam]||[]).push(j.rend); });
   Object.keys(porU).forEach(function(u){
     var a=porU[u].sort(function(x,y){return x-y;});
     ref[u]={mediana:a[Math.floor(a.length/2)],n:a.length};
