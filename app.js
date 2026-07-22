@@ -68,6 +68,11 @@ function brandEmail(){ return BTG_CONFIG.empresa_email||''; }
 // Existe porque el prefijo estaba HORNEADO como 'BETANGAR - ...' en ~30 mensajes: al clonar, el
 // personal del cliente nuevo recibía en su teléfono la marca de la otra empresa (2026-07-21).
 // Acá devuelve 'BETANGAR' (= el literal que había), así que no cambia nada de lo que se ve.
+// Saludo segun la hora de Venezuela, para cualquier mensaje que salude (no se manda "buenos dias"
+// a las 7pm). Rangos: <12 Buenos dias, <19 Buenas tardes, resto Buenas noches. En la BD existe la
+// misma logica en la funcion saludo_ve(), que usan las edge functions y los comunicados a mano.
+function _saludo(){ var h=parseInt(new Date().toLocaleString('en-US',{timeZone:'America/Caracas',hour:'2-digit',hour12:false}),10)||0;
+  return h<12?'Buenos dias':(h<19?'Buenas tardes':'Buenas noches'); }
 function brandTag(){ return String(BTG_CONFIG.empresa_marca||BTG_CONFIG.empresa_nombre||'').toUpperCase(); }
 // Nombre de la empresa apto para NOMBRE DE ARCHIVO (los Excel que descarga el cliente): sin espacios,
 // acentos ni signos. Acá da 'Betangar' = igual que el literal que había.
