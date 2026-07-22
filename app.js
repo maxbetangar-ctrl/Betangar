@@ -17965,7 +17965,7 @@ async function cargarTasas(){
       }
     }catch(e){}
   }
-  var bcvN=0,binN=0,fuenteOk='';
+  var bcvN=0,binN=0,eurN=0,fuenteOk='';
   var apis=[
     // Fuente preferida: tasa BCV oficial del BNC (mas estable). Solo si es realista (>100);
     // mientras el BNC siga en certificacion devuelve un valor viejo (~36) y se ignora.
@@ -17981,8 +17981,15 @@ async function cargarTasas(){
     async function(){try{var r=await fetch('https://pydolarve.org/api/v1/dollar?monitor=binance',{mode:'cors',signal:AbortSignal.timeout(5000)});if(r.ok){var d=await r.json();var v=parseFloat(d.price||d.promedio||0);if(v>100)binN=v;}}catch(e){}},
     async function(){if(binN>100)return;try{var r=await fetch('https://ve.dolarapi.com/v1/dolares/paralelo',{mode:'cors',signal:AbortSignal.timeout(5000)});if(r.ok){var d=await r.json();var v=parseFloat(d.promedio||d.precio||0);if(v>100)binN=v;}}catch(e){}}
   ];for(var k=0;k<apisBin.length;k++){try{await apisBin[k]();}catch(e){}}}
+  // EURO BCV REAL: el BNC solo da el DOLAR (PriceRateBCV), no el euro. Antes el euro se estimaba
+  // como dolar*1.08 UNA vez y con `||` quedaba PEGADO: se congelo en 634,40 dias enteros (23-jun a
+  // 5-jul 2026), por debajo del dolar (imposible), y cobro mal todo lo indexado a euro. Ahora se
+  // trae de dolarapi/euros/oficial en cada carga.
+  try{var re=await fetch('https://ve.dolarapi.com/v1/euros/oficial',{mode:'cors',signal:AbortSignal.timeout(5000)});if(re.ok){var de=await re.json();var ev=parseFloat(de.promedio||de.precio||0);if(ev>100)eurN=ev;}}catch(e){}
   if(bcvN&&bcvN>100){
-    TASAS.bcvDolar=bcvN;TASAS.bcvEuro=TASAS.bcvEuro||Math.round(bcvN*1.08*100)/100;
+    // CANDADO: el euro NUNCA es menor que el dolar. Si la fuente fallo (eurN<=dolar o 0), se
+    // reconstruye del dolar (ratio ~1.13, cercano al real) en vez de dejar un valor viejo pegado.
+    TASAS.bcvDolar=bcvN;TASAS.bcvEuro=(eurN>bcvN)?eurN:Math.round(bcvN*1.13*100)/100;
     TASAS.binance=(binN&&binN>100)?binN:(TASAS.binance&&TASAS.binance>100?TASAS.binance:bcvN);TASAS.promedio=((bcvN+TASAS.binance)/2);
     TASAS.fecha=formatFecha(new Date());TASAS.hora=new Date().toLocaleTimeString('es-VE',{hour:'2-digit',minute:'2-digit'});TASAS.fuente=fuenteOk;
     if(DB_READY&&supabase){try{await supabase.from('configuracion').upsert([{clave:'tasas_bcv',valor:JSON.stringify({bcvDolar:TASAS.bcvDolar,bcvEuro:TASAS.bcvEuro,binance:TASAS.binance,promedio:TASAS.promedio,fecha:TASAS.fecha,hora:TASAS.hora,fuente:TASAS.fuente})}],{onConflict:'clave',ignoreDuplicates:false});}catch(e){}
