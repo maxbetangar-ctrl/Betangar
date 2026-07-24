@@ -1801,18 +1801,27 @@ function abrirAnalisis(){
 }
 // ══════════════ FICHAJE / SITIOS DE ASISTENCIA (geocerca) ══════════════
 function _fx(s){return String(s==null?'':s).replace(/[<>&"]/g,function(c){return ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'})[c];});}
+// La geocerca la mueve SOLO administración (norma cross-app: la mueve administración, no el supervisor).
+// demo_admin queda FUERA a propósito: la demo corre en la MISMA base que Betangar real → un prospecto
+// no puede mover la geocerca de verdad. El candado REAL vive en la RLS de sitios_asistencia; esto es
+// coherencia de UI para no mostrarle un error de RLS a quien no debe editar.
+function _puedeEditarSitios(){ var r=SESION?SESION.rol:''; return r==='superadmin'||r==='admin'; }
 async function renderFichaje(){ renderSitios(); renderAsistenciaHoy(); }
 async function renderSitios(){
   var cont=document.getElementById('sit-lista'); if(!cont)return;
+  var puedeEd=_puedeEditarSitios();
+  var _ff=document.getElementById('sit-form-admin'); if(_ff)_ff.style.display=puedeEd?'':'none';
   var rows=[];
   if(DB_READY&&supabase){ try{ var r=await supabase.from('sitios_asistencia').select('*').order('nombre'); if(r&&!r.error)rows=r.data||[]; }catch(e){} }
   window._SITIOS=rows; var _ss=document.getElementById('asis-sede'); if(_ss){ var _c=_ss.value; _ss.innerHTML='<option value="">Todas las sedes</option>'+rows.map(function(s){return '<option>'+_fx(s.nombre)+'</option>';}).join(''); _ss.value=_c; }
-  if(!rows.length){ cont.innerHTML='<div class="empty-state"><span class="ico">🏢</span>Aún no cargaste sitios. Agregá tus sucursales y la oficina.</div>'; return; }
+  if(!rows.length){ cont.innerHTML='<div class="empty-state"><span class="ico">🏢</span>'+(puedeEd?'Aún no cargaste sitios. Agregá tus sucursales y la oficina.':'Todavía no hay sitios cargados. Los carga administración.')+'</div>'; return; }
   cont.innerHTML='<button class="btn btn-g btn-sm" style="width:100%;margin-bottom:8px" onclick="qrTodasSucursales()">🖨️ Imprimir TODOS los QR de sucursales ('+rows.length+')</button>'+rows.map(function(s){
-    return '<div style="display:flex;justify-content:space-between;align-items:center;gap:6px;border:1px solid var(--border);border-radius:8px;padding:8px 10px;margin-bottom:5px;background:var(--card2)"><div style="min-width:0"><b style="font-size:13px">'+(s.es_oficina?'🏢 ':'🏪 ')+_fx(s.nombre)+'</b><div style="font-size:10px;color:var(--text3)">'+Number(s.lat).toFixed(5)+', '+Number(s.lng).toFixed(5)+' · radio '+s.radio_m+' m'+(s.activo?'':' · INACTIVO')+'</div></div><span style="white-space:nowrap"><button class="btn btn-s btn-xs" onclick="qrSucursal('+s.id+')">🔳 QR</button> <button class="btn btn-r btn-xs" onclick="elimSitio('+s.id+')">🗑️</button></span></div>';
+    var btnDel=puedeEd?(' <button class="btn btn-r btn-xs" onclick="elimSitio('+s.id+')">🗑️</button>'):'';
+    return '<div style="display:flex;justify-content:space-between;align-items:center;gap:6px;border:1px solid var(--border);border-radius:8px;padding:8px 10px;margin-bottom:5px;background:var(--card2)"><div style="min-width:0"><b style="font-size:13px">'+(s.es_oficina?'🏢 ':'🏪 ')+_fx(s.nombre)+'</b><div style="font-size:10px;color:var(--text3)">'+Number(s.lat).toFixed(5)+', '+Number(s.lng).toFixed(5)+' · radio '+s.radio_m+' m'+(s.activo?'':' · INACTIVO')+'</div></div><span style="white-space:nowrap"><button class="btn btn-s btn-xs" onclick="qrSucursal('+s.id+')">🔳 QR</button>'+btnDel+'</span></div>';
   }).join('');
 }
 async function guardarSitio(){
+  if(!_puedeEditarSitios()){alert('Solo administración puede agregar o mover sitios de asistencia (geocerca).');return;}
   var nombre=(gv('sit-nombre')||'').trim(), lat=parseFloat(gv('sit-lat')), lng=parseFloat(gv('sit-lng')), radio=parseInt(gv('sit-radio'),10)||120, ofi=gv('sit-ofi')==='true';
   if(!nombre){alert('Poné el nombre del sitio');return;}
   if(!(lat>=-90&&lat<=90)||!(lng>=-180&&lng<=180)){alert('Latitud/Longitud inválidas. Pegalas de Google Maps o usá "Mi ubicación".');return;}
@@ -1822,8 +1831,9 @@ async function guardarSitio(){
   renderSitios();
 }
 async function elimSitio(id){
+  if(!_puedeEditarSitios()){alert('Solo administración puede borrar sitios de asistencia (geocerca).');return;}
   if(!confirm('¿Borrar este sitio?'))return;
-  if(DB_READY&&supabase){ try{ await supabase.from('sitios_asistencia').delete().eq('id',id); }catch(e){} }
+  if(DB_READY&&supabase){ var r=await supabase.from('sitios_asistencia').delete().eq('id',id); if(r&&r.error){alert('No se pudo borrar: '+r.error.message);return;} }
   renderSitios();
 }
 function sitUsarMiUbic(){
