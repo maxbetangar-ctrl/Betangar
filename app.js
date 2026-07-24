@@ -1133,9 +1133,18 @@ async function bncRenderCuentas(){
 var AC_TANQUES=[], AC_MED=[], AC_GASOIL=[], AC_CK=[], AC_JORNADAS=[], AC_ANOM=[], AC_META={};
 var _acCargando=false;
 
-// Ruido de la medición: la regla se lee a ±0,5 cm. En el tanque del camión (13,04 L/cm) eso es
-// ±6,5 L por lectura, y un cuadre usa DOS lecturas → ±13 L. Se redondea a 15.
-var AC_TOL_CAMION=15;
+// ── RUIDO DE LA MEDICIÓN: la tolerancia sale del INSTRUMENTO, no de un número redondo ─────────
+// Antes había un fijo de 15 L y estaba mal DOS veces (auditoría 2026-07-24). La regla se lee en
+// centímetros enteros, y en el tanque del camión 1 cm = 13 L: la tolerancia era más fina que la
+// propia marca de la regla, así que cualquier diferencia de 2 cm salía como alerta de robo. Y
+// además era el mismo número en cualquier altura, cuando en un tanque de verdad la panza del
+// medio mueve muchos más litros por cm que el fondo.
+// Se calcula por propagación de error a 2 sigmas (95%):
+//   TOL = 2 × √( (S(h_a)·σ)² + (S(h_b)·σ)² + (1,5% de lo surtido)² )
+// donde S(h) = litros por cm de la tabla a esa altura. Con la recta actual del JAC da ~37 L.
+// Decisión: |residual| ≤ TOL → limpio · hasta 2·TOL → para observar · > 2·TOL → anomalía.
+var AC_SIGMA_CM=1;      // error real de UNA lectura: redondeo + camión no nivelado + chapoteo
+var AC_TOL_PISO=8;      // piso: que una tabla plana no genere una tolerancia ridícula
 var AC_TOL_GALPON=25;   // el galpón mueve ~23,6 L/cm en la zona media → 2 lecturas ≈ ±24 L
 
 function _acHoy(){ return (typeof fechaVE==='function')?fechaVE():new Date().toISOString().slice(0,10); }
@@ -1165,6 +1174,42 @@ function _acCubicar(tanque,alturaCm){
   }
   return null;
 }
+// Litros por centímetro de la tabla A ESA ALTURA (pendiente local). Es lo que traduce el error de
+// lectura, que está en cm, a litros. Se toma del tramo de la tabla que contiene la altura: con la
+// recta actual del JAC da 13,04 en todos lados; con un aforo de verdad se achicará solo en el
+// fondo del tanque, que es justo donde opera B010.
+function _acLitrosPorCm(tanque,alturaCm){
+  var h=_acNum(alturaCm); if(h==null||!tanque||!tanque.tabla)return null;
+  var t=tanque.tabla;
+  var ps=Object.keys(t).map(function(k){return _acNum(k);}).filter(function(x){return x!=null;}).sort(function(a,b){return a-b;});
+  if(ps.length<2)return null;
+  var i=1; while(i<ps.length-1&&ps[i]<h)i++;
+  var h0=ps[i-1], h1=ps[i], l0=_acNum(t[String(h0)]), l1=_acNum(t[String(h1)]);
+  if(l0==null||l1==null||h1===h0)return null;
+  return Math.abs(l1-l0)/(h1-h0);
+}
+// Tolerancia de un cuadre que usa DOS lecturas de regla y, opcional, litros surtidos en el medio.
+function _acTol(tanque,hA,hB,surtido){
+  var sA=_acLitrosPorCm(tanque,hA), sB=_acLitrosPorCm(tanque,hB);
+  if(sA==null&&sB==null)return AC_TOL_PISO*2;
+  if(sA==null)sA=sB; if(sB==null)sB=sA;
+  var eA=sA*AC_SIGMA_CM, eB=sB*AC_SIGMA_CM, eS=(_acNum(surtido)||0)*0.015;
+  return Math.max(AC_TOL_PISO, Math.round(2*Math.sqrt(eA*eA+eB*eB+eS*eS)*10)/10);
+}
+// ¿Son dos fechas de días de calendario consecutivos? R1 solo puede opinar de "la noche" si la
+// llegada fue AYER de la salida: entre el 11 y el 13 hay un día entero en el que pudo pasar todo.
+function _acDiaSiguiente(fA,fB){
+  if(!fA||!fB)return false;
+  var d=new Date(String(fA).slice(0,10)+'T12:00:00'); d.setDate(d.getDate()+1);
+  return d.toISOString().slice(0,10)===String(fB).slice(0,10);
+}
+// Una altura fuera del rango físico del tanque NO se cubica: se descarta. Antes 264 cm en un
+// tanque de 46 entraba topeada a 600 L y contaminaba el cuadre como si fuera un dato bueno.
+function _acAlturaValida(tanque,alturaCm){
+  var h=_acNum(alturaCm); if(h==null)return false;
+  if(tanque&&tanque.hmax)return h>=0&&h<=tanque.hmax;
+  return h>=0;
+}
 function _acTanqueDe(m){
   var id=String(m.tanque_id||'');
   var t=AC_TANQUES.find(function(x){return String(x.id)===id;});
@@ -1177,15 +1222,31 @@ function _acEsGalpon(m){ var t=_acTanqueDe(m); return !!(t&&t.tipo==='galpon'); 
 // Hay filas repetidas (misma unidad, fecha, momento y altura, 2-3 veces): doble toque al guardar.
 // Se colapsan SOLO las idénticas: dos mediciones legítimas distintas nunca dan la misma altura
 // exacta en el mismo momento, y si la dieran el consumo sale igual. NO se borra nada de la BD.
+// CORREGIDO 2026-07-24: antes se colapsaban SOLO las idénticas, y cuando el chofer cargaba dos
+// alturas DISTINTAS para el mismo momento quedaban las dos. La segunda armaba una jornada suelta
+// que terminaba siendo la referencia del día siguiente (B006 17/07 tenía llegadas de 20, 20 y 16).
+// Ahora se colapsa por unidad+fecha+momento y se toma la ÚLTIMA por created_at: si el chofer
+// volvió a cargar, es porque está corrigiendo. El día queda marcado como "corregido" y las reglas
+// que hablan de sustracción no opinan sobre él.
 function _acDedupe(filas){
-  var vistos={}, out=[], dup=0;
+  var porMomento={}, dupIguales=0;
   (filas||[]).slice().sort(function(a,b){ return String(a.created_at||'').localeCompare(String(b.created_at||'')); })
   .forEach(function(m){
-    var k=[m.vehiculo_id,m.fecha,m.momento,m.altura_cm].join('|');
-    if(vistos[k]){ dup++; return; }
-    vistos[k]=1; out.push(m);
+    var k=[m.vehiculo_id,String(m.fecha).slice(0,10),m.momento].join('|');
+    (porMomento[k]=porMomento[k]||[]).push(m);
   });
-  AC_META.duplicadas=dup;
+  var out=[], corregidas={};
+  Object.keys(porMomento).forEach(function(k){
+    var lista=porMomento[k], alturas={};
+    lista.forEach(function(m){ alturas[String(_acNum(m.altura_cm))]=1; });
+    var distintas=Object.keys(alturas).length;
+    dupIguales+=(lista.length-distintas);
+    if(distintas>1)corregidas[k]=distintas;
+    out.push(lista[lista.length-1]);
+  });
+  AC_META.duplicadas=dupIguales;
+  AC_META.corregidas=corregidas;
+  AC_META.nCorregidas=Object.keys(corregidas).length;
   return out;
 }
 
@@ -1245,20 +1306,27 @@ function _acArmarJornadas(desde,hasta){
       return String(a.created_at||'').localeCompare(String(b.created_at||''));
     });
     var abierta=null;
+    var _fueCorregida=function(m){ return !!AC_META.corregidas&&!!AC_META.corregidas[[m.vehiculo_id,String(m.fecha).slice(0,10),m.momento].join('|')]; };
     lista.forEach(function(m){
-      var t=_acTanqueDe(m), litros=_acCubicar(t,m.altura_cm);
-      var rec=_acNum(m.litros_calculados);
+      var t=_acTanqueDe(m), cm=_acNum(m.altura_cm), ok=_acAlturaValida(t,cm);
+      // Altura imposible = lectura descartada, NO topeada. Se guarda el cm crudo para que R8 pueda
+      // señalarla, pero los litros quedan en null y esa jornada no se cuadra.
+      var litros=ok?_acCubicar(t,cm):null;
+      var rec=_acNum(m.litros_calculados), corr=_fueCorregida(m);
       if(String(m.momento)==='salida'){
         if(abierta)jor.push(abierta);                     // salida sin llegada: queda sin cerrar
-        abierta={cam:u,fecha:String(m.fecha).slice(0,10),salida:litros,salidaCm:_acNum(m.altura_cm),
-                 salidaRec:rec,llegada:null,llegadaCm:null,llegadaRec:null,por:m.registrado_por||'',
-                 fechaLl:null,tanque:t};
+        abierta={cam:u,fecha:String(m.fecha).slice(0,10),salida:litros,salidaCm:cm,salidaMala:!ok,
+                 salidaRec:rec,llegada:null,llegadaCm:null,llegadaRec:null,llegadaMala:false,
+                 por:m.registrado_por||'',fechaLl:null,tanque:t,corregida:corr,
+                 salidaAt:String(m.created_at||'')};
       } else if(String(m.momento)==='llegada'){
-        if(abierta){ abierta.llegada=litros; abierta.llegadaCm=_acNum(m.altura_cm); abierta.llegadaRec=rec;
+        if(abierta){ abierta.llegada=litros; abierta.llegadaCm=cm; abierta.llegadaRec=rec;
+                     abierta.llegadaMala=!ok; abierta.corregida=abierta.corregida||corr;
                      abierta.fechaLl=String(m.fecha).slice(0,10); jor.push(abierta); abierta=null; }
         else jor.push({cam:u,fecha:String(m.fecha).slice(0,10),salida:null,salidaCm:null,salidaRec:null,
-                       llegada:litros,llegadaCm:_acNum(m.altura_cm),llegadaRec:rec,por:m.registrado_por||'',
-                       fechaLl:String(m.fecha).slice(0,10),tanque:t});
+                       salidaMala:false,llegada:litros,llegadaCm:cm,llegadaRec:rec,llegadaMala:!ok,
+                       por:m.registrado_por||'',fechaLl:String(m.fecha).slice(0,10),tanque:t,
+                       corregida:corr,salidaAt:''});
       }
     });
     if(abierta)jor.push(abierta);
@@ -1270,7 +1338,12 @@ function _acArmarJornadas(desde,hasta){
       return String(g.cam)===j.cam && String(g.f).slice(0,10)===j.fecha && String(g.tipo_operacion||'')!=='compra';
     }).reduce(function(s,g){ return s+(_acNum(g.lit)||0); },0);
     var ck=AC_CK.find(function(c){ return String(c.cam)===j.cam && String(c.fecha).slice(0,10)===j.fecha; });
+    // Un 0 en el odómetro NO es un odómetro en cero: es el checklist sin cerrar o sin dato. Antes
+    // se tomaba como número y daba km del día de −14.008, y "kilometraje al revés" para cualquier
+    // jornada todavía abierta (hoy, con la flota en la calle, eso es TODA la flota).
     var kmS=ck?_acNum(ck.km_salida):null, kmE=ck?_acNum(ck.km_entrada):null;
+    if(kmS!=null&&kmS<=0)kmS=null;
+    if(kmE!=null&&kmE<=0)kmE=null;
     j.chofer=ck?String(ck.conductor||''):'';
     j.km=(kmS!=null&&kmE!=null&&kmE>=kmS)?(kmE-kmS):null;
     j.kmS=kmS; j.kmE=kmE;
@@ -1278,6 +1351,13 @@ function _acArmarJornadas(desde,hasta){
     j.consumo=(j.salida!=null&&j.llegada!=null)?Math.round((j.salida+j.desp-j.llegada)*100)/100:null;
     // Rendimiento solo con números que aguanten: con menos de 10 L o 5 km, el ruido de la regla manda.
     j.rend=(j.consumo!=null&&j.consumo>=10&&j.km!=null&&j.km>=5)?(j.km/j.consumo):null;
+    // CONFIANZA de la jornada. Las reglas que insinúan sustracción solo pueden opinar sobre las
+    // 'completa': dos lecturas válidas y sin corrección encima. Sobre las demás se puede pedir que
+    // arreglen el dato, nunca sugerir que falta combustible.
+    j.conf=(j.salida!=null&&j.llegada!=null&&!j.salidaMala&&!j.llegadaMala)
+             ? (j.corregida?'corregida':'completa') : 'incompleta';
+    // Tolerancia propia de ESTA jornada, según a qué altura se leyó la regla.
+    j.tol=_acTol(j.tanque,j.salidaCm,j.llegadaCm,j.desp);
   });
   // Solo las jornadas que arrancan dentro del período pedido (el día extra es para el nocturno).
   AC_JORNADAS=jor.filter(function(j){ return j.fecha>=desde && j.fecha<=hasta; });
@@ -1370,63 +1450,118 @@ function _acAnomalias(todas,desde,hasta,ref){
   };
   var U=function(c){ return (typeof _lblUnidad==='function')?_lblUnidad(c):c; };
   var $ = function(l){ var v=_acUsd(l); return v==null?'':(' ≈ $'+_acFmt(v,2)); };
+  // Combustible que ENTRÓ a un camión sin que quedara registrado. Se junta todo acá y sale como UN
+  // solo hallazgo: son decenas de casos del mismo problema (desde el 07/07 nadie carga los
+  // despachos) y de a una línea taparían lo poco que de verdad hay que mirar. Además así se puede
+  // decir lo único que importa de esto: cuánta plata es.
+  var _entraron=[];
 
-  // R1 — MERMA NOCTURNA: salió con menos de lo que dejó al llegar el día anterior, sin despacho.
-  // Un camión estacionado no consume: es la ventana clásica de sustracción.
+  // ── R1 / R11 — LO QUE PASA ENTRE QUE LLEGA Y VUELVE A SALIR ─────────────────────────────────
+  // REESCRITA 2026-07-24. La versión vieja afirmaba "un camión estacionado no consume" y nunca
+  // comprobaba que hubiera estado estacionado: comparaba dos jornadas seguidas aunque hubiera días
+  // enteros de por medio. De 26 casos de julio, 12 eran camiones que habían rodado (54 a 208 km
+  // según el odómetro del checklist) — el testigo: B009 el 13/07, "merma" de 39,1 L = 75 km sin
+  // registrar ÷ 1,9 km/L. Era el consumo del viaje, y salía por WhatsApp con nombre y apellido.
+  //
+  // Ahora R1 solo puede hablar de pérdida si TODAS estas son verdad:
+  //   (a) la llegada y la salida son de días de calendario CONSECUTIVOS;
+  //   (b) el odómetro DICE que no rodó: km al salir == km al llegar (±1 km), ambos con dato;
+  //   (c) las dos jornadas son 'completa' (lecturas válidas y sin corrección encima);
+  //   (d) no hubo despacho en el medio;
+  //   (e) el faltante pasa de 2·TOL, la tolerancia propia de esas dos lecturas.
+  // Si el odómetro avanzó, R1 SE CALLA y habla R11, que es el hallazgo de verdad: la unidad se usó
+  // y nadie lo registró. Si falta el odómetro, no opina: sin km no se puede saber si estuvo parado.
   var porU={};
   (todas||[]).forEach(function(j){ (porU[j.cam]=porU[j.cam]||[]).push(j); });
   Object.keys(porU).forEach(function(u){
     var lista=porU[u].sort(function(a,b){ return String(a.fecha).localeCompare(String(b.fecha)); });
     for(var i=1;i<lista.length;i++){
       var ant=lista[i-1], hoy=lista[i];
-      if(ant.llegada==null||hoy.salida==null)continue;
       if(hoy.fecha<desde||hoy.fecha>hasta)continue;
-      // despachos entre la llegada anterior y la salida de hoy
+      var fLle=ant.fechaLl||ant.fecha;
+
+      // ── (b) ¿Rodó? El odómetro es el testigo, y se mira SIEMPRE, aunque falten las lecturas ──
+      var kmFantasma=(ant.kmE!=null&&hoy.kmS!=null)?(hoy.kmS-ant.kmE):null;
+      if(kmFantasma!=null&&kmFantasma>1){
+        // R11 — RODÓ SIN JORNADA REGISTRADA. Vale por sí solo: la unidad se movió y no quedó
+        // asentado. No es una acusación de robo, es un agujero de registro (¿viaje sin facturar?).
+        var refR=ref[u]&&ref[u].mediana?ref[u].mediana:null;
+        var esperaR=(refR&&refR>0)?(kmFantasma/refR):null;
+        add('media','R11','Rodó sin jornada registrada',
+          'La unidad '+U(u)+' marcaba '+_acFmt(ant.kmE)+' km al llegar el '+formatFecha(fLle)+' y '+_acFmt(hoy.kmS)+
+          ' km al salir el '+formatFecha(hoy.fecha)+': son '+_acFmt(kmFantasma)+' km que se hicieron sin planilla ni checklist'+
+          (esperaR!=null?(' (≈ '+_acFmt(esperaR,1)+' L de combustible)'):'')+'. '+
+          'Averiguá qué hizo la unidad en ese tramo — puede ser un viaje que no se facturó, un traslado al taller o un uso por fuera. '+
+          'Mientras eso no esté registrado, de ese combustible no se puede decir nada.',
+          u,hoy.fecha,null,(hoy.chofer||ant.chofer||''));
+        continue;                       // rodó: R1 no tiene nada que decir acá
+      }
+
+      if(ant.llegada==null||hoy.salida==null)continue;    // sin las dos lecturas no hay cuadre
+      if(!_acDiaSiguiente(fLle,hoy.fecha))continue;       // (a) días no consecutivos
+      if(kmFantasma==null)continue;                       // sin odómetro no se opina de merma
+      if(ant.conf!=='completa'||hoy.conf!=='completa')continue;  // (c)
+
+      // (d) despachos entre la llegada anterior y la salida de hoy
       var dNoche=AC_GASOIL.filter(function(g){
         var f=String(g.f).slice(0,10);
         return String(g.cam)===u && String(g.tipo_operacion||'')!=='compra' &&
-               f>(ant.fechaLl||ant.fecha) && f<=hoy.fecha;
+               f>fLle && f<=hoy.fecha;
       }).reduce(function(s,g){return s+(_acNum(g.lit)||0);},0);
       var delta=Math.round((hoy.salida-ant.llegada-dNoche)*100)/100;
-      if(delta<-AC_TOL_CAMION){
-        add('alta','R1','Merma estacionada',
-          'La unidad '+U(u)+' amaneció el '+formatFecha(hoy.fecha)+' con '+_acFmt(Math.abs(delta),1)+' L menos de los que dejó al llegar'+
-          (ant.fechaLl?(' el '+formatFecha(ant.fechaLl)):'')+', y no hay despacho que lo explique. Un camión estacionado no consume. '+
-          'Revisá quién tuvo acceso a la unidad esa noche y confirmá que las dos lecturas de regla estén bien tomadas.'+$(delta),
-          u,hoy.fecha,delta,(hoy.chofer||ant.chofer||''));
-      } else if(delta>AC_TOL_CAMION){
-        add('media','R5','Apareció combustible',
-          'La unidad '+U(u)+' salió el '+formatFecha(hoy.fecha)+' con '+_acFmt(delta,1)+' L MÁS de los que había dejado, sin despacho registrado. '+
-          'Puede ser una carga por fuera que no se anotó, o una lectura de regla equivocada. Confirmá con el chofer dónde cargó.',
-          u,hoy.fecha,delta,(hoy.chofer||ant.chofer||''));
+      // (e) tolerancia de ESAS dos lecturas, y el doble para tener derecho a mostrarse
+      var tolN=_acTol(ant.tanque||hoy.tanque,ant.llegadaCm,hoy.salidaCm,dNoche);
+
+      if(delta<-2*tolN){
+        // Sin nombre de chofer: de noche el custodio es el PATIO, no la persona que manejó.
+        add('alta','R1','Faltó combustible en el patio',
+          'La unidad '+U(u)+' quedó el '+formatFecha(fLle)+' con '+_acFmt(ant.llegada,1)+' L y amaneció el '+
+          formatFecha(hoy.fecha)+' con '+_acFmt(hoy.salida,1)+' L: faltan '+_acFmt(Math.abs(delta),1)+' L'+$(delta)+'. '+
+          'El odómetro confirma que no se movió ('+_acFmt(ant.kmE)+' km las dos veces) y no hay despacho registrado. '+
+          'Es más de lo que puede explicar el error de la regla (±'+_acFmt(tolN,0)+' L). '+
+          'Revisá quién tuvo acceso al patio esa noche y volvé a tomar las dos lecturas para confirmarlo.',
+          u,hoy.fecha,delta,'');
+      } else if(delta>2*tolN){
+        _entraron.push({cam:u,fecha:hoy.fecha,litros:delta,cuando:'de noche'});
       }
     }
   });
 
+  // R4 — CONSUMO POR ENCIMA DE LO NORMAL. Precondiciones nuevas: jornada completa, y el recorrido
+  // del día dentro de lo que un camión de aseo hace de verdad (por debajo de 30 km manda el ruido
+  // de la regla; por encima de 350 km es un dedazo de odómetro, no una jornada). El umbral ya no
+  // es un 20 fijo sino el mayor entre 2·TOL y el 35% de lo esperado. Y un día suelto es 'media':
+  // ALTA solo si la misma unidad repite 3 veces en 14 días — el patrón es la evidencia, no el día.
+  var _r4=[];
   AC_JORNADAS.forEach(function(j){
-    // R2 — DESPACHO CORTO: salieron X litros del galpón pero el tanque del camión no subió igual.
-    if(j.desp>0&&j.salida!=null&&j.llegada!=null&&j.consumo!=null){
-      // Se compara el despacho contra lo que el tanque ganó de más respecto de un consumo normal.
-      var refU=ref[j.cam]&&ref[j.cam].n>=3?ref[j.cam].mediana:null;
-      if(refU&&j.km!=null&&j.km>0){
-        var espera=j.km/refU;                       // litros que ese recorrido debería haber quemado
-        var corto=Math.round((j.consumo-espera)*100)/100;
-        var lim=Math.max(20,espera*0.35);
-        if(corto>lim){
-          add('alta','R4','Consumo por encima de lo normal',
-            'La unidad '+U(j.cam)+' consumió '+_acFmt(j.consumo,1)+' L para '+_acFmt(j.km)+' km el '+formatFecha(j.fecha)+
-            ' ('+_acFmt(j.km/j.consumo,2)+' km/L), cuando normalmente rinde '+_acFmt(refU,2)+' km/L. Son '+_acFmt(corto,1)+' L de más'+$(corto)+
-            '. Revisá si hubo mucho ralentí o compactador trabajando, alguna cola larga, o si conviene medir el tanque con más cuidado esos días.',
-            j.cam,j.fecha,corto,_quien(j.cam,j.fecha));
-        }
-      }
-    }
-    // R5b — CONSUMO NEGATIVO: llegó con más de lo que salió + lo despachado. Físicamente imposible.
-    if(j.consumo!=null&&j.consumo<-AC_TOL_CAMION){
-      add('media','R5','Llegó con más de lo que salió',
-        'La unidad '+U(j.cam)+' llegó el '+formatFecha(j.fechaLl||j.fecha)+' con '+_acFmt(Math.abs(j.consumo),1)+' L más de los que salió, contando lo despachado. '+
-        'Eso no puede pasar rodando: o cargó en otro lado sin registrarlo, o una de las dos lecturas de regla está mal.',
-        j.cam,j.fecha,j.consumo,_quien(j.cam,j.fecha));
+    if(j.conf!=='completa'||j.consumo==null)return;
+    if(j.km==null||j.km<30||j.km>350)return;
+    var refU=ref[j.cam]&&(ref[j.cam].fija||ref[j.cam].n>=3)?ref[j.cam].mediana:null;
+    if(!refU||refU<=0)return;
+    var espera=j.km/refU;
+    var corto=Math.round((j.consumo-espera)*100)/100;
+    if(corto>Math.max(2*(j.tol||0),espera*0.35))_r4.push({j:j,corto:corto,espera:espera,ref:refU});
+  });
+  _r4.forEach(function(x){
+    var j=x.j;
+    var repite=_r4.filter(function(y){
+      if(y.j.cam!==j.cam)return false;
+      var d=Math.abs(new Date(y.j.fecha+'T12:00:00')-new Date(j.fecha+'T12:00:00'))/86400000;
+      return d<=14;
+    }).length;
+    add(repite>=3?'alta':'media','R4','Consumo por encima de lo normal',
+      'La unidad '+U(j.cam)+' consumió '+_acFmt(j.consumo,1)+' L para '+_acFmt(j.km)+' km el '+formatFecha(j.fecha)+
+      ' ('+_acFmt(j.km/j.consumo,2)+' km/L), cuando ese modelo rinde '+_acFmt(x.ref,2)+' km/L. Son '+_acFmt(x.corto,1)+' L de más'+$(x.corto)+
+      (repite>=3?('. Y no es un día suelto: le pasó '+repite+' veces en dos semanas, ahí ya hay un patrón que conviene mirar de cerca.')
+               :'. Puede ser mucho ralentí, compactador trabajando o una cola larga; un día suelto no dice nada por sí solo.'),
+      j.cam,j.fecha,x.corto,_quien(j.cam,j.fecha));
+  });
+
+  AC_JORNADAS.forEach(function(j){
+    // CONSUMO NEGATIVO: llegó con MÁS de lo que salió. Rodando eso no puede pasar: cargó en el día
+    // y no quedó registrado. Va al montón de R13 en vez de salir como alerta suelta.
+    if(j.conf==='completa'&&j.consumo!=null&&j.consumo<-2*(j.tol||0)){
+      _entraron.push({cam:j.cam,fecha:j.fecha,litros:Math.abs(j.consumo),cuando:'durante el día'});
     }
     // R7 — DÍA SIN MEDICIÓN: trabajó pero falta una de las dos lecturas → ese día no se puede cuadrar.
     if(j.km!=null&&j.km>0&&(j.salida==null||j.llegada==null)){
@@ -1455,11 +1590,21 @@ function _acAnomalias(todas,desde,hasta,ref){
         }
       });
     }
-    // R10 — KM IMPOSIBLE
+    // R10 — KM IMPOSIBLE. Ya no dispara con el 0: un km_entrada en 0 es el checklist sin cerrar,
+    // no un odómetro que retrocedió (se anula arriba, al armar la jornada). Antes, auditar el día
+    // en curso marcaba "kilometraje al revés" para TODA la flota que estaba en la calle.
     if(j.kmS!=null&&j.kmE!=null&&j.kmE<j.kmS){
       add('media','R10','Kilometraje al revés',
         'La unidad '+U(j.cam)+' entró el '+formatFecha(j.fecha)+' con menos kilómetros ('+_acFmt(j.kmE)+') de los que tenía al salir ('+_acFmt(j.kmS)+'). '+
         'Revisá el odómetro y cómo se anotó el checklist.',
+        j.cam,j.fecha,null,_quien(j.cam,j.fecha));
+    }
+    // R12 — CHECKLIST SIN CERRAR: salió y el día ya pasó, pero nunca se anotó el km de entrada.
+    // Sin ese número no se puede saber si la unidad estuvo parada, y R1 no puede opinar de nada.
+    if(j.kmS!=null&&j.kmE==null&&j.fecha<_acHoy()){
+      add('baja','R12','Checklist sin cerrar',
+        'La unidad '+U(j.cam)+' salió el '+formatFecha(j.fecha)+' con '+_acFmt(j.kmS)+' km y no quedó anotado el kilometraje de entrada. '+
+        'Ese día no se puede cuadrar: sin el km de llegada no hay forma de saber cuánto rodó ni cuánto debía consumir.',
         j.cam,j.fecha,null,_quien(j.cam,j.fecha));
     }
     // R9 — DESPACHO SIN RESPALDO: le cargaron pero ese día no se midió el tanque.
@@ -1475,10 +1620,36 @@ function _acAnomalias(todas,desde,hasta,ref){
   // GRAVES quedaban al final, que es justo lo contrario de lo que hace falta. Se compara con null.
   // Mediciones repetidas: el dashboard las muestra, no solo las cuenta. Es el error de carga más
   // común (doble toque al guardar) y el que más ensucia el cuadre.
+  // R13 — COMBUSTIBLE QUE ENTRÓ SIN REGISTRARSE. Un solo hallazgo con TODO junto: el problema no
+  // es cada camión, es que desde el 07/07 no se está cargando ningún despacho. Y lo que importa no
+  // son los litros de una unidad sino la plata que no está entrando a la Utilidad Real.
+  if(_entraron.length){
+    var totL=_entraron.reduce(function(s,x){ return s+(x.litros||0); },0);
+    var porCam={};
+    _entraron.forEach(function(x){ porCam[x.cam]=(porCam[x.cam]||0)+(x.litros||0); });
+    var top=Object.keys(porCam).sort(function(a,b){ return porCam[b]-porCam[a]; }).slice(0,4)
+              .map(function(c){ return U(c)+' '+_acFmt(porCam[c],0)+' L'; }).join(' · ');
+    add('alta','R13','Entró combustible sin registrarse',
+      'En el período entraron unos '+_acFmt(totL,0)+' L a las unidades'+$(totL)+' sin ninguna carga registrada, '+
+      'repartidos en '+_entraron.length+' ocasión(es) de '+Object.keys(porCam).length+' unidad(es). Los tanques subieron y en el sistema no figura de dónde salió ese combustible. '+
+      'Las que más acumulan: '+top+'. '+
+      'Esto no es un tema del chofer: es que la carga no se está asentando, y mientras no se asiente ese gasto no entra a la Utilidad Real ni al costo por camión, '+
+      'y ninguna revisión de faltantes puede sostenerse — no se puede decir que falta combustible cuando tampoco se sabe cuánto entró.',
+      '','',totL,'');
+  }
   if(AC_META.duplicadas>0){
     add('media','R0','Mediciones repetidas',
       'Se encontraron '+AC_META.duplicadas+' medición(es) cargada(s) más de una vez en el período (misma unidad, misma fecha, mismo momento y misma altura). '+
       'Se ignoraron para no falsear el consumo, pero conviene revisar por qué se están duplicando: casi siempre es que se toca dos veces el botón de guardar.',
+      '','',null,'');
+  }
+  // Lecturas del mismo momento con alturas DISTINTAS: alguien corrigió. Se toma la última, pero el
+  // día queda con confianza baja y ninguna regla de sustracción opina sobre él.
+  if(AC_META.nCorregidas>0){
+    add('media','R0','Mediciones corregidas',
+      'En '+AC_META.nCorregidas+' caso(s) quedó cargada más de una altura distinta para el mismo momento del mismo día. '+
+      'Se tomó la última (se entiende que es la corrección), pero esos días no se usan para revisar faltantes de combustible: '+
+      'con dos lecturas que se contradicen no se puede afirmar nada. Conviene que corregir pise el dato en vez de agregar otro.',
       '','',null,'');
   }
   var orden={alta:0,media:1,baja:2};
