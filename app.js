@@ -1304,7 +1304,8 @@ async function acCargar(desde,hasta){
     // Modo sombra: se trae TODO el historial, no solo el período que se está mirando. El marcador
     // de acierto mide al auditor completo — si se filtrara por el período, el criterio de
     // reencendido cambiaría según qué fechas tenga uno en pantalla, que sería absurdo.
-    supabase.from('comb_auditoria_sombra').select('*').order('fecha',{ascending:false}).limit(500)
+    supabase.from('comb_auditoria_sombra').select('*').order('fecha',{ascending:false}).limit(500),
+    supabase.from('configuracion').select('valor').eq('clave','aud_comb_avisar').maybeSingle()
   ];
   var r=await Promise.all(q);
   if(r[0].error)throw new Error('tanques: '+r[0].error.message);
@@ -1339,6 +1340,8 @@ async function acCargar(desde,hasta){
   AC_META.corteSurtidas=_c||'';
   AC_SOMBRA=(r[9]&&r[9].data)||[];
   if(r[9]&&r[9].error)console.log('sombra auditoria:',r[9].error.message);
+  var _av=null; try{ _av=(r[10]&&r[10].data)?String(r[10].data.valor).replace(/"/g,'').toLowerCase():null; }catch(e){}
+  AC_META.avisarSustraccion=(_av==='on');
   AC_META.modo=AC_TANQUES.length?'cubicacion':'surtidas';
 }
 
@@ -1540,17 +1543,39 @@ function _acPuedeVeredicto(){
   var r=(typeof SESION!=='undefined'&&SESION)?String(SESION.rol||''):'';
   return ['superadmin','admin','socios'].indexOf(r)>=0;
 }
+// ¿La tabla del tanque es un AFORO de verdad o una división disfrazada? Si todos los centímetros
+// valen exactamente lo mismo, nadie midió nada: se dividió capacidad entre altura (600 L ÷ 46 cm).
+// Un tanque acostado no da los mismos litros por cm en el fondo que en la panza, así que una tabla
+// perfectamente pareja es la firma de que el aforo todavía no se hizo. Esto lo comprueba el sistema
+// solo — es la única de las tres condiciones que no depende de que alguien la declare.
+// ⚠️ La MISMA comprobación está en la edge function: si se cambia una, se cambia la otra.
+function _acEsAforoReal(t){
+  if(!t||!t.tabla)return false;
+  var ps=Object.keys(t.tabla).map(function(k){return _acNum(k);}).filter(function(x){return x!=null;}).sort(function(a,b){return a-b;});
+  if(ps.length<4)return false;
+  var inc=[];
+  for(var i=1;i<ps.length;i++){
+    var a=_acNum(t.tabla[String(ps[i-1])]), b=_acNum(t.tabla[String(ps[i])]);
+    if(a==null||b==null)return false;
+    inc.push((b-a)/(ps[i]-ps[i-1]));
+  }
+  var mx=Math.max.apply(null,inc), mn=Math.min.apply(null,inc);
+  return mx>0&&(mx-mn)>mx*0.05;
+}
 function _acSombraEstado(){
   var ev=(AC_SOMBRA||[]).filter(function(x){ return x.veredicto==='verdadera'||x.veredicto==='falsa'; });
   var ok=ev.filter(function(x){ return x.veredicto==='verdadera'; }).length;
   var prec=ev.length?(ok/ev.length):null;
-  var hoy=_acHoy(), lim14=_acMenos(14,hoy), lim28=_acMenos(28,hoy);
+  var hoy=_acHoy(), lim14=_acMenos(14,hoy);
   var falsas14=ev.filter(function(x){ return x.veredicto==='falsa'&&String(x.fecha).slice(0,10)>=lim14; }).length;
-  var falsas28=ev.filter(function(x){ return x.veredicto==='falsa'&&String(x.fecha).slice(0,10)>=lim28; }).length;
-  var ev28=ev.filter(function(x){ return String(x.fecha).slice(0,10)>=lim28; }).length;
-  var listo=(ev.length>=AC_SOMBRA_MIN&&prec!=null&&prec>=AC_SOMBRA_PREC&&falsas14===0)
-          || (ev.length<AC_SOMBRA_MIN&&ev28>0&&falsas28===0&&ev.length>=4);
-  return {ev:ev.length,ok:ok,prec:prec,falsas14:falsas14,listo:listo,
+  // Examen aprobado = el MISMO criterio que aplica la edge function. Acá no se afloja: si la
+  // pantalla dijera que sí y el cron que no, no se entendería por qué no avisa.
+  var examenOk=(ev.length>=AC_SOMBRA_MIN&&prec!=null&&prec>=AC_SOMBRA_PREC&&falsas14===0);
+  var aforoOk=_acEsAforoReal((AC_TANQUES||[]).filter(function(t){return t.tipo==='vehiculo';})[0]||AC_TANQUES[0]);
+  return {ev:ev.length,ok:ok,prec:prec,falsas14:falsas14,
+          examenOk:examenOk, aforoOk:aforoOk, interruptor:!!AC_META.avisarSustraccion,
+          listo:(examenOk&&aforoOk),
+          avisando:(examenOk&&aforoOk&&!!AC_META.avisarSustraccion),
           pend:(AC_SOMBRA||[]).filter(function(x){return x.veredicto==='pendiente';})};
 }
 function _acSombraHtml(){
@@ -1566,12 +1591,20 @@ function _acSombraHtml(){
      '<div class="card card-sm" style="flex:1;min-width:110px"><div class="stat-lbl">Acierto</div><div style="font-family:var(--m);font-size:15px;font-weight:900;color:'+((e.prec!=null&&e.prec>=AC_SOMBRA_PREC)?'var(--green)':'var(--yellow)')+'">'+pct+'</div><div class="stat-sub">'+e.ok+' verdaderas</div></div>'+
      '<div class="card card-sm" style="flex:1;min-width:110px"><div class="stat-lbl">Falsas (14 días)</div><div style="font-family:var(--m);font-size:15px;font-weight:900;color:'+(e.falsas14?'var(--red)':'var(--green)')+'">'+e.falsas14+'</div></div>'+
      '</div>';
-  h+='<div style="padding:8px 10px;border-radius:8px;margin-bottom:10px;background:'+(e.listo?'rgba(163,230,53,.08)':'rgba(148,163,184,.08)')+';border:1px solid '+(e.listo?'var(--green)':'var(--border)')+';font-size:11px;line-height:1.6">'+
-     (e.listo
-       ? '✅ <b>El auditor pasó el examen.</b> Ya se puede volver a encender el aviso por WhatsApp (<code>AVISAR_SUSTRACCION=true</code> en la edge function <code>auditar-combustible</code>) — con el aforo del tanque hecho, no antes.'
-       : '⏳ Todavía no. Hacen falta '+AC_SOMBRA_MIN+' casos evaluados con '+Math.round(AC_SOMBRA_PREC*100)+'% de acierto y ninguna falsa en las últimas 2 semanas'+
-         (e.ev<4?' (o al menos 4 casos seguidos sin ninguna falsa si sale poco).':'.')+
-         ' Van '+e.ev+' evaluado(s)'+(e.falsas14?(' y '+e.falsas14+' falsa(s) reciente(s)'):'')+'.')+
+  // EL PORTÓN: las tres condiciones, a la vista. Que no haya que adivinar por qué no avisa.
+  var _chk=function(ok,txt){ return '<div style="display:flex;gap:6px;align-items:flex-start;margin-bottom:3px"><span>'+(ok?'✅':'⬜')+'</span><span style="color:'+(ok?'var(--text2)':'var(--text3)')+'">'+txt+'</span></div>'; };
+  h+='<div style="padding:8px 10px;border-radius:8px;margin-bottom:10px;background:'+(e.avisando?'rgba(163,230,53,.08)':'rgba(148,163,184,.08)')+';border:1px solid '+(e.avisando?'var(--green)':'var(--border)')+';font-size:11px;line-height:1.5">'+
+     '<div style="font-weight:800;margin-bottom:6px">'+(e.avisando?'🔔 El aviso por WhatsApp está ENCENDIDO':'🔇 El aviso por WhatsApp está apagado')+'</div>'+
+     _chk(e.aforoOk,'<b>Aforo real del tanque.</b> '+(e.aforoOk?'La tabla de cubicación tiene curva: se midió de verdad.':'Todavía no: la tabla es una recta pareja (600 L ÷ 46 cm), o sea una división, no una medición. Hay que aforar el tanque y cargar la tabla.'))+
+     _chk(e.examenOk,'<b>Examen aprobado.</b> '+AC_SOMBRA_MIN+' casos evaluados con '+Math.round(AC_SOMBRA_PREC*100)+'% de acierto y ninguna falsa en 2 semanas. Van '+e.ev+(e.falsas14?(' y '+e.falsas14+' falsa(s) reciente(s)'):'')+'.')+
+     _chk(e.interruptor,'<b>Interruptor encendido.</b> Es tu decisión, y solo se puede tomar cuando las dos de arriba estén en verde.')+
+     ((e.listo&&!e.interruptor&&_acPuedeVeredicto())
+       ? '<button class="btn btn-g btn-sm" style="margin-top:8px" onclick="acEncenderAviso(true)">🔔 Encender el aviso por WhatsApp</button>'
+       : '')+
+     ((e.interruptor&&_acPuedeVeredicto())
+       ? '<button class="btn btn-sm" style="margin-top:8px" onclick="acEncenderAviso(false)">🔇 Apagar el aviso</button>'
+       : '')+
+     '<div style="margin-top:6px;color:var(--text3)">Si estando encendido salen dos falsas alarmas seguidas, el sistema se apaga solo y les avisa a los socios. No hace falta que nadie se dé cuenta.</div>'+
      '</div>';
   if(!e.pend.length){
     h+='<div style="font-size:12px;color:var(--text2);padding:4px">Nada pendiente de marcar.</div>';
@@ -1593,6 +1626,21 @@ function _acSombraHtml(){
     if(e.pend.length>20)h+='<div style="font-size:11px;color:var(--text3)">…y '+(e.pend.length-20)+' más.</div>';
   }
   return h+'</div>';
+}
+// Encender o apagar el aviso por WhatsApp. Encender NO alcanza por sí solo: la edge function vuelve
+// a comprobar el aforo y el examen antes de mandar nada. Esto es el tercer candado, no el único —
+// si el interruptor fuera suficiente, cualquiera podría reencenderlo el día que se impaciente, que
+// es exactamente como se llegó al problema del 24/07.
+async function acEncenderAviso(on){
+  var e=_acSombraEstado();
+  if(on&&!e.listo){ mostrarToast('Todavía no se puede: falta el aforo del tanque o el examen del modo sombra','error'); return; }
+  if(on&&!confirm('Al encenderlo, los faltantes de combustible vuelven a salir por WhatsApp a mecánica, operativo y socios.\n\nEl mensaje nombra la unidad y la noche, nunca al chofer.\n\n¿Confirmás que el aforo del tanque ya está cargado y verificado?'))return;
+  var res=await supabase.from('configuracion').upsert({clave:'aud_comb_avisar',valor:(on?'on':'off')},{onConflict:'clave'});
+  if(res.error){ mostrarToast('No se pudo cambiar: '+res.error.message,'error'); return; }
+  AC_META.avisarSustraccion=!!on;
+  if(typeof audit==='function')audit('Aviso de faltantes de combustible',on?'ENCENDIDO':'apagado');
+  mostrarToast(on?'🔔 Aviso encendido':'🔇 Aviso apagado','exito');
+  acBuscar();
 }
 // Guardar el veredicto. Solo se puede tocar la columna del veredicto: los litros y la fecha del
 // hallazgo son la evidencia y quedan inmutables (candado a nivel de columna en la BD).

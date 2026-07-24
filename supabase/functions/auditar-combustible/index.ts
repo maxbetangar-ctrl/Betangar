@@ -38,15 +38,29 @@ const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers
 const SIGMA_CM = 1;     // error real de UNA lectura: redondeo + camión no nivelado + chapoteo
 const TOL_PISO = 8;     // piso, para que una tabla plana no genere una tolerancia ridícula
 
-// ⚠️ AVISO DE SUSTRACCIÓN EN PAUSA (2026-07-24, decisión de Máximo).
-// La merma estacionada salía por WhatsApp con nombre y apellido apoyada en números que no
-// aguantaban: de 26 casos de julio, 12 eran camiones que SÍ rodaron entre las dos mediciones (hasta
-// 208 km) — la regla afirmaba "un camión estacionado no consume" sin haber mirado nunca el
-// odómetro. Eso ya está corregido acá abajo (precondiciones) y quedan 3 casos de verdad.
-// NO se reenciende a mano ni por corazonada: los hallazgos se siguen guardando en
-// `comb_auditoria_sombra` con veredicto humano, y el módulo en pantalla dice cuándo el auditor
-// pasó el examen (Combustible → Auditoría → Modo sombra). Además falta el aforo real del tanque.
-const AVISAR_SUSTRACCION = false;
+// ── EL PORTÓN: cuándo tiene derecho este cron a insinuar una sustracción ───────────────────────
+// El 2026-07-24 se descubrió que venía acusando en falso por WhatsApp, con nombre y apellido: de 26
+// casos de julio, 12 eran camiones que SÍ habían rodado (hasta 208 km) porque la regla afirmaba
+// "un camión estacionado no consume" sin haber mirado nunca el odómetro.
+//
+// Eso ya está corregido. Pero el permiso para volver a hablar NO es una constante que alguien
+// cambia a mano cuando se siente listo — así fue como se llegó al problema. Es un portón que el
+// propio sistema controla, y que exige LAS TRES cosas a la vez:
+//
+//   1. AFORO REAL del tanque. Se comprueba solo: si todos los centímetros de la tabla de
+//      cubicación valen exactamente lo mismo, eso no es un aforo, es una división (600 L ÷ 46 cm).
+//      Un tanque acostado no da los mismos litros por cm en el fondo que en la panza.
+//   2. EXAMEN APROBADO en modo sombra: veredictos humanos guardados en `comb_auditoria_sombra`,
+//      con al menos MIN_EVAL casos evaluados, PRECISION_MIN de acierto y ninguna falsa reciente.
+//   3. INTERRUPTOR EN ON: `configuracion.aud_comb_avisar` = 'on'. Es la decisión de Máximo, pero
+//      solo puede tomarla cuando 1 y 2 ya se cumplen (la pantalla ni siquiera ofrece el botón).
+//
+// Y KILL-SWITCH: si estando encendido aparecen 2 veredictos 'falsa' seguidos, el cron se apaga
+// SOLO (escribe 'off' en la configuración) y avisa a socios por qué. La confianza cuesta ganarla y
+// se pierde con una sola acusación injusta: el sistema tiene que saber callarse sin que se lo pidan.
+const MIN_EVAL = 15;         // casos con veredicto humano antes de poder opinar
+const PRECISION_MIN = 0.90;  // 9 de cada 10 tienen que haber sido de verdad
+const DIAS_SIN_FALSAS = 14;  // y ninguna falsa en las últimas 2 semanas
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
@@ -62,7 +76,7 @@ Deno.serve(async (req) => {
   const fecha = url.searchParams.get('fecha') || new Date(new Date(hoyVE + 'T12:00:00Z').getTime() - 86400000).toISOString().slice(0, 10);
   const previo = new Date(new Date(fecha + 'T12:00:00Z').getTime() - 86400000).toISOString().slice(0, 10);
 
-  const [cfgT, med, gas, ck, emps, waCfg, logs, sur, cfgCorte] = await Promise.all([
+  const [cfgT, med, gas, ck, emps, waCfg, logs, sur, cfgCorte, cfgAvisar, somb] = await Promise.all([
     sb.from('combustible_tanques_config').select('*'),
     sb.from('combustible_mediciones').select('*').gte('fecha', previo).lte('fecha', fecha),
     sb.from('gasoil').select('*').gte('f', previo).lte('f', fecha),
@@ -72,6 +86,8 @@ Deno.serve(async (req) => {
     sb.from('alertas_log').select('alert_key').like('alert_key', 'comb_%'),
     sb.from('surtidas').select('*').gte('fecha', previo).lte('fecha', fecha),
     sb.from('configuracion').select('valor').eq('clave', 'surtidas_corte').maybeSingle(),
+    sb.from('configuracion').select('valor').eq('clave', 'aud_comb_avisar').maybeSingle(),
+    sb.from('comb_auditoria_sombra').select('veredicto,fecha,veredicto_at').order('veredicto_at', { ascending: false }).limit(300),
   ]);
   if (cfgT.error) return json({ ok: false, error: cfgT.error.message }, 500);
   const corteSur = String(cfgCorte?.data?.valor || '').replace(/"/g, '').slice(0, 10);
@@ -152,6 +168,42 @@ Deno.serve(async (req) => {
     const d = new Date(String(a).slice(0, 10) + 'T12:00:00Z'); d.setUTCDate(d.getUTCDate() + 1);
     return d.toISOString().slice(0, 10) === String(b).slice(0, 10);
   };
+
+  // ── EL PORTÓN: las tres condiciones se evalúan acá, no en la cabeza de nadie ────────────────
+  // 1. ¿La tabla del tanque es un AFORO o una división disfrazada? Si todos los centímetros valen
+  //    exactamente lo mismo, nadie midió nada: se dividió capacidad entre altura. Un tanque
+  //    acostado no da los mismos litros por cm en el fondo que en la panza, así que una tabla
+  //    perfectamente pareja es la firma de que el aforo todavía no se hizo.
+  const esAforoReal = (tq: any): boolean => {
+    const ps = puntos(tq); if (ps.length < 4) return false;
+    const inc: number[] = [];
+    for (let i = 1; i < ps.length; i++) {
+      const a = num(tq.tabla[String(ps[i - 1])]), b = num(tq.tabla[String(ps[i])]);
+      if (a == null || b == null) return false;
+      inc.push((b - a) / (ps[i] - ps[i - 1]));
+    }
+    const mx = Math.max(...inc), mn = Math.min(...inc);
+    return mx > 0 && (mx - mn) > mx * 0.05;
+  };
+  const aforoOk = esAforoReal(tanques.find((x) => x.tipo === 'vehiculo') || tanques[0]);
+
+  // 2. ¿Pasó el examen del modo sombra? Solo cuentan los veredictos humanos ya dados.
+  const vered = (somb.data || []).filter((x: any) => x.veredicto === 'verdadera' || x.veredicto === 'falsa');
+  const okN = vered.filter((x: any) => x.veredicto === 'verdadera').length;
+  const prec = vered.length ? okN / vered.length : 0;
+  const limFalsas = new Date(new Date(fecha + 'T12:00:00Z').getTime() - DIAS_SIN_FALSAS * 86400000).toISOString().slice(0, 10);
+  const falsasRecientes = vered.filter((x: any) => x.veredicto === 'falsa' && String(x.fecha).slice(0, 10) >= limFalsas).length;
+  const examenOk = vered.length >= MIN_EVAL && prec >= PRECISION_MIN && falsasRecientes === 0;
+
+  // 3. ¿El interruptor está en on? Es la decisión de Máximo — pero solo puede tomarla cuando 1 y 2
+  //    ya se cumplen (la pantalla ni siquiera le ofrece el botón antes).
+  const interruptor = String(cfgAvisar?.data?.valor || '').replace(/"/g, '').toLowerCase() === 'on';
+
+  // KILL-SWITCH: los dos veredictos más recientes fueron 'falsa' → el cron se calla solo.
+  const ultimos2 = vered.slice(0, 2);
+  const dosFalsas = ultimos2.length === 2 && ultimos2.every((x: any) => x.veredicto === 'falsa');
+
+  const AVISAR_SUSTRACCION = aforoOk && examenOk && interruptor && !dosFalsas;
 
   // ── DEDUPE: una sola medición por unidad+fecha+momento, la ÚLTIMA por created_at ──
   // Si el chofer volvió a cargar es porque está corrigiendo. Antes se colapsaban solo las idénticas
@@ -332,6 +384,25 @@ Deno.serve(async (req) => {
     marcar.push(key);
   }
 
+  // ── KILL-SWITCH EN ACCIÓN ────────────────────────────────────────────────────────────────────
+  // Estaba encendido y los dos últimos casos revisados resultaron falsa alarma: se apaga solo y lo
+  // dice. No espera a que alguien se dé cuenta ni a que alguien se anime a apagarlo. Una acusación
+  // injusta cuesta más que diez avisos que no salieron.
+  if (!dry && interruptor && dosFalsas) {
+    const off = await sb.from('configuracion').upsert({ clave: 'aud_comb_avisar', valor: 'off' }, { onConflict: 'clave' });
+    if (off.error) console.log('[killswitch] no se pudo apagar:', off.error.message);
+    const kkey = `comb_killswitch_${fecha}`;
+    if (!yaEnviado.has(kkey)) {
+      const aviso = `🔇 Se apagó solo el aviso de faltantes de combustible.\n\n` +
+        `Los dos últimos casos que se revisaron resultaron ser falsa alarma, así que el sistema dejó de avisar por WhatsApp: ` +
+        `no puede seguir señalando con números que no aguantan.\n\n` +
+        `Se sigue calculando y guardando todo en Combustible → Auditoría → Modo sombra. Cuando se corrija lo que esté fallando ` +
+        `y vuelva a pasar el examen, se enciende de nuevo desde ahí.`;
+      telsRol(['socios']).forEach((t) => filas.push({ telefono: t, mensaje: aviso, tipo: 'auditoria' }));
+      marcar.push(kkey);
+    }
+  }
+
   // ── Resumen a los JEFES ──
   const keyJefes = `comb_jefes_${fecha}`;
   const gravesAvisables = AVISAR_SUSTRACCION ? graves : [];
@@ -360,7 +431,11 @@ Deno.serve(async (req) => {
     marcar.push(keyJefes);
   }
 
-  const resumen = { fecha, corte: corteSur || null, duplicados: dupIguales, corregidas: corregidas.size, errores: errores.length, hallazgos: hallazgos.length, graves: graves.length };
+  const resumen = { fecha, corte: corteSur || null, duplicados: dupIguales, corregidas: corregidas.size,
+    errores: errores.length, hallazgos: hallazgos.length, graves: graves.length,
+    // El estado del portón sale siempre en la respuesta: si alguien se pregunta por qué no avisó,
+    // acá está la razón exacta, sin tener que leer el código.
+    porton: { avisa: AVISAR_SUSTRACCION, aforoOk, examenOk, interruptor, dosFalsas, evaluados: vered.length, precision: Math.round(prec * 100) } };
   if (dry) return json({ ok: true, dry: true, ...resumen, encolaria: filas.length, muestra: filas.slice(-2) });
   if (!filas.length) return json({ ok: true, ...resumen, avisos: 0, nota: 'nada que avisar' });
 
