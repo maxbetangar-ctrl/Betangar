@@ -366,9 +366,34 @@ El aviso de sustracción vuelve a encenderse por etapas, con datos, no por fe:
 | 3 | **Reactivar el registro del combustible que entra**, con `surtidas` como fuente única + corte `CORTE_GASOIL_DESPACHOS` para lo histórico. Incluye decisión de PROCESO con Máximo: quién registra el despacho EN el momento (PWA de quien despacha, con foto), y cargarle costo a la surtida de B004 que está en $0 | 2–3 días + cambio de hábito | Doble conteo `gasoil`+`surtidas` si el corte queda mal → todos los cuadres dan "apareció combustible"; y si el hábito no agarra, la auditoría vuelve a quedarse sin la pata de "qué entró" |
 | 4 | ~~**Utilidad Real / Rentabilidad**: que lean surtidas~~ ⚠️ **CORREGIDO 2026-07-24 al implementar: NO se toca la fórmula.** Ver nota abajo | — | Leer surtidas ahí DUPLICARÍA el gasto |
 | 5 | **Aforo del tanque JAC** (punto 5): pedido a Máximo/taller, cargar tabla real en `combustible_tanques_config`, y **eliminar `CL_JAC_CUB`** de chofer.html (que baje de la BD; bump de `CACHE_NAME` del service worker para forzar actualización en los teléfonos) | 1 mañana de patio + 0,5 día de código | Si el espejo no se mata, chofer y oficina cubican distinto para siempre; si el SW no se bumpea, los teléfonos siguen con la recta vieja semanas |
-| 6 | **Decisión del galpón**: fuera de uso (declararlo y ocultar su cuadre) o vivo (regla 2×/semana + compras al día — muertas desde 26/03) | decisión + 0,5 día | Un cuadre de galpón sin mediciones seguirá siendo un cartel que nadie lee |
+| 6 | ✅ **HECHO 2026-07-24 — Máximo lo definió: el galpón es BACKUP de emergencia.** Ver abajo | — | Pedirle regla 2×/semana a un tanque dormido = un reclamo que nadie va a cumplir |
 | 7 | **Modo sombra con veredictos** (punto 7): guardar graves en `combustible_alertas` + botones verdadera/falsa en la UI + contador de precisión | 1 día | Sin veredicto humano guardado no hay forma objetiva de saber cuándo reencender |
 | 8 | **Reencendido del WhatsApp** según criterio 7.5, con kill-switch 7.7 | 0,5 día | Reencender por ansiedad antes del criterio = quemar la segunda (y última) oportunidad del módulo ante los choferes |
+
+### ✅ El galpón es BACKUP DE EMERGENCIA (regla de Máximo, 2026-07-24)
+
+Textual: *"surto del galpón cuando no consigo en la estación de servicio, así que puede durarse 1 mes
+o más sin surtirse desde el galpón como después se surta siempre en galpón; el galpón es solo backup
+para emergencias"*.
+
+Eso tira abajo la propuesta de "regla 2×/semana": es un reclamo que nadie va a cumplir sobre un
+tanque que nadie está tocando. El galpón tiene **dos vidas** y se auditan distinto:
+
+- **EN REPOSO** (sin compras ni surtidas en el período): no hay nada que cuadrar — hay que
+  **confirmar que el nivel no se movió**. Un tanque que nadie tocó tiene que marcar lo mismo. Es la
+  prueba más barata y más fuerte que existe: dos lecturas separadas por semanas, sin movimientos en
+  el medio. Si bajó, es un hallazgo de verdad y no depende de ninguna cubicación fina.
+  Pedido al usuario: pasar la regla **una vez al mes** aunque no se use.
+- **EN USO**: `nivel inicial + compras − surtidas = nivel final`, con regla antes y después de
+  surtir. Ese es el único momento en que hacen falta las mediciones seguidas.
+
+El módulo ya distingue los dos estados y dice cuál está viendo, en vez de mostrar un cuadre
+imposible. La tolerancia del galpón pasó a la misma fórmula por instrumento (el fijo de 25 L era,
+otra vez, más fino que la propia regla: el galpón mueve ~23,6 L por centímetro).
+
+⚠️ **Esto vale SOLO para el galpón.** A los **camiones** se les sigue exigiendo la medición de
+**salida y llegada todos los días** (R7 se lo reclama al chofer apenas la unidad trabajó y falta
+una de las dos). Ahí no hay reposo que valga: el camión que sale, se mide.
 
 ### ⚠️ Corrección al paso 4 (verificada en el código el 2026-07-24, al implementar)
 

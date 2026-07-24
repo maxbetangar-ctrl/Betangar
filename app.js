@@ -1143,9 +1143,11 @@ var _acCargando=false;
 //   TOL = 2 × √( (S(h_a)·σ)² + (S(h_b)·σ)² + (1,5% de lo surtido)² )
 // donde S(h) = litros por cm de la tabla a esa altura. Con la recta actual del JAC da ~37 L.
 // Decisión: |residual| ≤ TOL → limpio · hasta 2·TOL → para observar · > 2·TOL → anomalía.
-var AC_SIGMA_CM=1;      // error real de UNA lectura: redondeo + camión no nivelado + chapoteo
+// Vale para el camión Y para el galpón: el galpón mueve ~23,6 L por cm en la zona media, así que
+// la misma fórmula le da su propio margen. (Había un `AC_TOL_GALPON=25` fijo — se quitó, era otra
+// vez más fino que la regla; no lo devuelvas.)
+var AC_SIGMA_CM=1;      // error real de UNA lectura: redondeo + tanque no nivelado + chapoteo
 var AC_TOL_PISO=8;      // piso: que una tabla plana no genere una tolerancia ridícula
-var AC_TOL_GALPON=25;   // el galpón mueve ~23,6 L/cm en la zona media → 2 lecturas ≈ ±24 L
 
 function _acHoy(){ return (typeof fechaVE==='function')?fechaVE():new Date().toISOString().slice(0,10); }
 function _acMenos(n,base){ var d=new Date((base||_acHoy())+'T12:00:00'); d.setDate(d.getDate()-n); return d.toISOString().slice(0,10); }
@@ -1483,10 +1485,16 @@ function _acCuadreGalpon(desde,hasta){
   });
   var compras=_acComprasGalpon(desde,hasta), despachos=_acSalidasGalpon(desde,hasta);
   var enRango=medG.filter(function(m){ var f=String(m.fecha).slice(0,10); return f>=desde&&f<=hasta; });
-  var res={compras:compras,despachos:despachos,mediciones:enRango.length,hay:false};
+  // EL GALPÓN ES BACKUP DE EMERGENCIA (regla de Máximo, 2026-07-24): solo se surte de ahí cuando no
+  // se consigue en la estación de servicio. Puede pasar un mes entero sin moverse y después
+  // surtirse todos los días. Por eso NO se le puede exigir una medición fija por semana: el tanque
+  // tiene dos vidas distintas y se auditan distinto (ver `reposo`).
+  var res={compras:compras,despachos:despachos,mediciones:enRango.length,hay:false,
+           reposo:(compras+despachos)<=0};
   if(enRango.length>=2){
     var pri=enRango[0], ult=enRango[enRango.length-1];
-    var lIni=_acCubicar(_acTanqueDe(pri),pri.altura_cm), lFin=_acCubicar(_acTanqueDe(ult),ult.altura_cm);
+    var tqG=_acTanqueDe(pri);
+    var lIni=_acCubicar(tqG,pri.altura_cm), lFin=_acCubicar(_acTanqueDe(ult),ult.altura_cm);
     if(lIni!=null&&lFin!=null){
       // Movimientos ENTRE la primera y la última medición (no todo el período).
       var fA=String(pri.fecha).slice(0,10), fB=String(ult.fecha).slice(0,10);
@@ -1495,8 +1503,14 @@ function _acCuadreGalpon(desde,hasta){
       res.esperado=Math.round((lIni+c2-d2)*100)/100;
       res.dif=Math.round((lFin-res.esperado)*100)/100;
       res.mov=c2+d2;
-      res.tol=Math.max(AC_TOL_GALPON, res.mov*0.015);
-      res.desde=String(pri.fecha).slice(0,10); res.hasta=String(ult.fecha).slice(0,10);
+      // Misma tolerancia por instrumento que el camión: el galpón mueve ~23,6 L por cm en la zona
+      // media, así que dos lecturas en centímetros enteros no pueden ver menos que eso. El fijo de
+      // 25 L que había era, otra vez, más fino que la propia regla.
+      res.tol=_acTol(tqG,pri.altura_cm,ult.altura_cm,res.mov);
+      res.desde=fA; res.hasta=fB;
+      // En REPOSO no hay nada que "cuadrar": un tanque que nadie tocó tiene que tener el MISMO
+      // nivel. Es la prueba más barata y más fuerte que hay — dos lecturas separadas por semanas.
+      res.reposoEntre=(c2+d2)<=0;
     }
   }
   return res;
@@ -1806,23 +1820,49 @@ function _acRender(){
   // ── Cuadre del galpón
   if(AC_META.modo==='cubicacion'){
     html+='<div class="card" style="margin-bottom:10px"><div class="st" style="margin-bottom:6px">🛢️ Cuadre del tanque del galpón</div>';
-    if(g_.hay){
+    // El galpón es el BACKUP: se usa solo cuando no hay en la estación. Puede estar un mes quieto.
+    // Por eso se cuenta distinto según esté DURMIENDO o EN USO, y no se le reclama una medición
+    // semanal a un tanque que nadie está tocando.
+    if(g_.hay&&g_.reposoEntre){
+      // Reposo: no hay nada que cuadrar, hay que CONFIRMAR que el nivel no se movió.
+      var bajo=(g_.dif<-g_.tol);
+      html+='<div style="font-size:12px;line-height:1.7">'+
+        'El galpón estuvo <b>en reposo</b> entre el '+formatFecha(g_.desde)+' y el '+formatFecha(g_.hasta)+
+        ': no se le compró ni se surtió de ahí.<br>'+
+        'Tenía <b>'+_acFmt(g_.ini,1)+' L</b> y la regla ahora marca <b>'+_acFmt(g_.fin,1)+' L</b>.'+
+        '<div style="margin-top:8px;padding:8px 10px;border-radius:8px;background:'+(bajo?'rgba(248,113,113,.1)':'rgba(163,230,53,.08)')+';border:1px solid '+(bajo?'var(--red)':'var(--green)')+'">'+
+          (bajo?('⚠️ <b>Bajó '+_acFmt(Math.abs(g_.dif),1)+' L sin que nadie surtiera</b>'+(_acUsd(g_.dif)!=null?(' ≈ $'+_acFmt(_acUsd(g_.dif),2)):'')+'. '+
+                 'Un tanque que nadie tocó tiene que conservar el nivel. Es más de lo que explica la regla (±'+_acFmt(g_.tol,0)+' L): '+
+                 'revisá quién tiene acceso al galpón y confirmá las dos lecturas.')
+               :('✅ El nivel se mantuvo (diferencia de '+_acFmt(g_.dif,1)+' L, dentro del margen de la regla ±'+_acFmt(g_.tol,0)+' L). '+
+                 'Es la prueba más barata que hay: dos lecturas separadas en el tiempo, sin movimientos en el medio.'))+
+        '</div></div>';
+    } else if(g_.hay){
       var fuera=Math.abs(g_.dif)>g_.tol;
       html+='<div style="font-size:12px;line-height:1.7">'+
         'Entre el '+formatFecha(g_.desde)+' y el '+formatFecha(g_.hasta)+':<br>'+
-        'Arrancó con <b>'+_acFmt(g_.ini,1)+' L</b> · entraron <b>'+_acFmt(g_.comprasE,1)+' L</b> de compras · salieron <b>'+_acFmt(g_.despachosE,1)+' L</b> en despachos.<br>'+
+        'Arrancó con <b>'+_acFmt(g_.ini,1)+' L</b> · entraron <b>'+_acFmt(g_.comprasE,1)+' L</b> de compras · salieron <b>'+_acFmt(g_.despachosE,1)+' L</b> en surtidas.<br>'+
         'Debería tener <b>'+_acFmt(g_.esperado,1)+' L</b> y la regla marca <b>'+_acFmt(g_.fin,1)+' L</b>.'+
         '<div style="margin-top:8px;padding:8px 10px;border-radius:8px;background:'+(fuera?'rgba(248,113,113,.1)':'rgba(163,230,53,.08)')+';border:1px solid '+(fuera?'var(--red)':'var(--green)')+'">'+
           (fuera?('⚠️ <b>Descuadre de '+_acFmt(g_.dif,1)+' L</b>'+(g_.mov>0?(' ('+_acFmt(Math.abs(g_.dif)*100/g_.mov,1)+'% de lo movido)'):'')+
                   (_acUsd(g_.dif)!=null?(' ≈ $'+_acFmt(_acUsd(g_.dif),2)):'')+'. '+
-                  (g_.dif<0?'Falta gasoil: salió sin que quedara registrado, o hay una compra anotada de más.':'Sobra gasoil: falta anotar una compra, o se anotó un despacho que no se hizo.')+
+                  (g_.dif<0?'Falta gasoil: salió sin que quedara registrado, o hay una compra anotada de más.':'Sobra gasoil: falta anotar una compra, o se anotó una surtida que no se hizo.')+
                   ' Tolerancia del método: ±'+_acFmt(g_.tol,0)+' L.')
                 :('✅ Cuadra. Diferencia de '+_acFmt(g_.dif,1)+' L, dentro del margen de la regla (±'+_acFmt(g_.tol,0)+' L).'))+
         '</div></div>';
+    } else if(g_.reposo){
+      html+='<div style="font-size:12px;color:var(--text2);line-height:1.7">🌙 <b>El galpón estuvo en reposo</b>: en este período no se le compró ni se surtió de ahí. '+
+        'Es lo normal — el galpón es el respaldo para cuando no se consigue en la estación.<br>'+
+        (g_.mediciones>=1
+          ? 'Hay '+g_.mediciones+' medición física en el período: con una sola no se puede comparar contra nada.'
+          : 'No se pasó la regla ni una vez en el período.')+
+        ' <b>Conviene pasar la regla de vez en cuando aunque no se use</b> (una vez al mes alcanza): '+
+        'dos lecturas con el tanque quieto son la forma más barata de confirmar que no se fue nada mientras dormía.</div>';
     } else {
-      html+='<div style="font-size:12px;color:var(--text2)">En este período hay '+(g_.mediciones||0)+' medición(es) física(s) del galpón: hacen falta al menos 2 para cuadrarlo. '+
-        'Entraron '+_acFmt(g_.compras,1)+' L en compras y salieron '+_acFmt(g_.despachos,1)+' L en despachos. '+
-        '<b>Sin dos lecturas de regla no se puede saber si falta gasoil</b> — no lo damos por bueno ni por malo.</div>';
+      html+='<div style="font-size:12px;color:var(--text2)">El galpón SÍ se movió en este período (entraron '+_acFmt(g_.compras,1)+' L en compras y salieron '+_acFmt(g_.despachos,1)+' L en surtidas), '+
+        'pero hay '+(g_.mediciones||0)+' medición(es) física(s): hacen falta 2 para cuadrarlo. '+
+        '<b>Sin dos lecturas de regla no se puede saber si falta gasoil</b> — no lo damos por bueno ni por malo. '+
+        'Cuando se vaya a surtir del galpón, pasá la regla antes y después: es el único momento en que hace falta.</div>';
     }
     html+='</div>';
   }
