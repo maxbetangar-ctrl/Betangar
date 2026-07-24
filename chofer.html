@@ -197,6 +197,16 @@ body{background:#0f1923;color:#fff;font-family:-apple-system,BlinkMacSystemFont,
     <div class="tab" id="tab-surtir-btn" onclick="switchTab('surtir')">⛽ Surtir</div>
   </div>
 
+  <!-- ══════ AVISO A LA UNIDAD (temporal, caduca solo) ══════
+       Mensaje puntual de administración para ESTA unidad (ej. "corregimos tu km,
+       registrá el real"). Lo trae la RPC aviso_unidad (anon-safe) y caduca por su
+       fecha `hasta`. Se cachea en localStorage → se ve sin señal. Verde = informativo. -->
+  <div id="aviso-banner" style="display:none;margin:8px 10px 0;background:rgba(45,190,120,.12);border:1px solid rgba(45,190,120,.45);border-radius:12px;padding:11px 13px">
+    <div style="font-size:13px;font-weight:800;color:#7fe0a8">✅ <span id="aviso-titulo">Aviso</span></div>
+    <div id="aviso-texto" style="font-size:12px;color:rgba(255,255,255,.8);margin-top:4px;line-height:1.4"></div>
+    <button type="button" onclick="avisoDescartar()" style="margin-top:9px;width:100%;background:rgba(45,190,120,.9);color:#06281a;border:none;border-radius:8px;padding:9px;font-weight:800;font-size:13px;cursor:pointer">Entendido ✓</button>
+  </div>
+
   <!-- ══════ FALLAS PENDIENTES DE LA UNIDAD ══════
        Se mantiene visible en TODAS las pestañas hasta que el mecánico o el jefe
        operativo la marque resuelta. Se cachea en localStorage → se ve sin señal. -->
@@ -824,6 +834,7 @@ function arrancarApp(){
   actualizarContador();
   renderHistorial();
   anomLeerCache();   // fallas pendientes al instante, aunque no haya señal
+  avisoLeerCache();  // aviso de administración al instante, aunque no haya señal
 
   // Verificar si ya llenó la salida hoy (modo llegada) desde localStorage
   var modoGuardado = localStorage.getItem('btg_cl_modo_'+cam+'_'+hoy);
@@ -853,6 +864,50 @@ function arrancarApp(){
   // Refresh cada 30s: SIEMPRE intenta sincronizar (no depende de isOnline, que en
   // algunos teléfonos quedaba en "Sin conexión" aunque sí había internet → nada subía).
   setInterval(function(){ sincronizarCola(); }, 30000);
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// AVISO A LA UNIDAD (RPC `aviso_unidad`, tabla `avisos_unidad`)
+// Mensaje puntual de administración para ESTA unidad, que CADUCA solo por su fecha
+// `hasta` (la RPC solo devuelve los vigentes). Se cachea en localStorage para verse
+// sin señal; si venció, el caché se ignora y se limpia. No es una falla: banner verde.
+// ══════════════════════════════════════════════════════════════════════════════
+function avisoCacheKey(){ return 'btg_aviso_'+cam; }
+function avisoVistoKey(a){ return 'btg_aviso_visto_'+cam+'_'+((a&&a.hasta)||'')+'_'+((a&&a.mensaje)?a.mensaje.length:0); }
+function _hoyISO(){ try{ return (typeof hoy!=='undefined'&&hoy)?hoy:new Date().toISOString().slice(0,10); }catch(e){ return new Date().toISOString().slice(0,10); } }
+var _AVISO_ACTUAL = null;
+function avisoRender(a){
+  var box = document.getElementById('aviso-banner');
+  if(!box) return;
+  var vigente = a && a.mensaje && (!a.hasta || String(a.hasta) >= _hoyISO());
+  // Si el chofer ya toco "Entendido" para ESTE aviso, no reaparece.
+  var yaVisto = false; try{ yaVisto = a && localStorage.getItem(avisoVistoKey(a))==='1'; }catch(e){}
+  if(!vigente || yaVisto){ box.style.display='none'; return; }
+  _AVISO_ACTUAL = a;
+  var t = document.getElementById('aviso-titulo');
+  var x = document.getElementById('aviso-texto');
+  if(t) t.textContent = a.titulo || 'Aviso de administración';
+  if(x) x.textContent = a.mensaje;
+  box.style.display='block';
+}
+// El chofer lo cierra él mismo: se oculta y se recuerda para que no vuelva a salir.
+function avisoDescartar(){
+  var box = document.getElementById('aviso-banner'); if(box) box.style.display='none';
+  try{ if(_AVISO_ACTUAL) localStorage.setItem(avisoVistoKey(_AVISO_ACTUAL),'1'); localStorage.removeItem(avisoCacheKey()); }catch(e){}
+}
+function avisoLeerCache(){
+  try{ var raw = localStorage.getItem(avisoCacheKey()); if(raw){ avisoRender(JSON.parse(raw)); } }catch(e){}
+}
+function avisoCargar(){
+  if(!supabase || !cam) return;
+  try{
+    supabase.rpc('aviso_unidad', { p_cam: cam }).then(function(res){
+      if(res.error){ return; } // sin señal / error → queda el caché
+      var a = (res.data && res.data.length) ? res.data[0] : ((res.data && res.data.mensaje) ? res.data : null);
+      if(a && a.mensaje){ try{ localStorage.setItem(avisoCacheKey(), JSON.stringify(a)); }catch(e){} avisoRender(a); }
+      else { var box=document.getElementById('aviso-banner'); if(box)box.style.display='none'; try{ localStorage.removeItem(avisoCacheKey()); }catch(e){} }
+    }, function(){});
+  }catch(e){}
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -1016,6 +1071,7 @@ function verificarConexion(){
       cargarChecklistSupabase();
       cargarSemanaSupabase();
       anomCargar();          // refresca las fallas pendientes (y el caché offline)
+      avisoCargar();         // refresca el aviso de administración (y el caché offline)
       sincronizarCola();
     }
   }).catch(function(){ actualizarConexion(false); });
