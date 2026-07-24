@@ -22,6 +22,18 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, apikey, content-type' };
 const TOL_CAMION = 15;   // ±0,5 cm de lectura ≈ ±6,5 L; dos lecturas ≈ ±13 L → 15
 
+// ⚠️ AVISO DE SUSTRACCIÓN EN PAUSA (2026-07-24, decisión de Máximo).
+// La merma estacionada se seguía calculando, pero salía por WhatsApp con nombre y apellido apoyada
+// en números que no aguantan. Auditoría del 24/07: de 13 alertas de julio, 7 eran camiones que SÍ
+// rodaron entre las dos mediciones (hasta 208 km) — R1 afirmaba "un camión estacionado no consume"
+// sin haber comprobado nunca el odómetro. Además la tabla de cubicación del camión es una recta
+// (600 L ÷ 46 cm) y no una cubicación real, y `gasoil` no recibe un despacho desde el 07/07, así que
+// el "sin despacho que lo explique" no significaba nada.
+// Se sigue calculando y se sigue viendo en Combustible → Auditoría; lo que se calla es la ACUSACIÓN
+// automática por WhatsApp. Se vuelve a encender cuando la cubicación esté buena. No borrar sin leer
+// esto: apagarlo fue a propósito.
+const AVISAR_SUSTRACCION = false;
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
   const sb = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
@@ -55,7 +67,9 @@ Deno.serve(async (req) => {
   const filas: any[] = [];
 
   // Teléfono del chofer por nombre (los checklists guardan el nombre, no el id).
-  const norm = (s: string) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/[^A-Z ]/g, ' ').replace(/\s+/g, ' ').trim();
+  // El rango \u0300-\u036f son las tildes que suelta normalize('NFD'). Van escapadas a proposito:
+  // escritas como caracteres sueltos se rompen al copiar el archivo entre herramientas.
+  const norm = (s: string) => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z ]/g, ' ').replace(/\s+/g, ' ').trim();
   const telDe = (nombre: string): string => {
     const n = norm(nombre); if (!n) return '';
     const e = (emps.data || []).find((x: any) => x.activo !== false && norm(x.nombre) === n)
@@ -163,10 +177,11 @@ Deno.serve(async (req) => {
 
   // ── Resumen a los JEFES (errores + lo grave, y a quién no se le pudo avisar) ──
   const keyJefes = `comb_jefes_${fecha}`;
-  if (!yaEnviado.has(keyJefes) && (errores.length || graves.length)) {
+  const gravesAvisables = AVISAR_SUSTRACCION ? graves : [];
+  if (!yaEnviado.has(keyJefes) && (errores.length || gravesAvisables.length)) {
     let msg = `🔎 Revisión del combustible — ${fmtFecha(fecha)}\n`;
-    if (graves.length) {
-      msg += `\n🔴 PARA REVISAR (${graves.length}):\n` + graves.map((x) => `• ${x.u}${x.chofer ? ` (${primerNombre(x.chofer)})` : ''}: ${x.txt}`).join('\n') + '\n';
+    if (gravesAvisables.length) {
+      msg += `\n🔴 PARA REVISAR (${gravesAvisables.length}):\n` + gravesAvisables.map((x) => `• ${x.u}${x.chofer ? ` (${primerNombre(x.chofer)})` : ''}: ${x.txt}`).join('\n') + '\n';
     }
     if (errores.length) {
       const sinTel = [...new Set(errores.filter((e) => e.chofer && !telDe(e.chofer)).map((e) => primerNombre(e.chofer)))];
@@ -174,6 +189,11 @@ Deno.serve(async (req) => {
       if (errores.length > 12) msg += `\n…y ${errores.length - 12} más.`;
       msg += `\n\nA cada chofer se le avisó lo suyo.`;
       if (sinTel.length) msg += ` Sin teléfono cargado (no se les pudo avisar): ${sinTel.join(', ')}.`;
+    }
+    // Si hay posible merma pero el aviso está en pausa, no se esconde: se dice que existe y dónde
+    // mirarla, sin nombrar a nadie. Callar la acusación no es callar el dato.
+    if (!AVISAR_SUSTRACCION && graves.length) {
+      msg += `\n\nℹ️ Quedaron ${graves.length} caso(s) de combustible sin cuadrar. No se detallan acá ni se le atribuyen a nadie: la medición del tanque se está recalibrando y los litros todavía no aguantan para señalar a una persona. Están en Combustible → Auditoría.`;
     }
     msg += `\n\nEl detalle completo está en Combustible → Auditoría.`;
     jefes.forEach((t) => filas.push({ telefono: t, mensaje: msg, tipo: 'auditoria' }));
