@@ -16,7 +16,11 @@
 //
 // Idempotente por `alertas_log.alert_key`: cada aviso sale UNA vez aunque el cron corra de nuevo.
 // Solo ENCOLA en cola_mensajes; el worker `procesar_cola_wassenger` lo envía con la marca de la
-// empresa. Fecha en America/Caracas.  ?dry=1 → devuelve lo que mandaría, sin encolar ni marcar.
+// empresa. Fecha en America/Caracas.
+//   ?dry=1     → devuelve lo que mandaría, sin encolar, sin marcar y sin escribir en sombra.
+//   ?sombra=1  → SOLO guarda los hallazgos en sombra, sin encolar ni un mensaje (para rellenar
+//                días pasados sin que salga un WhatsApp viejo).
+//   ?fecha=    → revisa otro día (por defecto, ayer).
 //
 // ⚠️ Esta lógica es GEMELA de la del módulo en pantalla (app.js, `_acAnomalias`). Si se toca una, se
 // toca la otra: si el dashboard dice una cosa y el WhatsApp otra, se pierde la confianza en las dos.
@@ -39,9 +43,9 @@ const TOL_PISO = 8;     // piso, para que una tabla plana no genere una toleranc
 // aguantaban: de 26 casos de julio, 12 eran camiones que SÍ rodaron entre las dos mediciones (hasta
 // 208 km) — la regla afirmaba "un camión estacionado no consume" sin haber mirado nunca el
 // odómetro. Eso ya está corregido acá abajo (precondiciones) y quedan 3 casos de verdad.
-// Aun así el aviso sigue callado hasta que la cubicación del tanque sea un aforo real y no una
-// división (600 L ÷ 46 cm), y hasta que se vuelva a registrar el combustible que ENTRA. Se sigue
-// calculando y se sigue viendo en Combustible → Auditoría. No borrar sin leer esto.
+// NO se reenciende a mano ni por corazonada: los hallazgos se siguen guardando en
+// `comb_auditoria_sombra` con veredicto humano, y el módulo en pantalla dice cuándo el auditor
+// pasó el examen (Combustible → Auditoría → Modo sombra). Además falta el aforo real del tanque.
 const AVISAR_SUSTRACCION = false;
 
 Deno.serve(async (req) => {
@@ -49,6 +53,10 @@ Deno.serve(async (req) => {
   const sb = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
   const url = new URL(req.url);
   const dry = url.searchParams.get('dry') === '1';
+  // ?sombra=1 → SOLO guarda los hallazgos en `comb_auditoria_sombra` y no encola ni un mensaje.
+  // Sirve para rellenar días ya pasados sin ningún riesgo de que salga un WhatsApp viejo (norma:
+  // lo de ayer no se envía hoy).
+  const soloSombra = url.searchParams.get('sombra') === '1';
   // Por defecto revisa AYER (el día ya cerrado). ?fecha=YYYY-MM-DD para revisar otro.
   const hoyVE = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Caracas' });
   const fecha = url.searchParams.get('fecha') || new Date(new Date(hoyVE + 'T12:00:00Z').getTime() - 86400000).toISOString().slice(0, 10);
@@ -263,7 +271,7 @@ Deno.serve(async (req) => {
         const d = Math.round((a - b - desp) * 100) / 100;
         const t1 = tol(tqDe(sal), lleAyer.altura_cm, sal.altura_cm, desp);
         // Sin nombre de chofer: de noche el custodio es el PATIO, no la persona que manejó.
-        if (d < -2 * t1) graves.push({ u, litros: d, txt: `quedó el ${fmtFecha(previo)} con ${fmt(b)} L y amaneció con ${fmt(a)} L: faltan ${fmt(Math.abs(d))} L, con el odómetro igual y sin carga registrada (el error de la regla explica hasta ±${fmt(t1)} L)` });
+        if (d < -2 * t1) graves.push({ u, litros: d, tol: t1, txt: `quedó el ${fmtFecha(previo)} con ${fmt(b)} L y amaneció con ${fmt(a)} L: faltan ${fmt(Math.abs(d))} L, con el odómetro igual y sin carga registrada (el error de la regla explica hasta ±${fmt(t1)} L)` });
         else if (d > 2 * t1) entraron.push({ u, litros: d });
       }
     }
@@ -288,6 +296,25 @@ Deno.serve(async (req) => {
     hallazgos.push({ u: '', tipo: 'R13',
       txt: `entraron unos ${fmt(totL)} L a ${cams.length} unidad(es) (${cams.join(', ')}) sin ninguna carga registrada. Los tanques subieron y en el sistema no figura de dónde salió ese combustible — ese gasto no está entrando a la Utilidad Real` });
   }
+
+  // ── MODO SOMBRA: el hallazgo se guarda SIEMPRE, se avise o no ──────────────────────────────
+  // Este es el dataset que mide al auditor. Mientras AVISAR_SUSTRACCION esté en false no sale ni
+  // un WhatsApp, pero cada faltante queda anotado con veredicto 'pendiente' para que una persona
+  // lo marque verdadera o falsa. Sin ese veredicto humano guardado no hay forma objetiva de saber
+  // si el módulo ya se ganó el derecho a volver a hablar — se decidiría por fe, que es como se
+  // llegó al problema. Idempotente por `alert_key`: el cron puede reprocesar sin duplicar.
+  if (!dry && graves.length) {
+    const sombra = graves.map((x: any) => ({
+      alert_key: `sombra_R1_${x.u}_${fecha}`,
+      fecha, regla: 'R1', cam: x.u,
+      litros: x.litros, tolerancia: x.tol,
+      detalle: `${x.u} ${x.txt}`,
+    }));
+    const up = await sb.from('comb_auditoria_sombra')
+      .upsert(sombra, { onConflict: 'alert_key', ignoreDuplicates: true });
+    if (up.error) return json({ ok: false, error: 'sombra: ' + up.error.message }, 500);
+  }
+  if (soloSombra) return json({ ok: true, soloSombra: true, fecha, graves: graves.length, nota: 'guardado en sombra, sin encolar ningún mensaje' });
 
   // ── Mensajes al CHOFER (solo errores de carga, agrupados por persona) ──
   const porChofer: Record<string, any[]> = {};
@@ -326,7 +353,7 @@ Deno.serve(async (req) => {
     // Si hay posible faltante pero el aviso está en pausa, no se esconde: se dice que existe y
     // dónde mirarlo, sin nombrar a nadie. Callar la acusación no es callar el dato.
     if (!AVISAR_SUSTRACCION && graves.length) {
-      msg += `\n\nℹ️ Quedaron ${graves.length} caso(s) de combustible sin cuadrar. No se detallan acá ni se le atribuyen a nadie: la medición del tanque se está recalibrando. Están en Combustible → Auditoría.`;
+      msg += `\n\nℹ️ Quedaron ${graves.length} caso(s) de combustible sin cuadrar, guardados para revisar. No se detallan acá ni se le atribuyen a nadie: la medición del tanque se está recalibrando. Están en Combustible → Auditoría → Modo sombra.`;
     }
     msg += `\n\nEl detalle completo está en Combustible → Auditoría.`;
     jefes.forEach((t) => filas.push({ telefono: t, mensaje: msg, tipo: 'auditoria' }));

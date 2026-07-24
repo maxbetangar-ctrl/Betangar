@@ -1300,7 +1300,11 @@ async function acCargar(desde,hasta){
     supabase.from('unidad_config').select('cam,modelo,marca'),
     // FUENTE ÚNICA de lo que ENTRA al camión (ver _acEntradas): desde el corte manda `surtidas`.
     supabase.from('surtidas').select('*').gte('fecha',desdeExt).lte('fecha',hasta),
-    supabase.from('configuracion').select('valor').eq('clave','surtidas_corte').maybeSingle()
+    supabase.from('configuracion').select('valor').eq('clave','surtidas_corte').maybeSingle(),
+    // Modo sombra: se trae TODO el historial, no solo el período que se está mirando. El marcador
+    // de acierto mide al auditor completo — si se filtrara por el período, el criterio de
+    // reencendido cambiaría según qué fechas tenga uno en pantalla, que sería absurdo.
+    supabase.from('comb_auditoria_sombra').select('*').order('fecha',{ascending:false}).limit(500)
   ];
   var r=await Promise.all(q);
   if(r[0].error)throw new Error('tanques: '+r[0].error.message);
@@ -1333,6 +1337,8 @@ async function acCargar(desde,hasta){
   if(r[7]&&r[7].error)console.log('surtidas auditoria:',r[7].error.message);
   var _c=null; try{ _c=(r[8]&&r[8].data)?String(r[8].data.valor).replace(/"/g,'').slice(0,10):null; }catch(e){}
   AC_META.corteSurtidas=_c||'';
+  AC_SOMBRA=(r[9]&&r[9].data)||[];
+  if(r[9]&&r[9].error)console.log('sombra auditoria:',r[9].error.message);
   AC_META.modo=AC_TANQUES.length?'cubicacion':'surtidas';
 }
 
@@ -1514,6 +1520,95 @@ function _acCuadreGalpon(desde,hasta){
     }
   }
   return res;
+}
+
+// ── MODO SOMBRA: el auditor rinde examen antes de volver a hablar ─────────────────────────────
+// El aviso de sustracción por WhatsApp está apagado desde el 2026-07-24 porque venía acusando en
+// falso. Para volver a encenderlo no alcanza con "ya lo arreglamos": hace falta prueba. El cron
+// sigue calculando los faltantes y los guarda en `comb_auditoria_sombra` con veredicto pendiente,
+// sin mandar nada. Acá una persona marca cada uno: VERDADERA (se confirmó) o FALSA (era un error de
+// dato). Ese veredicto humano es lo único que puede decidir si el módulo se ganó el derecho a
+// señalar a alguien. Si se decidiera por corazonada volveríamos a donde empezamos.
+var AC_SOMBRA=[];
+// Criterio de reencendido (del diseño): al menos 15 evaluadas con 90% de acierto, y ninguna falsa
+// en las últimas 2 semanas. Si hay poco volumen (ojalá), sirve 4 semanas seguidas sin ninguna falsa.
+var AC_SOMBRA_MIN=15, AC_SOMBRA_PREC=0.90;
+// Quién puede dar veredicto. Es el MISMO conjunto que la policy `sombra_update_veredicto` de la
+// BD: el candado de verdad está allá (dos niveles), esto solo evita mostrar un botón que va a
+// fallar. Si se cambia uno, se cambia el otro.
+function _acPuedeVeredicto(){
+  var r=(typeof SESION!=='undefined'&&SESION)?String(SESION.rol||''):'';
+  return ['superadmin','admin','socios'].indexOf(r)>=0;
+}
+function _acSombraEstado(){
+  var ev=(AC_SOMBRA||[]).filter(function(x){ return x.veredicto==='verdadera'||x.veredicto==='falsa'; });
+  var ok=ev.filter(function(x){ return x.veredicto==='verdadera'; }).length;
+  var prec=ev.length?(ok/ev.length):null;
+  var hoy=_acHoy(), lim14=_acMenos(14,hoy), lim28=_acMenos(28,hoy);
+  var falsas14=ev.filter(function(x){ return x.veredicto==='falsa'&&String(x.fecha).slice(0,10)>=lim14; }).length;
+  var falsas28=ev.filter(function(x){ return x.veredicto==='falsa'&&String(x.fecha).slice(0,10)>=lim28; }).length;
+  var ev28=ev.filter(function(x){ return String(x.fecha).slice(0,10)>=lim28; }).length;
+  var listo=(ev.length>=AC_SOMBRA_MIN&&prec!=null&&prec>=AC_SOMBRA_PREC&&falsas14===0)
+          || (ev.length<AC_SOMBRA_MIN&&ev28>0&&falsas28===0&&ev.length>=4);
+  return {ev:ev.length,ok:ok,prec:prec,falsas14:falsas14,listo:listo,
+          pend:(AC_SOMBRA||[]).filter(function(x){return x.veredicto==='pendiente';})};
+}
+function _acSombraHtml(){
+  if(!AC_SOMBRA||!AC_SOMBRA.length)return '';
+  var e=_acSombraEstado(), U=function(c){ return (typeof _lblUnidad==='function')?_lblUnidad(c):c; };
+  var h='<div class="card" style="margin-bottom:10px"><div class="st" style="margin-bottom:4px">🕶️ Modo sombra — faltantes esperando tu veredicto</div>'+
+    '<div style="font-size:10px;color:var(--text3);margin-bottom:8px">El aviso por WhatsApp está apagado. Estos casos se calcularon igual y NO se le mandaron a nadie. '+
+    'Marcá cada uno: así el sistema se gana (o no) el derecho a volver a avisar.</div>';
+  // Marcador: dónde está parado el auditor.
+  var pct=(e.prec==null)?'—':(Math.round(e.prec*100)+'%');
+  h+='<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">'+
+     '<div class="card card-sm" style="flex:1;min-width:110px"><div class="stat-lbl">Evaluados</div><div style="font-family:var(--m);font-size:15px;font-weight:900">'+e.ev+'</div><div class="stat-sub">de '+AC_SOMBRA.length+'</div></div>'+
+     '<div class="card card-sm" style="flex:1;min-width:110px"><div class="stat-lbl">Acierto</div><div style="font-family:var(--m);font-size:15px;font-weight:900;color:'+((e.prec!=null&&e.prec>=AC_SOMBRA_PREC)?'var(--green)':'var(--yellow)')+'">'+pct+'</div><div class="stat-sub">'+e.ok+' verdaderas</div></div>'+
+     '<div class="card card-sm" style="flex:1;min-width:110px"><div class="stat-lbl">Falsas (14 días)</div><div style="font-family:var(--m);font-size:15px;font-weight:900;color:'+(e.falsas14?'var(--red)':'var(--green)')+'">'+e.falsas14+'</div></div>'+
+     '</div>';
+  h+='<div style="padding:8px 10px;border-radius:8px;margin-bottom:10px;background:'+(e.listo?'rgba(163,230,53,.08)':'rgba(148,163,184,.08)')+';border:1px solid '+(e.listo?'var(--green)':'var(--border)')+';font-size:11px;line-height:1.6">'+
+     (e.listo
+       ? '✅ <b>El auditor pasó el examen.</b> Ya se puede volver a encender el aviso por WhatsApp (<code>AVISAR_SUSTRACCION=true</code> en la edge function <code>auditar-combustible</code>) — con el aforo del tanque hecho, no antes.'
+       : '⏳ Todavía no. Hacen falta '+AC_SOMBRA_MIN+' casos evaluados con '+Math.round(AC_SOMBRA_PREC*100)+'% de acierto y ninguna falsa en las últimas 2 semanas'+
+         (e.ev<4?' (o al menos 4 casos seguidos sin ninguna falsa si sale poco).':'.')+
+         ' Van '+e.ev+' evaluado(s)'+(e.falsas14?(' y '+e.falsas14+' falsa(s) reciente(s)'):'')+'.')+
+     '</div>';
+  if(!e.pend.length){
+    h+='<div style="font-size:12px;color:var(--text2);padding:4px">Nada pendiente de marcar.</div>';
+  } else {
+    h+=e.pend.slice(0,20).map(function(x){
+      return '<div style="padding:8px 10px;margin-bottom:6px;border-left:3px solid var(--red);background:var(--bg3);border-radius:0 8px 8px 0">'+
+        '<div style="font-size:11px;font-weight:800;color:var(--red)">🔴 '+_mEsc(U(x.cam||''))+' · '+formatFecha(x.fecha)+
+          (x.litros!=null?(' · '+_acFmt(Math.abs(x.litros),1)+' L'):'')+'</div>'+
+        '<div style="font-size:11px;color:var(--text2);line-height:1.5;margin:3px 0 6px">'+_mEsc(x.detalle||'')+'</div>'+
+        // Los botones solo para quien puede dar veredicto: la BD lo exige igual (policy por rol), y
+        // mostrar un botón que va a fallar es peor que no mostrarlo.
+        (_acPuedeVeredicto()
+          ? ('<div style="display:flex;gap:6px">'+
+             '<button class="btn btn-r btn-sm" onclick="acVeredicto(\''+x.id+'\',\'verdadera\')">🔴 Era de verdad</button>'+
+             '<button class="btn btn-sm" onclick="acVeredicto(\''+x.id+'\',\'falsa\')">⚪ Falsa alarma</button></div>')
+          : '<div style="font-size:10px;color:var(--text3)">Lo marca administración o los socios.</div>')+
+        '</div>';
+    }).join('');
+    if(e.pend.length>20)h+='<div style="font-size:11px;color:var(--text3)">…y '+(e.pend.length-20)+' más.</div>';
+  }
+  return h+'</div>';
+}
+// Guardar el veredicto. Solo se puede tocar la columna del veredicto: los litros y la fecha del
+// hallazgo son la evidencia y quedan inmutables (candado a nivel de columna en la BD).
+async function acVeredicto(id,v){
+  if(!DB_READY||!supabase){ mostrarToast('Sin conexión: el veredicto se guarda en la base, no en el navegador','error'); return; }
+  var nota=(v==='falsa')?prompt('¿Por qué fue falsa alarma? (opcional, pero ayuda a arreglar la regla)')||'':'';
+  var res=await supabase.from('comb_auditoria_sombra').update({
+    veredicto:v, veredicto_por:(typeof SESION!=='undefined'&&SESION?SESION.usuario:''),
+    veredicto_nota:nota, veredicto_at:new Date().toISOString()
+  }).eq('id',id).select();
+  if(res.error){ mostrarToast('No se pudo guardar el veredicto: '+res.error.message,'error'); return; }
+  var f=(AC_SOMBRA||[]).find(function(x){return String(x.id)===String(id);});
+  if(f){ f.veredicto=v; f.veredicto_nota=nota; }
+  if(typeof audit==='function')audit('Veredicto auditoría combustible',v+' · '+(f?(f.cam+' '+f.fecha):id));
+  mostrarToast(v==='verdadera'?'Anotado: era de verdad':'Anotado: falsa alarma','exito');
+  acBuscar();
 }
 
 // ── REGLAS DE ANOMALÍA ────────────────────────────────────────────────────────────────────────
@@ -1885,6 +1980,9 @@ function _acRender(){
     }).join('');
   }
   html+='</div>';
+
+  // ── MODO SOMBRA: los faltantes esperando veredicto humano ───────────────────────────────────
+  html+=_acSombraHtml();
 
   // ── Por unidad
   var porU={};
