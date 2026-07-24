@@ -6896,7 +6896,10 @@ function renderOrdenesServicio(){
     }).join('')||'<tr><td colspan="8" style="text-align:center;color:var(--text3);padding:20px">Sin órdenes emitidas</td></tr>';
   }
   var res=g('os-resumen');
-  if(res){var em=ORDENES_SERV.filter(function(o){return o.estado==='emitida';}).length;var he=ORDENES_SERV.filter(function(o){return o.estado==='hecha';}).length;var ca=ORDENES_SERV.filter(function(o){return o.estado==='cancelada';}).length;res.innerHTML='<span style="color:var(--yellow)">🟡 Emitidas '+em+'</span> · <span style="color:var(--green)">🟢 Hechas '+he+'</span>'+(ca?' · <span style="color:#991b1b">⛔ Canceladas '+ca+'</span>':'')+' · Total '+ORDENES_SERV.length;}
+  // El resumen tiene que CUADRAR con el total: 'en_proceso' es un estado real (orden multi-unidad con
+  // parte del trabajo registrado) y si no se cuenta, la suma de los badges no da el total y parece
+  // que se perdieron órdenes.
+  if(res){var em=ORDENES_SERV.filter(function(o){return o.estado==='emitida';}).length;var ep=ORDENES_SERV.filter(function(o){return o.estado==='en_proceso';}).length;var he=ORDENES_SERV.filter(function(o){return o.estado==='hecha';}).length;var ca=ORDENES_SERV.filter(function(o){return o.estado==='cancelada';}).length;res.innerHTML='<span style="color:var(--yellow)">🟡 Emitidas '+em+'</span>'+(ep?' · <span style="color:var(--blue)">🔵 En proceso '+ep+'</span>':'')+' · <span style="color:var(--green)">🟢 Hechas '+he+'</span>'+(ca?' · <span style="color:#991b1b">⛔ Canceladas '+ca+'</span>':'')+' · Total '+ORDENES_SERV.length;}
 }
 // CIERRE de una orden: abre el registro de mantenimiento PRE-LLENADO para una unidad pendiente de la
 // orden. Al guardar (registrarMantItem), el evento queda ligado (orden_id) y la orden se actualiza.
@@ -6914,8 +6917,18 @@ function _iniciarCierreOrden(id){
     if(pend.indexOf(norm)>=0)cam=norm;
   }
   window._ordCerrando={id:id,cam:cam};
+  // La Hoja de Vida vive en OTRA página (p-km); las Órdenes están en p-proveedores. Sin saltar de página
+  // el usuario se queda mirando la lista de órdenes, ve solo el toast y cree que el botón no hizo nada
+  // (reporte de Carlos Serrano, 24/07/2026). sp() valida el permiso y oculta el resto de las páginas.
+  var _permsCierre=(typeof PERMISOS!=='undefined')?(PERMISOS[SESION?SESION.rol:'visualizador']||[]):[];
+  if(_permsCierre.indexOf('km')<0){
+    window._ordCerrando=null;
+    alert('Para cerrar la orden hay que registrar el trabajo en Mantenimiento → Hoja de Vida, y tu usuario no tiene esa sección.\n\nPedile al administrador el acceso a Mantenimiento.');
+    return;
+  }
+  if(typeof sp==='function')sp('km');
   // mostrar la pestaña Mantenimiento (hoja de vida) — misma lógica de display que switchKmTab
-  ['odo','lav','eng','prog','hist','hv','ord'].forEach(function(x){var e=g('tab-km-'+x);var sw=g('sw-km-'+x);if(e)e.style.display=x==='hv'?'block':'none';if(sw){sw.classList.remove('on');if(x==='hv')sw.classList.add('on');}});
+  ['odo','lav','eng','prog','hist','hv','costos'].forEach(function(x){var e=g('tab-km-'+x);var sw=g('sw-km-'+x);if(e)e.style.display=x==='hv'?'block':'none';if(sw){sw.classList.remove('on');if(x==='hv')sw.classList.add('on');}});
   var _fill=function(){
     renderHojaVida();
     sv('hv-cam',cam); if(typeof _hvPrefillKm==='function')_hvPrefillKm();
@@ -6924,7 +6937,9 @@ function _iniciarCierreOrden(id){
     if(g('hv-tipotrabajo'))sv('hv-tipotrabajo',ttPorTipo[o.tipo]||'cambio');
     if(o.proveedor)sv('hv-prov',o.proveedor);
     if(o.item)sv('hv-nota',o.item);
-    if(typeof mostrarToast==='function')mostrarToast('Cerrando orden '+id+' → '+_unidadCorta(cam)+'. Completá km/costo y guardá.','exito');
+    // dejar el formulario a la vista: el usuario viene de otra pantalla y tiene que ver DÓNDE escribir
+    try{var _foco=g('hv-cam'); if(_foco&&_foco.scrollIntoView)_foco.scrollIntoView({behavior:'smooth',block:'center'});}catch(e){}
+    if(typeof mostrarToast==='function')mostrarToast('Orden '+id+' → '+_unidadCorta(cam)+': completá km y costo acá abajo y tocá «Registrar en la hoja de vida». La orden se cierra al guardar.','exito');
   };
   if(typeof _cargarMantTodo==='function' && !(MANT_ITEMS&&MANT_ITEMS.length)){ _cargarMantTodo().then(_fill).catch(_fill); } else { _fill(); }
 }
@@ -7124,6 +7139,10 @@ function _cerrarOrdenTrasMant(ordenId){
   if(DB_READY&&supabase){ try{ supabase.from('ordenes_servicio').update(patch).eq('id',ordenId).then(function(r){if(r&&r.error&&typeof mostrarToast==='function')mostrarToast('No se pudo actualizar la orden: '+r.error.message,'error');}); }catch(e){} }
   if(typeof mostrarToast==='function')mostrarToast(nuevo==='hecha'?('🟢 Orden '+ordenId+' COMPLETADA'):('🔵 Orden '+ordenId+' en proceso ('+nHechas+'/'+total+')'),'exito');
   try{renderOrdenesServicio();}catch(e){}
+  // Devolver al usuario a Órdenes: vino de ahí a cerrar y tiene que VER el estado cambiado (si no,
+  // se queda en Mantenimiento creyendo que no pasó nada). Si la orden tiene más unidades pendientes,
+  // acá mismo vuelve a tocar ✅ Hecho para la siguiente.
+  try{ if(typeof sp==='function'){ sp('proveedores'); if(typeof switchProvTab==='function')switchProvTab('ordenes'); } }catch(e){}
 }
 
 // ═══════════════════════════════════════════════════
