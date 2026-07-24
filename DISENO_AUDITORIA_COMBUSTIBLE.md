@@ -368,7 +368,24 @@ El aviso de sustracción vuelve a encenderse por etapas, con datos, no por fe:
 | 5 | **Aforo del tanque JAC** (punto 5): pedido a Máximo/taller, cargar tabla real en `combustible_tanques_config`, y **eliminar `CL_JAC_CUB`** de chofer.html (que baje de la BD; bump de `CACHE_NAME` del service worker para forzar actualización en los teléfonos) | 1 mañana de patio + 0,5 día de código | Si el espejo no se mata, chofer y oficina cubican distinto para siempre; si el SW no se bumpea, los teléfonos siguen con la recta vieja semanas |
 | 6 | ✅ **HECHO 2026-07-24 — Máximo lo definió: el galpón es BACKUP de emergencia.** Ver abajo | — | Pedirle regla 2×/semana a un tanque dormido = un reclamo que nadie va a cumplir |
 | 7 | ✅ **HECHO 2026-07-24 — Modo sombra con veredictos.** Tabla propia `comb_auditoria_sombra` (NO `combustible_alertas`: esa es del módulo viejo de Control Combustible y manda WhatsApp a socios cuando la severidad es 'critica' — habría disparado justo lo que se quiere evitar). Botones verdadera/falsa + marcador de acierto + criterio de reencendido en pantalla. `?sombra=1` en la edge para rellenar días pasados sin encolar nada | — | Sin veredicto humano guardado no hay forma objetiva de saber cuándo reencender |
-| 8 | **Reencendido del WhatsApp** según criterio 7.5, con kill-switch 7.7 | 0,5 día | Reencender por ansiedad antes del criterio = quemar la segunda (y última) oportunidad del módulo ante los choferes |
+| 8 | ✅ **HECHO 2026-07-24 — EL PORTÓN.** El reencendido dejó de ser una constante que alguien cambia a mano: son 3 condiciones que el sistema verifica (aforo real —**detectado solo**—, examen aprobado, interruptor) + kill-switch automático a las 2 falsas seguidas. Ver abajo | — | Reencender por ansiedad antes del criterio = quemar la segunda (y última) oportunidad del módulo ante los choferes |
+
+### ✅ EL PORTÓN — implementado el 2026-07-24 (paso 8)
+
+El permiso para volver a insinuar una sustracción **no es una constante en el código**. Es un portón
+que el propio sistema controla y que exige las tres cosas a la vez, evaluadas en cada corrida:
+
+| # | Condición | Cómo se comprueba |
+|---|---|---|
+| 1 | **Aforo real del tanque** | **Automático.** Si todos los centímetros de la tabla valen exactamente lo mismo, no es un aforo: es una división. Probado contra las dos tablas reales — la del JAC (recta de hoy) da `false`, la del galpón (curva medida) da `true`. |
+| 2 | **Examen aprobado** | 15 casos con veredicto humano en `comb_auditoria_sombra`, ≥90% de acierto, ninguna falsa en 2 semanas. Mismo criterio en la pantalla y en el cron. |
+| 3 | **Interruptor** | `configuracion.aud_comb_avisar='on'`. Decisión de Máximo, pero la pantalla no ofrece el botón hasta que 1 y 2 estén en verde, y el cron vuelve a comprobar las tres igual. |
+
+**Kill-switch:** dos veredictos `falsa` seguidos y el cron escribe `off` solo, y avisa a socios por
+qué. No espera a que nadie se dé cuenta.
+
+El estado sale siempre en la respuesta de la edge function (campo `porton`), para que nunca haya que
+leer el código para saber por qué no avisó. Hoy: `aforoOk=false, examenOk=false, interruptor=false`.
 
 ### ✅ El galpón es BACKUP DE EMERGENCIA (regla de Máximo, 2026-07-24)
 
