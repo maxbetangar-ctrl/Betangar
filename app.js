@@ -1130,7 +1130,7 @@ async function bncRenderCuentas(){
 // MODO: si hay tanques configurados ➜ auditoría por CUBICACIÓN (Betangar). Si no ➜ modo SURTIDAS
 // (Flotilla). Se decide por los datos, nunca por el nombre de la empresa: es un clon.
 // ══════════════════════════════════════════════════════════════════════════════════════════════
-var AC_TANQUES=[], AC_MED=[], AC_GASOIL=[], AC_CK=[], AC_JORNADAS=[], AC_ANOM=[], AC_META={};
+var AC_TANQUES=[], AC_MED=[], AC_GASOIL=[], AC_SURTIDAS=[], AC_CK=[], AC_JORNADAS=[], AC_ANOM=[], AC_META={};
 var _acCargando=false;
 
 // ── RUIDO DE LA MEDICIÓN: la tolerancia sale del INSTRUMENTO, no de un número redondo ─────────
@@ -1210,6 +1210,41 @@ function _acAlturaValida(tanque,alturaCm){
   if(tanque&&tanque.hmax)return h>=0&&h<=tanque.hmax;
   return h>=0;
 }
+// ── LO QUE ENTRA AL CAMIÓN — FUENTE ÚNICA CON FREEZE FECHADO ──────────────────────────────────
+// Un litro que entra a un camión se registra en UN solo lugar. Desde `configuracion.surtidas_corte`
+// esa verdad es `surtidas`: la carga la asienta quien surte, en el momento, con foto y GPS, venga
+// del galpón o de la estación. Antes de esa fecha vale el histórico congelado de `gasoil`, que se
+// tipeaba a mano en la oficina días después (y dejó de cargarse el 07/07/2026).
+// Jamás las dos fuentes para la misma fecha: eso sería contar el mismo litro dos veces.
+// Hasta 2026-07-24 la auditoría leía SOLO `gasoil`, o sea que después del corte no veía entrar
+// nada — por eso decía "sin despacho que lo explique" cuando en realidad no miraba donde debía.
+// Los momentos (`tsA`,`tsB`) son los `created_at` de las dos lecturas de regla. Las surtidas traen
+// hora, así que se puede saber si la carga fue antes o después de pasar la regla: con solo la fecha,
+// una carga de las 11 de la mañana se contaría como si hubiera entrado de noche y el cuadre del
+// patio daría un faltante enorme que nunca existió. El `gasoil` histórico no tiene hora — ahí no
+// queda más que la fecha, y por eso ese tramo está congelado y no se audita fino.
+function _acEntradas(cam,desde,hasta,incluirDesde,tsA,tsB){
+  var corte=AC_META.corteSurtidas||'', suma=0;
+  var dentro=function(f){ return (incluirDesde?(f>=desde):(f>desde)) && f<=hasta; };
+  (AC_SURTIDAS||[]).forEach(function(s){
+    if(String(s.cam)!==String(cam))return;
+    var f=String(s.fecha||'').slice(0,10);
+    if(corte&&f<corte)return;                              // antes del corte manda gasoil
+    var ts=String(s.created_at||'');
+    if(tsA&&tsB&&ts){ if(!(ts>tsA&&ts<=tsB))return; }      // con hora: exacto
+    else if(!dentro(f))return;                             // sin hora: por fecha
+    suma+=(_acNum(s.litros)||0);
+  });
+  (AC_GASOIL||[]).forEach(function(g){
+    if(String(g.cam)!==String(cam))return;
+    if(String(g.tipo_operacion||'')==='compra')return;     // compra = entra al galpón, no al camión
+    var f=String(g.f||'').slice(0,10);
+    if(!dentro(f))return;
+    if(corte&&f>=corte)return;                             // desde el corte manda surtidas
+    suma+=(_acNum(g.lit)||0);
+  });
+  return Math.round(suma*100)/100;
+}
 function _acTanqueDe(m){
   var id=String(m.tanque_id||'');
   var t=AC_TANQUES.find(function(x){return String(x.id)===id;});
@@ -1260,7 +1295,10 @@ async function acCargar(desde,hasta){
     supabase.from('checklist').select('fecha,cam,conductor,km_salida,km_entrada').gte('fecha',desdeExt).lte('fecha',hasta),
     supabase.from('configuracion').select('valor').eq('clave','tanque_costo').maybeSingle(),
     supabase.from('configuracion').select('valor').eq('clave','aud_comb_rend_ref').maybeSingle(),
-    supabase.from('unidad_config').select('cam,modelo,marca')
+    supabase.from('unidad_config').select('cam,modelo,marca'),
+    // FUENTE ÚNICA de lo que ENTRA al camión (ver _acEntradas): desde el corte manda `surtidas`.
+    supabase.from('surtidas').select('*').gte('fecha',desdeExt).lte('fecha',hasta),
+    supabase.from('configuracion').select('valor').eq('clave','surtidas_corte').maybeSingle()
   ];
   var r=await Promise.all(q);
   if(r[0].error)throw new Error('tanques: '+r[0].error.message);
@@ -1287,6 +1325,12 @@ async function acCargar(desde,hasta){
   // Modelo de cada unidad (para elegir su referencia).
   var modeloCam={}; try{ (r[6]&&r[6].data||[]).forEach(function(x){ if(x.cam)modeloCam[x.cam]=String(x.modelo||''); }); }catch(e){}
   AC_META.modeloCam=modeloCam;
+  // Lo que ENTRA al camión: `surtidas` (la que carga el chofer con foto y GPS) desde el corte.
+  // Antes de esa fecha, el histórico congelado de `gasoil`. Una fuente por tramo, nunca las dos.
+  AC_SURTIDAS=(r[7]&&r[7].data)||[];
+  if(r[7]&&r[7].error)console.log('surtidas auditoria:',r[7].error.message);
+  var _c=null; try{ _c=(r[8]&&r[8].data)?String(r[8].data.valor).replace(/"/g,'').slice(0,10):null; }catch(e){}
+  AC_META.corteSurtidas=_c||'';
   AC_META.modo=AC_TANQUES.length?'cubicacion':'surtidas';
 }
 
@@ -1322,11 +1366,12 @@ function _acArmarJornadas(desde,hasta){
       } else if(String(m.momento)==='llegada'){
         if(abierta){ abierta.llegada=litros; abierta.llegadaCm=cm; abierta.llegadaRec=rec;
                      abierta.llegadaMala=!ok; abierta.corregida=abierta.corregida||corr;
+                     abierta.llegadaAt=String(m.created_at||'');
                      abierta.fechaLl=String(m.fecha).slice(0,10); jor.push(abierta); abierta=null; }
         else jor.push({cam:u,fecha:String(m.fecha).slice(0,10),salida:null,salidaCm:null,salidaRec:null,
                        salidaMala:false,llegada:litros,llegadaCm:cm,llegadaRec:rec,llegadaMala:!ok,
                        por:m.registrado_por||'',fechaLl:String(m.fecha).slice(0,10),tanque:t,
-                       corregida:corr,salidaAt:''});
+                       corregida:corr,salidaAt:'',llegadaAt:String(m.created_at||'')});
       }
     });
     if(abierta)jor.push(abierta);
@@ -1334,9 +1379,9 @@ function _acArmarJornadas(desde,hasta){
 
   // Despachos y km del día, y el cálculo del consumo.
   jor.forEach(function(j){
-    j.desp=AC_GASOIL.filter(function(g){
-      return String(g.cam)===j.cam && String(g.f).slice(0,10)===j.fecha && String(g.tipo_operacion||'')!=='compra';
-    }).reduce(function(s,g){ return s+(_acNum(g.lit)||0); },0);
+    // Lo que le cargaron ENTRE las dos lecturas de la jornada (es lo que pide el consumo: salió con
+    // X, le echaron Y, llegó con Z). Con la hora de la surtida se sabe si entró dentro de la jornada.
+    j.desp=_acEntradas(j.cam,j.fecha,j.fecha,true,j.salidaAt,j.llegadaAt);
     var ck=AC_CK.find(function(c){ return String(c.cam)===j.cam && String(c.fecha).slice(0,10)===j.fecha; });
     // Un 0 en el odómetro NO es un odómetro en cero: es el checklist sin cerrar o sin dato. Antes
     // se tomaba como número y daba km del día de −14.008, y "kilometraje al revés" para cualquier
@@ -1393,6 +1438,41 @@ function _acRefRend(todas){
   return ref;
 }
 
+// Lo que SALIÓ del tanque del galpón hacia los camiones, con la misma regla de fuente única que
+// `_acEntradas`: desde el corte son las surtidas de tanque `galpon_*`; antes, el gasoil histórico.
+// Una surtida de ESTACIÓN no sale del galpón: el camión cargó afuera, el tanque del galpón ni se
+// enteró. Meterla acá haría que el galpón nunca cuadrara.
+function _acSalidasGalpon(desde,hasta){
+  var corte=AC_META.corteSurtidas||'', suma=0;
+  (AC_SURTIDAS||[]).forEach(function(s){
+    var f=String(s.fecha||'').slice(0,10);
+    if(f<desde||f>hasta)return;
+    if(corte&&f<corte)return;
+    if(String(s.tanque||'').indexOf('galpon')<0)return;
+    suma+=(_acNum(s.litros)||0);
+  });
+  (AC_GASOIL||[]).forEach(function(g){
+    if(String(g.tipo_operacion||'')==='compra')return;
+    var f=String(g.f||'').slice(0,10);
+    if(f<desde||f>hasta)return;
+    if(corte&&f>=corte)return;
+    suma+=(_acNum(g.lit)||0);
+  });
+  return Math.round(suma*100)/100;
+}
+// Las COMPRAS al galpón siguen viviendo en `gasoil` (son las que arman la CxP): el corte no las
+// toca, porque lo que se mudó a `surtidas` es la ENTREGA al camión, no la compra al proveedor.
+function _acComprasGalpon(desde,hasta){
+  var suma=0;
+  (AC_GASOIL||[]).forEach(function(g){
+    if(String(g.tipo_operacion||'')!=='compra')return;
+    var f=String(g.f||'').slice(0,10);
+    if(f<desde||f>hasta)return;
+    suma+=(_acNum(g.lit)||0);
+  });
+  return Math.round(suma*100)/100;
+}
+
 // ── CUADRE DEL TANQUE DEL GALPÓN ──────────────────────────────────────────────────────────────
 // nivel medido al inicio + compras − despachos = nivel esperado al final, contra la regla.
 // Si no hay medición física de galpón en el período, se dice: no se inventa precisión.
@@ -1401,12 +1481,7 @@ function _acCuadreGalpon(desde,hasta){
     var c=String(a.fecha).localeCompare(String(b.fecha)); if(c)return c;
     return String(a.created_at||'').localeCompare(String(b.created_at||''));
   });
-  var compras=0, despachos=0;
-  AC_GASOIL.forEach(function(g){
-    var f=String(g.f).slice(0,10); if(f<desde||f>hasta)return;
-    var l=_acNum(g.lit)||0;
-    if(String(g.tipo_operacion||'')==='compra')compras+=l; else despachos+=l;
-  });
+  var compras=_acComprasGalpon(desde,hasta), despachos=_acSalidasGalpon(desde,hasta);
   var enRango=medG.filter(function(m){ var f=String(m.fecha).slice(0,10); return f>=desde&&f<=hasta; });
   var res={compras:compras,despachos:despachos,mediciones:enRango.length,hay:false};
   if(enRango.length>=2){
@@ -1414,13 +1489,8 @@ function _acCuadreGalpon(desde,hasta){
     var lIni=_acCubicar(_acTanqueDe(pri),pri.altura_cm), lFin=_acCubicar(_acTanqueDe(ult),ult.altura_cm);
     if(lIni!=null&&lFin!=null){
       // Movimientos ENTRE la primera y la última medición (no todo el período).
-      var c2=0,d2=0;
-      AC_GASOIL.forEach(function(g){
-        var f=String(g.f).slice(0,10);
-        if(f<String(pri.fecha).slice(0,10)||f>String(ult.fecha).slice(0,10))return;
-        var l=_acNum(g.lit)||0;
-        if(String(g.tipo_operacion||'')==='compra')c2+=l; else d2+=l;
-      });
+      var fA=String(pri.fecha).slice(0,10), fB=String(ult.fecha).slice(0,10);
+      var c2=_acComprasGalpon(fA,fB), d2=_acSalidasGalpon(fA,fB);
       res.hay=true; res.ini=lIni; res.fin=lFin; res.comprasE=c2; res.despachosE=d2;
       res.esperado=Math.round((lIni+c2-d2)*100)/100;
       res.dif=Math.round((lFin-res.esperado)*100)/100;
@@ -1502,12 +1572,8 @@ function _acAnomalias(todas,desde,hasta,ref){
       if(kmFantasma==null)continue;                       // sin odómetro no se opina de merma
       if(ant.conf!=='completa'||hoy.conf!=='completa')continue;  // (c)
 
-      // (d) despachos entre la llegada anterior y la salida de hoy
-      var dNoche=AC_GASOIL.filter(function(g){
-        var f=String(g.f).slice(0,10);
-        return String(g.cam)===u && String(g.tipo_operacion||'')!=='compra' &&
-               f>fLle && f<=hoy.fecha;
-      }).reduce(function(s,g){return s+(_acNum(g.lit)||0);},0);
+      // (d) lo que le cargaron entre que pasó la regla al llegar y la que pasó al salir
+      var dNoche=_acEntradas(u,fLle,hoy.fecha,false,ant.llegadaAt,hoy.salidaAt);
       var delta=Math.round((hoy.salida-ant.llegada-dNoche)*100)/100;
       // (e) tolerancia de ESAS dos lecturas, y el doble para tener derecho a mostrarse
       var tolN=_acTol(ant.tanque||hoy.tanque,ant.llegadaCm,hoy.salidaCm,dNoche);
@@ -3878,6 +3944,25 @@ function renderAlertasCriticas(){
       else if(_kmInt-_rec<=500)al.push({t:'r',txt:'🔧 '+cam+' — Aceite próximo (faltan '+(_kmInt-_rec).toLocaleString()+' km)'});
     } else { var _ps=proxServicio(_km);if(_ps-_km<=500)al.push({t:'r',txt:'🔧 '+cam+' — Servicio próximo ('+(_ps-_km).toLocaleString()+' km → '+_ps.toLocaleString()+')'}); }
   });
+  // ⛽ COMBUSTIBLE SIN COSTEAR = Utilidad Real inflada, y en silencio.
+  // La Utilidad Real cuenta el combustible por la COMPRA (galpón) y por los períodos costeados de
+  // estación — está bien así, se cuenta una sola vez. Pero si hace semanas que no se carga ninguna
+  // compra ni se costea ningún período, la ganancia que se muestra NO tiene el gasto de combustible
+  // adentro y parece mejor de lo que es. Detectado el 2026-07-24: última compra el 26/03, cero
+  // períodos costeados. Un número de plata que no se puede sostener tiene que decirlo, no callarse.
+  try{
+    var _ultCompra=(typeof GASOIL!=='undefined'?GASOIL:[]).filter(_rentEsCompra)
+      .map(function(g){return String(g.f||'').slice(0,10);}).sort().pop()||'';
+    var _hayPeriodos=(typeof COMB_PERIODOS!=='undefined'&&COMB_PERIODOS&&COMB_PERIODOS.length)?true:false;
+    var _diasSin=_ultCompra?diasDesde(_ultCompra):null;
+    if(!_hayPeriodos&&(_diasSin==null||_diasSin>21)){
+      // Al frente: el dashboard muestra solo las 3 primeras, y una alerta de PLATA no puede quedar
+      // tapada por un aviso de aceite.
+      al.unshift({t:'r',txt:'⛽ La Utilidad Real NO tiene gasto de combustible'+
+        (_ultCompra?(': la última compra cargada es del '+formatFecha(_ultCompra)+' ('+_diasSin+' días)'):' — no hay ninguna compra cargada')+
+        '. La ganancia que se muestra está inflada hasta que se registren las compras o se costeen las surtidas de estación.'});
+    }
+  }catch(e){}
   // (El aviso de "préstamo completamente pagado" NO se manda aquí: dibujar el dashboard no debe
   //  disparar WhatsApp. Ese aviso lo manda aplicarAvanceDescuentos una sola vez, al pagar la semana.)
   // BADGE persistente (#opción c): nombres en planillas que NO casan con el roster (sin identificar),

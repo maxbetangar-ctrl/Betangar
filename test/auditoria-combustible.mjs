@@ -56,8 +56,12 @@ ctx.AC_TANQUES = (d.tanques || []).map((t) => ({
   tabla: typeof t.tabla_cubicacion === 'string' ? JSON.parse(t.tabla_cubicacion) : t.tabla_cubicacion,
 }));
 ctx.AC_GASOIL = d.gasoil || [];
+ctx.AC_SURTIDAS = d.surtidas || [];
 ctx.AC_CK = d.checklist || [];
-ctx.AC_META = { costoL: d.costoLitro || null, rendRefMapa: d.rendRef || { '1131': 1.9 }, modeloCam: {} };
+// `corteSurtidas` = configuracion.surtidas_corte. Desde esa fecha lo que entra al camión se lee de
+// `surtidas`; antes, del histórico de `gasoil`. Si el volcado no lo trae, se prueba sin corte.
+ctx.AC_META = { costoL: d.costoLitro || null, corteSurtidas: d.corteSurtidas || '',
+                rendRefMapa: d.rendRef || { '1131': 1.9 }, modeloCam: {} };
 (d.unidades || []).forEach((u) => { ctx.AC_META.modeloCam[u.cam] = u.modelo || ''; ctx.FLOTA[u.cam] = 1; });
 ctx.AC_MED = vm.runInContext('_acDedupe', ctx)(d.mediciones || []);
 

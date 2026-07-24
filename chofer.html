@@ -2163,6 +2163,23 @@ function _fmtKm(inp, hintId){ var h=document.getElementById(hintId); if(!h)retur
 
 // ── GUARDAR CHECKLIST ──
 // Tabla de cubicación del tanque JAC (cm -> litros). Espejo de combustible_tanques_config(tanque-jac).
+//
+// ⚠️⚠️ ESTO ES UNA COPIA CONGELADA Y ES UNA BOMBA DE TIEMPO (detectado 2026-07-24).
+// Hoy coincide exactamente con la tabla de la base — las dos son 600 × cm ÷ 46 —, así que no hay
+// divergencia. Pero esa tabla NO es un aforo real: es una división. Un tanque acostado no da los
+// mismos litros por centímetro en el fondo que en la panza. Cuando se cargue el aforo de verdad en
+// `combustible_tanques_config`, **ESTA COPIA QUEDA MINTIENDO** y el chofer va a seguir guardando
+// `litros_calculados` con la recta vieja, mientras la oficina cubica distinto. Dos verdades para el
+// mismo dato: exactamente lo que la norma de fuente única prohíbe.
+//
+// QUÉ HAY QUE HACER EL DÍA QUE SE CARGUE EL AFORO (los tres, o no sirve):
+//   1. Bajar la tabla de la base (`combustible_tanques_config` está cerrada a anon: hace falta un
+//      RPC SECURITY DEFINER tipo `unidad_publica`, que devuelva solo la cubicación).
+//   2. Cachearla en localStorage — esta PWA es offline-first y no puede depender de la red.
+//   3. Bumpear CACHE_NAME del service worker, o los teléfonos siguen con la recta vieja semanas.
+//
+// Mientras tanto la red de seguridad es la auditoría: R8 recubica desde la tabla de la base y avisa
+// "litros que no cuadran con la tabla" en cuanto las dos dejen de coincidir. No se rompe en silencio.
 var CL_JAC_CUB={1:13.04,2:26.09,3:39.13,4:52.17,5:65.22,6:78.26,7:91.30,8:104.35,9:117.39,10:130.43,11:143.48,12:156.52,13:169.57,14:182.61,15:195.65,16:208.70,17:221.74,18:234.78,19:247.83,20:260.87,21:273.91,22:286.96,23:300.00,24:313.04,25:326.09,26:339.13,27:352.17,28:365.22,29:378.26,30:391.30,31:404.35,32:417.39,33:430.43,34:443.48,35:456.52,36:469.57,37:482.61,38:495.65,39:508.70,40:521.74,41:534.78,42:547.83,43:560.87,44:573.91,45:586.96,46:600.00};
 function clLitrosJac(cm){
   cm=parseFloat(cm); if(isNaN(cm)||cm<0)return 0; if(cm>46)cm=46;

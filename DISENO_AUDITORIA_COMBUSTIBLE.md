@@ -364,11 +364,35 @@ El aviso de sustracción vuelve a encenderse por etapas, con datos, no por fe:
 | 1 | **Precondiciones en las reglas** (punto 6): odómetro en R1, R11/R12/R13 nuevas, `km=0`→null, dedupe por última lectura, excluir alturas imposibles. En `app.js` (~1130–1490) y `auditar-combustible/index.ts`, misma lógica en los dos (norma sync: verificar el CONSUMIDOR) | 1–1,5 días | Si la UI y la edge divergen, el dashboard dice una cosa y el WhatsApp otra — es el bug de confianza de nuevo |
 | 2 | **Tolerancia dinámica** (fórmula del punto 4), en ambos consumidores | 0,5 día | Tolerancia mal calibrada = o vuelve el ruido o queda sorda; dejar σ_cm y el factor 2 configurables por tanque |
 | 3 | **Reactivar el registro del combustible que entra**, con `surtidas` como fuente única + corte `CORTE_GASOIL_DESPACHOS` para lo histórico. Incluye decisión de PROCESO con Máximo: quién registra el despacho EN el momento (PWA de quien despacha, con foto), y cargarle costo a la surtida de B004 que está en $0 | 2–3 días + cambio de hábito | Doble conteo `gasoil`+`surtidas` si el corte queda mal → todos los cuadres dan "apareció combustible"; y si el hábito no agarra, la auditoría vuelve a quedarse sin la pata de "qué entró" |
-| 4 | **Utilidad Real / Rentabilidad**: que lean surtidas (con el mismo corte). Cierra el hueco de ~$1.600–1.950/semana sin costear desde el 08/07 | 1 día | Julio queda con costo de combustible doble o nulo; avisar a Máximo que julio se recalcula |
+| 4 | ~~**Utilidad Real / Rentabilidad**: que lean surtidas~~ ⚠️ **CORREGIDO 2026-07-24 al implementar: NO se toca la fórmula.** Ver nota abajo | — | Leer surtidas ahí DUPLICARÍA el gasto |
 | 5 | **Aforo del tanque JAC** (punto 5): pedido a Máximo/taller, cargar tabla real en `combustible_tanques_config`, y **eliminar `CL_JAC_CUB`** de chofer.html (que baje de la BD; bump de `CACHE_NAME` del service worker para forzar actualización en los teléfonos) | 1 mañana de patio + 0,5 día de código | Si el espejo no se mata, chofer y oficina cubican distinto para siempre; si el SW no se bumpea, los teléfonos siguen con la recta vieja semanas |
 | 6 | **Decisión del galpón**: fuera de uso (declararlo y ocultar su cuadre) o vivo (regla 2×/semana + compras al día — muertas desde 26/03) | decisión + 0,5 día | Un cuadre de galpón sin mediciones seguirá siendo un cartel que nadie lee |
 | 7 | **Modo sombra con veredictos** (punto 7): guardar graves en `combustible_alertas` + botones verdadera/falsa en la UI + contador de precisión | 1 día | Sin veredicto humano guardado no hay forma objetiva de saber cuándo reencender |
 | 8 | **Reencendido del WhatsApp** según criterio 7.5, con kill-switch 7.7 | 0,5 día | Reencender por ansiedad antes del criterio = quemar la segunda (y última) oportunidad del módulo ante los choferes |
+
+### ⚠️ Corrección al paso 4 (verificada en el código el 2026-07-24, al implementar)
+
+La Utilidad Real **no cuenta el combustible cuando se despacha, sino cuando se COMPRA** — y eso
+está bien: el litro se paga una sola vez, al proveedor. En `_totalEgresos` son dos sumandos:
+`egGas` (compras de `gasoil`, las de `cam` que empieza con COMPRA) y `egEst`
+(`combustible_periodos.costo_total_usd`, los períodos de estación ya costeados). Los despachos del
+galpón al camión NO se suman: son movimiento interno de un tanque que ya se pagó. Y las CxP de
+combustible se excluyen aparte para no contarlo de nuevo.
+
+Hacer que la Utilidad Real leyera `surtidas` **duplicaría el gasto** en cuanto se retomen las
+compras. La fórmula no se toca.
+
+**El hueco es de DATOS, no de código, y es más grande de lo estimado:**
+- `gasoil` tiene **2 compras en toda su historia**, la última el **26/03/2026** ($3.489,71).
+- `combustible_periodos`: **cero** períodos de estación costeados.
+- La única surtida de estación (B004, 22/07, 200 L) está con `costo_definido=false` y `costo_usd=0`.
+
+O sea: la Utilidad Real lleva **4 meses mostrando ganancia sin un solo dólar de combustible**.
+Lo que sí se implementó es que el sistema **lo diga**: si no hay compras recientes ni períodos
+costeados, el dashboard avisa arriba de todo que la Utilidad Real está inflada. Un número de plata
+que no se puede sostener tiene que declararlo, no callarse.
+
+Lo que falta acá es operativo: cargar las compras al galpón y costear los períodos de estación.
 
 Los pasos 1–2 solos ya convierten los 12 falsos positivos de julio en hallazgos R11 correctos y
 dejan vivos los 4–5 casos de N6 que de verdad merecen una pregunta. Los pasos 3–5 son los que

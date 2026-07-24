@@ -54,7 +54,7 @@ Deno.serve(async (req) => {
   const fecha = url.searchParams.get('fecha') || new Date(new Date(hoyVE + 'T12:00:00Z').getTime() - 86400000).toISOString().slice(0, 10);
   const previo = new Date(new Date(fecha + 'T12:00:00Z').getTime() - 86400000).toISOString().slice(0, 10);
 
-  const [cfgT, med, gas, ck, emps, waCfg, logs] = await Promise.all([
+  const [cfgT, med, gas, ck, emps, waCfg, logs, sur, cfgCorte] = await Promise.all([
     sb.from('combustible_tanques_config').select('*'),
     sb.from('combustible_mediciones').select('*').gte('fecha', previo).lte('fecha', fecha),
     sb.from('gasoil').select('*').gte('f', previo).lte('f', fecha),
@@ -62,8 +62,11 @@ Deno.serve(async (req) => {
     sb.from('empleados').select('nombre,whatsapp,tel,activo,cargo'),
     sb.from('configuracion').select('valor').eq('clave', 'whatsapp').maybeSingle(),
     sb.from('alertas_log').select('alert_key').like('alert_key', 'comb_%'),
+    sb.from('surtidas').select('*').gte('fecha', previo).lte('fecha', fecha),
+    sb.from('configuracion').select('valor').eq('clave', 'surtidas_corte').maybeSingle(),
   ]);
   if (cfgT.error) return json({ ok: false, error: cfgT.error.message }, 500);
+  const corteSur = String(cfgCorte?.data?.valor || '').replace(/"/g, '').slice(0, 10);
 
   const tanques = (cfgT.data || []).map((t: any) => {
     let tabla = t.tabla_cubicacion;
@@ -180,9 +183,39 @@ Deno.serve(async (req) => {
 
   // Un 0 en el odómetro NO es un odómetro en cero: es el checklist sin cerrar o sin dato.
   const km = (v: any): number | null => { const n = num(v); return (n != null && n > 0) ? n : null; };
-  const despDe = (u: string, f: string) => (gas.data || [])
-    .filter((gg: any) => String(gg.cam) === u && String(gg.f).slice(0, 10) === f && String(gg.tipo_operacion || '') !== 'compra')
-    .reduce((s: number, gg: any) => s + (num(gg.lit) || 0), 0);
+
+  // ── LO QUE ENTRA AL CAMIÓN — FUENTE ÚNICA CON FREEZE FECHADO ──
+  // Desde `configuracion.surtidas_corte` la verdad es `surtidas`: la carga la asienta quien surte,
+  // en el momento, con foto y GPS, venga del galpón o de la estación. Antes de esa fecha vale el
+  // histórico congelado de `gasoil`, que se tipeaba a mano días después (y murió el 07/07/2026).
+  // Nunca las dos fuentes para la misma fecha: sería contar el mismo litro dos veces.
+  // Hasta el 2026-07-24 esto leía SOLO `gasoil`, o sea que después del corte no veía entrar nada —
+  // por eso decía "sin despacho que lo explique" cuando en realidad no miraba donde debía.
+  // Las surtidas traen hora: con `tsA`/`tsB` (los created_at de las dos lecturas de regla) se sabe
+  // si la carga fue antes o después de pasar la regla. Con solo la fecha, una carga de las 11 de la
+  // mañana se contaría como entrada de la noche y el patio daría un faltante que nunca existió.
+  const entradas = (u: string, fA: string, fB: string, incluirFA: boolean, tsA?: string, tsB?: string) => {
+    const dentro = (f: string) => (incluirFA ? f >= fA : f > fA) && f <= fB;
+    let suma = 0;
+    (sur.data || []).forEach((s: any) => {
+      if (String(s.cam) !== u) return;
+      const f = String(s.fecha || '').slice(0, 10);
+      if (corteSur && f < corteSur) return;              // antes del corte manda gasoil
+      const ts = String(s.created_at || '');
+      if (tsA && tsB && ts) { if (!(ts > tsA && ts <= tsB)) return; }
+      else if (!dentro(f)) return;
+      suma += (num(s.litros) || 0);
+    });
+    (gas.data || []).forEach((gg: any) => {
+      if (String(gg.cam) !== u) return;
+      if (String(gg.tipo_operacion || '') === 'compra') return;   // compra = entra al galpón
+      const f = String(gg.f || '').slice(0, 10);
+      if (corteSur && f >= corteSur) return;             // desde el corte manda surtidas
+      if (!dentro(f)) return;
+      suma += (num(gg.lit) || 0);
+    });
+    return Math.round(suma * 100) / 100;
+  };
 
   for (const u of unidades.concat(ckDia.map((c: any) => String(c.cam)).filter((x) => !unidades.includes(x)))) {
     const ms = delDia.filter((m: any) => String(m.vehiculo_id) === u);
@@ -225,12 +258,12 @@ Deno.serve(async (req) => {
                && alturaOk(tqDe(sal), sal.altura_cm) && alturaOk(tqDe(lleAyer), lleAyer.altura_cm)
                && !corregidas.has([u, fecha, 'salida'].join('|')) && !corregidas.has([u, previo, 'llegada'].join('|'))) {
       const a = cubicar(tqDe(sal), sal.altura_cm), b = cubicar(tqDe(lleAyer), lleAyer.altura_cm);
-      const desp = despDe(u, fecha);
+      const desp = entradas(u, previo, fecha, false, String(lleAyer.created_at || ''), String(sal.created_at || ''));
       if (a != null && b != null) {
         const d = Math.round((a - b - desp) * 100) / 100;
         const t1 = tol(tqDe(sal), lleAyer.altura_cm, sal.altura_cm, desp);
         // Sin nombre de chofer: de noche el custodio es el PATIO, no la persona que manejó.
-        if (d < -2 * t1) graves.push({ u, litros: d, txt: `quedó el ${fmtFecha(previo)} con ${fmt(b)} L y amaneció con ${fmt(a)} L: faltan ${fmt(Math.abs(d))} L, con el odómetro igual y sin despacho (el error de la regla explica hasta ±${fmt(t1)} L)` });
+        if (d < -2 * t1) graves.push({ u, litros: d, txt: `quedó el ${fmtFecha(previo)} con ${fmt(b)} L y amaneció con ${fmt(a)} L: faltan ${fmt(Math.abs(d))} L, con el odómetro igual y sin carga registrada (el error de la regla explica hasta ±${fmt(t1)} L)` });
         else if (d > 2 * t1) entraron.push({ u, litros: d });
       }
     }
@@ -239,7 +272,7 @@ Deno.serve(async (req) => {
     if (sal && lle && alturaOk(tqDe(sal), sal.altura_cm) && alturaOk(tqDe(lle), lle.altura_cm)
         && !corregidas.has([u, fecha, 'salida'].join('|')) && !corregidas.has([u, fecha, 'llegada'].join('|'))) {
       const s2 = cubicar(tqDe(sal), sal.altura_cm), l2 = cubicar(tqDe(lle), lle.altura_cm);
-      const desp2 = despDe(u, fecha);
+      const desp2 = entradas(u, fecha, fecha, true, String(sal.created_at || ''), String(lle.created_at || ''));
       if (s2 != null && l2 != null) {
         const consumo = s2 + desp2 - l2;
         if (consumo < -2 * tol(tqDe(sal), sal.altura_cm, lle.altura_cm, desp2)) entraron.push({ u, litros: Math.abs(consumo) });
@@ -300,7 +333,7 @@ Deno.serve(async (req) => {
     marcar.push(keyJefes);
   }
 
-  const resumen = { fecha, duplicados: dupIguales, corregidas: corregidas.size, errores: errores.length, hallazgos: hallazgos.length, graves: graves.length };
+  const resumen = { fecha, corte: corteSur || null, duplicados: dupIguales, corregidas: corregidas.size, errores: errores.length, hallazgos: hallazgos.length, graves: graves.length };
   if (dry) return json({ ok: true, dry: true, ...resumen, encolaria: filas.length, muestra: filas.slice(-2) });
   if (!filas.length) return json({ ok: true, ...resumen, avisos: 0, nota: 'nada que avisar' });
 
