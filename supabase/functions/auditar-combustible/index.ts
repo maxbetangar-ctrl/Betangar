@@ -98,7 +98,7 @@ Deno.serve(async (req) => {
   const tanques = (cfgT.data || []).map((t: any) => {
     let tabla = t.tabla_cubicacion;
     if (typeof tabla === 'string') { try { tabla = JSON.parse(tabla); } catch { tabla = null; } }
-    return { id: t.id, tipo: t.tipo, hmax: num(t.altura_max_cm), tabla, forma: t.forma ?? null, tabla_origen: t.tabla_origen ?? null };
+    return { id: t.id, tipo: t.tipo, hmax: num(t.altura_max_cm), tabla, forma: t.forma ?? null, tabla_origen: t.tabla_origen ?? null, tabla_desde: t.tabla_desde ?? null };
   });
   if (!tanques.length) return json({ ok: true, nota: 'esta empresa no usa cubicación — nada que auditar', avisos: 0 });
 
@@ -309,8 +309,14 @@ Deno.serve(async (req) => {
         errores.push({ u, chofer: String(m.registrado_por || chofer), tipo: 'altura', txt: `la medición de ${m.momento} dice ${fmt(cm)} cm y ese tanque llega hasta ${fmt(tq?.hmax)} cm` });
         continue;   // lectura inválida: no se compara con la tabla ni se usa para cuadrar
       }
+      // Los litros guardados solo se le reclaman a alguien si se guardaron con ESTA tabla. Al
+      // corregir la cubicación del JAC el 25/07 todas las mediciones viejas quedaron sin cuadrar
+      // contra la tabla nueva: se habían guardado con la recta que regía ese día. Sin este candado,
+      // el cron de las 7am le mandaba un WhatsApp a cada chofer por un dato que cargó bien (probado:
+      // 25 reclamos en una flota de 12 camiones). Arreglar la tabla no puede hacer culpable a nadie.
+      const conTablaVieja = antesDe(m.created_at, tq?.tabla_desde);
       const calc = cubicar(tq, cm);
-      if (calc != null && rec != null && Math.abs(rec - calc) > 2) {
+      if (!conTablaVieja && calc != null && rec != null && Math.abs(rec - calc) > 2) {
         errores.push({ u, chofer: String(m.registrado_por || chofer), tipo: 'tabla', txt: `en la medición de ${m.momento} (${fmt(cm)} cm) los litros guardados (${fmt(rec)}) no coinciden con la tabla (${fmt(calc)})` });
       }
     }
@@ -457,6 +463,23 @@ Deno.serve(async (req) => {
 });
 
 function num(v: any): number | null { const n = parseFloat(v); return isFinite(n) ? n : null; }
+// Sello de tiempo de Postgres ➜ milisegundos. Hay que normalizarlo a mano: Postgres devuelve
+// "2026-07-09 12:34:56.789+00" (espacio y offset de DOS dígitos) y `Date.parse` de eso da NaN — el
+// offset ISO válido es "+00:00" o "Z". Costó un bug: el candado de R8 daba false para TODAS las
+// mediciones viejas, que es exactamente lo contrario de lo que tiene que hacer.
+function ts(v: any): number | null {
+  if (!v) return null;
+  const s = String(v).trim().replace(' ', 'T')
+    .replace(/([+-]\d{2})(\d{2})$/, '$1:$2')   // +0000 ➜ +00:00
+    .replace(/([+-]\d{2})$/, '$1:00');         // +00   ➜ +00:00
+  const t = Date.parse(s);
+  return isFinite(t) ? t : null;
+}
+// ¿`ts` es anterior a `corte`? Como FECHAS, nunca como texto.
+function antesDe(a: any, corte: any): boolean {
+  const x = ts(a), y = ts(corte);
+  return (x != null && y != null && x < y);
+}
 function fmt(n: any): string { return (n == null) ? '—' : Number(n).toLocaleString('es-VE', { maximumFractionDigits: 1 }); }
 function fmtFecha(f: string): string { const p = String(f).slice(0, 10).split('-'); return `${p[2]}/${p[1]}/${p[0]}`; }
 function primerNombre(n: string): string {

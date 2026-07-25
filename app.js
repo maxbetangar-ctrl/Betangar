@@ -1318,7 +1318,7 @@ async function acCargar(desde,hasta){
   AC_TANQUES=(r[0].data||[]).map(function(t){
     var tabla=t.tabla_cubicacion; if(typeof tabla==='string'){ try{tabla=JSON.parse(tabla);}catch(e){tabla=null;} }
     return {id:t.id,nombre:t.nombre,tipo:t.tipo,cap:_acNum(t.capacidad_litros),hmax:_acNum(t.altura_max_cm),tabla:tabla,
-            forma:t.forma||null,origen:t.tabla_origen||null};
+            forma:t.forma||null,origen:t.tabla_origen||null,tablaDesde:t.tabla_desde||null};
   });
   AC_MED=_acDedupe(r[1].data||[]);
   AC_GASOIL=r[2].data||[];
@@ -1589,6 +1589,23 @@ function _acPorqueTabla(t){
   if(t.forma==='rectangular')return _acTablaDescribeTanque(t)?'Es un tanque de cajón y su tabla es pareja, que es justo lo que corresponde.':'es un tanque de cajón pero su tabla tiene curva, y eso no le calza.';
   return _acTablaDescribeTanque(t)?'La tabla tiene la curva que corresponde a la forma del tanque.':'la tabla es una recta pareja y este tanque tiene panza: eso es una división, no una medición.';
 }
+// Sello de tiempo de Postgres ➜ milisegundos. Hay que normalizarlo a mano: Postgres devuelve
+// "2026-07-09 12:34:56.789+00" (espacio y offset de DOS dígitos) y `Date.parse` de eso da NaN —
+// el offset ISO válido es "+00:00" o "Z". Costó un bug: el candado de R8 daba false para TODAS las
+// mediciones viejas, que es exactamente lo contrario de lo que tiene que hacer.
+function _acTs(v){
+  if(!v)return null;
+  var s=String(v).trim().replace(' ','T')
+        .replace(/([+-]\d{2})(\d{2})$/,'$1:$2')   // +0000 ➜ +00:00
+        .replace(/([+-]\d{2})$/,'$1:00');         // +00   ➜ +00:00
+  var t=Date.parse(s);
+  return isFinite(t)?t:null;
+}
+// ¿El sello de tiempo `ts` es anterior a `corte`? Como FECHAS, nunca como texto.
+function _acAntesDe(ts,corte){
+  var a=_acTs(ts), b=_acTs(corte);
+  return (a!=null&&b!=null&&a<b);
+}
 function _acSombraEstado(){
   var ev=(AC_SOMBRA||[]).filter(function(x){ return x.veredicto==='verdadera'||x.veredicto==='falsa'; });
   var ok=ev.filter(function(x){ return x.veredicto==='verdadera'; }).length;
@@ -1825,15 +1842,20 @@ function _acAnomalias(todas,desde,hasta,ref){
     // R8 — MEDICIÓN QUE NO CUADRA CON LA TABLA: altura fuera de rango, o litros guardados != cubicación.
     var t=j.tanque;
     if(t){
-      [['salida',j.salidaCm,j.salidaRec,j.salida],['llegada',j.llegadaCm,j.llegadaRec,j.llegada]].forEach(function(p){
-        var cm=p[1], rec=p[2], calc=p[3];
+      [['salida',j.salidaCm,j.salidaRec,j.salida,j.salidaAt],['llegada',j.llegadaCm,j.llegadaRec,j.llegada,j.llegadaAt]].forEach(function(p){
+        var cm=p[1], rec=p[2], calc=p[3], cuando=p[4]||'';
         if(cm==null)return;
+        // Los litros guardados solo se le pueden reclamar a alguien si se guardaron con ESTA tabla.
+        // Al corregir la cubicación del JAC el 25/07, todas las mediciones viejas quedaron sin
+        // cuadrar contra la tabla nueva: se habían guardado con la recta que regía ese día. Sin este
+        // candado, arreglar la tabla convertía en culpables a 12 choferes que midieron bien.
+        var conTablaVieja=_acAntesDe(cuando,t.tablaDesde);
         if(t.hmax&&(cm<0||cm>t.hmax)){
           add('media','R8','Medición fuera de rango',
             'La medición de '+p[0]+' de la unidad '+U(j.cam)+' del '+formatFecha(j.fecha)+' marca '+_acFmt(cm,1)+' cm, y ese tanque llega hasta '+
             _acFmt(t.hmax,0)+' cm. Revisá cómo se cargó esa medición.',
             j.cam,j.fecha,null,_quien(j.cam,j.fecha));
-        } else if(rec!=null&&calc!=null&&Math.abs(rec-calc)>2){
+        } else if(!conTablaVieja&&rec!=null&&calc!=null&&Math.abs(rec-calc)>2){
           add('media','R8','Litros que no cuadran con la tabla',
             'En la unidad '+U(j.cam)+' ('+formatFecha(j.fecha)+', '+p[0]+') la regla marca '+_acFmt(cm,1)+' cm: por la tabla de cubicación son '+
             _acFmt(calc,2)+' L, pero quedaron guardados '+_acFmt(rec,2)+' L. Revisá cómo se registró.',
