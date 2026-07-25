@@ -272,8 +272,8 @@ Deno.serve(async (req) => {
       if (String(s.cam) !== u) return;
       const f = String(s.fecha || '').slice(0, 10);
       if (corteSur && f < corteSur) return;              // antes del corte manda gasoil
-      const ts = String(s.created_at || '');
-      if (tsA && tsB && ts) { if (!(ts > tsA && ts <= tsB)) return; }
+      const tsS = String(s.created_at || '');   // 'ts' es ahora el helper de fechas: no hacerle sombra
+      if (tsA && tsB && tsS) { if (!(tsS > tsA && tsS <= tsB)) return; }
       else if (!dentro(f)) return;
       suma += (num(s.litros) || 0);
     });
