@@ -287,6 +287,33 @@ Deno.serve(async (req) => {
     });
     return Math.round(suma * 100) / 100;
   };
+  // Litros que entraron en la ventana PERO cuya fila NO tiene hora: el histórico `gasoil`, que rrhh1
+  // tipeaba en lote días después (el 07/07 se le cargaron 80+120 L a toda la flota, asentados el
+  // 08/07). De una fila así no se puede saber si el combustible entró antes o después de la lectura
+  // de la noche, y sin eso el cuadre del patio no significa nada: R1 la usa para CALLARSE, no para
+  // restar. Sin este freno los 8 camiones del 07/07 salían acusados de "faltan 200 L" cuando lo que
+  // pasó es que cargaron en la bomba durante el día.
+  const entradasSinHora = (u: string, fA: string, fB: string, incluirFA: boolean) => {
+    const dentro = (f: string) => (incluirFA ? f >= fA : f > fA) && f <= fB;
+    let suma = 0;
+    (gas.data || []).forEach((gg: any) => {
+      if (String(gg.cam) !== u) return;
+      if (String(gg.tipo_operacion || '') === 'compra') return;
+      const f = String(gg.f || '').slice(0, 10);
+      if (corteSur && f >= corteSur) return;
+      if (!dentro(f)) return;
+      suma += (num(gg.lit) || 0);
+    });
+    (sur.data || []).forEach((s: any) => {          // una surtida sin created_at tampoco se ubica
+      if (String(s.cam) !== u) return;
+      if (String(s.created_at || '')) return;
+      const f = String(s.fecha || '').slice(0, 10);
+      if (corteSur && f < corteSur) return;
+      if (!dentro(f)) return;
+      suma += (num(s.litros) || 0);
+    });
+    return Math.round(suma * 100) / 100;
+  };
 
   for (const u of unidades.concat(ckDia.map((c: any) => String(c.cam)).filter((x) => !unidades.includes(x)))) {
     const ms = delDia.filter((m: any) => String(m.vehiculo_id) === u);
@@ -336,11 +363,14 @@ Deno.serve(async (req) => {
                && !corregidas.has([u, fecha, 'salida'].join('|')) && !corregidas.has([u, previo, 'llegada'].join('|'))) {
       const a = cubicar(tqDe(sal), sal.altura_cm), b = cubicar(tqDe(lleAyer), lleAyer.altura_cm);
       const desp = entradas(u, previo, fecha, false, String(lleAyer.created_at || ''), String(sal.created_at || ''));
+      // Si alguna carga de esa ventana no tiene hora, no se puede ubicar en el tiempo: R1 se calla.
+      // El agujero de registro lo reporta R9, que no acusa a nadie.
+      if (entradasSinHora(u, previo, fecha, false) > 0) continue;
       if (a != null && b != null) {
         const d = Math.round((a - b - desp) * 100) / 100;
         const t1 = tol(tqDe(sal), lleAyer.altura_cm, sal.altura_cm, desp);
         // Sin nombre de chofer: de noche el custodio es el PATIO, no la persona que manejó.
-        if (d < -2 * t1) graves.push({ u, litros: d, tol: t1, txt: `quedó el ${fmtFecha(previo)} con ${fmt(b)} L y amaneció con ${fmt(a)} L: faltan ${fmt(Math.abs(d))} L, con el odómetro igual y sin carga registrada (el error de la regla explica hasta ±${fmt(t1)} L)` });
+        if (d < -2 * t1) graves.push({ u, litros: d, tol: t1, txt: `quedó el ${fmtFecha(previo)} con ${fmt(b)} L y amaneció con ${fmt(a)} L: faltan ${fmt(Math.abs(d))} L, con el odómetro igual y ${desp > 0 ? `con la carga de esa noche (${fmt(desp)} L, con hora) ya descontada` : 'sin carga registrada'} (el error de la regla explica hasta ±${fmt(t1)} L)` });
         else if (d > 2 * t1) entraron.push({ u, litros: d });
       }
     }

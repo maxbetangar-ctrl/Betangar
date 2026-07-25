@@ -1250,6 +1250,33 @@ function _acEntradas(cam,desde,hasta,incluirDesde,tsA,tsB){
   });
   return Math.round(suma*100)/100;
 }
+// Litros que entraron en la ventana PERO cuya fila NO tiene hora: el histórico `gasoil`, que rrhh1
+// tipeaba en lote días después (el 07/07 se cargaron 80+120 L a toda la flota, asentados el 08/07).
+// De una fila así no se puede saber si el combustible entró antes o después de la lectura de la
+// noche, y sin eso el cuadre del patio no significa nada: R1 la usa para CALLARSE, no para restar.
+// Sin este freno, los 8 camiones del 07/07 salían acusados de "faltan 200 L" cuando lo que pasó es
+// que cargaron en la bomba durante el día.
+function _acEntradasSinHora(cam,desde,hasta,incluirDesde){
+  var corte=AC_META.corteSurtidas||'', suma=0;
+  var dentro=function(f){ return (incluirDesde?(f>=desde):(f>desde)) && f<=hasta; };
+  (AC_GASOIL||[]).forEach(function(g){
+    if(String(g.cam)!==String(cam))return;
+    if(String(g.tipo_operacion||'')==='compra')return;
+    var f=String(g.f||'').slice(0,10);
+    if(corte&&f>=corte)return;
+    if(!dentro(f))return;
+    suma+=(_acNum(g.lit)||0);
+  });
+  (AC_SURTIDAS||[]).forEach(function(s){            // una surtida sin created_at tampoco se ubica
+    if(String(s.cam)!==String(cam))return;
+    if(String(s.created_at||''))return;
+    var f=String(s.fecha||'').slice(0,10);
+    if(corte&&f<corte)return;
+    if(!dentro(f))return;
+    suma+=(_acNum(s.litros)||0);
+  });
+  return Math.round(suma*100)/100;
+}
 function _acTanqueDe(m){
   var id=String(m.tanque_id||'');
   var t=AC_TANQUES.find(function(x){return String(x.id)===id;});
@@ -1776,6 +1803,10 @@ function _acAnomalias(todas,desde,hasta,ref){
 
       // (d) lo que le cargaron entre que pasó la regla al llegar y la que pasó al salir
       var dNoche=_acEntradas(u,fLle,hoy.fecha,false,ant.llegadaAt,hoy.salidaAt);
+      // (d.2) …pero si alguna de esas cargas NO tiene hora, no se puede ubicar en el tiempo y R1 se
+      // calla. Restarla a ciegas es lo que convertía una carga en la bomba del mediodía en un
+      // "faltaron 200 L en el patio". El agujero de registro lo reporta R9, que no acusa a nadie.
+      if(_acEntradasSinHora(u,fLle,hoy.fecha,false)>0)continue;
       var delta=Math.round((hoy.salida-ant.llegada-dNoche)*100)/100;
       // (e) tolerancia de ESAS dos lecturas, y el doble para tener derecho a mostrarse
       var tolN=_acTol(ant.tanque||hoy.tanque,ant.llegadaCm,hoy.salidaCm,dNoche);
@@ -1785,7 +1816,8 @@ function _acAnomalias(todas,desde,hasta,ref){
         add('alta','R1','Faltó combustible en el patio',
           'La unidad '+U(u)+' quedó el '+formatFecha(fLle)+' con '+_acFmt(ant.llegada,1)+' L y amaneció el '+
           formatFecha(hoy.fecha)+' con '+_acFmt(hoy.salida,1)+' L: faltan '+_acFmt(Math.abs(delta),1)+' L'+$(delta)+'. '+
-          'El odómetro confirma que no se movió ('+_acFmt(ant.kmE)+' km las dos veces) y no hay despacho registrado. '+
+          'El odómetro confirma que no se movió ('+_acFmt(ant.kmE)+' km las dos veces) y '+
+          (dNoche>0?('la única carga de esa noche ('+_acFmt(dNoche,1)+' L, con hora registrada) ya está descontada'):'no hay despacho registrado')+'. '+
           'Es más de lo que puede explicar el error de la regla (±'+_acFmt(tolN,0)+' L). '+
           'Revisá quién tuvo acceso al patio esa noche y volvé a tomar las dos lecturas para confirmarlo.',
           u,hoy.fecha,delta,'');

@@ -50,10 +50,15 @@ vm.createContext(ctx);
 vm.runInContext(stubs + '\n' + lineas.slice(ini, fin).join('\n'), ctx, { filename: 'app.js#auditoria' });
 
 const d = JSON.parse(fs.readFileSync(DATOS, 'utf8').replace(/^﻿/, ''));
+// ⚠️ Este mapeo tiene que ser EL MISMO que el de app.js (`AC_TANQUES=(r[0].data||[]).map(...)`). Si
+// se le olvida un campo, la prueba deja de medir la app y empieza a medirse a sí misma. Pasó el
+// 2026-07-25: al agregar forma/tabla_origen/tabla_desde no se copiaron acá, y el banco reportó 431
+// anomalías de R8 que en la pantalla real no existen — mintiendo justo para el lado que asusta.
 ctx.AC_TANQUES = (d.tanques || []).map((t) => ({
   id: t.id, nombre: t.nombre, tipo: t.tipo,
   cap: Number(t.capacidad_litros), hmax: Number(t.altura_max_cm),
   tabla: typeof t.tabla_cubicacion === 'string' ? JSON.parse(t.tabla_cubicacion) : t.tabla_cubicacion,
+  forma: t.forma || null, origen: t.tabla_origen || null, tablaDesde: t.tabla_desde || null,
 }));
 ctx.AC_GASOIL = d.gasoil || [];
 ctx.AC_SURTIDAS = d.surtidas || [];
@@ -82,12 +87,20 @@ console.log('Mediciones repetidas idénticas:', ctx.AC_META.duplicadas,
 const porCod = {};
 anom.forEach((a) => { (porCod[a.cod] = porCod[a.cod] || []).push(a); });
 console.log('\n=== ANOMALÍAS POR REGLA ===');
+// Con --textos se imprime la REDACCIÓN completa, que es lo que de verdad lee una persona en el
+// dashboard. Un hallazgo que nadie entiende no sirve para decidir nada: la prueba tiene que dejar
+// leerlo, no solo contarlo.
+const VER_TEXTOS = process.argv.includes('--textos');
 Object.keys(porCod).sort().forEach((c) => {
   console.log(`\n${c} (${porCod[c].length})  ${porCod[c][0].titulo}`);
-  porCod[c].slice(0, 40).forEach((a) => {
+  porCod[c].slice(0, VER_TEXTOS ? 3 : 40).forEach((a) => {
     console.log(`   ${a.sev.padEnd(5)} ${String(a.cam || '—').padEnd(9)} ${a.fecha || '—'}  ${a.litros == null ? '' : a.litros + ' L'}`);
+    if (VER_TEXTOS) {
+      console.log(`         a cargo: ${a.quien || '— (nadie: no se le atribuye a una persona)'}`);
+      console.log(`         "${a.texto}"\n`);
+    }
   });
-  if (porCod[c].length > 40) console.log(`   …y ${porCod[c].length - 40} más`);
+  if (porCod[c].length > (VER_TEXTOS ? 3 : 40)) console.log(`   …y ${porCod[c].length - (VER_TEXTOS ? 3 : 40)} más`);
 });
 
 // R1 es la única regla que insinúa una pérdida. Si alguna vez vuelve a dispararse de a decenas,
