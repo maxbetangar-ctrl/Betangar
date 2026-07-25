@@ -101,3 +101,21 @@ comment on column public.btg_usuarios.exige_token is
 --   · zzz_flota_estado_bak (respaldo) → solo lectura.
 -- El chofer entra con anon y sus políticas quedaron intactas (anon nunca tuvo delete).
 -- ════════════════════════════════════════════════════════════════════════════
+
+-- ════════════════════════════════════════════════════════════════════════════
+-- TERCERA TANDA — ROL `auditor` (pedido de Máximo el mismo día):
+-- "un rol que no sea superadmin pero que tenga acceso a todo y tenga que pedir
+--  autorización". Es más limpio que un superadmin con excepción: el candado queda
+--  en el ROL y no en una marca por usuario.
+-- Migraciones `exige_token_tambien_en_la_base` y `rol_auditor_ve_todo_pero_pide_autorizacion`:
+--   · funciones app_exige_token() y app_puede_borrar() (= superadmin y sin exige_token).
+--     TODAS las políticas de DELETE pasaron a usar app_puede_borrar().
+--   · se agregó 'auditor' a las 54 políticas que enumeran roles (SELECT/INSERT/UPDATE),
+--     y a NINGUNA de DELETE.
+-- En la app: PERMISOS.auditor = la MISMA lista del superadmin (fuente única), 2FA
+-- obligatorio, y esMando() para que no se le escondan los botones (si no, no podría
+-- ni pedir la autorización). Como no es superadmin, solicitarToken siempre le pide
+-- el código y el panel de aprobar tokens no le aparece: no puede autorizarse solo.
+--
+-- Usuario creado: alejandra / alejandra@betangar.local (rol auditor, exige_token=true).
+-- ════════════════════════════════════════════════════════════════════════════

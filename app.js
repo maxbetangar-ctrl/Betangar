@@ -602,7 +602,7 @@ async function doLogin(){
         // 2FA OBLIGATORIO para roles de oficina sensibles (manejan dinero/PII). Operativos y operador
         // quedan simples (decisión de Máximo). Si el rol lo exige y AÚN no tiene 2FA, se fuerza a
         // activarlo ahora (bloquea la entrada hasta hacerlo). Quien ya lo tiene fue retado arriba.
-        if(['superadmin','admin','rrhh'].indexOf(rol)>=0){
+        if(['superadmin','auditor','admin','rrhh'].indexOf(rol)>=0){
           var _tiene2FA=false;
           try{ var _f=await supabaseAuth.auth.mfa.listFactors(); var _fd=(_f&&_f.data)?_f.data:_f; _tiene2FA=!!((_fd&&_fd.totp&&_fd.totp.length)||(_fd&&_fd.all&&_fd.all.some(function(x){return x.factor_type==='totp'&&x.status==='verified';}))); }catch(e){}
           if(!_tiene2FA){
@@ -760,8 +760,8 @@ function _iniciarSesionCore(){
   // DEEP-LINK: si la URL trae #modulo (ej. betangar.com/app.html#operativo desde el recordatorio de
   // WhatsApp), abrir ese módulo directo tras login (solo si el rol tiene permiso).
   try{ var _dh=(location.hash||'').replace(/^#/,'').trim(); if(_dh && (PERMISOS[SESION.rol]||[]).indexOf(_dh)>=0){ setTimeout(function(){ try{ sp(_dh); }catch(e){} },80); } }catch(e){}
-  var rolLbl={superadmin:'SuperAdmin',admin:'Admin',operador:'Operador',rrhh:'RRHH',visualizador:'Vista',demo_admin:'Demo',demo_operador:'Demo',demo_rrhh:'Demo'};
-  var rolCol={superadmin:'role-admin',admin:'role-admin',operador:'role-operador',rrhh:'role-rrhh',visualizador:'role-visualizador'};
+  var rolLbl={superadmin:'SuperAdmin',auditor:'Auditor',admin:'Admin',operador:'Operador',rrhh:'RRHH',visualizador:'Vista',demo_admin:'Demo',demo_operador:'Demo',demo_rrhh:'Demo'};
+  var rolCol={superadmin:'role-admin',auditor:'role-admin',admin:'role-admin',operador:'role-operador',rrhh:'role-rrhh',visualizador:'role-visualizador'};
   var rb=SESION.rol==='superadmin'?'superadmin':(SESION.rol.replace('demo_','')||'visualizador');
   var ui=document.getElementById('nav-user-info');
   if(ui){ui.innerHTML='<span class="role-badge '+(rolCol[rb]||'role-visualizador')+'">'+(rolLbl[SESION.rol]||SESION.rol)+'</span><span style="font-size:10px;color:var(--text2)">'+SESION.nombre+'</span>';ui.style.display='flex';}
@@ -823,7 +823,7 @@ function _iniciarSesionCore(){
     }
   }catch(e){}
   // Ir a la sección correcta según el rol
-  if(SESION.rol==='superadmin'||SESION.rol==='admin'||SESION.rol==='operador'){
+  if(SESION.rol==='superadmin'||SESION.rol==='auditor'||SESION.rol==='admin'||SESION.rol==='operador'){
     sp('dashboard');
   }
   // Ocultar explícitamente secciones especiales para superadmin
@@ -3857,7 +3857,7 @@ function _diasEstadoCam(cam){
 function detectarInoperativosSinMotivo(){
   if(typeof SESION==='undefined'||!SESION)return;
   var rol=SESION.rol||'';
-  if(['superadmin','admin','operador','rrhh'].indexOf(rol)<0)return;
+  if(['superadmin','auditor','admin','operador','rrhh'].indexOf(rol)<0)return;
   var esSuper=(rol==='superadmin');
   var prev=document.getElementById('inop-pregunta-modal');
   if(window._inopDismiss){ if(prev)prev.remove(); return; }
@@ -3958,7 +3958,8 @@ function toggleEstCam(cam){
 // ══════════════════════════════════════════════════════════════════════════════
 var FISCAL_PEND=[];
 // Roles que manejan plata: a ellos les toca ver esto.
-var _FISCAL_ROLES={admin:1,superadmin:1,operador:1,directivo:1};
+PERMISOS.auditor = PERMISOS.superadmin.slice();   // misma lista, una sola fuente
+var _FISCAL_ROLES={admin:1,superadmin:1,operador:1,directivo:1,auditor:1};
 async function renderFiscalBanner(){
   var el=g('fiscal-banner'); if(!el)return;
   if(!_FISCAL_ROLES[(SESION&&SESION.rol)||'']){el.style.display='none';return;}
@@ -4052,7 +4053,7 @@ async function marcarDeclarado(id){
 // ══════════════════════════════════════════════════════════════════════════════
 var ANOM_ABIERTAS=[];
 // Quién puede cerrar una anomalía (decisión de Máximo 2026-07-20: mecánico + jefe operativo).
-var ANOM_ROLES_CIERRE={mecanico:1,operativo:1,superadmin:1,admin:1};
+var ANOM_ROLES_CIERRE={mecanico:1,operativo:1,superadmin:1,admin:1,auditor:1};
 
 function anomPuedeCerrar(){ return !!ANOM_ROLES_CIERRE[(SESION&&SESION.rol)||'']; }
 
@@ -12074,7 +12075,7 @@ function renderEmpleados(){
     }
     // Mostrar botón eliminar solo si hay otro empleado con mismo nombre (duplicado)
     var isDuplicado=EMPLEADOS.filter(function(x){return x.nombre===e.nombre;}).length>1;
-    if(isDuplicado&&SESION&&SESION.rol==='superadmin'){
+    if(isDuplicado&&esMando()){
       h+='<button data-eid="'+e.id+'" data-enombre="'+e.nombre+'" onclick="event.stopPropagation();eliminarEmpDuplicado(this.dataset.eid,this.dataset.enombre)" class="btn btn-s" style="font-size:11px;padding:4px 10px;background:rgba(239,159,39,.1);border-color:rgba(239,159,39,.4);color:#ef9f27" title="Eliminar duplicado">🗑 Dupl.</button>';
     }
     h+='</div></div>';
@@ -13232,6 +13233,10 @@ function esSuperAdmin(){
 // Un usuario puede tener rol total y AUN ASI deberle el token a alguien (btg_usuarios.exige_token).
 // Pedido de Máximo 2026-07-25 para el usuario de Alejandra: ve todo, pero para borrar o editar
 // necesita el código. Por eso NO se auto-exime y TAMPOCO puede aprobar tokens (ni el suyo).
+function esAuditor(){ return SESION&&SESION.rol==='auditor'; }
+// Rol de mando a efectos de PANTALLA: al auditor no se le esconden los botones, porque si no
+// no podría ni pedir autorización. Lo que no puede es ejecutar sin token (ni la BD lo deja borrar).
+function esMando(){ return esSuperAdmin()||esAuditor(); }
 function exigeTokenSiempre(){ return !!(SESION&&SESION.exigeToken); }
 function puedeAprobarTokens(){ return esSuperAdmin() && !exigeTokenSiempre(); }
 // Quién puede VER el saldo bancario: superadmin, admin (administradora) y visualizador (visor).
@@ -16218,7 +16223,7 @@ function mecIniciar(){
   if(!grid)return;
   // Mostrar botón agregar solo para superadmin
   var btnAgregar=document.getElementById('btn-agregar-vehiculo');
-  if(btnAgregar)btnAgregar.style.display=(SESION.rol==='superadmin')?'block':'none';
+  if(btnAgregar)btnAgregar.style.display=esMando()?'block':'none';
   mecRenderizar();
   // Si KM_DATA está vacío, intentar cargar
   if(!Object.keys(KM_DATA).length&&DB_READY&&supabase){
@@ -17702,7 +17707,7 @@ function clSelEstado(btn, estado){
 }
 
 function desbloquearKmSalida(){
-  if(!SESION||SESION.rol!=='superadmin'){alert('Solo el superadmin puede modificar este campo');return;}
+  if(!esMando()){alert('Solo el superadmin o el auditor pueden modificar este campo');return;}
   window._kmSalidaEditable = true;
   var el = document.getElementById('cl-km-salida');
   if(el){ el.readOnly=false; el.style.background=''; el.focus(); }
@@ -18157,7 +18162,7 @@ async function bajaEmp(id, nombre){
 
 // Eliminar registro duplicado (solo superadmin, requiere confirmación doble)
 async function eliminarEmpDuplicado(id, nombre){
-  if(SESION.rol!=='superadmin'){alert('Solo superadmin puede eliminar registros');return;}
+  if(!esMando()){alert('Solo el superadmin o el auditor pueden eliminar registros');return;}
   if(!confirm('⚠️ ELIMINAR REGISTRO\n\n'+nombre+' ('+id+')\n\nEsta acción NO se puede deshacer.\n¿Continuar?'))return;
   if(!confirm('Confirma una vez más:\n¿Eliminar permanentemente a '+nombre+'?'))return;
   // Solo permitir eliminar si hay otro registro con mismo nombre (es duplicado)
@@ -19590,12 +19595,12 @@ function renderCCMediciones(){
     var t=ccTanque(m.tanque_id);
     var mom=m.momento==='inicio'?'Inicio':m.momento==='fin'?'Fin':m.momento==='salida'?'Salida':m.momento==='llegada'?'Llegada':m.momento;
     return '<tr><td>'+fmtFechaCorta(m.fecha)+'</td><td>'+(t?t.nombre:m.tanque_id)+(m.vehiculo_id?' ('+m.vehiculo_id+')':'')+'</td><td>'+mom+'</td><td style="font-family:var(--m)">'+m.altura_cm+'</td><td style="font-family:var(--m);color:var(--green2)">'+(parseFloat(m.litros_calculados)||0).toLocaleString()+'</td><td style="font-size:11px">'+(m.registrado_por||'')+'</td>'+
-      '<td>'+(typeof esSuperAdmin==='function'&&esSuperAdmin()?'<button class="btn btn-r btn-xs" onclick="borrarMedicionTanque(\''+m.id+'\')">🗑</button>':'')+'</td></tr>';
+      '<td>'+(typeof esMando==='function'&&esMando()?'<button class="btn btn-r btn-xs" onclick="borrarMedicionTanque(\''+m.id+'\')">🗑</button>':'')+'</td></tr>';
   }).join('');
 }
 
 async function borrarMedicionTanque(id){
-  if(typeof esSuperAdmin!=='function'||!esSuperAdmin()){alert('Solo superadmin puede eliminar');return;}
+  if(typeof esMando!=='function'||!esMando()){alert('Solo el superadmin o el auditor pueden eliminar');return;}
   if(!confirm('¿Eliminar esta medición?'))return;
   // BORRAR = TOKEN (2026-07-25): la medición es la prueba con la que la auditoría señala faltantes.
   solicitarToken('Eliminar medición de tanque '+id,async function(mot){
