@@ -82,3 +82,22 @@ create policy cxpf_del on public.cxp_facturas for delete to authenticated using 
 alter table public.btg_usuarios add column if not exists exige_token boolean not null default false;
 comment on column public.btg_usuarios.exige_token is
   'true = a este usuario se le pide token para borrar/editar aunque su rol sea superadmin';
+
+-- ════════════════════════════════════════════════════════════════════════════
+-- SEGUNDA TANDA (mismo día): al verificar salió que había OTRAS 23 tablas con la
+-- misma política `FOR ALL` para authenticated — incluida `auditoria`, o sea que se
+-- podía borrar la propia bitácora. Se comprobó EN EL CÓDIGO que la app no borra de
+-- ninguna de ellas (el único delete automático que quedó fuera es seniat_retenciones,
+-- que lo hace el recálculo de retenciones al tocar una factura).
+-- Aplicado con las migraciones `cerrar_delete_tablas_for_all` y
+-- `cerrar_delete_viajes_chofer_y_backup`:
+--   · anomalias, asistencia_dia, calendario_fiscal, checklist, cola_mensajes,
+--     combustible_alertas, combustible_tanques_config, combustible_vehiculos_config,
+--     engrases, entregas, inv_movimientos, km_data, lavados, llantas, mensajes_wa,
+--     porteria, rutas_estado, tasas_diarias, unidad_config, ordenes_servicio,
+--     viajes_chofer → SELECT/INSERT/UPDATE igual que antes, DELETE solo superadmin.
+--   · auditoria → SOLO AGREGAR (sin política de delete: la bitácora no se borra
+--     desde la app, ni siquiera el superadmin).
+--   · zzz_flota_estado_bak (respaldo) → solo lectura.
+-- El chofer entra con anon y sus políticas quedaron intactas (anon nunca tuvo delete).
+-- ════════════════════════════════════════════════════════════════════════════
