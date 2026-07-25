@@ -341,6 +341,13 @@ var PERMISOS={
   mecanico:['mecanico','checklist','llantas','km','unidades'],
   operativo:['operativo']
 };
+// `corregir-chofer` = puede corregir un dato mal cargado por el chofer (hoy, los litros de una
+// surtida) SIN pedirle token al dueño — para eso existe: que la oficina resuelva el error del día
+// sin llamar al dueño. A cambio queda el rastro (quién, cuándo, qué decía antes y por qué).
+// Borrar es OTRA cosa y sigue exigiendo autorización. Máximo, 2026-07-25.
+['superadmin','admin','operador'].forEach(function(r){
+  if(PERMISOS[r] && PERMISOS[r].indexOf('corregir-chofer')<0) PERMISOS[r].push('corregir-chofer');
+});
 
 var NAV_LABELS={
   'aud-combustible':'Auditoría de Combustible',
@@ -3612,7 +3619,7 @@ async function imprimirDashboard(){
     var _sUsd=_surHoy.reduce(function(a,s){return a+_surCostoUsd(s);},0);
     var _sTasa=TASAS.bcvDolar||0;
     var _sUn=Object.keys(_surHoy.reduce(function(a,s){if(s.cam)a[s.cam]=1;return a;},{})).length;
-    var _sRows=_surHoy.map(function(s){var l=parseFloat(s.litros)||0,cu=_surCostoUsd(s);return '<tr><td>'+(s.hora||'')+'</td><td style="font-weight:700">'+_surEsc(s.cam||'')+'</td><td>'+_surEsc(_surLbl(s.tanque))+'</td><td style="text-align:right;font-family:monospace">'+l.toLocaleString('es-VE')+' L</td><td style="text-align:right;font-family:monospace">'+usd(cu)+'</td></tr>';}).join('');
+    var _sRows=_surHoy.map(function(s){var l=parseFloat(s.litros)||0,cu=_surCostoUsd(s);return '<tr><td>'+(s.hora||'')+'</td><td style="font-weight:700">'+_surEsc(s.cam||'')+'</td><td>'+_surEsc(_surLbl(s.tanque))+'</td><td style="text-align:right;font-family:monospace">'+l.toLocaleString('es-VE')+' L'+corr+'</td><td style="text-align:right;font-family:monospace">'+usd(cu)+'</td></tr>';}).join('');
     surtHtml='<h2>⛽ Combustible surtido hoy</h2><table><thead><tr><th>Hora</th><th>Unidad</th><th>Tanque</th><th style="text-align:right">Litros</th><th style="text-align:right">Costo</th></tr></thead><tbody>'+_sRows+
       '<tr style="font-weight:800;border-top:2px solid #cbd5e1"><td colspan="3">TOTAL '+_sUn+' unidad(es)</td><td style="text-align:right;font-family:monospace">'+_sLit.toLocaleString('es-VE')+' L</td><td style="text-align:right;font-family:monospace">'+usd(_sUsd)+(_sTasa?' <span style="color:#8a94a6">≈ Bs '+(_sUsd*_sTasa).toLocaleString('es-VE',{maximumFractionDigits:0})+'</span>':'')+'</td></tr></tbody></table>';
   }
@@ -8860,6 +8867,109 @@ async function _perAplicar(){
   try{cargarSurtidasRent();}catch(e){}
   scRecargar();
 }
+
+// ══════════════════════════════════════════════════════════════════════════════
+// CORREGIR UNA SURTIDA MAL CARGADA POR EL CHOFER
+// Máximo, 2026-07-25: "debería poder ser editable errores como esos del chofer para que no me
+// estén llamando a mí, o que lo pueda hacer cualquiera pero autorizado por el super admin".
+// Por eso corregir NO pide token: si lo pidiera, lo llamarían igual. Lo hace quien tenga el
+// permiso `corregir-chofer` (lo asigna el superadmin), y a cambio la corrección DEJA RASTRO:
+// quién, cuándo, qué decía antes y por qué. Borrar es otra cosa y sí exige token.
+// El caso que lo originó: una unidad cargó 25.115 L en vez de 251,51 L → $20.092.
+// ══════════════════════════════════════════════════════════════════════════════
+function _surPuedeCorregir(){
+  var perms=(typeof PERMISOS!=='undefined'&&PERMISOS[SESION?SESION.rol:''])||[];
+  return perms.indexOf('corregir-chofer')>=0;
+}
+function _surEscC(x){return String(x==null?'':x).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function _surFmtVE(n,dec){ return (Number(n)||0).toLocaleString('es-VE',{minimumFractionDigits:(dec==null?2:dec),maximumFractionDigits:(dec==null?2:dec)}); }
+function _surTanqueLbl(t){ if(typeof _surLbl==='function')return _surLbl(t); return (typeof TANQUE_LBL!=='undefined'&&TANQUE_LBL[t])||t||''; }
+function _surMilesInput(inp){
+  var v=String(inp.value||'').replace(/\./g,',');
+  var i=v.indexOf(',');
+  var ent=(i<0?v:v.slice(0,i)).replace(/\D/g,'').replace(/^0+(?=\d)/,'');
+  var frac=(i<0?'':v.slice(i+1).replace(/\D/g,'').slice(0,2));
+  inp.value=String(ent).replace(/\B(?=(\d{3})+(?!\d))/g,'.')+(i<0?'':(','+frac));
+  var s2=(SURTIDAS||[]).find(function(x){return String(x.id)===String(window._surCorrigiendo);});
+  var l=_surLeerLitros(), cl=s2?(parseFloat(s2.costo_litro_usd)||0):0;
+  var h=g('sur-cor-hint'); if(h)h.textContent = l ? ('= '+_surFmtVE(l,2)+' litros'+(cl?(' · $'+_surFmtVE(l*cl,2)):'')) : '';
+}
+function _surLeerLitros(){
+  var el=g('sur-cor-litros'); if(!el)return 0;
+  var n=parseFloat(String(el.value||'').replace(/\./g,'').replace(',','.'));
+  return (isFinite(n)&&n>0)?n:0;
+}
+function surCorregir(id){
+  if(!_surPuedeCorregir()){ mostrarToast('Tu rol no puede corregir registros del chofer','error'); return; }
+  var s=(SURTIDAS||[]).find(function(x){return String(x.id)===String(id);});
+  if(!s){ mostrarToast('No encontré esa surtida','error'); return; }
+  window._surCorrigiendo=String(id);
+  var lit=parseFloat(s.litros)||0, cl=parseFloat(s.costo_litro_usd)||0;
+  var anteriores=(s.valor_anterior&&s.valor_anterior.historial)?s.valor_anterior.historial:[];
+  var previo=anteriores.length?('<div style="font-size:11px;color:var(--text3);margin-top:10px">Correcciones anteriores: '+anteriores.length+'</div>'):'';
+  openModal('✏️ Corregir surtida',
+    '<div style="font-size:12px;color:var(--text2);margin-bottom:10px">'+
+      '<b>'+_surEscC(s.cam||'')+'</b> · '+_surEscC(String(s.fecha||'').slice(0,10))+' '+_surEscC(s.hora||'')+
+      ' · '+_surEscC(_surTanqueLbl(s.tanque))+
+      '<br>Registró: '+_surEscC(s.chofer||'—')+
+    '</div>'+
+    '<div style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:8px;font-size:12px;margin-bottom:10px">'+
+      'Lo que está cargado hoy: <b>'+_surFmtVE(lit,2)+' L</b>'+(cl?(' · $'+_surFmtVE(lit*cl,2)):'')+'</div>'+
+    '<div class="fg"><label>Litros REALES</label>'+
+      '<input class="fc" id="sur-cor-litros" inputmode="decimal" oninput="_surMilesInput(this)" placeholder="0" style="font-family:var(--m);font-size:18px">'+
+      '<div id="sur-cor-hint" style="font-size:12px;color:var(--text3);margin-top:4px"></div></div>'+
+    '<div class="fg"><label>¿Por qué se corrige? (queda registrado)</label>'+
+      '<input class="fc" id="sur-cor-motivo" placeholder="Ej: el chofer escribió 25.115 y el surtidor marcó 251,51"></div>'+
+    '<div style="font-size:11px;color:var(--text3);margin-bottom:10px">La foto del surtidor no se toca: es la prueba de cuánto se cargó.</div>'+
+    previo+
+    '<div style="display:flex;gap:8px;margin-top:12px">'+
+      '<button class="btn btn-g" style="flex:1" onclick="surCorregirGuardar()">Guardar corrección</button>'+
+      '<button class="btn btn-s" onclick="closeModal()">Cancelar</button></div>');
+  setTimeout(function(){ var e=g('sur-cor-litros'); if(e)e.focus(); },100);
+}
+async function surCorregirGuardar(){
+  var id=window._surCorrigiendo;
+  var s=(SURTIDAS||[]).find(function(x){return String(x.id)===String(id);});
+  if(!s){ mostrarToast('No encontré esa surtida','error'); return; }
+  var lit=_surLeerLitros();
+  var motivo=(g('sur-cor-motivo')?g('sur-cor-motivo').value:'').trim();
+  if(!(lit>0)){ mostrarToast('Escribí los litros reales','error'); return; }
+  if(lit>2000){ mostrarToast('Litros inválidos: '+_surFmtVE(lit,2)+' L es demasiado. Revisá el tipeo.','error'); return; }
+  if(!motivo){ mostrarToast('Escribí por qué se corrige — sin motivo no se guarda','error'); return; }
+  var antes=parseFloat(s.litros)||0;
+  if(Math.abs(antes-lit)<0.005){ mostrarToast('Ese es el mismo número que ya está cargado','error'); return; }
+  var cl=parseFloat(s.costo_litro_usd)||0;
+  var tasa=parseFloat(s.tasa_bcv)||0;
+  // Si la surtida todavía no tiene costo por litro (estación pendiente de costear), NO se inventa:
+  // se corrigen los litros y el costo lo pone administración cuando cierre el período.
+  var nuevoUsd=cl?Math.round(lit*cl*100)/100:(parseFloat(s.costo_usd)||0);
+  var histo=(s.valor_anterior&&s.valor_anterior.historial)?s.valor_anterior.historial.slice():[];
+  histo.push({litros:antes, costo_usd:parseFloat(s.costo_usd)||0, motivo:motivo,
+              por:(SESION&&SESION.usuario)||'', fecha:new Date().toISOString()});
+  var set={ litros:lit, costo_usd:nuevoUsd,
+            costo_bs: tasa?Math.round(nuevoUsd*tasa*100)/100:(s.costo_bs||null),
+            corregido_por:(SESION&&SESION.usuario)||'', corregido_at:new Date().toISOString(),
+            valor_anterior:{historial:histo} };
+  var detalle=(s.cam||'')+' '+String(s.fecha||'').slice(0,10)+': '+_surFmtVE(antes,2)+' L → '+_surFmtVE(lit,2)+' L -- '+motivo;
+  // Un rol que debe pedir autorización para editar (ej. el auditor) tampoco corrige solo:
+  // pide el token y quien aprueba aplica el cambio con el mismo payload.
+  if(typeof exigeTokenSiempre==='function' && exigeTokenSiempre()){
+    solicitarToken('Corregir surtida: '+detalle, function(){ _surAplicarCorreccion(id,s,set,detalle,antes,lit); },
+      {op:'upd',tabla:'surtidas',col:'id',val:id,set:set});
+    return;
+  }
+  await _surAplicarCorreccion(id,s,set,detalle,antes,lit);
+}
+async function _surAplicarCorreccion(id,s,set,detalle,antes,lit){
+  if(!(DB_READY&&supabase)){ mostrarToast('Sin conexión a la base','error'); return; }
+  var r=await supabase.from('surtidas').update(set).eq('id',id);
+  if(r&&r.error){ mostrarToast('No se pudo corregir: '+r.error.message,'error'); return; }
+  Object.assign(s,set);
+  audit('Surtida CORREGIDA', detalle);
+  closeModal();
+  mostrarToast('✅ Corregido: '+_surFmtVE(antes,2)+' L → '+_surFmtVE(lit,2)+' L','exito');
+  try{ renderSurtidasHoy(); }catch(e){}
+}
 function renderSurtidasHoy(){
   var cont=g('dash-surtidas'); if(!cont)return;
   var arr=_surtidasHoy();
@@ -8874,7 +8984,10 @@ function renderSurtidasHoy(){
   var chips=Object.keys(porTanque).map(function(t){return '<span style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:3px 8px;font-size:11px;margin-right:6px">'+_surLbl(t)+': <b>'+porTanque[t].toLocaleString('es-VE')+' L</b></span>';}).join('');
   var filas=arr.map(function(s){
     var l=parseFloat(s.litros)||0, cu=_surCostoUsd(s);
-    return '<tr><td style="font-size:11px">'+(s.hora||'')+'</td><td style="font-weight:700;font-size:11px">'+(s.cam||'')+'</td><td style="font-size:11px">'+_surLbl(s.tanque)+'</td><td style="font-family:var(--m);text-align:right">'+l.toLocaleString('es-VE')+' L</td><td style="font-family:var(--m);text-align:right;color:var(--green)">$'+cu.toFixed(2)+'</td><td style="text-align:center">'+(s.foto_url?'<a href="#" onclick="_surVerFoto(\''+_mEsc(s.foto_url)+'\');return false" style="color:var(--teal)">📷</a>':'')+'</td></tr>';
+    // Una surtida corregida lo DICE: si no, el número cambia y nadie sabe que alguien lo tocó.
+    var corr=s.corregido_por?(' <span title="Corregido por '+_surEscC(s.corregido_por)+'" style="font-size:9px;color:var(--yellow)">✏️ corregida</span>'):'';
+    var btnCor=_surPuedeCorregir()?(' <a href="#" onclick="surCorregir(\''+_surEscC(s.id)+'\');return false" style="color:var(--yellow)" title="Corregir los litros">✏️</a>'):'';
+    return '<tr><td style="font-size:11px">'+(s.hora||'')+'</td><td style="font-weight:700;font-size:11px">'+(s.cam||'')+'</td><td style="font-size:11px">'+_surLbl(s.tanque)+'</td><td style="font-family:var(--m);text-align:right">'+l.toLocaleString('es-VE')+' L</td><td style="font-family:var(--m);text-align:right;color:var(--green)">$'+cu.toFixed(2)+'</td><td style="text-align:center">'+(s.foto_url?'<a href="#" onclick="_surVerFoto(\''+_mEsc(s.foto_url)+'\');return false" style="color:var(--teal)">📷</a>':'')+''+btnCor+'</td></tr>';
   }).join('');
   cont.innerHTML='<div style="margin-bottom:8px">'+chips+'<span style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:3px 8px;font-size:11px">Total: <b style="color:var(--green)">$'+totUsd.toFixed(2)+'</b>'+(tasa?' ≈ Bs '+(totUsd*tasa).toLocaleString('es-VE',{maximumFractionDigits:0}):'')+'</span></div>'+
     '<div style="overflow-x:auto"><table style="width:100%"><thead><tr><th>Hora</th><th>Unidad</th><th>Tanque</th><th style="text-align:right">Litros</th><th style="text-align:right">Costo</th><th>Foto</th></tr></thead><tbody>'+filas+'</tbody></table></div>';
