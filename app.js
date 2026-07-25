@@ -592,11 +592,11 @@ async function doLogin(){
           }
         }catch(eMfa){}
         var meta = res.data.user.user_metadata || {};
-        var rol=meta.rol, nombre=meta.nombre||u, usuario=meta.usuario||u, demo=!!meta.demo, activo=true;
+        var rol=meta.rol, nombre=meta.nombre||u, usuario=meta.usuario||u, demo=!!meta.demo, activo=true, exigeToken=false;
         // enriquecer con btg_usuarios si se puede, pero SIN bloquear si falla
         try{
-          var ur = await supabaseAuth.from('btg_usuarios').select('usuario,rol,nombre,demo,activo').eq('auth_user_id', res.data.user.id).maybeSingle();
-          if(ur && ur.data){ rol=ur.data.rol||rol; nombre=ur.data.nombre||nombre; usuario=ur.data.usuario||usuario; demo=!!ur.data.demo; activo=ur.data.activo!==false; }
+          var ur = await supabaseAuth.from('btg_usuarios').select('usuario,rol,nombre,demo,activo,exige_token').eq('auth_user_id', res.data.user.id).maybeSingle();
+          if(ur && ur.data){ rol=ur.data.rol||rol; nombre=ur.data.nombre||nombre; usuario=ur.data.usuario||usuario; demo=!!ur.data.demo; activo=ur.data.activo!==false; exigeToken=!!ur.data.exige_token; }
         }catch(e2){}
         if(!activo){ err.textContent='Usuario desactivado. Contacta al administrador.'; err.style.display='block'; setTimeout(function(){err.style.display='none';err.textContent='Usuario o contrasena incorrectos';},4000); return; }
         // 2FA OBLIGATORIO para roles de oficina sensibles (manejan dinero/PII). Operativos y operador
@@ -610,7 +610,7 @@ async function doLogin(){
             if(!_ok2fa){ try{ await supabaseAuth.auth.signOut(); }catch(_e){} err.textContent='Tu rol requiere activar la verificación en dos pasos (2FA) para entrar.'; err.style.display='block'; setTimeout(function(){err.style.display='none';err.textContent='Usuario o contrasena incorrectos';},5000); return; }
           }
         }
-        if(rol){ _entrarSesion({usuario:usuario, rol:rol, nombre:nombre, demo:demo}); return; }
+        if(rol){ _entrarSesion({usuario:usuario, rol:rol, nombre:nombre, demo:demo, exigeToken:exigeToken}); return; }
       }
     } else { authMsg='Supabase no cargó'; }
   }catch(e){ authMsg=(e&&e.message)||'error'; }
@@ -2338,8 +2338,12 @@ async function guardarSitio(){
 async function elimSitio(id){
   if(!_puedeEditarSitios()){alert('Solo administración puede borrar sitios de asistencia (geocerca).');return;}
   if(!confirm('¿Borrar este sitio?'))return;
-  if(DB_READY&&supabase){ var r=await supabase.from('sitios_asistencia').delete().eq('id',id); if(r&&r.error){alert('No se pudo borrar: '+r.error.message);return;} }
-  renderSitios();
+  // BORRAR = TOKEN (2026-07-25). Antes se borraba directo: nadie autorizaba y no quedaba motivo.
+  solicitarToken('Eliminar sitio de asistencia (geocerca) '+id,async function(mot){
+    if(DB_READY&&supabase){ var r=await supabase.from('sitios_asistencia').delete().eq('id',id); if(r&&r.error){console.log('elimSitio:',r.error.message);} }
+    audit('Sitio de asistencia ELIMINADO',String(id)+' -- '+mot);
+    renderSitios();
+  },{op:'del',tabla:'sitios_asistencia',col:'id',val:id});
 }
 function sitUsarMiUbic(){
   if(!navigator.geolocation){alert('Este dispositivo no da ubicación');return;}
@@ -3038,7 +3042,8 @@ async function dbIn(t,d){
   }
 }
 async function dbUp(t,d,c,v){if(!DB_READY||DEMO_MODE)return null;try{var res=await supabase.from(t).upsert(d,{onConflict:c}).select();if(res.error){if(typeof mostrarToast==='function')mostrarToast('No se pudo guardar ('+t+'): '+res.error.message,'error');return null;}return res.data;}catch(e){if(typeof mostrarToast==='function')mostrarToast('Error de conexión al guardar '+t,'error');return null;}}
-async function dbDel(t,c,v){if(!DB_READY||DEMO_MODE)return null;try{var r=await supabase.from(t).delete().eq(c,v);if(r&&r.error&&typeof mostrarToast==='function')mostrarToast('No se pudo eliminar ('+t+'): '+r.error.message,'error');return r;}catch(e){if(typeof mostrarToast==='function')mostrarToast('Sin conexión al eliminar '+t,'error');return null;}}
+// (2026-07-25) Se quitó `dbDel(t,c,v)`: borraba cualquier tabla sin pasar por el token y no lo
+// llamaba nadie. Un ayudante así vuelve a colarse solo. Para borrar: solicitarToken(...,{op:'del'}).
 
 // ── BUSCADOR EN SELECTS LARGOS ──────────────────────────────────────────────
 // Agrega un campo de búsqueda encima de un <select> y filtra sus <option> al
@@ -5742,10 +5747,13 @@ async function guardarPlanillaEspecial(){
 }
 function elimNominaExtra(id){
   if(!confirm('¿Eliminar esta actividad especial?'))return;
-  NOMINA_EXTRAS=NOMINA_EXTRAS.filter(function(x){return String(x.id)!==String(id);});
-  if(DB_READY&&supabase)supabase.from('nomina_extras').delete().eq('id',id).then(function(r){if(r&&r.error&&typeof mostrarToast==='function')mostrarToast('No se pudo eliminar: '+r.error.message,'error');});
-  audit('Actividad especial eliminada',String(id));
-  try{recalcNom();}catch(e){}
+  // BORRAR = TOKEN (2026-07-25): esto es plata de la nómina de alguien.
+  solicitarToken('Eliminar actividad especial de nómina '+id,function(mot){
+    NOMINA_EXTRAS=NOMINA_EXTRAS.filter(function(x){return String(x.id)!==String(id);});
+    if(DB_READY&&supabase)supabase.from('nomina_extras').delete().eq('id',id).then(function(r){if(r&&r.error)console.log('elimNominaExtra:',r.error.message);});
+    audit('Actividad especial ELIMINADA',String(id)+' -- '+mot);
+    try{recalcNom();}catch(e){}
+  },{op:'del',tabla:'nomina_extras',col:'id',val:id});
 }
 
 function _nmSetSemana(lunISO){
@@ -6131,12 +6139,16 @@ async function eliminarNominaHist(id){
   var _d=_semDeFecha(h.fecha_desde); var lbl=_d?_d.label:h.semana; var per=_d?_d.periodo:(h.periodo||'');
   if(!confirm('¿ELIMINAR "'+lbl+'" ('+per+') del historial?\n\nTotal $'+(parseFloat(h.total_usd)||0).toFixed(0)+'.\n\n⚠️ Esto NO revierte cuotas de préstamos/multas ya avanzadas al pagar esa semana.'))return;
   if(!(DB_READY&&supabase)){alert('Sin conexión a la base.');return;}
-  var res=await supabase.from('nomina_historial').delete().eq('id',h.id);
-  if(res&&res.error){mostrarToast('No se pudo eliminar: '+res.error.message,'error');return;}
-  NOMINA_HIST=(NOMINA_HIST||[]).filter(function(x){return x.id!==h.id;});
-  audit('Semana de nómina eliminada',lbl+' ('+h.id+')');
-  try{renderNominaHist();}catch(e){}
-  mostrarToast('✅ "'+lbl+'" eliminada del historial','exito');
+  // BORRAR = TOKEN (2026-07-25). Esto borra UNA SEMANA ENTERA de nómina pagada; RRHH lo podía
+  // hacer sin que nadie autorizara. Ahora lo autoriza el superadmin y queda el motivo.
+  solicitarToken('Eliminar del historial la semana de nómina "'+lbl+'" ('+per+')',async function(mot){
+    var res=await supabase.from('nomina_historial').delete().eq('id',h.id);
+    if(res&&res.error){console.log('eliminarNominaHist:',res.error.message);}
+    NOMINA_HIST=(NOMINA_HIST||[]).filter(function(x){return x.id!==h.id;});
+    audit('Semana de nómina ELIMINADA',lbl+' ('+h.id+') -- '+mot);
+    try{renderNominaHist();}catch(e){}
+    mostrarToast('✅ "'+lbl+'" eliminada del historial','exito');
+  },{op:'del',tabla:'nomina_historial',col:'id',val:h.id});
 }
 // Corregir/registrar la TASA Bs/$ de una semana del historial (la del día que se pagó). Recalcula
 // el total_bs y los bs de cada persona SIN tocar los USD (la verdad operativa está en USD). Arregla
@@ -7580,6 +7592,12 @@ async function _borrarUltimoServMant(cam,itemId,campoKm,nombre){
   var tieneEspejo=KM_DATA[cam]&&KM_DATA[cam][campoKm];
   if(!last&&!tieneEspejo)return;
   if(!confirm('¿Borrar el último '+nombre.toLowerCase()+' registrado de '+cam+'?'))return;
+  // BORRAR = TOKEN (2026-07-25): borrar el último servicio corre la fecha del próximo vencimiento.
+  solicitarToken('Borrar el último '+nombre.toLowerCase()+' de '+cam,async function(mot){
+    await _borrarUltimoServMantOk(cam,itemId,campoKm,nombre,last,mot);
+  }, last?{op:'del',tabla:'mantenimientos',col:'id',val:last.id}:null);
+}
+async function _borrarUltimoServMantOk(cam,itemId,campoKm,nombre,last,mot){
   if(last){
     MANTENIMIENTOS=MANTENIMIENTOS.filter(function(m){return String(m.id)!==String(last.id);});
     if(DB_READY&&supabase){try{var r=await supabase.from('mantenimientos').delete().eq('id',last.id);if(r&&r.error&&typeof mostrarToast==='function')mostrarToast('No se pudo borrar: '+r.error.message,'error');}catch(e){}}
@@ -7588,7 +7606,7 @@ async function _borrarUltimoServMant(cam,itemId,campoKm,nombre){
   var nuevaF=prev?String(prev.fecha).slice(0,10):null;
   if(KM_DATA[cam])KM_DATA[cam][campoKm]=nuevaF||'';
   if(DB_READY&&supabase){var upd={};upd[campoKm]=nuevaF;try{supabase.from('km_data').update(upd).eq('cam',cam).then(function(){});}catch(e){}}
-  audit(nombre+' borrado',cam);
+  audit(nombre+' BORRADO',cam+' -- '+(mot||''));
   if(itemId==='lavado')renderLavados();else renderEngrases();
 }
 async function borrarLavado(cam){ await _borrarUltimoServMant(cam,'lavado','lavado','Lavado'); }
@@ -8188,9 +8206,14 @@ function editarMantItem(id){
 }
 function eliminarMantItem(id){
   if(!confirm('¿Eliminar este registro de mantenimiento?'))return;
+  // BORRAR = TOKEN (2026-07-25): la hoja de vida de la unidad es historia, no borrador.
+  solicitarToken('Eliminar registro de mantenimiento '+id,function(mot){ _eliminarMantItemOk(id,mot); },
+    {op:'del',tabla:'mantenimientos',col:'id',val:id});
+}
+function _eliminarMantItemOk(id,mot){
   MANTENIMIENTOS=MANTENIMIENTOS.filter(function(m){return String(m.id)!==String(id);});
-  if(DB_READY&&supabase)supabase.from('mantenimientos').delete().eq('id',id).then(function(r){if(r&&r.error&&typeof mostrarToast==='function')mostrarToast('No se pudo eliminar: '+r.error.message,'error');});
-  audit('Mantenimiento eliminado',String(id));
+  if(DB_READY&&supabase)supabase.from('mantenimientos').delete().eq('id',id).then(function(r){if(r&&r.error)console.log('eliminarMantItem:',r.error.message);});
+  audit('Mantenimiento ELIMINADO',String(id)+' -- '+(mot||''));
   renderHojaVida();
 }
 // VIDA ÚTIL REAL aprendida: promedio real entre eventos consecutivos de un ítem en una unidad (km o
@@ -9218,9 +9241,13 @@ function agregarMantItemCat(){
 }
 function elimMantItemCat(id){
   if(!confirm('¿Eliminar este ítem del catálogo? (no borra el historial ya registrado)'))return;
-  MANT_ITEMS=MANT_ITEMS.filter(function(x){return x.id!==id;});
-  if(DB_READY&&supabase)supabase.from('mant_items').delete().eq('id',id).then(function(r){if(r&&r.error&&typeof mostrarToast==='function')mostrarToast('No se pudo eliminar: '+r.error.message,'error');});
-  renderMantCatalogo(); try{renderPreventivoEstado();}catch(e){}
+  // BORRAR = TOKEN (2026-07-25): el catálogo define qué se le exige a cada unidad.
+  solicitarToken('Eliminar ítem del catálogo de mantenimiento '+id,function(mot){
+    MANT_ITEMS=MANT_ITEMS.filter(function(x){return x.id!==id;});
+    if(DB_READY&&supabase)supabase.from('mant_items').delete().eq('id',id).then(function(r){if(r&&r.error)console.log('elimMantItemCat:',r.error.message);});
+    audit('Ítem de catálogo ELIMINADO',String(id)+' -- '+mot);
+    renderMantCatalogo(); try{renderPreventivoEstado();}catch(e){}
+  },{op:'del',tabla:'mant_items',col:'id',val:id});
 }
 // Asignar TIPO / combustible por unidad (para heredar los ítems por tipo).
 function renderUnidadTipos(){
@@ -10257,8 +10284,12 @@ function borrarFactura(id){
     renderRetenciones(); renderCXP();
     if(typeof mostrarToast==='function')mostrarToast('🗑️ Factura borrada','exito');
   };
-  if(DB_READY&&supabase)supabase.from('cxp_facturas').delete().eq('id',id).then(function(r){if(r.error){alert('No se pudo borrar: '+r.error.message);return;}done();});
-  else done();
+  // BORRAR = TOKEN (2026-07-25): una factura borrada mueve la deuda y las retenciones del SENIAT.
+  solicitarToken('Borrar factura '+(f.nro_factura||id)+' del libro de compras',function(mot){
+    audit('Factura de compra ELIMINADA',(f.nro_factura||'')+' ('+id+') -- '+mot);
+    if(DB_READY&&supabase)supabase.from('cxp_facturas').delete().eq('id',id).then(function(r){if(r.error)console.log('borrarFactura:',r.error.message);done();});
+    else done();
+  },{op:'del',tabla:'cxp_facturas',col:'id',val:id});
 }
 function exportRetenciones(){
   var mes=gv('ret-mes')||new Date().toISOString().slice(0,7);
@@ -11153,16 +11184,19 @@ async function registrarUsoInv(){
 async function eliminarItemInv(id){
   var item=INVENTARIO.find(function(x){return x.id===id;});if(!item)return;
   if(!confirm('¿Eliminar "'+item.nombre+'" del inventario? Esta accion no se puede deshacer.'))return;
-  INVENTARIO=INVENTARIO.filter(function(x){return x.id!==id;});
-  if(DB_READY&&supabase){
-    try{var _rd=await supabase.from('inventario').delete().eq('id',id);
-      if(_rd.error&&typeof mostrarToast==='function')mostrarToast('No se pudo eliminar: '+_rd.error.message,'error');
-    }catch(e){if(typeof mostrarToast==='function')mostrarToast('Sin conexion al eliminar el item.','error');}
-  }
-  try{localStorage.setItem('btg_inventario',JSON.stringify(INVENTARIO));}catch(e){}
-  audit('Item inventario eliminado',item.nombre);
-  var sel=g('inv-uso-item');if(sel){for(var i=sel.options.length-1;i>=0;i--){if(sel.options[i].value===id)sel.remove(i);}}
-  renderInventario();
+  // BORRAR = TOKEN (2026-07-25): el inventario es plata en el galpón.
+  solicitarToken('Eliminar del inventario: '+item.nombre,async function(mot){
+    INVENTARIO=INVENTARIO.filter(function(x){return x.id!==id;});
+    if(DB_READY&&supabase){
+      try{var _rd=await supabase.from('inventario').delete().eq('id',id);
+        if(_rd.error)console.log('eliminarItemInv:',_rd.error.message);
+      }catch(e){if(typeof mostrarToast==='function')mostrarToast('Sin conexion al eliminar el item.','error');}
+    }
+    try{localStorage.setItem('btg_inventario',JSON.stringify(INVENTARIO));}catch(e){}
+    audit('Item de inventario ELIMINADO',item.nombre+' -- '+mot);
+    var sel=g('inv-uso-item');if(sel){for(var i=sel.options.length-1;i>=0;i--){if(sel.options[i].value===id)sel.remove(i);}}
+    renderInventario();
+  },{op:'del',tabla:'inventario',col:'id',val:id});
 }
 function _invCat(x){ return (x.cat||x.categoria||''); }
 function _invFiltrado(){ var f=(typeof gv==='function'?gv('inv-filtro-cat'):'')||''; return f?INVENTARIO.filter(function(x){return _invCat(x)===f;}):INVENTARIO; }
@@ -11534,10 +11568,13 @@ async function guardarTipoUnidad(){
 }
 function elimTipoUnidad(id){
   if(!confirm('¿Eliminar este tipo de unidad?'))return;
-  TIPOS_UNIDAD=TIPOS_UNIDAD.filter(function(t){return String(t.id)!==String(id);});
-  if(DB_READY&&supabase)supabase.from('tipos_unidad').delete().eq('id',id).then(function(r){if(r&&r.error&&typeof mostrarToast==='function')mostrarToast('No se pudo eliminar el tipo: '+r.error.message,'error');});
-  audit('Tipo de unidad eliminado',String(id));
-  renderTiposUnidadLista();_fillTipoUnidadSelect('mc-uni-tipo');
+  // BORRAR = TOKEN (2026-07-25): sin autorización no se borra y queda el motivo.
+  solicitarToken('Eliminar tipo de unidad '+id,function(mot){
+    TIPOS_UNIDAD=TIPOS_UNIDAD.filter(function(t){return String(t.id)!==String(id);});
+    if(DB_READY&&supabase)supabase.from('tipos_unidad').delete().eq('id',id).then(function(r){if(r&&r.error)console.log('elimTipoUnidad:',r.error.message);});
+    audit('Tipo de unidad ELIMINADO',String(id)+' -- '+mot);
+    renderTiposUnidadLista();_fillTipoUnidadSelect('mc-uni-tipo');
+  },{op:'del',tabla:'tipos_unidad',col:'id',val:id});
 }
 async function seedTiposUnidad(){
   if((TIPOS_UNIDAD||[]).length){ if(!confirm('Ya hay tipos cargados. ¿Agregar igual los sugeridos que falten?'))return; }
@@ -11586,10 +11623,13 @@ async function guardarUnidadMC(){
 }
 function elimUnidadMC(id){
   if(!confirm('¿Eliminar esta unidad?'))return;
-  UNIDADES=UNIDADES.filter(function(u){return String(u.id)!==String(id);});
-  if(DB_READY&&supabase)supabase.from('unidades').delete().eq('id',id).then(function(r){if(r&&r.error&&typeof mostrarToast==='function')mostrarToast('No se pudo eliminar la unidad: '+r.error.message,'error');});
-  audit('Unidad eliminada',String(id));
-  renderUnidadesTabla();
+  // BORRAR = TOKEN (2026-07-25): sin autorización no se borra y queda el motivo.
+  solicitarToken('Eliminar unidad '+id,function(mot){
+    UNIDADES=UNIDADES.filter(function(u){return String(u.id)!==String(id);});
+    if(DB_READY&&supabase)supabase.from('unidades').delete().eq('id',id).then(function(r){if(r&&r.error)console.log('elimUnidadMC:',r.error.message);});
+    audit('Unidad ELIMINADA',String(id)+' -- '+mot);
+    renderUnidadesTabla();
+  },{op:'del',tabla:'unidades',col:'id',val:id});
 }
 async function importarFlotaJAC(){
   var contrato_id=gv('mc-uni-contrato');
@@ -11698,10 +11738,13 @@ async function guardarOperacionMC(){
 }
 function elimOperacionMC(id){
   if(!confirm('¿Eliminar esta operación?'))return;
-  OPERACIONES=OPERACIONES.filter(function(o){return String(o.id)!==String(id);});
-  if(DB_READY&&supabase)supabase.from('operaciones').delete().eq('id',id).then(function(r){if(r&&r.error&&typeof mostrarToast==='function')mostrarToast('No se pudo eliminar la operación: '+r.error.message,'error');});
-  audit('Operación eliminada',String(id));
-  renderOperacionesMC();
+  // BORRAR = TOKEN (2026-07-25): sin autorización no se borra y queda el motivo.
+  solicitarToken('Eliminar operación '+id,function(mot){
+    OPERACIONES=OPERACIONES.filter(function(o){return String(o.id)!==String(id);});
+    if(DB_READY&&supabase)supabase.from('operaciones').delete().eq('id',id).then(function(r){if(r&&r.error)console.log('elimOperacionMC:',r.error.message);});
+    audit('Operación ELIMINADA',String(id)+' -- '+mot);
+    renderOperacionesMC();
+  },{op:'del',tabla:'operaciones',col:'id',val:id});
 }
 // Operaciones filtradas por el rango/contrato de los filtros (reusable por P&L/consolidado).
 function _operacionesFiltradas(des,hta,contratoId){
@@ -13186,6 +13229,11 @@ function _codigoAlfaSeguro(n){
 function esSuperAdmin(){
   return SESION&&SESION.rol==='superadmin';
 }
+// Un usuario puede tener rol total y AUN ASI deberle el token a alguien (btg_usuarios.exige_token).
+// Pedido de Máximo 2026-07-25 para el usuario de Alejandra: ve todo, pero para borrar o editar
+// necesita el código. Por eso NO se auto-exime y TAMPOCO puede aprobar tokens (ni el suyo).
+function exigeTokenSiempre(){ return !!(SESION&&SESION.exigeToken); }
+function puedeAprobarTokens(){ return esSuperAdmin() && !exigeTokenSiempre(); }
 // Quién puede VER el saldo bancario: superadmin, admin (administradora) y visualizador (visor).
 // NO lo ven: rrhh, mecanico, operativo/operador, chofer, vigilante, asistencia.
 function puedeVerSaldo(){
@@ -13265,7 +13313,9 @@ function corregirInactivoNomina(empId){
 }
 
 function solicitarToken(accion,callback,accionData){
-  if(esSuperAdmin()){
+  // El superadmin no se pide token a sí mismo... salvo que sea un usuario marcado con
+  // exige_token (rol total, pero cada borrado/edición lo autoriza otro). Máximo, 2026-07-25.
+  if(esSuperAdmin() && !exigeTokenSiempre()){
     pedirMotivo(accion,function(motivo){
       audit('MODIFICACION SUPERADMIN',accion+' -- '+motivo);
       callback(motivo);
@@ -13470,7 +13520,7 @@ function _escHtml(s){
 function iniciarBannerTokens(){
   if(_bannerTokensInterval){clearInterval(_bannerTokensInterval);_bannerTokensInterval=null;}
   var cont=g('tokens-pend-banner');
-  if(!esSuperAdmin()){if(cont)cont.style.display='none';return;}
+  if(!puedeAprobarTokens()){if(cont)cont.style.display='none';return;}
   renderTokensPendientes();
   _bannerTokensInterval=setInterval(renderTokensPendientes,30000);
 }
@@ -13580,7 +13630,7 @@ function _marcarTokenAplicado(id){
 }
 function iniciarPollSesionTokens(){
   if(_pollSesionInt){clearInterval(_pollSesionInt);_pollSesionInt=null;}
-  if(!SESION||esSuperAdmin())return; // el superadmin ya ejecuta al aprobar; no lo necesita
+  if(!SESION||puedeAprobarTokens())return; // quien aprueba ya ejecuta; el que pide token SI necesita el polling
   _pollSesionTokens();
   _pollSesionInt=setInterval(_pollSesionTokens,5000);
 }
@@ -13608,7 +13658,7 @@ async function _pollSesionTokens(){
 
 async function renderTokensPendientes(){
   var cont=g('tokens-pend-banner');
-  if(!cont||!esSuperAdmin())return;
+  if(!cont||!puedeAprobarTokens())return;
   await _ensureJWT(); // sin JWT, tokens_pendientes responde 401 (anon revocado) y el panel queda vacío
   var ahora=new Date().toISOString();
   var url=SUPA_URL+'/rest/v1/tokens_pendientes?select=*&usado=eq.false&aprobado=eq.false'+
@@ -18118,14 +18168,17 @@ async function eliminarEmpDuplicado(id, nombre){
   }
   var idx=EMPLEADOS.findIndex(function(e){return e.id===id;});
   if(idx<0)return;
-  EMPLEADOS.splice(idx,1);
-  if(DB_READY&&supabase){
-    var res=await supabase.from('empleados').delete().eq('id',id);
-    if(res.error){alert('Error al eliminar: '+res.error.message);return;}
-  }
-  audit('Eliminado duplicado',nombre+' ('+id+')');
-  alert('✅ Registro eliminado.');
-  renderEmpleados();
+  // BORRAR = TOKEN (2026-07-25): borrar una persona toca nómina, préstamos y asistencia.
+  solicitarToken('Eliminar registro duplicado de empleado: '+nombre+' ('+id+')',async function(mot){
+    EMPLEADOS.splice(idx,1);
+    if(DB_READY&&supabase){
+      var res=await supabase.from('empleados').delete().eq('id',id);
+      if(res.error)console.log('eliminarEmpDuplicado:',res.error.message);
+    }
+    audit('Empleado duplicado ELIMINADO',nombre+' ('+id+') -- '+mot);
+    alert('✅ Registro eliminado.');
+    renderEmpleados();
+  },{op:'del',tabla:'empleados',col:'id',val:id});
 }
 
 
@@ -19544,13 +19597,16 @@ function renderCCMediciones(){
 async function borrarMedicionTanque(id){
   if(typeof esSuperAdmin!=='function'||!esSuperAdmin()){alert('Solo superadmin puede eliminar');return;}
   if(!confirm('¿Eliminar esta medición?'))return;
-  try{var r=await supabase.from('combustible_mediciones').delete().eq('id',id);
-    if(r.error){mostrarToast('No se pudo eliminar: '+r.error.message,'error');return;}
-  }catch(e){mostrarToast('Sin conexión','error');return;}
-  COMB_MEDICIONES=COMB_MEDICIONES.filter(function(m){return m.id!==id;});
-  if(typeof audit==='function')audit('Borrar medición tanque',id);
-  mostrarToast('🗑 Medición eliminada','exito');
-  renderCCMediciones();renderCCBalance();
+  // BORRAR = TOKEN (2026-07-25): la medición es la prueba con la que la auditoría señala faltantes.
+  solicitarToken('Eliminar medición de tanque '+id,async function(mot){
+    try{var r=await supabase.from('combustible_mediciones').delete().eq('id',id);
+      if(r.error)console.log('borrarMedicionTanque:',r.error.message);
+    }catch(e){mostrarToast('Sin conexión','error');return;}
+    COMB_MEDICIONES=COMB_MEDICIONES.filter(function(m){return m.id!==id;});
+    if(typeof audit==='function')audit('Medición de tanque ELIMINADA',id+' -- '+mot);
+    mostrarToast('🗑 Medición eliminada','exito');
+    renderCCMediciones();renderCCBalance();
+  },{op:'del',tabla:'combustible_mediciones',col:'id',val:id});
 }
 
 function renderCCBalance(){
