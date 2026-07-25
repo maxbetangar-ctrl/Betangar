@@ -1121,8 +1121,10 @@ async function bncRenderCuentas(){
 //
 // De dónde sale cada número (NO se inventa ningún campo):
 //   · `combustible_mediciones`  → altura_cm de la regla, por unidad, momento salida/llegada.
-//   · `combustible_tanques_config.tabla_cubicacion` → cm ➜ litros (el JAC es lineal 13,04 L/cm;
-//     los del galpón son cilindros: tabla NO lineal, se interpola entre puntos).
+//   · `combustible_tanques_config.tabla_cubicacion` → cm ➜ litros. NINGUNA es lineal: el JAC es un
+//     prisma de esquinas redondeadas medido el 25/07 (60 × 52,5 × 199, r=12,54 → 9,2 L/cm en el
+//     fondo, 11,94 en la panza, 8,6 arriba) y los del galpón son cilindros. Siempre se interpola
+//     entre puntos vecinos, nunca se multiplica por un factor.
 //   · `gasoil` → compras (entran al galpón) y despachos (salen del galpón hacia un camión).
 //   · `checklist` → km_salida / km_entrada.
 //   · `configuracion.tanque_costo` → $/L vigente, para valorizar los faltantes.
@@ -1177,9 +1179,10 @@ function _acCubicar(tanque,alturaCm){
   return null;
 }
 // Litros por centímetro de la tabla A ESA ALTURA (pendiente local). Es lo que traduce el error de
-// lectura, que está en cm, a litros. Se toma del tramo de la tabla que contiene la altura: con la
-// recta actual del JAC da 13,04 en todos lados; con un aforo de verdad se achicará solo en el
-// fondo del tanque, que es justo donde opera B010.
+// lectura, que está en cm, a litros. Se toma del tramo de la tabla que contiene la altura. Con la
+// cubicación real del JAC (25/07) va de 9,2 L/cm en el fondo a 11,94 en la panza y baja a 8,6
+// arriba, así que la tolerancia se achica sola justo donde un centímetro vale menos — que es el
+// fondo del tanque, donde opera B010. La recta vieja daba 13,04 en todos lados y castigaba parejo.
 function _acLitrosPorCm(tanque,alturaCm){
   var h=_acNum(alturaCm); if(h==null||!tanque||!tanque.tabla)return null;
   var t=tanque.tabla;
@@ -1314,7 +1317,8 @@ async function acCargar(desde,hasta){
   if(r[3].error)throw new Error('checklist: '+r[3].error.message);
   AC_TANQUES=(r[0].data||[]).map(function(t){
     var tabla=t.tabla_cubicacion; if(typeof tabla==='string'){ try{tabla=JSON.parse(tabla);}catch(e){tabla=null;} }
-    return {id:t.id,nombre:t.nombre,tipo:t.tipo,cap:_acNum(t.capacidad_litros),hmax:_acNum(t.altura_max_cm),tabla:tabla};
+    return {id:t.id,nombre:t.nombre,tipo:t.tipo,cap:_acNum(t.capacidad_litros),hmax:_acNum(t.altura_max_cm),tabla:tabla,
+            forma:t.forma||null,origen:t.tabla_origen||null};
   });
   AC_MED=_acDedupe(r[1].data||[]);
   AC_GASOIL=r[2].data||[];
@@ -1543,14 +1547,22 @@ function _acPuedeVeredicto(){
   var r=(typeof SESION!=='undefined'&&SESION)?String(SESION.rol||''):'';
   return ['superadmin','admin','socios'].indexOf(r)>=0;
 }
-// ¿La tabla del tanque es un AFORO de verdad o una división disfrazada? Si todos los centímetros
-// valen exactamente lo mismo, nadie midió nada: se dividió capacidad entre altura (600 L ÷ 46 cm).
-// Un tanque acostado no da los mismos litros por cm en el fondo que en la panza, así que una tabla
-// perfectamente pareja es la firma de que el aforo todavía no se hizo. Esto lo comprueba el sistema
-// solo — es la única de las tres condiciones que no depende de que alguien la declare.
+// ¿La tabla de cubicación DESCRIBE a este tanque, o es una división disfrazada?
+//
+// Antes esto se decidía mirando una sola cosa: si la tabla tenía curva. La idea era cazar la del
+// JAC, que era 600 L ÷ 46 cm repartido parejo. Pero la regla estaba mal pensada: hay tanques donde
+// la tabla correcta ES una recta. Un tanque de cajón da los mismos litros por centímetro en el
+// fondo que arriba, y con la regla vieja habría quedado bloqueado para siempre, sin avisar nunca
+// aunque sus números fueran perfectos.
+//
+// Lo que hace falta no es curva, es saber QUÉ FORMA tiene el tanque. Por eso ahora se compara la
+// tabla contra la forma declarada (`combustible_tanques_config.forma`), y una tabla que salió de
+// medir el tanque vale por sí sola, sea cual sea su dibujo.
 // ⚠️ La MISMA comprobación está en la edge function: si se cambia una, se cambia la otra.
-function _acEsAforoReal(t){
+function _acTablaDescribeTanque(t){
   if(!t||!t.tabla)return false;
+  // Salió de tocar el tanque: aforo con volúmenes conocidos, o geometría sobre medidas reales.
+  if(t.origen==='medida'||t.origen==='calculada_de_medidas')return true;
   var ps=Object.keys(t.tabla).map(function(k){return _acNum(k);}).filter(function(x){return x!=null;}).sort(function(a,b){return a-b;});
   if(ps.length<4)return false;
   var inc=[];
@@ -1560,7 +1572,22 @@ function _acEsAforoReal(t){
     inc.push((b-a)/(ps[i]-ps[i-1]));
   }
   var mx=Math.max.apply(null,inc), mn=Math.min.apply(null,inc);
-  return mx>0&&(mx-mn)>mx*0.05;
+  if(!(mx>0))return false;
+  var esRecta=(mx-mn)<=mx*0.05;
+  // En un cajón la recta es la respuesta correcta; en cualquier cuerpo con panza, no.
+  if(t.forma==='rectangular')return esRecta;
+  if(t.forma==='cilindro_horizontal'||t.forma==='rectangular_redondeado'||t.forma==='irregular')return !esRecta;
+  return false;   // forma sin declarar: no se afirma lo que no se sabe
+}
+// El porqué en castellano de lo que decidió _acTablaDescribeTanque, para que en pantalla se lea la
+// razón y no un candado mudo.
+function _acPorqueTabla(t){
+  if(!t||!t.tabla)return 'no hay tabla de cubicación cargada.';
+  if(t.origen==='medida')return 'Se aforó con volúmenes conocidos.';
+  if(t.origen==='calculada_de_medidas')return 'Se calculó con las medidas reales del tanque, no dividiendo la capacidad.';
+  if(!t.forma)return 'falta declarar la forma del tanque. Sin saber si es de cajón o tiene panza, no se puede juzgar si esta tabla lo describe.';
+  if(t.forma==='rectangular')return _acTablaDescribeTanque(t)?'Es un tanque de cajón y su tabla es pareja, que es justo lo que corresponde.':'es un tanque de cajón pero su tabla tiene curva, y eso no le calza.';
+  return _acTablaDescribeTanque(t)?'La tabla tiene la curva que corresponde a la forma del tanque.':'la tabla es una recta pareja y este tanque tiene panza: eso es una división, no una medición.';
 }
 function _acSombraEstado(){
   var ev=(AC_SOMBRA||[]).filter(function(x){ return x.veredicto==='verdadera'||x.veredicto==='falsa'; });
@@ -1571,8 +1598,9 @@ function _acSombraEstado(){
   // Examen aprobado = el MISMO criterio que aplica la edge function. Acá no se afloja: si la
   // pantalla dijera que sí y el cron que no, no se entendería por qué no avisa.
   var examenOk=(ev.length>=AC_SOMBRA_MIN&&prec!=null&&prec>=AC_SOMBRA_PREC&&falsas14===0);
-  var aforoOk=_acEsAforoReal((AC_TANQUES||[]).filter(function(t){return t.tipo==='vehiculo';})[0]||AC_TANQUES[0]);
-  return {ev:ev.length,ok:ok,prec:prec,falsas14:falsas14,
+  var tqv=(AC_TANQUES||[]).filter(function(t){return t.tipo==='vehiculo';})[0]||AC_TANQUES[0];
+  var aforoOk=_acTablaDescribeTanque(tqv);
+  return {ev:ev.length,ok:ok,prec:prec,falsas14:falsas14,tanque:tqv,
           examenOk:examenOk, aforoOk:aforoOk, interruptor:!!AC_META.avisarSustraccion,
           listo:(examenOk&&aforoOk),
           avisando:(examenOk&&aforoOk&&!!AC_META.avisarSustraccion),
@@ -1595,7 +1623,7 @@ function _acSombraHtml(){
   var _chk=function(ok,txt){ return '<div style="display:flex;gap:6px;align-items:flex-start;margin-bottom:3px"><span>'+(ok?'✅':'⬜')+'</span><span style="color:'+(ok?'var(--text2)':'var(--text3)')+'">'+txt+'</span></div>'; };
   h+='<div style="padding:8px 10px;border-radius:8px;margin-bottom:10px;background:'+(e.avisando?'rgba(163,230,53,.08)':'rgba(148,163,184,.08)')+';border:1px solid '+(e.avisando?'var(--green)':'var(--border)')+';font-size:11px;line-height:1.5">'+
      '<div style="font-weight:800;margin-bottom:6px">'+(e.avisando?'🔔 El aviso por WhatsApp está ENCENDIDO':'🔇 El aviso por WhatsApp está apagado')+'</div>'+
-     _chk(e.aforoOk,'<b>Aforo real del tanque.</b> '+(e.aforoOk?'La tabla de cubicación tiene curva: se midió de verdad.':'Todavía no: la tabla es una recta pareja (600 L ÷ 46 cm), o sea una división, no una medición. Hay que aforar el tanque y cargar la tabla.'))+
+     _chk(e.aforoOk,'<b>La tabla describe al tanque.</b> '+(e.aforoOk?_acPorqueTabla(e.tanque):'Todavía no: '+_acPorqueTabla(e.tanque)))+
      _chk(e.examenOk,'<b>Examen aprobado.</b> '+AC_SOMBRA_MIN+' casos evaluados con '+Math.round(AC_SOMBRA_PREC*100)+'% de acierto y ninguna falsa en 2 semanas. Van '+e.ev+(e.falsas14?(' y '+e.falsas14+' falsa(s) reciente(s)'):'')+'.')+
      _chk(e.interruptor,'<b>Interruptor encendido.</b> Es tu decisión, y solo se puede tomar cuando las dos de arriba estén en verde.')+
      ((e.listo&&!e.interruptor&&_acPuedeVeredicto())

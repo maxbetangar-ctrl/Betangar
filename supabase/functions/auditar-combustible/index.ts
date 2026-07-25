@@ -95,7 +95,7 @@ Deno.serve(async (req) => {
   const tanques = (cfgT.data || []).map((t: any) => {
     let tabla = t.tabla_cubicacion;
     if (typeof tabla === 'string') { try { tabla = JSON.parse(tabla); } catch { tabla = null; } }
-    return { id: t.id, tipo: t.tipo, hmax: num(t.altura_max_cm), tabla };
+    return { id: t.id, tipo: t.tipo, hmax: num(t.altura_max_cm), tabla, forma: t.forma ?? null, tabla_origen: t.tabla_origen ?? null };
   });
   if (!tanques.length) return json({ ok: true, nota: 'esta empresa no usa cubicación — nada que auditar', avisos: 0 });
 
@@ -170,11 +170,15 @@ Deno.serve(async (req) => {
   };
 
   // ── EL PORTÓN: las tres condiciones se evalúan acá, no en la cabeza de nadie ────────────────
-  // 1. ¿La tabla del tanque es un AFORO o una división disfrazada? Si todos los centímetros valen
-  //    exactamente lo mismo, nadie midió nada: se dividió capacidad entre altura. Un tanque
-  //    acostado no da los mismos litros por cm en el fondo que en la panza, así que una tabla
-  //    perfectamente pareja es la firma de que el aforo todavía no se hizo.
-  const esAforoReal = (tq: any): boolean => {
+  // 1. ¿La tabla de cubicación DESCRIBE al tanque, o es una división disfrazada?
+  //    Antes esto miraba una sola cosa: si la tabla tenía curva. Estaba mal pensado — en un tanque
+  //    de cajón la tabla correcta ES una recta, y con esa regla habría quedado mudo para siempre
+  //    aunque sus números fueran perfectos. Lo que hace falta es saber QUÉ FORMA tiene el tanque.
+  //    ⚠️ La MISMA comprobación está en app.js (_acTablaDescribeTanque): se cambian las dos juntas.
+  const tablaDescribeTanque = (tq: any): boolean => {
+    if (!tq || !tq.tabla) return false;
+    // Salió de tocar el tanque: aforo con volúmenes conocidos, o geometría sobre medidas reales.
+    if (tq.tabla_origen === 'medida' || tq.tabla_origen === 'calculada_de_medidas') return true;
     const ps = puntos(tq); if (ps.length < 4) return false;
     const inc: number[] = [];
     for (let i = 1; i < ps.length; i++) {
@@ -183,9 +187,13 @@ Deno.serve(async (req) => {
       inc.push((b - a) / (ps[i] - ps[i - 1]));
     }
     const mx = Math.max(...inc), mn = Math.min(...inc);
-    return mx > 0 && (mx - mn) > mx * 0.05;
+    if (!(mx > 0)) return false;
+    const esRecta = (mx - mn) <= mx * 0.05;
+    if (tq.forma === 'rectangular') return esRecta;
+    if (tq.forma === 'cilindro_horizontal' || tq.forma === 'rectangular_redondeado' || tq.forma === 'irregular') return !esRecta;
+    return false;   // forma sin declarar: no se afirma lo que no se sabe
   };
-  const aforoOk = esAforoReal(tanques.find((x) => x.tipo === 'vehiculo') || tanques[0]);
+  const aforoOk = tablaDescribeTanque(tanques.find((x) => x.tipo === 'vehiculo') || tanques[0]);
 
   // 2. ¿Pasó el examen del modo sombra? Solo cuentan los veredictos humanos ya dados.
   const vered = (somb.data || []).filter((x: any) => x.veredicto === 'verdadera' || x.veredicto === 'falsa');
