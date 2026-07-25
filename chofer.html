@@ -235,7 +235,8 @@ body{background:#0f1923;color:#fff;font-family:-apple-system,BlinkMacSystemFont,
         </div>
 
         <div style="font-size:13px;color:#cfe0f0;font-weight:700;margin-bottom:6px">Litros surtidos</div>
-        <input type="number" inputmode="decimal" id="sur-litros" placeholder="0" oninput="surCalc()" style="width:100%;box-sizing:border-box;background:#0e2038;border:1px solid #24405f;border-radius:10px;padding:12px;color:#fff;font-size:18px;font-family:monospace">
+        <input type="text" inputmode="decimal" id="sur-litros" placeholder="0" oninput="surLitrosInput(this)" style="width:100%;box-sizing:border-box;background:#0e2038;border:1px solid #24405f;border-radius:10px;padding:12px;color:#fff;font-size:18px;font-family:monospace">
+        <div id="sur-litros-hint" style="font-size:12px;color:#9fb3c8;margin-top:4px"></div>
         <div id="sur-costo" style="font-size:12px;color:#7dc941;margin:6px 0 14px">≈ $0.00</div>
 
         <div style="font-size:13px;color:#cfe0f0;font-weight:700;margin-bottom:6px">Foto del surtidor / recibo</div>
@@ -317,7 +318,7 @@ body{background:#0f1923;color:#fff;font-family:-apple-system,BlinkMacSystemFont,
         <div class="cl-row">
           <div class="cl-field">
             <label class="cl-label">KM Salida</label>
-            <input class="cl-input" type="number" id="cl-km-salida" placeholder="0" oninput="_fmtKm(this,'cl-km-salida-h')">
+            <input class="cl-input" type="text" inputmode="numeric" id="cl-km-salida" placeholder="0" oninput="_kmInput(this,'cl-km-salida-h')">
             <div class="cl-km-hint" id="cl-km-salida-h" style="font-size:12px;color:#6b7280;margin-top:3px;font-weight:600"></div>
           </div>
           <div class="cl-field">
@@ -328,7 +329,7 @@ body{background:#0f1923;color:#fff;font-family:-apple-system,BlinkMacSystemFont,
         <div class="cl-row" id="cl-row-llegada" style="display:none">
           <div class="cl-field">
             <label class="cl-label">KM Llegada</label>
-            <input class="cl-input" type="number" id="cl-km-llegada" placeholder="0" oninput="_fmtKm(this,'cl-km-llegada-h')">
+            <input class="cl-input" type="text" inputmode="numeric" id="cl-km-llegada" placeholder="0" oninput="_kmInput(this,'cl-km-llegada-h')">
             <div class="cl-km-hint" id="cl-km-llegada-h" style="font-size:12px;color:#6b7280;margin-top:3px;font-weight:600"></div>
           </div>
           <div class="cl-field">
@@ -845,7 +846,7 @@ function arrancarApp(){
       var clLocal = localStorage.getItem('btg_cl_'+cam+'_'+hoy);
       if(clLocal){
         var clData = JSON.parse(clLocal);
-        if(clData.km_salida) document.getElementById('cl-km-salida').value = clData.km_salida;
+        if(clData.km_salida) document.getElementById('cl-km-salida').value = _milesNum(clData.km_salida);
         if(clData.hora_salida) document.getElementById('cl-hora-salida').value = clData.hora_salida;
         if(clData.comb_salida) CL_COMB_SAL = clData.comb_salida;
         if(clData.estado_vehiculo) CL_ESTADO = clData.estado_vehiculo;
@@ -1493,7 +1494,16 @@ async function subirColaSurtidas(){
   if(!(isOnline && supabase) || !COLA_SUR.length) return;
   var pend=COLA_SUR.slice(); COLA_SUR=[];
   for(var i=0;i<pend.length;i++){
-    try{ var r=await supabase.rpc('surtida_registrar',{ p:pend[i] }); if(r&&r.error){ COLA_SUR.push(pend[i]); } }
+    try{
+      var r=await supabase.rpc('surtida_registrar',{ p:pend[i] });
+      if(r&&r.error){
+        // El servidor puede rechazar por REGLA (litros imposibles): eso no se arregla reintentando.
+        // Si se reencola, la cola queda trabada y el banner nunca se apaga. Se descarta y se avisa.
+        if(/litros/i.test(r.error.message||'')){
+          try{ mostrarToast('Se descartó una surtida con litros imposibles ('+(pend[i].litros)+' L). Registrala de nuevo con el número correcto.','error'); }catch(e2){}
+        } else { COLA_SUR.push(pend[i]); }
+      }
+    }
     catch(e){ COLA_SUR.push(pend[i]); }
   }
   persistColaSur();
@@ -1503,12 +1513,35 @@ function surSetTanque(t){
   ['galpon_1','galpon_2','estacion'].forEach(function(x){ var b=document.getElementById('sur-tanque-'+x); if(b)b.style.border='2px solid '+(x===t?'#7dc941':'#24405f'); });
   surCalc();
 }
+// ── LITROS: miles automáticos + tope duro (ver _milesVE arriba) ──
+var SUR_MAX_L = 2000;      // tope duro: ninguna surtida real pasa de aquí
+var SUR_AVISO_L = 500;     // por encima de esto se pide confirmar
+function surLitrosInput(inp){
+  var s=String(inp.value||'').replace(/\./g,',');            // el punto tecleado = decimales
+  var i=s.indexOf(',');
+  var ent=(i<0?s:s.slice(0,i)).replace(/\D/g,'').replace(/^0+(?=\d)/,'');
+  var frac=(i<0?'':s.slice(i+1).replace(/\D/g,'').slice(0,2));
+  inp.value=_milesVE(ent)+(i<0?'':(','+frac));
+  surCalc();
+}
+function _surLit(){
+  var el=document.getElementById('sur-litros'); if(!el)return 0;
+  var n=parseFloat(String(el.value||'').replace(/\./g,'').replace(',','.'));
+  return (isFinite(n)&&n>0)?n:0;
+}
+function _surHint(l){
+  var h=document.getElementById('sur-litros-hint'); if(!h)return;
+  if(!l){ h.textContent=''; return; }
+  if(l>SUR_MAX_L){ h.style.color='#ff6b6b'; h.textContent='⛔ '+_fmtVE(l,2)+' litros — eso es imposible. Revisá el tipeo.'; }
+  else if(l>SUR_AVISO_L){ h.style.color='#ffc107'; h.textContent='⚠️ '+_fmtVE(l,2)+' litros — ¿seguro que es tanto?'; }
+  else { h.style.color='#9fb3c8'; h.textContent='= '+_fmtVE(l,2)+' litros'; }
+}
 function surCalc(){
-  var l=parseFloat(document.getElementById('sur-litros').value)||0;
+  var l=_surLit(); _surHint(l);
   var el=document.getElementById('sur-costo'); if(!el)return;
   // Estación: el costo lo define administración al cierre del período (convenio). Galpón: estimado referencial.
   if(SUR_TANQUE==='estacion'){ el.textContent='💵 El costo lo define administración al cierre'; }
-  else { el.textContent='≈ $'+(l*0.812).toFixed(2)+'   (referencial · '+(l||0)+' L)'; }
+  else { el.textContent='≈ $'+_fmtVE(l*0.812,2)+'   (referencial · '+_fmtVE(l,2)+' L)'; }
 }
 function surPreviewFoto(inp){
   var f=inp.files&&inp.files[0]; if(!f)return; SUR_FOTO_FILE=f;
@@ -1536,8 +1569,23 @@ function _surCompress(file){
   });
 }
 async function surGuardar(){
-  var lit=parseFloat(document.getElementById('sur-litros').value)||0;
+  var lit=_surLit();
   if(!(lit>0)){ mostrarToast('Ingresá los litros surtidos','error'); return; }
+  // TOPE DURO (no se puede confirmar para pasarlo): un dígito de más corrompe el gasto de combustible.
+  if(lit>SUR_MAX_L){
+    mostrarToast('Litros inválidos: '+_fmtVE(lit,2)+' L es demasiado. Revisá el tipeo (sobran dígitos).','error');
+    var _fh=document.getElementById('sur-litros'); if(_fh){ try{ _fh.focus(); _fh.select(); }catch(e){} }
+    return;
+  }
+  if(lit>SUR_AVISO_L){
+    if(!confirm('⚠️ Estás registrando '+_fmtVE(lit,2)+' LITROS.\n\n'+
+      '¿Seguro que surtiste esa cantidad?\n\n'+
+      '• Aceptar → el número es correcto.\n'+
+      '• Cancelar → me equivoqué, pongo el real.')){
+      var _f=document.getElementById('sur-litros'); if(_f){ try{ _f.focus(); _f.select(); }catch(e){} }
+      return;
+    }
+  }
   if(!SUR_FOTO_FILE){ mostrarToast('Tomá la foto del surtidor/recibo','error'); return; }
   if(!SUR_GPS){
     SUR_GPS_FAILS++;
@@ -1580,7 +1628,7 @@ function surRenderHoy(){
   cont.innerHTML=lista.map(function(s){
     return '<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #1c3350">'+
       '<span>'+(s.hora||'')+' · '+(SUR_TANQUE_LBL[s.tanque]||s.tanque)+'</span>'+
-      '<b style="color:#cfe0f0">'+(parseFloat(s.litros)||0)+' L · '+(s.tanque==='estacion'?'$ lo define admin':'$'+((parseFloat(s.litros)||0)*0.812).toFixed(2))+'</b></div>';
+      '<b style="color:#cfe0f0">'+_fmtVE(parseFloat(s.litros)||0,2)+' L · '+(s.tanque==='estacion'?'$ lo define admin':'$'+_fmtVE((parseFloat(s.litros)||0)*0.812,2))+'</b></div>';
   }).join('');
 }
 
@@ -2040,7 +2088,7 @@ function cargarChecklistSupabase(){
 }
 
 function precargarChecklist(d){
-  if(d.km_salida) setVal('cl-km-salida', d.km_salida);
+  if(d.km_salida) setVal('cl-km-salida', _milesNum(d.km_salida));
   if(d.hora_salida) setVal('cl-hora-salida', d.hora_salida);
   if(d.comb_salida){
     CL_COMB_SAL = d.comb_salida;
@@ -2159,7 +2207,20 @@ function setVal(id, val){ var el=document.getElementById(id); if(el&&val!==null&
 function gv(id){ var el=document.getElementById(id); return el?el.value.trim():''; }
 // Muestra el km con separador de miles debajo del input mientras el chofer escribe (para que note un
 // dígito de más: 1400800 -> "1.400.800 km"). No cambia el valor del input (sigue type=number).
-function _fmtKm(inp, hintId){ var h=document.getElementById(hintId); if(!h)return; var v=parseInt(String(inp.value).replace(/\D/g,''))||0; h.textContent = v>0 ? ('= '+v.toLocaleString('es-VE')+' km') : ''; }
+// ══ NÚMEROS QUE ESCRIBE EL CHOFER: los MILES se ponen solos mientras teclea ══
+// Pedido de Máximo (2026-07-25) después de que una surtida de 251,51 L se guardara como 25.115 L
+// ($20.092). Un número sin separador no se lee; con separador, "25.115" se ve de una que es
+// veinticinco mil. Regla: los miles los pone el campo, el punto que teclea el usuario es DECIMAL.
+function _milesVE(ent){ return String(ent).replace(/\B(?=(\d{3})+(?!\d))/g,'.'); }
+function _milesNum(n){ if(n==null||n==='')return ''; var e=String(n).replace(/\D/g,''); return _milesVE(e.replace(/^0+(?=\d)/,'')); }
+function _fmtVE(n,dec){ return (Number(n)||0).toLocaleString('es-VE',{minimumFractionDigits:(dec==null?2:dec),maximumFractionDigits:(dec==null?2:dec)}); }
+// Enteros (kilometraje): solo dígitos, miles automáticos.
+function _kmInput(inp, hintId){
+  inp.value=_milesNum(inp.value);
+  var h=hintId&&document.getElementById(hintId); if(h)h.textContent='';
+}
+function _kmVal(id){ var el=document.getElementById(id); if(!el)return 0; var n=parseInt(String(el.value||'').replace(/\D/g,''),10); return isFinite(n)?n:0; }
+function _fmtKm(inp, hintId){ return _kmInput(inp, hintId); }   // nombre viejo, por si algo más lo llama
 
 // ── GUARDAR CHECKLIST ──
 // Tabla de cubicación del tanque JAC (cm -> litros). Espejo de combustible_tanques_config(tanque-jac).
@@ -2246,11 +2307,11 @@ async function guardarChecklist(){
   }
 
   if(CL_MODO==='salida'){
-    registro.km_salida   = parseInt(gv('cl-km-salida')) || null;
+    registro.km_salida   = _kmVal('cl-km-salida') || null;
     registro.hora_salida = gv('cl-hora-salida') || hora;
     registro.comb_salida = CL_COMB_SAL || null;
   } else {
-    registro.km_entrada   = parseInt(gv('cl-km-llegada')) || null;
+    registro.km_entrada   = _kmVal('cl-km-llegada') || null;
     registro.hora_entrada = gv('cl-hora-llegada') || hora;
     registro.comb_entrada = CL_COMB_LLE || null;
   }
@@ -2260,7 +2321,7 @@ async function guardarChecklist(){
   // de eso contra el odómetro previo (o la distancia del día es >1.500), es casi seguro un dígito de
   // más (ej. 111.878 en vez de 11.878, que fue el caso real de la unidad 5). Se le avisa y se le pide
   // confirmar; si se equivocó, cancela y lo corrige. Evita corromper el odómetro y el próximo servicio.
-  var _kmIng = (CL_MODO==='salida') ? (parseInt(gv('cl-km-salida'))||0) : (parseInt(gv('cl-km-llegada'))||0);
+  var _kmIng = (CL_MODO==='salida') ? (_kmVal('cl-km-salida')||0) : (_kmVal('cl-km-llegada')||0);
   if(_kmIng>0){
     // TOPE DURO (NO se puede confirmar para pasarlo): un salto absurdo (dígito de más, ej. 1.400.800
     // en vez de 16.104) se RECHAZA. Con odómetro previo: no puede subir más de 100.000 km de golpe.
@@ -2277,7 +2338,7 @@ async function guardarChecklist(){
     if(CL_MODO==='salida'){
       if(CL_KM_PREV>0 && _kmIng > CL_KM_PREV + KM_MAX_DIA){ _susp='salto'; _ref=CL_KM_PREV; }
     } else {
-      var _kmSal = parseInt(gv('cl-km-salida')) || CL_KM_PREV || 0;
+      var _kmSal = _kmVal('cl-km-salida') || CL_KM_PREV || 0;
       if(_kmSal>0 && _kmIng > _kmSal + KM_MAX_DIA){ _susp='dia'; _ref=_kmSal; }
       else if(_kmSal>0 && _kmIng < _kmSal){ _susp='baja'; _ref=_kmSal; }
     }
@@ -2347,7 +2408,7 @@ async function guardarChecklist(){
       // actualizarlo ahí también, mapeado al vocabulario del dashboard (operativo/taller/
       // inoperativo). Así el estado que reporta el chofer SÍ se enlaza con el dashboard.
       var estDash = CL_ESTADO==='inoperativo' ? 'inoperativo' : (String(CL_ESTADO).indexOf('taller')===0 ? 'taller' : 'operativo');
-      var kmVal = CL_MODO==='salida' ? (parseInt(gv('cl-km-salida'))||0) : (parseInt(gv('cl-km-llegada'))||0);
+      var kmVal = CL_MODO==='salida' ? (_kmVal('cl-km-salida')||0) : (_kmVal('cl-km-llegada')||0);
       // El estado/nota SIEMPRE se actualiza. El KM (odómetro) SOLO si SUBE: un typo del chofer con un
       // km MENOR bajaría el odómetro del dashboard y corrompería el cálculo de próximo servicio
       // (proxServicio). El resto de la app ya protege esto (kmActualCam usa Math.max; el guardado de
