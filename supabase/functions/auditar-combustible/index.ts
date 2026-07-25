@@ -47,9 +47,12 @@ const TOL_PISO = 8;     // piso, para que una tabla plana no genere una toleranc
 // cambia a mano cuando se siente listo — así fue como se llegó al problema. Es un portón que el
 // propio sistema controla, y que exige LAS TRES cosas a la vez:
 //
-//   1. AFORO REAL del tanque. Se comprueba solo: si todos los centímetros de la tabla de
-//      cubicación valen exactamente lo mismo, eso no es un aforo, es una división (600 L ÷ 46 cm).
-//      Un tanque acostado no da los mismos litros por cm en el fondo que en la panza.
+//   1. LA TABLA DESCRIBE AL TANQUE. Se comprueba solo, contra la FORMA declarada del tanque: en un
+//      cajón la tabla correcta es una recta, en un cuerpo con panza tiene que tener curva, y una
+//      tabla que salió de medir el tanque vale por sí sola. (Antes esto solo miraba si había curva,
+//      y así un tanque de cajón legítimo habría quedado mudo para siempre.)
+//      El JAC se midió el 25/07: 60 × 52,5 × 199 cm, esquinas r=12,54 → 600 L. Antes tenía
+//      13,043 L/cm parejo, que era 600 ÷ 46: una división, no una medición.
 //   2. EXAMEN APROBADO en modo sombra: veredictos humanos guardados en `comb_auditoria_sombra`,
 //      con al menos MIN_EVAL casos evaluados, PRECISION_MIN de acierto y ninguna falsa reciente.
 //   3. INTERRUPTOR EN ON: `configuracion.aud_comb_avisar` = 'on'. Es la decisión de Máximo, pero
