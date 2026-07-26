@@ -100,6 +100,11 @@ Deno.serve(async (req) => {
     sb.from('configuracion').select('valor').eq('clave', 'whatsapp').maybeSingle(),
     sb.from('alertas_log').select('alert_key').like('alert_key', 'kmviaje_%'),
   ]);
+  // Lee UNA clave de configuracion (el mismo helper que usan las otras edges).
+  const one = async (clave: string): Promise<string|null> => {
+    const r = await sb.from('configuracion').select('valor').eq('clave', clave).maybeSingle();
+    return (r && r.data && r.data.valor) ? String(r.data.valor) : null;
+  };
   const ck = { data: ckData }, pl = { data: plData };
 
   // ── Viajes por unidad y día: SUMA de todos los turnos (precondición 2) ────────────────────────
@@ -178,9 +183,22 @@ Deno.serve(async (req) => {
   try { roster = JSON.parse(String(waCfg.data?.valor || '[]')); } catch { roster = []; }
   const telsRol = (roles: string[]) => (Array.isArray(roster) ? roster : [])
     .filter((w: any) => w.num && w.activo !== false && roles.includes(w.rol)).map((w: any) => String(w.num));
-  const destinos = [...new Set(telsRol(['operativo', 'socios']))];
+  // A QUIÉN LE LLEGA (Máximo, 2026-07-25): «enviame los análisis a mi correo, yo se los paso a
+  // quien tenga que pasárselo». Por eso el análisis va POR CORREO a él, y el WhatsApp al operativo
+  // queda APAGADO hasta que él lo diga («después a whatsapp, pero estoy resolviendo algo»).
+  // Las dos vías conviven y se prenden desde la BD, sin tocar código:
+  //   configuracion.kmviaje_email    → {"to":["..."],"activo":true}   (por defecto, a Máximo)
+  //   configuracion.kmviaje_whatsapp → {"activo":true}                (por defecto APAGADO)
+  let cfgMail: any = {}, cfgWa: any = {};
+  try { cfgMail = JSON.parse((await one('kmviaje_email')) || '{}'); } catch { cfgMail = {}; }
+  try { cfgWa   = JSON.parse((await one('kmviaje_whatsapp')) || '{}'); } catch { cfgWa = {}; }
+  const mailTo: string[] = (Array.isArray(cfgMail.to) && cfgMail.to.length) ? cfgMail.to : ['maxbetangar@gmail.com'];
+  const mailOn = cfgMail.activo !== false;              // por defecto SÍ va el correo
+  const waOn   = cfgWa.activo === true;                 // por defecto NO va el WhatsApp
+  const destinos = waOn ? [...new Set(telsRol(['operativo', 'socios']))] : [];
 
   const filas: any[] = [];
+  const partesMail: string[] = [];   // lo mismo que iría por WhatsApp, para el correo
   if (hallazgos.length) {
     const lineas = hallazgos.map((h) => {
       const deNoche = h.entre > 0
@@ -196,6 +214,7 @@ Deno.serve(async (req) => {
       `o que faltara cargar un viaje en la planilla. Lo que hace falta es preguntarle al supervisor de esa unidad ` +
       `qué hizo ese día. No es un señalamiento: son kilómetros que hoy no están respaldados por ningún viaje, ` +
       `y mientras no se aclare tampoco se están facturando.`;
+    partesMail.push(msg);
     destinos.forEach((t) => filas.push({ telefono: t, mensaje: msg, tipo: 'auditoria' }));
   }
 
@@ -203,13 +222,14 @@ Deno.serve(async (req) => {
   // planillas por cargar es en sí mismo algo que alguien tiene que resolver, y explica por qué
   // este reporte no habla de esos días.
   const diasPend = Object.keys(pendientes).sort();
-  if (diasPend.length && destinos.length) {
+  if (diasPend.length) {
     const msgP = `🗓️ Faltan planillas por cargar\n\n` +
       diasPend.map((f) => `• ${fmtF(f)}: ${pendientes[f]} unidad(es) con kilómetros registrados y sin planilla`).join('\n') +
       `\n\nEsos días no se revisaron: sin la planilla no se puede saber si los kilómetros tienen viaje que los explique. ` +
       `Se vuelven a mirar solos en cuanto se carguen.`;
     const keyP = `kmviaje_pendientes_${HASTA}`;
     if (!yaPreguntado.has(keyP)) {
+      partesMail.push(msgP);
       destinos.forEach((t) => filas.push({ telefono: t, mensaje: msgP, tipo: 'auditoria' }));
       marcar.push(keyP);
     }
@@ -223,14 +243,45 @@ Deno.serve(async (req) => {
                     dias_pendientes_de_planilla: Object.values(pendientes).reduce((a, b) => a + b, 0),
                     dias_con_km_imposible: imposibles,
                     hallazgos: hallazgos.length, detalle: hallazgos.map((h) => ({ cam: h.cam, fecha: h.f, km: h.km, viajes: h.viajes, exceso: h.exceso })) };
-  if (dry) return json({ ok: true, dry: true, ...resumen, encolaria: filas.length, muestra: filas.slice(0, 1) });
-  if (!filas.length) return json({ ok: true, ...resumen, avisos: 0, nota: 'nada que preguntar' });
+  if (dry) return json({ ok: true, dry: true, ...resumen, encolaria: filas.length, enviaria_correo: mailOn ? mailTo : [], muestra: partesMail.slice(0, 1) });
+  if (!filas.length && !partesMail.length) return json({ ok: true, ...resumen, avisos: 0, nota: 'nada que preguntar' });
 
-  const ins = await sb.from('cola_mensajes').insert(filas);
-  if (ins.error) return json({ ok: false, error: ins.error.message }, 500);
+  // ── El correo primero: es la vía que pidió Máximo. Si falla, se dice en la respuesta y NO se
+  // marcan los días como preguntados, para que el próximo pase vuelva a intentarlo.
+  let mailOk: boolean | null = null;
+  if (mailOn && partesMail.length) {
+    let rs: any = {};
+    try { rs = JSON.parse((await one('resend')) || '{}'); } catch { rs = {}; }
+    if (!rs.apikey) mailOk = false;
+    else mailOk = await enviarEmailResend(rs.apikey, rs.from || 'BETANGAR <reportes@maxware.app>', mailTo,
+      'Kilometros que ningun viaje explica - ' + DESDE + ' al ' + HASTA, partesMail.join(String.fromCharCode(10,10) + '-----' + String.fromCharCode(10,10)));
+  }
+  if (mailOk === false) return json({ ok: false, ...resumen, error: 'no se pudo enviar el correo (revisar configuracion.resend)', correo_a: mailTo }, 500);
+
+  if (filas.length) {
+    const ins = await sb.from('cola_mensajes').insert(filas);
+    if (ins.error) return json({ ok: false, error: ins.error.message }, 500);
+  }
   if (marcar.length) await sb.from('alertas_log').insert([...new Set(marcar)].map((k) => ({ alert_key: k })));
-  return json({ ok: true, ...resumen, avisos: filas.length });
+  return json({ ok: true, ...resumen, avisos: filas.length, correo: mailOk === true ? mailTo : (mailOn ? 'sin nada que enviar' : 'apagado') });
 });
+
+// Envia el analisis por correo (Resend). La clave y el remitente viven en configuracion.resend,
+// no en el codigo ni en el job — misma norma que el resto de los secretos.
+async function enviarEmailResend(apikey: string, from: string, to: string[], subject: string, texto: string): Promise<boolean> {
+  try {
+    const html = `<div style="font:14px/1.6 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:#1f2937;max-width:680px">` +
+      texto.split(String.fromCharCode(10)).map((l) => l.trim()==="" ? "<br>" : `<div>${l.replace(/&/g,"&amp;").replace(/</g,"&lt;")}</div>`).join("") +
+      `</div>`;
+    const r = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: { "Authorization": `Bearer ${apikey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ from, to, subject, html, text: texto }),
+    });
+    if (!r.ok) { console.error("resend err", r.status, await r.text()); return false; }
+    return true;
+  } catch (e) { console.error("resend exc", String(e)); return false; }
+}
 
 function num(v: any): number | null { const n = parseFloat(v); return isFinite(n) ? n : null; }
 // Un 0 en el odómetro NO es un odómetro en cero: es el checklist sin cerrar o sin dato.
