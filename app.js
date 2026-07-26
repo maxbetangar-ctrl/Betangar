@@ -8331,8 +8331,132 @@ function renderUnidades(){
         '<td>'+_mEsc(c.tipo||'—')+(c.combustible?' <span style="font-size:9px;color:var(--text3)">('+_mEsc(c.combustible)+')</span>':'')+'</td>'+
         '<td style="font-size:11px">'+_mEsc(c.chofer||(FLOTA[cam]&&FLOTA[cam].chofer)||'—')+'</td>'+
         '<td style="text-align:center">'+(c.activo===false?'—':'✓')+'</td>'+
-        '<td style="white-space:nowrap"><button class="btn btn-s btn-xs" onclick="abrirEditarUnidad(\''+_mEsc(cam)+'\')">✏️ ficha</button> <button class="btn btn-s btn-xs" title="Ver e imprimir el código QR de esta unidad (abre la app del chofer)" onclick="generarQRUnidad(\''+_mEsc(cam)+'\')">📲 QR</button> <button class="btn btn-s btn-xs" title="Imprimir ficha" onclick="imprimirFichaUnidad(\''+_mEsc(cam)+'\')">🖨️</button></td></tr>';
+        '<td style="white-space:nowrap"><button class="btn btn-s btn-xs" onclick="abrirEditarUnidad(\''+_mEsc(cam)+'\')">✏️ ficha</button> <button class="btn btn-s btn-xs" title="Medidas del tanque y tabla cm→litros" onclick="abrirTanqueUnidad(\''+_mEsc(cam)+'\')">🛢️ tanque</button> <button class="btn btn-s btn-xs" title="Ver e imprimir el código QR de esta unidad (abre la app del chofer)" onclick="generarQRUnidad(\''+_mEsc(cam)+'\')">📲 QR</button> <button class="btn btn-s btn-xs" title="Imprimir ficha" onclick="imprimirFichaUnidad(\''+_mEsc(cam)+'\')">🖨️</button></td></tr>';
     }).join('')+'</tbody></table>'+(cams.length?'':'<div class="empty-state"><span class="ico">🚚</span>Todavía no hay unidades.<br>Agregá la primera con <b>"＋ Agregar unidad"</b> — se genera su QR al instante.</div>');
+}
+// ══════════════════════════════════════════════════════════════════════════════
+// 🛢️ TANQUE DE LA UNIDAD — de las medidas a la tabla cm → litros
+// La tabla describe A ESE TANQUE: no se comparte con otras unidades (Máximo, 2026-07-25:
+// «esa medida de 600 es de los JAC y en Flotilla hay muchas marcas»). El motor está en
+// cubicacion.js, aparte y puro, y está probado contra el tanque del JAC que se midió con
+// cinta: reproduce su tabla al centilitro y deduce solo el radio de esquina.
+// ══════════════════════════════════════════════════════════════════════════════
+var TQ_FORMAS={
+  redondeado:{lbl:'Prisma de esquinas redondeadas',ayuda:'El de aluminio típico de camión: rectángulo acostado con las esquinas redondeadas.',campos:['ancho_cm','alto_cm','largo_cm']},
+  cilindro:{lbl:'Cilindro acostado',ayuda:'El redondo de gandola o cisterna, acostado a lo largo.',campos:['diametro_cm','largo_cm']},
+  cajon:{lbl:'Cajón recto',ayuda:'Rectangular sin redondeo: el mismo ancho del fondo hasta arriba.',campos:['ancho_cm','alto_cm','largo_cm']}
+};
+var TQ_LBL={ancho_cm:'Ancho (cm)',alto_cm:'Alto (cm)',largo_cm:'Largo (cm)',diametro_cm:'Diámetro (cm)'};
+async function abrirTanqueUnidad(cam){
+  if(typeof tablaCubicacion!=='function'){ mostrarToast('No cargó el motor de cubicación (cubicacion.js)','error'); return; }
+  var t=null;
+  if(DB_READY&&supabase){
+    try{ var r=await supabase.from('combustible_tanques_config').select('*').eq('vehiculo_id',cam).maybeSingle();
+      if(r&&r.data)t=r.data; }catch(e){}
+  }
+  window._tqCam=cam; window._tqExistente=t;
+  var c=UNIDAD_CONFIG[cam]||{};
+  var forma=(t&&t.forma)||'redondeado';
+  var capDecl=(t&&t.capacidad_litros)||c.capacidad_tanque_l||'';
+  var html=
+    '<div style="font-size:12px;color:var(--text2);margin-bottom:10px"><b>'+_mEsc(cam)+'</b> · '+
+      _mEsc([c.marca,c.modelo].filter(Boolean).join(' ')||'—')+' · placa '+_mEsc(c.placa||'—')+'</div>'+
+    (t?('<div style="font-size:11px;color:var(--text3);margin-bottom:10px">Ya tiene tabla ('+_mEsc(t.tabla_origen||'?')+
+        (t.medido_por?(', medido por '+_mEsc(t.medido_por)):'')+'). Volver a calcular la reemplaza.</div>'):'')+
+    '<div class="fg"><label>¿Qué forma tiene el tanque?</label><select class="fc" id="tq-forma" onchange="tqFormaChange()">'+
+      Object.keys(TQ_FORMAS).map(function(k){return '<option value="'+k+'"'+(k===forma?' selected':'')+'>'+TQ_FORMAS[k].lbl+'</option>';}).join('')+
+    '</select><small id="tq-ayuda" style="color:var(--text3);font-size:10px"></small></div>'+
+    '<div id="tq-campos" class="fr2"></div>'+
+    '<div class="fg"><label>Capacidad de fábrica en litros (opcional, de la ficha)</label>'+
+      '<input class="fc" id="tq-cap" inputmode="decimal" value="'+_mEsc(String(capDecl||''))+'" placeholder="ej: 600">'+
+      '<small style="color:var(--text3);font-size:10px">Si la ponés, el sistema deduce el redondeo de la esquina y te dice si las medidas cierran con la capacidad. Eso es lo que convierte un cálculo en una verificación.</small></div>'+
+    '<div id="tq-preview" style="font-size:12px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:10px;margin:10px 0;min-height:40px;color:var(--text3)">Cargá las medidas y tocá <b>Calcular</b>.</div>'+
+    '<div style="display:flex;gap:8px">'+
+      '<button class="btn btn-s" style="flex:1" onclick="tqCalcular()">📐 Calcular</button>'+
+      '<button class="btn btn-g" style="flex:1" id="tq-btn-guardar" disabled onclick="tqGuardar()">Guardar tabla</button>'+
+      '<button class="btn btn-s" onclick="closeModal()">Cancelar</button></div>';
+  openModal('🛢️ Tanque de '+cam, html);
+  tqFormaChange(t);
+}
+function tqFormaChange(pre){
+  var f=gv('tq-forma')||'redondeado', def=TQ_FORMAS[f]||TQ_FORMAS.redondeado;
+  var t=pre||window._tqExistente||{};
+  var ay=g('tq-ayuda'); if(ay)ay.textContent=def.ayuda;
+  var cont=g('tq-campos'); if(!cont)return;
+  cont.innerHTML=def.campos.map(function(k){
+    return '<div class="fg"><label>'+TQ_LBL[k]+'</label><input class="fc" id="tq-'+k+'" inputmode="decimal" value="'+_mEsc(String(t[k]||''))+'" placeholder="0"></div>';
+  }).join('');
+  var pv=g('tq-preview'); if(pv)pv.innerHTML='Cargá las medidas y tocá <b>Calcular</b>.';
+  var bt=g('tq-btn-guardar'); if(bt)bt.disabled=true;
+}
+function _tqNum(id){ var v=(gv(id)||'').replace(/\./g,'').replace(',','.'); var n=parseFloat(v); return isFinite(n)?n:0; }
+function _tqMedidas(){
+  var f=gv('tq-forma')||'redondeado', m={};
+  (TQ_FORMAS[f]||{campos:[]}).campos.forEach(function(k){ m[k]=_tqNum('tq-'+k); });
+  return m;
+}
+function tqCalcular(){
+  var f=gv('tq-forma')||'redondeado', m=_tqMedidas(), cap=_tqNum('tq-cap');
+  var pv=g('tq-preview'), bt=g('tq-btn-guardar');
+  var faltan=(TQ_FORMAS[f].campos||[]).filter(function(k){return !(m[k]>0);});
+  if(faltan.length){ pv.innerHTML='<span style="color:var(--yellow)">Faltan medidas: '+faltan.map(function(k){return TQ_LBL[k];}).join(', ')+'</span>'; bt.disabled=true; return; }
+  // El radio de la esquina casi nunca se puede medir: se DEDUCE de la capacidad de fábrica.
+  var avisoRadio='';
+  if(f==='redondeado'){
+    if(cap>0){
+      var rr=radioQueDaLaCapacidad(m,cap);
+      if(rr==null){
+        pv.innerHTML='<span style="color:var(--red)">⛔ Las medidas y la capacidad no se corresponden.</span><br>'+
+          'Con '+m.ancho_cm+'×'+m.alto_cm+'×'+m.largo_cm+' cm no hay forma de que el tanque dé '+cap+' L, ni con esquinas rectas ni con el máximo redondeo. '+
+          'Hay que volver a medir, o revisar la capacidad de la ficha. <b>No se guarda una tabla que no cierra.</b>';
+        bt.disabled=true; return;
+      }
+      m.radio_cm=rr; avisoRadio=' · redondeo de esquina deducido: <b>'+rr+' cm</b>';
+    } else { m.radio_cm=0; avisoRadio=' · <span style="color:var(--yellow)">sin capacidad de fábrica se calcula con esquinas rectas: el número va a quedar por encima del real</span>'; }
+  }
+  window._tqMedidasCalc=m;
+  var res=resumenCubicacion(f,m,cap);
+  var difTxt = (res.diferencia_l==null) ? '' :
+    (' · contra la ficha: <b style="color:'+((Math.abs(res.diferencia_pct)<=1)?'var(--green)':'var(--yellow)')+'">'+
+      (res.diferencia_l>0?'+':'')+res.diferencia_l+' L ('+res.diferencia_pct+'%)</b>');
+  var recta=(res.lcm_fondo===res.lcm_panza && res.lcm_panza===res.lcm_arriba);
+  pv.innerHTML='<b>Tope:</b> '+res.alto_max_cm+' cm → <b>'+res.litros_al_tope.toLocaleString('es-VE')+' L</b>'+difTxt+avisoRadio+
+    '<br><b>Litros por cm:</b> fondo '+res.lcm_fondo+' · panza '+res.lcm_panza+' · arriba '+res.lcm_arriba+
+    (recta?' <span style="color:var(--text3)">(iguales: es un tanque recto, y está bien que su tabla sea una recta)</span>':'')+
+    '<br><small style="color:var(--text3)">Se va a guardar como <b>calculada de medidas</b>: es geometría sobre el tanque real, otra categoría que una división — pero no es un aforo con bidón. El día que se afore, se reemplaza.</small>';
+  bt.disabled=false;
+}
+async function tqGuardar(){
+  var cam=window._tqCam, f=gv('tq-forma')||'redondeado', m=window._tqMedidasCalc, cap=_tqNum('tq-cap');
+  if(!cam||!m){ mostrarToast('Calculá primero','error'); return; }
+  if(!(DB_READY&&supabase)){ mostrarToast('Sin conexión a la base','error'); return; }
+  var tabla=tablaCubicacion(f,m);
+  var alto=(f==='cilindro')?m.diametro_cm:m.alto_cm;
+  var total=volumenHasta(f,m,alto);
+  var prev=window._tqExistente;
+  var row={
+    id:(prev&&prev.id)||('tanque-'+String(cam).toLowerCase()),
+    nombre:'Tanque de '+cam, tipo:'vehiculo', vehiculo_id:cam,
+    capacidad_litros:Math.round(total*100)/100, altura_max_cm:alto,
+    tabla_cubicacion:tabla, forma:f, tabla_origen:'calculada_de_medidas',
+    tabla_desde:new Date().toISOString(), activo:true,
+    ancho_cm:m.ancho_cm||null, alto_cm:m.alto_cm||null, largo_cm:m.largo_cm||null,
+    radio_cm:(m.radio_cm!=null?m.radio_cm:null), diametro_cm:m.diametro_cm||null,
+    medido_por:(SESION&&SESION.usuario)||'', medido_at:new Date().toISOString()
+  };
+  var r=await supabase.from('combustible_tanques_config').upsert([row],{onConflict:'id'});
+  if(r&&r.error){ mostrarToast('No se pudo guardar: '+r.error.message,'error'); return; }
+  // La capacidad de la unidad pasa a ser MEDIDA: sale de la cinta, no de deducir un modelo.
+  try{ await supabase.from('unidad_config').update({
+      capacidad_tanque_l:Math.round(total*100)/100, capacidad_origen:'medido',
+      capacidad_fuente:'Calculada de las medidas del tanque ('+f+') tomadas el '+new Date().toISOString().slice(0,10)+' por '+((SESION&&SESION.usuario)||'')
+    }).eq('cam',cam);
+    if(UNIDAD_CONFIG[cam])UNIDAD_CONFIG[cam].capacidad_tanque_l=Math.round(total*100)/100;
+  }catch(e){ console.log('capacidad unidad:',e&&e.message); }
+  audit('Tanque cubicado', cam+': '+f+' → '+Math.round(total)+' L (tope '+alto+' cm)');
+  closeModal();
+  mostrarToast('✅ Tanque de '+cam+' cubicado: '+Math.round(total).toLocaleString('es-VE')+' L','exito');
+  try{ renderUnidades(); }catch(e){}
 }
 async function abrirEditarUnidad(cam){
   var nueva=!cam, c=cam?(UNIDAD_CONFIG[cam]||{}):{};
