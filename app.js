@@ -690,6 +690,62 @@ async function doLogin(){
   err.style.display='block';document.getElementById('login-pass').value='';
   setTimeout(function(){err.style.display='none';err.textContent='Usuario o contrasena incorrectos';},6000);
 }
+// ── ENTRAR CON LA LLAVE DE LA TORRE ──────────────────────────────────────────
+// La Torre abre `app.html#acceso=<token>` con un token de UN SOLO USO generado en
+// ESTA base. Se canjea por una sesion y se entra por EL MISMO CAMINO que un login
+// normal: se lee btg_usuarios, se respeta `activo` y se aplican los mismos
+// candados de 2FA. Nada de una puerta paralela sin cerradura.
+//
+// ⚠️ SI TU ROL EXIGE 2FA, TE LO VA A PEDIR IGUAL. Es a proposito: entrar de un
+// clic no puede significar entrar con menos requisitos. La comodidad es no tener
+// que recordar la clave, no saltarse la seguridad.
+async function canjearAccesoDeLaTorre(){
+  var h = (typeof location!=='undefined' && location.hash) ? location.hash : '';
+  if(h.indexOf('acceso=') < 0) return;
+  var token='';
+  try{ token = new URLSearchParams(h.replace(/^#/,'')).get('acceso') || ''; }catch(e){}
+  // Se limpia la barra ANTES de canjear: si alguien mira la pantalla, ya no hay
+  // nada que copiar. Igual el token muere al usarse.
+  try{ history.replaceState({}, document.title, location.pathname + location.search); }catch(e){}
+  if(!token || !supabaseAuth || !supabaseAuth.auth) return;
+  var err = document.getElementById('login-error');
+  var avisar = function(t){ if(err){ err.textContent=t; err.style.display='block'; } else alert(t); };
+  try{
+    var r = await supabaseAuth.auth.verifyOtp({ type:'magiclink', token_hash: token });
+    if(!r || r.error || !r.data || !r.data.user){
+      var m = (r && r.error && r.error.message) || '';
+      avisar(/expired|invalid/i.test(m)
+        ? 'Esa llave ya se uso o se vencio. Vuelve a la Torre y pulsa Entrar otra vez.'
+        : ('No se pudo entrar: '+(m||'llave rechazada')));
+      return;
+    }
+    var uid = r.data.user.id, meta = r.data.user.user_metadata || {};
+    var rol=meta.rol, nombre=meta.nombre||'Maxware (soporte)', usuario=meta.usuario||'maxware_soporte';
+    var demo=!!meta.demo, activo=true, exigeToken=false;
+    try{
+      var ur = await supabaseAuth.from('btg_usuarios')
+        .select('usuario,rol,nombre,demo,activo,exige_token').eq('auth_user_id', uid).maybeSingle();
+      if(ur && ur.data){ rol=ur.data.rol||rol; nombre=ur.data.nombre||nombre; usuario=ur.data.usuario||usuario;
+        demo=!!ur.data.demo; activo=ur.data.activo!==false; exigeToken=!!ur.data.exige_token; }
+    }catch(e){}
+    if(!rol){ avisar('Esa llave entro, pero el usuario no tiene rol en este sistema.'); return; }
+    if(!activo){ try{ await supabaseAuth.auth.signOut(); }catch(e){} avisar('Ese usuario esta desactivado.'); return; }
+    // El MISMO candado que el login normal: si el rol lo exige y no tiene 2FA, se
+    // fuerza a activarlo ahora. Ver el bloque equivalente en entrar().
+    if(['superadmin','auditor','admin','rrhh'].indexOf(rol)>=0){
+      var tiene=false;
+      try{ var f=await supabaseAuth.auth.mfa.listFactors(); var fd=(f&&f.data)?f.data:f;
+        tiene=!!((fd&&fd.totp&&fd.totp.length)||(fd&&fd.all&&fd.all.some(function(x){return x.factor_type==='totp'&&x.status==='verified';}))); }catch(e){}
+      if(!tiene){
+        var ok=false; try{ ok=await forzar2FA(rol); }catch(e){ ok=false; }
+        if(!ok){ try{ await supabaseAuth.auth.signOut(); }catch(e){}
+          avisar('Tu rol requiere activar la verificacion en dos pasos (2FA) para entrar.'); return; }
+      }
+    }
+    _entrarSesion({usuario:usuario, rol:rol, nombre:nombre, demo:demo, exigeToken:exigeToken});
+  }catch(e){ avisar('No se pudo entrar: '+((e&&e.message)||'error')); }
+}
+
 function _entrarSesion(ses){
   SESION=ses;
   try{ localStorage.setItem('betangar_sesion',JSON.stringify(Object.assign({},SESION,{_ts:Date.now()}))); }catch(e){}
@@ -727,6 +783,18 @@ function initSupabaseClient(){
       // La marca sale de la BASE (norma 2026-07-26). Antes del login: el logo y el nombre
       // salen en la pantalla de entrada. Sin await: si la base tarda, la app arranca igual.
       try{ hidratarMarcaDesdeBD(); }catch(e){}
+      // ── ENTRAR DESDE LA TORRE, sin escribir usuario ni clave ────────────────
+      // La Torre abre `…/app.html#acceso=<token>` con un token de UN SOLO USO que
+      // ella genero en ESTA base. Se canjea por una sesion y se sigue por el
+      // camino normal, con el rol y los candados de siempre.
+      //
+      // ⛔ POR QUE NO SIRVE EL ENLACE QUE DEVUELVE SUPABASE: ese pasa por
+      // supabase.co y entrega la sesion en el fragmento de la URL, pero este
+      // cliente se crea con `detectSessionInUrl:false` (arriba) y la DESCARTA. El
+      // usuario aterrizaba en la pantalla de login y parecia que el boton de la
+      // Torre no habia hecho nada. Cambiar ese flag afectaria a toda la app; esto
+      // solo actua cuando el hash trae la llave.
+      try{ canjearAccesoDeLaTorre(); }catch(e){}
       return true;
     }
     console.warn('⚠ Supabase CDN aún no disponible');DB_READY=false;return false;
