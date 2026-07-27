@@ -113,3 +113,31 @@ create unique index if not exists idx_mp_empleados_cedula_unica
 -- Índices de BÚSQUEDA: lo que la app usa para encontrar a alguien.
 create index if not exists idx_empleados_cedula_canon on empleados (cedula_canon);
 create index if not exists idx_edu_usuarios_cedula_canon on edu_usuarios (cedula_canon);
+
+
+-- ════════════════════════════════════════════════════════════════════════════
+-- RESOLUCIÓN DE LA COLISIÓN (Máximo confirmó: la cédula de Carlos es 19307663)
+--
+-- Al buscar ese número apareció lo que de verdad había pasado: Carlos NO tenía
+-- la cédula mal, estaba cargado DOS VECES.
+--   E836  ALEXANDER ARTURO PAZ GONZALEZ      V-30340377   11-jun   3 asistencias
+--   E342  CARLOS ALFREDO MONTIEL             30340377     11-jul   0 asistencias  ← le copiaron la de Alexander
+--   E706  CARLOS ALFREDO MONTIEL VILLALOBOS  19307663     15-jul   4 asistencias  ← el bueno
+--
+-- O sea: lo cargaron mal el 11-jul y lo volvieron a cargar bien el 15-jul, pero
+-- el registro malo quedó ACTIVO. Ponerle 19307663 a E342 habría dejado dos
+-- Carlos con la misma cédula.
+--
+-- E342 se DESACTIVA y se le quita la cédula ajena (nunca fue suya, y el índice
+-- único no mira `activo`). No se borra: si algo quedara colgado de ese id, el
+-- rastro sigue ahí.
+-- ════════════════════════════════════════════════════════════════════════════
+update empleados
+   set activo = false,
+       cedula = '',
+       nombre = nombre || ' [DUPLICADO de E706 — no usar]'
+ where id = 'E342' and cedula_canon = cedula_norm('30340377');
+
+-- Ahora sí entra el candado que la migración de arriba no pudo crear.
+create unique index if not exists idx_empleados_cedula_unica
+  on empleados (cedula_canon) where coalesce(cedula_canon,'') <> '';
