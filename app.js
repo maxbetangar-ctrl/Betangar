@@ -398,10 +398,17 @@ async function hidratarMarcaDesdeBD(){
     set('empresa_email',    v('email'));
     set('logo',             v('logo_url'));
     set('favicon',          v('icono_url'));
-    // El acento vive como {green,green2,green3} en el código; en la base es un
-    // color y ya. Solo se arma si el clon no traía acento propio.
-    var prim=v('color_primario');
-    if(prim && !BTG_CONFIG.accent){ BTG_CONFIG.accent={green:prim,green2:prim,green3:prim}; puso=true; }
+    // ⛔ EL ACENTO SALE DE `color_acento`, NUNCA DE `color_primario`.
+    // Aquí decía `color_primario` y el 2026-07-27 dejó los botones de VIDECA casi
+    // invisibles en vivo: en la base, "primario" es el color principal de la marca
+    // —que en este tema oscuro es casi el del FONDO— mientras que aquí `accent` es
+    // el color de RESALTE (--green/--lime). Mismo nombre, significados distintos, y
+    // el dato viajó de un lado al otro sin que nadie lo notara.
+    // `color_primario` se sigue guardando, pero esta pantalla todavía no tiene
+    // dónde usarlo: mejor no aplicarlo que aplicarlo en el sitio equivocado.
+    // El acento solo se arma si el clon no traía uno propio.
+    var ac=v('color_acento');
+    if(ac && !BTG_CONFIG.accent){ BTG_CONFIG.accent={green:ac,green2:ac,green3:ac}; puso=true; }
     if(!puso)return false;
     // Re-aplicar lo que se aplicó una sola vez al cargar.
     if(BTG_CONFIG.logo){ LOGO_SVG=BTG_CONFIG.logo;
