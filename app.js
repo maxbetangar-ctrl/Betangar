@@ -1007,7 +1007,12 @@ function cerrarSesion(){
 async function bncInitFlag(){
   try{
     if(!DB_READY||!supabase)return;
-    var r=await supabase.from('bnc_config_estado').select('tiene_credenciales,cuenta,client_id').order('updated_at',{ascending:false}).limit(1);
+    // ⛔ POR RPC, NO POR LA VISTA. `bnc_config_estado` no tenia security_invoker:
+    // se saltaba el RLS y CUALQUIER usuario con sesion en esta base —incluidos
+    // los 17 representantes de los colegios— leia el estado bancario. La RPC
+    // devuelve lo mismo enmascarado, pero exige rol superadmin/admin en la BASE,
+    // no solo en este JavaScript (que se salta abriendo la consola).
+    var r=await supabase.rpc('bnc_estado');
     var d=(r.data&&r.data.length)?r.data[0]:null;
     if(d&&d.tiene_credenciales){
       BNC_CONFIG.guid=BNC_CONFIG.guid||'✓';
@@ -1023,7 +1028,7 @@ async function bncCargarConfig(){
   try{
     // Leer la vista segura (no expone secretos en claro al navegador). limit(1) evita
     // el error de .single() cuando hay 0 ó varias filas.
-    var r=await supabase.from('bnc_config_estado').select('*').order('updated_at',{ascending:false}).limit(1);
+    var r=await supabase.rpc('bnc_estado');
     var d=(r.data&&r.data.length)?r.data[0]:null;
     var el=function(id){return document.getElementById(id);};
     if(d){
