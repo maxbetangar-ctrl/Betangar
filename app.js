@@ -20256,19 +20256,22 @@ async function generarReporteCombustible(){
 async function analizarReporteGemini(){
   if(!CC_REPORTE_ACTUAL){alert('Primero genera el reporte');return;}
   var box=g('cc-rep-gemini'); box.innerHTML='<div class="card"><div style="text-align:center;color:var(--text3);padding:14px">🤖 Consultando a Gemini...</div></div>';
-  // Leer API key de configuracion (NUNCA en el HTML)
-  var key='';
-  try{var r=await supabase.from('configuracion').select('valor').eq('clave','gemini_api_key').maybeSingle();if(r&&r.data&&r.data.valor)key=String(r.data.valor).trim();}catch(e){}
-  if(!key){box.innerHTML='<div class="card" style="color:var(--yellow)">⚠ No hay API key de Gemini configurada. Ve a Configuración → ⛽ Combustible e ingrésala.</div>';return;}
+  // ⛔ La API key YA NO se lee acá. Antes se sacaba de `configuracion` y la
+  // llamada a Gemini salía del navegador, o sea que la llave se le entregaba a
+  // TODO el que entrara a Betangar —choferes incluidos— y de ahí se copia en dos
+  // clics. Ahora la llave no sale de la base: la usa la Edge Function `gemini`,
+  // que además comprueba el rol. Acá solo viaja la pregunta y vuelve el texto.
   var prompt='Eres un analista de flota de aseo urbano. Analiza este reporte mensual de combustible (12 camiones JAC, 2-4 viajes/día, ~22.5 L/viaje esperado) y responde en español con: 1) anomalías detectadas, 2) tendencias de consumo, 3) recomendaciones concretas de ahorro y control. Sé breve y directo. Datos JSON:\n'+JSON.stringify(CC_REPORTE_ACTUAL);
   try{
-    var resp=await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key='+encodeURIComponent(key),{
-      method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({contents:[{parts:[{text:prompt}]}]})
+    var _ses=await supabase.auth.getSession();
+    var _tok=_ses&&_ses.data&&_ses.data.session?_ses.data.session.access_token:'';
+    var resp=await fetch(SUPA_URL+'/functions/v1/gemini',{
+      method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+_tok},
+      body:JSON.stringify({prompt:prompt})
     });
     var data=await resp.json();
-    if(!resp.ok){box.innerHTML='<div class="card" style="color:var(--red)">Error Gemini: '+((data&&data.error&&data.error.message)||resp.status)+'</div>';return;}
-    var txt=(data&&data.candidates&&data.candidates[0]&&data.candidates[0].content&&data.candidates[0].content.parts&&data.candidates[0].content.parts[0].text)||'(sin respuesta)';
+    if(!resp.ok){box.innerHTML='<div class="card" style="color:var(--red)">Error Gemini: '+((data&&data.error)||resp.status)+'</div>';return;}
+    var txt=(data&&data.texto)||'(sin respuesta)';
     box.innerHTML='<div class="card"><div class="sh"><div class="st">🤖 Análisis de Gemini — '+CC_REPORTE_ACTUAL.periodo+'</div></div><div style="white-space:pre-wrap;font-size:13px;line-height:1.5;color:var(--text)">'+txt.replace(/</g,'&lt;')+'</div></div>';
     // Guardar análisis para historial
     try{await supabase.from('configuracion').upsert([{clave:'comb_analisis_'+CC_REPORTE_ACTUAL.periodo,valor:JSON.stringify({periodo:CC_REPORTE_ACTUAL.periodo,fecha:new Date().toISOString(),analisis:txt,reporte:CC_REPORTE_ACTUAL})}],{onConflict:'clave'});}catch(e){}
@@ -20518,10 +20521,20 @@ async function renderCfgCombustible(){
   if(!COMB_TANQUES.length||!COMB_VEHICULOS.length)await cargarCombustibleData();
   // Gemini key
   var st=g('cfg-comb-gemini-status');
-  try{var r=await supabase.from('configuracion').select('valor').eq('clave','gemini_api_key').maybeSingle();
-    if(r&&r.data&&r.data.valor){if(st)st.innerHTML='<span style="color:var(--green2)">✓ API key configurada</span>';}
-    else{if(st)st.textContent='Sin API key configurada.';}
-  }catch(e){}
+  // ⛔ Ya no se lee la llave para saber si está puesta: se PREGUNTA si hay, y la
+  // función responde sí o no sin devolverla nunca. Un secreto se configura y no
+  // se recupera.
+  try{
+    var _s=await supabase.auth.getSession();
+    var _t=_s&&_s.data&&_s.data.session?_s.data.session.access_token:'';
+    var r=await fetch(SUPA_URL+'/functions/v1/gemini',{method:'POST',
+      headers:{'Content-Type':'application/json','Authorization':'Bearer '+_t},
+      body:JSON.stringify({estado:1})});
+    var d=await r.json();
+    if(st)st.innerHTML=(r.ok&&d&&d.configurada)
+      ? '<span style="color:var(--green2)">✓ API key configurada</span>'
+      : 'Sin API key configurada.';
+  }catch(e){ if(st)st.textContent='No se pudo comprobar.'; }
   // Vehículos
   var tbv=g('cfg-comb-veh');
   if(tbv)tbv.innerHTML=COMB_VEHICULOS.map(function(v){
