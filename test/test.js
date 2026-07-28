@@ -597,6 +597,115 @@ function resetCola(){ app.COLA_OFFLINE=[]; app.COLA_FALLIDOS=[]; app._procesando
   eq('período legible', app._semDeFecha('2026-06-15').periodo, 'Del 15 de junio al 21 de junio de 2026');
   ok('sin fecha → null', app._semDeFecha('') === null);
 
+  // ── SEMANA DEL MES = semana REAL lunes–domingo (asistencia, nómina, cobranza) ──
+  // Caso real 2026-07-28: el fichaje arrancó el 22/07 y TODO (22 al 28) se veía en "Semana 4",
+  // con la "Semana 5" vacía. Causa: la semana era un bloque de días del mes (22-28), que empieza
+  // miércoles → su "lunes" era el 27. Y el bloque 29-31 no tiene lunes ni martes: imposible de
+  // llenar. Los CONTROLES de abajo son justo los casos que fallaban.
+  console.log('\nSemana del mes (lunes–domingo real):');
+  eq('mié 01/07/2026 → Semana 1 (la semana del día 1)', app.getSem('2026-07-01'), 'Semana 1');
+  eq('dom 19/07/2026 → Semana 3', app.getSem('2026-07-19'), 'Semana 3');
+  eq('lun 20/07/2026 → Semana 4 (el Excel dice "20/07 al 26/07")', app.getSem('2026-07-20'), 'Semana 4');
+  eq('CONTROL: mar 21/07/2026 → Semana 4 (por bloque daba Semana 3)', app.getSem('2026-07-21'), 'Semana 4');
+  eq('dom 26/07/2026 → Semana 4 (cierra la semana)', app.getSem('2026-07-26'), 'Semana 4');
+  eq('CONTROL: lun 27/07/2026 → Semana 5 (por bloque daba Semana 4)', app.getSem('2026-07-27'), 'Semana 5');
+  eq('CONTROL: mar 28/07/2026 → Semana 5 (por bloque daba Semana 4)', app.getSem('2026-07-28'), 'Semana 5');
+  eq('julio 2026 tiene 5 semanas', app._semanasDeMes('jul-26'), 5);
+  eq('agosto 2026 tiene 6 semanas (el selector fijo de 5 perdía una)', app._semanasDeMes('ago-26'), 6);
+
+  console.log('\nFecha real de cada celda del tablero de asistencia:');
+  eq('Semana 4 · Lunes → 20/07', app._fechaDeCelda('jul-26', 'Semana 4', 0), '2026-07-20');
+  eq('Semana 4 · Miércoles → 22/07 (primer día de fichaje)', app._fechaDeCelda('jul-26', 'Semana 4', 2), '2026-07-22');
+  eq('Semana 4 · Jueves → 23/07', app._fechaDeCelda('jul-26', 'Semana 4', 3), '2026-07-23');
+  eq('Semana 4 · Domingo → 26/07', app._fechaDeCelda('jul-26', 'Semana 4', 6), '2026-07-26');
+  eq('CONTROL: Semana 5 · Lunes → 27/07 (antes: 22/07)', app._fechaDeCelda('jul-26', 'Semana 5', 0), '2026-07-27');
+  eq('CONTROL: Semana 5 · Martes → 28/07 (antes: null, celda imposible)', app._fechaDeCelda('jul-26', 'Semana 5', 1), '2026-07-28');
+  eq('Semana 1 · Lunes cae FUERA del mes (29/06) y está bien', app._fechaDeCelda('jul-26', 'Semana 1', 0), '2026-06-29');
+
+  console.log('\nFichaje real → celda del tablero (asistencia_dia):');
+  app.FICHAJES_SET = new Set(['E999|2026-07-27', 'E999|2026-07-28', 'E999|2026-07-23']);
+  app.ASISTENCIA = {};
+  app.EMPLEADOS = [{ id: 'E999', nombre: 'PRUEBA', activo: true }];
+  eq('fichaje del jue 23 aparece en Semana 4 · Jueves', app._asisMarca('E999', 'jul-26', 'Semana 4', 3), 'P');
+  eq('CONTROL: el del lun 27 aparece en Semana 5 · Lunes', app._asisMarca('E999', 'jul-26', 'Semana 5', 0), 'P');
+  eq('CONTROL: el del mar 28 aparece en Semana 5 · Martes', app._asisMarca('E999', 'jul-26', 'Semana 5', 1), 'P');
+  ok('CONTROL: y NO se cuela en Semana 4 · Lunes (20/07, sin fichaje)',
+    app._asisMarca('E999', 'jul-26', 'Semana 4', 0) !== 'P');
+  eq('el rango del selector se escribe dd/mm (Venezuela)', app._rangoSemana('jul-26', 4), '20/07 al 26/07');
+
+  // ── IMPORTADOR: columna VERTEDERO (de ella depende el 1.5× nocturno en Resimara) ──
+  // Historia: la columna se leía por LETRA FIJA ('U'). En el Excel real la U es "SUG. CHOFER" y la
+  // columna VERTEDERO había quedado en la W → todo entraba como La Concepción, en silencio, y el
+  // 1.5× no se pagó nunca (1.234 planillas, 0 Resimara en la base al 2026-07-28). Ahora se busca
+  // por ENCABEZADO. Estas pruebas incluyen los CONTROLES que fallan si alguien vuelve a la letra fija.
+  console.log('\nImportador Excel — columna VERTEDERO (1.5× nocturno Resimara):');
+  (function () {
+    // Hoja falsa con la MISMA forma que el Excel de Betangar: encabezados en la fila 20,
+    // datos desde la 21. `cols` dice en qué letra va el encabezado VERTEDERO (o null = no está).
+    function hoja(colVert, valores) {
+      var ws = {
+        '!ref': 'A20:AC30',
+        C20: { v: 'FECHA' }, E20: { v: 'ID_CAMION' }, G20: { v: 'CHOFER' },
+        J20: { v: 'VIAJES DIURNOS' }, K20: { v: 'VIAJES NOCTURNOS' },
+        P20: { v: 'CORRELATIVO PLANILLAS' }, T20: { v: 'OBSERVACIONES' },
+        U20: { v: 'SUG. CHOFER (unidad)' }, V20: { v: 'SUG. AYUDANTE (unidad)' }
+      };
+      if (colVert) ws[colVert + '20'] = { v: 'VERTEDERO' };
+      // 2 planillas: fila 21 (con nocturnos) y fila 22
+      ws.C21 = { v: '2026-07-25' }; ws.E21 = { v: 'JAC-B001' }; ws.G21 = { v: 'PEDRO PEREZ' };
+      ws.J21 = { v: 1 }; ws.K21 = { v: 2 }; ws.P21 = { v: 9001 };
+      ws.C22 = { v: '2026-07-25' }; ws.E22 = { v: 'JAC-B002' }; ws.G22 = { v: 'JUAN LOPEZ' };
+      ws.J22 = { v: 3 }; ws.K22 = { v: 0 }; ws.P22 = { v: 9002 };
+      Object.keys(valores || {}).forEach(function (k) { ws[k] = { v: valores[k] }; });
+      return ws;
+    }
+    function importar(ws) {
+      app.REGS = []; app.VX = {}; app.EMPLEADOS = []; app.DB_READY = false; app.DEMO_MODE = true;
+      app.cfg = { tarifa: 317.88 };
+      app.XLSX = { utils: { decode_range: function (r) {
+        var m = String(r).match(/([A-Z]+)(\d+):([A-Z]+)(\d+)/);
+        return { s: { r: +m[2] - 1, c: 0 }, e: { r: +m[4] - 1, c: 28 } };
+      } } };
+      var res = app.procesarExcelBetangar({ Sheets: { 'REGISTRO VIAJES': ws } });
+      return { res: res, regs: app.REGS };
+    }
+
+    var r = importar(hoja('W', { W21: 'Resimara' }));
+    eq('encuentra VERTEDERO por encabezado (W)', r.res.colVertedero, 'W');
+    eq('la planilla marcada entra como Resimara', (r.regs[0] || {}).vertedero, 'Resimara');
+    eq('la no marcada queda en La Concepción', (r.regs[1] || {}).vertedero, 'La Concepción');
+    eq('cuenta las Resimara del import', r.res.resimara, 1);
+    r = importar(hoja('W', { W21: 'RESIMARA ' }));
+    eq('tolera mayúsculas y espacios', (r.regs[0] || {}).vertedero, 'Resimara');
+
+    // CONTROL 1 — la columna se corre de lugar: por letra fija esto FALLA, por encabezado no.
+    r = importar(hoja('Y', { Y21: 'Resimara' }));
+    eq('CONTROL: columna corrida a la Y → la encuentra igual', r.res.colVertedero, 'Y');
+    eq('CONTROL: y lee el dato de la Y', (r.regs[0] || {}).vertedero, 'Resimara');
+
+    // CONTROL 2 — la U es "SUG. CHOFER": un chofer apellidado Resimara NO puede pagar 1.5×.
+    r = importar(hoja('W', { U21: 'RESIMARA' }));
+    eq('CONTROL: un nombre "RESIMARA" en la U no convierte el viaje', (r.regs[0] || {}).vertedero, 'La Concepción');
+
+    // CONTROL 3 — Excel viejo (sin la columna): tiene que AVISAR, no callarse.
+    r = importar(hoja(null, {}));
+    eq('CONTROL: sin la columna, avisa (colVertedero vacío)', r.res.colVertedero, '');
+    eq('CONTROL: sin la columna, no inventa Resimara', r.res.resimara, 0);
+
+    // ── FECHA VENEZOLANA dd/mm/yyyy (nunca mm/dd) ──
+    // El caso que fallaba en silencio: los días 1 al 12, donde las dos lecturas son válidas.
+    console.log('\nFecha del Excel en formato venezolano (dd/mm/yyyy):');
+    r = importar(hoja('W', { C21: '04/03/2026' }));
+    eq('CONTROL: "04/03/2026" es 4 de MARZO (antes entraba 3 de abril)', (r.regs[0] || {}).f, '2026-03-04');
+    eq('y el mes queda en marzo', (r.regs[0] || {}).mes, 'mar-26');
+    r = importar(hoja('W', { C21: '25/07/2026' }));
+    eq('"25/07/2026" → 25 de julio', (r.regs[0] || {}).f, '2026-07-25');
+    r = importar(hoja('W', { C21: '2026-07-25' }));
+    eq('ISO yyyy-mm-dd se respeta', (r.regs[0] || {}).f, '2026-07-25');
+    r = importar(hoja('W', { C21: '07/25/2026' }));
+    eq('salvavidas: si el "mes" es 25, era orden gringo → 25 de julio', (r.regs[0] || {}).f, '2026-07-25');
+  })();
+
   // ── Resumen ──
   console.log('\n──────────────');
   console.log('PASS: ' + pass + '   FAIL: ' + fail);

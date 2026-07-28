@@ -2611,6 +2611,8 @@ function sp(id){
     if(id==='asistencia'){
       // Al abrir, posicionarse en la semana/mes ACTUAL (si no, arrancaba en "Semana 1" y parecía vacío).
       try{var _sm=g('asis-mes');if(_sm&&typeof mesBtg==='function'){var _mv=mesBtg();if([].some.call(_sm.options,function(o){return o.value===_mv;}))_sm.value=_mv;}}catch(e){}
+      // Las semanas del selector se arman según el MES (5 o 6 semanas reales, con su rango dd/mm).
+      try{_llenarSelectSemanas('asis-sem',gv('asis-mes'));}catch(e){}
       try{var _ss=g('asis-sem');if(_ss&&typeof getSem==='function'){_ss.value=getSem(null);}}catch(e){}
       renderAsistencia();cargarFichajesAsistencia(true).then(function(){renderAsistencia();}).catch(function(){});
     }if(id==='fichaje')renderFichaje();
@@ -3425,7 +3427,62 @@ async function _persistirTasasManual(){
 // ═══════════════════════════════════════════════════
 // HELPERS
 // ═══════════════════════════════════════════════════
-function getSem(f){var d=f?new Date(f+'T12:00:00'):new Date();var dia=d.getDate();if(dia<=7)return'Semana 1';if(dia<=14)return'Semana 2';if(dia<=21)return'Semana 3';if(dia<=28)return'Semana 4';return'Semana 5';}
+// ── SEMANA DEL MES = SEMANA REAL (lunes a domingo) ────────────────────────────────────────
+// Semana 1 = la semana lunes–domingo que CONTIENE el día 1 del mes; después se cuenta de 7 en 7.
+// Es lo que dice el Excel de la secretaria (columna M: "20/07/2026 al 26/07/2026") y lo que
+// entiende cualquiera que mire un calendario.
+//
+// ⛔ NO se reparte por bloques de días del mes (1-7, 8-14, 15-21, 22-28, 29+). Un bloque de 7 días
+// NO es una semana: arranca en el día de la semana que le toque. Julio 2026 lo mostró en vivo —
+// el bloque 22-28 empieza MIÉRCOLES, así que su "lunes" y su "martes" eran el 27 y el 28 (días de
+// la semana siguiente), y el bloque 29-31 no contiene ningún lunes ni martes, por lo que esas
+// celdas eran IMPOSIBLES de llenar. Resultado el 2026-07-28: los fichajes del 22 al 28 amontonados
+// en "Semana 4" y la "Semana 5" vacía para siempre. Ver también _fechaDeCelda().
+function _mesPartes(mes){
+  var ms=['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+  var p=String(mes||'').split('-'); var mi=ms.indexOf(p[0]); if(mi<0)return null;
+  return {mi:mi,yy:2000+(parseInt(p[1],10)||0)};
+}
+// Lunes (Date) de la semana que contiene el día 1 del mes ('jul-26' → lunes 29/06/2026).
+function _lunesMes1(mes){
+  var q=_mesPartes(mes); if(!q)return null;
+  return _lunesSem(_isoLocal(new Date(q.yy,q.mi,1,12,0,0)));
+}
+// Cuántas semanas lunes–domingo toca el mes (5 o 6). El selector se arma con esto: si se dejan
+// 5 fijas, los meses de 6 semanas pierden la última.
+function _semanasDeMes(mes){
+  var q=_mesPartes(mes),l1=_lunesMes1(mes); if(!q||!l1)return 5;
+  var ult=new Date(q.yy,q.mi+1,0,12,0,0); // último día del mes
+  return Math.round((_lunesSem(_isoLocal(ult))-l1)/(7*86400000))+1;
+}
+// Número de semana del mes (1..6) que le toca a una fecha.
+function _numSemanaMes(fISO){
+  var d=new Date(String(fISO).slice(0,10)+'T12:00:00'); if(isNaN(d))return 0;
+  var l1=_lunesSem(_isoLocal(new Date(d.getFullYear(),d.getMonth(),1,12,0,0)));
+  return Math.round((_lunesSem(_isoLocal(d))-l1)/(7*86400000))+1;
+}
+function getSem(f){
+  var iso=f?String(f).slice(0,10):_isoLocal(new Date());
+  var n=_numSemanaMes(iso); return 'Semana '+(n>0?n:1);
+}
+// Rango legible de una semana del mes, en formato VENEZOLANO dd/mm (nunca mm/dd).
+function _rangoSemana(mes,n){
+  var l1=_lunesMes1(mes); if(!l1)return '';
+  var lun=new Date(l1); lun.setDate(lun.getDate()+((parseInt(n,10)||1)-1)*7);
+  var dom=new Date(lun); dom.setDate(dom.getDate()+6);
+  var dd=function(d){return String(d.getDate()).padStart(2,'0')+'/'+String(d.getMonth()+1).padStart(2,'0');};
+  return dd(lun)+' al '+dd(dom);
+}
+// Rellena un <select> de semanas con las semanas REALES del mes y su rango de fechas visible,
+// para que nadie tenga que adivinar qué días abarca "Semana 4".
+function _llenarSelectSemanas(idSel,mes){
+  var sel=document.getElementById(idSel); if(!sel)return;
+  var previo=sel.value, n=_semanasDeMes(mes), html='';
+  if(sel.options.length&&sel.options[0].value==='')html='<option value="">Todas</option>';
+  for(var i=1;i<=n;i++)html+='<option value="Semana '+i+'">Semana '+i+' ('+_rangoSemana(mes,i)+')</option>';
+  sel.innerHTML=html;
+  if([].some.call(sel.options,function(o){return o.value===previo;}))sel.value=previo;
+}
 // ── SEMANA SECUENCIAL (SEM-N, lunes–domingo) ──────────────────────────────────────────────
 // Numeración propia de la empresa (NO ISO): ANCLA SEM-16 = lunes 15/06/2026. Se continúa la
 // secuencia del historial (…SEM-15=8–14 jun, SEM-16=15–21 jun, SEM-17=22–28…). El número se
@@ -4865,6 +4922,15 @@ function importarExcel(input){
       if(resultado.actualizadas&&resultado.actualizadas.length>0)msg+=', '+resultado.actualizadas.length+' actualizadas (mismo número, datos corregidos)';
       msg+='\n• Abonos/Pagos Alcaldia: '+resultado.abonos+' nuevos';
       msg+='\n• Gasoil: '+resultado.gasoil+' registros';
+      // VERTEDERO: de esta columna depende el 1.5× de los nocturnos en Resimara. Si el Excel no la
+      // trae, TODO entra como La Concepción — y eso se paga de menos sin que nadie lo note. Decirlo.
+      if(resultado.colVertedero){
+        msg+='\n• Vertedero (columna '+resultado.colVertedero+'): '+resultado.resimara+' planilla(s) marcada(s) Resimara';
+      }else{
+        msg+='\n\n⚠ El Excel NO trae la columna VERTEDERO.';
+        msg+='\n   Todas las planillas entraron como La Concepción, así que los viajes NOCTURNOS';
+        msg+='\n   en Resimara NO se van a pagar a 1.5×. Agregá la columna y volvé a importar.';
+      }
       if(resultado.personalSync){
         var ps=resultado.personalSync;
         msg+='\n• Personal (Lista Maestra): '+ps.choferes+' choferes + '+ps.ayudantes+' ayudantes leídos';
@@ -5071,7 +5137,7 @@ async function guardarImportacionEnDB(resultado){
 }
 
 function procesarExcelBetangar(wb){
-  var resultado={planillas:0,planillasIgnoradas:0,actualizadas:[],abonos:0,gasoil:0,duplicadas:[],nuevasRegs:[],nombresSinIdentificar:[]};
+  var resultado={planillas:0,planillasIgnoradas:0,actualizadas:[],abonos:0,gasoil:0,duplicadas:[],nuevasRegs:[],nombresSinIdentificar:[],colVertedero:'',resimara:0};
   var _sinIdentMap={}; // nombre normalizado -> {nombre,cam,fecha,rol,veces} de chofer/ayudante que NO casa con ningún empleado
   // PRECIO: siempre usa el configurado en la app, ignora cualquier precio del Excel
   var TARIFA=cfg.tarifa||317.88;
@@ -5091,15 +5157,19 @@ function procesarExcelBetangar(wb){
       return y+'-'+m+'-'+d;
     }
     if(typeof v==='string'){
-      // Puede venir "3/4/2026" (US) o "04/03/2026" (ES) o "2026-03-04"
-      if(/^\d{4}-\d{2}-\d{2}/.test(v))return v.slice(0,10);
-      // m/d/yyyy
+      // ⛔ FECHA VENEZOLANA: dd/mm/yyyy. SIEMPRE. Nunca el orden de EEUU (mm/dd).
+      // Antes se leía como mm/dd/yyyy y solo se corregía "si el mes daba > 12". Eso acierta con
+      // 25/07/2026 (25 no es mes) pero SE EQUIVOCA EN SILENCIO con los primeros 12 días de cada
+      // mes: 04/03/2026 es el 4 de MARZO y entraba como 3 de ABRIL. Un error de fecha mueve la
+      // planilla de semana, de mes y de nómina, y no se ve por ningún lado.
+      if(/^\d{4}-\d{2}-\d{2}/.test(v))return v.slice(0,10); // ISO (yyyy-mm-dd)
       var p=v.split('/');
       if(p.length===3){
-        var y=p[2].slice(0,4);
-        var m=p[0].length===4?p[1]:p[0]; // si año está primero
-        var d=p[0].length===4?p[2]:p[1];
-        if(parseInt(m)>12){var tmp=m;m=d;d=tmp;}// swap si mes>12
+        var y,d,m;
+        if(p[0].length===4){ y=p[0]; m=p[1]; d=p[2]; }      // yyyy/mm/dd
+        else { d=p[0]; m=p[1]; y=p[2].slice(0,4); }         // dd/mm/yyyy ← el nuestro
+        // Salvavidas: si el "mes" es mayor que 12, el archivo venía en orden gringo → invertir.
+        if(parseInt(m,10)>12){var tmp=m;m=d;d=tmp;}
         return y+'-'+String(m).padStart(2,'0')+'-'+String(d).padStart(2,'0');
       }
     }
@@ -5113,10 +5183,13 @@ function procesarExcelBetangar(wb){
     return mm[ym]||ym;
   }
 
+  // Semana de una planilla = LA MISMA regla que el resto de la app: semana real lunes–domingo
+  // (ver getSem). Antes repartía por bloque de días del mes, y por eso el lunes 20 y el martes 21
+  // de julio quedaban archivados en "Semana 3" cuando el Excel de la secretaria dice que esa
+  // semana es "20/07/2026 al 26/07/2026" = Semana 4. Eso desalineaba cobranza y nómina.
   function calcSem(f){
     if(!f)return'Semana 1';
-    var dia=parseInt(f.slice(8,10));
-    if(dia<=7)return'Semana 1';if(dia<=14)return'Semana 2';if(dia<=21)return'Semana 3';if(dia<=28)return'Semana 4';return'Semana 5';
+    return (typeof getSem==='function')?getSem(f):'Semana 1';
   }
 
   function leerCelda(ws,col,fila){
@@ -5126,6 +5199,21 @@ function procesarExcelBetangar(wb){
     if(!cell)return null;
     // Preferir valor calculado (v) sobre fórmula
     return cell.v!==undefined?cell.v:null;
+  }
+  // Letra de columna a partir del índice base 1 (1=A, 27=AA)
+  function _letraCol(n){var s='';while(n>0){var r=(n-1)%26;s=String.fromCharCode(65+r)+s;n=Math.floor((n-1)/26);}return s;}
+  // Busca en la fila de ENCABEZADOS la primera columna cuyo título case con el patrón y
+  // devuelve su LETRA ('W'), o '' si no está.
+  // POR QUÉ por encabezado y no por letra fija: las columnas que se agregan nacen al final de la
+  // tabla, y ahí se corren solas en cuanto el Excel gana una columna más. Buscarlas por nombre es
+  // lo único que sobrevive a eso.
+  function _colPorEncabezado(ws,re,filaEnc){
+    var fila=filaEnc||20;
+    for(var i=1;i<=60;i++){ // A..BH — de sobra para esta hoja
+      var L=_letraCol(i),v=leerCelda(ws,L,fila);
+      if(v!=null&&re.test(String(v)))return L;
+    }
+    return '';
   }
 
   // ── LISTA MAESTRA DE PERSONAL (hoja PARAMETROS) → fuente de verdad del personal ──
@@ -5203,11 +5291,19 @@ function procesarExcelBetangar(wb){
     var maxFila=rng.e.r+1; // índice base 0 → número fila base 1
     var planillasVistas={};
 
+    // VERTEDERO: se ubica POR SU ENCABEZADO (fila 20), no por letra fija. Es la columna que agregamos
+    // el 2026-07-22 para el 1.5× nocturno en Resimara, y quedó al final de la tabla (después de
+    // U=SUG. CHOFER y V=SUG. AYUDANTE). Se leía la 'U' a mano: nunca decía "resimara", así que TODO
+    // caía en La Concepción sin una sola queja y el 1.5× jamás se pagó. Si la columna no está, se avisa.
+    var colVert=_colPorEncabezado(sheetRV,/vertedero/i);
+    resultado.colVertedero=colVert;
+
     // Fila de datos empieza en fila 21 (índice 20 base-0 = número fila 21)
     // Columnas fijas del Excel de Betangar (letras):
     // C=fecha D=mes(formula) E=camion F=placa G=chofer H=ruta I=parroquia
     // J=diurnos K=nocturnos L=total(formula) M=semana(formula)
     // N=ay1 O=ay2 P=correlativo Q=gasoil R=mantenimiento S=km T=observaciones
+    // U=sug.chofer V=sug.ayudante (sugerencias del Excel, la app NO las usa)
     for(var fila=21;fila<=maxFila+10;fila++){
       // Leer columnas que escribe la secretaria (NO fórmulas)
       var cFecha  =leerCelda(sheetRV,'C',fila);
@@ -5224,7 +5320,7 @@ function procesarExcelBetangar(wb){
       var cMant   =leerCelda(sheetRV,'R',fila);
       var cKm     =leerCelda(sheetRV,'S',fila);
       var cObs    =leerCelda(sheetRV,'T',fila);
-      var cVert   =leerCelda(sheetRV,'U',fila); // U=vertedero (La Concepción / Resimara). Vacío = La Concepción.
+      var cVert   =colVert?leerCelda(sheetRV,colVert,fila):null; // vertedero (La Concepción / Resimara). Vacío = La Concepción.
 
       // Validar fila: debe tener camion JAC y fecha
       var cam=String(cCam||'').trim();
@@ -5326,6 +5422,7 @@ function procesarExcelBetangar(wb){
         // Vertedero: solo importa si es Resimara (para el 1.5× nocturno); cualquier otra cosa = La Concepción.
         vertedero:(/resimara/i.test(String(cVert||''))?'Resimara':'La Concepción')
       };
+      if(nr.vertedero==='Resimara')resultado.resimara++; // se reporta al final: 0 con la columna presente ya es sospechoso
       // DETECTAR nombres NO reconocidos (no casan con ningún empleado del roster) para AVISAR a
       // RRHH al importar — antes se guardaban callados con el nombre corto, sin alerta. Excluye
       // "IMAU" (es una marca, no persona) y guiones/vacíos. Deduplica por nombre normalizado.
@@ -11117,19 +11214,23 @@ async function cargarFichajesAsistencia(force){
   FICHAJES_SET=s; return s;
 }
 // Fecha real (YYYY-MM-DD) de una celda del tablero (mes 'jul-26' + 'Semana N' + dow Lun=0..Dom=6).
-// Usa la MISMA convención que getSem (Semana por bloque de días del mes: 1-7,8-14,15-21,22-28,29+).
+// Es el LUNES de esa semana + el desplazamiento del día. Misma convención que getSem: semanas
+// REALES lunes–domingo (ver el comentario largo allá arriba).
+//
+// Antes recorría el bloque de días del mes buscando el primer día que cayera en ese día de la
+// semana. Con el bloque 22-28 de julio 2026 (que empieza miércoles) la columna "Lunes" devolvía
+// el 27 y la "Martes" el 28 — o sea, el tablero de la Semana 4 mostraba días de la semana
+// siguiente— y en el bloque 29-31 no había ningún lunes ni martes, así que devolvía null y esas
+// celdas no podían mostrar NINGÚN fichaje. Por eso la Semana 5 se veía vacía.
+//
+// La fecha puede caer FUERA del mes en la primera y la última semana (jul-26 Semana 1 arranca el
+// 29/06). Es correcto: ese lunes es parte de esa semana. La misma semana real se ve desde los dos
+// meses, igual que en el Excel.
 function _fechaDeCelda(mes,sem,dow){
-  var ms=['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
-  var parts=String(mes||'').split('-'); var mi=ms.indexOf(parts[0]); if(mi<0)return null;
-  var yy=2000+(parseInt(parts[1],10)||0);
+  var l1=_lunesMes1(mes); if(!l1)return null;
   var n=parseInt(String(sem||'').replace(/\D/g,''),10)||0; if(n<1)return null;
-  var lo=(n-1)*7+1, hi=(n>=5?31:n*7);
-  for(var day=lo;day<=hi;day++){
-    var d=new Date(yy,mi,day,12,0,0); if(d.getMonth()!==mi)break; // día fuera del mes
-    var dw=d.getDay(); var idx=(dw===0?6:dw-1);
-    if(idx===dow) return _isoLocal(d);
-  }
-  return null;
+  var d=new Date(l1); d.setDate(d.getDate()+(n-1)*7+(parseInt(dow,10)||0)); d.setHours(12,0,0,0);
+  return _isoLocal(d);
 }
 // ¿El empleado está marcado como "asiste siempre" (presente fijo, no ficha)?
 function _asisteSiempre(empId){
@@ -11148,6 +11249,8 @@ function _asisEfectiva(empId,mes,sem,dow){
   return {v:'', fich:false, manual:false, fijo:false};
 }
 function renderAsistencia(){
+  // El selector se rearma con las semanas reales del mes elegido (un mes puede tener 6).
+  try{_llenarSelectSemanas('asis-sem',gv('asis-mes'));}catch(e){}
   var sem=gv('asis-sem'),mes=gv('asis-mes');
   var key=mes+'-'+sem;
   if(!ASISTENCIA[key])ASISTENCIA[key]={};
@@ -11175,7 +11278,13 @@ function renderAsistencia(){
   if(g('asis-aus'))g('asis-aus').textContent=aus;
   if(g('asis-pct'))g('asis-pct').textContent=(total>0?Math.round(pres/total*100):0)+'%';
   var html='<table style="width:100%;border-collapse:collapse;font-size:11px"><thead><tr><th style="background:var(--bg3);padding:6px;text-align:left">Empleado</th><th style="background:var(--bg3);padding:6px">Cargo</th>';
-  dias.forEach(function(d){html+='<th style="background:var(--bg3);padding:6px;text-align:center">'+d+'</th>';});
+  // Cada columna muestra la FECHA real que representa (dd/mm, formato venezolano). Sin esto no se
+  // puede ver a simple vista si el tablero está pintando el día correcto — que es justo lo que falló.
+  dias.forEach(function(d,i){
+    var _fc=_fechaDeCelda(mes,sem,i), _et=_fc?(_fc.slice(8,10)+'/'+_fc.slice(5,7)):'';
+    html+='<th style="background:var(--bg3);padding:6px;text-align:center">'+d+
+      (_et?'<div style="font-weight:400;font-size:9px;color:var(--text3)">'+_et+'</div>':'')+'</th>';
+  });
   html+='<th style="background:var(--bg3);padding:6px">Total</th></tr></thead><tbody>';
   emps.forEach(function(emp){
     html+='<tr><td style="padding:5px;border-top:1px solid var(--border);font-weight:600">'+emp.nombre+'</td><td style="padding:5px;border-top:1px solid var(--border);font-size:10px;color:var(--text3)">'+emp.cargo+'</td>';
