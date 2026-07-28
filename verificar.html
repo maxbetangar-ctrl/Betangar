@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Verificar orden</title>
+<!--
+  ─────────────────────────────────────────────────────────────────────────────
+  VERIFICAR UNA ORDEN DE SERVICIO O DE COMPRA (la página del QR)
+
+  ⛔ PÚBLICA Y SIN CLAVE A PROPÓSITO: la abre el taller o el proveedor con su
+  teléfono, ahí mismo. No hay login que pedirle a alguien que no trabaja acá.
+
+  ⛔ LO QUE DE VERDAD SE VIENE A VER ES EL ESTADO DE HOY. Estos papeles autorizan
+  gastar plata de la empresa. Una orden CANCELADA sigue existiendo impresa: si
+  esta página no lo dijera, el taller haría el trabajo y pasaría la factura.
+
+  ⚠️ No se muestran las notas: ahí queda el motivo de la cancelación y los
+  comentarios internos de la oficina.
+  ─────────────────────────────────────────────────────────────────────────────
+-->
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;padding:28px 16px;font-family:system-ui,-apple-system,Segoe UI,Arial,sans-serif;
+       background:#f4f6fa;color:#1e293b}
+  .caja{max-width:440px;margin:0 auto}
+  h1{font-size:20px;margin:0 0 4px}
+  .sub{color:#64748b;font-size:13.5px;margin:0 0 18px}
+  form{display:flex;gap:8px}
+  input{flex:1;padding:10px 12px;border:1px solid #cbd5e1;border-radius:8px;font-size:15px;
+        font-family:ui-monospace,monospace;letter-spacing:1.5px;text-transform:uppercase}
+  button{padding:10px 18px;border:0;border-radius:8px;background:#0f2340;color:#fff;font-weight:700;font-size:15px}
+  .tarj{margin-top:20px;padding:16px;border-radius:12px;border:1px solid #e2e8f0;background:#fff}
+  .ok{border-color:#b7e4c7;background:#f2fbf4}
+  .mal{border-color:#f3b4b4;background:#fdf2f2}
+  .ojo{border-color:#f0d9a0;background:#fdf8ec}
+  .tit{font-weight:800;font-size:15px;margin-bottom:6px}
+  .fila{display:flex;justify-content:space-between;gap:12px;padding:4px 0;font-size:13.5px;
+        border-top:1px solid #eef2f7}
+  .fila:first-of-type{border-top:0}
+  .fila .k{color:#64748b}
+  .fila .v{text-align:right;font-weight:600}
+  .aviso{margin-top:14px;padding:12px;border:1px solid #e2e8f0;border-radius:10px;
+         background:#fff;font-size:12.5px;color:#475569;line-height:1.5}
+</style>
+</head>
+<body>
+<div class="caja">
+  <h1>Verificar orden</h1>
+  <p class="sub">Escriba el código impreso en la orden para confirmar que sigue vigente.</p>
+
+  <form id="f"><input id="cod" placeholder="OS-XXXXXXXX" autocomplete="off"><button>Verificar</button></form>
+  <div id="salida"></div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script>
+var SUPA_URL = 'https://hrkjddehqnzcqwlkklqm.supabase.co';
+var SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhya2pkZGVocW56Y3F3bGtrbHFtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc2NTk1NzIsImV4cCI6MjA5MzIzNTU3Mn0.kqWKthyZfPZ86toql7shGByF-ZhUpcQUS4Jw4RnG_ko';
+var _lib = window.supabase;
+var db = (_lib && _lib.createClient) ? _lib.createClient(SUPA_URL, SUPA_KEY) : null;
+
+var ESTADOS = {
+  emitida:    { t: 'Emitida — pendiente de hacer', c: '#0f2340' },
+  en_proceso: { t: 'En proceso', c: '#1d4ed8' },
+  hecha:      { t: 'Hecha y cerrada', c: '#166534' },
+  cancelada:  { t: 'CANCELADA', c: '#991b1b' }
+};
+function esc(x){ return String(x==null?'':x).replace(/[&<>"]/g, function(c){
+  return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+function fila(k, v){ return '<div class="fila"><span class="k">'+esc(k)+'</span><span class="v">'+esc(v)+'</span></div>'; }
+
+function pintar(html){ document.getElementById('salida').innerHTML = html; }
+
+async function verificar(cod){
+  cod = String(cod||'').trim().toUpperCase();
+  if(!cod) return;
+  if(!db){ pintar('<div class="tarj ojo"><div class="tit">No se pudo consultar</div>Recargue la página e intente de nuevo.</div>'); return; }
+  pintar('<div class="tarj">Consultando…</div>');
+  try{
+    var r = await db.rpc('verificar_orden_servicio', { p_codigo: cod });
+    if(r.error) throw r.error;
+    var o = Array.isArray(r.data) ? r.data[0] : r.data;
+    if(!o || !o.valida){
+      pintar('<div class="tarj mal"><div class="tit">Este código no existe</div>'+
+        'No corresponde a ninguna orden emitida. Revise que lo haya copiado completo; '+
+        'si está bien copiado, ese papel no salió de esta empresa.</div>');
+      return;
+    }
+    var est = ESTADOS[o.estado] || { t: o.estado, c: '#0f2340' };
+    var clase = o.cancelada ? 'mal' : (o.estado === 'hecha' ? 'ok' : 'tarj');
+    var enc = o.cancelada
+      ? '<div class="tit" style="color:#991b1b">⛔ ORDEN CANCELADA — NO LA EJECUTE</div>'+
+        '<div style="font-size:13px;color:#475569;margin-bottom:8px">Esta orden fue anulada. '+
+        'No autoriza ningún trabajo ni ninguna compra, aunque el papel impreso diga otra cosa.</div>'
+      : '<div class="tit" style="color:'+est.c+'">✅ Orden auténtica</div>';
+
+    var unidades = Array.isArray(o.unidades) ? o.unidades : [];
+    pintar('<div class="tarj '+clase+'">'+ enc +
+      fila('Documento', o.documento) +
+      fila('Número', o.numero) +
+      fila('Fecha', o.fecha) +
+      fila('Proveedor / taller', o.proveedor || '—') +
+      fila('Trabajo', o.trabajo || '—') +
+      (unidades.length ? fila('Unidades', unidades.join(', ')) : '') +
+      fila('Estado hoy', est.t) +
+      (o.fecha_cierre ? fila('Cerrada el', o.fecha_cierre) : '') +
+      (o.costo_usd != null ? fila('Costo', '$' + Number(o.costo_usd).toFixed(2)) : '') +
+    '</div>' +
+    '<div class="aviso"><b>Compare estos datos con el papel que tiene en la mano.</b> '+
+    'Si el trabajo, las unidades o el taller no coinciden, la orden es falsa aunque traiga este código.</div>');
+  }catch(e){
+    // Ni válida ni falsa: un fallo de consulta no puede leerse como respuesta.
+    pintar('<div class="tarj ojo"><div class="tit">No se pudo verificar ahora</div>'+
+      esc(e && e.message ? e.message : '') + ' Intente de nuevo en un momento.</div>');
+  }
+}
+
+document.getElementById('f').addEventListener('submit', function(ev){
+  ev.preventDefault(); verificar(document.getElementById('cod').value);
+});
+
+// El QR abre /verificar.html?c=CODIGO: quien escanea no escribe nada.
+(function(){
+  var c = new URLSearchParams(location.search).get('c');
+  if(c){ document.getElementById('cod').value = c.toUpperCase(); verificar(c); }
+})();
+</script>
+</body>
+</html>

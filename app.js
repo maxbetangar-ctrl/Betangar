@@ -7055,7 +7055,7 @@ var _ordServCargadas=false;
 async function cargarOrdenesServicio(){
   if(!(DB_READY&&supabase))return;
   try{var r=await supabase.from('ordenes_servicio').select('*').order('creado_en',{ascending:false}).limit(2000);
-    if(!r.error&&Array.isArray(r.data))ORDENES_SERV=r.data.map(function(x){return{id:x.id,fecha:x.fecha,cams:Array.isArray(x.cams)?x.cams:[],proveedor:x.proveedor||'',proveedorId:x.proveedor_id||'',tipo:x.tipo_servicio||'',tipoOrden:x.tipo_orden||'servicio',item:x.item||'',notas:x.notas||'',estado:x.estado||'emitida',fechaCierre:x.fecha_cierre||null,costo:parseFloat(x.costo_usd)||0};});
+    if(!r.error&&Array.isArray(r.data))ORDENES_SERV=r.data.map(function(x){return{id:x.id,fecha:x.fecha,cams:Array.isArray(x.cams)?x.cams:[],proveedor:x.proveedor||'',proveedorId:x.proveedor_id||'',tipo:x.tipo_servicio||'',tipoOrden:x.tipo_orden||'servicio',item:x.item||'',notas:x.notas||'',estado:x.estado||'emitida',fechaCierre:x.fecha_cierre||null,costo:parseFloat(x.costo_usd)||0,codigoVerificacion:x.codigo_verificacion||''};});
   }catch(e){console.log('[ordenes_servicio]',e&&e.message);}
 }
 var _OS_TIPO_LBL={lavado:'🧽 Lavado',cambio:'🔧 Cambio/sust.',inspeccion:'🔎 Inspección',correctivo:'🛠 Correctivo',preventivo:'📅 Preventivo',otro:'Otro'};
@@ -7127,7 +7127,10 @@ async function guardarOrdenServicio(){
   var orden={id:'OS'+Date.now(),fecha:fecha,cams:cams,proveedor:provNom,proveedorId:provId,tipo:tipo,tipoOrden:tipoOrden,item:item,notas:notas,estado:'emitida',fechaCierre:null,costo:0};
   var row={id:orden.id,fecha:orden.fecha,cams:orden.cams,proveedor:orden.proveedor,proveedor_id:orden.proveedorId,tipo_servicio:orden.tipo,tipo_orden:tipoOrden,item:orden.item,notas:orden.notas,estado:'emitida'};
   var ok=false;
-  if(DB_READY&&supabase){var res=await supabase.from('ordenes_servicio').insert([row]).select();if(res.error){if(typeof mostrarToast==='function')mostrarToast('No se pudo guardar la orden: '+res.error.message,'error');}else ok=true;}
+  if(DB_READY&&supabase){var res=await supabase.from('ordenes_servicio').insert([row]).select();if(res.error){if(typeof mostrarToast==='function')mostrarToast('No se pudo guardar la orden: '+res.error.message,'error');}else{ok=true;
+    // El código de verificación lo pone la BASE, así que hay que traerlo de vuelta:
+    // el impreso que más importa es justo este, el de la orden recién emitida.
+    try{orden.codigoVerificacion=(res.data&&res.data[0]&&res.data[0].codigo_verificacion)||'';}catch(e){}}}
   if(!ok&&typeof guardarEnCola==='function')guardarEnCola('ordenes_servicio',row);
   ORDENES_SERV.unshift(orden);
   audit(esCompra?'Orden de Compra emitida':'Orden de Servicio emitida',orden.id+' · '+cams.join(', ')+' · '+(esCompra?(item||'compra'):tipo));
@@ -7137,6 +7140,29 @@ async function guardarOrdenServicio(){
   if(g('os-destino'))g('os-destino').value='unidad'; _osTipoOrden();
   renderOrdenesServicio();
   if(typeof mostrarToast==='function')mostrarToast('✅ '+(esCompra?'Orden de compra ':'Orden ')+orden.id+' emitida'+(ok?'':' (en cola)'),'exito');
+}
+// ── EL PIE DE VERIFICACIÓN DE UNA ORDEN (norma de marca) ─────────────────────
+// Estos papeles salen de la oficina y llegan a un taller o a un proveedor, y
+// AUTORIZAN GASTAR PLATA DE LA EMPRESA. Sin nada que verificar, un taller puede
+// enseñar una orden CANCELADA y cobrar el trabajo igual: el papel impreso no se
+// entera de que la orden se anuló en el sistema.
+// El QR se dibuja acá mismo (maxqr.js, sin red): si dependiera de un servicio
+// ajeno, el que no cargue a tiempo deja el papel en blanco justo donde va la
+// prueba — y con una orden en la mano no hay segunda oportunidad.
+function _osPieVerificacion(o){
+  var cod = o && (o.codigoVerificacion || o.codigo_verificacion);
+  if(!cod) return '';   // órdenes viejas sin código: mejor sin pie que con uno falso
+  var url = location.origin + '/verificar.html?c=' + encodeURIComponent(cod);
+  var svg = '';
+  try { svg = (window.MaxQR && MaxQR.svg(url, { width: 150 })) || ''; } catch(e){ svg = ''; }
+  return '<div style="margin-top:18px;padding-top:10px;border-top:1px dashed #bbb;'+
+      'display:flex;gap:12px;align-items:center;font-size:10.5px;color:#444;page-break-inside:avoid">'+
+    (svg?'<div style="width:84px;height:84px;flex:0 0 84px">'+svg+'</div>':'')+
+    '<div><b>Verifique esta orden antes de hacer el trabajo</b>'+
+      '<div style="font-family:monospace;font-size:15px;letter-spacing:1.5px;color:#111;margin:2px 0">'+_mEsc(cod)+'</div>'+
+      '<div style="color:#666;line-height:1.4">Escanee el código o entre a '+_mEsc(location.host)+'/verificar.html</div>'+
+      '<div style="color:#666;line-height:1.4">Confirme que la orden sigue vigente: una orden <b>cancelada</b> no autoriza ningún trabajo ni ninguna compra.</div>'+
+    '</div></div>';
 }
 function _osImprimirOrden(o){
   if(o.tipoOrden==='compra'){ return _osImprimirCompra(o); }
@@ -7163,7 +7189,7 @@ function _osImprimirOrden(o){
   var body=banner+info+
     '<table><thead><tr><th>Unidad</th><th>Placa</th><th>VIN</th><th style="text-align:right">KM Actual</th><th style="text-align:right">Próx. Servicio</th><th>Chofer</th></tr></thead><tbody>'+filas+'</tbody></table>'+
     '<p style="margin-top:12px;font-size:11px;color:#374151">Unidades a ingresar a mantenimiento: <b>'+(o.cams||[]).length+'</b> ('+(o.cams||[]).map(function(c){return String(c).replace("JAC-B","");}).join(", ")+'). Intervalo de servicio: '+((cfg.km||5000).toLocaleString())+' km.</p>'+
-    (o.notas?('<p style="margin-top:6px;font-size:11px;color:#374151"><b>Notas:</b> '+_mEsc(o.notas)+'</p>'):'');
+    (o.notas?('<p style="margin-top:6px;font-size:11px;color:#374151"><b>Notas:</b> '+_mEsc(o.notas)+'</p>'):'') + _osPieVerificacion(o);
   abrirImpresionPremium('Orden de Servicio '+o.id+' — '+brandNom(),(_OS_TIPO_LBL[o.tipo]||o.tipo)+' · '+formatFecha(o.fecha),'',body);
 }
 // Impreso de ORDEN DE COMPRA: el papel que se lleva el encargado a la calle. Muestra en grande qué comprar,
@@ -7183,7 +7209,7 @@ function _osImprimirCompra(o){
     (o.notas?('<tr><td style="font-weight:700">Notas</td><td>'+_mEsc(o.notas)+'</td></tr>'):'')+
   '</tbody></table>';
   var pie='<p style="margin-top:14px;font-size:11px;color:#374151">Al regresar con la compra, marcá <b>✅ Hecho</b> en el sistema para registrar el <b>costo, proveedor real, foto de la factura, garantía</b> y el destino (unidad / inventario).</p>';
-  abrirImpresionPremium('Orden de Compra '+o.id+' — '+brandNom(),'Compra · '+formatFecha(o.fecha),'',banner+info+pie);
+  abrirImpresionPremium('Orden de Compra '+o.id+' — '+brandNom(),'Compra · '+formatFecha(o.fecha),'',banner+info+pie+_osPieVerificacion(o));
 }
 function _osImprimirOrdenPorId(id){var o=ORDENES_SERV.find(function(x){return x.id===id;});if(o)_osImprimirOrden(o);}
 // CANCELAR una orden SIN borrarla: queda el registro con estado 'cancelada' + motivo sellado en notas
