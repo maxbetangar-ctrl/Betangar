@@ -899,6 +899,9 @@ function _iniciarSesionCore(){
   // DEEP-LINK: si la URL trae #modulo (ej. betangar.com/app.html#operativo desde el recordatorio de
   // WhatsApp), abrir ese módulo directo tras login (solo si el rol tiene permiso).
   try{ var _dh=(location.hash||'').replace(/^#/,'').trim(); if(_dh && (PERMISOS[SESION.rol]||[]).indexOf(_dh)>=0){ setTimeout(function(){ try{ sp(_dh); }catch(e){} },80); } }catch(e){}
+  // DEEP-LINK de AUTORIZACIÓN: #tok=<id> viene del WhatsApp que pide la aprobación.
+  // Va después del login a propósito: la aprobación exige la sesión de quien autoriza.
+  try{ setTimeout(function(){ try{ atenderEnlaceAprobacion(); }catch(e){ console.log('enlace aprobación:',e&&e.message); } },400); }catch(e){}
   var rolLbl={superadmin:'SuperAdmin',auditor:'Auditor',admin:'Admin',operador:'Operador',rrhh:'RRHH',visualizador:'Vista',demo_admin:'Demo',demo_operador:'Demo',demo_rrhh:'Demo'};
   var rolCol={superadmin:'role-admin',auditor:'role-admin',admin:'role-admin',operador:'role-operador',rrhh:'role-rrhh',visualizador:'role-visualizador'};
   var rb=SESION.rol==='superadmin'?'superadmin':(SESION.rol.replace('demo_','')||'visualizador');
@@ -13896,10 +13899,14 @@ function solicitarToken(accion,callback,accionData){
   // accionData: {op:'del',tabla,col,val} → permite que el SUPERADMIN ejecute la acción
   // al aprobar (sin depender de la sesión del solicitante).
   window._tokenAccionData=accionData||null;
+  // El texto decía «pídeles el código e ingrésalo», y eso YA NO ALCANZA desde que la
+  // aprobación la manda el servidor (25/07): el código suelto no autoriza nada, hace falta
+  // que el que autoriza APRUEBE. Decirlo mal hacía que el token pareciera roto.
   var html='<div class="alert-b" style="margin-bottom:12px">'+
-    'Esta accion requiere autorizacion.<br>'+
-    'Se está enviando la solicitud a Maximo y Francisco (correo + WhatsApp + panel).<br>'+
-    '<span style="font-size:10px;color:var(--text3)">Pídeles el código de 6 dígitos e ingrésalo abajo. El motivo es opcional.</span>'+
+    'Esta acción necesita autorización.<br>'+
+    'Ya les llegó el aviso a Máximo y Francisco (WhatsApp + correo + panel), <b>con el enlace para aprobarla</b>.<br>'+
+    '<b>Cuando la aprueben, la acción se ejecuta sola</b>: podés dejar esta ventana abierta y esperar.<br>'+
+    '<span style="font-size:10px;color:var(--text3)">El código de abajo es opcional: solo sirve si te lo dictan. El motivo también es opcional.</span>'+
     '</div>'+
     '<div class="fg"><label>Motivo de la modificacion</label>'+
     '<input class="fc" id="tok-motivo" placeholder="Ej: Correccion de numero de planilla...">'+
@@ -13932,36 +13939,48 @@ async function pedirNuevoToken(){
   // P0: registrar la acción local para que el polling la ejecute al aprobar el superadmin
   if(window._tokenCallback)registrarTokenLocal(codigo,window._tokenCallback,motivo);
   var now=fmtFechaHora(new Date());
-  var waMsg='Solicitud de modificacion\n'+
-    '👤 Usuario: '+SESION.nombre+'\n'+
-    '📋 Accion: '+accion+'\n'+
-    (window._tokenDetalle?'📄 Detalle: '+window._tokenDetalle+'\n':'')+
-    '💬 Motivo: '+motivo+'\n'+
-    '🔑 Token: *'+codigo+'*\n'+
-    '⏱ Valido 30 min\n\n'+
-    'Si apruebas envia el token al solicitante. Si no, ignoralo.';
-  // sendWA antepone "BETANGAR: "; va SIEMPRE a socios (Maximo y Francisco)
-  sendWA(waMsg,'socios',true); // interactivo: sale a cualquier hora
   if(errEl){errEl.style.display='block';errEl.style.color='var(--text3)';errEl.textContent='Registrando solicitud…';}
-  // Guardar en tokens_pendientes para el panel del dashboard (lo ve el superadmin). La tabla
-  // tiene anon REVOCADO → se EXIGE el JWT de sesión; si falta, el insert da 401 y el token nunca
-  // aparece en el panel. Por eso garantizamos el JWT y verificamos la respuesta (sin mentir verde).
+  // ── PRIMERO SE REGISTRA, DESPUÉS SE AVISA ──────────────────────────────────────────
+  // El WhatsApp salía ANTES del insert, así que no podía traer el enlace de la solicitud
+  // (no existía todavía). Ahora se guarda primero y se pide la fila de vuelta
+  // (return=representation) para poder mandar el enlace que la aprueba de un toque.
+  // La tabla tiene anon REVOCADO → se EXIGE el JWT; sin él el insert da 401 y el token
+  // nunca aparece en el panel.
   var _jwt=await _ensureJWT();
   var _expTok=new Date(Date.now()+30*60*1000).toISOString(); // valido 30 min
-  var _insertOk=false, _insertErr='';
+  var _insertOk=false, _insertErr='', _tokId='';
   if(!_jwt){
     _insertErr='tu sesión no está activa (vuelve a iniciar sesión)';
   } else {
     try{
       var _r=await fetch(SUPA_URL+'/rest/v1/tokens_pendientes',{
         method:'POST',
-        headers:_tokRestHdr({'Content-Type':'application/json','Prefer':'return=minimal'}),
+        headers:_tokRestHdr({'Content-Type':'application/json','Prefer':'return=representation'}),
         body:JSON.stringify({token:codigo,usuario:SESION.nombre,accion:accion,motivo:motivo,expira:_expTok,accion_data:(window._tokenAccionData||null)})
       });
-      if(_r.ok){_insertOk=true; if(esSuperAdmin())renderTokensPendientes();}
+      if(_r.ok){_insertOk=true;
+        try{ var _rows=await _r.json(); _tokId=(_rows&&_rows[0]&&_rows[0].id)||''; }catch(e){}
+        if(esSuperAdmin())renderTokensPendientes();}
       else{ _insertErr='HTTP '+_r.status; try{_insertErr+=' '+(await _r.text());}catch(e){} console.log('tokens_pendientes insert err:',_insertErr); }
     }catch(e){ _insertErr=e&&e.message||'red'; console.log('tokens_pendientes insert err:',_insertErr); }
   }
+  // ── EL AVISO CON EL ENLACE QUE APRUEBA ────────────────────────────────────────────
+  // El enlace NO aprueba solo (los escáneres de enlaces abren las URLs): abre el sistema
+  // con la sesión de quien autoriza y le pide confirmar. Sin sesión de superadmin no
+  // autoriza nada, así que el candado sigue siendo el mismo.
+  var _urlAprob=_tokId?((location.origin||'https://betangar.com')+location.pathname+'#tok='+encodeURIComponent(_tokId)):'';
+  var waMsg='Solicitud de autorizacion\n'+
+    '👤 Usuario: '+SESION.nombre+'\n'+
+    '📋 Accion: '+accion+'\n'+
+    (window._tokenDetalle?'📄 Detalle: '+window._tokenDetalle+'\n':'')+
+    '💬 Motivo: '+motivo+'\n'+
+    '🔑 Codigo: *'+codigo+'*\n'+
+    '⏱ '+now+'\n\n'+
+    (_urlAprob
+      ? '⚠️ El codigo SOLO no autoriza: hay que APROBARLA.\n👉 Aprobar: '+_urlAprob+'\n(se abre el sistema y confirmas de un toque)\n\nSi no la reconoces, no hagas nada.'
+      : '⚠️ El codigo SOLO no autoriza: hay que aprobarla en el sistema (panel de tokens del tablero).\n\nSi no la reconoces, no hagas nada.');
+  // sendWA antepone "BETANGAR: "; va SIEMPRE a socios (Maximo y Francisco)
+  sendWA(waMsg,'socios',true); // interactivo: sale a cualquier hora
   // Email respaldo
   if(typeof emailjs!=='undefined'){
     // FIX: el correo llegaba sin el número de token porque la template de EmailJS no
@@ -13992,7 +14011,7 @@ async function pedirNuevoToken(){
     errEl.style.display='block';
     if(_insertOk){
       errEl.style.color='var(--green)';
-      errEl.textContent='✅ Solicitud registrada. El administrador ya ve tu token en el panel y le llegó por WhatsApp. Ingresá el código cuando te lo aprueben o te lo envíen.';
+      errEl.textContent='✅ Solicitud enviada. Le llegó por WhatsApp con el enlace para aprobarla. Cuando la aprueben, la acción se ejecuta sola — no hace falta que hagas nada más.';
     } else {
       errEl.style.color='var(--red)';
       errEl.textContent='⚠ No se pudo registrar la solicitud ('+_insertErr+'). Si dice "sesión no activa": cerrá sesión y volvé a entrar. El admin igual recibió el aviso por WhatsApp.';
@@ -14083,6 +14102,59 @@ function _escHtml(s){
   return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;')
     .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
+
+// ── APROBAR DESDE EL ENLACE DEL WHATSAPP (#tok=<id>) ─────────────────────────────
+// Máximo: «me piden un token, se los doy y no funciona». Y era cierto: desde que la
+// aprobación la manda el servidor, el código dictado no autoriza nada — hay que APROBAR.
+// Esto pone la aprobación a un toque de distancia, sin bajar el candado: el enlace no
+// aprueba por sí solo (un escáner de enlaces abriría la URL y aprobaría), abre el
+// sistema CON LA SESIÓN de quien autoriza y le pide confirmar. Quien no puede aprobar
+// tokens no aprueba nada por más que abra el enlace.
+async function atenderEnlaceAprobacion(){
+  var h=(location.hash||'').replace(/^#/,'');
+  if(h.indexOf('tok=')<0)return;
+  var id=''; try{ id=new URLSearchParams(h).get('tok')||''; }catch(e){}
+  try{ history.replaceState(null,document.title,location.pathname+location.search); }catch(e){}
+  if(!id)return;
+  if(!puedeAprobarTokens()){
+    openModal('Autorización','<div class="alert-b">Este enlace es para quien autoriza (SuperAdmin). Con tu usuario no se puede aprobar.</div>'+
+      '<button class="btn btn-s" style="width:100%" onclick="closeModal()">Cerrar</button>');
+    return;
+  }
+  openModal('Autorización','<div class="alert-b">Buscando la solicitud…</div>');
+  var t=null;
+  try{
+    await _ensureJWT();
+    var r=await fetch(SUPA_URL+'/rest/v1/tokens_pendientes?select=id,token,usuario,accion,motivo,aprobado,usado,created_at,expira&id=eq.'+encodeURIComponent(id),{headers:_tokRestHdr()});
+    var rows=r.ok?await r.json():null; t=(rows&&rows[0])||null;
+  }catch(e){}
+  if(!t){
+    openModal('Autorización','<div class="alert-r">No se encontró esa solicitud (¿ya se borró o el enlace está incompleto?).</div>'+
+      '<button class="btn btn-s" style="width:100%" onclick="closeModal()">Cerrar</button>');
+    return;
+  }
+  if(t.usado===true||t.aprobado===true){
+    openModal('Autorización','<div class="alert-b">Esta solicitud <b>ya fue '+(t.usado?'usada':'aprobada')+'</b>.<br>'+
+      _escHtml(t.usuario||'')+' · '+_escHtml(t.accion||'')+'</div>'+
+      '<button class="btn btn-s" style="width:100%" onclick="closeModal()">Cerrar</button>');
+    return;
+  }
+  var venc=t.expira&&(new Date(t.expira)<new Date());
+  openModal('¿Autorizás esta acción?',
+    '<div class="alert-b" style="margin-bottom:10px">'+
+      '<div style="font-size:16px;font-weight:700;margin-bottom:6px">'+_escHtml(t.accion||'')+'</div>'+
+      '<div>👤 Lo pide: <b>'+_escHtml(t.usuario||'')+'</b></div>'+
+      '<div>💬 Motivo: '+_escHtml(t.motivo||'—')+'</div>'+
+      '<div style="font-size:11px;color:var(--text3);margin-top:4px">🔑 '+_escHtml(t.token||'')+' · '+_escHtml(formatFechaHora?formatFechaHora(t.created_at):(t.created_at||''))+'</div>'+
+    '</div>'+
+    (venc?'<div class="alert-r" style="margin-bottom:10px">⏱ Pasaron más de 30 minutos desde que se pidió. Si ya no hace falta, no la apruebes.</div>':'')+
+    '<div style="display:flex;gap:8px">'+
+    '<button class="btn btn-g" style="flex:1" onclick="closeModal();aprobarTokenPend(\''+String(id).replace(/'/g,"\\'")+'\')">✅ Aprobar</button>'+
+    '<button class="btn btn-s" onclick="closeModal()">Ahora no</button>'+
+    '</div>');
+}
+// Fecha legible tolerante (el created_at viene en ISO desde PostgREST).
+function formatFechaHora(iso){ try{ return fmtFechaHora(new Date(iso)); }catch(e){ return String(iso||''); } }
 
 // Arranca el panel: render inmediato + refresco cada 30s. Solo para superadmin.
 function iniciarBannerTokens(){
