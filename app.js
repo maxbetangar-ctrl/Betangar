@@ -3134,6 +3134,23 @@ function vaciarColaOffline(){
   COLA_OFFLINE=[];guardarColaLS();actualizarBannerCola();
   if(typeof mostrarToast==='function')mostrarToast('Cola offline vaciada','info');
 }
+// ¿Ya hay en la base una orden que es LA MISMA que ésta? Misma fecha, mismas unidades, mismo
+// ítem y mismo proveedor, y que no esté cancelada. Devuelve la que encuentra, o null.
+// Ante cualquier problema devuelve null A PROPÓSITO: que se suba y se vea, antes que perderla.
+async function _osYaExisteEquivalente(row){
+  try{
+    if(!DB_READY||!supabase||!row)return null;
+    var q=await supabase.from('ordenes_servicio').select('id,estado,cams,item,proveedor,fecha').eq('fecha',row.fecha);
+    if(q.error||!Array.isArray(q.data))return null;
+    var _norm=function(s){return String(s==null?'':s).trim().toLowerCase();};
+    var _cams=function(c){try{return (c||[]).slice().sort().join('|');}catch(e){return '';}};
+    var itm=_norm(row.item), prov=_norm(row.proveedor), cams=_cams(row.cams);
+    return q.data.find(function(o){
+      return String(o.id)!==String(row.id) && o.estado!=='cancelada' &&
+        _norm(o.item)===itm && _norm(o.proveedor)===prov && _cams(o.cams)===cams;
+    })||null;
+  }catch(e){ return null; }
+}
 var _procesandoCola=false;
 async function procesarColaOffline(){
   if(_procesandoCola)return; // candado: la cola se dispara desde 3 sitios (init, intervalo 60s, botón)
@@ -3145,6 +3162,19 @@ async function procesarColaOffline(){
   for(var i=0;i<pendientes.length;i++){
     var item=pendientes[i];
     try{
+      // ⛔ LO QUE ESPERÓ EN LA COLA PUEDE YA ESTAR HECHO A MANO. La orden de la unidad 3 se
+      // emitió el 13/07, no guardó, se rehizo 25 segundos después y la vieja subió sola el
+      // 15/07: dos órdenes vivas para el mismo trabajo. Antes de subirla se mira si ya hay
+      // una igual; ante la duda (o si no se puede mirar) SE SUBE — perder una orden es peor.
+      if(item.t==='ordenes_servicio'){
+        var _dup=await _osYaExisteEquivalente(item.d);
+        if(_dup){
+          console.log('[Cola offline] orden duplicada descartada:',item.d&&item.d.id,'ya existe',_dup.id);
+          audit('Orden en cola descartada por duplicada',(item.d&&item.d.id||'?')+' — mientras esperaba en la cola ya se emitió la misma orden ('+_dup.id+'): '+((item.d&&item.d.item)||'')+' · '+(((item.d&&item.d.cams)||[]).join(', ')));
+          if(typeof mostrarToast==='function')mostrarToast('Una orden que esperaba en la cola ya estaba emitida ('+_dup.id+'): no se duplicó','info');
+          continue;
+        }
+      }
       // UPSERT si la tabla tiene clave de conflicto (no perder/duplicar al reintentar); si no, INSERT.
       var r=item.oc?await supabase.from(item.t).upsert([item.d],{onConflict:item.oc}):await supabase.from(item.t).insert([item.d]);
       if(r.error){
@@ -7085,7 +7115,19 @@ function _osPoblarForm(){
   var f=g('os-fecha');if(f&&!f.value)f.value=(typeof fechaVE==='function')?fechaVE():new Date().toISOString().slice(0,10);
   if(typeof _osTipoOrden==='function')_osTipoOrden();
 }
+// ⛔ UNA ORDEN POR CLIC. El 27/07 salieron dos órdenes iguales (JAC-B007/B011) con 7 segundos
+// entre una y otra: la primera tardó 8 s en guardar y, sin nada que dijera "estoy trabajando",
+// se volvió a apretar el botón. Mientras la orden viaja, el botón queda tomado.
+var _osEmitiendo=false;
 async function guardarOrdenServicio(){
+  if(_osEmitiendo){ if(typeof mostrarToast==='function')mostrarToast('⏳ La orden se está emitiendo, esperá…','info'); return; }
+  _osEmitiendo=true;
+  var _b=g('os-btn-emitir'), _lbl=g('os-btn-lbl'), _txt=_lbl?_lbl.textContent:'';
+  if(_b)_b.disabled=true; if(_lbl)_lbl.textContent='⏳ Emitiendo…';
+  try{ return await _osEmitirOrden(); }
+  finally{ _osEmitiendo=false; if(_b)_b.disabled=false; if(_lbl)_lbl.textContent=_txt||'📋 Emitir orden'; }
+}
+async function _osEmitirOrden(){
   var tipoOrden=gv('os-tipoorden')||'servicio', esCompra=(tipoOrden==='compra');
   var destino=esCompra?(gv('os-destino')||'unidad'):'unidad';
   var cams;
@@ -7133,13 +7175,25 @@ async function guardarOrdenServicio(){
     try{orden.codigoVerificacion=(res.data&&res.data[0]&&res.data[0].codigo_verificacion)||'';}catch(e){}}}
   if(!ok&&typeof guardarEnCola==='function')guardarEnCola('ordenes_servicio',row);
   ORDENES_SERV.unshift(orden);
-  audit(esCompra?'Orden de Compra emitida':'Orden de Servicio emitida',orden.id+' · '+cams.join(', ')+' · '+(esCompra?(item||'compra'):tipo));
+  audit(esCompra?'Orden de Compra emitida':'Orden de Servicio emitida',orden.id+' · '+cams.join(', ')+' · '+(esCompra?(item||'compra'):tipo)+(ok?'':' · ⚠️ NO se guardó todavía: quedó en la cola'));
   _osImprimirOrden(orden);
   ['os-cams','os-item','os-notas'].forEach(function(id){sv(id,'');});
   if(typeof _osCamsHint==='function')_osCamsHint();
   if(g('os-destino'))g('os-destino').value='unidad'; _osTipoOrden();
   renderOrdenesServicio();
-  if(typeof mostrarToast==='function')mostrarToast('✅ '+(esCompra?'Orden de compra ':'Orden ')+orden.id+' emitida'+(ok?'':' (en cola)'),'exito');
+  // ⚠️ SI NO SE GUARDÓ, HAY QUE DECIRLO FUERTE. Antes salía el mismo toast VERDE con un
+  // "(en cola)" chiquito al final; el 13/07 la orden de la unidad 3 no guardó, nadie lo
+  // notó, se volvió a emitir 25 segundos después y la primera subió sola dos días más
+  // tarde: quedaron DOS órdenes vivas para el mismo trabajo.
+  if(ok){
+    if(typeof mostrarToast==='function')mostrarToast('✅ '+(esCompra?'Orden de compra ':'Orden ')+orden.id+' emitida','exito');
+  } else {
+    if(typeof mostrarToast==='function')mostrarToast('⚠️ '+orden.id+' NO se guardó todavía: quedó en cola','error');
+    alert('⚠️ LA ORDEN '+orden.id+' NO SE GUARDÓ TODAVÍA\n\n'+
+      'No hubo conexión con el servidor. Quedó en la cola y se subirá sola cuando vuelva internet.\n\n'+
+      'NO la emitas de nuevo: si la emitís otra vez, después aparecen las dos.\n\n'+
+      'El papel que se acaba de imprimir sirve igual; la orden ya tiene su número.');
+  }
 }
 // ── EL PIE DE VERIFICACIÓN DE UNA ORDEN (norma de marca) ─────────────────────
 // Estos papeles salen de la oficina y llegan a un taller o a un proveedor, y

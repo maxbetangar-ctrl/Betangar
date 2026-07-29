@@ -871,7 +871,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
         <div class="fg" id="os-prov-otro-wrap" style="display:none"><label>Nombre del proveedor (nuevo)</label><input class="fc" id="os-prov-otro" placeholder="Escribe el taller/proveedor"></div>
         <div class="fg"><label id="os-item-lbl">Ítem / qué se hará</label><input class="fc" id="os-item" placeholder="Ej: lavado completo, cambio de aceite, revisión de frenos..."></div>
         <div class="fg"><label>Notas</label><input class="fc" id="os-notas" placeholder="Opcional"></div>
-        <button class="btn btn-g btn-sm" style="width:100%" onclick="guardarOrdenServicio()"><span id="os-btn-lbl">📋 Emitir orden</span></button>
+        <button class="btn btn-g btn-sm" id="os-btn-emitir" style="width:100%" onclick="guardarOrdenServicio()"><span id="os-btn-lbl">📋 Emitir orden</span></button>
       </div>
       <div class="card">
         <div class="sh"><div class="st">Estado</div></div>
@@ -2647,7 +2647,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
 </div>
 
 <script src="logo-alcaldia.js?v=1"></script>
-<script src="app.js?v=20260728b-qr-ordenes"></script>
+<script src="app.js?v=20260729a-orden-no-se-duplica"></script>
 
 <!-- Modal global -->
 <div id="modal" class="moverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9990;align-items:center;justify-content:center;padding:16px">
