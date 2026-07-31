@@ -2096,11 +2096,17 @@ function cargarChecklistSupabase(){
         CL_MODO = 'bloqueado';
       } else {
         CL_ID_EXISTENTE = d.id;
-        // Si ya tiene km_salida → modo llegada. Y si YA tiene km_entrada, el día está cerrado:
-        // antes seguía diciendo "🌙 Guardar Llegada" con el botón vivo aunque ya estuviera todo
-        // registrado, y el chofer volvía a tocarlo "por si acaso" (de ahí el 87% de mediciones
+        // Si ya tiene km_salida → modo llegada. Y si YA tiene km de entrada REAL, el día está
+        // cerrado: antes seguía diciendo "🌙 Guardar Llegada" con el botón vivo aunque estuviera
+        // todo registrado, y el chofer volvía a tocarlo "por si acaso" (de ahí el 87% de mediciones
         // repetidas en llegada y ninguna en salida, donde la pantalla sí cambia sola).
-        CL_MODO = d.km_entrada ? 'cerrado' : (d.km_salida ? 'llegada' : 'salida');
+        // ⛔ UN 0 NO ES UN ODÓMETRO: `km_entrada` llega como TEXTO, y el texto "0" es verdadero en
+        // JavaScript. El 0 es el estado normal "el camión salió y todavía no volvió", así que con
+        // `d.km_entrada ?` toda la flota amanecía en pantalla de "día cerrado", sin checklist y con
+        // el botón trancado (choferes trancados el 31/07 a las 9am). Solo un km MAYOR QUE CERO
+        // cierra el día. Misma regla que ya usa la auditoría: el 0 se trata como null SIEMPRE.
+        var _kmEnt = parseFloat(String(d.km_entrada==null?'':d.km_entrada).replace(',','.')) || 0;
+        CL_MODO = (_kmEnt > 0) ? 'cerrado' : (d.km_salida ? 'llegada' : 'salida');
         // Cargar datos existentes
         precargarChecklist(d);
       }
@@ -2128,8 +2134,9 @@ function precargarChecklist(d){
   if(d.km_salida) setVal('cl-km-salida', _milesNum(d.km_salida));
   if(d.hora_salida) setVal('cl-hora-salida', d.hora_salida);
   // Datos de llegada: hacen falta para que la pantalla de "día cerrado" muestre lo REGISTRADO
-  // (antes quedaban en blanco y parecía que no se había guardado nada).
-  if(d.km_entrada) setVal('cl-km-llegada', _milesNum(d.km_entrada));
+  // (antes quedaban en blanco y parecía que no se había guardado nada). El 0 NO se precarga: es
+  // "todavía no volvió", y escribirlo en el campo haría que el chofer guarde un odómetro en cero.
+  if((parseFloat(String(d.km_entrada==null?'':d.km_entrada).replace(',','.'))||0) > 0) setVal('cl-km-llegada', _milesNum(d.km_entrada));
   if(d.hora_entrada) setVal('cl-hora-llegada', d.hora_entrada);
   if(d.comb_entrada){ CL_COMB_LLE = d.comb_entrada; setTimeout(function(){ marcarCombBtn('llegada', CL_COMB_LLE); }, 100); }
   if(d.comb_salida){
