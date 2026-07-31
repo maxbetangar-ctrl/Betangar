@@ -1298,8 +1298,33 @@ var _acCargando=false;
 var AC_SIGMA_CM=1;      // error real de UNA lectura: redondeo + tanque no nivelado + chapoteo
 var AC_TOL_PISO=8;      // piso: que una tabla plana no genere una tolerancia ridícula
 
+// Historia que se trae ADEMÁS del rango pedido, SOLO para medir cuánto rinde cada unidad. El
+// rendimiento de referencia es la MEDIANA de las jornadas de esa unidad, y una mediana sacada de
+// las jornadas del propio rango consultado no mide nada: pidiendo un solo día, la unidad se compara
+// contra sí misma y ninguna anomalía puede saltar — la auditoría queda ciega EN SILENCIO, que es
+// peor que un error visible. El rango elige QUÉ SE MUESTRA; la historia dice cuánto rinde.
+// (Hoy las 12 unidades son HFC-1131KR1 y usan la referencia FIJA de su modelo, así que esto todavía
+// no las toca; muerde el día que entre una unidad cuyo modelo no esté en el mapa. Ver Flotilla,
+// donde la misma falla dejó la columna "Su km/L" vacía para TODA la flota.)
+var AC_HIST_DIAS=90;
+
 function _acHoy(){ return (typeof fechaVE==='function')?fechaVE():new Date().toISOString().slice(0,10); }
 function _acMenos(n,base){ var d=new Date((base||_acHoy())+'T12:00:00'); d.setDate(d.getDate()-n); return d.toISOString().slice(0,10); }
+// PostgREST devuelve como MÁXIMO 1000 filas y NO AVISA que cortó. Con la historia encima del rango,
+// una consulta de varios meses pasa ese tope: faltarían mediciones y el cuadre del galpón acusaría
+// un faltante que no existe. Se pagina siempre, con orden estable (paginar sobre un orden con
+// empates puede repetir o saltear filas).
+async function _acPaginar(armar){
+  var todo=[], paso=1000;
+  for(var d=0;;d+=paso){
+    var r=await armar().range(d,d+paso-1);
+    if(r&&r.error)return {data:todo,error:r.error};
+    var lote=(r&&r.data)||[];
+    todo=todo.concat(lote);
+    if(lote.length<paso)break;
+  }
+  return {data:todo,error:null};
+}
 function _acNum(v){ var n=parseFloat(v); return isFinite(n)?n:null; }
 function _acFmt(n,d){ return (n==null)?'—':Number(n).toLocaleString('es-VE',{minimumFractionDigits:(d==null?0:d),maximumFractionDigits:(d==null?0:d)}); }
 function _acCostoL(){ var c=_acNum(AC_META.costoL); return (c&&c>0)?c:0; }
@@ -1478,14 +1503,14 @@ async function acCargar(desde,hasta){
   var desdeExt=_acMenos(1,desde);
   var q=[
     supabase.from('combustible_tanques_config').select('*'),
-    supabase.from('combustible_mediciones').select('*').gte('fecha',desdeExt).lte('fecha',hasta).order('fecha'),
-    supabase.from('gasoil').select('*').gte('f',desdeExt).lte('f',hasta),
-    supabase.from('checklist').select('fecha,cam,conductor,km_salida,km_entrada').gte('fecha',desdeExt).lte('fecha',hasta),
+    _acPaginar(function(){ return supabase.from('combustible_mediciones').select('*').gte('fecha',desdeExt).lte('fecha',hasta).order('id'); }),
+    _acPaginar(function(){ return supabase.from('gasoil').select('*').gte('f',desdeExt).lte('f',hasta).order('id'); }),
+    _acPaginar(function(){ return supabase.from('checklist').select('fecha,cam,conductor,km_salida,km_entrada').gte('fecha',desdeExt).lte('fecha',hasta).order('fecha').order('cam'); }),
     supabase.from('configuracion').select('valor').eq('clave','tanque_costo').maybeSingle(),
     supabase.from('configuracion').select('valor').eq('clave','aud_comb_rend_ref').maybeSingle(),
     supabase.from('unidad_config').select('cam,modelo,marca'),
     // FUENTE ÚNICA de lo que ENTRA al camión (ver _acEntradas): desde el corte manda `surtidas`.
-    supabase.from('surtidas').select('*').gte('fecha',desdeExt).lte('fecha',hasta),
+    _acPaginar(function(){ return supabase.from('surtidas').select('*').gte('fecha',desdeExt).lte('fecha',hasta).order('id'); }),
     supabase.from('configuracion').select('valor').eq('clave','surtidas_corte').maybeSingle(),
     // Modo sombra: se trae TODO el historial, no solo el período que se está mirando. El marcador
     // de acierto mide al auditor completo — si se filtrara por el período, el criterio de
@@ -1608,7 +1633,9 @@ function _acArmarJornadas(desde,hasta){
 }
 
 // Referencia de rendimiento de CADA unidad: mediana de sus jornadas válidas. Mediana y no promedio
-// para que un día ya robado no corra la vara. Si no hay historia, se usa el rango de arranque.
+// para que un día ya robado no corra la vara.
+// ⛔ Recibe historia + rango (ver AC_HIST_DIAS y la pasada doble de acBuscar), NUNCA solo el rango:
+// una mediana hecha con las jornadas del propio rango consultado compara la unidad contra sí misma.
 // km/L de referencia FIJO para una unidad segun su MODELO (o null si su modelo no tiene entrada).
 function _acRefModelo(cam){
   var mapa=(typeof AC_META!=='undefined'&&AC_META.rendRefMapa)||{};
@@ -2141,9 +2168,24 @@ async function acBuscar(){
   _acCargando=true;
   cont.innerHTML='<div style="padding:18px;text-align:center;color:var(--text3)">Analizando el período…</div>';
   try{
+    // 1) PASADA DE HISTORIA — solo para saber cuánto rinde cada unidad. Va PRIMERO a propósito:
+    //    deja los globales (AC_MED, AC_META.corregidas, AC_JORNADAS…) llenos con el tramo viejo, y
+    //    la pasada del rango los vuelve a pisar enseguida. Si se hiciera al revés, la pantalla
+    //    terminaría mostrando los datos de la historia en vez de los del período pedido.
+    var histDesde=_acMenos(AC_HIST_DIAS,desde), histHasta=_acMenos(1,desde);
+    var hist=[];
+    try{
+      await acCargar(histDesde,histHasta);
+      hist=_acArmarJornadas(histDesde,histHasta);
+    }catch(e){ hist=[]; }   // sin historia se sigue: se mide con lo que haya, como antes
+    // 2) PASADA DEL RANGO PEDIDO — es la que manda para TODO lo que se muestra y se acusa.
     await acCargar(desde,hasta);
     var todas=_acArmarJornadas(desde,hasta);
-    var ref=_acRefRend(todas);
+    // La referencia se mide con historia + rango; las anomalías siguen viendo EXACTAMENTE las mismas
+    // jornadas que antes (el rango y el día previo del nocturno), ni una más: traer historia sirve
+    // para medir mejor, nunca para acusar por hechos viejos que ya se revisaron en su momento.
+    var ref=_acRefRend(hist.concat(todas));
+    AC_META.histDias=hist.length?AC_HIST_DIAS:0;
     AC_ANOM=_acAnomalias(todas,desde,hasta,ref);
     AC_META.galpon=_acCuadreGalpon(desde,hasta);
     AC_META.desde=desde; AC_META.hasta=hasta; AC_META.ref=ref;
@@ -2285,7 +2327,10 @@ function _acRender(){
     var senal='—', colS='var(--text3)';
     if(rend!=null&&refU&&refU.n>=3){
       var d=(rend-refU.mediana)/refU.mediana;
-      var vs=refU.fija?('lo esperado ('+_acFmt(refU.mediana,1)+' km/L)'):'su normal';
+      // De dónde salió la vara se DICE: un "rinde por debajo" sin decir por debajo de qué no se
+      // puede discutir con nadie. Si es la mediana propia, se dice con cuántas jornadas se midió.
+      var vs=refU.fija?('lo esperado ('+_acFmt(refU.mediana,1)+' km/L)')
+                      :('su normal ('+_acFmt(refU.mediana,1)+' km/L en '+refU.n+' jornada'+(refU.n===1?'':'s')+')');
       if(d<-0.25){senal='rinde por debajo de '+vs;colS='var(--red)';}
       else if(d>0.25){senal='rinde mejor que '+vs;colS='var(--green)';}
       else {senal='dentro de '+vs;colS='var(--text2)';}
