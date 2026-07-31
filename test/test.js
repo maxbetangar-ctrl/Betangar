@@ -706,6 +706,34 @@ function resetCola(){ app.COLA_OFFLINE=[]; app.COLA_FALLIDOS=[]; app._procesando
     eq('salvavidas: si el "mes" es 25, era orden gringo → 25 de julio', (r.regs[0] || {}).f, '2026-07-25');
   })();
 
+  // ── BUSCADOR DE ÓRDENES: el número se dicta por los últimos dígitos ──
+  // Con el papel en la mano nadie lee "OS-2026-0007" completo: dice "la siete".
+  console.log('\nBuscador de órdenes de servicio:');
+  (function () {
+    const oNueva = { id: 'OS-2026-0007', cams: ['JAC-B005'], proveedor: 'HUMBERTO PACCINI (ATLAS)', item: 'REPARACION DE CAUCHO', notas: '', tipo: 'correctivo', estado: 'emitida' };
+    const oVieja = { id: 'OS1785416697067', cams: ['JAC-B011'], proveedor: 'INCONSUMCA', item: 'trabajo de electricidad', notas: '', tipo: 'correctivo', estado: 'hecha' };
+    ok('sin búsqueda entra todo', app._osCoincide(oNueva, '') === true);
+    ok('número completo', app._osCoincide(oNueva, 'OS-2026-0007') === true);
+    ok('últimos dígitos: "7"', app._osCoincide(oNueva, '7') === true);
+    ok('últimos dígitos: "0007"', app._osCoincide(oNueva, '0007') === true);
+    ok('la vieja larga por su cola: "697067"', app._osCoincide(oVieja, '697067') === true);
+    ok('la vieja larga completa', app._osCoincide(oVieja, 'OS1785416697067') === true);
+    ok('por proveedor', app._osCoincide(oNueva, 'paccini') === true);
+    ok('por lo que se hizo', app._osCoincide(oVieja, 'electricidad') === true);
+    ok('por unidad (B005)', app._osCoincide(oNueva, 'b005') === true);
+    ok('por unidad (5)', app._osCoincide(oNueva, '5') === true);
+    ok('CONTROL: no trae la que no es', app._osCoincide(oNueva, 'electricidad') === false);
+    ok('CONTROL: un número que no está', app._osCoincide(oNueva, '1234') === false);
+  })();
+
+  // ── Consecutivo del número de orden ──
+  console.log('\nNúmero de orden (consecutivo por año):');
+  eq('lee el consecutivo', app._osSeqDe('OS-2026-0042', 'OS-2026-'), 42);
+  eq('otro año no cuenta', app._osSeqDe('OS-2025-0099', 'OS-2026-'), 0);
+  eq('la vieja larga no cuenta', app._osSeqDe('OS1785416697067', 'OS-2026-'), 0);
+  eq('rellena a 4 dígitos', app._osPad4(7), '0007');
+  eq('y no corta los de 4', app._osPad4(1234), '1234');
+
   // ── Resumen ──
   console.log('\n──────────────');
   console.log('PASS: ' + pass + '   FAIL: ' + fail);

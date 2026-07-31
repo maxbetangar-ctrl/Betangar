@@ -878,6 +878,12 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
         <div id="os-resumen" style="font-size:12px;color:var(--text3);padding:6px 0"></div>
       </div>
     </div>
+    <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
+      <input class="fc" id="os-buscar" placeholder="🔎 Buscar orden: número (sirven los últimos dígitos), unidad, proveedor, qué se hizo..." oninput="renderOrdenesServicio()" style="flex:1;min-width:240px">
+      <select class="fc" id="os-buscar-est" onchange="renderOrdenesServicio()" style="max-width:180px"><option value="">Todos los estados</option><option value="emitida">🟡 Emitida</option><option value="en_proceso">🔵 En proceso</option><option value="hecha">🟢 Hecha</option><option value="cancelada">⛔ Cancelada</option></select>
+      <button class="btn btn-s btn-sm" type="button" onclick="_osLimpiarBusqueda()">Limpiar</button>
+    </div>
+    <div id="os-buscar-info" style="font-size:11px;color:var(--text3);margin-bottom:6px"></div>
     <div class="tw"><table><thead><tr><th>OS</th><th>Fecha</th><th>Unidades</th><th>Tipo</th><th>Proveedor</th><th>Qué</th><th>Estado</th><th></th></tr></thead><tbody id="tb-ordenes"></tbody></table></div>
   </div>
 </div>
@@ -2009,7 +2015,8 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
     <div class="g2" style="margin-bottom:10px">
       <div class="card">
         <div class="sh"><div class="st">📋 Registrar mantenimiento</div></div>
-        <div class="fr2"><div class="fg"><label>Unidad</label><select class="fc" id="hv-cam" onchange="_hvPrefillKm()"><option value="">— unidad —</option></select></div><div class="fg"><label>Ítem (qué se le hizo)</label><select class="fc" id="hv-item"><option value="">— ítem —</option></select></div></div>
+        <div class="fr2"><div class="fg"><label>Unidad</label><select class="fc" id="hv-cam" onchange="_hvPrefillKm()"><option value="">— unidad —</option></select></div><div class="fg"><label>Ítem (qué se le hizo)</label><select class="fc" id="hv-item" onchange="_hvItemOtro()"><option value="">— ítem —</option></select></div></div>
+        <div class="fg" id="hv-item-otro-wrap" style="display:none"><label>¿Qué se le hizo? (ítem nuevo)</label><input class="fc" id="hv-item-otro" placeholder="Ej: reparación eléctrica, soldadura del cajón, latonería..."><small style="color:var(--text3);font-size:10px">Se agrega al catálogo para poder seguirle el rastro (cuánto costó y si se repite) en esta unidad.</small></div>
         <div class="fr3"><div class="fg"><label>Fecha</label><input class="fc" id="hv-fecha" type="date"></div><div class="fg"><label>Km al hacerse el trabajo</label><input class="fc" id="hv-km" type="number" placeholder="manual" style="font-family:var(--m)"><small id="hv-km-hint" style="color:var(--text3);font-size:10px;display:block"></small></div><div class="fg"><label>Costo $</label><input class="fc" id="hv-costo" type="number" placeholder="0.00" style="font-family:var(--m)"></div></div>
         <div class="fr3"><div class="fg"><label>Tipo de trabajo</label><select class="fc" id="hv-tipotrabajo"><option value="cambio">🔧 Sustitución (se cambió la pieza)</option><option value="reparacion">🔩 Reparación (se arregló la misma)</option><option value="inspeccion">🔎 Inspección / revisión</option><option value="correctivo">🛠 Correctivo</option><option value="lavado">🧽 Lavado / limpieza</option></select></div><div class="fg"><label>Garantía (días)</label><input class="fc" id="hv-garantia" type="number" placeholder="0" style="font-family:var(--m)"><small style="color:var(--text3);font-size:10px">Avisa si se repite estando en garantía</small></div><div class="fg"><label>Horas (si va por horímetro)</label><input class="fc" id="hv-horas" type="number" placeholder="0" style="font-family:var(--m)"></div></div>
         <div class="fr2"><div class="fg"><label>Proveedor / taller</label><input class="fc" id="hv-prov" placeholder="Opcional"></div><div class="fg"><label>Nota</label><input class="fc" id="hv-nota" placeholder="Detalle opcional"></div></div>
@@ -2647,7 +2654,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
 </div>
 
 <script src="logo-alcaldia.js?v=1"></script>
-<script src="app.js?v=20260729b-aprobar-desde-whatsapp"></script>
+<script src="app.js?v=20260731a-ordenes-qr-buscador-item"></script>
 
 <!-- Modal global -->
 <div id="modal" class="moverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9990;align-items:center;justify-content:center;padding:16px">
