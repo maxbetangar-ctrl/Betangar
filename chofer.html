@@ -839,8 +839,8 @@ function arrancarApp(){
 
   // Verificar si ya llenó la salida hoy (modo llegada) desde localStorage
   var modoGuardado = localStorage.getItem('btg_cl_modo_'+cam+'_'+hoy);
-  if(modoGuardado==='llegada'){
-    CL_MODO = 'llegada';
+  if(modoGuardado==='llegada' || modoGuardado==='cerrado'){
+    CL_MODO = (modoGuardado==='cerrado') ? 'cerrado' : 'llegada';
     // Cargar datos guardados localmente
     try{
       var clLocal = localStorage.getItem('btg_cl_'+cam+'_'+hoy);
@@ -1867,8 +1867,18 @@ function agregarChecklistCola(reg){
 
 // Sincroniza AMBAS colas (viajes + checklist), UNO POR UNO, e INTENTA SIEMPRE (no exige
 // isOnline). Al primer éxito marca "En línea". Los que fallen se quedan en su cola.
+var _SYNC_EN_VUELO=false;
 function sincronizarCola(){
   if(!supabase) return;
+  // CANDADO DE REENTRADA: se la llama desde cinco sitios (intervalo de 30 s, evento `online`,
+  // mensaje del service worker, guardarChecklist y verificarConexion). Sin este candado dos
+  // llamadas casi simultáneas recorrían las mismas colas y subían la misma fila dos veces. Se
+  // suelta a los 10 s: es tope de seguridad, no promesa de que ya terminó (los envíos son
+  // asincrónicos y cada cola se limpia sola con su propio contador). El botón de reintento
+  // manual lo suelta a mano, para que al chofer nunca le quede sordo.
+  if(_SYNC_EN_VUELO) return;
+  _SYNC_EN_VUELO=true;
+  setTimeout(function(){ _SYNC_EN_VUELO=false; }, 10000);
 
   // ── Fotos que no pudieron subir: van PRIMERO, porque las filas ya apuntan a esas rutas ──
   try{ procesarColaFotos(); }catch(e){}
@@ -1931,12 +1941,19 @@ function sincronizarCola(){
   }
 
   // ── Mediciones de tanque pendientes (btg_medcm_*) — antes se guardaban y nunca se resubían ──
+  // La llave se saca ANTES de subir y se repone solo si falla: si se borrara al volver la respuesta,
+  // dos pasadas de sincronizarCola() leerían la misma llave y subirían la medición dos veces (así
+  // aparecieron las tres filas de JAC-B002 el 25/07 en 211 milésimas de segundo). El upsert es la
+  // segunda red: aunque se cuelen dos, la base deja una sola.
   try{
     var medKeys=[]; for(var mi=0; mi<localStorage.length; mi++){ var mk=localStorage.key(mi); if(mk && mk.indexOf('btg_medcm_')===0) medKeys.push(mk); }
     medKeys.forEach(function(mk){
       var row; try{ row=JSON.parse(localStorage.getItem(mk)); }catch(e){ localStorage.removeItem(mk); return; }
       if(!row){ localStorage.removeItem(mk); return; }
-      supabase.from('combustible_mediciones').insert([row]).then(function(res){ if(!res.error) localStorage.removeItem(mk); }, function(){});
+      localStorage.removeItem(mk);
+      var reponer=function(){ try{ localStorage.setItem(mk, JSON.stringify(row)); }catch(e){} };
+      supabase.from('combustible_mediciones').upsert([row],{onConflict:CL_MED_ONCONFLICT})
+        .then(function(res){ if(res.error) reponer(); }, reponer);
     });
   }catch(e){}
 
@@ -1973,6 +1990,7 @@ async function reintentarYDiagnosticar(){
     if(!t.error && !isOnline){ actualizarConexion(true); }
   }catch(e){ L.push('Lectura prueba: EXCEPCION '+((e&&e.message)||e)); }
   __ultErrSync='';
+  _SYNC_EN_VUELO=false;   // reintento MANUAL: el candado de reentrada no puede dejarlo sordo
   sincronizarCola();
   mostrarToast('Reintentando subir...');
   setTimeout(function(){
@@ -2078,8 +2096,11 @@ function cargarChecklistSupabase(){
         CL_MODO = 'bloqueado';
       } else {
         CL_ID_EXISTENTE = d.id;
-        // Si ya tiene km_salida → modo llegada
-        CL_MODO = d.km_salida ? 'llegada' : 'salida';
+        // Si ya tiene km_salida → modo llegada. Y si YA tiene km_entrada, el día está cerrado:
+        // antes seguía diciendo "🌙 Guardar Llegada" con el botón vivo aunque ya estuviera todo
+        // registrado, y el chofer volvía a tocarlo "por si acaso" (de ahí el 87% de mediciones
+        // repetidas en llegada y ninguna en salida, donde la pantalla sí cambia sola).
+        CL_MODO = d.km_entrada ? 'cerrado' : (d.km_salida ? 'llegada' : 'salida');
         // Cargar datos existentes
         precargarChecklist(d);
       }
@@ -2088,9 +2109,29 @@ function cargarChecklistSupabase(){
   });
 }
 
+// Reabre la llegada ya registrada para corregirla. Trae la medición que quedó guardada para que
+// el chofer no tenga que volver a medir el tanque de noche solo porque se equivocó en el km.
+function clCorregirLlegada(){
+  if(!confirm('¿Vas a corregir la llegada que ya registraste?\n\nLo que guardes ahora REEMPLAZA lo anterior.'))return;
+  CL_MODO='llegada';
+  try{localStorage.setItem('btg_cl_modo_'+cam+'_'+hoy,'llegada');}catch(e){}
+  renderChecklistModo();
+  try{
+    if(supabase) supabase.from('combustible_mediciones').select('altura_cm')
+      .eq('vehiculo_id',cam).eq('fecha',hoy).eq('momento','llegada').limit(1)
+      .then(function(r){ if(r&&!r.error&&r.data&&r.data[0]&&!gv('cl-cm-llegada')){ setVal('cl-cm-llegada', r.data[0].altura_cm); clCalcLitrosCm('llegada'); } });
+  }catch(e){}
+  mostrarToast('Corregí lo que haga falta y toca Guardar Llegada','warn');
+}
+
 function precargarChecklist(d){
   if(d.km_salida) setVal('cl-km-salida', _milesNum(d.km_salida));
   if(d.hora_salida) setVal('cl-hora-salida', d.hora_salida);
+  // Datos de llegada: hacen falta para que la pantalla de "día cerrado" muestre lo REGISTRADO
+  // (antes quedaban en blanco y parecía que no se había guardado nada).
+  if(d.km_entrada) setVal('cl-km-llegada', _milesNum(d.km_entrada));
+  if(d.hora_entrada) setVal('cl-hora-llegada', d.hora_entrada);
+  if(d.comb_entrada){ CL_COMB_LLE = d.comb_entrada; setTimeout(function(){ marcarCombBtn('llegada', CL_COMB_LLE); }, 100); }
   if(d.comb_salida){
     CL_COMB_SAL = d.comb_salida;
     setTimeout(function(){ marcarCombBtn('salida', CL_COMB_SAL); }, 100);
@@ -2114,9 +2155,27 @@ function renderChecklistModo(){
     return;
   }
 
+  // DÍA CERRADO: la llegada ya está registrada. La pantalla lo DICE y el botón queda quieto — si
+  // no, el chofer vuelve a guardar lo mismo y la auditoría se lo reclama al día siguiente. Corregir
+  // sigue siendo posible, pero es un acto deliberado (y ahora pisa la fila, no crea otra).
+  if(CL_MODO === 'cerrado'){
+    if(badge)  { badge.textContent='✅ REGISTRADO'; badge.className='cl-modo-badge badge-llegada'; }
+    if(banner) { banner.style.display='block'; banner.style.background='rgba(125,201,65,.10)'; banner.style.borderColor='rgba(125,201,65,.35)'; banner.style.color='#7dc941';
+                 banner.innerHTML='✅ <b>Llegada registrada.</b> Ya está todo cargado por hoy — no hace falta guardar de nuevo.<br><span style="cursor:pointer;text-decoration:underline" onclick="clCorregirLlegada()">Me equivoqué en algo, quiero corregir</span>'; }
+    if(rowLle) { rowLle.style.display='flex'; }
+    if(secIns) { secIns.style.display='none'; }
+    if(combLle){ combLle.style.display='block'; }
+    var cmLle3=document.getElementById('cl-cm-llegada-cont'); if(cmLle3)cmLle3.style.display='block';
+    if(btnG)   { btnG.disabled=true; btnG.textContent='✅ Llegada registrada'; }
+    var kmSal3=document.getElementById('cl-km-salida'); if(kmSal3) kmSal3.readOnly=true;
+    renderItemsEstado(); renderEstadoVehiculo();
+    return;
+  }
+
   if(CL_MODO === 'llegada'){
     if(badge)  { badge.textContent='🌙 LLEGADA'; badge.className='cl-modo-badge badge-llegada'; }
-    if(banner) { banner.style.display='block'; }
+    if(banner) { banner.style.display='block'; banner.style.background=''; banner.style.borderColor=''; banner.style.color='';
+                 banner.innerHTML='🌙 <b>Modo Llegada</b> — El checklist de esta mañana ya está registrado. Completa los datos de llegada.'; }
     if(rowLle) { rowLle.style.display='flex'; }
     if(secIns) { secIns.style.display='none'; }
     if(combLle){ combLle.style.display='block'; }
@@ -2127,11 +2186,14 @@ function renderChecklistModo(){
     if(kmSal){ kmSal.readOnly=true; }
     var horaSal = document.getElementById('cl-hora-salida');
     if(horaSal){ horaSal.disabled=true; horaSal.style.opacity='.5'; }
-    // Prellenar hora llegada
-    var now = new Date();
-    var hh = String(now.getHours()).padStart(2,'0');
-    var mm = String(now.getMinutes()).padStart(2,'0');
-    setVal('cl-hora-llegada', hh+':'+mm);
+    // Prellenar hora llegada SOLO si está vacía: si se está corrigiendo una llegada ya registrada,
+    // la hora real no puede quedar pisada por la hora en que se hizo la corrección.
+    if(!gv('cl-hora-llegada')){
+      var now = new Date();
+      var hh = String(now.getHours()).padStart(2,'0');
+      var mm = String(now.getMinutes()).padStart(2,'0');
+      setVal('cl-hora-llegada', hh+':'+mm);
+    }
   } else {
     // Salida
     if(badge)  { badge.textContent='☀️ SALIDA'; badge.className='cl-modo-badge badge-salida'; }
@@ -2291,19 +2353,33 @@ function clCalcLitrosCm(momento){
   box.style.color='#7dc941';
   box.textContent=l?('≈ '+l.toLocaleString('es-VE',{maximumFractionDigits:1})+' L'):'';
 }
+// UNA medición por unidad+fecha+momento. Era `insert` liso y sin UNIQUE en la tabla: cada toque
+// del botón —y cada pasada simultánea de sincronizarCola()— creaba fila nueva. 216 filas repetidas
+// en 6 semanas (93% con la MISMA altura) y un WhatsApp diario del cron reclamándole al chofer algo
+// que hizo la app. Ahora choca contra `uq_comb_med_unidad_fecha_momento` (migración 2026-07-31) y
+// la corrección PISA la fila anterior en vez de dejar dos alturas vivas para el mismo momento.
+// ⚠️ El `onConflict` exige ese índice: si se toca el candado en la BD, se toca aquí también.
+var CL_MED_ONCONFLICT='vehiculo_id,fecha,momento';
 async function clGuardarMedicionCm(momento){
   var cmV=parseFloat(gv('cl-cm-'+momento));
   if(isNaN(cmV)||cmV<=0)return; // medición opcional
   var litros=clLitrosJac(cmV);
   var row={fecha:hoy,tanque_id:((CL_TANQUE_UNIDAD&&CL_TANQUE_UNIDAD.tanque_id)||'tanque-jac'),vehiculo_id:cam,momento:momento,altura_cm:cmV,litros_calculados:litros,registrado_por:(chofer||'chofer'),notas:'Medición chofer '+cam};
   try{
-    if(isOnline&&supabase){ var r=await supabase.from('combustible_mediciones').insert([row]); if(r.error)console.error('medicion cm error',r.error); }
+    if(isOnline&&supabase){ var r=await supabase.from('combustible_mediciones').upsert([row],{onConflict:CL_MED_ONCONFLICT}); if(r.error)console.error('medicion cm error',r.error); }
     else { localStorage.setItem('btg_medcm_'+cam+'_'+hoy+'_'+momento, JSON.stringify(row)); }
   }catch(e){ try{localStorage.setItem('btg_medcm_'+cam+'_'+hoy+'_'+momento, JSON.stringify(row));}catch(e2){} }
 }
 
 async function guardarChecklist(){
   if(CL_MODO==='bloqueado'){ mostrarToast('El mecánico ya registró este checklist','warn'); return; }
+  if(CL_MODO==='cerrado'){ mostrarToast('La llegada de hoy ya está registrada. Si te equivocaste, toca "quiero corregir".','warn'); return; }
+  if(_CL_GUARDANDO){ return; }   // el botón ya se deshabilita; esto tapa el doble disparo del toque
+  _CL_GUARDANDO=true;
+  try{ await _guardarChecklist(); } finally { _CL_GUARDANDO=false; }
+}
+var _CL_GUARDANDO=false;
+async function _guardarChecklist(){
 
   // La medición del tanque con regla (cm) es OBLIGATORIA cada día (decisión de Máximo): el chofer
   // reporta los centímetros al salir y al regresar para poder reconciliar el tanque del galpón.
@@ -2472,10 +2548,15 @@ async function guardarChecklist(){
     try{ await clGuardarMedicionCm(CL_MODO==='salida'?'salida':'llegada'); }catch(e){}
     // Notificar a Máximo por WhatsApp (solo cuando sí se guardó, para no avisar de algo que no entró)
     enviarNotificacionWA(registro);
-    // Pasar a modo llegada si era salida
+    // Pasar a modo llegada si era salida; si era LLEGADA, el día queda CERRADO y la pantalla lo
+    // dice (antes quedaba igual que antes de guardar y el chofer volvía a tocar el botón).
     if(CL_MODO==='salida'){
       CL_MODO = 'llegada';
       try{localStorage.setItem('btg_cl_modo_'+cam+'_'+hoy,'llegada');}catch(e){}
+      setTimeout(renderChecklistModo, 800);
+    } else {
+      CL_MODO = 'cerrado';
+      try{localStorage.setItem('btg_cl_modo_'+cam+'_'+hoy,'cerrado');}catch(e){}
       setTimeout(renderChecklistModo, 800);
     }
   } else if(enCola){
@@ -2493,7 +2574,8 @@ async function guardarChecklist(){
     mostrarToast('Error al guardar — verifica conexión','error');
   }
 
-  if(btn){ btn.disabled=false; btn.textContent = CL_MODO==='llegada'?'🌙 Guardar Llegada':'☀️ Guardar Salida'; }
+  // Si el día quedó CERRADO, el botón NO se rehabilita: lo deja quieto renderChecklistModo.
+  if(btn && CL_MODO!=='cerrado'){ btn.disabled=false; btn.textContent = CL_MODO==='llegada'?'🌙 Guardar Llegada':'☀️ Guardar Salida'; }
 }
 
 // ── NOTIFICACIÓN WHATSAPP ──

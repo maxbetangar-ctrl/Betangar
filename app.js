@@ -1433,7 +1433,11 @@ function _acTanqueDe(m){
 function _acEsGalpon(m){ var t=_acTanqueDe(m); return !!(t&&t.tipo==='galpon'); }
 
 // ── DEDUPE de mediciones ──────────────────────────────────────────────────────────────────────
-// Hay filas repetidas (misma unidad, fecha, momento y altura, 2-3 veces): doble toque al guardar.
+// Hay filas repetidas (misma unidad, fecha, momento y altura, 2-3 veces). CAUSA REAL, hallada el
+// 2026-07-31: `chofer.html` insertaba sin upsert y la tabla no tenía UNIQUE, y `sincronizarCola()`
+// no tenía candado de reentrada (dos pasadas subían la misma fila; JAC-B002 el 25/07 metió tres
+// filas en 211 ms). Arreglado en la base (uq_comb_med_unidad_fecha_momento) y en la PWA. Este
+// dedupe se queda igual: la historia vieja no se reescribe y la red de seguridad no se quita.
 // Se colapsan SOLO las idénticas: dos mediciones legítimas distintas nunca dan la misma altura
 // exacta en el mismo momento, y si la dieran el consumo sale igual. NO se borra nada de la BD.
 // CORREGIDO 2026-07-24: antes se colapsaban SOLO las idénticas, y cuando el chofer cargaba dos
@@ -1455,8 +1459,13 @@ function _acDedupe(filas){
     lista.forEach(function(m){ alturas[String(_acNum(m.altura_cm))]=1; });
     var distintas=Object.keys(alturas).length;
     dupIguales+=(lista.length-distintas);
-    if(distintas>1)corregidas[k]=distintas;
-    out.push(lista[lista.length-1]);
+    var ult=lista[lista.length-1];
+    // Corregida = dos alturas distintas para el mismo momento (histórico), O la marca que deja la
+    // BASE cuando alguien pisa la altura (columna `corregida`, trigger del 2026-07-31). Desde que
+    // el chofer guarda con upsert la fila vieja ya no queda, así que sin esa marca ningún día
+    // volvería a contar como corregido y las reglas de faltante opinarían sobre días dudosos.
+    if(distintas>1 || ult.corregida===true)corregidas[k]=Math.max(distintas,2);
+    out.push(ult);
   });
   AC_META.duplicadas=dupIguales;
   AC_META.corregidas=corregidas;
@@ -2092,7 +2101,9 @@ function _acAnomalias(todas,desde,hasta,ref){
   if(AC_META.duplicadas>0){
     add('media','R0','Mediciones repetidas',
       'Se encontraron '+AC_META.duplicadas+' medición(es) cargada(s) más de una vez en el período (misma unidad, misma fecha, mismo momento y misma altura). '+
-      'Se ignoraron para no falsear el consumo, pero conviene revisar por qué se están duplicando: casi siempre es que se toca dos veces el botón de guardar.',
+      'Se ignoraron para no falsear el consumo. NO es del chofer: hasta el 31/07/2026 la app guardaba con un insert liso y sin candado en la base, '+
+      'así que cada toque del botón —y cada pasada simultánea de la cola de envío— dejaba una fila nueva. Desde esa fecha la base solo admite una medición '+
+      'por unidad, fecha y momento, y corregir pisa la fila anterior. Si aparecen duplicados con fecha posterior, es un problema nuevo y hay que mirarlo.',
       '','',null,'');
   }
   // Lecturas del mismo momento con alturas DISTINTAS: alguien corrigió. Se toma la última, pero el
@@ -2101,7 +2112,7 @@ function _acAnomalias(todas,desde,hasta,ref){
     add('media','R0','Mediciones corregidas',
       'En '+AC_META.nCorregidas+' caso(s) quedó cargada más de una altura distinta para el mismo momento del mismo día. '+
       'Se tomó la última (se entiende que es la corrección), pero esos días no se usan para revisar faltantes de combustible: '+
-      'con dos lecturas que se contradicen no se puede afirmar nada. Conviene que corregir pise el dato en vez de agregar otro.',
+      'con dos lecturas que se contradicen no se puede afirmar nada. Desde el 31/07/2026 corregir PISA el dato en vez de agregar otro.',
       '','',null,'');
   }
   var orden={alta:0,media:1,baja:2};

@@ -229,15 +229,23 @@ Deno.serve(async (req) => {
   const medUnica: any[] = [];
   const corregidas = new Set<string>();
   let dupIguales = 0;
-  const dupPorUnidad: Record<string, number> = {};
+  // Por unidad Y POR MOMENTO. Antes era un solo contador por unidad y el texto sumaba salida con
+  // llegada: JAC-B010 el 30/07 tenía 3 filas de salida y 2 de llegada, y el WhatsApp decía "cargada
+  // 4 veces" — un número que no existió nunca. Un conteo que suma peras con manzanas no se le manda
+  // a nadie. (2026-07-31)
+  const dupPorUnidad: Record<string, Record<string, number>> = {};
   Object.keys(porMomento).forEach((k) => {
     const lista = porMomento[k];
     const alturas = new Set(lista.map((m: any) => String(num(m.altura_cm))));
     dupIguales += (lista.length - alturas.size);
-    if (alturas.size > 1) corregidas.add(k);
+    // Corregida = dos alturas distintas (histórico) O la marca de la BASE (columna `corregida`,
+    // trigger 2026-07-31). Con el upsert del chofer la fila vieja ya no queda: sin esa marca
+    // ningún día volvería a contar como corregido y las reglas de faltante opinarían sobre días
+    // en los que la lectura se contradijo. Gemelo de `_acDedupe` en app.js: se cambian juntos.
+    if (alturas.size > 1 || lista[lista.length - 1]?.corregida === true) corregidas.add(k);
     if (lista.length > 1 && String(lista[0].fecha).slice(0, 10) === fecha) {
-      const v = String(lista[0].vehiculo_id);
-      dupPorUnidad[v] = (dupPorUnidad[v] || 0) + (lista.length - 1);
+      const v = String(lista[0].vehiculo_id), mo = String(lista[0].momento || '?');
+      (dupPorUnidad[v] = dupPorUnidad[v] || {})[mo] = lista.length;
     }
     medUnica.push(lista[lista.length - 1]);
   });
@@ -324,7 +332,16 @@ Deno.serve(async (req) => {
     const kmS = km(c?.km_salida), kmE = km(c?.km_entrada);
     const trabajo = kmS != null && kmE != null && kmE > kmS;
 
-    if (dupPorUnidad[u]) errores.push({ u, chofer, tipo: 'duplicado', txt: `la medición del tanque quedó cargada ${dupPorUnidad[u] + 1} veces` });
+    // ⛔ EL DUPLICADO NO ES CULPA DEL CHOFER Y ÉL NO PUEDE ARREGLARLO (2026-07-31).
+    // Iba en `errores`, o sea que se le mandaba por WhatsApp "tu medición quedó cargada N veces"
+    // todos los días. Pero él no puede borrar una fila, y sobre todo: las filas repetidas las hacía
+    // la app (insert sin upsert + dos pasadas simultáneas de la cola; JAC-B002 llegó a meter tres
+    // filas en 211 milésimas de segundo). Se arregló en la base con un UNIQUE y en la PWA con
+    // upsert. Esto queda como HALLAZGO para los jefes: si vuelve a aparecer, es la app otra vez.
+    if (dupPorUnidad[u]) {
+      const det = Object.keys(dupPorUnidad[u]).map((mo) => `${dupPorUnidad[u][mo]} de ${mo}`).join(' y ');
+      hallazgos.push({ u, tipo: 'R14', txt: `quedaron ${det} — la misma medición cargada más de una vez. Se usa la última; no hay que reclamarle nada al chofer, es la app repitiendo el envío.` });
+    }
     if (trabajo && !sal) errores.push({ u, chofer, tipo: 'falta', txt: 'no quedó registrada la medición del tanque a la SALIDA' });
     if (trabajo && !lle) errores.push({ u, chofer, tipo: 'falta', txt: 'no quedó registrada la medición del tanque a la LLEGADA' });
     if (kmS != null && kmE != null && kmE < kmS) errores.push({ u, chofer, tipo: 'km', txt: `el kilometraje de llegada (${fmt(kmE)}) es menor que el de salida (${fmt(kmS)})` });
@@ -459,7 +476,7 @@ Deno.serve(async (req) => {
       msg += `\n🔴 PARA REVISAR (${gravesAvisables.length}):\n` + gravesAvisables.map((x) => `• ${x.u}: ${x.txt}`).join('\n') + '\n';
     }
     if (hallazgos.length) {
-      msg += `\n🟠 Registro que falta (${hallazgos.length}):\n` + hallazgos.map((x) => `• ${x.u ? x.u + ': ' : ''}${x.txt}`).join('\n') + '\n';
+      msg += `\n🟠 Registro que falta o quedó repetido (${hallazgos.length}):\n` + hallazgos.map((x) => `• ${x.u ? x.u + ': ' : ''}${x.txt}`).join('\n') + '\n';
     }
     if (errores.length) {
       const sinTel = [...new Set(errores.filter((e) => e.chofer && !telDe(e.chofer)).map((e) => primerNombre(e.chofer)))];
