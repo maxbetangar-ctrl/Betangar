@@ -2682,7 +2682,7 @@ function sp(id){
     if(id==='metas'){renderAnalisisSubnav('metas');prefillMeta();}
     if(id==='contratos')renderContratosLista();
     if(id==='multicontrato')abrirMultiContrato();
-    if(id==='config'){renderFlotaCfgLista();renderNomAdm();renderWANums();renderWAEmpresarial();renderRecordatorios();renderCfgCorrelativo();}
+    if(id==='config'){var _ce=g('cfg-especial'); if(_ce)_ce.checked=(typeof cfg!=='undefined'&&cfg&&cfg.especial===false)?false:true; if(typeof _cfgEspecialUI==='function')_cfgEspecialUI(); renderFlotaCfgLista();renderNomAdm();renderWANums();renderWAEmpresarial();renderRecordatorios();renderCfgCorrelativo();}
     if(id==='cxp'){cargarCxP();cargarCxpAux().then(function(){if(typeof renderCxP==='function')renderCxP();});}
     if(id==='cajachica'){renderFinanzasSubnav('cajachica');cargarCajaChica().then(function(){renderCajaChica();}).catch(function(){renderCajaChica();});}
     if(id==='proveedores'){setTimeout(function(){
@@ -11063,7 +11063,30 @@ function facPrefill(){
   if(pv){ if(pv.tipo_contrib)sv('fac-contrib',pv.tipo_contrib); var ip=pv.islr_pct||pv.islrPct; if(ip)sv('fac-islr-pct',String(ip)); }
   facConceptoChg(); calcFac();
 }
-function _retIvaPctDe(contrib){ return contrib==='especial'?100:contrib==='no_contrib'?0:75; }
+// ── ¿SE LE RETIENE IVA A ESTE PROVEEDOR? ────────────────────────────────────────────────────
+// Dos preguntas distintas, y en ese orden:
+//  1. ¿NOSOTROS somos agente de retención? Solo los designados CONTRIBUYENTE ESPECIAL por el
+//     SENIAT retienen IVA. Si no lo somos, no se le retiene a nadie: al proveedor se le paga la
+//     factura completa. (Máximo, 02/08/2026: interruptor por empresa, encendido por defecto
+//     porque "casi el 90% de las empresas hoy son agentes de retención".)
+//  2. ¿Qué tipo de contribuyente es ÉL? Recién ahí sale el porcentaje: 75% / 100% / 0%.
+// ⚠️ Esto NO toca el ISLR: ese lo retiene casi toda persona jurídica, sea especial o no, y se
+// sigue calculando por la actividad configurada en cada proveedor.
+function _somosAgenteRetencionIva(){
+  return !(typeof cfg!=='undefined' && cfg && cfg.especial===false);   // por defecto: sí
+}
+function _retIvaPctDe(contrib){
+  if(!_somosAgenteRetencionIva())return 0;
+  return contrib==='especial'?100:contrib==='no_contrib'?0:75;
+}
+// Interruptor en Configuración → General: explica en pantalla qué cambia, en los dos estados.
+function _cfgEspecialUI(){
+  var ck=g('cfg-especial'), h=g('cfg-especial-hint'); if(!h)return;
+  var si=!ck||ck.checked;
+  h.innerHTML=si
+    ? 'Se le <b>retiene IVA</b> a los proveedores según el tipo de cada uno (ordinario 75%, especial 100%). Esa plata no se le paga al proveedor: se le debe al SENIAT y aparece en <b>Retenciones por enterar</b>.'
+    : '<b>No se retiene IVA</b>: a cada proveedor se le paga su factura completa. ⚠️ El <b>ISLR se sigue reteniendo</b> igual —eso no depende de ser especial— y esa retención sí se le sigue debiendo al SENIAT.';
+}
 // El IVA y las retenciones se calculan SOBRE LA FACTURA COMPLETA (así lo emite el proveedor y
 // así se declara), nunca orden por orden: retener por pedazos daría otro número por redondeo.
 function _calcFacVals(){
@@ -13951,6 +13974,8 @@ function guardarConfig(){
   cfg.km=parseFloat(gv('cfg-km'))||5000;
   cfg.tanque=parseFloat(gv('cfg-tanque'))||4600;
   cfg.imau=parseFloat(gv('cfg-imau'))||2.5;
+  // Identidad fiscal: decide si se les retiene IVA a los proveedores (el ISLR va aparte).
+  cfg.especial=g('cfg-especial')?!!g('cfg-especial').checked:(cfg.especial!==false);
   // Precio $/L de referencia por fuente (fuente única: despacho a camión + import de planillas)
   GASOIL_PRECIO.tumaca=parseFloat(gv('cfg-tumaca-dolar'))||GASOIL_PRECIO.tumaca||0.83;
   GASOIL_PRECIO.boscan=parseFloat(gv('cfg-boscan-dolar'))||GASOIL_PRECIO.boscan||0.78;

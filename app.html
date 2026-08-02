@@ -2324,6 +2324,15 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
         <div class="st" style="margin-bottom:10px">Parametros del Sistema</div>
         <div class="fr2"><div class="fg"><label>Tasa BsD/USD</label><input class="fc" id="cfg-tasa" type="number" placeholder="487.12" style="font-family:var(--m)"></div><div class="fg"><label>Tarifa Alcaldia ($/viaje)</label><input class="fc" id="cfg-tarifa" type="number" value="317.88" style="font-family:var(--m)"></div></div>
         <div class="fr3"><div class="fg"><label>Chofer ($/viaje)</label><input class="fc" id="cfg-chofer" type="number" value="10" style="font-family:var(--m)"></div><div class="fg"><label>Ayudante ($/viaje)</label><input class="fc" id="cfg-ayud" type="number" value="5" style="font-family:var(--m)"></div><div class="fg"><label>IMAU ($/viaje)</label><input class="fc" id="cfg-imau" type="number" value="2.50" style="font-family:var(--m)"></div></div>
+        <!-- IDENTIDAD FISCAL. Decide si a los proveedores se les retiene IVA. El ISLR va aparte:
+             se retiene igual aunque la empresa NO sea contribuyente especial. -->
+        <div class="fg" style="border:1px solid var(--border);border-radius:8px;padding:10px 12px;background:var(--bg3)">
+          <label style="display:flex;align-items:center;gap:9px;cursor:pointer;margin:0">
+            <input type="checkbox" id="cfg-especial" checked onchange="_cfgEspecialUI()" style="width:17px;height:17px;flex:0 0 17px">
+            <span style="font-size:13px;font-weight:700">🏛️ Somos <b>contribuyente especial</b> (agente de retención de IVA)</span>
+          </label>
+          <div id="cfg-especial-hint" style="font-size:11px;color:var(--text2);margin-top:6px;line-height:1.45"></div>
+        </div>
         <div class="fr2"><div class="fg"><label>Intervalo Garantia (km)</label><input class="fc" id="cfg-km" type="number" value="5000" style="font-family:var(--m)"></div><div class="fg"><label>Capacidad Tanque (L)</label><input class="fc" id="cfg-tanque" type="number" value="4600" style="font-family:var(--m)"></div></div>
         <div style="border:1px solid var(--border);border-radius:8px;padding:10px;margin-bottom:10px">
           <div style="font-size:10px;font-weight:700;color:var(--text2);margin-bottom:4px">⛽ PRECIO COMBUSTIBLE ($/Litro)</div>
@@ -2662,7 +2671,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
 </div>
 
 <script src="logo-alcaldia.js?v=1"></script>
-<script src="app.js?v=20260802a-factura-varias-ordenes"></script>
+<script src="app.js?v=20260802d-agente-retencion"></script>
 
 <!-- Modal global -->
 <div id="modal" class="moverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9990;align-items:center;justify-content:center;padding:16px">
