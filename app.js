@@ -11543,7 +11543,7 @@ async function _provCrearRapido(nombre){
     if(r&&r.error){ console.log('[prov rapido]',r.error.message); return null; }
   }
   if(typeof PROVEEDORES!=='undefined')PROVEEDORES.push(pv);
-  try{ if(typeof renderProveedores==='function')renderProveedores(); }catch(e){}
+  try{ if(typeof _provRefrescarUI==='function')_provRefrescarUI(); }catch(e){}  // antes llamaba a renderProveedores(), que no existe: era un no-op silencioso
   try{ if(typeof mostrarToast==='function')mostrarToast('✅ Proveedor "'+nom+'" registrado y enlazado a la orden','exito'); }catch(e){}
   return pv;
 }
