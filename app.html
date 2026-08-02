@@ -693,7 +693,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
         </table>
       </div>
     </div>
-  </div>>
+  </div>
   <div id="tab-prov-lista" style="display:none">
     <div class="g2">
       <div class="card">
@@ -774,9 +774,16 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
       <!-- FORM: cargar factura (Bs) contra una deuda -->
       <div class="card">
         <div class="st" style="margin-bottom:10px">🧾 Cargar factura (en Bolívares)</div>
-        <div style="font-size:11px;color:var(--text2);margin-bottom:10px">Una deuda puede tener <b>varias facturas</b> (ej. una de productos y otra de servicios). Cada factura calcula sus retenciones sobre <b>sus bolívares</b>.</div>
-        <div class="fg"><label>Deuda / Orden</label><select class="fc" id="fac-cxp" onchange="facPrefill()"><option value="">-- Seleccionar deuda --</option></select>
-          <label style="display:flex;align-items:center;gap:5px;font-size:10px;color:var(--text3);margin-top:4px;cursor:pointer"><input type="checkbox" id="fac-cxp-cerradas" onchange="fillFacCxpSelect()"> Mostrar también las cerradas (saldadas y ya facturadas)</label>
+        <div style="font-size:11px;color:var(--text2);margin-bottom:10px">Una factura puede cubrir <b>varias órdenes</b> (el proveedor acumula y factura junto), y una orden puede entrar <b>completa o en parte</b>. Marcá las órdenes que te facturaron: <b>las que no marques siguen debiendo</b>.</div>
+        <div class="fg"><label>Proveedor</label><select class="fc" id="fac-prov" onchange="renderFacDeudas()"><option value="">-- Seleccionar proveedor --</option></select></div>
+        <div class="fg">
+          <label>Órdenes / deudas que cubre esta factura</label>
+          <div id="fac-deudas" style="border:1px solid var(--border);border-radius:8px;max-height:210px;overflow:auto;padding:4px 6px;background:var(--bg3)"></div>
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:5px;flex-wrap:wrap">
+            <label style="display:flex;align-items:center;gap:5px;font-size:10px;color:var(--text3);cursor:pointer;margin:0"><input type="checkbox" id="fac-cxp-cerradas" onchange="fillFacProvSelect()"> Mostrar también las cerradas (saldadas y ya facturadas)</label>
+            <button class="btn btn-s btn-xs" type="button" onclick="_facCuadrar()" title="Reparte la base imponible de la factura entre las órdenes marcadas, en proporción a lo que debe cada una">⚖️ Cuadrar con la base</button>
+          </div>
+          <div id="fac-asignado" style="font-size:11px;margin-top:5px;min-height:14px"></div>
         </div>
         <div class="fr2">
           <div class="fg"><label>N° Factura</label><input class="fc" id="fac-num" placeholder="F-00012345" style="font-family:var(--m)"></div>
@@ -825,7 +832,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
         <div class="fg" id="fac-pago-wrap" style="background:rgba(125,201,65,.08);border:1px solid rgba(125,201,65,.35);border-radius:8px;padding:8px 10px;margin:2px 0 8px">
           <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:12px;margin:0">
             <input type="checkbox" id="fac-pagar-ya" checked onchange="calcFac()" style="width:16px;height:16px">
-            <span>💵 Registrar ahora el pago de esta deuda (queda <b>SALDADA</b> y pasa al Historial)</span>
+            <span>💵 Registrar ahora el pago de <b>las órdenes marcadas</b> (quedan <b>SALDADAS</b> y pasan al Historial)</span>
           </label>
           <div class="fr2" id="fac-pago-detalle" style="margin-top:6px">
             <div class="fg" style="margin-bottom:0"><label>Método de pago</label>
@@ -849,7 +856,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
         <div id="ret-resumen"></div>
       </div>
     </div>
-    <div class="tw"><table><thead><tr><th>Fecha</th><th>Proveedor</th><th>Factura</th><th>Concepto</th><th>Base Bs</th><th>IVA Bs</th><th>%Ret</th><th>Ret. IVA Bs</th><th>%ISLR</th><th>Ret. ISLR Bs</th><th>Neto Bs</th><th></th></tr></thead><tbody id="tb-ret"></tbody></table></div>
+    <div class="tw"><table><thead><tr><th>Fecha</th><th>Proveedor</th><th>Factura</th><th>Órdenes</th><th>Concepto</th><th>Base Bs</th><th>IVA Bs</th><th>%Ret</th><th>Ret. IVA Bs</th><th>%ISLR</th><th>Ret. ISLR Bs</th><th>Neto Bs</th><th></th></tr></thead><tbody id="tb-ret"></tbody></table></div>
   </div>
   <div id="tab-prov-hist" style="display:none">
     <div class="g3" style="margin-bottom:10px">
@@ -2019,7 +2026,8 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
         <div class="fg" id="hv-item-otro-wrap" style="display:none"><label>¿Qué se le hizo? (ítem nuevo)</label><input class="fc" id="hv-item-otro" placeholder="Ej: reparación eléctrica, soldadura del cajón, latonería..."><small style="color:var(--text3);font-size:10px">Se agrega al catálogo para poder seguirle el rastro (cuánto costó y si se repite) en esta unidad.</small></div>
         <div class="fr3"><div class="fg"><label>Fecha</label><input class="fc" id="hv-fecha" type="date"></div><div class="fg"><label>Km al hacerse el trabajo</label><input class="fc" id="hv-km" type="number" placeholder="manual" style="font-family:var(--m)"><small id="hv-km-hint" style="color:var(--text3);font-size:10px;display:block"></small></div><div class="fg"><label>Costo $</label><input class="fc" id="hv-costo" type="number" placeholder="0.00" style="font-family:var(--m)"></div></div>
         <div class="fr3"><div class="fg"><label>Tipo de trabajo</label><select class="fc" id="hv-tipotrabajo"><option value="cambio">🔧 Sustitución (se cambió la pieza)</option><option value="reparacion">🔩 Reparación (se arregló la misma)</option><option value="inspeccion">🔎 Inspección / revisión</option><option value="correctivo">🛠 Correctivo</option><option value="lavado">🧽 Lavado / limpieza</option></select></div><div class="fg"><label>Garantía (días)</label><input class="fc" id="hv-garantia" type="number" placeholder="0" style="font-family:var(--m)"><small style="color:var(--text3);font-size:10px">Avisa si se repite estando en garantía</small></div><div class="fg"><label>Horas (si va por horímetro)</label><input class="fc" id="hv-horas" type="number" placeholder="0" style="font-family:var(--m)"></div></div>
-        <div class="fr2"><div class="fg"><label>Proveedor / taller</label><input class="fc" id="hv-prov" placeholder="Opcional"></div><div class="fg"><label>Nota</label><input class="fc" id="hv-nota" placeholder="Detalle opcional"></div></div>
+        <div class="fr2"><div class="fg"><label>¿Quién lo hizo?</label><select class="fc" id="hv-ejecutor" onchange="_hvEjecutor()"><option value="externo">🏭 Taller / proveedor externo</option><option value="interno">🔧 Mano de obra propia (mi mecánico)</option></select></div><div class="fg"><label id="hv-prov-lbl">Proveedor / taller</label><input class="fc" id="hv-prov" placeholder="Opcional"><small id="hv-prov-hint" style="color:var(--text3);font-size:10px;display:block"></small></div></div>
+        <div class="fg"><label>Nota</label><input class="fc" id="hv-nota" placeholder="Detalle opcional"></div>
         <div class="fg"><label>Foto (opcional, máx 2MB)</label><input class="fc" id="hv-foto" type="file" accept="image/*" onchange="subirFotoHV(this)"><div id="hv-foto-prev" style="margin-top:6px"></div></div>
         <button class="btn btn-g btn-sm" style="width:100%" id="hv-guardar-btn" onclick="registrarMantItem()">Registrar en la hoja de vida</button>
       </div>
@@ -2654,7 +2662,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
 </div>
 
 <script src="logo-alcaldia.js?v=1"></script>
-<script src="app.js?v=20260731c-rendimiento-con-historia"></script>
+<script src="app.js?v=20260802a-factura-varias-ordenes"></script>
 
 <!-- Modal global -->
 <div id="modal" class="moverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9990;align-items:center;justify-content:center;padding:16px">

@@ -2665,7 +2665,7 @@ function sp(id){
     if(id==='salud'){renderSaludDatos();}
     if(id==='km'){renderMantSubnav('km');renderKm();renderTiposMant();_cargarMantTodo().then(function(){try{renderHistMant();}catch(e){}try{_poblarKmItem();}catch(e){}}).catch(function(){});}
     if(id==='banco'){renderBancoSubnav('banco');renderBNCDash();}
-    if(id==='proveedores'){renderFinanzasSubnav('proveedores');cargarCxpAux().then(function(){fillFacCxpSelect();renderCXP();renderRetenciones();});if(typeof cargarOrdenesServicio==='function')cargarOrdenesServicio().then(function(){try{fillCxpOrdenSelect();}catch(e){}try{renderOrdenesServicio();}catch(e){}}).catch(function(){});renderCXP();renderProveedoresLista();}
+    if(id==='proveedores'){renderFinanzasSubnav('proveedores');cargarCxpAux().then(function(){fillFacProvSelect();renderCXP();renderRetenciones();});if(typeof cargarOrdenesServicio==='function')cargarOrdenesServicio().then(function(){try{fillCxpOrdenSelect();}catch(e){}try{renderOrdenesServicio();}catch(e){}}).catch(function(){});renderCXP();renderProveedoresLista();}
     if(id==='documentos'){renderDocAlertas();renderDocTablas();}
     if(id==='asistencia'){
       // Al abrir, posicionarse en la semana/mes ACTUAL (si no, arrancaba en "Semana 1" y parecía vacío).
@@ -7643,14 +7643,14 @@ async function _ccAgregarLinea(){
       var km=parseInt(gv('cc-km'))||0, idM='MT'+Date.now();
       if(km<=0)km=(typeof kmActualCam==='function')?(parseInt(kmActualCam(cam))||0):0; // sin km manual → km actual de la base
       var itemCat=_ccItemCatalogo(nombre); // enlaza con el catálogo → cuenta para los vencimientos (antes item_id='' = invisible)
-      var row={id:idM,cam:cam,f:fecha,km:km,horas:0,item_id:itemCat,tipo:nombre,tipo_trabajo:'cambio',desc_trabajo:nombre+(cant>1?(' x'+cant):''),costo_usd:costo,proveedor:provNom,foto_url:fotoUrl,anomalia:false,motivo:'',orden_id:ordenId,garantia_hasta:garHasta,centro_costo:'',origen:''};
+      var row={id:idM,cam:cam,f:fecha,km:km,horas:0,item_id:itemCat,tipo:nombre,tipo_trabajo:'cambio',desc_trabajo:nombre+(cant>1?(' x'+cant):''),costo_usd:costo,proveedor:provNom,foto_url:fotoUrl,anomalia:false,motivo:'',orden_id:ordenId,garantia_hasta:garHasta,centro_costo:'',origen:'',ejecutor:'externo'};
       var mem={id:idM,cam:cam,fecha:fecha,km:km,horas:0,itemId:itemCat,tipo:nombre,tipoTrabajo:'cambio',desc:row.desc_trabajo,costo:costo,proveedor:provNom,foto:fotoUrl,anomalia:false,motivo:'',ordenId:ordenId,garantiaHasta:garHasta,centroCosto:'',origen:''};
       await _ccInsertMant(row,mem);
       if(itemCat)_sincronizarCicloMant(cam,itemCat,fecha); // si es lavado/engrase, refresca su ciclo en el espejo
       if(km>0){ if(!KM_DATA[cam])KM_DATA[cam]={km:0,f:'',ultsrv:0,mant:[],lavado:'',engrase:''}; if(km>=(parseInt(KM_DATA[cam].km)||0)){KM_DATA[cam].km=km;KM_DATA[cam].f=fecha;} }
     } else if(destino==='patio'){
       var centro=gv('cc-centro')||'otros', idP='MT'+Date.now();
-      var row2={id:idP,cam:'PATIO',f:fecha,km:0,horas:0,item_id:'',tipo:nombre,tipo_trabajo:'compra',desc_trabajo:nombre+(cant>1?(' x'+cant):''),costo_usd:costo,proveedor:provNom,foto_url:fotoUrl,anomalia:false,motivo:'',orden_id:ordenId,garantia_hasta:garHasta,centro_costo:centro,origen:''};
+      var row2={id:idP,cam:'PATIO',f:fecha,km:0,horas:0,item_id:'',tipo:nombre,tipo_trabajo:'compra',desc_trabajo:nombre+(cant>1?(' x'+cant):''),costo_usd:costo,proveedor:provNom,foto_url:fotoUrl,anomalia:false,motivo:'',orden_id:ordenId,garantia_hasta:garHasta,centro_costo:centro,origen:'',ejecutor:'externo'};
       var mem2={id:idP,cam:'PATIO',fecha:fecha,km:0,horas:0,itemId:'',tipo:nombre,tipoTrabajo:'compra',desc:row2.desc_trabajo,costo:costo,proveedor:provNom,foto:fotoUrl,anomalia:false,motivo:'',ordenId:ordenId,garantiaHasta:garHasta,centroCosto:centro,origen:''};
       await _ccInsertMant(row2,mem2);
     } else { // inventario
@@ -8358,7 +8358,7 @@ async function cargarMantenimientos(){
   try{
     var r=await supabase.from('mantenimientos').select('*').order('f',{ascending:false}).limit(5000);
     if(r&&!r.error&&Array.isArray(r.data)){
-      MANTENIMIENTOS=r.data.map(function(x){return {id:x.id||('MT'+(x.cam||'')+'-'+(x.f||'')+'-'+(x.km||0)+'-'+(x.item_id||x.tipo||'')),cam:x.cam||'',fecha:x.f||'',km:parseInt(x.km)||0,horas:parseInt(x.horas)||0,itemId:x.item_id||'',tipo:x.tipo||'',tipoTrabajo:x.tipo_trabajo||'',desc:x.desc_trabajo||'',costo:parseFloat(x.costo_usd)||0,proveedor:x.proveedor||'',foto:x.foto_url||'',anomalia:x.anomalia===true,motivo:x.motivo||'',ordenId:x.orden_id||'',garantiaHasta:x.garantia_hasta||null,centroCosto:x.centro_costo||'',origen:x.origen||''};});
+      MANTENIMIENTOS=r.data.map(function(x){return {id:x.id||('MT'+(x.cam||'')+'-'+(x.f||'')+'-'+(x.km||0)+'-'+(x.item_id||x.tipo||'')),cam:x.cam||'',fecha:x.f||'',km:parseInt(x.km)||0,horas:parseInt(x.horas)||0,itemId:x.item_id||'',tipo:x.tipo||'',tipoTrabajo:x.tipo_trabajo||'',desc:x.desc_trabajo||'',costo:parseFloat(x.costo_usd)||0,proveedor:x.proveedor||'',foto:x.foto_url||'',anomalia:x.anomalia===true,motivo:x.motivo||'',ordenId:x.orden_id||'',garantiaHasta:x.garantia_hasta||null,centroCosto:x.centro_costo||'',origen:x.origen||'',ejecutor:x.ejecutor||''};});
     }
   }catch(e){ console.log('mantenimientos load:',e&&e.message); }
 }
@@ -8476,6 +8476,19 @@ function _hvSetCam(v){
 function _hvCamSel(){ return (typeof gv==='function' ? (gv('hv-ver-cam')||gv('hv-hist-cam')||'') : ''); }
 // Muestra el campo de texto cuando el ítem es uno nuevo (no está en el catálogo).
 function _hvItemOtro(){ var w=g('hv-item-otro-wrap'); if(w)w.style.display=(gv('hv-item')==='__nuevo')?'block':'none'; }
+// ── TRABAJO INTERNO (mano de obra propia) ───────────────────────────────────────────────────
+// Máximo, 02/08/2026: «ajustar los frenos lo hace mi mecánico, que ya está en nómina. No me
+// genera costo, pero quiero saber cuándo se le hizo y que esté en el historial del camión.»
+// Antes eso se registraba con proveedor vacío y costo 0 — indistinguible de un registro a
+// medio llenar. Ahora se DECLARA quién lo hizo, y el $0 pasa a querer decir algo.
+function _hvEjecutor(){
+  var interno=(gv('hv-ejecutor')==='interno');
+  var lbl=g('hv-prov-lbl'), inp=g('hv-prov'), hint=g('hv-prov-hint'), costo=g('hv-costo');
+  if(lbl)lbl.textContent=interno?'Mecánico / responsable':'Proveedor / taller';
+  if(inp)inp.placeholder=interno?'Quién lo hizo (ej: Luis, el mecánico)':'Opcional';
+  if(hint)hint.textContent=interno?'No cuesta plata nueva: la mano de obra ya está en la nómina. El material que se gaste sale de Inventario → Registrar Uso.':'';
+  if(costo){ costo.placeholder=interno?'0.00 (sin costo)':'0.00'; }
+}
 // Crea (o reusa) un ítem del catálogo a partir del nombre escrito a mano y lo PERSISTE.
 // Nace SIN intervalos (inspeccion/sustitucion en 0): un arreglo puntual no es un preventivo, así
 // que no puede aparecer "vencido" en el tablero de nadie. Si después resulta que sí se repite,
@@ -8615,7 +8628,10 @@ async function registrarMantItem(){
   // Al CERRAR una orden, el costo no se debe colar en $0 (rompe el centro de costos). Avisa —pero no bloquea—
   // porque un trabajo en GARANTÍA o sin cargo sí es $0 legítimo.
   var _cerrandoOrden=(window._ordCerrando&&window._ordCerrando.cam===cam);
-  if(_cerrandoOrden && costo<=0){ if(!confirm('Vas a cerrar esta orden con COSTO $0.\n\nSolo debería quedar en $0 si el trabajo fue en GARANTÍA o sin cargo.\n\n¿Cerrar igual sin costo?'))return; }
+  // Un trabajo INTERNO en $0 no necesita advertencia: la mano de obra ya está pagada en la
+  // nómina. La alerta es para el trabajo EXTERNO, donde un $0 sí suele ser un dato faltante.
+  var ejecutor=gv('hv-ejecutor')||'';
+  if(_cerrandoOrden && costo<=0 && ejecutor!=='interno'){ if(!confirm('Vas a cerrar esta orden con COSTO $0.\n\nSolo debería quedar en $0 si el trabajo fue en GARANTÍA o sin cargo.\n\n¿Cerrar igual sin costo?'))return; }
   var it=_mantItem(itemId);
   // ANTI-FRAUDE: ¿se hace ADELANTADO (antes de su vida útil)? Solo para trabajos que "consumen" vida
   // (cambio/sustitución/correctivo/lavado/engrase); la inspección no cuenta. Si sí → BLOQUEA hasta que
@@ -8660,8 +8676,11 @@ async function registrarMantItem(){
   // Si se está CERRANDO una orden de servicio para esta unidad, se enlaza el evento a la orden.
   var _oc=(window._ordCerrando&&window._ordCerrando.cam===cam)?window._ordCerrando.id:'';
   // fila para la tabla `mantenimientos` (snake_case) — MISMA tabla que guardarKm → fuente única
-  var row={id:id,cam:cam,f:fecha,km:km,horas:horas,item_id:itemId,tipo:(it?it.nombre:itemId),tipo_trabajo:tipoTrab,desc_trabajo:nota||(it?it.nombre:''),costo_usd:costo,proveedor:prov,foto_url:foto,anomalia:anomalia,motivo:motivo,orden_id:_oc,garantia_hasta:garHasta};
-  var mem={id:id,cam:cam,fecha:fecha,km:km,horas:horas,itemId:itemId,tipo:row.tipo,tipoTrabajo:tipoTrab,desc:row.desc_trabajo,costo:costo,proveedor:prov,foto:foto,anomalia:anomalia,motivo:motivo,ordenId:_oc,garantiaHasta:garHasta};
+  // Al cerrar una ORDEN el trabajo es por definición de un tercero: se sella 'externo' aunque
+  // el selector haya quedado en otra cosa (la orden salió a un taller, no al mecánico de casa).
+  if(_oc)ejecutor='externo';
+  var row={id:id,cam:cam,f:fecha,km:km,horas:horas,item_id:itemId,tipo:(it?it.nombre:itemId),tipo_trabajo:tipoTrab,desc_trabajo:nota||(it?it.nombre:''),costo_usd:costo,proveedor:prov,foto_url:foto,anomalia:anomalia,motivo:motivo,orden_id:_oc,garantia_hasta:garHasta,ejecutor:ejecutor};
+  var mem={id:id,cam:cam,fecha:fecha,km:km,horas:horas,itemId:itemId,tipo:row.tipo,tipoTrabajo:tipoTrab,desc:row.desc_trabajo,costo:costo,proveedor:prov,foto:foto,anomalia:anomalia,motivo:motivo,ordenId:_oc,garantiaHasta:garHasta,ejecutor:ejecutor};
   var ok=false;
   if(DB_READY&&supabase){
     try{ var res=await supabase.from('mantenimientos').upsert([row],{onConflict:'id'});
@@ -8692,6 +8711,9 @@ function editarMantItem(id){
   sv('hv-cam',m.cam||''); sv('hv-item',m.itemId||''); sv('hv-fecha',m.fecha||'');
   sv('hv-km',m.km||''); sv('hv-costo',m.costo||''); sv('hv-horas',m.horas||'');
   sv('hv-tipotrabajo',m.tipoTrabajo||'cambio'); sv('hv-prov',m.proveedor||''); sv('hv-nota',m.desc||'');
+  // Sin esto, editar un trabajo INTERNO solo para corregirle el km lo devolvía a 'externo' y
+  // perdía el dato — el mismo agujero que tenía editar un proveedor con su config fiscal.
+  sv('hv-ejecutor',m.ejecutor||'externo'); _hvEjecutor();
   window._hvFotoUrl=m.foto||'';
   var fp=g('hv-foto-prev'); if(fp)fp.innerHTML=m.foto?('<img src="'+_mEsc(m.foto)+'" style="max-height:60px;border-radius:6px">'):'';
   window._hvEditId=id;
@@ -8770,18 +8792,28 @@ function renderHojaVida(){
   });
   if(!evs.length){tl.innerHTML='<div style="color:var(--text3);font-size:12px;padding:10px">Sin mantenimientos registrados para ese filtro.</div>';return;}
   var totCosto=evs.reduce(function(s,m){return s+(m.costo||0);},0);
-  tl.innerHTML='<table><thead><tr><th>Fecha</th><th>Unidad</th><th>Ítem</th><th>Km</th><th>Costo</th><th>Proveedor</th><th>Nota</th><th></th></tr></thead><tbody>'+
+  var nInt=evs.filter(function(m){return m.ejecutor==='interno';}).length;
+  tl.innerHTML='<table><thead><tr><th>Fecha</th><th>Unidad</th><th>Ítem</th><th>Km</th><th>Costo</th><th>Quién lo hizo</th><th>Nota</th><th></th></tr></thead><tbody>'+
     evs.map(function(m){
       var it=_mantItem(m.itemId);
+      var interno=(m.ejecutor==='interno');
+      // Un $0 sin explicación se lee como «falta cargar el precio». Si el trabajo fue interno
+      // hay que DECIRLO en el renglón: no costó plata porque lo hizo gente de la casa.
+      var celCosto=interno
+        ? '<span style="color:var(--teal);font-size:10px" title="Mano de obra propia: ya está pagada en la nómina">sin costo</span>'
+        : (m.costo?'$'+m.costo.toLocaleString():'—');
+      var quien=interno
+        ? '<span class="badge bt">🔧 INTERNO</span>'+(m.proveedor?(' <span style="font-size:10px">'+_mEsc(m.proveedor)+'</span>'):'')
+        : _mEsc(m.proveedor||'—');
       return '<tr><td>'+formatFecha(m.fecha)+'</td><td style="font-weight:700">'+_mEsc(m.cam)+'</td>'+
         '<td>'+_mEsc(it?it.nombre:(m.tipo||'—'))+'</td>'+
         '<td style="font-family:var(--m)">'+(m.km?m.km.toLocaleString():'—')+'</td>'+
-        '<td style="font-family:var(--m);color:var(--yellow)">'+(m.costo?'$'+m.costo.toLocaleString():'—')+'</td>'+
-        '<td style="font-size:11px">'+_mEsc(m.proveedor||'—')+'</td>'+
+        '<td style="font-family:var(--m);color:var(--yellow)">'+celCosto+'</td>'+
+        '<td style="font-size:11px">'+quien+'</td>'+
         '<td style="font-size:11px">'+_mEsc(m.desc||'')+(m.foto?' <a href="'+_mEsc(m.foto)+'" target="_blank" style="color:var(--teal)">📷</a>':'')+'</td>'+
         '<td style="white-space:nowrap"><button class="btn btn-s btn-xs" onclick="editarMantItem(\''+_mEsc(m.id)+'\')" title="Editar">✏️</button> <button class="btn btn-r btn-xs" onclick="eliminarMantItem(\''+_mEsc(m.id)+'\')">×</button></td></tr>';
     }).join('')+
-    '<tr class="tr-tot"><td colspan="4">TOTAL ('+evs.length+' registros)</td><td style="font-family:var(--m);font-weight:700;color:var(--yellow)">$'+totCosto.toLocaleString()+'</td><td colspan="3"></td></tr>'+
+    '<tr class="tr-tot"><td colspan="4">TOTAL ('+evs.length+' registros'+(nInt?(', '+nInt+' con mano de obra propia'):'')+')</td><td style="font-family:var(--m);font-weight:700;color:var(--yellow)">$'+totCosto.toLocaleString()+'</td><td colspan="3" style="font-size:10px;color:var(--text3)">'+(nInt?'El total es solo lo que salió de caja; el trabajo interno ya está pagado en la nómina.':'')+'</td></tr>'+
     '</tbody></table>';
 }
 // ═══════════════════════════════════════════════════════════════════════
@@ -10277,7 +10309,9 @@ async function testBNC(){
 // CUENTAS POR PAGAR (CXP)
 // ═══════════════════════════════════════════════════
 // ── CxP 2 libros: deuda ($) en cxp; facturas+retenciones (Bs) en cxp_facturas; abonos dual en cxp_pagos ──
-var CXP_FACTURAS=[], CXP_PAGOS=[];
+// CXP_FAC_LINEAS = qué parte de cada factura corresponde a cada deuda/orden (una factura puede
+// cubrir varias órdenes, y una orden puede entrar en partes). Ver cxp_factura_lineas.
+var CXP_FACTURAS=[], CXP_PAGOS=[], CXP_FAC_LINEAS=[];
 function _cxpAbonadoUsd(id){return CXP_PAGOS.filter(function(p){return String(p.cxp_id)===String(id);}).reduce(function(s,p){return s+(parseFloat(p.monto_usd)||0);},0);}
 // LO QUE SE LE DEBE AL PROVEEDOR = el NETO (base+IVA−retenciones), no la base.
 // Antes medía contra base_usd: con IVA 16% y retención 75%, el saldo nunca cuadraba con lo que
@@ -10298,7 +10332,8 @@ function _cxpCostoUsd(c){
   var neto=parseFloat(c.neto_pagar||c.netoPagar||0)||0; if(neto>0)return neto;
   return parseFloat(c.base_usd||c.baseUsd||0)||0;
 }
-function _cxpFacturasDe(id){return CXP_FACTURAS.filter(function(f){return String(f.cxp_id)===String(id);});}
+// _cxpFacturasDe(id) vive más abajo, con el bloque de facturas: desde que una factura puede
+// cubrir VARIAS órdenes, saber qué facturas tocan una deuda se responde por líneas, no por cxp_id.
 
 // ── CUENTA DEL SENIAT (retenciones acumuladas por quincena) ─────────────────────────────────
 // La retención de IVA (75%) es plata que NO se le paga al proveedor pero que la empresa SÍ le
@@ -10368,35 +10403,50 @@ async function _sincronizarRetencionesSeniat(fechaFactura){
 // compra costaba la base pelada. Consecuencia real: el gasto se contaba de menos (la Utilidad
 // Real salía inflada ~16% de cada compra facturada) y el pago no cuadraba con el banco.
 // Cada factura se convierte a SU PROPIA tasa (no a la de hoy): el gasto se congela al día que fue.
-function _cxpUsdDesdeFacturas(id){
-  var facs=_cxpFacturasDe(id);
-  if(!facs.length)return null;
+// Lo FACTURADO contra una deuda, en $. Suma LÍNEAS (una factura puede cubrir varias órdenes y
+// solo la parte de esta deuda cuenta), y cada línea a la tasa de SU factura: el gasto se congela
+// al día que fue, no se mueve con la tasa de hoy.
+function _cxpFacturadoUsd(id){
+  var ls=_cxpLineasParaDeuda(id);
+  if(!ls.length)return null;
   var a={base:0,iva:0,total:0,retIva:0,retIslr:0,neto:0,tasa:0,ivaPct:0,sinTasa:0};
-  facs.forEach(function(f){
-    var t=parseFloat(f.tasa_val)||0;
+  ls.forEach(function(l){
+    var t=parseFloat(l.tasa_val)||0;
     if(!(t>0)){a.sinTasa++;return;} // sin tasa no hay forma de pasarla a $: se ignora y se avisa
-    a.base+=(parseFloat(f.base_bs)||0)/t;
-    a.iva+=(parseFloat(f.iva_bs)||0)/t;
-    a.total+=(parseFloat(f.total_bs)||0)/t;
-    a.retIva+=(parseFloat(f.ret_iva_bs)||0)/t;
-    a.retIslr+=(parseFloat(f.ret_islr_bs)||0)/t;
-    a.neto+=(parseFloat(f.neto_bs)||0)/t;
-    a.tasa=t; a.ivaPct=parseFloat(f.iva_pct)||a.ivaPct;
+    var b=(parseFloat(l.base_bs)||0), iv=(parseFloat(l.iva_bs)||0);
+    a.base+=b/t;
+    a.iva+=iv/t;
+    a.total+=(b+iv)/t;
+    a.retIva+=(parseFloat(l.ret_iva_bs)||0)/t;
+    a.retIslr+=(parseFloat(l.ret_islr_bs)||0)/t;
+    a.neto+=(parseFloat(l.neto_bs)||0)/t;
+    a.tasa=t; a.ivaPct=parseFloat(l.iva_pct)||a.ivaPct;
   });
   return (a.total>0)?a:null;
 }
-// Vuelca a la deuda lo que dicen sus facturas. Si se borró la última factura, la deuda vuelve a
-// su base original (queda como estaba antes de facturar).
+function _cxpUsdDesdeFacturas(id){ return _cxpFacturadoUsd(id); } // nombre viejo
+// Vuelca a la deuda lo que dicen sus facturas. Si se borró la última, vuelve a su base original.
+//
+// ⚠️ FACTURACIÓN PARCIAL: el proveedor puede facturar solo una PARTE de la orden y el resto
+// después. Entonces la deuda vale «lo facturado (neto) + lo que todavía no le facturaron».
+//   • orden sin facturar        → sinFacturar = base  → deuda = base           (como siempre)
+//   • orden facturada completa  → sinFacturar = 0     → deuda = neto           (como siempre)
+//   • orden facturada a medias  → deuda = neto de lo facturado + el resto pactado
+// Por eso `base_usd` YA NO SE PISA: es lo PACTADO en la orden y es la única referencia para saber
+// cuánto falta por facturar. Antes se sobrescribía con la base de la factura y, en cuanto una
+// factura cubría solo una parte, esa orden quedaba reducida al pedazo facturado y el resto de la
+// deuda desaparecía sin que nadie lo pagara.
 function _aplicarFacturasACxp(c,cb){
   if(!c){if(cb)cb();return;}
-  var a=_cxpUsdDesdeFacturas(c.id);
+  var a=_cxpFacturadoUsd(c.id);
+  var base=parseFloat(c.base_usd||c.baseUsd||0)||0;
   var upd;
   if(a){
-    upd={base_usd:+a.base.toFixed(2), iva_pct:a.ivaPct||16, iva_usd:+a.iva.toFixed(2),
-         total_usd:+a.total.toFixed(2), ret_iva_usd:+a.retIva.toFixed(2), ret_islr_usd:+a.retIslr.toFixed(2),
-         neto_pagar:+a.neto.toFixed(2), tasa_val:a.tasa};
+    var sinFacturar=Math.max(0, base-a.base);   // lo pactado que el proveedor todavía no facturó
+    upd={iva_pct:a.ivaPct||16, iva_usd:+a.iva.toFixed(2),
+         total_usd:+(a.total+sinFacturar).toFixed(2), ret_iva_usd:+a.retIva.toFixed(2), ret_islr_usd:+a.retIslr.toFixed(2),
+         neto_pagar:+(a.neto+sinFacturar).toFixed(2), tasa_val:a.tasa};
   } else {
-    var base=parseFloat(c.base_usd||c.baseUsd||0)||0;
     upd={iva_pct:0, iva_usd:0, total_usd:base, ret_iva_usd:0, ret_islr_usd:0, neto_pagar:base};
   }
   Object.keys(upd).forEach(function(k){c[k]=upd[k];});
@@ -10419,12 +10469,18 @@ async function cargarCxpAux(){ // facturas (Bs) + abonos; se llama al abrir Prov
     if(!rf.error&&rf.data)CXP_FACTURAS=rf.data.slice().reverse(); // más recientes primero
     var rp=await _selectAllG('cxp_pagos',['id']);
     if(!rp.error&&rp.data)CXP_PAGOS=rp.data;
+    // Líneas: sin ellas una factura que cubre 5 órdenes se leería como si cubriera una sola.
+    // Si la tabla todavía no existe (migración sin correr) NO se rompe nada: `_facLineasReales`
+    // cae al comportamiento viejo (factura = una deuda) y se avisa en consola.
+    var rl=await _selectAllG('cxp_factura_lineas',['id']);
+    if(rl.error){ console.warn('cxp_factura_lineas:',rl.error.message||rl.error,'— ¿falta correr migrations/factura_varias_ordenes_2026-08-02.sql?'); }
+    else if(rl.data)CXP_FAC_LINEAS=rl.data;
   }catch(e){console.log('cargarCxpAux',e&&e.message||e);}
 }
 function switchProvTab(t){
   ['ordenes','cxp','lista','ret','hist'].forEach(function(x){var el=g('tab-prov-'+x);var sw=g('sw-prov-'+x);if(el)el.style.display=x===t?'block':'none';if(sw){sw.classList.remove('on');if(x===t)sw.classList.add('on');}});
   if(t==='cxp'){renderCXP();fillCxpOrdenSelect();}
-  if(t==='ret'){fillFacCxpSelect();renderRetenciones();calcFac();}
+  if(t==='ret'){fillFacProvSelect();facPrefill();renderRetenciones();calcFac();}
   if(t==='hist'){ cargarCxpAux().then(renderHistProv).catch(renderHistProv); }
   if(t==='ordenes'){ if(!_ordServCargadas){_ordServCargadas=true;cargarOrdenesServicio().then(renderOrdenesServicio).catch(renderOrdenesServicio);}else renderOrdenesServicio(); }
 }
@@ -10721,19 +10777,30 @@ function _refrescarKpiRetBs(){
   if(g('cxp-kpi-iva'))g('cxp-kpi-iva').textContent='Bs '+_bs2(rIva);
   if(g('cxp-kpi-islr'))g('cxp-kpi-islr').textContent='Bs '+_bs2(rIslr);
 }
-// Ir a cargar una factura Bs para una deuda concreta
+// Ir a cargar una factura Bs arrancando por una deuda concreta (botón 🧾 Facturar del renglón).
+// Deja el proveedor elegido y ESA orden ya tildada; el resto de sus órdenes quedan a la vista
+// para marcar las que entren en la misma factura.
 function facturarDeuda(id){
+  var c=CXP.find(function(x){return String(x.id)===String(id);});
   switchProvTab('ret');
   setTimeout(function(){
-    var el=g('fac-cxp'); if(!el)return;
-    sv('fac-cxp',String(id));
-    // Si la deuda está cerrada (saldada + ya facturada) no está en la lista corta: la traemos
-    // marcando "mostrar cerradas", para que el botón 🧾 Facturar del renglón nunca quede inerte.
-    if(String(el.value)!==String(id)){
-      var ck=g('fac-cxp-cerradas'); if(ck){ ck.checked=true; fillFacCxpSelect(); sv('fac-cxp',String(id)); }
+    var sel=g('fac-prov'); if(!sel||!c)return;
+    var pid=String(c.provId||c.prov_id||'');
+    sv('fac-prov',pid);
+    // Si la deuda está cerrada (saldada + ya facturada) su proveedor puede no estar en la lista
+    // corta: se traen todas, para que el botón 🧾 Facturar nunca quede inerte.
+    if(String(sel.value)!==pid){
+      var ck=g('fac-cxp-cerradas'); if(ck){ ck.checked=true; fillFacProvSelect(); sv('fac-prov',pid); }
     }
+    renderFacDeudas();
     if(typeof facPrefill==='function')facPrefill();
-    if(el.scrollIntoView)el.scrollIntoView({behavior:'smooth',block:'center'});
+    var box=g('fac-deudas');
+    var row=box&&box.querySelector('[data-cxp="'+String(id).replace(/"/g,'\\"')+'"]');
+    if(row){
+      var ckl=row.querySelector('.fac-dl-ck');
+      if(ckl&&!ckl.checked){ ckl.checked=true; _facTildar(ckl); }
+      if(row.scrollIntoView)row.scrollIntoView({behavior:'smooth',block:'center'});
+    } else if(sel.scrollIntoView)sel.scrollIntoView({behavior:'smooth',block:'center'});
   },60);
 }
 
@@ -10795,46 +10862,210 @@ function guardarAbonoCxp(){
 }
 
 // ══════════ FACTURAS + RETENCIONES (Bs) — Libro 2 ══════════
-function fillFacCxpSelect(){
-  var sel=g('fac-cxp'); if(!sel)return; var prev=sel.value;
-  // Qué se ofrece para facturar:
-  //  • deudas ABIERTAS (con o sin factura previa: una deuda puede llevar varias facturas), y
-  //  • saldadas SIN factura todavía (caso típico: se pagó por BNC y la factura llegó después).
-  // Una deuda CERRADA (saldada Y ya con su factura + retención emitidas) NO se ofrece: su ciclo
-  // fiscal terminó y solo ensuciaba la lista (caso Solquiven, factura F-00002875 ya retenida).
-  // El check "mostrar cerradas" las trae de vuelta si hiciera falta cargar una factura adicional.
-  var verTodas=!!(g('fac-cxp-cerradas')&&g('fac-cxp-cerradas').checked);
-  var arr=CXP.filter(function(c){
-    var abierta=_cxpSaldoUsd(c)>0.005;
-    var cerrada=!abierta&&_cxpFacturasDe(c.id).length>0;
-    if(cerrada)return verTodas;
-    return abierta||_cxpPagada(c);
-  });
-  var grupos={};
-  arr.forEach(function(c){var k=(c.prov_nombre||c.prov||'Sin proveedor'); (grupos[k]=grupos[k]||[]).push(c);});
-  var html='<option value="">-- Seleccionar deuda --</option>';
-  Object.keys(grupos).sort(function(a,b){return a.localeCompare(b);}).forEach(function(k){
-    html+='<optgroup label="'+_mEsc(k)+'">';
-    grupos[k].slice().reverse().forEach(function(c){
-      var saldo=_cxpSaldoUsd(c);
-      var lbl=formatFecha(c.fecha)+' · '+String(c.descripcion||c.desc||c.orden_id||'').slice(0,24)+' · $'+_cxpDeudaUsd(c).toFixed(0)+(saldo>0.005?'':(_cxpFacturasDe(c.id).length?' (cerrada)':' (saldada)'));
-      html+='<option value="'+_mEsc(String(c.id))+'">'+_mEsc(lbl)+'</option>';
-    });
-    html+='</optgroup>';
-  });
-  sel.innerHTML=html;
-  if(prev)sel.value=prev;
+// UNA FACTURA PUEDE CUBRIR VARIAS ÓRDENES (Máximo, 02/08/2026):
+//   «algunas empresas acumulan varias órdenes y me hacen UNA factura por varias. Puedo
+//    deber 10 órdenes y si solo tengo para pagar 5, me facturan las 5 que YO escojo y las
+//    otras 5 quedan en deuda.»
+// Por eso `cxp_facturas` es la CABECERA (1 fila = 1 factura real, que es lo que exige el
+// libro de compras) y `cxp_factura_lineas` dice cuánto de esa factura es de cada deuda/orden.
+// Una orden puede entrar COMPLETA o EN PARTE: el proveedor a veces factura un pedazo ahora.
+
+// Las líneas de una factura. Si la factura no tiene ninguna (facturas viejas, o la migración
+// todavía no corrió), vale su propia cabecera como línea única → se lee IGUAL que antes.
+function _facLineasDe(facId){ return CXP_FAC_LINEAS.filter(function(l){return String(l.factura_id)===String(facId);}); }
+function _facLineaEnriq(l,f){
+  var o={}; Object.keys(l).forEach(function(k){o[k]=l[k];});
+  o.factura_id=f.id; o.nro_factura=f.nro_factura; o.fecha_factura=f.fecha;
+  o.iva_pct=f.iva_pct; o.concepto=f.concepto; o.prov_nombre=f.prov_nombre;
+  if(!(parseFloat(o.tasa_val)>0))o.tasa_val=f.tasa_val;
+  return o;
 }
+function _facLineasReales(f){
+  var ls=_facLineasDe(f.id);
+  if(ls.length)return ls.map(function(l){return _facLineaEnriq(l,f);});
+  if(f.cxp_id==null)return [];
+  return [_facLineaEnriq({cxp_id:f.cxp_id,orden_id:f.orden_id||'',base_bs:f.base_bs,iva_bs:f.iva_bs,
+    ret_iva_bs:f.ret_iva_bs,ret_islr_bs:f.ret_islr_bs,neto_bs:f.neto_bs,tasa_val:f.tasa_val},f)];
+}
+// Todo lo facturado CONTRA una deuda (venga de líneas nuevas o de una factura vieja 1-a-1).
+function _cxpLineasParaDeuda(id){
+  var out=[];
+  CXP_FACTURAS.forEach(function(f){
+    _facLineasReales(f).forEach(function(l){ if(String(l.cxp_id)===String(id))out.push(l); });
+  });
+  return out;
+}
+function _cxpFacturasDe(id){
+  var vistas={},out=[];
+  CXP_FACTURAS.forEach(function(f){
+    if(vistas[String(f.id)])return;
+    if(_facLineasReales(f).some(function(l){return String(l.cxp_id)===String(id);})){ vistas[String(f.id)]=1; out.push(f); }
+  });
+  return out;
+}
+// Reparte un total en Bs entre varias partes, en proporción a sus pesos, SIN perder céntimos:
+// la última parte absorbe el redondeo para que la suma dé EXACTAMENTE el total de la factura.
+// Si no cuadrara al céntimo, el libro de compras y la retención al SENIAT no cerrarían.
+function _repartirBs(total,pesos){
+  total=Math.round((parseFloat(total)||0)*100)/100;
+  var suma=pesos.reduce(function(s,p){return s+(parseFloat(p)||0);},0);
+  var out=[],acum=0;
+  for(var i=0;i<pesos.length;i++){
+    if(i===pesos.length-1){ out.push(Math.round((total-acum)*100)/100); break; }
+    var v=Math.round((suma>0?(total*((parseFloat(pesos[i])||0)/suma)):(total/pesos.length))*100)/100;
+    out.push(v); acum=Math.round((acum+v)*100)/100;
+  }
+  return out;
+}
+
+// ── El formulario: proveedor → sus órdenes/deudas → tildar las que entran ────────────────────
+function fillFacProvSelect(){
+  var sel=g('fac-prov'); if(!sel)return; var prev=sel.value;
+  // Solo proveedores que tienen algo que facturar: la lista completa no ayuda a nadie.
+  var conDeuda={};
+  CXP.forEach(function(c){ if(_cxpFacturablePendiente(c)>0.005)conDeuda[String(c.provId||c.prov_id||'')]=(c.prov_nombre||c.prov||''); });
+  var todos=!!(g('fac-cxp-cerradas')&&g('fac-cxp-cerradas').checked);
+  if(todos)CXP.forEach(function(c){ conDeuda[String(c.provId||c.prov_id||'')]=(c.prov_nombre||c.prov||''); });
+  var opts=Object.keys(conDeuda).filter(Boolean).map(function(id){return{id:id,nom:conDeuda[id]||id};})
+    .sort(function(a,b){return String(a.nom).localeCompare(String(b.nom));});
+  sel.innerHTML='<option value="">-- Seleccionar proveedor --</option>'+opts.map(function(o){
+    return '<option value="'+_mEsc(o.id)+'">'+_mEsc(o.nom)+'</option>';}).join('');
+  if(prev)sel.value=prev;
+  renderFacDeudas();
+}
+// Alias: `fillFacCxpSelect` era el nombre viejo (un solo select de deuda). Se conserva para no
+// dejar inertes las llamadas de switchProvTab/sp() si quedara alguna sin actualizar.
+function fillFacCxpSelect(){ fillFacProvSelect(); }
+
+// Lo que de una deuda TODAVÍA no está facturado, en $ (base pactada − base ya facturada).
+function _cxpFacturablePendiente(c){
+  if(!c)return 0;
+  var base=parseFloat(c.base_usd||c.baseUsd||0)||0;
+  var a=_cxpFacturadoUsd(c.id);
+  return Math.max(0, base-((a&&a.base)||0));
+}
+function renderFacDeudas(){
+  var box=g('fac-deudas'); if(!box)return;
+  var pid=gv('fac-prov')||'';
+  var verTodas=!!(g('fac-cxp-cerradas')&&g('fac-cxp-cerradas').checked);
+  if(!pid){ box.innerHTML='<div style="font-size:12px;color:var(--text3);padding:10px">Elegí primero el proveedor.</div>'; _facAsignadoHint(); return; }
+  var arr=CXP.filter(function(c){
+    if(String(c.provId||c.prov_id||'')!==String(pid))return false;
+    if(verTodas)return true;
+    return _cxpFacturablePendiente(c)>0.005 || _cxpSaldoUsd(c)>0.005;
+  }).slice().sort(function(a,b){return String(a.fecha).localeCompare(String(b.fecha));});
+  if(!arr.length){ box.innerHTML='<div style="font-size:12px;color:var(--text3);padding:10px">Este proveedor no tiene órdenes pendientes de facturar. Tildá «mostrar también las cerradas» si necesitás cargarle otra factura.</div>'; _facAsignadoHint(); return; }
+  box.innerHTML=arr.map(function(c){
+    var pend=_cxpFacturablePendiente(c), saldo=_cxpSaldoUsd(c);
+    var yaFac=_cxpFacturasDe(c.id).length;
+    // El texto se corta con «…», nunca a lo bruto: cortar seco en «JAC-B003» deja «JAC-B00»,
+    // que se lee como OTRA unidad. Un identificador partido miente.
+    var txt=String(c.descripcion||c.desc||'');
+    if(txt.length>44)txt=txt.slice(0,43).replace(/[\s·,-]+$/,'')+'…';
+    var etq=(c.orden_id?('<b>'+_mEsc(String(c.orden_id))+'</b> · '):'')+formatFecha(c.fecha)+
+      (txt?(' · '+_mEsc(txt)):'');
+    // «Debe» y «sin facturar» coinciden mientras no se le haya facturado nada: repetir el mismo
+    // número dos veces solo hace ruido. El segundo dato sale cuando de verdad dice algo distinto.
+    var sub='Debe <b style="color:var(--lime)">$'+saldo.toFixed(2)+'</b>'+
+      (pend>0.005
+        ? (Math.abs(pend-saldo)>0.005?(' · sin facturar <b>$'+pend.toFixed(2)+'</b>'):'')
+        : ' · <span style="color:var(--text3)">ya facturada</span>')+
+      (yaFac?(' · '+yaFac+' fact.'):'');
+    return '<div data-cxp="'+_mEsc(String(c.id))+'" style="display:flex;align-items:center;gap:8px;padding:5px 2px;border-bottom:1px solid var(--border)">'+
+      '<input type="checkbox" class="fac-dl-ck" onchange="_facTildar(this)" style="width:16px;height:16px;flex:0 0 16px">'+
+      '<div style="flex:1;min-width:0"><div style="font-size:11px">'+etq+'</div><div style="font-size:9px;color:var(--text2)">'+sub+'</div></div>'+
+      '<input type="number" class="fc fac-dl-bs" placeholder="Bs" oninput="_facLineaChg()" style="width:104px;flex:0 0 104px;padding:4px 6px;font-size:11px;font-family:var(--m)">'+
+    '</div>';
+  }).join('');
+  _facAsignadoHint(); calcFac();
+}
+// Al tildar una orden se llena sola con lo que falta facturarle (a la tasa cargada). El caso
+// normal —«me facturaron estas 5 completas»— no obliga a escribir ni un número.
+function _facTildar(ck){
+  var row=ck&&ck.closest?ck.closest('[data-cxp]'):null; if(!row)return;
+  var inp=row.querySelector('.fac-dl-bs'); if(!inp)return;
+  if(!ck.checked){ inp.value=''; _facSincronizarBase(); calcFac(); return; }
+  var c=CXP.find(function(x){return String(x.id)===String(row.getAttribute('data-cxp'));});
+  var tasa=parseFloat(gv('fac-tasa'))||0;
+  if(c&&tasa>0&&!inp.value){
+    var pend=_cxpFacturablePendiente(c); if(!(pend>0.005))pend=_cxpSaldoUsd(c);
+    if(pend>0.005)inp.value=(pend*tasa).toFixed(2);
+  }
+  _facSincronizarBase(); calcFac();
+}
+function _facLineasForm(){
+  var box=g('fac-deudas'); if(!box)return [];
+  var out=[];
+  Array.prototype.forEach.call(box.querySelectorAll('[data-cxp]'),function(row){
+    var ck=row.querySelector('.fac-dl-ck'); if(!ck||!ck.checked)return;
+    var el=row.querySelector('.fac-dl-bs');
+    out.push({cxp_id:row.getAttribute('data-cxp'), base:parseFloat(el&&el.value)||0});
+  });
+  return out;
+}
+function _facSumaLineas(){ return Math.round(_facLineasForm().reduce(function(s,l){return s+l.base;},0)*100)/100; }
+// Si a una orden se le corrige el monto a mano, la base de la factura vuelve a seguir la suma
+// (mientras nadie haya escrito la base a mano). Si no, el indicador quedaría en «✗ sobran Bs X»
+// obligando a cuadrar a mano algo que el sistema sabe solo.
+function _facLineaChg(){ _facSincronizarBase(); calcFac(); }
+// La base de la factura sigue a las órdenes tildadas MIENTRAS no se haya escrito otra cosa a
+// mano: si el papel dice otro número (redondeos, un precio distinto al pactado), manda el papel.
+var _facBaseAuto='';
+function _facSincronizarBase(){
+  var inp=g('fac-base'); if(!inp)return;
+  var actual=(inp.value||'').trim();
+  if(actual&&actual!==_facBaseAuto)return;   // lo escribió una persona: no se le toca
+  var suma=_facSumaLineas();
+  _facBaseAuto=suma>0?suma.toFixed(2):'';
+  inp.value=_facBaseAuto;
+}
+// Reparte la base imponible del papel entre las órdenes tildadas (en proporción a lo que debe
+// cada una). Es el botón para cuando el total de la factura no es la suma exacta de las órdenes.
+function _facCuadrar(){
+  var lineas=_facLineasForm();
+  if(!lineas.length){ alert('Marcá primero las órdenes que cubre esta factura.'); return; }
+  var base=parseFloat(gv('fac-base'))||0;
+  if(!(base>0)){ alert('Escribí primero la base imponible en Bs que dice la factura.'); return; }
+  var tasa=parseFloat(gv('fac-tasa'))||0;
+  var pesos=lineas.map(function(l){
+    if(l.base>0.005)return l.base;                       // respeta lo que ya se escribió
+    var c=CXP.find(function(x){return String(x.id)===String(l.cxp_id);});
+    var p=c?_cxpFacturablePendiente(c):0; if(!(p>0.005)&&c)p=_cxpSaldoUsd(c);
+    return (tasa>0?p*tasa:p)||1;
+  });
+  var partes=_repartirBs(base,pesos);
+  var box=g('fac-deudas');
+  lineas.forEach(function(l,i){
+    var row=box.querySelector('[data-cxp="'+String(l.cxp_id).replace(/"/g,'\\"')+'"]');
+    var inp=row&&row.querySelector('.fac-dl-bs'); if(inp)inp.value=partes[i].toFixed(2);
+  });
+  calcFac();
+}
+function _facAsignadoHint(){
+  var el=g('fac-asignado'); if(!el)return;
+  var lineas=_facLineasForm();
+  if(!lineas.length){ el.innerHTML='<span style="color:var(--text3)">Ninguna orden marcada todavía.</span>'; return; }
+  var suma=_facSumaLineas(), base=Math.round((parseFloat(gv('fac-base'))||0)*100)/100;
+  var dif=Math.round((base-suma)*100)/100;
+  var cuadra=Math.abs(dif)<=0.01;
+  el.innerHTML='<b>'+lineas.length+'</b> '+(lineas.length!==1?'órdenes marcadas':'orden marcada')+
+    ' · repartido <b style="font-family:var(--m)">Bs '+_bs2(suma)+'</b> de <b style="font-family:var(--m)">Bs '+_bs2(base)+'</b> '+
+    (cuadra?'<span style="color:var(--green)">✓ cuadra</span>'
+           :('<span style="color:var(--red)">✗ '+(dif>0?('faltan Bs '+_bs2(dif)):('sobran Bs '+_bs2(-dif)))+'</span>'));
+}
+
 function facConceptoChg(){ var ap=g('fac-islr-aplica'); if(ap)ap.value=(gv('fac-concepto')==='servicios')?'1':'0'; }
+// Trae la configuración fiscal del proveedor elegido (tipo de contribuyente y % de ISLR).
 function facPrefill(){
-  var id=gv('fac-cxp'); var c=CXP.find(function(x){return String(x.id)===String(id);}); if(!c)return;
   if(!gv('fac-fecha'))sv('fac-fecha',fechaVE());
   if(!gv('fac-tasa'))sv('fac-tasa',String(getTasa('bcvDolar')||TASAS.bcvDolar||''));
-  var pv=PROVEEDORES.find(function(p){return String(p.id)===String(c.provId||c.prov_id);});
+  var pv=PROVEEDORES.find(function(p){return String(p.id)===String(gv('fac-prov'));});
   if(pv){ if(pv.tipo_contrib)sv('fac-contrib',pv.tipo_contrib); var ip=pv.islr_pct||pv.islrPct; if(ip)sv('fac-islr-pct',String(ip)); }
   facConceptoChg(); calcFac();
 }
 function _retIvaPctDe(contrib){ return contrib==='especial'?100:contrib==='no_contrib'?0:75; }
+// El IVA y las retenciones se calculan SOBRE LA FACTURA COMPLETA (así lo emite el proveedor y
+// así se declara), nunca orden por orden: retener por pedazos daría otro número por redondeo.
 function _calcFacVals(){
   var base=parseFloat(gv('fac-base'))||0;
   var ivaPct=parseFloat(gv('fac-iva'))||0;
@@ -10863,61 +11094,99 @@ function calcFac(){
   if(g('fc-retiva'))g('fc-retiva').textContent='-'+f(v.retIva);
   if(g('fc-retislr'))g('fc-retislr').textContent='-'+f(v.retIslr);
   if(g('fc-neto'))g('fc-neto').textContent=f(v.neto);
+  _facAsignadoHint();
   // Pago inmediato: solo posible si hay tasa (para saldar en $). Sin tasa, se deshabilita.
   var ck=g('fac-pagar-ya'), det=g('fac-pago-detalle'), hint=g('fac-pago-hint');
   if(ck){
     var hayTasa=v.tasa>0;
-    var cc=CXP.find(function(x){return String(x.id)===String(gv('fac-cxp'));});
-    var saldoCc=cc?_cxpSaldoUsd(cc):0;
     // Sin tasa: solo DESHABILITAR, NUNCA destildar. calcFac corre con fac-tasa vacío al abrir
     // la pestaña (switchProvTab) y destildar aquí mataba el pago en silencio (bug Solquiven).
     ck.disabled=!hayTasa;
     if(det)det.style.display=(ck.checked&&hayTasa)?'':'none';
-    if(hint)hint.textContent=!hayTasa?'Cargá la tasa BCV del día para poder registrar el pago aquí.':(!cc?'':(ck.checked?(saldoCc>0.005?('Saldará $'+saldoCc.toFixed(2)+' de la deuda. El neto Bs '+_bs2(v.neto)+' es lo que se paga al proveedor.'):'Esta deuda ya está saldada; solo se cargará la factura.'):''));
+    var lineas=_facLineasForm();
+    var saldoTot=lineas.reduce(function(s,l){var c=CXP.find(function(x){return String(x.id)===String(l.cxp_id);});return s+(c?Math.max(0,_cxpSaldoUsd(c)):0);},0);
+    var nOrd=lineas.length!==1?('las '+lineas.length+' órdenes marcadas'):'la orden marcada';
+    if(hint)hint.textContent=!hayTasa?'Cargá la tasa BCV del día para poder registrar el pago acá.'
+      :(!lineas.length?'':(ck.checked?(saldoTot>0.005?('Saldará $'+saldoTot.toFixed(2)+' de '+nOrd+'. El neto Bs '+_bs2(v.neto)+' es lo que se paga al proveedor.'):'Ya están saldadas; solo se cargará la factura.'):''));
   }
 }
 var _facEnVuelo=false;
 function guardarFactura(){
-  if(_facEnVuelo)return; // anti doble-click: la factura ahora también puede generar un pago
-  var id=gv('fac-cxp'); var c=CXP.find(function(x){return String(x.id)===String(id);});
-  if(!c){alert('Seleccioná la deuda / orden a la que pertenece la factura.');return;}
+  if(_facEnVuelo)return; // anti doble-click: la factura ahora también puede generar pagos
+  var pid=gv('fac-prov');
+  var lineasForm=_facLineasForm();
+  if(!pid){alert('Elegí el proveedor de la factura.');return;}
+  if(!lineasForm.length){alert('Marcá al menos una orden / deuda que cubra esta factura.\n\nLas que NO marques siguen debiendo.');return;}
   var v=_calcFacVals();
   if(!(v.base>0)){alert('Ingresá la base imponible en Bs.');return;}
   if(!gv('fac-num')){alert('Ingresá el N° de factura.');return;}
+  // Lo repartido tiene que dar EXACTAMENTE la base del papel: si no, o queda deuda fantasma
+  // (repartiste de menos) o se salda plata que nadie facturó (repartiste de más).
+  var suma=_facSumaLineas(), dif=Math.round((v.base-suma)*100)/100;
+  if(Math.abs(dif)>0.01){
+    alert('Lo repartido entre las órdenes (Bs '+_bs2(suma)+') no da la base imponible de la factura (Bs '+_bs2(v.base)+').\n\n'+
+      (dif>0?('Faltan Bs '+_bs2(dif)):('Sobran Bs '+_bs2(-dif)))+'.\n\nCorregí los montos, o tocá «⚖️ Cuadrar con la base» para repartirla automáticamente.');
+    return;
+  }
+  if(lineasForm.some(function(l){return !(l.base>0);})){alert('Hay una orden marcada sin monto en Bs. Ponéle cuánto le corresponde de esta factura, o destildala.');return;}
+  // Misma factura cargada dos veces = deuda duplicada y retención duplicada al SENIAT.
+  var repe=CXP_FACTURAS.find(function(f){
+    return String(f.prov_id||'')===String(pid) && String(f.nro_factura||'').trim().toLowerCase()===String(gv('fac-num')).trim().toLowerCase();
+  });
+  if(repe&&!confirm('⚠️ Este proveedor YA tiene cargada la factura '+gv('fac-num')+' (del '+formatFecha(repe.fecha)+', Bs '+_bs2(repe.total_bs)+').\n\nCargarla de nuevo DUPLICA la deuda y la retención al SENIAT.\n\n¿Cargarla igual?'))return;
   var ckPago=g('fac-pagar-ya');
   if(ckPago&&ckPago.checked&&!(v.tasa>0)){alert('Marcaste "Registrar ahora el pago" pero falta la tasa BCV del día.\nCargá la tasa, o destildá el pago para guardar solo la factura.');return;}
   var pagarYa=!!(ckPago&&ckPago.checked&&v.tasa>0);
+
+  var pv=PROVEEDORES.find(function(p){return String(p.id)===String(pid);});
+  var provNom=pv?pv.nombre:'';
+  var cxps=lineasForm.map(function(l){return CXP.find(function(x){return String(x.id)===String(l.cxp_id);});}).filter(Boolean);
+  if(!provNom&&cxps[0])provNom=cxps[0].prov_nombre||cxps[0].prov||'';
+  var fechaFac=gv('fac-fecha')||fechaVE();
+  // Reparto proporcional a la base de cada línea, sin perder céntimos.
+  var pesos=lineasForm.map(function(l){return l.base;});
+  var ivaP=_repartirBs(v.iva,pesos), rIvaP=_repartirBs(v.retIva,pesos), rIslrP=_repartirBs(v.retIslr,pesos), netoP=_repartirBs(v.neto,pesos);
+  var primera=cxps[0]||{};
   var row={
-    cxp_id:String(c.id), orden_id:c.orden_id||null, prov_id:c.provId||c.prov_id||null, prov_nombre:c.prov_nombre||c.prov||'',
-    fecha:gv('fac-fecha')||fechaVE(), nro_factura:gv('fac-num')||'', num_control:gv('fac-control')||'',
+    cxp_id:String(lineasForm[0].cxp_id), orden_id:primera.orden_id||null, prov_id:pid, prov_nombre:provNom,
+    fecha:fechaFac, nro_factura:gv('fac-num')||'', num_control:gv('fac-control')||'',
     concepto:gv('fac-concepto')||'servicios',
     base_bs:v.base, iva_pct:v.ivaPct, iva_bs:parseFloat(v.iva.toFixed(2)),
     tipo_contrib:v.contrib, ret_iva_pct:v.retIvaPct, ret_iva_bs:parseFloat(v.retIva.toFixed(2)),
     islr_aplica:v.islrAplica, ret_islr_pct:v.islrPct, sustraendo_bs:v.sustr, ret_islr_bs:parseFloat(v.retIslr.toFixed(2)),
     total_bs:parseFloat(v.total.toFixed(2)), neto_bs:parseFloat(v.neto.toFixed(2)), tasa_val:v.tasa||null
   };
+  var lineasDe=function(facId){
+    return lineasForm.map(function(l,i){
+      var c=cxps.find(function(x){return String(x.id)===String(l.cxp_id);})||{};
+      return {factura_id:facId, cxp_id:String(l.cxp_id), orden_id:c.orden_id||'',
+        base_bs:l.base, iva_bs:ivaP[i], ret_iva_bs:rIvaP[i], ret_islr_bs:rIslrP[i], neto_bs:netoP[i], tasa_val:v.tasa||null};
+    });
+  };
   _facEnVuelo=true;
-  var finish=function(saved){
+  var finish=function(saved,lineasGuardadas){
     CXP_FACTURAS.unshift(saved||row);
-    // LA FACTURA MANDA: la deuda pasa a valer lo que dice la factura (base+IVA), y lo que se le
-    // debe al proveedor pasa a ser el neto. Sin esto el sistema seguía creyendo que la compra
-    // costaba la base sin IVA (Utilidad Real inflada) y el pago no cuadraba con el banco.
-    _aplicarFacturasACxp(c);
+    (lineasGuardadas||[]).forEach(function(l){CXP_FAC_LINEAS.push(l);});
+    // LA FACTURA MANDA sobre lo que cubre: cada deuda pasa a valer su parte facturada (base+IVA)
+    // y lo que se le debe al proveedor pasa a ser el neto. Lo NO facturado de esa orden sigue
+    // debiéndose como estaba: por eso las 5 órdenes que no entraron no se mueven.
+    cxps.forEach(function(c){ _aplicarFacturasACxp(c); });
     // La retención va a la cuenta del SENIAT de esa quincena (una sola, acumulada).
-    try{ _sincronizarRetencionesSeniat(row.fecha); }catch(e){console.warn('cxp SENIAT',e&&e.message);}
-    audit('Factura Bs cargada',(row.prov_nombre)+' '+row.nro_factura+' Bs'+v.base.toFixed(2));
-    var toastMsg='🧾 Factura guardada · Ret. IVA Bs '+_bs2(v.retIva)+(v.retIslr?' · Ret. ISLR Bs '+_bs2(v.retIslr):'');
+    try{ _sincronizarRetencionesSeniat(fechaFac); }catch(e){console.warn('cxp SENIAT',e&&e.message);}
+    audit('Factura Bs cargada',provNom+' '+row.nro_factura+' Bs'+v.base.toFixed(2)+' · '+lineasForm.length+' orden(es): '+cxps.map(function(c){return c.orden_id||c.id;}).join(', '));
+    var toastMsg='🧾 Factura guardada ('+lineasForm.length+' orden'+(lineasForm.length!==1?'es':'')+') · Ret. IVA Bs '+_bs2(v.retIva)+(v.retIslr?' · Ret. ISLR Bs '+_bs2(v.retIslr):'');
     var limpiar=function(){
       _facEnVuelo=false;
       ['fac-num','fac-control','fac-base','fac-sustraendo','fac-pago-ref'].forEach(function(x){if(g(x))sv(x,'');});
-      sv('fac-sustraendo','0'); g('fac-calc').style.display='none';
-      renderRetenciones(); renderCXP();
+      sv('fac-sustraendo','0'); _facBaseAuto='';
+      if(g('fac-calc'))g('fac-calc').style.display='none';
+      renderRetenciones(); renderCXP(); fillFacProvSelect();
       if(typeof renderHistProv==='function'&&g('tab-prov-hist')&&g('tab-prov-hist').style.display!=='none')renderHistProv();
       calcFac();
     };
     if(pagarYa){
-      _registrarPagoDesdeFactura(c,v,row.nro_factura,function(usdPagado,saldoRest){
-        if(typeof mostrarToast==='function')mostrarToast(toastMsg+(usdPagado>0.005?(' · 💵 Deuda saldada $'+usdPagado.toFixed(2)+(saldoRest>0.005?(' (queda $'+saldoRest.toFixed(2)+')'):'')):''),'exito');
+      _registrarPagosDesdeFactura(cxps,lineasForm,netoP,v.tasa,row.nro_factura,fechaFac,function(usdPagado,saldoRest){
+        if(typeof mostrarToast==='function')mostrarToast(toastMsg+(usdPagado>0.005?(' · 💵 Pagado $'+usdPagado.toFixed(2)+(saldoRest>0.005?(' (queda $'+saldoRest.toFixed(2)+')'):'')):''),'exito');
         limpiar();
       });
     } else {
@@ -10928,41 +11197,67 @@ function guardarFactura(){
   if(DB_READY&&supabase){
     supabase.from('cxp_facturas').insert([row]).select().then(function(r){
       if(r.error){_facEnVuelo=false;alert('No se guardó la factura: '+r.error.message);return;}
-      finish((r.data&&r.data[0])?r.data[0]:row);
+      var saved=(r.data&&r.data[0])?r.data[0]:row;
+      var ls=lineasDe(saved.id);
+      supabase.from('cxp_factura_lineas').insert(ls).select().then(function(r2){
+        if(r2.error){
+          // La cabecera quedó guardada pero sin líneas: eso deja la factura sin enlace a ninguna
+          // orden. Hay que decirlo FUERTE, no dejarlo pasar con un toast verde.
+          _facEnVuelo=false;
+          alert('⚠️ La factura se guardó pero NO se pudieron enlazar las órdenes:\n'+r2.error.message+
+            '\n\nSi el error dice que no existe «cxp_factura_lineas», falta correr la migración\nmigrations/factura_varias_ordenes_2026-08-02.sql en Supabase.\n\nBorrá la factura y volvé a cargarla después de correrla.');
+          return;
+        }
+        finish(saved,(r2.data&&r2.data.length)?r2.data:ls);
+      });
     });
-  } else finish(row);
+  } else { row.id='FACLOC'+Date.now(); finish(row,lineasDe(row.id)); } // sin BD: id local, o dos facturas compartirían líneas
 }
-// Crea el ABONO que salda la deuda cuando se marca "registrar pago" al cargar la factura.
-// Salda el SALDO $ restante completo (modelo: facturé y pagué). El Bs registrado es el NETO real
-// al proveedor (base+IVA−retenciones); la diferencia con el $ es lo retenido para el SENIAT.
-function _registrarPagoDesdeFactura(c,v,nroFactura,cb){
-  var saldo=_cxpSaldoUsd(c);
-  if(saldo<=0.005){ if(cb)cb(0,saldo); return; } // ya estaba saldada: solo se cargó la factura
-  // El $ del pago se deriva de los Bs que REALMENTE salieron del banco, a la tasa del pago.
-  // Antes se guardaba el saldo $ de la deuda (la base sin IVA), y la fila se contradecía sola:
-  // decía $41,005 junto a Bs 31.011,97 con tasa 727,45, que son $42,63.
-  var usdReal=(v.tasa>0)?(v.neto/v.tasa):saldo;
-  var row={
-    cxp_id:String(c.id), fecha:gv('fac-fecha')||fechaVE(),
-    monto_bs:parseFloat(v.neto.toFixed(2)), tasa_val:v.tasa, monto_usd:parseFloat(usdReal.toFixed(2)),
-    metodo:gv('fac-pago-metodo')||'transferencia',
-    ref:gv('fac-pago-ref')||('FACT '+nroFactura),
-    obs:'Pago neto factura '+nroFactura+' · Bs '+_bs2(v.neto)+((v.retIva||v.retIslr)?(' (ret. IVA Bs '+_bs2(v.retIva)+(v.retIslr?' + ISLR Bs '+_bs2(v.retIslr):'')+')'):'')
+// Crea UN abono por cada orden que la factura cubre, cuando se marca "registrar pago".
+// El Bs de cada abono es el NETO de SU línea (base+IVA−retenciones): la diferencia con el $ es
+// lo retenido para el SENIAT. Antes esto era un solo pago contra una sola deuda.
+function _registrarPagosDesdeFactura(cxps,lineasForm,netoP,tasa,nroFactura,fechaFac,cb){
+  var pendientes=[],totalUsd=0;
+  lineasForm.forEach(function(l,i){
+    var c=cxps.find(function(x){return String(x.id)===String(l.cxp_id);}); if(!c)return;
+    if(_cxpSaldoUsd(c)<=0.005)return;                       // ya estaba saldada: solo se facturó
+    var netoBs=netoP[i]||0; if(!(netoBs>0))return;
+    var usd=(tasa>0)?(netoBs/tasa):_cxpSaldoUsd(c);
+    totalUsd+=usd;
+    pendientes.push({c:c, row:{
+      cxp_id:String(c.id), fecha:fechaFac,
+      monto_bs:parseFloat(netoBs.toFixed(2)), tasa_val:tasa, monto_usd:parseFloat(usd.toFixed(2)),
+      metodo:gv('fac-pago-metodo')||'transferencia',
+      ref:gv('fac-pago-ref')||('FACT '+nroFactura),
+      obs:'Pago neto factura '+nroFactura+(c.orden_id?(' · orden '+c.orden_id):'')+' · Bs '+_bs2(netoBs)
+    }});
+  });
+  if(!pendientes.length){ if(cb)cb(0,0); return; }
+  var restante=function(){ return cxps.reduce(function(s,c){return s+Math.max(0,_cxpSaldoUsd(c));},0); };
+  var aplicar=function(p,saved){
+    CXP_PAGOS.push(saved||p.row);
+    // ⛔ SOLO se cierra la deuda si REALMENTE quedó en cero. Antes se marcaba 'pagada' siempre,
+    // aunque quedara saldo: una orden a medio pagar figuraba como saldada en la base.
+    if(_cxpSaldoUsd(p.c)<=0.005){
+      p.c.estado='pagada'; p.c.fecha_pago=p.row.fecha; p.c.fechaPago=p.row.fecha; p.c.tasa_val=tasa; p.c.tasaVal=tasa;
+      if(DB_READY&&supabase)supabase.from('cxp').update({estado:'pagada',fecha_pago:p.row.fecha,tasa_val:tasa}).eq('id',p.c.id).then(function(r){if(r.error)console.log('cxp cierre fact',r.error.message);});
+    }
   };
-  var done=function(saved){
-    CXP_PAGOS.push(saved||row);
-    // deuda saldada → cerrar (guarda tasa del pago para el cierre contable en Bs)
-    c.estado='pagada'; c.fecha_pago=row.fecha; c.fechaPago=row.fecha; c.tasa_val=v.tasa; c.tasaVal=v.tasa;
-    if(DB_READY&&supabase)supabase.from('cxp').update({estado:'pagada',fecha_pago:row.fecha,tasa_val:v.tasa}).eq('id',c.id).then(function(r){if(r.error)console.log('cxp cierre fact',r.error.message);});
-    audit('Pago CxP (desde factura)',(c.prov_nombre||'')+' $'+usdReal.toFixed(2)+' Bs'+_bs2(v.neto));
-    if(cb)cb(usdReal,_cxpSaldoUsd(c));
+  var terminar=function(){
+    audit('Pago CxP (desde factura)',nroFactura+' · '+pendientes.length+' orden(es) · $'+totalUsd.toFixed(2));
+    if(cb)cb(totalUsd,restante());
   };
   if(DB_READY&&supabase){
-    supabase.from('cxp_pagos').insert([row]).select().then(function(r){
-      if(r.error){alert('La factura se guardó, pero NO se pudo registrar el pago: '+r.error.message+'\nRegistralo a mano con 💵 Abonar.');if(cb)cb(0,saldo);return;}
-      done((r.data&&r.data[0])?r.data[0]:row);
+    supabase.from('cxp_pagos').insert(pendientes.map(function(p){return p.row;})).select().then(function(r){
+      if(r.error){
+        alert('La factura se guardó, pero NO se pudo registrar el pago: '+r.error.message+'\nRegistralo a mano con 💵 Abonar.');
+        if(cb)cb(0,restante()); return;
+      }
+      var data=(r.data&&r.data.length===pendientes.length)?r.data:null;
+      pendientes.forEach(function(p,i){ aplicar(p,data?data[i]:null); });
+      terminar();
     });
-  } else done(row);
+  } else { pendientes.forEach(function(p){aplicar(p,null);}); terminar(); }
 }
 function renderRetenciones(){
   var mesHoy=(typeof fechaVE==='function'?fechaVE():new Date().toISOString().slice(0,10)).slice(0,7);
@@ -10987,10 +11282,18 @@ function renderRetenciones(){
     '</div>';
   var tb=g('tb-ret'); if(!tb)return;
   tb.innerHTML=facs.map(function(f){
+    // Qué órdenes cubre esta factura. Es el dato que faltaba: con el nº de factura en la mano,
+    // saber a qué trabajos corresponde sin tener que abrir deuda por deuda.
+    var ls=_facLineasReales(f);
+    var ords=ls.map(function(l){return l.orden_id;}).filter(Boolean);
+    var celOrd=ords.length
+      ? ('<span title="'+_mEsc(ords.join(', '))+'">'+_mEsc(ords.slice(0,2).join(', '))+(ords.length>2?(' +'+(ords.length-2)):'')+'</span>')
+      : (ls.length>1?(ls.length+' deudas'):'<span style="color:var(--text3)">—</span>');
     return'<tr>'+
       '<td>'+formatFecha(f.fecha)+'</td>'+
-      '<td style="font-size:11px;font-weight:700">'+(f.prov_nombre||'')+'</td>'+
-      '<td style="font-family:var(--m);font-size:10px">'+(f.nro_factura||'')+'</td>'+
+      '<td style="font-size:11px;font-weight:700">'+_mEsc(f.prov_nombre||'')+'</td>'+
+      '<td style="font-family:var(--m);font-size:10px">'+_mEsc(f.nro_factura||'')+'</td>'+
+      '<td style="font-family:var(--m);font-size:9px">'+celOrd+'</td>'+
       '<td style="font-size:10px">'+(f.concepto==='bienes'?'Bienes':'Servicios')+'</td>'+
       '<td style="font-family:var(--m)">'+_bs2(f.base_bs)+'</td>'+
       '<td style="font-family:var(--m)">'+_bs2(f.iva_bs)+'</td>'+
@@ -11001,20 +11304,30 @@ function renderRetenciones(){
       '<td style="font-family:var(--m);font-weight:700;color:var(--green)">'+_bs2(f.neto_bs)+'</td>'+
       '<td><button class="btn btn-xs" style="background:#fee2e2;color:#991b1b" onclick="borrarFactura(\''+f.id+'\')" title="Borrar">🗑️</button></td>'+
     '</tr>';
-  }).join('')||'<tr><td colspan="12" style="text-align:center;color:var(--text3);padding:16px">Sin facturas cargadas en '+mes+'</td></tr>';
+  }).join('')||'<tr><td colspan="13" style="text-align:center;color:var(--text3);padding:16px">Sin facturas cargadas en '+mes+'</td></tr>';
 }
 function borrarFactura(id){
   var f=CXP_FACTURAS.find(function(x){return String(x.id)===String(id);}); if(!f)return;
-  if(!confirm('¿Borrar la factura '+(f.nro_factura||'')+' y sus retenciones del libro?'))return;
+  // Una factura puede cubrir VARIAS órdenes: hay que saber CUÁLES antes de borrarla, porque
+  // después las líneas ya no están y no habría a quién revertirle el efecto.
+  var afectadas=_facLineasReales(f).map(function(l){return String(l.cxp_id);})
+    .filter(function(v,i,a){return a.indexOf(v)===i;});
+  var ords=_facLineasReales(f).map(function(l){return l.orden_id;}).filter(Boolean);
+  if(!confirm('¿Borrar la factura '+(f.nro_factura||'')+' y sus retenciones del libro?'+
+    (afectadas.length>1?('\n\nCubre '+afectadas.length+' órdenes'+(ords.length?(' ('+ords.join(', ')+')'):'')+': TODAS vuelven a quedar debiendo lo que estaba sin facturar.'):'')))return;
   var done=function(){
     CXP_FACTURAS=CXP_FACTURAS.filter(function(x){return String(x.id)!==String(id);});
-    // Revertir el efecto de la factura sobre la deuda: si era la última, la deuda vuelve a su
-    // base sin IVA. Si no se revirtiera, la deuda quedaría con el IVA de una factura borrada.
-    var _c=CXP.find(function(x){return String(x.id)===String(f.cxp_id);});
+    // En BD las líneas se van solas (FK on delete cascade); acá hay que sacarlas a mano.
+    CXP_FAC_LINEAS=CXP_FAC_LINEAS.filter(function(l){return String(l.factura_id)!==String(id);});
+    // Revertir el efecto sobre CADA deuda que cubría: si era su última factura, vuelve a su base
+    // sin IVA. Si no se revirtiera, quedaría con el IVA de una factura que ya no existe.
     // La cuenta del SENIAT baja sola: se recalcula sumando lo que queda en la quincena.
     try{ _sincronizarRetencionesSeniat(f.fecha); }catch(e){console.warn('cxp SENIAT',e&&e.message);}
-    _aplicarFacturasACxp(_c,function(){ renderRetenciones(); renderCXP(); if(typeof renderHistProv==='function')renderHistProv(); });
-    renderRetenciones(); renderCXP();
+    afectadas.forEach(function(cid){
+      var _c=CXP.find(function(x){return String(x.id)===String(cid);});
+      _aplicarFacturasACxp(_c,function(){ renderRetenciones(); renderCXP(); if(typeof renderHistProv==='function')renderHistProv(); });
+    });
+    renderRetenciones(); renderCXP(); fillFacProvSelect();
     if(typeof mostrarToast==='function')mostrarToast('🗑️ Factura borrada','exito');
   };
   // BORRAR = TOKEN (2026-07-25): una factura borrada mueve la deuda y las retenciones del SENIAT.
@@ -11028,9 +11341,13 @@ function exportRetenciones(){
   var mes=gv('ret-mes')||new Date().toISOString().slice(0,7);
   var facs=CXP_FACTURAS.filter(function(f){return String(f.fecha||'').slice(0,7)===mes;});
   if(!facs.length){alert('No hay facturas en '+mes);return;}
-  var cols=['Fecha','Proveedor','N Factura','N Control','Concepto','Base Bs','IVA %','IVA Bs','Ret IVA %','Ret IVA Bs','ISLR %','Ret ISLR Bs','Total Bs','Neto Bs','Tasa'];
+  // Una fila por FACTURA (no por orden): así lo pide el libro de compras. Las órdenes que cubre
+  // van en su propia columna, que es lo que hace falta para conciliar con el proveedor.
+  var cols=['Fecha','Proveedor','N Factura','N Control','Ordenes','Concepto','Base Bs','IVA %','IVA Bs','Ret IVA %','Ret IVA Bs','ISLR %','Ret ISLR Bs','Total Bs','Neto Bs','Tasa'];
   var esc=function(v){v=String(v==null?'':v);return /[",;\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v;};
-  var rows=facs.map(function(f){return [f.fecha,f.prov_nombre,f.nro_factura,f.num_control,f.concepto,f.base_bs,f.iva_pct,f.iva_bs,f.ret_iva_pct,f.ret_iva_bs,(f.islr_aplica?f.ret_islr_pct:0),f.ret_islr_bs,f.total_bs,f.neto_bs,f.tasa_val].map(esc).join(';');});
+  var rows=facs.map(function(f){
+    var ords=_facLineasReales(f).map(function(l){return l.orden_id;}).filter(Boolean).join(' | ');
+    return [f.fecha,f.prov_nombre,f.nro_factura,f.num_control,ords,f.concepto,f.base_bs,f.iva_pct,f.iva_bs,f.ret_iva_pct,f.ret_iva_bs,(f.islr_aplica?f.ret_islr_pct:0),f.ret_islr_bs,f.total_bs,f.neto_bs,f.tasa_val].map(esc).join(';');});
   var csv='﻿'+cols.join(';')+'\n'+rows.join('\n');
   var blob=new Blob([csv],{type:'text/csv;charset=utf-8;'});
   var a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='retenciones_'+mes+'.csv'; a.click();
@@ -11271,14 +11588,34 @@ function guardarProveedor(){
       activo:true
     }],{onConflict:'id',ignoreDuplicates:false}).then(function(r){
       if(r.error)alert('Error guardando proveedor: '+r.error.message);
-      else{renderProveedores();alert('✅ Proveedor guardado correctamente.');}
+      else{_provRefrescarUI();alert('✅ Proveedor guardado correctamente.');}
     });
   } else {
-    renderProveedores();
+    _provRefrescarUI();
     alert('✅ Proveedor guardado (sin conexión Supabase).');
   }
   ['pv-nombre','pv-rif','pv-ncuenta','pv-tel','pv-notas'].forEach(function(id){sv(id,'');});
   sv('pv-edit-id','');
+}
+// ⛔ GUARDAR UN PROVEEDOR NO AVISABA NADA. Estas tres líneas llamaban a `renderProveedores()`,
+// una función que NO EXISTE (la real es renderProveedoresLista). Dentro del .then() el
+// ReferenceError se tragaba solo: no salía el "✅ Proveedor guardado", la lista de la derecha
+// no se refrescaba y el proveedor recién creado NO aparecía en el desplegable de Cuentas por
+// Pagar hasta recargar la página. Sin conexión era peor: reventaba ANTES de limpiar el
+// formulario, así que el siguiente proveedor se escribía encima del anterior.
+// Ahora un solo lugar refresca TODO lo que muestra proveedores.
+function _provRefrescarUI(){
+  try{ renderProveedoresLista(); }catch(e){ console.warn('prov lista',e&&e.message); }
+  // Desplegables que listan proveedores: si no se repueblan, el que se acaba de registrar no
+  // se puede elegir para su deuda (que es justo lo que se hace a continuación).
+  ['cxp-prov','ret-prov','gv-prov'].forEach(function(sid){
+    var sel=g(sid); if(!sel)return; var prev=sel.value;
+    sel.innerHTML='<option value="">-- Seleccionar --</option>'+
+      PROVEEDORES.map(function(p){return '<option value="'+_mEsc(String(p.id))+'">'+_mEsc(p.nombre||'')+'</option>';}).join('');
+    if(prev)sel.value=prev;
+  });
+  try{ if(typeof _osPoblarForm==='function')_osPoblarForm(); }catch(e){}   // proveedor/taller de las órdenes
+  try{ if(typeof _ccPoblarProv==='function')_ccPoblarProv(); }catch(e){}   // cierre de orden de compra
 }
 
 function renderProveedoresLista(){
@@ -11291,7 +11628,30 @@ function renderProveedoresLista(){
   var gfp=g('gf-prov');if(gfp){gfp.innerHTML='<option value="">-- Sin proveedor --</option>';PROVEEDORES.forEach(function(p){gfp.innerHTML+='<option value="'+p.id+'">'+p.nombre+'</option>';});}
 }
 
-function editarProv(id){var pv=PROVEEDORES.find(function(p){return p.id===id;});if(!pv)return;sv('pv-nombre',pv.nombre);sv('pv-rif',pv.rif);sv('pv-banco',pv.banco);sv('pv-tcuenta',pv.tcuenta);sv('pv-ncuenta',pv.ncuenta);sv('pv-tel',pv.tel);sv('pv-cat',pv.cat);sv('pv-tasa',pv.tasa);sv('pv-contrib',pv.contrib);sv('pv-ret-pct',pv.retPct);sv('pv-islr-pct',pv.islrPct);sv('pv-edit-id',pv.id);toggleRetIVA(pv.contrib);switchProvTab('lista');}
+// ⛔ EDITAR UN PROVEEDOR LE BORRABA LA CONFIGURACIÓN FISCAL.
+// Esta función cargaba `pv-contrib` / `pv-ret-pct` / `pv-islr-pct`, que hoy son inputs OCULTOS
+// (legacy), y NO cargaba los tres selects que de verdad se ven y que son los que lee
+// `guardarProveedor`: tipo de documento, tipo de contribuyente y actividad ISLR. Resultado: al
+// tocar «Edit» esos tres volvían a su valor por defecto y al guardar quedaba escrito eso — un
+// contribuyente ESPECIAL (retención de IVA 100%) pasaba a ORDINARIO (75%) y el ISLR a 0, sin
+// que nadie tocara nada. De ahí en adelante toda factura de ese proveedor retenía de menos.
+// (También se perdían las notas internas.) Y llamaba a `toggleRetIVA`, que apunta a dos cajas
+// que ya no existen: no hacía nada.
+function editarProv(id){
+  var pv=PROVEEDORES.find(function(p){return p.id===id;}); if(!pv)return;
+  sv('pv-nombre',pv.nombre||''); sv('pv-rif',pv.rif||'');
+  sv('pv-banco',pv.banco||''); sv('pv-tcuenta',pv.tcuenta||''); sv('pv-ncuenta',pv.ncuenta||'');
+  sv('pv-tel',pv.tel||''); sv('pv-cat',pv.cat||''); sv('pv-tasa',pv.tasa||'bcvDolar');
+  sv('pv-notas',pv.notas||'');
+  // Los que de verdad deciden cuánto se le retiene:
+  sv('pv-tipo-doc',pv.tipo_doc||'con_factura');
+  sv('pv-tipo-contrib',pv.tipo_contrib||'ordinario');
+  sv('pv-actividad-islr',String(pv.actividad_islr!=null?pv.actividad_islr:(pv.islrPct||pv.islr_pct||0)));
+  sv('pv-edit-id',pv.id);
+  togglePvContrib();   // sincroniza los ocultos legacy y muestra/oculta la fila de ISLR
+  switchProvTab('lista');
+  try{var n=g('pv-nombre'); if(n&&n.scrollIntoView)n.scrollIntoView({behavior:'smooth',block:'center'});}catch(e){}
+}
 
 function abrirSENIAT(){var rif=_rifFmt(gv('pv-rif')).replace(/-/g,'');window.open('https://declaraciones.seniat.gob.ve/portal/page/portal/MANEJADOR_CONTENIDO_SENIAT/MENU_SENIAT/01MENU_SENIAT/01040INFORMACION_CONTRIBUYENTE?p_rif='+(rif||''),'_blank');}
 
@@ -11914,8 +12274,8 @@ async function registrarUsoInv(){
     var _garH=null; (INV_MOV||[]).filter(function(m){return m.itemId===item.id&&m.tipo==='Entrada'&&m.garantiaHasta;}).sort(function(a,b){return (a.fecha<b.fecha)?1:-1;}).some(function(m){_garH=m.garantiaHasta;return true;});
     var _kmU=(typeof kmActualCam==='function')?kmActualCam(cam):0;
     _mantId='MT'+Date.now();
-    var _rowM={id:_mantId,cam:cam,f:fechaVE(),km:_kmU,horas:0,item_id:item.id,tipo:item.nombre,tipo_trabajo:'cambio',desc_trabajo:(motivo||item.nombre)+' (de inventario)',costo_usd:_costoInst,proveedor:'Stock (inventario)',foto_url:fotoUrl,anomalia:false,motivo:'',orden_id:'',garantia_hasta:_garH,centro_costo:(cam==='PATIO'?'otros':''),origen:'inventario'};
-    var _memM={id:_mantId,cam:cam,fecha:fechaVE(),km:_kmU,horas:0,itemId:item.id,tipo:item.nombre,tipoTrabajo:'cambio',desc:_rowM.desc_trabajo,costo:_costoInst,proveedor:'Stock (inventario)',foto:fotoUrl,anomalia:false,motivo:'',ordenId:'',garantiaHasta:_garH,centroCosto:_rowM.centro_costo,origen:'inventario'};
+    var _rowM={id:_mantId,cam:cam,f:fechaVE(),km:_kmU,horas:0,item_id:item.id,tipo:item.nombre,tipo_trabajo:'cambio',desc_trabajo:(motivo||item.nombre)+' (de inventario)',costo_usd:_costoInst,proveedor:'Stock (inventario)',foto_url:fotoUrl,anomalia:false,motivo:'',orden_id:'',garantia_hasta:_garH,centro_costo:(cam==='PATIO'?'otros':''),origen:'inventario',ejecutor:'interno'};
+    var _memM={id:_mantId,cam:cam,fecha:fechaVE(),km:_kmU,horas:0,itemId:item.id,tipo:item.nombre,tipoTrabajo:'cambio',desc:_rowM.desc_trabajo,costo:_costoInst,proveedor:'Stock (inventario)',foto:fotoUrl,anomalia:false,motivo:'',ordenId:'',garantiaHasta:_garH,centroCosto:_rowM.centro_costo,origen:'inventario',ejecutor:'interno'};
     if(typeof _ccInsertMant==='function')await _ccInsertMant(_rowM,_memM);
   }catch(e){ console.log('mant desde uso:',e&&e.message); }
   _pushInvMov({id:'IM'+Date.now(),fecha:fechaVE(),item:item.nombre,item_id:item.id,tipo:'Uso',cantidad:-cant,cam:cam,motivo:motivo,stockResult:item.stock,factura:factura,fotoUrl:fotoUrl,precio:item.precio||0,mant_id:_mantId});

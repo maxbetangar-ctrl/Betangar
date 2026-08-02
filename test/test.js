@@ -734,6 +734,90 @@ function resetCola(){ app.COLA_OFFLINE=[]; app.COLA_FALLIDOS=[]; app._procesando
   eq('rellena a 4 dígitos', app._osPad4(7), '0007');
   eq('y no corta los de 4', app._osPad4(1234), '1234');
 
+  // ── UNA FACTURA QUE CUBRE VARIAS ÓRDENES (02/08/2026) ──────────────────────
+  // «Puedo deber 10 órdenes y si solo tengo para pagar 5, me facturan las 5 que YO
+  //  escojo y las otras 5 quedan en deuda.»
+  console.log('\nFactura sobre varias órdenes — reparto sin perder céntimos:');
+  ok('_repartirBs definida', typeof app._repartirBs === 'function');
+  eq('mitades exactas', app._repartirBs(100, [50, 50]), [50, 50]);
+  eq('una sola parte se lleva todo', app._repartirBs(1234.56, [999]), [1234.56]);
+  // 100 entre tres NO da tres decimales exactos: el último absorbe el céntimo.
+  const tres = app._repartirBs(100, [1, 1, 1]);
+  eq('tercios: el último absorbe el redondeo', tres, [33.33, 33.33, 33.34]);
+  ok('tercios suman EXACTO el total', Math.abs(tres.reduce((a, b) => a + b, 0) - 100) < 1e-9);
+  // Caso real: base Bs 31.011,97 repartida entre 3 órdenes de pesos distintos.
+  const real = app._repartirBs(31011.97, [12000, 9011.97, 10000]);
+  ok('caso real suma EXACTO', Math.abs(real.reduce((a, b) => a + b, 0) - 31011.97) < 1e-9);
+  eq('reparto proporcional (sin ceros ni negativos)', real.every(v => v > 0), true);
+  ok('pesos en cero no rompen (reparte parejo)',
+    Math.abs(app._repartirBs(90, [0, 0, 0]).reduce((a, b) => a + b, 0) - 90) < 1e-9);
+
+  console.log('\nLo facturado y lo que sigue debiendo (facturación parcial):');
+  // Escenario: orden de $100 (base pactada). Tasa 100 → Bs 10.000 = $100.
+  const deuda = { id: 'CXP1', base_usd: 100, neto_pagar: 100, total_usd: 100, orden_id: 'OS-2026-0001' };
+  app.CXP = [deuda];
+  app.CXP_PAGOS = [];
+  app.CXP_FACTURAS = [];
+  app.CXP_FAC_LINEAS = [];
+  eq('sin facturas: debe la base entera', app._cxpDeudaUsd(deuda), 100);
+  eq('sin facturas: todo está por facturar', app._cxpFacturablePendiente(deuda), 100);
+
+  // Llega una factura que cubre SOLO $60 de esa orden (base Bs 6.000, IVA 16%, ret IVA 75%).
+  // neto = 6000 + 960 − 720 = 6240  → $62,40
+  app.CXP_FACTURAS = [{ id: 'F1', cxp_id: 'CXP1', nro_factura: 'F-1', fecha: '2026-08-01',
+    base_bs: 6000, iva_pct: 16, iva_bs: 960, ret_iva_bs: 720, ret_islr_bs: 0, neto_bs: 6240, tasa_val: 100 }];
+  app.CXP_FAC_LINEAS = [{ id: 1, factura_id: 'F1', cxp_id: 'CXP1', orden_id: 'OS-2026-0001',
+    base_bs: 6000, iva_bs: 960, ret_iva_bs: 720, ret_islr_bs: 0, neto_bs: 6240, tasa_val: 100 }];
+  eq('facturado parcial: base $60', +app._cxpFacturadoUsd('CXP1').base.toFixed(2), 60);
+  eq('queda por facturar $40', +app._cxpFacturablePendiente(deuda).toFixed(2), 40);
+  app._aplicarFacturasACxp(deuda);
+  // ⛔ Lo que rompía antes: la deuda quedaba reducida al pedazo facturado y los $40 del
+  //    trabajo restante desaparecían sin que nadie los pagara.
+  eq('la deuda = neto facturado ($62,40) + lo no facturado ($40)', deuda.neto_pagar, 102.40);
+  eq('el COSTO = facturado con IVA ($69,60) + lo no facturado ($40)', deuda.total_usd, 109.60);
+  eq('base_usd NO se pisa (es lo pactado en la orden)', deuda.base_usd, 100);
+
+  // Ahora el proveedor factura el resto ($40 → Bs 4.000 + IVA).
+  app.CXP_FACTURAS.push({ id: 'F2', cxp_id: 'CXP1', nro_factura: 'F-2', fecha: '2026-08-05',
+    base_bs: 4000, iva_pct: 16, iva_bs: 640, ret_iva_bs: 480, ret_islr_bs: 0, neto_bs: 4160, tasa_val: 100 });
+  app.CXP_FAC_LINEAS.push({ id: 2, factura_id: 'F2', cxp_id: 'CXP1', orden_id: 'OS-2026-0001',
+    base_bs: 4000, iva_bs: 640, ret_iva_bs: 480, ret_islr_bs: 0, neto_bs: 4160, tasa_val: 100 });
+  app._aplicarFacturasACxp(deuda);
+  eq('ya no queda nada por facturar', +app._cxpFacturablePendiente(deuda).toFixed(2), 0);
+  eq('deuda = solo el neto de las dos facturas', deuda.neto_pagar, 104);
+  eq('dos facturas cuelgan de la misma orden', app._cxpFacturasDe('CXP1').length, 2);
+
+  console.log('\nUna factura, varias órdenes:');
+  // 3 órdenes de $50 c/u. Una sola factura cubre DOS y deja la tercera debiendo.
+  const oA = { id: 'A', base_usd: 50, neto_pagar: 50, total_usd: 50, orden_id: 'OS-1' };
+  const oB = { id: 'B', base_usd: 50, neto_pagar: 50, total_usd: 50, orden_id: 'OS-2' };
+  const oC = { id: 'C', base_usd: 50, neto_pagar: 50, total_usd: 50, orden_id: 'OS-3' };
+  app.CXP = [oA, oB, oC];
+  app.CXP_PAGOS = [];
+  app.CXP_FACTURAS = [{ id: 'FX', cxp_id: 'A', nro_factura: 'F-9', fecha: '2026-08-02',
+    base_bs: 10000, iva_pct: 16, iva_bs: 1600, ret_iva_bs: 1200, ret_islr_bs: 0, neto_bs: 10400, tasa_val: 100 }];
+  app.CXP_FAC_LINEAS = [
+    { id: 10, factura_id: 'FX', cxp_id: 'A', orden_id: 'OS-1', base_bs: 5000, iva_bs: 800, ret_iva_bs: 600, ret_islr_bs: 0, neto_bs: 5200, tasa_val: 100 },
+    { id: 11, factura_id: 'FX', cxp_id: 'B', orden_id: 'OS-2', base_bs: 5000, iva_bs: 800, ret_iva_bs: 600, ret_islr_bs: 0, neto_bs: 5200, tasa_val: 100 }
+  ];
+  app._aplicarFacturasACxp(oA); app._aplicarFacturasACxp(oB); app._aplicarFacturasACxp(oC);
+  eq('orden 1 facturada → debe el neto', oA.neto_pagar, 52);
+  eq('orden 2 facturada → debe el neto', oB.neto_pagar, 52);
+  eq('orden 3 NO entró en la factura → sigue debiendo su base', oC.neto_pagar, 50);
+  eq('la orden 3 no tiene ninguna factura', app._cxpFacturasDe('C').length, 0);
+  eq('la factura aparece en las dos órdenes que cubre',
+    [app._cxpFacturasDe('A').length, app._cxpFacturasDe('B').length], [1, 1]);
+  eq('las líneas suman la base de la factura', 5000 + 5000, app.CXP_FACTURAS[0].base_bs);
+
+  console.log('\nCompatibilidad: facturas viejas (sin líneas) se leen igual que antes:');
+  app.CXP = [{ id: 'V1', base_usd: 80, neto_pagar: 80, total_usd: 80 }];
+  app.CXP_FACTURAS = [{ id: 'FV', cxp_id: 'V1', nro_factura: 'F-VIEJA', fecha: '2026-07-01',
+    base_bs: 8000, iva_pct: 16, iva_bs: 1280, ret_iva_bs: 960, ret_islr_bs: 0, neto_bs: 8320, tasa_val: 100 }];
+  app.CXP_FAC_LINEAS = [];   // la migración todavía no corrió
+  eq('la cabecera vale como línea única', app._cxpLineasParaDeuda('V1').length, 1);
+  eq('facturado = la factura entera', +app._cxpFacturadoUsd('V1').base.toFixed(2), 80);
+  eq('la deuda la encuentra igual', app._cxpFacturasDe('V1').length, 1);
+
   // ── Resumen ──
   console.log('\n──────────────');
   console.log('PASS: ' + pass + '   FAIL: ' + fail);
