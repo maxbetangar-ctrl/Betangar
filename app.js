@@ -10449,8 +10449,15 @@ function _aplicarFacturasACxp(c,cb){
   } else {
     upd={iva_pct:0, iva_usd:0, total_usd:base, ret_iva_usd:0, ret_islr_usd:0, neto_pagar:base};
   }
+  // ⛔ EL ESTADO TAMBIÉN ES UN MONTO: si vuelve a haber saldo, la deuda vuelve a estar PENDIENTE.
+  // Antes esta función solo movía los números y dejaba el estado como estuviera. Una orden podía
+  // quedar 'pagada' debiendo plata —invisible en Cuentas por Pagar— y nadie se enteraba.
+  // El estado se deduce del saldo, siempre; no se arrastra de lo que había antes.
   Object.keys(upd).forEach(function(k){c[k]=upd[k];});
   c.netoPagar=upd.neto_pagar; c.totalUsd=upd.total_usd;
+  var _saldo=_cxpDeudaUsd(c)-_cxpAbonadoUsd(c.id);
+  if(_saldo>0.005&&c.estado==='pagada'){ upd.estado='pendiente'; upd.fecha_pago=null; c.estado='pendiente'; c.fecha_pago=null; c.fechaPago=null; }
+  else if(_saldo<=0.005&&c.estado!=='pagada'&&_cxpAbonadoUsd(c.id)>0.005){ upd.estado='pagada'; c.estado='pagada'; }
   if(DB_READY&&supabase){
     supabase.from('cxp').update(upd).eq('id',c.id).then(function(r){
       if(r.error)console.warn('cxp recalc desde factura:',r.error.message);
@@ -10880,6 +10887,17 @@ function _facLineaEnriq(l,f){
   if(!(parseFloat(o.tasa_val)>0))o.tasa_val=f.tasa_val;
   return o;
 }
+// Los abonos que ESTA factura creó. Se buscan por el enlace `factura_id` (lo correcto), y para
+// los abonos viejos —cargados antes de que existiera la columna— se cae al texto que el propio
+// código les puso. El texto es el respaldo, no la fuente: por eso primero se mira el enlace.
+function _pagosDeFactura(f){
+  if(!f)return [];
+  var nro=String(f.nro_factura||'');
+  return (CXP_PAGOS||[]).filter(function(p){
+    if(p.factura_id!=null)return String(p.factura_id)===String(f.id);
+    return nro && String(p.obs||'').indexOf('Pago neto factura '+nro)===0;
+  });
+}
 function _facLineasReales(f){
   var ls=_facLineasDe(f.id);
   if(ls.length)return ls.map(function(l){return _facLineaEnriq(l,f);});
@@ -11208,7 +11226,9 @@ function guardarFactura(){
       calcFac();
     };
     if(pagarYa){
-      _registrarPagosDesdeFactura(cxps,lineasForm,netoP,v.tasa,row.nro_factura,fechaFac,function(usdPagado,saldoRest){
+      // El id de la factura viaja hasta el abono: sin él, borrar la factura dejaba el pago
+      // huérfano y la orden saldada para siempre (caso F-000304, 2026-08-03).
+      _registrarPagosDesdeFactura(cxps,lineasForm,netoP,v.tasa,row.nro_factura,fechaFac,(saved&&saved.id)||row.id,function(usdPagado,saldoRest){
         if(typeof mostrarToast==='function')mostrarToast(toastMsg+(usdPagado>0.005?(' · 💵 Pagado $'+usdPagado.toFixed(2)+(saldoRest>0.005?(' (queda $'+saldoRest.toFixed(2)+')'):'')):''),'exito');
         limpiar();
       });
@@ -11239,7 +11259,7 @@ function guardarFactura(){
 // Crea UN abono por cada orden que la factura cubre, cuando se marca "registrar pago".
 // El Bs de cada abono es el NETO de SU línea (base+IVA−retenciones): la diferencia con el $ es
 // lo retenido para el SENIAT. Antes esto era un solo pago contra una sola deuda.
-function _registrarPagosDesdeFactura(cxps,lineasForm,netoP,tasa,nroFactura,fechaFac,cb){
+function _registrarPagosDesdeFactura(cxps,lineasForm,netoP,tasa,nroFactura,fechaFac,facturaId,cb){
   var pendientes=[],totalUsd=0;
   lineasForm.forEach(function(l,i){
     var c=cxps.find(function(x){return String(x.id)===String(l.cxp_id);}); if(!c)return;
@@ -11248,7 +11268,7 @@ function _registrarPagosDesdeFactura(cxps,lineasForm,netoP,tasa,nroFactura,fecha
     var usd=(tasa>0)?(netoBs/tasa):_cxpSaldoUsd(c);
     totalUsd+=usd;
     pendientes.push({c:c, row:{
-      cxp_id:String(c.id), fecha:fechaFac,
+      cxp_id:String(c.id), factura_id:facturaId||null, fecha:fechaFac,
       monto_bs:parseFloat(netoBs.toFixed(2)), tasa_val:tasa, monto_usd:parseFloat(usd.toFixed(2)),
       metodo:gv('fac-pago-metodo')||'transferencia',
       ref:gv('fac-pago-ref')||('FACT '+nroFactura),
@@ -11336,12 +11356,27 @@ function borrarFactura(id){
   var afectadas=_facLineasReales(f).map(function(l){return String(l.cxp_id);})
     .filter(function(v,i,a){return a.indexOf(v)===i;});
   var ords=_facLineasReales(f).map(function(l){return l.orden_id;}).filter(Boolean);
-  if(!confirm('¿Borrar la factura '+(f.nro_factura||'')+' y sus retenciones del libro?'+
-    (afectadas.length>1?('\n\nCubre '+afectadas.length+' órdenes'+(ords.length?(' ('+ords.join(', ')+')'):'')+': TODAS vuelven a quedar debiendo lo que estaba sin facturar.'):'')))return;
+  // ⛔ UNA FACTURA NO SOLO SE ESCRIBE: TAMBIÉN PAGA.
+  // Si se cargó con "registrar pago", creó un abono por cada orden. Esos abonos son un EFECTO
+  // de la factura y se van con ella; si no, la orden queda con saldo cero, no vuelve a Cuentas
+  // por Pagar y figura pagada sin ninguna factura que la respalde (caso F-000304, 03/08/2026).
+  var pagosFac=_pagosDeFactura(f);
+  var pagosUsd=pagosFac.reduce(function(s,p){return s+(parseFloat(p.monto_usd)||0);},0);
+  var conciliados=pagosFac.filter(function(p){return p.conciliado_banco;});
+  var aviso='¿Borrar la factura '+(f.nro_factura||'')+' y sus retenciones del libro?';
+  if(afectadas.length>1)aviso+='\n\nCubre '+afectadas.length+' órdenes'+(ords.length?(' ('+ords.join(', ')+')'):'')+': todas vuelven a quedar debiendo lo que estaba sin facturar.';
+  if(pagosFac.length)aviso+='\n\n💵 También se anulan '+pagosFac.length+' abono(s) por $'+pagosUsd.toFixed(2)+' que esta factura registró. Las órdenes vuelven a Cuentas por Pagar.';
+  if(conciliados.length)aviso+='\n\n⚠️ OJO: '+conciliados.length+' de esos abonos ya están CONCILIADOS con el banco. Si los anulás, la conciliación queda descuadrada.';
+  if(!confirm(aviso))return;
   var done=function(){
     CXP_FACTURAS=CXP_FACTURAS.filter(function(x){return String(x.id)!==String(id);});
-    // En BD las líneas se van solas (FK on delete cascade); acá hay que sacarlas a mano.
+    // En BD las líneas y los abonos se van solos (FK on delete cascade); acá hay que sacarlos a mano.
     CXP_FAC_LINEAS=CXP_FAC_LINEAS.filter(function(l){return String(l.factura_id)!==String(id);});
+    if(pagosFac.length){
+      var idsPago={}; pagosFac.forEach(function(p){ idsPago[String(p.id)]=1; });
+      CXP_PAGOS=CXP_PAGOS.filter(function(p){ return !idsPago[String(p.id)]; });
+      audit('Abonos anulados al borrar factura',(f.nro_factura||'')+' · '+pagosFac.length+' abono(s) · $'+pagosUsd.toFixed(2));
+    }
     // Revertir el efecto sobre CADA deuda que cubría: si era su última factura, vuelve a su base
     // sin IVA. Si no se revirtiera, quedaría con el IVA de una factura que ya no existe.
     // La cuenta del SENIAT baja sola: se recalcula sumando lo que queda en la quincena.
