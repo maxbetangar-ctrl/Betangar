@@ -240,8 +240,9 @@ body{background:#0f1923;color:#fff;font-family:-apple-system,BlinkMacSystemFont,
         <div id="sur-costo" style="font-size:12px;color:#7dc941;margin:6px 0 14px">≈ $0.00</div>
 
         <div style="font-size:13px;color:#cfe0f0;font-weight:700;margin-bottom:6px">Foto del surtidor / recibo</div>
-        <input type="file" id="sur-foto" accept="image/*" capture="environment" onchange="surPreviewFoto(this)" style="position:absolute;left:-9999px;width:1px;height:1px;opacity:0">
-        <label for="sur-foto" style="display:block;box-sizing:border-box;text-align:center;width:100%;background:#1e3a5f;border:1px solid #4d94ff;border-radius:10px;padding:12px;color:#cfe0f0;font-weight:700;cursor:pointer;margin-bottom:8px">📷 Tomar foto</label>
+        <!-- CÁMARA EN VIVO, NO <input type="file">: ver abrirCamara(). El atributo capture es solo una
+             SUGERENCIA y los Android nuevos abren la BIBLIOTECA → se podía cargar un recibo viejo o ajeno. -->
+        <button type="button" onclick="surAbrirCamara()" style="display:block;box-sizing:border-box;text-align:center;width:100%;background:#1e3a5f;border:1px solid #4d94ff;border-radius:10px;padding:12px;color:#cfe0f0;font-weight:700;cursor:pointer;margin-bottom:8px;font-family:inherit;font-size:inherit">📷 Tomar foto</button>
         <img id="sur-foto-prev" style="display:none;max-width:100%;border-radius:8px;margin-bottom:10px">
 
         <button type="button" onclick="surTomarGPS()" style="width:100%;background:#1e3a5f;border:1px solid #4d94ff;border-radius:10px;padding:12px;color:#cfe0f0;font-weight:700;cursor:pointer">📍 Ubicar</button>
@@ -521,10 +522,10 @@ body{background:#0f1923;color:#fff;font-family:-apple-system,BlinkMacSystemFont,
         <input id="ent-direccion" placeholder="Ej: Av. Principal, galpón 3" style="width:100%;background:#111c26;border:1px solid rgba(255,255,255,.12);color:#fff;border-radius:10px;padding:12px;font-size:15px;margin-bottom:12px">
 
         <label id="ent-lbl-foto" style="display:block;font-size:11px;color:rgba(255,255,255,.5);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Foto de la entrega (en vivo)</label>
-        <!-- Cámara en Android: el input va con <label> (activación NATIVA) y visible fuera de pantalla (NO display:none),
-             porque varios Android ignoran capture="environment" si el input está oculto y se dispara por JS → abrían galería. -->
-        <input type="file" id="ent-foto" accept="image/*" capture="environment" onchange="entregaPreviewFoto(this)" style="position:absolute;left:-9999px;width:1px;height:1px;opacity:0">
-        <label for="ent-foto" style="display:block;box-sizing:border-box;text-align:center;width:100%;background:#1e3a5f;color:#fff;border:2px dashed rgba(125,201,65,.5);border-radius:12px;padding:16px;font-size:15px;font-weight:700;cursor:pointer;margin-bottom:8px">📷 Tomar foto</label>
+        <!-- CÁMARA EN VIVO, NO <input type="file">: el atributo capture es solo una SUGERENCIA y los
+             Android nuevos la ignoran y abren la BIBLIOTECA DE FOTOS (el chofer podía subir una foto vieja).
+             Acá la cámara se abre DENTRO de la página y la foto sale del canvas: no hay camino a la galería. -->
+        <button type="button" onclick="entregaAbrirCamara()" style="display:block;box-sizing:border-box;text-align:center;width:100%;background:#1e3a5f;color:#fff;border:2px dashed rgba(125,201,65,.5);border-radius:12px;padding:16px;font-size:15px;font-weight:700;cursor:pointer;margin-bottom:8px;font-family:inherit">📷 Tomar foto</button>
         <img id="ent-foto-prev" style="display:none;width:100%;border-radius:12px;margin-bottom:4px;border:1px solid rgba(255,255,255,.1)">
         <div id="ent-foto-hint" style="display:none;font-size:11px;color:#7dc941;margin-bottom:12px;text-align:center">✅ Así se guarda, con el sello (unidad, GPS y hora).</div>
 
@@ -1179,8 +1180,100 @@ function _entConcepto(){
   return pref + v;
 }
 
-function entregaPreviewFoto(input){
-  var f = input.files && input.files[0];
+// ── CÁMARA EN VIVO (sin biblioteca de fotos) ───────────────────────────────────
+// POR QUÉ: `<input type="file" capture="environment">` es solo una SUGERENCIA para el
+// navegador. Los Android nuevos la ignoran y abren el selector de la GALERÍA → el chofer
+// podía "registrar" una entrega con una foto vieja o ajena, y el sello (unidad, GPS, hora)
+// se le estampaba igual, así que la evidencia mentía sin que se notara.
+// Acá la cámara se abre DENTRO de la página (getUserMedia) y la foto se dispara sobre un
+// canvas. No existe ningún camino a la biblioteca: solo se puede tomar la foto en el momento.
+var _CAM_STREAM = null;
+
+function _camCerrar(){
+  try{ if(_CAM_STREAM) _CAM_STREAM.getTracks().forEach(function(t){ try{t.stop();}catch(e){} }); }catch(e){}
+  _CAM_STREAM = null;
+  var ov = document.getElementById('cam-overlay'); if(ov) ov.remove();
+}
+// Si el chofer sale de la pantalla o bloquea el teléfono, se apaga la cámara (batería y privacidad).
+window.addEventListener('pagehide', _camCerrar);
+
+function abrirCamara(onFoto){
+  _camCerrar();
+  var ov = document.createElement('div');
+  ov.id = 'cam-overlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:#000;z-index:20050;display:flex;flex-direction:column';
+  ov.innerHTML =
+    '<div style="flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;padding:12px 16px;background:#0f1923;border-bottom:1px solid rgba(255,255,255,.1)">'
+    + '<span style="font-size:13px;font-weight:700;color:#7dc941">📷 Foto en vivo</span>'
+    + '<button type="button" id="cam-x" style="background:none;border:1px solid rgba(255,255,255,.25);color:#fff;border-radius:8px;padding:6px 14px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">✕ Salir</button>'
+    + '</div>'
+    + '<div id="cam-msg" style="display:none;flex:1;align-items:center;justify-content:center;padding:24px;text-align:center;font-size:14px;line-height:1.5;color:#fff"></div>'
+    + '<video id="cam-video" playsinline autoplay muted style="flex:1;width:100%;min-height:0;object-fit:cover;background:#000"></video>'
+    + '<div id="cam-bar" style="flex:0 0 auto;padding:18px;background:#0f1923;display:flex;align-items:center;justify-content:center">'
+    + '<button type="button" id="cam-shot" style="width:74px;height:74px;border-radius:50%;background:#7dc941;border:5px solid rgba(255,255,255,.85);cursor:pointer;font-size:26px;line-height:1;font-family:inherit">📸</button>'
+    + '</div>';
+  document.body.appendChild(ov);
+
+  var video = ov.querySelector('#cam-video');
+  var msg   = ov.querySelector('#cam-msg');
+  ov.querySelector('#cam-x').onclick = _camCerrar;
+
+  function fallar(html){
+    video.style.display = 'none';
+    ov.querySelector('#cam-bar').style.display = 'none';
+    msg.style.display = 'flex';
+    msg.innerHTML = html;
+  }
+
+  if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+    fallar('<div><b style="color:#e8734a">Este navegador no puede abrir la cámara</b>'
+      + '<br><br><span style="color:rgba(255,255,255,.65);font-size:13px">Abrí la app en <b>Chrome</b> (Android) o <b>Safari</b> (iPhone) y volvé a intentar.</span></div>');
+    return;
+  }
+
+  navigator.mediaDevices.getUserMedia({
+    video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } },
+    audio: false
+  }).then(function(stream){
+    if(!document.getElementById('cam-overlay')){ stream.getTracks().forEach(function(t){t.stop();}); return; } // ya cerró
+    _CAM_STREAM = stream;
+    video.srcObject = stream;
+    var p = video.play(); if(p && p.catch) p.catch(function(){});
+  }).catch(function(err){
+    var code = err && err.name;
+    if(code === 'NotAllowedError' || code === 'SecurityError'){
+      // Mismo camino que el mensaje del GPS: el permiso está BLOQUEADO para este sitio.
+      fallar('<div><b style="color:#e8734a">Cámara bloqueada en este teléfono</b>'
+        + '<br><br><span style="color:rgba(255,255,255,.7);font-size:13px">Tocá el <b>candado 🔒</b> (o ⓘ) al lado de la dirección, arriba → <b>Permisos</b> → <b>Cámara</b> → <b>Permitir</b>. Después tocá “Tomar foto” otra vez.</span></div>');
+    }else if(code === 'NotFoundError' || code === 'OverconstrainedError'){
+      fallar('<div><b style="color:#e8734a">No se encontró la cámara</b>'
+        + '<br><br><span style="color:rgba(255,255,255,.65);font-size:13px">Cerrá las otras apps que la estén usando y volvé a intentar.</span></div>');
+    }else if(code === 'NotReadableError'){
+      fallar('<div><b style="color:#e8734a">La cámara está ocupada</b>'
+        + '<br><br><span style="color:rgba(255,255,255,.65);font-size:13px">Otra app la está usando. Cerrala y volvé a intentar.</span></div>');
+    }else{
+      fallar('<div><b style="color:#e8734a">No se pudo abrir la cámara</b>'
+        + '<br><br><span style="color:rgba(255,255,255,.65);font-size:13px">'+String((err&&err.message)||'').replace(/[<>]/g,'')+'</span></div>');
+    }
+  });
+
+  ov.querySelector('#cam-shot').onclick = function(){
+    var w = video.videoWidth, h = video.videoHeight;
+    if(!w || !h){ mostrarToast('La cámara todavía no está lista','error'); return; }
+    var cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+    cv.getContext('2d').drawImage(video, 0, 0, w, h);
+    cv.toBlob(function(blob){
+      if(!blob){ mostrarToast('No se pudo tomar la foto','error'); return; }
+      var f; try{ f = new File([blob], 'foto-'+Date.now()+'.jpg', { type:'image/jpeg' }); }catch(e){ f = blob; }
+      _camCerrar();
+      onFoto(f);
+    }, 'image/jpeg', 0.9);
+  };
+}
+
+function entregaAbrirCamara(){ abrirCamara(entregaUsarFoto); }
+
+function entregaUsarFoto(f){
   if(!f){ return; }
   ENT_FOTO_FILE = f;
   var img = document.getElementById('ent-foto-prev');
@@ -1390,7 +1483,7 @@ async function entregaConfirmarRecepcion(){
   // Limpiar el formulario para el próximo registro
   document.getElementById('ent-cliente').value=''; document.getElementById('ent-direccion').value='';
   document.getElementById('ent-rec-nombre').value=''; document.getElementById('ent-rec-ci').value='';
-  document.getElementById('ent-foto-prev').style.display='none'; document.getElementById('ent-foto').value='';
+  document.getElementById('ent-foto-prev').style.display='none';
   var _h=document.getElementById('ent-foto-hint'); if(_h)_h.style.display='none';
   document.getElementById('ent-gps-txt').textContent='📍 Ubicación: sin capturar';
   document.getElementById('ent-confirm').style.display='none';
@@ -1544,8 +1637,9 @@ function surCalc(){
   if(SUR_TANQUE==='estacion'){ el.textContent='💵 El costo lo define administración al cierre'; }
   else { el.textContent='≈ $'+_fmtVE(l*0.812,2)+'   (referencial · '+_fmtVE(l,2)+' L)'; }
 }
-function surPreviewFoto(inp){
-  var f=inp.files&&inp.files[0]; if(!f)return; SUR_FOTO_FILE=f;
+function surAbrirCamara(){ abrirCamara(surUsarFoto); }
+function surUsarFoto(f){
+  if(!f)return; SUR_FOTO_FILE=f;
   var img=document.getElementById('sur-foto-prev'); if(img){ img.src=URL.createObjectURL(f); img.style.display='block'; }
 }
 function surTomarGPS(){
