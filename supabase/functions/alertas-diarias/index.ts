@@ -13,6 +13,34 @@ async function sel(path: string): Promise<any[]> {
   if (!r.ok) { console.error("sel err", path, r.status, await r.text()); return []; }
   return await r.json();
 }
+// ⛔ POSTGREST DEVUELVE 1.000 FILAS COMO MÁXIMO Y NO AVISA.
+// No hay error ni excepción: simplemente faltan filas, y una lista incompleta se ve
+// idéntica a una completa. Para una tabla que crece (una fila por evento) hay que pedir
+// por páginas con el header Range.
+//
+// PASÓ ACÁ, EN VIVO (medido el 2026-08-03): `planillas` tiene 1.297 filas y esta función
+// las leía de un solo tiro. Se quedaba con 1.000 —las más viejas—, así que la "última
+// planilla" de cada camión quedaba congelada en el 29/07 y el aviso decía que DIEZ de los
+// doce camiones llevaban 5-7 días sin cargar planilla. Habían cargado el 1 y el 2 de agosto.
+// Un aviso falso repetido es peor que no avisar: enseña a ignorar el mensaje.
+//
+// ⚠️ El orden tiene que ser ESTABLE (una columna única de desempate), si no una fila puede
+// cambiar de página entre dos pedidos y aparecer dos veces o ninguna.
+async function selPag(tabla: string, query: string): Promise<any[]> {
+  const TAM = 1000; let desde = 0; const todo: any[] = [];
+  for (;;) {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/${tabla}?${query}`, {
+      headers: { ...HDR, Range: `${desde}-${desde + TAM - 1}` },
+    });
+    if (!r.ok) { console.error("selPag err", tabla, r.status, await r.text()); return todo; }
+    const c = await r.json();
+    if (!Array.isArray(c)) return todo;
+    todo.push(...c);
+    if (c.length < TAM) return todo;
+    desde += TAM;
+    if (desde > 500000) return todo;   // tope de seguridad
+  }
+}
 async function enqueue(rows: any[]) {
   if (!rows.length) return;
   const r = await fetch(`${SUPABASE_URL}/rest/v1/cola_mensajes`, {
@@ -228,7 +256,9 @@ Deno.serve(async (_req: Request) => {
     for (const eid of Object.keys(docsEmp)) for (const t of ["cedula", "licencia", "medico"]) { const d = docsEmp[eid] && docsEmp[eid][t]; if (!d || !d.venc) continue; const dr = diasHasta(d.venc); if (isNaN(dr) || dr > 30) continue; docs.push(`• ${empName(eid)} ${t}: ${dr < 0 ? `VENCIDO hace ${Math.abs(dr)}d` : `vence en ${dr}d`}`); }
 
     // 6) SIN PLANILLA (>=3 dias)
-    const plan = await sel(`planillas?select=cam,f`);
+    // Paginada a propósito: son >1.000 filas y de acá sale la "última planilla" de cada
+    // camión. Ver selPag() — leerla de un tiro daba diez avisos falsos de "sin planilla".
+    const plan = await selPag("planillas", `select=cam,f&order=f.asc,cam.asc`);
     const ultPlan: Record<string, string> = {};
     for (const p of plan) { const c = String(p.cam || ""); if (!c) continue; const f = String(p.f || ""); if (!ultPlan[c] || f > ultPlan[c]) ultPlan[c] = f; }
     const fleet = Array.from(new Set(km.map((k: any) => String(k.cam || "")).filter((c: string) => c.startsWith("JAC-B")))).sort();
