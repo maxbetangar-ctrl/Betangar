@@ -71,6 +71,59 @@ async function waSend(text: string, roles: string[], wa: any[], dry: boolean, so
   const rows = uniq.map((w: any) => ({ telefono: String(w.num).replace(/[\s\-\+]/g, ""), mensaje: text, tipo: "alerta", estado: "pendiente" }));
   await enqueue(rows);
 }
+// ── DIGEST: UN SOLO MENSAJE POR PERSONA ──────────────────────────────────────
+// Antes esta función mandaba hasta 5 mensajes sueltos con minutos de diferencia
+// (cumpleaños, aceite, resumen, fallas, checklist). Cada uno gasta un mensaje de
+// Wassenger y le llega a la misma gente casi al mismo tiempo.
+// Ahora las secciones se ACUMULAN y al final sale UNO por destinatario, con una
+// línea divisoria entre secciones para que se note que son reportes distintos.
+// Se agrupa por NÚMERO, no por rol: así quien está bajo dos roles recibe uno solo,
+// y se respeta que operativo NO ve dinero (esos son bloques distintos).
+const DIV = "━━━━━━━━━━━━━━━";
+type Bloque = { texto: string; roles: string[]; soloRoles: boolean };
+const bloques: Bloque[] = [];
+function addBloque(texto: string, roles: string[], soloRoles = false) {
+  if (texto && texto.trim()) bloques.push({ texto: texto.trim(), roles, soloRoles });
+}
+async function enviarDigest(cabecera: string, wa: any[], dry: boolean): Promise<number> {
+  if (!bloques.length) return 0;
+  // número → secciones que le tocan, en el orden en que se fueron agregando
+  const porNum = new Map<string, { desc: string; partes: string[] }>();
+  for (const b of bloques) {
+    const dest = wa.filter((w: any) => w.num && w.activo && ((!b.soloRoles && w.rol === "socios") || b.roles.includes(w.rol)));
+    const vistos = new Set<string>();
+    for (const w of dest) {
+      const n = String(w.num).replace(/[\s\-\+]/g, "");
+      if (!n || vistos.has(n)) continue;                 // el mismo número bajo dos roles no repite sección
+      vistos.add(n);
+      if (!porNum.has(n)) porNum.set(n, { desc: w.desc || w.rol, partes: [] });
+      porNum.get(n)!.partes.push(b.texto);
+    }
+  }
+  const armar = (partes: string[]) => `${cabecera}\n\n${partes.join(`\n\n${DIV}\n\n`)}`;
+  if (dry) {
+    for (const [, e] of porNum) preview.push({ to: e.desc, secciones: e.partes.length, text: armar(e.partes) });
+    return porNum.size;
+  }
+  await enqueue([...porNum.entries()].map(([n, e]) => ({ telefono: n, mensaje: armar(e.partes), tipo: "alerta", estado: "pendiente" })));
+  return porNum.size;
+}
+// ── LAVADO: no una lista, una RECOMENDACIÓN ──────────────────────────────────
+// Pedido de Máximo (2026-08-03). Los camiones se lavan el DOMINGO, así que el aviso
+// sale el VIERNES y no todos los días. Y una lista de doce placas no ayuda a decidir:
+// lo que hace falta es "lavá estos tres". Van primero los MÁS vencidos — que es el
+// orden en que la unidad lleva más tiempo sucia, no el orden en que están cargadas.
+// Los demás siguen apareciendo abajo: recomendar no es esconder el resto.
+const LAVADOS_POR_DOMINGO = 3;   // cuántos se alcanzan a lavar un domingo (subir a 4 si da el tiempo)
+function textoLavado(lav: { u: string; dias: number }[]): string {
+  const orden = [...lav].sort((a, b) => b.dias - a.dias);
+  const top = orden.slice(0, LAVADOS_POR_DOMINGO);
+  const resto = orden.slice(LAVADOS_POR_DOMINGO);
+  let t = `🧼 LAVADO — para el domingo\n\n👉 Te recomiendo lavar ${top.length === 1 ? "este" : `estos ${top.length}`}:\n`;
+  t += top.map((x, i) => `  ${i + 1}. ${x.u} — vencido hace ${x.dias} días`).join("\n");
+  if (resto.length) t += `\n\nLos demás vencidos:\n` + resto.map((x) => `  • ${x.u} — ${x.dias} días`).join("\n");
+  return t;
+}
 async function yaEnviado(key: string, dry: boolean): Promise<boolean> {
   const rows = await sel(`alertas_log?alert_key=eq.${encodeURIComponent(key)}&select=alert_key`);
   if (rows.length) return true;
@@ -86,6 +139,7 @@ Deno.serve(async (_req: Request) => {
   try {
     const dry = new URL(_req.url).searchParams.get("dry") === "1";
     preview.length = 0;
+    bloques.length = 0;   // ⛔ es de módulo: sin esto, la corrida de las 6pm reenvía lo de las 8am
     const cfg = await sel(`configuracion?clave=eq.whatsapp&select=valor`);
     let wa: any[] = [];
     try { wa = JSON.parse(cfg[0]?.valor || "[]"); } catch { wa = []; }
@@ -111,7 +165,7 @@ Deno.serve(async (_req: Request) => {
       const key = `cumple_${e.id}_${hoyD}`;
       if (await yaEnviado(key, dry)) continue;
       const d = new Date(String(e.fnac).slice(0, 10) + "T12:00:00Z");
-      await waSend(`🎂 HOY cumple años ${e.nombre} (${hoy.getUTCFullYear() - d.getUTCFullYear()} años) — ${e.cargo || ""}`, ["rrhh", "admin", "operativo"], wa, dry);
+      addBloque(`🎂 HOY cumple años ${e.nombre} (${hoy.getUTCFullYear() - d.getUTCFullYear()} años) — ${e.cargo || ""}`, ["rrhh", "admin", "operativo"]);
     }
 
     // 2) SERVICE + LAVADOS — FUENTE DE VERDAD = mantenimientos (item_id); km_data solo respaldo.
@@ -126,7 +180,11 @@ Deno.serve(async (_req: Request) => {
     const mAce = await sel(`mantenimientos?item_id=eq.aceite_motor&select=cam,f,km&order=f.desc&limit=2000`);
     const ultAceKm: Record<string, number> = {};
     for (const m of mAce) { const c = String(m.cam || ""); if (!c || ultAceKm[c] !== undefined) continue; const kmm = Number(m.km || 0); if (kmm > 0) ultAceKm[c] = kmm; }
-    const srv: string[] = [], lav: string[] = [];
+    const srv: string[] = [];
+    // El lavado guarda el DATO (unidad + días vencidos), no el texto ya armado: el aviso
+    // del viernes tiene que ORDENARLOS por vencimiento para recomendar cuáles se lavan
+    // el domingo, y de una lista de strings ya no se puede ordenar por días.
+    const lav: { u: string; dias: number }[] = [];
     for (const k of km) {
       const cam = String(k.cam || ""); if (!cam.startsWith("JAC-")) continue;
       const kmv = Number(k.km || 0);
@@ -145,7 +203,7 @@ Deno.serve(async (_req: Request) => {
       // Lavado: MÁXIMO entre el espejo km_data.lavado y el mantenimiento real (sin doble conteo).
       let fLav = String(k.lavado || "").slice(0, 10);
       if (ultLav[cam] && (!fLav || ultLav[cam] > fLav)) fLav = ultLav[cam];
-      if (fLav) { const dias = -diasHasta(fLav); if (!isNaN(dias) && dias > 45) lav.push(`• ${U(cam)}: lavado vencido (${dias} días)`); }
+      if (fLav) { const dias = -diasHasta(fLav); if (!isNaN(dias) && dias > 45) lav.push({ u: U(cam), dias }); }
     }
 
     // 3) CXP vencidas (DINERO — solo admin/socios)
@@ -183,20 +241,40 @@ Deno.serve(async (_req: Request) => {
     for (const it of inv) { const s = Number(it.stock || 0), mn = Number(it.stock_min || 0); if (s <= mn) stock.push(`• ${it.nombre}: ${s} (mín ${mn})`); }
 
     // ── PRÓXIMO CAMBIO DE ACEITE → Mecánica + Operativo + Socios ──
-    if (srv.length) { await waSend(`🔧 Próximo cambio de aceite\n${srv.join("\n")}`, ["mecanica", "operativo"], wa, dry); }
+    if (srv.length) { addBloque(`🔧 Próximo cambio de aceite\n${srv.join("\n")}`, ["mecanica", "operativo"]); }
 
     // ── DIGEST OPERATIVO ──
     // Parte SIN dinero (lavados, sin planilla, contratos, documentos, stock).
+    //
+    // ⚠️ FRECUENCIA (pedido de Máximo 2026-08-03): dos de estas secciones no cambian
+    // de un día para otro y avisarlas a diario solo gasta mensajes y se vuelve ruido
+    // que nadie lee. Se recortan a un día fijo de la semana:
+    //   • SIN PLANILLA → MIÉRCOLES y SÁBADOS     • LAVADO → solo VIERNES
+    // El resto (contratos, documentos, facturas) sigue diario: ahí un día importa.
+    // `hoy` ya viene corrido a hora de Venezuela, así que getUTCDay() es el día real
+    // del negocio, no el del servidor. 0=domingo … 3=miércoles, 5=viernes, 6=sábado.
+    const diaSem = hoy.getUTCDay();
+    // Dos veces por semana alcanza para que las planillas no se acumulen sin que el
+    // aviso se vuelva ruido diario (Máximo, 2026-08-03).
+    const esDiaPlanilla = diaSem === 3 || diaSem === 6;
+    // El lavado se hace el DOMINGO: avisando el VIERNES quedan dos días para organizarlo.
+    const esDiaLavado = diaSem === 5;
     let opsBase = "";
-    if (lav.length) opsBase += `\n🧼 LAVADOS VENCIDOS:\n${lav.join("\n")}\n`;
-    if (sinPlan.length) opsBase += `\n🚛 SIN PLANILLA (3+ días):\n${sinPlan.join("\n")}\n`;
+    if (lav.length && esDiaLavado) opsBase += `\n${textoLavado(lav)}\n`;
+    if (sinPlan.length && esDiaPlanilla) opsBase += `\n🚛 SIN PLANILLA (3+ días):\n${sinPlan.join("\n")}\n`;
     if (contr.length) opsBase += `\n📋 CONTRATOS POR VENCER:\n${contr.join("\n")}\n`;
     if (docs.length) opsBase += `\n📄 DOCUMENTOS POR VENCER:\n${docs.join("\n")}\n`;
     // Stock crítico: quitado del aviso por pedido de Máximo (no se envía a nadie).
     // Parte de DINERO (facturas vencidas) — solo admin/socios.
     const opsDinero = fact.length ? `\n🤝 FACTURAS VENCIDAS:\n${fact.join("\n")}\n` : "";
-    if (opsBase || opsDinero) { await waSend(`🔔 Resumen ${fechaStr}\n${opsBase}${opsDinero}`, ["admin"], wa, dry); }        // admin + socios (con dinero)
-    if (opsBase) { await waSend(`🔔 Resumen operativo ${fechaStr}\n${opsBase}`, ["operativo"], wa, dry, true); }             // Samuel (sin dinero)
+    // Este resumen salía en las DOS corridas del día (8am y 6pm) — el mismo texto dos
+    // veces. Ahora se marca por día: sale en la primera corrida que tenga algo que decir.
+    if (opsBase || opsDinero) {
+      if (!(await yaEnviado(`resumen_ops_${hoyD}`, dry))) {
+        addBloque(`🔔 Resumen ${fechaStr}\n${opsBase}${opsDinero}`, ["admin"]);            // admin + socios (con dinero)
+        if (opsBase) addBloque(`🔔 Resumen operativo ${fechaStr}\n${opsBase}`, ["operativo"], true); // Samuel (sin dinero)
+      }
+    }
 
     // Checklist de hoy (para resumen matutino, conteo y ANOMALÍAS)
     const ckRows = await sel(`checklist?fecha=eq.${hoyD}&select=*`);
@@ -227,7 +305,7 @@ Deno.serve(async (_req: Request) => {
         }
         if (filasAnom.length) {
           const cab = `🔧 Fallas pendientes\n${abiertas.length} falla(s) en ${filasAnom.length} unidad(es)${nCrit ? ` · ${nCrit} unidad(es) con falla crítica` : ""}\n\n`;
-          await waSend(cab + filasAnom.join("\n\n"), ["mecanica", "operativo"], wa, dry);
+          addBloque(cab + filasAnom.join("\n\n"), ["mecanica", "operativo"]);
           sent.anomalias = abiertas.length;
         }
       }
@@ -246,7 +324,7 @@ Deno.serve(async (_req: Request) => {
         let msg = `📋 Checklist ${hoyD}\nLlenaron ${llenos.length} de ${fleet.length} unidades\n`;
         if (llenos.length) msg += `\nLLENARON:\n${llenos.join("\n")}\n`;
         if (faltan.length) msg += `\nFALTAN POR LLENAR:\n${faltan.join("\n")}`;
-        await waSend(msg, ["socios", "mecanica", "operativo"], wa, dry);
+        addBloque(msg, ["socios", "mecanica", "operativo"]);
         sent.checklist = 1;
       }
     }
@@ -271,13 +349,20 @@ Deno.serve(async (_req: Request) => {
         if (nov.length) base += `\n⚠️ Novedades: ${nov.join(", ")}`;
         // Socios (con dinero): agrega pagos BNC + CxP.
         const conDinero = `🚛 Viajes: ${vj.length}\n⛽ Combustible: ${litros.toLocaleString("es-VE")} L\n💰 Pagos BNC: $${totalBnc.toLocaleString("es-VE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\n📋 Checklists: ${camsCk}/${fleet.length}\n📌 CxP pendientes: $${cxpPend.toLocaleString("es-VE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` + (nov.length ? `\n⚠️ Novedades: ${nov.join(", ")}` : "");
-        await waSend(`🔔 Resumen del día ${hoyD}\n${conDinero}`, ["socios"], wa, dry);                     // socios (con dinero)
-        await waSend(`🔔 Resumen del día ${hoyD}\n${base}`, ["operativo"], wa, dry, true);                  // Samuel (sin dinero)
+        addBloque(`🔔 Resumen del día ${hoyD}\n${conDinero}`, ["socios"]);                     // socios (con dinero)
+        addBloque(`🔔 Resumen del día ${hoyD}\n${base}`, ["operativo"], true);                  // Samuel (sin dinero)
         sent.resumen = 1;
       }
     }
 
-    return new Response(JSON.stringify({ ok: true, dry, veHour, sent, srv: srv.length, lav: lav.length, sinPlan: sinPlan.length, fact: fact.length, docs: docs.length, stock: stock.length, cumpleHoy: cumpleHoy.length, fleet: fleet.length, preview: dry ? preview : undefined }, null, 2), { headers: { "Content-Type": "application/json" } });
+    // ── UN SOLO ENVÍO, AL FINAL ──
+    // Todo lo de arriba solo ARMÓ secciones. Aquí sale un mensaje por persona.
+    // La cabecera NO repite la marca: el worker ya antepone "♻️ Betangar:" a cada mensaje.
+    const destinatarios = await enviarDigest(`📅 ${fechaStr}`, wa, dry);
+    sent.destinatarios = destinatarios;
+    sent.secciones = bloques.length;
+
+    return new Response(JSON.stringify({ ok: true, dry, veHour, diaSem, esDiaPlanilla, esDiaLavado, sent, srv: srv.length, lav: lav.length, sinPlan: sinPlan.length, fact: fact.length, docs: docs.length, stock: stock.length, cumpleHoy: cumpleHoy.length, fleet: fleet.length, preview: dry ? preview : undefined }, null, 2), { headers: { "Content-Type": "application/json" } });
   } catch (e) {
     console.error("alertas-diarias error", String(e));
     return new Response(JSON.stringify({ ok: false, error: String(e) }), { status: 500, headers: { "Content-Type": "application/json" } });
