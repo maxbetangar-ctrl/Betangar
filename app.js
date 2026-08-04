@@ -3599,7 +3599,34 @@ function _defMesSelects(){var m=mesBtg();['nm-mes','asis-mes','meta-mes','np-mes
 // ACTUAL. Antes era ultimo_servicio + 5.000, que quedaba POR DEBAJO del km si no se actualizaba el
 // último servicio (se veía "próximo < km actual", sin sentido). Ahora rueda solo: 6.206→10.000,
 // 12.000→15.000, etc. Siempre un número futuro.
-function proxServicio(km){var kc=cfg.km||5000;km=parseFloat(km)||0;return (Math.floor(km/kc)+1)*kc;}
+// ⛔ EL PRÓXIMO SERVICIO SE CUENTA DESDE EL ÚLTIMO CAMBIO DE ACEITE, NO DESDE EL ODÓMETRO.
+// Antes esto devolvía el siguiente múltiplo de 5.000 del km ACTUAL. Eso no mide el mantenimiento:
+// mide el odómetro. El 2026-08-04 el FC01 llevaba 4.365 km desde su cambio de aceite (le faltaban
+// 635) y el tablero decía VERDE, «faltan 4.983». Y como el número se reinicia solo cada 5.000 km,
+// una unidad NUNCA aparecía vencida — el JAC-B012 de Betangar estaba 88 km pasado y nadie avisaba.
+//
+// Ahora: último aceite (km_data.ult_srv, que mantiene la base desde `mantenimientos` con
+// item_id='aceite_motor') + el intervalo de ESA unidad. Sin evento registrado se cae al redondeo de
+// siempre, que es una suposición — por eso `hayCicloReal(cam)` permite decirlo en pantalla.
+function intervaloServicio(cam){
+  var u=(typeof UNIDAD_CONFIG!=='undefined'&&cam)?UNIDAD_CONFIG[cam]:null;
+  return (u&&parseFloat(u.kmServicio)>0)?parseFloat(u.kmServicio):(parseFloat(cfg.km)||5000);
+}
+function ultimoServicioKm(cam){
+  if(!cam)return 0;
+  var k=(typeof KM_DATA!=='undefined'&&KM_DATA[cam])?parseFloat(KM_DATA[cam].ultsrv)||0:0;
+  if(k>0)return k;
+  var m=(typeof _ultimoAceiteKm==='function')?_ultimoAceiteKm(cam):null;   // respaldo en memoria
+  return parseFloat(m)||0;
+}
+function hayCicloReal(cam){ return ultimoServicioKm(cam)>0; }
+function proxServicio(km,cam){
+  var kc=intervaloServicio(cam);
+  var ult=ultimoServicioKm(cam);
+  if(ult>0)return ult+kc;                       // ciclo real
+  km=parseFloat(km)||0;
+  return (Math.floor(km/kc)+1)*kc;              // sin cambio de aceite registrado: suposición
+}
 // KM ACTUAL de una unidad: toma el MÁS ALTO entre lo guardado en km_data, el km que cargó el CHOFER
 // en su app (km_entrada_ayer) y el último checklist (km_salida). Así el km es el más fresco/exacto
 // (lo llena el chofer a diario) y un valor viejo o malo en la tabla no lo deja pegado (odómetro no baja).
@@ -3960,7 +3987,7 @@ async function imprimirDashboard(){
     var col=est==='operativo'?'#15803d':est==='taller'?'#b45309':'#dc2626';
     // Próximo cambio de aceite: km que faltan según el odómetro (fuente única proxServicio).
     var prox='--',proxCol='#8a94a6';
-    if(kmN>0&&typeof proxServicio==='function'){var ps=proxServicio(kmN);var falta=ps-kmN;if(falta<=0){prox='VENCIDO';proxCol='#dc2626';}else{prox=falta.toLocaleString('es-VE')+' km';proxCol=(falta<=500?'#b45309':'#8a94a6');}}
+    if(kmN>0&&typeof proxServicio==='function'){var ps=proxServicio(kmN,cam);var falta=ps-kmN;if(falta<=0){prox='VENCIDO';proxCol='#dc2626';}else{prox=falta.toLocaleString('es-VE')+' km';proxCol=(falta<=500?'#b45309':'#8a94a6');}}
     // Para las NO operativas: días fuera + motivo (mismo dato del dashboard, fuente única km_data).
     var noOp=(est!=='operativo');
     var motivo=(KM_DATA[cam]&&KM_DATA[cam].nota_estado)||'';
@@ -3990,7 +4017,7 @@ async function imprimirDashboard(){
   // Alertas
   var al=[];
   Object.keys(FLOTA).filter(function(k){return _estadoCamReal(k)==='operativo';}).forEach(function(cam){var u=REGS.filter(function(r){return r.cam===cam;}).sort(function(a,b){return b.f.localeCompare(a.f);})[0];if(!u||diasDesde(u.f)>=3)al.push('🚛 '+cam.replace('JAC-','')+' — '+(u?diasDesde(u.f):'?')+'+ días sin planilla');});
-  Object.keys(KM_DATA).forEach(function(cam){var _km=kmActualCam(cam);if(_km>0){var _ps=proxServicio(_km);if(_ps-_km<=500)al.push('🔧 '+cam.replace('JAC-','')+' — Servicio próximo ('+(_ps-_km).toLocaleString()+' km → '+_ps.toLocaleString()+')');}});
+  Object.keys(KM_DATA).forEach(function(cam){var _km=kmActualCam(cam);if(_km>0){var _ps=proxServicio(_km,cam);if(_ps-_km<=500)al.push('🔧 '+cam.replace('JAC-','')+' — Servicio próximo ('+(_ps-_km).toLocaleString()+' km → '+_ps.toLocaleString()+')');}});
   var alertHtml=al.length?(al.slice(0,8).map(function(a){return '<div style="padding:3px 0;border-bottom:1px solid #e5eaf1;color:#374151">'+a+'</div>';}).join('')+(al.length>8?'<div class="mut" style="padding-top:3px">…y '+(al.length-8)+' más</div>':'')):'<div style="color:#15803d;padding:4px 0">Sin alertas críticas ✓</div>';
   // Últimas planillas
   var ult=REGS.slice().reverse().slice(0,8);
@@ -4506,7 +4533,7 @@ function renderAlertasCriticas(){
       var _rec=_km-_kmAce;
       if(_rec>=_kmInt)al.push({t:'r',txt:'🛢️ '+cam+' — Aceite VENCIDO ('+_rec.toLocaleString()+' km desde el último cambio)'});
       else if(_kmInt-_rec<=500)al.push({t:'r',txt:'🔧 '+cam+' — Aceite próximo (faltan '+(_kmInt-_rec).toLocaleString()+' km)'});
-    } else { var _ps=proxServicio(_km);if(_ps-_km<=500)al.push({t:'r',txt:'🔧 '+cam+' — Servicio próximo ('+(_ps-_km).toLocaleString()+' km → '+_ps.toLocaleString()+')'}); }
+    } else { var _ps=proxServicio(_km,cam);if(_ps-_km<=500)al.push({t:'r',txt:'🔧 '+cam+' — Servicio próximo ('+(_ps-_km).toLocaleString()+' km → '+_ps.toLocaleString()+')'}); }
   });
   // ⛽ COMBUSTIBLE SIN COSTEAR = Utilidad Real inflada, y en silencio.
   // La Utilidad Real cuenta el combustible por la COMPRA (galpón) y por los períodos costeados de
@@ -6983,16 +7010,19 @@ function imprimirReporteJAC(){
   var filas=cams.map(function(cam,i){
     var d=KM_DATA[cam]||{km:0,ultsrv:0,lavado:'—',engrase:'—'};
     var km=kmActualCam(cam);
-    var pSrv=proxServicio(km);
+    var pSrv=proxServicio(km,cam);
     var rest=pSrv-km;
-    var est=rest<=500?'PROXIMO':'OK';
+    // VENCIDO existe de verdad desde que el ciclo se cuenta del último cambio de aceite: antes el
+    // próximo se recalculaba solo con el odómetro y ninguna unidad podía pasarse nunca.
+    var real=hayCicloReal(cam);
+    var est=(real&&rest<=0)?'VENCIDO':(rest<=500?'PROXIMO':'OK');
     var bk=est==='OK'?'bk-ok':'bk-warn';
-    if(est==='PROXIMO')prox++;else ok++;
+    if(est==='VENCIDO')venc++;else if(est==='PROXIMO')prox++;else ok++;
     return '<tr style="background:'+(i%2===0?'#fff':'#f5f9ff')+'">'+
       '<td class="bv"><b>'+cam+'</b></td>'+
       '<td style="font-size:11px">'+(FLOTA[cam]?FLOTA[cam].chofer:'—')+'</td>'+
       '<td class="mono" style="text-align:right">'+km.toLocaleString()+'</td>'+
-      '<td class="mono" style="text-align:right">'+(d.ultsrv||0).toLocaleString()+'</td>'+
+      '<td class="mono" style="text-align:right">'+(real?(d.ultsrv||0).toLocaleString():'—')+'</td>'+
       '<td class="mono" style="text-align:right">'+pSrv.toLocaleString()+'</td>'+
       '<td class="mono" style="text-align:right;color:'+(rest<=0?'#dc2626':rest<=500?'#d97706':'#16a34a')+';font-weight:700">'+(rest>0?rest.toLocaleString():'VENCIDO')+'</td>'+
       '<td>'+(d.lavado||'—')+'</td>'+
@@ -7336,7 +7366,7 @@ function _osImprimirOrden(o){
       '<td class="mono">'+_mEsc(ui.placa||fl.placa||'—')+'</td>'+
       '<td class="mono" style="font-size:10px">'+_mEsc(ui.vin||fl.vin||'—')+'</td>'+
       '<td class="mono" style="text-align:right">'+kmActualCam(cam).toLocaleString()+'</td>'+
-      '<td class="mono" style="text-align:right">'+proxServicio(kmActualCam(cam)).toLocaleString()+'</td>'+
+      '<td class="mono" style="text-align:right">'+proxServicio(kmActualCam(cam),cam).toLocaleString()+'</td>'+
       '<td style="font-size:11px">'+_mEsc(ui.chofer||fl.chofer||'—')+'</td></tr>';
   }).join('');
   // Banner GRANDE con el trabajo a realizar (a simple vista): si hay ítem, va el ítem en grande y el
@@ -8366,10 +8396,10 @@ async function cargarUnidadConfig(){
   if(!(DB_READY&&supabase))return;
   try{
     // Columnas LIVIANAS (sin foto ni titulo_pdf → no cargamos blobs de todas las unidades a memoria).
-    var cols='cam,tipo,combustible,uso,nombre,marca,modelo,anio,placa,vin,serial_motor,serial_carroceria,titular,chofer,activo,notas,medida,horas_actuales';
+    var cols='cam,tipo,combustible,uso,nombre,marca,modelo,anio,placa,vin,serial_motor,serial_carroceria,titular,chofer,activo,notas,medida,horas_actuales,km_servicio';
     var r=await supabase.from('unidad_config').select(cols);
     if(r&&r.error){ r=await supabase.from('unidad_config').select('*'); } // fail-open si faltan columnas (migración no corrida)
-    if(r&&!r.error&&Array.isArray(r.data)){var o={};r.data.forEach(function(x){o[x.cam]={tipo:x.tipo||'',combustible:x.combustible||'',uso:x.uso||'',nombre:x.nombre||'',marca:x.marca||'',modelo:x.modelo||'',anio:x.anio||'',placa:x.placa||'',vin:x.vin||'',serialMotor:x.serial_motor||'',serialCarroceria:x.serial_carroceria||'',titular:x.titular||'',chofer:x.chofer||'',activo:x.activo!==false,notas:x.notas||'',medida:x.medida||'',horasActuales:parseFloat(x.horas_actuales)||0};});UNIDAD_CONFIG=o;
+    if(r&&!r.error&&Array.isArray(r.data)){var o={};r.data.forEach(function(x){o[x.cam]={tipo:x.tipo||'',combustible:x.combustible||'',uso:x.uso||'',nombre:x.nombre||'',marca:x.marca||'',modelo:x.modelo||'',anio:x.anio||'',placa:x.placa||'',vin:x.vin||'',serialMotor:x.serial_motor||'',serialCarroceria:x.serial_carroceria||'',titular:x.titular||'',chofer:x.chofer||'',activo:x.activo!==false,notas:x.notas||'',medida:x.medida||'',horasActuales:parseFloat(x.horas_actuales)||0,kmServicio:parseFloat(x.km_servicio)||0};});UNIDAD_CONFIG=o;
       // FUENTE ÚNICA de placa/chofer/vin: `unidad_config` (registro maestro) MANDA sobre el FLOTA horneado
       // para las unidades que ya estén en FLOTA. En Betangar los 12 JAC no están en unidad_config → no-op;
       // protege a los clones (FlotaMax/Flotilla) donde el FLOTA horneado se desfasó y el QR/informe imprimía
@@ -10029,7 +10059,7 @@ function imprimirMantenimiento(){
     // KM actual de la FUENTE ÚNICA (kmActualCam) y próximo servicio con proxServicio — igual que el
     // panel "KM/Servicio por Unidad". Antes usaba d.km crudo → declaraba VENCIDO/AL DÍA distinto.
     var km=(typeof kmActualCam==='function')?kmActualCam(cam):(parseFloat(d.km)||0);
-    var prox=(typeof proxServicio==='function')?proxServicio(km):((parseFloat(d.ultsrv)||0)+kmCfg);
+    var prox=(typeof proxServicio==='function')?proxServicio(km,cam):((parseFloat(d.ultsrv)||0)+kmCfg);
     var rest=prox-km;
     var est=rest<=0?'VENCIDO':rest<=500?'PROXIMO':'AL DIA';
     var bk=est==='AL DIA'?'bk-ok':est==='PROXIMO'?'bk-warn':'bk-err';
@@ -19060,7 +19090,7 @@ function renderDashKmServicio(){
   Object.keys(KM_DATA||{}).forEach(function(c){cams[c]=1;});
   if(typeof FLOTA!=='undefined')Object.keys(FLOTA).forEach(function(c){cams[c]=1;});
   var lista=Object.keys(cams).filter(function(c){return /^JAC-/.test(c);}).map(function(c){
-    var km=kmActualCam(c), prox=proxServicio(km);
+    var km=kmActualCam(c), prox=proxServicio(km,c);
     return {cam:c, km:km, prox:prox, falta:prox-km};
   }).filter(function(x){return x.km>0;}).sort(function(a,b){return a.falta-b.falta;});
   if(!lista.length){ el.innerHTML='<div style="color:var(--text3);font-size:12px;padding:6px">Sin km cargados aún. Los carga el chofer en su checklist diario.</div>'; return; }
@@ -21640,7 +21670,7 @@ function calcComprasSugeridas(){
   var servicios=[];
   jac.forEach(function(cam){
     var km=(typeof kmActualCam==='function')?kmActualCam(cam):0; if(!km)return;
-    var prox=(typeof proxServicio==='function')?proxServicio(km):0, falta=prox-km;
+    var prox=(typeof proxServicio==='function')?proxServicio(km,cam):0, falta=prox-km;
     var kmDia=_kmPorDiaCam(cam)||(parseFloat(cfg.kmDia)||0);
     var dias=kmDia>0?Math.round(falta/kmDia):null;
     if(falta<=1000||(dias!=null&&dias<=14))servicios.push({cam:cam,km:km,prox:prox,falta:falta,kmDia:Math.round(kmDia),dias:dias});
