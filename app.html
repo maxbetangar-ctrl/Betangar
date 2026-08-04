@@ -1621,7 +1621,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
     <div class="stat b"><div class="stat-lbl">Total Nómina</div><div class="stat-val" style="font-size:16px" id="nm-tot">-</div></div>
   </div>
   <div style="margin-bottom:10px;display:flex;flex-direction:column;gap:14px">
-    <div style="min-width:0"><div class="st" style="margin-bottom:6px">Choferes</div><div class="tw"><table><thead><tr><th>#</th><th>Chofer</th><th>Unidad</th><th>Viajes</th><th>Dias</th><th>Sueldo $</th><th>Desc $</th><th>Total $</th></tr></thead><tbody id="tb-nom-ch"></tbody></table></div></div>
+    <div style="min-width:0"><div class="st" style="margin-bottom:6px">Choferes</div><div class="tw"><table><thead><tr><th>#</th><th>Chofer</th><th>Unidad</th><th>Viajes</th><th>Dias</th><th title="Domingos (D), Feriados (F) y dias de Patio (P) que se estan pagando. La lupa abre el dia por dia.">Desglose</th><th>Sueldo $</th><th>Desc $</th><th>Total $</th></tr></thead><tbody id="tb-nom-ch"></tbody></table></div></div>
     <div style="min-width:0"><div class="sh" style="margin-bottom:6px"><div class="st">Ayudantes</div><div style="font-size:11px;color:var(--blue)" id="nm-ay-total">-</div></div><div class="tw"><table><thead><tr><th>#</th><th>Ayudante</th><th>Tipo</th><th>Unidad</th><th>Viajes</th><th>Sueldo $</th><th>Desc $</th><th>Total $</th></tr></thead><tbody id="tb-nom-ay"></tbody></table></div></div>
   </div>
   <!-- ACTIVIDADES ESPECIALES (planilla especial): pagos fuera de viajes, suman al total de la semana -->
@@ -1695,6 +1695,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
     </div>
     <div style="font-size:11px;color:var(--text3);margin-bottom:8px">Cada semana pagada (importada del Excel + las que calcules y guardes acá). Calcula la nómina arriba, elige la semana y dale <b>💾 Guardar esta semana</b>. Toca "ver" para auditar el detalle por persona.</div>
     <div style="margin-bottom:8px"><input class="fc" id="nm-hist-filtro" placeholder="🔎 Filtrar por chofer o ayudante (nombre)…" oninput="renderNominaHist()" style="font-size:12px"></div>
+    <div id="nm-hist-faltan"></div>
     <div id="nm-hist-lista" class="tw"></div>
   </div>
 
@@ -2671,7 +2672,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
 </div>
 
 <script src="logo-alcaldia.js?v=1"></script>
-<script src="app.js?v=20260803a-pago-factura-enlazado"></script>
+<script src="app.js?v=20260804a-nomina-desglose-patio-cotejo"></script>
 
 <!-- Modal global -->
 <div id="modal" class="moverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9990;align-items:center;justify-content:center;padding:16px">

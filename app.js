@@ -5906,8 +5906,74 @@ function _esResimaraNoche(r){ return (parseInt(r&&r.n)||0)>0 && /resimara/i.test
 // Días de PATIO por chofer (manual): si el camión no salió pero el chofer cumplió patio, se le
 // paga +1 viaje por día. Clave = nombre canónico en MAYÚSCULA. Persiste por semana.
 var PATIO_DIAS={};
+// ⛔ LA CLAVE SE NORMALIZA, NO SOLO SE PONE EN MAYÚSCULA.
+// Antes era `.toUpperCase()` a secas, así que en la base terminaron conviviendo la misma persona dos
+// veces por un espacio de más o una letra cambiada:
+//     "JOSE ELITE ARANGUREN GONZALEZ":1  y  "JOSE  ELITE ARANGUREN GONZALEZ":1
+//     "MELVIN JOSE BARBOZA TORRES":5     y  "MELVIN  JOSE BARBOZA TORRES":1
+//     "REINALDO ENRIQUE FARIA PARRA":4   y  "REINALDO  ENRRIQUE FARIA PARRA":4
+// Al pagar se busca con el nombre canónico (espacios simples), así que la copia con doble espacio
+// NO casaba y esos días de patio no se pagaban. `_normNom` colapsa espacios y quita acentos.
+function _patioKey(k){ return (typeof _normNom==='function')?_normNom(k):String(k||'').toUpperCase(); }
+// ── DESGLOSE DÍA POR DÍA de lo que se le paga a un chofer en la semana ────────────────────────
+// «Desglosa para que sea fácil visualizar qué días festivos se le están pagando, cuántos son por
+// patio y cuántos domingos, para poder cotejar con la realidad más fácil» — Máximo, 2026-08-04.
+// El monto sale del MISMO cálculo que paga (no se recalcula acá), así lo que se ve es lo que se paga.
+// Lleva la pantalla de nómina a esa semana (lunes→domingo) y recalcula, listo para guardarla.
+function irASemanaNomina(lunes){
+  try{
+    var d=new Date(lunes+'T12:00:00'); var dom=new Date(d); dom.setDate(dom.getDate()+6);
+    sv('nm-mes','');sv('nm-sem','');sv('nm-des',lunes);sv('nm-hta',_isoLocal(dom));
+    recalcNom();
+    if(typeof mostrarToast==='function')mostrarToast('Semana del '+_fechaLargaES(lunes)+' cargada — revisá y tocá «Guardar en historial»','exito');
+  }catch(e){ alert('No se pudo cargar esa semana: '+(e&&e.message)); }
+}
+var _CHMAP_UI={};
+// Copia el HTML de una tabla SIN los controles de pantalla (botones, inputs), para impresión y correo.
+function _sinControlesUI(nodo){
+  if(!nodo)return '';
+  try{
+    var c=nodo.cloneNode(true);
+    Array.prototype.slice.call(c.querySelectorAll('.solo-ui,button,input,select')).forEach(function(x){
+      var v=(x.tagName==='INPUT'&&x.value)?document.createTextNode(x.value):null;
+      if(v)x.parentNode.replaceChild(v,x); else x.parentNode.removeChild(x);
+    });
+    return c.innerHTML;
+  }catch(e){ return nodo.innerHTML; }
+}
+function verDesgloseDia(key){
+  var c=_CHMAP_UI[key]; if(!c){alert('Recalculá la nómina primero');return;}
+  var dias=Object.keys(c.dia||{}).sort();
+  var etiq={domingo:['DOMINGO','var(--teal)','paga 1,5×'],feriado:['FERIADO','#a78bfa','paga 1,5×'],
+            nocturno:['NOCTURNO Resimara','var(--amber)','paga 1,5×'],patio:['PATIO','var(--amber)','+1 viaje'],
+            normal:['','var(--text3)','']};
+  var totV=0,totU=0;
+  var filas=dias.map(function(f){
+    var d=c.dia[f], e=etiq[d.tipo]||etiq.normal;
+    totV+=(d.viajes||0); totU+=(d.usd||0);
+    var dw=['lun','mar','mié','jue','vie','sáb','dom'][_asisDow(f)]||'';
+    return '<tr><td style="font-family:var(--m)">'+f.slice(8,10)+'/'+f.slice(5,7)+' <span style="color:var(--text3);font-size:10px">'+dw+'</span></td>'+
+      '<td style="text-align:center">'+(d.tipo==='patio'?'—':(d.viajes||0))+'</td>'+
+      '<td style="font-size:10px;color:'+e[1]+';font-weight:'+(e[0]?'700':'400')+'">'+(e[0]||'—')+(e[2]?' <span style="color:var(--text3);font-weight:400">('+e[2]+')</span>':'')+'</td>'+
+      '<td style="font-size:10px">'+((d.cams||[]).join(', ')||'—')+'</td>'+
+      '<td style="font-family:var(--m);text-align:right">$'+fmtMon(d.usd||0)+'</td></tr>';
+  }).join('');
+  var resumen='<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:8px;font-size:11px">'+
+    '<span>Viajes: <b>'+(c.viajes-(c.patio||0))+'</b></span>'+
+    '<span style="color:var(--teal)">Domingos: <b>'+(c.vDom||0)+'</b></span>'+
+    '<span style="color:#a78bfa">Feriados: <b>'+(c.vFer||0)+'</b></span>'+
+    '<span style="color:var(--amber)">Patio: <b>'+_patioEfectivo(c.patio,PATIO_DIAS[key])+'</b></span>'+
+    '</div>';
+  openModal('Desglose — '+c.ch, resumen+
+    '<table><thead><tr><th>Día</th><th>Viajes</th><th>Concepto</th><th>Unidad</th><th style="text-align:right">Monto</th></tr></thead>'+
+    '<tbody>'+(filas||'<tr><td colspan="5" style="color:var(--text3)">Sin días registrados en la semana.</td></tr>')+
+    '<tr class="tr-tot"><td>TOTAL</td><td style="text-align:center">'+totV+'</td><td colspan="2"></td>'+
+    '<td style="font-family:var(--m);text-align:right;font-weight:700">$'+fmtMon(totU)+'</td></tr></tbody></table>'+
+    '<p style="font-size:10px;color:var(--text3);margin-top:8px">El domingo y el feriado nacional pagan 1,5× el viaje. '+
+    'Cada día de patio paga +1 viaje. Los montos son los mismos que suma la nómina, no un recálculo.</p>');
+}
 function setPatioDias(chKey,val){
-  chKey=String(chKey||'').toUpperCase(); var n=Math.max(0,parseInt(val)||0);
+  chKey=_patioKey(chKey); var n=Math.max(0,parseInt(val)||0);
   if(n)PATIO_DIAS[chKey]=n; else delete PATIO_DIAS[chKey];
   guardarPatioDias(); try{calcNom();}catch(e){}
 }
@@ -5916,11 +5982,35 @@ function guardarPatioDias(){
   if(!(DB_READY&&supabase))return;
   try{supabase.from('configuracion').upsert([{clave:_patioKeyDB(),valor:JSON.stringify(PATIO_DIAS)}],{onConflict:'clave'}).then(function(r){if(r&&r.error)console.log('patio save:',r.error.message);});}catch(e){}
 }
+var PATIO_COLISIONES=[];   // nombres que estaban cargados dos veces (para avisarlo en pantalla)
 async function cargarPatioDias(){
-  PATIO_DIAS={};
+  PATIO_DIAS={}; PATIO_COLISIONES=[];
   if(!(DB_READY&&supabase))return;
-  try{var r=await supabase.from('configuracion').select('valor').eq('clave',_patioKeyDB()).maybeSingle();
-    if(r&&r.data&&r.data.valor){var v=JSON.parse(r.data.valor); if(v&&typeof v==='object')PATIO_DIAS=v;}
+  try{
+    var r=await supabase.from('configuracion').select('valor').eq('clave',_patioKeyDB()).maybeSingle();
+    var v=(r&&r.data&&r.data.valor)?JSON.parse(r.data.valor):null;
+    // ⛔ EL FORMATO DE LA CLAVE DE SEMANA CAMBIÓ Y LO VIEJO DEJÓ DE LEERSE.
+    // Conviven `patio_jun-26_Semana 2` (mes+semana, el viejo) y `patio_sem_2026-07-06` (lunes de la
+    // semana, el nuevo). Desde que la pantalla trabaja con fechas se pedía solo el nuevo, así que
+    // todos los días de patio cargados con el esquema anterior quedaron invisibles —y sin pagar—.
+    if(!v||!Object.keys(v).length){
+      var kv='patio_'+(gv('nm-mes')||'')+'_'+(gv('nm-sem')||'');
+      if(kv!=='patio__'&&kv!==_patioKeyDB()){
+        var r2=await supabase.from('configuracion').select('valor').eq('clave',kv).maybeSingle();
+        if(r2&&r2.data&&r2.data.valor)v=JSON.parse(r2.data.valor);
+      }
+    }
+    if(v&&typeof v==='object'){
+      // Normalizar las claves ya guardadas. Si dos colapsan en la misma persona se conserva el MAYOR
+      // (sumarlas inflaría el pago) y se deja constancia para que RRHH lo revise.
+      var out={};
+      Object.keys(v).forEach(function(k){
+        var nk=_patioKey(k), n=parseInt(v[k])||0; if(!n)return;
+        if(out[nk]!=null&&out[nk]!==n)PATIO_COLISIONES.push({nombre:k,valores:[out[nk],n]});
+        out[nk]=Math.max(out[nk]||0,n);
+      });
+      PATIO_DIAS=out;
+    }
   }catch(e){}
 }
 // ── ETIQUETA de la actividad de patio (#2): cada día de patio YA paga +1 viaje (PATIO_DIAS).
@@ -5928,7 +6018,7 @@ async function cargarPatioDias(){
 // que quede el registro. Es METADATO: NO afecta el monto. Paralelo a PATIO_DIAS, misma persistencia.
 var PATIO_NOTA={};
 function setPatioNota(key,val){
-  key=String(key||'').toUpperCase(); var t=String(val||'').trim();
+  key=_patioKey(key); var t=String(val||'').trim();
   if(t)PATIO_NOTA[key]=t; else delete PATIO_NOTA[key];
   guardarPatioNota(); // no recalcula: la nota no cambia el pago (evita perder foco al teclear)
 }
@@ -6159,9 +6249,13 @@ function calcNom(){
   // chofer real registrado en la planilla.
   f.forEach(function(r){
     var nomCh=r.ch||TEMPORALES[r.cam]||'';
-    var chKey=_nombreCanonico(nomCh).toUpperCase();
+    var chKey=_patioKey(_nombreCanonico(nomCh));
     if(!chKey)return; // planilla sin chofer: no se puede pagar a nadie
-    if(!chMap[chKey])chMap[chKey]={ch:nomCh,cams:new Set(),viajes:0,viajesDom:0,montoViajes:0,dias:new Set(),diasViaje:new Set(),descuentos:0,patio:0};
+    if(!chMap[chKey])chMap[chKey]={ch:nomCh,cams:new Set(),viajes:0,viajesDom:0,montoViajes:0,dias:new Set(),diasViaje:new Set(),descuentos:0,patio:0,
+      // DESGLOSE para poder cotejar contra la realidad: cuántos son domingo, cuántos feriado, y qué
+      // pasó cada día. Pedido de Máximo (2026-08-04): «desglosa para que sea fácil visualizar qué
+      // días festivos se le están pagando, cuántos son por patio y cuántos domingos».
+      vDom:0,vFer:0,mDom:0,mFer:0,dia:{}};
     chMap[chKey].viajes+=r.t;chMap[chKey].dias.add(r.f);chMap[chKey].cams.add(r.cam);
     // Monto de los viajes. Recargo 1.5×: (a) domingo/feriado → TODOS; (b) nocturno en Resimara → solo los
     // nocturnos. NO se apila: un nocturno que sea domingo Y Resimara paga 1.5× una sola vez.
@@ -6169,8 +6263,19 @@ function calcNom(){
     if(_dCh+_nCh===0&&_tCh>0)_dCh=_tCh; // legacy sin desglose diurno/nocturno → todo diurno
     var _domCh=_esDomingoOferiado(r.f),_resNCh=_esResimaraNoche(r);
     var _fdCh=_domCh?1.5:1, _fnCh=(_domCh||_resNCh)?1.5:1;
-    chMap[chKey].montoViajes+=(_dCh*_fdCh+_nCh*_fnCh)*cfg.chofer;
+    var _montoDia=(_dCh*_fdCh+_nCh*_fnCh)*cfg.chofer;
+    chMap[chKey].montoViajes+=_montoDia;
     chMap[chKey].viajesDom+=(_domCh?(parseInt(r.t)||0):0); // conteo viajes domingo (para badge +xD/▲)
+    // Domingo y feriado se separan: los dos pagan 1.5×, pero el dueño necesita saber CUÁL fue cuál
+    // para cotejar contra el calendario. Un feriado que cae domingo se cuenta como domingo, no dos veces.
+    var _esDom=(new Date(r.f+'T12:00:00').getDay()===0);
+    var _esFer=(!_esDom && FERIADOS_NACIONALES.indexOf(r.f)>=0);
+    if(_esDom){ chMap[chKey].vDom+=_tCh; chMap[chKey].mDom+=_montoDia/3; }   // el 0,5 extra del 1,5×
+    if(_esFer){ chMap[chKey].vFer+=_tCh; chMap[chKey].mFer+=_montoDia/3; }
+    var _dd=chMap[chKey].dia[r.f]||(chMap[chKey].dia[r.f]={viajes:0,usd:0,tipo:'normal',cams:[]});
+    _dd.viajes+=_tCh; _dd.usd+=_montoDia;
+    _dd.tipo=_esDom?'domingo':(_esFer?'feriado':(_resNCh?'nocturno':'normal'));
+    if(_dd.cams.indexOf(r.cam)<0)_dd.cams.push(r.cam);
     if((parseInt(r.t)||0)>0)chMap[chKey].diasViaje.add(_asisDow(r.f));
   });
   // Incluye ayudantes INACTIVOS también: si aparecen con viajes en planilla se cuentan/pagan
@@ -6252,7 +6357,7 @@ function calcNom(){
       var pagadasYa=p.semanasPagadas||0;
       if(pagadasYa<p.semanas){
         // Aplicar descuento al EMPLEADO (chofer por su nombre, ya no por camión) o al ayudante.
-        var chKeyEmp=_nombreCanonico(empObj.nombre||'').toUpperCase();
+        var chKeyEmp=_patioKey(_nombreCanonico(empObj.nombre||''));
         var _aplicado=false;
         if(chMap[chKeyEmp]){chMap[chKeyEmp].descuentos+=cuota;_aplicado=true;}
         else if(ayMap[p.empId]){ayMap[p.empId].descuentos+=cuota;_aplicado=true;}
@@ -6273,7 +6378,7 @@ function calcNom(){
     // camión. Antes se usaba siempre el chofer actual → se le cobraba a OTRO distinto del que la pantalla
     // muestra debiendo. Ahora calcNom, renderMultas y el scoring coinciden (_choferDeMulta).
     var empCh=_choferDeMulta(m);
-    var chKeyM=empCh?_nombreCanonico(empCh.nombre||'').toUpperCase():'';
+    var chKeyM=empCh?_patioKey(_nombreCanonico(empCh.nombre||'')):'';
     // La cuota puede estar en DIVISA (USD/EUR) o Bs (legacy); _multaCuotaUsd la pasa a USD. El congelado
     // a Bs se hace al PAGAR. La cuota SOLO avanza si REALMENTE se descontó del sueldo de esta semana.
     var cuotaUsd=_multaCuotaUsd(m);
@@ -6289,7 +6394,11 @@ function calcNom(){
   if(g('nm-patio')&&g('nm-patio').checked&&sem){
     Object.values(chMap).forEach(function(c){
       var emp=_empPorNombre(c.ch); if(!emp)return;
-      for(var dw=0;dw<7;dw++){ if(c.diasViaje.has(dw))continue; if(_asisMarca(emp.id,mes,sem,dw)==='P'){c.viajes++;c.patio=(c.patio||0)+1;} }
+      for(var dw=0;dw<7;dw++){ if(c.diasViaje.has(dw))continue; if(_asisMarca(emp.id,mes,sem,dw)==='P'){c.viajes++;c.patio=(c.patio||0)+1;
+        // Queda anotado QUÉ día fue de patio, para que el desglose diario lo pueda mostrar.
+        var _fp=(typeof _fechaDeCelda==='function')?_fechaDeCelda(mes,sem,dw):null;
+        if(_fp&&c.dia&&!c.dia[_fp])c.dia[_fp]={viajes:0,usd:cfg.chofer,tipo:'patio',cams:[]};
+      } }
     });
     var ayDows={};
     f.forEach(function(r){ if((parseInt(r.t)||0)<=0||!r.f)return; var dw=_asisDow(r.f);
@@ -6317,12 +6426,12 @@ function calcNom(){
   _extrasP.forEach(function(x){
     var u=_extraUsd(x); if(u<=0)return;
     if(x.empId&&ayMap[x.empId]){ _extraAy[x.empId]=(_extraAy[x.empId]||0)+u; _extraAtrib+=u; return; }
-    var k=_nombreCanonico(x.empNombre||'').toUpperCase();
+    var k=_patioKey(_nombreCanonico(x.empNombre||''));
     if(k&&chMap[k]){ _extraCh[k]=(_extraCh[k]||0)+u; _extraAtrib+=u; return; }
   });
   var totExtrasHuerfano=Math.round((totExtras-_extraAtrib)*100)/100; // lo NO atribuido a una fila → se suma al total aparte
   var tvTot=f.reduce(function(s,r){return s+r.t;},0);
-  var totCh=Object.values(chMap).reduce(function(s,c){var k=_nombreCanonico(c.ch).toUpperCase();var pat=_patioEfectivo(c.patio,PATIO_DIAS[k]);return s+Math.max(0,(c.montoViajes||0)+pat*cfg.chofer-c.descuentos)+(_extraCh[k]||0);},0);
+  var totCh=Object.values(chMap).reduce(function(s,c){var k=_patioKey(_nombreCanonico(c.ch));var pat=_patioEfectivo(c.patio,PATIO_DIAS[k]);return s+Math.max(0,(c.montoViajes||0)+pat*cfg.chofer-c.descuentos)+(_extraCh[k]||0);},0);
   // Sueldo BASE de un ayudante, antes de descuentos y extras. Los de APOYO ya traen su monto
   // calculado por escalón diario (tarifaApoyoDia); los fijos/IMAU van por viajes × tarifa.
   var _ayBase=function(a){ return a.apoyo ? (a.montoUsd||0) : ((_ayPatio(a).viajes*a.tasa)+(a.recargoDom||0)); };
@@ -6346,13 +6455,18 @@ function calcNom(){
   renderNominaExtras(_extrasP);
   if(g('nm-imau'))g('nm-imau').textContent='$'+totImau.toFixed(0)+(imauVj?' ('+imauVj+' viajes×$'+(((typeof cfg!=='undefined'&&cfg.imau)?cfg.imau:2.5))+' + fijos $'+totImauFijo.toFixed(0)+')':' (fijos)');
   try{renderImauApoyo();}catch(e){}
+  _CHMAP_UI=chMap;   // para el desglose día por día (verDesgloseDia)
   // Guardar el último cálculo para poder "Guardar en historial" (nutrir nomina_historial).
   _ultimaNomina={
     _prestAplicar:_prestAplicar, _multaAplicar:_multaAplicar, // descuentos a avanzar SOLO al guardar la semana
     sem:sem||'', mes:mes||'', tasa:tasa, totCh:totCh, totAy:totAy, totAdm:totAdm, totImau:totImau, totExtras:totExtrasHuerfano, totBs:totBs,
     fdesde: f.length?f.reduce(function(m,r){return r.f<m?r.f:m;},f[0].f):null,
     fhasta: f.length?f.reduce(function(m,r){return r.f>m?r.f:m;},f[0].f):null,
-    choferes: Object.values(chMap).map(function(c){var k=_nombreCanonico(c.ch).toUpperCase();var pat=_patioEfectivo(c.patio,PATIO_DIAS[k]);var u=Math.max(0,(c.montoViajes||0)+pat*cfg.chofer-c.descuentos)+(_extraCh[k]||0);return {n:c.ch,u:Array.from(c.cams||[]).join(','),viajes:(c.viajes-(c.patio||0)),pat:pat,esp:Math.round((_extraCh[k]||0)*100)/100,usd:Math.round(u*100)/100,bs:Math.round(u*tasa*100)/100};}),
+    choferes: Object.values(chMap).map(function(c){var k=_patioKey(_nombreCanonico(c.ch));var pat=_patioEfectivo(c.patio,PATIO_DIAS[k]);var u=Math.max(0,(c.montoViajes||0)+pat*cfg.chofer-c.descuentos)+(_extraCh[k]||0);return {n:c.ch,u:Array.from(c.cams||[]).join(','),viajes:(c.viajes-(c.patio||0)),pat:pat,esp:Math.round((_extraCh[k]||0)*100)/100,usd:Math.round(u*100)/100,bs:Math.round(u*tasa*100)/100,
+      // Desglose: se guarda EN EL HISTORIAL, no solo en pantalla, para poder auditar una semana ya
+      // pagada sin tener que recalcularla (las planillas o las tarifas pueden haber cambiado desde).
+      dom:(c.vDom||0),fer:(c.vFer||0),mDom:Math.round((c.mDom||0)*100)/100,mFer:Math.round((c.mFer||0)*100)/100,
+      mPat:Math.round(pat*cfg.chofer*100)/100,dia:c.dia||{}};}),
     ayudantes: Object.values(ayMap).map(function(a){var vp=_ayPatio(a);var patTot=a.apoyo?0:vp.patio;var u=Math.max(0,_ayBase(a)-a.descuentos)+(_extraAy[a.emp.id]||0);return {n:a.emp.nombre,u:a.emp.unidad,viajes:(parseInt(a.viajes)||0)-(parseInt(a.patio)||0),pat:patTot,esp:Math.round((_extraAy[a.emp.id]||0)*100)/100,usd:Math.round(u*100)/100,bs:Math.round(u*tasa*100)/100,tipo:a.apoyo?'apoyo':(a.emp.tipoAy||'interno'),dias:a.apoyo?a.diasApoyo:undefined};}),
     extras: _extrasP.map(function(x){return {fecha:x.fecha,n:x.empNombre,actividad:x.actividad,modo:x.modo,viajes:x.viajes,monto:x.monto,usd:Math.round(_extraUsd(x)*100)/100};})
   };
@@ -6385,7 +6499,7 @@ function calcNom(){
   var desc=g('nm-descuentos');if(desc)desc.innerHTML=descBanners.join('');
   var tbCh=g('tb-nom-ch');
   if(tbCh)tbCh.innerHTML=Object.values(chMap).map(function(c,i){
-    var key=_nombreCanonico(c.ch).toUpperCase();
+    var key=_patioKey(_nombreCanonico(c.ch));
     var patM=parseInt(PATIO_DIAS[key])||0, patTot=_patioEfectivo(c.patio,patM); // manual manda (no doble)
     var _exCh=_extraCh[key]||0; // actividades especiales atribuidas a este chofer (suman a SU total)
     var sueldo=(c.montoViajes||0)+patTot*cfg.chofer, total=Math.max(0,sueldo-c.descuentos)+_exCh;
@@ -6403,6 +6517,15 @@ function calcNom(){
         '<span style="display:flex;gap:3px;white-space:nowrap">'+(c.viajesDom>0?'<span style="font-size:8px;color:var(--teal)" title="viajes en domingo/feriado pagados a 1.5×">+'+c.viajesDom+' dom/fer</span>':'')+((patM>0?0:(c.patio||0))>0?'<span style="font-size:8px;color:var(--amber)" title="patio por asistencia">+'+(c.patio||0)+'P</span>':'')+'</span>'+
         '</div></td>'+
       '<td>'+c.dias.size+'</td>'+
+      // DESGLOSE (pedido de Máximo 2026-08-04): que se vea de un golpe cuántos domingos, cuántos
+      // feriados y cuántos de patio se están pagando, para poder cotejarlo contra la realidad.
+      '<td style="font-size:9px;white-space:nowrap">'+
+        ((c.vDom||0)>0?'<span title="viajes en DOMINGO (pagan 1,5×)" style="color:var(--teal)">'+c.vDom+'D</span> ':'')+
+        ((c.vFer||0)>0?'<span title="viajes en FERIADO nacional (pagan 1,5×)" style="color:#a78bfa">'+c.vFer+'F</span> ':'')+
+        (patTot>0?'<span title="días de patio (+1 viaje c/u)" style="color:var(--amber)">'+patTot+'P</span> ':'')+
+        (((c.vDom||0)+(c.vFer||0)+patTot)===0?'<span style="color:var(--text3)">—</span> ':'')+
+        '<button class="btn btn-s btn-xs solo-ui" style="padding:0 4px;font-size:9px" onclick="verDesgloseDia(\''+String(key).replace(/'/g,'')+'\')" title="Ver día por día qué se le pagó">🔍</button>'+
+      '</td>'+
       '<td style="font-family:var(--m)">$'+fmtMon(sueldo)+(c.viajesDom>0?' <span style="font-size:8px;color:var(--teal)" title="incluye recargo domingo 1.5×">▲</span>':'')+(patTot>0?' <span style="font-size:8px;color:var(--amber)" title="incluye '+patTot+' día(s) de patio × tarifa (no son viajes)">+'+patTot+'P</span>':'')+'</td>'+
       '<td style="font-family:var(--m);color:var(--red)">'+(c.descuentos>0?'-$'+fmtMon(c.descuentos):'—')+'</td>'+
       '<td style="font-family:var(--m);font-weight:700;color:var(--yellow)">$'+fmtMon(total)+(_exCh>0?' <span style="font-size:8px;color:var(--green)" title="incluye $'+fmtMon(_exCh)+' de actividad(es) especial(es)">+$'+fmtMon(_exCh)+' esp</span>':'')+'</td></tr>';}).join('');
@@ -6438,9 +6561,55 @@ function calcNom(){
 }
 
 // ── HISTORIAL DE NÓMINA (gasto total de la empresa; soporte por persona auditable) ──
+// ⛔ SEMANAS QUE SE TRABAJARON PERO NUNCA SE GUARDARON EN EL HISTORIAL.
+// El 2026-08-04 el historial mostraba 16 semanas y la última era del 21/06, cuando ya se había
+// cerrado la 22. No era un problema de carga: sencillamente nadie apretó «Guardar en historial»
+// desde entonces, y el gasto acumulado de la empresa quedó corto sin que nada lo dijera.
+// Se comparan las semanas CON PLANILLAS contra las guardadas y se avisa. No se generan solas a
+// propósito: guardar una semana AVANZA las cuotas de préstamos y multas, y eso es un efecto de
+// plata que tiene que disparar una persona. Ver [norma-efecto-sin-enlace-no-se-puede-deshacer].
+function _semanasFaltantesNomina(){
+  try{
+    var hechas={};
+    (NOMINA_HIST||[]).forEach(function(h){ if(h.fecha_desde)hechas[String(h.fecha_desde).slice(0,10)]=true; });
+    var conPlanilla={};
+    (typeof REGS!=='undefined'?REGS:[]).forEach(function(r){
+      if(!r.f)return;
+      try{ var l=_isoLocal(_lunesSem(r.f)); conPlanilla[l]=(conPlanilla[l]||0)+1; }catch(e){}
+    });
+    var hoyLun=_isoLocal(_lunesSem(_isoLocal(new Date())));
+    return Object.keys(conPlanilla).filter(function(l){ return !hechas[l] && l<hoyLun; }).sort()
+      .map(function(l){ return {lunes:l, planillas:conPlanilla[l]}; });
+  }catch(e){ return []; }
+}
 function renderNominaHist(){
   try{llenarAudSem();}catch(e){}
   var lista=g('nm-hist-lista'); if(!lista)return;
+  try{
+    var falt=_semanasFaltantesNomina(), av=g('nm-hist-faltan');
+    if(av){
+      // Nombres de patio que estaban cargados dos veces (por un espacio de más o una letra distinta).
+      // Se paga el mayor de los dos, pero RRHH tiene que saber cuál era el bueno.
+      var _col=(typeof PATIO_COLISIONES!=='undefined')?PATIO_COLISIONES:[];
+      var _avCol = !_col.length ? '' :
+        '<div style="padding:8px 10px;border:1px solid var(--amber);border-radius:8px;background:rgba(245,158,11,.08);margin-bottom:8px">'+
+        '<div style="font-size:12px;font-weight:800;color:var(--amber)">⚠️ '+_col.length+' día(s) de patio cargados dos veces para la misma persona</div>'+
+        '<div style="font-size:11px;color:var(--text2);margin-top:3px">El nombre quedó escrito de dos formas (un espacio de más, una letra cambiada). '+
+        'Se está pagando el valor MAYOR de los dos — revisá cuál es el correcto:</div>'+
+        '<div style="font-size:11px;margin-top:4px">'+_col.map(function(x){
+          return '• <b>'+_mEsc(x.nombre)+'</b>: '+x.valores.join(' y ')+' días'; }).join('<br>')+'</div></div>';
+      av.innerHTML = (_avCol) + (!falt.length ? '' :
+        '<div style="padding:8px 10px;border:1px solid var(--amber);border-radius:8px;background:rgba(245,158,11,.08);margin-bottom:8px">'+
+        '<div style="font-size:12px;font-weight:800;color:var(--amber)">⚠️ '+falt.length+' semana(s) con planillas que NO están en el historial</div>'+
+        '<div style="font-size:11px;color:var(--text2);margin-top:3px">El gasto acumulado de la empresa está corto por esas semanas. '+
+        'Elegí cada una en el rango de fechas de arriba, revisá el cálculo y tocá «Guardar en historial».</div>'+
+        '<div style="display:flex;flex-wrap:wrap;gap:5px;margin-top:6px">'+falt.map(function(s){
+          return '<button class="btn btn-s btn-xs solo-ui" onclick="irASemanaNomina(\''+s.lunes+'\')" title="'+s.planillas+' planillas cargadas esa semana">'+
+                 _fechaLargaES(s.lunes)+'</button>'; }).join('')+'</div>'+
+        '<div style="font-size:10px;color:var(--text3);margin-top:5px">⚠️ Guardar una semana avanza una cuota de los préstamos y multas activos. Por eso no se generan solas.</div>'+
+        '</div>');
+    }
+  }catch(e){ console.log('faltantes nomina:',e&&e.message); }
   var hist=(NOMINA_HIST||[]).slice().sort(function(a,b){var fa=a.fecha_desde||'',fb=b.fecha_desde||'';if(fa&&fb&&fa!==fb)return fa<fb?-1:1;return (a.semana<b.semana?-1:(a.semana>b.semana?1:0));});
   var totU=hist.reduce(function(s,h){return s+(parseFloat(h.total_usd)||0);},0);
   var totB=hist.reduce(function(s,h){return s+(parseFloat(h.total_bs)||0);},0);
@@ -11910,17 +12079,47 @@ function guardarAsistencia(){
 // el tablero manual: quien fichó ese día aparece PRESENTE automáticamente; la oficina solo marca a mano
 // las excepciones (Ausente/Justificado). La marca MANUAL siempre manda sobre el fichaje.
 var FICHAJES_SET=null; // Set de 'empleado_id|YYYY-MM-DD'
+var FICHAJE_1RO={};    // empleado_id → fecha de su PRIMER fichaje (para no acusar de antes)
 async function cargarFichajesAsistencia(force){
   if(FICHAJES_SET && !force) return FICHAJES_SET;
-  var s=new Set();
+  var s=new Set(); FICHAJE_1RO={};
   if(DB_READY&&supabase){
     try{
       var desde=new Date(Date.now()-14400000-150*86400000).toISOString().slice(0,10); // ~5 meses (VE)
-      var r=await supabase.from('asistencia_dia').select('empleado_id,fecha').gte('fecha',desde).limit(2000);
-      if(r&&!r.error&&r.data){ r.data.forEach(function(x){ if(x.empleado_id&&x.fecha) s.add(x.empleado_id+'|'+x.fecha); }); }
+      // ⛔ ANTES ERA .limit(2000) Y ESO SE AGOTA SOLO: 30 personas fichando 26 días al mes son 780
+      // registros mensuales — el tope llegaba en dos meses y medio y, cuando llegara, PostgREST
+      // habría cortado sin avisar y el cotejo empezaría a marcar ausencias falsas otra vez.
+      // Se pagina hasta traerlo todo. Ver [norma-postgrest-corta-en-1000-sin-avisar].
+      var todo=[], paso=1000, desdeFila=0, vueltas=0;
+      while(vueltas++<50){
+        var r=await supabase.from('asistencia_dia').select('empleado_id,fecha').gte('fecha',desde)
+                 .order('fecha').range(desdeFila,desdeFila+paso-1);
+        if(!r||r.error||!r.data||!r.data.length)break;
+        todo=todo.concat(r.data);
+        if(r.data.length<paso)break;
+        desdeFila+=paso;
+      }
+      todo.forEach(function(x){
+        if(!x.empleado_id||!x.fecha)return;
+        s.add(x.empleado_id+'|'+x.fecha);
+        if(!FICHAJE_1RO[x.empleado_id]||x.fecha<FICHAJE_1RO[x.empleado_id])FICHAJE_1RO[x.empleado_id]=x.fecha;
+      });
     }catch(e){ console.log('[fichajes] carga',e&&e.message); }
   }
   FICHAJES_SET=s; return s;
+}
+// ⛔ NO SE ACUSA A NADIE POR UN DÍA EN QUE TODAVÍA NO FICHABA.
+// El fichaje arrancó el 22/07/2026 (el 20 hubo UN registro de prueba y el 21 ninguno), y el cotejo
+// marcaba a los 30 trabajadores como anomalía esos dos días: sin app con qué fichar, "no fichó" no
+// es una falta. Justificarlas ensuciaría el historial de RRHH con ausencias que nunca existieron, y
+// marcarlas presentes a mano inventaría un dato que nadie declaró.
+// Se resuelve POR PERSONA y no con una fecha global, así también sirve para quien entra después:
+// a cada quien se le empieza a exigir desde SU primer fichaje.
+// Ver [norma-auditoria-precondicion-antes-de-acusar].
+function _fichabaEnFecha(empId,fecha){
+  var p=FICHAJE_1RO[empId];
+  if(!p)return false;              // nunca fichó: no hay de qué acusarlo (es otro aviso, no una falta)
+  return String(fecha||'')>=p;
 }
 // Fecha real (YYYY-MM-DD) de una celda del tablero (mes 'jul-26' + 'Semana N' + dow Lun=0..Dom=6).
 // Es el LUNES de esa semana + el desplazamiento del día. Misma convención que getSem: semanas
@@ -15175,7 +15374,9 @@ function emailNomina(){
   html+='<h4>Choferes</h4><table border=1 cellpadding=4>';
   html+='<tr><th>Chofer</th><th>Unidad</th><th>Viajes</th><th>Sueldo $</th></tr>';
   var rows=g('tb-nom-ch');
-  if(rows)html+=rows.innerHTML;
+  // Los controles que solo tienen sentido en pantalla (la lupa del desglose, el input de patio) no
+  // van al correo: ahí serían botones muertos. Se clona y se limpia, sin tocar la tabla en vivo.
+  if(rows)html+=_sinControlesUI(rows);
   html+='</table>';
   enviarEmail('Nomina Semanal '+brandNom(),html);
 }
@@ -21354,6 +21555,9 @@ function detectarAnomaliasRRHH(planillas){
   Object.keys(acc).forEach(function(id){
     var a=acc[id];
     var dow=_asisDow(a.fecha); if(dow<0)return;
+    // Precondición: esa persona ya tenía que estar fichando ese día. Si no, no hay anomalía que
+    // reportar — el fichaje todavía no existía para ella. (Los 30 falsos del 20 y 21/07 salían de acá.)
+    if(!_fichabaEnFecha(a.emp_id,a.fecha))return;
     var marca=_asisMarca(a.emp_id,a.mes,a.sem,dow); // null=semana sin datos
     var tipo=null,sev=null;
     if(marca==='A'){tipo='ausente_con_viaje';sev='critica';}
