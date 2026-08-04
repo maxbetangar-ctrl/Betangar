@@ -4568,7 +4568,11 @@ function renderAlertasCriticas(){
         if(typeof _empPorNombre==='function' && !_empPorNombre(nm) && !(typeof _ALIAS_NOMBRES!=='undefined'&&_ALIAS_NOMBRES[k]))_sinId++;
       });
     });
-    if(_sinId>0)al.push({t:'w',txt:'🕵️ '+_sinId+' nombre(s) en planillas SIN IDENTIFICAR — agrégalos a la Lista Maestra (PARAMETROS) o corrige el Excel. Revísalos en Nómina ▸ Cotejo.'});
+    // Nombre corto que en el Excel apunta a DOS personas: se avisa fuerte, porque mientras no se
+    // resuelva el sistema NO lo expande a ninguna (y eso es lo correcto: expandirlo al que no era
+    // puso a un ayudante como chofer en 47 planillas antes de que alguien lo notara).
+    if(typeof _ALIAS_AMBIGUOS!=='undefined'&&_ALIAS_AMBIGUOS.length)al.push({t:'r',txt:'⚠️ '+_ALIAS_AMBIGUOS.length+' nombre(s) del Excel apuntan a DOS personas distintas ('+_ALIAS_AMBIGUOS.slice(0,3).join(', ')+(_ALIAS_AMBIGUOS.length>3?'…':'')+'). No se le asignan viajes a ninguna hasta que se distingan: escribí el nombre COMPLETO en el Excel o cargá un alias en Nómina ▸ Cotejo.'});
+    if(_sinId>0)al.push({t:'w',txt:'🕵️ '+_sinId+' nombre(s) en planillas SIN IDENTIFICAR — agrégalos a la Lista Maestra (PARAMETROS) o corrige el Excel. Revísalos enNómina ▸ Cotejo.'});
   }catch(e){}
   if(!al.length){el.innerHTML='';return;}
   el.innerHTML=al.slice(0,3).map(function(a){return'<div class="alert-'+(a.t==='r'?'r':'w')+'" style="margin-bottom:6px">'+a.txt+'</div>';}).join('');
@@ -4812,6 +4816,8 @@ var _ALIAS_NOMBRES={
 // MANUELFRANCISCO LOPEZ GONZALEZ) aunque NO se haya reimportado en esta sesión. Antes el alias se
 // reseteaba a los 5 fijos al recargar la página y se "perdían" casados en cotejo/auditoría.
 try{var _alLS=localStorage.getItem('btg_alias_nombres');if(_alLS){var _alO=JSON.parse(_alLS);if(_alO&&typeof _alO==='object')for(var _alK in _alO)_ALIAS_NOMBRES[_alK]=_alO[_alK];}}catch(e){}
+// Nombres cortos que en el Excel apuntan a DOS personas distintas: no se expanden a ninguna.
+var _ALIAS_AMBIGUOS=[];
 function _nombreCanonico(n){
   if(!n||!String(n).trim())return '';
   var key=(typeof _normNom==='function')?_normNom(n):String(n).trim().toUpperCase();
@@ -5343,6 +5349,7 @@ function procesarExcelBetangar(wb){
   // controla qué se lleva a nómina.
   function _syncPersonalExcel(sheetParam){
     if(!sheetParam||typeof _normNom!=='function')return;
+    _ALIAS_AMBIGUOS=[];
     resultado.personalSync={choferes:0,ayudantes:0,activados:0,inactivados:0,nuevos:0,nuevos_multicargo:0,tocados:[]};
     var _impCargo={}; // id → primer cargo visto en ESTE import (para detectar quien está en las 2 hojas)
     function leerRoster(colCorto,colEstado,colCompleto,cargo){
@@ -5354,8 +5361,27 @@ function procesarExcelBetangar(wb){
         var activo=(estado!=='INACTIVO'); // solo INACTIVO desactiva; vacío/ACTIVO = activo
         var nCorto=_normNom(corto), nComp=_normNom(completo);
         // (1) alias corto→completo y completo→completo, para casado exacto
-        _ALIAS_NOMBRES[nCorto]=completo;
-        if(nComp!==nCorto)_ALIAS_NOMBRES[nComp]=completo;
+        //
+        // ⛔ DOS PERSONAS CON EL MISMO NOMBRE CORTO: NO SE ELIGE UNA, SE ABSTIENE.
+        // Antes esto era una asignación a secas, así que el ÚLTIMO leído ganaba. Como la hoja de
+        // AYUDANTES se lee después de la de CHOFERES, un ayudante pisaba al chofer que compartiera
+        // nombre corto — y a partir de ahí TODA planilla con ese nombre se guardaba expandida a la
+        // persona equivocada. Eso puso a ALEXANDER ARTURO PAZ GONZALEZ (ayudante) como chofer en 47
+        // planillas del 13/05 al 02/08, cuando el chofer era ALEXANDER ENRIQUE HERNANDEZ PRIETO.
+        // Lo confirmó Gladys (RRHH) el 2026-08-04: «existe un error en el sistema, no en el excel».
+        //
+        // Ahora, si el nombre corto ya apunta a OTRA persona, se borra el alias y se anota la
+        // colisión: el nombre queda SIN IDENTIFICAR y salta el aviso que ya existe, para que alguien
+        // lo resuelva escribiendo el nombre completo o cargando un alias a mano. Un dato ausente se
+        // nota y se corrige; uno inventado se usa para pagarle al que no era.
+        if(_ALIAS_NOMBRES[nCorto] && _ALIAS_NOMBRES[nCorto]!==completo){
+          if(_ALIAS_AMBIGUOS.indexOf(corto.toUpperCase())<0)_ALIAS_AMBIGUOS.push(corto.toUpperCase());
+          delete _ALIAS_NOMBRES[nCorto];
+        } else if(!_ALIAS_AMBIGUOS.length || _ALIAS_AMBIGUOS.indexOf(corto.toUpperCase())<0){
+          // Un alias puesto A MANO por la oficina manda sobre el que deduce el Excel.
+          if(!(typeof _ALIAS_USER!=='undefined' && _ALIAS_USER[nCorto]))_ALIAS_NOMBRES[nCorto]=completo;
+        }
+        if(nComp!==nCorto && !(typeof _ALIAS_USER!=='undefined' && _ALIAS_USER[nComp]))_ALIAS_NOMBRES[nComp]=completo;
         if(cargo==='Chofer')resultado.personalSync.choferes++;else resultado.personalSync.ayudantes++;
         // (2) MERGE en EMPLEADOS (preserva banco/cédula/cuenta/IMAU)
         var idx=EMPLEADOS.findIndex(function(e){
