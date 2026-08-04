@@ -5398,6 +5398,18 @@ function procesarExcelBetangar(wb){
             // conservar cargo; solo asegurar tipoAy si corresponde
           } else if(_impCargo[e.id] && _impCargo[e.id]!==cargo){
             e.multicargo=true; // estaba en la otra hoja este mismo import
+          } else if(e.cargo==='Chofer' && cargo==='Ayudante'){
+            // ⛔ UNA SEMANA HACIENDO DE AYUDANTE NO LE QUITA EL CARGO DE CHOFER.
+            // Lo detectó Alejandra Virginia (QA) el 2026-08-04: «el problema de los Alexander viene
+            // desde que se cruzó su información, nombre de uno con los datos del otro, a raíz de que
+            // en el Excel en parámetros se colocó en la columna ayudante a Alexander Hernández
+            // chofer, ya que esa semana hizo viajes de ayudante».
+            // Antes, si el chofer aparecía SOLO en la hoja de ayudantes de ese import, caía en el
+            // `else` de abajo y el sistema le reescribía el cargo a Ayudante. Con el cargo cambiado
+            // se le movían los viajes de lugar y su nombre quedaba disponible para que otro lo
+            // pisara. El cargo es del CONTRATO; lo que hizo esa semana es otra cosa.
+            // Para degradarlo de verdad se edita en su ficha, a mano y a propósito.
+            e.multicargo=true;   // conserva 'Chofer' y queda registrado que hace las dos
           } else {
             e.cargo=cargo;
           }
