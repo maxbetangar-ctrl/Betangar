@@ -182,9 +182,26 @@ async function registrar(){
     // es la evidencia de que la persona estuvo — un fichaje sin ella no prueba nada, así que ahora
     // corta acá y se reintenta. Ver [norma-foto-de-evidencia-camara-en-vivo].
     var blob=await comprimir(SELFIE_FILE);
-    var hoy=new Date(Date.now()-14400000).toISOString().slice(0,10); // fecha VE aprox (para el path)
-    var path='asistencia/'+SEL.id+'_'+hoy+'.jpg';
-    var up=await SB.storage.from('asistencia').upload(path, blob, {contentType:'image/jpeg', upsert:true});
+    // ⛔ UNA FOTO POR FICHAJE, NO UNA POR DÍA — Y SIN PISAR.
+    // La ruta era `<id>_<fecha>.jpg`: una sola por persona y día, subida con `upsert:true`.
+    // Dos problemas, uno visible y otro no:
+    //   1. VISIBLE: la página es pública (rol `anon`) y el bucket solo tiene permiso de INSERT
+    //      para anon, no de UPDATE. El primer fichaje del día entraba; el SEGUNDO —la salida, o
+    //      cualquier reintento— caía en el upsert y moría con «new row violates row-level
+    //      security policy». La persona quedaba sin poder fichar la salida. Reproducido el
+    //      06/08 contra el bucket real.
+    //   2. INVISIBLE Y PEOR: donde el upsert sí funcionaba (usuarios logueados), la selfie de la
+    //      SALIDA borraba la de la ENTRADA. La foto es la evidencia de que la persona estuvo;
+    //      pisarla destruye justo lo que se guarda. Ver [norma-foto-de-evidencia-camara-en-vivo].
+    // Con la hora en el nombre cada fichaje conserva SU foto y solo hace falta INSERT, que es el
+    // permiso que ya tiene la página. No se le abre UPDATE a `anon`: eso dejaría que cualquiera
+    // reemplace la selfie de otro.
+    var _ve=new Date(Date.now()-14400000);            // hora de Venezuela ([norma-la-hora-es-la-del-negocio])
+    var hoy=_ve.toISOString().slice(0,10);
+    // Con milésimas: sin `upsert` dos toques en el mismo segundo chocarían y el 2º daría error.
+    var _hhmmss=_ve.toISOString().slice(11,23).replace(/[:.]/g,'');
+    var path='asistencia/'+SEL.id+'_'+hoy+'_'+_hhmmss+'.jpg';
+    var up=await SB.storage.from('asistencia').upload(path, blob, {contentType:'image/jpeg', upsert:false});
     if(up.error){ res.innerHTML='<div class="res bad">No se pudo subir la foto ('+esc(up.error.message||'error')+'). Sin foto no se puede fichar: revisá la señal y tocá Registrar otra vez.</div>'; return; }
     var selfieUrl=(SB.storage.from('asistencia').getPublicUrl(path).data||{}).publicUrl||'';
     if(!selfieUrl){ res.innerHTML='<div class="res bad">La foto se subió pero no se pudo enlazar. Reintentá en unos segundos.</div>'; return; }
