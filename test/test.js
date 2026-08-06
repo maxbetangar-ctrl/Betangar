@@ -15,7 +15,7 @@ function eq(name, got, exp) {
 
 // Confirmar que las funciones se cargaron desde app.js
 console.log('Funciones cargadas:');
-['_normNom', '_nomCasa', 'getTasaFecha', 'compCostoUnit'].forEach(function (f) {
+['_normNom', '_nomCasa', '_rosterCuadra', 'getTasaFecha', 'compCostoUnit'].forEach(function (f) {
   ok(f + ' definida', typeof app[f] === 'function');
 });
 
@@ -36,6 +36,39 @@ ok("homónimo de apellido NO casa (distinto primer nombre)",
 ok("mismo primer nombre + apellido común casa",
   app._nomCasa('AMERICO GONZALEZ', 'AMERICO GONZALEZ URDANETA') === true);
 ok("vacío NO casa", app._nomCasa('', 'AMERICO GONZALEZ') === false);
+
+// ── _rosterCuadra: las dos columnas de la Lista Maestra hablan de la MISMA persona ──
+// El 06/08 el roster de ayudantes quedó corrido una fila (se insertó a alguien SOLO en la
+// columna del nombre corto): "ALEXANDER PAZ" pasó a mapear a "CARLOS ALFREDO MONTIEL
+// VILLALOBOS" y 24 planillas de Paz se guardaron a nombre de Montiel. Estas pruebas fijan
+// que el guard cace ESO sin acusar a los typos que el roster trae de fábrica.
+console.log('\n_rosterCuadra:');
+ok("EL BUG DEL 06/08: corto y completo de dos personas distintas → NO cuadra",
+  app._rosterCuadra('ALEXANDER PAZ', 'CARLOS ALFREDO MONTIEL VILLALOBOS') === false);
+ok("Paz con su propio nombre completo sí cuadra",
+  app._rosterCuadra('ALEXANDER PAZ', 'ALEXANDER ARTURO PAZ GONZALEZ') === true);
+ok("Montiel con su propio nombre completo sí cuadra",
+  app._rosterCuadra('CARLOS ALFREDO  MONTIEL', 'CARLOS ALFREDO MONTIEL VILLALOBOS') === true);
+// Tolerancia obligatoria: el roster real trae estos typos y NINGUNO puede dar falsa alarma.
+// (Por eso el guard no usa _nomCasa, que exige primer nombre exacto y los reprobaría a todos.)
+ok("typo de primer nombre tolerado (ANDRI/ANDRY): comparten CUBA",
+  app._rosterCuadra('ANDRI CUBA', 'ANDRY JOSE CUBA SUAREZ') === true);
+ok("typo tolerado (YIBER/YIRBER): comparten GONZALEZ",
+  app._rosterCuadra('YIBER GONZALEZ', 'YIRBER LENITHON GONZALEZ MONTIEL') === true);
+ok("typo tolerado (JONH/JHON): comparten DELGADO",
+  app._rosterCuadra('JONH J DELGADO', 'JHON JAIRO DELGADO GONZALEZ') === true);
+ok("typo tolerado (YURBENIS/YURVENIS): comparten BERMUDEZ",
+  app._rosterCuadra('YURBENIS BERMUDEZ', 'YURVENIS FRANCISCO BERMUDEZ SUAREZ') === true);
+ok("apellido acortado tolerado (ARANGURE/ARANGUREN): comparten JOSE",
+  app._rosterCuadra('JOSE ARANGURE', 'JOSE ELITE ARANGUREN GONZALEZ') === true);
+ok("mismo nombre en las dos columnas cuadra",
+  app._rosterCuadra('RICARDO LOPEZ', 'RICARDO LOPEZ') === true);
+ok("el chofer Hernández con SU completo cuadra (fila 34 ya corregida)",
+  app._rosterCuadra('ALEXANDER HERNANDEZ', 'ALEXANDER ENRIQUE HERNANDEZ PRIETO') === true);
+ok("Hernández apuntando al completo de Paz → NO cuadra… salvo el nombre de pila",
+  app._rosterCuadra('ALEXANDER HERNANDEZ', 'ALEXANDER ARTURO PAZ GONZALEZ') === true);
+ok("nombres sin palabras de ≥4 letras: no hay con qué juzgar, NO se acusa",
+  app._rosterCuadra('ABC', 'XYZ') === true);
 
 // ── getTasaFecha: tasa congelada por fecha (regla contable) ──
 console.log('\ngetTasaFecha:');

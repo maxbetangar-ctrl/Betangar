@@ -5062,6 +5062,22 @@ function importarExcel(input){
         if(ps.inactivados>0)msg+=', '+ps.inactivados+' inactivados';
         if(ps.activados>0)msg+=', '+ps.activados+' reactivados';
       }
+      // ⛔ El roster manda: si un renglón suyo no se puede creer, TODAS las planillas que usen ese
+      // nombre corto quedan mal atribuidas. Se dice fuerte y con el número de fila, porque lo que
+      // hay que arreglar está en el Excel, no acá.
+      if(resultado.rosterRoto&&resultado.rosterRoto.length){
+        msg+='\n\n⛔ LISTA MAESTRA (hoja PARAMETROS): '+resultado.rosterRoto.length+' renglón(es) NO se pudieron usar.';
+        msg+='\n   Esos nombres quedaron SIN IDENTIFICAR a propósito: antes de inventar a quién';
+        msg+='\n   pagarle, se prefiere que falte el dato.';
+        resultado.rosterRoto.forEach(function(r){
+          msg+='\n\n   • Fila '+r.fila+' ('+r.cargo+'): "'+r.corto+'"';
+          msg+='\n     '+(r.completo?('nombre completo: "'+r.completo+'"'):'nombre completo VACÍO');
+          msg+='\n     → '+r.motivo;
+        });
+        msg+='\n\n👉 Revisá que las dos columnas del roster (nombre corto y nombre completo) estén';
+        msg+='\n   en la MISMA fila. Si insertás a alguien en una sola de las dos, todas las de';
+        msg+='\n   abajo se corren y quedan describiendo a otra persona.';
+      }
       if(resultado.duplicadas.length>0){
         var nd=resultado.duplicadas.length;
         msg+='\n\n⚠ '+nd+' PLANILLA(S) CON NUMERO REPETIDO:\n';
@@ -5353,15 +5369,39 @@ function procesarExcelBetangar(wb){
     if(!sheetParam||typeof _normNom!=='function')return;
     _ALIAS_AMBIGUOS=[];
     resultado.personalSync={choferes:0,ayudantes:0,activados:0,inactivados:0,nuevos:0,nuevos_multicargo:0,tocados:[]};
+    resultado.rosterRoto=[]; // filas del roster que no se pueden creer (ver el guard más abajo)
     var _impCargo={}; // id → primer cargo visto en ESTE import (para detectar quien está en las 2 hojas)
     function leerRoster(colCorto,colEstado,colCompleto,cargo){
       for(var fr=11;fr<=80;fr++){
         var corto=String(leerCelda(sheetParam,colCorto,fr)||'').trim();
         if(!corto||corto==='-')continue;
-        var completo=(String(leerCelda(sheetParam,colCompleto,fr)||'').trim()||corto).toUpperCase();
+        var completoRaw=String(leerCelda(sheetParam,colCompleto,fr)||'').trim();
+        var completo=(completoRaw||corto).toUpperCase();
         var estado=String(leerCelda(sheetParam,colEstado,fr)||'').trim().toUpperCase();
         var activo=(estado!=='INACTIVO'); // solo INACTIVO desactiva; vacío/ACTIVO = activo
         var nCorto=_normNom(corto), nComp=_normNom(completo);
+
+        // ⛔ LAS DOS COLUMNAS DEL ROSTER SE LEEN EN PARALELO: SI SE CORREN, PAGA OTRO.
+        // El 2026-08-06: alguien insertó un ayudante en la fila 34 SOLO en la columna del nombre
+        // corto. La del nombre completo no se movió, y de ahí para abajo quedaron desfasadas una
+        // fila entre sí. El mapa pasó a decir "ALEXANDER PAZ = CARLOS ALFREDO MONTIEL VILLALOBOS",
+        // y 24 planillas de Paz se guardaron a nombre de Montiel. Nadie lo vio en tres semanas:
+        // el import no da error, el nombre que aparece en pantalla EXISTE y es de un empleado real.
+        // Dos comprobaciones baratas lo agarran en la primera carga:
+        //   (a) fila SIN nombre completo → antes caía a `completo = corto` y CREABA una ficha con
+        //       el nombre corto. Así nació E342 "CARLOS ALFREDO  MONTIEL" sin cédula, duplicada de
+        //       E706. Un roster incompleto no puede fabricar personas.
+        //   (b) corto y completo que no comparten NI UNA palabra de ≥4 letras → no son la misma
+        //       persona. Es tolerante a propósito con los errores de tipeo que el roster ya trae
+        //       ("ANDRI CUBA"/"ANDRY JOSE CUBA SUAREZ", "YIBER"/"YIRBER"): basta un apellido en
+        //       común. Lo que no tolera es un renglón que hable de dos personas distintas.
+        // En los dos casos se ABSTIENE (no crea alias ni ficha) y lo reporta, igual que con el
+        // nombre corto ambiguo: un dato ausente se nota y se corrige; uno inventado paga mal.
+        if(!completoRaw || !_rosterCuadra(corto,completo)){
+          resultado.rosterRoto.push({fila:fr,corto:corto,completo:completoRaw,cargo:cargo,
+            motivo:(!completoRaw?'sin nombre completo':'el nombre corto y el completo no son la misma persona')});
+          continue;
+        }
         // (1) alias corto→completo y completo→completo, para casado exacto
         //
         // ⛔ DOS PERSONAS CON EL MISMO NOMBRE CORTO: NO SE ELIGE UNA, SE ABSTIENE.
@@ -20449,24 +20489,48 @@ async function cargarTasasDiarias(){
     }
   }catch(e){}
 }
-// Tasa GUARDADA de una fecha (YYYY-MM-DD); null si no hay. tipo: 'dolar'|'euro'|'binance'.
-function getTasaFecha(fecha, tipo){
+// Tasa vigente para una fecha CON SU PROCEDENCIA. Devuelve {valor,fecha,exacta,dias} o null.
+// `fecha` = el día del que salió el número, que NO siempre es el día que se pidió: una tasa
+// publicada RIGE HASTA QUE SALE LA SIGUIENTE, así que para un pago del sábado vale la del
+// viernes. Quien la use tiene que DECIRLO en pantalla — el número solo no distingue una tasa
+// de otra, y un número equivocado sin aviso no rompe nada: solo cobra mal.
+function getTasaFechaInfo(fecha, tipo){
   tipo=tipo||'dolar';
   var f=String(fecha||'').slice(0,10);
   if(!/^\d{4}-\d{2}-\d{2}$/.test(f))return null;
   // Exacta
   var t=TASAS_DIARIAS[f];
-  if(t&&t[tipo]>0)return t[tipo];
+  if(t&&t[tipo]>0)return {valor:t[tipo],fecha:f,exacta:true,dias:0};
   // Fin de semana / feriado: el BCV no publica → la tasa vigente es la del día hábil anterior
   // más cercano. Se busca hasta 7 días atrás (más allá se considera sin dato real). UTC para
   // no correr la fecha por zona horaria.
   var p=f.split('-'), dt=new Date(Date.UTC(+p[0],+p[1]-1,+p[2]));
-  for(var i=0;i<7;i++){
+  for(var i=1;i<=7;i++){
     dt.setUTCDate(dt.getUTCDate()-1);
-    var prev=TASAS_DIARIAS[dt.toISOString().slice(0,10)];
-    if(prev&&prev[tipo]>0)return prev[tipo];
+    var fp=dt.toISOString().slice(0,10);
+    var prev=TASAS_DIARIAS[fp];
+    if(prev&&prev[tipo]>0)return {valor:prev[tipo],fecha:fp,exacta:false,dias:i};
   }
   return null;
+}
+// Tasa GUARDADA de una fecha (YYYY-MM-DD); null si no hay. tipo: 'dolar'|'euro'|'binance'.
+function getTasaFecha(fecha, tipo){
+  var i=getTasaFechaInfo(fecha,tipo);
+  return i?i.valor:null;
+}
+// Frase para pantalla: de qué día salió realmente la tasa que se está aplicando.
+// `info` = lo que devuelve getTasaFechaInfo (null = no hay ninguna en la ventana).
+function txtTasaVigente(info, fecha, tipo){
+  var simb=(tipo==='euro')?'Bs/€':'Bs/$';
+  if(!info)return {ok:false,texto:'Ese día no hubo publicación y tampoco en los 7 días anteriores. NO hay tasa que rija para el '+formatFecha(fecha)+'.'};
+  if(info.exacta)return {ok:true,texto:'Tasa del '+formatFecha(info.fecha)+': '+info.valor.toLocaleString('es-VE',{minimumFractionDigits:2,maximumFractionDigits:4})+' '+simb+'.'};
+  return {ok:true,texto:'El '+formatFecha(fecha)+' no hubo publicación. Rige la del '+formatFecha(info.fecha)+': '+info.valor.toLocaleString('es-VE',{minimumFractionDigits:2,maximumFractionDigits:4})+' '+simb+'.'};
+}
+// Cómo se sella `tasa_tipo` en la fila que se guarda, para que el asiento diga la VERDAD de
+// dónde salió el número (antes todo se sellaba 'bcv_dia_pago', también cuando no lo era).
+function tasaTipoSello(info, fecha){
+  if(!info)return 'bcv_hoy_sin_tasa_del_dia';
+  return info.exacta ? 'bcv_dia_pago' : ('bcv_vigente_'+info.fecha);
 }
 async function cargarTasas(){
   if(!TASAS.bcvDolar)TASAS.bcvDolar=cfg.tasa||0; // sin hardcode: si la API aún no respondió, queda 0 → se pedirá manual al usarla
@@ -21813,6 +21877,20 @@ function _normNom(s){return String(s||'').toUpperCase().replace(/[ÁÀÄÂ]/g,'A
 // Casa nombre de planilla vs empleado tolerando corto-vs-completo, pero CONSERVADOR:
 // exacto normalizado, o mismo PRIMER nombre + ≥1 apellido (≥3 letras) en común. Evita casar
 // homónimos de apellido (p.ej. "X GONZALEZ URDANETA" vs "Y GONZALEZ URDANETA").
+// ¿El nombre corto del roster y su nombre completo hablan de la MISMA persona?
+// Criterio deliberadamente FLOJO: basta UNA palabra de ≥4 letras en común. Tiene que aguantar
+// los errores de tipeo que el roster ya trae de fábrica ("ANDRI CUBA" ↔ "ANDRY JOSE CUBA SUAREZ",
+// "YIBER" ↔ "YIRBER", "JONH J DELGADO" ↔ "JHON JAIRO DELGADO GONZALEZ") — por eso NO sirve
+// `_nomCasa`, que exige que el primer nombre coincida exacto y los daría a todos por malos.
+// Lo único que tiene que cazar es un renglón donde las dos columnas nombren a dos personas
+// distintas, que es la firma de que el roster se corrió de fila.
+function _rosterCuadra(corto,completo){
+  var a=_normNom(corto).split(' ').filter(function(t){return t.length>=4;});
+  var b=_normNom(completo).split(' ').filter(function(t){return t.length>=4;});
+  if(!a.length||!b.length)return true; // nombres muy cortos: no hay con qué juzgar, no se acusa
+  for(var i=0;i<a.length;i++)if(b.indexOf(a[i])>=0)return true;
+  return false;
+}
 function _nomCasa(a,b){
   var na=_normNom(a), nb=_normNom(b);
   if(!na||!nb)return false;
