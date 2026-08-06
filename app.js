@@ -3712,11 +3712,10 @@ function poblarCams(){
 }
 
 function poblarEmps(){
-  ['prest-emp','doc-emp-sel','carn-emp','cumple-sel','mul-chofer'].forEach(function(sid){
+  ['prest-emp','doc-emp-sel','cumple-sel','mul-chofer'].forEach(function(sid){
     var sel=g(sid);if(!sel)return;
-    var cur=sel.value; // no perder lo elegido al repoblar (carnets se repuebla al entrar a la pestaña)
-    // En carnets el vacío significa "todos", no "todavía no elegiste".
-    sel.innerHTML='<option value="">'+(sid==='carn-emp'?'Todos':'-- Seleccionar --')+'</option>';
+    var cur=sel.value; // no perder lo elegido al repoblar
+    sel.innerHTML='<option value="">-- Seleccionar --</option>';
     EMPLEADOS.filter(function(e){return e.activo;}).forEach(function(e){sel.innerHTML+='<option value="'+e.id+'"'+(cur===e.id?' selected':'')+'>'+e.nombre+' ('+e.cargo+')</option>';});
   });
   ['cxp-prov','ret-prov','gv-prov'].forEach(function(sid){
@@ -13992,17 +13991,54 @@ async function guardarEmpleado(){
 // Los carnets se sacan del personal de BETANGAR activo, SIN los del IMAU (son prestados de la
 // Alcaldía). Una sola función decide QUÉ se muestra y QUÉ se imprime: antes la vista previa filtraba
 // por el select y la impresión lo ignoraba, así que elegir a una persona igual sacaba los ~90.
+// ── CARNETS: buscar, filtrar por cargo, marcar varios e imprimir TODOS EN UN ARCHIVO ──────────
+// Pedido de Yinet (RRHH), 2026-08-06: «lo que se necesita es poder buscar por nombre, seleccionar
+// varios de diferentes cargos y seleccionar todos de un cargo, para imprimir de acuerdo a la
+// necesidad todos en un mismo archivo; no es efectivo hacerlo uno por uno».
+//
+// La selección vive APARTE del filtro y sobrevive a que se cambien los filtros. Esa es la clave de
+// «varios de diferentes cargos»: se filtra por Chofer y se marcan, se cambia a Ayudante y se marcan
+// otros, y los dos grupos siguen marcados. Si la selección se limpiara al filtrar, juntar gente de
+// dos cargos sería imposible — que es justo lo que hoy obliga a imprimir de a uno.
+var CARNET_SEL={}; // id de empleado → true
+function _carnetElegibles(){ return EMPLEADOS.filter(function(e){return e.activo&&!e.imau;}); }
 function _carnetsFiltrados(){
-  var filtroEmp=gv('carn-emp');
+  var cargo=gv('carn-cargo');
   var q=(typeof _normNom==='function')?_normNom(gv('carn-buscar')):String(gv('carn-buscar')||'').toUpperCase().trim();
-  return EMPLEADOS.filter(function(e){
-    if(!e.activo||e.imau)return false;
-    if(filtroEmp&&e.id!==filtroEmp)return false;
+  return _carnetElegibles().filter(function(e){
+    if(cargo&&String(e.cargo||'')!==cargo)return false;
     if(!q)return true;
     // Se busca por nombre, cédula, unidad o cargo — es lo que la oficina tiene a mano.
     var heno=_normNom([e.nombre,e.cedula,e.unidad,e.cargo,e.id].filter(Boolean).join(' '));
     return q.split(' ').every(function(tok){return heno.indexOf(tok)>=0;});
   });
+}
+// Los que REALMENTE se imprimen: los marcados. Sin marcar nada, lo que se está viendo — así el
+// caso simple (buscar a alguien y darle imprimir) sigue funcionando sin tener que tildar nada.
+function _carnetsAImprimir(){
+  var marcados=_carnetElegibles().filter(function(e){return CARNET_SEL[e.id];});
+  return marcados.length?marcados:_carnetsFiltrados();
+}
+function poblarCarnetCargos(){
+  var sel=g('carn-cargo'); if(!sel)return;
+  var cur=sel.value, cargos={};
+  _carnetElegibles().forEach(function(e){ if(e.cargo)cargos[e.cargo]=(cargos[e.cargo]||0)+1; });
+  sel.innerHTML='<option value="">Todos los cargos</option>'+
+    Object.keys(cargos).sort().map(function(c){
+      return '<option value="'+_mEsc(c)+'"'+(cur===c?' selected':'')+'>'+_mEsc(c)+' ('+cargos[c]+')</option>';
+    }).join('');
+}
+function carnetToggle(id){
+  if(CARNET_SEL[id])delete CARNET_SEL[id]; else CARNET_SEL[id]=true;
+  renderCarnetsPreview();
+}
+// Marca/desmarca SOLO lo que se está viendo. Con un cargo elegido, eso es «todos los de ese cargo».
+// Desmarcar sí limpia TODO, no solo lo visible: si no, quedaría gente marcada fuera de la vista y
+// el botón de imprimir sacaría carnets que nadie ve en pantalla.
+function carnetSelTodos(on){
+  if(!on){ CARNET_SEL={}; renderCarnetsPreview(); return; }
+  _carnetsFiltrados().forEach(function(e){ CARNET_SEL[e.id]=true; });
+  renderCarnetsPreview();
 }
 // ── FRENTE DEL CARNET ──────────────────────────────────────────────────────────────────────
 // Rediseñado (Máximo, 2026-08-05): «lo siento muy básico, hay demasiado espacio en blanco».
@@ -14097,26 +14133,57 @@ function _carnetFrente(emp){
 }
 function renderCarnetsPreview(){
   var el=g('carnets-preview');if(!el)return;
+  poblarCarnetCargos();
   var emps=_carnetsFiltrados();
+  var aImp=_carnetsAImprimir();
+  var nSel=_carnetElegibles().filter(function(e){return CARNET_SEL[e.id];}).length;
   var cnt=g('carn-cuenta');
   if(cnt){
     // Un carnet sin cédula o sin foto no debería mandarse a imprimir: se avisa ANTES, acá.
-    var faltan=emps.filter(function(e){return !String(e.cedula||'').trim()||!e.foto;});
-    cnt.innerHTML=emps.length+' de '+EMPLEADOS.filter(function(e){return e.activo&&!e.imau;}).length+' carnets'+
-      (faltan.length?' · <span style="color:var(--amber)" title="'+faltan.map(function(e){return e.nombre+(String(e.cedula||'').trim()?'':' (sin cédula)')+(e.foto?'':' (sin foto)');}).join(' · ').replace(/"/g,'&quot;')+'">⚠️ '+faltan.length+' sin cédula o sin foto</span>':'');
+    // Y se mira sobre los que VAN A SALIR, no sobre los que se ven: con una selección hecha en
+    // otro filtro, avisar sobre lo visible dejaría pasar al que le falta la foto.
+    var faltan=aImp.filter(function(e){return !String(e.cedula||'').trim()||!e.foto;});
+    cnt.innerHTML='Se ven <b>'+emps.length+'</b> de '+_carnetElegibles().length+' · '+
+      (nSel?('<b style="color:var(--green)">'+nSel+' marcado(s)</b> — se imprimen esos, estén o no a la vista'
+            +' <span style="color:var(--text3)">(y siguen marcados si cambiás el filtro: así se juntan cargos distintos)</span>')
+          :'<span style="color:var(--text3)">ninguno marcado — se imprime lo que se ve</span>')+
+      (faltan.length?'<br><span style="color:var(--amber)" title="'+faltan.map(function(e){return e.nombre+(String(e.cedula||'').trim()?'':' (sin cédula)')+(e.foto?'':' (sin foto)');}).join(' · ').replace(/"/g,'&quot;')+'">⚠️ '+faltan.length+' de los que se van a imprimir están sin cédula o sin foto</span>':'');
   }
+  var btn=g('carn-btn-imp'); if(btn)btn.textContent='🖨️ Imprimir '+aImp.length+(aImp.length===1?' carnet':' carnets');
   if(!emps.length){ el.innerHTML='<div style="color:var(--text3);font-size:12px;padding:16px">Ningún empleado activo coincide con la búsqueda.</div>'; return; }
   // La vista previa es EL MISMO carnet que se imprime, apenas achicado para que entren varios.
+  // Tildar es sobre la tarjeta entera (no un cuadradito de 13px): se usa desde el teléfono.
   el.innerHTML=emps.map(function(e){
-    return '<div style="width:255px;height:150px;overflow:hidden;flex:none">'+
-      '<div style="transform:scale(.75);transform-origin:top left">'+_carnetFrente(e)+'</div></div>';
+    var on=!!CARNET_SEL[e.id];
+    return '<div onclick="carnetToggle(\''+e.id+'\')" title="Tocá para marcarlo o desmarcarlo" '+
+      'style="position:relative;width:255px;height:150px;overflow:hidden;flex:none;cursor:pointer;border-radius:10px;'+
+      'outline:'+(on?'3px solid var(--green)':'1px solid transparent')+';outline-offset:2px;'+
+      'opacity:'+(on?'1':'.72')+';transition:opacity .12s">'+
+      '<div style="transform:scale(.75);transform-origin:top left">'+_carnetFrente(e)+'</div>'+
+      '<div style="position:absolute;top:5px;right:5px;width:20px;height:20px;border-radius:5px;'+
+      'background:'+(on?'var(--green)':'rgba(255,255,255,.92)')+';border:1px solid '+(on?'var(--green)':'#94a3b8')+';'+
+      'color:#fff;font-size:13px;font-weight:900;line-height:19px;text-align:center;box-shadow:0 1px 3px rgba(0,0,0,.3)">'+(on?'✓':'')+'</div>'+
+      '</div>';
   }).join('');
 }
 
 function imprimirCarnets(){
-  // Se imprime EXACTAMENTE lo que se está viendo (mismo filtro que la vista previa).
-  var lista=_carnetsFiltrados();
+  // Se imprimen los MARCADOS; si no hay ninguno, lo que se está viendo. Todos en UN solo archivo:
+  // el pedido de Yinet era dejar de hacerlo de a uno. Van agrupados por cargo y alfabéticos dentro
+  // de cada grupo, porque así se reparten.
+  var lista=_carnetsAImprimir().slice().sort(function(a,b){
+    var ca=String(a.cargo||'ZZZ'), cb=String(b.cargo||'ZZZ');
+    if(ca!==cb)return ca<cb?-1:1;
+    return String(a.nombre||'')<String(b.nombre||'')?-1:1;
+  });
   if(!lista.length){alert("No hay carnets para imprimir con ese filtro.");return;}
+  // Un carnet sin cédula o sin foto sale inservible: se avisa ANTES de mandar a la impresora,
+  // con los nombres, para poder cancelar y completarlos. ([norma-fotos-estandar-todas-las-apps])
+  var _faltan=lista.filter(function(e){return !String(e.cedula||'').trim()||!e.foto;});
+  if(_faltan.length&&!confirm('⚠️ '+_faltan.length+' de los '+lista.length+' carnets van sin cédula o sin foto:\n\n'+
+      _faltan.slice(0,15).map(function(e){return '· '+e.nombre+(String(e.cedula||'').trim()?'':' — sin cédula')+(e.foto?'':' — sin foto');}).join('\n')+
+      (_faltan.length>15?'\n… y '+(_faltan.length-15)+' más.':'')+
+      '\n\n¿Imprimir igual?'))return;
   var alc=(typeof LOGO_ALCALDIA!=="undefined")?LOGO_ALCALDIA:'';
   var _esc=(typeof _mEsc==='function')?_mEsc:function(s){return String(s==null?'':s);};
   var cardsHtml=lista.map(function(emp){
@@ -14144,7 +14211,10 @@ function imprimirCarnets(){
     '.carnet{page-break-inside:avoid;break-inside:avoid}'+
     '.card-top{background:linear-gradient(135deg,#1e3a5f,#0f2340)!important}}</style></head><body>'+
     '<div class="titulo">Carnets de Identificación — '+brandNom()+'</div>'+
-    '<div class="sub">'+lista.length+' carnet(s) · personal '+brandNom()+' activo (sin IMAU) · frente y dorso</div>'+
+    '<div class="sub">'+lista.length+' carnet(s) · '+
+      (function(){var c={};lista.forEach(function(e){var k=e.cargo||'Sin cargo';c[k]=(c[k]||0)+1;});
+        return Object.keys(c).sort().map(function(k){return _esc(k)+': '+c[k];}).join(' · ');})()+
+      ' · frente y dorso</div>'+
     '<div class="grid">'+cardsHtml+'</div>'+
     '</body></html>';
   abrirVentanaImpresion(html);
@@ -17815,7 +17885,9 @@ var TOOLTIPS={
   guardarEmpleado:'Guardar los datos del empleado',
   guardarPrestamo:'Registrar un préstamo a un empleado (se descuenta en cuotas de la nómina)',
   guardarMulta:'Registrar una multa a un empleado (se descuenta en cuotas)',
-  imprimirCarnets:'Imprimir los carnets de identificación del personal',
+  imprimirCarnets:'Imprimir en UN solo archivo los carnets marcados (o los que se estén viendo, si no marcaste ninguno)',
+  carnetSelTodos:'Marcar los carnets que se están viendo ahora. Con un cargo elegido, marca todos los de ese cargo',
+  carnetToggle:'Marcar o desmarcar este carnet para la impresión',
   marcarTodosPresente:'Marcar a todo el personal como presente hoy',
   // Banco / BNC
   consultarSaldoBNC:'Consultar el saldo real en el banco BNC',

@@ -70,6 +70,63 @@ ok("Hernández apuntando al completo de Paz → NO cuadra… salvo el nombre de 
 ok("nombres sin palabras de ≥4 letras: no hay con qué juzgar, NO se acusa",
   app._rosterCuadra('ABC', 'XYZ') === true);
 
+// ── CARNETS: buscar, filtrar por cargo y marcar varios de cargos DISTINTOS ──
+// Pedido de Yinet (RRHH) 06/08: «poder buscar por nombre, seleccionar varios de diferentes cargos
+// y seleccionar todos de un cargo, para imprimir todos en un mismo archivo».
+console.log('\ncarnets (filtro + selección):');
+(function () {
+  var EMPS_ORIG = app.EMPLEADOS, GV_ORIG = app.gv, RENDER_ORIG = app.renderCarnetsPreview;
+  var campos = {};
+  app.gv = function (id) { return campos[id] || ''; };
+  app.renderCarnetsPreview = function () {};   // se prueba la selección, no el dibujo
+  app.EMPLEADOS = [
+    { id: 'E1', nombre: 'NESTOR ANTONIO BRIÑEZ DELGADO', cargo: 'Ayudante', unidad: 'JAC-B008', cedula: 'V-1', activo: true, foto: 'x' },
+    { id: 'E2', nombre: 'JHAN CARLOS ROA OCHOA', cargo: 'Chofer', unidad: 'JAC-B006', cedula: 'V-2', activo: true, foto: 'x' },
+    { id: 'E3', nombre: 'ALEXIS ALBERTO FERRER MAVAREZ', cargo: 'Ayudante', unidad: 'JAC-B005', cedula: 'V-3', activo: true, foto: 'x' },
+    { id: 'E4', nombre: 'OMAR DE JESUS NAVA MARILLO', cargo: 'Chofer', unidad: 'JAC-B011', cedula: '', activo: true, foto: '' },
+    { id: 'E5', nombre: 'YIRBER LENITHON GONZALEZ MONTIEL', cargo: 'Ayudante', unidad: 'JAC-B003', cedula: 'V-5', activo: false, foto: 'x' },
+    { id: 'E6', nombre: 'IMAU EXTERNO', cargo: 'Ayudante', unidad: 'ADM', cedula: 'V-6', activo: true, imau: true, foto: 'x' }
+  ];
+  var ids = function (l) { return l.map(function (e) { return e.id; }).sort().join(','); };
+
+  app.CARNET_SEL = {}; campos = {};
+  eq("elegibles: fuera el inactivo y el IMAU", ids(app._carnetElegibles()), 'E1,E2,E3,E4');
+  eq("sin filtros se ven todos los elegibles", ids(app._carnetsFiltrados()), 'E1,E2,E3,E4');
+
+  campos = { 'carn-cargo': 'Chofer' };
+  eq("filtro por cargo", ids(app._carnetsFiltrados()), 'E2,E4');
+  campos = { 'carn-buscar': 'ferrer' };
+  eq("buscar por apellido, sin importar mayúsculas", ids(app._carnetsFiltrados()), 'E3');
+  campos = { 'carn-buscar': 'JAC-B008' };
+  eq("buscar por unidad", ids(app._carnetsFiltrados()), 'E1');
+  campos = { 'carn-cargo': 'Ayudante', 'carn-buscar': 'alexis' };
+  eq("cargo y búsqueda se combinan", ids(app._carnetsFiltrados()), 'E3');
+
+  // EL PEDIDO DE FONDO: marcar todos los de un cargo, cambiar de cargo y marcar otros.
+  app.CARNET_SEL = {};
+  campos = { 'carn-cargo': 'Chofer' };
+  app.carnetSelTodos(true);
+  eq("«marcar los que veo» con un cargo elegido = todos los de ese cargo", ids(app._carnetsAImprimir()), 'E2,E4');
+  campos = { 'carn-cargo': 'Ayudante' };
+  app.carnetSelTodos(true);
+  eq("al cambiar de cargo y marcar, los anteriores SIGUEN marcados",
+    ids(app._carnetsAImprimir()), 'E1,E2,E3,E4');
+  eq("y lo que se VE sigue siendo solo el cargo filtrado", ids(app._carnetsFiltrados()), 'E1,E3');
+
+  app.carnetToggle('E1');
+  eq("destildar uno lo saca de la impresión", ids(app._carnetsAImprimir()), 'E2,E3,E4');
+  app.carnetToggle('E1');
+  eq("volver a tildarlo lo repone", ids(app._carnetsAImprimir()), 'E1,E2,E3,E4');
+
+  app.carnetSelTodos(false);
+  eq("desmarcar limpia TODO, no solo lo visible", Object.keys(app.CARNET_SEL).length, 0);
+  eq("sin nada marcado se imprime lo que se ve", ids(app._carnetsAImprimir()), 'E1,E3');
+  campos = {};
+  eq("y sin filtros, lo que se ve son todos", ids(app._carnetsAImprimir()), 'E1,E2,E3,E4');
+
+  app.EMPLEADOS = EMPS_ORIG; app.gv = GV_ORIG; app.renderCarnetsPreview = RENDER_ORIG; app.CARNET_SEL = {};
+})();
+
 // ── _jornadaEspecial: el turno nocturno de corredores es OTRA jornada ──
 // Alejandra (QA/RRHH), 06/08: además del recorrido normal hay viajes nocturnos de corredores, y
 // esa planilla va marcada `ruta=CORREDORES` / `parroquia=JORNADA ESPECIAL`. La misma persona
