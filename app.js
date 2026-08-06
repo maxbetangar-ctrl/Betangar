@@ -6005,7 +6005,7 @@ function irASemanaNomina(lunes){
     var d=new Date(lunes+'T12:00:00'); var dom=new Date(d); dom.setDate(dom.getDate()+6);
     sv('nm-mes','');sv('nm-sem','');sv('nm-des',lunes);sv('nm-hta',_isoLocal(dom));
     recalcNom();
-    if(typeof mostrarToast==='function')mostrarToast('Semana del '+_fechaLargaES(lunes)+' cargada — revisá y tocá «Guardar en historial»','exito');
+    if(typeof mostrarToast==='function')mostrarToast('Semana del '+_fechaLargaES(lunes)+' cargada — revisá y tocá «💾 Guardar esta semana»','exito');
   }catch(e){ alert('No se pudo cargar esa semana: '+(e&&e.message)); }
 }
 var _CHMAP_UI={};
@@ -6855,7 +6855,7 @@ function calcNom(){
 // ── HISTORIAL DE NÓMINA (gasto total de la empresa; soporte por persona auditable) ──
 // ⛔ SEMANAS QUE SE TRABAJARON PERO NUNCA SE GUARDARON EN EL HISTORIAL.
 // El 2026-08-04 el historial mostraba 16 semanas y la última era del 21/06, cuando ya se había
-// cerrado la 22. No era un problema de carga: sencillamente nadie apretó «Guardar en historial»
+// cerrado la 22. No era un problema de carga: sencillamente nadie apretó «💾 Guardar esta semana»
 // desde entonces, y el gasto acumulado de la empresa quedó corto sin que nada lo dijera.
 // Se comparan las semanas CON PLANILLAS contra las guardadas y se avisa. No se generan solas a
 // propósito: guardar una semana AVANZA las cuotas de préstamos y multas, y eso es un efecto de
@@ -6894,7 +6894,8 @@ function renderNominaHist(){
         '<div style="padding:8px 10px;border:1px solid var(--amber);border-radius:8px;background:rgba(245,158,11,.08);margin-bottom:8px">'+
         '<div style="font-size:12px;font-weight:800;color:var(--amber)">⚠️ '+falt.length+' semana(s) con planillas que NO están en el historial</div>'+
         '<div style="font-size:11px;color:var(--text2);margin-top:3px">El gasto acumulado de la empresa está corto por esas semanas. '+
-        'Elegí cada una en el rango de fechas de arriba, revisá el cálculo y tocá «Guardar en historial».</div>'+
+        'Tocá una de abajo (te carga esa semana arriba), revisá el cálculo y dale «💾 Guardar esta semana». '+
+        '<b>De la más vieja a la más nueva</b>, en orden: cada una descuenta una cuota de los préstamos y multas.</div>'+
         '<div style="display:flex;flex-wrap:wrap;gap:5px;margin-top:6px">'+falt.map(function(s){
           return '<button class="btn btn-s btn-xs solo-ui" onclick="irASemanaNomina(\''+s.lunes+'\')" title="'+s.planillas+' planillas cargadas esa semana">'+
                  _fechaLargaES(s.lunes)+'</button>'; }).join('')+'</div>'+
@@ -7317,7 +7318,7 @@ function renderAuditoriaPagos(){
   if(!ag.pw.length){lista.innerHTML='<div style="color:var(--amber);font-size:12px;padding:8px">No hay planillas cargadas en el rango '+(h.fecha_desde||'?')+' a '+(h.fecha_hasta||'?')+' para cotejar.</div>';if(res)res.textContent='';return;}
   var filas=ag.filas, nFlag=ag.nFlag, sumOver=ag.sumOver;
   // Aviso si la semana no tiene rango de fechas guardado (nómina vieja) → el cotejo es aproximado.
-  var avisoRango=ag.sinRango?'<div style="background:rgba(245,158,11,.12);border:1px solid var(--amber);border-radius:6px;padding:6px 9px;margin-bottom:8px;font-size:11px;color:var(--amber)">⚠️ Esta semana no tiene <b>rango de fechas</b> guardado (nómina vieja). El cotejo es aproximado: compara contra <b>todas</b> las planillas. Para precisión, recalculá y volvé a "Guardar en historial".</div>':'';
+  var avisoRango=ag.sinRango?'<div style="background:rgba(245,158,11,.12);border:1px solid var(--amber);border-radius:6px;padding:6px 9px;margin-bottom:8px;font-size:11px;color:var(--amber)">⚠️ Esta semana no tiene <b>rango de fechas</b> guardado (nómina vieja). El cotejo es aproximado: compara contra <b>todas</b> las planillas. Para precisión, recalculá y volvé a tocar «💾 Guardar esta semana».</div>':'';
   if(res)res.innerHTML=nFlag>0?('<span style="color:var(--red);font-weight:700">🚩 '+nFlag+' a revisar · $'+sumOver.toFixed(0)+' de más</span>'+(ag.nSin>0?' <span style="color:var(--text3);font-weight:400">· '+ag.nSin+' sin planilla en el sistema</span>':'')):('<span style="color:var(--green);font-weight:700">✓ todo cuadra con la planilla</span>'+(ag.nSin>0?' <span style="color:var(--text3);font-weight:400">· '+ag.nSin+' sin planilla en el sistema (ex-chofer/semana vieja)</span>':''));
   lista.innerHTML=avisoRango+'<table><thead><tr><th>Rol</th><th>Persona</th><th>Viajes</th><th>Corresponde</th><th>Pagado</th><th>Dif</th><th>Estado</th></tr></thead><tbody>'+
     filas.map(function(x){var alarma=(x.flag==='OVER'||x.flag==='OTRA_FECHA');return '<tr style="'+(alarma?'background:rgba(220,38,38,.10)':x.flag==='SIN_SISTEMA'?'background:rgba(148,163,184,.07)':'')+'"><td style="font-size:10px">'+x.rol+'</td>'+
