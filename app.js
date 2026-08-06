@@ -2701,7 +2701,7 @@ function sp(id){
       if(_p.indexOf('financiero')>=0){ switchProvTab('cxp'); cargarCxP(); }
       else { switchProvTab('lista'); }
     },100);}
-    if(id==='auditoria')renderAuditoria();
+    if(id==='auditoria'){renderAuditoria();try{renderCarpetaAuditor();}catch(e){}}
     if(id==='entregas'){cargarEntregas().then(function(){renderEntregas();}).catch(function(){renderEntregas();});}
     // Módulos especiales
     if(id==='porteria')portIniciar();
@@ -14735,6 +14735,183 @@ function renderAuditoria(){
   // M2 (auditoría 2026-07-04): escapar los campos (usuario/accion/detalle) — cualquier autenticado
   // puede INSERT en `auditoria` con un payload XSS que ejecutaría como SUPERADMIN al abrir este panel.
   tb.innerHTML=AUDITORIA_LOG.slice().reverse().slice(0,50).map(function(a){return'<tr><td style="font-size:10px;font-family:var(--m)">'+formatFecha(a.fecha)+'</td><td><span class="badge by">'+_escHtml(a.usuario)+'</span></td><td style="font-size:11px">'+_escHtml(a.accion)+'</td><td style="font-size:11px;color:var(--text2)">'+_escHtml(a.detalle)+'</td></tr>';}).join('')||'<tr><td colspan="4" style="text-align:center;color:var(--text3);padding:20px">Sin registros de auditoria</td></tr>';
+}
+
+// ═══ CARPETA DEL AUDITOR ══════════════════════════════════════════════════════════════════════
+// Un auditor externo siempre pide lo mismo, y cada vez hay que armarlo a mano. Esto lo arma solo
+// para un período. Nació de las 17 preguntas que la auditora de Betangar mandó por junio 2026.
+//
+// ⛔ LA PIEZA QUE MÁS IMPORTA NO ES NINGÚN LISTADO: ES LA FECHA DE CORTE.
+// La operación se empezó a cargar meses antes que el dinero, así que un informe que sale "completo"
+// para junio miente por omisión. Cada sección declara DESDE CUÁNDO hay datos y avisa en rojo si el
+// período pedido empieza antes. Un informe que dice lo que no cubre vale más que uno que parece
+// entero y tiene huecos que el auditor descubre solo — y lo segundo cuesta la confianza del primero.
+//
+// Lo que este documento NO puede responder hoy, y hay que decirlo: el sistema ve lo que ENTRA al
+// banco (`bnc_notificaciones` es el aviso del BNC), no lo que SALE. Sin libro de egresos, las
+// preguntas sobre pagos a proveedores, socios, préstamos y reintegros salen de los libros que la
+// administración lleva aparte.
+function _capF(){ return {d:gv('cap-desde')||'', h:gv('cap-hasta')||''}; }
+// Devuelve BOOLEANO, no la cadena. Con `return x && …` una fecha vacía devolvía '' — falsy, así que
+// filtrar funcionaba igual, pero cualquier comparación con `false` fallaba. Lo cazó una prueba.
+function _capEn(f,r){ var x=String(f||'').slice(0,10); return !!x && (!r.d||x>=r.d) && (!r.h||x<=r.h); }
+function _capNum(n){ return (Number(n)||0).toLocaleString('es-VE',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+// Desde cuándo hay dato de verdad en cada fuente. Se calcula del dato, no se configura: una fecha
+// de corte escrita a mano se desactualiza y vuelve a mentir.
+function _capCorte(arr,campo){
+  var m=null;
+  (arr||[]).forEach(function(x){ var v=String(x[campo]||'').slice(0,10); if(v&&(!m||v<m))m=v; });
+  return m;
+}
+function _capMesPasado(){
+  var h=new Date(), y=h.getFullYear(), m=h.getMonth(); // mes anterior completo
+  var d0=new Date(y,m-1,1), d1=new Date(y,m,0);
+  sv('cap-desde',_isoLocal(d0)); sv('cap-hasta',_isoLocal(d1));
+  renderCarpetaAuditor();
+}
+// Montos que se repiten EXACTOS el mismo día: es el patrón del pago duplicado. No se afirma que lo
+// sean —el sistema no ve el egreso— se listan para que quien audita los revise. Fue la primera
+// pregunta de la auditora y la respuesta que dio la administración no traía lista.
+function _capRepetidos(movs){
+  var por={};
+  movs.forEach(function(x){
+    var k=String(x.fecha||'').slice(0,10)+'|'+(Number(x.monto)||0).toFixed(2);
+    (por[k]=por[k]||[]).push(x);
+  });
+  return Object.keys(por).filter(function(k){return por[k].length>1;}).sort()
+    .map(function(k){return {fecha:k.split('|')[0], monto:parseFloat(k.split('|')[1]), movs:por[k]};});
+}
+function _capDatos(){
+  var r=_capF(), pct=parseFloat(gv('cap-pct'))||0;
+  var mant=(typeof MANTENIMIENTOS!=='undefined'?MANTENIMIENTOS:[]).filter(function(x){return _capEn(x.f,r);});
+  var gas=(typeof GASOIL!=='undefined'?GASOIL:[]).filter(function(x){return _capEn(x.f,r);});
+  var abo=(typeof ABONOS!=='undefined'?ABONOS:[]).filter(function(x){return _capEn(x.f,r);});
+  var mov=(typeof BNC_MOV!=='undefined'?BNC_MOV:[]).filter(function(x){return _capEn(x.fecha,r);});
+  var cxp=(typeof CXP!=='undefined'?CXP:[]).filter(function(x){return _capEn(x.fecha,r)||_capEn(x.fecha_pago,r);});
+  var cobrado=abo.reduce(function(s,a){return s+(Number(a.m)||0);},0);
+  return {r:r, pct:pct, mant:mant, gas:gas, abo:abo, mov:mov, cxp:cxp,
+    cobrado:cobrado, socio:cobrado*pct/100, repes:_capRepetidos(mov),
+    cortes:{
+      mantenimiento:_capCorte(typeof MANTENIMIENTOS!=='undefined'?MANTENIMIENTOS:[],'f'),
+      combustible:_capCorte(typeof GASOIL!=='undefined'?GASOIL:[],'f'),
+      cobros:_capCorte(typeof ABONOS!=='undefined'?ABONOS:[],'f'),
+      banco:_capCorte(typeof BNC_MOV!=='undefined'?BNC_MOV:[],'fecha'),
+      cxp:_capCorte(typeof CXP!=='undefined'?CXP:[],'fecha')
+    }};
+}
+// Aviso de alcance: rojo si el período empieza ANTES de que existiera el dato.
+function _capAviso(corte,r,queEs){
+  if(!corte)return '<div class="cap-falta">⛔ No hay ningún registro de '+queEs+' en el sistema. Este punto no se puede responder desde acá.</div>';
+  if(r.d&&r.d<corte)return '<div class="cap-falta">⛔ El período pedido empieza el '+formatFecha(r.d)+', pero el primer registro de '+queEs+' es del <b>'+formatFecha(corte)+'</b>. Lo anterior a esa fecha NO está en el sistema.</div>';
+  return '<div class="cap-ok">Datos disponibles desde el '+formatFecha(corte)+'.</div>';
+}
+function renderCarpetaAuditor(){
+  var el=g('cap-resumen'); if(!el)return;
+  var d=_capDatos();
+  if(!d.r.d&&!d.r.h){ el.innerHTML='<div style="font-size:11px;color:var(--text3)">Elegí un período (o tocá «Mes pasado»).</div>'; return; }
+  var f=function(n,t,c){ return '<div style="background:var(--bg3);border-radius:8px;padding:8px 10px;min-width:120px">'+
+    '<div style="font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px">'+t+'</div>'+
+    '<div style="font-size:17px;font-weight:800;color:'+(c||'var(--text)')+'">'+n+'</div></div>'; };
+  el.innerHTML='<div style="display:flex;gap:8px;flex-wrap:wrap">'+
+    f(d.mant.length,'Mantenimientos')+
+    f(d.gas.length,'Cargas combustible')+
+    f(d.abo.length,'Cobros recibidos')+
+    f(d.mov.length,'Movs. banco')+
+    f(d.repes.length,'Montos repetidos',d.repes.length?'var(--amber)':'var(--text)')+
+    f(d.cxp.length,'CxP',d.cxp.length?'var(--text)':'var(--amber)')+
+    '</div>';
+}
+function generarCarpetaAuditor(){
+  var d=_capDatos();
+  if(!d.r.d||!d.r.h){alert('Elegí el período (desde y hasta).');return;}
+  var e=(typeof _mEsc==='function')?_mEsc:function(s){return String(s==null?'':s);};
+  var per=formatFecha(d.r.d)+' al '+formatFecha(d.r.h);
+  var S=function(tit,corte,queEs,cuerpo){
+    return '<div class="cap-sec"><h2>'+tit+'</h2>'+_capAviso(corte,d.r,queEs)+cuerpo+'</div>';
+  };
+  // ── Mantenimiento por unidad ──
+  var porCam={}; d.mant.forEach(function(m){ (porCam[m.cam]=porCam[m.cam]||[]).push(m); });
+  var mantHtml=!d.mant.length?'<p class="cap-vacio">Sin registros en el período.</p>':
+    '<table><thead><tr><th>Fecha</th><th>Unidad</th><th>Km</th><th>Tipo</th><th>Trabajo</th><th>Proveedor</th><th style="text-align:right">Costo USD</th></tr></thead><tbody>'+
+    d.mant.slice().sort(function(a,b){return a.f<b.f?-1:1;}).map(function(m){
+      return '<tr><td>'+formatFecha(m.f)+'</td><td>'+e(m.cam)+'</td><td>'+(m.km||'')+'</td><td>'+e(m.tipo||'')+'</td><td>'+e(m.desc_trabajo||m.descTrabajo||'')+'</td><td>'+e(m.proveedor||'')+'</td><td style="text-align:right">'+_capNum(m.costo_usd||m.costoUsd)+'</td></tr>';}).join('')+
+    '<tr class="tr-total"><td colspan="6">TOTAL — '+d.mant.length+' intervención(es) en '+Object.keys(porCam).length+' unidad(es)</td><td style="text-align:right">'+
+      _capNum(d.mant.reduce(function(s,m){return s+(Number(m.costo_usd||m.costoUsd)||0);},0))+'</td></tr></tbody></table>';
+  // ── Combustible por unidad y por origen ──
+  var gCam={}, gSrc={};
+  d.gas.forEach(function(x){
+    var c=gCam[x.cam]=gCam[x.cam]||{n:0,l:0,m:0}; c.n++; c.l+=Number(x.lit)||0; c.m+=Number(x.m)||0;
+    var s=gSrc[x.src||'(sin origen)']=gSrc[x.src||'(sin origen)']||{n:0,l:0,m:0}; s.n++; s.l+=Number(x.lit)||0; s.m+=Number(x.m)||0;
+  });
+  var tabla=function(obj,rot){ return '<table><thead><tr><th>'+rot+'</th><th style="text-align:right">Cargas</th><th style="text-align:right">Litros</th><th style="text-align:right">USD</th></tr></thead><tbody>'+
+    Object.keys(obj).sort().map(function(k){return '<tr><td>'+e(k)+'</td><td style="text-align:right">'+obj[k].n+'</td><td style="text-align:right">'+_capNum(obj[k].l)+'</td><td style="text-align:right">'+_capNum(obj[k].m)+'</td></tr>';}).join('')+
+    '<tr class="tr-total"><td>TOTAL</td><td style="text-align:right">'+d.gas.length+'</td><td style="text-align:right">'+_capNum(d.gas.reduce(function(s,x){return s+(Number(x.lit)||0);},0))+'</td><td style="text-align:right">'+_capNum(d.gas.reduce(function(s,x){return s+(Number(x.m)||0);},0))+'</td></tr></tbody></table>'; };
+  var gasHtml=!d.gas.length?'<p class="cap-vacio">Sin registros en el período.</p>':
+    tabla(gCam,'Unidad')+'<h3>Por origen</h3>'+tabla(gSrc,'Origen')+
+    '<p class="cap-nota">⚠️ El origen que guarda el sistema es genérico (estación / proveedor propio). Si hace falta identificar <b>cuál</b> estación de servicio, ese dato hoy no se captura.</p>';
+  // ── Cobros y participación del socio ──
+  var aboHtml=!d.abo.length?'<p class="cap-vacio">Sin cobros registrados en el período.</p>':
+    '<table><thead><tr><th>Fecha</th><th>Factura</th><th style="text-align:right">Monto USD</th></tr></thead><tbody>'+
+    d.abo.slice().sort(function(a,b){return a.f<b.f?-1:1;}).map(function(a){
+      return '<tr><td>'+formatFecha(a.f)+'</td><td>'+e(a.fact||'')+'</td><td style="text-align:right">'+_capNum(a.m)+'</td></tr>';}).join('')+
+    '<tr class="tr-total"><td colspan="2">TOTAL COBRADO</td><td style="text-align:right">'+_capNum(d.cobrado)+'</td></tr></tbody></table>'+
+    (d.pct>0?'<p class="cap-nota"><b>Participación del socio al '+d.pct+'% de lo cobrado: USD '+_capNum(d.socio)+'</b>. Es el cálculo del porcentaje sobre los cobros de arriba, para poder cotejarlo contra lo efectivamente pagado. El sistema NO registra ese pago: sale del libro de bancos.</p>':'');
+  // ── Banco: lo que ENTRÓ, y los montos repetidos ──
+  var movHtml=!d.mov.length?'<p class="cap-vacio">Sin movimientos en el período.</p>':
+    (d.repes.length?'<h3>Montos idénticos el mismo día — '+d.repes.length+' caso(s)</h3>'+
+      '<p class="cap-nota">Es el patrón de un pago duplicado o de su reintegro. Se listan para revisión; el sistema no puede confirmar cuál es cuál porque solo ve los movimientos que el banco NOTIFICA (entradas).</p>'+
+      '<table><thead><tr><th>Fecha</th><th style="text-align:right">Monto</th><th>Referencias</th></tr></thead><tbody>'+
+      d.repes.map(function(x){ return '<tr><td>'+formatFecha(x.fecha)+'</td><td style="text-align:right">'+_capNum(x.monto)+'</td><td>'+x.movs.map(function(m){return e(m.ref||'')+' ('+String(m.fecha||'').slice(11,16)+')';}).join(' · ')+'</td></tr>';}).join('')+
+      '</tbody></table>':'')+
+    '<h3>Movimientos del período</h3><table><thead><tr><th>Fecha</th><th>Tipo</th><th>Referencia</th><th style="text-align:right">Monto</th></tr></thead><tbody>'+
+    d.mov.slice().sort(function(a,b){return a.fecha<b.fecha?-1:1;}).map(function(m){
+      return '<tr><td>'+formatFecha(String(m.fecha).slice(0,10))+' '+String(m.fecha||'').slice(11,16)+'</td><td>'+e(m.tipo||'')+'</td><td>'+e(m.ref||'')+'</td><td style="text-align:right">'+_capNum(m.monto)+'</td></tr>';}).join('')+
+    '</tbody></table>';
+  // ── CxP por proveedor ──
+  var pp={}; d.cxp.forEach(function(c){ (pp[c.prov_nombre||'(sin proveedor)']=pp[c.prov_nombre||'(sin proveedor)']||[]).push(c); });
+  var cxpHtml=!d.cxp.length?'<p class="cap-vacio">Sin cuentas por pagar en el período.</p>':
+    Object.keys(pp).sort().map(function(nm){
+      var l=pp[nm], pend=l.filter(function(c){return c.estado!=='pagada';}).reduce(function(s,c){return s+(Number(c.neto_pagar)||0);},0);
+      return '<h3>'+e(nm)+' — saldo pendiente USD '+_capNum(pend)+'</h3>'+
+        '<table><thead><tr><th>Fecha</th><th>Documento</th><th>Detalle</th><th style="text-align:right">Total USD</th><th>Estado</th><th>Fecha pago</th><th>Ref.</th></tr></thead><tbody>'+
+        l.map(function(c){ return '<tr><td>'+formatFecha(c.fecha)+'</td><td>'+e(c.factura||'')+'</td><td>'+e(c.descripcion||'')+'</td><td style="text-align:right">'+_capNum(c.total_usd)+'</td><td>'+e(c.estado||'')+'</td><td>'+(c.fecha_pago?formatFecha(c.fecha_pago):'—')+'</td><td>'+e(c.ref_bnc||'')+'</td></tr>';}).join('')+
+        '</tbody></table>';}).join('');
+  // ── Proveedores ──
+  var provHtml='<table><thead><tr><th>Proveedor</th><th>RIF / C.I.</th><th>Categoría</th><th>Estado</th></tr></thead><tbody>'+
+    (typeof PROVEEDORES!=='undefined'?PROVEEDORES:[]).slice().sort(function(a,b){return String(a.nombre)<String(b.nombre)?-1:1;})
+    .map(function(p){ return '<tr><td>'+e(p.nombre)+'</td><td>'+e(p.rif||'—')+'</td><td>'+e(p.categoria||'—')+'</td><td>'+(p.activo===false?'inactivo':'activo')+'</td></tr>';}).join('')+
+    '</tbody></table>';
+
+  var html='<html><head><meta charset="UTF-8"><title>Carpeta del Auditor — '+e(brandNom())+'</title><style>'+BG_CSS+
+    'body{background:#fff;padding:0}.cap-sec{padding:14px 28px;page-break-inside:auto}'+
+    '.cap-sec h2{font-size:15px;color:#1e3a5f;border-bottom:2px solid #7dc941;padding-bottom:5px;margin:16px 0 8px}'+
+    '.cap-sec h3{font-size:12px;color:#2d5282;margin:12px 0 5px}'+
+    '.cap-ok{font-size:10px;color:#166534;background:#f0fdf4;border-left:3px solid #7dc941;padding:5px 9px;margin-bottom:8px}'+
+    '.cap-falta{font-size:11px;color:#991b1b;background:#fef2f2;border-left:3px solid #ef4444;padding:7px 9px;margin-bottom:8px;font-weight:600}'+
+    '.cap-nota{font-size:10px;color:#555;background:#f8fafc;border-left:3px solid #94a3b8;padding:6px 9px;margin:7px 0}'+
+    '.cap-vacio{font-size:11px;color:#888;font-style:italic;padding:6px 0}'+
+    '.cap-alcance{padding:12px 28px;background:#fffbeb;border-top:1px solid #fde68a;border-bottom:1px solid #fde68a}'+
+    '.cap-alcance li{font-size:11px;margin:3px 0 3px 16px}'+
+    '@media print{.cap-sec h2{break-after:avoid}}</style></head><body>'+
+    '<div class="bg-header"><div class="empresa"><div class="nombre">'+e(brandNomUp())+'</div><div class="rif">'+e(brandRif())+'</div></div>'+
+    '<div class="fecha-area">Emitido<div class="fval">'+formatFecha(fechaVE())+'</div></div></div>'+
+    '<div class="bg-titulo"><h1>Carpeta del Auditor</h1><div class="sub">Período '+per+'</div></div>'+
+    // ALCANCE — va ARRIBA de todo, a propósito.
+    '<div class="cap-alcance"><b style="font-size:12px;color:#92400e">Alcance de este informe — leer primero</b><ul>'+
+    '<li>Sale del sistema operativo de la empresa. <b>Cubre lo que el sistema registra</b>, no la totalidad de la operación.</li>'+
+    '<li>El sistema registra los movimientos que el banco <b>notifica</b> (entradas). <b>No lleva libro de egresos</b>: los pagos a proveedores, socios, préstamos y reintegros salen de los libros que lleva la administración.</li>'+
+    '<li>Cada sección indica desde cuándo hay datos. Si el período pedido empieza antes, sale un aviso en rojo.</li>'+
+    '</ul></div>'+
+    S('1. Mantenimiento de unidades',d.cortes.mantenimiento,'mantenimiento',mantHtml)+
+    S('2. Consumo de combustible',d.cortes.combustible,'combustible',gasHtml)+
+    S('3. Cobros recibidos y participación del socio',d.cortes.cobros,'cobros',aboHtml)+
+    S('4. Movimientos bancarios recibidos',d.cortes.banco,'movimientos bancarios',movHtml)+
+    S('5. Cuentas por pagar por proveedor',d.cortes.cxp,'cuentas por pagar',cxpHtml)+
+    '<div class="cap-sec"><h2>6. Registro de proveedores</h2>'+provHtml+'</div>'+
+    '<div class="bg-footer"><span>'+e(brandNom())+' · '+e(brandRif())+'</span><span>Carpeta del Auditor · '+per+'</span></div>'+
+    '</body></html>';
+  abrirVentanaImpresion(html);
+  audit('Carpeta del Auditor generada',per);
 }
 
 function exportarAuditoria(){

@@ -70,6 +70,56 @@ ok("Hernández apuntando al completo de Paz → NO cuadra… salvo el nombre de 
 ok("nombres sin palabras de ≥4 letras: no hay con qué juzgar, NO se acusa",
   app._rosterCuadra('ABC', 'XYZ') === true);
 
+// ── CARPETA DEL AUDITOR: fecha de corte y montos repetidos ──
+// Lo que un auditor descubre solo cuesta más caro que lo que uno le declara. La pieza que importa
+// no es ningún listado: es que cada sección diga desde cuándo hay datos.
+console.log('\ncarpeta del auditor:');
+(function () {
+  var GV = app.gv, campos = {};
+  app.gv = function (id) { return campos[id] || ''; };
+
+  eq("corte = la fecha del registro MÁS VIEJO, no una configurada a mano",
+    app._capCorte([{ f: '2026-06-15' }, { f: '2026-04-01' }, { f: '2026-07-20' }], 'f'), '2026-04-01');
+  eq("sin datos no hay corte", app._capCorte([], 'f'), null);
+  eq("ignora fechas vacías", app._capCorte([{ f: '' }, { f: '2026-05-02' }], 'f'), '2026-05-02');
+
+  // EL CASO REAL: la auditora pide junio y las cuentas por pagar arrancan el 09/07.
+  var r = { d: '2026-06-01', h: '2026-06-30' };
+  ok("período que empieza ANTES del primer dato → aviso rojo",
+    app._capAviso('2026-07-09', r, 'cuentas por pagar').indexOf('cap-falta') >= 0);
+  ok("y dice la fecha real del primer registro",
+    app._capAviso('2026-07-09', r, 'cuentas por pagar').indexOf('09/07/2026') >= 0);
+  ok("período cubierto → aviso verde",
+    app._capAviso('2026-04-01', r, 'mantenimiento').indexOf('cap-ok') >= 0);
+  ok("sin ningún registro → dice que el punto no se puede responder",
+    app._capAviso(null, r, 'cuentas por pagar').indexOf('no se puede responder') >= 0);
+
+  // Rango
+  ok("dentro del rango", app._capEn('2026-06-15', r) === true);
+  ok("antes del rango queda fuera", app._capEn('2026-05-31', r) === false);
+  ok("después del rango queda fuera", app._capEn('2026-07-01', r) === false);
+  ok("fecha vacía queda fuera", app._capEn('', r) === false);
+  ok("acepta timestamp (corta a 10)", app._capEn('2026-06-15T14:30:00', r) === true);
+
+  // MONTOS REPETIDOS — el caso real del 29/06 que la auditora preguntó y no vino con lista.
+  var movs = [
+    { fecha: '2026-06-29 15:32', monto: 386447.35, ref: 'A1' },
+    { fecha: '2026-06-29 16:18', monto: 386447.35, ref: 'A2' },
+    { fecha: '2026-06-29 15:32', monto: 96611.84, ref: 'B1' },
+    { fecha: '2026-06-29 16:19', monto: 96611.84, ref: 'B2' },
+    { fecha: '2026-06-29 16:35', monto: 658651.20, ref: 'C1' },
+    { fecha: '2026-06-30 09:08', monto: 386447.35, ref: 'D1' }
+  ];
+  var rep = app._capRepetidos(movs);
+  eq("encuentra los DOS pares del 29/06", rep.length, 2);
+  eq("cada par trae sus dos movimientos", rep[0].movs.length + rep[1].movs.length, 4);
+  ok("el monto solo no basta: el mismo monto en OTRO día no es un par",
+    rep.every(function (x) { return x.fecha === '2026-06-29'; }));
+  eq("un monto único no entra", app._capRepetidos([{ fecha: '2026-06-29', monto: 5, ref: 'X' }]).length, 0);
+
+  app.gv = GV;
+})();
+
 // ── CARNETS: buscar, filtrar por cargo y marcar varios de cargos DISTINTOS ──
 // Pedido de Yinet (RRHH) 06/08: «poder buscar por nombre, seleccionar varios de diferentes cargos
 // y seleccionar todos de un cargo, para imprimir todos en un mismo archivo».
