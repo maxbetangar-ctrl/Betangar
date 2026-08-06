@@ -6493,8 +6493,19 @@ function calcNom(){
   });
   // Respaldo para planillas VIEJAS sin ayudante anotado: si el ayudante fijo de la unidad no salió
   // por nombre en NINGUNA fila del período, se le cuentan los viajes de su camión que van sin ay1/2/3.
+  //
+  // ⛔ UN EGRESADO NO TRABAJÓ: este respaldo NO alcanza a los inactivos.
+  // Yinet lo vio el 2026-08-06: en la nómina del 20 al 26/07 figuraba YIRBER LENITHON GONZALEZ
+  // MONTIEL con 1 viaje en el JAC-B003 y $7,50 — y está egresado desde junio (su última planilla
+  // es del 27/06). No venía de ningún cotejo de nombres: la planilla 01253 del domingo 26/07 del
+  // B003 no traía NINGÚN ayudante escrito, y su ficha todavía dice `unidad = JAC-B003`, así que
+  // este respaldo se los adjudicaba. Los $7,50 son 1 viaje × $5 × 1,5 de domingo: cuadra exacto.
+  // El respaldo existe para completar un dato que falta, no para resucitar a alguien que ya no
+  // está. Si un ayudante ACTIVO de esa unidad tampoco salió por nombre, se le cuenta igual que
+  // antes — y ahora la pantalla lo dice (ver la nota `porCam` más abajo).
+  // Probablemente sea también el origen de "16 ayudantes cobran sin salir en planilla".
   EMPLEADOS.forEach(function(e){
-    if(e.cargo!=='Ayudante'||ayMap[e.id])return;
+    if(e.cargo!=='Ayudante'||e.activo===false||ayMap[e.id])return;
     f.forEach(function(r){ if(r.cam===e.unidad&&!r.ay1&&!r.ay2&&!r.ay3)_ayAcumular(e,r,'porCam'); });
   });
   // Una fila con 0 viajes no crea ayudante (antes lo garantizaba el `if(viajes>0)`).
@@ -6742,13 +6753,23 @@ function calcNom(){
              :((String(eb.cedula||'').trim()&&!String(ea.cedula||'').trim())?ids[1]:ids[0]);
     ids.forEach(function(id){ _dupCanon[id]=canon; });
   });
+  // ⚠️ LA JORNADA ESPECIAL ES OTRO TURNO: ahí SÍ puede estar en otra unidad el mismo día.
+  // Lo explicó Alejandra (QA/RRHH) el 2026-08-06: además del recorrido normal, algunos días se
+  // hacen viajes NOCTURNOS de corredores, y esa planilla va marcada `ruta = CORREDORES` /
+  // `parroquia = JORNADA ESPECIAL`. Alexander Paz el 11/07 salía en el B008 (recorrido normal) y
+  // en el B009 (jornada especial) — las DOS son suyas y las dos se le pagan.
+  // Antes esto se contaba como choque y el aviso acusaba una planilla mal atribuida que estaba
+  // bien. El choque se busca DENTRO de cada turno: dos unidades distintas en la MISMA jornada
+  // sigue siendo imposible (quedan 3 casos reales en julio), pero normal + especial es la
+  // operación real. Ver [norma-auditoria-precondicion-antes-de-acusar].
   var _enDosCam={};
   f.forEach(function(r){
+    var _jor=_jornadaEspecial(r)?'ESP':'NOR';
     [r.ch,r.ay1,r.ay2,r.ay3].forEach(function(nm){
       if(!nm||!String(nm).trim())return;
       var e=(typeof _empPorNombre==='function')?_empPorNombre(String(nm).trim()):null; if(!e)return;
-      var k=(_dupCanon[e.id]||e.id)+'|'+r.f;
-      var x=_enDosCam[k]||(_enDosCam[k]={emp:e,f:r.f,cams:{}});
+      var k=(_dupCanon[e.id]||e.id)+'|'+r.f+'|'+_jor;
+      var x=_enDosCam[k]||(_enDosCam[k]={emp:e,f:r.f,jornada:_jor,cams:{}});
       (x.cams[r.cam]=x.cams[r.cam]||{})[String(nm).trim()]=1;
     });
   });
@@ -6760,11 +6781,12 @@ function calcNom(){
       var det=Object.keys(x.cams).map(function(cam){
         return '<b>'+cam+'</b> <span style="color:var(--text3)">('+Object.keys(x.cams[cam]).join(', ')+')</span>';
       }).join(' y ');
-      return formatFecha(x.f)+': '+det;
+      return formatFecha(x.f)+(x.jornada==='ESP'?' <span style="color:var(--amber)">(jornada especial)</span>':'')+': '+det;
     }).join('<br>');
     descBanners.unshift('<div style="margin-bottom:6px;font-size:11px;background:rgba(226,75,74,.12);border:1px solid rgba(226,75,74,.5);color:#e24b4a;padding:8px 10px;border-radius:8px">⛔ <b>'+_choques.length+' día(s) con la MISMA persona en dos unidades a la vez</b> — eso no puede pasar, hay una planilla mal atribuida:<br>'+_chTxt+
       (_choques.length>12?'<br><span style="color:var(--text3)">…y '+(_choques.length-12)+' más.</span>':'')+
-      '<div style="font-size:10px;color:var(--text3);margin-top:4px">Revisá el Excel de esos días y corregí a quién corresponde. Mientras tanto se paga lo que dice la planilla.</div></div>');
+      '<div style="font-size:10px;color:var(--text3);margin-top:4px">Revisá el Excel de esos días y corregí a quién corresponde. Mientras tanto se paga lo que dice la planilla.<br>'+
+      'Son dos unidades <b>dentro del mismo turno</b>. Trabajar el recorrido normal y además la <b>jornada especial</b> (nocturno de corredores) el mismo día es válido y no sale acá.</div></div>');
   }
   if(_dupPares.length){
     var _dupTxt=_dupPares.map(function(par){
@@ -6820,7 +6842,14 @@ function calcNom(){
     var vjPlanAy=(parseInt(a.viajes)||0)-(parseInt(a.patio)||0); // SOLO viajes de planilla para MOSTRAR (el patio no infla los viajes)
     var _exAy=_extraAy[a.emp.id]||0; // actividades especiales atribuidas a este ayudante (suman a SU total)
     var sueldo=_ayBase(a);var total=Math.max(0,sueldo-a.descuentos)+_exAy;
-    var nota=a.porNombre>0&&a.porCam>0?'('+a.porNombre+'v nombre + '+a.porCam+'v camión)':'';
+    // De dónde salen sus viajes. Antes esto solo se mostraba cuando había MEZCLA (nombre + camión),
+    // justo el caso menos grave. Cuando TODOS vienen del camión es cuando más hace falta decirlo:
+    // significa que nadie escribió su nombre en la planilla y se le está pagando porque su ficha
+    // dice esa unidad. Eso hay que poder verlo sin abrir el código.
+    var nota=(a.porCam>0)
+      ? (a.porNombre>0 ? '('+a.porNombre+'v nombre + '+a.porCam+'v camión)'
+                       : '⚠️ '+a.porCam+'v por su unidad — no figura en la planilla')
+      : '';
     var inputPatio=(esImau||a.apoyo)?'':_btnPatio(a.emp.id,'ay',patAyM,vp.patio,a.patio);
     // Ayudante INACTIVO con viajes: se paga igual pero se marca ⚠️ (apareció en planilla dado de baja).
     var _inactAy=(a.emp.activo===false);
@@ -21896,6 +21925,16 @@ function _normNom(s){return String(s||'').toUpperCase().replace(/[ÁÀÄÂ]/g,'A
 // Casa nombre de planilla vs empleado tolerando corto-vs-completo, pero CONSERVADOR:
 // exacto normalizado, o mismo PRIMER nombre + ≥1 apellido (≥3 letras) en común. Evita casar
 // homónimos de apellido (p.ej. "X GONZALEZ URDANETA" vs "Y GONZALEZ URDANETA").
+// ¿Esta planilla es de la JORNADA ESPECIAL (los viajes nocturnos de corredores)?
+// Es un turno APARTE del recorrido normal: la misma persona puede trabajar los dos el mismo día,
+// en unidades distintas. La secretaria lo marca en el Excel de dos maneras y no siempre en las
+// dos a la vez (medido sobre las 1.297 planillas: 35 traen las dos marcas, 11 solo la parroquia
+// y 4 solo la ruta), así que alcanza con CUALQUIERA de las dos.
+function _jornadaEspecial(r){
+  if(!r)return false;
+  var par=_normNom(r.par||''), ruta=_normNom(r.r||'');
+  return par.indexOf('JORNADA ESPECIAL')>=0 || ruta.indexOf('CORREDOR')>=0;
+}
 // ¿El nombre corto del roster y su nombre completo hablan de la MISMA persona?
 // Criterio deliberadamente FLOJO: basta UNA palabra de ≥4 letras en común. Tiene que aguantar
 // los errores de tipeo que el roster ya trae de fábrica ("ANDRI CUBA" ↔ "ANDRY JOSE CUBA SUAREZ",

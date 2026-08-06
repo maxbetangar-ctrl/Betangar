@@ -15,7 +15,7 @@ function eq(name, got, exp) {
 
 // Confirmar que las funciones se cargaron desde app.js
 console.log('Funciones cargadas:');
-['_normNom', '_nomCasa', '_rosterCuadra', 'getTasaFecha', 'compCostoUnit'].forEach(function (f) {
+['_normNom', '_nomCasa', '_rosterCuadra', '_jornadaEspecial', 'getTasaFecha', 'compCostoUnit'].forEach(function (f) {
   ok(f + ' definida', typeof app[f] === 'function');
 });
 
@@ -69,6 +69,26 @@ ok("Hernández apuntando al completo de Paz → NO cuadra… salvo el nombre de 
   app._rosterCuadra('ALEXANDER HERNANDEZ', 'ALEXANDER ARTURO PAZ GONZALEZ') === true);
 ok("nombres sin palabras de ≥4 letras: no hay con qué juzgar, NO se acusa",
   app._rosterCuadra('ABC', 'XYZ') === true);
+
+// ── _jornadaEspecial: el turno nocturno de corredores es OTRA jornada ──
+// Alejandra (QA/RRHH), 06/08: además del recorrido normal hay viajes nocturnos de corredores, y
+// esa planilla va marcada `ruta=CORREDORES` / `parroquia=JORNADA ESPECIAL`. La misma persona
+// puede hacer las dos el mismo día en unidades distintas — como Alexander Paz el 11/07.
+console.log('\n_jornadaEspecial:');
+ok("marcada en la parroquia",
+  app._jornadaEspecial({par:'JORNADA ESPECIAL', r:'CORREDORES'}) === true);
+ok("solo en la parroquia (11 planillas reales así)",
+  app._jornadaEspecial({par:'JORNADA ESPECIAL', r:'CARMELO URDANETA'}) === true);
+ok("solo en la ruta (4 planillas reales así)",
+  app._jornadaEspecial({par:'VENANCIO PULGAR', r:'CORREDORES'}) === true);
+ok("EL CASO REAL 11/07 B008: recorrido normal, NO es especial",
+  app._jornadaEspecial({par:'VENANCIO PULGAR', r:'CARMELO URDANETA'}) === false);
+ok("tolera minúsculas y acentos",
+  app._jornadaEspecial({par:'Jornada Especial', r:''}) === true);
+ok("'CORREDOR' en singular también cuenta",
+  app._jornadaEspecial({par:'', r:'Corredor Norte'}) === true);
+ok("sin datos NO es especial", app._jornadaEspecial({par:'', r:''}) === false);
+ok("null NO revienta", app._jornadaEspecial(null) === false);
 
 // ── getTasaFecha: tasa congelada por fecha (regla contable) ──
 console.log('\ngetTasaFecha:');
