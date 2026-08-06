@@ -1,0 +1,506 @@
+/* ==========================================================================
+   MaxRecuerda — la vestimenta
+   ==========================================================================
+
+   ⛔ Esto NO es adorno. Un cliente abre la app y decide en tres segundos si
+   parece serio. Una pantalla correcta pero sosa vende menos que una peor
+   hecha y bien vestida.
+
+   Los cuatro síntomas de «se ve plano», que aquí se atacan uno por uno:
+     1. TODO PESA IGUAL      → jerarquía por tamaño, peso y color de la
+                                importancia; el título de la tarjeta no es del
+                                mismo gris que la fecha.
+     2. COLOR SIN SIGNIFICADO→ el rojo SOLO significa urgente o roto. Nunca
+                                decora. Si todo es de colores, nada avisa.
+     3. ENLACES DONDE VAN BOTONES → las acciones son botones con superficie.
+     4. VACÍOS QUE SON CAJONES VACÍOS → cada lista vacía enseña qué hacer.
+
+   Todo va prefijado `mrq-` y encerrado en `.mrq`, para que no se pelee con el
+   CSS de la app anfitriona ni se lo lleve por delante. Sin fuentes externas
+   (funciona sin internet y no rompe ninguna política de contenido).
+   ========================================================================== */
+
+.mrq, .mrq-portal {
+  /* ── Tinta y papel ─────────────────────────────────────────────────────── */
+  --mrq-fondo:      #f6f7f9;
+  --mrq-papel:      #ffffff;
+  --mrq-papel-2:    #fbfcfd;
+  --mrq-borde:      #e3e7ec;
+  --mrq-borde-2:    #cfd6de;
+  --mrq-tinta:      #10151c;
+  --mrq-tinta-2:    #56616f;
+  --mrq-tinta-3:    #8b96a4;
+
+  /* ── Los tres pesos. El color ES la importancia. ───────────────────────── */
+  --mrq-urgente:    #d92d20;
+  --mrq-urgente-b:  #fef3f2;
+  --mrq-urgente-t:  #912018;
+  --mrq-import:     #dc6803;
+  --mrq-import-b:   #fffaeb;
+  --mrq-import-t:   #93370d;
+  --mrq-normal:     #2570eb;
+  --mrq-normal-b:   #eff6ff;
+  --mrq-normal-t:   #1849a9;
+
+  --mrq-ok:         #079455;
+  --mrq-ok-b:       #ecfdf3;
+  --mrq-ok-t:       #05603a;
+
+  --mrq-marca:      #111827;
+  --mrq-marca-t:    #ffffff;
+
+  --mrq-r:          12px;
+  --mrq-r-s:        8px;
+  --mrq-sombra:     0 1px 2px rgba(16,24,40,.05), 0 1px 3px rgba(16,24,40,.08);
+  --mrq-sombra-2:   0 8px 24px rgba(16,24,40,.10), 0 2px 6px rgba(16,24,40,.06);
+  --mrq-sombra-3:   0 24px 64px rgba(16,24,40,.24);
+
+  --mrq-tipo: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+              "Helvetica Neue", Arial, sans-serif;
+}
+
+/* El tema oscuro sale del sistema, y `data-mrq-tema` manda por encima: si la
+   app anfitriona ya tiene su interruptor, MaxRecuerda lo obedece en vez de
+   pelearse con él. */
+@media (prefers-color-scheme: dark) {
+  .mrq:not([data-mrq-tema="claro"]), .mrq-portal:not([data-mrq-tema="claro"]) {
+    --mrq-fondo: #0d1117;  --mrq-papel: #161b22;  --mrq-papel-2: #1c222b;
+    --mrq-borde: #262d38;  --mrq-borde-2: #39414f;
+    --mrq-tinta: #e9edf2;  --mrq-tinta-2: #9aa5b4; --mrq-tinta-3: #6e7a8a;
+    --mrq-urgente-b: #2b1414; --mrq-urgente-t: #ff9c96;
+    --mrq-import-b:  #2a1e0c; --mrq-import-t:  #ffc46b;
+    --mrq-normal-b:  #0f1d33; --mrq-normal-t:  #8ab4ff;
+    --mrq-ok-b:      #0d2419; --mrq-ok-t:      #6fdca0;
+    --mrq-marca: #e9edf2; --mrq-marca-t: #0d1117;
+    --mrq-sombra-3: 0 24px 64px rgba(0,0,0,.6);
+  }
+}
+.mrq[data-mrq-tema="oscuro"], .mrq-portal[data-mrq-tema="oscuro"] {
+  --mrq-fondo: #0d1117;  --mrq-papel: #161b22;  --mrq-papel-2: #1c222b;
+  --mrq-borde: #262d38;  --mrq-borde-2: #39414f;
+  --mrq-tinta: #e9edf2;  --mrq-tinta-2: #9aa5b4; --mrq-tinta-3: #6e7a8a;
+  --mrq-urgente-b: #2b1414; --mrq-urgente-t: #ff9c96;
+  --mrq-import-b:  #2a1e0c; --mrq-import-t:  #ffc46b;
+  --mrq-normal-b:  #0f1d33; --mrq-normal-t:  #8ab4ff;
+  --mrq-ok-b:      #0d2419; --mrq-ok-t:      #6fdca0;
+  --mrq-marca: #e9edf2; --mrq-marca-t: #0d1117;
+  --mrq-sombra-3: 0 24px 64px rgba(0,0,0,.6);
+}
+
+.mrq, .mrq * , .mrq-portal, .mrq-portal * { box-sizing: border-box; }
+.mrq {
+  font-family: var(--mrq-tipo);
+  color: var(--mrq-tinta);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+.mrq-portal { font-family: var(--mrq-tipo); color: var(--mrq-tinta); font-size: 14px; }
+
+/* ── Encabezado ─────────────────────────────────────────────────────────── */
+.mrq-top {
+  display: flex; align-items: center; gap: 14px;
+  flex-wrap: wrap; margin-bottom: 18px;
+}
+.mrq-top h2 {
+  margin: 0; font-size: 21px; font-weight: 700; letter-spacing: -.02em;
+  display: flex; align-items: center; gap: 9px;
+}
+.mrq-top h2 span.mrq-ic { font-size: 22px; line-height: 1; }
+.mrq-top .mrq-sub { color: var(--mrq-tinta-3); font-size: 13px; margin-top: 2px; }
+.mrq-top-der { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+
+/* ── Pestañas ───────────────────────────────────────────────────────────── */
+.mrq-tabs {
+  display: flex; gap: 4px; padding: 4px;
+  background: var(--mrq-fondo); border: 1px solid var(--mrq-borde);
+  border-radius: 10px; margin-bottom: 18px; overflow-x: auto;
+}
+.mrq-tab {
+  border: 0; background: transparent; cursor: pointer;
+  font: inherit; font-weight: 600; font-size: 13px;
+  color: var(--mrq-tinta-2); padding: 8px 14px; border-radius: 7px;
+  white-space: nowrap; display: flex; align-items: center; gap: 7px;
+  transition: background .12s, color .12s;
+}
+.mrq-tab:hover { color: var(--mrq-tinta); }
+.mrq-tab.on { background: var(--mrq-papel); color: var(--mrq-tinta); box-shadow: var(--mrq-sombra); }
+.mrq-tab .mrq-cont {
+  background: var(--mrq-borde); color: var(--mrq-tinta-2);
+  font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 999px;
+}
+.mrq-tab.on .mrq-cont { background: var(--mrq-normal); color: #fff; }
+.mrq-tab .mrq-cont.mrq-cont-alarma { background: var(--mrq-urgente); color: #fff; }
+
+/* ── Botones — con superficie, no enlaces disfrazados ───────────────────── */
+.mrq-btn {
+  font: inherit; font-weight: 600; font-size: 13.5px;
+  border-radius: 9px; padding: 9px 15px; cursor: pointer;
+  border: 1px solid var(--mrq-borde-2); background: var(--mrq-papel);
+  color: var(--mrq-tinta); display: inline-flex; align-items: center; gap: 7px;
+  transition: transform .08s, box-shadow .12s, background .12s;
+  box-shadow: var(--mrq-sombra);
+}
+.mrq-btn:hover  { background: var(--mrq-papel-2); }
+.mrq-btn:active { transform: translateY(1px); }
+.mrq-btn:disabled { opacity: .5; cursor: not-allowed; }
+.mrq-btn-p { background: var(--mrq-marca); color: var(--mrq-marca-t); border-color: transparent; }
+.mrq-btn-p:hover { background: var(--mrq-marca); filter: brightness(1.18); }
+.mrq-btn-ok { background: var(--mrq-ok); color: #fff; border-color: transparent; }
+.mrq-btn-ok:hover { filter: brightness(1.08); background: var(--mrq-ok); }
+.mrq-btn-peligro { color: var(--mrq-urgente); border-color: var(--mrq-borde-2); }
+.mrq-btn-peligro:hover { background: var(--mrq-urgente-b); }
+.mrq-btn-s { padding: 6px 11px; font-size: 12.5px; border-radius: 7px; }
+.mrq-btn-fantasma { background: transparent; border-color: transparent; box-shadow: none; color: var(--mrq-tinta-2); }
+.mrq-btn-fantasma:hover { background: var(--mrq-fondo); color: var(--mrq-tinta); }
+
+/* ── Tarjeta de recordatorio ────────────────────────────────────────────────
+   La barra izquierda de 4 px es la que se lee de un vistazo desde lejos: dice
+   el peso del asunto antes de que nadie lea una palabra. */
+.mrq-lista { display: flex; flex-direction: column; gap: 10px; }
+.mrq-card {
+  background: var(--mrq-papel);
+  border: 1px solid var(--mrq-borde);
+  border-left: 4px solid var(--mrq-normal);
+  border-radius: var(--mrq-r);
+  padding: 14px 16px;
+  box-shadow: var(--mrq-sombra);
+  transition: box-shadow .15s, transform .1s;
+  display: flex; gap: 14px; align-items: flex-start;
+}
+.mrq-card:hover { box-shadow: var(--mrq-sombra-2); }
+.mrq-card.mrq-i-urgente    { border-left-color: var(--mrq-urgente); }
+.mrq-card.mrq-i-importante { border-left-color: var(--mrq-import); }
+.mrq-card.mrq-i-normal     { border-left-color: var(--mrq-normal); }
+.mrq-card.mrq-apagado { opacity: .55; border-left-color: var(--mrq-borde-2); }
+.mrq-card.mrq-hecho   { border-left-color: var(--mrq-ok); }
+
+.mrq-card-cuerpo { flex: 1; min-width: 0; }
+.mrq-card-tit {
+  font-weight: 650; font-size: 15px; color: var(--mrq-tinta);
+  letter-spacing: -.01em; margin: 0 0 3px;
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+}
+.mrq-card-det {
+  color: var(--mrq-tinta-2); font-size: 13.5px; margin: 4px 0 0;
+  overflow-wrap: anywhere;
+}
+.mrq-card-pie {
+  margin-top: 9px; display: flex; align-items: center; gap: 14px;
+  flex-wrap: wrap; font-size: 12.5px; color: var(--mrq-tinta-3);
+}
+.mrq-card-pie b { color: var(--mrq-tinta-2); font-weight: 600; }
+.mrq-card-acc { display: flex; gap: 6px; align-items: center; flex-shrink: 0; }
+
+/* Cuándo — el dato que más se busca, así que se pinta grande y aparte. */
+.mrq-cuando {
+  flex-shrink: 0; text-align: center; min-width: 62px;
+  background: var(--mrq-fondo); border: 1px solid var(--mrq-borde);
+  border-radius: 10px; padding: 7px 9px; line-height: 1.15;
+}
+.mrq-cuando .mrq-dia  { font-size: 21px; font-weight: 700; letter-spacing: -.03em; }
+.mrq-cuando .mrq-mes  { font-size: 10.5px; font-weight: 700; text-transform: uppercase;
+                        color: var(--mrq-tinta-3); letter-spacing: .06em; }
+.mrq-cuando .mrq-hora { font-size: 12px; font-weight: 600; color: var(--mrq-tinta-2); margin-top: 3px; }
+/* En la agenda el día ya lo dice el encabezado del grupo: ahí lo que se busca
+   es la HORA. Ponerla partida en dos renglones («06» sobre «30») se lee como
+   una fecha y hace dudar — que es lo peor que puede hacer un dato. */
+.mrq-cuando .mrq-hora-g { font-size: 17px; font-weight: 700; letter-spacing: -.02em; padding: 3px 0; }
+
+/* ── Cifras de cumplimiento ─────────────────────────────────────────────────
+   Un número grande y su etiqueta debajo. El color lo decide el DATO: el cero
+   de «no salieron» va en verde y el uno va en rojo. Un tablero donde todo se
+   pinta igual obliga a leerlo entero para saber si algo va mal. */
+.mrq-kpis {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(158px, 1fr));
+  gap: 10px; margin-bottom: 18px;
+}
+.mrq-kpi {
+  background: var(--mrq-papel); border: 1px solid var(--mrq-borde);
+  border-radius: var(--mrq-r); padding: 14px 16px; box-shadow: var(--mrq-sombra);
+}
+.mrq-kpi .mrq-kpi-n { font-size: 27px; font-weight: 700; letter-spacing: -.03em; line-height: 1.1; }
+.mrq-kpi .mrq-kpi-t { font-size: 12px; font-weight: 650; color: var(--mrq-tinta-2); margin-top: 2px; }
+.mrq-kpi .mrq-kpi-d { font-size: 11.5px; color: var(--mrq-tinta-3); margin-top: 7px; line-height: 1.4; }
+.mrq-kpi-bien .mrq-kpi-n { color: var(--mrq-ok); }
+.mrq-kpi-mal {
+  border-color: var(--mrq-urgente); background: var(--mrq-urgente-b);
+}
+.mrq-kpi-mal .mrq-kpi-n, .mrq-kpi-mal .mrq-kpi-t, .mrq-kpi-mal .mrq-kpi-d { color: var(--mrq-urgente-t); }
+.mrq-barra { height: 6px; border-radius: 999px; background: var(--mrq-borde); margin-top: 9px; overflow: hidden; }
+.mrq-barra i { display: block; height: 100%; background: var(--mrq-ok); border-radius: 999px; }
+
+/* ── Etiquetas ──────────────────────────────────────────────────────────── */
+.mrq-chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 11px; font-weight: 700; letter-spacing: .02em;
+  padding: 2.5px 9px; border-radius: 999px; white-space: nowrap;
+  background: var(--mrq-fondo); color: var(--mrq-tinta-2);
+  border: 1px solid var(--mrq-borde);
+}
+.mrq-chip-urgente    { background: var(--mrq-urgente-b); color: var(--mrq-urgente-t); border-color: transparent; }
+.mrq-chip-importante { background: var(--mrq-import-b);  color: var(--mrq-import-t);  border-color: transparent; }
+.mrq-chip-normal     { background: var(--mrq-normal-b);  color: var(--mrq-normal-t);  border-color: transparent; }
+.mrq-chip-ok         { background: var(--mrq-ok-b);      color: var(--mrq-ok-t);      border-color: transparent; }
+.mrq-chip-alarma     { background: var(--mrq-urgente-b); color: var(--mrq-urgente-t); border-color: transparent; }
+
+/* ── Avisos ─────────────────────────────────────────────────────────────── */
+.mrq-aviso {
+  display: flex; gap: 11px; align-items: flex-start;
+  padding: 13px 15px; border-radius: var(--mrq-r); margin-bottom: 14px;
+  font-size: 13.5px; border: 1px solid transparent;
+}
+/* ⚠️ Solo el PRIMER <b> es el título y va en su renglón. Un `b{display:block}`
+   a secas parte en pedazos cualquier frase con un número resaltado — y eso fue
+   exactamente lo que rompió el panel de Cumplimiento: cada cifra en una línea. */
+.mrq-aviso b:first-child { display: block; margin-bottom: 2px; }
+.mrq-aviso-rojo  { background: var(--mrq-urgente-b); color: var(--mrq-urgente-t); }
+.mrq-aviso-ambar { background: var(--mrq-import-b);  color: var(--mrq-import-t); }
+.mrq-aviso-verde { background: var(--mrq-ok-b);      color: var(--mrq-ok-t); }
+.mrq-aviso-azul  { background: var(--mrq-normal-b);  color: var(--mrq-normal-t); }
+.mrq-aviso ul { margin: 6px 0 0; padding-left: 18px; }
+
+/* ── Vacío que enseña, no cajón vacío ───────────────────────────────────── */
+.mrq-vacio {
+  text-align: center; padding: 46px 24px;
+  background: var(--mrq-papel);
+  border: 1px dashed var(--mrq-borde-2); border-radius: var(--mrq-r);
+}
+.mrq-vacio .mrq-vacio-ic { font-size: 40px; line-height: 1; opacity: .85; }
+.mrq-vacio h4 { margin: 12px 0 4px; font-size: 15.5px; font-weight: 650; }
+.mrq-vacio p  { margin: 0 auto 16px; color: var(--mrq-tinta-2); max-width: 380px; font-size: 13.5px; }
+.mrq-vacio .mrq-ejemplos {
+  display: flex; gap: 7px; justify-content: center; flex-wrap: wrap; margin-top: 14px;
+}
+.mrq-ejemplo {
+  font-size: 12.5px; color: var(--mrq-tinta-2); background: var(--mrq-fondo);
+  border: 1px solid var(--mrq-borde); border-radius: 999px; padding: 5px 12px;
+  cursor: pointer; font-family: inherit;
+}
+.mrq-ejemplo:hover { border-color: var(--mrq-normal); color: var(--mrq-normal-t); background: var(--mrq-normal-b); }
+
+/* ── Campos ─────────────────────────────────────────────────────────────── */
+.mrq-campo { margin-bottom: 15px; }
+.mrq-campo > label {
+  display: block; font-size: 12.5px; font-weight: 650;
+  color: var(--mrq-tinta-2); margin-bottom: 6px;
+}
+.mrq-campo .mrq-pista { font-weight: 400; color: var(--mrq-tinta-3); }
+.mrq-in, .mrq-sel, .mrq-area {
+  width: 100%; font: inherit; font-size: 14px; color: var(--mrq-tinta);
+  background: var(--mrq-papel); border: 1px solid var(--mrq-borde-2);
+  border-radius: var(--mrq-r-s); padding: 9px 11px; outline: none;
+  transition: border-color .12s, box-shadow .12s;
+}
+.mrq-area { resize: vertical; min-height: 68px; }
+.mrq-in:focus, .mrq-sel:focus, .mrq-area:focus {
+  border-color: var(--mrq-normal); box-shadow: 0 0 0 3px var(--mrq-normal-b);
+}
+.mrq-in.mrq-mal { border-color: var(--mrq-urgente); box-shadow: 0 0 0 3px var(--mrq-urgente-b); }
+.mrq-fila { display: flex; gap: 12px; flex-wrap: wrap; }
+.mrq-fila > * { flex: 1; min-width: 130px; }
+
+/* Selector de importancia — tres botones grandes, no un desplegable escondido.
+   Es la decisión que cambia el color de todo: tiene que verse al elegirla. */
+.mrq-imp { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.mrq-imp button {
+  font: inherit; cursor: pointer; text-align: left;
+  border: 1.5px solid var(--mrq-borde); background: var(--mrq-papel);
+  border-radius: 10px; padding: 10px 12px; transition: all .12s;
+}
+.mrq-imp button .mrq-imp-t { font-weight: 650; font-size: 13.5px; display: block; }
+.mrq-imp button .mrq-imp-d { font-size: 11.5px; color: var(--mrq-tinta-3); display: block; margin-top: 1px; }
+.mrq-imp button:hover { border-color: var(--mrq-borde-2); }
+.mrq-imp button.on[data-v="urgente"]    { border-color: var(--mrq-urgente); background: var(--mrq-urgente-b); }
+.mrq-imp button.on[data-v="urgente"] .mrq-imp-t { color: var(--mrq-urgente-t); }
+.mrq-imp button.on[data-v="importante"] { border-color: var(--mrq-import);  background: var(--mrq-import-b); }
+.mrq-imp button.on[data-v="importante"] .mrq-imp-t { color: var(--mrq-import-t); }
+.mrq-imp button.on[data-v="normal"]     { border-color: var(--mrq-normal);  background: var(--mrq-normal-b); }
+.mrq-imp button.on[data-v="normal"] .mrq-imp-t { color: var(--mrq-normal-t); }
+
+/* Días de la semana */
+.mrq-dias { display: flex; gap: 6px; flex-wrap: wrap; }
+.mrq-dias button {
+  font: inherit; font-weight: 650; font-size: 12.5px; cursor: pointer;
+  width: 42px; height: 38px; border-radius: 9px;
+  border: 1.5px solid var(--mrq-borde); background: var(--mrq-papel);
+  color: var(--mrq-tinta-2); transition: all .12s;
+}
+.mrq-dias button:hover { border-color: var(--mrq-borde-2); }
+.mrq-dias button.on {
+  background: var(--mrq-marca); color: var(--mrq-marca-t); border-color: transparent;
+}
+
+/* Interruptor */
+.mrq-check {
+  display: flex; align-items: flex-start; gap: 10px; cursor: pointer;
+  padding: 11px 13px; border: 1px solid var(--mrq-borde);
+  border-radius: var(--mrq-r-s); background: var(--mrq-papel-2);
+}
+.mrq-check input { margin-top: 2px; width: 16px; height: 16px; accent-color: var(--mrq-normal); }
+.mrq-check .mrq-check-t { font-weight: 600; font-size: 13.5px; }
+.mrq-check .mrq-check-d { font-size: 12.5px; color: var(--mrq-tinta-3); margin-top: 1px; }
+
+/* ── Buscador de personas ───────────────────────────────────────────────── */
+.mrq-personas { position: relative; }
+.mrq-elegidos { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+.mrq-elegido {
+  display: inline-flex; align-items: center; gap: 7px;
+  background: var(--mrq-normal-b); color: var(--mrq-normal-t);
+  border-radius: 999px; padding: 4px 6px 4px 11px; font-size: 12.5px; font-weight: 600;
+}
+.mrq-elegido button {
+  border: 0; background: rgba(0,0,0,.08); color: inherit; cursor: pointer;
+  width: 18px; height: 18px; border-radius: 50%; font-size: 13px; line-height: 1;
+  display: grid; place-items: center; font-family: inherit;
+}
+.mrq-elegido button:hover { background: rgba(0,0,0,.2); }
+.mrq-sugeridos {
+  position: absolute; z-index: 5; left: 0; right: 0; top: 100%; margin-top: 4px;
+  background: var(--mrq-papel); border: 1px solid var(--mrq-borde-2);
+  border-radius: var(--mrq-r-s); box-shadow: var(--mrq-sombra-2);
+  max-height: 232px; overflow-y: auto;
+}
+.mrq-sug {
+  padding: 9px 12px; cursor: pointer; display: flex; align-items: center;
+  justify-content: space-between; gap: 10px; border-bottom: 1px solid var(--mrq-borde);
+}
+.mrq-sug:last-child { border-bottom: 0; }
+.mrq-sug:hover, .mrq-sug.mrq-sug-on { background: var(--mrq-normal-b); }
+.mrq-sug .mrq-sug-n { font-weight: 600; font-size: 13.5px; }
+.mrq-sug .mrq-sug-r { font-size: 12px; color: var(--mrq-tinta-3); }
+
+/* ── El resumen en palabras — la pieza que evita el 90 % de los errores ──── */
+.mrq-resumen {
+  background: var(--mrq-normal-b); border: 1px solid transparent;
+  border-radius: var(--mrq-r); padding: 13px 15px; margin: 4px 0 16px;
+  display: flex; gap: 11px; align-items: flex-start;
+}
+.mrq-resumen .mrq-resumen-ic { font-size: 17px; line-height: 1.3; }
+.mrq-resumen-t { font-size: 14px; font-weight: 600; color: var(--mrq-normal-t); }
+.mrq-resumen-d { font-size: 12.5px; color: var(--mrq-normal-t); opacity: .85; margin-top: 3px; }
+
+/* ── Modal — pie SIEMPRE visible, cuerpo con scroll ─────────────────────────
+   ⛔ Nunca se le pone alto a mano. La queja repetida: «siempre se corta abajo
+   y no se llega al botón de guardar». Se monta en <body> (no dentro del árbol
+   de la app) porque cualquier ancestro con `transform` o `backdrop-filter`
+   secuestra el `position:fixed` y encierra el modal en el área de contenido. */
+.mrq-fondo {
+  position: fixed; inset: 0; z-index: 2147483000;
+  background: rgba(12,17,24,.55); backdrop-filter: blur(2px);
+  display: flex; align-items: center; justify-content: center; padding: 16px;
+  animation: mrq-fade .14s ease-out;
+}
+@keyframes mrq-fade { from { opacity: 0 } to { opacity: 1 } }
+@keyframes mrq-sube { from { opacity: 0; transform: translateY(10px) scale(.99) } to { opacity: 1; transform: none } }
+.mrq-modal {
+  background: var(--mrq-papel); color: var(--mrq-tinta);
+  border-radius: 16px; box-shadow: var(--mrq-sombra-3);
+  width: 100%; max-width: 560px;
+  max-height: 85vh;                 /* vh normal: dvh tiene soporte irregular */
+  display: flex; flex-direction: column;
+  animation: mrq-sube .18s cubic-bezier(.2,.8,.3,1);
+}
+.mrq-modal-cab {
+  flex-shrink: 0; padding: 18px 20px 14px;
+  border-bottom: 1px solid var(--mrq-borde);
+  display: flex; align-items: flex-start; gap: 12px;
+}
+.mrq-modal-cab h3 { margin: 0; font-size: 17px; font-weight: 700; letter-spacing: -.02em; }
+.mrq-modal-cab p  { margin: 3px 0 0; font-size: 12.5px; color: var(--mrq-tinta-3); }
+/* ⬅️ Toda pantalla tiene salida. Sin excepciones. */
+.mrq-x {
+  margin-left: auto; border: 0; background: transparent; cursor: pointer;
+  color: var(--mrq-tinta-3); font-size: 22px; line-height: 1;
+  width: 32px; height: 32px; border-radius: 8px; flex-shrink: 0; font-family: inherit;
+}
+.mrq-x:hover { background: var(--mrq-fondo); color: var(--mrq-tinta); }
+.mrq-modal-cuerpo { flex: 1; min-height: 0; overflow-y: auto; padding: 18px 20px; }
+.mrq-modal-pie {
+  flex-shrink: 0; padding: 14px 20px; border-top: 1px solid var(--mrq-borde);
+  display: flex; gap: 9px; align-items: center; background: var(--mrq-papel-2);
+  border-radius: 0 0 16px 16px;
+}
+.mrq-modal-pie .mrq-der { margin-left: auto; display: flex; gap: 9px; }
+
+/* ── Campanita ──────────────────────────────────────────────────────────── */
+.mrq-campana { position: relative; display: inline-block; }
+.mrq-campana-btn {
+  border: 1px solid var(--mrq-borde-2); background: var(--mrq-papel);
+  border-radius: 10px; width: 40px; height: 38px; cursor: pointer;
+  font-size: 18px; line-height: 1; position: relative; color: var(--mrq-tinta);
+  box-shadow: var(--mrq-sombra); font-family: inherit;
+}
+.mrq-campana-btn:hover { background: var(--mrq-papel-2); }
+.mrq-punto {
+  position: absolute; top: -6px; right: -6px; min-width: 19px; height: 19px;
+  border-radius: 999px; background: var(--mrq-urgente); color: #fff;
+  font-size: 11px; font-weight: 700; display: grid; place-items: center;
+  padding: 0 5px; border: 2px solid var(--mrq-papel);
+}
+.mrq-punto.mrq-punto-suave { background: var(--mrq-normal); }
+.mrq-panel {
+  position: absolute; right: 0; top: calc(100% + 8px); width: 370px; max-width: 92vw;
+  background: var(--mrq-papel); border: 1px solid var(--mrq-borde);
+  border-radius: 14px; box-shadow: var(--mrq-sombra-2); z-index: 2147482000;
+  max-height: 70vh; display: flex; flex-direction: column;
+  animation: mrq-sube .14s ease-out;
+}
+.mrq-panel-cab {
+  padding: 13px 15px; border-bottom: 1px solid var(--mrq-borde);
+  display: flex; align-items: center; gap: 8px; flex-shrink: 0;
+}
+.mrq-panel-cab b { font-size: 14px; }
+.mrq-panel-cuerpo { overflow-y: auto; padding: 10px; flex: 1; min-height: 0; }
+.mrq-pend {
+  border: 1px solid var(--mrq-borde); border-left: 3px solid var(--mrq-normal);
+  border-radius: 10px; padding: 11px 12px; margin-bottom: 8px; background: var(--mrq-papel);
+}
+.mrq-pend.mrq-i-urgente    { border-left-color: var(--mrq-urgente); }
+.mrq-pend.mrq-i-importante { border-left-color: var(--mrq-import); }
+.mrq-pend-t { font-weight: 650; font-size: 13.5px; margin-bottom: 2px; }
+.mrq-pend-c { font-size: 12px; color: var(--mrq-tinta-3); }
+.mrq-pend-acc { margin-top: 9px; display: flex; gap: 6px; }
+
+/* ── Detalles ───────────────────────────────────────────────────────────── */
+.mrq-cargando {
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  padding: 40px; color: var(--mrq-tinta-3); font-size: 13.5px;
+}
+.mrq-spin {
+  width: 16px; height: 16px; border: 2px solid var(--mrq-borde-2);
+  border-top-color: var(--mrq-normal); border-radius: 50%;
+  animation: mrq-gira .7s linear infinite;
+}
+@keyframes mrq-gira { to { transform: rotate(360deg) } }
+
+.mrq-toast {
+  position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%);
+  z-index: 2147483600; background: var(--mrq-marca); color: var(--mrq-marca-t);
+  padding: 11px 18px; border-radius: 10px; font-size: 13.5px; font-weight: 600;
+  box-shadow: var(--mrq-sombra-3); animation: mrq-sube .18s ease-out;
+  max-width: 90vw; font-family: var(--mrq-tipo);
+}
+.mrq-toast.mrq-toast-mal { background: var(--mrq-urgente); color: #fff; }
+.mrq-toast.mrq-toast-ok  { background: var(--mrq-ok); color: #fff; }
+
+.mrq-sep { height: 1px; background: var(--mrq-borde); margin: 20px 0; border: 0; }
+.mrq-titulillo {
+  font-size: 11.5px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .07em; color: var(--mrq-tinta-3); margin: 22px 0 10px;
+}
+
+/* En el teléfono: el modal ocupa abajo, que es donde llega el pulgar. */
+@media (max-width: 560px) {
+  .mrq-fondo { padding: 0; align-items: flex-end; }
+  .mrq-modal { max-width: 100%; max-height: 92vh; border-radius: 16px 16px 0 0; }
+  .mrq-modal-pie { border-radius: 0; }
+  .mrq-imp { grid-template-columns: 1fr; }
+  .mrq-card { flex-wrap: wrap; }
+  .mrq-top h2 { font-size: 19px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mrq-modal, .mrq-fondo, .mrq-panel, .mrq-toast { animation: none; }
+  .mrq-spin { animation-duration: 2s; }
+}

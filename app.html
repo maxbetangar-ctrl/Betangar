@@ -205,6 +205,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="maxrecuerda.css?v=20260806-maxrecuerda">
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
 <script>
@@ -262,6 +263,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
     <button class="btn-icon" onclick="imprimirPagina()" title="Imprimir" style="color:#60a5fa;border-color:#2563eb">&#128424;</button>
     <button class="btn-icon" onclick="exportExcelCompleto()" title="Excel" style="color:#34d399;border-color:#059669">&#11015;</button>
     <button class="btn-icon" onclick="toggleMenu()" style="font-size:20px;border-color:var(--green);background:rgba(163,230,53,.12);color:var(--green)">&#9776;</button>
+    <span id="mrq-campana" style="margin-left:4px"></span>
     <button onclick="cerrarSesion()" title="Cerrar sesión" style="background:#C0392B;color:#fff;border:none;border-radius:8px;padding:7px 14px;font-size:13px;font-weight:900;cursor:pointer;font-family:inherit;white-space:nowrap;box-shadow:0 2px 8px rgba(192,57,43,.4);margin-left:4px">&#128682; Salir</button>
   </div>
 </nav>
@@ -300,6 +302,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
     <div class="menu-item" onclick="sp('salud')" id="mi-salud">🩺 Salud de Datos</div>
     <div class="menu-item" onclick="sp('config')" id="mi-config">⚙️ Configuracion</div>
     <div class="menu-item" onclick="sp('mensajes-wa')" id="mi-mensajes-wa">📢 Mensajes WA</div>
+    <div class="menu-item" onclick="sp('recordatorios')" id="mi-recordatorios">⏰ Recordatorios</div>
     <div class="menu-item" onclick="sp('galeria')" id="mi-galeria">🏗️ Galeria</div>
     <div style="height:1px;background:var(--border);margin:6px 0"></div>
     <div class="menu-item" id="mi-seguridad-2fa" onclick="gestionar2FA()" style="display:flex">🔐 Seguridad (2FA)</div>
@@ -2294,6 +2297,8 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
 </div>
 
 <!-- CONFIG -->
+<div id="p-recordatorios" class="page"></div>
+
 <div id="p-config" class="page">
   <div class="switch-row" style="margin-bottom:10px">
     <div class="sw on" id="sw-cfg-general" onclick="switchCfgTab('general')">General</div>
@@ -2672,7 +2677,8 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
 </div>
 
 <script src="logo-alcaldia.js?v=1"></script>
-<script src="app.js?v=20260806d-jornada-especial-y-egresado-no-cobra"></script>
+<script src="maxrecuerda.js?v=20260806-maxrecuerda"></script>
+<script src="app.js?v=20260806-maxrecuerda"></script>
 
 <!-- Modal global -->
 <div id="modal" class="moverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9990;align-items:center;justify-content:center;padding:16px">
