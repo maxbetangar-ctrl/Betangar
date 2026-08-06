@@ -69,9 +69,17 @@ import zipfile
 from pathlib import Path
 
 HOJA = 'PARAMETROS'
+# Estado final del bloque de ayudantes, confirmado por Alejandra (QA/RRHH) el 2026-08-06:
+#   «Alexander Hernandez debe de estar en Chofer».
+# La fila 34 se VACÍA entera (corto, estado y completo): era el renglón insertado por error que
+# corrió las dos columnas. Él ya está en la lista de CHOFEREs (AA22 → ALEXANDER ENRIQUE HERNANDEZ
+# PRIETO), que es donde va. Dejarlo también acá lo volvía "multicargo" y mantenía vivo el nombre
+# corto ambiguo que originó el bug de las 47 planillas.
+# `leerRoster` recorre las filas 11..80 y salta las que tienen el corto vacío, así que el hueco
+# no molesta: no hace falta subir las de abajo.
+VACIAR = {34: ['AF', 'AG', 'AL']}
 # Fila → nombre completo que DEBE quedar en la columna AL.
 ESPERADO = {
-    34: 'ALEXANDER ENRIQUE HERNANDEZ PRIETO',
     35: 'ALEXANDER ARTURO PAZ GONZALEZ',
     36: 'CARLOS ALFREDO MONTIEL VILLALOBOS',
 }
@@ -118,6 +126,12 @@ def valor_celda(xml, ref, sst_inv):
     return html.unescape(v.group(1))
 
 
+def borrar_celda(xml, ref):
+    """Deja `ref` sin contenido. La celda se quita entera: Excel trata una celda ausente
+    como vacía, y así no queda un `<v>` huérfano apuntando a una cadena compartida."""
+    return re.sub(r'<c r="%s"[^>]*?(?:/>|>.*?</c>)' % ref, '', xml, count=1, flags=re.S)
+
+
 def escribir_celda(xml, fila, ref, texto, sst):
     """Deja `ref` con `texto`. Usa la cadena compartida si existe; si no, inline."""
     if texto in sst:
@@ -155,11 +169,19 @@ def main():
         xml = z.read(ruta).decode('utf8')
 
         actual = {f: valor_celda(xml, COL + str(f), sst_inv) for f in ESPERADO}
-        if all(actual[f] == ESPERADO[f] for f in ESPERADO):
+        vaciar_actual = {(f, c): valor_celda(xml, c + str(f), sst_inv)
+                         for f, cols in VACIAR.items() for c in cols}
+        if (all(actual[f] == ESPERADO[f] for f in ESPERADO)
+                and not any(vaciar_actual.values())):
             print('✓ El roster YA está alineado. No se escribe nada.')
             return
 
         print('Hoja %s → %s' % (HOJA, ruta))
+        for (f, c), v in sorted(vaciar_actual.items()):
+            if v is None:
+                continue
+            print('  %s%d: %r  →  (vacío)' % (c, f, v))
+            xml = borrar_celda(xml, c + str(f))
         for f in sorted(ESPERADO):
             print('  %s%d: %r  →  %r' % (COL, f, actual[f], ESPERADO[f]))
             xml = escribir_celda(xml, f, COL + str(f), ESPERADO[f], sst)
@@ -178,6 +200,8 @@ def main():
         x2 = z2.read(hoja_xml(z2, HOJA)).decode('utf8')
         malas = [f for f in ESPERADO
                  if valor_celda(x2, COL + str(f), inv2) != ESPERADO[f]]
+        malas += ['%s%d' % (c, f) for f, cols in VACIAR.items() for c in cols
+                  if valor_celda(x2, c + str(f), inv2) is not None]
     if malas:
         raise SystemExit('✗ No quedó bien en las filas %s' % malas)
     print('✓ Verificado sobre el archivo escrito: %s' % salida)

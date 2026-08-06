@@ -7064,10 +7064,26 @@ function verNominaHistDetalle(sem){
 async function guardarNominaHist(){
   if(!_ultimaNomina||(!_ultimaNomina.sem&&!_ultimaNomina.fdesde)){alert('Calcula la nómina y elegí una semana (SEM-N) o un rango de fechas primero.');return;}
   var n=_ultimaNomina;
-  var id='APP-'+(n.mes||'').replace(/\s+/g,'')+'-'+(n.sem||'').replace(/\s+/g,'');
+  // ⛔ LA IDENTIDAD DE UNA SEMANA DE NÓMINA ES SU LUNES, NO LOS SELECTORES DE ARRIBA.
+  // El id salía de "mes + Semana N". Pero al entrar por el aviso de semanas faltantes,
+  // `irASemanaNomina` LIMPIA esos dos selectores y trabaja por rango de fechas → los dos quedaban
+  // vacíos y el id era 'APP--' para TODAS. Guardar la 2ª semana faltante pisaba la 1ª (upsert por
+  // id): seis semanas guardadas, una sola fila. Y como el id no coincidía con el de la semana ya
+  // guardada, `yaExistia` daba false y las cuotas de préstamos y multas se avanzaban DE NUEVO.
+  var _lun=null; try{ _lun=n.fdesde?_isoLocal(_lunesSem(n.fdesde)):null; }catch(e){}
+  var id=_lun ? ('APP-'+_lun)
+              : ('APP-'+(n.mes||'').replace(/\s+/g,'')+'-'+(n.sem||'').replace(/\s+/g,''));
+  // Si esa MISMA semana ya está guardada con otro id (las viejas 'SEM-07' del Excel, o las
+  // 'APP-jun-26-Semana1' del esquema anterior), se REUSA su id: se actualiza esa fila en vez de
+  // crear una segunda para la misma semana.
+  var _yaFila=_lun?(NOMINA_HIST||[]).find(function(x){
+    if(!x.fecha_desde)return false;
+    try{ return _isoLocal(_lunesSem(String(x.fecha_desde).slice(0,10)))===_lun; }catch(e){ return false; }
+  }):null;
+  if(_yaFila)id=_yaFila.id;
   // ¿Ya se guardó esta semana? Si sí, NO se vuelven a avanzar las cuotas (guardia anti-doble):
   // el avance de préstamos/multas ocurre SOLO la primera vez que se paga/guarda la semana.
-  var yaExistia=NOMINA_HIST.some(function(x){return x.id===id;});
+  var yaExistia=!!_yaFila||NOMINA_HIST.some(function(x){return x.id===id;});
   var nPrest=(n._prestAplicar||[]).length, nMulta=(n._multaAplicar||[]).length;
   // Rótulo SEM-N secuencial + período en formato legible, derivados de la SEMANA real de las
   // planillas (lunes–domingo), no del selector mensual "Semana 1-5". Fallback al valor viejo si no hay fecha.
@@ -7116,7 +7132,9 @@ async function guardarNominaHist(){
   try{if(typeof renderPrestamos==='function')renderPrestamos();}catch(e){}
   try{if(typeof renderMultas==='function')renderMultas();}catch(e){}
   audit('Nómina guardada en historial',id+' $'+row.total_usd.toFixed(0));
-  mostrarToast('✅ Nómina "'+n.sem+'" guardada'+((!yaExistia&&(nPrest||nMulta))?' (cuotas avanzadas)':'')+' en el historial','exito');
+  // El rótulo va de `_semLabel` (derivado de la fecha), no de `n.sem`: entrando por el aviso de
+  // semanas faltantes el selector está vacío y el toast decía «Nómina "" guardada».
+  mostrarToast('✅ Nómina "'+_semLabel+'" guardada'+((!yaExistia&&(nPrest||nMulta))?' (cuotas avanzadas)':'')+' en el historial','exito');
 }
 // ── RE-GUARDAR TODAS LAS SEMANAS con el MOTOR ACTUAL.
 // Las semanas viejas se guardaron con cálculos viejos (doble-conteo de ayudante, patio metido en
