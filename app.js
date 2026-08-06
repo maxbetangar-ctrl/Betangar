@@ -3705,8 +3705,10 @@ function poblarCams(){
 function poblarEmps(){
   ['prest-emp','doc-emp-sel','carn-emp','cumple-sel','mul-chofer'].forEach(function(sid){
     var sel=g(sid);if(!sel)return;
-    sel.innerHTML='<option value="">-- Seleccionar --</option>';
-    EMPLEADOS.filter(function(e){return e.activo;}).forEach(function(e){sel.innerHTML+='<option value="'+e.id+'">'+e.nombre+' ('+e.cargo+')</option>';});
+    var cur=sel.value; // no perder lo elegido al repoblar (carnets se repuebla al entrar a la pestaña)
+    // En carnets el vacío significa "todos", no "todavía no elegiste".
+    sel.innerHTML='<option value="">'+(sid==='carn-emp'?'Todos':'-- Seleccionar --')+'</option>';
+    EMPLEADOS.filter(function(e){return e.activo;}).forEach(function(e){sel.innerHTML+='<option value="'+e.id+'"'+(cur===e.id?' selected':'')+'>'+e.nombre+' ('+e.cargo+')</option>';});
   });
   ['cxp-prov','ret-prov','gv-prov'].forEach(function(sid){
     var sel=g(sid);if(!sel)return;
@@ -5967,6 +5969,7 @@ function irASemanaNomina(lunes){
   }catch(e){ alert('No se pudo cargar esa semana: '+(e&&e.message)); }
 }
 var _CHMAP_UI={};
+var _bannersNomina='';   // último bloque de avisos que calculó la nómina (se pinta en nm-descuentos)
 // Copia el HTML de una tabla SIN los controles de pantalla (botones, inputs), para impresión y correo.
 function _sinControlesUI(nodo){
   if(!nodo)return '';
@@ -5979,15 +5982,32 @@ function _sinControlesUI(nodo){
     return c.innerHTML;
   }catch(e){ return nodo.innerHTML; }
 }
-function verDesgloseDia(key){
-  var c=_CHMAP_UI[key]; if(!c){alert('Recalculá la nómina primero');return;}
-  var dias=Object.keys(c.dia||{}).sort();
+// El desglose es el MISMO para choferes y ayudantes; solo cambia de qué mapa sale la persona y a
+// qué tarifa se le paga el día de patio. Pedido de Máximo (2026-08-05): «aplicar también a ayudantes».
+var _AYMAP_UI={};
+function _nomPersona(key,tipo){
+  var p=(tipo==='ay')?_AYMAP_UI[key]:_CHMAP_UI[key];
+  if(!p)return null;
+  return {p:p, nombre:(tipo==='ay')?(p.emp&&p.emp.nombre):p.ch, tarifa:(tipo==='ay')?p.tasa:cfg.chofer,
+          rol:(tipo==='ay')?'Ayudante':'Chofer'};
+}
+function verDesgloseDia(key,tipo){
+  var inf=_nomPersona(key,tipo); if(!inf){alert('Recalculá la nómina primero');return;}
+  var c=inf.p;
+  var patLista=_patioLista(PATIO_DIAS[key]);
+  var patTot=_patioEfectivo(c.patio,PATIO_DIAS[key]);
+  // Los días de patio DECLARADOS se muestran como una fila más, con su fecha: es lo que permite
+  // cotejarlos contra la realidad en vez de ver solo un total sin fecha.
+  var celdas={};
+  Object.keys(c.dia||{}).forEach(function(f){ celdas[f]=c.dia[f]; });
+  patLista.forEach(function(f){ if(!celdas[f])celdas[f]={viajes:0,usd:inf.tarifa,tipo:'patio',cams:[]}; });
+  var dias=Object.keys(celdas).sort();
   var etiq={domingo:['DOMINGO','var(--teal)','paga 1,5×'],feriado:['FERIADO','#a78bfa','paga 1,5×'],
             nocturno:['NOCTURNO Resimara','var(--amber)','paga 1,5×'],patio:['PATIO','var(--amber)','+1 viaje'],
             normal:['','var(--text3)','']};
   var totV=0,totU=0;
   var filas=dias.map(function(f){
-    var d=c.dia[f], e=etiq[d.tipo]||etiq.normal;
+    var d=celdas[f], e=etiq[d.tipo]||etiq.normal;
     totV+=(d.viajes||0); totU+=(d.usd||0);
     var dw=['lun','mar','mié','jue','vie','sáb','dom'][_asisDow(f)]||'';
     return '<tr><td style="font-family:var(--m)">'+f.slice(8,10)+'/'+f.slice(5,7)+' <span style="color:var(--text3);font-size:10px">'+dw+'</span></td>'+
@@ -5996,20 +6016,79 @@ function verDesgloseDia(key){
       '<td style="font-size:10px">'+((d.cams||[]).join(', ')||'—')+'</td>'+
       '<td style="font-family:var(--m);text-align:right">$'+fmtMon(d.usd||0)+'</td></tr>';
   }).join('');
+  // Patio cargado con el formato viejo (un número sin fechas): no se puede desglosar, se avisa.
+  var patSinFecha=(patTot>0&&!patLista.length)?'<div class="alert-b" style="font-size:10px;margin-bottom:8px">Los '+patTot+' día(s) de patio están cargados como cantidad, sin fecha. Abrí «Patio» y marcá los días para poder cotejarlos.</div>':'';
   var resumen='<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:8px;font-size:11px">'+
-    '<span>Viajes: <b>'+(c.viajes-(c.patio||0))+'</b></span>'+
+    '<span>Viajes: <b>'+((c.viajes||0)-(c.patio||0))+'</b></span>'+
     '<span style="color:var(--teal)">Domingos: <b>'+(c.vDom||0)+'</b></span>'+
     '<span style="color:#a78bfa">Feriados: <b>'+(c.vFer||0)+'</b></span>'+
-    '<span style="color:var(--amber)">Patio: <b>'+_patioEfectivo(c.patio,PATIO_DIAS[key])+'</b></span>'+
+    '<span style="color:var(--amber)">Patio: <b>'+patTot+'</b></span>'+
     '</div>';
-  openModal('Desglose — '+c.ch, resumen+
+  openModal('Desglose — '+inf.nombre+' ('+inf.rol+')', patSinFecha+resumen+
     '<table><thead><tr><th>Día</th><th>Viajes</th><th>Concepto</th><th>Unidad</th><th style="text-align:right">Monto</th></tr></thead>'+
     '<tbody>'+(filas||'<tr><td colspan="5" style="color:var(--text3)">Sin días registrados en la semana.</td></tr>')+
     '<tr class="tr-tot"><td>TOTAL</td><td style="text-align:center">'+totV+'</td><td colspan="2"></td>'+
     '<td style="font-family:var(--m);text-align:right;font-weight:700">$'+fmtMon(totU)+'</td></tr></tbody></table>'+
     '<p style="font-size:10px;color:var(--text3);margin-top:8px">El domingo y el feriado nacional pagan 1,5× el viaje. '+
-    'Cada día de patio paga +1 viaje. Los montos son los mismos que suma la nómina, no un recálculo.</p>');
+    'Cada día de patio paga +1 viaje ($'+fmtMon(inf.tarifa)+'). Los montos son los mismos que suma la nómina, no un recálculo.</p>');
 }
+// Días del período que está mostrando la nómina (para elegir los de patio). Lo llena calcNom.
+var _NOM_PERIODO={dias:[]};
+// Botón de patio en la tabla: muestra los días efectivos y abre el selector. Reemplaza al input
+// numérico suelto, que dejaba cargar "3" sin decir nunca cuáles tres días eran.
+function _btnPatio(key,tipo,patManual,patEf,patAuto){
+  var lista=_patioLista(PATIO_DIAS[key]);
+  var sinFecha=(patManual>0&&!lista.length);
+  var col=patEf>0?'var(--amber)':'var(--text3)';
+  var tit=patEf>0
+    ? (lista.length?('Patio: '+lista.map(function(f){return f.slice(8,10)+'/'+f.slice(5,7);}).join(', '))
+       :(sinFecha?(patManual+' día(s) cargados SIN fecha — abrí y marcá cuáles fueron')
+                 :((patAuto||0)+' día(s) tomados de la asistencia')))
+    : 'Marcar los días de patio (día sin viajes en que igual cumplió: paga +1 viaje)';
+  return ' <button class="btn btn-s btn-xs solo-ui" style="padding:0 5px;font-size:9px;color:'+col+'" onclick="abrirPatioDias(\''+String(key).replace(/'/g,'')+'\',\''+tipo+'\')" title="'+tit.replace(/"/g,'&quot;')+'">🏭 '+patEf+'P'+(sinFecha?' ⚠️':'')+'</button>';
+}
+// PATIO: se marcan los DÍAS, no una cantidad. El selector muestra, día por día, si esa persona tuvo
+// viajes (entonces no puede ser patio) y si fichó (respaldo de que estuvo). Así el patio se declara
+// contra algo verificable en vez de ser un número que nadie puede explicar después.
+function abrirPatioDias(key,tipo){
+  var inf=_nomPersona(key,tipo); if(!inf){alert('Recalculá la nómina primero');return;}
+  var c=inf.p;
+  var dias=(_NOM_PERIODO.dias||[]).slice();
+  if(!dias.length){alert('Elegí primero la semana (o el rango de fechas) de la nómina.');return;}
+  var sel=_patioLista(PATIO_DIAS[key]);
+  var empId=(tipo==='ay')?(c.emp&&c.emp.id):((typeof _empPorNombre==='function'&&_empPorNombre(c.ch)||{}).id);
+  var viejoNum=(!sel.length&&_patioNum(PATIO_DIAS[key])>0)?_patioNum(PATIO_DIAS[key]):0;
+  var filas=dias.map(function(f){
+    var conViaje=!!(c.dia&&c.dia[f]&&(c.dia[f].viajes>0));
+    var fico=!!(empId&&typeof FICHAJES_SET!=='undefined'&&FICHAJES_SET&&FICHAJES_SET.has(empId+'|'+f));
+    var dw=['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'][_asisDow(f)]||'';
+    var marcado=sel.indexOf(f)>=0;
+    return '<tr'+(conViaje?' style="opacity:.45"':'')+'>'+
+      '<td><label style="display:flex;align-items:center;gap:8px;cursor:'+(conViaje?'not-allowed':'pointer')+'">'+
+        '<input type="checkbox" data-pd="'+f+'"'+(marcado?' checked':'')+(conViaje?' disabled':'')+'>'+
+        '<span><b>'+dw+'</b> <span style="font-family:var(--m);color:var(--text3)">'+f.slice(8,10)+'/'+f.slice(5,7)+'</span></span></label></td>'+
+      '<td style="font-size:10px">'+(conViaje?'<span style="color:var(--green)">'+c.dia[f].viajes+' viaje(s) — no es patio</span>':'<span style="color:var(--text3)">sin viajes</span>')+'</td>'+
+      '<td style="font-size:10px">'+(fico?'<span style="color:var(--green)">✅ fichó</span>':'<span style="color:var(--text3)">sin fichaje</span>')+'</td></tr>';
+  }).join('');
+  openModal('Días de patio — '+inf.nombre,
+    (viejoNum?'<div class="alert-b" style="font-size:10px;margin-bottom:8px">Tenía <b>'+viejoNum+'</b> día(s) cargados sin fecha. Al guardar acá, mandan los días que marques.</div>':'')+
+    '<p style="font-size:11px;color:var(--text2);margin-bottom:8px">Un día de patio es un día en que la persona cumplió en el galpón aunque el camión no saliera: paga <b>+1 viaje</b> ($'+fmtMon(inf.tarifa)+'). Los días con viajes no se pueden marcar.</p>'+
+    '<table><thead><tr><th>Día</th><th>Planilla</th><th>Fichaje</th></tr></thead><tbody>'+filas+'</tbody></table>'+
+    '<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px">'+
+      '<button class="btn btn-s" onclick="closeModal()">Cancelar</button>'+
+      '<button class="btn btn-g" onclick="guardarPatioDiasSel(\''+String(key).replace(/'/g,'')+'\')">Guardar días de patio</button>'+
+    '</div>');
+}
+function guardarPatioDiasSel(key){
+  var marcados=Array.prototype.slice.call(document.querySelectorAll('input[data-pd]'))
+    .filter(function(i){return i.checked;}).map(function(i){return i.getAttribute('data-pd');}).sort();
+  if(marcados.length)PATIO_DIAS[key]=marcados; else delete PATIO_DIAS[key];
+  guardarPatioDias();
+  try{closeModal();}catch(e){}
+  try{calcNom();}catch(e){}
+  if(typeof mostrarToast==='function')mostrarToast(marcados.length?marcados.length+' día(s) de patio guardados':'Patio borrado','exito');
+}
+// Se conserva para lo que todavía cargue una CANTIDAD (y para no romper llamadas viejas).
 function setPatioDias(chKey,val){
   chKey=_patioKey(chKey); var n=Math.max(0,parseInt(val)||0);
   if(n)PATIO_DIAS[chKey]=n; else delete PATIO_DIAS[chKey];
@@ -6041,11 +6120,17 @@ async function cargarPatioDias(){
     if(v&&typeof v==='object'){
       // Normalizar las claves ya guardadas. Si dos colapsan en la misma persona se conserva el MAYOR
       // (sumarlas inflaría el pago) y se deja constancia para que RRHH lo revise.
+      // El valor puede ser una LISTA DE FECHAS (formato nuevo) o un número (el viejo). Antes esto
+      // hacía `parseInt(valor)`, que sobre una lista da NaN → los días se borraban al cargarlos.
       var out={};
       Object.keys(v).forEach(function(k){
-        var nk=_patioKey(k), n=parseInt(v[k])||0; if(!n)return;
-        if(out[nk]!=null&&out[nk]!==n)PATIO_COLISIONES.push({nombre:k,valores:[out[nk],n]});
-        out[nk]=Math.max(out[nk]||0,n);
+        var nk=_patioKey(k), val=v[k];
+        var lista=Array.isArray(val)?val.filter(Boolean):null;
+        var n=lista?lista.length:(parseInt(val)||0); if(!n)return;
+        var prevN=_patioNum(out[nk]);
+        if(out[nk]!=null&&prevN!==n)PATIO_COLISIONES.push({nombre:k,valores:[prevN,n]});
+        // Empate entre una lista y un número: gana la lista, que sí dice qué días fueron.
+        if(out[nk]==null||n>prevN||(n===prevN&&lista&&!Array.isArray(out[nk])))out[nk]=lista?lista.slice().sort():n;
       });
       PATIO_DIAS=out;
     }
@@ -6316,38 +6401,64 @@ function calcNom(){
     if(_dd.cams.indexOf(r.cam)<0)_dd.cams.push(r.cam);
     if((parseInt(r.t)||0)>0)chMap[chKey].diasViaje.add(_asisDow(r.f));
   });
-  // Incluye ayudantes INACTIVOS también: si aparecen con viajes en planilla se cuentan/pagan
-  // igual (regla "el viaje siempre se paga") y se marcan ⚠️. Sin viajes, el if(viajes>0) los
-  // deja fuera, así que un ex-ayudante sin actividad no ensucia la nómina.
-  EMPLEADOS.forEach(function(e){
-    // Buscar viajes POR NOMBRE en todas las planillas (independiente del camión)
-    // Match tolerante (nombre corto en planilla vs completo en empleados) pero conservador:
-    // _nomCasa exige mismo PRIMER nombre + ≥1 apellido en común (no casa homónimos de apellido).
-    var rNom=f.filter(function(r){
-      return (_nomCasa(r.ay1,e.nombre)||_nomCasa(r.ay2,e.nombre)||_nomCasa(r.ay3,e.nombre)) && !_nomCasa(r.ch,e.nombre);
+  // ⛔ UN NOMBRE DE PLANILLA PAGA A UNA SOLA PERSONA.
+  // Esto recorría EMPLEADOS y cada ficha se llevaba TODA planilla cuyo nombre le "casara" con
+  // `_nomCasa` (mismo primer nombre + un apellido en común). Cuando la MISMA persona tiene DOS
+  // fichas, las dos reclamaban las MISMAS filas y la nómina la pagaba dos veces:
+  //   "CARLOS ALFREDO  MONTIEL" (E342) y "CARLOS ALFREDO MONTIEL VILLALOBOS" (E706) salieron con
+  //   26 viajes CADA UNO en la semana del 20/07, cuando 26 era el total ENTRE LOS DOS (16 en el
+  //   B008 + 10 en B005/B012). Igual "MANUEL GONZALEZ" (E021, inactivo) contra "MANUEL FRANCISCO
+  //   LOPEZ GONZALEZ" (EX20A): 277 viajes cada uno de marzo a junio.
+  // Ahora se recorren los SLOTS de la planilla (ay1/ay2/ay3) y cada nombre se resuelve a UNA sola
+  // ficha con `_empPorNombre`: el match EXACTO manda, el tolerante solo si el candidato es único, y
+  // si quedan dos candidatos devuelve null → el nombre cae en el aviso de "nombres sin casar". El
+  // sistema NO elige entre dos personas: avisa. Ver [norma-nombre-corto-que-apunta-a-dos-personas].
+  // Los INACTIVOS se siguen pagando si aparecen en planilla (regla "el viaje siempre se paga") y se
+  // marcan ⚠️ en la tabla; el que no aparece en ninguna fila no entra y no ensucia la nómina.
+  function _ayAcumular(e,r,campo){
+    var _t=parseInt(r.t)||0, _n=parseInt(r.n)||0, _d=parseInt(r.d)||0;
+    if(_d+_n===0&&_t>0)_d=_t;                                  // legacy sin desglose diurno/nocturno
+    var _dom=_esDomingoOferiado(r.f), _resN=_esResimaraNoche(r);
+    var _esD=(new Date(r.f+'T12:00:00').getDay()===0);
+    var _esF=(!_esD && FERIADOS_NACIONALES.indexOf(r.f)>=0);
+    var tasaAy=(e.tipoAy==='imau')?cfg.imau:cfg.ayud;
+    var a=ayMap[e.id]||(ayMap[e.id]={emp:e,viajes:0,viajesDom:0,recargoDom:0,tasa:tasaAy,descuentos:0,
+      porNombre:0,porCam:0,montoViajes:0,
+      // Mismo desglose que el chofer, para que el ayudante también tenga columnas D/F/P y lupa.
+      vDom:0,vFer:0,mDom:0,mFer:0,dia:{},cams:new Set()});
+    // Mismo criterio de pago que el chofer: 1,5× el domingo/feriado (todos los viajes del día) y
+    // 1,5× el nocturno en Resimara (solo los nocturnos). No se apila.
+    var _fd=_dom?1.5:1, _fn=(_dom||_resN)?1.5:1;
+    var _m=(_d*_fd+_n*_fn)*tasaAy;
+    a.viajes+=_t; a[campo]+=_t; a.montoViajes+=_m; a.cams.add(r.cam);
+    if(_dom){ a.viajesDom+=_t; a.recargoDom+=_t*tasaAy*0.5; } else if(_resN){ a.recargoDom+=_n*tasaAy*0.5; }
+    if(_esD){ a.vDom+=_t; a.mDom+=_m/3; }                      // el 0,5 extra del 1,5×
+    if(_esF){ a.vFer+=_t; a.mFer+=_m/3; }
+    var _dd=a.dia[r.f]||(a.dia[r.f]={viajes:0,usd:0,tipo:'normal',cams:[]});
+    _dd.viajes+=_t; _dd.usd+=_m;
+    _dd.tipo=_esD?'domingo':(_esF?'feriado':(_resN?'nocturno':'normal'));
+    if(_dd.cams.indexOf(r.cam)<0)_dd.cams.push(r.cam);
+  }
+  f.forEach(function(r){
+    var _yaEnFila={};
+    [r.ay1,r.ay2,r.ay3].forEach(function(nm){
+      if(!nm||!String(nm).trim())return;
+      var e=_empPorNombre(String(nm).trim());
+      if(!e)return;                          // no identificado → lo lista el banner de nombres sin casar
+      if(_nomCasa(r.ch,e.nombre))return;     // ese día salió de CHOFER: ya cobra por el otro lado
+      if(_yaEnFila[e.id])return;             // el mismo nombre en dos slots de una fila no paga doble
+      _yaEnFila[e.id]=1;
+      _ayAcumular(e,r,'porNombre');
     });
-    var vNom=rNom.reduce(function(s,r){return s+r.t;},0);
-    // Viajes hechos en DOMINGO/feriado nacional → pagan 1.5× (igual que choferes). Aplica a TODOS.
-    var vNomDom=rNom.reduce(function(s,r){return s+(_esDomingoOferiado(r.f)?(parseInt(r.t)||0):0);},0);
-    // Viajes con RECARGO 1.5× = domingo (TODOS los del día) O nocturno-en-Resimara (solo los nocturnos).
-    // NO se apila: un día domingo cuenta r.t una vez (el nocturno-Resimara ya va incluido).
-    var bonusNom=rNom.reduce(function(s,r){ if(_esDomingoOferiado(r.f))return s+(parseInt(r.t)||0); if(_esResimaraNoche(r))return s+(parseInt(r.n)||0); return s;},0);
-    // También buscar por camión asignado si ay1/ay2 están vacíos (planillas viejas sin ayudante registrado)
-    var vCam=0,vCamDom=0,bonusCam=0;
-    if(vNom===0 && e.cargo==='Ayudante'){
-      var rCam=f.filter(function(r){
-        return r.cam===e.unidad&&!r.ay1&&!r.ay2&&!r.ay3;
-      });
-      vCam=rCam.reduce(function(s,r){return s+r.t;},0);
-      vCamDom=rCam.reduce(function(s,r){return s+(_esDomingoOferiado(r.f)?(parseInt(r.t)||0):0);},0);
-      bonusCam=rCam.reduce(function(s,r){ if(_esDomingoOferiado(r.f))return s+(parseInt(r.t)||0); if(_esResimaraNoche(r))return s+(parseInt(r.n)||0); return s;},0);
-    }
-    var viajes=vNom+vCam;
-    var tasaAy=e.tipoAy==='imau'?cfg.imau:cfg.ayud;
-    // recargoDom = 0.5 extra por cada viaje con recargo (domingo o nocturno-Resimara); el viaje base ya va en viajes×tasa.
-    var recargoDom=(bonusNom+bonusCam)*tasaAy*0.5;
-    if(viajes>0)ayMap[e.id]={emp:e,viajes:viajes,viajesDom:vNomDom+vCamDom,recargoDom:recargoDom,tasa:tasaAy,descuentos:0,porNombre:vNom,porCam:vCam};
   });
+  // Respaldo para planillas VIEJAS sin ayudante anotado: si el ayudante fijo de la unidad no salió
+  // por nombre en NINGUNA fila del período, se le cuentan los viajes de su camión que van sin ay1/2/3.
+  EMPLEADOS.forEach(function(e){
+    if(e.cargo!=='Ayudante'||ayMap[e.id])return;
+    f.forEach(function(r){ if(r.cam===e.unidad&&!r.ay1&&!r.ay2&&!r.ay3)_ayAcumular(e,r,'porCam'); });
+  });
+  // Una fila con 0 viajes no crea ayudante (antes lo garantizaba el `if(viajes>0)`).
+  Object.keys(ayMap).forEach(function(id){ if(!ayMap[id].viajes)delete ayMap[id]; });
   // ── AYUDANTES DE APOYO (3er tipo, confirmado por Gladys/RRHH 2026-07-20) ──────────────────
   // "Son apoyo a los ayudantes que están fijos en cada Unidad". Cobran POR VIAJE, pero NO lineal
   // como los fijos: es un ESCALÓN POR DÍA según los viajes que hizo la unidad ese día.
@@ -6472,7 +6583,10 @@ function calcNom(){
   var totCh=Object.values(chMap).reduce(function(s,c){var k=_patioKey(_nombreCanonico(c.ch));var pat=_patioEfectivo(c.patio,PATIO_DIAS[k]);return s+Math.max(0,(c.montoViajes||0)+pat*cfg.chofer-c.descuentos)+(_extraCh[k]||0);},0);
   // Sueldo BASE de un ayudante, antes de descuentos y extras. Los de APOYO ya traen su monto
   // calculado por escalón diario (tarifaApoyoDia); los fijos/IMAU van por viajes × tarifa.
-  var _ayBase=function(a){ return a.apoyo ? (a.montoUsd||0) : ((_ayPatio(a).viajes*a.tasa)+(a.recargoDom||0)); };
+  // `montoViajes` ya trae los recargos 1,5× día por día (mismo criterio que el chofer); el patio
+  // efectivo se suma aparte porque no es un viaje. Antes era viajes×tarifa + recargoDom, que da lo
+  // mismo, pero no permitía desglosar qué se pagó cada día.
+  var _ayBase=function(a){ return a.apoyo ? (a.montoUsd||0) : ((a.montoViajes||0)+_ayPatio(a).patio*a.tasa); };
   var totAy=Object.values(ayMap).reduce(function(s,a){return s+Math.max(0,_ayBase(a)-a.descuentos)+(_extraAy[a.emp.id]||0);},0);
   if(g('nm-tv'))g('nm-tv').textContent=tvTot;
   if(g('nm-ch'))g('nm-ch').textContent='$'+totCh.toFixed(0);
@@ -6493,7 +6607,22 @@ function calcNom(){
   renderNominaExtras(_extrasP);
   if(g('nm-imau'))g('nm-imau').textContent='$'+totImau.toFixed(0)+(imauVj?' ('+imauVj+' viajes×$'+(((typeof cfg!=='undefined'&&cfg.imau)?cfg.imau:2.5))+' + fijos $'+totImauFijo.toFixed(0)+')':' (fijos)');
   try{renderImauApoyo();}catch(e){}
-  _CHMAP_UI=chMap;   // para el desglose día por día (verDesgloseDia)
+  _CHMAP_UI=chMap; _AYMAP_UI=ayMap;   // para el desglose día por día (verDesgloseDia), choferes y ayudantes
+  // Días que abarca lo que se está mostrando: es la grilla del selector de patio. Se toma del rango
+  // elegido y, si no hay, del primer y último día con planilla del período.
+  (function(){
+    var d0=des||'', d1=hta||'';
+    if(f.length){
+      var mn=f.reduce(function(m,r){return r.f<m?r.f:m;},f[0].f), mx=f.reduce(function(m,r){return r.f>m?r.f:m;},f[0].f);
+      d0=d0||mn; d1=d1||mx;
+    }
+    var dias=[];
+    if(d0&&d1){
+      var cur=new Date(d0+'T12:00:00'), fin=new Date(d1+'T12:00:00');
+      for(var i=0;i<40&&cur<=fin;i++){ dias.push(_isoLocal(cur)); cur.setDate(cur.getDate()+1); }
+    }
+    _NOM_PERIODO={dias:dias};
+  })();
   // Guardar el último cálculo para poder "Guardar en historial" (nutrir nomina_historial).
   _ultimaNomina={
     _prestAplicar:_prestAplicar, _multaAplicar:_multaAplicar, // descuentos a avanzar SOLO al guardar la semana
@@ -6505,7 +6634,11 @@ function calcNom(){
       // pagada sin tener que recalcularla (las planillas o las tarifas pueden haber cambiado desde).
       dom:(c.vDom||0),fer:(c.vFer||0),mDom:Math.round((c.mDom||0)*100)/100,mFer:Math.round((c.mFer||0)*100)/100,
       mPat:Math.round(pat*cfg.chofer*100)/100,dia:c.dia||{}};}),
-    ayudantes: Object.values(ayMap).map(function(a){var vp=_ayPatio(a);var patTot=a.apoyo?0:vp.patio;var u=Math.max(0,_ayBase(a)-a.descuentos)+(_extraAy[a.emp.id]||0);return {n:a.emp.nombre,u:a.emp.unidad,viajes:(parseInt(a.viajes)||0)-(parseInt(a.patio)||0),pat:patTot,esp:Math.round((_extraAy[a.emp.id]||0)*100)/100,usd:Math.round(u*100)/100,bs:Math.round(u*tasa*100)/100,tipo:a.apoyo?'apoyo':(a.emp.tipoAy||'interno'),dias:a.apoyo?a.diasApoyo:undefined};}),
+    ayudantes: Object.values(ayMap).map(function(a){var vp=_ayPatio(a);var patTot=a.apoyo?0:vp.patio;var u=Math.max(0,_ayBase(a)-a.descuentos)+(_extraAy[a.emp.id]||0);return {n:a.emp.nombre,u:a.emp.unidad,viajes:(parseInt(a.viajes)||0)-(parseInt(a.patio)||0),pat:patTot,esp:Math.round((_extraAy[a.emp.id]||0)*100)/100,usd:Math.round(u*100)/100,bs:Math.round(u*tasa*100)/100,tipo:a.apoyo?'apoyo':(a.emp.tipoAy||'interno'),dias:a.apoyo?a.diasApoyo:undefined,
+      // Mismo desglose que el chofer, guardado en el historial: una semana ya pagada se puede
+      // auditar sin recalcularla (las planillas o las tarifas pueden haber cambiado desde entonces).
+      dom:(a.vDom||0),fer:(a.vFer||0),mDom:Math.round((a.mDom||0)*100)/100,mFer:Math.round((a.mFer||0)*100)/100,
+      mPat:Math.round(patTot*(a.tasa||0)*100)/100,dia:a.dia||{}};}),
     extras: _extrasP.map(function(x){return {fecha:x.fecha,n:x.empNombre,actividad:x.actividad,modo:x.modo,viajes:x.viajes,monto:x.monto,usd:Math.round(_extraUsd(x)*100)/100};})
   };
   // Total de nómina: SOLO el monto total (sin el desglose op/IMAU/adm/especial — pedido de Máximo).
@@ -6534,11 +6667,83 @@ function calcNom(){
     var _scList=_sinCasar.map(function(x){return '<b>'+_scEsc(x.nombre)+'</b> <span style="color:var(--text3)">('+Object.keys(x.roles).join('/')+', '+x.viajes+' viajes)</span>';}).join(' · ');
     descBanners.unshift('<div style="margin-bottom:6px;font-size:11px;background:rgba(226,75,74,.12);border:1px solid rgba(226,75,74,.5);color:#e24b4a;padding:8px 10px;border-radius:8px">⚠️ <b>'+_sinCasar.length+' nombre(s) en las planillas NO casan con ningún empleado</b> (typo del Excel o empleado sin registrar):<br>'+_scList+'.<div style="font-size:10px;color:var(--text3);margin-top:4px">Corregí el nombre en el Excel o registrá al empleado. Mientras, esos viajes no se enlazan a una ficha (banco/cédula) y pueden confundirse.</div></div>');
   }
-  var desc=g('nm-descuentos');if(desc)desc.innerHTML=descBanners.join('');
+  // ⚠️ DOS FICHAS QUE PODRÍAN SER LA MISMA PERSONA.
+  // Desde que cada nombre de planilla paga a UNA sola ficha, un duplicado ya no cobra doble — pero
+  // sigue partiendo a la persona en dos filas (y a media semana cada una). Quien tiene que decidir
+  // si son uno o dos es RRHH, no el sistema, así que acá solo se avisa con la evidencia a la vista.
+  var _dupPares=[];
+  var _idsAct=Object.keys(ayMap).concat(Object.values(chMap).map(function(c){
+    var e=(typeof _empPorNombre==='function')?_empPorNombre(c.ch):null; return e?e.id:''; })).filter(Boolean);
+  var _idsUnq=_idsAct.filter(function(v,i){return _idsAct.indexOf(v)===i;});
+  _idsUnq.forEach(function(id1,i1){
+    var e1=EMPLEADOS.find(function(e){return e.id===id1;}); if(!e1)return;
+    EMPLEADOS.forEach(function(e2){
+      if(e2.id===id1)return;
+      if(_normNom(e1.nombre)===_normNom(e2.nombre)||_nomCasa(e1.nombre,e2.nombre)){
+        var par=[e1.id,e2.id].sort().join('|');
+        if(_dupPares.indexOf(par)<0)_dupPares.push(par);
+      }
+    });
+  });
+  // ⛔ UNA PERSONA NO PUEDE ESTAR EN DOS CAMIONES EL MISMO DÍA.
+  // Es la comprobación que habría cazado el caso de Carlos Montiel en mayo, cuando empezó. Con las
+  // fichas separadas nadie lo veía: eran "dos personas" y cada una en su camión. Pero RRHH confirmó
+  // (2026-08-05) que **es una sola persona**, y sus dos grafías salen juntas en 12 días distintos
+  // (14/07 al 31/07) en camiones distintos. Eso NO puede ser: uno de los dos juegos de planillas
+  // está mal atribuido, y no lo arregla unificar las fichas — hay que corregir el dato.
+  // Las fichas que el bloque de arriba emparejó como la MISMA persona se cuentan como una sola,
+  // así que el aviso salta ANTES de que alguien las unifique.
+  var _dupCanon={};
+  _dupPares.forEach(function(par){
+    var ids=par.split('|');
+    var ea=EMPLEADOS.find(function(x){return x.id===ids[0];})||{}, eb=EMPLEADOS.find(function(x){return x.id===ids[1];})||{};
+    // Manda la ficha que SÍ tiene cédula (la otra suele ser la que nació de un import).
+    var canon=(String(ea.cedula||'').trim()&&!String(eb.cedula||'').trim())?ids[0]
+             :((String(eb.cedula||'').trim()&&!String(ea.cedula||'').trim())?ids[1]:ids[0]);
+    ids.forEach(function(id){ _dupCanon[id]=canon; });
+  });
+  var _enDosCam={};
+  f.forEach(function(r){
+    [r.ch,r.ay1,r.ay2,r.ay3].forEach(function(nm){
+      if(!nm||!String(nm).trim())return;
+      var e=(typeof _empPorNombre==='function')?_empPorNombre(String(nm).trim()):null; if(!e)return;
+      var k=(_dupCanon[e.id]||e.id)+'|'+r.f;
+      var x=_enDosCam[k]||(_enDosCam[k]={emp:e,f:r.f,cams:{}});
+      (x.cams[r.cam]=x.cams[r.cam]||{})[String(nm).trim()]=1;
+    });
+  });
+  var _choques=Object.keys(_enDosCam).map(function(k){return _enDosCam[k];})
+    .filter(function(x){return Object.keys(x.cams).length>1;})
+    .sort(function(a,b){return a.f<b.f?-1:1;});
+  if(_choques.length){
+    var _chTxt=_choques.slice(0,12).map(function(x){
+      var det=Object.keys(x.cams).map(function(cam){
+        return '<b>'+cam+'</b> <span style="color:var(--text3)">('+Object.keys(x.cams[cam]).join(', ')+')</span>';
+      }).join(' y ');
+      return formatFecha(x.f)+': '+det;
+    }).join('<br>');
+    descBanners.unshift('<div style="margin-bottom:6px;font-size:11px;background:rgba(226,75,74,.12);border:1px solid rgba(226,75,74,.5);color:#e24b4a;padding:8px 10px;border-radius:8px">⛔ <b>'+_choques.length+' día(s) con la MISMA persona en dos unidades a la vez</b> — eso no puede pasar, hay una planilla mal atribuida:<br>'+_chTxt+
+      (_choques.length>12?'<br><span style="color:var(--text3)">…y '+(_choques.length-12)+' más.</span>':'')+
+      '<div style="font-size:10px;color:var(--text3);margin-top:4px">Revisá el Excel de esos días y corregí a quién corresponde. Mientras tanto se paga lo que dice la planilla.</div></div>');
+  }
+  if(_dupPares.length){
+    var _dupTxt=_dupPares.map(function(par){
+      var pr=par.split('|').map(function(id){
+        var e=EMPLEADOS.find(function(x){return x.id===id;})||{};
+        var vj=ayMap[id]?ayMap[id].viajes:0;
+        return '<b>'+(e.nombre||id)+'</b> <span style="color:var(--text3)">('+id+', '+(e.cedula?'CI '+e.cedula:'<span style="color:var(--amber)">sin cédula</span>')+', '+(e.activo===false?'inactivo':'activo')+(vj?', '+vj+' viajes':'')+')</span>';
+      });
+      return pr.join(' ↔ ');
+    }).join('<br>');
+    descBanners.unshift('<div style="margin-bottom:6px;font-size:11px;background:rgba(245,158,11,.12);border:1px solid rgba(245,158,11,.5);color:var(--amber);padding:8px 10px;border-radius:8px">⚠️ <b>'+_dupPares.length+' par(es) de fichas podrían ser LA MISMA persona</b> y le parten los viajes en dos filas:<br>'+_dupTxt+'<div style="font-size:10px;color:var(--text3);margin-top:4px">Cada nombre de planilla ya paga a UNA sola ficha (no se cobra doble), pero hay que decidir en Empleados si son una persona o dos. Comparalo con la cédula y confirmalo con RRHH antes de unificar.</div></div>');
+  }
+  // Se guarda aparte del DOM para poder probar los avisos sin navegador (test/nomina-una-ficha.test.js).
+  _bannersNomina=descBanners.join('');
+  var desc=g('nm-descuentos');if(desc)desc.innerHTML=_bannersNomina;
   var tbCh=g('tb-nom-ch');
   if(tbCh)tbCh.innerHTML=Object.values(chMap).map(function(c,i){
     var key=_patioKey(_nombreCanonico(c.ch));
-    var patM=parseInt(PATIO_DIAS[key])||0, patTot=_patioEfectivo(c.patio,patM); // manual manda (no doble)
+    var patM=_patioNum(PATIO_DIAS[key]), patTot=_patioEfectivo(c.patio,PATIO_DIAS[key]); // manual manda (no doble)
     var _exCh=_extraCh[key]||0; // actividades especiales atribuidas a este chofer (suman a SU total)
     var sueldo=(c.montoViajes||0)+patTot*cfg.chofer, total=Math.max(0,sueldo-c.descuentos)+_exCh;
     var vjCh=(c.viajes-(c.patio||0)); // SOLO viajes de planilla — el patio NO infla los viajes (suma solo al sueldo). Se muestra aparte en el campo/badge "P".
@@ -6549,10 +6754,10 @@ function calcNom(){
     var _badgeInact=(_inact&&_empCh)?' <span style="font-size:8px;color:var(--amber)" title="Chofer INACTIVO en la Lista Maestra pero con viajes en la planilla — revisar">⚠️ inactivo</span> <button class="btn btn-s" style="font-size:8px;padding:1px 5px" onclick="corregirInactivoNomina(\''+_empCh.id+'\')" title="Corregir: reactivar (si sí trabajó) o arreglar la planilla (si fue empleado equivocado). Pide token.">✏️ corregir</button>':'';
     return '<tr'+(_inact?' style="background:rgba(245,158,11,.07)"':'')+'><td style="font-family:var(--m)">'+(i+1)+'</td><td style="font-weight:700">'+c.ch+_badgeInact+'</td>'+
       '<td style="font-size:10px">'+Array.from(c.cams||[]).join(', ')+'</td>'+
+      // El indicador "+N dom/fer" que iba acá se quitó por redundante: la columna Desglose ya dice
+      // "3D 2F 1P", que es la misma información mejor expresada (Máximo, 2026-08-05).
       '<td style="color:var(--green)"><div style="display:flex;align-items:center;justify-content:space-between;gap:6px">'+
-        '<span style="display:flex;align-items:center;gap:3px"><b>'+vjCh+'</b>'+
-        ' <input type="number" min="0" value="'+patM+'" title="Días de actividad sin viaje (patio/traslado/lavado): +1 viaje c/u. Si lo cargás a mano, manda sobre el automático de asistencia." onchange="setPatioDias(\''+key.replace(/'/g,"")+'\',this.value)" style="width:30px;font-size:9px;background:var(--bg3);border:1px solid var(--border);color:var(--amber);border-radius:4px;padding:1px 2px;text-align:center"><span style="font-size:8px;color:var(--amber)">P</span></span>'+
-        '<span style="display:flex;gap:3px;white-space:nowrap">'+(c.viajesDom>0?'<span style="font-size:8px;color:var(--teal)" title="viajes en domingo/feriado pagados a 1.5×">+'+c.viajesDom+' dom/fer</span>':'')+((patM>0?0:(c.patio||0))>0?'<span style="font-size:8px;color:var(--amber)" title="patio por asistencia">+'+(c.patio||0)+'P</span>':'')+'</span>'+
+        '<span style="display:flex;align-items:center;gap:3px"><b>'+vjCh+'</b>'+_btnPatio(key,'ch',patM,patTot,c.patio)+'</span>'+
         '</div></td>'+
       '<td>'+c.dias.size+'</td>'+
       // DESGLOSE (pedido de Máximo 2026-08-04): que se vea de un golpe cuántos domingos, cuántos
@@ -6562,32 +6767,41 @@ function calcNom(){
         ((c.vFer||0)>0?'<span title="viajes en FERIADO nacional (pagan 1,5×)" style="color:#a78bfa">'+c.vFer+'F</span> ':'')+
         (patTot>0?'<span title="días de patio (+1 viaje c/u)" style="color:var(--amber)">'+patTot+'P</span> ':'')+
         (((c.vDom||0)+(c.vFer||0)+patTot)===0?'<span style="color:var(--text3)">—</span> ':'')+
-        '<button class="btn btn-s btn-xs solo-ui" style="padding:0 4px;font-size:9px" onclick="verDesgloseDia(\''+String(key).replace(/'/g,'')+'\')" title="Ver día por día qué se le pagó">🔍</button>'+
+        '<button class="btn btn-s btn-xs solo-ui" style="padding:0 4px;font-size:9px" onclick="verDesgloseDia(\''+String(key).replace(/'/g,'')+'\',\'ch\')" title="Ver día por día qué se le pagó">🔍</button>'+
       '</td>'+
-      '<td style="font-family:var(--m)">$'+fmtMon(sueldo)+(c.viajesDom>0?' <span style="font-size:8px;color:var(--teal)" title="incluye recargo domingo 1.5×">▲</span>':'')+(patTot>0?' <span style="font-size:8px;color:var(--amber)" title="incluye '+patTot+' día(s) de patio × tarifa (no son viajes)">+'+patTot+'P</span>':'')+'</td>'+
+      '<td style="font-family:var(--m)">$'+fmtMon(sueldo)+(c.viajesDom>0?' <span style="font-size:8px;color:var(--teal)" title="incluye el recargo 1,5× de domingo o feriado nacional">▲</span>':'')+(patTot>0?' <span style="font-size:8px;color:var(--amber)" title="incluye '+patTot+' día(s) de patio × tarifa (no son viajes)">+'+patTot+'P</span>':'')+'</td>'+
       '<td style="font-family:var(--m);color:var(--red)">'+(c.descuentos>0?'-$'+fmtMon(c.descuentos):'—')+'</td>'+
       '<td style="font-family:var(--m);font-weight:700;color:var(--yellow)">$'+fmtMon(total)+(_exCh>0?' <span style="font-size:8px;color:var(--green)" title="incluye $'+fmtMon(_exCh)+' de actividad(es) especial(es)">+$'+fmtMon(_exCh)+' esp</span>':'')+'</td></tr>';}).join('');
   var tbAy=g('tb-nom-ay');
   if(tbAy)tbAy.innerHTML=Object.values(ayMap).sort(function(a,b){return b.viajes-a.viajes;}).map(function(a,i){
     var esImau=(a.emp.tipoAy==='imau');
-    var patAyM=esImau?0:(parseInt(PATIO_DIAS[a.emp.id])||0); // días de patio manual (IMAU no cobra patio)
-    var vp=_ayPatio(a); var vTot=vp.viajes; // viajes + patio efectivo → para el SUELDO (manual manda; sin doble patio)
+    var patAyM=esImau?0:_patioNum(PATIO_DIAS[a.emp.id]); // días de patio manual (IMAU no cobra patio)
+    var vp=_ayPatio(a); // patio efectivo (manual manda; sin doble patio)
     var vjPlanAy=(parseInt(a.viajes)||0)-(parseInt(a.patio)||0); // SOLO viajes de planilla para MOSTRAR (el patio no infla los viajes)
     var _exAy=_extraAy[a.emp.id]||0; // actividades especiales atribuidas a este ayudante (suman a SU total)
     var sueldo=_ayBase(a);var total=Math.max(0,sueldo-a.descuentos)+_exAy;
     var nota=a.porNombre>0&&a.porCam>0?'('+a.porNombre+'v nombre + '+a.porCam+'v camión)':'';
-    var inputPatio=esImau?'':(' <input type="number" min="0" value="'+patAyM+'" title="Días de actividad sin viaje (patio/traslado/lavado): +1 viaje c/u" onchange="setPatioDias(\''+a.emp.id+'\',this.value)" style="width:30px;font-size:9px;background:var(--bg3);border:1px solid var(--border);color:var(--amber);border-radius:4px;padding:1px 2px;text-align:center"><span style="font-size:8px;color:var(--amber)">P</span>');
+    var inputPatio=(esImau||a.apoyo)?'':_btnPatio(a.emp.id,'ay',patAyM,vp.patio,a.patio);
     // Ayudante INACTIVO con viajes: se paga igual pero se marca ⚠️ (apareció en planilla dado de baja).
     var _inactAy=(a.emp.activo===false);
     var _badgeInactAy=_inactAy?' <span style="font-size:8px;color:var(--amber)" title="Ayudante INACTIVO en la Lista Maestra pero con viajes en la planilla — revisar">⚠️ inactivo</span> <button class="btn btn-s" style="font-size:8px;padding:1px 5px" onclick="corregirInactivoNomina(\''+a.emp.id+'\')" title="Corregir: reactivar (si sí trabajó) o arreglar la planilla (si fue empleado equivocado). Pide token.">✏️ corregir</button>':'';
     return'<tr'+(_inactAy?' style="background:rgba(245,158,11,.07)"':'')+'><td>'+(i+1)+'</td><td style="font-weight:700">'+a.emp.nombre+_badgeInactAy+'</td>'+
       '<td><span class="badge '+(esImau?'bp':'bt')+'">'+( a.emp.tipoAy||'interno')+'</span></td>'+
       '<td style="font-size:10px">'+a.emp.unidad+(nota?'<br><span style="color:var(--text3);font-size:9px">'+nota+'</span>':'')+'</td>'+
+      // Igual que en choferes: el "+N dom/fer" salió de acá porque la columna Desglose ya lo dice mejor.
       '<td style="color:var(--green)"><div style="display:flex;align-items:center;justify-content:space-between;gap:6px">'+
         '<span style="display:flex;align-items:center;gap:3px"><b>'+vjPlanAy+'</b>'+inputPatio+'</span>'+
-        '<span style="display:flex;gap:3px;white-space:nowrap">'+(a.viajesDom>0?'<span style="font-size:8px;color:var(--teal)" title="viajes en domingo/feriado pagados a 1.5×">+'+a.viajesDom+' dom/fer</span>':'')+'</span>'+
         '</div></td>'+
-      '<td style="font-family:var(--m)">$'+fmtMon(sueldo)+(a.recargoDom>0?' <span style="font-size:8px;color:var(--teal)" title="incluye recargo domingo 1.5×">▲</span>':'')+((vp.patio||0)>0?' <span style="font-size:8px;color:var(--amber)" title="incluye '+vp.patio+' día(s) de patio × tarifa (no son viajes)">+'+vp.patio+'P</span>':'')+'</td>'+
+      // DESGLOSE del ayudante — las mismas columnas y la misma lupa que el chofer (Máximo, 2026-08-05).
+      // El de APOYO cobra por escalón diario, no por viaje: su desglose es su propia lista de días.
+      '<td style="font-size:9px;white-space:nowrap">'+
+        ((a.vDom||0)>0?'<span title="viajes en DOMINGO (pagan 1,5×)" style="color:var(--teal)">'+a.vDom+'D</span> ':'')+
+        ((a.vFer||0)>0?'<span title="viajes en FERIADO nacional (pagan 1,5×)" style="color:#a78bfa">'+a.vFer+'F</span> ':'')+
+        ((vp.patio||0)>0?'<span title="días de patio (+1 viaje c/u)" style="color:var(--amber)">'+vp.patio+'P</span> ':'')+
+        (((a.vDom||0)+(a.vFer||0)+(vp.patio||0))===0?'<span style="color:var(--text3)">—</span> ':'')+
+        (a.apoyo?'':'<button class="btn btn-s btn-xs solo-ui" style="padding:0 4px;font-size:9px" onclick="verDesgloseDia(\''+String(a.emp.id).replace(/'/g,'')+'\',\'ay\')" title="Ver día por día qué se le pagó">🔍</button>')+
+      '</td>'+
+      '<td style="font-family:var(--m)">$'+fmtMon(sueldo)+(a.recargoDom>0?' <span style="font-size:8px;color:var(--teal)" title="incluye el recargo 1,5× de domingo o feriado nacional">▲</span>':'')+((vp.patio||0)>0?' <span style="font-size:8px;color:var(--amber)" title="incluye '+vp.patio+' día(s) de patio × tarifa (no son viajes)">+'+vp.patio+'P</span>':'')+'</td>'+
       '<td style="font-family:var(--m);color:var(--red)">'+(a.descuentos>0?'-$'+fmtMon(a.descuentos):'—')+'</td>'+
       '<td style="font-family:var(--m);font-weight:700;color:var(--yellow)">$'+fmtMon(total)+(_exAy>0?' <span style="font-size:8px;color:var(--green)" title="incluye $'+fmtMon(_exAy)+' de actividad(es) especial(es)">+$'+fmtMon(_exAy)+' esp</span>':'')+'</td></tr>';
   }).join('');
@@ -12416,12 +12630,20 @@ function _choferDeMulta(m){
 }
 // PATIO — "el MANUAL manda" (decisión de Máximo): si hay patio cargado a mano (PATIO_DIAS) ese vale;
 // si no, el automático de la asistencia. NUNCA se suman (antes se pagaba el patio dos veces).
-function _patioEfectivo(auto, manual){ manual=parseInt(manual)||0; return manual>0?manual:(parseInt(auto)||0); }
+// ⛔ EL PATIO SE GUARDA POR DÍA, NO COMO UN NÚMERO SUELTO.
+// Antes se cargaba "3" y nadie podía decir CUÁLES tres días: no salía en el desglose, no se podía
+// cotejar contra el fichaje ni contra los días que el camión no salió, y una semana sin cargar se
+// veía igual que una semana sin patio. Ahora el valor es una LISTA de fechas ISO
+// (["2026-07-20", ...]). Se sigue leyendo el formato viejo (número) para no perder lo ya cargado:
+// vale como cantidad, solo que sin decir qué días.
+function _patioNum(v){ return Array.isArray(v)?v.length:(parseInt(v)||0); }
+function _patioLista(v){ return Array.isArray(v)?v.slice().sort():[]; }
+function _patioEfectivo(auto, manual){ manual=_patioNum(manual); return manual>0?manual:(parseInt(auto)||0); }
 // Ayudante: a.viajes YA trae dentro el patio de asistencia (a.patio). Devuelve viajes y patio EFECTIVOS
 // (saca el de asistencia y aplica "manual manda") para que el pago no duplique el patio.
 function _ayPatio(a){
   var asisP=parseInt(a&&a.patio)||0;
-  var manual=(a&&a.emp&&a.emp.tipoAy==='imau')?0:(parseInt(PATIO_DIAS[a&&a.emp&&a.emp.id])||0);
+  var manual=(a&&a.emp&&a.emp.tipoAy==='imau')?0:_patioNum(PATIO_DIAS[a&&a.emp&&a.emp.id]);
   var ef=_patioEfectivo(asisP, manual);
   return { viajes:(parseInt(a&&a.viajes)||0)-asisP+ef, patio:ef };
 }
@@ -13670,53 +13892,138 @@ async function guardarEmpleado(){
   poblarCams();poblarEmps();switchEmpTab('lista');
 }
 
+// Los carnets se sacan del personal de BETANGAR activo, SIN los del IMAU (son prestados de la
+// Alcaldía). Una sola función decide QUÉ se muestra y QUÉ se imprime: antes la vista previa filtraba
+// por el select y la impresión lo ignoraba, así que elegir a una persona igual sacaba los ~90.
+function _carnetsFiltrados(){
+  var filtroEmp=gv('carn-emp');
+  var q=(typeof _normNom==='function')?_normNom(gv('carn-buscar')):String(gv('carn-buscar')||'').toUpperCase().trim();
+  return EMPLEADOS.filter(function(e){
+    if(!e.activo||e.imau)return false;
+    if(filtroEmp&&e.id!==filtroEmp)return false;
+    if(!q)return true;
+    // Se busca por nombre, cédula, unidad o cargo — es lo que la oficina tiene a mano.
+    var heno=_normNom([e.nombre,e.cedula,e.unidad,e.cargo,e.id].filter(Boolean).join(' '));
+    return q.split(' ').every(function(tok){return heno.indexOf(tok)>=0;});
+  });
+}
+// ── FRENTE DEL CARNET ──────────────────────────────────────────────────────────────────────
+// Rediseñado (Máximo, 2026-08-05): «lo siento muy básico, hay demasiado espacio en blanco».
+// El vacío venía de que el frente decía MUY POCO: nombre, cargo, unidad y cédula sueltos al lado de
+// una foto chica. Ahora la mitad derecha es una FICHA de datos rotulada (como una cédula de verdad)
+// y el nombre se parte en NOMBRES / APELLIDOS, que de paso evita que uno largo se desborde en tres
+// líneas. Los datos son los que YA existen en la ficha: no se inventa ninguno.
+//
+// Es UNA sola función porque la vista previa y la impresión tienen que mostrar lo mismo: antes la
+// pestaña dibujaba una tarjetita oscura propia y lo que salía por la impresora era otra cosa, así
+// que revisar el arte en pantalla no servía de nada.
+var CARNET_COLOR_CARGO={'Chofer':'#7dc941','Ayudante':'#3b82f6','Mecanico':'#f59e0b','Jefe de Operaciones':'#ef4444',
+  'Administradora':'#8b5cf6','Vigilante':'#64748b',
+  // Los de oficina no estaban y caían todos en el azul oscuro por defecto: los carnets de RRHH,
+  // contabilidad y supervisión se veían iguales entre sí.
+  'RRHH':'#ec4899','Contadora':'#0ea5e9','Auditora':'#14b8a6','Supervisor':'#f97316','Gerente General':'#1e3a5f'};
+// Nombre en dos renglones: los 2 últimos tokens son los apellidos (convención venezolana).
+function _carnetNombre(nombre){
+  var t=String(nombre||'').trim().split(/\s+/).filter(Boolean);
+  if(t.length<2)return {nom:t.join(' '),ape:''};
+  var corte=Math.max(1,t.length-2);
+  return {nom:t.slice(0,corte).join(' '), ape:t.slice(corte).join(' ')};
+}
+// La cédula se lee de un golpe con los puntos de mil (misma norma que el resto de los números).
+function _carnetCI(c){
+  var s=String(c||'').trim(); if(!s)return '';
+  var m=s.match(/^([VEJGP])[\s-]*([\d.]+)$/i);
+  if(!m)return s;
+  return m[1].toUpperCase()+'-'+String(m[2]).replace(/\./g,'').replace(/\B(?=(\d{3})+(?!\d))/g,'.');
+}
+function _carnetFrente(emp){
+  var _esc=(typeof _mEsc==='function')?_mEsc:function(s){return String(s==null?'':s);};
+  var colorC=CARNET_COLOR_CARGO[emp.cargo]||'#1e3a5f';
+  var logo=(typeof LOGO_SVG!=='undefined')?'<img src="'+LOGO_SVG+'" height="30" style="filter:brightness(0) invert(1)">':'';
+  var alc=(typeof LOGO_ALCALDIA!=='undefined')?LOGO_ALCALDIA:'';
+  var alcFront=alc?'<img src="'+alc+'" style="position:absolute;top:6px;right:8px;height:26px;background:#fff;border-radius:50%;padding:1px" title="Alcaldía Bolivariana de Maracaibo">':'';
+  var nn=_carnetNombre(emp.nombre);
+  // Iniciales: primer nombre + primer apellido (antes era una sola letra).
+  var ini=_esc((nn.nom.charAt(0)||'')+(nn.ape.charAt(0)||''));
+  var foto=emp.foto
+    ? '<img src="'+emp.foto+'" style="width:100%;height:100%;object-fit:cover;display:block">'
+    : '<div class="cn-ini" style="width:100%;height:100%;background:linear-gradient(135deg,#1e3a5f,#2d5282);display:flex;align-items:center;justify-content:center;font-size:26px;color:#fff;font-weight:900;letter-spacing:1px">'+ini+'</div>';
+  // Nombres largos: se achican solos en vez de romper la tarjeta.
+  var fsNom=nn.nom.length>18?10.5:(nn.nom.length>15?11.5:12.5);
+  var fsApe=nn.ape.length>18?10.5:(nn.ape.length>15?11.5:12.5);
+  // `text-align:left` explícito: la hoja de impresión centra por defecto y el carnet salía con los
+  // rótulos y los datos centrados, que es parte de lo que lo hacía ver desarmado.
+  // Las 4 celdas se dibujan SIEMPRE, aunque falte el dato: si se ocultaba la vacía, las demás se
+  // corrían de columna y cada carnet quedaba armado distinto. Lo que falta se ve como "—", y así
+  // queda a la vista qué ficha hay que completar antes de mandar a imprimir.
+  var _campo=function(rot,val){
+    var v=String(val==null?'':val).trim();
+    return '<div style="min-width:0;text-align:left"><div style="font-size:6px;letter-spacing:.8px;color:#94a3b8;font-weight:700;text-transform:uppercase;line-height:1.1">'+_esc(rot)+'</div>'+
+      '<div style="font-size:9.5px;color:'+(v?'#1e3a5f':'#c3ccd8')+';font-weight:800;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+_esc(v||'—')+'</div></div>';
+  };
+  var anio=(function(){try{return new Date().getFullYear();}catch(e){return '';}})();
+  return '<div class="carnet" style="width:340px;height:200px;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 4px 15px rgba(0,0,0,.15);display:inline-flex;flex-direction:column;border:1px solid #e2e8f0;position:relative;font-family:system-ui,-apple-system,Segoe UI,Arial,sans-serif">'+
+    // Franja de color del cargo a lo largo del borde: identifica el rol de un vistazo, de lejos.
+    '<div class="cn-stripe" style="position:absolute;left:0;top:0;bottom:0;width:7px;background:'+colorC+';z-index:2"></div>'+
+    // Acento de fondo: llena la esquina vacía sin agregar ruido ni datos falsos. Es geometría CSS,
+    // no un glifo — un emoji (♻) se dibuja distinto en cada equipo y salía como una mancha.
+    '<div style="position:absolute;right:0;bottom:0;width:150px;height:120px;pointer-events:none;overflow:hidden">'+
+      '<div style="position:absolute;right:-58px;bottom:-58px;width:132px;height:132px;transform:rotate(45deg);background:'+colorC+';opacity:.07"></div>'+
+      '<div style="position:absolute;right:-40px;bottom:-84px;width:132px;height:132px;transform:rotate(45deg);background:'+colorC+';opacity:.10"></div>'+
+    '</div>'+
+    '<div class="card-top" style="background:linear-gradient(135deg,#1e3a5f,#0f2340);padding:6px 12px 6px 17px;display:flex;justify-content:space-between;align-items:center;border-bottom:3px solid '+colorC+';position:relative;flex:none">'+
+    logo+'<div style="color:#fff;font-size:8px;text-align:right;opacity:.85;margin-right:32px;letter-spacing:.5px;line-height:1.2">CARNET DE<br><b>IDENTIFICACIÓN</b></div>'+alcFront+'</div>'+
+    // `min-height:0` + `overflow:hidden`: sin esto el bloque de datos empujaba el pie FUERA de los
+    // 200 px y el carnet salía impreso con el RIF cortado por la mitad.
+    '<div style="padding:7px 11px 4px 17px;display:flex;gap:10px;flex:1;min-height:0;overflow:hidden;position:relative;z-index:1;text-align:left">'+
+      // Foto tipo documento (rectangular), no un avatar redondo.
+      '<div style="width:72px;height:84px;border-radius:6px;overflow:hidden;border:2px solid '+colorC+';background:#eef2f7;flex:none">'+foto+'</div>'+
+      '<div style="flex:1;min-width:0;display:flex;flex-direction:column;text-align:left">'+
+        '<div style="font-size:6px;letter-spacing:.8px;color:#94a3b8;font-weight:700;line-height:1.1">NOMBRES</div>'+
+        '<div style="font-size:'+fsNom+'px;font-weight:900;color:#0f2340;line-height:1.15;letter-spacing:-.2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+_esc(nn.nom||'—')+'</div>'+
+        '<div style="font-size:6px;letter-spacing:.8px;color:#94a3b8;font-weight:700;line-height:1.1;margin-top:2px">APELLIDOS</div>'+
+        '<div style="font-size:'+fsApe+'px;font-weight:900;color:#0f2340;line-height:1.15;letter-spacing:-.2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+_esc(nn.ape||'—')+'</div>'+
+        '<div class="cn-cargo" style="display:inline-block;align-self:flex-start;background:'+colorC+';color:#fff;font-size:8px;font-weight:800;padding:1.5px 8px;border-radius:8px;margin:4px 0 0;text-transform:uppercase;letter-spacing:.6px">'+_esc(emp.cargo)+'</div>'+
+        // Ficha de datos en dos columnas: es lo que llenaba de aire la mitad derecha.
+        '<div style="display:grid;grid-template-columns:1fr 1fr;gap:2px 8px;border-top:1px solid #e8edf2;padding-top:4px;margin-top:auto;text-align:left">'+
+          _campo('Cédula', _carnetCI(emp.cedula))+
+          _campo('Ficha', emp.id)+
+          _campo('Unidad', emp.unidad)+
+          _campo('Ingreso', emp.fingreso?formatFecha(emp.fingreso):'')+
+        '</div>'+
+      '</div>'+
+    '</div>'+
+    '<div style="background:#f8fafc;padding:4px 11px 4px 17px;display:flex;justify-content:space-between;align-items:center;font-size:7.5px;color:#8a97a8;border-top:1px solid #e8edf2;position:relative;z-index:1;flex:none">'+
+    '<span><b style="color:#5b6b7f">'+brandNom()+'</b> · '+brandRif()+'</span>'+
+    '<span>'+brandCiudad()+' · '+anio+'</span>'+
+    '</div></div>';
+}
 function renderCarnetsPreview(){
   var el=g('carnets-preview');if(!el)return;
-  var filtroEmp=gv('carn-emp');
-  var emps=EMPLEADOS.filter(function(e){return e.activo && !e.imau && (!filtroEmp||e.id===filtroEmp);});
+  var emps=_carnetsFiltrados();
+  var cnt=g('carn-cuenta');
+  if(cnt){
+    // Un carnet sin cédula o sin foto no debería mandarse a imprimir: se avisa ANTES, acá.
+    var faltan=emps.filter(function(e){return !String(e.cedula||'').trim()||!e.foto;});
+    cnt.innerHTML=emps.length+' de '+EMPLEADOS.filter(function(e){return e.activo&&!e.imau;}).length+' carnets'+
+      (faltan.length?' · <span style="color:var(--amber)" title="'+faltan.map(function(e){return e.nombre+(String(e.cedula||'').trim()?'':' (sin cédula)')+(e.foto?'':' (sin foto)');}).join(' · ').replace(/"/g,'&quot;')+'">⚠️ '+faltan.length+' sin cédula o sin foto</span>':'');
+  }
+  if(!emps.length){ el.innerHTML='<div style="color:var(--text3);font-size:12px;padding:16px">Ningún empleado activo coincide con la búsqueda.</div>'; return; }
+  // La vista previa es EL MISMO carnet que se imprime, apenas achicado para que entren varios.
   el.innerHTML=emps.map(function(e){
-    var c=e.cargo==='Chofer'?'#1e3a5f':e.cargo==='Ayudante'?'#0f3428':'#1a1a3e';
-    var cc=e.cargo==='Chofer'?'#a3e635':e.cargo==='Ayudante'?'#14b8a6':'#38bdf8';
-    return'<div style="width:200px;height:120px;background:linear-gradient(135deg,'+c+',#08111f);border:1px solid var(--border);border-radius:10px;padding:10px;position:relative;overflow:hidden;box-shadow:0 4px 12px rgba(0,0,0,.3)">'+
-      '<div style="font-size:9px;color:'+cc+';letter-spacing:2px;text-transform:uppercase;font-weight:700">'+brandNomUp()+'</div>'+
-      '<div style="font-size:11px;font-weight:800;color:#fff;margin-top:4px">'+e.nombre+'</div>'+
-      '<div style="font-size:9px;color:'+cc+';margin-top:2px">'+e.cargo.toUpperCase()+'</div>'+
-      '<div style="font-size:9px;color:var(--text2);margin-top:2px">'+e.unidad+(e.cedula?' · '+e.cedula:'')+'</div>'+
-      '<div style="position:absolute;bottom:8px;right:8px;font-size:8px;color:var(--text3)">'+e.id+'</div>'+
-      '<div style="position:absolute;top:8px;right:8px;font-size:20px;opacity:.15">🚛</div>'+
-    '</div>';
+    return '<div style="width:255px;height:150px;overflow:hidden;flex:none">'+
+      '<div style="transform:scale(.75);transform-origin:top left">'+_carnetFrente(e)+'</div></div>';
   }).join('');
 }
 
 function imprimirCarnets(){
-  // Carnets = personal de BETANGAR activo (campo + oficina), SIN los del IMAU (son prestados de la Alcaldía).
-  var lista=EMPLEADOS.filter(function(e){return e.activo && !e.imau;});
-  if(!lista.length){alert("Sin empleados registrados");return;}
-  var logo=typeof LOGO_SVG!=="undefined"?'<img src="'+LOGO_SVG+'" height="35" style="filter:brightness(0) invert(1)">':'';
+  // Se imprime EXACTAMENTE lo que se está viendo (mismo filtro que la vista previa).
+  var lista=_carnetsFiltrados();
+  if(!lista.length){alert("No hay carnets para imprimir con ese filtro.");return;}
   var alc=(typeof LOGO_ALCALDIA!=="undefined")?LOGO_ALCALDIA:'';
-  var alcFront=alc?'<img src="'+alc+'" style="position:absolute;top:6px;right:8px;height:26px;background:#fff;border-radius:50%;padding:1px" title="Alcaldía Bolivariana de Maracaibo">':'';
-  var colorCargo={'Chofer':'#7dc941','Ayudante':'#3b82f6','Mecanico':'#f59e0b','Jefe de Operaciones':'#ef4444','Administradora':'#8b5cf6','Vigilante':'#64748b'};
   var _esc=(typeof _mEsc==='function')?_mEsc:function(s){return String(s==null?'':s);};
   var cardsHtml=lista.map(function(emp){
-    var foto=emp.foto?'<img src="'+emp.foto+'" style="width:70px;height:70px;border-radius:50%;object-fit:cover;border:3px solid #7dc941">':
-      '<div style="width:70px;height:70px;border-radius:50%;background:linear-gradient(135deg,#1e3a5f,#2d5282);border:3px solid #7dc941;display:flex;align-items:center;justify-content:center;font-size:24px;color:#fff;font-weight:900">'+_esc(emp.nombre.charAt(0))+'</div>';
-    var colorC=colorCargo[emp.cargo]||'#1e3a5f';
-    // FRENTE
-    var frente='<div class="carnet" style="width:340px;height:200px;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 4px 15px rgba(0,0,0,.15);display:inline-flex;flex-direction:column;border:1px solid #e2e8f0;position:relative">'+
-      '<div class="card-top" style="background:linear-gradient(135deg,#1e3a5f,#0f2340);padding:10px 14px;display:flex;justify-content:space-between;align-items:center;border-bottom:3px solid '+colorC+';position:relative">'+
-      logo+'<div style="color:#fff;font-size:9px;text-align:right;opacity:.8;margin-right:30px">CARNET DE<br>IDENTIFICACIÓN</div>'+alcFront+'</div>'+
-      '<div style="padding:12px 14px;display:flex;gap:12px;flex:1;align-items:center">'+
-      '<div>'+foto+'</div>'+
-      '<div style="flex:1">'+
-      '<div style="font-size:14px;font-weight:900;color:#1e3a5f;line-height:1.2">'+_esc(emp.nombre)+'</div>'+
-      '<div style="display:inline-block;background:'+colorC+';color:#fff;font-size:9px;font-weight:700;padding:2px 8px;border-radius:10px;margin:4px 0;text-transform:uppercase">'+_esc(emp.cargo)+'</div>'+
-      (emp.unidad?'<div style="font-size:11px;color:#555;font-weight:700">'+_esc(emp.unidad)+'</div>':'')+
-      (emp.cedula?'<div style="font-size:10px;color:#888;margin-top:2px">CI: '+_esc(emp.cedula)+'</div>':'')+
-      '</div></div>'+
-      '<div style="background:#f8fafc;padding:6px 14px;display:flex;justify-content:space-between;font-size:9px;color:#888;border-top:1px solid #e8edf2">'+
-      '<span>'+brandNom()+' | '+brandRif()+'</span>'+
-      '<span>'+brandCiudad()+'</span>'+
-      '</div></div>';
+    var frente=_carnetFrente(emp);
     // DORSO — logo Alcaldía + mensaje de colaboración
     var dorso='<div class="carnet" style="width:340px;height:200px;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 4px 15px rgba(0,0,0,.15);display:inline-flex;flex-direction:column;border:1px solid #e2e8f0;align-items:center;justify-content:center;text-align:center;padding:16px 20px;box-sizing:border-box">'+
       (alc?'<img src="'+alc+'" style="height:56px;margin-bottom:8px">':'<div style="font-weight:800;color:#1e3a5f;margin-bottom:8px">Alcaldía Bolivariana de Maracaibo</div>')+
@@ -13733,10 +14040,14 @@ function imprimirCarnets(){
     '.titulo{text-align:center;font-size:18px;font-weight:900;color:#1e3a5f;margin-bottom:6px}'+
     '.sub{text-align:center;font-size:11px;color:#64748b;margin-bottom:18px}'+
     '.grid{display:flex;flex-wrap:wrap;justify-content:center}'+
+    // Al imprimir, el navegador descarta los fondos por defecto: sin esto la franja del cargo, la
+    // píldora y el degradado del encabezado salen en blanco y el carnet vuelve a verse "pelado".
     '@media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact}'+
+    '.carnet,.card-top,.cn-stripe,.cn-cargo,.cn-ini{-webkit-print-color-adjust:exact;print-color-adjust:exact}'+
+    '.carnet{page-break-inside:avoid;break-inside:avoid}'+
     '.card-top{background:linear-gradient(135deg,#1e3a5f,#0f2340)!important}}</style></head><body>'+
     '<div class="titulo">Carnets de Identificación — '+brandNom()+'</div>'+
-    '<div class="sub">'+lista.length+' carnets · personal '+brandNom()+' activo (sin IMAU) · frente y dorso</div>'+
+    '<div class="sub">'+lista.length+' carnet(s) · personal '+brandNom()+' activo (sin IMAU) · frente y dorso</div>'+
     '<div class="grid">'+cardsHtml+'</div>'+
     '</body></html>';
   abrirVentanaImpresion(html);

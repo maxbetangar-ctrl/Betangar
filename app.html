@@ -1622,7 +1622,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
   </div>
   <div style="margin-bottom:10px;display:flex;flex-direction:column;gap:14px">
     <div style="min-width:0"><div class="st" style="margin-bottom:6px">Choferes</div><div class="tw"><table><thead><tr><th>#</th><th>Chofer</th><th>Unidad</th><th>Viajes</th><th>Dias</th><th title="Domingos (D), Feriados (F) y dias de Patio (P) que se estan pagando. La lupa abre el dia por dia.">Desglose</th><th>Sueldo $</th><th>Desc $</th><th>Total $</th></tr></thead><tbody id="tb-nom-ch"></tbody></table></div></div>
-    <div style="min-width:0"><div class="sh" style="margin-bottom:6px"><div class="st">Ayudantes</div><div style="font-size:11px;color:var(--blue)" id="nm-ay-total">-</div></div><div class="tw"><table><thead><tr><th>#</th><th>Ayudante</th><th>Tipo</th><th>Unidad</th><th>Viajes</th><th>Sueldo $</th><th>Desc $</th><th>Total $</th></tr></thead><tbody id="tb-nom-ay"></tbody></table></div></div>
+    <div style="min-width:0"><div class="sh" style="margin-bottom:6px"><div class="st">Ayudantes</div><div style="font-size:11px;color:var(--blue)" id="nm-ay-total">-</div></div><div class="tw"><table><thead><tr><th>#</th><th>Ayudante</th><th>Tipo</th><th>Unidad</th><th>Viajes</th><th title="Domingos (D), Feriados (F) y dias de Patio (P) que se estan pagando. La lupa abre el dia por dia.">Desglose</th><th>Sueldo $</th><th>Desc $</th><th>Total $</th></tr></thead><tbody id="tb-nom-ay"></tbody></table></div></div>
   </div>
   <!-- ACTIVIDADES ESPECIALES (planilla especial): pagos fuera de viajes, suman al total de la semana -->
   <div class="card" style="margin-top:10px;border:1px solid var(--teal)">
@@ -2199,7 +2199,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
     </div>
   </div>
   <div id="tab-emp-carnets" style="display:none">
-    <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;align-items:flex-end"><select class="fc" id="carn-emp" style="max-width:250px;padding:6px 8px;font-size:11px"><option value="">Todos</option></select><button class="btn btn-g btn-sm" onclick="imprimirCarnets()">Imprimir Carnets</button><button class="btn btn-s btn-sm" onclick="emailCarnet()">✉ Correo</button></div>
+    <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;align-items:flex-end"><input class="fc" id="carn-buscar" type="search" placeholder="Buscar por nombre, cedula o unidad..." oninput="renderCarnetsPreview()" style="max-width:250px;padding:6px 8px;font-size:11px"><select class="fc" id="carn-emp" onchange="renderCarnetsPreview()" style="max-width:250px;padding:6px 8px;font-size:11px"><option value="">Todos</option></select><button class="btn btn-g btn-sm" onclick="imprimirCarnets()">Imprimir Carnets</button><button class="btn btn-s btn-sm" onclick="emailCarnet()">✉ Correo</button><span id="carn-cuenta" style="font-size:11px;color:var(--text2)"></span></div>
     <div id="carnets-preview" style="display:flex;flex-wrap:wrap;gap:14px"></div>
   </div>
   <div id="tab-emp-bancario" style="display:none">
@@ -2672,7 +2672,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
 </div>
 
 <script src="logo-alcaldia.js?v=1"></script>
-<script src="app.js?v=20260804c-cargo-no-se-degrada"></script>
+<script src="app.js?v=20260805-una-ficha-un-pago-patio-por-dia-carnet"></script>
 
 <!-- Modal global -->
 <div id="modal" class="moverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9990;align-items:center;justify-content:center;padding:16px">

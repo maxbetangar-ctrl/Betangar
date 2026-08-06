@@ -176,12 +176,18 @@ async function registrar(){
   var btn=$('btn-fichar'); btn.disabled=true; btn.textContent='Registrando…';
   try{
     // 1) subir selfie comprimida
+    // ⛔ SIN FOTO NO HAY FICHAJE.
+    // El botón exige la selfie, pero si la SUBIDA fallaba esto seguía de largo con selfieUrl=''
+    // y el fichaje quedaba registrado igual, sin imagen: 13 así entre el 01/06 y el 05/08. La foto
+    // es la evidencia de que la persona estuvo — un fichaje sin ella no prueba nada, así que ahora
+    // corta acá y se reintenta. Ver [norma-foto-de-evidencia-camara-en-vivo].
     var blob=await comprimir(SELFIE_FILE);
     var hoy=new Date(Date.now()-14400000).toISOString().slice(0,10); // fecha VE aprox (para el path)
     var path='asistencia/'+SEL.id+'_'+hoy+'.jpg';
     var up=await SB.storage.from('asistencia').upload(path, blob, {contentType:'image/jpeg', upsert:true});
-    var selfieUrl='';
-    if(!up.error){ selfieUrl=SB.storage.from('asistencia').getPublicUrl(path).data.publicUrl; }
+    if(up.error){ res.innerHTML='<div class="res bad">No se pudo subir la foto ('+esc(up.error.message||'error')+'). Sin foto no se puede fichar: revisá la señal y tocá Registrar otra vez.</div>'; return; }
+    var selfieUrl=(SB.storage.from('asistencia').getPublicUrl(path).data||{}).publicUrl||'';
+    if(!selfieUrl){ res.innerHTML='<div class="res bad">La foto se subió pero no se pudo enlazar. Reintentá en unos segundos.</div>'; return; }
     // 2) registrar (valida ced-4 + geocerca en el servidor)
     var r=await SB.rpc('fichar_asistencia',{p_id:SEL.id,p_clave:clave,p_lat:POS?POS.lat:null,p_lng:POS?POS.lng:null,p_selfie:selfieUrl,p_origen:SITIO_FIJO?'fichaje_qr':'fichaje',p_unidad:null,p_sitio_id:SITIO_FIJO?SITIO_FIJO.id:null});
     if(r.error){ res.innerHTML='<div class="res bad">Error: '+esc(r.error.message)+'</div>'; }
