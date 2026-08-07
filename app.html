@@ -1637,6 +1637,12 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
   <div style="margin-bottom:10px;display:flex;flex-direction:column;gap:14px">
     <div style="min-width:0"><div class="st" style="margin-bottom:6px">Choferes</div><div class="tw"><table><thead><tr><th>#</th><th>Chofer</th><th>Unidad</th><th>Viajes</th><th>Dias</th><th title="Domingos (D), Feriados (F) y dias de Patio (P) que se estan pagando. La lupa abre el dia por dia.">Desglose</th><th>Sueldo $</th><th>Desc $</th><th>Total $</th></tr></thead><tbody id="tb-nom-ch"></tbody></table></div></div>
     <div style="min-width:0"><div class="sh" style="margin-bottom:6px"><div class="st">Ayudantes</div><div style="font-size:11px;color:var(--blue)" id="nm-ay-total">-</div></div><div class="tw"><table><thead><tr><th>#</th><th>Ayudante</th><th>Tipo</th><th>Unidad</th><th>Viajes</th><th title="Domingos (D), Feriados (F) y dias de Patio (P) que se estan pagando. La lupa abre el dia por dia.">Desglose</th><th>Sueldo $</th><th>Desc $</th><th>Total $</th></tr></thead><tbody id="tb-nom-ay"></tbody></table></div></div>
+    <!-- PERSONAL IMAU — lista APARTE de los ayudantes internos (regla de Alejandra/RRHH 2026-08-07:
+         "sabemos que son ayudantes pero al final del dia es personal EXTERNO y sus condiciones de
+         pago son diferentes, no podemos mezclar peras con manzanas"). No van escritos en la
+         planilla: se ASIGNAN a una unidad y cobran por ESCALON segun los viajes que hizo ESA unidad
+         ese dia. Salen TODAS las semanas aunque cobren $0, porque su pago cuenta en la utilidad. -->
+    <div style="min-width:0"><div class="sh" style="margin-bottom:6px"><div class="st">Personal IMAU <span style="font-size:10px;color:var(--text3);font-weight:400">(externo — cobra por escalon segun los viajes de su unidad)</span></div><div style="font-size:11px;color:var(--purple)" id="nm-imau-total">-</div></div><div class="tw"><table><thead><tr><th>#</th><th>Nombre</th><th>Unidad</th><th title="Dias en que su unidad hizo 2 o mas viajes (los de 1 viaje o ninguno no pagan)">Dias pagos</th><th title="Dia por dia: cuantos viajes hizo su unidad y cuanto le toco">Desglose</th><th>Total $</th></tr></thead><tbody id="tb-nom-imau"></tbody></table></div></div>
   </div>
   <!-- ACTIVIDADES ESPECIALES (planilla especial): pagos fuera de viajes, suman al total de la semana -->
   <div class="card" style="margin-top:10px;border:1px solid var(--teal)">
@@ -2723,7 +2729,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
 
 <script src="logo-alcaldia.js?v=1"></script>
 <script src="maxrecuerda.js?v=20260806-maxrecuerda"></script>
-<script src="app.js?v=20260807b-nomina-sin-viajes"></script>
+<script src="app.js?v=20260807c-imau-lista-aparte"></script>
 
 <!-- Modal global -->
 <div id="modal" class="moverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9990;align-items:center;justify-content:center;padding:16px">

@@ -6535,6 +6535,11 @@ function calcNom(){
       if(!nm||!String(nm).trim())return;
       var e=_empPorNombre(String(nm).trim());
       if(!e)return;                          // no identificado → lo lista el banner de nombres sin casar
+      // ⛔ EL IMAU NO SE PAGA POR LA PLANILLA. Alejandra/RRHH, 2026-08-07: «en las planillas no
+      // podemos colocar a los ayudantes IMAU… se asignan a una unidad y su pago sale de acuerdo a
+      // los viajes que realizó ese día la unidad». Si alguien igual escribe su nombre, no cobra por
+      // acá: cobra en SU lista, por escalón. Si no, cobraría dos veces y a la tarifa que no es.
+      if(e.tipoAy==='imau')return;
       if(_nomCasa(r.ch,e.nombre))return;     // ese día salió de CHOFER: ya cobra por el otro lado
       if(_yaEnFila[e.id])return;             // el mismo nombre en dos slots de una fila no paga doble
       _yaEnFila[e.id]=1;
@@ -6553,9 +6558,16 @@ function calcNom(){
   // El respaldo existe para completar un dato que falta, no para resucitar a alguien que ya no
   // está. Si un ayudante ACTIVO de esa unidad tampoco salió por nombre, se le cuenta igual que
   // antes — y ahora la pantalla lo dice (ver la nota `porCam` más abajo).
-  // Probablemente sea también el origen de "16 ayudantes cobran sin salir en planilla".
+  //
+  // ⛔ Y NO ALCANZA AL IMAU (Alejandra/RRHH, 2026-08-07). Este respaldo ERA el origen de que EDWIN
+  // MONTIEL y WUILLIBALDO ATENCIO salieran en la semana 19: la planilla 01057 del 08/07 del B007 no
+  // traía ayudante, y como la ficha de LOS DOS dice `unidad = JAC-B007`, se les adjudicaban los
+  // MISMOS 3 viajes a cada uno, y a la tarifa del ayudante INTERNO. Por eso «aparecen unas semanas
+  // sí y otras no»: dependía de si alguien había olvidado escribir el ayudante, no de si
+  // trabajaron. El IMAU cobra en SU lista, por el escalón de su unidad. Acá no entra.
+  // Confirmado: era también el origen de "16 ayudantes cobran sin salir en planilla".
   EMPLEADOS.forEach(function(e){
-    if(e.cargo!=='Ayudante'||e.activo===false||ayMap[e.id])return;
+    if(e.cargo!=='Ayudante'||e.activo===false||e.tipoAy==='imau'||ayMap[e.id])return;
     f.forEach(function(r){ if(r.cam===e.unidad&&!r.ay1&&!r.ay2&&!r.ay3)_ayAcumular(e,r,'porCam'); });
   });
   // Una fila con 0 viajes no crea ayudante (antes lo garantizaba el `if(viajes>0)`).
@@ -6638,6 +6650,59 @@ function calcNom(){
     if(tipo==='ay')return _patioNum(PATIO_DIAS[x.emp&&x.emp.id])<=0;
     return _patioNum(PATIO_DIAS[_patioKey(_nombreCanonico(x.ch))])<=0;
   }
+
+  // ── PERSONAL IMAU — SU PROPIA LISTA, POR ESCALÓN DE SU UNIDAD ────────────────────────────────
+  // Regla dictada por Alejandra (RRHH) el 2026-08-07, después de que reportara que EDWIN MONTIEL y
+  // WUILLIBALDO ATENCIO figuraban entre los ayudantes internos con el monto errado:
+  //
+  //   «Debe estar aparte. Sabemos que son ayudantes pero al final del día es un personal EXTERNO y
+  //    sus condiciones de pago son diferentes: no podemos mezclar peras con manzanas.»
+  //   «En las planillas NO podemos colocar a los ayudantes IMAU. Se asignan a una unidad y su pago
+  //    sale de acuerdo a los viajes que realizó ESE DÍA LA UNIDAD.»
+  //   «Que aparezcan en TODAS las semanas: el pago que se les realiza también cuenta al momento de
+  //    ver la utilidad.»
+  //
+  // Escalón por DÍA sobre los viajes de la UNIDAD (ella lo dictó así, y coincide exacto con el que
+  // ya usaba el ayudante de apoyo — `tarifaApoyoDia`, verificado en su día contra el banco):
+  //     4 viajes → $5 · 3 viajes → $5 · 2 viajes → $2 · 1 viaje → $0
+  //
+  // ⛔ HALLAZGO: el contador "oficial" de IMAU (`imauViajesPlanilla`, que cuenta la palabra "IMAU"
+  // escrita en un hueco de ayudante) dio SIEMPRE CERO: esa palabra no aparece en NINGUNA planilla
+  // en toda la historia de la base. Lo único que llegaba a la nómina era gente del IMAU colándose
+  // por el respaldo por camión, y a la tarifa del ayudante interno. O sea que al IMAU nunca se le
+  // pagó bien desde el sistema.
+  //
+  // NO se les aplican descuentos de préstamo ni multa: son personal externo.
+  // ⏳ Sin confirmar por RRHH (preguntado el 07/08, ver bitácora): si en una unidad hay VARIOS IMAU,
+  //    acá cada uno cobra su escalón completo —que es como ella lo describió para Edwin—; y si la
+  //    unidad trabajó pero la persona no fue, igual cobra, porque el pago se deriva de la unidad y
+  //    el sistema no tiene registro de su asistencia.
+  var imauMap={};
+  (function(){
+    var vjUniDia={};   // viajes que hizo cada unidad cada día (varias planillas del mismo día suman)
+    f.forEach(function(r){
+      if(!r.cam||!r.f)return;
+      var k=r.cam+'|'+r.f;
+      vjUniDia[k]=(vjUniDia[k]||0)+(parseInt(r.t)||0);
+    });
+    EMPLEADOS.forEach(function(e){
+      if(!e||e.activo===false||e.cargo!=='Ayudante'||e.tipoAy!=='imau')return;
+      // Entra SIEMPRE, aunque su unidad no haya salido en toda la semana: cobrará $0, pero tiene
+      // que verse. Que no aparezca es lo que se estaba reportando.
+      var reg={emp:e,unidad:e.unidad||'',dias:[],diasPagos:0,viajes:0,montoUsd:0};
+      Object.keys(vjUniDia).forEach(function(k){
+        var corte=k.lastIndexOf('|'), cam=k.slice(0,corte), dia=k.slice(corte+1);
+        if(cam!==reg.unidad)return;
+        var vj=vjUniDia[k], usd=tarifaApoyoDia(vj);
+        reg.viajes+=vj;
+        if(usd>0){ reg.diasPagos++; reg.montoUsd+=usd; }
+        reg.dias.push({f:dia,viajes:vj,usd:usd});
+      });
+      reg.dias.sort(function(a,b){return a.f<b.f?-1:(a.f>b.f?1:0);});
+      reg.montoUsd=Math.round(reg.montoUsd*100)/100;
+      imauMap[e.id]=reg;
+    });
+  })();
 
   // Descuentos prestamos — CÁLCULO PURO. Solo MUESTRA la cuota que se descontaría esta semana;
   // NO avanza la cuota (semanas_pagadas), NO marca pagado, NO manda WhatsApp. El AVANCE real
@@ -6743,17 +6808,40 @@ function calcNom(){
   // FIJOS (admin + apoyo IMAU): NOM_ADM en monto MENSUAL → semanal (/4) si hay semana
   // seleccionada, completo si es el mes. Suman al total para que cuadre con la nómina oficial.
   var totAdm=(typeof NOM_ADM!=='undefined'?NOM_ADM:[]).reduce(function(s,n){return s+(parseFloat(n.monto)||0);},0)/(sem?4:1);
-  // APOYO IMAU: (a) los ~16 ayudantes salen de la planilla — cada "IMAU" escrito × viajes × $2,50;
-  //             (b) los 4 fijos (apoyo/supervisor) de la lista global.
-  var imauVj=(typeof imauViajesPlanilla==='function')?imauViajesPlanilla(f):0;
-  var totImauPlan=imauVj*((typeof cfg!=='undefined'&&cfg.imau)?cfg.imau:2.5);
+  // PERSONAL IMAU: (a) las personas asignadas a una unidad, por ESCALÓN de los viajes de esa unidad
+  //                    (la lista de arriba: `imauMap`); (b) los fijos de apoyo/supervisor.
+  // ⛔ Antes (a) se calculaba contando la palabra "IMAU" escrita en un hueco de ayudante
+  // (`imauViajesPlanilla`) × $2,50. Esa palabra NO aparece en ninguna planilla de la base: ese
+  // sumando dio SIEMPRE $0. Se reemplaza por el cálculo real, que es el que ellos cobran.
+  var totImauPers=Object.keys(imauMap).reduce(function(s,id){return s+(imauMap[id].montoUsd||0);},0);
   var totImauFijo=(typeof imauTotal==='function')?imauTotal():0;
-  var totImau=totImauPlan+totImauFijo;
+  var totImau=totImauPers+totImauFijo;
   var totUsd=totOp+totAdm+totImau+totExtrasHuerfano; // totOp YA incluye los especiales atribuidos → solo se suma el huérfano (no se duplica)
   var totBs=totUsd*tasa;
   renderNominaExtras(_extrasP);
-  if(g('nm-imau'))g('nm-imau').textContent='$'+totImau.toFixed(0)+(imauVj?' ('+imauVj+' viajes×$'+(((typeof cfg!=='undefined'&&cfg.imau)?cfg.imau:2.5))+' + fijos $'+totImauFijo.toFixed(0)+')':' (fijos)');
+  var _nImauPagan=Object.keys(imauMap).filter(function(id){return imauMap[id].montoUsd>0;}).length;
+  if(g('nm-imau'))g('nm-imau').textContent='$'+fmtMon(totImau)+' ('+_nImauPagan+' de '+Object.keys(imauMap).length+' personas $'+fmtMon(totImauPers)+' + fijos $'+fmtMon(totImauFijo)+')';
+  if(g('nm-imau-total'))g('nm-imau-total').textContent=Object.keys(imauMap).length+' personas · $'+fmtMon(totImauPers);
   try{renderImauApoyo();}catch(e){}
+  // ── Tabla del PERSONAL IMAU. Orden alfabético, igual que las otras dos.
+  var tbIm=g('tb-nom-imau');
+  if(tbIm)tbIm.innerHTML=Object.keys(imauMap).map(function(id){return imauMap[id];})
+    .sort(function(a,b){return String(a.emp.nombre||'').localeCompare(String(b.emp.nombre||''),'es');})
+    .map(function(x,i){
+      var cero=(x.montoUsd<=0);
+      // El día por día es lo que permite cotejarlo contra la realidad: qué día, cuántos viajes hizo
+      // su unidad y cuánto le tocó por eso. Los días de $0 se muestran igual — son los que explican
+      // por qué cobró menos de lo que esperaba.
+      var det=x.dias.length
+        ? x.dias.map(function(d){return formatFecha(d.f)+': '+d.viajes+'v = $'+fmtMon(d.usd);}).join(' · ')
+        : 'Su unidad no tuvo planillas en este período';
+      return '<tr'+(cero?' style="opacity:.62"':'')+'><td style="font-family:var(--m)">'+(i+1)+'</td>'+
+        '<td style="font-weight:700">'+x.emp.nombre+(cero?' <span style="font-size:9px;color:var(--text3)">— no cobra esta semana</span>':'')+'</td>'+
+        '<td style="font-size:10px">'+(x.unidad||'<span style="color:var(--red)">SIN UNIDAD ASIGNADA</span>')+'</td>'+
+        '<td style="text-align:center">'+x.diasPagos+'</td>'+
+        '<td style="font-size:9px;color:var(--text2)">'+det+'</td>'+
+        '<td style="font-family:var(--m);font-weight:700;color:var(--yellow)">$'+fmtMon(x.montoUsd)+'</td></tr>';
+    }).join('')||'<tr><td colspan="6" style="text-align:center;color:var(--text3);padding:14px">No hay personal IMAU activo con unidad asignada</td></tr>';
   _CHMAP_UI=chMap; _AYMAP_UI=ayMap;   // para el desglose día por día (verDesgloseDia), choferes y ayudantes
   // Días que abarca lo que se está mostrando: es la grilla del selector de patio. Se toma del rango
   // elegido y, si no hay, del primer y último día con planilla del período.
@@ -6789,7 +6877,14 @@ function calcNom(){
       // auditar sin recalcularla (las planillas o las tarifas pueden haber cambiado desde entonces).
       dom:(a.vDom||0),fer:(a.vFer||0),mDom:Math.round((a.mDom||0)*100)/100,mFer:Math.round((a.mFer||0)*100)/100,
       mPat:Math.round(patTot*(a.tasa||0)*100)/100,dia:a.dia||{}};}),
-    extras: _extrasP.map(function(x){return {fecha:x.fecha,n:x.empNombre,actividad:x.actividad,modo:x.modo,viajes:x.viajes,monto:x.monto,usd:Math.round(_extraUsd(x)*100)/100};})
+    extras: _extrasP.map(function(x){return {fecha:x.fecha,n:x.empNombre,actividad:x.actividad,modo:x.modo,viajes:x.viajes,monto:x.monto,usd:Math.round(_extraUsd(x)*100)/100};}),
+    // PERSONAL IMAU: se guarda con su día por día. A diferencia de choferes y ayudantes, acá SÍ se
+    // guardan los que cobraron $0: Alejandra pidió que aparezcan en TODAS las semanas porque su
+    // pago cuenta en la utilidad, y una semana en la que su unidad no salió es justamente el dato
+    // que explica por qué no cobró. Sin esa fila, esa semana se vería igual que si no existiera.
+    imau: Object.keys(imauMap).map(function(id){var x=imauMap[id];
+      return {n:x.emp.nombre,u:x.unidad,diasPagos:x.diasPagos,viajesUnidad:x.viajes,
+              usd:x.montoUsd,bs:Math.round(x.montoUsd*tasa*100)/100,dias:x.dias};})
   };
   // Total de nómina: SOLO el monto total (sin el desglose op/IMAU/adm/especial — pedido de Máximo).
   if(g('nm-tot'))g('nm-tot').textContent='$'+fmtMon(totUsd)+' = Bs '+(totBs/1000).toFixed(0)+'k';

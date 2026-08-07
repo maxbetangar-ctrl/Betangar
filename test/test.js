@@ -704,7 +704,16 @@ function resetCola(){ app.COLA_OFFLINE=[]; app.COLA_FALLIDOS=[]; app._procesando
   eq('tiempo vencido (batería 12m)', app._mantEstadoCalc('meses', 12, 15, { km: 0, fecha: '2025-01-01' }, 0, '2026-06-30').estado, 'vencido');
   // Por DÍAS: filtro trampa cada 2 días desde 2026-06-29 → vence 07-01 → hoy 06-30 → resta 1 día ≤ aviso 0? no (1>0) → al día... usar aviso 2 → próximo.
   eq('días próximo (aviso cubre)', app._mantEstadoCalc('dias', 2, 2, { km: 0, fecha: '2026-06-29' }, 0, '2026-06-30').estado, 'proximo');
-  eq('sin registro → sin_dato', app._mantEstadoCalc('km', 5000, 500, null, 9000, '2026-06-30').estado, 'sin_dato');
+  // SIN REGISTRO: la regla cambió y este test se quedó atrás (por eso `npm test` venía fallando y,
+  // peor, cortaba la cadena `&&`: las pruebas de nómina que van después NO llegaban a correr).
+  // Regla vigente (Máximo, documentada en `_mantEstadoCalc`): en km/horas, si nunca se hizo el
+  // servicio, el primero vence al LLEGAR al intervalo — se cuenta desde 0. La unidad va en 9.000 km
+  // con intervalo de 5.000 y sin un solo registro: eso es VENCIDO, no "no sé". El vencimiento solo
+  // se quita registrando el servicio.
+  eq('sin registro y ya pasó el intervalo → vencido', app._mantEstadoCalc('km', 5000, 500, null, 9000, '2026-06-30').estado, 'vencido');
+  eq('sin registro y todavía no llega al intervalo → al día', app._mantEstadoCalc('km', 5000, 500, null, 1200, '2026-06-30').estado, 'al_dia');
+  // En base TIEMPO sí queda en sin_dato: no hay fecha desde la cual contar. Ahí "no sé" es la verdad.
+  eq('sin registro en base tiempo → sin_dato', app._mantEstadoCalc('meses', 12, 15, null, 0, '2026-06-30').estado, 'sin_dato');
   eq('sin intervalo → sin_intervalo', app._mantEstadoCalc('km', 0, 0, { km: 0, fecha: '2026-01-01' }, 100, '2026-06-30').estado, 'sin_intervalo');
 
   console.log('\nRegistro de Unidades (ficha = fuente única para otros módulos):');
