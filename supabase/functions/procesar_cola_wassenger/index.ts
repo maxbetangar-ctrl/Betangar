@@ -48,10 +48,18 @@ Deno.serve(async (req) => {
     .update({ estado: 'descartado', error: `caducado: encolado hace mas de ${VIGENCIA_HORAS}h; un aviso operativo es de su dia y no se reenvia despues` })
     .eq('estado', 'pendiente').lt('created_at', corte).select('id');
 
-  // 1) Recupera mensajes trabados en 'enviando' por una corrida que murió a mitad (>10 min). enviado_at
-  //    hace de marca de reclamo; si quedó viejo, la fila vuelve a 'pendiente' para reintentar.
+  // 1) Recupera mensajes trabados en 'enviando' por una corrida que murió a mitad (>10 min).
+  //    `tomado_at` es la marca de RECLAMO; si quedó vieja, la fila vuelve a 'pendiente'.
+  //    Antes esta marca era `enviado_at`, que además era la fecha de envío: una fila que fallaba
+  //    volvía a 'pendiente' conservando esa fecha y quedaba diciendo que se había enviado algo
+  //    que nunca salió (2026-08-07, id 2309: enviado_at puesto con un 502 adentro).
   const staleTs = new Date(Date.now() - 10 * 60 * 1000).toISOString();
-  await sb.from('cola_mensajes').update({ estado: 'pendiente' }).eq('estado', 'enviando').lt('enviado_at', staleTs);
+  await sb.from('cola_mensajes').update({ estado: 'pendiente' }).eq('estado', 'enviando').lt('tomado_at', staleTs);
+  //    Guardia de transición: una fila reclamada por la versión ANTERIOR tiene enviado_at pero no
+  //    tomado_at, y el filtro de arriba no la alcanza (NULL no compara). Sin esto quedaría trabada
+  //    en 'enviando' para siempre. Se puede quitar cuando no queden filas viejas en vuelo.
+  await sb.from('cola_mensajes').update({ estado: 'pendiente' })
+    .eq('estado', 'enviando').is('tomado_at', null).lt('enviado_at', staleTs);
 
   // 2) mensajes pendientes (tanda)
   const { data: pend } = await sb.from('cola_mensajes').select('*').eq('estado', 'pendiente').lt('intentos', 4).order('id').limit(25);
@@ -62,7 +70,7 @@ Deno.serve(async (req) => {
     // CLAIM atómico: marca la fila 'enviando' SOLO si sigue 'pendiente'. Si dos corridas del cron se
     // solapan, únicamente una gana el claim; la otra ve 0 filas y salta → sin doble envío.
     const { data: claim } = await sb.from('cola_mensajes')
-      .update({ estado: 'enviando', enviado_at: new Date().toISOString() })
+      .update({ estado: 'enviando', tomado_at: new Date().toISOString() })
       .eq('id', m.id).eq('estado', 'pendiente').select('id').maybeSingle();
     if (!claim) continue; // otra corrida ya lo tomó
     try {
