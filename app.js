@@ -15664,7 +15664,7 @@ function renderAuditoria(){
   var tb=g('tb-auditoria');if(!tb)return;
   // M2 (auditoría 2026-07-04): escapar los campos (usuario/accion/detalle) — cualquier autenticado
   // puede INSERT en `auditoria` con un payload XSS que ejecutaría como SUPERADMIN al abrir este panel.
-  tb.innerHTML=AUDITORIA_LOG.slice().reverse().slice(0,50).map(function(a){return'<tr><td style="font-size:10px;font-family:var(--m)">'+formatFecha(a.fecha)+'</td><td><span class="badge by">'+_escHtml(a.usuario)+'</span></td><td style="font-size:11px">'+_escHtml(a.accion)+'</td><td style="font-size:11px;color:var(--text2)">'+_escHtml(a.detalle)+'</td></tr>';}).join('')||'<tr><td colspan="4" style="text-align:center;color:var(--text3);padding:20px">Sin registros de auditoria</td></tr>';
+  tb.innerHTML=AUDITORIA_LOG.slice().reverse().slice(0,50).map(function(a){return'<tr><td style="font-size:10px;font-family:var(--m)">'+formatFecha(a.fecha)+'</td><td><span class="badge by">'+_escHtml(a.usuario)+'</span></td><td style="font-size:11px">'+_escHtml(a.accion)+'</td><td class="td-txt" style="font-size:11px;color:var(--text2)">'+_escHtml(a.detalle)+'</td></tr>';}).join('')||'<tr><td colspan="4" style="text-align:center;color:var(--text3);padding:20px">Sin registros de auditoria</td></tr>';
 }
 
 // ═══ CARPETA DEL AUDITOR ══════════════════════════════════════════════════════════════════════

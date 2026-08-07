@@ -93,6 +93,11 @@ body{background:var(--bg);color:var(--text);font-family:var(--f);display:flex;fl
 table{width:100%;border-collapse:collapse}
 th{background:var(--bg3);padding:7px 10px;text-align:left;font-size:10px;color:#bcdcf0;letter-spacing:1px;text-transform:uppercase;font-weight:700;white-space:nowrap}
 td{padding:6px 10px;border-top:1px solid var(--border);font-size:13px;white-space:nowrap;color:var(--text)}
+/* Celda de TEXTO LARGO. El `nowrap` de arriba es a proposito: mantiene alineadas las columnas de
+   numeros y fechas de todas las tablas. Pero una celda con texto libre no puede heredarlo, porque
+   una sola linea de 400 caracteres estira la tabla ~2.400px y hay que arrastrarla de lado para
+   leerla. Se aplica SOLO donde el contenido es texto libre, no a todo. */
+td.td-txt{white-space:normal;overflow-wrap:anywhere;max-width:560px;min-width:240px;line-height:1.35}
 /* Legibilidad mobile: mínimo 14px en contenido y controles (desktop usa 13px base) */
 @media (max-width:768px){
   body{font-size:14px}
@@ -2742,7 +2747,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
 <script src="maxrecuerda.js?v=20260806-maxrecuerda"></script>
 <!-- Formato unico de los Excel de Maxware. VA ANTES de app.js. -->
 <script src="maxware-excel.js"></script>
-<script src="app.js?v=20260807g-imau-desglose"></script>
+<script src="app.js?v=20260807h-celdas-texto-largo"></script>
 
 <!-- Modal global -->
 <div id="modal" class="moverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9990;align-items:center;justify-content:center;padding:16px">
