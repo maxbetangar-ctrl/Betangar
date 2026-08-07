@@ -15053,7 +15053,18 @@ function _capHtml(){
     // una auditora, «https://betangar.com/app.html» arriba de cada página lo hace ver como una
     // captura de pantalla y no como un informe. Con margen declarado en @page, Chrome los omite.
     // Igual conviene decirle a quien imprime que destilde «Encabezados y pies de página».
-    '@page{margin:14mm 10mm}'+
+    // UNA HOJA POR PUNTO. Una carpeta de auditoría no se lee de corrido: se lee y se REPARTE por
+    // punto — el auditor manda la sección 5 a un lado y la 9 a otro. Con las secciones encadenadas,
+    // encontrar dónde empieza cada una obliga a recorrer el documento entero, y una seccion corta
+    // que cae al pie de la anterior parece un pie de pagina en vez de una respuesta.
+    // El margen inferior deja sitio al pie propio.
+    '@page{margin:14mm 10mm 20mm}'+
+    '.cap-sec{break-before:page;page-break-before:always}'+
+    '.cap-sec:first-of-type{break-before:auto;page-break-before:auto}'+
+    // Pie en TODAS las páginas: una hoja suelta tiene que decir de quién es, de qué período y de
+    // qué punto. En una carpeta las hojas se separan; una hoja sin identificar no vale nada.
+    '.cap-pie{position:fixed;bottom:0;left:0;right:0;font-size:8px;color:#94a3b8;'+
+      'border-top:1px solid #e8edf2;padding:3px 0;display:flex;justify-content:space-between}'+
     // Las tablas de CxP salían con «Total USD» y «Fecha pago» partidos en dos renglones: el ancho
     // se repartía solo y el detalle largo se comía todo. Se fija el reparto y se evita que los
     // rótulos cortos se quiebren.
@@ -15064,12 +15075,26 @@ function _capHtml(){
     '<div class="bg-header"><div class="empresa"><div class="nombre">'+e(brandNomUp())+'</div><div class="rif">'+e(brandRif())+'</div></div>'+
     '<div class="fecha-area">Emitido<div class="fval">'+formatFecha(fechaVE())+'</div></div></div>'+
     '<div class="bg-titulo"><h1>Carpeta del Auditor</h1><div class="sub">Período '+per+'</div></div>'+
+    '<div class="cap-pie"><span>'+e(brandNom())+' · '+e(brandRif())+'</span>'+
+      '<span>Carpeta del Auditor · '+per+'</span></div>'+
     // ALCANCE — va ARRIBA de todo, a propósito.
     '<div class="cap-alcance"><b style="font-size:12px;color:#92400e">Alcance de este informe — leer primero</b><ul>'+
     '<li>Sale del sistema operativo de la empresa. <b>Cubre lo que el sistema registra</b>, no la totalidad de la operación.</li>'+
     '<li>El sistema registra los movimientos que el banco <b>notifica</b> (entradas). <b>No lleva libro de egresos</b>: los pagos a proveedores, socios, préstamos y reintegros salen de los libros que lleva la administración.</li>'+
     '<li>Cada sección indica desde cuándo hay datos. Si el período pedido empieza antes, sale un aviso en rojo.</li>'+
     '</ul></div>'+
+    // ÍNDICE: en una carpeta que se reparte por hojas, es lo que permite darse cuenta de que
+    // falta un punto. Sin él, once secciones sueltas no se sabe si están todas.
+    '<div class="cap-sec" style="break-before:auto;page-break-before:auto"><h2>Contenido</h2>'+
+    '<div style="font-size:11px;color:#333;line-height:1.9;columns:2">'+
+    ['1. Mantenimiento de unidades','2. Consumo de combustible',
+     '3. Cobros recibidos y participación del socio','4. Movimientos bancarios recibidos',
+     '5. Cuentas por pagar por proveedor','6. Nómina del período',
+     '7. Retenciones de IVA e ISLR','8. Excepciones abiertas',
+     '9. Rastro de cambios sobre el dato','10. Accesos al sistema',
+     '11. Registro de proveedores','Constancia de emisión']
+      .map(function(t){return '<div>'+t+'</div>';}).join('')+
+    '</div><p class="cap-nota">Cada punto empieza en una hoja nueva. Si alguna falta, se nota contra esta lista.</p></div>'+
     S('1. Mantenimiento de unidades',d.cortes.mantenimiento,'mantenimiento',mantHtml)+
     S('2. Consumo de combustible',d.cortes.combustible,'combustible',gasHtml)+
     S('3. Cobros recibidos y participación del socio',d.cortes.cobros,'cobros',aboHtml)+
@@ -15085,7 +15110,6 @@ function _capHtml(){
     '<div class="cap-sec"><h2>10. Accesos al sistema</h2>'+usrHtml+'</div>'+
     '<div class="cap-sec"><h2>11. Registro de proveedores</h2>'+provHtml+'</div>'+
     selloHtml+
-    '<div class="bg-footer"><span>'+e(brandNom())+' · '+e(brandRif())+'</span><span>Carpeta del Auditor · '+per+'</span></div>'+
     '</body></html>';
   return {html:html, per:per, r:d.r, cod:_cod};
 }
