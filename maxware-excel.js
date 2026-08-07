@@ -196,9 +196,28 @@
   }
 
   // ── Bajar el archivo (navegador) o escribirlo (Node) ──────────────────────
+  // ⚠️ TOPE DE TIEMPO EN EL NAVEGADOR. El 07/08/2026, probando con un usuario
+  // real, `wb.xlsx.writeBuffer()` de ExcelJS 4.4.0 **no resolvió nunca** — ni con
+  // un libro vacío, sin imagen ni estilos. No lanzaba error ni avisaba: se
+  // apretaba «exportar» y no pasaba nada, para siempre.
+  //
+  // Un export que se cuelga en silencio es peor que uno feo. Acá se le pone
+  // plazo; si no cumple, `libro_desde_hojas` cae al camino simple y lo DICE.
+  // Hermana de [[norma-llamada-sin-plazo-cuelga-la-app]].
+  //
+  // ⚠️ El plazo NO cubre el caso de hilo principal bloqueado (ahí el
+  // temporizador tampoco corre). Es una red, no una cura: si esto salta hay que
+  // ir a la causa —probablemente la versión de la librería—, no acostumbrarse.
+  var TOPE_MS = 20000;
+
   async function descargar(wb, filename) {
     if (typeof document !== 'undefined' && typeof Blob !== 'undefined') {
-      var buf = await wb.xlsx.writeBuffer();
+      var buf = await Promise.race([
+        wb.xlsx.writeBuffer(),
+        new Promise(function (_, rechazar) {
+          setTimeout(function () { rechazar(new Error('EXCELJS_NO_RESPONDE')); }, TOPE_MS);
+        })
+      ]);
       var blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
       var a = document.createElement('a');
       a.href = URL.createObjectURL(blob); a.download = filename;
@@ -238,40 +257,48 @@
       if (typeof alert === 'function') alert('No hay datos para exportar.');
       return false;
     }
+    var aviso = '⚠️ El Excel salió SIN formato (no cargó la librería). Recargá la página y volvé a exportarlo.';
     var wb = libro();
-    if (!wb) {
-      // Sin ExcelJS: mejor plano que nada, pero que se SEPA que salió sin formato.
-      // Un Excel feo es malo; uno que no se descarga es peor.
+
+    // ── Camino normal: con el formato de la casa ──
+    if (wb) {
       try {
-        if (typeof XLSX === 'undefined') throw new Error('no hay librería de Excel');
-        var wbp = XLSX.utils.book_new();
         hojas.forEach(function (h) {
-          XLSX.utils.book_append_sheet(wbp,
-            XLSX.utils.aoa_to_sheet([h.headers].concat(h.rows || [])),
-            String(h.name || 'Hoja').slice(0, 31));
+          hoja(wb, { name: h.name, subtitulo: h.subtitulo || '', headers: h.headers,
+                     widths: h.widths || [], rows: h.rows || [],
+                     ejemplos: (h.ejemplos == null ? 0 : h.ejemplos), vacias: h.vacias || 0 });
         });
-        XLSX.writeFile(wbp, filename);
-        if (typeof mostrarToast === 'function')
-          mostrarToast('⚠️ El Excel salió SIN formato (no cargó la librería). Recargá la página y volvé a exportarlo.', 'error');
+        await descargar(wb, filename);
+        return true;
       } catch (e) {
-        if (typeof alert === 'function') alert('No se pudo generar el Excel: ' + ((e && e.message) || e));
-        return false;
+        // NO se pierde la exportación: cae al camino simple de abajo y se AVISA.
+        // Antes, un fallo acá dejaba al usuario sin archivo y sin explicación.
+        if (typeof console !== 'undefined') console.error('maxware-excel:', e);
+        wb = null;
+        aviso = (e && e.message === 'EXCELJS_NO_RESPONDE')
+          ? '⚠️ El Excel salió SIN FORMATO: la librería no respondió a tiempo. Avisale a Maxware.'
+          : '⚠️ El Excel salió SIN FORMATO (' + ((e && e.message) || e) + ').';
       }
-      return false;
     }
+
+    // ── Camino simple: mejor plano que nada, pero que se SEPA ──
+    // Un Excel feo es malo; uno que no se descarga —o que se cuelga sin decir
+    // nada— es peor.
     try {
+      if (typeof XLSX === 'undefined') throw new Error('no hay librería de Excel');
+      var wbp = XLSX.utils.book_new();
       hojas.forEach(function (h) {
-        hoja(wb, { name: h.name, subtitulo: h.subtitulo || '', headers: h.headers,
-                   widths: h.widths || [], rows: h.rows || [],
-                   ejemplos: (h.ejemplos == null ? 0 : h.ejemplos), vacias: h.vacias || 0 });
+        XLSX.utils.book_append_sheet(wbp,
+          XLSX.utils.aoa_to_sheet([h.headers].concat(h.rows || [])),
+          String(h.name || 'Hoja').slice(0, 31));
       });
-      await descargar(wb, filename);
-      return true;
-    } catch (e) {
-      if (typeof console !== 'undefined') console.error(e);
-      if (typeof alert === 'function') alert('No se pudo generar el Excel: ' + ((e && e.message) || e));
-      return false;
+      XLSX.writeFile(wbp, filename);
+      if (typeof mostrarToast === 'function') mostrarToast(aviso, 'error');
+      else if (typeof alert === 'function') alert(aviso);
+    } catch (e2) {
+      if (typeof alert === 'function') alert('No se pudo generar el Excel: ' + ((e2 && e2.message) || e2));
     }
+    return false;
   }
 
   // ── Misma forma que la API vieja de XLSX, para convertir código sin dolor ──
