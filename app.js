@@ -887,6 +887,10 @@ function _licGuardarModulos(m){
   if(!Array.isArray(m))return;                         // sin dato: se conserva lo último conocido
   LIC_MODULOS=m.map(function(x){return String(x||'').toLowerCase().trim();});
   try{ localStorage.setItem('btg_lic_modulos',JSON.stringify(LIC_MODULOS)); }catch(e){}
+  // La licencia se resuelve DESPUÉS de que la pantalla ya se dibujó. Si el usuario abrió Auditoría
+  // en ese intervalo, la tarjeta quedó oculta y nadie la volvía a mirar: se veía como que el módulo
+  // no existe. Al llegar la respuesta se repinta.
+  try{ if(typeof renderCarpetaAuditor==='function')renderCarpetaAuditor(); }catch(e){}
 }
 function moduloActivo(nombre){
   if(!Array.isArray(LIC_MODULOS))return false;         // nunca se supo → no se regala
