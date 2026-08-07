@@ -184,9 +184,17 @@ tr:hover td{background:rgba(45,255,122,.02)}
   #emp-grid{grid-template-columns:1fr!important}
 }
 @media (max-width:480px){
-  .nav-right{gap:4px}
+  /* En el telefono la barra no entraba y habia que girarlo para alcanzar el menu. Se quitan los
+     adornos y se compacta lo que se usa; NINGUN boton desaparece. */
+  .nav-right{gap:3px}
   #nav-active-label{font-size:12px}
   .stat{padding:12px}
+  #bnc-nav-saldo{display:none!important}      /* el saldo se ve en Banco */
+  #nav-user-info{display:none!important}      /* el usuario se ve en el menu */
+  .salir-txt{display:none}                    /* queda la puerta 🚪, sin la palabra */
+  .nav-right>button[onclick*="cerrarSesion"]{padding:7px 10px!important}
+  .btn-icon{width:32px;height:32px;font-size:15px}
+  nav{padding:0 6px}
 }
 @media print{@page{size:letter;margin:1.5cm}body{overflow:visible}.topnav,.btn,.moverlay,.demo-banner{display:none!important}.page{display:block!important;padding:0;overflow:visible}}
 </style>
@@ -253,8 +261,11 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
 
 <nav class="topnav">
   <div class="nav-logo"><img id="nav-logo-img" src="" alt="BG" onerror="this.style.display='none'" style="height:28px;width:auto"></div>
-  <div style="flex:1;display:flex;align-items:center;padding-left:10px">
-    <span id="nav-active-label" style="font-size:13px;font-weight:700;color:var(--green)">Dashboard</span>
+  <!-- min-width:0 es lo que permite que este bloque se encoja de verdad. Un item flex NO baja del
+       ancho de su contenido salvo que se lo digas, y por eso el nombre de la pantalla empujaba los
+       botones de la derecha fuera del telefono: habia que girarlo para alcanzar el menu. -->
+  <div style="flex:1;min-width:0;display:flex;align-items:center;padding-left:10px">
+    <span id="nav-active-label" style="font-size:13px;font-weight:700;color:var(--green);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Dashboard</span>
   </div>
   <div class="nav-right">
     <div id="bnc-nav-saldo" style="display:none;font-family:var(--m);font-size:11px;color:var(--blue);background:rgba(56,189,248,.1);border:1px solid rgba(56,189,248,.2);border-radius:6px;padding:3px 8px;cursor:pointer" onclick="sp('banco')">BNC: --</div>
@@ -264,7 +275,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
     <button class="btn-icon" onclick="exportExcelCompleto()" title="Excel" style="color:#34d399;border-color:#059669">&#11015;</button>
     <button class="btn-icon" onclick="toggleMenu()" style="font-size:20px;border-color:var(--green);background:rgba(163,230,53,.12);color:var(--green)">&#9776;</button>
     <span id="mrq-campana" style="margin-left:4px"></span>
-    <button onclick="cerrarSesion()" title="Cerrar sesión" style="background:#C0392B;color:#fff;border:none;border-radius:8px;padding:7px 14px;font-size:13px;font-weight:900;cursor:pointer;font-family:inherit;white-space:nowrap;box-shadow:0 2px 8px rgba(192,57,43,.4);margin-left:4px">&#128682; Salir</button>
+    <button onclick="cerrarSesion()" title="Cerrar sesión" style="background:#C0392B;color:#fff;border:none;border-radius:8px;padding:7px 14px;font-size:13px;font-weight:900;cursor:pointer;font-family:inherit;white-space:nowrap;box-shadow:0 2px 8px rgba(192,57,43,.4);margin-left:4px">&#128682;<span class="salir-txt"> Salir</span></button>
   </div>
 </nav>
 
@@ -2712,7 +2723,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
 
 <script src="logo-alcaldia.js?v=1"></script>
 <script src="maxrecuerda.js?v=20260806-maxrecuerda"></script>
-<script src="app.js?v=20260806p-el-informe-carga-sus-fuentes"></script>
+<script src="app.js?v=20260806q-barra-entra-en-el-telefono"></script>
 
 <!-- Modal global -->
 <div id="modal" class="moverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9990;align-items:center;justify-content:center;padding:16px">
