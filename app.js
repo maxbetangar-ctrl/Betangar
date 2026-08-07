@@ -23664,17 +23664,37 @@ function _rentEsCompra(row){return String(row.cam||'').toUpperCase().indexOf('CO
 // O sea que faltaban ~$31.858 de gasto y la ganancia se mostraba inflada en esa magnitud desde marzo.
 // El defecto no era un dato faltante sino la DEFINICIÓN: `_rentEsCompra` decide qué es una compra
 // por si el texto del campo `cam` empieza con "COMPRA".
-// ⚠️ Solo cuenta como compra lo que DECLARA venir de una estación. Un despacho sin `src` no dice de
-// dónde salió, y la convención histórica —anterior a que existiera `src`— era que un despacho es
-// movimiento interno del tanque. Ante la duda se mantiene esa lectura: contar de más un despacho
-// que en realidad salió del tanque duplicaría plata ya contada en la compra. Lo que no se puede
-// hacer es asumir en silencio: `_combDespachosSinFuente` los cuenta para poder avisarlos.
-function _combEsEstacion(g){
-  var s=String((g&&g.src)||'').toLowerCase();
-  return s.indexOf('estacion')>=0||s.indexOf('estación')>=0;
+// ── CÓMO SE SURTE DE VERDAD (lo explicó Máximo, 2026-08-07) ────────────────────────────────────
+//   «Surten en patio propio SIEMPRE. Casi siempre en CDP La Limpia o en Canchancha… eso con
+//    respecto al gasoil. Y cuando son viajes por fuera de Maracaibo hacia oriente echan en estación
+//    de servicio en el camino. Y los carros livianos y gasolina echan en Texaco y Fuerzas Armadas.»
+//
+// O sea: el gasoil se compra A GRANEL y entra al TANQUE del galpón; lo que sale del tanque hacia una
+// unidad es MOVIMIENTO INTERNO (esa plata ya se gastó al llenar el tanque). Las únicas cargas que
+// son COMPRA DIRECTA son las de afuera: la estación del camino en los viajes a oriente, y la
+// gasolina de los carros livianos en Texaco y Fuerzas Armadas.
+//
+// ⚠️ Por eso NO alcanza con buscar la palabra "estación" en `src`: una carga en Texaco o en Fuerzas
+// Armadas es tan compra como la de una estación, y no lleva esa palabra. Y al revés, un despacho
+// con `src='Boscán'` (Flotilla) NO es una compra: Boscán es de dónde vino el granel que está en el
+// tanque. Se clasifica por LISTAS, y lo que no case con ninguna NO se cuenta pero SE AVISA.
+// Ver la ficha [[combustible-como-se-surte-realmente]].
+var COMB_FUENTES_TANQUE=['tumaca','galpon','galpón','patio','tanque','reserva','boscan','boscán','la limpia','canchancha','cdp'];
+var COMB_FUENTES_AFUERA=['estacion','estación','texaco','fuerzas armadas','ffaa','ff.aa','en ruta','camino','bomba','pdv','servicio'];
+function _combNorm(s){ return String(s||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').trim(); }
+function _combClaseFuente(g){
+  var s=_combNorm(g&&g.src);
+  if(!s)return 'desconocida';
+  for(var i=0;i<COMB_FUENTES_AFUERA.length;i++) if(s.indexOf(_combNorm(COMB_FUENTES_AFUERA[i]))>=0)return 'afuera';
+  for(var j=0;j<COMB_FUENTES_TANQUE.length;j++) if(s.indexOf(_combNorm(COMB_FUENTES_TANQUE[j]))>=0)return 'tanque';
+  return 'desconocida';
 }
+// Despachos que no se saben clasificar: se asumen del tanque (lectura conservadora, la de siempre)
+// pero hay que decirlo. Si una de esas fue comprada afuera, es gasto real escondido tras un texto.
 function _combDespachosSinFuente(lista){
-  return (lista||[]).filter(function(g){ return !_rentEsCompra(g)&&!String((g&&g.src)||'').trim()&&(parseFloat(g.m)||0)>0; }).length;
+  return (lista||[]).filter(function(g){
+    return !_rentEsCompra(g)&&(parseFloat(g.m)||0)>0&&_combClaseFuente(g)==='desconocida';
+  }).length;
 }
 // Lo que esta fila aporta al EGRESO de combustible del negocio.
 // GATE DE CORTE: desde `cfg.surtidasCorte` la verdad son las SURTIDAS del chofer, así que el gasoil
@@ -23682,10 +23702,10 @@ function _combDespachosSinFuente(lista){
 // que contar igual o el dueño ve dos ganancias distintas para la misma semana).
 function _combEgresoUsd(g,corte){
   if(!g)return 0;
-  if(_rentEsCompra(g))return parseFloat(g.m)||0;      // carga del tanque: plata que salió
-  if(!_combEsEstacion(g))return 0;                    // del tanque o sin declarar: no se cuenta
+  if(_rentEsCompra(g))return parseFloat(g.m)||0;      // granel al tanque: plata que salió
+  if(_combClaseFuente(g)!=='afuera')return 0;         // del tanque, o sin poder clasificar: no cuenta
   if(corte&&String(g.f||'')>=corte)return 0;          // post-corte manda la surtida
-  return parseFloat(g.m)||0;                          // surtido en estación = compra directa
+  return parseFloat(g.m)||0;                          // cargado AFUERA = compra directa
 }
 function calcRentabilidadCamiones(des,hta){
   var tarChofer=cfg.chofer||10, tarAyud=cfg.ayud||5;
