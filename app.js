@@ -14822,8 +14822,25 @@ function renderCarpetaAuditor(){
     '</div>';
 }
 function generarCarpetaAuditor(){
+  var h=_capHtml(); if(!h)return;
+  abrirVentanaImpresion(h.html);
+  audit('Carpeta del Auditor generada',h.per);
+}
+// Descarga el MISMO documento como un archivo suelto, para adjuntarlo a un correo. Se genera del
+// mismo `_capHtml` que se imprime: si fueran dos armadores distintos, el archivo que recibe el
+// auditor y el que se ve en pantalla se irían separando con cada cambio.
+function descargarCarpetaAuditor(){
+  var h=_capHtml(); if(!h)return;
+  var nom='Carpeta_Auditor_'+(brandNom()||'empresa').replace(/[^A-Za-z0-9]+/g,'_')+'_'+h.r.d+'_a_'+h.r.h+'.html';
+  var blob=new Blob(['﻿'+h.html],{type:'text/html;charset=utf-8'});
+  var a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=nom;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(function(){URL.revokeObjectURL(a.href);},1500);
+  audit('Carpeta del Auditor descargada',h.per);
+}
+function _capHtml(){
   var d=_capDatos();
-  if(!d.r.d||!d.r.h){alert('Elegí el período (desde y hasta).');return;}
+  if(!d.r.d||!d.r.h){alert('Elegí el período (desde y hasta).');return null;}
   var e=(typeof _mEsc==='function')?_mEsc:function(s){return String(s==null?'':s);};
   var per=formatFecha(d.r.d)+' al '+formatFecha(d.r.h);
   var S=function(tit,corte,queEs,cuerpo){
@@ -14910,8 +14927,7 @@ function generarCarpetaAuditor(){
     '<div class="cap-sec"><h2>6. Registro de proveedores</h2>'+provHtml+'</div>'+
     '<div class="bg-footer"><span>'+e(brandNom())+' · '+e(brandRif())+'</span><span>Carpeta del Auditor · '+per+'</span></div>'+
     '</body></html>';
-  abrirVentanaImpresion(html);
-  audit('Carpeta del Auditor generada',per);
+  return {html:html, per:per, r:d.r};
 }
 
 function exportarAuditoria(){
