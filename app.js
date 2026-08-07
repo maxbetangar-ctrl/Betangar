@@ -6292,9 +6292,17 @@ function abrirImauAsis(empId){
         '<option value="A"'+(declarado==='A'?' selected':'')+'>No fue</option>'+
       '</select></td></tr>';
   }).join('');
+  // Pie con los totales, igual que el desglose de choferes y ayudantes: lo que cobra, lo que está
+  // retenido esperando la declaración, y lo que no paga porque su unidad casi no salió.
+  var _tPaga=x.dias.reduce(function(s,d){return s+(d.usd||0);},0);
+  var _tEsp=x.dias.reduce(function(s,d){return s+((d.tarifa>0&&d.pres===null)?d.tarifa:0);},0);
+  var _pie='<tr class="tr-tot"><td colspan="3" style="text-align:right"><b>Cobra esta semana</b></td>'+
+           '<td style="font-family:var(--m);color:var(--yellow)"><b>$'+fmtMon(_tPaga)+'</b></td></tr>'+
+           (_tEsp>0?'<tr><td colspan="3" style="text-align:right;color:var(--amber);font-size:11px">En espera de que declares la asistencia</td>'+
+                    '<td style="font-family:var(--m);color:var(--amber)">$'+fmtMon(_tEsp)+'</td></tr>':'');
   openModal('Asistencia IMAU — '+x.emp.nombre+' ('+(x.unidad||'sin unidad')+')',
     '<p style="font-size:11px;color:var(--text2);margin-bottom:8px">Regla de RRHH: el IMAU cobra por los viajes que hizo <b>su unidad</b> ese día, <b>pero solo si fue a trabajar</b>. Un día <b>sin declarar y sin fichaje</b> no se paga y queda pendiente — no se le está quitando, falta el dato.</p>'+
-    '<table><thead><tr><th>Día</th><th>Su unidad</th><th>Fichaje</th><th>¿Fue?</th></tr></thead><tbody>'+filas+'</tbody></table>'+
+    '<table><thead><tr><th>Día</th><th>Su unidad</th><th>Fichaje</th><th>¿Fue?</th></tr></thead><tbody>'+filas+_pie+'</tbody></table>'+
     '<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px">'+
       '<button class="btn btn-s" onclick="closeModal()">Cancelar</button>'+
       '<button class="btn btn-g" onclick="guardarImauAsisSel(\''+String(empId).replace(/'/g,'')+'\')">Guardar asistencia</button>'+
@@ -6968,29 +6976,31 @@ function calcNom(){
     .sort(function(a,b){return String(a.emp.nombre||'').localeCompare(String(b.emp.nombre||''),'es');})
     .map(function(x,i){
       var cero=(x.montoUsd<=0);
-      // El día por día es lo que permite cotejarlo contra la realidad: qué día, cuántos viajes hizo
-      // su unidad y cuánto le tocó por eso. Los días de $0 se muestran igual — son los que explican
-      // por qué cobró menos de lo que esperaba.
-      // Día por día con los TRES estados. Un día retenido por falta de dato NO puede verse igual
-      // que un día que no paga: el primero es plata de alguien esperando que RRHH declare.
-      var det=x.dias.length
-        ? x.dias.map(function(d){
-            var t=formatFecha(d.f)+': '+d.viajes+'v';
-            if(d.tarifa<=0)   return '<span style="color:var(--text3)">'+t+' = $0</span>';
-            if(d.pres==='P')  return '<span style="color:var(--green)">'+t+' = $'+fmtMon(d.usd)+'</span>';
-            if(d.pres==='A')  return '<span style="color:var(--text3)">'+t+' — no fue</span>';
-            return '<span style="color:var(--amber)">'+t+' = $'+fmtMon(d.tarifa)+' ⏳ falta asistencia</span>';
-          }).join(' · ')
-        : 'Su unidad no tuvo planillas en este período';
+      // ⛔ EL DESGLOSE ERA UNA TIRA DE TEXTO QUE SE SALÍA DE LA PANTALLA (Alejandra, 2026-08-07:
+      // «el desglose en personal IMAU se ve de esa manera, debería estar al igual que choferes y
+      // ayudantes»). Escribía los 6 o 7 días completos en la celda, así que la tabla se estiraba y
+      // no se podía leer nada. Choferes y ayudantes resuelven esto igual desde el 04/08: un RESUMEN
+      // de dos o tres badges y una LUPA que abre el día por día. Ahora el IMAU hace lo mismo — y su
+      // lupa abre el modal donde además se declara la asistencia, que es lo que hay que hacer con
+      // esos días. Un dato que no se puede leer no informa, aunque esté completo.
+      var _dSinPagar=x.dias.filter(function(d){return d.tarifa<=0;}).length;
+      var _resumen=
+        (x.diasPagos>0?'<span title="días pagados: su unidad hizo 2 o más viajes y consta que fue" style="color:var(--green)">'+x.diasPagos+'P</span> ':'')+
+        (x.diasSinDato>0?'<span title="días en que su unidad trabajó y no sabemos si fue — $'+fmtMon(x.usdRetenido)+' en espera" style="color:var(--amber)">'+x.diasSinDato+'⏳</span> ':'')+
+        (x.diasAusente>0?'<span title="días declarados como que no fue a trabajar" style="color:var(--text3)">'+x.diasAusente+'A</span> ':'')+
+        (_dSinPagar>0?'<span title="días en que su unidad hizo 1 viaje o ninguno: no pagan" style="color:var(--text3)">'+_dSinPagar+'—</span> ':'')+
+        ((x.diasPagos+x.diasSinDato+x.diasAusente+_dSinPagar)===0?'<span style="color:var(--text3)">—</span> ':'');
+      var _lupa=x.dias.length
+        ? '<button class="btn btn-s btn-xs solo-ui" style="padding:0 4px;font-size:9px" onclick="abrirImauAsis(\''+String(x.emp.id).replace(/'/g,'')+'\')" title="Ver día por día y declarar si fue a trabajar">🔍</button>'
+        : '<span style="color:var(--text3)" title="Su unidad no tuvo planillas en este período">sin planillas</span>';
       var _pend=(x.diasSinDato>0)
-        ? ' <span style="font-size:9px;color:var(--amber)" title="Días en que su unidad trabajó y no sabemos si fue. No se le está pagando hasta que RRHH lo declare.">⏳ '+x.diasSinDato+' día(s) sin declarar · $'+fmtMon(x.usdRetenido)+' en espera</span>'
+        ? ' <span style="font-size:9px;color:var(--amber)" title="No se le está pagando hasta que RRHH declare si fue.">⏳ $'+fmtMon(x.usdRetenido)+' en espera</span>'
         : '';
       return '<tr'+(cero&&!x.diasSinDato?' style="opacity:.62"':(x.diasSinDato?' style="background:rgba(245,158,11,.07)"':''))+'><td style="font-family:var(--m)">'+(i+1)+'</td>'+
-        '<td style="font-weight:700">'+x.emp.nombre+(cero&&!x.diasSinDato?' <span style="font-size:9px;color:var(--text3)">— no cobra esta semana</span>':'')+_pend+
-          (x.dias.length?' <button class="btn btn-s btn-xs solo-ui" style="padding:0 5px;font-size:9px" onclick="abrirImauAsis(\''+String(x.emp.id).replace(/'/g,'')+'\')" title="Declarar si fue a trabajar cada día">🗓️ asistencia</button>':'')+'</td>'+
+        '<td style="font-weight:700">'+x.emp.nombre+(cero&&!x.diasSinDato?' <span style="font-size:9px;color:var(--text3)">— no cobra esta semana</span>':'')+_pend+'</td>'+
         '<td style="font-size:10px">'+(x.unidad||'<span style="color:var(--red)">SIN UNIDAD ASIGNADA</span>')+'</td>'+
         '<td style="text-align:center">'+x.diasPagos+(x.diasAusente?' <span style="font-size:9px;color:var(--text3)" title="días que declararon que no fue">(-'+x.diasAusente+')</span>':'')+'</td>'+
-        '<td style="font-size:9px;color:var(--text2)">'+det+'</td>'+
+        '<td style="font-size:9px;white-space:nowrap">'+_resumen+_lupa+'</td>'+
         '<td style="font-family:var(--m);font-weight:700;color:var(--yellow)">$'+fmtMon(x.montoUsd)+'</td></tr>';
     }).join('')||'<tr><td colspan="6" style="text-align:center;color:var(--text3);padding:14px">No hay personal IMAU activo con unidad asignada</td></tr>';
   _CHMAP_UI=chMap; _AYMAP_UI=ayMap; _IMAUMAP_UI=imauMap;   // para el desglose y el modal de asistencia
