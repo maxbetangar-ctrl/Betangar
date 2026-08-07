@@ -3719,6 +3719,7 @@ function bncMovGuardar(id){ // re-persiste un movimiento ya existente tras cambi
 }
 function g(id){return document.getElementById(id);}
 function gv(id){var el=g(id);return el?el.value:'';}
+function gcheck(id){var el=g(id);return !!(el&&el.checked);}
 function sv(id,v){var el=g(id);if(el)el.value=v;}
 
 // ═══════════════════════════════════════════════════
@@ -15091,8 +15092,9 @@ function _capHtml(){
      '3. Cobros recibidos y participación del socio','4. Movimientos bancarios recibidos',
      '5. Cuentas por pagar por proveedor','6. Nómina del período',
      '7. Retenciones de IVA e ISLR','8. Excepciones abiertas',
-     '9. Rastro de cambios sobre el dato','10. Accesos al sistema',
-     '11. Registro de proveedores','Constancia de emisión']
+     '10. Accesos al sistema','11. Registro de proveedores','Constancia de emisión']
+      .concat(gcheck('cap-rastro')?['9. Rastro de cambios sobre el dato']:[])
+      .sort(function(a,b){return (parseInt(a,10)||99)-(parseInt(b,10)||99);})
       .map(function(t){return '<div>'+t+'</div>';}).join('')+
     '</div><p class="cap-nota">Cada punto empieza en una hoja nueva. Si alguna falta, se nota contra esta lista.</p></div>'+
     S('1. Mantenimiento de unidades',d.cortes.mantenimiento,'mantenimiento',mantHtml)+
@@ -15103,10 +15105,19 @@ function _capHtml(){
     S('6. Nómina del período',d.cortes.nomina,'nómina',nomHtml)+
     '<div class="cap-sec"><h2>7. Retenciones de IVA e ISLR</h2>'+retHtml+'</div>'+
     '<div class="cap-sec"><h2>8. Excepciones abiertas al cierre del período</h2>'+excHtml+'</div>'+
-    '<div class="cap-sec"><h2>9. Rastro de cambios sobre el dato</h2>'+
-    '<div class="cap-falta">⚠️ El sistema conserva en pantalla los <b>200 movimientos más recientes</b>. '+
-    'Este listado NO es el registro completo del período y no debe leerse como tal — el registro entero '+
-    'vive en la base y se entrega aparte si se solicita.</div>'+camHtml+'</div>'+
+    // ⛔ EL RASTRO DE CAMBIOS NO VA POR DEFECTO. Se puso al principio porque es lo que respalda a
+    // todos los demás listados, pero mirándolo impreso no se sostiene como hoja fija: sale
+    // incompleto (200 movimientos, y hay que decirlo en rojo), NADIE lo pidió —ninguna de las 17
+    // preguntas de la auditora— y es ruido operativo. Peor: un log crudo de ediciones y borrados,
+    // sin contexto al lado, es una lista de cosas para interrogar, y esas respuestas viven en la
+    // cabeza de alguien. Se deja a un clic para el día que un auditor de SISTEMAS lo pida.
+    // (Distinto de «Excepciones», que sí va: son pocas, curadas y con su porqué al lado.)
+    (gcheck('cap-rastro')
+      ? ('<div class="cap-sec"><h2>9. Rastro de cambios sobre el dato</h2>'+
+         '<div class="cap-falta">⚠️ El sistema conserva en pantalla los <b>200 movimientos más recientes</b>. '+
+         'Este listado NO es el registro completo del período y no debe leerse como tal — el registro entero '+
+         'vive en la base y se entrega aparte si se solicita.</div>'+camHtml+'</div>')
+      : '')+
     '<div class="cap-sec"><h2>10. Accesos al sistema</h2>'+usrHtml+'</div>'+
     '<div class="cap-sec"><h2>11. Registro de proveedores</h2>'+provHtml+'</div>'+
     selloHtml+
