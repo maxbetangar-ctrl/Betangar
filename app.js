@@ -16,6 +16,8 @@ var BTG_CONFIG = {
   // empresa), no el del producto (FlotaMax) que no le dice nada. Corto: la pantalla lo trunca.
   // ⚠️ AL CLONAR: cambiar SIEMPRE. Si queda el del molde, el cliente nuevo ve la marca ajena
   // en su teléfono cada vez que entra.
+  // Renglon 2 del banner de los Excel; maxware-excel.js le agrega 'por Maxware C.A.'
+  excel_bajada: 'Gestion de flota y operaciones',
   empresa_marca: 'Betangar',
   empresa_rif: 'J-29566107-0',                             // ← RIF de ESTA empresa (sale en TODO impreso)
   empresa_ciudad: 'Maracaibo, Edo. Zulia',                 // ← ciudad/estado (encabezados)
@@ -2415,19 +2417,19 @@ function _acRender(){
   cont.innerHTML=html;
 }
 
-function acExcel(){
+async function acExcel(){
   if(!AC_JORNADAS.length){alert('Buscá un período primero.');return;}
   if(typeof XLSX==='undefined'){alert('No se pudo cargar el exportador.');return;}
-  var wb=XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(AC_JORNADAS.map(function(j){
+  var wb=_xlNuevo();
+  _xlAgregar(wb,(AC_JORNADAS.map(function(j){
     return {Fecha:j.fecha,Unidad:j.cam,Chofer:j.chofer||'','Regla salida cm':j.salidaCm,'Litros salida':j.salida,
       Despacho:j.desp,'Regla llegada cm':j.llegadaCm,'Litros llegada':j.llegada,Consumo:j.consumo,Km:j.km,
       'Km/L':(j.rend!=null?Math.round(j.rend*100)/100:'')};
   })),'Jornadas');
-  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(AC_ANOM.map(function(a){
+  _xlAgregar(wb,(AC_ANOM.map(function(a){
     return {Severidad:a.sev,Regla:a.cod,Tipo:a.titulo,Unidad:a.cam,Fecha:a.fecha,'A cargo':a.quien||'',Litros:a.litros,Detalle:a.texto};
   })),'Anomalias');
-  XLSX.writeFile(wb,brandArchivo()+'_Auditoria_Combustible_'+AC_META.desde+'_a_'+AC_META.hasta+'.xlsx');
+  await _xlGuardar(wb,brandArchivo()+'_Auditoria_Combustible_'+AC_META.desde+'_a_'+AC_META.hasta+'.xlsx');
   audit('Auditoría de combustible exportada',AC_META.desde+' a '+AC_META.hasta+' · '+AC_JORNADAS.length+' jornadas · '+AC_ANOM.length+' anomalías');
 }
 
@@ -5049,11 +5051,11 @@ async function detectarPlanillasFaltantes(){
   document.body.appendChild(ov);
   audit('Revisión de planillas faltantes',faltan.length+' huecos ('+String(min).padStart(5,'0')+'–'+String(max).padStart(5,'0')+')');
 }
-function exportHistExcel(){
+async function exportHistExcel(){
   if(typeof XLSX==='undefined'){alert('XLSX no cargado');return;}
-  var wb=XLSX.utils.book_new();
+  var wb=_xlNuevo();
   var ws=XLSX.utils.json_to_sheet(REGS.map(function(r){return{Planilla:r.p,Fecha:r.f,Mes:r.mes,Camion:r.cam,Chofer:r.ch,Ayudante1:r.ay1||'',Ayudante2:r.ay2||'',Ayudante3:r.ay3||'',Ruta:r.r,Parroquia:r.par,Diurnos:r.d,Nocturnos:r.n,Total:r.t,Semana:r.sem,'Monto $':r.m};}));
-  XLSX.utils.book_append_sheet(wb,ws,'Planillas');XLSX.writeFile(wb,brandArchivo()+'_Historico.xlsx');
+  XLSX.utils.book_append_sheet(wb,ws,'Planillas');await _xlGuardar(wb,brandArchivo()+'_Historico.xlsx');
 }
 // Aviso claro de DÓNDE quedó guardada la importación.
 //   ok=true  → ✅ verde, en la nube (Supabase), se cierra solo a los 6s.
@@ -5788,7 +5790,7 @@ function printRpt(){
   w.document.close();
   setTimeout(function(){w.print();},500);
 }
-function exportRptExcel(){var des=gv('rr-des'),hta=gv('rr-hta'),sem=gv('rr-sem');var f=REGS.filter(function(r){if(des&&r.f<des)return false;if(hta&&r.f>hta)return false;if(sem&&r.sem!==sem)return false;return true;});if(!f.length){alert('Sin datos');return;}var wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(f.map(function(r){return{Planilla:r.p,Fecha:r.f,Camion:r.cam,Chofer:r.ch,Ruta:r.r,Parroquia:r.par,Diurnos:r.d,Nocturnos:r.n,Total:r.t,Semana:r.sem,'Monto $':r.m};})),'Reporte');XLSX.writeFile(wb,brandArchivo()+'_Reporte.xlsx');}
+async function exportRptExcel(){var des=gv('rr-des'),hta=gv('rr-hta'),sem=gv('rr-sem');var f=REGS.filter(function(r){if(des&&r.f<des)return false;if(hta&&r.f>hta)return false;if(sem&&r.sem!==sem)return false;return true;});if(!f.length){alert('Sin datos');return;}var wb=_xlNuevo();_xlAgregar(wb,(f.map(function(r){return{Planilla:r.p,Fecha:r.f,Camion:r.cam,Chofer:r.ch,Ruta:r.r,Parroquia:r.par,Diurnos:r.d,Nocturnos:r.n,Total:r.t,Semana:r.sem,'Monto $':r.m};})),'Reporte');await _xlGuardar(wb,brandArchivo()+'_Reporte.xlsx');}
 
 
 function calcMontoAbono(){
@@ -7807,7 +7809,7 @@ async function montarNominaBNC(){
   alert('✅ Nomina montada en BNC.\n'+pagos.length+' pagos pendientes de autorizar.\nSe envio WhatsApp al firmante.\n\n⚠ El firmante debe ingresar a BNCNET para autorizar.');
 }
 
-function exportNomExcel(){
+async function exportNomExcel(){
   if(typeof XLSX==='undefined'){alert('Excel no disponible (XLSX no cargado).');return;}
   var n=(typeof _ultimaNomina!=='undefined')?_ultimaNomina:null;
   if(!n||((!n.choferes||!n.choferes.length)&&(!n.ayudantes||!n.ayudantes.length))){
@@ -7817,17 +7819,17 @@ function exportNomExcel(){
   // (para que los Bs salgan con la tasa real, no inventada) y reexportar.
   if(!(TASAS.bcvDolar||cfg.tasa)){ tasaOManual('bcvDolar', function(){ try{calcNom();}catch(e){} exportNomExcel(); }); return; }
   var tasa=n.tasa||TASAS.bcvDolar||cfg.tasa;
-  var wb=XLSX.utils.book_new();
+  var wb=_xlNuevo();
   // Hoja Choferes: neto por persona (mismo dato del cálculo oficial calcNom → _ultimaNomina).
   var rowsCh=(n.choferes||[]).map(function(c){return {
     Nombre:c.n, Unidades:c.u||'', Viajes:c.viajes, Patio:c.pat||0, 'Neto $':c.usd, 'Neto Bs':c.bs
   };});
-  if(rowsCh.length)XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(rowsCh),'Choferes');
+  if(rowsCh.length)_xlAgregar(wb,(rowsCh),'Choferes');
   // Hoja Ayudantes (incluye tipo interno/imau).
   var rowsAy=(n.ayudantes||[]).map(function(a){return {
     Nombre:a.n, Unidad:a.u||'', Tipo:a.tipo||'interno', Viajes:a.viajes, Patio:a.pat||0, 'Neto $':a.usd, 'Neto Bs':a.bs
   };});
-  if(rowsAy.length)XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(rowsAy),'Ayudantes');
+  if(rowsAy.length)_xlAgregar(wb,(rowsAy),'Ayudantes');
   // Hoja Resumen: totales del período y la tasa con la que se convirtió a Bs (auditable).
   var resumen=[
     {Concepto:'Período', Valor:((n.mes||'')+' '+(n.sem||'')).trim()},
@@ -7840,9 +7842,9 @@ function exportNomExcel(){
     {Concepto:'Total IMAU $', Valor:Math.round((n.totImau||0)*100)/100},
     {Concepto:'Total Bs', Valor:Math.round(n.totBs||0)}
   ];
-  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(resumen),'Resumen');
+  _xlAgregar(wb,(resumen),'Resumen');
   var sufijo=String(n.sem||n.mes||'export').replace(/[^\w-]/g,'_')||'export';
-  XLSX.writeFile(wb,brandArchivo()+'_Nomina_'+sufijo+'.xlsx');
+  await _xlGuardar(wb,brandArchivo()+'_Nomina_'+sufijo+'.xlsx');
   audit('Nómina exportada a Excel',((n.mes||'')+' '+(n.sem||'')).trim());
 }
 function imprimirNomina(){
@@ -9217,8 +9219,10 @@ function _seedMantItemsDefault(){
     {id:'filtro_aire',nombre:'Filtro de aire',categoria:'Motor',base:'km',intervalo:10000,avisoAnticipo:1000,tipoUnidad:'',activo:true,orden:3},
     {id:'filtro_combustible',nombre:'Filtro de combustible',categoria:'Combustible',base:'km',intervalo:10000,avisoAnticipo:1000,tipoUnidad:'',activo:true,orden:4},
     {id:'filtro_trampa',nombre:'Filtro trampa / decantador (drenar)',categoria:'Combustible',base:'dias',intervalo:2,avisoAnticipo:0,tipoUnidad:'diesel',activo:true,orden:5},
-    {id:'bateria',nombre:'Batería',categoria:'Eléctrico',base:'meses',intervalo:12,avisoAnticipo:15,tipoUnidad:'',activo:true,orden:6},
-    {id:'cauchos',nombre:'Cauchos / neumáticos',categoria:'Tren rodante',base:'km',intervalo:40000,avisoAnticipo:3000,tipoUnidad:'',activo:true,orden:7},
+    // `llevaSerial` = la pieza se rastrea por SERIAL en la tabla `piezas`.
+    // `critico` = exige foto al cambiarla.
+    {id:'bateria',nombre:'Batería',categoria:'Eléctrico',base:'meses',intervalo:12,avisoAnticipo:15,tipoUnidad:'',activo:true,orden:6,llevaSerial:true,critico:true},
+    {id:'cauchos',nombre:'Cauchos / neumáticos',categoria:'Tren rodante',base:'km',intervalo:40000,avisoAnticipo:3000,tipoUnidad:'',activo:true,orden:7,llevaSerial:true,critico:true},
     {id:'rodamientos',nombre:'Rodamientos',categoria:'Tren rodante',base:'km',intervalo:60000,avisoAnticipo:3000,tipoUnidad:'',activo:true,orden:8},
     {id:'frenos',nombre:'Frenos (pastillas/bandas)',categoria:'Frenos',base:'km',intervalo:20000,avisoAnticipo:2000,tipoUnidad:'',activo:true,orden:9},
     {id:'correa',nombre:'Correa',categoria:'Motor',base:'km',intervalo:60000,avisoAnticipo:3000,tipoUnidad:'',activo:true,orden:10},
@@ -9232,7 +9236,7 @@ async function cargarMantItems(){
   try{
     var r=await supabase.from('mant_items').select('*').order('orden',{ascending:true});
     if(r&&!r.error&&Array.isArray(r.data)&&r.data.length){
-      MANT_ITEMS=r.data.map(function(x){return {id:x.id,nombre:x.nombre||'',categoria:x.categoria||'',base:x.base||'km',intervalo:parseFloat(x.intervalo)||0,inspeccion:parseFloat(x.inspeccion)||0,sustitucion:parseFloat(x.sustitucion)||0,avisoAnticipo:parseFloat(x.aviso_anticipo)||0,tipoUnidad:x.tipo_unidad||'',tipo:x.tipo||'',combustible:x.combustible||'',critico:x.critico_seguridad===true,fuente:x.fuente||'',activo:x.activo!==false,orden:parseInt(x.orden)||0};});
+      MANT_ITEMS=r.data.map(function(x){return {id:x.id,nombre:x.nombre||'',categoria:x.categoria||'',base:x.base||'km',intervalo:parseFloat(x.intervalo)||0,inspeccion:parseFloat(x.inspeccion)||0,sustitucion:parseFloat(x.sustitucion)||0,avisoAnticipo:parseFloat(x.aviso_anticipo)||0,tipoUnidad:x.tipo_unidad||'',tipo:x.tipo||'',combustible:x.combustible||'',critico:x.critico_seguridad===true,llevaSerial:x.lleva_serial===true,fuente:x.fuente||'',activo:x.activo!==false,orden:parseInt(x.orden)||0};});
     } else {
       MANT_ITEMS=_seedMantItemsDefault();                 // tabla vacía o inexistente → semilla local (fail-open)
       if(r&&!r.error&&Array.isArray(r.data)&&!r.data.length){ try{ await _sembrarMantItems(); }catch(e){} }
@@ -9241,7 +9245,7 @@ async function cargarMantItems(){
 }
 async function _sembrarMantItems(){
   if(!(DB_READY&&supabase))return;
-  var rows=_seedMantItemsDefault().map(function(x){return {id:x.id,nombre:x.nombre,categoria:x.categoria,base:x.base,intervalo:x.intervalo,aviso_anticipo:x.avisoAnticipo,tipo_unidad:x.tipoUnidad,activo:x.activo,orden:x.orden};});
+  var rows=_seedMantItemsDefault().map(function(x){return {id:x.id,nombre:x.nombre,categoria:x.categoria,base:x.base,intervalo:x.intervalo,aviso_anticipo:x.avisoAnticipo,tipo_unidad:x.tipoUnidad,activo:x.activo,orden:x.orden,lleva_serial:x.llevaSerial===true,critico_seguridad:x.critico===true};});
   try{ await supabase.from('mant_items').upsert(rows,{onConflict:'id'}); }catch(e){}
 }
 async function cargarMantenimientos(){
@@ -9292,7 +9296,515 @@ async function _migrarLavadoEngrase(){
   if(seeds.length){ try{ await supabase.from('mantenimientos').upsert(seeds,{onConflict:'id'}); }catch(e){} }
 }
 // Loader único del módulo de mantenimiento (catálogo + historial + tipos + continuidad).
-function _cargarMantTodo(){ return Promise.all([cargarMantItems(),cargarMantenimientos(),cargarUnidadConfig(),cargarTiposUnidadMant()]).then(function(){ return _migrarLavadoEngrase(); }); }
+
+// ══════════════════════════════════════════════════════════════════════════
+// PIEZAS CON SERIAL — la batería (y cualquier pieza que se cambie) deja de ser
+// un renglón de texto y pasa a ser una COSA con serial, historia y garantía.
+//
+// Lo pidió Carlos Serrano (FLOTILLA, 2026-08-07): «¿tiene cómo registrar los
+// seriales de las baterías asignadas a cada vehículo, y que quede registrado
+// cuando se reemplaza?». Antes de esto los únicos seriales de la app eran los
+// del MOTOR y la CARROCERÍA — o sea, del vehículo, no de las piezas.
+//
+// CÓMO ENGANCHA CON LO QUE YA HABÍA (no es un módulo aparte):
+//   · El TIPO de pieza sale de `mant_items` (el catálogo de mantenimiento que
+//     ya existía), con el interruptor `lleva_serial`. No hay una segunda lista.
+//   · Registrar un cambio ESCRIBE la fila de `mantenimientos` — la hoja de vida
+//     y el preventivo siguen siendo la fuente única de "cuándo toca".
+//   · Si el cambio viene de CERRAR UNA ORDEN DE SERVICIO, la pieza queda con
+//     `orden_id` y con el proveedor de esa orden.
+//   · El reemplazo lo hace la función `piezas_reemplazar` de la base: retira la
+//     vieja y mete la nueva en UNA operación, y las enlaza (`reemplaza_a`).
+// ══════════════════════════════════════════════════════════════════════════
+var PIEZAS=[];   // filas de la tabla `piezas` (instaladas + retiradas)
+
+async function cargarPiezas(){
+  if(!(DB_READY&&supabase))return;
+  try{
+    var r=await supabase.from('piezas').select('*').order('fecha_inst',{ascending:false}).limit(5000);
+    if(r&&!r.error&&Array.isArray(r.data))PIEZAS=r.data;
+  }catch(e){ /* la tabla puede no existir en un clon viejo: el resto de la app sigue */ }
+}
+
+// Los ítems del catálogo que se rastrean por serial.
+function _piezasTipos(){
+  return (MANT_ITEMS||[]).filter(function(x){return x.llevaSerial&&x.activo!==false;});
+}
+function _piezaTipoNombre(id){
+  var it=(MANT_ITEMS||[]).filter(function(x){return x.id===id;})[0];
+  return it?it.nombre:id;
+}
+// Lo que la unidad tiene PUESTO hoy (sin fecha de retiro).
+function _piezasDe(cam){
+  return (PIEZAS||[]).filter(function(p){return p.cam===cam&&!p.fecha_retiro;});
+}
+function _piezasHistorial(cam){
+  return (PIEZAS||[]).filter(function(p){return p.cam===cam;})
+    .sort(function(a,b){return String(b.fecha_inst||'').localeCompare(String(a.fecha_inst||''));});
+}
+
+// Semáforo de la garantía. Es lo que convierte la fecha en una decisión:
+// si la pieza se muere y todavía está en garantía, hay plata que reclamar.
+function _piezaGarantia(p){
+  if(!p.garantia_hasta)return {txt:'sin garantía',color:'var(--text3)',viva:false};
+  var hoy=fechaVE(), h=String(p.garantia_hasta).slice(0,10);
+  var dias=Math.round((new Date(h+'T00:00:00')-new Date(hoy+'T00:00:00'))/86400000);
+  if(dias<0)  return {txt:'garantía vencida el '+formatFecha(h),color:'var(--text3)',viva:false,dias:dias};
+  if(dias<=30)return {txt:'⚠ garantía vence en '+dias+' d ('+formatFecha(h)+')',color:'var(--amber)',viva:true,dias:dias};
+  return {txt:'✅ en garantía hasta '+formatFecha(h),color:'var(--green)',viva:true,dias:dias};
+}
+
+// ── El buscador por serial: la razón de ser del módulo ──────────────────────
+// Un serial que se guarda y no se puede buscar no atrapa nada. Esto es lo que
+// encuentra la batería vieja devuelta como nueva, o la que se mudó de unidad.
+function _piezasPorSerial(serial){
+  var s=String(serial||'').trim().toUpperCase(); if(!s)return [];
+  return (PIEZAS||[]).filter(function(p){return String(p.serial||'').toUpperCase().indexOf(s)>=0;})
+    .sort(function(a,b){return String(b.fecha_inst||'').localeCompare(String(a.fecha_inst||''));});
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// RESUMEN PARA LA FICHA DE LA UNIDAD (lo que pidió Máximo: que esté en la ficha)
+// ══════════════════════════════════════════════════════════════════════════
+function _piezasResumenFicha(cam){
+  var tipos=_piezasTipos();
+  if(!tipos.length)return '';
+  var puestas=_piezasDe(cam);
+  var filas=tipos.map(function(t){
+    var mias=puestas.filter(function(p){return p.tipo===t.id;});
+    if(!mias.length){
+      return '<div style="display:flex;justify-content:space-between;gap:8px;padding:4px 0;border-bottom:1px dashed var(--border)">'+
+        '<span>'+_mEsc(t.nombre)+'</span>'+
+        '<span style="color:var(--amber);font-size:11px">— sin registrar —</span></div>';
+    }
+    return mias.map(function(p){
+      var gar=_piezaGarantia(p);
+      return '<div style="display:flex;justify-content:space-between;gap:8px;padding:4px 0;border-bottom:1px dashed var(--border)">'+
+        '<span>'+_mEsc(t.nombre)+(p.posicion?(' <span style="color:var(--text3);font-size:10px">'+_mEsc(p.posicion)+'</span>'):'')+
+          ' <b style="font-family:var(--m)">'+_mEsc(p.serial)+'</b>'+
+          (p.marca?(' <span style="color:var(--text3);font-size:10px">'+_mEsc(p.marca)+'</span>'):'')+'</span>'+
+        '<span style="font-size:10px;color:'+gar.color+';white-space:nowrap">'+_mEsc(gar.txt)+'</span></div>';
+    }).join('');
+  }).join('');
+  return '<div class="fg" style="margin-top:4px">'+
+    '<label>🔩 Piezas con serial</label>'+
+    '<div style="font-size:11px;border:1px solid var(--border);border-radius:6px;padding:6px 9px">'+filas+
+    '<button class="btn btn-s btn-sm" style="margin-top:7px" type="button" onclick="abrirPiezasUnidad(\''+_mEsc(cam)+'\')">🔩 Ver historial y registrar cambio</button>'+
+    '</div></div>';
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// LA PANTALLA DE PIEZAS DE UNA UNIDAD
+// ══════════════════════════════════════════════════════════════════════════
+function abrirPiezasUnidad(cam){
+  window._piezasCam=cam;
+  var puestas=_piezasDe(cam), hist=_piezasHistorial(cam);
+  var tipos=_piezasTipos();
+
+  var elPuestas=puestas.length?puestas.map(function(p){
+    var gar=_piezaGarantia(p);
+    return '<tr><td>'+_mEsc(_piezaTipoNombre(p.tipo))+(p.posicion?('<br><span style="font-size:10px;color:var(--text3)">'+_mEsc(p.posicion)+'</span>'):'')+'</td>'+
+      '<td style="font-family:var(--m);font-weight:700">'+_mEsc(p.serial)+'</td>'+
+      '<td>'+_mEsc(p.marca||'—')+'</td>'+
+      '<td style="font-family:var(--m)">'+formatFecha(p.fecha_inst)+'</td>'+
+      '<td style="font-size:10px;color:'+gar.color+'">'+_mEsc(gar.txt)+'</td>'+
+      '<td><button class="btn btn-s btn-sm" onclick="abrirCambiarPieza(\''+_mEsc(cam)+'\',\''+_mEsc(p.tipo)+'\',\''+_mEsc(p.posicion||'')+'\')">🔁 Cambiar</button></td></tr>';
+  }).join(''):'<tr><td colspan="6" style="color:var(--amber);font-size:11px;padding:8px">Esta unidad no tiene ninguna pieza con serial registrada todavía. Registrá la que tiene puesta hoy para que el sistema pueda comparar cuando se cambie.</td></tr>';
+
+  // El historial: cada fila dice a quién reemplazó. Esa cadena es la respuesta
+  // exacta a «que quede registrado cuando se reemplaza».
+  var elHist=hist.length?hist.map(function(p){
+    var ant=p.reemplaza_a?(PIEZAS.filter(function(x){return x.id===p.reemplaza_a;})[0]):null;
+    var dur=p.fecha_retiro?Math.round((new Date(String(p.fecha_retiro).slice(0,10)+'T00:00:00')-new Date(String(p.fecha_inst).slice(0,10)+'T00:00:00'))/86400000):null;
+    return '<tr'+(p.fecha_retiro?'':' style="background:rgba(16,185,129,.08)"')+'>'+
+      '<td style="font-family:var(--m)">'+formatFecha(p.fecha_inst)+'</td>'+
+      '<td>'+_mEsc(_piezaTipoNombre(p.tipo))+'</td>'+
+      '<td style="font-family:var(--m);font-weight:700">'+_mEsc(p.serial)+'</td>'+
+      '<td>'+(p.fecha_retiro
+        ?('<span style="color:var(--text3)">salió '+formatFecha(p.fecha_retiro)+(dur!=null?(' · duró '+dur+' d'):'')+'</span>'+
+          (p.motivo_retiro?('<br><span style="font-size:10px">'+_mEsc(p.motivo_retiro)+'</span>'):''))
+        :'<span style="color:var(--green);font-weight:700">PUESTA HOY</span>')+'</td>'+
+      '<td style="font-size:10px">'+(ant?('reemplazó a <b style="font-family:var(--m)">'+_mEsc(ant.serial)+'</b>'):'<span style="color:var(--text3)">primera registrada</span>')+'</td>'+
+      '<td style="font-family:var(--m)">'+(p.costo_usd?('$'+fmtMon(p.costo_usd)):'—')+'</td></tr>';
+  }).join(''):'<tr><td colspan="6" style="color:var(--text3);font-size:11px;padding:8px">Sin historial.</td></tr>';
+
+  var html=
+    '<div style="font-size:11px;color:var(--text3);margin-bottom:8px">Cada pieza con serial de <b>'+_mEsc(cam)+'</b>: la que está puesta, cuándo se puso, hasta cuándo tiene garantía y a cuál reemplazó.</div>'+
+    (tipos.length?'':'<div style="background:rgba(245,158,11,.12);border:1px solid var(--amber);border-radius:6px;padding:8px;font-size:11px;color:var(--amber);margin-bottom:8px">Ningún ítem del catálogo está marcado como «lleva serial». Activalo en Mantenimiento → ⏰ Preventivo.</div>')+
+    '<div style="font-weight:700;font-size:12px;margin:6px 0">Puesto hoy</div>'+
+    '<div class="tw"><table><thead><tr><th>Pieza</th><th>Serial</th><th>Marca</th><th>Instalada</th><th>Garantía</th><th></th></tr></thead><tbody>'+elPuestas+'</tbody></table></div>'+
+    '<div style="display:flex;gap:6px;flex-wrap:wrap;margin:10px 0">'+
+      (tipos.length?'<button class="btn btn-g btn-sm" onclick="abrirCambiarPieza(\''+_mEsc(cam)+'\',\'\',\'\')">＋ Registrar una pieza</button>':'')+
+      '<button class="btn btn-s btn-sm" onclick="abrirBuscarSerial()">🔎 Buscar un serial</button>'+
+      // Carga inicial: sin la foto del dia 1, el primer cambio no tiene con que compararse.
+      '<button class="btn btn-s btn-sm" onclick="descargarPlantillaPiezas()" title="Descarga el Excel, que lo llenen, y volve a subirlo">⬇️ Plantilla Excel</button>'+
+      '<label class="btn btn-s btn-sm" style="cursor:pointer">📥 Importar Excel<input type="file" accept=".xlsx,.xls" style="display:none" onchange="importarPiezasExcel(this)"></label>'+
+      // [[norma-toda-pantalla-tiene-salida]]
+      '<button class="btn btn-s btn-sm" onclick="abrirEditarUnidad(\''+_mEsc(cam)+'\')">⬅️ Volver a la ficha</button>'+
+    '</div>'+
+    '<div style="font-weight:700;font-size:12px;margin:6px 0">Historial completo</div>'+
+    '<div class="tw"><table><thead><tr><th>Instalada</th><th>Pieza</th><th>Serial</th><th>Estado</th><th>Cadena</th><th>Costo</th></tr></thead><tbody>'+elHist+'</tbody></table></div>';
+  openModal('🔩 Piezas y seriales — '+cam,html);
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// REGISTRAR / CAMBIAR UNA PIEZA
+// ══════════════════════════════════════════════════════════════════════════
+function abrirCambiarPieza(cam,tipo,posicion){
+  var tipos=_piezasTipos();
+  if(!tipos.length){ alert('No hay ningún ítem marcado como «lleva serial» en el catálogo.'); return; }
+  var actual=tipo?_piezasDe(cam).filter(function(p){return p.tipo===tipo&&String(p.posicion||'')===String(posicion||'');})[0]:null;
+  var hoy=fechaVE();
+  var kmAct=(KM_DATA[cam]&&parseInt(KM_DATA[cam].km))||0;
+
+  var aviso=actual?('<div style="background:rgba(59,130,246,.12);border:1px solid var(--teal);border-radius:6px;padding:7px 9px;font-size:11px;margin-bottom:8px">'+
+      'Vas a <b>reemplazar</b> la que está puesta: <b style="font-family:var(--m)">'+_mEsc(actual.serial)+'</b>'+
+      ' (instalada el '+formatFecha(actual.fecha_inst)+'). Se va a cerrar sola con la fecha de este cambio.'+
+      ((function(){var g2=_piezaGarantia(actual);return g2.viva?('<br><b style="color:var(--amber)">⚠ Esa pieza TODAVÍA está en garantía ('+_mEsc(g2.txt)+'). Reclamala al proveedor antes de pagar una nueva.</b>'):'';})())+
+      '</div>'):'';
+
+  var html=aviso+
+    '<div class="fr2">'+
+      '<div class="fg"><label>Pieza</label><select class="fc" id="pz-tipo" onchange="_pzTipoCambio()">'+
+        tipos.map(function(t){return '<option value="'+_mEsc(t.id)+'"'+(t.id===tipo?' selected':'')+'>'+_mEsc(t.nombre)+'</option>';}).join('')+
+      '</select></div>'+
+      '<div class="fg"><label>Posición <span style="color:var(--text3);font-size:10px">(vacío si es única)</span></label><input class="fc" id="pz-pos" value="'+_mEsc(posicion||'')+'" placeholder="ej: Delantera Izq."></div>'+
+    '</div>'+
+    '<div class="fr2">'+
+      '<div class="fg"><label>SERIAL de la pieza nueva *</label><input class="fc" id="pz-serial" placeholder="el que viene grabado en la pieza" style="font-family:var(--m);text-transform:uppercase" oninput="_pzSerialHint()"><div id="pz-serial-hint" style="font-size:10px;margin-top:3px;min-height:12px"></div></div>'+
+      '<div class="fg"><label>Marca</label><input class="fc" id="pz-marca" placeholder="ej: Duncan, Titan…"></div>'+
+    '</div>'+
+    '<div class="fr3">'+
+      '<div class="fg"><label>Fecha del cambio</label><input class="fc" id="pz-fecha" type="date" value="'+hoy+'"></div>'+
+      '<div class="fg"><label>Kilometraje</label><input class="fc" id="pz-km" type="number" value="'+(kmAct||'')+'" style="font-family:var(--m)"></div>'+
+      '<div class="fg"><label>Costo $</label><input class="fc" id="pz-costo" type="number" step="0.01" placeholder="0.00" style="font-family:var(--m)"></div>'+
+    '</div>'+
+    '<div class="fr3">'+
+      '<div class="fg"><label>Garantía (meses)</label><input class="fc" id="pz-gar" type="number" value="12" style="font-family:var(--m)"><small style="color:var(--text3);font-size:10px">La fecha se calcula sola</small></div>'+
+      '<div class="fg"><label>Proveedor</label><input class="fc" id="pz-prov" placeholder="a quién se le compró"></div>'+
+      '<div class="fg"><label>Motivo del cambio</label><input class="fc" id="pz-motivo" placeholder="ej: no arrancaba"></div>'+
+    '</div>'+
+    '<div class="fg"><label>📷 Foto del serial <span style="color:var(--text3);font-size:10px">(la prueba de que la pieza se puso)</span></label>'+
+      '<input class="fc" id="pz-foto" type="file" accept="image/*" onchange="subirFotoPieza(this)"><div id="pz-foto-prev" style="margin-top:6px"></div></div>'+
+    '<div class="fg"><label>Notas</label><input class="fc" id="pz-notas" placeholder="opcional"></div>'+
+    '<div style="display:flex;gap:8px;margin-top:8px">'+
+      '<button class="btn btn-g" style="flex:1" onclick="guardarPieza()">'+(actual?'🔁 Registrar el cambio':'Registrar la pieza')+'</button>'+
+      '<button class="btn btn-s" onclick="abrirPiezasUnidad(\''+_mEsc(cam)+'\')">⬅️ Volver</button>'+
+    '</div>';
+  window._pzFotoUrl='';
+  openModal((actual?'🔁 Cambiar pieza — ':'＋ Registrar pieza — ')+cam,html);
+  setTimeout(function(){ try{ _pzTipoCambio(); }catch(e){} },0);
+}
+
+function _pzTipoCambio(){
+  var t=gv('pz-tipo'), it=(MANT_ITEMS||[]).filter(function(x){return x.id===t;})[0];
+  // La garantía por defecto sale del intervalo del catálogo cuando está en meses:
+  // una batería de 12 meses de vida suele traer 12 de garantía.
+  var gar=g('pz-gar');
+  if(gar&&it&&it.base==='meses'&&it.intervalo)gar.value=it.intervalo;
+}
+
+// Avisa EN EL MOMENTO si el serial ya se usó antes. Es el corazón del control:
+// una batería vieja devuelta como nueva reaparece acá.
+function _pzSerialHint(){
+  var h=g('pz-serial-hint'); if(!h)return;
+  var s=(gv('pz-serial')||'').trim();
+  if(s.length<3){h.innerHTML='';return;}
+  var iguales=(PIEZAS||[]).filter(function(p){return String(p.serial||'').toUpperCase()===s.toUpperCase();});
+  if(!iguales.length){h.innerHTML='<span style="color:var(--green)">serial nuevo ✓</span>';return;}
+  var p=iguales[0];
+  h.innerHTML='<span style="color:var(--red)">⚠ Ese serial YA existe: estuvo en <b>'+_mEsc(p.cam)+'</b> desde '+formatFecha(p.fecha_inst)+
+    (p.fecha_retiro?(' y salió el '+formatFecha(p.fecha_retiro)):' y figura PUESTA ahí ahora')+'. Verificá que no te estén devolviendo una pieza usada.</span>';
+}
+
+async function subirFotoPieza(input){
+  var f=input&&input.files&&input.files[0]; if(!f)return;
+  var p=g('pz-foto-prev'); if(p)p.innerHTML='<span style="font-size:11px;color:var(--text3)">Subiendo…</span>';
+  try{
+    var dataURL=await comprimirImagen(f,1024,0.7);
+    var url=await subirImagenSegura(dataURL,'asistencia',_rutaImg('piezas',gv('pz-tipo')||'pieza'));
+    window._pzFotoUrl=url||'';
+    if(p)p.innerHTML=url?('<img src="'+_mEsc(url)+'" style="max-height:60px;border-radius:6px">'):'';
+  }catch(e){ if(p)p.innerHTML='<span style="font-size:11px;color:var(--red)">No se pudo subir la foto</span>'; }
+  input.value='';
+}
+
+async function guardarPieza(){
+  var cam=window._piezasCam;
+  var tipo=gv('pz-tipo'), serial=(gv('pz-serial')||'').trim().toUpperCase();
+  var pos=(gv('pz-pos')||'').trim(), fecha=gv('pz-fecha')||fechaVE();
+  var km=parseInt(gv('pz-km'))||0, costo=parseFloat(gv('pz-costo'))||0;
+  var garMeses=parseInt(gv('pz-gar'))||0, prov=(gv('pz-prov')||'').trim();
+  var motivo=(gv('pz-motivo')||'').trim(), notas=(gv('pz-notas')||'').trim();
+  var marca=(gv('pz-marca')||'').trim(), foto=window._pzFotoUrl||'';
+
+  if(!cam||!tipo){ alert('Falta la unidad o el tipo de pieza.'); return; }
+  if(!serial){ alert('⚠️ El SERIAL es obligatorio.\n\nEs justo lo que hace que esta pieza se pueda rastrear: sin él, el registro no sirve para comparar cuando se cambie.'); return; }
+
+  var it=(MANT_ITEMS||[]).filter(function(x){return x.id===tipo;})[0];
+  // Los ítems críticos exigen foto — el mismo candado que ya tenía la hoja de
+  // vida. Así el taller no puede decir que la cambió sin prueba.
+  if(it&&it.critico&&!foto){ alert('⚠️ FOTO OBLIGATORIA\n\n"'+(it.nombre||tipo)+'" es una pieza crítica: subí la foto del serial como prueba.'); return; }
+
+  // Aviso duro si el serial ya estuvo puesto: no lo bloquea (una batería puede
+  // rotar legítimamente entre unidades) pero obliga a confirmarlo.
+  var iguales=(PIEZAS||[]).filter(function(p){return String(p.serial||'').toUpperCase()===serial;});
+  if(iguales.length){
+    var pv=iguales[0];
+    if(!confirm('⚠️ ATENCIÓN: el serial '+serial+' ya está registrado.\n\nEstuvo en la unidad '+pv.cam+' desde '+formatFecha(pv.fecha_inst)+
+      (pv.fecha_retiro?(' y salió el '+formatFecha(pv.fecha_retiro)):' y figura PUESTA ahí ahora')+
+      '.\n\n¿Seguro que esta es la pieza que se está instalando? Podría ser una pieza usada devuelta como nueva.\n\nAceptar = registrarla igual.')) return;
+  }
+
+  if(!(DB_READY&&supabase)){ mostrarToast('Sin conexión: el cambio de pieza necesita base (el reemplazo se hace en una sola operación).','error'); return; }
+
+  // ── 1. La fila de la HOJA DE VIDA. Va primero porque la pieza la referencia
+  // ── y porque es la que alimenta el preventivo (fuente única de "cuándo toca").
+  var mantId='MT'+Date.now();
+  var garHasta=garMeses>0?(function(){var d=new Date(fecha+'T00:00:00');d.setMonth(d.getMonth()+garMeses);return d.toISOString().slice(0,10);})():null;
+  var filaMant={id:mantId,cam:cam,f:fecha,km:km,horas:0,item_id:tipo,tipo:(it?it.nombre:tipo),
+    tipo_trabajo:'cambio',desc_trabajo:(it?it.nombre:tipo)+' · serial '+serial+(marca?(' ('+marca+')'):''),
+    costo_usd:costo,proveedor:prov,foto_url:foto,anomalia:false,motivo:motivo,
+    orden_id:(window._ordCerrando&&window._ordCerrando.cam===cam)?window._ordCerrando.id:'',
+    garantia_hasta:garHasta,ejecutor:prov?'externo':'interno'};
+  try{
+    var rm=await supabase.from('mantenimientos').upsert([filaMant],{onConflict:'id'});
+    if(rm&&rm.error){ mostrarToast('No se pudo escribir la hoja de vida: '+rm.error.message,'error'); return; }
+  }catch(e){ mostrarToast('Sin conexión al guardar la hoja de vida.','error'); return; }
+
+  // ── 2. El REEMPLAZO, en una sola operación de la base: retira la vieja, mete
+  // ── la nueva y las enlaza. El id lo pone la app para que un reintento no duplique.
+  var pzId='PZ'+Date.now();
+  var res;
+  try{
+    res=await supabase.rpc('piezas_reemplazar',{
+      p_id:pzId, p_cam:cam, p_tipo:tipo, p_serial:serial, p_fecha:fecha,
+      p_posicion:pos, p_marca:marca, p_km:km, p_costo_usd:costo,
+      p_garantia_meses:garMeses, p_proveedor:prov, p_orden_id:filaMant.orden_id||null,
+      p_mant_id:mantId, p_foto_url:foto, p_motivo_retiro:motivo, p_notas:notas,
+      p_registrado_por:(SESION&&SESION.usuario)||''
+    });
+  }catch(e){ res={error:{message:'sin conexión'}}; }
+  if(res&&res.error){ mostrarToast('No se pudo registrar la pieza: '+res.error.message,'error'); return; }
+
+  var d=res&&res.data||{};
+  await cargarPiezas();
+  try{ await cargarMantenimientos(); }catch(e){}
+  audit('Pieza con serial registrada', cam+' · '+(it?it.nombre:tipo)+' · serial '+serial+(d.serial_anterior?(' (reemplaza a '+d.serial_anterior+')'):''));
+
+  // El mensaje dice exactamente lo que pasó — incluida la plata que hay que reclamar.
+  var msg='✅ '+(it?it.nombre:tipo)+' '+serial+' registrada en '+cam+'.';
+  if(d.serial_anterior) msg+='\n\nReemplazó a la '+d.serial_anterior+', que salió el '+formatFecha(fecha)+'.';
+  if(garHasta)          msg+='\nGarantía de la nueva: hasta el '+formatFecha(garHasta)+'.';
+  if(d.anterior_en_garantia){
+    msg+='\n\n⚠️ LA QUE SALIÓ TODAVÍA ESTABA EN GARANTÍA (hasta el '+formatFecha(d.anterior_garantia_hasta)+').'+
+         '\nReclamale la reposición al proveedor: ya está en la lista de garantías reclamables.';
+  }
+  alert(msg);
+  mostrarToast('Pieza registrada y enlazada a la hoja de vida','exito');
+  abrirPiezasUnidad(cam);
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// BUSCAR UN SERIAL EN TODA LA FLOTA
+// ══════════════════════════════════════════════════════════════════════════
+function abrirBuscarSerial(){
+  var html=
+    '<div style="font-size:11px;color:var(--text3);margin-bottom:8px">Escribí un serial (o parte) y te digo en qué unidad está y por cuáles pasó. Sirve para comprobar que no te devuelvan una pieza usada como nueva.</div>'+
+    '<div class="fg"><input class="fc" id="pzb-q" placeholder="serial o parte del serial" style="font-family:var(--m);text-transform:uppercase" oninput="renderBuscarSerial()"></div>'+
+    '<div id="pzb-res" style="margin-top:8px"></div>'+
+    '<div style="margin-top:10px"><button class="btn btn-s btn-sm" onclick="'+(window._piezasCam?('abrirPiezasUnidad(\''+_mEsc(window._piezasCam)+'\')'):'closeModal()')+'">⬅️ Volver</button></div>';
+  openModal('🔎 Buscar una pieza por su serial',html);
+  setTimeout(function(){var q=g('pzb-q'); if(q)q.focus();},60);
+}
+function renderBuscarSerial(){
+  var el=g('pzb-res'); if(!el)return;
+  var q=(gv('pzb-q')||'').trim();
+  if(q.length<3){ el.innerHTML='<div style="color:var(--text3);font-size:11px">Escribí al menos 3 caracteres.</div>'; return; }
+  var res=_piezasPorSerial(q);
+  if(!res.length){ el.innerHTML='<div style="color:var(--text3);font-size:11px">Ningún serial coincide con «'+_mEsc(q)+'».</div>'; return; }
+  el.innerHTML='<div class="tw"><table><thead><tr><th>Serial</th><th>Pieza</th><th>Unidad</th><th>Desde</th><th>Hasta</th><th>Estado</th></tr></thead><tbody>'+
+    res.map(function(p){
+      return '<tr'+(p.fecha_retiro?'':' style="background:rgba(16,185,129,.08)"')+'>'+
+        '<td style="font-family:var(--m);font-weight:700">'+_mEsc(p.serial)+'</td>'+
+        '<td>'+_mEsc(_piezaTipoNombre(p.tipo))+'</td>'+
+        '<td style="font-weight:700">'+_mEsc(p.cam)+'</td>'+
+        '<td style="font-family:var(--m)">'+formatFecha(p.fecha_inst)+'</td>'+
+        '<td style="font-family:var(--m)">'+(p.fecha_retiro?formatFecha(p.fecha_retiro):'—')+'</td>'+
+        '<td>'+(p.fecha_retiro?('<span style="color:var(--text3)">retirada</span>'):'<span style="color:var(--green);font-weight:700">PUESTA</span>')+'</td></tr>';
+    }).join('')+'</tbody></table></div>'+
+    (res.length>1?'<div style="background:rgba(220,38,38,.10);border:1px solid var(--red);border-radius:6px;padding:7px 9px;font-size:11px;color:var(--red);margin-top:8px">⚠ Ese serial aparece <b>'+res.length+' veces</b>. Una pieza física es una sola: revisá si la reinstalaron o si la registraron dos veces.</div>':'');
+}
+
+
+// ══════════════════════════════════════════════════════════════════════════
+// CARGA INICIAL DE PIEZAS POR EXCEL
+//
+// POR QUÉ EXISTE: el día que se enciende el módulo, el sistema no sabe qué
+// batería tiene puesta cada unidad. Y sin esa foto inicial el primer cambio no
+// tiene contra qué compararse: no se puede decir «duró 8 meses» ni «esa salió
+// en garantía». [[norma-el-demo-sembrado-esconde-el-camino-dia-1]] — el día 1
+// es el que hay que hacer fácil, no el día 100.
+//
+// Para 19 unidades se podría a mano; para el prospecto de 60 no.
+// ══════════════════════════════════════════════════════════════════════════
+async function descargarPlantillaPiezas(){
+  var tipos=_piezasTipos();
+  if(!tipos.length){ alert('Primero marcá en el catálogo (Mantenimiento → ⏰ Preventivo) qué ítems llevan serial.'); return; }
+  var headers=['N° Unidad','Pieza','Serial','Marca','Posicion','Fecha instalacion','Kilometraje','Costo $','Garantia (meses)','Proveedor','Notas'];
+  var widths=[12,22,22,16,18,17,13,10,17,22,26];
+  // ⛔ Ejemplos INVENTADOS: unidades y seriales que no existen en ninguna flota.
+  // [[norma-ejemplos-inventados-nunca-datos-reales]]
+  var rows=[
+    ['B001','Batería','ABC-123456','Duncan','','18/02/2026','118000','120','12','Baterias del Sur','la que tiene puesta hoy'],
+    ['B002','Batería','XYZ-998877','Titan','','05/11/2025','96500','135','18','Baterias del Sur',''],
+    ['B001','Cauchos / neumáticos','DOT-4521','Goodyear','Delantera Izq.','12/01/2026','110000','180','6','Cauchos La Rotonda','']
+  ];
+  if(typeof ExcelJS==='undefined'){ alert('No se pudo generar el Excel en este navegador.'); return; }
+  try{
+    var wb=new ExcelJS.Workbook(); wb.creator='FlotaMax · Maxware C.A.';
+    _xlHoja(wb,{name:'Piezas',subtitulo:'Carga inicial: UNA fila por pieza que la unidad tiene PUESTA HOY (las grises son ejemplos, borrelas)',headers:headers,widths:widths,rows:rows,ejemplos:3,vacias:40});
+    _xlHoja(wb,{name:'Instrucciones',subtitulo:'Como llenar cada columna',headers:['Campo','Como llenarlo'],widths:[24,95],ejemplos:0,rows:[
+      ['N° Unidad','OBLIGATORIO. Igual que en "Unidades y Equipos" (ej: B001). Si no coincide, esa fila no se carga.'],
+      ['Pieza','OBLIGATORIO. Exactamente uno de los de la hoja "Piezas validas".'],
+      ['Serial','OBLIGATORIO. El grabado en la pieza. Es lo que permite rastrearla; sin el la fila no sirve.'],
+      ['Posicion','Solo si la unidad lleva VARIAS de esa pieza (cauchos). Para la bateria unica, dejar vacio.'],
+      ['Fecha instalacion','dd/mm/aaaa. Si no se sabe exacta, poner la aproximada: sirve para calcular cuanto lleva puesta.'],
+      ['Garantia (meses)','Cuantos meses de garantia trae. La FECHA de vencimiento la calcula el sistema solo.'],
+      ['Kilometraje','El del odometro cuando se instalo. Si no se sabe, dejar vacio.'],
+      ['Costo $','Lo que se pago por ella. Sirve para saber cuanto cuesta al ano mantener cada unidad.']
+    ]});
+    _xlHoja(wb,{name:'Piezas validas',subtitulo:'Use exactamente uno de estos en la columna Pieza',headers:['Piezas validas'],widths:[36],ejemplos:0,rows:tipos.map(function(t){return [t.nombre];})});
+    await _xlDescargar(wb,'FlotaMax_Plantilla_Piezas.xlsx');
+    if(typeof mostrarToast==='function')mostrarToast('⬇️ Plantilla descargada. Llenala y volvela a subir con "Importar Excel".','exito');
+  }catch(e){ alert('No se pudo generar la plantilla: '+((e&&e.message)||e)); }
+}
+
+function importarPiezasExcel(input){
+  var f=input&&input.files&&input.files[0]; if(!f)return;
+  var reader=new FileReader();
+  reader.onload=function(e){
+    var rows;
+    try{ var wb=XLSX.read(e.target.result,{type:'binary',cellDates:true});
+         rows=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{defval:''}); }
+    catch(err){ alert('No se pudo leer el Excel: '+((err&&err.message)||err)); input.value=''; return; }
+    _procesarPiezasExcel(rows,input);
+  };
+  reader.readAsBinaryString(f);
+}
+
+async function _procesarPiezasExcel(rows,input){
+  if(!rows||!rows.length){ alert('El Excel no tiene filas.'); if(input)input.value=''; return; }
+  var tipos=_piezasTipos();
+  var porNombre={}; tipos.forEach(function(t){ porNombre[_norm(t.nombre)]=t.id; porNombre[_norm(t.id)]=t.id; });
+  var camsOk={}; Object.keys(UNIDAD_CONFIG||{}).forEach(function(c){ camsOk[_norm(c)]=c; });
+
+  function _norm(s){ return String(s||'').trim().toLowerCase().replace(/\s+/g,' '); }
+  function col(r,nombres){ for(var i=0;i<nombres.length;i++){ for(var k in r){ if(_norm(k).indexOf(_norm(nombres[i]))===0) return r[k]; } } return ''; }
+
+  var buenas=[], malas=[];
+  rows.forEach(function(r,i){
+    var fila=i+2;
+    var camRaw=String(col(r,['n° unidad','no unidad','unidad'])||'').trim();
+    var pieRaw=String(col(r,['pieza'])||'').trim();
+    var ser=String(col(r,['serial'])||'').trim().toUpperCase();
+    if(!camRaw&&!pieRaw&&!ser)return;                       // fila vacía: se ignora sin ruido
+    var cam=camsOk[_norm(camRaw)], tipo=porNombre[_norm(pieRaw)];
+    if(!cam){ malas.push('Fila '+fila+': la unidad "'+camRaw+'" no existe en Unidades y Equipos.'); return; }
+    if(!tipo){ malas.push('Fila '+fila+': la pieza "'+pieRaw+'" no está en la lista de piezas válidas.'); return; }
+    if(!ser){ malas.push('Fila '+fila+': falta el SERIAL (es lo único que no se puede deducir).'); return; }
+    buenas.push({cam:cam,tipo:tipo,serial:ser,
+      marca:String(col(r,['marca'])||'').trim(),
+      posicion:String(col(r,['posicion','posición'])||'').trim(),
+      fecha:_fechaExcel(col(r,['fecha instalacion','fecha instalación','fecha'])),
+      km:parseInt(String(col(r,['kilometraje','km'])||'').replace(/\D/g,''))||0,
+      costo:parseFloat(String(col(r,['costo'])||'').replace(',','.'))||0,
+      gar:parseInt(col(r,['garantia','garantía']))||0,
+      prov:String(col(r,['proveedor'])||'').trim(),
+      notas:String(col(r,['notas'])||'').trim(), fila:fila});
+  });
+
+  // Los seriales repetidos DENTRO del propio Excel: una pieza física es una sola.
+  // Si el archivo trae el mismo serial dos veces, alguien copió y pegó mal.
+  var vistos={};
+  buenas=buenas.filter(function(b){
+    if(vistos[b.serial]){ malas.push('Fila '+b.fila+': el serial '+b.serial+' ya venía en la fila '+vistos[b.serial]+' de este mismo Excel.'); return false; }
+    vistos[b.serial]=b.fila; return true;
+  });
+
+  if(!buenas.length){ alert('No se pudo cargar ninguna fila.\n\n'+malas.slice(0,15).join('\n')); if(input)input.value=''; return; }
+  if(!confirm('Se van a registrar '+buenas.length+' pieza(s) como las que están PUESTAS HOY.'+
+      (malas.length?('\n\n⚠️ '+malas.length+' fila(s) se van a saltar:\n'+malas.slice(0,10).join('\n')):'')+
+      '\n\n¿Seguir?')){ if(input)input.value=''; return; }
+
+  var ok=0, err=[];
+  for(var i=0;i<buenas.length;i++){
+    var b=buenas[i];
+    try{
+      // Se usa la MISMA función que un cambio normal: si la unidad ya tenía una
+      // registrada, esta la reemplaza y queda la cadena. No hay un camino
+      // especial para la carga inicial que después se comporte distinto.
+      var r=await supabase.rpc('piezas_reemplazar',{
+        p_id:'PZ'+Date.now()+'-'+i, p_cam:b.cam, p_tipo:b.tipo, p_serial:b.serial,
+        p_fecha:b.fecha||fechaVE(), p_posicion:b.posicion, p_marca:b.marca,
+        p_km:b.km, p_costo_usd:b.costo, p_garantia_meses:b.gar, p_proveedor:b.prov,
+        p_notas:b.notas||'Carga inicial', p_motivo_retiro:'Reemplazada (carga inicial)',
+        p_registrado_por:(SESION&&SESION.usuario)||''
+      });
+      if(r&&r.error)err.push('Fila '+b.fila+': '+r.error.message); else ok++;
+    }catch(e){ err.push('Fila '+b.fila+': '+((e&&e.message)||e)); }
+  }
+  await cargarPiezas();
+  audit('Carga inicial de piezas por Excel', ok+' pieza(s) registradas'+(err.length?(' · '+err.length+' con error'):''));
+  alert('✅ '+ok+' pieza(s) registradas.'+
+    (err.length?('\n\n⛔ '+err.length+' con error:\n'+err.slice(0,10).join('\n')):'')+
+    (malas.length?('\n\n⚠️ '+malas.length+' fila(s) saltadas por el Excel.'):''));
+  if(input)input.value='';
+  if(window._piezasCam)abrirPiezasUnidad(window._piezasCam);
+}
+
+// dd/mm/aaaa, Date de Excel o ISO → 'YYYY-MM-DD'. Venezolano primero
+// ([[norma-fecha-venezolana-dd-mm-yyyy]]): 03/08 es 3 de agosto, no 8 de marzo.
+function _fechaExcel(v){
+  if(!v)return '';
+  if(v instanceof Date && !isNaN(v)) return v.toISOString().slice(0,10);
+  var s=String(v).trim();
+  var m=s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+  if(m) return m[3]+'-'+('0'+m[2]).slice(-2)+'-'+('0'+m[1]).slice(-2);
+  if(/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0,10);
+  return '';
+}
+
+// ── El bloque del serial en la HOJA DE VIDA ────────────────────────────────
+// Aparece solo si el item elegido se rastrea por serial. Asi el formulario no
+// le pide un serial a quien registra un lavado, y si se lo exige a quien esta
+// cambiando una bateria — incluido el que llega desde CERRAR UNA ORDEN.
+function _hvItemSerial(){
+  var w=g('hv-serial-wrap'); if(!w)return;
+  var it=(MANT_ITEMS||[]).filter(function(x){return x.id===gv('hv-item');})[0];
+  var mostrar=!!(it&&it.llevaSerial);
+  w.style.display=mostrar?'block':'none';
+  if(mostrar){
+    // La garantia por defecto sale del catalogo: una bateria con ciclo de 12
+    // meses normalmente trae 12 de garantia. Se puede pisar a mano.
+    var gr=g('hv-pz-gar');
+    if(gr&&!gr.value&&it.base==='meses'&&it.intervalo)gr.value=it.intervalo;
+    if(g('hv-tipotrabajo')&&!gv('hv-tipotrabajo'))sv('hv-tipotrabajo','cambio');
+  }
+}
+// Avisa MIENTRAS SE ESCRIBE si ese serial ya esta en el sistema. Es lo que
+// atrapa la pieza usada devuelta como nueva, en el momento, no en la auditoria.
+function _hvSerialHint(){
+  var h=g('hv-serial-hint'); if(!h)return;
+  var s=(gv('hv-serial')||'').trim();
+  if(s.length<3){h.innerHTML='';return;}
+  var ig=(typeof PIEZAS!=='undefined'?PIEZAS:[]).filter(function(p){return String(p.serial||'').toUpperCase()===s.toUpperCase();});
+  if(!ig.length){h.innerHTML='<span style="color:var(--green)">serial nuevo</span>';return;}
+  var p=ig[0];
+  h.innerHTML='<span style="color:var(--red)">Ese serial YA existe: estuvo en <b>'+_mEsc(p.cam)+'</b> desde '+formatFecha(p.fecha_inst)+
+    (p.fecha_retiro?(' y salio el '+formatFecha(p.fecha_retiro)):' y figura PUESTA ahi ahora')+'.</span>';
+}
+function _cargarMantTodo(){ return Promise.all([cargarMantItems(),cargarMantenimientos(),cargarUnidadConfig(),cargarTiposUnidadMant(),cargarPiezas()]).then(function(){ return _migrarLavadoEngrase(); }); }
 function _mantItem(id){ return (MANT_ITEMS||[]).find(function(x){return x.id===id;}); }
 function _tipoDeUnidad(cam){ var c=(UNIDAD_CONFIG||{})[cam]; return c?c.tipo:''; }
 // Cómo se MIDE la unidad: km (rueda, auto del chofer) · horas (equipo con horímetro) · tiempo (calendario).
@@ -9562,6 +10074,15 @@ async function registrarMantItem(){
   var foto=window._hvFotoUrl||'';
   // ANTI-FRAUDE (3): FOTO OBLIGATORIA en ítems CRÍTICOS/de seguridad (batería, cauchos, frenos...) → así
   // el taller no puede "decir que lo cambió" sin prueba. Se marca crítico en el catálogo (⏰ Preventivo).
+  // Si el item se rastrea por serial y se esta SUSTITUYENDO, el serial es
+  // obligatorio: sin el, el registro dice «se cambio la bateria» pero no CUAL.
+  var _pzSerial=(typeof gv==='function'?(gv('hv-serial')||''):'').trim().toUpperCase();
+  var _pzEsCambio=(tipoTrab==='cambio');
+  if(!_editId && it&&it.llevaSerial&&_pzEsCambio&&!_pzSerial){
+    alert('FALTA EL SERIAL\n\n"'+(it.nombre||itemId)+'" se controla por serial.\n\nEscribi el serial de la pieza que se esta poniendo: es lo que deja el historial de reemplazos y la garantia.');
+    try{ var _fs=g('hv-serial'); if(_fs)_fs.focus(); }catch(e){}
+    return;
+  }
   if(!_editId && it&&it.critico&&!foto){ alert('⚠️ FOTO OBLIGATORIA\n\n"'+(it.nombre||itemId)+'" es un ítem CRÍTICO (seguridad): hay que subir la FOTO como prueba del trabajo.\n\nSubí la foto y volvé a registrar.'); return; }
   var id=_editId||('MT'+Date.now()); // en edición reusa el mismo id (upsert actualiza, no duplica)
   // Si se está CERRANDO una orden de servicio para esta unidad, se enlaza el evento a la orden.
@@ -9579,6 +10100,41 @@ async function registrarMantItem(){
     }catch(e){ mostrarToast('Sin conexión al guardar el mantenimiento.','error'); }
   }
   if(!ok&&typeof guardarEnCola==='function')guardarEnCola('mantenimientos',row,'id');
+
+  // ── LA PIEZA CON SERIAL, ENLAZADA A ESTE MISMO EVENTO ─────────────────────
+  // Aca es donde «cerrar una orden de cambio de bateria» deja registrado que la
+  // ANTERIOR se cambio por la NUEVA en esta fecha, y hasta cuando tiene garantia
+  // la nueva. La pieza apunta al mantenimiento (mant_id) y a la orden (orden_id):
+  // el gasto, el trabajo y el objeto fisico pasan a ser el MISMO hecho.
+  //
+  // Solo si el mantenimiento se guardo de verdad: sin fila en la hoja de vida la
+  // FK de la pieza no tendria a que apuntar. Si se fue a la cola offline, la
+  // pieza no se registra y el usuario se entera — mejor que un serial huerfano.
+  if(ok && it && it.llevaSerial && _pzEsCambio && _pzSerial && !_editId){
+    try{
+      var _pzRes=await supabase.rpc('piezas_reemplazar',{
+        p_id:'PZ'+Date.now(), p_cam:cam, p_tipo:itemId, p_serial:_pzSerial, p_fecha:fecha,
+        p_posicion:(gv('hv-pz-pos')||'').trim(), p_marca:(gv('hv-pz-marca')||'').trim(),
+        p_km:km, p_costo_usd:costo, p_garantia_meses:(parseInt(gv('hv-pz-gar'))||0),
+        p_proveedor:prov, p_orden_id:(_oc||null), p_mant_id:id,
+        p_foto_url:foto, p_motivo_retiro:(motivo||''), p_registrado_por:(SESION&&SESION.usuario)||''
+      });
+      if(_pzRes&&_pzRes.error){
+        mostrarToast('El trabajo quedo registrado, pero el serial NO: '+_pzRes.error.message,'error');
+      }else{
+        var _d=(_pzRes&&_pzRes.data)||{};
+        if(typeof cargarPiezas==='function')await cargarPiezas();
+        var _m=(it.nombre||itemId)+' '+_pzSerial+' registrada en '+cam+'.';
+        if(_d.serial_anterior)_m+='\n\nReemplazo a la '+_d.serial_anterior+', que salio el '+formatFecha(fecha)+'.';
+        if(_d.garantia_hasta) _m+='\nGarantia de la nueva: hasta el '+formatFecha(_d.garantia_hasta)+'.';
+        // La garantia deja de ser decorativa: si la que sale todavia estaba viva,
+        // hay una reposicion que reclamarle al proveedor.
+        if(_d.anterior_en_garantia)_m+='\n\nLA QUE SALIO TODAVIA ESTABA EN GARANTIA (hasta el '+formatFecha(_d.anterior_garantia_hasta)+').\nReclamale la reposicion al proveedor.';
+        alert(_m);
+      }
+    }catch(e){ mostrarToast('El trabajo quedo registrado, pero el serial no se pudo guardar.','error'); }
+    try{ sv('hv-serial',''); sv('hv-pz-marca',''); sv('hv-pz-pos',''); var _sh=g('hv-serial-hint'); if(_sh)_sh.innerHTML=''; }catch(e){}
+  }
   MANTENIMIENTOS.unshift(mem);
   // Coherencia con el odómetro (nunca retrocede): si el km del trabajo es mayor, actualiza KM_DATA.
   // SOLO si el trabajo es de HOY: cargar un trabajo viejo no puede mover el odómetro actual de la
@@ -9901,6 +10457,9 @@ async function abrirEditarUnidad(cam){
       '<div class="fg" id="u-horas-fg" style="display:'+(c.medida==='horas'?'block':'none')+'"><label>Horas actuales</label><input class="fc" id="u-horas" type="number" value="'+(c.horasActuales||'')+'" placeholder="0" style="font-family:var(--m)"><small style="color:var(--text3);font-size:10px">Se actualiza al registrar mantenimiento por horas</small></div>'+
     '</div>'+
     '<div class="fr2">'+inp('u-titular','Título a nombre de',c.titular)+inp('u-chofer','Chofer asignado',choferDef)+'</div>'+
+    // Las piezas con serial de esta unidad (bateria, cauchos...). Va en la
+    // FICHA porque es donde uno se pregunta «que bateria tiene puesta?».
+    (nueva?'':(typeof _piezasResumenFicha==='function'?_piezasResumenFicha(cam):''))+
     '<div class="fg"><label>Notas</label><input class="fc" id="u-notas" value="'+_mEsc(c.notas||'')+'" placeholder="opcional"></div>'+
     (BTG_CONFIG.chofer_login
       ? '<div class="fg"><label>🔑 Clave de acceso (app del chofer)</label><input class="fc" id="u-clave" type="text" placeholder="'+(nueva?'poné una clave para esta unidad':'dejá vacío para no cambiarla')+'"><small style="color:var(--text3);font-size:10px">El chofer entra con el N° de unidad + esta clave (una vez; después queda logueado).</small></div>'
@@ -9958,54 +10517,11 @@ async function guardarUnidad(){
 // Son nuestra cara ante el cliente: banner FlotaMax, encabezados con estilo, bordes,
 // filas de ejemplo, hojas de instrucciones y ancho de columnas. Si ExcelJS no cargó,
 // cae al generador plano con XLSX (mismos datos, sin estilo) para no dejar al usuario sin plantilla.
-var _XL_NAVY='FF0B2E59',_XL_SLATE='FF334155',_XL_LIGHT='FFEEF2F7',_XL_EX='FFF7FAFC',_XL_BRD='FFCBD5E1';
-function _xlBorde(){var t={style:'thin',color:{argb:_XL_BRD}};return {top:t,left:t,bottom:t,right:t};}
+// La paleta de los Excel vive en maxware-excel.js (MaxwareExcel.PALETA).
+// _xlBorde vive en maxware-excel.js — la fuente unica del formato de los Excel.
 // Crea una hoja con banner de marca + encabezados + filas. opts:{name,subtitulo,headers,widths,rows,ejemplos,vacias,banner}
-function _xlHoja(wb,opts){
-  var headers=opts.headers||[], nCols=Math.max(1,headers.length);
-  var ws=wb.addWorksheet(opts.name,{views:[{state:'frozen',ySplit:4}]});
-  // Fila 1: marca
-  ws.mergeCells(1,1,1,nCols); var b1=ws.getCell(1,1);
-  b1.value=opts.banner||'FLOTAMAX'; b1.font={bold:true,size:20,color:{argb:'FFFFFFFF'}};
-  b1.alignment={vertical:'middle',horizontal:'center'}; b1.fill={type:'pattern',pattern:'solid',fgColor:{argb:_XL_NAVY}};
-  ws.getRow(1).height=30;
-  // Fila 2: bajada
-  ws.mergeCells(2,1,2,nCols); var b2=ws.getCell(2,1);
-  b2.value='Gestion de flota y mantenimiento  ·  por Maxware C.A.';
-  b2.font={italic:true,size:10,color:{argb:'FFFFFFFF'}}; b2.alignment={vertical:'middle',horizontal:'center'};
-  b2.fill={type:'pattern',pattern:'solid',fgColor:{argb:_XL_SLATE}}; ws.getRow(2).height=16;
-  // Fila 3: subtitulo de la hoja
-  ws.mergeCells(3,1,3,nCols); var b3=ws.getCell(3,1);
-  b3.value=opts.subtitulo||''; b3.font={bold:true,size:11,color:{argb:_XL_NAVY}};
-  b3.alignment={vertical:'middle',horizontal:'left',indent:1};
-  b3.fill={type:'pattern',pattern:'solid',fgColor:{argb:_XL_LIGHT}}; ws.getRow(3).height=20;
-  // Fila 4: encabezados
-  headers.forEach(function(h,i){ var c=ws.getCell(4,i+1);
-    c.value=h; c.font={bold:true,size:10,color:{argb:'FFFFFFFF'}};
-    c.alignment={vertical:'middle',horizontal:'center',wrapText:true};
-    c.fill={type:'pattern',pattern:'solid',fgColor:{argb:_XL_NAVY}}; c.border=_xlBorde(); });
-  ws.getRow(4).height=24;
-  ws.autoFilter={from:{row:4,column:1},to:{row:4,column:nCols}};
-  // Filas de datos (ejemplos en gris cursiva; el resto normal)
-  var rows=opts.rows||[], ej=(opts.ejemplos==null?rows.length:opts.ejemplos);
-  rows.forEach(function(r,ri){ var rownum=5+ri;
-    for(var ci=0;ci<nCols;ci++){ var c=ws.getCell(rownum,ci+1); c.value=(r[ci]==null?'':r[ci]); c.border=_xlBorde();
-      if(ri<ej){ c.font={italic:true,size:9,color:{argb:_XL_SLATE}}; c.fill={type:'pattern',pattern:'solid',fgColor:{argb:_XL_EX}}; } } });
-  // Filas vacías con borde para que se vea como formulario
-  var vac=opts.vacias||0, start=5+rows.length;
-  for(var v=0;v<vac;v++){ for(var ci2=0;ci2<nCols;ci2++){ ws.getCell(start+v,ci2+1).border=_xlBorde(); } }
-  // Anchos
-  var widths=opts.widths||[];
-  for(var w=0;w<nCols;w++){ ws.getColumn(w+1).width=widths[w]||16; }
-  return ws;
-}
-async function _xlDescargar(wb,filename){
-  var buf=await wb.xlsx.writeBuffer();
-  var blob=new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
-  var a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=filename;
-  document.body.appendChild(a); a.click(); document.body.removeChild(a);
-  setTimeout(function(){URL.revokeObjectURL(a.href);},1500);
-}
+// _xlHoja vive en maxware-excel.js — la fuente unica del formato de los Excel.
+// _xlDescargar vive en maxware-excel.js — la fuente unica del formato de los Excel.
 async function descargarPlantillaUnidades(){
   if(typeof ExcelJS==='undefined')return _plantillaUnidadesPlano();
   try{
@@ -12944,7 +13460,7 @@ function marcarTodosPresente(){
   renderAsistencia();
 }
 
-function exportarAsistencia(){
+async function exportarAsistencia(){
   var sem=gv('asis-sem'),mes=gv('asis-mes');
   var key=mes+'-'+sem;
   // Todo el personal activo excepto los socios (Gerente General)
@@ -12961,7 +13477,7 @@ function exportarAsistencia(){
     ['L','M','Mi','J','V','S'].forEach(function(d,i){row[d]=_asisEfectiva(emp.id,mes,sem,i).v;});
     return row;
   });
-  if(typeof XLSX!=='undefined'){var wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(data),'Asistencia');XLSX.writeFile(wb,brandArchivo()+'_Asistencia_'+key+'.xlsx');}
+  if(typeof XLSX!=='undefined'){var wb=_xlNuevo();_xlAgregar(wb,(data),'Asistencia');await _xlGuardar(wb,brandArchivo()+'_Asistencia_'+key+'.xlsx');}
   else alert('Excel no disponible');
 }
 
@@ -15461,9 +15977,9 @@ function _capHtml(){
   return {html:html, per:per, r:d.r, cod:_cod};
 }
 
-function exportarAuditoria(){
+async function exportarAuditoria(){
   if(typeof XLSX==='undefined'){alert('Excel no disponible');return;}
-  var wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(AUDITORIA_LOG),'Auditoria');XLSX.writeFile(wb,brandArchivo()+'_Auditoria.xlsx');
+  var wb=_xlNuevo();_xlAgregar(wb,(AUDITORIA_LOG),'Auditoria');await _xlGuardar(wb,brandArchivo()+'_Auditoria.xlsx');
 }
 
 // ═══════════════════════════════════════════════════
@@ -16871,14 +17387,14 @@ function headerRpt(titulo,subtitulo){
     '<div style="text-align:right;font-size:11px;color:#555">'+formatFecha(new Date())+'</div>'+
   '</div>';
 }
-function exportExcelCompleto(){
+async function exportExcelCompleto(){
   if(typeof XLSX==='undefined'){alert('Libreria Excel no disponible');return;}
-  var wb=XLSX.utils.book_new();
-  if(REGS.length)XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(REGS.map(function(r){return{Planilla:r.p,Fecha:r.f,Mes:r.mes,Camion:r.cam,Chofer:r.ch,Ruta:r.r,Parroquia:r.par,Diurnos:r.d,Nocturnos:r.n,Total:r.t,Semana:r.sem,'Monto $':r.m};})),'Planillas');
-  if(ABONOS.length)XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(ABONOS),'Abonos');
-  if(EMPLEADOS.length)XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(EMPLEADOS.map(function(e){return{ID:e.id,Nombre:e.nombre,Cargo:e.cargo,Unidad:e.unidad,Cedula:e.cedula,Banco:e.banco,Cuenta:e.ncuenta};})),'Empleados');
-  if(GASTOS_VARIABLES.length)XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(GASTOS_VARIABLES),'GastosVariables');
-  XLSX.writeFile(wb,brandArchivo()+'_Completo_'+formatFecha(new Date()).replace(/\//g,'-')+'.xlsx');
+  var wb=_xlNuevo();
+  if(REGS.length)_xlAgregar(wb,(REGS.map(function(r){return{Planilla:r.p,Fecha:r.f,Mes:r.mes,Camion:r.cam,Chofer:r.ch,Ruta:r.r,Parroquia:r.par,Diurnos:r.d,Nocturnos:r.n,Total:r.t,Semana:r.sem,'Monto $':r.m};})),'Planillas');
+  if(ABONOS.length)_xlAgregar(wb,(ABONOS),'Abonos');
+  if(EMPLEADOS.length)_xlAgregar(wb,(EMPLEADOS.map(function(e){return{ID:e.id,Nombre:e.nombre,Cargo:e.cargo,Unidad:e.unidad,Cedula:e.cedula,Banco:e.banco,Cuenta:e.ncuenta};})),'Empleados');
+  if(GASTOS_VARIABLES.length)_xlAgregar(wb,(GASTOS_VARIABLES),'GastosVariables');
+  await _xlGuardar(wb,brandArchivo()+'_Completo_'+formatFecha(new Date()).replace(/\//g,'-')+'.xlsx');
   audit('Excel completo exportado','');
 }
 
@@ -21232,35 +21748,35 @@ function printRptAlcaldia(){
   w.document.write(el.innerHTML);w.document.write('</body></html>');
   w.document.close();setTimeout(function(){w.print();},500);
 }
-function exportAlcaldiaExcel(){
+async function exportAlcaldiaExcel(){
   if(typeof XLSX==='undefined'){alert('Excel no disponible (XLSX no cargado).');return;}
   var des=gv('alc-des'),hta=gv('alc-hta');
   var pf=REGS.filter(function(r){if(des&&r.f<des)return false;if(hta&&r.f>hta)return false;return true;});
   if(!pf.length){alert('Sin planillas en el rango de la Alcaldía.');return;}
   var R=calcCobranzaSemanas(des,hta);
-  var wb=XLSX.utils.book_new();
+  var wb=_xlNuevo();
   // Hoja Semanas: estado de cuenta (todo en USD, que es como se factura a la Alcaldía).
   var semRows=(R.semanas||[]).map(function(s){return {
     Semana:s.idx, Lunes:s.lunes, Domingo:s.dom, Viajes:s.viajes,
     'Ejecutado $':Math.round((s.monto||0)*100)/100, 'Abonado $':Math.round((s.abonado||0)*100)/100,
     'Pendiente $':Math.round((s.montoPendiente||0)*100)/100, Estado:s.estado
   };});
-  if(semRows.length)XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(semRows),'Semanas');
+  if(semRows.length)_xlAgregar(wb,(semRows),'Semanas');
   // Hoja Planillas: detalle plano del rango.
   var detRows=pf.slice().sort(function(a,b){return a.f<b.f?-1:1;}).map(function(r){return {
     Fecha:r.f, Mes:r.mes, Planilla:r.p, Camion:r.cam, Parroquia:r.par,
     Diurno:r.d, Nocturno:r.n, Viajes:r.t, Semana:r.sem, 'Monto $':r.m
   };});
-  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(detRows),'Planillas');
+  _xlAgregar(wb,(detRows),'Planillas');
   // Hoja Resumen.
   var totV=pf.reduce(function(s,r){return s+r.t;},0), totM=pf.reduce(function(s,r){return s+r.m;},0);
   var totAb=(R.totalAbonado!=null)?R.totalAbonado:0;
-  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet([
+  _xlAgregar(wb,([
     {Concepto:'Desde',Valor:des||''},{Concepto:'Hasta',Valor:hta||''},
     {Concepto:'Viajes totales',Valor:totV},{Concepto:'Ejecutado $',Valor:Math.round(totM*100)/100},
     {Concepto:'Abonado $',Valor:Math.round(totAb*100)/100},{Concepto:'Saldo $',Valor:Math.round((totM-totAb)*100)/100}
   ]),'Resumen');
-  XLSX.writeFile(wb,brandArchivo()+'_Alcaldia_'+(des||'inicio')+'_a_'+(hta||'hoy')+'.xlsx');
+  await _xlGuardar(wb,brandArchivo()+'_Alcaldia_'+(des||'inicio')+'_a_'+(hta||'hoy')+'.xlsx');
   audit('Estado de cuenta Alcaldía exportado',(des||'')+' a '+(hta||''));
 }
 

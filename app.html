@@ -2043,7 +2043,18 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
     <div class="g2" style="margin-bottom:10px">
       <div class="card">
         <div class="sh"><div class="st">📋 Registrar mantenimiento</div></div>
-        <div class="fr2"><div class="fg"><label>Unidad</label><select class="fc" id="hv-cam" onchange="_hvPrefillKm()"><option value="">— unidad —</option></select></div><div class="fg"><label>Ítem (qué se le hizo)</label><select class="fc" id="hv-item" onchange="_hvItemOtro()"><option value="">— ítem —</option></select></div></div>
+        <div class="fr2"><div class="fg"><label>Unidad</label><select class="fc" id="hv-cam" onchange="_hvPrefillKm()"><option value="">— unidad —</option></select></div><div class="fg"><label>Ítem (qué se le hizo)</label><select class="fc" id="hv-item" onchange="_hvItemOtro();_hvItemSerial()"><option value="">— ítem —</option></select></div></div>
+        <!-- Solo aparece si el item elegido se rastrea por SERIAL (bateria, cauchos).
+             Ojo: aca el onchange ya tenia _hvItemOtro(); se ENCADENA, no se pisa. -->
+        <div id="hv-serial-wrap" style="display:none;background:rgba(59,130,246,.10);border:1px solid var(--teal);border-radius:6px;padding:8px 10px;margin-bottom:8px">
+          <div style="font-size:11px;color:var(--teal);margin-bottom:6px">Esta pieza se controla <b>por serial</b>. El serial de la que se está poniendo es obligatorio: con él queda el historial de reemplazos y la garantía.</div>
+          <div class="fr3">
+            <div class="fg"><label>SERIAL de la pieza nueva *</label><input class="fc" id="hv-serial" placeholder="el grabado en la pieza" style="font-family:var(--m);text-transform:uppercase" oninput="_hvSerialHint()"><div id="hv-serial-hint" style="font-size:10px;margin-top:3px;min-height:12px"></div></div>
+            <div class="fg"><label>Marca de la pieza</label><input class="fc" id="hv-pz-marca" placeholder="ej: Duncan, Titan…"></div>
+            <div class="fg"><label>Garantía de la pieza (meses)</label><input class="fc" id="hv-pz-gar" type="number" placeholder="12" style="font-family:var(--m)"><small style="color:var(--text3);font-size:10px">La fecha se calcula sola</small></div>
+          </div>
+          <div class="fg"><label>Posición <span style="color:var(--text3);font-size:10px">(dejar vacío si la unidad lleva una sola)</span></label><input class="fc" id="hv-pz-pos" placeholder="ej: Delantera Izq."></div>
+        </div>
         <div class="fg" id="hv-item-otro-wrap" style="display:none"><label>¿Qué se le hizo? (ítem nuevo)</label><input class="fc" id="hv-item-otro" placeholder="Ej: reparación eléctrica, soldadura del cajón, latonería..."><small style="color:var(--text3);font-size:10px">Se agrega al catálogo para poder seguirle el rastro (cuánto costó y si se repite) en esta unidad.</small></div>
         <div class="fr3"><div class="fg"><label>Fecha</label><input class="fc" id="hv-fecha" type="date"></div><div class="fg"><label>Km al hacerse el trabajo</label><input class="fc" id="hv-km" type="number" placeholder="manual" style="font-family:var(--m)"><small id="hv-km-hint" style="color:var(--text3);font-size:10px;display:block"></small></div><div class="fg"><label>Costo $</label><input class="fc" id="hv-costo" type="number" placeholder="0.00" style="font-family:var(--m)"></div></div>
         <div class="fr3"><div class="fg"><label>Tipo de trabajo</label><select class="fc" id="hv-tipotrabajo"><option value="cambio">🔧 Sustitución (se cambió la pieza)</option><option value="reparacion">🔩 Reparación (se arregló la misma)</option><option value="inspeccion">🔎 Inspección / revisión</option><option value="correctivo">🛠 Correctivo</option><option value="lavado">🧽 Lavado / limpieza</option></select></div><div class="fg"><label>Garantía (días)</label><input class="fc" id="hv-garantia" type="number" placeholder="0" style="font-family:var(--m)"><small style="color:var(--text3);font-size:10px">Avisa si se repite estando en garantía</small></div><div class="fg"><label>Horas (si va por horímetro)</label><input class="fc" id="hv-horas" type="number" placeholder="0" style="font-family:var(--m)"></div></div>
@@ -2729,6 +2740,8 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
 
 <script src="logo-alcaldia.js?v=1"></script>
 <script src="maxrecuerda.js?v=20260806-maxrecuerda"></script>
+<!-- Formato unico de los Excel de Maxware. VA ANTES de app.js. -->
+<script src="maxware-excel.js"></script>
 <script src="app.js?v=20260807d-imau-asistencia"></script>
 
 <!-- Modal global -->
