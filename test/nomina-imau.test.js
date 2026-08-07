@@ -56,7 +56,17 @@ function sembrar() {
   app.TASAS = { bcvDolar: 100 };
   app.PRESTAMOS = []; app.MULTAS = []; app.NOMINA_EXTRAS = []; app.NOM_ADM = [];
   app.PATIO_DIAS = {}; app.TEMPORALES = {}; app.ASISTENCIA = {}; app.IMAU_APOYO = [];
-  app.NOMINA_HIST = []; app.FICHAJES_SET = new Set();
+  app.NOMINA_HIST = [];
+  // Asistencia: el IMAU cobra solo si fue. Por defecto acá se los da por PRESENTES vía fichaje,
+  // para poder probar el escalón sin que la asistencia lo tape. Los casos de ausencia y de
+  // "sin dato" tienen su propio bloque más abajo.
+  app.IMAU_ASIS = {};
+  app.FICHAJES_SET = new Set();
+  ['E039', 'E047', 'E046', 'E900'].forEach(function (id) {
+    ['2026-07-20', '2026-07-21', '2026-07-22', '2026-07-23'].forEach(function (f) {
+      app.FICHAJES_SET.add(id + '|' + f);
+    });
+  });
 }
 const imau = (n) => (app._ultimaNomina.imau || []).find(x => x.n === n);
 const ayud = (n) => (app._ultimaNomina.ayudantes || []).find(x => x.n === n);
@@ -117,6 +127,66 @@ app.REGS = REGS.concat([P('03005', '2026-07-21', 'JAC-B001', 'CHOFER UNO', 'AYUD
 app.calcNom();
 eq('el martes pasa de 1 viaje ($0) a 2 viajes ($2)', imau('EDWIN MONTIEL').dias.find(d => d.f === '2026-07-21').usd, 2);
 eq('y su semana pasa de $7 a $9', imau('EDWIN MONTIEL').usd, 9);
+
+// ── 8. Varios IMAU en la misma unidad: CADA UNO cobra su escalón completo ───────────────────
+// Confirmado por Alejandra el 07/08: «Cobran 5 cada uno». No se reparte entre ellos.
+console.log('\nVarios IMAU en la misma unidad cobran cada uno su escalón completo:');
+sembrar(); app.calcNom();
+eq('Wuillibaldo (B007, 3 viajes el lunes) cobra $5', imau('WUILLIBALDO ATENCIO').usd, 5);
+eq('Alberto, en la MISMA unidad y el mismo día, también $5', imau('ALBERTO ATENCIO').usd, 5);
+eq('o sea $10 por un día de 3 viajes en esa unidad, no $5 repartido',
+  imau('WUILLIBALDO ATENCIO').usd + imau('ALBERTO ATENCIO').usd, 10);
+
+// ── 9. Si NO fue, NO cobra ──────────────────────────────────────────────────────────────────
+// Confirmado por Alejandra el 07/08: «No, no se le paga. Eso va de la mano con la asistencia.»
+console.log('\nSi no fue a trabajar, no cobra (va de la mano con la asistencia):');
+sembrar();
+app.IMAU_ASIS = { 'E039': { '2026-07-20': 'A' } };   // RRHH declara que Edwin NO fue el lunes
+app.calcNom();
+eq('el lunes que no fue queda en $0 aunque su unidad hizo 3 viajes',
+  imau('EDWIN MONTIEL').dias.find(d => d.f === '2026-07-20').usd, 0);
+eq('su semana baja de $7 a $2 (solo le queda el miércoles)', imau('EDWIN MONTIEL').usd, 2);
+eq('queda registrado como día de ausencia, no como día sin viajes', imau('EDWIN MONTIEL').diasAusente, 1);
+eq('y NO como día sin dato: acá sí sabemos', imau('EDWIN MONTIEL').diasSinDato, 0);
+
+// La declaración de RRHH MANDA sobre el fichaje: si la máquina dice que fichó pero RRHH dice que
+// no fue, gana RRHH. El estado lo declara una persona.
+eq('lo declarado por RRHH manda sobre el fichaje', imau('EDWIN MONTIEL').diasPagos, 1);
+
+// ── 10. «No fue» y «no sabemos si fue» NO son lo mismo ──────────────────────────────────────
+// Es lo más delicado de toda la regla: hoy el fichaje empieza el 20/07 y de los 16 del IMAU solo
+// 5 han fichado alguna vez. Si el sistema pagara $0 en silencio por falta de dato, le quitaría la
+// semana a gente que sí trabajó y nadie se enteraría.
+console.log('\nSin dato de asistencia: no se paga, pero se avisa (no es lo mismo que no haber ido):');
+sembrar();
+app.FICHAJES_SET = new Set();   // nadie fichó y nadie declaró nada: no se sabe
+app.calcNom();
+const e2 = imau('EDWIN MONTIEL');
+eq('no se le paga nada todavía', e2.usd, 0);
+eq('pero queda contado: 2 días sin declarar', e2.diasSinDato, 2);
+eq('y se sabe CUÁNTO está en espera ($5 del lunes + $2 del miércoles)', e2.usdRetenido, 7);
+eq('el día de 1 viaje NO cuenta como pendiente: no pagaba de todos modos', e2.dias.find(d => d.f === '2026-07-21').tarifa, 0);
+const b = String(app._bannersNomina || '');
+ok('la pantalla avisa que hay plata del IMAU sin pagar por falta de asistencia', /sin pagar por falta de asistencia/.test(b));
+ok('dice cuánto', /\$/.test(b) && /IMAU/.test(b));
+ok('y nombra a quién le falta', /EDWIN MONTIEL/.test(b));
+
+// Declarar que SÍ fue lo destraba, sin necesidad de fichaje.
+app.IMAU_ASIS = { 'E039': { '2026-07-20': 'P', '2026-07-22': 'P' } };
+app.calcNom();
+eq('declarando que sí fue, cobra sus $7', imau('EDWIN MONTIEL').usd, 7);
+eq('y ya no queda nada en espera para él', imau('EDWIN MONTIEL').diasSinDato, 0);
+ok('deja de aparecer en el aviso', !/EDWIN MONTIEL/.test(String(app._bannersNomina || '')));
+// Pero el aviso SIGUE, porque a los del B007 todavía les falta declarar. Que a uno se le resuelva
+// no puede apagar la alarma de los otros: ahí es donde se pierde la plata del que nadie miró.
+ok('el aviso sigue por los que todavía no se declararon', /sin pagar por falta de asistencia/.test(String(app._bannersNomina || '')));
+ok('y los nombra a ellos', /WUILLIBALDO ATENCIO/.test(String(app._bannersNomina || '')));
+
+// Declarados todos, la alarma se apaga.
+app.IMAU_ASIS = { 'E039': { '2026-07-20': 'P', '2026-07-22': 'P' }, 'E047': { '2026-07-20': 'P' }, 'E046': { '2026-07-20': 'P' } };
+app.calcNom();
+ok('con todos declarados, el aviso desaparece', !/sin pagar por falta de asistencia/.test(String(app._bannersNomina || '')));
+eq('y el total IMAU vuelve a ser $17', app._ultimaNomina.totImau, 17);
 
 console.log('\n──────────────');
 console.log('PASS: ' + pass + '   FAIL: ' + fail);

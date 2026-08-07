@@ -6075,6 +6075,7 @@ function _sinControlesUI(nodo){
 // El desglose es el MISMO para choferes y ayudantes; solo cambia de qué mapa sale la persona y a
 // qué tarifa se le paga el día de patio. Pedido de Máximo (2026-08-05): «aplicar también a ayudantes».
 var _AYMAP_UI={};
+var _IMAUMAP_UI={};   // personal IMAU del último cálculo (lo usa el modal de asistencia)
 function _nomPersona(key,tipo){
   var p=(tipo==='ay')?_AYMAP_UI[key]:_CHMAP_UI[key];
   if(!p)return null;
@@ -6183,6 +6184,87 @@ function setPatioDias(chKey,val){
   chKey=_patioKey(chKey); var n=Math.max(0,parseInt(val)||0);
   if(n)PATIO_DIAS[chKey]=n; else delete PATIO_DIAS[chKey];
   guardarPatioDias(); try{calcNom();}catch(e){}
+}
+// ── ASISTENCIA DEL PERSONAL IMAU ────────────────────────────────────────────────────────────────
+// Alejandra (RRHH), 2026-08-07, sobre si se le paga al IMAU cuando su unidad trabajó pero él no fue:
+//     «No, no se le paga. Eso va de la mano con la asistencia.»
+// Su pago se DERIVA de los viajes de la unidad, pero se CONDICIONA a que la persona haya ido.
+//
+// ⛔ Y acá está el problema real: hoy casi no hay ese dato. La tabla `asistencia` (marca manual)
+// está VACÍA, y el fichaje (`asistencia_dia`) empieza el 20/07/2026 — de las 16 personas del IMAU
+// solo 5 han fichado alguna vez. O sea que para la mayor parte de las semanas que hay que cerrar
+// NO SE SABE si fueron.
+//
+// Por eso hay TRES estados y no dos. «No fue» y «no sabemos si fue» NO son lo mismo:
+//   'P' → presente (fichaje real, o declarado acá por RRHH) → cobra el escalón de su unidad
+//   'A' → ausente declarado                                 → $0, y es una respuesta
+//   sin marca → SIN DATO                                    → $0 pero PENDIENTE, y la pantalla lo grita
+// Pagar $0 por "sin dato" en silencio sería quitarle la semana a alguien que sí trabajó, sin que
+// nadie se entere. Ver [norma-numero-que-el-dueno-no-puede-explicar].
+var IMAU_ASIS={};   // { empId: { 'YYYY-MM-DD': 'P' | 'A' } } — declarado a mano por RRHH
+function _imauAsisKeyDB(){var des=gv('nm-des'); if(des){try{return 'imau_asis_sem_'+_isoLocal(_lunesSem(des));}catch(e){}} return 'imau_asis_'+(gv('nm-mes')||'')+'_'+(gv('nm-sem')||'');}
+// Presencia de una persona un día: manda lo DECLARADO por RRHH; si no hay, vale el fichaje real;
+// si tampoco, devuelve null = sin dato (que no es lo mismo que ausente).
+function _imauPresente(empId,fecha){
+  var m=IMAU_ASIS[empId]&&IMAU_ASIS[empId][fecha];
+  if(m==='P')return 'P';
+  if(m==='A')return 'A';
+  if(typeof FICHAJES_SET!=='undefined'&&FICHAJES_SET&&FICHAJES_SET.has(empId+'|'+fecha))return 'P';
+  return null;
+}
+function guardarImauAsis(){
+  if(!(DB_READY&&supabase))return;
+  try{supabase.from('configuracion').upsert([{clave:_imauAsisKeyDB(),valor:JSON.stringify(IMAU_ASIS)}],{onConflict:'clave'}).then(function(r){if(r&&r.error)console.log('imau asis save:',r.error.message);});}catch(e){}
+}
+async function cargarImauAsis(){
+  IMAU_ASIS={};
+  if(!(DB_READY&&supabase))return;
+  try{
+    var r=await supabase.from('configuracion').select('valor').eq('clave',_imauAsisKeyDB()).maybeSingle();
+    if(r&&r.data&&r.data.valor){var v=JSON.parse(r.data.valor); if(v&&typeof v==='object')IMAU_ASIS=v;}
+  }catch(e){ console.log('imau asis load:',e&&e.message); }
+}
+// Modal para declarar la asistencia de UNA persona del IMAU en la semana que se está viendo.
+// Solo se listan los días en que SU UNIDAD trabajó: los otros no pagan pase lo que pase, así que
+// preguntarlos sería hacerle perder el tiempo a RRHH.
+function abrirImauAsis(empId){
+  var x=(_IMAUMAP_UI||{})[empId];
+  if(!x){alert('Recalculá la nómina primero');return;}
+  if(!x.dias.length){alert('La unidad de '+x.emp.nombre+' no tiene planillas en este período: no hay días que declarar.');return;}
+  var filas=x.dias.map(function(d){
+    var est=_imauPresente(empId,d.f);
+    var declarado=IMAU_ASIS[empId]&&IMAU_ASIS[empId][d.f];
+    var fico=(typeof FICHAJES_SET!=='undefined'&&FICHAJES_SET&&FICHAJES_SET.has(empId+'|'+d.f));
+    var dw=['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'][_asisDow(d.f)]||'';
+    var paga=d.usd>0;
+    return '<tr'+(paga?'':' style="opacity:.5"')+'>'+
+      '<td><b>'+dw+'</b> <span style="font-family:var(--m);color:var(--text3)">'+d.f.slice(8,10)+'/'+d.f.slice(5,7)+'</span></td>'+
+      '<td style="font-size:10px">'+d.viajes+' viaje(s) → '+(paga?'<b style="color:var(--yellow)">$'+fmtMon(d.usd)+'</b>':'<span style="color:var(--text3)">no paga</span>')+'</td>'+
+      '<td style="font-size:10px">'+(fico?'<span style="color:var(--green)">✅ fichó</span>':'<span style="color:var(--text3)">sin fichaje</span>')+'</td>'+
+      '<td><select data-ia="'+d.f+'" class="fc" style="font-size:10px;padding:2px 4px">'+
+        '<option value=""'+(!declarado?' selected':'')+'>— sin declarar '+(est==='P'?'(el fichaje dice que fue)':'')+'</option>'+
+        '<option value="P"'+(declarado==='P'?' selected':'')+'>Sí fue</option>'+
+        '<option value="A"'+(declarado==='A'?' selected':'')+'>No fue</option>'+
+      '</select></td></tr>';
+  }).join('');
+  openModal('Asistencia IMAU — '+x.emp.nombre+' ('+(x.unidad||'sin unidad')+')',
+    '<p style="font-size:11px;color:var(--text2);margin-bottom:8px">Regla de RRHH: el IMAU cobra por los viajes que hizo <b>su unidad</b> ese día, <b>pero solo si fue a trabajar</b>. Un día <b>sin declarar y sin fichaje</b> no se paga y queda pendiente — no se le está quitando, falta el dato.</p>'+
+    '<table><thead><tr><th>Día</th><th>Su unidad</th><th>Fichaje</th><th>¿Fue?</th></tr></thead><tbody>'+filas+'</tbody></table>'+
+    '<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px">'+
+      '<button class="btn btn-s" onclick="closeModal()">Cancelar</button>'+
+      '<button class="btn btn-g" onclick="guardarImauAsisSel(\''+String(empId).replace(/'/g,'')+'\')">Guardar asistencia</button>'+
+    '</div>');
+}
+function guardarImauAsisSel(empId){
+  var m={};
+  Array.prototype.slice.call(document.querySelectorAll('select[data-ia]')).forEach(function(s){
+    if(s.value==='P'||s.value==='A')m[s.getAttribute('data-ia')]=s.value;
+  });
+  if(Object.keys(m).length)IMAU_ASIS[empId]=m; else delete IMAU_ASIS[empId];
+  guardarImauAsis();
+  try{closeModal();}catch(e){}
+  try{calcNom();}catch(e){}
+  if(typeof mostrarToast==='function')mostrarToast('Asistencia guardada','exito');
 }
 function _patioKeyDB(){var des=gv('nm-des'); if(des){try{return 'patio_sem_'+_isoLocal(_lunesSem(des));}catch(e){}} return 'patio_'+(gv('nm-mes')||'')+'_'+(gv('nm-sem')||'');}
 function guardarPatioDias(){
@@ -6348,7 +6430,7 @@ function _extrasNominaPeriodo(desde,hasta){
 // viaje pero PRESENTE (fichaje real) paga 1 viaje de patio. Máximo puede apagarlo y queda pegado.
 function _setPatioPref(on){ try{localStorage.setItem('btg_patio_auto', on?'1':'0');}catch(e){} }
 function _restaurarPatioPref(){ var el=g('nm-patio'); if(!el)return; var v=null; try{v=localStorage.getItem('btg_patio_auto');}catch(e){} el.checked=(v===null? true : v==='1'); }
-function recalcNom(){ try{_restaurarPatioPref();}catch(e){} try{poblarSemsNom();}catch(e){} try{poblarSemanasNom();}catch(e){} Promise.all([cargarPatioDias(),cargarPatioNota(),cargarImauApoyo(),cargarAliasNombres(),cargarNominaExtras()]).then(function(){try{calcNom();}catch(e){}try{renderAliasManager();}catch(e){}}).catch(function(){try{calcNom();}catch(e){}}); }
+function recalcNom(){ try{_restaurarPatioPref();}catch(e){} try{poblarSemsNom();}catch(e){} try{poblarSemanasNom();}catch(e){} Promise.all([cargarPatioDias(),cargarPatioNota(),cargarImauAsis(),cargarImauApoyo(),cargarAliasNombres(),cargarNominaExtras()]).then(function(){try{calcNom();}catch(e){}try{renderAliasManager();}catch(e){}}).catch(function(){try{calcNom();}catch(e){}}); }
 // Render de la sección "Actividades especiales" de la nómina (extras del período).
 function renderNominaExtras(extrasP){
   var tb=g('nm-extras-tabla'); if(!tb)return;
@@ -6423,7 +6505,7 @@ function _nmSetSemana(lunISO){
   if(g('nm-des'))g('nm-des').value=_isoLocal(s.lunes);
   if(g('nm-hta'))g('nm-hta').value=_isoLocal(s.domingo);
   if(g('nm-mes'))g('nm-mes').value=''; if(g('nm-sem'))g('nm-sem').value='';
-  if(typeof cargarPatioDias==='function'&&typeof cargarPatioNota==='function'){ Promise.all([cargarPatioDias(),cargarPatioNota()]).then(function(){ try{calcNom();}catch(e){} }); }
+  if(typeof cargarPatioDias==='function'&&typeof cargarPatioNota==='function'){ Promise.all([cargarPatioDias(),cargarPatioNota(),cargarImauAsis()]).then(function(){ try{calcNom();}catch(e){} }); }
   else { try{calcNom();}catch(e){} }
 }
 function poblarSemanasNom(){
@@ -6673,10 +6755,14 @@ function calcNom(){
   // pagó bien desde el sistema.
   //
   // NO se les aplican descuentos de préstamo ni multa: son personal externo.
-  // ⏳ Sin confirmar por RRHH (preguntado el 07/08, ver bitácora): si en una unidad hay VARIOS IMAU,
-  //    acá cada uno cobra su escalón completo —que es como ella lo describió para Edwin—; y si la
-  //    unidad trabajó pero la persona no fue, igual cobra, porque el pago se deriva de la unidad y
-  //    el sistema no tiene registro de su asistencia.
+  //
+  // ✅ CONFIRMADO por Alejandra (07/08): si en una unidad hay VARIOS IMAU, **cobra cada uno su
+  //    escalón completo** (el B010 tiene 3 y el B007 tiene 2). No se reparte.
+  // ✅ CONFIRMADO por Alejandra (07/08): «si la unidad trabajó pero el IMAU no fue, NO se le paga.
+  //    Eso va de la mano con la asistencia.» Por eso cada día se condiciona a `_imauPresente`, con
+  //    TRES estados: presente / ausente declarado / SIN DATO. El sin-dato no paga pero se marca y
+  //    se cuenta en un aviso — pagar $0 en silencio por falta de dato es quitarle la semana a
+  //    alguien que sí trabajó.
   var imauMap={};
   (function(){
     var vjUniDia={};   // viajes que hizo cada unidad cada día (varias planillas del mismo día suman)
@@ -6689,15 +6775,23 @@ function calcNom(){
       if(!e||e.activo===false||e.cargo!=='Ayudante'||e.tipoAy!=='imau')return;
       // Entra SIEMPRE, aunque su unidad no haya salido en toda la semana: cobrará $0, pero tiene
       // que verse. Que no aparezca es lo que se estaba reportando.
-      var reg={emp:e,unidad:e.unidad||'',dias:[],diasPagos:0,viajes:0,montoUsd:0};
+      var reg={emp:e,unidad:e.unidad||'',dias:[],diasPagos:0,viajes:0,montoUsd:0,
+               diasSinDato:0,usdRetenido:0,diasAusente:0};
       Object.keys(vjUniDia).forEach(function(k){
         var corte=k.lastIndexOf('|'), cam=k.slice(0,corte), dia=k.slice(corte+1);
         if(cam!==reg.unidad)return;
-        var vj=vjUniDia[k], usd=tarifaApoyoDia(vj);
+        var vj=vjUniDia[k], tarifa=tarifaApoyoDia(vj);
+        // La asistencia solo importa el día que HAY algo que pagar. Si su unidad hizo 1 viaje o
+        // ninguno, no cobra fue o no fue: no tiene sentido pedirle el dato a RRHH.
+        var pres=(tarifa>0)?_imauPresente(e.id,dia):'P';
+        var usd=(tarifa>0&&pres==='P')?tarifa:0;
         reg.viajes+=vj;
         if(usd>0){ reg.diasPagos++; reg.montoUsd+=usd; }
-        reg.dias.push({f:dia,viajes:vj,usd:usd});
+        else if(tarifa>0&&pres==='A'){ reg.diasAusente++; }
+        else if(tarifa>0&&pres===null){ reg.diasSinDato++; reg.usdRetenido+=tarifa; }
+        reg.dias.push({f:dia,viajes:vj,usd:usd,tarifa:tarifa,pres:pres});
       });
+      reg.usdRetenido=Math.round(reg.usdRetenido*100)/100;
       reg.dias.sort(function(a,b){return a.f<b.f?-1:(a.f>b.f?1:0);});
       reg.montoUsd=Math.round(reg.montoUsd*100)/100;
       imauMap[e.id]=reg;
@@ -6832,17 +6926,29 @@ function calcNom(){
       // El día por día es lo que permite cotejarlo contra la realidad: qué día, cuántos viajes hizo
       // su unidad y cuánto le tocó por eso. Los días de $0 se muestran igual — son los que explican
       // por qué cobró menos de lo que esperaba.
+      // Día por día con los TRES estados. Un día retenido por falta de dato NO puede verse igual
+      // que un día que no paga: el primero es plata de alguien esperando que RRHH declare.
       var det=x.dias.length
-        ? x.dias.map(function(d){return formatFecha(d.f)+': '+d.viajes+'v = $'+fmtMon(d.usd);}).join(' · ')
+        ? x.dias.map(function(d){
+            var t=formatFecha(d.f)+': '+d.viajes+'v';
+            if(d.tarifa<=0)   return '<span style="color:var(--text3)">'+t+' = $0</span>';
+            if(d.pres==='P')  return '<span style="color:var(--green)">'+t+' = $'+fmtMon(d.usd)+'</span>';
+            if(d.pres==='A')  return '<span style="color:var(--text3)">'+t+' — no fue</span>';
+            return '<span style="color:var(--amber)">'+t+' = $'+fmtMon(d.tarifa)+' ⏳ falta asistencia</span>';
+          }).join(' · ')
         : 'Su unidad no tuvo planillas en este período';
-      return '<tr'+(cero?' style="opacity:.62"':'')+'><td style="font-family:var(--m)">'+(i+1)+'</td>'+
-        '<td style="font-weight:700">'+x.emp.nombre+(cero?' <span style="font-size:9px;color:var(--text3)">— no cobra esta semana</span>':'')+'</td>'+
+      var _pend=(x.diasSinDato>0)
+        ? ' <span style="font-size:9px;color:var(--amber)" title="Días en que su unidad trabajó y no sabemos si fue. No se le está pagando hasta que RRHH lo declare.">⏳ '+x.diasSinDato+' día(s) sin declarar · $'+fmtMon(x.usdRetenido)+' en espera</span>'
+        : '';
+      return '<tr'+(cero&&!x.diasSinDato?' style="opacity:.62"':(x.diasSinDato?' style="background:rgba(245,158,11,.07)"':''))+'><td style="font-family:var(--m)">'+(i+1)+'</td>'+
+        '<td style="font-weight:700">'+x.emp.nombre+(cero&&!x.diasSinDato?' <span style="font-size:9px;color:var(--text3)">— no cobra esta semana</span>':'')+_pend+
+          (x.dias.length?' <button class="btn btn-s btn-xs solo-ui" style="padding:0 5px;font-size:9px" onclick="abrirImauAsis(\''+String(x.emp.id).replace(/'/g,'')+'\')" title="Declarar si fue a trabajar cada día">🗓️ asistencia</button>':'')+'</td>'+
         '<td style="font-size:10px">'+(x.unidad||'<span style="color:var(--red)">SIN UNIDAD ASIGNADA</span>')+'</td>'+
-        '<td style="text-align:center">'+x.diasPagos+'</td>'+
+        '<td style="text-align:center">'+x.diasPagos+(x.diasAusente?' <span style="font-size:9px;color:var(--text3)" title="días que declararon que no fue">(-'+x.diasAusente+')</span>':'')+'</td>'+
         '<td style="font-size:9px;color:var(--text2)">'+det+'</td>'+
         '<td style="font-family:var(--m);font-weight:700;color:var(--yellow)">$'+fmtMon(x.montoUsd)+'</td></tr>';
     }).join('')||'<tr><td colspan="6" style="text-align:center;color:var(--text3);padding:14px">No hay personal IMAU activo con unidad asignada</td></tr>';
-  _CHMAP_UI=chMap; _AYMAP_UI=ayMap;   // para el desglose día por día (verDesgloseDia), choferes y ayudantes
+  _CHMAP_UI=chMap; _AYMAP_UI=ayMap; _IMAUMAP_UI=imauMap;   // para el desglose y el modal de asistencia
   // Días que abarca lo que se está mostrando: es la grilla del selector de patio. Se toma del rango
   // elegido y, si no hay, del primer y último día con planilla del período.
   (function(){
@@ -6884,6 +6990,10 @@ function calcNom(){
     // que explica por qué no cobró. Sin esa fila, esa semana se vería igual que si no existiera.
     imau: Object.keys(imauMap).map(function(id){var x=imauMap[id];
       return {n:x.emp.nombre,u:x.unidad,diasPagos:x.diasPagos,viajesUnidad:x.viajes,
+              // Lo RETENIDO se guarda en el historial a propósito: si una semana se cerró con días
+              // sin declarar, dentro de tres meses tiene que poder verse que se pagó de menos y
+              // cuánto — no reconstruirlo a mano.
+              diasSinDato:x.diasSinDato,usdRetenido:x.usdRetenido,diasAusente:x.diasAusente,
               usd:x.montoUsd,bs:Math.round(x.montoUsd*tasa*100)/100,dias:x.dias};})
   };
   // Total de nómina: SOLO el monto total (sin el desglose op/IMAU/adm/especial — pedido de Máximo).
@@ -7014,6 +7124,16 @@ function calcNom(){
   });
   if(_inactSinFeg.length){
     descBanners.unshift('<div style="margin-bottom:6px;font-size:11px;background:rgba(245,158,11,.12);border:1px solid rgba(245,158,11,.5);color:var(--amber);padding:8px 10px;border-radius:8px">⚠️ <b>'+_inactSinFeg.length+' ficha(s) dadas de baja SIN fecha de egreso</b>:<br><span style="color:var(--text3)">'+_inactSinFeg.slice(0,14).map(function(e){return _scEsc(e.nombre)+' ('+e.id+')';}).join(' · ')+(_inactSinFeg.length>14?' …y '+(_inactSinFeg.length-14)+' más.':'')+'</span><div style="font-size:10px;color:var(--text3);margin-top:4px">Sin esa fecha no se puede saber si trabajaron en la semana que estás cerrando, así que <b>no entran solos</b> en la lista. Cargale el egreso a cada uno en Empleados; si sí trabajó esta semana, reactivalo o anotalo en la planilla.</div></div>');
+  }
+  // ── AVISO: PAGO DEL IMAU RETENIDO POR FALTA DE ASISTENCIA ────────────────────────────────────
+  // Regla de RRHH: el IMAU cobra solo si fue a trabajar. Cuando no hay ni fichaje ni declaración,
+  // el sistema NO paga — pero tampoco puede callarse: ese día su unidad sí trabajó y esa plata es
+  // de alguien. La diferencia entre «no fue» y «no sabemos si fue» tiene que verse.
+  var _imauPend=Object.keys(imauMap).map(function(id){return imauMap[id];}).filter(function(x){return x.diasSinDato>0;});
+  if(_imauPend.length){
+    var _imauUsd=_imauPend.reduce(function(s,x){return s+x.usdRetenido;},0);
+    var _imauDias=_imauPend.reduce(function(s,x){return s+x.diasSinDato;},0);
+    descBanners.unshift('<div style="margin-bottom:6px;font-size:11px;background:rgba(245,158,11,.12);border:1px solid rgba(245,158,11,.5);color:var(--amber);padding:8px 10px;border-radius:8px">⏳ <b>$'+fmtMon(_imauUsd)+' del personal IMAU sin pagar por falta de asistencia</b> — '+_imauDias+' día(s) en '+_imauPend.length+' persona(s) cuya unidad SÍ trabajó, pero sin fichaje ni declaración de si fueron.<br><span style="color:var(--text3)">'+_imauPend.slice(0,10).map(function(x){return _scEsc(x.emp.nombre)+' ('+x.diasSinDato+'d · $'+fmtMon(x.usdRetenido)+')';}).join(' · ')+(_imauPend.length>10?' …y '+(_imauPend.length-10)+' más.':'')+'</span><div style="font-size:10px;color:var(--text3);margin-top:4px">No se les está quitando: <b>falta el dato</b>. Abrí «🗓️ asistencia» en la fila de cada uno y declará si fue o no. El fichaje solo existe desde el 20/07.</div></div>');
   }
   // Se guarda aparte del DOM para poder probar los avisos sin navegador (test/nomina-una-ficha.test.js).
   _bannersNomina=descBanners.join('');
