@@ -2786,8 +2786,20 @@ async function cargarDatosMinimos(rol){
     if(empRes.data&&empRes.data.length){
       EMPLEADOS=empRes.data.map(function(x){
         return{id:x.id,nombre:x.nombre,cargo:x.cargo,unidad:x.unidad||'',
-               activo:x.activo!==false,tipoAy:x.tipoAy||'',
+               // ⛔ La columna en la base se llama `tipo_ay`, NO `tipoAy`. Esta línea leía `x.tipoAy`,
+               // que no existe, así que TODO el padrón cargaba con `tipoAy:''` y la marca de IMAU no
+               // llegaba nunca a la nómina (la otra recarga, la de la importación, sí lee `tipo_ay`:
+               // convivían dos verdades según cuál hubiera corrido última). Hoy no costó plata —se
+               // comprobó antes de tocarlo: en TODA la historia, las 1.754 filas de planilla que casan
+               // con un ayudante por nombre son de tipo `interno`; ningún IMAU se escribe por nombre
+               // (van como la palabra "IMAU" y los cuenta `imauViajesPlanilla` aparte). Pero la marca
+               // tenía que funcionar para poder dejar a los IMAU fuera de la lista del padrón.
+               activo:x.activo!==false,tipoAy:x.tipo_ay||x.tipoAy||'',
                cedula:x.cedula||'',rif:x.rif||'',fnac:x.fnac||'',fingreso:x.fingreso||'',
+               // `fegreso` existe en la base desde el 2026-08-07 y hasta ahora la app no la leía.
+               // Sin ella el sistema no puede responder «¿esta persona estaba trabajando el 29/06?»,
+               // que es justo lo que hace falta para decidir si entra en una semana vieja.
+               fegreso:x.fegreso||'',
                tel:x.tel||'',email:x.email||'',banco:x.banco||'',tcuenta:x.tcuenta||'',
                ncuenta:x.ncuenta||'',whatsapp:x.whatsapp||'',wa_apikey:x.wa_apikey||'',
                foto:x.foto_url||'',imau:x.imau||false,asisteSiempre:x.asiste_siempre===true};
@@ -6580,6 +6592,52 @@ function calcNom(){
     ayMap[id]={emp:a.emp,viajes:a.viajes,viajesDom:0,recargoDom:0,tasa:0,descuentos:0,porNombre:a.viajes,porCam:0,
                apoyo:true,montoUsd:a.montoUsd,diasApoyo:a.dias,detalleDias:a.detalleDias};
   });
+  // ── EL PADRÓN TAMBIÉN ENTRA: quien NO tuvo viajes esta semana IGUAL sale en la lista ──────────
+  // Reportado por Alejandra (RRHH) el 2026-08-07 revisando las semanas 17 y 18: faltaban HELY JOSE
+  // URDANETA ESPINA (E009) y JHAN CARLOS ROA OCHOA (E010) —choferes ACTIVOS, sin UNA SOLA planilla
+  // esa semana— y MISAEL JESUS RINCON GONZALEZ (E029, ayudante). En la 18 faltaba además ANDRY JOSE
+  // CUBA SUAREZ (E016). Sus palabras: «no tuvieron viajes por diversas razones pero de igual manera
+  // se les considera el día de patio».
+  //
+  // El motivo: hasta acá la lista se arma recorriendo las PLANILLAS, que son VIAJES. Quien no tenía
+  // ni una fila NO salía en cero: NO EXISTÍA. Y el día de patio tampoco lo rescataba, porque el
+  // patio —el manual y el automático— recorre ESTA MISMA lista ya armada: si no entró, no había
+  // dónde marcárselo. Una lista que se arma desde el HECHO no puede pagar la AUSENCIA del hecho,
+  // que es justo lo que el día de patio es.
+  //
+  // Entran con 0 viajes y $0. NO se les inventa nada: cobran solo lo que RRHH les declare de patio.
+  // Se marcan `dePadron` para tres cosas: (a) no descontarles préstamo ni multa mientras cobren $0
+  // —la cuota avanzaría sin que nadie la pague—, (b) pintarlos en gris con su aviso, y (c) no
+  // escribirlos en el historial si terminan en $0: una fila de cero no es un pago.
+  // Los IMAU quedan fuera: no cobran patio, así que una fila en cero sería solo ruido.
+  // Los INACTIVOS tampoco entran solos: si no trabajó, no se le paga. El que SÍ trabajó ya entró
+  // por su planilla más arriba y sale marcado ⚠️ inactivo.
+  EMPLEADOS.forEach(function(e){
+    if(!e||e.activo===false||!e.nombre)return;
+    if(e.cargo==='Chofer'){
+      var k=_patioKey(_nombreCanonico(e.nombre));
+      if(!k||chMap[k])return;
+      chMap[k]={ch:e.nombre,cams:new Set(),viajes:0,viajesDom:0,montoViajes:0,dias:new Set(),
+                diasViaje:new Set(),descuentos:0,patio:0,
+                vDom:0,vFer:0,mDom:0,mFer:0,dia:{},dePadron:true,unidadFicha:(e.unidad||'')};
+    }else if(e.cargo==='Ayudante'){
+      if(ayMap[e.id]||e.tipoAy==='imau')return;
+      ayMap[e.id]={emp:e,viajes:0,viajesDom:0,recargoDom:0,tasa:cfg.ayud,descuentos:0,
+                   porNombre:0,porCam:0,montoViajes:0,
+                   vDom:0,vFer:0,mDom:0,mFer:0,dia:{},cams:new Set(),dePadron:true};
+    }
+  });
+  // ¿Esta persona cobra ALGO esta semana? Quien entró solo por el padrón cobra $0 mientras RRHH no
+  // le declare días de patio. A ese NO se le descuenta préstamo ni multa: se le restaría de un
+  // sueldo que no existe y la cuota avanzaría como "pagada" sin que nadie la haya pagado — el
+  // mismo defecto que ya evita el `_aplicado` de abajo. Se mira el patio MANUAL porque el
+  // automático (asistencia) se calcula más adelante; hoy no cambia nada, la tabla `asistencia`
+  // está vacía y el fichaje empieza el 20/07.
+  function _sinCobro(x,tipo){
+    if(!x||!x.dePadron)return false;
+    if(tipo==='ay')return _patioNum(PATIO_DIAS[x.emp&&x.emp.id])<=0;
+    return _patioNum(PATIO_DIAS[_patioKey(_nombreCanonico(x.ch))])<=0;
+  }
 
   // Descuentos prestamos — CÁLCULO PURO. Solo MUESTRA la cuota que se descontaría esta semana;
   // NO avanza la cuota (semanas_pagadas), NO marca pagado, NO manda WhatsApp. El AVANCE real
@@ -6597,8 +6655,8 @@ function calcNom(){
         // Aplicar descuento al EMPLEADO (chofer por su nombre, ya no por camión) o al ayudante.
         var chKeyEmp=_patioKey(_nombreCanonico(empObj.nombre||''));
         var _aplicado=false;
-        if(chMap[chKeyEmp]){chMap[chKeyEmp].descuentos+=cuota;_aplicado=true;}
-        else if(ayMap[p.empId]){ayMap[p.empId].descuentos+=cuota;_aplicado=true;}
+        if(chMap[chKeyEmp]&&!_sinCobro(chMap[chKeyEmp],'ch')){chMap[chKeyEmp].descuentos+=cuota;_aplicado=true;}
+        else if(ayMap[p.empId]&&!_sinCobro(ayMap[p.empId],'ay')){ayMap[p.empId].descuentos+=cuota;_aplicado=true;}
         // La cuota SOLO avanza si REALMENTE se descontó del sueldo de esta semana. Si el empleado no
         // trabajó/no está en la nómina, no se descuenta nada → la cuota NO debe avanzar (antes avanzaba
         // igual → la deuda figuraba "pagada" sin que nadie pagara).
@@ -6620,7 +6678,7 @@ function calcNom(){
     // La cuota puede estar en DIVISA (USD/EUR) o Bs (legacy); _multaCuotaUsd la pasa a USD. El congelado
     // a Bs se hace al PAGAR. La cuota SOLO avanza si REALMENTE se descontó del sueldo de esta semana.
     var cuotaUsd=_multaCuotaUsd(m);
-    if(chKeyM&&chMap[chKeyM]&&cuotaUsd>0){
+    if(chKeyM&&chMap[chKeyM]&&cuotaUsd>0&&!_sinCobro(chMap[chKeyM],'ch')){
       chMap[chKeyM].descuentos+=cuotaUsd;
       _multaAplicar.push({id:m.id,cuotaUsd:cuotaUsd,moneda:m.moneda||'',cuotaDiv:m.cuotaDiv||0,cuotaBs:m.cuotaBs||0});
     }
@@ -6718,12 +6776,15 @@ function calcNom(){
     sem:sem||'', mes:mes||'', tasa:tasa, totCh:totCh, totAy:totAy, totAdm:totAdm, totImau:totImau, totExtras:totExtrasHuerfano, totBs:totBs,
     fdesde: f.length?f.reduce(function(m,r){return r.f<m?r.f:m;},f[0].f):null,
     fhasta: f.length?f.reduce(function(m,r){return r.f>m?r.f:m;},f[0].f):null,
-    choferes: Object.values(chMap).map(function(c){var k=_patioKey(_nombreCanonico(c.ch));var pat=_patioEfectivo(c.patio,PATIO_DIAS[k]);var u=Math.max(0,(c.montoViajes||0)+pat*cfg.chofer-c.descuentos)+(_extraCh[k]||0);return {n:c.ch,u:Array.from(c.cams||[]).join(','),viajes:(c.viajes-(c.patio||0)),pat:pat,esp:Math.round((_extraCh[k]||0)*100)/100,usd:Math.round(u*100)/100,bs:Math.round(u*tasa*100)/100,
+    // Una fila en CERO no es un pago: quien entró solo por el padrón y no cobró nada esta semana NO
+    // se escribe en el historial (se ve en pantalla para poder marcarle el patio, nada más). Si le
+    // declararon días de patio, cobra — y entonces sí entra, como cualquiera.
+    choferes: Object.values(chMap).filter(function(c){return !c.dePadron||(c.montoViajes||0)>0||_patioEfectivo(c.patio,PATIO_DIAS[_patioKey(_nombreCanonico(c.ch))])>0;}).map(function(c){var k=_patioKey(_nombreCanonico(c.ch));var pat=_patioEfectivo(c.patio,PATIO_DIAS[k]);var u=Math.max(0,(c.montoViajes||0)+pat*cfg.chofer-c.descuentos)+(_extraCh[k]||0);return {n:c.ch,u:Array.from(c.cams||[]).join(','),viajes:(c.viajes-(c.patio||0)),pat:pat,esp:Math.round((_extraCh[k]||0)*100)/100,usd:Math.round(u*100)/100,bs:Math.round(u*tasa*100)/100,
       // Desglose: se guarda EN EL HISTORIAL, no solo en pantalla, para poder auditar una semana ya
       // pagada sin tener que recalcularla (las planillas o las tarifas pueden haber cambiado desde).
       dom:(c.vDom||0),fer:(c.vFer||0),mDom:Math.round((c.mDom||0)*100)/100,mFer:Math.round((c.mFer||0)*100)/100,
       mPat:Math.round(pat*cfg.chofer*100)/100,dia:c.dia||{}};}),
-    ayudantes: Object.values(ayMap).map(function(a){var vp=_ayPatio(a);var patTot=a.apoyo?0:vp.patio;var u=Math.max(0,_ayBase(a)-a.descuentos)+(_extraAy[a.emp.id]||0);return {n:a.emp.nombre,u:a.emp.unidad,viajes:(parseInt(a.viajes)||0)-(parseInt(a.patio)||0),pat:patTot,esp:Math.round((_extraAy[a.emp.id]||0)*100)/100,usd:Math.round(u*100)/100,bs:Math.round(u*tasa*100)/100,tipo:a.apoyo?'apoyo':(a.emp.tipoAy||'interno'),dias:a.apoyo?a.diasApoyo:undefined,
+    ayudantes: Object.values(ayMap).filter(function(a){return !a.dePadron||_ayBase(a)>0;}).map(function(a){var vp=_ayPatio(a);var patTot=a.apoyo?0:vp.patio;var u=Math.max(0,_ayBase(a)-a.descuentos)+(_extraAy[a.emp.id]||0);return {n:a.emp.nombre,u:a.emp.unidad,viajes:(parseInt(a.viajes)||0)-(parseInt(a.patio)||0),pat:patTot,esp:Math.round((_extraAy[a.emp.id]||0)*100)/100,usd:Math.round(u*100)/100,bs:Math.round(u*tasa*100)/100,tipo:a.apoyo?'apoyo':(a.emp.tipoAy||'interno'),dias:a.apoyo?a.diasApoyo:undefined,
       // Mismo desglose que el chofer, guardado en el historial: una semana ya pagada se puede
       // auditar sin recalcularla (las planillas o las tarifas pueden haber cambiado desde entonces).
       dom:(a.vDom||0),fer:(a.vFer||0),mDom:Math.round((a.mDom||0)*100)/100,mFer:Math.round((a.mFer||0)*100)/100,
@@ -6761,7 +6822,10 @@ function calcNom(){
   // sigue partiendo a la persona en dos filas (y a media semana cada una). Quien tiene que decidir
   // si son uno o dos es RRHH, no el sistema, así que acá solo se avisa con la evidencia a la vista.
   var _dupPares=[];
-  var _idsAct=Object.keys(ayMap).concat(Object.values(chMap).map(function(c){
+  // Solo los que TRABAJARON esta semana: desde que el padrón entra a la lista, mirar todo el padrón
+  // convertiría este aviso en un listado fijo de duplicados que no tiene nada que ver con la semana
+  // que se está pagando. Un aviso que salta siempre no avisa de nada.
+  var _idsAct=Object.keys(ayMap).filter(function(id){return !ayMap[id].dePadron;}).concat(Object.values(chMap).filter(function(c){return !c.dePadron;}).map(function(c){
     var e=(typeof _empPorNombre==='function')?_empPorNombre(c.ch):null; return e?e.id:''; })).filter(Boolean);
   var _idsUnq=_idsAct.filter(function(v,i){return _idsAct.indexOf(v)===i;});
   _idsUnq.forEach(function(id1,i1){
@@ -6837,11 +6901,34 @@ function calcNom(){
     }).join('<br>');
     descBanners.unshift('<div style="margin-bottom:6px;font-size:11px;background:rgba(245,158,11,.12);border:1px solid rgba(245,158,11,.5);color:var(--amber);padding:8px 10px;border-radius:8px">⚠️ <b>'+_dupPares.length+' par(es) de fichas podrían ser LA MISMA persona</b> y le parten los viajes en dos filas:<br>'+_dupTxt+'<div style="font-size:10px;color:var(--text3);margin-top:4px">Cada nombre de planilla ya paga a UNA sola ficha (no se cobra doble), pero hay que decidir en Empleados si son una persona o dos. Comparalo con la cédula y confirmalo con RRHH antes de unificar.</div></div>');
   }
+  // ── AVISO: ACTIVOS SIN VIAJES + FICHAS INACTIVAS SIN FECHA DE EGRESO ─────────────────────────
+  // Los dos avisos van juntos porque responden la misma pregunta —«¿falta alguien en esta lista?»—
+  // y hasta hoy nadie la hacía: siete semanas sin cerrar y ninguna alarma dijo que faltaban tres
+  // choferes activos. El hallazgo lo trajo Alejandra revisando a mano, no el sistema.
+  var _padronSin=Object.values(chMap).filter(function(c){return c.dePadron&&(c.viajes||0)===0&&_patioEfectivo(c.patio,PATIO_DIAS[_patioKey(_nombreCanonico(c.ch))])<=0;}).map(function(c){return c.ch;})
+    .concat(Object.values(ayMap).filter(function(a){return a.dePadron&&_ayBase(a)<=0;}).map(function(a){return a.emp.nombre;}));
+  if(_padronSin.length){
+    descBanners.unshift('<div class="alert-b" style="margin-bottom:6px;font-size:11px">👥 <b>'+_padronSin.length+' persona(s) ACTIVA(S) sin viajes en este período</b> — salen en la lista en gris y cobran $0. Si alguna cumplió <b>día de patio</b>, marcáselo con el botón de la columna de viajes:<br><span style="color:var(--text3)">'+_padronSin.slice(0,14).map(function(n){return _scEsc(n);}).join(' · ')+(_padronSin.length>14?' …y '+(_padronSin.length-14)+' más.':'')+'</span></div>');
+  }
+  // ⛔ INACTIVO SIN FECHA DE EGRESO: el sistema NO PUEDE decidir por su cuenta.
+  // Estas fichas no entran solas a la lista (si no trabajó, no se le paga), pero tampoco se pueden
+  // callar: al cerrar una semana VIEJA la pregunta es si en ESA semana la persona todavía estaba, y
+  // sin `fegreso` no hay con qué responderla. Que lo declare RRHH — el sistema avisa, no elige.
+  var _inactSinFeg=EMPLEADOS.filter(function(e){
+    return e&&e.activo===false&&!e.fegreso&&(e.cargo==='Chofer'||e.cargo==='Ayudante');
+  });
+  if(_inactSinFeg.length){
+    descBanners.unshift('<div style="margin-bottom:6px;font-size:11px;background:rgba(245,158,11,.12);border:1px solid rgba(245,158,11,.5);color:var(--amber);padding:8px 10px;border-radius:8px">⚠️ <b>'+_inactSinFeg.length+' ficha(s) dadas de baja SIN fecha de egreso</b>:<br><span style="color:var(--text3)">'+_inactSinFeg.slice(0,14).map(function(e){return _scEsc(e.nombre)+' ('+e.id+')';}).join(' · ')+(_inactSinFeg.length>14?' …y '+(_inactSinFeg.length-14)+' más.':'')+'</span><div style="font-size:10px;color:var(--text3);margin-top:4px">Sin esa fecha no se puede saber si trabajaron en la semana que estás cerrando, así que <b>no entran solos</b> en la lista. Cargale el egreso a cada uno en Empleados; si sí trabajó esta semana, reactivalo o anotalo en la planilla.</div></div>');
+  }
   // Se guarda aparte del DOM para poder probar los avisos sin navegador (test/nomina-una-ficha.test.js).
   _bannersNomina=descBanners.join('');
   var desc=g('nm-descuentos');if(desc)desc.innerHTML=_bannersNomina;
   var tbCh=g('tb-nom-ch');
-  if(tbCh)tbCh.innerHTML=Object.values(chMap).map(function(c,i){
+  // ORDEN ALFABÉTICO (pedido de Alejandra, 2026-08-07): antes salían en el orden en que caían las
+  // planillas, que no es ningún orden. Se busca por nombre, así que se ordena por nombre.
+  if(tbCh)tbCh.innerHTML=Object.values(chMap).sort(function(a,b){
+    return String(_nombreCanonico(a.ch)||'').localeCompare(String(_nombreCanonico(b.ch)||''),'es');
+  }).map(function(c,i){
     var key=_patioKey(_nombreCanonico(c.ch));
     var patM=_patioNum(PATIO_DIAS[key]), patTot=_patioEfectivo(c.patio,PATIO_DIAS[key]); // manual manda (no doble)
     var _exCh=_extraCh[key]||0; // actividades especiales atribuidas a este chofer (suman a SU total)
@@ -6852,8 +6939,13 @@ function calcNom(){
     var _empCh=(typeof _empPorNombre==='function')?_empPorNombre(c.ch):null;
     var _inact=_empCh&&_empCh.activo===false;
     var _badgeInact=(_inact&&_empCh)?' <span style="font-size:8px;color:var(--amber)" title="Chofer INACTIVO en la Lista Maestra pero con viajes en la planilla — revisar">⚠️ inactivo</span> <button class="btn btn-s" style="font-size:8px;padding:1px 5px" onclick="corregirInactivoNomina(\''+_empCh.id+'\')" title="Corregir: reactivar (si sí trabajó) o arreglar la planilla (si fue empleado equivocado). Pide token.">✏️ corregir</button>':'';
-    return '<tr'+(_inact?' style="background:rgba(245,158,11,.07)"':'')+'><td style="font-family:var(--m)">'+(i+1)+'</td><td style="font-weight:700">'+c.ch+_badgeInact+'</td>'+
-      '<td style="font-size:10px">'+Array.from(c.cams||[]).join(', ')+'</td>'+
+    // SIN VIAJES esta semana: está acá porque es personal ACTIVO, no porque haya trabajado. Se pinta
+    // apagado y se dice por qué, para que no se lea como que se le está pagando algo. Cobra $0 hasta
+    // que RRHH le marque los días de patio con el botón de la columna de viajes.
+    var _sinPl=(c.dePadron&&vjCh===0&&patTot===0);
+    var _notaSinPl=_sinPl?' <span style="font-size:9px;color:var(--text3)" title="No tiene ninguna planilla en este período. Si igual cumplió patio, marcá los días con el botón de al lado.">— sin viajes esta semana</span>':'';
+    return '<tr'+(_inact?' style="background:rgba(245,158,11,.07)"':(_sinPl?' style="opacity:.62"':''))+'><td style="font-family:var(--m)">'+(i+1)+'</td><td style="font-weight:700">'+c.ch+_badgeInact+_notaSinPl+'</td>'+
+      '<td style="font-size:10px">'+(Array.from(c.cams||[]).join(', ')||(_sinPl&&c.unidadFicha?'<span style="color:var(--text3)">'+c.unidadFicha+'</span>':''))+'</td>'+
       // El indicador "+N dom/fer" que iba acá se quitó por redundante: la columna Desglose ya dice
       // "3D 2F 1P", que es la misma información mejor expresada (Máximo, 2026-08-05).
       '<td style="color:var(--green)"><div style="display:flex;align-items:center;justify-content:space-between;gap:6px">'+
@@ -6873,7 +6965,11 @@ function calcNom(){
       '<td style="font-family:var(--m);color:var(--red)">'+(c.descuentos>0?'-$'+fmtMon(c.descuentos):'—')+'</td>'+
       '<td style="font-family:var(--m);font-weight:700;color:var(--yellow)">$'+fmtMon(total)+(_exCh>0?' <span style="font-size:8px;color:var(--green)" title="incluye $'+fmtMon(_exCh)+' de actividad(es) especial(es)">+$'+fmtMon(_exCh)+' esp</span>':'')+'</td></tr>';}).join('');
   var tbAy=g('tb-nom-ay');
-  if(tbAy)tbAy.innerHTML=Object.values(ayMap).sort(function(a,b){return b.viajes-a.viajes;}).map(function(a,i){
+  // ORDEN ALFABÉTICO (pedido de Alejandra, 2026-08-07): antes iban por viajes de mayor a menor, así
+  // que el mismo ayudante cambiaba de lugar cada semana y había que recorrer la tabla entera.
+  if(tbAy)tbAy.innerHTML=Object.values(ayMap).sort(function(a,b){
+    return String((a.emp&&a.emp.nombre)||'').localeCompare(String((b.emp&&b.emp.nombre)||''),'es');
+  }).map(function(a,i){
     var esImau=(a.emp.tipoAy==='imau');
     var patAyM=esImau?0:_patioNum(PATIO_DIAS[a.emp.id]); // días de patio manual (IMAU no cobra patio)
     var vp=_ayPatio(a); // patio efectivo (manual manda; sin doble patio)
@@ -6892,7 +6988,10 @@ function calcNom(){
     // Ayudante INACTIVO con viajes: se paga igual pero se marca ⚠️ (apareció en planilla dado de baja).
     var _inactAy=(a.emp.activo===false);
     var _badgeInactAy=_inactAy?' <span style="font-size:8px;color:var(--amber)" title="Ayudante INACTIVO en la Lista Maestra pero con viajes en la planilla — revisar">⚠️ inactivo</span> <button class="btn btn-s" style="font-size:8px;padding:1px 5px" onclick="corregirInactivoNomina(\''+a.emp.id+'\')" title="Corregir: reactivar (si sí trabajó) o arreglar la planilla (si fue empleado equivocado). Pide token.">✏️ corregir</button>':'';
-    return'<tr'+(_inactAy?' style="background:rgba(245,158,11,.07)"':'')+'><td>'+(i+1)+'</td><td style="font-weight:700">'+a.emp.nombre+_badgeInactAy+'</td>'+
+    // Mismo criterio que en choferes: está acá por ser personal ACTIVO, no por haber trabajado.
+    var _sinPlAy=(a.dePadron&&vjPlanAy===0&&vp.patio===0);
+    var _notaSinPlAy=_sinPlAy?' <span style="font-size:9px;color:var(--text3)" title="No figura en ninguna planilla de este período. Si igual cumplió patio, marcá los días con el botón de al lado.">— sin viajes esta semana</span>':'';
+    return'<tr'+(_inactAy?' style="background:rgba(245,158,11,.07)"':(_sinPlAy?' style="opacity:.62"':''))+'><td>'+(i+1)+'</td><td style="font-weight:700">'+a.emp.nombre+_badgeInactAy+_notaSinPlAy+'</td>'+
       '<td><span class="badge '+(esImau?'bp':'bt')+'">'+( a.emp.tipoAy||'interno')+'</span></td>'+
       '<td style="font-size:10px">'+a.emp.unidad+(nota?'<br><span style="color:var(--text3);font-size:9px">'+nota+'</span>':'')+'</td>'+
       // Igual que en choferes: el "+N dom/fer" salió de acá porque la columna Desglose ya lo dice mejor.
