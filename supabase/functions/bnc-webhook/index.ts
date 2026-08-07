@@ -11,7 +11,8 @@ const API_KEY_ESPERADO = "de273ebdea7abce15e73d23cecad3ef70b4cd3b86ff60cf1980e01
 const WA_DESTINOS = [
   { num: "584147379886", desc: "Socio - Maximo" },
   { num: "584142411159", desc: "Socio - Francisco" },
-  { num: "584120276883", desc: "Administradora - Aurelys" },
+  // Baja 06/08/2026 — AUREDY MEDINA (E002) dejó la empresa. Los 3 socios siguen recibiendo
+  // cada pago, así que este aviso NO queda sin destinatario.
   { num: "584143501298", desc: "Socio - Jonaz" },
 ];
 

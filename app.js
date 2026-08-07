@@ -131,7 +131,10 @@ var BNC_CONFIG={guid:'',mkey:'',cuenta:'',rif:BTG_CONFIG.empresa_rif,amb:'produc
 var WA=[
   {num:'584147379886',key:'7624669', rol:'socios',   desc:'Socio — Maximo Betancourt',   activo:true},
   {num:'584142411159',key:'4266754', rol:'socios',   desc:'Socio — Francisco Betancourt', activo:true},
-  {num:'584120276883',key:'1857646',  rol:'admin',    desc:'Administradora — Aurelys',     activo:true},
+  // Baja 06/08/2026 — AUREDY MEDINA (E002) dejó la empresa. Lo del rol `admin` lo siguen
+  // recibiendo los socios: sendWA hace `if(w.rol==='socios')return true`, o sea reciben todo.
+  // No agregar a Máximo con rol admin: quedaría en dos entradas y le llegaría duplicado.
+  {num:'584120276883',key:'1857646',  rol:'admin',    desc:'Administradora — Aurelys (BAJA 06/08/2026)', activo:false},
   {num:'584246591474',key:'7459464', rol:'rrhh',     desc:'RRHH — Gladys Jinet',          activo:true},
   {num:'',            key:'',        rol:'mecanica', desc:'Mecanico / Jefe Taller',       activo:false},
   {num:'',            key:'',        rol:'operativo',desc:'Jefe de Operaciones',          activo:false}
@@ -5837,7 +5840,8 @@ async function guardarAbono(){
   audit('Abono registrado','$'+ab.m+' Fact:'+ab.fact);
   // Conciliar en BNC automaticamente
   bncMovPush({id:Date.now()+'',fecha:ab.f,monto:ab.m*(TASAS.bcvDolar||cfg.tasa),tipo:'credito',desc:'Pago Alcaldia Fact.'+ab.fact,ref:ab.ref,conciliado:true});
-  // Aviso: socios (Máximo, Francisco) + admin (Aurelys) + Jonaz (socio limitado que quiere TODO ingreso)
+  // Aviso: socios (Máximo, Francisco) + Jonaz (socio limitado que quiere TODO ingreso).
+  // El rol admin quedó vacante el 06/08/2026; los socios reciben todo igual.
   var _msgAbono='Abono registrado\n'+
     '💰 Monto: $ '+Number(ab.m||0).toLocaleString('es-VE',{minimumFractionDigits:2,maximumFractionDigits:2})+'\n'+
     '🚛 Viajes: '+ab.v+'\n'+
@@ -5845,7 +5849,7 @@ async function guardarAbono(){
     '📅 Fecha: '+formatFecha(ab.f)+'\n'+
     '🏦 Ref: '+(ab.ref||'--')+'\n'+
     '👤 Registrado por: '+(SESION&&SESION.nombre?SESION.nombre:'--');
-  sendWA(_msgAbono,['admin'],true);                                   // socios + admin (Aurelys)
+  sendWA(_msgAbono,['admin'],true);                                   // socios (reciben todo) — rol admin vacante
   if(typeof WA_SEND==='function')WA_SEND('584143501298','',_msgAbono); // Jonaz (todo ingreso)
   renderAbonos();renderDash();
   ['ab-f','ab-fact','ab-v','ab-m','ab-obs','ab-ref'].forEach(function(id){sv(id,'');});

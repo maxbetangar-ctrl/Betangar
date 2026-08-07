@@ -11,7 +11,8 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 // Y además avisa lo VENCIDO sin declarar (eso no se pidió, pero una declaración que se pasó
 // es multa: callarla sería peor que avisarla).
 //
-// Destinatarios: Administradora (Aurelys), Máximo y la Contadora (Ana Fuenmayor).
+// Destinatarios: Máximo y la Contadora (Ana Fuenmayor). La Administradora (Auredy Medina)
+// salió el 06/08/2026; sale de `configuracion.whatsapp` por rol, así que ya no le llega.
 // Salen de `configuracion.whatsapp` por rol → se cambian sin tocar código.
 //
 // En las declaraciones de IVA se incluye CUÁNTA RETENCIÓN hay acumulada en ese período

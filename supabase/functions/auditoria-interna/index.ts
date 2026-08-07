@@ -26,7 +26,8 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const HDR = { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` };
 
-const MAXIMO = "584147379886", AURELYS = "584120276883", GLADYS = "584246591474";
+// AUREDY MEDINA (E002, 584120276883) salió de la lista: baja del 06/08/2026.
+const MAXIMO = "584147379886", GLADYS = "584246591474";
 
 const rest = async (q: string): Promise<any[]> => {
   const r = await fetch(`${SUPABASE_URL}/rest/v1/${q}`, { headers: HDR });
@@ -209,21 +210,21 @@ Deno.serve(async (req) => {
           }
         }
         if (noCobro.length) add("B", "🟡", `${noCobro.length} persona(s) en la nómina que el banco NO les pagó`,
-          noCobro.map((x) => "   " + x).join("\n"), "Administración (Aurelys)", "¿Se les pagó por otra vía (efectivo, otro banco) o quedó pendiente?");
+          noCobro.map((x) => "   " + x).join("\n"), "Administración", "¿Se les pagó por otra vía (efectivo, otro banco) o quedó pendiente?");
         if (fuerte.length) add("C", "🔴", `${fuerte.length} pago(s) MUY distintos a lo calculado (más de 15%)`,
           fuerte.map((x) => "   " + x).join("\n") + "\n   (el efecto del tipo de cambio ya está descontado)",
-          "Administración (Aurelys)", "¿Fue un bono, un adelanto, una corrección de otra semana, o un error?");
+          "Administración", "¿Fue un bono, un adelanto, una corrección de otra semana, o un error?");
         if (leve.length) add("C", "🟡", `${leve.length} pago(s) con diferencia pequeña (menos de 15%)`,
           leve.slice(0, 12).map((x) => "   " + x).join("\n") + (leve.length > 12 ? `\n   …y ${leve.length - 12} más` : "") +
           "\n   Probablemente se pagó otro día (otra tasa) o en dos partes.",
-          "Administración (Aurelys)", "Confirmar que sean diferencias de fecha de pago y no ajustes sin registrar.");
+          "Administración", "Confirmar que sean diferencias de fecha de pago y no ajustes sin registrar.");
       }
 
       // ── H. Trabajó y no cobró ──
       const cobraron = new Set(pagos.filter((p) => p.emp).map((p) => p.emp.nombre));
       const sinPago = [...enPlanilla].filter((n) => !cobraron.has(n));
       if (sinPago.length) add("H", "🟡", `${sinPago.length} persona(s) trabajaron y no se les ve pago`,
-        sinPago.map((n) => "   " + n).join("\n"), "Administración (Aurelys)", "¿Se les pagó por otra vía o quedó pendiente?");
+        sinPago.map((n) => "   " + n).join("\n"), "Administración", "¿Se les pagó por otra vía o quedó pendiente?");
     }
 
     // ═══ ENVÍO ═══ (idempotente por hallazgo y período)
@@ -243,7 +244,7 @@ Deno.serve(async (req) => {
       nuevos.map((h) => `${h.sev} *${h.titulo}*\n${h.detalle.split("\n").map((l) => l.trim()).filter(Boolean).join("\n")}\n_Preguntarle a: ${h.quien}_`).join("\n\n") +
       (NO_CORRIDOS.length ? `\n\n⛔ *No se pudieron correr:* ${NO_CORRIDOS.join(" | ")}` : "") +
       (deGladys.length ? `\n\n📩 A Gladys se le enviaron ${deGladys.length} pregunta(s) de RRHH.` : "") +
-      `\n\n_Este resumen le llegó a Máximo y a Aurelys._`;
+      `\n\n_Este resumen le llegó a Máximo._`;
     // A Gladys: solo nombres, SIN montos. Para contestar "¿está trabajando o cobra por otro
     // concepto?" no hace falta el monto, y así no se pasea plata de la gente por WhatsApp.
     const msgGladys = deGladys.length ? `Hola Gladys 👋\n\nRevisando los números de nómina del *${fecha}* nos quedaron unas dudas que solo tú nos puedes aclarar:\n\n` +
@@ -253,7 +254,8 @@ Deno.serve(async (req) => {
     if (dry) return json({ ok: true, dry: true, periodo: [DESDE, HASTA], nuevos: nuevos.length, no_corridos: NO_CORRIDOS, msgDir, msgGladys });
 
     const cola: any[] = []; const yaVa = new Set<string>();
-    for (const n of [MAXIMO, AURELYS]) if (n && !yaVa.has(n)) { yaVa.add(n); cola.push({ telefono: n, mensaje: msgDir, tipo: "auditoria", estado: "pendiente" }); }
+    // Baja 06/08/2026 — AUREDY MEDINA (E002) dejó la empresa; el resumen con montos ya no le llega.
+    for (const n of [MAXIMO]) if (n && !yaVa.has(n)) { yaVa.add(n); cola.push({ telefono: n, mensaje: msgDir, tipo: "auditoria", estado: "pendiente" }); }
     if (msgGladys && !yaVa.has(GLADYS)) { yaVa.add(GLADYS); cola.push({ telefono: GLADYS, mensaje: msgGladys, tipo: "auditoria", estado: "pendiente" }); }
     const r = await fetch(`${SUPABASE_URL}/rest/v1/cola_mensajes`, {
       method: "POST", headers: { ...HDR, "Content-Type": "application/json", Prefer: "return=minimal" }, body: JSON.stringify(cola),
