@@ -74,7 +74,18 @@ Deno.serve(async (req) => {
       .eq('id', m.id).eq('estado', 'pendiente').select('id').maybeSingle();
     if (!claim) continue; // otra corrida ya lo tomó
     try {
-      const phone = normalizar(m.telefono);
+      const norm = normalizar(m.telefono, cfg.pais);
+      if (!norm.tel) {
+        // No se pudo resolver el país: NO se manda. Antes se mandaba con +58 puesto a dedo y el
+        // mensaje podía caerle a un venezolano cualquiera. Falla claro y con el motivo escrito.
+        await sb.from('cola_mensajes').update({
+          estado: 'fallido', intentos: (m.intentos || 0) + 1,
+          error: `numero no enviable: ${norm.motivo}. Guardalo con su codigo de pais (ej: 58414…, 57321…, 52951…).`,
+        }).eq('id', m.id);
+        fail++;
+        continue;
+      }
+      const phone = norm.tel;
       const body: any = { phone, message: conEtiqueta(m.mensaje) };
       if (cfg.device) body.device = cfg.device;
       const r = await fetch('https://api.wassenger.com/v1/messages', {
@@ -114,13 +125,41 @@ Deno.serve(async (req) => {
 // Venezuela: 04141234567 / 0414-1234567 → +584141234567
 // U7: antes `if (s.startsWith('58')) return '+' + s` dejaba pasar "580414..." (el 0 de troncal pegado
 // al país, típico de "+58 0414-…") → número INVÁLIDO y el mensaje moría en silencio. Se maneja 580→58.
-function normalizar(t: string): string {
+// ⛔ EL PAÍS NO SE SUPONE. Sale de la config del tenant (`configuracion.wassenger.pais`).
+// Antes esto tenía el 58 metido en el código: `if (s.length === 10) return '+58' + s`, o sea
+// CUALQUIER número de 10 dígitos salía como venezolano. Maxware manda y recibe de cualquier
+// parte del mundo, y ya hay contactos de México, Colombia y Perú. Consecuencias reales:
+//   · 2026-07-18: la bienvenida a Alejandra (+52 México) se mandó como +58 → rechazada.
+//   · 2 móviles de Colombia (3xx) idem.
+// Y lo peor no es que Wassenger lo rechace: un +58 inventado PUEDE existir y pertenecer a otro,
+// así que el mensaje se le iría a un desconocido sin que nadie se entere.
+//
+// Devuelve { tel } si se pudo resolver, o { motivo } explicando por qué no. Nunca adivina.
+function normalizar(t: string, paisDefecto?: string | null): { tel?: string; motivo?: string } {
   let s = (t || '').replace(/\D/g, ''); // solo dígitos (quita +, espacios, guiones)
-  if (!s) return '';
-  if (s.startsWith('580')) s = '58' + s.slice(3); // quita el 0 de troncal pegado al país
-  if (s.startsWith('58')) return '+' + s;
-  if (s.startsWith('0')) return '+58' + s.slice(1);
-  if (s.length === 10) return '+58' + s;
-  return '+' + s;
+  if (!s) return { motivo: 'número vacío' };
+  if (s.startsWith('00')) s = s.slice(2); // prefijo internacional 00
+
+  const p = String(paisDefecto || '').replace(/\D/g, '');
+
+  // País DUPLICADO: pasó de verdad con Perú (5151992927032 = 51 + 51992927032). Se colapsa una vez.
+  if (p && p.length >= 2 && s.startsWith(p + p)) s = s.slice(p.length);
+
+  if (s.startsWith('0')) {
+    // Formato nacional (0414…): el 0 es troncal, no parte del número.
+    if (!p) return { motivo: 'número en formato nacional (empieza con 0) y el tenant no tiene país configurado' };
+    s = p + s.replace(/^0+/, '');
+  } else if (p && s.startsWith(p + '0')) {
+    // País + 0 de troncal pegados (580414…): el 0 sobra.
+    s = p + s.slice(p.length + 1);
+  } else if (s.length <= 10) {
+    // Sin código de país. NO se adivina: se completa SOLO con el país configurado del tenant.
+    if (!p) return { motivo: 'número sin código de país y el tenant no tiene país configurado' };
+    s = p + s;
+  }
+
+  // E.164: entre 8 y 15 dígitos. Fuera de ahí no se manda: es dato malo, no un país exótico.
+  if (s.length < 8 || s.length > 15) return { motivo: `largo inválido: ${s.length} dígitos (E.164 admite 8 a 15)` };
+  return { tel: '+' + s };
 }
 function json(b: unknown) { return new Response(JSON.stringify(b), { headers: { ...CORS, 'Content-Type': 'application/json' } }); }
