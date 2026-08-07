@@ -2926,7 +2926,7 @@ async function cargarDatosDB(){
     if(cbf&&!cbf.error&&Array.isArray(cbf.data))COBROS_FACT=cbf.data;
     if(nh&&!nh.error&&Array.isArray(nh.data))NOMINA_HIST=nh.data;
     // Movimientos BNC persistidos (tracking interno: pagos pendientes, conciliaciones, manuales).
-    if(bm&&!bm.error&&Array.isArray(bm.data))BNC_MOV=bm.data.map(function(x){return{id:x.id,fecha:x.fecha||'',monto:Number(x.monto)||0,tipo:x.tipo||'',desc:x.descripcion||'',ref:x.referencia||'',conciliado:!!x.conciliado,pendienteAutorizacion:!!x.pendiente_autorizacion,detalle:x.detalle||null};});
+    if(bm&&!bm.error&&Array.isArray(bm.data))BNC_MOV=bm.data.map(function(x){return{id:x.id,fecha:x.fecha||'',monto:Number(x.monto)||0,tipo:x.tipo||'',desc:x.descripcion||'',ref:x.referencia||'',moneda:x.moneda||'',conciliado:!!x.conciliado,pendienteAutorizacion:!!x.pendiente_autorizacion,detalle:x.detalle||null};});
     // FASE 1 multi-contrato (aditivo, no toca el aseo): tipos de unidad, unidades, operaciones.
     if(tu&&!tu.error&&Array.isArray(tu.data))TIPOS_UNIDAD=tu.data;
     if(un&&!un.error&&Array.isArray(un.data))UNIDADES=un.data;
@@ -14799,7 +14799,13 @@ function _capMesPasado(){
 // pregunta de la auditora y la respuesta que dio la administración no traía lista.
 function _capRepetidos(movs){
   var por={};
-  movs.forEach(function(x){
+  movs.filter(function(x){
+    // ⛔ LA NOMINA REPITE MONTOS POR DISEÑO: dos personas con el mismo sueldo cobran igual el
+    // mismo día. En el PDF real del 22/07 salieron 13 pagos de nómina marcados como «patrón de
+    // pago duplicado». Mandar a un auditor a investigar 13 movimientos legítimos es peor que no
+    // avisarle nada: quema la credibilidad del aviso el día que haya uno de verdad.
+    return String(x.tipo||'').toLowerCase().indexOf('nomina')<0;
+  }).forEach(function(x){
     var k=String(x.fecha||'').slice(0,10)+'|'+(Number(x.monto)||0).toFixed(2);
     (por[k]=por[k]||[]).push(x);
   });
@@ -14808,7 +14814,11 @@ function _capRepetidos(movs){
 }
 function _capDatos(){
   var r=_capF(), pct=parseFloat(gv('cap-pct'))||0;
-  var mant=(typeof MANTENIMIENTOS!=='undefined'?MANTENIMIENTOS:[]).filter(function(x){return _capEn(x.f,r);});
+  // ⛔ El global de mantenimientos NO espeja las columnas de la tabla: `f`→`fecha`,
+  // `costo_usd`→`costo`, `desc_trabajo`→`desc`. Filtrando por `.f` daba SIEMPRE 0 y el informe le
+  // declaraba a un auditor que no hay mantenimiento cuando hay 112 registros desde abril. Es
+  // justo la mentira que este documento existe para evitar. (Lo cazó el PDF real, 06/08.)
+  var mant=(typeof MANTENIMIENTOS!=='undefined'?MANTENIMIENTOS:[]).filter(function(x){return _capEn(x.fecha,r);});
   var gas=(typeof GASOIL!=='undefined'?GASOIL:[]).filter(function(x){return _capEn(x.f,r);});
   var abo=(typeof ABONOS!=='undefined'?ABONOS:[]).filter(function(x){return _capEn(x.f,r);});
   var mov=(typeof BNC_MOV!=='undefined'?BNC_MOV:[]).filter(function(x){return _capEn(x.fecha,r);});
@@ -14825,7 +14835,7 @@ function _capDatos(){
     cobrado:cobrado, socio:cobrado*pct/100, repes:_capRepetidos(mov),
     exc:_capExcepciones(r), usuarios:CAP_USUARIOS,
     cortes:{
-      mantenimiento:_capCorte(typeof MANTENIMIENTOS!=='undefined'?MANTENIMIENTOS:[],'f'),
+      mantenimiento:_capCorte(typeof MANTENIMIENTOS!=='undefined'?MANTENIMIENTOS:[],'fecha'),
       combustible:_capCorte(typeof GASOIL!=='undefined'?GASOIL:[],'f'),
       cobros:_capCorte(typeof ABONOS!=='undefined'?ABONOS:[],'f'),
       banco:_capCorte(typeof BNC_MOV!=='undefined'?BNC_MOV:[],'fecha'),
@@ -14920,10 +14930,10 @@ function _capHtml(){
   var porCam={}; d.mant.forEach(function(m){ (porCam[m.cam]=porCam[m.cam]||[]).push(m); });
   var mantHtml=!d.mant.length?'<p class="cap-vacio">Sin registros en el período.</p>':
     '<table><thead><tr><th>Fecha</th><th>Unidad</th><th>Km</th><th>Tipo</th><th>Trabajo</th><th>Proveedor</th><th style="text-align:right">Costo USD</th></tr></thead><tbody>'+
-    d.mant.slice().sort(function(a,b){return a.f<b.f?-1:1;}).map(function(m){
-      return '<tr><td>'+formatFecha(m.f)+'</td><td>'+e(m.cam)+'</td><td>'+(m.km||'')+'</td><td>'+e(m.tipo||'')+'</td><td>'+e(m.desc_trabajo||m.descTrabajo||'')+'</td><td>'+e(m.proveedor||'')+'</td><td style="text-align:right">'+_capNum(m.costo_usd||m.costoUsd)+'</td></tr>';}).join('')+
+    d.mant.slice().sort(function(a,b){return a.fecha<b.fecha?-1:1;}).map(function(m){
+      return '<tr><td>'+formatFecha(m.fecha)+'</td><td>'+e(m.cam)+'</td><td>'+(m.km||'')+'</td><td>'+e(m.tipoTrabajo||m.tipo||'')+'</td><td>'+e(m.desc||'')+'</td><td>'+e(m.proveedor||'')+'</td><td style="text-align:right">'+_capNum(m.costo)+'</td></tr>';}).join('')+
     '<tr class="tr-total"><td colspan="6">TOTAL — '+d.mant.length+' intervención(es) en '+Object.keys(porCam).length+' unidad(es)</td><td style="text-align:right">'+
-      _capNum(d.mant.reduce(function(s,m){return s+(Number(m.costo_usd||m.costoUsd)||0);},0))+'</td></tr></tbody></table>';
+      _capNum(d.mant.reduce(function(s,m){return s+(Number(m.costo)||0);},0))+'</td></tr></tbody></table>';
   // ── Combustible por unidad y por origen ──
   var gCam={}, gSrc={};
   d.gas.forEach(function(x){
@@ -14948,11 +14958,14 @@ function _capHtml(){
     (d.repes.length?'<h3>Montos idénticos el mismo día — '+d.repes.length+' caso(s)</h3>'+
       '<p class="cap-nota">Es el patrón de un pago duplicado o de su reintegro. Se listan para revisión; el sistema no puede confirmar cuál es cuál porque solo ve los movimientos que el banco NOTIFICA (entradas).</p>'+
       '<table><thead><tr><th>Fecha</th><th style="text-align:right">Monto</th><th>Referencias</th></tr></thead><tbody>'+
-      d.repes.map(function(x){ return '<tr><td>'+formatFecha(x.fecha)+'</td><td style="text-align:right">'+_capNum(x.monto)+'</td><td>'+x.movs.map(function(m){return e(m.ref||'')+' ('+String(m.fecha||'').slice(11,16)+')';}).join(' · ')+'</td></tr>';}).join('')+
+      d.repes.map(function(x){ return '<tr><td>'+formatFecha(x.fecha)+'</td><td style="text-align:right">'+_capNum(x.monto)+'</td><td>'+x.movs.map(function(m){
+        var _h=String(m.fecha||'').slice(11,16), _rf=String(m.ref||'').trim();
+        return _rf ? (e(_rf)+(_h?' ('+_h+')':'')) : (_h||'(sin referencia)');
+      }).join(' · ')+'</td></tr>';}).join('')+
       '</tbody></table>':'')+
-    '<h3>Movimientos del período</h3><table><thead><tr><th>Fecha</th><th>Tipo</th><th>Referencia</th><th style="text-align:right">Monto</th></tr></thead><tbody>'+
+    '<h3>Movimientos del período</h3><table><thead><tr><th>Fecha</th><th>Tipo</th><th>Referencia</th><th style="text-align:right">Monto y moneda</th></tr></thead><tbody>'+
     d.mov.slice().sort(function(a,b){return a.fecha<b.fecha?-1:1;}).map(function(m){
-      return '<tr><td>'+formatFecha(String(m.fecha).slice(0,10))+' '+String(m.fecha||'').slice(11,16)+'</td><td>'+e(m.tipo||'')+'</td><td>'+e(m.ref||'')+'</td><td style="text-align:right">'+_capNum(m.monto)+'</td></tr>';}).join('')+
+      return '<tr><td>'+formatFecha(String(m.fecha).slice(0,10))+' '+String(m.fecha||'').slice(11,16)+'</td><td>'+e(m.tipo||'')+'</td><td>'+e(m.ref||'')+'</td><td style="text-align:right">'+_capNum(m.monto)+' '+e(m.moneda||'Bs')+'</td></tr>';}).join('')+
     '</tbody></table>';
   // ── CxP por proveedor ──
   var pp={}; d.cxp.forEach(function(c){ (pp[c.prov_nombre||'(sin proveedor)']=pp[c.prov_nombre||'(sin proveedor)']||[]).push(c); });
@@ -14966,7 +14979,7 @@ function _capHtml(){
   // ── Proveedores ──
   var provHtml='<table><thead><tr><th>Proveedor</th><th>RIF / C.I.</th><th>Categoría</th><th>Estado</th></tr></thead><tbody>'+
     (typeof PROVEEDORES!=='undefined'?PROVEEDORES:[]).slice().sort(function(a,b){return String(a.nombre)<String(b.nombre)?-1:1;})
-    .map(function(p){ return '<tr><td>'+e(p.nombre)+'</td><td>'+e(p.rif||'—')+'</td><td>'+e(p.categoria||'—')+'</td><td>'+(p.activo===false?'inactivo':'activo')+'</td></tr>';}).join('')+
+    .map(function(p){ return '<tr><td>'+e(p.nombre)+'</td><td>'+e(p.rif||'—')+'</td><td>'+e(p.cat||p.categoria||'—')+'</td><td>'+(p.activo===false?'inactivo':'activo')+'</td></tr>';}).join('')+
     '</tbody></table>';
 
   // ── Nómina del período ──
@@ -14990,14 +15003,20 @@ function _capHtml(){
     d.exc.map(function(x){ return '<tr><td style="text-align:right;font-weight:800">'+x.q+'</td><td>'+e(x.t)+'</td><td>'+e(x.d)+'</td></tr>';}).join('')+'</tbody></table>';
   // ── Rastro de cambios ──
   var camHtml=!d.cam.length?'<p class="cap-vacio">Sin movimientos registrados en el período.</p>':
-    '<p class="cap-nota">Toda alta, cambio o borrado queda registrado con su operador y su hora. <b>El sistema conserva los últimos 200 movimientos</b>: si el período pedido es largo, este listado puede estar recortado y el registro completo hay que pedirlo aparte.</p>'+
+    '<p class="cap-nota">Toda alta, cambio o borrado queda registrado con su operador y su hora.</p>'+
     '<table><thead><tr><th>Fecha y hora</th><th>Operador</th><th>Acción</th><th>Detalle</th></tr></thead><tbody>'+
     d.cam.slice(0,300).map(function(a){ return '<tr><td>'+e(a.fecha||'')+'</td><td>'+e(a.usuario||'')+'</td><td>'+e(a.accion||'')+'</td><td>'+e(a.detalle||'')+'</td></tr>';}).join('')+'</tbody></table>';
   // ── Accesos ── (segregación de funciones: siempre lo piden y casi nadie lo incluye)
   var usrHtml=!d.usuarios.length?'<p class="cap-vacio">No se pudo leer la lista de usuarios.</p>':
     '<p class="cap-nota">Quién podía entrar al sistema y con qué rol. Es el respaldo de la segregación de funciones.</p>'+
     '<table><thead><tr><th>Usuario</th><th>Nombre</th><th>Rol</th><th>Estado</th></tr></thead><tbody>'+
-    d.usuarios.map(function(u){ return '<tr><td>'+e(u.usuario||'')+'</td><td>'+e(u.nombre||'')+'</td><td>'+e(u.rol||'')+'</td><td>'+(u.activo===false?'inactivo':'activo')+'</td></tr>';}).join('')+'</tbody></table>';
+    d.usuarios.map(function(u){
+      // Los accesos de demostración y el del proveedor del sistema se rotulan: un auditor los va a
+      // preguntar igual, y es mejor que la respuesta esté escrita al lado que tener que darla después.
+      var _us=String(u.usuario||''), _nota='';
+      if(/^demo/i.test(_us)||/^demo/i.test(String(u.rol||'')))_nota=' <span style="color:#b45309">— acceso de demostración, sin datos reales</span>';
+      else if(/maxware|soporte/i.test(_us))_nota=' <span style="color:#b45309">— proveedor del sistema (soporte técnico)</span>';
+      return '<tr><td>'+e(_us)+'</td><td>'+e(u.nombre||'')+_nota+'</td><td>'+e(u.rol||'')+'</td><td>'+(u.activo===false?'inactivo':'activo')+'</td></tr>';}).join('')+'</tbody></table>';
   // ── SELLO DE EMISIÓN ──
   // ⛔ NO es una firma criptográfica y no se presenta como tal: un QR que solo lleva un hash de sí
   // mismo no verifica nada, y decir lo contrario sería teatro ([norma-verificacion-qr-verificable]).
@@ -15030,7 +15049,18 @@ function _capHtml(){
     '.cap-vacio{font-size:11px;color:#888;font-style:italic;padding:6px 0}'+
     '.cap-alcance{padding:12px 28px;background:#fffbeb;border-top:1px solid #fde68a;border-bottom:1px solid #fde68a}'+
     '.cap-alcance li{font-size:11px;margin:3px 0 3px 16px}'+
-    '@media print{.cap-sec h2{break-after:avoid}}</style></head><body>'+
+    // Chrome imprime su propio encabezado (la URL) y su pie (la hora). En un documento que va a
+    // una auditora, «https://betangar.com/app.html» arriba de cada página lo hace ver como una
+    // captura de pantalla y no como un informe. Con margen declarado en @page, Chrome los omite.
+    // Igual conviene decirle a quien imprime que destilde «Encabezados y pies de página».
+    '@page{margin:14mm 10mm}'+
+    // Las tablas de CxP salían con «Total USD» y «Fecha pago» partidos en dos renglones: el ancho
+    // se repartía solo y el detalle largo se comía todo. Se fija el reparto y se evita que los
+    // rótulos cortos se quiebren.
+    'table{table-layout:fixed;word-wrap:break-word}'+
+    'th{white-space:nowrap}'+
+    'td{vertical-align:top}'+
+    '@media print{.cap-sec h2{break-after:avoid}thead{display:table-header-group}tr{break-inside:avoid}}</style></head><body>'+
     '<div class="bg-header"><div class="empresa"><div class="nombre">'+e(brandNomUp())+'</div><div class="rif">'+e(brandRif())+'</div></div>'+
     '<div class="fecha-area">Emitido<div class="fval">'+formatFecha(fechaVE())+'</div></div></div>'+
     '<div class="bg-titulo"><h1>Carpeta del Auditor</h1><div class="sub">Período '+per+'</div></div>'+
@@ -15048,7 +15078,10 @@ function _capHtml(){
     S('6. Nómina del período',d.cortes.nomina,'nómina',nomHtml)+
     '<div class="cap-sec"><h2>7. Retenciones de IVA e ISLR</h2>'+retHtml+'</div>'+
     '<div class="cap-sec"><h2>8. Excepciones abiertas al cierre del período</h2>'+excHtml+'</div>'+
-    S('9. Rastro de cambios sobre el dato',d.cortes.cambios,'rastro de cambios',camHtml)+
+    '<div class="cap-sec"><h2>9. Rastro de cambios sobre el dato</h2>'+
+    '<div class="cap-falta">⚠️ El sistema conserva en pantalla los <b>200 movimientos más recientes</b>. '+
+    'Este listado NO es el registro completo del período y no debe leerse como tal — el registro entero '+
+    'vive en la base y se entrega aparte si se solicita.</div>'+camHtml+'</div>'+
     '<div class="cap-sec"><h2>10. Accesos al sistema</h2>'+usrHtml+'</div>'+
     '<div class="cap-sec"><h2>11. Registro de proveedores</h2>'+provHtml+'</div>'+
     selloHtml+
