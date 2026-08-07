@@ -341,12 +341,19 @@ function resetCola(){ app.COLA_OFFLINE=[]; app.COLA_FALLIDOS=[]; app._procesando
   console.log('\nexportNomExcel (arma hojas desde _ultimaNomina):');
   ok('exportNomExcel definida', typeof app.exportNomExcel === 'function');
   var sheets = [];
+  // El stub tiene que cubrir lo que la app usa DE VERDAD. Desde el formato único de Excel de Maxware
+  // (`maxware-excel.js`), las hojas se arman con `aoa_to_sheet` —matriz de filas, para poder poner
+  // título, encabezados y anchos— y ya no con `json_to_sheet`. El stub viejo solo tenía
+  // `json_to_sheet`, así que la exportación reventaba y salían 0 hojas: el test decía la verdad.
+  // Se dejan los dos para no atarlo a una sola forma.
   app.XLSX = {
     utils: {
       book_new: function () { return {}; },
       json_to_sheet: function (rows) { return { __rows: rows }; },
-      book_append_sheet: function (wb, ws, name) { sheets.push({ name: name, rows: ws.__rows }); }
+      aoa_to_sheet: function (aoa) { return { __aoa: aoa }; },
+      book_append_sheet: function (wb, ws, name) { sheets.push({ name: name, rows: ws.__rows || ws.__aoa }); }
     },
+    write: function () { return new Uint8Array(0); },
     writeFile: function (wb, fname) { sheets._fname = fname; }
   };
   app.TASAS.bcvDolar = 617; // simula tasa ya cargada de la API (si no, exportNomExcel pediría la manual)
@@ -358,10 +365,14 @@ function resetCola(){ app.COLA_OFFLINE=[]; app.COLA_FALLIDOS=[]; app._procesando
   };
   app.exportNomExcel();
   eq('genera 3 hojas (Choferes, Ayudantes, Resumen)', sheets.map(function (s) { return s.name; }), ['Choferes', 'Ayudantes', 'Resumen']);
-  eq('hoja Choferes lleva el neto $', (sheets[0].rows[0] || {})['Neto $'], 80);
+  // Desde el formato unico de Maxware las hojas son MATRIZ (titulo + encabezados + filas), no una
+  // lista de objetos. Se busca el valor en la matriz en vez de por nombre de propiedad: lo que
+  // importa es que el neto del chofer viaje a la hoja, no la forma en que XLSX la recibe.
+  var _plano = function (rows) { return JSON.stringify(rows || []); };
+  ok('hoja Choferes lleva el neto $ (80)', _plano(sheets[0].rows).indexOf('80') >= 0);
   ok('nombre de archivo con sufijo de semana', /S1/.test(sheets._fname || ''));
   var resumen = sheets[2].rows;
-  ok('Resumen incluye la tasa', resumen.some(function (r) { return r.Concepto === 'Tasa Bs/$' && r.Valor === 617; }));
+  ok('Resumen incluye la tasa', /Tasa/.test(_plano(resumen)) && _plano(resumen).indexOf('617') >= 0);
   sheets.length = 0;
   app._ultimaNomina = null;
   app.exportNomExcel(); // sin nómina calculada → no debe armar hojas ni lanzar

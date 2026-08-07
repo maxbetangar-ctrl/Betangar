@@ -4595,16 +4595,46 @@ function renderAlertasCriticas(){
   // adentro y parece mejor de lo que es. Detectado el 2026-07-24: última compra el 26/03, cero
   // períodos costeados. Un número de plata que no se puede sostener tiene que decirlo, no callarse.
   try{
-    var _ultCompra=(typeof GASOIL!=='undefined'?GASOIL:[]).filter(_rentEsCompra)
-      .map(function(g){return String(g.f||'').slice(0,10);}).sort().pop()||'';
-    var _hayPeriodos=(typeof COMB_PERIODOS!=='undefined'&&COMB_PERIODOS&&COMB_PERIODOS.length)?true:false;
-    var _diasSin=_ultCompra?diasDesde(_ultCompra):null;
-    if(!_hayPeriodos&&(_diasSin==null||_diasSin>21)){
+    // ⛔ ESTE AVISO DECÍA ALGO CIERTO Y ENGAÑOSO A LA VEZ (corregido 2026-08-07).
+    // Decía «no hay gasto de combustible: la última compra es del 26/03», y de ahí cualquiera
+    // concluye que no se compró combustible en 4 meses. Lo que pasaba es que el gasto estaba
+    // cargado CON OTRO NOMBRE: 411 surtidas de estación con su monto, que son compras aunque la
+    // fila se llame "despacho". Lo destapó Alejandra explicando cómo opera el patio. Ahora la
+    // Utilidad Real las cuenta (ver `_combEgresoUsd`), así que el aviso ya no aplica.
+    //
+    // Lo que SÍ queda sin costear —y por eso sigue habiendo aviso— son las surtidas de ESTACIÓN
+    // posteriores al corte: se sabe cuántos litros, no cuánto costaron, hasta que administración
+    // cierre el período. Esos litros entran al P&L en $0. Un litro que consta y vale cero infla la
+    // ganancia igual que uno que no consta, solo que además parece registrado.
+    var _surPend=(typeof SURT_RENT!=='undefined'?SURT_RENT:[]).filter(function(x){
+      return (typeof _surPendiente==='function')?_surPendiente(x):false; });
+    if(_surPend.length){
+      var _lPend=_surPend.reduce(function(s,x){return s+(parseFloat(x.litros)||0);},0);
       // Al frente: el dashboard muestra solo las 3 primeras, y una alerta de PLATA no puede quedar
       // tapada por un aviso de aceite.
-      al.unshift({t:'r',txt:'⛽ La Utilidad Real NO tiene gasto de combustible'+
-        (_ultCompra?(': la última compra cargada es del '+formatFecha(_ultCompra)+' ('+_diasSin+' días)'):' — no hay ninguna compra cargada')+
-        '. La ganancia que se muestra está inflada hasta que se registren las compras o se costeen las surtidas de estación.'});
+      al.unshift({t:'r',txt:'⛽ '+Math.round(_lPend).toLocaleString('es-VE')+' litros surtidos en ESTACIÓN todavía sin costear ('+_surPend.length+' surtida(s)). '+
+        'Entran a la Utilidad Real en $0, así que la ganancia se muestra mejor de lo que es. Cerrá el período de combustible para ponerles precio.'});
+    }
+    // Despachos que no dicen de dónde salió el combustible: se asumen del tanque (no suman), que es
+    // la lectura conservadora, pero el supuesto tiene que verse. Si son muchos, hay gasto real
+    // escondido detrás de un campo vacío.
+    var _sinFuente=(typeof _combDespachosSinFuente==='function')?_combDespachosSinFuente(typeof GASOIL!=='undefined'?GASOIL:[]):0;
+    if(_sinFuente>0){
+      al.unshift({t:'a',txt:'⛽ '+_sinFuente+' carga(s) de combustible sin decir de dónde salió (estación o tanque de patio). '+
+        'Se están contando como salidas del tanque, o sea que NO suman al gasto. Si alguna fue comprada en estación, ese gasto falta.'});
+    }
+    // Y si de verdad no hay NINGUNA compra ni surtido de estación cargado en semanas, eso sí es que
+    // no se está registrando el combustible.
+    var _combCorteAl=(typeof cfg!=='undefined'&&cfg&&cfg.surtidasCorte)?String(cfg.surtidasCorte).slice(0,10):'';
+    var _ultComb=(typeof GASOIL!=='undefined'?GASOIL:[]).filter(function(g){return _combEgresoUsd(g,_combCorteAl)>0;})
+      .map(function(g){return String(g.f||'').slice(0,10);}).sort().pop()||'';
+    var _ultSur=(typeof SURT_RENT!=='undefined'?SURT_RENT:[]).map(function(x){return String(x.fecha||'').slice(0,10);}).sort().pop()||'';
+    var _ultReg=[_ultComb,_ultSur].filter(Boolean).sort().pop()||'';
+    var _diasSin=_ultReg?diasDesde(_ultReg):null;
+    if(_diasSin==null||_diasSin>21){
+      al.unshift({t:'r',txt:'⛽ Hace '+(_diasSin==null?'siempre':_diasSin+' días')+' que no se carga combustible'+
+        (_ultReg?(' — lo último es del '+formatFecha(_ultReg)):'')+
+        '. Mientras no se registre, la Utilidad Real no tiene ese gasto adentro y la ganancia sale inflada.'});
     }
   }catch(e){}
   // (El aviso de "préstamo completamente pagado" NO se manda aquí: dibujar el dashboard no debe
@@ -4659,7 +4689,20 @@ function _totalEgresos(totalCob){
   // Combustible: SOLO las COMPRAS (no los despachos = movimiento interno del tanque ya pagado). La
   // compra se cuenta UNA vez (decisión de Máximo). Las CxP de combustible se excluyen de egCxP abajo
   // para no duplicar. Antes egGas sumaba compras+despachos + la CxP → mismo combustible 2-3 veces.
-  var egGas=GASOIL.reduce(function(s,g){return s+(_rentEsCompra(g)?(parseFloat(g.m)||0):0);},0);
+  // Combustible = la PLATA que salió a comprarlo: carga del tanque + lo surtido en ESTACIÓN.
+  // Lo que sale del tanque de patio NO suma (ya se pagó al comprarlo). Ver _combEgresoUsd.
+  var _combCorte=(typeof cfg!=='"undefined"'&&cfg&&cfg.surtidasCorte)?String(cfg.surtidasCorte).slice(0,10):'""';
+  var egGas=GASOIL.reduce(function(s,g){return s+_combEgresoUsd(g,_combCorte);},0);
+  // Desde el corte, la verdad es la SURTIDA del chofer. Las de GALPÓN salen del tanque ya comprado
+  // (no suman); las de ESTACIÓN son compra directa y suman su costo — pero valen /usr/bin/bash mientras
+  // administración no las cueste, y eso se avisa aparte (no se puede inventar el precio).
+  if(_combCorte){
+    egGas+=(typeof SURT_RENT!=='"undefined"'?SURT_RENT:[]).reduce(function(s,x){
+      if(String(x.fecha||'""').slice(0,10)<_combCorte)return s;
+      if(String(x.tanque||'""').toLowerCase().indexOf('"estacion"')<0)return s;
+      return s+((typeof _surCostoUsd==='"function"')?(_surCostoUsd(x)||0):(parseFloat(x.costo_usd)||0));
+    },0);
+  }
   var eg75=totalCob*0.075;                                                                 // 7.5% Betangar
   var egFijos=(typeof GASTOS_FIJOS!=='undefined'?GASTOS_FIJOS:[]).reduce(function(s,gf){return s+(gf.monto||0);},0);
   var egVars=(typeof GASTOS_VARIABLES!=='undefined'?GASTOS_VARIABLES:[]).reduce(function(s,gv){return s+(gv.usd||0);},0);
@@ -15189,7 +15232,20 @@ function renderFinDash(){
   var porcobrar=Math.max(0,totalFact-totalCob);
   var egNom=_nominaRealUsd();  // nómina REAL (historial calcNom) — misma fuente que _totalEgresos (auditoría #2)
   // Combustible = solo COMPRAS (no despachos); las CxP de combustible se excluyen de egCxP (= _totalEgresos)
-  var egGas=GASOIL.reduce(function(s,g){return s+(_rentEsCompra(g)?(parseFloat(g.m)||0):0);},0);
+  // Combustible = la PLATA que salió a comprarlo: carga del tanque + lo surtido en ESTACIÓN.
+  // Lo que sale del tanque de patio NO suma (ya se pagó al comprarlo). Ver _combEgresoUsd.
+  var _combCorte=(typeof cfg!=='"undefined"'&&cfg&&cfg.surtidasCorte)?String(cfg.surtidasCorte).slice(0,10):'""';
+  var egGas=GASOIL.reduce(function(s,g){return s+_combEgresoUsd(g,_combCorte);},0);
+  // Desde el corte, la verdad es la SURTIDA del chofer. Las de GALPÓN salen del tanque ya comprado
+  // (no suman); las de ESTACIÓN son compra directa y suman su costo — pero valen /usr/bin/bash mientras
+  // administración no las cueste, y eso se avisa aparte (no se puede inventar el precio).
+  if(_combCorte){
+    egGas+=(typeof SURT_RENT!=='"undefined"'?SURT_RENT:[]).reduce(function(s,x){
+      if(String(x.fecha||'""').slice(0,10)<_combCorte)return s;
+      if(String(x.tanque||'""').toLowerCase().indexOf('"estacion"')<0)return s;
+      return s+((typeof _surCostoUsd==='"function"')?(_surCostoUsd(x)||0):(parseFloat(x.costo_usd)||0));
+    },0);
+  }
   var eg75=totalCob*0.075;
   var egFijos=GASTOS_FIJOS.reduce(function(s,gf){return s+gf.monto;},0);
   var egVars=GASTOS_VARIABLES.reduce(function(s,gv){return s+(gv.usd||0);},0);
@@ -23589,6 +23645,48 @@ async function nuevoVehiculoComb(){
    (chofer + ayudantes). Usa los mismos datos reales que el resto de la app.
    ============================================================================ */
 function _rentEsCompra(row){return String(row.cam||'').toUpperCase().indexOf('COMPRA')===0;}
+// ── ¿ESTA FILA DE GASOIL ES PLATA QUE SALIÓ A COMPRAR COMBUSTIBLE? ──────────────────────────────
+// Reportado por Alejandra (RRHH) el 2026-08-07, viendo el aviso rojo del dashboard:
+//   «No se ha cargado compra de combustible como tal porque eso es cuando se surte el tanque aéreo
+//    (reserva) que tenemos en patio. Pero sí se está cargando fecha, unidad, litros y costo por
+//    litro de lo que se le ha ido surtiendo a las unidades. Eso también debería contar como compra.»
+//
+// Tenía razón, y la base lo confirma. Desde el 23/03 hay:
+//   • 411 despachos con src='Estacion' — 57.947 L, $31.858 → se PAGA en la estación y va derecho al
+//     camión. Es una COMPRA, aunque la fila se llame "despacho".
+//   •  48 despachos con src='Tumaca'   —  4.760 L,  $3.860 → sale del TANQUE DE PATIO, que ya se
+//     pagó al comprarlo. Contarlo sería contar la misma plata dos veces.
+//   •   2 filas 'COMPRA · Tumaca'      —  4.300 L,  $3.490 → la carga del tanque. Es lo ÚNICO que
+//     contaba la Utilidad Real hasta hoy.
+// (Que la compra al tanque —4.300 L— y lo despachado desde él —4.760 L— casi coincidan es lo que
+//  confirma la lectura: ese tanque se llena y se vacía, no se compra dos veces.)
+//
+// O sea que faltaban ~$31.858 de gasto y la ganancia se mostraba inflada en esa magnitud desde marzo.
+// El defecto no era un dato faltante sino la DEFINICIÓN: `_rentEsCompra` decide qué es una compra
+// por si el texto del campo `cam` empieza con "COMPRA".
+// ⚠️ Solo cuenta como compra lo que DECLARA venir de una estación. Un despacho sin `src` no dice de
+// dónde salió, y la convención histórica —anterior a que existiera `src`— era que un despacho es
+// movimiento interno del tanque. Ante la duda se mantiene esa lectura: contar de más un despacho
+// que en realidad salió del tanque duplicaría plata ya contada en la compra. Lo que no se puede
+// hacer es asumir en silencio: `_combDespachosSinFuente` los cuenta para poder avisarlos.
+function _combEsEstacion(g){
+  var s=String((g&&g.src)||'').toLowerCase();
+  return s.indexOf('estacion')>=0||s.indexOf('estación')>=0;
+}
+function _combDespachosSinFuente(lista){
+  return (lista||[]).filter(function(g){ return !_rentEsCompra(g)&&!String((g&&g.src)||'').trim()&&(parseFloat(g.m)||0)>0; }).length;
+}
+// Lo que esta fila aporta al EGRESO de combustible del negocio.
+// GATE DE CORTE: desde `cfg.surtidasCorte` la verdad son las SURTIDAS del chofer, así que el gasoil
+// post-corte no suma acá (lo mismo que ya hace la rentabilidad por camión — las dos vistas tienen
+// que contar igual o el dueño ve dos ganancias distintas para la misma semana).
+function _combEgresoUsd(g,corte){
+  if(!g)return 0;
+  if(_rentEsCompra(g))return parseFloat(g.m)||0;      // carga del tanque: plata que salió
+  if(!_combEsEstacion(g))return 0;                    // del tanque o sin declarar: no se cuenta
+  if(corte&&String(g.f||'')>=corte)return 0;          // post-corte manda la surtida
+  return parseFloat(g.m)||0;                          // surtido en estación = compra directa
+}
 function calcRentabilidadCamiones(des,hta){
   var tarChofer=cfg.chofer||10, tarAyud=cfg.ayud||5;
   var pf=(typeof REGS!=='undefined'?REGS:[]).filter(function(r){if(!r.cam||String(r.cam).toUpperCase().indexOf('JAC')!==0)return false;if(des&&r.f<des)return false;if(hta&&r.f>hta)return false;return true;});

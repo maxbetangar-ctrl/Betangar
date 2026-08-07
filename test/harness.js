@@ -7,6 +7,11 @@ const vm = require('vm');
 const path = require('path');
 
 const moneyCode = fs.readFileSync(path.join(__dirname, '..', 'money.js'), 'utf8');
+// `maxware-excel.js` lo carga `app.html` (línea 2744) y el harness no lo cargaba: `_xlHoja` quedaba
+// sin definir y el exportador de nómina devolvía 0 hojas. El test decía la verdad — el que mentía
+// era el entorno de prueba, que no se parecía a la página. Cuando la página suma un <script>, el
+// harness tiene que sumarlo también o los tests corren contra un navegador que no existe.
+const excelCode = fs.readFileSync(path.join(__dirname, '..', 'maxware-excel.js'), 'utf8');
 const code = fs.readFileSync(path.join(__dirname, '..', 'app.js'), 'utf8');
 
 const noop = function () {};
@@ -51,6 +56,9 @@ vm.createContext(sandbox);
 // money.js primero (igual que en app.html) → calcRetenciones/perfilRetencion quedan globales.
 try { vm.runInContext(moneyCode, sandbox, { filename: 'money.js' }); }
 catch (e) { if (process.env.HARNESS_DEBUG) console.error('[harness] money.js:', e.message); }
+// Mismo orden que app.html: los helpers de Excel antes que app.js, que los usa.
+try { vm.runInContext(excelCode, sandbox, { filename: 'maxware-excel.js' }); }
+catch (e) { if (process.env.HARNESS_DEBUG) console.error('[harness] maxware-excel.js:', e.message); }
 try {
   vm.runInContext(code, sandbox, { filename: 'app.js' });
 } catch (e) {
