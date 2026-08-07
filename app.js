@@ -15371,6 +15371,22 @@ function enviarWADirecto(lista, msg, callback){
 // WHATSAPP  (Wassenger cola si está activo; CallMeBot como respaldo)
 // ═══════════════════════════════════════════════════
 var WASSENGER_ON=false; // se setea al cargar la config (configuracion.wassenger: activo && token)
+// Un mensaje que NO se encoló pero dice que sí es peor que uno que no sale: alguien jura que
+// avisó. Desde que la cola tiene lista blanca (`wa_destino_permitido`), un destino no autorizado
+// hace que el INSERT falle por RLS — y eso se veía SOLO en la consola, o ni eso.
+// Se le dice a la persona, y con el motivo real cuando es la lista blanca.
+function _waColaFallo(res, num){
+  if(!res||!res.error)return false;
+  var m=String(res.error.message||'');
+  var esLista=/row-level security|policy/i.test(m);
+  console.log('[cola WA]', num, m);
+  try{
+    if(typeof mostrarToast==='function')mostrarToast(
+      esLista ? ('No se envió el WhatsApp: el número '+num+' no está en la lista de destinos autorizados. Agregalo en la ficha del empleado o pedile a un administrador que lo habilite.')
+              : ('No se pudo encolar el WhatsApp a '+num+': '+m),'error');
+  }catch(e){}
+  return true;
+}
 // PUNTO ÚNICO de envío de WhatsApp. Wassenger activo -> encola en cola_mensajes (el worker lo manda con la
 // etiqueta de la empresa, ej. "♻️ Betangar:"/"🚚 FLOTILLA:"). Si no -> CallMeBot directo (comportamiento previo).
 // El caller pasa el texto tal cual iría por CallMeBot; para Wassenger se quita el prefijo de marca
@@ -15388,7 +15404,7 @@ function WA_SEND(numero, apikey, texto){
   if(!num||!texto)return false;
   if(WASSENGER_ON){
     var limpio=_sinPrefijoMarca(texto);
-    try{ if(typeof DB_READY!=='undefined'&&DB_READY&&supabase){ supabase.from('cola_mensajes').insert([{telefono:num,mensaje:limpio,tipo:'app'}]).then(function(r){ if(r&&r.error)console.log('[cola WA]',r.error.message); }); } }catch(e){ console.log('[cola WA] exc',e); }
+    try{ if(typeof DB_READY!=='undefined'&&DB_READY&&supabase){ supabase.from('cola_mensajes').insert([{telefono:num,mensaje:limpio,tipo:'app'}]).then(function(r){ _waColaFallo(r,num); }); } }catch(e){ console.log('[cola WA] exc',e); }
     return true;
   }
   if(!apikey)return false; // CallMeBot requiere apikey por número
