@@ -14875,19 +14875,35 @@ function _capAviso(corte,r,queEs){
 // Los usuarios del sistema no viven en un global: salen de una API. Se traen UNA vez al abrir la
 // pestaña y se cachean, para que armar el documento sea síncrono.
 var CAP_USUARIOS=[];
+// ⛔ HAY DATOS QUE LA APP CARGA PEREZOSAMENTE, Y EL INFORME NO PUEDE SALIR ANTES QUE ELLOS.
+// `MANTENIMIENTOS` solo se llena al abrir Unidades / Km / Hoja de vida (`_cargarMantTodo`). Quien
+// entra directo a Auditoría lo tiene VACÍO, y la Carpeta escribía «no hay ningún registro de
+// mantenimiento en el sistema» con 69 intervenciones de julio en la base. Es la peor forma de
+// fallar: negarle a un auditor un dato que existe.
+// Arreglar el nombre del campo (`f`→`fecha`) era necesario y NO alcanzaba: eran dos causas
+// encadenadas, y la primera tapaba a la segunda.
+// Regla: un informe se asegura sus fuentes antes de escribir, no asume que alguien pasó por la
+// pantalla que las carga.
+async function _capAsegurarDatos(){
+  try{
+    if(typeof _cargarMantTodo==='function' && !((typeof MANTENIMIENTOS!=='undefined'?MANTENIMIENTOS:[]).length))
+      await _cargarMantTodo();
+  }catch(e){ console.log('carpeta: mantenimientos no cargó',e&&e.message); }
+  await _capCargarUsuarios();
+}
 async function _capCargarUsuarios(){
   if(CAP_USUARIOS.length)return;
   try{ var j=await btgUsuariosAPI('GET'); if(j&&j.ok&&Array.isArray(j.usuarios))CAP_USUARIOS=j.usuarios; }catch(e){}
 }
-function renderCarpetaAuditor(){
+async function renderCarpetaAuditor(){
   // La Carpeta es un módulo que se contrata aparte: si esta empresa no lo tiene, la tarjeta no se
   // muestra. No se esconde el botón dejando la función viva — se apaga la tarjeta entera, para que
   // no quede una pantalla a medias que invite a preguntar por qué no anda.
   var card=g('cap-card');
   if(!moduloActivo('carpeta_auditor')){ if(card)card.style.display='none'; return; }
   if(card)card.style.display='';
-  _capCargarUsuarios();
   var el=g('cap-resumen'); if(!el)return;
+  await _capAsegurarDatos();
   var d=_capDatos();
   if(!d.r.d&&!d.r.h){ el.innerHTML='<div style="font-size:11px;color:var(--text3)">Elegí un período (o tocá «Mes pasado»).</div>'; return; }
   var f=function(n,t,c){ return '<div style="background:var(--bg3);border-radius:8px;padding:8px 10px;min-width:120px">'+
@@ -14902,7 +14918,8 @@ function renderCarpetaAuditor(){
     f(d.cxp.length,'CxP',d.cxp.length?'var(--text)':'var(--amber)')+
     '</div>';
 }
-function generarCarpetaAuditor(){
+async function generarCarpetaAuditor(){
+  await _capAsegurarDatos();
   var h=_capHtml(); if(!h)return;
   abrirVentanaImpresion(h.html);
   audit('Carpeta del Auditor emitida',h.cod+' · '+h.per);
@@ -14910,7 +14927,8 @@ function generarCarpetaAuditor(){
 // Descarga el MISMO documento como un archivo suelto, para adjuntarlo a un correo. Se genera del
 // mismo `_capHtml` que se imprime: si fueran dos armadores distintos, el archivo que recibe el
 // auditor y el que se ve en pantalla se irían separando con cada cambio.
-function descargarCarpetaAuditor(){
+async function descargarCarpetaAuditor(){
+  await _capAsegurarDatos();
   var h=_capHtml(); if(!h)return;
   var nom='Carpeta_Auditor_'+(brandNom()||'empresa').replace(/[^A-Za-z0-9]+/g,'_')+'_'+h.r.d+'_a_'+h.r.h+'.html';
   var blob=new Blob(['﻿'+h.html],{type:'text/html;charset=utf-8'});
