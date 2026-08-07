@@ -862,6 +862,7 @@ async function verificarLicencia(){
       if(!r.error && r.data && r.data.length) lic = r.data[0];
     }
     if(!lic) return;                                   // fail-open
+    _licGuardarModulos(lic.modulos);                   // módulos contratados (extras que se cobran aparte)
     if(lic.cortesia === true) return;                  // cortesía: nunca bloquea
     if(lic.activo === false){ mostrarBloqueoLicencia('suspendida'); return; }
     if(lic.licencia_vence){
@@ -870,6 +871,26 @@ async function verificarLicencia(){
       if(vence.getTime() < hoy.getTime()) mostrarBloqueoLicencia('vencida');
     }
   }catch(e){ /* fail-open */ }
+}
+// ── MÓDULOS CONTRATADOS ────────────────────────────────────────────────────────────────────────
+// `licencias.modulos` es un jsonb con la lista de extras que ESTA empresa paga. La app base no
+// depende de esto: solo las piezas que se venden aparte.
+//
+// ⚖️ La licencia entera falla ABIERTA (si no se puede leer, la empresa sigue trabajando: nadie se
+// queda sin operar porque la base central esté caída). Un módulo pago falla CERRADO, que es lo
+// contrario — pero sobre el ÚLTIMO ESTADO CONOCIDO, no sobre el vacío: si se cayera a "no" ante
+// cualquier fallo de red, un cliente que paga perdería su módulo cada vez que parpadea la conexión.
+// Así: nadie pierde su operación por una caída, y nadie se lleva gratis lo que se cobra.
+var LIC_MODULOS=null;                                  // null = todavía no se sabe
+try{ var _lm=localStorage.getItem('btg_lic_modulos'); if(_lm)LIC_MODULOS=JSON.parse(_lm); }catch(e){}
+function _licGuardarModulos(m){
+  if(!Array.isArray(m))return;                         // sin dato: se conserva lo último conocido
+  LIC_MODULOS=m.map(function(x){return String(x||'').toLowerCase().trim();});
+  try{ localStorage.setItem('btg_lic_modulos',JSON.stringify(LIC_MODULOS)); }catch(e){}
+}
+function moduloActivo(nombre){
+  if(!Array.isArray(LIC_MODULOS))return false;         // nunca se supo → no se regala
+  return LIC_MODULOS.indexOf(String(nombre||'').toLowerCase())>=0;
 }
 function mostrarBloqueoLicencia(motivo){
   if(document.getElementById('licencia-bloqueo')) return;
@@ -14789,15 +14810,46 @@ function _capDatos(){
   var mov=(typeof BNC_MOV!=='undefined'?BNC_MOV:[]).filter(function(x){return _capEn(x.fecha,r);});
   var cxp=(typeof CXP!=='undefined'?CXP:[]).filter(function(x){return _capEn(x.fecha,r)||_capEn(x.fecha_pago,r);});
   var cobrado=abo.reduce(function(s,a){return s+(Number(a.m)||0);},0);
-  return {r:r, pct:pct, mant:mant, gas:gas, abo:abo, mov:mov, cxp:cxp,
+  // Nómina del período: es el gasto más grande de la empresa y el primero que pide un auditor.
+  var nom=(typeof NOMINA_HIST!=='undefined'?NOMINA_HIST:[]).filter(function(h){return _capEn(h.fecha_desde,r);});
+  // Rastro de cambios: quién tocó qué. Es lo que le da credibilidad a TODOS los demás listados —
+  // sin él, cada tabla es "lo que el sistema dice hoy", sin garantía de que no se editó ayer.
+  var cam=(typeof AUDITORIA_LOG!=='undefined'?AUDITORIA_LOG:[]).filter(function(a){return _capEn(a.fecha,r);});
+  // Retenciones de IVA e ISLR (SENIAT), sobre las CxP del período.
+  var ret=cxp.filter(function(c){return (Number(c.ret_iva_usd)||0)>0||(Number(c.ret_islr_usd)||0)>0;});
+  return {r:r, pct:pct, mant:mant, gas:gas, abo:abo, mov:mov, cxp:cxp, nom:nom, cam:cam, ret:ret,
     cobrado:cobrado, socio:cobrado*pct/100, repes:_capRepetidos(mov),
+    exc:_capExcepciones(r), usuarios:CAP_USUARIOS,
     cortes:{
       mantenimiento:_capCorte(typeof MANTENIMIENTOS!=='undefined'?MANTENIMIENTOS:[],'f'),
       combustible:_capCorte(typeof GASOIL!=='undefined'?GASOIL:[],'f'),
       cobros:_capCorte(typeof ABONOS!=='undefined'?ABONOS:[],'f'),
       banco:_capCorte(typeof BNC_MOV!=='undefined'?BNC_MOV:[],'fecha'),
-      cxp:_capCorte(typeof CXP!=='undefined'?CXP:[],'fecha')
+      cxp:_capCorte(typeof CXP!=='undefined'?CXP:[],'fecha'),
+      nomina:_capCorte(typeof NOMINA_HIST!=='undefined'?NOMINA_HIST:[],'fecha_desde'),
+      cambios:_capCorte(typeof AUDITORIA_LOG!=='undefined'?AUDITORIA_LOG:[],'fecha')
     }};
+}
+// ⚠️ LO QUE EL PROPIO SISTEMA DETECTÓ Y SIGUE ABIERTO.
+// Contraintuitivo: mostrarle al auditor lo que está mal parece mala idea. Es al revés. Un informe
+// impecable lo pone a buscar dónde está el truco; uno que se autoacusa lo pone a confiar en el
+// resto. Y de todos modos lo va a encontrar — mejor que lo lea de nosotros primero.
+function _capExcepciones(r){
+  var x=[];
+  var regs=(typeof REGS!=='undefined'?REGS:[]).filter(function(p){return _capEn(p.f,r);});
+  var sinAy=regs.filter(function(p){return !String(p.ay1||'').trim()&&!String(p.ay2||'').trim()&&!String(p.ay3||'').trim();});
+  if(sinAy.length)x.push({q:sinAy.length,t:'planilla(s) sin ningún ayudante anotado',
+    d:'Los viajes se pagan igual, pero no queda constancia de quién los hizo. Es de donde salen los reclamos de nómina.'});
+  var sinSop=(typeof CXP!=='undefined'?CXP:[]).filter(function(c){return (_capEn(c.fecha,r)||_capEn(c.fecha_pago,r))&&c.sin_soporte===true;});
+  if(sinSop.length)x.push({q:sinSop.length,t:'cuenta(s) por pagar marcadas SIN SOPORTE',
+    d:'Se pagaron con el documento pendiente de recibir. El sistema lo registró como tal, no se ocultó.'});
+  var gasSrc=(typeof GASOIL!=='undefined'?GASOIL:[]).filter(function(gg){return _capEn(gg.f,r)&&!String(gg.src||'').trim();});
+  if(gasSrc.length)x.push({q:gasSrc.length,t:'carga(s) de combustible sin origen declarado',
+    d:'No se puede decir a qué proveedor se le compró ese combustible.'});
+  var emp=(typeof EMPLEADOS!=='undefined'?EMPLEADOS:[]).filter(function(e){return e.activo&&!String(e.cedula||'').trim();});
+  if(emp.length)x.push({q:emp.length,t:'empleado(s) activos sin cédula',
+    d:'Una ficha sin cédula no se puede cotejar contra la nómina ni contra el banco.'});
+  return x;
 }
 // Aviso de alcance: rojo si el período empieza ANTES de que existiera el dato.
 function _capAviso(corte,r,queEs){
@@ -14805,7 +14857,21 @@ function _capAviso(corte,r,queEs){
   if(r.d&&r.d<corte)return '<div class="cap-falta">⛔ El período pedido empieza el '+formatFecha(r.d)+', pero el primer registro de '+queEs+' es del <b>'+formatFecha(corte)+'</b>. Lo anterior a esa fecha NO está en el sistema.</div>';
   return '<div class="cap-ok">Datos disponibles desde el '+formatFecha(corte)+'.</div>';
 }
+// Los usuarios del sistema no viven en un global: salen de una API. Se traen UNA vez al abrir la
+// pestaña y se cachean, para que armar el documento sea síncrono.
+var CAP_USUARIOS=[];
+async function _capCargarUsuarios(){
+  if(CAP_USUARIOS.length)return;
+  try{ var j=await btgUsuariosAPI('GET'); if(j&&j.ok&&Array.isArray(j.usuarios))CAP_USUARIOS=j.usuarios; }catch(e){}
+}
 function renderCarpetaAuditor(){
+  // La Carpeta es un módulo que se contrata aparte: si esta empresa no lo tiene, la tarjeta no se
+  // muestra. No se esconde el botón dejando la función viva — se apaga la tarjeta entera, para que
+  // no quede una pantalla a medias que invite a preguntar por qué no anda.
+  var card=g('cap-card');
+  if(!moduloActivo('carpeta_auditor')){ if(card)card.style.display='none'; return; }
+  if(card)card.style.display='';
+  _capCargarUsuarios();
   var el=g('cap-resumen'); if(!el)return;
   var d=_capDatos();
   if(!d.r.d&&!d.r.h){ el.innerHTML='<div style="font-size:11px;color:var(--text3)">Elegí un período (o tocá «Mes pasado»).</div>'; return; }
@@ -14824,7 +14890,7 @@ function renderCarpetaAuditor(){
 function generarCarpetaAuditor(){
   var h=_capHtml(); if(!h)return;
   abrirVentanaImpresion(h.html);
-  audit('Carpeta del Auditor generada',h.per);
+  audit('Carpeta del Auditor emitida',h.cod+' · '+h.per);
 }
 // Descarga el MISMO documento como un archivo suelto, para adjuntarlo a un correo. Se genera del
 // mismo `_capHtml` que se imprime: si fueran dos armadores distintos, el archivo que recibe el
@@ -14836,7 +14902,7 @@ function descargarCarpetaAuditor(){
   var a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=nom;
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
   setTimeout(function(){URL.revokeObjectURL(a.href);},1500);
-  audit('Carpeta del Auditor descargada',h.per);
+  audit('Carpeta del Auditor descargada',h.cod+' · '+h.per);
 }
 function _capHtml(){
   var d=_capDatos();
@@ -14899,6 +14965,57 @@ function _capHtml(){
     .map(function(p){ return '<tr><td>'+e(p.nombre)+'</td><td>'+e(p.rif||'—')+'</td><td>'+e(p.categoria||'—')+'</td><td>'+(p.activo===false?'inactivo':'activo')+'</td></tr>';}).join('')+
     '</tbody></table>';
 
+  // ── Nómina del período ──
+  var nomHtml=!d.nom.length?'<p class="cap-vacio">No hay semanas de nómina guardadas en el período.</p>':
+    '<table><thead><tr><th>Semana</th><th>Período</th><th style="text-align:right">Operativo USD</th><th style="text-align:right">Admin USD</th><th style="text-align:right">Total USD</th><th style="text-align:right">Total Bs</th><th style="text-align:right">Tasa</th></tr></thead><tbody>'+
+    d.nom.slice().sort(function(a,b){return String(a.fecha_desde)<String(b.fecha_desde)?-1:1;}).map(function(h){
+      return '<tr><td>'+e(h.semana||'')+'</td><td>'+e(h.periodo||'')+'</td><td style="text-align:right">'+_capNum(h.op_usd)+'</td><td style="text-align:right">'+_capNum(h.adm_usd)+'</td><td style="text-align:right">'+_capNum(h.total_usd)+'</td><td style="text-align:right">'+_capNum(h.total_bs)+'</td><td style="text-align:right">'+_capNum(h.tasa)+'</td></tr>';}).join('')+
+    '<tr class="tr-total"><td colspan="4">TOTAL — '+d.nom.length+' semana(s)</td><td style="text-align:right">'+
+      _capNum(d.nom.reduce(function(s,h){return s+(Number(h.total_usd)||0);},0))+'</td><td style="text-align:right">'+
+      _capNum(d.nom.reduce(function(s,h){return s+(Number(h.total_bs)||0);},0))+'</td><td></td></tr></tbody></table>'+
+    '<p class="cap-nota">Cada semana guarda el detalle por persona y la tasa con la que se convirtió a bolívares, congelada al día del pago. Se puede pedir el desglose de cualquier semana.</p>';
+  // ── Retenciones ──
+  var retHtml=!d.ret.length?'<p class="cap-vacio">Sin retenciones practicadas en el período.</p>':
+    '<table><thead><tr><th>Fecha</th><th>Proveedor</th><th>Documento</th><th>Comprobante</th><th style="text-align:right">Base USD</th><th style="text-align:right">Ret. IVA</th><th style="text-align:right">Ret. ISLR</th></tr></thead><tbody>'+
+    d.ret.map(function(c){ return '<tr><td>'+formatFecha(c.fecha)+'</td><td>'+e(c.prov_nombre||'')+'</td><td>'+e(c.factura||'')+'</td><td>'+e(c.num_comprobante||'—')+'</td><td style="text-align:right">'+_capNum(c.base_usd)+'</td><td style="text-align:right">'+_capNum(c.ret_iva_usd)+'</td><td style="text-align:right">'+_capNum(c.ret_islr_usd)+'</td></tr>';}).join('')+
+    '<tr class="tr-total"><td colspan="5">TOTAL RETENIDO</td><td style="text-align:right">'+_capNum(d.ret.reduce(function(s,c){return s+(Number(c.ret_iva_usd)||0);},0))+'</td><td style="text-align:right">'+_capNum(d.ret.reduce(function(s,c){return s+(Number(c.ret_islr_usd)||0);},0))+'</td></tr></tbody></table>';
+  // ── Excepciones ──
+  var excHtml=!d.exc.length?'<div class="cap-ok">El sistema no dejó excepciones abiertas en este período.</div>':
+    '<p class="cap-nota">Esto lo detectó el propio sistema y sigue pendiente. Se informa a propósito: un listado sin excepciones obliga a buscar dónde está lo que falta.</p>'+
+    '<table><thead><tr><th style="text-align:right">Casos</th><th>Qué es</th><th>Por qué importa</th></tr></thead><tbody>'+
+    d.exc.map(function(x){ return '<tr><td style="text-align:right;font-weight:800">'+x.q+'</td><td>'+e(x.t)+'</td><td>'+e(x.d)+'</td></tr>';}).join('')+'</tbody></table>';
+  // ── Rastro de cambios ──
+  var camHtml=!d.cam.length?'<p class="cap-vacio">Sin movimientos registrados en el período.</p>':
+    '<p class="cap-nota">Toda alta, cambio o borrado queda registrado con su operador y su hora. <b>El sistema conserva los últimos 200 movimientos</b>: si el período pedido es largo, este listado puede estar recortado y el registro completo hay que pedirlo aparte.</p>'+
+    '<table><thead><tr><th>Fecha y hora</th><th>Operador</th><th>Acción</th><th>Detalle</th></tr></thead><tbody>'+
+    d.cam.slice(0,300).map(function(a){ return '<tr><td>'+e(a.fecha||'')+'</td><td>'+e(a.usuario||'')+'</td><td>'+e(a.accion||'')+'</td><td>'+e(a.detalle||'')+'</td></tr>';}).join('')+'</tbody></table>';
+  // ── Accesos ── (segregación de funciones: siempre lo piden y casi nadie lo incluye)
+  var usrHtml=!d.usuarios.length?'<p class="cap-vacio">No se pudo leer la lista de usuarios.</p>':
+    '<p class="cap-nota">Quién podía entrar al sistema y con qué rol. Es el respaldo de la segregación de funciones.</p>'+
+    '<table><thead><tr><th>Usuario</th><th>Nombre</th><th>Rol</th><th>Estado</th></tr></thead><tbody>'+
+    d.usuarios.map(function(u){ return '<tr><td>'+e(u.usuario||'')+'</td><td>'+e(u.nombre||'')+'</td><td>'+e(u.rol||'')+'</td><td>'+(u.activo===false?'inactivo':'activo')+'</td></tr>';}).join('')+'</tbody></table>';
+  // ── SELLO DE EMISIÓN ──
+  // ⛔ NO es una firma criptográfica y no se presenta como tal: un QR que solo lleva un hash de sí
+  // mismo no verifica nada, y decir lo contrario sería teatro ([norma-verificacion-qr-verificable]).
+  // Lo que sí es comprobable: la emisión queda ASENTADA en el rastro de cambios del sistema con
+  // este mismo código. Quien reciba el documento puede pedir que se le muestre ese asiento.
+  var _cod=(function(){
+    var base=per+'|'+d.mant.length+'|'+d.gas.length+'|'+d.abo.length+'|'+d.mov.length+'|'+d.cxp.length+'|'+d.nom.length+'|'+Math.round(d.cobrado*100);
+    var h=0; for(var i=0;i<base.length;i++){ h=((h<<5)-h+base.charCodeAt(i))|0; }
+    return 'CA-'+String(d.r.d).replace(/-/g,'').slice(2)+'-'+Math.abs(h).toString(36).toUpperCase().padStart(7,'0').slice(0,7);
+  })();
+  var _qr=''; try{ if(window.MaxQR&&MaxQR.svg)_qr=MaxQR.svg(_cod+' · '+brandNom()+' · '+per,{width:104}); }catch(_e){}
+  var selloHtml='<div class="cap-sec"><h2>Constancia de emisión</h2>'+
+    '<div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap">'+
+    (_qr?'<div style="flex:none">'+_qr+'</div>':'')+
+    '<div style="flex:1;min-width:240px;font-size:11px;color:#333;line-height:1.6">'+
+    '<div>Código de emisión: <b style="font-family:monospace;font-size:14px">'+_cod+'</b></div>'+
+    '<div>Emitido por <b>'+e((typeof SESION!=='undefined'&&SESION?SESION.usuario:'—'))+'</b> el '+formatFecha(fechaVE())+'.</div>'+
+    '<div style="color:#666;margin-top:5px">Esta emisión queda asentada en el rastro de cambios del sistema con este mismo código. '+
+    'El código se deriva del período y de la cantidad de registros de cada sección: si el documento se altera, deja de corresponder. '+
+    '<b>No es una firma electrónica</b> — es una constancia cotejable contra el sistema.</div>'+
+    '</div></div></div>';
+
   var html='<html><head><meta charset="UTF-8"><title>Carpeta del Auditor — '+e(brandNom())+'</title><style>'+BG_CSS+
     'body{background:#fff;padding:0}.cap-sec{padding:14px 28px;page-break-inside:auto}'+
     '.cap-sec h2{font-size:15px;color:#1e3a5f;border-bottom:2px solid #7dc941;padding-bottom:5px;margin:16px 0 8px}'+
@@ -14924,10 +15041,16 @@ function _capHtml(){
     S('3. Cobros recibidos y participación del socio',d.cortes.cobros,'cobros',aboHtml)+
     S('4. Movimientos bancarios recibidos',d.cortes.banco,'movimientos bancarios',movHtml)+
     S('5. Cuentas por pagar por proveedor',d.cortes.cxp,'cuentas por pagar',cxpHtml)+
-    '<div class="cap-sec"><h2>6. Registro de proveedores</h2>'+provHtml+'</div>'+
+    S('6. Nómina del período',d.cortes.nomina,'nómina',nomHtml)+
+    '<div class="cap-sec"><h2>7. Retenciones de IVA e ISLR</h2>'+retHtml+'</div>'+
+    '<div class="cap-sec"><h2>8. Excepciones abiertas al cierre del período</h2>'+excHtml+'</div>'+
+    S('9. Rastro de cambios sobre el dato',d.cortes.cambios,'rastro de cambios',camHtml)+
+    '<div class="cap-sec"><h2>10. Accesos al sistema</h2>'+usrHtml+'</div>'+
+    '<div class="cap-sec"><h2>11. Registro de proveedores</h2>'+provHtml+'</div>'+
+    selloHtml+
     '<div class="bg-footer"><span>'+e(brandNom())+' · '+e(brandRif())+'</span><span>Carpeta del Auditor · '+per+'</span></div>'+
     '</body></html>';
-  return {html:html, per:per, r:d.r};
+  return {html:html, per:per, r:d.r, cod:_cod};
 }
 
 function exportarAuditoria(){
