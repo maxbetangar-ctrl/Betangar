@@ -81,6 +81,18 @@
     return null;
   }
 
+  // ¿Se puede incrustar el logo? En Node sí. En el navegador NO, por lo medido
+  // arriba — salvo que alguien lo encienda a propósito con
+  // `MaxwareExcel.logoEnNavegador(true)` para probar si una versión nueva de la
+  // librería ya lo resuelve.
+  var _logoNavegador = false;
+  function logoEnNavegador(v) { _logoNavegador = !!v; return api_ref; }
+  function enNavegador() { return typeof document !== 'undefined' && typeof Blob !== 'undefined'; }
+  function logoPermitido() {
+    if (!LOGO_B64 || LOGO_B64.indexOf('__') === 0) return false;
+    return enNavegador() ? _logoNavegador : true;
+  }
+
   function borde() {
     var t = { style: 'thin', color: { argb: BORDE } };
     return { top: t, left: t, bottom: t, right: t };
@@ -129,16 +141,29 @@
     b1.alignment = { vertical: 'middle', horizontal: 'center' };
     b1.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: NAVY } };
     ws.getRow(1).height = 30;
-    try {
-      if (LOGO_B64 && LOGO_B64.indexOf('__') !== 0) {
-        var idLogo = wb.addImage({ base64: LOGO_B64, extension: 'png' });
+    // ── EL LOGO: SÍ en Node, NO en el navegador ──────────────────────────────
+    // Medido el 07/08/2026 en Chrome, en pestaña recién cargada:
+    //   · 4 hojas con TODO el formato y SIN imagen ......  99 ms  ✅
+    //   · 1 hoja CON el logo incrustado ................. 11.000 ms
+    //   · y después de escribir un libro con imagen, TODA escritura posterior
+    //     en esa pestaña se queda colgada para siempre.
+    // O sea: la imagen no solo hace lento el export, deja la página inservible
+    // hasta que se recargue. En Node el mismo código escribe el archivo con
+    // logo sin problema (verificado), y son esos los que se le mandan al
+    // cliente por WhatsApp o correo — que es donde el logo importa de verdad.
+    // Por eso el logo se apaga solo en el navegador en vez de sacarlo del todo.
+    if (logoPermitido()) {
+      try {
+        // UNA sola vez por libro: `wb.addImage` por hoja metía N copias del
+        // mismo PNG en el archivo.
+        if (wb.__idLogo == null) wb.__idLogo = wb.addImage({ base64: LOGO_B64, extension: 'png' });
         // Flotante sobre la fila 1: no ocupa celda, así no estorba a los datos
         // ni se desarma si alguien inserta una columna.
-        ws.addImage(idLogo, { tl: { col: 0.15, row: 0.18 },
-                              ext: { width: 104, height: 22 },
-                              editAs: 'oneCell' });
-      }
-    } catch (e) { /* sin logo, el banner de texto igual queda */ }
+        ws.addImage(wb.__idLogo, { tl: { col: 0.15, row: 0.18 },
+                                   ext: { width: 104, height: 22 },
+                                   editAs: 'oneCell' });
+      } catch (e) { /* sin logo, el banner de texto igual queda */ }
+    }
 
     // Fila 2 — quién hizo el sistema.
     ws.mergeCells(2, 1, 2, nCols);
@@ -315,6 +340,7 @@
   var api_ref = { libro: libro, hoja: hoja, descargar: descargar, de_objetos: de_objetos,
            libro_desde_hojas: libro_desde_hojas, nuevo: nuevo, agregar: agregar,
            guardar: guardar, borde: borde, marca: marca, usar: usar,
+           logoEnNavegador: logoEnNavegador,
            PALETA: { NAVY: NAVY, SLATE: SLATE, LIGHT: LIGHT, EJEMPLO: EJEMPLO, BORDE: BORDE } };
   return api_ref;
 });

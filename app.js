@@ -9462,14 +9462,18 @@ function abrirPiezasUnidad(cam){
     return '<tr'+(p.fecha_retiro?'':' style="background:rgba(16,185,129,.08)"')+'>'+
       '<td style="font-family:var(--m)">'+formatFecha(p.fecha_inst)+'</td>'+
       '<td>'+_mEsc(_piezaTipoNombre(p.tipo))+'</td>'+
-      '<td style="font-family:var(--m);font-weight:700">'+_mEsc(p.serial)+'</td>'+
+      // La cadena va DEBAJO del serial, no en columna aparte: en 480 px de modal
+      // esa columna quedaba fuera de la vista.
+      '<td style="font-family:var(--m);font-weight:700">'+_mEsc(p.serial)+
+        (ant?('<br><span style="font-size:9px;font-family:inherit;font-weight:400;color:var(--text3)">reemplazó a '+_mEsc(ant.serial)+'</span>')
+            :'<br><span style="font-size:9px;font-family:inherit;font-weight:400;color:var(--text3)">primera registrada</span>')+'</td>'+
       '<td>'+(p.fecha_retiro
         ?('<span style="color:var(--text3)">salió '+formatFecha(p.fecha_retiro)+(dur!=null?(' · duró '+dur+' d'):'')+'</span>'+
           (p.motivo_retiro?('<br><span style="font-size:10px">'+_mEsc(p.motivo_retiro)+'</span>'):''))
         :'<span style="color:var(--green);font-weight:700">PUESTA HOY</span>')+'</td>'+
-      '<td style="font-size:10px">'+(ant?('reemplazó a <b style="font-family:var(--m)">'+_mEsc(ant.serial)+'</b>'):'<span style="color:var(--text3)">primera registrada</span>')+'</td>'+
+
       '<td style="font-family:var(--m)">'+(p.costo_usd?('$'+fmtMon(p.costo_usd)):'—')+'</td></tr>';
-  }).join(''):'<tr><td colspan="6" style="color:var(--text3);font-size:11px;padding:8px">Sin historial.</td></tr>';
+  }).join(''):'<tr><td colspan="5" style="color:var(--text3);font-size:11px;padding:8px">Sin historial.</td></tr>';
 
   var html=
     '<div style="font-size:11px;color:var(--text3);margin-bottom:8px">Cada pieza con serial de <b>'+_mEsc(cam)+'</b>: la que está puesta, cuándo se puso, hasta cuándo tiene garantía y a cuál reemplazó.</div>'+
@@ -9486,7 +9490,7 @@ function abrirPiezasUnidad(cam){
       '<button class="btn btn-s btn-sm" onclick="abrirEditarUnidad(\''+_mEsc(cam)+'\')">⬅️ Volver a la ficha</button>'+
     '</div>'+
     '<div style="font-weight:700;font-size:12px;margin:6px 0">Historial completo</div>'+
-    '<div class="tw"><table><thead><tr><th>Instalada</th><th>Pieza</th><th>Serial</th><th>Estado</th><th>Cadena</th><th>Costo</th></tr></thead><tbody>'+elHist+'</tbody></table></div>';
+    '<div class="tw"><table><thead><tr><th>Instalada</th><th>Pieza</th><th>Serial</th><th>Estado</th><th>Costo</th></tr></thead><tbody>'+elHist+'</tbody></table></div>';
   openModal('🔩 Piezas y seriales — '+cam,html);
 }
 
