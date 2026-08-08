@@ -612,6 +612,8 @@ body{background:#0f1923;color:#fff;font-family:-apple-system,BlinkMacSystemFont,
 <div class="footer">Betangar · Inversiones Betangar C.A. · J-29566107-0</div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<!-- Qué decirle a la persona cuando el teléfono niega cámara o ubicación. Misma pieza en todos los productos. -->
+<script src="permisos.js?v=20260808a"></script>
 <script>
 // CRÍTICO: guardar la librería ANTES de que `var supabase` (global, más abajo) sobrescriba
 // window.supabase con null. Ese choque de nombres dejaba el cliente sin crear → NADA subía.
@@ -1189,6 +1191,10 @@ function _entConcepto(){
 // canvas. No existe ningún camino a la biblioteca: solo se puede tomar la foto en el momento.
 var _CAM_STREAM = null;
 
+// Si `permisos.js` no llegó a cargar, ninguna pantalla puede quedarse muda: cada uso tiene un texto
+// de respaldo que nombra los DOS lugares (candado y Ajustes), sin adivinar cuál es. Va a nivel
+// global porque lo usan la cámara Y el GPS, que viven en funciones distintas.
+function hayMWPermiso(){ return (typeof MWPermiso !== 'undefined') && MWPermiso && typeof MWPermiso.explicar === 'function'; }
 function _camCerrar(){
   try{ if(_CAM_STREAM) _CAM_STREAM.getTracks().forEach(function(t){ try{t.stop();}catch(e){} }); }catch(e){}
   _CAM_STREAM = null;
@@ -1252,27 +1258,17 @@ function abrirCamara(onFoto){
       // app está rota. Reportado por Omar (supervisor de Betangar).
       // `navigator.permissions` sí sabe distinguirlo: si el sitio estuviera bloqueado diría
       // 'denied'. Si dice 'prompt' o 'granted' y AUN ASÍ falló, el bloqueo está más arriba.
-      var _pasoSitio = '<b>1)</b> Tocá el <b>candado 🔒</b> (o ⓘ) al lado de la dirección, arriba → <b>Permisos</b> → <b>Cámara</b> → <b>Permitir</b>.';
-      var _pasoAndroid = '<b>2)</b> Si ahí <u>no aparece "Cámara"</u>, el permiso está cortado más arriba: entrá a <b>Ajustes</b> del teléfono → <b>Aplicaciones</b> → <b>Chrome</b> → <b>Permisos</b> → <b>Cámara</b> → <b>Permitir</b>.';
-      var _pintarBloqueo = function(estado){
-        // Si el sitio NO está bloqueado, el problema es de Chrome en el teléfono: ese paso va primero.
-        var primero = (estado === 'denied') ? _pasoSitio  : _pasoAndroid.replace('<b>2)</b> Si ahí <u>no aparece "Cámara"</u>, el permiso está cortado más arriba: entrá','<b>1)</b> Entrá');
-        var segundo = (estado === 'denied') ? _pasoAndroid : _pasoSitio.replace('<b>1)</b>','<b>2)</b> Si con eso no basta,');
+      // El texto lo arma `permisos.js`, que es la MISMA pieza en todos los productos: consulta el
+      // estado real del permiso, ordena los dos pasos según cuál sea el bloqueo, y nombra el
+      // navegador y el camino que corresponden al teléfono de quien está mirando (Android/iPhone).
+      if(hayMWPermiso()){
+        MWPermiso.explicar('camera', function(html){ fallar('<div>'+html+'</div>'); });
+      }else{
+        // Respaldo por si `permisos.js` no cargó: la pantalla no puede quedarse muda ni mandar a un
+        // solo lugar. Se nombran los dos, sin adivinar cuál es.
         fallar('<div><b style="color:#e8734a">La cámara está bloqueada</b>'
-          + '<br><br><span style="color:rgba(255,255,255,.75);font-size:13px;text-align:left;display:block">' + primero + '<br><br>' + segundo
-          + '<br><br>Después volvé a tocar “Tomar foto”.</span>'
-          + '<br><span style="color:rgba(255,255,255,.4);font-size:11px">Si ya lo hiciste y sigue igual, cerrá Chrome por completo y volvé a entrar.</span></div>');
-      };
-      var _consultado = false;
-      var _resolver = function(estado){ if(_consultado) return; _consultado = true; _pintarBloqueo(estado); };
-      try{
-        if(navigator.permissions && navigator.permissions.query){
-          navigator.permissions.query({ name: 'camera' })
-            .then(function(p){ _resolver(p && p.state); })
-            .catch(function(){ _resolver(''); });          // Firefox y algunos Android no soportan 'camera'
-          setTimeout(function(){ _resolver(''); }, 1200);  // que nunca se quede sin mensaje
-        }else{ _resolver(''); }
-      }catch(e){ _resolver(''); }
+          + '<br><br><span style="color:rgba(255,255,255,.75);font-size:13px">Revisá el permiso de <b>Cámara</b> en los dos lugares: el <b>candado 🔒</b> al lado de la dirección, y <b>Ajustes</b> del teléfono → <b>Aplicaciones</b> → tu navegador → <b>Permisos</b>.</span></div>');
+      }
     }else if(code === 'NotFoundError' || code === 'OverconstrainedError'){
       fallar('<div><b style="color:#e8734a">No se encontró la cámara</b>'
         + '<br><br><span style="color:rgba(255,255,255,.65);font-size:13px">Cerrá las otras apps que la estén usando y volvé a intentar.</span></div>');
@@ -1339,10 +1335,16 @@ function entregaTomarGPS(){
   }, function(err){
     ENT_GPS = null;
     var code = err && err.code;
-    if(code === 1){        // PERMISSION_DENIED: el navegador tiene la ubicación BLOQUEADA para este sitio
-      el.innerHTML = '📍 <b style="color:#e8734a">Ubicación bloqueada en este teléfono</b>'
-        + '<br><span style="font-size:11px;color:rgba(255,255,255,.6)">Tocá el <b>candado 🔒</b> (o ⓘ) al lado de la dirección, arriba → <b>Permisos</b> → <b>Ubicación</b> → <b>Permitir</b>. Después tocá “Ubicar” otra vez.'
-        + '<br>Si ya está permitida, activá el <b>GPS del teléfono</b> (barra de arriba).</span>';
+    if(code === 1){        // PERMISSION_DENIED — el MISMO caso que la cámara, y hasta el 2026-08-08
+      // tenía el mismo defecto: mandaba a todos al candado. El bloqueo puede estar en el SITIO o en
+      // el permiso que el sistema le da al navegador, y se arreglan en lugares distintos; si en el
+      // candado no aparece «Ubicación», la persona no encuentra nada que tocar. Ver permisos.js.
+      if(hayMWPermiso()){
+        MWPermiso.explicar('geolocation', function(html){ el.innerHTML = '📍 ' + html; });
+      }else{
+        el.innerHTML = '📍 <b style="color:#e8734a">Ubicación bloqueada</b>'
+          + '<br><span style="font-size:11px;color:rgba(255,255,255,.6)">Revisá el permiso de <b>Ubicación</b> en los dos lugares: el <b>candado 🔒</b> al lado de la dirección, y <b>Ajustes</b> del teléfono → <b>Aplicaciones</b> → tu navegador → <b>Permisos</b>. Y que el <b>GPS</b> esté encendido.</span>';
+      }
     }else if(code === 3){  // TIMEOUT
       el.innerHTML = '📍 <b style="color:#e8734a">Sin señal de GPS</b> <span style="font-size:11px;color:rgba(255,255,255,.6)">— salí de abajo del techo y tocá “Ubicar” otra vez.</span>';
     }else{

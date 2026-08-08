@@ -6,6 +6,7 @@
 <title>Fichar asistencia</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHdpZHRoPSc2NCcgaGVpZ2h0PSc2NCcgdmlld0JveD0nMCAwIDY0IDY0Jz48cmVjdCB3aWR0aD0nNjQnIGhlaWdodD0nNjQnIHJ4PScxMycgZmlsbD0nIzBmMjAzOCcvPjx0ZXh0IHg9JzMyJyB5PSc0NycgZm9udC1mYW1pbHk9J0FyaWFsLEhlbHZldGljYSxzYW5zLXNlcmlmJyBmb250LXNpemU9JzQyJyBmb250LXdlaWdodD0nOTAwJyBmaWxsPScjYTNlNjM1JyB0ZXh0LWFuY2hvcj0nbWlkZGxlJz5GPC90ZXh0Pjwvc3ZnPg==">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script src="permisos.js?v=20260808a"></script>
 <style>
 *{box-sizing:border-box;font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif}
 body{margin:0;background:#0f2038;color:#e8eef4;min-height:100vh}
@@ -132,7 +133,22 @@ function iniciarGPS(){
   if(watchId!=null)navigator.geolocation.clearWatch(watchId);
   watchId = navigator.geolocation.watchPosition(function(p){
     if(!POS || p.coords.accuracy < POS.acc){ POS={lat:p.coords.latitude,lng:p.coords.longitude,acc:p.coords.accuracy}; pintaGPS(); }
-  }, function(err){ $('gps').className='gps bad'; $('gps').textContent='No se pudo ubicar: '+(err.message||'activá el GPS'); },
+  }, function(err){
+    // ⛔ Acá se mostraba el mensaje CRUDO del navegador ("User denied Geolocation") y nada más.
+    // Esta es la pantalla con la que FICHA TODO EL MUNDO: quedarse sin poder marcar y sin saber
+    // qué tocar es lo peor que puede pasar. Si el permiso está negado, `permisos.js` arma los pasos
+    // según dónde esté el bloqueo (el sitio o el permiso del sistema) y según el teléfono.
+    $('gps').className='gps bad';
+    if(err && err.code === 1 && typeof MWPermiso !== 'undefined' && MWPermiso.explicar){
+      MWPermiso.explicar('geolocation', function(html){ $('gps').innerHTML = html; });
+    }else if(err && err.code === 1){
+      $('gps').innerHTML = '<b>Ubicación bloqueada</b><br>Revisá el permiso de <b>Ubicación</b> en el <b>candado 🔒</b> al lado de la dirección y en <b>Ajustes</b> del teléfono → <b>Aplicaciones</b> → tu navegador → <b>Permisos</b>. Y que el <b>GPS</b> esté encendido.';
+    }else if(err && err.code === 3){
+      $('gps').textContent='Sin señal de GPS — salí de abajo del techo y esperá unos segundos.';
+    }else{
+      $('gps').textContent='No se pudo ubicar: '+((err&&err.message)||'activá el GPS del teléfono');
+    }
+  },
   { enableHighAccuracy:true, maximumAge:0, timeout:25000 });
 }
 function pintaGPS(){
