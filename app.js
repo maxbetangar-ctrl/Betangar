@@ -5895,8 +5895,20 @@ async function guardarAbono(){
     guardarEnCola('abonos',{f:ab.f,fact:ab.fact,v:ab.v,m:ab.m,obs:ab.obs,ref:ab.ref});
   }
   audit('Abono registrado','$'+ab.m+' Fact:'+ab.fact);
-  // Conciliar en BNC automaticamente
-  bncMovPush({id:Date.now()+'',fecha:ab.f,monto:ab.m*(TASAS.bcvDolar||cfg.tasa),tipo:'credito',desc:'Pago Alcaldia Fact.'+ab.fact,ref:ab.ref,conciliado:true});
+  // Conciliar en BNC automaticamente.
+  // ⛔ ACÁ SE CONVERTÍA CON LA TASA DE HOY, NO CON LA DEL DÍA DE LA FACTURA.
+  // Decía `ab.m * (TASAS.bcvDolar || cfg.tasa)`: `TASAS.bcvDolar` es la tasa CARGADA EN ESTE
+  // MOMENTO. Si el abono se registra días después —que es lo normal— la factura queda convertida
+  // a una tasa que no existía cuando se emitió. Medido el 2026-08-08 contra el estado de cuenta
+  // del banco, sobre las 5 facturas de junio/julio:
+  //     000633 (26/06) y 000636 (17/07) → bien: se cargaron el mismo día.
+  //     000634 (03/07) → se convirtió a 674,9305, que es la tasa del 6 de JULIO.
+  //     000635 (10/07) → se convirtió a 709,6935, la del 12 de JULIO.
+  // O sea: la tasa del día en que alguien lo TECLEA, no la del hecho.
+  // `getTasaFecha` ya existía y hace lo correcto: busca la del día y, si cae fin de semana o
+  // feriado, la del último día hábil. Solo faltaba usarla. Ver [tasa-del-dia-que-no-existe].
+  var _tasaAb = (typeof getTasaFecha==='function' && getTasaFecha(ab.f,'dolar')) || TASAS.bcvDolar || cfg.tasa;
+  bncMovPush({id:Date.now()+'',fecha:ab.f,monto:ab.m*_tasaAb,tipo:'credito',desc:'Pago Alcaldia Fact.'+ab.fact,ref:ab.ref,conciliado:true});
   // Aviso: socios (Máximo, Francisco) + Jonaz (socio limitado que quiere TODO ingreso).
   // El rol admin quedó vacante el 06/08/2026; los socios reciben todo igual.
   var _msgAbono='Abono registrado\n'+
@@ -15678,12 +15690,21 @@ function agregarGastoFijo(){
   renderGastosFijos();
 }
 
-function calcGastoVar(){var usd=parseFloat(gv('gv-usd'))||0;var tasa=TASAS.bcvDolar||cfg.tasa;var bs=usd*(tasa||0);var el=document.getElementById('gv-bs');if(el)el.value=bs>0?bs.toFixed(0):'';}
+// La vista previa usa la MISMA tasa que va a quedar guardada (la del día del gasto), o mostraría
+// un número y guardaría otro.
+function calcGastoVar(){var usd=parseFloat(gv('gv-usd'))||0;var tasa=_tasaDelGastoVar();var bs=usd*(tasa||0);var el=document.getElementById('gv-bs');if(el)el.value=bs>0?bs.toFixed(0):'';}
+// ⛔ MISMO DEFECTO QUE EL DE LOS ABONOS (encontrado el 2026-08-08 cotejando con el banco): un gasto
+// del martes cargado el viernes quedaba convertido a la tasa del VIERNES. La fecha del gasto está
+// ahí, en el formulario; hay que usarla. `getTasaFecha` resuelve fin de semana y feriado solo.
+function _tasaDelGastoVar(){
+  var f=gv('gv-fecha');
+  return (f && typeof getTasaFecha==='function' && getTasaFecha(f,'dolar')) || TASAS.bcvDolar || cfg.tasa;
+}
 
 function guardarGastoVar(){
   var desc=gv('gv-desc');if(!desc){alert('Ingresa la descripcion');return;}
-  // Prioridad: tasa de la API. Si no hay, pedirla manual (modal dólar+euro) y reintentar.
-  var tasa=TASAS.bcvDolar||cfg.tasa;
+  // Prioridad: la tasa DEL DÍA DEL GASTO. Si no hay ninguna, pedirla manual y reintentar.
+  var tasa=_tasaDelGastoVar();
   if(!tasa){ tasaOManual('bcvDolar', function(){ guardarGastoVar(); }); return; }
   var usd=parseFloat(gv('gv-usd'))||0;var bs=usd*tasa;
   if(!(usd>0)){alert('Ingresa un monto en USD MAYOR a 0.');return;} // M6: no aceptar $0 ni negativos
