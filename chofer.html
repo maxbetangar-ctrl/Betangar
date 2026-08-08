@@ -1242,9 +1242,37 @@ function abrirCamara(onFoto){
   }).catch(function(err){
     var code = err && err.name;
     if(code === 'NotAllowedError' || code === 'SecurityError'){
-      // Mismo camino que el mensaje del GPS: el permiso está BLOQUEADO para este sitio.
-      fallar('<div><b style="color:#e8734a">Cámara bloqueada en este teléfono</b>'
-        + '<br><br><span style="color:rgba(255,255,255,.7);font-size:13px">Tocá el <b>candado 🔒</b> (o ⓘ) al lado de la dirección, arriba → <b>Permisos</b> → <b>Cámara</b> → <b>Permitir</b>. Después tocá “Tomar foto” otra vez.</span></div>');
+      // ⛔ POR ACÁ LLEGAN DOS COSAS DISTINTAS CON EL MISMO NOMBRE DE ERROR, y se arreglan en
+      // lugares diferentes del teléfono:
+      //   (a) el SITIO está bloqueado → se arregla en el candado, al lado de la dirección;
+      //   (b) CHROME no tiene permiso de cámara en Android → en el candado NI SIQUIERA APARECE
+      //       "Cámara", y hay que ir a Ajustes del teléfono.
+      // Hasta el 2026-08-08 siempre se mandaba a la gente al candado. A quien tenía el caso (b) lo
+      // mandábamos a un lugar donde no hay nada que tocar: busca, no encuentra, y concluye que la
+      // app está rota. Reportado por Omar (supervisor de Betangar).
+      // `navigator.permissions` sí sabe distinguirlo: si el sitio estuviera bloqueado diría
+      // 'denied'. Si dice 'prompt' o 'granted' y AUN ASÍ falló, el bloqueo está más arriba.
+      var _pasoSitio = '<b>1)</b> Tocá el <b>candado 🔒</b> (o ⓘ) al lado de la dirección, arriba → <b>Permisos</b> → <b>Cámara</b> → <b>Permitir</b>.';
+      var _pasoAndroid = '<b>2)</b> Si ahí <u>no aparece "Cámara"</u>, el permiso está cortado más arriba: entrá a <b>Ajustes</b> del teléfono → <b>Aplicaciones</b> → <b>Chrome</b> → <b>Permisos</b> → <b>Cámara</b> → <b>Permitir</b>.';
+      var _pintarBloqueo = function(estado){
+        // Si el sitio NO está bloqueado, el problema es de Chrome en el teléfono: ese paso va primero.
+        var primero = (estado === 'denied') ? _pasoSitio  : _pasoAndroid.replace('<b>2)</b> Si ahí <u>no aparece "Cámara"</u>, el permiso está cortado más arriba: entrá','<b>1)</b> Entrá');
+        var segundo = (estado === 'denied') ? _pasoAndroid : _pasoSitio.replace('<b>1)</b>','<b>2)</b> Si con eso no basta,');
+        fallar('<div><b style="color:#e8734a">La cámara está bloqueada</b>'
+          + '<br><br><span style="color:rgba(255,255,255,.75);font-size:13px;text-align:left;display:block">' + primero + '<br><br>' + segundo
+          + '<br><br>Después volvé a tocar “Tomar foto”.</span>'
+          + '<br><span style="color:rgba(255,255,255,.4);font-size:11px">Si ya lo hiciste y sigue igual, cerrá Chrome por completo y volvé a entrar.</span></div>');
+      };
+      var _consultado = false;
+      var _resolver = function(estado){ if(_consultado) return; _consultado = true; _pintarBloqueo(estado); };
+      try{
+        if(navigator.permissions && navigator.permissions.query){
+          navigator.permissions.query({ name: 'camera' })
+            .then(function(p){ _resolver(p && p.state); })
+            .catch(function(){ _resolver(''); });          // Firefox y algunos Android no soportan 'camera'
+          setTimeout(function(){ _resolver(''); }, 1200);  // que nunca se quede sin mensaje
+        }else{ _resolver(''); }
+      }catch(e){ _resolver(''); }
     }else if(code === 'NotFoundError' || code === 'OverconstrainedError'){
       fallar('<div><b style="color:#e8734a">No se encontró la cámara</b>'
         + '<br><br><span style="color:rgba(255,255,255,.65);font-size:13px">Cerrá las otras apps que la estén usando y volvé a intentar.</span></div>');
