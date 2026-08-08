@@ -293,6 +293,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
     <div class="menu-item" onclick="sp('reporte')" id="mi-reporte">💵 Cobranza / Alcaldia</div>
     <div class="menu-group">FINANCIERO</div>
     <div class="menu-item" onclick="sp('banco')" id="mi-banco">🏦 Banco</div>
+    <div class="menu-item" onclick="sp('usd')" id="mi-usd">💵 En Dolares</div>
     <div class="menu-item" onclick="abrirFinanzas()" id="mi-financiero">💰 Finanzas</div>
     <div class="menu-group">OPERACIONES</div>
     <div class="menu-item" onclick="sp('nomina')" id="mi-nomina">👥 Nomina</div>
@@ -528,6 +529,28 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
 </div>
 
 <!-- BANCO BNC -->
+<!-- ═══ EN DOLARES — la plata como se piensa, no como la muestra el banco ══════════════════════
+     Pedido de Máximo (2026-08-08): «saber exactamente los dólares gastados e ingresados,
+     convirtiendo con la tasa del día del momento». Cada movimiento se convierte con la tasa de SU
+     PROPIO día, nunca con un promedio: entre marzo y julio la tasa pasó de 466 a 742, así que una
+     tasa única daría cualquier cosa. Cuando el BCV no publicó (sábado, domingo, feriado) vale la
+     del último día hábil, que es la vigente ese día — y esas filas se MARCAN, no se disimulan. -->
+<div id="p-usd" class="page">
+  <div class="sh"><div class="st">💵 Entradas y salidas en dólares</div>
+    <div style="display:flex;gap:8px;align-items:center">
+      <input type="date" class="fc" id="usd-des" style="width:150px" onchange="renderUsd()">
+      <input type="date" class="fc" id="usd-hta" style="width:150px" onchange="renderUsd()">
+      <button class="btn btn-s" onclick="renderUsd()">Actualizar</button>
+    </div>
+  </div>
+  <div id="usd-avisos"></div>
+  <div class="grid-4" id="usd-stats" style="margin-bottom:12px"></div>
+  <div class="ctitle">Por mes</div>
+  <div class="tw" style="margin-bottom:14px"><table><thead><tr><th>Mes</th><th>Entradas US$</th><th>Salidas US$</th><th>Neto US$</th><th>Movs</th><th title="Movimientos que cayeron en dia sin tasa publicada (sabado, domingo o feriado): se usa la del ultimo dia habil">Con tasa heredada</th></tr></thead><tbody id="tb-usd-mes"></tbody></table></div>
+  <div class="ctitle">Movimiento por movimiento <span style="font-size:11px;color:var(--text3);font-weight:400">— cada uno con la tasa de su día</span></div>
+  <div class="tw"><table><thead><tr><th>Fecha</th><th>Concepto declarado</th><th>Bs</th><th>Tasa del dia</th><th>US$</th><th>Ref</th></tr></thead><tbody id="tb-usd-mov"></tbody></table></div>
+</div>
+
 <div id="p-banco" class="page">
   <div id="subnav-banco"></div>
   <div class="switch-row">
@@ -2747,7 +2770,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
 <script src="maxrecuerda.js?v=20260806-maxrecuerda"></script>
 <!-- Formato unico de los Excel de Maxware. VA ANTES de app.js. -->
 <script src="maxware-excel.js"></script>
-<script src="app.js?v=20260808e-combustible-betangar"></script>
+<script src="app.js?v=20260808f-en-dolares"></script>
 
 <!-- Modal global -->
 <div id="modal" class="moverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9990;align-items:center;justify-content:center;padding:16px">

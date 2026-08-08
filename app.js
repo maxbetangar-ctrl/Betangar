@@ -332,14 +332,14 @@ var USUARIOS={
 };
 
 var PERMISOS={
-  superadmin:['dashboard','entregas','banco-bnc','conciliacion','checklist','mensajes-wa','planilla','historico','reporte','abonos','banco','proveedores','financiero','nomina','asistencia','fichaje','combustible','control-combustible','aud-combustible','km','unidades','documentos','inventario','llantas','metas','empleados','prestamos','multas','stats','ranking','rentabilidad','contratos','multicontrato','usuarios','auditoria','salud','config','galeria','porteria','mecanico','operativo','cxp','cajachica'],
-  admin:['dashboard','entregas','conciliacion','checklist','planilla','historico','reporte','abonos','banco','proveedores','financiero','nomina','asistencia','fichaje','combustible','control-combustible','aud-combustible','km','unidades','documentos','inventario','llantas','metas','empleados','prestamos','multas','stats','ranking','rentabilidad','contratos','multicontrato','usuarios','auditoria','salud','config','galeria','porteria','mecanico','operativo','cxp','cajachica'],
-  operador:['dashboard','entregas','planilla','historico','reporte','abonos','banco','proveedores','financiero','nomina','asistencia','fichaje','combustible','control-combustible','aud-combustible','km','unidades','documentos','inventario','llantas','metas','empleados','prestamos','multas','stats','ranking','rentabilidad','contratos','multicontrato','galeria'],
+  superadmin:['dashboard','entregas','banco-bnc','conciliacion','checklist','mensajes-wa','planilla','historico','reporte','abonos','banco','usd','proveedores','financiero','nomina','asistencia','fichaje','combustible','control-combustible','aud-combustible','km','unidades','documentos','inventario','llantas','metas','empleados','prestamos','multas','stats','ranking','rentabilidad','contratos','multicontrato','usuarios','auditoria','salud','config','galeria','porteria','mecanico','operativo','cxp','cajachica'],
+  admin:['dashboard','entregas','conciliacion','checklist','planilla','historico','reporte','abonos','banco','usd','proveedores','financiero','nomina','asistencia','fichaje','combustible','control-combustible','aud-combustible','km','unidades','documentos','inventario','llantas','metas','empleados','prestamos','multas','stats','ranking','rentabilidad','contratos','multicontrato','usuarios','auditoria','salud','config','galeria','porteria','mecanico','operativo','cxp','cajachica'],
+  operador:['dashboard','entregas','planilla','historico','reporte','abonos','banco','usd','proveedores','financiero','nomina','asistencia','fichaje','combustible','control-combustible','aud-combustible','km','unidades','documentos','inventario','llantas','metas','empleados','prestamos','multas','stats','ranking','rentabilidad','contratos','multicontrato','galeria'],
   rrhh:['dashboard','mensajes-wa','planilla','historico','reporte','proveedores','nomina','asistencia','fichaje','combustible','km','unidades','documentos','inventario','llantas','metas','empleados','prestamos','multas','ranking','galeria'],
-  visualizador:['dashboard','entregas','reporte','abonos','banco','financiero','stats','ranking','rentabilidad','contratos','galeria'],
+  visualizador:['dashboard','entregas','reporte','abonos','banco','usd','financiero','stats','ranking','rentabilidad','contratos','galeria'],
   directivo:['dashboard','entregas','historico','reporte','abonos','financiero','stats','ranking','rentabilidad'],
-  demo_admin:['dashboard','checklist','planilla','historico','reporte','abonos','banco','proveedores','financiero','nomina','asistencia','fichaje','combustible','km','unidades','documentos','inventario','llantas','metas','empleados','prestamos','multas','stats','ranking','rentabilidad','contratos','usuarios','config','galeria'],
-  demo_operador:['dashboard','planilla','historico','reporte','abonos','banco','proveedores','financiero','nomina','asistencia','fichaje','combustible','km','unidades','documentos','inventario','llantas','metas','empleados','prestamos','multas','stats','ranking','rentabilidad','contratos','galeria'],
+  demo_admin:['dashboard','checklist','planilla','historico','reporte','abonos','banco','usd','proveedores','financiero','nomina','asistencia','fichaje','combustible','km','unidades','documentos','inventario','llantas','metas','empleados','prestamos','multas','stats','ranking','rentabilidad','contratos','usuarios','config','galeria'],
+  demo_operador:['dashboard','planilla','historico','reporte','abonos','banco','usd','proveedores','financiero','nomina','asistencia','fichaje','combustible','km','unidades','documentos','inventario','llantas','metas','empleados','prestamos','multas','stats','ranking','rentabilidad','contratos','galeria'],
   demo_rrhh:['dashboard','mensajes-wa','planilla','historico','reporte','proveedores','nomina','asistencia','fichaje','combustible','km','unidades','documentos','inventario','llantas','metas','empleados','prestamos','multas','ranking','galeria'],
   asistencia:['asistencia'],
   vigilante:['porteria'],
@@ -2685,6 +2685,7 @@ function sp(id){
   }
     if(id==='planilla'){renderPlanHoy();renderAlertaDuplicadasRRHH();poblarDatalistsEmpleados();}
     if(id==='historico'){poblarSems();filtH();}
+    if(id==='usd'){try{renderUsd();}catch(e){console.error('renderUsd',e);}}
     if(id==='stats'){renderAnalisisSubnav('stats');renderStats();}
     if(id==='ranking'){renderAnalisisSubnav('ranking');calcRanking();}
     if(id==='empleados'){renderRRHHSubnav('empleados');renderEmpleados();renderCumpleanos();renderBancario();renderCarnetsPreview();try{renderScoringChoferes();}catch(e){}}
@@ -24389,3 +24390,110 @@ function montarCampanaMaxRecuerda(){
   try{ MaxRecuerda.campanita(el, { supabase: supabase }); }catch(e){ console.log('[MaxRecuerda]', e); }
 }
 setTimeout(montarCampanaMaxRecuerda, 3000);
+
+// ═══ EN DOLARES — cuánto entró y cuánto salió DE VERDAD ═══════════════════════════════════════
+// Pedido de Máximo (2026-08-08): «saber exactamente los dólares gastados e ingresados, convirtiendo
+// con la tasa del día del momento».
+//
+// ⛔ NO SE CONVIERTE CON UNA TASA PROMEDIO. Entre marzo y julio de 2026 la tasa pasó de 466 a 742:
+// aplicar una sola daría cualquier cosa. Cada movimiento se convierte con la tasa de SU PROPIO día.
+// Que el método es correcto se comprobó contra la realidad: convirtiendo así, los pagos de gasoil
+// dan un precio por litro redondo ($0,50) una y otra vez. Con la tasa equivocada saldría quebrado.
+//
+// Cuando el BCV no publicó (sábado, domingo, feriado) vale la del último día hábil — es la tasa
+// VIGENTE ese día, no una aproximación. `getTasaFechaInfo` ya hace esa búsqueda y dice si fue
+// exacta. Igual esas filas se MARCAN y se cuentan aparte: el dueño tiene que poder ver de dónde
+// sale cada número. Y si no hay tasa ni heredada, el movimiento NO se convierte y se avisa: es
+// preferible un total incompleto y declarado que uno completo e inventado.
+function _usdRango(){
+  var des=gv('usd-des'), hta=gv('usd-hta');
+  if(!des&&!hta){
+    // Por defecto, todo lo que haya: el sentido de esta pantalla es ver el acumulado real.
+    var fs=(typeof BNC_MOV!=='undefined'?BNC_MOV:[]).map(function(m){return String(m.fecha||'').slice(0,10);}).filter(Boolean).sort();
+    des=fs[0]||''; hta=fs[fs.length-1]||'';
+    if(g('usd-des'))g('usd-des').value=des;
+    if(g('usd-hta'))g('usd-hta').value=hta;
+  }
+  return {des:des, hta:hta};
+}
+function _usdFilas(){
+  var r=_usdRango();
+  return (typeof BNC_MOV!=='undefined'?BNC_MOV:[]).filter(function(m){
+    var f=String(m.fecha||'').slice(0,10);
+    if(!f)return false;
+    if(r.des&&f<r.des)return false;
+    if(r.hta&&f>r.hta)return false;
+    // Las órdenes pendientes de autorizar NO son plata que se movió: se excluyen.
+    return m.tipo==='credito'||m.tipo==='debito';
+  }).map(function(m){
+    var f=String(m.fecha).slice(0,10);
+    var info=(typeof getTasaFechaInfo==='function')?getTasaFechaInfo(f,'dolar'):null;
+    var tasa=info?info.valor:0;
+    var d=m.detalle||{};
+    return {
+      fecha:f, tipo:m.tipo, bs:Number(m.monto)||0, tasa:tasa,
+      usd:tasa>0?((Number(m.monto)||0)/tasa):null,
+      heredada:!!(info&&!info.exacta), diasAtras:info?info.dias:0,
+      concepto:d.concepto_declarado||d.concepto||m.desc||'', ref:m.ref||''
+    };
+  });
+}
+function renderUsd(){
+  var fs=_usdFilas();
+  var _e=(typeof _mEsc==='function')?_mEsc:function(s){return String(s==null?'':s);};
+  var usd=function(n){ return (n==null)?'—':'$'+Number(n).toLocaleString('es-VE',{minimumFractionDigits:2,maximumFractionDigits:2}); };
+  var bs=function(n){ return Number(n||0).toLocaleString('es-VE',{minimumFractionDigits:2,maximumFractionDigits:2}); };
+
+  var sinTasa=fs.filter(function(x){return !(x.tasa>0);});
+  var ok=fs.filter(function(x){return x.tasa>0;});
+  var ent=ok.filter(function(x){return x.tipo==='credito';}).reduce(function(s,x){return s+x.usd;},0);
+  var sal=ok.filter(function(x){return x.tipo==='debito';}).reduce(function(s,x){return s+x.usd;},0);
+  var her=ok.filter(function(x){return x.heredada;}).length;
+
+  var av='';
+  if(sinTasa.length) av+='<div style="margin-bottom:6px;font-size:11px;background:rgba(226,75,74,.12);border:1px solid rgba(226,75,74,.5);color:#e24b4a;padding:8px 10px;border-radius:8px">&#9888;&#65039; <b>'+sinTasa.length+' movimiento(s) sin tasa para su fecha</b> &mdash; no se convierten y NO entran en los totales. Cargá la tasa de esos días para que el número quede completo.</div>';
+  if(her) av+='<div class="alert-b" style="margin-bottom:6px;font-size:11px">&#8505;&#65039; <b>'+her+' movimiento(s)</b> cayeron en día sin tasa publicada (sábado, domingo o feriado): se usó la del <b>último día hábil</b>, que es la vigente ese día. Van marcados abajo con &#10554;.</div>';
+  if(g('usd-avisos'))g('usd-avisos').innerHTML=av;
+
+  var st=g('usd-stats');
+  if(st)st.innerHTML=
+     '<div class="stat"><div class="stat-lbl">Entradas</div><div class="stat-val" style="color:var(--green)">'+usd(ent)+'</div><div class="stat-sub">'+ok.filter(function(x){return x.tipo==='credito';}).length+' movimientos</div></div>'
+    +'<div class="stat"><div class="stat-lbl">Salidas</div><div class="stat-val" style="color:var(--red)">'+usd(sal)+'</div><div class="stat-sub">'+ok.filter(function(x){return x.tipo==='debito';}).length+' movimientos</div></div>'
+    +'<div class="stat"><div class="stat-lbl">Neto</div><div class="stat-val" style="color:'+((ent-sal)>=0?'var(--green)':'var(--red)')+'">'+usd(ent-sal)+'</div><div class="stat-sub">'+(sal>0?(((ent-sal)/sal)*100).toFixed(1)+'% sobre lo gastado':'')+'</div></div>'
+    +'<div class="stat"><div class="stat-lbl">Movido</div><div class="stat-val">'+usd(ent+sal)+'</div><div class="stat-sub">'+ok.length+' movimientos convertidos</div></div>';
+
+  var pm={};
+  ok.forEach(function(x){
+    var k=x.fecha.slice(0,7);
+    var a=pm[k]||(pm[k]={e:0,s:0,n:0,h:0});
+    if(x.tipo==='credito')a.e+=x.usd; else a.s+=x.usd;
+    a.n++; if(x.heredada)a.h++;
+  });
+  var MES=['','enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+  var tbm=g('tb-usd-mes');
+  if(tbm)tbm.innerHTML=(Object.keys(pm).sort().map(function(k){
+    var a=pm[k], neto=a.e-a.s;
+    return '<tr><td style="font-weight:700">'+MES[parseInt(k.slice(5,7),10)]+' '+k.slice(0,4)+'</td>'
+      +'<td style="font-family:var(--m);color:var(--green)">'+usd(a.e)+'</td>'
+      +'<td style="font-family:var(--m);color:var(--red)">'+usd(a.s)+'</td>'
+      +'<td style="font-family:var(--m);font-weight:700;color:'+(neto>=0?'var(--green)':'var(--red)')+'">'+usd(neto)+'</td>'
+      +'<td>'+a.n+'</td><td>'+(a.h?a.h:'&mdash;')+'</td></tr>';
+  }).join('')+(Object.keys(pm).length?'<tr class="tr-tot"><td>TOTAL</td><td style="font-family:var(--m)">'+usd(ent)+'</td><td style="font-family:var(--m)">'+usd(sal)+'</td><td style="font-family:var(--m)">'+usd(ent-sal)+'</td><td>'+ok.length+'</td><td>'+(her||'&mdash;')+'</td></tr>':'<tr><td colspan="6" style="text-align:center;color:var(--text3);padding:16px">Sin movimientos en ese rango</td></tr>'));
+
+  // Movimiento por movimiento — los más recientes primero, tope 400 para no colgar la pantalla.
+  var tbd=g('tb-usd-mov');
+  var lista=fs.slice().sort(function(a,b){return a.fecha<b.fecha?1:(a.fecha>b.fecha?-1:0);});
+  var tope=lista.slice(0,400);
+  if(tbd){
+    tbd.innerHTML=tope.map(function(x){
+      return '<tr'+(x.tasa>0?'':' style="background:rgba(226,75,74,.07)"')+'>'
+        +'<td style="font-family:var(--m);font-size:11px">'+formatFecha(x.fecha)+'</td>'
+        +'<td style="font-size:11px" class="td-txt">'+_e(x.concepto||'—')+'</td>'
+        +'<td style="font-family:var(--m);font-size:11px;color:'+(x.tipo==='credito'?'var(--green)':'var(--red)')+'">'+(x.tipo==='credito'?'+':'-')+bs(x.bs)+'</td>'
+        +'<td style="font-family:var(--m);font-size:11px">'+(x.tasa>0?(x.tasa.toFixed(4)+(x.heredada?' <span title="El BCV no publicó ese día ('+x.diasAtras+' día(s) atrás): vale la del último hábil" style="color:var(--amber)">&#10554;</span>':'')):'<span style="color:var(--red)">sin tasa</span>')+'</td>'
+        +'<td style="font-family:var(--m);font-weight:700">'+usd(x.usd)+'</td>'
+        +'<td style="font-size:10px;color:var(--text3)">'+_e(x.ref||'')+'</td></tr>';
+    }).join('')||'<tr><td colspan="6" style="text-align:center;color:var(--text3);padding:16px">Sin movimientos</td></tr>';
+    if(lista.length>tope.length)tbd.innerHTML+='<tr><td colspan="6" style="text-align:center;color:var(--text3);font-size:11px;padding:10px">Se muestran los '+tope.length+' más recientes de '+lista.length+'. Acotá el rango de fechas para ver el resto.</td></tr>';
+  }
+}
