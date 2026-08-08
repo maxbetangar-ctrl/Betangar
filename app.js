@@ -9314,10 +9314,10 @@ async function cargarUnidadConfig(){
   if(!(DB_READY&&supabase))return;
   try{
     // Columnas LIVIANAS (sin foto ni titulo_pdf → no cargamos blobs de todas las unidades a memoria).
-    var cols='cam,tipo,combustible,uso,nombre,marca,modelo,anio,placa,vin,serial_motor,serial_carroceria,titular,chofer,activo,notas,medida,horas_actuales,km_servicio';
+    var cols='cam,tipo,combustible,uso,nombre,marca,modelo,anio,placa,vin,serial_motor,serial_carroceria,titular,chofer,activo,notas,medida,horas_actuales,km_servicio,baterias';
     var r=await supabase.from('unidad_config').select(cols);
     if(r&&r.error){ r=await supabase.from('unidad_config').select('*'); } // fail-open si faltan columnas (migración no corrida)
-    if(r&&!r.error&&Array.isArray(r.data)){var o={};r.data.forEach(function(x){o[x.cam]={tipo:x.tipo||'',combustible:x.combustible||'',uso:x.uso||'',nombre:x.nombre||'',marca:x.marca||'',modelo:x.modelo||'',anio:x.anio||'',placa:x.placa||'',vin:x.vin||'',serialMotor:x.serial_motor||'',serialCarroceria:x.serial_carroceria||'',titular:x.titular||'',chofer:x.chofer||'',activo:x.activo!==false,notas:x.notas||'',medida:x.medida||'',horasActuales:parseFloat(x.horas_actuales)||0,kmServicio:parseFloat(x.km_servicio)||0};});UNIDAD_CONFIG=o;
+    if(r&&!r.error&&Array.isArray(r.data)){var o={};r.data.forEach(function(x){o[x.cam]={tipo:x.tipo||'',combustible:x.combustible||'',uso:x.uso||'',nombre:x.nombre||'',marca:x.marca||'',modelo:x.modelo||'',anio:x.anio||'',placa:x.placa||'',vin:x.vin||'',serialMotor:x.serial_motor||'',serialCarroceria:x.serial_carroceria||'',titular:x.titular||'',chofer:x.chofer||'',activo:x.activo!==false,notas:x.notas||'',medida:x.medida||'',horasActuales:parseFloat(x.horas_actuales)||0,baterias:(x.baterias==null?null:parseInt(x.baterias)),kmServicio:parseFloat(x.km_servicio)||0};});UNIDAD_CONFIG=o;
       // FUENTE ÚNICA de placa/chofer/vin: `unidad_config` (registro maestro) MANDA sobre el FLOTA horneado
       // para las unidades que ya estén en FLOTA. En Betangar los 12 JAC no están en unidad_config → no-op;
       // protege a los clones (FlotaMax/Flotilla) donde el FLOTA horneado se desfasó y el QR/informe imprimía
@@ -9439,8 +9439,15 @@ function _piezasResumenFicha(cam){
         '<span style="font-size:10px;color:'+gar.color+';white-space:nowrap">'+_mEsc(gar.txt)+'</span></div>';
     }).join('');
   }).join('');
+  // Si la unidad DECLARÓ cuántas baterías lleva y hay menos registradas, se
+  // dice acá — que es donde alguien está mirando la unidad.
+  var _cfg=(UNIDAD_CONFIG[cam]||{}), _esp=(_cfg.baterias==null?null:parseInt(_cfg.baterias));
+  var _hay=puestas.filter(function(p){return p.tipo==='bateria';}).length;
+  var faltan=(_esp!=null&&_hay<_esp)?('<div style="background:rgba(245,158,11,.14);border:1px solid var(--amber);border-radius:6px;padding:5px 8px;margin-bottom:6px;font-size:11px;color:var(--amber)">'+
+    '⚠️ Esta unidad lleva <b>'+_esp+'</b> batería(s) y hay <b>'+_hay+'</b> registrada(s). Falta(n) '+(_esp-_hay)+'.</div>'):'';
   return '<div class="fg" style="margin-top:4px">'+
     '<label>🔩 Piezas con serial</label>'+
+    faltan+
     '<div style="font-size:11px;border:1px solid var(--border);border-radius:6px;padding:6px 9px">'+filas+
     '<button class="btn btn-s btn-sm" style="margin-top:7px" type="button" onclick="abrirPiezasUnidad(\''+_mEsc(cam)+'\')">🔩 Ver historial y registrar cambio</button>'+
     '</div></div>';
@@ -10588,6 +10595,15 @@ async function abrirEditarUnidad(cam){
     '</div>'+
     '<div class="fr2">'+
       '<div class="fg"><label>Cómo se mide (mantenimiento)</label><select class="fc" id="u-medida" onchange="var h=document.getElementById(\'u-horas-fg\');if(h)h.style.display=this.value===\'horas\'?\'block\':\'none\'"><option value=""'+(!c.medida?' selected':'')+'>auto (según tipo)</option><option value="km"'+(c.medida==='km'?' selected':'')+'>por km (rueda — auto del chofer)</option><option value="horas"'+(c.medida==='horas'?' selected':'')+'>por horas (horímetro)</option><option value="tiempo"'+(c.medida==='tiempo'?' selected':'')+'>por tiempo (calendario)</option></select></div>'+
+      // Cuántas baterías lleva. Se pregunta acá porque es donde se describe la
+      // unidad, y porque el que llena la ficha puede CONTARLAS abriendo el capó
+      // (el voltaje hay que saberlo; la cantidad se ve).
+      '<div class="fg"><label>🔋 Baterías que lleva</label><select class="fc" id="u-baterias">'+
+        (function(){var b=(c.baterias==null?'':String(c.baterias));
+          return ['','0','1','2','3','4'].map(function(v){
+            var t=v===''?'— sin definir —':(v==='0'?'ninguna':(v+(v==='1'?' batería':' baterías')+(v==='2'?' (24 V)':'')));
+            return '<option value="'+v+'"'+(b===v?' selected':'')+'>'+t+'</option>';}).join('');})()+
+      '</select><small style="color:var(--text3);font-size:10px">Los camiones de <b>24 V llevan 2</b> (dos de 12 en serie). Con esto el sistema avisa si falta registrar alguna.</small></div>'+
       '<div class="fg" id="u-horas-fg" style="display:'+(c.medida==='horas'?'block':'none')+'"><label>Horas actuales</label><input class="fc" id="u-horas" type="number" value="'+(c.horasActuales||'')+'" placeholder="0" style="font-family:var(--m)"><small style="color:var(--text3);font-size:10px">Se actualiza al registrar mantenimiento por horas</small></div>'+
     '</div>'+
     '<div class="fr2">'+inp('u-titular','Título a nombre de',c.titular)+inp('u-chofer','Chofer asignado',choferDef)+'</div>'+
@@ -10623,11 +10639,11 @@ async function guardarUnidad(){
   var cam=(gv('u-cam')||'').trim();
   if(!cam){alert('Poné el N° de unidad (identificador)');return;}
   var esNueva=!(typeof UNIDAD_CONFIG!=='undefined' && UNIDAD_CONFIG[cam]); // ¿alta de unidad nueva?
-  var reg={cam:cam,nombre:(gv('u-nombre')||'').trim(),marca:(gv('u-marca')||'').trim(),modelo:(gv('u-modelo')||'').trim(),anio:(gv('u-anio')||'').trim(),placa:(gv('u-placa')||'').trim().toUpperCase(),vin:(gv('u-vin')||'').trim().toUpperCase(),serial_motor:(gv('u-smotor')||'').trim(),serial_carroceria:(gv('u-scarr')||'').trim(),tipo:(gv('u-tipo')||'').trim(),combustible:gv('u-comb')||'',uso:gv('u-uso')||'',medida:gv('u-medida')||'',horas_actuales:parseFloat(gv('u-horas'))||0,titular:(gv('u-titular')||'').trim(),chofer:(gv('u-chofer')||'').trim(),notas:(gv('u-notas')||'').trim(),activo:!(g('u-activo')&&!g('u-activo').checked),foto:window._unidadFoto||'',titulo_pdf:window._unidadPdf||''};
+  var reg={cam:cam,nombre:(gv('u-nombre')||'').trim(),marca:(gv('u-marca')||'').trim(),modelo:(gv('u-modelo')||'').trim(),anio:(gv('u-anio')||'').trim(),placa:(gv('u-placa')||'').trim().toUpperCase(),vin:(gv('u-vin')||'').trim().toUpperCase(),serial_motor:(gv('u-smotor')||'').trim(),serial_carroceria:(gv('u-scarr')||'').trim(),tipo:(gv('u-tipo')||'').trim(),combustible:gv('u-comb')||'',uso:gv('u-uso')||'',medida:gv('u-medida')||'',horas_actuales:parseFloat(gv('u-horas'))||0,baterias:(gv('u-baterias')===''?null:parseInt(gv('u-baterias'))),titular:(gv('u-titular')||'').trim(),chofer:(gv('u-chofer')||'').trim(),notas:(gv('u-notas')||'').trim(),activo:!(g('u-activo')&&!g('u-activo').checked),foto:window._unidadFoto||'',titulo_pdf:window._unidadPdf||''};
   var ok=false;
   if(DB_READY&&supabase){ try{ var res=await supabase.from('unidad_config').upsert([reg],{onConflict:'cam'}); if(res&&res.error){mostrarToast('No se pudo guardar: '+res.error.message,'error');} else ok=true; }catch(e){mostrarToast('Sin conexión al guardar la unidad.','error');} }
   // memoria (fuente única) — SIN los blobs foto/pdf.
-  UNIDAD_CONFIG[cam]={tipo:reg.tipo,combustible:reg.combustible,uso:reg.uso,medida:reg.medida,horasActuales:reg.horas_actuales,nombre:reg.nombre,marca:reg.marca,modelo:reg.modelo,anio:reg.anio,placa:reg.placa,vin:reg.vin,serialMotor:reg.serial_motor,serialCarroceria:reg.serial_carroceria,titular:reg.titular,chofer:reg.chofer,activo:reg.activo,notas:reg.notas};
+  UNIDAD_CONFIG[cam]={tipo:reg.tipo,combustible:reg.combustible,uso:reg.uso,medida:reg.medida,horasActuales:reg.horas_actuales,baterias:reg.baterias,nombre:reg.nombre,marca:reg.marca,modelo:reg.modelo,anio:reg.anio,placa:reg.placa,vin:reg.vin,serialMotor:reg.serial_motor,serialCarroceria:reg.serial_carroceria,titular:reg.titular,chofer:reg.chofer,activo:reg.activo,notas:reg.notas};
   window._unidadFoto='';window._unidadPdf='';
   audit('Unidad guardada',cam+(reg.placa?(' · '+reg.placa):''));
   if(typeof closeModal==='function')closeModal();
@@ -10659,12 +10675,12 @@ async function guardarUnidad(){
 async function descargarPlantillaUnidades(){
   if(typeof ExcelJS==='undefined')return _plantillaUnidadesPlano();
   try{
-    var headers=['N° Unidad','Nombre/Alias','Marca','Modelo','Año','Placa','VIN','Serial Motor','Serial Carroceria','Tipo','Combustible','Medida','Horas Actuales','Uso','Titular','Chofer','Notas'];
-    var widths=[12,20,14,14,7,12,18,16,16,20,13,10,13,12,22,18,24];
+    var headers=['N° Unidad','Nombre/Alias','Marca','Modelo','Año','Placa','VIN','Serial Motor','Serial Carroceria','Tipo','Combustible','Medida','Horas Actuales','Uso','Titular','Chofer','Notas','Baterias'];
+    var widths=[12,20,14,14,7,12,18,16,16,20,13,10,13,12,22,18,24,11];
     var rows=[
-      ['B001','Compactador 1','JAC','X200','2022','AB123CD','','','','Compactador de basura','diesel','km','','trabajo','Inversiones X C.A.','Juan Perez',''],
-      ['P001','Pickup reparto','Toyota','Hilux','2020','XY987ZZ','','','','Pickup','gasolina','km','','viajes','','',''],
-      ['PLT-01','Planta patio','Cummins','C150','2019','','','','','Planta eléctrica','diesel','horas','1250','','','','Respaldo galpon']
+      ['B001','Compactador 1','JAC','X200','2022','AB123CD','','','','Compactador de basura','diesel','km','','trabajo','Inversiones X C.A.','Juan Perez','','2'],
+      ['P001','Pickup reparto','Toyota','Hilux','2020','XY987ZZ','','','','Pickup','gasolina','km','','viajes','','','','1'],
+      ['PLT-01','Planta patio','Cummins','C150','2019','','','','','Planta eléctrica','diesel','horas','1250','','','','Respaldo galpon','1']
     ];
     var wb=new ExcelJS.Workbook(); wb.creator='FlotaMax · Maxware C.A.';
     _xlHoja(wb,{name:'Unidades',subtitulo:'Carga de unidades / vehiculos — llene una fila por unidad (las grises son ejemplos, borrelas)',headers:headers,widths:widths,rows:rows,ejemplos:3,vacias:14});
@@ -10674,7 +10690,8 @@ async function descargarPlantillaUnidades(){
       ['Combustible','diesel / gasolina / gas / electrico'],
       ['Medida','km (rueda, auto del chofer) / horas (equipos con horimetro) / tiempo (calendario). Vacio = auto segun tipo.'],
       ['Horas Actuales','Solo si va por horas: lectura actual del horimetro.'],
-      ['Placa / VIN / Seriales','Identificacion del vehiculo (para ordenes de servicio, etc.).']
+      ['Placa / VIN / Seriales','Identificacion del vehiculo (para ordenes de servicio, etc.).'],
+      ['Baterias','Cuantas baterias lleva. Los camiones de 24 V llevan 2 (dos de 12 en serie). Dejar vacio si no se sabe.']
     ]});
     _xlHoja(wb,{name:'Tipos validos',subtitulo:'Use exactamente uno de estos en la columna Tipo',headers:['Tipos validos'],widths:[36],ejemplos:0,rows:(TIPOS_UNIDAD_MANT||[]).map(function(t){return [t];})});
     await _xlDescargar(wb,'FlotaMax_Plantilla_Unidades.xlsx');
@@ -10683,7 +10700,7 @@ async function descargarPlantillaUnidades(){
 }
 function _plantillaUnidadesPlano(){
   if(typeof XLSX==='undefined'){alert('No se pudo generar el Excel.');return;}
-  var headers=['N° Unidad','Nombre/Alias','Marca','Modelo','Año','Placa','VIN','Serial Motor','Serial Carroceria','Tipo','Combustible','Medida','Horas Actuales','Uso','Titular','Chofer','Notas'];
+  var headers=['N° Unidad','Nombre/Alias','Marca','Modelo','Año','Placa','VIN','Serial Motor','Serial Carroceria','Tipo','Combustible','Medida','Horas Actuales','Uso','Titular','Chofer','Notas','Baterias'];
   var ej1={'N° Unidad':'B001','Nombre/Alias':'Compactador 1','Marca':'JAC','Modelo':'X200','Año':'2022','Placa':'AB123CD','VIN':'','Serial Motor':'','Serial Carroceria':'','Tipo':'Compactador de basura','Combustible':'diesel','Medida':'km','Horas Actuales':'','Uso':'trabajo','Titular':'Inversiones X C.A.','Chofer':'Juan Perez','Notas':''};
   var ej2={'N° Unidad':'P001','Nombre/Alias':'Pickup reparto','Marca':'Toyota','Modelo':'Hilux','Año':'2020','Placa':'XY987ZZ','VIN':'','Serial Motor':'','Serial Carroceria':'','Tipo':'Pickup','Combustible':'gasolina','Medida':'km','Horas Actuales':'','Uso':'viajes','Titular':'','Chofer':'','Notas':''};
   var ej3={'N° Unidad':'PLT-01','Nombre/Alias':'Planta patio','Marca':'Cummins','Modelo':'C150','Año':'2019','Placa':'','VIN':'','Serial Motor':'','Serial Carroceria':'','Tipo':'Planta eléctrica','Combustible':'diesel','Medida':'horas','Horas Actuales':'1250','Uso':'','Titular':'','Chofer':'','Notas':'Respaldo galpon'};
@@ -10713,7 +10730,7 @@ function importarUnidadesExcel(input){
 }
 async function _procesarUnidadesExcel(rows,input){
   if(!rows||!rows.length){alert('El Excel (hoja 1) no tiene filas.');return;}
-  var alias={cam:['n_unidad','no_unidad','numero','numero_unidad','unidad','id','codigo','n'],nombre:['nombre','alias','nombre_alias'],marca:['marca'],modelo:['modelo'],anio:['ano','anio','year','a_o'],placa:['placa','matricula'],vin:['vin'],serial_motor:['serial_motor','serial_de_motor','motor','n_motor'],serial_carroceria:['serial_carroceria','serial_de_carroceria','carroceria','chasis','n_carroceria'],tipo:['tipo','tipo_unidad','tipo_de_unidad','tipo_equipo'],combustible:['combustible','fuel'],medida:['medida','como_se_mide','se_mide'],horas_actuales:['horas','horas_actuales','horimetro'],uso:['uso'],titular:['titular','titulo_a_nombre_de','propietario','dueno'],chofer:['chofer','conductor','operador'],notas:['notas','observaciones','obs']};
+  var alias={cam:['n_unidad','no_unidad','numero','numero_unidad','unidad','id','codigo','n'],nombre:['nombre','alias','nombre_alias'],marca:['marca'],modelo:['modelo'],anio:['ano','anio','year','a_o'],placa:['placa','matricula'],vin:['vin'],serial_motor:['serial_motor','serial_de_motor','motor','n_motor'],serial_carroceria:['serial_carroceria','serial_de_carroceria','carroceria','chasis','n_carroceria'],tipo:['tipo','tipo_unidad','tipo_de_unidad','tipo_equipo'],combustible:['combustible','fuel'],medida:['medida','como_se_mide','se_mide'],horas_actuales:['horas','horas_actuales','horimetro'],uso:['uso'],titular:['titular','titulo_a_nombre_de','propietario','dueno'],chofer:['chofer','conductor','operador'],notas:['notas','observaciones','obs'],baterias:['baterias','bateria','n_baterias','cantidad_baterias']};
   var col={}; Object.keys(rows[0]).forEach(function(h){var nh=_slugComp(h); Object.keys(alias).forEach(function(f){ if(alias[f].indexOf(nh)>=0)col[f]=h; }); });
   if(!col.cam){alert('No encontre la columna del N° de Unidad. Usá la plantilla ("⬇️ Plantilla Excel").');return;}
   function nComb(v){var s=_slugComp(v); if(/diesel|gasoil/.test(s))return 'diesel'; if(/gasolina|nafta/.test(s))return 'gasolina'; if(/gnv|gas/.test(s))return 'gas'; if(/electric/.test(s))return 'electrico'; return '';}
@@ -10725,7 +10742,7 @@ async function _procesarUnidadesExcel(rows,input){
     var cam=String(r[col.cam]||'').trim(); if(!cam){sinCam++;return;}
     var tipo=nTipo(gv2(r,'tipo'));
     if(tipo&&(TIPOS_UNIDAD_MANT||[]).indexOf(tipo)<0)tiposDesc[tipo]=1;
-    regs.push({cam:cam,nombre:gv2(r,'nombre'),marca:gv2(r,'marca'),modelo:gv2(r,'modelo'),anio:gv2(r,'anio'),placa:gv2(r,'placa').toUpperCase(),vin:gv2(r,'vin').toUpperCase(),serial_motor:gv2(r,'serial_motor'),serial_carroceria:gv2(r,'serial_carroceria'),tipo:tipo,combustible:col.combustible?nComb(r[col.combustible]):'',medida:col.medida?nMed(r[col.medida]):'',horas_actuales:col.horas_actuales?(parseFloat(r[col.horas_actuales])||0):0,uso:gv2(r,'uso'),titular:gv2(r,'titular'),chofer:gv2(r,'chofer'),notas:gv2(r,'notas'),activo:true});
+    regs.push({cam:cam,nombre:gv2(r,'nombre'),marca:gv2(r,'marca'),modelo:gv2(r,'modelo'),anio:gv2(r,'anio'),placa:gv2(r,'placa').toUpperCase(),vin:gv2(r,'vin').toUpperCase(),serial_motor:gv2(r,'serial_motor'),serial_carroceria:gv2(r,'serial_carroceria'),tipo:tipo,combustible:col.combustible?nComb(r[col.combustible]):'',medida:col.medida?nMed(r[col.medida]):'',horas_actuales:col.horas_actuales?(parseFloat(r[col.horas_actuales])||0):0,uso:gv2(r,'uso'),titular:gv2(r,'titular'),chofer:gv2(r,'chofer'),notas:gv2(r,'notas'),baterias:(function(){var v=parseInt(gv2(r,'baterias'));return (isNaN(v)||v<0||v>4)?null:v;})(),activo:true});
   });
   if(!regs.length){alert('No hubo filas con N° de Unidad.');return;}
   if(!confirm('¿Importar '+regs.length+' unidad(es) del Excel? Se crean/actualizan sus fichas (por N° de unidad).'+(sinCam?('\n\n'+sinCam+' fila(s) sin N° se omiten.'):'')+(Object.keys(tiposDesc).length?('\n\n⚠ Tipos que NO están en el plan (no heredarán mantenimiento hasta corregir): '+Object.keys(tiposDesc).join(', ')):'')))return;
