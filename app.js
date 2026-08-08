@@ -9507,6 +9507,43 @@ function abrirPiezasUnidad(cam){
 // ══════════════════════════════════════════════════════════════════════════
 // REGISTRAR / CAMBIAR UNA PIEZA
 // ══════════════════════════════════════════════════════════════════════════
+
+// La OTRA pieza del mismo tipo puesta en la unidad (la pareja de la que se está
+// tocando). Para baterías de 24 V es la segunda del par.
+function _piezaPareja(cam,tipo,posicion){
+  return _piezasDe(cam).filter(function(p){
+    return p.tipo===tipo && String(p.posicion||'')!==String(posicion||'');
+  })[0]||null;
+}
+// Cuántos meses lleva puesta una pieza.
+function _mesesPuesta(p){
+  if(!p||!p.fecha_inst)return null;
+  var d=new Date(String(p.fecha_inst).slice(0,10)+'T00:00:00'), h=new Date(fechaVE()+'T00:00:00');
+  return Math.max(0, Math.round((h-d)/2592000000));
+}
+
+// Posiciones ya usadas para esa pieza en esa unidad (para sugerirlas y para
+// reconocer lo que el usuario escriba parecido).
+function _posicionesDe(cam,tipo){
+  var v={},out=[];
+  (PIEZAS||[]).filter(function(p){return p.cam===cam&&p.tipo===tipo;}).forEach(function(p){
+    var s=String(p.posicion||''); if(s&&!v[s]){v[s]=1;out.push(s);}
+  });
+  return out;
+}
+// Comparación tolerante: sin tildes, sin mayúsculas, sin espacios de más.
+// «bateria 1», «Batería 1» y «BATERIA  1» son EL MISMO sitio.
+function _posNorm(s){
+  return String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+         .toLowerCase().replace(/\s+/g,' ').trim();
+}
+// Si lo escrito coincide con una posición que ya existe, devuelve la grafía
+// existente (para que el candado de la base la reconozca como el mismo sitio).
+function _posicionCanonica(cam,tipo,escrita){
+  var n=_posNorm(escrita);
+  var ya=_posicionesDe(cam,tipo).filter(function(p){return _posNorm(p)===n;})[0];
+  return ya||String(escrita||'').trim();
+}
 function abrirCambiarPieza(cam,tipo,posicion){
   var tipos=_piezasTipos();
   if(!tipos.length){ alert('No hay ningún ítem marcado como «lleva serial» en el catálogo.'); return; }
@@ -9514,18 +9551,38 @@ function abrirCambiarPieza(cam,tipo,posicion){
   var hoy=fechaVE();
   var kmAct=(KM_DATA[cam]&&parseInt(KM_DATA[cam].km))||0;
 
-  var aviso=actual?('<div style="background:rgba(59,130,246,.12);border:1px solid var(--teal);border-radius:6px;padding:7px 9px;font-size:11px;margin-bottom:8px">'+
+  // Si la unidad lleva DOS de esta pieza (batería de 24 V), avisar por la otra:
+  // en serie se cambian de a par, y una nueva junto a una vieja se daña.
+  var _par=(typeof _piezaPareja==='function')?_piezaPareja(cam,tipo||gv('pz-tipo'),posicion):null;
+  var avisoPar=_par?('<div style="background:rgba(245,158,11,.12);border:1px solid var(--amber);border-radius:6px;padding:7px 9px;font-size:11px;margin-bottom:8px;color:var(--amber)">'+
+    '🔋 <b>Esta unidad lleva DOS</b>. La otra es <b style="font-family:var(--m)">'+_mEsc(_par.serial)+'</b>'+
+    (_par.posicion?(' ('+_mEsc(_par.posicion)+')'):'')+', puesta el '+formatFecha(_par.fecha_inst)+
+    ((function(){var m=_mesesPuesta(_par);return m!=null?(' — lleva '+m+' mes(es)'):'';})())+'.'+
+    '<br><b>En 24 V se cambian de a PAR:</b> una nueva junto a una vieja se descompensa y la nueva se daña en pocos meses. Si esa ya tiene tiempo, cambiá las dos.'+
+    '</div>'):'';
+  var aviso=avisoPar+(actual?('<div style="background:rgba(59,130,246,.12);border:1px solid var(--teal);border-radius:6px;padding:7px 9px;font-size:11px;margin-bottom:8px">'+
       'Vas a <b>reemplazar</b> la que está puesta: <b style="font-family:var(--m)">'+_mEsc(actual.serial)+'</b>'+
       ' (instalada el '+formatFecha(actual.fecha_inst)+'). Se va a cerrar sola con la fecha de este cambio.'+
       ((function(){var g2=_piezaGarantia(actual);return g2.viva?('<br><b style="color:var(--amber)">⚠ Esa pieza TODAVÍA está en garantía ('+_mEsc(g2.txt)+'). Reclamala al proveedor antes de pagar una nueva.</b>'):'';})())+
-      '</div>'):'';
+      '</div>'):'');
 
   var html=aviso+
     '<div class="fr2">'+
       '<div class="fg"><label>Pieza</label><select class="fc" id="pz-tipo" onchange="_pzTipoCambio()">'+
         tipos.map(function(t){return '<option value="'+_mEsc(t.id)+'"'+(t.id===tipo?' selected':'')+'>'+_mEsc(t.nombre)+'</option>';}).join('')+
       '</select></div>'+
-      '<div class="fg"><label>Posición <span style="color:var(--text3);font-size:10px">(vacío si es única)</span></label><input class="fc" id="pz-pos" value="'+_mEsc(posicion||'')+'" placeholder="ej: Delantera Izq."></div>'+
+      (function(){
+      // Se ofrecen las posiciones que YA tiene la unidad: escribirla distinta
+      // crea una pieza nueva en vez de reemplazar la que estaba.
+      var _ex=(typeof _posicionesDe==='function')?_posicionesDe(cam,tipo||''):[];
+      var _sug=posicion||'';
+      if(!_sug&&_ex.length===1&&/^bater/i.test(_ex[0])) _sug='Bateria 2';   // le falta la del par
+      return '<div class="fg"><label>Posición '+
+        (_ex.length?('<span style="color:var(--text3);font-size:10px">— esta unidad ya tiene: '+_mEsc(_ex.join(' · '))+'</span>')
+                   :'<span style="color:var(--text3);font-size:10px">(vacío si la unidad lleva una sola)</span>')+
+        '</label><input class="fc" id="pz-pos" list="pz-pos-lista" value="'+_mEsc(_sug)+'" placeholder="ej: Bateria 1 / Delantera Izq.">'+
+        '<datalist id="pz-pos-lista">'+_ex.map(function(p){return '<option value="'+_mEsc(p)+'">';}).join('')+'</datalist></div>';
+    })()+
     '</div>'+
     '<div class="fr2">'+
       '<div class="fg"><label>SERIAL de la pieza nueva *</label><input class="fc" id="pz-serial" placeholder="el que viene grabado en la pieza" style="font-family:var(--m);text-transform:uppercase" oninput="_pzSerialHint()"><div id="pz-serial-hint" style="font-size:10px;margin-top:3px;min-height:12px"></div></div>'+
@@ -9589,7 +9646,13 @@ async function subirFotoPieza(input){
 async function guardarPieza(){
   var cam=window._piezasCam;
   var tipo=gv('pz-tipo'), serial=(gv('pz-serial')||'').trim().toUpperCase();
-  var pos=(gv('pz-pos')||'').trim(), fecha=gv('pz-fecha')||fechaVE();
+  // Si escribió la posición con otra grafía («bateria 1» vs «Bateria 1»), se usa
+  // la que YA existe: si no, la base la toma como otro sitio y en vez de
+  // reemplazar deja dos piezas puestas.
+  var pos=(typeof _posicionCanonica==='function')
+    ? _posicionCanonica(cam, gv('pz-tipo'), gv('pz-pos'))
+    : (gv('pz-pos')||'').trim();
+  var fecha=gv('pz-fecha')||fechaVE();
   var km=parseInt(gv('pz-km'))||0, costo=parseFloat(gv('pz-costo'))||0;
   var garMeses=parseInt(gv('pz-gar'))||0, prov=(gv('pz-prov')||'').trim();
   var motivo=(gv('pz-motivo')||'').trim(), notas=(gv('pz-notas')||'').trim();
@@ -9653,6 +9716,15 @@ async function guardarPieza(){
   var msg='✅ '+(it?it.nombre:tipo)+' '+serial+' registrada en '+cam+'.';
   if(d.serial_anterior) msg+='\n\nReemplazó a la '+d.serial_anterior+', que salió el '+formatFecha(fecha)+'.';
   if(garHasta)          msg+='\nGarantía de la nueva: hasta el '+formatFecha(garHasta)+'.';
+  // La pareja: si la otra del par ya tiene tiempo, decirlo ACÁ, que es cuando
+  // todavía se puede pedir la segunda al proveedor en el mismo viaje.
+  var _parDesp=(typeof _piezaPareja==='function')?_piezaPareja(cam,tipo,pos):null;
+  if(_parDesp){
+    var _m=_mesesPuesta(_parDesp);
+    msg+='\n\n🔋 Esta unidad lleva DOS. La otra es '+_parDesp.serial+
+         ' (puesta el '+formatFecha(_parDesp.fecha_inst)+(_m!=null?(', lleva '+_m+' mes(es)'):'')+').'+
+         '\nEn 24 V se cambian de a PAR: una nueva junto a una vieja se daña. Si esa ya tiene tiempo, cambiala también.';
+  }
   if(d.anterior_en_garantia){
     msg+='\n\n⚠️ LA QUE SALIÓ TODAVÍA ESTABA EN GARANTÍA (hasta el '+formatFecha(d.anterior_garantia_hasta)+').'+
          '\nReclamale la reposición al proveedor: ya está en la lista de garantías reclamables.';
@@ -9803,7 +9875,12 @@ async function _procesarPiezasExcel(rows,input){
       // especial para la carga inicial que después se comporte distinto.
       var r=await supabase.rpc('piezas_reemplazar',{
         p_id:'PZ'+Date.now()+'-'+i, p_cam:b.cam, p_tipo:b.tipo, p_serial:b.serial,
-        p_fecha:b.fecha||fechaVE(), p_posicion:b.posicion, p_marca:b.marca,
+        p_fecha:b.fecha||fechaVE(),
+        // Misma normalizacion que el formulario: si el Excel trae la posicion
+        // con otra grafia que la ya cargada, se usa la existente en vez de
+        // crear una pieza nueva en el mismo sitio.
+        p_posicion:(typeof _posicionCanonica==='function'?_posicionCanonica(b.cam,b.tipo,b.posicion):b.posicion),
+        p_marca:b.marca,
         p_km:b.km, p_costo_usd:b.costo, p_garantia_meses:b.gar, p_proveedor:b.prov,
         p_notas:b.notas||'Carga inicial', p_motivo_retiro:'Reemplazada (carga inicial)',
         p_registrado_por:(SESION&&SESION.usuario)||''
