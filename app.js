@@ -9784,6 +9784,139 @@ function renderBuscarSerial(){
 //
 // Para 19 unidades se podría a mano; para el prospecto de 60 no.
 // ══════════════════════════════════════════════════════════════════════════
+
+// ══════════════════════════════════════════════════════════════════════════
+// EL ALTA EN UN SOLO EXCEL
+//
+// Máximo, 08/08/2026: «en el master de dar de alta, ¿meterlo todo en un mismo
+// excel?». Sí — y no es comodidad, es lo que hace que el alta se complete.
+//
+// Hasta hoy el alta eran CUATRO archivos sueltos (empresa, unidades, empleados,
+// piezas). Cuatro para mandar, cuatro para perseguir, y cuatro versiones que se
+// desincronizan: es exactamente lo que pasó esta semana — Carlos se quedó con la
+// plantilla de piezas vieja mientras la de unidades ya era la nueva.
+// Un archivo, una versión, un ida y vuelta.
+// [[norma-todo-software-nace-del-excel-de-alta]]
+//
+// EL ORDEN NO ES DECORATIVO: las piezas cuelgan de la unidad. Si se cargaran
+// primero, todas las filas se rechazarían por «la unidad no existe». Por eso el
+// importador respeta Unidades → Empleados → Piezas.
+// ══════════════════════════════════════════════════════════════════════════
+async function descargarPlantillaMaestra(){
+  if(typeof ExcelJS==='undefined'){ alert('No se pudo generar el Excel en este navegador.'); return; }
+  try{
+    var wb=MaxwareExcel.libro();
+
+    // ── 1. Empresa ── (la carga Maxware; va acá para que el cliente llene UNA sola cosa)
+    _xlHoja(wb,{name:'Empresa',subtitulo:'Datos de la empresa — complete la columna Valor',
+      headers:['Campo','Valor'],widths:[34,46],ejemplos:0,rows:[
+      ['Razon social',''],['RIF',''],['Marca corta (como la llaman)',''],
+      ['Direccion fiscal',''],['Telefono',''],['Email',''],
+      ['Contribuyente especial (si/no)',''],['Nombre del responsable',''],
+      ['Cedula del responsable',''],['WhatsApp del responsable','']],vacias:4});
+
+    // ── 2. Unidades ──
+    var hU=['N° Unidad','Nombre/Alias','Marca','Modelo','Año','Placa','VIN','Serial Motor','Serial Carroceria','Tipo','Combustible','Medida','Horas Actuales','Uso','Titular','Chofer','Notas','Baterias'];
+    _xlHoja(wb,{name:'Unidades',subtitulo:'Una fila por vehiculo o equipo. El N° de Unidad es el que despues usa todo el sistema',
+      headers:hU,widths:[12,20,14,14,7,12,18,16,16,20,13,10,13,12,22,18,24,11],
+      rows:[['B001','Compactador 1','JAC','X200','2022','AB123CD','','','','Compactador de basura','diesel','km','','trabajo','Inversiones X C.A.','Juan Perez','','2']],
+      ejemplos:1,vacias:30});
+
+    // ── 3. Empleados ──
+    var hE=['Nombre Completo','Cedula','RIF','Cargo','Unidad/Area','Banco','Tipo de Cuenta','N de Cuenta','Telefono','WhatsApp','Email','Forma de Pago','Sueldo/Tarifa','Fecha Nacimiento','Fecha Ingreso','Activo'];
+    _xlHoja(wb,{name:'Empleados',subtitulo:'Una fila por persona. La cedula identifica al empleado en todo el sistema',
+      headers:hE,widths:[24,14,14,16,12,14,14,24,15,15,22,15,13,16,14,13],
+      rows:[['JUAN PEREZ','V-12345678','','Chofer','B001','Banesco','Corriente','01340000000000000000','0414-0000000','0414-0000000','','Por viaje','10','1990-05-20','2023-01-15','si']],
+      ejemplos:1,vacias:30});
+
+    // ── 4. Piezas con serial ──
+    _xlHoja(wb,{name:'Piezas',subtitulo:'La bateria (y demas piezas con serial) que cada unidad tiene puesta HOY. Los camiones de 24 V llevan DOS: use Bateria 1 y Bateria 2',
+      headers:['N° Unidad','Pieza','Serial','Marca','Posicion','Fecha instalacion','Kilometraje','Costo $','Garantia (meses)','Proveedor','Notas'],
+      widths:[14,22,22,16,18,17,13,10,17,22,26],
+      rows:[['B001','Batería','ABC-123456','Duncan','Bateria 1','18/02/2026','118000','120','12','Baterias del Sur','']],
+      ejemplos:1,vacias:40});
+
+    // ── 5. Instrucciones ──
+    _xlHoja(wb,{name:'Instrucciones',subtitulo:'Lea esto antes de llenar',
+      headers:['Punto','Que hacer'],widths:[30,100],ejemplos:0,rows:[
+      ['EN QUE ORDEN','Llene primero Unidades, despues Empleados y por ultimo Piezas: las piezas se cuelgan de una unidad que tiene que existir.'],
+      ['Las filas grises','Son EJEMPLOS. Borrelas antes de mandar el archivo.'],
+      ['N° Unidad','Es el codigo con el que usted llama al vehiculo (B001, FC03...). Tiene que escribirse IGUAL en las hojas Unidades y Piezas.'],
+      ['Baterias','Cuantas lleva la unidad. Los camiones de 24 V llevan 2 (dos de 12 en serie). Vacio si no se sabe.'],
+      ['Piezas · Serial','Es lo unico imprescindible de esa hoja. Sin serial la fila no se carga.'],
+      ['Piezas · Posicion','Si la unidad lleva DOS baterias, use "Bateria 1" y "Bateria 2" (una fila cada una). Si lleva una sola, dejelo vacio.'],
+      ['Fechas','dd/mm/aaaa. El 03/08 es 3 de agosto.'],
+      ['No hace falta llenar todo','Lo que no sepa, dejelo vacio. Es preferible cargar lo que hay hoy y completar despues que esperar a tenerlo todo.'],
+      ['Empresa','Esa hoja la carga Maxware al configurar su instancia: llenela y devuelva el archivo.']]});
+
+    // ── 6. Valores validos ──
+    var tipos=(typeof TIPOS_UNIDAD_MANT!=='undefined'&&TIPOS_UNIDAD_MANT.length)?TIPOS_UNIDAD_MANT:[];
+    var piezasSerial=(typeof _piezasTipos==='function')?_piezasTipos().map(function(t){return t.nombre;}):[];
+    var filasV=[];
+    tipos.forEach(function(t){ filasV.push(['Unidades · Tipo', t]); });
+    ['diesel','gasolina','gas','electrico'].forEach(function(t){ filasV.push(['Unidades · Combustible', t]); });
+    ['km','horas','tiempo'].forEach(function(t){ filasV.push(['Unidades · Medida', t]); });
+    piezasSerial.forEach(function(t){ filasV.push(['Piezas · Pieza', t]); });
+    _xlHoja(wb,{name:'Valores validos',subtitulo:'Use exactamente estos valores en las columnas que los piden',
+      headers:['Columna','Valor valido'],widths:[26,40],ejemplos:0,rows:filasV});
+
+    await _xlDescargar(wb, (typeof brandArchivo==='function'?brandArchivo():'FlotaMax')+'_ALTA_completa.xlsx');
+    if(typeof mostrarToast==='function')mostrarToast('⬇️ Plantilla de alta descargada. Llenela y subala con "Importar alta".','exito');
+  }catch(e){ alert('No se pudo generar la plantilla: '+((e&&e.message)||e)); }
+}
+
+// Importa el Excel de alta completo: cada hoja va a su procesador, EN ORDEN.
+function importarPlantillaMaestra(input){
+  var f=input&&input.files&&input.files[0]; if(!f)return;
+  var reader=new FileReader();
+  reader.onload=function(e){
+    var wb;
+    try{ wb=XLSX.read(e.target.result,{type:'binary',cellDates:true}); }
+    catch(err){ alert('No se pudo leer el Excel: '+((err&&err.message)||err)); input.value=''; return; }
+    _procesarAltaMaestra(wb,input);
+  };
+  reader.readAsBinaryString(f);
+}
+
+async function _procesarAltaMaestra(wb,input){
+  // Se busca la hoja por nombre sin importar mayusculas ni acentos: el cliente
+  // renombra hojas, y fallar por una tilde seria absurdo.
+  function hoja(nombre){
+    var n=String(nombre).toLowerCase();
+    var real=(wb.SheetNames||[]).filter(function(s){
+      return String(s).normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().trim()===n;
+    })[0];
+    if(!real)return null;
+    var filas=XLSX.utils.sheet_to_json(wb.Sheets[real],{defval:''});
+    // Se descartan las filas totalmente vacias que deja Excel al final
+    return filas.filter(function(r){ return Object.keys(r).some(function(k){ return String(r[k]||'').trim()!==''; }); });
+  }
+
+  var uni=hoja('unidades'), emp=hoja('empleados'), pza=hoja('piezas');
+  var hay=[]; if(uni&&uni.length)hay.push(uni.length+' unidad(es)');
+  if(emp&&emp.length)hay.push(emp.length+' empleado(s)');
+  if(pza&&pza.length)hay.push(pza.length+' pieza(s)');
+  if(!hay.length){
+    alert('El archivo no trae filas en ninguna de las hojas Unidades, Empleados o Piezas.\n\n'+
+          'Hojas encontradas: '+((wb.SheetNames||[]).join(', ')||'ninguna'));
+    if(input)input.value=''; return;
+  }
+  if(!confirm('Se va a cargar:\n\n• '+hay.join('\n• ')+
+      '\n\nEn ese orden: primero las unidades, despues el personal y por ultimo las piezas (las piezas necesitan que la unidad ya exista).\n\n¿Seguir?')){
+    if(input)input.value=''; return;
+  }
+
+  // EL ORDEN IMPORTA: las piezas se rechazarian todas si la unidad no existe aun.
+  if(uni&&uni.length){ try{ await _procesarUnidadesExcel(uni,null); }catch(e){ alert('Unidades: '+((e&&e.message)||e)); } }
+  if(emp&&emp.length){ try{ await _procesarEmpleadosExcel(emp,null); }catch(e){ alert('Empleados: '+((e&&e.message)||e)); } }
+  if(pza&&pza.length){
+    // Las piezas se apoyan en UNIDAD_CONFIG, que acaba de crecer: se relee antes.
+    try{ if(typeof cargarUnidadConfig==='function')await cargarUnidadConfig(); }catch(e){}
+    try{ await _procesarPiezasExcel(pza,null); }catch(e){ alert('Piezas: '+((e&&e.message)||e)); }
+  }
+  if(typeof audit==='function')audit('Alta cargada por Excel', hay.join(' · '));
+  if(input)input.value='';
+}
 async function descargarPlantillaPiezas(){
   var tipos=_piezasTipos();
   if(!tipos.length){ alert('Primero marcá en el catálogo (Mantenimiento → ⏰ Preventivo) qué ítems llevan serial.'); return; }
