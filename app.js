@@ -4692,13 +4692,13 @@ function _totalEgresos(totalCob){
   // para no duplicar. Antes egGas sumaba compras+despachos + la CxP → mismo combustible 2-3 veces.
   // Combustible = la PLATA que salió a comprarlo: carga del tanque + lo surtido en ESTACIÓN.
   // Lo que sale del tanque de patio NO suma (ya se pagó al comprarlo). Ver _combEgresoUsd.
-  var _combCorte=(typeof cfg!=='"undefined"'&&cfg&&cfg.surtidasCorte)?String(cfg.surtidasCorte).slice(0,10):'""';
+  var _combCorte=(typeof cfg!=='undefined'&&cfg&&cfg.surtidasCorte)?String(cfg.surtidasCorte).slice(0,10):'""';
   var egGas=GASOIL.reduce(function(s,g){return s+_combEgresoUsd(g,_combCorte);},0);
   // Desde el corte, la verdad es la SURTIDA del chofer. Las de GALPÓN salen del tanque ya comprado
   // (no suman); las de ESTACIÓN son compra directa y suman su costo — pero valen /usr/bin/bash mientras
   // administración no las cueste, y eso se avisa aparte (no se puede inventar el precio).
   if(_combCorte){
-    egGas+=(typeof SURT_RENT!=='"undefined"'?SURT_RENT:[]).reduce(function(s,x){
+    egGas+=(typeof SURT_RENT!=='undefined'?SURT_RENT:[]).reduce(function(s,x){
       if(String(x.fecha||'""').slice(0,10)<_combCorte)return s;
       if(String(x.tanque||'""').toLowerCase().indexOf('"estacion"')<0)return s;
       return s+((typeof _surCostoUsd==='"function"')?(_surCostoUsd(x)||0):(parseFloat(x.costo_usd)||0));
@@ -4708,6 +4708,12 @@ function _totalEgresos(totalCob){
   var egFijos=(typeof GASTOS_FIJOS!=='undefined'?GASTOS_FIJOS:[]).reduce(function(s,gf){return s+(gf.monto||0);},0);
   var egVars=(typeof GASTOS_VARIABLES!=='undefined'?GASTOS_VARIABLES:[]).reduce(function(s,gv){return s+(gv.usd||0);},0);
   var egCxP=(typeof CXP!=='undefined'?CXP:[]).filter(_cxpCuentaEnEgresos).reduce(function(s,c){return s+_cxpCostoUsd(c);},0); // TODAS menos las de combustible (ya en egGas)
+  // COMISIONES BANCARIAS: gasto real que nadie registraba y que no estaba en ningún lado —
+  // ni en CxP (se comprobó: 0 filas), ni en gastos, ni en combustible. Son US$ 866 de marzo a
+  // julio, ~US$ 173 al mes, y suben con cada transferencia de nómina. El banco ya las dice;
+  // no hace falta que la administración las teclee. Ver `comisionesBancarias`.
+  var _com=(typeof comisionesBancariasUsd==='function')?comisionesBancariasUsd('',''):{usd:0,n:0,sinTasa:0};
+  var egCom=_com.usd||0;
   // Multas que paga la EMPRESA, en USD. _multaMontoUsd soporta divisa (USD/EUR) y legacy Bs;
   // si no hay tasa real para una multa en Bs/EUR, devuelve 0 (no inventa) — ver helper.
   var egMul=(typeof MULTAS!=='undefined'?MULTAS:[]).filter(function(m){return m.resp!=='chofer';}).reduce(function(s,m){return s+_multaMontoUsd(m);},0);
@@ -4718,7 +4724,7 @@ function _totalEgresos(totalCob){
   // Su CxP se excluye de egCxP por _esCxpCombustible → se cuenta UNA sola vez aquí. El galpón ya está
   // en egGas (compras); las surtidas de galpón son movimiento interno del tanque (no se suman).
   var egEst=(typeof COMB_PERIODOS!=='undefined'?COMB_PERIODOS:[]).reduce(function(s,p){return s+(parseFloat(p.costo_total_usd)||0);},0);
-  return egNom+egGas+egEst+eg75+egFijos+egVars+egCxP+egMul+egGasol;
+  return egNom+egGas+egEst+eg75+egFijos+egVars+egCxP+egMul+egGasol+egCom;
 }
 function _utilReal(totalCob){ return (totalCob||0) - _totalEgresos(totalCob); }
 function renderDashFinanciero(totalM,totalCob,porcobrar){
@@ -15488,13 +15494,13 @@ function renderFinDash(){
   // Combustible = solo COMPRAS (no despachos); las CxP de combustible se excluyen de egCxP (= _totalEgresos)
   // Combustible = la PLATA que salió a comprarlo: carga del tanque + lo surtido en ESTACIÓN.
   // Lo que sale del tanque de patio NO suma (ya se pagó al comprarlo). Ver _combEgresoUsd.
-  var _combCorte=(typeof cfg!=='"undefined"'&&cfg&&cfg.surtidasCorte)?String(cfg.surtidasCorte).slice(0,10):'""';
+  var _combCorte=(typeof cfg!=='undefined'&&cfg&&cfg.surtidasCorte)?String(cfg.surtidasCorte).slice(0,10):'""';
   var egGas=GASOIL.reduce(function(s,g){return s+_combEgresoUsd(g,_combCorte);},0);
   // Desde el corte, la verdad es la SURTIDA del chofer. Las de GALPÓN salen del tanque ya comprado
   // (no suman); las de ESTACIÓN son compra directa y suman su costo — pero valen /usr/bin/bash mientras
   // administración no las cueste, y eso se avisa aparte (no se puede inventar el precio).
   if(_combCorte){
-    egGas+=(typeof SURT_RENT!=='"undefined"'?SURT_RENT:[]).reduce(function(s,x){
+    egGas+=(typeof SURT_RENT!=='undefined'?SURT_RENT:[]).reduce(function(s,x){
       if(String(x.fecha||'""').slice(0,10)<_combCorte)return s;
       if(String(x.tanque||'""').toLowerCase().indexOf('"estacion"')<0)return s;
       return s+((typeof _surCostoUsd==='"function"')?(_surCostoUsd(x)||0):(parseFloat(x.costo_usd)||0));
@@ -24496,4 +24502,81 @@ function renderUsd(){
     }).join('')||'<tr><td colspan="6" style="text-align:center;color:var(--text3);padding:16px">Sin movimientos</td></tr>';
     if(lista.length>tope.length)tbd.innerHTML+='<tr><td colspan="6" style="text-align:center;color:var(--text3);font-size:11px;padding:10px">Se muestran los '+tope.length+' más recientes de '+lista.length+'. Acotá el rango de fechas para ver el resto.</td></tr>';
   }
+}
+
+// ═══ COMISIONES BANCARIAS — un gasto real que nadie registraba ════════════════════════════════
+// Máximo, 2026-08-08: «para una administradora es muy difícil registrar cada comisión bancaria…
+// ¿tenés opción de reconocerlas vos y guardarlas como gasto?» — y después: «claro que entren en la
+// utilidad real, eso es un gasto real que se debe tomar en cuenta».
+//
+// No hacía falta que nadie las registre: el banco ya las dice. Mirando el estado de cuenta de marzo
+// a julio salió la regla, y es limpia: **el banco cobra 0,3% por transferencia**, y la comisión
+// aparece como una línea aparte, el MISMO día y con la MISMA descripción que el pago que la generó.
+//
+// Dos criterios, y entre los dos las agarran todas:
+//   1. El banco lo dice él mismo («COMISION X CRED. INMDTO.», «Comisión Mantenimiento Cuenta»).
+//   2. Un débito que es ≤0,3% de otro débito MAYOR del mismo día y con la misma descripción.
+//
+// ⚠️ El criterio 2 SOLO vale con el techo del 0,3%. Sin él se lleva por delante 238 pagos legítimos
+// (se midió): los pagos de verdad van de 0,3% a 95% del hermano, las comisiones nunca pasan de
+// 0,300%. La franja no se solapa, por eso el corte es seguro.
+//
+// Resultado sobre marzo–julio: **542 comisiones, Bs 510.826 = US$ 865,62** (~US$ 173/mes). Y la
+// regla resultó MÁS precisa que el trabajo a mano: encontró 27 que la administración había
+// etiquetado como «PAGO DE NÓMINA», todas exactamente 0,300% de un pago de nómina. Nadie puede
+// hacer esto a mano bien — por eso hay que sacárselo de encima, no pedirle más cuidado.
+var COM_TOPE_RATIO = 0.00301;   // 0,3% + margen de redondeo del banco
+
+function _esComisionBancaria(m, hermanoMayor){
+  if(!m || m.tipo!=='debito') return false;
+  var d = m.detalle||{};
+  var txt = String(d.descripcion_banco || m.desc || '').toLowerCase();
+  if(txt.indexOf('comisi')>=0) return true;                     // el banco la nombra
+  var bs = Number(m.monto)||0;
+  return !!(hermanoMayor>0 && bs>0 && (bs/hermanoMayor) <= COM_TOPE_RATIO);
+}
+
+// Devuelve las comisiones del período con su monto en Bs y en USD (cada una a la tasa de SU día).
+function comisionesBancarias(des, hta){
+  var movs = (typeof BNC_MOV!=='undefined'?BNC_MOV:[]).filter(function(m){
+    var f=String(m.fecha||'').slice(0,10);
+    if(!f || m.tipo!=='debito') return false;
+    if(des&&f<des) return false;
+    if(hta&&f>hta) return false;
+    return true;
+  });
+  // Índice por día+descripción del banco, para encontrar el pago que generó la comisión.
+  var idx={};
+  movs.forEach(function(m){
+    var d=m.detalle||{};
+    var k=String(m.fecha).slice(0,10)+'|'+String(d.descripcion_banco||m.desc||'');
+    var bs=Number(m.monto)||0;
+    if(!idx[k]||bs>idx[k]) idx[k]=bs;
+  });
+  var out=[];
+  movs.forEach(function(m){
+    var d=m.detalle||{};
+    var k=String(m.fecha).slice(0,10)+'|'+String(d.descripcion_banco||m.desc||'');
+    var mayor=idx[k];
+    var bs=Number(m.monto)||0;
+    // El "hermano" tiene que ser ESTRICTAMENTE mayor: si el máximo del grupo es él mismo, no hay.
+    var hermano=(mayor>bs)?mayor:0;
+    if(!_esComisionBancaria(m, hermano)) return;
+    var f=String(m.fecha).slice(0,10);
+    var info=(typeof getTasaFechaInfo==='function')?getTasaFechaInfo(f,'dolar'):null;
+    var tasa=info?info.valor:0;
+    out.push({fecha:f, bs:bs, tasa:tasa, usd:tasa>0?(bs/tasa):null, heredada:!!(info&&!info.exacta),
+              desc:String(d.descripcion_banco||m.desc||''), ref:m.ref||''});
+  });
+  return out;
+}
+
+// Total en USD para la Utilidad Real. Una comisión SIN tasa para su fecha no se convierte: no se
+// inventa un dólar. Se cuentan aparte para poder avisarlo.
+function comisionesBancariasUsd(des, hta){
+  var c=comisionesBancarias(des,hta);
+  var usd=0, sinTasa=0;
+  c.forEach(function(x){ if(x.usd!=null) usd+=x.usd; else sinTasa++; });
+  return {usd:Math.round(usd*100)/100, n:c.length, sinTasa:sinTasa,
+          bs:Math.round(c.reduce(function(s,x){return s+x.bs;},0)*100)/100};
 }
