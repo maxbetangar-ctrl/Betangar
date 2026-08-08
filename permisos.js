@@ -25,7 +25,7 @@
 //
 //  ⚠️ Al tocar este archivo, tocarlo en TODOS los productos: es la misma pieza copiada.
 // ════════════════════════════════════════════════════════════════════════════════════════════
-(function(raiz){
+var MWPermiso = (function(raiz){
   'use strict';
 
   var DATOS = {
@@ -136,6 +136,16 @@
 
   var API = { pasos: pasos, pasosTexto: pasosTexto, explicar: explicar, explicarTexto: explicarTexto,
               esIOS: esIOS, nombreNavegador: nombreNavegador };
-  if(typeof module !== 'undefined' && module.exports) module.exports = API;
-  raiz.MWPermiso = API;
+  raiz.MWPermiso = API;   // para las apps que lo cargan con <script src="permisos.js">
+  return API;
 })(typeof window !== 'undefined' ? window : globalThis);
+
+// ⚠️ El `module.exports` va ACÁ, a nivel superior, y no adentro de la función de arriba.
+// Webpack analiza el archivo SIN ejecutarlo: si la asignación está dentro de una función, no la ve
+// y rechaza `import MWPermiso from '../lib/permisos'` con «does not contain a default export» —
+// el build de MaxStock se cayó justo por eso. `default` además, para que ande igual con `import`
+// y con `require()`.
+if(typeof module !== 'undefined' && module.exports){
+  module.exports = MWPermiso;
+  module.exports.default = MWPermiso;
+}
