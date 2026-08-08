@@ -4704,7 +4704,12 @@ function _totalEgresos(totalCob){
       return s+((typeof _surCostoUsd==='"function"')?(_surCostoUsd(x)||0):(parseFloat(x.costo_usd)||0));
     },0);
   }
-  var eg75=totalCob*0.075;                                                                 // 7.5% Betangar
+  // Pago a socio. Ya NO es un 7,5% plano: cada factura lleva el porcentaje que le tocaba (7%
+  // hasta la 625, 7,5% desde la 626) y el total se muestra SEPARADO — 7% de Máximo y 0,5% de
+  // ayuda interna, que pasa por él y entrega a otra persona. Al gasto entra todo; lo que no
+  // puede pasar es que sus socios lean el 7,5% como si fuera plata suya. Ver `pagoSocioDesglose`.
+  var _soc=(typeof pagoSocioDesglose==='function')?pagoSocioDesglose('',''):{total:totalCob*0.075,maximo:totalCob*0.07,ayuda:totalCob*0.005};
+  var eg75=_soc.total;
   var egFijos=(typeof GASTOS_FIJOS!=='undefined'?GASTOS_FIJOS:[]).reduce(function(s,gf){return s+(gf.monto||0);},0);
   var egVars=(typeof GASTOS_VARIABLES!=='undefined'?GASTOS_VARIABLES:[]).reduce(function(s,gv){return s+(gv.usd||0);},0);
   var egCxP=(typeof CXP!=='undefined'?CXP:[]).filter(_cxpCuentaEnEgresos).reduce(function(s,c){return s+_cxpCostoUsd(c);},0); // TODAS menos las de combustible (ya en egGas)
@@ -16139,7 +16144,22 @@ function _capHtml(){
     d.abo.slice().sort(function(a,b){return a.f<b.f?-1:1;}).map(function(a){
       return '<tr><td>'+formatFecha(a.f)+'</td><td>'+e(a.fact||'')+'</td><td style="text-align:right">'+_capNum(a.m)+'</td></tr>';}).join('')+
     '<tr class="tr-total"><td colspan="2">TOTAL COBRADO</td><td style="text-align:right">'+_capNum(d.cobrado)+'</td></tr></tbody></table>'+
-    (d.pct>0?'<p class="cap-nota"><b>Participación del socio al '+d.pct+'% de lo cobrado: USD '+_capNum(d.socio)+'</b>. Es el cálculo del porcentaje sobre los cobros de arriba, para poder cotejarlo contra lo efectivamente pagado. El sistema NO registra ese pago: sale del libro de bancos.</p>':'');
+    // ⛔ NO SE MUESTRA COMO UN SOLO BLOQUE A NOMBRE DEL SOCIO.
+    // Máximo, 2026-08-08: «cuando le muestre a mis socios no quiero que piensen que es más dinero
+    // del que es: que se vea cuánto es comisión a mí y lo otro es a la otra persona». El 0,5% que
+    // se agregó al pasar de 7% a 7,5% (factura 000626, abril 2026) **pasa por él y lo entrega**:
+    // no es ingreso suyo. Al gasto de la empresa entra todo; a la lectura, separado.
+    (function(){
+      var s=(typeof pagoSocioDesglose==='function')?pagoSocioDesglose(d.r&&d.r.des,d.r&&d.r.hta):null;
+      if(s&&s.total>0){
+        return '<p class="cap-nota"><b>Pago a socio sobre lo cobrado: USD '+_capNum(s.total)+'</b>'
+          +'<br>&nbsp;&nbsp;• <b>USD '+_capNum(s.maximo)+'</b> — participación del socio (7%).'
+          +(s.ayuda>0?'<br>&nbsp;&nbsp;• <b>USD '+_capNum(s.ayuda)+'</b> — ayuda interna (0,5%): se entrega a un tercero, <u>no es ingreso del socio</u>.':'')
+          +'<br><span style="font-size:11px">El porcentaje cambió de 7% a 7,5% a partir de la factura 000626 (abril 2026); cada factura se calcula con el suyo. '
+          +'El sistema NO registra el pago: sale del libro de bancos, y ahí se puede cotejar.</span></p>';
+      }
+      return (d.pct>0?'<p class="cap-nota"><b>Participación del socio al '+d.pct+'% de lo cobrado: USD '+_capNum(d.socio)+'</b>. Es el cálculo del porcentaje sobre los cobros de arriba, para poder cotejarlo contra lo efectivamente pagado. El sistema NO registra ese pago: sale del libro de bancos.</p>':'');
+    })();
   // ── Banco: lo que ENTRÓ, y los montos repetidos ──
   var movHtml=!d.mov.length?'<p class="cap-vacio">Sin movimientos en el período.</p>':
     (d.repes.length?'<h3>Montos idénticos el mismo día — '+d.repes.length+' caso(s)</h3>'+
@@ -24579,4 +24599,56 @@ function comisionesBancariasUsd(des, hta){
   c.forEach(function(x){ if(x.usd!=null) usd+=x.usd; else sinTasa++; });
   return {usd:Math.round(usd*100)/100, n:c.length, sinTasa:sinTasa,
           bs:Math.round(c.reduce(function(s,x){return s+x.bs;},0)*100)/100};
+}
+
+// ═══ PAGO A SOCIO: 7% de Máximo + 0,5% de AYUDA INTERNA ═══════════════════════════════════════
+// Máximo, 2026-08-08:
+//   «Al principio sí eran 7% y en algún momento se negoció en 7,5%. Ese 0,5% es algo que me lo dan
+//    a mí pero que realmente va para otra persona y yo lo pago.»
+//   «Debe ingresar en la utilidad real todo, solo que una cosa no es para mí y la otra sí.»
+//   «Cuando le muestre a mis socios no quiero que piensen que es más dinero del que es: que se vea
+//    cuánto es comisión a mí y lo otro es a la otra persona.»
+//
+// O sea: al GASTO entra el total (la empresa lo paga igual), pero NUNCA se muestra como un solo
+// bloque a nombre de Máximo. Son dos conceptos con dos destinatarios distintos.
+//
+// ⚠️ Y el porcentaje CAMBIÓ. Lo dice el propio estado de cuenta:
+//     factura 000625, pagada el 11/04 → «PAGO A SOCIO 7% DE FACTURA 0625»
+//     factura 000626, pagada el 20/04 → «PAGO A SOCIO 7,5%»
+// Hasta hoy el sistema aplicaba 7,5% a TODO, incluidas las 3 facturas de cuando era 7%: restaba
+// US$ 319,68 de más. Ahora cada factura lleva el porcentaje que le tocaba.
+var SOCIO_FACT_75 = 626;     // desde esta factura el pago pasó de 7% a 7,5%
+var SOCIO_PCT_MAXIMO = 0.07; // lo que de verdad es de Máximo, en las dos etapas
+
+// Número de factura comparable: el banco escribe «00633» y `abonos` guarda «000633».
+function _socioNumFact(fact){
+  var d=String(fact==null?'':fact).replace(/[^0-9]/g,'');
+  if(!d) return null;
+  var n=parseInt(d,10);
+  return isNaN(n)?null:n;
+}
+function _socioPct(fact){
+  var n=_socioNumFact(fact);
+  // Sin número de factura no se adivina: vale el vigente (7,5%).
+  if(n==null) return 0.075;
+  return (n<SOCIO_FACT_75)?0.07:0.075;
+}
+
+// Desglose sobre los abonos del período: total, la parte de Máximo y la de ayuda interna.
+// Se recorre factura por factura porque el porcentaje depende de CUÁL es, no de la fecha de cobro.
+function pagoSocioDesglose(des, hta){
+  var r={total:0, maximo:0, ayuda:0, cobrado:0, n:0};
+  (typeof ABONOS!=='undefined'?ABONOS:[]).forEach(function(a){
+    var f=String(a.f||'').slice(0,10);
+    if(des&&f<des) return;
+    if(hta&&f>hta) return;
+    var m=Number(a.m)||0; if(!(m>0)) return;
+    var pct=_socioPct(a.fact);
+    r.cobrado+=m; r.n++;
+    r.total  += m*pct;
+    r.maximo += m*SOCIO_PCT_MAXIMO;
+    r.ayuda  += m*(pct-SOCIO_PCT_MAXIMO);
+  });
+  ['total','maximo','ayuda','cobrado'].forEach(function(k){ r[k]=Math.round(r[k]*100)/100; });
+  return r;
 }
