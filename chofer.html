@@ -708,7 +708,43 @@ if('serviceWorker' in navigator){
   });
 }
 
+// ── AVISAR EN EL GALPÓN, NO EN LA CALLE ─────────────────────────────────────────────────────────
+// La otra mitad de «que no vuelva a pasar»: hasta hoy el chofer se enteraba de que tenía la cámara
+// o el GPS bloqueados **en el momento de usarlos** — parado frente al cliente, con el camión
+// esperando. El teléfono ya sabe el estado del permiso desde que se abre la pantalla; no hay
+// ninguna razón para callarlo hasta que estorbe.
+// Solo avisa si está DENEGADO. Si está en 'prompt' no se dice nada: el navegador va a preguntar
+// solo cuando toque, y adelantarse ahí sería ruido.
+function avisarPermisosAlArrancar(){
+  if(!(navigator.permissions && navigator.permissions.query)) return;
+  ['camera','geolocation'].forEach(function(tipo){
+    try{
+      navigator.permissions.query({ name: tipo }).then(function(p){
+        if(!p || p.state !== 'denied') return;
+        var barra = document.getElementById('aviso-permisos');
+        if(!barra){
+          barra = document.createElement('div');
+          barra.id = 'aviso-permisos';
+          barra.style.cssText = 'position:sticky;top:0;z-index:9000;background:#4a2c12;border-bottom:1px solid rgba(232,115,74,.5);color:#ffd9c4;padding:10px 14px;font-size:12px;line-height:1.45';
+          document.body.insertBefore(barra, document.body.firstChild);
+        }
+        var que = (tipo === 'camera') ? 'la cámara' : 'la ubicación';
+        var fila = document.createElement('div');
+        fila.style.cssText = 'margin:4px 0';
+        fila.innerHTML = '⚠️ <b>Este teléfono tiene bloqueada ' + que + '.</b> '
+          + '<a href="#" style="color:#ffd9c4;text-decoration:underline">Ver cómo arreglarlo</a> — mejor hacelo ahora, antes de salir.';
+        fila.querySelector('a').onclick = function(ev){
+          ev.preventDefault();
+          if(hayMWPermiso()) MWPermiso.explicar(tipo, function(html){ fila.innerHTML = html; });
+        };
+        barra.appendChild(fila);
+      }).catch(function(){});
+    }catch(e){}
+  });
+}
+
 document.addEventListener('DOMContentLoaded', function(){
+  try{ avisarPermisosAlArrancar(); }catch(e){}
   var params = new URLSearchParams(window.location.search);
   cam = (params.get('cam') || '').toUpperCase().trim();
   if(!cam){ mostrarErrorCam(); return; }
@@ -1224,11 +1260,49 @@ function abrirCamara(onFoto){
   var msg   = ov.querySelector('#cam-msg');
   ov.querySelector('#cam-x').onclick = _camCerrar;
 
+  // ⛔ ARREGLAR NO ES EXPLICAR MEJOR EL PROBLEMA.
+  // El 2026-08-08 Omar quedó sin poder trabajar porque la cámara estaba bloqueada. Se mejoró el
+  // mensaje… y la persona seguía chocando contra la misma pared, ahora con mejores indicaciones.
+  // Máximo lo marcó: «se repara para que NO PASE DE NUEVO, no se parcha».
+  //
+  // La reparación de verdad: cuando el navegador no da la cámara, **se usa la del teléfono**.
+  // `capture="environment"` abre la app de cámara del propio equipo, que NO depende del permiso
+  // del sitio ni del que el sistema le da al navegador. Con eso el bloqueo deja de ser una pared:
+  // el chofer entrega igual, y arregla el permiso cuando pueda, no en medio de la calle.
+  //
+  // ⚠️ La foto sigue siendo EN VIVO: `capture` le pide al equipo la cámara, no la galería. Pero no
+  // todos los navegadores lo respetan, así que la foto que entra por acá se marca `viaCamaraOS`
+  // para que la evidencia diga CÓMO se tomó. Ver [norma-foto-de-evidencia-camara-en-vivo]: lo que
+  // esa norma prohíbe es que una foto vieja pase por evidencia sin que se note, no que el chofer
+  // use la cámara de su teléfono.
+  function ofrecerCamaraDelTelefono(){
+    var inp = document.createElement('input');
+    inp.type = 'file'; inp.accept = 'image/*'; inp.setAttribute('capture', 'environment');
+    inp.style.display = 'none';
+    document.body.appendChild(inp);
+    inp.onchange = function(){
+      var f = inp.files && inp.files[0];
+      try{ document.body.removeChild(inp); }catch(e){}
+      if(!f) return;
+      try{ f.viaCamaraOS = true; }catch(e){}
+      _camCerrar();
+      onFoto(f);
+    };
+    inp.click();
+  }
+
   function fallar(html){
     video.style.display = 'none';
     ov.querySelector('#cam-bar').style.display = 'none';
     msg.style.display = 'flex';
-    msg.innerHTML = html;
+    // La salida va ARRIBA del instructivo: primero se resuelve el trabajo, después el permiso.
+    msg.innerHTML =
+      '<div style="max-width:520px">'
+      + '<button type="button" id="cam-os" style="width:100%;padding:16px;border-radius:12px;background:#7dc941;color:#06210a;border:none;font-size:16px;font-weight:800;cursor:pointer;font-family:inherit">📲 Tomar la foto con la cámara del teléfono</button>'
+      + '<div style="font-size:12px;color:rgba(255,255,255,.55);margin:8px 0 18px">Esto abre la cámara de tu teléfono y no necesita ningún permiso del navegador. Podés seguir trabajando ya.</div>'
+      + '<div style="border-top:1px solid rgba(255,255,255,.12);padding-top:16px">' + html + '</div>'
+      + '</div>';
+    var b = ov.querySelector('#cam-os'); if(b) b.onclick = ofrecerCamaraDelTelefono;
   }
 
   if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){

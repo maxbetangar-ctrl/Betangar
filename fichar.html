@@ -71,6 +71,10 @@ input{width:100%;background:#0f2038;border:1px solid rgba(255,255,255,.14);borde
 <script>
 var SB = supabase.createClient('https://hrkjddehqnzcqwlkklqm.supabase.co', 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhya2pkZGVocW56Y3F3bGtrbHFtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc2NTk1NzIsImV4cCI6MjA5MzIzNTU3Mn0.kqWKthyZfPZ86toql7shGByF-ZhUpcQUS4Jw4RnG_ko');
 var EMPS=[], SEL=null, SELFIE_FILE=null, POS=null, watchId=null, SITIO_FIJO=null;
+// Por QUÉ no hay ubicación. Sin esto, un permiso bloqueado y una señal lenta se veían igual, y
+// al que tenía el permiso bloqueado le decíamos «esperá unos segundos» — cosa que no lo iba a
+// arreglar nunca. Es la misma pared que encontró Omar con la cámara el 2026-08-08.
+var GPS_BLOQUEADO=false;
 // Si el QR es por sucursal (fichar.html?sitio=ID), la sucursal viene del QR (prueba de presencia).
 async function cargarSitioFijo(){
   try{
@@ -139,6 +143,7 @@ function iniciarGPS(){
     // qué tocar es lo peor que puede pasar. Si el permiso está negado, `permisos.js` arma los pasos
     // según dónde esté el bloqueo (el sitio o el permiso del sistema) y según el teléfono.
     $('gps').className='gps bad';
+    if(err && err.code === 1) GPS_BLOQUEADO = true;
     if(err && err.code === 1 && typeof MWPermiso !== 'undefined' && MWPermiso.explicar){
       MWPermiso.explicar('geolocation', function(html){ $('gps').innerHTML = html; });
     }else if(err && err.code === 1){
@@ -186,6 +191,12 @@ async function registrar(){
   if(clave.length<4){ res.innerHTML='<div class="res bad">Poné los 4 dígitos de tu cédula.</div>'; return; }
   if(!SELFIE_FILE){ res.innerHTML='<div class="res bad">Falta la selfie.</div>'; return; }
   if(!SITIO_FIJO){ // modo general: el GPS es obligatorio y debe ser preciso (en modo QR es tolerante)
+    if(!POS && GPS_BLOQUEADO){
+      // Está BLOQUEADO: esperar no sirve. Se dan los pasos acá mismo, donde está trancado.
+      res.innerHTML='<div class="res bad">La ubicación está bloqueada en este teléfono — por eso no podés fichar. Mirá el aviso de arriba para arreglarlo.</div>';
+      if(typeof MWPermiso!=='undefined' && MWPermiso.explicarTexto){ MWPermiso.explicarTexto('geolocation', function(t){ res.innerHTML='<div class="res bad" style="white-space:pre-line;text-align:left">'+t+'</div>'; }); }
+      return;
+    }
     if(!POS){ res.innerHTML='<div class="res bad">Todavía no hay ubicación. Esperá unos segundos.</div>'; return; }
     if(POS.acc>80){ res.innerHTML='<div class="res bad">GPS muy impreciso (±'+Math.round(POS.acc)+' m). Salí a cielo abierto y reintentá.</div>'; return; }
   }
