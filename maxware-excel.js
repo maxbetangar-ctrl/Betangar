@@ -120,7 +120,12 @@
     var EJS = ExcelJSdisponible();
     if (!EJS) return null;
     var wb = new EJS.Workbook();
+    // Los metadatos también los ve el cliente (Archivo → Información en Excel).
+    // Sin esto, `lastModifiedBy` sale como «Unknown», que además de feo delata
+    // que el archivo lo generó algo automático. Van los tres con la marca.
     wb.creator = marca() + ' · Maxware C.A.';
+    wb.lastModifiedBy = marca() + ' · Maxware C.A.';
+    wb.company = 'Maxware C.A.';
     wb.created = new Date(0);   // fecha fija: dos corridas iguales dan el mismo archivo
     return wb;
   }
