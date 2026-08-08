@@ -76,7 +76,25 @@ comoSiFuera(UA.androidChrome);
 ok('ubicación menciona encender el GPS', /GPS del tel/.test(txt('geolocation', '')));
 ok('cámara NO habla de GPS', !/GPS/.test(txt('camera', '')));
 
-// ── 5. Nunca se queda sin respuesta ─────────────────────────────────────────────────────────
+// ── 5. La versión en TEXTO dice lo mismo que la de HTML ─────────────────────────────────────
+// Las pantallas de Next pintan `{mensaje}` en JSX, que escapa el HTML: ahí las etiquetas se verían
+// escritas. Por eso hay una versión en texto pelado — y tiene que decir EXACTAMENTE lo mismo, o
+// tarde o temprano se arregla una y la otra queda mintiendo.
+console.log('\nLa versión en texto dice lo mismo que la de HTML:');
+comoSiFuera(UA.androidChrome);
+// Compara el CONTENIDO, no el formato: el HTML separa con <br> y el texto con saltos de línea, así
+// que las etiquetas se cambian por un espacio (no se borran) y después se colapsa todo.
+const normal = s => String(s).replace(/<[^>]+>/g, ' ').replace(/\s+([.,»])/g, '$1').replace(/«\s+/g, '«').replace(/\s+/g, ' ').trim();
+['camera', 'geolocation'].forEach(function (t) {
+  ['denied', ''].forEach(function (e) {
+    eq(t + ' / "' + (e || 'desconocido') + '": el texto coincide con el HTML',
+      normal(P.pasosTexto(t, e)), normal(P.pasos(t, e)));
+  });
+});
+ok('la versión en texto no lleva ni una etiqueta', !/<[a-z/]/i.test(P.pasosTexto('geolocation', '')));
+ok('y conserva los saltos de línea para que se lea en el teléfono', /\n\n/.test(P.pasosTexto('geolocation', '')));
+
+// ── 6. Nunca se queda sin respuesta ─────────────────────────────────────────────────────────
 // Si `navigator.permissions` no existe o no contesta, igual hay que decirle algo a la persona.
 console.log('\nNunca deja a la persona sin instrucciones:');
 comoSiFuera(UA.androidChrome);   // sin `permissions` en el stub

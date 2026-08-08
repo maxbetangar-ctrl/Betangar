@@ -70,33 +70,57 @@
       + '</b> → <b>Permisos</b> → <b>' + d.opcion + '</b> → <b>Permitir</b>.';
   }
 
-  // `estado` es lo que respondió navigator.permissions ('denied' | 'prompt' | 'granted' | '').
-  function pasos(tipo, estado){
+  // Las PIEZAS del mensaje, una sola vez. De acá salen las dos formas de mostrarlo (con HTML o en
+  // texto pelado), para que las dos digan exactamente lo mismo y no se desincronicen nunca.
+  function partes(tipo, estado){
     var d = DATOS[tipo] || DATOS.camera;
     var sitio = pasoSitio(d), sistema = pasoSistema(d);
     // Si el sitio NO está bloqueado, el corte es del sistema: ese va primero.
-    var primero = (estado === 'denied') ? sitio   : sistema;
-    var segundo = (estado === 'denied') ? sistema : sitio;
-    var aclara  = (estado === 'denied')
-      ? 'Si ahí no aparece «' + d.opcion + '», seguí con el paso 2.'
-      : 'Si ahí ya está permitido, seguí con el paso 2.';
-    var extraGps = (tipo === 'geolocation')
-      ? '<br><br>Y comprobá que el <b>GPS del teléfono</b> esté encendido (se prende desde la barra de arriba).'
-      : '';
-    return '<b style="color:#e8734a">' + d.titulo + '</b>'
+    return {
+      titulo:  d.titulo,
+      uno:     (estado === 'denied') ? sitio   : sistema,
+      dos:     (estado === 'denied') ? sistema : sitio,
+      aclara:  (estado === 'denied')
+                 ? 'Si ahí no aparece «' + d.opcion + '», seguí con el paso 2.'
+                 : 'Si ahí ya está permitido, seguí con el paso 2.',
+      gps:     (tipo === 'geolocation')
+                 ? 'Y comprobá que el <b>GPS del teléfono</b> esté encendido (se prende desde la barra de arriba).'
+                 : '',
+      cierre:  'Después volvé a tocar «<b>' + d.volver + '</b>».',
+      ultimo:  'Si ya hiciste las dos cosas y sigue igual: cerrá el navegador por completo (sacalo de las apps abiertas) y volvé a entrar.'
+    };
+  }
+
+  // `estado` es lo que respondió navigator.permissions ('denied' | 'prompt' | 'granted' | '').
+  function pasos(tipo, estado){
+    var p = partes(tipo, estado);
+    return '<b style="color:#e8734a">' + p.titulo + '</b>'
       + '<br><br><span style="font-size:13px;line-height:1.5;display:block;text-align:left">'
-      + '<b>1)</b> ' + primero + '<br><span style="opacity:.6;font-size:12px">' + aclara + '</span>'
-      + '<br><br><b>2)</b> ' + segundo
-      + extraGps
-      + '<br><br>Después volvé a tocar «<b>' + d.volver + '</b>».</span>'
-      + '<br><span style="opacity:.45;font-size:11px">Si ya hiciste las dos cosas y sigue igual: cerrá el navegador por completo (sacalo de las apps abiertas) y volvé a entrar.</span>';
+      + '<b>1)</b> ' + p.uno + '<br><span style="opacity:.6;font-size:12px">' + p.aclara + '</span>'
+      + '<br><br><b>2)</b> ' + p.dos
+      + (p.gps ? '<br><br>' + p.gps : '')
+      + '<br><br>' + p.cierre + '</span>'
+      + '<br><span style="opacity:.45;font-size:11px">' + p.ultimo + '</span>';
+  }
+
+  // Misma información sin una sola etiqueta, para las pantallas que pintan TEXTO (las de Next
+  // muestran `{mensaje}` en JSX, que escapa el HTML: ahí las etiquetas se verían escritas).
+  function pasosTexto(tipo, estado){
+    var p = partes(tipo, estado);
+    function limpiar(s){ return String(s).replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim(); }
+    return limpiar(p.titulo) + '\n\n'
+      + '1) ' + limpiar(p.uno) + '\n' + limpiar(p.aclara) + '\n\n'
+      + '2) ' + limpiar(p.dos)
+      + (p.gps ? '\n\n' + limpiar(p.gps) : '') + '\n\n'
+      + limpiar(p.cierre) + '\n' + limpiar(p.ultimo);
   }
 
   // Consulta el estado real del permiso y devuelve el texto ya ordenado. Nunca deja sin respuesta:
   // si la consulta no contesta en 1,2 s, responde igual con el orden por defecto.
-  function explicar(tipo, cb){
+  function explicar(tipo, cb, comoTexto){
     var listo = false;
-    function responder(estado){ if(listo) return; listo = true; try{ cb(pasos(tipo, estado)); }catch(e){} }
+    var pintar = comoTexto ? pasosTexto : pasos;
+    function responder(estado){ if(listo) return; listo = true; try{ cb(pintar(tipo, estado)); }catch(e){} }
     try{
       if(raiz.navigator && navigator.permissions && navigator.permissions.query){
         navigator.permissions.query({ name: tipo })
@@ -107,7 +131,11 @@
     }catch(e){ responder(''); }
   }
 
-  var API = { pasos: pasos, explicar: explicar, esIOS: esIOS, nombreNavegador: nombreNavegador };
+  // `explicarTexto` es el mismo camino para las pantallas que no pintan HTML.
+  function explicarTexto(tipo, cb){ return explicar(tipo, cb, true); }
+
+  var API = { pasos: pasos, pasosTexto: pasosTexto, explicar: explicar, explicarTexto: explicarTexto,
+              esIOS: esIOS, nombreNavegador: nombreNavegador };
   if(typeof module !== 'undefined' && module.exports) module.exports = API;
   raiz.MWPermiso = API;
 })(typeof window !== 'undefined' ? window : globalThis);
