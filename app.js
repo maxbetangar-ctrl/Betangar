@@ -23950,8 +23950,19 @@ function _rentEsCompra(row){return String(row.cam||'').toUpperCase().indexOf('CO
 // con `src='Boscán'` (Flotilla) NO es una compra: Boscán es de dónde vino el granel que está en el
 // tanque. Se clasifica por LISTAS, y lo que no case con ninguna NO se cuenta pero SE AVISA.
 // Ver la ficha [[combustible-como-se-surte-realmente]].
-var COMB_FUENTES_TANQUE=['tumaca','galpon','galpón','patio','tanque','reserva','boscan','boscán','la limpia','canchancha','cdp'];
-var COMB_FUENTES_AFUERA=['estacion','estación','texaco','fuerzas armadas','ffaa','ff.aa','en ruta','camino','bomba','pdv','servicio'];
+// ⛔ ESTA LISTA ES DE **BETANGAR**, NO DE TODAS LAS EMPRESAS.
+// El 2026-08-08 la escribí con estaciones de Flotilla adentro (Texaco, Fuerzas Armadas) y Máximo lo
+// cortó: «¿estás loco? eso es de Flotilla, nosotros estamos hablando de Betangar». Y hay más: esas
+// dos **son estaciones PROPIAS de Flotilla, donde echa su personal** — o sea que allá ni siquiera
+// serían una compra a un tercero. Betangar es aseo urbano en Maracaibo; sus camiones no salen de la
+// ciudad. Que compartan el molde del software no las hace la misma operación.
+// Ver la ficha [[combustible-como-se-surte-realmente]], que ya está separada por empresa.
+//
+// BETANGAR: el gasoil se compra a granel y entra al tanque del patio (en la base, `Tumaca`). Lo que
+// sale de ese tanque es movimiento interno. Las compras de verdad son a estaciones, y la que más
+// aparece es **E/S EL PALOTAL** (17 pagos, Bs 6,6 millones entre marzo y junio).
+var COMB_FUENTES_TANQUE=['tumaca','galpon','galpón','patio','tanque','reserva','la limpia','canchancha','cdp'];
+var COMB_FUENTES_AFUERA=['estacion','estación','e/s','palotal','en ruta','camino','bomba','pdv','servicio'];
 function _combNorm(s){ return String(s||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').trim(); }
 function _combClaseFuente(g){
   var s=_combNorm(g&&g.src);
