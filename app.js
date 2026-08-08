@@ -24652,3 +24652,80 @@ function pagoSocioDesglose(des, hta){
   ['total','maximo','ayuda','cobrado'].forEach(function(k){ r[k]=Math.round(r[k]*100)/100; });
   return r;
 }
+
+// ═══ A DÓNDE FUE LA PLATA — clasificación de las salidas del banco ════════════════════════════
+// Definido por Máximo el 2026-08-08, mirando el estado de cuenta:
+//
+// ⛔ LO MÁS IMPORTANTE, Y LO QUE HOY ESTÁ MAL: **la compra de dólares NO es un gasto, es un AHORRO.**
+//   «Eso fue compra de dólares en moneda extranjera que nos sirve como fondo o como pagos a la
+//    deuda del crédito de los camiones… la compra de dólares no es un gasto es un ahorro, solo
+//    obvio se va a gastos cuando lo pagamos al crédito de los camiones.»
+//   Son US$ 45.535 entre mayo y julio. Si se cuentan como gasto, la Utilidad Real miente hacia
+//   abajo; si no se registran en ningún lado, la plata desaparece de la vista. Va como FONDO, y
+//   recién pasa a gasto cuando sale hacia el crédito de los camiones.
+//
+// ⚠️ LOS NOMBRES: la «asignación» / «tipo B» es una comisión a un tercero **que no lleva nombre**.
+//   «Es una comisión que se paga a otro tercero que no quiero que lleve nombre, solo decir 1B o
+//    dejarle el mismo nombre de asignación y nosotros entendemos.» Se etiqueta **1B**, sin persona.
+//   Igual que la ayuda interna del 0,5%: se muestra el monto, nunca a quién.
+//
+// Y el histórico cambió de nombre: al principio se anotaba «dividendo socio» y después
+// «asignación». Es lo mismo — por eso las dos caen en la misma categoría.
+var CLASIF_SALIDA = [
+  // El orden IMPORTA: gana la primera que casa. Lo más específico va arriba.
+  // COMPRA DE DÓLARES. Máximo, 2026-08-08: «reparto de dividendo a socios, cambio de moneda,
+  // pago para cambio de moneda, todos esos son compra de dólares». El «reparto de dividendo»
+  // es el nombre VIEJO de lo mismo — confunde porque lleva «7,5%» en el texto, pero no es el
+  // pago a socio: es plata que se cambió a divisa.
+  { cat:'ahorro_divisas',  etiqueta:'Compra de divisas (ahorro, NO gasto)', re:/cambio de moneda|compra de d[oó]lar|compra de divisa|reparto de dividendo/i },
+  { cat:'credito_camiones',etiqueta:'Crédito de los camiones',              re:/cr[eé]dito.*cami[oó]n|cuota.*cami[oó]n|pago.*financiamiento/i },
+  // La asignación / tipo B SÍ es gasto, y de una vez (Máximo: «la asignación sí es un gasto de
+  // una vez, pero es importante que se marque como gasto y que se sepa que fue a eso»). Lo que
+  // se oculta es a QUIÉN, no el hecho ni el monto.
+  { cat:'comision_1b',     etiqueta:'Comisión 1B',                          re:/tipo b|asignaci[oó]n socio/i },
+  { cat:'pago_socio',      etiqueta:'Pago a socio (7% + 0,5%)',             re:/pago a socio *7|pago socio *7/i },
+  { cat:'impuestos',       etiqueta:'Impuestos y retenciones',              re:/seniat|islr|\biva\b|impuesto|retenc/i },
+  { cat:'nomina',          etiqueta:'Nómina',                               re:/n[oó]mina/i },
+  { cat:'combustible',     etiqueta:'Combustible',                          re:/gasoil|combustible|gasolina/i },
+  { cat:'comision_banco',  etiqueta:'Comisión bancaria',                    re:/comisi[oó]n bancaria|comision x cred|comisi[oó]n mantenimiento/i },
+  { cat:'resp_social',     etiqueta:'Responsabilidad social',               re:/responsabilidad social|aporte social/i },
+  { cat:'caja_chica',      etiqueta:'Caja chica y reembolsos',              re:/caja chica|reembolso/i },
+  { cat:'mantenimiento',   etiqueta:'Mantenimiento y servicio de unidades', re:/servicio a unidad|servicio de unidad|aceite|repuesto|caucho|goma|llanta/i },
+  { cat:'seguro',          etiqueta:'Seguros y salud',                      re:/seguro|salud/i },
+  { cat:'alquiler',        etiqueta:'Alquiler',                             re:/alquiler|arrendamiento/i },
+];
+
+// Proveedores que el mismo negocio escribe de varias formas. «Auto Unión es la misma, escribilo
+// como quieras pero unificalo» (Máximo). Sin esto, cualquier reporte lo parte en dos y ninguno de
+// los dos pedazos se ve grande — que es como un gasto de US$ 38.000 pasa desapercibido.
+var PROVEEDOR_ALIAS = [
+  { nombre:'AUTO UNION',       re:/auto\s*uni[oó]n/i },
+  { nombre:'ATLAS TRANSPORTE', re:/atlas/i },
+  { nombre:'CODIZUCA',         re:/codizuca/i },
+  { nombre:'FOUND PETROL',     re:/found\s*o?\s*petrol/i },
+  { nombre:'SERVICAR',         re:/servicar/i },
+  { nombre:'E/S EL PALOTAL',   re:/palotal/i },
+  { nombre:'TUMACA',           re:/tumaca/i },
+];
+
+function clasificarSalida(concepto){
+  var c = String(concepto||'');
+  for(var i=0;i<CLASIF_SALIDA.length;i++){
+    if(CLASIF_SALIDA[i].re.test(c)) return { cat:CLASIF_SALIDA[i].cat, etiqueta:CLASIF_SALIDA[i].etiqueta };
+  }
+  return { cat:'sin_clasificar', etiqueta:'Sin clasificar' };
+}
+function proveedorDe(concepto){
+  var c = String(concepto||'');
+  for(var i=0;i<PROVEEDOR_ALIAS.length;i++){
+    if(PROVEEDOR_ALIAS[i].re.test(c)) return PROVEEDOR_ALIAS[i].nombre;
+  }
+  return '';
+}
+// ¿Esta salida es GASTO del período?
+// La ÚNICA que no lo es es la compra de divisas: esa plata sigue siendo de la empresa, solo que en
+// otra moneda. Pasa a gasto cuando se usa para pagar el crédito de los camiones.
+// Todo lo demás SÍ es gasto, incluida la comisión 1B.
+function salidaEsGasto(concepto){
+  return clasificarSalida(concepto).cat !== 'ahorro_divisas';
+}
