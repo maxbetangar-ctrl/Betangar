@@ -15957,7 +15957,16 @@ function _capRepetidos(movs){
     // mismo día. En el PDF real del 22/07 salieron 13 pagos de nómina marcados como «patrón de
     // pago duplicado». Mandar a un auditor a investigar 13 movimientos legítimos es peor que no
     // avisarle nada: quema la credibilidad del aviso el día que haya uno de verdad.
-    return String(x.tipo||'').toLowerCase().indexOf('nomina')<0;
+    //
+    // ⚠️ NO ALCANZA CON MIRAR EL `tipo`. Al cargar el estado de cuenta real del banco
+    // (2026-08-08) los pagos de nómina entran como `debito` —que es lo que dice el banco— y el
+    // «PAGO DE NÓMINA» está en el CONCEPTO DECLARADO, no en el tipo. Medido antes de soltarlo:
+    // se marcaban 772 movimientos como repetidos y 654 eran nómina legítima. El aviso hay que
+    // apagarlo por lo que la plata ES, no por cómo la etiquetó el sistema que la cargó.
+    var _t=String(x.tipo||'').toLowerCase();
+    var _c=String((x.detalle&&(x.detalle.concepto_declarado||x.detalle.concepto))||x.desc||'').toLowerCase();
+    var _esNomina=_t.indexOf('nomina')>=0 || _c.indexOf('nomina')>=0 || _c.indexOf('nómina')>=0;
+    return !_esNomina;
   }).forEach(function(x){
     var k=String(x.fecha||'').slice(0,10)+'|'+(Number(x.monto)||0).toFixed(2);
     (por[k]=por[k]||[]).push(x);
