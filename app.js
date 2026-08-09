@@ -6803,6 +6803,8 @@ function _sinControlesUI(nodo){
 // qué tarifa se le paga el día de patio. Pedido de Máximo (2026-08-05): «aplicar también a ayudantes».
 var _AYMAP_UI={};
 var _IMAUMAP_UI={};   // personal IMAU del último cálculo (lo usa el modal de asistencia)
+var _IMAU_VJUNI={};   // {'JAC-B0XX|YYYY-MM-DD': viajes} — para ofrecer las unidades del día
+var _IMAU_DIAS=[];    // días con actividad de cualquier unidad, del período que se está viendo
 function _nomPersona(key,tipo){
   var p=(tipo==='ay')?_AYMAP_UI[key]:_CHMAP_UI[key];
   if(!p)return null;
@@ -6928,14 +6930,35 @@ function setPatioDias(chKey,val){
 //   sin marca → SIN DATO                                    → $0 pero PENDIENTE, y la pantalla lo grita
 // Pagar $0 por "sin dato" en silencio sería quitarle la semana a alguien que sí trabajó, sin que
 // nadie se entere. Ver [norma-numero-que-el-dueno-no-puede-explicar].
-var IMAU_ASIS={};   // { empId: { 'YYYY-MM-DD': 'P' | 'A' } } — declarado a mano por RRHH
+// ⛔ LA UNIDAD DEL IMAU ES DEL DÍA, NO DE LA FICHA. Máximo, 2026-08-09: «todos pueden montarse en
+// diversas unidades; puede que casi siempre un tiempo se monten en una, pero se pueden cambiar a
+// otra sin problema». La ficha (`e.unidad`) tenía las 16 personas clavadas a una unidad y el pago
+// salía SIEMPRE de los viajes de esa unidad — o sea que a quien se cambiaba se le pagaba por un
+// camión en el que no estuvo, de más o de menos, y nadie podía notarlo porque el dato del día no
+// existía en ninguna parte. La ficha pasa a ser el VALOR POR DEFECTO (que es lo que es: donde
+// anda casi siempre) y lo del día se declara. [[norma-un-nombre-paga-a-una-sola-ficha]]
+//
+// Y el día PARTIDO entre dos unidades: Máximo lo cerró así — «2 viajes en una y 2 en otra son 4
+// viajes el mismo día», el escalón va sobre el TOTAL de la persona, no por unidad. Como los viajes
+// de cada unidad se saben pero el reparto de un día partido NO lo sabe nadie más que RRHH, se deja
+// el casillero de viajes para escribirlo a mano. Vacío = los de la unidad elegida, que es el caso
+// normal; se llena solo el día que se partió.
+var IMAU_ASIS={};   // { empId: { 'YYYY-MM-DD': 'P'|'A' | {e:'P'|'A', u:'JAC-B0XX', v:Nº} } }
 function _imauAsisKeyDB(){var des=gv('nm-des'); if(des){try{return 'imau_asis_sem_'+_isoLocal(_lunesSem(des));}catch(e){}} return 'imau_asis_'+(gv('nm-mes')||'')+'_'+(gv('nm-sem')||'');}
+// Lo declarado por RRHH para una persona un día, ya normalizado. El formato viejo era el string
+// pelado con la asistencia; se sigue leyendo para no perder lo que ya esté guardado.
+function _imauDecl(empId,fecha){
+  var m=IMAU_ASIS[empId]&&IMAU_ASIS[empId][fecha];
+  if(m==='P'||m==='A')return {e:m,u:'',v:null};
+  if(m&&typeof m==='object')return {e:(m.e==='P'||m.e==='A')?m.e:'', u:m.u||'', v:(m.v==null||m.v==='')?null:(parseInt(m.v)||0)};
+  return {e:'',u:'',v:null};
+}
 // Presencia de una persona un día: manda lo DECLARADO por RRHH; si no hay, vale el fichaje real;
 // si tampoco, devuelve null = sin dato (que no es lo mismo que ausente).
 function _imauPresente(empId,fecha){
-  var m=IMAU_ASIS[empId]&&IMAU_ASIS[empId][fecha];
-  if(m==='P')return 'P';
-  if(m==='A')return 'A';
+  var e=_imauDecl(empId,fecha).e;
+  if(e==='P')return 'P';
+  if(e==='A')return 'A';
   if(typeof FICHAJES_SET!=='undefined'&&FICHAJES_SET&&FICHAJES_SET.has(empId+'|'+fecha))return 'P';
   return null;
 }
@@ -6957,34 +6980,52 @@ async function cargarImauAsis(){
 function abrirImauAsis(empId){
   var x=(_IMAUMAP_UI||{})[empId];
   if(!x){alert('Recalculá la nómina primero');return;}
-  if(!x.dias.length){alert('La unidad de '+x.emp.nombre+' no tiene planillas en este período: no hay días que declarar.');return;}
+  if(!x.dias.length){alert('No hay planillas cargadas en este período: no hay días que declarar.');return;}
+  // Unidades que trabajaron cada día, para que el desplegable ofrezca solo camiones que salieron.
+  function _uniDelDia(dia){
+    var u=[];
+    Object.keys(_IMAU_VJUNI).forEach(function(k){
+      var c=k.lastIndexOf('|');
+      if(k.slice(c+1)===dia&&(_IMAU_VJUNI[k]||0)>0)u.push(k.slice(0,c));
+    });
+    return u.sort();
+  }
   var filas=x.dias.map(function(d){
     var est=_imauPresente(empId,d.f);
-    var declarado=IMAU_ASIS[empId]&&IMAU_ASIS[empId][d.f];
+    var dec=_imauDecl(empId,d.f);
     var fico=(typeof FICHAJES_SET!=='undefined'&&FICHAJES_SET&&FICHAJES_SET.has(empId+'|'+d.f));
     var dw=['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'][_asisDow(d.f)]||'';
     var paga=d.usd>0;
-    return '<tr'+(paga?'':' style="opacity:.5"')+'>'+
+    var ops=_uniDelDia(d.f); if(x.unidad&&ops.indexOf(x.unidad)<0)ops.unshift(x.unidad);
+    var selUni='<select data-iu="'+d.f+'" class="fc" style="font-size:10px;padding:2px 4px;width:100%">'+
+      '<option value=""'+(!dec.u?' selected':'')+'>'+(x.unidad||'sin unidad')+' (la de siempre)</option>'+
+      ops.map(function(c){ return '<option value="'+c+'"'+(dec.u===c?' selected':'')+'>'+c+' · '+(_IMAU_VJUNI[c+'|'+d.f]||0)+'v</option>'; }).join('')+
+      '</select>';
+    return '<tr'+(paga?'':' style="opacity:.55"')+'>'+
       '<td><b>'+dw+'</b> <span style="font-family:var(--m);color:var(--text3)">'+d.f.slice(8,10)+'/'+d.f.slice(5,7)+'</span></td>'+
-      '<td style="font-size:10px">'+d.viajes+' viaje(s) → '+(paga?'<b style="color:var(--yellow)">$'+fmtMon(d.usd)+'</b>':'<span style="color:var(--text3)">no paga</span>')+'</td>'+
-      '<td style="font-size:10px">'+(fico?'<span style="color:var(--green)">✅ fichó</span>':'<span style="color:var(--text3)">sin fichaje</span>')+'</td>'+
+      '<td style="min-width:132px">'+selUni+'</td>'+
+      '<td><input type="number" min="0" step="1" data-iv="'+d.f+'" value="'+(d.manual?d.viajes:'')+'" placeholder="'+d.vjUni+'" title="Viajes que hizo LA PERSONA ese día. Vacío = los de la unidad elegida." style="width:52px;font-family:var(--m);background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:2px 5px;border-radius:5px;font-size:10px"></td>'+
+      '<td style="font-size:10px">'+d.viajes+'v → '+(paga?'<b style="color:var(--yellow)">$'+fmtMon(d.usd)+'</b>':'<span style="color:var(--text3)">no paga</span>')+
+        (d.propia?'':' <span style="color:var(--amber)" title="Ese día se montó en otra unidad">↔</span>')+'</td>'+
+      '<td style="font-size:10px">'+(fico?'<span style="color:var(--green)">✅ fichó</span>':'<span style="color:var(--text3)">—</span>')+'</td>'+
       '<td><select data-ia="'+d.f+'" class="fc" style="font-size:10px;padding:2px 4px">'+
-        '<option value=""'+(!declarado?' selected':'')+'>— sin declarar '+(est==='P'?'(el fichaje dice que fue)':'')+'</option>'+
-        '<option value="P"'+(declarado==='P'?' selected':'')+'>Sí fue</option>'+
-        '<option value="A"'+(declarado==='A'?' selected':'')+'>No fue</option>'+
+        '<option value=""'+(!dec.e?' selected':'')+'>— sin declarar '+(est==='P'?'(fichó)':'')+'</option>'+
+        '<option value="P"'+(dec.e==='P'?' selected':'')+'>Sí fue</option>'+
+        '<option value="A"'+(dec.e==='A'?' selected':'')+'>No fue</option>'+
       '</select></td></tr>';
   }).join('');
   // Pie con los totales, igual que el desglose de choferes y ayudantes: lo que cobra, lo que está
   // retenido esperando la declaración, y lo que no paga porque su unidad casi no salió.
   var _tPaga=x.dias.reduce(function(s,d){return s+(d.usd||0);},0);
   var _tEsp=x.dias.reduce(function(s,d){return s+((d.tarifa>0&&d.pres===null)?d.tarifa:0);},0);
-  var _pie='<tr class="tr-tot"><td colspan="3" style="text-align:right"><b>Cobra esta semana</b></td>'+
+  var _pie='<tr class="tr-tot"><td colspan="5" style="text-align:right"><b>Cobra esta semana</b></td>'+
            '<td style="font-family:var(--m);color:var(--yellow)"><b>$'+fmtMon(_tPaga)+'</b></td></tr>'+
-           (_tEsp>0?'<tr><td colspan="3" style="text-align:right;color:var(--amber);font-size:11px">En espera de que declares la asistencia</td>'+
+           (_tEsp>0?'<tr><td colspan="5" style="text-align:right;color:var(--amber);font-size:11px">En espera de que declares la asistencia</td>'+
                     '<td style="font-family:var(--m);color:var(--amber)">$'+fmtMon(_tEsp)+'</td></tr>':'');
-  openModal('Asistencia IMAU — '+x.emp.nombre+' ('+(x.unidad||'sin unidad')+')',
-    '<p style="font-size:11px;color:var(--text2);margin-bottom:8px">Regla de RRHH: el IMAU cobra por los viajes que hizo <b>su unidad</b> ese día, <b>pero solo si fue a trabajar</b>. Un día <b>sin declarar y sin fichaje</b> no se paga y queda pendiente — no se le está quitando, falta el dato.</p>'+
-    '<table><thead><tr><th>Día</th><th>Su unidad</th><th>Fichaje</th><th>¿Fue?</th></tr></thead><tbody>'+filas+_pie+'</tbody></table>'+
+  openModal('Asistencia IMAU — '+x.emp.nombre+' ('+(x.unidad||'sin unidad')+' habitual)',
+    '<p style="font-size:11px;color:var(--text2);margin-bottom:8px">El IMAU cobra por los viajes que hizo <b>ese día</b>, <b>y solo si fue a trabajar</b>. Un día <b>sin declarar y sin fichaje</b> no se paga y queda pendiente — no se le está quitando, falta el dato.</p>'+
+    '<p style="font-size:11px;color:var(--text2);margin-bottom:8px"><b>Unidad:</b> viene puesta la de siempre; cambiala solo el día que se montó en otra. <b>Viajes:</b> dejalo vacío y toma los de esa unidad. Se escribe únicamente cuando el día quedó partido — 2 viajes en su camión, se guardó, y 1 más en otro: son <b>3</b>, y el escalón va sobre los 3.</p>'+
+    '<table><thead><tr><th>Día</th><th>¿En qué unidad?</th><th>Viajes</th><th>Paga</th><th>Fichaje</th><th>¿Fue?</th></tr></thead><tbody>'+filas+_pie+'</tbody></table>'+
     '<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px">'+
       '<button class="btn btn-s" onclick="closeModal()">Cancelar</button>'+
       '<button class="btn btn-g" onclick="guardarImauAsisSel(\''+String(empId).replace(/'/g,'')+'\')">Guardar asistencia</button>'+
@@ -6992,9 +7033,20 @@ function abrirImauAsis(empId){
 }
 function guardarImauAsisSel(empId){
   var m={};
+  function _d(f){ return m[f]||(m[f]={e:'',u:'',v:null}); }
   Array.prototype.slice.call(document.querySelectorAll('select[data-ia]')).forEach(function(s){
-    if(s.value==='P'||s.value==='A')m[s.getAttribute('data-ia')]=s.value;
+    if(s.value==='P'||s.value==='A')_d(s.getAttribute('data-ia')).e=s.value;
   });
+  Array.prototype.slice.call(document.querySelectorAll('select[data-iu]')).forEach(function(s){
+    if(s.value)_d(s.getAttribute('data-iu')).u=s.value;
+  });
+  Array.prototype.slice.call(document.querySelectorAll('input[data-iv]')).forEach(function(i){
+    var v=String(i.value||'').trim();
+    if(v!=='')_d(i.getAttribute('data-iv')).v=Math.max(0,parseInt(v)||0);
+  });
+  // Un día sin nada declarado no se guarda: así "sin dato" sigue siendo sin dato y no se convierte
+  // en una declaración vacía que el cálculo leería como respuesta.
+  Object.keys(m).forEach(function(f){ var d=m[f]; if(!d.e&&!d.u&&d.v==null)delete m[f]; });
   if(Object.keys(m).length)IMAU_ASIS[empId]=m; else delete IMAU_ASIS[empId];
   guardarImauAsis();
   try{closeModal();}catch(e){}
@@ -7501,30 +7553,42 @@ function calcNom(){
   var imauMap={};
   (function(){
     var vjUniDia={};   // viajes que hizo cada unidad cada día (varias planillas del mismo día suman)
+    var diasAct={};    // días con actividad de CUALQUIER unidad
     f.forEach(function(r){
       if(!r.cam||!r.f)return;
       var k=r.cam+'|'+r.f;
       vjUniDia[k]=(vjUniDia[k]||0)+(parseInt(r.t)||0);
+      diasAct[r.f]=1;
     });
+    _IMAU_VJUNI=vjUniDia; _IMAU_DIAS=Object.keys(diasAct).sort();
     EMPLEADOS.forEach(function(e){
       if(!e||e.activo===false||e.cargo!=='Ayudante'||e.tipoAy!=='imau')return;
       // Entra SIEMPRE, aunque su unidad no haya salido en toda la semana: cobrará $0, pero tiene
       // que verse. Que no aparezca es lo que se estaba reportando.
       var reg={emp:e,unidad:e.unidad||'',dias:[],diasPagos:0,viajes:0,montoUsd:0,
-               diasSinDato:0,usdRetenido:0,diasAusente:0};
-      Object.keys(vjUniDia).forEach(function(k){
-        var corte=k.lastIndexOf('|'), cam=k.slice(0,corte), dia=k.slice(corte+1);
-        if(cam!==reg.unidad)return;
-        var vj=vjUniDia[k], tarifa=tarifaApoyoDia(vj);
-        // La asistencia solo importa el día que HAY algo que pagar. Si su unidad hizo 1 viaje o
-        // ninguno, no cobra fue o no fue: no tiene sentido pedirle el dato a RRHH.
+               diasSinDato:0,usdRetenido:0,diasAusente:0,diasFuera:0};
+      // ⛔ Se recorren TODOS los días con actividad, no los de "su" unidad: si se cambió de camión,
+      // su día está en el de otro. Filtrar por `e.unidad` era lo que hacía invisible el cambio.
+      _IMAU_DIAS.forEach(function(dia){
+        var dec=_imauDecl(e.id,dia);
+        var uni=dec.u||reg.unidad;                       // lo declarado manda; si no, la habitual
+        var vjUni=vjUniDia[uni+'|'+dia]||0;
+        // Los viajes que pagan son los de LA PERSONA, no los del camión: puede hacer 2 en el suyo,
+        // que se guarde, y montarse en otro a hacer 1 más — son 3 y el escalón va sobre 3. Ese
+        // reparto no lo sabe nadie más que RRHH, por eso se puede escribir. Vacío = los de su
+        // unidad, que es lo normal.
+        var vj=(dec.v!=null)?dec.v:vjUni, tarifa=tarifaApoyoDia(vj);
+        // La asistencia solo importa el día que HAY algo que pagar. Si hizo 1 viaje o ninguno, no
+        // cobra fue o no fue: no tiene sentido pedirle el dato a RRHH.
         var pres=(tarifa>0)?_imauPresente(e.id,dia):'P';
         var usd=(tarifa>0&&pres==='P')?tarifa:0;
         reg.viajes+=vj;
         if(usd>0){ reg.diasPagos++; reg.montoUsd+=usd; }
         else if(tarifa>0&&pres==='A'){ reg.diasAusente++; }
         else if(tarifa>0&&pres===null){ reg.diasSinDato++; reg.usdRetenido+=tarifa; }
-        reg.dias.push({f:dia,viajes:vj,usd:usd,tarifa:tarifa,pres:pres});
+        if(dec.u&&dec.u!==reg.unidad)reg.diasFuera++;
+        reg.dias.push({f:dia,viajes:vj,usd:usd,tarifa:tarifa,pres:pres,uni:uni,
+                       vjUni:vjUni,propia:(uni===reg.unidad),manual:(dec.v!=null)});
       });
       reg.usdRetenido=Math.round(reg.usdRetenido*100)/100;
       reg.dias.sort(function(a,b){return a.f<b.f?-1:(a.f>b.f?1:0);});
@@ -7670,7 +7734,8 @@ function calcNom(){
         (x.diasPagos>0?'<span title="días pagados: su unidad hizo 2 o más viajes y consta que fue" style="color:var(--green)">'+x.diasPagos+'P</span> ':'')+
         (x.diasSinDato>0?'<span title="días en que su unidad trabajó y no sabemos si fue — $'+fmtMon(x.usdRetenido)+' en espera" style="color:var(--amber)">'+x.diasSinDato+'⏳</span> ':'')+
         (x.diasAusente>0?'<span title="días declarados como que no fue a trabajar" style="color:var(--text3)">'+x.diasAusente+'A</span> ':'')+
-        (_dSinPagar>0?'<span title="días en que su unidad hizo 1 viaje o ninguno: no pagan" style="color:var(--text3)">'+_dSinPagar+'—</span> ':'')+
+        (_dSinPagar>0?'<span title="días en que hizo 1 viaje o ninguno: no pagan" style="color:var(--text3)">'+_dSinPagar+'—</span> ':'')+
+        (x.diasFuera>0?'<span title="días declarados en OTRA unidad, no en la habitual" style="color:var(--amber)">'+x.diasFuera+'↔</span> ':'')+
         ((x.diasPagos+x.diasSinDato+x.diasAusente+_dSinPagar)===0?'<span style="color:var(--text3)">—</span> ':'');
       var _lupa=x.dias.length
         ? '<button class="btn btn-s btn-xs solo-ui" style="padding:0 4px;font-size:9px" onclick="abrirImauAsis(\''+String(x.emp.id).replace(/'/g,'')+'\')" title="Ver día por día y declarar si fue a trabajar">🔍</button>'

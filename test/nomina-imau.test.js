@@ -103,7 +103,45 @@ console.log('\nAparecen aunque no cobren (su pago cuenta en la utilidad):');
 const sinUnidad = imau('IMAU SIN UNIDAD');
 ok('el IMAU cuya unidad no salió igual aparece', !!sinUnidad);
 eq('con $0', sinUnidad.usd, 0);
-eq('y sin días', sinUnidad.dias.length, 0);
+// ⛔ ANTES acá se esperaba `0` días: la lista de cada IMAU se armaba con los días de SU unidad, así
+// que a quien no tenía unidad (o cuya unidad no salió) no se le podía declarar nada. Máximo,
+// 2026-08-09: «todos pueden montarse en diversas unidades… se pueden cambiar a otra sin problema».
+// Con eso, filtrar por la unidad de la ficha ESCONDE los días en que la persona anduvo en otro
+// camión — que es precisamente lo que hay que poder declarar. Ahora se ofrecen TODOS los días con
+// actividad; los que no le correspondan quedan en $0, que es lo que ya pasaba.
+eq('igual se le ofrecen los días para declarar dónde anduvo', sinUnidad.dias.length, 3);
+eq('pero sin unidad y sin declaración no paga nada', sinUnidad.dias.filter(d => d.usd > 0).length, 0);
+
+// ── 4b. SE CAMBIAN DE UNIDAD ────────────────────────────────────────────────────────────────
+// Máximo, 2026-08-09: «todos pueden montarse en diversas unidades; puede que casi siempre un
+// tiempo se monten en una, pero se pueden cambiar a otra sin problema».
+// El pago salía SIEMPRE de la unidad de la ficha, así que a quien se cambiaba se le pagaba por un
+// camión en el que no estuvo — y no había forma de notarlo, porque el dato del día no existía.
+console.log('\nSe monta en otra unidad: cobra por donde ANDUVO, no por la de su ficha:');
+sembrar();
+app.IMAU_ASIS = { 'E900': { '2026-07-20': { e: 'P', u: 'JAC-B001' } } };   // el lunes anduvo en el B001 (3v)
+app.calcNom();
+eq('el que no tenía unidad cobra el escalón del camión en que se montó', imau('IMAU SIN UNIDAD').usd, 5);
+eq('y solo ese día: los otros siguen en $0', imau('IMAU SIN UNIDAD').dias.filter(d => d.usd > 0).length, 1);
+eq('a los del B001 no les cambia nada', imau('EDWIN MONTIEL').usd, 7);
+
+// ── 4c. EL DÍA PARTIDO ──────────────────────────────────────────────────────────────────────
+// Máximo, 2026-08-09: «pudieran hacer 2 en una unidad y, si quieren seguir trabajando y su unidad
+// se guarda, se montan y hacen 1 en otra». El escalón va sobre el TOTAL de la persona, no sobre lo
+// que hizo un camión: 2 + 1 = 3 viajes = $5.
+// El martes el B001 hizo UN viaje: por la unidad, Edwin cobraría $0. Si además hizo otro en otro
+// camión, son 2 y le tocan $2. Ese reparto no lo sabe el sistema — lo declara RRHH.
+console.log('\nEl día partido entre dos unidades paga por el TOTAL de la persona:');
+sembrar();
+app.IMAU_ASIS = { 'E039': { '2026-07-21': { e: 'P', v: 2 } } };   // martes: 1 en el suyo + 1 en otro
+app.calcNom();
+const _mar = imau('EDWIN MONTIEL').dias.find(d => d.f === '2026-07-21');
+eq('el martes deja de valer $0 y pasa a $2', _mar.usd, 2);
+eq('porque cuentan 2 viajes, no el 1 de su unidad', _mar.viajes, 2);
+eq('y la semana le sube de $7 a $9', imau('EDWIN MONTIEL').usd, 9);
+// ⛔ El candado: sin declaración escrita NO se inventan viajes. Vacío = los de su unidad.
+sembrar(); app.calcNom();
+eq('sin esa declaración el martes sigue en $0, no se supone nada', imau('EDWIN MONTIEL').dias.find(d => d.f === '2026-07-21').usd, 0);
 ok('el IMAU dado de baja NO aparece', !imau('IMAU DE BAJA'));
 eq('en total son 4 personas IMAU activas', (app._ultimaNomina.imau || []).length, 4);
 
