@@ -4744,10 +4744,14 @@ async function imprimirDashboard(){
       kpi('Utilidad Real',esRRHH?'—':usd(utilReal),esRRHH?'Restringido':('Margen '+margen+'% · '+_fuenteEgresos().txt),esRRHH?'':(_fuenteEgresos().ok?(utilReal>=0?'#15803d':'#dc2626'):'#d97706'))+
       // Pedido por Máximo (09/08): junto a la real, la ESTIMADA. Es la real más lo ejecutado y no
       // facturado, cuyos gastos YA están restados arriba — por eso ese dinero entra casi entero.
-      // Van las dos, nunca una sola: la real es la plata que existe; la estimada es lo que quedaría
-      // si la Alcaldía facturara y pagara todo lo hecho, y en Venezuela no se factura hasta el
-      // momento del pago, así que no se sabe cuándo. Marcada, para que no se lea como caja.
-      // [[norma-viajes-ejecutados-no-facturados]]
+      // Marcada, para que no se lea como caja.
+      //
+      // ⛔ LO QUE NO VA ACÁ: cuánto se PIERDE por tener un camión parado (US$ 770 por camión y por
+      // día, con 2,43 viajes/camión/día × la tarifa). Se calculó el 09/08 y Máximo pidió no
+      // ponerlo: «me genera estrés ver cuánto estoy perdiendo por no sacarlo». Tiene razón de
+      // producto — el dashboard se mira TODOS los días y un número de pérdida que uno no puede
+      // arreglar en el momento no informa, desgasta. Que un dato sea cierto no lo hace útil en
+      // cualquier pantalla. [[norma-tambien-se-vende-por-los-ojos]]
       (esRRHH?'':kpi('Utilidad Estimada',usd(utilReal+porcobrar),
         'si se cobra lo ejecutado · margen '+_margenEst+'% · ⚠️ no es caja, depende de la Alcaldía','#d97706'))+
       // ⚠️ CON POCOS DÍAS CARGADOS NO HAY TENDENCIA, HAY RUIDO. Las planillas se cargan varios días
