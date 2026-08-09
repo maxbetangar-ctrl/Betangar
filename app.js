@@ -2601,25 +2601,61 @@ async function relGuardar(id,esSalida){
   renderRelacion();
 }
 async function relRenderTodos(cont,est){
-  var r=await supabase.from('bnc_movimientos')
+  var buscar=(g('rel-q')&&g('rel-q').value||'').trim().toLowerCase();
+  var q=supabase.from('bnc_movimientos')
     .select('id,fecha,monto,tipo,descripcion,concepto_banco,categoria,es_gasto,clasificado_por,factura,pata')
     .order('fecha',{ascending:false}).limit(300);
+  var r=await q;
   if(r.error)throw new Error(r.error.message);
   var ms=r.data||[];
-  if(est)est.textContent='Los 300 más recientes. Para el listado completo del período está el Excel de la relación.';
-  cont.innerHTML='<div class="tw"><table><thead><tr><th>Fecha</th><th>Tipo</th><th>Detalle</th><th style="text-align:right">Bs</th><th>Categoría</th><th>¿Gasto?</th><th>Factura</th></tr></thead><tbody>'+
+  if(buscar)ms=ms.filter(function(m){
+    return (String(m.concepto_banco||'')+' '+String(m.descripcion||'')+' '+relNombreCat(m.categoria)+' '+String(m.monto)).toLowerCase().indexOf(buscar)>=0;
+  });
+  if(est)est.textContent='Los 300 más recientes'+(buscar?(' · '+ms.length+' coinciden con la búsqueda'):'')+'. Para el listado completo del período está el Excel de la relación.';
+  cont.innerHTML=
+    '<div class="card" style="margin-bottom:10px;padding:10px">'+
+      '<input class="fc" id="rel-q" placeholder="Buscar por concepto, categoría o monto…" value="'+relEsc(buscar)+'" oninput="clearTimeout(window._relQt);window._relQt=setTimeout(renderRelacion,350)">'+
+      // ⚠️ Este aviso no es decorativo. A la administración se le pide que mire TAMBIÉN lo ya
+      // clasificado, porque un error del sistema NO aparece en «Por revisar»: sale con una
+      // categoría que se ve normal. Pasó con 19 cobros de la Alcaldía puestos como «pago a socio».
+      // Si se le pide que avise y no tiene dónde corregir, el pedido es vacío.
+      '<div style="font-size:11px;color:var(--text3);margin-top:6px">Si una categoría está mal, tocá <b>Cambiar</b>. Lo que corrijas queda como decisión tuya y <b>ninguna regla lo vuelve a pisar</b>.</div>'+
+    '</div>'+
+    '<div class="tw"><table><thead><tr><th>Fecha</th><th>Tipo</th><th>Detalle</th><th style="text-align:right">Bs</th><th>Categoría</th><th>¿Gasto?</th><th>Factura</th><th></th></tr></thead><tbody>'+
     ms.map(function(m){
       var esSal=m.tipo==='debito';
       var manual=String(m.clasificado_por||'').indexOf('manual:')===0;
-      return '<tr><td style="font-size:10px;white-space:nowrap">'+formatFecha(m.fecha)+'</td>'+
+      return '<tr id="relrow-'+relEsc(m.id)+'"><td style="font-size:10px;white-space:nowrap">'+formatFecha(m.fecha)+'</td>'+
         '<td><span class="badge '+(esSal?'br':'bg')+'">'+(esSal?'↑':'↓')+'</span></td>'+
         // Acortado: el texto crudo del banco cortaba la tabla a la derecha.
         '<td style="font-size:11px">'+relCorto(m.concepto_banco||m.descripcion,58)+'</td>'+
         '<td style="text-align:right;font-family:var(--m);color:'+(esSal?'var(--red)':'var(--green)')+'">'+Number(m.monto).toLocaleString('es-VE',{minimumFractionDigits:2})+'</td>'+
         '<td style="font-size:11px">'+relEsc(relNombreCat(m.categoria))+(manual?' <span class="badge bt" title="Lo decidió una persona: ninguna regla lo pisa">✋</span>':'')+'</td>'+
         '<td>'+(m.tipo==='credito'?'<span style="color:var(--text3);font-size:10px">entrada</span>':(m.es_gasto===false?'<span class="badge by">No</span>':'<span class="badge bg">Sí</span>'))+'</td>'+
-        '<td style="font-size:10px">'+relEsc(m.factura?(m.factura+' '+(m.pata||'')):'')+'</td></tr>';
+        '<td style="font-size:10px">'+relEsc(m.factura?(m.factura+' '+(m.pata||'')):'')+'</td>'+
+        '<td><button class="btn btn-s btn-xs" onclick="relEditar(\''+relEsc(m.id)+'\',\''+relEsc(m.categoria||'')+'\','+(esSal?'true':'false')+','+(m.es_gasto===false?'false':'true')+')">Cambiar</button></td></tr>';
     }).join('')+'</tbody></table></div>';
+}
+// Corregir la categoría de un movimiento YA clasificado. Es la contraparte del pedido que se le
+// hace a la administración («avisá si algo no cuadra»): pedir que avisen sin dar dónde corregir
+// deja el pedido en nada.
+function relEditar(id,cat,esSalida,esGasto){
+  var fila=g('relrow-'+id); if(!fila)return;
+  if(g('reledit-'+id)){ g('reledit-'+id).remove(); return; }   // segundo clic: cerrar
+  var tr=document.createElement('tr'); tr.id='reledit-'+id;
+  tr.innerHTML='<td colspan="8" style="background:var(--bg3)">'+
+    '<div class="fr2" style="margin:6px 0">'+
+      '<div class="fg"><label>Categoría</label>'+relSelectCat(id,cat)+'</div>'+
+      '<div class="fg"><label>¿Es gasto?</label>'+
+        (esSalida?('<select class="fc" id="relg-'+id+'" style="font-size:12px;padding:6px">'+
+          '<option value="si"'+(esGasto?' selected':'')+'>Sí</option>'+
+          '<option value="no"'+(!esGasto?' selected':'')+'>No — no es gasto del período</option></select>')
+         :'<div style="font-size:12px;color:var(--text3);padding:8px 0">No: es una entrada</div>')+'</div>'+
+    '</div>'+
+    '<button class="btn btn-g btn-sm" onclick="relGuardar(\''+id+'\','+(esSalida?'true':'false')+')">💾 Guardar</button> '+
+    '<button class="btn btn-s btn-sm" onclick="relEditar(\''+id+'\')">Cancelar</button>'+
+  '</td>';
+  fila.parentNode.insertBefore(tr,fila.nextSibling);
 }
 async function relRenderFacturas(cont,est){
   var r=await supabase.from('v_cobro_facturas').select('*').order('fecha',{ascending:false});
