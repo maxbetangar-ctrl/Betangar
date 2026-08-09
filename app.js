@@ -4502,7 +4502,12 @@ async function imprimirDashboard(){
   // es que FALTA CARGAR, no un porcentaje inventado sobre medio mes.
   var _hoyD=_dn.getDate();
   var _ultCargado=_regsAct.reduce(function(mx,r){var d=_diaDe(r.f);return d>mx?d:mx;},0);
-  var _Dcorte=_hoyD;
+  // ⛔ EL CORTE ES EL ÚLTIMO DÍA CON VIAJES CARGADOS, no hoy. Máximo: «compara fecha a fecha del
+  // mes anterior con la fecha del mes vigente del último día de viajes cargados».
+  // Es lo justo: si agosto tiene datos hasta el 2 y se comparara 1–9 contra 1–9 de julio, saldría
+  // una caída del 78% que no ocurrió — es puro dato faltante. Comparar 1–2 contra 1–2 mide lo
+  // mismo de los dos lados aunque sean pocos días.
+  var _Dcorte=_ultCargado;
   var _diasSinCargar=Math.max(0,_hoyD-_ultCargado);
   var _facAct=_regsAct.filter(function(r){return _diaDe(r.f)<=_Dcorte;}).reduce(function(s,r){return s+r.m;},0);
   var _facAnt=REGS.filter(function(r){return r.mes===_mesAntK && _diaDe(r.f)<=_Dcorte;}).reduce(function(s,r){return s+r.m;},0);
@@ -4511,10 +4516,10 @@ async function imprimirDashboard(){
   var tendCol=_tendPct>0?'#16a34a':(_tendPct<0?'#dc2626':'#8a94a6');
   // ⚠️ Si faltan días de planillas, el número compara peras con manzanas y hay que DECIRLO en la
   // misma tarjeta. Un −51% porque no se cargaron 7 días se lee como que el negocio cayó a la mitad.
-  var _tendSub=(_diasSinCargar>1)
-    ? ('Ejecutado 1–'+_Dcorte+' de '+_mesActK+' vs '+_mesAntK+' · ⚠️ faltan '+_diasSinCargar+' día(s) de planillas por cargar')
-    : ('Ejecutado 1–'+_Dcorte+' de '+_mesActK+' vs los mismos días de '+_mesAntK);
-  if(_diasSinCargar>1)tendCol='#d97706';
+  // El % es válido (mide los mismos días de los dos meses), pero si faltan planillas por cargar
+  // hay que decirlo igual: el número es correcto y ESTÁ INCOMPLETO, que no es lo mismo.
+  var _tendSub='Ejecutado 1–'+_Dcorte+' de '+_mesActK+' vs 1–'+_Dcorte+' de '+_mesAntK+
+    (_diasSinCargar>1?(' · ⚠️ faltan '+_diasSinCargar+' día(s) de planillas por cargar'):'');
   // Saldos en cuenta (BNC) — desde la caché del dashboard (solo quien puede ver saldo)
   var bancosHtml='';
   try{
