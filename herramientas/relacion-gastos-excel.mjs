@@ -156,10 +156,24 @@ const wb = MX.libro();
 const BANNER = 'INVERSIONES BETANGAR, C.A.';
 
 // ── HOJA 1 · POR REVISAR — va primera a propósito: es lo único que hay que hacer ──
-const pend = movs.filter((m) => !m.categoria || m.categoria === 'sin_clasificar' || m.categoria === '⏳pendiente_explicar');
+// ⛔ ESTA HOJA NO LLEVA FILTRO DE FECHA, y es a propósito. Las demás miran el período (60 días por
+// defecto); si "Por revisar" hiciera lo mismo, un movimiento que nadie clasificó en su momento se
+// caería del archivo al mes siguiente y NUNCA MÁS volvería a pedirse — quedaría sin clasificar para
+// siempre, y el Excel se vería impecable justo porque perdió lo que faltaba. Lo pendiente se arrastra
+// hasta que alguien lo resuelva. (Con el rango de 60 días salían 9 de los 22 reales.)
+const pend = await sql(`
+  select m.fecha, m.tipo, m.monto, m.descripcion, m.concepto_banco, m.referencia,
+         m.categoria, m.es_gasto, m.clasificado_por, m.factura, m.pata, m.control_number, m.cuenta,
+         t.bcv_dolar tasa
+    from bnc_movimientos m
+    left join tasas_diarias t on t.fecha = m.fecha::date
+   where m.categoria is null or m.categoria in ('sin_clasificar','⏳pendiente_explicar')
+   order by m.fecha, m.control_number`);
+console.log(`${pend.length} por revisar (TODA la historia, no solo el período)`);
 const ws1 = MX.hoja(wb, {
   banner: BANNER, name: 'Por revisar', headers: H, widths: W, rows: pend.map(filaDe), vacias: 6,
-  subtitulo: `LO ÚNICO QUE HAY QUE LLENAR — ${pend.length} movimiento(s) que el sistema no supo clasificar. ` +
+  subtitulo: `LO ÚNICO QUE HAY QUE LLENAR — ${pend.length} movimiento(s) que el sistema no supo clasificar, ` +
+             `de TODA la historia (no solo del período de las otras hojas): lo que queda pendiente se arrastra hasta que se resuelva. ` +
              `Elegí la CATEGORÍA de la lista y, si es una salida, decidí si es gasto. Lo demás ya viene puesto.`,
 });
 
