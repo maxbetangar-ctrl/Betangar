@@ -332,12 +332,12 @@ var USUARIOS={
 };
 
 var PERMISOS={
-  superadmin:['relacion','dashboard','entregas','banco-bnc','conciliacion','checklist','mensajes-wa','planilla','historico','reporte','abonos','banco','usd','proveedores','financiero','nomina','asistencia','fichaje','combustible','control-combustible','aud-combustible','km','unidades','documentos','inventario','llantas','metas','empleados','prestamos','multas','stats','ranking','rentabilidad','contratos','multicontrato','usuarios','auditoria','salud','config','galeria','porteria','mecanico','operativo','cxp','cajachica'],
-  admin:['relacion','dashboard','entregas','conciliacion','checklist','planilla','historico','reporte','abonos','banco','usd','proveedores','financiero','nomina','asistencia','fichaje','combustible','control-combustible','aud-combustible','km','unidades','documentos','inventario','llantas','metas','empleados','prestamos','multas','stats','ranking','rentabilidad','contratos','multicontrato','usuarios','auditoria','salud','config','galeria','porteria','mecanico','operativo','cxp','cajachica'],
-  operador:['relacion','dashboard','entregas','planilla','historico','reporte','abonos','banco','usd','proveedores','financiero','nomina','asistencia','fichaje','combustible','control-combustible','aud-combustible','km','unidades','documentos','inventario','llantas','metas','empleados','prestamos','multas','stats','ranking','rentabilidad','contratos','multicontrato','galeria'],
+  superadmin:['informe','relacion','dashboard','entregas','banco-bnc','conciliacion','checklist','mensajes-wa','planilla','historico','reporte','abonos','banco','usd','proveedores','financiero','nomina','asistencia','fichaje','combustible','control-combustible','aud-combustible','km','unidades','documentos','inventario','llantas','metas','empleados','prestamos','multas','stats','ranking','rentabilidad','contratos','multicontrato','usuarios','auditoria','salud','config','galeria','porteria','mecanico','operativo','cxp','cajachica'],
+  admin:['informe','relacion','dashboard','entregas','conciliacion','checklist','planilla','historico','reporte','abonos','banco','usd','proveedores','financiero','nomina','asistencia','fichaje','combustible','control-combustible','aud-combustible','km','unidades','documentos','inventario','llantas','metas','empleados','prestamos','multas','stats','ranking','rentabilidad','contratos','multicontrato','usuarios','auditoria','salud','config','galeria','porteria','mecanico','operativo','cxp','cajachica'],
+  operador:['informe','relacion','dashboard','entregas','planilla','historico','reporte','abonos','banco','usd','proveedores','financiero','nomina','asistencia','fichaje','combustible','control-combustible','aud-combustible','km','unidades','documentos','inventario','llantas','metas','empleados','prestamos','multas','stats','ranking','rentabilidad','contratos','multicontrato','galeria'],
   rrhh:['dashboard','mensajes-wa','planilla','historico','reporte','proveedores','nomina','asistencia','fichaje','combustible','km','unidades','documentos','inventario','llantas','metas','empleados','prestamos','multas','ranking','galeria'],
-  visualizador:['dashboard','entregas','reporte','abonos','banco','usd','financiero','stats','ranking','rentabilidad','contratos','galeria'],
-  directivo:['dashboard','entregas','historico','reporte','abonos','financiero','stats','ranking','rentabilidad'],
+  visualizador:['informe','dashboard','entregas','reporte','abonos','banco','usd','financiero','stats','ranking','rentabilidad','contratos','galeria'],
+  directivo:['informe','dashboard','entregas','historico','reporte','abonos','financiero','stats','ranking','rentabilidad'],
   demo_admin:['relacion','dashboard','checklist','planilla','historico','reporte','abonos','banco','usd','proveedores','financiero','nomina','asistencia','fichaje','combustible','km','unidades','documentos','inventario','llantas','metas','empleados','prestamos','multas','stats','ranking','rentabilidad','contratos','usuarios','config','galeria'],
   demo_operador:['relacion','dashboard','planilla','historico','reporte','abonos','banco','usd','proveedores','financiero','nomina','asistencia','fichaje','combustible','km','unidades','documentos','inventario','llantas','metas','empleados','prestamos','multas','stats','ranking','rentabilidad','contratos','galeria'],
   demo_rrhh:['dashboard','mensajes-wa','planilla','historico','reporte','proveedores','nomina','asistencia','fichaje','combustible','km','unidades','documentos','inventario','llantas','metas','empleados','prestamos','multas','ranking','galeria'],
@@ -369,7 +369,7 @@ var NAV_LABELS={
   // NAV_LABELS para decidir qué ítem del menú se muestra: lo que no esté en esta lista queda
   // VISIBLE para todos los roles, tengan el permiso o no. Es el reverso de
   // [[norma-permiso-que-ninguna-pantalla-muestra]] — una pantalla que se ve sin permiso.
-  abonos:'Abonos / Cobros',banco:'Banco BNC',relacion:'Relación de gastos',conciliacion:'Conciliación Bancaria',proveedores:'Proveedores',financiero:'Financiero',
+  abonos:'Abonos / Cobros',banco:'Banco BNC',informe:'Informe financiero',relacion:'Relación de gastos',conciliacion:'Conciliación Bancaria',proveedores:'Proveedores',financiero:'Financiero',
   nomina:'Nomina',asistencia:'Asistencia',fichaje:'Fichaje / Sitios',combustible:'Combustible','control-combustible':'Control Combustible',km:'Km / Servicio',
   documentos:'Documentos',inventario:'Inventario',llantas:'Llantas',metas:'Metas',
   empleados:'Empleados',unidades:'Unidades y Equipos',prestamos:'Prestamos',multas:'Multas',stats:'Estadisticas',rentabilidad:'Rentabilidad x Camion',salud:'Salud de Datos',multicontrato:'Operación / Contratos',
@@ -2481,6 +2481,177 @@ function renderBancoSubnav(activo){
 // ⚠️ «SALIÓ DEL BANCO» Y «ES GASTO» SON DOS COSAS. La compra de dólares sale de la cuenta y es
 // ahorro. En Betangar eso era el 23,7% de las salidas. [[norma-salida-de-banco-no-es-gasto]]
 // ═══════════════════════════════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+// INFORME FINANCIERO — lo que se le entrega a los socios
+//
+// Responde EN ORDEN las preguntas que hace un socio, que no son las de un contador:
+//   1. ¿ganamos o perdimos?              → el resultado, con el margen
+//   2. ¿qué se comió la plata?           → los rubros por peso, no 23 renglones alfabéticos
+//   3. ¿dónde está esa plata?            → el desglose que CIERRA (la pregunta de Máximo)
+//   4. ¿qué nos deben y qué debemos?     → la posición
+//   5. ¿cómo venimos?                    → mes a mes
+//
+// ⛔ TODO SALE DEL BANCO, y cada movimiento a la tasa de SU día. Lo que no se puede convertir
+// NO se convierte y se avisa. Un informe que rellena huecos para que el cuadro cierre es el que
+// destruye la confianza el día que alguien pregunta por una línea.
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+var INF_DATA=null;
+function _infUsd(n,dec){ return '$'+Number(n||0).toLocaleString('es-VE',{minimumFractionDigits:dec==null?0:dec,maximumFractionDigits:dec==null?0:dec}); }
+async function _infCargar(d,h){
+  var rp=await supabase.rpc('btg_resumen_socio',{p_desde:d,p_hasta:h});
+  if(rp.error)throw new Error(rp.error.message);
+  var out={ res:(Array.isArray(rp.data)?rp.data[0]:rp.data)||{} };
+  var pares=[['gasto','btg_donde_se_fue'],['donde','btg_donde_esta_utilidad']];
+  for(var i=0;i<pares.length;i++){
+    var r=await supabase.rpc(pares[i][1],{p_desde:d,p_hasta:h});
+    out[pares[i][0]]=(r.error?[]:(r.data||[]));
+    if(r.error)console.error(pares[i][1],r.error.message);
+  }
+  var rd=await supabase.rpc('btg_donde_estan_los_dolares'); out.dolares=rd.error?[]:(rd.data||[]);
+  var rc=await supabase.rpc('btg_cambiario_mensual',{p_desde:d,p_hasta:h}); out.camb=rc.error?[]:(rc.data||[]);
+  var rpos=await supabase.from('btg_posicion').select('*').order('monto_usd',{ascending:false}); out.pos=rpos.error?[]:(rpos.data||[]);
+  var rf=await supabase.from('v_cobro_facturas').select('*').order('fecha',{ascending:false}); out.fact=rf.error?[]:(rf.data||[]);
+  return out;
+}
+async function renderInforme(){
+  var el=g('inf-body'); if(!el)return;
+  if(!(DB_READY&&supabase)){ el.innerHTML='<div class="card" style="color:var(--text3)">Conectá la base.</div>'; return; }
+  var hoy=new Date().toISOString().slice(0,10);
+  if(g('inf-des')&&!gv('inf-des'))sv('inf-des','2026-03-23');
+  if(g('inf-hta')&&!gv('inf-hta'))sv('inf-hta',hoy);
+  var d=gv('inf-des')||'2026-03-23', h=gv('inf-hta')||hoy;
+  el.innerHTML='<div style="text-align:center;color:var(--text3);padding:30px">Calculando desde el banco…</div>';
+  try{
+    INF_DATA=await _infCargar(d,h);
+    el.innerHTML=_infHtml(INF_DATA,d,h,false);
+  }catch(e){ el.innerHTML='<div class="card" style="color:var(--red)">No se pudo armar el informe: '+relEsc(e.message||e)+'</div>'; }
+}
+function _infHtml(D,desde,hasta,paraImprimir){
+  var r=D.res||{}, P=paraImprimir;
+  var card=function(t,c){ return P?('<div class="blk"><h2>'+t+'</h2>'+c+'</div>')
+    :('<div class="card" style="margin-bottom:12px"><div class="ctitle" style="margin-bottom:8px">'+t+'</div>'+c+'</div>'); };
+  var tabla=function(cols,filas){ return '<div class="tw"><table><thead><tr>'+cols+'</tr></thead><tbody>'+filas+'</tbody></table></div>'; };
+  var util=Number(r.utilidad_usd)||0;
+  var html='';
+
+  // ── 1. EL RESULTADO ────────────────────────────────────────────────────────────────────────
+  var kpi=function(l,v,s,c){ return '<div style="flex:1;min-width:135px;background:var(--bg3);border-radius:8px;padding:9px 11px;border-top:3px solid '+(c||'var(--text3)')+'">'+
+    '<div style="font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px">'+l+'</div>'+
+    '<div style="font-size:18px;font-weight:900;font-family:var(--m);color:'+(c||'var(--text1)')+'">'+v+'</div>'+
+    (s?'<div style="font-size:10px;color:var(--text3);margin-top:2px">'+s+'</div>':'')+'</div>'; };
+  html+=card('1 · El resultado del período',
+    '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">'+
+      kpi('Cobrado',_infUsd(r.cobrado_usd),'de la Alcaldía','#16a34a')+
+      kpi('Gasto real',_infUsd(r.gasto_usd),'todo lo que salió','#dc2626')+
+      kpi('Pérdida cambiaria',_infUsd(r.cambiario_usd),'bolívares + sobreprecio','#d97706')+
+      kpi('UTILIDAD',_infUsd(util),'margen '+(r.margen_pct||0)+'%',util>=0?'#15803d':'#dc2626')+
+    '</div>'+
+    '<div style="font-size:11px;color:var(--text3);line-height:1.7">'+
+      'Cada movimiento convertido a la tasa de <b>su día</b>, nunca a un promedio. '+
+      (Number(r.movs_sin_tasa)?('<b style="color:var(--amber)">⚠️ '+r.movs_sin_tasa+' movimiento(s) sin tasa: NO se convirtieron y quedan fuera de estos totales.</b>'):'')+
+      (Number(r.divisas_sin_valuar)?(' <b style="color:var(--red)">⚠️ '+r.divisas_sin_valuar+' compra(s) de dólares sin su tasa: hay que preguntarla.</b>'):'')+
+    '</div>');
+
+  // ── 2. QUÉ SE COMIÓ LA PLATA ───────────────────────────────────────────────────────────────
+  html+=card('2 · Qué se comió la plata',
+    tabla('<th>Concepto</th><th style="text-align:right">US$</th><th style="text-align:right">% del gasto</th><th style="width:110px"></th>',
+      (D.gasto||[]).map(function(x){
+        var p=Number(x.pct)||0;
+        return '<tr><td>'+relEsc(x.concepto)+'</td>'+
+          '<td style="text-align:right;font-family:var(--m)">'+_infUsd(x.usd)+'</td>'+
+          '<td style="text-align:right;font-family:var(--m)">'+p.toFixed(1)+'%</td>'+
+          '<td><div style="height:7px;background:var(--bg3);border-radius:4px;overflow:hidden"><div style="height:100%;width:'+Math.min(100,p*3)+'%;background:'+(p>=15?'#dc2626':p>=7?'#d97706':'#64748b')+'"></div></div></td></tr>';
+      }).join('')));
+
+  // ── 3. DÓNDE ESTÁ LA UTILIDAD (la pregunta del socio) ──────────────────────────────────────
+  html+=card('3 · ¿Dónde está esa utilidad?',
+    '<div style="font-size:11px;color:var(--text3);margin-bottom:8px">La utilidad no es plata guardada en una caja: se transformó. Esto es en qué.</div>'+
+    tabla('<th>Se convirtió en</th><th style="text-align:right">US$</th><th>Qué significa</th>',
+      (D.donde||[]).map(function(x){
+        return '<tr><td>'+relEsc(x.concepto)+'</td>'+
+          '<td style="text-align:right;font-family:var(--m);font-weight:700">'+_infUsd(x.usd)+'</td>'+
+          '<td style="font-size:10px;color:var(--text3)">'+relEsc(String(x.nota||'').slice(0,150))+'</td></tr>';
+      }).join('')+
+      '<tr style="font-weight:800;border-top:2px solid var(--border)"><td>TOTAL</td>'+
+      '<td style="text-align:right;font-family:var(--m)">'+_infUsd((D.donde||[]).reduce(function(a,x){return a+Number(x.usd||0);},0))+'</td><td></td></tr>'));
+
+  // ── 4. LOS DÓLARES ─────────────────────────────────────────────────────────────────────────
+  html+=card('4 · Los dólares: comprados, usados y lo que queda',
+    tabla('<th>Concepto</th><th style="text-align:right">US$</th><th>Detalle</th>',
+      (D.dolares||[]).map(function(x){
+        var tot=/^=/.test(String(x.concepto));
+        return '<tr'+(tot?' style="font-weight:800;background:var(--bg3)"':'')+'><td>'+relEsc(x.concepto)+'</td>'+
+          '<td style="text-align:right;font-family:var(--m)">'+_infUsd(x.usd)+'</td>'+
+          '<td style="font-size:10px;color:var(--text3)">'+relEsc(String(x.nota||'').slice(0,140))+'</td></tr>';
+      }).join('')));
+
+  // ── 5. LO QUE CUESTA EL CAMBIO ─────────────────────────────────────────────────────────────
+  var peor=(D.camb||[]).reduce(function(a,x){return (Number(x.pct_del_cobrado)||0)>(Number(a.pct_del_cobrado)||0)?x:a;},(D.camb||[])[0]||{});
+  html+=card('5 · Lo que cuesta el cambio, mes a mes',
+    tabla('<th>Mes</th><th style="text-align:right">Cobrado</th><th style="text-align:right">Bs parados</th><th style="text-align:right">Sobreprecio</th><th style="text-align:right">Total</th><th style="text-align:right">% del cobrado</th><th>Brecha</th>',
+      (D.camb||[]).map(function(x){
+        var p=Number(x.pct_del_cobrado);
+        var col=p>=8?'#dc2626':p>=4?'#d97706':'#15803d';
+        var br=Number(x.compras)>0?((x.brecha_min_pct===x.brecha_max_pct?x.brecha_min_pct+'%':x.brecha_min_pct+'% – '+x.brecha_max_pct+'%')+' ('+x.compras+')'):'—';
+        return '<tr'+(x.mes===peor.mes&&p>0?' style="background:rgba(220,38,38,.06)"':'')+'>'+
+          '<td style="font-family:var(--m)">'+relEsc(x.mes)+'</td>'+
+          '<td style="text-align:right;font-family:var(--m)">'+_infUsd(x.cobrado_usd)+'</td>'+
+          '<td style="text-align:right;font-family:var(--m);color:var(--text3)">'+_infUsd(x.parados_usd)+'</td>'+
+          '<td style="text-align:right;font-family:var(--m);color:var(--text3)">'+_infUsd(x.sobreprecio_usd)+'</td>'+
+          '<td style="text-align:right;font-family:var(--m);font-weight:700">'+_infUsd(x.total_usd)+'</td>'+
+          '<td style="text-align:right;font-family:var(--m);font-weight:800;color:'+col+'">'+(p!=null?p.toFixed(2)+'%':'—')+'</td>'+
+          '<td style="font-size:10px">'+br+'</td></tr>';
+      }).join(''))+
+    '<div style="font-size:11px;color:var(--text3);margin-top:6px;line-height:1.7">'+
+      'La brecha va <b>mínima–máxima</b>, nunca promediada: sube y baja, y promediarla esconde justo lo que sirve para decidir <b>cuándo</b> comprar. '+
+      (peor.mes?('El mes más caro fue <b>'+relEsc(peor.mes)+'</b> con <b>'+Number(peor.pct_del_cobrado).toFixed(2)+'%</b> del cobrado.'):'')+
+    '</div>');
+
+  // ── 6. LA POSICIÓN ─────────────────────────────────────────────────────────────────────────
+  var grupo=function(g,t){
+    var f=(D.pos||[]).filter(function(x){return x.grupo===g;});
+    if(!f.length)return '';
+    return '<div style="margin-bottom:10px"><div style="font-size:11px;font-weight:800;color:var(--text2);margin-bottom:4px">'+t+'</div>'+
+      tabla('<th>Concepto</th><th style="text-align:right">US$</th><th>Al</th>',
+        f.map(function(x){
+          return '<tr><td>'+relEsc(x.titulo)+(x.supuesto?' <span class="badge by" title="Descansa en algo sin confirmar">supuesto</span>':'')+'</td>'+
+            '<td style="text-align:right;font-family:var(--m);font-weight:700">'+_infUsd(x.monto_usd)+'</td>'+
+            '<td style="font-size:10px;color:var(--text3)">'+formatFecha(x.vigente_al)+'</td></tr>';
+        }).join(''))+'</div>';
+  };
+  var faltan=(D.fact||[]).filter(function(f){return !f.neto_cobrado||!f.fiel_cobrado;});
+  html+=card('6 · Dónde está la plata, qué nos deben y qué debemos',
+    grupo('ACTIVO','LO QUE TENEMOS')+grupo('POR_COBRAR','LO QUE NOS DEBEN')+grupo('DEUDA','LO QUE DEBEMOS')+
+    (faltan.length?('<div style="font-size:11px;color:var(--red);margin-top:4px">🔴 '+faltan.length+' factura(s) con algo sin cobrar: '+
+      faltan.map(function(f){return relEsc(f.factura);}).join(', ')+'</div>')
+      :'<div style="font-size:11px;color:var(--green);margin-top:4px">✅ Todas las facturas cobradas enteras.</div>'));
+
+  return html;
+}
+async function imprimirInforme(){
+  if(!INF_DATA)await renderInforme();
+  if(!INF_DATA){ alert('No se pudo armar el informe.'); return; }
+  var d=gv('inf-des')||'2026-03-23', h=gv('inf-hta')||new Date().toISOString().slice(0,10);
+  var w=window.open('','_blank'); if(!w){ alert('El navegador bloqueó la ventana. Permití las ventanas emergentes.'); return; }
+  var css='body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:#1f2937;margin:22px;font-size:12px}'+
+    'h1{font-size:19px;margin:0}h2{font-size:13px;margin:16px 0 6px;color:#0f172a;border-bottom:2px solid #0f172a;padding-bottom:3px}'+
+    'table{width:100%;border-collapse:collapse;font-size:11px}th{background:#0f172a;color:#fff;text-align:left;padding:5px 7px;font-size:10px}'+
+    'td{padding:4px 7px;border-bottom:1px solid #e5e7eb}.blk{margin-bottom:14px;page-break-inside:avoid}'+
+    '.hdr{display:flex;justify-content:space-between;border-bottom:3px solid #0f172a;padding-bottom:8px;margin-bottom:12px}'+
+    '.mut{color:#64748b;font-size:10px}.badge{font-size:9px;padding:1px 5px;border-radius:4px;background:#fef3c7}'+
+    '@media print{body{margin:10px}}';
+  w.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Informe financiero — '+brandNom()+'</title><style>'+css+'</style></head><body>'+
+    '<div class="hdr"><div><h1>'+relEsc(brandNom())+'</h1>'+
+      '<div class="mut">RIF J-29566107-0 · Maracaibo, Edo. Zulia · Contrato Aseo Urbano — Alcaldía de Maracaibo</div></div>'+
+      '<div style="text-align:right"><b>INFORME FINANCIERO</b><div class="mut">'+formatFecha(d)+' → '+formatFecha(h)+'</div>'+
+      '<div class="mut">Emitido '+fmtFechaHora(new Date())+'</div></div></div>'+
+    _infHtml(INF_DATA,d,h,true)+
+    '<div class="mut" style="margin-top:16px;border-top:1px solid #e5e7eb;padding-top:6px">'+
+      'Todas las cifras salen del estado de cuenta bancario, movimiento por movimiento, cada uno convertido a la tasa del día en que ocurrió. '+
+      'Las compras de dólares se valúan a su tasa pactada, nunca a la tasa oficial.</div>'+
+    '</body></html>');
+  w.document.close(); setTimeout(function(){ try{w.print();}catch(e){} },600);
+}
 var REL_TAB='pend', REL_CACHE={};
 // El nombre en castellano de cada categoría. Es la MISMA lista que usa el Excel de la relación
 // (herramientas/relacion-gastos-excel.mjs): si se agrega una acá, hay que agregarla allá.
@@ -2961,6 +3132,7 @@ function sp(id){
     if(id==='banco-bnc'){renderBancoSubnav('banco-bnc');bncCargarConfig();}
     if(id==='conciliacion'){renderBancoSubnav('conciliacion');renderConciliacionBNC();}
     if(id==='relacion'){renderBancoSubnav('relacion');relTab(REL_TAB||'pend');}
+    if(id==='informe'){try{renderInforme();}catch(e){console.error('renderInforme',e);}}
     if(id==='operativo')operIniciar();
     // Buscador automático en los selects largos del módulo recién abierto
     try{var _pg=document.getElementById('p-'+id);autoBuscadorSelects(_pg);setTimeout(function(){autoBuscadorSelects(_pg);},400);}catch(e){}

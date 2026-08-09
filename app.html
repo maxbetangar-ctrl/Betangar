@@ -293,6 +293,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
     <div class="menu-item" onclick="sp('reporte')" id="mi-reporte">💵 Cobranza / Alcaldia</div>
     <div class="menu-group">FINANCIERO</div>
     <div class="menu-item" onclick="sp('banco')" id="mi-banco">🏦 Banco</div>
+    <div class="menu-item" onclick="sp('informe')" id="mi-informe">📊 Informe financiero</div>
     <div class="menu-item" onclick="sp('relacion')" id="mi-relacion">📋 Relación de gastos</div>
     <div class="menu-item" onclick="sp('usd')" id="mi-usd">💵 En Dolares</div>
     <div class="menu-item" onclick="abrirFinanzas()" id="mi-financiero">💰 Finanzas</div>
@@ -2765,6 +2766,28 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
      de 4 meses y medio fueron 12, unos 2 al mes.
      «Por revisar» va primero a propósito: es lo único que hay que hacer.
 ══════════════════════════════════════════════════════════════════════════════════════════════ -->
+<!-- ══════════════════════════════════════════════════════════════════════════════════════════════
+     INFORME FINANCIERO — lo que se le entrega a los socios.
+     Todo sale del banco, movimiento por movimiento, cada uno a la tasa de SU día. Responde en
+     orden las preguntas que hace un socio: cuánto ganamos, qué se comió la plata, dónde está esa
+     plata, qué nos deben y qué debemos.
+══════════════════════════════════════════════════════════════════════════════════════════════ -->
+<div class="page" id="p-informe">
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;margin-bottom:10px">
+    <div>
+      <div style="font-size:18px;font-weight:800;color:var(--text1)">📊 Informe financiero</div>
+      <div style="font-size:11px;color:var(--text3)">Todo sale del estado de cuenta del banco. Cada movimiento a la tasa de <b>su</b> día.</div>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <input type="date" class="fc" id="inf-des" style="width:145px" onchange="renderInforme()">
+      <input type="date" class="fc" id="inf-hta" style="width:145px" onchange="renderInforme()">
+      <button class="btn btn-s btn-sm" onclick="renderInforme()">Actualizar</button>
+      <button class="btn btn-g btn-sm" onclick="imprimirInforme()">🖨️ Imprimir / PDF</button>
+    </div>
+  </div>
+  <div id="inf-body"><div style="text-align:center;color:var(--text3);padding:30px">Cargando…</div></div>
+</div>
+
 <div class="page" id="p-relacion">
   <div id="subnav-relacion"></div>
   <div style="font-size:18px;font-weight:800;color:var(--text1);margin-bottom:4px">📋 Relación de gastos y cobros</div>
@@ -2839,7 +2862,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
 <script src="maxrecuerda.js?v=20260806-maxrecuerda"></script>
 <!-- Formato unico de los Excel de Maxware. VA ANTES de app.js. -->
 <script src="maxware-excel.js"></script>
-<script src="app.js?v=20260809i-mensual"></script>
+<script src="app.js?v=20260809j-informe"></script>
 
 <!-- Modal global -->
 <div id="modal" class="moverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9990;align-items:center;justify-content:center;padding:16px">
