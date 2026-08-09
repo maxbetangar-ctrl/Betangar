@@ -4163,6 +4163,10 @@ function bncFilaBanco(m){
     // Recibido» y el banco lo llama «fc segun factura EMISOR : INSTITUTO MUNICIPAL DEL ASEO U».
     // Con una sola versión ese cobro no se puede atribuir a ninguna factura.
     concepto_banco:m.desc||null,
+    // ⛔ `Type`/`Code`: los escribe la máquina del banco y mandan sobre el texto. El concepto se
+    // hereda de otra operación y miente — hubo Bs 5,2 MM de pagos de impuestos tomados por
+    // «traspaso entre cuentas propias» porque su concepto era el de un ingreso.
+    tipo_banco:m._tipoBanco||null, codigo_banco:m._codBanco||null,
     control_number:cn, cuenta:m._acc||null,
     saldo_anterior:(m._prev==null?null:Number(m._prev)) };
 }
@@ -23031,7 +23035,8 @@ async function renderConciliacionBNC(){
               // `ControlNumber` es la llave del banco; `PreviousBalance` es lo único que distingue
               // dos filas idénticas de un lote de nómina.
               bancoMovs.push({fecha:_fechaBNC(m.Date),tipo:esIng?'ingreso':'egreso',bs:Math.round(aBs(amt,moneda)*100)/100,ref:refs,desc:(cpt||String(m.Type||'').trim()),_conc:false,
-                _cn:String(m.ControlNumber||'').trim(),_acc:acc,_prev:(m.PreviousBalance==null?null:Number(m.PreviousBalance))});
+                _cn:String(m.ControlNumber||'').trim(),_acc:acc,_prev:(m.PreviousBalance==null?null:Number(m.PreviousBalance)),
+                _tipoBanco:String(m.Type||'').replace(/\s+/g,' ').trim()||null,_codBanco:(m.Code==null?null:String(m.Code))});
             });
           }catch(e){cuentasMal.push(acc);}
         }

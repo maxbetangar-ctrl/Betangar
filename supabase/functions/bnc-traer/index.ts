@@ -204,6 +204,13 @@ Deno.serve(async (req) => {
               // banco lo llama «fc segun factura EMISOR : INSTITUTO MUNICIPAL DEL ASEO U». Sin las
               // dos versiones, ese cobro no se puede atribuir a su factura.
               concepto_banco: lim(m.Concept) || lim(m.Type) || null,
+              // ⛔ `Type` y `Code` son los campos que ESCRIBE LA MÁQUINA DEL BANCO, y mandan sobre
+              // el texto. El concepto se hereda de otra operación y miente: hubo Bs 5,2 millones
+              // de PAGOS DE IMPUESTOS clasificados como «traspaso entre cuentas propias» porque su
+              // concepto era el de un ingreso y nombraba la cuenta principal. Sin guardar esto,
+              // `bnc_clasificar()` no tiene con qué desmentir al texto.
+              tipo_banco: lim(m.Type) || null,
+              codigo_banco: m.Code == null ? null : String(m.Code),
               referencia: refs || null,
               control_number: cn,
               cuenta: acc,
