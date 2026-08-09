@@ -2534,6 +2534,9 @@ async function _infCargar(d,h){
   var rc=await supabase.rpc('btg_cambiario_mensual',{p_desde:d,p_hasta:h}); out.camb=rc.error?[]:(rc.data||[]);
   var rpos=await supabase.from('btg_posicion').select('*').order('monto_usd',{ascending:false}); out.pos=rpos.error?[]:(rpos.data||[]);
   var rf=await supabase.from('v_cobro_facturas').select('*').order('fecha',{ascending:false}); out.fact=rf.error?[]:(rf.data||[]);
+  // Con QUÉ fechas se armó. Sin esto, imprimir podía sacar un PDF cuya cabecera dice un período y
+  // cuyos números son de otro. Ver imprimirInforme().
+  out._d=d; out._h=h;
   return out;
 }
 async function renderInforme(){
@@ -2701,9 +2704,16 @@ function _infHtml(D,desde,hasta,paraImprimir){
   return html;
 }
 async function imprimirInforme(){
-  if(!INF_DATA)await renderInforme();
-  if(!INF_DATA){ alert('No se pudo armar el informe.'); return; }
   var d=gv('inf-des')||'2026-03-23', h=gv('inf-hta')||new Date().toISOString().slice(0,10);
+  // ⛔ LA CABECERA Y LOS NÚMEROS TIENEN QUE SER DEL MISMO PERÍODO.
+  // Antes bastaba con que INF_DATA existiera. Pero los `input[type=date]` disparan `change` al
+  // PERDER EL FOCO: si alguien escribe una fecha nueva y hace clic directo en «Imprimir», el clic
+  // dispara el change (que arranca renderInforme, asíncrono) y ACTO SEGUIDO esta función, que lee
+  // las fechas NUEVAS de los inputs y los números VIEJOS de INF_DATA. Sale un PDF que dice un
+  // período y muestra otro — y no hay forma de notarlo mirándolo.
+  // Ahora se compara contra las fechas con las que se armó y se recarga si no coinciden.
+  if(!INF_DATA||INF_DATA._d!==d||INF_DATA._h!==h)await renderInforme();
+  if(!INF_DATA||INF_DATA._d!==d||INF_DATA._h!==h){ alert('No se pudo armar el informe para ese período.'); return; }
   var w=window.open('','_blank'); if(!w){ alert('El navegador bloqueó la ventana. Permití las ventanas emergentes.'); return; }
   var css='body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:#1f2937;margin:22px;font-size:12px}'+
     'h1{font-size:19px;margin:0}h2{font-size:13px;margin:16px 0 6px;color:#0f172a;border-bottom:2px solid #0f172a;padding-bottom:3px}'+
@@ -2719,8 +2729,16 @@ async function imprimirInforme(){
       '<div class="mut">Emitido '+fmtFechaHora(new Date())+'</div></div></div>'+
     _infHtml(INF_DATA,d,h,true)+
     '<div class="mut" style="margin-top:16px;border-top:1px solid #e5e7eb;padding-top:6px">'+
-      'Todas las cifras salen del estado de cuenta bancario, movimiento por movimiento, cada uno convertido a la tasa del día en que ocurrió. '+
-      'Las compras de dólares se valúan a su tasa pactada, nunca a la tasa oficial.</div>'+
+      // ⛔ EL PIE AFIRMABA DE MÁS: decía «TODAS las cifras salen del estado de cuenta bancario», y
+      // no es verdad. Lo cobrado, lo gastado y la utilidad REAL sí. Pero lo ejecutado y no
+      // facturado —el renglón más grande del informe— sale de las PLANILLAS y de las facturas, no
+      // del banco: es trabajo hecho que todavía no pasó por ninguna cuenta. Un documento que va a
+      // los socios no puede atribuirle al banco un número que el banco no respalda.
+      // [[norma-documento-no-afirma-lo-que-nadie-declaro]]
+      '<b>De dónde sale cada cifra.</b> Lo cobrado, lo gastado y la utilidad real salen del <b>estado de cuenta bancario</b>, '+
+      'movimiento por movimiento, cada uno convertido a la tasa del día en que ocurrió; las compras de dólares se valúan a su '+
+      'tasa pactada, nunca a la oficial. Lo <b>ejecutado y no facturado</b> NO sale del banco: son viajes de las planillas que '+
+      'todavía no se han facturado ni cobrado, valorados a la tarifa vigente del contrato, y depende de los supuestos indicados.</div>'+
     '</body></html>');
   w.document.close(); setTimeout(function(){ try{w.print();}catch(e){} },600);
 }
