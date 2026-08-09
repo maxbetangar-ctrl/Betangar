@@ -4986,6 +4986,10 @@ function toggleEstCam(cam){
 var FISCAL_PEND=[];
 // Roles que manejan plata: a ellos les toca ver esto.
 PERMISOS.auditor = PERMISOS.superadmin.slice();   // misma lista, una sola fuente
+// ⚠️ Y el candado de la BASE tiene que decir lo mismo. Esta línea le da el informe financiero
+// al auditor, pero `btg_ve_financiero()` no lo admitía: veía la pantalla y al abrirla le decía
+// que no estaba disponible. Se agregó `auditor` allá (09/08). Si acá se toca la lista, hay que
+// mirar la función: son DOS capas de la misma decisión y se desalinean calladas.
 var _FISCAL_ROLES={admin:1,superadmin:1,operador:1,directivo:1,auditor:1};
 async function renderFiscalBanner(){
   var el=g('fiscal-banner'); if(!el)return;
