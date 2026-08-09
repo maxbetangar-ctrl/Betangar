@@ -93,7 +93,7 @@ const NOMBRE_CAT = {
   reembolso: 'Reembolso', prestamo_empleado: 'Préstamo a empleado (NO es gasto)',
   bienestar_personal: 'Bienestar del personal', parafiscales: 'Parafiscales',
   implantacion_maxware: 'Apoyo administrativo', traspaso_interno: 'Traspaso entre cuentas propias (NO es gasto)',
-  reverso: 'Devolución / reverso', otro_ingreso: 'Otra entrada', otro: 'Otro',
+  reverso: 'Devolución / reverso', transito_terceros: 'Dinero de terceros en tránsito (NO es ingreso ni gasto)', otro_ingreso: 'Otra entrada', otro: 'Otro',
   duplicado: 'Pago duplicado', prueba_sistema: 'Prueba del sistema',
   '⏳pendiente_explicar': 'PENDIENTE DE EXPLICAR', sin_clasificar: '⚠️ FALTA CLASIFICAR',
 };

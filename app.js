@@ -2774,6 +2774,9 @@ var REL_CATS={
   prestamo_empleado:'Préstamo a empleado (NO es gasto)', bienestar_personal:'Bienestar del personal',
   parafiscales:'Parafiscales', implantacion_maxware:'Apoyo administrativo',
   traspaso_interno:'Traspaso entre cuentas propias (NO es gasto)', reverso:'Devolución / reverso',
+  // Plata de un TERCERO que entra y sale por nuestra cuenta. No es ingreso ni gasto: sale de la
+  // utilidad por los DOS lados. Si solo se saca una pata, el número queda peor que antes.
+  transito_terceros:'Dinero de terceros en tránsito (NO es ingreso ni gasto)',
   otro_ingreso:'Otra entrada', otro:'Otro', duplicado:'Pago duplicado',
   prueba_sistema:'Prueba del sistema', sin_clasificar:'⚠️ Falta clasificar'
 };
