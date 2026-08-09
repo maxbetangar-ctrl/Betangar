@@ -4192,6 +4192,13 @@ function validarAyudanteUnico(campoId){
 }
 
 function renderDash(){
+  // Si el gasto del banco todavía no llegó, se pide y se vuelve a dibujar cuando esté. Así la
+  // tarjeta se corrige sola en vez de quedarse con el número del respaldo hasta que alguien
+  // recargue la página.
+  try{ _asegurarEgresosBanco(function(){ try{ renderDash(); }catch(e){} }); }catch(e){}
+  return _renderDashCuerpo.apply(this,arguments);
+}
+function _renderDashCuerpo(){
   try{renderBncDashResumen();}catch(e){}
   try{renderSurtidasHoy();}catch(e){}
   var totalV=REGS.reduce(function(s,r){return s+r.t;},0);
@@ -4265,6 +4272,12 @@ async function imprimirDashboard(){
   // Saldos bancarios: si el usuario puede verlos y aún no están en caché, cargarlos ANTES de armar
   // el informe (así siempre salen; antes dependía de haber tocado el botón ↻ del dashboard).
   try{ if(typeof puedeVerSaldo==='function'&&puedeVerSaldo()&&(typeof _bncResumenCache==='undefined'||!_bncResumenCache)&&typeof renderBncDashResumen==='function'){ await renderBncDashResumen(true); } }catch(e){}
+  // ⛔ EL GASTO REAL, ANTES DE ARMAR EL INFORME. Sin este await el PDF sale con la Utilidad
+  // calculada por el camino viejo —le falta el 61% del gasto— porque la consulta al banco todavía
+  // no había llegado. Pasó de verdad: el informe impreso mostró US$ 277.247 cuando el número real
+  // es US$ 110.567. Un informe que se imprime y se entrega no puede depender de si una consulta
+  // alcanzó a responder: acá se espera.
+  try{ if(typeof cargarEgresosBanco==='function'&&!(EGRESOS_BANCO&&EGRESOS_BANCO.gasto>0)) await cargarEgresosBanco(); }catch(e){}
   var usd=function(n){return '$'+Number(n||0).toLocaleString('es-VE',{minimumFractionDigits:2,maximumFractionDigits:2});};
   // ⛽ Combustible surtido HOY (por surtida)
   try{ await cargarSurtidas(); }catch(e){}
@@ -4400,7 +4413,13 @@ async function imprimirDashboard(){
       // que los tenía todos: le faltaba el 61%. Ahora el subtítulo nombra la fuente, y si el
       // banco no respondió lo dice en vez de mostrar un número inflado como si fuera bueno.
       kpi('Utilidad Real',esRRHH?'—':usd(utilReal),esRRHH?'Restringido':('Margen '+margen+'% · '+_fuenteEgresos().txt),esRRHH?'':(_fuenteEgresos().ok?(utilReal>=0?'#15803d':'#dc2626'):'#d97706'))+
-      kpi('Tendencia mes',esRRHH?'—':tendTxt,esRRHH?'Restringido':('Facturado '+_mesActK+' vs '+_mesAntK+' · mismos '+_Dcorte+' días'),esRRHH?'':tendCol)+
+      // ⚠️ CON POCOS DÍAS CARGADOS NO HAY TENDENCIA, HAY RUIDO. Las planillas se cargan varios días
+      // después, así que a mitad de mes el mes actual puede tener 2 días y el porcentaje comparar
+      // 2 contra 2. Un −51% así no dice nada del negocio: dice qué día de la semana cayó el 1.
+      // Mostrarlo igual es peor que no mostrarlo, porque parece un dato.
+      (_Dcorte>=5
+        ? kpi('Tendencia mes',esRRHH?'—':tendTxt,esRRHH?'Restringido':('Facturado '+_mesActK+' vs '+_mesAntK+' · mismos '+_Dcorte+' días del mes'),esRRHH?'':tendCol)
+        : kpi('Tendencia mes',esRRHH?'—':'—',esRRHH?'Restringido':('Solo '+_Dcorte+' día(s) cargado(s) de '+_mesActK+': todavía no se puede comparar'),'#8a94a6'))+
       kpi('Flota',op+' oper · '+tal+' taller'+(ino?' · '+ino+' inop':''),cams.length+' unidades · '+(cams.length?Math.round(op/cams.length*100):0)+'% disponible')+
       kpi('Saldo BNC',saldoTxt,'')+
     '</div>'+
@@ -5000,6 +5019,21 @@ function _nominaRealUsd(){
 // [[norma-guardar-que-no-se-nota-duplica]] aplicada al cálculo: lo que cambia en silencio, miente.
 // ═══════════════════════════════════════════════════════════════════════════════════════════════
 var EGRESOS_BANCO=null;   // {gasto,cobrado,utilidad,margen,desde,hasta,ts} o null si no se pudo
+var _egBancoPidiendo=false, _egBancoIntentos=0;
+// Se pide sola si falta. La primera carga puede correr ANTES de que la sesión de Supabase esté
+// lista —y ahí la función devuelve 401 porque sus permisos son de usuario logueado—, así que
+// reintentar no es terquedad: es que el primer intento llega temprano por diseño.
+// Tope de 3 intentos: si a la tercera no entra, el problema no es el momento y hay que mirarlo.
+function _asegurarEgresosBanco(alLlegar){
+  if(EGRESOS_BANCO&&EGRESOS_BANCO.gasto>0)return;
+  if(_egBancoPidiendo||_egBancoIntentos>=3)return;
+  _egBancoPidiendo=true; _egBancoIntentos++;
+  cargarEgresosBanco().then(function(r){
+    _egBancoPidiendo=false;
+    if(r&&typeof alLlegar==='function')alLlegar();
+    else if(!r&&_egBancoIntentos<3)setTimeout(function(){_asegurarEgresosBanco(alLlegar);},2500);
+  }).catch(function(){ _egBancoPidiendo=false; });
+}
 async function cargarEgresosBanco(desde,hasta){
   if(!(DB_READY&&supabase)||DEMO_MODE)return null;
   try{
