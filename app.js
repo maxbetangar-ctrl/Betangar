@@ -3754,6 +3754,12 @@ function bncFilaBanco(m){
   var cn=String(m._cn||'').trim(); if(!cn)return null;   // sin ControlNumber NO se guarda: no hay llave
   return { id:'bnc_'+cn, fecha:String(m.fecha||'').slice(0,10), monto:Math.abs(Number(m.bs)||0),
     tipo:(m.tipo==='ingreso'?'credito':'debito'), descripcion:m.desc||null, referencia:m.ref||null,
+    // `concepto_banco` = lo que dijo el BANCO, en columna aparte de `descripcion`, que en los
+    // movimientos viejos trae lo que anotó la oficina y no se pisa. NO son lo mismo y hace falta
+    // guardar las dos: el fiel de la factura 000627 quedó anotado como «Credito Inmediato
+    // Recibido» y el banco lo llama «fc segun factura EMISOR : INSTITUTO MUNICIPAL DEL ASEO U».
+    // Con una sola versión ese cobro no se puede atribuir a ninguna factura.
+    concepto_banco:m.desc||null,
     control_number:cn, cuenta:m._acc||null,
     saldo_anterior:(m._prev==null?null:Number(m._prev)) };
 }

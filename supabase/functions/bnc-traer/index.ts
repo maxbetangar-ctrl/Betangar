@@ -198,6 +198,12 @@ Deno.serve(async (req) => {
               monto: Math.abs(Number(m.Amount) || 0),
               tipo: m.BalanceDelta === 'Egreso' ? 'debito' : 'credito',
               descripcion: lim(m.Concept) || lim(m.Type) || null,
+              // `concepto_banco` guarda lo que dijo el BANCO, aparte de `descripcion` —que en los
+              // movimientos viejos trae lo que anotó la oficina y NO se pisa—. No son lo mismo:
+              // el fiel de la factura 000627 está guardado como «Credito Inmediato Recibido» y el
+              // banco lo llama «fc segun factura EMISOR : INSTITUTO MUNICIPAL DEL ASEO U». Sin las
+              // dos versiones, ese cobro no se puede atribuir a su factura.
+              concepto_banco: lim(m.Concept) || lim(m.Type) || null,
               referencia: refs || null,
               control_number: cn,
               cuenta: acc,
