@@ -293,6 +293,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
     <div class="menu-item" onclick="sp('reporte')" id="mi-reporte">💵 Cobranza / Alcaldia</div>
     <div class="menu-group">FINANCIERO</div>
     <div class="menu-item" onclick="sp('banco')" id="mi-banco">🏦 Banco</div>
+    <div class="menu-item" onclick="sp('relacion')" id="mi-relacion">📋 Relación de gastos</div>
     <div class="menu-item" onclick="sp('usd')" id="mi-usd">💵 En Dolares</div>
     <div class="menu-item" onclick="abrirFinanzas()" id="mi-financiero">💰 Finanzas</div>
     <div class="menu-group">OPERACIONES</div>
@@ -2712,6 +2713,30 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
   </div>
 </div>
 
+<!-- ══════════════════════════════════════════════════════════════════════════════════════════════
+     RELACIÓN DE GASTOS Y COBROS — la pantalla que llena la administración.
+     Reemplaza el archivo que se llevaba a mano, movimiento por movimiento. Acá NO se teclea
+     ningún movimiento: el banco los entrega solos tres veces al día. Lo único que se hace es
+     decidir la categoría de lo que el sistema no supo clasificar — que sobre 2.431 movimientos
+     de 4 meses y medio fueron 12, unos 2 al mes.
+     «Por revisar» va primero a propósito: es lo único que hay que hacer.
+══════════════════════════════════════════════════════════════════════════════════════════════ -->
+<div class="page" id="p-relacion">
+  <div id="subnav-relacion"></div>
+  <div style="font-size:18px;font-weight:800;color:var(--text1);margin-bottom:4px">📋 Relación de gastos y cobros</div>
+  <div style="font-size:11px;color:var(--text3);margin-bottom:12px">
+    Los movimientos del banco entran <b>solos</b> tres veces al día. Acá no se copia ninguno:
+    solo se le pone <b>categoría</b> a lo que el sistema no supo clasificar.
+  </div>
+  <div class="switch-row" style="margin-bottom:10px">
+    <div class="sw on" id="rel-sw-pend" onclick="relTab('pend')">⚠️ Por revisar <span id="rel-badge"></span></div>
+    <div class="sw" id="rel-sw-todos" onclick="relTab('todos')">📄 Todos</div>
+    <div class="sw" id="rel-sw-fact" onclick="relTab('fact')">🏛️ Cobros Alcaldía</div>
+  </div>
+  <div id="rel-estado" style="font-size:11px;color:var(--text3);margin-bottom:8px"></div>
+  <div id="rel-body"><div style="text-align:center;color:var(--text3);padding:24px">Cargando…</div></div>
+</div>
+
 <div class="page" id="p-conciliacion">
   <div id="subnav-conciliacion"></div>
   <div style="font-size:18px;font-weight:800;color:var(--text1);margin-bottom:12px">🔄 Conciliación Bancaria</div>
@@ -2770,7 +2795,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
 <script src="maxrecuerda.js?v=20260806-maxrecuerda"></script>
 <!-- Formato unico de los Excel de Maxware. VA ANTES de app.js. -->
 <script src="maxware-excel.js"></script>
-<script src="app.js?v=20260809b-entradas"></script>
+<script src="app.js?v=20260809c-relacion"></script>
 
 <!-- Modal global -->
 <div id="modal" class="moverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9990;align-items:center;justify-content:center;padding:16px">

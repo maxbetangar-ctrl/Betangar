@@ -332,14 +332,14 @@ var USUARIOS={
 };
 
 var PERMISOS={
-  superadmin:['dashboard','entregas','banco-bnc','conciliacion','checklist','mensajes-wa','planilla','historico','reporte','abonos','banco','usd','proveedores','financiero','nomina','asistencia','fichaje','combustible','control-combustible','aud-combustible','km','unidades','documentos','inventario','llantas','metas','empleados','prestamos','multas','stats','ranking','rentabilidad','contratos','multicontrato','usuarios','auditoria','salud','config','galeria','porteria','mecanico','operativo','cxp','cajachica'],
-  admin:['dashboard','entregas','conciliacion','checklist','planilla','historico','reporte','abonos','banco','usd','proveedores','financiero','nomina','asistencia','fichaje','combustible','control-combustible','aud-combustible','km','unidades','documentos','inventario','llantas','metas','empleados','prestamos','multas','stats','ranking','rentabilidad','contratos','multicontrato','usuarios','auditoria','salud','config','galeria','porteria','mecanico','operativo','cxp','cajachica'],
-  operador:['dashboard','entregas','planilla','historico','reporte','abonos','banco','usd','proveedores','financiero','nomina','asistencia','fichaje','combustible','control-combustible','aud-combustible','km','unidades','documentos','inventario','llantas','metas','empleados','prestamos','multas','stats','ranking','rentabilidad','contratos','multicontrato','galeria'],
+  superadmin:['relacion','dashboard','entregas','banco-bnc','conciliacion','checklist','mensajes-wa','planilla','historico','reporte','abonos','banco','usd','proveedores','financiero','nomina','asistencia','fichaje','combustible','control-combustible','aud-combustible','km','unidades','documentos','inventario','llantas','metas','empleados','prestamos','multas','stats','ranking','rentabilidad','contratos','multicontrato','usuarios','auditoria','salud','config','galeria','porteria','mecanico','operativo','cxp','cajachica'],
+  admin:['relacion','dashboard','entregas','conciliacion','checklist','planilla','historico','reporte','abonos','banco','usd','proveedores','financiero','nomina','asistencia','fichaje','combustible','control-combustible','aud-combustible','km','unidades','documentos','inventario','llantas','metas','empleados','prestamos','multas','stats','ranking','rentabilidad','contratos','multicontrato','usuarios','auditoria','salud','config','galeria','porteria','mecanico','operativo','cxp','cajachica'],
+  operador:['relacion','dashboard','entregas','planilla','historico','reporte','abonos','banco','usd','proveedores','financiero','nomina','asistencia','fichaje','combustible','control-combustible','aud-combustible','km','unidades','documentos','inventario','llantas','metas','empleados','prestamos','multas','stats','ranking','rentabilidad','contratos','multicontrato','galeria'],
   rrhh:['dashboard','mensajes-wa','planilla','historico','reporte','proveedores','nomina','asistencia','fichaje','combustible','km','unidades','documentos','inventario','llantas','metas','empleados','prestamos','multas','ranking','galeria'],
   visualizador:['dashboard','entregas','reporte','abonos','banco','usd','financiero','stats','ranking','rentabilidad','contratos','galeria'],
   directivo:['dashboard','entregas','historico','reporte','abonos','financiero','stats','ranking','rentabilidad'],
-  demo_admin:['dashboard','checklist','planilla','historico','reporte','abonos','banco','usd','proveedores','financiero','nomina','asistencia','fichaje','combustible','km','unidades','documentos','inventario','llantas','metas','empleados','prestamos','multas','stats','ranking','rentabilidad','contratos','usuarios','config','galeria'],
-  demo_operador:['dashboard','planilla','historico','reporte','abonos','banco','usd','proveedores','financiero','nomina','asistencia','fichaje','combustible','km','unidades','documentos','inventario','llantas','metas','empleados','prestamos','multas','stats','ranking','rentabilidad','contratos','galeria'],
+  demo_admin:['relacion','dashboard','checklist','planilla','historico','reporte','abonos','banco','usd','proveedores','financiero','nomina','asistencia','fichaje','combustible','km','unidades','documentos','inventario','llantas','metas','empleados','prestamos','multas','stats','ranking','rentabilidad','contratos','usuarios','config','galeria'],
+  demo_operador:['relacion','dashboard','planilla','historico','reporte','abonos','banco','usd','proveedores','financiero','nomina','asistencia','fichaje','combustible','km','unidades','documentos','inventario','llantas','metas','empleados','prestamos','multas','stats','ranking','rentabilidad','contratos','galeria'],
   demo_rrhh:['dashboard','mensajes-wa','planilla','historico','reporte','proveedores','nomina','asistencia','fichaje','combustible','km','unidades','documentos','inventario','llantas','metas','empleados','prestamos','multas','ranking','galeria'],
   asistencia:['asistencia'],
   vigilante:['porteria'],
@@ -365,7 +365,11 @@ var PERMISOS={
 var NAV_LABELS={
   'aud-combustible':'Auditoría de Combustible',
   dashboard:'Dashboard',planilla:'Registro Diario',historico:'Historico',reporte:'Cobranza / Alcaldia',
-  abonos:'Abonos / Cobros',banco:'Banco BNC',conciliacion:'Conciliación Bancaria',proveedores:'Proveedores',financiero:'Financiero',
+  // ⚠️ TODA página nueva va TAMBIÉN acá, no solo en PERMISOS. `aplicarPermisos()` recorre
+  // NAV_LABELS para decidir qué ítem del menú se muestra: lo que no esté en esta lista queda
+  // VISIBLE para todos los roles, tengan el permiso o no. Es el reverso de
+  // [[norma-permiso-que-ninguna-pantalla-muestra]] — una pantalla que se ve sin permiso.
+  abonos:'Abonos / Cobros',banco:'Banco BNC',relacion:'Relación de gastos',conciliacion:'Conciliación Bancaria',proveedores:'Proveedores',financiero:'Financiero',
   nomina:'Nomina',asistencia:'Asistencia',fichaje:'Fichaje / Sitios',combustible:'Combustible','control-combustible':'Control Combustible',km:'Km / Servicio',
   documentos:'Documentos',inventario:'Inventario',llantas:'Llantas',metas:'Metas',
   empleados:'Empleados',unidades:'Unidades y Equipos',prestamos:'Prestamos',multas:'Multas',stats:'Estadisticas',rentabilidad:'Rentabilidad x Camion',salud:'Salud de Datos',multicontrato:'Operación / Contratos',
@@ -2454,11 +2458,191 @@ function renderBancoSubnav(activo){
     if(perms.indexOf(id)<0)return '';
     return '<div class="sw'+(id===activo?' on':'')+'" onclick="sp(\''+id+'\')">'+label+'</div>';
   }
-  var ids=['banco','conciliacion','banco-bnc'];
+  var ids=['banco','relacion','conciliacion','banco-bnc'];
   var visibles=ids.reduce(function(s,i){return s+(perms.indexOf(i)>=0?1:0);},0);
-  var html=visibles>=2?('<div class="switch-row" style="margin-bottom:10px">'+tab('banco','💰 Saldos')+tab('conciliacion','🔄 Conciliación')+tab('banco-bnc','⚙️ Config BNC')+'</div>'):'';
-  ['subnav-banco','subnav-conciliacion','subnav-banco-bnc'].forEach(function(pid){var el=document.getElementById(pid);if(el)el.innerHTML=html;});
+  var html=visibles>=2?('<div class="switch-row" style="margin-bottom:10px">'+tab('banco','💰 Saldos')+tab('relacion','📋 Relación')+tab('conciliacion','🔄 Conciliación')+tab('banco-bnc','⚙️ Config BNC')+'</div>'):'';
+  ['subnav-banco','subnav-relacion','subnav-conciliacion','subnav-banco-bnc'].forEach(function(pid){var el=document.getElementById(pid);if(el)el.innerHTML=html;});
 }
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+// RELACIÓN DE GASTOS Y COBROS — lo que llena la administración
+//
+// Reemplaza el archivo que se llevaba a mano. Acá NO se teclea ningún movimiento: el banco los
+// entrega solos tres veces al día (`bnc-traer`), con fecha, monto, beneficiario, cédula y su
+// número de control. Lo único que hay que decidir es la CATEGORÍA de lo que el sistema no supo
+// clasificar — sobre 2.431 movimientos de 4 meses y medio fueron 12, unos 2 al mes.
+//
+// ⛔ LO QUE SE DECIDE ACÁ NO SE PISA. Al guardar queda `clasificado_por = 'manual:<usuario>'`, y
+// `bnc_clasificar()` respeta todo lo que empiece por `manual:`. Sin eso, la próxima corrida del
+// traído borraría la decisión de la persona y nadie se enteraría.
+//
+// ⚠️ LA CATEGORÍA SE ELIGE, NO SE ESCRIBE. En el archivo viejo era texto libre y «E/S EL PALOTAL»
+// quedó escrito de 34 formas distintas en 74 pagos: ningún total lo sumaba completo.
+//
+// ⚠️ «SALIÓ DEL BANCO» Y «ES GASTO» SON DOS COSAS. La compra de dólares sale de la cuenta y es
+// ahorro. En Betangar eso era el 23,7% de las salidas. [[norma-salida-de-banco-no-es-gasto]]
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+var REL_TAB='pend', REL_CACHE={};
+// El nombre en castellano de cada categoría. Es la MISMA lista que usa el Excel de la relación
+// (herramientas/relacion-gastos-excel.mjs): si se agrega una acá, hay que agregarla allá.
+var REL_CATS={
+  cobro_alcaldia:'Cobro de la Alcaldía', nomina:'Nómina', combustible:'Combustible',
+  compra_divisas:'Compra de dólares (NO es gasto)', pago_socio:'Pago a socio',
+  asignacion_1b:'Comisión 1B', impuestos:'Impuestos y retenciones', resp_social:'Responsabilidad social',
+  mantenimiento:'Mantenimiento', servicios:'Servicios', alquiler:'Alquiler', seguro:'Seguros',
+  dotacion:'Dotación y uniformes', tramites:'Trámites y permisos', compra_software:'Software',
+  comision_banco:'Comisión bancaria', caja_chica:'Caja chica', reembolso:'Reembolso',
+  prestamo_empleado:'Préstamo a empleado (NO es gasto)', bienestar_personal:'Bienestar del personal',
+  parafiscales:'Parafiscales', implantacion_maxware:'Apoyo administrativo',
+  traspaso_interno:'Traspaso entre cuentas propias (NO es gasto)', reverso:'Devolución / reverso',
+  otro_ingreso:'Otra entrada', otro:'Otro', duplicado:'Pago duplicado',
+  prueba_sistema:'Prueba del sistema', sin_clasificar:'⚠️ Falta clasificar'
+};
+function relNombreCat(c){ return REL_CATS[c]||c||'⚠️ Falta clasificar'; }
+function relTab(t){
+  REL_TAB=t;
+  ['pend','todos','fact'].forEach(function(x){ var el=g('rel-sw-'+x); if(el)el.className='sw'+(x===t?' on':''); });
+  renderRelacion();
+}
+function relEsc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+// El texto del banco es larguísimo («TRANSFERENCIA A FAVOR DE: … PARA LA CUENTA NRO. 0191…») y
+// desbordaba la tabla a la derecha. Se acorta a lo que de verdad identifica el movimiento.
+function relCorto(t,n){
+  t=String(t||'').replace(/\s+/g,' ').trim();
+  t=t.replace(/TRANSFERENCIA A FAVOR DE:\s*/i,'').replace(/TRANSFERENCIA RECIBIDA (DEL|DE)\s*:?\s*/i,'')
+     .replace(/PARA LA CUENTA NRO\.?\s*\d+/i,'').replace(/DE LA CUENTA NRO\.?\s*\d+/i,'')
+     .replace(/TELF\.:\d+\s*/i,'').replace(/CTA\.:\s*\d+\s*/i,'').replace(/\s+/g,' ').trim();
+  n=n||70; return t.length>n?relEsc(t.slice(0,n))+'…':relEsc(t);
+}
+async function renderRelacion(){
+  var cont=g('rel-body'), est=g('rel-estado'); if(!cont)return;
+  if(!(DB_READY&&supabase)){ cont.innerHTML='<div class="card" style="color:var(--text3)">Conectá la base para ver la relación.</div>'; return; }
+  cont.innerHTML='<div style="text-align:center;color:var(--text3);padding:24px">Cargando…</div>';
+  try{
+    if(REL_TAB==='fact')      await relRenderFacturas(cont,est);
+    else if(REL_TAB==='todos')await relRenderTodos(cont,est);
+    else                      await relRenderPendientes(cont,est);
+  }catch(e){ cont.innerHTML='<div class="card" style="color:var(--red)">No se pudo cargar: '+relEsc(e.message||e)+'</div>'; }
+  relActualizarBadge();
+}
+// El contador de «por revisar» va en la pestaña para que se vea SIN entrar. Una bandeja que hay
+// que abrir para saber si tiene algo es una bandeja que nadie abre.
+async function relActualizarBadge(){
+  try{
+    var r=await supabase.from('bnc_movimientos').select('id',{count:'exact',head:true}).in('categoria',['sin_clasificar','⏳pendiente_explicar']);
+    var el=g('rel-badge'); if(el)el.innerHTML=r.count?('<span class="badge br" style="margin-left:4px">'+r.count+'</span>'):'<span class="badge bg" style="margin-left:4px">0</span>';
+  }catch(e){}
+}
+function relSelectCat(id,actual){
+  var ks=Object.keys(REL_CATS).sort(function(a,b){return relNombreCat(a).localeCompare(relNombreCat(b));});
+  return '<select class="fc" id="relc-'+id+'" style="font-size:12px;padding:6px">'+
+    ks.map(function(k){return '<option value="'+k+'"'+(k===actual?' selected':'')+'>'+relEsc(relNombreCat(k))+'</option>';}).join('')+'</select>';
+}
+async function relRenderPendientes(cont,est){
+  var r=await supabase.from('bnc_movimientos')
+    .select('id,fecha,monto,tipo,descripcion,concepto_banco,referencia,categoria,es_gasto,control_number,cuenta')
+    .in('categoria',['sin_clasificar','⏳pendiente_explicar']).order('fecha',{ascending:false}).limit(500);
+  if(r.error)throw new Error(r.error.message);
+  var ms=r.data||[];
+  if(est)est.textContent=ms.length?(ms.length+' movimiento(s) esperando categoría.'):'';
+  if(!ms.length){ cont.innerHTML='<div class="card" style="text-align:center;padding:28px"><div style="font-size:34px">✅</div>'+
+    '<div style="font-weight:700;margin-top:6px">No hay nada por revisar</div>'+
+    '<div style="font-size:12px;color:var(--text3);margin-top:4px">Todos los movimientos del banco tienen categoría.</div></div>'; return; }
+  cont.innerHTML=ms.map(function(m){
+    var esSal=m.tipo==='debito';
+    var tasa=(typeof getTasaFecha==='function'&&getTasaFecha(m.fecha,'dolar'))||0;
+    return '<div class="card" style="margin-bottom:10px">'+
+      '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap">'+
+        '<div><span class="badge '+(esSal?'br':'bg')+'">'+(esSal?'↑ Salida':'↓ Entrada')+'</span> '+
+          '<b style="margin-left:6px">'+formatFecha(m.fecha)+'</b></div>'+
+        '<div style="font-family:var(--m);font-weight:800;color:'+(esSal?'var(--red)':'var(--green)')+'">Bs '+
+          Number(m.monto).toLocaleString('es-VE',{minimumFractionDigits:2})+
+          (tasa?'<span style="font-size:11px;color:var(--text3);font-weight:400"> · $'+(Number(m.monto)/tasa).toFixed(2)+'</span>':'')+'</div>'+
+      '</div>'+
+      // Las DOS versiones del concepto. No dicen lo mismo y ninguna gana siempre: el fiel de la
+      // factura 000627 quedó anotado como «Credito Inmediato Recibido» y el banco lo llama
+      // «fc segun factura EMISOR : INSTITUTO MUNICIPAL DEL ASEO». Con una sola, ese cobro
+      // estuvo tres meses sin dueño.
+      '<div style="margin-top:8px;font-size:11px;line-height:1.6">'+
+        '<div><span style="color:var(--text3)">El banco dice:</span> '+relCorto(m.concepto_banco,120)+'</div>'+
+        (m.descripcion&&m.descripcion!==m.concepto_banco?'<div><span style="color:var(--text3)">La oficina anotó:</span> '+relCorto(m.descripcion,120)+'</div>':'')+
+        (m.referencia?'<div style="color:var(--text3)">Ref: '+relEsc(m.referencia)+'</div>':'')+
+      '</div>'+
+      '<div class="fr2" style="margin-top:10px">'+
+        '<div class="fg"><label>Categoría</label>'+relSelectCat(m.id,m.categoria==='sin_clasificar'?'':m.categoria)+'</div>'+
+        '<div class="fg"><label>¿Es gasto?</label>'+
+          (esSal?('<select class="fc" id="relg-'+m.id+'" style="font-size:12px;padding:6px">'+
+            '<option value="si"'+(m.es_gasto!==false?' selected':'')+'>Sí</option>'+
+            '<option value="no"'+(m.es_gasto===false?' selected':'')+'>No — no es gasto del período</option></select>')
+           :'<div style="font-size:12px;color:var(--text3);padding:8px 0">No: es una entrada</div>')+'</div>'+
+      '</div>'+
+      '<button class="btn btn-g btn-sm" style="width:100%;margin-top:8px" onclick="relGuardar(\''+relEsc(m.id)+'\','+(esSal?'true':'false')+')">💾 Guardar</button>'+
+    '</div>';
+  }).join('');
+}
+async function relGuardar(id,esSalida){
+  var sc=g('relc-'+id); if(!sc)return;
+  var cat=sc.value; if(!cat||cat==='sin_clasificar'){ mostrarToast('Elegí una categoría','error'); return; }
+  var esGasto = esSalida ? (g('relg-'+id)&&g('relg-'+id).value==='si') : false;
+  // Las categorías que dicen «NO es gasto» en su nombre no dependen de lo que elija la persona:
+  // una compra de dólares es ahorro, la elija quien la elija. Se fuerza para que no queden dos
+  // verdades distintas en la misma fila.
+  if(/NO es gasto/i.test(relNombreCat(cat))) esGasto=false;
+  var quien=(SESION&&SESION.usuario)?SESION.usuario:'?';
+  var fila={categoria:cat, es_gasto:esGasto, clasificado_por:'manual:'+quien, clasificado_at:new Date().toISOString()};
+  var ok=false;
+  try{
+    var res=await supabase.from('bnc_movimientos').update(fila).eq('id',id);
+    if(res.error){ mostrarToast('No se pudo guardar: '+res.error.message,'error'); }
+    else ok=true;
+  }catch(e){ mostrarToast('No se pudo guardar: '+(e.message||e),'error'); }
+  if(!ok){ if(typeof guardarEnCola==='function')guardarEnCola('bnc_movimientos',Object.assign({id:id},fila),'id'); return; }
+  audit('relacion_clasificar','mov '+id+' → '+cat+(esGasto?' (gasto)':' (no es gasto)'));
+  mostrarToast('Guardado: '+relNombreCat(cat),'exito');
+  renderRelacion();
+}
+async function relRenderTodos(cont,est){
+  var r=await supabase.from('bnc_movimientos')
+    .select('id,fecha,monto,tipo,descripcion,concepto_banco,categoria,es_gasto,clasificado_por,factura,pata')
+    .order('fecha',{ascending:false}).limit(300);
+  if(r.error)throw new Error(r.error.message);
+  var ms=r.data||[];
+  if(est)est.textContent='Los 300 más recientes. Para el listado completo del período está el Excel de la relación.';
+  cont.innerHTML='<div class="tw"><table><thead><tr><th>Fecha</th><th>Tipo</th><th>Detalle</th><th style="text-align:right">Bs</th><th>Categoría</th><th>¿Gasto?</th><th>Factura</th></tr></thead><tbody>'+
+    ms.map(function(m){
+      var esSal=m.tipo==='debito';
+      var manual=String(m.clasificado_por||'').indexOf('manual:')===0;
+      return '<tr><td style="font-size:10px;white-space:nowrap">'+formatFecha(m.fecha)+'</td>'+
+        '<td><span class="badge '+(esSal?'br':'bg')+'">'+(esSal?'↑':'↓')+'</span></td>'+
+        // Acortado: el texto crudo del banco cortaba la tabla a la derecha.
+        '<td style="font-size:11px">'+relCorto(m.concepto_banco||m.descripcion,58)+'</td>'+
+        '<td style="text-align:right;font-family:var(--m);color:'+(esSal?'var(--red)':'var(--green)')+'">'+Number(m.monto).toLocaleString('es-VE',{minimumFractionDigits:2})+'</td>'+
+        '<td style="font-size:11px">'+relEsc(relNombreCat(m.categoria))+(manual?' <span class="badge bt" title="Lo decidió una persona: ninguna regla lo pisa">✋</span>':'')+'</td>'+
+        '<td>'+(m.tipo==='credito'?'<span style="color:var(--text3);font-size:10px">entrada</span>':(m.es_gasto===false?'<span class="badge by">No</span>':'<span class="badge bg">Sí</span>'))+'</td>'+
+        '<td style="font-size:10px">'+relEsc(m.factura?(m.factura+' '+(m.pata||'')):'')+'</td></tr>';
+    }).join('')+'</tbody></table></div>';
+}
+async function relRenderFacturas(cont,est){
+  var r=await supabase.from('v_cobro_facturas').select('*').order('fecha',{ascending:false});
+  if(r.error)throw new Error(r.error.message);
+  var fs=r.data||[];
+  var falta=fs.filter(function(f){return !f.neto_cobrado||!f.fiel_cobrado;});
+  if(est)est.innerHTML=falta.length
+    ? '🔴 <b>'+falta.length+'</b> factura(s) con algo sin cobrar. La Alcaldía paga en dos partes: el neto con la factura y el 10% de fiel cumplimiento días después.'
+    : '✅ Todas las facturas cobradas enteras.';
+  cont.innerHTML='<div class="tw"><table><thead><tr><th>Factura</th><th>Fecha</th><th style="text-align:right">Viajes</th><th style="text-align:right">Base US$</th><th>Neto</th><th>Fiel 10%</th><th style="text-align:right">Cobrado Bs</th></tr></thead><tbody>'+
+    fs.map(function(f){
+      var ok=function(b,fec,esp){ return b?('<span class="badge bg">✅ '+(fec?formatFecha(fec):'')+'</span>')
+        :('<span class="badge br">🔴 falta $'+Number(esp).toFixed(2)+'</span>'); };
+      return '<tr><td style="font-family:var(--m)">'+relEsc(f.factura)+'</td>'+
+        '<td style="font-size:10px">'+formatFecha(f.fecha)+'</td>'+
+        '<td style="text-align:right">'+relEsc(f.viajes)+'</td>'+
+        '<td style="text-align:right;font-family:var(--m)">'+Number(f.base_usd).toLocaleString('es-VE',{minimumFractionDigits:2})+'</td>'+
+        '<td>'+ok(f.neto_cobrado,f.fecha_neto,f.neto_esperado_usd)+'</td>'+
+        '<td>'+ok(f.fiel_cobrado,f.fecha_fiel,f.fiel_esperado_usd)+'</td>'+
+        '<td style="text-align:right;font-family:var(--m)">'+Number(f.cobrado_bs||0).toLocaleString('es-VE',{minimumFractionDigits:2})+'</td></tr>';
+    }).join('')+'</tbody></table></div>';
+}
+
 // Sub-navegación del módulo Mantenimiento UNIFICADO: Check List / Mecánico / Km-Servicio / Llantas.
 // Cuatro módulos (2 páginas p-* y 2 secciones sec-*) que comparten una entrada de menú. Cada botón
 // solo si el rol tiene ese permiso; si <2, no se muestra barra. NO altera la lógica de los módulos.
@@ -2740,6 +2924,7 @@ function sp(id){
     if(id==='mecanico'){renderMantSubnav('mecanico');mecIniciar();}
     if(id==='banco-bnc'){renderBancoSubnav('banco-bnc');bncCargarConfig();}
     if(id==='conciliacion'){renderBancoSubnav('conciliacion');renderConciliacionBNC();}
+    if(id==='relacion'){renderBancoSubnav('relacion');relTab(REL_TAB||'pend');}
     if(id==='operativo')operIniciar();
     // Buscador automático en los selects largos del módulo recién abierto
     try{var _pg=document.getElementById('p-'+id);autoBuscadorSelects(_pg);setTimeout(function(){autoBuscadorSelects(_pg);},400);}catch(e){}
