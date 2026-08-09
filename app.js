@@ -2510,6 +2510,27 @@ async function _infCargar(d,h){
   var rd=await supabase.rpc('btg_donde_estan_los_dolares'); out.dolares=rd.error?[]:(rd.data||[]);
   var re=await supabase.rpc('btg_utilidad_real_y_estimada',{p_desde:d,p_hasta:h});
   out.est=re.error?null:((Array.isArray(re.data)?re.data[0]:re.data)||null);
+  // ── EL MES A MES ENGAÑA, Y HAY QUE MOSTRARLO ACUMULADO ────────────────────────────────────
+  // Abril da 8,1% de margen y mayo 46,4%. Eso NO es el negocio moviéndose: es que el cobro de la
+  // Alcaldía llega desfasado del gasto que lo produjo (se factura al momento del pago). Un socio
+  // que ve esa serie lee una montaña rusa que no existe. El acumulado sí describe la operación:
+  // cada mes agrega su parte y la curva se estabiliza.
+  out.meses=[];
+  try{
+    var y=Number(String(d).slice(0,4)), mIni=Number(String(d).slice(5,7)), mFin=Number(String(h).slice(5,7));
+    var yFin=Number(String(h).slice(0,4));
+    for(var yy=y, mm=mIni; (yy<yFin)||(yy===yFin&&mm<=mFin); mm++){
+      if(mm>12){mm=1;yy++;}
+      var d1=(yy===y&&mm===mIni)?d:(yy+'-'+String(mm).padStart(2,'0')+'-01');
+      var ultDia=new Date(Date.UTC(yy,mm,0)).getUTCDate();
+      var h1=(yy===yFin&&mm===mFin)?h:(yy+'-'+String(mm).padStart(2,'0')+'-'+ultDia);
+      var rm=await supabase.rpc('btg_resumen_socio',{p_desde:d1,p_hasta:h1});
+      if(!rm.error){ var x=Array.isArray(rm.data)?rm.data[0]:rm.data;
+        if(x)out.meses.push({mes:yy+'-'+String(mm).padStart(2,'0'),cobrado:Number(x.cobrado_usd)||0,
+          gasto:(Number(x.gasto_usd)||0)+(Number(x.cambiario_usd)||0),utilidad:Number(x.utilidad_usd)||0}); }
+      if(out.meses.length>18)break;
+    }
+  }catch(e){ console.error('meses',e); }
   var rc=await supabase.rpc('btg_cambiario_mensual',{p_desde:d,p_hasta:h}); out.camb=rc.error?[]:(rc.data||[]);
   var rpos=await supabase.from('btg_posicion').select('*').order('monto_usd',{ascending:false}); out.pos=rpos.error?[]:(rpos.data||[]);
   var rf=await supabase.from('v_cobro_facturas').select('*').order('fecha',{ascending:false}); out.fact=rf.error?[]:(rf.data||[]);
@@ -2635,7 +2656,30 @@ function _infHtml(D,desde,hasta,paraImprimir){
       (peor.mes?('El mes más caro fue <b>'+relEsc(peor.mes)+'</b> con <b>'+Number(peor.pct_del_cobrado).toFixed(2)+'%</b> del cobrado.'):'')+
     '</div>');
 
-  // ── 6. LA POSICIÓN ─────────────────────────────────────────────────────────────────────────
+  // ── 5.b MES A MES, Y EL ACUMULADO AL LADO ──────────────────────────────────────────────────
+  if((D.meses||[]).length>1){
+    var ac={c:0,g:0,u:0};
+    html+=card('6 · Mes a mes — y el acumulado, que es el que describe el negocio',
+      '<div style="font-size:11px;color:var(--text3);margin-bottom:8px">'+
+        '⚠️ <b>El margen de un mes suelto engaña.</b> El cobro de la Alcaldía llega desfasado del gasto que lo produjo '+
+        '(no se factura hasta el momento del pago), así que un mes puede dar 8% y el siguiente 46% sin que el negocio '+
+        'haya cambiado. <b>Mirá la columna del acumulado</b>: esa sí describe la operación.</div>'+
+      tabla('<th>Mes</th><th style="text-align:right">Cobrado</th><th style="text-align:right">Gasto</th><th style="text-align:right">Utilidad</th><th style="text-align:right">Margen del mes</th><th style="text-align:right">Margen ACUMULADO</th>',
+        (D.meses||[]).map(function(m){
+          ac.c+=m.cobrado; ac.g+=m.gasto; ac.u+=m.utilidad;
+          var mm=m.cobrado>0?(m.utilidad/m.cobrado*100):0;
+          var ma=ac.c>0?(ac.u/ac.c*100):0;
+          return '<tr><td style="font-family:var(--m)">'+relEsc(m.mes)+'</td>'+
+            '<td style="text-align:right;font-family:var(--m)">'+_infUsd(m.cobrado)+'</td>'+
+            '<td style="text-align:right;font-family:var(--m)">'+_infUsd(m.gasto)+'</td>'+
+            '<td style="text-align:right;font-family:var(--m)">'+_infUsd(m.utilidad)+'</td>'+
+            '<td style="text-align:right;font-family:var(--m);color:var(--text3)">'+mm.toFixed(1)+'%</td>'+
+            '<td style="text-align:right;font-family:var(--m);font-weight:800;color:'+(ma>=15?'#15803d':ma>=0?'#d97706':'#dc2626')+'">'+ma.toFixed(1)+'%</td></tr>';
+        }).join(''))+
+      '<div style="font-size:10px;color:var(--text3);margin-top:6px">La columna gris salta porque el cobro y el gasto no caen en el mismo mes. La negra es la del negocio.</div>');
+  }
+
+  // ── 7. LA POSICIÓN ─────────────────────────────────────────────────────────────────────────
   var grupo=function(g,t){
     var f=(D.pos||[]).filter(function(x){return x.grupo===g;});
     if(!f.length)return '';
@@ -2648,7 +2692,7 @@ function _infHtml(D,desde,hasta,paraImprimir){
         }).join(''))+'</div>';
   };
   var faltan=(D.fact||[]).filter(function(f){return !f.neto_cobrado||!f.fiel_cobrado;});
-  html+=card('6 · Dónde está la plata, qué nos deben y qué debemos',
+  html+=card('7 · Dónde está la plata, qué nos deben y qué debemos',
     grupo('ACTIVO','LO QUE TENEMOS')+grupo('POR_COBRAR','LO QUE NOS DEBEN')+grupo('DEUDA','LO QUE DEBEMOS')+
     (faltan.length?('<div style="font-size:11px;color:var(--red);margin-top:4px">🔴 '+faltan.length+' factura(s) con algo sin cobrar: '+
       faltan.map(function(f){return relEsc(f.factura);}).join(', ')+'</div>')
@@ -25156,6 +25200,15 @@ async function renderComprasUsd(){
       .eq('categoria','compra_divisas').order('fecha',{ascending:false});
     if(r.error)throw new Error(r.error.message);
     var ms=r.data||[];
+    // La BRECHA de cada compra: cuánto se pagó por encima del BCV de ese día. Es el dato que dice
+    // CUÁNDO conviene comprar — fue 35,6% el 09/06 y 14,0% el 30/07, o sea que comprar en julio
+    // costó la mitad. Promediarla lo esconde, por eso va compra por compra.
+    var brechas={};
+    try{
+      var rb=await supabase.from('v_brecha_compras').select('fecha,bs,brecha_pct,pago_de_mas_usd');
+      if(!rb.error)(rb.data||[]).forEach(function(x){ brechas[String(x.fecha).slice(0,10)+'|'+Number(x.bs).toFixed(2)]=x; });
+    }catch(e){}
+    var _br=function(m){ return brechas[String(m.fecha).slice(0,10)+'|'+Number(m.monto).toFixed(2)]||null; };
     var totBs=0,totUsd=0,faltan=0;
     ms.forEach(function(m){ totBs+=Number(m.monto)||0;
       if(m.tasa_real>0)totUsd+=Number(m.monto)/Number(m.tasa_real); else faltan++; });
@@ -25164,9 +25217,17 @@ async function renderComprasUsd(){
       totUsd.toLocaleString('es-VE',{minimumFractionDigits:2})+'</b>'+(faltan?(' · <span style="color:var(--red)">'+faltan+' sin tasa</span>'):'')):'';
     if(!ms.length){ el.innerHTML='<div style="color:var(--text3);padding:12px">No hay compras de dólares en el período cargado.</div>'; return; }
     el.innerHTML='<div class="tw"><table><thead><tr><th>Fecha</th><th style="text-align:right">Bolívares</th>'+
-      '<th style="width:130px">Tasa de compra</th><th style="text-align:right">Dólares</th><th>A quién</th><th></th></tr></thead><tbody>'+
+      '<th style="width:130px">Tasa de compra</th><th style="text-align:right">Dólares</th>'+
+      '<th style="text-align:right" title="Cuánto se pagó por encima de la tasa BCV de ese día. Sube y baja: elegir cuándo comprar es plata.">Brecha vs BCV</th>'+
+      '<th>A quién</th><th></th></tr></thead><tbody>'+
       ms.map(function(m){
         var usd=(m.tasa_real>0)?(Number(m.monto)/Number(m.tasa_real)):null;
+        var br=_br(m);
+        var bp=br?Number(br.brecha_pct):null;
+        // verde/ámbar/rojo según qué tan cara estuvo: 25%+ es de los meses malos, 15% o menos de los buenos
+        var bcol=bp==null?'var(--text3)':(bp>=25?'var(--red)':bp>=18?'var(--amber)':'var(--green)');
+        var brTxt=bp==null?'<span style="color:var(--text3)">—</span>'
+          :('<b style="color:'+bcol+'">'+bp.toFixed(1)+'%</b><div style="font-size:9px;color:var(--text3)">pagó de más $'+Number(br.pago_de_mas_usd).toLocaleString('es-VE',{maximumFractionDigits:0})+'</div>');
         return '<tr'+(usd==null?' style="background:rgba(220,38,38,.06)"':'')+'>'+
           '<td style="font-size:11px;white-space:nowrap">'+formatFecha(m.fecha)+'</td>'+
           '<td style="text-align:right;font-family:var(--m)">'+Number(m.monto).toLocaleString('es-VE',{minimumFractionDigits:2})+'</td>'+
@@ -25174,12 +25235,32 @@ async function renderComprasUsd(){
              'style="font-family:var(--m);font-size:12px;padding:5px;text-align:right" oninput="cuCalc(\''+relEsc(m.id)+'\','+Number(m.monto)+')"></td>'+
           '<td style="text-align:right;font-family:var(--m);font-weight:700" id="cusd-'+relEsc(m.id)+'">'+
              (usd==null?'<span style="color:var(--red);font-weight:400;font-size:11px">falta la tasa</span>':('$'+usd.toLocaleString('es-VE',{minimumFractionDigits:2})))+'</td>'+
+          '<td style="text-align:right;font-family:var(--m);font-size:11px">'+brTxt+'</td>'+
           '<td style="font-size:11px">'+relCorto(m.concepto_banco||m.descripcion,34)+
              (m.tasa_estimada?' <span class="badge by" title="La tasa no la declaró nadie: se dedujo. El número se usa pero queda marcado.">estimada</span>':'')+'</td>'+
           '<td><button class="btn btn-g btn-xs" onclick="cuGuardar(\''+relEsc(m.id)+'\')">Guardar</button></td></tr>';
       }).join('')+'</tbody></table></div>'+
       // El contraste con el número que lleva Máximo por su lado. Dos registros independientes que
       // cierran valen más que cualquier deducción; y si dejan de cerrar, se ve al instante.
+      // Cómo viene la brecha: si la última compra fue más barata que las anteriores, decirlo — es
+      // el único dato de esta pantalla sobre el que se puede DECIDIR algo hoy.
+      (function(){
+        var bs=Object.keys(brechas).map(function(k){return brechas[k];})
+          .sort(function(a,b){return String(a.fecha)<String(b.fecha)?1:-1;});
+        if(bs.length<2)return '';
+        var ult=Number(bs[0].brecha_pct), prev=Number(bs[1].brecha_pct);
+        var mn=Math.min.apply(null,bs.map(function(x){return Number(x.brecha_pct);}));
+        var mx=Math.max.apply(null,bs.map(function(x){return Number(x.brecha_pct);}));
+        var col=ult<=mn+3?'var(--green)':(ult>=mx-3?'var(--red)':'var(--amber)');
+        return '<div style="margin-top:8px;padding:8px 10px;border-radius:8px;background:var(--bg3);font-size:11px;line-height:1.7">'+
+          '<b style="color:'+col+'">La última compra fue con la brecha en '+ult.toFixed(1)+'%</b> '+
+          '(en el período fue de '+mn.toFixed(1)+'% a '+mx.toFixed(1)+'%). '+
+          (ult<=mn+3?'Es de los momentos más baratos: si hay que comprar, ahora cuesta menos.'
+           :ult>=mx-3?'Es de los momentos más caros: si la compra puede esperar, conviene esperar.'
+           :'Está en el medio del rango.')+
+          '<div style="color:var(--text3);margin-top:3px">La brecha sube y baja. Comprar fuerte en un mes caro cuesta el doble que repartirlo — en junio se pagó 12,2% de lo cobrado y en julio 4,3%.</div>'+
+        '</div>';
+      })()+
       '<div style="margin-top:8px;font-size:11px;color:var(--text3);line-height:1.7">'+
         'Comprado en este período: <b>US$ '+totUsd.toLocaleString('es-VE',{maximumFractionDigits:0})+'</b>. '+
         'El total comprado <b>desde el inicio</b> es mayor porque el fondo ya traía dólares de antes — ese número vive en «Dónde está la plata».'+
