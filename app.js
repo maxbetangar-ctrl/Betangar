@@ -25031,9 +25031,59 @@ async function fdGuardar(){
   mostrarToast('Registrado','exito');
   closeModal(); renderFondoUsd();
 }
+// ── LO QUE CUESTA EL CAMBIO, MES A MES ─────────────────────────────────────────────────────────
+// Las dos piezas van SEPARADAS porque se controlan distinto: los bolívares parados se mejoran
+// moviendo la plata antes; el sobreprecio es el precio del mercado ese día — no se controla, pero
+// sí se elige CUÁNDO comprar. Junio costó 12,2% del cobrado y julio 4,3%: la misma empresa, la
+// misma operación, tres veces más caro por el momento en que se compró.
+async function renderCambiarioUsd(){
+  var el=g('usd-camb'); if(!el)return;
+  if(!(DB_READY&&supabase)){ el.innerHTML='<div style="color:var(--text3);padding:10px">Conectá la base.</div>'; return; }
+  try{
+    var r=await supabase.rpc('btg_cambiario_mensual',{p_desde:'2026-01-01',p_hasta:new Date().toISOString().slice(0,10)});
+    if(r.error)throw new Error(r.error.message);
+    var ms=r.data||[];
+    if(!ms.length){ el.innerHTML='<div style="color:var(--text3);padding:12px">Sin datos.</div>'; return; }
+    var tc=0,tp=0;
+    ms.forEach(function(m){ tc+=Number(m.cobrado_usd)||0; tp+=Number(m.total_usd)||0; });
+    var tt=g('usd-camb-tot');
+    if(tt)tt.innerHTML='<b style="color:var(--red)">'+(tc?(tp/tc*100).toFixed(2):'0')+'%</b> del cobrado · US$ '+
+      tp.toLocaleString('es-VE',{maximumFractionDigits:0});
+    // el mes más caro se marca: es el que hay que poder explicar
+    var peor=ms.reduce(function(a,m){return (Number(m.pct_del_cobrado)||0)>(Number(a.pct_del_cobrado)||0)?m:a;},ms[0]);
+    el.innerHTML='<div class="tw"><table><thead><tr><th>Mes</th><th style="text-align:right">Cobrado</th>'+
+      '<th style="text-align:right" title="Bolívares que se quedaron quietos mientras la tasa subía">Bs parados</th>'+
+      '<th style="text-align:right" title="Lo que se pagó de más al comprar dólares, contra la tasa BCV de ese día">Sobreprecio</th>'+
+      '<th style="text-align:right">Total</th><th style="text-align:right">% del cobrado</th><th>Brecha de las compras</th></tr></thead><tbody>'+
+      ms.map(function(m){
+        var pct=Number(m.pct_del_cobrado);
+        var esPeor=m.mes===peor.mes&&pct>0;
+        var col=pct>=8?'var(--red)':pct>=4?'var(--amber)':'var(--green)';
+        // La brecha va MÍNIMA–MÁXIMA, no promediada: en junio hubo compras al 27% y al 35,6%, y
+        // un promedio del 31% habría escondido que una fue mucho peor que la otra.
+        var br=Number(m.compras)>0
+          ? (m.brecha_min_pct===m.brecha_max_pct? m.brecha_min_pct+'%'
+             : m.brecha_min_pct+'% – '+m.brecha_max_pct+'%')+' <span style="color:var(--text3)">('+m.compras+' compra'+(m.compras>1?'s':'')+')</span>'
+          : '<span style="color:var(--text3)">sin compras</span>';
+        return '<tr'+(esPeor?' style="background:rgba(220,38,38,.06)"':'')+'>'+
+          '<td style="font-family:var(--m)">'+relEsc(m.mes)+(esPeor?' <span class="badge br" title="El mes que más costó">peor</span>':'')+'</td>'+
+          '<td style="text-align:right;font-family:var(--m)">'+Number(m.cobrado_usd).toLocaleString('es-VE',{maximumFractionDigits:0})+'</td>'+
+          '<td style="text-align:right;font-family:var(--m);color:var(--text3)">'+Number(m.parados_usd).toLocaleString('es-VE',{maximumFractionDigits:0})+'</td>'+
+          '<td style="text-align:right;font-family:var(--m);color:var(--text3)">'+Number(m.sobreprecio_usd).toLocaleString('es-VE',{maximumFractionDigits:0})+'</td>'+
+          '<td style="text-align:right;font-family:var(--m);font-weight:700">'+Number(m.total_usd).toLocaleString('es-VE',{maximumFractionDigits:0})+'</td>'+
+          '<td style="text-align:right;font-family:var(--m);font-weight:800;color:'+col+'">'+(pct!=null?pct.toFixed(2)+'%':'—')+'</td>'+
+          '<td style="font-size:11px">'+br+'</td></tr>';
+      }).join('')+'</tbody></table></div>'+
+      '<div style="font-size:11px;color:var(--text3);margin-top:8px;line-height:1.7">'+
+        'El mes más caro fue <b>'+relEsc(peor.mes)+'</b> con <b>'+Number(peor.pct_del_cobrado).toFixed(2)+'%</b>. '+
+        'No es que se haya comprado mal: es <b>cuándo</b> se compró. La brecha sube y baja, y comprar fuerte en un mes de brecha alta cuesta el doble que repartirlo.'+
+      '</div>';
+  }catch(e){ el.innerHTML='<div style="color:var(--red);padding:10px">No se pudo cargar: '+relEsc(e.message||e)+'</div>'; }
+}
 function renderUsd(){
   try{ renderComprasUsd(); }catch(e){ console.error('renderComprasUsd',e); }
   try{ renderFondoUsd(); }catch(e){ console.error('renderFondoUsd',e); }
+  try{ renderCambiarioUsd(); }catch(e){ console.error('renderCambiarioUsd',e); }
   return _renderUsdOriginal.apply(this,arguments);
 }
 function _renderUsdOriginal(){

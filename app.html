@@ -573,6 +573,23 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
     <div id="usd-fondo-res" style="margin:6px 0 10px"></div>
     <div id="usd-fondo-mov"></div>
   </div>
+  <!-- ══════════════════════════════════════════════════════════════════════════════════════
+       CUÁNTO SE PIERDE POR EL CAMBIO, MES A MES.
+       Máximo: «ese factor me gusta llevarlo, el porcentaje que se perdió por el diferencial
+       cambiario mes a mes, me gustaría tener ese número a la mano».
+       Va con la brecha MÍNIMA y MÁXIMA del mes, no con el promedio: la brecha sube y baja
+       (35,6% el 09/06 y 14,0% el 30/07) y promediarla esconde justo lo accionable.
+  ══════════════════════════════════════════════════════════════════════════════════════ -->
+  <div class="card" id="usd-camb-card" style="margin-bottom:14px">
+    <div class="sh"><div class="st">📉 Lo que cuesta el cambio, mes a mes</div>
+      <div id="usd-camb-tot" style="font-size:12px;color:var(--text3)"></div></div>
+    <div style="font-size:11px;color:var(--text3);margin:4px 0 8px">
+      De cada 100 dólares que entraron, cuántos se perdieron por el diferencial. Dos piezas
+      distintas: los <b>bolívares que se quedaron quietos</b> (se mejora moviendo la plata antes)
+      y el <b>sobreprecio al comprar</b> (no se controla, pero sí se elige <b>cuándo</b> comprar).
+    </div>
+    <div id="usd-camb"><div style="color:var(--text3);padding:12px">Cargando…</div></div>
+  </div>
   <div class="ctitle">Por mes</div>
   <div class="tw" style="margin-bottom:14px"><table><thead><tr><th>Mes</th><th>Entradas US$</th><th>Salidas US$</th><th>Neto US$</th><th>Movs</th><th title="Movimientos que cayeron en dia sin tasa publicada (sabado, domingo o feriado): se usa la del ultimo dia habil">Con tasa heredada</th></tr></thead><tbody id="tb-usd-mes"></tbody></table></div>
   <div class="ctitle">Movimiento por movimiento <span style="font-size:11px;color:var(--text3);font-weight:400">— cada uno con la tasa de su día</span></div>
@@ -2822,7 +2839,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
 <script src="maxrecuerda.js?v=20260806-maxrecuerda"></script>
 <!-- Formato unico de los Excel de Maxware. VA ANTES de app.js. -->
 <script src="maxware-excel.js"></script>
-<script src="app.js?v=20260809h-cambiario"></script>
+<script src="app.js?v=20260809i-mensual"></script>
 
 <!-- Modal global -->
 <div id="modal" class="moverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9990;align-items:center;justify-content:center;padding:16px">
