@@ -12512,9 +12512,52 @@ function guardarMovManual(){
   closeModal();renderBNCDash();renderMovBNC();
 }
 
-function renderMovBNC(){
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+// MOVIMIENTOS DEL BANCO — los tres defectos que marcó Máximo el 08/08
+//
+// 1. NO LEÍA `bnc_movimientos`. Mostraba `BNC_MOV`, un array en memoria con lo que la app había
+//    registrado (casi todo entradas), no lo que pasó en el banco. Hoy la tabla tiene 2.431
+//    movimientos traídos y clasificados: la pantalla tiene que mostrar ESO.
+//
+// 2. IGNORABA SUS PROPIOS FILTROS, y el motivo estaba escrito en una línea:
+//        if(tipo && m.tipo!==tipo && m.tipo!=='pago_nomina_pend') return false;
+//    ese `&& m.tipo!=='pago_nomina_pend'` hace que esos movimientos pasen SIEMPRE, elijas el
+//    filtro que elijas. Por eso con «Tipo: Salidas» y fechas de agosto salían entradas de julio.
+//    Las tarjetas de arriba sí filtraban bien → los totales nunca coincidían con la tabla.
+//
+// 3. LA TABLA SE CORTABA A LA DERECHA: el detalle traía el texto crudo del banco
+//    («TRANSFERENCIA A FAVOR DE: … PARA LA CUENTA NRO. 0191…»).
+//
+// Ahora los filtros se aplican EN LA CONSULTA, así que lo que suman las tarjetas es exactamente
+// lo que se lista: no hay forma de que se separen. [[norma-fuente-unica-datos]]
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+async function renderMovBNC(){
   var des=gv('bnc-mov-des'),hta=gv('bnc-mov-hta'),tipo=gv('bnc-mov-tipo');
-  var f=BNC_MOV.filter(function(m){if(des&&m.fecha<des)return false;if(hta&&m.fecha>hta)return false;if(tipo&&m.tipo!==tipo&&m.tipo!=='pago_nomina_pend')return false;return true;});
+  var f=[];
+  if(DB_READY&&supabase&&!DEMO_MODE){
+    try{
+      var q=supabase.from('bnc_movimientos')
+        .select('id,fecha,monto,tipo,descripcion,concepto_banco,referencia,categoria,es_gasto,conciliado,pendiente_autorizacion,control_number')
+        .order('fecha',{ascending:false}).limit(400);
+      if(des)q=q.gte('fecha',des);
+      if(hta)q=q.lte('fecha',hta);
+      if(tipo)q=q.eq('tipo',tipo);   // ← el filtro va en la CONSULTA: nada se escapa
+      var rq=await q;
+      if(!rq.error)f=(rq.data||[]).map(function(m){
+        return {id:m.id,fecha:m.fecha,monto:Number(m.monto)||0,tipo:m.tipo,
+          desc:relCorto(m.concepto_banco||m.descripcion,64),   // acortado: ya no se corta a la derecha
+          ref:m.referencia||'',categoria:m.categoria,esGasto:m.es_gasto,
+          conciliado:m.conciliado,pendienteAutorizacion:m.pendiente_autorizacion,delBanco:!!m.control_number};
+      });
+      else console.error('renderMovBNC',rq.error.message);
+    }catch(e){ console.error('renderMovBNC',e); }
+  }
+  // Respaldo: si la base no respondió, lo que haya en memoria — y filtrado BIEN esta vez.
+  if(!f.length)f=BNC_MOV.filter(function(m){
+    if(des&&m.fecha<des)return false; if(hta&&m.fecha>hta)return false;
+    if(tipo&&m.tipo!==tipo)return false;   // sin la excepción que colaba los pago_nomina_pend
+    return true;
+  });
   var totEntr=f.filter(function(m){return m.tipo==='credito';}).reduce(function(s,m){return s+m.monto;},0);
   var totSal=f.filter(function(m){return m.tipo==='debito';}).reduce(function(s,m){return s+m.monto;},0);
   var bal=totEntr-totSal;
@@ -12524,7 +12567,27 @@ function renderMovBNC(){
   if(g('bnc-tot-num'))g('bnc-tot-num').textContent=f.length;
   var tasa=TASAS.bcvDolar||cfg.tasa;
   var tb=g('tb-bnc-mov');
-  if(tb)tb.innerHTML=f.slice().reverse().map(function(m){return'<tr><td>'+formatFecha(m.fecha)+'</td><td><span class="badge '+(m.tipo==='credito'?'bg':'br')+'">'+(m.tipo==='pago_nomina_pend'?'NOMINA':m.tipo.toUpperCase())+'</span></td><td style="font-size:11px">'+m.desc+'</td><td style="font-family:var(--m)">'+m.ref+'</td><td style="font-family:var(--m);color:'+(m.tipo==='credito'?'var(--green)':'var(--red)')+'">Bs '+m.monto.toLocaleString('es-VE',{maximumFractionDigits:0})+'</td><td style="font-family:var(--m)">$'+(m.monto/tasa).toFixed(2)+'</td><td>'+(m.conciliado?'<span class="badge bg">SI</span>':m.pendienteAutorizacion?'<span class="badge by">Pend. Firma</span>':'<span class="badge bt">No</span>')+'</td><td>'+((!m.conciliado&&!m.pendienteAutorizacion)?'<button class="btn btn-g btn-xs" onclick="conciliarMov(\''+m.id+'\')">Conciliar</button>':'')+'</td></tr>';}).join('')||'<tr><td colspan="8" style="text-align:center;color:var(--text3);padding:20px">Sin movimientos</td></tr>';
+  // Ya viene ordenado por fecha desc desde la consulta: invertirlo lo dejaba al revés de lo que
+  // dice el encabezado. Se muestra la CATEGORÍA, que es lo que ahora sabe el sistema y antes no.
+  if(tb)tb.innerHTML=f.map(function(m){
+    var cat=(typeof relNombreCat==='function')?relNombreCat(m.categoria):(m.categoria||'');
+    return'<tr><td style="white-space:nowrap">'+formatFecha(m.fecha)+'</td>'+
+      '<td><span class="badge '+(m.tipo==='credito'?'bg':'br')+'">'+(m.tipo==='pago_nomina_pend'?'NOMINA':String(m.tipo||'').toUpperCase())+'</span></td>'+
+      '<td style="font-size:11px">'+m.desc+
+        (cat?'<div style="font-size:10px;color:var(--text3)">'+cat+(m.tipo==='debito'&&m.esGasto===false?' · <b>no es gasto</b>':'')+'</div>':'')+
+        (m.delBanco?'':'<div style="font-size:9px;color:var(--amber)">no vino del banco</div>')+'</td>'+
+      '<td style="font-family:var(--m);font-size:10px">'+m.ref+'</td>'+
+      '<td style="font-family:var(--m);text-align:right;color:'+(m.tipo==='credito'?'var(--green)':'var(--red)')+'">Bs '+m.monto.toLocaleString('es-VE',{maximumFractionDigits:0})+'</td>'+
+      '<td style="font-family:var(--m);text-align:right">$'+(m.monto/tasa).toFixed(2)+'</td>'+
+      '<td>'+(m.conciliado?'<span class="badge bg">SI</span>':m.pendienteAutorizacion?'<span class="badge by">Pend. Firma</span>':'<span class="badge bt">No</span>')+'</td>'+
+      '<td>'+((!m.conciliado&&!m.pendienteAutorizacion)?'<button class="btn btn-g btn-xs" onclick="conciliarMov(\''+m.id+'\')">Conciliar</button>':'')+'</td></tr>';
+  }).join('')||'<tr><td colspan="8" style="text-align:center;color:var(--text3);padding:20px">Sin movimientos en ese período</td></tr>';
+  // Aviso de tope: 400 es un corte, y un corte que no se ve se lee como «esto es todo».
+  // [[norma-postgrest-corta-en-1000-sin-avisar]]
+  var av=g('bnc-mov-aviso');
+  if(av)av.innerHTML=(f.length>=400)
+    ? '<span style="color:var(--amber)">⚠️ Se muestran los 400 más recientes del período. Acotá las fechas para ver el resto.</span>'
+    : (f.length?('Los '+f.length+' movimientos del período, tal como los trajo el banco.'):'');
   try{cargarMovRealesBNC();}catch(e){}
 }
 // Movimientos REALES del banco (los empuja el webhook BNC a bnc_notificaciones). Esto es lo
@@ -12609,7 +12672,24 @@ async function _movRealesNotifsHTML(modo){
     }).join('')+'</tbody></table></div>';
 }
 
-function conciliarMov(id){var mov=BNC_MOV.find(function(m){return m.id===id;});if(!mov)return;mov.conciliado=true;bncMovGuardar(id);audit('Movimiento BNC conciliado',id);renderMovBNC();}
+// La tabla ahora lista lo que hay en `bnc_movimientos`, no lo que quedó en el array de memoria.
+// Buscar solo en `BNC_MOV` hacía que el botón no hiciera NADA —sin error, sin aviso— para los
+// 2.400 movimientos traídos del banco: se toca y no pasa nada, que es la peor forma de fallar.
+// [[norma-guardar-que-no-se-nota-duplica]]
+async function conciliarMov(id){
+  var mov=BNC_MOV.find(function(m){return m.id===id;});
+  if(mov){ mov.conciliado=true; bncMovGuardar(id); }
+  else{
+    if(!(DB_READY&&supabase)){ mostrarToast('Sin conexión: no se pudo marcar','error'); return; }
+    try{
+      var r=await supabase.from('bnc_movimientos').update({conciliado:true}).eq('id',id);
+      if(r.error){ mostrarToast('No se pudo marcar: '+r.error.message,'error'); return; }
+    }catch(e){ mostrarToast('No se pudo marcar: '+(e.message||e),'error'); return; }
+  }
+  audit('Movimiento BNC conciliado',id);
+  mostrarToast('Marcado como conciliado','exito');
+  renderMovBNC();
+}
 
 // [Unificado 2026-07-18] Se retiraron `conciliarAutomatico` (cruzaba con tolerancia ±$200 y persistía
 // conciliaciones falsas) y `renderConciliacion` (versión vieja, duplicada). La conciliación real y única
