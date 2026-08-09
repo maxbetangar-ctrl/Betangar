@@ -2730,21 +2730,23 @@ async function imprimirInforme(){
   // Ahora se compara contra las fechas con las que se armó y se recarga si no coinciden.
   if(!INF_DATA||INF_DATA._d!==d||INF_DATA._h!==h)await renderInforme();
   if(!INF_DATA||INF_DATA._d!==d||INF_DATA._h!==h){ alert('No se pudo armar el informe para ese período.'); return; }
-  var w=window.open('','_blank'); if(!w){ alert('El navegador bloqueó la ventana. Permití las ventanas emergentes.'); return; }
-  var css='body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:#1f2937;margin:22px;font-size:12px}'+
-    'h1{font-size:19px;margin:0}h2{font-size:13px;margin:16px 0 6px;color:#0f172a;border-bottom:2px solid #0f172a;padding-bottom:3px}'+
-    'table{width:100%;border-collapse:collapse;font-size:11px}th{background:#0f172a;color:#fff;text-align:left;padding:5px 7px;font-size:10px}'+
-    'td{padding:4px 7px;border-bottom:1px solid #e5e7eb}.blk{margin-bottom:14px;page-break-inside:avoid}'+
-    '.hdr{display:flex;justify-content:space-between;border-bottom:3px solid #0f172a;padding-bottom:8px;margin-bottom:12px}'+
-    '.mut{color:#64748b;font-size:10px}.badge{font-size:9px;padding:1px 5px;border-radius:4px;background:#fef3c7}'+
-    '@media print{body{margin:10px}}';
-  w.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Informe financiero — '+brandNom()+'</title><style>'+css+'</style></head><body>'+
-    '<div class="hdr"><div><h1>'+relEsc(brandNom())+'</h1>'+
-      '<div class="mut">RIF J-29566107-0 · Maracaibo, Edo. Zulia · Contrato Aseo Urbano — Alcaldía de Maracaibo</div></div>'+
-      '<div style="text-align:right"><b>INFORME FINANCIERO</b><div class="mut">'+formatFecha(d)+' → '+formatFecha(h)+'</div>'+
-      '<div class="mut">Emitido '+fmtFechaHora(new Date())+'</div></div></div>'+
-    _infHtml(INF_DATA,d,h,true)+
-    '<div class="mut" style="margin-top:16px;border-top:1px solid #e5e7eb;padding-top:6px">'+
+  // ⛔ NO SE INVENTA UN DISEÑO: SE USA EL QUE YA EXISTE.
+  // Máximo (09/08): «le falta estética, no lleva logo, debería estar mejor delimitado… usá el de
+  // auditoría que tiene Flotilla, en Betangar también». Y ese molde YA ESTÁ EN ESTE ARCHIVO:
+  // `abrirImpresionPremium()` — cabecera azul con el LOGO incrustado, RIF, ciudad y contrato;
+  // barra de título; tarjetas de cifras; tablas con encabezado oscuro; y pie con la marca.
+  // Es el mismo que usan los demás reportes, así que el informe deja de ser el raro de la casa.
+  // Antes esta función se dibujaba su propio HTML a mano, con un `<h1>` y una línea: por eso no
+  // llevaba logo. [[norma-bitacora-nombrar-la-pieza-que-ya-existe]] · [[norma-tambien-se-vende-por-los-ojos]]
+  var R=(INF_DATA&&INF_DATA.res)||{}, E=(INF_DATA&&INF_DATA.est)||{};
+  var _u=function(n){ return '$'+Number(n||0).toLocaleString('es-VE',{maximumFractionDigits:0}); };
+  var stats=
+    mkStat('Cobrado',_u(R.cobrado_usd),'del banco','azul')+
+    mkStat('Gasto real',_u(R.gasto_usd),'','rojo')+
+    mkStat('Pérdida cambiaria',_u(R.cambiario_usd),'ya ocurrida','rojo')+
+    mkStat('Utilidad real',_u(R.utilidad_usd),'margen '+(R.margen_pct||0)+'%','verde')+
+    mkStat('Utilidad estimada',_u(E.utilidad_estimada_usd),'si se cobra lo ejecutado','amari');
+  var pie='<div style="margin-top:18px;border-top:1px solid #e5e7eb;padding-top:8px;font-size:10px;color:#64748b">'+
       // ⛔ EL PIE AFIRMABA DE MÁS: decía «TODAS las cifras salen del estado de cuenta bancario», y
       // no es verdad. Lo cobrado, lo gastado y la utilidad REAL sí. Pero lo ejecutado y no
       // facturado —el renglón más grande del informe— sale de las PLANILLAS y de las facturas, no
@@ -2754,9 +2756,10 @@ async function imprimirInforme(){
       '<b>De dónde sale cada cifra.</b> Lo cobrado, lo gastado y la utilidad real salen del <b>estado de cuenta bancario</b>, '+
       'movimiento por movimiento, cada uno convertido a la tasa del día en que ocurrió; las compras de dólares se valúan a su '+
       'tasa pactada, nunca a la oficial. Lo <b>ejecutado y no facturado</b> NO sale del banco: son viajes de las planillas que '+
-      'todavía no se han facturado ni cobrado, valorados a la tarifa vigente del contrato, y depende de los supuestos indicados.</div>'+
-    '</body></html>');
-  w.document.close(); setTimeout(function(){ try{w.print();}catch(e){} },600);
+      'todavía no se han facturado ni cobrado, valorados a la tarifa vigente del contrato, y depende de los supuestos indicados.</div>';
+  abrirImpresionPremium('Informe financiero',
+    'Del '+formatFecha(d)+' al '+formatFecha(h),
+    stats, _infHtml(INF_DATA,d,h,true)+pie);
 }
 var REL_TAB='pend', REL_CACHE={};
 // El nombre en castellano de cada categoría. Es la MISMA lista que usa el Excel de la relación

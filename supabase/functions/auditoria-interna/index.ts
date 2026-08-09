@@ -332,7 +332,12 @@ Deno.serve(async (req) => {
       (NO_CORRIDOS.length ? `\n\n⛔ *No se pudieron correr:* ${NO_CORRIDOS.join(" | ")}` : "") +
       (deGladys.length ? `\n\n📩 A Gladys se le enviaron ${deGladys.length} pregunta(s) de RRHH.` : "") +
       bloqueFin +
-      `\n\n_Este resumen le llegó a Máximo._`;
+      // ⛔ NUNCA NOMBRAR AL DUEÑO EN TERCERA PERSONA EN UN INFORME. Acá decía «Este resumen le
+      // llegó a Máximo». Él es quien FIRMA estos informes: una frase que habla de él como de un
+      // tercero delata que no los escribió, que es exactamente lo que no puede pasar.
+      // Vale para todo lo que sale a pantalla, papel o WhatsApp.
+      // [[norma-nada-que-insinue-ia-al-cliente]] · [[norma-no-nombrar-al-dueno-en-tercera-persona]]
+      `\n\n_Copia enviada a la dirección._`;
     // A Gladys: solo nombres, SIN montos. Para contestar "¿está trabajando o cobra por otro
     // concepto?" no hace falta el monto, y así no se pasea plata de la gente por WhatsApp.
     const msgGladys = deGladys.length ? `Hola Gladys 👋\n\nRevisando los números de nómina del *${fecha}* nos quedaron unas dudas que solo tú nos puedes aclarar:\n\n` +
