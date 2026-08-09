@@ -4572,7 +4572,16 @@ async function imprimirDashboard(){
   // nómina real+gasoil compras+7.5%+fijos+variables+CxP+multas empresa). NO se re-deriva aquí (norma).
   var esRRHH=(typeof SESION!=='undefined'&&SESION&&SESION.rol==='rrhh');
   var utilReal=(typeof _utilReal==='function')?_utilReal(totalCob):0;
-  var margen=totalCob>0?Math.round(utilReal/totalCob*100):0;
+  // ⛔ EL MARGEN SE MIDE CONTRA LO QUE ENTRÓ, Y LO QUE ENTRÓ NO ES SOLO LO DE LA ALCALDÍA.
+  // La utilidad ya incluye las OTRAS ENTRADAS (devoluciones y cobros que no son del contrato); si
+  // el denominador solo lleva `totalCob`, el margen sale inflado y además NO coincide con el del
+  // informe, que sí las cuenta. Mismo denominador en las dos pantallas o no se pueden comparar.
+  var _ingTot=(EGRESOS_BANCO&&EGRESOS_BANCO.gasto>0)
+    ? (Number(EGRESOS_BANCO.cobrado)||0)+(Number(EGRESOS_BANCO.otras)||0) : totalCob;
+  var margen=_ingTot>0?Math.round(utilReal/_ingTot*100):0;
+  // Margen ESTIMADO: la misma base más lo ejecutado que falta cobrar, arriba y abajo de la
+  // división. Si solo se sumara arriba, saldría un porcentaje imposible.
+  var _margenEst=(_ingTot+porcobrar)>0?Math.round((utilReal+porcobrar)/(_ingTot+porcobrar)*100):0;
   // TENDENCIA del mes — facturado (viajes×tarifa) del mes actual vs mes anterior, desde REGS.mes
   // (mismo campo/formato que usan metas y rankings: 'jul-26'). Comparativo simple, no inventa egresos por mes.
   var _msN=['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
@@ -4602,14 +4611,26 @@ async function imprimirDashboard(){
   var _facAct=_regsAct.filter(function(r){return _diaDe(r.f)<=_Dcorte;}).reduce(function(s,r){return s+r.m;},0);
   var _facAnt=REGS.filter(function(r){return r.mes===_mesAntK && _diaDe(r.f)<=_Dcorte;}).reduce(function(s,r){return s+r.m;},0);
   var _tendPct=_facAnt>0?Math.round((_facAct-_facAnt)/_facAnt*100):(_facAct>0?100:0);
-  var tendTxt=(_tendPct>0?'▲ +':(_tendPct<0?'▼ ':'• '))+_tendPct+'%';
-  var tendCol=_tendPct>0?'#16a34a':(_tendPct<0?'#dc2626':'#8a94a6');
-  // ⚠️ Si faltan días de planillas, el número compara peras con manzanas y hay que DECIRLO en la
-  // misma tarjeta. Un −51% porque no se cargaron 7 días se lee como que el negocio cayó a la mitad.
-  // El % es válido (mide los mismos días de los dos meses), pero si faltan planillas por cargar
-  // hay que decirlo igual: el número es correcto y ESTÁ INCOMPLETO, que no es lo mismo.
-  var _tendSub='Ejecutado 1–'+_Dcorte+' de '+_mesActK+' vs 1–'+_Dcorte+' de '+_mesAntK+
-    (_diasSinCargar>1?(' · ⚠️ faltan '+_diasSinCargar+' día(s) de planillas por cargar'):'');
+  // ⛔ CON POCOS DÍAS EL PORCENTAJE NO MIDE EL NEGOCIO, MIDE EL CALENDARIO.
+  // Máximo (09/08): «ese KPI de −51% no me cuadra, algo está mal ahí». Tenía razón, y el error no
+  // estaba en la cuenta: comparaba 1–2 de agosto contra 1–2 de julio, que es lo justo por número
+  // de día… pero el 1 y 2 de AGOSTO cayeron SÁBADO y DOMINGO y el 1 y 2 de JULIO fueron MIÉRCOLES
+  // y JUEVES. O sea, un fin de semana contra media semana. El −51% era del almanaque.
+  // Con pocos días no hay forma de arreglar el porcentaje: cualquier corte corto queda a merced de
+  // qué días de la semana tocaron. Así que por debajo de una semana NO SE MUESTRA NÚMERO — se dice
+  // cuántos días hay y que faltan cargar. Un guion que se explica es mejor que un porcentaje que
+  // engaña. [[norma-numero-que-el-dueno-no-puede-explicar]]
+  var _tendFiable=(_Dcorte>=7);
+  var tendTxt=_tendFiable?((_tendPct>0?'▲ +':(_tendPct<0?'▼ ':'• '))+_tendPct+'%'):'—';
+  var tendCol=!_tendFiable?'#8a94a6':(_tendPct>0?'#16a34a':(_tendPct<0?'#dc2626':'#8a94a6'));
+  // ⚠️ Si faltan días de planillas hay que DECIRLO en la misma tarjeta, aunque el % sea válido:
+  // el número es correcto y ESTÁ INCOMPLETO, que no es lo mismo.
+  var _tendSub=_tendFiable
+    ? ('Ejecutado 1–'+_Dcorte+' de '+_mesActK+' vs 1–'+_Dcorte+' de '+_mesAntK+
+       (_diasSinCargar>1?(' · ⚠️ faltan '+_diasSinCargar+' día(s) de planillas por cargar'):''))
+    : ('Solo '+_Dcorte+' día(s) de '+_mesActK+' cargado(s)'+
+       (_diasSinCargar>1?(', faltan '+_diasSinCargar):'')+'. Con menos de una semana el % depende de '+
+       'qué días de la semana tocaron, no del negocio.');
   // Saldos en cuenta (BNC) — desde la caché del dashboard (solo quien puede ver saldo)
   var bancosHtml='';
   try{
@@ -4699,6 +4720,14 @@ async function imprimirDashboard(){
       // que los tenía todos: le faltaba el 61%. Ahora el subtítulo nombra la fuente, y si el
       // banco no respondió lo dice en vez de mostrar un número inflado como si fuera bueno.
       kpi('Utilidad Real',esRRHH?'—':usd(utilReal),esRRHH?'Restringido':('Margen '+margen+'% · '+_fuenteEgresos().txt),esRRHH?'':(_fuenteEgresos().ok?(utilReal>=0?'#15803d':'#dc2626'):'#d97706'))+
+      // Pedido por Máximo (09/08): junto a la real, la ESTIMADA. Es la real más lo ejecutado y no
+      // facturado, cuyos gastos YA están restados arriba — por eso ese dinero entra casi entero.
+      // Van las dos, nunca una sola: la real es la plata que existe; la estimada es lo que quedaría
+      // si la Alcaldía facturara y pagara todo lo hecho, y en Venezuela no se factura hasta el
+      // momento del pago, así que no se sabe cuándo. Marcada, para que no se lea como caja.
+      // [[norma-viajes-ejecutados-no-facturados]]
+      (esRRHH?'':kpi('Utilidad Estimada',usd(utilReal+porcobrar),
+        'si se cobra lo ejecutado · margen '+_margenEst+'% · ⚠️ no es caja, depende de la Alcaldía','#d97706'))+
       // ⚠️ CON POCOS DÍAS CARGADOS NO HAY TENDENCIA, HAY RUIDO. Las planillas se cargan varios días
       // después, así que a mitad de mes el mes actual puede tener 2 días y el porcentaje comparar
       // 2 contra 2. Un −51% así no dice nada del negocio: dice qué día de la semana cayó el 1.
@@ -5407,7 +5436,22 @@ function _totalEgresosLegacy(totalCob){
   var egEst=(typeof COMB_PERIODOS!=='undefined'?COMB_PERIODOS:[]).reduce(function(s,p){return s+(parseFloat(p.costo_total_usd)||0);},0);
   return egNom+egGas+egEst+eg75+egFijos+egVars+egCxP+egMul+egGasol+egCom;
 }
-function _utilReal(totalCob){ return (totalCob||0) - _totalEgresos(totalCob); }
+// ⛔ LA UTILIDAD NO SE RECALCULA: SE LEE DEL MISMO MOTOR QUE EL INFORME.
+// Esto hacía `totalCob - _totalEgresos()`, y `totalCob` es la suma de los ABONOS (lo registrado en
+// las facturas, US$ 412.307), mientras que el gasto venía del BANCO. Dos fuentes distintas en una
+// misma resta, y encima se perdían las OTRAS ENTRADAS (US$ 9.797: devoluciones y entradas que no
+// son de la Alcaldía) porque los abonos no las contienen.
+// Resultado: el dashboard decía US$ 70.060 y el informe US$ 78.874 — US$ 8.813 de diferencia entre
+// dos pantallas del mismo sistema, y ninguna de las dos podía explicar a la otra.
+// Lo detectó Máximo mirando el PDF: «dice 70.000 de utilidad pero he comprado 74.000 en dólares y
+// aparte tengo bolívares en la cuenta, no me cuadra». Tenía razón: con 70.060 no alcanzaba.
+// `btg_resumen_socio` ya devuelve la utilidad hecha —entradas del banco menos gastos menos pérdida
+// cambiaria— y `cargarEgresosBanco` ya la guardaba en `.utilidad`. Solo había que usarla.
+// [[norma-fuente-unica-datos]] · [[norma-numero-que-el-dueno-no-puede-explicar]]
+function _utilReal(totalCob){
+  if(EGRESOS_BANCO&&EGRESOS_BANCO.gasto>0&&isFinite(EGRESOS_BANCO.utilidad))return EGRESOS_BANCO.utilidad;
+  return (totalCob||0) - _totalEgresos(totalCob);   // respaldo: sin banco, el camino viejo
+}
 function renderDashFinanciero(totalM,totalCob,porcobrar){
   var el=g('dash-financiero');if(!el)return;
   totalM=totalM||REGS.reduce(function(s,r){return s+r.m;},0);
