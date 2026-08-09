@@ -85,6 +85,13 @@ as $$
   -- esos dólares habrá que comprarlos al precio real, no a BCV.
   deuda as (
     select coalesce(monto_usd, 0) v from btg_posicion where clave = 'deuda_camiones'
+  ),
+  -- la brecha de la ÚLTIMA compra, que es la referencia más cercana a lo que costaría hoy
+  ultima as (
+    select coalesce((tasa_real / btg_tasa_de(fecha::date)) - 1, 0) pct
+      from bnc_movimientos
+     where categoria='compra_divisas' and tasa_real > 0 and not coalesce(tasa_estimada,false)
+     order by fecha desc limit 1
   )
   select 1, 'Bolívares que se quedaron quietos perdiendo valor',
          round((select v from parados)::numeric, 2), true,
@@ -95,17 +102,50 @@ as $$
          'Se obtuvieron US$ ' || round((select obtenidos from sobre)) || ' donde a tasa BCV serían US$ ' || round((select a_bcv from sobre)) ||
          '. NO es evitable: a tasa BCV no se pueden comprar dólares, ese mercado no existe. Es el precio real de la moneda dura.'
   union all
-  select 3, '⏳ Sobreprecio que FALTA pagar por la deuda en dólares',
-         round(((select v from deuda) * (case when (select obtenidos from sobre) > 0
-                then (select a_bcv from sobre)/(select obtenidos from sobre) - 1 else 0 end))::numeric, 2), false,
-         'NO es una pérdida del período: es lo que va a costar DE MÁS comprar los dólares de la deuda que todavía queda (US$ ' ||
-         round((select v from deuda)) || '). La Alcaldía paga a BCV pero la deuda está en dólares y esos dólares cuestan más. ' ||
-         'Cada cuota de US$ 23.417 se lleva en realidad ese porcentaje más de poder de compra. Es la estructura del contrato, no ineficiencia de nadie.'
+  -- ⛔ NO SE PROYECTA CON UN PROMEDIO. Máximo: «la brecha del sobreprecio no puedes hacerla en
+  -- línea a un porcentaje sino uno a uno cada vez que se compra, porque la brecha baja y sube».
+  -- Medido: fue 31,9% el 14/04, subió a 35,6% el 09/06 y bajó a 14,0% el 30/07. Un promedio del
+  -- 27% no describe ninguna compra real y, peor, BORRA la única señal útil: que está bajando.
+  -- Por eso la referencia es la brecha de la ÚLTIMA compra, y se dice que es referencia.
+  select 3, '⏳ Referencia: sobreprecio de la deuda a la brecha de la ÚLTIMA compra',
+         round(((select v from deuda) * (select pct from ultima))::numeric, 2), false,
+         'NO es un pronóstico. La brecha SUBE Y BAJA (fue 35,6% el 09/06 y 14,0% el 30/07), así que ' ||
+         'proyectar con un promedio inventa un número. Esto es solo la referencia de cuánto costaría ' ||
+         'de más la deuda que queda (US$ ' || round((select v from deuda)) || ') SI la brecha se mantuviera en el ' ||
+         round(((select pct from ultima)*100)::numeric,1) || '% de la última compra. El costo real se sabrá compra por compra.'
   order by 1
 $$;
 
 revoke all on function btg_perdida_cambiaria(text,text) from anon, public;
 grant execute on function btg_perdida_cambiaria(text,text) to authenticated;
+
+-- ---------------------------------------------------------------------------
+-- LA BRECHA COMPRA POR COMPRA — lo que de verdad sirve para decidir CUÁNDO comprar.
+-- Máximo: «la brecha baja y sube». Un promedio lo esconde; esta vista lo muestra.
+-- Fue 35,6% el 09/06 y 14,0% el 30/07: comprar en julio costó la MITAD de sobreprecio
+-- que comprar en junio, y eso es una decisión de plata, no un dato de color.
+-- ---------------------------------------------------------------------------
+create or replace view v_brecha_compras
+with (security_invoker = true) as
+select
+  fecha,
+  monto                                              as bs,
+  tasa_real                                          as tasa_pagada,
+  btg_tasa_de(fecha::date)                           as tasa_bcv,
+  round((monto / tasa_real)::numeric, 2)             as usd_obtenidos,
+  round((monto / btg_tasa_de(fecha::date))::numeric, 2) as usd_si_fuera_bcv,
+  round(((monto / btg_tasa_de(fecha::date)) - (monto / tasa_real))::numeric, 2) as pago_de_mas_usd,
+  round((((tasa_real / btg_tasa_de(fecha::date)) - 1) * 100)::numeric, 1)       as brecha_pct,
+  coalesce(tasa_estimada, false)                     as tasa_estimada
+from bnc_movimientos
+where categoria = 'compra_divisas' and tasa_real > 0
+order by fecha;
+
+comment on view v_brecha_compras is
+  'Cuánto se pagó de más en CADA compra de dólares. La brecha sube y baja (35,6% en junio, 14,0% en julio): promediarla borra la única señal que sirve para decidir cuándo comprar.';
+
+revoke all on v_brecha_compras from anon, public;
+grant select on v_brecha_compras to authenticated;
 
 comment on function btg_perdida_cambiaria is
   'Las tres pérdidas por diferencial cambiario, separadas porque se confunden fácil. `evitable` distingue la que depende de cómo se maneja la plata (bolívares parados) de las que son el precio del mercado o del contrato.';

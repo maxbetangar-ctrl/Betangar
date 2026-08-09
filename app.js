@@ -5042,7 +5042,14 @@ async function cargarEgresosBanco(desde,hasta){
     if(r.error){ console.error('btg_resumen_socio:',r.error.message); return null; }
     var x=Array.isArray(r.data)?r.data[0]:r.data;
     if(!x)return null;
-    EGRESOS_BANCO={ gasto:Number(x.gasto_usd)||0, cobrado:Number(x.cobrado_usd)||0,
+    // ⚠️ `gasto` incluye la PÉRDIDA CAMBIARIA. Decisión de Máximo: va al estado de resultados,
+    // no como nota al pie. Son dos cosas que ya ocurrieron: los bolívares que perdieron valor
+    // estando quietos (US$ 3.364) y el sobreprecio pagado por los dólares (US$ 19.489).
+    // El sobreprecio FUTURO de la deuda NO entra: no ocurrió, y la brecha sube y baja
+    // (35,6% en junio, 14,0% en julio) así que ni siquiera se sabe cuánto será.
+    EGRESOS_BANCO={ gasto:(Number(x.gasto_usd)||0)+(Number(x.cambiario_usd)||0),
+      gastoOperativo:Number(x.gasto_usd)||0, cambiario:Number(x.cambiario_usd)||0,
+      cobrado:Number(x.cobrado_usd)||0,
       otras:Number(x.otras_entradas_usd)||0, utilidad:Number(x.utilidad_usd)||0,
       margen:Number(x.margen_pct)||0, divisas:Number(x.ahorro_divisas_usd)||0,
       sinTasa:Number(x.movs_sin_tasa)||0, divisasSinValuar:Number(x.divisas_sin_valuar)||0,
