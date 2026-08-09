@@ -4494,12 +4494,27 @@ async function imprimirDashboard(){
   // D = último día cargado del mes actual. Evita el sesgo de comparar un mes a medias contra uno completo.
   var _diaDe=function(f){return f?(parseInt(String(f).slice(8,10))||0):0;};
   var _regsAct=REGS.filter(function(r){return r.mes===_mesActK;});
-  var _Dcorte=_regsAct.reduce(function(mx,r){var d=_diaDe(r.f);return d>mx?d:mx;},0);
-  var _facAct=_regsAct.reduce(function(s,r){return s+r.m;},0);
+  // ⛔ SE COMPARA HASTA EL DÍA DE HOY, no hasta el último día cargado.
+  // Máximo (09/08): «debería compararse con la fecha del mismo día que lo imprima con el mes
+  // anterior». Antes el corte era el último día CON PLANILLA CARGADA, y como las planillas llegan
+  // varios días después, el 09/08 comparaba 2 días de agosto contra 2 de julio y sacaba un −51%
+  // que no decía nada. Poner el corte en HOY es lo correcto: si falta cargar, lo que hay que ver
+  // es que FALTA CARGAR, no un porcentaje inventado sobre medio mes.
+  var _hoyD=_dn.getDate();
+  var _ultCargado=_regsAct.reduce(function(mx,r){var d=_diaDe(r.f);return d>mx?d:mx;},0);
+  var _Dcorte=_hoyD;
+  var _diasSinCargar=Math.max(0,_hoyD-_ultCargado);
+  var _facAct=_regsAct.filter(function(r){return _diaDe(r.f)<=_Dcorte;}).reduce(function(s,r){return s+r.m;},0);
   var _facAnt=REGS.filter(function(r){return r.mes===_mesAntK && _diaDe(r.f)<=_Dcorte;}).reduce(function(s,r){return s+r.m;},0);
   var _tendPct=_facAnt>0?Math.round((_facAct-_facAnt)/_facAnt*100):(_facAct>0?100:0);
   var tendTxt=(_tendPct>0?'▲ +':(_tendPct<0?'▼ ':'• '))+_tendPct+'%';
   var tendCol=_tendPct>0?'#16a34a':(_tendPct<0?'#dc2626':'#8a94a6');
+  // ⚠️ Si faltan días de planillas, el número compara peras con manzanas y hay que DECIRLO en la
+  // misma tarjeta. Un −51% porque no se cargaron 7 días se lee como que el negocio cayó a la mitad.
+  var _tendSub=(_diasSinCargar>1)
+    ? ('Ejecutado 1–'+_Dcorte+' de '+_mesActK+' vs '+_mesAntK+' · ⚠️ faltan '+_diasSinCargar+' día(s) de planillas por cargar')
+    : ('Ejecutado 1–'+_Dcorte+' de '+_mesActK+' vs los mismos días de '+_mesAntK);
+  if(_diasSinCargar>1)tendCol='#d97706';
   // Saldos en cuenta (BNC) — desde la caché del dashboard (solo quien puede ver saldo)
   var bancosHtml='';
   try{
@@ -4593,9 +4608,10 @@ async function imprimirDashboard(){
       // después, así que a mitad de mes el mes actual puede tener 2 días y el porcentaje comparar
       // 2 contra 2. Un −51% así no dice nada del negocio: dice qué día de la semana cayó el 1.
       // Mostrarlo igual es peor que no mostrarlo, porque parece un dato.
-      (_Dcorte>=5
-        ? kpi('Tendencia mes',esRRHH?'—':tendTxt,esRRHH?'Restringido':('Facturado '+_mesActK+' vs '+_mesAntK+' · mismos '+_Dcorte+' días del mes'),esRRHH?'':tendCol)
-        : kpi('Tendencia mes',esRRHH?'—':'—',esRRHH?'Restringido':('Solo '+_Dcorte+' día(s) cargado(s) de '+_mesActK+': todavía no se puede comparar'),'#8a94a6'))+
+      // Dice EJECUTADO, no «facturado»: sale de las planillas (viajes hechos × tarifa), que es la
+      // relación semana a semana. Llamarlo facturado era mentir sobre qué mide — lo facturado es
+      // otra cosa y va mucho más atrás (se factura el 42% de lo ejecutado).
+      kpi('Tendencia mes',esRRHH?'—':tendTxt,esRRHH?'Restringido':_tendSub,esRRHH?'':tendCol)+
       kpi('Flota',op+' oper · '+tal+' taller'+(ino?' · '+ino+' inop':''),cams.length+' unidades · '+(cams.length?Math.round(op/cams.length*100):0)+'% disponible')+
       kpi('Saldo BNC',saldoTxt,'')+
     '</div>'+
