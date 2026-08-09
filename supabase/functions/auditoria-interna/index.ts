@@ -239,11 +239,99 @@ Deno.serve(async (req) => {
     if (!nuevos.length) return json({ ok: true, periodo: [DESDE, HASTA], hallazgos: HALLAZGOS.length, nuevos: 0, msg: "nada nuevo que avisar" });
 
     const fecha = `${ddmm(DESDE)} al ${ddmm(HASTA)}`;
+
+    // ══════════════════════════════════════════════════════════════════════════════════════════
+    // EL RESULTADO DEL MES Y LO QUE COSTÓ EL CAMBIO
+    // Máximo (09/08): «cuando la IA haga el análisis en su momento mensual que lo tome en cuenta
+    // ese factor para dar los consejos».
+    //
+    // ⛔ LOS CONSEJOS SALEN DE LOS DATOS, NO DE UNA PLANTILLA. Se comparan las dos piezas del
+    // diferencial contra el mes anterior y solo se dice algo cuando hay algo que decir. Un
+    // consejo que aparece todos los meses diga lo que digan los números deja de leerse.
+    //
+    // ⚠️ Si algo de esto falla, NO se inventa: el bloque no sale y el resto del informe va igual.
+    // Regla de oro 1 de esta función. [[norma-numero-que-el-dueno-no-puede-explicar]]
+    // ══════════════════════════════════════════════════════════════════════════════════════════
+    let bloqueFin = "";
+    try {
+      const rpc = async (fn: string, body: unknown) => {
+        const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/${fn}`, {
+          method: "POST", headers: { ...HDR, "Content-Type": "application/json" }, body: JSON.stringify(body),
+        });
+        if (!r.ok) throw new Error(`${fn}: ${r.status}`);
+        const j = await r.json(); return Array.isArray(j) ? j : [j];
+      };
+      const res = (await rpc("btg_resumen_socio", { p_desde: DESDE, p_hasta: HASTA }))[0];
+      const camb = await rpc("btg_cambiario_mensual", { p_desde: DESDE, p_hasta: HASTA });
+      const usd = (n: unknown) => "$" + Math.round(Number(n) || 0).toLocaleString("es-VE");
+      const mes = camb[camb.length - 1];
+
+      bloqueFin = `\n\n━━━━━━━━━━━━━━━\n💰 *EL RESULTADO DEL PERÍODO*\n` +
+        `Cobrado ${usd(res?.cobrado_usd)} · Gasto ${usd(res?.gasto_usd)}\n` +
+        `*Utilidad REAL ${usd(res?.utilidad_usd)}* (margen ${res?.margen_pct ?? 0}%)`;
+
+      // ── LA REAL Y LA ESTIMADA ────────────────────────────────────────────────────────────
+      // Máximo: los viajes ejecutados y no facturados «en algún momento son utilidad, solo que
+      // no es la real». Es cierto y por una razón concreta: los gastos de esos viajes YA están
+      // restados en la utilidad real —nómina, combustible, mantenimiento— y su ingreso no entró.
+      // La real está subestimada: carga el costo de un trabajo cuyo cobro no aparece todavía.
+      // Se dicen LAS DOS y la estimada va marcada: no se factura hasta el momento del pago.
+      try {
+        const e = (await rpc("btg_utilidad_real_y_estimada", { p_desde: DESDE, p_hasta: HASTA }))[0];
+        if (e && Number(e.por_facturar_usd) > 0) {
+          bloqueFin += `\n\n📈 *Y lo que ya se trabajó y no se ha facturado*\n` +
+            `${e.viajes_sin_facturar} viajes × $${e.tarifa_usada} = *${usd(e.por_facturar_usd)}*\n` +
+            `Los gastos de esos viajes YA están restados arriba: se pagó nómina, combustible y mantenimiento para hacerlos. Lo que falta es el cobro.\n` +
+            `➜ *Utilidad ESTIMADA ${usd(e.utilidad_estimada_usd)}* (margen ${e.margen_estimado_pct}%) — lo que quedaría cuando se facture y se cobre.\n` +
+            `_⚠️ Es un estimado, no una certeza. ${e.supuestos} Y no se factura hasta el momento del pago, así que no se sabe cuándo entra._`;
+        }
+      } catch (e2) { console.error("utilidad estimada", String(e2)); }
+
+      if (mes && Number(mes.total_usd) > 0) {
+        bloqueFin += `\n\n📉 *Lo que costó el cambio:* ${usd(mes.total_usd)} — el *${Number(mes.pct_del_cobrado).toFixed(2)}%* de lo cobrado\n` +
+          `  • bolívares quietos perdiendo valor: ${usd(mes.parados_usd)}\n` +
+          `  • sobreprecio al comprar dólares: ${usd(mes.sobreprecio_usd)}`;
+        if (Number(mes.compras) > 0) {
+          bloqueFin += `\n  • la brecha de las ${mes.compras} compra(s) fue de *${mes.brecha_min_pct}% a ${mes.brecha_max_pct}%* sobre el BCV`;
+        }
+
+        // ── LOS CONSEJOS: cada uno solo si los números lo justifican ──
+        const tips: string[] = [];
+        const ant = camb.length > 1 ? camb[camb.length - 2] : null;
+
+        // 1. ¿la brecha empeoró o mejoró contra el mes pasado?
+        if (ant && Number(ant.compras) > 0 && Number(mes.compras) > 0) {
+          const d = Number(mes.brecha_max_pct) - Number(ant.brecha_max_pct);
+          if (d >= 5) tips.push(`La brecha subió ${d.toFixed(0)} puntos contra el mes pasado (de ${ant.brecha_max_pct}% a ${mes.brecha_max_pct}%). Cada dólar que se compre ahora cuesta más: si la compra puede esperar, conviene esperar.`);
+          else if (d <= -5) tips.push(`La brecha bajó ${Math.abs(d).toFixed(0)} puntos contra el mes pasado (de ${ant.brecha_max_pct}% a ${mes.brecha_max_pct}%). Es el momento más barato en meses para comprar dólares.`);
+        }
+        // 2. ¿se compró fuerte justo cuando estaba caro?
+        if (Number(mes.sobreprecio_usd) > Number(mes.parados_usd) * 5 && Number(mes.brecha_max_pct) >= 25) {
+          tips.push(`Casi todo el costo del cambio (${usd(mes.sobreprecio_usd)}) es sobreprecio de compra con la brecha en ${mes.brecha_max_pct}%. Repartir las compras en varias fechas suele salir más barato que concentrarlas.`);
+        }
+        // 3. ¿hay plata quieta perdiendo valor?
+        if (Number(mes.parados_usd) > Number(mes.sobreprecio_usd) && Number(mes.parados_usd) > 500) {
+          tips.push(`Este mes se perdió más por tener bolívares quietos (${usd(mes.parados_usd)}) que por el precio del dólar. Mover la plata antes —pagar o convertir— es lo que lo reduce.`);
+        }
+        // 4. el peso sobre el resultado
+        if (Number(res?.utilidad_usd) > 0 && Number(mes.total_usd) / Number(res.utilidad_usd) > 0.15) {
+          tips.push(`El cambio se llevó el ${(Number(mes.total_usd) / Number(res.utilidad_usd) * 100).toFixed(0)}% de la utilidad del período.`);
+        }
+        if (tips.length) bloqueFin += `\n\n💡 *Para tener en cuenta*\n` + tips.map((t) => "• " + t).join("\n");
+      }
+      if (Number(res?.divisas_sin_valuar) > 0) {
+        bloqueFin += `\n\n⚠️ Hay ${res.divisas_sin_valuar} compra(s) de dólares *sin su tasa*: no se pueden valuar y quedan fuera de estos números. Hay que preguntar a cuánto se compró.`;
+      }
+    } catch (e) {
+      console.error("bloque financiero", String(e));
+      NO_CORRIDOS.push("el resumen financiero del período — no se pudo calcular");
+    }
     const deGladys = nuevos.filter((h) => /RRHH/i.test(h.quien));
     const msgDir = `🔎 *Auditoría interna — Betangar*\n_Período ${fecha}_\n\n` +
       nuevos.map((h) => `${h.sev} *${h.titulo}*\n${h.detalle.split("\n").map((l) => l.trim()).filter(Boolean).join("\n")}\n_Preguntarle a: ${h.quien}_`).join("\n\n") +
       (NO_CORRIDOS.length ? `\n\n⛔ *No se pudieron correr:* ${NO_CORRIDOS.join(" | ")}` : "") +
       (deGladys.length ? `\n\n📩 A Gladys se le enviaron ${deGladys.length} pregunta(s) de RRHH.` : "") +
+      bloqueFin +
       `\n\n_Este resumen le llegó a Máximo._`;
     // A Gladys: solo nombres, SIN montos. Para contestar "¿está trabajando o cobra por otro
     // concepto?" no hace falta el monto, y así no se pasea plata de la gente por WhatsApp.

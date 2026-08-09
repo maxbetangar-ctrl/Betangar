@@ -2508,6 +2508,8 @@ async function _infCargar(d,h){
     if(r.error)console.error(pares[i][1],r.error.message);
   }
   var rd=await supabase.rpc('btg_donde_estan_los_dolares'); out.dolares=rd.error?[]:(rd.data||[]);
+  var re=await supabase.rpc('btg_utilidad_real_y_estimada',{p_desde:d,p_hasta:h});
+  out.est=re.error?null:((Array.isArray(re.data)?re.data[0]:re.data)||null);
   var rc=await supabase.rpc('btg_cambiario_mensual',{p_desde:d,p_hasta:h}); out.camb=rc.error?[]:(rc.data||[]);
   var rpos=await supabase.from('btg_posicion').select('*').order('monto_usd',{ascending:false}); out.pos=rpos.error?[]:(rpos.data||[]);
   var rf=await supabase.from('v_cobro_facturas').select('*').order('fecha',{ascending:false}); out.fact=rf.error?[]:(rf.data||[]);
@@ -2546,6 +2548,32 @@ function _infHtml(D,desde,hasta,paraImprimir){
       kpi('Pérdida cambiaria',_infUsd(r.cambiario_usd),'bolívares + sobreprecio','#d97706')+
       kpi('UTILIDAD',_infUsd(util),'margen '+(r.margen_pct||0)+'%',util>=0?'#15803d':'#dc2626')+
     '</div>'+
+    // ── LA REAL Y LA ESTIMADA ──────────────────────────────────────────────────────────────
+    // Máximo: los US$ 500.000 y pico de viajes ejecutados y no facturados «en algún momento son
+    // utilidad, solo que no es la real». Y tiene razón por una razón contable concreta: **los
+    // gastos de esos viajes YA están restados arriba** —nómina, combustible, mantenimiento— pero
+    // su ingreso no entró. O sea que la utilidad real está SUBESTIMADA: carga el costo de un
+    // trabajo cuyo cobro todavía no aparece.
+    // Se muestran las dos, nunca una sola, y la estimada va marcada con sus supuestos: en
+    // Venezuela no se factura hasta el momento del pago, así que nadie sabe cuándo entra.
+    (D.est?('<div style="background:var(--bg3);border-radius:8px;padding:10px 12px;margin-bottom:10px">'+
+      '<div style="display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end">'+
+        '<div><div style="font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px">Utilidad REAL</div>'+
+          '<div style="font-size:19px;font-weight:900;font-family:var(--m);color:#15803d">'+_infUsd(D.est.utilidad_real_usd)+'</div>'+
+          '<div style="font-size:10px;color:var(--text3)">la plata que existe hoy · margen '+D.est.margen_real_pct+'%</div></div>'+
+        '<div style="font-size:22px;color:var(--text3);padding-bottom:8px">+</div>'+
+        '<div><div style="font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px">Ya trabajado, sin facturar</div>'+
+          '<div style="font-size:19px;font-weight:900;font-family:var(--m);color:#d97706">'+_infUsd(D.est.por_facturar_usd)+'</div>'+
+          '<div style="font-size:10px;color:var(--text3)">'+relEsc(D.est.viajes_sin_facturar)+' viajes × $'+relEsc(D.est.tarifa_usada)+'</div></div>'+
+        '<div style="font-size:22px;color:var(--text3);padding-bottom:8px">=</div>'+
+        '<div><div style="font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px">Utilidad ESTIMADA</div>'+
+          '<div style="font-size:19px;font-weight:900;font-family:var(--m);color:#0f172a">'+_infUsd(D.est.utilidad_estimada_usd)+'</div>'+
+          '<div style="font-size:10px;color:var(--text3)">cuando se facture y cobre · margen '+D.est.margen_estimado_pct+'%</div></div>'+
+      '</div>'+
+      '<div style="font-size:10px;color:var(--text3);margin-top:8px;line-height:1.6;border-top:1px solid var(--border);padding-top:6px">'+
+        '<b>Los gastos de esos viajes ya están restados en la utilidad real</b>: se pagó la nómina, el combustible y el mantenimiento para hacerlos. Lo que falta es el cobro.<br>'+
+        '⚠️ <b>La estimada no es una certeza.</b> '+relEsc(D.est.supuestos)+' Y en Venezuela no se factura hasta el momento del pago, así que no se sabe cuándo entra.'+
+      '</div></div>'):'')+
     '<div style="font-size:11px;color:var(--text3);line-height:1.7">'+
       'Cada movimiento convertido a la tasa de <b>su día</b>, nunca a un promedio. '+
       (Number(r.movs_sin_tasa)?('<b style="color:var(--amber)">⚠️ '+r.movs_sin_tasa+' movimiento(s) sin tasa: NO se convirtieron y quedan fuera de estos totales.</b>'):'')+
