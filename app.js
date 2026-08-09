@@ -3735,6 +3735,61 @@ function bncMovGuardar(id){ // re-persiste un movimiento ya existente tras cambi
   try{ supabase.from('bnc_movimientos').upsert([bncMovRow(m)],{onConflict:'id'}).then(function(res){ if(res&&res.error){ console.error('bnc_mov upd:',res.error.message); if(typeof guardarEnCola==='function')guardarEnCola('bnc_movimientos',bncMovRow(m),'id'); } }); }
   catch(e){ if(typeof guardarEnCola==='function')guardarEnCola('bnc_movimientos',bncMovRow(m),'id'); }
 }
+// ── Guardar lo que trae el BANCO. Antes la conciliación armaba los movimientos en un array en
+// memoria y los tiraba al salir: se miraban una vez y no quedaba nada. ──────────────────────────
+//
+// ⛔ LA LLAVE ES EL PUNTO PELIGROSO, y ya nos mordió una vez.
+// La llave "obvia" —fecha + monto + referencia— se probó contra los 2.235 movimientos reales:
+// fundía 307 filas y hacía desaparecer Bs 9.811.821,57 EN SILENCIO. Un pago de nómina en lote son
+// decenas de filas con la MISMA fecha, monto y referencia, una por trabajador (el 30/04 hay 13
+// filas de Bs 2.435,60 idénticas).
+// La llave correcta la da el propio banco: `ControlNumber`. Verificado sobre 2.412 movimientos de
+// las 4 cuentas: 2.412 distintos, ninguno vacío, ninguno repetido ni siquiera entre cuentas — y
+// esas 13 filas del 30/04 vuelven con 13 ControlNumber distintos.
+//
+// El `id` se deriva del ControlNumber ('bnc_'+cn), así que es determinista: si el mismo movimiento
+// llega dos veces choca por las DOS llaves y no entra duplicado. Sin eso, cada vez que alguien
+// abriera la pantalla se insertaría todo de nuevo.
+function bncFilaBanco(m){
+  var cn=String(m._cn||'').trim(); if(!cn)return null;   // sin ControlNumber NO se guarda: no hay llave
+  return { id:'bnc_'+cn, fecha:String(m.fecha||'').slice(0,10), monto:Math.abs(Number(m.bs)||0),
+    tipo:(m.tipo==='ingreso'?'credito':'debito'), descripcion:m.desc||null, referencia:m.ref||null,
+    control_number:cn, cuenta:m._acc||null,
+    saldo_anterior:(m._prev==null?null:Number(m._prev)) };
+}
+async function bncGuardarDesdeBanco(movs){
+  if(DEMO_MODE||!Array.isArray(movs)||!movs.length)return {ok:0,sin:0,error:null};
+  var filas=[],sin=0;
+  movs.forEach(function(m){ var f=bncFilaBanco(m); if(f)filas.push(f); else sin++; });
+  if(!filas.length)return {ok:0,sin:sin,error:null};
+  if(!(DB_READY&&supabase)){
+    // Sin base: a la cola offline, que ya es idempotente por 'id' (y el id viene del ControlNumber).
+    if(typeof guardarEnCola==='function')filas.forEach(function(f){guardarEnCola('bnc_movimientos',f,'id');});
+    return {ok:0,sin:sin,error:'sin conexión — quedó en la cola'};
+  }
+  var ok=0,err=null;
+  // En tandas: un upsert de 2.000 filas de una vez se cae por tamaño de payload.
+  for(var i=0;i<filas.length;i+=200){
+    var tanda=filas.slice(i,i+200);
+    try{
+      // ⛔ `ignoreDuplicates:true` (= ON CONFLICT DO NOTHING) NO es un detalle: es lo que impide
+      // que el traído del banco PISE lo que ya está guardado. La descripción de los movimientos
+      // viejos trae la clasificación que escribió la administración («… — PAGO DE NÓMINA»,
+      // «E/S EL PALOTAL - GASOIL 2.289 LITROS»), que la API del BNC NO da: ella devuelve el texto
+      // crudo de la transferencia. Con un upsert normal (DO UPDATE) cada visita a la pantalla
+      // borraría ese trabajo y la clasificación se quedaría sin la única fuente que la explica.
+      var res=await supabase.from('bnc_movimientos').upsert(tanda,{onConflict:'control_number',ignoreDuplicates:true});
+      if(res&&res.error){ err=res.error.message; console.error('bnc banco persist:',err);
+        if(typeof guardarEnCola==='function')tanda.forEach(function(f){guardarEnCola('bnc_movimientos',f,'id');}); }
+      else ok+=tanda.length;
+    }catch(e){ err=e.message;
+      if(typeof guardarEnCola==='function')tanda.forEach(function(f){guardarEnCola('bnc_movimientos',f,'id');}); }
+  }
+  // Clasificar lo recién entrado. Si no se llama, la categoría queda NULL y el movimiento no
+  // aparece en ningún cuadro: se pierde en silencio, que es peor que no haberlo traído.
+  if(ok){ try{ var rc=await supabase.rpc('bnc_clasificar'); if(rc&&rc.error)console.error('bnc_clasificar:',rc.error.message); }catch(e){ console.error('bnc_clasificar:',e.message); } }
+  return {ok:ok,sin:sin,error:err};
+}
 function g(id){return document.getElementById(id);}
 function gv(id){var el=g(id);return el?el.value:'';}
 function gcheck(id){var el=g(id);return !!(el&&el.checked);}
@@ -22466,12 +22521,23 @@ async function renderConciliacionBNC(){
               // El CONCEPTO trae quién paga ("EMISOR: INSTITUTO MUNICIPAL DEL ASEO U…"): vale más
               // que el Type genérico para reconocer el pago a simple vista.
               var cpt=String(m.Concept||'').replace(/\s+/g,' ').trim();
-              bancoMovs.push({fecha:_fechaBNC(m.Date),tipo:esIng?'ingreso':'egreso',bs:Math.round(aBs(amt,moneda)*100)/100,ref:refs,desc:(cpt||String(m.Type||'').trim()),_conc:false});
+              // _cn/_acc/_prev viajan para poder GUARDAR el movimiento (ver bncGuardarDesdeBanco).
+              // `ControlNumber` es la llave del banco; `PreviousBalance` es lo único que distingue
+              // dos filas idénticas de un lote de nómina.
+              bancoMovs.push({fecha:_fechaBNC(m.Date),tipo:esIng?'ingreso':'egreso',bs:Math.round(aBs(amt,moneda)*100)/100,ref:refs,desc:(cpt||String(m.Type||'').trim()),_conc:false,
+                _cn:String(m.ControlNumber||'').trim(),_acc:acc,_prev:(m.PreviousBalance==null?null:Number(m.PreviousBalance))});
             });
           }catch(e){cuentasMal.push(acc);}
         }
       }
     }catch(e){apiOk=false;}
+    // ── GUARDAR lo que trajo el banco ────────────────────────────────────────────────────────────
+    // Va acá, ANTES de mezclar las notificaciones y los cobros de otros bancos: esos no vienen del
+    // BNC, no tienen ControlNumber y no se guardan por esta vía (los cobros ya viven en
+    // `cobros_factura`; duplicarlos acá sería contar el mismo ingreso dos veces).
+    // Es idempotente, así que abrir la pantalla diez veces guarda una sola.
+    var guardado=null;
+    if(bancoMovs.length){ try{ guardado=await bncGuardarDesdeBanco(bancoMovs); }catch(e){ guardado={ok:0,sin:0,error:e.message}; } }
     // Notificaciones del webhook: se SUMAN, saltando lo que la API ya trajo (misma referencia, o
     // mismo monto ±0,5% el mismo día). Así no se cuenta un ingreso dos veces.
     try{
@@ -22492,6 +22558,14 @@ async function renderConciliacionBNC(){
     }catch(e){}
     if(!apiOk)fuente='⚠️ Solo notificaciones — el estado de cuenta del BNC no respondió (la conciliación puede quedar incompleta)';
     else if(cuentasMal.length)fuente='⚠️ API BNC + notificaciones — NO se pudieron traer '+cuentasMal.length+' cuenta(s): '+cuentasMal.join(', ')+'. La conciliación está INCOMPLETA.';
+    // Que el guardado SE VEA. Uno silencioso no se distingue de uno que falló, y el día que la base
+    // rechace la escritura nadie se iba a enterar: se seguiría mirando la pantalla como si todo
+    // estuviera guardado. [[norma-guardar-que-no-se-nota-duplica]]
+    if(guardado){
+      if(guardado.error)      fuente+=' · ⛔ NO se pudo guardar en la base ('+guardado.error+') — lo que ves es de esta corrida nada más';
+      else if(guardado.ok)    fuente+=' · 💾 '+guardado.ok+' movimiento(s) guardado(s)';
+      if(guardado.sin)        fuente+=' · ⚠️ '+guardado.sin+' sin número de control del banco, NO se guardaron';
+    }
     // ── 1.b) COBROS REGISTRADOS DESDE OTROS BANCOS ──
     // La Alcaldía decide al momento del pago desde qué banco transfiere y NO siempre es el mismo
     // (caso real: la fiel 10% de la factura 000632 entró el 24/06/2026 por Bs 1.308.798,35, ref
