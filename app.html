@@ -546,6 +546,33 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
   </div>
   <div id="usd-avisos"></div>
   <div class="grid-4" id="usd-stats" style="margin-bottom:12px"></div>
+  <!-- ══════════════════════════════════════════════════════════════════════════════════════
+       COMPRA DE DÓLARES — el único movimiento que NO se puede valuar con la tasa del BCV.
+       Máximo: «la compra de dólares es lo único que siempre tiene una tasa completamente
+       diferente a todas las tasas que tenemos». La compra ya salió del banco; lo único que
+       falta es la tasa a la que se pactó. Sin ella NO se convierte: se muestra pendiente.
+  ══════════════════════════════════════════════════════════════════════════════════════ -->
+  <div class="card" id="usd-compras-card" style="margin-bottom:14px">
+    <div class="sh"><div class="st">💱 Compra de dólares</div>
+      <div id="usd-compras-tot" style="font-size:12px;color:var(--text3)"></div></div>
+    <div style="font-size:11px;color:var(--text3);margin:4px 0 8px">
+      Los bolívares ya salieron del banco. Poné <b>a cuánto se compró</b> y el sistema calcula los dólares.
+      <b>No se usa la tasa del BCV</b>: la compra se pacta y valuarla a BCV infla el ahorro casi un 30%.
+    </div>
+    <div id="usd-compras"><div style="color:var(--text3);padding:12px">Cargando…</div></div>
+  </div>
+  <!-- ══════════════════════════════════════════════════════════════════════════════════════
+       EL FONDO EN DÓLARES — cuánto se compró, en qué se usó y cuánto QUEDA.
+       El saldo NO se puede deducir del banco: los dólares los compra Auto Unión y los aplica
+       a la deuda en el mismo acto, así que no existe ningún movimiento que diga «pago del
+       crédito». Lo que sale del fondo se registra acá.
+  ══════════════════════════════════════════════════════════════════════════════════════ -->
+  <div class="card" id="usd-fondo-card" style="margin-bottom:14px">
+    <div class="sh"><div class="st">🏦 Fondo en dólares</div>
+      <button class="btn btn-s btn-sm" onclick="fdNuevo()">＋ Registrar salida</button></div>
+    <div id="usd-fondo-res" style="margin:6px 0 10px"></div>
+    <div id="usd-fondo-mov"></div>
+  </div>
   <div class="ctitle">Por mes</div>
   <div class="tw" style="margin-bottom:14px"><table><thead><tr><th>Mes</th><th>Entradas US$</th><th>Salidas US$</th><th>Neto US$</th><th>Movs</th><th title="Movimientos que cayeron en dia sin tasa publicada (sabado, domingo o feriado): se usa la del ultimo dia habil">Con tasa heredada</th></tr></thead><tbody id="tb-usd-mes"></tbody></table></div>
   <div class="ctitle">Movimiento por movimiento <span style="font-size:11px;color:var(--text3);font-weight:400">— cada uno con la tasa de su día</span></div>
@@ -2795,7 +2822,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
 <script src="maxrecuerda.js?v=20260806-maxrecuerda"></script>
 <!-- Formato unico de los Excel de Maxware. VA ANTES de app.js. -->
 <script src="maxware-excel.js"></script>
-<script src="app.js?v=20260809d-corregir"></script>
+<script src="app.js?v=20260809e-fondo"></script>
 
 <!-- Modal global -->
 <div id="modal" class="moverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9990;align-items:center;justify-content:center;padding:16px">

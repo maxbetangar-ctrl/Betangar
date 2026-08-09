@@ -24765,7 +24765,171 @@ function _usdFilas(){
     };
   });
 }
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+// COMPRA DE DÓLARES — poner la tasa y que salgan los dólares
+//
+// Máximo (09/08): «debería haber un lado que nutra a todo lo que tenga que ver con eso: poner los
+// bolívares, poner la tasa, y que diga los dólares que se compraron».
+//
+// ⛔ NO ES UN REGISTRO APARTE, Y ESO ES LO IMPORTANTE. La compra YA está en el banco: los
+// bolívares salieron y el movimiento existe con su número de control. Un formulario que pida
+// «fecha y bolívares» de nuevo crearía una segunda verdad, y dos registros de la misma plata
+// terminan discrepando siempre. Acá se listan las compras que el banco ya trajo y lo único que
+// se completa es LA TASA, que es el único dato que el banco no puede saber.
+//
+// ⛔ Y LA TASA NO SE HEREDA DEL BCV. Máximo: «la compra de dólares es lo único que SIEMPRE tiene
+// una tasa completamente diferente a todas las tasas que tenemos». Valuarla a BCV dio US$ 90.608
+// cuando el ahorro real es 71.119 — dos veces se cometió el mismo error. Sin tasa: no se convierte
+// y se muestra en rojo. [[norma-salida-de-banco-no-es-gasto]]
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+async function renderComprasUsd(){
+  var el=g('usd-compras'); if(!el)return;
+  if(!(DB_READY&&supabase)){ el.innerHTML='<div style="color:var(--text3);padding:10px">Conectá la base.</div>'; return; }
+  try{
+    var r=await supabase.from('bnc_movimientos')
+      .select('id,fecha,monto,tasa_real,tasa_estimada,descripcion,concepto_banco,control_number')
+      .eq('categoria','compra_divisas').order('fecha',{ascending:false});
+    if(r.error)throw new Error(r.error.message);
+    var ms=r.data||[];
+    var totBs=0,totUsd=0,faltan=0;
+    ms.forEach(function(m){ totBs+=Number(m.monto)||0;
+      if(m.tasa_real>0)totUsd+=Number(m.monto)/Number(m.tasa_real); else faltan++; });
+    var tt=g('usd-compras-tot');
+    if(tt)tt.innerHTML=ms.length?('Bs '+totBs.toLocaleString('es-VE',{minimumFractionDigits:2})+' → <b style="color:var(--green)">US$ '+
+      totUsd.toLocaleString('es-VE',{minimumFractionDigits:2})+'</b>'+(faltan?(' · <span style="color:var(--red)">'+faltan+' sin tasa</span>'):'')):'';
+    if(!ms.length){ el.innerHTML='<div style="color:var(--text3);padding:12px">No hay compras de dólares en el período cargado.</div>'; return; }
+    el.innerHTML='<div class="tw"><table><thead><tr><th>Fecha</th><th style="text-align:right">Bolívares</th>'+
+      '<th style="width:130px">Tasa de compra</th><th style="text-align:right">Dólares</th><th>A quién</th><th></th></tr></thead><tbody>'+
+      ms.map(function(m){
+        var usd=(m.tasa_real>0)?(Number(m.monto)/Number(m.tasa_real)):null;
+        return '<tr'+(usd==null?' style="background:rgba(220,38,38,.06)"':'')+'>'+
+          '<td style="font-size:11px;white-space:nowrap">'+formatFecha(m.fecha)+'</td>'+
+          '<td style="text-align:right;font-family:var(--m)">'+Number(m.monto).toLocaleString('es-VE',{minimumFractionDigits:2})+'</td>'+
+          '<td><input class="fc" id="ctasa-'+relEsc(m.id)+'" value="'+(m.tasa_real||'')+'" placeholder="¿a cuánto?" '+
+             'style="font-family:var(--m);font-size:12px;padding:5px;text-align:right" oninput="cuCalc(\''+relEsc(m.id)+'\','+Number(m.monto)+')"></td>'+
+          '<td style="text-align:right;font-family:var(--m);font-weight:700" id="cusd-'+relEsc(m.id)+'">'+
+             (usd==null?'<span style="color:var(--red);font-weight:400;font-size:11px">falta la tasa</span>':('$'+usd.toLocaleString('es-VE',{minimumFractionDigits:2})))+'</td>'+
+          '<td style="font-size:11px">'+relCorto(m.concepto_banco||m.descripcion,34)+
+             (m.tasa_estimada?' <span class="badge by" title="La tasa no la declaró nadie: se dedujo. El número se usa pero queda marcado.">estimada</span>':'')+'</td>'+
+          '<td><button class="btn btn-g btn-xs" onclick="cuGuardar(\''+relEsc(m.id)+'\')">Guardar</button></td></tr>';
+      }).join('')+'</tbody></table></div>'+
+      // El contraste con el número que lleva Máximo por su lado. Dos registros independientes que
+      // cierran valen más que cualquier deducción; y si dejan de cerrar, se ve al instante.
+      '<div style="margin-top:8px;font-size:11px;color:var(--text3);line-height:1.7">'+
+        'Comprado en este período: <b>US$ '+totUsd.toLocaleString('es-VE',{maximumFractionDigits:0})+'</b>. '+
+        'El total comprado <b>desde el inicio</b> es mayor porque el fondo ya traía dólares de antes — ese número vive en «Dónde está la plata».'+
+      '</div>';
+  }catch(e){ el.innerHTML='<div style="color:var(--red);padding:10px">No se pudo cargar: '+relEsc(e.message||e)+'</div>'; }
+}
+// Muestra los dólares mientras se teclea la tasa: el número aparece antes de guardar, que es lo
+// que hace obvio un dedazo (una tasa de 62 en vez de 620 salta a la vista al ver el resultado).
+function cuCalc(id,bs){
+  var t=parseFloat(String(gv('ctasa-'+id)).replace(',','.'));
+  var out=g('cusd-'+id); if(!out)return;
+  out.innerHTML=(t>0)?('$'+(bs/t).toLocaleString('es-VE',{minimumFractionDigits:2}))
+    :'<span style="color:var(--red);font-weight:400;font-size:11px">falta la tasa</span>';
+}
+async function cuGuardar(id){
+  var t=parseFloat(String(gv('ctasa-'+id)).replace(',','.'));
+  if(!(t>0)){ mostrarToast('Poné la tasa a la que se compró','error'); return; }
+  // Una tasa fuera de rango casi siempre es un dedazo (62 por 620, 8600 por 860). Se pregunta,
+  // no se rechaza: la tasa de compra es pactada y puede alejarse del BCV legítimamente.
+  var bcv=(typeof getTasaFecha==='function')?0:0;
+  if(t<50||t>5000){ if(!confirm('La tasa '+t+' se ve fuera de lo normal (las compras van entre 600 y 900).\n\n¿Está bien así?'))return; }
+  var quien=(SESION&&SESION.usuario)?SESION.usuario:'?';
+  try{
+    var res=await supabase.from('bnc_movimientos')
+      .update({tasa_real:t, tasa_estimada:false, clasificado_por:'manual:'+quien, clasificado_at:new Date().toISOString()})
+      .eq('id',id);
+    if(res.error){ mostrarToast('No se pudo guardar: '+res.error.message,'error'); return; }
+  }catch(e){ mostrarToast('No se pudo guardar: '+(e.message||e),'error'); return; }
+  audit('compra_divisas_tasa','mov '+id+' → tasa '+t);
+  mostrarToast('Guardado','exito');
+  renderComprasUsd();
+}
+// ── EL FONDO: cuánto se compró, en qué se usó, cuánto queda ────────────────────────────────────
+// El saldo NO sale del banco: los dólares los compra Auto Unión y los aplica a la deuda en el
+// mismo acto, así que no existe ningún movimiento que diga «pago del crédito». Buscarlo por
+// separado da CERO. Lo que sale del fondo se registra a mano, y por eso hay pantalla.
+async function renderFondoUsd(){
+  var res=g('usd-fondo-res'), mov=g('usd-fondo-mov'); if(!res)return;
+  if(!(DB_READY&&supabase)){ res.innerHTML='<div style="color:var(--text3)">Conectá la base.</div>'; return; }
+  try{
+    var rf=await supabase.from('v_fondo_divisas').select('*').maybeSingle();
+    if(rf.error)throw new Error(rf.error.message);
+    var f=rf.data||{};
+    var d=function(l,v,c){ return '<div style="background:var(--bg3);border-radius:8px;padding:8px 10px;min-width:130px;flex:1">'+
+      '<div style="font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px">'+l+'</div>'+
+      '<div style="font-size:16px;font-weight:800;font-family:var(--m);color:'+(c||'var(--text1)')+'">US$ '+Number(v||0).toLocaleString('es-VE',{maximumFractionDigits:0})+'</div></div>'; };
+    var comprado=Number(f.comprado_usd||0)+6000-Number(f.vendido_usd||0);
+    res.innerHTML='<div style="display:flex;gap:8px;flex-wrap:wrap">'+
+      d('Comprado en total',comprado)+
+      d('Aplicado a la deuda',f.a_deuda_usd,'var(--amber)')+
+      d('Vendido para nómina',f.vendido_usd,'var(--amber)')+
+      d('QUEDA EN EL FONDO',f.saldo_usd,'var(--green)')+
+      '</div>'+
+      '<div style="font-size:11px;color:var(--text3);margin-top:6px">El fondo está en la cuenta de <b>Alejandro Castillo</b>, no en una cuenta de la empresa. Es un activo de Betangar en manos de una persona.</div>';
+    var rm=await supabase.from('btg_fondo_divisas').select('id,fecha,tipo,usd,tasa,concepto,registrado_por').order('fecha',{ascending:false}).limit(60);
+    var ms=(rm.data||[]);
+    if(mov)mov.innerHTML='<div class="tw"><table><thead><tr><th>Fecha</th><th>Qué pasó</th><th style="text-align:right">US$</th><th>Tasa</th><th>Detalle</th></tr></thead><tbody>'+
+      ms.map(function(m){
+        var ent=Number(m.usd)>=0;
+        var lbl={apertura:'Saldo inicial',compra:'Compra',aplicacion_deuda:'A la deuda de los camiones',venta:'Vendido',ajuste:'Ajuste'}[m.tipo]||m.tipo;
+        return '<tr><td style="font-size:10px;white-space:nowrap">'+formatFecha(m.fecha)+'</td>'+
+          '<td><span class="badge '+(ent?'bg':'by')+'">'+relEsc(lbl)+'</span></td>'+
+          '<td style="text-align:right;font-family:var(--m);font-weight:700;color:'+(ent?'var(--green)':'var(--amber)')+'">'+(ent?'+':'')+Number(m.usd).toLocaleString('es-VE',{minimumFractionDigits:2})+'</td>'+
+          '<td style="font-family:var(--m);font-size:11px">'+(m.tasa?Number(m.tasa).toLocaleString('es-VE',{minimumFractionDigits:2}):'—')+'</td>'+
+          '<td style="font-size:11px">'+relCorto(m.concepto,58)+'</td></tr>';
+      }).join('')+'</tbody></table></div>';
+  }catch(e){ res.innerHTML='<div style="color:var(--red)">No se pudo cargar el fondo: '+relEsc(e.message||e)+'</div>'; }
+}
+function fdNuevo(){
+  var hoy=new Date().toISOString().slice(0,10);
+  openModal('Registrar salida del fondo',
+    '<div style="font-size:11px;color:var(--text3);margin-bottom:10px">Los dólares que salen del fondo: un abono a la deuda de los camiones, o dólares que hubo que vender para cubrir algo. Se descuentan del saldo.</div>'+
+    '<div class="fr2">'+
+      '<div class="fg"><label>Fecha</label><input type="date" class="fc" id="fd-fecha" value="'+hoy+'"></div>'+
+      '<div class="fg"><label>Qué pasó</label><select class="fc" id="fd-tipo">'+
+        '<option value="aplicacion_deuda">Abono a la deuda de los camiones</option>'+
+        '<option value="venta">Se vendieron (para cubrir un gasto)</option>'+
+        '<option value="ajuste">Ajuste</option></select></div>'+
+    '</div>'+
+    '<div class="fr2">'+
+      '<div class="fg"><label>Dólares que SALEN</label><input class="fc" id="fd-usd" type="number" step="0.01" placeholder="0,00" style="font-family:var(--m)"></div>'+
+      '<div class="fg"><label>Tasa (solo si se vendieron)</label><input class="fc" id="fd-tasa" type="number" step="0.01" placeholder="opcional" style="font-family:var(--m)"></div>'+
+    '</div>'+
+    '<div class="fg"><label>Para qué</label><input class="fc" id="fd-conc" placeholder="Ej: cuota de septiembre de los camiones"></div>'+
+    '<button class="btn btn-g" style="width:100%;margin-top:10px" onclick="fdGuardar()">💾 Registrar</button>');
+}
+async function fdGuardar(){
+  var usd=parseFloat(gv('fd-usd')), conc=(gv('fd-conc')||'').trim(), tipo=gv('fd-tipo'), f=gv('fd-fecha');
+  if(!(usd>0)){ mostrarToast('Poné cuántos dólares salen','error'); return; }
+  if(!conc){ mostrarToast('Escribí para qué fue','error'); return; }
+  // El saldo no puede quedar negativo sin que alguien lo note: si sale más de lo que hay, o el
+  // saldo está mal o falta registrar una compra. Se pregunta, no se bloquea.
+  try{
+    var rf=await supabase.from('v_fondo_divisas').select('saldo_usd').maybeSingle();
+    var saldo=Number(rf.data&&rf.data.saldo_usd)||0;
+    if(usd>saldo&&!confirm('El fondo tiene US$ '+saldo.toLocaleString('es-VE',{maximumFractionDigits:0})+
+      ' y estás sacando US$ '+usd.toLocaleString('es-VE',{maximumFractionDigits:0})+'.\n\nEl saldo quedaría en negativo. ¿Falta registrar alguna compra?\n\n¿Registrar igual?'))return;
+  }catch(e){}
+  var quien=(SESION&&SESION.usuario)?SESION.usuario:'?';
+  var fila={fecha:f, tipo:tipo, usd:-Math.abs(usd), concepto:conc, registrado_por:quien};
+  var t=parseFloat(gv('fd-tasa')); if(t>0){ fila.tasa=t; fila.bs=Math.abs(usd)*t; }
+  try{
+    var res=await supabase.from('btg_fondo_divisas').insert([fila]);
+    if(res.error){ mostrarToast('No se pudo guardar: '+res.error.message,'error'); return; }
+  }catch(e){ mostrarToast('No se pudo guardar: '+(e.message||e),'error'); return; }
+  audit('fondo_divisas_salida',tipo+' US$ '+usd+' — '+conc);
+  mostrarToast('Registrado','exito');
+  closeModal(); renderFondoUsd();
+}
 function renderUsd(){
+  try{ renderComprasUsd(); }catch(e){ console.error('renderComprasUsd',e); }
+  try{ renderFondoUsd(); }catch(e){ console.error('renderFondoUsd',e); }
+  return _renderUsdOriginal.apply(this,arguments);
+}
+function _renderUsdOriginal(){
   var fs=_usdFilas();
   var _e=(typeof _mEsc==='function')?_mEsc:function(s){return String(s==null?'':s);};
   var usd=function(n){ return (n==null)?'—':'$'+Number(n).toLocaleString('es-VE',{minimumFractionDigits:2,maximumFractionDigits:2}); };
