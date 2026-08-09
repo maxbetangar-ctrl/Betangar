@@ -331,10 +331,14 @@ var USUARIOS={
   'demo_rrhh':{rol:'demo_rrhh',nombre:'Demo RRHH',email:'',demo:true}
 };
 
+// ⛔ ESTA LISTA NO ES UN CANDADO: decide qué se VE en el menú, no qué se puede PEDIR.
+// El informe financiero además está cerrado en la base (btg_ve_financiero: superadmin,
+// visualizador y directivo). Sin eso, cualquiera con sesión podía pedir el estado de resultados
+// desde la consola — comprobado en vivo antes de cerrarlo. [[norma-seguridad-dos-niveles]]
 var PERMISOS={
   superadmin:['informe','relacion','dashboard','entregas','banco-bnc','conciliacion','checklist','mensajes-wa','planilla','historico','reporte','abonos','banco','usd','proveedores','financiero','nomina','asistencia','fichaje','combustible','control-combustible','aud-combustible','km','unidades','documentos','inventario','llantas','metas','empleados','prestamos','multas','stats','ranking','rentabilidad','contratos','multicontrato','usuarios','auditoria','salud','config','galeria','porteria','mecanico','operativo','cxp','cajachica'],
-  admin:['informe','relacion','dashboard','entregas','conciliacion','checklist','planilla','historico','reporte','abonos','banco','usd','proveedores','financiero','nomina','asistencia','fichaje','combustible','control-combustible','aud-combustible','km','unidades','documentos','inventario','llantas','metas','empleados','prestamos','multas','stats','ranking','rentabilidad','contratos','multicontrato','usuarios','auditoria','salud','config','galeria','porteria','mecanico','operativo','cxp','cajachica'],
-  operador:['informe','relacion','dashboard','entregas','planilla','historico','reporte','abonos','banco','usd','proveedores','financiero','nomina','asistencia','fichaje','combustible','control-combustible','aud-combustible','km','unidades','documentos','inventario','llantas','metas','empleados','prestamos','multas','stats','ranking','rentabilidad','contratos','multicontrato','galeria'],
+  admin:['relacion','dashboard','entregas','conciliacion','checklist','planilla','historico','reporte','abonos','banco','usd','proveedores','financiero','nomina','asistencia','fichaje','combustible','control-combustible','aud-combustible','km','unidades','documentos','inventario','llantas','metas','empleados','prestamos','multas','stats','ranking','rentabilidad','contratos','multicontrato','usuarios','auditoria','salud','config','galeria','porteria','mecanico','operativo','cxp','cajachica'],
+  operador:['relacion','dashboard','entregas','planilla','historico','reporte','abonos','banco','usd','proveedores','financiero','nomina','asistencia','fichaje','combustible','control-combustible','aud-combustible','km','unidades','documentos','inventario','llantas','metas','empleados','prestamos','multas','stats','ranking','rentabilidad','contratos','multicontrato','galeria'],
   rrhh:['dashboard','mensajes-wa','planilla','historico','reporte','proveedores','nomina','asistencia','fichaje','combustible','km','unidades','documentos','inventario','llantas','metas','empleados','prestamos','multas','ranking','galeria'],
   visualizador:['informe','dashboard','entregas','reporte','abonos','banco','usd','financiero','stats','ranking','rentabilidad','contratos','galeria'],
   directivo:['informe','dashboard','entregas','historico','reporte','abonos','financiero','stats','ranking','rentabilidad'],
@@ -2498,6 +2502,13 @@ function renderBancoSubnav(activo){
 var INF_DATA=null;
 function _infUsd(n,dec){ return '$'+Number(n||0).toLocaleString('es-VE',{minimumFractionDigits:dec==null?0:dec,maximumFractionDigits:dec==null?0:dec}); }
 async function _infCargar(d,h){
+  // ⛔ EL CANDADO DE LA BASE DEVUELVE VACÍO, NO ERROR — y un informe vacío se lee como «no hay
+  // datos» en vez de «no te toca». Se pregunta primero para poder decir el motivo.
+  // El candado real está en la base (btg_ve_financiero); esto es solo el mensaje.
+  try{
+    var rv=await supabase.rpc('btg_ve_financiero');
+    if(!rv.error&&rv.data===false)throw new Error('__SIN_PERMISO__');
+  }catch(e){ if(e&&e.message==='__SIN_PERMISO__')throw e; }
   var rp=await supabase.rpc('btg_resumen_socio',{p_desde:d,p_hasta:h});
   if(rp.error)throw new Error(rp.error.message);
   var out={ res:(Array.isArray(rp.data)?rp.data[0]:rp.data)||{} };
@@ -2550,7 +2561,12 @@ async function renderInforme(){
   try{
     INF_DATA=await _infCargar(d,h);
     el.innerHTML=_infHtml(INF_DATA,d,h,false);
-  }catch(e){ el.innerHTML='<div class="card" style="color:var(--red)">No se pudo armar el informe: '+relEsc(e.message||e)+'</div>'; }
+  }catch(e){
+    el.innerHTML=(e&&e.message==='__SIN_PERMISO__')
+      ? '<div class="card" style="color:var(--text2)"><b>El informe financiero no está disponible para tu usuario.</b><br>'+
+        '<span style="font-size:12px;color:var(--text3)">Lo ven los socios, el visualizador y la dirección. Si te hace falta, pedilo por administración.</span></div>'
+      : '<div class="card" style="color:var(--red)">No se pudo armar el informe: '+relEsc(e.message||e)+'</div>';
+  }
 }
 function _infHtml(D,desde,hasta,paraImprimir){
   var r=D.res||{}, P=paraImprimir;
