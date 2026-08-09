@@ -3405,7 +3405,17 @@ try{setInterval(refrescarVivoLiviano,45000);}catch(e){}
 async function refrescarPesado(){
   if(!DB_READY||!supabase||_escribiendo())return;
   try{ await cargarDatosDB(); }catch(e){}
+  // El gasto REAL sale del banco. Se pide una vez al cargar y se vuelve a dibujar el dashboard
+  // cuando llega: si se esperara antes de mostrar nada, la pantalla quedaría en blanco cuando el
+  // banco tarda. Primero se ve algo, después se corrige — y el subtítulo dice qué se está viendo.
   try{ if(typeof renderDash==='function') renderDash(); }catch(e){}
+  try{
+    cargarEgresosBanco().then(function(r){
+      if(!r)return;
+      try{ if(typeof renderDash==='function')renderDash(); }catch(e){}
+      try{ if(typeof renderDashFinanciero==='function')renderDashFinanciero(); }catch(e){}
+    });
+  }catch(e){ console.error('cargarEgresosBanco',e); }
   try{ if(typeof renderBncDashResumen==='function') renderBncDashResumen(true); }catch(e){}
 }
 try{setInterval(refrescarPesado,180000);}catch(e){}
@@ -4386,7 +4396,10 @@ async function imprimirDashboard(){
       kpi('Ejecutado',usd(totalM),'@ $'+(cfg.tarifa||317.88).toFixed(2)+'/viaje','#15803d')+
       kpi('Cobrado',usd(totalCob),fmt(vCobV)+' viajes · '+pct+'%','#16a34a')+
       kpi('Por Cobrar',usd(porcobrar),fmt(vPorCob)+' viajes','#dc2626')+
-      kpi('Utilidad Real',esRRHH?'—':usd(utilReal),esRRHH?'Restringido':('Margen '+margen+'% · cobrado − todos los gastos'),esRRHH?'':(utilReal>=0?'#15803d':'#dc2626'))+
+      // La Utilidad Real dice DE DÓNDE sale. Antes decía «cobrado − todos los gastos» y sonaba a
+      // que los tenía todos: le faltaba el 61%. Ahora el subtítulo nombra la fuente, y si el
+      // banco no respondió lo dice en vez de mostrar un número inflado como si fuera bueno.
+      kpi('Utilidad Real',esRRHH?'—':usd(utilReal),esRRHH?'Restringido':('Margen '+margen+'% · '+_fuenteEgresos().txt),esRRHH?'':(_fuenteEgresos().ok?(utilReal>=0?'#15803d':'#dc2626'):'#d97706'))+
       kpi('Tendencia mes',esRRHH?'—':tendTxt,esRRHH?'Restringido':('Facturado '+_mesActK+' vs '+_mesAntK+' · mismos '+_Dcorte+' días'),esRRHH?'':tendCol)+
       kpi('Flota',op+' oper · '+tal+' taller'+(ino?' · '+ino+' inop':''),cams.length+' unidades · '+(cams.length?Math.round(op/cams.length*100):0)+'% disponible')+
       kpi('Saldo BNC',saldoTxt,'')+
@@ -4966,7 +4979,60 @@ function _nominaRealUsd(){
   }
   return (typeof REGS!=='undefined'?REGS:[]).reduce(function(s,r){return s+(r.t*(cfg.chofer+cfg.ayud));},0);
 }
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+// EL GASTO SALE DEL BANCO, NO DE QUE ALGUIEN LO TECLEE
+//
+// Medido el 09/08 sobre el período 23/03→09/08:
+//    gasto real que salió del banco : US$ 310.553
+//    lo que veían las tablas        : US$ 121.531
+//    gasto real que NADIE contaba   : US$ 189.022  (61%)
+//
+// La Utilidad Real sumaba nueve tablas que dependen de que una persona las cargue. Categorías
+// enteras no tenían dónde registrarse —Comisión 1B, Servicios, Responsabilidad social,
+// Impuestos— y por eso el socio leía una ganancia que no existía.
+//
+// ⛔ EL BANCO REEMPLAZA, NO SE SUMA. Si se sumara, el combustible y el pago a socio (que están en
+// las dos fuentes) se contarían dos veces y el error cambiaría de signo, no desaparecería.
+//
+// ⛔ Y SI EL BANCO NO RESPONDE, NO SE DEVUELVE CERO. Un gasto en cero infla la utilidad al máximo
+// justo cuando el sistema está ciego. Se cae al cálculo viejo Y SE DICE en la pantalla, porque un
+// número calculado por el camino de respaldo no vale lo mismo que el bueno.
+// [[norma-guardar-que-no-se-nota-duplica]] aplicada al cálculo: lo que cambia en silencio, miente.
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+var EGRESOS_BANCO=null;   // {gasto,cobrado,utilidad,margen,desde,hasta,ts} o null si no se pudo
+async function cargarEgresosBanco(desde,hasta){
+  if(!(DB_READY&&supabase)||DEMO_MODE)return null;
+  try{
+    var d=desde||'2026-01-01', h=hasta||new Date().toISOString().slice(0,10);
+    var r=await supabase.rpc('btg_resumen_socio',{p_desde:d,p_hasta:h});
+    if(r.error){ console.error('btg_resumen_socio:',r.error.message); return null; }
+    var x=Array.isArray(r.data)?r.data[0]:r.data;
+    if(!x)return null;
+    EGRESOS_BANCO={ gasto:Number(x.gasto_usd)||0, cobrado:Number(x.cobrado_usd)||0,
+      otras:Number(x.otras_entradas_usd)||0, utilidad:Number(x.utilidad_usd)||0,
+      margen:Number(x.margen_pct)||0, divisas:Number(x.ahorro_divisas_usd)||0,
+      sinTasa:Number(x.movs_sin_tasa)||0, divisasSinValuar:Number(x.divisas_sin_valuar)||0,
+      operacion:Number(x.operacion_usd)||0, administracion:Number(x.administracion_usd)||0,
+      obligaciones:Number(x.obligaciones_usd)||0, socio:Number(x.socio_usd)||0,
+      desde:d, hasta:h, ts:Date.now() };
+    return EGRESOS_BANCO;
+  }catch(e){ console.error('cargarEgresosBanco',e); return null; }
+}
+// De dónde salió el número que se está mostrando. Va a la pantalla: un socio tiene derecho a saber
+// si lo que lee sale del banco o de lo que alcanzó a cargarse a mano.
+function _fuenteEgresos(){
+  return (EGRESOS_BANCO&&EGRESOS_BANCO.gasto>0)
+    ? {ok:true, txt:'del estado de cuenta del banco'}
+    : {ok:false, txt:'⚠️ de lo cargado a mano — el banco no respondió, faltan gastos'};
+}
 function _totalEgresos(totalCob){
+  // El banco manda cuando está disponible. Reemplaza, no suma.
+  if(EGRESOS_BANCO&&EGRESOS_BANCO.gasto>0)return EGRESOS_BANCO.gasto;
+  return _totalEgresosLegacy(totalCob);
+}
+// El camino viejo queda como RESPALDO, no como muerto: si el banco no responde, es preferible un
+// número incompleto y avisado que ningún número.
+function _totalEgresosLegacy(totalCob){
   totalCob=totalCob||0;
   var egNom=_nominaRealUsd();          // nómina REAL (historial calcNom), no la estimación viajes×tarifa
   // Combustible: SOLO las COMPRAS (no los despachos = movimiento interno del tanque ya pagado). La
