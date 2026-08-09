@@ -55,7 +55,29 @@ const ddmm = (s: string) => { const p = String(s).slice(0, 10).split("-"); retur
 
 type Hallazgo = { tipo: string; sev: string; titulo: string; detalle: string; quien: string; pregunta: string };
 
+// ⛔ ESTA FUNCIÓN NO PEDÍA NADA PARA ENTRAR, Y CORRE CON service_role.
+// Revisión de seguridad del 09/08: el candado que se puso hoy en la base (btg_ve_financiero) deja
+// pasar a `service_role` a propósito, porque la auditoría tiene que leer lo que audita. Pero como
+// acá no se comprobaba QUIÉN llamaba, `?dry=1` devolvía `msgDir` entero —cobrado, gasto, utilidad
+// real y estimada, márgenes, brecha cambiaria, y hallazgos con nombres de empleados y montos— a
+// cualquiera. O sea: el candado de la base se saltaba por HTTP. El `verify_jwt` tampoco protegía:
+// la llave `anon` está publicada en el sitio y vale hasta 2036.
+// [[norma-seguridad-dos-niveles]] · [[norma-barrido-no-es-candado]]
+const FN_SECRET = Deno.env.get("BTG_FN_SECRET") || "";
+function autorizado(req: Request): boolean {
+  if (!FN_SECRET) return false;            // sin secreto configurado NO se abre: fail-closed
+  const k = req.headers.get("x-api-key") || "";
+  if (k.length !== FN_SECRET.length) return false;
+  let d = 0;
+  for (let i = 0; i < k.length; i++) d |= k.charCodeAt(i) ^ FN_SECRET.charCodeAt(i);
+  return d === 0;
+}
+
 Deno.serve(async (req) => {
+  if (!autorizado(req)) {
+    return new Response(JSON.stringify({ error: "No autorizado" }),
+      { status: 401, headers: { "Content-Type": "application/json" } });
+  }
   try {
     const qs = new URL(req.url).searchParams;
     const dry = qs.get("dry") === "1";
@@ -344,7 +366,13 @@ Deno.serve(async (req) => {
       deGladys.map((h, i) => `*${i + 1}.* ${h.titulo}\n${h.detalle.split("\n").map((l) => l.trim()).filter((l) => l.includes("—")).map((l) => "• " + l.split("—")[0].trim()).join("\n")}\n\n${h.pregunta}`).join("\n\n───────\n\n") +
       `\n\nCon tus respuestas dejamos el sistema al día. ¡Gracias! 🙏` : null;
 
-    if (dry) return json({ ok: true, dry: true, periodo: [DESDE, HASTA], nuevos: nuevos.length, no_corridos: NO_CORRIDOS, msgDir, msgGladys });
+    // `dry` sirve para probar que la auditoría CORRE sin mandarle nada a nadie. Para eso alcanza
+    // con cuántos hallazgos salieron y de qué tipo. Devolver los mensajes enteros metía el estado de
+    // resultados y los nombres con montos en el cuerpo de la respuesta — defensa en profundidad:
+    // aunque el secreto se filtre, `dry` ya no es un volcado.
+    if (dry) return json({ ok: true, dry: true, periodo: [DESDE, HASTA], nuevos: nuevos.length,
+      no_corridos: NO_CORRIDOS, tipos: nuevos.map((h) => h.tipo), a_gladys: deGladys.length,
+      largo_msg: msgDir.length });
 
     const cola: any[] = []; const yaVa = new Set<string>();
     // Baja 06/08/2026 — AUREDY MEDINA (E002) dejó la empresa; el resumen con montos ya no le llega.

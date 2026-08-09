@@ -97,8 +97,32 @@ async function encolar(tels: string[], mensaje: string, tipo: string) {
   return filas.length;
 }
 
+// ⛔ ESTA FUNCIÓN CORRE CON service_role Y NO PEDÍA NADA PARA ENTRAR.
+// Revisión de seguridad del 09/08: cualquiera podía pedirle el estado de cuenta. Con `?dry=1`
+// devolvía filas reales con el NÚMERO DE CUENTA COMPLETO, el saldo anterior y el texto del banco
+// (que trae cédulas y nombres) — el mismo dato que la base le revoca a `anon`. Y con
+// `Access-Control-Allow-Origin: *`, también desde el navegador de cualquiera.
+// El `verify_jwt` no protegía: la llave `anon` está publicada en app.js y chofer.html y vale hasta
+// 2036, así que cualquier petición de internet la satisface.
+// El secreto va en variable de entorno, NO escrito en el código (bnc-webhook lo tiene escrito y
+// está pendiente de rotar; no se repite el patrón). Los 5 crons ya lo mandan.
+// [[norma-seguridad-dos-niveles]] · [[cron-secreto-fuera-del-job]]
+const FN_SECRET = Deno.env.get('BTG_FN_SECRET') || '';
+function autorizado(req: Request): boolean {
+  if (!FN_SECRET) return false;            // sin secreto configurado NO se abre: fail-closed
+  const k = req.headers.get('x-api-key') || '';
+  if (k.length !== FN_SECRET.length) return false;
+  let d = 0;
+  for (let i = 0; i < k.length; i++) d |= k.charCodeAt(i) ^ FN_SECRET.charCodeAt(i);
+  return d === 0;
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
+  if (!autorizado(req)) {
+    return new Response(JSON.stringify({ error: 'No autorizado' }),
+      { status: 401, headers: { ...CORS, 'Content-Type': 'application/json' } });
+  }
   const url = new URL(req.url);
   const dry = url.searchParams.get('dry') === '1';
 
@@ -238,7 +262,11 @@ Deno.serve(async (req) => {
     }
 
     if (dry) {
-      return json({ ok: true, dry: true, desde, hasta, ventanas: ventanas.length, cuentas: cuentas.length, cuentas_ok: cuentasOk, cuentas_mal: cuentasMal, traidos: filas.length, nuevos, muestra: filas.slice(0, 3) });
+      // La muestra iba con la fila ENTERA: número de cuenta completo, saldo anterior y el texto del
+      // banco con cédulas y nombres. Para probar que el traído funciona alcanza con saber que llegó
+      // y de qué fecha es — el dato sensible no tiene por qué salir por la respuesta.
+      return json({ ok: true, dry: true, desde, hasta, ventanas: ventanas.length, cuentas: cuentas.length, cuentas_ok: cuentasOk, cuentas_mal: cuentasMal, traidos: filas.length, nuevos,
+        muestra: filas.slice(0, 3).map((f: any) => ({ fecha: f.fecha, tipo: f.tipo, control_number: f.control_number })) });
     }
 
     let guardados = 0, errGuardar: string | null = null;

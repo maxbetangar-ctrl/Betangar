@@ -12723,13 +12723,20 @@ async function renderMovBNC(){
   // Ya viene ordenado por fecha desc desde la consulta: invertirlo lo dejaba al revés de lo que
   // dice el encabezado. Se muestra la CATEGORÍA, que es lo que ahora sabe el sistema y antes no.
   if(tb)tb.innerHTML=f.map(function(m){
-    var cat=(typeof relNombreCat==='function')?relNombreCat(m.categoria):(m.categoria||'');
+    // ⛔ ESCAPAR: `categoria`, `referencia` y `tipo` son columnas de texto de bnc_movimientos, y
+    // la política de UPDATE deja escribirlas a operador, rrhh, directivo y las cuentas demo —
+    // roles que NO pueden abrir esta pantalla, que es solo de superadmin. O sea que alguien que
+    // nunca la ve puede plantar aquí un <img onerror> que corre en la sesión del SOCIO, con su
+    // token, contra las mismas RPC que el candado de hoy acaba de cerrar. El desplegable del
+    // cliente no es un control: por PostgREST se manda cualquier texto.
+    // `m.desc` ya iba seguro (pasa por relCorto → relEsc); a estas tres se les había olvidado.
+    var cat=relEsc((typeof relNombreCat==='function')?relNombreCat(m.categoria):(m.categoria||''));
     return'<tr><td style="white-space:nowrap">'+formatFecha(m.fecha)+'</td>'+
-      '<td><span class="badge '+(m.tipo==='credito'?'bg':'br')+'">'+(m.tipo==='pago_nomina_pend'?'NOMINA':String(m.tipo||'').toUpperCase())+'</span></td>'+
+      '<td><span class="badge '+(m.tipo==='credito'?'bg':'br')+'">'+(m.tipo==='pago_nomina_pend'?'NOMINA':relEsc(String(m.tipo||'').toUpperCase()))+'</span></td>'+
       '<td style="font-size:11px">'+m.desc+
         (cat?'<div style="font-size:10px;color:var(--text3)">'+cat+(m.tipo==='debito'&&m.esGasto===false?' · <b>no es gasto</b>':'')+'</div>':'')+
         (m.delBanco?'':'<div style="font-size:9px;color:var(--amber)">no vino del banco</div>')+'</td>'+
-      '<td style="font-family:var(--m);font-size:10px">'+m.ref+'</td>'+
+      '<td style="font-family:var(--m);font-size:10px">'+relEsc(m.ref)+'</td>'+
       '<td style="font-family:var(--m);text-align:right;color:'+(m.tipo==='credito'?'var(--green)':'var(--red)')+'">Bs '+m.monto.toLocaleString('es-VE',{maximumFractionDigits:0})+'</td>'+
       '<td style="font-family:var(--m);text-align:right">$'+(m.monto/tasa).toFixed(2)+'</td>'+
       '<td>'+(m.conciliado?'<span class="badge bg">SI</span>':m.pendienteAutorizacion?'<span class="badge by">Pend. Firma</span>':'<span class="badge bt">No</span>')+'</td>'+
