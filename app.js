@@ -23298,7 +23298,7 @@ async function renderConciliacionBNC(){
         if(l._usado||l.clase!=='ingfact')return false;
         return l.refDig&&l.refDig.length>=6&&refDig.indexOf(l.refDig)>=0;
       });
-      if(lib){lib._usado=true;b._conc=true;b._label=lib.lab;lib._via='ref';lib._bancoRef=b.ref;lib._bancoBs=b.bs;lib._banco=b._otroBanco||'BNC';}
+      if(lib){lib._usado=true;b._conc=true;b._label=lib.lab;lib._via='ref';lib._bancoRef=b.ref;lib._bancoBs=b.bs;lib._bancoFecha=b.fecha;lib._banco=b._otroBanco||'BNC';}
     });
     // Match general por MONTO (misma dirección; egresos 0.5%).
     // INGRESOS de factura: 3%. La Alcaldía deposita 1–3 días DESPUÉS de la factura y convierte a la
@@ -23319,7 +23319,7 @@ async function renderConciliacionBNC(){
         var d=Math.abs(l.bs-b.bs);
         if(d<=tol&&d<mejor){mejor=d;lib=l;}
       });
-      if(lib){lib._usado=true;b._conc=true;b._label=lib.lab;lib._bancoRef=b.ref;lib._bancoBs=b.bs;if(lib.clase==='cxp')lib._via='monto';if(lib.clase==='ingfact'){lib._via='monto';lib._banco=b._otroBanco||'BNC';}}
+      if(lib){lib._usado=true;b._conc=true;b._label=lib.lab;lib._bancoRef=b.ref;lib._bancoBs=b.bs;lib._bancoFecha=b.fecha;if(lib.clase==='cxp')lib._via='monto';if(lib.clase==='ingfact'){lib._via='monto';lib._banco=b._otroBanco||'BNC';}}
       });
     };
     // INGRESOS primero, y recién después los EGRESOS. El orden importa: el 7,5% de Máximo se
@@ -23355,7 +23355,39 @@ async function renderConciliacionBNC(){
     // idempotente por (factura+pata). Solo los que vinieron del banco (no los ya registrados).
     if(DB_READY&&supabase&&!(typeof DEMO_MODE!=='undefined'&&DEMO_MODE)){
       libros.filter(function(l){return l.clase==='ingfact'&&l._usado&&l.fact&&!(COBROS_FACT||[]).some(function(c){return String(c.fact)===String(l.fact)&&c.pata===l.sub;});}).forEach(function(l){
-        var row={id:String(l.fact)+'-'+l.sub,fact:String(l.fact),pata:l.sub,fecha:String(l.fecha||'').slice(0,10)||ymd,banco:l._banco||'BNC',referencia:l._bancoRef||'',monto_bs:(l._bancoBs!=null?l._bancoBs:l.bs),obs:'Cruzado automáticamente con el movimiento del banco',creado_por:(SESION&&SESION.nombre)||''};
+        var guardaBs=(l._bancoBs!=null?l._bancoBs:l.bs);
+        // ⛔ ANTES DE GUARDAR, COMPROBAR QUE EL MONTO SE PARECE A LA PATA QUE DICE SER.
+        // Sin esto se guardaron 3 filas falsas (detectadas el 09/08 cruzando contra el banco):
+        //   · 000636 «fiel» con el monto del NETO (Bs 16.034.938 en vez de 1.764.019)
+        //   · 000637 «fiel» con el fiel de OTRA factura (la 000632), y de un mes antes
+        //   · 000638 «fiel» apuntando a un traspaso entre cuentas propias
+        // El emparejamiento por monto puede fallar; lo que no puede pasar es que un fallo se
+        // GUARDE como si fuera un cobro. Un 10% que resulta ser el 90% se ve a simple vista:
+        // basta compararlo con lo que esa pata debía ser. Tolerancia 20%: la diferencia legítima
+        // es el redondeo de la tasa del día (los cruces buenos quedan en 0–2%).
+        var esperado=Number(l.bs)||0;
+        if(esperado>0&&Math.abs(guardaBs-esperado)/esperado>0.20){
+          console.warn('cobro NO guardado: la pata '+l.sub+' de la factura '+l.fact+
+            ' esperaba Bs '+esperado.toFixed(2)+' y el cruce trajo Bs '+Number(guardaBs).toFixed(2)+
+            ' ('+Math.round(Math.abs(guardaBs-esperado)/esperado*100)+'% de diferencia). El emparejamiento está mal.');
+          return;
+        }
+        // ⛔ SEGUNDA PRECONDICIÓN: UN COBRO NO PUEDE SER ANTERIOR A SU FACTURA.
+        // La comprobación del monto sola no alcanza — de las 3 filas falsas solo cazó una. Las
+        // otras dos tenían montos PLAUSIBLES (parecían un 10% normal) y estaban mal por otra vía:
+        //   · 000637 «cobró» el 24/06 una factura del 24/07 — un mes ANTES de existir
+        //   · 000638 «cobró» el 22/07 una factura del 05/08
+        // Los fieles rondan todos los mismos montos, así que el monto no distingue; la fecha sí.
+        // Se toleran 2 días porque el depósito puede entrar justo antes de que se registre la
+        // factura (pasó de verdad con el neto de la 000632: entró el 19/06 y la factura es del 20).
+        var fCobro=String(l._bancoFecha||l.fecha||'').slice(0,10);
+        var fFact=String(l.fecha||'').slice(0,10);
+        if(fCobro&&fFact&&_diasEntre(fFact,fCobro)<-2){
+          console.warn('cobro NO guardado: la pata '+l.sub+' de la factura '+l.fact+' (del '+fFact+
+            ') se cruzó con un movimiento del '+fCobro+', anterior a la factura. El emparejamiento está mal.');
+          return;
+        }
+        var row={id:String(l.fact)+'-'+l.sub,fact:String(l.fact),pata:l.sub,fecha:String(l.fecha||'').slice(0,10)||ymd,banco:l._banco||'BNC',referencia:l._bancoRef||'',monto_bs:guardaBs,obs:'Cruzado automáticamente con el movimiento del banco',creado_por:(SESION&&SESION.nombre)||''};
         COBROS_FACT.push(row); // optimista: evita doble write en el re-render
         supabase.from('cobros_factura').upsert([row],{onConflict:'id'}).then(function(r){if(r.error)console.log('auto-cobro factura',r.error.message);});
       });
