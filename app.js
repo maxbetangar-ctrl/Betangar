@@ -12694,7 +12694,7 @@ async function renderMovBNC(){
   if(DB_READY&&supabase&&!DEMO_MODE){
     try{
       var q=supabase.from('bnc_movimientos')
-        .select('id,fecha,monto,tipo,descripcion,concepto_banco,referencia,categoria,es_gasto,conciliado,pendiente_autorizacion,control_number')
+        .select('id,fecha,monto,tipo,descripcion,concepto_banco,referencia,categoria,es_gasto,conciliado,pendiente_autorizacion,control_number,cxp_pago_id,factura,pata')
         .order('fecha',{ascending:false}).limit(400);
       if(des)q=q.gte('fecha',des);
       if(hta)q=q.lte('fecha',hta);
@@ -12704,7 +12704,10 @@ async function renderMovBNC(){
         return {id:m.id,fecha:m.fecha,monto:Number(m.monto)||0,tipo:m.tipo,
           desc:relCorto(m.concepto_banco||m.descripcion,64),   // acortado: ya no se corta a la derecha
           ref:m.referencia||'',categoria:m.categoria,esGasto:m.es_gasto,
-          conciliado:m.conciliado,pendienteAutorizacion:m.pendiente_autorizacion,delBanco:!!m.control_number};
+          conciliado:m.conciliado,pendienteAutorizacion:m.pendiente_autorizacion,delBanco:!!m.control_number,
+          // CON QUÉ quedó cruzado. «Conciliado» a secas no dice nada: lo útil es contra qué, y es
+          // además lo que impide ofrecer «Conciliar» sobre algo que otra pantalla ya cruzó.
+          cxpPagoId:m.cxp_pago_id||null,factura:m.factura||null,pata:m.pata||null};
       });
       else console.error('renderMovBNC',rq.error.message);
     }catch(e){ console.error('renderMovBNC',e); }
@@ -12743,8 +12746,14 @@ async function renderMovBNC(){
       '<td style="font-family:var(--m);font-size:10px">'+relEsc(m.ref)+'</td>'+
       '<td style="font-family:var(--m);text-align:right;color:'+(m.tipo==='credito'?'var(--green)':'var(--red)')+'">Bs '+m.monto.toLocaleString('es-VE',{maximumFractionDigits:0})+'</td>'+
       '<td style="font-family:var(--m);text-align:right">$'+(m.monto/tasa).toFixed(2)+'</td>'+
-      '<td>'+(m.conciliado?'<span class="badge bg">SI</span>':m.pendienteAutorizacion?'<span class="badge by">Pend. Firma</span>':'<span class="badge bt">No</span>')+'</td>'+
-      '<td>'+((!m.conciliado&&!m.pendienteAutorizacion)?'<button class="btn btn-g btn-xs" onclick="conciliarMov(\''+m.id+'\')">Conciliar</button>':'')+'</td></tr>';
+      // Enlazado = otra pantalla ya dijo contra QUÉ cruzó. Se muestra con qué y NO se ofrece
+      // volver a conciliarlo: el 10/08 había 9 pagos ya cruzados por la pantalla Conciliación y
+      // esta seguía ofreciendo el botón sobre ellos, porque solo miraba la bandera `conciliado`.
+      '<td>'+(m.cxpPagoId?'<span class="badge bg" title="Cruzado con un pago a proveedor">SI · pago</span>'
+        :m.factura?('<span class="badge bg" title="Cobro de la Alcaldía">SI · fact '+m.factura+(m.pata?(' '+m.pata):'')+'</span>')
+        :m.conciliado?'<span class="badge bg">SI</span>'
+        :m.pendienteAutorizacion?'<span class="badge by">Pend. Firma</span>':'<span class="badge bt">No</span>')+'</td>'+
+      '<td>'+((!m.conciliado&&!m.pendienteAutorizacion&&!m.cxpPagoId&&!m.factura)?'<button class="btn btn-g btn-xs" onclick="conciliarMov(\''+m.id+'\')">Conciliar</button>':'')+'</td></tr>';
   }).join('')||'<tr><td colspan="8" style="text-align:center;color:var(--text3);padding:20px">Sin movimientos en ese período</td></tr>';
   // Aviso de tope: 400 es un corte, y un corte que no se ve se lee como «esto es todo».
   // [[norma-postgrest-corta-en-1000-sin-avisar]]
@@ -23602,7 +23611,7 @@ async function renderConciliacionBNC(){
         if(l._usado||l.clase!=='cxp'||Math.abs(l.bs-b.bs)>tol)return false;
         return l.refDig&&l.refDig.length>=6&&refDig.indexOf(l.refDig)>=0;
       });
-      if(lib){lib._usado=true;b._conc=true;b._label=lib.lab;lib._via='ref';lib._bancoRef=b.ref;}
+      if(lib){lib._usado=true;b._conc=true;b._label=lib.lab;lib._via='ref';lib._bancoRef=b.ref;lib._bancoCn=b._cn||'';}
     });
     // PRE-PASE por REFERENCIA (ingresos de factura): el crédito de la Alcaldía trae la referencia del
     // pago DENTRO de la referencia del banco (abono ref 00370774 → banco 342800370774). Cuadra el
@@ -23614,7 +23623,7 @@ async function renderConciliacionBNC(){
         if(l._usado||l.clase!=='ingfact')return false;
         return l.refDig&&l.refDig.length>=6&&refDig.indexOf(l.refDig)>=0;
       });
-      if(lib){lib._usado=true;b._conc=true;b._label=lib.lab;lib._via='ref';lib._bancoRef=b.ref;lib._bancoBs=b.bs;lib._bancoFecha=b.fecha;lib._banco=b._otroBanco||'BNC';}
+      if(lib){lib._usado=true;b._conc=true;b._label=lib.lab;lib._via='ref';lib._bancoRef=b.ref;lib._bancoBs=b.bs;lib._bancoFecha=b.fecha;lib._banco=b._otroBanco||'BNC';lib._bancoCn=b._cn||'';}
     });
     // Match general por MONTO (misma dirección; egresos 0.5%).
     // INGRESOS de factura: 3%. La Alcaldía deposita 1–3 días DESPUÉS de la factura y convierte a la
@@ -23635,7 +23644,7 @@ async function renderConciliacionBNC(){
         var d=Math.abs(l.bs-b.bs);
         if(d<=tol&&d<mejor){mejor=d;lib=l;}
       });
-      if(lib){lib._usado=true;b._conc=true;b._label=lib.lab;lib._bancoRef=b.ref;lib._bancoBs=b.bs;lib._bancoFecha=b.fecha;if(lib.clase==='cxp')lib._via='monto';if(lib.clase==='ingfact'){lib._via='monto';lib._banco=b._otroBanco||'BNC';}}
+      if(lib){lib._usado=true;b._conc=true;b._label=lib.lab;lib._bancoRef=b.ref;lib._bancoBs=b.bs;lib._bancoFecha=b.fecha;lib._bancoCn=b._cn||'';if(lib.clase==='cxp')lib._via='monto';if(lib.clase==='ingfact'){lib._via='monto';lib._banco=b._otroBanco||'BNC';}}
       });
     };
     // INGRESOS primero, y recién después los EGRESOS. El orden importa: el 7,5% de Máximo se
@@ -23706,6 +23715,16 @@ async function renderConciliacionBNC(){
         var row={id:String(l.fact)+'-'+l.sub,fact:String(l.fact),pata:l.sub,fecha:String(l.fecha||'').slice(0,10)||ymd,banco:l._banco||'BNC',referencia:l._bancoRef||'',monto_bs:guardaBs,obs:'Cruzado automáticamente con el movimiento del banco',creado_por:(SESION&&SESION.nombre)||''};
         COBROS_FACT.push(row); // optimista: evita doble write en el re-render
         supabase.from('cobros_factura').upsert([row],{onConflict:'id'}).then(function(r){if(r.error)console.log('auto-cobro factura',r.error.message);});
+        // ⛔ Y EL SELLO EN EL MOVIMIENTO, en la misma pasada. `v_cobro_facturas` —lo que la pantalla
+        // muestra— NO lee `cobros_factura`: lee `bnc_movimientos.factura/pata`. Escribir solo la
+        // primera es lo que dejó 2 patas mal durante dos semanas sin que se vieran (09/08).
+        // La Edge Function `cobros-alcaldia` ya sella las dos; esta pantalla también tiene que
+        // hacerlo, o volvería a abrir la misma brecha por su lado.
+        if(l._bancoCn){
+          supabase.from('bnc_movimientos').update({factura:String(l.fact),pata:l.sub,conciliado:true})
+            .eq('control_number',l._bancoCn).is('factura',null)
+            .then(function(r){if(r.error)console.log('auto-cobro sello movimiento',r.error.message);});
+        }
       });
     }
     if(DB_READY&&supabase&&!(typeof DEMO_MODE!=='undefined'&&DEMO_MODE)){
@@ -23715,6 +23734,18 @@ async function renderConciliacionBNC(){
         if(p){p.conciliado_banco=true;p.conciliado_ref=l._bancoRef||'';p.conciliado_fecha=ymd;} // optimista: evita doble write en re-render
         l._persistido=true;
         supabase.from('cxp_pagos').update({conciliado_banco:true,conciliado_ref:l._bancoRef||'',conciliado_fecha:ymd}).eq('id',l.pagoId).eq('conciliado_banco',false).then(function(r){if(r.error)console.log('auto-concilia cxp',r.error.message);});
+        // ⛔ LAS DOS PUNTAS SE ESCRIBEN JUNTAS. Marcar solo el pago dejaba al movimiento del banco
+        // diciendo «sin conciliar»: el 10/08 había 9 pagos cruzados y UN solo movimiento marcado,
+        // y la pantalla Movimientos seguía ofreciendo el botón «Conciliar» sobre ellos — se podía
+        // conciliar dos veces lo mismo desde el otro lado. Es el mismo defecto que el de los cobros
+        // de factura, del lado de los egresos. La llave es el ControlNumber, que es la del banco y
+        // la que usa `bncGuardarDesdeBanco`; así el sello cae en la fila correcta venga del Excel o
+        // de la API. `.is('cxp_pago_id',null)` lo hace idempotente y evita robarle el enlace a otro.
+        if(l._bancoCn){
+          supabase.from('bnc_movimientos').update({cxp_pago_id:l.pagoId,conciliado:true})
+            .eq('control_number',l._bancoCn).is('cxp_pago_id',null)
+            .then(function(r){if(r.error)console.log('auto-concilia movimiento',r.error.message);});
+        }
       });
     }
     // ── 5) RENDER ──
