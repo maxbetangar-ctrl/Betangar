@@ -12224,12 +12224,56 @@ async function _firmarFotos(filas, campo, bucket){
 }
 // Lo que va a la BASE es la RUTA, nunca la URL firmada.
 function _rutaFoto(u){ return _rutaDeUrl('asistencia',u)||String(u||''); }
-async function verFotoPrivada(bucket, urlOruta){
-  var u=await _urlFirmada(bucket, urlOruta, 60);
-  if(!u){ if(typeof mostrarToast==='function')mostrarToast('No se pudo abrir la foto','error'); return; }
-  try{ window.open(u,'_blank'); }catch(e){}
+// ⛔ EL BUCKET SE DEDUCE DE LA URL, NO SE SUPONE.
+// Primera versión: se le pasaba 'asistencia' a todo. Pero las 22 fotos de SURTIDAS viven en
+// `entregas` —las sube el chofer, no la oficina—, así que firmaba contra un bucket donde esa ruta
+// no existe y la foto no abría. Un mismo botón puede mostrar fotos de dos buckets distintos:
+// preguntárselo a la URL es lo único que no se equivoca.
+// Y si firmar falla, se abre la URL tal cual: `entregas` es público a propósito (la evidencia la ve
+// el cliente sin cuenta), así que ahí la URL cruda SÍ funciona. Nunca se deja al usuario sin foto.
+function _bucketDeUrl(u){
+  var m=String(u||'').match(/\/object\/(?:public|sign)\/([^/]+)\//);
+  return m?m[1]:'';
 }
-function _surVerFoto(src){ if(!src)return; verFotoPrivada('asistencia', src); }
+// ⛔ LA VENTANA SE ABRE **ANTES** DEL `await`, en el gesto del dedo. Si se abriera después, el
+// navegador del teléfono la bloquea por popup y la foto no se ve nunca. (Esta parte venía de
+// FLOTILLA, que la tenía mejor resuelta; se sube acá para que las dos apps sean iguales.)
+function _fotoVentana(){
+  var w=null; try{ w=window.open('','_blank'); }catch(e){}
+  if(w){ try{ w.document.write('<title>Foto</title><p style="font:14px system-ui;padding:12px">Cargando la foto…</p>'); }catch(e){} }
+  return w;
+}
+function _fotoFallar(w,msg){
+  if(w){ try{ w.document.body.innerHTML='<p style="font:14px system-ui;padding:12px">'+msg+'</p>'; }catch(e){ try{w.close();}catch(_){} } }
+  else if(typeof mostrarToast==='function')mostrarToast(msg,'error');
+}
+async function _fotoPintar(w, bucket, urlOruta){
+  var s=String(urlOruta||'');
+  if(!s){ _fotoFallar(w,'Sin foto'); return; }
+  // base64: no cabe en la barra de direcciones, va como <img> dentro de la ventana ya abierta.
+  if(s.indexOf('data:')===0){ if(w){try{ w.document.body.innerHTML='<img src="'+s+'" style="max-width:100%">'; }catch(e){ _fotoFallar(w,'No se pudo mostrar la foto'); }} return; }
+  var u=await _urlFirmada(_bucketDeUrl(s)||bucket, s, 60);
+  if(!u) u=(s.indexOf('http')===0)?s:'';   // bucket público: la URL cruda abre igual
+  if(!u){ _fotoFallar(w,'No se pudo abrir la foto'); return; }
+  if(w){ try{ w.location.href=u; }catch(e){ _fotoFallar(w,'No se pudo abrir la foto'); } }
+  else { try{ window.open(u,'_blank'); }catch(e){} }
+}
+async function verFotoPrivada(bucket, urlOruta){ await _fotoPintar(_fotoVentana(), bucket, urlOruta); }
+// Acepta la URL o el id de la surtida (compat con las dos formas de llamarlo).
+async function _surVerFoto(idOrSrc){
+  if(!idOrSrc)return;
+  var s=String(idOrSrc), w=_fotoVentana();
+  if(!/^(https?:|data:)/.test(s)){
+    if(!(DB_READY&&supabase)){ _fotoFallar(w,'Sin conexión para traer la foto'); return; }
+    try{
+      var r=await supabase.from('surtidas').select('foto_url').eq('id',s).maybeSingle();
+      if(r&&r.error){ _fotoFallar(w,'No se pudo traer la foto: '+r.error.message); return; }
+      s=(r&&r.data&&r.data.foto_url)||'';
+      if(!s){ _fotoFallar(w,'Esta surtida no tiene foto'); return; }
+    }catch(e){ _fotoFallar(w,'No se pudo abrir la foto'); return; }
+  }
+  await _fotoPintar(w, 'entregas', s);   // las surtidas las sube el CHOFER: van a `entregas`
+}
 function _entEsc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 function renderEntregas(){
   var des=gv('ent-f-des'),hta=gv('ent-f-hta'),camF=gv('ent-f-cam'),estF=gv('ent-f-estado'),tipoF=gv('ent-f-tipo');
