@@ -3481,6 +3481,8 @@ async function cargarDatosDB(){
     if(!a.error&&Array.isArray(a.data))ABONOS_PROTEGIDOS=new Set(a.data.filter(function(x){return x.protegido;}).map(function(x){return _factCore(x.fact);}));
     // EMPLEADOS
     if(e.data&&e.data.length)EMPLEADOS=e.data.map(function(x){return{id:x.id,nombre:x.nombre,cargo:x.cargo,unidad:x.unidad||'',cedula:x.cedula||'',fnac:x.fnac||'',banco:x.banco||'',tcuenta:x.tcuenta||'',ncuenta:x.ncuenta||'',foto:x.foto_url||'',activo:x.activo!==false,tipoAy:x.tipo_ay||'',email:x.email||'',tel:x.tel||'',whatsapp:x.whatsapp||'',wa_apikey:x.wa_apikey||'',rif:x.rif||'',fingreso:x.fingreso||'',imau:x.imau||false,multicargo:x.multicargo===true,asisteSiempre:x.asiste_siempre===true};});
+    // Las fotos del bucket privado se firman una vez, acá. Ver `_firmarFotos`.
+    try{ _firmarFotos(EMPLEADOS,'foto','asistencia'); }catch(_e){}
     // GASOIL
     if(ga.data&&ga.data.length){
       GASOIL=ga.data.map(function(x){return{id:x.id,f:x.f,cam:x.cam,lit:x.lit,src:x.src,m:x.m,tipo_operacion:x.tipo_operacion};});
@@ -10146,6 +10148,7 @@ async function cargarMantenimientos(){
     var r=await supabase.from('mantenimientos').select('*').order('f',{ascending:false}).limit(5000);
     if(r&&!r.error&&Array.isArray(r.data)){
       MANTENIMIENTOS=r.data.map(function(x){return {id:x.id||('MT'+(x.cam||'')+'-'+(x.f||'')+'-'+(x.km||0)+'-'+(x.item_id||x.tipo||'')),cam:x.cam||'',fecha:x.f||'',km:parseInt(x.km)||0,horas:parseInt(x.horas)||0,itemId:x.item_id||'',tipo:x.tipo||'',tipoTrabajo:x.tipo_trabajo||'',desc:x.desc_trabajo||'',costo:parseFloat(x.costo_usd)||0,proveedor:x.proveedor||'',foto:x.foto_url||'',anomalia:x.anomalia===true,motivo:x.motivo||'',ordenId:x.orden_id||'',garantiaHasta:x.garantia_hasta||null,centroCosto:x.centro_costo||'',origen:x.origen||'',ejecutor:x.ejecutor||''};});
+      try{ _firmarFotos(MANTENIMIENTOS,'foto','asistencia'); }catch(_e){}
     }
   }catch(e){ console.log('mantenimientos load:',e&&e.message); }
 }
@@ -11854,7 +11857,7 @@ var ENTREGAS_OF=[]; var _entMapObj=null; var _entMarkers=[];
 async function cargarEntregas(){
   if(!(DB_READY&&supabase))return;
   try{ var r=await supabase.from('entregas').select('*').order('fecha',{ascending:false}).order('hora',{ascending:false});
-    if(r&&!r.error&&Array.isArray(r.data))ENTREGAS_OF=r.data; }catch(e){ console.log('entregas load',e&&e.message); }
+    if(r&&!r.error&&Array.isArray(r.data)){ ENTREGAS_OF=r.data; await _firmarFotos(ENTREGAS_OF,'foto_url','entregas'); } }catch(e){ console.log('entregas load',e&&e.message); }
   try{ var sel=g('ent-f-cam'); if(sel){ var cur=sel.value; var cams={}; ENTREGAS_OF.forEach(function(e){if(e.cam)cams[e.cam]=1;});
     sel.innerHTML='<option value="">Todas las unidades</option>'+Object.keys(cams).sort().map(function(c){return '<option value="'+c+'">'+c+'</option>';}).join(''); sel.value=cur; } }catch(e){}
 }
@@ -12200,6 +12203,27 @@ async function _urlFirmada(bucket, urlOruta, seg){
     return (r&&r.data&&r.data.signedUrl)||'';
   }catch(e){ console.log('firmar '+bucket, e.message); return ''; }
 }
+// Firma EN LOTE las fotos de una colección, UNA sola vez al cargarla. Así los sitios que pintan
+// `<img src="...">` —el carnet, la hoja de vida, la rejilla de entregas— no se enteran del cambio:
+// siguen recibiendo una URL que abre. Firmar en cada render sería una llamada por foto y por
+// repintado; firmar al cargar es una sola llamada por tabla.
+// 8 horas de vigencia: cubre una jornada sin obligar a recargar.
+// ⛔ Al GUARDAR se normaliza a RUTA (ver `_rutaFoto`): si se persistiera la URL firmada, dentro de
+// 8 h apuntaría a nada. `_rutaDeUrl` igual sabe rescatar la ruta de una URL firmada, así que ni
+// siquiera un descuido rompe la foto — pero la base guarda la ruta, que es lo que corresponde.
+async function _firmarFotos(filas, campo, bucket){
+  if(!Array.isArray(filas)||!filas.length||!(DB_READY&&supabase))return;
+  var rutas=[],idx=[];
+  filas.forEach(function(r,i){ var p=r?_rutaDeUrl(bucket,r[campo]):''; if(p){rutas.push(p);idx.push(i);} });
+  if(!rutas.length)return;
+  try{
+    var r=await supabase.storage.from(bucket).createSignedUrls(rutas,28800);
+    if(r&&r.error){ console.log('firmar lote '+bucket,r.error.message); return; }
+    (r&&r.data||[]).forEach(function(x,k){ if(x&&x.signedUrl)filas[idx[k]][campo]=x.signedUrl; });
+  }catch(e){ console.log('firmar lote '+bucket,e.message); }
+}
+// Lo que va a la BASE es la RUTA, nunca la URL firmada.
+function _rutaFoto(u){ return _rutaDeUrl('asistencia',u)||String(u||''); }
 async function verFotoPrivada(bucket, urlOruta){
   var u=await _urlFirmada(bucket, urlOruta, 60);
   if(!u){ if(typeof mostrarToast==='function')mostrarToast('No se pudo abrir la foto','error'); return; }
@@ -16086,7 +16110,7 @@ async function guardarEmpleado(){
     id:emp.id,nombre:emp.nombre,cargo:emp.cargo,unidad:emp.unidad,
     cedula:emp.cedula,rif:emp.rif||'',fnac:emp.fnac||null,fingreso:emp.fingreso||null,
     email:emp.email,tel:emp.tel||'',banco:emp.banco,tcuenta:emp.tcuenta,
-    ncuenta:emp.ncuenta,tipo_ay:emp.tipoAy,imau:emp.imau,foto_url:emp.foto,
+    ncuenta:emp.ncuenta,tipo_ay:emp.tipoAy,imau:emp.imau,foto_url:_rutaFoto(emp.foto),
     activo:emp.activo,whatsapp:emp.whatsapp||'',wa_apikey:emp.wa_apikey||'',multicargo:!!emp.multicargo
   }],{onConflict:'id'});
   if(resEmp.error){
