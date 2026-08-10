@@ -3110,7 +3110,7 @@ async function renderAsistenciaHoy(){
   cont.innerHTML='<div style="font-size:11px;color:var(--text3);margin-bottom:6px">'+rows.length+' persona(s) presentes</div>'+rows.map(function(a){
     var h=a.hora?new Date(a.hora):null; var hs=h?(String(h.getHours()).padStart(2,'0')+':'+String(h.getMinutes()).padStart(2,'0')):'';
     var via=a.origen==='checklist'?'🚚 checklist':'📲 fichaje';
-    return '<div style="display:flex;justify-content:space-between;align-items:center;border:1px solid var(--border);border-radius:8px;padding:8px 10px;margin-bottom:5px;background:var(--card2)"><div><b style="font-size:13px">'+_fx(a.nombre)+'</b><div style="font-size:10px;color:var(--text3)">'+_fx(a.cargo||'')+' · '+via+(a.unidad?' · '+_fx(a.unidad):'')+'</div></div><div style="text-align:right"><div style="font-weight:700;font-size:12px;color:#7dc941">'+hs+'</div><div style="font-size:10px;color:var(--text3)">📍 '+_fx(a.sitio_nombre||'—')+'</div>'+(a.selfie_url?'<a href="'+_fx(a.selfie_url)+'" target="_blank" style="font-size:10px;color:#7dc941">ver selfie</a>':'')+'</div></div>';
+    return '<div style="display:flex;justify-content:space-between;align-items:center;border:1px solid var(--border);border-radius:8px;padding:8px 10px;margin-bottom:5px;background:var(--card2)"><div><b style="font-size:13px">'+_fx(a.nombre)+'</b><div style="font-size:10px;color:var(--text3)">'+_fx(a.cargo||'')+' · '+via+(a.unidad?' · '+_fx(a.unidad):'')+'</div></div><div style="text-align:right"><div style="font-weight:700;font-size:12px;color:#7dc941">'+hs+'</div><div style="font-size:10px;color:var(--text3)">📍 '+_fx(a.sitio_nombre||'—')+'</div>'+(a.selfie_url?'<a href="#" onclick="verFotoPrivada(\'asistencia\',\''+_fx(a.selfie_url)+'\');return false" style="font-size:10px;color:#7dc941">ver selfie</a>':'')+'</div></div>';
   }).join('');
 }
 function imprimirAsistenciaSede(){
@@ -12173,7 +12173,39 @@ function renderSurtidasHoy(){
   cont.innerHTML='<div style="margin-bottom:8px">'+chips+'<span style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:3px 8px;font-size:11px">Total: <b style="color:var(--green)">$'+totUsd.toFixed(2)+'</b>'+(tasa?' ≈ Bs '+(totUsd*tasa).toLocaleString('es-VE',{maximumFractionDigits:0}):'')+'</span></div>'+
     '<div style="overflow-x:auto"><table style="width:100%"><thead><tr><th>Hora</th><th>Unidad</th><th>Tanque</th><th style="text-align:right">Litros</th><th style="text-align:right">Costo</th><th>Foto</th></tr></thead><tbody>'+filas+'</tbody></table></div>';
 }
-function _surVerFoto(src){ if(!src)return; try{ window.open(src,'_blank'); }catch(e){} }
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+// FOTOS PRIVADAS — el bucket dejó de ser público, así que la URL guardada YA NO ABRE SOLA.
+// ⛔ POR QUÉ. El 10/08/2026 se comprobó, sin ninguna llave ni sesión: se podía LISTAR el bucket
+// `asistencia`, entrar en las carpetas y DESCARGAR una selfie (HTTP 200, image/jpeg, 64 KB). Eran
+// 623 caras del personal al alcance de cualquiera con la URL. Las TABLAS estaban bien —se probaron
+// 397 con datos de personas y ninguna se dejó leer—: el agujero era el storage.
+//
+// Ahora el bucket es privado y la foto se abre con un ENLACE FIRMADO que caduca en 60 segundos.
+// `_rutaDeUrl` acepta lo que ya está guardado en la base (URLs públicas completas) Y las rutas
+// nuevas, así que NO hizo falta migrar ni una fila: se deriva la ruta de la URL vieja.
+function _rutaDeUrl(bucket, u){
+  var s=String(u||'');
+  if(!s) return '';
+  var m=s.split('/object/public/'+bucket+'/')[1] || s.split('/object/sign/'+bucket+'/')[1];
+  if(m) return decodeURIComponent(m.split('?')[0]);
+  if(s.indexOf('http')===0) return '';          // URL de otro sitio: no es nuestra
+  return s.replace(new RegExp('^'+bucket+'/'),'');  // ya venía como ruta
+}
+async function _urlFirmada(bucket, urlOruta, seg){
+  var ruta=_rutaDeUrl(bucket, urlOruta);
+  if(!ruta || !(DB_READY&&supabase)) return '';
+  try{
+    var r=await supabase.storage.from(bucket).createSignedUrl(ruta, seg||60);
+    if(r&&r.error){ console.log('firmar '+bucket, r.error.message); return ''; }
+    return (r&&r.data&&r.data.signedUrl)||'';
+  }catch(e){ console.log('firmar '+bucket, e.message); return ''; }
+}
+async function verFotoPrivada(bucket, urlOruta){
+  var u=await _urlFirmada(bucket, urlOruta, 60);
+  if(!u){ if(typeof mostrarToast==='function')mostrarToast('No se pudo abrir la foto','error'); return; }
+  try{ window.open(u,'_blank'); }catch(e){}
+}
+function _surVerFoto(src){ if(!src)return; verFotoPrivada('asistencia', src); }
 function _entEsc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 function renderEntregas(){
   var des=gv('ent-f-des'),hta=gv('ent-f-hta'),camF=gv('ent-f-cam'),estF=gv('ent-f-estado'),tipoF=gv('ent-f-tipo');
