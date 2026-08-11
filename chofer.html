@@ -613,7 +613,7 @@ body{background:#0f1923;color:#fff;font-family:-apple-system,BlinkMacSystemFont,
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <!-- Qué decirle a la persona cuando el teléfono niega cámara o ubicación. Misma pieza en todos los productos. -->
-<script src="permisos.js?v=20260808a"></script>
+<script src="permisos.js?v=20260811-medir"></script>
 <script>
 // CRÍTICO: guardar la librería ANTES de que `var supabase` (global, más abajo) sobrescriba
 // window.supabase con null. Ese choque de nombres dejaba el cliente sin crear → NADA subía.
@@ -715,6 +715,27 @@ if('serviceWorker' in navigator){
 // ninguna razón para callarlo hasta que estorbe.
 // Solo avisa si está DENEGADO. Si está en 'prompt' no se dice nada: el navegador va a preguntar
 // solo cuando toque, y adelantarse ahí sería ruido.
+// ── QUE LA OFICINA SE ENTERE, NO SOLO EL CHOFER ────────────────────────────────────────────────
+// El aviso de abajo (`avisarPermisosAlArrancar`) se lo dice a la persona que tiene el permiso
+// bloqueado, que es justo la que no puede arreglarlo sola. Melvin (JAC-B004) estuvo diez días sin
+// poder registrar combustible y lo supimos por un WhatsApp suyo. Esto manda el mismo dato que ya
+// tiene el teléfono a la base, para que el aviso diario lo diga por unidad.
+// Va UNA vez por carga: es un estado, no un evento. Y no interrumpe nada — si falla, falla callado
+// (es información para la oficina; trancar al chofer por esto sería el remedio peor que la enfermedad).
+var _PERM_REPORTADO = false;
+function reportarPermisos(){
+  if(_PERM_REPORTADO || !supabase || !cam || !hayMWPermiso()) return;
+  _PERM_REPORTADO = true;
+  try{
+    MWPermiso.medir(function(e){
+      ['camera','geolocation'].forEach(function(t){
+        if(!e[t]) return;                       // el navegador no supo contestar: no se inventa un estado
+        try{ supabase.rpc('permiso_reportar', { p_cam: cam, p_permiso: t, p_estado: e[t], p_nav: e.navegador }); }catch(err){}
+      });
+    });
+  }catch(err){}
+}
+
 function avisarPermisosAlArrancar(){
   if(!(navigator.permissions && navigator.permissions.query)) return;
   ['camera','geolocation'].forEach(function(tipo){
@@ -1209,6 +1230,7 @@ function verificarConexion(){
       cargarSemanaSupabase();
       anomCargar();          // refresca las fallas pendientes (y el caché offline)
       avisoCargar();         // refresca el aviso de administración (y el caché offline)
+      reportarPermisos();    // que la OFICINA se entere de la cámara bloqueada, no solo el chofer
       sincronizarCola();
     }
   }).catch(function(){ actualizarConexion(false); });
@@ -1989,9 +2011,14 @@ function getLunesDeSemana(){
 
 function cargarViajesLocal(){
   var key = 'btg_viajes_'+cam+'_'+hoy;
+  // ⛔ VACIAR SIEMPRE PRIMERO. Antes, si no había nada guardado del día, el mapa se quedaba con
+  // lo que tuviera de antes: un viaje de AYER seguía contando como de HOY, el chofer veía un viaje
+  // que no hizo y el siguiente le salía numerado de más (Melvin, 11/08: su único viaje del día
+  // entró como «viaje 2» porque había un «1» heredado). Sin dato del día, el día arranca vacío.
+  VIAJES_HOY = {};
   try{
     var s = localStorage.getItem(key);
-    if(s) VIAJES_HOY = JSON.parse(s);
+    if(s) VIAJES_HOY = JSON.parse(s) || {};
   }catch(e){ VIAJES_HOY = {}; }
 }
 
@@ -2005,8 +2032,22 @@ function cargarViajesSupabase(){
   supabase.from('viajes_chofer').select('*').eq('fecha',hoy).eq('cam',cam)
   .then(function(res){
     if(res.error || !res.data) return;
+    var enServidor = {};
     res.data.forEach(function(v){
+      enServidor[v.viaje_num] = true;
       VIAJES_HOY[v.viaje_num] = { hora: v.hora_registro||v.hora, sincronizado: true };
+    });
+    // ⛔ RECONCILIAR, NO SOLO SUMAR. Hasta hoy esto únicamente AGREGABA lo que traía el servidor:
+    // un viaje fantasma en el teléfono no lo corregía nadie nunca, y el número del viaje siguiente
+    // y el contador «hoy» salen de este mapa, no de la base. Se borra lo que el teléfono da por
+    // SUBIDO y el servidor no tiene: es mentira comprobada.
+    // ⚠️ NO se toca lo que sigue esperando: un viaje con `sincronizado:false` o que está en la cola
+    // es un viaje REAL hecho sin señal. Borrarlo sería perder trabajo del chofer — mucho peor que
+    // el fantasma que se está arreglando.
+    var enCola = {};
+    COLA_LOCAL.forEach(function(r){ if(r.cam===cam && r.fecha===hoy) enCola[r.viaje_num] = true; });
+    Object.keys(VIAJES_HOY).forEach(function(k){
+      if(VIAJES_HOY[k] && VIAJES_HOY[k].sincronizado === true && !enServidor[k] && !enCola[k]) delete VIAJES_HOY[k];
     });
     guardarViajesLocal();
     renderBotones();
@@ -2191,7 +2232,11 @@ function sincronizarCola(){
       supabase.from('viajes_chofer').upsert([reg],{onConflict:'fecha,cam,viaje_num'})
       .then(function(res){
         if(res.error){ fall.push(raw); __ultErrSync = 'viaje '+reg.cam+'#'+reg.viaje_num+': '+(res.error.message||res.error.code||'error'); }
-        else { if(!isOnline) actualizarConexion(true); if(VIAJES_HOY[reg.viaje_num]) VIAJES_HOY[reg.viaje_num].sincronizado = true; idbDel('vj', reg.cam+'|'+reg.fecha+'|'+reg.viaje_num); }
+        // El «✓ subido» se pone SOLO si la fila es de ESTE camión y de HOY. Antes se indexaba por
+        // número de viaje a secas: un viaje de AYER que subía hoy marcaba como subido el viaje de
+        // hoy con el mismo número, que podía seguir esperando. Con la reconciliación de arriba eso
+        // dejaría de ser cosmético — se borraría un viaje real del chofer.
+        else { if(!isOnline) actualizarConexion(true); if(reg.fecha===hoy && reg.cam===cam && VIAJES_HOY[reg.viaje_num]) VIAJES_HOY[reg.viaje_num].sincronizado = true; idbDel('vj', reg.cam+'|'+reg.fecha+'|'+reg.viaje_num); }
       }, function(e){ fall.push(raw); __ultErrSync = 'viaje (red): '+((e&&e.message)||e); })
       .then(function(){
         if(--rest <= 0){

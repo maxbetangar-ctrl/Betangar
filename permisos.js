@@ -134,8 +134,52 @@ var MWPermiso = (function(raiz){
   // `explicarTexto` es el mismo camino para las pantallas que no pintan HTML.
   function explicarTexto(tipo, cb){ return explicar(tipo, cb, true); }
 
+  // ════════════════════════════════════════════════════════════════════════════════════════════
+  //  MEDIR — lo que la app le pide al teléfono de otro NO SE SUPONE
+  //
+  //  Nació el 2026-08-11, de Melvin Barboza (Betangar, JAC-B004). El 03/08 la foto pasó a la
+  //  cámara dentro de la página, que exige un permiso que antes no hacía falta. Él dejó de
+  //  registrar combustible ESE DÍA. Nos enteramos DIEZ DÍAS después, por un WhatsApp suyo.
+  //
+  //  ⛔ El teléfono ya sabía la respuesta desde que abrió la pantalla. Lo que faltaba no era
+  //  saberlo: era CONTARLO. Hasta hoy el estado del permiso solo se le mostraba a la persona que
+  //  lo tiene bloqueado — justo la que no puede arreglarlo sola (a Omar, el 08/08, el corte le
+  //  venía del permiso que Android le da a Chrome, no del sitio).
+  //
+  //  Esto MIDE y nada más: no envía, no elige destinatario y no sabe qué es una unidad. Cada
+  //  producto decide a dónde lo manda (Betangar: la RPC `permiso_reportar`). Así la medición es
+  //  una sola para los 20 clientes y el envío es de cada uno.
+  //
+  //    MWPermiso.medir(function(e){ ... });   // e = {camera:'denied'|'prompt'|'granted'|'',
+  //                                           //      geolocation:…, navegador:'Chrome', ios:false}
+  //
+  //  Nunca levanta excepción y SIEMPRE contesta (si el navegador no responde en 1,2 s, contesta
+  //  con lo que tenga): esto corre al abrir la pantalla de trabajo y no puede trancar a nadie por
+  //  un dato que es para la oficina. Un permiso que el navegador no sabe responder vuelve como
+  //  cadena vacía — que NO es lo mismo que 'granted' y no debe leerse como si todo estuviera bien.
+  // ════════════════════════════════════════════════════════════════════════════════════════════
+  var TIPOS = ['camera', 'geolocation'];
+  function medir(cb){
+    var e = { camera: '', geolocation: '', navegador: nombreNavegador(), ios: esIOS() };
+    var listo = false;
+    function responder(){ if(listo) return; listo = true; try{ cb(e); }catch(err){} }
+    try{
+      if(!(raiz.navigator && navigator.permissions && navigator.permissions.query)){ responder(); return; }
+      var faltan = TIPOS.length;
+      TIPOS.forEach(function(t){
+        function una(){ if(--faltan <= 0) responder(); }
+        try{
+          navigator.permissions.query({ name: t })
+            .then(function(p){ e[t] = (p && p.state) || ''; una(); })
+            .catch(function(){ una(); });      // varios navegadores no soportan 'camera'
+        }catch(err){ una(); }
+      });
+      setTimeout(responder, 1200);
+    }catch(err){ responder(); }
+  }
+
   var API = { pasos: pasos, pasosTexto: pasosTexto, explicar: explicar, explicarTexto: explicarTexto,
-              esIOS: esIOS, nombreNavegador: nombreNavegador };
+              medir: medir, esIOS: esIOS, nombreNavegador: nombreNavegador };
   raiz.MWPermiso = API;   // para las apps que lo cargan con <script src="permisos.js">
   return API;
 })(typeof window !== 'undefined' ? window : globalThis);

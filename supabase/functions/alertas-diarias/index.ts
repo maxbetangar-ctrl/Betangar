@@ -417,6 +417,105 @@ Deno.serve(async (_req: Request) => {
       }
     }
 
+    // ══════════════════════════════════════════════════════════════════════════════════════
+    // EL CHOFER NO PUEDE REGISTRAR — el hueco que no se ve porque NO PASA NADA
+    //
+    // POR QUÉ EXISTE (2026-08-11). El 03/08 la foto del surtido pasó a la cámara dentro de la
+    // página, que exige un permiso del navegador que antes no hacía falta. Melvin Barboza
+    // (JAC-B004) registró su última surtida el 01/08 y no volvió a registrar ninguna. Nos
+    // enteramos DIEZ DÍAS DESPUÉS por un WhatsApp suyo. Antes había pasado lo mismo con Omar
+    // (08/08). Dos personas, la misma pared, y en las dos el sistema no dijo nada.
+    //
+    // ⛔ Un error se ve. Esto no: la pantalla no falla, simplemente NO ENTRA EL DATO. Y como
+    // `gasoil` está muerto desde el 08/07 (proceso), la surtida del chofer es hoy la ÚNICA
+    // fuente del costo de combustible: cada día sin registrar es plata que no entra a la
+    // Utilidad Real y que después nadie puede explicar.
+    // [[norma-numero-que-el-dueno-no-puede-explicar]] [[norma-mirar-la-ultima-corrida-no-la-existencia]]
+    //
+    // Son dos cosas distintas y se dicen distinto:
+    //   • LA CAUSA — el teléfono avisa que tiene el permiso negado (lo reporta `permiso_reportar`).
+    //   • EL HUECO — la unidad trabaja y nadie registra su combustible. Vale aunque la causa sea
+    //     otra (el chofer no sabe, la app no abre, o efectivamente no cargó).
+    //
+    // ⚠️ LA PREMISA, MEDIDA Y NO SUPUESTA (11/08): en las 13 brechas que hay entre dos surtidas
+    // de una misma unidad, la MAYOR fue de 8 días trabajados y la mediana de 4. Por eso el aviso
+    // salta a partir de 9 días TRABAJADOS (planillas, no días de calendario: un camión parado no
+    // gasta combustible). Si mañana la flota cambia de ritmo, este número hay que volver a medirlo.
+    // [[norma-auditoria-precondicion-antes-de-acusar]]
+    //
+    // Sale UNA VEZ AL DÍA. No lleva plata → va completo al jefe de operaciones.
+    // ══════════════════════════════════════════════════════════════════════════════════════
+    {
+      const key = `chofer_no_registra_${hoyD}`;
+      if (!(await yaEnviado(key, dry))) {
+        const trabas: string[] = [];
+
+        // ── (a) LA CAUSA: el teléfono dice que el permiso está negado ──
+        // Solo lo VISTO hace poco: si la unidad no abre la app hace dos semanas, ese estado ya no
+        // dice nada de hoy (y el hueco de combustible de abajo lo agarra igual).
+        const perms = await sel(`dispositivo_permisos?estado=eq.denied&select=cam,permiso,estado,navegador,visto_at`);
+        for (const p of perms) {
+          const cam = String(p.cam || "");
+          if (!fleet.includes(cam)) continue;
+          const d = -diasHasta(String(p.visto_at || "").slice(0, 10));
+          if (isNaN(d) || d > 15) continue;
+          const nav = String(p.navegador || "el navegador");
+          if (p.permiso === "camera") {
+            trabas.push(`🔴 ${Us(cam)} tiene la CÁMARA bloqueada en el teléfono (${nav})\n` +
+              `   Sin cámara no puede guardar la surtida: la foto es obligatoria.\n` +
+              `   👉 En SU teléfono: Ajustes → Aplicaciones → ${nav} → Permisos → Cámara → Permitir.\n` +
+              `   Mientras tanto puede seguir trabajando: en la pantalla de la foto hay un botón verde\n` +
+              `   «Tomar la foto con la cámara del teléfono», que no necesita ese permiso.`);
+          } else {
+            trabas.push(`🟡 ${Us(cam)} tiene la UBICACIÓN bloqueada en el teléfono (${nav})\n` +
+              `   Las entregas y las surtidas quedan sin punto en el mapa.\n` +
+              `   👉 Ajustes → Aplicaciones → ${nav} → Permisos → Ubicación → Permitir.`);
+          }
+        }
+
+        // ── (b) EL HUECO: la unidad trabaja y nadie registra su combustible ──
+        const surt = await selPag("surtidas", `select=cam,fecha&order=fecha.asc`);
+        const ultSur: Record<string, string> = {};
+        for (const s of surt) { const c = String(s.cam || ""); if (!c) continue; const f = String(s.fecha || ""); if (!ultSur[c] || f > ultSur[c]) ultSur[c] = f; }
+        // ⛔ NO SE CUENTA DESDE EL PRINCIPIO DE LOS TIEMPOS. El módulo de surtidas arrancó el
+        // 22/07/2026; antes de esa fecha NADIE podía registrar. Contar desde el primer día de la
+        // unidad decía «B010 — 107 días trabajados y NUNCA registró», que es acusar a alguien por
+        // no usar algo que no existía. El arranque se saca del dato (primera surtida de la flota),
+        // no de una fecha escrita a mano: si mañana se porta a otra empresa, se ajusta solo.
+        // [[norma-auditoria-precondicion-antes-de-acusar]] [[norma-el-demo-sembrado-esconde-el-camino-dia-1]]
+        const arranque = surt.length ? String(surt[0].fecha || "") : "";
+        if (arranque) {
+          for (const cam of fleet) {
+            const k = km.find((x: any) => String(x.cam || "") === cam);
+            const est = String(k?.estado || "").toLowerCase();
+            if (est && est !== "operativo") continue;               // parada: no se le pide combustible
+            const nunca = !ultSur[cam];
+            const desde = ultSur[cam] || arranque;                  // sin surtida propia: desde que el módulo existe
+            // Días TRABAJADOS después de esa fecha (planillas distintas, no días de calendario:
+            // un camión parado no gasta combustible).
+            // Con surtida propia se cuenta DESPUÉS de ella; sin surtida, DESDE que el módulo existe
+            // (restar 1 a ciegas se equivocaba los días en que la unidad no tuvo planilla).
+            const dias = new Set(plan.filter((p: any) => {
+              const f = String(p.f || "");
+              return String(p.cam) === cam && (nunca ? f >= desde : f > desde);
+            }).map((p: any) => String(p.f))).size;
+            if (dias < 9) continue;
+            trabas.push(nunca
+              ? `⛽ ${Us(cam)} — ${dias} días trabajados y NUNCA registró una surtida (el módulo existe desde el ${fmt(arranque)})`
+              : `⛽ ${Us(cam)} — ${dias} días trabajados sin registrar combustible (última surtida: ${fmt(desde)})`);
+          }
+        }
+
+        if (trabas.length) {
+          addBloque(`📵 El chofer no puede registrar\n\n${trabas.join("\n\n")}\n\n` +
+            `👉 Esto no da error en pantalla: simplemente no entra el dato. ` +
+            `Cada día sin registrar es costo de combustible que no llega a la Utilidad Real.`,
+            ["admin", "operativo", "mecanica"]);
+          sent.choferNoRegistra = trabas.length;
+        }
+      }
+    }
+
     // ── RESUMEN CHECKLIST (mañana, ~8am) — quién llenó y quién NO → socios/mecanica/operativo ──
     if (veHour < 12) {
       const key = `checklist_resumen_${hoyD}`;
