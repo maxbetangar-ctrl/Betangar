@@ -7278,6 +7278,16 @@ function _esDomingoOferiado(f){
 // Requiere las DOS condiciones (de noche Y en Resimara). El diurno y La Concepción pagan normal.
 // NO se apila con el 1.5× de domingo/feriado (queda en 1.5× una sola vez).
 function _esResimaraNoche(r){ return (parseInt(r&&r.n)||0)>0 && /resimara/i.test(String((r&&r.vertedero)||'')); }
+// ⛔ UN DÍA CON DOS PLANILLAS NO PIERDE SU RECARGO EN EL DESGLOSE.
+// El desglose guardaba el tipo del día con `=`, así que la ÚLTIMA planilla procesada pisaba a la
+// anterior. Andry Cuba el 06/08/2026 tuvo dos: una de 2 nocturnos en Resimara (1,5×) y otra normal
+// en La Concepción — y el día terminaba etiquetado «normal». El dinero salía bien, pero la lupa
+// decía que no se había reconocido el nocturno, y así lo reportó Alejandra (QA).
+// El monto SE SUMA y la etiqueta se queda con la de MAYOR jerarquía; nunca baja.
+var _TIPO_DIA_RANGO={normal:0,nocturno:1,feriado:2,domingo:3};
+function _tipoDiaMayor(actual,nuevo){
+  return ((_TIPO_DIA_RANGO[nuevo]||0) > (_TIPO_DIA_RANGO[actual]||0)) ? nuevo : (actual||'normal');
+}
 // Días de PATIO por chofer (manual): si el camión no salió pero el chofer cumplió patio, se le
 // paga +1 viaje por día. Clave = nombre canónico en MAYÚSCULA. Persiste por semana.
 var PATIO_DIAS={};
@@ -7874,7 +7884,7 @@ function calcNom(){
     if(_esFer){ chMap[chKey].vFer+=_tCh; chMap[chKey].mFer+=_montoDia/3; }
     var _dd=chMap[chKey].dia[r.f]||(chMap[chKey].dia[r.f]={viajes:0,usd:0,tipo:'normal',cams:[]});
     _dd.viajes+=_tCh; _dd.usd+=_montoDia;
-    _dd.tipo=_esDom?'domingo':(_esFer?'feriado':(_resNCh?'nocturno':'normal'));
+    _dd.tipo=_tipoDiaMayor(_dd.tipo, _esDom?'domingo':(_esFer?'feriado':(_resNCh?'nocturno':'normal')));
     if(_dd.cams.indexOf(r.cam)<0)_dd.cams.push(r.cam);
     if((parseInt(r.t)||0)>0)chMap[chKey].diasViaje.add(_asisDow(r.f));
   });
@@ -7913,7 +7923,7 @@ function calcNom(){
     if(_esF){ a.vFer+=_t; a.mFer+=_m/3; }
     var _dd=a.dia[r.f]||(a.dia[r.f]={viajes:0,usd:0,tipo:'normal',cams:[]});
     _dd.viajes+=_t; _dd.usd+=_m;
-    _dd.tipo=_esD?'domingo':(_esF?'feriado':(_resN?'nocturno':'normal'));
+    _dd.tipo=_tipoDiaMayor(_dd.tipo, _esD?'domingo':(_esF?'feriado':(_resN?'nocturno':'normal')));
     if(_dd.cams.indexOf(r.cam)<0)_dd.cams.push(r.cam);
   }
   f.forEach(function(r){
@@ -7953,9 +7963,24 @@ function calcNom(){
   // sí y otras no»: dependía de si alguien había olvidado escribir el ayudante, no de si
   // trabajaron. El IMAU cobra en SU lista, por el escalón de su unidad. Acá no entra.
   // Confirmado: era también el origen de "16 ayudantes cobran sin salir en planilla".
-  EMPLEADOS.forEach(function(e){
-    if(e.cargo!=='Ayudante'||e.activo===false||e.tipoAy==='imau'||ayMap[e.id])return;
-    f.forEach(function(r){ if(r.cam===e.unidad&&!r.ay1&&!r.ay2&&!r.ay3)_ayAcumular(e,r,'porCam'); });
+  // ⛔ QUITADO (Máximo, 2026-08-11): «si no figura, no cobra». LA PLANILLA ES LA ÚNICA VERDAD.
+  //
+  // Este respaldo pagaba a un ayudante por los viajes de la unidad que dice SU FICHA cuando nadie
+  // había escrito ayudante en la planilla. La pantalla ya lo confesaba —«⚠️ 2v por su unidad — no
+  // figura en la planilla»— y pagaba igual. Alejandra (QA) lo reportó el 11/08 con CARLOS ALFREDO
+  // MONTIEL VILLALOBOS: le salía una segunda fila con dos viajes del lunes que no le correspondían.
+  //
+  // Y era la puerta por la que una FICHA DUPLICADA cobraba sola: con dos fichas del mismo nombre,
+  // `_empPorNombre` devuelve null a propósito (el sistema no elige entre dos personas), así que
+  // NINGUNA cobraba por nombre y las DOS caían acá, cada una por la unidad de su ficha. Ya había
+  // pasado antes con Yirber (egresado), con Edwin Montiel y Wuillibaldo (IMAU), y con «16 ayudantes
+  // que cobran sin salir en planilla»: cada vez se le recortó un caso y el respaldo siguió vivo.
+  // Se corta la raíz, no la rama. [[norma-un-nombre-paga-a-una-sola-ficha]]
+  //
+  // Lo que NO se pierde: una planilla sin ayudante anotado deja de ser un pago silencioso y pasa a
+  // ser un AVISO en pantalla (abajo). Un dato que falta se completa; no se adivina.
+  var _sinAyud=f.filter(function(r){
+    return (parseInt(r.t)||0)>0 && !String(r.ay1||'').trim() && !String(r.ay2||'').trim() && !String(r.ay3||'').trim();
   });
   // Una fila con 0 viajes no crea ayudante (antes lo garantizaba el `if(viajes>0)`).
   Object.keys(ayMap).forEach(function(id){ if(!ayMap[id].viajes)delete ayMap[id]; });
@@ -8342,6 +8367,15 @@ function calcNom(){
     var _scList=_sinCasar.map(function(x){return '<b>'+_scEsc(x.nombre)+'</b> <span style="color:var(--text3)">('+Object.keys(x.roles).join('/')+', '+x.viajes+' viajes)</span>';}).join(' · ');
     descBanners.unshift('<div style="margin-bottom:6px;font-size:11px;background:rgba(226,75,74,.12);border:1px solid rgba(226,75,74,.5);color:#e24b4a;padding:8px 10px;border-radius:8px">⚠️ <b>'+_sinCasar.length+' nombre(s) en las planillas NO casan con ningún empleado</b> (typo del Excel o empleado sin registrar):<br>'+_scList+'.<div style="font-size:10px;color:var(--text3);margin-top:4px">Corregí el nombre en el Excel o registrá al empleado. Mientras, esos viajes no se enlazan a una ficha (banco/cédula) y pueden confundirse.</div></div>');
   }
+  // ⚠️ PLANILLAS SIN AYUDANTE ANOTADO. Desde el 11/08 esos viajes ya no se le adjudican a nadie
+  // por la unidad de su ficha («si no figura, no cobra»), así que el hueco tiene que VERSE: si el
+  // ayudante sí trabajó, se escribe su nombre en la planilla y cobra en el próximo recálculo.
+  if(typeof _sinAyud!=='undefined' && _sinAyud.length){
+    var _saDet=_sinAyud.slice(0,12).map(function(r){
+      return '<b>'+_scEsc(r.cam)+'</b> '+_scEsc(fmtFechaCorta(r.f))+' <span style="color:var(--text3)">('+(parseInt(r.t)||0)+'v)</span>';
+    }).join(' · ');
+    descBanners.unshift('<div style="margin-bottom:6px;font-size:11px;background:rgba(245,158,11,.12);border:1px solid rgba(245,158,11,.5);color:var(--amber);padding:8px 10px;border-radius:8px">⚠️ <b>'+_sinAyud.length+' planilla(s) sin ayudante anotado</b> — esos viajes NO le pagan a ningún ayudante:<br>'+_saDet+(_sinAyud.length>12?' <span style="color:var(--text3)">y '+(_sinAyud.length-12)+' más</span>':'')+'.<div style="font-size:10px;color:var(--text3);margin-top:4px">Si el ayudante sí trabajó ese día, escribí su nombre en la planilla y volvé a calcular. Antes el sistema se los adjudicaba solo por la unidad de la ficha, y así cobraban personas que no estaban.</div></div>');
+  }
   // ⚠️ DOS FICHAS QUE PODRÍAN SER LA MISMA PERSONA.
   // Desde que cada nombre de planilla paga a UNA sola ficha, un duplicado ya no cobra doble — pero
   // sigue partiendo a la persona en dos filas (y a media semana cada una). Quien tiene que decidir
@@ -8515,10 +8549,10 @@ function calcNom(){
     // justo el caso menos grave. Cuando TODOS vienen del camión es cuando más hace falta decirlo:
     // significa que nadie escribió su nombre en la planilla y se le está pagando porque su ficha
     // dice esa unidad. Eso hay que poder verlo sin abrir el código.
-    var nota=(a.porCam>0)
-      ? (a.porNombre>0 ? '('+a.porNombre+'v nombre + '+a.porCam+'v camión)'
-                       : '⚠️ '+a.porCam+'v por su unidad — no figura en la planilla')
-      : '';
+    // Desde el 11/08 TODOS los viajes de un ayudante vienen de su nombre en la planilla: el pago
+    // «por su unidad» se eliminó (Máximo: «si no figura, no cobra»). `porCam` queda en 0 siempre y
+    // el aviso se movió arriba, a las planillas SIN ayudante anotado — que es donde hay que actuar.
+    var nota=(a.porCam>0) ? '⚠️ '+a.porCam+'v por su unidad — REVISAR: esto ya no debería pasar' : '';
     var inputPatio=(esImau||a.apoyo)?'':_btnPatio(a.emp.id,'ay',patAyM,vp.patio,a.patio);
     // Ayudante INACTIVO con viajes: se paga igual pero se marca ⚠️ (apareció en planilla dado de baja).
     var _inactAy=(a.emp.activo===false);
