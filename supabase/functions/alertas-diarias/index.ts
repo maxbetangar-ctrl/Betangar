@@ -51,6 +51,12 @@ async function enqueue(rows: any[]) {
 }
 function veNow(): Date { return new Date(Date.now() - 4 * 3600 * 1000); }
 function ymd(d: Date): string { return d.toISOString().slice(0, 10); }
+// Fecha como la lee la gente acá: dd/mm/yyyy. [[norma-fecha-venezolana-dd-mm-yyyy]]
+function fmt(iso: string): string {
+  const s = String(iso || "").slice(0, 10);
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : s;
+}
 function diasHasta(fechaStr: string): number {
   if (!fechaStr) return NaN;
   const f = new Date(String(fechaStr).slice(0, 10) + "T12:00:00Z");
@@ -199,7 +205,8 @@ Deno.serve(async (_req: Request) => {
     // 2) SERVICE + LAVADOS — FUENTE DE VERDAD = mantenimientos (item_id); km_data solo respaldo.
     // Antes leía únicamente km_data.lavado (espejo frágil) → ignoraba lavados/servicios hechos por
     // hoja de vida u orden de servicio y avisaba en falso. Ahora cruza contra los eventos reales.
-    const km = await sel(`km_data?select=cam,km,lavado,estado`);
+    // `estado_desde` y `nota_estado` los pide el detector de divergencias de más abajo.
+    const km = await sel(`km_data?select=cam,km,lavado,estado,estado_desde,nota_estado`);
     // Último LAVADO real por cam (MAX fecha de mantenimientos item_id=lavado). item_id filtra pocas filas → sin tope.
     const mLav = await sel(`mantenimientos?item_id=eq.lavado&select=cam,f&limit=2000`);
     const ultLav: Record<string, string> = {};
@@ -310,6 +317,75 @@ Deno.serve(async (_req: Request) => {
     const ckRows = await sel(`checklist?fecha=eq.${hoyD}&select=*`);
     const ckByCam: Record<string, any> = {};
     for (const r of ckRows) { const c = String(r.cam || ""); if (!c) continue; if (!ckByCam[c] || String(r.created_at) > String(ckByCam[c].created_at)) ckByCam[c] = r; }
+
+    // ══════════════════════════════════════════════════════════════════════════════════════
+    // DIVERGENCIAS DE FLOTA — el dato que se contradice con otro dato
+    //
+    // POR QUÉ EXISTE (2026-08-10). El dashboard mostró «B004 — TALLER · 22d». En esos 22 días
+    // la unidad hizo 21 planillas y 47 viajes. Nadie lo notó en tres semanas, y lo agarró el
+    // dueño mirando la pantalla — no el sistema. Peor: la contradicción estaba en la MISMA
+    // FILA del checklist («taller_betangar» al lado de «salió 05:42, volvió 13:17, 128 km»).
+    //
+    // Ninguna de las tres cosas de abajo puede ser cierta a la vez. Cuando pasa, el sistema
+    // no sabe cuál de los dos datos vale, y lo único honesto es PREGUNTAR, no elegir solo.
+    // Es el mismo patrón que `edu_divergencias_fuente_unica` en EduControl.
+    // [[norma-fuente-unica-datos]] [[norma-numero-que-el-dueno-no-puede-explicar]]
+    //
+    // Sale UNA VEZ AL DÍA (`yaEnviado`), no en las dos corridas: un aviso que salta siempre
+    // no avisa de nada. Y no lleva plata, así que puede ir completo al jefe de operaciones.
+    // ══════════════════════════════════════════════════════════════════════════════════════
+    {
+      const key = `flota_divergencias_${hoyD}`;
+      if (!(await yaEnviado(key, dry))) {
+        const div: string[] = [];
+        for (const k of km) {
+          const cam = String(k.cam || "");
+          if (!cam.startsWith("JAC-")) continue;
+          const est = String(k.estado || "").toLowerCase();
+          if (!est || est === "operativo") continue;      // solo las que figuran FUERA de circulación
+
+          // 1) Figura fuera de circulación y HOY rodó (el checklist de hoy lo prueba).
+          const c = ckByCam[cam];
+          const kS = Number(c?.km_salida || c?.chofer_km_salida || 0) || 0;
+          const kE = Number(c?.km_entrada || c?.chofer_km_entrada || 0) || 0;
+          const volvio = String(c?.hora_entrada || "").trim();
+          if (c && (kE > kS || volvio)) {
+            const rec = kE > kS ? ` · ${kE - kS} km` : "";
+            const obs = String(c.observaciones || "").trim();
+            div.push(`🔴 ${Us(cam)} figura ${est.toUpperCase()} pero HOY TRABAJÓ\n` +
+              `   salió ${c.hora_salida || "?"}, volvió ${volvio || "?"}${rec}` +
+              (obs ? `\n   reportó: «${obs}»` : "") +
+              `\n   👉 O está operativa, o alguien la marcó mal.`);
+            continue;                                     // ya se avisó por lo más fuerte
+          }
+
+          // 2) Figura fuera desde una fecha, pero cargó planillas DESPUÉS. Es el caso exacto
+          //    de la B004: 21 planillas posteriores a su `estado_desde`.
+          const desde = String(k.estado_desde || "").slice(0, 10);
+          const ult = ultPlan[cam] || "";
+          if (desde && ult && ult > desde) {
+            const nPost = plan.filter((p: any) => String(p.cam) === cam && String(p.f || "") > desde).length;
+            div.push(`🔴 ${Us(cam)} figura ${est.toUpperCase()} desde el ${fmt(desde)} ` +
+              `pero tiene ${nPost} planilla(s) después — la última el ${fmt(ult)}\n` +
+              `   👉 La fecha de salida de circulación está mal, o esas planillas no son suyas.`);
+            continue;
+          }
+
+          // 3) Figura fuera y NADIE escribió por qué. No es una contradicción, es un hueco:
+          //    un camión parado sin motivo es plata que nadie está explicando.
+          if (!String(k.nota_estado || "").trim()) {
+            const d = desde ? -diasHasta(desde) : NaN;
+            div.push(`🟡 ${Us(cam)} figura ${est.toUpperCase()}` +
+              (isNaN(d) ? " (sin fecha de salida de circulación)" : ` hace ${d} día(s)`) +
+              ` y nadie escribió por qué.`);
+          }
+        }
+        if (div.length) {
+          addBloque(`🚨 Datos de flota que se contradicen\n\n${div.join("\n\n")}`, ["admin", "mecanica", "operativo"]);
+          sent.divergencias = div.length;
+        }
+      }
+    }
 
     // ── FALLAS PENDIENTES (tabla `anomalias` = FUENTE ÚNICA) → Mecánica + Operativo + Socios ──
     // Antes esto leía la fila del checklist de HOY: una falla reportada ayer y NO arreglada

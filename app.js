@@ -4207,8 +4207,16 @@ function kmActualCam(cam){
   (typeof REGS!=='undefined'?REGS:[]).forEach(function(r){if(r&&r.cam===cam){var k=parseFloat(r.km)||0;if(k>0&&k<10000000&&k>v)v=k;}});
   return v;
 }
-function diasDesde(f){if(!f)return 9999;return Math.floor((new Date()-new Date(f))/86400000);}
-function diasHasta(f){if(!f)return 9999;return Math.floor((new Date(f)-new Date())/86400000);}
+// Días entre dos FECHAS (no entre dos instantes). Antes esto era
+//   Math.floor((new Date() - new Date(f))/86400000)
+// y ahí `new Date('2026-07-20')` se parsea como medianoche UTC mientras `new Date()` es hora
+// local (VE = UTC-4): a partir de las 20:00 el resultado sumaba un día. El dashboard decía
+// «B004 — TALLER · 22d» cuando eran 21, y «B001 · 32d» cuando eran 31.
+// Se reusa `_diasEntre` (ya existe más abajo, línea ~10062: ancla las dos fechas al MEDIODÍA
+// local, así que no la mueve ni el huso ni el horario de verano). OJO con el orden de los
+// argumentos: `_diasEntre(a,b)` devuelve b − a. [[norma-la-hora-es-la-del-negocio-no-la-del-servidor]]
+function diasDesde(f){if(!f)return 9999;var d=_diasEntre(String(f).slice(0,10),fechaVE());return isNaN(d)?9999:d;}
+function diasHasta(f){if(!f)return 9999;var d=_diasEntre(fechaVE(),String(f).slice(0,10));return isNaN(d)?9999:d;}
 function addDays(d,n){var x=new Date(d);x.setDate(x.getDate()+n);return x.toISOString().split('T')[0];}
 function vencBadge(dr){
   if(dr===9999||isNaN(dr))return'<span class="venc-nd">Sin datos</span>';
@@ -4791,6 +4799,26 @@ var _CL_CRITICOS=['freno_mano','freno_servicio','aceite_motor','fugas','presion_
 var _estadoOverride={};
 // Camiones con AL MENOS UNA anomalía crítica abierta (lo llena renderChecklistAnomalias).
 var _ANOM_CRIT_CAM={};
+// ¿El checklist muestra que la unidad RODÓ ese día? (marcó kilómetros o volvió de ruta)
+// Un chofer que reporta una falla en el checklist de LLEGADA no está declarando el camión
+// parado: lo dice DESPUÉS de haber trabajado. La B004 el 09 y el 10/08 salió, hizo 128 y 58 km,
+// volvió a las 13:17 y 14:27 e hizo viajes — y el dashboard la contaba EN TALLER.
+function _clRodo(c){
+  if(!c)return false;
+  var kS=parseFloat(c.km_salida||c.chofer_km_salida||0)||0;
+  var kE=parseFloat(c.km_entrada||c.chofer_km_entrada||0)||0;
+  if(kE>kS)return true;
+  return !!String(c.hora_entrada||'').trim();
+}
+// La falla que el chofer reportó HOY en un camión que igual trabajó. No cambia el estado: avisa.
+function _clFallaReportada(cam){
+  var hoy=(typeof ccHoy==='function')?ccHoy():(typeof fechaVE==='function'?fechaVE():'');
+  var c=(typeof checklistCamFecha==='function')?checklistCamFecha(cam,hoy):null;
+  if(!c||!_clRodo(c))return '';
+  var ev=String(c.estado_vehiculo||'').toLowerCase().trim();
+  if(!ev||ev==='operativo')return '';
+  return String(c.observaciones||'').trim()||('reportada como '+ev.replace(/_/g,' '));
+}
 function estadoDelChecklist(cam){
   var hoy=(typeof ccHoy==='function')?ccHoy():(typeof fechaVE==='function'?fechaVE():'');
   var c=(typeof checklistCamFecha==='function')?checklistCamFecha(cam,hoy):null;
@@ -4799,7 +4827,15 @@ function estadoDelChecklist(cam){
   //    `estado_vehiculo`, NO las columnas por ítem. Antes se ignoraba, así que un camión que
   //    el chofer mandaba a taller seguía saliendo "operativo" en el dashboard (bug 2026-07-20).
   var ev=String(c.estado_vehiculo||'').toLowerCase().trim();
-  if(ev&&ev!=='operativo')return ev.indexOf('taller')===0?'taller':ev;
+  if(ev&&ev!=='operativo'){
+    // …PERO si ese mismo checklist prueba que la unidad RODÓ, el chofer está REPORTANDO UNA
+    //   FALLA, no declarando el camión parado. Sacarla de circulación contradice el hecho de que
+    //   trabajó, y el dashboard le empieza a contar días de taller a una unidad que sale todos
+    //   los días (2026-08-10, B004). Es la MISMA decisión que ya está tomada en el punto 3 para
+    //   las anomalías críticas: AVISA, NO manda a taller. Si mañana no rueda, mañana sí cuenta.
+    if(_clRodo(c))return 'operativo';
+    return ev.indexOf('taller')===0?'taller':ev;
+  }
   // 2) Ítems críticos del checklist del mecánico (solo si alguien lo llenó; hoy nadie lo usa).
   var crit=_CL_CRITICOS.some(function(k){return c[k]==='mal';});
   ['danio_frontal','danio_lateral_izq','danio_lateral_der','danio_posterior','danio_techo'].forEach(function(d){var v=String(c[d]||'').trim();if(v&&v!=='0'&&v!=='ok')crit=true;});
@@ -4812,12 +4848,19 @@ function estadoDelChecklist(cam){
   return 'operativo';
 }
 // ¿La unidad tiene alguna falla CRÍTICA abierta? No cambia el estado: pinta el aviso.
-function _camFallaCritica(cam){ return !!_ANOM_CRIT_CAM[cam]; }
+// Incluye la que el chofer reportó hoy en un camión que igual trabajó: si no se sumara acá,
+// al dejar de sacarla de circulación la falla desaparecería de la pantalla y quedaría PEOR que
+// antes — el camión verde y nadie enterado de que viene subiendo la temperatura.
+function _camFallaCritica(cam){ return !!_ANOM_CRIT_CAM[cam] || !!_clFallaReportada(cam); }
 // Texto corto de las fallas críticas abiertas (para el tooltip y el impreso).
 function _camFallaCriticaTxt(cam){
-  if(typeof ANOM_ABIERTAS==='undefined')return '';
-  return ANOM_ABIERTAS.filter(function(a){return a.cam===cam&&a.critico;})
-    .map(function(a){return String(a.label||a.item_norm||'').trim();}).filter(Boolean).join(', ');
+  var txt=[];
+  var cl=_clFallaReportada(cam); if(cl)txt.push(cl);
+  if(typeof ANOM_ABIERTAS!=='undefined'){
+    ANOM_ABIERTAS.filter(function(a){return a.cam===cam&&a.critico;})
+      .forEach(function(a){var s=String(a.label||a.item_norm||'').trim();if(s)txt.push(s);});
+  }
+  return txt.join(', ');
 }
 // FUENTE ÚNICA del estado real de un camión (la MISMA que usa el widget de flota y la disponibilidad).
 // Prioridad: override manual de sesión > checklist de hoy > último estado conocido (km_data) > FLOTA.

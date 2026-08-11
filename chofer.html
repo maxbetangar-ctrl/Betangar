@@ -915,6 +915,59 @@ function arrancarApp(){
 function avisoCacheKey(){ return 'btg_aviso_'+cam; }
 function avisoVistoKey(a){ return 'btg_aviso_visto_'+cam+'_'+((a&&a.hasta)||'')+'_'+((a&&a.mensaje)?a.mensaje.length:0); }
 function _hoyISO(){ try{ return (typeof hoy!=='undefined'&&hoy)?hoy:new Date().toISOString().slice(0,10); }catch(e){ return new Date().toISOString().slice(0,10); } }
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ESTADO DE LA UNIDAD EN `km_data` — el estado y SU FECHA son UN SOLO DATO.
+//
+// Esta pantalla es la que mueve el estado TODOS los días, pero hasta hoy escribía
+// `estado` y `nota_estado` y NUNCA `estado_desde`. Resultado (2026-08-10, B004):
+// el 20/07 un backfill puso `estado_desde=2026-07-20`; el 21/07 el chofer la marcó
+// operativa desde acá y la fecha se quedó clavada (no se ve, porque los días solo
+// se pintan si NO está operativa); el 09/08 volvió a taller y el dashboard resucitó
+// «TALLER · 22d» para una unidad que hizo 47 viajes en esos 22 días.
+// La regla es la misma que ya usa `app.js` (toggleEstCam / checklist de oficina):
+//   operativo            → estado_desde = null   (se limpia; el contador muere)
+//   sale y YA venía fuera→ estado_desde = el que tenía (no reiniciar los días)
+//   sale y venía operativa→ estado_desde = HOY
+// Y la nota NO se pisa con vacío: si el chofer no escribió motivo, vale la
+// observación del checklist, y si tampoco hay, se conserva la anterior. Un camión
+// amarillo sin una palabra que lo explique es un número que nadie puede auditar.
+// ══════════════════════════════════════════════════════════════════════════════
+function _kmDataAplicarEstado(cam_, estDash, motivo, observ, quien, fechaISO){
+  if(!supabase || !cam_) return Promise.resolve();
+  // Fecha del NEGOCIO (VE, UTC-4), no la del navegador ni la del servidor.
+  var fReg = fechaISO || ((typeof hoy!=='undefined' && hoy) ? hoy : new Date(Date.now()-14400000).toISOString().slice(0,10));
+  // La COLA puede subir un checklist de hace días DESPUÉS de que ya se guardó uno más nuevo.
+  // El dato viejo es legítimo (se guarda), pero su EFECTO sobre el estado actual no: pondría a
+  // la unidad como estaba el martes. Si hay un checklist POSTERIOR, no se toca `km_data`.
+  // ([[norma-la-cola-reintenta-el-dato-pero-no-su-efecto]])
+  return supabase.from('checklist').select('fecha').eq('cam', cam_).gt('fecha', fReg).limit(1)
+    .then(function(rc){
+      if(rc && rc.data && rc.data.length) return null;   // hay uno más nuevo → el estado no es de este
+      return supabase.from('km_data').select('estado,estado_desde,nota_estado').eq('cam', cam_).limit(1);
+    })
+    .then(function(r){
+      if(r === null) return null;
+      var prev = (r && r.data && r.data[0]) || {};
+      var eraOp = !prev.estado || prev.estado === 'operativo';
+      var desde, nota;
+      if(estDash === 'operativo'){
+        desde = null; nota = '';                       // vuelve a circular → sin fecha y sin motivo
+      }else{
+        desde = (!eraOp && prev.estado_desde) ? prev.estado_desde : fReg;
+        nota  = String(motivo || '').trim() || String(observ || '').trim() || String(prev.nota_estado || '').trim();
+      }
+      var upd = { cam: cam_, estado: estDash, nota_estado: nota, estado_desde: desde };
+      // `estado_confirmado` lo declara una PERSONA de oficina, no esta pantalla: si la unidad
+      // sale de circulación se BAJA, para que el modal «¿por qué está fuera?» sí pregunte.
+      if(estDash !== 'operativo') upd.estado_confirmado = false;
+      if(quien) upd.updated_by = quien;
+      // upsert: si la unidad todavía no tiene fila en km_data, un UPDATE afecta 0 filas y se
+      // pierde en silencio. Solo se tocan las columnas del payload.
+      return supabase.from('km_data').upsert(upd, { onConflict: 'cam' });
+    });
+}
+
 var _AVISO_ACTUAL = null;
 function avisoRender(a){
   var box = document.getElementById('aviso-banner');
@@ -2124,7 +2177,9 @@ function sincronizarCola(){
           if(reg.estado_vehiculo){
             // 2026-07-21: quitado el upsert a `flota_estado` (tabla sin lectores) — ver chofer.html abajo.
             var estD = reg.estado_vehiculo==='inoperativo' ? 'inoperativo' : (String(reg.estado_vehiculo).indexOf('taller')===0 ? 'taller' : 'operativo');
-            supabase.from('km_data').update({ estado: estD }).eq('cam', reg.cam);
+            // Estado + FECHA + motivo juntos (ver _kmDataAplicarEstado). Antes acá solo iba
+            // `estado`: la fecha quedaba clavada y el dashboard contaba días de otro mes.
+            _kmDataAplicarEstado(reg.cam, estD, '', reg.observaciones, 'chofer (cola)', reg.fecha);
             // Odómetro: la ruta online sí actualiza km_data.km (con candado). Por cola faltaba → "Próx.
             // aceite"/proxServicio del dashboard quedaban desfasados. Solo sube si el km es NULL o menor.
             var kmC = Math.max(parseInt(reg.km_salida)||0, parseInt(reg.km_entrada)||0);
@@ -2727,12 +2782,22 @@ async function _guardarChecklist(){
       // inoperativo). Así el estado que reporta el chofer SÍ se enlaza con el dashboard.
       var estDash = CL_ESTADO==='inoperativo' ? 'inoperativo' : (String(CL_ESTADO).indexOf('taller')===0 ? 'taller' : 'operativo');
       var kmVal = CL_MODO==='salida' ? (_kmVal('cl-km-salida')||0) : (_kmVal('cl-km-llegada')||0);
+      // Si esto es el checklist de LLEGADA, la unidad YA TRABAJÓ: marcar la falla acá es
+      // REPORTARLA, no declarar el camión parado. Sacarlo de circulación contradice la ruta que
+      // acaba de hacer y le arranca al dashboard un contador de días de taller (2026-08-10, B004:
+      // 128 y 58 km, con «está subiendo la temperatura» en el mismo registro). La falla igual se
+      // ve: el dashboard la pinta como ⚠️ falla pendiente leyendo este mismo checklist.
+      // En el checklist de SALIDA sí manda: ahí el chofer está diciendo que NO sale.
+      if(estDash!=='operativo' && CL_MODO!=='salida'){ estDash='operativo'; }
       // El estado/nota SIEMPRE se actualiza. El KM (odómetro) SOLO si SUBE: un typo del chofer con un
       // km MENOR bajaría el odómetro del dashboard y corrompería el cálculo de próximo servicio
       // (proxServicio). El resto de la app ya protege esto (kmActualCam usa Math.max; el guardado de
       // km en oficina confirma si baja) — el checklist del chofer era la ÚNICA excepción. El filtro
       // or(km.is.null,km.lt.kmVal) => solo actualiza si el km actual es NULL (primer registro) o menor.
-      await supabase.from('km_data').update({ estado: estDash, nota_estado: gv('cl-motivo') || '' }).eq('cam', cam);
+      // Estado + FECHA + motivo juntos (ver _kmDataAplicarEstado). Antes acá se escribía
+      // `estado` y `nota_estado` y NUNCA `estado_desde`, y `nota_estado` se pisaba con '' cuando
+      // el chofer no llenaba el motivo — el camión salía amarillo, con días de más y sin explicación.
+      await _kmDataAplicarEstado(cam, estDash, gv('cl-motivo'), registro && registro.observaciones, 'chofer', hoy);
       if(kmVal > 0) await supabase.from('km_data').update({ km: kmVal }).eq('cam', cam).or('km.is.null,km.lt.'+kmVal);
     }
   } else {
