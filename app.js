@@ -5858,11 +5858,33 @@ async function detectarPlanillasFaltantes(){
   document.body.appendChild(ov);
   audit('Revisión de planillas faltantes',faltan.length+' huecos ('+String(min).padStart(5,'0')+'–'+String(max).padStart(5,'0')+')');
 }
+// ⛔ EXCEL MUESTRA LA FECHA SEGÚN EL IDIOMA DE LA PC QUE ABRE EL ARCHIVO, salvo que la celda traiga
+// SU PROPIO formato. Una fecha escrita como texto ISO («2026-08-10») en una máquina en inglés se ve
+// «8/10/2026» — mes primero. El archivo sale bien de acá y llega mal, por eso se pedía el arreglo
+// una y otra vez sin que se notara dónde estaba. [[norma-fecha-venezolana-dd-mm-yyyy]]
+// Esta pasada le pone `dd/mm/yyyy` a toda celda de fecha de la hoja. Con SheetJS hay que hacerlo a
+// mano: su formato por defecto para una fecha es el americano.
+function _xlFechasVE(ws){
+  try{ Object.keys(ws).forEach(function(k){
+    if(k.charAt(0)==='!')return;
+    var c=ws[k];
+    if(c&&c.t==='d')c.z='dd/mm/yyyy';
+  }); }catch(e){}
+  return ws;
+}
+// Convierte «AAAA-MM-DD» en una FECHA de verdad, al mediodía UTC: con 00:00 y un huso al oeste
+// (Venezuela −4) Excel muestra el día ANTERIOR.
+function _fechaXL(v){
+  var m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(String(v||''));
+  if(!m)return v;
+  var d=new Date(Date.UTC(+m[1],+m[2]-1,+m[3],12));
+  return isNaN(d)?v:d;
+}
 async function exportHistExcel(){
   if(typeof XLSX==='undefined'){alert('XLSX no cargado');return;}
   var wb=_xlNuevo();
-  var ws=XLSX.utils.json_to_sheet(REGS.map(function(r){return{Planilla:r.p,Fecha:r.f,Mes:r.mes,Camion:r.cam,Chofer:r.ch,Ayudante1:r.ay1||'',Ayudante2:r.ay2||'',Ayudante3:r.ay3||'',Ruta:r.r,Parroquia:r.par,Diurnos:r.d,Nocturnos:r.n,Total:r.t,Semana:r.sem,'Monto $':r.m};}));
-  XLSX.utils.book_append_sheet(wb,ws,'Planillas');await _xlGuardar(wb,brandArchivo()+'_Historico.xlsx');
+  var ws=XLSX.utils.json_to_sheet(REGS.map(function(r){return{Planilla:r.p,Fecha:_fechaXL(r.f),Mes:r.mes,Camion:r.cam,Chofer:r.ch,Ayudante1:r.ay1||'',Ayudante2:r.ay2||'',Ayudante3:r.ay3||'',Ruta:r.r,Parroquia:r.par,Diurnos:r.d,Nocturnos:r.n,Total:r.t,Semana:r.sem,'Monto $':r.m};}));
+  _xlFechasVE(ws);XLSX.utils.book_append_sheet(wb,ws,'Planillas');await _xlGuardar(wb,brandArchivo()+'_Historico.xlsx');
 }
 // Aviso claro de DÓNDE quedó guardada la importación.
 //   ok=true  → ✅ verde, en la nube (Supabase), se cierra solo a los 6s.
