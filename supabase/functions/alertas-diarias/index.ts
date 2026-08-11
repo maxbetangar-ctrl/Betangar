@@ -426,21 +426,14 @@ Deno.serve(async (_req: Request) => {
     // enteramos DIEZ DÍAS DESPUÉS por un WhatsApp suyo. Antes había pasado lo mismo con Omar
     // (08/08). Dos personas, la misma pared, y en las dos el sistema no dijo nada.
     //
-    // ⛔ Un error se ve. Esto no: la pantalla no falla, simplemente NO ENTRA EL DATO. Y como
-    // `gasoil` está muerto desde el 08/07 (proceso), la surtida del chofer es hoy la ÚNICA
-    // fuente del costo de combustible: cada día sin registrar es plata que no entra a la
-    // Utilidad Real y que después nadie puede explicar.
-    // [[norma-numero-que-el-dueno-no-puede-explicar]] [[norma-mirar-la-ultima-corrida-no-la-existencia]]
+    // ⛔ Un error se ve. Esto no: la pantalla no falla, simplemente NO ENTRA EL DATO. El teléfono
+    // ya sabe que el permiso está negado desde que abre la pantalla, y hasta hoy eso solo se le
+    // decía al chofer — el único que no puede arreglarlo solo.
     //
-    // Son dos cosas distintas y se dicen distinto:
-    //   • LA CAUSA — el teléfono avisa que tiene el permiso negado (lo reporta `permiso_reportar`).
-    //   • EL HUECO — la unidad trabaja y nadie registra su combustible. Vale aunque la causa sea
-    //     otra (el chofer no sabe, la app no abre, o efectivamente no cargó).
-    //
-    // ⚠️ LA PREMISA, MEDIDA Y NO SUPUESTA (11/08): en las 13 brechas que hay entre dos surtidas
-    // de una misma unidad, la MAYOR fue de 8 días trabajados y la mediana de 4. Por eso el aviso
-    // salta a partir de 9 días TRABAJADOS (planillas, no días de calendario: un camión parado no
-    // gasta combustible). Si mañana la flota cambia de ritmo, este número hay que volver a medirlo.
+    // ⚠️ ESTA SECCIÓN NACIÓ CON DOS PARTES Y SE QUEDÓ CON UNA, EL MISMO DÍA. La otra avisaba
+    // «unidad que trabaja y nadie registra su combustible» y sus tres primeras líneas eran FALSAS:
+    // ver la nota larga abajo, en (b). Se retiró antes de la primera corrida real. Lo que queda es
+    // lo que el propio equipo REPORTA de sí mismo, que no puede dar un falso positivo.
     // [[norma-auditoria-precondicion-antes-de-acusar]]
     //
     // Sale UNA VEZ AL DÍA. No lleva plata → va completo al jefe de operaciones.
@@ -473,43 +466,36 @@ Deno.serve(async (_req: Request) => {
           }
         }
 
-        // ── (b) EL HUECO: la unidad trabaja y nadie registra su combustible ──
-        const surt = await selPag("surtidas", `select=cam,fecha&order=fecha.asc`);
-        const ultSur: Record<string, string> = {};
-        for (const s of surt) { const c = String(s.cam || ""); if (!c) continue; const f = String(s.fecha || ""); if (!ultSur[c] || f > ultSur[c]) ultSur[c] = f; }
-        // ⛔ NO SE CUENTA DESDE EL PRINCIPIO DE LOS TIEMPOS. El módulo de surtidas arrancó el
-        // 22/07/2026; antes de esa fecha NADIE podía registrar. Contar desde el primer día de la
-        // unidad decía «B010 — 107 días trabajados y NUNCA registró», que es acusar a alguien por
-        // no usar algo que no existía. El arranque se saca del dato (primera surtida de la flota),
-        // no de una fecha escrita a mano: si mañana se porta a otra empresa, se ajusta solo.
-        // [[norma-auditoria-precondicion-antes-de-acusar]] [[norma-el-demo-sembrado-esconde-el-camino-dia-1]]
-        const arranque = surt.length ? String(surt[0].fecha || "") : "";
-        if (arranque) {
-          for (const cam of fleet) {
-            const k = km.find((x: any) => String(x.cam || "") === cam);
-            const est = String(k?.estado || "").toLowerCase();
-            if (est && est !== "operativo") continue;               // parada: no se le pide combustible
-            const nunca = !ultSur[cam];
-            const desde = ultSur[cam] || arranque;                  // sin surtida propia: desde que el módulo existe
-            // Días TRABAJADOS después de esa fecha (planillas distintas, no días de calendario:
-            // un camión parado no gasta combustible).
-            // Con surtida propia se cuenta DESPUÉS de ella; sin surtida, DESDE que el módulo existe
-            // (restar 1 a ciegas se equivocaba los días en que la unidad no tuvo planilla).
-            const dias = new Set(plan.filter((p: any) => {
-              const f = String(p.f || "");
-              return String(p.cam) === cam && (nunca ? f >= desde : f > desde);
-            }).map((p: any) => String(p.f))).size;
-            if (dias < 9) continue;
-            trabas.push(nunca
-              ? `⛽ ${Us(cam)} — ${dias} días trabajados y NUNCA registró una surtida (el módulo existe desde el ${fmt(arranque)})`
-              : `⛽ ${Us(cam)} — ${dias} días trabajados sin registrar combustible (última surtida: ${fmt(desde)})`);
-          }
-        }
+        // ── (b) EL HUECO DE COMBUSTIBLE: RETIRADO EL MISMO DÍA QUE SE ESCRIBIÓ ──────────────────
+        //
+        // ⛔ ME LO DESMINTIÓ ALEJANDRA (QA) Y TENÍA RAZÓN. Esta parte iba a avisar «B010 y B012
+        // NUNCA registraron una surtida» y «B004: 9 días trabajados sin registrar combustible».
+        // Las tres eran FALSAS: miraba solo `surtidas` —lo que carga el chofer desde el celular— e
+        // ignoraba `gasoil`, que es el despacho que carga la oficina. En los últimos 30 días B010
+        // tiene 10 despachos (1.407 L), B012 tiene 8 (906 L) y B004 tiene 13 (1.591 L).
+        //
+        // ⛔ Y EL ERROR DE FONDO NO FUE EL `select`: FUE CREERLE A UN DOCUMENTO EN VEZ DE AL DATO.
+        // `DISENO_AUDITORIA_COMBUSTIBLE.md` dice «gasoil muerto desde el 07/07», y sobre esa frase
+        // se construyó todo el razonamiento («la surtida es hoy la única fuente del costo»). Era
+        // cierto el 24/07, cuando se escribió. Para el 13/07 ya habían vuelto a cargar despachos, y
+        // hoy la tabla llega al 01/08 para TODA la flota. Un documento cuenta lo que pasaba el día
+        // que se escribió; lo que pasa hoy solo lo cuenta la consulta.
+        // [[norma-auditoria-precondicion-antes-de-acusar]] [[norma-mirar-la-ultima-corrida-no-la-existencia]]
+        //
+        // Y no se arregla sumándole `gasoil` al mismo umbral: son DOS canales que se solapan (más
+        // `combustible_mediciones`, que es el NIVEL del tanque, no una carga). Cuántos días puede
+        // trabajar una unidad sin que se registre su combustible es una regla que hay que ACORDAR,
+        // no deducirla de 13 brechas de una tabla de tres semanas.
+        // Mejor no avisar que acusar en falso a una unidad delante de administración, mecánica y
+        // operaciones. Cuando la regla esté acordada, vuelve — mirando los tres canales.
+        //
+        // Lo que SÍ queda es (a): el permiso del teléfono. Ese lo reporta el propio equipo, dice
+        // exactamente lo que el equipo dice, y no puede dar un falso positivo.
 
         if (trabas.length) {
           addBloque(`📵 El chofer no puede registrar\n\n${trabas.join("\n\n")}\n\n` +
-            `👉 Esto no da error en pantalla: simplemente no entra el dato. ` +
-            `Cada día sin registrar es costo de combustible que no llega a la Utilidad Real.`,
+            `👉 Esto no da error en pantalla: el chofer toca «Tomar foto», le sale que está ` +
+            `bloqueada, y el registro simplemente no entra.`,
             ["admin", "operativo", "mecanica"]);
           sent.choferNoRegistra = trabas.length;
         }
