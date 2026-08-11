@@ -916,6 +916,41 @@ function avisoCacheKey(){ return 'btg_aviso_'+cam; }
 function avisoVistoKey(a){ return 'btg_aviso_visto_'+cam+'_'+((a&&a.hasta)||'')+'_'+((a&&a.mensaje)?a.mensaje.length:0); }
 function _hoyISO(){ try{ return (typeof hoy!=='undefined'&&hoy)?hoy:new Date().toISOString().slice(0,10); }catch(e){ return new Date().toISOString().slice(0,10); } }
 
+var _AVISO_ACTUAL = null;
+function avisoRender(a){
+  var box = document.getElementById('aviso-banner');
+  if(!box) return;
+  var vigente = a && a.mensaje && (!a.hasta || String(a.hasta) >= _hoyISO());
+  // Si el chofer ya toco "Entendido" para ESTE aviso, no reaparece.
+  var yaVisto = false; try{ yaVisto = a && localStorage.getItem(avisoVistoKey(a))==='1'; }catch(e){}
+  if(!vigente || yaVisto){ box.style.display='none'; return; }
+  _AVISO_ACTUAL = a;
+  var t = document.getElementById('aviso-titulo');
+  var x = document.getElementById('aviso-texto');
+  if(t) t.textContent = a.titulo || 'Aviso de administración';
+  if(x) x.textContent = a.mensaje;
+  box.style.display='block';
+}
+// El chofer lo cierra él mismo: se oculta y se recuerda para que no vuelva a salir.
+function avisoDescartar(){
+  var box = document.getElementById('aviso-banner'); if(box) box.style.display='none';
+  try{ if(_AVISO_ACTUAL) localStorage.setItem(avisoVistoKey(_AVISO_ACTUAL),'1'); localStorage.removeItem(avisoCacheKey()); }catch(e){}
+}
+function avisoLeerCache(){
+  try{ var raw = localStorage.getItem(avisoCacheKey()); if(raw){ avisoRender(JSON.parse(raw)); } }catch(e){}
+}
+function avisoCargar(){
+  if(!supabase || !cam) return;
+  try{
+    supabase.rpc('aviso_unidad', { p_cam: cam }).then(function(res){
+      if(res.error){ return; } // sin señal / error → queda el caché
+      var a = (res.data && res.data.length) ? res.data[0] : ((res.data && res.data.mensaje) ? res.data : null);
+      if(a && a.mensaje){ try{ localStorage.setItem(avisoCacheKey(), JSON.stringify(a)); }catch(e){} avisoRender(a); }
+      else { var box=document.getElementById('aviso-banner'); if(box)box.style.display='none'; try{ localStorage.removeItem(avisoCacheKey()); }catch(e){} }
+    }, function(){});
+  }catch(e){}
+}
+
 // ══════════════════════════════════════════════════════════════════════════════
 // ESTADO DE LA UNIDAD EN `km_data` — el estado y SU FECHA son UN SOLO DATO.
 //
@@ -966,41 +1001,6 @@ function _kmDataAplicarEstado(cam_, estDash, motivo, observ, quien, fechaISO){
       // pierde en silencio. Solo se tocan las columnas del payload.
       return supabase.from('km_data').upsert(upd, { onConflict: 'cam' });
     });
-}
-
-var _AVISO_ACTUAL = null;
-function avisoRender(a){
-  var box = document.getElementById('aviso-banner');
-  if(!box) return;
-  var vigente = a && a.mensaje && (!a.hasta || String(a.hasta) >= _hoyISO());
-  // Si el chofer ya toco "Entendido" para ESTE aviso, no reaparece.
-  var yaVisto = false; try{ yaVisto = a && localStorage.getItem(avisoVistoKey(a))==='1'; }catch(e){}
-  if(!vigente || yaVisto){ box.style.display='none'; return; }
-  _AVISO_ACTUAL = a;
-  var t = document.getElementById('aviso-titulo');
-  var x = document.getElementById('aviso-texto');
-  if(t) t.textContent = a.titulo || 'Aviso de administración';
-  if(x) x.textContent = a.mensaje;
-  box.style.display='block';
-}
-// El chofer lo cierra él mismo: se oculta y se recuerda para que no vuelva a salir.
-function avisoDescartar(){
-  var box = document.getElementById('aviso-banner'); if(box) box.style.display='none';
-  try{ if(_AVISO_ACTUAL) localStorage.setItem(avisoVistoKey(_AVISO_ACTUAL),'1'); localStorage.removeItem(avisoCacheKey()); }catch(e){}
-}
-function avisoLeerCache(){
-  try{ var raw = localStorage.getItem(avisoCacheKey()); if(raw){ avisoRender(JSON.parse(raw)); } }catch(e){}
-}
-function avisoCargar(){
-  if(!supabase || !cam) return;
-  try{
-    supabase.rpc('aviso_unidad', { p_cam: cam }).then(function(res){
-      if(res.error){ return; } // sin señal / error → queda el caché
-      var a = (res.data && res.data.length) ? res.data[0] : ((res.data && res.data.mensaje) ? res.data : null);
-      if(a && a.mensaje){ try{ localStorage.setItem(avisoCacheKey(), JSON.stringify(a)); }catch(e){} avisoRender(a); }
-      else { var box=document.getElementById('aviso-banner'); if(box)box.style.display='none'; try{ localStorage.removeItem(avisoCacheKey()); }catch(e){} }
-    }, function(){});
-  }catch(e){}
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
