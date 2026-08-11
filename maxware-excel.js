@@ -201,12 +201,49 @@
     ws.getRow(4).height = 24;
     ws.autoFilter = { from: { row: 4, column: 1 }, to: { row: 4, column: nCols } };
 
+    // ═══════════════════════════════════════════════════════════════════════
+    // ⛔ LA FECHA SE ESCRIBE COMO FECHA, CON SU FORMATO dd/mm/yyyy PEGADO
+    // ═══════════════════════════════════════════════════════════════════════
+    // Se pedía «que todas las fechas sean dd/mm/yyyy» y volvía SIEMPRE. El motivo
+    // no era que se olvidara pantalla por pantalla: es que acá la fecha entraba
+    // como TEXTO ISO («2026-08-10») y **Excel la reinterpreta con el idioma de la
+    // PC de quien abre el archivo**. En una máquina en inglés eso se ve
+    // «8/10/2026» — mes primero. El archivo salía bien de acá y llegaba mal.
+    //
+    // Por eso se arreglaba y reaparecía: se corregía en la pantalla que exporta,
+    // y el siguiente Excel —de otro módulo, de otro producto— volvía a salir mal.
+    // El sitio correcto es ESTE, que es por donde pasan TODOS los Excel de TODOS
+    // los productos.
+    //
+    // La celda lleva su propio formato (`numFmt`), así que se ve dd/mm/yyyy en
+    // cualquier equipo, en cualquier idioma, y además ORDENA y FILTRA como fecha
+    // —cosa que el texto no hace—. [[norma-fecha-venezolana-dd-mm-yyyy]]
+    var RE_ISO = /^(\d{4})-(\d{2})-(\d{2})(?:[T ]\d{2}:\d{2}(?::\d{2})?)?/;
+    function _ponerValor(c, v) {
+      if (v == null || v === '') { c.value = ''; return; }
+      if (v instanceof Date && !isNaN(v)) {
+        c.value = v; c.numFmt = 'dd/mm/yyyy'; return;
+      }
+      var m = (typeof v === 'string') ? v.match(RE_ISO) : null;
+      if (m) {
+        // Mediodía UTC a propósito: con las 00:00 y un huso al oeste, Excel
+        // muestra el día ANTERIOR. Ya pasó con las fechas de Venezuela (−4).
+        var d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], 12));
+        if (!isNaN(d)) {
+          c.value = d;
+          c.numFmt = (v.length > 10) ? 'dd/mm/yyyy hh:mm' : 'dd/mm/yyyy';
+          return;
+        }
+      }
+      c.value = v;
+    }
+
     // Datos. Los primeros `ejemplos` van en gris cursiva.
     var rows = opts.rows || [], ej = (opts.ejemplos == null ? 0 : opts.ejemplos);
     rows.forEach(function (r, ri) {
       for (var ci = 0; ci < nCols; ci++) {
         var c = ws.getCell(5 + ri, ci + 1);
-        c.value = (r[ci] == null ? '' : r[ci]);
+        _ponerValor(c, r[ci]);
         c.border = borde();
         if (ri < ej) {
           c.font = { italic: true, size: 9, color: { argb: SLATE } };
