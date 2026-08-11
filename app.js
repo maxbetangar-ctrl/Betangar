@@ -2997,10 +2997,18 @@ async function relGuardar(id,esSalida){
 // ══════════════════════════════════════════════════════════════════════════════════════════════
 var REL_VISTA=[];       // exactamente lo que se está viendo. De acá sale lo que se imprime.
 var REL_TOPE=1000;
+// ⛔ LOS FILTROS NO PUEDEN VIVIR EN EL DOM. `renderRelacion()` pone «Cargando…» en el contenedor
+// ANTES de llamar acá, o sea que borra los campos; leerlos después devolvía siempre vacío y
+// **ningún filtro aplicaba**. Se veía perfecto en pantalla —los campos volvían a dibujarse— y no
+// filtraba nada. Lo cazó la prueba en el navegador, no la de la lógica: la lógica estaba bien.
+// Ahora el filtro es un dato del módulo y la pantalla es su reflejo, nunca al revés.
+var REL_FILTRO={des:'',hta:'',cat:'',tipo:'',q:''};
+function relSet(k,v){ REL_FILTRO[k]=v||''; renderRelacion(); }
+function relSetQ(v){ REL_FILTRO.q=v||''; clearTimeout(window._relQt); window._relQt=setTimeout(renderRelacion,350); }
 
 function relFiltroCats(actual){
   var ks=Object.keys(REL_CATS).sort(function(a,b){return relNombreCat(a).localeCompare(relNombreCat(b));});
-  return '<select class="fc" id="rel-cat" style="padding:6px 8px;font-size:11px" onchange="renderRelacion()">'+
+  return '<select class="fc" id="rel-cat" style="padding:6px 8px;font-size:11px" onchange="relSet(\'cat\',this.value)">'+
     '<option value="">Todos los tipos</option>'+
     ks.map(function(k){return '<option value="'+k+'"'+(k===actual?' selected':'')+'>'+relEsc(relNombreCat(k))+'</option>';}).join('')+
   '</select>';
@@ -3014,8 +3022,8 @@ function relPeriodoTxt(d,h){
   return 'Todo el histórico';
 }
 async function relRenderTodos(cont,est){
-  var buscar=(g('rel-q')&&g('rel-q').value||'').trim().toLowerCase();
-  var des=gv('rel-des'), hta=gv('rel-hta'), cat=gv('rel-cat'), tipo=gv('rel-tipo');
+  var buscar=String(REL_FILTRO.q||'').trim().toLowerCase();
+  var des=REL_FILTRO.des, hta=REL_FILTRO.hta, cat=REL_FILTRO.cat, tipo=REL_FILTRO.tipo;
   var q=supabase.from('bnc_movimientos')
     .select('id,fecha,monto,tipo,descripcion,concepto_banco,referencia,categoria,es_gasto,clasificado_por,factura,pata')
     .order('fecha',{ascending:false}).limit(REL_TOPE);
@@ -3039,11 +3047,11 @@ async function relRenderTodos(cont,est){
   cont.innerHTML=
     '<div class="card" style="margin-bottom:10px;padding:10px">'+
       '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:8px">'+
-        '<div class="fg" style="margin:0"><label style="font-size:10px;color:var(--text3)">Desde</label><input type="date" class="fc" id="rel-des" style="padding:6px 8px;font-size:11px" value="'+relEsc(des)+'" onchange="renderRelacion()"></div>'+
-        '<div class="fg" style="margin:0"><label style="font-size:10px;color:var(--text3)">Hasta</label><input type="date" class="fc" id="rel-hta" style="padding:6px 8px;font-size:11px" value="'+relEsc(hta)+'" onchange="renderRelacion()"></div>'+
+        '<div class="fg" style="margin:0"><label style="font-size:10px;color:var(--text3)">Desde</label><input type="date" class="fc" id="rel-des" style="padding:6px 8px;font-size:11px" value="'+relEsc(des)+'" onchange="relSet(\'des\',this.value)"></div>'+
+        '<div class="fg" style="margin:0"><label style="font-size:10px;color:var(--text3)">Hasta</label><input type="date" class="fc" id="rel-hta" style="padding:6px 8px;font-size:11px" value="'+relEsc(hta)+'" onchange="relSet(\'hta\',this.value)"></div>'+
         '<div class="fg" style="margin:0"><label style="font-size:10px;color:var(--text3)">Tipo de gasto</label>'+relFiltroCats(cat)+'</div>'+
         '<div class="fg" style="margin:0"><label style="font-size:10px;color:var(--text3)">Entrada / salida</label>'+
-          '<select class="fc" id="rel-tipo" style="padding:6px 8px;font-size:11px" onchange="renderRelacion()">'+
+          '<select class="fc" id="rel-tipo" style="padding:6px 8px;font-size:11px" onchange="relSet(\'tipo\',this.value)">'+
             '<option value="">Ambas</option>'+
             '<option value="debito"'+(tipo==='debito'?' selected':'')+'>Solo salidas</option>'+
             '<option value="credito"'+(tipo==='credito'?' selected':'')+'>Solo entradas</option>'+
@@ -3053,7 +3061,7 @@ async function relRenderTodos(cont,est){
         '<button class="btn btn-s btn-sm" onclick="relLimpiar()">Limpiar</button>'+
         '<button class="btn btn-b btn-sm" onclick="relImprimir()">🖨️ Imprimir</button>'+
       '</div>'+
-      '<input class="fc" id="rel-q" placeholder="Buscar por concepto, categoría o monto…" value="'+relEsc(buscar)+'" oninput="clearTimeout(window._relQt);window._relQt=setTimeout(renderRelacion,350)">'+
+      '<input class="fc" id="rel-q" placeholder="Buscar por concepto, categoría o monto…" value="'+relEsc(buscar)+'" oninput="relSetQ(this.value)">'+
       // ⚠️ Este aviso no es decorativo. A la administración se le pide que mire TAMBIÉN lo ya
       // clasificado, porque un error del sistema NO aparece en «Por revisar»: sale con una
       // categoría que se ve normal. Pasó con 19 cobros de la Alcaldía puestos como «pago a socio».
@@ -3082,6 +3090,10 @@ async function relRenderTodos(cont,est){
         // botón que siempre falla se lee como que el sistema está roto.
         '<td>'+(esSoloLectura()?'':'<button class="btn btn-s btn-xs" onclick="relEditar(\''+relEsc(m.id)+'\',\''+relEsc(m.categoria||'')+'\','+(esSal?'true':'false')+','+(m.es_gasto===false?'false':'true')+')">Cambiar</button>')+'</td></tr>';
     }).join('')+'</tbody></table></div>';
+  // La pantalla se redibuja entera en cada tecla, así que el cursor se salía del buscador y había
+  // que volver a hacer clic para escribir la segunda palabra. Se le devuelve el foco y el cursor
+  // al final. [[norma-input-foco-react]]
+  if(buscar){ try{ var qi=document.getElementById('rel-q'); if(qi){ qi.focus(); qi.setSelectionRange(qi.value.length,qi.value.length); } }catch(e){} }
 }
 // Atajos de período: el cierre de mes es lo que se pide siempre, y tecleando dos fechas cada vez
 // es donde se cuela el error de un día.
@@ -3090,14 +3102,11 @@ function relMes(delta){
   var ini=new Date(Date.UTC(base.getUTCFullYear(),base.getUTCMonth()+(delta||0),1));
   var fin=new Date(Date.UTC(base.getUTCFullYear(),base.getUTCMonth()+(delta||0)+1,0));
   var ymd=function(d){return d.toISOString().slice(0,10);};
-  if(g('rel-des'))g('rel-des').value=ymd(ini);
-  if(g('rel-hta'))g('rel-hta').value=ymd(fin);
+  REL_FILTRO.des=ymd(ini); REL_FILTRO.hta=ymd(fin);
   renderRelacion();
 }
 function relLimpiar(){
-  ['rel-des','rel-hta','rel-q'].forEach(function(id){ if(g(id))g(id).value=''; });
-  if(g('rel-cat'))g('rel-cat').value='';
-  if(g('rel-tipo'))g('rel-tipo').value='';
+  REL_FILTRO={des:'',hta:'',cat:'',tipo:'',q:''};
   renderRelacion();
 }
 // ── EL IMPRESO ────────────────────────────────────────────────────────────────────────────────
@@ -3108,7 +3117,7 @@ function relLimpiar(){
 // y la pantalla se irían separando con cada cambio y nadie sabría cuál de los dos mirar.
 function relImprimir(){
   if(!REL_VISTA.length){ mostrarToast('No hay movimientos en ese período para imprimir','error'); return; }
-  var des=gv('rel-des'), hta=gv('rel-hta'), cat=gv('rel-cat'), tipo=gv('rel-tipo');
+  var des=REL_FILTRO.des, hta=REL_FILTRO.hta, cat=REL_FILTRO.cat, tipo=REL_FILTRO.tipo;
   var e=relEsc, ms=REL_VISTA.slice().sort(function(a,b){return String(a.fecha).localeCompare(String(b.fecha));});
   var bs=function(n){ return Number(n||0).toLocaleString('es-VE',{minimumFractionDigits:2,maximumFractionDigits:2}); };
   var nEnt=ms.filter(function(m){return m.tipo==='credito';}).length;
