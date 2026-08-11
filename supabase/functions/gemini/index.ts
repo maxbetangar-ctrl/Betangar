@@ -30,7 +30,9 @@ const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
 
 // Quién puede pedirle un análisis a Gemini. Es una consulta que CUESTA dinero:
 // no la dispara cualquiera que tenga sesión.
-const ROLES = ["superadmin", "auditor", "admin", "directivo"];
+// ⚠️ `auditor` → `revisor` (2026-08-11): el rol se renombró. El `auditor` de hoy es la auditora
+// externa, de SOLO LECTURA, y no dispara consultas que se facturan.
+const ROLES = ["superadmin", "revisor", "admin", "directivo"];
 
 const cors = {
   "Access-Control-Allow-Origin": "*",

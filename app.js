@@ -366,6 +366,46 @@ var PERMISOS={
   if(PERMISOS[r] && PERMISOS[r].indexOf('recordatorios')<0) PERMISOS[r].push('recordatorios');
 });
 
+// ── REVISOR (era `auditor` hasta el 2026-08-11) ──────────────────────────────────────────────
+// Ve TODO, no borra, y cualquier borrado le pide el token del dueño. Es el acceso de Alejandra
+// (QA/soporte de Maxware). Va DESPUÉS de los push de arriba a propósito: copia la lista de
+// superadmin ya completa, así un módulo nuevo lo hereda solo — fuente única.
+PERMISOS.revisor = PERMISOS.superadmin.slice();
+
+// ── AUDITOR — la auditora externa, SOLO LECTURA ──────────────────────────────────────────────
+// Arianny Morán (E055 en `empleados`, cargo «Auditora»). Esta lista NO se copia de nadie: es
+// exactamente lo que ella pidió el 2026-08-11 —«mantenimiento por equipo, estados de cuenta y CxP
+// de proveedores, cobro de facturas, RRHH y el consumo de combustible por unidad, para validar que
+// coincida con los estados de cuenta de los proveedores»— más el informe financiero (Máximo).
+//
+// ⛔ ESTA LISTA NO ES EL CANDADO. Lo que la hace de SOLO LECTURA son otras dos cosas:
+//   1. la BASE: el rol `auditor` no figura en una sola política de INSERT/UPDATE/DELETE;
+//   2. `aplicarCandadoSoloLectura()`, que envuelve `supabase.from()` al entrar.
+// Acá solo se decide qué MENÚ ve. [[norma-seguridad-dos-niveles]]
+//
+// Queda FUERA a propósito: Caja Chica, Configuración, Usuarios, Mensajes WA, Salud de Datos y las
+// pantallas de kiosco (portería, mecánico, operativo, checklist del chofer).
+PERMISOS.auditor = [
+  'dashboard','historico',
+  // mantenimiento por equipo
+  'entregas','km','unidades','llantas','documentos','inventario',
+  // combustible por unidad (las tres pestañas, o la barra no se dibuja)
+  'combustible','control-combustible','aud-combustible',
+  // estados de cuenta y conciliación bancaria — dónde se ve QUÉ es cada transferencia
+  // ⛔ SIN `banco-bnc`: esa pantalla lleva adentro la pestaña de configuración con el GUID y la
+  // clave maestra de la API del banco. El movimiento por movimiento, con su categoría y su
+  // referencia, lo da `relacion` — que además es imprimible. Es lo mismo sin el secreto.
+  'banco','relacion','conciliacion',
+  // CxP de proveedores y cobro de facturas
+  'proveedores','cxp','reporte','abonos',
+  // RRHH
+  'empleados','nomina','asistencia','fichaje','prestamos','multas',
+  // informe financiero (decisión de Máximo, 11/08)
+  'informe','financiero','rentabilidad','stats','ranking','contratos',
+  // la Carpeta del Auditor vive en esta pestaña
+  'auditoria','galeria'
+];
+
 var NAV_LABELS={
   'aud-combustible':'Auditoría de Combustible',
   dashboard:'Dashboard',planilla:'Registro Diario',historico:'Historico',reporte:'Cobranza / Alcaldia',
@@ -690,7 +730,7 @@ async function doLogin(){
         // 2FA OBLIGATORIO para roles de oficina sensibles (manejan dinero/PII). Operativos y operador
         // quedan simples (decisión de Máximo). Si el rol lo exige y AÚN no tiene 2FA, se fuerza a
         // activarlo ahora (bloquea la entrada hasta hacerlo). Quien ya lo tiene fue retado arriba.
-        if(['superadmin','auditor','admin','rrhh'].indexOf(rol)>=0){
+        if(['superadmin','revisor','auditor','admin','rrhh'].indexOf(rol)>=0){
           var _tiene2FA=false;
           try{ var _f=await supabaseAuth.auth.mfa.listFactors(); var _fd=(_f&&_f.data)?_f.data:_f; _tiene2FA=!!((_fd&&_fd.totp&&_fd.totp.length)||(_fd&&_fd.all&&_fd.all.some(function(x){return x.factor_type==='totp'&&x.status==='verified';}))); }catch(e){}
           if(!_tiene2FA){
@@ -753,7 +793,7 @@ async function canjearAccesoDeLaTorre(){
     if(!activo){ try{ await supabaseAuth.auth.signOut(); }catch(e){} avisar('Ese usuario esta desactivado.'); return; }
     // El MISMO candado que el login normal: si el rol lo exige y no tiene 2FA, se
     // fuerza a activarlo ahora. Ver el bloque equivalente en entrar().
-    if(['superadmin','auditor','admin','rrhh'].indexOf(rol)>=0){
+    if(['superadmin','revisor','auditor','admin','rrhh'].indexOf(rol)>=0){
       var tiene=false;
       try{ var f=await supabaseAuth.auth.mfa.listFactors(); var fd=(f&&f.data)?f.data:f;
         tiene=!!((fd&&fd.totp&&fd.totp.length)||(fd&&fd.all&&fd.all.some(function(x){return x.factor_type==='totp'&&x.status==='verified';}))); }catch(e){}
@@ -922,8 +962,62 @@ function mostrarBloqueoLicencia(motivo){
   '</div>';
   document.body.appendChild(ov);
 }
+// ══════════════════════════════════════════════════════════════════════════════════════════════
+// CANDADO DE SOLO LECTURA — se pone UNA vez, en el sitio por donde pasan TODAS las escrituras
+// ══════════════════════════════════════════════════════════════════════════════════════════════
+// Un rol de solo lectura no se hace escondiendo botones: son cientos y el próximo módulo nace sin
+// el candado. Se hace acá, envolviendo `supabase.from()`: insert/update/upsert/delete/rpc-de-
+// escritura devuelven el mismo `{data:null,error}` que devolvería la base, así que cada pantalla
+// ya sabe qué hacer con eso (mostrar el toast y no dar por guardado).
+//
+// ⛔ Y SE APAGA LA COLA OFFLINE. Sin esto sería PEOR que no tener candado: el patrón de la app es
+// `if(!ok) guardarEnCola(...)`, así que cada intento fallido quedaría encolado para reintentarse
+// solo, para siempre, contra una base que nunca lo va a aceptar — y el banner de la cola le
+// diría a la auditora que tiene registros «pendientes de guardar» que jamás van a entrar.
+// Ver [[norma-la-cola-reintenta-el-dato-pero-no-su-efecto]] y [[norma-guardar-que-no-se-nota-duplica]].
+//
+// La primera capa —la que manda— es la BASE: el rol `auditor` no está en una sola política de
+// escritura. Esto solo evita el intento y explica el porqué. [[norma-seguridad-dos-niveles]]
+var _SOLO_LECTURA_PUESTO=false;
+function _errSoloLectura(){
+  return {data:null,error:{message:'Tu acceso es de solo consulta: podés ver e imprimir todo, pero no modificar.',code:'SOLO_LECTURA'}};
+}
+function _stubSoloLectura(){
+  // Imita lo justo del constructor de PostgREST: cualquier método encadenado devuelve el mismo
+  // objeto, y al esperarlo (`await`) resuelve como un error de la base. Nunca lanza excepción:
+  // una pantalla rota no puede tumbar la app. [[norma-una-pantalla-rota-no-puede-tumbar-la-app]]
+  var stub={};
+  var enc=['select','eq','neq','gt','gte','lt','lte','like','ilike','is','in','contains','filter',
+           'match','not','or','order','limit','range','single','maybeSingle','csv','returns','throwOnError'];
+  enc.forEach(function(m){ stub[m]=function(){ return stub; }; });
+  stub.then=function(res){ try{ mostrarToast('👁️ Solo consulta: este acceso no modifica datos.','info'); }catch(e){}
+                           return Promise.resolve(_errSoloLectura()).then(res); };
+  stub.catch=function(){ return stub; };
+  stub.finally=function(f){ try{ f&&f(); }catch(e){} return stub; };
+  return stub;
+}
+function aplicarCandadoSoloLectura(){
+  if(_SOLO_LECTURA_PUESTO||!esSoloLectura()||!supabase)return;
+  _SOLO_LECTURA_PUESTO=true;
+  // ⛔ `auditoria` (la bitácora de acciones) NO se bloquea. Es de SOLO AGREGAR y la base sí le deja
+  // escribir: si la tapáramos acá, el rastro de lo que hizo la auditora se perdería — y el rastro
+  // de quien audita es justo lo que no puede faltar. Bloquear de más también rompe.
+  var _SIN_CANDADO={auditoria:1};
+  var _from=supabase.from.bind(supabase);
+  supabase.from=function(t){
+    var q=_from(t);
+    if(_SIN_CANDADO[t])return q;
+    ['insert','update','upsert','delete'].forEach(function(m){ q[m]=function(){ return _stubSoloLectura(); }; });
+    return q;
+  };
+  // La cola offline deja de aceptar nada: no hay escritura que valga la pena reintentar.
+  try{ guardarEnCola=function(){ return; }; }catch(e){}
+  console.log('👁️ Acceso de SOLO LECTURA activo (rol '+(SESION&&SESION.rol)+')');
+}
+
 function _iniciarSesionCore(){
   if(!supabase||!DB_READY)initSupabaseClient(); // asegurar conexión en cualquier camino
+  try{ aplicarCandadoSoloLectura(); }catch(e){} // antes que cualquier render: nada debe poder escribir
   try{ verificarLicencia(); }catch(e){}         // kill-switch (no bloquea el arranque si falla)
   DEMO_MODE=SESION.demo;
   var db=document.getElementById('demo-banner');if(db)db.style.display=DEMO_MODE?'block':'none';
@@ -948,8 +1042,8 @@ function _iniciarSesionCore(){
   // DEEP-LINK de AUTORIZACIÓN: #tok=<id> viene del WhatsApp que pide la aprobación.
   // Va después del login a propósito: la aprobación exige la sesión de quien autoriza.
   try{ setTimeout(function(){ try{ atenderEnlaceAprobacion(); }catch(e){ console.log('enlace aprobación:',e&&e.message); } },400); }catch(e){}
-  var rolLbl={superadmin:'SuperAdmin',auditor:'Auditor',admin:'Admin',operador:'Operador',rrhh:'RRHH',visualizador:'Vista',demo_admin:'Demo',demo_operador:'Demo',demo_rrhh:'Demo'};
-  var rolCol={superadmin:'role-admin',auditor:'role-admin',admin:'role-admin',operador:'role-operador',rrhh:'role-rrhh',visualizador:'role-visualizador'};
+  var rolLbl={superadmin:'SuperAdmin',revisor:'Revisor',auditor:'Auditor',admin:'Admin',operador:'Operador',rrhh:'RRHH',visualizador:'Vista',demo_admin:'Demo',demo_operador:'Demo',demo_rrhh:'Demo'};
+  var rolCol={superadmin:'role-admin',revisor:'role-admin',auditor:'role-visualizador',admin:'role-admin',operador:'role-operador',rrhh:'role-rrhh',visualizador:'role-visualizador'};
   var rb=SESION.rol==='superadmin'?'superadmin':(SESION.rol.replace('demo_','')||'visualizador');
   var ui=document.getElementById('nav-user-info');
   if(ui){ui.innerHTML='<span class="role-badge '+(rolCol[rb]||'role-visualizador')+'">'+(rolLbl[SESION.rol]||SESION.rol)+'</span><span style="font-size:10px;color:var(--text2)">'+SESION.nombre+'</span>';ui.style.display='flex';}
@@ -1011,7 +1105,7 @@ function _iniciarSesionCore(){
     }
   }catch(e){}
   // Ir a la sección correcta según el rol
-  if(SESION.rol==='superadmin'||SESION.rol==='auditor'||SESION.rol==='admin'||SESION.rol==='operador'){
+  if(SESION.rol==='superadmin'||SESION.rol==='revisor'||SESION.rol==='auditor'||SESION.rol==='admin'||SESION.rol==='operador'){
     sp('dashboard');
   }
   // Ocultar explícitamente secciones especiales para superadmin
@@ -2447,7 +2541,13 @@ function renderCombSubnav(activo){
     if(perms.indexOf(id)<0)return '';
     return '<div class="sw'+(id===activo?' on':'')+'" onclick="sp(\''+id+'\')">'+label+'</div>';
   }
-  var visibles=(perms.indexOf('combustible')>=0?1:0)+(perms.indexOf('control-combustible')>=0?1:0);
+  // ⛔ El contador se arma sobre la LISTA REAL de sub-módulos, no enumerando a mano un subconjunto.
+  // Enumerados a mano quedaban 2 de 3 (faltaba 'aud-combustible'): un rol que tuviera Operación +
+  // Auditoría contaba 1, no dibujaba barra, y perdía las dos pestañas que sí tenía.
+  // Es el mismo error que se corrigió en Flotilla/VIDECA/demo el 04/08 y que acá quedó pendiente
+  // porque ningún rol lo destapaba todavía. [[norma-permiso-que-ninguna-pantalla-muestra]]
+  var idsC=['combustible','control-combustible','aud-combustible'];
+  var visibles=idsC.reduce(function(s,i){return s+(perms.indexOf(i)>=0?1:0);},0);
   // Si el rol solo tiene acceso a uno, no mostramos una barra de un solo botón.
   var html=visibles>=2?('<div class="switch-row" style="margin-bottom:10px">'+tab('combustible','⛽ Operación')+tab('control-combustible','📊 Control y Alertas')+tab('aud-combustible','🔎 Auditoría')+'</div>'):'';
   ['subnav-combustible','subnav-control-combustible','subnav-aud-combustible'].forEach(function(pid){var el=document.getElementById(pid);if(el)el.innerHTML=html;});
@@ -2883,26 +2983,88 @@ async function relGuardar(id,esSalida){
   mostrarToast('Guardado: '+relNombreCat(cat),'exito');
   renderRelacion();
 }
+// ══════════════════════════════════════════════════════════════════════════════════════════════
+// «TODOS» — el estado de cuenta explicado: qué es cada movimiento, en el período que se pida
+//
+// Hasta el 2026-08-11 esta pestaña mostraba **los 300 más recientes y nada más**: sin rango de
+// fechas, sin filtro por tipo de gasto y sin forma de imprimirla. Para revisar un mes cerrado —que
+// es lo que hace un auditor y lo que pide la administración al cierre— no servía: había que
+// buscar a mano y copiar a otro lado. Pedido de Máximo, 11/08.
+//
+// Los filtros van EN LA CONSULTA, no sobre lo que ya se trajo: si se filtrara después, el rango
+// pedido y las filas traídas dirían cosas distintas y nadie se enteraría.
+// [[norma-fuente-unica-datos]] [[norma-postgrest-corta-en-1000-sin-avisar]]
+// ══════════════════════════════════════════════════════════════════════════════════════════════
+var REL_VISTA=[];       // exactamente lo que se está viendo. De acá sale lo que se imprime.
+var REL_TOPE=1000;
+
+function relFiltroCats(actual){
+  var ks=Object.keys(REL_CATS).sort(function(a,b){return relNombreCat(a).localeCompare(relNombreCat(b));});
+  return '<select class="fc" id="rel-cat" style="padding:6px 8px;font-size:11px" onchange="renderRelacion()">'+
+    '<option value="">Todos los tipos</option>'+
+    ks.map(function(k){return '<option value="'+k+'"'+(k===actual?' selected':'')+'>'+relEsc(relNombreCat(k))+'</option>';}).join('')+
+  '</select>';
+}
+// El período que se está mirando, en palabras. Se usa igual en pantalla y en el impreso, para que
+// el papel no pueda decir un rango distinto del que se pidió.
+function relPeriodoTxt(d,h){
+  if(d&&h)return 'Del '+formatFecha(d)+' al '+formatFecha(h);
+  if(d)return 'Desde el '+formatFecha(d);
+  if(h)return 'Hasta el '+formatFecha(h);
+  return 'Todo el histórico';
+}
 async function relRenderTodos(cont,est){
   var buscar=(g('rel-q')&&g('rel-q').value||'').trim().toLowerCase();
+  var des=gv('rel-des'), hta=gv('rel-hta'), cat=gv('rel-cat'), tipo=gv('rel-tipo');
   var q=supabase.from('bnc_movimientos')
-    .select('id,fecha,monto,tipo,descripcion,concepto_banco,categoria,es_gasto,clasificado_por,factura,pata')
-    .order('fecha',{ascending:false}).limit(300);
+    .select('id,fecha,monto,tipo,descripcion,concepto_banco,referencia,categoria,es_gasto,clasificado_por,factura,pata')
+    .order('fecha',{ascending:false}).limit(REL_TOPE);
+  if(des) q=q.gte('fecha',des);
+  if(hta) q=q.lte('fecha',hta);
+  if(cat) q=q.eq('categoria',cat);
+  if(tipo)q=q.eq('tipo',tipo);
   var r=await q;
   if(r.error)throw new Error(r.error.message);
   var ms=r.data||[];
+  var tope=(ms.length>=REL_TOPE);
   if(buscar)ms=ms.filter(function(m){
     return (String(m.concepto_banco||'')+' '+String(m.descripcion||'')+' '+relNombreCat(m.categoria)+' '+String(m.monto)).toLowerCase().indexOf(buscar)>=0;
   });
-  if(est)est.textContent='Los 300 más recientes'+(buscar?(' · '+ms.length+' coinciden con la búsqueda'):'')+'. Para el listado completo del período está el Excel de la relación.';
+  REL_VISTA=ms;
+  var ent=ms.filter(function(m){return m.tipo==='credito';}).reduce(function(s,m){return s+(Number(m.monto)||0);},0);
+  var sal=ms.filter(function(m){return m.tipo==='debito';}).reduce(function(s,m){return s+(Number(m.monto)||0);},0);
+  if(est)est.innerHTML=
+    (tope?'<span style="color:var(--amber)">⚠️ Se llegó al tope de '+REL_TOPE+' movimientos: acotá las fechas o el tipo para verlos todos.</span> ':'')+
+    relPeriodoTxt(des,hta)+' · <b>'+ms.length+'</b> movimiento(s)'+(buscar?' que coinciden con la búsqueda':'')+'.';
   cont.innerHTML=
     '<div class="card" style="margin-bottom:10px;padding:10px">'+
+      '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:8px">'+
+        '<div class="fg" style="margin:0"><label style="font-size:10px;color:var(--text3)">Desde</label><input type="date" class="fc" id="rel-des" style="padding:6px 8px;font-size:11px" value="'+relEsc(des)+'" onchange="renderRelacion()"></div>'+
+        '<div class="fg" style="margin:0"><label style="font-size:10px;color:var(--text3)">Hasta</label><input type="date" class="fc" id="rel-hta" style="padding:6px 8px;font-size:11px" value="'+relEsc(hta)+'" onchange="renderRelacion()"></div>'+
+        '<div class="fg" style="margin:0"><label style="font-size:10px;color:var(--text3)">Tipo de gasto</label>'+relFiltroCats(cat)+'</div>'+
+        '<div class="fg" style="margin:0"><label style="font-size:10px;color:var(--text3)">Entrada / salida</label>'+
+          '<select class="fc" id="rel-tipo" style="padding:6px 8px;font-size:11px" onchange="renderRelacion()">'+
+            '<option value="">Ambas</option>'+
+            '<option value="debito"'+(tipo==='debito'?' selected':'')+'>Solo salidas</option>'+
+            '<option value="credito"'+(tipo==='credito'?' selected':'')+'>Solo entradas</option>'+
+          '</select></div>'+
+        '<button class="btn btn-s btn-sm" onclick="relMes(0)">Este mes</button>'+
+        '<button class="btn btn-s btn-sm" onclick="relMes(-1)">Mes pasado</button>'+
+        '<button class="btn btn-s btn-sm" onclick="relLimpiar()">Limpiar</button>'+
+        '<button class="btn btn-b btn-sm" onclick="relImprimir()">🖨️ Imprimir</button>'+
+      '</div>'+
       '<input class="fc" id="rel-q" placeholder="Buscar por concepto, categoría o monto…" value="'+relEsc(buscar)+'" oninput="clearTimeout(window._relQt);window._relQt=setTimeout(renderRelacion,350)">'+
       // ⚠️ Este aviso no es decorativo. A la administración se le pide que mire TAMBIÉN lo ya
       // clasificado, porque un error del sistema NO aparece en «Por revisar»: sale con una
       // categoría que se ve normal. Pasó con 19 cobros de la Alcaldía puestos como «pago a socio».
       // Si se le pide que avise y no tiene dónde corregir, el pedido es vacío.
       '<div style="font-size:11px;color:var(--text3);margin-top:6px">Si una categoría está mal, tocá <b>Cambiar</b>. Lo que corrijas queda como decisión tuya y <b>ninguna regla lo vuelve a pisar</b>.</div>'+
+    '</div>'+
+    '<div class="g4" style="margin-bottom:10px">'+
+      '<div class="card card-sm"><div style="font-size:9px;color:var(--text3)">ENTRADAS</div><div style="font-family:var(--m);font-size:16px;font-weight:700;color:var(--green)">Bs '+ent.toLocaleString('es-VE',{maximumFractionDigits:0})+'</div></div>'+
+      '<div class="card card-sm"><div style="font-size:9px;color:var(--text3)">SALIDAS</div><div style="font-family:var(--m);font-size:16px;font-weight:700;color:var(--red)">Bs '+sal.toLocaleString('es-VE',{maximumFractionDigits:0})+'</div></div>'+
+      '<div class="card card-sm"><div style="font-size:9px;color:var(--text3)">BALANCE</div><div style="font-family:var(--m);font-size:16px;font-weight:700;color:var(--blue)">Bs '+(ent-sal).toLocaleString('es-VE',{maximumFractionDigits:0})+'</div></div>'+
+      '<div class="card card-sm"><div style="font-size:9px;color:var(--text3)">MOVIMIENTOS</div><div style="font-family:var(--m);font-size:16px;font-weight:700;color:var(--teal)">'+ms.length+'</div></div>'+
     '</div>'+
     '<div class="tw"><table><thead><tr><th>Fecha</th><th>Tipo</th><th>Detalle</th><th style="text-align:right">Bs</th><th>Categoría</th><th>¿Gasto?</th><th>Factura</th><th></th></tr></thead><tbody>'+
     ms.map(function(m){
@@ -2916,8 +3078,111 @@ async function relRenderTodos(cont,est){
         '<td style="font-size:11px">'+relEsc(relNombreCat(m.categoria))+(manual?' <span class="badge bt" title="Lo decidió una persona: ninguna regla lo pisa">✋</span>':'')+'</td>'+
         '<td>'+(m.tipo==='credito'?'<span style="color:var(--text3);font-size:10px">entrada</span>':(m.es_gasto===false?'<span class="badge by">No</span>':'<span class="badge bg">Sí</span>'))+'</td>'+
         '<td style="font-size:10px">'+relEsc(m.factura?(m.factura+' '+(m.pata||'')):'')+'</td>'+
-        '<td><button class="btn btn-s btn-xs" onclick="relEditar(\''+relEsc(m.id)+'\',\''+relEsc(m.categoria||'')+'\','+(esSal?'true':'false')+','+(m.es_gasto===false?'false':'true')+')">Cambiar</button></td></tr>';
+        // Un acceso de solo consulta no ve el botón de cambiar: la base tampoco lo dejaría, y un
+        // botón que siempre falla se lee como que el sistema está roto.
+        '<td>'+(esSoloLectura()?'':'<button class="btn btn-s btn-xs" onclick="relEditar(\''+relEsc(m.id)+'\',\''+relEsc(m.categoria||'')+'\','+(esSal?'true':'false')+','+(m.es_gasto===false?'false':'true')+')">Cambiar</button>')+'</td></tr>';
     }).join('')+'</tbody></table></div>';
+}
+// Atajos de período: el cierre de mes es lo que se pide siempre, y tecleando dos fechas cada vez
+// es donde se cuela el error de un día.
+function relMes(delta){
+  var base=(typeof fechaVE==='function')?new Date(fechaVE()+'T12:00:00Z'):new Date();
+  var ini=new Date(Date.UTC(base.getUTCFullYear(),base.getUTCMonth()+(delta||0),1));
+  var fin=new Date(Date.UTC(base.getUTCFullYear(),base.getUTCMonth()+(delta||0)+1,0));
+  var ymd=function(d){return d.toISOString().slice(0,10);};
+  if(g('rel-des'))g('rel-des').value=ymd(ini);
+  if(g('rel-hta'))g('rel-hta').value=ymd(fin);
+  renderRelacion();
+}
+function relLimpiar(){
+  ['rel-des','rel-hta','rel-q'].forEach(function(id){ if(g(id))g(id).value=''; });
+  if(g('rel-cat'))g('rel-cat').value='';
+  if(g('rel-tipo'))g('rel-tipo').value='';
+  renderRelacion();
+}
+// ── EL IMPRESO ────────────────────────────────────────────────────────────────────────────────
+// Mismo encabezado y misma hoja que los demás informes de la empresa (getStyleImprimir +
+// headerRpt): lo que se le entrega a un tercero no puede verse hecho a mano.
+//
+// Sale de REL_VISTA, o sea de EXACTAMENTE lo que está en pantalla. Si se recalculara acá, el papel
+// y la pantalla se irían separando con cada cambio y nadie sabría cuál de los dos mirar.
+function relImprimir(){
+  if(!REL_VISTA.length){ mostrarToast('No hay movimientos en ese período para imprimir','error'); return; }
+  var des=gv('rel-des'), hta=gv('rel-hta'), cat=gv('rel-cat'), tipo=gv('rel-tipo');
+  var e=relEsc, ms=REL_VISTA.slice().sort(function(a,b){return String(a.fecha).localeCompare(String(b.fecha));});
+  var bs=function(n){ return Number(n||0).toLocaleString('es-VE',{minimumFractionDigits:2,maximumFractionDigits:2}); };
+  var nEnt=ms.filter(function(m){return m.tipo==='credito';}).length;
+  var nSal=ms.filter(function(m){return m.tipo==='debito';}).length;
+
+  // ── Resumen por tipo de gasto ──
+  // Es lo primero que mira quien recibe la relación: el detalle es el respaldo, no el mensaje.
+  var porCat={};
+  ms.forEach(function(m){
+    var k=m.categoria||'sin_clasificar';
+    if(!porCat[k])porCat[k]={n:0,ent:0,sal:0};
+    porCat[k].n++;
+    if(m.tipo==='credito')porCat[k].ent+=Number(m.monto)||0; else porCat[k].sal+=Number(m.monto)||0;
+  });
+  var cats=Object.keys(porCat).sort(function(a,b){return (porCat[b].sal+porCat[b].ent)-(porCat[a].sal+porCat[a].ent);});
+  var totEnt=ms.filter(function(m){return m.tipo==='credito';}).reduce(function(s,m){return s+(Number(m.monto)||0);},0);
+  var totSal=ms.filter(function(m){return m.tipo==='debito';}).reduce(function(s,m){return s+(Number(m.monto)||0);},0);
+  // ⛔ Lo que NO es gasto no se suma como gasto: la compra de dólares, los traspasos entre cuentas
+  // propias y los préstamos salen del banco y NO son gasto del período.
+  var gastoReal=ms.filter(function(m){return m.tipo==='debito'&&m.es_gasto!==false;}).reduce(function(s,m){return s+(Number(m.monto)||0);},0);
+  var noGasto=totSal-gastoReal;
+  var sinClas=ms.filter(function(m){return !m.categoria||m.categoria==='sin_clasificar';}).length;
+
+  var filtros=[];
+  if(cat) filtros.push('Tipo de gasto: '+relNombreCat(cat));
+  if(tipo)filtros.push(tipo==='debito'?'Solo salidas':'Solo entradas');
+
+  var html=getStyleImprimir()+'<body>'+
+    headerRpt('Relación de gastos y cobros', relPeriodoTxt(des,hta)+(filtros.length?(' · '+filtros.join(' · ')):''))+
+
+    '<h3 style="margin-bottom:4px">Resumen</h3>'+
+    '<table><thead><tr><th>Concepto</th><th style="text-align:right">Bolívares</th></tr></thead><tbody>'+
+      '<tr><td>Entradas ('+nEnt+' movimiento(s))</td><td style="text-align:right;font-family:monospace">'+bs(totEnt)+'</td></tr>'+
+      '<tr><td>Salidas ('+nSal+' movimiento(s))</td><td style="text-align:right;font-family:monospace">'+bs(totSal)+'</td></tr>'+
+      '<tr><td style="padding-left:22px;color:#555">de las cuales <b>SÍ son gasto</b> del período</td><td style="text-align:right;font-family:monospace">'+bs(gastoReal)+'</td></tr>'+
+      '<tr><td style="padding-left:22px;color:#555">de las cuales <b>NO son gasto</b> (compra de dólares, traspasos propios, préstamos)</td><td style="text-align:right;font-family:monospace">'+bs(noGasto)+'</td></tr>'+
+      '<tr class="total-row"><td>BALANCE DEL PERÍODO (entradas − salidas)</td><td style="text-align:right;font-family:monospace">'+bs(totEnt-totSal)+'</td></tr>'+
+    '</tbody></table>'+
+    (sinClas?('<p style="font-size:11px;color:#b45309;margin-top:8px">⚠️ '+sinClas+' movimiento(s) de este período todavía no tienen categoría asignada. Van en el detalle como «Falta clasificar».</p>'):'')+
+
+    '<h3 style="margin-top:18px;margin-bottom:4px">Por tipo de gasto</h3>'+
+    '<table><thead><tr><th>Tipo</th><th style="text-align:right">Movs.</th><th style="text-align:right">Entradas Bs</th><th style="text-align:right">Salidas Bs</th></tr></thead><tbody>'+
+    cats.map(function(k){
+      var c=porCat[k];
+      return '<tr><td>'+e(relNombreCat(k))+'</td>'+
+        '<td style="text-align:right">'+c.n+'</td>'+
+        '<td style="text-align:right;font-family:monospace">'+(c.ent?bs(c.ent):'—')+'</td>'+
+        '<td style="text-align:right;font-family:monospace">'+(c.sal?bs(c.sal):'—')+'</td></tr>';
+    }).join('')+
+    '<tr class="total-row"><td>TOTAL</td><td style="text-align:right">'+ms.length+'</td>'+
+      '<td style="text-align:right;font-family:monospace">'+bs(totEnt)+'</td>'+
+      '<td style="text-align:right;font-family:monospace">'+bs(totSal)+'</td></tr>'+
+    '</tbody></table>'+
+
+    '<h3 style="margin-top:18px;margin-bottom:4px">Detalle movimiento por movimiento</h3>'+
+    '<table><thead><tr><th>Fecha</th><th>E/S</th><th>Concepto</th><th>Referencia</th><th>Tipo de gasto</th><th>¿Gasto?</th><th style="text-align:right">Bs</th></tr></thead><tbody>'+
+    ms.map(function(m){
+      var esSal=m.tipo==='debito';
+      return '<tr><td style="white-space:nowrap">'+formatFecha(m.fecha)+'</td>'+
+        '<td>'+(esSal?'Salida':'Entrada')+'</td>'+
+        '<td>'+relCorto(m.concepto_banco||m.descripcion,90)+'</td>'+
+        '<td style="font-family:monospace;font-size:10px">'+e(m.referencia||'')+'</td>'+
+        '<td>'+e(relNombreCat(m.categoria))+'</td>'+
+        '<td>'+(esSal?(m.es_gasto===false?'No':'Sí'):'—')+'</td>'+
+        '<td style="text-align:right;font-family:monospace">'+bs(m.monto)+'</td></tr>';
+    }).join('')+'</tbody></table>'+
+
+    '<p style="font-size:10px;color:#777;margin-top:16px;border-top:1px solid #ccc;padding-top:8px">'+
+      'Los montos están en <b>bolívares</b>, tal como los reporta el banco. '+
+      'Los movimientos entran automáticamente desde el estado de cuenta; el tipo de gasto es la clasificación interna. '+
+      'Emitido por '+e((SESION&&SESION.nombre)||'')+' el '+formatFechaHora(new Date())+'.'+
+    '</p></body></html>';
+  abrirVentanaImpresion(html);
+  try{ audit('Relación de gastos impresa', relPeriodoTxt(des,hta)+' · '+ms.length+' movimiento(s)'+(filtros.length?(' · '+filtros.join(' · ')):'')); }catch(e2){}
 }
 // Corregir la categoría de un movimiento YA clasificado. Es la contraparte del pedido que se le
 // hace a la administración («avisá si algo no cuadra»): pedir que avisen sin dar dónde corregir
@@ -4930,7 +5195,7 @@ function _diasEstadoCam(cam){
 function detectarInoperativosSinMotivo(){
   if(typeof SESION==='undefined'||!SESION)return;
   var rol=SESION.rol||'';
-  if(['superadmin','auditor','admin','operador','rrhh'].indexOf(rol)<0)return;
+  if(['superadmin','revisor','admin','operador','rrhh'].indexOf(rol)<0)return;
   var esSuper=(rol==='superadmin');
   var prev=document.getElementById('inop-pregunta-modal');
   if(window._inopDismiss){ if(prev)prev.remove(); return; }
@@ -5030,13 +5295,7 @@ function toggleEstCam(cam){
 // no depende de que alguien lea un WhatsApp. La administradora lo ve apenas entra.
 // ══════════════════════════════════════════════════════════════════════════════
 var FISCAL_PEND=[];
-// Roles que manejan plata: a ellos les toca ver esto.
-PERMISOS.auditor = PERMISOS.superadmin.slice();   // misma lista, una sola fuente
-// ⚠️ Y el candado de la BASE tiene que decir lo mismo. Esta línea le da el informe financiero
-// al auditor, pero `btg_ve_financiero()` no lo admitía: veía la pantalla y al abrirla le decía
-// que no estaba disponible. Se agregó `auditor` allá (09/08). Si acá se toca la lista, hay que
-// mirar la función: son DOS capas de la misma decisión y se desalinean calladas.
-var _FISCAL_ROLES={admin:1,superadmin:1,operador:1,directivo:1,auditor:1};
+var _FISCAL_ROLES={admin:1,superadmin:1,operador:1,directivo:1,revisor:1};
 async function renderFiscalBanner(){
   var el=g('fiscal-banner'); if(!el)return;
   if(!_FISCAL_ROLES[(SESION&&SESION.rol)||'']){el.style.display='none';return;}
@@ -5130,7 +5389,7 @@ async function marcarDeclarado(id){
 // ══════════════════════════════════════════════════════════════════════════════
 var ANOM_ABIERTAS=[];
 // Quién puede cerrar una anomalía (decisión de Máximo 2026-07-20: mecánico + jefe operativo).
-var ANOM_ROLES_CIERRE={mecanico:1,operativo:1,superadmin:1,admin:1,auditor:1};
+var ANOM_ROLES_CIERRE={mecanico:1,operativo:1,superadmin:1,admin:1,revisor:1};
 
 function anomPuedeCerrar(){ return !!ANOM_ROLES_CIERRE[(SESION&&SESION.rol)||'']; }
 
@@ -12944,6 +13203,7 @@ function guardarMovManual(){
 // Ahora los filtros se aplican EN LA CONSULTA, así que lo que suman las tarjetas es exactamente
 // lo que se lista: no hay forma de que se separen. [[norma-fuente-unica-datos]]
 // ═══════════════════════════════════════════════════════════════════════════════════════════════
+var BNC_MOV_VISTA=[];   // lo que la tabla está mostrando ahora. De acá sale el impreso.
 async function renderMovBNC(){
   var des=gv('bnc-mov-des'),hta=gv('bnc-mov-hta'),tipo=gv('bnc-mov-tipo');
   var f=[];
@@ -12974,6 +13234,7 @@ async function renderMovBNC(){
     if(tipo&&m.tipo!==tipo)return false;   // sin la excepción que colaba los pago_nomina_pend
     return true;
   });
+  BNC_MOV_VISTA=f;   // fuente única del impreso: exactamente lo que se ve
   var totEntr=f.filter(function(m){return m.tipo==='credito';}).reduce(function(s,m){return s+m.monto;},0);
   var totSal=f.filter(function(m){return m.tipo==='debito';}).reduce(function(s,m){return s+m.monto;},0);
   var bal=totEntr-totSal;
@@ -13019,6 +13280,64 @@ async function renderMovBNC(){
     : (f.length?('Los '+f.length+' movimientos del período, tal como los trajo el banco.'):'');
   try{cargarMovRealesBNC();}catch(e){}
 }
+// ══════════════════════════════════════════════════════════════════════════════════════════════
+// IMPRIMIR LOS MOVIMIENTOS DEL BANCO — pedido de Máximo, 2026-08-11: «no puedo imprimir los
+// movimientos». La pantalla ya filtraba por fecha y por tipo, pero lo que se veía no salía a
+// ningún lado: para llevar el período a una reunión o mandárselo al contador había que hacer
+// capturas de pantalla.
+//
+// Misma hoja que los demás informes (getStyleImprimir + headerRpt) y misma regla que la Relación:
+// se imprime BNC_MOV_VISTA, o sea lo que la tabla está mostrando. Si el impreso recalculara por su
+// cuenta, papel y pantalla podrían decir cosas distintas sobre el mismo período.
+// ══════════════════════════════════════════════════════════════════════════════════════════════
+function imprimirMovBNC(){
+  var f=(typeof BNC_MOV_VISTA!=='undefined'&&BNC_MOV_VISTA)?BNC_MOV_VISTA:[];
+  if(!f.length){ mostrarToast('No hay movimientos en ese período para imprimir','error'); return; }
+  var des=gv('bnc-mov-des'), hta=gv('bnc-mov-hta'), tipo=gv('bnc-mov-tipo');
+  var e=relEsc;
+  var ms=f.slice().sort(function(a,b){return String(a.fecha).localeCompare(String(b.fecha));});
+  var bs=function(n){ return Number(n||0).toLocaleString('es-VE',{minimumFractionDigits:2,maximumFractionDigits:2}); };
+  var ent=ms.filter(function(m){return m.tipo==='credito';}).reduce(function(s,m){return s+(Number(m.monto)||0);},0);
+  var sal=ms.filter(function(m){return m.tipo==='debito';}).reduce(function(s,m){return s+(Number(m.monto)||0);},0);
+  var sub=(typeof relPeriodoTxt==='function'?relPeriodoTxt(des,hta):'')+
+          (tipo?(' · '+(tipo==='debito'?'Solo salidas':'Solo entradas')):'');
+
+  // Cuántos vinieron del banco y cuántos los cargó la oficina. Un listado que mezcla las dos cosas
+  // sin decirlo se lee como si TODO viniera del estado de cuenta, y no es así.
+  var delBanco=ms.filter(function(m){return m.delBanco;}).length;
+
+  var html=getStyleImprimir()+'<body>'+
+    headerRpt('Movimientos bancarios', sub)+
+    '<table><thead><tr><th>Concepto</th><th style="text-align:right">Bolívares</th></tr></thead><tbody>'+
+      '<tr><td>Entradas ('+ms.filter(function(m){return m.tipo==='credito';}).length+')</td><td style="text-align:right;font-family:monospace">'+bs(ent)+'</td></tr>'+
+      '<tr><td>Salidas ('+ms.filter(function(m){return m.tipo==='debito';}).length+')</td><td style="text-align:right;font-family:monospace">'+bs(sal)+'</td></tr>'+
+      '<tr class="total-row"><td>BALANCE DEL PERÍODO</td><td style="text-align:right;font-family:monospace">'+bs(ent-sal)+'</td></tr>'+
+    '</tbody></table>'+
+    '<table style="margin-top:16px"><thead><tr><th>Fecha</th><th>E/S</th><th>Detalle</th><th>Referencia</th><th>Tipo de gasto</th><th>Conciliado</th><th style="text-align:right">Bs</th></tr></thead><tbody>'+
+    ms.map(function(m){
+      var esSal=m.tipo==='debito';
+      var conc=m.cxpPagoId?'Sí · pago a proveedor'
+             :m.factura?('Sí · factura '+m.factura+(m.pata?(' '+m.pata):''))
+             :m.conciliado?'Sí'
+             :m.pendienteAutorizacion?'Pendiente de firma':'No';
+      return '<tr><td style="white-space:nowrap">'+formatFecha(m.fecha)+'</td>'+
+        '<td>'+(m.tipo==='pago_nomina_pend'?'Nómina':(esSal?'Salida':'Entrada'))+'</td>'+
+        '<td>'+m.desc+(m.delBanco?'':' <span style="color:#b45309">(no vino del banco)</span>')+'</td>'+
+        '<td style="font-family:monospace;font-size:10px">'+e(m.ref||'')+'</td>'+
+        '<td>'+e(typeof relNombreCat==='function'?relNombreCat(m.categoria):(m.categoria||''))+
+          (esSal&&m.esGasto===false?' <b>(no es gasto)</b>':'')+'</td>'+
+        '<td>'+e(conc)+'</td>'+
+        '<td style="text-align:right;font-family:monospace">'+bs(m.monto)+'</td></tr>';
+    }).join('')+'</tbody></table>'+
+    '<p style="font-size:10px;color:#777;margin-top:16px;border-top:1px solid #ccc;padding-top:8px">'+
+      ms.length+' movimiento(s), de los cuales <b>'+delBanco+'</b> vinieron directo del estado de cuenta del banco '+
+      'y '+(ms.length-delBanco)+' los registró la oficina. Montos en bolívares. '+
+      'Emitido por '+e((SESION&&SESION.nombre)||'')+' el '+formatFechaHora(new Date())+'.'+
+    '</p></body></html>';
+  abrirVentanaImpresion(html);
+  try{ audit('Movimientos bancarios impresos', sub+' · '+ms.length+' movimiento(s)'); }catch(e2){}
+}
+
 // Movimientos REALES del banco (los empuja el webhook BNC a bnc_notificaciones). Esto es lo
 // que de verdad pasó en la cuenta; el registro interno (BNC_MOV) es el tracking de la app.
 // Estado de cuenta REAL del banco (API BNC): trae ENTRADAS y SALIDAS del período. Respaldo:
@@ -17919,16 +18238,27 @@ function esSuperAdmin(){
 // Un usuario puede tener rol total y AUN ASI deberle el token a alguien (btg_usuarios.exige_token).
 // Pedido de Máximo 2026-07-25 para el usuario de Alejandra: ve todo, pero para borrar o editar
 // necesita el código. Por eso NO se auto-exime y TAMPOCO puede aprobar tokens (ni el suyo).
-function esAuditor(){ return SESION&&SESION.rol==='auditor'; }
-// Rol de mando a efectos de PANTALLA: al auditor no se le esconden los botones, porque si no
+// ⚠️ Este rol se llamaba `auditor` hasta el 2026-08-11. Se renombró a `revisor` porque el nombre
+// hacía falta para la auditora de verdad, que es SOLO LECTURA — ver `esSoloLectura()` abajo.
+function esRevisor(){ return SESION&&SESION.rol==='revisor'; }
+// Rol de mando a efectos de PANTALLA: al revisor no se le esconden los botones, porque si no
 // no podría ni pedir autorización. Lo que no puede es ejecutar sin token (ni la BD lo deja borrar).
-function esMando(){ return esSuperAdmin()||esAuditor(); }
+function esMando(){ return esSuperAdmin()||esRevisor(); }
+// ── SOLO LECTURA ────────────────────────────────────────────────────────────────────────────
+// La auditora externa (rol `auditor`, Arianny Morán, 2026-08-11) entra a MIRAR. El candado de
+// verdad está en la BASE: ese rol no figura en una sola política de INSERT/UPDATE/DELETE, así que
+// aunque una pantalla le dibujara un botón, el guardado no pasa. Esto de acá es la segunda capa:
+// que no llegue ni a intentarlo y que le diga POR QUÉ. [[norma-seguridad-dos-niveles]]
+var ROLES_SOLO_LECTURA={auditor:1};
+function esSoloLectura(){ return !!(SESION&&ROLES_SOLO_LECTURA[SESION.rol]); }
 function exigeTokenSiempre(){ return !!(SESION&&SESION.exigeToken); }
 function puedeAprobarTokens(){ return esSuperAdmin() && !exigeTokenSiempre(); }
 // Quién puede VER el saldo bancario: superadmin, admin (administradora) y visualizador (visor).
 // NO lo ven: rrhh, mecanico, operativo/operador, chofer, vigilante, asistencia.
+// + `auditor` (2026-08-11): pidió los estados de cuenta y la conciliación. Un saldo escondido
+// convierte la conciliación en un ejercicio a ciegas — no se puede cuadrar contra lo que no se ve.
 function puedeVerSaldo(){
-  return SESION && ['superadmin','admin','visualizador'].indexOf(SESION.rol)>=0;
+  return SESION && ['superadmin','admin','visualizador','auditor'].indexOf(SESION.rol)>=0;
 }
 // Oculta/muestra el SALDO BANCARIO (dashboard, chip del nav y tarjeta del tab BNC)
 // segun el rol. Solo superadmin, admin y visualizador (visor) pueden verlo.
@@ -22472,7 +22802,7 @@ function clSelEstado(btn, estado){
 }
 
 function desbloquearKmSalida(){
-  if(!esMando()){alert('Solo el superadmin o el auditor pueden modificar este campo');return;}
+  if(!esMando()){alert('Solo el superadmin o el revisor pueden modificar este campo');return;}
   window._kmSalidaEditable = true;
   var el = document.getElementById('cl-km-salida');
   if(el){ el.readOnly=false; el.style.background=''; el.focus(); }
@@ -22927,7 +23257,7 @@ async function bajaEmp(id, nombre){
 
 // Eliminar registro duplicado (solo superadmin, requiere confirmación doble)
 async function eliminarEmpDuplicado(id, nombre){
-  if(!esMando()){alert('Solo el superadmin o el auditor pueden eliminar registros');return;}
+  if(!esMando()){alert('Solo el superadmin o el revisor pueden eliminar registros');return;}
   if(!confirm('⚠️ ELIMINAR REGISTRO\n\n'+nombre+' ('+id+')\n\nEsta acción NO se puede deshacer.\n¿Continuar?'))return;
   if(!confirm('Confirma una vez más:\n¿Eliminar permanentemente a '+nombre+'?'))return;
   // Solo permitir eliminar si hay otro registro con mismo nombre (es duplicado)
@@ -24463,7 +24793,7 @@ function renderCCMediciones(){
 }
 
 async function borrarMedicionTanque(id){
-  if(typeof esMando!=='function'||!esMando()){alert('Solo el superadmin o el auditor pueden eliminar');return;}
+  if(typeof esMando!=='function'||!esMando()){alert('Solo el superadmin o el revisor pueden eliminar');return;}
   if(!confirm('¿Eliminar esta medición?'))return;
   // BORRAR = TOKEN (2026-07-25): la medición es la prueba con la que la auditoría señala faltantes.
   solicitarToken('Eliminar medición de tanque '+id,async function(mot){

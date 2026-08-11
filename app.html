@@ -652,6 +652,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
       <div class="fg" style="margin:0"><label style="font-size:10px;color:var(--text3)">Hasta</label><input type="date" class="fc" id="bnc-mov-hta" style="padding:6px 8px;font-size:11px"></div>
       <div class="fg" style="margin:0"><label style="font-size:10px;color:var(--text3)">Tipo</label><select class="fc" id="bnc-mov-tipo" style="padding:6px 8px;font-size:11px"><option value="">Todos</option><option value="credito">Entradas</option><option value="debito">Salidas</option></select></div>
       <button class="btn btn-g btn-sm" onclick="renderMovBNC()">Filtrar</button>
+      <button class="btn btn-b btn-sm" onclick="imprimirMovBNC()">🖨️ Imprimir</button>
       <button class="btn btn-p btn-sm" onclick="registrarMovManual()">+ Registrar</button>
     </div>
     <div class="g4" style="margin-bottom:10px">
@@ -2415,7 +2416,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
       <div class="sep"></div>
       <div class="st" style="margin-bottom:8px;font-size:11px">Nuevo Usuario</div>
       <div class="fr2"><div class="fg"><label>Usuario</label><input class="fc" id="nu-user" style="font-family:var(--m)"></div><div class="fg"><label>Contrasena</label><input class="fc" id="nu-pass" type="password"></div></div>
-      <div class="fr2"><div class="fg"><label>Nombre</label><input class="fc" id="nu-nombre"></div><div class="fg"><label>Rol</label><select class="fc" id="nu-rol"><option value="operador">Operador</option><option value="rrhh">RRHH</option><option value="visualizador">Visualizador</option><option value="admin">Admin</option><option value="asistencia">Solo Asistencia (Vigilante)</option></select></div></div>
+      <div class="fr2"><div class="fg"><label>Nombre</label><input class="fc" id="nu-nombre"></div><div class="fg"><label>Rol</label><select class="fc" id="nu-rol"><option value="operador">Operador</option><option value="rrhh">RRHH</option><option value="visualizador">Visualizador</option><option value="admin">Admin</option><option value="auditor">Auditor (solo consulta)</option><option value="revisor">Revisor (ve todo, pide autorización)</option><option value="asistencia">Solo Asistencia (Vigilante)</option></select></div></div>
       <div class="fg"><label>Email</label><input class="fc" id="nu-email" type="email"></div>
       <button class="btn btn-g" style="width:100%" onclick="crearUsuario()">Crear Usuario</button>
     </div>
@@ -2889,7 +2890,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
 <script src="maxrecuerda.js?v=20260806-maxrecuerda"></script>
 <!-- Formato unico de los Excel de Maxware. VA ANTES de app.js. -->
 <script src="maxware-excel.js"></script>
-<script src="app.js?v=20260811-0931"></script>
+<script src="app.js?v=20260811-1023"></script>
 
 <!-- Modal global -->
 <div id="modal" class="moverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9990;align-items:center;justify-content:center;padding:16px">
