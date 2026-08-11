@@ -4559,6 +4559,7 @@ function _renderDashCuerpo(){
   // Flota
   renderFlotaDash();renderMetasDash();renderVencimientosDash();renderAlertasCriticas();
   try{renderChecklistAnomalias();}catch(e){}
+  try{renderAvisos();}catch(e){}            // 📣 avisos a las unidades (la tarjeta se esconde sola si el rol no manda avisos)
   try{renderFiscalBanner();}catch(e){}      // 🏛️ declaraciones SENIAT (multa si se pasan)
   try{renderInteligenciaFlota();}catch(e){} // 🧠 panel de inteligencia para el dueño/gerente
   updTank();
@@ -5248,6 +5249,96 @@ async function anomAbrirDesdeOficina(cam, fallas, detalle, quien){
     var res=await supabase.from('anomalias').insert([nuevas[i]]);
     if(res.error&&res.error.code!=='23505')console.warn('anomalias insert:',res.error.message);
   }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// AVISO A LA UNIDAD — la parte de OFICINA
+// El canal existe desde el 24/07 (tabla `avisos_unidad` + RPC `aviso_unidad`, que lee
+// el celular del chofer) y se usó UNA sola vez, porque un aviso solo se podía crear
+// escribiendo SQL. Una pieza sin por dónde usarla está muerta.
+//
+// ⛔ La tabla NO se toca desde acá y NO está expuesta a nadie: el chofer también entra
+// como `authenticated`, así que abrirla le daría los avisos de todas las unidades.
+// Todo pasa por RPC con el rol comprobado EN EL SERVIDOR (`app_rol()` sobre
+// `btg_usuarios`; los logins de unidad no están ahí). Esconder la tarjeta es cosmético
+// — el candado es la RPC. [[norma-authenticated-no-es-staff]] [[norma-seguridad-dos-niveles]]
+// ══════════════════════════════════════════════════════════════════════════════
+var AVISOS_LISTA=[];
+async function renderAvisos(){
+  var card=g('avisos-card'); if(!card)return;
+  if(!DB_READY||!supabase)return;
+  // ¿Esta persona administra avisos? Lo dice el servidor, no SESION.rol.
+  var perm=await supabase.rpc('aviso_gestion_permitida');
+  if(perm.error||!perm.data){ card.style.display='none'; return; }
+  card.style.display='';
+
+  // Unidades: las mismas del resto de la app, con su placa si la hay.
+  var sel=g('av-cam');
+  if(sel&&!sel.options.length){
+    sel.innerHTML=Object.keys(FLOTA||{}).sort().map(function(c){
+      return '<option value="'+c+'">'+c.replace('JAC-','')+'</option>';
+    }).join('');
+  }
+  // Por defecto una semana, que es lo que dura un aviso útil. Y no se puede poner
+  // una fecha pasada (el aviso nacería vencido) ni más de 90 días (deja de leerse).
+  var f=g('av-hasta');
+  if(f&&!f.value){ f.value=addDays(fechaVE(),7); }
+  if(f){ f.min=fechaVE(); f.max=addDays(fechaVE(),90); }
+
+  var r=await supabase.rpc('avisos_listar');
+  AVISOS_LISTA=(r&&r.data)||[];
+  var box=g('av-lista'); if(!box)return;
+  if(!AVISOS_LISTA.length){ box.innerHTML='<div style="font-size:11px;color:var(--text3)">Todavía no se mandó ningún aviso.</div>'; return; }
+  var vig=AVISOS_LISTA.filter(function(a){return a.vigente;}).length;
+  box.innerHTML='<div style="font-size:10px;color:var(--text3);margin-bottom:4px">'+
+      vig+' vigente(s) · '+AVISOS_LISTA.length+' en total</div>'+
+    AVISOS_LISTA.map(function(a){
+      var c=a.vigente?'var(--green)':'var(--text3)';
+      return '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;padding:6px 0;border-bottom:1px solid var(--border)">'+
+        '<div style="flex:1;min-width:0">'+
+          '<div style="font-size:11px;font-weight:700;color:'+c+'">'+(a.vigente?'✅ ':'⏳ ')+_mEsc(String(a.cam).replace('JAC-',''))+
+            (a.titulo?(' — '+_mEsc(a.titulo)):'')+'</div>'+
+          '<div style="font-size:11px;color:var(--text2);line-height:1.35;word-break:break-word">'+_mEsc(a.mensaje)+'</div>'+
+          '<div style="font-size:9px;color:var(--text3);margin-top:2px">'+
+            (a.vigente?'hasta el ':'venció el ')+fmtFechaCorta(String(a.hasta).slice(0,10))+' · lo mandó '+_mEsc(a.creado_por||'—')+'</div>'+
+        '</div>'+
+        '<button class="btn btn-r btn-xs" style="white-space:nowrap" onclick="avisoQuitar('+a.id+')">Quitar</button>'+
+      '</div>';
+    }).join('');
+}
+async function avisoEnviar(){
+  var cam=(g('av-cam')||{}).value, tit=((g('av-titulo')||{}).value||'').trim();
+  var msg=((g('av-mensaje')||{}).value||'').trim(), hasta=(g('av-hasta')||{}).value;
+  if(!cam){ mostrarToast('Elegí la unidad','error'); return; }
+  if(!msg){ mostrarToast('Escribí el mensaje','error'); return; }
+  if(!hasta){ mostrarToast('Poné hasta qué día se muestra','error'); return; }
+  var btn=g('av-btn'); if(btn){ btn.disabled=true; btn.textContent='Mandando…'; }
+  // La validación de verdad está en la RPC: esta pantalla se puede saltar.
+  var r=await supabase.rpc('aviso_crear',{p_cam:cam,p_titulo:tit,p_mensaje:msg,p_hasta:hasta});
+  if(btn){ btn.disabled=false; btn.textContent='📣 Mandar aviso'; }
+  if(r&&r.error){ mostrarToast('No se pudo mandar: '+r.error.message,'error'); return; }
+  if(typeof audit==='function')audit('Aviso a unidad',cam+' hasta '+hasta+': '+msg.slice(0,80));
+  mostrarToast('📣 Aviso mandado a '+cam.replace('JAC-','')+' — lo ve al abrir su app','exito');
+  var t=g('av-titulo'); if(t)t.value='';
+  var m=g('av-mensaje'); if(m)m.value='';
+  avisoContar();
+  renderAvisos();
+}
+async function avisoQuitar(id){
+  var a=AVISOS_LISTA.filter(function(x){return x.id===id;})[0];
+  if(!confirm('¿Quitar este aviso'+(a?(' de '+String(a.cam).replace('JAC-','')):'')+'?\nDeja de verse en el celular del chofer.'))return;
+  var r=await supabase.rpc('aviso_borrar',{p_id:id});
+  if(r&&r.error){ mostrarToast('No se pudo quitar: '+r.error.message,'error'); return; }
+  if(!r.data){ mostrarToast('Ese aviso ya no estaba','warn'); renderAvisos(); return; }
+  if(typeof audit==='function')audit('Aviso quitado',(a?a.cam+': '+String(a.mensaje||'').slice(0,60):'id '+id));
+  mostrarToast('Aviso quitado','exito');
+  renderAvisos();
+}
+function avisoContar(){
+  var m=g('av-mensaje'), c=g('av-cuenta'); if(!m||!c)return;
+  var n=(m.value||'').length;
+  c.textContent=n?('— '+n+'/500'):'';
+  c.style.color=n>500?'var(--red)':'var(--text3)';
 }
 
 function renderRankingTop5(){

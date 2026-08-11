@@ -395,6 +395,32 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
   <!-- Resumen Financiero ELIMINADO: era redundante con los KPIs de arriba (ahora incluyen Utilidad Real) -->
 
   <div class="card" style="margin-bottom:10px"><div class="sh" style="display:flex;justify-content:space-between;align-items:center"><div class="st">🔧 Anomalías del checklist (hoy)</div><div style="font-size:9px;color:var(--text3)">solo lo que está mal + observación</div></div><div id="checklist-anomalias" style="margin-top:6px"><div style="color:var(--text3);font-size:12px">Cargando…</div></div></div>
+
+  <!-- ══════ AVISO A LA UNIDAD (oficina) ══════
+       Le manda un mensaje puntual al celular del chofer de UNA unidad. Se ve en su app
+       (banner verde), también sin señal, y CADUCA SOLO en la fecha que se ponga.
+       El canal existía desde el 24/07 y no tenía por dónde usarse: un aviso solo se podía
+       crear escribiendo SQL. Se usó UNA vez en tres semanas. -->
+  <div class="card" id="avisos-card" style="margin-bottom:10px;display:none">
+    <div class="sh" style="display:flex;justify-content:space-between;align-items:center">
+      <div class="st">📣 Aviso a una unidad</div>
+      <div style="font-size:9px;color:var(--text3)">le llega al celular del chofer y se borra solo</div>
+    </div>
+    <div style="display:grid;grid-template-columns:1.1fr 1.4fr 0.9fr;gap:6px;margin-top:8px">
+      <div class="fg"><label>Unidad</label><select class="fc" id="av-cam"></select></div>
+      <div class="fg"><label>Título (opcional)</label><input class="fc" id="av-titulo" maxlength="60" placeholder="ej: Kilometraje corregido"></div>
+      <div class="fg"><label>Se muestra hasta</label><input class="fc" type="date" id="av-hasta"></div>
+    </div>
+    <div class="fg" style="margin-top:2px">
+      <label>Mensaje <span id="av-cuenta" style="color:var(--text3);font-weight:400"></span></label>
+      <textarea class="fc" id="av-mensaje" rows="2" maxlength="500" oninput="avisoContar()" placeholder="Lo que necesitás que el chofer sepa cuando abra la app…" style="resize:vertical"></textarea>
+    </div>
+    <div style="display:flex;gap:6px;align-items:center;margin-top:6px">
+      <button class="btn btn-g btn-sm" onclick="avisoEnviar()" id="av-btn">📣 Mandar aviso</button>
+      <div style="font-size:10px;color:var(--text3)">Lo ve solo esa unidad. Desaparece solo al pasar la fecha.</div>
+    </div>
+    <div id="av-lista" style="margin-top:10px"></div>
+  </div>
   <div class="g2" style="margin-bottom:10px">
     <div class="card"><div class="sh" style="display:flex;justify-content:space-between;align-items:center"><div class="st">🚛 Estado de Flota</div><div style="font-size:10px;color:var(--text3)" id="flota-resumen"></div></div><div id="flota-status" style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:8px"></div></div>
     <div class="card"><div class="sh" style="display:flex;justify-content:space-between;align-items:center"><div class="st">📍 Rutas Hoy</div><div id="rutas-resumen" style="font-size:10px;color:var(--text3)"></div></div><div id="rutas-status" style="margin-top:8px"></div></div>
@@ -2863,7 +2889,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
 <script src="maxrecuerda.js?v=20260806-maxrecuerda"></script>
 <!-- Formato unico de los Excel de Maxware. VA ANTES de app.js. -->
 <script src="maxware-excel.js"></script>
-<script src="app.js?v=20260811-estado-unidad-anomalias-avisos"></script>
+<script src="app.js?v=20260811-0931"></script>
 
 <!-- Modal global -->
 <div id="modal" class="moverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9990;align-items:center;justify-content:center;padding:16px">
