@@ -1183,7 +1183,7 @@ async function bncCargarConfig(){
       lista.innerHTML=rn.data.map(function(n){
         return '<div style="border-bottom:1px solid var(--border);padding:10px 0;display:flex;justify-content:space-between;align-items:center">'
           +'<div><div style="color:var(--text1);font-size:13px;font-weight:600">'+n.descripcion+'</div>'
-          +'<div style="color:var(--text3);font-size:11px">'+n.referencia+' · '+(n.fecha_recibido||'').slice(0,16).replace('T',' ')+'</div></div>'
+          +'<div style="color:var(--text3);font-size:11px">'+n.referencia+' · '+formatFechaHora(n.fecha_recibido)+'</div></div>'
           +'<div style="text-align:right"><div style="color:#a3e635;font-weight:700">$'+parseFloat(n.monto||0).toFixed(2)+'</div>'
           +'<div style="font-size:10px;color:'+(n.procesado?'#a3e635':'#fbbf24')+'">'+(n.procesado?'✅ Procesado':'⏳ Pendiente')+'</div></div></div>';
       }).join('');
@@ -3124,7 +3124,7 @@ function imprimirAsistenciaSede(){
     return '<h3 style="font-size:13px;margin:14px 0 4px;color:#1e3a5f">📍 '+s+' — '+lst.length+' persona(s)</h3><table style="font-size:11px"><thead><tr><th style="text-align:left">Nombre</th><th style="text-align:left">Cargo</th><th>Hora</th><th style="text-align:left">Vía</th></tr></thead><tbody>'+filas+'</tbody></table>';
   }).join('');
   var body='<div style="display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid #1e3a5f;padding-bottom:6px"><div style="font-size:18px;font-weight:900;color:#1e3a5f">'+marca+'</div><div style="font-size:11px;color:#666">'+new Date().toLocaleDateString('es-VE')+'</div></div>'+
-    '<h2 style="font-size:15px;margin:12px 0 4px">Reporte de Asistencia — '+(meta.fecha||'')+(meta.sede?(' — '+meta.sede):'')+'</h2>'+
+    '<h2 style="font-size:15px;margin:12px 0 4px">Reporte de Asistencia — '+formatFecha(meta.fecha||'')+(meta.sede?(' — '+meta.sede):'')+'</h2>'+
     '<div style="font-size:12px;color:#444;margin-bottom:6px">Total presentes: '+rows.length+'</div>'+secciones;
   abrirVentanaImpresion(getStyleImprimir()+'<body>'+body+'</body></html>');
 }
@@ -3961,7 +3961,7 @@ function renderTasas(){
   var el=document.getElementById('tasas-widget');if(!el)return;
   var prom=TASAS.promedio||((TASAS.bcvDolar&&TASAS.binance)?(TASAS.bcvDolar+TASAS.binance)/2:0);
   el.innerHTML='<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">'+
-    '<span style="font-size:9px;color:var(--text3)">Tasas '+(TASAS.fecha||'--')+':</span>'+
+    '<span style="font-size:9px;color:var(--text3)">Tasas '+(TASAS.fecha?formatFecha(TASAS.fecha):'--')+':</span>'+
     '<span style="background:rgba(163,230,53,.1);border:1px solid rgba(163,230,53,.2);border-radius:6px;padding:2px 8px;font-size:10px">BCV $ <b style="color:var(--green)">'+(TASAS.bcvDolar?TASAS.bcvDolar.toFixed(2):'--')+'</b></span>'+
     '<span style="background:rgba(56,189,248,.1);border:1px solid rgba(56,189,248,.2);border-radius:6px;padding:2px 8px;font-size:10px">BCV € <b style="color:var(--blue)">'+(TASAS.bcvEuro?TASAS.bcvEuro.toFixed(2):'--')+'</b></span>'+
     '<span style="background:rgba(251,191,36,.1);border:1px solid rgba(251,191,36,.2);border-radius:6px;padding:2px 8px;font-size:10px">Binance <b style="color:var(--yellow)">'+(TASAS.binance?TASAS.binance.toFixed(2):'--')+'</b></span>'+
@@ -4661,7 +4661,7 @@ async function imprimirDashboard(){
     if(puedeVerSaldo()&&typeof _bncResumenCache!=='undefined'&&_bncResumenCache&&_bncResumenCache.cuentas&&_bncResumenCache.cuentas.length){
       var f2=function(n){return Number(n||0).toLocaleString('es-VE',{minimumFractionDigits:2,maximumFractionDigits:2});};
       var rowsB=_bncResumenCache.cuentas.map(function(c){var sim=c.moneda==='USD'?'$':'Bs ';return '<tr><td style="font-family:monospace">'+(c.cuenta||'--')+'</td><td>'+c.moneda+'</td><td style="text-align:right;color:#15803d;font-weight:800">'+sim+f2(c.saldoActual)+'</td><td style="text-align:right;color:#8a94a6">'+sim+f2(c.saldoInicial)+'</td></tr>';}).join('');
-      bancosHtml='<h2>Saldos en cuenta — BNC'+(_bncResumenCache.fecha?' (día '+_bncResumenCache.fecha+')':'')+(_bncResumenCache.esPrueba?' · DATOS DE PRUEBA':'')+'</h2><table><thead><tr><th>Cuenta</th><th>Moneda</th><th>Saldo actual</th><th>Inició día</th></tr></thead><tbody>'+rowsB+'</tbody></table>';
+      bancosHtml='<h2>Saldos en cuenta — BNC'+(_bncResumenCache.fecha?' (día '+formatFecha(_bncResumenCache.fecha)+')':'')+(_bncResumenCache.esPrueba?' · DATOS DE PRUEBA':'')+'</h2><table><thead><tr><th>Cuenta</th><th>Moneda</th><th>Saldo actual</th><th>Inició día</th></tr></thead><tbody>'+rowsB+'</tbody></table>';
     } else if(puedeVerSaldo()){
       bancosHtml='<h2>Saldos en cuenta — BNC</h2><div class="mut">Abre/actualiza el dashboard (botón ↻ de Saldos BNC) antes de imprimir para incluir los saldos.</div>';
     }
@@ -8614,7 +8614,7 @@ function renderAuditoriaPagos(){
   if(!h){lista.innerHTML='<div style="color:var(--text3);font-size:12px;padding:8px">Elegí una semana para auditar.</div>';if(res)res.textContent='';return;}
   var tolPatio=g('aud-patio')&&g('aud-patio').checked;
   var ag=_audConstruir(h,tolPatio);
-  if(!ag.pw.length){lista.innerHTML='<div style="color:var(--amber);font-size:12px;padding:8px">No hay planillas cargadas en el rango '+(h.fecha_desde||'?')+' a '+(h.fecha_hasta||'?')+' para cotejar.</div>';if(res)res.textContent='';return;}
+  if(!ag.pw.length){lista.innerHTML='<div style="color:var(--amber);font-size:12px;padding:8px">No hay planillas cargadas en el rango '+(h.fecha_desde?formatFecha(h.fecha_desde):'?')+' a '+(h.fecha_hasta?formatFecha(h.fecha_hasta):'?')+' para cotejar.</div>';if(res)res.textContent='';return;}
   var filas=ag.filas, nFlag=ag.nFlag, sumOver=ag.sumOver;
   // Aviso si la semana no tiene rango de fechas guardado (nómina vieja) → el cotejo es aproximado.
   var avisoRango=ag.sinRango?'<div style="background:rgba(245,158,11,.12);border:1px solid var(--amber);border-radius:6px;padding:6px 9px;margin-bottom:8px;font-size:11px;color:var(--amber)">⚠️ Esta semana no tiene <b>rango de fechas</b> guardado (nómina vieja). El cotejo es aproximado: compara contra <b>todas</b> las planillas. Para precisión, recalculá y volvé a tocar «💾 Guardar esta semana».</div>':'';
@@ -11971,7 +11971,7 @@ function renderSurtidasCosteo(){
   // Períodos
   var tp=g('sc-periodos'); if(tp){ if(!(COMB_PERIODOS||[]).length){ tp.innerHTML='<tr><td colspan="6" style="text-align:center;color:#9fb3c8">Ninguno todavía.</td></tr>'; }
     else tp.innerHTML=(COMB_PERIODOS||[]).map(function(p){
-      return '<tr><td>'+_surEsc(String(p.desde||'').slice(5)+'→'+String(p.hasta||'').slice(5))+'</td><td>'+_surEsc(p.estacion_nombre||'')+'</td><td style="text-align:right;font-family:var(--m)">'+(parseFloat(p.litros_facturados)||0).toLocaleString('es-VE')+'</td><td style="text-align:right;font-family:var(--m)">$'+(parseFloat(p.precio_mezclado)||0).toFixed(3)+'</td><td style="text-align:right;font-family:var(--m)">'+usd(parseFloat(p.costo_total_usd)||0)+'</td><td>'+_surEsc(p.pago_estado||'')+'</td></tr>';
+      return '<tr><td>'+_surEsc(formatFecha(p.desde)+'→'+formatFecha(p.hasta))+'</td><td>'+_surEsc(p.estacion_nombre||'')+'</td><td style="text-align:right;font-family:var(--m)">'+(parseFloat(p.litros_facturados)||0).toLocaleString('es-VE')+'</td><td style="text-align:right;font-family:var(--m)">$'+(parseFloat(p.precio_mezclado)||0).toFixed(3)+'</td><td style="text-align:right;font-family:var(--m)">'+usd(parseFloat(p.costo_total_usd)||0)+'</td><td>'+_surEsc(p.pago_estado||'')+'</td></tr>';
     }).join('');
   }
 }
@@ -12115,7 +12115,7 @@ function surCorregir(id){
   var previo=anteriores.length?('<div style="font-size:11px;color:var(--text3);margin-top:10px">Correcciones anteriores: '+anteriores.length+'</div>'):'';
   openModal('✏️ Corregir surtida',
     '<div style="font-size:12px;color:var(--text2);margin-bottom:10px">'+
-      '<b>'+_surEscC(s.cam||'')+'</b> · '+_surEscC(String(s.fecha||'').slice(0,10))+' '+_surEscC(s.hora||'')+
+      '<b>'+_surEscC(s.cam||'')+'</b> · '+_surEscC(formatFecha(s.fecha))+' '+_surEscC(s.hora||'')+
       ' · '+_surEscC(_surTanqueLbl(s.tanque))+
       '<br>Registró: '+_surEscC(s.chofer||'—')+
     '</div>'+
@@ -12963,7 +12963,7 @@ async function _movRealesNotifsHTML(modo){
       var col = esEnt?'var(--green)':'var(--red)';
       var montoNum=(mon==='USD'||mon==='$')?('$'+monto.toLocaleString('es-VE',{minimumFractionDigits:2,maximumFractionDigits:2})):('Bs '+monto.toLocaleString('es-VE',{maximumFractionDigits:0}));
       var badge=esEnt?'<span class="badge bg">↓ Entrada</span>':'<span class="badge br">↑ Salida</span>';
-      return '<tr><td style="font-size:10px">'+String(n.fecha_recibido||'').slice(0,16).replace('T',' ')+'</td><td>'+badge+'</td><td style="font-size:11px">'+(n.descripcion||n.tipo_label||n.tipo||'—')+'</td><td style="font-family:var(--m);font-size:10px">'+(n.referencia||'—')+'</td><td style="text-align:right;font-family:var(--m);font-weight:700;color:'+col+'">'+(esEnt?'+':'−')+' '+montoNum+'</td></tr>';
+      return '<tr><td style="font-size:10px">'+formatFechaHora(n.fecha_recibido)+'</td><td>'+badge+'</td><td style="font-size:11px">'+(n.descripcion||n.tipo_label||n.tipo||'—')+'</td><td style="font-family:var(--m);font-size:10px">'+(n.referencia||'—')+'</td><td style="text-align:right;font-family:var(--m);font-weight:700;color:'+col+'">'+(esEnt?'+':'−')+' '+montoNum+'</td></tr>';
     }).join('')+'</tbody></table></div>';
 }
 
@@ -17245,7 +17245,7 @@ function _capHtml(){
   var camHtml=!d.cam.length?'<p class="cap-vacio">Sin movimientos registrados en el período.</p>':
     '<p class="cap-nota">Toda alta, cambio o borrado queda registrado con su operador y su hora.</p>'+
     '<table><thead><tr><th>Fecha y hora</th><th>Operador</th><th>Acción</th><th>Detalle</th></tr></thead><tbody>'+
-    d.cam.slice(0,300).map(function(a){ return '<tr><td>'+e(a.fecha||'')+'</td><td>'+e(a.usuario||'')+'</td><td>'+e(a.accion||'')+'</td><td>'+e(a.detalle||'')+'</td></tr>';}).join('')+'</tbody></table>';
+    d.cam.slice(0,300).map(function(a){ return '<tr><td>'+e(formatFechaHora(a.fecha))+'</td><td>'+e(a.usuario||'')+'</td><td>'+e(a.accion||'')+'</td><td>'+e(a.detalle||'')+'</td></tr>';}).join('')+'</tbody></table>';
   // ── Accesos ── (segregación de funciones: siempre lo piden y casi nadie lo incluye)
   var usrHtml=!d.usuarios.length?'<p class="cap-vacio">No se pudo leer la lista de usuarios.</p>':
     '<p class="cap-nota">Quién podía entrar al sistema y con qué rol. Es el respaldo de la segregación de funciones.</p>'+
