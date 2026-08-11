@@ -1138,6 +1138,49 @@ function anomAbrirDesdeChecklist(fallas, obs, quien){
     .then(function(){ anomCargar(); }, function(){ anomCargar(); });
 }
 
+// La OBSERVACIÓN EN TEXTO del chofer —y el hecho de que declare la unidad fuera de
+// circulación— también son fallas, aunque no haya marcado ningún ítem del checklist.
+//
+// Hasta hoy solo se abría anomalía si `fallas.length`. Lo de la B004 —«la unidad está
+// subiendo la temperatura», 09 y 10/08— vivió únicamente en `checklist.observaciones` y en
+// `km_data.nota_estado`, y NO figuró en ningún listado de pendientes: al dejar de sacarla de
+// circulación, la falla se habría quedado sin un solo lugar donde verse al día siguiente.
+// La convención ya existía en la tabla (item `observacion`, label «Observación del chofer»,
+// origen `chofer`); lo que faltaba era que alguien la escribiera.
+//
+// UNA SOLA abierta por unidad — el índice único parcial es (cam, item_norm) where abierta.
+// Si ya hay una, se REFRESCA con el texto nuevo en vez de perderse en el 23505.
+// Y `critico` solo SUBE: que mañana escriba una nota menor no baja una falla que ayer mandó
+// la unidad al taller. Eso lo cierra la oficina, no esta pantalla.
+// [[estado-unidad-lo-declara-una-persona]]
+function anomAbrirObservacion(texto, estadoCl, quien){
+  if(!supabase || !cam) return Promise.resolve();
+  var obs = String(texto||'').trim();
+  var fuera = !!estadoCl && String(estadoCl).toLowerCase() !== 'operativo';
+  if(!obs && !fuera) return Promise.resolve();       // nada que reportar
+  var detalle = obs || ('Reportada como '+String(estadoCl).replace(/_/g,' '));
+  return supabase.from('anomalias').select('id,detalle,critico,veces')
+    .eq('cam', cam).eq('item_norm','observacion').eq('estado','abierta').limit(1)
+    .then(function(res){
+      var ya = res && res.data && res.data[0];
+      if(ya){
+        var upd = { visto_ultima_fecha: hoy, veces: (ya.veces||1)+1, reportado_por: quien||'' };
+        if(detalle && detalle !== ya.detalle) upd.detalle = detalle;
+        if(fuera && !ya.critico) upd.critico = true;   // solo sube
+        return supabase.from('anomalias').update(upd).eq('id', ya.id);
+      }
+      return supabase.from('anomalias').insert([{
+        cam: cam, item: 'observacion', item_norm: 'observacion',
+        label: 'Observación del chofer', critico: fuera, detalle: detalle,
+        origen: 'chofer', reportado_por: quien||'',
+        fecha_reporte: hoy, visto_ultima_fecha: hoy, veces: 1, estado: 'abierta'
+      }]).then(function(r){
+        if(r && r.error && r.error.code!=='23505') console.warn('anomalias observacion:', r.error.message);
+      });
+    }, function(){})
+    .then(function(){ anomCargar(); }, function(){ anomCargar(); });
+}
+
 // ── SUPABASE ──
 function iniciarSupabase(){
   if(supabase){ verificarConexion(); return; } // ya creado (p.ej. por el login) → no recrear
@@ -2678,6 +2721,10 @@ async function _guardarChecklist(){
     // sigue viva hasta que la cierren desde la oficina.
     try{ anomAbrirDesdeChecklist(fallas, gv('cl-observaciones'), registro.conductor); }catch(e){}
   }
+  // Y la observación en texto + el estado que declaró, aunque NO haya marcado ningún ítem
+  // (ver anomAbrirObservacion). El texto solo se manda si no hubo ítems: si los hubo, ya va
+  // como `detalle` de cada uno y repetirlo sería la misma falla dos veces en la lista.
+  try{ anomAbrirObservacion(fallas.length ? '' : gv('cl-observaciones'), CL_ESTADO, registro.conductor); }catch(e){}
 
   if(CL_MODO==='salida'){
     registro.km_salida   = _kmVal('cl-km-salida') || null;
