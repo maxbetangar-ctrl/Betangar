@@ -14,6 +14,9 @@ const WA_DESTINOS = [
   // Baja 06/08/2026 — AUREDY MEDINA (E002) dejó la empresa. Los 3 socios siguen recibiendo
   // cada pago, así que este aviso NO queda sin destinatario.
   { num: "584143501298", desc: "Socio - Jonaz" },
+  // Alta 13/08/2026 — ALEJANDRO CASTILLO, socio del fondo en su cuenta. Pidió lo mismo que Jonaz:
+  // enterarse de TODO ingreso al banco. Entra además como `visualizador` (usuario `alecastillo`).
+  { num: "584145253105", desc: "Socio - Alejandro Castillo" },
 ];
 
 function parseFechaBNC(fecha: string, hora: string): string {

@@ -7097,7 +7097,7 @@ async function guardarAbono(){
   // feriado, la del último día hábil. Solo faltaba usarla. Ver [tasa-del-dia-que-no-existe].
   var _tasaAb = (typeof getTasaFecha==='function' && getTasaFecha(ab.f,'dolar')) || TASAS.bcvDolar || cfg.tasa;
   bncMovPush({id:Date.now()+'',fecha:ab.f,monto:ab.m*_tasaAb,tipo:'credito',desc:'Pago Alcaldia Fact.'+ab.fact,ref:ab.ref,conciliado:true});
-  // Aviso: socios (Máximo, Francisco) + Jonaz (socio limitado que quiere TODO ingreso).
+  // Aviso: socios (Máximo, Francisco) + Jonaz y Alejandro Castillo (socios que quieren TODO ingreso).
   // El rol admin quedó vacante el 06/08/2026; los socios reciben todo igual.
   var _msgAbono='Abono registrado\n'+
     '💰 Monto: $ '+Number(ab.m||0).toLocaleString('es-VE',{minimumFractionDigits:2,maximumFractionDigits:2})+'\n'+
@@ -7108,6 +7108,7 @@ async function guardarAbono(){
     '👤 Registrado por: '+(SESION&&SESION.nombre?SESION.nombre:'--');
   sendWA(_msgAbono,['admin'],true);                                   // socios (reciben todo) — rol admin vacante
   if(typeof WA_SEND==='function')WA_SEND('584143501298','',_msgAbono); // Jonaz (todo ingreso)
+  if(typeof WA_SEND==='function')WA_SEND('584145253105','',_msgAbono); // Alejandro Castillo (todo ingreso, alta 13/08/2026)
   renderAbonos();renderDash();
   ['ab-f','ab-fact','ab-v','ab-m','ab-obs','ab-ref'].forEach(function(id){sv(id,'');});
   var hoy=new Date().toISOString().split('T')[0];sv('ab-f',hoy);
