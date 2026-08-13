@@ -1,0 +1,90 @@
+# verify_jwt de cada Edge Function, FIJADO A PROPOSITO.
+#
+# El CLI despliega con verify_jwt = true por defecto. Las funciones que se
+# llaman sin JWT (webhooks, crons externos) estan en false, y ese valor no
+# vivia en ningun lado del repo: solo en el proyecto. Un `functions deploy`
+# las ponia en true y dejaban de responder en silencio.
+#
+# Valores tomados de lo DESPLEGADO el 2026-08-12. Al crear una funcion nueva,
+# agregala aca: si no esta, hereda el default y vuelve la trampa.
+
+[functions.alertas-diarias]
+verify_jwt = false
+
+[functions.auditar-combustible]
+verify_jwt = false
+
+[functions.auditora-semanal]
+verify_jwt = true
+
+[functions.auditoria-interna]
+verify_jwt = false
+
+[functions.bnc-api]
+verify_jwt = false
+
+[functions.bnc-pos-virtual]
+verify_jwt = false
+
+[functions.bnc-saldo]
+verify_jwt = true
+
+[functions.bnc-traer]
+verify_jwt = false
+
+[functions.bnc-webhook]
+verify_jwt = false
+
+[functions.bnc-webhook-dev]
+verify_jwt = false
+
+[functions.bright-responder]
+verify_jwt = true
+
+[functions.calendario-fiscal]
+verify_jwt = false
+
+[functions.cobros-alcaldia]
+verify_jwt = true
+
+[functions.cumpleanos]
+verify_jwt = true
+
+[functions.edu-pin-semanal]
+verify_jwt = false
+
+[functions.enviar-personal]
+verify_jwt = false
+
+[functions.gemini]
+verify_jwt = true
+
+[functions.km-anomalias]
+verify_jwt = false
+
+[functions.km-semanal]
+verify_jwt = false
+
+[functions.km-sin-viaje]
+verify_jwt = false
+
+[functions.procesar_cola_wassenger]
+verify_jwt = false
+
+[functions.Recordatorios]
+verify_jwt = true
+
+[functions.recordatorios-cron]
+verify_jwt = false
+
+[functions.supervisor-nomina]
+verify_jwt = false
+
+[functions.tasas-oficiales]
+verify_jwt = false
+
+[functions.viajes-semanal]
+verify_jwt = true
+
+[functions.wa-autoreply]
+verify_jwt = false
