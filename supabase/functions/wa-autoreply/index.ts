@@ -32,7 +32,15 @@ function matchEmp(emps: any[], tgt: string): string | null {
 Deno.serve(async (req) => {
   try {
     const url = new URL(req.url);
-    if (SECRET && url.searchParams.get("key") !== SECRET) return json({ ok: false, error: "no auth" }, 401);
+    // ⛔ Falla CERRADO. Antes era `if (SECRET && provided !== SECRET)`: sin
+    // AUTOREPLY_SECRET en el entorno la condición era falsa y el webhook
+    // aceptaba a cualquiera. Hoy la variable está puesta, así que no filtró —
+    // pero eso es fallar cerrado por casualidad, y un clon sin los secretos
+    // copiados deja este webhook público sin que nadie toque una línea.
+    // El secreto sigue viajando por ?key= (así lo manda Wassenger): eso es
+    // otro pendiente y se decide aparte.
+    if (!SECRET) return json({ ok: false, error: "sin AUTOREPLY_SECRET" }, 500);
+    if (url.searchParams.get("key") !== SECRET) return json({ ok: false, error: "no auth" }, 401);
     if (req.method !== "POST") return json({ ok: true, ping: true });
 
     const body = await req.json().catch(() => ({}));
