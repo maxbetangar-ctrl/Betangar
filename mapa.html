@@ -112,6 +112,11 @@
   #tapa p{margin:0 0 16px;color:var(--suave);font-size:13.5px;line-height:1.5}
   #tapa input{width:100%;padding:9px 11px;margin-bottom:8px;border:1px solid var(--linea);border-radius:8px;font-size:14px;background:var(--papel);color:var(--tinta)}
 
+  .ctrlBrillo{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--suave);white-space:nowrap}
+  .ctrlBrillo input{width:78px;accent-color:var(--azul);cursor:pointer}
+  .ctrlBrillo b{color:var(--tinta);font-variant-numeric:tabular-nums;min-width:38px}
+  body.tv .ctrlBrillo{font-size:15px} body.tv .ctrlBrillo input{width:110px}
+
   .eti{border-radius:6px;padding:2px 7px;font-size:11px;font-weight:700;white-space:nowrap;box-shadow:0 1px 4px rgba(0,0,0,.35);background:var(--panel)}
   body.tv .eti{font-size:16px;padding:4px 11px}
   /* Halo del camión: se ve que está vivo aunque el reporte tarde en llegar. */
@@ -128,6 +133,11 @@
   <div class="der">
     <span id="reloj">--:--</span>
     <select class="btn" id="selFondo" title="Fondo del mapa"></select>
+    <span class="ctrlBrillo" title="Realce del fondo: subilo hasta que las calles se despeguen en tu pantalla">
+      <span>Calles</span>
+      <input type="range" id="brillo" min="80" max="230" step="5" value="130">
+      <b id="brilloTxt">130%</b>
+    </span>
     <button class="btn" id="bTv">Modo televisor</button>
     <button class="btn ocultarTv" id="bPleno">Pantalla completa</button>
     <button class="btn ocultarTv" onclick="location.href='app.html'">← Volver</button>
@@ -175,18 +185,28 @@ var ANIM_MS    = 2500;    // cuánto dura el desplazamiento del camión en panta
 
 // Todos estos se usan sin clave y con su atribución. Para revender hace falta un
 // plan con licencia comercial: se cambia SOLO esta lista.
+var CARTO='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>';
+var ESRI='&copy; Esri';
+
+// `brillo` es el realce por defecto del fondo. Se aplica SOLO a los mosaicos
+// (.leaflet-tile-pane), nunca al mapa entero: si se filtrara todo, las rutas y las
+// etiquetas de las unidades se irían de color con él.
 var FONDOS = {
-  oscuro:   { nom:'Oscuro (monitoreo)',  max:20,
-              url:'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-              atrib:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>' },
-  claro:    { nom:'Claro (minimalista)', max:20,
-              url:'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
-              atrib:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>' },
-  calles:   { nom:'Calles (OpenStreetMap)', max:19,
-              url:'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+  oscuroCalles:{ nom:'Oscuro, calles marcadas', max:16, brillo:1.30,
+              capas:['https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}',
+                     'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}'],
+              atrib:ESRI },
+  oscuro:   { nom:'Oscuro (monitoreo)',  max:20, brillo:1.55,
+              capas:['https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'],
+              atrib:CARTO },
+  claro:    { nom:'Claro (minimalista)', max:20, brillo:1.00,
+              capas:['https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png'],
+              atrib:CARTO },
+  calles:   { nom:'Calles (OpenStreetMap)', max:19, brillo:1.00,
+              capas:['https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png'],
               atrib:'&copy; colaboradores de <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>' },
-  satelite: { nom:'Satélite', max:19,
-              url:'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+  satelite: { nom:'Satélite', max:19, brillo:1.00,
+              capas:['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
               atrib:'Imágenes &copy; Esri, Maxar, Earthstar Geographics' }
 };
 
@@ -257,16 +277,39 @@ function pedirClave(aviso){
 }
 
 // ── Mapa ─────────────────────────────────────────────────────────────────────
+var capas=[];
+
+/**
+ * Realce del FONDO solamente. Un televisor grande con luz de oficina se ve muy
+ * distinto a un monitor, así que el nivel queda a mano y se recuerda.
+ * ⚠️ El filtro va sobre `.leaflet-tile-pane` y NO sobre el mapa entero: si se
+ * filtrara todo, las rutas y las etiquetas de las unidades se irían de color.
+ */
+function aplicarBrillo(){
+  var v=Number(document.getElementById('brillo').value)/100;
+  var pane=mapa.getPane('tilePane');
+  // El contraste sube a la mitad del brillo: subir solo el brillo lava el mapa
+  // y las calles siguen sin despegarse del fondo.
+  pane.style.filter = v===1 ? '' : 'brightness('+v.toFixed(2)+') contrast('+(1+(v-1)*0.5).toFixed(2)+')';
+  document.getElementById('brilloTxt').textContent=Math.round(v*100)+'%';
+  try{ localStorage.setItem('btg-mapa-brillo-'+document.getElementById('selFondo').value, String(v)); }catch(e){}
+}
+
 function ponerFondo(clave){
-  var f=FONDOS[clave]||FONDOS.oscuro;
-  if(capaFondo) mapa.removeLayer(capaFondo);
-  capaFondo=L.tileLayer(f.url,{maxZoom:f.max,attribution:f.atrib}).addTo(mapa);
+  var f=FONDOS[clave]||FONDOS.oscuroCalles;
+  capas.forEach(function(c){ mapa.removeLayer(c); });
+  capas=f.capas.map(function(u,i){
+    return L.tileLayer(u,{maxZoom:f.max,attribution:i===0?f.atrib:''}).addTo(mapa);
+  });
+  capaFondo=capas[0];
   try{ localStorage.setItem('btg-mapa-fondo',clave); }catch(e){}
-  // El fondo oscuro pide letras claras y al revés.
-  document.body.classList.toggle('tv', document.body.classList.contains('tv'));
+  var g=null;
+  try{ g=localStorage.getItem('btg-mapa-brillo-'+clave); }catch(e){}
+  document.getElementById('brillo').value=Math.round((g?Number(g):f.brillo)*100);
+  aplicarBrillo();
 }
 function fondoGuardado(){
-  try{ return localStorage.getItem('btg-mapa-fondo')||'oscuro'; }catch(e){ return 'oscuro'; }
+  try{ return localStorage.getItem('btg-mapa-fondo')||'oscuroCalles'; }catch(e){ return 'oscuroCalles'; }
 }
 
 function iniciarMapa(){
@@ -277,6 +320,7 @@ function iniciarMapa(){
     return '<option value="'+k+'">'+FONDOS[k].nom+'</option>'; }).join('');
   sel.value=fondoGuardado();
   sel.onchange=function(){ ponerFondo(sel.value); };
+  document.getElementById('brillo').oninput=aplicarBrillo;
   ponerFondo(sel.value);
 }
 
@@ -471,9 +515,8 @@ function modoTv(){
   document.getElementById('bTv').classList.toggle('on',on);
   document.getElementById('bTv').textContent=on?'Salir del televisor':'Modo televisor';
   if(on){
-    if(document.getElementById('selFondo').value==='calles'){
-      document.getElementById('selFondo').value='oscuro'; ponerFondo('oscuro');
-    }
+    var sf=document.getElementById('selFondo');
+    if(sf.value==='calles'||sf.value==='claro'){ sf.value='oscuroCalles'; ponerFondo('oscuroCalles'); }
     if(!document.fullscreenElement) document.documentElement.requestFullscreen().catch(function(){});
     trabarPantalla();
   }else{
