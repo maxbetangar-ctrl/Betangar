@@ -174,6 +174,42 @@ function tapa(txt, mostrarBoton){
 }
 function quitarTapa(){ document.getElementById('tapa').style.display='none'; }
 
+/**
+ * Login en la propia pantalla. Antes mandaba a `app.html` y ahí terminaba el viaje:
+ * el usuario iniciaba sesión y se quedaba en la app, sin vuelta al mapa. Una pantalla
+ * pensada para quedar abierta en la oficina tiene que poder entrar sola.
+ */
+function pedirClave(aviso){
+  var c=document.querySelector('#tapa .caja');
+  c.innerHTML =
+    '<h2>Flota en vivo</h2>'
+  + '<p>Entrá con tu usuario del sistema para ver los camiones.</p>'
+  + (aviso?'<p style="color:#d93025;font-weight:600">'+esc(aviso)+'</p>':'')
+  + '<input id="tEmail" type="email" autocomplete="username" placeholder="Usuario" '
+  +   'style="width:100%;padding:9px 11px;margin-bottom:8px;border:1px solid var(--linea);border-radius:8px;font-size:14px">'
+  + '<input id="tClave" type="password" autocomplete="current-password" placeholder="Clave" '
+  +   'style="width:100%;padding:9px 11px;margin-bottom:14px;border:1px solid var(--linea);border-radius:8px;font-size:14px">'
+  + '<button class="btn" id="tEntrar" style="width:100%;padding:9px">Entrar</button>'
+  + '<p style="margin-top:14px;margin-bottom:0"><a href="app.html" style="color:var(--suave);font-size:12.5px">Volver al sistema</a></p>';
+  document.getElementById('tapa').style.display='flex';
+
+  var ent=document.getElementById('tEntrar');
+  async function entrar(){
+    var em=(document.getElementById('tEmail').value||'').trim();
+    var cl=document.getElementById('tClave').value||'';
+    if(!em||!cl){ pedirClave('Faltan el usuario o la clave.'); return; }
+    ent.disabled=true; ent.textContent='Entrando…';
+    try{
+      var r=await sb.auth.signInWithPassword({email:em,password:cl});
+      if(r.error){ pedirClave(r.error.message); return; }
+      quitarTapa(); iniciarMapa(); await ciclo(); setInterval(ciclo, REFRESCO_MS);
+    }catch(e){ pedirClave(String(e.message||e)); }
+  }
+  ent.onclick=entrar;
+  document.getElementById('tClave').onkeydown=function(ev){ if(ev.key==='Enter') entrar(); };
+  document.getElementById('tEmail').focus();
+}
+
 function avisar(clase, html){
   document.getElementById('avisos').innerHTML += '<div class="aviso '+clase+'">'+html+'</div>';
 }
@@ -322,13 +358,18 @@ async function arrancar(){
     tapa('No se pudo conectar con el sistema. Revisá la conexión y volvé a abrir la pantalla.', true); return;
   }
 
-  sb = window.supabase.createClient(SUPA_URL, SUPA_KEY);
+  // ⚠️ `storageKey:'btg-auth'` NO es opcional: es el mismo que usa la app
+  // (`app.js:834`). Con el nombre por defecto, esta pantalla NO ve la sesión aunque
+  // el usuario acabe de entrar en app.html — se loguea y el mapa lo sigue mandando
+  // a iniciar sesión. Pasó el 14/08 apenas se publicó.
+  sb = window.supabase.createClient(SUPA_URL, SUPA_KEY, {
+    auth:{ persistSession:true, autoRefreshToken:true, detectSessionInUrl:false, storageKey:'btg-auth' }
+  });
 
-  // Las posiciones son evidencia: solo las lee quien tiene sesión y rol. Si no hay
-  // sesión, se manda a iniciarla en vez de dejar una pantalla vacía sin explicación.
+  // Las posiciones son evidencia: solo las lee quien tiene sesión y rol.
   var ses=null;
   try{ var r=await sb.auth.getSession(); ses = r && r.data && r.data.session; }catch(e){}
-  if(!ses){ tapa('Para ver la flota hay que iniciar sesión en el sistema.', true); return; }
+  if(!ses){ pedirClave(); return; }
 
   quitarTapa();
   iniciarMapa();
