@@ -196,6 +196,11 @@ Deno.serve(async (req) => {
                 // Ignition sí es real. Los demás sensores llegan en 0 y no se guardan.
                 ignicion: typeof d.Ignition === "boolean" ? d.Ignition : null,
                 odometro: num(d.Odometer),
+                // La dirección viene YA geocodificada del proveedor y sin costo: es
+                // justo el servicio caro de un mapa comercial. Se guarda porque hace
+                // legible un recorrido sin depender de que alguien mire el mapa.
+                // El proveedor le pega un sufijo "~Zulia" que es ruido: se corta.
+                ubicacion: String(d.Location || "").split("~")[0].trim() || null,
                 id_equipo: String(d.IMEI || d.SerialNumber || eq.id_equipo || ""),
               }]),
             },

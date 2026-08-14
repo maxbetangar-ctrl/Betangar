@@ -226,7 +226,7 @@ async function traer(){
   var desde = hoy+'T00:00:00-04:00';
 
   var r = await sb.from('gps_posiciones')
-    .select('cam,ts,lat,lon,velocidad,rumbo,ignicion,odometro')
+    .select('cam,ts,lat,lon,velocidad,rumbo,ignicion,odometro,ubicacion')
     .gte('ts', desde)
     .order('ts', {ascending:true})
     .limit(20000);          // PostgREST corta en 1.000 si no se le pide más
@@ -299,6 +299,7 @@ function pintar(filas){
         +   '<div class="u-cab"><span class="punto" style="background:'+color+'"></span>'
         +     '<span class="u-nom">'+esc(cam)+'</span>'
         +     '<span class="u-est '+clase+'">'+texto+'</span></div>'
+        +   (ult.ubicacion ? '<div class="u-dir">'+esc(ult.ubicacion)+'</div>' : '')
         +   '<div class="u-dat">'
         +     '<span>Último reporte <b>'+horaVE(ult.ts)+'</b> ('+hace(min)+')</span>'
         +   '</div>'
