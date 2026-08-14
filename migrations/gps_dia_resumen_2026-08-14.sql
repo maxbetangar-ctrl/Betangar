@@ -16,6 +16,17 @@
 -- El método se GUARDA porque un km calculado de dos maneras distintas no se puede
 -- mostrar igual: un número que el dueño no puede explicar no se muestra.
 --
+-- 🔴 EL ODÓMETRO LO CALCULA EL GPS, NO EL TABLERO (confirmado por el proveedor el
+-- 14/08/2026). Por eso acá se usa la DIFERENCIA dentro del día y jamás el valor
+-- absoluto: lo sincronizan con el tablero al instalar el equipo y desde ahí acumula
+-- solo, con ~3 % de sesgo que SE VA SEPARANDO con el tiempo. La diferencia de un día
+-- arrastra 3 % de lo recorrido ESE día; el valor absoluto arrastra el sesgo de toda
+-- la vida del equipo.
+-- ⛔ Por eso mismo `gps_dia.km_gps` NO sirve para programar el cambio de aceite:
+-- sobre un ciclo de 5.000 km, 3 % son 150 km, y se acumulan ciclo tras ciclo. El
+-- servicio se sigue contando desde `mantenimientos`; esto solo sirve para AVISAR una
+-- discrepancia, nunca para fijar la fecha.
+--
 -- ⚠️ EL RALENTÍ NO CUENTA LOS HUECOS. Si el equipo deja de reportar 3 horas con la
 -- ignición encendida, sumar ese intervalo daría 180 minutos de ralentí que nadie
 -- midió. Solo se suman los tramos de hasta TOPE_TRAMO_MIN; lo que pasa dentro de un
