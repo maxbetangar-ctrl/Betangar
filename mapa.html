@@ -6,84 +6,132 @@
 <title>Betangar — Flota en vivo</title>
 <!--
   ══════════════════════════════════════════════════════════════════════════════
-  PANTALLA DE FLOTA EN VIVO — Betangar (14/08/2026)
+  PANTALLA DE FLOTA EN VIVO — Betangar
 
-  Lee de NUESTRA base (`gps_posiciones`), NUNCA del API del proveedor. Dos razones:
-   1. El API del proveedor es HTTP plano y con autenticación básica: si el navegador
-      lo llamara, usuario y clave quedarían a la vista de cualquiera que abra el
-      inspector. La llamada la hace la Edge Function `gps-sondeo` desde el servidor.
-   2. El proveedor NO guarda historial consultable. El trazado que se pinta acá es
-      el que venimos guardando nosotros desde el primer sondeo.
+  Lee de NUESTRA base (`gps_posiciones`), NUNCA del API del proveedor: ese API es
+  HTTP plano con autenticación básica, y desde el navegador la clave quedaría a la
+  vista de cualquiera. La llamada la hace la Edge Function `gps-sondeo`.
+
+  MODO TELEVISOR: pensado para quedar puesto en una pantalla de la oficina sin que
+  nadie lo toque. Las posiciones llegan SOLAS por Realtime (WebSocket): no hay que
+  refrescar. Además hay un repaso cada 60 s por si el socket se cae en silencio —
+  un canal caído se ve igual que "no pasa nada".
 
   ⚠️ LO QUE ESTA PANTALLA NUNCA DEBE HACER: pintar la última posición conocida como
-  si fuera la de AHORA. Medido el 14/08: el API devolvió el mismo reporte durante 22
-  minutos, con el camión marcando "encendido, 45 km/h" — porque así iba la última vez
-  que reportó, no en ese momento. Por eso cada unidad muestra SIEMPRE la antigüedad
-  del dato, y si pasa del umbral se marca como sin señal en vez de mentir.
+  si fuera la de AHORA. Medido: el API devolvió el mismo reporte durante 22 minutos
+  con el camión marcando "encendido, 45 km/h" — así iba la última vez que se supo de
+  él. Por eso cada unidad muestra SIEMPRE la antigüedad, y pasado el umbral se marca
+  sin señal en vez de mentir.
 
-  Fondo de mapa: OpenStreetMap (libre, sin clave ni tarjeta). Los camiones y el
-  trazado los dibujamos nosotros, así que el fondo es una capa cambiable: para pasar
-  a otro proveedor se cambia FONDOS.actual. ⛔ Los mapas de Google NO se pueden usar
-  acá: sus términos prohíben servir sus mosaicos fuera de su propio SDK.
+  FONDOS DE MAPA: MapTiler, Stadia, Carto y Mapbox sirven todos los MISMOS datos de
+  OpenStreetMap — pagar no agrega calles en Maracaibo, agrega diseño y licencia
+  comercial. Solo Google tiene cartografía propia, pero exige tarjeta y ⛔ sus
+  mosaicos NO se pueden servir dentro de Leaflet (lo prohíben sus términos).
+  Los de acá se usan sin clave y con su atribución puesta. Para revender esto a
+  clientes de FlotaMax hay que pasar a un plan con licencia comercial (Stadia ~$20,
+  MapTiler ~$25): se cambia SOLO la entrada de FONDOS, el resto no se toca.
   ══════════════════════════════════════════════════════════════════════════════
 -->
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <style>
   :root{
-    --tinta:#0f1720; --papel:#f4f6f8; --linea:#d8dee6; --suave:#66738a;
+    --tinta:#0f1720; --papel:#f4f6f8; --linea:#d8dee6; --suave:#66738a; --panel:#fff;
     --verde:#0f9d58; --ambar:#f4a300; --rojo:#d93025; --azul:#1a73e8;
+  }
+  /* Modo televisor: oscuro, para que las rutas resalten a distancia. */
+  body.tv{
+    --tinta:#e8edf4; --papel:#080b11; --linea:#1e2836; --suave:#8494ab; --panel:#0e1420;
+    --verde:#22d37a; --ambar:#ffc233; --rojo:#ff5a4d; --azul:#4da3ff;
   }
   *{box-sizing:border-box}
   html,body{height:100%;margin:0}
-  body{font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:var(--tinta);background:var(--papel);display:flex;flex-direction:column}
+  body{font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:var(--tinta);background:var(--papel);display:flex;flex-direction:column;overflow:hidden}
 
-  header{display:flex;align-items:center;gap:14px;padding:10px 16px;background:#fff;border-bottom:1px solid var(--linea);flex-shrink:0}
-  header h1{font-size:17px;margin:0;font-weight:650;letter-spacing:-.2px}
-  .sello{font-size:12px;color:var(--suave)}
-  .btn{border:1px solid var(--linea);background:#fff;color:var(--tinta);border-radius:8px;padding:7px 13px;font-size:13px;cursor:pointer;font-weight:550}
-  .btn:hover{background:var(--papel)}
-  .btn.sal{margin-left:auto}
+  header{display:flex;align-items:center;gap:12px;padding:10px 16px;background:var(--panel);border-bottom:1px solid var(--linea);flex-shrink:0}
+  header h1{font-size:17px;margin:0;font-weight:650;letter-spacing:-.2px;white-space:nowrap}
+  .sello{font-size:12px;color:var(--suave);white-space:nowrap}
+  .btn{border:1px solid var(--linea);background:var(--panel);color:var(--tinta);border-radius:8px;padding:7px 13px;font-size:13px;cursor:pointer;font-weight:550;white-space:nowrap}
+  .btn:hover{border-color:var(--azul)}
+  .btn.on{background:var(--azul);color:#fff;border-color:var(--azul)}
+  .der{margin-left:auto;display:flex;gap:8px;align-items:center}
+  select.btn{padding:7px 9px}
+
+  /* Latido: prueba a la vista de que el canal está vivo. */
+  .vivo{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:650;color:var(--verde)}
+  .vivo i{width:8px;height:8px;border-radius:50%;background:var(--verde);display:block;animation:late 2s infinite}
+  .vivo.mudo{color:var(--rojo)} .vivo.mudo i{background:var(--rojo);animation:none}
+  @keyframes late{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.25;transform:scale(.7)}}
 
   #cuerpo{flex:1;display:flex;min-height:0}
-  #panel{width:335px;flex-shrink:0;overflow-y:auto;background:#fff;border-right:1px solid var(--linea)}
-  #mapa{flex:1;min-width:0}
+  #panel{width:335px;flex-shrink:0;overflow-y:auto;background:var(--panel);border-right:1px solid var(--linea)}
+  #mapa{flex:1;min-width:0;background:var(--papel)}
 
   .u{padding:11px 14px;border-bottom:1px solid var(--linea);cursor:pointer}
-  .u:hover{background:var(--papel)}
-  .u.sel{background:#eaf1fd;box-shadow:inset 3px 0 0 var(--azul)}
+  .u:hover{background:rgba(125,125,125,.08)}
+  .u.sel{box-shadow:inset 3px 0 0 var(--azul);background:rgba(77,163,255,.10)}
   .u-cab{display:flex;align-items:center;gap:8px}
   .punto{width:11px;height:11px;border-radius:50%;flex-shrink:0}
   .u-nom{font-weight:650;font-size:14px}
   .u-est{margin-left:auto;font-size:11px;font-weight:650;padding:2px 8px;border-radius:20px}
-  .e-and{background:#e3f5e9;color:var(--verde)}
-  .e-par{background:#fdf1d8;color:#8a5a00}
-  .e-mud{background:#fbe3e1;color:var(--rojo)}
+  .e-and{background:rgba(15,157,88,.16);color:var(--verde)}
+  .e-par{background:rgba(244,163,0,.16);color:var(--ambar)}
+  .e-mud{background:rgba(217,48,37,.16);color:var(--rojo)}
   .u-dir{font-size:12px;color:var(--suave);margin:5px 0 0;line-height:1.35}
   .u-dat{display:flex;gap:14px;margin-top:6px;font-size:12px;color:var(--suave);flex-wrap:wrap}
   .u-dat b{color:var(--tinta);font-weight:650}
 
   .aviso{margin:10px 14px;padding:9px 11px;border-radius:8px;font-size:12.5px;line-height:1.4}
-  .aviso.ok{background:#e3f5e9;color:#0b6b3c}
-  .aviso.ojo{background:#fdf1d8;color:#7a4f00}
-  .aviso.mal{background:#fbe3e1;color:#8f1d16}
-
+  .aviso.ojo{background:rgba(244,163,0,.15);color:var(--ambar)}
+  .aviso.mal{background:rgba(217,48,37,.15);color:var(--rojo)}
   .titpanel{padding:10px 14px 4px;font-size:11px;letter-spacing:.6px;text-transform:uppercase;color:var(--suave);font-weight:700}
   .leyenda{padding:10px 14px 16px;font-size:11.5px;color:var(--suave);line-height:1.5;border-top:1px solid var(--linea)}
 
+  /* ── MODO TELEVISOR ───────────────────────────────────────────────────── */
+  body.tv header{padding:14px 26px}
+  body.tv header h1{font-size:26px}
+  body.tv .sello,body.tv .vivo{font-size:17px}
+  body.tv #panel{width:430px}
+  body.tv .titpanel{font-size:14px;padding:14px 20px 6px}
+  body.tv .u{padding:16px 20px}
+  body.tv .u-nom{font-size:24px}
+  body.tv .u-est{font-size:14px;padding:4px 12px}
+  body.tv .punto{width:15px;height:15px}
+  body.tv .u-dir{font-size:15px;margin-top:8px}
+  body.tv .u-dat{font-size:15px;margin-top:9px;gap:18px}
+  body.tv .leyenda{display:none}
+  body.tv .ocultarTv{display:none}
+  #reloj{display:none;font-variant-numeric:tabular-nums;font-weight:700}
+  body.tv #reloj{display:block;font-size:30px;letter-spacing:1px}
+  /* En modo TV el mapa oscuro necesita que los controles no lo ensucien. */
+  body.tv .leaflet-control-zoom{display:none}
+  body.tv .leaflet-control-attribution{font-size:10px;opacity:.45}
+
   #tapa{position:fixed;inset:0;background:var(--papel);display:flex;align-items:center;justify-content:center;z-index:9999}
-  #tapa .caja{background:#fff;border:1px solid var(--linea);border-radius:12px;padding:26px 30px;max-width:400px;text-align:center}
+  #tapa .caja{background:var(--panel);border:1px solid var(--linea);border-radius:12px;padding:26px 30px;max-width:400px;text-align:center}
   #tapa h2{margin:0 0 8px;font-size:17px}
   #tapa p{margin:0 0 16px;color:var(--suave);font-size:13.5px;line-height:1.5}
-  .eti{background:#fff;border:1px solid var(--linea);border-radius:6px;padding:2px 7px;font-size:11px;font-weight:700;white-space:nowrap;box-shadow:0 1px 3px rgba(0,0,0,.18)}
+  #tapa input{width:100%;padding:9px 11px;margin-bottom:8px;border:1px solid var(--linea);border-radius:8px;font-size:14px;background:var(--papel);color:var(--tinta)}
+
+  .eti{border-radius:6px;padding:2px 7px;font-size:11px;font-weight:700;white-space:nowrap;box-shadow:0 1px 4px rgba(0,0,0,.35);background:var(--panel)}
+  body.tv .eti{font-size:16px;padding:4px 11px}
+  /* Halo del camión: se ve que está vivo aunque el reporte tarde en llegar. */
+  .halo{border-radius:50%;background:currentColor;opacity:.30;animation:pulso 2.4s ease-out infinite}
+  @keyframes pulso{0%{transform:scale(.45);opacity:.55}100%{transform:scale(1.7);opacity:0}}
 </style>
 </head>
 <body>
 
 <header>
   <h1>Flota en vivo</h1>
+  <span class="vivo" id="vivo"><i></i><span id="vivoTxt">conectando…</span></span>
   <span class="sello" id="sello">cargando…</span>
-  <button class="btn" id="bPleno">Pantalla completa</button>
-  <button class="btn sal" onclick="location.href='app.html'">← Volver al sistema</button>
+  <div class="der">
+    <span id="reloj">--:--</span>
+    <select class="btn" id="selFondo" title="Fondo del mapa"></select>
+    <button class="btn" id="bTv">Modo televisor</button>
+    <button class="btn ocultarTv" id="bPleno">Pantalla completa</button>
+    <button class="btn ocultarTv" onclick="location.href='app.html'">← Volver</button>
+  </div>
 </header>
 
 <div id="cuerpo">
@@ -119,33 +167,40 @@
 var SUPA_URL = 'https://hrkjddehqnzcqwlkklqm.supabase.co';
 var SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhya2pkZGVocW56Y3F3bGtrbHFtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc2NTk1NzIsImV4cCI6MjA5MzIzNTU3Mn0.kqWKthyZfPZ86toql7shGByF-ZhUpcQUS4Jw4RnG_ko';
 
-// Cada cuánto se refresca la pantalla. NO consulta al proveedor: lee nuestra base,
-// que la llena el cron cada 2 minutos.
-var REFRESCO_MS = 30000;
-// Pasado este rato sin reportar, la posición deja de presentarse como actual.
-var MUDO_MIN = 15;
+// Repaso de respaldo. Realtime trae lo nuevo al instante; esto existe porque un
+// WebSocket caído no avisa: se ve igual que una flota quieta.
+var REPASO_MS  = 60000;
+var MUDO_MIN   = 15;      // pasado esto, la posición deja de presentarse como actual
+var ANIM_MS    = 2500;    // cuánto dura el desplazamiento del camión en pantalla
 
+// Todos estos se usan sin clave y con su atribución. Para revender hace falta un
+// plan con licencia comercial: se cambia SOLO esta lista.
 var FONDOS = {
-  osm: { url:'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-         atrib:'&copy; colaboradores de <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>', max:19 }
+  oscuro:   { nom:'Oscuro (monitoreo)',  max:20,
+              url:'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+              atrib:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>' },
+  claro:    { nom:'Claro (minimalista)', max:20,
+              url:'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
+              atrib:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>' },
+  calles:   { nom:'Calles (OpenStreetMap)', max:19,
+              url:'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+              atrib:'&copy; colaboradores de <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>' },
+  satelite: { nom:'Satélite', max:19,
+              url:'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+              atrib:'Imágenes &copy; Esri, Maxar, Earthstar Geographics' }
 };
-var FONDO = FONDOS.osm;
 
-var COLORES = ['#1a73e8','#d93025','#0f9d58','#f4a300','#8e24aa','#00838f',
-               '#e65100','#3949ab','#c2185b','#558b2f','#5d4037','#00695c'];
+var COLORES = ['#4da3ff','#ff5a4d','#22d37a','#ffc233','#c07bff','#00c9c9',
+               '#ff9040','#7f8cff','#ff6fae','#9ad34a','#c49a7a','#3fd0b0'];
 
-var sb=null, mapa=null, capaFondo=null;
-var dibujo={};        // cam -> {marca, linea, color}
-var estado={};        // cam -> resumen
-var seleccion=null, primeraVez=true;
+var sb=null, mapa=null, capaFondo=null, canal=null;
+var dibujo={}, estado={}, seleccion=null, primeraVez=true;
+var ultimoDato=0, anim={};
 
 function dosDig(n){ return (n<10?'0':'')+n; }
-// La hora del negocio es la de Venezuela, no la del equipo donde se abre la pantalla.
 function horaVE(iso){
-  try{
-    return new Date(iso).toLocaleTimeString('es-VE',
-      {hour:'2-digit',minute:'2-digit',hour12:false,timeZone:'America/Caracas'});
-  }catch(e){ return '--:--'; }
+  try{ return new Date(iso).toLocaleTimeString('es-VE',{hour:'2-digit',minute:'2-digit',hour12:false,timeZone:'America/Caracas'}); }
+  catch(e){ return '--:--'; }
 }
 function fechaVE(d){
   try{
@@ -167,32 +222,23 @@ function hace(min){
 function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){
   return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
 
-function tapa(txt, mostrarBoton){
-  document.getElementById('tapaTxt').textContent = txt;
-  document.getElementById('tapaBtn').style.display = mostrarBoton ? '' : 'none';
+function tapa(txt, boton){
+  document.getElementById('tapaTxt').textContent=txt;
+  document.getElementById('tapaBtn').style.display=boton?'':'none';
   document.getElementById('tapa').style.display='flex';
 }
 function quitarTapa(){ document.getElementById('tapa').style.display='none'; }
 
-/**
- * Login en la propia pantalla. Antes mandaba a `app.html` y ahí terminaba el viaje:
- * el usuario iniciaba sesión y se quedaba en la app, sin vuelta al mapa. Una pantalla
- * pensada para quedar abierta en la oficina tiene que poder entrar sola.
- */
+/** Login en la propia pantalla: antes mandaba a app.html y ahí terminaba el viaje. */
 function pedirClave(aviso){
   var c=document.querySelector('#tapa .caja');
-  c.innerHTML =
-    '<h2>Flota en vivo</h2>'
-  + '<p>Entrá con tu usuario del sistema para ver los camiones.</p>'
-  + (aviso?'<p style="color:#d93025;font-weight:600">'+esc(aviso)+'</p>':'')
-  + '<input id="tEmail" type="email" autocomplete="username" placeholder="Usuario" '
-  +   'style="width:100%;padding:9px 11px;margin-bottom:8px;border:1px solid var(--linea);border-radius:8px;font-size:14px">'
-  + '<input id="tClave" type="password" autocomplete="current-password" placeholder="Clave" '
-  +   'style="width:100%;padding:9px 11px;margin-bottom:14px;border:1px solid var(--linea);border-radius:8px;font-size:14px">'
-  + '<button class="btn" id="tEntrar" style="width:100%;padding:9px">Entrar</button>'
-  + '<p style="margin-top:14px;margin-bottom:0"><a href="app.html" style="color:var(--suave);font-size:12.5px">Volver al sistema</a></p>';
+  c.innerHTML='<h2>Flota en vivo</h2><p>Entrá con tu usuario del sistema.</p>'
+    +(aviso?'<p style="color:#d93025;font-weight:600">'+esc(aviso)+'</p>':'')
+    +'<input id="tEmail" type="email" autocomplete="username" placeholder="Usuario">'
+    +'<input id="tClave" type="password" autocomplete="current-password" placeholder="Clave">'
+    +'<button class="btn" id="tEntrar" style="width:100%;padding:9px;margin-top:6px">Entrar</button>'
+    +'<p style="margin:14px 0 0"><a href="app.html" style="color:var(--suave);font-size:12.5px">Volver al sistema</a></p>';
   document.getElementById('tapa').style.display='flex';
-
   var ent=document.getElementById('tEntrar');
   async function entrar(){
     var em=(document.getElementById('tEmail').value||'').trim();
@@ -202,7 +248,7 @@ function pedirClave(aviso){
     try{
       var r=await sb.auth.signInWithPassword({email:em,password:cl});
       if(r.error){ pedirClave(r.error.message); return; }
-      quitarTapa(); iniciarMapa(); await ciclo(); setInterval(ciclo, REFRESCO_MS);
+      quitarTapa(); await arrancarVista();
     }catch(e){ pedirClave(String(e.message||e)); }
   }
   ent.onclick=entrar;
@@ -210,106 +256,130 @@ function pedirClave(aviso){
   document.getElementById('tEmail').focus();
 }
 
-function avisar(clase, html){
-  document.getElementById('avisos').innerHTML += '<div class="aviso '+clase+'">'+html+'</div>';
+// ── Mapa ─────────────────────────────────────────────────────────────────────
+function ponerFondo(clave){
+  var f=FONDOS[clave]||FONDOS.oscuro;
+  if(capaFondo) mapa.removeLayer(capaFondo);
+  capaFondo=L.tileLayer(f.url,{maxZoom:f.max,attribution:f.atrib}).addTo(mapa);
+  try{ localStorage.setItem('btg-mapa-fondo',clave); }catch(e){}
+  // El fondo oscuro pide letras claras y al revés.
+  document.body.classList.toggle('tv', document.body.classList.contains('tv'));
+}
+function fondoGuardado(){
+  try{ return localStorage.getItem('btg-mapa-fondo')||'oscuro'; }catch(e){ return 'oscuro'; }
 }
 
 function iniciarMapa(){
-  mapa = L.map('mapa',{zoomControl:true, attributionControl:true}).setView([10.6427,-71.6125], 11);
-  capaFondo = L.tileLayer(FONDO.url,{maxZoom:FONDO.max, attribution:FONDO.atrib}).addTo(mapa);
+  mapa=L.map('mapa',{zoomControl:true,attributionControl:true,preferCanvas:true})
+        .setView([10.6427,-71.6125],11);
+  var sel=document.getElementById('selFondo');
+  sel.innerHTML=Object.keys(FONDOS).map(function(k){
+    return '<option value="'+k+'">'+FONDOS[k].nom+'</option>'; }).join('');
+  sel.value=fondoGuardado();
+  sel.onchange=function(){ ponerFondo(sel.value); };
+  ponerFondo(sel.value);
 }
 
-/** Trae el recorrido del día de hoy (hora Venezuela) de todas las unidades. */
+/** Desliza el marcador de un punto al otro en vez de teletransportarlo. */
+function mover(cam, destino){
+  var d=dibujo[cam]; if(!d) return;
+  var desde=d.marca.getLatLng();
+  if(desde.lat===destino[0] && desde.lng===destino[1]) return;
+  if(anim[cam]) cancelAnimationFrame(anim[cam]);
+  var t0=performance.now();
+  function paso(t){
+    var k=Math.min(1,(t-t0)/ANIM_MS);
+    var s=k<.5 ? 2*k*k : 1-Math.pow(-2*k+2,2)/2;   // arranca y frena suave
+    d.marca.setLatLng([desde.lat+(destino[0]-desde.lat)*s, desde.lng+(destino[1]-desde.lng)*s]);
+    if(k<1) anim[cam]=requestAnimationFrame(paso);
+  }
+  anim[cam]=requestAnimationFrame(paso);
+}
+
+// ── Datos ────────────────────────────────────────────────────────────────────
 async function traer(){
-  var hoy = fechaVE(new Date());
-  // El día del NEGOCIO va de las 00:00 a las 23:59 hora Venezuela = UTC-4.
-  var desde = hoy+'T00:00:00-04:00';
-
-  var r = await sb.from('gps_posiciones')
+  var desde=fechaVE(new Date())+'T00:00:00-04:00';
+  var r=await sb.from('gps_posiciones')
     .select('cam,ts,lat,lon,velocidad,rumbo,ignicion,odometro,ubicacion')
-    .gte('ts', desde)
-    .order('ts', {ascending:true})
-    .limit(20000);          // PostgREST corta en 1.000 si no se le pide más
-
+    .gte('ts',desde).order('ts',{ascending:true}).limit(20000);   // PostgREST corta en 1.000
   if(r.error) throw new Error(r.error.message);
   return r.data||[];
 }
 
-function pintar(filas){
+var crudo=[];
+function pintar(){
   var porCam={};
-  filas.forEach(function(f){ (porCam[f.cam]=porCam[f.cam]||[]).push(f); });
-
+  crudo.forEach(function(f){ (porCam[f.cam]=porCam[f.cam]||[]).push(f); });
   var cams=Object.keys(porCam).sort();
   var ahora=Date.now(), htm='', bordes=[];
 
   if(!cams.length){
-    document.getElementById('lista').innerHTML =
-      '<div class="u"><div class="u-dir">Todavía no hay posiciones guardadas de hoy. '+
-      'El sistema consulta cada 2 minutos; en cuanto el primer camión reporte, aparece acá.</div></div>';
+    document.getElementById('lista').innerHTML='<div class="u"><div class="u-dir">'
+      +'Todavía no hay posiciones de hoy. El sistema consulta cada 2 minutos; en cuanto '
+      +'el primer camión reporte, aparece acá solo.</div></div>';
     document.getElementById('sello').textContent='sin datos de hoy';
     return;
   }
 
-  cams.forEach(function(cam, i){
-    var pts=porCam[cam];
-    var ult=pts[pts.length-1];
-    var color=COLORES[i % COLORES.length];
-    var min=Math.round((ahora - new Date(ult.ts).getTime())/60000);
-    var mudo = min > MUDO_MIN;
+  cams.forEach(function(cam,i){
+    var pts=porCam[cam], ult=pts[pts.length-1];
+    var color=COLORES[i%COLORES.length];
+    var min=Math.round((ahora-new Date(ult.ts).getTime())/60000);
+    var mudo=min>MUDO_MIN;
 
-    // Km del día por el CONTADOR del camión: sobrevive a los huecos de señal.
-    // Sumar distancias entre puntos subestimaría el recorrido en cada tramo perdido.
-    var ods=pts.map(function(p){return p.odometro;}).filter(function(v){return v!==null&&v!==undefined&&!isNaN(v);});
-    var kmDia = ods.length>1 ? Math.max(0, Math.max.apply(null,ods)-Math.min.apply(null,ods)) : null;
+    // Km del día por el CONTADOR del camión. Medido sobre un tramo real: sumar
+    // distancias entre puntos da 17 % MENOS que el odómetro, y con ese sesgo todos
+    // los choferes parecerían inflar el kilometraje.
+    var ods=pts.map(function(p){return p.odometro;}).filter(function(v){return v!=null&&!isNaN(v);});
+    var kmDia=ods.length>1?Math.max(0,Math.max.apply(null,ods)-Math.min.apply(null,ods)):null;
 
-    // El hueco más largo del día: es la medida de confianza, y se muestra.
     var hueco=0;
     for(var k=1;k<pts.length;k++){
-      var d=(new Date(pts[k].ts)-new Date(pts[k-1].ts))/60000;
-      if(d>hueco) hueco=d;
+      var dd=(new Date(pts[k].ts)-new Date(pts[k-1].ts))/60000;
+      if(dd>hueco) hueco=dd;
     }
     hueco=Math.round(hueco);
 
-    var andando = !mudo && ult.ignicion===true && Number(ult.velocidad)>3;
-    var clase = mudo ? 'e-mud' : (andando ? 'e-and' : 'e-par');
-    var texto = mudo ? 'sin señal' : (andando ? 'andando' : (ult.ignicion===true?'prendido, parado':'apagado'));
-
-    estado[cam]={pts:pts,ult:ult,color:color,min:min,mudo:mudo,kmDia:kmDia,hueco:hueco};
+    var andando=!mudo&&ult.ignicion===true&&Number(ult.velocidad)>3;
+    var clase=mudo?'e-mud':(andando?'e-and':'e-par');
+    var texto=mudo?'sin señal':(andando?'andando':(ult.ignicion===true?'prendido, parado':'apagado'));
+    estado[cam]={ult:ult,color:color,mudo:mudo};
 
     var linea=pts.filter(function(p){return p.lat&&p.lon;}).map(function(p){return [p.lat,p.lon];});
+    var tv=document.body.classList.contains('tv');
 
     if(!dibujo[cam]){
       dibujo[cam]={
-        linea: L.polyline(linea,{color:color,weight:3.5,opacity:.75}).addTo(mapa),
-        marca: L.marker([ult.lat,ult.lon],{
-          icon: L.divIcon({className:'', html:'<span class="eti" style="border-color:'+color+';color:'+color+'">'+esc(cam.replace('JAC-',''))+'</span>', iconSize:[46,20], iconAnchor:[23,10]})
-        }).addTo(mapa),
-        color: color
+        linea:L.polyline(linea,{color:color,weight:tv?5:3.5,opacity:.8}).addTo(mapa),
+        halo:L.marker(ult.lat&&ult.lon?[ult.lat,ult.lon]:[0,0],{interactive:false,
+          icon:L.divIcon({className:'',html:'<div class="halo" style="width:34px;height:34px;color:'+color+'"></div>',iconSize:[34,34],iconAnchor:[17,17]})}).addTo(mapa),
+        marca:L.marker([ult.lat,ult.lon],{icon:L.divIcon({className:'',
+          html:'<span class="eti" style="border:2px solid '+color+';color:'+color+'">'+esc(cam.replace('JAC-',''))+'</span>',
+          iconSize:[52,22],iconAnchor:[26,11]})}).addTo(mapa)
       };
-      dibujo[cam].marca.on('click', function(){ elegir(cam); });
-    } else {
-      dibujo[cam].linea.setLatLngs(linea);
-      dibujo[cam].marca.setLatLng([ult.lat,ult.lon]);
+      dibujo[cam].marca.on('click',function(){ elegir(cam); });
+    }else{
+      dibujo[cam].linea.setLatLngs(linea).setStyle({weight:tv?5:3.5});
+      mover(cam,[ult.lat,ult.lon]);
+      dibujo[cam].halo.setLatLng([ult.lat,ult.lon]);
     }
-    dibujo[cam].marca.setOpacity(mudo?0.45:1);
-    dibujo[cam].linea.setStyle({opacity: mudo?0.35:0.75});
+    dibujo[cam].marca.setOpacity(mudo?.45:1);
+    dibujo[cam].halo.setOpacity(mudo?0:1);
+    dibujo[cam].linea.setStyle({opacity:mudo?.35:.8});
     linea.forEach(function(c){ bordes.push(c); });
 
-    htm += '<div class="u'+(seleccion===cam?' sel':'')+'" data-cam="'+esc(cam)+'">'
-        +   '<div class="u-cab"><span class="punto" style="background:'+color+'"></span>'
-        +     '<span class="u-nom">'+esc(cam)+'</span>'
-        +     '<span class="u-est '+clase+'">'+texto+'</span></div>'
-        +   (ult.ubicacion ? '<div class="u-dir">'+esc(ult.ubicacion)+'</div>' : '')
-        +   '<div class="u-dat">'
-        +     '<span>Último reporte <b>'+horaVE(ult.ts)+'</b> ('+hace(min)+')</span>'
-        +   '</div>'
-        +   '<div class="u-dat">'
-        +     '<span>Km de hoy <b>'+(kmDia===null?'—':miles(kmDia,1))+'</b></span>'
-        +     '<span>Contador <b>'+miles(ult.odometro,0)+'</b></span>'
-        +     '<span>Puntos <b>'+miles(pts.length)+'</b></span>'
-        +     (hueco>MUDO_MIN?'<span style="color:#8a5a00">Hueco máx. <b>'+hueco+' min</b></span>':'')
-        +   '</div>'
-        + '</div>';
+    htm+='<div class="u'+(seleccion===cam?' sel':'')+'" data-cam="'+esc(cam)+'">'
+      +'<div class="u-cab"><span class="punto" style="background:'+color+'"></span>'
+      +'<span class="u-nom">'+esc(cam)+'</span>'
+      +'<span class="u-est '+clase+'">'+texto+'</span></div>'
+      +(ult.ubicacion?'<div class="u-dir">'+esc(ult.ubicacion)+'</div>':'')
+      +'<div class="u-dat"><span>Último reporte <b>'+horaVE(ult.ts)+'</b> ('+hace(min)+')</span></div>'
+      +'<div class="u-dat">'
+      +'<span>Km de hoy <b>'+(kmDia===null?'—':miles(kmDia,1))+'</b></span>'
+      +'<span>Contador <b>'+miles(ult.odometro,0)+'</b></span>'
+      +'<span>Puntos <b>'+miles(pts.length)+'</b></span>'
+      +(hueco>MUDO_MIN?'<span style="color:var(--ambar)">Hueco máx. <b>'+hueco+' min</b></span>':'')
+      +'</div></div>';
   });
 
   document.getElementById('lista').innerHTML=htm;
@@ -318,66 +388,137 @@ function pintar(filas){
   });
 
   var mudos=cams.filter(function(c){return estado[c].mudo;});
-  document.getElementById('avisos').innerHTML='';
-  if(mudos.length){
-    avisar('ojo','<b>'+mudos.length+' unidad'+(mudos.length>1?'es':'')+' sin reportar</b> hace más de '
-      +MUDO_MIN+' minutos: '+mudos.map(function(c){return c.replace('JAC-','');}).join(', ')
-      +'. En el mapa se ve dónde se les perdió el rastro, no dónde están ahora.');
-  }
+  document.getElementById('avisos').innerHTML = mudos.length
+    ? '<div class="aviso ojo"><b>'+mudos.length+' unidad'+(mudos.length>1?'es':'')+' sin reportar</b> hace más de '
+      +MUDO_MIN+' min: '+mudos.map(function(c){return c.replace('JAC-','');}).join(', ')
+      +'. En el mapa se ve dónde se les perdió el rastro, no dónde están ahora.</div>'
+    : '';
 
-  document.getElementById('sello').textContent =
-    cams.length+' unidad'+(cams.length>1?'es':'')+' · actualizado '+horaVE(new Date().toISOString());
-
-  if(primeraVez && bordes.length){ mapa.fitBounds(bordes,{padding:[45,45],maxZoom:15}); primeraVez=false; }
+  document.getElementById('sello').textContent=cams.length+' unidad'+(cams.length>1?'es':'');
+  if(primeraVez&&bordes.length){ mapa.fitBounds(bordes,{padding:[50,50],maxZoom:15}); primeraVez=false; }
 }
 
 function elegir(cam){
   seleccion=cam;
   Array.prototype.forEach.call(document.querySelectorAll('.u[data-cam]'),function(el){
-    el.classList.toggle('sel', el.getAttribute('data-cam')===cam);
+    el.classList.toggle('sel',el.getAttribute('data-cam')===cam);
   });
   var e=estado[cam];
-  if(e && e.ult) mapa.setView([e.ult.lat,e.ult.lon], Math.max(mapa.getZoom(),15), {animate:true});
+  if(e&&e.ult) mapa.setView([e.ult.lat,e.ult.lon],Math.max(mapa.getZoom(),15),{animate:true});
 }
 
-async function ciclo(){
+function marcarVivo(){
+  ultimoDato=Date.now();
+  var v=document.getElementById('vivo');
+  v.classList.remove('mudo');
+  document.getElementById('vivoTxt').textContent='en vivo';
+}
+
+/** Un canal caído se ve igual que una flota quieta: hay que decirlo. */
+function vigilarCanal(){
+  var v=document.getElementById('vivo');
+  // 6 min sin una sola novedad con el sondeo cada 2 min es sospechoso.
+  if(Date.now()-ultimoDato > 6*60000){
+    v.classList.add('mudo');
+    document.getElementById('vivoTxt').textContent='sin novedades';
+  }
+}
+
+async function repaso(){
   try{
-    var filas=await traer();
-    pintar(filas);
+    crudo=await traer(); pintar(); marcarVivo();
+    document.getElementById('avisos').innerHTML+='';
   }catch(e){
-    // El error se dice. Una pantalla que se queda quieta sin explicar por qué
-    // se ve igual que una pantalla donde no pasa nada.
     document.getElementById('avisos').innerHTML=
       '<div class="aviso mal"><b>No se pudo leer la posición.</b> '+esc(e.message||e)+'</div>';
-    document.getElementById('sello').textContent='sin actualizar';
   }
+}
+
+function suscribir(){
+  if(canal){ try{ sb.removeChannel(canal); }catch(e){} }
+  canal = sb.channel('gps-vivo')
+    .on('postgres_changes',{event:'INSERT',schema:'public',table:'gps_posiciones'},function(m){
+      if(!m.new) return;
+      var hoy=fechaVE(new Date());
+      // Solo lo de hoy: la pantalla muestra el día en curso.
+      if(String(m.new.ts).slice(0,10) < hoy) return;
+      crudo.push(m.new);
+      crudo.sort(function(a,b){ return new Date(a.ts)-new Date(b.ts); });
+      pintar(); marcarVivo();
+    })
+    .subscribe(function(st){
+      if(st==='SUBSCRIBED'){ marcarVivo(); }
+      else if(st==='CHANNEL_ERROR'||st==='TIMED_OUT'){
+        document.getElementById('vivo').classList.add('mudo');
+        document.getElementById('vivoTxt').textContent='reconectando…';
+        setTimeout(suscribir,5000);
+      }
+    });
+}
+
+// ── Modo televisor ───────────────────────────────────────────────────────────
+var candado=null;
+async function trabarPantalla(){
+  // Que el televisor no se apague solo a mitad de la jornada.
+  try{ if('wakeLock' in navigator) candado=await navigator.wakeLock.request('screen'); }catch(e){}
+}
+document.addEventListener('visibilitychange',function(){
+  if(document.visibilityState==='visible'&&document.body.classList.contains('tv')) trabarPantalla();
+});
+
+function modoTv(){
+  var on=document.body.classList.toggle('tv');
+  document.getElementById('bTv').classList.toggle('on',on);
+  document.getElementById('bTv').textContent=on?'Salir del televisor':'Modo televisor';
+  if(on){
+    if(document.getElementById('selFondo').value==='calles'){
+      document.getElementById('selFondo').value='oscuro'; ponerFondo('oscuro');
+    }
+    if(!document.fullscreenElement) document.documentElement.requestFullscreen().catch(function(){});
+    trabarPantalla();
+  }else{
+    if(document.fullscreenElement) document.exitFullscreen().catch(function(){});
+    if(candado){ try{ candado.release(); }catch(e){} candado=null; }
+  }
+  setTimeout(function(){ mapa.invalidateSize(); pintar(); },350);
+}
+
+function tictac(){
+  document.getElementById('reloj').textContent=horaVE(new Date().toISOString());
+  vigilarCanal();
+}
+
+// ── Arranque ─────────────────────────────────────────────────────────────────
+async function arrancarVista(){
+  iniciarMapa();
+  await repaso();
+  suscribir();
+  setInterval(repaso, REPASO_MS);
+  setInterval(tictac, 1000);
+  tictac();
 }
 
 async function arrancar(){
-  if(typeof L==='undefined'){ tapa('No se pudo cargar el mapa. Revisá la conexión a internet y volvé a abrir la pantalla.', true); return; }
+  if(typeof L==='undefined'){ tapa('No se pudo cargar el mapa. Revisá la conexión y volvé a abrir la pantalla.',true); return; }
   if(typeof window.supabase==='undefined'||!window.supabase.createClient){
-    tapa('No se pudo conectar con el sistema. Revisá la conexión y volvé a abrir la pantalla.', true); return;
+    tapa('No se pudo conectar con el sistema. Revisá la conexión y volvé a abrir la pantalla.',true); return;
   }
-
-  // ⚠️ `storageKey:'btg-auth'` NO es opcional: es el mismo que usa la app
-  // (`app.js:834`). Con el nombre por defecto, esta pantalla NO ve la sesión aunque
-  // el usuario acabe de entrar en app.html — se loguea y el mapa lo sigue mandando
-  // a iniciar sesión. Pasó el 14/08 apenas se publicó.
-  sb = window.supabase.createClient(SUPA_URL, SUPA_KEY, {
-    auth:{ persistSession:true, autoRefreshToken:true, detectSessionInUrl:false, storageKey:'btg-auth' }
+  // ⚠️ `storageKey:'btg-auth'` es el mismo que usa la app (app.js:834). Con el nombre
+  // por defecto esta pantalla NO ve la sesión aunque el usuario acabe de entrar.
+  sb=window.supabase.createClient(SUPA_URL,SUPA_KEY,{
+    auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:false,storageKey:'btg-auth'}
   });
-
-  // Las posiciones son evidencia: solo las lee quien tiene sesión y rol.
   var ses=null;
-  try{ var r=await sb.auth.getSession(); ses = r && r.data && r.data.session; }catch(e){}
+  try{ var r=await sb.auth.getSession(); ses=r&&r.data&&r.data.session; }catch(e){}
   if(!ses){ pedirClave(); return; }
-
   quitarTapa();
-  iniciarMapa();
-  await ciclo();
-  setInterval(ciclo, REFRESCO_MS);
+  await arrancarVista();
+  // ?tv=1 arranca directo en modo televisor: así la pantalla de la oficina se deja
+  // puesta con un acceso directo y nadie tiene que tocar nada.
+  if(/[?&]tv=1/.test(location.search)) modoTv();
 }
 
+document.getElementById('bTv').onclick=modoTv;
 document.getElementById('bPleno').onclick=function(){
   if(document.fullscreenElement) document.exitFullscreen();
   else document.documentElement.requestFullscreen();
