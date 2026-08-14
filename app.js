@@ -10944,10 +10944,12 @@ async function subirFotoPieza(input){
   var p=g('pz-foto-prev'); if(p)p.innerHTML='<span style="font-size:11px;color:var(--text3)">Subiendo…</span>';
   try{
     var dataURL=await comprimirImagen(f,1024,0.7);
-    var url=await subirImagenSegura(dataURL,'asistencia',_rutaImg('piezas',gv('pz-tipo')||'pieza'));
-    window._pzFotoUrl=url||'';
-    if(p)p.innerHTML=url?('<img src="'+_mEsc(url)+'" style="max-height:60px;border-radius:6px">'):'';
-  }catch(e){ if(p)p.innerHTML='<span style="font-size:11px;color:var(--red)">No se pudo subir la foto</span>'; }
+    var sub=await subirImagenSegura(dataURL,'asistencia',_rutaImg('piezas',gv('pz-tipo')||'pieza'));
+    window._pzFotoUrl=sub.ruta||'';     // a la base va la RUTA, no la URL
+    if(p)p.innerHTML=sub.ruta
+      ? ('<img src="'+_mEsc(sub.ver||'')+'" style="max-height:60px;border-radius:6px">')
+      : ('<span style="font-size:11px;color:var(--red)">No se pudo subir la foto: '+_mEsc(sub.error||'motivo desconocido')+'</span>');
+  }catch(e){ if(p)p.innerHTML='<span style="font-size:11px;color:var(--red)">No se pudo subir la foto: '+_mEsc((e&&e.message)||'')+'</span>'; }
   input.value='';
 }
 
@@ -11530,19 +11532,53 @@ function comprimirImagen(file, maxW, calidad){
     }catch(err){ reject(err); }
   });
 }
+// Sube y devuelve SIEMPRE un objeto {ruta, ver, error}:
+//   ruta  → lo que se guarda en la base. NUNCA caduca.
+//   ver   → URL firmada para mostrarla ahora (1 h). Solo para pintar en pantalla.
+//   error → el motivo cuando no se pudo. Vacío si salió bien.
+//
+// ⛔ TRES COSAS QUE ESTABAN MAL ACÁ Y ROMPÍAN LAS FOTOS (arreglado 14/08/2026):
+//
+// 1. `upsert:true`. Storage lo traduce a `INSERT ... ON CONFLICT DO UPDATE`, que exige
+//    permiso de UPDATE **aunque no haya conflicto**. El bucket `asistencia` solo le da
+//    INSERT a `anon`, así que TODA subida sin sesión fallaba, siempre, con
+//    «new row violates row-level security policy». Comprobado subiendo con la clave
+//    `anon` real: sin upsert entra (200), con upsert no (403). Lo único que el upsert
+//    cubría era que los 3 reintentos usaban la MISMA ruta: ahora cada intento usa la
+//    suya y el upsert sobra. Se arregla sin abrir permisos — dejar que `anon` haga
+//    UPDATE le permitiría pisar la selfie de otro, y esas fotos son evidencia.
+//
+// 2. Devolvía `getPublicUrl()`. El bucket es PRIVADO: esa URL responde HTTP 400. Cada
+//    foto quedaba guardada apuntando a una dirección muerta, y el día que se cerró el
+//    bucket se rompió de golpe todo el histórico. Lo que se guarda es la RUTA, que no
+//    depende de si el bucket es público hoy — ya lo decía `_rutaFoto`, pero acá no se
+//    cumplía.
+//
+// 3. `catch(e){}` VACÍO, y `up.error` ignorado. Por eso esto llevaba meses fallando sin
+//    que nadie lo supiera: la única señal era una columna vacía. Un error se ve; un
+//    hueco no. Ahora el motivo se devuelve, se escribe en consola y queda en
+//    `window._ultimoErrorFoto`.
 async function subirImagenSegura(dataURL, bucket, ruta){
-  if(!dataURL) return '';
-  if(!(DB_READY&&supabase)) return '';
+  if(!dataURL) return {ruta:'',ver:'',error:'no llegó ninguna imagen'};
+  if(!(DB_READY&&supabase)) return {ruta:'',ver:'',error:'sin conexión con la base'};
+  var ultimo='';
   for(var i=0;i<3;i++){
+    // Ruta propia por intento: si el 1º subió a medias, el 2º no choca contra él.
+    var r = i===0 ? ruta : String(ruta).replace(/\.jpg$/,'')+'-r'+(i+1)+'.jpg';
     try{
       var bin=atob(String(dataURL).split(',')[1]||'');
       var buf=new Uint8Array(bin.length); for(var j=0;j<bin.length;j++)buf[j]=bin.charCodeAt(j);
-      var up=await supabase.storage.from(bucket).upload(ruta,new Blob([buf],{type:'image/jpeg'}),{contentType:'image/jpeg',upsert:true});
-      if(!up.error) return supabase.storage.from(bucket).getPublicUrl(ruta).data.publicUrl;
-    }catch(e){}
+      var up=await supabase.storage.from(bucket).upload(r,new Blob([buf],{type:'image/jpeg'}),{contentType:'image/jpeg'});
+      if(up&&!up.error){
+        var ver=await _urlFirmada(bucket, r, 3600);
+        return {ruta:r, ver:ver||'', error:''};
+      }
+      ultimo=(up&&up.error&&up.error.message)||'la subida no devolvió confirmación';
+    }catch(e){ ultimo=(e&&e.message)||'error inesperado al subir'; }
     if(i<2) await new Promise(function(s){setTimeout(s,1000*(i+1));});
   }
-  return '';
+  try{ console.log('[foto] no se pudo subir a '+bucket+'/'+ruta+': '+ultimo); window._ultimoErrorFoto=ultimo; }catch(_e){}
+  return {ruta:'',ver:'',error:ultimo};
 }
 function _rutaImg(carpeta, id){
   var d=new Date(), y=d.getFullYear(), m=String(d.getMonth()+1).padStart(2,'0');
@@ -11556,10 +11592,10 @@ async function subirFotoHV(input){
   var p=g('hv-foto-prev'); if(p)p.innerHTML='<span style="font-size:11px;color:var(--text3)">Subiendo…</span>';
   try{
     var dataURL=await comprimirImagen(f,1024,0.7);
-    var url=await subirImagenSegura(dataURL,'asistencia',_rutaImg('mantenimientos',gv('hv-cam')));
-    if(!url){ window._hvFotoUrl=''; if(p)p.innerHTML='<span style="font-size:11px;color:var(--yellow)">No se pudo subir la foto — el registro se guarda igual</span>'; return; }
-    window._hvFotoUrl=url;
-    if(p)p.innerHTML='<img src="'+_mEsc(url)+'" style="width:56px;height:56px;object-fit:cover;border-radius:6px;border:1px solid var(--border)">';
+    var sub=await subirImagenSegura(dataURL,'asistencia',_rutaImg('mantenimientos',gv('hv-cam')));
+    if(!sub.ruta){ window._hvFotoUrl=''; if(p)p.innerHTML='<span style="font-size:11px;color:var(--yellow)">No se pudo subir la foto ('+_mEsc(sub.error||'motivo desconocido')+') — el registro se guarda igual</span>'; return; }
+    window._hvFotoUrl=sub.ruta;         // a la base va la RUTA
+    if(p)p.innerHTML='<img src="'+_mEsc(sub.ver||'')+'" style="width:56px;height:56px;object-fit:cover;border-radius:6px;border:1px solid var(--border)">';
   }catch(e){ window._hvFotoUrl=''; if(p)p.innerHTML='<span style="font-size:11px;color:var(--yellow)">No se pudo procesar la foto</span>'; }
 }
 async function registrarMantItem(){
@@ -12012,6 +12048,11 @@ async function abrirEditarUnidad(cam){
   var foto='', pdf='';
   if(cam&&DB_READY&&supabase){ try{ var r=await supabase.from('unidad_config').select('foto,titulo_pdf').eq('cam',cam).maybeSingle(); if(r&&r.data){foto=r.data.foto||'';pdf=r.data.titulo_pdf||'';} }catch(e){} }
   window._unidadFoto=foto; window._unidadPdf=pdf;
+  // El bucket es privado: lo guardado es una RUTA y hay que firmarla para verla.
+  // Antes se pintaba `<img src="<ruta>">` y la foto salía rota SIEMPRE. Un dataURL
+  // (el respaldo de cuando la subida falla) ya se muestra solo, no se firma.
+  var fotoVer=foto;
+  if(foto && String(foto).indexOf('data:')!==0){ try{ fotoVer=await _urlFirmada('asistencia',foto,3600)||''; }catch(e){ fotoVer=''; } }
   function inp(id,label,val,ph){return '<div class="fg"><label>'+label+'</label><input class="fc" id="'+id+'" value="'+_mEsc(val||'')+'"'+(ph?(' placeholder="'+_mEsc(ph)+'"'):'')+'></div>';}
   var choferDef=c.chofer||(FLOTA[cam]&&FLOTA[cam].chofer)||'';
   var html=
@@ -12049,7 +12090,7 @@ async function abrirEditarUnidad(cam){
       ? '<div class="fg"><label>🔑 Clave de acceso (app del chofer)</label><input class="fc" id="u-clave" type="text" placeholder="'+(nueva?'poné una clave para esta unidad':'dejá vacío para no cambiarla')+'"><small style="color:var(--text3);font-size:10px">El chofer entra con el N° de unidad + esta clave (una vez; después queda logueado).</small></div>'
       : '')+
     '<div class="fr2">'+
-      '<div class="fg"><label>Foto (máx 2MB)</label><input class="fc" id="u-foto" type="file" accept="image/*" onchange="subirFotoUnidad(this)"><div id="u-foto-prev" style="margin-top:6px">'+(foto?'<img src="'+_mEsc(foto)+'" style="width:64px;height:64px;object-fit:cover;border-radius:6px;border:1px solid var(--border)">':'')+'</div></div>'+
+      '<div class="fg"><label>Foto (máx 2MB)</label><input class="fc" id="u-foto" type="file" accept="image/*" onchange="subirFotoUnidad(this)"><div id="u-foto-prev" style="margin-top:6px">'+(fotoVer?'<img src="'+_mEsc(fotoVer)+'" style="width:64px;height:64px;object-fit:cover;border-radius:6px;border:1px solid var(--border)">':'')+'</div></div>'+
       '<div class="fg"><label>Título del vehículo (PDF, máx 4MB)</label><input class="fc" id="u-pdf" type="file" accept="application/pdf" onchange="subirTituloUnidad(this)"><div id="u-pdf-prev" style="margin-top:6px;font-size:11px">'+(pdf?'<a href="'+_mEsc(pdf)+'" target="_blank" style="color:var(--teal)">📄 ver título cargado</a>':'')+'</div></div>'+
     '</div>'+
     '<label style="display:flex;align-items:center;gap:6px;font-size:12px;margin:6px 0"><input type="checkbox" id="u-activo"'+(c.activo!==false?' checked':'')+'> Unidad activa</label>'+
@@ -12062,10 +12103,10 @@ async function subirFotoUnidad(input){
   var p=g('u-foto-prev'); if(p)p.innerHTML='<span style="font-size:11px;color:var(--text3)">Subiendo…</span>';
   try{
     var dataURL=await comprimirImagen(f,800,0.7);
-    var url=await subirImagenSegura(dataURL,'asistencia',_rutaImg('unidades',gv('u-cam')));
-    window._unidadFoto = url || dataURL;   // comprimida (~50 KB), no los 2 MB crudos de antes
-    if(p)p.innerHTML='<img src="'+_mEsc(window._unidadFoto)+'" style="width:64px;height:64px;object-fit:cover;border-radius:6px;border:1px solid var(--border)">';
-    if(!url && typeof mostrarToast==='function')mostrarToast('La foto no se pudo subir al servidor; queda en el registro','error');
+    var sub=await subirImagenSegura(dataURL,'asistencia',_rutaImg('unidades',gv('u-cam')));
+    window._unidadFoto = sub.ruta || dataURL;   // ruta si subió; si no, la comprimida (~50 KB)
+    if(p)p.innerHTML='<img src="'+_mEsc(sub.ver||dataURL)+'" style="width:64px;height:64px;object-fit:cover;border-radius:6px;border:1px solid var(--border)">';
+    if(!sub.ruta && typeof mostrarToast==='function')mostrarToast('La foto no se pudo subir ('+(sub.error||'motivo desconocido')+'); queda en el registro','error');
   }catch(e){ if(typeof mostrarToast==='function')mostrarToast('No se pudo procesar la foto','error'); }
 }
 function subirTituloUnidad(input){var f=input&&input.files&&input.files[0];if(!f)return;if(f.size>4*1024*1024){alert('El PDF es muy grande (máx 4MB).');input.value='';return;}var rd=new FileReader();rd.onload=function(e){window._unidadPdf=e.target.result;var p=g('u-pdf-prev');if(p)p.innerHTML='<span style="color:var(--green)">📄 título listo para guardar</span>';};rd.readAsDataURL(f);}
@@ -12844,6 +12885,9 @@ async function imprimirFichaUnidad(cam){
   var c=(typeof unidadInfo==='function')?unidadInfo(cam):{};
   var foto='';
   if(DB_READY&&supabase){ try{ var r=await supabase.from('unidad_config').select('foto').eq('cam',cam).maybeSingle(); if(r&&r.data)foto=r.data.foto||''; }catch(e){} }
+  // Bucket privado: lo guardado es una RUTA y hay que firmarla. Sin esto la ficha
+  // mostraba la foto rota siempre. Un dataURL de respaldo se muestra tal cual.
+  if(foto && String(foto).indexOf('data:')!==0){ try{ foto=await _urlFirmada('asistencia',foto,3600)||''; }catch(e){ foto=''; } }
   var choferU=c.chofer||(FLOTA[cam]&&FLOTA[cam].chofer)||'';
   var stats=mkStat('N° unidad',cam,'','azul')+mkStat('Placa',c.placa||'—','','amari')+mkStat('Tipo',(c.tipo||'—'),(c.combustible||''),'verde')+mkStat('Chofer',choferU||'—','','rojo');
   function fila(k,v){return '<tr><td style="font-weight:700;width:210px;background:#f8fafc">'+k+'</td><td>'+_mEsc(v||'—')+'</td></tr>';}
@@ -16645,11 +16689,11 @@ async function previewFoto(input){
   try{
     var dataURL=await comprimirImagen(file,640,0.7);            // carnet/listado: 640 px sobra (~40 KB)
     if(preview)preview.innerHTML='<img src="'+dataURL+'" style="width:100%;height:100%;object-fit:cover">';
-    var url=await subirImagenSegura(dataURL,'asistencia',_rutaImg('empleados',gv('ne-id')||gv('ne-ced')));
-    if(url){ sv('ne-foto-b64',url); }
+    var sub=await subirImagenSegura(dataURL,'asistencia',_rutaImg('empleados',gv('ne-id')||gv('ne-ced')));
+    if(sub.ruta){ sv('ne-foto-b64',sub.ruta); if(preview&&sub.ver)preview.innerHTML='<img src="'+_mEsc(sub.ver)+'" style="width:100%;height:100%;object-fit:cover">'; }
     else{
       sv('ne-foto-b64',dataURL);   // comprimida (~40 KB), no los 500 KB crudos de antes
-      if(typeof mostrarToast==='function')mostrarToast('La foto no se pudo subir al servidor; queda guardada en el registro','error');
+      if(typeof mostrarToast==='function')mostrarToast('La foto no se pudo subir ('+(sub.error||'motivo desconocido')+'); queda guardada en el registro','error');
     }
   }catch(e){ if(typeof mostrarToast==='function')mostrarToast('No se pudo procesar la foto','error'); }
 }
