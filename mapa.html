@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Betangar — Flota en vivo</title>
+<!--
+  ══════════════════════════════════════════════════════════════════════════════
+  PANTALLA DE FLOTA EN VIVO — Betangar (14/08/2026)
+
+  Lee de NUESTRA base (`gps_posiciones`), NUNCA del API del proveedor. Dos razones:
+   1. El API del proveedor es HTTP plano y con autenticación básica: si el navegador
+      lo llamara, usuario y clave quedarían a la vista de cualquiera que abra el
+      inspector. La llamada la hace la Edge Function `gps-sondeo` desde el servidor.
+   2. El proveedor NO guarda historial consultable. El trazado que se pinta acá es
+      el que venimos guardando nosotros desde el primer sondeo.
+
+  ⚠️ LO QUE ESTA PANTALLA NUNCA DEBE HACER: pintar la última posición conocida como
+  si fuera la de AHORA. Medido el 14/08: el API devolvió el mismo reporte durante 22
+  minutos, con el camión marcando "encendido, 45 km/h" — porque así iba la última vez
+  que reportó, no en ese momento. Por eso cada unidad muestra SIEMPRE la antigüedad
+  del dato, y si pasa del umbral se marca como sin señal en vez de mentir.
+
+  Fondo de mapa: OpenStreetMap (libre, sin clave ni tarjeta). Los camiones y el
+  trazado los dibujamos nosotros, así que el fondo es una capa cambiable: para pasar
+  a otro proveedor se cambia FONDOS.actual. ⛔ Los mapas de Google NO se pueden usar
+  acá: sus términos prohíben servir sus mosaicos fuera de su propio SDK.
+  ══════════════════════════════════════════════════════════════════════════════
+-->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+  :root{
+    --tinta:#0f1720; --papel:#f4f6f8; --linea:#d8dee6; --suave:#66738a;
+    --verde:#0f9d58; --ambar:#f4a300; --rojo:#d93025; --azul:#1a73e8;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0}
+  body{font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:var(--tinta);background:var(--papel);display:flex;flex-direction:column}
+
+  header{display:flex;align-items:center;gap:14px;padding:10px 16px;background:#fff;border-bottom:1px solid var(--linea);flex-shrink:0}
+  header h1{font-size:17px;margin:0;font-weight:650;letter-spacing:-.2px}
+  .sello{font-size:12px;color:var(--suave)}
+  .btn{border:1px solid var(--linea);background:#fff;color:var(--tinta);border-radius:8px;padding:7px 13px;font-size:13px;cursor:pointer;font-weight:550}
+  .btn:hover{background:var(--papel)}
+  .btn.sal{margin-left:auto}
+
+  #cuerpo{flex:1;display:flex;min-height:0}
+  #panel{width:335px;flex-shrink:0;overflow-y:auto;background:#fff;border-right:1px solid var(--linea)}
+  #mapa{flex:1;min-width:0}
+
+  .u{padding:11px 14px;border-bottom:1px solid var(--linea);cursor:pointer}
+  .u:hover{background:var(--papel)}
+  .u.sel{background:#eaf1fd;box-shadow:inset 3px 0 0 var(--azul)}
+  .u-cab{display:flex;align-items:center;gap:8px}
+  .punto{width:11px;height:11px;border-radius:50%;flex-shrink:0}
+  .u-nom{font-weight:650;font-size:14px}
+  .u-est{margin-left:auto;font-size:11px;font-weight:650;padding:2px 8px;border-radius:20px}
+  .e-and{background:#e3f5e9;color:var(--verde)}
+  .e-par{background:#fdf1d8;color:#8a5a00}
+  .e-mud{background:#fbe3e1;color:var(--rojo)}
+  .u-dir{font-size:12px;color:var(--suave);margin:5px 0 0;line-height:1.35}
+  .u-dat{display:flex;gap:14px;margin-top:6px;font-size:12px;color:var(--suave);flex-wrap:wrap}
+  .u-dat b{color:var(--tinta);font-weight:650}
+
+  .aviso{margin:10px 14px;padding:9px 11px;border-radius:8px;font-size:12.5px;line-height:1.4}
+  .aviso.ok{background:#e3f5e9;color:#0b6b3c}
+  .aviso.ojo{background:#fdf1d8;color:#7a4f00}
+  .aviso.mal{background:#fbe3e1;color:#8f1d16}
+
+  .titpanel{padding:10px 14px 4px;font-size:11px;letter-spacing:.6px;text-transform:uppercase;color:var(--suave);font-weight:700}
+  .leyenda{padding:10px 14px 16px;font-size:11.5px;color:var(--suave);line-height:1.5;border-top:1px solid var(--linea)}
+
+  #tapa{position:fixed;inset:0;background:var(--papel);display:flex;align-items:center;justify-content:center;z-index:9999}
+  #tapa .caja{background:#fff;border:1px solid var(--linea);border-radius:12px;padding:26px 30px;max-width:400px;text-align:center}
+  #tapa h2{margin:0 0 8px;font-size:17px}
+  #tapa p{margin:0 0 16px;color:var(--suave);font-size:13.5px;line-height:1.5}
+  .eti{background:#fff;border:1px solid var(--linea);border-radius:6px;padding:2px 7px;font-size:11px;font-weight:700;white-space:nowrap;box-shadow:0 1px 3px rgba(0,0,0,.18)}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Flota en vivo</h1>
+  <span class="sello" id="sello">cargando…</span>
+  <button class="btn" id="bPleno">Pantalla completa</button>
+  <button class="btn sal" onclick="location.href='app.html'">← Volver al sistema</button>
+</header>
+
+<div id="cuerpo">
+  <div id="panel">
+    <div id="avisos"></div>
+    <div class="titpanel">Unidades</div>
+    <div id="lista"></div>
+    <div class="leyenda">
+      <b>Cómo leer esta pantalla.</b> La hora es la de Venezuela y es la del
+      <b>último reporte del camión</b>, no la de la consulta. Si un camión lleva más de
+      15 minutos sin reportar se marca <b>sin señal</b>: lo último que se supo de él
+      sigue en el mapa, pero ya no dice dónde está ahora.<br><br>
+      El kilometraje del día sale del contador del propio camión, así que no se
+      pierde aunque falte señal un rato. La línea del recorrido sí puede quedar
+      cortada en esos tramos.
+    </div>
+  </div>
+  <div id="mapa"></div>
+</div>
+
+<div id="tapa"><div class="caja">
+  <h2>Flota en vivo</h2>
+  <p id="tapaTxt">Verificando el acceso…</p>
+  <button class="btn" id="tapaBtn" style="display:none" onclick="location.href='app.html'">Ir a iniciar sesión</button>
+</div></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script>
+(function(){
+'use strict';
+
+var SUPA_URL = 'https://hrkjddehqnzcqwlkklqm.supabase.co';
+var SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhya2pkZGVocW56Y3F3bGtrbHFtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc2NTk1NzIsImV4cCI6MjA5MzIzNTU3Mn0.kqWKthyZfPZ86toql7shGByF-ZhUpcQUS4Jw4RnG_ko';
+
+// Cada cuánto se refresca la pantalla. NO consulta al proveedor: lee nuestra base,
+// que la llena el cron cada 2 minutos.
+var REFRESCO_MS = 30000;
+// Pasado este rato sin reportar, la posición deja de presentarse como actual.
+var MUDO_MIN = 15;
+
+var FONDOS = {
+  osm: { url:'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+         atrib:'&copy; colaboradores de <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>', max:19 }
+};
+var FONDO = FONDOS.osm;
+
+var COLORES = ['#1a73e8','#d93025','#0f9d58','#f4a300','#8e24aa','#00838f',
+               '#e65100','#3949ab','#c2185b','#558b2f','#5d4037','#00695c'];
+
+var sb=null, mapa=null, capaFondo=null;
+var dibujo={};        // cam -> {marca, linea, color}
+var estado={};        // cam -> resumen
+var seleccion=null, primeraVez=true;
+
+function dosDig(n){ return (n<10?'0':'')+n; }
+// La hora del negocio es la de Venezuela, no la del equipo donde se abre la pantalla.
+function horaVE(iso){
+  try{
+    return new Date(iso).toLocaleTimeString('es-VE',
+      {hour:'2-digit',minute:'2-digit',hour12:false,timeZone:'America/Caracas'});
+  }catch(e){ return '--:--'; }
+}
+function fechaVE(d){
+  try{
+    var p=new Intl.DateTimeFormat('es-VE',{timeZone:'America/Caracas',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(d);
+    var o={}; p.forEach(function(x){o[x.type]=x.value;});
+    return o.year+'-'+o.month+'-'+o.day;
+  }catch(e){ return new Date().toISOString().slice(0,10); }
+}
+function miles(n,dec){
+  if(n===null||n===undefined||isNaN(n)) return '—';
+  return Number(n).toLocaleString('es-VE',{minimumFractionDigits:dec||0,maximumFractionDigits:dec||0});
+}
+function hace(min){
+  if(min<1) return 'hace menos de un minuto';
+  if(min<60) return 'hace '+min+' min';
+  var h=Math.floor(min/60), m=min%60;
+  return 'hace '+h+' h'+(m?' '+dosDig(m)+' min':'');
+}
+function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){
+  return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+
+function tapa(txt, mostrarBoton){
+  document.getElementById('tapaTxt').textContent = txt;
+  document.getElementById('tapaBtn').style.display = mostrarBoton ? '' : 'none';
+  document.getElementById('tapa').style.display='flex';
+}
+function quitarTapa(){ document.getElementById('tapa').style.display='none'; }
+
+function avisar(clase, html){
+  document.getElementById('avisos').innerHTML += '<div class="aviso '+clase+'">'+html+'</div>';
+}
+
+function iniciarMapa(){
+  mapa = L.map('mapa',{zoomControl:true, attributionControl:true}).setView([10.6427,-71.6125], 11);
+  capaFondo = L.tileLayer(FONDO.url,{maxZoom:FONDO.max, attribution:FONDO.atrib}).addTo(mapa);
+}
+
+/** Trae el recorrido del día de hoy (hora Venezuela) de todas las unidades. */
+async function traer(){
+  var hoy = fechaVE(new Date());
+  // El día del NEGOCIO va de las 00:00 a las 23:59 hora Venezuela = UTC-4.
+  var desde = hoy+'T00:00:00-04:00';
+
+  var r = await sb.from('gps_posiciones')
+    .select('cam,ts,lat,lon,velocidad,rumbo,ignicion,odometro')
+    .gte('ts', desde)
+    .order('ts', {ascending:true})
+    .limit(20000);          // PostgREST corta en 1.000 si no se le pide más
+
+  if(r.error) throw new Error(r.error.message);
+  return r.data||[];
+}
+
+function pintar(filas){
+  var porCam={};
+  filas.forEach(function(f){ (porCam[f.cam]=porCam[f.cam]||[]).push(f); });
+
+  var cams=Object.keys(porCam).sort();
+  var ahora=Date.now(), htm='', bordes=[];
+
+  if(!cams.length){
+    document.getElementById('lista').innerHTML =
+      '<div class="u"><div class="u-dir">Todavía no hay posiciones guardadas de hoy. '+
+      'El sistema consulta cada 2 minutos; en cuanto el primer camión reporte, aparece acá.</div></div>';
+    document.getElementById('sello').textContent='sin datos de hoy';
+    return;
+  }
+
+  cams.forEach(function(cam, i){
+    var pts=porCam[cam];
+    var ult=pts[pts.length-1];
+    var color=COLORES[i % COLORES.length];
+    var min=Math.round((ahora - new Date(ult.ts).getTime())/60000);
+    var mudo = min > MUDO_MIN;
+
+    // Km del día por el CONTADOR del camión: sobrevive a los huecos de señal.
+    // Sumar distancias entre puntos subestimaría el recorrido en cada tramo perdido.
+    var ods=pts.map(function(p){return p.odometro;}).filter(function(v){return v!==null&&v!==undefined&&!isNaN(v);});
+    var kmDia = ods.length>1 ? Math.max(0, Math.max.apply(null,ods)-Math.min.apply(null,ods)) : null;
+
+    // El hueco más largo del día: es la medida de confianza, y se muestra.
+    var hueco=0;
+    for(var k=1;k<pts.length;k++){
+      var d=(new Date(pts[k].ts)-new Date(pts[k-1].ts))/60000;
+      if(d>hueco) hueco=d;
+    }
+    hueco=Math.round(hueco);
+
+    var andando = !mudo && ult.ignicion===true && Number(ult.velocidad)>3;
+    var clase = mudo ? 'e-mud' : (andando ? 'e-and' : 'e-par');
+    var texto = mudo ? 'sin señal' : (andando ? 'andando' : (ult.ignicion===true?'prendido, parado':'apagado'));
+
+    estado[cam]={pts:pts,ult:ult,color:color,min:min,mudo:mudo,kmDia:kmDia,hueco:hueco};
+
+    var linea=pts.filter(function(p){return p.lat&&p.lon;}).map(function(p){return [p.lat,p.lon];});
+
+    if(!dibujo[cam]){
+      dibujo[cam]={
+        linea: L.polyline(linea,{color:color,weight:3.5,opacity:.75}).addTo(mapa),
+        marca: L.marker([ult.lat,ult.lon],{
+          icon: L.divIcon({className:'', html:'<span class="eti" style="border-color:'+color+';color:'+color+'">'+esc(cam.replace('JAC-',''))+'</span>', iconSize:[46,20], iconAnchor:[23,10]})
+        }).addTo(mapa),
+        color: color
+      };
+      dibujo[cam].marca.on('click', function(){ elegir(cam); });
+    } else {
+      dibujo[cam].linea.setLatLngs(linea);
+      dibujo[cam].marca.setLatLng([ult.lat,ult.lon]);
+    }
+    dibujo[cam].marca.setOpacity(mudo?0.45:1);
+    dibujo[cam].linea.setStyle({opacity: mudo?0.35:0.75});
+    linea.forEach(function(c){ bordes.push(c); });
+
+    htm += '<div class="u'+(seleccion===cam?' sel':'')+'" data-cam="'+esc(cam)+'">'
+        +   '<div class="u-cab"><span class="punto" style="background:'+color+'"></span>'
+        +     '<span class="u-nom">'+esc(cam)+'</span>'
+        +     '<span class="u-est '+clase+'">'+texto+'</span></div>'
+        +   '<div class="u-dat">'
+        +     '<span>Último reporte <b>'+horaVE(ult.ts)+'</b> ('+hace(min)+')</span>'
+        +   '</div>'
+        +   '<div class="u-dat">'
+        +     '<span>Km de hoy <b>'+(kmDia===null?'—':miles(kmDia,1))+'</b></span>'
+        +     '<span>Contador <b>'+miles(ult.odometro,0)+'</b></span>'
+        +     '<span>Puntos <b>'+miles(pts.length)+'</b></span>'
+        +     (hueco>MUDO_MIN?'<span style="color:#8a5a00">Hueco máx. <b>'+hueco+' min</b></span>':'')
+        +   '</div>'
+        + '</div>';
+  });
+
+  document.getElementById('lista').innerHTML=htm;
+  Array.prototype.forEach.call(document.querySelectorAll('.u[data-cam]'),function(el){
+    el.onclick=function(){ elegir(el.getAttribute('data-cam')); };
+  });
+
+  var mudos=cams.filter(function(c){return estado[c].mudo;});
+  document.getElementById('avisos').innerHTML='';
+  if(mudos.length){
+    avisar('ojo','<b>'+mudos.length+' unidad'+(mudos.length>1?'es':'')+' sin reportar</b> hace más de '
+      +MUDO_MIN+' minutos: '+mudos.map(function(c){return c.replace('JAC-','');}).join(', ')
+      +'. En el mapa se ve dónde se les perdió el rastro, no dónde están ahora.');
+  }
+
+  document.getElementById('sello').textContent =
+    cams.length+' unidad'+(cams.length>1?'es':'')+' · actualizado '+horaVE(new Date().toISOString());
+
+  if(primeraVez && bordes.length){ mapa.fitBounds(bordes,{padding:[45,45],maxZoom:15}); primeraVez=false; }
+}
+
+function elegir(cam){
+  seleccion=cam;
+  Array.prototype.forEach.call(document.querySelectorAll('.u[data-cam]'),function(el){
+    el.classList.toggle('sel', el.getAttribute('data-cam')===cam);
+  });
+  var e=estado[cam];
+  if(e && e.ult) mapa.setView([e.ult.lat,e.ult.lon], Math.max(mapa.getZoom(),15), {animate:true});
+}
+
+async function ciclo(){
+  try{
+    var filas=await traer();
+    pintar(filas);
+  }catch(e){
+    // El error se dice. Una pantalla que se queda quieta sin explicar por qué
+    // se ve igual que una pantalla donde no pasa nada.
+    document.getElementById('avisos').innerHTML=
+      '<div class="aviso mal"><b>No se pudo leer la posición.</b> '+esc(e.message||e)+'</div>';
+    document.getElementById('sello').textContent='sin actualizar';
+  }
+}
+
+async function arrancar(){
+  if(typeof L==='undefined'){ tapa('No se pudo cargar el mapa. Revisá la conexión a internet y volvé a abrir la pantalla.', true); return; }
+  if(typeof window.supabase==='undefined'||!window.supabase.createClient){
+    tapa('No se pudo conectar con el sistema. Revisá la conexión y volvé a abrir la pantalla.', true); return;
+  }
+
+  sb = window.supabase.createClient(SUPA_URL, SUPA_KEY);
+
+  // Las posiciones son evidencia: solo las lee quien tiene sesión y rol. Si no hay
+  // sesión, se manda a iniciarla en vez de dejar una pantalla vacía sin explicación.
+  var ses=null;
+  try{ var r=await sb.auth.getSession(); ses = r && r.data && r.data.session; }catch(e){}
+  if(!ses){ tapa('Para ver la flota hay que iniciar sesión en el sistema.', true); return; }
+
+  quitarTapa();
+  iniciarMapa();
+  await ciclo();
+  setInterval(ciclo, REFRESCO_MS);
+}
+
+document.getElementById('bPleno').onclick=function(){
+  if(document.fullscreenElement) document.exitFullscreen();
+  else document.documentElement.requestFullscreen();
+  setTimeout(function(){ if(mapa) mapa.invalidateSize(); },350);
+};
+window.addEventListener('resize',function(){ if(mapa) mapa.invalidateSize(); });
+
+arrancar();
+})();
+</script>
+</body>
+</html>
