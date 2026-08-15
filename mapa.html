@@ -138,6 +138,7 @@
       <input type="range" id="brillo" min="80" max="230" step="5" value="130">
       <b id="brilloTxt">130%</b>
     </span>
+    <button class="btn ocultarTv" id="bClave" title="Pegar la clave de Stadia Maps para probar sus fondos">🔑</button>
     <button class="btn" id="bTv">Modo televisor</button>
     <button class="btn ocultarTv" id="bPleno">Pantalla completa</button>
     <button class="btn ocultarTv" onclick="location.href='app.html'">← Volver</button>
@@ -187,11 +188,43 @@ var ANIM_MS    = 2500;    // cuánto dura el desplazamiento del camión en panta
 // plan con licencia comercial: se cambia SOLO esta lista.
 var CARTO='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>';
 var ESRI='&copy; Esri';
+var STADIA='&copy; <a href="https://stadiamaps.com/">Stadia Maps</a> &copy; <a href="https://openmaptiles.org/">OpenMapTiles</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>';
+
+/**
+ * CLAVE DE STADIA MAPS — el único fondo con licencia comercial en regla.
+ * Los gratuitos (Esri, Carto, OSM) sirven para EVALUAR; ⛔ ninguno se puede
+ * revender dentro de FlotaMax ni usar en firme en una empresa.
+ *
+ * Mientras esté vacía, se puede pegar la clave desde la propia pantalla (queda
+ * en este navegador nada más) para probar. Cuando esté decidido, se escribe acá
+ * y la tienen todos los usuarios sin pegar nada.
+ *
+ * ⚠️ Esta clave NO es un secreto: viaja en la dirección de cada mosaico y la ve
+ * cualquiera que abra el inspector — igual que la clave `anon` de Supabase. Lo
+ * que la protege es la RESTRICCIÓN POR DOMINIO en el panel de Stadia. Sin eso,
+ * cualquiera la copia y te gasta la cuota. Hay que autorizar `betangar.com`.
+ */
+var STADIA_KEY = '';
+function claveStadia(){
+  if(STADIA_KEY) return STADIA_KEY;
+  try{ return localStorage.getItem('btg-stadia-key')||''; }catch(e){ return ''; }
+}
 
 // `brillo` es el realce por defecto del fondo. Se aplica SOLO a los mosaicos
 // (.leaflet-tile-pane), nunca al mapa entero: si se filtrara todo, las rutas y las
 // etiquetas de las unidades se irían de color con él.
-var FONDOS = {
+var FONDOS = {};
+// Los de Stadia van PRIMEROS: en cuanto haya clave, son los que quedan por defecto.
+if(claveStadia()){
+  var k='?api_key='+encodeURIComponent(claveStadia());
+  FONDOS.stadiaOscuro = { nom:'★ Oscuro Stadia (monitoreo)', max:20, brillo:1.10,
+    capas:['https://tiles.stadiamaps.com/tiles/alidade_smooth_dark/{z}/{x}/{y}{r}.png'+k], atrib:STADIA };
+  FONDOS.stadiaClaro  = { nom:'★ Claro Stadia', max:20, brillo:1.00,
+    capas:['https://tiles.stadiamaps.com/tiles/alidade_smooth/{z}/{x}/{y}{r}.png'+k], atrib:STADIA };
+  FONDOS.stadiaSat    = { nom:'★ Satélite Stadia', max:20, brillo:1.00,
+    capas:['https://tiles.stadiamaps.com/tiles/alidade_satellite/{z}/{x}/{y}{r}.jpg'+k], atrib:STADIA };
+}
+Object.assign(FONDOS, {
   oscuroCalles:{ nom:'Oscuro, calles marcadas', max:16, brillo:1.30,
               capas:['https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}',
                      'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}'],
@@ -208,7 +241,7 @@ var FONDOS = {
   satelite: { nom:'Satélite', max:19, brillo:1.00,
               capas:['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
               atrib:'Imágenes &copy; Esri, Maxar, Earthstar Geographics' }
-};
+});
 
 var COLORES = ['#4da3ff','#ff5a4d','#22d37a','#ffc233','#c07bff','#00c9c9',
                '#ff9040','#7f8cff','#ff6fae','#9ad34a','#c49a7a','#3fd0b0'];
@@ -560,6 +593,37 @@ async function arrancar(){
   // puesta con un acceso directo y nadie tiene que tocar nada.
   if(/[?&]tv=1/.test(location.search)) modoTv();
 }
+
+/**
+ * Pegar la clave de Stadia sin tocar el código, para poder EVALUAR los fondos hoy.
+ * Queda solo en este navegador. Cuando esté decidido, va en `STADIA_KEY` y la
+ * tienen todos los usuarios sin pegar nada.
+ */
+document.getElementById('bClave').onclick=function(){
+  var actual=''; try{ actual=localStorage.getItem('btg-stadia-key')||''; }catch(e){}
+  var c=document.querySelector('#tapa .caja');
+  c.innerHTML='<h2>Clave de Stadia Maps</h2>'
+    +'<p>Pegá acá la clave para probar sus fondos en esta pantalla. Queda guardada solo '
+    +'en este equipo. Acordate de autorizar <b>betangar.com</b> en el panel de Stadia, '
+    +'o los mapas no van a cargar.</p>'
+    +'<input id="kIn" type="text" placeholder="api_key de Stadia" value="'+esc(actual)+'">'
+    +'<button class="btn" id="kOk" style="width:100%;padding:9px;margin-top:6px">Guardar y recargar</button>'
+    +'<p style="margin:12px 0 0"><a href="#" id="kNo" style="color:var(--suave);font-size:12.5px">Quitar la clave</a>'
+    +' · <a href="#" id="kSalir" style="color:var(--suave);font-size:12.5px">Cancelar</a></p>';
+  document.getElementById('tapa').style.display='flex';
+  document.getElementById('kOk').onclick=function(){
+    var v=(document.getElementById('kIn').value||'').trim();
+    try{ if(v) localStorage.setItem('btg-stadia-key',v); else localStorage.removeItem('btg-stadia-key'); }catch(e){}
+    // Los fondos se arman al cargar la página, así que hay que rehacerla.
+    try{ localStorage.setItem('btg-mapa-fondo', v?'stadiaOscuro':'oscuroCalles'); }catch(e){}
+    location.reload();
+  };
+  document.getElementById('kNo').onclick=function(ev){ ev.preventDefault();
+    try{ localStorage.removeItem('btg-stadia-key'); localStorage.setItem('btg-mapa-fondo','oscuroCalles'); }catch(e){}
+    location.reload(); };
+  document.getElementById('kSalir').onclick=function(ev){ ev.preventDefault(); quitarTapa(); };
+  document.getElementById('kIn').focus();
+};
 
 document.getElementById('bTv').onclick=modoTv;
 document.getElementById('bPleno').onclick=function(){
