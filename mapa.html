@@ -224,21 +224,34 @@ if(claveStadia()){
   FONDOS.stadiaSat    = { nom:'★ Satélite Stadia', max:20, brillo:1.00,
     capas:['https://tiles.stadiamaps.com/tiles/alidade_satellite/{z}/{x}/{y}{r}.jpg'+k], atrib:STADIA };
 }
+var OSM='&copy; colaboradores de <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>';
+var OSM_TILES='https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
+
 Object.assign(FONDOS, {
-  oscuroCalles:{ nom:'Oscuro, calles marcadas', max:16, brillo:1.30,
+  // ✅ LOS DOS ÚNICOS GRATUITOS QUE SE PUEDEN USAR.
+  // El oscuro se fabrica acá: se le dan vuelta los colores al mapa de OSM con un
+  // filtro del navegador. Los datos son libres y el color lo ponemos nosotros, así
+  // que no depende del permiso de nadie. Sale un negativo — las calles quedan
+  // oscuras en vez de claras — pero el fondo deja de encandilar en un televisor y
+  // la ruta de color resalta MÁS que sobre cualquier fondo comprado.
+  oscuroCasa:{ nom:'Oscuro (hecho en casa)', max:19, brillo:1.00,
+              filtroBase:'invert(1) hue-rotate(180deg) saturate(.55) brightness(.92)',
+              capas:[OSM_TILES], atrib:OSM },
+  calles:   { nom:'Calles (OpenStreetMap)', max:19, brillo:1.00,
+              capas:[OSM_TILES], atrib:OSM },
+
+  // ⚠️ DE ACÁ PARA ABAJO: SOLO PARA EVALUAR, NO PARA DEJAR PUESTOS.
+  // Esri exige licencia paga para uso comercial y Carto exige suscripción — y
+  // Betangar operando su flota ES uso comercial. Se dejan porque estamos
+  // comparando, y quedan marcados para que nadie los deje en un cliente.
+  oscuroCalles:{ nom:'⚠️ Esri oscuro (solo evaluación)', max:16, brillo:1.30,
               capas:['https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}',
                      'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}'],
               atrib:ESRI },
-  oscuro:   { nom:'Oscuro (monitoreo)',  max:20, brillo:1.55,
+  oscuro:   { nom:'⚠️ Carto oscuro (solo evaluación)', max:20, brillo:1.55,
               capas:['https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'],
               atrib:CARTO },
-  claro:    { nom:'Claro (minimalista)', max:20, brillo:1.00,
-              capas:['https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png'],
-              atrib:CARTO },
-  calles:   { nom:'Calles (OpenStreetMap)', max:19, brillo:1.00,
-              capas:['https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png'],
-              atrib:'&copy; colaboradores de <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>' },
-  satelite: { nom:'Satélite', max:19, brillo:1.00,
+  satelite: { nom:'⚠️ Satélite (solo evaluación)', max:19, brillo:1.00,
               capas:['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
               atrib:'Imágenes &copy; Esri, Maxar, Earthstar Geographics' }
 });
@@ -320,16 +333,19 @@ var capas=[];
  */
 function aplicarBrillo(){
   var v=Number(document.getElementById('brillo').value)/100;
+  var clave=document.getElementById('selFondo').value;
+  var base=(FONDOS[clave]||{}).filtroBase||'';
   var pane=mapa.getPane('tilePane');
   // El contraste sube a la mitad del brillo: subir solo el brillo lava el mapa
   // y las calles siguen sin despegarse del fondo.
-  pane.style.filter = v===1 ? '' : 'brightness('+v.toFixed(2)+') contrast('+(1+(v-1)*0.5).toFixed(2)+')';
+  var realce = v===1 ? '' : ' brightness('+v.toFixed(2)+') contrast('+(1+(v-1)*0.5).toFixed(2)+')';
+  pane.style.filter = (base+realce).trim();
   document.getElementById('brilloTxt').textContent=Math.round(v*100)+'%';
-  try{ localStorage.setItem('btg-mapa-brillo-'+document.getElementById('selFondo').value, String(v)); }catch(e){}
+  try{ localStorage.setItem('btg-mapa-brillo-'+clave, String(v)); }catch(e){}
 }
 
 function ponerFondo(clave){
-  var f=FONDOS[clave]||FONDOS.oscuroCalles;
+  var f=FONDOS[clave]||FONDOS.oscuroCasa;
   capas.forEach(function(c){ mapa.removeLayer(c); });
   capas=f.capas.map(function(u,i){
     return L.tileLayer(u,{maxZoom:f.max,attribution:i===0?f.atrib:''}).addTo(mapa);
@@ -342,7 +358,7 @@ function ponerFondo(clave){
   aplicarBrillo();
 }
 function fondoGuardado(){
-  try{ return localStorage.getItem('btg-mapa-fondo')||'oscuroCalles'; }catch(e){ return 'oscuroCalles'; }
+  try{ return localStorage.getItem('btg-mapa-fondo')||'oscuroCasa'; }catch(e){ return 'oscuroCasa'; }
 }
 
 function iniciarMapa(){
@@ -549,7 +565,7 @@ function modoTv(){
   document.getElementById('bTv').textContent=on?'Salir del televisor':'Modo televisor';
   if(on){
     var sf=document.getElementById('selFondo');
-    if(sf.value==='calles'||sf.value==='claro'){ sf.value='oscuroCalles'; ponerFondo('oscuroCalles'); }
+    if(sf.value==='calles'){ sf.value='oscuroCasa'; ponerFondo('oscuroCasa'); }
     if(!document.fullscreenElement) document.documentElement.requestFullscreen().catch(function(){});
     trabarPantalla();
   }else{
@@ -615,11 +631,11 @@ document.getElementById('bClave').onclick=function(){
     var v=(document.getElementById('kIn').value||'').trim();
     try{ if(v) localStorage.setItem('btg-stadia-key',v); else localStorage.removeItem('btg-stadia-key'); }catch(e){}
     // Los fondos se arman al cargar la página, así que hay que rehacerla.
-    try{ localStorage.setItem('btg-mapa-fondo', v?'stadiaOscuro':'oscuroCalles'); }catch(e){}
+    try{ localStorage.setItem('btg-mapa-fondo', v?'stadiaOscuro':'oscuroCasa'); }catch(e){}
     location.reload();
   };
   document.getElementById('kNo').onclick=function(ev){ ev.preventDefault();
-    try{ localStorage.removeItem('btg-stadia-key'); localStorage.setItem('btg-mapa-fondo','oscuroCalles'); }catch(e){}
+    try{ localStorage.removeItem('btg-stadia-key'); localStorage.setItem('btg-mapa-fondo','oscuroCasa'); }catch(e){}
     location.reload(); };
   document.getElementById('kSalir').onclick=function(ev){ ev.preventDefault(); quitarTapa(); };
   document.getElementById('kIn').focus();
