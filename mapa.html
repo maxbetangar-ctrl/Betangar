@@ -537,21 +537,80 @@ function mover(cam, destino, ms){
 // habría marcado a TODAS «sin señal» —su último punto sería de horas atrás— y el km del
 // día habría salido corto. Un mapa que miente sin avisar es peor que uno que no carga.
 // Por eso se pagina, y si la última página vuelve llena se avisa en vez de cortar callado.
-var PAGINA=1000, MAX_PAGINAS=40;
+// ── CUÁNTO TIENE QUE AGUANTAR ESTO ──────────────────────────────────────────────────────────
+// Techo acordado con Máximo el 15/08: **60 unidades**. Con el equipo reportando cada minuto y
+// una jornada larga son 60 × 720 = **43.200 posiciones en un día**.
+// ⛔ El tope anterior era 40 páginas = 40.000: lo pasaba, y el mapa se caía con un error justo
+//    el día que la flota estuviera completa. Ahora 150 páginas (150.000) dejan margen de sobra
+//    incluso si el proveedor baja el reporte a cada 30 s (86.400).
+// Y traer 43 páginas DE A UNA son 43 viajes de red en fila: la pantalla tardaría una eternidad
+// en abrir. Se pide el conteo exacto primero y después las páginas EN PARALELO, de a tandas,
+// que es el mismo camino que usa `_selectAllG` en app.js.
+var PAGINA=1000, MAX_PAGINAS=150, EN_VUELO=6;   // 6 a la vez: no ahogar al navegador de la tele
+
 async function traer(){
-  var desde=fechaVE(new Date())+'T00:00:00-04:00', filas=[], p=0;
-  for(; p<MAX_PAGINAS; p++){
-    var r=await sb.from('gps_posiciones')
-      .select('cam,ts,lat,lon,velocidad,rumbo,ignicion,odometro,ubicacion')
-      .gte('ts',desde).order('ts',{ascending:true})
-      .range(p*PAGINA,(p+1)*PAGINA-1);
-    if(r.error) throw new Error(r.error.message);
-    var d=r.data||[];
-    filas=filas.concat(d);
-    if(d.length<PAGINA) return filas;          // última página: ya está todo
+  var desde=fechaVE(new Date())+'T00:00:00-04:00';
+  var sel='cam,ts,lat,lon,velocidad,rumbo,ignicion,odometro,ubicacion';
+
+  // 1) La primera página Y el conteo exacto en la misma consulta.
+  var r0=await sb.from('gps_posiciones').select(sel,{count:'exact'})
+    .gte('ts',desde).order('ts',{ascending:true}).range(0,PAGINA-1);
+  if(r0.error) throw new Error(r0.error.message);
+  var filas=r0.data||[];
+  if(filas.length<PAGINA) return filas;        // cabía en una página: ya está todo
+
+  // ⛔ SI EL CONTEO NO VIENE, NO SE PUEDE PARALELIZAR — Y DEVOLVER LO QUE HAY SERÍA EL MISMO
+  //    CORTE SILENCIOSO QUE SE ARREGLÓ ESTA MAÑANA. Se cae al método viejo, que es lento pero
+  //    no miente: pide página por página hasta que una vuelva corta.
+  if(r0.count==null){
+    var acum=filas.slice();
+    for(var q=1; q<MAX_PAGINAS; q++){
+      var rq=await sb.from('gps_posiciones').select(sel)
+        .gte('ts',desde).order('ts',{ascending:true}).range(q*PAGINA,(q+1)*PAGINA-1);
+      if(rq.error) throw new Error(rq.error.message);
+      var dq=rq.data||[];
+      acum=acum.concat(dq);
+      if(dq.length<PAGINA) return acum;
+    }
+    throw new Error('Hay más de '+(MAX_PAGINAS*PAGINA).toLocaleString('es-VE')+' posiciones hoy '
+      +'y no se pudieron traer todas. La pantalla no puede mostrar el día completo: avisá a soporte.');
   }
-  throw new Error('Hay más de '+(MAX_PAGINAS*PAGINA)+' posiciones hoy y no se pudieron '
-    +'traer todas. La pantalla no puede mostrar el día completo: avisá a soporte.');
+
+  var total=r0.count;
+  if(total<=PAGINA) return filas;
+  var paginas=Math.ceil(total/PAGINA);
+  if(paginas>MAX_PAGINAS){
+    throw new Error('Hay '+total.toLocaleString('es-VE')+' posiciones hoy, más de las '
+      +(MAX_PAGINAS*PAGINA).toLocaleString('es-VE')+' que esta pantalla puede traer. No se '
+      +'puede mostrar el día completo: avisá a soporte.');
+  }
+
+  // 2) El resto en paralelo, de a EN_VUELO. Cada página se guarda EN SU LUGAR: si volvieran
+  //    desordenadas, el recorrido se dibujaría hecho un nudo.
+  var trozos=new Array(paginas); trozos[0]=filas;
+  for(var base=1; base<paginas; base+=EN_VUELO){
+    var tanda=[];
+    for(var k=base; k<Math.min(base+EN_VUELO,paginas); k++) tanda.push(k);
+    var res=await Promise.all(tanda.map(function(i){
+      return sb.from('gps_posiciones').select(sel)
+        .gte('ts',desde).order('ts',{ascending:true})
+        .range(i*PAGINA,(i+1)*PAGINA-1);
+    }));
+    for(var j=0;j<res.length;j++){
+      if(res[j].error) throw new Error(res[j].error.message);
+      trozos[tanda[j]]=res[j].data||[];
+    }
+  }
+  var todo=[];
+  for(var t=0;t<paginas;t++) todo=todo.concat(trozos[t]||[]);
+
+  // ⛔ Que no falte ni sobre. Si el conteo y lo traído no coinciden, algo se perdió en el
+  //    camino y es mejor decirlo que pintar medio día con cara de día entero.
+  if(todo.length<total){
+    throw new Error('Se pidieron '+total+' posiciones y llegaron '+todo.length
+      +'. La pantalla no puede garantizar el día completo: avisá a soporte.');
+  }
+  return todo;
 }
 
 var crudo=[];
