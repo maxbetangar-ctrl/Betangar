@@ -158,7 +158,10 @@
       sigue en el mapa, pero ya no dice dónde está ahora.<br><br>
       El kilometraje del día sale del contador del propio camión, así que no se
       pierde aunque falte señal un rato. La línea del recorrido sí puede quedar
-      cortada en esos tramos.
+      cortada en esos tramos.<br><br>
+      <b>Andando sin reportar</b> es el rato más largo que el camión estuvo en
+      movimiento y no se supo dónde. Con el motor apagado el equipo reporta una vez
+      por hora, y eso es normal: esas horas no se cuentan acá.
     </div>
   </div>
   <div id="mapa"></div>
@@ -391,13 +394,28 @@ function mover(cam, destino){
 }
 
 // ── Datos ────────────────────────────────────────────────────────────────────
+// ⛔ PostgREST corta en 1.000 filas y NO AVISA. El `.limit(20000)` que había acá NO lo
+// evita: se midió el 15/08 pidiendo 20.000 filas de una tabla de 1.653 y devolvió 1.000
+// exactas. Hoy no se veía porque anda 1 sola unidad (~175 puntos al día); con las 12
+// activas son ~4.200 y el mapa habría pintado solo las primeras horas de la mañana,
+// habría marcado a TODAS «sin señal» —su último punto sería de horas atrás— y el km del
+// día habría salido corto. Un mapa que miente sin avisar es peor que uno que no carga.
+// Por eso se pagina, y si la última página vuelve llena se avisa en vez de cortar callado.
+var PAGINA=1000, MAX_PAGINAS=40;
 async function traer(){
-  var desde=fechaVE(new Date())+'T00:00:00-04:00';
-  var r=await sb.from('gps_posiciones')
-    .select('cam,ts,lat,lon,velocidad,rumbo,ignicion,odometro,ubicacion')
-    .gte('ts',desde).order('ts',{ascending:true}).limit(20000);   // PostgREST corta en 1.000
-  if(r.error) throw new Error(r.error.message);
-  return r.data||[];
+  var desde=fechaVE(new Date())+'T00:00:00-04:00', filas=[], p=0;
+  for(; p<MAX_PAGINAS; p++){
+    var r=await sb.from('gps_posiciones')
+      .select('cam,ts,lat,lon,velocidad,rumbo,ignicion,odometro,ubicacion')
+      .gte('ts',desde).order('ts',{ascending:true})
+      .range(p*PAGINA,(p+1)*PAGINA-1);
+    if(r.error) throw new Error(r.error.message);
+    var d=r.data||[];
+    filas=filas.concat(d);
+    if(d.length<PAGINA) return filas;          // última página: ya está todo
+  }
+  throw new Error('Hay más de '+(MAX_PAGINAS*PAGINA)+' posiciones hoy y no se pudieron '
+    +'traer todas. La pantalla no puede mostrar el día completo: avisá a soporte.');
 }
 
 var crudo=[];
@@ -427,8 +445,14 @@ function pintar(){
     var ods=pts.map(function(p){return p.odometro;}).filter(function(v){return v!=null&&!isNaN(v);});
     var kmDia=ods.length>1?Math.max(0,Math.max.apply(null,ods)-Math.min.apply(null,ods)):null;
 
+    // Hueco del día: SOLO los tramos que empezaron con el motor ENCENDIDO. Parado en
+    // la base y apagado, el equipo reporta 1 vez por hora: contar esa noche daba
+    // «Hueco máx. 61 min» todos los días —el camión durmiendo, no una falla— y con eso
+    // el número no distinguía un día bien medido de uno mal medido. Medido el 15/08:
+    // 61 min contando todo, 14 min contando solo lo trabajado.
     var hueco=0;
     for(var k=1;k<pts.length;k++){
+      if(pts[k-1].ignicion!==true) continue;   // se calló apagado: no esconde trabajo
       var dd=(new Date(pts[k].ts)-new Date(pts[k-1].ts))/60000;
       if(dd>hueco) hueco=dd;
     }
@@ -472,7 +496,7 @@ function pintar(){
       +'<span>Km de hoy <b>'+(kmDia===null?'—':miles(kmDia,1))+'</b></span>'
       +'<span>Contador <b>'+miles(ult.odometro,0)+'</b></span>'
       +'<span>Puntos <b>'+miles(pts.length)+'</b></span>'
-      +(hueco>MUDO_MIN?'<span style="color:var(--ambar)">Hueco máx. <b>'+hueco+' min</b></span>':'')
+      +(hueco>MUDO_MIN?'<span style="color:var(--ambar)" title="El rato más largo que el camión anduvo sin que supiéramos dónde estaba. No cuenta el tiempo apagado.">Andando sin reportar <b>'+hueco+' min</b></span>':'')
       +'</div></div>';
   });
 

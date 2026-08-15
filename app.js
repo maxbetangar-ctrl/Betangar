@@ -10604,9 +10604,10 @@ async function _sembrarMantItems(){
 async function cargarMantenimientos(){
   if(!(DB_READY&&supabase))return;
   try{
-    var r=await supabase.from('mantenimientos').select('*').order('f',{ascending:false}).limit(5000);
+    // `.limit(5000)` no evitaba el corte de 1.000 de PostgREST: se usa `_selectAllG`.
+    var r=await _selectAllG('mantenimientos');
     if(r&&!r.error&&Array.isArray(r.data)){
-      MANTENIMIENTOS=r.data.map(function(x){return {id:x.id||('MT'+(x.cam||'')+'-'+(x.f||'')+'-'+(x.km||0)+'-'+(x.item_id||x.tipo||'')),cam:x.cam||'',fecha:x.f||'',km:parseInt(x.km)||0,horas:parseInt(x.horas)||0,itemId:x.item_id||'',tipo:x.tipo||'',tipoTrabajo:x.tipo_trabajo||'',desc:x.desc_trabajo||'',costo:parseFloat(x.costo_usd)||0,proveedor:x.proveedor||'',foto:x.foto_url||'',anomalia:x.anomalia===true,motivo:x.motivo||'',ordenId:x.orden_id||'',garantiaHasta:x.garantia_hasta||null,centroCosto:x.centro_costo||'',origen:x.origen||'',ejecutor:x.ejecutor||''};});
+      MANTENIMIENTOS=_ordDesc(r.data,'f').map(function(x){return {id:x.id||('MT'+(x.cam||'')+'-'+(x.f||'')+'-'+(x.km||0)+'-'+(x.item_id||x.tipo||'')),cam:x.cam||'',fecha:x.f||'',km:parseInt(x.km)||0,horas:parseInt(x.horas)||0,itemId:x.item_id||'',tipo:x.tipo||'',tipoTrabajo:x.tipo_trabajo||'',desc:x.desc_trabajo||'',costo:parseFloat(x.costo_usd)||0,proveedor:x.proveedor||'',foto:x.foto_url||'',anomalia:x.anomalia===true,motivo:x.motivo||'',ordenId:x.orden_id||'',garantiaHasta:x.garantia_hasta||null,centroCosto:x.centro_costo||'',origen:x.origen||'',ejecutor:x.ejecutor||''};});
       try{ _firmarFotos(MANTENIMIENTOS,'foto','asistencia'); }catch(_e){}
     }
   }catch(e){ console.log('mantenimientos load:',e&&e.message); }
@@ -10675,8 +10676,9 @@ var PIEZAS=[];   // filas de la tabla `piezas` (instaladas + retiradas)
 async function cargarPiezas(){
   if(!(DB_READY&&supabase))return;
   try{
-    var r=await supabase.from('piezas').select('*').order('fecha_inst',{ascending:false}).limit(5000);
-    if(r&&!r.error&&Array.isArray(r.data))PIEZAS=r.data;
+    // `.limit(5000)` no evitaba el corte de 1.000 de PostgREST: se usa `_selectAllG`.
+    var r=await _selectAllG('piezas');
+    if(r&&!r.error&&Array.isArray(r.data))PIEZAS=_ordDesc(r.data,'fecha_inst');
   }catch(e){ /* la tabla puede no existir en un clon viejo: el resto de la app sigue */ }
 }
 
@@ -24655,15 +24657,32 @@ function ccHoy(){return fechaVE();}
    varios módulos (viajes_chofer, checklist). GASOIL y KM_DATA ya se cargan en
    cargarDatosDB. Disponible para TODOS los módulos vía los helpers de abajo.
    ============================================================================ */
+/* ⛔ `.limit(5000)` NO evita el corte SILENCIOSO de 1.000 de PostgREST. Medido el
+   15/08/2026: pidiendo 20.000 filas de una tabla de 1.653 devolvió 1.000 exactas.
+   `viajes_chofer` ya tenía 1.653, así que ordenado por fecha descendente la app se
+   quedaba con lo más nuevo y **del 02/07 hacia atrás cualquier pantalla decía "0
+   viajes"** — con cara de dato, no de error.
+   El paginador ya existía en la casa (`_selectAllG`, arriba): se usa ese, no uno nuevo.
+   Trae ascendente por `id`, así que el orden por fecha descendente que esperaban estas
+   pantallas se rehace acá. */
+function _ordDesc(filas, campo){
+  return (filas||[]).slice().sort(function(a,b){
+    var x=a&&a[campo]||'', y=b&&b[campo]||'';
+    return x<y?1:(x>y?-1:0);
+  });
+}
+
 async function cargarDatosCompartidos(){
   if(!DB_READY||!supabase)return;
   try{
-    var v=await supabase.from('viajes_chofer').select('*').order('fecha',{ascending:false}).limit(5000);
-    if(!v.error&&Array.isArray(v.data))VIAJES_CHOFER=v.data;
+    var v=await _selectAllG('viajes_chofer');
+    if(!v.error&&Array.isArray(v.data))VIAJES_CHOFER=_ordDesc(v.data,'fecha');
+    else if(v.error)console.log('[compartido] viajes_chofer',v.error.message);
   }catch(e){console.log('[compartido] viajes_chofer',e&&e.message);}
   try{
-    var c=await supabase.from('checklist').select('*').order('fecha',{ascending:false}).limit(5000);
-    if(!c.error&&Array.isArray(c.data))CHECKLIST_DATA=c.data;
+    var c=await _selectAllG('checklist');
+    if(!c.error&&Array.isArray(c.data))CHECKLIST_DATA=_ordDesc(c.data,'fecha');
+    else if(c.error)console.log('[compartido] checklist',c.error.message);
   }catch(e){console.log('[compartido] checklist',e&&e.message);}
   console.log('[compartido] viajes='+VIAJES_CHOFER.length+' checklist='+CHECKLIST_DATA.length+' gasoil='+(typeof GASOIL!=='undefined'?GASOIL.length:0)+' km='+(typeof KM_DATA!=='undefined'?Object.keys(KM_DATA).length:0));
 }
@@ -24791,7 +24810,7 @@ function ccUltimoNivelGalpon(){
 // una carga puntual desde Supabase.
 async function ccViajesPorCam(fecha){
   if((!VIAJES_CHOFER||!VIAJES_CHOFER.length)&&DB_READY&&supabase){
-    try{var r=await supabase.from('viajes_chofer').select('*').limit(5000);if(!r.error&&Array.isArray(r.data))VIAJES_CHOFER=r.data;}catch(e){}
+    try{var r=await _selectAllG('viajes_chofer');if(!r.error&&Array.isArray(r.data))VIAJES_CHOFER=_ordDesc(r.data,'fecha');}catch(e){console.log('[cc] viajes_chofer',e&&e.message);}
   }
   return viajesMapaFecha(fecha);
 }
