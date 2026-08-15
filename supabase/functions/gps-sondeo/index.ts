@@ -12,15 +12,28 @@
 //  bajar. El historial se construye acá, desde el primer sondeo. Cada hora que
 //  esta función no corre es un pedazo de recorrido que no va a existir nunca.
 //
-//  1 PETICIÓN = 1 UNIDAD. Probado `plateno` con dos placas separadas por coma:
-//  devuelve conjunto vacío. Por eso se recorre unidad por unidad.
+//  ⚠️ «1 PETICIÓN = 1 UNIDAD» ESTÁ SIN COMPROBAR — LA PRUEBA QUE LO AFIRMABA NO SERVÍA.
+//  Acá decía: «Probado `plateno` con dos placas separadas por coma: devuelve conjunto
+//  vacío. Por eso se recorre unidad por unidad.» Máximo lo corrigió el 15/08: el demo
+//  da acceso a UNA SOLA PLACA (`JAC-B010`). Pedir dos y recibir vacío es exactamente lo
+//  que la API debe contestar cuando una de las dos no es tuya — la prueba NO distingue
+//  «no acepta varias placas» de «no tenés esa placa», y se sacó la primera conclusión.
 //
-//  LÍMITE DEL PROVEEDOR: 10 peticiones/minuto (no bloquea, hace esperar). Con las
-//  12 unidades y una pausa de 6 s entre llamadas, un ciclo tarda ~72 s y va a
-//  6 pet/min: holgado. Hoy solo `JAC-B010` tiene acceso (demo de 10 días), y por
-//  eso el resto está `activo=false` en `gps_equipos`: el flag decide a quién se le
-//  pregunta, así no se gastan 11 peticiones inútiles cada 2 minutos. Cuando el
-//  proveedor abra la cuenta completa, se prenden y esta función no se toca.
+//  Se recorre unidad por unidad porque hoy hay una sola, no porque esté probado que no
+//  se pueda de otra forma. ⛔ CUANDO LLEGUEN LAS 12 PLACAS DEFINITIVAS, LO PRIMERO ES
+//  REPETIR LA PRUEBA con dos placas que SÍ tengan acceso. Si acepta la lista, todo el
+//  cálculo de abajo se cae y el sondeo pasa a ser una petición para toda la flota.
+//
+//  LÍMITE DEL PROVEEDOR: 10 peticiones/minuto (no bloquea, hace esperar). SI hay que ir
+//  de a una, con 12 unidades y 6 s entre llamadas el ciclo tarda ~72 s (6 pet/min), y
+//  ese ~72 s pasa a ser el PISO de resolución del mapa. Si acepta varias placas, no hay
+//  piso: se puede sondear tan seguido como el equipo reporte.
+//  Hoy solo `JAC-B010` tiene acceso (demo, vence 24/08) y el resto está `activo=false`
+//  en `gps_equipos`: el flag decide a quién se le pregunta, así no se gastan 11
+//  peticiones inútiles cada 2 minutos.
+//
+//  ⚠️ Y CON UNA SOLA UNIDAD, LAS 10 PET/MIN SOBRAN: se la puede sondear cada 6-10 s en
+//  vez de cada 2 minutos. El mapa de hoy va 12 veces más lento de lo que ya se podría.
 //
 //  ⚠️ EL API DEVUELVE EL ÚLTIMO DATO CONOCIDO COMO SI FUERA EL ACTUAL.
 //  Medido el 14/08: dos consultas separadas 21 minutos trajeron el mismo
