@@ -159,6 +159,15 @@
       El kilometraje del día sale del contador del propio camión, así que no se
       pierde aunque falte señal un rato. La línea del recorrido sí puede quedar
       cortada en esos tramos.<br><br>
+      <b>El camión se ve deslizándose, pero eso es dibujo.</b> El equipo manda su
+      posición aproximadamente cada minuto; entre un reporte y el siguiente la pantalla
+      lo lleva en línea recta para que se entienda hacia dónde va. Por dónde pasó de
+      verdad lo dicen los puntos del recorrido, y el kilometraje sale del contador —
+      nunca de ese deslizamiento.<br><br>
+      <b>Estos camiones paran a cada rato a recoger</b>, así que ese deslizamiento parejo
+      no muestra las paradas: entre dos reportes hubo varias. Y cuando el camión está
+      detenido, la posición del equipo baila unos metros sola — eso la pantalla no lo
+      anima, para que no parezca que se movió alguien que estaba quieto.<br><br>
       <b>Andando sin reportar</b> es el rato más largo que el camión estuvo en
       movimiento y no se supo dónde. Con el motor apagado el equipo reporta una vez
       por hora, y eso es normal: esas horas no se cuentan acá.
@@ -186,7 +195,12 @@ var SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJ
 // WebSocket caído no avisa: se ve igual que una flota quieta.
 var REPASO_MS  = 60000;
 var MUDO_MIN   = 15;      // pasado esto, la posición deja de presentarse como actual
-var ANIM_MS    = 2500;    // cuánto dura el desplazamiento del camión en pantalla
+// ⛔ ANTES ERA FIJO EN 2.500 ms Y POR ESO SE VEÍA A SALTOS: el camión se deslizaba 2,5 s
+// y se quedaba quieto los ~117 restantes. Lo que se ve no era «va lento», era «está
+// congelado casi todo el tiempo». Ahora el desplazamiento dura LO QUE DURÓ EL HUECO REAL
+// entre los dos últimos reportes, así el camión está siempre en movimiento.
+var ANIM_MIN_MS = 1200;    // menos que esto se ve como un salto igual
+var ANIM_MAX_MS = 90000;   // más que esto, el camión se arrastraría: el equipo se calló
 
 // Todos estos se usan sin clave y con su atribución. Para revender hace falta un
 // plan con licencia comercial: se cambia SOLO esta lista.
@@ -260,8 +274,21 @@ Object.assign(FONDOS, {
               atrib:'Imágenes &copy; Esri, Maxar, Earthstar Geographics' }
 });
 
-var COLORES = ['#4da3ff','#ff5a4d','#22d37a','#ffc233','#c07bff','#00c9c9',
-               '#ff9040','#7f8cff','#ff6fae','#9ad34a','#c49a7a','#3fd0b0'];
+// Las 12 primeras están elegidas a mano y se distinguen bien entre ellas. De la 13 en
+// adelante se generan girando el tono por el ángulo áureo, que es lo que más las separa.
+// ⚠️ NO ES MAGIA: pasadas ~12 unidades el color deja de alcanzar para identificar a nadie
+// —nadie distingue 60 tonos— y lo que sirve es FILTRAR: ver el trazado de las que se
+// eligen, no de todas a la vez. Esto solo garantiza que dos camiones NO compartan color.
+var COLORES_BASE = ['#4da3ff','#ff5a4d','#22d37a','#ffc233','#c07bff','#00c9c9',
+                    '#ff9040','#7f8cff','#ff6fae','#9ad34a','#c49a7a','#3fd0b0'];
+var _colorCache = {};
+function colorDe(i){
+  if(i < COLORES_BASE.length) return COLORES_BASE[i];
+  if(_colorCache[i]) return _colorCache[i];
+  var h = (i * 137.508) % 360;                 // ángulo áureo: reparte los tonos parejo
+  var l = (i % 2) ? 68 : 56;                   // alterna claro/oscuro para separar vecinos
+  return (_colorCache[i] = 'hsl(' + h.toFixed(1) + ',72%,' + l + '%)');
+}
 
 var sb=null, mapa=null, capaFondo=null, canal=null;
 var dibujo={}, estado={}, seleccion=null, primeraVez=true;
@@ -378,16 +405,48 @@ function iniciarMapa(){
 }
 
 /** Desliza el marcador de un punto al otro en vez de teletransportarlo. */
-function mover(cam, destino){
+// ⚠️ LO QUE SE DESLIZA ES DIBUJO, NO MEDICIÓN. Entre dos reportes el camión pasó por donde
+// pasó; esta animación lo lleva en línea recta porque no sabemos el camino. Sirve para MIRAR.
+// Ningún número sale de acá: el kilometraje es del odómetro y el recorrido son los puntos
+// reales de la polilínea. Si alguna vez se calcula algo con posiciones interpoladas, va a
+// mentir con cara de dato.
+//
+// ⛔ Y LA LÍNEA RECTA NO VALE LO MISMO EN TODOS LOS CLIENTES:
+//   · BETANGAR son camiones de BASURA: paran cada pocos metros a recoger. Entre dos reportes
+//     hubo varias paradas, así que el deslizamiento parejo muestra un camión que nunca para
+//     — justo lo contrario de lo que hace. Como se mueve poco por minuto, el error en metros
+//     es chico; el error en la IDEA es grande. Por eso lo dice la leyenda.
+//   · FLOTILLA y los clientes nuevos son de recorrido continuo: ahí la recta se parece
+//     bastante a la realidad en tramo abierto, pero CORTA LAS CURVAS — a 60 km/h un minuto
+//     son ~1 km de línea que puede pasar por donde no hay calle.
+// En los dos casos la cura es la misma y no es de dibujo: MÁS PUNTOS. Bajar el reporte del
+// equipo de 1 min a 15-30 s hace más por esto que cualquier animación.
+function mover(cam, destino, ms){
   var d=dibujo[cam]; if(!d) return;
   var desde=d.marca.getLatLng();
   if(desde.lat===destino[0] && desde.lng===destino[1]) return;
+  // ⛔ DERIVA DEL GPS CON EL CAMIÓN PARADO. Recogiendo basura el camión pasa mucho rato
+  // detenido, y el equipo sigue reportando: la posición baila unos metros sola. Animar eso
+  // muestra el camión paseándose por la cuadra sin que nadie lo haya movido, y encima con el
+  // deslizamiento largo se ve MÁS que antes. Por debajo de ~25 m se salta a la posición sin
+  // animar: no es movimiento, es ruido del aparato.
+  var dLat=(destino[0]-desde.lat)*111320;
+  var dLon=(destino[1]-desde.lng)*111320*Math.cos(desde.lat*Math.PI/180);
+  if(Math.sqrt(dLat*dLat+dLon*dLon) < 25){
+    d.marca.setLatLng(destino); if(d.halo) d.halo.setLatLng(destino); return;
+  }
   if(anim[cam]) cancelAnimationFrame(anim[cam]);
+  var dur=Math.max(ANIM_MIN_MS, Math.min(ANIM_MAX_MS, ms||ANIM_MIN_MS));
   var t0=performance.now();
   function paso(t){
-    var k=Math.min(1,(t-t0)/ANIM_MS);
-    var s=k<.5 ? 2*k*k : 1-Math.pow(-2*k+2,2)/2;   // arranca y frena suave
-    d.marca.setLatLng([desde.lat+(destino[0]-desde.lat)*s, desde.lng+(destino[1]-desde.lng)*s]);
+    var k=Math.min(1,(t-t0)/dur);
+    // Sobre un tramo largo el arranque/frenado suave se ve como pararse y volver a salir.
+    // Solo se suaviza cuando el tramo es corto; si es largo, va parejo: un camión andando
+    // no acelera y frena cada minuto.
+    var s = dur<4000 ? (k<.5 ? 2*k*k : 1-Math.pow(-2*k+2,2)/2) : k;
+    var la=desde.lat+(destino[0]-desde.lat)*s, ln=desde.lng+(destino[1]-desde.lng)*s;
+    d.marca.setLatLng([la,ln]);
+    if(d.halo) d.halo.setLatLng([la,ln]);   // el halo iba de un salto y delataba la trampa
     if(k<1) anim[cam]=requestAnimationFrame(paso);
   }
   anim[cam]=requestAnimationFrame(paso);
@@ -427,7 +486,7 @@ function pintar(){
 
   if(!cams.length){
     document.getElementById('lista').innerHTML='<div class="u"><div class="u-dir">'
-      +'Todavía no hay posiciones de hoy. El sistema consulta cada 2 minutos; en cuanto '
+      +'Todavía no hay posiciones de hoy. El sistema consulta cada minuto; en cuanto '
       +'el primer camión reporte, aparece acá solo.</div></div>';
     document.getElementById('sello').textContent='sin datos de hoy';
     return;
@@ -435,7 +494,7 @@ function pintar(){
 
   cams.forEach(function(cam,i){
     var pts=porCam[cam], ult=pts[pts.length-1];
-    var color=COLORES[i%COLORES.length];
+    var color=colorDe(i);
     var min=Math.round((ahora-new Date(ult.ts).getTime())/60000);
     var mudo=min>MUDO_MIN;
 
@@ -478,8 +537,12 @@ function pintar(){
       dibujo[cam].marca.on('click',function(){ elegir(cam); });
     }else{
       dibujo[cam].linea.setLatLngs(linea).setStyle({weight:tv?5:3.5});
-      mover(cam,[ult.lat,ult.lon]);
-      dibujo[cam].halo.setLatLng([ult.lat,ult.lon]);
+      // El deslizamiento dura lo que duró el hueco entre los dos últimos reportes: así el
+      // camión llega justo cuando entra el siguiente y nunca se queda congelado.
+      var msHueco = pts.length>1
+        ? (new Date(ult.ts) - new Date(pts[pts.length-2].ts))
+        : ANIM_MIN_MS;
+      mover(cam,[ult.lat,ult.lon], msHueco);   // mover() arrastra el halo
     }
     dibujo[cam].marca.setOpacity(mudo?.45:1);
     dibujo[cam].halo.setOpacity(mudo?0:1);
