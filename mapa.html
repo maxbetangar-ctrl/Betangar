@@ -421,6 +421,60 @@ function iniciarMapa(){
 //     son ~1 km de línea que puede pasar por donde no hay calle.
 // En los dos casos la cura es la misma y no es de dibujo: MÁS PUNTOS. Bajar el reporte del
 // equipo de 1 min a 15-30 s hace más por esto que cualquier animación.
+// ══ PARADAS ═══════════════════════════════════════════════════════════════════
+// ⛔ EN ASEO URBANO LA PARADA ES EL DATO, NO EL RUIDO. Que el camión PASE por una calle
+// no prueba nada: prueba que pasó. Que se DETENGA tres minutos en esa cuadra es lo que
+// dice que estuvo recogiendo. Es la diferencia entre un recorrido y un trabajo, y es lo
+// que se le puede mostrar a la Alcaldía.
+//
+// ⚠️ ESTE NÚMERO SE QUEDA CORTO A PROPÓSITO, Y HAY QUE DECIRLO SIEMPRE.
+// Una parada solo se ve si el equipo alcanzó a reportar DOS VECES desde el mismo lugar.
+// Con reportes cada minuto, eso son paradas de ~2 min para arriba; con el sondeo de 2 min
+// que hubo hasta el 15/08, hacían falta 4. Las paradas cortas de recolección NO APARECEN.
+// Por eso el conteo es un PISO: nunca dice de más. Si alguien lo discute, esa es la
+// respuesta — y la forma de subirlo no es cambiar este código, es que el equipo reporte
+// más seguido.
+var PARADA_RADIO_M = 35;    // dentro de esto, el camión no se movió: es deriva del aparato
+var PARADA_MIN_SEG = 120;   // menos que esto no se puede distinguir de dos reportes seguidos
+
+function metrosEntre(aLat,aLon,bLat,bLon){
+  var dLat=(bLat-aLat)*111320, dLon=(bLon-aLon)*111320*Math.cos(aLat*Math.PI/180);
+  return Math.sqrt(dLat*dLat+dLon*dLon);
+}
+
+// Agrupa puntos consecutivos que están casi en el mismo lugar. Devuelve solo los grupos
+// que duraron lo suficiente para ser una parada de verdad.
+function paradasDe(pts){
+  var out=[], g=null;
+  for(var i=0;i<pts.length;i++){
+    var q=pts[i]; if(!q.lat||!q.lon) continue;
+    if(g && metrosEntre(g.lat,g.lon,q.lat,q.lon) < PARADA_RADIO_M){
+      g.fin=q.ts; g.n++;
+    }else{
+      if(g) out.push(g);
+      g={lat:q.lat,lon:q.lon,ini:q.ts,fin:q.ts,n:1};
+    }
+  }
+  if(g) out.push(g);
+  return out.filter(function(x){
+    return (new Date(x.fin)-new Date(x.ini))/1000 >= PARADA_MIN_SEG;
+  }).map(function(x){
+    x.min=Math.round((new Date(x.fin)-new Date(x.ini))/60000);
+    x.sitio=sitioDe(x.lat,x.lon);
+    return x;
+  });
+}
+
+// Si la parada cae dentro de una geocerca conocida, NO es recolección: es la base o la
+// oficina. Separarlas con el dato y no con el ojo es lo que hace defendible el número.
+function sitioDe(lat,lon){
+  for(var i=0;i<sitios.length;i++){
+    var st=sitios[i]; if(st.activo===false||!st.lat||!st.lng) continue;
+    if(metrosEntre(lat,lon,st.lat,st.lng) <= (st.radio_m||120)) return st.nombre;
+  }
+  return null;
+}
+
 function mover(cam, destino, ms){
   var d=dibujo[cam]; if(!d) return;
   var desde=d.marca.getLatLng();
@@ -535,6 +589,7 @@ function pintar(){
           iconSize:[52,22],iconAnchor:[26,11]})}).addTo(mapa)
       };
       dibujo[cam].marca.on('click',function(){ elegir(cam); });
+      dibujo[cam].paradas=[];
     }else{
       dibujo[cam].linea.setLatLngs(linea).setStyle({weight:tv?5:3.5});
       // El deslizamiento dura lo que duró el hueco entre los dos últimos reportes: así el
@@ -544,6 +599,30 @@ function pintar(){
         : ANIM_MIN_MS;
       mover(cam,[ult.lat,ult.lon], msHueco);   // mover() arrastra el halo
     }
+    // ── Las paradas, que es lo que prueba el trabajo ──
+    (dibujo[cam].paradas||[]).forEach(function(c){ mapa.removeLayer(c); });
+    dibujo[cam].paradas=[];
+    var parsRuta=0;
+    paradasDe(pts).forEach(function(pa){
+      if(!pa.sitio) parsRuta++;
+      // En la base o la oficina se dibuja hueca: estuvo ahí, pero no es recolección.
+      dibujo[cam].paradas.push(
+        L.circleMarker([pa.lat,pa.lon],{
+          radius: Math.min(11, 4+Math.sqrt(pa.min)*1.6),
+          color: color, weight: 2,
+          fillColor: pa.sitio ? 'transparent' : color,
+          fillOpacity: pa.sitio ? 0 : .55,
+          interactive: true
+        }).bindTooltip(
+          esc(cam)+' · parado '+pa.min+' min<br>'+horaVE(pa.ini)+' a '+horaVE(pa.fin)
+          + (pa.sitio ? '<br><b>'+esc(pa.sitio)+'</b>' : '<br>en ruta')
+        ).addTo(mapa)
+      );
+    });
+    // ⛔ Si las geocercas todavia no cargaron, NO se puede separar la base de la ruta y el
+    // contador diria de mas. Mejor un guion que un numero inflado.
+    estado[cam].paradasRuta = sitios.length ? parsRuta : null;
+
     dibujo[cam].marca.setOpacity(mudo?.45:1);
     dibujo[cam].halo.setOpacity(mudo?0:1);
     dibujo[cam].linea.setStyle({opacity:mudo?.35:.8});
@@ -559,6 +638,7 @@ function pintar(){
       +'<span>Km de hoy <b>'+(kmDia===null?'—':miles(kmDia,1))+'</b></span>'
       +'<span>Contador <b>'+miles(ult.odometro,0)+'</b></span>'
       +'<span>Puntos <b>'+miles(pts.length)+'</b></span>'
+      +'<span title="Veces que el camión estuvo detenido 2 minutos o más fuera de la base. Las paradas más cortas no se alcanzan a ver con la frecuencia con que reporta el equipo, así que este número siempre se queda corto: nunca dice de más.">Paradas en ruta <b>'+(estado[cam].paradasRuta==null?'—':miles(estado[cam].paradasRuta))+'</b></span>'
       +(hueco>MUDO_MIN?'<span style="color:var(--ambar)" title="El rato más largo que el camión anduvo sin que supiéramos dónde estaba. No cuenta el tiempo apagado.">Andando sin reportar <b>'+hueco+' min</b></span>':'')
       +'</div></div>';
   });
