@@ -3,7 +3,7 @@
 // PWA Offline-First para choferes
 // ═══════════════════════════════════════════════════
 
-const CACHE_NAME = 'betangar-chofer-v42'; // las fotos de trazabilidad Y de la surtida se toman con la CÁMARA EN VIVO: ya no se pueden sacar de la biblioteca (2026-08-03) // // v41: URGENTE — el km de entrada en 0 (camion que salio y no ha vuelto) mandaba la pantalla a 'dia cerrado' y trancaba al chofer: un 0 NO es un odometro // v40: la medicion del tanque ya no se duplica (upsert + candado en la BD), la pantalla dice cuando el dia ya quedo registrado y sincronizarCola no corre dos veces a la vez // v38: los MILES se ponen solos en los numeros que escribe el chofer (km y litros) + tope duro por surtida // v37: cubicacion REAL del tanque JAC (medido 60x52,5x199, esquinas r=12,54) — la recta de 13,04 L/cm era 600/46 y topaba en 46 cm lecturas legitimas de 50 // v36: banner de AVISO por unidad (RPC aviso_unidad, caduca solo) — ej. corrección de km // v35: fotos nunca en base64 dentro de la fila (cola local + reintentos) + compresión 0.7 // // v34: entregas — guardar SIN GPS ya no revienta + mensaje que dice qué tocar si la ubicación está bloqueada // v33: quitado ítem "Repuesto" del checklist (no se lleva caucho de repuesto en vía) // v31: + módulo Surtir combustible (por surtida) // v29: huecos chofer — incidencia offline no se pierde (COLA_INC), checklist en cola se fusiona, fecha 'hoy' se recalcula al amanecer
+const CACHE_NAME = 'betangar-chofer-v43'; // las fotos de trazabilidad Y de la surtida se toman con la CÁMARA EN VIVO: ya no se pueden sacar de la biblioteca (2026-08-03) // // v41: URGENTE — el km de entrada en 0 (camion que salio y no ha vuelto) mandaba la pantalla a 'dia cerrado' y trancaba al chofer: un 0 NO es un odometro // v40: la medicion del tanque ya no se duplica (upsert + candado en la BD), la pantalla dice cuando el dia ya quedo registrado y sincronizarCola no corre dos veces a la vez // v38: los MILES se ponen solos en los numeros que escribe el chofer (km y litros) + tope duro por surtida // v37: cubicacion REAL del tanque JAC (medido 60x52,5x199, esquinas r=12,54) — la recta de 13,04 L/cm era 600/46 y topaba en 46 cm lecturas legitimas de 50 // v36: banner de AVISO por unidad (RPC aviso_unidad, caduca solo) — ej. corrección de km // v35: fotos nunca en base64 dentro de la fila (cola local + reintentos) + compresión 0.7 // // v34: entregas — guardar SIN GPS ya no revienta + mensaje que dice qué tocar si la ubicación está bloqueada // v33: quitado ítem "Repuesto" del checklist (no se lleva caucho de repuesto en vía) // v31: + módulo Surtir combustible (por surtida) // v29: huecos chofer — incidencia offline no se pierde (COLA_INC), checklist en cola se fusiona, fecha 'hoy' se recalcula al amanecer
 
 
 // Credenciales anon (públicas, ya expuestas en chofer.html) para que el SW pueda subir
@@ -100,14 +100,14 @@ self.addEventListener('sync', function(event) {
   if (event.tag === 'sync-viajes') {
     console.log('[SW] Background sync viajes...');
     event.waitUntil(Promise.all([
-      flushStore('vj', 'viajes_chofer', 'fecha,cam,viaje_num'),
+      flushStore('vj', 'chofer_viaje_guardar'),
       notificarClientes('SYNC_VIAJES')
     ]));
   }
   if (event.tag === 'sync-checklist') {
     console.log('[SW] Background sync checklist...');
     event.waitUntil(Promise.all([
-      flushStore('cl', 'checklist', 'fecha,cam'),
+      flushStore('cl', 'chofer_checklist_guardar'),
       notificarClientes('SYNC_CHECKLIST')
     ]));
   }
@@ -140,22 +140,27 @@ function idbDelSW(db, store, key) { try { db.transaction(store, 'readwrite').obj
 
 // Sube todos los pendientes de un store por REST. Idempotente (on_conflict + merge-duplicates).
 // Borra del espejo solo lo que subió OK; lo que falle (sin señal) queda para el próximo sync.
-async function flushStore(store, tabla, onConflict) {
+// ⛔ SUBE POR RPC, NO CONTRA LA TABLA. La llave `anon` que usa este worker ya no tiene permisos
+// sobre `viajes_chofer` ni `checklist`: se los quitamos el 15/08 para que nadie pueda leer la
+// operación con la llave que está en el JS público. Si esto siguiera apuntando a
+// `/rest/v1/<tabla>`, la cola de fondo moriría EN SILENCIO — el chofer cierra la app creyendo que
+// lo suyo sube solo, y no sube nunca.
+async function flushStore(store, rpc) {
   var db;
   try { db = await idbOpenSW(); } catch (e) { return; }
   var items = await idbEntriesSW(db, store);
   for (var i = 0; i < items.length; i++) {
     var it = items[i];
     try {
-      var r = await fetch(SUPA_URL + '/rest/v1/' + tabla + '?on_conflict=' + onConflict, {
+      var r = await fetch(SUPA_URL + '/rest/v1/rpc/' + rpc, {
         method: 'POST',
         headers: {
           'apikey': SUPA_KEY,
           'Authorization': 'Bearer ' + SUPA_KEY,
           'Content-Type': 'application/json',
-          'Prefer': 'resolution=merge-duplicates,return=minimal'
+          'Prefer': 'return=minimal'
         },
-        body: JSON.stringify(it.val)
+        body: JSON.stringify({ p: it.val })
       });
       if (r.ok) idbDelSW(db, store, it.key);
     } catch (e) { /* sin señal: se reintenta en el próximo sync */ }

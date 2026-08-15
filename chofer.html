@@ -997,31 +997,14 @@ function _kmDataAplicarEstado(cam_, estDash, motivo, observ, quien, fechaISO){
   // El dato viejo es legítimo (se guarda), pero su EFECTO sobre el estado actual no: pondría a
   // la unidad como estaba el martes. Si hay un checklist POSTERIOR, no se toca `km_data`.
   // ([[norma-la-cola-reintenta-el-dato-pero-no-su-efecto]])
-  return supabase.from('checklist').select('fecha').eq('cam', cam_).gt('fecha', fReg).limit(1)
-    .then(function(rc){
-      if(rc && rc.data && rc.data.length) return null;   // hay uno más nuevo → el estado no es de este
-      return supabase.from('km_data').select('estado,estado_desde,nota_estado').eq('cam', cam_).limit(1);
-    })
-    .then(function(r){
-      if(r === null) return null;
-      var prev = (r && r.data && r.data[0]) || {};
-      var eraOp = !prev.estado || prev.estado === 'operativo';
-      var desde, nota;
-      if(estDash === 'operativo'){
-        desde = null; nota = '';                       // vuelve a circular → sin fecha y sin motivo
-      }else{
-        desde = (!eraOp && prev.estado_desde) ? prev.estado_desde : fReg;
-        nota  = String(motivo || '').trim() || String(observ || '').trim() || String(prev.nota_estado || '').trim();
-      }
-      var upd = { cam: cam_, estado: estDash, nota_estado: nota, estado_desde: desde };
-      // `estado_confirmado` lo declara una PERSONA de oficina, no esta pantalla: si la unidad
-      // sale de circulación se BAJA, para que el modal «¿por qué está fuera?» sí pregunte.
-      if(estDash !== 'operativo') upd.estado_confirmado = false;
-      if(quien) upd.updated_by = quien;
-      // upsert: si la unidad todavía no tiene fila en km_data, un UPDATE afecta 0 filas y se
-      // pierde en silencio. Solo se tocan las columnas del payload.
-      return supabase.from('km_data').upsert(upd, { onConflict: 'cam' });
-    });
+  // ⛔ TODA LA REGLA DE ARRIBA VIVE AHORA EN `chofer_km_estado` (migración del 15/08). Acá eran
+  // dos lecturas + una decisión + una escritura: tres viajes de red, y sobre todo tres permisos de
+  // tabla que el teléfono no puede tener si se quiere cerrar `anon`. La decisión no cambió —
+  // incluida la de no pisar el estado cuando ya hay un checklist más nuevo.
+  return supabase.rpc('chofer_km_estado', {
+    p_cam: cam_, p_estado: estDash, p_motivo: String(motivo || ''),
+    p_observ: String(observ || ''), p_quien: String(quien || ''), p_fecha: fReg
+  });
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -1221,7 +1204,7 @@ function iniciarSupabase(){
 
 function verificarConexion(){
   if(!supabase) return;
-  supabase.from('viajes_chofer').select('id').limit(1).then(function(res){
+  supabase.rpc('hay_conexion').then(function(res){
     isOnline = !res.error;
     actualizarConexion(isOnline);
     if(isOnline){
@@ -2029,7 +2012,7 @@ function guardarViajesLocal(){
 
 function cargarViajesSupabase(){
   if(!supabase) return;
-  supabase.from('viajes_chofer').select('*').eq('fecha',hoy).eq('cam',cam)
+  supabase.rpc('chofer_viajes_dia', {p_cam: cam, p_fecha: hoy})
   .then(function(res){
     if(res.error || !res.data) return;
     var enServidor = {};
@@ -2060,10 +2043,10 @@ function cargarSemanaSupabase(){
   if(!supabase) return;
   var lunesStr = getLunesDeSemana();
   var sem = getSemanaISO(hoy);
-  supabase.from('viajes_chofer').select('viaje_num').eq('cam',cam)
-    .gte('fecha', lunesStr).lte('fecha', hoy)
+  supabase.rpc('chofer_viajes_cuenta', {p_cam: cam, p_desde: lunesStr, p_hasta: hoy})
   .then(function(res){
-    var total = (res.data && !res.error) ? res.data.length : 0;
+    // La RPC devuelve el NÚMERO, no las filas: `0` es un total legítimo, no un "sin datos".
+    var total = (!res.error && typeof res.data === 'number') ? res.data : 0;
     var el = document.getElementById('viajes-semana-count');
     if(el) el.textContent = total;
   });
@@ -2094,7 +2077,7 @@ function registrarViaje(num){
   };
 
   if(isOnline && supabase){
-    supabase.from('viajes_chofer').upsert([reg],{onConflict:'fecha,cam,viaje_num'})
+    supabase.rpc('chofer_viaje_guardar', {p: reg})
     .then(function(res){
       if(!res.error){
         VIAJES_HOY[num].sincronizado = true;
@@ -2229,7 +2212,7 @@ function sincronizarCola(){
     var fall = [], rest = pend.length;
     pend.forEach(function(raw){
       var reg = limpiarRegViaje(raw);
-      supabase.from('viajes_chofer').upsert([reg],{onConflict:'fecha,cam,viaje_num'})
+      supabase.rpc('chofer_viaje_guardar', {p: reg})
       .then(function(res){
         if(res.error){ fall.push(raw); __ultErrSync = 'viaje '+reg.cam+'#'+reg.viaje_num+': '+(res.error.message||res.error.code||'error'); }
         // El «✓ subido» se pone SOLO si la fila es de ESTE camión y de HOY. Antes se indexaba por
@@ -2255,7 +2238,7 @@ function sincronizarCola(){
     localStorage.removeItem('btg_cola_cl');
     var fallC = [], restC = pendC.length;
     pendC.forEach(function(reg){
-      supabase.from('checklist').upsert([reg],{onConflict:'fecha,cam'})
+      supabase.rpc('chofer_checklist_guardar', {p: reg})
       .then(function(res){
         if(res.error){ fallC.push(reg); __ultErrSync = 'checklist '+reg.cam+': '+(res.error.message||res.error.code||'error'); }
         else {
@@ -2271,7 +2254,7 @@ function sincronizarCola(){
             // Odómetro: la ruta online sí actualiza km_data.km (con candado). Por cola faltaba → "Próx.
             // aceite"/proxServicio del dashboard quedaban desfasados. Solo sube si el km es NULL o menor.
             var kmC = Math.max(parseInt(reg.km_salida)||0, parseInt(reg.km_entrada)||0);
-            if(kmC > 0) supabase.from('km_data').update({ km: kmC }).eq('cam', reg.cam).or('km.is.null,km.lt.'+kmC);
+            if(kmC > 0) supabase.rpc('chofer_km_subir', {p_cam: reg.cam, p_km: kmC});
           }
         }
       }, function(){ fallC.push(reg); })
@@ -2293,7 +2276,7 @@ function sincronizarCola(){
       if(!row){ localStorage.removeItem(mk); return; }
       localStorage.removeItem(mk);
       var reponer=function(){ try{ localStorage.setItem(mk, JSON.stringify(row)); }catch(e){} };
-      supabase.from('combustible_mediciones').upsert([row],{onConflict:CL_MED_ONCONFLICT})
+      supabase.rpc('chofer_medicion_guardar', {p: row})
         .then(function(res){ if(res.error) reponer(); }, reponer);
     });
   }catch(e){}
@@ -2326,7 +2309,7 @@ async function reintentarYDiagnosticar(){
     return;
   }
   try{
-    var t=await supabase.from('viajes_chofer').select('id').limit(1);
+    var t=await supabase.rpc('hay_conexion');
     L.push('Lectura prueba: '+(t.error?('ERROR: '+t.error.message):'OK'));
     if(!t.error && !isOnline){ actualizarConexion(true); }
   }catch(e){ L.push('Lectura prueba: EXCEPCION '+((e&&e.message)||e)); }
@@ -2418,13 +2401,11 @@ function cargarChecklistSupabase(){
   if(!supabase) return;
   // Odómetro previo de la unidad (para validar que el km que meta el chofer no sea irreal).
   try{
-    supabase.from('km_data').select('km').eq('cam', cam).limit(1).then(function(rk){
+    supabase.rpc('chofer_unidad_km', {p_cam: cam}).then(function(rk){
       if(rk && !rk.error && rk.data && rk.data[0] && rk.data[0].km) CL_KM_PREV = parseInt(rk.data[0].km)||0;
     });
   }catch(e){}
-  supabase.from('checklist').select('*')
-    .eq('cam', cam).eq('fecha', hoy)
-    .limit(1)
+  supabase.rpc('chofer_checklist_dia', {p_cam: cam, p_fecha: hoy})
   .then(function(res){
     if(res.error || !res.data || !res.data.length){
       CL_MODO = 'salida';
@@ -2464,9 +2445,9 @@ function clCorregirLlegada(){
   try{localStorage.setItem('btg_cl_modo_'+cam+'_'+hoy,'llegada');}catch(e){}
   renderChecklistModo();
   try{
-    if(supabase) supabase.from('combustible_mediciones').select('altura_cm')
-      .eq('vehiculo_id',cam).eq('fecha',hoy).eq('momento','llegada').limit(1)
-      .then(function(r){ if(r&&!r.error&&r.data&&r.data[0]&&!gv('cl-cm-llegada')){ setVal('cl-cm-llegada', r.data[0].altura_cm); clCalcLitrosCm('llegada'); } });
+    // La RPC devuelve la altura SUELTA (numeric), no una fila: no hay `.data[0]`.
+    if(supabase) supabase.rpc('chofer_medicion', {p_cam: cam, p_fecha: hoy, p_momento: 'llegada'})
+      .then(function(r){ if(r&&!r.error&&r.data!=null&&!gv('cl-cm-llegada')){ setVal('cl-cm-llegada', r.data); clCalcLitrosCm('llegada'); } });
   }catch(e){}
   mostrarToast('Corregí lo que haga falta y toca Guardar Llegada','warn');
 }
@@ -2714,7 +2695,7 @@ async function clGuardarMedicionCm(momento){
   var litros=clLitrosJac(cmV);
   var row={fecha:hoy,tanque_id:((CL_TANQUE_UNIDAD&&CL_TANQUE_UNIDAD.tanque_id)||'tanque-jac'),vehiculo_id:cam,momento:momento,altura_cm:cmV,litros_calculados:litros,registrado_por:(chofer||'chofer'),notas:'Medición chofer '+cam};
   try{
-    if(isOnline&&supabase){ var r=await supabase.from('combustible_mediciones').upsert([row],{onConflict:CL_MED_ONCONFLICT}); if(r.error)console.error('medicion cm error',r.error); }
+    if(isOnline&&supabase){ var r=await supabase.rpc('chofer_medicion_guardar', {p: row}); if(r.error){ console.error('medicion cm error',r.error); throw r.error; } }
     else { localStorage.setItem('btg_medcm_'+cam+'_'+hoy+'_'+momento, JSON.stringify(row)); }
   }catch(e){ try{localStorage.setItem('btg_medcm_'+cam+'_'+hoy+'_'+momento, JSON.stringify(row));}catch(e2){} }
 }
@@ -2839,25 +2820,19 @@ async function _guardarChecklist(){
   var guardadoOk = false, enCola = false;
 
   if(isOnline && supabase){
-    var res;
-    if(CL_ID_EXISTENTE){
-      // UPDATE — solo si llenado_por no es 'mecanico'. CON .select(): sin él, si el mecánico ya tomó el
-      // registro se actualizan 0 filas, res.error queda null → "🌙 Llegada registrada" FALSO y se pierden
-      // los datos de llegada (km/combustible) en silencio. Ahora 0 filas = bloqueado (avisar, no fingir).
-      res = await supabase.from('checklist')
-        .update(registro)
-        .eq('id', CL_ID_EXISTENTE)
-        .neq('llenado_por','mecanico')
-        .select();
-      if(!res.error && (!res.data || res.data.length===0)){
-        mostrarToast('El mecánico ya registró este checklist hoy — avísale a la oficina','warn');
-        return;
-      }
-    } else {
-      // INSERT
-      res = await supabase.from('checklist').upsert([registro],{onConflict:'fecha,cam'}).select();
-      if(!res.error && res.data && res.data[0]) CL_ID_EXISTENTE = res.data[0].id;
+    // ⛔ UNA SOLA LLAMADA PARA LOS DOS CASOS. La RPC hace el upsert por (fecha,cam) y aplica la
+    // regla del mecánico DEL LADO DEL SERVIDOR: si él ya llenó el checklist de hoy, no pisa nada y
+    // devuelve null. El aviso que estaba acá NO se pierde — es el mismo, solo que ahora la señal
+    // llega como `null` en vez de "0 filas actualizadas", que era lo que obligaba a pedir la fila
+    // de vuelta con `.select()`. Y ese `.select()` es un RETURNING, que exige permiso de lectura
+    // sobre la tabla: justo el que se le quita a `anon` para que nadie lea la operación con la
+    // llave pública. El id vuelve porque la pantalla lo necesita, no porque se abra la tabla.
+    var res = await supabase.rpc('chofer_checklist_guardar', {p: registro});
+    if(!res.error && res.data === null){
+      mostrarToast('El mecánico ya registró este checklist hoy — avísale a la oficina','warn');
+      return;
     }
+    if(!res.error && res.data) CL_ID_EXISTENTE = res.data;
     guardadoOk = !res.error;
     if(!guardadoOk){
       console.error('Checklist error:', res.error);
@@ -2890,7 +2865,7 @@ async function _guardarChecklist(){
       // `estado` y `nota_estado` y NUNCA `estado_desde`, y `nota_estado` se pisaba con '' cuando
       // el chofer no llenaba el motivo — el camión salía amarillo, con días de más y sin explicación.
       await _kmDataAplicarEstado(cam, estDash, gv('cl-motivo'), registro && registro.observaciones, 'chofer', hoy);
-      if(kmVal > 0) await supabase.from('km_data').update({ km: kmVal }).eq('cam', cam).or('km.is.null,km.lt.'+kmVal);
+      if(kmVal > 0) await supabase.rpc('chofer_km_subir', {p_cam: cam, p_km: kmVal});
     }
   } else {
     // Sin conexión (o supabase aún no listo): a la cola para que suba al reconectar.
