@@ -140,6 +140,7 @@
     </span>
     <button class="btn ocultarTv" id="bSitio" style="display:none">📍 Marcar sitio</button>
     <button class="btn ocultarTv" id="bClave" title="Pegar la clave de Stadia Maps para probar sus fondos">🔑</button>
+    <button class="btn" id="bRec" title="Con muchas unidades los recorridos se tapan entre sí. Acá se elige cuántos se ven.">Recorridos: todos</button>
     <button class="btn" id="bTv">Modo televisor</button>
     <button class="btn ocultarTv" id="bPleno">Pantalla completa</button>
     <button class="btn ocultarTv" onclick="location.href='app.html'">← Volver</button>
@@ -168,6 +169,10 @@
       no muestra las paradas: entre dos reportes hubo varias. Y cuando el camión está
       detenido, la posición del equipo baila unos metros sola — eso la pantalla no lo
       anima, para que no parezca que se movió alguien que estaba quieto.<br><br>
+      <b>Cada unidad tiene su color y su tipo de línea</b> —continua, rayada, punteada—
+      para que dos recorridos no se confundan aunque los colores se parezcan. Con muchas
+      unidades el mapa igual se llena: el botón <b>Recorridos</b> pasa de verlos todos, a
+      ver solo el de la unidad elegida, a ver solo los camiones sin ninguna línea.<br><br>
       <b>Andando sin reportar</b> es el rato más largo que el camión estuvo en
       movimiento y no se supo dónde. Con el motor apagado el equipo reporta una vez
       por hora, y eso es normal: esas horas no se cuentan acá.
@@ -282,6 +287,24 @@ Object.assign(FONDOS, {
 var COLORES_BASE = ['#4da3ff','#ff5a4d','#22d37a','#ffc233','#c07bff','#00c9c9',
                     '#ff9040','#7f8cff','#ff6fae','#9ad34a','#c49a7a','#3fd0b0'];
 var _colorCache = {};
+
+// ⛔ EL COLOR SOLO NO ALCANZA PASADAS ~12 UNIDADES. Con 15 ya cuesta y con 60 es imposible:
+// nadie distingue 60 tonos, y menos en una tele a tres metros. Por eso cada unidad se
+// dibuja con color Y FORMA DE LÍNEA. Las 4 formas por 12 colores dan 48 combinaciones que
+// se distinguen de verdad; y si dos comparten color, NO comparten trazo.
+// ⚠️ Aun así, 60 recorridos encimados no se leen aunque cada uno sea único: por eso está el
+// botón de arriba. La forma ayuda a seguir UNA línea; el botón es lo que hace legible el mapa.
+var TRAZOS = [null, '10 7', '2 7', '14 6 2 6'];   // continuo · rayas · puntos · raya-punto
+function trazoDe(i){ return TRAZOS[Math.floor(i / COLORES_BASE.length) % TRAZOS.length]; }
+
+// Cuántos recorridos se ven: 'todos' · 'uno' (solo el elegido) · 'ninguno' (solo los camiones).
+// Arranca en 'todos' porque hoy son 12; con 60 lo primero que va a querer el que mire es 'uno'.
+var MODO_REC = 'todos';
+function recVisible(cam){
+  if(MODO_REC === 'ninguno') return false;
+  if(MODO_REC === 'uno') return seleccion === cam;
+  return true;
+}
 function colorDe(i){
   if(i < COLORES_BASE.length) return COLORES_BASE[i];
   if(_colorCache[i]) return _colorCache[i];
@@ -581,7 +604,7 @@ function pintar(){
 
     if(!dibujo[cam]){
       dibujo[cam]={
-        linea:L.polyline(linea,{color:color,weight:tv?5:3.5,opacity:.8}).addTo(mapa),
+        linea:L.polyline(linea,{color:color,weight:tv?5:3.5,opacity:.8,dashArray:trazoDe(i)}).addTo(mapa),
         halo:L.marker(ult.lat&&ult.lon?[ult.lat,ult.lon]:[0,0],{interactive:false,
           icon:L.divIcon({className:'',html:'<div class="halo" style="width:34px;height:34px;color:'+color+'"></div>',iconSize:[34,34],iconAnchor:[17,17]})}).addTo(mapa),
         marca:L.marker([ult.lat,ult.lon],{icon:L.divIcon({className:'',
@@ -625,8 +648,15 @@ function pintar(){
 
     dibujo[cam].marca.setOpacity(mudo?.45:1);
     dibujo[cam].halo.setOpacity(mudo?0:1);
-    dibujo[cam].linea.setStyle({opacity:mudo?.35:.8});
-    linea.forEach(function(c){ bordes.push(c); });
+    // El recorrido y sus paradas se apagan juntos: un mapa con las paradas sueltas y sin la
+    // línea que las une no se entiende.
+    var verRec = recVisible(cam);
+    dibujo[cam].linea.setStyle({opacity: verRec ? (mudo?.35:.8) : 0, dashArray: trazoDe(i)});
+    (dibujo[cam].paradas||[]).forEach(function(c){ c.setStyle({opacity: verRec?1:0, fillOpacity: verRec?(c.options.fillColor==='transparent'?0:.55):0}); });
+    // El encuadre automático solo mira lo que se está viendo: si están todos ocultos menos
+    // uno, no tiene sentido abrir el mapa a la ciudad entera.
+    if(verRec) linea.forEach(function(c){ bordes.push(c); });
+    else if(ult.lat&&ult.lon) bordes.push([ult.lat,ult.lon]);
 
     htm+='<div class="u'+(seleccion===cam?' sel':'')+'" data-cam="'+esc(cam)+'">'
       +'<div class="u-cab"><span class="punto" style="background:'+color+'"></span>'
@@ -661,11 +691,23 @@ function pintar(){
 
 function elegir(cam){
   seleccion=cam;
+  if(MODO_REC==='uno') pintar();   // cambia cuál es el único recorrido visible
   Array.prototype.forEach.call(document.querySelectorAll('.u[data-cam]'),function(el){
     el.classList.toggle('sel',el.getAttribute('data-cam')===cam);
   });
   var e=estado[cam];
   if(e&&e.ult) mapa.setView([e.ult.lat,e.ult.lon],Math.max(mapa.getZoom(),15),{animate:true});
+}
+
+// Cicla todos -> solo el elegido -> ninguno. Tres estados en un botón en vez de tres
+// controles: en la tele no hay mouse fino y en el teléfono no hay lugar.
+function ciclarRecorridos(){
+  MODO_REC = MODO_REC==='todos' ? 'uno' : (MODO_REC==='uno' ? 'ninguno' : 'todos');
+  var b=document.getElementById('bRec');
+  if(b) b.textContent = 'Recorridos: ' + (MODO_REC==='todos' ? 'todos'
+                        : MODO_REC==='uno' ? 'solo el elegido' : 'ocultos');
+  try{ localStorage.setItem('btg_mapa_rec', MODO_REC); }catch(e){}
+  pintar();
 }
 
 function marcarVivo(){
@@ -915,6 +957,17 @@ document.getElementById('bClave').onclick=function(){
 
 document.getElementById('bSitio').onclick=modoMarcar;
 document.getElementById('bTv').onclick=modoTv;
+// Recorridos: se recuerda la elección. El que mira una tele con 60 unidades no quiere
+// volver a apagarlos cada vez que se recarga la pantalla.
+try{
+  var _mr=localStorage.getItem('btg_mapa_rec');
+  if(_mr==='uno'||_mr==='ninguno'){
+    MODO_REC=_mr;
+    var _b=document.getElementById('bRec');
+    if(_b) _b.textContent='Recorridos: '+(MODO_REC==='uno'?'solo el elegido':'ocultos');
+  }
+}catch(e){}
+document.getElementById('bRec').onclick=ciclarRecorridos;
 document.getElementById('bPleno').onclick=function(){
   if(document.fullscreenElement) document.exitFullscreen();
   else document.documentElement.requestFullscreen();
