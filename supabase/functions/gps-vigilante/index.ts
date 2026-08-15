@@ -34,7 +34,11 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const HDR = { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` };
 
-const AVISAR_A = Deno.env.get("GPS_AVISAR_A") || "584149614915";  // Máximo
+// ⛔ 584147379886 es MÁXIMO. NO poner 584149614915: ese es el DISPOSITIVO de
+// Wassenger, el que ENVÍA, y un número no puede escribirse a sí mismo. Si se pone,
+// Wassenger acepta el mensaje —la cola queda en `enviado`— y NUNCA LLEGA. Pasó el
+// 14/08/2026 con la primera prueba de esta función.
+const AVISAR_A = Deno.env.get("GPS_AVISAR_A") || "584147379886";  // Máximo
 const MIN_CONECTOR = 30;   // minutos sin correr el sondeo = está caído
 const HS_MUDO = 5;         // horas sin reportar de una unidad activa
 
