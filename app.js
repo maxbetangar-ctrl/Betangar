@@ -9743,7 +9743,9 @@ function _iniciarCierreOrden(id){
     else { sv('hv-item','__nuevo'); if(typeof _hvItemOtro==='function')_hvItemOtro(); sv('hv-item-otro',o.item||''); }
     var ttPorTipo={lavado:'lavado',cambio:'cambio',inspeccion:'inspeccion',correctivo:'correctivo',preventivo:'cambio'};
     if(g('hv-tipotrabajo'))sv('hv-tipotrabajo',ttPorTipo[o.tipo]||'cambio');
-    if(o.proveedor)sv('hv-prov',o.proveedor);
+    // La orden ya trae el taller ELEGIDO de la lista: se hereda el enlace, no el texto.
+    if(o.proveedorId){ try{ _hvPoblarProv(); sv('hv-prov-sel',o.proveedorId); _hvProvOtro(); }catch(e){} }
+    else if(o.proveedor)sv('hv-prov',o.proveedor);
     if(o.item)sv('hv-nota',o.item);
     // dejar el formulario a la vista: el usuario viene de otra pantalla y tiene que ver DÓNDE escribir
     try{var _foco=g('hv-cam'); if(_foco&&_foco.scrollIntoView)_foco.scrollIntoView({behavior:'smooth',block:'center'});}catch(e){}
@@ -9870,7 +9872,19 @@ async function _ccAgregarLinea(){
   var costo=parseFloat(gv('cc-costo'))||0;
   var destino=gv('cc-destino')||'unidad';
   var provSel=gv('cc-prov'), provNom='', provId='';
-  if(provSel==='__otro'){provNom=(gv('cc-prov-otro')||'').trim();}
+  if(provSel==='__otro'){
+    // Mismo criterio que la orden de servicio: un proveedor escrito a mano se REGISTRA y queda
+    // enlazado. Si acá se guardara solo el texto, la compra quedaría fuera del comparativo de
+    // precios por la misma puerta que se acaba de cerrar en la hoja de vida.
+    provNom=_provNombreLimpio(gv('cc-prov-otro'));
+    if(provNom){
+      var _pe=_provBuscarParecido(provNom);
+      if(_pe && confirm('Ya existe un proveedor parecido:\n\n  '+_pe.nombre+'\n\n¿Es el mismo?\n\nAceptar = uso ese (recomendado)\nCancelar = registro "'+provNom+'" como uno nuevo')){
+        provId=_pe.id; provNom=_pe.nombre;
+      }
+      if(!provId){ var _nue=await _provCrearRapido(provNom); if(_nue&&_nue.id){provId=_nue.id;provNom=_nue.nombre;} }
+    }
+  }
   else if(provSel){var pv=(typeof PROVEEDORES!=='undefined'?PROVEEDORES:[]).find(function(p){return String(p.id)===String(provSel);});provId=provSel;provNom=pv?pv.nombre:'';}
   var pago=gv('cc-pago')||'contado';
   var garDias=parseInt(gv('cc-garantia'))||0;
@@ -9889,14 +9903,14 @@ async function _ccAgregarLinea(){
       var km=parseInt(gv('cc-km'))||0, idM='MT'+Date.now();
       if(km<=0)km=(typeof kmActualCam==='function')?(parseInt(kmActualCam(cam))||0):0; // sin km manual → km actual de la base
       var itemCat=_ccItemCatalogo(nombre); // enlaza con el catálogo → cuenta para los vencimientos (antes item_id='' = invisible)
-      var row={id:idM,cam:cam,f:fecha,km:km,horas:0,item_id:itemCat,tipo:nombre,tipo_trabajo:'cambio',desc_trabajo:nombre+(cant>1?(' x'+cant):''),costo_usd:costo,proveedor:provNom,foto_url:fotoUrl,anomalia:false,motivo:'',orden_id:ordenId,garantia_hasta:garHasta,centro_costo:'',origen:'',ejecutor:'externo'};
+      var row={id:idM,cam:cam,f:fecha,km:km,horas:0,item_id:itemCat,tipo:nombre,tipo_trabajo:'cambio',desc_trabajo:nombre+(cant>1?(' x'+cant):''),costo_usd:costo,proveedor:provNom,proveedor_id:provId||null,foto_url:fotoUrl,anomalia:false,motivo:'',orden_id:ordenId,garantia_hasta:garHasta,centro_costo:'',origen:'',ejecutor:'externo'};
       var mem={id:idM,cam:cam,fecha:fecha,km:km,horas:0,itemId:itemCat,tipo:nombre,tipoTrabajo:'cambio',desc:row.desc_trabajo,costo:costo,proveedor:provNom,foto:fotoUrl,anomalia:false,motivo:'',ordenId:ordenId,garantiaHasta:garHasta,centroCosto:'',origen:''};
       await _ccInsertMant(row,mem);
       if(itemCat)_sincronizarCicloMant(cam,itemCat,fecha); // si es lavado/engrase, refresca su ciclo en el espejo
       if(km>0){ if(!KM_DATA[cam])KM_DATA[cam]={km:0,f:'',ultsrv:0,mant:[],lavado:'',engrase:''}; if(km>=(parseInt(KM_DATA[cam].km)||0)){KM_DATA[cam].km=km;KM_DATA[cam].f=fecha;} }
     } else if(destino==='patio'){
       var centro=gv('cc-centro')||'otros', idP='MT'+Date.now();
-      var row2={id:idP,cam:'PATIO',f:fecha,km:0,horas:0,item_id:'',tipo:nombre,tipo_trabajo:'compra',desc_trabajo:nombre+(cant>1?(' x'+cant):''),costo_usd:costo,proveedor:provNom,foto_url:fotoUrl,anomalia:false,motivo:'',orden_id:ordenId,garantia_hasta:garHasta,centro_costo:centro,origen:'',ejecutor:'externo'};
+      var row2={id:idP,cam:'PATIO',f:fecha,km:0,horas:0,item_id:'',tipo:nombre,tipo_trabajo:'compra',desc_trabajo:nombre+(cant>1?(' x'+cant):''),costo_usd:costo,proveedor:provNom,proveedor_id:provId||null,foto_url:fotoUrl,anomalia:false,motivo:'',orden_id:ordenId,garantia_hasta:garHasta,centro_costo:centro,origen:'',ejecutor:'externo'};
       var mem2={id:idP,cam:'PATIO',fecha:fecha,km:0,horas:0,itemId:'',tipo:nombre,tipoTrabajo:'compra',desc:row2.desc_trabajo,costo:costo,proveedor:provNom,foto:fotoUrl,anomalia:false,motivo:'',ordenId:ordenId,garantiaHasta:garHasta,centroCosto:centro,origen:''};
       await _ccInsertMant(row2,mem2);
     } else { // inventario
@@ -10607,7 +10621,7 @@ async function cargarMantenimientos(){
     // `.limit(5000)` no evitaba el corte de 1.000 de PostgREST: se usa `_selectAllG`.
     var r=await _selectAllG('mantenimientos');
     if(r&&!r.error&&Array.isArray(r.data)){
-      MANTENIMIENTOS=_ordDesc(r.data,'f').map(function(x){return {id:x.id||('MT'+(x.cam||'')+'-'+(x.f||'')+'-'+(x.km||0)+'-'+(x.item_id||x.tipo||'')),cam:x.cam||'',fecha:x.f||'',km:parseInt(x.km)||0,horas:parseInt(x.horas)||0,itemId:x.item_id||'',tipo:x.tipo||'',tipoTrabajo:x.tipo_trabajo||'',desc:x.desc_trabajo||'',costo:parseFloat(x.costo_usd)||0,proveedor:x.proveedor||'',foto:x.foto_url||'',anomalia:x.anomalia===true,motivo:x.motivo||'',ordenId:x.orden_id||'',garantiaHasta:x.garantia_hasta||null,centroCosto:x.centro_costo||'',origen:x.origen||'',ejecutor:x.ejecutor||''};});
+      MANTENIMIENTOS=_ordDesc(r.data,'f').map(function(x){return {id:x.id||('MT'+(x.cam||'')+'-'+(x.f||'')+'-'+(x.km||0)+'-'+(x.item_id||x.tipo||'')),cam:x.cam||'',fecha:x.f||'',km:parseInt(x.km)||0,horas:parseInt(x.horas)||0,itemId:x.item_id||'',tipo:x.tipo||'',tipoTrabajo:x.tipo_trabajo||'',desc:x.desc_trabajo||'',costo:parseFloat(x.costo_usd)||0,proveedor:x.proveedor||'',proveedorId:x.proveedor_id||'',foto:x.foto_url||'',anomalia:x.anomalia===true,motivo:x.motivo||'',ordenId:x.orden_id||'',garantiaHasta:x.garantia_hasta||null,centroCosto:x.centro_costo||'',origen:x.origen||'',ejecutor:x.ejecutor||''};});
       try{ _firmarFotos(MANTENIMIENTOS,'foto','asistencia'); }catch(_e){}
     }
   }catch(e){ console.log('mantenimientos load:',e&&e.message); }
@@ -11430,6 +11444,7 @@ function _hvUnidades(){
 }
 function _setSelPreserve(id,html){var s=g(id);if(!s)return;var cur=s.value;s.innerHTML=html;if(cur){s.value=cur;}}
 function _hvPoblarSelects(){
+  try{ _hvPoblarProv(); }catch(e){}   // la lista de talleres se llena con las demás, no aparte
   var unidades=_hvUnidades();
   var optU='<option value="">— unidad —</option>'+unidades.map(function(c){return '<option value="'+_mEsc(c)+'">'+_mEsc(c)+'</option>';}).join('');
   var optUver='<option value="">Todas las unidades</option>'+unidades.map(function(c){return '<option value="'+_mEsc(c)+'">'+_mEsc(c)+'</option>';}).join('');
@@ -11463,12 +11478,33 @@ function _hvItemOtro(){ var w=g('hv-item-otro-wrap'); if(w)w.style.display=(gv('
 // genera costo, pero quiero saber cuándo se le hizo y que esté en el historial del camión.»
 // Antes eso se registraba con proveedor vacío y costo 0 — indistinguible de un registro a
 // medio llenar. Ahora se DECLARA quién lo hizo, y el $0 pasa a querer decir algo.
+// ⛔ EL TALLER SE ELIGE DE LA LISTA; EL MECÁNICO PROPIO SE ESCRIBE.
+// Replicado de FLOTILLA el 15/08, donde el mismo concesionario había quedado escrito de 7 formas
+// distintas y el comparativo lo leía como 7 talleres. Acá la base estaba MÁS limpia —los nombres
+// se cargaron con razón social— pero igual de desenlazada: «AUTO UNION DC, C.A» (40 trabajos)
+// no calzaba con el registrado «AUTO UNION DC, C.A.» POR EL PUNTO FINAL, y «SERVICAR AUTOLAVADO»
+// (38 trabajos, $2.280) y «SERVICAR, C.A.» (10, $700) son el mismo taller partido en dos.
+// Agrupar por texto es agrupar por cómo se escribió. Por eso el taller pasa a tener id.
+// El mecánico propio NO va a la lista de proveedores: es una persona de la nómina, no un tercero.
+function _hvProvOtro(){var s=g('hv-prov-sel'),w=g('hv-prov-otro-wrap');if(w)w.style.display=(s&&s.value==='__otro')?'block':'none';}
+function _hvPoblarProv(){
+  var sp=g('hv-prov-sel'); if(!sp)return;
+  var prev=sp.value;
+  sp.innerHTML='<option value="">— elegir —</option>'+
+    (typeof PROVEEDORES!=='undefined'?PROVEEDORES:[]).map(function(p){
+      return '<option value="'+_mEsc(String(p.id))+'">'+_mEsc(p.nombre||'')+(p.cat?(' · '+_mEsc(p.cat)):'')+'</option>';
+    }).join('')+'<option value="__otro">➕ Otro (escribir)</option>';
+  if(prev)sp.value=prev;
+}
 function _hvEjecutor(){
   var interno=(gv('hv-ejecutor')==='interno');
-  var lbl=g('hv-prov-lbl'), inp=g('hv-prov'), hint=g('hv-prov-hint'), costo=g('hv-costo');
+  var lbl=g('hv-prov-lbl'), inp=g('hv-prov'), sel=g('hv-prov-sel'), hint=g('hv-prov-hint'), costo=g('hv-costo');
   if(lbl)lbl.textContent=interno?'Mecánico / responsable':'Proveedor / taller';
-  if(inp)inp.placeholder=interno?'Quién lo hizo (ej: Luis, el mecánico)':'Opcional';
-  if(hint)hint.textContent=interno?'No cuesta plata nueva: la mano de obra ya está en la nómina. El material que se gaste sale de Inventario → Registrar Uso.':'';
+  // Interno → campo de texto (una persona). Externo → la lista de proveedores (una empresa).
+  if(inp){ inp.style.display=interno?'block':'none'; inp.placeholder='Quién lo hizo (ej: Luis, el mecánico)'; }
+  if(sel){ sel.style.display=interno?'none':'block'; if(interno)sel.value=''; }
+  if(interno){ var w=g('hv-prov-otro-wrap'); if(w)w.style.display='none'; } else _hvProvOtro();
+  if(hint)hint.textContent=interno?'No cuesta plata nueva: la mano de obra ya está en la nómina. El material que se gaste sale de Inventario → Registrar Uso.':'Se elige de la lista para poder comparar precios entre talleres. Si es nuevo, «Otro» lo registra en el acto.';
   if(costo){ costo.placeholder=interno?'0.00 (sin costo)':'0.00'; }
 }
 // Crea (o reusa) un ítem del catálogo a partir del nombre escrito a mano y lo PERSISTE.
@@ -11704,8 +11740,40 @@ async function registrarMantItem(){
   // Al cerrar una ORDEN el trabajo es por definición de un tercero: se sella 'externo' aunque
   // el selector haya quedado en otra cosa (la orden salió a un taller, no al mecánico de casa).
   if(_oc)ejecutor='externo';
-  var row={id:id,cam:cam,f:fecha,km:km,horas:horas,item_id:itemId,tipo:(it?it.nombre:itemId),tipo_trabajo:tipoTrab,desc_trabajo:nota||(it?it.nombre:''),costo_usd:costo,proveedor:prov,foto_url:foto,anomalia:anomalia,motivo:motivo,orden_id:_oc,garantia_hasta:garHasta,ejecutor:ejecutor};
-  var mem={id:id,cam:cam,fecha:fecha,km:km,horas:horas,itemId:itemId,tipo:row.tipo,tipoTrabajo:tipoTrab,desc:row.desc_trabajo,costo:costo,proveedor:prov,foto:foto,anomalia:anomalia,motivo:motivo,ordenId:_oc,garantiaHasta:garHasta,ejecutor:ejecutor};
+  // ── QUIÉN LO HIZO, CON IDENTIDAD ───────────────────────────────────────────
+  // El taller externo se resuelve a un `proveedor_id`: es lo que permite comparar precios entre
+  // talleres. Se resuelve ACÁ ABAJO, no al principio, para no registrar un proveedor nuevo por un
+  // formulario que después no pasa las validaciones.
+  var provId='';
+  if(ejecutor==='interno'){
+    provId=''; // el mecánico propio es de la nómina, no un tercero: queda solo su nombre
+  } else {
+    var _ps=gv('hv-prov-sel')||'';
+    if(_ps==='__otro'){
+      prov=_provNombreLimpio(gv('hv-prov-otro'));
+      if(!prov){ alert('Escribí el nombre del taller, o elegilo de la lista.'); return; }
+      // Mismo criterio que la orden de servicio: antes de crear uno nuevo, preguntar si es el que ya está.
+      var _pe=_provBuscarParecido(prov);
+      if(_pe && confirm('Ya existe un proveedor parecido:\n\n  '+_pe.nombre+'\n\n¿Es el mismo?\n\nAceptar = uso ese (recomendado)\nCancelar = registro "'+prov+'" como uno nuevo')){
+        provId=_pe.id; prov=_pe.nombre;
+      }
+      if(!provId){
+        var _nue=await _provCrearRapido(prov);
+        if(_nue&&_nue.id){ provId=_nue.id; prov=_nue.nombre; }
+        // Si no se pudo registrar, NO se traba el registro del trabajo: queda el nombre suelto y se
+        // enlaza después. Un catálogo no puede impedir que se cargue lo que ya pasó.
+      }
+    } else if(_ps){
+      var _pv=(typeof PROVEEDORES!=='undefined'?PROVEEDORES:[]).find(function(p){return String(p.id)===String(_ps);});
+      provId=_ps; prov=_pv?_pv.nombre:prov;
+    } else if(_oc){
+      // Cerrando una orden y sin elegir nada: el taller lo dice la ORDEN, donde ya se eligió de la lista.
+      var _o=(typeof ORDENES_SERV!=='undefined'?ORDENES_SERV:[]).find(function(x){return String(x.id)===String(_oc);});
+      if(_o&&_o.proveedorId){ provId=_o.proveedorId; prov=_o.proveedor||prov; }
+    } else { prov=''; }
+  }
+  var row={id:id,cam:cam,f:fecha,km:km,horas:horas,item_id:itemId,tipo:(it?it.nombre:itemId),tipo_trabajo:tipoTrab,desc_trabajo:nota||(it?it.nombre:''),costo_usd:costo,proveedor:prov,proveedor_id:provId||null,foto_url:foto,anomalia:anomalia,motivo:motivo,orden_id:_oc,garantia_hasta:garHasta,ejecutor:ejecutor};
+  var mem={id:id,cam:cam,fecha:fecha,km:km,horas:horas,itemId:itemId,tipo:row.tipo,tipoTrabajo:tipoTrab,desc:row.desc_trabajo,costo:costo,proveedor:prov,proveedorId:provId,foto:foto,anomalia:anomalia,motivo:motivo,ordenId:_oc,garantiaHasta:garHasta,ejecutor:ejecutor};
   var ok=false;
   if(DB_READY&&supabase){
     try{ var res=await supabase.from('mantenimientos').upsert([row],{onConflict:'id'});
@@ -11758,7 +11826,7 @@ async function registrarMantItem(){
   _sincronizarCicloMant(cam,itemId,fecha); // si es lavado/engrase, refresca su ciclo (módulo Lavados/plan)
   audit(_editId?'Mantenimiento editado':'Mantenimiento registrado',cam+' · '+row.tipo+' ('+tipoTrab+')'+(km?(' · '+km+'km'):'')+(horas?(' · '+horas+'h'):'')+(costo?(' · $'+costo):''));
   window._hvEditId=''; var _gb=g('hv-guardar-btn'); if(_gb)_gb.textContent='Registrar en la hoja de vida';
-  window._hvFotoUrl=''; sv('hv-km','');sv('hv-horas','');sv('hv-costo','');sv('hv-nota','');sv('hv-prov','');sv('hv-garantia','');
+  window._hvFotoUrl=''; sv('hv-km','');sv('hv-horas','');sv('hv-costo','');sv('hv-nota','');sv('hv-prov','');sv('hv-prov-sel','');sv('hv-prov-otro','');try{_hvProvOtro();}catch(e){}sv('hv-garantia','');
   var fp=g('hv-foto-prev'); if(fp)fp.innerHTML='';
   renderHojaVida();
   if(typeof mostrarToast==='function')mostrarToast(ok?'✅ Mantenimiento guardado en la hoja de vida':'⚠️ En cola (sin conexión)',ok?'exito':'error');
@@ -11774,6 +11842,9 @@ function editarMantItem(id){
   // Sin esto, editar un trabajo INTERNO solo para corregirle el km lo devolvía a 'externo' y
   // perdía el dato — el mismo agujero que tenía editar un proveedor con su config fiscal.
   sv('hv-ejecutor',m.ejecutor||'externo'); _hvEjecutor();
+  // El taller va DESPUÉS de _hvEjecutor(): esa función limpia el desplegable al pasar a interno.
+  // Un registro viejo sin enlace deja el desplegable vacío a propósito — que se vea que falta.
+  if((m.ejecutor||'externo')!=='interno'){ try{ _hvPoblarProv(); sv('hv-prov-sel',m.proveedorId||''); _hvProvOtro(); }catch(e){} }
   window._hvFotoUrl=m.foto||'';
   var fp=g('hv-foto-prev'); if(fp)fp.innerHTML=m.foto?('<img src="'+_mEsc(m.foto)+'" style="max-height:60px;border-radius:6px">'):'';
   window._hvEditId=id;
@@ -14989,6 +15060,7 @@ function _provRefrescarUI(){
   });
   try{ if(typeof _osPoblarForm==='function')_osPoblarForm(); }catch(e){}   // proveedor/taller de las órdenes
   try{ if(typeof _ccPoblarProv==='function')_ccPoblarProv(); }catch(e){}   // cierre de orden de compra
+  try{ if(typeof _hvPoblarProv==='function')_hvPoblarProv(); }catch(e){}   // taller de la hoja de vida
 }
 
 function renderProveedoresLista(){
