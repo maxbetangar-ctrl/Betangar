@@ -138,6 +138,7 @@
       <input type="range" id="brillo" min="80" max="230" step="5" value="130">
       <b id="brilloTxt">130%</b>
     </span>
+    <button class="btn ocultarTv" id="bSitio" style="display:none">📍 Marcar sitio</button>
     <button class="btn ocultarTv" id="bClave" title="Pegar la clave de Stadia Maps para probar sus fondos">🔑</button>
     <button class="btn" id="bTv">Modo televisor</button>
     <button class="btn ocultarTv" id="bPleno">Pantalla completa</button>
@@ -580,10 +581,114 @@ function tictac(){
   vigilarCanal();
 }
 
+// ── SITIOS / GEOCERCAS ───────────────────────────────────────────────────────
+// Se marcan CON UN CLIC EN EL MAPA. Hasta hoy la única forma era teclear latitud y
+// longitud a mano en la app ("pegalas de Google Maps"): sirve para el patio, que se
+// carga una vez, pero es impracticable para un vertedero de 800 m de radio que hay
+// que ir calibrando.
+// ⛔ Quién puede tocarlas no lo decide esta pantalla: lo decide la RLS de
+// `sitios_asistencia` (superadmin / admin / revisor). Acá solo se esconde el botón
+// para no ofrecerle a alguien algo que la base le va a rechazar.
+var TIPOS=[
+  {v:'vertedero',n:'🗑️ Vertedero (destino de descarga)',c:'#ffc233'},
+  {v:'base',     n:'🏭 Base / patio',                    c:'#22d37a'},
+  {v:'oficina',  n:'🏢 Oficina',                         c:'#4da3ff'},
+  {v:'cliente',  n:'📍 Cliente',                         c:'#c07bff'},
+  {v:'otro',     n:'📌 Otro',                            c:'#8494ab'}
+];
+function colorTipo(t){ var x=TIPOS.filter(function(o){return o.v===t;})[0]; return x?x.c:'#8494ab'; }
+
+var MI_ROL='', sitios=[], capaSitios=[], marcando=null;
+
+async function cargarSitios(){
+  try{
+    var r=await sb.from('sitios_asistencia').select('id,nombre,lat,lng,radio_m,tipo,activo').order('nombre');
+    if(!r.error) sitios=r.data||[];
+  }catch(e){}
+  pintarSitios();
+}
+function pintarSitios(){
+  capaSitios.forEach(function(c){ mapa.removeLayer(c); }); capaSitios=[];
+  sitios.filter(function(s){return s.activo!==false;}).forEach(function(s){
+    var col=colorTipo(s.tipo);
+    capaSitios.push(L.circle([s.lat,s.lng],{radius:s.radio_m||120,color:col,weight:2,
+      fillColor:col,fillOpacity:.10,dashArray:'5,5',interactive:false}).addTo(mapa));
+    capaSitios.push(L.marker([s.lat,s.lng],{interactive:false,icon:L.divIcon({className:'',
+      html:'<span class="eti" style="border:1px solid '+col+';color:'+col+';opacity:.9">'+esc(s.nombre)+'</span>',
+      iconSize:[10,18],iconAnchor:[5,9]})}).addTo(mapa));
+  });
+}
+
+function panelSitio(lat,lon){
+  var c=document.querySelector('#tapa .caja');
+  c.innerHTML='<h2>Nuevo sitio</h2>'
+   +'<p>Punto marcado en <b>'+lat.toFixed(5)+', '+lon.toFixed(5)+'</b>. '
+   +'Ajustá el radio hasta que el círculo cubra todo el terreno.</p>'
+   +'<input id="sNom" type="text" placeholder="Nombre del sitio">'
+   +'<select id="sTipo" style="width:100%;padding:9px 11px;margin-bottom:8px;border:1px solid var(--linea);border-radius:8px;font-size:14px;background:var(--papel);color:var(--tinta)">'
+   + TIPOS.map(function(t){return '<option value="'+t.v+'">'+t.n+'</option>';}).join('')+'</select>'
+   +'<div style="display:flex;align-items:center;gap:9px;margin-bottom:12px">'
+   +'<span style="font-size:13px;color:var(--suave)">Radio</span>'
+   +'<input type="range" id="sRad" min="50" max="1500" step="25" value="800" style="flex:1;accent-color:var(--azul)">'
+   +'<b id="sRadTxt" style="min-width:62px;text-align:right">800 m</b></div>'
+   +'<button class="btn" id="sOk" style="width:100%;padding:9px">Guardar sitio</button>'
+   +'<p style="margin:12px 0 0"><a href="#" id="sNo" style="color:var(--suave);font-size:12.5px">Cancelar</a></p>';
+  document.getElementById('tapa').style.display='flex';
+
+  var prov=L.circle([lat,lon],{radius:800,color:'#ffc233',weight:2,fillColor:'#ffc233',fillOpacity:.15}).addTo(mapa);
+  function limpiar(){ mapa.removeLayer(prov); quitarTapa(); }
+  document.getElementById('sRad').oninput=function(){
+    var v=Number(this.value); prov.setRadius(v);
+    document.getElementById('sRadTxt').textContent=v+' m';
+  };
+  document.getElementById('sTipo').onchange=function(){
+    var col=colorTipo(this.value); prov.setStyle({color:col,fillColor:col});
+  };
+  document.getElementById('sNo').onclick=function(e){ e.preventDefault(); limpiar(); };
+  document.getElementById('sOk').onclick=async function(){
+    var nom=(document.getElementById('sNom').value||'').trim();
+    if(!nom){ alert('Poné el nombre del sitio'); return; }
+    var tipo=document.getElementById('sTipo').value;
+    var rad=Number(document.getElementById('sRad').value);
+    this.disabled=true; this.textContent='Guardando…';
+    var r=await sb.from('sitios_asistencia').insert([{
+      nombre:nom, lat:lat, lng:lon, radio_m:rad, tipo:tipo,
+      es_oficina:(tipo==='oficina'), activo:true }]);
+    if(r.error){ alert('No se pudo guardar: '+r.error.message); this.disabled=false; this.textContent='Guardar sitio'; return; }
+    limpiar(); await cargarSitios();
+  };
+  document.getElementById('sNom').focus();
+}
+
+function modoMarcar(){
+  if(marcando){ // cancelar
+    mapa.off('click', alClic); mapa.getContainer().style.cursor='';
+    document.getElementById('bSitio').classList.remove('on');
+    document.getElementById('bSitio').textContent='📍 Marcar sitio';
+    marcando=false; return;
+  }
+  marcando=true;
+  document.getElementById('bSitio').classList.add('on');
+  document.getElementById('bSitio').textContent='Tocá el mapa… (cancelar)';
+  mapa.getContainer().style.cursor='crosshair';
+  mapa.on('click', alClic);
+}
+function alClic(ev){
+  modoMarcar();                                   // sale del modo
+  panelSitio(ev.latlng.lat, ev.latlng.lng);
+}
+
 // ── Arranque ─────────────────────────────────────────────────────────────────
 async function arrancarVista(){
   iniciarMapa();
   await repaso();
+  await cargarSitios();
+  // El botón solo aparece si la base le va a aceptar la escritura. No es el candado
+  // —el candado es la RLS— es no ofrecer algo que va a terminar en un error.
+  try{ var rr=await sb.rpc('app_rol'); if(!rr.error) MI_ROL=rr.data||''; }catch(e){}
+  if(['superadmin','admin','revisor'].indexOf(MI_ROL)>=0){
+    document.getElementById('bSitio').style.display='';
+  }
   suscribir();
   setInterval(repaso, REPASO_MS);
   setInterval(tictac, 1000);
@@ -641,6 +746,7 @@ document.getElementById('bClave').onclick=function(){
   document.getElementById('kIn').focus();
 };
 
+document.getElementById('bSitio').onclick=modoMarcar;
 document.getElementById('bTv').onclick=modoTv;
 document.getElementById('bPleno').onclick=function(){
   if(document.fullscreenElement) document.exitFullscreen();
