@@ -14867,6 +14867,30 @@ function _provBuscarParecido(nombre){
     return p1.length>=6&&n1.length>=6&&_provDist(p1,n1)<=2;
   });
   if(porErrata)return porErrata;
+  // 5) MISMAS PALABRAS EN OTRO ORDEN, tolerando una errata por palabra.
+  //    Lo destapó la base de FLOTILLA el 15/08: el concesionario estaba escrito de 7 formas y solo
+  //    UNA se reconocía («Concesionario Jac», que por casualidad quedaba contenida en el nombre
+  //    registrado). «JAC concesionario» no, porque su única palabra distintiva —JAC— tiene 3 letras
+  //    y la regla 4 solo mira palabras de 5 o más; y «concesionario» es genérica a propósito.
+  //    En una flota las marcas distintivas son justo así de cortas: JAC, DAF, MAN, FAW, JMC.
+  //    ⛔ Unir de más es PEOR que no unir: le carga la plata de un taller a la cuenta de otro. Por eso
+  //    exige que TODAS las palabras del nombre escrito estén del otro lado, y que al menos una de
+  //    las que calzaron sea distintiva (no genérica) y de 3 letras o más — así «auto» o «dc» solos
+  //    nunca alcanzan para fusionar nada.
+  var porPalabras=lista.find(function(p){
+    var pw=_provNorm(p.nombre).split(' ').filter(Boolean);
+    var nw=n.split(' ').filter(Boolean);
+    if(!pw.length||!nw.length||nw.length>pw.length)return false;
+    var distintivaOk=false;
+    var todas=nw.every(function(w){
+      var calza=pw.find(function(x){ return x===w || (w.length>=6&&x.length>=6&&_provDist(x,w)<=2); });
+      if(!calza)return false;
+      if(w.length>=3&&_PROV_GENERICAS.indexOf(w)<0)distintivaOk=true;
+      return true;
+    });
+    return todas&&distintivaOk;
+  });
+  if(porPalabras)return porPalabras;
   var palabras=n.split(' ').filter(function(w){return w.length>=5&&_PROV_GENERICAS.indexOf(w)<0;});
   if(!palabras.length)return null;
   return lista.find(function(p){
