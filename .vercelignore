@@ -1,0 +1,48 @@
+# ═══════════════════════════════════════════════════════════════════════════
+#  QUÉ NO SE SUBE — 16/08/2026
+#
+#  ⛔ POR QUÉ EXISTE ESTE ARCHIVO
+#  `.gitignore` protege lo que va a GitHub. NO protege un `vercel deploy`:
+#  el CLI sube **el directorio**, no el repo. O sea que parado en esta carpeta,
+#  un despliegue puede publicar `respaldos/` — que tiene los CSV de empleados
+#  con cédulas, los abonos y las planillas, y está fuera de git justamente
+#  porque no puede llegar a internet.
+#
+#  El propio `.gitignore` de este repo lo dice: *«NUNCA subir a GitHub. Este
+#  repositorio es PÚBLICO»*. Lo mismo vale acá, y hacía falta escribirlo aparte.
+#
+#  ⚠️ Si algún día se migra betangar.com a Vercel, hacerlo **por integración con
+#     GitHub**, no con `vercel` desde la carpeta. Así se despliega lo que está en
+#     el repo y nada más. Esto es el cinturón, no el método.
+# ═══════════════════════════════════════════════════════════════════════════
+
+# Datos de personas. Cédulas, cuentas bancarias, fotos, planillas, abonos.
+respaldos/
+*.csv
+*.zip
+*.bak
+*.bak-*
+
+# Dependencias y herramientas locales: 49 MB que no sirven de nada servidos.
+node_modules/
+package-lock.json
+.playwright-mcp/
+deno.lock
+
+# Copias de trabajo y volcados
+*.sql
+clonar/
+herramientas/
+
+# Documentación interna: no es parte del sitio y describe la arquitectura.
+CLAUDE.md
+ARQUITECTURA.md
+CLONAR_EMPRESA.md
+ESTRUCTURA-BETANGAR.md
+ISO_DIAGNOSTICO_BETANGAR.md
+DISENO_AUDITORIA_COMBUSTIBLE.md
+INSTRUCCIONES_RRHH_IMAU.md
+PEDIR-AL-PROVEEDOR-GPS.md
+
+# Funciones de servidor: se despliegan con supabase, no con el sitio.
+supabase/
