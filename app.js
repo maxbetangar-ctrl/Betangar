@@ -24840,8 +24840,10 @@ async function cargarCombustibleData(){
     if(!t.error&&Array.isArray(t.data))COMB_TANQUES=t.data;
     var v=await supabase.from('combustible_vehiculos_config').select('*').order('id');
     if(!v.error&&Array.isArray(v.data))COMB_VEHICULOS=v.data;
-    var m=await supabase.from('combustible_mediciones').select('*').order('fecha',{ascending:false}).order('created_at',{ascending:false}).limit(2000);
-    if(!m.error&&Array.isArray(m.data))COMB_MEDICIONES=m.data;
+    // ⛔ 970 filas al 16/08: a TREINTA de que `.limit(2000)` empiece a devolver 1.000 en
+    //    silencio. Es la misma trampa que se comió 634 viajes el 15/08 en esta misma app.
+    var m=await _selectAllG('combustible_mediciones',['fecha','created_at']);
+    if(!m.error&&Array.isArray(m.data))COMB_MEDICIONES=_ordDesc(m.data,'fecha');
     var a=await supabase.from('combustible_alertas').select('*').order('created_at',{ascending:false}).limit(500);
     if(!a.error&&Array.isArray(a.data))COMB_ALERTAS=a.data;
     console.log('[COMB] tanques='+COMB_TANQUES.length+' veh='+COMB_VEHICULOS.length+' med='+COMB_MEDICIONES.length+' alertas='+COMB_ALERTAS.length);
