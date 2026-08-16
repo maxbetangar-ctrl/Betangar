@@ -1,3 +1,9 @@
+// ⛔⛔ NO DESPLEGAR DESDE ESTE REPO — ESTE ARCHIVO ESTÁ VIEJO (16/08/2026)
+// La versión viva de `wa-autoreply` se mantiene en el repo de la Torre, que es
+// privado, porque maneja datos de clientes que no pueden ser públicos.
+// Desplegar desde acá PISA la versión buena y deja de funcionar lo que se
+// agregó después. Esta copia queda solo como historia.
+//     torre-maxware/supabase/functions/wa-autoreply/
 // AUTO-BIENVENIDA Wassenger (número compartido Betangar + Flotilla).
 // Al PRIMER mensaje entrante de una persona, le responde UNA sola vez una bienvenida PERSONALIZADA
 // con su nombre de la base, para confirmarle que a partir de ahora le llegan los avisos. Nunca repite
