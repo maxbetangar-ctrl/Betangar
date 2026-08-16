@@ -136,7 +136,7 @@ var WA=[
   // Baja 06/08/2026 — AUREDY MEDINA (E002) dejó la empresa. Lo del rol `admin` lo siguen
   // recibiendo los socios: sendWA hace `if(w.rol==='socios')return true`, o sea reciben todo.
   // No agregar a Máximo con rol admin: quedaría en dos entradas y le llegaría duplicado.
-  {num:'584120276883',key:'',  rol:'admin',    desc:'Administradora — Aurelys (BAJA 06/08/2026)', activo:false},
+  {num:'',            key:'',  rol:'admin',    desc:'(vacante — baja 06/08/2026)', activo:false},
   {num:'584246591474',key:'', rol:'rrhh',     desc:'RRHH — Gladys Jinet',          activo:true},
   {num:'',            key:'',        rol:'mecanica', desc:'Mecanico / Jefe Taller',       activo:false},
   {num:'',            key:'',        rol:'operativo',desc:'Jefe de Operaciones',          activo:false}
