@@ -131,13 +131,13 @@ var BNC_CONFIG={guid:'',mkey:'',cuenta:'',rif:BTG_CONFIG.empresa_rif,amb:'produc
 // WhatsApp — 6 numeros con roles definidos
 // Cada mensaje se envia SOLO a los roles que corresponden
 var WA=[
-  {num:'584147379886',key:'7624669', rol:'socios',   desc:'Socio — Maximo Betancourt',   activo:true},
-  {num:'584142411159',key:'4266754', rol:'socios',   desc:'Socio — Francisco Betancourt', activo:true},
+  {num:'584147379886',key:'', rol:'socios',   desc:'Socio — Maximo Betancourt',   activo:true},
+  {num:'584142411159',key:'', rol:'socios',   desc:'Socio — Francisco Betancourt', activo:true},
   // Baja 06/08/2026 — AUREDY MEDINA (E002) dejó la empresa. Lo del rol `admin` lo siguen
   // recibiendo los socios: sendWA hace `if(w.rol==='socios')return true`, o sea reciben todo.
   // No agregar a Máximo con rol admin: quedaría en dos entradas y le llegaría duplicado.
-  {num:'584120276883',key:'1857646',  rol:'admin',    desc:'Administradora — Aurelys (BAJA 06/08/2026)', activo:false},
-  {num:'584246591474',key:'7459464', rol:'rrhh',     desc:'RRHH — Gladys Jinet',          activo:true},
+  {num:'584120276883',key:'',  rol:'admin',    desc:'Administradora — Aurelys (BAJA 06/08/2026)', activo:false},
+  {num:'584246591474',key:'', rol:'rrhh',     desc:'RRHH — Gladys Jinet',          activo:true},
   {num:'',            key:'',        rol:'mecanica', desc:'Mecanico / Jefe Taller',       activo:false},
   {num:'',            key:'',        rol:'operativo',desc:'Jefe de Operaciones',          activo:false}
 ];
