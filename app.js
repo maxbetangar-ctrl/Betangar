@@ -5833,16 +5833,20 @@ function _totalEgresosLegacy(totalCob){
   // para no duplicar. Antes egGas sumaba compras+despachos + la CxP → mismo combustible 2-3 veces.
   // Combustible = la PLATA que salió a comprarlo: carga del tanque + lo surtido en ESTACIÓN.
   // Lo que sale del tanque de patio NO suma (ya se pagó al comprarlo). Ver _combEgresoUsd.
-  var _combCorte=(typeof cfg!=='undefined'&&cfg&&cfg.surtidasCorte)?String(cfg.surtidasCorte).slice(0,10):'""';
+  var _combCorte=(typeof cfg!=='undefined'&&cfg&&cfg.surtidasCorte)?String(cfg.surtidasCorte).slice(0,10):'';
   var egGas=GASOIL.reduce(function(s,g){return s+_combEgresoUsd(g,_combCorte);},0);
   // Desde el corte, la verdad es la SURTIDA del chofer. Las de GALPÓN salen del tanque ya comprado
-  // (no suman); las de ESTACIÓN son compra directa y suman su costo — pero valen /usr/bin/bash mientras
+  // (no suman); las de ESTACIÓN son compra directa y suman su costo — pero valen $0 mientras
   // administración no las cueste, y eso se avisa aparte (no se puede inventar el precio).
   if(_combCorte){
     egGas+=(typeof SURT_RENT!=='undefined'?SURT_RENT:[]).reduce(function(s,x){
-      if(String(x.fecha||'""').slice(0,10)<_combCorte)return s;
-      if(String(x.tanque||'""').toLowerCase().indexOf('"estacion"')<0)return s;
-      return s+((typeof _surCostoUsd==='"function"')?(_surCostoUsd(x)||0):(parseFloat(x.costo_usd)||0));
+      if(String(x.fecha||'').slice(0,10)<_combCorte)return s;
+      if(String(x.tanque||'').toLowerCase().indexOf('estacion')<0)return s;
+      // ⛔ La que ya pertenece a un PERIODO costeado NO se suma aca: su costo entra por egEst
+      //    (combustible_periodos.costo_total_usd). Contarla en los dos lados es el mismo
+      //    combustible dos veces — y con 0 periodos cargados eso no se notaba.
+      if(x&&x.desglose&&(typeof x.desglose==='object')&&x.desglose.periodo_id)return s;
+      return s+((typeof _surCostoUsd==='function')?(_surCostoUsd(x)||0):(parseFloat(x.costo_usd)||0));
     },0);
   }
   // Pago a socio. Ya NO es un 7,5% plano: cada factura lleva el porcentaje que le tocaba (7%
@@ -17338,16 +17342,20 @@ function renderFinDash(){
   // Combustible = solo COMPRAS (no despachos); las CxP de combustible se excluyen de egCxP (= _totalEgresos)
   // Combustible = la PLATA que salió a comprarlo: carga del tanque + lo surtido en ESTACIÓN.
   // Lo que sale del tanque de patio NO suma (ya se pagó al comprarlo). Ver _combEgresoUsd.
-  var _combCorte=(typeof cfg!=='undefined'&&cfg&&cfg.surtidasCorte)?String(cfg.surtidasCorte).slice(0,10):'""';
+  var _combCorte=(typeof cfg!=='undefined'&&cfg&&cfg.surtidasCorte)?String(cfg.surtidasCorte).slice(0,10):'';
   var egGas=GASOIL.reduce(function(s,g){return s+_combEgresoUsd(g,_combCorte);},0);
   // Desde el corte, la verdad es la SURTIDA del chofer. Las de GALPÓN salen del tanque ya comprado
-  // (no suman); las de ESTACIÓN son compra directa y suman su costo — pero valen /usr/bin/bash mientras
+  // (no suman); las de ESTACIÓN son compra directa y suman su costo — pero valen $0 mientras
   // administración no las cueste, y eso se avisa aparte (no se puede inventar el precio).
   if(_combCorte){
     egGas+=(typeof SURT_RENT!=='undefined'?SURT_RENT:[]).reduce(function(s,x){
-      if(String(x.fecha||'""').slice(0,10)<_combCorte)return s;
-      if(String(x.tanque||'""').toLowerCase().indexOf('"estacion"')<0)return s;
-      return s+((typeof _surCostoUsd==='"function"')?(_surCostoUsd(x)||0):(parseFloat(x.costo_usd)||0));
+      if(String(x.fecha||'').slice(0,10)<_combCorte)return s;
+      if(String(x.tanque||'').toLowerCase().indexOf('estacion')<0)return s;
+      // ⛔ La que ya pertenece a un PERIODO costeado NO se suma aca: su costo entra por egEst
+      //    (combustible_periodos.costo_total_usd). Contarla en los dos lados es el mismo
+      //    combustible dos veces — y con 0 periodos cargados eso no se notaba.
+      if(x&&x.desglose&&(typeof x.desglose==='object')&&x.desglose.periodo_id)return s;
+      return s+((typeof _surCostoUsd==='function')?(_surCostoUsd(x)||0):(parseFloat(x.costo_usd)||0));
     },0);
   }
   var eg75=totalCob*0.075;
