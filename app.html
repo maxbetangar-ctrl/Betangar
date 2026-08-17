@@ -1865,10 +1865,22 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
     </div>
     <div class="card">
       <div class="sh"><div class="st">⛽ Despacho a Camión</div></div>
-      <div class="fr2"><div class="fg"><label>Camion</label><select class="fc" id="gc-cam"><option value="">-</option></select></div><div class="fg"><label>Litros</label><input class="fc" id="gc-lit" type="number" placeholder="0"></div></div>
-      <div class="fr2"><div class="fg"><label>Fuente</label><select class="fc" id="gc-src" onchange="gcToggleFuente()"><option value="tumaca">Tumaca (tanque)</option><option value="boscan">Boscán (tanque)</option><option value="estacion">Estación de servicio</option></select></div><div class="fg" id="gc-precio-wrap" style="display:none"><label>Precio $/L (Estación)</label><input class="fc" id="gc-precio" type="number" step="0.01" placeholder="0.00"></div></div>
-      <div class="fr2"><div class="fg"><label>Fecha</label><input class="fc" id="gc-f" type="date"></div></div>
-      <button class="btn btn-g btn-sm" style="width:100%;margin-bottom:8px" onclick="guardarGasoil()">Registrar Despacho</button>
+      <!-- ══ PANTALLA JUBILADA — SOLO LECTURA (2026-08-18) ══════════════════════════════
+           El surtido lo carga el CHOFER desde su teléfono, en la pestaña «⛽ Surtir» (tabla
+           `surtidas`). Esta pantalla es el camino VIEJO y quedó viva después de ser
+           reemplazada: en Betangar, entre el 22/07 y el 01/08 se cargó por los dos lados y
+           quedaron 22 filas repetidas (2.580 L) inflando el consumo de la flota y la utilidad.
+           Se limpiaron el 18/08 y se cerró la puerta acá.
+           ⚠️ Quitar el formulario NO es el candado: el candado está en guardarGasoil(), que
+           rechaza el guardado. Una pantalla escondida se alcanza igual desde una pestaña vieja
+           en caché. Si algún día se reabre, hay que reabrir las dos cosas. ══ -->
+      <div style="background:#2a2410;border:1px solid #6b5a1a;border-radius:8px;padding:10px;font-size:12px;color:#e8d9a0;margin-bottom:10px;line-height:1.5">
+        <b>Esta pantalla ya no carga despachos.</b><br>
+        El surtido lo registra el chofer desde su teléfono, en <b>⛽ Surtir</b>. Si se cargara también acá, el mismo combustible quedaría contado <b>dos veces</b>.<br>
+        · Para ponerle el costo a las surtidas de estación → <b>💵 Definir costo del período</b>.<br>
+        · Para el gasoil que entra al tanque del galpón → <b>🛢️ Compra de Combustible</b>, aquí arriba.<br>
+        Abajo queda el histórico, que se sigue consultando.
+      </div>
       <div class="fr2" style="margin-bottom:8px"><div class="fg" style="margin-bottom:0"><label>Filtrar camion</label><select class="fc" id="gc-filtro-cam" onchange="renderGasoil()" style="font-size:11px;padding:5px 8px"><option value="">Todos</option></select></div><div class="fg" style="margin-bottom:0"><label>Filtrar fecha</label><input class="fc" id="gc-filtro-fecha" type="date" onchange="renderGasoil()" style="font-size:11px;padding:5px 8px"></div></div>
       <div style="text-align:right;margin-bottom:4px"><button class="btn btn-s btn-xs" onclick="document.getElementById('gc-filtro-cam').value='';document.getElementById('gc-filtro-fecha').value='';renderGasoil()">Limpiar filtros</button></div>
       <div class="tw" style="max-height:160px;overflow-y:auto"><table><thead><tr><th>Fecha</th><th>Camion</th><th>L</th><th>Fuente</th><th>$</th><th></th></tr></thead><tbody id="tb-gasoil"></tbody></table></div>
@@ -2893,7 +2905,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
 <script src="maxrecuerda.js?v=20260806-maxrecuerda"></script>
 <!-- Formato unico de los Excel de Maxware. VA ANTES de app.js. -->
 <script src="maxware-excel.js"></script>
-<script src="app.js?v=20260818-0130"></script>
+<script src="app.js?v=20260818-despacho-lectura"></script>
 
 <!-- Modal global -->
 <div id="modal" class="moverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9990;align-items:center;justify-content:center;padding:16px">

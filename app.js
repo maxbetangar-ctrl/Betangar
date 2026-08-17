@@ -10063,7 +10063,20 @@ function compCostoUnit(prov, cb){
 }
 
 // DESPACHO a camión: baja el tanque si viene de Tumaca/Boscán; Estación usa precio manual.
+// ⛔ JUBILADA — SOLO LECTURA (2026-08-18). No se cargan más despachos por acá: el surtido lo
+// registra el chofer en su teléfono (tabla `surtidas`) y cargarlo también aquí cuenta el mismo
+// combustible dos veces. Pasó: 22 filas repetidas (2.580 L) entre el 22/07 y el 01/08 en
+// Betangar, que hubo que ir a limpiar a mano.
+// El candado vive ACÁ y no en la pantalla a propósito: esconder el formulario no impide que lo
+// llame una pestaña vieja en caché, la cola offline o la consola. El histórico se sigue leyendo
+// con renderGasoil(); lo único que se cierra es la escritura.
 function guardarGasoil(){
+  if(typeof mostrarToast==='function'){
+    mostrarToast('Esta pantalla ya no carga despachos: el surtido lo registra el chofer desde su teléfono. Cargarlo acá lo contaría dos veces.','warn');
+  }
+  return;
+}
+function _guardarGasoilJubilado(){
   var cam=gv('gc-cam'), lit=parseFloat(gv('gc-lit'))||0, src=(gv('gc-src')||'tumaca'), f=gv('gc-f')||fechaVE();
   if(!cam||!lit){alert('Completa camión y litros');return;}
   if(src==='estacion'){
