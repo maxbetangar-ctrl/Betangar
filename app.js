@@ -3080,8 +3080,10 @@ async function relRenderTodos(cont,est){
       var manual=String(m.clasificado_por||'').indexOf('manual:')===0;
       return '<tr id="relrow-'+relEsc(m.id)+'"><td style="font-size:10px;white-space:nowrap">'+formatFecha(m.fecha)+'</td>'+
         '<td><span class="badge '+(esSal?'br':'bg')+'">'+(esSal?'↑':'↓')+'</span></td>'+
-        // Acortado: el texto crudo del banco cortaba la tabla a la derecha.
-        '<td style="font-size:11px">'+relCorto(m.concepto_banco||m.descripcion,58)+'</td>'+
+        // ⚠️ NO bajar de 90: el concepto del banco trae la FACTURA («GASOIL 4718 LITROS — E/S
+        // EL PALOTAL»). A 58 se veían los litros pero se comía el nombre de la estación, que es
+        // lo que dice a cuál de las dos se le compró. El texto crudo va completo en el tooltip.
+        '<td style="font-size:11px" title="'+relEsc(String(m.concepto_banco||m.descripcion||''))+'">'+relCorto(m.concepto_banco||m.descripcion,90)+'</td>'+
         '<td style="text-align:right;font-family:var(--m);color:'+(esSal?'var(--red)':'var(--green)')+'">'+Number(m.monto).toLocaleString('es-VE',{minimumFractionDigits:2})+'</td>'+
         '<td style="font-size:11px">'+relEsc(relNombreCat(m.categoria))+(manual?' <span class="badge bt" title="Lo decidió una persona: ninguna regla lo pisa">✋</span>':'')+'</td>'+
         '<td>'+(m.tipo==='credito'?'<span style="color:var(--text3);font-size:10px">entrada</span>':(m.es_gasto===false?'<span class="badge by">No</span>':'<span class="badge bg">Sí</span>'))+'</td>'+
@@ -3178,7 +3180,7 @@ function relImprimir(){
       var esSal=m.tipo==='debito';
       return '<tr><td style="white-space:nowrap">'+formatFecha(m.fecha)+'</td>'+
         '<td>'+(esSal?'Salida':'Entrada')+'</td>'+
-        '<td>'+relCorto(m.concepto_banco||m.descripcion,90)+'</td>'+
+        '<td title="'+e(String(m.concepto_banco||m.descripcion||''))+'">'+relCorto(m.concepto_banco||m.descripcion,160)+'</td>'+
         '<td style="font-family:monospace;font-size:10px">'+e(m.referencia||'')+'</td>'+
         '<td>'+e(relNombreCat(m.categoria))+'</td>'+
         '<td>'+(esSal?(m.es_gasto===false?'No':'Sí'):'—')+'</td>'+
