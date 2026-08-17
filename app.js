@@ -12511,6 +12511,31 @@ function renderSurtidasCosteo(){
   });
   var chip=function(lbl,val,col){ return '<div style="flex:1;min-width:110px;background:#0e2038;border:1px solid #24405f;border-radius:10px;padding:8px 10px"><div style="font-size:10px;color:#9fb3c8">'+lbl+'</div><div style="font-size:16px;font-weight:800;color:'+(col||'#fff')+'">'+val+'</div></div>'; };
   var k=g('sc-kpis'); if(k) k.innerHTML=chip('Litros galpón',Math.round(litGal).toLocaleString('es-VE')+' L')+chip('Litros estación',Math.round(litEst).toLocaleString('es-VE')+' L')+chip('Estación SIN costear',Math.round(litPend).toLocaleString('es-VE')+' L',litPend>0?'#ff6b6b':'#7dc941')+chip('Costo total',usd(totUsd),'#7dc941');
+  // ── CUÁNTO SE ECHÓ EN CADA ESTACIÓN (Máximo, 2026-08-17) ─────────────────────────────
+  // Betangar surte en más de una y cobran distinto: Las Banderas precio plano, El Palotal una
+  // escalera por camión. Sin este corte, «combustible» es un solo número y no se puede comparar
+  // ni negociar con nadie. Las que todavía no tienen estación asignada se muestran aparte, NO
+  // se reparten ni se esconden: un renglón «sin asignar» es lo que hace que alguien lo asigne.
+  var porEst={};
+  (SURT_ADMIN||[]).forEach(function(s){
+    if(s.tanque!=='estacion')return;
+    var e=String(s.estacion_nombre||'').trim()||'— sin asignar —';
+    porEst[e]=porEst[e]||{lit:0,usd:0,n:0,pend:0};
+    var o=porEst[e]; o.n++; o.lit+=parseFloat(s.litros)||0;
+    o.usd+=_scCostoUsd(s); if(!s.costo_definido)o.pend++;
+  });
+  var te=g('sc-por-estacion');
+  if(te){
+    var filas=Object.keys(porEst).sort(function(a,b){return porEst[b].lit-porEst[a].lit;});
+    te.innerHTML=filas.length?filas.map(function(e){
+      var o=porEst[e], pl=o.lit>0?(o.usd/o.lit):0;
+      return '<tr><td>'+_surEsc(e)+'</td><td style="text-align:right;font-family:var(--m)">'+o.n+'</td>'
+        +'<td style="text-align:right;font-family:var(--m)">'+Math.round(o.lit).toLocaleString('es-VE')+'</td>'
+        +'<td style="text-align:right;font-family:var(--m)">'+(o.usd>0?('$'+pl.toFixed(3)):'—')+'</td>'
+        +'<td style="text-align:right;font-family:var(--m)">'+usd(o.usd)+'</td>'
+        +'<td style="text-align:right">'+(o.pend?'<span style="color:#ffb020">'+o.pend+' sin costear</span>':'<span style="color:#7dc941">✅</span>')+'</td></tr>';
+    }).join(''):'<tr><td colspan="6" style="text-align:center;color:#9fb3c8">Sin surtidas de estación en el rango.</td></tr>';
+  }
   if(!arr.length){ cont.innerHTML='<tr><td colspan="7" style="text-align:center;color:#9fb3c8">Sin surtidas en el filtro.</td></tr>'; }
   else cont.innerHTML=arr.map(function(s){
     var l=parseFloat(s.litros)||0, pend=(s.tanque==='estacion'&&!s.costo_definido);
@@ -12526,22 +12551,111 @@ function renderSurtidasCosteo(){
     }).join('');
   }
 }
-// ── Modal: definir el costo de un período (tramos de precio partido) ──
+// ══════════════════════════════════════════════════════════════════════════════
+// COSTEO DE UN PERÍODO — reescrito 2026-08-17. Dos agujeros que costaban plata en silencio:
+//
+//  1. FILTRABA SOLO POR FECHA. Betangar surte en DOS estaciones que se intercalan en el
+//     tiempo (E/S Las Banderas 01/08-08/08-15/08 · E/S El Palotal 22/07-28/07-05/08). No
+//     existe un rango de fechas que separe una de otra: costear "todo lo pendiente hasta el
+//     15/08" le ponía el precio de una estación a los litros de la otra. Ahora se ELIGE
+//     surtida por surtida, con casilla, y el rango solo propone.
+//     ⚠️ La casilla no es adorno: el chofer NO carga de qué estación surtió (`estacion_nombre`
+//     le llega en null), así que no hay campo por el cual filtrar automáticamente. Lo sabe la
+//     persona que está pagando la factura, y por eso se le pregunta a ella.
+//
+//  2. APLANABA TODO A UN PRECIO MEZCLADO. En El Palotal cobran POR CAMIÓN: los primeros 80 L
+//     a $0,50 y el resto a $0,75. Con esa tarifa cada unidad tiene su propio $/L real (200 L
+//     → 0,65 · 100 L → 0,55 · 150 L → 0,6167). El promedio daba bien el TOTAL y mal el COSTO
+//     POR UNIDAD, que es el número que mira el dueño. Ahora hay modo ESCALERA y cada surtida
+//     se guarda con SU costo, no con el promedio.
+//
+// El modo "tramos del total" de siempre queda igual para las estaciones de precio plano.
+// ══════════════════════════════════════════════════════════════════════════════
+var _perModo='tramos';        // 'tramos' (precio del total) | 'escalera' (por camión)
+var _perEsc={litros:80,p1:'',p2:''};
+var _perSel={};               // id de surtida -> true/false (lo que el usuario marcó)
+function _perPend(){          // surtidas de estación pendientes dentro del rango
+  var des=gv('per-des'), hta=gv('per-hta');
+  return (SURT_ADMIN||[]).filter(function(s){
+    return s.tanque==='estacion' && !s.costo_definido
+        && String(s.fecha||'')>=des && String(s.fecha||'')<=hta;
+  }).sort(function(a,b){ return String(a.fecha+a.cam)<String(b.fecha+b.cam)?-1:1; });
+}
 function abrirModalPeriodo(){
   _perTramos=[{litros:'',precio:'',tasaTipo:'bcvDolar'}];
+  _perModo='tramos'; _perEsc={litros:80,p1:'',p2:''}; _perSel={};
   var des=gv('sc-des')||new Date(Date.now()-14*86400000).toISOString().slice(0,10);
   var hta=gv('sc-hta')||fechaVE();
   var body=''
-    +'<div class="fr2"><div class="fg"><label>Desde</label><input class="fc" id="per-des" type="date" value="'+des+'" onchange="_perCalc()"></div><div class="fg"><label>Hasta</label><input class="fc" id="per-hta" type="date" value="'+hta+'" onchange="_perCalc()"></div></div>'
-    +'<div class="fg"><label>Estación</label><input class="fc" id="per-est" placeholder="Estación de servicio" value="Estación de servicio"></div>'
-    +'<div style="font-weight:700;font-size:13px;margin:8px 0 4px">Tramos de precio (litros @ $/L @ tasa)</div>'
-    +'<div id="per-tramos"></div>'
-    +'<button class="btn btn-s btn-xs" style="margin-top:4px" onclick="_perAddTramo()">+ Agregar tramo</button>'
+    +'<div class="fr2"><div class="fg"><label>Desde</label><input class="fc" id="per-des" type="date" value="'+des+'" onchange="_perRenderSel();_perCalc()"></div><div class="fg"><label>Hasta</label><input class="fc" id="per-hta" type="date" value="'+hta+'" onchange="_perRenderSel();_perCalc()"></div></div>'
+    +'<div class="fg"><label>Estación</label><input class="fc" id="per-est" list="per-est-lista" placeholder="Nombre de la estación" onchange="_perRenderSel();_perCalc()"><datalist id="per-est-lista"></datalist></div>'
+    +'<div style="font-weight:700;font-size:13px;margin:10px 0 4px">¿Cuáles surtidas cubre esta factura?</div>'
+    +'<div style="font-size:11px;color:var(--text3);margin-bottom:6px">Se surte en más de una estación y las fechas se mezclan. Marcá solo las de ESTA compra.</div>'
+    +'<div id="per-sel" style="max-height:190px;overflow-y:auto;background:#0e2038;border:1px solid #24405f;border-radius:8px;padding:6px"></div>'
+    +'<div style="font-weight:700;font-size:13px;margin:12px 0 4px">¿Cómo cobran?</div>'
+    +'<div class="fr2" style="margin-bottom:6px">'
+      +'<button type="button" class="btn btn-s btn-xs" id="per-modo-tramos" onclick="_perSetModo(\'tramos\')">Un precio por litro</button>'
+      +'<button type="button" class="btn btn-s btn-xs" id="per-modo-escalera" onclick="_perSetModo(\'escalera\')">Escalera por camión</button>'
+    +'</div>'
+    +'<div id="per-precio"></div>'
     +'<div id="per-calc" style="margin-top:10px;padding:10px;background:#0e2038;border-radius:8px;font-size:13px"></div>'
-    +'<button class="btn btn-g btn-sm" style="width:100%;margin-top:10px" onclick="_perAplicar()">✅ Aplicar costo a las surtidas del período</button>';
+    +'<button class="btn btn-g btn-sm" style="width:100%;margin-top:10px" onclick="_perAplicar()">✅ Aplicar costo a las surtidas marcadas</button>';
   openModal('Definir costo del período (estación)', body);
-  _perRenderTramos(); _perCalc();
+  // nombres de estación ya usados, para no volver a escribirlos (y no inventar variantes)
+  var dl=g('per-est-lista');
+  if(dl){ var nombres=Array.from(new Set((SURT_ADMIN||[]).concat(COMB_PERIODOS||[])
+            .map(function(x){return x.estacion_nombre;}).filter(Boolean))).sort();
+          dl.innerHTML=nombres.map(function(n){return '<option value="'+_surEscC(n)+'">';}).join(''); }
+  _perSetModo('tramos'); _perRenderSel(); _perCalc();
 }
+function _perSetModo(m){
+  _perModo=m;
+  var a=g('per-modo-tramos'), b=g('per-modo-escalera');
+  if(a)a.style.borderColor=(m==='tramos')?'#7dc941':'';
+  if(b)b.style.borderColor=(m==='escalera')?'#7dc941':'';
+  var c=g('per-precio'); if(!c)return;
+  if(m==='escalera'){
+    c.innerHTML='<div style="font-size:11px;color:var(--text3);margin-bottom:4px">De CADA camión surtido: los primeros N litros a un precio y el resto a otro.</div>'
+      +'<div class="fr2"><div class="fg" style="margin:0"><label style="font-size:10px">Primeros… (L)</label><input class="fc" type="number" id="per-esc-lit" value="'+(_perEsc.litros||80)+'" oninput="_perEscSet(\'litros\',this.value)"></div>'
+      +'<div class="fg" style="margin:0"><label style="font-size:10px">…a $/L</label><input class="fc" type="number" step="0.001" id="per-esc-p1" value="'+(_perEsc.p1||'')+'" oninput="_perEscSet(\'p1\',this.value)" placeholder="0.50"></div>'
+      +'<div class="fg" style="margin:0"><label style="font-size:10px">Resto a $/L</label><input class="fc" type="number" step="0.001" id="per-esc-p2" value="'+(_perEsc.p2||'')+'" oninput="_perEscSet(\'p2\',this.value)" placeholder="0.75"></div>'
+      +'<div class="fg" style="margin:0"><label style="font-size:10px">Tasa</label><select class="fc" id="per-esc-tasa" onchange="_perCalc()">'+['bcvDolar','bcvEuro','binance','promedio'].map(function(o){return '<option value="'+o+'">'+o+'</option>';}).join('')+'</select></div></div>';
+  }else{
+    c.innerHTML='<div id="per-tramos"></div><button class="btn btn-s btn-xs" style="margin-top:4px" onclick="_perAddTramo()">+ Agregar tramo</button>';
+    _perRenderTramos();
+  }
+  _perCalc();
+}
+function _perEscSet(k,v){ _perEsc[k]=v; _perCalc(); }
+// El costo REAL de una surtida según el modo. Es la función que evita el promedio.
+function _perCostoDe(litros,mezclado){
+  var l=parseFloat(litros)||0;
+  if(_perModo==='escalera'){
+    var n=parseFloat(_perEsc.litros)||0, a=parseFloat(_perEsc.p1)||0, b=parseFloat(_perEsc.p2)||0;
+    return Math.round((Math.min(l,n)*a + Math.max(0,l-n)*b)*100)/100;
+  }
+  return Math.round(l*(mezclado||0)*100)/100;
+}
+function _perRenderSel(){
+  var c=g('per-sel'); if(!c)return;
+  var est=(gv('per-est')||'').trim().toLowerCase();
+  var pend=_perPend();
+  if(!pend.length){ c.innerHTML='<div style="color:#9fb3c8;font-size:12px;padding:6px">No hay surtidas de estación pendientes en ese rango.</div>'; return; }
+  c.innerHTML=pend.map(function(s){
+    // Se marca sola la que coincide con la estación escrita; si la surtida no tiene estación
+    // asignada (el chofer no la carga) queda a criterio de quien está pagando.
+    var sEst=String(s.estacion_nombre||'');
+    if(_perSel[s.id]===undefined) _perSel[s.id] = est ? (sEst.toLowerCase()===est) : true;
+    var etq=sEst?_surEsc(sEst):'<span style="color:#ffb020">sin estación</span>';
+    return '<label style="display:flex;align-items:center;gap:8px;padding:4px 2px;border-bottom:1px solid #17304d;cursor:pointer">'
+      +'<input type="checkbox" '+(_perSel[s.id]?'checked':'')+' onchange="_perSel[\''+_surEscC(s.id)+'\']=this.checked;_perCalc()">'
+      +'<span style="font-family:var(--m);font-size:11px;color:#9fb3c8">'+_surEsc(String(s.fecha||'').slice(8,10)+'/'+String(s.fecha||'').slice(5,7))+'</span>'
+      +'<span style="font-weight:700;font-size:12px">'+_surEsc(s.cam||'')+'</span>'
+      +'<span style="font-family:var(--m);font-size:12px;margin-left:auto">'+(parseFloat(s.litros)||0).toLocaleString('es-VE')+' L</span>'
+      +'<span style="font-size:10px">'+etq+'</span></label>';
+  }).join('');
+}
+function _perMarcados(){ return _perPend().filter(function(s){ return _perSel[s.id]; }); }
 function _perRenderTramos(){
   var c=g('per-tramos'); if(!c)return;
   var opts=['bcvDolar','bcvEuro','binance','promedio'];
@@ -12558,37 +12672,71 @@ function _perDel(i){ _perTramos.splice(i,1); _perRenderTramos(); _perCalc(); }
 function _perTasaVal(tt){ return (typeof getTasa==='function'?getTasa(tt):(typeof TASAS!=='undefined'?TASAS[tt]:0))||0; }
 function _perCalc(){
   var box=g('per-calc'); if(!box)return;
-  var litF=0,cUsd=0,cBs=0;
-  _perTramos.forEach(function(t){ var l=parseFloat(t.litros)||0, pr=parseFloat(t.precio)||0, ta=_perTasaVal(t.tasaTipo);
-    litF+=l; cUsd+=l*pr; cBs+=l*pr*ta; });
+  var marc=_perMarcados();
+  var litSur=marc.reduce(function(a,s){return a+(parseFloat(s.litros)||0);},0);
+  var litF=0,cUsd=0,tasa=0,warn='';
+
+  if(_perModo==='escalera'){
+    // La escalera se cobra POR CAMIÓN: la factura sale de sumar lo de cada surtida marcada,
+    // no de un precio único. Los "tramos" del período son el resumen de esa suma.
+    tasa=_perTasaVal(gv('per-esc-tasa')||'bcvDolar');
+    var n=parseFloat(_perEsc.litros)||0, a=parseFloat(_perEsc.p1)||0, b=parseFloat(_perEsc.p2)||0;
+    var lBase=0,lResto=0;
+    marc.forEach(function(s){ var l=parseFloat(s.litros)||0; lBase+=Math.min(l,n); lResto+=Math.max(0,l-n); });
+    litF=litSur; cUsd=Math.round((lBase*a+lResto*b)*100)/100;
+    box.dataset.lbase=lBase; box.dataset.lresto=lResto;
+    warn='<div style="color:#9fb3c8;margin-top:4px">'+marc.length+' camión(es) × primeros '+n+' L a $'+a.toFixed(3)+' ('+lBase.toLocaleString('es-VE')+' L) + resto a $'+b.toFixed(3)+' ('+lResto.toLocaleString('es-VE')+' L). <b>Cada unidad queda con SU $/L real</b>, no con el promedio.</div>';
+  }else{
+    _perTramos.forEach(function(t){ var l=parseFloat(t.litros)||0, pr=parseFloat(t.precio)||0;
+      litF+=l; cUsd+=l*pr; tasa=_perTasaVal(t.tasaTipo); });
+    var difPct=litF>0?Math.abs(litF-litSur)/litF*100:0;
+    if(difPct>2 && litSur>0) warn='<div style="color:#ffb020;margin-top:4px">⚠️ Litros de tramos ('+litF.toLocaleString('es-VE')+') ≠ litros de las surtidas marcadas ('+litSur.toLocaleString('es-VE')+'). La estación factura por su totalizador; verificá.</div>';
+  }
+  var cBs=cUsd*tasa;
   var mezc=litF>0?cUsd/litF:0;
-  var des=gv('per-des'), hta=gv('per-hta');
-  var target=(SURT_ADMIN||[]).filter(function(s){ return s.tanque==='estacion' && !s.costo_definido && String(s.fecha||'')>=des && String(s.fecha||'')<=hta; });
-  var litSur=target.reduce(function(a,s){return a+(parseFloat(s.litros)||0);},0);
-  var difPct=litF>0?Math.abs(litF-litSur)/litF*100:0;
-  var warn=(difPct>2 && litSur>0)?'<div style="color:#ffb020;margin-top:4px">⚠️ Litros de tramos ('+litF.toLocaleString('es-VE')+') ≠ litros surtidos pendientes ('+litSur.toLocaleString('es-VE')+'). La estación factura por su totalizador; verificá.</div>':'';
-  box.innerHTML='Litros facturados: <b>'+litF.toLocaleString('es-VE')+' L</b> · Surtidas pendientes que cubre: <b>'+target.length+' ('+litSur.toLocaleString('es-VE')+' L)</b><br>'
+  if(!marc.length) warn='<div style="color:#ff6b6b;margin-top:4px">⚠️ No marcaste ninguna surtida: el período se guardaría sin costear nada.</div>'+warn;
+  box.innerHTML='Litros facturados: <b>'+litF.toLocaleString('es-VE')+' L</b> · Surtidas marcadas: <b>'+marc.length+' ('+litSur.toLocaleString('es-VE')+' L)</b><br>'
     +'Costo total: <b style="color:#7dc941">'+usd(cUsd)+'</b> · Bs '+cBs.toLocaleString('es-VE',{maximumFractionDigits:2})+'<br>'
-    +'Precio mezclado: <b>$'+mezc.toFixed(4)+'/L</b>'+warn;
-  box.dataset.mezc=mezc; box.dataset.cusd=cUsd; box.dataset.cbs=cBs; box.dataset.litf=litF;
+    +'Precio '+(_perModo==='escalera'?'promedio resultante':'mezclado')+': <b>$'+mezc.toFixed(4)+'/L</b>'+warn;
+  box.dataset.mezc=mezc; box.dataset.cusd=cUsd; box.dataset.cbs=cBs; box.dataset.litf=litF; box.dataset.tasa=tasa;
 }
 async function _perAplicar(){
-  var des=gv('per-des'), hta=gv('per-hta'), est=gv('per-est')||'Estación de servicio';
-  var tramos=_perTramos.map(function(t){return {litros:parseFloat(t.litros)||0,precio_usd:parseFloat(t.precio)||0,tasa:_perTasaVal(t.tasaTipo),tasa_tipo:t.tasaTipo};}).filter(function(t){return t.litros>0&&t.precio_usd>0;});
-  if(!tramos.length){ alert('Cargá al menos un tramo con litros y precio.'); return; }
+  var des=gv('per-des'), hta=gv('per-hta'), est=(gv('per-est')||'').trim();
   if(!des||!hta){ alert('Indicá el rango de fechas.'); return; }
-  var litF=tramos.reduce(function(a,t){return a+t.litros;},0);
-  var cUsd=tramos.reduce(function(a,t){return a+t.litros*t.precio_usd;},0);
-  var cBs=tramos.reduce(function(a,t){return a+t.litros*t.precio_usd*t.tasa;},0);
-  var mezc=litF>0?cUsd/litF:0;
-  var tasaPond=cUsd>0?cBs/cUsd:0;
-  var _tq=await supabase.from('surtidas').select('*').eq('tanque','estacion').eq('costo_definido',false).gte('fecha',des).lte('fecha',hta);
-  if(_tq&&_tq.error){ mostrarToast('No se pudieron leer las surtidas: '+_tq.error.message,'error'); return; }
-  var target=(_tq&&_tq.data)||[];
-  var _solapa=(COMB_PERIODOS||[]).some(function(p){return String(p.desde||'')<=hta && String(p.hasta||'')>=des;});
-  if(_solapa && !confirm('⚠️ Ya existe un período costeado que SOLAPA ese rango. Aplicarlo de nuevo DUPLICA el costo total y la CxP en la Utilidad Real. ¿Continuar igual?')) return;
-  if(!target.length && !confirm('No hay surtidas de estación pendientes en ese rango. ¿Guardar el período igual (solo registra el costo/CxP)?')) return;
-  if(!confirm('Aplicar $'+mezc.toFixed(4)+'/L a '+target.length+' surtida(s) y generar la cuenta por pagar de '+usd(cUsd)+'?')) return;
+  // La estación deja de ser opcional: es lo que después permite reportar cuánto se echó en
+  // cada una. Sin nombre, todas las compras vuelven a ser el mismo texto vacío de antes.
+  if(!est){ alert('Poné el nombre de la estación. Es lo que permite después saber cuánto se surtió en cada una.'); var _e=g('per-est'); if(_e)_e.focus(); return; }
+  var tasaSel, tramos;
+  if(_perModo==='escalera'){
+    var n=parseFloat(_perEsc.litros)||0, p1=parseFloat(_perEsc.p1)||0, p2=parseFloat(_perEsc.p2)||0;
+    if(!(n>0&&p1>0&&p2>0)){ alert('Completá los litros del primer tramo y los dos precios.'); return; }
+    tasaSel=_perTasaVal(gv('per-esc-tasa')||'bcvDolar');
+    var _b=parseFloat(g('per-calc').dataset.lbase)||0, _r=parseFloat(g('per-calc').dataset.lresto)||0;
+    tramos=[{litros:_b,precio_usd:p1,tasa:tasaSel,tasa_tipo:gv('per-esc-tasa')||'bcvDolar',nota:'primeros '+n+' L por camión'},
+            {litros:_r,precio_usd:p2,tasa:tasaSel,tasa_tipo:gv('per-esc-tasa')||'bcvDolar',nota:'resto por unidad'}];
+    tramos=tramos.filter(function(t){return t.litros>0;});
+    tramos.push({escalera:{litros:n,precio1:p1,precio2:p2}});
+  }else{
+    tramos=_perTramos.map(function(t){return {litros:parseFloat(t.litros)||0,precio_usd:parseFloat(t.precio)||0,tasa:_perTasaVal(t.tasaTipo),tasa_tipo:t.tasaTipo};}).filter(function(t){return t.litros>0&&t.precio_usd>0;});
+    if(!tramos.length){ alert('Cargá al menos un tramo con litros y precio.'); return; }
+    tasaSel=tramos[0].tasa;
+  }
+  // Las surtidas ya NO salen de un rango de fechas: son las que la persona marcó. Ver el
+  // comentario de arriba — dos estaciones intercaladas no se separan por fecha.
+  var target=_perMarcados();
+  var litF=parseFloat(g('per-calc').dataset.litf)||0;
+  var cUsd=parseFloat(g('per-calc').dataset.cusd)||0;
+  var mezc=parseFloat(g('per-calc').dataset.mezc)||0;
+  var cBs=Math.round(cUsd*tasaSel*100)/100;
+  var tasaPond=tasaSel;
+  var _solapa=(COMB_PERIODOS||[]).some(function(p){ return String(p.estacion_nombre||'').toLowerCase()===est.toLowerCase()
+                                                        && String(p.desde||'')<=hta && String(p.hasta||'')>=des; });
+  if(_solapa && !confirm('⚠️ Ya hay un período de "'+est+'" que SOLAPA ese rango. Aplicarlo de nuevo DUPLICA el costo y la CxP en la Utilidad Real. ¿Continuar igual?')) return;
+  if(!target.length && !confirm('No marcaste ninguna surtida. ¿Guardar el período igual (solo registra el costo/CxP)?')) return;
+  if(!confirm((_perModo==='escalera'
+      ? ('Aplicar la escalera ('+_perEsc.litros+' L a $'+parseFloat(_perEsc.p1).toFixed(3)+' + resto a $'+parseFloat(_perEsc.p2).toFixed(3)+') a ')
+      : ('Aplicar $'+mezc.toFixed(4)+'/L a '))
+      +target.length+' surtida(s) de "'+est+'" y generar la cuenta por pagar de '+usd(cUsd)+'?')) return;
   var litSur=target.reduce(function(a,s){return a+(parseFloat(s.litros)||0);},0);
   // 1) Insertar período
   var perRow={desde:des,hasta:hta,estacion_nombre:est,tramos:tramos,litros_facturados:litF,litros_surtidos:litSur,costo_total_usd:Math.round(cUsd*100)/100,costo_total_bs:Math.round(cBs*100)/100,precio_mezclado:Math.round(mezc*10000)/10000,pago_estado:'pendiente',creado_por:(typeof SESION!=='undefined'&&SESION?SESION.nombre:'')||''};
@@ -12597,18 +12745,22 @@ async function _perAplicar(){
     if(rp.error){ mostrarToast('No se pudo guardar el período: '+rp.error.message,'error'); return; }
     if(rp.data&&rp.data[0])perId=rp.data[0].id;
   }catch(e){ mostrarToast('Sin conexión al guardar el período.','error'); return; }
-  // 2) Actualizar cada surtida (fila a fila; costo depende de sus litros)
+  // 2) Actualizar cada surtida con SU costo real. Antes se le ponía el precio mezclado a todas,
+  //    lo que con una escalera por camión reparte mal el costo por unidad aunque el total cuadre.
   var okAll=true;
   for(var i=0;i<target.length;i++){ var s=target[i]; var l=parseFloat(s.litros)||0;
-    var cu=Math.round(l*mezc*100)/100, cbs=Math.round(cu*tasaPond*100)/100;
-    try{ var ru=await supabase.from('surtidas').update({costo_litro_usd:Math.round(mezc*10000)/10000,costo_usd:cu,tasa_bcv:Math.round(tasaPond*100)/100,costo_bs:cbs,costo_definido:true,estacion_nombre:est,desglose:{periodo_id:perId,precio_mezclado:mezc,tasa_pond:tasaPond}}).eq('id',s.id);
+    var cu=_perCostoDe(l,mezc);                      // ← la escalera se aplica acá, camión por camión
+    var pl=l>0?Math.round(cu/l*10000)/10000:0;       // el $/L REAL de esta unidad
+    var cbs=Math.round(cu*tasaPond*100)/100;
+    try{ var ru=await supabase.from('surtidas').update({costo_litro_usd:pl,costo_usd:cu,tasa_bcv:Math.round(tasaPond*100)/100,costo_bs:cbs,costo_definido:true,estacion_nombre:est,desglose:{periodo_id:perId,modo:_perModo,precio_mezclado:mezc,tasa_pond:tasaPond,escalera:(_perModo==='escalera'?{litros:parseFloat(_perEsc.litros)||0,precio1:parseFloat(_perEsc.p1)||0,precio2:parseFloat(_perEsc.p2)||0}:null)}}).eq('id',s.id);
       if(ru.error){ okAll=false; console.log('surtida upd',ru.error.message); }
     }catch(e){ okAll=false; }
   }
   // 3) CxP (descripción DEBE empezar con "Compra combustible" → _esCxpCombustible la excluye de egCxP)
   var tasaTipo=tramos[0].tasa_tipo||'bcvDolar';
   var cxpRow={ fecha:hta, fecha_venc:null, prov_nombre:est, tipo_proveedor:'sin_soporte', sin_soporte:true,
-    descripcion:'Compra combustible ESTACIÓN '+litF+' L @ $'+mezc.toFixed(3)+'/L (período '+des+'→'+hta+')', factura:'', nota:'Generada automáticamente desde Combustible',
+    descripcion:'Compra combustible '+est+' — '+litF+' L @ $'+mezc.toFixed(3)+'/L (período '+des+'→'+hta+')', factura:'',
+    nota:'Generada desde Combustible'+(_perModo==='escalera'?(' · escalera: primeros '+_perEsc.litros+' L a $'+parseFloat(_perEsc.p1).toFixed(3)+' y el resto a $'+parseFloat(_perEsc.p2).toFixed(3)+', POR CAMIÓN'):''),
     base_usd:Math.round(cUsd*100)/100, iva_pct:0, iva_usd:0, total_usd:Math.round(cUsd*100)/100,
     ret_iva_pct:0, ret_iva_usd:0, ret_islr_pct:0, ret_islr_usd:0, neto_pagar:Math.round(cUsd*100)/100,
     estado:'pendiente', tasa_tipo:tasaTipo, tasa_val:tasaPond, created_at:new Date().toISOString() };
