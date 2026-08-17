@@ -14220,7 +14220,7 @@ function renderCXP(){
       '<td>'+formatFecha(c.fecha)+'</td>'+
       '<td style="font-weight:700;font-size:11px">'+(c.prov_nombre||c.prov||'')+'</td>'+
       '<td style="font-family:var(--m);font-size:10px">'+(c.orden_id||c.nota||'—')+'</td>'+
-      '<td style="font-size:10px">'+String(c.descripcion||c.desc||'').slice(0,28)+'</td>'+
+      '<td style="font-size:10px" title="'+_mEsc(String(c.descripcion||c.desc||''))+'">'+_mEsc(String(c.descripcion||c.desc||'').slice(0,90))+'</td>'+
       '<td style="font-family:var(--m)">$'+deuda.toFixed(2)+'</td>'+
       '<td style="font-family:var(--m);color:var(--teal)">'+(abon?'$'+abon.toFixed(2):'—')+'</td>'+
       '<td style="font-family:var(--m);font-weight:700;color:'+(pagada?'var(--green)':'var(--lime)')+'">$'+saldo.toFixed(2)+'</td>'+
@@ -14265,7 +14265,7 @@ function imprimirCXP(){
       filasHtml+='<tr>'+
         '<td>'+formatFecha(c.fecha)+'</td>'+
         '<td>'+_mEsc(String(c.orden_id||c.nota||'—'))+'</td>'+
-        '<td>'+_mEsc(String(c.descripcion||c.desc||'').slice(0,40))+(nFac?' <small>('+nFac+' fact.)</small>':'')+'</td>'+
+        '<td title="'+_mEsc(String(c.descripcion||c.desc||''))+'">'+_mEsc(String(c.descripcion||c.desc||'').slice(0,120))+(nFac?' <small>('+nFac+' fact.)</small>':'')+'</td>'+
         '<td class="n">$'+deuda.toFixed(2)+'</td>'+
         '<td class="n">'+(abon?'$'+abon.toFixed(2):'—')+'</td>'+
         '<td class="n b">$'+saldo.toFixed(2)+'</td>'+
