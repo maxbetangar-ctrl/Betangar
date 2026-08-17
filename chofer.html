@@ -2657,27 +2657,63 @@ function cargarTanqueDeLaUnidad(){
   }catch(e){}
 }
 function _clEsJac1131(){ return /jac-b/i.test(String(cam||'')); }   // los 12 de la flota actual
+// ── UNA MEDIDA IMPOSIBLE SE RECHAZA, NO SE TOPA (2026-08-17) ─────────────────────────────
+// El 15/08 un chofer anotó 175 cm en un tanque de 52,5 de alto. La app no lo rechazó: lo TOPÓ
+// contra el máximo y lo mostró como «596,06 L» — con dos decimales y toda la cara de una
+// medición real. Leído así decía «este camión salió lleno y no cargó», que es la conclusión
+// OPUESTA a la verdadera (eran 17,5: se le fue la coma). Un valor saneado a la fuerza es peor
+// que un valor faltante: el faltante se ve, el saneado se cree. En la auditoría del sábado ese
+// número solo movió el techo 445 L, pero pudo haber costado una acusación.
+//
+// ⚠️ POR QUÉ HAY UNA GRACIA Y NO SE RECHAZA TODO LO QUE PASE DEL TOPE: en 988 mediciones hay
+// 4 lecturas entre 52,5 y 54,5 (tres de 53 y una de 54) y NO son errores — son camiones con el
+// tanque al borde, medio centímetro de regla por encima del tope medido. Rechazarlas trancaría
+// al chofer que midió bien, y un candado que rompe la herramienta es peor que no tener candado.
+// Con 2 cm de gracia se rechazan exactamente las 3 imposibles (175, 175 y 264) y no se pierde
+// ninguna buena. Dentro de la gracia se toma como «tanque lleno» y se calcula con el tope.
+var CL_ALTURA_GRACIA_CM = 2;
+function clAlturaMaxCm(){                            // tope en cm de ESTA unidad, o null si no se sabe
+  var T=CL_TANQUE_UNIDAD;
+  if(T && T.tabla) return Number(T.altura_max_cm)||52.5;
+  if(_clEsJac1131()) return 52.5;
+  return null;                                       // otra marca sin tabla: no hay contra qué validar
+}
+// Devuelve el TOPE (para poder nombrarlo en el mensaje) si la medida es imposible; si no, false.
+function clAlturaImposible(cm){
+  cm=parseFloat(cm); if(isNaN(cm)||cm<=0) return false;
+  var top=clAlturaMaxCm();
+  return (top!=null && cm>top+CL_ALTURA_GRACIA_CM) ? top : false;
+}
 function clLitrosJac(cm){
   cm=parseFloat(cm); if(isNaN(cm)||cm<0)return 0;
   var T=CL_TANQUE_UNIDAD;
   if(T && T.tabla){                                  // la tabla que la BASE le da a ESTA unidad
-    var top=Number(T.altura_max_cm)||52.5; if(cm>top)cm=top;
+    var top=Number(T.altura_max_cm)||52.5;
+    if(cm>top){ if(cm>top+CL_ALTURA_GRACIA_CM) return null; cm=top; }   // imposible: NO se inventan litros
     var f=function(k){ if(k<=0)return 0; if(T.tabla[k]!=null)return Number(T.tabla[k]); var kk=k; while(kk>0&&T.tabla[kk]==null)kk--; return kk>0?Number(T.tabla[kk]):0; };
     var l0=Math.floor(cm), h0=Math.ceil(cm);
     if(l0===h0)return Math.round(f(l0)*100)/100;
     return Math.round((f(l0)+(f(h0)-f(l0))*(cm-l0))*100)/100;
   }
   if(!_clEsJac1131())return null;                    // otra marca sin tabla propia: NO se inventan litros
-  if(cm>52.5)cm=52.5;
+  if(cm>52.5){ if(cm>52.5+CL_ALTURA_GRACIA_CM) return null; cm=52.5; }   // imposible: NO se inventan litros
   function val(k){ if(k<=0)return 0; if(CL_JAC_CUB[k]!=null)return CL_JAC_CUB[k]; var kk=k; while(kk>0&&CL_JAC_CUB[kk]==null)kk--; return kk>0?CL_JAC_CUB[kk]:0; }
   var lo=Math.floor(cm), hi=Math.ceil(cm);
   if(lo===hi)return Math.round(val(lo)*100)/100;
   return Math.round((val(lo)+(val(hi)-val(lo))*(cm-lo))*100)/100;
 }
 function clCalcLitrosCm(momento){
-  var v=gv('cl-cm-'+momento); var l=clLitrosJac(v);
+  var v=gv('cl-cm-'+momento);
   var box=document.getElementById('cl-cm-'+momento+'-l');
   if(!box)return;
+  // El aviso sale MIENTRAS escribe, no al guardar: si se le fue la coma lo ve en el momento.
+  var _imp=clAlturaImposible(v);
+  if(_imp!==false){
+    box.style.color='#ff5c5c';
+    box.textContent='⚠️ Esa medida no entra: el tanque mide '+String(_imp).replace('.',',')+' cm de alto. Revisa la coma.';
+    return;
+  }
+  var l=clLitrosJac(v);
   if(l==null){ box.style.color='#9fb3c8'; box.textContent=(parseFloat(v)>0)?'Se guarda la medida. Los litros salen cuando se mida el tanque de esta unidad.':''; return; }
   box.style.color='#7dc941';
   box.textContent=l?('≈ '+l.toLocaleString('es-VE',{maximumFractionDigits:1})+' L'):'';
@@ -2692,6 +2728,9 @@ var CL_MED_ONCONFLICT='vehiculo_id,fecha,momento';
 async function clGuardarMedicionCm(momento){
   var cmV=parseFloat(gv('cl-cm-'+momento));
   if(isNaN(cmV)||cmV<=0)return; // medición opcional
+  // Segundo candado: aunque se llegue por otro camino, un imposible NO entra a la base ni a la
+  // cola offline. Guardarlo en la cola sería peor: resucita días después sin nadie mirando.
+  if(clAlturaImposible(cmV)!==false){ console.warn('medicion cm rechazada: '+cmV+' cm no entra en el tanque'); return; }
   var litros=clLitrosJac(cmV);
   var row={fecha:hoy,tanque_id:((CL_TANQUE_UNIDAD&&CL_TANQUE_UNIDAD.tanque_id)||'tanque-jac'),vehiculo_id:cam,momento:momento,altura_cm:cmV,litros_calculados:litros,registrado_por:(chofer||'chofer'),notas:'Medición chofer '+cam};
   try{
@@ -2717,6 +2756,13 @@ async function _guardarChecklist(){
   if(isNaN(_cmVal) || _cmVal<=0){
     mostrarToast('Mide el tanque con la regla y escribe los CM antes de guardar','warn');
     var _cmEl=document.getElementById(_cmId); if(_cmEl){ try{_cmEl.focus();_cmEl.scrollIntoView({block:'center'});}catch(e){} }
+    return;
+  }
+  // Se RECHAZA, no se topa: el checklist no se guarda hasta que la medida entre en el tanque.
+  var _cmTope = clAlturaImposible(_cmVal);
+  if(_cmTope!==false){
+    mostrarToast('Esa medida no entra en el tanque: mide '+String(_cmTope).replace('.',',')+' cm de alto. Revisa si se te fue la coma.','warn');
+    var _cmEl2=document.getElementById(_cmId); if(_cmEl2){ try{_cmEl2.focus();_cmEl2.select();_cmEl2.scrollIntoView({block:'center'});}catch(e){} }
     return;
   }
 
