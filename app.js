@@ -14825,6 +14825,94 @@ function calcFac(){
   }
 }
 var _facEnVuelo=false;
+// ════════════════════════════════════════════════════════════════════════════════════════════
+// 📎 FOTO DE LA FACTURA — pedido de Máximo (2026-08-18)
+//
+// POR QUÉ ACÁ Y NO EN LA CUENTA POR PAGAR. Máximo: «en cuentas por pagar no hay factura, aquí se
+// factura es cuando se paga… justo antes de pagar, porque el diferencial cambiario no deja
+// facturar y que después se pague». La CxP se lleva en DÓLARES y nace sin documento; el proveedor
+// factura recién cuando se decide pagar, y se transfiere el mismo día. Este formulario es ese
+// acto. Pedir la foto en el alta de la CxP habría sido pedirla cuando no existe.
+//
+// Los datos lo confirman sin margen: 12 CxP pendientes → 0 facturas y 0 pagos; 10 pagadas → 10
+// facturas y 10 pagos. Factura ⟺ pago, correlación perfecta.
+//
+// ⛔ BUCKET PRIVADO. Las fotos de la operación van a `entregas`, que es público a propósito (la
+//    evidencia la ve el cliente sin cuenta). Una factura trae RIF, montos y nº de control fiscal:
+//    va a `facturas`, privado, y se mira con URL firmada [[norma-storage-publico-y-quien-lee]].
+//
+// ⛔ SE SUBE AL ELEGIRLA, NO AL GUARDAR. Si se subiera dentro de `guardarFactura`, un fallo de red
+//    tumbaría el guardado de una factura que además dispara el PAGO. Acá lo peor que pasa es que
+//    la foto no suba y la factura se guarde sin ella — que es exactamente como está hoy.
+var _FAC_FOTO_RUTA='';
+
+async function facFotoElegida(inp){
+  var est=g('fac-foto-estado');
+  var f=inp&&inp.files&&inp.files[0];
+  _FAC_FOTO_RUTA='';
+  if(!f){ if(est){est.textContent='Sin foto todavía.';est.style.color='var(--text3)';} return; }
+  if(f.size>10485760){
+    if(est){est.textContent='⛔ Pesa '+(f.size/1048576).toFixed(1)+' MB y el tope son 10 MB.';est.style.color='var(--red)';}
+    inp.value=''; return;
+  }
+  if(est){est.textContent='Subiendo…';est.style.color='var(--text3)';}
+  if(!(DB_READY&&supabase)){
+    if(est){est.textContent='⚠️ Sin conexión: la factura se puede guardar igual, pero sin la foto.';est.style.color='var(--yellow)';}
+    return;
+  }
+  // La ruta lleva proveedor y fecha para poder encontrarla desde el Storage sin la base delante.
+  var ext=(String(f.name).match(/\.([a-z0-9]+)$/i)||[,'jpg'])[1].toLowerCase();
+  var ruta='factura/'+(gv('fac-fecha')||fechaVE())+'/'+Date.now()+'_'+Math.random().toString(36).slice(2,7)+'.'+ext;
+  try{
+    var up=await supabase.storage.from('facturas').upload(ruta,f,{contentType:f.type||'image/jpeg',upsert:false});
+    if(up&&up.error){
+      // ⛔ Se DICE el error. Un "no se pudo" mudo hace que se guarde la factura creyendo que la
+      //    foto quedó, y el respaldo se pierde sin que nadie se entere.
+      if(est){est.textContent='⛔ No se pudo subir: '+up.error.message;est.style.color='var(--red)';}
+      return;
+    }
+    _FAC_FOTO_RUTA=ruta;
+    if(est){est.textContent='✅ Foto lista ('+(f.size/1024).toFixed(0)+' KB). Se guarda con la factura.';est.style.color='var(--green)';}
+  }catch(e){
+    if(est){est.textContent='⛔ No se pudo subir: '+(e&&e.message||'error');est.style.color='var(--red)';}
+  }
+}
+
+// ⛔ LA SALIDA, CON EXPLICACIÓN ESCRITA. Máximo: «un botoncito que lo logre inhabilitar pero
+//    pidiéndole una explicación de por qué no tiene soporte, para que en el caso de nómina pueda
+//    avanzar». El único caso previsto es la NÓMINA, que no lleva factura ni nota de crédito.
+//    Es texto y no una casilla a propósito: una casilla se tilda sin pensar y a los tres días
+//    todo estaría tildado. Escribir el motivo cuesta lo justo para no hacerlo por costumbre, y
+//    queda para que alguien lo lea después.
+var _FAC_SIN_SOPORTE='';
+
+function facSinSoporte(){
+  var box=g('fac-sin-soporte-box');
+  var m=prompt('¿Por qué este pago no lleva soporte?\n\nEscribilo con detalle — queda guardado con la factura y alguien lo va a leer.\n\nEjemplo: «Nómina de la semana, no genera factura».');
+  if(m===null) return;                      // canceló: no se toca nada
+  m=String(m).trim();
+  if(m.length<10){
+    if(typeof mostrarToast==='function')mostrarToast('Escribí el motivo completo — con dos palabras no se entiende después','error');
+    return;
+  }
+  _FAC_SIN_SOPORTE=m;
+  // Elegir "sin soporte" y además haber subido algo es contradictorio: manda lo que se subió.
+  _FAC_FOTO_RUTA='';
+  var inp=g('fac-foto'); if(inp)inp.value='';
+  var est=g('fac-foto-estado'); if(est){ est.textContent='Este pago va SIN soporte, con motivo escrito.'; est.style.color='var(--yellow)'; }
+  if(box){ box.style.display='block'; box.textContent='⚠️ Sin soporte: '+m+'  (tocá el archivo de arriba si conseguís el documento)'; }
+}
+
+// Abre el soporte guardado. Reusa el visor de bucket privado que ya existe — firma al vuelo y
+// abre la ventana ANTES del await para que el navegador del teléfono no la bloquee.
+// ⚠️ Recibe el ID de la factura, no la ruta: la ruta lleva barras y no tiene por qué viajar
+//    dentro de un atributo HTML.
+function facVerFotoDe(idFactura){
+  var f=(typeof CXP_FACTURAS!=='undefined'?CXP_FACTURAS:[]).find(function(x){return String(x.id)===String(idFactura);});
+  if(!f||!f.foto){ if(typeof mostrarToast==='function')mostrarToast('Esa factura no tiene soporte cargado','error'); return; }
+  verFotoPrivada('facturas', f.foto);
+}
+
 function guardarFactura(){
   if(_facEnVuelo)return; // anti doble-click: la factura ahora también puede generar pagos
   var pid=gv('fac-prov');
@@ -14834,6 +14922,17 @@ function guardarFactura(){
   var v=_calcFacVals();
   if(!(v.base>0)){alert('Ingresá la base imponible en Bs.');return;}
   if(!gv('fac-num')){alert('Ingresá el N° de factura.');return;}
+  // ⛔ SIN SOPORTE NO SE CIERRA UN PAGO. Pedido de Máximo (18/08/2026): al cerrar la factura para
+  //    pagar tiene que haber el documento, o una explicación escrita de por qué no lo hay. El
+  //    único caso previsto sin soporte es la NÓMINA.
+  //    Va acá y no solo en la pantalla: este es el punto por el que pasa TODO cierre de factura,
+  //    incluida la que dispara el pago. Un aviso que solo vive en el formulario lo saltea una
+  //    pestaña vieja en caché. Misma lección que «Despacho a Camión».
+  if(!_FAC_FOTO_RUTA && !_FAC_SIN_SOPORTE){
+    alert('⛔ Falta el soporte de este pago.\n\nSubí la factura, la nota de crédito o el recibo que tengas.\n\nSi de verdad no lleva soporte —el caso típico es la nómina— tocá «Este pago no lleva soporte…» y explicá por qué. Queda guardado.');
+    var _fi=g('fac-foto'); if(_fi&&_fi.scrollIntoView)_fi.scrollIntoView({behavior:'smooth',block:'center'});
+    return;
+  }
   // Lo repartido tiene que dar EXACTAMENTE la base del papel: si no, o queda deuda fantasma
   // (repartiste de menos) o se salda plata que nadie facturó (repartiste de más).
   var suma=_facSumaLineas(), dif=Math.round((v.base-suma)*100)/100;
@@ -14868,7 +14967,11 @@ function guardarFactura(){
     base_bs:v.base, iva_pct:v.ivaPct, iva_bs:parseFloat(v.iva.toFixed(2)),
     tipo_contrib:v.contrib, ret_iva_pct:v.retIvaPct, ret_iva_bs:parseFloat(v.retIva.toFixed(2)),
     islr_aplica:v.islrAplica, ret_islr_pct:v.islrPct, sustraendo_bs:v.sustr, ret_islr_bs:parseFloat(v.retIslr.toFixed(2)),
-    total_bs:parseFloat(v.total.toFixed(2)), neto_bs:parseFloat(v.neto.toFixed(2)), tasa_val:v.tasa||null
+    total_bs:parseFloat(v.total.toFixed(2)), neto_bs:parseFloat(v.neto.toFixed(2)), tasa_val:v.tasa||null,
+    // Se guarda la RUTA, no la URL firmada: las firmadas vencen y dejarían la fila apuntando
+    // a nada. La subida ocurre antes, en facFotoElegida(). Ver el comentario de la columna.
+    foto:_FAC_FOTO_RUTA||null,
+    sin_soporte_motivo:_FAC_SIN_SOPORTE||null
   };
   var lineasDe=function(facId){
     return lineasForm.map(function(l,i){
@@ -14892,6 +14995,13 @@ function guardarFactura(){
     var limpiar=function(){
       _facEnVuelo=false;
       ['fac-num','fac-control','fac-base','fac-sustraendo','fac-pago-ref'].forEach(function(x){if(g(x))sv(x,'');});
+      // ⛔ Se limpia la foto TAMBIEN. Si no, la siguiente factura que se cargue en la misma
+      //    sesion se guardaria apuntando al documento de la anterior — un respaldo equivocado
+      //    es peor que no tener respaldo, porque nadie lo va a dudar.
+      _FAC_FOTO_RUTA=''; _FAC_SIN_SOPORTE='';
+      var _ff=g('fac-foto'); if(_ff)_ff.value='';
+      var _fsb=g('fac-sin-soporte-box'); if(_fsb){_fsb.style.display='none';_fsb.textContent='';}
+      var _fe=g('fac-foto-estado'); if(_fe){_fe.textContent='Sin foto todavía.';_fe.style.color='var(--text3)';}
       sv('fac-sustraendo','0'); _facBaseAuto='';
       if(g('fac-calc'))g('fac-calc').style.display='none';
       renderRetenciones(); renderCXP(); fillFacProvSelect();
@@ -20375,7 +20485,19 @@ function renderCxP(){
     html+='<div>';
     html+='<div style="font-weight:700;font-size:14px">'+(c.prov_nombre||'Sin proveedor')+'</div>';
     html+='<div style="font-size:11px;color:var(--text3)">'+(c.descripcion||'')+'</div>';
-    html+='<div style="font-size:10px;color:var(--text3);margin-top:2px">'+(c.orden_id?('Orden: '+c.orden_id+' · '):'')+nFac+' factura(s)</div>';
+    // 📎 EN LA LINEA, que es donde Maximo lo pidio: el respaldo se mira sin abrir nada.
+    // Se dibuja una por factura porque una CxP puede tener varias, y cada una tiene su papel.
+    var _clips=_cxpFacturasDe(c.id).map(function(fx){
+      // Se pasa el ID de la factura, NO la ruta: la ruta lleva barras y comillas y meterla dentro
+      // de un onclick es la forma segura de romper el HTML el día que un nombre traiga un apóstrofo.
+      if(fx.foto) return '<span onclick="facVerFotoDe(\'' + String(fx.id) + '\')" title="Ver la factura ' + (fx.nro_factura||'') + '" style="cursor:pointer;color:var(--teal);margin-left:6px">📎</span>';
+      // ⚠️ Sin soporte se DICE, y se distingue el caso EXPLICADO del que quedo sin explicar.
+      //    Las viejas (antes del 18/08) no tienen motivo porque entonces no se pedia nada: no son
+      //    un incumplimiento de nadie y no se pintan igual.
+      if(fx.sin_soporte_motivo) return '<span title="Sin soporte, con motivo: '+String(fx.sin_soporte_motivo).replace(/"/g,'&quot;')+'" style="margin-left:6px;cursor:help">📝</span>';
+      return '<span title="La factura '+(fx.nro_factura||'')+' quedo sin soporte (es anterior a que se pidiera)" style="margin-left:6px;opacity:.6">📄❓</span>';
+    }).join('');
+    html+='<div style="font-size:10px;color:var(--text3);margin-top:2px">'+(c.orden_id?('Orden: '+c.orden_id+' · '):'')+nFac+' factura(s)'+_clips+'</div>';
     html+='</div>';
     html+='<div style="text-align:right">';
     html+=badge;

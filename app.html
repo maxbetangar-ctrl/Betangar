@@ -958,6 +958,21 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
           </div>
           <div id="fac-pago-hint" style="font-size:10px;color:var(--text3);margin-top:4px"></div>
         </div>
+        <!-- ══ FOTO DE LA FACTURA (2026-08-18) ═══════════════════════════════════════════════
+             Va ACÁ y no en la cuenta por pagar: la CxP se lleva en dólares y nace SIN factura
+             —el proveedor factura recién cuando se decide pagar, y se transfiere ese mismo día
+             por el diferencial cambiario—. Este es el único momento en que el documento existe.
+             ⛔ Sube al bucket PRIVADO `facturas`, nunca a `entregas` (que es público): una
+             factura trae RIF, montos y nº de control fiscal. ══ -->
+        <div class="fg" style="border:1px dashed var(--border);border-radius:8px;padding:8px 10px;margin:2px 0 8px">
+          <label style="font-size:12px;margin:0 0 6px;display:block">📎 Soporte del pago <span style="color:var(--red)">*</span> <span style="color:var(--text3);font-weight:400">— factura, nota de crédito o el recibo que tengas</span></label>
+          <input type="file" id="fac-foto" accept="image/*,application/pdf" onchange="facFotoElegida(this)" style="font-size:11px;width:100%">
+          <div id="fac-foto-estado" style="font-size:11px;color:var(--text3);margin-top:4px">Sin soporte todavía. Sin esto no se puede cerrar el pago.</div>
+          <div style="text-align:right;margin-top:6px">
+            <button type="button" class="btn btn-s btn-xs" onclick="facSinSoporte()" style="font-size:10px">Este pago no lleva soporte…</button>
+          </div>
+          <div id="fac-sin-soporte-box" style="display:none;font-size:11px;color:var(--yellow);background:rgba(255,193,7,.08);border:1px solid rgba(255,193,7,.3);border-radius:6px;padding:6px 8px;margin-top:6px"></div>
+        </div>
         <button class="btn btn-g" style="width:100%" onclick="guardarFactura()">✔ Guardar factura</button>
       </div>
       <!-- RESUMEN del mes (Bs) -->
@@ -2924,7 +2939,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
 <script src="maxrecuerda.js?v=20260806-maxrecuerda"></script>
 <!-- Formato unico de los Excel de Maxware. VA ANTES de app.js. -->
 <script src="maxware-excel.js"></script>
-<script src="app.js?v=20260818-0909"></script>
+<script src="app.js?v=20260818-1058"></script>
 
 <!-- Modal global -->
 <div id="modal" class="moverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9990;align-items:center;justify-content:center;padding:16px">
