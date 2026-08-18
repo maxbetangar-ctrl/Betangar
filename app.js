@@ -3858,7 +3858,7 @@ async function cargarDatosDB(){
     // MULTAS
     if(ml.data&&ml.data.length)MULTAS=ml.data.map(function(x){return{id:x.id,camId:x.cam_id,fecha:x.fecha,desc:x.descripcion||'',montoBs:parseFloat(x.monto_bs)||0,ref:x.ref||'',resp:x.responsable||'empresa',choferId:x.chofer_id||'',cuotas:parseInt(x.cuotas)||1,cuotaBs:parseFloat(x.cuota_bs)||0,pagadoBs:parseFloat(x.pagado_bs)||0,cuotasPagas:parseInt(x.cuotas_pagas)||0,estado:x.estado||'activo',moneda:x.moneda||'',montoDiv:parseFloat(x.monto_div)||0,cuotaDiv:parseFloat(x.cuota_div)||0,pagadoDiv:parseFloat(x.pagado_div)||0};});
     // INVENTARIO
-    if(inv.data&&inv.data.length)INVENTARIO=inv.data.map(function(x){return{id:x.id,nombre:x.nombre,cat:x.categoria||'',unidad:x.unidad||'Unidades',stock:parseInt(x.stock)||0,stockMin:parseInt(x.stock_min)||2,precio:parseFloat(x.precio)||0};});
+    if(inv.data&&inv.data.length)INVENTARIO=inv.data.map(function(x){return{id:x.id,nombre:x.nombre,cat:x.categoria||'',unidad:x.unidad||'Unidades',stock:parseFloat(x.stock)||0,stockMin:parseFloat(x.stock_min)||2,precio:parseFloat(x.precio)||0,activo:(x.activo!==false),nota:x.nota||''};});try{_invPoblarSelects();}catch(e){}
     // CONTRATOS
     if(co.data&&co.data.length)CONTRATOS=co.data.map(function(x){return{id:x.id,nombre:x.nombre,parte:x.parte||'',cliente:x.cliente||x.parte||'',monto:parseFloat(x.monto)||0,forma_cobro:x.forma_cobro||'',tarifa_cliente:parseFloat(x.tarifa_cliente)||0,tarifa_operador:parseFloat(x.tarifa_operador)||0,moneda:x.moneda||'USD',inicio:x.inicio||'',venc:x.vencimiento||'',cond:x.condiciones||'',estado:x.estado||'activo',retenciones:(x.retenciones&&typeof x.retenciones==='object')?x.retenciones:null};});
     // GASTOS VARIABLES
@@ -9923,15 +9923,18 @@ async function _ccAgregarLinea(){
       var invSel=gv('cc-invitem'), item=null;
       if(invSel==='__nuevo'||!invSel){
         var nn=((gv('cc-invnuevo')||'').trim())||nombre;
-        item={id:'INV'+Date.now(),nombre:nn,cat:'Repuestos varios',unidad:'u',stock:0,stockMin:2,precio:0};
+        if(!(DB_READY&&supabase)){alert('Sin conexión: no se puede crear el ítem de inventario.');return;}
+        var _rn=await supabase.rpc('inv_item_crear',{p:{nombre:nn,categoria:'Repuestos varios',unidad:'u',stock_inicial:0,stock_min:2,precio:0}});
+        if(_rn.error||!(_rn.data&&_rn.data.ok)){alert((_rn.data&&_rn.data.error)||'No se pudo crear el ítem.');return;}
+        item={id:_rn.data.id,nombre:nn,cat:'Repuestos varios',unidad:'u',stock:0,stockMin:2,precio:0,activo:true};
         INVENTARIO.push(item);
-        if(DB_READY&&supabase){ try{ await supabase.from('inventario').upsert([{id:item.id,nombre:item.nombre,categoria:item.cat,unidad:item.unidad,stock:item.stock,stock_min:item.stockMin,precio:item.precio}],{onConflict:'id'}); }catch(e){} }
       } else { item=INVENTARIO.find(function(x){return x.id===invSel;}); if(!item){alert('Elegí el ítem de inventario');return;} }
-      item.stock=Math.round(((parseFloat(item.stock)||0)+cant)*100)/100; // decimal: metros/litros/kg
-      item.precio=precioU; // último precio de compra (decisión de Máximo)
-      if(DB_READY&&supabase){ try{ await supabase.from('inventario').update({stock:item.stock,precio:precioU}).eq('id',item.id); }catch(e){} }
-      try{localStorage.setItem('btg_inventario',JSON.stringify(INVENTARIO));}catch(e){}
-      _pushInvMov({id:'IM'+Date.now(),fecha:fecha,item:item.nombre,item_id:item.id,tipo:'Entrada',cantidad:cant,cam:'',motivo:'Compra orden '+ordenId,stockResult:item.stock,factura:provNom||'',fotoUrl:fotoUrl,precio:precioU,orden_id:ordenId,garantiaHasta:garHasta});
+      // MISMA puerta que Inventario: el saldo lo calcula la base, no esta pantalla.
+      item.precio=precioU; // último precio de compra (decisión ya tomada)
+      var _rm=await _invMovimiento({item_id:item.id,tipo:'Entrada',cantidad:cant,fecha:fecha,
+        motivo:'Compra orden '+ordenId,factura:provNom||'',foto_url:fotoUrl,precio:precioU,
+        orden_id:ordenId,garantia_hasta:garHasta});
+      if(!_rm)return;
     }
     _ccActualizarOrden(ordenId,false);
     audit('Línea de compra registrada',ordenId+' · '+nombre+' · $'+costo+' · '+destino);
@@ -15850,23 +15853,133 @@ function renderMultas(){
     tb.innerHTML=rows.join('')||'<tr><td colspan="10" style="text-align:center;color:var(--text3);padding:20px">Sin multas</td></tr>';
   }
 }
-function switchInvTab(t){['stock','add','usar','hist'].forEach(function(x){var el=g('tab-inv-'+x);var sw=g('sw-inv-'+x);if(el)el.style.display=x===t?'block':'none';if(sw){sw.classList.remove('on');if(x===t)sw.classList.add('on');}});if(t==='stock')renderInventario();if(t==='prog')renderMantProg();if(t==='hist')renderInvHist();}
+// ══ INVENTARIO: EL SALDO LO LLEVA LA BASE ═══════════════════════════════════════════════════
+// Carlos, 2026-08-17: «tengo que registrar de nuevo el artículo» y «no se despliega ningún
+// artículo». Los dos salían de lo mismo: `stock` era un número que ESTA app pisaba a mano
+// (`item.stock -= cant`) e `inv_movimientos` una bitácora paralela que no lo sostenía. Ya había
+// dejado daño: el movimiento del 10/07 colgaba de un ítem borrado y cerraba en 31 mientras el
+// ítem vivo decía 30; en Betangar, 23 de 26 ítems tenían stock sin un solo movimiento detrás.
+// Desde la migración `motor_stock_saldo_en_la_base_2026-08-17.sql`, el saldo es la SUMA de los
+// movimientos y lo calcula un trigger. Esta app ya no escribe `stock`: pide el movimiento y
+// LEE el saldo que devuelve la base. Si acá volviera a aparecer un `item.stock = ...`, se
+// reabre exactamente el agujero que esto cerró.
+function _invNum(n){ n=parseFloat(n)||0; return (Math.round(n*100)/100).toLocaleString('es-VE',{maximumFractionDigits:2}); }
+function _invActivos(){ return (INVENTARIO||[]).filter(function(x){return x.activo!==false;}); }
+function _invPoblarSelects(){
+  var lista=_invActivos().slice().sort(function(a,b){return (a.nombre||'').localeCompare(b.nombre||'');});
+  var su=g('inv-uso-item');
+  if(su){
+    var prev=su.value;
+    if(!lista.length){ su.innerHTML='<option value="">(todavía no hay items cargados — cargalos en "+ Agregar")</option>'; }
+    else{
+      su.innerHTML='<option value="">-- Seleccionar --</option>'+lista.map(function(x){
+        return '<option value="'+x.id+'">'+_mEsc(x.nombre)+' — '+_invNum(x.stock)+' '+_mEsc(x.unidad||'')+'</option>';}).join('');
+      if(prev)su.value=prev;
+    }
+  }
+  var sa=g('inv-add-item');
+  if(sa){
+    var prevA=sa.value;
+    sa.innerHTML='<option value="__nuevo">➕ Item NUEVO (no está en la lista)</option>'+lista.map(function(x){
+      return '<option value="'+x.id+'">'+_mEsc(x.nombre)+' — hay '+_invNum(x.stock)+' '+_mEsc(x.unidad||'')+'</option>';}).join('');
+    if(prevA)sa.value=prevA;
+  }
+}
+function _invAddModo(){
+  var sel=gv('inv-add-item')||'__nuevo', esNuevo=(sel==='__nuevo');
+  var bn=g('inv-add-nuevo'), be=g('inv-add-entrada'), bt=g('inv-add-btn');
+  if(bn)bn.style.display=esNuevo?'block':'none';
+  if(be)be.style.display=esNuevo?'none':'block';
+  if(bt)bt.textContent=esNuevo?'Agregar item nuevo':'📥 Registrar entrada de stock';
+  if(!esNuevo){
+    var item=(INVENTARIO||[]).find(function(x){return x.id===sel;});
+    var box=g('inv-add-actual');
+    if(box)box.innerHTML=item?('<b>'+_mEsc(item.nombre)+'</b> — hoy hay <b>'+_invNum(item.stock)+' '+_mEsc(item.unidad||'')+'</b> · último precio $'+_invNum(item.precio)):'';
+    var f=g('inv-ent-fecha'); if(f&&!f.value)f.value=fechaVE();
+    var p=g('inv-ent-precio'); if(p&&!p.value&&item&&item.precio)p.value=item.precio;
+  }
+  _invEntTotal();
+}
+function _invEntTotal(){
+  var box=g('inv-ent-resumen'); if(!box)return;
+  var item=(INVENTARIO||[]).find(function(x){return x.id===gv('inv-add-item');});
+  var c=parseFloat(gv('inv-ent-cant'))||0, p=parseFloat(gv('inv-ent-precio'))||0;
+  if(!item||c<=0){ box.textContent=''; return; }
+  box.innerHTML='Costo de esta entrada: <b>$'+_invNum(c*p)+'</b> · el stock queda en <b>'+
+    _invNum((parseFloat(item.stock)||0)+c)+' '+_mEsc(item.unidad||'')+'</b>';
+}
+function _invUsoAviso(){
+  var box=g('inv-uso-aviso'); if(!box)return;
+  var item=(INVENTARIO||[]).find(function(x){return x.id===gv('inv-uso-item');});
+  var c=parseFloat(gv('inv-uso-cant'))||0;
+  if(!item||c<=0){ box.textContent=''; return; }
+  var queda=Math.round(((parseFloat(item.stock)||0)-c)*100)/100;
+  box.style.color=(queda<0)?'var(--red)':((queda<=(parseFloat(item.stockMin)||0))?'var(--yellow)':'var(--text2)');
+  box.innerHTML=(queda<0)
+    ? ('⚠️ No alcanza: hay '+_invNum(item.stock)+' '+_mEsc(item.unidad||'')+' y estás sacando '+_invNum(c))
+    : ('Queda en <b>'+_invNum(queda)+' '+_mEsc(item.unidad||'')+'</b> · costo del uso $'+_invNum(c*(parseFloat(item.precio)||0)));
+}
+// Refresca UN ítem con el saldo que acaba de devolver la base (no se recalcula acá).
+function _invAplicarSaldo(itemId, saldo){
+  var it=(INVENTARIO||[]).find(function(x){return x.id===itemId;});
+  if(it&&saldo!=null)it.stock=parseFloat(saldo)||0;
+  try{localStorage.setItem('btg_inventario',JSON.stringify(INVENTARIO));}catch(e){}
+  return it;
+}
+// ── ENTRADA DE STOCK A UN ÍTEM QUE YA EXISTE ────────────────────────────────────────────────
+// Es la MISMA operación que ya vivía dentro de Compras/órdenes (destino='inventario'). No se
+// duplicó la lógica: las dos puertas llaman a `inv_movimiento_registrar`, así que no pueden
+// volver a valorizar distinto el mismo estante. Lo que cambia es DÓNDE se entrega: acá, que es
+// donde Carlos la fue a buscar.
+async function _invEntradaStock(itemId){
+  var item=(INVENTARIO||[]).find(function(x){return x.id===itemId;});
+  if(!item){alert('No encuentro ese item. Recargá la página.');return;}
+  var cant=parseFloat(gv('inv-ent-cant'))||0;
+  if(cant<=0){alert('¿Cuánto entró? Escribí la cantidad en '+(item.unidad||'unidades').toLowerCase()+'.');return;}
+  var factura=(gv('inv-ent-factura')||'').trim();
+  if(!factura){alert('Falta el N° de FACTURA. No entra stock sin factura (control anti-fuga).');return;}
+  var fecha=gv('inv-ent-fecha')||fechaVE();
+  if(fecha>fechaVE()){alert('Esa fecha todavía no llegó. Revisá el día de la entrada.');return;}
+  var precioU=parseFloat(gv('inv-ent-precio'));
+  if(!isFinite(precioU)||precioU<0)precioU=parseFloat(item.precio)||0;
+  var prov=(gv('inv-ent-prov')||'').trim();
+  var btn=g('inv-add-btn'); if(btn){btn.disabled=true;btn.textContent='Guardando…';}
+  try{
+    var r=await _invMovimiento({item_id:item.id,tipo:'Entrada',cantidad:cant,fecha:fecha,precio:precioU,
+      factura:factura,motivo:'Entrada de stock'+(prov?(' · '+prov):'')});
+    if(!r)return;
+    item.precio=precioU;
+    ['inv-ent-cant','inv-ent-factura','inv-ent-prov'].forEach(function(x){sv(x,'');});
+    _invPoblarSelects(); renderInventario();
+    if(typeof mostrarToast==='function')mostrarToast('✅ Entraron '+_invNum(cant)+' '+(item.unidad||'')+' de '+item.nombre+' → stock '+_invNum(r.stock),'exito');
+    audit('Entrada de stock',item.nombre+' +'+cant+' '+(item.unidad||'')+' (Fact '+factura+')');
+  } finally { var b=g('inv-add-btn'); if(b)b.disabled=false; _invAddModo(); }
+}
+function switchInvTab(t){['stock','add','usar','hist'].forEach(function(x){var el=g('tab-inv-'+x);var sw=g('sw-inv-'+x);if(el)el.style.display=x===t?'block':'none';if(sw){sw.classList.remove('on');if(x===t)sw.classList.add('on');}});if(t==='stock')renderInventario();if(t==='prog')renderMantProg();if(t==='hist')renderInvHist();if(t==='usar'||t==='add'){_invPoblarSelects();var _fu=g('inv-uso-fecha');if(_fu&&!_fu.value)_fu.value=fechaVE();var _fe=g('inv-ent-fecha');if(_fe&&!_fe.value)_fe.value=fechaVE();if(t==='add')_invAddModo();if(t==='usar')_invUsoAviso();}}
 
 async function guardarItemInv(){
+  // Si eligió un ítem que ya existe, esto no es un ítem nuevo: es una ENTRADA de stock.
+  var _sel=gv('inv-add-item')||'__nuevo';
+  if(_sel&&_sel!=='__nuevo')return _invEntradaStock(_sel);
   var nombre=gv('inv-nombre');if(!nombre){alert('Ingresa el nombre del item');return;}
-  var item={id:'INV'+Date.now(),nombre:nombre,cat:gv('inv-cat'),unidad:gv('inv-unidad'),stock:parseInt(gv('inv-stock-ini'))||0,stockMin:parseInt(gv('inv-stock-min'))||2,precio:parseFloat(gv('inv-precio'))||0};
+  if(!(DB_READY&&supabase)){alert('Sin conexión: el item no se guardó. Cargalo cuando haya señal.');return;}
+  // El alta la hace la BASE: es la única que puede garantizar que el nombre no exista ya
+  // (comparado sin mayúsculas ni acentos) y que el stock inicial nazca como movimiento.
+  var _btn=g('inv-add-btn'); if(_btn){_btn.disabled=true;_btn.textContent='Guardando…';}
+  var item=null;
+  try{
+    var _rc=await supabase.rpc('inv_item_crear',{p:{nombre:nombre,categoria:gv('inv-cat'),unidad:gv('inv-unidad'),stock_inicial:parseFloat(gv('inv-stock-ini'))||0,stock_min:parseFloat(gv('inv-stock-min'))||2,precio:parseFloat(gv('inv-precio'))||0,fecha:fechaVE()}});
+    if(_rc.error){alert('No se pudo guardar el item: '+_rc.error.message);return;}
+    var _d=_rc.data||{};
+    if(!_d.ok){alert(_d.error||'No se pudo guardar el item.'); if(_d.duplicado)switchInvTab('add'); return;}
+    item={id:_d.id,nombre:nombre,cat:gv('inv-cat'),unidad:gv('inv-unidad'),stock:parseFloat(_d.stock)||0,stockMin:parseFloat(gv('inv-stock-min'))||2,precio:parseFloat(gv('inv-precio'))||0,activo:true};
+  } finally { var _b=g('inv-add-btn'); if(_b){_b.disabled=false;_invAddModo();} }
   INVENTARIO.push(item);
-  // Persistir en Supabase (antes solo quedaba en memoria → se perdía al recargar)
-  if(DB_READY&&supabase){
-    try{var _ri=await supabase.from('inventario').upsert([{id:item.id,nombre:item.nombre,categoria:item.cat,unidad:item.unidad,stock:item.stock,stock_min:item.stockMin,precio:item.precio}],{onConflict:'id'});
-      if(_ri.error&&typeof mostrarToast==='function')mostrarToast('No se pudo guardar el item: '+_ri.error.message,'error');
-    }catch(e){if(typeof mostrarToast==='function')mostrarToast('Sin conexión al guardar el item.','error');}
-  }
+  // La fila ya la escribió inv_item_crear: no se vuelve a escribir desde acá.
   try{localStorage.setItem('btg_inventario',JSON.stringify(INVENTARIO));}catch(e){}
   audit('Item inventario agregado',nombre);
   ['inv-nombre','inv-stock-ini','inv-stock-min','inv-precio'].forEach(function(id){sv(id,'');});
-  // Poblar select de uso
-  var sel=g('inv-uso-item');if(sel){var opt=document.createElement('option');opt.value=item.id;opt.textContent=item.nombre;sel.appendChild(opt);}
+  _invPoblarSelects();
   renderInventario();alert('✅ '+nombre+' agregado al inventario.');
 }
 
@@ -15877,11 +15990,35 @@ async function cargarInvMov(){
     if(r&&!r.error&&Array.isArray(r.data))INV_MOV=r.data.map(function(m){return{fecha:m.fecha,item:m.item,itemId:m.item_id||'',tipo:m.tipo,cantidad:parseFloat(m.cantidad)||0,cam:m.cam||'',motivo:m.motivo||'',stockResult:m.stock_result,factura:m.factura||'',fotoUrl:m.foto_url||'',precio:parseFloat(m.precio)||0,ordenId:m.orden_id||'',mantId:m.mant_id||'',garantiaHasta:m.garantia_hasta||null};});
   }catch(e){console.log('inv_mov load:',e&&e.message);}
 }
-function _pushInvMov(row){
-  INV_MOV.push({fecha:row.fecha,item:row.item,itemId:row.item_id||'',tipo:row.tipo,cantidad:row.cantidad,cam:row.cam,motivo:row.motivo,stockResult:row.stockResult,factura:row.factura,fotoUrl:row.fotoUrl,precio:row.precio,ordenId:row.orden_id||'',mantId:row.mant_id||'',garantiaHasta:row.garantiaHasta||null});
-  var db={id:row.id,fecha:row.fecha,item:row.item,item_id:row.item_id||null,tipo:row.tipo,cantidad:row.cantidad,cam:row.cam||null,motivo:row.motivo||null,stock_result:row.stockResult,factura:row.factura||null,foto_url:row.fotoUrl||null,precio:row.precio||0,orden_id:row.orden_id||null,mant_id:row.mant_id||null,garantia_hasta:row.garantiaHasta||null};
-  if(DB_READY&&supabase){ supabase.from('inv_movimientos').insert([db]).then(function(r){if(r&&r.error){console.log('inv_mov save:',r.error.message); if(typeof mostrarToast==='function')mostrarToast('No se pudo guardar el movimiento de inventario: '+r.error.message,'error');}}); }
-  else if(typeof guardarEnCola==='function'){ guardarEnCola('inv_movimientos',db,'id'); }
+// ── LA ÚNICA PUERTA POR DONDE SE MUEVE STOCK ────────────────────────────────────────────────
+// Todo movimiento —uso, entrada por compra, entrada manual— entra por `inv_movimiento_registrar`.
+// La base pone el signo según el tipo, valida que alcance, escribe la fila y devuelve el saldo
+// ya recalculado. Acá NO se suma ni se resta nada: se lee lo que la base contestó.
+// ⚠️ SIN CONEXIÓN NO SE FINGE QUE GUARDÓ. Antes esto caía a una cola que insertaba a ciegas: dos
+// pestañas o un reintento y el saldo quedaba distinto del histórico, que es el descuadre que
+// esto vino a cerrar. Es mejor que el usuario sepa que no se guardó y lo cargue con señal.
+async function _invMovimiento(mov){
+  if(!(DB_READY&&supabase)){
+    if(typeof mostrarToast==='function')mostrarToast('Sin conexión: el movimiento NO se guardó. El saldo lo calcula el servidor, así que esto necesita señal.','error');
+    else alert('Sin conexión: el movimiento no se guardó.');
+    return null;
+  }
+  try{
+    var r=await supabase.rpc('inv_movimiento_registrar',{p:mov});
+    if(r.error){ if(typeof mostrarToast==='function')mostrarToast('No se pudo registrar: '+r.error.message,'error'); return null; }
+    var d=r.data||{};
+    if(!d.ok){ if(typeof mostrarToast==='function')mostrarToast(d.error||'No se pudo registrar el movimiento.','error'); else alert(d.error||'No se pudo registrar.'); return null; }
+    _invAplicarSaldo(mov.item_id, d.stock);
+    INV_MOV.push({fecha:mov.fecha||fechaVE(),item:d.item,itemId:mov.item_id,tipo:mov.tipo,
+      cantidad:(mov.tipo==='Uso'||mov.tipo==='Merma'||mov.tipo==='Ajuste')?-Math.abs(mov.cantidad):Math.abs(mov.cantidad),
+      cam:mov.cam||'',motivo:mov.motivo||'',stockResult:d.stock,factura:mov.factura||'',
+      fotoUrl:mov.foto_url||'',precio:parseFloat(mov.precio)||0,ordenId:mov.orden_id||'',
+      mantId:mov.mant_id||'',garantiaHasta:mov.garantia_hasta||null});
+    return d;
+  }catch(e){
+    if(typeof mostrarToast==='function')mostrarToast('Error al registrar el movimiento: '+(e&&e.message||''),'error');
+    return null;
+  }
 }
 // ¿Esta misma pieza ya se cambió en este camión en los últimos N meses? (cfg.garantiaMeses, default 4)
 function _garantiaAlerta(itemNombre,cam){
@@ -15904,21 +16041,28 @@ async function _subirFotoInsumo(file){
   }catch(e){if(typeof mostrarToast==='function')mostrarToast('Error subiendo la foto','error');return null;}
 }
 async function registrarUsoInv(){
-  var itemId=gv('inv-uso-item'),cam=gv('inv-uso-cam'),cant=parseInt(gv('inv-uso-cant'))||1,motivo=gv('inv-uso-motivo');
+  var itemId=gv('inv-uso-item'),cam=gv('inv-uso-cam'),cant=parseFloat(gv('inv-uso-cant'))||0,motivo=gv('inv-uso-motivo');
   if(!itemId||!cam){alert('Selecciona item y camion');return;}
+  if(cant<=0){alert('¿Cuánto se usó? Escribí la cantidad.');return;}
+  // LA FECHA LA PONE QUIEN CARGA, no el día en que se sienta a cargarlo: el consumo del 10
+  // de julio se registra el 10 de julio. Sin este campo el histórico se apilaba todo en 'hoy'.
+  var _fUso=gv('inv-uso-fecha')||fechaVE();
+  if(_fUso>fechaVE()){alert('Esa fecha todavía no llegó. Revisá el día del uso.');return;}
   var factura=(gv('inv-uso-factura')||'').trim();
   if(!factura){alert('Falta el N° de FACTURA. No se registra un repuesto sin factura (control anti-fuga).');return;}
   var item=INVENTARIO.find(function(x){return x.id===itemId;});if(!item){alert('Item no encontrado');return;}
-  if(item.stock<cant){alert('Stock insuficiente. Disponible: '+item.stock);return;}
+  if(item.stock<cant){alert('Stock insuficiente. Disponible: '+_invNum(item.stock)+' '+(item.unidad||''));return;}
   // Validación de GARANTÍA / falla recurrente.
   var gar=_garantiaAlerta(item.nombre,cam);
   if(gar&&!confirm('⚠️ "'+item.nombre+'" ya se cambió en '+cam+' hace poco (última: '+gar.ultima+', '+gar.n+' vez/veces en '+gar.meses+' meses).\n\n¿Es GARANTÍA o falla recurrente? Revisá si el proveedor responde o si el camión tiene un problema de fondo.\n\n¿Registrar igual?'))return;
   // Foto de la pieza vieja (recomendada) → Storage.
   var fEl=document.getElementById('inv-uso-foto'); var file=fEl&&fEl.files&&fEl.files[0];
   var fotoUrl=file?(await _subirFotoInsumo(file)):null;
-  item.stock-=cant;
-  if(DB_READY&&supabase){try{await supabase.from('inventario').update({stock:item.stock}).eq('id',item.id);}catch(e){}}
-  try{localStorage.setItem('btg_inventario',JSON.stringify(INVENTARIO));}catch(e){}
+  // El descuento NO se hace acá. Se pide el movimiento y la base devuelve el saldo: si esta
+  // línea volviera a ser `item.stock-=cant`, el saldo y el histórico podrían separarse otra vez.
+  var _mv=await _invMovimiento({item_id:item.id,tipo:'Uso',cantidad:cant,fecha:_fUso,cam:cam,
+    motivo:motivo,factura:factura,foto_url:fotoUrl,precio:item.precio||0});
+  if(!_mv)return;
   // TRAZABILIDAD: instalar desde stock = el repuesto de reserva se vuelve GASTO de la unidad (o del patio).
   // Se crea la ficha de mantenimiento (origen='inventario', costo = último precio × cant). NO es plata nueva
   // (la caja ya salió al comprar); es activo→gasto. Sin orden_id para no inflar una orden ya cerrada.
@@ -15928,37 +16072,49 @@ async function registrarUsoInv(){
     var _garH=null; (INV_MOV||[]).filter(function(m){return m.itemId===item.id&&m.tipo==='Entrada'&&m.garantiaHasta;}).sort(function(a,b){return (a.fecha<b.fecha)?1:-1;}).some(function(m){_garH=m.garantiaHasta;return true;});
     var _kmU=(typeof kmActualCam==='function')?kmActualCam(cam):0;
     _mantId='MT'+Date.now();
-    var _rowM={id:_mantId,cam:cam,f:fechaVE(),km:_kmU,horas:0,item_id:item.id,tipo:item.nombre,tipo_trabajo:'cambio',desc_trabajo:(motivo||item.nombre)+' (de inventario)',costo_usd:_costoInst,proveedor:'Stock (inventario)',foto_url:fotoUrl,anomalia:false,motivo:'',orden_id:'',garantia_hasta:_garH,centro_costo:(cam==='PATIO'?'otros':''),origen:'inventario',ejecutor:'interno'};
-    var _memM={id:_mantId,cam:cam,fecha:fechaVE(),km:_kmU,horas:0,itemId:item.id,tipo:item.nombre,tipoTrabajo:'cambio',desc:_rowM.desc_trabajo,costo:_costoInst,proveedor:'Stock (inventario)',foto:fotoUrl,anomalia:false,motivo:'',ordenId:'',garantiaHasta:_garH,centroCosto:_rowM.centro_costo,origen:'inventario',ejecutor:'interno'};
+    var _rowM={id:_mantId,cam:cam,f:_fUso,km:_kmU,horas:0,item_id:item.id,tipo:item.nombre,tipo_trabajo:'cambio',desc_trabajo:(motivo||item.nombre)+' (de inventario)',costo_usd:_costoInst,proveedor:'Stock (inventario)',foto_url:fotoUrl,anomalia:false,motivo:'',orden_id:'',garantia_hasta:_garH,centro_costo:(cam==='PATIO'?'otros':''),origen:'inventario',ejecutor:'interno'};
+    var _memM={id:_mantId,cam:cam,fecha:_fUso,km:_kmU,horas:0,itemId:item.id,tipo:item.nombre,tipoTrabajo:'cambio',desc:_rowM.desc_trabajo,costo:_costoInst,proveedor:'Stock (inventario)',foto:fotoUrl,anomalia:false,motivo:'',ordenId:'',garantiaHasta:_garH,centroCosto:_rowM.centro_costo,origen:'inventario',ejecutor:'interno'};
     if(typeof _ccInsertMant==='function')await _ccInsertMant(_rowM,_memM);
   }catch(e){ console.log('mant desde uso:',e&&e.message); }
-  _pushInvMov({id:'IM'+Date.now(),fecha:fechaVE(),item:item.nombre,item_id:item.id,tipo:'Uso',cantidad:-cant,cam:cam,motivo:motivo,stockResult:item.stock,factura:factura,fotoUrl:fotoUrl,precio:item.precio||0,mant_id:_mantId});
+  // El movimiento ya se registró arriba; acá solo se le enlaza la ficha de mantenimiento.
+  if(_mantId&&_mv&&_mv.id&&DB_READY&&supabase){try{await supabase.from('inv_movimientos').update({mant_id:_mantId}).eq('id',_mv.id);}catch(e){}}
   if(item.stock<=item.stockMin)sendWA('📦 STOCK CRITICO: '+item.nombre+' — Solo '+item.stock+' '+item.unidad+' restantes',['mecanica']);
   audit('Uso inventario',item.nombre+' x'+cant+' en '+cam+' (Fact '+factura+')');
   ['inv-uso-cant','inv-uso-motivo','inv-uso-factura'].forEach(function(id){sv(id,'');}); if(fEl)fEl.value='';
+  _invPoblarSelects(); try{_invUsoAviso();}catch(e){}
   renderInventario();
   if(typeof mostrarToast==='function')mostrarToast('✅ Instalado desde stock (Fact '+factura+')'+(fotoUrl?' con foto':'')+' → gasto de '+_unidadCorta(cam)+' $'+((parseFloat(item.precio)||0)*cant).toFixed(2),'exito');
 }
 
 async function eliminarItemInv(id){
   var item=INVENTARIO.find(function(x){return x.id===id;});if(!item)return;
-  if(!confirm('¿Eliminar "'+item.nombre+'" del inventario? Esta accion no se puede deshacer.'))return;
+  // Un ítem CON HISTORIA no se borra: se archiva. Borrarlo dejaría sus movimientos sin dueño,
+  // que es exactamente lo que pasó con el aceite del 10/07. La base decide cuál de las dos.
+  var _conHist=(INV_MOV||[]).some(function(m){return m.itemId===id;});
+  if(!confirm(_conHist
+      ? ('"'+item.nombre+'" tiene movimientos registrados.\n\nNo se borra (se perdería el histórico): se ARCHIVA. Deja de aparecer para cargar y usar, pero su historia queda.\n\n¿Archivarlo?')
+      : ('¿Eliminar "'+item.nombre+'" del inventario? Nunca tuvo movimientos, así que se borra.')))return;
   // BORRAR = TOKEN (2026-07-25): el inventario es plata en el galpón.
   solicitarToken('Eliminar del inventario: '+item.nombre,async function(mot){
-    INVENTARIO=INVENTARIO.filter(function(x){return x.id!==id;});
-    if(DB_READY&&supabase){
-      try{var _rd=await supabase.from('inventario').delete().eq('id',id);
-        if(_rd.error)console.log('eliminarItemInv:',_rd.error.message);
-      }catch(e){if(typeof mostrarToast==='function')mostrarToast('Sin conexion al eliminar el item.','error');}
-    }
+      if(!(DB_READY&&supabase)){alert('Sin conexión: no se hizo nada.');return;}
+  try{
+    var _ra=await supabase.rpc('inv_item_archivar',{p_id:id,p_motivo:(mot||'')});
+    if(_ra.error){if(typeof mostrarToast==='function')mostrarToast('No se pudo: '+_ra.error.message,'error');return;}
+    var _d=_ra.data||{};
+    if(_d.borrado)INVENTARIO=INVENTARIO.filter(function(x){return x.id!==id;});
+    else{ item.activo=false;
+      if(typeof mostrarToast==='function')mostrarToast('📁 "'+item.nombre+'" archivado — sus '+(_d.movimientos||0)+' movimientos quedan en el histórico.','exito'); }
+  }catch(e){if(typeof mostrarToast==='function')mostrarToast('Sin conexion al archivar el item.','error');return;}
     try{localStorage.setItem('btg_inventario',JSON.stringify(INVENTARIO));}catch(e){}
     audit('Item de inventario ELIMINADO',item.nombre+' -- '+mot);
-    var sel=g('inv-uso-item');if(sel){for(var i=sel.options.length-1;i>=0;i--){if(sel.options[i].value===id)sel.remove(i);}}
+    _invPoblarSelects();
     renderInventario();
   },{op:'del',tabla:'inventario',col:'id',val:id});
 }
 function _invCat(x){ return (x.cat||x.categoria||''); }
-function _invFiltrado(){ var f=(typeof gv==='function'?gv('inv-filtro-cat'):'')||''; return f?INVENTARIO.filter(function(x){return _invCat(x)===f;}):INVENTARIO; }
+function _invFiltrado(){ var f=(typeof gv==='function'?gv('inv-filtro-cat'):'')||'';
+  var base=_invActivos();   // los archivados no se cuentan ni se valorizan: ya no son stock
+  return f?base.filter(function(x){return _invCat(x)===f;}):base; }
 function imprimirInventario(){
   var f=(typeof gv==='function'?gv('inv-filtro-cat'):'')||'';
   var lista=_invFiltrado().slice().sort(function(a,b){return (_invCat(a)+'|'+(a.nombre||'')).localeCompare(_invCat(b)+'|'+(b.nombre||''));});
@@ -15979,6 +16135,7 @@ function imprimirInventario(){
   abrirVentanaImpresion(getStyleImprimir()+'<body>'+body+'</body></html>');
 }
 function renderInventario(){
+  _invPoblarSelects();
   var INV_F=_invFiltrado();
   var totItems=INV_F.length;
   var criticos=INV_F.filter(function(x){return x.stock===0;}).length;
@@ -16007,13 +16164,15 @@ function renderInventario(){
   }).join(''):'<div style="color:var(--text3);font-size:12px;padding:20px">Sin items en inventario. Agrega repuestos desde la tab "+ Agregar".</div>';
 }
 
-function entradaInvRapida(itemId){
+// El «+1» de la tarjeta entra por la MISMA puerta que todo lo demás. Antes escribía el stock a
+// mano y metía un movimiento sin factura: así nació el fantasma del 10/07 (motivo 'Manual').
+// Ahora manda a la pestaña de entrada, donde la factura es obligatoria y queda la fecha real.
+async function entradaInvRapida(itemId){
   var item=INVENTARIO.find(function(x){return x.id===itemId;}); if(!item)return;
-  item.stock=(parseInt(item.stock)||0)+1;
-  if(DB_READY&&supabase)supabase.from('inventario').update({stock:item.stock}).eq('id',item.id).then(function(r){if(r&&r.error)console.log('inv stock:',r.error.message);});
-  try{localStorage.setItem('btg_inventario',JSON.stringify(INVENTARIO));}catch(e){}
-  _pushInvMov({id:'IM'+Date.now(),fecha:fechaVE(),item:item.nombre,item_id:item.id,tipo:'Entrada',cantidad:1,cam:'',motivo:'Manual',stockResult:item.stock,factura:'',fotoUrl:null,precio:item.precio||0});
-  renderInventario();
+  switchInvTab('add');
+  var sa=g('inv-add-item'); if(sa){sa.value=itemId; _invAddModo();}
+  var c=g('inv-ent-cant'); if(c){c.value=''; try{c.focus();}catch(e){}}
+  if(typeof mostrarToast==='function')mostrarToast('Cargá cuánto entró de "'+item.nombre+'" y su factura.','info');
 }
 function renderInvHist(){
   var tb=g('tb-inv-hist');

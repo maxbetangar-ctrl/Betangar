@@ -1216,30 +1216,49 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
   <div id="tab-inv-add" style="display:none">
     <div class="g2">
       <div class="card">
-        <div class="st" style="margin-bottom:10px">Agregar Item de Inventario</div>
-        <div class="fg"><label>Nombre del item</label><input class="fc" id="inv-nombre" placeholder="Ej: Filtro de aceite, Correa..."></div>
-        <div class="fr2">
-          <div class="fg"><label>Categoria</label><select class="fc" id="inv-cat"><optgroup label="Repuestos"><option>Filtros</option><option>Aceites y Lubricantes</option><option>Frenos</option><option>Motor</option><option>Transmisión</option><option>Suspensión</option><option>Eléctrico</option><option>Llantas / Cauchos</option><option>Repuestos varios</option></optgroup><optgroup label="Otros bienes / insumos"><option>Herramientas</option><option>Equipos</option><option>Mobiliario</option><option>Materiales de oficina</option><option>Insumos de limpieza</option><option>Seguridad / EPP</option><option>Consumibles</option><option>Otros</option></optgroup></select></div>
-          <div class="fg"><label>Unidad</label><select class="fc" id="inv-unidad"><option>Unidades</option><option>Litros</option><option>Metros</option><option>Pares</option><option>Juegos</option></select></div>
+        <div class="st" style="margin-bottom:10px">Agregar al Inventario</div>
+        <div class="fg"><label>¿Qué vas a cargar?</label><select class="fc" id="inv-add-item" onchange="_invAddModo()"><option value="__nuevo">➕ Item NUEVO (no está en la lista)</option></select><div style="font-size:10px;color:var(--text3);margin-top:3px">Si el item <b>ya existe</b>, elegílo acá y cargá la entrada con su factura. <b>No lo agregues de nuevo</b>: el mismo repuesto cargado dos veces parte el histórico y ninguno de los dos dice cuánto hay.</div></div>
+        <div id="inv-add-nuevo">
+          <div class="fg"><label>Nombre del item</label><input class="fc" id="inv-nombre" placeholder="Ej: Filtro de aceite, Correa..."></div>
+          <div class="fr2">
+            <div class="fg"><label>Categoria</label><select class="fc" id="inv-cat"><optgroup label="Repuestos"><option>Filtros</option><option>Aceites y Lubricantes</option><option>Frenos</option><option>Motor</option><option>Transmisión</option><option>Suspensión</option><option>Eléctrico</option><option>Llantas / Cauchos</option><option>Repuestos varios</option></optgroup><optgroup label="Otros bienes / insumos"><option>Herramientas</option><option>Equipos</option><option>Mobiliario</option><option>Materiales de oficina</option><option>Insumos de limpieza</option><option>Seguridad / EPP</option><option>Consumibles</option><option>Otros</option></optgroup></select></div>
+            <div class="fg"><label>Unidad</label><select class="fc" id="inv-unidad"><option>Unidades</option><option>Litros</option><option>Metros</option><option>Pares</option><option>Juegos</option></select></div>
+          </div>
+          <div class="fr3">
+            <div class="fg"><label>Stock inicial</label><input type="number" step="0.01" class="fc" id="inv-stock-ini" placeholder="0" style="font-family:var(--m)"></div>
+            <div class="fg"><label>Stock minimo (alerta)</label><input type="number" step="0.01" class="fc" id="inv-stock-min" placeholder="2" style="font-family:var(--m)"></div>
+            <div class="fg"><label>Precio unitario $</label><input type="number" step="0.01" class="fc" id="inv-precio" placeholder="0.00" style="font-family:var(--m)"></div>
+          </div>
+          <div style="font-size:10px;color:var(--text3);margin:-2px 0 8px">El <b>stock inicial</b> se registra como movimiento de <b>apertura</b> con la fecha de hoy: el saldo siempre tiene de dónde salió.</div>
         </div>
-        <div class="fr3">
-          <div class="fg"><label>Stock inicial</label><input type="number" class="fc" id="inv-stock-ini" placeholder="0" style="font-family:var(--m)"></div>
-          <div class="fg"><label>Stock minimo (alerta)</label><input type="number" class="fc" id="inv-stock-min" placeholder="2" style="font-family:var(--m)"></div>
-          <div class="fg"><label>Precio unitario $</label><input type="number" class="fc" id="inv-precio" placeholder="0.00" style="font-family:var(--m)"></div>
+        <div id="inv-add-entrada" style="display:none">
+          <div id="inv-add-actual" style="font-size:12px;color:var(--text2);background:rgba(255,255,255,.04);border-radius:6px;padding:7px 9px;margin-bottom:9px"></div>
+          <div class="fr3">
+            <div class="fg"><label>Cantidad que ENTRA</label><input type="number" step="0.01" class="fc" id="inv-ent-cant" placeholder="0" oninput="_invEntTotal()" style="font-family:var(--m)"></div>
+            <div class="fg"><label>Precio unitario $</label><input type="number" step="0.01" class="fc" id="inv-ent-precio" placeholder="0.00" oninput="_invEntTotal()" style="font-family:var(--m)"></div>
+            <div class="fg"><label>Fecha de la entrada</label><input type="date" class="fc" id="inv-ent-fecha" style="font-family:var(--m)"></div>
+          </div>
+          <div class="fr2">
+            <div class="fg"><label>N° de Factura <span style="color:var(--red)">*</span></label><input class="fc" id="inv-ent-factura" placeholder="Obligatorio" style="font-family:var(--m)"></div>
+            <div class="fg"><label>Proveedor</label><input class="fc" id="inv-ent-prov" placeholder="Opcional"></div>
+          </div>
+          <div id="inv-ent-resumen" style="font-size:12px;color:var(--teal);margin:-2px 0 8px;min-height:16px"></div>
         </div>
-        <button class="btn btn-g" style="width:100%" onclick="guardarItemInv()">Agregar</button>
+        <button class="btn btn-g" style="width:100%" id="inv-add-btn" onclick="guardarItemInv()">Agregar</button>
       </div>
-      <div class="card"><div class="st" style="margin-bottom:8px">Consejos</div><div style="font-size:12px;color:var(--text2);line-height:1.8">• Usa nombres simples<br>• Stock minimo genera alerta WhatsApp<br>• Los usos se descuentan automaticamente<br>• El costo va a gastos variables</div></div>
+      <div class="card"><div class="st" style="margin-bottom:8px">Consejos</div><div style="font-size:12px;color:var(--text2);line-height:1.8">• Usa nombres simples<br>• <b>Un item se carga UNA sola vez.</b> Lo que llega después es una <b>entrada</b> del mismo item<br>• Litros y metros admiten decimales (15,5)<br>• Stock minimo genera alerta WhatsApp<br>• Los usos se descuentan automaticamente<br>• El costo va a gastos variables</div></div>
     </div>
   </div>
   <div id="tab-inv-usar" style="display:none">
     <div class="card" style="max-width:500px">
       <div class="st" style="margin-bottom:10px">Registrar Uso de Repuesto</div>
-      <div class="fg"><label>Item usado</label><select class="fc" id="inv-uso-item"><option value="">-- Seleccionar --</option></select></div>
-      <div class="fr2">
+      <div class="fg"><label>Item usado</label><select class="fc" id="inv-uso-item" onchange="_invUsoAviso()"><option value="">-- Seleccionar --</option></select></div>
+      <div class="fr3">
         <div class="fg"><label>Camion</label><select class="fc" id="inv-uso-cam"><option value="">-- Seleccionar --</option></select></div>
-        <div class="fg"><label>Cantidad usada</label><input type="number" class="fc" id="inv-uso-cant" placeholder="1" style="font-family:var(--m)"></div>
+        <div class="fg"><label>Cantidad usada</label><input type="number" step="0.01" class="fc" id="inv-uso-cant" placeholder="1" oninput="_invUsoAviso()" style="font-family:var(--m)"></div>
+        <div class="fg"><label>Fecha del uso</label><input type="date" class="fc" id="inv-uso-fecha" style="font-family:var(--m)"></div>
       </div>
+      <div id="inv-uso-aviso" style="font-size:12px;color:var(--text2);margin:-2px 0 8px;min-height:16px"></div>
       <div class="fg"><label>Para que se uso</label><input class="fc" id="inv-uso-motivo" placeholder="Cambio preventivo, falla, etc..."></div>
       <div class="fr2">
         <div class="fg"><label>N° de Factura <span style="color:var(--red)">*</span></label><input class="fc" id="inv-uso-factura" placeholder="Obligatorio" style="font-family:var(--m)"></div>
@@ -2905,7 +2924,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
 <script src="maxrecuerda.js?v=20260806-maxrecuerda"></script>
 <!-- Formato unico de los Excel de Maxware. VA ANTES de app.js. -->
 <script src="maxware-excel.js"></script>
-<script src="app.js?v=20260818-eggas"></script>
+<script src="app.js?v=20260818-stock-en-la-base"></script>
 
 <!-- Modal global -->
 <div id="modal" class="moverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9990;align-items:center;justify-content:center;padding:16px">
