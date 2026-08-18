@@ -2515,6 +2515,18 @@ function renderChecklistModo(){
     if(kmSal){ kmSal.readOnly=true; }
     var horaSal = document.getElementById('cl-hora-salida');
     if(horaSal){ horaSal.disabled=true; horaSal.style.opacity='.5'; }
+    // ⛔ Y LOS CENTÍMETROS DEL TANQUE, IGUAL. Lo reportó Carlos Serrano el 18/08:
+    //    «al regresar en la noche, en vez de pedir solo el de llegada vuelve a
+    //    pedir el de salida». Era cierto: al km de salida se le ponía `readOnly`
+    //    acá desde antes, pero al `cl-cm-salida` NO — se quedaba editable y
+    //    parecía que había que medir el tanque otra vez.
+    //    ⚠️ Se BLOQUEA, no se oculta: el chofer necesita VER con cuánto salió para
+    //    saber si el número de la noche tiene sentido. Ocultarlo le quitaría la
+    //    referencia justo cuando la usa.
+    var cmSal = document.getElementById('cl-cm-salida');
+    if(cmSal){ cmSal.readOnly=true; cmSal.style.opacity='.6'; }
+    var cmSalLbl = document.getElementById('cl-cm-salida-lbl');
+    if(cmSalLbl){ cmSalLbl.textContent='CM al SALIR del galpón — ya registrado esta mañana'; }
     // Prellenar hora llegada SOLO si está vacía: si se está corrigiendo una llegada ya registrada,
     // la hora real no puede quedar pisada por la hora en que se hizo la corrección.
     if(!gv('cl-hora-llegada')){
@@ -2531,6 +2543,18 @@ function renderChecklistModo(){
     if(secIns) { secIns.style.display='block'; }
     if(combLle){ combLle.style.display='none'; }
     var cmLle2=document.getElementById('cl-cm-llegada-cont'); if(cmLle2)cmLle2.style.display='none';
+    // ⚠️ Y se DESBLOQUEA lo que la llegada bloquea. Sin esto, una pantalla que
+    //    pasa de llegada a salida sin recargar deja los campos de la mañana
+    //    trancados y el chofer no puede escribir — un candado que no se abre es
+    //    tan malo como el que no cierra.
+    var cmSal2 = document.getElementById('cl-cm-salida');
+    if(cmSal2){ cmSal2.readOnly=false; cmSal2.style.opacity=''; }
+    var cmSalLbl2 = document.getElementById('cl-cm-salida-lbl');
+    if(cmSalLbl2){ cmSalLbl2.textContent='CM al SALIR del galpón'; }
+    var kmSal2 = document.getElementById('cl-km-salida');
+    if(kmSal2){ kmSal2.readOnly=false; }
+    var horaSal2 = document.getElementById('cl-hora-salida');
+    if(horaSal2){ horaSal2.disabled=false; horaSal2.style.opacity=''; }
     if(btnG)   { btnG.textContent='☀️ Guardar Salida'; btnG.disabled=false; }
   }
 
