@@ -2843,6 +2843,16 @@ async function _guardarChecklist(){
     var _susp='', _ref=0;
     if(CL_MODO==='salida'){
       if(CL_KM_PREV>0 && _kmIng > CL_KM_PREV + KM_MAX_DIA){ _susp='salto'; _ref=CL_KM_PREV; }
+      // ⛔ EL CANDADO QUE FALTABA. El de "bajó" existía SOLO para la llegada: en la
+      //    salida se miraba únicamente que el número no fuera demasiado ALTO.
+      //    🔴 Medido el 18/08 con un caso real: Melvin Barboza escribió 43 en el km
+      //    de salida de JAC-B004. 43 eran los CENTÍMETROS DEL TANQUE de su cierre
+      //    del día anterior. Venía de 17.570 km, y el 43 entró sin una sola
+      //    advertencia. La alarma lo agarró DESPUÉS y le llegó a Máximo, en vez de
+      //    frenárselo a él en el teléfono, que es donde se arregla en 5 segundos.
+      //    Un odómetro NO BAJA: es imposible, no sospechoso. Por eso no se pregunta
+      //    ni se deja confirmar — se rechaza.
+      else if(CL_KM_PREV>0 && _kmIng < CL_KM_PREV){ _susp='baja_salida'; _ref=CL_KM_PREV; }
     } else {
       var _kmSal = _kmVal('cl-km-salida') || CL_KM_PREV || 0;
       if(_kmSal>0 && _kmIng > _kmSal + KM_MAX_DIA){ _susp='dia'; _ref=_kmSal; }
@@ -2864,10 +2874,25 @@ async function _guardarChecklist(){
       // El chofer CONFIRMÓ un km sospechoso (le dio "Aceptar") → avisar a Máximo EN EL MOMENTO
       // (el worker Wassenger lo envía en ~3 min) para que lo revise/corrija en el sistema.
       try{ if(typeof supabase!=='undefined'&&supabase){ supabase.from('cola_mensajes').insert([{telefono:'584147379886',mensaje:'⚠️ *Km sospechoso confirmado* — Unidad '+cam+' ('+(chofer||'chofer')+') guardó '+_kmIng.toLocaleString('es-VE')+' km viniendo de '+_ref.toLocaleString('es-VE')+' (+'+(_kmIng-_ref).toLocaleString('es-VE')+' en un día). Revísalo y corrígelo en el sistema si es un error.',tipo:'supervision',estado:'pendiente'}]).then(function(){},function(){}); } }catch(e){}
-    } else if(_susp==='baja'){
-      mostrarToast('El km de llegada ('+_kmIng.toLocaleString('es-VE')+') no puede ser menor que el de salida ('+_ref.toLocaleString('es-VE')+'). Revísalo.','warn');
+    } else if(_susp==='baja' || _susp==='baja_salida'){
+      // ⚠️ Máximo, 18/08: «errores que no expliquen el porqué a unos choferes los
+      //    preocupan y no resuelven». El mensaje anterior decía «no puede ser menor
+      //    que el de salida. Revísalo» — dice QUÉ está mal, pero no POR QUÉ ni QUÉ
+      //    HACER. Un chofer parado en el galpón con eso en la pantalla no sabe si
+      //    rompió algo. Ahora se le dice el motivo, el número de referencia, la
+      //    causa más probable y qué tiene que escribir.
+      var _esSalida = (_susp==='baja_salida');
+      var _msgB = 'El kilometraje no puede ir para atrás.\n\n'+
+        (_esSalida
+          ? 'La última vez esta unidad quedó en '+_ref.toLocaleString('es-VE')+' km, y estás poniendo '+_kmIng.toLocaleString('es-VE')+'.'
+          : 'Saliste con '+_ref.toLocaleString('es-VE')+' km y estás poniendo '+_kmIng.toLocaleString('es-VE')+' de llegada.')+
+        '\n\nEl odómetro solo sube, así que ese número no puede ser.\n\n'+
+        '👉 Lo más común: poner acá la MEDIDA DEL TANQUE (los centímetros) en vez del kilometraje.\n\n'+
+        'Escribí el número que marca el tablero. No pasa nada, solo corregilo.';
+      alert(_msgB);
       if(btn){ btn.disabled=false; btn.textContent='Guardar'; }
-      var _fb=document.getElementById('cl-km-llegada'); if(_fb){ try{ _fb.focus(); _fb.select(); }catch(e){} }
+      var _fb=document.getElementById(_esSalida?'cl-km-salida':'cl-km-llegada');
+      if(_fb){ try{ _fb.focus(); _fb.select(); _fb.scrollIntoView({block:'center'}); }catch(e){} }
       return;
     }
   }
