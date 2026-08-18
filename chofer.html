@@ -367,12 +367,12 @@ body{background:#0f1923;color:#fff;font-family:-apple-system,BlinkMacSystemFont,
           <div class="cl-label" style="margin-bottom:6px">📐 Medición del tanque con regla (cm) — <b style="color:#ef9f27">OBLIGATORIO cada día</b></div>
           <div class="cl-row">
             <div class="cl-field" id="cl-cm-salida-cont">
-              <label class="cl-label">CM al SALIR del galpón (0-46)</label>
+              <label class="cl-label" id="cl-cm-salida-lbl">CM al SALIR del galpón</label>
               <input class="cl-input" type="number" step="0.1" min="0" max="52.5" id="cl-cm-salida" placeholder="0" oninput="clCalcLitrosCm('salida')">
               <div id="cl-cm-salida-l" style="font-size:12px;color:#7dc941;margin-top:3px"></div>
             </div>
             <div class="cl-field" id="cl-cm-llegada-cont" style="display:none">
-              <label class="cl-label">CM al REGRESAR al galpón (0-46)</label>
+              <label class="cl-label" id="cl-cm-llegada-lbl">CM al REGRESAR al galpón</label>
               <input class="cl-input" type="number" step="0.1" min="0" max="52.5" id="cl-cm-llegada" placeholder="0" oninput="clCalcLitrosCm('llegada')">
               <div id="cl-cm-llegada-l" style="font-size:12px;color:#7dc941;margin-top:3px"></div>
             </div>
@@ -2645,13 +2645,14 @@ var CL_JAC_CUB={1:8.26,2:17.57,3:27.50,4:37.91,5:48.68,6:59.76,7:71.08,8:82.60,9
 var CL_TANQUE_UNIDAD = null;
 function cargarTanqueDeLaUnidad(){
   try{ var c=localStorage.getItem('btg_tanque_'+cam); if(c)CL_TANQUE_UNIDAD=JSON.parse(c); }catch(e){}
+  try{ clPintarRangoCm(); }catch(e){}   // con el tanque cacheado, sin esperar a la red
   try{
     supabase.rpc('tanque_de_unidad',{p_cam:cam}).then(function(r){
       if(r && !r.error){
         CL_TANQUE_UNIDAD = r.data || null;
         try{ if(r.data) localStorage.setItem('btg_tanque_'+cam, JSON.stringify(r.data));
              else localStorage.removeItem('btg_tanque_'+cam); }catch(e){}
-        try{ clCalcLitrosCm('salida'); clCalcLitrosCm('llegada'); }catch(e){}
+        try{ clPintarRangoCm(); clCalcLitrosCm('salida'); clCalcLitrosCm('llegada'); }catch(e){}
       }
     }).catch(function(){});
   }catch(e){}
@@ -2702,6 +2703,19 @@ function clLitrosJac(cm){
   if(lo===hi)return Math.round(val(lo)*100)/100;
   return Math.round((val(lo)+(val(hi)-val(lo))*(cm-lo))*100)/100;
 }
+// El rango que ve el chofer es el de SU tanque, o ninguno. El «(0-46)» venía clavado en el HTML:
+// era el resto de la tabla vieja de Betangar (600 L a 46 cm) que se sacó del motor el 25/07 y
+// quedó pegado en la etiqueta. A FC01 —que mide 53— le decía 0-46 mientras el error le contestaba
+// «53 cm»: dos números distintos en la misma pantalla, y ninguno de su unidad. A los IVECO, que
+// no tienen tabla, les inventaba un rango prestado.
+function clPintarRangoCm(){
+  var top=clAlturaMaxCm();
+  ['salida','llegada'].forEach(function(mom){
+    var l=document.getElementById('cl-cm-'+mom+'-lbl'); if(!l)return;
+    var base=(mom==='salida')?'CM al SALIR del galpón':'CM al REGRESAR al galpón';
+    l.textContent = base + (top!=null ? (' (0-'+String(top).replace('.',',')+')') : '');
+  });
+}
 function clCalcLitrosCm(momento){
   var v=gv('cl-cm-'+momento);
   var box=document.getElementById('cl-cm-'+momento+'-l');
@@ -2710,7 +2724,7 @@ function clCalcLitrosCm(momento){
   var _imp=clAlturaImposible(v);
   if(_imp!==false){
     box.style.color='#ff5c5c';
-    box.textContent='⚠️ Esa medida no entra: el tanque mide '+String(_imp).replace('.',',')+' cm de alto. Revisa la coma.';
+    box.innerHTML="⚠️ Acá van los <b>CENTÍMETROS que marca la regla</b>, no los litros. Tu tanque mide "+String(_imp).replace(".",",")+" cm de alto.";
     return;
   }
   var l=clLitrosJac(v);
@@ -2761,7 +2775,7 @@ async function _guardarChecklist(){
   // Se RECHAZA, no se topa: el checklist no se guarda hasta que la medida entre en el tanque.
   var _cmTope = clAlturaImposible(_cmVal);
   if(_cmTope!==false){
-    mostrarToast('Esa medida no entra en el tanque: mide '+String(_cmTope).replace('.',',')+' cm de alto. Revisa si se te fue la coma.','warn');
+    mostrarToast('Acá van los CENTÍMETROS de la regla, no los litros. Tu tanque mide '+String(_cmTope).replace('.',',')+' cm de alto.','warn');
     var _cmEl2=document.getElementById(_cmId); if(_cmEl2){ try{_cmEl2.focus();_cmEl2.select();_cmEl2.scrollIntoView({block:'center'});}catch(e){} }
     return;
   }

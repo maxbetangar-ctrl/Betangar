@@ -12080,6 +12080,9 @@ function tqCalcular(){
   var pv=g('tq-preview'), bt=g('tq-btn-guardar');
   var faltan=(TQ_FORMAS[f].campos||[]).filter(function(k){return !(m[k]>0);});
   if(faltan.length){ pv.innerHTML='<span style="color:var(--yellow)">Faltan medidas: '+faltan.map(function(k){return TQ_LBL[k];}).join(', ')+'</span>'; bt.disabled=true; return; }
+  // Antes de calcular nada: que las medidas puedan ser de un tanque de camión.
+  var _imp=(typeof medidaImposible==='function')?medidaImposible(f,m):null;
+  if(_imp){ pv.innerHTML='<span style="color:var(--red)">⛔ '+_mEsc(_imp)+'</span><br><b>No se guarda una tabla con esa medida.</b> Una tabla mal cargada es peor que ninguna: el sistema le cantaría litros inventados al chofer y su medición nunca quedaría fuera de rango.'; bt.disabled=true; return; }
   // El radio de la esquina casi nunca se puede medir: se DEDUCE de la capacidad de fábrica.
   var avisoRadio='';
   if(f==='redondeado'){
@@ -12109,6 +12112,11 @@ function tqCalcular(){
 async function tqGuardar(){
   var cam=window._tqCam, f=gv('tq-forma')||'redondeado', m=window._tqMedidasCalc, cap=_tqNum('tq-cap');
   if(!cam||!m){ mostrarToast('Calculá primero','error'); return; }
+  // SE VUELVE A COMPROBAR ACÁ. Que el botón esté deshabilitado no es un candado: una
+  // pestaña vieja en caché o la consola llegan igual. Es lo mismo que se hizo con
+  // guardarGasoil() el 18/08 — la barrera va donde se ejecuta.
+  var _impG=(typeof medidaImposible==='function')?medidaImposible(f,m):null;
+  if(_impG){ mostrarToast('No se guarda: '+_impG,'error'); return; }
   if(!(DB_READY&&supabase)){ mostrarToast('Sin conexión a la base','error'); return; }
   var tabla=tablaCubicacion(f,m);
   var alto=(f==='cilindro')?m.diametro_cm:m.alto_cm;

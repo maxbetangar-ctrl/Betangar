@@ -15,6 +15,44 @@
 // se mide de carga a carga.
 // ════════════════════════════════════════════════════════════════════════════
 
+// ── UNA MEDIDA IMPOSIBLE SE RECHAZA, NO SE GUARDA (2026-08-17) ──────────────────────────────
+// FC16 (MACK GU813) quedó con un tanque de 8.639 cm de diámetro y 8.909.645 litros: se le fue la
+// coma al teclear y NADIE lo frenó. La verificación que ya existía corría SOLO para la forma
+// 'redondeado' y SOLO si alguien declaraba la capacidad de fábrica — un cilindro o un cajón
+// entraban con cualquier número.
+// Un tanque de 8,9 millones de litros es PEOR que no tener tabla: el candado de la medición del
+// chofer no muerde nunca (todo entra por debajo de 8.639 cm) y la app le canta litros inventados
+// con dos decimales, que es justo lo que se cerró el 17/08 del lado del chofer. Faltaba cerrarlo
+// del lado de quien carga la cubicación.
+// LOS TOPES SE MIDIERON CONTRA LOS DATOS REALES, no se inventaron: los 12 tanques ya cargados van
+// de 22 a 53 cm de alto, de 33 a 200 de ancho y de 40 a 199 de largo. La gracia se dejó enorme a
+// propósito —admite hasta una cisterna de 60 m³— porque un candado que tranca a quien mide bien
+// es peor que no tener candado.
+var TQ_LIMITES={
+  alto_cm:    {min:10, max:260,  lbl:'alto'},
+  ancho_cm:   {min:10, max:260,  lbl:'ancho'},
+  diametro_cm:{min:10, max:260,  lbl:'diámetro'},
+  largo_cm:   {min:20, max:1300, lbl:'largo'},
+  litros:     {min:20, max:60000}
+};
+// Devuelve el MOTIVO si la medida no puede ser de un tanque de camión; null si puede.
+function medidaImposible(forma, m){
+  var campos=(forma==='cilindro')?['diametro_cm','largo_cm']:['ancho_cm','alto_cm','largo_cm'];
+  for(var i=0;i<campos.length;i++){
+    var k=campos[i], L=TQ_LIMITES[k], v=Number(m[k])||0;
+    if(!(v>0)) return 'Falta el '+L.lbl+'.';
+    if(v<L.min) return 'El '+L.lbl+' de '+v+' cm es muy chico para un tanque de camión (menos de '+L.min+' cm). ¿Se midió en pulgadas, o se fue una coma?';
+    if(v>L.max) return 'El '+L.lbl+' de '+v+' cm son '+(Math.round(v/100*10)/10)+' metros. Eso no es un tanque de camión: revisá si se te fue la coma.';
+  }
+  var alto=(forma==='cilindro')?(Number(m.diametro_cm)||0):(Number(m.alto_cm)||0);
+  var litros=volumenHasta(forma,m,alto);
+  if(litros<TQ_LIMITES.litros.min)
+    return 'Con esas medidas el tanque da '+(Math.round(litros*10)/10)+' L: muy poco para un tanque de camión.';
+  if(litros>TQ_LIMITES.litros.max)
+    return 'Con esas medidas el tanque daría '+Math.round(litros).toLocaleString('es-VE')+' L. Ni una gandola cisterna llega a eso: revisá las medidas.';
+  return null;
+}
+
 // Ancho (cm) de la sección transversal a la altura y, según la forma del tanque.
 //   cilindro    : {diametro_cm}                       — el redondo de gandola, acostado
 //   redondeado  : {ancho_cm, alto_cm, radio_cm}       — el de aluminio típico de camión
