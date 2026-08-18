@@ -279,11 +279,8 @@ try{var _gasol=localStorage.getItem('btg_gasol');if(_gasol&&_gasol!=='[]')GASOL=
 // Sin semilla hardcodeada (mismos 5 de muestra que reaparecían en el tab Alcaldía tras
 // borrarlos). pagos_alcaldia en Supabase es la fuente de verdad.
 var PAGOS_ALC=[];
-var SEM_HIST=[
-  {s:'Mar S1',v:40},{s:'Mar S2',v:61},{s:'Mar S3',v:102},{s:'Mar S4',v:133},
-  {s:'Abr S1',v:120},{s:'Abr S2',v:145},{s:'Abr S3',v:161},{s:'Abr S4',v:80}
-];
-var VX={'JAC-B001':93,'JAC-B002':86,'JAC-B003':34,'JAC-B004':108,'JAC-B005':92,'JAC-B006':101,'JAC-B007':69,'JAC-B008':95,'JAC-B009':91,'JAC-B010':67,'JAC-B011':78,'JAC-B012':59};
+// SEM_HIST y VX eran semillas de DEMO cargadas a mano. Se calculan de REGS: ver semHist()
+// y viajesPorCam() más abajo. No volver a declararlas como constantes.
 var cfg={tarifa:(function(){
   // Cargar tarifa guardada de localStorage si existe
   try{var t=parseFloat(localStorage.getItem('betangar_cfg_tarifa'));if(t&&t>100)return t;}catch(e){}
@@ -4668,7 +4665,90 @@ function poblarSemsNom(){
 // ═══════════════════════════════════════════════════
 // SVG CHARTS
 // ═══════════════════════════════════════════════════
+// ── LOS GRÁFICOS SALEN DE LAS PLANILLAS, NO DE UNA SEMILLA ─────────────────────────────────
+// Máximo, 2026-08-17: «estos gráficos no se actualizan desde abril, debe ser que no están
+// trayendo información de ningún lado». Era exacto, y peor que un gráfico vacío: `SEM_HIST` y
+// `VX` eran arreglos de DEMO escritos a mano acá («Mar S1: 40 viajes», «JAC-B004: 108»...) que
+// NUNCA se recalcularon. El dueño llevaba meses mirando la curva de unos viajes que no existieron
+// y leyéndola como suya. Un gráfico sembrado no es un adorno: es un informe falso.
+// Ya se había hecho esta misma limpieza con `PAGOS_ALC` (los 5 pagos de muestra que reaparecían);
+// estos dos quedaron.
+//
+// La verdad operativa son las PLANILLAS (REGS): 1 fila por cam+fecha, `t` = viajes.
+//
+// ⚠️ LOS DOS GRÁFICOS CUBREN EL MISMO PERÍODO a propósito. Si «Viajes por semana» mostrara 8
+// semanas y «Viajes por camión» el histórico entero, el dueño compararía una cosa con otra sin
+// saberlo. El período va escrito en el subtítulo para que no haya que suponerlo.
+var GRAF_SEMANAS = 8;
+function _lunesDe(f){                       // el lunes de la semana de esa fecha (YYYY-MM-DD)
+  var p=String(f||'').slice(0,10).split('-');
+  if(p.length!==3)return null;
+  var d=new Date(+p[0], +p[1]-1, +p[2]);
+  if(isNaN(d))return null;
+  var dow=(d.getDay()+6)%7;                 // 0 = lunes
+  d.setDate(d.getDate()-dow);
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+}
+function _ddmm(iso){ var p=String(iso).split('-'); return p.length===3?(p[2]+'/'+p[1]):iso; }
+// Últimas GRAF_SEMANAS semanas CON planillas. No se rellenan semanas vacías con cero: un cero
+// dibujado es indistinguible de «esa semana no se cargó», y son cosas muy distintas.
+function semHist(){
+  var acum={};
+  (typeof REGS!=='undefined'?REGS:[]).forEach(function(r){
+    var L=_lunesDe(r.f); if(!L)return;
+    acum[L]=(acum[L]||0)+(parseInt(r.t)||0);
+  });
+  return Object.keys(acum).sort().slice(-GRAF_SEMANAS).map(function(L){
+    return {s:_ddmm(L), v:acum[L], desde:L};
+  });
+}
+// Viajes por camión EN EL MISMO PERÍODO que el gráfico de semanas.
+function viajesPorCam(){
+  var sem=semHist(); if(!sem.length)return {};
+  var desde=sem[0].desde, acum={};
+  (typeof REGS!=='undefined'?REGS:[]).forEach(function(r){
+    var L=_lunesDe(r.f); if(!L||L<desde)return;
+    var c=r.cam||'(sin unidad)';
+    acum[c]=(acum[c]||0)+(parseInt(r.t)||0);
+  });
+  return acum;
+}
+// Pinta los dos gráficos de viajes donde estén, con el período a la vista. Si no hay planillas
+// lo DICE, en vez de dibujar una línea plana que se lee como «no hubo viajes».
+function pintarGraficosViajes(idLinea, idBarras){
+  var sem=semHist();
+  var el=g(idLinea);
+  if(el){
+    el.innerHTML = sem.length
+      ? (svgLine(sem.map(function(s){return s.v;}), sem.map(function(s){return s.s;}), '#a3e635')
+         + '<div style="font-size:9px;color:var(--text3);text-align:center;margin-top:-4px">'
+         + 'semana del ' + sem[0].s + ' al ' + sem[sem.length-1].s + ' · ' + sem.length
+         + ' semana(s) con planillas cargadas</div>')
+      : _grafVacio('No hay planillas cargadas todavía. El gráfico sale de las planillas: en cuanto se cargue la primera, aparece.');
+  }
+  var vx=viajesPorCam(), cams=Object.keys(vx).sort();
+  var eb=g(idBarras);
+  if(eb){
+    eb.innerHTML = cams.length
+      ? (svgBar(cams.map(function(c){return vx[c];}), cams.map(function(c){return String(c).replace('JAC-','');}))
+         + '<div style="font-size:9px;color:var(--text3);text-align:center;margin-top:-4px">'
+         + 'mismo período que el gráfico de al lado · ' + cams.length + ' unidad(es) con viajes</div>')
+      : _grafVacio('No hay planillas cargadas todavía.');
+  }
+}
+function _grafVacio(msg){
+  return '<div style="height:125px;display:flex;align-items:center;justify-content:center;'
+       + 'text-align:center;padding:0 14px;color:var(--text3);font-size:11px;line-height:1.5">'
+       + msg + '</div>';
+}
+// Sin valores no se dibuja: con vals=[] el cálculo de x() divide entre n-1 = -1 y sale un SVG
+// roto o una línea plana, que el que mira lee como «hubo cero», no como «no hay dato».
+function _svgSinDatos(){
+  return '<div style="height:125px;display:flex;align-items:center;justify-content:center;'
+       + 'color:var(--text3);font-size:11px">Sin datos para este período</div>';
+}
 function svgLine(vals,labs,color){
+  if(!vals||!vals.length)return _svgSinDatos();
   color=color||'#a3e635';
   var W=360,H=120,pL=28,pB=22,pT=8;
   var max=Math.max.apply(null,vals.concat([1]));
@@ -4683,6 +4763,7 @@ function svgLine(vals,labs,color){
 }
 
 function svgBar(vals,labs,color){
+  if(!vals||!vals.length)return _svgSinDatos();
   color=color||'rgba(163,230,53,.7)';
   var W=360,H=120,pB=22,pT=8;
   var max=Math.max.apply(null,vals.concat([1]));
@@ -4815,9 +4896,7 @@ function _renderDashCuerpo(){
   }
   try{renderDashKmServicio();}catch(e){} // refresca KM/Servicio con el km más fresco del checklist
   // Charts
-  var se=g('c-sem-svg');if(se)se.innerHTML=svgLine(SEM_HIST.map(function(s){return s.v;}),SEM_HIST.map(function(s){return s.s;}),'#a3e635');
-  var cams=Object.keys(VX);
-  var ce=g('c-cam-svg');if(ce)ce.innerHTML=svgBar(cams.map(function(c){return VX[c];}),cams.map(function(c){return c.replace('JAC-','');}));
+  pintarGraficosViajes('c-sem-svg','c-cam-svg');
   var coe=g('c-cob-svg');if(coe)coe.innerHTML=svgDonut([totalCob,Math.max(1,porcobrar)],['Cobrado','Por cobrar'],['#22c55e','#ef4444']);
   // Ultimas planillas — ordenar por número de planilla DESC (REGS viene sin ordenar de la
   // base, antes con reverse() salían 5 al azar = incoherente). Se muestra también la fecha.
@@ -16808,11 +16887,11 @@ function renderNominaOperadores(){
 
 function renderStats(){
   var acEl=g('c-acum-svg');
-  if(acEl)acEl.innerHTML=svgLine(SEM_HIST.map(function(s){return s.v;}),SEM_HIST.map(function(s){return s.s;}),'#a3e635');
+  if(acEl)acEl.innerHTML=(function(){var s=semHist();return s.length?svgLine(s.map(function(x){return x.v;}),s.map(function(x){return x.s;}),'#a3e635'):_grafVacio('No hay planillas cargadas todavía.');})();
   var dEl=g('c-dn-svg');
   if(dEl){var td=REGS.reduce(function(s,r){return s+r.d;},0);var tn=REGS.reduce(function(s,r){return s+r.n;},0);dEl.innerHTML=svgDonut([Math.max(1,td),Math.max(1,tn)],['Diurnos','Nocturnos'],['#38bdf8','#a78bfa']);}
   var rEl=g('c-rend-svg');
-  if(rEl){var cams=Object.keys(VX);rEl.innerHTML=svgBar(cams.map(function(c){return VX[c];}),cams.map(function(c){return c.replace('JAC-','');}));}
+  if(rEl){var _vx=viajesPorCam(),_cs=Object.keys(_vx).sort();rEl.innerHTML=_cs.length?svgBar(_cs.map(function(c){return _vx[c];}),_cs.map(function(c){return String(c).replace('JAC-','');})):_grafVacio('No hay planillas cargadas todavía.');}
   var cEl=g('c-cob2-svg');
   if(cEl){var tm=REGS.reduce(function(s,r){return s+r.m;},0);var cob=Math.min(ABONOS.reduce(function(s,a){return s+a.m;},0),tm);cEl.innerHTML=svgDonut([cob,Math.max(1,tm-cob)],['Cobrado','Por cobrar'],['#22c55e','#ef4444']);}
 }
@@ -26247,8 +26326,15 @@ function calcComprasSugeridas(){
     if(falta<=1000||(dias!=null&&dias<=14))servicios.push({cam:cam,km:km,prox:prox,falta:falta,kmDia:Math.round(kmDia),dias:dias});
   });
   servicios.sort(function(a,b){return (a.dias==null?9999:a.dias)-(b.dias==null?9999:b.dias);});
-  var bajos=(typeof INVENTARIO!=='undefined'?INVENTARIO:[]).filter(function(it){return (parseInt(it.stock)||0)<=(parseInt(it.stockMin)||0);})
-    .map(function(it){return {nombre:it.nombre,stock:parseInt(it.stock)||0,min:parseInt(it.stockMin)||0,sugerido:Math.max((parseInt(it.stockMin)||0)*2-(parseInt(it.stock)||0),1),precio:parseFloat(it.precio)||0};});
+  // Los items ACTIVOS y con stock decimal: `parseInt` truncaba y un item con 0,5 L
+  // figuraba en 0 — bajo minimo por redondeo, no por faltante.
+  var bajos=(typeof INVENTARIO!=='undefined'?INVENTARIO:[])
+    .filter(function(it){return it.activo!==false;})
+    .filter(function(it){return (parseFloat(it.stock)||0)<=(parseFloat(it.stockMin)||0);})
+    .map(function(it){var s=parseFloat(it.stock)||0,mn=parseFloat(it.stockMin)||0;
+      return {nombre:it.nombre,stock:s,min:mn,unidad:it.unidad||'',
+              sugerido:Math.round(Math.max(mn*2-s,1)*100)/100,precio:parseFloat(it.precio)||0};})
+    .sort(function(a,b){return (a.stock-a.min)-(b.stock-b.min);});   // lo mas faltante primero
   return {servicios:servicios,bajos:bajos};
 }
 function renderComprasSugeridas(){
@@ -26326,10 +26412,25 @@ function renderInteligenciaFlota(){
   try{
     var cs=calcComprasSugeridas();
     var nServ=cs.servicios.length, nBajos=cs.bajos.length, totalCs=nServ+nBajos;
+    // Máximo, 2026-08-17: «no sirve de nada que me diga que voy a necesitar algo si no me
+    // dice QUÉ». La línea de detalle era un ternario que le daba prioridad a los servicios:
+    // con 11 servicios próximos NUNCA llegaba a nombrar los 19 insumos, y el dueño veía el
+    // número de arriba sin forma de accionarlo. Ahora se muestran LAS DOS listas, con cuánto
+    // hay, cuánto reponer y cuánto cuesta: un número que no se puede explicar no sirve.
+    var _sv=cs.servicios.slice(0,3).map(function(s){
+      var d=(s.dias==null)?'':(s.dias<0?(' — vencido hace '+Math.abs(s.dias)+' d'):(' — en '+s.dias+' d'));
+      return String(s.cam).replace('JAC-','')+d;}).join(' · ');
+    var _bj=cs.bajos.slice(0,3).map(function(b){
+      return _mEsc(b.nombre)+' (hay '+_invNum(b.stock)+' de '+_invNum(b.min)+' '+_mEsc(b.unidad||'')+')';}).join(' · ');
+    var _costo=cs.bajos.reduce(function(a,b){return a+b.sugerido*b.precio;},0);
+    var _det='';
+    if(nServ)_det+='<b>Servicios:</b> '+_sv+(nServ>3?(' <i>y '+(nServ-3)+' más</i>'):'');
+    if(nBajos)_det+=(_det?'<br>':'')+'<b>Reponer:</b> '+_bj+(nBajos>3?(' <i>y '+(nBajos-3)+' más</i>'):'')+
+      (_costo>0?(' · ≈ <b>$'+_invNum(_costo)+'</b>'):'');
+    if(!_det)_det='✓ Inventario y servicios al día';
     cards.push(_intelCard(totalCs?'#38bdf8':'#22c55e','🛒 Compras / servicios por venir',
       totalCs?(nServ+' servicio(s) próximo(s)'+(nBajos?' · '+nBajos+' insumo(s) bajo mínimo':'')):'Nada urgente por comprar',
-      nServ?('Próximo: '+cs.servicios.slice(0,3).map(function(s){return s.cam.replace('JAC-','')+(s.dias!=null?' ('+s.dias+'d)':'');}).join(', ')):(nBajos?'Reponer: '+cs.bajos.slice(0,3).map(function(b){return b.nombre;}).join(', '):'✓ Inventario y servicios al día'),
-      "sp('inventario')"));
+      _det, "sp('inventario')"));
   }catch(e){}
   // #4 Salud del conductor (scoring sin GPS)
   try{
