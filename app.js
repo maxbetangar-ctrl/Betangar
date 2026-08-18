@@ -1416,7 +1416,7 @@ async function bncRenderCuentas(){
 // MODO: si hay tanques configurados ➜ auditoría por CUBICACIÓN (Betangar). Si no ➜ modo SURTIDAS
 // (Flotilla). Se decide por los datos, nunca por el nombre de la empresa: es un clon.
 // ══════════════════════════════════════════════════════════════════════════════════════════════
-var AC_TANQUES=[], AC_MED=[], AC_GASOIL=[], AC_SURTIDAS=[], AC_CK=[], AC_JORNADAS=[], AC_ANOM=[], AC_META={};
+var AC_TANQUES=[], AC_MED=[], AC_GASOIL=[], AC_SURTIDAS=[], AC_CK=[], AC_JORNADAS=[], AC_ANOM=[], AC_META={}, AC_SALIDAS_TANQUE=[];
 var _acCargando=false;
 
 // ── RUIDO DE LA MEDICIÓN: la tolerancia sale del INSTRUMENTO, no de un número redondo ─────────
@@ -1653,7 +1653,10 @@ async function acCargar(desde,hasta){
     // de acierto mide al auditor completo — si se filtrara por el período, el criterio de
     // reencendido cambiaría según qué fechas tenga uno en pantalla, que sería absurdo.
     supabase.from('comb_auditoria_sombra').select('*').order('fecha',{ascending:false}).limit(500),
-    supabase.from('configuracion').select('valor').eq('clave','aud_comb_avisar').maybeSingle()
+    supabase.from('configuracion').select('valor').eq('clave','aud_comb_avisar').maybeSingle(),
+    // Gasoil que sale del galpón y NO va a un camión (planta eléctrica, préstamo, trasvase).
+    // Hasta el 18/08/2026 no había dónde registrarlo y el cuadre lo contaba como faltante.
+    supabase.from('salidas_tanque').select('*').gte('fecha',desdeExt).lte('fecha',hasta)
   ];
   var r=await Promise.all(q);
   if(r[0].error)throw new Error('tanques: '+r[0].error.message);
@@ -1691,6 +1694,10 @@ async function acCargar(desde,hasta){
   if(r[9]&&r[9].error)console.log('sombra auditoria:',r[9].error.message);
   var _av=null; try{ _av=(r[10]&&r[10].data)?String(r[10].data.valor).replace(/"/g,'').toLowerCase():null; }catch(e){}
   AC_META.avisarSustraccion=(_av==='on');
+  // ⚠️ Fail-OPEN a propósito: si la tabla todavía no existe en esta instancia, se sigue sin ella
+  //    (queda en []) y el cuadre funciona como antes. Un módulo nuevo no puede tumbar la auditoría.
+  AC_SALIDAS_TANQUE=(r[11]&&!r[11].error&&r[11].data)||[];
+  if(r[11]&&r[11].error)console.log('salidas_tanque auditoria:',r[11].error.message);
   AC_META.modo=AC_TANQUES.length?'cubicacion':'surtidas';
 }
 
@@ -1819,6 +1826,17 @@ function _acSalidasGalpon(desde,hasta){
     if(f<desde||f>hasta)return;
     if(corte&&f>=corte)return;
     suma+=(_acNum(g.lit)||0);
+  });
+  // ── LO QUE SALE DEL GALPÓN Y NO VA A UN CAMIÓN (18/08/2026) ────────────────────────────────
+  // Los 25 L de la planta eléctrica vivían en un grupo de WhatsApp. El cuadre hacía
+  // «nivel inicial + compras − despachos» y esos litros no estaban en ningún término: salían del
+  // tanque de verdad y aparecían como FALTANTE. Un faltante falso repetido enseña a no creerle a
+  // la alarma, que es peor que no tenerla [[norma-movimiento-que-el-sistema-no-registra]].
+  // No lleva corte: esta tabla nace hoy, todo lo que tenga es posterior y no se pisa con `gasoil`.
+  (AC_SALIDAS_TANQUE||[]).forEach(function(x){
+    var f=String(x.fecha||'').slice(0,10);
+    if(f<desde||f>hasta)return;
+    suma+=(_acNum(x.litros)||0);
   });
   return Math.round(suma*100)/100;
 }
