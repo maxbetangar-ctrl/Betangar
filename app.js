@@ -2245,6 +2245,38 @@ function _acAnomalias(todas,desde,hasta,ref){
   // GRAVES quedaban al final, que es justo lo contrario de lo que hace falta. Se compara con null.
   // Mediciones repetidas: el dashboard las muestra, no solo las cuenta. Es el error de carga más
   // común (doble toque al guardar) y el que más ensucia el cuadre.
+  // ── R15 — LA CARGA NO CABE EN EL TANQUE ─────────────────────────────────────────────────────
+  // GEMELA de la R15 de `supabase/functions/auditar-combustible`. Si se toca una, se toca la otra:
+  // que el dashboard y el WhatsApp digan lo mismo es lo que sostiene que se les crea a los dos.
+  // Compara los litros cargados contra el ESPACIO LIBRE del tanque al salir, con una gracia de un
+  // cuarto de tanque porque el nivel se midió a la salida y el camión quemó gasoil hasta la carga.
+  // Va como hallazgo, no como error del chofer: el número malo puede ser la medición.
+  (AC_SURTIDAS||[]).forEach(function(s){
+    var cam=String(s.cam||''); if(!cam) return;
+    var f=String(s.fecha||'').slice(0,10);
+    if(!f || f<desde || f>hasta) return;
+    var cap=_acNum((UNIDAD_CONFIG[cam]||{}).capacidad_tanque_l);
+    if(!(cap>0)) return;
+    var sal=null;
+    (AC_MED||[]).forEach(function(m){
+      if(String(m.vehiculo_id)===cam && String(m.fecha||'').slice(0,10)===f && String(m.momento)==='salida') sal=m;
+    });
+    if(!sal) return;
+    var tq=_acTanqueDe(sal);
+    if(!_acAlturaValida(tq,sal.altura_cm)) return;   // altura inválida: ya lo dice su propio control
+    var nivel=_acCubicar(tq,sal.altura_cm); if(nivel==null) return;
+    var lit=_acNum(s.litros); if(lit==null) return;
+    var libre=cap-nivel;
+    if(lit<=libre+cap*0.25) return;
+    add('alta','R15','La carga no cabe en el tanque',
+      'El '+f+' se cargaron '+_acFmt(lit,0)+' L a '+U(cam)+', pero al salir el tanque marcaba '+
+      _acFmt(nivel,0)+' L de '+_acFmt(cap,0)+' L: solo quedaban '+_acFmt(libre,0)+' L libres. '+
+      'Uno de los dos números está mal —la medición de salida o los litros cargados—, y no se puede '+
+      'saber cuál desde acá: hay que preguntarle a quien estuvo. No es una acusación, es una '+
+      'contradicción entre dos datos que no pueden ser los dos ciertos.',
+      cam,f,lit,String(s.chofer||''));
+  });
+
   // R13 — COMBUSTIBLE QUE ENTRÓ SIN REGISTRARSE. Un solo hallazgo con TODO junto: el problema no
   // es cada camión, es que desde el 07/07 no se está cargando ningún despacho. Y lo que importa no
   // son los litros de una unidad sino la plata que no está entrando a la Utilidad Real.
@@ -4023,7 +4055,7 @@ function descartarFallidos(){
 }
 // Clave de conflicto por tabla con UNIQUE → la cola debe reintentar como UPSERT, no INSERT plano
 // (si no, una planilla/abono/contrato hecho offline choca con su UNIQUE y cae al dead-letter).
-var _COLA_ONCONFLICT={planillas:'p',abonos:'fact',contratos:'id',prestamos:'id',multas:'id',empleados:'id',pagos_alcaldia:'id',gastos_variables:'id',gastos_fijos:'id',bnc_movimientos:'id',tipos_unidad:'id',unidades:'id',operaciones:'id',nomina_extras:'id',llantas:'id',inv_movimientos:'id'};
+var _COLA_ONCONFLICT={planillas:'p',abonos:'fact',contratos:'id',prestamos:'id',multas:'id',empleados:'id',pagos_alcaldia:'id',gastos_variables:'id',gastos_fijos:'id',bnc_movimientos:'id',tipos_unidad:'id',unidades:'id',operaciones:'id',nomina_extras:'id',llantas:'id',inv_movimientos:'id',salidas_tanque:'id'};
 function guardarEnCola(t,d,oc){
   COLA_OFFLINE.push({t:t,d:d,_try:0,oc:oc||_COLA_ONCONFLICT[t]||null});
   guardarColaLS();
@@ -10731,10 +10763,10 @@ async function cargarUnidadConfig(){
   if(!(DB_READY&&supabase))return;
   try{
     // Columnas LIVIANAS (sin foto ni titulo_pdf → no cargamos blobs de todas las unidades a memoria).
-    var cols='cam,tipo,combustible,uso,nombre,marca,modelo,anio,placa,vin,serial_motor,serial_carroceria,titular,chofer,activo,notas,medida,horas_actuales,km_servicio,baterias';
+    var cols='cam,tipo,combustible,uso,nombre,marca,modelo,anio,placa,vin,serial_motor,serial_carroceria,titular,chofer,activo,notas,medida,horas_actuales,km_servicio,baterias,capacidad_tanque_l';
     var r=await supabase.from('unidad_config').select(cols);
     if(r&&r.error){ r=await supabase.from('unidad_config').select('*'); } // fail-open si faltan columnas (migración no corrida)
-    if(r&&!r.error&&Array.isArray(r.data)){var o={};r.data.forEach(function(x){o[x.cam]={tipo:x.tipo||'',combustible:x.combustible||'',uso:x.uso||'',nombre:x.nombre||'',marca:x.marca||'',modelo:x.modelo||'',anio:x.anio||'',placa:x.placa||'',vin:x.vin||'',serialMotor:x.serial_motor||'',serialCarroceria:x.serial_carroceria||'',titular:x.titular||'',chofer:x.chofer||'',activo:x.activo!==false,notas:x.notas||'',medida:x.medida||'',horasActuales:parseFloat(x.horas_actuales)||0,baterias:(x.baterias==null?null:parseInt(x.baterias)),kmServicio:parseFloat(x.km_servicio)||0};});UNIDAD_CONFIG=o;
+    if(r&&!r.error&&Array.isArray(r.data)){var o={};r.data.forEach(function(x){o[x.cam]={tipo:x.tipo||'',combustible:x.combustible||'',uso:x.uso||'',nombre:x.nombre||'',marca:x.marca||'',modelo:x.modelo||'',anio:x.anio||'',placa:x.placa||'',vin:x.vin||'',serialMotor:x.serial_motor||'',serialCarroceria:x.serial_carroceria||'',titular:x.titular||'',chofer:x.chofer||'',activo:x.activo!==false,notas:x.notas||'',medida:x.medida||'',horasActuales:parseFloat(x.horas_actuales)||0,baterias:(x.baterias==null?null:parseInt(x.baterias)),kmServicio:parseFloat(x.km_servicio)||0,capacidad_tanque_l:parseFloat(x.capacidad_tanque_l)||null};});UNIDAD_CONFIG=o;
       // FUENTE ÚNICA de placa/chofer/vin: `unidad_config` (registro maestro) MANDA sobre el FLOTA horneado
       // para las unidades que ya estén en FLOTA. En Betangar los 12 JAC no están en unidad_config → no-op;
       // protege a los clones (FlotaMax/Flotilla) donde el FLOTA horneado se desfasó y el QR/informe imprimía
@@ -22142,6 +22174,118 @@ function operIniciar(){
   operResumenFlota();
   try{renderChecklistAnomalias();}catch(e){}  // fallas pendientes (puede cerrarlas)
   operProgramarRecordatorio();
+  try{stqRenderLista();}catch(e){}
+}
+
+// ════════════════════════════════════════════════════════════════════════════════════════════
+// 🪫 SALIDA DE TANQUE PARA OTRO USO — pedido de Máximo (2026-08-18)
+//
+// Tapa el agujero de los 25 L de la planta eléctrica, que solo existían en un WhatsApp: el
+// sistema sabía lo que ENTRABA al tanque y lo que salía HACIA UN CAMIÓN, y no tenía dónde
+// anotar lo que sale para otra cosa. Sin esto, cada revisión del tanque da un faltante que no
+// es faltante [[norma-movimiento-que-el-sistema-no-registra]].
+//
+// ⛔ EL CANDADO NO ESTÁ ACÁ. Está en las políticas de `salidas_tanque` (solo `operativo` y
+//    `superadmin` insertan). Esta pantalla es la puerta cómoda; si alguien la alcanza por otro
+//    lado, la base lo rechaza igual. Misma lección que «Despacho a Camión» esta mañana.
+//
+// ⚠️ Escrito para alguien que no es de tecnología: dos toques y un número, sin campo de fecha
+//    (es hoy) y sin desplegables. Lo que se elige queda MARCADO en verde, porque un botón que
+//    no cambia al tocarlo no dice si se tocó.
+// ════════════════════════════════════════════════════════════════════════════════════════════
+var STQ_TANQUE=null, STQ_DESTINO=null;
+var STQ_MAX_L=2300;   // capacidad del tanque del galpón: el máximo físico que puede salir
+
+function _stqPinta(prefijo,valor){
+  ['galpon_1','galpon_2','planta','prestamo','otro'].forEach(function(k){
+    var b=document.getElementById(prefijo+k); if(!b)return;
+    b.classList.remove('btn-g'); b.classList.add('btn-s');
+  });
+  if(valor){ var el=document.getElementById(prefijo+valor); if(el){ el.classList.remove('btn-s'); el.classList.add('btn-g'); } }
+}
+// El aviso mientras escribe, no al apretar: si el número es imposible conviene que lo vea
+// ANTES de tocar guardar, cuando todavía se acuerda de lo que sacó.
+function stqLitInput(){
+  var h=document.getElementById('stq-lit-hint'); if(!h)return;
+  var l=_stqLit();
+  if(l==null||l<=0){ h.textContent=''; return; }
+  if(l>STQ_MAX_L){ h.style.color='var(--red)'; h.textContent='⛔ '+l.toLocaleString('es-VE')+' L no caben en el tanque (máximo '+STQ_MAX_L.toLocaleString('es-VE')+' L).'; }
+  else { h.style.color='var(--text3)'; h.textContent=l.toLocaleString('es-VE')+' L'; }
+}
+function stqTanque(t){ STQ_TANQUE=t; _stqPinta('stq-t-',t); }
+function stqDestino(d){
+  STQ_DESTINO=d;
+  _stqPinta('stq-d-', d==='Planta eléctrica'?'planta':(d==='Préstamo'?'prestamo':'otro'));
+  var n=document.getElementById('stq-nota');
+  if(n){ n.style.display = (d==='Otro') ? 'block' : 'none'; if(d==='Otro') n.focus(); }
+}
+function _stqLit(){
+  var v=String((document.getElementById('stq-lit')||{}).value||'').replace(',','.').trim();
+  var n=parseFloat(v); return isFinite(n)?n:null;
+}
+
+async function stqGuardar(){
+  if(!STQ_TANQUE){ mostrarToast('Tocá de cuál tanque salió','error'); return; }
+  var lit=_stqLit();
+  if(!(lit>0)){ mostrarToast('Escribí cuántos litros salieron','error'); return; }
+  // ⛔ TOPE DURO: un dato imposible se RECHAZA, no se topa. Si se guardara el número topado,
+  //    quedaría en la base como si fuera cierto y nadie sabría que se corrigió solo.
+  if(lit>STQ_MAX_L){
+    mostrarToast('En el tanque no caben '+lit.toLocaleString('es-VE')+' L (el máximo es '+STQ_MAX_L.toLocaleString('es-VE')+'). Revisá el número.','error');
+    var f=document.getElementById('stq-lit'); if(f){ try{ f.focus(); f.select(); }catch(e){} }
+    return;
+  }
+  if(!STQ_DESTINO){ mostrarToast('Tocá para qué salió','error'); return; }
+  var nota=String((document.getElementById('stq-nota')||{}).value||'').trim();
+  if(STQ_DESTINO==='Otro' && !nota){ mostrarToast('Escribí para qué fue','error'); return; }
+
+  var btn=document.getElementById('stq-btn'); var t0=btn?btn.textContent:'';
+  if(btn){ btn.disabled=true; btn.textContent='Guardando…'; }
+  var row={
+    id:'STQ-'+Date.now(),
+    fecha:fechaVE(),
+    tanque:STQ_TANQUE,
+    litros:lit,
+    destino:STQ_DESTINO,
+    nota:nota||null,
+    registrado_por:(SESION&&SESION.nombre)||''
+  };
+  var ok=false;
+  try{
+    if(DB_READY&&supabase){
+      var res=await supabase.from('salidas_tanque').insert([row]).select();
+      if(res.error){ mostrarToast('No se pudo guardar: '+res.error.message,'error'); }
+      else ok=true;
+    }
+    if(!ok) guardarEnCola('salidas_tanque',row);
+    try{ audit('salida_tanque', row.tanque+' · '+lit+' L · '+row.destino); }catch(e){}
+    mostrarToast(ok?'✅ Salida registrada':'📵 Guardada (se sube al reconectar)','exito');
+    document.getElementById('stq-lit').value='';
+    var nn=document.getElementById('stq-nota'); if(nn){ nn.value=''; nn.style.display='none'; }
+    STQ_TANQUE=null; STQ_DESTINO=null; _stqPinta('stq-t-',null); _stqPinta('stq-d-',null);
+    document.getElementById('stq-lit-hint').textContent='';
+    stqRenderLista();
+  } finally {
+    if(btn){ btn.disabled=false; btn.textContent=t0||'✅ Registrar salida'; }
+  }
+}
+
+async function stqRenderLista(){
+  var c=document.getElementById('stq-lista'); if(!c)return;
+  if(!(DB_READY&&supabase)){ c.textContent='Sin conexión — se ven al reconectar.'; return; }
+  var r=await supabase.from('salidas_tanque').select('*').order('fecha',{ascending:false}).order('created_at',{ascending:false}).limit(10);
+  // ⚠️ Una lista vacía por ERROR se ve igual que «todavía no hay ninguna». Se dicen distinto.
+  if(r.error){ c.innerHTML='<span style="color:var(--red)">No se pudo leer la lista (las salidas no se perdieron, es esta pantalla la que no pudo consultarlas).</span>'; return; }
+  var d=r.data||[];
+  if(!d.length){ c.textContent='Todavía no se registró ninguna salida.'; return; }
+  c.innerHTML=d.map(function(x){
+    var tq = x.tanque==='galpon_1'?'Galpón 1':'Galpón 2';
+    var f  = String(x.fecha||'').split('-').reverse().join('/');
+    return '<div style="padding:6px 0;border-bottom:1px solid var(--bd)">'
+      + '<b>'+Number(x.litros).toLocaleString('es-VE')+' L</b> · '+tq+' → '+(x.destino||'')
+      + (x.nota?' <i>('+x.nota+')</i>':'')
+      + '<br><span style="font-size:11px;color:var(--text3)">'+f+(x.registrado_por?' · '+x.registrado_por:'')+'</span></div>';
+  }).join('');
 }
 
 function operRenderParroquias(hoy){

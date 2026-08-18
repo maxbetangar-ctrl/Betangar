@@ -2924,7 +2924,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
 <script src="maxrecuerda.js?v=20260806-maxrecuerda"></script>
 <!-- Formato unico de los Excel de Maxware. VA ANTES de app.js. -->
 <script src="maxware-excel.js"></script>
-<script src="app.js?v=20260818-graficos-reales"></script>
+<script src="app.js?v=20260818-0836"></script>
 
 <!-- Modal global -->
 <div id="modal" class="moverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9990;align-items:center;justify-content:center;padding:16px">
@@ -3126,6 +3126,44 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
         <div style="font-size:9px;color:var(--text3)">el chofer las ve hasta que se cierren</div>
       </div>
       <div id="oper-anomalias" style="margin-top:6px"><div style="color:var(--text3);font-size:12px">Cargando…</div></div>
+    </div>
+
+    <!-- ══ SALIDA DE TANQUE (2026-08-18) ═══════════════════════════════════════════════════
+         Va acá, en la pantalla de Samuel, porque él es el único autorizado a cargarlo.
+         ⛔ Que el formulario esté solo acá NO es el candado: el candado son las políticas de
+            `salidas_tanque` (solo rol `operativo` y `superadmin` pueden insertar). Esta
+            pantalla es la puerta cómoda, no la cerradura.
+         Diseño a propósito sin campo de fecha ni desplegables: dos toques y un número. ══ -->
+    <div class="card" style="margin-bottom:14px">
+      <div class="sh"><div class="st">🪫 Sacar gasoil del tanque</div></div>
+      <div style="font-size:12px;color:var(--text3);margin-bottom:12px;line-height:1.5">
+        Para cuando el gasoil <b>no va a un camión</b>: la planta eléctrica, un préstamo, un trasvase.
+        Si no se anota, al tanque le va a faltar y nadie va a saber por qué.
+      </div>
+
+      <div style="font-size:13px;font-weight:700;margin-bottom:6px">1. ¿De cuál tanque?</div>
+      <div style="display:flex;gap:8px;margin-bottom:14px">
+        <button type="button" id="stq-t-galpon_1" onclick="stqTanque('galpon_1')" class="btn btn-s" style="flex:1;padding:16px 4px;font-size:14px;font-weight:700;border-radius:12px">🛢️ Galpón 1</button>
+        <button type="button" id="stq-t-galpon_2" onclick="stqTanque('galpon_2')" class="btn btn-s" style="flex:1;padding:16px 4px;font-size:14px;font-weight:700;border-radius:12px">🛢️ Galpón 2</button>
+      </div>
+
+      <div style="font-size:13px;font-weight:700;margin-bottom:6px">2. ¿Cuántos litros?</div>
+      <input class="fc" id="stq-lit" type="text" inputmode="decimal" placeholder="0" oninput="stqLitInput()"
+             style="font-size:24px;padding:14px;text-align:center;font-family:var(--m);margin-bottom:4px">
+      <div id="stq-lit-hint" style="font-size:12px;min-height:16px;margin-bottom:12px"></div>
+
+      <div style="font-size:13px;font-weight:700;margin-bottom:6px">3. ¿Para qué?</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+        <button type="button" id="stq-d-planta"   onclick="stqDestino('Planta eléctrica')" class="btn btn-s" style="flex:1;min-width:120px;padding:14px 4px;font-size:13px;font-weight:700;border-radius:12px">⚡ Planta eléctrica</button>
+        <button type="button" id="stq-d-prestamo" onclick="stqDestino('Préstamo')"         class="btn btn-s" style="flex:1;min-width:120px;padding:14px 4px;font-size:13px;font-weight:700;border-radius:12px">🤝 Préstamo</button>
+        <button type="button" id="stq-d-otro"     onclick="stqDestino('Otro')"             class="btn btn-s" style="flex:1;min-width:120px;padding:14px 4px;font-size:13px;font-weight:700;border-radius:12px">✏️ Otro</button>
+      </div>
+      <input class="fc" id="stq-nota" type="text" placeholder="¿Para qué fue? (escribilo)" style="display:none;margin-bottom:8px">
+
+      <button class="btn btn-g" id="stq-btn" onclick="stqGuardar()" style="width:100%;padding:16px;font-size:15px;font-weight:700;border-radius:12px">✅ Registrar salida</button>
+
+      <div style="font-weight:700;margin:16px 0 6px;font-size:13px">Últimas salidas</div>
+      <div id="stq-lista" style="font-size:12px;color:var(--text3)">Cargando…</div>
     </div>
 
     <div class="card">

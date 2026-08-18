@@ -79,7 +79,7 @@ Deno.serve(async (req) => {
   const fecha = url.searchParams.get('fecha') || new Date(new Date(hoyVE + 'T12:00:00Z').getTime() - 86400000).toISOString().slice(0, 10);
   const previo = new Date(new Date(fecha + 'T12:00:00Z').getTime() - 86400000).toISOString().slice(0, 10);
 
-  const [cfgT, med, gas, ck, emps, waCfg, logs, sur, cfgCorte, cfgAvisar, somb] = await Promise.all([
+  const [cfgT, med, gas, ck, emps, waCfg, logs, sur, cfgCorte, cfgAvisar, somb, uCfg] = await Promise.all([
     sb.from('combustible_tanques_config').select('*'),
     sb.from('combustible_mediciones').select('*').gte('fecha', previo).lte('fecha', fecha),
     sb.from('gasoil').select('*').gte('f', previo).lte('f', fecha),
@@ -91,6 +91,7 @@ Deno.serve(async (req) => {
     sb.from('configuracion').select('valor').eq('clave', 'surtidas_corte').maybeSingle(),
     sb.from('configuracion').select('valor').eq('clave', 'aud_comb_avisar').maybeSingle(),
     sb.from('comb_auditoria_sombra').select('veredicto,fecha,veredicto_at').order('veredicto_at', { ascending: false }).limit(300),
+    sb.from('unidad_config').select('cam,capacidad_tanque_l'),
   ]);
   if (cfgT.error) return json({ ok: false, error: cfgT.error.message }, 500);
   const corteSur = String(cfgCorte?.data?.valor || '').replace(/"/g, '').slice(0, 10);
@@ -273,6 +274,16 @@ Deno.serve(async (req) => {
   // Las surtidas traen hora: con `tsA`/`tsB` (los created_at de las dos lecturas de regla) se sabe
   // si la carga fue antes o después de pasar la regla. Con solo la fecha, una carga de las 11 de la
   // mañana se contaría como entrada de la noche y el patio daría un faltante que nunca existió.
+  // Capacidad del tanque de CADA unidad. Es la misma fuente que ya usa `surtida_registrar` para su
+  // tope por dedazo, a propósito: si mañana se corrige la capacidad de un camión, se corrige en un
+  // solo lugar y los dos controles se enteran juntos [[norma-fuente-unica-datos]].
+  const capsUnidad = new Map<string, number>();
+  (uCfg.data || []).forEach((r: any) => {
+    const c = num(r.capacidad_tanque_l);
+    if (c != null && c > 0) capsUnidad.set(String(r.cam), c);
+  });
+  const capacidadDe = (u: string) => capsUnidad.get(u) ?? null;
+
   const entradas = (u: string, fA: string, fB: string, incluirFA: boolean, tsA?: string, tsB?: string) => {
     const dentro = (f: string) => (incluirFA ? f >= fA : f > fA) && f <= fB;
     let suma = 0;
@@ -342,6 +353,44 @@ Deno.serve(async (req) => {
       const det = Object.keys(dupPorUnidad[u]).map((mo) => `${dupPorUnidad[u][mo]} de ${mo}`).join(' y ');
       hallazgos.push({ u, tipo: 'R14', txt: `quedaron ${det} — la misma medición cargada más de una vez. Se usa la última; no hay que reclamarle nada al chofer, es la app repitiendo el envío.` });
     }
+    // ── R15 · LA SURTIDA NO CABE EN EL TANQUE ───────────────────────────────────────────────────
+    // Pedido de Máximo (2026-08-18) después del caso de Samuel: "¿hay un motor que haga esa misma
+    // evaluación con cada surtida?". La evaluación que él hizo a mano fue litros surtidos contra el
+    // ESPACIO LIBRE del tanque, que es distinto del tope que ya existe en `surtida_registrar`
+    // (capacidad × 1,5): ese atrapa el dedazo, no el imposible físico.
+    //
+    // ⛔ POR QUÉ AVISA Y NO TRANCA. Se midió contra los 57 registros que tienen medición de salida:
+    //    un candado duro sobre "litros > espacio libre" habría rechazado 25 — el 44 % del trabajo
+    //    legítimo. La razón es física y no se puede evitar: el nivel se mide AL SALIR y la surtida
+    //    ocurre horas después, con el camión ya habiendo quemado gasoil. El espacio libre al salir
+    //    es un PISO, no el valor del momento. Trancar sobre un piso es trancar sobre un dato viejo.
+    //
+    // ⚠️ LA GRACIA SALE DE LOS DATOS, no de un número redondo: con el corte en un cuarto de tanque
+    //    (150 L en el JAC) quedan 32 "cabe" + 23 explicadas por el consumo del día, y aparecen
+    //    exactamente 2 casos reales. No es un umbral elegido para que dé lindo: por debajo de eso
+    //    el ruido se come la señal.
+    //
+    // ⛔ Y VA COMO HALLAZGO, NO COMO ERROR DEL CHOFER, porque en uno de los 2 casos que encuentra
+    //    —JAC-B006 del 15/08— el número malo es la MEDICIÓN (los 175 cm que dieron 596 L), no la
+    //    carga. Mandarle al chofer "tu surtida no cabe" cuando el que se equivocó midiendo fue otro
+    //    es acusar al que no fue. Se dicen los dos números y que decida una persona.
+    if (sal) {
+      const capU = capacidadDe(u);
+      const nivelSal = cubicar(tqDe(sal), sal.altura_cm);
+      if (capU != null && capU > 0 && nivelSal != null && alturaOk(tqDe(sal), sal.altura_cm)) {
+        const libre = capU - nivelSal;
+        const gracia = capU * 0.25;
+        (sur.data || [])
+          .filter((s: any) => String(s.cam) === u && String(s.fecha).slice(0, 10) === fecha)
+          .forEach((s: any) => {
+            const l = num(s.litros);
+            if (l == null || l <= libre + gracia) return;
+            hallazgos.push({ u, tipo: 'R15',
+              txt: `se cargaron ${fmt(l)} L pero al salir el tanque marcaba ${fmt(nivelSal)} L de ${fmt(capU)} L: solo quedaban ${fmt(libre)} L libres. Uno de los dos números está mal —la medición o la carga—; hay que preguntar cuál, no dar por buena ninguna.` });
+          });
+      }
+    }
+
     if (trabajo && !sal) errores.push({ u, chofer, tipo: 'falta', txt: 'no quedó registrada la medición del tanque a la SALIDA' });
     if (trabajo && !lle) errores.push({ u, chofer, tipo: 'falta', txt: 'no quedó registrada la medición del tanque a la LLEGADA' });
     if (kmS != null && kmE != null && kmE < kmS) errores.push({ u, chofer, tipo: 'km', txt: `el kilometraje de llegada (${fmt(kmE)}) es menor que el de salida (${fmt(kmS)})` });
@@ -475,8 +524,16 @@ Deno.serve(async (req) => {
     if (gravesAvisables.length) {
       msg += `\n🔴 PARA REVISAR (${gravesAvisables.length}):\n` + gravesAvisables.map((x) => `• ${x.u}: ${x.txt}`).join('\n') + '\n';
     }
-    if (hallazgos.length) {
-      msg += `\n🟠 Registro que falta o quedó repetido (${hallazgos.length}):\n` + hallazgos.map((x) => `• ${x.u ? x.u + ': ' : ''}${x.txt}`).join('\n') + '\n';
+    // R15 va aparte: no es "falta un registro", es "hay dos números y no pueden ser los dos ciertos".
+    // Mezclarlo con los huecos de registro lo haría leer como papeleo pendiente, y lo que pide es
+    // que alguien pregunte hoy —mientras el chofer se acuerda de lo que cargó.
+    const noCabe = hallazgos.filter((x) => x.tipo === 'R15');
+    const resto = hallazgos.filter((x) => x.tipo !== 'R15');
+    if (noCabe.length) {
+      msg += `\n⚠️ La carga no cabe en el tanque (${noCabe.length}):\n` + noCabe.map((x) => `• ${x.u}: ${x.txt}`).join('\n') + '\n';
+    }
+    if (resto.length) {
+      msg += `\n🟠 Registro que falta o quedó repetido (${resto.length}):\n` + resto.map((x) => `• ${x.u ? x.u + ': ' : ''}${x.txt}`).join('\n') + '\n';
     }
     if (errores.length) {
       const sinTel = [...new Set(errores.filter((e) => e.chofer && !telDe(e.chofer)).map((e) => primerNombre(e.chofer)))];
@@ -500,7 +557,11 @@ Deno.serve(async (req) => {
     // El estado del portón sale siempre en la respuesta: si alguien se pregunta por qué no avisó,
     // acá está la razón exacta, sin tener que leer el código.
     porton: { avisa: AVISAR_SUSTRACCION, aforoOk, examenOk, interruptor, dosFalsas, evaluados: vered.length, precision: Math.round(prec * 100) } };
-  if (dry) return json({ ok: true, dry: true, ...resumen, encolaria: filas.length, muestra: filas.slice(-2) });
+  // ⚠️ El seco devolvía SOLO conteos ("hallazgos: 2"), y con eso no se puede comprobar nada: hay que
+  //    creerle al número. El modo existe justamente para ver qué DIRÍA antes de que lo diga, así que
+  //    devuelve también el detalle. Sin esto, verificar un control nuevo obliga a mandarlo de verdad.
+  if (dry) return json({ ok: true, dry: true, ...resumen, encolaria: filas.length, muestra: filas.slice(-2),
+    detalle: { errores, hallazgos, graves } });
   if (!filas.length) return json({ ok: true, ...resumen, avisos: 0, nota: 'nada que avisar' });
 
   const ins = await sb.from('cola_mensajes').insert(filas);
