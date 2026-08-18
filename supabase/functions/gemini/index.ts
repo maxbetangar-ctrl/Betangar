@@ -24,6 +24,20 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 //                     sin devolverla nunca.
 // ═══════════════════════════════════════════════════════════════════════════════
 
+// ⚠️ EL MODELO SE CLAVA, y este es el que hay (medido el 18/08/2026):
+//    `gemini-2.0-flash`, que estaba acá, **YA NO EXISTE** — la API responde 404
+//    «no longer available». O sea que el botón «Analizar con Gemini» estaba
+//    muerto, y no se notaba porque además faltaba la llave: el error que se veía
+//    era «No hay API key configurada», que mandaba a mirar el lugar equivocado.
+//    Se probaron los vivos: `2.5-flash` tarda ~26 s · `3.6-flash` es errático.
+//    ⛔ No se usa `gemini-flash-latest`: un alias móvil cambia de modelo sin
+//    avisar y un día el análisis empieza a leerse distinto sin que nadie toque
+//    nada. Ver la nota de `gemini-llave-donde-vive` en la memoria.
+//    ⚠️ Acá se usa el `flash` y no el `flash-lite` del servicio técnico a
+//    propósito: esto no corre contra un plazo de WhatsApp, y el análisis de 12
+//    camiones mejora con un modelo que razone más.
+const MODELO = "gemini-3.5-flash";
+
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
@@ -96,12 +110,25 @@ Deno.serve(async (req) => {
   // ── 3. GEMINI ─────────────────────────────────────────────────────────────
   try {
     const r = await fetch(
-      "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=" +
+      `https://generativelanguage.googleapis.com/v1beta/models/${MODELO}:generateContent?key=` +
         encodeURIComponent(key),
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          // ⚠️ El análisis de combustible pide tres bloques (anomalías,
+          // tendencias, recomendaciones): con el tope por omisión se corta a la
+          // mitad. Y el tope incluye los tokens de PENSAMIENTO del modelo.
+          generationConfig: { maxOutputTokens: 8000 },
+        }),
+        // ⏱ Toda llamada externa con plazo. Sin esto, una demora del proveedor
+        // deja la pantalla girando hasta que el navegador se aburre.
+        // ⚠️ 45 s medidos, no elegidos a ojo: el reporte de los 12 camiones tardó
+        //    17,6 s con este modelo. Un período más largo tarda más, así que el
+        //    plazo lleva margen. (Dato al pasar: `flash-lite` tardó 30 s con este
+        //    mismo prompt — con textos grandes el liviano NO es el rápido.)
+        signal: AbortSignal.timeout(45000),
       },
     );
     const data = await r.json();
@@ -111,7 +138,18 @@ Deno.serve(async (req) => {
       const msg = String(data?.error?.message || r.status).replace(/key=[^&\s]+/gi, "key=***");
       return responder({ error: "Gemini respondió: " + msg }, 502);
     }
-    const texto = data?.candidates?.[0]?.content?.parts?.[0]?.text || "(sin respuesta)";
+    // ⛔ UN 200 NO ES UNA RESPUESTA COMPLETA. Si el modelo se quedó sin tokens el
+    //    texto viene CORTADO A LA MITAD y el HTTP igual es 200. Un análisis de
+    //    combustible truncado es peor que ninguno: se lee como si estuviera
+    //    entero y se decide sobre la mitad. Se avisa en vez de mostrarlo.
+    const cand = data?.candidates?.[0];
+    if (cand?.finishReason && cand.finishReason !== "STOP") {
+      return responder({
+        error: "El análisis salió incompleto (" + cand.finishReason +
+          "). Genera el reporte de un período más corto y vuelve a intentar.",
+      }, 502);
+    }
+    const texto = cand?.content?.parts?.[0]?.text || "(sin respuesta)";
     return responder({ texto });
   } catch (e) {
     return responder({ error: "No se pudo conectar con Gemini: " + (e as Error).message }, 502);
