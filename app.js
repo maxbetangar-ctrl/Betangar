@@ -25658,8 +25658,21 @@ async function renderControlComb(){
 }
 
 /* ------------------------------- TAB MEDICIÓN ------------------------------ */
+// La gracia sobre el tope, en cm. Es LA MISMA del lado del chofer (chofer.html,
+// CL_ALTURA_GRACIA_CM): se midió contra 988 mediciones reales de Betangar, donde 4 caían
+// entre el tope y el tope+2 cm y NO eran errores, sino camiones con el tanque al borde.
+// Dentro de la gracia se toma como tanque lleno; por encima, no se guarda.
+var CC_ALTURA_GRACIA_CM=2;
 function ccCalcLitros(){
   var tid=gv('cc-med-tanque'), cm=gv('cc-med-cm');
+  // Se avisa MIENTRAS SE ESCRIBE, no al guardar: si el número no cabe, no se muestran litros.
+  // Enseñar «596,06 L» para una medida imposible es lo que hace que después se le crea.
+  var t=ccTanque(tid), maxH=t?parseFloat(t.altura_max_cm):0, n=parseFloat(cm);
+  if(maxH&&!isNaN(n)&&n>maxH+CC_ALTURA_GRACIA_CM){
+    sv('cc-med-litros','⚠️ no cabe en el tanque (llena a '+maxH+' cm)');
+    g('cc-med-litros')&&(g('cc-med-litros').dataset.litros=0);
+    return;
+  }
   var l=combLitros(tid,cm);
   sv('cc-med-litros', l? l.toLocaleString('es-VE',{maximumFractionDigits:1})+' L':'0 L');
   g('cc-med-litros')&&(g('cc-med-litros').dataset.litros=l);
@@ -25671,7 +25684,20 @@ async function guardarMedicionTanque(){
   if(!tid){alert('Selecciona un tanque');return;}
   if(isNaN(cm)||cm<0){alert('Ingresa la altura en cm');return;}
   var t=ccTanque(tid), maxH=t?parseFloat(t.altura_max_cm):0;
-  if(maxH&&cm>maxH){if(!confirm('La altura ('+cm+' cm) supera el máximo del tanque ('+maxH+' cm). ¿Registrar de todos modos como tanque lleno?'))return;}
+  // ── UNA MEDIDA IMPOSIBLE SE RECHAZA, NO SE TOPA (2026-08-19) ───────────────────────
+  // Acá había un confirm() que ofrecía «¿Registrar de todos modos como tanque lleno?». Con
+  // aceptar una vez, la medición entraba TOPADA contra la capacidad y quedaba guardada con
+  // cara de dato real: de 72 mediciones de FLOTILLA, 33 quedaron clavadas en el máximo, y el
+  // FC01 reportó tanque lleno a la SALIDA y a la LLEGADA del mismo día — o sea consumo cero.
+  // El lado del chofer se cerró el 17/08; faltaba éste, el de oficina.
+  // ⚠️ MISMA gracia que allá (2 cm, medida contra 988 mediciones reales de Betangar): dos
+  // criterios distintos para la misma cosa son otro error esperando turno.
+  if(maxH&&cm>maxH+CC_ALTURA_GRACIA_CM){
+    alert('No se guarda: '+cm+' cm no cabe en ese tanque, que llena a '+maxH+' cm.\n\n'+
+          'Acá van los CENTÍMETROS que marca la regla. Revisá si estás anotando litros, '+
+          'o milímetros en vez de centímetros.');
+    return;
+  }
   var litros=combLitros(tid,cm);
   var row={fecha:fecha,tanque_id:tid,vehiculo_id:null,momento:momento,altura_cm:cm,litros_calculados:litros,registrado_por:por,notas:notas||null};
   var ok=false;
