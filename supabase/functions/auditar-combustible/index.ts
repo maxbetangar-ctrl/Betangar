@@ -229,6 +229,7 @@ Deno.serve(async (req) => {
     });
   const medUnica: any[] = [];
   const corregidas = new Set<string>();
+  const noConfiables = new Set<string>();
   let dupIguales = 0;
   // Por unidad Y POR MOMENTO. Antes era un solo contador por unidad y el texto sumaba salida con
   // llegada: JAC-B010 el 30/07 tenía 3 filas de salida y 2 de llegada, y el WhatsApp decía "cargada
@@ -244,6 +245,13 @@ Deno.serve(async (req) => {
     // ningún día volvería a contar como corregido y las reglas de faltante opinarían sobre días
     // en los que la lectura se contradijo. Gemelo de `_acDedupe` en app.js: se cambian juntos.
     if (alturas.size > 1 || lista[lista.length - 1]?.corregida === true) corregidas.add(k);
+    // TERCER ESTADO (2026-08-19): alguien declaró que el dato es FALSO y que ya no se puede
+    // averiguar el verdadero. Entra al MISMO conjunto porque las reglas tienen que callarse igual
+    // —no se le puede reclamar un faltante a un día cuya lectura sabemos inventada—, pero se
+    // cuenta aparte para poder decirlo en el resumen: si el día simplemente desaparece de los
+    // números sin explicación, el que lee el informe ve menos litros y no sabe por qué.
+    // Gemelo de `_acDedupe` en app.js: se cambian juntos.
+    if (lista[lista.length - 1]?.no_confiable === true) { corregidas.add(k); noConfiables.add(k); }
     if (lista.length > 1 && String(lista[0].fecha).slice(0, 10) === fecha) {
       const v = String(lista[0].vehiculo_id), mo = String(lista[0].momento || '?');
       (dupPorUnidad[v] = dupPorUnidad[v] || {})[mo] = lista.length;
@@ -553,6 +561,8 @@ Deno.serve(async (req) => {
   }
 
   const resumen = { fecha, corte: corteSur || null, duplicados: dupIguales, corregidas: corregidas.size,
+    // Se dice aparte: son días que salen de los números porque el dato es falso, no porque falte.
+    no_confiables: noConfiables.size,
     errores: errores.length, hallazgos: hallazgos.length, graves: graves.length,
     // El estado del portón sale siempre en la respuesta: si alguien se pregunta por qué no avisó,
     // acá está la razón exacta, sin tener que leer el código.

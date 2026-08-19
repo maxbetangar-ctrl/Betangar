@@ -1615,13 +1615,18 @@ function _acDedupe(filas){
     var k=[m.vehiculo_id,String(m.fecha).slice(0,10),m.momento].join('|');
     (porMomento[k]=porMomento[k]||[]).push(m);
   });
-  var out=[], corregidas={};
+  var out=[], corregidas={}, noConf={};
   Object.keys(porMomento).forEach(function(k){
     var lista=porMomento[k], alturas={};
     lista.forEach(function(m){ alturas[String(_acNum(m.altura_cm))]=1; });
     var distintas=Object.keys(alturas).length;
     dupIguales+=(lista.length-distintas);
     var ult=lista[lista.length-1];
+    // TERCER ESTADO: el dato es falso y NO se pudo averiguar el verdadero. No es lo mismo que
+    // 'corregida' —ahí hay un valor bueno; acá no lo hay—, y por eso no basta con que las reglas
+    // se callen: la jornada se queda SIN consumo medible. Lo declara una persona, con su nombre.
+    if(ult.no_confiable===true)noConf[k]={motivo:String(ult.no_confiable_motivo||''),por:String(ult.no_confiable_por||''),
+                                          momento:String(ult.momento||'')};
     // Corregida = dos alturas distintas para el mismo momento (histórico), O la marca que deja la
     // BASE cuando alguien pisa la altura (columna `corregida`, trigger del 2026-07-31). Desde que
     // el chofer guarda con upsert la fila vieja ya no queda, así que sin esa marca ningún día
@@ -1632,6 +1637,8 @@ function _acDedupe(filas){
   AC_META.duplicadas=dupIguales;
   AC_META.corregidas=corregidas;
   AC_META.nCorregidas=Object.keys(corregidas).length;
+  AC_META.noConf=noConf;
+  AC_META.nNoConf=Object.keys(noConf).length;
   return out;
 }
 
@@ -1718,27 +1725,30 @@ function _acArmarJornadas(desde,hasta){
     });
     var abierta=null;
     var _fueCorregida=function(m){ return !!AC_META.corregidas&&!!AC_META.corregidas[[m.vehiculo_id,String(m.fecha).slice(0,10),m.momento].join('|')]; };
+    // El tercer estado, leído por la MISMA llave que las corregidas.
+    var _noConf=function(m){ return (AC_META.noConf||{})[[m.vehiculo_id,String(m.fecha).slice(0,10),m.momento].join('|')]||null; };
     lista.forEach(function(m){
       var t=_acTanqueDe(m), cm=_acNum(m.altura_cm), ok=_acAlturaValida(t,cm);
       // Altura imposible = lectura descartada, NO topeada. Se guarda el cm crudo para que R8 pueda
       // señalarla, pero los litros quedan en null y esa jornada no se cuadra.
       var litros=ok?_acCubicar(t,cm):null;
-      var rec=_acNum(m.litros_calculados), corr=_fueCorregida(m);
+      var rec=_acNum(m.litros_calculados), corr=_fueCorregida(m), nc=_noConf(m);
       if(String(m.momento)==='salida'){
         if(abierta)jor.push(abierta);                     // salida sin llegada: queda sin cerrar
         abierta={cam:u,fecha:String(m.fecha).slice(0,10),salida:litros,salidaCm:cm,salidaMala:!ok,
                  salidaRec:rec,llegada:null,llegadaCm:null,llegadaRec:null,llegadaMala:false,
-                 por:m.registrado_por||'',fechaLl:null,tanque:t,corregida:corr,
+                 por:m.registrado_por||'',fechaLl:null,tanque:t,corregida:corr,noConf:nc,
                  salidaAt:String(m.created_at||'')};
       } else if(String(m.momento)==='llegada'){
         if(abierta){ abierta.llegada=litros; abierta.llegadaCm=cm; abierta.llegadaRec=rec;
                      abierta.llegadaMala=!ok; abierta.corregida=abierta.corregida||corr;
+                     abierta.noConf=abierta.noConf||nc;
                      abierta.llegadaAt=String(m.created_at||'');
                      abierta.fechaLl=String(m.fecha).slice(0,10); jor.push(abierta); abierta=null; }
         else jor.push({cam:u,fecha:String(m.fecha).slice(0,10),salida:null,salidaCm:null,salidaRec:null,
                        salidaMala:false,llegada:litros,llegadaCm:cm,llegadaRec:rec,llegadaMala:!ok,
                        por:m.registrado_por||'',fechaLl:String(m.fecha).slice(0,10),tanque:t,
-                       corregida:corr,salidaAt:'',llegadaAt:String(m.created_at||'')});
+                       corregida:corr,noConf:nc,salidaAt:'',llegadaAt:String(m.created_at||'')});
       }
     });
     if(abierta)jor.push(abierta);
@@ -1760,14 +1770,23 @@ function _acArmarJornadas(desde,hasta){
     j.km=(kmS!=null&&kmE!=null&&kmE>=kmS)?(kmE-kmS):null;
     j.kmS=kmS; j.kmE=kmE;
     // CONSUMO = lo que tenía al salir + lo que le despacharon − lo que le quedó al llegar.
-    j.consumo=(j.salida!=null&&j.llegada!=null)?Math.round((j.salida+j.desp-j.llegada)*100)/100:null;
+    // ⛔ Salvo que alguien haya declarado que una de las dos lecturas es FALSA y no se pudo
+    //    averiguar la verdadera: entonces no hay consumo que calcular. Sale null a propósito, y
+    //    con eso queda fuera del total, del rendimiento de flota y del costo por km, que es
+    //    justamente lo que hoy contaba como bueno. Un número sacado de un dato que sabemos falso
+    //    es peor que no tener número: el faltante se ve, el inventado se cree.
+    j.consumo=(j.salida!=null&&j.llegada!=null&&!j.noConf)?Math.round((j.salida+j.desp-j.llegada)*100)/100:null;
     // Rendimiento solo con números que aguanten: con menos de 10 L o 5 km, el ruido de la regla manda.
     j.rend=(j.consumo!=null&&j.consumo>=10&&j.km!=null&&j.km>=5)?(j.km/j.consumo):null;
     // CONFIANZA de la jornada. Las reglas que insinúan sustracción solo pueden opinar sobre las
     // 'completa': dos lecturas válidas y sin corrección encima. Sobre las demás se puede pedir que
     // arreglen el dato, nunca sugerir que falta combustible.
-    j.conf=(j.salida!=null&&j.llegada!=null&&!j.salidaMala&&!j.llegadaMala)
-             ? (j.corregida?'corregida':'completa') : 'incompleta';
+    // 'no_confiable' va PRIMERO: una jornada puede tener las dos lecturas y aun así no servir,
+    // que es el caso que faltaba. Las reglas ya se callan solas con cualquier valor distinto de
+    // 'completa'.
+    j.conf=j.noConf ? 'no_confiable'
+          : ((j.salida!=null&&j.llegada!=null&&!j.salidaMala&&!j.llegadaMala)
+             ? (j.corregida?'corregida':'completa') : 'incompleta');
     // Tolerancia propia de ESTA jornada, según a qué altura se leyó la regla.
     j.tol=_acTol(j.tanque,j.salidaCm,j.llegadaCm,j.desp);
   });
@@ -2069,6 +2088,48 @@ async function acVeredicto(id,v){
   acBuscar();
 }
 
+// ── DECLARAR QUE UNA MEDICIÓN ES FALSA Y NO SE PUDO ARREGLAR ──────────────────────────────────
+// El TERCER estado. Distinto de corregir: corregir es poner el valor bueno; esto es decir que el
+// valor bueno **ya no se puede saber**. La jornada se queda sin consumo medible y sale de todos
+// los números del período.
+//
+// ⛔ Lo declara una PERSONA y queda su nombre. El sistema no lo deduce solo: mirando los datos,
+//    una lectura copiada del día anterior es indistinguible de una lectura real.
+//    Ver [[estado-unidad-lo-declara-una-persona]].
+async function acNoConfiable(cam,fecha){
+  if(!DB_READY||!supabase){ mostrarToast('Sin conexión: esto se guarda en la base, no en el navegador','error'); return; }
+  var cual=(prompt('¿Cuál de las dos lecturas es falsa?\n\nEscribí  salida  o  llegada','salida')||'').trim().toLowerCase();
+  if(!cual)return;
+  if(cual!=='salida'&&cual!=='llegada'){ mostrarToast('Tiene que ser "salida" o "llegada"','error'); return; }
+  // El motivo es OBLIGATORIO: un dato descartado sin razón escrita es un número que desaparece y
+  // nadie sabe por qué. Es lo que va a leer el dueño cuando pregunte por qué faltan litros.
+  var motivo=(prompt('¿Por qué no se puede saber la verdadera?\n\nEsto queda en la auditoría y lo va a leer quien pregunte por el número.')||'').trim();
+  if(!motivo){ mostrarToast('Sin motivo no se marca: el número tiene que poder explicarse','error'); return; }
+  var quien=(typeof SESION!=='undefined'&&SESION)?SESION.usuario:'';
+  var res=await supabase.from('combustible_mediciones').update({
+    no_confiable:true, no_confiable_motivo:motivo, no_confiable_por:quien,
+    no_confiable_at:new Date().toISOString()
+  }).eq('vehiculo_id',cam).eq('fecha',fecha).eq('momento',cual).select();
+  if(res.error){ mostrarToast('No se pudo marcar: '+res.error.message,'error'); return; }
+  if(!res.data||!res.data.length){ mostrarToast('No se encontró esa lectura para marcar','error'); return; }
+  if(typeof audit==='function')audit('Medición declarada no confiable',cam+' '+fecha+' '+cual+' — '+motivo);
+  mostrarToast('Marcada. Esa jornada sale del consumo del período','exito');
+  acBuscar();
+}
+
+// Deshacer. Una declaración equivocada tiene que poder volverse atrás, y también queda en el rastro.
+async function acNoConfiableQuitar(cam,fecha,momento){
+  if(!DB_READY||!supabase){ mostrarToast('Sin conexión','error'); return; }
+  if(!confirm('¿Volver a dar por buena la lectura de '+momento+'?\n\nEsa jornada vuelve a contar en el consumo del período.'))return;
+  var res=await supabase.from('combustible_mediciones').update({
+    no_confiable:false, no_confiable_motivo:null, no_confiable_por:null, no_confiable_at:null
+  }).eq('vehiculo_id',cam).eq('fecha',fecha).eq('momento',momento).select();
+  if(res.error){ mostrarToast('No se pudo: '+res.error.message,'error'); return; }
+  if(typeof audit==='function')audit('Medición vuelta a dar por buena',cam+' '+fecha+' '+momento);
+  mostrarToast('Vuelve a contar','exito');
+  acBuscar();
+}
+
 // ── REGLAS DE ANOMALÍA ────────────────────────────────────────────────────────────────────────
 function _acAnomalias(todas,desde,hasta,ref){
   var out=[];
@@ -2329,6 +2390,22 @@ function _acAnomalias(todas,desde,hasta,ref){
       'con dos lecturas que se contradicen no se puede afirmar nada. Desde el 31/07/2026 corregir PISA el dato en vez de agregar otro.',
       '','',null,'');
   }
+  // ── R0b — EL DATO ESTÁ MAL Y NO SE PUDO ARREGLAR ────────────────────────────────────────────
+  // Estas jornadas SALEN de todos los números (consumo, rendimiento, costo por km). Sacarlas en
+  // silencio sería tan malo como dejarlas: el período mostraría menos litros sin que nadie sepa
+  // por qué. Por eso se dicen, con quién lo declaró y con el motivo — se toca con luz.
+  var _ncJ=(todas||[]).filter(function(j){ return j.noConf && j.fecha>=desde && j.fecha<=hasta; });
+  if(_ncJ.length){
+    var _det=_ncJ.slice(0,6).map(function(j){
+      return U(j.cam)+' '+_fmtFecha(j.fecha)+(j.noConf.por?(' — lo declaró '+j.noConf.por):'')+
+             (j.noConf.motivo?(': '+j.noConf.motivo):'');
+    }).join(' · ');
+    add('media','R0b','Mediciones declaradas malas (no se pudo saber la verdadera)',
+      _ncJ.length+' jornada(s) quedaron SIN consumo medible porque una de sus lecturas es falsa y ya no hay forma de averiguar la real. '+
+      'No entran al consumo del período, ni al rendimiento de flota, ni al costo por km, ni cuentan como día auditable: '+
+      'un número sacado de un dato que sabemos falso es peor que no tener número. '+_det,
+      '','',null,'');
+  }
   var orden={alta:0,media:1,baja:2};
   var pri=function(s){ var v=orden[s]; return (v==null)?9:v; };
   return out.sort(function(a,b){
@@ -2408,7 +2485,11 @@ function _acRender(){
   var litrosSinExplicar=altas.reduce(function(s,a){return s+((a.litros!=null&&a.litros<0)?Math.abs(a.litros):(a.litros>0?a.litros:0));},0);
   var g_=AC_META.galpon||{};
   // Calidad del dato: días con las dos mediciones y km, sobre el total de jornadas.
-  var completas=J.filter(function(j){return j.salida!=null&&j.llegada!=null&&j.km!=null;}).length;
+  // ⛔ Una jornada con una lectura DECLARADA FALSA no es auditable, aunque tenga las tres cosas
+  //    cargadas. Si contara acá, el indicador de calidad del dato subiría justo con los días que
+  //    sabemos que están mal — que es lo contrario de lo que tiene que medir.
+  var completas=J.filter(function(j){return j.salida!=null&&j.llegada!=null&&j.km!=null&&!j.noConf;}).length;
+  var nNoConf=J.filter(function(j){return !!j.noConf;}).length;
   var pctAud=J.length?Math.round(completas*100/J.length):0;
 
   var html='';
@@ -2424,7 +2505,8 @@ function _acRender(){
       (litrosSinExplicar>0&&costoL>0)?('≈ $'+_acFmt(litrosSinExplicar*costoL,2)+' — gasoil que ningún registro justifica'):'De las anomalías graves del período',
       litrosSinExplicar>0?'var(--red)':'var(--green)')+
     _acCard('Anomalías',String(AC_ANOM.length),altas.length+' graves · '+(AC_ANOM.length-altas.length)+' por revisar',altas.length?'var(--red)':'var(--green)')+
-    _acCard('Días auditables',pctAud+'%',completas+' de '+J.length+' jornadas con salida, llegada y km. Por debajo de 90% el resto de los números queda cojo',
+    _acCard('Días auditables',pctAud+'%',completas+' de '+J.length+' jornadas con salida, llegada y km. Por debajo de 90% el resto de los números queda cojo'+
+      (nNoConf?(' · '+nNoConf+' quedaron fuera porque el dato se declaró falso y no se pudo averiguar el verdadero'):''),
       pctAud>=90?'var(--green)':'var(--yellow)')+
     _acCard('Jornadas analizadas',String(J.length),(AC_META.duplicadas?('se ignoraron '+AC_META.duplicadas+' mediciones repetidas'):'sin mediciones repetidas'))+
   '</div>';
@@ -2550,9 +2632,18 @@ function _acRender(){
       '<td style="text-align:right;font-family:var(--m);font-size:11px">'+(j.desp>0?_acFmt(j.desp,1):'—')+'</td>'+
       '<td style="text-align:right;font-family:var(--m);font-size:11px">'+(j.llegadaCm!=null?(_acFmt(j.llegadaCm,1)+' cm'):'—')+'</td>'+
       '<td style="text-align:right;font-family:var(--m);font-size:11px">'+_acFmt(j.llegada,1)+'</td>'+
-      '<td style="text-align:right;font-family:var(--m);font-size:11px;font-weight:700">'+_acFmt(j.consumo,1)+'</td>'+
+      // El consumo de una jornada declarada falsa NO se muestra como un guion cualquiera: se dice
+      // que está descartado. Un '—' se lee como «faltó cargarlo», que es otra cosa.
+      '<td style="text-align:right;font-family:var(--m);font-size:11px;font-weight:700">'+
+        (j.noConf?'<span style="color:var(--red)" title="Descartado: el dato es falso">descartado</span>':_acFmt(j.consumo,1))+'</td>'+
       '<td style="text-align:right;font-family:var(--m);font-size:11px">'+_acFmt(j.km)+'</td>'+
       '<td style="text-align:right;font-family:var(--m);font-size:11px">'+(j.rend!=null?_acFmt(j.rend,2):'—')+'</td>'+
+      '<td style="font-size:10px;white-space:nowrap">'+
+        (j.noConf
+          ? ('<span style="color:var(--red);font-weight:700" title="'+_mEsc((j.noConf.motivo||'')+(j.noConf.por?(' — lo declaró '+j.noConf.por):''))+'">⛔ dato falso</span>'+
+             ' <a href="#" onclick="acNoConfiableQuitar(\''+_mEsc(j.cam)+'\',\''+j.fecha+'\',\''+_mEsc(j.noConf.momento||'salida')+'\');return false;" style="color:var(--text3)">deshacer</a>')
+          : ('<a href="#" onclick="acNoConfiable(\''+_mEsc(j.cam)+'\',\''+j.fecha+'\');return false;" style="color:var(--text3)" title="El dato es falso y no se puede saber el verdadero">marcar dato falso</a>'))+
+      '</td>'+
     '</tr>';
   }).join('');
   html+='<div class="card"><div class="st" style="margin-bottom:6px">📋 Detalle por jornada</div>'+
@@ -2560,8 +2651,8 @@ function _acRender(){
     '<div class="tw"><table><thead><tr><th>Fecha</th><th>Unidad</th><th>Chofer</th>'+
     '<th style="text-align:right">Regla sal.</th><th style="text-align:right">L salida</th><th style="text-align:right">Despacho</th>'+
     '<th style="text-align:right">Regla lleg.</th><th style="text-align:right">L llegada</th>'+
-    '<th style="text-align:right">Consumo</th><th style="text-align:right">Km</th><th style="text-align:right">Km/L</th>'+
-    '</tr></thead><tbody>'+(det||'<tr><td colspan="11" style="text-align:center;color:var(--text3);padding:12px">Sin jornadas en el período</td></tr>')+'</tbody></table></div></div>';
+    '<th style="text-align:right">Consumo</th><th style="text-align:right">Km</th><th style="text-align:right">Km/L</th><th></th>'+
+    '</tr></thead><tbody>'+(det||'<tr><td colspan="12" style="text-align:center;color:var(--text3);padding:12px">Sin jornadas en el período</td></tr>')+'</tbody></table></div></div>';
 
   cont.innerHTML=html;
 }
