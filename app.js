@@ -3905,7 +3905,11 @@ async function cargarDatosDB(){
     // MULTAS
     if(ml.data&&ml.data.length)MULTAS=ml.data.map(function(x){return{id:x.id,camId:x.cam_id,fecha:x.fecha,desc:x.descripcion||'',montoBs:parseFloat(x.monto_bs)||0,ref:x.ref||'',resp:x.responsable||'empresa',choferId:x.chofer_id||'',cuotas:parseInt(x.cuotas)||1,cuotaBs:parseFloat(x.cuota_bs)||0,pagadoBs:parseFloat(x.pagado_bs)||0,cuotasPagas:parseInt(x.cuotas_pagas)||0,estado:x.estado||'activo',moneda:x.moneda||'',montoDiv:parseFloat(x.monto_div)||0,cuotaDiv:parseFloat(x.cuota_div)||0,pagadoDiv:parseFloat(x.pagado_div)||0};});
     // INVENTARIO
-    if(inv.data&&inv.data.length)INVENTARIO=inv.data.map(function(x){return{id:x.id,nombre:x.nombre,cat:x.categoria||'',unidad:x.unidad||'Unidades',stock:parseFloat(x.stock)||0,stockMin:parseFloat(x.stock_min)||2,precio:parseFloat(x.precio)||0,activo:(x.activo!==false),nota:x.nota||''};});try{_invPoblarSelects();}catch(e){}
+    if(inv.data&&inv.data.length)INVENTARIO=inv.data.map(function(x){return{id:x.id,nombre:x.nombre,cat:x.categoria||'',unidad:x.unidad||'Unidades',stock:parseFloat(x.stock)||0,stockMin:parseFloat(x.stock_min)||2,precio:parseFloat(x.precio)||0,activo:(x.activo!==false),nota:x.nota||''};});
+    // El catálogo se carga SIEMPRE, no solo si ya hay inventario: en una
+    // instancia recién montada la tabla está vacía y el día 1 es justo cuando
+    // hacen falta las categorías.
+    try{_catCargar();}catch(e){}try{_invPoblarSelects();}catch(e){}
     // CONTRATOS
     if(co.data&&co.data.length)CONTRATOS=co.data.map(function(x){return{id:x.id,nombre:x.nombre,parte:x.parte||'',cliente:x.cliente||x.parte||'',monto:parseFloat(x.monto)||0,forma_cobro:x.forma_cobro||'',tarifa_cliente:parseFloat(x.tarifa_cliente)||0,tarifa_operador:parseFloat(x.tarifa_operador)||0,moneda:x.moneda||'USD',inicio:x.inicio||'',venc:x.vencimiento||'',cond:x.condiciones||'',estado:x.estado||'activo',retenciones:(x.retenciones&&typeof x.retenciones==='object')?x.retenciones:null};});
     // GASTOS VARIABLES
@@ -10053,9 +10057,9 @@ async function _ccAgregarLinea(){
       if(invSel==='__nuevo'||!invSel){
         var nn=((gv('cc-invnuevo')||'').trim())||nombre;
         if(!(DB_READY&&supabase)){alert('Sin conexión: no se puede crear el ítem de inventario.');return;}
-        var _rn=await supabase.rpc('inv_item_crear',{p:{nombre:nn,categoria:'Repuestos varios',unidad:'u',stock_inicial:0,stock_min:2,precio:0}});
+        var _rn=await supabase.rpc('inv_item_crear',{p:{nombre:nn,categoria:'Otros',unidad:'u',stock_inicial:0,stock_min:2,precio:0}});
         if(_rn.error||!(_rn.data&&_rn.data.ok)){alert((_rn.data&&_rn.data.error)||'No se pudo crear el ítem.');return;}
-        item={id:_rn.data.id,nombre:nn,cat:'Repuestos varios',unidad:'u',stock:0,stockMin:2,precio:0,activo:true};
+        item={id:_rn.data.id,nombre:nn,cat:'Otros',unidad:'u',stock:0,stockMin:2,precio:0,activo:true};
         INVENTARIO.push(item);
       } else { item=INVENTARIO.find(function(x){return x.id===invSel;}); if(!item){alert('Elegí el ítem de inventario');return;} }
       // MISMA puerta que Inventario: el saldo lo calcula la base, no esta pantalla.
@@ -10732,21 +10736,21 @@ function _mEsc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g
 // Catálogo por defecto (semilla). Editable; se siembra en Supabase si la tabla está vacía.
 function _seedMantItemsDefault(){
   return [
-    {id:'aceite_motor',nombre:'Aceite de motor',categoria:'Motor',base:'km',intervalo:5000,avisoAnticipo:500,tipoUnidad:'',activo:true,orden:1},
-    {id:'filtro_aceite',nombre:'Filtro de aceite',categoria:'Motor',base:'km',intervalo:5000,avisoAnticipo:500,tipoUnidad:'',activo:true,orden:2},
-    {id:'filtro_aire',nombre:'Filtro de aire',categoria:'Motor',base:'km',intervalo:10000,avisoAnticipo:1000,tipoUnidad:'',activo:true,orden:3},
-    {id:'filtro_combustible',nombre:'Filtro de combustible',categoria:'Combustible',base:'km',intervalo:10000,avisoAnticipo:1000,tipoUnidad:'',activo:true,orden:4},
-    {id:'filtro_trampa',nombre:'Filtro trampa / decantador (drenar)',categoria:'Combustible',base:'dias',intervalo:2,avisoAnticipo:0,tipoUnidad:'diesel',activo:true,orden:5},
+    {id:'aceite_motor',nombre:'Aceite de motor',categoria:'Fluidos y lubricantes',base:'km',intervalo:5000,avisoAnticipo:500,tipoUnidad:'',activo:true,orden:1},
+    {id:'filtro_aceite',nombre:'Filtro de aceite',categoria:'Filtros y elementos filtrantes',base:'km',intervalo:5000,avisoAnticipo:500,tipoUnidad:'',activo:true,orden:2},
+    {id:'filtro_aire',nombre:'Filtro de aire',categoria:'Filtros y elementos filtrantes',base:'km',intervalo:10000,avisoAnticipo:1000,tipoUnidad:'',activo:true,orden:3},
+    {id:'filtro_combustible',nombre:'Filtro de combustible',categoria:'Filtros y elementos filtrantes',base:'km',intervalo:10000,avisoAnticipo:1000,tipoUnidad:'',activo:true,orden:4},
+    {id:'filtro_trampa',nombre:'Filtro trampa / decantador (drenar)',categoria:'Filtros y elementos filtrantes',base:'dias',intervalo:2,avisoAnticipo:0,tipoUnidad:'diesel',activo:true,orden:5},
     // `llevaSerial` = la pieza se rastrea por SERIAL en la tabla `piezas`.
     // `critico` = exige foto al cambiarla.
-    {id:'bateria',nombre:'Batería',categoria:'Eléctrico',base:'meses',intervalo:12,avisoAnticipo:15,tipoUnidad:'',activo:true,orden:6,llevaSerial:true,critico:true},
-    {id:'cauchos',nombre:'Cauchos / neumáticos',categoria:'Tren rodante',base:'km',intervalo:40000,avisoAnticipo:3000,tipoUnidad:'',activo:true,orden:7,llevaSerial:true,critico:true},
-    {id:'rodamientos',nombre:'Rodamientos',categoria:'Tren rodante',base:'km',intervalo:60000,avisoAnticipo:3000,tipoUnidad:'',activo:true,orden:8},
-    {id:'frenos',nombre:'Frenos (pastillas/bandas)',categoria:'Frenos',base:'km',intervalo:20000,avisoAnticipo:2000,tipoUnidad:'',activo:true,orden:9},
-    {id:'correa',nombre:'Correa',categoria:'Motor',base:'km',intervalo:60000,avisoAnticipo:3000,tipoUnidad:'',activo:true,orden:10},
-    {id:'refrigerante',nombre:'Refrigerante',categoria:'Motor',base:'meses',intervalo:12,avisoAnticipo:15,tipoUnidad:'',activo:true,orden:11},
-    {id:'lavado',nombre:'Lavado',categoria:'General',base:'dias',intervalo:7,avisoAnticipo:0,tipoUnidad:'',activo:true,orden:12},
-    {id:'engrase',nombre:'Engrase',categoria:'General',base:'dias',intervalo:15,avisoAnticipo:0,tipoUnidad:'',activo:true,orden:13}
+    {id:'bateria',nombre:'Batería',categoria:'Baterías',base:'meses',intervalo:12,avisoAnticipo:15,tipoUnidad:'',activo:true,orden:6,llevaSerial:true,critico:true},
+    {id:'cauchos',nombre:'Cauchos / neumáticos',categoria:'Neumáticos y ruedas',base:'km',intervalo:40000,avisoAnticipo:3000,tipoUnidad:'',activo:true,orden:7,llevaSerial:true,critico:true},
+    {id:'rodamientos',nombre:'Rodamientos',categoria:'Suspensión y dirección',base:'km',intervalo:60000,avisoAnticipo:3000,tipoUnidad:'',activo:true,orden:8},
+    {id:'frenos',nombre:'Frenos (pastillas/bandas)',categoria:'Sistema de frenos',base:'km',intervalo:20000,avisoAnticipo:2000,tipoUnidad:'',activo:true,orden:9},
+    {id:'correa',nombre:'Correa',categoria:'Motor y componentes',base:'km',intervalo:60000,avisoAnticipo:3000,tipoUnidad:'',activo:true,orden:10},
+    {id:'refrigerante',nombre:'Refrigerante',categoria:'Fluidos y lubricantes',base:'meses',intervalo:12,avisoAnticipo:15,tipoUnidad:'',activo:true,orden:11},
+    {id:'lavado',nombre:'Lavado',categoria:'Servicios generales de la unidad',base:'dias',intervalo:7,avisoAnticipo:0,tipoUnidad:'',activo:true,orden:12},
+    {id:'engrase',nombre:'Engrase',categoria:'Servicios generales de la unidad',base:'dias',intervalo:15,avisoAnticipo:0,tipoUnidad:'',activo:true,orden:13}
   ];
 }
 async function cargarMantItems(){
@@ -16112,7 +16116,117 @@ function renderMultas(){
 // reabre exactamente el agujero que esto cerró.
 function _invNum(n){ n=parseFloat(n)||0; return (Math.round(n*100)/100).toLocaleString('es-VE',{maximumFractionDigits:2}); }
 function _invActivos(){ return (INVENTARIO||[]).filter(function(x){return x.activo!==false;}); }
+// ══════════════════════════════════════════════════════════════════════════
+//  CATEGORÍAS · LA FUENTE ÚNICA
+//  ────────────────────────────────────────────────────────────────────────
+//  Máximo, 19/08/2026: «no puede estar repetida, hacela como sea correcta,
+//  que abarque todo tipo de repuestos, que sume, y que todo sea en un mismo
+//  sitio».
+//
+//  ANTES vivía en TRES lugares que no coincidían: las 17 opciones clavadas
+//  DOS veces en app.html (filtro y alta), las 7 categorías propias de
+//  mant_items, y la lista en Excel. El mismo filtro de aceite era «Filtros»
+//  en inventario y «Motor» en el plan: el gasto no sumaba.
+//
+//  AHORA la lista se escribe UNA vez —acá— y de acá salen las dos cosas:
+//  la siembra de la tabla `cat_categorias` (que es la copia editable por
+//  cliente) y el respaldo si esa tabla no contesta. El HTML ya no trae
+//  ninguna opción escrita a mano.
+//
+//  ⛔ El respaldo NO es adorno: un catálogo que no carga NO puede dejar al
+//     usuario sin poder registrar. [[norma-catalogo-no-puede-trancar-el-registro]]
+// ══════════════════════════════════════════════════════════════════════════
+var CAT_CATEGORIAS=[];
+function _catDefault(){
+  var R='Repuestos y partes', O='Otros bienes e insumos', S='Servicios';
+  return [
+    {id:'motor',          nombre:'Motor y componentes',                grupo:R,orden:1},
+    {id:'combustible',    nombre:'Sistema de combustible',             grupo:R,orden:2},
+    {id:'filtros',        nombre:'Filtros y elementos filtrantes',     grupo:R,orden:3},
+    {id:'fluidos',        nombre:'Fluidos y lubricantes',              grupo:R,orden:4},
+    {id:'frenos',         nombre:'Sistema de frenos',                  grupo:R,orden:5},
+    {id:'suspension',     nombre:'Suspensión y dirección',             grupo:R,orden:6},
+    {id:'transmision',    nombre:'Transmisión y tren motriz',          grupo:R,orden:7},
+    {id:'electrico',      nombre:'Sistema eléctrico y electrónico',    grupo:R,orden:8},
+    {id:'baterias',       nombre:'Baterías',                           grupo:R,orden:9},
+    {id:'neumaticos',     nombre:'Neumáticos y ruedas',                grupo:R,orden:10},
+    {id:'aire',           nombre:'Sistema de aire comprimido',         grupo:R,orden:11},
+    {id:'hidraulico',     nombre:'Sistema hidráulico',                 grupo:R,orden:12},
+    {id:'clima',          nombre:'Aire acondicionado y climatización', grupo:R,orden:13},
+    {id:'escape',         nombre:'Escape y control de emisiones',      grupo:R,orden:14},
+    {id:'carroceria',     nombre:'Carrocería, cabina y espejos',       grupo:R,orden:15},
+    {id:'equipo_trabajo', nombre:'Equipo de trabajo de la unidad',     grupo:R,orden:16},
+    {id:'consumibles',    nombre:'Consumibles y ferretería',           grupo:R,orden:17},
+    {id:'herramientas',   nombre:'Herramientas y equipos de taller',   grupo:O,orden:18},
+    {id:'seguridad',      nombre:'Seguridad y emergencia',             grupo:O,orden:19},
+    {id:'implementos',    nombre:'Implementos de la operación',        grupo:O,orden:20},
+    {id:'limpieza',       nombre:'Insumos de limpieza y lavado',       grupo:O,orden:21},
+    {id:'oficina',        nombre:'Materiales de oficina',              grupo:O,orden:22},
+    {id:'mobiliario',     nombre:'Mobiliario y equipos',               grupo:O,orden:23},
+    {id:'otros',          nombre:'Otros',                              grupo:O,orden:24},
+    {id:'mano_obra',      nombre:'Mano de obra y servicios de taller', grupo:S,orden:25},
+    {id:'servicio_unidad',nombre:'Servicios generales de la unidad',   grupo:S,orden:26}
+  ];
+}
+// La regla de desambiguación de las que se prestan a confusión. Se muestra
+// debajo del select: sin esto, la misma válvula termina en dos categorías y
+// el gasto deja de sumar — que es justo el defecto que esto vino a arreglar.
+var _CAT_REGLA={
+  'Filtros y elementos filtrantes':'Todo lo que sea filtro va acá, sin importar a qué sistema sirva.',
+  'Sistema de frenos':'Las válvulas de FRENO van acá (no en Aire ni en Neumáticos).',
+  'Neumáticos y ruedas':'Solo la válvula del CAUCHO. Los rodamientos de rueda van en Suspensión.',
+  'Sistema de aire comprimido':'Solo las válvulas de la línea de aire. Las de freno, en Frenos.',
+  'Fluidos y lubricantes':'El gasoil NO va acá: es combustible de operación.',
+  'Consumibles y ferretería':'Si la pieza es de un sistema concreto, va en SU categoría.',
+  'Herramientas y equipos de taller':'Lo que se instala en la unidad NO es herramienta.',
+  'Mano de obra y servicios de taller':'La pieza instalada se carga aparte, en su categoría.'
+};
+async function _catCargar(){
+  CAT_CATEGORIAS=_catDefault();          // primero el respaldo: nunca queda vacío
+  try{
+    if(!(DB_READY&&supabase))return;
+    var r=await supabase.from('cat_categorias').select('id,nombre,grupo,orden,activo').eq('activo',true).order('orden');
+    if(r&&!r.error&&r.data&&r.data.length)
+      CAT_CATEGORIAS=r.data.map(function(x){return{id:x.id,nombre:x.nombre,grupo:x.grupo||'Otros',orden:parseInt(x.orden)||0};});
+  }catch(e){}
+  try{_catPoblarSelects();}catch(e){}
+}
+// Llena un <select> con el catálogo, agrupado. Respeta lo que ya estaba
+// elegido, y si ese valor es uno viejo que ya no está en la lista lo agrega
+// al final marcado: así una ficha vieja no pierde su categoría en silencio.
+function _catPoblarSelect(id,vacio){
+  var s=g(id); if(!s)return;
+  var prev=s.value||s.getAttribute('data-val')||'';
+  var lista=(CAT_CATEGORIAS&&CAT_CATEGORIAS.length)?CAT_CATEGORIAS:_catDefault();
+  var grupos=[],porGrupo={};
+  lista.forEach(function(c){ if(!porGrupo[c.grupo]){porGrupo[c.grupo]=[];grupos.push(c.grupo);} porGrupo[c.grupo].push(c); });
+  var html=vacio?('<option value="">'+vacio+'</option>'):'';
+  grupos.forEach(function(gr){
+    html+='<optgroup label="'+_mEsc(gr)+'">'+porGrupo[gr].map(function(c){
+      return '<option value="'+_mEsc(c.nombre)+'">'+_mEsc(c.nombre)+'</option>';}).join('')+'</optgroup>';
+  });
+  var conocido=lista.some(function(c){return c.nombre===prev;});
+  if(prev&&!conocido)html+='<optgroup label="Categoría anterior"><option value="'+_mEsc(prev)+'">'+_mEsc(prev)+' (fuera del catálogo)</option></optgroup>';
+  s.innerHTML=html;
+  if(prev)s.value=prev;
+}
+function _catPoblarSelects(){
+  _catPoblarSelect('inv-filtro-cat','Todas las categorías');
+  _catPoblarSelect('inv-cat','');
+  try{_catRegla();}catch(e){}
+}
+// El renglón de ayuda debajo del select de alta.
+function _catRegla(){
+  var box=g('inv-cat-regla'); if(!box)return;
+  var v=(typeof gv==='function'?gv('inv-cat'):'')||'';
+  var t=_CAT_REGLA[v]||'';
+  box.innerHTML=t?('⚠️ '+_mEsc(t)):'';
+  box.style.display=t?'block':'none';
+}
+
+
 function _invPoblarSelects(){
+  try{_catPoblarSelects();}catch(e){}
   var lista=_invActivos().slice().sort(function(a,b){return (a.nombre||'').localeCompare(b.nombre||'');});
   var su=g('inv-uso-item');
   if(su){
