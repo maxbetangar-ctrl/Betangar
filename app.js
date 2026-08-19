@@ -2397,7 +2397,9 @@ function _acAnomalias(todas,desde,hasta,ref){
   var _ncJ=(todas||[]).filter(function(j){ return j.noConf && j.fecha>=desde && j.fecha<=hasta; });
   if(_ncJ.length){
     var _det=_ncJ.slice(0,6).map(function(j){
-      return U(j.cam)+' '+_fmtFecha(j.fecha)+(j.noConf.por?(' — lo declaró '+j.noConf.por):'')+
+      // `formatFecha` y no `_fmtFecha`: el segundo NO existe en las otras 4 instancias, y este
+      // bloque se replica tal cual. Una función que solo está en un clon rompe al replicar.
+      return U(j.cam)+' '+formatFecha(j.fecha)+(j.noConf.por?(' — lo declaró '+j.noConf.por):'')+
              (j.noConf.motivo?(': '+j.noConf.motivo):'');
     }).join(' · ');
     add('media','R0b','Mediciones declaradas malas (no se pudo saber la verdadera)',
