@@ -11620,7 +11620,38 @@ function _fechaExcel(v){
 // Aparece solo si el item elegido se rastrea por serial. Asi el formulario no
 // le pide un serial a quien registra un lavado, y si se lo exige a quien esta
 // cambiando una bateria — incluido el que llega desde CERRAR UNA ORDEN.
+// El renglón que le dice al usuario en qué categoría va a caer este trabajo. Se
+// crea solo debajo del select del ítem: así no hay que tocar el HTML de cinco
+// instancias que ya divergieron entre ellas.
+function _hvCategoriaDelItem(){
+  var it=(MANT_ITEMS||[]).filter(function(x){return x.id===gv('hv-item');})[0];
+  return (it&&it.categoria)?String(it.categoria):'';
+}
+function _hvPintarCategoria(){
+  var sel=g('hv-item'); if(!sel||!sel.parentNode)return;
+  var box=g('hv-cat-vista');
+  if(!box){
+    box=document.createElement('div');
+    box.id='hv-cat-vista';
+    box.style.cssText='font-size:11px;margin-top:4px;color:var(--text3)';
+    sel.parentNode.appendChild(box);
+  }
+  var c=_hvCategoriaDelItem();
+  // Si el ítem no declara categoría se DICE, no se deja el renglón mudo: un vacío
+  // sin explicación se lee como que el sistema no la tiene, y lo que falta es que
+  // alguien se la ponga al ítem en el catálogo.
+  box.innerHTML = c
+    ? ('Categoría: <b style="color:var(--text)">'+_mEsc(c)+'</b> <span style="opacity:.7">(la toma del ítem)</span>')
+    : (gv('hv-item') ? '⚠️ Este ítem no tiene categoría en el catálogo. Ponésela en ⚙️ Ciclos y el gasto empieza a sumar.' : '');
+  box.style.display = box.innerHTML ? 'block' : 'none';
+}
 function _hvItemSerial(){
+  // ⛔ LA CATEGORÍA SE MUESTRA, NO SE PREGUNTA. Sale del ítem que eligió, que ya
+  //    la trae del catálogo único. Un select acá dejaría que el mismo repuesto
+  //    quedara en dos categorías distintas según quién cargue — que es el defecto
+  //    que el catálogo vino a cerrar, y por el que el gasto no sumaba.
+  //    Lo pidió Carlos Serrano el 20/08: quería VERLA, no cargarla.
+  try{ _hvPintarCategoria(); }catch(e){}
   var w=g('hv-serial-wrap'); if(!w)return;
   var it=(MANT_ITEMS||[]).filter(function(x){return x.id===gv('hv-item');})[0];
   var mostrar=!!(it&&it.llevaSerial);
@@ -12020,7 +12051,10 @@ async function registrarMantItem(){
       if(_o&&_o.proveedorId){ provId=_o.proveedorId; prov=_o.proveedor||prov; }
     } else { prov=''; }
   }
-  var row={id:id,cam:cam,f:fecha,km:km,horas:horas,item_id:itemId,tipo:(it?it.nombre:itemId),tipo_trabajo:tipoTrab,desc_trabajo:nota||(it?it.nombre:''),costo_usd:costo,proveedor:prov,proveedor_id:provId||null,foto_url:foto,anomalia:anomalia,motivo:motivo,orden_id:_oc,garantia_hasta:garHasta,ejecutor:ejecutor};
+  var row={id:id,cam:cam,f:fecha,km:km,horas:horas,item_id:itemId,tipo:(it?it.nombre:itemId),tipo_trabajo:tipoTrab,desc_trabajo:nota||(it?it.nombre:''),costo_usd:costo,proveedor:prov,proveedor_id:provId||null,foto_url:foto,anomalia:anomalia,motivo:motivo,orden_id:_oc,garantia_hasta:garHasta,ejecutor:ejecutor,
+    // Heredada del ítem, no cargada a mano: así el gasto de mantenimiento suma
+    // con el de inventario bajo la MISMA categoría.
+    categoria:(it&&it.categoria)?it.categoria:''};
   var mem={id:id,cam:cam,fecha:fecha,km:km,horas:horas,itemId:itemId,tipo:row.tipo,tipoTrabajo:tipoTrab,desc:row.desc_trabajo,costo:costo,proveedor:prov,proveedorId:provId,foto:foto,anomalia:anomalia,motivo:motivo,ordenId:_oc,garantiaHasta:garHasta,ejecutor:ejecutor};
   var ok=false;
   if(DB_READY&&supabase){
