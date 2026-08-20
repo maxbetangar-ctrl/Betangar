@@ -2882,7 +2882,15 @@ async function guardarChecklist(){
   if(CL_MODO==='cerrado'){ mostrarToast('La llegada de hoy ya está registrada. Si te equivocaste, toca "quiero corregir".','warn'); return; }
   if(_CL_GUARDANDO){ return; }   // el botón ya se deshabilita; esto tapa el doble disparo del toque
   _CL_GUARDANDO=true;
-  try{ await _guardarChecklist(); } finally { _CL_GUARDANDO=false; }
+  // ⛔ Las líneas que convierten «no me deja» en un aviso. Se mira el RESULTADO,
+  //    no el motivo: el `finally` corre igual si un candado hizo return, si el
+  //    guardado falló, o si algo tiró una excepción que nadie previó.
+  _CL_QUEDO_GUARDADO=false; _CL_ULT_AVISO='';
+  try{ await _guardarChecklist(); }
+  finally {
+    _CL_GUARDANDO=false;
+    if(!_CL_QUEDO_GUARDADO){ try{ _clAvisarBloqueo(); }catch(e){} }
+  }
 }
 var _CL_GUARDANDO=false;
 async function _guardarChecklist(){
@@ -3112,6 +3120,9 @@ async function _guardarChecklist(){
 
   if(guardadoOk){
     // GUARDADO DE VERDAD en la BD → recién ahí medición, WhatsApp y "registrada".
+    // Quedó de verdad. De acá sale el «sí quedó» que mira el envoltorio, y acá se
+    // suelta el contador de intentos: si pudo, lo anterior deja de contar.
+    _CL_QUEDO_GUARDADO=true; try{_clBloqLimpiar();}catch(e){}
     clBorrarBorrador();   // quedó guardado de verdad
     mostrarToast(CL_MODO==='salida' ? '☀️ Salida registrada' : '🌙 Llegada registrada');
     // Medición del tanque con regla (cm -> litros) -> combustible_mediciones
@@ -3130,6 +3141,8 @@ async function _guardarChecklist(){
       setTimeout(renderChecklistModo, 800);
     }
   } else if(enCola){
+    // Quedó en el teléfono, que también es quedar guardado: NO es un bloqueo.
+    _CL_QUEDO_GUARDADO=true; try{_clBloqLimpiar();}catch(e){}
     // SOLO quedó en el teléfono (sin señal o falló el envío). NO decir "registrada": el chofer
     // debe saber que falta enviarlo, para no cerrar la app creyendo que ya está (bug B003 2026-07-08).
     sincronizarCola();   // intento inmediato (no depende de isOnline)
@@ -3149,6 +3162,106 @@ async function _guardarChecklist(){
 }
 
 // ── NOTIFICACIÓN WHATSAPP ──
+// ══════════════════════════════════════════════════════════════════════════
+// AVISO: UN CHOFER TOCÓ GUARDAR Y NO QUEDÓ NADA
+//
+// ⛔ Esto NO mira QUÉ candado lo frenó: mira SI QUEDÓ GUARDADO. Da igual el
+//    motivo —un candado de hoy, uno que se agregue mañana, o una excepción que
+//    nadie previó—: si el chofer no pudo, alguien se entera. Enganchar el aviso
+//    a cada candado obliga a acordarse cada vez, y de eso ya sabemos cómo termina.
+//
+// 🔴 EL CASO QUE LO PIDIÓ: el 19/08 tres choferes quedaron sin cerrar la jornada
+//    y el bloqueo vivió una noche entera sin que nadie lo supiera. El FC05 estuvo
+//    trancado del 17 al 20/08 y se supo porque dos personas escribieron.
+// ══════════════════════════════════════════════════════════════════════════
+var _CL_QUEDO_GUARDADO=false;   // lo pone en true el punto donde quedó de verdad
+var _CL_ULT_AVISO='';           // lo último que la pantalla le dijo al chofer
+
+// Se recuerda lo que se le MUESTRA, no lo que se registra: es lo que él está
+// leyendo cuando escribe «no me deja», y es lo que ahorra la investigación.
+//
+// ⛔ NO SE ENVUELVE `mostrarToast`. Envolverla obligaría a que reasignar
+//    `window.mostrarToast` intercepte las llamadas sueltas a `mostrarToast(...)`.
+//    En un <script> clásico eso pasa —la declaración global ES la propiedad de
+//    window— pero es una sutileza del lenguaje, y el diagnóstico del bloqueo no
+//    puede colgar de ella: si mañana ese código se mete en un módulo o en un IIFE,
+//    el aviso saldría igual pero MUDO, y nadie lo notaría.
+//    Se lee el TOAST DEL DOM, que es lo que el chofer tiene delante de los ojos.
+//    De paso agarra cualquier mensaje, venga del camino que venga.
+function _clLoQueDiceLaPantalla(){
+  if(_CL_ULT_AVISO) return _CL_ULT_AVISO;              // un alert() de ESTE intento
+  try{
+    var el=document.getElementById('toast');
+    // Solo si está VISIBLE: el toast se apaga solo a los 3 s, y uno viejo y ya
+    // apagado explicaría el bloqueo anterior, no el de ahora.
+    if(el && /(^|\s)show(\s|$)/.test(el.className||'')) return String(el.textContent||'').slice(0,300);
+  }catch(e){}
+  return '';
+}
+// El `alert()` sí se envuelve: ahí no hay sutileza —es una propiedad de window— y
+// su texto no queda en ninguna parte del DOM. Es el camino del candado «el
+// kilometraje no puede ir para atrás», justo el que trancó al FC05.
+(function(){
+  try{
+    var _a=window.alert;
+    if(typeof _a==='function'){
+      window.alert=function(m){ if(m)_CL_ULT_AVISO=String(m).slice(0,300); return _a.apply(this,arguments); };
+    }
+  }catch(e){}
+})();
+
+// ── La cola del aviso. Un bloqueo sin señal NO puede perderse: sería el mismo
+//    silencio que esto viene a romper.
+var COLA_BLOQ=null;   // null = todavía no se leyó de localStorage
+function cargarColaBloq(){ if(COLA_BLOQ)return COLA_BLOQ; try{ var s=localStorage.getItem('btg_cola_bloq'); COLA_BLOQ=s?(JSON.parse(s)||[]):[]; }catch(e){ COLA_BLOQ=[]; } return COLA_BLOQ; }
+function persistColaBloq(){ try{ if(COLA_BLOQ&&COLA_BLOQ.length) localStorage.setItem('btg_cola_bloq',JSON.stringify(COLA_BLOQ)); else localStorage.removeItem('btg_cola_bloq'); }catch(e){} }
+async function _bloqMandar(b){
+  var salio=false;
+  try{
+    for(var i=0;i<WA_DESTINATARIOS.length;i++){
+      var dest=WA_DESTINATARIOS[i]; if(!dest||!dest.num)continue;
+      try{ if(await enqueueWA(dest.num,b.msg,'bloqueo')) salio=true; }catch(e){}
+    }
+  }catch(e){}
+  return salio;
+}
+async function drenarColaBloq(){
+  cargarColaBloq();
+  if(!COLA_BLOQ.length||typeof supabase==='undefined'||!supabase)return;
+  var quedan=[];
+  for(var i=0;i<COLA_BLOQ.length;i++){
+    // Lo de AYER no se manda hoy: un «no puede guardar» que sale al día siguiente
+    // manda a alguien a buscar un problema que ya pasó. Misma regla que las entregas.
+    if(COLA_BLOQ[i].fecha && COLA_BLOQ[i].fecha!==hoy) continue;
+    if(!(await _bloqMandar(COLA_BLOQ[i]))) quedan.push(COLA_BLOQ[i]);
+  }
+  COLA_BLOQ=quedan; persistColaBloq();
+}
+// La pieza se drena SOLA. No se engancha en sincronizarCola() a propósito: esa
+// función ya divergió entre las cinco instancias, y un aviso que depende de la
+// forma de cada cliente se cae justo en el cliente donde no lo probamos.
+try{ window.addEventListener('online', function(){ try{drenarColaBloq();}catch(e){} }); }catch(e){}
+try{ setInterval(function(){ try{drenarColaBloq();}catch(e){} }, 120000); }catch(e){}
+
+// El contador vive en localStorage: el chofer trancado RECARGA la app, y un
+// contador en memoria se le reinicia justo cuando más hace falta.
+function _clLlaveBloq(){ return 'btg_cl_bloq_'+cam+'_'+hoy; }
+function _clBloqLimpiar(){ try{ localStorage.removeItem(_clLlaveBloq()); }catch(e){} }
+function _clAvisarBloqueo(){
+  var n=0; try{ n=parseInt(localStorage.getItem(_clLlaveBloq())||'0',10)||0; }catch(e){}
+  n++; try{ localStorage.setItem(_clLlaveBloq(),String(n)); }catch(e){}
+  // El 1º casi siempre es el chofer corrigiéndose solo. Del 2º en adelante ya no.
+  if(n!==2 && n%5!==0) return;
+  var msg='🔴 '+cam+' · '+(typeof chofer!=='undefined'&&chofer?chofer:'sin chofer')+
+          ' NO PUEDE GUARDAR el checklist ('+(CL_MODO==='llegada'?'LLEGADA':'SALIDA')+')\n'+
+          'Lleva '+n+' intentos y no queda registrado.\n'+
+          'La pantalla le dice: '+(_clLoQueDiceLaPantalla()||'NADA — se traba sin decir por qué');
+  cargarColaBloq(); COLA_BLOQ.push({msg:msg,fecha:hoy,cam:cam,n:n}); persistColaBloq();
+  try{ drenarColaBloq(); }catch(e){}
+  // Y que ÉL sepa que no está solo ahí parado. Si no, la única salida que le queda
+  // es escribir por WhatsApp y esperar — que es lo que pasó estos dos días.
+  try{ mostrarToast('Ya avisamos a la oficina de que no te deja guardar.','warn'); }catch(e){}
+}
 async function enviarNotificacionWA(reg){
   try{
     var tiposEstado = {

@@ -13582,11 +13582,16 @@ function renderMantCatalogo(){
   keys.forEach(function(key){
     var items=grupos[key];
     html+='<div style="font-weight:700;margin:10px 0 4px;color:var(--blue)">'+_mEsc(key)+' <span style="font-size:10px;color:var(--text3)">('+items.length+')</span></div>'+
-      '<table><thead><tr><th>Ítem</th><th>Base</th><th>🔎 Revisar</th><th>🔧 Cambiar</th><th>Avisar</th><th>Crít.</th>'+(edit?'<th></th>':'')+'</tr></thead><tbody>';
+      '<table><thead><tr><th>Ítem</th><th>Categoría</th><th>Base</th><th>🔎 Revisar</th><th>🔧 Cambiar</th><th>Avisar</th><th>Crít.</th>'+(edit?'<th></th>':'')+'</tr></thead><tbody>';
     items.forEach(function(x){ var i=MANT_ITEMS.indexOf(x);
       if(edit){
         html+='<tr>'+
           '<td><input value="'+_mEsc(x.nombre)+'" onchange="MANT_ITEMS['+i+'].nombre=this.value;guardarMantItem('+i+')" style="'+_CI+'width:150px"></td>'+
+          // La MISMA lista de inventario. Antes acá no había nada: `mant_items.categoria`
+          // se guardaba en la base y no se podía ni ver ni elegir, así que todo ítem
+          // creado desde mantenimiento nacía sin categoría y el gasto no sumaba con el
+          // de inventario — que es el defecto que el catálogo único vino a cerrar.
+          '<td><select data-cat data-cat-vacio="— sin categoría —" data-val="'+_mEsc(x.categoria||'')+'" onchange="MANT_ITEMS['+i+'].categoria=this.value;guardarMantItem('+i+')" style="'+_CI+'width:180px"></select></td>'+
           '<td><select onchange="MANT_ITEMS['+i+'].base=this.value;guardarMantItem('+i+')" style="'+_CI+'"><option value="km"'+(x.base==='km'?' selected':'')+'>km</option><option value="horas"'+(x.base==='horas'?' selected':'')+'>horas</option><option value="dias"'+(x.base==='dias'?' selected':'')+'>días</option><option value="meses"'+(x.base==='meses'?' selected':'')+'>meses</option></select></td>'+
           '<td><input type="number" value="'+(x.inspeccion||0)+'" onchange="MANT_ITEMS['+i+'].inspeccion=parseFloat(this.value)||0;guardarMantItem('+i+')" style="'+_CI+'width:80px;font-family:var(--m)"></td>'+
           '<td><input type="number" value="'+(x.sustitucion||x.intervalo||0)+'" onchange="MANT_ITEMS['+i+'].sustitucion=parseFloat(this.value)||0;guardarMantItem('+i+')" style="'+_CI+'width:80px;font-family:var(--m)"></td>'+
@@ -13595,7 +13600,8 @@ function renderMantCatalogo(){
           '<td><button class="btn btn-r btn-xs" onclick="elimMantItemCat(\''+_mEsc(x.id)+'\')">×</button></td></tr>';
       } else {
         var chg=(x.sustitucion||x.intervalo);
-        html+='<tr><td>'+_mEsc(x.nombre)+(x.critico?' <span style="color:var(--red)" title="seguridad">⚠</span>':'')+'</td><td>'+_mEsc(x.base)+'</td>'+
+        html+='<tr><td>'+_mEsc(x.nombre)+(x.critico?' <span style="color:var(--red)" title="seguridad">⚠</span>':'')+'</td>'+
+          '<td>'+_mEsc(x.categoria||'—')+'</td><td>'+_mEsc(x.base)+'</td>'+
           '<td style="font-family:var(--m)">'+(x.inspeccion?x.inspeccion.toLocaleString():'—')+'</td>'+
           '<td style="font-family:var(--m)">'+(chg?chg.toLocaleString():'—')+'</td>'+
           '<td style="font-family:var(--m)">'+(x.avisoAnticipo||0)+'</td>'+
@@ -13605,6 +13611,9 @@ function renderMantCatalogo(){
     html+='</tbody></table>'+(edit?'<button class="btn btn-s btn-xs" style="margin:4px 0" onclick="agregarMantItemCat()">+ Agregar ítem</button>':'');
   });
   el.innerHTML=html;
+  // Los selects de categoría se acaban de crear: hay que llenarlos AHORA. El
+  // catálogo ya está en memoria (`CAT_CATEGORIAS`), así que no cuesta una consulta.
+  try{_catPoblarSelects();}catch(e){}
 }
 async function guardarMantItem(i){
   var x=MANT_ITEMS[i]; if(!x)return false;
@@ -16303,9 +16312,20 @@ function _catPoblarSelect(id,vacio){
   s.innerHTML=html;
   if(prev)s.value=prev;
 }
+// ⛔ ACÁ NO SE ENUMERA NINGÚN SELECT. Un select se apunta solo poniéndose
+// `data-cat`, y declara su opción vacía con `data-cat-vacio`. Antes esta función
+// traía escritos los dos ids de inventario: el 19/08 se unificó el catálogo en
+// `cat_categorias` pero el repartidor siguió con su lista a mano, y el 20/08
+// Carlos reportó que «las categorías aparecen en inventario y en mantenimiento
+// no». No era un defecto de mantenimiento: era de esta lista.
+// [[norma-fuente-unica-datos]] — una lista sola no alcanza si el reparto se enumera.
 function _catPoblarSelects(){
-  _catPoblarSelect('inv-filtro-cat','Todas las categorías');
-  _catPoblarSelect('inv-cat','');
+  var nodos=document.querySelectorAll('select[data-cat]');
+  for(var i=0;i<nodos.length;i++){
+    var s=nodos[i];
+    if(!s.id)s.id='_cat_auto_'+i;   // _catPoblarSelect trabaja por id
+    try{_catPoblarSelect(s.id, s.getAttribute('data-cat-vacio')||'');}catch(e){}
+  }
   try{_catRegla();}catch(e){}
 }
 // El renglón de ayuda debajo del select de alta.
