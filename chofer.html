@@ -353,7 +353,7 @@ body{background:#0f1923;color:#fff;font-family:-apple-system,BlinkMacSystemFont,
             <button class="comb-btn" onclick="selComb('salida','reserva',this)">RESERVA</button>
           </div>
         </div>
-        <div style="margin-top:12px" id="cl-comb-llegada-cont" style="display:none">
+        <div id="cl-comb-llegada-cont" style="margin-top:12px;display:none">
           <label class="cl-label">Nivel al Llegar</label>
           <div class="comb-btns" id="cl-comb-llegada-btns">
             <button class="comb-btn" onclick="selComb('llegada','lleno',this)">LLENO</button>
@@ -2399,6 +2399,10 @@ function renderHistorial(){
 
 function cargarChecklistSupabase(){
   if(!supabase) return;
+  // El borrador escucha desde ya; se repone un instante después, porque primero
+  // tiene que pintar lo que venga de la base: el dato guardado siempre gana.
+  try{ clEngancharBorrador(); }catch(e){}
+  try{ setTimeout(function(){ try{ clRestaurarBorrador(); }catch(e){} }, 900); }catch(e){}
   // Odómetro previo de la unidad (para validar que el km que meta el chofer no sea irreal).
   try{
     supabase.rpc('chofer_unidad_km', {p_cam: cam}).then(function(rk){
@@ -2581,11 +2585,105 @@ function renderEstadoVehiculo(){
   if(mc) mc.style.display = (CL_ESTADO && CL_ESTADO!=='operativo') ? 'block' : 'none';
 }
 
+// ══════════════════════════════════════════════════════════════════════════════
+//  EL BORRADOR DEL CHECKLIST — que no se pierda lo que el chofer ya llenó
+//  ────────────────────────────────────────────────────────────────────────────
+//  Máximo, 19/08/2026: «necesito soluciones completas, esto no puede estar
+//  pasando constantemente».
+//
+//  QUÉ PASABA. El checklist no guardaba NADA hasta que el chofer tocaba Guardar.
+//  Si la aplicación se recargaba antes —se actualiza sola cuando publicamos, el
+//  teléfono la descarga de memoria, el chofer cambia de app— se perdía todo lo
+//  marcado. Y se perdía DESPAREJO: el kilometraje sobrevivía porque vive en una
+//  casilla de texto que el navegador restaura, y el combustible no, porque era
+//  una variable en memoria. De ahí el «aparece el km pero el combustible no»
+//  que reportó Carlos Serrano con el FR03.
+//
+//  QUÉ HACE. Guarda TODO el checklist en curso —ítems, kilometraje, horas,
+//  centímetros, combustible, observaciones y motivo— en el teléfono, en cada
+//  cambio. Al volver a entrar, lo repone. Al guardar de verdad, lo borra.
+//
+//  ⛔ NUNCA PISA LO QUE YA VINO DE LA BASE. Solo rellena lo que está vacío: el
+//     dato guardado siempre gana sobre el borrador. Si no, un borrador viejo
+//     podría sobrescribir un checklist que el mecánico ya completó.
+//
+//  ⛔ Es por UNIDAD y por DÍA: `btg_cl_draft_<unidad>_<fecha>`. Un borrador de
+//     ayer o de otro camión no se aplica jamás.
+// ══════════════════════════════════════════════════════════════════════════════
+var CL_DRAFT_CAMPOS = ['cl-km-salida','cl-km-llegada','cl-hora-salida','cl-hora-llegada',
+                       'cl-cm-salida','cl-cm-llegada','cl-observaciones','cl-motivo'];
+function clBorradorKey(){ return 'btg_cl_draft_' + cam + '_' + hoy; }
+
+function clGuardarBorrador(){
+  try{
+    var d = { modo: CL_MODO, items: CL_ITEMS, combSal: CL_COMB_SAL,
+              combLle: CL_COMB_LLE, estado: CL_ESTADO, campos: {} };
+    CL_DRAFT_CAMPOS.forEach(function(id){
+      var el = document.getElementById(id);
+      if(el && el.value) d.campos[id] = el.value;
+    });
+    localStorage.setItem(clBorradorKey(), JSON.stringify(d));
+  }catch(e){ /* sin espacio o modo privado: no puede tumbar el checklist */ }
+}
+
+function clRestaurarBorrador(){
+  try{
+    var s = localStorage.getItem(clBorradorKey());
+    if(!s) return;
+    var d = JSON.parse(s);
+    if(!d) return;
+    var repuso = false;
+
+    // Ítems: solo los que todavía no tienen valor.
+    Object.keys(d.items || {}).forEach(function(k){
+      if(!CL_ITEMS[k] && d.items[k]){
+        CL_ITEMS[k] = d.items[k];
+        var el = document.getElementById('ci-' + k);
+        if(el) el.className = 'cl-item ' + (d.items[k]==='ok' ? 'ok' : d.items[k]==='mal' ? 'mal' : '');
+        repuso = true;
+      }
+    });
+
+    if(!CL_COMB_SAL && d.combSal){ CL_COMB_SAL = d.combSal; try{ marcarCombBtn('salida', d.combSal); }catch(e){} repuso = true; }
+    if(!CL_COMB_LLE && d.combLle){ CL_COMB_LLE = d.combLle; try{ marcarCombBtn('llegada', d.combLle); }catch(e){} repuso = true; }
+
+    CL_DRAFT_CAMPOS.forEach(function(id){
+      var el = document.getElementById(id);
+      if(el && !el.value && d.campos && d.campos[id]){ el.value = d.campos[id]; repuso = true; }
+    });
+
+    // Se le avisa: si algo reapareció solo y nadie lo explica, el chofer no sabe
+    // si puede confiar en lo que ve.
+    if(repuso && typeof mostrarToast === 'function'){
+      mostrarToast('Recuperamos lo que habías marcado antes. Revísalo antes de guardar.','info');
+    }
+  }catch(e){}
+}
+
+function clBorrarBorrador(){ try{ localStorage.removeItem(clBorradorKey()); }catch(e){} }
+
+// Cualquier cosa que se escriba dentro del checklist queda guardada al momento.
+// Un listener sobre el contenedor cubre TODAS las casillas, incluidas las que se
+// agreguen mañana: si dependiera de acordarse de llamar a la función en cada
+// campo nuevo, el próximo campo nace sin protección.
+function clEngancharBorrador(){
+  try{
+    var cont = document.getElementById('tab-checklist') || document;
+    ['input','change'].forEach(function(ev){
+      cont.addEventListener(ev, function(e){
+        var t = e.target;
+        if(t && t.id && t.id.indexOf('cl-') === 0) clGuardarBorrador();
+      }, true);
+    });
+  }catch(e){}
+}
+
 function setItem(e, nombre, val){
   e.stopPropagation();
   CL_ITEMS[nombre] = val;
   var el = document.getElementById('ci-'+nombre);
   if(el) el.className = 'cl-item ' + (val==='ok'?'ok':'mal');
+  clGuardarBorrador();
 }
 
 function toggleItem(nombre){
@@ -2594,6 +2692,7 @@ function toggleItem(nombre){
   var el = document.getElementById('ci-'+nombre);
   if(!el) return;
   el.className = 'cl-item ' + (CL_ITEMS[nombre]==='ok'?'ok':CL_ITEMS[nombre]==='mal'?'mal':'');
+  clGuardarBorrador();
 }
 
 function selComb(momento, val, btn){
@@ -2603,6 +2702,7 @@ function selComb(momento, val, btn){
   var group = document.getElementById(groupId);
   if(group) group.querySelectorAll('.comb-btn').forEach(function(b){ b.classList.remove('sel'); });
   btn.classList.add('sel');
+  clGuardarBorrador();
 }
 
 function marcarCombBtn(momento, val){
@@ -2804,6 +2904,29 @@ async function _guardarChecklist(){
     return;
   }
 
+  // ⛔ EL NIVEL DE COMBUSTIBLE AL LLEGAR ES OBLIGATORIO.
+  //    Medido el 19/08/2026 sobre los cierres reales: entre 3 y 9 de cada 12 jornadas
+  //    cerraban SIN el dato, todos los días desde hace al menos diez. No era un caso
+  //    aislado: el 12/08 fueron 9 de 12. El sistema lo aceptaba en silencio.
+  //    Es el mismo patrón del «Salí de», que dejó 694 de 799 viajes sin centro: un dato
+  //    que depende de que alguien se acuerde, se pierde.
+  //    Sin el nivel de llegada no se puede cerrar el consumo de la jornada — que es
+  //    justamente para lo que se llena el checklist.
+  //
+  //    Solo al CERRAR: en la salida el chofer ya lo marca y ahí sí venía completo.
+  //
+  //    ⚠️ Y con la lección de esta misma noche: si no hay dónde elegir, NO se exige.
+  //    Un candado que pide algo que la pantalla no muestra deja a la persona sin salida
+  //    (le pasó a tres choferes hoy con los centímetros del tanque).
+  if (CL_MODO !== 'salida') {
+    var _combGrupo = document.getElementById('cl-comb-llegada-btns');
+    if (_combGrupo && _combGrupo.offsetParent !== null && !CL_COMB_LLE) {
+      mostrarToast('Marca con cuánto combustible llegaste antes de guardar','warn');
+      try{ _combGrupo.scrollIntoView({block:'center'}); }catch(e){}
+      return;
+    }
+  }
+
   var btn = document.getElementById('cl-btn-guardar');
   if(btn){ btn.disabled=true; btn.textContent='Guardando...'; }
 
@@ -2989,6 +3112,7 @@ async function _guardarChecklist(){
 
   if(guardadoOk){
     // GUARDADO DE VERDAD en la BD → recién ahí medición, WhatsApp y "registrada".
+    clBorrarBorrador();   // quedó guardado de verdad
     mostrarToast(CL_MODO==='salida' ? '☀️ Salida registrada' : '🌙 Llegada registrada');
     // Medición del tanque con regla (cm -> litros) -> combustible_mediciones
     try{ await clGuardarMedicionCm(CL_MODO==='salida'?'salida':'llegada'); }catch(e){}
