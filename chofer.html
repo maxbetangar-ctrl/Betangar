@@ -319,7 +319,7 @@ body{background:#0f1923;color:#fff;font-family:-apple-system,BlinkMacSystemFont,
         <div class="cl-row">
           <div class="cl-field">
             <label class="cl-label">KM Salida</label>
-            <input class="cl-input" type="text" inputmode="numeric" id="cl-km-salida" placeholder="0" oninput="_kmInput(this,'cl-km-salida-h')">
+            <input class="cl-input" type="tel" inputmode="numeric" pattern="[0-9]*" id="cl-km-salida" placeholder="0" oninput="_kmInput(this,'cl-km-salida-h')">
             <div class="cl-km-hint" id="cl-km-salida-h" style="font-size:12px;color:#6b7280;margin-top:3px;font-weight:600"></div>
           </div>
           <div class="cl-field">
@@ -330,7 +330,7 @@ body{background:#0f1923;color:#fff;font-family:-apple-system,BlinkMacSystemFont,
         <div class="cl-row" id="cl-row-llegada" style="display:none">
           <div class="cl-field">
             <label class="cl-label">KM Llegada</label>
-            <input class="cl-input" type="text" inputmode="numeric" id="cl-km-llegada" placeholder="0" oninput="_kmInput(this,'cl-km-llegada-h')">
+            <input class="cl-input" type="tel" inputmode="numeric" pattern="[0-9]*" id="cl-km-llegada" placeholder="0" oninput="_kmInput(this,'cl-km-llegada-h')">
             <div class="cl-km-hint" id="cl-km-llegada-h" style="font-size:12px;color:#6b7280;margin-top:3px;font-weight:600"></div>
           </div>
           <div class="cl-field">
