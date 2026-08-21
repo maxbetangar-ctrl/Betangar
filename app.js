@@ -6548,8 +6548,23 @@ function avisarEstadoGuardado(ok,n,detalle){
   }catch(e){if(!ok)alert('⚠️ La importación quedó SOLO en este equipo (no en la nube). Revisa internet y vuelve a importar.');}
 }
 
+// ⛔ ¿ESTÁ EL LECTOR DE EXCEL? Se baja de un CDN al abrir la app; si la conexión
+// se cortó, no está. Sin esto salta «XLSX is not defined», cae en el catch de la
+// importación y el mensaje manda a la persona a revisar SU archivo — que está
+// bien. Lo reportó Yinet (RRHH) el 21/08/2026 y perdió la mañana buscando en el
+// archivo equivocado.
+// Comprueba TAMBIÉN que `XLSX.read` sea función: `typeof XLSX==='undefined'` no
+// agarra una carga A MEDIAS, que deja el objeto puesto y roto por dentro.
+function _xlsxListo(){
+  try{ if(typeof XLSX!=='undefined' && XLSX && typeof XLSX.read==='function') return true; }catch(e){}
+  alert('No se pudo cargar el lector de Excel.\n\n' +
+        'NO es tu archivo: esa pieza se baja de internet cuando abrís el sistema, y esta vez no bajó.\n\n' +
+        'Revisá la conexión, recargá la página (Ctrl + F5) y volvé a intentarlo.');
+  return false;
+}
 function importarExcel(input){
   var file=input.files[0];if(!file)return;
+  if(!_xlsxListo()){ input.value=''; return; }
   var reader=new FileReader();
   reader.onload=function(e){
     try{
@@ -11436,6 +11451,7 @@ async function descargarPlantillaMaestra(){
 // Importa el Excel de alta completo: cada hoja va a su procesador, EN ORDEN.
 function importarPlantillaMaestra(input){
   var f=input&&input.files&&input.files[0]; if(!f)return;
+  if(!_xlsxListo()){ input.value=''; return; }
   var reader=new FileReader();
   reader.onload=function(e){
     var wb;
@@ -11519,6 +11535,7 @@ async function descargarPlantillaPiezas(){
 
 function importarPiezasExcel(input){
   var f=input&&input.files&&input.files[0]; if(!f)return;
+  if(!_xlsxListo()){ input.value=''; return; }
   var reader=new FileReader();
   reader.onload=function(e){
     var rows;
