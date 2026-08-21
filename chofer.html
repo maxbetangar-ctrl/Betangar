@@ -2302,6 +2302,7 @@ async function reintentarYDiagnosticar(){
   L.push('Estado: '+(isOnline?'En linea':'Sin conexion'));
   L.push('Viajes en cola: '+COLA_LOCAL.length);
   L.push('Checklist en cola: '+COLA_CL.length);
+  try{ L.push('Avisos internos en cola: '+(cargarColaBloq()||[]).length); }catch(e){}
   L.push('Camion: '+(cam||'-')+' / '+(chofer||'SIN CHOFER'));
   if(!supabase){
     iniciarSupabase();
@@ -3225,7 +3226,23 @@ async function _bloqMandar(b){
   }catch(e){}
   return salio;
 }
+// ⛔ CANDADO DE REENTRADA. Se la llama desde tres sitios (el aviso, el evento
+//    `online` y el intervalo de 2 min). Sin candado, dos vueltas casi simultáneas
+//    recorren la MISMA cola y mandan el mismo aviso dos veces — medido con la
+//    prueba de comportamiento: 10 envíos donde tenían que ser 4. Es el mismo
+//    defecto que `_SYNC_EN_VUELO` ya resolvió para `sincronizarCola()`, y la
+//    lección estaba escrita en este archivo desde antes.
+//    ⚠️ Y el candado NO DESCARTA la vuelta: la POSPONE. Un candado que tira lo que
+//    llega mientras trabaja pierde el drenaje justo cuando vuelve la señal —medido
+//    tambien: quedaban 2 avisos trancados y salia 1. Se pide otra vuelta al terminar.
+var _BLOQ_EN_VUELO=false, _BLOQ_PEDIDO=false;
 async function drenarColaBloq(){
+  if(_BLOQ_EN_VUELO){ _BLOQ_PEDIDO=true; return; }
+  _BLOQ_EN_VUELO=true;
+  try{ do { _BLOQ_PEDIDO=false; await _drenarColaBloq(); } while(_BLOQ_PEDIDO); }
+  finally { _BLOQ_EN_VUELO=false; }
+}
+async function _drenarColaBloq(){
   cargarColaBloq();
   if(!COLA_BLOQ.length||typeof supabase==='undefined'||!supabase)return;
   var quedan=[];
@@ -3262,6 +3279,23 @@ function _clAvisarBloqueo(){
   // es escribir por WhatsApp y esperar — que es lo que pasó estos dos días.
   try{ mostrarToast('Ya avisamos a la oficina de que no te deja guardar.','warn'); }catch(e){}
 }
+// ── UN AVISO QUE NO SALIÓ DEJA RASTRO ──────────────────────────────────────
+// El dato SIEMPRE queda registrado; lo que puede fallar es el AVISO. Y un aviso
+// que no sale se ve idéntico a un día sin novedades, así que tiene que decirlo.
+// Va por la misma cola resiliente del aviso de bloqueo: si tampoco puede salir,
+// se queda en el teléfono y se reintenta — no se pierde.
+function _avisoNoSalio(queCosa, detalle){
+  try{
+    var msg='🟠 NO SALIÓ UN AVISO · '+cam+'\n'+
+            String(queCosa||'')+'\n'+
+            (detalle?('Motivo: '+String(detalle).slice(0,180)+'\n'):'')+
+            'El registro SÍ quedó guardado. Lo que falló fue el aviso.';
+    cargarColaBloq();
+    COLA_BLOQ.push({msg:msg,fecha:hoy,cam:cam,n:0});
+    persistColaBloq();
+    try{ drenarColaBloq(); }catch(e){}
+  }catch(e){}
+}
 async function enviarNotificacionWA(reg){
   try{
     var tiposEstado = {
@@ -3290,7 +3324,13 @@ async function enviarNotificacionWA(reg){
     try{ if(supabase){ var _wc=await supabase.rpc('wassenger_estado'); if(_wc&&!_wc.error&&_wc.data){ _wsOn=(_wc.data.activo===true&&_wc.data.tiene_token===true); } } }catch(_e){}
     WA_DESTINATARIOS.forEach(function(dest){
       if(!dest.num)return;
-      if(_wsOn){ try{ supabase.from('cola_mensajes').insert([{telefono:dest.num,mensaje:msg,tipo:'chofer'}]); }catch(_e2){} return; }
+      // ⛔ Iba SIN `await` y con el catch mudo: un rechazo del insert no lanzaba
+      //    nada acá y el aviso se perdía sin dejar rastro. Ahora se mira la
+      //    respuesta y, si no entró, se registra.
+      if(_wsOn){ try{ supabase.from('cola_mensajes').insert([{telefono:dest.num,mensaje:msg,tipo:'chofer'}])
+        .then(function(_r){ if(_r&&_r.error) _avisoNoSalio('La novedad de '+cam+' no entró en la cola de mensajes.', _r.error.message); },
+              function(_e3){ _avisoNoSalio('La novedad de '+cam+' no entró en la cola de mensajes.', _e3&&_e3.message?_e3.message:_e3); });
+      }catch(_e2){ _avisoNoSalio('La novedad de '+cam+' no se pudo encolar.', _e2&&_e2.message?_e2.message:_e2); } return; }
       if(!dest.key)return;
       var urlD='https://api.callmebot.com/whatsapp.php?phone='+encodeURIComponent(dest.num)+'&text='+encodeURIComponent(msg)+'&apikey='+dest.key;
       var imgD=new Image();imgD.src=urlD;
@@ -3298,7 +3338,10 @@ async function enviarNotificacionWA(reg){
 
 
   }catch(e){
+    // ⛔ Antes esto era solo un console.log. La consola de un teléfono en la calle
+    //    no la lee nadie: registrar ahí es lo mismo que no registrar.
     console.log('WA error:', e);
+    _avisoNoSalio('Se rompió el aviso del checklist antes de mandarlo.', e && e.message ? e.message : e);
   }
 }
 
