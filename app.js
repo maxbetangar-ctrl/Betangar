@@ -3179,6 +3179,7 @@ async function relRenderTodos(cont,est){
     return (String(m.concepto_banco||'')+' '+String(m.descripcion||'')+' '+relNombreCat(m.categoria)+' '+String(m.monto)).toLowerCase().indexOf(buscar)>=0;
   });
   REL_VISTA=ms;
+  try{ await _movPintarAlcance('rel-body','rel-alcance',des,hta,tipo,ms.length,'relLimpiar()'); }catch(e){}
   var ent=ms.filter(function(m){return m.tipo==='credito';}).reduce(function(s,m){return s+(Number(m.monto)||0);},0);
   var sal=ms.filter(function(m){return m.tipo==='debito';}).reduce(function(s,m){return s+(Number(m.monto)||0);},0);
   if(est)est.innerHTML=
@@ -13816,6 +13817,71 @@ function guardarMovManual(){
 // lo que se lista: no hay forma de que se separen. [[norma-fuente-unica-datos]]
 // ═══════════════════════════════════════════════════════════════════════════════════════════════
 var BNC_MOV_VISTA=[];   // lo que la tabla está mostrando ahora. De acá sale el impreso.
+// ── QUÉ ESTÁ DEJANDO AFUERA ESTA LISTA ─────────────────────────────────────
+// Una lista con un filtro de fechas se ve EXACTAMENTE IGUAL que una lista
+// completa. Por eso Alejandra reportó el 20/08 que los movimientos «solo estaban
+// actualizados hasta el 08/08»: estaban todos, hasta el 19, pero su ventana
+// terminaba antes y nada se lo decía. El dato no se había perdido; la pantalla
+// no sabía confesar lo que escondía.
+//
+// Devuelve {enRango, total} contando EN LA BASE, no sobre lo ya traído: lo que se
+// trajo viene topado (400 acá, 1.000 en la relación) y contar sobre eso diría que
+// no falta nada justo cuando falta más.
+async function _movFueraDeRango(des, hta, tipo){
+  if(!(DB_READY && supabase))return null;
+  try{
+    var q = supabase.from('bnc_movimientos').select('id',{count:'exact',head:true});
+    if(des) q = q.gte('fecha',des);
+    if(hta) q = q.lte('fecha',hta);
+    if(tipo) q = q.eq('tipo',tipo);
+    var rr = await q;
+    if(rr.error) return null;
+    var rt = await supabase.from('bnc_movimientos').select('id',{count:'exact',head:true});
+    if(rt.error) return null;
+    return { enRango: rr.count||0, total: rt.count||0 };
+  }catch(e){ return null; }
+}
+// Pinta el renglón encima de la lista. La caja se crea sola: así no hay que tocar
+// el HTML, que es lo que más diverge entre instancias.
+async function _movPintarAlcance(idAncla, idCaja, des, hta, tipo, mostrados, alLimpiar){
+  var ancla = g(idAncla); if(!ancla) return;
+  var caja = g(idCaja);
+  if(!caja){
+    caja = document.createElement('div');
+    caja.id = idCaja;
+    caja.style.cssText = 'margin:8px 0;padding:10px 12px;border-radius:8px;font-size:12px;line-height:1.5';
+    var padre = ancla.closest ? (ancla.closest('.card') || ancla.parentNode) : ancla.parentNode;
+    if(padre && padre.parentNode) padre.parentNode.insertBefore(caja, padre);
+    else ancla.parentNode.insertBefore(caja, ancla);
+  }
+  var d = await _movFueraDeRango(des, hta, tipo);
+  if(!d){ caja.style.display='none'; return; }
+  var fuera = Math.max(0, d.total - d.enRango);
+  var periodo = (typeof relPeriodoTxt==='function' && (des||hta)) ? relPeriodoTxt(des,hta) : '';
+  var topado = (d.enRango > mostrados);
+
+  if(!fuera && !topado){ caja.style.display='none'; return; }   // se ve todo: no se molesta a nadie
+
+  caja.style.display = 'block';
+  caja.style.background = 'rgba(232,115,74,.10)';
+  caja.style.border = '1px solid rgba(232,115,74,.45)';
+  caja.innerHTML =
+    '<b style="color:var(--amber)">⚠️ No estás viendo todo.</b> ' +
+    (periodo ? ('Estás mirando <b>'+relEsc(periodo)+'</b>: ') : 'Con el filtro puesto: ') +
+    '<b>'+d.enRango.toLocaleString('es-VE')+'</b> movimiento(s)' +
+    (topado ? (', y en pantalla solo caben los <b>'+mostrados.toLocaleString('es-VE')+'</b> más recientes') : '') +
+    '.' +
+    (fuera ? (' Quedan <b>'+fuera.toLocaleString('es-VE')+'</b> fuera de ese rango.') : '') +
+    (alLimpiar ? (' <button class="btn btn-s btn-xs" style="margin-left:6px" onclick="'+alLimpiar+'">Ver todos</button>') : '');
+}
+// Limpia las DOS casillas y vuelve a pintar. Se limpia el DOM porque es ahí donde
+// vive el filtro de esta pantalla — cambiar solo una variable dejaría la casilla
+// mostrando una fecha que ya no se está aplicando, que es peor.
+function bncMovVerTodo(){
+  ['bnc-mov-des','bnc-mov-hta'].forEach(function(id){ var el=g(id); if(el) el.value=''; });
+  var t=g('bnc-mov-tipo'); if(t) t.value='';
+  try{ renderMovBNC(); }catch(e){}
+}
 async function renderMovBNC(){
   var des=gv('bnc-mov-des'),hta=gv('bnc-mov-hta'),tipo=gv('bnc-mov-tipo');
   var f=[];
@@ -13847,6 +13913,10 @@ async function renderMovBNC(){
     return true;
   });
   BNC_MOV_VISTA=f;   // fuente única del impreso: exactamente lo que se ve
+  // ⛔ Y decir qué NO se está viendo. El filtro de esta pantalla vive en las
+  //    casillas del DOM y el navegador las restaura al recargar: una fecha puesta
+  //    una vez queda pegada, y hasta hoy nada lo decía.
+  try{ await _movPintarAlcance('tb-bnc-mov','bnc-mov-alcance',des,hta,tipo,f.length,'bncMovVerTodo()'); }catch(e){}
   var totEntr=f.filter(function(m){return m.tipo==='credito';}).reduce(function(s,m){return s+m.monto;},0);
   var totSal=f.filter(function(m){return m.tipo==='debito';}).reduce(function(s,m){return s+m.monto;},0);
   var bal=totEntr-totSal;
