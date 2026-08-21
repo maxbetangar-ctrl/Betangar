@@ -18504,8 +18504,44 @@ async function cambiarContrasena(){
   else alert('No se pudo: '+((j&&j.error)||''));
 }
 
+// Cuántos movimientos tiene el registro COMPLETO. Se pide a la base y se guarda:
+// una consulta de conteo por apertura de pantalla, no por repintado.
+var _AUD_TOTAL=null;
+async function _audTotal(){
+  if(_AUD_TOTAL!==null) return _AUD_TOTAL;
+  try{
+    if(!(DB_READY&&supabase)) return null;
+    var r=await supabase.from('auditoria').select('id',{count:'exact',head:true});
+    if(r.error) return null;
+    _AUD_TOTAL=r.count||0;
+    try{ renderAuditoria(); }catch(e){}   // ya llegó el número: repintar el encabezado
+    return _AUD_TOTAL;
+  }catch(e){ return null; }
+}
+// ⛔ UNA LISTA RECORTADA TIENE QUE DECIRLO, Y ACÁ MÁS QUE EN NINGUNA OTRA: esto es
+//    el registro de quién hizo qué. Se muestran las últimas 50 de decenas de miles;
+//    hasta el 21/08/2026 la pantalla no lo decía y se leía como el registro entero.
+function _audEncabezado(mostradas){
+  var caja=g('aud-alcance');
+  if(!caja){
+    var tb=g('tb-auditoria'); if(!tb) return;
+    var tabla=tb.closest?tb.closest('table'):null;
+    var donde=tabla&&tabla.parentNode?tabla:tb;
+    caja=document.createElement('div');
+    caja.id='aud-alcance';
+    caja.style.cssText='font-size:11px;color:var(--text3);margin:0 0 6px';
+    if(donde.parentNode) donde.parentNode.insertBefore(caja,donde);
+  }
+  var tot=_AUD_TOTAL;
+  caja.innerHTML = (tot===null)
+    ? ('Mostrando los <b>'+mostradas+'</b> movimientos más recientes.')
+    : ('Mostrando los <b>'+mostradas+'</b> más recientes de <b>'+Number(tot).toLocaleString('es-VE')+'</b> registrados.' +
+       (Number(tot)>mostradas ? ' <span style="color:var(--amber)">El resto no está en esta pantalla.</span>' : ''));
+}
 function renderAuditoria(){
   var tb=g('tb-auditoria');if(!tb)return;
+  try{ _audTotal(); }catch(e){}
+  try{ _audEncabezado(Math.min(50,(AUDITORIA_LOG||[]).length)); }catch(e){}
   // M2 (auditoría 2026-07-04): escapar los campos (usuario/accion/detalle) — cualquier autenticado
   // puede INSERT en `auditoria` con un payload XSS que ejecutaría como SUPERADMIN al abrir este panel.
   tb.innerHTML=AUDITORIA_LOG.slice().reverse().slice(0,50).map(function(a){return'<tr><td style="font-size:10px;font-family:var(--m)">'+formatFecha(a.fecha)+'</td><td><span class="badge by">'+_escHtml(a.usuario)+'</span></td><td style="font-size:11px">'+_escHtml(a.accion)+'</td><td class="td-txt" style="font-size:11px;color:var(--text2)">'+_escHtml(a.detalle)+'</td></tr>';}).join('')||'<tr><td colspan="4" style="text-align:center;color:var(--text3);padding:20px">Sin registros de auditoria</td></tr>';
