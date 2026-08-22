@@ -553,7 +553,52 @@ function _marcarConfiable(uid){ try{ localStorage.setItem('btg_trust_'+uid, Stri
 // "Olvidé mi contraseña" (autoservicio): envía el enlace de recuperación al correo. Requiere que
 // el usuario tenga correo REAL y que el proyecto tenga SMTP propio configurado (si no, no llega).
 // Si la cuenta no tiene correo, el admin la resetea desde el módulo Usuarios.
-async function olvideContrasena(){
+// ═══════════════════════════════════════════════════════════════════════════════
+// «NO PUEDO ENTRAR» — RECUPERAR EL ACCESO SIN DEPENDER DE NADIE
+//
+// ⛔ ESTA PIEZA YA EXISTÍA Y NO SERVÍA ACÁ. Mandaba el enlace de recuperación al
+//    CORREO, y los correos de esta casa son sintéticos (`elicindo@maxware.app`,
+//    `u.fc01@maxware.app`): no reciben nada. Encima el enlace estaba OCULTO salvo
+//    que el cliente exigiera correo. Resultado: Elicindo Pérez estuvo dos días
+//    afuera preguntando por WhatsApp cuál era su usuario, y la respuesta tenía que
+//    darla una persona a mano.
+//
+// El canal que SÍ funciona es el WhatsApp, y ya lo sabemos porque por ahí preguntó.
+// Se pide la CÉDULA —no el teléfono— y el mensaje sale al número que está EN LA
+// FICHA. Si el destino lo eligiera quien pregunta, cualquiera con una cédula ajena
+// se mandaría la clave de otro; ese detalle es lo que sostiene todo lo demás.
+//
+// Y se separan las dos cosas: resetearle la clave a alguien que solo olvidó el
+// USUARIO lo dejaría afuera, que es lo contrario de lo que vino a pedir.
+// El resto del cuidado (topes, rastro, la misma respuesta siempre) vive en la
+// función `acceso_recuperar` de la base, no acá: el navegador no guarda secretos.
+// ═══════════════════════════════════════════════════════════════════════════════
+function olvideContrasena(){
+  var c=document.getElementById('acc-rec'); if(!c)return;
+  c.style.display = (c.style.display==='none' || !c.style.display) ? 'block' : 'none';
+  if(c.style.display==='block'){ var i=document.getElementById('acc-rec-ced'); if(i)try{i.focus();}catch(e){} }
+}
+
+async function accRecuperar(que){
+  var i=document.getElementById('acc-rec-ced'), m=document.getElementById('acc-rec-msg');
+  var ced=((i||{}).value||'').replace(/[^0-9]/g,'');
+  if(!m)return;
+  if(ced.length<5){ m.style.color='#f87171'; m.textContent='Escribí tu cédula (solo los números).'; return; }
+  m.style.color='var(--text3)'; m.textContent='Enviando…';
+  try{
+    if(!supabase && typeof initSupabaseClient==='function') initSupabaseClient();
+    var r=await supabase.rpc('acceso_recuperar',{ p_cedula:ced, p_que:que });
+    // ⛔ El error se REPORTA. Un «listo» que en realidad falló es peor que el problema:
+    //    la persona se queda esperando un mensaje que nunca se encoló.
+    if(r&&r.error){ m.style.color='#f87171'; m.textContent='No se pudo: '+r.error.message; return; }
+    m.style.color='#a3e635';
+    m.textContent = (r&&r.data) ? r.data : 'Si esa cédula está registrada, te llega un mensaje al WhatsApp que tenemos.';
+  }catch(e){ m.style.color='#f87171'; m.textContent='No se pudo enviar: '+((e&&e.message)||e); }
+}
+
+// El camino VIEJO, por correo. Se deja para las instancias que sí tengan correos reales y
+// SMTP propio, y se llama a mano desde la consola si hace falta. No está en ninguna pantalla.
+async function olvideContrasenaPorCorreo(){
   var u=((document.getElementById('login-user')||{}).value||'').trim().toLowerCase();
   var email=(u.indexOf('@')>0)?u:'';
   if(!email){ email=(prompt('Escribe tu CORREO para enviarte el enlace de recuperación:')||'').trim().toLowerCase(); }
