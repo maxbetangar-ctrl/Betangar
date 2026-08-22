@@ -281,6 +281,22 @@ try{var _gasol=localStorage.getItem('btg_gasol');if(_gasol&&_gasol!=='[]')GASOL=
 var PAGOS_ALC=[];
 // SEM_HIST y VX eran semillas de DEMO cargadas a mano. Se calculan de REGS: ver semHist()
 // y viajesPorCam() más abajo. No volver a declararlas como constantes.
+//
+// ⛔ PERO TIENE QUE EXISTIR. Al sacar la semilla de demo se quitó la declaración y
+//    quedó el código que le ESCRIBE (`VX[cam]=(VX[cam]||0)+t`, tres lugares en la
+//    importación). La única línea que la creaba estaba DENTRO de un `if`: solo si el
+//    navegador ya tenía viajes guardados. En un equipo limpio, o con la caché
+//    borrada, `VX` no existía y la importación moría con **«VX is not defined»**.
+//
+//    Gladis Jinet Pérez chocó con eso tres veces el 21/08 y mandó la captura del
+//    mensaje. Nadie la miró: el sistema no guardaba la imagen. El 22/08 se recuperó
+//    de Wassenger —vencía el 28— y ahí se leyó el error de verdad.
+//    ⚠️ Yo había diagnosticado que era el lector que no bajaba del CDN. **No era
+//       eso.** Vendorizar la librería sigue siendo bueno, pero no era su problema.
+//
+//    Declararla vacía NO es volver a la semilla de demo: no trae ningún número
+//    inventado, solo hace que la variable exista antes de que le escriban.
+var VX = {};
 var cfg={tarifa:(function(){
   // Cargar tarifa guardada de localStorage si existe
   try{var t=parseFloat(localStorage.getItem('betangar_cfg_tarifa'));if(t&&t>100)return t;}catch(e){}
