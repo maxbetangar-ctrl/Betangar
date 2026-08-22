@@ -215,7 +215,7 @@ function toggleTheme(){
 function _syncThemeIcon(){ var b=document.getElementById('theme-toggle'); if(b) b.innerHTML=(document.documentElement.getAttribute('data-theme')==='light')?'☀️':'🌙'; }
 document.addEventListener('DOMContentLoaded',_syncThemeIcon);
 </script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="vendor/xlsx.full.min.js" onerror="var s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';document.head.appendChild(s)"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <link rel="stylesheet" href="maxrecuerda.css?v=20260806-maxrecuerda">
