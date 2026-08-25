@@ -15151,12 +15151,37 @@ async function facFotoElegida(inp){
   // La ruta lleva proveedor y fecha para poder encontrarla desde el Storage sin la base delante.
   var ext=(String(f.name).match(/\.([a-z0-9]+)$/i)||[,'jpg'])[1].toLowerCase();
   var ruta='factura/'+(gv('fac-fecha')||fechaVE())+'/'+Date.now()+'_'+Math.random().toString(36).slice(2,7)+'.'+ext;
+  // ⛔ EL TIPO SE SACA DE LA EXTENSIÓN CUANDO EL NAVEGADOR NO LO DICE.
+  //    Acá decía `f.type||'image/jpeg'`, o sea: si el navegador no reportaba el
+  //    tipo —pasa con archivos compartidos desde WhatsApp y con algunos gestores
+  //    de archivos de Android—, se declaraba **image/jpeg para un PDF**. El
+  //    archivo se llamaba `.pdf`, el contenido era PDF, y el tipo declarado decía
+  //    imagen: el bucket rechaza y el mensaje que le llega a la persona es
+  //    «new row violates row-level security policy», que no dice nada de lo que
+  //    de verdad pasó y manda a buscar al lugar equivocado.
+  //    🔴 Le pasó a ALEJANDRA el 25/08 a las 11:57 con «WhatsApp Image … .pdf», y
+  //    lo resolvió sola volviendo a JPEG. El bucket SÍ acepta application/pdf.
+  var TIPOS={jpg:'image/jpeg',jpeg:'image/jpeg',png:'image/png',webp:'image/webp',pdf:'application/pdf'};
+  var tipo=f.type||TIPOS[ext]||'application/octet-stream';
   try{
-    var up=await supabase.storage.from('facturas').upload(ruta,f,{contentType:f.type||'image/jpeg',upsert:false});
+    var up=await supabase.storage.from('facturas').upload(ruta,f,{contentType:tipo,upsert:false});
     if(up&&up.error){
       // ⛔ Se DICE el error. Un "no se pudo" mudo hace que se guarde la factura creyendo que la
       //    foto quedó, y el respaldo se pierde sin que nadie se entere.
-      if(est){est.textContent='⛔ No se pudo subir: '+up.error.message;est.style.color='var(--red)';}
+      // ⛔ PERO SE DICE EN CRIOLLO. El mensaje crudo de Supabase para esto es
+      //    «new row violates row-level security policy», que no le dice nada a
+      //    nadie y encima manda a buscar al lugar equivocado: parece un problema
+      //    de permisos y es el TIPO del archivo. Alejandra lo reportó el 25/08 y
+      //    ni ella ni el servicio técnico entendieron qué pasaba.
+      //    ⚠️ El mensaje técnico se conserva entre paréntesis: quien tenga que
+      //    depurarlo lo necesita, y borrarlo cambia un problema por otro.
+      var m=String(up.error.message||'');
+      var claro=/row-level security|violates/i.test(m)
+          ? 'ese archivo no lo acepta el sistema. Pruebe con una foto en JPG o PNG, o con un PDF de verdad'
+        : /exceeded|too large|size/i.test(m) ? 'el archivo pesa más de lo permitido (tope 10 MB)'
+        : /mime|content.?type/i.test(m) ? 'ese tipo de archivo no se admite. Use JPG, PNG o PDF'
+        : m;
+      if(est){est.textContent='⛔ No se pudo subir: '+claro+' ('+m+')';est.style.color='var(--red)';}
       return;
     }
     _FAC_FOTO_RUTA=ruta;
