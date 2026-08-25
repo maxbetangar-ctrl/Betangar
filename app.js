@@ -10134,7 +10134,19 @@ function _ccRenderLineas(){
     filas.push('<tr><td style="font-size:11px">'+_mEsc(m.item||'—')+'</td><td style="font-size:11px">📦 Inventario (x'+m.cantidad+')</td><td style="font-size:11px">'+_mEsc(m.factura||'—')+'</td><td class="mono" style="text-align:right">$'+(((parseFloat(m.cantidad)||0)*(parseFloat(m.precio)||0)).toFixed(2))+'</td></tr>');
   });
   if(!filas.length){ box.innerHTML='<div style="font-size:12px;color:var(--text3)">Aún no has registrado líneas de esta compra.</div>'; return; }
-  box.innerHTML='<div style="font-size:12px;font-weight:700;margin-bottom:4px">Líneas registradas</div><table style="width:100%"><thead><tr><th style="text-align:left">Qué</th><th style="text-align:left">Destino</th><th style="text-align:left">Proveedor/Fact</th><th style="text-align:right">Costo</th></tr></thead><tbody>'+filas.join('')+'</tbody><tfoot><tr><td colspan="3" style="text-align:right;font-weight:700">Total</td><td class="mono" style="text-align:right;font-weight:700">$'+_ccCostoOrden(id).toFixed(2)+'</td></tr></tfoot></table>';
+  // ⛔ `table-layout:fixed` Y EL ENVOLTORIO CON SCROLL. Sin esto, un concepto largo
+  //    ensancha la tabla, la tabla ensancha el modal y el modal se sale de la
+  //    pantalla: la columna del costo queda cortada contra el borde y por detrás
+  //    se ve el contenido de la página.
+  //    🔴 Lo reportó Alejandra el 25/08 con la orden OS-2026-0014 —«impresión de 2
+  //    planos de las parroquias Caracciolo Parra Pérez y Venancio Pulgar»— y mandó
+  //    la captura: «al cerrar la orden de compra y ser el concepto muy largo se ve
+  //    la pantalla de esta manera y sobresale».
+  //    ⚠️ `fixed` reparte el ancho por las columnas declaradas en vez de por el
+  //    contenido; `word-break` corta la palabra que no entre. El envoltorio con
+  //    scroll es la red: si aun así no entra, se desliza la TABLA y no la página.
+  //    [[norma-toda-pantalla-tiene-salida]]
+  box.innerHTML='<div style="font-size:12px;font-weight:700;margin-bottom:4px">Líneas registradas</div><div style="overflow-x:auto;max-width:100%"><table style="width:100%;table-layout:fixed;word-break:break-word"><thead><tr><th style="text-align:left;width:44%">Qué</th><th style="text-align:left;width:18%">Destino</th><th style="text-align:left;width:23%">Proveedor/Fact</th><th style="text-align:right;width:15%">Costo</th></tr></thead><tbody>'+filas.join('')+'</tbody><tfoot><tr><td colspan="3" style="text-align:right;font-weight:700">Total</td><td class="mono" style="text-align:right;font-weight:700">$'+_ccCostoOrden(id).toFixed(2)+'</td></tr></tfoot></table></div>';
 }
 async function _ccInsertMant(row,mem){
   var ok=false;
