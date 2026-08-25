@@ -13350,7 +13350,41 @@ async function _fotoPintar(w, bucket, urlOruta){
   if(!u) u=(s.indexOf('http')===0)?s:'';   // bucket público: la URL cruda abre igual
   if(!u){ _fotoFallar(w,'No se pudo abrir la foto'); return; }
   if(w){ try{ w.location.href=u; }catch(e){ _fotoFallar(w,'No se pudo abrir la foto'); } }
-  else { try{ window.open(u,'_blank'); }catch(e){} }
+  // ⛔ SI NO HAY VENTANA, LA FOTO SE MUESTRA ACÁ MISMO.
+  //    Antes se reintentaba `window.open(u)` DESPUÉS del await, y eso el navegador
+  //    lo bloquea siempre: ya no está en el gesto del dedo. O sea que cuando el
+  //    equipo tenía las ventanas emergentes bloqueadas —lo normal en un teléfono—
+  //    tocar el clip 📎 no hacía absolutamente NADA. Sin error, sin aviso, sin foto.
+  //    🔴 Alejandra lo probó el 25/08 y lo anotó como «NEGATIVO»: «que en la cuenta
+  //    por pagar salga el clip y al tocarlo abra el documento».
+  //    ⚠️ Un visor propio no depende de ningún permiso del navegador, así que
+  //    funciona siempre. Sirve para las facturas, las surtidas y las entregas: es
+  //    el único camino por el que se abre una foto privada.
+  else { _fotoVerAca(u); }
+}
+
+// Visor de respaldo, dentro de la página. Se crea al vuelo y se destruye al salir:
+// no compite con `#modal`, que lo usan los formularios y podría estar abierto.
+function _fotoVerAca(u){
+  try{
+    var vi=document.getElementById('foto-visor'); if(vi) vi.remove();
+    var ov=document.createElement('div');
+    ov.id='foto-visor';
+    ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:20060;display:flex;flex-direction:column';
+    ov.innerHTML=
+      '<div style="flex:0 0 auto;display:flex;justify-content:space-between;align-items:center;padding:12px 16px">'
+      + '<span style="color:#fff;font-size:13px;font-weight:700">📎 Soporte</span>'
+      + '<span><a href="'+u+'" target="_blank" rel="noopener" style="color:#7dc941;font-size:13px;margin-right:14px">Abrir aparte</a>'
+      + '<button type="button" id="foto-visor-x" style="background:none;border:1px solid rgba(255,255,255,.3);color:#fff;border-radius:8px;padding:6px 14px;font-size:13px;cursor:pointer;font-family:inherit">✕ Cerrar</button></span>'
+      + '</div>'
+      + '<div style="flex:1;min-height:0;display:flex;align-items:center;justify-content:center;padding:0 12px 16px">'
+      // ⚠️ `<iframe>` y no `<img>`: el soporte puede ser un PDF, y un `<img>` con un
+      //    PDF adentro se ve como un cuadro roto — que es peor que no abrirlo.
+      + '<iframe src="'+u+'" style="width:100%;height:100%;border:0;border-radius:10px;background:#fff"></iframe>'
+      + '</div>';
+    document.body.appendChild(ov);
+    ov.querySelector('#foto-visor-x').onclick=function(){ ov.remove(); };
+  }catch(e){ if(typeof mostrarToast==='function') mostrarToast('No se pudo mostrar el soporte','error'); }
 }
 async function verFotoPrivada(bucket, urlOruta){ await _fotoPintar(_fotoVentana(), bucket, urlOruta); }
 // Acepta la URL o el id de la surtida (compat con las dos formas de llamarlo).
