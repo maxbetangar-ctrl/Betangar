@@ -14449,7 +14449,26 @@ function _aplicarFacturasACxp(c,cb){
   var base=parseFloat(c.base_usd||c.baseUsd||0)||0;
   var upd;
   if(a){
-    var sinFacturar=Math.max(0, base-a.base);   // lo pactado que el proveedor todavía no facturó
+    // ⛔ LO PACTADO PUEDE VENIR CON EL IVA ADENTRO O SIN ÉL, y hasta el 26/08 esto
+    //    suponía siempre «sin él»: restaba `base − base_de_la_factura` y, cuando el
+    //    monto de la orden se había cargado con IVA, esa resta daba EXACTAMENTE el IVA
+    //    y lo tomaba por «mercancía que el proveedor todavía no facturó». Resultado:
+    //    se pagaba la factura completa y quedaba debiendo un IVA, siempre, en silencio.
+    //    Lo reportó Alejandra el 25/08 con dos casos reales (Carlos de Sa Martins y
+    //    Mangueras Perijá) y eran 16,66 USD de deuda que no existía.
+    //
+    // ⚠️ NO SE ELIGE POR CUÁL SE PARECE MÁS: eso rompe la facturación parcial. Una orden
+    //    de 100 sin IVA facturada a medias (base 50, total 58) se parece más al total,
+    //    y ahí el que falta es 50, no 42. La pregunta correcta es si lo pactado CALZA con
+    //    el total facturado; si calza, esa orden está facturada completa.
+    // El margen es 1% o medio dólar —el mayor de los dos— porque la orden y la factura
+    // pueden ir a TASAS distintas: en Mangueras Perijá eso solo movió 0,45 USD.
+    var _margen=Math.max(0.5, base*0.01);
+    var _pactadoTraeIva=(a.total>a.base) && Math.abs(base-a.total)<=_margen;
+    // Si lo pactado ya traía el IVA y calza con el total, no falta nada por facturar. La
+    // diferencia que quede es de tasa, no de mercancía, y no es una deuda.
+    var sinFacturar=_pactadoTraeIva ? 0 : Math.max(0, base-a.base);   // lo pactado que el proveedor todavía no facturó
+    c._pactadoTraeIva=_pactadoTraeIva;   // para poder DECIRLO en pantalla, no adivinarlo
     upd={iva_pct:a.ivaPct||16, iva_usd:+a.iva.toFixed(2),
          total_usd:+(a.total+sinFacturar).toFixed(2), ret_iva_usd:+a.retIva.toFixed(2), ret_islr_usd:+a.retIslr.toFixed(2),
          neto_pagar:+(a.neto+sinFacturar).toFixed(2), tasa_val:a.tasa};
@@ -15347,10 +15366,15 @@ function guardarFactura(){
     // y lo que se le debe al proveedor pasa a ser el neto. Lo NO facturado de esa orden sigue
     // debiéndose como estaba: por eso las 5 órdenes que no entraron no se mueven.
     cxps.forEach(function(c){ _aplicarFacturasACxp(c); });
+    // ⚠️ SE DICE EN PANTALLA CÓMO SE ENTENDIÓ EL MONTO DE LA ORDEN. `_aplicarFacturasACxp`
+    //    decide si lo pactado traía el IVA adentro; si eso se resuelve en silencio, el día
+    //    que se equivoque no hay forma de que alguien lo note — y lo que está en juego es
+    //    cuánto se le queda debiendo al proveedor.
+    var _conIva=cxps.filter(function(c){return c._pactadoTraeIva;}).length;
     // La retención va a la cuenta del SENIAT de esa quincena (una sola, acumulada).
     try{ _sincronizarRetencionesSeniat(fechaFac); }catch(e){console.warn('cxp SENIAT',e&&e.message);}
     audit('Factura Bs cargada',provNom+' '+row.nro_factura+' Bs'+v.base.toFixed(2)+' · '+lineasForm.length+' orden(es): '+cxps.map(function(c){return c.orden_id||c.id;}).join(', '));
-    var toastMsg='🧾 Factura guardada ('+lineasForm.length+' orden'+(lineasForm.length!==1?'es':'')+') · Ret. IVA Bs '+_bs2(v.retIva)+(v.retIslr?' · Ret. ISLR Bs '+_bs2(v.retIslr):'');
+    var toastMsg='🧾 Factura guardada ('+lineasForm.length+' orden'+(lineasForm.length!==1?'es':'')+') · Ret. IVA Bs '+_bs2(v.retIva)+(v.retIslr?' · Ret. ISLR Bs '+_bs2(v.retIslr):'')+(_conIva?(' · el monto de la orden ya traía el IVA, se tomó como facturada completa'):'');
     var limpiar=function(){
       _facEnVuelo=false;
       ['fac-num','fac-control','fac-base','fac-sustraendo','fac-pago-ref'].forEach(function(x){if(g(x))sv(x,'');});
