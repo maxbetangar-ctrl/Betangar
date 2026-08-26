@@ -639,13 +639,31 @@ var BTG_CHOFER_CONFIG = {
 var SUPA_URL = BTG_CHOFER_CONFIG.data_url;
 var SUPA_KEY = BTG_CHOFER_CONFIG.data_key;
 // Destinatarios WA del checklist
+// ⛔ QUIEN RECIBE LOS AVISOS DEL CHECKLIST — la lista de respaldo, no la buena.
+//    🔴 Estaba HORNEADA acá y era el mensaje mas ruidoso de todos: uno por CADA
+//    salida y CADA llegada de cada camion. Medido el 25/08 sobre 7 dias: **14,3
+//    avisos por dia** al telefono de Maximo, todos diciendo que algo salio BIEN.
+//    Maximo, 25/08: *«siento que me estan llegando demasiados mensajes»*.
+//    ⚠️ Y para quitarse de la lista habia que EDITAR EL CODIGO y redesplegar. Por
+//    eso ahora la lista vive en `configuracion` (clave `avisos_checklist`) y esta
+//    de aca queda solo como respaldo: si la clave no esta, se avisa igual que
+//    antes. Fallar hacia avisar, nunca hacia callar.
 var WA_DESTINATARIOS = [
-  {num:'584147379886', key:'',  nombre:'Maximo'},
   {num:'584142411159', key:'',  nombre:'Francisco'},
   {num:'584127634923', key:'',  nombre:'Mecanico'},
-  // Operativo — agregar cuando tenga API key de callmebot
-  // {num:'58414XXXXXXX', key:'XXXXXXX', nombre:'Operativo'},
 ];
+
+// Se pisa con lo que diga la base, si la clave existe. Se lee una sola vez.
+async function _cargarDestinatariosChecklist(){
+  try{
+    if(!(typeof supabase!=='undefined'&&supabase))return;
+    var r=await supabase.from('configuracion').select('valor').eq('clave','avisos_checklist').maybeSingle();
+    if(r&&r.error)return;
+    var v=r&&r.data&&r.data.valor; if(!v)return;
+    var cfg=(typeof v==='string')?JSON.parse(v):v;
+    if(Array.isArray(cfg.destinatarios)) WA_DESTINATARIOS=cfg.destinatarios;
+  }catch(e){ /* con el respaldo alcanza */ }
+}
 
 var FLOTA_CHOFERES = {
   'JAC-B001':'REINALDO FARIA',
@@ -3322,6 +3340,9 @@ async function enviarNotificacionWA(reg){
     // Wassenger: se consulta por RPC (wassenger_estado) que devuelve el estado SIN el token.
     // El token ya NO es legible por la llave anon del chofer (queda dentro de la funcion SECURITY DEFINER).
     try{ if(supabase){ var _wc=await supabase.rpc('wassenger_estado'); if(_wc&&!_wc.error&&_wc.data){ _wsOn=(_wc.data.activo===true&&_wc.data.tiene_token===true); } } }catch(_e){}
+    // La lista de quien recibe se lee de la base ACA, justo antes de mandar: asi
+    // un cambio en `configuracion` vale desde el proximo checklist, sin redesplegar.
+    await _cargarDestinatariosChecklist();
     WA_DESTINATARIOS.forEach(function(dest){
       if(!dest.num)return;
       // ⛔ Iba SIN `await` y con el catch mudo: un rechazo del insert no lanzaba
