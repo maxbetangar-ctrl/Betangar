@@ -10048,8 +10048,11 @@ function _iniciarCierreOrden(id){
     // el registro no se podía guardar y la orden nunca cerraba (reporte de Máximo, 30/07/2026).
     var itemPorTipo={lavado:'lavado',engrase:'engrase'};
     var it=(typeof _ccItemCatalogo==='function'?_ccItemCatalogo(o.item||''):'')||itemPorTipo[o.tipo]||'';
-    if(it&&(MANT_ITEMS||[]).some(function(x){return x.id===it&&x.activo;})){ sv('hv-item',it); if(typeof _hvItemOtro==='function')_hvItemOtro(); }
-    else { sv('hv-item','__nuevo'); if(typeof _hvItemOtro==='function')_hvItemOtro(); sv('hv-item-otro',o.item||''); }
+    if(it&&(MANT_ITEMS||[]).some(function(x){return x.id===it&&x.activo;})){ sv('hv-item',it);
+      try{ var _itO=_mantItem(it); sv('hv-item-txt',_itO?_itO.nombre:''); _hvItemDesdeTexto(); }catch(e){} }
+    // Sin ítem que calce, el texto de la orden se escribe EN EL BUSCADOR: desde ahí se
+    // crea al guardar. Antes se marcaba el ítem '__nuevo' de la lista, que ya no existe.
+    else { sv('hv-item',''); sv('hv-item-txt',o.item||''); try{ _hvItemDesdeTexto(); }catch(e){} }
     var ttPorTipo={lavado:'lavado',cambio:'cambio',inspeccion:'inspeccion',correctivo:'correctivo',preventivo:'cambio'};
     if(g('hv-tipotrabajo'))sv('hv-tipotrabajo',ttPorTipo[o.tipo]||'cambio');
     // La orden ya trae el taller ELEGIDO de la lista: se hereda el enlace, no el texto.
@@ -11813,6 +11816,175 @@ function _hvUnidades(){
   return Object.keys(set).sort();
 }
 function _setSelPreserve(id,html){var s=g(id);if(!s)return;var cur=s.value;s.innerHTML=html;if(cur){s.value=cur;}}
+// ═══════════════════════════════════════════════════════════════════════════════
+// EL BUSCADOR DE REPUESTOS — escribir en vez de buscar en una lista
+//
+// ⛔ POR QUÉ EXISTE, y por qué NO se hizo lo que se pidió. Carlos Serrano pidió el
+//    25/08 registrar el mantenimiento eligiendo solo la CATEGORÍA y poniendo el
+//    repuesto en el campo Nota, porque «a medida que avance la operatividad la
+//    lista será demasiado extensa». Medido contra sus propios datos:
+//      · 62 mantenimientos produjeron 15 ítems distintos — en una flota los
+//        repuestos se REPITEN, así que crecen los registros, no el catálogo;
+//      · dentro de la sola categoría «Filtros y elementos filtrantes» hay SEIS
+//        repuestos con precios y frecuencias distintas (aceite 10 veces/315,50 ·
+//        combustible 9/218,31 · trampa 5/185,88 · aire 3/59,97 · cabina · antipolen).
+//        Con solo la categoría, los seis caen en un saco de 791,83 USD;
+//      · y al FC03 le cambiaron el filtro de combustible TRES veces entre el 06/06
+//        y el 22/07 — la señal de agua o suciedad en el tanque. Eso se ve porque el
+//        repuesto está identificado; en una nota de texto libre, el FC03 diría
+//        «Filtros» cinco veces y no diría nada.
+//    Su molestia era real, pero no era del DATO: era de la PANTALLA. Se arregla acá.
+//
+// Tres cosas, y las tres importan:
+//   1. filtra mientras escribe (el navegador, con datalist: funciona en el teléfono);
+//   2. muestra PRIMERO lo que esa misma unidad ya usó — que es lo que casi siempre va;
+//   3. si escribe uno que no está, se crea al guardar y no lo manda a otra pantalla.
+// ⛔ Y antes de crear uno nuevo, avisa si ya hay uno parecido: sin eso, «filtro de
+//    aceite» y «Filtro Aceite» se vuelven dos ítems y el conteo se parte en dos, que
+//    es exactamente el problema que este módulo viene a evitar.
+// ═══════════════════════════════════════════════════════════════════════════════
+function _mantNorm(s){
+  return String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+    .toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
+}
+// Los ítems ordenados para ESTA unidad: primero los que ya se le pusieron, por
+// frecuencia; después el resto, alfabético.
+function _hvItemsOrdenados(cam){
+  var its=(MANT_ITEMS||[]).filter(function(x){return x.activo;});
+  var uso={};
+  (MANTENIMIENTOS||[]).forEach(function(m){
+    if(cam && String(m.cam)!==String(cam))return;
+    if(m.itemId)uso[m.itemId]=(uso[m.itemId]||0)+1;
+  });
+  return its.slice().sort(function(a,b){
+    var ua=uso[a.id]||0, ub=uso[b.id]||0;
+    if(ua!==ub)return ub-ua;                       // lo que esta unidad ya usó, arriba
+    return String(a.nombre).localeCompare(String(b.nombre),'es');
+  }).map(function(x){ return {it:x, veces:uso[x.id]||0}; });
+}
+function _hvPoblarItems(){
+  var dl=g('hv-item-lista'); if(!dl)return;
+  var cam=gv('hv-cam')||'';
+  dl.innerHTML=_hvItemsOrdenados(cam).map(function(o){
+    // La pista va en `label`: dice por qué está arriba sin ensuciar lo que se escribe.
+    var pista=o.veces?(o.veces+(o.veces===1?' vez':' veces')+' en '+cam):(o.it.categoria||'');
+    return '<option value="'+_mEsc(o.it.nombre)+'"'+(pista?(' label="'+_mEsc(pista)+'"'):'')+'></option>';
+  }).join('');
+}
+// Texto → id. Lo que decide es el NOMBRE normalizado; el id sigue viajando en el
+// campo oculto `hv-item`, así que todo lo que ya leía `gv('hv-item')` sigue igual.
+function _hvItemDesdeTexto(){
+  var txt=(gv('hv-item-txt')||'').trim();
+  var n=_mantNorm(txt);
+  var it=(MANT_ITEMS||[]).find(function(x){return _mantNorm(x.nombre)===n;});
+  sv('hv-item', it?it.id:'');
+  var aviso=g('hv-item-nuevo'), cat=g('hv-item-cat-fg');
+  if(it){
+    if(aviso)aviso.style.display='none';
+    if(cat)cat.style.display='none';
+    try{ _hvItemSerial(); }catch(e){}
+    return;
+  }
+  if(!txt){ if(aviso)aviso.style.display='none'; if(cat)cat.style.display='none'; return; }
+  // No está en el catálogo: se va a crear. Se DICE, y si hay uno parecido se ofrece,
+  // porque un catálogo partido en dos no lo nota nadie hasta que los números no cuadran.
+  var par=_mantItemParecido(txt);
+  if(aviso){
+    aviso.style.display='block';
+    aviso.innerHTML = par
+      ? ('🔎 ¿No será <b>'+_mEsc(par.nombre)+'</b>, que ya está? '+
+         '<a href="#" onclick="sv(\'hv-item-txt\',\''+_mEsc(par.nombre).replace(/'/g,"\'")+'\');_hvItemDesdeTexto();return false;" style="color:var(--acc)">usar ese</a> '+
+         '· o dejalo así y se registra «'+_mEsc(txt)+'» como nuevo.')
+      : ('🆕 «'+_mEsc(txt)+'» no está en el catálogo: se registra al guardar.');
+  }
+  if(cat)cat.style.display='block';
+}
+// ⛔ CUÁNDO DOS NOMBRES SON EL MISMO REPUESTO. Se mira en cuatro pasos, del más
+//    seguro al más flojo, y se corta en el primero que da.
+// ⚠️ El paso por PALABRAS no estaba y era el que más falta hacía: «filtro aceite» y
+//    «Filtro de aceite» no se contienen ni se parecen por letras —sacar « de » son
+//    tres cambios y el margen de errata es dos—, y sin embargo son lo mismo. Sin ese
+//    paso, la primera vez que alguien escribiera el nombre corto nacía un ítem
+//    duplicado y el conteo del filtro de aceite se partía en dos para siempre.
+//    Lo destapó la prueba con el catálogo real, no la lectura.
+function _mantItemParecido(nombre){
+  var n=_mantNorm(nombre); if(n.length<3)return null;
+  var lista=(MANT_ITEMS||[]).filter(function(x){return x.activo;});
+  var ex=lista.find(function(x){return _mantNorm(x.nombre)===n;}); if(ex)return ex;
+  // ⛔ CONTENER NO ALCANZA SI EL OTRO ES MUCHO MÁS LARGO. «radiador» está dentro de
+  //    «manguera de radiador» y no son el mismo repuesto; «filtro aceite» está dentro
+  //    de «filtro de aceite» y sí. Lo que los separa es CUÁNTO cubre: se pide que el
+  //    corto cubra al menos el 80% del largo. Sin esto, cualquier pieza cuyo nombre
+  //    aparezca dentro de otra —batería en cable de batería, radiador en tapa de
+  //    radiador— se ofrecía como si fuera la misma.
+  var cont=lista.find(function(x){
+    var xn=_mantNorm(x.nombre); if(xn.length<4)return false;
+    if(xn.indexOf(n)<0 && n.indexOf(xn)<0)return false;
+    return Math.min(xn.length,n.length)/Math.max(xn.length,n.length)>=0.8;
+  });
+  if(cont)return cont;
+  // Las palabras que importan: se sueltan los conectores («de», «la», «y»), que no
+  // distinguen un repuesto de otro.
+  var pal=function(t){ return _mantNorm(t).split(' ').filter(function(w){return w.length>2;}); };
+  var pn=pal(nombre);
+  if(pn.length){
+    var porPalabras=lista.find(function(x){
+      var px=pal(x.nombre); if(!px.length)return false;
+      // ⛔ MISMAS PALABRAS, NI UNA MÁS. Solo se sueltan los conectores, que ya quedaron
+      //    afuera por cortos. «filtro aceite» y «filtro de aceite» dan las dos {filtro,
+      //    aceite} y son el mismo repuesto; «manguera de radiador» trae una palabra más
+      //    que «radiador» y NO lo es — uno cuesta 632 dólares y la otra veinte.
+      //    Se probó dejar pasar una palabra de diferencia y esa fue justo la que se
+      //    coló: una sugerencia equivocada que alguien acepta apurado es peor que no
+      //    sugerir nada, porque queda un gasto cargado en el repuesto que no fue.
+      if(px.length!==pn.length)return false;
+      return pn.every(function(w){return px.indexOf(w)>=0;});
+    });
+    if(porPalabras)return porPalabras;
+  }
+  return lista.find(function(x){
+    var xn=_mantNorm(x.nombre);
+    return xn.length>=6 && n.length>=6 && typeof _provDist==='function' && _provDist(xn,n)<=2;
+  })||null;
+}
+// Crea el ítem sin sacar a nadie de la pantalla. Devuelve el id, o '' si no se pudo.
+// ⛔ Si falla el guardado NO se traba el registro del trabajo: queda el ítem en
+//    memoria y el mantenimiento se carga igual. Un catálogo no puede impedir que se
+//    registre lo que ya pasó.
+async function _mantItemCrearAlVuelo(nombre, categoria){
+  var nom=String(nombre||'').trim(); if(!nom)return '';
+  // ⛔ SI EL PRODUCTO YA TIENE LA PIEZA, SE USA ESA. En Betangar existe
+  //    `_mantItemRapido` desde antes: reutiliza el ítem cuando ya estaba, avisa si no
+  //    pudo guardarlo y no traba el registro. Escribir otra al lado sería tener dos
+  //    catálogos creciendo distinto dentro del mismo producto.
+  //    ⚠️ Lo único que se le corrige es la categoría: clava 'Correctivo', que NO existe
+  //    en `cat_categorias`, y con eso el gasto de ese ítem no suma con ninguna. Si en la
+  //    pantalla se eligió una categoría del catálogo, manda esa.
+  if(typeof _mantItemRapido==='function'){
+    var _ya=await _mantItemRapido(nom);
+    if(!_ya||!_ya.id)return '';
+    if(categoria&&_ya.categoria!==categoria){
+      _ya.categoria=categoria;
+      if(DB_READY&&supabase){ try{ await supabase.from('mant_items').update({categoria:categoria}).eq('id',_ya.id); }catch(e){} }
+    }
+    try{ _hvPoblarItems(); }catch(e){}
+    return _ya.id;
+  }
+  var id=_mantNorm(nom).replace(/ /g,'_').slice(0,40)+'_'+Date.now().toString(36).slice(-4);
+  var fila={id:id, nombre:nom, categoria:categoria||'', base:'km', intervalo:0, activo:true,
+            fuente:'creado al registrar un mantenimiento', orden:999};
+  MANT_ITEMS.push({id:id,nombre:nom,categoria:fila.categoria,base:'km',intervalo:0,inspeccion:0,
+    sustitucion:0,avisoAnticipo:0,tipoUnidad:'',tipo:'',combustible:'',critico:false,llevaSerial:false,
+    fuente:fila.fuente,activo:true,orden:999});
+  if(DB_READY&&supabase){
+    try{
+      var r=await supabase.from('mant_items').insert([fila]);
+      if(r&&r.error)console.warn('ítem nuevo, no se pudo guardar en el catálogo:',r.error.message);
+    }catch(e){ console.warn('ítem nuevo:',String(e)); }
+  }
+  try{ _hvPoblarItems(); }catch(e){}
+  return id;
+}
 function _hvPoblarSelects(){
   try{ _hvPoblarProv(); }catch(e){}   // la lista de talleres se llena con las demás, no aparte
   var unidades=_hvUnidades();
@@ -11823,9 +11995,12 @@ function _hvPoblarSelects(){
   // "trabajo de electricidad" no tenía ítem que le calzara y el trabajo NO SE PODÍA REGISTRAR
   // → la orden quedaba abierta para siempre. El trabajo real manda: si no está en la lista, se
   // escribe y se agrega al catálogo en el momento (igual que el proveedor "Otro").
-  var optI='<option value="">— ítem (qué se le hizo) —</option>'+its.map(function(x){return '<option value="'+_mEsc(x.id)+'">'+_mEsc(x.nombre)+'</option>';}).join('')+'<option value="__nuevo">➕ Otro / no está en la lista…</option>';
+  var optI='<option value="">— ítem (qué se le hizo) —</option>'+its.map(function(x){return '<option value="'+_mEsc(x.id)+'">'+_mEsc(x.nombre)+'</option>';}).join('');
   var optIver='<option value="">Todos los ítems</option>'+its.map(function(x){return '<option value="'+_mEsc(x.id)+'">'+_mEsc(x.nombre)+'</option>';}).join('');
-  _setSelPreserve('hv-cam',optU); _setSelPreserve('hv-item',optI); _hvItemOtro();
+  _setSelPreserve('hv-cam',optU);
+  // El ítem ya no es un select: es el buscador. `optI` sigue armándose porque lo usa
+  // el filtro del historial, que sí es una lista corta y cerrada.
+  try{ _hvPoblarItems(); }catch(e){} _hvItemOtro();
   _setSelPreserve('hv-ver-cam',optUver); _setSelPreserve('hv-ver-item',optIver);
   // Espejo del filtro de unidad en la barra del historial (mismo valor, dos lugares visibles).
   _setSelPreserve('hv-hist-cam',optUver);
@@ -11842,7 +12017,11 @@ function _hvSetCam(v){
 // Unidad elegida en Mantenimiento (la usa el QR y cualquier acción "de esta unidad").
 function _hvCamSel(){ return (typeof gv==='function' ? (gv('hv-ver-cam')||gv('hv-hist-cam')||'') : ''); }
 // Muestra el campo de texto cuando el ítem es uno nuevo (no está en el catálogo).
-function _hvItemOtro(){ var w=g('hv-item-otro-wrap'); if(w)w.style.display=(gv('hv-item')==='__nuevo')?'block':'none'; }
+// ⛔ QUEDA VACIA A PROPOSITO. Mostraba el campo «ítem nuevo» cuando en la lista se
+//    elegia '__nuevo'; desde el 26/08 el ítem se escribe en el buscador y se crea al
+//    guardar. No se borra porque la llaman desde otros puntos: sacarla de golpe rompe
+//    con «is not a function» en pantallas que no tienen nada que ver con esto.
+function _hvItemOtro(){}
 // ── TRABAJO INTERNO (mano de obra propia) ───────────────────────────────────────────────────
 // Máximo, 02/08/2026: «ajustar los frenos lo hace mi mecánico, que ya está en nómina. No me
 // genera costo, pero quiero saber cuándo se le hizo y que esté en el historial del camión.»
@@ -11904,6 +12083,9 @@ function _poblarKmItem(){
 // El km del MANTENIMIENTO se ingresa a MANO (es el que tenía la unidad al hacerse el trabajo,
 // que pudo ser otro día/otro km). Solo mostramos el km actual del chofer como REFERENCIA.
 function _hvPrefillKm(){
+  // ⛔ Al cambiar de unidad se repuebla el buscador: lo que lo hace útil es que arriba
+  //    esté lo que ESA unidad ya usó, y eso cambia con la unidad.
+  try{ _hvPoblarItems(); }catch(e){}
   var cam=gv('hv-cam'), h=g('hv-km-hint');
   if(!cam){if(h)h.textContent='';return;}
   var km=(typeof kmActualCam==='function')?kmActualCam(cam):((KM_DATA[cam]&&KM_DATA[cam].km)||0);
@@ -12018,18 +12200,17 @@ async function registrarMantItem(){
   var _orig=_editId?((MANTENIMIENTOS||[]).filter(function(m){return String(m.id)===String(_editId);})[0]||null):null;
   if(_editId){ MANTENIMIENTOS=(MANTENIMIENTOS||[]).filter(function(m){return String(m.id)!==String(_editId);}); }
   if(!cam){alert('Elegí la unidad');return;}
-  // Ítem que no está en el catálogo (arreglo puntual: electricidad, soldadura, latonería…): se
-  // escribe, se crea en el momento y el registro sigue. NUNCA se traba el cierre de una orden por
-  // una lista incompleta.
-  if(itemId==='__nuevo'){
-    var _nom=(gv('hv-item-otro')||'').trim();
-    if(!_nom){alert('Escribí qué se le hizo (el ítem nuevo).');var _f=g('hv-item-otro');if(_f)_f.focus();return;}
-    var _nue=await _mantItemRapido(_nom);
-    if(!_nue){alert('No pude crear el ítem "'+_nom+'". Escribilo de otra forma.');return;}
-    itemId=_nue.id;
-    try{ _hvPoblarSelects(); sv('hv-item',itemId); _hvItemOtro(); sv('hv-item-otro',''); }catch(e){}
+  // ⛔ ACA VIVIA EL CAMINO '__nuevo': una opcion «Otro / no esta en la lista…» al final
+  //    del desplegable que mostraba un campo de texto aparte. Se saco el 26/08 al poner el
+  //    buscador: ahora se escribe directo y el item se crea mas arriba, en un solo lugar.
+  // ⛔ EL ÍTEM NUEVO SE CREA ACÁ, no en otra pantalla. Mandar a alguien a cargar un
+  //    ítem antes de poder registrar el trabajo es lo que empuja a escribirlo suelto en
+  //    la nota — que es justo lo que este módulo viene a evitar.
+  if(!itemId){
+    var _txtIt=(gv('hv-item-txt')||'').trim();
+    if(_txtIt){ itemId=await _mantItemCrearAlVuelo(_txtIt, gv('hv-item-cat')||''); }
   }
-  if(!itemId){alert('Elegí el ítem (qué se le hizo)');return;}
+  if(!itemId){alert('Escribí qué se le hizo (el ítem)');return;}
   var esHoras=(typeof medidaUnidad==='function')&&medidaUnidad(cam)==='horas';
   // KM cuando el usuario no lo escribe. OJO: NO se puede meter el km de HOY en un trabajo VIEJO.
   // Pasaba con los lavados de carga histórica (km 0): al editarlos solo para ponerles costo y
@@ -12209,7 +12390,10 @@ function editarMantItem(id){
   var m=(MANTENIMIENTOS||[]).filter(function(x){return String(x.id)===String(id);})[0];
   if(!m){alert('Registro no encontrado');return;}
   try{ if(typeof _hvPoblarSelects==='function')_hvPoblarSelects(); }catch(e){}
-  sv('hv-cam',m.cam||''); sv('hv-item',m.itemId||''); sv('hv-fecha',m.fecha||'');
+  sv('hv-cam',m.cam||''); sv('hv-item',m.itemId||'');
+  // El campo oculto lleva el id; el buscador tiene que MOSTRAR el nombre, o al editar
+  // aparecería vacío y se guardaría otra cosa.
+  try{ var _itEd=(typeof _mantItem==='function')?_mantItem(m.itemId||''):null; sv('hv-item-txt', _itEd?_itEd.nombre:(m.tipo||'')); _hvItemDesdeTexto(); }catch(e){} sv('hv-fecha',m.fecha||'');
   sv('hv-km',m.km||''); sv('hv-costo',m.costo||''); sv('hv-horas',m.horas||'');
   sv('hv-tipotrabajo',m.tipoTrabajo||'cambio'); sv('hv-prov',m.proveedor||''); sv('hv-nota',m.desc||'');
   // Sin esto, editar un trabajo INTERNO solo para corregirle el km lo devolvía a 'externo' y
