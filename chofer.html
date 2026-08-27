@@ -3339,57 +3339,25 @@ function _avisoNoSalio(queCosa, detalle){
     try{ drenarColaBloq(); }catch(e){}
   }catch(e){}
 }
-async function enviarNotificacionWA(reg){
-  try{
-    var tiposEstado = {
-      operativo:'Operativo', taller_betangar:'Taller Betangar',
-      taller_jac:'Taller JAC', inoperativo:'Inoperativo'
-    };
-    var modo   = CL_MODO==='llegada' ? 'LLEGADA' : 'SALIDA';
-    var km     = reg.km_salida || reg.km_entrada || '-';
-    var hora   = reg.hora_salida || reg.hora_entrada || '-';
-    var estado = tiposEstado[reg.estado_vehiculo] || reg.estado_vehiculo || '-';
-
-    // Titular pedido: notifica de inmediato a socios y mecánico que el chofer completó el checklist
-    var msg = '✅ '+cam+' - '+chofer+' completó el checklist ('+modo+') a las '+hora+'\n'+
-              'Fecha: '+(function(){var d=new Date();return String(d.getDate()).padStart(2,'0')+'/'+String(d.getMonth()+1).padStart(2,'0')+'/'+d.getFullYear();})()+'\n'+
-              'KM: '+km+'\n'+
-              'Estado: '+estado;
-    if(reg.observaciones) msg += '\nObs: '+reg.observaciones.slice(0,100);
-
-    // SIEMPRE Image() — nunca fetch() para callmebot (norma Betangar).
-    // Llega a todos los destinatarios con número y API key configurados (socios + mecánico).
-    // Si Wassenger está activo (config), encola en cola_mensajes (el worker lo manda con la etiqueta de la
-    // empresa). Si no, CallMeBot directo (comportamiento previo, cero downtime).
-    var _wsOn=false;
-    // Wassenger: se consulta por RPC (wassenger_estado) que devuelve el estado SIN el token.
-    // El token ya NO es legible por la llave anon del chofer (queda dentro de la funcion SECURITY DEFINER).
-    try{ if(supabase){ var _wc=await supabase.rpc('wassenger_estado'); if(_wc&&!_wc.error&&_wc.data){ _wsOn=(_wc.data.activo===true&&_wc.data.tiene_token===true); } } }catch(_e){}
-    // La lista de quien recibe se lee de la base ACA, justo antes de mandar: asi
-    // un cambio en `configuracion` vale desde el proximo checklist, sin redesplegar.
-    await _cargarDestinatariosChecklist();
-    WA_DESTINATARIOS.forEach(function(dest){
-      if(!dest.num)return;
-      // ⛔ Iba SIN `await` y con el catch mudo: un rechazo del insert no lanzaba
-      //    nada acá y el aviso se perdía sin dejar rastro. Ahora se mira la
-      //    respuesta y, si no entró, se registra.
-      if(_wsOn){ try{ supabase.from('cola_mensajes').insert([{telefono:dest.num,mensaje:msg,tipo:'chofer'}])
-        .then(function(_r){ if(_r&&_r.error) _avisoNoSalio('La novedad de '+cam+' no entró en la cola de mensajes.', _r.error.message); },
-              function(_e3){ _avisoNoSalio('La novedad de '+cam+' no entró en la cola de mensajes.', _e3&&_e3.message?_e3.message:_e3); });
-      }catch(_e2){ _avisoNoSalio('La novedad de '+cam+' no se pudo encolar.', _e2&&_e2.message?_e2.message:_e2); } return; }
-      if(!dest.key)return;
-      var urlD='https://api.callmebot.com/whatsapp.php?phone='+encodeURIComponent(dest.num)+'&text='+encodeURIComponent(msg)+'&apikey='+dest.key;
-      var imgD=new Image();imgD.src=urlD;
-    });
-
-
-  }catch(e){
-    // ⛔ Antes esto era solo un console.log. La consola de un teléfono en la calle
-    //    no la lee nadie: registrar ahí es lo mismo que no registrar.
-    console.log('WA error:', e);
-    _avisoNoSalio('Se rompió el aviso del checklist antes de mandarlo.', e && e.message ? e.message : e);
-  }
-}
+// ⛔ ESTA FUNCIÓN YA NO MANDA NADA, y se deja vacía a propósito: la llaman desde
+//    varios puntos del cierre del checklist y borrarla rompería con «is not a
+//    function» en el teléfono de un chofer, en la calle.
+//
+// 🔴 POR QUÉ SE SACÓ, 27/08. Avisaba por WhatsApp cada vez que un chofer abría o
+//    cerraba el checklist. Medido sobre lo que le llegó a Máximo en 8 días: 101
+//    mensajes, 12,6 por día — el aviso más caro de todo el sistema, y el que menos
+//    pide hacer algo. Máximo: «ya no envíes el mensaje cada vez que un chofer abre
+//    o cierra a nadie, porque eso ya lo envías en el resumen de la mañana y de la
+//    noche; para qué recibir un mensaje cada vez que lo hacen».
+//
+// ⛔ NO SE PIERDE NADA, y se verificó ANTES de sacarlo: el resumen de las 8:00 trae
+//    «Llenaron 11 de 12» con la lista de quién llenó y —lo que de verdad importa—
+//    QUIÉN FALTÓ, que es la única parte que pide una acción. El de las 18:00 trae el
+//    resumen del día. El aviso individual solo repetía lo que ya iba a llegar.
+//
+// ⚠️ Y el dato del checklist NO dependía de esto: se guarda en `checklist` cuando el
+//    chofer lo cierra. Esto era solo el aviso.
+async function enviarNotificacionWA(reg){ return; }
 
 // ── INCIDENCIAS ──
 var tipoIncActual = '';
