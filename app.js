@@ -5699,7 +5699,10 @@ function anomNorm(s){
 }
 
 async function renderChecklistAnomalias(){
-  var targets=['checklist-anomalias','cl-anomalias','oper-anomalias'].map(function(id){return document.getElementById(id);}).filter(Boolean);
+  // ⛔ `mec-anomalias` es la tarjeta del MECÁNICO. Se agrega acá y no se escribe otra
+  //    función: la lista de fallas abiertas es la misma en todas las pantallas, y dos
+  //    funciones que dibujan lo mismo se desincronizan la primera vez que se toca una.
+  var targets=['checklist-anomalias','cl-anomalias','oper-anomalias','mec-anomalias'].map(function(id){return document.getElementById(id);}).filter(Boolean);
   if(!targets.length)return;
   if(!DB_READY||!supabase){ targets.forEach(function(el){el.innerHTML='<div style="color:var(--text3);font-size:12px;padding:8px">Sin conexión</div>';}); return; }
   var r=null;
@@ -5770,19 +5773,32 @@ async function anomResolver(id){
   if(res.error){ mostrarToast('No se pudo cerrar: '+res.error.message,'error'); return; }
   if(!res.data||!res.data.length){ mostrarToast('Esa falla ya la cerró otra persona','warn'); renderChecklistAnomalias(); return; }
   try{ audit('anomalia_resuelta',a.cam+' · '+a.label+' → '+nota); }catch(e){}
-  // ⛔ ACÁ SE AVISABA POR WHATSAPP QUE UNA FALLA QUEDÓ REPARADA, y se sacó el 27/08
-  //    por decisión de Máximo: «no le envíes a ninguno de los 3, cada uno puede
-  //    saberlo en la app».
-  //    🔴 EL MOTIVO, MEDIDO ESE DÍA: cada falla resuelta salía a TRES destinatarios y
-  //    Alejandra cerró cuatro seguidas — trece mensajes en un minuto. En el día fueron
-  //    42 avisos «Falla resuelta», el 40% de los 106 mensajes que salieron por la
-  //    cola. Wassenger espacia los envíos a propósito —si manda rápido, WhatsApp
-  //    bloquea el número—, así que esa ráfaga se pone delante de la respuesta a una
-  //    persona que está esperando: ese día un mensaje del servicio técnico tardó 26
-  //    minutos en llegar.
-  //    ⚠️ El dato NO se pierde: la falla cerrada se ve en la app, que es donde igual
-  //    hay que entrar para hacer algo con ella. Un aviso que solo repite lo que la
-  //    pantalla ya muestra cuesta la fila de todos los demás.
+  // ⛔ ESTE AVISO VA SOLO AL MECÁNICO, y no es un descuido: lo dictó Máximo el 27/08,
+  //    uno por uno. «A Ana no debe llegarle, a Samuel tampoco, a Juan Carlos Dávila
+  //    puede ser para que confirme que sí lo hizo bien, a Gladys no, a admin tampoco
+  //    y a socios tampoco».
+  //    🔴 EL MOTIVO, MEDIDO: cada falla resuelta salía a TRES destinatarios y
+  //    Alejandra cerró cuatro seguidas — trece mensajes en un minuto. En el día
+  //    fueron 42 avisos «Falla resuelta», el 40% de los 106 que salieron por la cola.
+  //    Wassenger espacia los envíos a propósito —si manda rápido, WhatsApp bloquea el
+  //    número—, así que esa ráfaga se ponía delante de la respuesta a una persona que
+  //    estaba esperando: ese día un mensaje del servicio técnico tardó 26 minutos.
+  //    ⚠️ A los demás no se les pierde nada: la falla cerrada se ve en la app, que es
+  //    donde igual hay que entrar para hacer algo con ella. Al mecánico sí le sirve,
+  //    porque le confirma que lo que él reparó quedó registrado.
+  //    ⛔ El cuarto parámetro `true` es el ESTRICTO: sin él, la regla «los socios
+  //    reciben todo» se lo mandaría igual a Máximo y a Francisco.
+  //    ⚠️ Y el rol es `mecanica`, NO `mecanico`: la comparación es exacta y en la
+  //    lista de destinatarios el rol se llama así. Escrito `mecanico` —como estaba
+  //    hasta hoy— este aviso no le llegaba a nadie del taller y nadie lo notó.
+  try{
+    sendWA(brandTag()+' - Falla resuelta\n\n'+
+      'Unidad: '+a.cam+'\n'+
+      'Falla: '+a.label+'\n'+
+      'Arreglo: '+nota+'\n'+
+      'Por: '+((SESION&&SESION.nombre)||'')+'\n'+
+      'Fecha: '+fmtFechaHora(new Date()),['mecanica'],false,true);
+  }catch(e){}
   mostrarToast('Falla cerrada — el chofer deja de verla','ok');
   renderChecklistAnomalias();
 }
@@ -19588,15 +19604,26 @@ function WA_SEND(numero, apikey, texto){
 // Silencio nocturno DESACTIVADO por pedido: todos los números registrados reciben los
 // mensajes a cualquier hora, sin restricción. (Para reactivarlo: return (h<7||h>=21).)
 function _esSilencioNocturno(){ return false; }
-function sendWA(msg, roles, force){
+// ⛔ `estricto` = el aviso va SOLO a los roles que se piden, sin la regla de que los
+//    socios reciben todo.
+//    🔴 POR QUÉ HIZO FALTA, 27/08. Máximo: «a Ana no debe llegarle, a Samuel tampoco,
+//    a Juan Carlos Dávila puede ser para que confirme que sí lo hizo bien, a Gladys
+//    no, a admin tampoco y a socios tampoco». Con la regla de arriba eso era
+//    imposible de expresar: cualquier aviso, para el rol que fuera, le llegaba
+//    igual a los dos socios. Ese `return true` es el motivo de fondo por el que a
+//    él le llegaba TODO lo que manda el sistema.
+// ⚠️ La regla se deja como está para todo lo demás: un socio SÍ tiene que enterarse
+//    de una alarma de dinero o de una unidad varada. Lo que cambia es que ahora se
+//    puede decir «este aviso no».
+function sendWA(msg, roles, force, estricto){
   if(!force && _esSilencioNocturno()){ console.log('WA automático silenciado (horario nocturno):',String(msg).slice(0,50)); return; }
   var destinos=WA.filter(function(w){
     if(!w.num||!w.activo)return false;
     if(!WASSENGER_ON&&!w.key)return false; // CallMeBot exige apikey; Wassenger no
     if(!roles||roles==='todos')return true;
     var r=Array.isArray(roles)?roles:[roles];
-    // socios reciben todo siempre
-    if(w.rol==='socios')return true;
+    // socios reciben todo siempre — salvo que el aviso se declare estricto
+    if(w.rol==='socios'&&!estricto)return true;
     return r.indexOf(w.rol)>=0;
   });
   destinos.forEach(function(w){
@@ -22819,9 +22846,70 @@ function portAbrirEntrada(){portAbrirModal('modal-port-entrada');}
 // MÓDULO MECÁNICO — Estado de Flota
 // ══════════════════════════════════════════════════
 
+// ══════════════════════════════════════════════════
+// QUIÉN SALIÓ HOY Y QUIÉN NO — para el mecánico
+//
+// ⛔ POR QUÉ EXISTE. Máximo, 27/08: «que también, ya que hoy lo hace manual, cuántas
+//    unidades salieron a la calle a trabajar y cuántas no». El dato ya está —el
+//    checklist de salida lo llena el chofer al arrancar— pero solo se veía en el
+//    resumen que llega por WhatsApp a las 8 de la mañana, y el mecánico no lo recibe.
+//
+// ⚠️ «SALIÓ» = LLENÓ EL CHECKLIST DE SALIDA. No es una suposición: sin checklist el
+//    chofer no puede arrancar, así que llenarlo y salir son la misma cosa. Se dice
+//    en la pantalla para que nadie tenga que adivinar qué está contando el número.
+// ⚠️ Y las que NO salieron se listan CON SU MOTIVO cuando se sabe: una unidad en
+//    taller no es lo mismo que una que nadie sacó, y al mecánico le importa
+//    justamente esa diferencia.
+async function mecRenderSalidas(){
+  var el=document.getElementById('mec-salidas');
+  if(!el)return;
+  if(!DB_READY||!supabase){ el.innerHTML='<div style="color:var(--text3);font-size:12px;padding:8px">Sin conexión</div>'; return; }
+  var hoy=(typeof fechaVE==='function')?fechaVE():new Date().toISOString().slice(0,10);
+  var r=null;
+  try{ r=await supabase.from('checklist').select('cam,conductor,hora_salida,hora_entrada').eq('fecha',hoy); }catch(e){}
+  if(!r||r.error){ el.innerHTML='<div style="color:var(--text3);font-size:12px;padding:8px">No se pudo leer el checklist de hoy</div>'; return; }
+  var salieron={}, volvieron={};
+  (r.data||[]).forEach(function(c){ if(c.cam){ salieron[c.cam]=c; if(c.hora_entrada)volvieron[c.cam]=1; } });
+
+  // La flota activa sale de la misma fuente que usa el resto de la pantalla.
+  var todas=Object.keys(UNIDAD_CONFIG||{}).filter(function(c){
+    var u=UNIDAD_CONFIG[c]; return !u||u.activo!==false;
+  });
+  if(!todas.length)todas=Object.keys(FLOTA||{});
+  var fuera=todas.filter(function(c){return !salieron[c];});
+
+  var chip=function(txt,color){return '<span style="display:inline-block;background:'+color+'22;color:'+color+';border-radius:6px;padding:2px 7px;font-size:11px;margin:2px 3px 2px 0">'+txt+'</span>';};
+  var html='<div style="display:flex;gap:14px;align-items:baseline;margin-bottom:6px">'+
+    '<div><span style="font-size:22px;font-weight:700;color:#1d9e75">'+Object.keys(salieron).length+'</span>'+
+    '<span style="font-size:11px;color:var(--text3)"> salieron</span></div>'+
+    '<div><span style="font-size:22px;font-weight:700;color:'+(fuera.length?'#e24b4a':'var(--text3)')+'">'+fuera.length+'</span>'+
+    '<span style="font-size:11px;color:var(--text3)"> no salieron</span></div>'+
+    '<div style="font-size:11px;color:var(--text3);margin-left:auto">de '+todas.length+' unidades</div></div>';
+
+  if(fuera.length){
+    html+='<div style="font-size:11px;color:var(--text3);margin-top:6px">No salieron:</div><div>'+
+      fuera.map(function(c){
+        // Si está en taller o inoperativa, el motivo ya lo sabe el sistema: se dice.
+        var est=(typeof _estadoCamReal==='function')?_estadoCamReal(c):'';
+        var motivo=est==='taller'?' · en taller':(est==='inoperativo'?' · inoperativa':'');
+        return chip(c+motivo, est==='operativo'?'#e24b4a':'#ef9f27');
+      }).join('')+'</div>';
+  } else {
+    html+='<div style="font-size:12px;color:#1d9e75;margin-top:4px">Salieron todas.</div>';
+  }
+  var faltaVolver=Object.keys(salieron).filter(function(c){return !volvieron[c];});
+  if(faltaVolver.length)
+    html+='<div style="font-size:11px;color:var(--text3);margin-top:8px">Todavía sin cerrar la llegada: '+
+      faltaVolver.map(function(c){return chip(c,'#8a94a6');}).join('')+'</div>';
+  el.innerHTML=html;
+}
+
 function mecIniciar(){
   var grid=document.getElementById('mec-grid');
   if(!grid)return;
+  // Las dos tarjetas de arriba: lo que trae trabajo. No bloquean la flota si fallan.
+  try{ mecRenderSalidas(); }catch(e){}
+  try{ renderChecklistAnomalias(); }catch(e){}
   // Mostrar botón agregar solo para superadmin
   var btnAgregar=document.getElementById('btn-agregar-vehiculo');
   if(btnAgregar)btnAgregar.style.display=esMando()?'block':'none';

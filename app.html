@@ -3115,6 +3115,25 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
         <div id="mec-stats" style="font-size:12px;text-align:right"></div>
       </div>
     </div>
+    <!-- ⛔ LO PRIMERO QUE VE EL MECÁNICO, dictado por Máximo el 27/08: «el módulo del
+         mecánico debería ver principalmente esto y así repara y avisa que reparó», y
+         «cuántas unidades salieron a la calle a trabajar y cuántas no, que hoy lo hace
+         manual». Va ARRIBA de la flota a propósito: es lo que trae trabajo, la flota es
+         referencia. -->
+    <div class="card" style="margin-bottom:12px">
+      <div class="sh" style="display:flex;justify-content:space-between;align-items:center">
+        <div class="st">🚛 Salieron hoy</div>
+        <div style="font-size:9px;color:var(--text3)">las que llenaron el checklist</div>
+      </div>
+      <div id="mec-salidas" style="margin-top:6px"><div style="color:var(--text3);font-size:12px">Cargando…</div></div>
+    </div>
+    <div class="card" style="margin-bottom:12px">
+      <div class="sh" style="display:flex;justify-content:space-between;align-items:center">
+        <div class="st">🔧 Fallas por reparar</div>
+        <div style="font-size:9px;color:var(--text3)">al arreglarla, tocá «Resuelta»</div>
+      </div>
+      <div id="mec-anomalias" style="margin-top:6px"><div style="color:var(--text3);font-size:12px">Cargando…</div></div>
+    </div>
     <div id="mec-grid" style="margin-bottom:14px">
       <div style="text-align:center;color:var(--text3);padding:30px">Cargando flota...</div>
     </div>
