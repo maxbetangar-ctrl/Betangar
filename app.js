@@ -5770,16 +5770,19 @@ async function anomResolver(id){
   if(res.error){ mostrarToast('No se pudo cerrar: '+res.error.message,'error'); return; }
   if(!res.data||!res.data.length){ mostrarToast('Esa falla ya la cerró otra persona','warn'); renderChecklistAnomalias(); return; }
   try{ audit('anomalia_resuelta',a.cam+' · '+a.label+' → '+nota); }catch(e){}
-  // Avisar a quien depende de esa unidad: el chofer la deja de ver, pero el
-  // supervisor necesita saber que ya está lista.
-  try{
-    sendWA(brandTag()+' - Falla resuelta\n\n'+
-      'Unidad: '+a.cam+'\n'+
-      'Falla: '+a.label+'\n'+
-      'Arreglo: '+nota+'\n'+
-      'Por: '+((SESION&&SESION.nombre)||'')+'\n'+
-      'Fecha: '+fmtFechaHora(new Date()),['socios','mecanico','operativo']);
-  }catch(e){}
+  // ⛔ ACÁ SE AVISABA POR WHATSAPP QUE UNA FALLA QUEDÓ REPARADA, y se sacó el 27/08
+  //    por decisión de Máximo: «no le envíes a ninguno de los 3, cada uno puede
+  //    saberlo en la app».
+  //    🔴 EL MOTIVO, MEDIDO ESE DÍA: cada falla resuelta salía a TRES destinatarios y
+  //    Alejandra cerró cuatro seguidas — trece mensajes en un minuto. En el día fueron
+  //    42 avisos «Falla resuelta», el 40% de los 106 mensajes que salieron por la
+  //    cola. Wassenger espacia los envíos a propósito —si manda rápido, WhatsApp
+  //    bloquea el número—, así que esa ráfaga se pone delante de la respuesta a una
+  //    persona que está esperando: ese día un mensaje del servicio técnico tardó 26
+  //    minutos en llegar.
+  //    ⚠️ El dato NO se pierde: la falla cerrada se ve en la app, que es donde igual
+  //    hay que entrar para hacer algo con ella. Un aviso que solo repite lo que la
+  //    pantalla ya muestra cuesta la fila de todos los demás.
   mostrarToast('Falla cerrada — el chofer deja de verla','ok');
   renderChecklistAnomalias();
 }
