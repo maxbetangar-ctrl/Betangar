@@ -1924,12 +1924,7 @@ async function surGuardar(){
       var _fp=document.getElementById('sur-precio'); if(_fp){ try{ _fp.focus(); _fp.select(); }catch(e){} }
       return;
     }
-    if(_prV>SUR_AVISO_PRECIO && !confirm('⚠️ Pusiste $'+_fmtVE(_prV,2)+' por LITRO'+(lit>0?(' → '+_fmtVE(lit,2)+' L = $'+_fmtVE(lit*_prV,2)):'')+'.
-
-¿Ese es el precio de un litro?
-
-• Aceptar → sí, es correcto.
-• Cancelar → me equivoqué.')){
+    if(_prV>SUR_AVISO_PRECIO && !confirm('⚠️ Pusiste $'+_fmtVE(_prV,2)+' por LITRO'+(lit>0?(' → '+_fmtVE(lit,2)+' L = $'+_fmtVE(lit*_prV,2)):'')+'.\n\n¿Ese es el precio de un litro?\n\n• Aceptar → sí, es correcto.\n• Cancelar → me equivoqué.')){
       var _fp2=document.getElementById('sur-precio'); if(_fp2){ try{ _fp2.focus(); _fp2.select(); }catch(e){} }
       return;
     }
