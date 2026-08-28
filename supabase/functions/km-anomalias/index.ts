@@ -11,7 +11,22 @@ const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const HDR = { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` };
 const RATE_MAX = 400;   // km/día por encima del cual es sospechoso (flota real ~60-130)
 const BAJA_MIN = 30;    // tolerancia de "baja" (redondeos); por debajo de -30 es retroceso real
-const SUP_FALLBACK = "584146001635"; // Samuel (operativo) si no se ubica el teléfono del chofer
+// ⛔ El jefe de operaciones se lee de la base (rol `operativo`), no se clava acá:
+//    cuando cambie la persona, cambia la fila y no el repo.
+//    ⚠️ Se resuelve UNA vez al arrancar y se guarda: esta funcion recorre muchas
+//    unidades y no tiene sentido preguntar lo mismo en cada vuelta.
+let SUP_FALLBACK = "";
+async function supervisorOperativo(): Promise<string> {
+  if (SUP_FALLBACK) return SUP_FALLBACK;
+  try {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/destinatarios`,
+      { method: "POST", headers: { ...HDR, "Content-Type": "application/json" },
+        body: JSON.stringify({ p_roles: ["operativo"] }) });
+    const j = await r.json();
+    if (Array.isArray(j) && j.length) SUP_FALLBACK = String(j[0].telefono);
+  } catch (e) { console.error("destinatarios(operativo) no contesto:", e); }
+  return SUP_FALLBACK;   // vacio = no se manda: mejor callado que al numero de otro
+}
 
 async function sel(path: string): Promise<any[]> {
   const r = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, { headers: HDR });
@@ -83,7 +98,7 @@ Deno.serve(async (req) => {
           if ((retro || salto) && f >= limite) {
             const key = `km_anom_${cam}_${f}`;
             if (dry || !(await yaAviso(key))) {
-              const tel = telChofer(r.conductor || "", emps) || SUP_FALLBACK;
+              const tel = telChofer(r.conductor || "", emps) || await supervisorOperativo();
               const nom = String(r.conductor || "").split(/\s+/)[0] || "";
               const msg = `⚠️ *Supervisión de kilometraje — ${cam}*\n\n` +
                 `Hola ${nom}, el km que registraste (${km.toLocaleString("es-VE")}) no tiene coherencia con el anterior (${prevKm.toLocaleString("es-VE")}) — ${retro ? "no puede ser MENOR" : "es un salto demasiado grande para un día"}. Parece un error de tipeo.\n\n` +

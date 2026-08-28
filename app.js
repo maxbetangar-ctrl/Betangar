@@ -130,16 +130,22 @@ var COBROS_FACT=[];
 var BNC_CONFIG={guid:'',mkey:'',cuenta:'',rif:BTG_CONFIG.empresa_rif,amb:'production'};
 // WhatsApp — 6 numeros con roles definidos
 // Cada mensaje se envia SOLO a los roles que corresponden
+// ⛔ ESTO ES SOLO EL RESPALDO DEL PRIMER ARRANQUE. La lista de verdad vive en
+//    `configuracion.whatsapp` y se lee en `cargarDatosDB`; después queda cacheada en
+//    el teléfono. Acá NO van personas: una lista de nombres y números en el código
+//    envejece sola —el 06/08 se dio de baja a alguien y la copia clavada siguió
+//    diciendo «vacante» para dos roles que ya tenían gente— y el día que la carga
+//    falla, se le manda a quien ya no corresponde.
+// ⚠️ Se deja la ESTRUCTURA y no una lista vacía: así, si alguien abre la pantalla de
+//    configuración antes de que la base conteste, ve los roles que existen y no un
+//    formulario en blanco que invita a inventarlos de nuevo.
 var WA=[
-  {num:'584147379886',key:'', rol:'socios',   desc:'Socio — Maximo Betancourt',   activo:true},
-  {num:'584142411159',key:'', rol:'socios',   desc:'Socio — Francisco Betancourt', activo:true},
-  // Baja 06/08/2026 — AUREDY MEDINA (E002) dejó la empresa. Lo del rol `admin` lo siguen
-  // recibiendo los socios: sendWA hace `if(w.rol==='socios')return true`, o sea reciben todo.
-  // No agregar a Máximo con rol admin: quedaría en dos entradas y le llegaría duplicado.
-  {num:'',            key:'',  rol:'admin',    desc:'(vacante — baja 06/08/2026)', activo:false},
-  {num:'584246591474',key:'', rol:'rrhh',     desc:'RRHH — Gladys Jinet',          activo:true},
-  {num:'',            key:'',        rol:'mecanica', desc:'Mecanico / Jefe Taller',       activo:false},
-  {num:'',            key:'',        rol:'operativo',desc:'Jefe de Operaciones',          activo:false}
+  {num:'', key:'', rol:'socios',    desc:'Socios',                activo:false},
+  {num:'', key:'', rol:'admin',     desc:'Administración',        activo:false},
+  {num:'', key:'', rol:'rrhh',      desc:'RRHH',                  activo:false},
+  {num:'', key:'', rol:'mecanica',  desc:'Mecánico / Jefe Taller', activo:false},
+  {num:'', key:'', rol:'operativo', desc:'Jefe de Operaciones',   activo:false},
+  {num:'', key:'', rol:'contadora', desc:'Contadora',             activo:false}
 ];
 // Roles que recibe cada tipo de alerta:
 // socios    → todo
@@ -4092,15 +4098,38 @@ async function cargarDatosDB(){
     });
     // AUDITORIA LOG
     if(aul.data&&aul.data.length)AUDITORIA_LOG=aul.data.map(function(x){return{fecha:x.created_at||x.fecha,usuario:x.operador||x.usuario,accion:x.accion,detalle:x.detalle||''};});
-    // CONFIG WHATSAPP
+    // ── LA LISTA DE DESTINATARIOS SALE DE LA BASE ──────────────────────────────
+    // 🔴 CÓMO ESTABA HASTA EL 27/08, y por qué fallaba en silencio:
+    //      waSaved.forEach(function(w,i){ if(WA[i]){ WA[i].num=…; WA[i].key=…; } });
+    //    Copiaba CAMPO POR CAMPO Y POR POSICIÓN sobre la lista clavada acá abajo.
+    //    Dos consecuencias, las dos invisibles:
+    //      · el ROL nunca se copiaba: mandaban los roles del código. Si en la base
+    //        alguien reordenaba la lista, un número quedaba con el rol de otro.
+    //      · lo que sobraba se perdía: el código tiene 6 entradas y la base 7, así
+    //        que ANA FUENMAYOR (contadora) NUNCA recibió un solo aviso. Nadie lo
+    //        notó porque no hay forma de ver «a quién NO se le mandó».
+    // ⛔ Ahora se REEMPLAZA la lista entera: la base manda, incluidos los roles y
+    //    los que se agreguen mañana sin tocar el código.
+    // ⚠️ Solo si viene una lista con algo adentro. Una respuesta vacía o rota deja
+    //    la de respaldo: quedarse sin destinatarios es quedarse sin avisos, y eso
+    //    no se nota hasta que hace falta uno.
+    // ⚠️ Y se guarda en el teléfono: si mañana la base no contesta, se arranca con
+    //    la última lista buena en vez de con la del código, que envejece sola.
     try{
       var wac=await supabase.from('configuracion').select('valor').eq('clave','whatsapp').single();
-      if(wac.data&&wac.data.valor){
-        var waSaved=JSON.parse(wac.data.valor);
-        waSaved.forEach(function(w,i){if(WA[i]){WA[i].num=w.num||'';WA[i].key=w.key||'';WA[i].activo=w.activo!==false;}});
-        console.log('WA config restaurada');
+      var waSaved=(wac.data&&wac.data.valor)?JSON.parse(wac.data.valor):null;
+      if(Array.isArray(waSaved)&&waSaved.length){
+        WA=waSaved;
+        try{ localStorage.setItem('btg_wa_destinatarios', JSON.stringify(waSaved)); }catch(_e){}
+        console.log('WA: '+WA.length+' destinatarios leídos de la base');
+      } else {
+        try{ var _cache=JSON.parse(localStorage.getItem('btg_wa_destinatarios')||'null');
+             if(Array.isArray(_cache)&&_cache.length){ WA=_cache; console.log('WA: sin respuesta de la base, se usa la última lista conocida'); } }catch(_e){}
       }
-    }catch(e3){}
+    }catch(e3){
+      try{ var _c2=JSON.parse(localStorage.getItem('btg_wa_destinatarios')||'null');
+           if(Array.isArray(_c2)&&_c2.length)WA=_c2; }catch(_e){}
+    }
     // CONFIG WASSENGER — si está activa (token + activo), TODO el WhatsApp sale por la cola Wassenger
     // (el worker lo envía con la etiqueta de la empresa). Si no, sigue por CallMeBot (respaldo, cero downtime).
     try{

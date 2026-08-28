@@ -27,7 +27,29 @@ const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const HDR = { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` };
 
 // AUREDY MEDINA (E002, 584120276883) salió de la lista: baja del 06/08/2026.
-const MAXIMO = "584147379886", GLADYS = "584246591474";
+// ⛔ Quien recibe se lee de la base (roles `socios` y `rrhh`), no se clava acá.
+//    La linea de arriba —la baja de Auredy anotada a mano el 06/08— es exactamente
+//    el trabajo que esto viene a eliminar.
+// ⚠️ Si la base no contesta se usa el numero de Maximo: una auditoria que no llega
+//    es una auditoria que no existe, y el silencio no se nota.
+// ⚠️ El respaldo es SOLO Maximo. Gladys arranca vacia a proposito: esta auditoria
+//    lleva datos de NOMINA, y si la base no contesta no se puede saber si quien
+//    ocupaba RRHH sigue ahi. A el le corresponde siempre; a un puesto, no.
+let MAXIMO = "584147379886", GLADYS = "";
+async function cargarDestinatarios(): Promise<void> {
+  try {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/destinatarios`,
+      { method: "POST", headers: { ...HDR, "Content-Type": "application/json" },
+        body: JSON.stringify({ p_roles: ["socios", "rrhh"] }) });
+    const j = await r.json();
+    if (Array.isArray(j)) {
+      const soc = j.filter((d: any) => d.rol === "socios").map((d: any) => String(d.telefono));
+      const rh  = j.filter((d: any) => d.rol === "rrhh").map((d: any) => String(d.telefono));
+      if (soc.length) MAXIMO = soc[0];
+      GLADYS = rh.length ? rh[0] : "";   // vacio = RRHH sin nadie: no se manda a ciegas
+    }
+  } catch (e) { console.error("destinatarios() no contesto, se usa el respaldo:", e); }
+}
 
 const rest = async (q: string): Promise<any[]> => {
   const r = await fetch(`${SUPABASE_URL}/rest/v1/${q}`, { headers: HDR });
@@ -74,6 +96,8 @@ function autorizado(req: Request): boolean {
 }
 
 Deno.serve(async (req) => {
+  // ⛔ Lo primero: traer de la base a quien le toca recibir esta auditoria.
+  await cargarDestinatarios();
   if (!autorizado(req)) {
     return new Response(JSON.stringify({ error: "No autorizado" }),
       { status: 401, headers: { "Content-Type": "application/json" } });
@@ -377,7 +401,10 @@ Deno.serve(async (req) => {
     const cola: any[] = []; const yaVa = new Set<string>();
     // Baja 06/08/2026 — AUREDY MEDINA (E002) dejó la empresa; el resumen con montos ya no le llega.
     for (const n of [MAXIMO]) if (n && !yaVa.has(n)) { yaVa.add(n); cola.push({ telefono: n, mensaje: msgDir, tipo: "auditoria", estado: "pendiente" }); }
-    if (msgGladys && !yaVa.has(GLADYS)) { yaVa.add(GLADYS); cola.push({ telefono: GLADYS, mensaje: msgGladys, tipo: "auditoria", estado: "pendiente" }); }
+    // ⚠️ Sin el `GLADYS &&` esto encolaba un mensaje con telefono vacio el dia que
+    //    RRHH no tuviera a nadie en la base: se perdia en la cola sin dejar rastro.
+    if (GLADYS && msgGladys && !yaVa.has(GLADYS)) { yaVa.add(GLADYS); cola.push({ telefono: GLADYS, mensaje: msgGladys, tipo: "auditoria", estado: "pendiente" }); }
+    else if (!GLADYS && msgGladys) console.error("AUDITORIA: hay hallazgos de RRHH y no hay nadie con rol `rrhh` en configuracion.whatsapp — el mensaje NO sale");
     const r = await fetch(`${SUPABASE_URL}/rest/v1/cola_mensajes`, {
       method: "POST", headers: { ...HDR, "Content-Type": "application/json", Prefer: "return=minimal" }, body: JSON.stringify(cola),
     });

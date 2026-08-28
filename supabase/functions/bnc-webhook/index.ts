@@ -7,17 +7,19 @@ const API_KEY_ESPERADO = "de273ebdea7abce15e73d23cecad3ef70b4cd3b86ff60cf1980e01
 
 // MIGRADO a WASSENGER (2026-07-17): 1 mensaje por pago NUEVO (al instante de recibirlo). Ya NO usa
 // CallMeBot ni apikeys por número — encola en cola_mensajes y el worker antepone "♻️ Betangar:" y envía.
-// Destinatarios: socios + administradora (números; Wassenger no necesita apikey por número).
-const WA_DESTINOS = [
-  { num: "584147379886", desc: "Socio - Maximo" },
-  { num: "584142411159", desc: "Socio - Francisco" },
-  // Baja 06/08/2026 — AUREDY MEDINA (E002) dejó la empresa. Los 3 socios siguen recibiendo
-  // cada pago, así que este aviso NO queda sin destinatario.
-  { num: "584143501298", desc: "Socio - Jonaz" },
-  // Alta 13/08/2026 — ALEJANDRO CASTILLO, socio del fondo en su cuenta. Pidió lo mismo que Jonaz:
-  // enterarse de TODO ingreso al banco. Entra además como `visualizador` (usuario `alecastillo`).
-  { num: "584145253105", desc: "Socio - Alejandro Castillo" },
-];
+// ⛔ ACÁ NO VAN PERSONAS. Quién recibe cada aviso se le pregunta a la base con la
+//    funcion `destinatarios(roles)` — ver `migraciones/quien_recibe_sale_de_la_base_2026-08-27.sql`.
+//    Hasta el 27/08 esta lista tenía los cuatro socios escritos a mano, con la baja
+//    de Auredy (06/08) y el alta de Alejandro Castillo (13/08) anotadas en
+//    comentarios: cada movimiento de personal obligaba a tocar el repo y desplegar.
+//    Jonaz y Alejandro ya están en la base con rol `banco`.
+// ⚠️ `banco` es un rol aparte de `socios` A PROPÓSITO: ellos son socios del fondo y
+//    pidieron enterarse de TODO ingreso al banco, pero nada más. Si estuvieran como
+//    `socios` les llegaría todo lo demás, y eso nadie lo pidió.
+const ROLES_DEL_AVISO = ["socios", "admin", "banco"];
+// ⚠️ Último recurso si la base no contesta: este aviso es PLATA ENTRANDO, y un pago
+//    del que nadie se entera es peor que un mensaje de más. Queda rastro en el log.
+const SI_LA_BASE_NO_CONTESTA = ["584147379886"];
 
 function parseFechaBNC(fecha: string, hora: string): string {
   if (!fecha || fecha.length < 8) return new Date().toISOString();
@@ -87,15 +89,13 @@ serve(async (req) => {
     const lineaBanco = bancoOrigen ? `\nBanco: ${bancoOrigen}` : "";
     const waMsg  = `💰 Pago BNC Recibido\nTipo: ${labelTipo(body.PaymentType||"")}\nMonto: ${simbolo}${monto.toLocaleString("es-VE",{minimumFractionDigits:2})}${lineaBanco}\nRef: ${body.DestinyBankReference||body.OriginBankReference||""}\nDe: ${body.DebtorID||""}\nFecha: ${dFecha.slice(6,8)}/${dFecha.slice(4,6)}/${dFecha.slice(0,4)} ${dHora.slice(0,2)}:${dHora.slice(2,4)}`;
 
-    // Destinatarios = FUENTE ÚNICA: configuracion.whatsapp (socios + admin) unido con la lista base
-    // WA_DESTINOS (garantiza que nadie configurado en código se pierda, ej. socio Jonaz). Dedupe por número.
-    let waCfg: any[] = [];
-    try { const { data: cRow } = await supabase.from("configuracion").select("valor").eq("clave","whatsapp").maybeSingle();
-      waCfg = JSON.parse((cRow?.valor as string) || "[]"); } catch { waCfg = []; }
-    const _nums = new Set<string>(); const dest: string[] = [];
-    const addNum = (n: string) => { const x = String(n||"").replace(/[\s\-\+]/g,""); if (x && !_nums.has(x)) { _nums.add(x); dest.push(x); } };
-    for (const w of (Array.isArray(waCfg)?waCfg:[])) { if (w && w.num && w.activo && (w.rol==="socios"||w.rol==="admin")) addNum(w.num); }
-    for (const d of WA_DESTINOS) addNum(d.num);
+    // Destinatarios: se los pregunta a la base. Ya vienen normalizados y sin repetidos.
+    let dest: string[] = [];
+    try {
+      const { data: dRows } = await supabase.rpc("destinatarios", { p_roles: ROLES_DEL_AVISO });
+      dest = (dRows || []).map((d: any) => String(d.telefono));
+    } catch (e) { console.error("destinatarios() no contesto:", e); }
+    if (!dest.length) { dest = SI_LA_BASE_NO_CONTESTA.slice(); console.error("AVISO DEL BANCO SIN DESTINATARIOS en la base: sale solo al respaldo"); }
     // Encolar UNA vez por destinatario (el worker Wassenger antepone la etiqueta de empresa).
     const filas = dest.map((tel) => ({ telefono: tel, mensaje: waMsg, tipo: "bnc", estado: "pendiente" }));
     const { error: eCola } = await supabase.from("cola_mensajes").insert(filas);
