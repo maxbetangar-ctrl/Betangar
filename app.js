@@ -11930,6 +11930,9 @@ function _hvItemDesdeTexto(){
   if(it){
     if(aviso)aviso.style.display='none';
     if(cat)cat.style.display='none';
+    // ⚠️ Se vacia al elegir un item que YA existe: si no, el km tecleado para uno
+    //    nuevo se le aplica al siguiente que se cree en la misma sesion.
+    try{ sv('hv-item-km',''); }catch(e){}
     try{ _hvItemSerial(); }catch(e){}
     return;
   }
@@ -11999,8 +12002,13 @@ function _mantItemParecido(nombre){
 // ⛔ Si falla el guardado NO se traba el registro del trabajo: queda el ítem en
 //    memoria y el mantenimiento se carga igual. Un catálogo no puede impedir que se
 //    registre lo que ya pasó.
-async function _mantItemCrearAlVuelo(nombre, categoria){
+// ⛔ `intervaloKm` lo pidio CARLOS SERRANO el 27/08: el item nacia con `intervalo: 0`
+//    -sin aviso- y habia que ir despues al catalogo a completarlo.
+// ⚠️ ES OPCIONAL: vacio deja el item igual que antes. Un campo nuevo obligatorio
+//    trancaria el registro de un trabajo que YA se hizo.
+async function _mantItemCrearAlVuelo(nombre, categoria, intervaloKm){
   var nom=String(nombre||'').trim(); if(!nom)return '';
+  var _km=Number(intervaloKm)||0; if(_km<0)_km=0;
   // ⛔ SI EL PRODUCTO YA TIENE LA PIEZA, SE USA ESA. En Betangar existe
   //    `_mantItemRapido` desde antes: reutiliza el ítem cuando ya estaba, avisa si no
   //    pudo guardarlo y no traba el registro. Escribir otra al lado sería tener dos
@@ -12011,17 +12019,21 @@ async function _mantItemCrearAlVuelo(nombre, categoria){
   if(typeof _mantItemRapido==='function'){
     var _ya=await _mantItemRapido(nom);
     if(!_ya||!_ya.id)return '';
-    if(categoria&&_ya.categoria!==categoria){
-      _ya.categoria=categoria;
-      if(DB_READY&&supabase){ try{ await supabase.from('mant_items').update({categoria:categoria}).eq('id',_ya.id); }catch(e){} }
+    var _cambios={};
+    if(categoria&&_ya.categoria!==categoria){ _ya.categoria=categoria; _cambios.categoria=categoria; }
+    // ⚠️ Solo si el item NO tenia intervalo: el catalogo lo mantiene alguien a
+    //    proposito y un campo de paso no puede cambiarselo por descuido.
+    if(_km>0&&!(Number(_ya.intervalo)>0)){ _ya.intervalo=_km; _ya.base='km'; _cambios.intervalo=_km; _cambios.base='km'; }
+    if(Object.keys(_cambios).length&&DB_READY&&supabase){
+      try{ await supabase.from('mant_items').update(_cambios).eq('id',_ya.id); }catch(e){}
     }
     try{ _hvPoblarItems(); }catch(e){}
     return _ya.id;
   }
   var id=_mantNorm(nom).replace(/ /g,'_').slice(0,40)+'_'+Date.now().toString(36).slice(-4);
-  var fila={id:id, nombre:nom, categoria:categoria||'', base:'km', intervalo:0, activo:true,
+  var fila={id:id, nombre:nom, categoria:categoria||'', base:'km', intervalo:_km, activo:true,
             fuente:'creado al registrar un mantenimiento', orden:999};
-  MANT_ITEMS.push({id:id,nombre:nom,categoria:fila.categoria,base:'km',intervalo:0,inspeccion:0,
+  MANT_ITEMS.push({id:id,nombre:nom,categoria:fila.categoria,base:'km',intervalo:_km,inspeccion:0,
     sustitucion:0,avisoAnticipo:0,tipoUnidad:'',tipo:'',combustible:'',critico:false,llevaSerial:false,
     fuente:fila.fuente,activo:true,orden:999});
   if(DB_READY&&supabase){
@@ -12256,7 +12268,7 @@ async function registrarMantItem(){
   //    la nota — que es justo lo que este módulo viene a evitar.
   if(!itemId){
     var _txtIt=(gv('hv-item-txt')||'').trim();
-    if(_txtIt){ itemId=await _mantItemCrearAlVuelo(_txtIt, gv('hv-item-cat')||''); }
+    if(_txtIt){ itemId=await _mantItemCrearAlVuelo(_txtIt, gv('hv-item-cat')||'', gv('hv-item-km')||''); }
   }
   if(!itemId){alert('Escribí qué se le hizo (el ítem)');return;}
   var esHoras=(typeof medidaUnidad==='function')&&medidaUnidad(cam)==='horas';
