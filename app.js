@@ -3231,8 +3231,11 @@ function relPeriodoTxt(d,h){
 async function relRenderTodos(cont,est){
   var buscar=String(REL_FILTRO.q||'').trim().toLowerCase();
   var des=REL_FILTRO.des, hta=REL_FILTRO.hta, cat=REL_FILTRO.cat, tipo=REL_FILTRO.tipo;
+  // ⛔ SE TRAE `cxp_pago_id`: es el hilo que lleva del movimiento del banco a la FACTURA, y
+  //    sin el no hay forma de ofrecer el «ver» acá. Pedido de Máximo: mirar el papel sin
+  //    tener que irse a otro módulo.
   var q=supabase.from('bnc_movimientos')
-    .select('id,fecha,monto,tipo,descripcion,concepto_banco,referencia,categoria,es_gasto,clasificado_por,factura,pata')
+    .select('id,fecha,monto,tipo,descripcion,concepto_banco,referencia,categoria,es_gasto,clasificado_por,factura,pata,cxp_pago_id')
     .order('fecha',{ascending:false}).limit(REL_TOPE);
   if(des) q=q.gte('fecha',des);
   if(hta) q=q.lte('fecha',hta);
@@ -3246,6 +3249,12 @@ async function relRenderTodos(cont,est){
     return (String(m.concepto_banco||'')+' '+String(m.descripcion||'')+' '+relNombreCat(m.categoria)+' '+String(m.monto)).toLowerCase().indexOf(buscar)>=0;
   });
   REL_VISTA=ms;
+  // ⚠️ Esta pantalla vive en el módulo Banco y las facturas se cargan al abrir Proveedores:
+  //    si se entra directo acá, `CXP_FACTURAS` esta vacio y el «ver» no aparecería NUNCA, sin
+  //    decir por que. Se cargan aca si hacen falta.
+  try{ if(typeof cargarCxpAux==='function' && !(typeof CXP_FACTURAS!=='undefined'&&CXP_FACTURAS.length)) await cargarCxpAux(); }catch(e){}
+  var _facDePago={};
+  (typeof CXP_PAGOS!=='undefined'?CXP_PAGOS:[]).forEach(function(pg){ if(pg&&pg.factura_id)_facDePago[String(pg.id)]=pg.factura_id; });
   try{ await _movPintarAlcance('rel-body','rel-alcance',des,hta,tipo,ms.length,'relLimpiar()'); }catch(e){}
   var ent=ms.filter(function(m){return m.tipo==='credito';}).reduce(function(s,m){return s+(Number(m.monto)||0);},0);
   var sal=ms.filter(function(m){return m.tipo==='debito';}).reduce(function(s,m){return s+(Number(m.monto)||0);},0);
@@ -3295,7 +3304,7 @@ async function relRenderTodos(cont,est){
         '<td style="text-align:right;font-family:var(--m);color:'+(esSal?'var(--red)':'var(--green)')+'">'+Number(m.monto).toLocaleString('es-VE',{minimumFractionDigits:2})+'</td>'+
         '<td style="font-size:11px">'+relEsc(relNombreCat(m.categoria))+(manual?' <span class="badge bt" title="Lo decidió una persona: ninguna regla lo pisa">✋</span>':'')+'</td>'+
         '<td>'+(m.tipo==='credito'?'<span style="color:var(--text3);font-size:10px">entrada</span>':(m.es_gasto===false?'<span class="badge by">No</span>':'<span class="badge bg">Sí</span>'))+'</td>'+
-        '<td style="font-size:10px">'+relEsc(m.factura?(m.factura+' '+(m.pata||'')):'')+'</td>'+
+        '<td style="font-size:10px">'+relEsc(m.factura?(m.factura+' '+(m.pata||'')):'')+(function(){var _v=_facVerLink(_facDePago[String(m.cxp_pago_id||'')]);return _v?(' '+_v):'';})()+'</td>'+
         // Un acceso de solo consulta no ve el botón de cambiar: la base tampoco lo dejaría, y un
         // botón que siempre falla se lee como que el sistema está roto.
         '<td>'+(esSoloLectura()?'':'<button class="btn btn-s btn-xs" onclick="relEditar(\''+relEsc(m.id)+'\',\''+relEsc(m.categoria||'')+'\','+(esSal?'true':'false')+','+(m.es_gasto===false?'false':'true')+')">Cambiar</button>')+'</td></tr>';
@@ -15590,6 +15599,26 @@ function facVerFotoDe(idFactura){
   verFotoPrivada('facturas', f.foto);
 }
 
+// ⛔ EL RESPALDO SE MIRA DONDE SE MIRA LA PLATA.
+//    Máximo lo pidió el 18/08 y otra vez el 28/08: «en la conciliación o en la relación de
+//    gastos, DONDE TODO SE VE… que diga "ver" y la abra».
+//    🔴 Estaba SOLO en Cuentas por Pagar — que es la pantalla de la DEUDA, no la del
+//    dinero. Quien cuadra el banco no entra ahí, así que para ver el papel tenía que
+//    cambiar de pantalla y buscar la factura de nuevo. Un respaldo que obliga a salir de
+//    donde se está mirando es un respaldo que no se mira.
+//    ⚠️ Dice «ver» y no un clísper: el 📎 se entiende cuando ya sabés que está; la palabra
+//    se lee sin saberlo. Fue lo que él pidió textual.
+//    ⚠️ Y los tres casos se distinguen, igual que en CxP: con foto, sin foto CON motivo
+//    escrito, y sin foto y sin motivo (las viejas, de antes de que se pidiera).
+function _facVerLink(idFactura){
+  if(!idFactura)return '';
+  var f=(typeof CXP_FACTURAS!=='undefined'?CXP_FACTURAS:[]).find(function(x){return String(x.id)===String(idFactura);});
+  if(!f)return '';
+  if(f.foto)return '<span onclick="facVerFotoDe(\''+String(f.id)+'\')" title="Ver la factura '+_escHtml(f.nro_factura||'')+'" style="cursor:pointer;color:var(--teal);text-decoration:underline;font-weight:700">ver</span>';
+  if(f.sin_soporte_motivo)return '<span title="Sin soporte, con motivo: '+_escHtml(f.sin_soporte_motivo)+'" style="cursor:help;color:var(--text3)">📝</span>';
+  return '<span title="La factura '+_escHtml(f.nro_factura||'')+' quedó sin soporte" style="opacity:.5;color:var(--text3)">—</span>';
+}
+
 function guardarFactura(){
   if(_facEnVuelo)return; // anti doble-click: la factura ahora también puede generar pagos
   var pid=gv('fac-prov');
@@ -26036,7 +26065,7 @@ async function renderConciliacionBNC(){
       var bs=Math.round((parseFloat(p.monto_bs)||0)*100)/100; if(bs<=0)return;
       var f=String(p.fecha||'').slice(0,10); if(f&&((desde&&f<desde)||(hasta&&f>hasta)))return;
       var k=_cxpPagoClave(p)||('solo|'+p.id);
-      if(!_gr[k])_gr[k]={bs:0,ids:[],ref:p.ref||'',met:met,fecha:f,cxpId:p.cxp_id,n:0,todos:true};
+      if(!_gr[k])_gr[k]={bs:0,ids:[],ref:p.ref||'',met:met,fecha:f,cxpId:p.cxp_id,facId:p.factura_id||null,n:0,todos:true};
       var G=_gr[k];
       G.bs=Math.round((G.bs+bs)*100)/100; G.ids.push(p.id); G.n++;
       if(!p.conciliado_banco)G.todos=false;   // el grupo está conciliado solo si lo están TODAS
@@ -26045,7 +26074,7 @@ async function renderConciliacionBNC(){
       var G=_gr[k];
       var deu=(typeof CXP!=='undefined'?CXP:[]).find(function(c){return String(c.id)===String(G.cxpId);});
       var prov=deu?(deu.prov_nombre||deu.prov||''):'';
-      libros.push({tipo:'egreso',bs:G.bs,desc:'Pago '+(prov||'proveedor')+(G.ref?(' · '+G.ref):'')+(G.n>1?(' · '+G.n+' órdenes en una sola transferencia'):''),lab:'Pago '+(prov||'prov'),clase:'cxp',pagoId:G.ids[0],pagoIds:G.ids,prov:prov,metodo:G.met,ref:G.ref,refDig:String(G.ref||'').replace(/\D/g,''),fecha:G.fecha,_usado:false,_persistido:G.todos});
+      libros.push({facId:G.facId,tipo:'egreso',bs:G.bs,desc:'Pago '+(prov||'proveedor')+(G.ref?(' · '+G.ref):'')+(G.n>1?(' · '+G.n+' órdenes en una sola transferencia'):''),lab:'Pago '+(prov||'prov'),clase:'cxp',pagoId:G.ids[0],pagoIds:G.ids,prov:prov,metodo:G.met,ref:G.ref,refDig:String(G.ref||'').replace(/\D/g,''),fecha:G.fecha,_usado:false,_persistido:G.todos});
     });
     // ── NÓMINA / VIAJES por TRABAJADOR: cada empleado se paga por TRANSFERENCIA individual desde el
     // banco (choferes y ayudantes cobran SOLO por viajes = viajes×tarifa; administrativos = sueldo
@@ -26382,14 +26411,14 @@ async function renderConciliacionBNC(){
       html+='<div class="card" style="margin-bottom:12px"><div style="font-size:12px;font-weight:700;margin-bottom:6px">🧾 Pagos a proveedores (CxP)</div>'+
         '<div style="font-size:10px;color:var(--text3);margin-bottom:8px">Solo pagos ya <b>ejecutados</b> (deuda pagada). La deuda es en $, pero se concilia por los <b>Bs reales que salieron del banco</b>. Cuadra automático contra el débito, o márcalo a mano si ya lo viste en BNCNET.</div>'+
         '<div style="font-size:11px;margin-bottom:8px"><span style="color:var(--green)">✅ Conciliados '+cxpConc.length+' (Bs '+fmt(totCxpConc)+')</span> · <span style="color:var(--yellow)">⚠️ Por conciliar '+cxpPen.length+' (Bs '+fmt(totCxpPen)+')</span></div>'+
-        '<div class="tw" style="max-height:300px;overflow:auto"><table style="font-size:11px"><thead><tr><th>Proveedor</th><th>Fecha</th><th>Método</th><th>Ref</th><th style="text-align:right">Monto Bs</th><th style="text-align:center">Estado</th><th></th></tr></thead><tbody>'+
+        '<div class="tw" style="max-height:300px;overflow:auto"><table style="font-size:11px"><thead><tr><th>Proveedor</th><th>Fecha</th><th>Método</th><th>Ref</th><th style="text-align:right">Monto Bs</th><th style="text-align:center">Factura</th><th style="text-align:center">Estado</th><th></th></tr></thead><tbody>'+
         cxpOrd.map(function(r){
           var ok=r._usado||r._persistido;
           var via=r._via?(' <span title="cuadrado por '+r._via+'" style="font-size:8px;color:var(--teal)">✓'+r._via+'</span>'):(r._persistido?' <span title="conciliado a mano" style="font-size:8px;color:var(--teal)">✓man</span>':'');
           var accion=ok
             ? (r._persistido?'<button class="btn btn-xs" style="background:#fee2e2;color:#991b1b" onclick="concCxpDesmarcar(\''+r.pagoId+'\')" title="Deshacer conciliación">↩</button>':'')
             : '<button class="btn btn-g btn-xs" onclick="concCxpMarcar(\''+r.pagoId+'\')" title="Marcar conciliado con el banco">✓ Conciliar</button>';
-          return '<tr><td style="font-size:10px">'+_escHtml(r.prov||'—')+'</td><td style="font-size:9px;color:var(--text3)">'+(r.fecha?formatFecha(r.fecha):'')+'</td><td style="font-size:9px;color:var(--text3)">'+_escHtml((r.metodo||'').toUpperCase())+'</td><td style="font-size:9px;color:var(--text3)">'+_escHtml(r.ref||'—')+'</td><td style="text-align:right;font-family:var(--m);color:var(--red)">'+fmt(r.bs)+'</td><td style="text-align:center">'+(ok?('<span style="color:var(--green);font-weight:700">✅ conciliado'+via+'</span>'):'<span style="color:var(--yellow);font-weight:700">⚠️ por conciliar</span>')+'</td><td style="text-align:center">'+accion+'</td></tr>';
+          return '<tr><td style="font-size:10px">'+_escHtml(r.prov||'—')+'</td><td style="font-size:9px;color:var(--text3)">'+(r.fecha?formatFecha(r.fecha):'')+'</td><td style="font-size:9px;color:var(--text3)">'+_escHtml((r.metodo||'').toUpperCase())+'</td><td style="font-size:9px;color:var(--text3)">'+_escHtml(r.ref||'—')+'</td><td style="text-align:right;font-family:var(--m);color:var(--red)">'+fmt(r.bs)+'</td><td style="text-align:center">'+(_facVerLink(r.facId)||'<span style="opacity:.4">—</span>')+'</td><td style="text-align:center">'+(ok?('<span style="color:var(--green);font-weight:700">✅ conciliado'+via+'</span>'):'<span style="color:var(--yellow);font-weight:700">⚠️ por conciliar</span>')+'</td><td style="text-align:center">'+accion+'</td></tr>';
         }).join('')+
         '</tbody></table></div></div>';
     }
