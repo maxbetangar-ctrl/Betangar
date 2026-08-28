@@ -15377,19 +15377,56 @@ function _cfgEspecialUI(){
 }
 // El IVA y las retenciones se calculan SOBRE LA FACTURA COMPLETA (así lo emite el proveedor y
 // así se declara), nunca orden por orden: retener por pedazos daría otro número por redondeo.
-function _calcFacVals(){
-  var base=parseFloat(gv('fac-base'))||0;
+// ⛔ EL CÉNTIMO ES LA UNIDAD DEL DINERO, NO UN FORMATO DE PANTALLA.
+//    🔴 Alejandra, 28/08/2026: «los cálculos son diferentes por 1 decimal… es un céntimo
+//    pero de allí sale el pago al proveedor y lo que se declara al SENIAT». Tenía razón.
+//    Esto calculaba con TODOS los decimales y recortaba a dos solo al imprimir, así que
+//    los números de la pantalla NO CUADRABAN ENTRE ELLOS: mostraba total 170.091,50,
+//    ret. IVA 17.595,67 y ret. ISLR 2.932,61 —que restados dan 149.563,22— y abajo
+//    escribía 149.563,21, que es el neto exacto redondeado al final.
+//    Quien revisa la factura a mano SIEMPRE iba a encontrarla mal. Y había 3 facturas
+//    de 19 ya guardadas así.
+// ⚠️ Redondeo comercial: al céntimo más cercano, medio céntimo hacia ARRIBA.
+//    `Math.round(n*100)/100` a secas NO alcanza — en binario 17595.675*100 da
+//    1759567.4999999998 y el medio céntimo se cae para abajo. Se limpia el ruido con
+//    toPrecision(15) antes de redondear.
+function _cent(n){
+  n=Number(n); if(!isFinite(n))return 0;
+  return Math.round(Number((n*100).toPrecision(15)))/100;
+}
+// ⛔ EL IVA LO EMITE EL PROVEEDOR, NO LO DEDUCIMOS NOSOTROS.
+//    Ese era el fondo del caso de Servicar: la factura decía 23.460,89 y el sistema
+//    ponía 23.460,90, porque lo calculaba de la base en vez de leerlo del papel. El
+//    campo se rellena con el calculado como SUGERENCIA y se puede pisar con lo que
+//    diga la factura, que es el documento legal contra el que compara el SENIAT.
+function _facIvaDelForm(base,ivaPct){
+  var t=gv('fac-iva-bs');
+  if(t!==''&&t!=null&&isFinite(parseFloat(t)))return _cent(parseFloat(t));
+  return _cent(base*ivaPct/100);
+}
+// Al mover la base o el %, la sugerencia se recalcula. Se llama desde el formulario.
+function facIvaSugerir(){
+  var base=_cent(parseFloat(gv('fac-base'))||0);
   var ivaPct=parseFloat(gv('fac-iva'))||0;
-  var iva=base*ivaPct/100;
+  if(g('fac-iva-bs'))sv('fac-iva-bs',_cent(base*ivaPct/100).toFixed(2));
+  calcFac();
+}
+function _calcFacVals(){
+  var base=_cent(parseFloat(gv('fac-base'))||0);
+  var ivaPct=parseFloat(gv('fac-iva'))||0;
+  var iva=_facIvaDelForm(base,ivaPct);
   var contrib=gv('fac-contrib')||'ordinario';
   var retIvaPct=_retIvaPctDe(contrib);
-  var retIva=iva*retIvaPct/100;
+  var retIva=_cent(iva*retIvaPct/100);
   var islrAplica=gv('fac-islr-aplica')==='1';
   var islrPct=parseFloat(gv('fac-islr-pct'))||0;
   var sustr=parseFloat(gv('fac-sustraendo'))||0;
-  var retIslr=islrAplica?Math.max(0,base*islrPct/100-sustr):0;
-  var total=base+iva;
-  var neto=total-retIva-retIslr;
+  var retIslr=islrAplica?Math.max(0,_cent(_cent(base*islrPct/100)-sustr)):0;
+  // ⛔ El total y el neto salen de las cifras YA REDONDEADAS, no del cálculo exacto.
+  //    Es lo que hace que lo que se ve cuadre si alguien lo suma a mano — y lo que se
+  //    ve es lo que se le paga al proveedor y lo que va en el comprobante de retención.
+  var total=_cent(base+iva);
+  var neto=_cent(total-retIva-retIslr);
   var tasa=parseFloat(gv('fac-tasa'))||0;
   return{base:base,ivaPct:ivaPct,iva:iva,contrib:contrib,retIvaPct:retIvaPct,retIva:retIva,islrAplica:islrAplica,islrPct:islrPct,sustr:sustr,retIslr:retIslr,total:total,neto:neto,tasa:tasa};
 }
@@ -15621,7 +15658,7 @@ function guardarFactura(){
     var toastMsg='🧾 Factura guardada ('+lineasForm.length+' orden'+(lineasForm.length!==1?'es':'')+') · Ret. IVA Bs '+_bs2(v.retIva)+(v.retIslr?' · Ret. ISLR Bs '+_bs2(v.retIslr):'')+(_conIva?(' · el monto de la orden ya traía el IVA, se tomó como facturada completa'):'');
     var limpiar=function(){
       _facEnVuelo=false;
-      ['fac-num','fac-control','fac-base','fac-sustraendo','fac-pago-ref'].forEach(function(x){if(g(x))sv(x,'');});
+      ['fac-num','fac-control','fac-base','fac-iva-bs','fac-sustraendo','fac-pago-ref'].forEach(function(x){if(g(x))sv(x,'');});
       // ⛔ Se limpia la foto TAMBIEN. Si no, la siguiente factura que se cargue en la misma
       //    sesion se guardaria apuntando al documento de la anterior — un respaldo equivocado
       //    es peor que no tener respaldo, porque nadie lo va a dudar.
@@ -21472,16 +21509,18 @@ function calcularCxP(){
   var islrPct=parseFloat(gv('cxp-actividad'))||0;
   var tipo=gv('cxp-tipo')||'con_factura';
 
-  var iva=base*(ivaPct/100);
-  var total=base+iva;
+  // Mismo criterio que en facturas: se redondea al centimo DONDE SE CALCULA, para que
+  // lo que se muestra cuadre si alguien lo suma a mano. Ver _cent() y el caso de Servicar.
+  var iva=_cent(base*(ivaPct/100));
+  var total=_cent(base+iva);
   sv('cxp-total',total.toFixed(2));
 
   if(tipo==='sin_soporte'){g('cxp-resumen-ret').style.display='none';return;}
 
   var retIvaPct=contrib==='ordinario'?75:contrib==='especial'?100:0;
-  var retIva=(iva*(retIvaPct/100));
-  var retIslr=(base*(islrPct/100));
-  var neto=total-retIva-retIslr;
+  var retIva=_cent(iva*(retIvaPct/100));
+  var retIslr=_cent(base*(islrPct/100));
+  var neto=_cent(total-retIva-retIslr);
 
   g('cxp-resumen-ret').style.display='block';
   sv2('cr-base','$'+base.toFixed(2));
@@ -21503,12 +21542,12 @@ async function guardarCxP(){
   var ivaPct=parseFloat(gv('cxp-iva-pct'))||0;
   var contrib=gv('cxp-contrib')||'ordinario';
   var islrPct=parseFloat(gv('cxp-actividad'))||0;
-  var iva=base*(ivaPct/100);
-  var total=base+iva;
+  var iva=_cent(base*(ivaPct/100));
+  var total=_cent(base+iva);
   var retIvaPct=tipo==='sin_soporte'?0:(contrib==='ordinario'?75:contrib==='especial'?100:0);
-  var retIva=iva*(retIvaPct/100);
-  var retIslr=base*(islrPct/100);
-  var neto=total-retIva-retIslr;
+  var retIva=_cent(iva*(retIvaPct/100));
+  var retIslr=_cent(base*(islrPct/100));
+  var neto=_cent(total-retIva-retIslr);
 
   var nuevaCxP={
     fecha:gv('cxp-fecha')||fechaVE(),
