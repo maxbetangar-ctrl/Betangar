@@ -15767,6 +15767,29 @@ function _registrarPagosDesdeFactura(cxps,lineasForm,netoP,tasa,nroFactura,fecha
     });
   } else { pendientes.forEach(function(p){aplicar(p,null);}); terminar(); }
 }
+// ⛔ UN PAGO POR FACTURA EN EL BANCO, VARIAS FILAS EN EL SISTEMA — Y HAY QUE SABER
+//    CUÁLES SALIERON JUNTAS.
+//    Una factura que cubre varias órdenes genera UNA fila de pago POR ORDEN: cada orden es
+//    una deuda distinta y necesita su abono, por eso se parte y así tiene que seguir. Pero
+//    del banco sale UN SOLO débito por el total.
+//    🔴 Medido el 28/08 en la F-0023988: el banco muestra 302.558,91 y el sistema tenía
+//    250.074,20 + 52.484,71. Ninguno de los dos existía en el estado de cuenta, así que ese
+//    pago era INVISIBLE para la conciliación — no salía como descuadre, simplemente no
+//    estaba, que es la peor forma de faltar.
+//    ⚠️ La llave del grupo es lo que `_registrarPagosDesdeFactura` escribe IGUAL en todas
+//    las filas de la misma tanda: factura + fecha + método + referencia. Se deriva del dato
+//    que ya existe, sin columna nueva y sin migración en las cinco bases.
+//    ⚠️ Un abono suelto (sin `factura_id`) es su propio pago y no se agrupa con nadie.
+function _cxpPagoClave(p){
+  if(!p||!p.factura_id)return null;
+  return [p.factura_id,String(p.fecha||'').slice(0,10),String(p.metodo||'').toLowerCase(),String(p.ref||'')].join('|');
+}
+// Todas las filas que salieron en la MISMA transferencia que `p`, ella incluida.
+function _cxpPagoHermanos(p){
+  var k=_cxpPagoClave(p), todos=(typeof CXP_PAGOS!=='undefined'?CXP_PAGOS:[]);
+  if(!k)return [p];
+  return todos.filter(function(x){return _cxpPagoClave(x)===k;});
+}
 function renderRetenciones(){
   var mesHoy=(typeof fechaVE==='function'?fechaVE():new Date().toISOString().slice(0,10)).slice(0,7);
   if(g('ret-mes')&&!gv('ret-mes'))sv('ret-mes',mesHoy);
@@ -26003,14 +26026,26 @@ async function renderConciliacionBNC(){
     // se registra en $, pero los Bs reales (monto_bs, lo que SALE del banco) solo se conocen AL PAGAR →
     // por eso se concilia el PAGO, no la deuda. Métodos que salen por banco: bnc/transferencia/pagomóvil
     // (efectivo/divisas no pasan por el estado de cuenta). Cuadra contra el débito real por monto_bs.
+    // ⛔ SE CONCILIA LA TRANSFERENCIA, NO LA FILA. Ver `_cxpPagoClave`: una factura de
+    //    varias órdenes deja varias filas de pago, pero del banco salió un solo débito.
+    //    Sumadas cuadran; sueltas no cuadra ninguna y el pago no aparece por ningún lado.
+    var _gr={};
     (typeof CXP_PAGOS!=='undefined'?CXP_PAGOS:[]).forEach(function(p){
       var met=String(p.metodo||'').toLowerCase();
       if(['bnc','transferencia','pagomovil'].indexOf(met)<0)return;
       var bs=Math.round((parseFloat(p.monto_bs)||0)*100)/100; if(bs<=0)return;
       var f=String(p.fecha||'').slice(0,10); if(f&&((desde&&f<desde)||(hasta&&f>hasta)))return;
-      var deu=(typeof CXP!=='undefined'?CXP:[]).find(function(c){return String(c.id)===String(p.cxp_id);});
+      var k=_cxpPagoClave(p)||('solo|'+p.id);
+      if(!_gr[k])_gr[k]={bs:0,ids:[],ref:p.ref||'',met:met,fecha:f,cxpId:p.cxp_id,n:0,todos:true};
+      var G=_gr[k];
+      G.bs=Math.round((G.bs+bs)*100)/100; G.ids.push(p.id); G.n++;
+      if(!p.conciliado_banco)G.todos=false;   // el grupo está conciliado solo si lo están TODAS
+    });
+    Object.keys(_gr).forEach(function(k){
+      var G=_gr[k];
+      var deu=(typeof CXP!=='undefined'?CXP:[]).find(function(c){return String(c.id)===String(G.cxpId);});
       var prov=deu?(deu.prov_nombre||deu.prov||''):'';
-      libros.push({tipo:'egreso',bs:bs,desc:'Pago '+(prov||'proveedor')+(p.ref?(' · '+p.ref):''),lab:'Pago '+(prov||'prov'),clase:'cxp',pagoId:p.id,prov:prov,metodo:met,ref:p.ref||'',refDig:String(p.ref||'').replace(/\D/g,''),fecha:f,_usado:false,_persistido:!!p.conciliado_banco});
+      libros.push({tipo:'egreso',bs:G.bs,desc:'Pago '+(prov||'proveedor')+(G.ref?(' · '+G.ref):'')+(G.n>1?(' · '+G.n+' órdenes en una sola transferencia'):''),lab:'Pago '+(prov||'prov'),clase:'cxp',pagoId:G.ids[0],pagoIds:G.ids,prov:prov,metodo:G.met,ref:G.ref,refDig:String(G.ref||'').replace(/\D/g,''),fecha:G.fecha,_usado:false,_persistido:G.todos});
     });
     // ── NÓMINA / VIAJES por TRABAJADOR: cada empleado se paga por TRANSFERENCIA individual desde el
     // banco (choferes y ayudantes cobran SOLO por viajes = viajes×tarifa; administrativos = sueldo
@@ -26210,11 +26245,15 @@ async function renderConciliacionBNC(){
     }
     if(DB_READY&&supabase&&!(typeof DEMO_MODE!=='undefined'&&DEMO_MODE)){
       libros.filter(function(l){return l.clase==='cxp'&&l._usado&&!l._persistido&&l.pagoId;}).forEach(function(l){
-        var p=(typeof CXP_PAGOS!=='undefined'?CXP_PAGOS:[]).find(function(x){return String(x.id)===String(l.pagoId);});
-        if(p&&p.conciliado_banco)return;
-        if(p){p.conciliado_banco=true;p.conciliado_ref=l._bancoRef||'';p.conciliado_fecha=ymd;} // optimista: evita doble write en re-render
+        // ⛔ El egreso puede ser un GRUPO de filas (una transferencia, varias órdenes): se
+        //    marcan TODAS. Marcar solo la primera dejaba las otras ofreciendo el botón
+        //    «Conciliar» sobre plata ya conciliada.
+        var ids=(l.pagoIds&&l.pagoIds.length)?l.pagoIds:[l.pagoId];
+        var filas=(typeof CXP_PAGOS!=='undefined'?CXP_PAGOS:[]).filter(function(x){return ids.map(String).indexOf(String(x.id))>=0;});
+        if(filas.length&&filas.every(function(x){return x.conciliado_banco;}))return;
+        filas.forEach(function(x){x.conciliado_banco=true;x.conciliado_ref=l._bancoRef||'';x.conciliado_fecha=ymd;}); // optimista: evita doble write en re-render
         l._persistido=true;
-        supabase.from('cxp_pagos').update({conciliado_banco:true,conciliado_ref:l._bancoRef||'',conciliado_fecha:ymd}).eq('id',l.pagoId).eq('conciliado_banco',false).then(function(r){if(r.error)console.log('auto-concilia cxp',r.error.message);});
+        supabase.from('cxp_pagos').update({conciliado_banco:true,conciliado_ref:l._bancoRef||'',conciliado_fecha:ymd}).in('id',ids).eq('conciliado_banco',false).then(function(r){if(r.error)console.log('auto-concilia cxp',r.error.message);});
         // ⛔ LAS DOS PUNTAS SE ESCRIBEN JUNTAS. Marcar solo el pago dejaba al movimiento del banco
         // diciendo «sin conciliar»: el 10/08 había 9 pagos cruzados y UN solo movimiento marcado,
         // y la pantalla Movimientos seguía ofreciendo el botón «Conciliar» sobre ellos — se podía
@@ -26405,10 +26444,13 @@ function concCxpMarcar(pagoId){
   if(!p){if(typeof mostrarToast==='function')mostrarToast('Pago no encontrado','error');return;}
   var refB=(typeof prompt==='function')?(prompt('Referencia del débito del banco (opcional):','')||''):'';
   var hoy=(typeof fechaVE==='function')?fechaVE():new Date().toISOString().slice(0,10);
-  var aplicar=function(){ p.conciliado_banco=true; p.conciliado_ref=refB; p.conciliado_fecha=hoy; if(typeof audit==='function')audit('Pago CxP conciliado con banco',(p.ref||p.id)+' Bs'+(typeof _bs2==='function'?_bs2(p.monto_bs):p.monto_bs)); if(typeof mostrarToast==='function')mostrarToast('✅ Pago conciliado con el banco','exito'); renderConciliacionBNC(); };
+  // ⛔ El botón vive sobre UN egreso, pero ese egreso puede ser una transferencia que
+  //    cubrió varias órdenes. Se concilian todas las filas que salieron juntas.
+  var hs=_cxpPagoHermanos(p), ids=hs.map(function(x){return x.id;});
+  var aplicar=function(){ hs.forEach(function(x){x.conciliado_banco=true;x.conciliado_ref=refB;x.conciliado_fecha=hoy;}); if(typeof audit==='function')audit('Pago CxP conciliado con banco',(p.ref||p.id)+' Bs'+(typeof _bs2==='function'?_bs2(hs.reduce(function(a,x){return a+(parseFloat(x.monto_bs)||0);},0)):p.monto_bs)+(hs.length>1?(' · '+hs.length+' órdenes'):'')); if(typeof mostrarToast==='function')mostrarToast('✅ Pago conciliado con el banco','exito'); renderConciliacionBNC(); };
   if(typeof DEMO_MODE!=='undefined'&&DEMO_MODE){aplicar();return;}
   if(DB_READY&&supabase){
-    supabase.from('cxp_pagos').update({conciliado_banco:true,conciliado_ref:refB,conciliado_fecha:hoy}).eq('id',pagoId).select().then(function(r){
+    supabase.from('cxp_pagos').update({conciliado_banco:true,conciliado_ref:refB,conciliado_fecha:hoy}).in('id',ids).select().then(function(r){
       if(r.error){if(typeof mostrarToast==='function')mostrarToast('No se pudo conciliar: '+r.error.message,'error');return;}
       aplicar();
     });
@@ -26418,10 +26460,12 @@ function concCxpDesmarcar(pagoId){
   var p=(typeof CXP_PAGOS!=='undefined'?CXP_PAGOS:[]).find(function(x){return String(x.id)===String(pagoId);});
   if(!p)return;
   if(typeof confirm==='function'&&!confirm('¿Deshacer la conciliación de este pago con el banco?'))return;
-  var aplicar=function(){ p.conciliado_banco=false; p.conciliado_ref=null; p.conciliado_fecha=null; if(typeof audit==='function')audit('Conciliación de pago CxP deshecha',(p.ref||p.id)); if(typeof mostrarToast==='function')mostrarToast('Conciliación deshecha','info'); renderConciliacionBNC(); };
+  // Se deshace el grupo entero: si se concilió junto, se descoencilia junto.
+  var hs=_cxpPagoHermanos(p), ids=hs.map(function(x){return x.id;});
+  var aplicar=function(){ hs.forEach(function(x){x.conciliado_banco=false;x.conciliado_ref=null;x.conciliado_fecha=null;}); if(typeof audit==='function')audit('Conciliación de pago CxP deshecha',(p.ref||p.id)+(hs.length>1?(' · '+hs.length+' órdenes'):'')); if(typeof mostrarToast==='function')mostrarToast('Conciliación deshecha','info'); renderConciliacionBNC(); };
   if(typeof DEMO_MODE!=='undefined'&&DEMO_MODE){aplicar();return;}
   if(DB_READY&&supabase){
-    supabase.from('cxp_pagos').update({conciliado_banco:false,conciliado_ref:null,conciliado_fecha:null}).eq('id',pagoId).select().then(function(r){
+    supabase.from('cxp_pagos').update({conciliado_banco:false,conciliado_ref:null,conciliado_fecha:null}).in('id',ids).select().then(function(r){
       if(r.error){if(typeof mostrarToast==='function')mostrarToast('No se pudo deshacer: '+r.error.message,'error');return;}
       aplicar();
     });
