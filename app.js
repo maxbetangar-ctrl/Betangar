@@ -17908,7 +17908,7 @@ function switchEmpTab(t){['lista','nuevo','carnets','bancario','cumple'].forEach
   if(t==='bancario')renderBancario();
   if(t==='cumple')renderCumpleanos();
   if(t==='nuevo'){
-    ['ne-id','ne-nombre','ne-cargo','ne-unidad','ne-ced','ne-rif','ne-fnac','ne-fingreso','ne-email','ne-tel','ne-banco','ne-tcuenta','ne-ncuenta','ne-imau','ne-tipoAy','ne-whatsapp','ne-wa-apikey','ne-forma-pago','ne-sueldo'].forEach(function(fid){var el=g(fid);if(el)el.value='';});
+    ['ne-id','ne-nombre','ne-cargo','ne-unidad','ne-ced','ne-rif','ne-fnac','ne-fingreso','ne-email','ne-tel','ne-banco','ne-tcuenta','ne-ncuenta','ne-imau','ne-tipoAy','ne-whatsapp','ne-wa-apikey','ne-forma-pago','ne-sueldo','ne-sueldo-desde','ne-sueldo-motivo'].forEach(function(fid){var el=g(fid);if(el)el.value='';});
     var _mcn=g('ne-multicargo'); if(_mcn)_mcn.checked=false; try{toggleTipoAy('');}catch(e){}
     sv('ne-foto-b64','');
     var prev=g('ne-foto-preview');if(prev)prev.innerHTML='<span style="font-size:40px;color:var(--text3)">👤</span>';
@@ -18069,6 +18069,7 @@ function cargarEmp(id){
   sv('ne-forma-pago', e.formaPago||'');
   sv('ne-sueldo', Number(e.sueldo)>0 ? e.sueldo : '');
   try{ toggleSueldo(e.formaPago||''); }catch(_e){}
+  try{ _sueldoHistorial(e.id); }catch(_e){}
   renderUnidadesSelect(e.unidad||'');
   sv('ne-fnac',e.fnac||'');
   sv('ne-fingreso',e.fingreso||'');
@@ -18091,11 +18092,73 @@ function cargarEmp(id){
   }
 }
 
+// ── EL SUELDO DE UNA PERSONA ES UNA LÍNEA DE TIEMPO, NO UN NÚMERO ──────────
+// ⛔ Cada monto vale DESDE una fecha, y las nóminas ya pagadas siguen diciendo lo
+//    que decían. Ver `migraciones/sueldo_con_vigencia_2026-08-27.sql`.
+// ⚠️ Se muestra el historial completo en la ficha a propósito: si RRHH no ve los
+//    montos anteriores, no tiene forma de notar que cargó un aumento con la fecha
+//    equivocada —y ese error no se ve en ningún otro lado hasta que alguien
+//    reclama su pago.
+async function _sueldoHistorial(empId){
+  var caja=g('ne-sueldo-hist'); if(!caja)return;
+  caja.innerHTML='<span style="opacity:.6">Cargando historial…</span>';
+  if(!(DB_READY&&supabase&&empId)){ caja.innerHTML=''; return; }
+  var r=null;
+  try{ r=await supabase.from('empleado_sueldos').select('monto_usd,desde,motivo,cargado_por')
+        .eq('empleado_id',empId).order('desde',{ascending:false}); }catch(e){}
+  if(!r||r.error){ caja.innerHTML='<span style="color:var(--text3)">No se pudo leer el historial de sueldo.</span>'; return; }
+  var f=r.data||[];
+  if(!f.length){ caja.innerHTML='Todavía no tiene ningún sueldo cargado. El primero que ponga acá queda como el inicial.'; return; }
+  // El vigente es el primero con fecha <= hoy; los de fecha futura se marcan.
+  var hoy=(typeof fechaVE==='function')?fechaVE():new Date().toISOString().slice(0,10);
+  caja.innerHTML='<b>Historial de sueldo</b><br>'+f.map(function(x){
+    var fut=String(x.desde)>hoy;
+    return '· US$ '+Number(x.monto_usd).toLocaleString('es-VE',{minimumFractionDigits:2})+
+      // ⚠️ dd/mm/yyyy, como en todo el sistema. Se arma aca y no con una funcion
+      //    auxiliar: `_fFecha` no existe -la di por hecha- y habria reventado al
+      //    dibujar el historial, sin que `node --check` dijera nada.
+      ' desde '+String(x.desde).slice(0,10).split('-').reverse().join('/')+(fut?' <span style="color:#ef9f27">(todavía no rige)</span>':'')+
+      (x.motivo?' — '+_mEsc(x.motivo):'');
+  }).join('<br>');
+}
+
+// ⛔ Se registra un sueldo NUEVO solo si de verdad cambió algo. Guardar la ficha por
+//    cualquier otro motivo —corregir un teléfono— no puede dejar una fila de sueldo
+//    repetida: el historial dejaría de contar la historia y pasaría a contar cuántas
+//    veces se abrió la pantalla.
+async function _sueldoGuardar(empId){
+  if(!(DB_READY&&supabase&&empId))return;
+  if(gv('ne-forma-pago')!=='fijo')return;
+  var monto=parseFloat(gv('ne-sueldo'))||0;
+  if(monto<=0)return;
+  var desde=gv('ne-sueldo-desde')||((typeof fechaVE==='function')?fechaVE():new Date().toISOString().slice(0,10));
+  var ult=null;
+  try{ var r=await supabase.from('empleado_sueldos').select('monto_usd,desde')
+        .eq('empleado_id',empId).order('desde',{ascending:false}).limit(1);
+       ult=(r&&!r.error&&r.data&&r.data[0])||null; }catch(e){}
+  if(ult && Number(ult.monto_usd)===monto && String(ult.desde)===String(desde))return;  // nada cambió
+  try{
+    var ins=await supabase.from('empleado_sueldos').insert([{empleado_id:empId, monto_usd:monto,
+      forma_pago:'fijo', desde:desde, motivo:gv('ne-sueldo-motivo')||null,
+      cargado_por:(typeof USUARIO!=='undefined'&&USUARIO&&USUARIO.usuario)||'ficha del empleado'}]);
+    // ⚠️ Si ya había uno con ESA misma fecha, la base lo rechaza por el `unique`. No es
+    //    un error que haya que mostrar como falla: es que se guardó dos veces el mismo
+    //    cambio. Se avisa distinto para que nadie salga a buscar un problema que no hay.
+    if(ins&&ins.error&&typeof mostrarToast==='function'){
+      mostrarToast(String(ins.error.code)==='23505'
+        ? 'Ya había un sueldo cargado con esa misma fecha. Si es una corrección, poné la fecha desde la que rige.'
+        : 'No se pudo guardar el sueldo: '+ins.error.message, 'error');
+    }
+  }catch(e){}
+}
+
 // ⛔ El monto solo se pide cuando el pago es FIJO. Ver el comentario del formulario.
 function toggleSueldo(forma){
   var fg=g('fg-sueldo'); if(!fg)return;
   var esFijo = String(forma||'')==='fijo';
   fg.style.display = esFijo ? '' : 'none';
+  var fd=g('fg-sueldo-desde'); if(fd)fd.style.display = esFijo ? '' : 'none';
+  var fh=g('ne-sueldo-hist');  if(fh)fh.style.display = esFijo ? '' : 'none';
   // ⚠️ Y se BORRA al esconderlo. Un campo escondido que conserva su valor lo guarda
   //    igual al dar OK, y nadie puede verlo para corregirlo.
   if(!esFijo){ try{ sv('ne-sueldo',''); }catch(e){} }
@@ -18152,13 +18215,18 @@ async function guardarEmpleado(){
     //    llena, el objeto en memoria lo lleva, y al recargar la pantalla vuelve
     //    vacio porque nunca llego a la base. Se descubrio al preguntarle al codigo
     //    si el upsert las mandaba, no al mirar la pantalla —que se veia bien—.
-    forma_pago:emp.formaPago||'', sueldo:Number(emp.sueldo)||0
+    // ⛔ `sueldo` NO va acá. Lo mantiene el trigger de `empleado_sueldos` a partir
+    //    del historial, y si la ficha tambien lo escribiera ganaria el ultimo en
+    //    correr: un aumento cargado con fecha futura quedaria aplicado hoy.
+    //    La ficha guarda la FORMA de pago; el MONTO entra por el historial.
+    forma_pago:emp.formaPago||''
   }],{onConflict:'id'});
   if(resEmp.error){
     console.error('Error guardando empleado:',resEmp.error);
     alert('❌ Error al guardar: '+resEmp.error.message+'\n\nVerifica tu conexión a internet.');
     return;
   }
+  try{ await _sueldoGuardar(emp.id); }catch(e){ console.warn('sueldo:',e); }
   audit('Empleado guardado',emp.nombre);
   alert('✅ '+emp.nombre+' guardado correctamente en Supabase.');
   poblarCams();poblarEmps();switchEmpTab('lista');

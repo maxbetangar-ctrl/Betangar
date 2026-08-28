@@ -2375,6 +2375,16 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
           <div class="fg"><label>¿Cómo se le paga?</label><select class="fc" id="ne-forma-pago" onchange="toggleSueldo(this.value)"><option value="">-- Seleccionar --</option><option value="fijo">Sueldo fijo mensual</option><option value="viaje">Por viaje</option><option value="produccion">Por producción</option></select></div>
           <div class="fg" id="fg-sueldo" style="display:none"><label>Sueldo mensual (US$)</label><input class="fc" id="ne-sueldo" type="number" min="0" step="0.01" inputmode="decimal" placeholder="ej: 150"><small style="font-size:10px;color:var(--text3)">En dólares. Los bolívares se calculan con la tasa del día de pago.</small></div>
         </div>
+        <!-- ⛔ «RIGE DESDE» ES LO QUE HACE QUE UN AUMENTO NO REESCRIBA LA HISTORIA.
+             Máximo, 27/08: «los sueldos se van modificando, pueden haber aumentos, que
+             afectan es de ahí en adelante — las nóminas pagadas se cierran».
+             Sin esta fecha, subirle el sueldo a alguien en septiembre cambiaría también
+             lo que dice la nómina de agosto, que ya se pagó. -->
+        <div class="fr2" id="fg-sueldo-desde" style="display:none">
+          <div class="fg"><label>Rige desde</label><input class="fc" id="ne-sueldo-desde" type="date"><small style="font-size:10px;color:var(--text3)">Las nóminas anteriores a esta fecha no cambian.</small></div>
+          <div class="fg"><label>Motivo <small style="color:var(--text3)">(opcional)</small></label><input class="fc" id="ne-sueldo-motivo" placeholder="ej: aumento anual"></div>
+        </div>
+        <div id="ne-sueldo-hist" style="display:none;font-size:11px;color:var(--text3);background:rgba(125,125,125,.06);border-radius:8px;padding:8px 10px;margin-top:-4px"></div>
         <div class="fg"><label>Fecha de Nacimiento</label><input class="fc" id="ne-fnac" type="date"></div>
           <div class="fg"><label>Fecha de Ingreso</label><input class="fc" id="ne-fingreso" type="date"></div>
         <div class="fr2">
