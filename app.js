@@ -3255,6 +3255,32 @@ async function relRenderTodos(cont,est){
   try{ if(typeof cargarCxpAux==='function' && !(typeof CXP_FACTURAS!=='undefined'&&CXP_FACTURAS.length)) await cargarCxpAux(); }catch(e){}
   var _facDePago={};
   (typeof CXP_PAGOS!=='undefined'?CXP_PAGOS:[]).forEach(function(pg){ if(pg&&pg.factura_id)_facDePago[String(pg.id)]=pg.factura_id; });
+  // ⛔ EL `cxp_pago_id` CASI NUNCA ESTÁ, Y POR ESO EL «ver» NO APARECÍA.
+  //    Medido: 14 de 2.813 movimientos lo tienen. Solo se escribe cuando la conciliación
+  //    automática cruza, así que colgar el enlace de ahí lo dejaba invisible en la práctica
+  //    — que es exactamente lo que se vio en pantalla la primera vez.
+  //    ⇒ Se cruza además por MONTO y FECHA contra las transferencias (los pagos agrupados,
+  //      la misma llave que usa la conciliación). Medido sobre los datos reales: 18 de 19
+  //      transferencias cruzan con UN solo movimiento y ninguna es ambigua.
+  //    ⚠️ Y SE EXIGE QUE LA COINCIDENCIA SEA ÚNICA. Si dos pagos distintos calzan con el
+  //      mismo débito, no se enlaza ninguno: poner la factura equivocada al lado de un gasto
+  //      es peor que no poner nada. Hoy no pasa; el día que pase, se calla solo.
+  var _grupos={};
+  (typeof CXP_PAGOS!=='undefined'?CXP_PAGOS:[]).forEach(function(pg){
+    if(!pg||!pg.factura_id)return;
+    var k=[pg.factura_id,String(pg.fecha||'').slice(0,10),String(pg.metodo||'').toLowerCase(),String(pg.ref||'')].join('|');
+    if(!_grupos[k])_grupos[k]={fac:pg.factura_id,fecha:String(pg.fecha||'').slice(0,10),bs:0};
+    _grupos[k].bs=Math.round((_grupos[k].bs+(parseFloat(pg.monto_bs)||0))*100)/100;
+  });
+  var _porMonto={};
+  Object.keys(_grupos).forEach(function(k){ var G=_grupos[k]; (_porMonto[G.bs.toFixed(2)]=_porMonto[G.bs.toFixed(2)]||[]).push(G); });
+  var _difDias=function(a,b){ return Math.abs((new Date(a+'T00:00:00')-new Date(b+'T00:00:00'))/86400000); };
+  var _facDeMov=function(mv){
+    if(mv.cxp_pago_id&&_facDePago[String(mv.cxp_pago_id)])return _facDePago[String(mv.cxp_pago_id)];
+    if(mv.tipo!=='debito')return null;
+    var cand=(_porMonto[Number(mv.monto).toFixed(2)]||[]).filter(function(G){ return _difDias(G.fecha,String(mv.fecha).slice(0,10))<=5; });
+    return cand.length===1?cand[0].fac:null;
+  };
   try{ await _movPintarAlcance('rel-body','rel-alcance',des,hta,tipo,ms.length,'relLimpiar()'); }catch(e){}
   var ent=ms.filter(function(m){return m.tipo==='credito';}).reduce(function(s,m){return s+(Number(m.monto)||0);},0);
   var sal=ms.filter(function(m){return m.tipo==='debito';}).reduce(function(s,m){return s+(Number(m.monto)||0);},0);
@@ -3304,7 +3330,7 @@ async function relRenderTodos(cont,est){
         '<td style="text-align:right;font-family:var(--m);color:'+(esSal?'var(--red)':'var(--green)')+'">'+Number(m.monto).toLocaleString('es-VE',{minimumFractionDigits:2})+'</td>'+
         '<td style="font-size:11px">'+relEsc(relNombreCat(m.categoria))+(manual?' <span class="badge bt" title="Lo decidió una persona: ninguna regla lo pisa">✋</span>':'')+'</td>'+
         '<td>'+(m.tipo==='credito'?'<span style="color:var(--text3);font-size:10px">entrada</span>':(m.es_gasto===false?'<span class="badge by">No</span>':'<span class="badge bg">Sí</span>'))+'</td>'+
-        '<td style="font-size:10px">'+relEsc(m.factura?(m.factura+' '+(m.pata||'')):'')+(function(){var _v=_facVerLink(_facDePago[String(m.cxp_pago_id||'')]);return _v?(' '+_v):'';})()+'</td>'+
+        '<td style="font-size:10px">'+relEsc(m.factura?(m.factura+' '+(m.pata||'')):'')+(function(){var _v=_facVerLink(_facDeMov(m));return _v?(' '+_v):'';})()+'</td>'+
         // Un acceso de solo consulta no ve el botón de cambiar: la base tampoco lo dejaría, y un
         // botón que siempre falla se lee como que el sistema está roto.
         '<td>'+(esSoloLectura()?'':'<button class="btn btn-s btn-xs" onclick="relEditar(\''+relEsc(m.id)+'\',\''+relEsc(m.categoria||'')+'\','+(esSal?'true':'false')+','+(m.es_gasto===false?'false':'true')+')">Cambiar</button>')+'</td></tr>';
