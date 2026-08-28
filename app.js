@@ -15403,29 +15403,20 @@ function _cent(n){
   n=Number(n); if(!isFinite(n))return 0;
   return Math.round(Number((n*100).toPrecision(15)))/100;
 }
-// ⛔ LAS RETENCIONES SE REDONDEAN HACIA ARRIBA, NO AL MÁS CERCANO.
-//    No es una preferencia: es la regla que la casa ya viene usando. Alejandra,
-//    28/08, mostrando la fórmula de su Excel: `=REDONDEAR.MAS(E20*F20;2)-G20`.
-//    REDONDEAR.MAS es ROUNDUP — se aleja del cero —, y por eso su ISLR da 2.932,62
-//    donde el redondeo comercial da 2.932,61 (146.630,60 x 2% = 2.932,612).
-// ⚠️ Y NO SE PROGRAMÓ PORQUE ELLA LO DIJO, SINO PORQUE EL BANCO LO CONFIRMA: con
-//    esta regla el neto de la F-0023998 da 149.563,20, que es exactamente lo que se
-//    transfirió el 21/08. Con redondeo comercial daba 149.563,21 y no cuadraba con
-//    el estado de cuenta.
-//    Retener de más es ademas el lado seguro para un agente de retención: nunca se
-//    declara de menos.
-// ⚠️ ABIERTO: Alejandra avisó que «no todos los archivos tienen el mismo redondeo».
-//    Acá queda UNA regla; si el contador define otra, se cambia en un solo lugar.
-function _centArriba(n){
-  n=Number(n); if(!isFinite(n))return 0;
-  var f=Math.abs(n)*100;
-  return (n<0?-1:1)*Math.ceil(Number(f.toPrecision(15)))/100;
-}
-// ⛔ EL IVA LO EMITE EL PROVEEDOR, NO LO DEDUCIMOS NOSOTROS.
-//    Ese era el fondo del caso de Servicar: la factura decía 23.460,89 y el sistema
-//    ponía 23.460,90, porque lo calculaba de la base en vez de leerlo del papel. El
-//    campo se rellena con el calculado como SUGERENCIA y se puede pisar con lo que
-//    diga la factura, que es el documento legal contra el que compara el SENIAT.
+// ⛔ LAS RETENCIONES VAN CON REDONDEO COMERCIAL (`_cent`), NO HACIA ARRIBA.
+//    🔴 EL 28/08 ESTO ESTUVO UNAS HORAS AL REVES, Y VALE LA PENA DEJAR POR QUE.
+//    Alejandra mostro la formula de su Excel —`=REDONDEAR.MAS(E20*F20;2)-G20`, o sea
+//    ROUNDUP— y con ella el neto daba 149.563,20, que es EXACTAMENTE lo que el banco
+//    transfirio a Servicar el 21/08. Se programo ROUNDUP en los cinco productos.
+//    Horas despues ella misma lo corrigio: *«la formula de REDONDEAR.MAS no aplica para
+//    todas las retenciones… al tomar el archivo anterior de referencia no me di cuenta que
+//    venia esa formula alli. Ese error va de parte nuestra.»*
+//
+// ⚠️ LA LECCION, QUE ES LA CARA: **el banco confirma lo que se HIZO, no lo que era
+//    CORRECTO.** Se uso el pago real como arbitro de la regla, y ese pago habia salido de
+//    la misma hoja de calculo que traia el error. La coincidencia era perfecta y era
+//    circular: dos copias del mismo error no son dos evidencias.
+//    Un dato solo arbitra si su origen es INDEPENDIENTE de lo que se esta midiendo.
 function _facIvaDelForm(base,ivaPct){
   var t=gv('fac-iva-bs');
   if(t!==''&&t!=null&&isFinite(parseFloat(t)))return _cent(parseFloat(t));
@@ -15444,11 +15435,11 @@ function _calcFacVals(){
   var iva=_facIvaDelForm(base,ivaPct);
   var contrib=gv('fac-contrib')||'ordinario';
   var retIvaPct=_retIvaPctDe(contrib);
-  var retIva=_centArriba(iva*retIvaPct/100);
+  var retIva=_cent(iva*retIvaPct/100);
   var islrAplica=gv('fac-islr-aplica')==='1';
   var islrPct=parseFloat(gv('fac-islr-pct'))||0;
   var sustr=parseFloat(gv('fac-sustraendo'))||0;
-  var retIslr=islrAplica?Math.max(0,_cent(_centArriba(base*islrPct/100)-sustr)):0;
+  var retIslr=islrAplica?Math.max(0,_cent(_cent(base*islrPct/100)-sustr)):0;
   // ⛔ El total y el neto salen de las cifras YA REDONDEADAS, no del cálculo exacto.
   //    Es lo que hace que lo que se ve cuadre si alguien lo suma a mano — y lo que se
   //    ve es lo que se le paga al proveedor y lo que va en el comprobante de retención.
@@ -21588,8 +21579,8 @@ function calcularCxP(){
   if(tipo==='sin_soporte'){g('cxp-resumen-ret').style.display='none';return;}
 
   var retIvaPct=contrib==='ordinario'?75:contrib==='especial'?100:0;
-  var retIva=_centArriba(iva*(retIvaPct/100));
-  var retIslr=_centArriba(base*(islrPct/100));
+  var retIva=_cent(iva*(retIvaPct/100));
+  var retIslr=_cent(base*(islrPct/100));
   var neto=_cent(total-retIva-retIslr);
 
   g('cxp-resumen-ret').style.display='block';
@@ -21615,8 +21606,8 @@ async function guardarCxP(){
   var iva=_cent(base*(ivaPct/100));
   var total=_cent(base+iva);
   var retIvaPct=tipo==='sin_soporte'?0:(contrib==='ordinario'?75:contrib==='especial'?100:0);
-  var retIva=_centArriba(iva*(retIvaPct/100));
-  var retIslr=_centArriba(base*(islrPct/100));
+  var retIva=_cent(iva*(retIvaPct/100));
+  var retIslr=_cent(base*(islrPct/100));
   var neto=_cent(total-retIva-retIslr);
 
   var nuevaCxP={
