@@ -17908,7 +17908,7 @@ function switchEmpTab(t){['lista','nuevo','carnets','bancario','cumple'].forEach
   if(t==='bancario')renderBancario();
   if(t==='cumple')renderCumpleanos();
   if(t==='nuevo'){
-    ['ne-id','ne-nombre','ne-cargo','ne-unidad','ne-ced','ne-rif','ne-fnac','ne-fingreso','ne-email','ne-tel','ne-banco','ne-tcuenta','ne-ncuenta','ne-imau','ne-tipoAy','ne-whatsapp','ne-wa-apikey'].forEach(function(fid){var el=g(fid);if(el)el.value='';});
+    ['ne-id','ne-nombre','ne-cargo','ne-unidad','ne-ced','ne-rif','ne-fnac','ne-fingreso','ne-email','ne-tel','ne-banco','ne-tcuenta','ne-ncuenta','ne-imau','ne-tipoAy','ne-whatsapp','ne-wa-apikey','ne-forma-pago','ne-sueldo'].forEach(function(fid){var el=g(fid);if(el)el.value='';});
     var _mcn=g('ne-multicargo'); if(_mcn)_mcn.checked=false; try{toggleTipoAy('');}catch(e){}
     sv('ne-foto-b64','');
     var prev=g('ne-foto-preview');if(prev)prev.innerHTML='<span style="font-size:40px;color:var(--text3)">👤</span>';
@@ -18065,6 +18065,10 @@ function cargarEmp(id){
   sv('ne-rif',e.rif||'');
   sv('ne-nombre',e.nombre||'');
   sv('ne-cargo',e.cargo||'');sv('ne-imau',e.imau?'true':'false');
+  // ⚠️ `formaPago` es como se llama en memoria; en la base la columna es `forma_pago`.
+  sv('ne-forma-pago', e.formaPago||'');
+  sv('ne-sueldo', Number(e.sueldo)>0 ? e.sueldo : '');
+  try{ toggleSueldo(e.formaPago||''); }catch(_e){}
   renderUnidadesSelect(e.unidad||'');
   sv('ne-fnac',e.fnac||'');
   sv('ne-fingreso',e.fingreso||'');
@@ -18087,6 +18091,15 @@ function cargarEmp(id){
   }
 }
 
+// ⛔ El monto solo se pide cuando el pago es FIJO. Ver el comentario del formulario.
+function toggleSueldo(forma){
+  var fg=g('fg-sueldo'); if(!fg)return;
+  var esFijo = String(forma||'')==='fijo';
+  fg.style.display = esFijo ? '' : 'none';
+  // ⚠️ Y se BORRA al esconderlo. Un campo escondido que conserva su valor lo guarda
+  //    igual al dar OK, y nadie puede verlo para corregirlo.
+  if(!esFijo){ try{ sv('ne-sueldo',''); }catch(e){} }
+}
 function toggleTipoAy(cargo){var fw=g('fg-tipoAy');if(fw)fw.style.display=cargo==='Ayudante'?'block':'none';var mc=g('fg-multicargo');if(mc)mc.style.display=(cargo==='Chofer'||cargo==='Ayudante')?'block':'none';}
 
 async function previewFoto(input){
@@ -18122,14 +18135,24 @@ async function guardarEmpleado(){
   var idx=EMPLEADOS.findIndex(function(e){return e.id===id;});
   // Preservar baja: editar un empleado dado de baja NO debe reactivarlo. Nuevos empleados nacen activos.
   var activoPrev=idx>=0?(EMPLEADOS[idx].activo!==false):true;
-  var emp={id:id,nombre:nombre.toUpperCase(),cargo:gv('ne-cargo'),imau:gv('ne-imau')==='true',unidad:gv('ne-unidad'),cedula:gv('ne-ced'),rif:_rifFmt(gv('ne-rif'))||'',fnac:gv('ne-fnac'),fingreso:gv('ne-fingreso')||'',email:gv('ne-email'),tel:gv('ne-tel')||'',banco:gv('ne-banco'),whatsapp:gv('ne-whatsapp')||'',wa_apikey:gv('ne-wa-apikey')||'',tcuenta:gv('ne-tcuenta'),ncuenta:_cuentaFmt(gv('ne-ncuenta')),tipoAy:gv('ne-tipoAy'),foto:gv('ne-foto-b64')||'',activo:activoPrev,multicargo:(g('ne-multicargo')?g('ne-multicargo').checked:false)};
+  var emp={id:id,nombre:nombre.toUpperCase(),cargo:gv('ne-cargo'),imau:gv('ne-imau')==='true',unidad:gv('ne-unidad'),cedula:gv('ne-ced'),rif:_rifFmt(gv('ne-rif'))||'',fnac:gv('ne-fnac'),fingreso:gv('ne-fingreso')||'',email:gv('ne-email'),tel:gv('ne-tel')||'',banco:gv('ne-banco'),whatsapp:gv('ne-whatsapp')||'',wa_apikey:gv('ne-wa-apikey')||'',tcuenta:gv('ne-tcuenta'),ncuenta:_cuentaFmt(gv('ne-ncuenta')),tipoAy:gv('ne-tipoAy'),foto:gv('ne-foto-b64')||'',activo:activoPrev,multicargo:(g('ne-multicargo')?g('ne-multicargo').checked:false),
+    formaPago:gv('ne-forma-pago')||'',
+    // ⚠️ Solo se guarda el monto si el pago es FIJO. Si alguien escribio un numero
+    //    y despues cambio a «por viaje», ese numero NO debe quedar guardado: un
+    //    sueldo mensual colgado de alguien que cobra por viaje se suma dos veces.
+    sueldo:(gv('ne-forma-pago')==='fijo' ? (parseFloat(gv('ne-sueldo'))||0) : 0)};
   if(idx>=0)EMPLEADOS[idx]=emp;else EMPLEADOS.push(emp);
   var resEmp=await supabase.from('empleados').upsert([{
     id:emp.id,nombre:emp.nombre,cargo:emp.cargo,unidad:emp.unidad,
     cedula:emp.cedula,rif:emp.rif||'',fnac:emp.fnac||null,fingreso:emp.fingreso||null,
     email:emp.email,tel:emp.tel||'',banco:emp.banco,tcuenta:emp.tcuenta,
     ncuenta:emp.ncuenta,tipo_ay:emp.tipoAy,imau:emp.imau,foto_url:_rutaFoto(emp.foto),
-    activo:emp.activo,whatsapp:emp.whatsapp||'',wa_apikey:emp.wa_apikey||'',multicargo:!!emp.multicargo
+    activo:emp.activo,whatsapp:emp.whatsapp||'',wa_apikey:emp.wa_apikey||'',multicargo:!!emp.multicargo,
+    // ⛔ SIN ESTAS DOS LINEAS el formulario de sueldo no sirve de nada: el campo se
+    //    llena, el objeto en memoria lo lleva, y al recargar la pantalla vuelve
+    //    vacio porque nunca llego a la base. Se descubrio al preguntarle al codigo
+    //    si el upsert las mandaba, no al mirar la pantalla —que se veia bien—.
+    forma_pago:emp.formaPago||'', sueldo:Number(emp.sueldo)||0
   }],{onConflict:'id'});
   if(resEmp.error){
     console.error('Error guardando empleado:',resEmp.error);

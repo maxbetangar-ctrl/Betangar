@@ -2360,6 +2360,21 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
           <div class="fg"><label>Cargo</label><select class="fc" id="ne-cargo" onchange="toggleTipoAy(this.value)"><option value="">-- Seleccionar --</option><option>Gerente General</option><option>Administradora</option><option>RRHH</option><option>Operativo</option><option>Supervisor</option><option>Mecanico</option><option>Vigilante</option><option>Chofer</option><option>Ayudante</option><option>Contadora</option><option>Auditora</option></select></div><div class="fg" id="fg-tipoAy" style="display:none"><label>Tipo Ayudante</label><select class="fc" id="ne-tipoAy"><option value="interno">Interno ($5/viaje)</option><option value="imau">IMAU ($2.50/viaje)</option></select></div></div>
         <div class="fg" id="fg-multicargo" style="display:none;background:rgba(168,85,247,.08);border:1px dashed rgba(168,85,247,.5);border-radius:8px;padding:8px 10px"><label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin:0"><input type="checkbox" id="ne-multicargo" style="width:auto"> 🔁 <b>Rota entre Chofer y Ayudante</b></label><div style="font-size:10px;color:var(--text3);margin-top:4px">El sistema lo detecta solo si en las planillas aparece manejando y ayudando. Marcá esto solo para <b>forzarlo</b> (ej. empleado nuevo sin historial aún). Se le paga según el rol real de cada viaje.</div></div>
         <div class="fg"><label>Unidad / Area</label><select class="fc" id="ne-unidad"></select><button onclick="agregarUnidadArea()" class="btn btn-s btn-sm" style="margin-top:4px;font-size:11px;width:100%">+ Agregar unidad/área</button></div>
+        <!-- ⛔ CÓMO SE LE PAGA A ESTA PERSONA. Pedido por Máximo el 27/08: «debe haber
+             un módulo donde se le coloque el sueldo a cada persona», para que RRHH no
+             dependa de que se lo carguemos nosotros.
+             🔴 Las columnas `sueldo` y `forma_pago` EXISTÍAN en la tabla desde siempre y
+                se llenaban al importar el Excel, pero la ficha nunca las mostró: los 59
+                empleados activos estaban con las dos vacías y no había forma de notarlo
+                desde la pantalla. Un campo que solo entra por importación se ve lleno el
+                día del alta y vacío para siempre después.
+             ⚠️ El monto se pide SOLO cuando el pago es fijo. A los ayudantes se les paga
+                por viaje ($5 interno / $2,50 IMAU) y eso ya lo resuelve «Tipo Ayudante»:
+                mostrarles un sueldo mensual invitaría a llenarlo con un número inventado. -->
+        <div class="fr2">
+          <div class="fg"><label>¿Cómo se le paga?</label><select class="fc" id="ne-forma-pago" onchange="toggleSueldo(this.value)"><option value="">-- Seleccionar --</option><option value="fijo">Sueldo fijo mensual</option><option value="viaje">Por viaje</option><option value="produccion">Por producción</option></select></div>
+          <div class="fg" id="fg-sueldo" style="display:none"><label>Sueldo mensual (US$)</label><input class="fc" id="ne-sueldo" type="number" min="0" step="0.01" inputmode="decimal" placeholder="ej: 150"><small style="font-size:10px;color:var(--text3)">En dólares. Los bolívares se calculan con la tasa del día de pago.</small></div>
+        </div>
         <div class="fg"><label>Fecha de Nacimiento</label><input class="fc" id="ne-fnac" type="date"></div>
           <div class="fg"><label>Fecha de Ingreso</label><input class="fc" id="ne-fingreso" type="date"></div>
         <div class="fr2">
