@@ -15,6 +15,53 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, apikey, content-type' };
 
+// ════════════════════════════════════════════════════════════════════════════
+// CANDADO DE MARCA — nada de lo que sale hacia una persona puede insinuar que lo
+// escribió una máquina.
+//
+// POR QUÉ VIVE ACÁ Y NO EN QUIEN ENCOLA (29/08/2026). La norma ya estaba dentro de
+// la pieza que manda documentos, pero TODA la mensajería automática de las apps
+// sale por esta cola y no pasaba por ningún filtro: dependía de que quien escribe
+// el `insert` se acordara. Una regla que depende de la memoria de quien la usa no
+// es una regla, es una intención. Va en el único lugar por donde pasan todos.
+//
+// ⛔ LAS PALABRAS ESTÁN ELEGIDAS PARA NO DAR FALSOS POSITIVOS EN ESPAÑOL, y no es
+// un detalle: el mismo 29/08 un candado improvisado frenó un mensaje legítimo por
+// la palabra «botón» —buscaba `bot` como palabra suelta, y en JavaScript la `ó`
+// acentuada cuenta como separador, así que «bot|ón» daba positivo—. Un candado que
+// traba texto bueno se termina desactivando, que es la peor forma de perderlo.
+// Por eso NO están: `bot` (botón, robot, bota), `automático` (un «aviso
+// automático» no dice quién lo escribió) ni `asistente` solo (hay asistentes que
+// son personas).
+//
+// ⚠️ CADA `\b` HACE FALTA. La primera versión de esta lista los perdió al
+// escribirla y quedó sin límites de palabra: así `IA` en mayúsculas casa adentro
+// de MARIA, FAMILIA o POLICIA, y el candado habría trabado media mensajería en vez
+// de proteger nada. Antes de tocar esto, correr `pruebas/candado-marca.test.mjs`.
+const MARCA_PROHIBIDA: Array<[string, RegExp]> = [
+  ['inteligencia artificial', /inteligencia\s+artificial/i],
+  ['IA (sigla)',              /\bI\.?A\.?\b/],   // sin flag i: «ia» minúscula es final de media lengua
+  ['LLM',                     /\bLLM\b/i],
+  ['modelo de lenguaje',      /modelo\s+de\s+lenguaje/i],
+  ['chatgpt / gpt',           /\bchat\s?gpt\b|\bgpt[\s-]?\d|\bgpt\b/i],
+  ['chatbot',                 /\bchat\s?bots?\b/i],
+  ['gemini',                  /\bgemini\b/i],
+  ['claude',                  /\bclaude\b/i],
+  ['openai',                  /\bopen\s?ai\b/i],
+  ['anthropic',               /\banthropic\b/i],
+  ['copilot',                 /\bcopilot\b/i],
+  ['asistente virtual',       /asistente\s+virtual/i],
+  ['soy un asistente',        /soy\s+(un|una)\s+(asistente|inteligencia|modelo)/i],
+  ['generado por IA',         /generad[oa]s?\s+por\s+(una?\s+)?(inteligencia|ia\b|modelo|máquina)/i],
+];
+
+/** Devuelve la etiqueta de lo que se encontró, o null si el texto está limpio. */
+export function insinuaMaquina(txt: string): string | null {
+  const t = String(txt || '');
+  for (const [etiqueta, re] of MARCA_PROHIBIDA) if (re.test(t)) return etiqueta;
+  return null;
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
   const sb = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
@@ -65,7 +112,7 @@ Deno.serve(async (req) => {
   const { data: pend } = await sb.from('cola_mensajes').select('*').eq('estado', 'pendiente').lt('intentos', 4).order('id').limit(25);
   if (!pend || !pend.length) return json({ ok: true, sent: 0, caducados: caducados?.length || 0 });
 
-  let sent = 0, fail = 0;
+  let sent = 0, fail = 0, bloq = 0;
   for (const m of pend) {
     // CLAIM atómico: marca la fila 'enviando' SOLO si sigue 'pendiente'. Si dos corridas del cron se
     // solapan, únicamente una gana el claim; la otra ve 0 filas y salta → sin doble envío.
@@ -73,6 +120,21 @@ Deno.serve(async (req) => {
       .update({ estado: 'enviando', tomado_at: new Date().toISOString() })
       .eq('id', m.id).eq('estado', 'pendiente').select('id').maybeSingle();
     if (!claim) continue; // otra corrida ya lo tomó
+
+    // ⛔ EL CANDADO, ANTES DE RESOLVER NADA MÁS. Si el texto insinúa que lo escribió una
+    // máquina, no sale. Y NO se reintenta: el texto no va a cambiar solo, así que gastar
+    // los 4 intentos solo escondería el motivo detrás de un 'fallido' genérico. Queda en
+    // 'bloqueado' con la palabra encontrada escrita, para corregirlo y volver a encolar.
+    const marca = insinuaMaquina(m.mensaje);
+    if (marca) {
+      await sb.from('cola_mensajes').update({
+        estado: 'bloqueado',
+        error: `candado de marca: el texto contiene "${marca}", y nada que ve una persona puede insinuar que lo escribio una maquina. Corregi el texto y volve a encolarlo.`,
+      }).eq('id', m.id);
+      bloq++;
+      continue;
+    }
+
     try {
       const norm = normalizar(m.telefono, cfg.pais);
       if (!norm.tel) {
@@ -119,7 +181,9 @@ Deno.serve(async (req) => {
       fail++;
     }
   }
-  return json({ ok: true, sent, fail, caducados: caducados?.length || 0 });
+  // `bloqueados` va en la respuesta a propósito: un mensaje frenado sin que nadie se
+  // entere es un silencio, y un silencio se ve igual que todo en orden.
+  return json({ ok: true, sent, fail, bloqueados: bloq, caducados: caducados?.length || 0 });
 });
 
 // Venezuela: 04141234567 / 0414-1234567 → +584141234567
