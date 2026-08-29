@@ -1143,10 +1143,25 @@ var MI_ROL='', sitios=[], capaSitios=[], marcando=null;
 // quien la base le va a decir que no es peor que no ofrecérselo.
 var PUEDE_EDITAR_SITIOS = false;
 
+// Cuántos fichajes cuelgan de cada sitio. No es un adorno: es lo que decide si achicar
+// una geocerca es un ajuste o es dejar gente sin poder marcar entrada.
+var FICHAJES_POR_SITIO = {};
+
 async function cargarSitios(){
   try{
     var r=await sb.from('sitios_asistencia').select('id,nombre,lat,lng,radio_m,tipo,activo,poligono').order('nombre');
     if(!r.error) sitios=r.data||[];
+  }catch(e){}
+  // Se pide aparte y sin trabar nada: si el rol no puede leer `asistencia_dia`, el mapa
+  // tiene que seguir funcionando igual — solo se pierde el aviso.
+  try{
+    var ra=await sb.from('asistencia_dia').select('sitio_id');
+    if(!ra.error && ra.data){
+      FICHAJES_POR_SITIO={};
+      ra.data.forEach(function(x){
+        if(x.sitio_id!=null) FICHAJES_POR_SITIO[x.sitio_id]=(FICHAJES_POR_SITIO[x.sitio_id]||0)+1;
+      });
+    }
   }catch(e){}
   pintarSitios();
 }
@@ -1247,6 +1262,13 @@ function panelEditarSitio(s){
       : '⚠️ Este sitio es un <b>círculo de '+(s.radio_m||120)+' m</b>, no un terreno. '
         +'Un círculo casi nunca calza: o deja parte afuera, o se traga calles que no son el sitio.')
    +'</p>'
+   + ((FICHAJES_POR_SITIO[s.id]||0) > 0
+      ? '<p style="font-size:12px;color:var(--ambar);margin:0 0 12px;line-height:1.45">'
+        +'⚠️ <b>Acá se ficha</b> ('+FICHAJES_POR_SITIO[s.id]+' fichajes). El fichaje no usa el '
+        +'terreno dibujado sino el círculo que lo envuelve, así que si marcás un terreno más '
+        +'chico que los '+(s.radio_m||120)+' m de ahora, quien fiche desde más lejos va a '
+        +'recibir «estás fuera del sitio». Incluí la entrada donde la gente marca.</p>'
+      : '')
    +'<button class="btn" id="eRedib" style="width:100%;padding:9px;margin-bottom:7px">📐 '
    + (tieneP?'Volver a marcar las esquinas':'Marcar las esquinas del terreno')+'</button>'
    +'<button class="btn" id="eOk" style="width:100%;padding:9px">Guardar nombre y tipo</button>'
@@ -1345,6 +1367,20 @@ async function cerrarGeocerca(){
   salirDeMarcar();
   if(editando){
     var s=editando, env=envolventeDe(poli);
+    // ⛔ EL FICHAJE NO SABE DE POLÍGONOS. `fichar_asistencia` (en la base) valida contra
+    // `radio_m` y `activo`; la columna `poligono` no la mira. Así que al redibujar un
+    // sitio donde la gente FICHA, lo que decide quién puede fichar sigue siendo el
+    // círculo envolvente — y si el terreno dibujado es más chico que el círculo de hoy,
+    // el círculo se achica y alguien que viene fichando desde la entrada deja de poder.
+    // Eso no se puede descubrir mañana a las 5 de la mañana con la gente en la puerta.
+    var fichan = FICHAJES_POR_SITIO[s.id] || 0;
+    if(fichan > 0 && env.radio_m < (s.radio_m||0)){
+      if(!confirm('ATENCION: en «'+s.nombre+'» se ficha (hay '+fichan+' fichajes). '
+        +'El fichaje NO usa el terreno dibujado, usa el circulo: con estas esquinas el '
+        +'circulo pasa de '+(s.radio_m||0)+' m a '+env.radio_m+' m, y quien fiche desde mas '
+        +'lejos de '+env.radio_m+' m va a recibir «estas fuera del sitio». ¿Guardar igual?'))
+        { borrarDibujo(); editando=null; return; }
+    }
     editando=null;
     // El círculo envolvente se recalcula SIEMPRE junto al polígono: si quedara el viejo,
     // lo que todavía lee círculos —`app.js`, el QR— seguiría con la geocerca equivocada,
