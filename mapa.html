@@ -167,6 +167,8 @@
     <div class="titpanel">Unidades</div>
     <div id="lista"></div>
     <div class="leyenda">
+      <b id="verSello" style="display:block;font-family:ui-monospace,monospace;font-size:10.5px;
+         color:var(--suave);margin-bottom:10px">pantalla —</b>
       <b>Cómo leer esta pantalla.</b> La hora es la de Venezuela y es la del
       <b>último reporte del camión</b>, no la de la consulta. Si un camión lleva más de
       15 minutos sin reportar se marca <b>sin señal</b>: lo último que se supo de él
@@ -223,6 +225,16 @@
 <script>
 (function(){
 'use strict';
+
+// ⛔ QUÉ VERSIÓN DE ESTA PANTALLA ESTÁ CORRIENDO, A LA VISTA.
+// `mapa.html` es un archivo suelto: el truco del `?v=` protege al JS que un HTML nombra,
+// pero NADA protege al HTML mismo. Hoy (29/08) pasó tres veces: se publicó una versión,
+// producción la servía —medido con curl— y el navegador seguía con la anterior. Una vez
+// terminó en geocercas creadas sin el tipo que ya existía, y otra en «no me deja editar»
+// sobre una función que estaba puesta hacía una hora.
+// Con el sello a la vista, la pregunta «¿estás viendo la última?» se contesta mirando,
+// en vez de adivinando. Al tocar este archivo, subir la fecha.
+var VERSION_PANTALLA = '20260829-1545';
 
 var SUPA_URL = 'https://hrkjddehqnzcqwlkklqm.supabase.co';
 var SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhya2pkZGVocW56Y3F3bGtrbHFtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc2NTk1NzIsImV4cCI6MjA5MzIzNTU3Mn0.kqWKthyZfPZ86toql7shGByF-ZhUpcQUS4Jw4RnG_ko';
@@ -1417,6 +1429,8 @@ var ROLES_SITIOS = ['superadmin'];
 
 async function arrancarVista(){
   iniciarMapa();
+  var _vs=document.getElementById('verSello');
+  if(_vs) _vs.textContent='pantalla '+VERSION_PANTALLA;
   DIA = fechaVE(new Date());
   var inp=document.getElementById('selDia');
   inp.value = DIA;
