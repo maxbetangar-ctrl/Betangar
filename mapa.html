@@ -1100,7 +1100,10 @@ function alClic(ev){
 // de hoy». Un «no podés» disfrazado de «no hay nada» manda a buscar una falla que no existe.
 // Si se cambia la policy, hay que cambiar esta lista: son dos lugares a propósito, porque
 // el navegador no puede preguntarle a Postgres quién puede leer qué.
-var ROLES_MAPA = ['superadmin','admin','operador','visualizador','directivo','auditor'];
+// (29/08: Máximo sumó `revisor`, `operativo` y `mecanico` — los perfiles que trabajan
+//  con la operación y quedaban afuera. Ver `migrations/gps_roles_lectura_2026-08-29.sql`.)
+var ROLES_MAPA = ['superadmin','admin','operador','visualizador','directivo','auditor',
+                  'revisor','operativo','mecanico'];
 
 async function arrancarVista(){
   iniciarMapa();
@@ -1128,10 +1131,10 @@ async function arrancarVista(){
   await cargarSitios();
   // El botón solo aparece si la base le va a aceptar la escritura. No es el candado
   // —el candado es la RLS— es no ofrecer algo que va a terminar en un error.
-  // ⚠️ `revisor` ya no va acá: puede escribir sitios pero NO puede leer `gps_posiciones`,
-  // así que nunca llega a esta pantalla. Ofrecerle marcar sitios sobre un mapa que no
-  // puede ver era una contradicción del propio archivo.
-  if(['superadmin','admin'].indexOf(MI_ROL)>=0){
+  // ⚠️ `revisor` vuelve acá: la contradicción (marcar sitios sobre un mapa que no podía
+  // ver) se resolvió dándole la LECTURA, que es lo que faltaba, no quitándole el botón.
+  // Quién puede escribir sitios lo decide la RLS de `sitios_asistencia`, no esta lista.
+  if(['superadmin','admin','revisor'].indexOf(MI_ROL)>=0){
     document.getElementById('bSitio').style.display='';
   }
   suscribir();
