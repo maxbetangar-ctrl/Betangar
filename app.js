@@ -3759,7 +3759,7 @@ function sp(id){
       if(_p.indexOf('financiero')>=0){ switchProvTab('cxp'); cargarCxP(); }
       else { switchProvTab('lista'); }
     },100);}
-    if(id==='auditoria'){renderAuditoria();try{renderCarpetaAuditor();}catch(e){}try{renderGpsVsPlanilla();}catch(e){}}
+    if(id==='auditoria'){renderAuditoria();try{renderCarpetaAuditor();}catch(e){}try{renderGpsVsPlanilla();}catch(e){}try{renderSurtidasUbicacion();}catch(e){}}
     if(id==='entregas'){cargarEntregas().then(function(){renderEntregas();}).catch(function(){renderEntregas();});}
     // Módulos especiales
     if(id==='porteria')portIniciar();
@@ -19265,6 +19265,82 @@ async function renderGpsVsPlanilla(){
        +'<td style="text-align:right;font-family:var(--m);font-size:11px">'+(f.puntos==null?'—':f.puntos)+'</td>'
        +'<td style="text-align:right;font-family:var(--m);font-size:11px">'+(f.hueco_max_min==null?'—':f.hueco_max_min+' min')+'</td>'
        +'<td style="font-size:11px;color:'+(color[f.estado]||'var(--text2)')+'">'+_fx(f.estado)+'</td>'
+       +'</tr>';
+    }).join('')+'</tbody></table></div>';
+}
+
+// ═══ DÓNDE SE CARGÓ EL COMBUSTIBLE ═══════════════════════════════════════════
+// La otra mitad del cruce de viajes: el GPS verificando lo que se declaró a mano.
+// El cálculo vive en la vista `v_surtidas_ubicacion`, no acá — con el criterio y su
+// tolerancia escritos en un solo lugar.
+//
+// ⛔ ANTES DE MOSTRAR NADA HAY QUE COMPROBAR QUE HAYA ESTACIONES MARCADAS. Sin
+// geocercas, TODA surtida da «FUERA» y esta pantalla acusaría a la flota entera por no
+// haber podido leer una tabla. Un cálculo que da el peor resultado posible cuando le
+// falta un dato tiene que negarse a correr, no entregarlo.
+async function renderSurtidasUbicacion(){
+  var cont=g('sfe-tabla'), res=g('sfe-resumen');
+  if(!cont) return;
+  if(!(DB_READY&&supabase)){
+    cont.innerHTML='<div class="empty-state"><span class="ico">⛽</span>Sin conexión con la base.</div>';
+    return;
+  }
+  cont.innerHTML='<div style="font-size:11px;color:var(--text3);padding:8px">Leyendo…</div>';
+
+  var re=await supabase.from('v_estaciones_poligono').select('id',{count:'exact',head:true});
+  if(re.error){
+    cont.innerHTML='<div class="empty-state"><span class="ico">⚠️</span>No se pudo leer las estaciones: '+_fx(re.error.message)+'</div>';
+    res.innerHTML=''; return;
+  }
+  if(!re.count){
+    cont.innerHTML='<div class="empty-state"><span class="ico">📐</span>'
+      +'No hay estaciones de servicio marcadas por sus esquinas. Sin ellas no se puede decir qué '
+      +'carga cayó fuera de una bomba: todas darían «fuera» y sería mentira. Se marcan en el mapa '
+      +'de flota, con 📐 Marcar geocerca.</div>';
+    res.innerHTML=''; return;
+  }
+
+  var r=await supabase.from('v_surtidas_ubicacion').select('*').order('fecha',{ascending:false});
+  if(r.error){
+    cont.innerHTML='<div class="empty-state"><span class="ico">⚠️</span>No se pudo leer: '+_fx(r.error.message)+'</div>';
+    res.innerHTML=''; return;
+  }
+  var f=r.data||[];
+  var cnt=function(v){ return f.filter(function(x){return x.veredicto===v;}).length; };
+  var lit=function(v){ return f.filter(function(x){return x.veredicto===v;}).reduce(function(a,x){return a+(Number(x.litros)||0);},0); };
+  var fuera=f.filter(function(x){return x.veredicto==='FUERA de toda estación';});
+
+  res.innerHTML='<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">'
+    +mkStat('En estación',cnt('en estación'),miles(lit('en estación'),0)+' L verificados','t')
+    +mkStat('Dentro del margen',cnt('dentro de la tolerancia'),'a metros del borde','b')
+    +mkStat('FUERA',fuera.length,miles(lit('FUERA de toda estación'),0)+' L a revisar','r')
+    +mkStat('Sin ubicación',cnt('sin ubicación'),miles(lit('sin ubicación'),0)+' L no verificables','y')
+    +'</div>';
+
+  // Solo se listan las que piden algo: las verificadas no necesitan una fila cada una.
+  var ver=fuera.concat(f.filter(function(x){return x.veredicto==='dentro de la tolerancia';}));
+  if(!ver.length){
+    cont.innerHTML='<div class="empty-state"><span class="ico">✅</span>Todas las cargas con ubicación cayeron dentro de una estación marcada.</div>';
+    return;
+  }
+  cont.innerHTML='<div class="tw"><table><thead><tr>'
+    +'<th>Fecha</th><th>Unidad</th><th>Chofer</th><th style="text-align:right">Litros</th>'
+    +'<th>Tanque declarado</th><th>Estación más cerca</th>'
+    +'<th style="text-align:right" title="Distancia al BORDE del terreno, no a su centro.">Al borde</th>'
+    +'<th style="text-align:right" title="Lo que el teléfono declaró que podía errar, más el largo del camión.">Tolerancia</th>'
+    +'<th>Veredicto</th></tr></thead><tbody>'
+    +ver.map(function(x){
+      var esFuera=(x.veredicto==='FUERA de toda estación');
+      return '<tr>'
+       +'<td style="font-family:var(--m);font-size:11px">'+formatFecha(x.fecha)+(x.hora?' '+_fx(x.hora):'')+'</td>'
+       +'<td>'+_fx(x.cam)+'</td>'
+       +'<td style="font-size:11px">'+_fx(x.chofer||'—')+'</td>'
+       +'<td style="text-align:right"><b>'+miles(x.litros,2)+'</b></td>'
+       +'<td style="font-size:11px">'+_fx(x.tanque||'—')+'</td>'
+       +'<td style="font-size:11px">'+_fx(x.estacion_mas_cerca||'—')+'</td>'
+       +'<td style="text-align:right;font-family:var(--m);font-size:11px">'+(x.m_al_borde==null?'—':x.m_al_borde+' m')+'</td>'
+       +'<td style="text-align:right;font-family:var(--m);font-size:11px;color:var(--text3)">±'+(x.tolerancia_m==null?'—':x.tolerancia_m+' m')+'</td>'
+       +'<td style="font-size:11px;color:'+(esFuera?'var(--red)':'var(--text3)')+'">'+_fx(x.veredicto)+'</td>'
        +'</tr>';
     }).join('')+'</tbody></table></div>';
 }
