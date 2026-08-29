@@ -70,6 +70,11 @@
   .u:hover{background:rgba(125,125,125,.08)}
   .u.sel{box-shadow:inset 3px 0 0 var(--azul);background:rgba(77,163,255,.10)}
   .u-cab{display:flex;align-items:center;gap:8px}
+  /* La muestra de línea (color + forma) es la leyenda: dice cómo está dibujado ese
+     camión en el mapa. Va pegada al punto de color, con menos aire que el resto. */
+  .u-cab svg{margin-left:-4px}
+  body.tv .u-cab svg{width:38px;height:12px}
+  input[type=date].btn{font-family:inherit;padding:6px 8px}
   .punto{width:11px;height:11px;border-radius:50%;flex-shrink:0}
   .u-nom{font-weight:650;font-size:14px}
   .u-est{margin-left:auto;font-size:11px;font-weight:650;padding:2px 8px;border-radius:20px}
@@ -132,6 +137,13 @@
   <span class="sello" id="sello">cargando…</span>
   <div class="der">
     <span id="reloj">--:--</span>
+    <!-- ⛔ ANTES ESTA PANTALLA SOLO PODÍA MOSTRAR EL DÍA EN CURSO. Si nadie la miraba
+         ese día, el recorrido ya no se podía revisar nunca — y revisar el recorrido de
+         un día pasado es justo lo que hay que poder hacer para probarle a la Alcaldía
+         que el camión estuvo donde dice la planilla. El dato ya estaba guardado; lo que
+         faltaba era poder pedirlo. -->
+    <input type="date" class="btn ocultarTv" id="selDia" title="Día que se está viendo. En vivo solo el de hoy.">
+    <button class="btn ocultarTv" id="bHoy" style="display:none" title="Volver al día de hoy y al seguimiento en vivo">Hoy</button>
     <select class="btn" id="selFondo" title="Fondo del mapa"></select>
     <span class="ctrlBrillo" title="Realce del fondo: subilo hasta que las calles se despeguen en tu pantalla">
       <span>Calles</span>
@@ -174,8 +186,14 @@
       unidades el mapa igual se llena: el botón <b>Recorridos</b> pasa de verlos todos, a
       ver solo el de la unidad elegida, a ver solo los camiones sin ninguna línea.<br><br>
       <b>Andando sin reportar</b> es el rato más largo que el camión estuvo en
-      movimiento y no se supo dónde. Con el motor apagado el equipo reporta una vez
-      por hora, y eso es normal: esas horas no se cuentan acá.
+      movimiento y no se supo dónde. No cuenta el tiempo apagado, ni los ratos en que
+      el contador de kilómetros no se movió —ahí el camión estaba detenido, aunque el
+      último reporte lo haya agarrado andando.<br><br>
+      <b>Se puede mirar un día pasado</b> con el campo de fecha de arriba. Ahí la
+      pantalla deja de ser «en vivo» y pasa a ser el registro de ese día: los camiones
+      quedan dibujados donde estuvieron, sin animación y sin avisos de «sin señal».
+      ⛔ Solo hay recorrido desde el día en que se encendió el sondeo de cada unidad —
+      el GPS no guarda historial que se pueda bajar después.
     </div>
   </div>
   <div id="mapa"></div>
@@ -300,6 +318,26 @@ function trazoDe(i){ return TRAZOS[Math.floor(i / COLORES_BASE.length) % TRAZOS.
 // Cuántos recorridos se ven: 'todos' · 'uno' (solo el elegido) · 'ninguno' (solo los camiones).
 // Arranca en 'todos' porque hoy son 12; con 60 lo primero que va a querer el que mire es 'uno'.
 var MODO_REC = 'todos';
+
+// ⛔ EL COLOR DE UNA UNIDAD NO PUEDE SALIR DEL ORDEN DE LA LISTA DE ESE DÍA.
+// Antes el color se sacaba del índice dentro de las unidades que habían reportado:
+// el día que faltara un camión, TODOS los que vienen detrás cambiaban de color, y
+// el mismo camión salía verde ayer y amarillo hoy. Con la leyenda al lado eso es
+// peor que no tener leyenda. El índice sale del NÚMERO de la unidad, que no cambia.
+function idxDe(cam){
+  var m = String(cam).match(/(\d+)\s*$/);
+  if(m) return Math.max(0, parseInt(m[1],10) - 1);    // JAC-B003 → 2
+  var h = 0;                                          // sin número: reparto estable
+  for(var i=0;i<cam.length;i++) h = (h*31 + cam.charCodeAt(i)) >>> 0;
+  return h % 48;
+}
+/** Muestra de la línea de una unidad, para la leyenda. */
+function muestraLinea(cam){
+  var i = idxDe(cam), t = trazoDe(i);
+  return '<svg width="26" height="8" viewBox="0 0 26 8" style="flex-shrink:0">'
+    + '<line x1="1" y1="4" x2="25" y2="4" stroke="'+colorDe(i)+'" stroke-width="3"'
+    + (t ? ' stroke-dasharray="'+t+'"' : '') + ' stroke-linecap="round"/></svg>';
+}
 function recVisible(cam){
   if(MODO_REC === 'ninguno') return false;
   if(MODO_REC === 'uno') return seleccion === cam;
@@ -317,6 +355,19 @@ var sb=null, mapa=null, capaFondo=null, canal=null;
 var dibujo={}, estado={}, seleccion=null, primeraVez=true;
 var ultimoDato=0, anim={};
 
+// Día que se está viendo (YYYY-MM-DD, hora de Venezuela). Arranca en hoy.
+// ⛔ Cuando NO es hoy, la pantalla deja de ser «en vivo» y pasa a ser un registro:
+// no hay «hace X minutos» contra el reloj de ahora, no se anima nada, y las
+// unidades no se marcan «sin señal» —a las 8 de la noche de un día pasado ninguna
+// estaba reportando y decir «sin señal» sería una alarma inventada—.
+var DIA = null;
+function esHoy(){ return DIA === fechaVE(new Date()); }
+function diaSiguiente(f){
+  var d = new Date(f + 'T12:00:00-04:00');
+  d.setDate(d.getDate() + 1);
+  return fechaVE(d);
+}
+
 function dosDig(n){ return (n<10?'0':'')+n; }
 function horaVE(iso){
   try{ return new Date(iso).toLocaleTimeString('es-VE',{hour:'2-digit',minute:'2-digit',hour12:false,timeZone:'America/Caracas'}); }
@@ -328,6 +379,11 @@ function fechaVE(d){
     var o={}; p.forEach(function(x){o[x.type]=x.value;});
     return o.year+'-'+o.month+'-'+o.day;
   }catch(e){ return new Date().toISOString().slice(0,10); }
+}
+/** dd/mm/yyyy a partir de un YYYY-MM-DD. La UI de la casa va en ese formato. */
+function fechaCorta(f){
+  var p=String(f||'').split('-');
+  return p.length===3 ? p[2]+'/'+p[1]+'/'+p[0] : String(f||'');
 }
 function miles(n,dec){
   if(n===null||n===undefined||isNaN(n)) return '—';
@@ -549,12 +605,17 @@ function mover(cam, destino, ms){
 var PAGINA=1000, MAX_PAGINAS=150, EN_VUELO=6;   // 6 a la vez: no ahogar al navegador de la tele
 
 async function traer(){
-  var desde=fechaVE(new Date())+'T00:00:00-04:00';
+  // El día es el del NEGOCIO: de las 00:00 a las 00:00 hora de Venezuela, no del
+  // servidor. Se acota por los DOS extremos: sin el `lt` un día pasado arrastraría
+  // todo lo posterior y el recorrido saldría hecho un nudo de varios días.
+  var desde=DIA+'T00:00:00-04:00';
+  var hasta=diaSiguiente(DIA)+'T00:00:00-04:00';
   var sel='cam,ts,lat,lon,velocidad,rumbo,ignicion,odometro,ubicacion';
+  var rango=function(q){ return q.gte('ts',desde).lt('ts',hasta); };
 
   // 1) La primera página Y el conteo exacto en la misma consulta.
-  var r0=await sb.from('gps_posiciones').select(sel,{count:'exact'})
-    .gte('ts',desde).order('ts',{ascending:true}).range(0,PAGINA-1);
+  var r0=await rango(sb.from('gps_posiciones').select(sel,{count:'exact'}))
+    .order('ts',{ascending:true}).range(0,PAGINA-1);
   if(r0.error) throw new Error(r0.error.message);
   var filas=r0.data||[];
   if(filas.length<PAGINA) return filas;        // cabía en una página: ya está todo
@@ -565,14 +626,14 @@ async function traer(){
   if(r0.count==null){
     var acum=filas.slice();
     for(var q=1; q<MAX_PAGINAS; q++){
-      var rq=await sb.from('gps_posiciones').select(sel)
-        .gte('ts',desde).order('ts',{ascending:true}).range(q*PAGINA,(q+1)*PAGINA-1);
+      var rq=await rango(sb.from('gps_posiciones').select(sel))
+        .order('ts',{ascending:true}).range(q*PAGINA,(q+1)*PAGINA-1);
       if(rq.error) throw new Error(rq.error.message);
       var dq=rq.data||[];
       acum=acum.concat(dq);
       if(dq.length<PAGINA) return acum;
     }
-    throw new Error('Hay más de '+(MAX_PAGINAS*PAGINA).toLocaleString('es-VE')+' posiciones hoy '
+    throw new Error('Hay más de '+(MAX_PAGINAS*PAGINA).toLocaleString('es-VE')+' posiciones ese día '
       +'y no se pudieron traer todas. La pantalla no puede mostrar el día completo: avisá a soporte.');
   }
 
@@ -580,7 +641,7 @@ async function traer(){
   if(total<=PAGINA) return filas;
   var paginas=Math.ceil(total/PAGINA);
   if(paginas>MAX_PAGINAS){
-    throw new Error('Hay '+total.toLocaleString('es-VE')+' posiciones hoy, más de las '
+    throw new Error('Hay '+total.toLocaleString('es-VE')+' posiciones ese día, más de las '
       +(MAX_PAGINAS*PAGINA).toLocaleString('es-VE')+' que esta pantalla puede traer. No se '
       +'puede mostrar el día completo: avisá a soporte.');
   }
@@ -592,8 +653,8 @@ async function traer(){
     var tanda=[];
     for(var k=base; k<Math.min(base+EN_VUELO,paginas); k++) tanda.push(k);
     var res=await Promise.all(tanda.map(function(i){
-      return sb.from('gps_posiciones').select(sel)
-        .gte('ts',desde).order('ts',{ascending:true})
+      return rango(sb.from('gps_posiciones').select(sel))
+        .order('ts',{ascending:true})
         .range(i*PAGINA,(i+1)*PAGINA-1);
     }));
     for(var j=0;j<res.length;j++){
@@ -619,20 +680,30 @@ function pintar(){
   crudo.forEach(function(f){ (porCam[f.cam]=porCam[f.cam]||[]).push(f); });
   var cams=Object.keys(porCam).sort();
   var ahora=Date.now(), htm='', bordes=[];
+  // Un día pasado NO es «en vivo»: no hay «hace X minutos» contra el reloj de ahora,
+  // y marcar «sin señal» a las unidades sería inventar una alarma sobre algo que ya
+  // terminó. Ver un registro y ver la flota andando son dos lecturas distintas.
+  var hist=!esHoy();
 
   if(!cams.length){
     document.getElementById('lista').innerHTML='<div class="u"><div class="u-dir">'
-      +'Todavía no hay posiciones de hoy. El sistema consulta cada minuto; en cuanto '
-      +'el primer camión reporte, aparece acá solo.</div></div>';
-    document.getElementById('sello').textContent='sin datos de hoy';
+      +(hist
+        ? 'No hay posiciones guardadas del '+fechaCorta(DIA)+'. Puede que ese día el '
+          +'sondeo no estuviera corriendo, o que la unidad todavía no tuviera acceso: '
+          +'el historial del GPS nace el día que arranca el sondeo, no se puede recuperar hacia atrás.'
+        : 'Todavía no hay posiciones de hoy. El sistema consulta cada minuto; en cuanto '
+          +'el primer camión reporte, aparece acá solo.')
+      +'</div></div>';
+    document.getElementById('sello').textContent = hist ? 'sin datos del '+fechaCorta(DIA) : 'sin datos de hoy';
     return;
   }
 
-  cams.forEach(function(cam,i){
+  cams.forEach(function(cam){
     var pts=porCam[cam], ult=pts[pts.length-1];
+    var i=idxDe(cam);                 // el color/trazo salen del NÚMERO de la unidad
     var color=colorDe(i);
     var min=Math.round((ahora-new Date(ult.ts).getTime())/60000);
-    var mudo=min>MUDO_MIN;
+    var mudo=!hist && min>MUDO_MIN;
 
     // Km del día por el CONTADOR del camión. Medido sobre un tramo real: sumar
     // distancias entre puntos da 17 % MENOS que el odómetro, y con ese sesgo todos
@@ -645,17 +716,28 @@ function pintar(){
     // «Hueco máx. 61 min» todos los días —el camión durmiendo, no una falla— y con eso
     // el número no distinguía un día bien medido de uno mal medido. Medido el 15/08:
     // 61 min contando todo, 14 min contando solo lo trabajado.
+    // ⛔ Y NO ALCANZA CON LA IGNICIÓN DEL PUNTO ANTERIOR: ésa dice cómo estaba el
+    // camión cuando se calló, no cómo estuvo durante el silencio. Medido el 27/08:
+    // el último reporte antes de un hueco de 68 min decía «encendido, 42 km/h» y el
+    // odómetro de los dos extremos era EL MISMO — el camión llegó y se apagó ahí.
+    // El odómetro sí atraviesa el hueco, así que es él quien decide. Sin odómetro no
+    // se descarta: una medida de confianza que se calla cuando no sabe miente para
+    // el lado cómodo. Este cálculo es el MISMO de `gps_calcular_dia` en la base.
     var hueco=0;
     for(var k=1;k<pts.length;k++){
       if(pts[k-1].ignicion!==true) continue;   // se calló apagado: no esconde trabajo
+      var oA=pts[k-1].odometro, oB=pts[k].odometro;
+      if(oA!=null && oB!=null && (oB-oA) < 0.05) continue;   // no se movió: no es un hueco
       var dd=(new Date(pts[k].ts)-new Date(pts[k-1].ts))/60000;
       if(dd>hueco) hueco=dd;
     }
     hueco=Math.round(hueco);
 
-    var andando=!mudo&&ult.ignicion===true&&Number(ult.velocidad)>3;
-    var clase=mudo?'e-mud':(andando?'e-and':'e-par');
-    var texto=mudo?'sin señal':(andando?'andando':(ult.ignicion===true?'prendido, parado':'apagado'));
+    var andando=!hist&&!mudo&&ult.ignicion===true&&Number(ult.velocidad)>3;
+    var clase=hist?'e-par':(mudo?'e-mud':(andando?'e-and':'e-par'));
+    var texto=hist
+      ? 'último a las '+horaVE(ult.ts)
+      : (mudo?'sin señal':(andando?'andando':(ult.ignicion===true?'prendido, parado':'apagado')));
     estado[cam]={ult:ult,color:color,mudo:mudo};
 
     var linea=pts.filter(function(p){return p.lat&&p.lon;}).map(function(p){return [p.lat,p.lon];});
@@ -674,12 +756,18 @@ function pintar(){
       dibujo[cam].paradas=[];
     }else{
       dibujo[cam].linea.setLatLngs(linea).setStyle({weight:tv?5:3.5});
-      // El deslizamiento dura lo que duró el hueco entre los dos últimos reportes: así el
-      // camión llega justo cuando entra el siguiente y nunca se queda congelado.
-      var msHueco = pts.length>1
-        ? (new Date(ult.ts) - new Date(pts[pts.length-2].ts))
-        : ANIM_MIN_MS;
-      mover(cam,[ult.lat,ult.lon], msHueco);   // mover() arrastra el halo
+      if(hist){
+        // En un día pasado no hay nada que animar: el camión ya llegó donde llegó.
+        dibujo[cam].marca.setLatLng([ult.lat,ult.lon]);
+        dibujo[cam].halo.setLatLng([ult.lat,ult.lon]);
+      }else{
+        // El deslizamiento dura lo que duró el hueco entre los dos últimos reportes: así el
+        // camión llega justo cuando entra el siguiente y nunca se queda congelado.
+        var msHueco = pts.length>1
+          ? (new Date(ult.ts) - new Date(pts[pts.length-2].ts))
+          : ANIM_MIN_MS;
+        mover(cam,[ult.lat,ult.lon], msHueco);   // mover() arrastra el halo
+      }
     }
     // ── Las paradas, que es lo que prueba el trabajo ──
     (dibujo[cam].paradas||[]).forEach(function(c){ mapa.removeLayer(c); });
@@ -706,7 +794,8 @@ function pintar(){
     estado[cam].paradasRuta = sitios.length ? parsRuta : null;
 
     dibujo[cam].marca.setOpacity(mudo?.45:1);
-    dibujo[cam].halo.setOpacity(mudo?0:1);
+    // El halo late para decir «esto está pasando ahora». En un día pasado no late nadie.
+    dibujo[cam].halo.setOpacity((hist||mudo)?0:1);
     // El recorrido y sus paradas se apagan juntos: un mapa con las paradas sueltas y sin la
     // línea que las une no se entiende.
     var verRec = recVisible(cam);
@@ -717,14 +806,18 @@ function pintar(){
     if(verRec) linea.forEach(function(c){ bordes.push(c); });
     else if(ult.lat&&ult.lon) bordes.push([ult.lat,ult.lon]);
 
+    // La muestra de línea al lado del nombre ES la leyenda: dice con qué color Y con
+    // qué forma está dibujado ese camión en el mapa. El punto de color solo no
+    // alcanzaba — dos recorridos encimados se siguen por la forma, no por el tono.
     htm+='<div class="u'+(seleccion===cam?' sel':'')+'" data-cam="'+esc(cam)+'">'
       +'<div class="u-cab"><span class="punto" style="background:'+color+'"></span>'
+      +muestraLinea(cam)
       +'<span class="u-nom">'+esc(cam)+'</span>'
       +'<span class="u-est '+clase+'">'+texto+'</span></div>'
       +(ult.ubicacion?'<div class="u-dir">'+esc(ult.ubicacion)+'</div>':'')
-      +'<div class="u-dat"><span>Último reporte <b>'+horaVE(ult.ts)+'</b> ('+hace(min)+')</span></div>'
+      +'<div class="u-dat"><span>Último reporte <b>'+horaVE(ult.ts)+'</b>'+(hist?'':' ('+hace(min)+')')+'</span></div>'
       +'<div class="u-dat">'
-      +'<span>Km de hoy <b>'+(kmDia===null?'—':miles(kmDia,1))+'</b></span>'
+      +'<span>Km '+(hist?'del día':'de hoy')+' <b>'+(kmDia===null?'—':miles(kmDia,1))+'</b></span>'
       +'<span>Contador <b>'+miles(ult.odometro,0)+'</b></span>'
       +'<span>Puntos <b>'+miles(pts.length)+'</b></span>'
       +'<span title="Veces que el camión estuvo detenido 2 minutos o más fuera de la base. Las paradas más cortas no se alcanzan a ver con la frecuencia con que reporta el equipo, así que este número siempre se queda corto: nunca dice de más.">Paradas en ruta <b>'+(estado[cam].paradasRuta==null?'—':miles(estado[cam].paradasRuta))+'</b></span>'
@@ -738,6 +831,16 @@ function pintar(){
   });
 
   var mudos=cams.filter(function(c){return estado[c].mudo;});
+  if(hist){
+    // Que se vea SIEMPRE que lo de la pantalla no es de ahora. Un registro leído como
+    // si fuera en vivo es peor que no tener el registro.
+    document.getElementById('avisos').innerHTML =
+      '<div class="aviso ojo"><b>Estás viendo el '+fechaCorta(DIA)+'</b>, no la flota de ahora. '
+      +'Los camiones están dibujados donde quedaron ese día.</div>';
+    document.getElementById('sello').textContent=fechaCorta(DIA)+' · '+cams.length+' unidad'+(cams.length>1?'es':'');
+    if(primeraVez&&bordes.length){ mapa.fitBounds(bordes,{padding:[50,50],maxZoom:15}); primeraVez=false; }
+    return;
+  }
   document.getElementById('avisos').innerHTML = mudos.length
     ? '<div class="aviso ojo"><b>'+mudos.length+' unidad'+(mudos.length>1?'es':'')+' sin reportar</b> hace más de '
       +MUDO_MIN+' min: '+mudos.map(function(c){return c.replace('JAC-','');}).join(', ')
@@ -779,7 +882,14 @@ function marcarVivo(){
 /** Un canal caído se ve igual que una flota quieta: hay que decirlo. */
 function vigilarCanal(){
   var v=document.getElementById('vivo');
-  // 6 min sin una sola novedad con el sondeo cada 2 min es sospechoso.
+  // Mirando un día pasado NO hay nada en vivo, y dejar el cartel puesto haría creer
+  // que lo de la pantalla está pasando ahora.
+  if(!esHoy()){
+    v.classList.add('mudo');
+    document.getElementById('vivoTxt').textContent='día pasado';
+    return;
+  }
+  // 6 min sin una sola novedad con el sondeo cada minuto es sospechoso.
   if(Date.now()-ultimoDato > 6*60000){
     v.classList.add('mudo');
     document.getElementById('vivoTxt').textContent='sin novedades';
@@ -787,6 +897,7 @@ function vigilarCanal(){
 }
 
 async function repaso(){
+  if(!esHoy()) return;      // un día pasado no cambia: repasarlo es gastar por gastar
   try{
     crudo=await traer(); pintar(); marcarVivo();
     document.getElementById('avisos').innerHTML+='';
@@ -801,9 +912,11 @@ function suscribir(){
   canal = sb.channel('gps-vivo')
     .on('postgres_changes',{event:'INSERT',schema:'public',table:'gps_posiciones'},function(m){
       if(!m.new) return;
-      var hoy=fechaVE(new Date());
-      // Solo lo de hoy: la pantalla muestra el día en curso.
-      if(String(m.new.ts).slice(0,10) < hoy) return;
+      // Solo lo del día que se está mirando. Si el usuario se fue a un día pasado, lo
+      // que entra ahora NO puede meterse en ese recorrido: quedaría un salto de días
+      // dibujado como si fuera un viaje.
+      if(!esHoy()) return;
+      if(String(m.new.ts).slice(0,10) !== DIA) return;
       crudo.push(m.new);
       crudo.sort(function(a,b){ return new Date(a.ts)-new Date(b.ts); });
       pintar(); marcarVivo();
@@ -816,6 +929,39 @@ function suscribir(){
         setTimeout(suscribir,5000);
       }
     });
+}
+
+// ── Cambio de día ────────────────────────────────────────────────────────────
+/**
+ * ⛔ AL CAMBIAR DE DÍA HAY QUE BORRAR LO DIBUJADO, no solo volver a pintar. Las
+ * polilíneas, los marcadores y los círculos de parada viven en `dibujo` y se
+ * REUSAN; si no se sacan del mapa, el recorrido del día nuevo se dibuja encima del
+ * viejo y quedan dos días superpuestos que se leen como uno solo.
+ */
+function limpiarDibujo(){
+  Object.keys(dibujo).forEach(function(cam){
+    var d=dibujo[cam]; if(!d) return;
+    if(anim[cam]){ cancelAnimationFrame(anim[cam]); delete anim[cam]; }
+    [d.linea,d.halo,d.marca].forEach(function(c){ if(c){ try{ mapa.removeLayer(c); }catch(e){} } });
+    (d.paradas||[]).forEach(function(c){ try{ mapa.removeLayer(c); }catch(e){} });
+  });
+  dibujo={}; estado={}; crudo=[]; primeraVez=true;
+}
+
+async function irADia(f){
+  if(!f || f===DIA) return;
+  DIA=f;
+  var inp=document.getElementById('selDia'); if(inp) inp.value=DIA;
+  document.getElementById('bHoy').style.display = esHoy() ? 'none' : '';
+  limpiarDibujo();
+  document.getElementById('sello').textContent='cargando…';
+  try{
+    crudo=await traer(); pintar();
+    if(esHoy()) marcarVivo();
+  }catch(e){
+    document.getElementById('avisos').innerHTML=
+      '<div class="aviso mal"><b>No se pudo leer el recorrido.</b> '+esc(e.message||e)+'</div>';
+  }
 }
 
 // ── Modo televisor ───────────────────────────────────────────────────────────
@@ -949,6 +1095,12 @@ function alClic(ev){
 // ── Arranque ─────────────────────────────────────────────────────────────────
 async function arrancarVista(){
   iniciarMapa();
+  DIA = fechaVE(new Date());
+  var inp=document.getElementById('selDia');
+  inp.value = DIA;
+  inp.max   = DIA;                       // no hay recorrido del futuro
+  inp.onchange = function(){ irADia(inp.value || DIA); };
+  document.getElementById('bHoy').onclick = function(){ irADia(fechaVE(new Date())); };
   await repaso();
   await cargarSitios();
   // El botón solo aparece si la base le va a aceptar la escritura. No es el candado

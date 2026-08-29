@@ -1,108 +1,156 @@
 # Lo que hay que pedirle a Foresight GPS — en este orden
 
-> Escrito el **15/08/2026**. Techo de flota acordado con Máximo: **60 unidades**.
-> ⏰ **El demo vence el 24/08** y hoy da acceso a **una sola placa** (`JAC-B010`).
+> Actualizado el **29/08/2026**, el día que ampliaron el acceso de 1 a **10 unidades**.
+> Techo de flota acordado con Máximo: **60 unidades**.
 > Todo lo de acá está **medido contra el API**, no es lo que dijeron por teléfono.
+> Las preguntas 1 y 5 (de la versión del 15/08) **ya están contestadas y se cayeron**.
 
 ---
 
-## 🥇 1. ¿UNA petición puede traer VARIAS placas?
+## 🔴 1. FALTAN DOS UNIDADES: JAC-B011 y JAC-B012
 
-**Es la pregunta que más plata y más producto decide, y hay que hacerla primero.**
+Es lo primero porque es lo único que hoy nos falta de ellos y no depende de que
+cambien nada.
 
-Hoy el sondeo va **una petición por unidad**, y el proveedor topa en **10 peticiones por minuto**.
-Con eso, una vuelta completa a la flota tarda:
+Medido el 29/08 preguntando **una por una**, con control positivo (las otras 10
+contestan con datos en la misma corrida):
 
-| unidades | vuelta completa | qué se ve en el mapa |
+| unidad | placa | respuesta del API |
 |---|---|---|
-| 1 (hoy, demo) | 6 s | fluido |
-| 12 | 72 s | aceptable |
-| **60** | **6 minutos** | **una foto cada 6 min: no sirve** |
+| JAC-B011 | `A15EN3P` | `responseCode 200` — conjunto vacío |
+| JAC-B012 | `A07EV6P` | `responseCode 200` — conjunto vacío |
 
-A 6 minutos por vuelta, el camión salta cuadras enteras entre punto y punto y **las paradas de
-recolección desaparecen casi todas** — para ver una parada hace falta que el equipo reporte dos
-veces desde el mismo lugar. Y esas paradas son justo lo que se le muestra a la Alcaldía para
-probar que el camión **se detuvo a recoger** y no solo pasó por la calle.
-
-⛔ **OJO: que esto no se pueda ya está anotado en nuestro código, y la prueba que lo afirmaba NO
-SERVÍA.** Dice «probado `plateno` con dos placas separadas por coma: devuelve conjunto vacío». Pero
-el demo **solo da acceso a una placa**: pedir dos y recibir vacío es exactamente lo que el API
-debe contestar cuando una no es tuya. Esa prueba no distingue «no acepta varias placas» de «no
-tenés esa placa».
-
-**Qué preguntar, textual:** ¿existe un método que devuelva el estado de **todas** las unidades de
-la cuenta en una sola llamada, o `plateno` acepta una lista de placas? Si acepta lista, ¿cuántas
-por llamada?
-
-**Y cuando lleguen las 12 placas definitivas, lo PRIMERO es repetir la prueba** con dos que sí
-tengan acceso, antes de creerle a nadie.
+**No están en la cuenta.** Las dos tienen equipo GPS instalado (eso lo confirmaron
+ellos el 14/08); lo que falta es el acceso.
 
 ---
 
-## 🥈 2. ¿Cada cuánto reporta el equipo, y se puede bajar?
+## 🔴 2. LA PLACA DE JAC-B008 ESTÁ MAL ESCRITA EN SU SISTEMA
 
-**Éste es el techo real de todo.** Por más rápido que preguntemos, no puede haber más puntos que
-los que el aparato manda.
+En nuestro registro la placa del camión es **`A04EO1P`**. Su API la nombra
+**`AO4E01P`** — la letra O y el número 0 intercambiados. Medido: pidiendo la placa
+real contesta conjunto vacío; con la suya contesta con datos.
 
-**Medido el 14/08 sobre 31 reportes en 45 min:** mediana **1,02 min**, p90 **3,92 min**, máximo
-**22,35 min**. O sea que reporta ~1 vez por minuto en el caso típico, con una cola larga fea.
+Las otras once placas siguen todas el mismo patrón (letra + 2 dígitos + 2 letras +
+1 dígito + P). La que rompe el patrón es la de ellos.
 
-**Qué preguntar:** ¿en cuánto está configurado el intervalo de reporte? ¿Se puede bajar a **15-30
-segundos** con el motor encendido (y dejarlo largo con el motor apagado, que ahí no interesa)?
-
-**Por qué importa:** con reportes cada minuto solo se detectan paradas de **2 minutos o más**. Las
-paradas cortas de recolección **no existen en el dato**. Bajar el intervalo es lo único que las
-hace aparecer — ninguna mejora de pantalla lo suple.
-
----
-
-## 🥉 3. ¿Pueden mandar ellos (push / webhook) en vez de que preguntemos?
-
-Mata los dos problemas anteriores de una vez: no hay límite de peticiones que alcanzar ni vuelta
-que tarde. Cada posición llega cuando el equipo la genera.
-
-**Qué preguntar:** ¿el sistema puede hacer POST a una URL nuestra cada vez que un equipo reporta?
+**Qué pedir:** que la corrijan de su lado. Mientras tanto nuestro conector la casa
+por una columna aparte (`gps_equipos.placa_proveedor`), así que **no urge** — pero
+el día que la arreglen sin avisar, esa unidad se calla. Conviene que quede por escrito
+de los dos lados.
 
 ---
 
-## 4. El historial de 90 días
+## ✅ 3. ¿UNA PETICIÓN PUEDE TRAER VARIAS PLACAS? — **CONTESTADO: SÍ**
+
+**Era la pregunta que más plata y más producto decidía. Ya está resuelta, y sin que
+ellos tuvieran que hacer nada.**
+
+**Omitiendo el parámetro `plateno`, el API devuelve TODAS las unidades de la cuenta
+en una sola llamada** (`responseCode 100`, 10 registros el 29/08). El conector ya
+funciona así: la vuelta completa pasó de **54 segundos a 1**.
+
+Con esto se cae el problema que teníamos escrito acá: a 1 petición por unidad y el
+tope de 10 pet/min, una vuelta a 60 unidades tardaba **6 minutos**, el camión saltaba
+cuadras enteras y **las paradas de recolección desaparecían** — que es justo lo que
+se le muestra a la Alcaldía para probar que se detuvo a recoger y no solo pasó.
+
+⚠️ Lo que **no** funciona es enumerar placas separadas por coma: sigue devolviendo
+conjunto vacío. Y ahora sí está probado de verdad — se repitió con dos placas que
+responden por separado, cosa que el 15/08 no se podía hacer con una sola placa en el
+demo.
+
+**Lo único que queda por preguntarles acá:** si el listado sin `plateno` tiene **tope
+de registros**. Hoy devuelve 10 y tenemos 10, así que no se puede distinguir «todas»
+de «las primeras 10». **Cuando habiliten B011 y B012, si el listado sigue devolviendo
+10, hay tope** — y con 60 unidades eso vuelve a romper todo. Es la primera medición a
+hacer el día que las habiliten.
+
+---
+
+## 🥈 4. ¿Cada cuánto reporta el equipo, y se puede bajar?
+
+**Éste es el techo real de todo, y ahora es el pendiente más importante.** Por más
+rápido que preguntemos, no puede haber más puntos que los que el aparato manda — y
+desde que la petición única quitó el límite de nuestro lado, **el equipo es el único
+cuello que queda**.
+
+**Y ya no es un pedido teórico. Medido sobre 16 días de JAC-B010, con el camión
+ANDANDO** (el odómetro subió durante el silencio, así que no es el camión apagado):
+
+| día | el equipo se calló | km recorridos **a ciegas** |
+|---|---|---|
+| **19/08** · 12:49→13:46 | **57 min** | **22,77 km** |
+| 15/08 · 19:17→20:06 | 49 min | 18,67 km |
+| 17/08 · 16:19→16:46 | 27 min | 10,35 km |
+| 21/08 · 11:33→12:39 | 66 min | 1,87 km |
+| 18/08 · 11:11→12:12 | 61 min | 2,13 km |
+
+**El 19 de agosto el camión recorrió 22,77 km en 57 minutos y no hay una sola
+posición de ese rato.** Con eso alcanza para ir al botadero, descargar y volver sin
+que quede rastro — que es exactamente el uso que este servicio tiene que soportar.
+
+**Qué preguntar:** ¿en cuánto está configurado el intervalo de reporte? ¿Se puede
+bajar a **15-30 segundos** con el motor encendido (y dejarlo largo con el motor
+apagado, que ahí no interesa)? Y sobre todo: **¿por qué el equipo deja de reportar
+más de una hora con el motor encendido?** Eso no es intervalo, es una caída.
+
+---
+
+## 🥉 5. ¿Pueden mandar ellos (push / webhook) en vez de que preguntemos?
+
+Sigue siendo la mejor solución para el detalle: cada posición llega cuando el equipo
+la genera, sin depender de nuestra frecuencia de sondeo.
+
+**Qué preguntar:** ¿el sistema puede hacer POST a una URL nuestra cada vez que un
+equipo reporta?
+
+---
+
+## 6. El historial de 90 días
 
 Guardan 90 días y **hoy no se pueden bajar**: el método falla con
-`Could not find stored procedure 'FSSP_API_<method>'`. Su API, como está, es un **sondeador**, no
-un descargador.
+`Could not find stored procedure 'FSSP_API_<method>'`. Su API, como está, es un
+**sondeador**, no un descargador.
 
-⛔ Consecuencia que ya nos cuesta: **el historial nace el día que arranca el sondeo**. Cada hora sin
-sondear es un pedazo de recorrido que no va a existir nunca.
+⛔ Consecuencia que ya nos costó: entre el 14 y el 29 de agosto **solo existe el
+recorrido de una unidad**, porque las otras nueve no estaban habilitadas y no hay de
+dónde recuperarlas. El historial nace el día que arranca el sondeo.
 
-**Qué preguntar:** ¿cuál es el método correcto para bajar el historial por rango de fechas?
-
----
-
-## 5. El límite de 10 peticiones/minuto
-
-Va **último a propósito**: si contestan bien la 1, deja de importar.
-
-**Qué preguntar:** ¿el límite es **por cuenta o por placa**? (nadie lo preguntó; está anotado a
-secas). Y si es por cuenta, ¿a cuánto lo pueden subir?
-
-⚠️ **No pedirlo para ganar precisión de kilometraje**: no la gana. El km del día sale del
-**odómetro** (final − inicial), y sondear el doble de rápido casi no lo mejora (−17,1 % vs −18,9 %
-sumando líneas). Se pide por el **trazado** y por las **paradas**, que es otra cosa.
+**Qué preguntar:** ¿cuál es el método correcto para bajar el historial por rango de
+fechas? Y en particular: **¿se puede recuperar el 14–29 de agosto de las 9 unidades
+que acaban de habilitar?** Ellos lo tienen guardado; nosotros no.
 
 ---
 
-## 6. Lo administrativo y lo que hay que decirles por escrito
+## ✅ 7. El límite de 10 peticiones/minuto — **YA NO IMPORTA**
 
-- **Acceso a las 60 unidades** y credenciales propias de Betangar (hoy: demo de 1 placa que vence
-  el **24/08**).
+Con la petición única, toda la flota entra en **una** llamada por ciclo. Estamos a
+1 petición por minuto contra un tope de 10. Deja de ser un tema.
+
+---
+
+## 8. Lo administrativo y lo que hay que decirles por escrito
+
+- **Credenciales propias de Betangar.** Las que usamos siguen siendo las del demo
+  (`terpel` / `BETA.2016`), y su manual venía con un ejemplo de otro cliente
+  (`OCCICARGA` y una placa ajena): es un documento reciclado.
+- **Acceso a las 60 unidades** cuando se llegue a ese número.
 - ¿**Restringen por IP**? Nuestro conector corre en la nube, donde la IP cambia sola.
-- ¿**Avisan** si un equipo deja de reportar?
-- ⚠️ Decirles que su API es **HTTP sin TLS** y que **filtra nombres de procedimientos internos** en
-  los mensajes de error.
+- ¿**Avisan** si un equipo deja de reportar? (Ver el punto 4: nosotros lo detectamos
+  solos, pero deberían saberlo ellos primero.)
+- ⚠️ Decirles que su API es **HTTP sin TLS** —la clave viaja en Base64, que no es
+  cifrado, en cada llamada— y que **filtra nombres de procedimientos internos** en
+  los mensajes de error (`FSSP_API_<method>`).
 
 ---
 
 ### Lo que NO hay que pedirles
 
-- **Telemetría de combustible, temperatura y horómetro.** Llegan en cero porque **el sensor no
-  está**, no porque no lo manden. Pedirlo es pedir un equipo distinto, no un cambio de API.
+- **Telemetría de combustible, temperatura y horómetro.** Llegan en cero porque **el
+  sensor no está**, no porque no lo manden. Pedirlo es pedir un equipo distinto, no un
+  cambio de API.
+- **Subir el límite de peticiones para ganar precisión de kilometraje.** No la gana:
+  el km del día sale del **odómetro** (final − inicial) y sondear el doble de rápido
+  casi no lo mejora (−17,1 % vs −18,9 % sumando líneas). Se pide detalle por el
+  **trazado** y las **paradas**, que es otra cosa.
