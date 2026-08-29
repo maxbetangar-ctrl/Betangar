@@ -234,7 +234,7 @@
 // sobre una función que estaba puesta hacía una hora.
 // Con el sello a la vista, la pregunta «¿estás viendo la última?» se contesta mirando,
 // en vez de adivinando. Al tocar este archivo, subir la fecha.
-var VERSION_PANTALLA = '20260829-1545';
+var VERSION_PANTALLA = '20260829-1550';
 
 var SUPA_URL = 'https://hrkjddehqnzcqwlkklqm.supabase.co';
 var SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhya2pkZGVocW56Y3F3bGtrbHFtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc2NTk1NzIsImV4cCI6MjA5MzIzNTU3Mn0.kqWKthyZfPZ86toql7shGByF-ZhUpcQUS4Jw4RnG_ko';
@@ -1451,6 +1451,17 @@ async function arrancarVista(){
     document.getElementById('tapaBtn').textContent='Volver al sistema';
     return;
   }
+  // ⛔ ESTO VA ANTES DE `cargarSitios()`, Y EL ORDEN ES EL BUG QUE ARREGLA.
+  // `cargarSitios()` llama a `pintarSitios()`, que decide con esta bandera si cada
+  // geocerca responde al clic. Estaba asignada DESPUÉS: los polígonos se dibujaban con
+  // `interactive:false` y, como `pintarSitios()` solo se vuelve a llamar al guardar un
+  // sitio, quedaban muertos para el resto de la sesión. El síntoma no fue un error:
+  // fue que tocar un sitio no hacía absolutamente nada, y del otro lado se lee como
+  // «no me deja editar». Máximo terminó creando un sitio nuevo cada vez que había que
+  // corregir uno — de ahí los duplicados que hubo que ir desactivando.
+  // 📌 Una bandera que se lee mientras se dibuja tiene que estar puesta ANTES de dibujar.
+  PUEDE_EDITAR_SITIOS = (ROLES_SITIOS.indexOf(MI_ROL)>=0);
+
   await repaso();
   await cargarSitios();
   // El botón solo aparece si la base le va a aceptar la escritura. No es el candado
@@ -1458,7 +1469,6 @@ async function arrancarVista(){
   // ⚠️ `revisor` vuelve acá: la contradicción (marcar sitios sobre un mapa que no podía
   // ver) se resolvió dándole la LECTURA, que es lo que faltaba, no quitándole el botón.
   // Quién puede escribir sitios lo decide la RLS de `sitios_asistencia`, no esta lista.
-  PUEDE_EDITAR_SITIOS = (ROLES_SITIOS.indexOf(MI_ROL)>=0);
   if(PUEDE_EDITAR_SITIOS){
     document.getElementById('bSitio').style.display='';
   }
