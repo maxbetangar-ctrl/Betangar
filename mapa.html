@@ -1128,10 +1128,15 @@ function tictac(){
 // ⛔ Quién puede tocarlas no lo decide esta pantalla: lo decide la RLS de
 // `sitios_asistencia` (superadmin / admin / revisor). Acá solo se esconde el botón
 // para no ofrecerle a alguien algo que la base le va a rechazar.
+// ⚠️ EL TIPO NO ES UNA ETIQUETA: DECIDE QUIÉN PUEDE FICHAR AHÍ. `fichar_asistencia`
+// (en la base) solo acepta `base` y `oficina` — desde el 29/08, porque antes aceptaba
+// cualquier sitio activo y marcar un vertedero habilitaba fichar parado en el vertedero.
+// Al agregar un tipo nuevo, pensar primero si desde ahí se debe poder marcar entrada.
 var TIPOS=[
   {v:'vertedero',n:'🗑️ Vertedero (destino de descarga)',c:'#ffc233'},
-  {v:'base',     n:'🏭 Base / patio',                    c:'#22d37a'},
-  {v:'oficina',  n:'🏢 Oficina',                         c:'#4da3ff'},
+  {v:'base',     n:'🏭 Base / patio (acá se ficha)',     c:'#22d37a'},
+  {v:'oficina',  n:'🏢 Oficina (acá se ficha)',          c:'#4da3ff'},
+  {v:'estacion', n:'⛽ Estación de servicio',            c:'#ff9040'},
   {v:'cliente',  n:'📍 Cliente',                         c:'#c07bff'},
   {v:'otro',     n:'📌 Otro',                            c:'#8494ab'}
 ];
