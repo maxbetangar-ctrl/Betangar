@@ -229,7 +229,15 @@ body{background:#0f1923;color:#fff;font-family:-apple-system,BlinkMacSystemFont,
 
         <div style="font-size:13px;color:#cfe0f0;font-weight:700;margin-bottom:6px">¿De dónde surtiste?</div>
         <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">
-          <button type="button" id="sur-tanque-galpon_1" onclick="surSetTanque('galpon_1')" style="flex:1;min-width:90px;background:#0e2038;border:2px solid #7dc941;border-radius:10px;padding:10px;color:#fff;font-weight:700;cursor:pointer;font-size:13px">🛢️ Galpón 1</button>
+          <!-- ⛔ NINGUNO VIENE MARCADO. Antes «Galpón 1» arrancaba preseleccionado y con el
+               borde verde puesto. Medido el 29/08: 8 surtidas quedaron registradas como
+               salidas del tanque del galpón y las 8 se habían hecho DENTRO de una estación
+               de servicio — 1.811 litros. No fue un chofer despistado: fueron 8 choferes
+               distintos, UNA vez cada uno, y todos usan «Estación» el resto del tiempo. Es
+               la marca que ya venía puesta, que nadie lee como una elección pendiente.
+               Y la opción que venía marcada era la que casi nunca corresponde: 64 surtidas
+               fueron en estación contra 8 del galpón, y «Galpón 2» no se usó jamás. -->
+          <button type="button" id="sur-tanque-galpon_1" onclick="surSetTanque('galpon_1')" style="flex:1;min-width:90px;background:#0e2038;border:2px solid #24405f;border-radius:10px;padding:10px;color:#fff;font-weight:700;cursor:pointer;font-size:13px">🛢️ Galpón 1</button>
           <button type="button" id="sur-tanque-galpon_2" onclick="surSetTanque('galpon_2')" style="flex:1;min-width:90px;background:#0e2038;border:2px solid #24405f;border-radius:10px;padding:10px;color:#fff;font-weight:700;cursor:pointer;font-size:13px">🛢️ Galpón 2</button>
           <button type="button" id="sur-tanque-estacion" onclick="surSetTanque('estacion')" style="flex:1;min-width:90px;background:#0e2038;border:2px solid #24405f;border-radius:10px;padding:10px;color:#fff;font-weight:700;cursor:pointer;font-size:13px">⛽ Estación</button>
         </div>
@@ -1737,7 +1745,10 @@ async function subirColaEntregas(){
 // ════════════════════════════════
 // MÓDULO SURTIR (combustible por surtida: tanque + litros + foto + GPS). Costo real $0,75/L (USD).
 // ════════════════════════════════
-var SUR_FOTO_FILE=null, SUR_GPS=null, SUR_GPS_FAILS=0, SUR_TANQUE='galpon_1', SUR_HOY=[];
+// ⛔ `SUR_TANQUE` arranca VACÍO a propósito: un valor por defecto en un campo que el
+// chofer tiene que declarar no es una comodidad, es una respuesta que el sistema pone
+// por él. Ver el comentario del selector: costó 1.811 litros mal atribuidos.
+var SUR_FOTO_FILE=null, SUR_GPS=null, SUR_GPS_FAILS=0, SUR_TANQUE=null, SUR_HOY=[];
 var SUR_TANQUE_LBL={galpon_1:'🛢️ Galpón 1', galpon_2:'🛢️ Galpón 2', estacion:'⛽ Estación de servicio'};
 var COLA_SUR=[];
 function cargarColaSur(){ try{ var s=localStorage.getItem('btg_cola_sur'); if(s) COLA_SUR=JSON.parse(s)||[]; }catch(e){ COLA_SUR=[]; } }
@@ -1891,6 +1902,13 @@ function _surCompress(file){
 }
 async function surGuardar(){
   var lit=_surLit();
+  // De dónde salió el combustible decide de qué inventario se descuenta y contra qué
+  // factura se concilia. Si no se eligió, se pregunta: no se supone.
+  if(!SUR_TANQUE){
+    mostrarToast('Tocá de dónde surtiste: Galpón 1, Galpón 2 o Estación','error');
+    var _ft=document.getElementById('sur-tanque-estacion'); if(_ft){ try{ _ft.scrollIntoView({block:'center'}); }catch(e){} }
+    return;
+  }
   if(!(lit>0)){ mostrarToast('Ingresá los litros surtidos','error'); return; }
   // TOPE DURO (no se puede confirmar para pasarlo): un dígito de más corrompe el gasto de combustible.
   if(lit>SUR_MAX_L){
