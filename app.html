@@ -2528,6 +2528,29 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
 
 <!-- AUDITORIA -->
 <div id="p-auditoria" class="page">
+  <!-- VIAJES: GPS CONTRA PLANILLA ────────────────────────────────────────────
+       Un viaje facturado a la Alcaldia era la palabra del chofer escrita en una
+       planilla. Con la geocerca del vertedero dibujada, pasa a ser un recorrido con
+       hora de entrada y de salida. Va PRIMERO en Auditoria porque es lo unico de esta
+       pantalla que puede terminar en una factura. -->
+  <div class="card" id="gpsp-card" style="margin-bottom:12px">
+    <div class="sh"><div class="st">📡 Viajes: GPS contra planilla</div>
+      <div style="display:flex;gap:6px;align-items:flex-end">
+        <div class="fg" style="margin:0"><label style="font-size:10px;color:var(--text3)">Desde</label><input type="date" class="fc" id="gpsp-desde" onchange="renderGpsVsPlanilla()"></div>
+        <div class="fg" style="margin:0"><label style="font-size:10px;color:var(--text3)">Hasta</label><input type="date" class="fc" id="gpsp-hasta" onchange="renderGpsVsPlanilla()"></div>
+        <button class="btn btn-s btn-sm" onclick="renderGpsVsPlanilla()">Actualizar</button>
+      </div>
+    </div>
+    <div style="font-size:11px;color:var(--text3);margin-bottom:10px">
+      Los viajes declarados en la planilla, contra las entradas al vertedero que midió el GPS.
+      <b>La diferencia no es un veredicto</b>: un dia con pocos puntos o con un hueco largo produce
+      diferencias que son del rastreo y no de la planilla, y por eso van al lado los puntos del dia
+      y el rato mas largo que el camion anduvo sin reportar. Solo hay medicion desde que cada unidad
+      empezo a sondearse: el GPS no guarda historial que se pueda bajar hacia atras.
+    </div>
+    <div id="gpsp-resumen"></div>
+    <div id="gpsp-tabla"></div>
+  </div>
   <!-- CARPETA DEL AUDITOR — no toca la bitácora de acciones de abajo, que es otra cosa.
        Esto arma, para un período, los listados que un auditor externo pide siempre. -->
   <div class="card" id="cap-card" style="margin-bottom:12px;display:none">
@@ -2986,7 +3009,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
 <script src="maxrecuerda.js?v=20260806-maxrecuerda"></script>
 <!-- Formato unico de los Excel de Maxware. VA ANTES de app.js. -->
 <script src="maxware-excel.js"></script>
-<script src="app.js?v=20260829-1410"></script>
+<script src="app.js?v=20260829-1520"></script>
 
 <!-- Modal global -->
 <div id="modal" class="moverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9990;align-items:center;justify-content:center;padding:16px">

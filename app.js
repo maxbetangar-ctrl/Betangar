@@ -3759,7 +3759,7 @@ function sp(id){
       if(_p.indexOf('financiero')>=0){ switchProvTab('cxp'); cargarCxP(); }
       else { switchProvTab('lista'); }
     },100);}
-    if(id==='auditoria'){renderAuditoria();try{renderCarpetaAuditor();}catch(e){}}
+    if(id==='auditoria'){renderAuditoria();try{renderCarpetaAuditor();}catch(e){}try{renderGpsVsPlanilla();}catch(e){}}
     if(id==='entregas'){cargarEntregas().then(function(){renderEntregas();}).catch(function(){renderEntregas();});}
     // Módulos especiales
     if(id==='porteria')portIniciar();
@@ -19175,6 +19175,100 @@ function _audEncabezado(mostradas){
     : ('Mostrando los <b>'+mostradas+'</b> más recientes de <b>'+Number(tot).toLocaleString('es-VE')+'</b> registrados.' +
        (Number(tot)>mostradas ? ' <span style="color:var(--amber)">El resto no está en esta pantalla.</span>' : ''));
 }
+// ═══ VIAJES: GPS CONTRA PLANILLA ═════════════════════════════════════════════
+// Un viaje facturado a la Alcaldía era la palabra del chofer escrita en una planilla.
+// Con la geocerca del vertedero dibujada por sus esquinas, pasa a ser un recorrido con
+// hora de entrada y de salida. Sirve en las dos direcciones: para cobrar lo ejecutado
+// (hay 1.784 viajes ejecutados sin facturar) y para que no se facture lo que no ocurrió.
+//
+// El cálculo NO vive acá: lo hace `gps_contar_vueltas` en la base, con el cron horario,
+// y esta pantalla lee la vista `v_gps_vs_planilla`. Recalcularlo en el navegador daría
+// un segundo número con la misma cara y ninguna forma de saber cuál rige.
+//
+// ⛔ LA DIFERENCIA NO ES UN VEREDICTO. Un día con pocos puntos o con un hueco largo
+// produce diferencias que son del RASTREO, no de la planilla. Por eso la vista trae
+// `puntos` y `hueco_max_min` y los estados separan «diferencia NO concluyente» de una
+// diferencia real. Acusar a un chofer con un día mal medido es acusar a un inocente con
+// cara de dato objetivo.
+function _gpspHoy(){ return fechaVE(); }
+function _gpspDesdeDef(){
+  var d=new Date(Date.now()-14400000); d.setDate(d.getDate()-29);
+  return d.toISOString().slice(0,10);
+}
+
+async function renderGpsVsPlanilla(){
+  var cont=g('gpsp-tabla'), res=g('gpsp-resumen');
+  if(!cont) return;
+  var iD=g('gpsp-desde'), iH=g('gpsp-hasta');
+  if(iD && !iD.value) iD.value=_gpspDesdeDef();
+  if(iH && !iH.value) iH.value=_gpspHoy();
+  var desde=iD?iD.value:_gpspDesdeDef(), hasta=iH?iH.value:_gpspHoy();
+
+  if(!(DB_READY&&supabase)){
+    cont.innerHTML='<div class="empty-state"><span class="ico">📡</span>Sin conexión con la base: este cruce se lee del servidor.</div>';
+    return;
+  }
+  cont.innerHTML='<div style="font-size:11px;color:var(--text3);padding:8px">Leyendo…</div>';
+  var r=await supabase.from('v_gps_vs_planilla').select('*')
+        .gte('fecha',desde).lte('fecha',hasta).order('fecha',{ascending:false}).order('cam');
+  if(r.error){
+    // ⛔ Nunca un catch vacío: si la vista no existe o la RLS dice que no, hay que
+    // decirlo. Una tabla vacía se lee como «no hay viajes con diferencia», que es lo
+    // contrario de «no se pudo mirar».
+    cont.innerHTML='<div class="empty-state"><span class="ico">⚠️</span>No se pudo leer el cruce: '+_fx(r.error.message)+'</div>';
+    res.innerHTML=''; return;
+  }
+  var filas=r.data||[];
+  if(!filas.length){
+    cont.innerHTML='<div class="empty-state"><span class="ico">📡</span>No hay días medidos en ese rango. El GPS solo tiene lo que sondeó: no se puede recuperar hacia atrás.</div>';
+    res.innerHTML=''; return;
+  }
+
+  var n=function(e){ return filas.filter(function(f){return f.estado===e;}).length; };
+  var mas=filas.filter(function(f){return f.estado==='GPS ve MÁS viajes';});
+  var menos=filas.filter(function(f){return f.estado==='GPS ve MENOS viajes';});
+  var difMas=mas.reduce(function(a,f){return a+(f.diferencia||0);},0);
+  var difMenos=menos.reduce(function(a,f){return a+Math.abs(f.diferencia||0);},0);
+
+  res.innerHTML='<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">'
+    // ⚠️ Las clases son las de la casa: t/y/r/b/p (ver `.stat.x` en app.html). Inventar
+    // 'green' o 'amber' compila igual y sale sin color — un tile gris que nadie mira.
+    +mkStat('Coinciden',n('coincide'),'días con el mismo número','t')
+    +mkStat('GPS ve MÁS',difMas,'viajes hechos que la planilla no declara','y')
+    +mkStat('GPS ve MENOS',difMenos,'viajes declarados que el GPS no vio','r')
+    +mkStat('No concluyentes',n('diferencia NO concluyente'),'el día no se midió bien','b')
+    +'</div>'
+    +(difMenos? '<div class="alert-w" style="margin-bottom:10px;font-size:11px">'
+      +'<b>«GPS ve MENOS» casi nunca es un viaje inventado.</b> Lo primero a mirar es la columna '
+      +'de puntos y el hueco del día: si el equipo dejó de reportar mientras el camión estaba en '
+      +'el vertedero, la vuelta no se ve y el número sale corto. El GPS es un piso, no una verdad.</div>':'');
+
+  var color={'coincide':'var(--green)','GPS ve MÁS viajes':'var(--yellow)',
+             'GPS ve MENOS viajes':'var(--red)','diferencia NO concluyente':'var(--text3)',
+             'sin planilla':'var(--text3)','sin medir':'var(--text3)'};
+  cont.innerHTML='<div class="tw"><table><thead><tr>'
+    +'<th>Fecha</th><th>Unidad</th><th>Chofer</th><th style="text-align:right">Planilla</th>'
+    +'<th style="text-align:right">GPS</th><th style="text-align:right">Dif.</th>'
+    +'<th style="text-align:right">Km GPS</th><th style="text-align:right" title="Cuántas posiciones se recibieron ese día. Con pocas, el conteo de vueltas se queda corto.">Puntos</th>'
+    +'<th style="text-align:right" title="El rato más largo que el camión anduvo sin reportar. Ahí puede esconderse una vuelta que no se vio.">Sin reportar</th>'
+    +'<th>Estado</th></tr></thead><tbody>'
+    +filas.map(function(f){
+      var dif=(f.diferencia===null||f.diferencia===undefined)?'—':(f.diferencia>0?'+':'')+f.diferencia;
+      return '<tr>'
+       +'<td style="font-family:var(--m);font-size:11px">'+formatFecha(f.fecha)+'</td>'
+       +'<td>'+_fx(f.cam)+'</td>'
+       +'<td style="font-size:11px">'+_fx(f.chofer_planilla||'—')+'</td>'
+       +'<td style="text-align:right"><b>'+(f.viajes_planilla==null?'—':f.viajes_planilla)+'</b></td>'
+       +'<td style="text-align:right"><b>'+(f.vueltas_gps==null?'—':f.vueltas_gps)+'</b></td>'
+       +'<td style="text-align:right;color:'+(f.diferencia?color[f.estado]||'var(--text)':'var(--text3)')+'"><b>'+dif+'</b></td>'
+       +'<td style="text-align:right;font-family:var(--m);font-size:11px">'+(f.km_gps==null?'—':Number(f.km_gps).toFixed(1))+'</td>'
+       +'<td style="text-align:right;font-family:var(--m);font-size:11px">'+(f.puntos==null?'—':f.puntos)+'</td>'
+       +'<td style="text-align:right;font-family:var(--m);font-size:11px">'+(f.hueco_max_min==null?'—':f.hueco_max_min+' min')+'</td>'
+       +'<td style="font-size:11px;color:'+(color[f.estado]||'var(--text2)')+'">'+_fx(f.estado)+'</td>'
+       +'</tr>';
+    }).join('')+'</tbody></table></div>';
+}
+
 function renderAuditoria(){
   var tb=g('tb-auditoria');if(!tb)return;
   try{ _audTotal(); }catch(e){}
