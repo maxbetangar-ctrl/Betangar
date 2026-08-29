@@ -155,6 +155,7 @@
     <button class="btn ocultarTv" id="bCerrar" style="display:none" title="Cerrar el polígono y ponerle nombre">✓ Cerrar y guardar</button>
     <button class="btn ocultarTv" id="bClave" title="Pegar la clave de Stadia Maps para probar sus fondos">🔑</button>
     <button class="btn" id="bRec" title="Con muchas unidades los recorridos se tapan entre sí. Acá se elige cuántos se ven.">Recorridos: todos</button>
+    <button class="btn" id="bSurt" title="Dónde se cargó combustible. Lo que importa son las que caen FUERA de una estación marcada.">⛽ Surtidas</button>
     <button class="btn" id="bTv">Modo televisor</button>
     <button class="btn ocultarTv" id="bPleno">Pantalla completa</button>
     <button class="btn ocultarTv" onclick="location.href='app.html'">← Volver</button>
@@ -193,6 +194,12 @@
       movimiento y no se supo dónde. No cuenta el tiempo apagado, ni los ratos en que
       el contador de kilómetros no se movió —ahí el camión estaba detenido, aunque el
       último reporte lo haya agarrado andando.<br><br>
+      <b>⛽ Surtidas.</b> El botón de arriba muestra dónde se cargó combustible: primero
+      solo las que cayeron <b>fuera</b> de una estación marcada, después todas. Cada punto
+      de afuera trae alrededor <b>el círculo de lo que el teléfono admite errar</b> —va de
+      4 a 68 metros según el aparato y el día—. ⛔ Si ese círculo toca la estación, no hay
+      nada que discutir: el instrumento no da para tanto. Se ven las de todos los días, no
+      solo las del que está en pantalla.<br><br>
       <b>Los sitios se marcan por sus ESQUINAS</b> —«📐 Marcar geocerca»—: se toca una
       esquina del terreno, después la siguiente, y con tres o más aparece «Cerrar y
       guardar». El polígono se cierra solo entre la última esquina y la primera. ⛔ Un
@@ -234,7 +241,7 @@
 // sobre una función que estaba puesta hacía una hora.
 // Con el sello a la vista, la pregunta «¿estás viendo la última?» se contesta mirando,
 // en vez de adivinando. Al tocar este archivo, subir la fecha.
-var VERSION_PANTALLA = '20260829-1550';
+var VERSION_PANTALLA = '20260829-1610';
 
 var SUPA_URL = 'https://hrkjddehqnzcqwlkklqm.supabase.co';
 var SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhya2pkZGVocW56Y3F3bGtrbHFtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc2NTk1NzIsImV4cCI6MjA5MzIzNTU3Mn0.kqWKthyZfPZ86toql7shGByF-ZhUpcQUS4Jw4RnG_ko';
@@ -1083,6 +1090,8 @@ function limpiarDibujo(){
     (d.saltos||[]).forEach(function(c){ try{ mapa.removeLayer(c); }catch(e){} });
   });
   dibujo={}; estado={}; crudo=[]; primeraVez=true;
+  // ⚠️ Las surtidas NO se borran acá: no dependen del día que se esté viendo. Borrarlas
+  // al cambiar de fecha haría desaparecer justo lo que se está yendo a buscar.
 }
 
 async function irADia(f){
@@ -1249,6 +1258,114 @@ function panelSitio(poli){
     limpiar(); await cargarSitios();
   };
   document.getElementById('sNom').focus();
+}
+
+// ── DÓNDE SE CARGÓ EL COMBUSTIBLE ────────────────────────────────────────────
+// Máximo: «que marque las surtidas con puntos cuando no estén en una estación
+// predeterminada». Lo que hay que mirar no son las cargas normales: son las que caen
+// FUERA del terreno de una bomba marcada.
+//
+// ⛔ Y CADA PUNTO SE DIBUJA CON SU INCERTIDUMBRE. El teléfono del chofer reporta su
+// propia precisión y medido sobre las 31 surtidas con ubicación va de 4 a 68 metros,
+// con media 23. Una carga a 70 m del borde con ±30 m de precisión NO prueba nada: por
+// eso alrededor de cada punto se dibuja el círculo de lo que el aparato admite errar.
+// Si ese círculo toca la estación, no hay caso que discutir. Pintar el punto solo, sin
+// el círculo, convertiría el margen del instrumento en una acusación.
+//
+// Se muestran TODOS los días, no solo el que está en pantalla: las surtidas que hay que
+// mirar son de julio y agosto, y de esos días no existe recorrido (el sondeo arrancó
+// el 14/08 y con una sola unidad).
+var SURTIDAS=[], capaSurt=[], MODO_SURT='ninguna';   // ninguna · fuera · todas
+
+async function cargarSurtidas(){
+  if(SURTIDAS.length) return;
+  try{
+    var r=await sb.from('surtidas')
+      .select('id,fecha,hora,cam,chofer,litros,tanque,estacion_nombre,lat,lng,precision_gps')
+      .not('lat','is',null).order('fecha',{ascending:false}).limit(2000);
+    if(r.error){
+      // Sin permiso o sin tabla: se dice. Un mapa sin puntos se lee como «no hay
+      // surtidas raras», que es lo contrario de «no se pudo mirar».
+      document.getElementById('avisos').innerHTML+=
+        '<div class="aviso mal"><b>No se pudieron leer las surtidas.</b> '+esc(r.error.message)+'</div>';
+      return;
+    }
+    SURTIDAS=r.data||[];
+  }catch(e){}
+}
+
+/** ¿Cayó dentro de alguna estación marcada? Solo cuentan las que tienen polígono. */
+function surtidaEnEstacion(su){
+  for(var i=0;i<sitios.length;i++){
+    var st=sitios[i];
+    if(st.activo===false || st.tipo!=='estacion' || !st.poligono || st.poligono.length<3) continue;
+    if(dentroPoligono(su.lat, su.lng, st.poligono)) return st.nombre;
+  }
+  return null;
+}
+
+function pintarSurtidas(){
+  capaSurt.forEach(function(c){ try{ mapa.removeLayer(c); }catch(e){} }); capaSurt=[];
+  var b=document.getElementById('bSurt');
+  if(b) b.textContent = MODO_SURT==='ninguna' ? '⛽ Surtidas'
+                     : (MODO_SURT==='fuera' ? '⛽ Solo las de afuera' : '⛽ Todas las surtidas');
+  if(MODO_SURT==='ninguna') return;
+
+  // ⛔ SIN GEOCERCAS DE ESTACIÓN, TODA SURTIDA CAE «FUERA» — y eso no sería un hallazgo,
+  // sería el mapa acusando a la flota entera porque no pudo leer los sitios. Un cálculo
+  // que da el peor resultado posible cuando le falta un dato tiene que negarse a correr,
+  // no entregarlo. Es lo mismo que ya costó caro con `(sin filas)` leído como ausencia.
+  var hayEstaciones = sitios.filter(function(st){
+    return st.activo!==false && st.tipo==='estacion' && st.poligono && st.poligono.length>=3;
+  }).length;
+  if(!hayEstaciones){
+    document.getElementById('avisos').innerHTML=
+      '<div class="aviso mal"><b>No hay estaciones de servicio marcadas</b> (o no se pudieron leer). '
+      +'Sin ellas no se puede decir qué surtida cayó fuera de una bomba: todas darían «fuera» y '
+      +'sería mentira. Marcá las estaciones con 📐 y volvé a intentar.</div>';
+    return;
+  }
+
+  var afuera=0;
+  SURTIDAS.forEach(function(su){
+    if(!su.lat||!su.lng) return;
+    var est=surtidaEnEstacion(su);
+    if(MODO_SURT==='fuera' && est) return;
+    if(!est) afuera++;
+    var col = est ? '#22d37a' : '#ff5a4d';
+    var prec = Number(su.precision_gps)||0;
+
+    // El círculo de precisión primero, para que quede DEBAJO del punto.
+    if(prec>0 && !est){
+      capaSurt.push(L.circle([su.lat,su.lng],{radius:prec,color:col,weight:1,
+        opacity:.5,fillColor:col,fillOpacity:.08,interactive:false}).addTo(mapa));
+    }
+    capaSurt.push(
+      L.circleMarker([su.lat,su.lng],{radius: est?5:7, color:col, weight:2,
+        fillColor: est?col:'#2a0f0d', fillOpacity: est?.5:.9})
+       .bindTooltip('<b>'+esc(su.cam)+' · '+miles(su.litros,2)+' L</b><br>'
+         +fechaCorta(String(su.fecha).slice(0,10))+(su.hora?' '+esc(su.hora):'')
+         +(su.chofer?'<br>'+esc(su.chofer):'')
+         +'<br>Tanque declarado: <b>'+esc(su.tanque||'—')+'</b>'
+         +(su.estacion_nombre?'<br>Dice: '+esc(su.estacion_nombre):'')
+         +'<br>'+(est ? 'Dentro de <b>'+esc(est)+'</b>'
+                      : '<b style="color:#ff8a7d">Fuera de toda estación marcada</b>')
+         +(prec?'<br>Precisión del teléfono: ±'+Math.round(prec)+' m':'<br>Sin precisión declarada'))
+       .addTo(mapa)
+    );
+  });
+
+  if(afuera){
+    document.getElementById('avisos').innerHTML=
+      '<div class="aviso ojo"><b>'+afuera+' surtida'+(afuera>1?'s':'')+' fuera de una estación marcada.</b> '
+      +'El círculo alrededor de cada punto es lo que el teléfono admite errar: si toca la estación, '
+      +'no hay nada que discutir.</div>';
+  }
+}
+
+function ciclarSurtidas(){
+  MODO_SURT = MODO_SURT==='ninguna' ? 'fuera' : (MODO_SURT==='fuera' ? 'todas' : 'ninguna');
+  if(MODO_SURT!=='ninguna'){ cargarSurtidas().then(pintarSurtidas); } else { pintarSurtidas(); }
 }
 
 // ── EDITAR UNA GEOCERCA QUE YA EXISTE ────────────────────────────────────────
@@ -1547,6 +1664,7 @@ try{
   }
 }catch(e){}
 document.getElementById('bRec').onclick=ciclarRecorridos;
+document.getElementById('bSurt').onclick=ciclarSurtidas;
 document.getElementById('bPleno').onclick=function(){
   if(document.fullscreenElement) document.exitFullscreen();
   else document.documentElement.requestFullscreen();
