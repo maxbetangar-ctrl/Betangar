@@ -189,6 +189,11 @@
       movimiento y no se supo dónde. No cuenta el tiempo apagado, ni los ratos en que
       el contador de kilómetros no se movió —ahí el camión estaba detenido, aunque el
       último reporte lo haya agarrado andando.<br><br>
+      <b>La línea punteada fina es un tramo A CIEGAS</b>: el equipo dejó de reportar y esos
+      dos puntos están unidos por una recta porque no hay nada en el medio. ⛔ Por ahí NO
+      pasó necesariamente el camión — por eso no se dibuja igual que el resto. Pasá el
+      cursor por encima y dice cuánto duró el silencio y cuántos kilómetros marcó el
+      contador en ese rato.<br><br>
       <b>Se puede mirar un día pasado</b> con el campo de fecha de arriba. Ahí la
       pantalla deja de ser «en vivo» y pasa a ser el registro de ese día: los camiones
       quedan dibujados donde estuvieron, sin animación y sin avisos de «sin señal».
@@ -313,6 +318,49 @@ var _colorCache = {};
 // ⚠️ Aun así, 60 recorridos encimados no se leen aunque cada uno sea único: por eso está el
 // botón de arriba. La forma ayuda a seguir UNA línea; el botón es lo que hace legible el mapa.
 var TRAZOS = [null, '10 7', '2 7', '14 6 2 6'];   // continuo · rayas · puntos · raya-punto
+
+// ⛔ UN SALTO NO ES UN RECORRIDO. Cuando el equipo se calla un rato largo, el mapa une
+// los dos puntos conocidos con una recta — y esa recta atraviesa manzanas por donde no
+// hay calle. Dibujada igual que el resto, se lee como «el camión pasó por acá», que es
+// justo lo único que no sabemos de ese tramo.
+// Medido el 29/08: B008 estuvo 23 min sin reportar y recorrió 10,45 km; B005, 27 min y
+// 10,29 km. Esos dos tramos salían como línea normal.
+// El umbral: la cadencia típica del equipo es ~1 min y el p90 medido es 3,9 min, así que
+// por encima de 5 min ya no es el pulso normal del aparato — es un silencio.
+var SALTO_MIN = 5;
+// ⚠️ Y NO ALCANZA CON EL TIEMPO. Un silencio de 6 minutos con el camión detenido une dos
+// puntos que están a 20 metros: esa línea no engaña a nadie y marcarla solo ensucia el
+// mapa. Lo que confunde es el salto LARGO, la recta que cruza manzanas por donde no hay
+// calle. Se exige además que los dos extremos estén separados de verdad.
+var SALTO_M = 300;
+
+/**
+ * Parte el recorrido en tramos MEDIDOS y tramos A CIEGAS.
+ * Los saltos se devuelven con su duración y sus km para poder decirlos, no solo pintarlos:
+ * el km sale del odómetro, que sí atraviesa el silencio.
+ */
+function partirRecorrido(pts){
+  var medidos=[], saltos=[], actual=[];
+  for(var i=0;i<pts.length;i++){
+    var p=pts[i];
+    if(!p.lat||!p.lon) continue;
+    if(actual.length){
+      var ant=actual[actual.length-1];
+      var min=(new Date(p.ts)-new Date(ant.ts))/60000;
+      if(min>SALTO_MIN && metrosEntre(ant.lat,ant.lon,p.lat,p.lon)>SALTO_M){
+        if(actual.length>1) medidos.push(actual.map(function(x){return [x.lat,x.lon];}));
+        var km=(ant.odometro!=null&&p.odometro!=null)?Math.max(0,p.odometro-ant.odometro):null;
+        saltos.push({pts:[[ant.lat,ant.lon],[p.lat,p.lon]],min:Math.round(min),km:km,
+                     ini:ant.ts,fin:p.ts});
+        actual=[p];
+        continue;
+      }
+    }
+    actual.push(p);
+  }
+  if(actual.length>1) medidos.push(actual.map(function(x){return [x.lat,x.lon];}));
+  return {medidos:medidos, saltos:saltos};
+}
 function trazoDe(i){ return TRAZOS[Math.floor(i / COLORES_BASE.length) % TRAZOS.length]; }
 
 // Cuántos recorridos se ven: 'todos' · 'uno' (solo el elegido) · 'ninguno' (solo los camiones).
@@ -741,11 +789,14 @@ function pintar(){
     estado[cam]={ult:ult,color:color,mudo:mudo};
 
     var linea=pts.filter(function(p){return p.lat&&p.lon;}).map(function(p){return [p.lat,p.lon];});
+    var tramos=partirRecorrido(pts);
     var tv=document.body.classList.contains('tv');
 
     if(!dibujo[cam]){
       dibujo[cam]={
-        linea:L.polyline(linea,{color:color,weight:tv?5:3.5,opacity:.8,dashArray:trazoDe(i)}).addTo(mapa),
+        // Varios arreglos = varios tramos sueltos en una sola capa. El recorrido queda
+        // CORTADO donde no se supo, en vez de rellenado con una recta inventada.
+        linea:L.polyline(tramos.medidos,{color:color,weight:tv?5:3.5,opacity:.8,dashArray:trazoDe(i)}).addTo(mapa),
         halo:L.marker(ult.lat&&ult.lon?[ult.lat,ult.lon]:[0,0],{interactive:false,
           icon:L.divIcon({className:'',html:'<div class="halo" style="width:34px;height:34px;color:'+color+'"></div>',iconSize:[34,34],iconAnchor:[17,17]})}).addTo(mapa),
         marca:L.marker([ult.lat,ult.lon],{icon:L.divIcon({className:'',
@@ -754,8 +805,9 @@ function pintar(){
       };
       dibujo[cam].marca.on('click',function(){ elegir(cam); });
       dibujo[cam].paradas=[];
+      dibujo[cam].saltos=[];
     }else{
-      dibujo[cam].linea.setLatLngs(linea).setStyle({weight:tv?5:3.5});
+      dibujo[cam].linea.setLatLngs(tramos.medidos).setStyle({weight:tv?5:3.5});
       if(hist){
         // En un día pasado no hay nada que animar: el camión ya llegó donde llegó.
         dibujo[cam].marca.setLatLng([ult.lat,ult.lon]);
@@ -769,6 +821,24 @@ function pintar(){
         mover(cam,[ult.lat,ult.lon], msHueco);   // mover() arrastra el halo
       }
     }
+    // ── Los tramos A CIEGAS: se dibujan, pero NO como si fueran recorrido ──
+    // Línea fina, punteada y translúcida: se ve que hay una continuidad entre los dos
+    // puntos, y se ve que no es lo mismo que el resto. Y dice cuánto duró y cuántos km
+    // se hicieron ahí, que es lo que convierte el dibujo en un dato.
+    (dibujo[cam].saltos||[]).forEach(function(c){ mapa.removeLayer(c); });
+    dibujo[cam].saltos=[];
+    tramos.saltos.forEach(function(sa){
+      dibujo[cam].saltos.push(
+        L.polyline(sa.pts,{color:color,weight:tv?3:2,opacity:.45,dashArray:'1 9',
+                           lineCap:'round',interactive:true})
+          .bindTooltip('<b>'+esc(cam)+' · sin reportar '+sa.min+' min</b><br>'
+            +horaVE(sa.ini)+' a '+horaVE(sa.fin)
+            +(sa.km!=null?'<br>El contador subió <b>'+miles(sa.km,2)+' km</b> en ese rato.':'')
+            +'<br>Por dónde fue, no se sabe: esta línea es recta porque no hay datos en el medio.')
+          .addTo(mapa)
+      );
+    });
+
     // ── Las paradas, que es lo que prueba el trabajo ──
     (dibujo[cam].paradas||[]).forEach(function(c){ mapa.removeLayer(c); });
     dibujo[cam].paradas=[];
@@ -801,6 +871,7 @@ function pintar(){
     var verRec = recVisible(cam);
     dibujo[cam].linea.setStyle({opacity: verRec ? (mudo?.35:.8) : 0, dashArray: trazoDe(i)});
     (dibujo[cam].paradas||[]).forEach(function(c){ c.setStyle({opacity: verRec?1:0, fillOpacity: verRec?(c.options.fillColor==='transparent'?0:.55):0}); });
+    (dibujo[cam].saltos||[]).forEach(function(c){ c.setStyle({opacity: verRec?.45:0}); });
     // El encuadre automático solo mira lo que se está viendo: si están todos ocultos menos
     // uno, no tiene sentido abrir el mapa a la ciudad entera.
     if(verRec) linea.forEach(function(c){ bordes.push(c); });
@@ -944,6 +1015,7 @@ function limpiarDibujo(){
     if(anim[cam]){ cancelAnimationFrame(anim[cam]); delete anim[cam]; }
     [d.linea,d.halo,d.marca].forEach(function(c){ if(c){ try{ mapa.removeLayer(c); }catch(e){} } });
     (d.paradas||[]).forEach(function(c){ try{ mapa.removeLayer(c); }catch(e){} });
+    (d.saltos||[]).forEach(function(c){ try{ mapa.removeLayer(c); }catch(e){} });
   });
   dibujo={}; estado={}; crudo=[]; primeraVez=true;
 }
