@@ -150,7 +150,9 @@
       <input type="range" id="brillo" min="80" max="230" step="5" value="130">
       <b id="brilloTxt">130%</b>
     </span>
-    <button class="btn ocultarTv" id="bSitio" style="display:none">📍 Marcar sitio</button>
+    <button class="btn ocultarTv" id="bSitio" style="display:none">📐 Marcar geocerca</button>
+    <button class="btn ocultarTv" id="bDeshacer" style="display:none" title="Quitar la última esquina">↶ Deshacer</button>
+    <button class="btn ocultarTv" id="bCerrar" style="display:none" title="Cerrar el polígono y ponerle nombre">✓ Cerrar y guardar</button>
     <button class="btn ocultarTv" id="bClave" title="Pegar la clave de Stadia Maps para probar sus fondos">🔑</button>
     <button class="btn" id="bRec" title="Con muchas unidades los recorridos se tapan entre sí. Acá se elige cuántos se ven.">Recorridos: todos</button>
     <button class="btn" id="bTv">Modo televisor</button>
@@ -189,6 +191,12 @@
       movimiento y no se supo dónde. No cuenta el tiempo apagado, ni los ratos en que
       el contador de kilómetros no se movió —ahí el camión estaba detenido, aunque el
       último reporte lo haya agarrado andando.<br><br>
+      <b>Los sitios se marcan por sus ESQUINAS</b> —«📐 Marcar geocerca»—: se toca una
+      esquina del terreno, después la siguiente, y con tres o más aparece «Cerrar y
+      guardar». El polígono se cierra solo entre la última esquina y la primera. ⛔ Un
+      círculo casi nunca es el terreno: o deja media cancha afuera, o se traga avenidas
+      que no son el sitio — y de eso depende que una parada cuente como descarga en el
+      vertedero o como recolección en ruta.<br><br>
       <b>La línea punteada fina es un tramo A CIEGAS</b>: el equipo dejó de reportar y esos
       dos puntos están unidos por una recta porque no hay nada en el medio. ⛔ Por ahí NO
       pasó necesariamente el camión — por eso no se dibuja igual que el resto. Pasá el
@@ -569,6 +577,44 @@ function metrosEntre(aLat,aLon,bLat,bLon){
   return Math.sqrt(dLat*dLat+dLon*dLon);
 }
 
+// ── GEOCERCAS POR ESQUINAS ───────────────────────────────────────────────────
+// ⛔ CASI NINGÚN SITIO ES UN CÍRCULO. Un vertedero, un galpón, una planta: son terrenos
+// con esquinas. Con un círculo, o queda chico y deja afuera media cancha, o queda grande
+// y se traga avenidas que no son el sitio. Medido el 29/08 con RECIMARA a 800 m de radio:
+// atrapaba puntos repartidos en 536 m alrededor del centro.
+// Y esto no es cosmético: la geocerca decide si una parada cuenta como DESCARGA en el
+// vertedero o como PARADA DE RECOLECCIÓN en ruta — que es el número que se le muestra a
+// la Alcaldía. Un círculo de más convierte recolección en descarga sin que nadie lo note.
+
+/**
+ * ¿Está el punto dentro del polígono? Ray casting: se tira una recta al infinito y se
+ * cuentan los lados que cruza — impar = adentro. A esta escala (cuadras, no continentes)
+ * tratar lat/lng como plano no introduce error apreciable.
+ */
+function dentroPoligono(lat, lon, poli){
+  if(!poli || poli.length<3) return false;
+  var dentro=false;
+  for(var i=0, j=poli.length-1; i<poli.length; j=i++){
+    var yi=poli[i][0], xi=poli[i][1], yj=poli[j][0], xj=poli[j][1];
+    if(((yi>lat)!==(yj>lat)) && (lon < (xj-xi)*(lat-yi)/((yj-yi)||1e-12) + xi)) dentro=!dentro;
+  }
+  return dentro;
+}
+
+/**
+ * Círculo que ENVUELVE al polígono. Se guarda en lat/lng/radio_m para que lo que todavía
+ * lee círculos —`app.js` en Configuración, el QR de sucursal— siga viendo algo coherente
+ * con el terreno. ⛔ Envolvente y no inscrito a propósito: un círculo más chico que el
+ * sitio dejaría afuera a alguien que hoy sí entra.
+ */
+function envolventeDe(poli){
+  var sLat=0, sLon=0;
+  poli.forEach(function(v){ sLat+=v[0]; sLon+=v[1]; });
+  var cLat=sLat/poli.length, cLon=sLon/poli.length, r=0;
+  poli.forEach(function(v){ r=Math.max(r, metrosEntre(cLat,cLon,v[0],v[1])); });
+  return { lat:cLat, lng:cLon, radio_m:Math.max(30, Math.ceil(r)) };
+}
+
 // Agrupa puntos consecutivos que están casi en el mismo lugar. Devuelve solo los grupos
 // que duraron lo suficiente para ser una parada de verdad.
 function paradasDe(pts){
@@ -596,7 +642,14 @@ function paradasDe(pts){
 // oficina. Separarlas con el dato y no con el ojo es lo que hace defendible el número.
 function sitioDe(lat,lon){
   for(var i=0;i<sitios.length;i++){
-    var st=sitios[i]; if(st.activo===false||!st.lat||!st.lng) continue;
+    var st=sitios[i]; if(st.activo===false) continue;
+    // El polígono manda cuando existe: es el terreno, no una aproximación.
+    if(st.poligono && st.poligono.length>=3){
+      if(dentroPoligono(lat,lon,st.poligono)) return st.nombre;
+      continue;   // ⛔ y si NO está adentro, no se cae al círculo: el círculo es más
+                  // grande que el terreno y volvería a meter lo que el polígono excluyó.
+    }
+    if(!st.lat||!st.lng) continue;
     if(metrosEntre(lat,lon,st.lat,st.lng) <= (st.radio_m||120)) return st.nombre;
   }
   return null;
@@ -1088,7 +1141,7 @@ var MI_ROL='', sitios=[], capaSitios=[], marcando=null;
 
 async function cargarSitios(){
   try{
-    var r=await sb.from('sitios_asistencia').select('id,nombre,lat,lng,radio_m,tipo,activo').order('nombre');
+    var r=await sb.from('sitios_asistencia').select('id,nombre,lat,lng,radio_m,tipo,activo,poligono').order('nombre');
     if(!r.error) sitios=r.data||[];
   }catch(e){}
   pintarSitios();
@@ -1096,37 +1149,41 @@ async function cargarSitios(){
 function pintarSitios(){
   capaSitios.forEach(function(c){ mapa.removeLayer(c); }); capaSitios=[];
   sitios.filter(function(s){return s.activo!==false;}).forEach(function(s){
-    var col=colorTipo(s.tipo);
-    capaSitios.push(L.circle([s.lat,s.lng],{radius:s.radio_m||120,color:col,weight:2,
-      fillColor:col,fillOpacity:.10,dashArray:'5,5',interactive:false}).addTo(mapa));
-    capaSitios.push(L.marker([s.lat,s.lng],{interactive:false,icon:L.divIcon({className:'',
+    var col=colorTipo(s.tipo), cen=null;
+    if(s.poligono && s.poligono.length>=3){
+      capaSitios.push(L.polygon(s.poligono,{color:col,weight:2,fillColor:col,
+        fillOpacity:.10,dashArray:'5,5',interactive:false}).addTo(mapa));
+      var e=envolventeDe(s.poligono); cen=[e.lat,e.lng];
+    }else if(s.lat&&s.lng){
+      capaSitios.push(L.circle([s.lat,s.lng],{radius:s.radio_m||120,color:col,weight:2,
+        fillColor:col,fillOpacity:.10,dashArray:'5,5',interactive:false}).addTo(mapa));
+      cen=[s.lat,s.lng];
+    }
+    if(!cen) return;
+    capaSitios.push(L.marker(cen,{interactive:false,icon:L.divIcon({className:'',
       html:'<span class="eti" style="border:1px solid '+col+';color:'+col+';opacity:.9">'+esc(s.nombre)+'</span>',
       iconSize:[10,18],iconAnchor:[5,9]})}).addTo(mapa));
   });
 }
 
-function panelSitio(lat,lon){
+function panelSitio(poli){
+  var env=envolventeDe(poli);
   var c=document.querySelector('#tapa .caja');
   c.innerHTML='<h2>Nuevo sitio</h2>'
-   +'<p>Punto marcado en <b>'+lat.toFixed(5)+', '+lon.toFixed(5)+'</b>. '
-   +'Ajustá el radio hasta que el círculo cubra todo el terreno.</p>'
+   +'<p><b>'+poli.length+' esquinas</b> marcadas. El sitio queda con la forma que dibujaste, '
+   +'no con un círculo alrededor.</p>'
    +'<input id="sNom" type="text" placeholder="Nombre del sitio">'
    +'<select id="sTipo" style="width:100%;padding:9px 11px;margin-bottom:8px;border:1px solid var(--linea);border-radius:8px;font-size:14px;background:var(--papel);color:var(--tinta)">'
    + TIPOS.map(function(t){return '<option value="'+t.v+'">'+t.n+'</option>';}).join('')+'</select>'
-   +'<div style="display:flex;align-items:center;gap:9px;margin-bottom:12px">'
-   +'<span style="font-size:13px;color:var(--suave)">Radio</span>'
-   +'<input type="range" id="sRad" min="50" max="1500" step="25" value="800" style="flex:1;accent-color:var(--azul)">'
-   +'<b id="sRadTxt" style="min-width:62px;text-align:right">800 m</b></div>'
+   +'<p style="font-size:12px;color:var(--suave);margin:0 0 12px">Para lo que todavía trabaja '
+   +'con círculos —la ficha del sitio en el sistema y el QR— se guarda además un círculo de '
+   +'<b>'+env.radio_m+' m</b> que lo envuelve. La forma que manda es la que dibujaste.</p>'
    +'<button class="btn" id="sOk" style="width:100%;padding:9px">Guardar sitio</button>'
    +'<p style="margin:12px 0 0"><a href="#" id="sNo" style="color:var(--suave);font-size:12.5px">Cancelar</a></p>';
   document.getElementById('tapa').style.display='flex';
 
-  var prov=L.circle([lat,lon],{radius:800,color:'#ffc233',weight:2,fillColor:'#ffc233',fillOpacity:.15}).addTo(mapa);
-  function limpiar(){ mapa.removeLayer(prov); quitarTapa(); }
-  document.getElementById('sRad').oninput=function(){
-    var v=Number(this.value); prov.setRadius(v);
-    document.getElementById('sRadTxt').textContent=v+' m';
-  };
+  var prov=L.polygon(poli,{color:'#ffc233',weight:2,fillColor:'#ffc233',fillOpacity:.18}).addTo(mapa);
+  function limpiar(){ mapa.removeLayer(prov); borrarDibujo(); quitarTapa(); }
   document.getElementById('sTipo').onchange=function(){
     var col=colorTipo(this.value); prov.setStyle({color:col,fillColor:col});
   };
@@ -1135,10 +1192,11 @@ function panelSitio(lat,lon){
     var nom=(document.getElementById('sNom').value||'').trim();
     if(!nom){ alert('Poné el nombre del sitio'); return; }
     var tipo=document.getElementById('sTipo').value;
-    var rad=Number(document.getElementById('sRad').value);
     this.disabled=true; this.textContent='Guardando…';
+    // El círculo envolvente se guarda SIEMPRE junto al polígono: `app.js` y el QR de
+    // sucursal siguen leyendo lat/lng/radio_m, y una columna vieja vacía sí rompe.
     var r=await sb.from('sitios_asistencia').insert([{
-      nombre:nom, lat:lat, lng:lon, radio_m:rad, tipo:tipo,
+      nombre:nom, lat:env.lat, lng:env.lng, radio_m:env.radio_m, poligono:poli, tipo:tipo,
       es_oficina:(tipo==='oficina'), activo:true }]);
     if(r.error){ alert('No se pudo guardar: '+r.error.message); this.disabled=false; this.textContent='Guardar sitio'; return; }
     limpiar(); await cargarSitios();
@@ -1146,22 +1204,70 @@ function panelSitio(lat,lon){
   document.getElementById('sNom').focus();
 }
 
+// ── MARCAR UNA GEOCERCA POR SUS ESQUINAS ─────────────────────────────────────
+// Se toca una esquina del terreno, después la siguiente, y así hasta cerrar. El
+// polígono se cierra solo entre el último punto y el primero: nadie tiene que
+// volver a tocar el punto inicial con puntería, que en un teléfono es imposible.
+var vertices=[], capaDibujo=null, capaVert=[];
+
+function pintarDibujo(){
+  if(capaDibujo){ mapa.removeLayer(capaDibujo); capaDibujo=null; }
+  capaVert.forEach(function(c){ mapa.removeLayer(c); }); capaVert=[];
+  if(!vertices.length) return;
+  // Con 3 o más se muestra ya cerrado, para que se vea el terreno que va a quedar y no
+  // haya que imaginárselo.
+  capaDibujo = (vertices.length>=3)
+    ? L.polygon(vertices,{color:'#ffc233',weight:2,fillColor:'#ffc233',fillOpacity:.18}).addTo(mapa)
+    : L.polyline(vertices,{color:'#ffc233',weight:2,dashArray:'6 5'}).addTo(mapa);
+  vertices.forEach(function(v,i){
+    capaVert.push(L.circleMarker(v,{radius:5,color:'#ffc233',weight:2,
+      fillColor:'#0b0f16',fillOpacity:1,interactive:false}).addTo(mapa));
+  });
+  var b=document.getElementById('bSitio');
+  b.textContent = vertices.length<3
+    ? 'Esquinas: '+vertices.length+' — faltan '+(3-vertices.length)
+    : 'Esquinas: '+vertices.length+' — listo para guardar';
+  document.getElementById('bCerrar').style.display = vertices.length>=3 ? '' : 'none';
+  document.getElementById('bDeshacer').style.display = vertices.length ? '' : 'none';
+}
+
+function salirDeMarcar(){
+  mapa.off('click', alClic);
+  mapa.getContainer().style.cursor='';
+  var b=document.getElementById('bSitio');
+  b.classList.remove('on'); b.textContent='📐 Marcar geocerca';
+  document.getElementById('bCerrar').style.display='none';
+  document.getElementById('bDeshacer').style.display='none';
+  marcando=false;
+}
+function borrarDibujo(){
+  if(capaDibujo){ mapa.removeLayer(capaDibujo); capaDibujo=null; }
+  capaVert.forEach(function(c){ mapa.removeLayer(c); }); capaVert=[];
+  vertices=[];
+}
+
 function modoMarcar(){
-  if(marcando){ // cancelar
-    mapa.off('click', alClic); mapa.getContainer().style.cursor='';
-    document.getElementById('bSitio').classList.remove('on');
-    document.getElementById('bSitio').textContent='📍 Marcar sitio';
-    marcando=false; return;
-  }
-  marcando=true;
+  if(marcando){ salirDeMarcar(); borrarDibujo(); return; }   // cancelar
+  marcando=true; vertices=[];
   document.getElementById('bSitio').classList.add('on');
-  document.getElementById('bSitio').textContent='Tocá el mapa… (cancelar)';
   mapa.getContainer().style.cursor='crosshair';
   mapa.on('click', alClic);
+  pintarDibujo();
+  document.getElementById('bSitio').textContent='Tocá las esquinas… (cancelar)';
 }
 function alClic(ev){
-  modoMarcar();                                   // sale del modo
-  panelSitio(ev.latlng.lat, ev.latlng.lng);
+  vertices.push([ev.latlng.lat, ev.latlng.lng]);
+  pintarDibujo();
+}
+function deshacerVertice(){
+  vertices.pop(); pintarDibujo();
+  if(!vertices.length) document.getElementById('bSitio').textContent='Tocá las esquinas… (cancelar)';
+}
+function cerrarGeocerca(){
+  if(vertices.length<3){ alert('Hacen falta al menos 3 esquinas para encerrar un terreno.'); return; }
+  var poli=vertices.slice();
+  salirDeMarcar();
+  panelSitio(poli);
 }
 
 // ── Arranque ─────────────────────────────────────────────────────────────────
@@ -1209,6 +1315,9 @@ async function arrancarVista(){
   if(['superadmin','admin','revisor'].indexOf(MI_ROL)>=0){
     document.getElementById('bSitio').style.display='';
   }
+  // ⚠️ `bDeshacer` y `bCerrar` NO se muestran acá: aparecen solos cuando hay esquinas
+  // marcadas. Un botón «Cerrar y guardar» encendido sin nada dibujado invita a tocarlo.
+
   suscribir();
   setInterval(repaso, REPASO_MS);
   setInterval(tictac, 1000);
@@ -1267,6 +1376,8 @@ document.getElementById('bClave').onclick=function(){
 };
 
 document.getElementById('bSitio').onclick=modoMarcar;
+document.getElementById('bCerrar').onclick=cerrarGeocerca;
+document.getElementById('bDeshacer').onclick=deshacerVertice;
 document.getElementById('bTv').onclick=modoTv;
 // Recorridos: se recuerda la elección. El que mira una tele con 60 unidades no quiere
 // volver a apagarlos cada vez que se recarga la pantalla.
