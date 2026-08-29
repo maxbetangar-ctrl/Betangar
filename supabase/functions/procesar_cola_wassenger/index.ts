@@ -113,6 +113,7 @@ Deno.serve(async (req) => {
   if (!pend || !pend.length) return json({ ok: true, sent: 0, caducados: caducados?.length || 0 });
 
   let sent = 0, fail = 0, bloq = 0;
+  const bloqDetalle: Array<{ id: any; tipo: any; marca: string }> = [];
   for (const m of pend) {
     // CLAIM atómico: marca la fila 'enviando' SOLO si sigue 'pendiente'. Si dos corridas del cron se
     // solapan, únicamente una gana el claim; la otra ve 0 filas y salta → sin doble envío.
@@ -132,6 +133,7 @@ Deno.serve(async (req) => {
         error: `candado de marca: el texto contiene "${marca}", y nada que ve una persona puede insinuar que lo escribio una maquina. Corregi el texto y volve a encolarlo.`,
       }).eq('id', m.id);
       bloq++;
+      bloqDetalle.push({ id: m.id, tipo: m.tipo, marca });
       continue;
     }
 
@@ -181,9 +183,61 @@ Deno.serve(async (req) => {
       fail++;
     }
   }
-  // `bloqueados` va en la respuesta a propósito: un mensaje frenado sin que nadie se
-  // entere es un silencio, y un silencio se ve igual que todo en orden.
-  return json({ ok: true, sent, fail, bloqueados: bloq, caducados: caducados?.length || 0 });
+  // ── LA ALARMA DE LOS BLOQUEADOS ────────────────────────────────────────────
+  // Dejar el estado escrito no alcanzaba: el cron corre solo y la respuesta no la lee
+  // nadie. Un mensaje frenado del que nadie se entera sigue siendo un silencio, y un
+  // silencio se ve igual que todo en orden.
+  //
+  // ⛔ VA DIRECTO A WASSENGER, NO POR LA COLA, y el motivo no es la velocidad: la alarma
+  // nombra la palabra que disparó el candado. Si se encolara, el candado la frenaría a
+  // ELLA, eso generaría otra alarma que también se frenaría, y así. Un aviso sobre un
+  // filtro no puede pasar por el filtro del que avisa.
+  //
+  // ⚠️ Lo que esta alarma NO cubre: si Wassenger está caído tampoco sale. Es aceptable
+  // porque con Wassenger caído no se procesa nada y no hay bloqueos que avisar — pero
+  // queda dicho, no supuesto.
+  //
+  // ⚠️ El destinatario sale de `configuracion` (clave `alarma_tel`) y NUNCA del código:
+  // este repo es público. Si no está configurado, no se inventa un número: se dice en la
+  // respuesta que la alarma no tiene a dónde ir.
+  let alarma = 'no hubo bloqueados';
+  if (bloq > 0) {
+    const { data: telRow } = await sb.from('configuracion').select('valor').eq('clave', 'alarma_tel').maybeSingle();
+    let telAlarma = '';
+    try {
+      const v: any = telRow?.valor;
+      telAlarma = String((typeof v === 'string' ? (v.trim().startsWith('{') ? JSON.parse(v)?.tel : v) : v?.tel) || '').trim();
+    } catch { telAlarma = ''; }
+
+    if (!telAlarma) {
+      alarma = 'SIN DESTINATARIO: configurá la clave `alarma_tel` en `configuracion` o nadie se entera de los bloqueos';
+    } else {
+      const norm = normalizar(telAlarma, cfg.pais);
+      if (!norm.tel) {
+        alarma = `destinatario no enviable: ${norm.motivo}`;
+      } else {
+        // No se reproduce el TEXTO del mensaje: se dice qué palabra lo frenó y qué id
+        // mirar. Copiar el texto acá sería sacar por otra puerta justo lo que se frenó.
+        const detalle = bloqDetalle.slice(0, 5).map((b) => `#${b.id} (${b.tipo || 'sin tipo'}): "${b.marca}"`).join('\n');
+        const texto = `${etiqueta ? etiqueta + ': ' : ''}⚠️ El filtro de redacción frenó `
+          + `${bloq} mensaje${bloq > 1 ? 's' : ''} y NO se envió a nadie.\n\n${detalle}`
+          + `${bloq > 5 ? `\n…y ${bloq - 5} más.` : ''}`
+          + `\n\nEstán en la cola con estado "bloqueado" y el motivo escrito. Hay que corregir el texto y volver a encolarlos.`;
+        try {
+          const ra = await fetch('https://api.wassenger.com/v1/messages', {
+            method: 'POST', headers: { 'Content-Type': 'application/json', 'Token': cfg.token },
+            body: JSON.stringify({ phone: norm.tel, message: texto, ...(cfg.device ? { device: cfg.device } : {}) }),
+          });
+          alarma = (ra.ok || ra.status === 201) ? `avisado (${bloq})` : `no se pudo avisar: HTTP ${ra.status}`;
+        } catch (e) {
+          alarma = 'no se pudo avisar: ' + String(e).slice(0, 120);
+        }
+      }
+    }
+  }
+
+  // `bloqueados` va en la respuesta a propósito: es el respaldo por si la alarma falla.
+  return json({ ok: true, sent, fail, bloqueados: bloq, alarma, caducados: caducados?.length || 0 });
 });
 
 // Venezuela: 04141234567 / 0414-1234567 → +584141234567
