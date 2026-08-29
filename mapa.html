@@ -1138,6 +1138,10 @@ var TIPOS=[
 function colorTipo(t){ var x=TIPOS.filter(function(o){return o.v===t;})[0]; return x?x.c:'#8494ab'; }
 
 var MI_ROL='', sitios=[], capaSitios=[], marcando=null;
+// Quién puede tocar las geocercas. ⛔ NO es el candado —lo es la RLS de
+// `sitios_asistencia`— pero decide si el sitio responde al clic: ofrecerle editar a
+// quien la base le va a decir que no es peor que no ofrecérselo.
+var PUEDE_EDITAR_SITIOS = false;
 
 async function cargarSitios(){
   try{
@@ -1150,14 +1154,25 @@ function pintarSitios(){
   capaSitios.forEach(function(c){ mapa.removeLayer(c); }); capaSitios=[];
   sitios.filter(function(s){return s.activo!==false;}).forEach(function(s){
     var col=colorTipo(s.tipo), cen=null;
+    // Clicable SOLO para quien puede editar: a los demás un sitio que responde al clic
+    // y no hace nada se lee como una pantalla rota, y además roba el clic al mapa.
+    var edit=PUEDE_EDITAR_SITIOS && !marcando;
+    var forma=null;
     if(s.poligono && s.poligono.length>=3){
-      capaSitios.push(L.polygon(s.poligono,{color:col,weight:2,fillColor:col,
-        fillOpacity:.10,dashArray:'5,5',interactive:false}).addTo(mapa));
+      forma=L.polygon(s.poligono,{color:col,weight:2,fillColor:col,
+        fillOpacity:.10,dashArray:'5,5',interactive:edit}).addTo(mapa);
       var e=envolventeDe(s.poligono); cen=[e.lat,e.lng];
     }else if(s.lat&&s.lng){
-      capaSitios.push(L.circle([s.lat,s.lng],{radius:s.radio_m||120,color:col,weight:2,
-        fillColor:col,fillOpacity:.10,dashArray:'5,5',interactive:false}).addTo(mapa));
+      forma=L.circle([s.lat,s.lng],{radius:s.radio_m||120,color:col,weight:2,
+        fillColor:col,fillOpacity:.10,dashArray:'5,5',interactive:edit}).addTo(mapa);
       cen=[s.lat,s.lng];
+    }
+    if(forma){
+      if(edit){
+        forma.bindTooltip(esc(s.nombre)+' — tocá para editar');
+        forma.on('click', function(ev){ L.DomEvent.stop(ev); panelEditarSitio(s); });
+      }
+      capaSitios.push(forma);
     }
     if(!cen) return;
     capaSitios.push(L.marker(cen,{interactive:false,icon:L.divIcon({className:'',
@@ -1204,6 +1219,67 @@ function panelSitio(poli){
   document.getElementById('sNom').focus();
 }
 
+// ── EDITAR UNA GEOCERCA QUE YA EXISTE ────────────────────────────────────────
+// Antes solo se podía CREAR. Un sitio marcado mal —y el primero salió mal: RECIMARA con
+// 800 m de radio— quedaba así para siempre, o había que crear otro al lado y terminar con
+// dos geocercas encimadas contando lo mismo dos veces. Eso ya pasó con el vertedero.
+var editando=null;                      // el sitio que se está editando
+
+/** Arranca el marcado de esquinas PARA UN SITIO QUE YA EXISTE. */
+function redibujar(sitio){
+  editando=sitio;
+  quitarTapa();
+  if(marcando) { salirDeMarcar(); borrarDibujo(); }
+  modoMarcar();
+  document.getElementById('bSitio').textContent='Redibujando «'+sitio.nombre+'»… (cancelar)';
+}
+
+function panelEditarSitio(s){
+  var c=document.querySelector('#tapa .caja');
+  var tieneP = !!(s.poligono && s.poligono.length>=3);
+  c.innerHTML='<h2>Editar sitio</h2>'
+   +'<input id="eNom" type="text" value="'+esc(s.nombre)+'" placeholder="Nombre del sitio">'
+   +'<select id="eTipo" style="width:100%;padding:9px 11px;margin-bottom:8px;border:1px solid var(--linea);border-radius:8px;font-size:14px;background:var(--papel);color:var(--tinta)">'
+   + TIPOS.map(function(t){return '<option value="'+t.v+'"'+(t.v===s.tipo?' selected':'')+'>'+t.n+'</option>';}).join('')+'</select>'
+   +'<p style="font-size:12px;color:var(--suave);margin:0 0 12px">'
+   + (tieneP
+      ? 'Dibujado con <b>'+s.poligono.length+' esquinas</b>.'
+      : '⚠️ Este sitio es un <b>círculo de '+(s.radio_m||120)+' m</b>, no un terreno. '
+        +'Un círculo casi nunca calza: o deja parte afuera, o se traga calles que no son el sitio.')
+   +'</p>'
+   +'<button class="btn" id="eRedib" style="width:100%;padding:9px;margin-bottom:7px">📐 '
+   + (tieneP?'Volver a marcar las esquinas':'Marcar las esquinas del terreno')+'</button>'
+   +'<button class="btn" id="eOk" style="width:100%;padding:9px">Guardar nombre y tipo</button>'
+   +'<p style="margin:12px 0 0;display:flex;justify-content:space-between;align-items:center">'
+   +'<a href="#" id="eNo" style="color:var(--suave);font-size:12.5px">Cancelar</a>'
+   +'<a href="#" id="eOff" style="color:var(--rojo);font-size:12.5px">Desactivar este sitio</a></p>';
+  document.getElementById('tapa').style.display='flex';
+
+  document.getElementById('eNo').onclick=function(e){ e.preventDefault(); quitarTapa(); };
+  document.getElementById('eRedib').onclick=function(){ redibujar(s); };
+  document.getElementById('eOk').onclick=async function(){
+    var nom=(document.getElementById('eNom').value||'').trim();
+    if(!nom){ alert('El sitio necesita un nombre'); return; }
+    var tipo=document.getElementById('eTipo').value;
+    this.disabled=true; this.textContent='Guardando…';
+    var r=await sb.from('sitios_asistencia').update({
+      nombre:nom, tipo:tipo, es_oficina:(tipo==='oficina') }).eq('id', s.id);
+    if(r.error){ alert('No se pudo guardar: '+r.error.message); this.disabled=false; this.textContent='Guardar nombre y tipo'; return; }
+    quitarTapa(); await cargarSitios(); pintar();
+  };
+  // ⛔ Desactivar, NO borrar. El `activo=false` deja ver que el sitio existió, y las
+  // paradas viejas que se explicaron con él siguen teniendo a qué apuntar. Borrar filas
+  // en esta base no lo hace una pantalla.
+  document.getElementById('eOff').onclick=async function(e){
+    e.preventDefault();
+    if(!confirm('¿Desactivar «'+s.nombre+'»? Deja de contar para las paradas. '
+      +'No se borra: se puede volver a activar.')) return;
+    var r=await sb.from('sitios_asistencia').update({activo:false}).eq('id', s.id);
+    if(r.error){ alert('No se pudo desactivar: '+r.error.message); return; }
+    quitarTapa(); await cargarSitios(); pintar();
+  };
+}
+
 // ── MARCAR UNA GEOCERCA POR SUS ESQUINAS ─────────────────────────────────────
 // Se toca una esquina del terreno, después la siguiente, y así hasta cerrar. El
 // polígono se cierra solo entre el último punto y el primero: nadie tiene que
@@ -1247,7 +1323,7 @@ function borrarDibujo(){
 }
 
 function modoMarcar(){
-  if(marcando){ salirDeMarcar(); borrarDibujo(); return; }   // cancelar
+  if(marcando){ salirDeMarcar(); borrarDibujo(); editando=null; return; }   // cancelar
   marcando=true; vertices=[];
   document.getElementById('bSitio').classList.add('on');
   mapa.getContainer().style.cursor='crosshair';
@@ -1263,10 +1339,23 @@ function deshacerVertice(){
   vertices.pop(); pintarDibujo();
   if(!vertices.length) document.getElementById('bSitio').textContent='Tocá las esquinas… (cancelar)';
 }
-function cerrarGeocerca(){
+async function cerrarGeocerca(){
   if(vertices.length<3){ alert('Hacen falta al menos 3 esquinas para encerrar un terreno.'); return; }
   var poli=vertices.slice();
   salirDeMarcar();
+  if(editando){
+    var s=editando, env=envolventeDe(poli);
+    editando=null;
+    // El círculo envolvente se recalcula SIEMPRE junto al polígono: si quedara el viejo,
+    // lo que todavía lee círculos —`app.js`, el QR— seguiría con la geocerca equivocada,
+    // que es justo lo que se vino a arreglar.
+    var r=await sb.from('sitios_asistencia').update({
+      poligono:poli, lat:env.lat, lng:env.lng, radio_m:env.radio_m }).eq('id', s.id);
+    borrarDibujo();
+    if(r.error){ alert('No se pudo guardar la geocerca: '+r.error.message); return; }
+    await cargarSitios(); pintar();
+    return;
+  }
   panelSitio(poli);
 }
 
@@ -1282,6 +1371,8 @@ function cerrarGeocerca(){
 //  con la operación y quedaban afuera. Ver `migrations/gps_roles_lectura_2026-08-29.sql`.)
 var ROLES_MAPA = ['superadmin','admin','operador','visualizador','directivo','auditor',
                   'revisor','operativo','mecanico'];
+// Quién puede CREAR y EDITAR geocercas. Tiene que espejar la RLS de `sitios_asistencia`.
+var ROLES_SITIOS = ['superadmin'];
 
 async function arrancarVista(){
   iniciarMapa();
@@ -1312,7 +1403,8 @@ async function arrancarVista(){
   // ⚠️ `revisor` vuelve acá: la contradicción (marcar sitios sobre un mapa que no podía
   // ver) se resolvió dándole la LECTURA, que es lo que faltaba, no quitándole el botón.
   // Quién puede escribir sitios lo decide la RLS de `sitios_asistencia`, no esta lista.
-  if(['superadmin','admin','revisor'].indexOf(MI_ROL)>=0){
+  PUEDE_EDITAR_SITIOS = (ROLES_SITIOS.indexOf(MI_ROL)>=0);
+  if(PUEDE_EDITAR_SITIOS){
     document.getElementById('bSitio').style.display='';
   }
   // ⚠️ `bDeshacer` y `bCerrar` NO se muestran acá: aparecen solos cuando hay esquinas

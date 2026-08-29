@@ -3573,7 +3573,12 @@ function _fx(s){return String(s==null?'':s).replace(/[<>&"]/g,function(c){return
 // demo_admin queda FUERA a propósito: la demo corre en la MISMA base que Betangar real → un prospecto
 // no puede mover la geocerca de verdad. El candado REAL vive en la RLS de sitios_asistencia; esto es
 // coherencia de UI para no mostrarle un error de RLS a quien no debe editar.
-function _puedeEditarSitios(){ var r=SESION?SESION.rol:''; return r==='superadmin'||r==='admin'; }
+// ⛔ 29/08: baja a SOLO superadmin, y tiene que quedar igual que la RLS o esto vuelve a ser
+// un formulario que se ofrece y termina en «permiso denegado». Una geocerca no es
+// configuración: decide si una parada cuenta como descarga en el vertedero o como
+// recolección en ruta, o sea el número que se le muestra a la Alcaldía. Máximo la cerró a
+// superadmin el 29/08 (ver `migrations/sitios_solo_superadmin_2026-08-29.sql`).
+function _puedeEditarSitios(){ var r=SESION?SESION.rol:''; return r==='superadmin'; }
 async function renderFichaje(){ renderSitios(); renderAsistenciaHoy(); }
 async function renderSitios(){
   var cont=document.getElementById('sit-lista'); if(!cont)return;
