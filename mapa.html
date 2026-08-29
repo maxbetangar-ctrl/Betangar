@@ -1093,6 +1093,15 @@ function alClic(ev){
 }
 
 // ── Arranque ─────────────────────────────────────────────────────────────────
+// Roles que la RLS de `gps_posiciones` deja leer. ⛔ ESTO NO ES EL CANDADO —el candado
+// es la policy de la base, y si esta lista quedara de más la base igual diría que no—.
+// Está acá para no MENTIRLE al usuario: sin permiso la consulta devuelve `[]` sin error,
+// exactamente igual que un día sin datos, y la pantalla decía «todavía no hay posiciones
+// de hoy». Un «no podés» disfrazado de «no hay nada» manda a buscar una falla que no existe.
+// Si se cambia la policy, hay que cambiar esta lista: son dos lugares a propósito, porque
+// el navegador no puede preguntarle a Postgres quién puede leer qué.
+var ROLES_MAPA = ['superadmin','admin','operador','visualizador','directivo','auditor'];
+
 async function arrancarVista(){
   iniciarMapa();
   DIA = fechaVE(new Date());
@@ -1101,12 +1110,28 @@ async function arrancarVista(){
   inp.max   = DIA;                       // no hay recorrido del futuro
   inp.onchange = function(){ irADia(inp.value || DIA); };
   document.getElementById('bHoy').onclick = function(){ irADia(fechaVE(new Date())); };
+  // El rol se pregunta ANTES de traer nada: si no puede leer, lo que corresponde es
+  // decírselo, no dibujarle un mapa vacío.
+  try{ var rr=await sb.rpc('app_rol'); if(!rr.error) MI_ROL=rr.data||''; }catch(e){}
+  if(ROLES_MAPA.indexOf(MI_ROL)<0){
+    // `tapa()` escribe con textContent, así que acá NO va `esc()`: escaparlo mostraría
+    // las entidades HTML en pantalla.
+    tapa('Tu usuario'+(MI_ROL?' (rol «'+MI_ROL+'»)':'')+' no tiene permiso para ver el '
+      +'recorrido de la flota. No es una falla: el GPS está grabando igual. Pedile acceso a '
+      +'quien administra los usuarios.', true);
+    // El botón por defecto dice «Ir a iniciar sesión», y acá la sesión está bien: lo que
+    // falta es el permiso. Mandarlo a loguearse de nuevo lo haría dar vueltas.
+    document.getElementById('tapaBtn').textContent='Volver al sistema';
+    return;
+  }
   await repaso();
   await cargarSitios();
   // El botón solo aparece si la base le va a aceptar la escritura. No es el candado
   // —el candado es la RLS— es no ofrecer algo que va a terminar en un error.
-  try{ var rr=await sb.rpc('app_rol'); if(!rr.error) MI_ROL=rr.data||''; }catch(e){}
-  if(['superadmin','admin','revisor'].indexOf(MI_ROL)>=0){
+  // ⚠️ `revisor` ya no va acá: puede escribir sitios pero NO puede leer `gps_posiciones`,
+  // así que nunca llega a esta pantalla. Ofrecerle marcar sitios sobre un mapa que no
+  // puede ver era una contradicción del propio archivo.
+  if(['superadmin','admin'].indexOf(MI_ROL)>=0){
     document.getElementById('bSitio').style.display='';
   }
   suscribir();
