@@ -316,6 +316,11 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
     <div class="menu-item" onclick="sp('fichaje')" id="mi-fichaje">🕒 Fichaje / Sitios</div>
     <div class="menu-item" onclick="sp('porteria')" id="mi-porteria">🛡 Porteria</div>
     <div class="menu-item" onclick="sp('operativo')" id="mi-operativo">🗺 Operativo</div>
+    <!-- La pantalla del GPS vive en su propio archivo (`mapa.html`, con Leaflet y Realtime).
+         Estuvo publicada y funcionando desde el 14/08 SIN UN SOLO ENLACE que llevara a ella:
+         solo llegaba quien supiera teclear la URL. Una pantalla a la que nadie puede entrar
+         es una pantalla que no existe. Tiene su propio "← Volver" y su propio login. -->
+    <div class="menu-item" onclick="location.href='mapa.html'" id="mi-mapa">📡 Flota en vivo (GPS)</div>
     <div class="menu-item" onclick="sp('entregas')" id="mi-entregas">📦 Trazabilidad</div>
     <div class="menu-item" onclick="sp('combustible')" id="mi-combustible">⛽ Combustible</div>
     <div class="menu-item" onclick="abrirMantenimiento()" id="mi-km">🔧 Mantenimiento</div>
