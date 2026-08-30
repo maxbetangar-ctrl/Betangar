@@ -227,11 +227,21 @@ body{background:#0f1923;color:#fff;font-family:-apple-system,BlinkMacSystemFont,
         <div style="font-weight:800;font-size:16px;color:#fff;margin-bottom:2px">⛽ Surtir combustible</div>
         <div style="font-size:12px;color:#9fb3c8;margin-bottom:14px">Registrá cada surtida de tu unidad: de qué tanque, litros, foto del surtidor/recibo y ubicación.</div>
 
-        <div style="font-size:13px;color:#cfe0f0;font-weight:700;margin-bottom:6px">¿De dónde surtiste?</div>
+        <!-- ⛔ NINGUNO VIENE MARCADO, y el aviso de arriba lo dice. Antes «Galpón 1» arrancaba
+             preseleccionado con el borde verde: si el chofer no tocaba nada, la surtida se
+             guardaba como salida del tanque del galpón. Medido el 29/08: 8 cargas quedaron mal
+             atribuidas —1.811 litros— y fueron 8 choferes distintos, UNA vez cada uno, todos los
+             cuales usan «Estación» el resto del tiempo. No fue gente despistada: fue la marca que
+             ya venía puesta, que nadie lee como una elección pendiente.
+             ⚠️ El primer intento de arreglar esto (v47) puso un candado que rechazaba al guardar,
+             y los choferes se encontraron un error rojo donde antes daba Registrar y listo: hubo
+             que revertirlo en caliente. Por eso ahora NO se rechaza nada — se avisa ANTES, el
+             botón de guardar dice qué falta, y los tres quedan en ámbar hasta que se elija. -->
+        <div style="font-size:13px;color:#cfe0f0;font-weight:700;margin-bottom:6px">¿De dónde surtiste? <span id="sur-tanque-pide" style="color:#f4a300;font-weight:700">— tocá una</span></div>
         <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">
-          <button type="button" id="sur-tanque-galpon_1" onclick="surSetTanque('galpon_1')" style="flex:1;min-width:90px;background:#0e2038;border:2px solid #7dc941;border-radius:10px;padding:10px;color:#fff;font-weight:700;cursor:pointer;font-size:13px">🛢️ Galpón 1</button>
-          <button type="button" id="sur-tanque-galpon_2" onclick="surSetTanque('galpon_2')" style="flex:1;min-width:90px;background:#0e2038;border:2px solid #24405f;border-radius:10px;padding:10px;color:#fff;font-weight:700;cursor:pointer;font-size:13px">🛢️ Galpón 2</button>
-          <button type="button" id="sur-tanque-estacion" onclick="surSetTanque('estacion')" style="flex:1;min-width:90px;background:#0e2038;border:2px solid #24405f;border-radius:10px;padding:10px;color:#fff;font-weight:700;cursor:pointer;font-size:13px">⛽ Estación</button>
+          <button type="button" id="sur-tanque-galpon_1" onclick="surSetTanque('galpon_1')" style="flex:1;min-width:90px;background:#0e2038;border:2px solid #f4a300;border-radius:10px;padding:10px;color:#fff;font-weight:700;cursor:pointer;font-size:13px">🛢️ Galpón 1</button>
+          <button type="button" id="sur-tanque-galpon_2" onclick="surSetTanque('galpon_2')" style="flex:1;min-width:90px;background:#0e2038;border:2px solid #f4a300;border-radius:10px;padding:10px;color:#fff;font-weight:700;cursor:pointer;font-size:13px">🛢️ Galpón 2</button>
+          <button type="button" id="sur-tanque-estacion" onclick="surSetTanque('estacion')" style="flex:1;min-width:90px;background:#0e2038;border:2px solid #f4a300;border-radius:10px;padding:10px;color:#fff;font-weight:700;cursor:pointer;font-size:13px">⛽ Estación</button>
         </div>
 
         <div style="font-size:13px;color:#cfe0f0;font-weight:700;margin-bottom:6px">Litros surtidos</div>
@@ -1255,7 +1265,7 @@ function switchTab(tab){
   });
   if(tab==='checklist') renderChecklistModo();
   if(tab==='entrega') renderEntregasHoy();
-  if(tab==='surtir'){ surRenderHoy(); }
+  if(tab==='surtir'){ surRenderHoy(); surPintarPide(); }   // el botón dice qué falta desde que se abre
 }
 
 // ════════════════════════════════
@@ -1737,7 +1747,11 @@ async function subirColaEntregas(){
 // ════════════════════════════════
 // MÓDULO SURTIR (combustible por surtida: tanque + litros + foto + GPS). Costo real $0,75/L (USD).
 // ════════════════════════════════
-var SUR_FOTO_FILE=null, SUR_GPS=null, SUR_GPS_FAILS=0, SUR_TANQUE='galpon_1', SUR_HOY=[];
+// ⛔ `SUR_TANQUE` arranca VACÍO: un valor por defecto en un campo que el chofer tiene que
+// DECLARAR no es una comodidad, es una respuesta que el sistema pone por él y que después
+// se lee como si la hubiera dado la persona. Costó 1.811 litros atribuidos al tanque
+// equivocado (ver el comentario del selector, arriba).
+var SUR_FOTO_FILE=null, SUR_GPS=null, SUR_GPS_FAILS=0, SUR_TANQUE=null, SUR_HOY=[];
 var SUR_TANQUE_LBL={galpon_1:'🛢️ Galpón 1', galpon_2:'🛢️ Galpón 2', estacion:'⛽ Estación de servicio'};
 var COLA_SUR=[];
 function cargarColaSur(){ try{ var s=localStorage.getItem('btg_cola_sur'); if(s) COLA_SUR=JSON.parse(s)||[]; }catch(e){ COLA_SUR=[]; } }
@@ -1828,7 +1842,27 @@ async function subirColaSurtidas(){
 function surSetTanque(t){
   SUR_TANQUE=t;
   ['galpon_1','galpon_2','estacion'].forEach(function(x){ var b=document.getElementById('sur-tanque-'+x); if(b)b.style.border='2px solid '+(x===t?'#7dc941':'#24405f'); });
+  surPintarPide();
   surCalc();
+}
+
+/**
+ * Mientras no se haya elegido de dónde salió el combustible, el BOTÓN DE GUARDAR lo dice.
+ * ⛔ No se deshabilita ni se rechaza al final: la v47 rechazaba al guardar y el chofer se
+ * encontraba un error rojo donde antes daba Registrar y listo — hubo que revertirla en
+ * caliente un sábado. Un requisito nuevo se avisa ANTES de que la persona empuje, no
+ * después; y el botón sigue siendo tocable para que, si algo de esto falla, quien esté en
+ * la bomba igual pueda intentar y ver el motivo, en vez de quedarse con un botón muerto.
+ */
+function surPintarPide(){
+  var falta = !SUR_TANQUE;
+  var p = document.getElementById('sur-tanque-pide');
+  if(p) p.style.display = falta ? '' : 'none';
+  var b = document.getElementById('sur-btn');
+  if(b){
+    b.textContent = falta ? '👆 Primero tocá de dónde surtiste' : '✅ Registrar surtida';
+    b.style.opacity = falta ? '.65' : '';
+  }
 }
 // ── LITROS: miles automáticos + tope duro (ver _milesVE arriba) ──
 var SUR_MAX_L = 2000;
@@ -1890,6 +1924,16 @@ function _surCompress(file){
   });
 }
 async function surGuardar(){
+  // De dónde salió el combustible decide de qué inventario se descuenta y contra qué
+  // factura se concilia: si no se eligió, se pregunta — no se supone.
+  // El botón ya venía diciéndolo; esto es la última red, y lleva al chofer hasta los
+  // botones en vez de dejarlo adivinando qué le falta.
+  if(!SUR_TANQUE){
+    mostrarToast('Tocá arriba de dónde surtiste: Galpón 1, Galpón 2 o Estación','error');
+    var _ft=document.getElementById('sur-tanque-estacion');
+    if(_ft){ try{ _ft.scrollIntoView({block:'center',behavior:'smooth'}); }catch(e){ try{ _ft.scrollIntoView(); }catch(e2){} } }
+    return;
+  }
   var lit=_surLit();
   if(!(lit>0)){ mostrarToast('Ingresá los litros surtidos','error'); return; }
   // TOPE DURO (no se puede confirmar para pasarlo): un dígito de más corrompe el gasto de combustible.
@@ -1957,11 +2001,15 @@ async function surGuardar(){
     SUR_HOY.unshift(row); surRenderHoy();
     mostrarToast(ok?'✅ Surtida registrada':'📵 Guardada (se sube al reconectar)','exito');
     document.getElementById('sur-litros').value=''; SUR_FOTO_FILE=null; SUR_GPS_FAILS=0;
+    // El tanque tambien se limpia: cada surtida es una declaracion propia. Dejar puesto el
+    // de la anterior seria volver a poner un valor por defecto, con otro nombre.
+    SUR_TANQUE=null;
+    ['galpon_1','galpon_2','estacion'].forEach(function(x){ var bb=document.getElementById('sur-tanque-'+x); if(bb)bb.style.border='2px solid #f4a300'; });
     var pv=document.getElementById('sur-foto-prev'); if(pv)pv.style.display='none';
     var gt=document.getElementById('sur-gps-txt'); if(gt)gt.textContent='';
     surCalc();
   }catch(e){ mostrarToast('Error al registrar: '+(e&&e.message?e.message:e),'error'); }
-  finally{ btn.disabled=false; btn.textContent=t0; }
+  finally{ btn.disabled=false; btn.textContent=t0; surPintarPide(); }   // t0 puede ser el texto viejo: esto lo deja coherente
 }
 function surRenderHoy(){
   var cont=document.getElementById('sur-hoy-lista'); if(!cont)return;
