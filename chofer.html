@@ -1826,16 +1826,28 @@ async function subirColaSurtidas(){
   var pend=COLA_SUR.slice(); COLA_SUR=[];
   for(var i=0;i<pend.length;i++){
     try{
-      var r=await supabase.rpc('surtida_registrar',{ p:pend[i] });
+      // ⛔ `_int` es NUESTRO contador y no puede viajar a la base: se saca antes de mandar.
+      var fila=pend[i], _int=(fila._int||0)+1, envio={};
+      for(var k in fila){ if(k!=='_int') envio[k]=fila[k]; }
+      var r=await supabase.rpc('surtida_registrar',{ p:envio });
       if(r&&r.error){
         // El servidor puede rechazar por REGLA (litros imposibles): eso no se arregla reintentando.
         // Si se reencola, la cola queda trabada y el banner nunca se apaga. Se descarta y se avisa.
         if(/litros/i.test(r.error.message||'')){
-          try{ mostrarToast('Se descartó una surtida con litros imposibles ('+(pend[i].litros)+' L). Registrala de nuevo con el número correcto.','error'); }catch(e2){}
-        } else { COLA_SUR.push(pend[i]); }
+          try{ mostrarToast('Se descartó una surtida con litros imposibles ('+(fila.litros)+' L). Registrala de nuevo con el número correcto.','error'); }catch(e2){}
+        } else if(_int >= 3){
+          // ⛔ TRES RECHAZOS DEL SERVIDOR NO SON UN PROBLEMA DE SEÑAL. Antes se reencolaba
+          // para siempre y en silencio: eso es lo que tuvo la carga de combustible rota tres
+          // días (26-29/08) sin que nadie se enterara, porque la cola reintenta callada y la
+          // pantalla decía «guardada». Se deja de insistir y se DICE.
+          fila._int=_int; COLA_SUR.push(fila);
+          try{ mostrarToast('⚠️ Una surtida de las '+(fila.hora||'')+' lleva '+_int+' intentos y el sistema la sigue rechazando ('+(r.error.message||'').slice(0,60)+'). NO es falta de señal: avisale a la oficina.','error'); }catch(e2){}
+        } else {
+          fila._int=_int; COLA_SUR.push(fila);
+        }
       }
     }
-    catch(e){ COLA_SUR.push(pend[i]); }
+    catch(e){ COLA_SUR.push(pend[i]); }   // sin red: se reintenta, sin gastar el contador
   }
   persistColaSur();
 }
@@ -1996,15 +2008,33 @@ async function surGuardar(){
       foto_url:fotoUrl, lat:(SUR_GPS?SUR_GPS.lat:null), lng:(SUR_GPS?SUR_GPS.lng:null),
       precision_gps:(SUR_GPS?SUR_GPS.acc:null), token:tok
     };
-    var ok=false;
+    // ⛔ NO ES LO MISMO «NO PUDE LLEGAR» QUE «ME DIJERON QUE NO», Y ANTES SE MOSTRABAN IGUAL.
+    // El código viejo sacaba el error del servidor y **acto seguido lo pisaba** con un toast
+    // de éxito: «📵 Guardada (se sube al reconectar)». O sea que un rechazo del servidor se le
+    // presentaba al chofer como falta de internet.
+    // 🔴 Eso escondió una falla real TRES DÍAS (26 al 29/08): las surtidas se rechazaban, se
+    // encolaban en el teléfono y nunca subían, y nadie reportó nada — porque a nadie le
+    // aparece un problema cuando la pantalla le dice «guardada». Un fallo disfrazado de éxito
+    // es peor que un error: no se reporta.
+    var ok=false, rechazo=null;
     if(isOnline && supabase){
       var res=await supabase.rpc('surtida_registrar',{ p:row });
-      if(res && res.error){ mostrarToast('No se pudo guardar: '+res.error.message,'error'); }
+      if(res && res.error) rechazo = res.error.message || 'el servidor la rechazó';
       else ok=true;
     }
+    // Se encola igual aunque la hayan rechazado: la foto ya se subió y el trabajo está hecho,
+    // así que el dato NO se tira. Lo que cambia es lo que se le dice a la persona.
     if(!ok) surEncolar(row);
     SUR_HOY.unshift(row); surRenderHoy();
-    mostrarToast(ok?'✅ Surtida registrada':'📵 Guardada (se sube al reconectar)','exito');
+    if(ok){
+      mostrarToast('✅ Surtida registrada','exito');
+    }else if(rechazo){
+      // Un solo mensaje, y dice la verdad: no quedó registrada, quedó en el teléfono, y hay
+      // que avisar — porque esto NO se arregla solo esperando señal.
+      mostrarToast('⚠️ NO quedó registrada: '+rechazo+'. Quedó guardada en el teléfono; avisale a la oficina.','error');
+    }else{
+      mostrarToast('📵 Sin señal: guardada en el teléfono, se sube sola al reconectar','exito');
+    }
     document.getElementById('sur-litros').value=''; SUR_FOTO_FILE=null; SUR_GPS_FAILS=0;
     // El tanque tambien se limpia: cada surtida es una declaracion propia. Dejar puesto el
     // de la anterior seria volver a poner un valor por defecto, con otro nombre.
