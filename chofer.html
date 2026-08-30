@@ -1951,28 +1951,33 @@ async function surGuardar(){
       return;
     }
   }
-  // ── EL PRECIO POR LITRO TAMBIÉN SE MIDE ───────────────────────────────────
-  // 🔴 26/08/2026: en el FC16 se escribió 100 en la casilla del precio —era 1— y
-  //    quedó una surtida de 100 L por **$10.000**. El sistema la aceptó sin decir
-  //    nada: los LITROS tenían tope desde el caso de los «25.115», el PRECIO no.
-  //    Lo reportó Carlos Serrano. Un monto así entra derecho al costo del mes y al
-  //    costo por kilómetro, que es el número principal del producto.
-  // ⛔ SE RECHAZA, NO SE TOPA: un valor saneado a la fuerza se cree.
-  // La vara sale de lo que de verdad se paga: 158 surtidas a 0,50 · 0,75 · 0,80, y
-  // el propio Carlos habla de 1 dólar. El tope duro es 5 —seis veces el máximo
-  // real— y desde 1,50 se pregunta, para no trancar a nadie si el precio sube.
-  var _prV=_surPrecioSel();
-  if(_prV!=null && _prV>0){
-    if(_prV>SUR_MAX_PRECIO){
-      mostrarToast('El precio por litro no puede ser $'+_fmtVE(_prV,2)+'. Revisá esa casilla: ahí va lo que cuesta UN litro, no el total.','error');
-      var _fp=document.getElementById('sur-precio'); if(_fp){ try{ _fp.focus(); _fp.select(); }catch(e){} }
-      return;
-    }
-    if(_prV>SUR_AVISO_PRECIO && !confirm('⚠️ Pusiste $'+_fmtVE(_prV,2)+' por LITRO'+(lit>0?(' → '+_fmtVE(lit,2)+' L = $'+_fmtVE(lit*_prV,2)):'')+'.\n\n¿Ese es el precio de un litro?\n\n• Aceptar → sí, es correcto.\n• Cancelar → me equivoqué.')){
-      var _fp2=document.getElementById('sur-precio'); if(_fp2){ try{ _fp2.focus(); _fp2.select(); }catch(e){} }
-      return;
-    }
-  }
+  // ⛔ ACÁ NO VA NINGÚN CANDADO DE PRECIO, Y BORRARLO FUE URGENTE (29/08/2026).
+  //
+  // El 26/08 se agregó uno por un caso real: en el FC16 se escribió 100 en la casilla
+  // del precio —era 1— y quedó una surtida de 100 L por $10.000, que entra derecho al
+  // costo por kilómetro. Lo reportó Carlos Serrano y el problema es de verdad.
+  //
+  // 🔴 PERO SE PUSO EN EL ARCHIVO EQUIVOCADO. El chofer NO escribe el precio: acá el
+  // costo sale solo (`null` si surtió en estación —lo define administración al cierre—
+  // y 0,812 si fue del galpón). La casilla `sur-precio` que ese candado buscaba NO
+  // EXISTE en esta app; el precio se teclea en la de OFICINA (`app.js`, al conciliar).
+  //
+  // Resultado: `_surPrecioSel()` no estaba definida en ningún lado, y como esta línea
+  // corre ANTES de la foto y del GPS, tocar «Registrar surtida» lanzaba un
+  // ReferenceError y NO PASABA NADA. Sin mensaje, sin error a la vista: el botón
+  // simplemente no hacía nada.
+  //
+  // ⚠️ Estuvo así **tres días**, del 26 al 29, y no se notó porque se surte los
+  // sábados: la última surtida cargada es del 22/08. El sábado 29 llamaron todos los
+  // choferes juntos.
+  //
+  // 📌 Y lo que más costó: ese mismo sábado se había tocado esta pantalla por otra cosa
+  // una hora antes, así que la sospecha se fue derecho al cambio nuevo. Se revirtió, se
+  // rehizo, y el módulo seguía roto — porque la causa llevaba tres días adentro. Lo que
+  // lo encontró fue abrir la consola del navegador; ninguna lectura del código lo dio.
+  //
+  // 🔴 EL CANDADO SIGUE HACIENDO FALTA DONDE SÍ SE ESCRIBE EL PRECIO: `app.js`, en la
+  // conciliación de la surtida. Ahí no hay ninguno, y desde el 26/08 se creyó que sí.
   if(!SUR_FOTO_FILE){ mostrarToast('Tomá la foto del surtidor/recibo','error'); return; }
   if(!SUR_GPS){
     SUR_GPS_FAILS++;
