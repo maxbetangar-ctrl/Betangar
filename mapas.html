@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Betangar — Flota en vivo</title>
+<!--
+  ══════════════════════════════════════════════════════════════════════════════
+  ATAJO A LA PANTALLA DE FLOTA — betangar.com/mapas.html
+
+  Máximo (29/08/2026): «que el mapa nuevo use betangar.com/mapas.html porque lo
+  que me anexas después me cuesta acordarme». La pantalla se llama `mapa.html` en
+  singular y él la recuerda en plural: en vez de discutir cuál es el nombre
+  correcto, funcionan las dos.
+
+  ⛔ ESTO ES UNA REDIRECCIÓN, NO UNA COPIA, y la diferencia importa. Dos archivos
+  con el mismo mapa se desincronizan sin que nadie se entere: se arregla uno, se
+  sigue abriendo el otro, y el síntoma es «ya lo arreglé y no cambia nada». Hoy
+  mismo pasó dos veces con versiones cacheadas. Acá hay un solo mapa.
+
+  Tres caminos a propósito, del más rápido al más tonto: el JS redirige al
+  instante conservando lo que venga después del `?`, el `meta refresh` cubre al
+  navegador con JS apagado, y el enlace visible cubre a los dos si algo falla —
+  una pantalla en blanco no dice a dónde ir.
+  ══════════════════════════════════════════════════════════════════════════════
+-->
+<meta http-equiv="refresh" content="0; url=mapa.html">
+<link rel="canonical" href="mapa.html">
+<style>
+  html,body{height:100%;margin:0}
+  body{background:#080b11;color:#e8edf4;display:flex;align-items:center;justify-content:center;
+       font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;text-align:center;padding:24px}
+  a{color:#4da3ff;font-size:17px;font-weight:600}
+  p{color:#8494ab;font-size:14px;margin:10px 0 0}
+</style>
+</head>
+<body>
+  <div>
+    <a href="mapa.html">Abrir la flota en vivo →</a>
+    <p>Llevando a la pantalla del mapa…</p>
+  </div>
+<script>
+  // Se conserva lo que venga en la dirección (?tv=1 arranca en modo televisor,
+  // y cualquier `?loquesea` que se use para saltar el caché del navegador).
+  location.replace('mapa.html' + location.search + location.hash);
+</script>
+</body>
+</html>
