@@ -13393,6 +13393,41 @@ async function _perAplicar(){
   var cUsd=parseFloat(g('per-calc').dataset.cusd)||0;
   var mezc=parseFloat(g('per-calc').dataset.mezc)||0;
   var cBs=Math.round(cUsd*tasaSel*100)/100;
+
+  // ── EL PRECIO POR LITRO SE MIDE ANTES DE APLICARLO ──────────────────────────────
+  // 🔴 26/08/2026: en el FC16 se escribió 100 en la casilla del precio —era 1— y quedó una
+  //    surtida de 100 L por $10.000. El sistema la aceptó sin decir nada: los LITROS tenían
+  //    tope desde el caso de los «25.115», el PRECIO no. Lo reportó Carlos Serrano. Un monto
+  //    así entra derecho al costo del mes y al costo por kilómetro, que es el número
+  //    principal del producto.
+  //
+  // ⛔ ESE DÍA EL CANDADO SE PUSO EN EL ARCHIVO EQUIVOCADO. Fue a `chofer.html`, donde el
+  //    chofer NO escribe el precio (allá el costo sale solo: null en estación, 0,812 del
+  //    galpón) y la casilla que buscaba ni existía. Encima llamaba a una función que no
+  //    estaba definida, así que rompió el registro de surtidas: **tres días sin que nadie
+  //    pudiera cargar combustible**, del 26 al 29, y se descubrió porque llamaron los
+  //    choferes. El precio se teclea ACÁ, en la oficina, al cerrar el período — y hasta hoy
+  //    este camino no tenía ninguna vara.
+  //
+  // ⛔ SE RECHAZA, NO SE TOPA: un valor saneado a la fuerza se cree.
+  // Las varas salen de lo que de VERDAD se paga, medido el 29/08 sobre las 58 surtidas con
+  // costo definido: 0,500 · 0,550 · 0,750 · 0,812 $/L. El tope duro es 5 —seis veces el
+  // máximo real— y desde 1,50 se pregunta en vez de rechazar, para no trancar a nadie el día
+  // que el precio suba de verdad.
+  var PRECIO_MAX_L=5, PRECIO_AVISO_L=1.5;
+  var _prs=(tramos||[]).map(function(t){ return parseFloat(t&&t.precio_usd); })
+                       .filter(function(v){ return !isNaN(v) && v>0; });
+  var _prAlto=Math.max.apply(null, _prs.concat([0]));
+  if(_prAlto>PRECIO_MAX_L){
+    alert('El precio por litro no puede ser $'+_prAlto.toFixed(2)+'.\n\n'
+      +'En esa casilla va lo que cuesta UN litro, no el total de la carga.\n'
+      +'Lo que se paga acá va entre $0,50 y $0,82 por litro.');
+    return;
+  }
+  if(_prAlto>PRECIO_AVISO_L && !confirm('⚠️ Estás poniendo $'+_prAlto.toFixed(2)+' por LITRO.\n\n'
+      +'Lo normal acá va entre $0,50 y $0,82. A ese precio, '+Math.round(litF)+' L costarían '
+      +usd(cUsd)+'.\n\n• Aceptar → el precio es correcto.\n• Cancelar → lo reviso.')) return;
+
   var tasaPond=tasaSel;
   var _solapa=(COMB_PERIODOS||[]).some(function(p){ return String(p.estacion_nombre||'').toLowerCase()===est.toLowerCase()
                                                         && String(p.desde||'')<=hta && String(p.hasta||'')>=des; });
