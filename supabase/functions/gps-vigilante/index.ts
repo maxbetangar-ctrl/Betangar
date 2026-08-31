@@ -112,6 +112,25 @@ function horaNegocio(): number {
   return new Date(Date.now() - 4 * 3600 * 1000).getUTCHours();
 }
 
+// ⛔ EL NOMBRE DE LA EMPRESA, PORQUE EL PROVEEDOR ATIENDE A VARIAS DE LAS NUESTRAS.
+// Hoy solo Betangar tiene el rastreo, pero la idea es que lo usen todas — y el día
+// que dos manden el mismo aviso desde el MISMO número de WhatsApp, un mensaje que
+// dice «se nos callaron las unidades» no le dice a nadie de qué flota habla. Del
+// otro lado hay una persona con varias cuentas abiertas.
+//
+// Mismo orden de resolución que `procesar_cola_wassenger` (etiqueta y si no,
+// `empresa.nombre`): dos piezas que responden «quién escribe» tienen que responder
+// lo mismo. ⚠️ La etiqueta trae emojis por diseño (es la marca anti-spam que se
+// antepone a cada mensaje); para el cuerpo de un texto que lee un tercero se le
+// sacan, pero NO se inventa nada si no queda nada.
+async function nombreEmpresa(): Promise<string | null> {
+  const wa = await cfg("wassenger");
+  const emp = await cfg("empresa");
+  const crudo = String(wa?.etiqueta || emp?.nombre || "").trim();
+  const limpio = crudo.replace(/[^\p{L}\p{N}\s.,&'-]/gu, "").trim();
+  return limpio || null;
+}
+
 function hace(ms: number): string {
   const m = Math.round(ms / 60000);
   if (m < 60) return `hace ${m} min`;
@@ -187,13 +206,19 @@ Deno.serve(async (req) => {
       // ninguna persona. Y sale de la CONFIGURACIÓN, no del código — este repo es
       // público y el nombre de quien atiende del otro lado no tiene por qué estarlo.
       const saludo = prov?.nombre ? `Hola, ${String(prov.nombre).split(" ")[0]}.` : "Buenas.";
+      const empresa = await nombreEmpresa();
 
       // ⛔ El texto de AFUERA no lleva nada nuestro adentro: ni jerga del sistema, ni
       // nada que insinúe que lo escribió una máquina (el candado de `cola_mensajes`
       // lo frenaría, y con razón). La etiqueta de la empresa la antepone el worker.
+      //
+      // ⛔ Y LA EMPRESA VA EN EL CUERPO, no solo en esa etiqueta. La etiqueta es la
+      // marca anti-spam del canal: puede cambiarse, puede faltar, y quien lee un
+      // reenvío o una captura no la tiene. El dato de QUIÉN se quedó sin rastreo es
+      // parte del reclamo, no del sobre.
       const paraProveedor =
-        `${saludo} Le escribimos por el rastreo de la flota.\n\n` +
-        `Ahora mismo tenemos ${mudas.length} unidades que dejaron de reportar posición ` +
+        `${saludo} Le escribimos de ${empresa}, por el rastreo de nuestra flota.\n\n` +
+        `Ahora mismo tenemos ${mudas.length} ${mudas.length === 1 ? "unidad que dejó" : "unidades que dejaron"} de reportar posición ` +
         `casi al mismo tiempo, y todas con el motor encendido en el último dato que nos llegó ` +
         `— o sea, con los camiones andando:\n\n${detalle}\n\n` +
         `El odómetro de los equipos sigue sumando kilómetros, así que los camiones se están ` +
@@ -202,21 +227,32 @@ Deno.serve(async (req) => {
         `nos hace pensar que el corte no está en los aparatos.\n\n` +
         `¿Nos puede revisar si hay algo trabado del lado de la plataforma? Quedamos atentos.`;
 
+      // ⛔ SIN NOMBRE DE EMPRESA NO SALE NADA HACIA AFUERA. Un aviso que no dice de
+      // qué flota habla no es un aviso a medias: es inservible del lado de quien lo
+      // recibe, que atiende varias cuentas nuestras. Y peor, la haría buscar en la
+      // equivocada. Cuando falta, el aviso sale igual PARA ADENTRO diciendo qué
+      // falta — un dato que no está no puede parecer una noche sin novedad.
+      const puedeSalir = Boolean(telProv && empresa && enFranja);
+      const motivoNoSale = !telProv
+        ? `⛔ NO se le avisó a nadie afuera: falta el teléfono en configuracion.gps_proveedor_tel.`
+        : !empresa
+          ? `⛔ NO se le avisó a ${nomProv}: no hay nombre de empresa que ponerle al mensaje ` +
+            `(configuracion.wassenger.etiqueta o configuracion.empresa). Del otro lado atienden ` +
+            `varias cuentas nuestras y un aviso sin empresa no se puede atender.`
+          : !enFranja
+            ? `🕐 NO se le avisó a ${nomProv} todavía: son las ${String(hora).padStart(2, "0")}:xx ` +
+              `y a un tercero se le escribe entre las ${FRANJA_DESDE}:00 y las ${FRANJA_HASTA}:00.`
+            : `✅ Se le avisó a ${nomProv} (${telProv}).`;
+
       const paraAdentro =
-        `🛰️ *Apagón del rastreo*\n\n` +
-        `${mudas.length} unidades mudas al mismo tiempo con el motor encendido ` +
-        `(umbral: ${umbral}):\n\n${detalle}\n\n` +
-        (!telProv
-          ? `⛔ NO se le avisó a nadie afuera: falta el teléfono en configuracion.gps_proveedor_tel.`
-          : enFranja
-            ? `✅ Se le avisó a ${nomProv} (${telProv}).`
-            : `🕐 NO se le avisó a ${nomProv} todavía: son las ${String(hora).padStart(2, "0")}:xx ` +
-              `y a un tercero se le escribe entre las ${FRANJA_DESDE}:00 y las ${FRANJA_HASTA}:00.`);
+        `🛰️ *Apagón del rastreo — ${empresa || "SIN NOMBRE DE EMPRESA"}*\n\n` +
+        `${mudas.length} ${mudas.length === 1 ? "unidad muda" : "unidades mudas"} al mismo tiempo ` +
+        `con el motor encendido (umbral: ${umbral}):\n\n${detalle}\n\n${motivoNoSale}`;
 
       const cola: any[] = [{
         tipo: "gps_apagon", telefono: AVISAR_A, mensaje: paraAdentro, ref: "gps-apagon-interno",
       }];
-      if (telProv && enFranja) {
+      if (puedeSalir) {
         cola.push({
           tipo: "gps_apagon", telefono: telProv, mensaje: paraProveedor, ref: "gps-apagon-proveedor",
         });
@@ -228,7 +264,7 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({
         ok: true, modo: "apagon", dry, aviso: true,
         mudas_andando: mudas.length, umbral, en_franja: enFranja,
-        al_proveedor: telProv && enFranja ? telProv : null,
+        empresa, al_proveedor: puedeSalir ? telProv : null,
         clave, mensaje_proveedor: paraProveedor, mensaje_interno: paraAdentro,
       }), { headers: { "Content-Type": "application/json" } });
     }
