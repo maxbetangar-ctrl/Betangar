@@ -10,7 +10,10 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
 const SUPABASE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-const API_KEY_ESPERADO = "dev_de273ebdea7abce15e73d23cecad3ef70b4cd3b86ff60cf1980e01d7c7911a62";
+// La clave la pone el BANCO y viaja en el header x-api-key. NO se escribe aca:
+// este repositorio es PUBLICO y una constante en el codigo queda en la historia
+// de git para siempre, aunque despues se borre del archivo. (31/08/2026)
+const API_KEY_ESPERADO = Deno.env.get("BNC_WEBHOOK_APIKEY_DEV")!;
 function parseFechaBNC(fecha, hora) {
   if (!fecha || fecha.length < 8) return new Date().toISOString();
   const y = fecha.slice(0, 4), m = fecha.slice(4, 6), d = fecha.slice(6, 8);
