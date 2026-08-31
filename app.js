@@ -25261,7 +25261,13 @@ function renderUnidadesSelect(valorActual){
   var sel = document.getElementById('ne-unidad');
   if(!sel) return;
   if(!cfg||!cfg.unidades_areas){sel.innerHTML='<option>Cargando...</option>';return;}
-  sel.innerHTML = cfg.unidades_areas.map(function(u){
+  // ⛔ Si lo que la persona YA tiene no está en la lista, el navegador muestra la
+  //    primera opción como si fuera la suya y al guardar se la reescribe sin que
+  //    nadie lo pida. Se agrega su valor al final, marcado, en vez de perderlo.
+  var lista = cfg.unidades_areas.slice();
+  var actual = (valorActual||'').trim();
+  if(actual && lista.indexOf(actual) < 0) lista.push(actual);
+  sel.innerHTML = lista.map(function(u){
     return '<option value="'+u+'"'+(u===valorActual?' selected':'')+'>'+u+'</option>';
   }).join('');
 }
