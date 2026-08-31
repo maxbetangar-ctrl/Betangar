@@ -10,7 +10,12 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 //  recupera: el proveedor NO tiene endpoint de historial (probados 31 nombres el
 //  14/08/2026), así que el hueco es para siempre.
 //
-//  VIGILA TRES COSAS DISTINTAS, y son distintas a propósito:
+//  VIGILA CUATRO COSAS DISTINTAS, y son distintas a propósito:
+//   0. 🔴 APAGÓN DE FLOTA (`?modo=apagon`, cada 5 min) — varias unidades mudas AL
+//      MISMO TIEMPO con el motor encendido. Eso no es un camión: es la plataforma
+//      del proveedor. Va por su propio camino porque su DESTINATARIO es otro —el
+//      contacto del proveedor, con copia adentro— y porque su cadencia es otra:
+//      las otras tres se miran dos veces al día, ésta cada cinco minutos.
 //   1. 🔴 EL CONECTOR NO CORRE — `gps-sondeo` debería pasar cada 2 minutos. Si hace
 //      más de 30 no pasa, no se está guardando NADA de NINGUNA unidad. Es lo más
 //      grave y no tiene falsos positivos.
@@ -42,6 +47,19 @@ const AVISAR_A = Deno.env.get("GPS_AVISAR_A") || "584147379886";  // Máximo
 const MIN_CONECTOR = 30;   // minutos sin correr el sondeo = está caído
 const HS_MUDO = 5;         // horas sin reportar de una unidad activa
 
+// ── Apagón de flota ──────────────────────────────────────────────────────────
+const APAGON_MIN_MUDEZ = 10;   // minutos sin reportar para contar como muda
+const APAGON_UMBRAL_DEF = 4;   // unidades mudas a la vez para que sea un apagón
+const APAGON_ESPERA_MIN = 60;  // no se vuelve a avisar antes de esta espera
+
+// ⛔ LA FRANJA ES PARA LA PERSONA DE AFUERA, NO PARA NOSOTROS. Un aviso a un
+// tercero a las 3 de la mañana es una molestia, no una ayuda. Fuera de la franja
+// el aviso NO se pierde: sale igual para adentro, diciendo que no se mandó
+// afuera y por qué. Lo que no puede pasar es que el silencio de la noche se vea
+// igual que una noche sin novedad.
+const FRANJA_DESDE = 8;
+const FRANJA_HASTA = 20;
+
 async function sel(path: string): Promise<any[]> {
   const r = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, { headers: HDR });
   if (!r.ok) { console.error("sel", path, r.status, await r.text()); return []; }
@@ -72,6 +90,28 @@ function horaVE(iso: string | null): string {
   const p = (n: number) => String(n).padStart(2, "0");
   return `${p(d.getUTCDate())}/${p(d.getUTCMonth() + 1)} ${p(d.getUTCHours())}:${p(d.getUTCMinutes())}`;
 }
+/** Lee una fila de `configuracion`. El valor es TEXT: puede venir serializado o crudo. */
+async function cfg(clave: string): Promise<any> {
+  const r = await sel(`configuracion?select=valor&clave=eq.${clave}`);
+  const v = r[0]?.valor;
+  if (v == null) return null;
+  try { return JSON.parse(v); } catch { return v; }
+}
+
+async function rpc(fn: string, args: Record<string, unknown>): Promise<any[]> {
+  const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/${fn}`, {
+    method: "POST", headers: { ...HDR, "Content-Type": "application/json" },
+    body: JSON.stringify(args),
+  });
+  if (!r.ok) { console.error("rpc", fn, r.status, await r.text()); return []; }
+  return await r.json();
+}
+
+/** La hora del NEGOCIO (Venezuela, UTC-4), que es la que decide si se puede escribir. */
+function horaNegocio(): number {
+  return new Date(Date.now() - 4 * 3600 * 1000).getUTCHours();
+}
+
 function hace(ms: number): string {
   const m = Math.round(ms / 60000);
   if (m < 60) return `hace ${m} min`;
@@ -85,7 +125,114 @@ Deno.serve(async (req) => {
     const dry = new URL(req.url).searchParams.get("dry") === "1";
     const ahora = Date.now();
 
-    const equipos = await sel("gps_equipos?select=cam,placa&activo=is.true&order=cam");
+    const equipos = await sel("gps_equipos?select=cam,placa,placa_proveedor&activo=is.true&order=cam");
+
+    // ── 0. APAGÓN DE FLOTA ───────────────────────────────────────────────────
+    // Camino aparte, y a propósito: otro destinatario, otra cadencia y otro texto.
+    if (new URL(req.url).searchParams.get("modo") === "apagon") {
+      const umbralCfg = await cfg("gps_apagon_umbral");
+      let umbral = Number(umbralCfg?.unidades ?? umbralCfg ?? APAGON_UMBRAL_DEF) || APAGON_UMBRAL_DEF;
+      let minMudez = APAGON_MIN_MUDEZ;
+
+      // ⚠️ ENSAYO — SOLO EN SECO. Un apagón de flota pasa cada varios días, así que
+      // sin esto el camino completo (la consulta, la placa del proveedor, el texto,
+      // la franja horaria) se estrenaría el día que hace falta que funcione. Con
+      // `?modo=apagon&dry=1&ensayo=1` se baja el umbral a 1 y la mudez a 0, y
+      // contesta el mensaje EXACTO que saldría, sin encolar ni marcar nada.
+      // ⛔ Va atado a `dry`: sin él se ignora. Un modo de prueba que puede enviar
+      // de verdad es un accidente esperando la tecla equivocada.
+      if (dry && new URL(req.url).searchParams.get("ensayo") === "1") {
+        umbral = 1; minMudez = 0;
+      }
+
+      const mudas = await rpc("gps_mudas_andando", {
+        p_min_mudez: minMudez, p_max_h: HS_MUDO,
+      });
+
+      if (mudas.length < umbral) {
+        return new Response(JSON.stringify({
+          ok: true, modo: "apagon", sin_novedad: true,
+          mudas_andando: mudas.length, umbral,
+        }), { headers: { "Content-Type": "application/json" } });
+      }
+
+      // ⚠️ LA ESPERA NO ES POR UNIDAD NI POR DÍA: es por EPISODIO, y un apagón es
+      // UNO solo aunque las unidades entren y salgan de la lista minuto a minuto.
+      // Con clave por unidad, cada camión que se sumaba al apagón disparaba otro
+      // aviso — y el proveedor recibiría cinco mensajes del mismo corte. Con clave
+      // por día, dos apagones distintos del mismo día avisarían una sola vez.
+      const previas = await sel(
+        `alertas_log?alert_key=like.gps-apagon-*&select=sent_at&order=sent_at.desc&limit=1`);
+      const ultAviso = previas[0]?.sent_at ? new Date(previas[0].sent_at).getTime() : 0;
+      const minDesde = ultAviso ? (ahora - ultAviso) / 60000 : 99999;
+      if (minDesde < APAGON_ESPERA_MIN) {
+        return new Response(JSON.stringify({
+          ok: true, modo: "apagon", callado_por_espera: true,
+          mudas_andando: mudas.length, umbral, min_desde_ultimo: Math.round(minDesde),
+        }), { headers: { "Content-Type": "application/json" } });
+      }
+
+      const placaDe: Record<string, string> = {};
+      equipos.forEach((e) => { placaDe[e.cam] = e.placa_proveedor || e.placa || e.cam; });
+      const detalle = mudas.map((m: any) =>
+        `• ${placaDe[m.cam] || m.cam} (${m.cam}) — último reporte ${horaVE(m.ultimo)}, hace ${m.min_mudo} min`
+      ).join("\n");
+
+      const hora = horaNegocio();
+      const enFranja = hora >= FRANJA_DESDE && hora < FRANJA_HASTA;
+      const prov = await cfg("gps_proveedor_tel");
+      const telProv = prov?.tel || null;
+      const nomProv = prov?.nombre || "el proveedor";
+      // Solo el nombre de pila para el saludo: «Hola, Enyuly Albarrán» no lo escribe
+      // ninguna persona. Y sale de la CONFIGURACIÓN, no del código — este repo es
+      // público y el nombre de quien atiende del otro lado no tiene por qué estarlo.
+      const saludo = prov?.nombre ? `Hola, ${String(prov.nombre).split(" ")[0]}.` : "Buenas.";
+
+      // ⛔ El texto de AFUERA no lleva nada nuestro adentro: ni jerga del sistema, ni
+      // nada que insinúe que lo escribió una máquina (el candado de `cola_mensajes`
+      // lo frenaría, y con razón). La etiqueta de la empresa la antepone el worker.
+      const paraProveedor =
+        `${saludo} Le escribimos por el rastreo de la flota.\n\n` +
+        `Ahora mismo tenemos ${mudas.length} unidades que dejaron de reportar posición ` +
+        `casi al mismo tiempo, y todas con el motor encendido en el último dato que nos llegó ` +
+        `— o sea, con los camiones andando:\n\n${detalle}\n\n` +
+        `El odómetro de los equipos sigue sumando kilómetros, así que los camiones se están ` +
+        `moviendo: lo que no nos llega es la posición. Y nos pasa que las unidades se van ` +
+        `callando en momentos distintos pero vuelven todas en el mismo minuto, que es lo que ` +
+        `nos hace pensar que el corte no está en los aparatos.\n\n` +
+        `¿Nos puede revisar si hay algo trabado del lado de la plataforma? Quedamos atentos.`;
+
+      const paraAdentro =
+        `🛰️ *Apagón del rastreo*\n\n` +
+        `${mudas.length} unidades mudas al mismo tiempo con el motor encendido ` +
+        `(umbral: ${umbral}):\n\n${detalle}\n\n` +
+        (!telProv
+          ? `⛔ NO se le avisó a nadie afuera: falta el teléfono en configuracion.gps_proveedor_tel.`
+          : enFranja
+            ? `✅ Se le avisó a ${nomProv} (${telProv}).`
+            : `🕐 NO se le avisó a ${nomProv} todavía: son las ${String(hora).padStart(2, "0")}:xx ` +
+              `y a un tercero se le escribe entre las ${FRANJA_DESDE}:00 y las ${FRANJA_HASTA}:00.`);
+
+      const cola: any[] = [{
+        tipo: "gps_apagon", telefono: AVISAR_A, mensaje: paraAdentro, ref: "gps-apagon-interno",
+      }];
+      if (telProv && enFranja) {
+        cola.push({
+          tipo: "gps_apagon", telefono: telProv, mensaje: paraProveedor, ref: "gps-apagon-proveedor",
+        });
+      }
+
+      const clave = `gps-apagon-${new Date(mudas[0].ultimo).getTime()}`;
+      if (!dry) { await encolar(cola); await marcar(clave); }
+
+      return new Response(JSON.stringify({
+        ok: true, modo: "apagon", dry, aviso: true,
+        mudas_andando: mudas.length, umbral, en_franja: enFranja,
+        al_proveedor: telProv && enFranja ? telProv : null,
+        clave, mensaje_proveedor: paraProveedor, mensaje_interno: paraAdentro,
+      }), { headers: { "Content-Type": "application/json" } });
+    }
+
     if (!equipos.length) {
       return new Response(JSON.stringify({ ok: true, aviso: "no hay unidades activas" }), {
         headers: { "Content-Type": "application/json" } });
