@@ -59,6 +59,32 @@ function aplicarMarcaAccent(){
   }catch(e){}
 }
 aplicarMarcaAccent();
+
+// ── EL FAVICON TAMBIÉN ES MARCA ─────────────────────────────────────────────
+// ⛔ 01/09/2026: estaba clavado como un data-URI con una «F» en el verde del molde.
+//    Un cliente con su logo puesto seguía viendo la letra de otro en la pestaña.
+function aplicarFavicon(){
+  try{
+    var href = BTG_CONFIG.logo || '';
+    if(!href){
+      var m = (BTG_CONFIG.empresa_marca || BTG_CONFIG.empresa_nombre || 'M').trim();
+      var ini = m.charAt(0).toUpperCase();
+      var col = (BTG_CONFIG.accent && BTG_CONFIG.accent.green) || '#a3e635';
+      var svg = "<svg xmlns='http://www.w3.org/2000/svg' width='64' height='64' viewBox='0 0 64 64'>"
+        + "<rect width='64' height='64' rx='13' fill='#0f2038'/>"
+        + "<text x='32' y='47' font-family='Arial,Helvetica,sans-serif' font-size='42' font-weight='900' fill='"
+        + col + "' text-anchor='middle'>" + ini + "</text></svg>";
+      href = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svg)));
+    }
+    ['icon','apple-touch-icon'].forEach(function(rel){
+      var l = document.querySelector('link[rel="' + rel + '"]');
+      if(!l){ l = document.createElement('link'); l.rel = rel; document.head.appendChild(l); }
+      l.href = href;
+    });
+  }catch(e){}
+}
+if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',aplicarFavicon); else aplicarFavicon();
+
 // Atajos de marca para los encabezados/pies de impresión (leen de BTG_CONFIG → al clonar, cambia SOLO el config).
 function brandNom(){ return BTG_CONFIG.empresa_nombre||''; }
 function brandNomUp(){ return (BTG_CONFIG.empresa_nombre||'').toUpperCase(); }
