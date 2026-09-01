@@ -492,7 +492,11 @@ async function hidratarMarcaDesdeBD(){
     if(!puso)return false;
     // Re-aplicar lo que se aplicó una sola vez al cargar.
     if(BTG_CONFIG.logo){ LOGO_SVG=BTG_CONFIG.logo;
-      try{ ['login-logo-img','nav-logo-img','dash-logo'].forEach(function(id){ var el=document.getElementById(id); if(el)el.src=LOGO_SVG; }); }catch(e){}
+      try{ ['login-logo-img','nav-logo-img','dash-logo'].forEach(function(id){ var el=document.getElementById(id); if(!el)return;
+        if(el.tagName==='IMG'){ el.src=LOGO_SVG; }
+        else { // es un <div> con el nombre escrito: se reemplaza por la imagen
+          el.innerHTML='<img src="'+LOGO_SVG+'" alt="'+(BTG_CONFIG.empresa_nombre||'')+'" style="max-height:74px;max-width:88%;display:block;margin:0 auto">';
+        } }); }catch(e){}
     }
     if(BTG_CONFIG.favicon){ try{ var lk=document.querySelector('link[rel~="icon"]'); if(!lk){ lk=document.createElement('link'); lk.rel='icon'; document.head.appendChild(lk); } lk.href=BTG_CONFIG.favicon; }catch(e){} }
     try{ aplicarMarcaAccent(); }catch(e){}
@@ -1085,7 +1089,9 @@ function _iniciarSesionCore(){
   try{ verificarLicencia(); }catch(e){}         // kill-switch (no bloquea el arranque si falla)
   DEMO_MODE=SESION.demo;
   var db=document.getElementById('demo-banner');if(db)db.style.display=DEMO_MODE?'block':'none';
-  ['login-logo-img','nav-logo-img','dash-logo'].forEach(function(id){var el=document.getElementById(id);if(el)el.src=LOGO_SVG;});
+  ['login-logo-img','nav-logo-img','dash-logo'].forEach(function(id){var el=document.getElementById(id);if(!el)return;
+    if(el.tagName==='IMG')el.src=LOGO_SVG;
+    else el.innerHTML='<img src="'+LOGO_SVG+'" alt="'+(BTG_CONFIG.empresa_nombre||'')+'" style="max-height:74px;max-width:88%;display:block;margin:0 auto">';});
   try{ if(typeof render2FAEstado==='function')render2FAEstado(); }catch(e){} // estado del 2FA en Configuración
   try{ if(window.Sentry&&SESION){ Sentry.setUser({username:SESION.usuario}); Sentry.setTag('rol',SESION.rol||''); } }catch(e){} // contexto para depurar errores
   var galCams=document.getElementById('gal-cams');if(galCams)galCams.textContent=Object.keys(FLOTA).length;
