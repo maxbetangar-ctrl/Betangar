@@ -13960,14 +13960,23 @@ function _mantPeor(a,b){ return (_MANT_RANK[(b&&b.estado)||'']||0) > (_MANT_RANK
 // Estado de un ítem en una unidad con DOBLE INTERVALO: inspección (revisar) y sustitución (cambiar).
 // La inspección cuenta desde el último evento cualquiera; el cambio desde el último 'cambio'.
 function _mantEstado(cam,it){
+  // Compatibilidad: ítems viejos con "intervalo" único → lo tratamos como cambio.
+  var iInsp=it.inspeccion||0, iSust=it.sustitucion||it.intervalo||0;
+  // DOBLE CICLO = el ítem distingue REVISAR de CAMBIAR. Solo ahí tiene sentido anclar el ciclo de
+  // sustitución únicamente en un evento 'cambio': revisar un caucho no le renueva la vida.
+  var dobleCiclo=iInsp>0&&iSust>0;
   var lastAny=_ultimoMantItem(cam,it.id);
-  var lastCambio=_ultimoMantItem(cam,it.id,'cambio')||lastAny;
+  // ⛔ Con UN SOLO intervalo el evento del ítem ES el servicio: un engrase guardado como
+  //    "correctivo" engrasó igual. Filtrar por tipoTrabajo='cambio' dejaba el «Próximo» clavado en
+  //    un evento viejo y el plan no avanzaba nunca. Medido el 01/09/2026 (reporte de Alejandra):
+  //    B011 engrase mostraba 30/04/2026 teniendo el último engrase el 23/08/2026, y B002 aceite
+  //    mostraba 17.260 km habiéndose registrado 15.433. 23 pares (unidad,ítem) así en Betangar,
+  //    y NINGUNO de los 29 ítems activos tiene inspección propia: la rama de doble ciclo no corría.
+  var lastCambio=dobleCiclo?(_ultimoMantItem(cam,it.id,'cambio')||lastAny):lastAny;
   var med=(typeof medidaUnidad==='function')?medidaUnidad(cam):'km';
   // lectura de uso según la BASE del ítem: km o horas de la unidad (o null si la unidad va por 'tiempo').
   function _lect(base){ if(base==='km')return (med==='tiempo')?null:((typeof kmActualCam==='function')?kmActualCam(cam):((KM_DATA[cam]&&KM_DATA[cam].km)||0)); if(base==='horas')return (med==='tiempo')?null:horasActualUnidad(cam); return null; }
   var hoy=fechaVE();
-  // Compatibilidad: ítems viejos con "intervalo" único → lo tratamos como cambio.
-  var iInsp=it.inspeccion||0, iSust=it.sustitucion||it.intervalo||0;
   var insp=iInsp>0?_mantEstadoCalc(it.base,iInsp,it.avisoAnticipo,lastAny,_lect(it.base),hoy):null;
   var cambio=iSust>0?_mantEstadoCalc(it.base,iSust,it.avisoAnticipo,lastCambio,_lect(it.base),hoy):null;
   var peor=_mantPeor(insp,cambio)||insp||cambio||{estado:'sin_intervalo'};

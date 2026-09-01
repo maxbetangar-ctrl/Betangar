@@ -757,6 +757,44 @@ function resetCola(){ app.COLA_OFFLINE=[]; app.COLA_FALLIDOS=[]; app._procesando
   ok('doble intervalo: calcula inspección y cambio', !!(eDob.insp && eDob.cambio));
   eq('inspección vencida (1000+5000=6000, km 6000)', eDob.insp.estado, 'vencido');
   eq('cambio al día (1000+10000=11000)', eDob.cambio.estado, 'al_dia');
+  // ── UN SOLO INTERVALO: el «Próximo» se ancla en el ÚLTIMO evento, sea cual sea su tipo ──
+  // Casos REALES reportados por Alejandra el 01/09/2026. Antes del arreglo el motor buscaba el
+  // último evento con tipoTrabajo='cambio' aunque el ítem no tuviera ciclo de inspección propio:
+  // el plan se quedaba clavado en un evento viejo y no avanzaba nunca al registrar el servicio.
+  // ⚠️ Estos dos casos FALLAN con el código anterior — es lo que los hace un control y no un adorno.
+  console.log('\nPreventivo con un solo intervalo (reporte Alejandra 01/09/2026):');
+  app.REGS = []; app.CHECKLIST_DATA = []; app.KM_DATA = {}; app.VIAJES_CHOFER = [];
+  app.UNIDAD_CONFIG = { 'JAC-B011': { medida: 'tiempo' } };
+  app.MANT_ITEMS = [{ id: 'engrase', nombre: 'Engrase', base: 'dias', intervalo: 15, inspeccion: 0, sustitucion: 0, avisoAnticipo: 0, activo: true }];
+  app.MANTENIMIENTOS = [
+    { id: 'e1', cam: 'JAC-B011', itemId: 'engrase', fecha: '2026-04-15', km: 4388, tipoTrabajo: 'cambio' },
+    { id: 'e2', cam: 'JAC-B011', itemId: 'engrase', fecha: '2026-07-19', km: 14321, tipoTrabajo: 'correctivo' },
+    { id: 'e3', cam: 'JAC-B011', itemId: 'engrase', fecha: '2026-08-23', km: 18608, tipoTrabajo: 'correctivo' }
+  ];
+  var eB011 = app._mantEstado('JAC-B011', app.MANT_ITEMS[0]);
+  eq('B011 engrase: «Última vez» es el 23/08', eB011.ultimo.fecha, '2026-08-23');
+  eq('B011 engrase: «Próximo» = 23/08 + 15d (la pantalla mostraba 30/04/2026)', eB011.venc, '2026-09-07');
+  app.UNIDAD_CONFIG = { 'JAC-B002': { medida: 'km' } };
+  app.KM_DATA = { 'JAC-B002': { km: 17314 } };
+  app.MANT_ITEMS = [{ id: 'aceite_motor', nombre: 'Aceite de motor', base: 'km', intervalo: 5000, inspeccion: 0, sustitucion: 0, avisoAnticipo: 500, activo: true }];
+  app.MANTENIMIENTOS = [
+    { id: 'a1', cam: 'JAC-B002', itemId: 'aceite_motor', fecha: '2026-07-08', km: 12260, tipoTrabajo: 'cambio' },
+    { id: 'a2', cam: 'JAC-B002', itemId: 'aceite_motor', fecha: '2026-08-05', km: 15433, tipoTrabajo: 'correctivo' }
+  ];
+  var eB002 = app._mantEstado('JAC-B002', app.MANT_ITEMS[0]);
+  eq('B002 aceite: «Próximo» = 15.433 + 5.000 (la pantalla mostraba 17.260)', eB002.venc, 20433);
+  // CONTROL NEGATIVO: con doble ciclo (inspección Y sustitución) el cambio SIGUE anclado en el
+  // último 'cambio'. Sin esto, el arreglo de arriba pasaría también con el filtro borrado de raíz.
+  app.KM_DATA = { 'U9': { km: 13000 } }; app.UNIDAD_CONFIG = { 'U9': { medida: 'km' } };
+  app.MANT_ITEMS = [{ id: 'c', nombre: 'Caucho', base: 'km', inspeccion: 5000, sustitucion: 60000, avisoAnticipo: 500, activo: true }];
+  app.MANTENIMIENTOS = [
+    { id: 'c1', cam: 'U9', itemId: 'c', fecha: '2026-01-01', km: 1000, tipoTrabajo: 'cambio' },
+    { id: 'c2', cam: 'U9', itemId: 'c', fecha: '2026-08-01', km: 12000, tipoTrabajo: 'reparacion' }
+  ];
+  var eU9 = app._mantEstado('U9', app.MANT_ITEMS[0]);
+  eq('doble ciclo: reparar NO renueva la vida del caucho (1.000+60.000)', eU9.cambio.venc, 61000);
+  eq('doble ciclo: la inspección sí cuenta desde el último evento (12.000+5.000)', eU9.insp.venc, 17000);
+
   // medida por unidad + horas
   app.UNIDAD_CONFIG = { 'U1': { medida: 'horas', horasActuales: 340 } };
   eq('medidaUnidad explícita = horas', app.medidaUnidad('U1'), 'horas');
