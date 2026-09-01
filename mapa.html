@@ -794,6 +794,62 @@ async function traer(){
   return todo;
 }
 
+// ── ¿EL PROVEEDOR ESTÁ ENTREGANDO LA FLOTA? ──────────────────────────────────
+//
+//  ⛔ UN MAPA VACÍO NO ES UNA RESPUESTA. Hasta el 01/09 esta pantalla, sin datos
+//  del día, decía «Todavía no hay posiciones de hoy. En cuanto el primer camión
+//  reporte, aparece acá solo». Esa mañana la frase llevaba DIEZ HORAS siendo
+//  falsa: el proveedor había dejado de listar la cuenta a las 23:49 y no iba a
+//  aparecer nada nunca. Es el defecto del 29/08 con otro disfraz — el dato es
+//  correcto y la lectura que induce es falsa, y encima manda a esperar.
+//
+//  ⚠️ LO QUE DECIDE NO ES LA FALTA DE POSICIONES. De noche, con el motor
+//  apagado, el equipo reporta 1 vez por hora: un rato sin posiciones es normal.
+//  Lo que no tiene cadencia es el LISTADO — `gps-sondeo` pide toda la cuenta
+//  cada minuto y el proveedor contesta con TODAS las unidades, se hayan movido o
+//  no. Cada una deja su marca en `gps_sync_estado.ultimo_ok`. Que esa marca se
+//  detenga es una sola cosa: el proveedor dejó de entregar.
+//
+//  ⚠️ Se lee bajo el RLS de esta pantalla. Si vuelve vacío puede ser que no haya
+//  filas o que este usuario no pueda leerlas, y las dos se ven IGUAL: por eso en
+//  ese caso no se afirma nada, se dice que no se pudo saber. Un «no podés»
+//  disfrazado de «todo bien» es el mismo error que esto viene a arreglar.
+var ESTADO=null;
+// Solo decide cuándo mostrar la nota, no dispara ninguna alarma: la alarma vive
+// en `gps-vigilante?modo=apagon` con su umbral en `configuracion`. Dos piezas que
+// avisan cosas distintas pueden tener números distintos; lo que no puede haber es
+// dos que decidan LO MISMO desde dos lados.
+var MIN_SIN_LISTAR=15;
+async function traerEstado(){
+  try{
+    var r=await sb.from('gps_sync_estado').select('cam,ultimo_ok,ultimo_error');
+    if(r.error || !r.data || !r.data.length){ ESTADO={leible:false}; return; }
+    var ult=0;
+    r.data.forEach(function(f){
+      var t=f.ultimo_ok?new Date(f.ultimo_ok).getTime():0;
+      if(t>ult) ult=t;
+    });
+    ESTADO={ leible:true, unidades:r.data.length, ultimo:ult||null,
+             min: ult?Math.round((Date.now()-ult)/60000):null };
+  }catch(e){ ESTADO={leible:false}; }
+}
+
+/** La explicación de por qué no hay nada. Devuelve HTML o '' si no hay nada que decir. */
+function avisoRastreo(){
+  if(!ESTADO) return '';
+  if(!ESTADO.leible){
+    return '<div class="aviso mal"><b>No se pudo leer el estado del rastreo</b> con este '
+      +'usuario, así que desde acá no se puede distinguir si los camiones no han salido o '
+      +'si el proveedor dejó de entregar los datos. Avisá a soporte.</div>';
+  }
+  if(ESTADO.min===null || ESTADO.min<MIN_SIN_LISTAR) return '';
+  return '<div class="aviso mal"><b>El proveedor del GPS no está entregando datos.</b> '
+    +'La última vez que su plataforma nos listó la flota fue a las '+horaVE(ESTADO.ultimo)
+    +' ('+hace(ESTADO.min)+'). Desde entonces contesta sin unidades: ninguna de las '
+    +ESTADO.unidades+' aparece. <b>No es que los camiones no hayan salido</b> — es que no '
+    +'nos están llegando sus posiciones, y esto no se arregla desde esta pantalla.</div>';
+}
+
 var crudo=[];
 function pintar(){
   var porCam={};
@@ -806,17 +862,29 @@ function pintar(){
   var hist=!esHoy();
 
   if(!cams.length){
+    // ⛔ «Todavía no hay» es una PROMESA, y no se hace sin haberla comprobado.
+    // Solo vale cuando el proveedor está entregando: entonces sí, falta que el
+    // primer camión reporte. Si dejó de entregar, no va a aparecer nada y
+    // decirle a alguien que espere es mandarlo a mirar una pantalla muerta.
+    var corte = !hist ? avisoRastreo() : '';
     document.getElementById('lista').innerHTML='<div class="u"><div class="u-dir">'
       +(hist
         ? 'No hay posiciones guardadas del '+fechaCorta(DIA)+'. Puede que ese día el '
           +'sondeo no estuviera corriendo, o que la unidad todavía no tuviera acceso: '
           +'el historial del GPS nace el día que arranca el sondeo, no se puede recuperar hacia atrás.'
-        : 'Todavía no hay posiciones de hoy. El sistema consulta cada minuto; en cuanto '
-          +'el primer camión reporte, aparece acá solo.')
+        : corte
+          ? 'No hay posiciones de hoy, y no es que los camiones no hayan salido: mirá el '
+            +'aviso de arriba.'
+          : 'Todavía no hay posiciones de hoy. El sistema consulta cada minuto; en cuanto '
+            +'el primer camión reporte, aparece acá solo.')
       +'</div></div>';
-    document.getElementById('sello').textContent = hist ? 'sin datos del '+fechaCorta(DIA) : 'sin datos de hoy';
+    if(corte) document.getElementById('avisos').innerHTML = corte;
+    document.getElementById('sello').textContent = hist
+      ? 'sin datos del '+fechaCorta(DIA)
+      : (corte ? 'el proveedor no entrega desde las '+horaVE(ESTADO.ultimo) : 'sin datos de hoy');
     return;
   }
+
 
   cams.forEach(function(cam){
     var pts=porCam[cam], ult=pts[pts.length-1];
@@ -984,11 +1052,20 @@ function pintar(){
     if(primeraVez&&bordes.length){ mapa.fitBounds(bordes,{padding:[50,50],maxZoom:15}); primeraVez=false; }
     return;
   }
-  document.getElementById('avisos').innerHTML = mudos.length
-    ? '<div class="aviso ojo"><b>'+mudos.length+' unidad'+(mudos.length>1?'es':'')+' sin reportar</b> hace más de '
-      +MUDO_MIN+' min: '+mudos.map(function(c){return c.replace('JAC-','');}).join(', ')
-      +'. En el mapa se ve dónde se les perdió el rastro, no dónde están ahora.</div>'
-    : '';
+  // ⛔ SI EL PROVEEDOR NO ESTÁ ENTREGANDO, LA PANTALLA NO PUEDE ACUSAR AL CAMIÓN.
+  // «3 unidades sin reportar» se lee como tres equipos con falla y manda a
+  // revisar tres aparatos sanos: cuando la cuenta entera está muda, esas
+  // unidades son la CONSECUENCIA, no la causa. Es el mismo sujeto equivocado del
+  // 31/08 —un apagón general mostrado por unidad se lee como diez fallas
+  // distintas— y por eso el corte reemplaza a la lista, no la acompaña.
+  var corteVivo = avisoRastreo();
+  document.getElementById('avisos').innerHTML = corteVivo
+    ? corteVivo
+    : (mudos.length
+      ? '<div class="aviso ojo"><b>'+mudos.length+' unidad'+(mudos.length>1?'es':'')+' sin reportar</b> hace más de '
+        +MUDO_MIN+' min: '+mudos.map(function(c){return c.replace('JAC-','');}).join(', ')
+        +'. En el mapa se ve dónde se les perdió el rastro, no dónde están ahora.</div>'
+      : '');
 
   document.getElementById('sello').textContent=cams.length+' unidad'+(cams.length>1?'es':'');
   if(primeraVez&&bordes.length){ mapa.fitBounds(bordes,{padding:[50,50],maxZoom:15}); primeraVez=false; }
@@ -1042,6 +1119,9 @@ function vigilarCanal(){
 async function repaso(){
   if(!esHoy()) return;      // un día pasado no cambia: repasarlo es gastar por gastar
   try{
+    // ⛔ ANTES de pintar: `pintar()` decide con esto si lo que muestra es «todavía
+    // no llegó» o «el proveedor dejó de entregar», y son dos pantallas distintas.
+    await traerEstado();
     crudo=await traer(); pintar(); marcarVivo();
     document.getElementById('avisos').innerHTML+='';
   }catch(e){
@@ -1102,6 +1182,7 @@ async function irADia(f){
   limpiarDibujo();
   document.getElementById('sello').textContent='cargando…';
   try{
+    if(esHoy()) await traerEstado();
     crudo=await traer(); pintar();
     if(esHoy()) marcarVivo();
   }catch(e){

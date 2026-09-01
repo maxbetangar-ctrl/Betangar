@@ -10,8 +10,15 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 //  recupera: el proveedor NO tiene endpoint de historial (probados 31 nombres el
 //  14/08/2026), así que el hueco es para siempre.
 //
-//  VIGILA CUATRO COSAS DISTINTAS, y son distintas a propósito:
-//   0. 🔴 APAGÓN DE FLOTA (`?modo=apagon`, cada 5 min) — varias unidades mudas AL
+//  VIGILA CINCO COSAS DISTINTAS, y son distintas a propósito:
+//   0. 🔴 LA CUENTA DEJÓ DE LISTAR (`?modo=apagon`, cada 5 min) — el proveedor
+//      contesta bien pero SIN UNIDADES: no entrega la flota. Se mide el latido
+//      del LISTADO (`gps_sync_estado.ultimo_ok`, un minuto), que no depende del
+//      motor ni de la hora. ⛔ Se mira ANTES que el apagón de abajo porque el
+//      sujeto es otro —la cuenta, no los camiones— y porque el de abajo NO PUEDE
+//      VERLO: el 01/09 las 10 unidades se callaron estacionadas y `mudas
+//      andando` devolvía 0 con el rastreo entero muerto durante 10 horas.
+//   0.b 🔴 APAGÓN DE FLOTA (`?modo=apagon`, cada 5 min) — varias unidades mudas AL
 //      MISMO TIEMPO con el motor encendido. Eso no es un camión: es la plataforma
 //      del proveedor. Va por su propio camino porque su DESTINATARIO es otro —el
 //      contacto del proveedor, con copia adentro— y porque su cadencia es otra:
@@ -51,6 +58,14 @@ const HS_MUDO = 5;         // horas sin reportar de una unidad activa
 const APAGON_MIN_MUDEZ = 10;   // minutos sin reportar para contar como muda
 const APAGON_UMBRAL_DEF = 4;   // unidades mudas a la vez para que sea un apagón
 const APAGON_ESPERA_MIN = 60;  // no se vuelve a avisar antes de esta espera
+
+// ── La cuenta dejó de listar ─────────────────────────────────────────────────
+// Otro sujeto y otro instrumento: no son camiones callados, es el proveedor que
+// no entrega la flota. Se mide `gps_sync_estado.ultimo_ok` —el latido del
+// LISTADO, que es de un minuto y no depende del motor ni de la hora— y no las
+// posiciones, que de noche con el motor apagado llegan una por hora.
+const CUENTA_MUDA_MIN = 15;    // minutos sin que la cuenta liste NINGUNA unidad
+const CUENTA_RECORDAR_H = 6;   // cada cuánto se repite el aviso ADENTRO mientras dure
 
 // ⛔ LA FRANJA ES PARA LA PERSONA DE AFUERA, NO PARA NOSOTROS. Un aviso a un
 // tercero a las 3 de la mañana es una molestia, no una ayuda. Fuera de la franja
@@ -164,6 +179,131 @@ Deno.serve(async (req) => {
         umbral = 1; minMudez = 0;
       }
 
+      // ── 0.a LA CUENTA DEJÓ DE LISTAR ────────────────────────────────────────
+      //
+      //  ⛔ SE MIRA ANTES QUE LAS MUDAS ANDANDO, y el sujeto es otro: no es que
+      //  varios camiones se hayan callado, es que el proveedor no está
+      //  entregando la flota. Si la cuenta está muda, `gps_mudas_andando` no
+      //  agrega nada —o no ve nada, que fue lo que pasó el 01/09— y avisar por
+      //  los dos caminos sería mandarle dos mensajes distintos del mismo corte.
+      //
+      //  POR QUÉ HIZO FALTA (01/09/2026): a las 23:49 del 31/08 la cuenta dejó
+      //  de listar. Las 10 unidades se habían callado ESTACIONADAS, así que
+      //  `gps_mudas_andando` —que solo cuenta motor encendido— devolvía 0 y la
+      //  flota se veía sana con el rastreo entero muerto. Diez horas después no
+      //  había un solo dato y lo descubrió Máximo mirando la pantalla.
+      //  El motor encendido es lo que evita el aviso que salta todas las noches;
+      //  también es lo que ciega la alarma cuando el corte empieza de noche.
+      const cuentaCfg = await cfg("gps_cuenta_muda_min");
+      const minCuenta = dry && new URL(req.url).searchParams.get("ensayo") === "1"
+        ? 0
+        : (Number(cuentaCfg?.minutos ?? cuentaCfg ?? CUENTA_MUDA_MIN) || CUENTA_MUDA_MIN);
+      const cuenta = (await rpc("gps_cuenta_muda", { p_min: minCuenta }))[0];
+
+      if (cuenta?.muda) {
+        // ⚠️ EL EPISODIO ES EL CORTE, y su nombre es el minuto del último listado
+        // bueno: no cambia mientras el apagón dure, así que al proveedor le sale
+        // UN mensaje por corte y no uno por hora. Si la cuenta vuelve y se cae de
+        // nuevo, el último listado es otro y eso sí es un episodio nuevo.
+        const claveEpisodio = `gps-cuenta-${new Date(cuenta.ultimo_listado).getTime()}`;
+        const yaAfuera = await yaAviso(claveEpisodio);
+
+        // ⚠️ Para ADENTRO sí se repite, cada 6 horas mientras dure. Un aviso a la
+        // medianoche y después silencio se lee igual que un apagón que terminó —
+        // y hoy la flota estuvo ciega 10 horas sin que nadie lo supiera. Al
+        // proveedor no se le repite: ya lo sabe, insistir es pisarle el reclamo.
+        const bloque = Math.floor((cuenta.min_sin_listar || 0) / (CUENTA_RECORDAR_H * 60));
+        const claveAdentro = `${claveEpisodio}-in${bloque}`;
+        const yaAdentro = await yaAviso(claveAdentro);
+
+        const hora = horaNegocio();
+        const enFranja = hora >= FRANJA_DESDE && hora < FRANJA_HASTA;
+        const prov = await cfg("gps_proveedor_tel");
+        const telProv = prov?.tel || null;
+        const nomProv = prov?.nombre || "el proveedor";
+        const saludo = prov?.nombre ? `Hola, ${String(prov.nombre).split(" ")[0]}.` : "Buenas.";
+        const empresa = await nombreEmpresa();
+        const desde = horaVE(cuenta.ultimo_listado);
+        const cuanto = hace((cuenta.min_sin_listar || 0) * 60000);
+        // `hace()` devuelve «hace 11 h», que encaja entre paréntesis pero no dentro
+        // de una oración: «Llevamos hace 11 h sin ver la flota» no lo escribe nadie.
+        // Se apareció al renderizar el texto EXACTO antes de mandarlo, no leyendo el
+        // código. Un texto que va a leer un tercero se mira armado, no en la plantilla.
+        const duracion = cuanto.replace(/^hace /, "");
+
+        // ⛔ Al de afuera se le cuenta lo MEDIDO y nada más. La causa no se
+        // afirma: «vacío sin error» puede ser su plataforma trabada o la cuenta
+        // sin unidades asignadas, y desde acá las dos se ven idénticas. Decirle
+        // cuál es sería afirmar lo que nadie midió, y encima ante quien puede
+        // comprobarlo contra su propio sistema.
+        const paraProveedor =
+          `${saludo} Le escribimos de ${empresa}, por el rastreo de nuestra flota.\n\n` +
+          `Desde el ${desde} su plataforma dejó de mostrarnos las unidades. Seguimos ` +
+          `consultando cada minuto y la respuesta llega bien, pero llega sin unidades: ` +
+          `la cuenta no muestra ni uno de nuestros ${cuenta.activas} vehículos. Probamos ` +
+          `también placa por placa y responde lo mismo, vacío.\n\n` +
+          `Llevamos ${duracion} sin ver la flota y los camiones están trabajando.\n\n` +
+          `¿Nos puede revisar si la cuenta quedó sin las unidades asignadas, o si hay algo ` +
+          `trabado en la plataforma? Quedamos atentos.`;
+
+        const puedeSalir = Boolean(telProv && empresa && enFranja && !yaAfuera);
+        const motivoNoSale = yaAfuera
+          ? `✅ Ya se le avisó a ${nomProv} por este mismo corte. No se le vuelve a escribir hasta que la cuenta se recupere.`
+          : !telProv
+            ? `⛔ NO se le avisó a nadie afuera: falta el teléfono en configuracion.gps_proveedor_tel.`
+            : !empresa
+              ? `⛔ NO se le avisó a ${nomProv}: no hay nombre de empresa que ponerle al mensaje ` +
+                `(configuracion.wassenger.etiqueta o configuracion.empresa).`
+              : !enFranja
+                ? `🕐 NO se le avisó a ${nomProv} todavía: son las ${String(hora).padStart(2, "0")}:xx ` +
+                  `y a un tercero se le escribe entre las ${FRANJA_DESDE}:00 y las ${FRANJA_HASTA}:00. ` +
+                  `Sale en cuanto abra la franja.`
+                : `✅ Se le avisó a ${nomProv} (${telProv}).`;
+
+        // Los errores que dejó el sondeo distinguen «no vino en el listado» de
+        // «vino con el dato ilegible». Para la alarma dan lo mismo; para saber
+        // qué reclamar, no.
+        const errs = await sel(
+          `gps_sync_estado?select=ultimo_error&ultimo_error=not.is.null&limit=200`);
+        const distintos = [...new Set(errs.map((e: any) => String(e.ultimo_error).slice(0, 120)))];
+
+        const paraAdentro =
+          `🛰️ *El proveedor dejó de entregar el rastreo — ${empresa || "SIN NOMBRE DE EMPRESA"}*\n\n` +
+          `La cuenta no lista NINGUNA de las ${cuenta.activas} unidades activas.\n` +
+          `Último listado bueno: ${desde} (${cuanto}).\n` +
+          `⛔ No hay posiciones nuevas de ninguna unidad desde entonces, y lo que no se ` +
+          `guarda ahora no se recupera: el proveedor no tiene historial.\n\n` +
+          (distintos.length ? `Lo que devuelve el sondeo:\n${distintos.map((d) => `• ${d}`).join("\n")}\n\n` : "") +
+          motivoNoSale;
+
+        const cola: any[] = [];
+        if (!yaAdentro) {
+          cola.push({ tipo: "gps_apagon", telefono: AVISAR_A, mensaje: paraAdentro, ref: "gps-cuenta-interno" });
+        }
+        if (puedeSalir) {
+          cola.push({ tipo: "gps_apagon", telefono: telProv, mensaje: paraProveedor, ref: "gps-cuenta-proveedor" });
+        }
+
+        if (!dry && cola.length) {
+          await encolar(cola);
+          if (!yaAdentro) await marcar(claveAdentro);
+          // ⛔ La marca de AFUERA solo se pone si el mensaje SALIÓ de verdad. Si
+          // el corte empieza de madrugada —como el del 01/09, a las 00:04— el
+          // aviso al proveedor espera a las 8:00; marcarlo antes lo dejaría sin
+          // mandar para siempre.
+          if (puedeSalir) await marcar(claveEpisodio);
+        }
+
+        return new Response(JSON.stringify({
+          ok: true, modo: "apagon", dry, cuenta_muda: true,
+          activas: cuenta.activas, min_sin_listar: cuenta.min_sin_listar,
+          ultimo_listado: cuenta.ultimo_listado, minutos_umbral: minCuenta,
+          en_franja: enFranja, empresa, al_proveedor: puedeSalir ? telProv : null,
+          ya_avisado_afuera: yaAfuera, ya_avisado_adentro: yaAdentro,
+          clave: claveEpisodio, mensaje_proveedor: paraProveedor, mensaje_interno: paraAdentro,
+        }), { headers: { "Content-Type": "application/json" } });
+      }
+
       const mudas = await rpc("gps_mudas_andando", {
         p_min_mudez: minMudez, p_max_h: HS_MUDO,
       });
@@ -202,9 +342,12 @@ Deno.serve(async (req) => {
       const prov = await cfg("gps_proveedor_tel");
       const telProv = prov?.tel || null;
       const nomProv = prov?.nombre || "el proveedor";
-      // Solo el nombre de pila para el saludo: «Hola, Enyuly Albarrán» no lo escribe
+      // Solo el nombre de pila para el saludo: «Hola, Nombre Apellido» no lo escribe
       // ninguna persona. Y sale de la CONFIGURACIÓN, no del código — este repo es
       // público y el nombre de quien atiende del otro lado no tiene por qué estarlo.
+      // ⚠️ Por eso este comentario tampoco lo trae: el 31/08 se cuidó el teléfono y
+      // se dejó el nombre completo escrito acá al lado, en el mismo archivo público.
+      // El ejemplo de un comentario se publica igual que el código.
       const saludo = prov?.nombre ? `Hola, ${String(prov.nombre).split(" ")[0]}.` : "Buenas.";
       const empresa = await nombreEmpresa();
 
