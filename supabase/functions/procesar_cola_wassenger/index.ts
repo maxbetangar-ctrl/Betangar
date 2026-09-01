@@ -150,6 +150,33 @@ Deno.serve(async (req) => {
         continue;
       }
       const phone = norm.tel;
+
+      // ── ¿SE LE PUEDE ESCRIBIR A ESTE NÚMERO? ──────────────────────────────
+      // ⛔ La lista blanca (`wa_destinos_permitidos` + los teléfonos de `empleados`)
+      //    existía en la base y NO LA CONSULTABA NADIE. Con la planilla de alta de
+      //    TONY GAS trayendo 9 personas con dos teléfonos distintos, mandar a ciegas
+      //    es mandarle información de la operación a quien no es.
+      // ⚖️ Falla CERRADO y deja el motivo escrito: la fila queda 'bloqueado', no se
+      //    reintenta y se ve por qué. Un mensaje que no sale tiene que verse.
+      const { data: permitido, error: errPerm } = await sb.rpc('wa_destino_permitido', { p_tel: phone });
+      if (errPerm) {
+        // Si NO se pudo comprobar, tampoco se manda: no se adivina hacia afuera.
+        await sb.from('cola_mensajes').update({
+          estado: 'pendiente', intentos: (m.intentos || 0) + 1,
+          error: 'no se pudo comprobar la lista de destinos: ' + String(errPerm.message || errPerm).slice(0, 200),
+        }).eq('id', m.id);
+        fail++;
+        continue;
+      }
+      if (permitido === false) {
+        await sb.from('cola_mensajes').update({
+          estado: 'bloqueado', intentos: (m.intentos || 0) + 1,
+          error: 'destino no autorizado: ' + phone + '. Agregalo en wa_destinos_permitidos o cargalo como teléfono del empleado.',
+        }).eq('id', m.id);
+        fail++;
+        continue;
+      }
+
       const body: any = { phone, message: conEtiqueta(m.mensaje) };
       if (cfg.device) body.device = cfg.device;
       const r = await fetch('https://api.wassenger.com/v1/messages', {
