@@ -1183,6 +1183,35 @@ function _iniciarSesionCore(){
   iniciarBannerTokens();
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// LO QUE ESTE CLIENTE NO COMPRÓ, NO SE LE MUESTRA
+//
+// ⛔ POR QUÉ. TONY GAS dijo por escrito el 25/08 —Miguel Ángel Rey, su CEO— que la
+//    nómina la llevan en A2 Nómina y que el programa "sólo debe controlar al
+//    personal". La app igual le mostraba «Nomina» y «Nómina de Ley» en el menú,
+//    porque el molde las enciende por omisión. El 31/08 eso terminó en que se le
+//    pidieran al cliente unos sueldos que ya había dicho que no iba a dar.
+//
+// ⚠️ NO es lo mismo que `moduloActivo()`. Aquel es la lista de extras que se COBRAN
+//    aparte y falla CERRADO. Éste es al revés: apaga algo que el producto trae de
+//    fábrica porque esta empresa no lo usa. Sin la clave, no cambia nada — así el
+//    molde y los demás clones siguen igual.
+//
+// ⚖️ Apaga la PANTALLA, no los datos: las tablas y las funciones siguen ahí. Si
+//    mañana lo contratan, se saca la clave y vuelve, con lo que hubiera cargado.
+function aplicarModulosApagados(){
+  var off=(typeof cfg!=='undefined'&&cfg&&cfg.modulos_off)||[];
+  if(!Array.isArray(off)||!off.length)return;
+  off=off.map(function(m){return String(m||'').toLowerCase().trim();});
+  Object.keys(PERMISOS).forEach(function(r){
+    PERMISOS[r]=PERMISOS[r].filter(function(m){return off.indexOf(String(m).toLowerCase())<0;});
+  });
+  // El menú puede haberse dibujado ANTES de que llegara la configuración de la base.
+  // Sin este repintado, el módulo apagado se queda a la vista hasta la próxima
+  // recarga — y «a veces sí y a veces no» es peor que no apagarlo.
+  try{ if(typeof SESION!=='undefined'&&SESION&&typeof aplicarPermisos==='function')aplicarPermisos(); }catch(e){}
+}
+
 function aplicarPermisos(){
   var perms=PERMISOS[SESION.rol]||PERMISOS['admin']||[];
   Object.keys(NAV_LABELS).forEach(function(p){
@@ -4187,6 +4216,7 @@ async function cargarDatosDB(){
       if(cfgDB.data&&cfgDB.data.valor){
         var cfgSaved=JSON.parse(cfgDB.data.valor);
         Object.assign(cfg,cfgSaved);
+        aplicarModulosApagados();   // lo que este cliente no compró, fuera del menú
       }
     }catch(e4){}
     console.log('DB cargada: planillas='+REGS.length+' abonos='+ABONOS.length+' empleados='+EMPLEADOS.length);
