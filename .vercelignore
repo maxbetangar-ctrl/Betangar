@@ -1,48 +1,20 @@
-# ═══════════════════════════════════════════════════════════════════════════
-#  QUÉ NO SE SUBE — 16/08/2026
+# Lo que NO se publica en el dominio del cliente.
 #
-#  ⛔ POR QUÉ EXISTE ESTE ARCHIVO
-#  `.gitignore` protege lo que va a GitHub. NO protege un `vercel deploy`:
-#  el CLI sube **el directorio**, no el repo. O sea que parado en esta carpeta,
-#  un despliegue puede publicar `respaldos/` — que tiene los CSV de empleados
-#  con cédulas, los abonos y las planillas, y está fuera de git justamente
-#  porque no puede llegar a internet.
+# ⛔ Vercel sirve TODO lo que hay en la carpeta. El 01/09/2026 se comprobó que
+#    https://tonygas.flota.maxware.app/CLONAR-CLIENTE-NUEVO.md respondía 200 —el
+#    instructivo interno de clonado— y también
+#    migraciones/2026-08-19-cubicaciones-flotilla.sql, que son las tablas de
+#    cubicación de OTRO CLIENTE, servidas desde el dominio de este.
+#    No hacía falta entrar: bastaba con saber el nombre del archivo.
 #
-#  El propio `.gitignore` de este repo lo dice: *«NUNCA subir a GitHub. Este
-#  repositorio es PÚBLICO»*. Lo mismo vale acá, y hacía falta escribirlo aparte.
-#
-#  ⚠️ Si algún día se migra betangar.com a Vercel, hacerlo **por integración con
-#     GitHub**, no con `vercel` desde la carpeta. Así se despliega lo que está en
-#     el repo y nada más. Esto es el cinturón, no el método.
-# ═══════════════════════════════════════════════════════════════════════════
+# ⚠️ vendor/ NO se ignora: de ahí salen las librerías que carga el navegador.
 
-# Datos de personas. Cédulas, cuentas bancarias, fotos, planillas, abonos.
-respaldos/
-*.csv
-*.zip
-*.bak
-*.bak-*
-
-# Dependencias y herramientas locales: 49 MB que no sirven de nada servidos.
-node_modules/
-package-lock.json
-.playwright-mcp/
-deno.lock
-
-# Copias de trabajo y volcados
+*.md
 *.sql
-clonar/
-herramientas/
-
-# Documentación interna: no es parte del sitio y describe la arquitectura.
-CLAUDE.md
-ARQUITECTURA.md
-CLONAR_EMPRESA.md
-ESTRUCTURA-BETANGAR.md
-ISO_DIAGNOSTICO_BETANGAR.md
-DISENO_AUDITORIA_COMBUSTIBLE.md
-INSTRUCCIONES_RRHH_IMAU.md
-PEDIR-AL-PROVEEDOR-GPS.md
-
-# Funciones de servidor: se despliegan con supabase, no con el sitio.
+migraciones/
+migrations/
+scripts/
 supabase/
+pruebas/
+test/
+.gitattributes
