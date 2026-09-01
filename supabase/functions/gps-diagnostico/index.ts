@@ -89,6 +89,49 @@ Deno.serve(async (req) => {
   const placas: string[] = Array.isArray(body.placas) ? body.placas : [];
   const pruebas: Record<string, unknown> = {};
 
+  // ── CONTROL NEGATIVO: ¿el API distingue «no tenés acceso» de «no hay nada»? ──
+  //
+  //  POR QUÉ, 01/09/2026. La cuenta lleva 12 horas contestando `responseCode 200`
+  //  = CONJUNTO VACÍO, sin error de autenticación, para toda la flota y para cada
+  //  placa por separado. De ahí se quiso concluir «las credenciales están bien, el
+  //  problema es de ellos» — y esa conclusión NO SE SOSTIENE sola: si el API
+  //  contestara vacío también con la clave equivocada, las dos causas se verían
+  //  exactamente iguales y estaríamos leyendo un vacío como si dijera algo.
+  //
+  //  ⛔ Es la norma del control positivo al revés: antes de creerle a un `(sin
+  //  filas)`, hay que comprobar que ese instrumento sabe contestar OTRA cosa.
+  //
+  //  ⚠️ NO SE IMPRIME NINGÚN SECRETO, ni entero ni cortado. Solo se informa qué
+  //  contestó el API en cada caso. Una credencial no se muestra ni para depurar:
+  //  la salida de esta función va a parar a una transcripción.
+  if (body.control_negativo === true) {
+    // ⚠️ CON PAUSA ENTRE CADA UNA. El proveedor tope 10 peticiones por minuto:
+    // cuatro llamadas seguidas pueden volver con un error de tope, y ese error se
+    // leería como «la credencial mala da error» — que es justo lo que esta prueba
+    // quiere medir. La prueba se arruinaría a sí misma y daría el resultado que
+    // esperamos ver, que es la peor forma de equivocarse.
+    const buena = await llamar({});
+    await dormir(6500);
+    // Se ensucia UNA credencial por vez, para saber cuál es la que el API mira.
+    const malaClave = await llamar({ wspassword: GPS_WSP + "-esta-clave-no-existe" });
+    await dormir(6500);
+    const malaCuenta = await llamar({ conncode: GPS_CONN + "-esta-cuenta-no-existe" });
+    await dormir(6500);
+    const malaUsuario = await llamar({ wsuser: GPS_WSU + "-este-usuario-no-existe" });
+    return json({
+      ok: true,
+      nota: "solo lectura · ningún secreto en la respuesta",
+      lectura:
+        "Si las 3 pruebas malas contestan ERROR y la buena contesta vacío, las credenciales " +
+        "están bien y la cuenta quedó sin unidades. Si las malas contestan VACÍO igual que la " +
+        "buena, el API no distingue y este vacío no prueba nada sobre las credenciales.",
+      credenciales_buenas: buena,
+      clave_mala: malaClave,
+      cuenta_mala: malaCuenta,
+      usuario_malo: malaUsuario,
+    });
+  }
+
   if (placas.length) {
     // Modo "una por una": sirve para distinguir «no está en la cuenta» de
     // «el listado la omite por un tope de registros». Son dos causas distintas

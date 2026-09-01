@@ -195,8 +195,14 @@ Deno.serve(async (req) => {
       //  El motor encendido es lo que evita el aviso que salta todas las noches;
       //  también es lo que ciega la alarma cuando el corte empieza de noche.
       const cuentaCfg = await cfg("gps_cuenta_muda_min");
-      const minCuenta = dry && new URL(req.url).searchParams.get("ensayo") === "1"
-        ? 0
+      const esEnsayo = dry && new URL(req.url).searchParams.get("ensayo") === "1";
+      // ⚠️ ENSAYO DEL REGRESO. El camino de «volvió» corre UNA sola vez por corte,
+      // en el momento en que vuelve: si estuviera mal escrito, se descubriría el
+      // día que hace falta y ya sin poder repetirlo. Con `&vuelta=1` se abre la
+      // ventana a 24 h, así una cuenta caída hace 12 h figura listando y el camino
+      // se recorre entero, en seco. ⛔ Atado a `dry`, como el otro ensayo.
+      const minCuenta = esEnsayo
+        ? (new URL(req.url).searchParams.get("vuelta") === "1" ? 1440 : 0)
         : (Number(cuentaCfg?.minutos ?? cuentaCfg ?? CUENTA_MUDA_MIN) || CUENTA_MUDA_MIN);
       const cuenta = (await rpc("gps_cuenta_muda", { p_min: minCuenta }))[0];
 
@@ -208,13 +214,33 @@ Deno.serve(async (req) => {
         const claveEpisodio = `gps-cuenta-${new Date(cuenta.ultimo_listado).getTime()}`;
         const yaAfuera = await yaAviso(claveEpisodio);
 
+        // La marca de que el episodio está ABIERTO. Se pone en la primera
+        // detección y no cambia: es la que busca el aviso de regreso.
+        // ⛔ No sirve para eso ninguna de las otras dos: la de afuera solo existe
+        // si el mensaje llegó a salir (un corte de madrugada no la tiene hasta las
+        // 8:00), y la de adentro lleva el momento del aviso, así que cambia.
+        const claveAbierto = `${claveEpisodio}-abierto`;
+        const yaAbierto = await yaAviso(claveAbierto);
+
         // ⚠️ Para ADENTRO sí se repite, cada 6 horas mientras dure. Un aviso a la
         // medianoche y después silencio se lee igual que un apagón que terminó —
-        // y hoy la flota estuvo ciega 10 horas sin que nadie lo supiera. Al
+        // y el 01/09 la flota estuvo ciega 10 horas sin que nadie lo supiera. Al
         // proveedor no se le repite: ya lo sabe, insistir es pisarle el reclamo.
-        const bloque = Math.floor((cuenta.min_sin_listar || 0) / (CUENTA_RECORDAR_H * 60));
-        const claveAdentro = `${claveEpisodio}-in${bloque}`;
-        const yaAdentro = await yaAviso(claveAdentro);
+        //
+        // ⛔ LA ESPERA SE MIDE DESDE EL ÚLTIMO AVISO, NO EN BLOQUES DE LA EDAD DEL
+        // CORTE. Estaba escrito como `floor(minutos_caída / 6h)`, y eso no es
+        // «cada 6 horas»: es «cada vez que la edad cruza un múltiplo de 6». Medido
+        // el 01/09 sobre este mismo corte: el primer aviso salió a las 11:20 con
+        // 11 h 29 min de caída (bloque 1) y el «recordatorio» salió a las **11:50**
+        // (bloque 2). Media hora, no seis. Un corte detectado a las 5 h 59 min
+        // habría avisado dos veces en un minuto.
+        const previos = await sel(
+          `alertas_log?alert_key=like.${claveEpisodio}-in*&select=sent_at&order=sent_at.desc&limit=1`);
+        const hDesdeAviso = previos[0]?.sent_at
+          ? (Date.now() - new Date(previos[0].sent_at).getTime()) / 3600000
+          : Infinity;
+        const yaAdentro = hDesdeAviso < CUENTA_RECORDAR_H;
+        const claveAdentro = `${claveEpisodio}-in${Date.now()}`;
 
         const hora = horaNegocio();
         const enFranja = hora >= FRANJA_DESDE && hora < FRANJA_HASTA;
@@ -267,10 +293,26 @@ Deno.serve(async (req) => {
           `gps_sync_estado?select=ultimo_error&ultimo_error=not.is.null&limit=200`);
         const distintos = [...new Set(errs.map((e: any) => String(e.ultimo_error).slice(0, 120)))];
 
+        // ⛔ LO PRIMERO QUE SE MIRA NO ES AL PROVEEDOR, ES LA FACTURA.
+        //
+        //  El 01/09 la cuenta se apagó y todo apuntaba a que la plataforma estaba
+        //  rota. La causa real era que **el servicio estaba cortado por falta de
+        //  pago**, y el corte cayó en el cambio de mes. Estuvimos a un paso de
+        //  reclamarle a la persona del proveedor por una factura nuestra.
+        //
+        //  Y el instrumento no puede distinguirlas: medido ese día, el API contesta
+        //  el MISMO conjunto vacío si la cuenta está suspendida, si el usuario del
+        //  servicio no vale, o si simplemente no hay unidades. Lo único que sí
+        //  responde distinto es el código de cuenta (da error). Así que la alarma
+        //  NO puede afirmar de quién es la culpa: lo que puede hacer es poner la
+        //  causa más barata de comprobar donde se lea primero.
         const paraAdentro =
-          `🛰️ *El proveedor dejó de entregar el rastreo — ${empresa || "SIN NOMBRE DE EMPRESA"}*\n\n` +
+          `🛰️ *El rastreo dejó de entregar — ${empresa || "SIN NOMBRE DE EMPRESA"}*\n\n` +
           `La cuenta no lista NINGUNA de las ${cuenta.activas} unidades activas.\n` +
-          `Último listado bueno: ${desde} (${cuanto}).\n` +
+          `Último listado bueno: ${desde} (${cuanto}).\n\n` +
+          `⛔ *Antes de reclamarle al proveedor, comprobá que el servicio esté al día.* ` +
+          `Una cuenta cortada por falta de pago se ve EXACTAMENTE igual que su plataforma ` +
+          `caída: contesta bien y sin unidades. Ya pasó el 01/09.\n\n` +
           `⛔ No hay posiciones nuevas de ninguna unidad desde entonces, y lo que no se ` +
           `guarda ahora no se recupera: el proveedor no tiene historial.\n\n` +
           (distintos.length ? `Lo que devuelve el sondeo:\n${distintos.map((d) => `• ${d}`).join("\n")}\n\n` : "") +
@@ -284,6 +326,12 @@ Deno.serve(async (req) => {
           cola.push({ tipo: "gps_apagon", telefono: telProv, mensaje: paraProveedor, ref: "gps-cuenta-proveedor" });
         }
 
+        if (!dry) {
+          // ⛔ La marca de ABIERTO se pone aunque no se mande nada. Es lo que le
+          // dice al aviso de regreso que hubo un corte, y no depende de que algún
+          // mensaje haya salido.
+          if (!yaAbierto) await marcar(claveAbierto);
+        }
         if (!dry && cola.length) {
           await encolar(cola);
           if (!yaAdentro) await marcar(claveAdentro);
@@ -302,6 +350,48 @@ Deno.serve(async (req) => {
           ya_avisado_afuera: yaAfuera, ya_avisado_adentro: yaAdentro,
           clave: claveEpisodio, mensaje_proveedor: paraProveedor, mensaje_interno: paraAdentro,
         }), { headers: { "Content-Type": "application/json" } });
+      }
+
+      // ── 0.a-bis EL RASTREO VOLVIÓ ───────────────────────────────────────────
+      //
+      //  ⛔ UNA ALARMA QUE NO AVISA DEL REGRESO OBLIGA A MIRAR LA PANTALLA.
+      //  El 01/09 el corte duró 12 horas y la única forma de saber si había vuelto
+      //  era abrir el mapa cada rato — que es lo mismo que no tener alarma. Un
+      //  aviso que solo cuenta la mitad de la historia deja al que lo recibió
+      //  esperando sin saber hasta cuándo.
+      //
+      //  ⚠️ Se avisa SOLO PARA ADENTRO. Que el servicio volvió no es noticia para
+      //  el proveedor: él ya lo sabe, y si el corte era nuestro (una factura sin
+      //  pagar, como el 01/09) mandarle un «ya volvió» es contarle de más.
+      //
+      //  El episodio se reconoce por su marca `-abierto`, que se pone SIEMPRE en
+      //  la primera detección, se haya mandado algo o no. ⛔ No sirve la marca de
+      //  afuera —solo existe si el mensaje llegó a salir, y un corte de madrugada
+      //  no la tiene hasta las 8:00— ni la de adentro, que lleva el momento del
+      //  aviso y por lo tanto cambia.
+      if (cuenta && !cuenta.muda && cuenta.ultimo_listado) {
+        const abiertos = await sel(
+          `alertas_log?alert_key=like.gps-cuenta-*-abierto&select=alert_key&order=sent_at.desc&limit=1`);
+        const claveAb = abiertos[0]?.alert_key || "";
+        const msCorte = Number(String(claveAb).replace(/^gps-cuenta-/, "").replace(/-abierto$/, ""));
+        if (Number.isFinite(msCorte) && msCorte > 0) {
+          const claveVuelta = `gps-cuenta-${msCorte}-vuelta`;
+          if (!(await yaAviso(claveVuelta))) {
+            const duro = hace(Date.now() - msCorte).replace(/^hace /, "");
+            const texto =
+              `✅ *El rastreo volvió — ${(await nombreEmpresa()) || "Betangar"}*\n\n` +
+              `La cuenta vuelve a listar ${cuenta.listadas} de ${cuenta.activas} unidades.\n` +
+              `Estuvo sin entregar ${duro}, desde ${horaVE(new Date(msCorte).toISOString())}.\n\n` +
+              `⚠️ Ese rato NO se recupera: el proveedor no guarda historial, así que el ` +
+              `recorrido de esas horas no va a existir nunca.`;
+            if (!dry) { await encolar([{ tipo: "gps_apagon", telefono: AVISAR_A, mensaje: texto, ref: "gps-cuenta-vuelta" }]); await marcar(claveVuelta); }
+            return new Response(JSON.stringify({
+              ok: true, modo: "apagon", dry, cuenta_volvio: true,
+              listadas: cuenta.listadas, activas: cuenta.activas,
+              estuvo_caida: duro, clave: claveVuelta, mensaje_interno: texto,
+            }), { headers: { "Content-Type": "application/json" } });
+          }
+        }
       }
 
       const mudas = await rpc("gps_mudas_andando", {
