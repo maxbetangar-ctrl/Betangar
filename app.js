@@ -10881,18 +10881,31 @@ async function guardarKm(){
   renderKm();try{if(typeof renderHistMant==='function')renderHistMant();}catch(e){}sv('km-val','');sv('km-mant','');sv('km-desc','');sv('km-item','');
   alert('✅ KM registrado correctamente.');
 }
+// El ciclo de estos dos paneles lo dicta el CATÁLOGO (`mant_items`), no un número clavado en el
+// código: el lavado de Betangar es cada 45 días —lo declaró Máximo el 01/09/2026— y el de otra
+// empresa no tiene por qué serlo. ⛔ Antes convivían DOS verdades en la misma pantalla: acá 45
+// clavado, y en Preventivo los 7 que traía la semilla del catálogo, con lo que las 12 unidades
+// salían VENCIDO todos los días. Los valores de reserva son los que estos paneles ya usaban, para
+// que nada cambie donde todavía nadie declaró el suyo.
+function _cicloItem(itemId,ivReserva,avisoReserva){
+  var it=(typeof _mantItem==='function')?_mantItem(itemId):null;
+  var iv=(it&&parseFloat(it.intervalo)>0)?parseFloat(it.intervalo):ivReserva;
+  var av=(it&&parseFloat(it.avisoAnticipo)>0)?parseFloat(it.avisoAnticipo):avisoReserva;
+  return {iv:iv,av:av,aviso:iv-av};
+}
 function renderLavados(){
+  var _cl=_cicloItem('lavado',45,10);
   var rows=[];var alertas=[];
   _flotaUnidades().forEach(function(cam){
     var ul=_ultimoLavado(cam);
     var dias=ul?diasDesde(ul):0;
-    var prox=ul?addDays(ul,45):'--';
+    var prox=ul?addDays(ul,_cl.iv):'--';
     var est,c;
     if(!ul){est='Sin datos';c='bt';}
-    else if(dias>45){est='VENCIDO '+dias+'d';c='br';alertas.push('🧼 '+cam+': lavado vencido ('+dias+' dias)');}
-    else if(dias>35){est='PROXIMO';c='by';}
+    else if(dias>_cl.iv){est='VENCIDO '+dias+'d';c='br';alertas.push('🧼 '+cam+': lavado vencido ('+dias+' dias)');}
+    else if(dias>_cl.aviso){est='PROXIMO';c='by';}
     else{est='OK';c='bg';}
-    rows.push('<tr><td style="font-weight:700">'+cam+'</td><td>'+(ul?formatFecha(ul):'--')+'</td><td style="font-family:var(--m);color:'+(dias>45?'var(--red)':dias>35?'var(--yellow)':'var(--text)')+'">'+dias+'</td><td>'+(ul?formatFecha(prox):'--')+'</td><td><span class="badge '+c+'">'+est+'</span></td><td>'+(ul?'<button onclick="borrarLavado(\''+cam+'\')" class="btn btn-xs" style="background:var(--red);color:#fff">🗑</button>':'')+'</td></tr>');
+    rows.push('<tr><td style="font-weight:700">'+cam+'</td><td>'+(ul?formatFecha(ul):'--')+'</td><td style="font-family:var(--m);color:'+(dias>_cl.iv?'var(--red)':dias>_cl.aviso?'var(--yellow)':'var(--text)')+'">'+dias+'</td><td>'+(ul?formatFecha(prox):'--')+'</td><td><span class="badge '+c+'">'+est+'</span></td><td>'+(ul?'<button onclick="borrarLavado(\''+cam+'\')" class="btn btn-xs" style="background:var(--red);color:#fff">🗑</button>':'')+'</td></tr>');
   });
   var tb=g('tb-lavados');if(tb)tb.innerHTML=rows.join('');
   var est=g('estado-lavados');if(est)est.innerHTML=alertas.map(function(a){return'<div class="alert-r" style="margin-bottom:4px">'+a+'</div>';}).join('')||'<div style="color:var(--green);font-size:12px;padding:8px">✓ Todo al dia</div>';
@@ -10917,10 +10930,11 @@ function _proxDomingos(n){
 }
 function _planLavado(cap){
   cap=parseInt(cap)||2; if(cap<1)cap=1;
+  var _cl=_cicloItem('lavado',45,10);
   var cams=_flotaUnidades();
   var lista=cams.map(function(cam){
     var ul=_ultimoLavado(cam);
-    return {cam:cam,ul:ul,due:ul?addDays(ul,45).slice(0,10):'2000-01-01',dias:ul?diasDesde(ul):9999};
+    return {cam:cam,ul:ul,due:ul?addDays(ul,_cl.iv).slice(0,10):'2000-01-01',dias:ul?diasDesde(ul):9999};
   });
   lista.sort(function(a,b){ if(a.due!==b.due)return a.due<b.due?-1:1; return b.dias-a.dias; }); // más vencida primero
   var domingos=_proxDomingos(Math.max(10,Math.ceil(cams.length/cap)+6));
@@ -10935,10 +10949,11 @@ function _planLavado(cap){
 function renderPlanLavado(){
   var el=g('plan-lavado'); if(!el)return;
   var plan=_planLavado(gv('lav-cap'));
+  var _cl=_cicloItem('lavado',45,10);
   if(!plan.length){el.innerHTML='<div style="color:var(--text3);font-size:12px;padding:8px">Sin unidades.</div>';return;}
   var rows=plan.map(function(p){
     var uni=p.unidades.map(function(u){
-      var col=u.dias>45?'color:var(--red);font-weight:700':(u.dias>35?'color:var(--yellow);font-weight:700':'');
+      var col=u.dias>_cl.iv?'color:var(--red);font-weight:700':(u.dias>_cl.aviso?'color:var(--yellow);font-weight:700':'');
       return '<span style="'+col+'">'+_unidadCorta(u.cam)+'</span> <small style="color:var(--text3)">('+(u.ul?u.dias+'d':'sin dato')+')</small>';
     }).join(' &nbsp;·&nbsp; ');
     return '<tr><td style="font-weight:700;white-space:nowrap">'+formatFecha(p.domingo)+'</td><td style="text-align:center;font-family:var(--m)">'+p.unidades.length+'</td><td style="font-size:11px">'+uni+'</td></tr>';
@@ -11031,7 +11046,7 @@ async function guardarLavado(){
   sv('lav-obs','');
   renderLavados();
 }
-function renderEngrases(){var rows=[];_flotaUnidades().forEach(function(cam){var ul=_ultimoEngrase(cam);var dias=ul?diasDesde(ul):0;var prox=ul?addDays(ul,15):'--';var est,c;if(!ul){est='Sin datos';c='bt';}else if(dias>15){est='VENCIDO '+dias+'d';c='br';}else if(dias>10){est='PROXIMO';c='by';}else{est='OK';c='bg';}rows.push('<tr><td style="font-weight:700">'+cam+'</td><td>'+(ul?formatFecha(ul):'--')+'</td><td style="font-family:var(--m);color:'+(dias>15?'var(--red)':'var(--text)')+'">'+dias+'</td><td>'+(ul?formatFecha(prox):'--')+'</td><td><span class="badge '+c+'">'+est+'</span></td><td>'+(ul?'<button onclick="borrarEngrase(\''+cam+'\')" class="btn btn-xs" style="background:var(--red);color:#fff">🗑</button>':'')+'</td></tr>');});var tb=g('tb-engrases');if(tb)tb.innerHTML=rows.join('');}
+function renderEngrases(){var _ce=_cicloItem('engrase',15,5);var rows=[];_flotaUnidades().forEach(function(cam){var ul=_ultimoEngrase(cam);var dias=ul?diasDesde(ul):0;var prox=ul?addDays(ul,_ce.iv):'--';var est,c;if(!ul){est='Sin datos';c='bt';}else if(dias>_ce.iv){est='VENCIDO '+dias+'d';c='br';}else if(dias>_ce.aviso){est='PROXIMO';c='by';}else{est='OK';c='bg';}rows.push('<tr><td style="font-weight:700">'+cam+'</td><td>'+(ul?formatFecha(ul):'--')+'</td><td style="font-family:var(--m);color:'+(dias>_ce.iv?'var(--red)':'var(--text)')+'">'+dias+'</td><td>'+(ul?formatFecha(prox):'--')+'</td><td><span class="badge '+c+'">'+est+'</span></td><td>'+(ul?'<button onclick="borrarEngrase(\''+cam+'\')" class="btn btn-xs" style="background:var(--red);color:#fff">🗑</button>':'')+'</td></tr>');});var tb=g('tb-engrases');if(tb)tb.innerHTML=rows.join('');}
 async function guardarEngrase(){
   var cam=gv('eng-cam'),f=gv('eng-f')||fechaVE(),obs=gv('eng-obs')||'';
   if(!cam){alert('Selecciona camion');return;}

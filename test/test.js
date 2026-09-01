@@ -795,6 +795,22 @@ function resetCola(){ app.COLA_OFFLINE=[]; app.COLA_FALLIDOS=[]; app._procesando
   eq('doble ciclo: reparar NO renueva la vida del caucho (1.000+60.000)', eU9.cambio.venc, 61000);
   eq('doble ciclo: la inspección sí cuenta desde el último evento (12.000+5.000)', eU9.insp.venc, 17000);
 
+  // ── EL CICLO DE LAVADO/ENGRASE SALE DEL CATÁLOGO, NO DE UN NÚMERO CLAVADO ──
+  // Máximo, 01/09/2026: «el lavado de Betangar es cada 45 días sin duda, pero cada empresa es
+  // diferente». Antes el panel de Lavados tenía 45 escrito en el código y Preventivo leía los 7
+  // de la semilla del catálogo: dos verdades en la misma pantalla, y las 12 unidades VENCIDAS.
+  console.log("\n" + 'Ciclo de lavado/engrase desde el catálogo:');
+  app.MANT_ITEMS = [{ id: 'lavado', nombre: 'Lavado', base: 'dias', intervalo: 45, avisoAnticipo: 10, activo: true }];
+  eq('Betangar: lavado 45 días, avisa 10 antes', app._cicloItem('lavado', 45, 10), { iv: 45, av: 10, aviso: 35 });
+  app.MANT_ITEMS = [{ id: 'lavado', nombre: 'Lavado', base: 'dias', intervalo: 20, avisoAnticipo: 3, activo: true }];
+  eq('OTRA empresa con 20 días manda sobre el 45 de reserva', app._cicloItem('lavado', 45, 10), { iv: 20, av: 3, aviso: 17 });
+  app.MANT_ITEMS = [{ id: 'lavado', nombre: 'Lavado', base: 'dias', intervalo: 30, avisoAnticipo: 0, activo: true }];
+  eq('sin aviso declarado, se conserva el de reserva', app._cicloItem('lavado', 45, 10), { iv: 30, av: 10, aviso: 20 });
+  // CONTROL: sin catálogo cargado no se rompe ni inventa — usa lo que el panel ya usaba.
+  app.MANT_ITEMS = [];
+  eq('catálogo vacío → reserva 45/10 (lo de antes)', app._cicloItem('lavado', 45, 10), { iv: 45, av: 10, aviso: 35 });
+  eq('catálogo vacío → engrase 15/5 (lo de antes)', app._cicloItem('engrase', 15, 5), { iv: 15, av: 5, aviso: 10 });
+
   // medida por unidad + horas
   app.UNIDAD_CONFIG = { 'U1': { medida: 'horas', horasActuales: 340 } };
   eq('medidaUnidad explícita = horas', app.medidaUnidad('U1'), 'horas');
