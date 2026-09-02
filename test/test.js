@@ -811,6 +811,25 @@ function resetCola(){ app.COLA_OFFLINE=[]; app.COLA_FALLIDOS=[]; app._procesando
   eq('catálogo vacío → reserva 45/10 (lo de antes)', app._cicloItem('lavado', 45, 10), { iv: 45, av: 10, aviso: 35 });
   eq('catálogo vacío → engrase 15/5 (lo de antes)', app._cicloItem('engrase', 15, 5), { iv: 15, av: 5, aviso: 10 });
 
+  // ── LA ESTACIÓN DE SERVICIO SE RESUELVE A SU PROVEEDOR (SOP-20260901-GLWB) ──
+  // La CxP del combustible nacía con el nombre de la estación y sin proveedor, y entonces no se
+  // podía facturar nunca. Al combustible se le paga a una PERSONA, no a la estación: el proveedor
+  // se llama «YORBIS CHOURIO (E/S LAS BANDERAS)» y la estación «E/S Las Banderas».
+  console.log("\n" + 'Estación de servicio → proveedor al que se le paga:');
+  app.PROVEEDORES = [
+    { id: 'P1', nombre: 'YORBIS CHOURIO (E/S LAS BANDERAS)' },
+    { id: 'P2', nombre: 'Repuestos La Vega' }
+  ];
+  eq('la estación dentro del nombre del proveedor', (app._cxpProvDeEstacion('E/S Las Banderas')||{}).id, 'P1');
+  eq('acentos y puntuación no estorban', (app._cxpProvDeEstacion('e.s. las-banderas')||{}).id, 'P1');
+  eq('coincidencia exacta', (app._cxpProvDeEstacion('Repuestos La Vega')||{}).id, 'P2');
+  // ⛔ CONTROLES NEGATIVOS: si no sabe, NO adivina — la CxP nace suelta y el aviso del
+  //    selector la nombra. Adivinar mal le factura a un proveedor equivocado.
+  ok('estación desconocida → null (no inventa)', app._cxpProvDeEstacion('E/S El Palotal') === null);
+  ok('vacío → null', app._cxpProvDeEstacion('') === null);
+  app.PROVEEDORES = [{ id: 'A', nombre: 'JUAN (E/S CENTRO)' }, { id: 'B', nombre: 'PEDRO (E/S CENTRO)' }];
+  ok('DOS candidatos → null, no elige uno', app._cxpProvDeEstacion('E/S Centro') === null);
+
   // medida por unidad + horas
   app.UNIDAD_CONFIG = { 'U1': { medida: 'horas', horasActuales: 340 } };
   eq('medidaUnidad explícita = horas', app.medidaUnidad('U1'), 'horas');

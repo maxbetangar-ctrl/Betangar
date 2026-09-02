@@ -13535,7 +13535,13 @@ async function _perAplicar(){
   }
   // 3) CxP (descripción DEBE empezar con "Compra combustible" → _esCxpCombustible la excluye de egCxP)
   var tasaTipo=tramos[0].tasa_tipo||'bcvDolar';
-  var cxpRow={ fecha:hta, fecha_venc:null, prov_nombre:est, tipo_proveedor:'sin_soporte', sin_soporte:true,
+  // ⛔ La CxP nacía con el nombre de la estación y SIN proveedor, y entonces no se podía facturar
+  //    nunca: el selector de Facturas agrupa por proveedor. Si la estación YA está registrada como
+  //    proveedor, se enlaza acá. Se compara por nombre normalizado y se acepta que el nombre del
+  //    proveedor CONTENGA el de la estación —«YORBIS CHOURIO (E/S LAS BANDERAS)» contiene
+  //    «E/S Las Banderas»—, porque al combustible se le paga a una persona, no a la estación.
+  var _provEst=_cxpProvDeEstacion(est);
+  var cxpRow={ fecha:hta, fecha_venc:null, prov_id:(_provEst?_provEst.id:null), prov_nombre:(_provEst?_provEst.nombre:est), tipo_proveedor:'sin_soporte', sin_soporte:true,
     descripcion:'Compra combustible '+est+' — '+litF+' L @ $'+mezc.toFixed(3)+'/L (período '+des+'→'+hta+')', factura:'',
     nota:'Generada desde Combustible'+(_perModo==='escalera'?(' · escalera: primeros '+_perEsc.litros+' L a $'+parseFloat(_perEsc.p1).toFixed(3)+' y el resto a $'+parseFloat(_perEsc.p2).toFixed(3)+', POR CAMIÓN'):''),
     base_usd:Math.round(cUsd*100)/100, iva_pct:0, iva_usd:0, total_usd:Math.round(cUsd*100)/100,
@@ -13552,6 +13558,19 @@ async function _perAplicar(){
   mostrarToast((okAll?'✅ ':'⚠️ parcial: ')+'Costeadas '+target.length+' surtidas · '+usd(cUsd)+(cxpId?' · CxP generada':''),okAll?'exito':'error');
   try{cargarSurtidasRent();}catch(e){}
   scRecargar();
+}
+
+// Busca el proveedor al que se le paga una estación. Devuelve null si no está registrado —
+// y entonces la CxP nace suelta a propósito, con el aviso del selector para que se vea.
+function _cxpNorm(s){ return String(s||'').toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^A-Z0-9]/g,''); }
+function _cxpProvDeEstacion(est){
+  var e=_cxpNorm(est); if(!e)return null;
+  var lista=(typeof PROVEEDORES!=='undefined'?PROVEEDORES:[])||[];
+  var exacto=lista.find(function(p){return _cxpNorm(p.nombre)===e;});
+  if(exacto)return exacto;
+  // El proveedor suele ser la PERSONA con la estación entre paréntesis.
+  var dentro=lista.filter(function(p){var n=_cxpNorm(p.nombre);return n.indexOf(e)>=0;});
+  return dentro.length===1?dentro[0]:null;   // ⛔ si hay dos candidatos NO se adivina
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -15377,10 +15396,38 @@ function fillFacProvSelect(){
   if(todos)CXP.forEach(function(c){ conDeuda[String(c.provId||c.prov_id||'')]=(c.prov_nombre||c.prov||''); });
   var opts=Object.keys(conDeuda).filter(Boolean).map(function(id){return{id:id,nom:conDeuda[id]||id};})
     .sort(function(a,b){return String(a.nom).localeCompare(String(b.nom));});
+  // ⛔ Las deudas SIN proveedor enlazado se caían por el filter(Boolean) de arriba y la pantalla
+  //    quedaba igual que si no existieran. Acá se NOMBRAN: la persona tiene que poder distinguir
+  //    «no hay nada que facturar» de «hay algo que no puedo mostrar todavía».
+  _facAvisarDeudasSinProveedor(todos);
   sel.innerHTML='<option value="">-- Seleccionar proveedor --</option>'+opts.map(function(o){
     return '<option value="'+_mEsc(o.id)+'">'+_mEsc(o.nom)+'</option>';}).join('');
   if(prev)sel.value=prev;
   renderFacDeudas();
+}
+// Nombra las deudas que el selector NO puede mostrar porque su CxP no tiene proveedor enlazado.
+// Nace de SOP-20260901-GLWB: la compra de gasoil del 15/08 (US$ 2.594,89) tenía el nombre de la
+// estación escrito a mano y ningún proveedor detrás, así que no aparecía con NINGUNO.
+function _facAvisarDeudasSinProveedor(todos){
+  var box=g('fac-asignado'); if(!box)return;
+  var sueltas=(typeof CXP!=='undefined'?CXP:[]).filter(function(c){
+    var pid=String(c.provId||c.prov_id||'');
+    if(pid)return false;
+    return todos||_cxpFacturablePendiente(c)>0.005;
+  });
+  if(!sueltas.length){ if(box.getAttribute('data-aviso')==='sinprov'){box.innerHTML='';box.removeAttribute('data-aviso');} return; }
+  var det=sueltas.slice(0,5).map(function(c){
+    return '· '+_mEsc(c.prov_nombre||c.descripcion||'(sin descripción)')+' — '+formatFecha(c.fecha)+
+           ' — '+usd(_cxpFacturablePendiente(c));
+  }).join('<br>');
+  box.setAttribute('data-aviso','sinprov');
+  box.innerHTML='<div style="background:rgba(245,158,11,.12);border:1px solid var(--amber);border-radius:6px;'+
+    'padding:7px 9px;color:var(--amber);font-size:11px;line-height:1.5">⚠️ Hay <b>'+sueltas.length+'</b> deuda(s) '+
+    'que NO se pueden elegir acá porque no tienen un <b>proveedor registrado</b> detrás — solo el nombre escrito. '+
+    'No es que falten: es que el sistema todavía no sabe a quién facturárselas.<br>'+det+
+    (sueltas.length>5?('<br>… y '+(sueltas.length-5)+' más'):'')+
+    '<br><br>Para poder facturarlas hay que <b>registrar ese proveedor</b> en la pestaña de Proveedores '+
+    'y volver a generar la deuda a su nombre.</div>';
 }
 // Alias: `fillFacCxpSelect` era el nombre viejo (un solo select de deuda). Se conserva para no
 // dejar inertes las llamadas de switchProvTab/sp() si quedara alguna sin actualizar.
