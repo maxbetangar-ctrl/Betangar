@@ -1134,7 +1134,7 @@ function _iniciarSesionCore(){
   aplicarPermisos();
   // DEEP-LINK: si la URL trae #modulo (ej. betangar.com/app.html#operativo desde el recordatorio de
   // WhatsApp), abrir ese módulo directo tras login (solo si el rol tiene permiso).
-  try{ var _dh=(location.hash||'').replace(/^#/,'').trim(); if(_dh && (PERMISOS[SESION.rol]||[]).indexOf(_dh)>=0){ setTimeout(function(){ try{ sp(_dh); }catch(e){} },80); } }catch(e){}
+  try{ var _dh=(location.hash||'').replace(/^#/,'').trim(); if(_dh && (misPermisos()).indexOf(_dh)>=0){ setTimeout(function(){ try{ sp(_dh); }catch(e){} },80); } }catch(e){}
   // DEEP-LINK de AUTORIZACIÓN: #tok=<id> viene del WhatsApp que pide la aprobación.
   // Va después del login a propósito: la aprobación exige la sesión de quien autoriza.
   try{ setTimeout(function(){ try{ atenderEnlaceAprobacion(); }catch(e){ console.log('enlace aprobación:',e&&e.message); } },400); }catch(e){}
@@ -1244,8 +1244,32 @@ function aplicarModulosApagados(){
   try{ if(typeof SESION!=='undefined'&&SESION&&typeof aplicarPermisos==='function')aplicarPermisos(); }catch(e){}
 }
 
+// ══════════════════════════════════════════════════════════════════════════════
+// ⛔ UN ROL QUE LA PANTALLA NO CONOCE SE CIERRA, NO SE ABRE (02/09/2026)
+//    Antes esto vivía repetido en ~16 lugares como
+//    `PERMISOS[SESION?SESION.rol:'admin'] || PERMISOS['admin']`: sin sesión daba
+//    admin, y un rol que no está en la tabla daba admin. El rol mal escrito no
+//    quitaba el menú, lo daba ENTERO — banco y financiero incluidos.
+//    ⚠️ No tranca a nadie: devuelve el mínimo (Inicio) y AVISA una sola vez, para
+//      que quien caiga acá sepa por qué ve poco en vez de mirar una pantalla vacía.
+// ══════════════════════════════════════════════════════════════════════════════
+var PERMISOS_MINIMO=['dashboard'];
+var _rolAvisado=false;
+function permisosDe(rol){
+  var r=String(rol==null?'':rol).trim();
+  if(r&&PERMISOS[r])return PERMISOS[r];
+  if(!_rolAvisado){
+    _rolAvisado=true;
+    try{console.warn('[permisos] rol no reconocido: "'+(r||'(sin sesion)')+'" - se aplica el minimo');}catch(e){}
+    // El aviso al usuario solo si HAY un rol: "sin sesión" es otra cosa y ya la
+    // maneja la pantalla de entrada.
+    try{if(r&&typeof mostrarToast==='function')mostrarToast('Tu rol ("'+r+'") no esta configurado en esta version. Por eso solo ves el Inicio: avisale a soporte.','error');}catch(e){}
+  }
+  return PERMISOS_MINIMO.slice();
+}
+function misPermisos(){return permisosDe(SESION?SESION.rol:'');}
 function aplicarPermisos(){
-  var perms=PERMISOS[SESION.rol]||PERMISOS['admin']||[];
+  var perms=misPermisos();
   Object.keys(NAV_LABELS).forEach(function(p){
     var mi=document.getElementById('mi-'+p);
     if(mi)mi.style.display=perms.indexOf(p)>=0?'flex':'none';
@@ -2804,7 +2828,7 @@ async function acExcel(){
 }
 
 function renderCombSubnav(activo){
-  var perms=PERMISOS[SESION?SESION.rol:'admin']||PERMISOS['admin']||[];
+  var perms=misPermisos();
   function tab(id,label){
     if(perms.indexOf(id)<0)return '';
     return '<div class="sw'+(id===activo?' on':'')+'" onclick="sp(\''+id+'\')">'+label+'</div>';
@@ -2825,7 +2849,7 @@ function renderCombSubnav(activo){
 // solo aparece si el rol tiene ese permiso; si tiene <2, no se muestra barra. NO altera la lógica
 // de ninguno de los tres módulos.
 function renderBancoSubnav(activo){
-  var perms=PERMISOS[SESION?SESION.rol:'admin']||PERMISOS['admin']||[];
+  var perms=misPermisos();
   function tab(id,label){
     if(perms.indexOf(id)<0)return '';
     return '<div class="sw'+(id===activo?' on':'')+'" onclick="sp(\''+id+'\')">'+label+'</div>';
@@ -3546,7 +3570,7 @@ async function relRenderFacturas(cont,est){
 // Cuatro módulos (2 páginas p-* y 2 secciones sec-*) que comparten una entrada de menú. Cada botón
 // solo si el rol tiene ese permiso; si <2, no se muestra barra. NO altera la lógica de los módulos.
 function renderMantSubnav(activo){
-  var perms=PERMISOS[SESION?SESION.rol:'admin']||PERMISOS['admin']||[];
+  var perms=misPermisos();
   function tab(id,label){
     if(perms.indexOf(id)<0)return '';
     return '<div class="sw'+(id===activo?' on':'')+'" onclick="sp(\''+id+'\')">'+label+'</div>';
@@ -3561,7 +3585,7 @@ function renderMantSubnav(activo){
 // OFICINA entra a Km/Mantenimiento; los de CAMPO (mecánico/jefe/chofer) a su primer módulo (Check List).
 function abrirMantenimiento(){
   var rol=SESION?SESION.rol:'admin';
-  var perms=PERMISOS[rol]||PERMISOS['admin']||[];
+  var perms=permisosDe(rol);
   var oficina=['superadmin','admin','rrhh','demo_admin','demo_rrhh'];
   if(oficina.indexOf(rol)>=0 && perms.indexOf('km')>=0){
     sp('km');
@@ -3576,7 +3600,7 @@ function abrirMantenimiento(){
 // páginas que comparten una entrada de menú; las tres tienen el mismo set de permisos. Cada botón
 // solo si el rol lo tiene; si <2, no se muestra barra. NO altera la lógica de los módulos.
 function renderRRHHSubnav(activo){
-  var perms=PERMISOS[SESION?SESION.rol:'admin']||PERMISOS['admin']||[];
+  var perms=misPermisos();
   function tab(id,label){
     if(perms.indexOf(id)<0)return '';
     return '<div class="sw'+(id===activo?' on':'')+'" onclick="sp(\''+id+'\')">'+label+'</div>';
@@ -3591,7 +3615,7 @@ function renderRRHHSubnav(activo){
 // y tener permisos más amplios. Cada botón solo si el rol lo tiene; si <2, no se muestra barra.
 // NO altera la lógica de ninguno de los módulos.
 function renderFinanzasSubnav(activo){
-  var perms=PERMISOS[SESION?SESION.rol:'admin']||PERMISOS['admin']||[];
+  var perms=misPermisos();
   function tab(id,label){
     if(perms.indexOf(id)<0)return '';
     return '<div class="sw'+(id===activo?' on':'')+'" onclick="sp(\''+id+'\')">'+label+'</div>';
@@ -3603,7 +3627,7 @@ function renderFinanzasSubnav(activo){
 }
 // Entrada de menú unificada "Finanzas": abre el primer sub-módulo que el rol pueda ver.
 function abrirFinanzas(){
-  var perms=PERMISOS[SESION?SESION.rol:'admin']||PERMISOS['admin']||[];
+  var perms=misPermisos();
   var orden=['proveedores','financiero','cajachica'];
   for(var i=0;i<orden.length;i++){if(perms.indexOf(orden[i])>=0){sp(orden[i]);return;}}
   alert('No tienes permiso para esta sección');
@@ -3611,7 +3635,7 @@ function abrirFinanzas(){
 // Sub-navegación del hub ANÁLISIS: Rentabilidad x Camión / Estadísticas / Ranking / Metas. Cada
 // botón solo si el rol lo tiene; si <2, no se muestra barra. NO altera la lógica de los módulos.
 function renderAnalisisSubnav(activo){
-  var perms=PERMISOS[SESION?SESION.rol:'admin']||PERMISOS['admin']||[];
+  var perms=misPermisos();
   function tab(id,label){
     if(perms.indexOf(id)<0)return '';
     return '<div class="sw'+(id===activo?' on':'')+'" onclick="sp(\''+id+'\')">'+label+'</div>';
@@ -3623,7 +3647,7 @@ function renderAnalisisSubnav(activo){
 }
 // Entrada de menú unificada "Análisis": abre el primer sub-módulo que el rol pueda ver.
 function abrirAnalisis(){
-  var perms=PERMISOS[SESION?SESION.rol:'admin']||PERMISOS['admin']||[];
+  var perms=misPermisos();
   var orden=['rentabilidad','stats','ranking','metas'];
   for(var i=0;i<orden.length;i++){if(perms.indexOf(orden[i])>=0){sp(orden[i]);return;}}
   alert('No tienes permiso para esta sección');
@@ -3743,7 +3767,7 @@ function qrTodasSucursales(){
 function sp(id){
   // Abonos se fundió en Cobranza/Alcaldía → pestaña Pagos. Redirigir para no romper accesos directos.
   if(id==='abonos'){ sp('reporte'); setTimeout(function(){try{switchRptTab('pagos');}catch(e){}},0); return; }
-  var perms=PERMISOS[SESION?SESION.rol:'visualizador']||PERMISOS['admin']||[];
+  var perms=misPermisos();
   if(perms.indexOf(id)<0){alert('No tienes permiso para esta seccion');return;}
   document.querySelectorAll('.page').forEach(function(p){p.classList.remove('active');p.style.display='none';});
   // También ocultar secciones especiales
@@ -3814,7 +3838,7 @@ function sp(id){
     if(id==='cxp'){cargarCxP();cargarCxpAux().then(function(){if(typeof renderCxP==='function')renderCxP();});}
     if(id==='cajachica'){renderFinanzasSubnav('cajachica');cargarCajaChica().then(function(){renderCajaChica();}).catch(function(){renderCajaChica();});}
     if(id==='proveedores'){setTimeout(function(){
-      var _p=PERMISOS[SESION?SESION.rol:'admin']||PERMISOS['admin']||[];
+      var _p=misPermisos();
       // Roles de finanzas (admin/operador…) caen en Cuentas por Pagar; los enfocados en el registro
       // (RRHH, sin 'financiero') caen directo en la LISTA de proveedores (donde se crea/edita).
       if(_p.indexOf('financiero')>=0){ switchProvTab('cxp'); cargarCxP(); }
@@ -5249,7 +5273,7 @@ function _renderDashCuerpo(){
   var uptEl=g('ult-plan');
   if(uptEl)uptEl.innerHTML=ult.map(function(r){return'<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border)"><span style="font-family:var(--m);font-size:10px;color:var(--text3)">#'+r.p+'</span><span style="font-weight:700;font-size:11px;flex:1">'+r.cam+'<span style="font-weight:400;color:var(--text3);font-size:9px;margin-left:4px">'+(r.f?fmtFechaCorta(r.f):'')+'</span></span><span class="badge bg">'+r.t+'v</span><span style="font-size:11px;color:var(--yellow);font-family:var(--m)">$'+r.m.toLocaleString()+'</span></div>';}).join('')||'<div style="color:var(--text3);font-size:12px;padding:10px">Sin planillas</div>';
   // Financiero para roles que pueden verlo
-  var perms=PERMISOS[SESION?SESION.rol:'visualizador']||PERMISOS['admin']||[];
+  var perms=misPermisos();
   if(perms.indexOf('financiero')>=0)renderDashFinanciero(totalM,totalCob,porcobrar);
   // Flota
   renderFlotaDash();renderMetasDash();renderVencimientosDash();renderAlertasCriticas();
@@ -10180,7 +10204,7 @@ function _iniciarCierreOrden(id){
   // La Hoja de Vida vive en OTRA página (p-km); las Órdenes están en p-proveedores. Sin saltar de página
   // el usuario se queda mirando la lista de órdenes, ve solo el toast y cree que el botón no hizo nada
   // (reporte de Carlos Serrano, 24/07/2026). sp() valida el permiso y oculta el resto de las páginas.
-  var _permsCierre=(typeof PERMISOS!=='undefined')?(PERMISOS[SESION?SESION.rol:'visualizador']||[]):[];
+  var _permsCierre=(typeof misPermisos==='function')?misPermisos():[];
   if(_permsCierre.indexOf('km')<0){
     window._ordCerrando=null;
     alert('Para cerrar la orden hay que registrar el trabajo en Mantenimiento → Hoja de Vida, y tu usuario no tiene esa sección.\n\nPedile al administrador el acceso a Mantenimiento.');
@@ -13583,7 +13607,7 @@ function _cxpProvDeEstacion(est){
 // El caso que lo originó: una unidad cargó 25.115 L en vez de 251,51 L → $20.092.
 // ══════════════════════════════════════════════════════════════════════════════
 function _surPuedeCorregir(){
-  var perms=(typeof PERMISOS!=='undefined'&&PERMISOS[SESION?SESION.rol:''])||[];
+  var perms=(typeof misPermisos==='function'?misPermisos():[]);
   return perms.indexOf('corregir-chofer')>=0;
 }
 function _surEscC(x){return String(x==null?'':x).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
