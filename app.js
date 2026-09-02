@@ -19728,7 +19728,34 @@ async function _capAsegurarDatos(){
     if(typeof _cargarMantTodo==='function' && !((typeof MANTENIMIENTOS!=='undefined'?MANTENIMIENTOS:[]).length))
       await _cargarMantTodo();
   }catch(e){ console.log('carpeta: mantenimientos no cargó',e&&e.message); }
+  // ⛔ LAS FACTURAS DE PROVEEDOR TAMBIÉN. `cargarCxpAux()` solo se llamaba al abrir la
+  //    pestaña de Proveedores: quien entraba directo a la Carpeta la generaba con
+  //    `CXP_FACTURAS` y `CXP_FAC_LINEAS` VACÍOS, y entonces ninguna deuda tenía número
+  //    de factura que mostrar. Reporte de Alejandra, 02/09/2026.
+  try{
+    if(typeof cargarCxpAux==='function' &&
+       !((typeof CXP_FAC_LINEAS!=='undefined'?CXP_FAC_LINEAS:[]).length)) await cargarCxpAux();
+  }catch(e){ console.log('carpeta: facturas de CxP no cargaron',e&&e.message); }
   await _capCargarUsuarios();
+}
+// ⛔ EL NÚMERO DE FACTURA DE UNA DEUDA SALE DE `cxp_facturas`, NO DE `cxp.factura`.
+// 🔴 Reporte de Alejandra (QA), 02/09/2026: «todas figuran como si no se hubiesen
+//    facturado». Medido: las **49** cuentas por pagar tienen `cxp.factura` VACÍO,
+//    incluidas las **39 que sí están facturadas**. El número vive en
+//    `cxp_facturas.nro_factura`, enlazado por `cxp_factura_lineas`, y `cxp.factura`
+//    nunca se llena al facturar — es un campo huérfano que quedó del modelo viejo
+//    (una factura = una deuda). La Carpeta del Auditor leía ese campo, así que el
+//    documento que se le entrega al contador salía sin una sola factura.
+// ⇒ Se lee de donde el dato existe. [[norma-fuente-unica-datos]]
+function _capNroFactura(c){
+  if(!c)return '';
+  var suyo=String(c.factura||'').trim();
+  if(suyo)return suyo;                    // por si alguna vieja lo tiene escrito
+  if(typeof _cxpFacturasDe!=='function')return '';
+  var fs=_cxpFacturasDe(c.id)||[];
+  var nros=[];
+  fs.forEach(function(f){ var n=String(f.nro_factura||'').trim(); if(n&&nros.indexOf(n)<0)nros.push(n); });
+  return nros.join(', ');
 }
 async function _capCargarUsuarios(){
   if(CAP_USUARIOS.length)return;
@@ -19847,7 +19874,7 @@ function _capHtml(){
       var l=pp[nm], pend=l.filter(function(c){return c.estado!=='pagada';}).reduce(function(s,c){return s+(Number(c.neto_pagar)||0);},0);
       return '<h3>'+e(nm)+' — saldo pendiente USD '+_capNum(pend)+'</h3>'+
         '<table><thead><tr><th>Fecha</th><th>Documento</th><th>Detalle</th><th style="text-align:right">Total USD</th><th>Estado</th><th>Fecha pago</th><th>Ref.</th></tr></thead><tbody>'+
-        l.map(function(c){ return '<tr><td>'+formatFecha(c.fecha)+'</td><td>'+e(c.factura||'')+'</td><td>'+e(c.descripcion||'')+'</td><td style="text-align:right">'+_capNum(c.total_usd)+'</td><td>'+e(c.estado||'')+'</td><td>'+(c.fecha_pago?formatFecha(c.fecha_pago):'—')+'</td><td>'+e(c.ref_bnc||'')+'</td></tr>';}).join('')+
+        l.map(function(c){ return '<tr><td>'+formatFecha(c.fecha)+'</td><td>'+e(_capNroFactura(c))+'</td><td>'+e(c.descripcion||'')+'</td><td style="text-align:right">'+_capNum(c.total_usd)+'</td><td>'+e(c.estado||'')+'</td><td>'+(c.fecha_pago?formatFecha(c.fecha_pago):'—')+'</td><td>'+e(c.ref_bnc||'')+'</td></tr>';}).join('')+
         '</tbody></table>';}).join('');
   // ── Proveedores ──
   var provHtml='<table><thead><tr><th>Proveedor</th><th>RIF / C.I.</th><th>Categoría</th><th>Estado</th></tr></thead><tbody>'+
@@ -19867,7 +19894,7 @@ function _capHtml(){
   // ── Retenciones ──
   var retHtml=!d.ret.length?'<p class="cap-vacio">Sin retenciones practicadas en el período.</p>':
     '<table><thead><tr><th>Fecha</th><th>Proveedor</th><th>Documento</th><th>Comprobante</th><th style="text-align:right">Base USD</th><th style="text-align:right">Ret. IVA</th><th style="text-align:right">Ret. ISLR</th></tr></thead><tbody>'+
-    d.ret.map(function(c){ return '<tr><td>'+formatFecha(c.fecha)+'</td><td>'+e(c.prov_nombre||'')+'</td><td>'+e(c.factura||'')+'</td><td>'+e(c.num_comprobante||'—')+'</td><td style="text-align:right">'+_capNum(c.base_usd)+'</td><td style="text-align:right">'+_capNum(c.ret_iva_usd)+'</td><td style="text-align:right">'+_capNum(c.ret_islr_usd)+'</td></tr>';}).join('')+
+    d.ret.map(function(c){ return '<tr><td>'+formatFecha(c.fecha)+'</td><td>'+e(c.prov_nombre||'')+'</td><td>'+e(_capNroFactura(c))+'</td><td>'+e(c.num_comprobante||'—')+'</td><td style="text-align:right">'+_capNum(c.base_usd)+'</td><td style="text-align:right">'+_capNum(c.ret_iva_usd)+'</td><td style="text-align:right">'+_capNum(c.ret_islr_usd)+'</td></tr>';}).join('')+
     '<tr class="tr-total"><td colspan="5">TOTAL RETENIDO</td><td style="text-align:right">'+_capNum(d.ret.reduce(function(s,c){return s+(Number(c.ret_iva_usd)||0);},0))+'</td><td style="text-align:right">'+_capNum(d.ret.reduce(function(s,c){return s+(Number(c.ret_islr_usd)||0);},0))+'</td></tr></tbody></table>';
   // ── Excepciones ──
   var excHtml=!d.exc.length?'<div class="cap-ok">El sistema no dejó excepciones abiertas en este período.</div>':
