@@ -6875,6 +6875,15 @@ function importarExcel(input){
           msg+='  '+k+' → eliminada, reemplazada por el número correcto\n';
         });
       }
+      // ⛔ Y SI EL BORRADO NO LLEGÓ A LA BASE, SE DICE. Callarlo es lo que hizo que
+      //    Gladis viera «eliminadas automáticamente» y el aviso siguiera ahí al
+      //    volver a entrar. Un aviso que sobrevive a su propio arreglo hace que la
+      //    persona desconfíe de todo lo demás que le dice la pantalla.
+      if(resultado.dupsNoBorradas&&resultado.dupsNoBorradas.length){
+        msg+='\n\n🔴 '+resultado.dupsNoBorradas.length+' planilla(s) DUP NO se pudieron borrar de la nube';
+        msg+=' (el aviso de duplicadas va a seguir saliendo hasta que se resuelva):\n';
+        resultado.dupsNoBorradas.forEach(function(k){ msg+='  '+k+'\n'; });
+      }
       if(resultado.nombresSinIdentificar&&resultado.nombresSinIdentificar.length>0){
         var nsi=resultado.nombresSinIdentificar;
         msg+='\n\n⚠ '+nsi.length+' NOMBRE(S) NO RECONOCIDO(S) (no están en la Lista Maestra o están ambiguos):\n';
@@ -7330,19 +7339,57 @@ function procesarExcelBetangar(wb){
 
       // Si existe una DUP de este numero (de importacion anterior),
       // significa que la secretaria ya corrigió — eliminar la DUP y cargar la nueva
-      var dupKey='DUP'+p;
-      var dupIdx=REGS.findIndex(function(r){return r.p===dupKey;});
+      // ⛔ 02/09/2026 — REPORTE DE GLADIS (RRHH): esto solo encontraba la DUP cuando la
+      //    secretaria REUSABA el número repetido. Ella hizo lo correcto —les puso
+      //    correlativos NUEVOS: 01583 y 01584— y entonces `dupKey` era `DUP01583`, que
+      //    nunca existió. Las `DUP01572` y `DUP01573` quedaron huérfanas en la base y el
+      //    aviso de «planillas duplicadas» le salía cada vez que entraba, aunque su
+      //    Excel ya estuviera bien. Peor: seguían sumando **6 viajes y US$ 1.901,28**
+      //    en los totales, porque ningún cálculo excluye las DUP.
+      // ⇒ La DUP se reconoce por el VIAJE (fecha + camión + chofer), que es lo que no
+      //    cambia al corregir el correlativo, y no por un número que la corrección
+      //    justamente reemplaza.
+      var dupIdx=REGS.findIndex(function(r){return r.p==='DUP'+p;});
+      if(dupIdx<0&&!String(p).startsWith('DUP')){
+        var _f=String(fechaStr||''), _c=String(cam||''), _ch=String(cChofer||'').toUpperCase().trim();
+        dupIdx=REGS.findIndex(function(r){
+          return r.p&&String(r.p).startsWith('DUP')&&String(r.f)===_f&&String(r.cam)===_c&&
+                 String(r.ch||'').toUpperCase().trim()===_ch;
+        });
+      }
       if(dupIdx>=0){
+        var dupKey=REGS[dupIdx].p;
         // Eliminar DUP de memoria
         REGS.splice(dupIdx,1);
         resultado.dupsEliminadas=(resultado.dupsEliminadas||0)+1;
         resultado.dupsEliminadasKeys=(resultado.dupsEliminadasKeys||[]);
         resultado.dupsEliminadasKeys.push(dupKey);
         // Eliminar DUP de Supabase
+        // ⛔ SE MIRA EL RESULTADO, y con `.select()`: un delete que no borra NADA
+        //    devuelve exito igual, y el mensaje de arriba ya dice «eliminadas
+        //    automaticamente». Si el borrado no llega a la base, la DUP reaparece al
+        //    recargar la pantalla y la persona vuelve a ver el aviso que le dijimos
+        //    que estaba resuelto — que es justo lo que le paso a Gladis el 01 y 02/09.
+        //    [[norma-insert-sin-select-no-mide]]
+        // ⛔ VA POR RPC, NO POR `delete()` DIRECTO. La policy DELETE de `planillas`
+        //    exige `app_puede_borrar()` = superadmin sin token, y quien carga el Excel
+        //    es RRHH: el borrado directo le fallaba SIEMPRE, en silencio, mientras el
+        //    mensaje decía «eliminadas automáticamente». `planilla_borrar_dup_corregida`
+        //    es `security definer` y solo borra una DUP cuyo MISMO viaje ya está
+        //    cargado con un número válido — si el reemplazo no existe, no borra.
         if(DB_READY&&!DEMO_MODE){
-          supabase.from('planillas').delete().eq('p',dupKey).then(function(){
-            console.log('DUP eliminada de Supabase:',dupKey);
-          });
+          (function(k){
+            supabase.rpc('planilla_borrar_dup_corregida',{p_dup:k}).then(function(r){
+              var d=r&&r.data;
+              if(r&&r.error){
+                console.error('DUP NO se pudo eliminar:',k,r.error);
+                resultado.dupsNoBorradas=(resultado.dupsNoBorradas||[]).concat(k+' ('+r.error.message+')');
+              }else if(!d||d.ok!==true){
+                console.error('DUP NO se eliminó:',k,d&&d.motivo);
+                resultado.dupsNoBorradas=(resultado.dupsNoBorradas||[]).concat(k+' ('+((d&&d.motivo)||'sin motivo')+')');
+              }else console.log('DUP eliminada:',k,'· reemplazada por',d.reemplazada_por);
+            });
+          })(dupKey);
         }
       }
       // El número de planilla es el IDENTIFICADOR ÚNICO. El manejo de "ya existe" se
