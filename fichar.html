@@ -66,7 +66,7 @@ input{width:100%;background:#0f2038;border:1px solid rgba(255,255,255,.14);borde
   <div style="font-size:30px;font-weight:900;color:#7dc941;margin:12px 0 4px">¡Asistencia agregada!</div>
   <div id="ok-nombre" style="font-size:22px;font-weight:800"></div>
   <div id="ok-sitio" style="font-size:15px;color:#9fb3c8;margin-top:8px"></div>
-  <div style="margin-top:26px;font-size:14px;color:#9fb3c8">👉 Tocá la pantalla para el siguiente</div>
+  <div style="margin-top:26px;font-size:14px;color:#9fb3c8">👉 Toque la pantalla para el siguiente</div>
 </div>
 <script>
 var SB = supabase.createClient('https://hrkjddehqnzcqwlkklqm.supabase.co', 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhya2pkZGVocW56Y3F3bGtrbHFtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc2NTk1NzIsImV4cCI6MjA5MzIzNTU3Mn0.kqWKthyZfPZ86toql7shGByF-ZhUpcQUS4Jw4RnG_ko');
@@ -93,7 +93,7 @@ async function cargarEmp(){
     if(!r.error && r.data){ EMPS=r.data; try{localStorage.setItem('flot_emps',JSON.stringify(EMPS));}catch(e){} }
   }catch(e){ try{EMPS=JSON.parse(localStorage.getItem('flot_emps')||'[]');}catch(e2){} }
   render('');
-  $('emp-hint').textContent = EMPS.length? 'Tocá tu nombre.' : 'No se pudo cargar el personal. Revisá la conexión.';
+  $('emp-hint').textContent = EMPS.length? 'Toque su nombre.' : 'No se pudo cargar el personal. Revise la conexión.';
 }
 function render(q){
   q=(q||'').toUpperCase().trim();
@@ -147,11 +147,11 @@ function iniciarGPS(){
     if(err && err.code === 1 && typeof MWPermiso !== 'undefined' && MWPermiso.explicar){
       MWPermiso.explicar('geolocation', function(html){ $('gps').innerHTML = html; });
     }else if(err && err.code === 1){
-      $('gps').innerHTML = '<b>Ubicación bloqueada</b><br>Revisá el permiso de <b>Ubicación</b> en el <b>candado 🔒</b> al lado de la dirección y en <b>Ajustes</b> del teléfono → <b>Aplicaciones</b> → tu navegador → <b>Permisos</b>. Y que el <b>GPS</b> esté encendido.';
+      $('gps').innerHTML = '<b>Ubicación bloqueada</b><br>Revise el permiso de <b>Ubicación</b> en el <b>candado 🔒</b> al lado de la dirección y en <b>Ajustes</b> del teléfono → <b>Aplicaciones</b> → su navegador → <b>Permisos</b>. Y que el <b>GPS</b> esté encendido.';
     }else if(err && err.code === 3){
-      $('gps').textContent='Sin señal de GPS — salí de abajo del techo y esperá unos segundos.';
+      $('gps').textContent='Sin señal de GPS — salga de abajo del techo y espere unos segundos.';
     }else{
-      $('gps').textContent='No se pudo ubicar: '+((err&&err.message)||'activá el GPS del teléfono');
+      $('gps').textContent='No se pudo ubicar: '+((err&&err.message)||'active el GPS del teléfono');
     }
   },
   { enableHighAccuracy:true, maximumAge:0, timeout:25000 });
@@ -160,8 +160,8 @@ function pintaGPS(){
   if(!POS){return;}
   var a=Math.round(POS.acc);
   if(a<=25){ $('gps').className='gps ok'; $('gps').textContent='📍 Ubicación lista · precisión ±'+a+' m'; }
-  else if(a<=60){ $('gps').className='gps warn'; $('gps').textContent='📍 Precisión ±'+a+' m — mejorá saliendo a cielo abierto'; }
-  else { $('gps').className='gps warn'; $('gps').textContent='📍 GPS impreciso (±'+a+' m) — salí a cielo abierto y esperá'; }
+  else if(a<=60){ $('gps').className='gps warn'; $('gps').textContent='📍 Precisión ±'+a+' m — mejore saliendo a cielo abierto'; }
+  else { $('gps').className='gps warn'; $('gps').textContent='📍 GPS impreciso (±'+a+' m) — salga a cielo abierto y espere'; }
 }
 
 function prevSelfie(inp){
@@ -188,17 +188,17 @@ async function registrar(){
   var res=$('res'); res.innerHTML='';
   if(!SEL){ return; }
   var clave=($('clave').value||'').replace(/\D/g,'');
-  if(clave.length<4){ res.innerHTML='<div class="res bad">Poné los 4 dígitos de tu cédula.</div>'; return; }
+  if(clave.length<4){ res.innerHTML='<div class="res bad">Ponga los 4 dígitos de su cédula.</div>'; return; }
   if(!SELFIE_FILE){ res.innerHTML='<div class="res bad">Falta la selfie.</div>'; return; }
   if(!SITIO_FIJO){ // modo general: el GPS es obligatorio y debe ser preciso (en modo QR es tolerante)
     if(!POS && GPS_BLOQUEADO){
       // Está BLOQUEADO: esperar no sirve. Se dan los pasos acá mismo, donde está trancado.
-      res.innerHTML='<div class="res bad">La ubicación está bloqueada en este teléfono — por eso no podés fichar. Mirá el aviso de arriba para arreglarlo.</div>';
+      res.innerHTML='<div class="res bad">La ubicación está bloqueada en este teléfono — por eso no puede fichar. Mire el aviso de arriba para arreglarlo.</div>';
       if(typeof MWPermiso!=='undefined' && MWPermiso.explicarTexto){ MWPermiso.explicarTexto('geolocation', function(t){ res.innerHTML='<div class="res bad" style="white-space:pre-line;text-align:left">'+t+'</div>'; }); }
       return;
     }
-    if(!POS){ res.innerHTML='<div class="res bad">Todavía no hay ubicación. Esperá unos segundos.</div>'; return; }
-    if(POS.acc>80){ res.innerHTML='<div class="res bad">GPS muy impreciso (±'+Math.round(POS.acc)+' m). Salí a cielo abierto y reintentá.</div>'; return; }
+    if(!POS){ res.innerHTML='<div class="res bad">Todavía no hay ubicación. Espere unos segundos.</div>'; return; }
+    if(POS.acc>80){ res.innerHTML='<div class="res bad">GPS muy impreciso (±'+Math.round(POS.acc)+' m). Salga a cielo abierto y reintente.</div>'; return; }
   }
   var btn=$('btn-fichar'); btn.disabled=true; btn.textContent='Registrando…';
   try{

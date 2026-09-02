@@ -55,7 +55,7 @@ var MWPermiso = (function(raiz){
   }
 
   function pasoSitio(d){
-    return 'Tocá el <b>candado 🔒</b> (o ⓘ) al lado de la dirección, arriba → <b>Permisos</b> → <b>'
+    return 'Toque el <b>candado 🔒</b> (o ⓘ) al lado de la dirección, arriba → <b>Permisos</b> → <b>'
       + d.opcion + '</b> → <b>Permitir</b>.';
   }
 
@@ -63,10 +63,10 @@ var MWPermiso = (function(raiz){
     var nav = nombreNavegador();
     if(esIOS()){
       return d.opcion === 'Ubicación'
-        ? 'Entrá a <b>Ajustes</b> del teléfono → <b>Privacidad</b> → <b>Localización</b> → <b>' + nav + '</b> → <b>Al usar la app</b>.'
-        : 'Entrá a <b>Ajustes</b> del teléfono → <b>' + nav + '</b> → activá <b>Cámara</b>.';
+        ? 'Entre a <b>Ajustes</b> del teléfono → <b>Privacidad</b> → <b>Localización</b> → <b>' + nav + '</b> → <b>Al usar la app</b>.'
+        : 'Entre a <b>Ajustes</b> del teléfono → <b>' + nav + '</b> → active <b>Cámara</b>.';
     }
-    return 'Entrá a <b>Ajustes</b> del teléfono → <b>Aplicaciones</b> → <b>' + nav
+    return 'Entre a <b>Ajustes</b> del teléfono → <b>Aplicaciones</b> → <b>' + nav
       + '</b> → <b>Permisos</b> → <b>' + d.opcion + '</b> → <b>Permitir</b>.';
   }
 
@@ -81,13 +81,13 @@ var MWPermiso = (function(raiz){
       uno:     (estado === 'denied') ? sitio   : sistema,
       dos:     (estado === 'denied') ? sistema : sitio,
       aclara:  (estado === 'denied')
-                 ? 'Si ahí no aparece «' + d.opcion + '», seguí con el paso 2.'
-                 : 'Si ahí ya está permitido, seguí con el paso 2.',
+                 ? 'Si ahí no aparece «' + d.opcion + '», siga con el paso 2.'
+                 : 'Si ahí ya está permitido, siga con el paso 2.',
       gps:     (tipo === 'geolocation')
-                 ? 'Y comprobá que el <b>GPS del teléfono</b> esté encendido (se prende desde la barra de arriba).'
+                 ? 'Y compruebe que el <b>GPS del teléfono</b> esté encendido (se prende desde la barra de arriba).'
                  : '',
-      cierre:  'Después volvé a tocar «<b>' + d.volver + '</b>».',
-      ultimo:  'Si ya hiciste las dos cosas y sigue igual: cerrá el navegador por completo (sacalo de las apps abiertas) y volvé a entrar.'
+      cierre:  'Después vuelva a tocar «<b>' + d.volver + '</b>».',
+      ultimo:  'Si ya hizo las dos cosas y sigue igual: cierre el navegador por completo (sáquelo de las apps abiertas) y vuelva a entrar.'
     };
   }
 
