@@ -3159,6 +3159,9 @@ var REL_TAB='pend', REL_CACHE={};
 var REL_CATS={
   cobro_alcaldia:'Cobro de la Alcaldía', nomina:'Nómina', combustible:'Combustible',
   compra_divisas:'Compra de dólares (NO es gasto)', pago_socio:'Pago a socio',
+  // La otra pata de la compra que hace el BANCO por su cuenta: los dólares que entran a la
+  // cuenta en divisas. Su `monto` está en US$, no en Bs — por eso `moneda` en la fila.
+  divisas_recibidas:'Dólares recibidos del banco (NO es ingreso)',
   asignacion_1b:'Comisión 1B', impuestos:'Impuestos y retenciones', resp_social:'Responsabilidad social',
   mantenimiento:'Mantenimiento', servicios:'Servicios', alquiler:'Alquiler', seguro:'Seguros',
   dotacion:'Dotación y uniformes', tramites:'Trámites y permisos', compra_software:'Software',
@@ -3173,6 +3176,20 @@ var REL_CATS={
   prueba_sistema:'Prueba del sistema', sin_clasificar:'⚠️ Falta clasificar'
 };
 function relNombreCat(c){ return REL_CATS[c]||c||'⚠️ Falta clasificar'; }
+// ⛔ NO TODO `monto` DEL BANCO ESTÁ EN BOLÍVARES (02/09/2026). El abono de una intervención
+// cambiaria trae los DÓLARES comprados: US$ 2.500 en la misma columna donde el resto son Bs.
+// Sumarlo con los demás mezcla dos monedas en un solo número — y como el monto es chico, el
+// error no se nota: se cuela. Estas dos funciones son el único sitio donde se decide.
+// `moneda` viene por defecto en 'VES', así que una fila vieja o un select que no la traiga
+// siguen contando como bolívares, que es lo que eran. [[norma-fuente-unica-datos]]
+function bncEsBs(m){ return !m || !m.moneda || m.moneda === 'VES'; }
+function bncMontoBs(m){ return bncEsBs(m) ? (Number(m && m.monto) || 0) : 0; }
+// Cómo se escribe el monto de una fila, con el símbolo que le toca.
+function bncMontoTxt(m,dec){
+  var n = Number(m && m.monto) || 0;
+  var d = (dec === undefined) ? 2 : dec;
+  return (bncEsBs(m) ? 'Bs ' : 'US$ ') + n.toLocaleString('es-VE',{minimumFractionDigits:d,maximumFractionDigits:d});
+}
 function relTab(t){
   REL_TAB=t;
   ['pend','todos','fact'].forEach(function(x){ var el=g('rel-sw-'+x); if(el)el.className='sw'+(x===t?' on':''); });
@@ -3320,7 +3337,7 @@ async function relRenderTodos(cont,est){
   //    sin el no hay forma de ofrecer el «ver» acá. Pedido de Máximo: mirar el papel sin
   //    tener que irse a otro módulo.
   var q=supabase.from('bnc_movimientos')
-    .select('id,fecha,monto,tipo,descripcion,concepto_banco,referencia,categoria,es_gasto,clasificado_por,factura,pata,cxp_pago_id')
+    .select('id,fecha,monto,tipo,descripcion,concepto_banco,referencia,categoria,es_gasto,clasificado_por,factura,pata,cxp_pago_id,moneda')
     .order('fecha',{ascending:false}).limit(REL_TOPE);
   if(des) q=q.gte('fecha',des);
   if(hta) q=q.lte('fecha',hta);
@@ -3367,8 +3384,9 @@ async function relRenderTodos(cont,est){
     return cand.length===1?cand[0].fac:null;
   };
   try{ await _movPintarAlcance('rel-body','rel-alcance',des,hta,tipo,ms.length,'relLimpiar()'); }catch(e){}
-  var ent=ms.filter(function(m){return m.tipo==='credito';}).reduce(function(s,m){return s+(Number(m.monto)||0);},0);
-  var sal=ms.filter(function(m){return m.tipo==='debito';}).reduce(function(s,m){return s+(Number(m.monto)||0);},0);
+  // Los totales son en BOLÍVARES: lo que está en otra moneda no entra. Ver `bncMontoBs`.
+  var ent=ms.filter(function(m){return m.tipo==='credito';}).reduce(function(s,m){return s+bncMontoBs(m);},0);
+  var sal=ms.filter(function(m){return m.tipo==='debito';}).reduce(function(s,m){return s+bncMontoBs(m);},0);
   if(est)est.innerHTML=
     (tope?'<span style="color:var(--amber)">⚠️ Se llegó al tope de '+REL_TOPE+' movimientos: acotá las fechas o el tipo para verlos todos.</span> ':'')+
     relPeriodoTxt(des,hta)+' · <b>'+ms.length+'</b> movimiento(s)'+(buscar?' que coinciden con la búsqueda':'')+'.';
@@ -3412,7 +3430,11 @@ async function relRenderTodos(cont,est){
         // EL PALOTAL»). A 58 se veían los litros pero se comía el nombre de la estación, que es
         // lo que dice a cuál de las dos se le compró. El texto crudo va completo en el tooltip.
         '<td style="font-size:11px" title="'+relEsc(String(m.concepto_banco||m.descripcion||''))+'">'+relCorto(m.concepto_banco||m.descripcion,90)+'</td>'+
-        '<td style="text-align:right;font-family:var(--m);color:'+(esSal?'var(--red)':'var(--green)')+'">'+Number(m.monto).toLocaleString('es-VE',{minimumFractionDigits:2})+'</td>'+
+        // La columna es de bolívares; si la fila viene en otra moneda se dice, porque el número
+        // suelto se lee como Bs y son cosas distintas.
+        '<td style="text-align:right;font-family:var(--m);color:'+(esSal?'var(--red)':'var(--green)')+'">'+
+          Number(m.monto).toLocaleString('es-VE',{minimumFractionDigits:2})+
+          (bncEsBs(m)?'':' <b style="font-size:10px;color:var(--text3)">US$</b>')+'</td>'+
         '<td style="font-size:11px">'+relEsc(relNombreCat(m.categoria))+(manual?' <span class="badge bt" title="Lo decidió una persona: ninguna regla lo pisa">✋</span>':'')+'</td>'+
         '<td>'+(m.tipo==='credito'?'<span style="color:var(--text3);font-size:10px">entrada</span>':(m.es_gasto===false?'<span class="badge by">No</span>':'<span class="badge bg">Sí</span>'))+'</td>'+
         '<td style="font-size:10px">'+relEsc(m.factura?(m.factura+' '+(m.pata||'')):'')+(function(){var _v=_facVerLink(_facDeMov(m));return _v?(' '+_v):'';})()+'</td>'+
@@ -3460,14 +3482,17 @@ function relImprimir(){
     var k=m.categoria||'sin_clasificar';
     if(!porCat[k])porCat[k]={n:0,ent:0,sal:0};
     porCat[k].n++;
-    if(m.tipo==='credito')porCat[k].ent+=Number(m.monto)||0; else porCat[k].sal+=Number(m.monto)||0;
+    // Todo este cuadro está en bolívares: una fila en otra moneda no se suma acá.
+    if(m.tipo==='credito')porCat[k].ent+=bncMontoBs(m); else porCat[k].sal+=bncMontoBs(m);
   });
   var cats=Object.keys(porCat).sort(function(a,b){return (porCat[b].sal+porCat[b].ent)-(porCat[a].sal+porCat[a].ent);});
-  var totEnt=ms.filter(function(m){return m.tipo==='credito';}).reduce(function(s,m){return s+(Number(m.monto)||0);},0);
-  var totSal=ms.filter(function(m){return m.tipo==='debito';}).reduce(function(s,m){return s+(Number(m.monto)||0);},0);
+  var totEnt=ms.filter(function(m){return m.tipo==='credito';}).reduce(function(s,m){return s+bncMontoBs(m);},0);
+  var totSal=ms.filter(function(m){return m.tipo==='debito';}).reduce(function(s,m){return s+bncMontoBs(m);},0);
   // ⛔ Lo que NO es gasto no se suma como gasto: la compra de dólares, los traspasos entre cuentas
   // propias y los préstamos salen del banco y NO son gasto del período.
-  var gastoReal=ms.filter(function(m){return m.tipo==='debito'&&m.es_gasto!==false;}).reduce(function(s,m){return s+(Number(m.monto)||0);},0);
+  // También en bolívares. Hoy ningún débito viene en otra moneda, pero el día que se pague algo
+  // DESDE la cuenta en dólares sí, y este número es el gasto del período: no puede mezclar.
+  var gastoReal=ms.filter(function(m){return m.tipo==='debito'&&m.es_gasto!==false;}).reduce(function(s,m){return s+bncMontoBs(m);},0);
   var noGasto=totSal-gastoReal;
   var sinClas=ms.filter(function(m){return !m.categoria||m.categoria==='sin_clasificar';}).length;
 
@@ -14507,14 +14532,14 @@ async function renderMovBNC(){
   if(DB_READY&&supabase&&!DEMO_MODE){
     try{
       var q=supabase.from('bnc_movimientos')
-        .select('id,fecha,monto,tipo,descripcion,concepto_banco,referencia,categoria,es_gasto,conciliado,pendiente_autorizacion,control_number,cxp_pago_id,factura,pata')
+        .select('id,fecha,monto,tipo,descripcion,concepto_banco,referencia,categoria,es_gasto,conciliado,pendiente_autorizacion,control_number,cxp_pago_id,factura,pata,moneda')
         .order('fecha',{ascending:false}).limit(400);
       if(des)q=q.gte('fecha',des);
       if(hta)q=q.lte('fecha',hta);
       if(tipo)q=q.eq('tipo',tipo);   // ← el filtro va en la CONSULTA: nada se escapa
       var rq=await q;
       if(!rq.error)f=(rq.data||[]).map(function(m){
-        return {id:m.id,fecha:m.fecha,monto:Number(m.monto)||0,tipo:m.tipo,
+        return {id:m.id,fecha:m.fecha,monto:Number(m.monto)||0,tipo:m.tipo,moneda:m.moneda||'VES',
           desc:relCorto(m.concepto_banco||m.descripcion,64),   // acortado: ya no se corta a la derecha
           ref:m.referencia||'',categoria:m.categoria,esGasto:m.es_gasto,
           conciliado:m.conciliado,pendienteAutorizacion:m.pendiente_autorizacion,delBanco:!!m.control_number,
@@ -14562,8 +14587,10 @@ async function renderMovBNC(){
         (cat?'<div style="font-size:10px;color:var(--text3)">'+cat+(m.tipo==='debito'&&m.esGasto===false?' · <b>no es gasto</b>':'')+'</div>':'')+
         (m.delBanco?'':'<div style="font-size:9px;color:var(--amber)">no vino del banco</div>')+'</td>'+
       '<td style="font-family:var(--m);font-size:10px">'+relEsc(m.ref)+'</td>'+
-      '<td style="font-family:var(--m);text-align:right;color:'+(m.tipo==='credito'?'var(--green)':'var(--red)')+'">Bs '+m.monto.toLocaleString('es-VE',{maximumFractionDigits:0})+'</td>'+
-      '<td style="font-family:var(--m);text-align:right">$'+(m.monto/tasa).toFixed(2)+'</td>'+
+      // El abono de una compra de dólares ya viene EN dólares: se escribe con su símbolo y no se
+      // vuelve a dividir por la tasa, que daría un número inventado.
+      '<td style="font-family:var(--m);text-align:right;color:'+(m.tipo==='credito'?'var(--green)':'var(--red)')+'">'+bncMontoTxt(m,0)+'</td>'+
+      '<td style="font-family:var(--m);text-align:right">'+(bncEsBs(m)?('$'+(m.monto/tasa).toFixed(2)):('$'+m.monto.toFixed(2)))+'</td>'+
       // Enlazado = otra pantalla ya dijo contra QUÉ cruzó. Se muestra con qué y NO se ofrece
       // volver a conciliarlo: el 10/08 había 9 pagos ya cruzados por la pantalla Conciliación y
       // esta seguía ofreciendo el botón sobre ellos, porque solo miraba la bandera `conciliado`.
@@ -14598,8 +14625,9 @@ function imprimirMovBNC(){
   var e=relEsc;
   var ms=f.slice().sort(function(a,b){return String(a.fecha).localeCompare(String(b.fecha));});
   var bs=function(n){ return Number(n||0).toLocaleString('es-VE',{minimumFractionDigits:2,maximumFractionDigits:2}); };
-  var ent=ms.filter(function(m){return m.tipo==='credito';}).reduce(function(s,m){return s+(Number(m.monto)||0);},0);
-  var sal=ms.filter(function(m){return m.tipo==='debito';}).reduce(function(s,m){return s+(Number(m.monto)||0);},0);
+  // El cuadro está en bolívares: lo que vino en otra moneda no se suma acá. Ver `bncMontoBs`.
+  var ent=ms.filter(function(m){return m.tipo==='credito';}).reduce(function(s,m){return s+bncMontoBs(m);},0);
+  var sal=ms.filter(function(m){return m.tipo==='debito';}).reduce(function(s,m){return s+bncMontoBs(m);},0);
   var sub=(typeof relPeriodoTxt==='function'?relPeriodoTxt(des,hta):'')+
           (tipo?(' · '+(tipo==='debito'?'Solo salidas':'Solo entradas')):'');
 
@@ -14628,11 +14656,13 @@ function imprimirMovBNC(){
         '<td>'+e(typeof relNombreCat==='function'?relNombreCat(m.categoria):(m.categoria||''))+
           (esSal&&m.esGasto===false?' <b>(no es gasto)</b>':'')+'</td>'+
         '<td>'+e(conc)+'</td>'+
-        '<td style="text-align:right;font-family:monospace">'+bs(m.monto)+'</td></tr>';
+        // Una fila en otra moneda lleva su símbolo: el encabezado dice «Bs» y sin esto se leería
+        // como bolívares. Es un documento que se imprime y se entrega.
+        '<td style="text-align:right;font-family:monospace">'+(bncEsBs(m)?bs(m.monto):('US$ '+bs(m.monto)))+'</td></tr>';
     }).join('')+'</tbody></table>'+
     '<p style="font-size:10px;color:#777;margin-top:16px;border-top:1px solid #ccc;padding-top:8px">'+
       ms.length+' movimiento(s), de los cuales <b>'+delBanco+'</b> vinieron directo del estado de cuenta del banco '+
-      'y '+(ms.length-delBanco)+' los registró la oficina. Montos en bolívares. '+
+      'y '+(ms.length-delBanco)+' los registró la oficina. Montos en bolívares, salvo los que llevan otro símbolo. '+
       'Emitido por '+e((SESION&&SESION.nombre)||'')+' el '+formatFechaHora(new Date())+'.'+
     '</p></body></html>';
   abrirVentanaImpresion(html);
@@ -28998,7 +29028,9 @@ var CLASIF_SALIDA = [
   // pago para cambio de moneda, todos esos son compra de dólares». El «reparto de dividendo»
   // es el nombre VIEJO de lo mismo — confunde porque lleva «7,5%» en el texto, pero no es el
   // pago a socio: es plata que se cambió a divisa.
-  { cat:'ahorro_divisas',  etiqueta:'Compra de divisas (ahorro, NO gasto)', re:/cambio de moneda|compra de d[oó]lar|compra de divisa|reparto de dividendo/i },
+  // «Intervencion Cambiaria» es como lo escribe el BANCO cuando compra los dólares él mismo, sin
+  // que nadie se lo pida (02/09/2026). Los otros textos son como lo escribe la administración.
+  { cat:'ahorro_divisas',  etiqueta:'Compra de divisas (ahorro, NO gasto)', re:/cambio de moneda|compra de d[oó]lar|compra de divisa|reparto de dividendo|intervencion cambiaria|intervenci[oó]n cambiaria/i },
   { cat:'credito_camiones',etiqueta:'Crédito de los camiones',              re:/cr[eé]dito.*cami[oó]n|cuota.*cami[oó]n|pago.*financiamiento/i },
   // La asignación / tipo B SÍ es gasto, y de una vez (Máximo: «la asignación sí es un gasto de
   // una vez, pero es importante que se marque como gasto y que se sepa que fue a eso»). Lo que

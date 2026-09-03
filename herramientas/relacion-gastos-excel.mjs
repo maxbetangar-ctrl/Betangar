@@ -86,6 +86,9 @@ const lim = (s) => String(s ?? '').replace(/\s+/g, ' ').trim();
 const NOMBRE_CAT = {
   cobro_alcaldia: 'Cobro de la Alcaldía', nomina: 'Nómina', combustible: 'Combustible',
   compra_divisas: 'Compra de dólares (NO es gasto)', pago_socio: 'Pago a socio',
+  // La otra pata de la compra que hace el BANCO solo: los dólares que entran a la cuenta en
+  // divisas. Su monto está en US$, no en Bs.
+  divisas_recibidas: 'Dólares recibidos del banco (NO es ingreso)',
   asignacion_1b: 'Comisión 1B', impuestos: 'Impuestos y retenciones', resp_social: 'Responsabilidad social',
   mantenimiento: 'Mantenimiento', servicios: 'Servicios', alquiler: 'Alquiler', seguro: 'Seguros',
   dotacion: 'Dotación y uniformes', tramites: 'Trámites y permisos', compra_software: 'Software',
