@@ -14941,7 +14941,10 @@ async function _sincronizarRetencionesSeniat(fechaFactura){
 function _cxpFacturadoUsd(id){
   var ls=_cxpLineasParaDeuda(id);
   if(!ls.length)return null;
-  var a={base:0,iva:0,total:0,retIva:0,retIslr:0,neto:0,tasa:0,ivaPct:0,sinTasa:0};
+  // retIvaPct/retIslrPct: el porcentaje que DECLARO quien cargo la factura. No se calcula:
+  // se copia. pctMezcla queda en true si dos facturas de la misma deuda no coinciden.
+  var a={base:0,iva:0,total:0,retIva:0,retIslr:0,neto:0,tasa:0,ivaPct:0,sinTasa:0,
+         retIvaPct:null,retIslrPct:null,pctMezcla:false};
   ls.forEach(function(l){
     var t=parseFloat(l.tasa_val)||0;
     if(!(t>0)){a.sinTasa++;return;} // sin tasa no hay forma de pasarla a $: se ignora y se avisa
@@ -14953,6 +14956,11 @@ function _cxpFacturadoUsd(id){
     a.retIslr+=(parseFloat(l.ret_islr_bs)||0)/t;
     a.neto+=(parseFloat(l.neto_bs)||0)/t;
     a.tasa=t; a.ivaPct=parseFloat(l.iva_pct)||a.ivaPct;
+    // El ISLR puede estar cargado y NO aplicar: entonces su porcentaje es 0, no el de la tabla.
+    var _rip=parseFloat(l.ret_iva_pct)||0;
+    var _rlp=(l.islr_aplica===false)?0:(parseFloat(l.ret_islr_pct)||0);
+    if(a.retIvaPct===null){a.retIvaPct=_rip;a.retIslrPct=_rlp;}
+    else if(a.retIvaPct!==_rip||a.retIslrPct!==_rlp){a.pctMezcla=true;}
   });
   return (a.total>0)?a:null;
 }
@@ -14996,9 +15004,17 @@ function _aplicarFacturasACxp(c,cb){
     c._pactadoTraeIva=_pactadoTraeIva;   // para poder DECIRLO en pantalla, no adivinarlo
     upd={iva_pct:a.ivaPct||16, iva_usd:+a.iva.toFixed(2),
          total_usd:+(a.total+sinFacturar).toFixed(2), ret_iva_usd:+a.retIva.toFixed(2), ret_islr_usd:+a.retIslr.toFixed(2),
+         // El PORCENTAJE lo pone la FACTURA, no se arrastra del que tenia la orden.
+         // Hasta el 03/09 esta funcion copiaba los montos de la factura y dejaba los pct como estaban
+         // (0, puestos al crear la CxP desde la orden). La pantalla imprimia "Retencion IVA (0% del IVA)
+         // -$37,26": un numero que el dueno no puede explicar. 22 de 49 CxP de Betangar estaban asi.
+         ret_iva_pct: (a.pctMezcla||a.retIvaPct===null) ? (a.iva>0.005?+((a.retIva/a.iva)*100).toFixed(2):0) : a.retIvaPct,
+         ret_islr_pct: (a.pctMezcla||a.retIslrPct===null) ? (a.base>0.005?+((a.retIslr/a.base)*100).toFixed(2):0) : a.retIslrPct,
          neto_pagar:+(a.neto+sinFacturar).toFixed(2), tasa_val:a.tasa};
   } else {
-    upd={iva_pct:0, iva_usd:0, total_usd:base, ret_iva_usd:0, ret_islr_usd:0, neto_pagar:base};
+    // Sin facturas no hay retencion: los pct vuelven a 0 junto con sus montos, o quedaria
+    // un porcentaje huerfano explicando un monto que ya no existe.
+    upd={iva_pct:0, iva_usd:0, total_usd:base, ret_iva_usd:0, ret_islr_usd:0, ret_iva_pct:0, ret_islr_pct:0, neto_pagar:base};
   }
   // ⛔ EL ESTADO TAMBIÉN ES UN MONTO: si vuelve a haber saldo, la deuda vuelve a estar PENDIENTE.
   // Antes esta función solo movía los números y dejaba el estado como estuviera. Una orden podía
