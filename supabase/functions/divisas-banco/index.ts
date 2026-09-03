@@ -116,12 +116,23 @@ Deno.serve(async (req) => {
     // 2) Las operaciones, ya armadas
     const ops = await sel("v_intervencion_cambiaria?order=fecha.desc");
 
-    // 3) Destinatarios: los mismos del aviso de la Alcaldía. Fuente única.
+    // 3) Destinatarios. Salen de `configuracion.whatsapp`, igual que el aviso de la Alcaldía:
+    //    fuente única, así que si mañana entra o sale alguien se cambia en UN solo sitio.
+    //
+    //    Máximo (02/09/2026) pidió para ESTE aviso una lista más larga que la de la Alcaldía:
+    //    «a mí, a Fran, a Jonaz y a Keily la administradora», y después «sí, Alejandro también».
+    //    Eso es exactamente `socios` (Máximo y Fran) + `banco` (Jonaz y Alejandro) + `admin`.
+    //
+    // 📌 `admin` va en la lista aunque HOY esté vacante (Auredy Medina, baja el 06/08/2026):
+    //    ⏳ Keily, la administradora, todavía no está cargada. El día que se le dé de alta con
+    //    rol `admin` empieza a recibir estos avisos SOLA, sin tocar ni desplegar nada. La fila
+    //    vacante no molesta: no tiene número y está inactiva, y el filtro exige las dos cosas.
+    const ROLES_QUE_AVISAN = ["socios", "admin", "banco"];
     const cfg = await sel("configuracion?clave=eq.whatsapp&select=valor");
     let wa: any[] = [];
     try { wa = JSON.parse(cfg[0]?.valor || "[]"); } catch { wa = []; }
     const nums = Array.from(new Set((Array.isArray(wa) ? wa : [])
-      .filter((w: any) => w.num && w.activo && (w.rol === "socios" || w.rol === "admin"))
+      .filter((w: any) => w.num && w.activo && ROLES_QUE_AVISAN.includes(w.rol))
       .map((w: any) => String(w.num).replace(/[\s\-+]/g, ""))));
     if (!nums.length) nums.push("584147379886"); // fallback Máximo
 
