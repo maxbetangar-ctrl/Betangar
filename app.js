@@ -29382,8 +29382,9 @@ function reqPintarFicha(id){
 // ⛔ No se pregunta nada que el sistema ya sepa. Quien pide escribe lo único que
 //    solo él sabe: qué hace falta y qué pasa si no se hace.
 var REQ_NUEVO_LINEAS = 1;
-function reqNuevo(anom){
-  var unidades = Object.keys(typeof FLOTA!=='undefined'?FLOTA:{}).sort();
+async function reqNuevo(anom){
+  await reqCargarUnidades();
+  var unidades = REQ_UNIDADES.slice();
   // ⛔ Si la unidad de la falla no está en la flota cargada, se agrega igual a la
   //    lista. Si no, el desplegable se queda en OTRA unidad y el pedido sale a
   //    nombre de un camión que no es — un respaldo que rellena el hueco inventa
@@ -29413,11 +29414,7 @@ function reqNuevo(anom){
     '<div id="rq-lineas"></div>'+
     '<div style="margin-top:6px"><button class="btn btn-sm" onclick="reqAgregarLinea()">➕ Otro renglón</button></div>'+
     '<label style="margin-top:12px">¿Qué pasa si no se hace?</label>'+
-    '<div style="display:flex;gap:8px;flex-wrap:wrap" id="rq-urg">'+
-      '<button class="btn btn-sm" data-u="no_sale" onclick="reqUrg(this)">La unidad no sale</button>'+
-      '<button class="btn btn-sm" data-u="esta_semana" onclick="reqUrg(this)">Puede rodar unos días</button>'+
-      '<button class="btn btn-sm btn-g" data-u="cuando_se_pueda" onclick="reqUrg(this)">Cuando se pueda</button>'+
-    '</div>'+
+    '<div style="display:flex;gap:8px;flex-wrap:wrap" id="rq-urg"></div>'+
     '<input type="hidden" id="rq-urgencia" value="cuando_se_pueda">'+
     '<div class="fg" style="margin-top:10px"><label>Detalle (opcional)</label><input class="fc" id="rq-consec" placeholder="Ej: sin esto la unidad no puede salir"></div>'+
     '<button class="btn btn-g" id="rq-enviar" onclick="reqGuardarNuevo()" style="width:100%;margin-top:14px">Enviar '+_rqE(REQ_ETIQ.toLowerCase())+'</button>'+
@@ -29425,6 +29422,7 @@ function reqNuevo(anom){
   document.body.appendChild(ov);
   REQ_NUEVO_LINEAS = 0;
   reqAgregarLinea();
+  reqPintarUrgencia();
   if(anom && anom.label) sv('rq-consec', anom.detalle || '');
 }
 function reqCerrarModal(){ var m=g('req-modal'); if(m) m.remove(); }
@@ -29433,6 +29431,7 @@ function reqDestinoCambio(){
   var wc=g('rq-wrap-cam'), wa=g('rq-wrap-area');
   if(wc) wc.style.display = (d==='unidad')?'block':'none';
   if(wa) wa.style.display = (d==='area')?'block':'none';
+  reqPintarUrgencia();
 }
 function reqUrg(b){
   var cont=g('rq-urg'); if(!cont) return;
@@ -29676,4 +29675,52 @@ function reqDesdeAnomalia(id){
   if(!a){ mostrarToast('No encuentro esa falla','warn'); return; }
   if(typeof reqNuevo!=='function'){ mostrarToast('El módulo de requisitorios no está disponible','warn'); return; }
   reqNuevo({ id:a.id, label:a.label, cam:a.cam, detalle:a.detalle });
+}
+
+// Las palabras de la urgencia dependen de PARA QUÉ es el pedido: «La unidad no
+// sale» no significa nada cuando lo que se pide es para la oficina. Reportado por
+// Alejandra el 04/09/2026 probando en Tony Gas.
+var REQ_URG_TXT = {
+  unidad: [['no_sale','La unidad no sale'], ['esta_semana','Puede rodar unos días'], ['cuando_se_pueda','Cuando se pueda']],
+  otro:   [['no_sale','Nos tranca hoy'],    ['esta_semana','Esta semana'],           ['cuando_se_pueda','Cuando se pueda']]
+};
+function reqPintarUrgencia(){
+  var cont = g('rq-urg'); if(!cont) return;
+  var esUnidad = (gv('rq-destino')||'unidad') === 'unidad';
+  var actual = gv('rq-urgencia') || 'cuando_se_pueda';
+  cont.innerHTML = REQ_URG_TXT[esUnidad?'unidad':'otro'].map(function(o){
+    return '<button class="btn btn-sm'+(o[0]===actual?' btn-g':'')+'" data-u="'+o[0]+'" onclick="reqUrg(this)">'+o[1]+'</button>';
+  }).join('');
+  var d = g('rq-consec');
+  if(d) d.placeholder = esUnidad
+    ? 'Ej: sin esto la unidad no puede salir'
+    : 'Ej: sin esto no se puede facturar';
+}
+
+// ⛔ LA PANTALLA PIDE LO QUE NECESITA; NO SUPONE QUE OTRO YA LO CARGÓ.
+//    Alejandra reportó el 04/09/2026 desde Tony Gas: «No me despliega el
+//    menú/opciones». La unidad no salía, y la causa tenía dos capas:
+//      1. `FLOTA` está VACÍA a propósito en Tony Gas, VIDECA y los demos — se le
+//         quitó la flota horneada de otro cliente el 01/09. Es una constante del
+//         código, no un dato de la base.
+//      2. `UNIDAD_CONFIG` y `KM_DATA` también estaban en CERO en memoria: la carga
+//         de datos de la app no corre para el rol `compras`, que es nuevo. El rol
+//         SÍ puede leer `unidad_config` (26 filas por consulta directa) — lo que
+//         faltaba era que alguien las pidiera.
+//    Por eso no se «agrega compras a la lista de roles que cargan»: eso arregla el
+//    caso y deja el mecanismo igual de frágil para el próximo rol que se cree.
+var REQ_UNIDADES = [];
+async function reqCargarUnidades(){
+  var set = {};
+  ['FLOTA','UNIDAD_CONFIG','KM_DATA'].forEach(function(n){
+    try{ var o = window[n]; if(o) Object.keys(o).forEach(function(c){ if(c) set[c]=1; }); }catch(e){}
+  });
+  if(!Object.keys(set).length && DB_READY && supabase){
+    try{
+      var r = await supabase.from('unidad_config').select('cam').limit(1000);
+      if(r && !r.error && Array.isArray(r.data)) r.data.forEach(function(x){ if(x.cam) set[x.cam]=1; });
+    }catch(e){ console.log('[requisitorio] unidades:', e && e.message); }
+  }
+  REQ_UNIDADES = Object.keys(set).sort();
+  return REQ_UNIDADES;
 }
