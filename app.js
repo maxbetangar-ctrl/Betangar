@@ -474,6 +474,7 @@ PERMISOS.auditor = [
 ];
 
 var NAV_LABELS={
+  requisitorio:'Requisitorios',
   'aud-combustible':'Auditoría de Combustible',
   dashboard:'Dashboard',planilla:'Registro Diario',historico:'Historico',reporte:'Cobranza / Alcaldia',
   // ⚠️ TODA página nueva va TAMBIÉN acá, no solo en PERMISOS. `aplicarPermisos()` recorre
@@ -3828,6 +3829,7 @@ function sp(id){
   var lbl=document.getElementById('nav-active-label');if(lbl)lbl.textContent=NAV_LABELS[id]||id;
   closeMenu();
   if(id==='planilla'){try{actualizarUltimaPlanilla();}catch(e){}}
+  if(id==='requisitorio'){try{renderRequisitorio();}catch(e){console.log('[requisitorio]',e&&e.message);}}
   try{
     if(id==='dashboard'){
     renderDash();
@@ -29119,4 +29121,540 @@ function proveedorDe(concepto){
 // Todo lo demás SÍ es gasto, incluida la comisión 1B.
 function salidaEsGasto(concepto){
   return clasificarSalida(concepto).cat !== 'ahorro_divisas';
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  REQUISITORIO — las pantallas (2026-09-04)
+//
+//  El pedido que va ANTES de la orden. Las dos puntas del circuito ya existían
+//  —la falla del checklist y la orden con su factura— y el medio estaba ABIERTO:
+//  cualquiera con el rol emitía una orden sin que nadie la hubiera pedido ni
+//  aprobado.
+//
+//  ⛔ Todo lo que MUEVE un requisitorio pasa por las RPC (`req_crear`,
+//     `req_tomar`, `req_cotizar`, `req_decidir`, `req_recibir`). Acá NO se
+//     escribe la tabla a mano: quien firma entra por un enlace sin sesión y la
+//     decisión tiene que ser idempotente. La pantalla lee y pide; la base decide.
+//
+//  La palabra la pone cada empresa (`configuracion.req_etiqueta`).
+// ══════════════════════════════════════════════════════════════════════════════
+var REQS = [], REQ_LIN = {}, REQ_COT = {}, REQ_REGLAS = [];
+var REQ_VISTA = 'tablero', REQ_ABIERTA = null, REQ_ETIQ = 'Requisitorio';
+
+// Las columnas del tablero. El orden es el del camino, y por eso se lee como un
+// camino: lo que está más a la izquierda es lo que todavía no arrancó.
+var REQ_COLS = [
+  { k:'enviada',      t:'Pedido' },
+  { k:'tomada',       t:'En compras' },
+  { k:'cotizando',    t:'Cotizando' },
+  { k:'espera_firma', t:'Esperando firma' },
+  { k:'aprobada',     t:'Aprobado' },
+  { k:'recibida',     t:'Recibido' }
+];
+var REQ_URG = {
+  no_sale:        { t:'La unidad no sale', c:'#ef4444' },
+  esta_semana:    { t:'Esta semana',       c:'#f59e0b' },
+  cuando_se_pueda:{ t:'Cuando se pueda',   c:'#22c55e' }
+};
+var REQ_EST_LBL = { enviada:'Pedido', tomada:'En compras', cotizando:'Cotizando',
+  espera_firma:'Esperando firma', aprobada:'Aprobado', atendida:'Aprobado',
+  recibida:'Recibido', cerrada:'Cerrado', rechazada:'Rechazado', anulada:'Anulado',
+  borrador:'Borrador' };
+
+function _rqE(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function _rqM(n){ return 'US$ ' + (Number(n)||0).toLocaleString('es-VE',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function _rqF(f){ if(!f)return '—'; var p=String(f).slice(0,10).split('-'); return p.length===3?(p[2]+'/'+p[1]+'/'+p[0]):f; }
+function _rqDias(a,b){
+  if(!a) return null;
+  var d1=new Date(a), d2=b?new Date(b):new Date();
+  return Math.max(0, Math.round((d2-d1)/86400000));
+}
+function _rqPuedeCompras(){ var r=(SESION&&SESION.rol)||''; return ['compras','admin','superadmin','operador'].indexOf(r)>=0; }
+function _rqPuedeReglas(){ var r=(SESION&&SESION.rol)||''; return ['superadmin','directivo'].indexOf(r)>=0; }
+
+async function reqCargar(){
+  if(!(DB_READY&&supabase)) return false;
+  try{
+    var etq = (typeof CONFIG!=='undefined' && CONFIG && CONFIG.req_etiqueta) ? CONFIG.req_etiqueta : null;
+    if(!etq){
+      var c = await supabase.from('configuracion').select('valor').eq('clave','req_etiqueta').maybeSingle();
+      if(c && c.data && c.data.valor) etq = c.data.valor;
+    }
+    REQ_ETIQ = etq || 'Requisitorio';
+
+    var r = await supabase.from('requisiciones').select('*').order('numero',{ascending:false}).limit(1000);
+    REQS = (r && !r.error && Array.isArray(r.data)) ? r.data : [];
+    var ids = REQS.map(function(x){return x.id;});
+    REQ_LIN = {}; REQ_COT = {};
+    if(ids.length){
+      var l = await supabase.from('req_lineas').select('*').in('req_id', ids).order('orden');
+      (l && l.data ? l.data : []).forEach(function(x){ (REQ_LIN[x.req_id]=REQ_LIN[x.req_id]||[]).push(x); });
+      var c2 = await supabase.from('req_cotizaciones').select('*').in('req_id', ids).order('monto_usd');
+      (c2 && c2.data ? c2.data : []).forEach(function(x){ (REQ_COT[x.req_id]=REQ_COT[x.req_id]||[]).push(x); });
+    }
+    var g2 = await supabase.from('req_reglas').select('*').order('prioridad');
+    REQ_REGLAS = (g2 && g2.data) ? g2.data : [];
+    return true;
+  }catch(e){ console.log('[requisitorio]', e&&e.message); return false; }
+}
+
+async function renderRequisitorio(){
+  var cont = g('req-cont'); if(!cont) return;
+  var t = g('req-titulo'); if(t) t.textContent = '📋 ' + REQ_ETIQ + 's';
+  cont.innerHTML = '<div style="color:var(--text3);text-align:center;padding:20px">Cargando…</div>';
+  var ok = await reqCargar();
+  if(!ok){ cont.innerHTML = '<div class="empty-state">Sin conexión. Los pedidos que haga ahora quedan en la cola y suben solos.</div>'; return; }
+  if(t) t.textContent = '📋 ' + REQ_ETIQ + 's';
+  reqKpis();
+  if(REQ_VISTA==='reglas')      reqPintarReglas();
+  else if(REQ_VISTA==='ficha' && REQ_ABIERTA) reqPintarFicha(REQ_ABIERTA);
+  else                          reqPintarTablero();
+}
+
+function reqVista(v){
+  if(v==='reglas' && !_rqPuedeReglas()){ mostrarToast('Solo un superadmin o el directivo definen quién firma','warn'); return; }
+  REQ_VISTA = v; if(v!=='ficha') REQ_ABIERTA = null;
+  renderRequisitorio();
+}
+
+// ── Los cuatro números de arriba ────────────────────────────────────────────
+// El tercero es el que duele y el que nadie puede medir hoy: unidades paradas
+// esperando un repuesto.
+function reqKpis(){
+  var k = g('req-kpis'); if(!k) return;
+  var abiertos = REQS.filter(function(r){ return ['rechazada','anulada','cerrada','recibida'].indexOf(r.estado)<0; });
+  var firma    = REQS.filter(function(r){ return r.estado==='espera_firma'; });
+  var paradas  = {};
+  abiertos.forEach(function(r){ if(r.urgencia==='no_sale' && r.cam) paradas[r.cam]=1; });
+  var dias = [], n=0;
+  REQS.forEach(function(r){
+    if(r.enviada_at && r.decidida_at){ dias.push((new Date(r.decidida_at)-new Date(r.enviada_at))/86400000); n++; }
+  });
+  var prom = n ? (dias.reduce(function(a,b){return a+b;},0)/n) : null;
+  var nParadas = Object.keys(paradas).length;
+
+  function tile(v, l, alerta){
+    return '<div class="stat"'+(alerta?' style="border-color:#ef4444"':'')+'>'+
+      '<div class="stat-val"'+(alerta?' style="color:#ef4444"':'')+'>'+v+'</div>'+
+      '<div class="stat-lbl">'+l+'</div></div>';
+  }
+  k.innerHTML =
+    tile(abiertos.length, 'Abiertos') +
+    tile(firma.length, 'Esperando firma', firma.length>0) +
+    tile(nParadas, 'Unidades paradas por repuesto', nParadas>0) +
+    tile(prom==null?'—':(prom.toFixed(1).replace('.',',')+' d'), 'Del pedido a la firma');
+}
+
+// ── El tablero ──────────────────────────────────────────────────────────────
+function reqPintarTablero(){
+  var cont = g('req-cont');
+  var vivos = REQS.filter(function(r){ return ['rechazada','anulada','cerrada','borrador'].indexOf(r.estado)<0; });
+  if(!vivos.length){
+    cont.innerHTML = '<div class="empty-state">Todavía no hay ningún '+_rqE(REQ_ETIQ.toLowerCase())+'.<br>'+
+      '<span style="font-size:12px;color:var(--text3)">El botón «Pedir algo» arranca uno. También sale solo desde una falla del checklist.</span></div>';
+    return;
+  }
+  var por = {};
+  vivos.forEach(function(r){ var k=(r.estado==='atendida')?'aprobada':r.estado; (por[k]=por[k]||[]).push(r); });
+
+  var cols = REQ_COLS.map(function(c){
+    var lista = por[c.k]||[];
+    var tarjetas = lista.map(function(r){
+      var u = REQ_URG[r.urgencia] || REQ_URG.cuando_se_pueda;
+      var donde = r.cam || r.area || (r.destino==='patio'?'Patio':(r.destino==='inventario'?'Almacén':''));
+      var d = _rqDias(r.enviada_at);
+      var esperando = (r.estado==='espera_firma') ? _rqDias(r.firma_pedida_at) : null;
+      var monto = r.monto_aprobado_usd || r.monto_estimado_usd;
+      return '<div onclick="reqAbrir(\''+_rqE(r.id)+'\')" style="background:var(--bg2);border:1px solid var(--border);border-left:3px solid '+u.c+';border-radius:8px;padding:9px 10px;margin-bottom:8px;cursor:pointer">'+
+        '<div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text3)"><span class="mono">'+_rqE(r.codigo||'—')+'</span><span>'+(d===0?'hoy':'hace '+d+' d')+'</span></div>'+
+        '<div style="font-weight:600;font-size:13px;margin:3px 0 5px;line-height:1.3">'+_rqE(reqResumen(r))+'</div>'+
+        '<div style="display:flex;justify-content:space-between;gap:6px;font-size:11px;color:var(--text3);align-items:center">'+
+          '<span>'+_rqE(donde||'—')+'</span>'+
+          (monto?'<span class="mono" style="font-weight:600;color:var(--text2)">'+_rqM(monto)+'</span>':'')+
+        '</div>'+
+        (esperando!==null && esperando>=3 ? '<div style="font-size:11px;color:#ef4444;font-weight:700;margin-top:4px">'+esperando+' días esperando</div>' : '')+
+      '</div>';
+    }).join('');
+    return '<div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:9px;min-width:200px">'+
+      '<div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--text2);font-weight:700;margin-bottom:9px">'+
+        '<span>'+c.t+'</span><span class="mono" style="background:var(--bg);border:1px solid var(--border);border-radius:99px;padding:1px 7px">'+lista.length+'</span>'+
+      '</div>'+ (tarjetas || '<div style="font-size:11px;color:var(--text3);padding:4px 2px">—</div>') +
+    '</div>';
+  }).join('');
+
+  cont.innerHTML = '<div style="display:grid;grid-template-columns:repeat('+REQ_COLS.length+',minmax(200px,1fr));gap:10px;overflow-x:auto;padding-bottom:6px">'+cols+'</div>';
+}
+
+function reqResumen(r){
+  var l = REQ_LIN[r.id]||[];
+  if(!l.length) return '(sin renglones)';
+  var s = l.map(function(x){ return x.item; }).slice(0,2).join(' · ');
+  return s + (l.length>2 ? ' +'+(l.length-2) : '');
+}
+
+function reqAbrir(id){ REQ_ABIERTA = id; REQ_VISTA='ficha'; renderRequisitorio(); }
+
+// ── La ficha: la historia del pedido ────────────────────────────────────────
+function reqPintarFicha(id){
+  var cont = g('req-cont');
+  var r = REQS.filter(function(x){ return x.id===id; })[0];
+  if(!r){ REQ_VISTA='tablero'; reqPintarTablero(); return; }
+  var lineas = REQ_LIN[id]||[], ofertas = REQ_COT[id]||[];
+  var u = REQ_URG[r.urgencia]||REQ_URG.cuando_se_pueda;
+  var donde = r.cam || r.area || (r.destino==='patio'?'Patio':(r.destino==='inventario'?'Almacén':'—'));
+
+  // La línea de tiempo. Cada paso dice QUIÉN y CUÁNTO TARDÓ: sin eso no se puede
+  // decir «6 días esperando aprobación», que es el número que no tiene nadie.
+  var pasos = [
+    { t:'Pedido',      f:r.enviada_at,      q:r.solicitante },
+    { t:'En compras',  f:r.tomada_at,       q:r.tomada_por },
+    { t:'Cotizado',    f:r.cotizada_at,     q:'' },
+    { t:'Firmado',     f:r.decidida_at,     q:r.decidida_por },
+    { t:'Recibido',    f:r.recibida_at,     q:r.recibida_por }
+  ];
+  var tl = pasos.map(function(p,i){
+    var hecho = !!p.f;
+    var sig = pasos[i+1];
+    var tardo = (hecho && sig && sig.f) ? _rqDias(p.f, sig.f) : (hecho && !(sig&&sig.f) ? _rqDias(p.f) : null);
+    var lento = tardo!==null && tardo>=3;
+    return '<div style="flex:1;min-width:110px;padding:0 4px">'+
+      '<div style="width:20px;height:20px;border-radius:50%;display:grid;place-items:center;font-size:11px;font-weight:700;'+
+        (hecho?'background:#22c55e;color:#062;':'background:var(--bg);color:var(--text3);border:2px solid var(--border)')+'">'+(hecho?'✓':(i+1))+'</div>'+
+      '<div style="font-size:12px;font-weight:600;margin-top:7px">'+p.t+'</div>'+
+      '<div style="font-size:11px;color:var(--text3);line-height:1.3">'+_rqE(p.q||'')+'</div>'+
+      '<div class="mono" style="font-size:11px;margin-top:3px;'+(lento?'color:#ef4444;font-weight:700':'color:var(--text3)')+'">'+
+        (hecho ? (_rqF(p.f) + (tardo!==null ? ' · '+tardo+' d' : '')) : '—')+'</div>'+
+    '</div>';
+  }).join('');
+
+  var htmlLineas = lineas.map(function(l){
+    return '<tr><td>'+_rqE(l.item)+(l.especificacion?'<div style="font-size:11px;color:var(--text3)">'+_rqE(l.especificacion)+'</div>':'')+'</td>'+
+      '<td class="mono" style="text-align:right">'+_rqE(l.cantidad)+' '+_rqE(l.unidad||'')+'</td>'+
+      '<td>'+(l.desde_almacen?'<span style="color:#22c55e;font-size:11px">✓ sale del almacén</span>':'')+'</td></tr>';
+  }).join('') || '<tr><td colspan="3" style="color:var(--text3)">Sin renglones</td></tr>';
+
+  var htmlOfertas = ofertas.length ? ('<div class="tw" style="margin-top:8px"><table><thead><tr><th>Proveedor</th><th style="text-align:right">Monto</th><th style="text-align:right">Entrega</th><th>Nota</th></tr></thead><tbody>'+
+    ofertas.map(function(o){
+      return '<tr'+(o.elegida?' style="background:rgba(34,197,94,.1);font-weight:600"':'')+'>'+
+        '<td>'+_rqE(o.proveedor)+(o.recomendada?' <span style="font-size:10px;color:var(--accent)">recomendada</span>':'')+(o.elegida?' ✓':'')+'</td>'+
+        '<td class="mono" style="text-align:right">'+_rqM(o.monto_usd)+'</td>'+
+        '<td class="mono" style="text-align:right">'+(o.dias_entrega!=null?o.dias_entrega+' d':'—')+'</td>'+
+        '<td style="font-size:11px;color:var(--text3)">'+_rqE(o.nota||o.motivo_eleccion||'')+'</td></tr>';
+    }).join('')+'</tbody></table></div>') : '';
+
+  // Los botones dependen del estado Y del rol. Un botón que se muestra y después
+  // dice «no tenés permiso» es peor que no mostrarlo.
+  var acciones = [];
+  if(r.estado==='enviada' && _rqPuedeCompras())
+    acciones.push('<button class="btn btn-g btn-sm" onclick="reqTomarUI(\''+_rqE(r.id)+'\')">✋ Tomarlo (queda a mi nombre)</button>');
+  if(['tomada','cotizando'].indexOf(r.estado)>=0 && _rqPuedeCompras())
+    acciones.push('<button class="btn btn-g btn-sm" onclick="reqCotizarUI(\''+_rqE(r.id)+'\')">💵 Cargar ofertas y pedir la firma</button>');
+  if(r.estado==='espera_firma')
+    acciones.push('<span style="font-size:12px;color:#f59e0b">⏳ Esperando la firma de '+_rqE(r.aprueba_usuario||r.aprueba_rol||'')+'</span>');
+  if(['aprobada','atendida'].indexOf(r.estado)>=0)
+    acciones.push('<button class="btn btn-g btn-sm" onclick="reqRecibirUI(\''+_rqE(r.id)+'\')">📦 Recibí y está conforme</button>');
+
+  cont.innerHTML =
+    '<button class="btn btn-sm" onclick="reqVista(\'tablero\')" style="margin-bottom:10px">← Volver al tablero</button>' +
+    '<div class="card" style="margin-bottom:12px"><div style="padding:4px 2px">' +
+      '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap">' +
+        '<div><div class="st">'+_rqE(reqResumen(r))+'</div>'+
+        '<div style="font-size:12px;color:var(--text3);margin-top:2px">'+_rqE(donde)+' · lo pidió <b>'+_rqE(r.solicitante)+'</b> el '+_rqF(r.fecha)+'</div></div>' +
+        '<div class="mono" style="font-size:12px;color:var(--text3)">'+_rqE(r.codigo||'')+' · '+_rqE(REQ_EST_LBL[r.estado]||r.estado)+'</div>' +
+      '</div>' +
+      (r.consecuencia ? '<div style="border-left:3px solid '+u.c+';background:var(--bg2);padding:9px 12px;border-radius:0 8px 8px 0;margin-top:10px;font-size:13px"><b>Si no se hace:</b> '+_rqE(r.consecuencia)+'</div>' : '') +
+      '<div style="display:flex;overflow-x:auto;margin:16px 0 6px;padding-bottom:4px">'+tl+'</div>' +
+    '</div></div>' +
+    '<div class="card"><div class="sh"><div class="st">Qué se pidió</div></div>' +
+      '<div class="tw"><table><thead><tr><th>Renglón</th><th style="text-align:right">Cantidad</th><th></th></tr></thead><tbody>'+htmlLineas+'</tbody></table></div>' +
+      (htmlOfertas ? '<div class="sh" style="margin-top:14px"><div class="st">Las ofertas</div></div>'+htmlOfertas : '') +
+      (r.nota ? '<div style="font-size:12px;color:var(--text3);margin-top:10px">📝 '+_rqE(r.nota)+'</div>' : '') +
+      (acciones.length ? '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;align-items:center">'+acciones.join('')+'</div>' : '') +
+    '</div>';
+}
+
+// ── Pedir ───────────────────────────────────────────────────────────────────
+// ⛔ No se pregunta nada que el sistema ya sepa. Quien pide escribe lo único que
+//    solo él sabe: qué hace falta y qué pasa si no se hace.
+var REQ_NUEVO_LINEAS = 1;
+function reqNuevo(anom){
+  var unidades = Object.keys(typeof FLOTA!=='undefined'?FLOTA:{}).sort();
+  var ov = document.createElement('div');
+  ov.id='req-modal';
+  ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9990;display:flex;align-items:center;justify-content:center;padding:16px;overflow:auto';
+  ov.innerHTML = '<div class="card" style="max-width:560px;width:100%;max-height:92vh;overflow:auto">'+
+    '<div class="sh"><div class="st">➕ Nuevo '+_rqE(REQ_ETIQ.toLowerCase())+'</div>'+
+      '<button class="btn btn-sm" onclick="reqCerrarModal()">✕</button></div>'+
+    '<div style="background:var(--bg2);border:1px dashed var(--border);border-radius:8px;padding:10px 12px;margin:10px 0;font-size:12px;color:var(--text2)">'+
+      '<div style="font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--text3);font-weight:700;margin-bottom:5px">Ya lo sabe el sistema</div>'+
+      'Lo pide <b>'+_rqE((SESION&&SESION.nombre)||'')+'</b> · '+_rqF(new Date().toISOString())+
+      (anom&&anom.id?' · viene de la falla «'+_rqE(anom.label||'')+'»':'')+
+      '<input type="hidden" id="rq-anom" value="'+_rqE(anom&&anom.id?anom.id:'')+'">'+
+    '</div>'+
+    '<div class="fr2">'+
+      '<div class="fg"><label>¿Para qué es?</label><select class="fc" id="rq-destino" onchange="reqDestinoCambio()">'+
+        '<option value="unidad">Una unidad</option><option value="area">Un área (oficina, planta)</option>'+
+        '<option value="patio">Patio / uso general</option><option value="inventario">Almacén</option></select></div>'+
+      '<div class="fg" id="rq-wrap-cam"><label>Unidad</label><select class="fc" id="rq-cam">'+
+        unidades.map(function(c){return '<option value="'+_rqE(c)+'"'+(anom&&anom.cam===c?' selected':'')+'>'+_rqE(c)+'</option>';}).join('')+'</select></div>'+
+      '<div class="fg" id="rq-wrap-area" style="display:none"><label>Área</label><input class="fc" id="rq-area" placeholder="Oficina, planta, galpón…"></div>'+
+    '</div>'+
+    '<label style="margin-top:10px">¿Qué hace falta?</label>'+
+    '<div id="rq-lineas"></div>'+
+    '<div style="margin-top:6px"><button class="btn btn-sm" onclick="reqAgregarLinea()">➕ Otro renglón</button></div>'+
+    '<label style="margin-top:12px">¿Qué pasa si no se hace?</label>'+
+    '<div style="display:flex;gap:8px;flex-wrap:wrap" id="rq-urg">'+
+      '<button class="btn btn-sm" data-u="no_sale" onclick="reqUrg(this)">La unidad no sale</button>'+
+      '<button class="btn btn-sm" data-u="esta_semana" onclick="reqUrg(this)">Puede rodar unos días</button>'+
+      '<button class="btn btn-sm btn-g" data-u="cuando_se_pueda" onclick="reqUrg(this)">Cuando se pueda</button>'+
+    '</div>'+
+    '<input type="hidden" id="rq-urgencia" value="cuando_se_pueda">'+
+    '<div class="fg" style="margin-top:10px"><label>Detalle (opcional)</label><input class="fc" id="rq-consec" placeholder="Ej: sin esto la unidad no puede salir"></div>'+
+    '<button class="btn btn-g" id="rq-enviar" onclick="reqGuardarNuevo()" style="width:100%;margin-top:14px">Enviar '+_rqE(REQ_ETIQ.toLowerCase())+'</button>'+
+  '</div>';
+  document.body.appendChild(ov);
+  REQ_NUEVO_LINEAS = 0;
+  reqAgregarLinea();
+  if(anom && anom.label) sv('rq-consec', anom.detalle || '');
+}
+function reqCerrarModal(){ var m=g('req-modal'); if(m) m.remove(); }
+function reqDestinoCambio(){
+  var d = gv('rq-destino');
+  var wc=g('rq-wrap-cam'), wa=g('rq-wrap-area');
+  if(wc) wc.style.display = (d==='unidad')?'block':'none';
+  if(wa) wa.style.display = (d==='area')?'block':'none';
+}
+function reqUrg(b){
+  var cont=g('rq-urg'); if(!cont) return;
+  cont.querySelectorAll('button').forEach(function(x){ x.classList.remove('btn-g'); });
+  b.classList.add('btn-g');
+  sv('rq-urgencia', b.getAttribute('data-u'));
+}
+function reqAgregarLinea(){
+  REQ_NUEVO_LINEAS++;
+  var i = REQ_NUEVO_LINEAS;
+  var d = document.createElement('div');
+  d.className='fr3'; d.style.marginTop='6px';
+  d.innerHTML = '<div class="fg"><input class="fc" id="rq-item'+i+'" placeholder="Qué (ej: bomba de agua)" oninput="reqBuscarEnAlmacen('+i+')"></div>'+
+    '<div class="fg"><input class="fc" id="rq-cant'+i+'" type="number" step="0.01" value="1" placeholder="Cuánto"></div>'+
+    '<div class="fg"><input class="fc" id="rq-uni'+i+'" value="pieza" placeholder="De qué"></div>';
+  var cont=g('rq-lineas'); if(cont){ cont.appendChild(d);
+    var hint=document.createElement('div'); hint.id='rq-hint'+i;
+    hint.style.cssText='font-size:11px;color:var(--text3);margin:2px 0 0 2px'; cont.appendChild(hint); }
+}
+// El almacén contesta dentro del formulario: si el renglón está, ese renglón no
+// tiene por qué ir a compras.
+async function reqBuscarEnAlmacen(i){
+  var txt = (gv('rq-item'+i)||'').trim();
+  var h = g('rq-hint'+i); if(!h) return;
+  if(txt.length<3){ h.textContent=''; h.removeAttribute('data-inv'); return; }
+  if(!(DB_READY&&supabase)) return;
+  try{
+    var r = await supabase.from('inventario').select('id,nombre,stock,unidad').ilike('nombre','%'+txt+'%').limit(1);
+    if(r && r.data && r.data.length && Number(r.data[0].stock)>0){
+      h.innerHTML = '<span style="color:#22c55e;font-weight:600">✓ Hay '+_rqE(r.data[0].stock)+' '+_rqE(r.data[0].unidad||'')+' en almacén ('+_rqE(r.data[0].nombre)+') — este renglón no necesita compra</span>';
+      h.setAttribute('data-inv', r.data[0].id);
+    } else { h.textContent=''; h.removeAttribute('data-inv'); }
+  }catch(e){}
+}
+async function reqGuardarNuevo(){
+  var lineas=[];
+  for(var i=1;i<=REQ_NUEVO_LINEAS;i++){
+    var it=(gv('rq-item'+i)||'').trim(); if(!it) continue;
+    var h=g('rq-hint'+i);
+    lineas.push({ item:it, cantidad:parseFloat(gv('rq-cant'+i))||1, unidad:(gv('rq-uni'+i)||'pieza'),
+      inv_id:(h&&h.getAttribute('data-inv'))||null, desde_almacen: !!(h&&h.getAttribute('data-inv')) });
+  }
+  if(!lineas.length){ alert('Escriba al menos un renglón: qué hace falta y cuánto.'); return; }
+  var destino=gv('rq-destino')||'unidad';
+  var datos={ origen: gv('rq-anom')?'anomalia':'suelto', origen_ref: gv('rq-anom')||null,
+    destino:destino, cam: destino==='unidad'?gv('rq-cam'):null, area: destino==='area'?gv('rq-area'):null,
+    urgencia: gv('rq-urgencia')||'cuando_se_pueda', consecuencia: (gv('rq-consec')||'').trim()||null };
+  var b=g('rq-enviar'); if(b){ b.disabled=true; b.textContent='Enviando…'; }
+  try{
+    var r = await supabase.rpc('req_crear', { p_datos: datos, p_lineas: lineas });
+    if(r.error || !r.data || !r.data.ok){
+      alert('No se pudo enviar: ' + ((r.error&&r.error.message)||'intente de nuevo'));
+      if(b){ b.disabled=false; b.textContent='Enviar '+REQ_ETIQ.toLowerCase(); }
+      return;
+    }
+    reqCerrarModal();
+    mostrarToast('✅ '+r.data.codigo+' enviado', 'exito');
+    try{ audit(REQ_ETIQ+' creado', r.data.codigo+' · '+lineas.length+' renglón(es)'); }catch(e){}
+    REQ_VISTA='tablero'; renderRequisitorio();
+  }catch(e){
+    alert('Ocurrió un error. Intente de nuevo.');
+    if(b){ b.disabled=false; b.textContent='Enviar '+REQ_ETIQ.toLowerCase(); }
+  }
+}
+
+// ── Tomar / cotizar / recibir ───────────────────────────────────────────────
+async function reqTomarUI(id){
+  try{
+    var r = await supabase.rpc('req_tomar', { p_id: id });
+    if(r.error){ mostrarToast('No se pudo: '+r.error.message,'error'); return; }
+    if(r.data && r.data.ok===false){ mostrarToast(r.data.error,'warn'); }
+    else mostrarToast('Queda a su nombre','exito');
+    renderRequisitorio();
+  }catch(e){ mostrarToast('Error','error'); }
+}
+
+function reqCotizarUI(id){
+  var r = REQS.filter(function(x){return x.id===id;})[0]; if(!r) return;
+  var provs = (typeof PROVEEDORES!=='undefined'?PROVEEDORES:[]);
+  var fila = function(n){
+    return '<div class="fr4" style="margin-top:6px">'+
+      '<div class="fg"><input class="fc" id="rc-prov'+n+'" list="rc-provs" placeholder="Proveedor '+n+'"></div>'+
+      '<div class="fg"><input class="fc" id="rc-monto'+n+'" type="number" step="0.01" placeholder="Monto US$"></div>'+
+      '<div class="fg"><input class="fc" id="rc-dias'+n+'" type="number" placeholder="Días"></div>'+
+      '<div class="fg"><input class="fc" id="rc-nota'+n+'" placeholder="Nota"></div>'+
+    '</div>';
+  };
+  var ov=document.createElement('div'); ov.id='req-modal';
+  ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9990;display:flex;align-items:center;justify-content:center;padding:16px;overflow:auto';
+  ov.innerHTML='<div class="card" style="max-width:640px;width:100%;max-height:92vh;overflow:auto">'+
+    '<div class="sh"><div class="st">💵 Ofertas de '+_rqE(r.codigo||'')+'</div><button class="btn btn-sm" onclick="reqCerrarModal()">✕</button></div>'+
+    '<datalist id="rc-provs">'+provs.map(function(p){return '<option value="'+_rqE(p.nombre)+'">';}).join('')+'</datalist>'+
+    '<div style="font-size:12px;color:var(--text3);margin:8px 0">Tres ofertas, o una con el motivo escrito. Quien firma va a ver el cuadro completo.</div>'+
+    fila(1)+fila(2)+fila(3)+
+    '<div class="fg" style="margin-top:12px"><label>¿Cuál recomienda?</label>'+
+      '<select class="fc" id="rc-rec"><option value="1">La primera</option><option value="2">La segunda</option><option value="3">La tercera</option></select></div>'+
+    '<div class="fg" style="margin-top:8px"><label>¿Por qué esa? (obligatorio si no es la más barata)</label>'+
+      '<input class="fc" id="rc-motivo" placeholder="Ej: la más barata tarda 6 días y la unidad está parada"></div>'+
+    '<button class="btn btn-g" id="rc-enviar" onclick="reqGuardarCotizaciones(\''+_rqE(id)+'\')" style="width:100%;margin-top:14px">Pedir la firma</button>'+
+  '</div>';
+  document.body.appendChild(ov);
+}
+
+async function reqGuardarCotizaciones(id){
+  var cots=[];
+  for(var n=1;n<=3;n++){
+    var p=(gv('rc-prov'+n)||'').trim(); var m=parseFloat(gv('rc-monto'+n));
+    if(!p || isNaN(m)) continue;
+    cots.push({ clave:String(n), proveedor:p, monto_usd:m,
+      dias_entrega: gv('rc-dias'+n)?parseInt(gv('rc-dias'+n)):null, nota:(gv('rc-nota'+n)||'').trim()||null });
+  }
+  if(!cots.length){ alert('Cargue al menos una oferta: proveedor y monto.'); return; }
+  var rec = gv('rc-rec')||'1';
+  var motivo = (gv('rc-motivo')||'').trim();
+  var elegida = cots.filter(function(c){return c.clave===rec;})[0];
+  var barata = cots.slice().sort(function(a,b){return a.monto_usd-b.monto_usd;})[0];
+  // ⛔ Si la recomendada NO es la más barata, el motivo se escribe. Es lo que
+  //    quien firma necesita para decidir, y lo que queda cuando alguien pregunte.
+  if(elegida && barata && elegida.monto_usd > barata.monto_usd && !motivo){
+    alert('Está recomendando una oferta que no es la más barata. Escriba por qué — quien firma lo va a ver.');
+    var mm=g('rc-motivo'); if(mm) mm.focus();
+    return;
+  }
+  var b=g('rc-enviar'); if(b){ b.disabled=true; b.textContent='Enviando…'; }
+  try{
+    var r = await supabase.rpc('req_cotizar', { p_id:id, p_cotizaciones:cots, p_recomendada:rec, p_motivo:motivo||null });
+    if(r.error){ alert('No se pudo: '+r.error.message); if(b){b.disabled=false;b.textContent='Pedir la firma';} return; }
+    reqCerrarModal();
+    if(r.data && r.data.aviso===false) mostrarToast('⚠️ Guardado, pero el aviso no salió: '+(r.data.motivo||''), 'warn');
+    else mostrarToast('✅ Le llegó el aviso a '+(r.data&&r.data.firma||'quien firma'), 'exito');
+    renderRequisitorio();
+  }catch(e){ alert('Error'); if(b){b.disabled=false;b.textContent='Pedir la firma';} }
+}
+
+async function reqRecibirUI(id){
+  var nota = prompt('¿Llegó bien y sirve?\n\nEscriba una nota (opcional). Si algo no está conforme, cancele y avise.');
+  if(nota===null) return;
+  try{
+    var r = await supabase.rpc('req_recibir', { p_id:id, p_conforme:true, p_nota:nota||null });
+    if(r.error){ mostrarToast('No se pudo: '+r.error.message,'error'); return; }
+    if(r.data && r.data.anomalias_cerradas) mostrarToast('✅ Recibido — y la falla del checklist se cerró sola','exito');
+    else mostrarToast('✅ Recibido','exito');
+    renderRequisitorio();
+  }catch(e){ mostrarToast('Error','error'); }
+}
+
+// ── Quién firma qué ─────────────────────────────────────────────────────────
+function reqPintarReglas(){
+  var cont=g('req-cont');
+  var sinReglas = !REQ_REGLAS.length;
+  var filas = REQ_REGLAS.map(function(x){
+    var cond = x.siempre
+      ? '<b>Siempre, sin importar el monto</b>' + (x.categoria?' · '+_rqE(x.categoria):'')
+      : ((x.monto_desde!=null?'Desde '+_rqM(x.monto_desde):'') + (x.monto_hasta!=null?' hasta '+_rqM(x.monto_hasta):' en adelante')) +
+        (x.categoria?' · '+_rqE(x.categoria):'');
+    return '<tr><td>'+cond+'</td><td>'+_rqE(x.aprueba_usuario||x.aprueba_rol||'')+'</td>'+
+      '<td style="font-size:11px;color:var(--text3)">'+_rqE(x.nota||'')+'</td>'+
+      '<td><button class="btn btn-r btn-sm" onclick="reqBorrarRegla(\''+_rqE(x.id)+'\')">Quitar</button></td></tr>';
+  }).join('');
+
+  // El número que decide, no el consejo.
+  var conFirma = REQS.filter(function(r){ return r.decidida_at; });
+  var chicos = conFirma.filter(function(r){ return (Number(r.monto_aprobado_usd)||0) < 50; });
+  var sumaChicos = chicos.reduce(function(a,r){ return a + (Number(r.monto_aprobado_usd)||0); }, 0);
+  var sumaTodo = conFirma.reduce(function(a,r){ return a + (Number(r.monto_aprobado_usd)||0); }, 0);
+  var pct = sumaTodo ? Math.round(sumaChicos*100/sumaTodo) : 0;
+
+  cont.innerHTML =
+    '<button class="btn btn-sm" onclick="reqVista(\'tablero\')" style="margin-bottom:10px">← Volver al tablero</button>' +
+    (sinReglas ? '<div class="alert-b" style="margin-bottom:12px"><b>Hoy todo pasa por quien firma arriba.</b> '+
+      'Mientras no haya ninguna regla, cualquier pedido —de cualquier monto— necesita esa firma. '+
+      'Aflojarlo es una decisión suya y se toma acá.</div>' : '') +
+    (conFirma.length>=10 ? '<div class="card" style="margin-bottom:12px"><div class="sh"><div class="st">📊 El número</div></div>'+
+      '<div style="font-size:14px;line-height:1.7;color:var(--text2);padding:4px 2px">'+
+      'Se firmaron <b>'+conFirma.length+'</b> pedidos. <b>'+chicos.length+'</b> fueron por menos de <b>US$ 50</b> '+
+      'y entre todos suman <b>'+_rqM(sumaChicos)+'</b> — el <b>'+pct+'%</b> de lo aprobado.'+
+      (chicos.length ? '<div style="margin-top:8px;color:var(--text3);font-size:13px">Con un límite en US$ 50 firmaría <b>'+
+        (conFirma.length-chicos.length)+'</b> veces en vez de '+conFirma.length+', y seguiría decidiendo sobre el <b>'+(100-pct)+'%</b> del dinero.</div>' : '')+
+      '</div></div>' : '') +
+    '<div class="card"><div class="sh"><div class="st">Reglas</div>'+
+      '<button class="btn btn-g btn-sm" onclick="reqNuevaRegla()">➕ Agregar</button></div>' +
+      (filas ? '<div class="tw"><table><thead><tr><th>Cuándo</th><th>Quién firma</th><th>Nota</th><th></th></tr></thead><tbody>'+filas+'</tbody></table></div>'
+             : '<div class="empty-state">Sin reglas: todo sube al tope.</div>') +
+      '<div class="alert-w" style="margin-top:12px"><b>Lo que no encaje en ninguna regla sube al tope.</b> '+
+      'Un permiso no se gana por olvido.</div>' +
+    '</div>';
+}
+
+function reqNuevaRegla(){
+  var roles = ['directivo','admin','superadmin','compras','operador','mecanico'];
+  var ov=document.createElement('div'); ov.id='req-modal';
+  ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9990;display:flex;align-items:center;justify-content:center;padding:16px;overflow:auto';
+  ov.innerHTML='<div class="card" style="max-width:520px;width:100%">'+
+    '<div class="sh"><div class="st">➕ Quién firma qué</div><button class="btn btn-sm" onclick="reqCerrarModal()">✕</button></div>'+
+    '<div class="fg" style="margin-top:8px"><label>Tipo de regla</label>'+
+      '<select class="fc" id="rr-tipo" onchange="reqReglaTipo()"><option value="monto">Por monto</option>'+
+      '<option value="siempre">Siempre, sin importar el monto</option></select></div>'+
+    '<div class="fr2" id="rr-montos" style="margin-top:8px">'+
+      '<div class="fg"><label>Desde (US$)</label><input class="fc" id="rr-desde" type="number" step="0.01" value="0"></div>'+
+      '<div class="fg"><label>Hasta (US$) — vacío = sin tope</label><input class="fc" id="rr-hasta" type="number" step="0.01"></div>'+
+    '</div>'+
+    '<div class="fg" style="margin-top:8px"><label>Solo para (categoría, opcional)</label>'+
+      '<input class="fc" id="rr-cat" placeholder="Ej: Cauchos, Baterías, Combustible"></div>'+
+    '<div class="fg" style="margin-top:8px"><label>Firma</label><select class="fc" id="rr-rol">'+
+      roles.map(function(r){return '<option value="'+r+'">'+r+'</option>';}).join('')+'</select></div>'+
+    '<div class="fg" style="margin-top:8px"><label>Nota</label><input class="fc" id="rr-nota" placeholder="Por qué existe esta regla"></div>'+
+    '<button class="btn btn-g" onclick="reqGuardarRegla()" style="width:100%;margin-top:14px">Guardar</button>'+
+  '</div>';
+  document.body.appendChild(ov);
+}
+function reqReglaTipo(){ var m=g('rr-montos'); if(m) m.style.display = (gv('rr-tipo')==='siempre')?'none':'grid'; }
+async function reqGuardarRegla(){
+  var siempre = gv('rr-tipo')==='siempre';
+  var row = { id:'RR'+Date.now(), documento:'requisitorio', activa:true,
+    prioridad: siempre?1:100, siempre:siempre,
+    monto_desde: siempre?null:(parseFloat(gv('rr-desde'))||0),
+    monto_hasta: siempre?null:(gv('rr-hasta')?parseFloat(gv('rr-hasta')):null),
+    categoria: (gv('rr-cat')||'').trim()||null, aprueba_rol: gv('rr-rol'),
+    nota: (gv('rr-nota')||'').trim()||null, creada_por:(SESION&&SESION.nombre)||'' };
+  try{
+    var r = await supabase.from('req_reglas').insert([row]).select();
+    if(r.error){ alert('No se pudo guardar: '+r.error.message); return; }
+    reqCerrarModal(); mostrarToast('Regla guardada','exito');
+    try{ audit('Regla de firma', (siempre?'siempre':'por monto')+' → '+row.aprueba_rol); }catch(e){}
+    renderRequisitorio();
+  }catch(e){ alert('Error'); }
+}
+async function reqBorrarRegla(id){
+  if(!confirm('¿Quitar esta regla?\n\nLo que dejaba de pasar por el tope va a volver a pasar.')) return;
+  try{
+    var r = await supabase.from('req_reglas').delete().eq('id', id).select();
+    if(r.error){ mostrarToast('No se pudo: '+r.error.message,'error'); return; }
+    mostrarToast('Regla quitada','ok'); renderRequisitorio();
+  }catch(e){ mostrarToast('Error','error'); }
 }

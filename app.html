@@ -2836,6 +2836,30 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
   </div>
 </div>
 
+<!-- ══════════════════════════════════════════════════════════════════════════
+     REQUISITORIO — el pedido que va antes de la orden (2026-09-04).
+     ⛔ La regla dura: una orden de servicio o de compra NACE de un requisitorio.
+     La etiqueta la pone cada empresa (`configuracion.req_etiqueta`): Tony Gas
+     dice «Requisitorio», otro cliente dirá «Solicitud de compra».
+     ══════════════════════════════════════════════════════════════════════════ -->
+<div class="page" id="p-requisitorio">
+  <div id="req-kpis" class="g4" style="margin-bottom:12px"></div>
+
+  <div class="card">
+    <div class="sh">
+      <div class="st"><span id="req-titulo">📋 Requisitorios</span></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn btn-g btn-sm" onclick="reqNuevo()">➕ Pedir algo</button>
+        <button class="btn btn-sm" onclick="reqVista('tablero')" id="req-b-tablero">📋 Tablero</button>
+        <button class="btn btn-sm" onclick="reqVista('reglas')" id="req-b-reglas" data-perm="config">🔑 Quién firma qué</button>
+      </div>
+    </div>
+    <div id="req-cont" style="margin-top:10px">
+      <div style="color:var(--text3);text-align:center;padding:20px">Cargando…</div>
+    </div>
+  </div>
+</div>
+
 <div class="page" id="p-galeria">
   <div class="card">
     <div class="sh"><div class="st">🖼️ Galería</div></div>
