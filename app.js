@@ -393,7 +393,19 @@ var PERMISOS={
   asistencia:['asistencia'],
   vigilante:['porteria'],
   mecanico:['mecanico','checklist','llantas','km','unidades'],
-  operativo:['operativo']
+  operativo:['operativo'],
+  // ANALISTA DE FLOTA. Lo pidio Carlos Serrano (FLOTILLA) el 03/09/2026 para Yudis Fernandez:
+  // «los registros de mantenimiento, inventarios y ordenes de servicio. Para anular, modificar
+  // o crear debe solicitar autorizacion al sup. administrador».
+  // ⛔ NINGUN ROL EXISTENTE LO CUBRIA, y por eso se creo en vez de acomodarla en uno parecido:
+  //    `supervisor` da 'ordenes' pero NO 'inventario' ni 'mecanico'; `mecanico` da el taller pero
+  //    NO 'inventario' ni 'ordenes'. Con cualquiera de los dos le faltaba algo el primer dia.
+  // ⚠️ NO VE DINERO, y es a proposito: sin 'proveedores' (que arrastra Cuentas x Pagar,
+  //    retenciones e historial de pagos), sin 'cxp', sin 'financiero', sin 'banco', sin 'nomina'.
+  //    Registra el trabajo del taller; lo que cuesta lo ve quien lo paga.
+  // ⚠️ Lo de «pedir autorizacion para anular» NO se resuelve aca: ya lo hace la BD con
+  //    app_puede_borrar(), que deja el DELETE solo en superadmin. Este rol no lo toca.
+  analista:['dashboard','mecanico','checklist','llantas','km','unidades','inventario','ordenes']
 };
 // `corregir-chofer` = puede corregir un dato mal cargado por el chofer (hoy, los litros de una
 // surtida) SIN pedirle token al dueño — para eso existe: que la oficina resuelva el error del día
