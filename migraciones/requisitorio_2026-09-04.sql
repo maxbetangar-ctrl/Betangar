@@ -391,3 +391,44 @@ where not exists (select 1 from configuracion where clave = 'req_etiqueta');
 insert into configuracion (clave, valor)
 select 'req_rol_tope', 'directivo'
 where not exists (select 1 from configuracion where clave = 'req_rol_tope');
+
+-- ── 11. ¿ESTÁ LISTO PARA ENCENDERSE EN ESTA INSTANCIA? ────────────────────
+-- ⛔ UN CANDADO QUE ROMPE LA HERRAMIENTA ES PEOR QUE NO TENER CANDADO.
+-- Medido el 04/09/2026: FLOTILLA y VIDECA no tienen NINGÚN usuario con el rol
+-- tope. Si allá se encendiera el requisitorio, todo subiría a firma y no habría
+-- nadie que pueda firmar: el circuito quedaría trancado y la culpa parecería del
+-- que pidió. Antes de encender el módulo en una instancia, esta función dice si
+-- están puestas las piezas — y la auditoría diaria la puede llamar sola.
+create or replace function public.req_listo()
+returns json
+language plpgsql
+stable
+security definer
+set search_path to 'public'
+as $$
+declare tope text; n_tope int; url text; n_compras int; faltan text[] := '{}';
+begin
+  tope := coalesce(nullif(btrim((select valor from configuracion where clave='req_rol_tope')),''),'directivo');
+  select count(*) into n_tope   from btg_usuarios where rol = tope and coalesce(activo,true);
+  select count(*) into n_compras from btg_usuarios where rol = 'compras' and coalesce(activo,true);
+  url := btrim(coalesce((select valor from configuracion where clave='app_url'),''));
+
+  if n_tope = 0 then
+    faltan := array_append(faltan, 'nadie tiene el rol tope «'||tope||'»: no habría quién firme');
+  end if;
+  if url = '' then
+    faltan := array_append(faltan, 'falta configuracion.app_url: el enlace de la firma no se puede armar');
+  end if;
+  if n_compras = 0 then
+    faltan := array_append(faltan, 'nadie tiene el rol «compras»: cotizar caería en admin, sin dejar rastro de quién');
+  end if;
+
+  return json_build_object(
+    'listo', cardinality(faltan) = 0,
+    'candado_encendido', coalesce((select valor from configuracion where clave='req_obliga_orden'),'false') = 'true',
+    'rol_tope', tope, 'personas_en_el_tope', n_tope,
+    'personas_en_compras', n_compras,
+    'app_url', case when url='' then null else url end,
+    'falta', faltan
+  );
+end $$;
