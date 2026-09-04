@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta name="theme-color" content="#0f1923">
+<title>Betangar — Autorizar</title>
+<link rel="icon" href="/icon-192.png">
+<link rel="apple-touch-icon" href="/icon-192.png">
+<style>
+/* El acento es el de ESTA empresa. Antes estaba el verde de Betangar clavado en
+   los cinco clones: marca ajena en la pantalla donde el dueño firma. */
+:root{ --acento:#7dc941; --acento-ap:rgba(125,201,65,.14); }
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+body{background:#0f1923;color:#fff;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;min-height:100vh}
+.wrap{max-width:480px;margin:0 auto;padding:16px}
+.head{text-align:center;padding:16px 0 8px}
+.logo{color:var(--acento);font-size:13px;font-weight:800;letter-spacing:2px;text-transform:uppercase}
+.sub{color:rgba(255,255,255,.5);font-size:12px;margin-top:2px}
+.card{background:#16232f;border:1px solid rgba(255,255,255,.08);border-radius:14px;overflow:hidden;margin-top:14px}
+.pad{padding:14px}
+.badge{display:inline-block;font-size:11px;font-weight:700;padding:3px 9px;border-radius:20px}
+.b-edit{background:rgba(245,158,11,.15);color:#f59e0b}
+.b-del{background:rgba(239,68,68,.15);color:#ef4444}
+.b-alta{background:rgba(239,68,68,.15);color:#ef4444}
+.b-media{background:rgba(245,158,11,.15);color:#f59e0b}
+.b-baja{background:rgba(125,201,65,.14);color:#7dc941}
+.tit{font-size:18px;font-weight:800;margin-top:8px}
+.row{font-size:13px;color:rgba(255,255,255,.75);margin-top:6px;line-height:1.5}
+.row b{color:#fff}
+.cambio{background:#0f1923;border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:12px;margin-top:12px}
+.cl{display:flex;justify-content:space-between;gap:10px;font-size:13px;padding:5px 0;border-bottom:1px solid rgba(255,255,255,.06)}
+.cl:last-child{border-bottom:none}
+.cl .k{color:rgba(255,255,255,.5)}
+.antes{color:#ef4444;text-decoration:line-through}
+.despues{color:#7dc941;font-weight:700}
+label{display:block;font-size:11px;color:rgba(255,255,255,.5);text-transform:uppercase;letter-spacing:1px;margin:14px 0 4px}
+input,textarea{width:100%;background:#0f1923;border:1px solid rgba(255,255,255,.15);color:#fff;border-radius:10px;padding:13px;font-size:16px;font-family:inherit}
+.btn{width:100%;border:none;border-radius:12px;padding:16px;font-size:16px;font-weight:800;cursor:pointer;margin-top:12px}
+.btn-ok{background:#7dc941;color:#0f1923}
+.btn-alt{background:transparent;color:#fff;border:1px solid rgba(255,255,255,.25);font-size:14px;padding:13px}
+.btn-no{background:transparent;color:#ef4444;border:1px solid rgba(239,68,68,.5)}
+.btn:disabled{opacity:.5}
+.ok{background:rgba(125,201,65,.12);border:1px solid rgba(125,201,65,.4);border-radius:12px;padding:20px;text-align:center;margin-top:14px}
+.no{background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.4);border-radius:12px;padding:20px;text-align:center;margin-top:14px}
+.big{font-size:40px}
+.msg{text-align:center;color:rgba(255,255,255,.6);font-size:14px;padding:30px 10px;line-height:1.6}
+.foot{text-align:center;color:rgba(255,255,255,.3);font-size:11px;margin:18px 0}
+/* ── lo propio del requisitorio ── */
+.mont{font-size:34px;font-weight:800;letter-spacing:-1px;margin-top:2px}
+.ren{display:flex;justify-content:space-between;gap:10px;font-size:14px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,.06)}
+.ren:last-child{border-bottom:none}
+.ren .q{color:rgba(255,255,255,.5);white-space:nowrap}
+.ren .alm{color:#7dc941;font-size:11px}
+.of{display:block;background:#0f1923;border:1px solid rgba(255,255,255,.12);border-radius:12px;padding:12px;margin-top:9px;cursor:pointer;position:relative;text-transform:none;letter-spacing:normal;color:#fff;font-size:14px;margin-bottom:0}
+.of.sel{border-color:var(--acento);background:var(--acento-ap)}
+.of .pn{font-weight:700;font-size:14px;display:flex;justify-content:space-between;gap:10px;align-items:baseline}
+.of .pm{font-size:16px;font-weight:800;white-space:nowrap}
+.of .pd{font-size:12px;color:rgba(255,255,255,.55);margin-top:3px;line-height:1.45}
+.of .rec{display:inline-block;font-size:10px;font-weight:800;letter-spacing:.5px;color:var(--acento);border:1px solid var(--acento);border-radius:20px;padding:1px 7px;margin-top:6px}
+.of input{position:absolute;opacity:0;pointer-events:none}
+.aviso{background:rgba(239,68,68,.1);border-left:3px solid #ef4444;border-radius:0 8px 8px 0;padding:10px 12px;font-size:13px;margin-top:12px;line-height:1.5}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="head">
+    <div class="logo">🔧 BETANGAR</div>
+    <div class="sub" id="subtit">Autorización</div>
+  </div>
+  <div id="app"><div class="msg">Cargando…</div></div>
+  <div class="foot">Powered by Maxware C.A.</div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script>
+// La base de ESTA empresa. (Ojo: `recibir.html` se clonó una vez apuntando a la
+// base de otro cliente; acá va la propia para no repetir ese error.)
+var SUPA_URL = 'https://hrkjddehqnzcqwlkklqm.supabase.co';
+var SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhya2pkZGVocW56Y3F3bGtrbHFtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc2NTk1NzIsImV4cCI6MjA5MzIzNTU3Mn0.kqWKthyZfPZ86toql7shGByF-ZhUpcQUS4Jw4RnG_ko';
+var _lib = window.supabase;
+var supabase = (_lib && _lib.createClient) ? _lib.createClient(SUPA_URL, SUPA_KEY) : null;
+
+// ⛔ DOS COSAS DISTINTAS ENTRAN POR ESTA MISMA PANTALLA:
+//    ?t=…  → autorizar un CAMBIO de mantenimiento (lo de siempre)
+//    ?r=…  → firmar un REQUISITORIO (2026-09-04)
+// Se separan por el parámetro y no por adivinar el contenido: un token de 64
+// caracteres se ve igual en los dos casos.
+var PAR    = new URLSearchParams(location.search);
+var TOKEN  = PAR.get('t') || '';
+var TOKREQ = PAR.get('r') || '';
+var SOL = null, REQ = null, OFE_SEL = null;
+
+function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function el(id){ return document.getElementById(id); }
+function fmtFecha(f){ if(!f)return ''; var p=String(f).slice(0,10).split('-'); return p.length===3?(p[2]+'/'+p[1]+'/'+p[0]):f; }
+function money(n){ return 'US$ ' + (Number(n)||0).toLocaleString('es-VE',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function cant(n){ var x=Number(n)||0; return x===Math.floor(x) ? String(x) : String(x); }
+
+// Nombres en cristiano para que quien autoriza entienda qué se está cambiando.
+var ETIQ={cam:'Unidad',f:'Fecha',km:'Km',horas:'Horas',tipo:'Ítem',tipo_trabajo:'Tipo de trabajo',
+  desc_trabajo:'Detalle',costo_usd:'Costo',proveedor:'Proveedor / taller',garantia_hasta:'Garantía hasta',
+  item_id:'Ítem',nota:'Nota',anomalia:'Anomalía',motivo:'Motivo'};
+function val(k,v){
+  if(v===null||v===undefined||v==='') return '—';
+  if(k==='costo_usd') return '$'+v;
+  if(k==='km'||k==='horas') return Number(v).toLocaleString('es-VE');
+  if(k==='f'||k==='garantia_hasta') return fmtFecha(v);
+  return String(v);
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  REQUISITORIO — la firma
+// ══════════════════════════════════════════════════════════════════════════════
+var URG = {
+  no_sale:        { txt:'La unidad no sale', cls:'b-alta'  },
+  esta_semana:    { txt:'Esta semana',       cls:'b-media' },
+  cuando_se_pueda:{ txt:'Cuando se pueda',   cls:'b-baja'  }
+};
+
+async function cargarReq(){
+  el('subtit').textContent = 'Autorización de compra';
+  try{
+    var r = await supabase.rpc('req_ver', { p_token: TOKREQ });
+    if(r.error || !r.data || !r.data.ok){
+      el('app').innerHTML = '<div class="msg">No encontramos este requisitorio. El enlace puede ser incorrecto o ya no estar vigente.</div>';
+      return;
+    }
+    REQ = r.data;
+    // Si ya se decidió, se muestra el resultado y no se vuelve a preguntar.
+    if(REQ.decidida_at){ pintarReqDecidido(); return; }
+    var rec = (REQ.ofertas||[]).filter(function(o){ return o.recomendada; })[0];
+    OFE_SEL = rec ? rec.id : ((REQ.ofertas||[])[0] || {}).id || null;
+    pintarReq();
+  }catch(e){
+    el('app').innerHTML = '<div class="msg">Ocurrió un error al cargar. Por favor recargue la página.</div>';
+  }
+}
+
+function pintarReq(){
+  var q = REQ;
+  var u = URG[q.urgencia] || URG.cuando_se_pueda;
+  var donde = q.cam || q.area || (q.destino === 'patio' ? 'Patio' : (q.destino === 'inventario' ? 'Almacén' : ''));
+  var elegida = (q.ofertas||[]).filter(function(o){ return o.id === OFE_SEL; })[0] || {};
+
+  var renglones = (q.lineas||[]).map(function(l){
+    return '<div class="ren"><div>' + esc(l.item) +
+           (l.especificacion ? '<div class="of pd" style="padding:0;border:0;background:none;margin:2px 0 0">' + esc(l.especificacion) + '</div>' : '') +
+           (l.desde_almacen ? '<div class="alm">✓ sale del almacén, no se compra</div>' : '') +
+           '</div><div class="q">' + cant(l.cantidad) + ' ' + esc(l.unidad || '') + '</div></div>';
+  }).join('') || '<div class="msg" style="padding:10px">Sin renglones</div>';
+
+  var ofertas = (q.ofertas||[]).map(function(o){
+    return '<label class="of' + (o.id === OFE_SEL ? ' sel' : '') + '" onclick="elegirOferta(\'' + esc(o.id) + '\')">' +
+      '<input type="radio" name="ofe"' + (o.id === OFE_SEL ? ' checked' : '') + '>' +
+      '<div class="pn"><span>' + esc(o.proveedor) + '</span><span class="pm">' + money(o.monto_usd) + '</span></div>' +
+      '<div class="pd">' +
+        (o.dias_entrega != null ? 'Entrega en ' + o.dias_entrega + ' día' + (o.dias_entrega === 1 ? '' : 's') : 'Entrega sin definir') +
+        (o.nota ? ' · ' + esc(o.nota) : '') +
+      '</div>' +
+      (o.recomendada ? '<div class="rec">RECOMENDADA POR COMPRAS</div>' : '') +
+      (o.recomendada && o.motivo ? '<div class="pd" style="margin-top:5px">' + esc(o.motivo) + '</div>' : '') +
+    '</label>';
+  }).join('');
+
+  el('app').innerHTML =
+    '<div class="card"><div class="pad">' +
+      '<span class="badge ' + u.cls + '">' + u.txt + '</span>' +
+      '<div class="tit">' + esc(q.codigo || '') + (donde ? ' · ' + esc(donde) : '') + '</div>' +
+      '<div class="mont">' + money(elegida.monto_usd != null ? elegida.monto_usd : q.monto) + '</div>' +
+      '<div class="row">Lo pidió <b>' + esc(q.solicitante) + '</b> el ' + fmtFecha(q.fecha) + '</div>' +
+      (q.consecuencia ? '<div class="aviso"><b>Si no se hace:</b> ' + esc(q.consecuencia) + '</div>' : '') +
+      '<div class="cambio">' + renglones + '</div>' +
+      (ofertas ? ('<label>' + ((q.ofertas||[]).length > 1 ? 'Las ' + q.ofertas.length + ' ofertas' : 'La oferta') + '</label>' + ofertas) : '') +
+      '<label for="quien">Su nombre</label>' +
+      '<input id="quien" type="text" placeholder="Nombre y apellido" autocomplete="name">' +
+      '<label for="nota">Nota (opcional)</label>' +
+      '<textarea id="nota" rows="2" placeholder="Si devuelve el pedido, escriba acá qué hace falta"></textarea>' +
+      '<button class="btn btn-ok" id="b-ok" onclick="decidirReq(\'aprobar\')">Aprobar</button>' +
+      '<button class="btn btn-alt" id="b-dev" onclick="decidirReq(\'devolver\')">Devolver a compras con una nota</button>' +
+      '<button class="btn btn-no" id="b-no" onclick="decidirReq(\'rechazar\')">Rechazar</button>' +
+    '</div></div>';
+}
+
+function elegirOferta(id){
+  OFE_SEL = id;
+  var q = REQ, quien = (el('quien')||{}).value || '', nota = (el('nota')||{}).value || '';
+  pintarReq();
+  if(el('quien')) el('quien').value = quien;
+  if(el('nota'))  el('nota').value  = nota;
+}
+
+function pintarReqDecidido(){
+  var q = REQ;
+  var aprobada = q.estado === 'aprobada' || q.estado === 'atendida' || q.estado === 'recibida';
+  el('app').innerHTML = '<div class="' + (aprobada ? 'ok' : 'no') + '">' +
+    '<div class="big">' + (aprobada ? '✅' : '⛔') + '</div>' +
+    '<div style="font-weight:800;margin-top:8px">' + esc(q.codigo || '') + ' — ' + (aprobada ? 'aprobado' : 'rechazado') + '</div>' +
+    '<div style="font-size:13px;color:rgba(255,255,255,.7);margin-top:8px">Lo decidió <b>' + esc(q.decidida_por || '') + '</b>' +
+    (q.decidida_at ? ' el ' + fmtFecha(q.decidida_at) : '') + '.</div>' +
+    (q.decision_nota ? '<div style="font-size:13px;color:rgba(255,255,255,.6);margin-top:6px">' + esc(q.decision_nota) + '</div>' : '') +
+    '<div style="font-size:12px;color:rgba(255,255,255,.45);margin-top:12px">Ya no hace falta hacer nada más.</div>' +
+  '</div>';
+}
+
+async function decidirReq(decision){
+  var quien = ((el('quien')||{}).value || '').trim();
+  var nota  = ((el('nota')||{}).value || '').trim();
+  if(!quien){ alert('Escriba su nombre para dejar constancia de quién autorizó.'); if(el('quien')) el('quien').focus(); return; }
+  if(decision === 'devolver' && !nota){ alert('Escriba en la nota qué hace falta, para que compras sepa qué corregir.'); if(el('nota')) el('nota').focus(); return; }
+  var textos = { aprobar:'aprobar esta compra', devolver:'devolverla a compras', rechazar:'rechazarla' };
+  if(!confirm('¿Confirma ' + textos[decision] + '?')) return;
+
+  ['b-ok','b-dev','b-no'].forEach(function(id){ if(el(id)) el(id).disabled = true; });
+  if(el('b-ok')) el('b-ok').textContent = 'Enviando…';
+  try{
+    var r = await supabase.rpc('req_decidir', {
+      p_token: TOKREQ, p_decision: decision,
+      p_cotizacion_id: (decision === 'aprobar' ? OFE_SEL : null),
+      p_quien: quien, p_nota: nota || null
+    });
+    if(r.error || !r.data || !r.data.ok){
+      alert('No se pudo registrar: ' + ((r.error && r.error.message) || (r.data && r.data.error) || 'intente de nuevo'));
+      ['b-ok','b-dev','b-no'].forEach(function(id){ if(el(id)) el(id).disabled = false; });
+      if(el('b-ok')) el('b-ok').textContent = 'Aprobar';
+      return;
+    }
+    var d = r.data;
+    if(decision === 'devolver'){
+      el('app').innerHTML = '<div class="ok"><div class="big">↩️</div>' +
+        '<div style="font-weight:800;margin-top:8px">Devuelto a compras</div>' +
+        '<div style="font-size:13px;color:rgba(255,255,255,.7);margin-top:8px">Le llega su nota. El pedido sigue vivo, no hay que hacerlo de nuevo.</div></div>';
+      return;
+    }
+    if(decision === 'rechazar'){
+      el('app').innerHTML = '<div class="no"><div class="big">⛔</div>' +
+        '<div style="font-weight:800;margin-top:8px">Rechazado</div>' +
+        '<div style="font-size:13px;color:rgba(255,255,255,.7);margin-top:8px">Queda registrado con su nombre.</div></div>';
+      return;
+    }
+    el('app').innerHTML = '<div class="ok"><div class="big">✅</div>' +
+      '<div style="font-weight:800;margin-top:8px">Aprobado</div>' +
+      (d.repetido
+        ? '<div style="font-size:13px;color:rgba(255,255,255,.7);margin-top:8px">' + esc(d.mensaje || 'Ya estaba aprobado.') + '</div>'
+        : '<div style="font-size:13px;color:rgba(255,255,255,.7);margin-top:8px">Se emitió la orden a <b>' + esc(d.proveedor || '') + '</b> por <b>' + money(d.monto) + '</b>.</div>') +
+      '<div style="font-size:12px;color:rgba(255,255,255,.45);margin-top:12px">Compras ya puede seguir. No hace falta avisar por otro lado.</div></div>';
+  }catch(e){
+    alert('Ocurrió un error. Por favor intente de nuevo.');
+    ['b-ok','b-dev','b-no'].forEach(function(id){ if(el(id)) el(id).disabled = false; });
+    if(el('b-ok')) el('b-ok').textContent = 'Aprobar';
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  MANTENIMIENTO — autorizar un cambio (lo que ya existía)
+// ══════════════════════════════════════════════════════════════════════════════
+async function cargar(){
+  if(TOKREQ) return cargarReq();
+  if(!TOKEN){ el('app').innerHTML='<div class="msg">El enlace está incompleto. Ábralo tal como le llegó por WhatsApp.</div>'; return; }
+  if(!supabase){ el('app').innerHTML='<div class="msg">No se pudo conectar. Revise su conexión y recargue.</div>'; return; }
+  try{
+    var r = await supabase.rpc('mant_solicitud_ver', { p_token: TOKEN });
+    if(r.error || !r.data){ el('app').innerHTML='<div class="msg">No encontramos esta solicitud. El enlace puede ser incorrecto.</div>'; return; }
+    SOL = r.data;
+    render();
+  }catch(e){ el('app').innerHTML='<div class="msg">Ocurrió un error al cargar. Por favor recargue la página.</div>'; }
+}
+function render(){
+  // Ya decidida: mostrarlo y no volver a ofrecer los botones.
+  if(SOL.estado && SOL.estado!=='pendiente'){
+    var ap = SOL.estado==='aprobada';
+    el('app').innerHTML='<div class="'+(ap?'ok':'no')+'"><div class="big">'+(ap?'✅':'🚫')+'</div>'+
+      '<div style="font-weight:800;margin-top:6px">Ya '+(ap?'aprobada':'rechazada')+'</div>'+
+      '<div style="font-size:13px;color:rgba(255,255,255,.6);margin-top:6px">Por '+esc(SOL.decidido_por||'—')+
+      (SOL.decidido_at?(' · '+fmtFecha(SOL.decidido_at)):'')+'</div></div>';
+    return;
+  }
+
+  var borrar = SOL.tipo==='eliminar';
+  var prev = SOL.previos||{}, nue = SOL.nuevos||{};
+  var filas='';
+
+  if(borrar){
+    // Al borrar se muestra TODO lo que se va a perder.
+    Object.keys(ETIQ).forEach(function(k){
+      if(prev[k]===undefined||prev[k]===null||prev[k]==='') return;
+      filas+='<div class="cl"><span class="k">'+ETIQ[k]+'</span><span>'+esc(val(k,prev[k]))+'</span></div>';
+    });
+  }else{
+    // Solo lo que CAMBIA, con antes → después.
+    Object.keys(nue).forEach(function(k){
+      if(k==='id') return;
+      var a=prev[k], b=nue[k];
+      if(String(a===null||a===undefined?'':a)===String(b===null||b===undefined?'':b)) return;
+      filas+='<div class="cl"><span class="k">'+esc(ETIQ[k]||k)+'</span><span>'+
+        '<span class="antes">'+esc(val(k,a))+'</span> → <span class="despues">'+esc(val(k,b))+'</span></span></div>';
+    });
+    if(!filas) filas='<div class="cl"><span class="k">Sin diferencias visibles</span></div>';
+  }
+
+  el('app').innerHTML=
+    '<div class="card"><div class="pad">'+
+      '<span class="badge '+(borrar?'b-del':'b-edit')+'">'+(borrar?'🗑️ QUIERE BORRAR':'✏️ QUIERE MODIFICAR')+'</span>'+
+      '<div class="tit">'+esc(SOL.cam||'')+'</div>'+
+      '<div class="row">Lo pide: <b>'+esc(SOL.solicitante||'—')+'</b></div>'+
+      (SOL.resumen?('<div class="row">'+esc(SOL.resumen)+'</div>'):'')+
+      '<div class="cambio">'+filas+'</div>'+
+      '<label>Su nombre (queda registrado)</label>'+
+      '<input id="quien" value="" placeholder="Su nombre y apellido" autocomplete="name">'+
+      '<button class="btn btn-ok" id="b-ok" onclick="decidir(\'aprobada\')">'+(borrar?'Autorizar el borrado':'Autorizar el cambio')+'</button>'+
+      '<button class="btn btn-no" id="b-no" onclick="decidir(\'rechazada\')">Rechazar</button>'+
+    '</div></div>';
+}
+
+async function decidir(decision){
+  var quien=(el('quien')&&el('quien').value||'').trim();
+  if(!quien){ alert('Escribí tu nombre.'); return; }
+  var borrar = SOL.tipo==='eliminar';
+  var pregunta = decision==='aprobada'
+    ? (borrar?'¿Autorizar que se BORRE este mantenimiento? No se puede deshacer.':'¿Autorizar este cambio?')
+    : '¿Rechazar la solicitud? El mantenimiento queda como está.';
+  if(!confirm(pregunta)) return;
+
+  var bo=el('b-ok'), bn=el('b-no');
+  if(bo){bo.disabled=true;} if(bn){bn.disabled=true;}
+  if(bo&&decision==='aprobada')bo.textContent='Guardando…';
+
+  try{
+    var r = await supabase.rpc('mant_solicitud_decidir', { p_token: TOKEN, p_decision: decision, p_quien: quien, p_nota: null });
+    if(r.error){
+      alert('No se pudo guardar: '+r.error.message);
+      if(bo){bo.disabled=false;bo.textContent=borrar?'Autorizar el borrado':'Autorizar el cambio';} if(bn)bn.disabled=false;
+      return;
+    }
+    var ap = decision==='aprobada';
+    el('app').innerHTML='<div class="'+(ap?'ok':'no')+'"><div class="big">'+(ap?'✅':'🚫')+'</div>'+
+      '<div style="font-weight:800;margin-top:6px">'+(ap?(borrar?'Borrado autorizado':'Cambio aplicado'):'Solicitud rechazada')+'</div>'+
+      '<div style="font-size:13px;color:rgba(255,255,255,.6);margin-top:6px">Gracias, '+esc(quien)+'. '+
+      (ap?'Ya quedó registrado en la hoja de vida.':'El mantenimiento quedó como estaba.')+'</div></div>';
+  }catch(e){
+    alert('Ocurrió un error. Intentá de nuevo.');
+    if(bo){bo.disabled=false;} if(bn){bn.disabled=false;}
+  }
+}
+
+cargar();
+</script>
+</body>
+</html>
