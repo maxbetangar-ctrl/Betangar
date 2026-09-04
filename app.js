@@ -5946,6 +5946,11 @@ async function renderChecklistAnomalias(){
           (a.detalle?'<div style="font-size:10px;color:var(--text2)">📝 '+String(a.detalle).replace(/</g,'&lt;')+'</div>':'')+
           '<div style="font-size:9px;color:var(--text3)">'+(a.reportado_por?String(a.reportado_por).replace(/</g,'&lt;')+' ':'')+alerta+'</div>'+
         '</div>'+
+        // ⛔ EL PEDIDO SALE DE DONDE APARECIÓ LA FALLA. Si hay que ir a buscar el
+        //    módulo y copiar el número de la unidad, el circuito formal se esquiva
+        //    por WhatsApp — y ahí se pierde entero. Un toque, y el requisitorio ya
+        //    viene con la unidad, la falla y el detalle puestos.
+        (a.req_id?'<span style="font-size:10px;color:#22c55e;white-space:nowrap">📋 ya pedido</span>':'<button class="btn btn-sm" style="font-size:10px;padding:5px 9px;white-space:nowrap" onclick="reqDesdeAnomalia(\''+a.id+'\')">📋 Pedir repuesto</button>')+
         (puedeCerrar?'<button class="btn btn-g btn-sm" style="font-size:10px;padding:5px 9px;white-space:nowrap" onclick="anomResolver(\''+a.id+'\')">✅ Resuelta</button>':'')+
       '</div>';
     }).join('');
@@ -29379,6 +29384,11 @@ function reqPintarFicha(id){
 var REQ_NUEVO_LINEAS = 1;
 function reqNuevo(anom){
   var unidades = Object.keys(typeof FLOTA!=='undefined'?FLOTA:{}).sort();
+  // ⛔ Si la unidad de la falla no está en la flota cargada, se agrega igual a la
+  //    lista. Si no, el desplegable se queda en OTRA unidad y el pedido sale a
+  //    nombre de un camión que no es — un respaldo que rellena el hueco inventa
+  //    un dato, y encima se lee igual que uno declarado.
+  if(anom && anom.cam && unidades.indexOf(anom.cam) < 0) unidades.unshift(anom.cam);
   var ov = document.createElement('div');
   ov.id='req-modal';
   ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9990;display:flex;align-items:center;justify-content:center;padding:16px;overflow:auto';
@@ -29657,4 +29667,13 @@ async function reqBorrarRegla(id){
     if(r.error){ mostrarToast('No se pudo: '+r.error.message,'error'); return; }
     mostrarToast('Regla quitada','ok'); renderRequisitorio();
   }catch(e){ mostrarToast('Error','error'); }
+}
+
+// Abre un requisitorio DESDE la falla, con la unidad, la falla y el detalle ya
+// puestos. Es el camino natural: quien ve la falla es quien sabe qué hace falta.
+function reqDesdeAnomalia(id){
+  var a = (ANOM_ABIERTAS||[]).filter(function(x){ return String(x.id)===String(id); })[0];
+  if(!a){ mostrarToast('No encuentro esa falla','warn'); return; }
+  if(typeof reqNuevo!=='function'){ mostrarToast('El módulo de requisitorios no está disponible','warn'); return; }
+  reqNuevo({ id:a.id, label:a.label, cam:a.cam, detalle:a.detalle });
 }
