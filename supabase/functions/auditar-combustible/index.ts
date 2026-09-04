@@ -91,7 +91,7 @@ Deno.serve(async (req) => {
     sb.from('configuracion').select('valor').eq('clave', 'surtidas_corte').maybeSingle(),
     sb.from('configuracion').select('valor').eq('clave', 'aud_comb_avisar').maybeSingle(),
     sb.from('comb_auditoria_sombra').select('veredicto,fecha,veredicto_at').order('veredicto_at', { ascending: false }).limit(300),
-    sb.from('unidad_config').select('cam,capacidad_tanque_l'),
+    sb.from('unidad_config').select('cam,capacidad_tanque_l,mide_tanque'),
   ]);
   if (cfgT.error) return json({ ok: false, error: cfgT.error.message }, 500);
   const corteSur = String(cfgCorte?.data?.valor || '').replace(/"/g, '').slice(0, 10);
@@ -292,6 +292,22 @@ Deno.serve(async (req) => {
   });
   const capacidadDe = (u: string) => capsUnidad.get(u) ?? null;
 
+  // ⛔ NO TODA UNIDAD MIDE EL TANQUE CON REGLA, Y ESTA PIEZA NO LO MIRABA.
+  //    Medido el 04/09 en FLOTILLA: las FL y las FR tienen `mide_tanque=false`
+  //    —solo las FC miden— y aun así se les reclamaba «no quedó registrada la
+  //    medición del tanque» todos los días que trabajaban. A Adolfo Pinto (FL02)
+  //    le llegó el 03 y el 04 seguido, por un dato que a su unidad NADIE le pide.
+  //    Es lo peor que puede hacer un aviso: acusar de no trabajar a quien trabajó.
+  //    Y un aviso que salta siempre deja de leerse, así que también se lleva
+  //    puestos a los que sí importan.
+  // ⚠️ `mide_tanque` puede venir NULL en una unidad vieja que nadie configuró.
+  //    Null NO es «no mide»: es «no lo declaró nadie». Se le sigue reclamando,
+  //    porque callarse con lo no declarado esconde justo lo que hay que cargar.
+  const noMideTanque = new Set<string>();
+  (uCfg.data || []).forEach((r: any) => {
+    if (r.mide_tanque === false) noMideTanque.add(String(r.cam));
+  });
+
   const entradas = (u: string, fA: string, fB: string, incluirFA: boolean, tsA?: string, tsB?: string) => {
     const dentro = (f: string) => (incluirFA ? f >= fA : f > fA) && f <= fB;
     let suma = 0;
@@ -399,8 +415,9 @@ Deno.serve(async (req) => {
       }
     }
 
-    if (trabajo && !sal) errores.push({ u, chofer, tipo: 'falta', txt: 'no quedó registrada la medición del tanque a la SALIDA' });
-    if (trabajo && !lle) errores.push({ u, chofer, tipo: 'falta', txt: 'no quedó registrada la medición del tanque a la LLEGADA' });
+    const mide = !noMideTanque.has(u);
+    if (mide && trabajo && !sal) errores.push({ u, chofer, tipo: 'falta', txt: 'no quedó registrada la medición del tanque a la SALIDA' });
+    if (mide && trabajo && !lle) errores.push({ u, chofer, tipo: 'falta', txt: 'no quedó registrada la medición del tanque a la LLEGADA' });
     if (kmS != null && kmE != null && kmE < kmS) errores.push({ u, chofer, tipo: 'km', txt: `el kilometraje de llegada (${fmt(kmE)}) es menor que el de salida (${fmt(kmS)})` });
     if (kmS != null && kmE == null && fecha < hoyVE) errores.push({ u, chofer, tipo: 'km', txt: 'quedó sin anotar el kilometraje de entrada (el checklist del día no se cerró)' });
 
