@@ -10,6 +10,10 @@
 // ════════════════════════════════════════════════════════════════════════════
 var ANON_CENTRAL='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhya2pkZGVocW56Y3F3bGtrbHFtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc2NTk1NzIsImV4cCI6MjA5MzIzNTU3Mn0.kqWKthyZfPZ86toql7shGByF-ZhUpcQUS4Jw4RnG_ko';
 var BTG_CONFIG = {
+  // La direccion de ESTA instancia. Se DECLARA aca: hasta el 04/09/2026 el respaldo de
+  // los QR caia a 'https://betangar.com' en todos los clones, o sea a la app de otro
+  // cliente. Vacia es mejor que ajena.
+  app_url: 'https://betangar.com',
   empresa_nombre: 'Inversiones Betangar C.A.',
   // Marca CORTA para el autenticador de 2 pasos (Google Authenticator / Authy). Es lo que la
   // persona lee en su teléfono junto al código, así que va el nombre que ELLA reconoce (su
@@ -25073,7 +25077,7 @@ function generarQRUnidad(cam){
   var chofer = c.chofer || (f&&f.chofer) || '';
   // Base = dominio actual (en Betangar producción = betangar.com → QR idéntico al ya impreso;
   // en un clon FlotaMax = su propio dominio, automáticamente correcto).
-  var base = (typeof location!=='undefined' && location.origin) ? location.origin : 'https://betangar.com';
+  var base = (typeof location!=='undefined' && location.origin) ? location.origin : (BTG_CONFIG.app_url||'');
   var url = base + '/chofer.html?cam=' + cam;
   var qrSrc = 'https://api.qrserver.com/v1/create-qr-code/?size=320x320&margin=8&data=' + encodeURIComponent(url);
   var logo = (typeof LOGO_SVG!=='undefined') ? LOGO_SVG : '';
