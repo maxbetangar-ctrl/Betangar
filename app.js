@@ -385,19 +385,25 @@ var USUARIOS={
 // visualizador y directivo). Sin eso, cualquiera con sesión podía pedir el estado de resultados
 // desde la consola — comprobado en vivo antes de cerrarlo. [[norma-seguridad-dos-niveles]]
 var PERMISOS={
-  superadmin:['informe','relacion','dashboard','entregas','banco-bnc','conciliacion','checklist','mensajes-wa','planilla','historico','reporte','abonos','banco','usd','proveedores','financiero','nomina','asistencia','fichaje','combustible','control-combustible','aud-combustible','km','unidades','documentos','inventario','llantas','metas','empleados','prestamos','multas','stats','ranking','rentabilidad','contratos','multicontrato','usuarios','auditoria','salud','config','galeria','porteria','mecanico','operativo','cxp','cajachica'],
-  admin:['relacion','dashboard','entregas','conciliacion','checklist','planilla','historico','reporte','abonos','banco','usd','proveedores','financiero','nomina','asistencia','fichaje','combustible','control-combustible','aud-combustible','km','unidades','documentos','inventario','llantas','metas','empleados','prestamos','multas','stats','ranking','rentabilidad','contratos','multicontrato','usuarios','auditoria','salud','config','galeria','porteria','mecanico','operativo','cxp','cajachica'],
-  operador:['relacion','dashboard','entregas','planilla','historico','reporte','abonos','banco','usd','proveedores','financiero','nomina','asistencia','fichaje','combustible','control-combustible','aud-combustible','km','unidades','documentos','inventario','llantas','metas','empleados','prestamos','multas','stats','ranking','rentabilidad','contratos','multicontrato','galeria'],
-  rrhh:['dashboard','mensajes-wa','planilla','historico','reporte','proveedores','nomina','asistencia','fichaje','combustible','km','unidades','documentos','inventario','llantas','metas','empleados','prestamos','multas','ranking','galeria'],
+  superadmin:['informe','relacion','dashboard','entregas','banco-bnc','conciliacion','checklist','mensajes-wa','planilla','historico','reporte','abonos','banco','usd','proveedores','financiero','nomina','asistencia','fichaje','combustible','control-combustible','aud-combustible','km','unidades','documentos','inventario','llantas','metas','empleados','prestamos','multas','stats','ranking','rentabilidad','contratos','multicontrato','usuarios','auditoria','salud','config','galeria','porteria','mecanico','operativo','cxp','cajachica','requisitorio'],
+  admin:['relacion','dashboard','entregas','conciliacion','checklist','planilla','historico','reporte','abonos','banco','usd','proveedores','financiero','nomina','asistencia','fichaje','combustible','control-combustible','aud-combustible','km','unidades','documentos','inventario','llantas','metas','empleados','prestamos','multas','stats','ranking','rentabilidad','contratos','multicontrato','usuarios','auditoria','salud','config','galeria','porteria','mecanico','operativo','cxp','cajachica','requisitorio'],
+  operador:['relacion','dashboard','entregas','planilla','historico','reporte','abonos','banco','usd','proveedores','financiero','nomina','asistencia','fichaje','combustible','control-combustible','aud-combustible','km','unidades','documentos','inventario','llantas','metas','empleados','prestamos','multas','stats','ranking','rentabilidad','contratos','multicontrato','galeria','requisitorio'],
+  rrhh:['dashboard','mensajes-wa','planilla','historico','reporte','proveedores','nomina','asistencia','fichaje','combustible','km','unidades','documentos','inventario','llantas','metas','empleados','prestamos','multas','ranking','galeria','requisitorio'],
   visualizador:['informe','dashboard','entregas','reporte','abonos','banco','usd','financiero','stats','ranking','rentabilidad','contratos','galeria'],
-  directivo:['informe','dashboard','entregas','historico','reporte','abonos','financiero','stats','ranking','rentabilidad'],
-  demo_admin:['relacion','dashboard','checklist','planilla','historico','reporte','abonos','banco','usd','proveedores','financiero','nomina','asistencia','fichaje','combustible','km','unidades','documentos','inventario','llantas','metas','empleados','prestamos','multas','stats','ranking','rentabilidad','contratos','usuarios','config','galeria'],
+  directivo:['informe','dashboard','entregas','historico','reporte','abonos','financiero','stats','ranking','rentabilidad','requisitorio'],
+  demo_admin:['relacion','dashboard','checklist','planilla','historico','reporte','abonos','banco','usd','proveedores','financiero','nomina','asistencia','fichaje','combustible','km','unidades','documentos','inventario','llantas','metas','empleados','prestamos','multas','stats','ranking','rentabilidad','contratos','usuarios','config','galeria','requisitorio'],
   demo_operador:['relacion','dashboard','planilla','historico','reporte','abonos','banco','usd','proveedores','financiero','nomina','asistencia','fichaje','combustible','km','unidades','documentos','inventario','llantas','metas','empleados','prestamos','multas','stats','ranking','rentabilidad','contratos','galeria'],
   demo_rrhh:['dashboard','mensajes-wa','planilla','historico','reporte','proveedores','nomina','asistencia','fichaje','combustible','km','unidades','documentos','inventario','llantas','metas','empleados','prestamos','multas','ranking','galeria'],
+  // COMPRAS (2026-09-04). El área administrativa que cotiza y compra. Ve lo que
+  // necesita para eso —los pedidos, los proveedores, las órdenes y el almacén— y NADA
+  // del dinero de la empresa: sin 'financiero', sin 'banco', sin 'cxp', sin nómina.
+  // ⛔ Existe como rol propio a propósito: si cotizar cae dentro de 'admin', no queda
+  //    rastro de QUIÉN cotizó, y ese rastro es la mitad del control.
+  compras:['dashboard','requisitorio','ordenes','proveedores','inventario','unidades','documentos'],
   asistencia:['asistencia'],
   vigilante:['porteria'],
-  mecanico:['mecanico','checklist','llantas','km','unidades'],
-  operativo:['operativo'],
+  mecanico:['mecanico','checklist','llantas','km','unidades','requisitorio'],
+  operativo:['operativo','requisitorio'],
   // ANALISTA DE FLOTA. Lo pidio Carlos Serrano (FLOTILLA) el 03/09/2026 para Yudis Fernandez:
   // «los registros de mantenimiento, inventarios y ordenes de servicio. Para anular, modificar
   // o crear debe solicitar autorizacion al sup. administrador».
@@ -1154,8 +1160,8 @@ function _iniciarSesionCore(){
   // DEEP-LINK de AUTORIZACIÓN: #tok=<id> viene del WhatsApp que pide la aprobación.
   // Va después del login a propósito: la aprobación exige la sesión de quien autoriza.
   try{ setTimeout(function(){ try{ atenderEnlaceAprobacion(); }catch(e){ console.log('enlace aprobación:',e&&e.message); } },400); }catch(e){}
-  var rolLbl={superadmin:'SuperAdmin',revisor:'Revisor',auditor:'Auditor',admin:'Admin',operador:'Operador',rrhh:'RRHH',visualizador:'Vista',demo_admin:'Demo',demo_operador:'Demo',demo_rrhh:'Demo'};
-  var rolCol={superadmin:'role-admin',revisor:'role-admin',auditor:'role-visualizador',admin:'role-admin',operador:'role-operador',rrhh:'role-rrhh',visualizador:'role-visualizador'};
+  var rolLbl={superadmin:'SuperAdmin',compras:'Compras',revisor:'Revisor',auditor:'Auditor',admin:'Admin',operador:'Operador',rrhh:'RRHH',visualizador:'Vista',demo_admin:'Demo',demo_operador:'Demo',demo_rrhh:'Demo'};
+  var rolCol={superadmin:'role-admin',compras:'role-operador',revisor:'role-admin',auditor:'role-visualizador',admin:'role-admin',operador:'role-operador',rrhh:'role-rrhh',visualizador:'role-visualizador'};
   var rb=SESION.rol==='superadmin'?'superadmin':(SESION.rol.replace('demo_','')||'visualizador');
   var ui=document.getElementById('nav-user-info');
   if(ui){ui.innerHTML='<span class="role-badge '+(rolCol[rb]||'role-visualizador')+'">'+(rolLbl[SESION.rol]||SESION.rol)+'</span><span style="font-size:10px;color:var(--text2)">'+SESION.nombre+'</span>';ui.style.display='flex';}
