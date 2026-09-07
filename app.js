@@ -10086,6 +10086,19 @@ async function _osEmitirOrden(){
   else if(provSel){var pv=(typeof PROVEEDORES!=='undefined'?PROVEEDORES:[]).find(function(p){return String(p.id)===String(provSel);});provId=provSel;provNom=pv?pv.nombre:'';}
   // En compra el proveedor es opcional (se define al comprar); en servicio es el taller predefinido.
   var tipo=esCompra?'otro':(gv('os-tipo')||'otro'), item=(gv('os-item')||'').trim(), notas=(gv('os-notas')||'').trim();
+  // ⛔ EN UNA COMPRA, «QUÉ» ES OBLIGATORIO. Es el campo que NOMBRA la orden: titula la
+  //    impresión, es la columna «Qué» del listado y es la descripción que se arrastra a
+  //    Cuentas por Pagar. Vacío, la orden existe pero no se puede identificar en ningún lado.
+  // 🔴 Keily Marín lo reportó el 07/09: emitió la OS-2026-0072 para ORLY MENA IMPRENTA y
+  //    «sale vacía en el sistema y en la impresa sale la información». Tenía razón y era
+  //    exactamente eso: había escrito «ELABORACION DE 19 CARNET PARA PERSONAL OPERATIVO» en
+  //    NOTAS y dejó «Qué» en blanco. El listado mostraba «—» y la impresión mostraba el
+  //    texto de relleno «COMPRA DE MATERIALES» con las notas debajo: por eso lo impreso se
+  //    veía bien y la pantalla no. Nada pedía el campo. 1 de 102 órdenes quedó así.
+  // ⚠️ Solo se exige en COMPRA. En una orden de SERVICIO el tipo de servicio ya la nombra
+  //    (el listado cae en `_OS_TIPO_LBL[o.tipo]`), así que ahí exigirlo trancaría sin motivo.
+  //    [[norma-catalogo-no-puede-trancar-el-registro]]
+  if(esCompra&&!item){alert('Falta decir QUÉ se compra.\n\nEscribilo en «Item / qué se hará»: es lo que va a aparecer en el listado, en la impresión y en Cuentas por Pagar.\n\nLas Notas no reemplazan ese campo: la orden queda sin nombre.');var _fi=g('os-item');if(_fi&&_fi.focus)_fi.focus();return;}
   var fecha=gv('os-fecha')||((typeof fechaVE==='function')?fechaVE():new Date().toISOString().slice(0,10));
   var orden={id:await _osNuevoId(fecha),fecha:fecha,cams:cams,proveedor:provNom,proveedorId:provId,tipo:tipo,tipoOrden:tipoOrden,item:item,notas:notas,estado:'emitida',fechaCierre:null,costo:0};
   var row={id:orden.id,fecha:orden.fecha,cams:orden.cams,proveedor:orden.proveedor,proveedor_id:orden.proveedorId,tipo_servicio:orden.tipo,tipo_orden:tipoOrden,item:orden.item,notas:orden.notas,estado:'emitida'};
@@ -10399,6 +10412,23 @@ function _ccActualizarOrden(ordenId,terminar){
   else if(o.estado==='emitida'){ o.estado='en_proceso'; patch.estado='en_proceso'; }
   if(DB_READY&&supabase){ try{ supabase.from('ordenes_servicio').update(patch).eq('id',ordenId).then(function(r){if(r&&r.error&&typeof mostrarToast==='function')mostrarToast('No se pudo actualizar la orden: '+r.error.message,'error');}); }catch(e){} }
 }
+// ⛔ EL ESTILO VA EN LA CELDA, NO EN LA TABLA, Y ESTA ES LA RAZÓN.
+//    La hoja de estilos tiene `td{...white-space:nowrap}` (app.html) apuntando DIRECTO al td.
+//    Una regla que apunta al td le gana SIEMPRE a lo que herede de la tabla, tenga la
+//    especificidad que tenga. Y con `nowrap` puesto, `word-break`/`overflow-wrap` no llegan
+//    a correr nunca: sin permiso para cortar renglón no hay dónde cortar la palabra.
+// 🔴 POR ESO EL ARREGLO DEL 25/08 NO ARREGLÓ NADA. Ese día se le puso a la tabla
+//    `table-layout:fixed;word-break:break-word` por el mismo reclamo de Alejandra, se escribió
+//    el comentario explicando el solape… y el solape siguió. `fixed` le da a la columna un
+//    ancho fijo y `nowrap` le prohíbe achicar el texto, así que el texto se sale de la celda y
+//    se pinta ENCIMA de la del costo. El 07/09 Alejandra mandó la foto otra vez, ahora con la
+//    OS-2026-0064: «YORBIS CHOURIO (E/S LAS BANDE…» tapando «$253,75».
+//    ⇒ Medido en navegador con la regla real y este mismo marcado a 560 px de ancho:
+//      celda 128 px · texto 201 px · **73 px de desborde**, pisando el costo.
+//      Con `white-space:normal` en la celda: desborde 0. Control positivo y negativo.
+//    [[norma-la-pieza-dice-lo-que-no-hace]] — el comentario bien escrito es lo que lo tapó.
+// ⚠️ El costo NO lleva esto: una cifra partida en dos renglones se lee peor que una apretada.
+var _CC_TD='font-size:11px;white-space:normal;overflow-wrap:anywhere';
 function _ccRenderLineas(){
   var id=window._ccOrden, box=g('cc-lineas'); if(!box)return;
   var mant=(MANTENIMIENTOS||[]).filter(function(m){return m.ordenId===id;});
@@ -10406,10 +10436,10 @@ function _ccRenderLineas(){
   var filas=[];
   mant.forEach(function(m){
     var dest=(m.cam==='PATIO')?('🏭 Patio'+(m.centroCosto?(' · '+m.centroCosto):'')):('🔧 '+_unidadCorta(m.cam));
-    filas.push('<tr><td style="font-size:11px">'+_mEsc(m.tipo||m.desc||'—')+'</td><td style="font-size:11px">'+dest+'</td><td style="font-size:11px">'+_mEsc(m.proveedor||'—')+'</td><td class="mono" style="text-align:right">$'+(parseFloat(m.costo)||0).toFixed(2)+'</td></tr>');
+    filas.push('<tr><td style="'+_CC_TD+'">'+_mEsc(m.tipo||m.desc||'—')+'</td><td style="'+_CC_TD+'">'+dest+'</td><td style="'+_CC_TD+'">'+_mEsc(m.proveedor||'—')+'</td><td class="mono" style="text-align:right">$'+(parseFloat(m.costo)||0).toFixed(2)+'</td></tr>');
   });
   inv.forEach(function(m){
-    filas.push('<tr><td style="font-size:11px">'+_mEsc(m.item||'—')+'</td><td style="font-size:11px">📦 Inventario (x'+m.cantidad+')</td><td style="font-size:11px">'+_mEsc(m.factura||'—')+'</td><td class="mono" style="text-align:right">$'+(((parseFloat(m.cantidad)||0)*(parseFloat(m.precio)||0)).toFixed(2))+'</td></tr>');
+    filas.push('<tr><td style="'+_CC_TD+'">'+_mEsc(m.item||'—')+'</td><td style="'+_CC_TD+'">📦 Inventario (x'+m.cantidad+')</td><td style="'+_CC_TD+'">'+_mEsc(m.factura||'—')+'</td><td class="mono" style="text-align:right">$'+(((parseFloat(m.cantidad)||0)*(parseFloat(m.precio)||0)).toFixed(2))+'</td></tr>');
   });
   if(!filas.length){ box.innerHTML='<div style="font-size:12px;color:var(--text3)">Aún no has registrado líneas de esta compra.</div>'; return; }
   // ⛔ `table-layout:fixed` Y EL ENVOLTORIO CON SCROLL. Sin esto, un concepto largo
