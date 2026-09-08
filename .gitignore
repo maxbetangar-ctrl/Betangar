@@ -11,3 +11,9 @@ respaldos/
 node_modules/
 package-lock.json
 .playwright-mcp/
+
+# ⛔ El volcado COMPLETO de la base para el banco de auditoría de combustible. Este repo es
+# PÚBLICO: la historia entera de un cliente que paga —con nombres de choferes— no va acá.
+# Lo que sí se versiona es `pruebas/datos/combustible.json`, recortado y sin personas
+# (lo arma `pruebas/datos/reducir.mjs`).
+pruebas/datos/combustible-real.json

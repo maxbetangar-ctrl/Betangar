@@ -308,6 +308,25 @@ Deno.serve(async (req) => {
     if (r.mide_tanque === false) noMideTanque.add(String(r.cam));
   });
 
+  // ⛔ `created_at` NO ES LA HORA EN QUE ENTRÓ EL GASOIL: es la hora en que se ESCRIBIÓ LA FILA.
+  // GEMELA de `_acSurtidaUbicable` en `app.js`. Si se toca una, se toca la otra.
+  // Medido el 07/09/2026 en Betangar: 40 de las 86 surtidas —6.862 L de 10 camiones, con fechas del
+  // 22/07 al 01/08— entraron en UN lote el 18/08 a las 12:20:34, todas con el MISMO `created_at` al
+  // microsegundo y todas con `hora` en null. Para el cuadre de la noche esos 6.862 L "entraron a los
+  // camiones" el 18 de agosto a mediodía, y a la B012 le salió un faltante de 506 L que nunca existió.
+  // Una fila solo ubica en el tiempo si lo dice `surtidaUbicable`; si no, vale su FECHA y nada más.
+  const lotesSur = new Map<string, number>();
+  (sur.data || []).forEach((s: any) => {
+    const t = String(s.created_at || ''); if (!t) return;
+    lotesSur.set(t, (lotesSur.get(t) || 0) + 1);
+  });
+  const surtidaUbicable = (s: any) => {
+    if (!String(s.created_at || '')) return false;
+    if (!String(s.hora || '').trim()) return false;        // la PWA del chofer siempre la escribe
+    if ((lotesSur.get(String(s.created_at)) || 0) > 1) return false;  // lote: no son eventos
+    return true;
+  };
+
   const entradas = (u: string, fA: string, fB: string, incluirFA: boolean, tsA?: string, tsB?: string) => {
     const dentro = (f: string) => (incluirFA ? f >= fA : f > fA) && f <= fB;
     let suma = 0;
@@ -315,9 +334,10 @@ Deno.serve(async (req) => {
       if (String(s.cam) !== u) return;
       const f = String(s.fecha || '').slice(0, 10);
       if (corteSur && f < corteSur) return;              // antes del corte manda gasoil
-      const tsS = String(s.created_at || '');   // 'ts' es ahora el helper de fechas: no hacerle sombra
-      if (tsA && tsB && tsS) { if (!(tsS > tsA && tsS <= tsB)) return; }
-      else if (!dentro(f)) return;
+      // 'ts' es ahora el helper de fechas: no hacerle sombra
+      const tsS = surtidaUbicable(s) ? String(s.created_at) : '';
+      if (tsA && tsB && tsS) { if (!(tsS > tsA && tsS <= tsB)) return; }  // ubicable: por instante
+      else if (!dentro(f)) return;                                       // si no: por su FECHA
       suma += (num(s.litros) || 0);
     });
     (gas.data || []).forEach((gg: any) => {
@@ -347,9 +367,13 @@ Deno.serve(async (req) => {
       if (!dentro(f)) return;
       suma += (num(gg.lit) || 0);
     });
-    (sur.data || []).forEach((s: any) => {          // una surtida sin created_at tampoco se ubica
+    // Una surtida que no se ubica pesa igual que el `gasoil` viejo: sus litros PUDIERON entrar antes
+    // o después de la lectura de la noche. R1 la usa para CALLARSE. Antes acá se pedía `created_at`
+    // vacío, y esa columna tiene `default now()`: la condición no era falsa nunca y el freno estaba
+    // muerto — ninguna surtida lo disparó jamás.
+    (sur.data || []).forEach((s: any) => {
       if (String(s.cam) !== u) return;
-      if (String(s.created_at || '')) return;
+      if (surtidaUbicable(s)) return;
       const f = String(s.fecha || '').slice(0, 10);
       if (corteSur && f < corteSur) return;
       if (!dentro(f)) return;
@@ -460,6 +484,23 @@ Deno.serve(async (req) => {
       if (a != null && b != null) {
         const d = Math.round((a - b - desp) * 100) / 100;
         const t1 = tol(tqDe(sal), lleAyer.altura_cm, sal.altura_cm, desp);
+        // ── LA REGLA ES TESTIGO DE LA CARGA, Y NADIE LE PREGUNTABA ──────────────────────────
+        // Si de noche entraron `desp` litros, el nivel TIENE que haber subido. Esta pieza restaba
+        // la carga y acusaba sin comprobar jamás que la carga se viera en el tanque. Dos formas de
+        // que no: que NO QUEPA (el hueco que había al llegar es menor que la carga) o que la regla
+        // NO SE HAYA MOVIDO (quedó y amaneció en la misma altura, y entonces el "faltante" da
+        // exactamente la carga, al décimo de litro). En los dos casos los dos testigos se
+        // contradicen, y el instrumento físico manda sobre el sello de una fila.
+        // ⛔ NO SE ACUSA: se reporta la contradicción, que es lo que de verdad hay. GEMELA de R1C
+        // en `app.js` — si se toca una, se toca la otra.
+        const capU = capacidadDe(u);
+        const hueco = (capU != null) ? Math.round((capU - b) * 10) / 10 : null;
+        const subio = Math.round((a - b) * 10) / 10;
+        if (desp > 0 && ((hueco != null && desp > hueco + t1) || Math.abs(subio) <= t1)) {
+          hallazgos.push({ u, tipo: 'R1C',
+            txt: `quedó el ${fmtFecha(previo)} con ${fmt(b)} L y amaneció con ${fmt(a)} L —la regla se movió ${fmt(subio)} L— pero hay ${fmt(desp)} L cargados en el medio${hueco != null ? `, y en ese tanque solo cabían ${fmt(hueco)} L más` : ''}. No es un faltante: o el combustible entró en otro momento y la fila quedó con la hora en que se tecleó, o los litros de esa carga no son los que dice. Hay que buscar el recibo de esa carga` });
+          continue;
+        }
         // Sin nombre de chofer: de noche el custodio es el PATIO, no la persona que manejó.
         if (d < -2 * t1) graves.push({ u, litros: d, tol: t1, txt: `quedó el ${fmtFecha(previo)} con ${fmt(b)} L y amaneció con ${fmt(a)} L: faltan ${fmt(Math.abs(d))} L, con el odómetro igual y ${desp > 0 ? `con la carga de esa noche (${fmt(desp)} L, con hora) ya descontada` : 'sin carga registrada'} (el error de la regla explica hasta ±${fmt(t1)} L)` });
         else if (d > 2 * t1) entraron.push({ u, litros: d });
@@ -552,10 +593,12 @@ Deno.serve(async (req) => {
     // R15 va aparte: no es "falta un registro", es "hay dos números y no pueden ser los dos ciertos".
     // Mezclarlo con los huecos de registro lo haría leer como papeleo pendiente, y lo que pide es
     // que alguien pregunte hoy —mientras el chofer se acuerda de lo que cargó.
-    const noCabe = hallazgos.filter((x) => x.tipo === 'R15');
-    const resto = hallazgos.filter((x) => x.tipo !== 'R15');
+    // R1C va en el MISMO bloque: es la misma clase de cosa —dos datos que no pueden ser
+    // los dos ciertos—, solo que el testigo es la regla de la noche y no la capacidad.
+    const noCabe = hallazgos.filter((x) => x.tipo === 'R15' || x.tipo === 'R1C');
+    const resto = hallazgos.filter((x) => x.tipo !== 'R15' && x.tipo !== 'R1C');
     if (noCabe.length) {
-      msg += `\n⚠️ La carga no cabe en el tanque (${noCabe.length}):\n` + noCabe.map((x) => `• ${x.u}: ${x.txt}`).join('\n') + '\n';
+      msg += `\n⚠️ Una carga registrada que no cuadra con el tanque (${noCabe.length}):\n` + noCabe.map((x) => `• ${x.u}: ${x.txt}`).join('\n') + '\n';
     }
     if (resto.length) {
       msg += `\n🟠 Registro que falta o quedó repetido (${resto.length}):\n` + resto.map((x) => `• ${x.u ? x.u + ': ' : ''}${x.txt}`).join('\n') + '\n';

@@ -1712,6 +1712,37 @@ function _acAlturaValida(tanque,alturaCm){
 // una carga de las 11 de la mañana se contaría como si hubiera entrado de noche y el cuadre del
 // patio daría un faltante enorme que nunca existió. El `gasoil` histórico no tiene hora — ahí no
 // queda más que la fecha, y por eso ese tramo está congelado y no se audita fino.
+//
+// ⛔ Y `created_at` NO ES LA HORA EN QUE ENTRÓ EL GASOIL: es la hora en que se ESCRIBIÓ LA FILA.
+// Son la misma cosa solo cuando la asienta quien surtió, en el momento. Medido el 07/09/2026:
+// 40 de las 86 surtidas — 6.862 L de 10 camiones, con fechas del 22/07 al 01/08 — entraron en UN
+// solo lote el 18/08 a las 12:20:34, todas con el MISMO `created_at` al microsegundo y todas con
+// `hora` en null. Para el cuadre de la noche, esos 6.862 L "entraron a los camiones" el 18 de
+// agosto a mediodía. Así le salió a la B012 un "faltan 706,0 L" de un tanque de 600 L que esa
+// noche tenía 464: seis cargas de JULIO contadas como la carga de esa noche.
+// Por eso una fila solo ubica en el tiempo si `_acSurtidaUbicable` lo dice; si no, vale su FECHA,
+// que es lo único que esa fila sabe de verdad.
+// 📌 `created_at` NUNCA es la fecha del hecho — vale para `surtidas` igual que para todo lo demás.
+
+// ¿Esta fila puede decir CUÁNDO entró el combustible, o solo QUÉ DÍA?
+//   (a) sin `hora`: la PWA del chofer la escribe con el reloj del teléfono al guardar
+//       (`chofer.html`, `hora:p2(now.getHours())...`). Si falta, esa fila no salió de ahí — la
+//       tecleó la oficina después, y su `created_at` es el momento del tecleo.
+//   (b) de un lote: dos o más filas con el MISMO `created_at` al microsegundo son una carga
+//       masiva de historia. Dos choferes no surten en el mismo microsegundo.
+var _AC_LOTES=null;
+function _acLotesSurtidas(){
+  if(_AC_LOTES)return _AC_LOTES;
+  var n={}; (AC_SURTIDAS||[]).forEach(function(s){ var t=String(s.created_at||''); if(t)n[t]=(n[t]||0)+1; });
+  _AC_LOTES={}; Object.keys(n).forEach(function(t){ if(n[t]>1)_AC_LOTES[t]=true; });
+  return _AC_LOTES;
+}
+function _acSurtidaUbicable(s){
+  if(!String(s.created_at||''))return false;
+  if(!String(s.hora||'').trim())return false;              // (a)
+  if(_acLotesSurtidas()[String(s.created_at)])return false; // (b)
+  return true;
+}
 function _acEntradas(cam,desde,hasta,incluirDesde,tsA,tsB){
   var corte=AC_META.corteSurtidas||'', suma=0;
   var dentro=function(f){ return (incluirDesde?(f>=desde):(f>desde)) && f<=hasta; };
@@ -1719,9 +1750,9 @@ function _acEntradas(cam,desde,hasta,incluirDesde,tsA,tsB){
     if(String(s.cam)!==String(cam))return;
     var f=String(s.fecha||'').slice(0,10);
     if(corte&&f<corte)return;                              // antes del corte manda gasoil
-    var ts=String(s.created_at||'');
-    if(tsA&&tsB&&ts){ if(!(ts>tsA&&ts<=tsB))return; }      // con hora: exacto
-    else if(!dentro(f))return;                             // sin hora: por fecha
+    var ts=_acSurtidaUbicable(s)?String(s.created_at):'';   // solo la fila que sabe su hora ubica
+    if(tsA&&tsB&&ts){ if(!(ts>tsA&&ts<=tsB))return; }      // ubicable: se compara el instante
+    else if(!dentro(f))return;                             // no ubicable: vale su FECHA, nada más
     suma+=(_acNum(s.litros)||0);
   });
   (AC_GASOIL||[]).forEach(function(g){
@@ -1751,9 +1782,13 @@ function _acEntradasSinHora(cam,desde,hasta,incluirDesde){
     if(!dentro(f))return;
     suma+=(_acNum(g.lit)||0);
   });
-  (AC_SURTIDAS||[]).forEach(function(s){            // una surtida sin created_at tampoco se ubica
+  // Una surtida que no se ubica en el tiempo pesa igual que el `gasoil` viejo: sus litros PUDIERON
+  // entrar antes o después de la lectura de la noche, y no hay cómo saberlo. R1 la usa para
+  // CALLARSE. Antes acá se pedía `created_at` vacío, y `created_at` tiene `default now()`: la
+  // condición no era falsa nunca, así que este freno estaba muerto y ninguna surtida lo disparaba.
+  (AC_SURTIDAS||[]).forEach(function(s){
     if(String(s.cam)!==String(cam))return;
-    if(String(s.created_at||''))return;
+    if(_acSurtidaUbicable(s))return;
     var f=String(s.fecha||'').slice(0,10);
     if(corte&&f<corte)return;
     if(!dentro(f))return;
@@ -2385,6 +2420,37 @@ function _acAnomalias(todas,desde,hasta,ref){
       // (e) tolerancia de ESAS dos lecturas, y el doble para tener derecho a mostrarse
       var tolN=_acTol(ant.tanque||hoy.tanque,ant.llegadaCm,hoy.salidaCm,dNoche);
 
+      // ── (f) LA REGLA ES TESTIGO DE LA CARGA, Y NADIE LE PREGUNTABA ────────────────────────
+      // Si de noche entraron dNoche litros, el nivel TIENE que haber subido. R1 restaba la carga
+      // y acusaba sin comprobar jamás que la carga se viera en el tanque. Dos formas de que no:
+      //   (f.1) NO CABE: la carga pasa del hueco que había en el tanque al llegar. Un tanque de
+      //         600 L con 556,8 adentro admite 43; una fila que dice 300 no habla de esa noche.
+      //   (f.2) LA REGLA NO SE MOVIÓ: quedó y amaneció en la misma altura, así que el faltante da
+      //         EXACTAMENTE la carga, al décimo de litro. Que entren 300,0 L y falten 300,0 L no
+      //         es un robo: es una carga que no está donde la fila dice que está.
+      // En los dos casos los dos testigos se contradicen, y el instrumento físico manda sobre el
+      // sello de una fila. R1 NO ACUSA: se reporta la contradicción, que es lo que de verdad hay.
+      // 📌 Medido el 07/09/2026 sobre toda la historia: los CUATRO cuadres de patio con carga de
+      // por medio caían acá. B012 17/08 "faltan 706,0 L" (tanque de 600 con 464 adentro), B003
+      // 15/08 "465,0", B003 29/08 "300,0", B002 05/08 "40,7". Ni uno solo era un faltante.
+      var capT=(ant.tanque&&ant.tanque.cap!=null)?ant.tanque.cap:null;
+      var hueco=(capT!=null)?Math.round((capT-ant.llegada)*10)/10:null;
+      var subio=Math.round((hoy.salida-ant.llegada)*10)/10;
+      if(dNoche>0&&((hueco!=null&&dNoche>hueco+tolN)||Math.abs(subio)<=tolN)){
+        add('media','R1C','Una carga registrada que la regla no ve',
+          'La unidad '+U(u)+' quedó el '+formatFecha(fLle)+' con '+_acFmt(ant.llegada,1)+' L y amaneció el '+
+          formatFecha(hoy.fecha)+' con '+_acFmt(hoy.salida,1)+' L — la regla se movió '+_acFmt(subio,1)+' L — '+
+          'pero hay '+_acFmt(dNoche,1)+' L cargados en el medio'+
+          (hueco!=null?(', y en ese tanque solo cabían '+_acFmt(hueco,1)+' L más'):'')+'. '+
+          'Los dos no pueden ser ciertos: o el combustible entró en otro momento y la fila quedó '+
+          'con la hora en que se tecleó, o los litros de esa carga no son los que dice. '+
+          'Buscá el recibo de esa carga y mirá a qué hora y a qué unidad se le echó. '+
+          '⛔ Esto NO es un faltante y no se le reclama a nadie: mientras la carga no se ubique, '+
+          'de ese combustible no se puede decir nada.',
+          u,hoy.fecha,null,'');
+        continue;
+      }
+
       if(delta<-2*tolN){
         // Sin nombre de chofer: de noche el custodio es el PATIO, no la persona que manejó.
         add('alta','R1','Faltó combustible en el patio',
@@ -2659,7 +2725,20 @@ function _acRender(){
   var costoL=_acCostoL();
   var costoTot=(costoL>0)?(totCons*costoL):null;
   var altas=AC_ANOM.filter(function(a){return a.sev==='alta';});
-  var litrosSinExplicar=altas.reduce(function(s,a){return s+((a.litros!=null&&a.litros<0)?Math.abs(a.litros):(a.litros>0?a.litros:0));},0);
+  // ── EL CARTEL ROJO SUMABA GASOIL QUE FALTÓ CON GASOIL QUE ENTRÓ ─────────────────────────────
+  // Hasta el 07/09/2026 este número tomaba el `litros` de TODA anomalía grave en valor absoluto y
+  // lo rotulaba «gasoil que ningún registro justifica». Medido en el período del 24/08 al 07/09:
+  // de los 4.340,1 L que mostraba, 4.040,1 eran R13 —combustible que ENTRÓ a los camiones sin que
+  // nadie asentara la compra— y 300 el faltante falso de la B003. O sea que el número que el dueño
+  // lee primero, y que leía como «me faltan $2.946», era casi todo lo contrario: gasoil que llegó.
+  // Y también entraba la R15 en positivo, que no son litros de nada: son litros DISCUTIDOS.
+  // Son dos problemas reales y OPUESTOS, y lo que se hace con cada uno no se parece en nada:
+  //   • lo que FALTA (R1, negativo) se busca en el patio;
+  //   • lo que ENTRÓ sin registrarse (R13, positivo) se busca en las facturas — es gasto que no
+  //     está entrando a la Utilidad Real, no gasoil perdido.
+  // 📌 [[norma-numero-que-el-dueno-no-puede-explicar]] · [[norma-el-resumen-no-nombra-causas-que-no-midio]]
+  var litrosFaltan=altas.reduce(function(s,a){return s+((a.litros!=null&&a.litros<0)?Math.abs(a.litros):0);},0);
+  var litrosEntraron=altas.reduce(function(s,a){return s+((a.cod==='R13'&&a.litros>0)?a.litros:0);},0);
   var g_=AC_META.galpon||{};
   // Calidad del dato: días con las dos mediciones y km, sobre el total de jornadas.
   // ⛔ Una jornada con una lectura DECLARADA FALSA no es auditable, aunque tenga las tres cosas
@@ -2678,9 +2757,16 @@ function _acRender(){
     _acCard('Costo por km',(costoL>0&&rendFlota!=null)?('$'+_acFmt(costoL/rendFlota,3)):'—','Lo que te cuesta en gasoil mover un camión un kilómetro. Sale de las jornadas cuadradas, no de todas')+
   '</div>';
   html+='<div class="g4" style="margin-bottom:10px">'+
-    _acCard('Litros sin explicar',_acFmt(litrosSinExplicar,1)+' L',
-      (litrosSinExplicar>0&&costoL>0)?('≈ $'+_acFmt(litrosSinExplicar*costoL,2)+' — gasoil que ningún registro justifica'):'De las anomalías graves del período',
-      litrosSinExplicar>0?'var(--red)':'var(--green)')+
+    _acCard('Litros que FALTAN',_acFmt(litrosFaltan,1)+' L',
+      (litrosFaltan>0&&costoL>0)
+        ? ('≈ $'+_acFmt(litrosFaltan*costoL,2)+' — gasoil que salió del tanque y ningún registro justifica'+
+           (litrosEntraron>0?('.<br><b>Aparte: entraron '+_acFmt(litrosEntraron,1)+' L sin registrarse'+
+             (costoL>0?(' ≈ $'+_acFmt(litrosEntraron*costoL,2)):'')+'</b> — eso NO es un faltante: es gasoil que LLEGÓ y cuya compra no se asentó. Se busca en las facturas, no en el patio.'):''))
+        : (litrosEntraron>0
+            ? ('No falta gasoil. Pero <b>entraron '+_acFmt(litrosEntraron,1)+' L sin registrarse'+
+               (costoL>0?(' ≈ $'+_acFmt(litrosEntraron*costoL,2)):'')+'</b>: ese gasto no está entrando a la Utilidad Real')
+            : 'De las anomalías graves del período'),
+      litrosFaltan>0?'var(--red)':(litrosEntraron>0?'var(--yellow)':'var(--green)'))+
     _acCard('Anomalías',String(AC_ANOM.length),altas.length+' graves · '+(AC_ANOM.length-altas.length)+' por revisar',altas.length?'var(--red)':'var(--green)')+
     _acCard('Días auditables',pctAud+'%',completas+' de '+J.length+' jornadas con salida, llegada y km. Por debajo de 90% el resto de los números queda cojo'+
       (nNoConf?(' · '+nNoConf+' quedaron fuera porque el dato se declaró falso y no se pudo averiguar el verdadero'):''),
@@ -23447,7 +23533,31 @@ function portIniciar(){
   // Poblar datalists
   var empDl=g('port-emp-dl');
   var camDl=g('port-cam-dl');
-  if(empDl)empDl.innerHTML=EMPLEADOS.filter(function(e){return e.activo;}).map(function(e){return'<option value="'+e.nombre+'">';}).join('');
+  // ⛔ LA GARITA PIDE LOS NOMBRES POR RPC, NO DE `EMPLEADOS`.
+  // 🔴 Alejandra, 07/09: «en el usuario de vigilante… únicamente me figura en la lista los
+  //    choferes, máximo y Francisco. Debería aparecer también Leonardo, Samuel, Jinet, mi
+  //    persona». Los cuatro ESTÁN activos —61 activos, solo 13 choferes—: lo que pasa es que
+  //    la policy de SELECT de `empleados` lista once roles y `vigilante` no está en ninguno.
+  //    Su sesión lee CERO filas y la lista cae en lo poco que viene de otro lado. No da error:
+  //    muestra menos. Misma forma que el caso Yudis del 04/09.
+  // ⛔ Y NO se arregla metiendo `vigilante` en `btg_rol_lectura`: esa policy está en 23 tablas,
+  //    y `empleados` tiene `sueldo`, `banco`, `ncuenta` y `cedula`. La garita es un equipo
+  //    compartido; darle la tabla sería publicar los sueldos de 84 personas para anotar visitas.
+  //    `porteria_personas()` devuelve NOMBRE y CARGO de los activos, y nada más.
+  if(empDl){
+    var _pintarDl=function(nombres){
+      empDl.innerHTML=nombres.map(function(n){return'<option value="'+_escHtml(n)+'">';}).join('');
+    };
+    // Lo de EMPLEADOS se pinta primero para que la lista no arranque vacía en los roles que sí
+    // lo tienen cargado; la RPC lo reemplaza cuando llega, que es la lista completa.
+    _pintarDl((EMPLEADOS||[]).filter(function(e){return e.activo&&e.nombre;}).map(function(e){return e.nombre;}));
+    if(DB_READY&&supabase){
+      supabase.rpc('porteria_personas').then(function(r){
+        if(r&&!r.error&&Array.isArray(r.data)&&r.data.length) _pintarDl(r.data.map(function(x){return x.nombre;}));
+        else if(r&&r.error) console.log('[porteria_personas]', r.error.message);
+      }).catch(function(e){ console.log('[porteria_personas]', e&&e.message); });
+    }
+  }
   var cams=['JAC-B001','JAC-B002','JAC-B003','JAC-B004','JAC-B005','JAC-B006','JAC-B007','JAC-B008','JAC-B009','JAC-B010','JAC-B011','JAC-B012'];
   if(camDl)camDl.innerHTML=cams.map(function(c){return'<option value="'+c+'">';}).join('')+'<option value="Gasoil"><option value="Repuestos"><option value="Herramientas"><option value="Material de trabajo"><option value="Proveedor">';
   portCargarHoy();
@@ -23458,15 +23568,27 @@ function portCargarHoy(){
   var lista=g('port-lista-hoy');
   if(!lista)return;
   if(!DB_READY){lista.innerHTML='<span style="color:var(--text3)">Sin conexión</span>';return;}
-  supabase.from('porteria').select('*').eq('fecha',hoy).order('hora',{ascending:false}).limit(20).then(function(res){
+  // ⛔ SE ORDENA POR `created_at`, NO POR `hora`. `hora` es texto en formato de 12 horas
+  //    («04:46 p. m.») y ordenarlo alfabéticamente NO es el orden del reloj: «01:50 p. m.»
+  //    queda antes de «05:47 a. m.», y las 12 del mediodía antes de la 1 de la tarde. El
+  //    vigilante veía su propia jornada desordenada. [[norma-no-comparar-fechas-formateadas]]
+  supabase.from('porteria').select('*').eq('fecha',hoy).order('created_at',{ascending:false}).limit(20).then(function(res){
     if(!res.data||!res.data.length){lista.innerHTML='<span style="color:var(--text3);font-size:12px">Sin registros hoy</span>';return;}
     var iconos={asistencia:'👥',entrada_salida:'🚶',galpon:'🚛',novedad:'⚠️'};
     var colores={asistencia:'#1d9e75',entrada_salida:'#378add',galpon:'#ef9f27',novedad:'#e24b4a'};
     lista.innerHTML=res.data.map(function(r){
-      return '<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border)">'+
-        '<div style="width:8px;height:8px;border-radius:50%;background:'+(colores[r.tipo]||'#888')+';flex-shrink:0"></div>'+
-        '<div style="flex:1"><div style="font-size:13px;color:var(--text1)">'+_escHtml(r.nombre||r.detalle||r.tipo)+'</div>'+
-        '<div style="font-size:10px;color:var(--text3)">'+_escHtml(r.hora)+' · '+_escHtml(r.subtipo||r.tipo)+'</div></div></div>';
+      // ⛔ EL TEXTO DE LA NOVEDAD SE MUESTRA. Antes la lista pintaba `nombre||detalle`, y una
+      //    novedad se guarda con nombre «Novedad INFO» y el texto real en `detalle`: el título
+      //    ganaba siempre y lo escrito por el vigilante NO SE VEÍA EN NINGÚN LADO.
+      // 🔴 Lo reportó Alejandra el 07/09: «se encuentra un registro de novedad y no me da la
+      //    opción para visualizarlo». Tenía razón: no había opción, no estaba dibujado.
+      var titulo = r.nombre||r.detalle||r.tipo;
+      var cuerpo = (r.detalle && String(r.detalle).trim() && String(r.detalle).trim()!==String(titulo).trim()) ? String(r.detalle).trim() : '';
+      return '<div style="display:flex;align-items:flex-start;gap:8px;padding:8px 0;border-bottom:1px solid var(--border)">'+
+        '<div style="width:8px;height:8px;border-radius:50%;background:'+(colores[r.tipo]||'#888')+';flex-shrink:0;margin-top:5px"></div>'+
+        '<div style="flex:1;min-width:0"><div style="font-size:13px;color:var(--text1)">'+_escHtml(titulo)+'</div>'+
+        (cuerpo?'<div style="font-size:12px;color:var(--text2);white-space:normal;overflow-wrap:anywhere;margin-top:2px">'+_escHtml(cuerpo)+'</div>':'')+
+        '<div style="font-size:10px;color:var(--text3);margin-top:2px">'+_escHtml(r.hora)+' · '+_escHtml(r.subtipo||r.tipo)+(r.vigilante?(' · '+_escHtml(r.vigilante)):'')+'</div></div></div>';
     }).join('');
   }).catch(function(){lista.innerHTML='<span style="color:var(--red);font-size:12px">Error cargando registros</span>';});
 }
@@ -23592,6 +23714,33 @@ function portGuardarEntrada(){
 
 // ── GALPÓN ──
 function portAbrirGalpon(){portAbrirModal('modal-port-galpon');}
+// ── EN QUÉ ESTADO ESTÁ CADA UNIDAD SEGÚN PORTERÍA ────────────────────────────────────────────
+// Devuelve {NOMBRE: {subtipo, hora}} con el ÚLTIMO movimiento de galpón de hoy de cada unidad.
+// ⛔ SE ORDENA POR `created_at`, NO POR `hora`. `hora` es texto formateado en 12 horas
+//    («04:46 p. m.»), y ordenar eso alfabéticamente NO da el orden del reloj: «01:50 p. m.»
+//    queda antes de «05:47 a. m.», y las 12 del mediodía antes de la 1. Con el orden mal, el
+//    «último estado» podía ser el primero del día. [[norma-no-comparar-fechas-formateadas]]
+function portUltimoEstadoPorUnidad(hoy){
+  return supabase.from('porteria')
+    .select('nombre,subtipo,hora,created_at')
+    .eq('fecha',hoy).eq('tipo','galpon')
+    .order('created_at',{ascending:true})
+    .then(function(r){
+      var m={};
+      (r&&r.data||[]).forEach(function(x){ if(x.nombre) m[String(x.nombre).trim().toUpperCase()]={subtipo:x.subtipo,hora:x.hora}; });
+      return m;
+    });
+}
+// ⛔ AVISA, NO TRANCA. Una unidad puede legítimamente entrar y volver a salir el mismo día, y
+//    un candado duro dejaría al vigilante sin poder corregir. Lo que NO tiene sentido es el
+//    MISMO estado dos veces seguidas, que es el doble toque.
+// 🔴 Lo reportó Alejandra el 07/09: «Ingreso B007 4.46 / Ingreso B007 4.47… sería bueno que no
+//    permitiera que volviera a ingresar si ya entró». Está en los datos, tal cual.
+function portConfirmarRepetido(estadoPrevio, nombre, subtipoNuevo){
+  if(!estadoPrevio || estadoPrevio.subtipo!==subtipoNuevo) return true;
+  return confirm(nombre+' ya figura como «'+subtipoNuevo+'» desde las '+(estadoPrevio.hora||'?')+'.\n\n'+
+                 'Registrarlo otra vez deja dos veces el mismo movimiento.\n\n¿Registrar igual?');
+}
 function portGuardarGalpon(){
   var que=gv('port-galp-que').trim();
   var tipo=PORT_TIPO_SELECTED['galp'];
@@ -23600,15 +23749,19 @@ function portGuardarGalpon(){
   var hoy=fechaVE();
   var hora=new Date().toLocaleTimeString('es-VE',{hour:'2-digit',minute:'2-digit'});
   var det=gv('port-galp-det').trim();
-  var reg={tipo:'galpon',fecha:hoy,hora:hora,nombre:que,detalle:det,subtipo:tipo==='entro'?'Entró al galpón':'Salió del galpón',vigilante:SESION.nombre||'Vigilante'};
+  var sub=tipo==='entro'?'Entró al galpón':'Salió del galpón';
+  var reg={tipo:'galpon',fecha:hoy,hora:hora,nombre:que,detalle:det,subtipo:sub,vigilante:SESION.nombre||'Vigilante'};
   if(DB_READY&&supabase){
-    supabase.from('porteria').insert([reg]).then(function(r){
-      if(r.error){alert('Error: '+r.error.message);return;}
-      alert('✅ Registrado: '+que+' — '+(tipo==='entro'?'Entró':'Salió'));
-      g('port-galp-que').value='';g('port-galp-det').value='';
-      portCerrarModal('modal-port-galpon');
-      portCargarHoy();
-    });
+    portUltimoEstadoPorUnidad(hoy).then(function(estados){
+      if(!portConfirmarRepetido(estados[que.trim().toUpperCase()], que, sub)) return;
+      return supabase.from('porteria').insert([reg]).then(function(r){
+        if(r.error){alert('Error: '+r.error.message);return;}
+        alert('✅ Registrado: '+que+' — '+(tipo==='entro'?'Entró':'Salió'));
+        g('port-galp-que').value='';g('port-galp-det').value='';
+        portCerrarModal('modal-port-galpon');
+        portCargarHoy();
+      });
+    }).catch(function(e){ alert('No pude comprobar el estado de la unidad: '+(e&&e.message||e)); });
   } else {
     alert('✅ Guardado localmente');
     portCerrarModal('modal-port-galpon');
@@ -24313,8 +24466,29 @@ function portGuardarCamiones(){
 
   if(!DB_READY||!supabase){alert('Sin conexión. Registros guardados localmente.');portCerrarModal('modal-port-cams');return;}
 
+  // El mismo candado que en el alta de a una, pero preguntando UNA sola vez por todo el lote:
+  // once confirmaciones seguidas no las lee nadie. Ver portConfirmarRepetido.
   var todos = registros.concat(novedades);
-  supabase.from('porteria').insert(todos).then(function(res){
+  portUltimoEstadoPorUnidad(hoy).then(function(estados){
+    var repes = registros.filter(function(r){
+      var prev = estados[String(r.nombre).trim().toUpperCase()];
+      return prev && prev.subtipo===r.subtipo;
+    });
+    if(repes.length){
+      var det = repes.map(function(r){
+        var prev = estados[String(r.nombre).trim().toUpperCase()];
+        return '  • '+r.nombre+' — ya figura como «'+r.subtipo+'» desde las '+(prev.hora||'?');
+      }).join(String.fromCharCode(10));
+      if(!confirm('Estas '+repes.length+' unidad(es) ya estaban en ese mismo estado:'+
+                  String.fromCharCode(10)+String.fromCharCode(10)+det+String.fromCharCode(10)+String.fromCharCode(10)+
+                  'Registrarlas otra vez deja dos veces el mismo movimiento.'+
+                  String.fromCharCode(10)+String.fromCharCode(10)+'¿Registrar igual?')) return;
+    }
+    return _portInsertarLote(todos, registros, novedades, marcados, hora, vigilante);
+  }).catch(function(e){ alert('No pude comprobar el estado de las unidades: '+(e&&e.message||e)); });
+}
+function _portInsertarLote(todos, registros, novedades, marcados, hora, vigilante){
+  return supabase.from('porteria').insert(todos).then(function(res){
     if(res.error){alert('Error: '+res.error.message);return;}
     // Notificar por WA si hay novedades/fallas
     if(novedades.length){
