@@ -29426,6 +29426,26 @@ function _rqDias(a,b){
 }
 function _rqPuedeCompras(){ var r=(SESION&&SESION.rol)||''; return ['compras','admin','superadmin','operador'].indexOf(r)>=0; }
 function _rqPuedeReglas(){ var r=(SESION&&SESION.rol)||''; return ['superadmin','directivo'].indexOf(r)>=0; }
+// ⛔ QUIEN PUEDE ANULAR, y por que no es solo compras. Lo pidio Alejandra el 04/09:
+//    «Como se podria anular el requerimiento?». El estado `anulada` YA EXISTIA en el
+//    constraint de la base desde que se monto el modulo, y NADA lo podia poner: ni RPC
+//    ni boton. El modelo lo previo y el circuito nunca se construyo.
+//    · Quien PIDIO anula lo suyo mientras compras no lo haya tomado: se equivoco o ya
+//      no hace falta, y obligarlo a molestar a otro para deshacer su propio error es
+//      como se ensena a esquivar el sistema y pedir por WhatsApp.
+//    · COMPRAS anula lo que tiene en la mano.
+//    · Y quien manda, siempre.
+// ⛔ La BASE igual comprueba el estado y exige motivo: esto solo decide que boton se
+//    dibuja. Un permiso que vive solo en la pantalla no es un permiso.
+function _rqPuedeAnular(r){
+  if(!r) return false;
+  var rol=(SESION&&SESION.rol)||'';
+  if(['admin','superadmin','directivo'].indexOf(rol)>=0) return true;
+  if(_rqPuedeCompras() && ['enviada','tomada','cotizando','espera_firma'].indexOf(r.estado)>=0) return true;
+  var yoUser=(SESION&&SESION.usuario)||'', yoNom=(SESION&&SESION.nombre)||'';
+  var mio = (yoUser && r.solicitante_usuario===yoUser) || (yoNom && r.solicitante===yoNom);
+  return !!mio && ['borrador','enviada'].indexOf(r.estado)>=0;
+}
 
 async function reqCargar(){
   if(!(DB_READY&&supabase)) return false;
@@ -29608,6 +29628,10 @@ function reqPintarFicha(id){
     acciones.push('<span style="font-size:12px;color:#f59e0b">⏳ Esperando la firma de '+_rqE(r.aprueba_usuario||r.aprueba_rol||'')+'</span>');
   if(['aprobada','atendida'].indexOf(r.estado)>=0)
     acciones.push('<button class="btn btn-g btn-sm" onclick="reqRecibirUI(\''+_rqE(r.id)+'\')">📦 Recibí y está conforme</button>');
+  // ⚠️ Va de ULTIMO y sin `btn-g`: anular no es una accion que uno busque, y ponerla
+  //    en verde al lado de «Recibí» invita a tocarla por error.
+  if(_rqPuedeAnular(r))
+    acciones.push('<button class="btn btn-sm" style="color:#ef4444;border-color:#ef4444" onclick="reqAnularUI(&#39;'+_rqE(r.id)+'&#39;)">🚫 Anular este pedido</button>');
 
   cont.innerHTML =
     '<button class="btn btn-sm" onclick="reqVista(\'tablero\')" style="margin-bottom:10px">← Volver al tablero</button>' +
@@ -29814,6 +29838,33 @@ async function reqGuardarCotizaciones(id){
     else mostrarToast('✅ Le llegó el aviso a '+(r.data&&r.data.firma||'quien firma'), 'exito');
     renderRequisitorio();
   }catch(e){ alert('Error'); if(b){b.disabled=false;b.textContent='Pedir la firma';} }
+}
+
+// ⛔ PIDE EL MOTIVO Y NO SE CONFORMA CON CUALQUIER COSA. La base lo exige igual, pero
+//    si el rechazo llega recien del servidor la persona ya escribio y perdio el texto.
+// ⚠ Y AVISA CUANDO NO SE PUDO AVISAR. Si quien lo tenia en la mano no tiene WhatsApp
+//    cargado, la anulacion se aplica igual -no se pierde una decision por no poder
+//    notificar- pero se DICE, para que alguien lo llame.
+async function reqAnularUI(id){
+  var r = REQS.filter(function(x){ return x.id===id; })[0];
+  var NL2 = String.fromCharCode(10) + String.fromCharCode(10);
+  var motivo = prompt('Va a ANULAR el pedido ' + ((r&&r.codigo)||id) + '.' + NL2 +
+    'El pedido no se borra: queda con su motivo, para que dentro de tres meses se sepa que paso.' + NL2 +
+    'Por que se anula?');
+  if(motivo===null) return;
+  motivo = String(motivo).trim();
+  if(motivo.length < 4){ mostrarToast('Hace falta el motivo. Sin eso no se anula.','error'); return; }
+  try{
+    var res = await supabase.rpc('req_anular', { p_id:id, p_motivo:motivo, p_quien:((SESION&&SESION.nombre)||(SESION&&SESION.usuario)||'') });
+    if(res.error){ mostrarToast('No se pudo: '+res.error.message,'error'); return; }
+    var d = res.data||{};
+    if(d.ok===false){ mostrarToast(d.error||'No se pudo anular','error'); return; }
+    if(d.repetido){ mostrarToast(d.mensaje||'Ya estaba anulado','info'); }
+    else if(d.motivo_sin_aviso){ mostrarToast('Anulado. ⚠ '+d.motivo_sin_aviso,'warn'); }
+    else if(d.aviso){ mostrarToast('✅ Anulado, y se le aviso a '+(d.a_quien||'quien correspondia'),'exito'); }
+    else { mostrarToast('✅ Anulado','exito'); }
+    renderRequisitorio();
+  }catch(e){ mostrarToast('Error al anular','error'); }
 }
 
 async function reqRecibirUI(id){
