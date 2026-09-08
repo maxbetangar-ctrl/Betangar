@@ -1652,15 +1652,25 @@ async function registrarEntrega(){
       foto_url: fotoUrl, fecha: hoy, hora: String(now.getHours()).padStart(2,'0')+':'+String(now.getMinutes()).padStart(2,'0'),
       estado: 'entregada', token: tok
     };
-    var ok = false;
+    // ⛔ UN RECHAZO DEL SERVIDOR NO ES FALTA DE SEÑAL, Y ACÁ SE MOSTRABAN IGUAL.
+    // El toast de error salía y el de abajo lo PISABA con «Guardado (se sube al reconectar)».
+    // Es el mismo fallo disfrazado de éxito que en la surtida escondió tres días de rechazos
+    // (26 al 29/08): nadie reporta un problema cuando la pantalla le dice que guardó.
+    var ok = false, rechazo = null;
     if(isOnline && supabase){
       var res = await supabase.rpc('entrega_registrar', { p: row });
-      if(res && res.error){ mostrarToast('No se pudo guardar: '+res.error.message,'error'); }
+      if(res && res.error) rechazo = res.error.message || 'el servidor lo rechazó';
       else ok = true;
     }
     if(!ok) encolarEntrega(row);
     ENT_ULTIMA = row;
-    mostrarToast(ok?('✅ '+_lblReg+(isMant||isPunto?' registrado':' registrada')):'📵 Guardado (se sube al reconectar)','exito');
+    if(ok){
+      mostrarToast('✅ '+_lblReg+(isMant||isPunto?' registrado':' registrada'),'exito');
+    }else if(rechazo){
+      mostrarToast('⚠️ NO quedó registrado: '+rechazo+'. Quedó guardado en el teléfono; avisale a la oficina.','error');
+    }else{
+      mostrarToast('📵 Sin señal: guardado en el teléfono, se sube solo al reconectar','exito');
+    }
     // Mostrar bloque de confirmación + rellenar el link para enviar
     var _lk=document.getElementById('ent-link'); if(_lk)_lk.value=_entLinkURL();
     var _wn=document.getElementById('ent-wa-num'); if(_wn)_wn.value='';
@@ -1704,15 +1714,25 @@ async function entregaConfirmarRecepcion(){
       patch.foto_url = fotoUrl2; ENT_ULTIMA.foto_url = fotoUrl2;
     }catch(e){}
   }
-  var ok = false;
+  // ⛔ UN RECHAZO DEL SERVIDOR NO ES FALTA DE SEÑAL, Y ACÁ SE MOSTRABAN IGUAL.
+  // El toast de error salía y el de abajo lo PISABA con «Guardado (se sube al reconectar)».
+  // Es el mismo fallo disfrazado de éxito que en la surtida escondió tres días de rechazos
+  // (26 al 29/08): nadie reporta un problema cuando la pantalla le dice que guardó.
+  var ok = false, rechazo = null;
   if(isOnline && supabase){
     var res = await supabase.rpc('entrega_confirmar', { p_token: ENT_ULTIMA.token, p_nombre: nombre, p_ci: ci, p_via: 'sitio', p_foto_url: (patch.foto_url || null) });
-    if(res && res.error){ mostrarToast('No se pudo confirmar: '+res.error.message,'error'); }
+    if(res && res.error) rechazo = res.error.message || 'el servidor la rechazó';
     else if(res && res.data === true){ ok = true; }
-    else { mostrarToast('No se pudo confirmar (la entrega ya no estaba pendiente).','error'); }
+    else rechazo = 'esa entrega ya no estaba pendiente';
   }
   if(!ok) encolarEntrega(ENT_ULTIMA);
-  mostrarToast(ok?((_esMantU?'✅ Verificado por ':'✅ Recepción confirmada por ')+nombre):'📵 Confirmación guardada (se sube al reconectar)','exito');
+  if(ok){
+    mostrarToast((_esMantU?'✅ Verificado por ':'✅ Recepción confirmada por ')+nombre,'exito');
+  }else if(rechazo){
+    mostrarToast('⚠️ NO quedó confirmada: '+rechazo+'. Quedó guardada en el teléfono; avisale a la oficina.','error');
+  }else{
+    mostrarToast('📵 Sin señal: la confirmación se sube sola al reconectar','exito');
+  }
   // Limpiar el formulario para el próximo registro
   document.getElementById('ent-cliente').value=''; document.getElementById('ent-direccion').value='';
   document.getElementById('ent-rec-nombre').value=''; document.getElementById('ent-rec-ci').value='';
@@ -2022,12 +2042,23 @@ async function surGuardar(){
       if(res && res.error) rechazo = res.error.message || 'el servidor la rechazó';
       else ok=true;
     }
-    // Se encola igual aunque la hayan rechazado: la foto ya se subió y el trabajo está hecho,
-    // así que el dato NO se tira. Lo que cambia es lo que se le dice a la persona.
-    if(!ok) surEncolar(row);
-    SUR_HOY.unshift(row); surRenderHoy();
+    // ⛔ UN DUPLICADO NO SE ENCOLA: YA ESTÁ REGISTRADO.
+    // Si se encolara, la cola lo reintentaría para siempre y el servidor lo rechazaría para
+    // siempre, en silencio. Y tampoco se agrega a la lista del día: la carga ya está ahí una vez,
+    // y verla dos veces es lo que hace que alguien crea que cargó dos veces.
+    // El candado vive en la base (`surtida_registrar`, 08/09/2026): mismo camión, mismos litros,
+    // mismo tanque, menos de una hora. Un camión que acaba de recibir 350 L no puede recibir otros
+    // 350 una hora después. Acá solo se traduce a algo que la persona entienda.
+    var duplicada = !!rechazo && /^DUPLICADA/i.test(String(rechazo));
+    // Se encola igual aunque la hayan rechazado por OTRA cosa: la foto ya se subió y el trabajo
+    // está hecho, así que el dato NO se tira. Lo que cambia es lo que se le dice a la persona.
+    if(!ok && !duplicada) surEncolar(row);
+    if(!duplicada){ SUR_HOY.unshift(row); }
+    surRenderHoy();
     if(ok){
       mostrarToast('✅ Surtida registrada','exito');
+    }else if(duplicada){
+      mostrarToast('✅ Esa carga ya estaba registrada — no se cargó dos veces. Revisá la lista de abajo.','exito');
     }else if(rechazo){
       // Un solo mensaje, y dice la verdad: no quedó registrada, quedó en el teléfono, y hay
       // que avisar — porque esto NO se arregla solo esperando señal.
