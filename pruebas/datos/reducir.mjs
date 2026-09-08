@@ -5,8 +5,8 @@
 import { readFileSync, writeFileSync } from 'fs'
 const d = JSON.parse(readFileSync(new URL('./combustible-real.json', import.meta.url), 'utf8'))
 
-const UNIDADES = ['JAC-B003', 'JAC-B012', 'JAC-B004', 'JAC-B002']
-const DESDE = '2026-07-20', HASTA = '2026-08-31'
+const UNIDADES = ['JAC-B003', 'JAC-B012', 'JAC-B004', 'JAC-B002', 'JAC-B009', 'JAC-B010']
+const DESDE = '2026-07-20', HASTA = '2026-09-07'
 const dentro = (f) => { const x = String(f || '').slice(0, 10); return x >= DESDE && x <= HASTA }
 const sinNombre = (o, ...campos) => { const c = { ...o }; campos.forEach((k) => { if (k in c) c[k] = '' }); return c }
 
@@ -19,7 +19,9 @@ const out = {
   ck: d.ck.filter((c) => UNIDADES.includes(String(c.cam)) && dentro(c.fecha))
           .map((c) => sinNombre(c, 'conductor')),
   gasoil: d.gasoil.filter((g) => UNIDADES.includes(String(g.cam)) && dentro(g.f)),
-  tanques: d.tanques,   // geometría del tanque, no dato de nadie
+  tanques: d.tanques,     // geometría del tanque, no dato de nadie
+  cfg: d.cfg,             // el corte de surtidas y la referencia de rendimiento REALES
+  unidades: d.unidades,   // cam, modelo y capacidad — configuración, no personas
 }
 writeFileSync(new URL('./combustible.json', import.meta.url), JSON.stringify(out))
 const nombres = JSON.stringify(out).match(/[A-ZÁÉÍÓÚÑ]{3,}\s+[A-ZÁÉÍÓÚÑ]{3,}/g)

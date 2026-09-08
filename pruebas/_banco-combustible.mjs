@@ -18,7 +18,7 @@ function trozo(src, nombre, opcional = false){
 
 const FUNCS = ['_acHoy','_acNum','_acFmt','_acUsd','_acCubicar','_acLitrosPorCm','_acTol',
   '_acDiaSiguiente','_acAlturaValida','_acLotesSurtidas','_acSurtidaUbicable','_acEntradas',
-  '_acEntradasSinHora','_acTanqueDe','_acEsGalpon','_acDedupe','_acArmarJornadas','_acRefModelo',
+  '_acEntradasSinHora','_acCargaEnLote','_acTanqueDe','_acEsGalpon','_acDedupe','_acArmarJornadas','_acRefModelo',
   '_acRefRend','_acTs','_acAntesDe','_acAnomalias']
 
 export function cargarAuditoria(rutaApp = RUTA_APP){
@@ -43,15 +43,29 @@ export function cargarAuditoria(rutaApp = RUTA_APP){
   }
   // Las de la corrección del 07/09 son opcionales: así el MISMO banco corre contra el código
   // ANTERIOR (`git show HEAD:app.js`) y se comprueba que la prueba se pone ROJA sin ellas.
-  const NUEVAS = { _acLotesSurtidas:1, _acSurtidaUbicable:1 }
+  // Opcionales: las que existen en una versión y no en la otra, para que el MISMO banco
+  // pueda correr contra el código anterior y mostrar en qué se pone rojo.
+  const NUEVAS = { _acLotesSurtidas:1, _acSurtidaUbicable:1, _acEntradasSinHora:1, _acCargaEnLote:1 }
   const BR = String.fromCharCode(10)
   vm.runInContext(FUNCS.map(f => trozo(src, f, !!NUEVAS[f])).join(BR), ctx)
   return ctx
 }
 
 // Mete el volcado real de la base en los globales de la auditoría, tal como lo hace `acCargar`.
-export function sembrar(ctx, datos, { corteSurtidas = '2026-07-24' } = {}){
-  ctx.AC_TANQUES = datos.tanques.map(t => ({
+// ⛔ LA CONFIGURACIÓN SALE DEL VOLCADO, NO DE ACÁ. Dos veces el 08/09 este banco midió con otra
+// vara que el producto —la σ de la regla puesta a ojo (0,5 cuando la real es 1) y el corte de
+// surtidas en 24/07 cuando el real es 18/07— y la prueba pasaba midiendo otra cosa. Si falta un
+// valor, se PLANTA: un banco que rellena lo que no sabe no prueba nada.
+// [[norma-test-que-pasa-por-el-motivo-equivocado]] · [[norma-respaldo-que-inventa-un-dato]]
+export function sembrar(ctx, datos){
+  const cfg = {}
+  ;(datos.cfg || []).forEach((r) => { cfg[r.clave] = r.valor })
+  for (const k of ['surtidas_corte', 'aud_comb_rend_ref']) {
+    if (!cfg[k]) throw new Error('falta `' + k + '` en el volcado — corré `node pruebas/datos/bajar.mjs`')
+  }
+  if (!datos.unidades || !datos.unidades.length) throw new Error('falta `unidades` en el volcado')
+
+  ctx.AC_TANQUES = datos.tanques.map((t) => ({
     id:t.id, nombre:t.nombre, tipo:t.tipo, cap:Number(t.capacidad_litros),
     hmax:Number(t.altura_max_cm), tabla:t.tabla_cubicacion || null,
   }))
@@ -59,14 +73,17 @@ export function sembrar(ctx, datos, { corteSurtidas = '2026-07-24' } = {}){
   ctx.AC_SURTIDAS = datos.surt
   ctx.AC_GASOIL   = datos.gasoil
   ctx.AC_CK       = datos.ck
-  ctx.AC_META     = { corteSurtidas, rendRefMapa:{ 'jac':1.9 }, modeloCam:{}, corregidas:{}, noConf:{} }
-  const cams = [...new Set(datos.med.map(m => String(m.vehiculo_id||'')))].filter(Boolean)
-  cams.forEach(c => {
-    ctx.FLOTA[c] = {}
-    ctx.AC_META.modeloCam[c] = 'JAC 1131'
-    ctx.UNIDAD_CONFIG[c] = { capacidad_tanque_l: 600 }   // los 12 JAC 1131 de Betangar
+  ctx.AC_META     = {
+    corteSurtidas: String(cfg.surtidas_corte).replace(/"/g, ''),
+    rendRefMapa:   JSON.parse(cfg.aud_comb_rend_ref),
+    modeloCam:     {}, corregidas:{}, noConf:{},
+  }
+  datos.unidades.forEach((u) => {
+    ctx.FLOTA[u.cam] = {}
+    ctx.AC_META.modeloCam[u.cam] = u.modelo || ''
+    ctx.UNIDAD_CONFIG[u.cam] = { capacidad_tanque_l: Number(u.capacidad_tanque_l) || null }
   })
-  return cams
+  return datos.unidades.map((u) => u.cam)
 }
 
 // Corre la auditoría completa de un período y devuelve las anomalías, como en pantalla.

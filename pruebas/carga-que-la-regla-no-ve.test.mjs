@@ -1,37 +1,41 @@
-// ⛔ LA AUDITORÍA ACUSABA DE ROBO CON UN NÚMERO QUE SE DESMENTÍA SOLO.
+// ⛔ LA AUDITORÍA ACUSABA DE ROBO CON UN NÚMERO QUE SE DESMENTÍA SOLO — Y EL OTRO NÚMERO, EL DEL
+//    CARTEL, CONTABA COMO «NO REGISTRADO» COMBUSTIBLE QUE SÍ ESTABA REGISTRADO.
 //
 // En pantalla, en rojo y de primera: «JAC-B003 quedó el 29/08 con 556,8 L y amaneció el 30/08 con
-// 556,8 L: faltan 300,0 L = $203,70. Revisá quién tuvo acceso al patio esa noche.»
-// Los mismos litros a la noche y a la mañana, y un faltante de 300. Cualquiera que lo lea deja de
-// creerle al módulo entero — y con razón.
+// 556,8 L: faltan 300,0 L. Revisá quién tuvo acceso al patio esa noche.» Los mismos litros a la
+// noche y a la mañana, y una acusación de robo.
 //
-// LA CAUSA, medida el 07/09/2026 contra la base real:
-//   `created_at` es cuándo se ESCRIBIÓ LA FILA, no cuándo entró el gasoil, y la auditoría usaba lo
-//   primero como si fuera lo segundo. Dos formas de que eso mienta, y las dos estaban vivas:
+// UNA SOLA CAUSA, dos daños opuestos: `created_at` es cuándo se ESCRIBIÓ LA FILA, no cuándo entró
+// el gasoil, y la auditoría lo usaba como si fuera lo segundo. Y `hora` tampoco sirve: la escribe
+// la PWA con el reloj del teléfono AL GUARDAR (`chofer.html`, `hora:p2(now.getHours())…`).
 //
-//   (1) LA CARGA EN LOTE. 40 de las 86 surtidas —6.862 L de 10 camiones, con fechas del 22/07 al
-//       01/08— entraron en UN volcado el 18/08 a las 12:20:34: mismo `created_at` al microsegundo,
-//       `hora` en null las 40. Para el cuadre de la noche, 6.862 L de julio «entraron a los
-//       camiones» el 18 de agosto a mediodía. A la B012 le salió «faltan 506 L».
-//       El código creía tener un freno para esto (`_acEntradasSinHora`) y estaba MUERTO: pedía
-//       `created_at` vacío, y esa columna tiene `default now()`. La condición no era falsa nunca.
-//
+//   (1) EL LOTE. 40 de las 86 surtidas —6.862 L de 10 camiones, con fechas del 22/07 al 01/08—
+//       entraron en UN volcado el 18/08 a las 12:20:34, mismo `created_at` al microsegundo y
+//       `hora` en null. Litros de julio contados como la carga de una noche de agosto: a la B012
+//       le salió «faltan 506 L» de un tanque de 600 que esa noche tenía 464.
 //   (2) EL CHOFER TECLEA CUANDO PUEDE. La B003 surtió 300 L durante el día del 29/08 (salió con
-//       285,1 y volvió con 556,8) y los registró a las 21:25, ya en el patio. La auditoría los
-//       contó como carga de la noche y los restó dos veces: una en la lectura de la regla y otra
-//       en la resta. Faltante = carga, exacto, al décimo de litro.
+//       285,1 y volvió con 556,8) y los registró a las 21:25, ya en el patio. Esa fila caía FUERA
+//       de su propio día —y por eso R13 la reportaba como «entró combustible sin registrarse»— y
+//       DENTRO de la noche, donde se restaba y fabricaba el faltante. Justo al revés de donde va.
 //
-// EL ARREGLO ES EL MECANISMO, no el caso: la REGLA es testigo de la carga y nadie le preguntaba.
-// Si de noche entraron 300 L, el nivel TIENE que haber subido. Si no subió —o si esos litros ni
-// siquiera CABÍAN en el hueco que había— los dos testigos se contradicen, y el instrumento físico
-// manda sobre el sello de una fila. R1 se calla y sale R1C, que no acusa a nadie.
+// EL ARREGLO ES EL MECANISMO: una surtida declara una FECHA, no una hora.
+//   • El DÍA cuenta la carga por la fecha que declaró quien surtió. Es lo único que la fila sabe.
+//   • La NOCHE dejó de restar cargas: no hay forma de saber si entraron antes o después de la
+//     lectura. Si hay carga declarada en cualquiera de los dos días, R1 SE CALLA. Cuando no la
+//     hay, el cuadre es limpio —salió con X, amaneció con Y— y R1 sigue hablando.
 //
-// 📌 Medido sobre TODA la historia (24/07 al 07/09): antes 5 faltantes, 3 de ellos FALSOS
-//    (1.271 L ≈ $863 de robo que nunca existió: 3 de 5, el 60%). Después quedan 2, y las dos son
-//    noches SIN ninguna carga de por medio, que es cuando R1 tiene derecho a hablar.
+// 📌 Medido sobre la base real, contra el código anterior (`git show 6074815:app.js`):
+//     · faltantes acusados en toda la historia: 1.485 L → 214 L (3 de 5 eran FALSOS)
+//     · R13 «entró sin registrarse» en el período de pantalla: 4.040 L → 3.419 L (621,6 L estaban
+//       registrados, con foto y GPS)
+//     · consumo del período: 4.895 L → 5.612 L, porque esa carga vuelve al día que le toca
 //
-// Corre la auditoría REAL de `app.js` contra un volcado REAL de la base. Verificada al revés:
-// contra `git show HEAD:app.js` los casos 1, 2 y 3 se ponen ROJOS.
+// ⚠️ LO QUE SE PIERDE: una noche en la que además hubo carga ese día ya no se audita. No hay forma
+//    de auditarla con los datos que existen, y acusar con datos que no distinguen es exactamente
+//    lo que trajo los tres faltantes falsos. Se recupera capturando la hora REAL de la surtida.
+//
+// Corre la auditoría REAL de `app.js` (no una copia) contra un recorte real de la base.
+// Verificada al revés: contra `6074815:app.js` los casos 1, 2, 3, 5, 6, 7, 9 y 11 se ponen ROJOS.
 //
 //   node pruebas/carga-que-la-regla-no-ve.test.mjs [ruta-a-app.js]
 import { readFileSync } from 'fs'
@@ -43,79 +47,69 @@ const datos = JSON.parse(readFileSync(new URL('./datos/combustible.json', import
 const ctx = cargarAuditoria(rutaApp)
 sembrar(ctx, datos)
 const anom = auditar(ctx, '2026-07-24', '2026-09-07')
-
-const R1  = anom.filter((a) => a.cod === 'R1')
-const R1C = anom.filter((a) => a.cod === 'R1C')
-const enR1  = (cam, fecha) => R1.some((a) => a.cam === cam && a.fecha === fecha)
-const enR1C = (cam, fecha) => R1C.some((a) => a.cam === cam && a.fecha === fecha)
+const R1 = anom.filter((a) => a.cod === 'R1')
+const enR1 = (cam, fecha) => R1.some((a) => a.cam === cam && a.fecha === fecha)
 
 let fallos = 0
 const caso = (n, desc, ok, detalle) => {
-  if (ok) { console.log(`✅ ${n}. ${desc}`) }
+  if (ok) console.log(`✅ ${n}. ${desc}`)
   else { fallos++; console.log(`❌ ${n}. ${desc}\n      ${detalle}`) }
 }
 
 // ── Los tres que acusaban en falso ────────────────────────────────────────────────────────────
-caso(1, 'B003 30/08: NO se le acusa de faltante (la regla no se movió y la carga no cabía)',
+caso(1, 'B003 30/08: ya no se le acusa de faltante (556,8 → 556,8 con 300 L declarados ese día)',
   !enR1('JAC-B003', '2026-08-30'),
-  'sigue en R1: ' + JSON.stringify(R1.find((a) => a.cam === 'JAC-B003' && a.fecha === '2026-08-30')))
-
-caso(2, 'B003 16/08: tampoco (577,5 → 577,5 con 465 L "cargados" en un hueco de 22,5 L)',
+  'sigue: ' + JSON.stringify(R1.find((a) => a.cam === 'JAC-B003' && a.fecha === '2026-08-30')))
+caso(2, 'B003 16/08: tampoco (577,5 → 577,5 con 465 L declarados el 15/08)',
   !enR1('JAC-B003', '2026-08-16'), 'sigue en R1')
-
 caso(3, 'B012 18/08: tampoco (seis cargas de JULIO volcadas en lote el 18/08 a las 12:20:34)',
   !enR1('JAC-B012', '2026-08-18'), 'sigue en R1')
 
-// ── Y se dice lo que de verdad hay: la contradicción, sin señalar a nadie ─────────────────────
-caso(4, 'B003 30/08 y 16/08 salen como R1C — contradicción, no faltante',
-  enR1C('JAC-B003', '2026-08-30') && enR1C('JAC-B003', '2026-08-16'),
-  'R1C tiene: ' + JSON.stringify(R1C.map((a) => a.cam + ' ' + a.fecha)))
-
-caso(5, 'R1C no nombra a ningún chofer: de noche el custodio es el patio',
-  R1C.every((a) => !a.quien), 'alguno trae chofer: ' + JSON.stringify(R1C.map((a) => a.quien)))
-
-// No alcanza con que R1C no diga "faltan": tiene que decir EXPRESAMENTE que no lo es. Quien lee
-// esto en pantalla acaba de ver otras líneas rojas que sí acusan, y si esta no se despega de
-// aquellas, la va a leer igual. Y nunca manda a buscar culpables: manda a buscar el RECIBO.
-caso(6, 'R1C dice que NO es un faltante y no manda a revisar quién tuvo acceso al patio',
-  R1C.every((a) => /NO es un faltante/.test(a.texto) && !/acceso al patio/i.test(a.texto)),
-  'R1C no se despega de la acusación')
-
 // ── Lo que NO se puede perder: los faltantes de verdad siguen saliendo ────────────────────────
-// Noches sin ninguna carga de por medio, odómetro quieto y el nivel bajó. Si el arreglo callara
+// Noches sin ninguna carga declarada, odómetro quieto y el nivel bajó. Si el arreglo callara
 // también estos, habría cambiado un módulo que miente por uno que no sirve.
-// ⚠️ Esta lista se midió DOS veces. La primera salió de un banco calibrado a ojo (σ=0,5 cm) y
-// traía 5 casos; con la σ real del producto (1 cm) la tolerancia es el doble y tres de ellos
-// —35,8 · 59,7 · 35,8 L— caen dentro de ±2·TOL y el módulo nunca los reportó. La prueba pasaba
-// midiendo con otra vara que la pantalla. Ahora el banco lee σ del `app.js` real.
 const deVerdad = [['JAC-B004', '2026-08-08'], ['JAC-B002', '2026-08-08']]
-caso(7, 'los faltantes SIN carga de por medio siguen acusándose',
+caso(4, 'los faltantes SIN ninguna carga declarada siguen acusándose',
   deVerdad.every(([c, f]) => enR1(c, f)),
   'faltan: ' + JSON.stringify(deVerdad.filter(([c, f]) => !enR1(c, f))))
+caso(5, 'y todo R1 que quede dice que no hay carga registrada en esos dos días',
+  R1.every((a) => /no hay ninguna carga registrada/.test(a.texto)),
+  'hay R1 con carga cerca: ' + JSON.stringify(R1.filter((a) => !/no hay ninguna carga registrada/.test(a.texto)).map((a) => a.cam + ' ' + a.fecha)))
 
-caso(8, 'no quedó ningún R1 con carga de por medio (que es donde se mentía)',
-  R1.every((a) => /no hay despacho registrado/.test(a.texto)),
-  'hay R1 con carga: ' + JSON.stringify(R1.filter((a) => !/no hay despacho registrado/.test(a.texto)).map((a) => a.cam + ' ' + a.fecha)))
+// ── La otra mitad: la carga vuelve al día que le toca ─────────────────────────────────────────
+const jor = (cam, fecha) => ctx.AC_JORNADAS.find((j) => j.cam === cam && j.fecha === fecha)
+const j29 = jor('JAC-B003', '2026-08-29')
+caso(6, 'B003 29/08: los 300 L tecleados a las 21:25 cuentan en SU día (285,1 + 300 − 556,8)',
+  j29 && Math.abs(j29.desp - 300) < 0.01 && Math.abs(j29.consumo - 28.33) < 0.5,
+  'desp=' + (j29 && j29.desp) + ' consumo=' + (j29 && j29.consumo))
 
-// ── El freno que estaba muerto ────────────────────────────────────────────────────────────────
-// Contra el código ANTERIOR esta función ni existe: se informa así en vez de reventar, para que
-// la corrida al revés muestre los 11 casos y no se corte en el 9.
-const ubic = ctx._acSurtidaUbicable
-caso(9, 'una surtida sin `hora` no puede ubicarse en el tiempo',
-  typeof ubic === 'function' &&
-  ubic({ cam: 'X', hora: null, created_at: '2026-08-18 12:20:34.849141+00' }) === false,
-  typeof ubic === 'function' ? 'la dio por ubicable' : 'no existe `_acSurtidaUbicable`')
+// Y por eso ese día deja de salir por R13. Antes: `desp`=0 → consumo −271,7 L → «entró
+// combustible sin registrarse». Ahora: `desp`=300 → consumo +28,3 L → el día cuadra y no dice nada.
+caso(7, 'B003 29/08 deja de salir como «entró combustible sin registrarse»',
+  !!j29 && j29.consumo > -2 * (j29.tol || 0),
+  'sigue marcado: consumo=' + (j29 && j29.consumo) + ' tol=' + (j29 && j29.tol))
 
-caso(10, 'una surtida de un LOTE (mismo created_at que otra) tampoco',
-  typeof ubic === 'function' &&
-  ubic(datos.surt.find((s) => s.created_at === '2026-08-18 12:20:34.849141+00')) === false,
-  typeof ubic === 'function' ? 'la dio por ubicable' : 'no existe `_acSurtidaUbicable`')
+// ⚠️ Y lo que NO se puede perder: el hallazgo de verdad. La flota surte cada 7 días —08/08, 15/08,
+// 22/08, 29/08, 05/09— y esas cargas no se asientan. Si el arreglo se llevara esto por delante,
+// habría cambiado un número inflado por uno ciego.
+const R13 = anom.find((a) => a.cod === 'R13')
+caso(8, 'el hallazgo real sigue: la B012 del 22/08 subió ~400 L sin ninguna carga declarada',
+  (() => { const j = jor('JAC-B012', '2026-08-22'); return !!j && j.desp === 0 && j.consumo < -2 * j.tol })() && !!R13,
+  'se perdió el hallazgo real de R13')
 
-caso(11, 'la surtida que SÍ asentó el chofer en el momento sigue ubicando',
-  typeof ubic === 'function' &&
-  ubic({ cam: 'X', hora: '09:14', created_at: '2026-09-01 13:14:02.111+00' }) === true,
-  typeof ubic === 'function' ? 'la dejó de ubicar — se perdería el cuadre fino'
-                             : 'no existe `_acSurtidaUbicable`')
+// ── Y una carga de JULIO no puede contar en un día de AGOSTO ──────────────────────────────────
+caso(9, 'el lote del 18/08 no aporta ni un litro a ningún día de agosto de la B012',
+  ctx._acEntradas('JAC-B012', '2026-08-18', '2026-08-18', true) === 0,
+  'aporta ' + ctx._acEntradas('JAC-B012', '2026-08-18', '2026-08-18', true) + ' L')
+caso(10, '…y sí cuenta en su fecha declarada (22/07: 120 + 80 = 200 L)',
+  ctx._acEntradas('JAC-B012', '2026-07-22', '2026-07-22', true) === 200,
+  'da ' + ctx._acEntradas('JAC-B012', '2026-07-22', '2026-07-22', true) + ' L')
+
+// ── No quedó ninguna regla nueva haciendo ruido ───────────────────────────────────────────────
+// R1C existió unas horas el 08/09 y se quitó el mismo día: con la carga contada por fecha saltaba
+// 66 veces en 45 días. Un aviso que salta siempre no avisa de nada.
+caso(11, 'no hay ninguna anomalía R1C (la regla se quitó, no quedó apagada a medias)',
+  !anom.some((a) => a.cod === 'R1C'), anom.filter((a) => a.cod === 'R1C').length + ' R1C vivas')
 
 console.log(fallos ? `\n⛔ ${fallos} caso(s) en rojo` : '\n✅ los 11 casos en verde')
 process.exit(fallos ? 1 : 0)

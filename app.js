@@ -1699,60 +1699,39 @@ function _acAlturaValida(tanque,alturaCm){
   if(tanque&&tanque.hmax)return h>=0&&h<=tanque.hmax;
   return h>=0;
 }
-// ── LO QUE ENTRA AL CAMIÓN — FUENTE ÚNICA CON FREEZE FECHADO ──────────────────────────────────
+// ── LO QUE ENTRA AL CAMIÓN — FUENTE ÚNICA, Y POR LA FECHA QUE ALGUIEN DECLARÓ ────────────────
 // Un litro que entra a un camión se registra en UN solo lugar. Desde `configuracion.surtidas_corte`
-// esa verdad es `surtidas`: la carga la asienta quien surte, en el momento, con foto y GPS, venga
-// del galpón o de la estación. Antes de esa fecha vale el histórico congelado de `gasoil`, que se
-// tipeaba a mano en la oficina días después (y dejó de cargarse el 07/07/2026).
-// Jamás las dos fuentes para la misma fecha: eso sería contar el mismo litro dos veces.
-// Hasta 2026-07-24 la auditoría leía SOLO `gasoil`, o sea que después del corte no veía entrar
-// nada — por eso decía "sin despacho que lo explique" cuando en realidad no miraba donde debía.
-// Los momentos (`tsA`,`tsB`) son los `created_at` de las dos lecturas de regla. Las surtidas traen
-// hora, así que se puede saber si la carga fue antes o después de pasar la regla: con solo la fecha,
-// una carga de las 11 de la mañana se contaría como si hubiera entrado de noche y el cuadre del
-// patio daría un faltante enorme que nunca existió. El `gasoil` histórico no tiene hora — ahí no
-// queda más que la fecha, y por eso ese tramo está congelado y no se audita fino.
+// esa verdad es `surtidas`: la carga la asienta quien surte, con foto y GPS, venga del galpón o de
+// la estación. Antes de esa fecha vale el histórico congelado de `gasoil`, que se tipeaba a mano en
+// la oficina días después (y dejó de cargarse el 07/07/2026). Jamás las dos fuentes para la misma
+// fecha: eso sería contar el mismo litro dos veces.
 //
-// ⛔ Y `created_at` NO ES LA HORA EN QUE ENTRÓ EL GASOIL: es la hora en que se ESCRIBIÓ LA FILA.
-// Son la misma cosa solo cuando la asienta quien surtió, en el momento. Medido el 07/09/2026:
-// 40 de las 86 surtidas — 6.862 L de 10 camiones, con fechas del 22/07 al 01/08 — entraron en UN
-// solo lote el 18/08 a las 12:20:34, todas con el MISMO `created_at` al microsegundo y todas con
-// `hora` en null. Para el cuadre de la noche, esos 6.862 L "entraron a los camiones" el 18 de
-// agosto a mediodía. Así le salió a la B012 un "faltan 706,0 L" de un tanque de 600 L que esa
-// noche tenía 464: seis cargas de JULIO contadas como la carga de esa noche.
-// Por eso una fila solo ubica en el tiempo si `_acSurtidaUbicable` lo dice; si no, vale su FECHA,
-// que es lo único que esa fila sabe de verdad.
-// 📌 `created_at` NUNCA es la fecha del hecho — vale para `surtidas` igual que para todo lo demás.
-
-// ¿Esta fila puede decir CUÁNDO entró el combustible, o solo QUÉ DÍA?
-//   (a) sin `hora`: la PWA del chofer la escribe con el reloj del teléfono al guardar
-//       (`chofer.html`, `hora:p2(now.getHours())...`). Si falta, esa fila no salió de ahí — la
-//       tecleó la oficina después, y su `created_at` es el momento del tecleo.
-//   (b) de un lote: dos o más filas con el MISMO `created_at` al microsegundo son una carga
-//       masiva de historia. Dos choferes no surten en el mismo microsegundo.
-var _AC_LOTES=null;
-function _acLotesSurtidas(){
-  if(_AC_LOTES)return _AC_LOTES;
-  var n={}; (AC_SURTIDAS||[]).forEach(function(s){ var t=String(s.created_at||''); if(t)n[t]=(n[t]||0)+1; });
-  _AC_LOTES={}; Object.keys(n).forEach(function(t){ if(n[t]>1)_AC_LOTES[t]=true; });
-  return _AC_LOTES;
-}
-function _acSurtidaUbicable(s){
-  if(!String(s.created_at||''))return false;
-  if(!String(s.hora||'').trim())return false;              // (a)
-  if(_acLotesSurtidas()[String(s.created_at)])return false; // (b)
-  return true;
-}
-function _acEntradas(cam,desde,hasta,incluirDesde,tsA,tsB){
+// ⛔ ACÁ HUBO UNA MÁQUINA DE UBICAR CARGAS EN LA HORA, Y ERA FALSA DE RAÍZ. Se pasaban `tsA`/`tsB`
+// —los `created_at` de las dos lecturas de regla— y se comparaba contra `surtidas.created_at`,
+// como si eso fuera la hora en que entró el gasoil. No lo es, y ninguna columna de esa tabla lo es:
+//   • `created_at` es cuándo llegó la fila al servidor;
+//   • `hora` la escribe la PWA del chofer con el reloj del teléfono AL GUARDAR
+//     (`chofer.html`, `hora:p2(now.getHours())…`), no cuando se echó el combustible.
+// Medido el 08/09/2026 sobre la base real, eso costó dos cosas a la vez:
+//   • 40 de las 86 surtidas —6.862 L de 10 camiones, con fechas del 22/07 al 01/08— se volcaron en
+//     UNA corrida el 18/08 a las 12:20:34, todas con el mismo `created_at` al microsegundo y
+//     `hora` en null. Litros de julio contados como carga de una noche de agosto.
+//   • Y una surtida tecleada al volver al patio caía FUERA de su propio día: 621,6 L salían por
+//     R13 como «entró combustible sin registrarse» estando registrados, con foto y GPS.
+// La misma fila caía fuera del día y dentro de la noche. Justo al revés de donde va.
+//
+// ⇒ Ahora la carga se cuenta por la FECHA QUE DECLARÓ QUIEN SURTIÓ, que es lo único que esa fila
+// sabe de verdad. Y el cuadre de la NOCHE dejó de restar cargas: no se puede saber si entraron
+// antes o después de la lectura, así que R1 se calla cuando hay carga declarada cerca (ver R1).
+// 📌 [[norma-created-at-no-es-la-hora-del-hecho]] — vale para toda la casa, no solo para acá.
+function _acEntradas(cam,desde,hasta,incluirDesde){
   var corte=AC_META.corteSurtidas||'', suma=0;
   var dentro=function(f){ return (incluirDesde?(f>=desde):(f>desde)) && f<=hasta; };
   (AC_SURTIDAS||[]).forEach(function(s){
     if(String(s.cam)!==String(cam))return;
     var f=String(s.fecha||'').slice(0,10);
     if(corte&&f<corte)return;                              // antes del corte manda gasoil
-    var ts=_acSurtidaUbicable(s)?String(s.created_at):'';   // solo la fila que sabe su hora ubica
-    if(tsA&&tsB&&ts){ if(!(ts>tsA&&ts<=tsB))return; }      // ubicable: se compara el instante
-    else if(!dentro(f))return;                             // no ubicable: vale su FECHA, nada más
+    if(!dentro(f))return;
     suma+=(_acNum(s.litros)||0);
   });
   (AC_GASOIL||[]).forEach(function(g){
@@ -1765,34 +1744,34 @@ function _acEntradas(cam,desde,hasta,incluirDesde,tsA,tsB){
   });
   return Math.round(suma*100)/100;
 }
-// Litros que entraron en la ventana PERO cuya fila NO tiene hora: el histórico `gasoil`, que rrhh1
-// tipeaba en lote días después (el 07/07 se cargaron 80+120 L a toda la flota, asentados el 08/07).
-// De una fila así no se puede saber si el combustible entró antes o después de la lectura de la
-// noche, y sin eso el cuadre del patio no significa nada: R1 la usa para CALLARSE, no para restar.
-// Sin este freno, los 8 camiones del 07/07 salían acusados de "faltan 200 L" cuando lo que pasó es
-// que cargaron en la bomba durante el día.
-function _acEntradasSinHora(cam,desde,hasta,incluirDesde){
-  var corte=AC_META.corteSurtidas||'', suma=0;
-  var dentro=function(f){ return (incluirDesde?(f>=desde):(f>desde)) && f<=hasta; };
-  (AC_GASOIL||[]).forEach(function(g){
-    if(String(g.cam)!==String(cam))return;
-    if(String(g.tipo_operacion||'')==='compra')return;
-    var f=String(g.f||'').slice(0,10);
-    if(corte&&f>=corte)return;
-    if(!dentro(f))return;
-    suma+=(_acNum(g.lit)||0);
-  });
-  // Una surtida que no se ubica en el tiempo pesa igual que el `gasoil` viejo: sus litros PUDIERON
-  // entrar antes o después de la lectura de la noche, y no hay cómo saberlo. R1 la usa para
-  // CALLARSE. Antes acá se pedía `created_at` vacío, y `created_at` tiene `default now()`: la
-  // condición no era falsa nunca, así que este freno estaba muerto y ninguna surtida lo disparaba.
+// ── UNA CARGA TECLEADA EN LOTE NO SE PUEDE CONFIAR NI AL DÍA ──────────────────────────────────
+// La fila de `surtidas` que asienta quien surte en el momento trae `hora` (la escribe la PWA al
+// guardar) y un `created_at` propio. La que se tipeó después desde un papel no trae ninguna de las
+// dos cosas: en Betangar, 40 filas —6.862 L— entraron en UN volcado el 18/08 a las 12:20:34 con
+// `hora` en null. Y el histórico `gasoil` entero es de esa clase: se tipeaba en la oficina días
+// después. De una fila así ni siquiera se puede afirmar que el combustible entró EL DÍA que dice.
+// ⇒ No se usa para acusar a nadie de consumo. Sí se cuenta en los litros del período: los litros
+//   entraron, lo que no se sabe es exactamente cuándo. [[norma-created-at-no-es-la-hora-del-hecho]]
+var _AC_LOTES=null;
+function _acLotesSurtidas(){
+  if(_AC_LOTES)return _AC_LOTES;
+  var n={}; (AC_SURTIDAS||[]).forEach(function(s){ var t=String(s.created_at||''); if(t)n[t]=(n[t]||0)+1; });
+  _AC_LOTES={}; Object.keys(n).forEach(function(t){ if(n[t]>1)_AC_LOTES[t]=true; });
+  return _AC_LOTES;
+}
+function _acCargaEnLote(cam,fecha){
+  var suma=0;
   (AC_SURTIDAS||[]).forEach(function(s){
     if(String(s.cam)!==String(cam))return;
-    if(_acSurtidaUbicable(s))return;
-    var f=String(s.fecha||'').slice(0,10);
-    if(corte&&f<corte)return;
-    if(!dentro(f))return;
-    suma+=(_acNum(s.litros)||0);
+    if(String(s.fecha||'').slice(0,10)!==fecha)return;
+    var enLote=!String(s.hora||'').trim()||!!_acLotesSurtidas()[String(s.created_at||'')];
+    if(enLote)suma+=(_acNum(s.litros)||0);
+  });
+  (AC_GASOIL||[]).forEach(function(g){                       // el histórico entero es de lote
+    if(String(g.cam)!==String(cam))return;
+    if(String(g.tipo_operacion||'')==='compra')return;
+    if(String(g.f||'').slice(0,10)!==fecha)return;
+    suma+=(_acNum(g.lit)||0);
   });
   return Math.round(suma*100)/100;
 }
@@ -1968,7 +1947,17 @@ function _acArmarJornadas(desde,hasta){
   jor.forEach(function(j){
     // Lo que le cargaron ENTRE las dos lecturas de la jornada (es lo que pide el consumo: salió con
     // X, le echaron Y, llegó con Z). Con la hora de la surtida se sabe si entró dentro de la jornada.
-    j.desp=_acEntradas(j.cam,j.fecha,j.fecha,true,j.salidaAt,j.llegadaAt);
+    // ⛔ LA CARGA DEL DÍA SE CUENTA POR LA FECHA QUE DECLARÓ QUIEN SURTIÓ, NO POR `created_at`.
+    // Hasta el 08/09/2026 acá se pasaba la ventana `salidaAt`→`llegadaAt`, o sea los `created_at`
+    // de las dos lecturas de regla, como si `surtidas.created_at` fuera la hora en que entró el
+    // gasoil. No lo es: es la hora en que se TECLEÓ la fila, y el chofer teclea cuando puede.
+    // Medido: de las 14 surtidas del 24/08 al 07/09, DOS quedaban fuera de su propio día por
+    // haberse cargado después de la lectura de llegada (B003 el 29/08 a las 21:25 y B004 a las
+    // 21:31, las dos ya en el patio). Esos 621,6 L salían por R13 como «entró combustible sin
+    // registrarse» —el cartel de «$2.743 que no entran a la Utilidad Real»— cuando la carga
+    // estaba registrada, con foto y GPS. La MISMA fila caía fuera del día y dentro de la noche:
+    // justo al revés de donde va. [[norma-created-at-no-es-la-hora-del-hecho]]
+    j.desp=_acEntradas(j.cam,j.fecha,j.fecha,true);
     var ck=AC_CK.find(function(c){ return String(c.cam)===j.cam && String(c.fecha).slice(0,10)===j.fecha; });
     // Un 0 en el odómetro NO es un odómetro en cero: es el checklist sin cerrar o sin dato. Antes
     // se tomaba como número y daba km del día de −14.008, y "kilometraje al revés" para cualquier
@@ -1985,7 +1974,24 @@ function _acArmarJornadas(desde,hasta){
     //    con eso queda fuera del total, del rendimiento de flota y del costo por km, que es
     //    justamente lo que hoy contaba como bueno. Un número sacado de un dato que sabemos falso
     //    es peor que no tener número: el faltante se ve, el inventado se cree.
-    j.consumo=(j.salida!=null&&j.llegada!=null&&!j.noConf)?Math.round((j.salida+j.desp-j.llegada)*100)/100:null;
+    // ── LA CARGA DEL DÍA NO PUEDE PASAR DE LO QUE EL TANQUE PODÍA RECIBIR ──────────────────────
+    // 08/09/2026. La B009 tiene DOS surtidas de 350 L el 05/09, a las 18:08 y 18:28, con fotos
+    // DISTINTAS: el chofer la mandó dos veces (la pantalla le dijo «guardada» y él volvió a
+    // intentar). 700 L en un tanque de 600 que había salido con 297. Con esos 700 adentro, el
+    // cuadre daba «consumió 409,8 L para 143 km» y R4 salía a decirle a RICHARD VILLALOBOS que
+    // quemó 334,6 L de más, con nombre y apellido. Con la carga real —350— el día da 59,8 L y
+    // 2,39 km/L: absolutamente normal.
+    // ⛔ R15 no lo cazaba porque mira CADA FILA por separado, y 350 L sí caben. La pregunta no es
+    // si cabe una carga: es si cabe LA DEL DÍA. La misma gracia que usa R15 (un cuarto de tanque,
+    // por lo que el camión quemó entre la lectura de salida y la carga), para que no haya dos
+    // varas midiendo lo mismo. [[norma-fuente-unica-datos]]
+    // ⇒ Un día así NO se cuadra y NO se usa para acusar a nadie: el consumo queda en null y todas
+    // las reglas que piden `conf==='completa'` se callan solas. Que el día no cuente NO se hace en
+    // silencio: lo dice R15. [[norma-la-premisa-antes-de-acusar]]
+    var _capJ=(j.tanque&&j.tanque.cap!=null)?j.tanque.cap:null;
+    j.huecoSalida=(_capJ!=null&&j.salida!=null)?Math.round((_capJ-j.salida)*10)/10:null;
+    j.cargaImposible=(_capJ!=null&&j.huecoSalida!=null&&j.desp>j.huecoSalida+_capJ*0.25);
+    j.consumo=(j.salida!=null&&j.llegada!=null&&!j.noConf&&!j.cargaImposible)?Math.round((j.salida+j.desp-j.llegada)*100)/100:null;
     // Rendimiento solo con números que aguanten: con menos de 10 L o 5 km, el ruido de la regla manda.
     j.rend=(j.consumo!=null&&j.consumo>=10&&j.km!=null&&j.km>=5)?(j.km/j.consumo):null;
     // CONFIANZA de la jornada. Las reglas que insinúan sustracción solo pueden opinar sobre las
@@ -1995,8 +2001,9 @@ function _acArmarJornadas(desde,hasta){
     // que es el caso que faltaba. Las reglas ya se callan solas con cualquier valor distinto de
     // 'completa'.
     j.conf=j.noConf ? 'no_confiable'
+          : (j.cargaImposible ? 'carga_imposible'
           : ((j.salida!=null&&j.llegada!=null&&!j.salidaMala&&!j.llegadaMala)
-             ? (j.corregida?'corregida':'completa') : 'incompleta');
+             ? (j.corregida?'corregida':'completa') : 'incompleta'));
     // Tolerancia propia de ESTA jornada, según a qué altura se leyó la regla.
     j.tol=_acTol(j.tanque,j.salidaCm,j.llegadaCm,j.desp);
   });
@@ -2393,15 +2400,38 @@ function _acAnomalias(todas,desde,hasta,ref){
       if(kmFantasma!=null&&kmFantasma>1){
         // R11 — RODÓ SIN JORNADA REGISTRADA. Vale por sí solo: la unidad se movió y no quedó
         // asentado. No es una acusación de robo, es un agujero de registro (¿viaje sin facturar?).
+        //
+        // ⛔ 08/09/2026: NOMBRABA A UNA PERSONA POR UN TRAMO EN EL QUE NADIE ESTABA A CARGO.
+        // El hueco cae ENTRE dos jornadas —por definición, entre dos turnos— y R11 le colgaba el
+        // nombre del chofer del día SIGUIENTE. Medido: 46 de 46 salían con nombre y apellido, y a
+        // REINALDO FARIA lo señalaba por un hueco de 37 DÍAS de la B001. Eso no es un dato: es
+        // ponerle la cara de alguien a algo que no hizo. Ahora no nombra a nadie y dice a quién
+        // preguntarle: quien manejó ANTES y quien manejó DESPUÉS, que es lo útil.
+        //
+        // ⛔ Y UN HUECO DE 2 DÍAS SE VEÍA IGUAL QUE UNO DE 37. No son lo mismo y no se preguntan
+        // igual: dos días es un turno que no entró (Betangar trabaja los sábados y de noche); 37
+        // días es una unidad parada que nadie cargó. El texto lo dice para que el dueño sepa qué
+        // preguntar. [[norma-el-resumen-no-nombra-causas-que-no-midio]] — se dicen los días
+        // medidos, no la causa supuesta.
         var refR=ref[u]&&ref[u].mediana?ref[u].mediana:null;
         var esperaR=(refR&&refR>0)?(kmFantasma/refR):null;
+        var _d1=new Date(String(fLle).slice(0,10)+'T12:00:00');
+        var _d2=new Date(String(hoy.fecha).slice(0,10)+'T12:00:00');
+        var diasHueco=Math.round((_d2-_d1)/86400000);
+        var quienAntes=String(ant.chofer||''), quienDespues=String(hoy.chofer||'');
         add('media','R11','Rodó sin jornada registrada',
           'La unidad '+U(u)+' marcaba '+_acFmt(ant.kmE)+' km al llegar el '+formatFecha(fLle)+' y '+_acFmt(hoy.kmS)+
           ' km al salir el '+formatFecha(hoy.fecha)+': son '+_acFmt(kmFantasma)+' km que se hicieron sin planilla ni checklist'+
           (esperaR!=null?(' (≈ '+_acFmt(esperaR,1)+' L de combustible)'):'')+'. '+
+          'Entre las dos lecturas pasaron '+diasHueco+(diasHueco===1?' día':' días')+
+          (diasHueco>1?' — o sea que hubo al menos un turno que no quedó cargado':'')+'. '+
           'Averiguá qué hizo la unidad en ese tramo — puede ser un viaje que no se facturó, un traslado al taller o un uso por fuera. '+
+          (quienAntes||quienDespues
+            ? ('Para preguntar: la manejó '+(quienAntes||'—')+' antes y '+(quienDespues||'—')+' después. '+
+               '⛔ Ninguno de los dos estaba a cargo en el tramo, así que no es un reclamo a ellos. ')
+            : '')+
           'Mientras eso no esté registrado, de ese combustible no se puede decir nada.',
-          u,hoy.fecha,null,(hoy.chofer||ant.chofer||''));
+          u,hoy.fecha,null,'');
         continue;                       // rodó: R1 no tiene nada que decir acá
       }
 
@@ -2410,46 +2440,41 @@ function _acAnomalias(todas,desde,hasta,ref){
       if(kmFantasma==null)continue;                       // sin odómetro no se opina de merma
       if(ant.conf!=='completa'||hoy.conf!=='completa')continue;  // (c)
 
-      // (d) lo que le cargaron entre que pasó la regla al llegar y la que pasó al salir
-      var dNoche=_acEntradas(u,fLle,hoy.fecha,false,ant.llegadaAt,hoy.salidaAt);
-      // (d.2) …pero si alguna de esas cargas NO tiene hora, no se puede ubicar en el tiempo y R1 se
-      // calla. Restarla a ciegas es lo que convertía una carga en la bomba del mediodía en un
-      // "faltaron 200 L en el patio". El agujero de registro lo reporta R9, que no acusa a nadie.
-      if(_acEntradasSinHora(u,fLle,hoy.fecha,false)>0)continue;
-      var delta=Math.round((hoy.salida-ant.llegada-dNoche)*100)/100;
+      // ── (d) LA CARGA DE «ESA NOCHE» NO SE PUEDE SABER, Y HABÍA QUE DEJAR DE FINGIR QUE SÍ ──
+      // Una surtida declara una FECHA, no una hora: `hora` la escribe la PWA con el reloj del
+      // teléfono al guardar (`chofer.html`, `hora:p2(now.getHours())…`) y `created_at` es cuándo
+      // llegó la fila al servidor. Ninguno de los dos dice cuándo entró el gasoil al tanque.
+      // Antes esto restaba la carga usando esos sellos como si fueran la hora del hecho, y de ahí
+      // salían los faltantes falsos: 3 de las 5 acusaciones de toda la historia (1.271 L ≈ $863).
+      //
+      // Ahora R1 no adivina. Si hay CUALQUIER carga declarada en alguno de los dos días, no puede
+      // saber si entró antes o después de la lectura de la noche, y solo tiene dos salidas:
+      //   • si la regla DESMIENTE la carga (no cabía, o no se movió) → R1C, la contradicción;
+      //   • si no → se calla. Un faltante que depende de dónde caiga un sello no es un faltante.
+      // Cuando NO hay ninguna carga cerca, el cuadre es limpio: salió con X, llegó con Y, y las
+      // dos lecturas se comparan solas. Ahí es donde R1 tiene derecho a hablar, y sigue hablando.
+      var cargaCerca=Math.round((_acEntradas(u,fLle,fLle,true)+_acEntradas(u,hoy.fecha,hoy.fecha,true))*100)/100;
+      var delta=Math.round((hoy.salida-ant.llegada)*100)/100;
       // (e) tolerancia de ESAS dos lecturas, y el doble para tener derecho a mostrarse
-      var tolN=_acTol(ant.tanque||hoy.tanque,ant.llegadaCm,hoy.salidaCm,dNoche);
+      var tolN=_acTol(ant.tanque||hoy.tanque,ant.llegadaCm,hoy.salidaCm,cargaCerca);
 
-      // ── (f) LA REGLA ES TESTIGO DE LA CARGA, Y NADIE LE PREGUNTABA ────────────────────────
-      // Si de noche entraron dNoche litros, el nivel TIENE que haber subido. R1 restaba la carga
-      // y acusaba sin comprobar jamás que la carga se viera en el tanque. Dos formas de que no:
-      //   (f.1) NO CABE: la carga pasa del hueco que había en el tanque al llegar. Un tanque de
-      //         600 L con 556,8 adentro admite 43; una fila que dice 300 no habla de esa noche.
-      //   (f.2) LA REGLA NO SE MOVIÓ: quedó y amaneció en la misma altura, así que el faltante da
-      //         EXACTAMENTE la carga, al décimo de litro. Que entren 300,0 L y falten 300,0 L no
-      //         es un robo: es una carga que no está donde la fila dice que está.
-      // En los dos casos los dos testigos se contradicen, y el instrumento físico manda sobre el
-      // sello de una fila. R1 NO ACUSA: se reporta la contradicción, que es lo que de verdad hay.
-      // 📌 Medido el 07/09/2026 sobre toda la historia: los CUATRO cuadres de patio con carga de
-      // por medio caían acá. B012 17/08 "faltan 706,0 L" (tanque de 600 con 464 adentro), B003
-      // 15/08 "465,0", B003 29/08 "300,0", B002 05/08 "40,7". Ni uno solo era un faltante.
-      var capT=(ant.tanque&&ant.tanque.cap!=null)?ant.tanque.cap:null;
-      var hueco=(capT!=null)?Math.round((capT-ant.llegada)*10)/10:null;
-      var subio=Math.round((hoy.salida-ant.llegada)*10)/10;
-      if(dNoche>0&&((hueco!=null&&dNoche>hueco+tolN)||Math.abs(subio)<=tolN)){
-        add('media','R1C','Una carga registrada que la regla no ve',
-          'La unidad '+U(u)+' quedó el '+formatFecha(fLle)+' con '+_acFmt(ant.llegada,1)+' L y amaneció el '+
-          formatFecha(hoy.fecha)+' con '+_acFmt(hoy.salida,1)+' L — la regla se movió '+_acFmt(subio,1)+' L — '+
-          'pero hay '+_acFmt(dNoche,1)+' L cargados en el medio'+
-          (hueco!=null?(', y en ese tanque solo cabían '+_acFmt(hueco,1)+' L más'):'')+'. '+
-          'Los dos no pueden ser ciertos: o el combustible entró en otro momento y la fila quedó '+
-          'con la hora en que se tecleó, o los litros de esa carga no son los que dice. '+
-          'Buscá el recibo de esa carga y mirá a qué hora y a qué unidad se le echó. '+
-          '⛔ Esto NO es un faltante y no se le reclama a nadie: mientras la carga no se ubique, '+
-          'de ese combustible no se puede decir nada.',
-          u,hoy.fecha,null,'');
-        continue;
-      }
+      // ── (f) LO QUE NO SE PUEDE SABER NO SE DICE ────────────────────────────────────────────
+      // Acá vivió un rato la regla R1C, que reportaba «una carga registrada que la regla no ve».
+      // Nació el 08/09 para tapar los faltantes falsos y SOBRA desde que la carga se cuenta por la
+      // fecha declarada: comparar la carga del día contra el hueco que había AL LLEGAR dispara en
+      // cualquier noche normal —el camión surte con el tanque bajo y vuelve casi lleno— y saltaba
+      // 66 veces en 45 días. Un aviso que salta siempre no avisa de nada, y encima se lleva puestos
+      // los que sí importan. Y lo único que quedaba de cierto ahí —una carga que no cabe— ya lo
+      // dice R15, que compara contra el nivel de SALIDA, que es la referencia que corresponde.
+      // 📌 Se quita en la misma sesión en que se puso, medida en mano.
+      //
+      // ⚠️ LO QUE SE PIERDE, Y CÓMO SE RECUPERA. Una noche en la que además hubo carga ese día ya
+      // no se audita: si a esa unidad le sacaron gasoil, R1 no lo va a ver. No hay forma de verlo
+      // con los datos que hay —ninguna fila dice a qué HORA entró el combustible— y acusar con
+      // datos que no distinguen es exactamente lo que trajo los tres faltantes falsos.
+      // Para recuperarlo hace falta capturar la hora REAL de la surtida: que la declare quien
+      // surte, o leerla del recibo del surtidor. Mientras tanto, el agujero lo reportan R9 y R13,
+      // que no acusan a nadie. [[norma-la-premisa-antes-de-acusar]]
 
       if(delta<-2*tolN){
         // Sin nombre de chofer: de noche el custodio es el PATIO, no la persona que manejó.
@@ -2457,7 +2482,7 @@ function _acAnomalias(todas,desde,hasta,ref){
           'La unidad '+U(u)+' quedó el '+formatFecha(fLle)+' con '+_acFmt(ant.llegada,1)+' L y amaneció el '+
           formatFecha(hoy.fecha)+' con '+_acFmt(hoy.salida,1)+' L: faltan '+_acFmt(Math.abs(delta),1)+' L'+$(delta)+'. '+
           'El odómetro confirma que no se movió ('+_acFmt(ant.kmE)+' km las dos veces) y '+
-          (dNoche>0?('la única carga de esa noche ('+_acFmt(dNoche,1)+' L, con hora registrada) ya está descontada'):'no hay despacho registrado')+'. '+
+          'no hay ninguna carga registrada en esos dos días. '+
           'Es más de lo que puede explicar el error de la regla (±'+_acFmt(tolN,0)+' L). '+
           'Revisá quién tuvo acceso al patio esa noche y volvé a tomar las dos lecturas para confirmarlo.',
           u,hoy.fecha,delta,'');
@@ -2476,6 +2501,13 @@ function _acAnomalias(todas,desde,hasta,ref){
   AC_JORNADAS.forEach(function(j){
     if(j.conf!=='completa'||j.consumo==null)return;
     if(j.km==null||j.km<30||j.km>350)return;
+    // ⛔ 08/09/2026: R4 LE ECHABA 105,6 L DE MÁS A EDIOBER BARRIOS CON UNA CARGA DE PAPEL.
+    // La B012 el 26/07 salió con 577,5 L de un tanque de 600 y figura una carga de 140 L: no
+    // caben. Esa fila es del volcado del 18/08, `hora` en null, tecleada semanas después desde un
+    // papel. Con ella adentro el día da 145,1 L para 75 km y R4 sale con nombre y apellido.
+    // R4 es la ÚNICA regla que le atribuye a una PERSONA cómo manejó; no puede hacerlo sobre un
+    // día cuyo dato de carga nadie asentó en el momento. [[norma-la-premisa-antes-de-acusar]]
+    if(_acCargaEnLote(j.cam,j.fecha)>0)return;
     var refU=ref[j.cam]&&(ref[j.cam].fija||ref[j.cam].n>=3)?ref[j.cam].mediana:null;
     if(!refU||refU<=0)return;
     var espera=j.km/refU;
@@ -2491,7 +2523,12 @@ function _acAnomalias(todas,desde,hasta,ref){
     }).length;
     add(repite>=3?'alta':'media','R4','Consumo por encima de lo normal',
       'La unidad '+U(j.cam)+' consumió '+_acFmt(j.consumo,1)+' L para '+_acFmt(j.km)+' km el '+formatFecha(j.fecha)+
-      ' ('+_acFmt(j.km/j.consumo,2)+' km/L), cuando ese modelo rinde '+_acFmt(x.ref,2)+' km/L. Son '+_acFmt(x.corto,1)+' L de más'+$(x.corto)+
+      ' ('+_acFmt(j.km/j.consumo,2)+' km/L), contra el '+_acFmt(x.ref,2)+' km/L que es el estándar cargado para ese modelo. '+
+      // ⛔ «rinde 1,90» sonaba a medición, y el tablero muestra el rendimiento REAL de la flota
+      // (2,24 km/L hoy): dos números que el dueño no podía conciliar en la misma pantalla. Uno es
+      // el estándar cargado en configuración, el otro lo que la flota hace de verdad. Se dice cuál
+      // es cuál. [[norma-numero-que-el-dueno-no-puede-explicar]]
+      'Son '+_acFmt(x.corto,1)+' L de más'+$(x.corto)+
       (repite>=3?('. Y no es un día suelto: le pasó '+repite+' veces en dos semanas, ahí ya hay un patrón que conviene mirar de cerca.')
                :'. Puede ser mucho ralentí, compactador trabajando o una cola larga; un día suelto no dice nada por sí solo.'),
       j.cam,j.fecha,x.corto,_quien(j.cam,j.fecha));
@@ -2565,36 +2602,39 @@ function _acAnomalias(todas,desde,hasta,ref){
   // GRAVES quedaban al final, que es justo lo contrario de lo que hace falta. Se compara con null.
   // Mediciones repetidas: el dashboard las muestra, no solo las cuenta. Es el error de carga más
   // común (doble toque al guardar) y el que más ensucia el cuadre.
-  // ── R15 — LA CARGA NO CABE EN EL TANQUE ─────────────────────────────────────────────────────
+  // ── R15 — LA CARGA DEL DÍA NO CABE EN EL TANQUE ─────────────────────────────────────────────
   // GEMELA de la R15 de `supabase/functions/auditar-combustible`. Si se toca una, se toca la otra:
   // que el dashboard y el WhatsApp digan lo mismo es lo que sostiene que se les crea a los dos.
-  // Compara los litros cargados contra el ESPACIO LIBRE del tanque al salir, con una gracia de un
-  // cuarto de tanque porque el nivel se midió a la salida y el camión quemó gasoil hasta la carga.
   // Va como hallazgo, no como error del chofer: el número malo puede ser la medición.
-  (AC_SURTIDAS||[]).forEach(function(s){
-    var cam=String(s.cam||''); if(!cam) return;
-    var f=String(s.fecha||'').slice(0,10);
-    if(!f || f<desde || f>hasta) return;
-    var cap=_acNum((UNIDAD_CONFIG[cam]||{}).capacidad_tanque_l);
-    if(!(cap>0)) return;
-    var sal=null;
-    (AC_MED||[]).forEach(function(m){
-      if(String(m.vehiculo_id)===cam && String(m.fecha||'').slice(0,10)===f && String(m.momento)==='salida') sal=m;
-    });
-    if(!sal) return;
-    var tq=_acTanqueDe(sal);
-    if(!_acAlturaValida(tq,sal.altura_cm)) return;   // altura inválida: ya lo dice su propio control
-    var nivel=_acCubicar(tq,sal.altura_cm); if(nivel==null) return;
-    var lit=_acNum(s.litros); if(lit==null) return;
-    var libre=cap-nivel;
-    if(lit<=libre+cap*0.25) return;
-    add('alta','R15','La carga no cabe en el tanque',
-      'El '+f+' se cargaron '+_acFmt(lit,0)+' L a '+U(cam)+', pero al salir el tanque marcaba '+
-      _acFmt(nivel,0)+' L de '+_acFmt(cap,0)+' L: solo quedaban '+_acFmt(libre,0)+' L libres. '+
-      'Uno de los dos números está mal —la medición de salida o los litros cargados—, y no se puede '+
-      'saber cuál desde acá: hay que preguntarle a quien estuvo. No es una acusación, es una '+
-      'contradicción entre dos datos que no pueden ser los dos ciertos.',
-      cam,f,lit,String(s.chofer||''));
+  //
+  // ⛔ REESCRITA 08/09/2026: MIRABA CADA FILA POR SEPARADO, Y ASÍ NO SE VE UN DUPLICADO.
+  // La B009 tiene dos surtidas de 350 L el 05/09 (18:08 y 18:28, fotos distintas: el chofer la
+  // mandó dos veces). Cada una cabía; las dos juntas, 700 L en un tanque de 600 que salió con 297,
+  // no. R15 se callaba y el cuadre le echaba 334,6 L de más a un chofer con nombre y apellido.
+  // La pregunta no es si cabe UNA carga: es si cabe LA DEL DÍA.
+  // Ahora lee `j.desp` y `j.huecoSalida` de la jornada —el mismo cubicado y el mismo dedupe que
+  // usa todo lo demás— en vez de recalcular por su cuenta. [[norma-fuente-unica-datos]]
+  (todas||[]).forEach(function(j){
+    if(!j.cargaImposible)return;
+    if(j.fecha<desde||j.fecha>hasta)return;
+    var capJ=(j.tanque&&j.tanque.cap!=null)?j.tanque.cap:null;
+    var nSur=(AC_SURTIDAS||[]).filter(function(s){
+      return String(s.cam)===j.cam && String(s.fecha||'').slice(0,10)===j.fecha; }).length;
+    add('alta','R15','La carga del día no cabe en el tanque',
+      'El '+formatFecha(j.fecha)+' se le cargaron '+_acFmt(j.desp,0)+' L a '+U(j.cam)+
+      (nSur>1?(' en '+nSur+' cargas'):'')+', pero al salir el tanque marcaba '+_acFmt(j.salida,0)+
+      ' L de '+_acFmt(capJ,0)+' L: solo quedaban '+_acFmt(j.huecoSalida,0)+' L libres. '+
+      'Ni quemando todo el día entra esa cantidad. '+
+      (nSur>1?('Lo más probable es que una de esas cargas esté cargada dos veces —pasa cuando la '+
+               'pantalla dice «guardada» y la persona vuelve a intentar—. Mirá las fotos: si son '+
+               'del mismo surtidor y la misma hora, sobra una. '):
+              ('Uno de los dos números está mal —la medición de salida o los litros cargados—, y no '+
+               'se puede saber cuál desde acá: hay que preguntarle a quien estuvo. ')) +
+      '⛔ Ese día NO se cuadra y NO cuenta para el consumo, el rendimiento ni el costo por km: un '+
+      'número sacado de una carga imposible es peor que no tener número. Y no se le reclama nada a '+
+      'nadie por ese día. No es una acusación, es una contradicción entre dos datos que no pueden '+
+      'ser los dos ciertos.',
+      j.cam,j.fecha,j.desp,'');
   });
 
   // R13 — COMBUSTIBLE QUE ENTRÓ SIN REGISTRARSE. Un solo hallazgo con TODO junto: el problema no
@@ -2744,8 +2784,13 @@ function _acRender(){
   // ⛔ Una jornada con una lectura DECLARADA FALSA no es auditable, aunque tenga las tres cosas
   //    cargadas. Si contara acá, el indicador de calidad del dato subiría justo con los días que
   //    sabemos que están mal — que es lo contrario de lo que tiene que medir.
-  var completas=J.filter(function(j){return j.salida!=null&&j.llegada!=null&&j.km!=null&&!j.noConf;}).length;
+  // ⛔ …y lo mismo vale para un día cuya CARGA es imposible (R15): tiene las tres cosas cargadas y
+  //    aun así no se puede cuadrar, así que su consumo quedó en null y salió de todos los números.
+  //    Si contara acá, «días auditables» diría 99% mientras el consumo de ese día no existe — el
+  //    indicador de calidad del dato subiendo justo con los días que sabemos que están mal.
+  var completas=J.filter(function(j){return j.salida!=null&&j.llegada!=null&&j.km!=null&&!j.noConf&&!j.cargaImposible;}).length;
   var nNoConf=J.filter(function(j){return !!j.noConf;}).length;
+  var nCargaMala=J.filter(function(j){return !!j.cargaImposible;}).length;
   var pctAud=J.length?Math.round(completas*100/J.length):0;
 
   var html='';
@@ -2769,7 +2814,8 @@ function _acRender(){
       litrosFaltan>0?'var(--red)':(litrosEntraron>0?'var(--yellow)':'var(--green)'))+
     _acCard('Anomalías',String(AC_ANOM.length),altas.length+' graves · '+(AC_ANOM.length-altas.length)+' por revisar',altas.length?'var(--red)':'var(--green)')+
     _acCard('Días auditables',pctAud+'%',completas+' de '+J.length+' jornadas con salida, llegada y km. Por debajo de 90% el resto de los números queda cojo'+
-      (nNoConf?(' · '+nNoConf+' quedaron fuera porque el dato se declaró falso y no se pudo averiguar el verdadero'):''),
+      (nNoConf?(' · '+nNoConf+' quedaron fuera porque el dato se declaró falso y no se pudo averiguar el verdadero'):'')+
+      (nCargaMala?(' · '+nCargaMala+' quedaron fuera porque la carga de ese día no cabe en el tanque (ver la anomalía)'):''),
       pctAud>=90?'var(--green)':'var(--yellow)')+
     _acCard('Jornadas analizadas',String(J.length),(AC_META.duplicadas?('se ignoraron '+AC_META.duplicadas+' mediciones repetidas'):'sin mediciones repetidas'))+
   '</div>';
