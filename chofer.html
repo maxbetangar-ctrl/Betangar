@@ -2023,7 +2023,21 @@ async function surGuardar(){
     var fotoUrl=await subirFotoSegura(dataURL, 'surtida', cam, tok);   // nunca base64 en la fila
     var now=new Date(), p2=function(n){return String(n).padStart(2,'0');};
     var row={
-      id:(cam||'X')+'-S-'+Date.now(), fecha:hoy, hora:p2(now.getHours())+':'+p2(now.getMinutes()),
+      // ⛔ EL ID NO PUEDE SER EL RELOJ, Y ESTO ES PLATA.
+      // 🔴 Eduardo Gotopo, 09/09: surtio UNA vez el FC06 y le quedaron TRES cargas de 56,94 L
+      //    a las 12:27, 12:28 y 12:29. Le dio a Registrar, no le confirmo, y volvio a darle —
+      //    que es lo que haria cualquiera. Con `Date.now()` cada toque generaba un id NUEVO,
+      //    asi que la cola no los reconocia como el mismo y la clave primaria tampoco: iban a
+      //    entrar las tres. 56,94 L reales se habrian contado como 170,82.
+      // ⇒ El id se arma con lo que IDENTIFICA la carga —unidad, dia, tanque y litros— mas un
+      //    BLOQUE DE 10 MINUTOS. Dos toques seguidos dan el MISMO id: la cola lo dedupe y, si
+      //    llegara a subir, la clave primaria lo rechaza.
+      // ⚠️ Y lleva el bloque de tiempo a proposito, en vez de ser solo unidad+dia+litros: un
+      //    chofer PUEDE surtir los mismos litros dos veces en el dia. Diez minutos separan el
+      //    doble toque de una carga de verdad, y no le tranca el registro a nadie.
+      //    [[norma-catalogo-no-puede-trancar-el-registro]]
+      id:(cam||'X')+'-S-'+hoy+'-'+String(SUR_TANQUE||'').replace(/[^A-Za-z0-9]/g,'').slice(0,10)+'-'+String(lit).replace('.','_')+'-'+Math.floor(now.getTime()/600000),
+      fecha:hoy, hora:p2(now.getHours())+':'+p2(now.getMinutes()),
       cam:cam||'', chofer:chofer||'', tanque:SUR_TANQUE, litros:lit, costo_litro_usd:(SUR_TANQUE==='estacion'?null:0.812),
       foto_url:fotoUrl, lat:(SUR_GPS?SUR_GPS.lat:null), lng:(SUR_GPS?SUR_GPS.lng:null),
       precision_gps:(SUR_GPS?SUR_GPS.acc:null), token:tok
