@@ -645,7 +645,23 @@ async function accRecuperar(que){
   if(ced.length<5){ m.style.color='#f87171'; m.textContent='Escribí tu cédula (solo los números).'; return; }
   m.style.color='var(--text3)'; m.textContent='Enviando…';
   try{
-    if(!supabase && typeof initSupabaseClient==='function') initSupabaseClient();
+    // ⛔ NO ALCANZA CON QUE `supabase` EXISTA: HAY QUE MIRAR QUE SEA EL CLIENTE.
+    // 🔴 Esta pantalla es la del LOGIN, o sea que corre ANTES de que se cree el cliente.
+    //    `app.js` declara `var supabase=null` en el ambito global — o sea `window.supabase`—
+    //    y el CDN de supabase-js, al terminar de cargar, PISA esa variable con la LIBRERIA.
+    //    Entonces `!supabase` da false, no se crea el cliente, y la libreria no tiene `.rpc`.
+    // 📸 Alejandra lo fotografio el 08/09 intentando recuperarle la clave a Katty:
+    //    «No se pudo enviar: supabase.rpc is not a function». La funcion de la base estaba
+    //    bien y con permiso para `anon`: `acceso_recuperacion` tenia CERO filas, o sea que
+    //    la llamada nunca salio del navegador.
+    // ⚠️ El resto del archivo ya usaba el patron bueno —`if(!supabaseAuth||!supabaseAuth.auth)`,
+    //    que mira una PROPIEDAD— y aca se habia usado el debil.
+    if((!supabase || typeof supabase.rpc!=='function') && typeof initSupabaseClient==='function') initSupabaseClient();
+    if(!supabase || typeof supabase.rpc!=='function'){
+      m.style.color='#f87171';
+      m.textContent='No se pudo conectar con el servidor. Revise su internet y vuelva a intentar.';
+      return;
+    }
     var r=await supabase.rpc('acceso_recuperar',{ p_cedula:ced, p_que:que });
     // ⛔ El error se REPORTA. Un «listo» que en realidad falló es peor que el problema:
     //    la persona se queda esperando un mensaje que nunca se encoló.
