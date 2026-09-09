@@ -201,7 +201,7 @@ tr:hover td{background:rgba(45,255,122,.02)}
   .btn-icon{width:32px;height:32px;font-size:15px}
   nav{padding:0 6px}
 }
-@media print{@page{size:letter;margin:1.5cm}body{overflow:visible}.topnav,.btn,.moverlay,.demo-banner{display:none!important}.page{display:block!important;padding:0;overflow:visible}}
+@media print{@page{size:letter;margin:1.5cm}body{overflow:visible}.topnav,.btn,.moverlay,.demo-banner{display:none!important}.page{display:none!important}.page.active{display:block!important;padding:0;overflow:visible}}
 </style>
 <script>
 // Tema (claro/oscuro): aplicar el guardado ANTES de pintar (sin parpadeo). Default: oscuro.
@@ -3051,7 +3051,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
 <script src="maxrecuerda.js?v=20260806-maxrecuerda"></script>
 <!-- Formato unico de los Excel de Maxware. VA ANTES de app.js. -->
 <script src="maxware-excel.js"></script>
-<script src="app.js?v=20260909-1428"></script>
+<script src="app.js?v=20260909-1438"></script>
 
 <!-- Modal global -->
 <div id="modal" class="moverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9990;align-items:center;justify-content:center;padding:16px">
