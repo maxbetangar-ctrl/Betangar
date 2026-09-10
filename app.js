@@ -23777,8 +23777,8 @@ function portCargarHoy(){
   //    vigilante veía su propia jornada desordenada. [[norma-no-comparar-fechas-formateadas]]
   supabase.from('porteria').select('*').eq('fecha',hoy).order('created_at',{ascending:false}).limit(20).then(function(res){
     if(!res.data||!res.data.length){lista.innerHTML='<span style="color:var(--text3);font-size:12px">Sin registros hoy</span>';return;}
-    var iconos={asistencia:'👥',entrada_salida:'🚶',galpon:'🚛',novedad:'⚠️'};
-    var colores={asistencia:'#1d9e75',entrada_salida:'#378add',galpon:'#ef9f27',novedad:'#e24b4a'};
+    var iconos={asistencia:'👥',entrada_salida:'🚶',galpon:'🚛',novedad:'⚠️',incidencia:'🚨'};
+    var colores={asistencia:'#1d9e75',entrada_salida:'#378add',galpon:'#ef9f27',novedad:'#e24b4a',incidencia:'#dc2626'};
     lista.innerHTML=res.data.map(function(r){
       // ⛔ EL TEXTO DE LA NOVEDAD SE MUESTRA. Antes la lista pintaba `nombre||detalle`, y una
       //    novedad se guarda con nombre «Novedad INFO» y el texto real en `detalle`: el título
@@ -23854,8 +23854,8 @@ function portHistorial(){
       if(res.error){ cont.innerHTML='<span style="color:var(--red);font-size:12px">'+_escHtml(res.error.message)+'</span>'; return; }
       var filas=res.data||[];
       if(!filas.length){ cont.innerHTML='<div style="color:var(--text3);font-size:12px;padding:10px">Sin registros de portería'+(q?(' con «'+_escHtml(q)+'»'):'')+' entre el '+formatFecha(r.desde)+' y el '+formatFecha(r.hasta)+'.</div>'; return; }
-      var iconos={asistencia:'👥',entrada_salida:'🚶',galpon:'🚛',novedad:'⚠️'};
-      var colores={asistencia:'#1d9e75',entrada_salida:'#378add',galpon:'#ef9f27',novedad:'#e24b4a'};
+      var iconos={asistencia:'👥',entrada_salida:'🚶',galpon:'🚛',novedad:'⚠️',incidencia:'🚨'};
+      var colores={asistencia:'#1d9e75',entrada_salida:'#378add',galpon:'#ef9f27',novedad:'#e24b4a',incidencia:'#dc2626'};
       var porDia={}, orden=[];
       filas.forEach(function(x){ if(!porDia[x.fecha]){porDia[x.fecha]=[];orden.push(x.fecha);} porDia[x.fecha].push(x); });
       var tope=(filas.length>=PORT_HIST_TOPE)

@@ -883,10 +883,28 @@
               var d = r.data || {};
               // Se confirma con el DATO, no con un «listo» genérico: la persona
               // tiene que poder verificar que quedó como quería.
-              toast(d.proximo ? 'Guardado. Primer aviso: ' + d.proximo.replace(' ', ' a las ')
-                              : 'Guardado.', 'mrq-toast-ok');
-              cerrarFn();
-              refrescar();
+              // ⛔ Y SI NO VA A SONAR, SE DICE. Medido en Tony Gas el 10/09/2026:
+              //    alguien guardó «una sola vez hoy a las 03:17» a las 15:15 —doce
+              //    horas después de esa hora—. El sistema lo aceptó, no encontró
+              //    ningún momento futuro, se apagó solo y no creó ni un aviso.
+              //    En pantalla decía «Guardado.» a secas. Desde afuera, «no llegó» y
+              //    «llegó tarde» se ven IGUAL cuando uno está esperando — y así se
+              //    reportó: «los recordatorios están llegando tarde».
+              //    Ahora, cuando no hay próximo aviso, se dice QUÉ pasó y qué hacer.
+              if (d.proximo) {
+                toast('Guardado. Primer aviso: ' + d.proximo.replace(' ', ' a las '), 'mrq-toast-ok');
+                cerrarFn(); refrescar();
+              } else {
+                var porQue = (f.patron === 'unica')
+                  ? 'La fecha y la hora que pusiste YA PASARON.'
+                  : (f.fin === 'fecha' ? 'No queda ninguna fecha por delante antes del día en que termina.'
+                     : (f.fin === 'veces' ? 'Ya se cumplieron todas las veces.'
+                        : 'No hay ningún momento futuro que cumpla con lo que elegiste.'));
+                toast('⚠️ Se guardó, pero NO va a sonar. ' + porQue + ' Corregí la hora o la fecha.', 'mrq-toast-mal');
+                // ⚠️ NO se cierra el formulario: si se cierra, la advertencia se va con
+                //    él y la persona se queda pensando que quedó puesto.
+                refrescar();
+              }
             });
           }
 

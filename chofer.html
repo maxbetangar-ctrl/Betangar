@@ -2457,7 +2457,9 @@ function sincronizarCola(){
     var pendI = COLA_INC.slice(); COLA_INC = []; persistColaINC();
     var fallI = [], restI = pendI.length;
     pendI.forEach(function(reg){
-      supabase.from('porteria').insert([reg])
+      // Se normaliza al subir: las que quedaron atascadas con la forma vieja
+      // (cam/chofer/ubicacion) subían y volvían a fallar para siempre.
+      supabase.from('porteria').insert([_filaIncidencia(reg)])
       .then(function(res){ if(res.error){ fallI.push(reg); } else if(!isOnline){ actualizarConexion(true); } },
             function(){ fallI.push(reg); })
       .then(function(){ if(--restI <= 0){ COLA_INC = fallI; persistColaINC(); actualizarBannerCola(); } });
@@ -3514,6 +3516,42 @@ function selTipoInc(btn, tipo){
   btn.style.borderColor='#e24b4a'; btn.style.background='rgba(226,75,74,.2)';
 }
 
+// ══════════════════════════════════════════════════════════════════════════
+// LA INCIDENCIA DEL CHOFER — nunca se guardó ni una, y decía «sin conexión»
+//
+// ⛔ Medido el 10/09/2026 en Betangar: la tabla `porteria` tiene 136 filas y
+//    CERO de tipo 'incidencia'. Ni una, nunca.
+//    La causa: este insert mandaba `cam`, `chofer` y `ubicacion`, y esas tres
+//    columnas NO EXISTEN en `porteria` (sus columnas son id, tipo, fecha, hora,
+//    nombre, detalle, subtipo, vigilante, created_at). PostgREST lo rechazaba
+//    siempre — y el `else` de acá abajo mandaba el reporte a la cola local con
+//    el cartel «Guardado sin conexión». El permiso estaba bien; el chofer no
+//    tenía la culpa; y nadie se enteró porque el error se veía como falta de red.
+//    [[norma-la-red-que-traga-el-error-tapa-la-pieza]]
+//
+// ⇒ Dos cosas cambian:
+//   1. La fila se arma con las columnas QUE EXISTEN, en un solo lugar
+//      (`_filaIncidencia`) que usan tanto el envío como el vaciado de la cola.
+//      Así las que ya están atascadas en los teléfonos —con la forma vieja— se
+//      arreglan solas al subir, en vez de fallar para siempre.
+//   2. Un RECHAZO ya no se disfraza de «sin conexión». Si el servidor CONTESTÓ
+//      que no, reintentar no lo arregla: se le dice al chofer que avise, y el
+//      motivo queda a la vista.
+// ══════════════════════════════════════════════════════════════════════════
+function _filaIncidencia(reg){
+  var r = reg || {};
+  // Tolera la forma VIEJA (cam/chofer/ubicacion) y la nueva.
+  var unidad = r.nombre || r.cam || '';
+  var quien  = r.vigilante || r.chofer || '';
+  var partes = [];
+  if(r.detalle) partes.push(String(r.detalle).trim());
+  if(r.ubicacion) partes.push('Dónde: ' + String(r.ubicacion).trim());
+  if(quien) partes.push('Reportó: ' + quien);
+  return { tipo:'incidencia', fecha:r.fecha, hora:r.hora,
+           nombre:unidad, subtipo:r.subtipo || '', detalle:partes.join(' · '),
+           vigilante:quien };
+}
+
 function enviarIncidencia(){
   if(!tipoIncActual){ mostrarToast('Selecciona el tipo','warn'); return; }
   var desc = document.getElementById('inc-desc') ? document.getElementById('inc-desc').value.trim() : '';
@@ -3525,26 +3563,33 @@ function enviarIncidencia(){
   var reg = { fecha:hoy, cam:cam, chofer:chofer, tipo:'incidencia', subtipo:tipoIncActual, detalle:desc, ubicacion:ubi, hora:hora };
 
   if(isOnline && supabase){
-    supabase.from('porteria').insert([reg]).then(function(res){
+    supabase.from('porteria').insert([_filaIncidencia(reg)]).then(function(res){
       if(!res.error){
         mostrarToast('Reporte enviado');
         cerrarModalIncidencia();
       } else {
-        guardarIncidenciaLocal(reg);
+        // El servidor CONTESTÓ y dijo que no: esto NO es falta de conexión.
+        guardarIncidenciaLocal(reg, (res.error && res.error.message) || 'lo rechazó el sistema');
       }
-    }, function(e){ guardarIncidenciaLocal(reg); }); // red caída a mitad: NO perder el reporte
+    }, function(e){ guardarIncidenciaLocal(reg, null); }); // ni contestó: eso sí es la red
   } else {
-    guardarIncidenciaLocal(reg);
+    guardarIncidenciaLocal(reg, null);
   }
 }
 
-function guardarIncidenciaLocal(reg){
+function guardarIncidenciaLocal(reg, motivoRechazo){
   try{
     COLA_INC.push(reg); persistColaINC();
-    mostrarToast('Guardado sin conexión — se envía al reconectar','warn');
+    if(motivoRechazo){
+      // ⛔ No se le miente al chofer. Queda guardado para no perderlo, pero se le
+      //    dice que hay que avisar, porque reintentar solo no lo va a resolver.
+      mostrarToast('No se pudo registrar: ' + motivoRechazo + '. Queda anotado — avisá al vigilante.','error');
+    } else {
+      mostrarToast('Guardado sin conexión — se envía al reconectar','warn');
+    }
     cerrarModalIncidencia();
     if(typeof actualizarBannerCola==='function') actualizarBannerCola();
-    if(typeof pedirBackgroundSync==='function') pedirBackgroundSync('sync-checklist');
+    if(typeof pedirBackgroundSync==="function") pedirBackgroundSync('sync-checklist');
   }catch(e){
     mostrarToast('Informa al vigilante al llegar','warn');
     cerrarModalIncidencia();
