@@ -49,6 +49,22 @@ var BTG_CONFIG = {
   lic_url:  'https://hrkjddehqnzcqwlkklqm.supabase.co',   // ← CENTRAL (no cambiar)
   lic_key:  ANON_CENTRAL,                                  // ← anon key central (no cambiar)
   licencia_ref: 'betangar',                                // ← su id en la tabla licencias
+  // ── CARNETS ─────────────────────────────────────────────────────────────────
+  // Los colores y el DORSO del carnet salen de acá, no del código: el dorso de
+  // Betangar habla del convenio con la Alcaldía de Maracaibo y eso es SUYO — en el
+  // carnet de otro cliente sería el texto de otra empresa.
+  // `sello` y `dorso.logo` son FUNCIONES porque `logo-alcaldia.js` puede cargar
+  // después de este archivo: se resuelven al dibujar el carnet.
+  carnet: {
+    base:'#1e3a5f', base2:'#0f2340',
+    acento:null,   // null = el acento de la esquina sigue siendo el color del CARGO (como hasta hoy)
+    sello: function(){ return (typeof LOGO_ALCALDIA!=='undefined')?LOGO_ALCALDIA:''; },
+    dorso: {
+      logo: function(){ return (typeof LOGO_ALCALDIA!=='undefined')?LOGO_ALCALDIA:''; },
+      titulo:'',
+      texto:'El portador de este carnet presta el servicio de <b>recolección de desechos sólidos</b> de la ciudad, en conjunto con la <b>Alcaldía Bolivariana de Maracaibo</b>. Agradecemos brindarle <b>toda la colaboración</b> necesaria para el cumplimiento de sus labores.'
+    }
+  },
   accent: null                                             // ← color de marca del CLON. null = lima Betangar.
                                                            //   Ej: {green:'#2563eb',green2:'#1d4ed8',green3:'#1e40af'}
                                                            //   (verde/verde2/verde3: base, hover y oscuro del acento).
@@ -5168,7 +5184,11 @@ function sv(id,v){var el=g(id);if(el)el.value=v;}
 // POBLAR SELECTS
 // ═══════════════════════════════════════════════════
 function poblarCams(){
-  var cams=Object.keys(FLOTA).filter(function(k){return k.startsWith('JAC-B')||k.startsWith('AVANCE-');});
+  var cams=_unidadesTodas();
+  if(!cams.length && !_camsPedidas){
+    _camsPedidas=true;   // una sola vez: sin esto, cada repintado dispara otra consulta
+    _unidadesAsegurar().then(function(u){ if(u.length) poblarCams(); });
+  }
   ['rp-cam','gc-cam','km-cam','lav-cam','eng-cam','hf-cam','tmp-cam','ll-cam','mul-cam','inv-uso-cam','doc-cam-sel','hist-mant-cam'].forEach(function(id){
     var sel=g(id);if(!sel)return;
     var first=sel.options[0]?sel.options[0].outerHTML:'<option value="">-</option>';
@@ -9999,7 +10019,45 @@ function enviarReporteJAC(){
 // ═══ HELPERS de FLOTA (agnósticos a la nomenclatura de unidad) ═══════════════
 // Aíslan cómo se nombran las unidades para que el módulo de mantenimiento sirva en CUALQUIER clon
 // (Betangar usa 'JAC-B0XX'; otros clientes usan otra cosa). Al clonar, solo se ajustan estos 3.
-function _flotaUnidades(){ return Object.keys(FLOTA||{}).filter(function(k){return k.indexOf('JAC-B')===0;}); }
+// ═════════════════════════════════════════════════════════════════════════════
+// ⛔ FUENTE ÚNICA DE «QUÉ UNIDADES EXISTEN». Medido en Tony Gas el 10/09/2026.
+//
+// Alejandra: «sale No hay unidades cargadas todavía al seleccionar la unidad en
+// órdenes de servicio», con 26 unidades cargadas en `unidad_config`.
+//
+// Acá en Betangar NO se veía, porque su `FLOTA` sí viene horneada con las 12. Pero
+// la pieza es la misma y estaba igual de partida: CUATRO lecturas distintas de
+// «qué unidades hay», cada una con su propio filtro y su propio origen. Se unifica
+// también acá —en la misma sesión— para que no vuelva a divergir.
+//
+// ⚠️ El FILTRO es el de Betangar y es la UNIÓN de los dos que ya usaba: `poblarCams`
+// dejaba pasar JAC-B* y AVANCE-*, y `_flotaUnidades` solo JAC-B*. Si se unifica al
+// más estrecho, el día que entre una unidad AVANCE- desaparece de doce desplegables.
+var _unidadesPidiendo=null;
+var _camsPedidas=false;   // Betangar no lo tenía: su FLOTA viene horneada y nunca hizo falta pedirla.
+function _unidadesTodas(){
+  var set={};
+  ['FLOTA','UNIDAD_CONFIG','KM_DATA'].forEach(function(n){
+    try{ var o=window[n]; if(o) Object.keys(o).forEach(function(c){ if(c) set[c]=1; }); }catch(e){}
+  });
+  return Object.keys(set).filter(function(k){return k.indexOf('JAC-B')===0||k.indexOf('AVANCE-')===0;}).sort();
+}
+// Promesa con las unidades, pidiéndolas a la base si todavía no están. NUNCA
+// revienta: sin conexión resuelve con lo que haya, para que la pantalla decida.
+function _unidadesAsegurar(){
+  var ya=_unidadesTodas();
+  if(ya.length) return Promise.resolve(ya);
+  if(!(typeof DB_READY!=='undefined' && DB_READY && typeof supabase!=='undefined' && supabase && typeof supabase.from==='function'))
+    return Promise.resolve(ya);
+  if(!_unidadesPidiendo){
+    _unidadesPidiendo=Promise.resolve()
+      .then(function(){ return (typeof cargarUnidadConfig==='function')?cargarUnidadConfig():null; })
+      .catch(function(){})
+      .then(function(){ _unidadesPidiendo=null; return _unidadesTodas(); });
+  }
+  return _unidadesPidiendo;
+}
+function _flotaUnidades(){ return _unidadesTodas(); } // FUENTE ÚNICA arriba — antes leía SOLO `FLOTA`.
 function _unidadCorta(cam){ return String(cam||'').replace('JAC-B','B'); }
 // Resuelve lo que el usuario escribe (número "1,2,3" o el id completo) a una unidad real de la flota,
 // casando por el sufijo numérico (agnóstico: JAC-B001 ↔ "1"). '' si no casa.
@@ -10064,8 +10122,12 @@ function _osCamsHint(){
 function abrirSelectorUnidadesOS(){
   var inp=g('os-cams');
   if(inp&&inp.disabled){ alert('Esta orden no va a una unidad (Destino: patio o inventario).'); return; }
-  var unidades=(typeof _flotaUnidades==='function')?_flotaUnidades():Object.keys(FLOTA||{});
-  if(!unidades.length){ alert('No hay unidades cargadas todavía.'); return; }
+  // Si todavía no están en memoria NO se acusa: se piden y se reintenta una vez.
+  var unidades=_unidadesTodas();
+  if(!unidades.length){ _unidadesAsegurar().then(function(u){
+      if(u.length) abrirSelectorUnidadesOS();
+      else alert('No hay unidades cargadas todavía.\n\nSe cargan en Mantenimiento → Unidades.');
+    }); return; }
   var sel={}; _osCamsParse().cams.forEach(function(c){sel[c]=1;});
   var id='modal-os-unidades', old=g(id); if(old)old.remove();
   var m=document.createElement('div'); m.id=id;
@@ -12277,10 +12339,11 @@ function _ultimoMantItem(cam,itemId,tipoTrabajo){
   return evs[0];
 }
 function _hvUnidades(){
+  // La hoja de vida SÍ suma las del historial: una unidad dada de baja ya no
+  // está en el registro maestro, pero su historia se sigue consultando.
   var set={};
-  Object.keys(FLOTA||{}).forEach(function(c){set[c]=1;});
-  Object.keys(UNIDAD_CONFIG||{}).forEach(function(c){set[c]=1;});
-  (MANTENIMIENTOS||[]).forEach(function(m){if(m.cam)set[m.cam]=1;});
+  _unidadesTodas().forEach(function(c){set[c]=1;});
+  (typeof MANTENIMIENTOS!=='undefined'?(MANTENIMIENTOS||[]):[]).forEach(function(m){if(m&&m.cam)set[m.cam]=1;});
   return Object.keys(set).sort();
 }
 function _setSelPreserve(id,html){var s=g(id);if(!s)return;var cur=s.value;s.innerHTML=html;if(cur){s.value=cur;}}
@@ -18877,7 +18940,42 @@ async function guardarEmpleado(){
 // «varios de diferentes cargos»: se filtra por Chofer y se marcan, se cambia a Ayudante y se marcan
 // otros, y los dos grupos siguen marcados. Si la selección se limpiara al filtrar, juntar gente de
 // dos cargos sería imposible — que es justo lo que hoy obliga a imprimir de a uno.
+// ══════════════════════════════════════════════════════════════════════════════
+// CARNETS — filtro que filtra, selección, y el arte con LOS COLORES DE ESTA EMPRESA
+//
+// ⛔ POR QUÉ SE REHÍZO. Alejandra, 10/09/2026, sobre Tony Gas:
+//    «El filtro no filtra · No tiene selección · El arte de los carnets no son
+//     los colores de tony gas, únicamente está el logo».
+//    Las tres eran ciertas, y las tres eran del CLON, no de Tony Gas:
+//      · el `<select>` de empleado no tenía `onchange`: se elegía y no pasaba nada;
+//      · no había forma de marcar a quién imprimir — salían TODOS los activos;
+//      · el arte traía clavado el azul marino y el verde lima de Betangar. Lo
+//        único propio del cliente era el logo.
+//
+// ⇒ Se trajo la pieza que Betangar ya tenía trabajada (buscador + filtro por
+//   cargo + selección + un solo arte para pantalla e impresión) y se le sacó
+//   LO QUE ERA DE BETANGAR: los colores y el dorso viven ahora en
+//   `BTG_CONFIG.carnet`, no en el código. Sin esa vuelta, «ponerle los colores a
+//   Tony Gas» habría sido cambiar un azul por un naranja y dejar el próximo clon
+//   con los colores de Tony Gas. [[norma-arreglar-el-mecanismo-no-el-caso]]
+//
+// ⚠️ NADA de esto inventa un dato: todo sale de la ficha del empleado y de
+//    `BTG_CONFIG`. Lo que falta se dibuja como «—», a la vista, para que se sepa
+//    qué ficha hay que completar. [[norma-documento-no-afirma-lo-que-nadie-declaro]]
 var CARNET_SEL={}; // id de empleado → true
+// Los colores del carnet: de la marca de ESTA instancia, con el azul de siempre
+// como respaldo (así los clones que todavía no declararon marca no cambian).
+function _carnetCfg(){
+  var c=(typeof BTG_CONFIG!=='undefined'&&BTG_CONFIG.carnet)?BTG_CONFIG.carnet:{};
+  return { base:  c.base   || '#1e3a5f',
+           base2: c.base2  || '#0f2340',
+           // `acento` NULO a propósito: sin marca declarada, el acento de la esquina
+           // sigue siendo el color del CARGO, que es como se veía hasta hoy. Declararlo
+           // es lo que hace que el carnet «se vea de la empresa».
+           acento:c.acento || ((typeof BTG_CONFIG!=='undefined'&&BTG_CONFIG.accent&&BTG_CONFIG.accent.green)||null),
+           sello: c.sello  || null,   // logo chico arriba a la derecha del FRENTE (Betangar: la Alcaldía)
+           dorso: c.dorso  || null };
+}
 function _carnetElegibles(){ return EMPLEADOS.filter(function(e){return e.activo&&!e.imau;}); }
 function _carnetsFiltrados(){
   var cargo=gv('carn-cargo');
@@ -18886,7 +18984,8 @@ function _carnetsFiltrados(){
     if(cargo&&String(e.cargo||'')!==cargo)return false;
     if(!q)return true;
     // Se busca por nombre, cédula, unidad o cargo — es lo que la oficina tiene a mano.
-    var heno=_normNom([e.nombre,e.cedula,e.unidad,e.cargo,e.id].filter(Boolean).join(' '));
+    var heno=(typeof _normNom==='function')?_normNom([e.nombre,e.cedula,e.unidad,e.cargo,e.id].filter(Boolean).join(' '))
+                                          :String([e.nombre,e.cedula,e.unidad,e.cargo,e.id].filter(Boolean).join(' ')).toUpperCase();
     return q.split(' ').every(function(tok){return heno.indexOf(tok)>=0;});
   });
 }
@@ -18917,21 +19016,28 @@ function carnetSelTodos(on){
   _carnetsFiltrados().forEach(function(e){ CARNET_SEL[e.id]=true; });
   renderCarnetsPreview();
 }
-// ── FRENTE DEL CARNET ──────────────────────────────────────────────────────────────────────
-// Rediseñado (Máximo, 2026-08-05): «lo siento muy básico, hay demasiado espacio en blanco».
-// El vacío venía de que el frente decía MUY POCO: nombre, cargo, unidad y cédula sueltos al lado de
-// una foto chica. Ahora la mitad derecha es una FICHA de datos rotulada (como una cédula de verdad)
-// y el nombre se parte en NOMBRES / APELLIDOS, que de paso evita que uno largo se desborde en tres
-// líneas. Los datos son los que YA existen en la ficha: no se inventa ninguno.
-//
-// Es UNA sola función porque la vista previa y la impresión tienen que mostrar lo mismo: antes la
-// pestaña dibujaba una tarjetita oscura propia y lo que salía por la impresora era otra cosa, así
-// que revisar el arte en pantalla no servía de nada.
+// ── COLOR POR CARGO ───────────────────────────────────────────────────────────
+// ⚠️ NO se puede hornear una lista de cargos: Betangar tiene 10 y Tony Gas 28
+// («P.C.P», «Operador de Llenado de GLP», «Gte. de Talento Humano»…). Con un mapa
+// fijo, en Tony Gas los 28 caían en el mismo color y la franja dejaba de decir nada.
+// Los nombres conocidos conservan su color de siempre; cualquier otro recibe uno
+// ESTABLE sacado de su propio nombre: el mismo cargo siempre sale igual, sin
+// depender del orden en que estén cargados los empleados.
 var CARNET_COLOR_CARGO={'Chofer':'#7dc941','Ayudante':'#3b82f6','Mecanico':'#f59e0b','Jefe de Operaciones':'#ef4444',
   'Administradora':'#8b5cf6','Vigilante':'#64748b',
-  // Los de oficina no estaban y caían todos en el azul oscuro por defecto: los carnets de RRHH,
-  // contabilidad y supervisión se veían iguales entre sí.
   'RRHH':'#ec4899','Contadora':'#0ea5e9','Auditora':'#14b8a6','Supervisor':'#f97316','Gerente General':'#1e3a5f'};
+var CARNET_PALETA=['#7dc941','#3b82f6','#f59e0b','#ef4444','#8b5cf6','#64748b','#ec4899','#0ea5e9','#14b8a6','#f97316','#6366f1','#84cc16','#e11d48','#0891b2'];
+function _carnetColorCargo(cargo){
+  var k=String(cargo||'').trim();
+  if(CARNET_COLOR_CARGO[k])return CARNET_COLOR_CARGO[k];
+  if(!k)return _carnetCfg().base;
+  var h=0; for(var i=0;i<k.length;i++){ h=(h*31+k.charCodeAt(i))>>>0; }
+  return CARNET_PALETA[h%CARNET_PALETA.length];
+}
+// ── FRENTE DEL CARNET ─────────────────────────────────────────────────────────
+// Es UNA sola función porque la vista previa y la impresión tienen que mostrar lo
+// mismo: antes la pestaña dibujaba una tarjetita oscura propia y lo que salía por
+// la impresora era otra cosa, así que revisar el arte en pantalla no servía de nada.
 // Nombre en dos renglones: los 2 últimos tokens son los apellidos (convención venezolana).
 function _carnetNombre(nombre){
   var t=String(nombre||'').trim().split(/\s+/).filter(Boolean);
@@ -18948,41 +19054,41 @@ function _carnetCI(c){
 }
 function _carnetFrente(emp){
   var _esc=(typeof _mEsc==='function')?_mEsc:function(s){return String(s==null?'':s);};
-  var colorC=CARNET_COLOR_CARGO[emp.cargo]||'#1e3a5f';
-  var logo=(typeof LOGO_SVG!=='undefined')?'<img src="'+LOGO_SVG+'" height="30" style="filter:brightness(0) invert(1)">':'';
-  var alc=(typeof LOGO_ALCALDIA!=='undefined')?LOGO_ALCALDIA:'';
-  var alcFront=alc?'<img src="'+alc+'" style="position:absolute;top:6px;right:8px;height:26px;background:#fff;border-radius:50%;padding:1px" title="Alcaldía Bolivariana de Maracaibo">':'';
+  var cfg=_carnetCfg();
+  var colorC=_carnetColorCargo(emp.cargo);
+  var acento=cfg.acento||colorC;   // sin marca declarada, se conserva el color del cargo
+  var selloSrc=(typeof cfg.sello==='function')?cfg.sello():cfg.sello;
+  var sello=selloSrc?'<img src="'+selloSrc+'" style="position:absolute;top:6px;right:8px;height:26px;background:#fff;border-radius:50%;padding:1px">':'';
+  var logo=(typeof LOGO_SVG!=='undefined'&&LOGO_SVG)?'<img src="'+LOGO_SVG+'" height="30" style="filter:brightness(0) invert(1)">':
+           '<div style="color:#fff;font-size:11px;font-weight:900;letter-spacing:.5px">'+_esc(brandNomUp())+'</div>';
   var nn=_carnetNombre(emp.nombre);
-  // Iniciales: primer nombre + primer apellido (antes era una sola letra).
+  // Iniciales: primer nombre + primer apellido.
   var ini=_esc((nn.nom.charAt(0)||'')+(nn.ape.charAt(0)||''));
   var foto=emp.foto
     ? '<img src="'+emp.foto+'" style="width:100%;height:100%;object-fit:cover;display:block">'
-    : '<div class="cn-ini" style="width:100%;height:100%;background:linear-gradient(135deg,#1e3a5f,#2d5282);display:flex;align-items:center;justify-content:center;font-size:26px;color:#fff;font-weight:900;letter-spacing:1px">'+ini+'</div>';
+    : '<div class="cn-ini" style="width:100%;height:100%;background:linear-gradient(135deg,'+cfg.base+','+cfg.base2+');display:flex;align-items:center;justify-content:center;font-size:26px;color:#fff;font-weight:900;letter-spacing:1px">'+ini+'</div>';
   // Nombres largos: se achican solos en vez de romper la tarjeta.
   var fsNom=nn.nom.length>18?10.5:(nn.nom.length>15?11.5:12.5);
   var fsApe=nn.ape.length>18?10.5:(nn.ape.length>15?11.5:12.5);
-  // `text-align:left` explícito: la hoja de impresión centra por defecto y el carnet salía con los
-  // rótulos y los datos centrados, que es parte de lo que lo hacía ver desarmado.
   // Las 4 celdas se dibujan SIEMPRE, aunque falte el dato: si se ocultaba la vacía, las demás se
-  // corrían de columna y cada carnet quedaba armado distinto. Lo que falta se ve como "—", y así
-  // queda a la vista qué ficha hay que completar antes de mandar a imprimir.
+  // corrían de columna y cada carnet quedaba armado distinto. Lo que falta se ve como "—".
   var _campo=function(rot,val){
     var v=String(val==null?'':val).trim();
     return '<div style="min-width:0;text-align:left"><div style="font-size:6px;letter-spacing:.8px;color:#94a3b8;font-weight:700;text-transform:uppercase;line-height:1.1">'+_esc(rot)+'</div>'+
-      '<div style="font-size:9.5px;color:'+(v?'#1e3a5f':'#c3ccd8')+';font-weight:800;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+_esc(v||'—')+'</div></div>';
+      '<div style="font-size:9.5px;color:'+(v?cfg.base:'#c3ccd8')+';font-weight:800;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+_esc(v||'—')+'</div></div>';
   };
   var anio=(function(){try{return new Date().getFullYear();}catch(e){return '';}})();
   return '<div class="carnet" style="width:340px;height:200px;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 4px 15px rgba(0,0,0,.15);display:inline-flex;flex-direction:column;border:1px solid #e2e8f0;position:relative;font-family:system-ui,-apple-system,Segoe UI,Arial,sans-serif">'+
     // Franja de color del cargo a lo largo del borde: identifica el rol de un vistazo, de lejos.
     '<div class="cn-stripe" style="position:absolute;left:0;top:0;bottom:0;width:7px;background:'+colorC+';z-index:2"></div>'+
     // Acento de fondo: llena la esquina vacía sin agregar ruido ni datos falsos. Es geometría CSS,
-    // no un glifo — un emoji (♻) se dibuja distinto en cada equipo y salía como una mancha.
+    // no un glifo — un emoji se dibuja distinto en cada equipo y salía como una mancha.
     '<div style="position:absolute;right:0;bottom:0;width:150px;height:120px;pointer-events:none;overflow:hidden">'+
-      '<div style="position:absolute;right:-58px;bottom:-58px;width:132px;height:132px;transform:rotate(45deg);background:'+colorC+';opacity:.07"></div>'+
-      '<div style="position:absolute;right:-40px;bottom:-84px;width:132px;height:132px;transform:rotate(45deg);background:'+colorC+';opacity:.10"></div>'+
+      '<div style="position:absolute;right:-58px;bottom:-58px;width:132px;height:132px;transform:rotate(45deg);background:'+acento+';opacity:.07"></div>'+
+      '<div style="position:absolute;right:-40px;bottom:-84px;width:132px;height:132px;transform:rotate(45deg);background:'+acento+';opacity:.10"></div>'+
     '</div>'+
-    '<div class="card-top" style="background:linear-gradient(135deg,#1e3a5f,#0f2340);padding:6px 12px 6px 17px;display:flex;justify-content:space-between;align-items:center;border-bottom:3px solid '+colorC+';position:relative;flex:none">'+
-    logo+'<div style="color:#fff;font-size:8px;text-align:right;opacity:.85;margin-right:32px;letter-spacing:.5px;line-height:1.2">CARNET DE<br><b>IDENTIFICACIÓN</b></div>'+alcFront+'</div>'+
+    '<div class="card-top" style="background:linear-gradient(135deg,'+cfg.base+','+cfg.base2+');padding:6px 12px 6px 17px;display:flex;justify-content:space-between;align-items:center;border-bottom:3px solid '+colorC+';position:relative;flex:none">'+
+    logo+'<div style="color:#fff;font-size:8px;text-align:right;opacity:.85;'+(sello?'margin-right:32px;':'')+'letter-spacing:.5px;line-height:1.2">CARNET DE<br><b>IDENTIFICACIÓN</b></div>'+sello+'</div>'+
     // `min-height:0` + `overflow:hidden`: sin esto el bloque de datos empujaba el pie FUERA de los
     // 200 px y el carnet salía impreso con el RIF cortado por la mitad.
     '<div style="padding:7px 11px 4px 17px;display:flex;gap:10px;flex:1;min-height:0;overflow:hidden;position:relative;z-index:1;text-align:left">'+
@@ -18990,9 +19096,9 @@ function _carnetFrente(emp){
       '<div style="width:72px;height:84px;border-radius:6px;overflow:hidden;border:2px solid '+colorC+';background:#eef2f7;flex:none">'+foto+'</div>'+
       '<div style="flex:1;min-width:0;display:flex;flex-direction:column;text-align:left">'+
         '<div style="font-size:6px;letter-spacing:.8px;color:#94a3b8;font-weight:700;line-height:1.1">NOMBRES</div>'+
-        '<div style="font-size:'+fsNom+'px;font-weight:900;color:#0f2340;line-height:1.15;letter-spacing:-.2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+_esc(nn.nom||'—')+'</div>'+
+        '<div style="font-size:'+fsNom+'px;font-weight:900;color:'+cfg.base2+';line-height:1.15;letter-spacing:-.2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+_esc(nn.nom||'—')+'</div>'+
         '<div style="font-size:6px;letter-spacing:.8px;color:#94a3b8;font-weight:700;line-height:1.1;margin-top:2px">APELLIDOS</div>'+
-        '<div style="font-size:'+fsApe+'px;font-weight:900;color:#0f2340;line-height:1.15;letter-spacing:-.2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+_esc(nn.ape||'—')+'</div>'+
+        '<div style="font-size:'+fsApe+'px;font-weight:900;color:'+cfg.base2+';line-height:1.15;letter-spacing:-.2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+_esc(nn.ape||'—')+'</div>'+
         '<div class="cn-cargo" style="display:inline-block;align-self:flex-start;background:'+colorC+';color:#fff;font-size:8px;font-weight:800;padding:1.5px 8px;border-radius:8px;margin:4px 0 0;text-transform:uppercase;letter-spacing:.6px">'+_esc(emp.cargo)+'</div>'+
         // Ficha de datos en dos columnas: es lo que llenaba de aire la mitad derecha.
         '<div style="display:grid;grid-template-columns:1fr 1fr;gap:2px 8px;border-top:1px solid #e8edf2;padding-top:4px;margin-top:auto;text-align:left">'+
@@ -19004,9 +19110,31 @@ function _carnetFrente(emp){
       '</div>'+
     '</div>'+
     '<div style="background:#f8fafc;padding:4px 11px 4px 17px;display:flex;justify-content:space-between;align-items:center;font-size:7.5px;color:#8a97a8;border-top:1px solid #e8edf2;position:relative;z-index:1;flex:none">'+
-    '<span><b style="color:#5b6b7f">'+brandNom()+'</b> · '+brandRif()+'</span>'+
-    '<span>'+brandCiudad()+' · '+anio+'</span>'+
+    '<span><b style="color:#5b6b7f">'+_esc(brandNom())+'</b> · '+_esc(brandRif())+'</span>'+
+    '<span>'+_esc(brandCiudad())+' · '+anio+'</span>'+
     '</div></div>';
+}
+// ── DORSO ─────────────────────────────────────────────────────────────────────
+// ⛔ El dorso NO se hornea. El de Betangar habla de la recolección de desechos
+//    sólidos junto a la Alcaldía de Maracaibo: en el carnet de un empleado de
+//    Tony Gas eso sería el texto de OTRA empresa. Cada instancia declara el suyo
+//    en `BTG_CONFIG.carnet.dorso`; sin declaración sale uno neutro que no afirma
+//    nada que la empresa no haya dicho. [[clon-no-puede-mostrar-ni-tocar-otro-cliente]]
+function _carnetDorso(){
+  var _esc=(typeof _mEsc==='function')?_mEsc:function(s){return String(s==null?'':s);};
+  var cfg=_carnetCfg(), d=cfg.dorso||{};
+  // `logo` admite una función: el archivo del logo puede cargarse DESPUÉS que BTG_CONFIG,
+  // así que se resuelve al dibujar, no al declarar.
+  var img=((typeof d.logo==='function')?d.logo():d.logo)||((typeof LOGO_SVG!=='undefined')?LOGO_SVG:'');
+  var titulo=d.titulo||'';
+  var texto=d.texto||('El portador de este carnet es personal autorizado de <b>'+_esc(brandNom())+
+    '</b>. Agradecemos brindarle <b>toda la colaboración</b> necesaria para el cumplimiento de sus labores.');
+  return '<div class="carnet" style="width:340px;height:200px;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 4px 15px rgba(0,0,0,.15);display:inline-flex;flex-direction:column;border:1px solid #e2e8f0;align-items:center;justify-content:center;text-align:center;padding:16px 20px;box-sizing:border-box">'+
+    (img?'<img src="'+img+'" style="height:52px;margin-bottom:8px;object-fit:contain">':'')+
+    (titulo?'<div style="font-weight:800;color:'+cfg.base+';margin-bottom:6px;font-size:12px">'+_esc(titulo)+'</div>':'')+
+    '<div style="font-size:11px;color:#333;line-height:1.45">'+texto+'</div>'+
+    '<div style="font-size:9px;color:#888;margin-top:10px;border-top:1px solid #e8edf2;padding-top:6px;width:100%">'+_esc(brandNom())+' · '+_esc(brandRif())+'</div>'+
+    '</div>';
 }
 function renderCarnetsPreview(){
   var el=g('carnets-preview');if(!el)return;
@@ -19043,42 +19171,34 @@ function renderCarnetsPreview(){
       '</div>';
   }).join('');
 }
-
 function imprimirCarnets(){
-  // Se imprimen los MARCADOS; si no hay ninguno, lo que se está viendo. Todos en UN solo archivo:
-  // el pedido de Yinet era dejar de hacerlo de a uno. Van agrupados por cargo y alfabéticos dentro
-  // de cada grupo, porque así se reparten.
+  // Se imprimen los MARCADOS; si no hay ninguno, lo que se está viendo. Todos en UN solo archivo.
+  // Van agrupados por cargo y alfabéticos dentro de cada grupo, porque así se reparten.
   var lista=_carnetsAImprimir().slice().sort(function(a,b){
     var ca=String(a.cargo||'ZZZ'), cb=String(b.cargo||'ZZZ');
     if(ca!==cb)return ca<cb?-1:1;
     return String(a.nombre||'')<String(b.nombre||'')?-1:1;
   });
-  if(!lista.length){alert("No hay carnets para imprimir con ese filtro.");return;}
+  if(!lista.length){alert('No hay carnets para imprimir con ese filtro.');return;}
   // Un carnet sin cédula o sin foto sale inservible: se avisa ANTES de mandar a la impresora,
-  // con los nombres, para poder cancelar y completarlos. ([norma-fotos-estandar-todas-las-apps])
+  // con los nombres, para poder cancelar y completarlos.
   var _faltan=lista.filter(function(e){return !String(e.cedula||'').trim()||!e.foto;});
   if(_faltan.length&&!confirm('⚠️ '+_faltan.length+' de los '+lista.length+' carnets van sin cédula o sin foto:\n\n'+
       _faltan.slice(0,15).map(function(e){return '· '+e.nombre+(String(e.cedula||'').trim()?'':' — sin cédula')+(e.foto?'':' — sin foto');}).join('\n')+
       (_faltan.length>15?'\n… y '+(_faltan.length-15)+' más.':'')+
       '\n\n¿Imprimir igual?'))return;
-  var alc=(typeof LOGO_ALCALDIA!=="undefined")?LOGO_ALCALDIA:'';
   var _esc=(typeof _mEsc==='function')?_mEsc:function(s){return String(s==null?'':s);};
+  var cfg=_carnetCfg();
+  var dorso=_carnetDorso();
   var cardsHtml=lista.map(function(emp){
-    var frente=_carnetFrente(emp);
-    // DORSO — logo Alcaldía + mensaje de colaboración
-    var dorso='<div class="carnet" style="width:340px;height:200px;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 4px 15px rgba(0,0,0,.15);display:inline-flex;flex-direction:column;border:1px solid #e2e8f0;align-items:center;justify-content:center;text-align:center;padding:16px 20px;box-sizing:border-box">'+
-      (alc?'<img src="'+alc+'" style="height:56px;margin-bottom:8px">':'<div style="font-weight:800;color:#1e3a5f;margin-bottom:8px">Alcaldía Bolivariana de Maracaibo</div>')+
-      '<div style="font-size:11px;color:#333;line-height:1.45">El portador de este carnet presta el servicio de <b>recolección de desechos sólidos</b> de la ciudad, en conjunto con la <b>Alcaldía Bolivariana de Maracaibo</b>. Agradecemos brindarle <b>toda la colaboración</b> necesaria para el cumplimiento de sus labores.</div>'+
-      '<div style="font-size:9px;color:#888;margin-top:10px;border-top:1px solid #e8edf2;padding-top:6px;width:100%">'+brandNom()+' · '+brandRif()+'</div>'+
-      '</div>';
     return '<div style="display:inline-flex;gap:10px;margin:8px;align-items:flex-start;vertical-align:top">'+
-      '<div style="text-align:center"><div style="font-size:8px;color:#94a3b8;text-transform:uppercase;letter-spacing:1px;margin-bottom:2px">Frente</div>'+frente+'</div>'+
+      '<div style="text-align:center"><div style="font-size:8px;color:#94a3b8;text-transform:uppercase;letter-spacing:1px;margin-bottom:2px">Frente</div>'+_carnetFrente(emp)+'</div>'+
       '<div style="text-align:center"><div style="font-size:8px;color:#94a3b8;text-transform:uppercase;letter-spacing:1px;margin-bottom:2px">Dorso</div>'+dorso+'</div>'+
       '</div>';
-  }).join("");
+  }).join('');
   var html='<html><head><meta charset="UTF-8"><style>'+BG_CSS+
     'body{background:#f0f4f8;padding:20px}'+
-    '.titulo{text-align:center;font-size:18px;font-weight:900;color:#1e3a5f;margin-bottom:6px}'+
+    '.titulo{text-align:center;font-size:18px;font-weight:900;color:'+cfg.base+';margin-bottom:6px}'+
     '.sub{text-align:center;font-size:11px;color:#64748b;margin-bottom:18px}'+
     '.grid{display:flex;flex-wrap:wrap;justify-content:center}'+
     // Al imprimir, el navegador descarta los fondos por defecto: sin esto la franja del cargo, la
@@ -19086,8 +19206,8 @@ function imprimirCarnets(){
     '@media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact}'+
     '.carnet,.card-top,.cn-stripe,.cn-cargo,.cn-ini{-webkit-print-color-adjust:exact;print-color-adjust:exact}'+
     '.carnet{page-break-inside:avoid;break-inside:avoid}'+
-    '.card-top{background:linear-gradient(135deg,#1e3a5f,#0f2340)!important}}</style></head><body>'+
-    '<div class="titulo">Carnets de Identificación — '+brandNom()+'</div>'+
+    '.card-top{background:linear-gradient(135deg,'+cfg.base+','+cfg.base2+')!important}}</style></head><body>'+
+    '<div class="titulo">Carnets de Identificación — '+_esc(brandNom())+'</div>'+
     '<div class="sub">'+lista.length+' carnet(s) · '+
       (function(){var c={};lista.forEach(function(e){var k=e.cargo||'Sin cargo';c[k]=(c[k]||0)+1;});
         return Object.keys(c).sort().map(function(k){return _esc(k)+': '+c[k];}).join(' · ');})()+
@@ -25312,8 +25432,12 @@ function generarQRChoferes(){
 // Si no hay unidad elegida, NO se muere con un alert: abre el selector de unidades
 // (el reclamo era "no funciona / no da la selección de la unidad").
 function _elegirUnidadQR(){
+  // Igual que en órdenes: primero se piden, y recién si de verdad no hay, se avisa.
   var unidades = (typeof _hvUnidades==='function') ? _hvUnidades() : [];
-  if(!unidades.length){ alert('No hay unidades cargadas todavía.'); return; }
+  if(!unidades.length){ _unidadesAsegurar().then(function(u){
+      if(_hvUnidades().length) _elegirUnidadQR();
+      else alert('No hay unidades cargadas todavía.\n\nSe cargan en Mantenimiento → Unidades.');
+    }); return; }
   var id='modal-qr-unidad', old=g(id); if(old) old.remove();
   var m=document.createElement('div'); m.id=id;
   m.style.cssText='position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.8);z-index:9999;display:flex;align-items:center;justify-content:center';
