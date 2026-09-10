@@ -219,6 +219,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
 <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <link rel="stylesheet" href="maxrecuerda.css?v=20260806-maxrecuerda">
+<link rel="stylesheet" href="maxagenda.css?v=20260910-maxagenda">
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
 <script>
@@ -341,6 +342,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
     <div class="menu-item" onclick="sp('config')" id="mi-config">⚙️ Configuracion</div>
     <div class="menu-item" onclick="sp('mensajes-wa')" id="mi-mensajes-wa">📢 Mensajes WA</div>
     <div class="menu-item" onclick="sp('recordatorios')" id="mi-recordatorios">⏰ Recordatorios</div>
+    <div class="menu-item" onclick="sp('agenda')" id="mi-agenda">🗓️ Agenda</div>
     <div class="menu-item" onclick="sp('galeria')" id="mi-galeria">🏗️ Galeria</div>
     <div style="height:1px;background:var(--border);margin:6px 0"></div>
     <div class="menu-item" id="mi-seguridad-2fa" onclick="gestionar2FA()" style="display:flex">🔐 Seguridad (2FA)</div>
@@ -2599,6 +2601,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
 
 <!-- CONFIG -->
 <div id="p-recordatorios" class="page"></div>
+<div id="p-agenda" class="page"></div>
 
 <div id="p-config" class="page">
   <div class="switch-row" style="margin-bottom:10px">
@@ -3049,6 +3052,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
 
 <script src="logo-alcaldia.js?v=1"></script>
 <script src="maxrecuerda.js?v=20260806-maxrecuerda"></script>
+<script src="maxagenda.js?v=20260910-maxagenda"></script>
 <!-- Formato unico de los Excel de Maxware. VA ANTES de app.js. -->
 <script src="maxware-excel.js"></script>
 <script src="app.js?v=20260910-1547"></script>

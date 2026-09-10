@@ -449,6 +449,19 @@ var PERMISOS={
   if(PERMISOS[r] && PERMISOS[r].indexOf('recordatorios')<0) PERMISOS[r].push('recordatorios');
 });
 
+// MaxAgenda — quien lleva agenda, mas quien la reparte. Va ANTES de
+// `PERMISOS.revisor = PERMISOS.superadmin.slice()` para que el revisor lo herede
+// solo: fuente unica, igual que el resto.
+// ⚠️ Esto NO es el candado: lo que cada uno VE lo decide `agn_nivel()` en la
+// base, persona por persona. Esto solo evita ensenar una puerta que no abre —
+// quien no lleva agenda y no es dueno del negocio entraria a una pantalla que
+// le dice «no ves ninguna agenda», y eso se lee como que el modulo esta roto.
+// `operativo` entra porque Samuel Mendoza lleva agenda; `auditor` NO, porque
+// auditar es mirar la flota y no hay agenda abierta para ella.
+['superadmin','admin','operador','rrhh','operativo'].forEach(function(r){
+  if(PERMISOS[r] && PERMISOS[r].indexOf('agenda')<0) PERMISOS[r].push('agenda');
+});
+
 // ── REVISOR (era `auditor` hasta el 2026-08-11) ──────────────────────────────────────────────
 // Ve TODO, no borra, y cualquier borrado le pide el token del dueño. Es el acceso de Alejandra
 // (QA/soporte de Maxware). Va DESPUÉS de los push de arriba a propósito: copia la lista de
@@ -4045,6 +4058,7 @@ function sp(id){
     if(id==='llantas'){renderMantSubnav('llantas');cargarLlantas().then(function(){renderLlantas();}).catch(function(){renderLlantas();});}
     if(id==='metas'){renderAnalisisSubnav('metas');prefillMeta();}
     if(id==='recordatorios')renderMaxRecuerda();
+    if(id==='agenda')renderMaxAgenda();
     if(id==='contratos')renderContratosLista();
     if(id==='multicontrato')abrirMultiContrato();
     if(id==='config'){var _ce=g('cfg-especial'); if(_ce)_ce.checked=(typeof cfg!=='undefined'&&cfg&&cfg.especial===false)?false:true; if(typeof _cfgEspecialUI==='function')_cfgEspecialUI(); renderFlotaCfgLista();renderNomAdm();renderWANums();renderWAEmpresarial();renderRecordatorios();renderCfgCorrelativo();}
@@ -29120,6 +29134,33 @@ function renderMaxRecuerda(){
   // veces por minuto. Es el mismo error de los timers apilados del operativo.
   if(_MRQ_CERRAR){ try{ _MRQ_CERRAR(); }catch(e){} _MRQ_CERRAR = null; }
   _MRQ_CERRAR = MaxRecuerda.montar(el, { supabase: supabase });
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// MAXAGENDA — la agenda de los directivos (modulo LEGO, ver ~/maxagenda)
+//
+// ETAPA 2: se LEE y se reparten los permisos. Todavia NO se puede crear una
+// reunion (eso es la etapa 3, con el aviso por WhatsApp y el token de
+// respuesta), y por eso la pantalla NO dibuja un boton «Nueva reunion»: un
+// boton que no hace nada se ve igual que uno roto.
+//
+// ⛔ La privacidad NO esta en esta pantalla: `agn_dia()` ya devuelve en null lo
+// que el que mira no puede ver. Si algun dia hay que esconder un campo aca, el
+// error esta en la base.
+// ═══════════════════════════════════════════════════════════════════════════
+var _MAG_CERRAR = null;
+function renderMaxAgenda(){
+  var el = g('p-agenda');
+  if(!el) return;
+  if(typeof MaxAgenda === 'undefined'){
+    el.innerHTML = '<div style="padding:24px;color:var(--red)">No cargo maxagenda.js. '+
+                   'Recarga con Ctrl+F5.</div>';
+    return;
+  }
+  // Desmontar el anterior antes de montar: si no, cada visita deja otro estado
+  // vivo. Es el mismo error de los timers apilados del operativo.
+  if(_MAG_CERRAR){ try{ _MAG_CERRAR(); }catch(e){} _MAG_CERRAR = null; }
+  _MAG_CERRAR = MaxAgenda.montar(el, { supabase: supabase });
 }
 
 // La campanita de la barra de arriba: se monta UNA vez, cuando ya hay sesion.

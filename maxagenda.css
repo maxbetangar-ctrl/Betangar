@@ -1,0 +1,300 @@
+/* ==========================================================================
+   MaxAgenda — la vestimenta
+   ==========================================================================
+
+   ⛔ LA PALETA NO SE INVENTÓ: son los mismos valores de `maxrecuerda.css`, con
+   el prefijo cambiado. MaxAgenda y MaxRecuerda son UN solo LEGO con dos caras y
+   se venden con una licencia: si se ven como dos programas distintos, el cliente
+   entiende que son dos programas distintos. Lo que cambia acá es la REJILLA, que
+   MaxRecuerda no tiene.
+
+   Todo va prefijado `mag-` y encerrado en `.mag`, para que no se pelee con el
+   CSS de la app anfitriona ni se lo lleve por delante. Sin fuentes externas:
+   funciona sin internet y no rompe ninguna política de contenido.
+
+   ⚠️ EL COLOR DICE EL ESTADO, y nada más:
+        ámbar  → espera tu respuesta (hay algo que hacer)
+        azul   → propuesta esperando a los otros
+        verde  → confirmada
+        rojo   → se cayó / el módulo está roto
+        gris   → ocupado sin detalle. A propósito SIN color: un bloque que no
+                 podés leer no debe llamarte la atención.
+   ========================================================================== */
+
+.mag {
+  --mag-fondo:      #f6f7f9;
+  --mag-papel:      #ffffff;
+  --mag-papel-2:    #fbfcfd;
+  --mag-borde:      #e3e7ec;
+  --mag-borde-2:    #cfd6de;
+  --mag-tinta:      #10151c;
+  --mag-tinta-2:    #56616f;
+  --mag-tinta-3:    #8b96a4;
+
+  --mag-urgente:    #d92d20;
+  --mag-urgente-b:  #fef3f2;
+  --mag-urgente-t:  #912018;
+  --mag-espera:     #dc6803;
+  --mag-espera-b:   #fffaeb;
+  --mag-espera-t:   #93370d;
+  --mag-normal:     #2570eb;
+  --mag-normal-b:   #eff6ff;
+  --mag-normal-t:   #1849a9;
+  --mag-ok:         #079455;
+  --mag-ok-b:       #ecfdf3;
+  --mag-ok-t:       #05603a;
+
+  --mag-marca:      #111827;
+  --mag-marca-t:    #ffffff;
+
+  --mag-r:          12px;
+  --mag-r-s:        8px;
+  --mag-sombra:     0 1px 2px rgba(16,24,40,.05), 0 1px 3px rgba(16,24,40,.08);
+  --mag-sombra-2:   0 8px 24px rgba(16,24,40,.10), 0 2px 6px rgba(16,24,40,.06);
+
+  --mag-tipo: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+              "Helvetica Neue", Arial, sans-serif;
+  --mag-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  /* Alto de una hora en la rejilla. Una sola variable: la reunión de 30 min
+     tiene que medir exactamente la mitad que la de una hora, o la rejilla
+     miente sobre cuánto dura algo. */
+  --mag-hora: 54px;
+}
+
+/* El tema oscuro sale del sistema, y `data-mag-tema` manda por encima: si la app
+   anfitriona ya tiene su interruptor, MaxAgenda lo obedece en vez de pelearse. */
+@media (prefers-color-scheme: dark) {
+  .mag:not([data-mag-tema="claro"]) {
+    --mag-fondo: #0d1117;  --mag-papel: #161b22;  --mag-papel-2: #1c222b;
+    --mag-borde: #262d38;  --mag-borde-2: #39414f;
+    --mag-tinta: #e9edf2;  --mag-tinta-2: #9aa5b4; --mag-tinta-3: #6e7a8a;
+    --mag-urgente-b: #2b1414; --mag-urgente-t: #ff9c96;
+    --mag-espera-b:  #2a1e0c; --mag-espera-t:  #ffc46b;
+    --mag-normal-b:  #0f1d33; --mag-normal-t:  #8ab4ff;
+    --mag-ok-b:      #0d2419; --mag-ok-t:      #6fdca0;
+    --mag-marca: #e9edf2; --mag-marca-t: #0d1117;
+  }
+}
+.mag[data-mag-tema="oscuro"] {
+  --mag-fondo: #0d1117;  --mag-papel: #161b22;  --mag-papel-2: #1c222b;
+  --mag-borde: #262d38;  --mag-borde-2: #39414f;
+  --mag-tinta: #e9edf2;  --mag-tinta-2: #9aa5b4; --mag-tinta-3: #6e7a8a;
+  --mag-urgente-b: #2b1414; --mag-urgente-t: #ff9c96;
+  --mag-espera-b:  #2a1e0c; --mag-espera-t:  #ffc46b;
+  --mag-normal-b:  #0f1d33; --mag-normal-t:  #8ab4ff;
+  --mag-ok-b:      #0d2419; --mag-ok-t:      #6fdca0;
+  --mag-marca: #e9edf2; --mag-marca-t: #0d1117;
+}
+
+.mag, .mag * { box-sizing: border-box; }
+.mag {
+  font-family: var(--mag-tipo);
+  color: var(--mag-tinta);
+  background: var(--mag-fondo);
+  padding: 18px 16px 40px;
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Cabecera ───────────────────────────────────────────────────────────── */
+.mag-top {
+  display: flex; align-items: flex-start; gap: 14px; flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+.mag-top h2 {
+  margin: 0 0 2px; font-size: 21px; font-weight: 700; letter-spacing: -.02em;
+  display: flex; align-items: center; gap: 8px;
+}
+.mag-sub { color: var(--mag-tinta-2); font-size: 13px; }
+.mag-top-der { margin-left: auto; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+.mag-btn {
+  font: inherit; font-weight: 600; font-size: 13px;
+  background: var(--mag-papel); color: var(--mag-tinta);
+  border: 1px solid var(--mag-borde-2); border-radius: var(--mag-r-s);
+  padding: 7px 12px; cursor: pointer; box-shadow: var(--mag-sombra);
+}
+.mag-btn:hover { background: var(--mag-papel-2); }
+.mag-btn:disabled { opacity: .5; cursor: not-allowed; }
+.mag-btn-p { background: var(--mag-marca); color: var(--mag-marca-t); border-color: var(--mag-marca); }
+.mag-btn-ok { background: var(--mag-ok); color: #fff; border-color: var(--mag-ok); }
+.mag-btn-no { background: var(--mag-papel); color: var(--mag-urgente-t); border-color: var(--mag-urgente); }
+.mag-btn-s { padding: 4px 9px; font-size: 12px; }
+
+/* El navegador de fecha. `Hoy` en el medio a propósito: es el botón que se
+   aprieta cuando uno se perdió. */
+.mag-fecha { display: flex; align-items: center; gap: 4px; }
+.mag-fecha .mag-dia {
+  min-width: 176px; text-align: center; font-weight: 700; font-size: 13.5px;
+  text-transform: capitalize;
+}
+
+/* ── Pestañas ───────────────────────────────────────────────────────────── */
+.mag-tabs {
+  display: flex; gap: 2px; border-bottom: 1px solid var(--mag-borde);
+  margin: 0 0 16px; overflow-x: auto;
+}
+.mag-tab {
+  font: inherit; font-size: 13.5px; font-weight: 600;
+  background: none; border: 0; border-bottom: 2px solid transparent;
+  color: var(--mag-tinta-3); padding: 9px 13px; cursor: pointer; white-space: nowrap;
+}
+.mag-tab:hover { color: var(--mag-tinta); }
+.mag-tab[aria-selected="true"] { color: var(--mag-normal-t); border-bottom-color: var(--mag-normal); }
+.mag-tab .mag-pin {
+  display: inline-block; min-width: 18px; margin-left: 5px; padding: 0 5px;
+  background: var(--mag-espera); color: #fff; border-radius: 9px;
+  font-size: 11px; font-weight: 700; line-height: 18px; text-align: center;
+}
+
+/* ── El grito de cuando el módulo no puede trabajar ─────────────────────── */
+.mag-roto {
+  background: var(--mag-urgente-b); border: 1px solid var(--mag-urgente);
+  border-radius: var(--mag-r); padding: 12px 14px; margin-bottom: 14px;
+}
+.mag-roto b { color: var(--mag-urgente-t); }
+.mag-roto ul { margin: 6px 0 0; padding-left: 20px; color: var(--mag-urgente-t); font-size: 13px; }
+
+/* ── Tarjetas de reunión (Mi agenda) ───────────────────────────────────── */
+.mag-lista { display: flex; flex-direction: column; gap: 10px; }
+.mag-grupo-tit {
+  font-size: 12px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase;
+  color: var(--mag-tinta-3); margin: 18px 0 8px;
+}
+.mag-grupo-tit:first-child { margin-top: 0; }
+
+.mag-card {
+  display: grid; grid-template-columns: 62px 1fr; gap: 14px;
+  background: var(--mag-papel); border: 1px solid var(--mag-borde);
+  border-left: 3px solid var(--mag-borde-2);
+  border-radius: var(--mag-r); padding: 13px 15px; box-shadow: var(--mag-sombra);
+}
+.mag-card[data-est="espera"]     { border-left-color: var(--mag-espera); }
+.mag-card[data-est="propuesta"]  { border-left-color: var(--mag-normal); }
+.mag-card[data-est="confirmada"] { border-left-color: var(--mag-ok); }
+.mag-card[data-est="caida"]      { border-left-color: var(--mag-urgente); }
+
+.mag-hhmm { text-align: right; }
+.mag-hhmm .h { font-family: var(--mag-mono); font-size: 17px; font-weight: 700; letter-spacing: -.02em; }
+.mag-hhmm .d { font-size: 11.5px; color: var(--mag-tinta-3); margin-top: 1px; }
+.mag-card h4 { margin: 0 0 3px; font-size: 15px; font-weight: 700; letter-spacing: -.01em; }
+.mag-card .mag-donde { font-size: 13px; color: var(--mag-tinta-2); }
+.mag-card .mag-quienes { font-size: 12.5px; color: var(--mag-tinta-3); margin-top: 3px; }
+.mag-acc { display: flex; gap: 7px; margin-top: 10px; flex-wrap: wrap; }
+
+.mag-pill {
+  display: inline-block; font-size: 10.5px; font-weight: 700; letter-spacing: .05em;
+  text-transform: uppercase; padding: 2px 7px; border-radius: 5px;
+  border: 1px solid transparent; vertical-align: 2px; margin-left: 7px;
+}
+.mag-pill-ob { background: var(--mag-urgente-b); color: var(--mag-urgente-t); border-color: var(--mag-urgente); }
+.mag-pill-es { background: var(--mag-espera-b);  color: var(--mag-espera-t);  border-color: var(--mag-espera); }
+.mag-pill-ok { background: var(--mag-ok-b);      color: var(--mag-ok-t);      border-color: var(--mag-ok); }
+.mag-pill-pe { background: var(--mag-papel-2);   color: var(--mag-tinta-2);   border-color: var(--mag-borde-2); }
+
+/* ── La rejilla del día ─────────────────────────────────────────────────── */
+.mag-rejilla-wrap { overflow-x: auto; border: 1px solid var(--mag-borde);
+  border-radius: var(--mag-r); background: var(--mag-papel); }
+.mag-rejilla { display: flex; min-width: 560px; }
+
+.mag-horas { flex: 0 0 54px; border-right: 1px solid var(--mag-borde); }
+.mag-col { flex: 1 1 0; min-width: 132px; border-right: 1px solid var(--mag-borde); }
+.mag-col:last-child { border-right: 0; }
+.mag-col[data-clase="recurso"] { background: var(--mag-papel-2); }
+
+.mag-cabeza {
+  height: 50px; padding: 7px 9px; border-bottom: 1px solid var(--mag-borde);
+  display: flex; align-items: center; gap: 7px;
+  position: sticky; top: 0; background: inherit; z-index: 2;
+}
+.mag-horas .mag-cabeza { background: var(--mag-papel); }
+.mag-ini {
+  flex: 0 0 26px; height: 26px; border-radius: 50%;
+  background: var(--mag-marca); color: var(--mag-marca-t);
+  font-size: 10.5px; font-weight: 700; display: flex; align-items: center;
+  justify-content: center; letter-spacing: .02em;
+}
+.mag-col[data-mia="1"] .mag-ini { background: var(--mag-normal); }
+.mag-cabeza .n { font-size: 12.5px; font-weight: 700; line-height: 1.2;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mag-cabeza .v { font-size: 10px; color: var(--mag-tinta-3); }
+
+.mag-pista { position: relative; }
+.mag-hfila {
+  height: var(--mag-hora); border-bottom: 1px solid var(--mag-borde);
+  font-family: var(--mag-mono); font-size: 10.5px; color: var(--mag-tinta-3);
+  padding: 2px 6px 0 0; text-align: right;
+}
+.mag-hlinea { height: var(--mag-hora); border-bottom: 1px dashed var(--mag-borde); }
+
+.mag-bloque {
+  position: absolute; left: 3px; right: 3px; overflow: hidden;
+  border-radius: 6px; padding: 4px 6px; font-size: 11.5px; line-height: 1.25;
+  border: 1px solid var(--mag-borde-2); background: var(--mag-papel-2);
+  cursor: default;
+}
+.mag-bloque .t { font-weight: 700; display: block;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mag-bloque .s { color: var(--mag-tinta-3); font-size: 10.5px; display: block;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mag-bloque[data-v="detalle"]  { background: var(--mag-normal-b); border-color: var(--mag-normal); }
+.mag-bloque[data-v="detalle"][data-est="confirmado"] { background: var(--mag-ok-b); border-color: var(--mag-ok); }
+.mag-bloque[data-v="personal"] { background: var(--mag-papel-2); border-style: dashed; }
+/* ⚠️ El gris es a propósito: un bloque que no podés leer no debe llamarte la
+   atención. Si fuera de color, la pantalla estaría gritando algo que no dice. */
+.mag-bloque[data-v="ocupado"]  { background: var(--mag-papel-2); color: var(--mag-tinta-2); }
+
+.mag-pie-rejilla { font-size: 12px; color: var(--mag-tinta-3); margin-top: 9px;
+  display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+
+/* ── ¿Quién ve mi agenda? ───────────────────────────────────────────────── */
+.mag-perm { background: var(--mag-papel); border: 1px solid var(--mag-borde);
+  border-radius: var(--mag-r); box-shadow: var(--mag-sombra); overflow: hidden; }
+.mag-fila {
+  display: grid; grid-template-columns: 34px 1fr auto; gap: 12px;
+  align-items: center; padding: 12px 15px; border-bottom: 1px solid var(--mag-borde);
+}
+.mag-fila:last-child { border-bottom: 0; }
+.mag-fila .nom { font-weight: 600; font-size: 14px; }
+.mag-fila .ayuda { font-size: 12px; color: var(--mag-tinta-3); }
+.mag-fila select {
+  font: inherit; font-size: 13px; padding: 6px 9px; border-radius: var(--mag-r-s);
+  border: 1px solid var(--mag-borde-2); background: var(--mag-papel); color: var(--mag-tinta);
+  max-width: 220px;
+}
+.mag-fila[data-fijo="1"] { background: var(--mag-papel-2); }
+.mag-fijo { font-size: 12px; color: var(--mag-tinta-3); font-style: italic; }
+
+.mag-nota {
+  background: var(--mag-normal-b); border: 1px solid var(--mag-normal);
+  color: var(--mag-normal-t); border-radius: var(--mag-r);
+  padding: 11px 14px; font-size: 13px; margin: 14px 0;
+}
+.mag-nota b { font-weight: 700; }
+
+/* ── Vacíos que enseñan qué hacer, no cajones vacíos ────────────────────── */
+.mag-vacio {
+  background: var(--mag-papel); border: 1px dashed var(--mag-borde-2);
+  border-radius: var(--mag-r); padding: 30px 22px; text-align: center;
+  color: var(--mag-tinta-2);
+}
+.mag-vacio .ic { font-size: 30px; display: block; margin-bottom: 8px; opacity: .65; }
+.mag-vacio b { display: block; color: var(--mag-tinta); font-size: 15px; margin-bottom: 4px; }
+.mag-vacio .q { font-size: 13px; }
+
+.mag-cargando { padding: 36px; text-align: center; color: var(--mag-tinta-3); font-size: 13px; }
+
+.mag-aviso { font-size: 13px; padding: 9px 12px; border-radius: var(--mag-r-s);
+  margin: 10px 0; border: 1px solid transparent; }
+.mag-aviso-ok  { background: var(--mag-ok-b); color: var(--mag-ok-t); border-color: var(--mag-ok); }
+.mag-aviso-mal { background: var(--mag-urgente-b); color: var(--mag-urgente-t); border-color: var(--mag-urgente); }
+
+@media (max-width: 620px) {
+  .mag { padding: 14px 10px 30px; }
+  .mag-card { grid-template-columns: 52px 1fr; gap: 10px; }
+  .mag-fila { grid-template-columns: 30px 1fr; }
+  .mag-fila select, .mag-fila .mag-fijo { grid-column: 2; max-width: none; width: 100%; }
+}
+@media (prefers-reduced-motion: reduce) { .mag * { transition: none !important; animation: none !important; } }
