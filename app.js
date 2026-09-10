@@ -23743,7 +23743,10 @@ function portIniciar(){
       }).catch(function(e){ console.log('[porteria_personas]', e&&e.message); });
     }
   }
-  var cams=['JAC-B001','JAC-B002','JAC-B003','JAC-B004','JAC-B005','JAC-B006','JAC-B007','JAC-B008','JAC-B009','JAC-B010','JAC-B011','JAC-B012'];
+  // ⛔ ACA VENIAN CLAVADAS LAS 12 UNIDADES DE BETANGAR. En un clon, el vigilante de
+  //    OTRA empresa veia la flota de Betangar en su lista de la garita. Es la misma
+  //    fuga que el `FLOTA` horneado que reporto la clienta el 01/09. (10/09/2026)
+  var cams=PORT_CAMS_LISTA();
   if(camDl)camDl.innerHTML=cams.map(function(c){return'<option value="'+c+'">';}).join('')+'<option value="Gasoil"><option value="Repuestos"><option value="Herramientas"><option value="Material de trabajo"><option value="Proveedor">';
   portCargarHoy();
   try{ portHistSemana(); }catch(e){}
@@ -24631,11 +24634,25 @@ function operVerFlota(){
 }
 
 
-var PORT_CAMS_LISTA=Object.keys(FLOTA).filter(function(c){return !c.startsWith('SRV');}).sort();
+// ⛔ ERA UNA FOTO SACADA AL CARGAR LA PÁGINA, Y DE `FLOTA`. Dos problemas a la vez:
+//    en los clones `FLOTA` está VACÍO a propósito, así que la pantalla de Camiones de
+//    la garita salía SIN NINGUNA UNIDAD; y como es una `var` de arranque, ni siquiera
+//    se enteraba cuando las unidades terminaban de cargar. Ahora se pregunta al abrir,
+//    a la misma fuente única que el resto de la app.  (10/09/2026)
+function PORT_CAMS_LISTA(){ return (typeof _unidadesTodas==='function')?_unidadesTodas():Object.keys(FLOTA||{}).sort(); }
 
 function portAbrirCamiones(){
+  // Si las unidades todavía no están en memoria se piden y se vuelve a abrir: la
+  // garita es de las primeras pantallas que se tocan y no pasa por Mantenimiento.
+  if(typeof _unidadesAsegurar==='function' && !PORT_CAMS_LISTA().length){
+    _unidadesAsegurar().then(function(u){
+      if(u.length) portAbrirCamiones();
+      else alert('Todavía no hay unidades cargadas en el sistema.');
+    });
+    return;
+  }
   PORT_CAMS_MAP = {};
-  var html = PORT_CAMS_LISTA.map(function(cam){
+  var html = PORT_CAMS_LISTA().map(function(cam){
     return '<div id="port-cam-card-'+cam.replace(/-/g,'')+'" style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:14px;margin-bottom:10px">'+
       '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">'+
       '<div style="font-size:16px;font-weight:700;color:var(--text1)">🚛 '+cam+'</div>'+
@@ -26063,7 +26080,18 @@ function renderUnidadesSelect(valorActual){
   // ⛔ Si lo que la persona YA tiene no está en la lista, el navegador muestra la
   //    primera opción como si fuera la suya y al guardar se la reescribe sin que
   //    nadie lo pida. Se agrega su valor al final, marcado, en vez de perderlo.
+  // ⛔ Y LAS UNIDADES SALEN DE LA FLOTA VIVA, NO DE `cfg`. Hasta el 10/09/2026
+  //    `cfg.unidades_areas` traía HORNEADAS las 12 unidades de Betangar, y en un
+  //    clon eso significaba que al dar de alta a un empleado el desplegable de
+  //    «Unidad» ofrecía la flota de OTRA empresa. Es la misma fuga que la clienta
+  //    reportó el 01/09 con el `FLOTA` horneado. Lo que queda en `cfg` son las
+  //    ÁREAS (ADM, PORTERIA, MANT…), que sí son genéricas.
   var lista = cfg.unidades_areas.slice();
+  try{
+    (typeof _unidadesTodas==='function'?_unidadesTodas():[]).forEach(function(u){
+      if(u && lista.indexOf(u)<0) lista.push(u);
+    });
+  }catch(e){}
   var actual = (valorActual||'').trim();
   if(actual && lista.indexOf(actual) < 0) lista.push(actual);
   sel.innerHTML = lista.map(function(u){
