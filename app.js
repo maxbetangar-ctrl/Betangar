@@ -25024,7 +25024,7 @@ function verificarCruceExcel(planillas){
         '<div style="font-size:11px;color:var(--text3);margin-bottom:10px">Solo se miran los días en que fichó alguien. Esto NO es una falta comprobada: es una diferencia para revisar.</div>';
       discrepancias.slice(0,8).forEach(function(d){
         html+='<div style="border-top:1px solid rgba(226,75,74,.2);padding:8px 0"><b style="font-size:12px">'+formatFecha(d.fecha)+'</b>';
-        if(d.sinAsis.length)html+='<div style="font-size:11px;color:var(--red)">En planilla y SIN fichar: '+esc(d.sinAsis.join(', '))+'</div>';
+        if(d.sinAsis.length)html+='<div style="font-size:11px;color:var(--red)">En planilla y SIN fichar: '+esc(d.sinAsis.join('  ·  '))+'</div>';
         html+='</div>';
       });
       if(discrepancias.length>8)html+='<div style="font-size:11px;color:var(--text3);padding-top:6px">… y '+(discrepancias.length-8)+' día(s) más.</div>';
