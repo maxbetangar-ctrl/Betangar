@@ -24871,65 +24871,159 @@ function mostrarAlertaDiscrepancia(personas,tipo,fecha){
 function verificarCruceExcel(planillas){
   if(!DB_READY||!supabase)return;
   var fechas=(function(){var s={},a=[];planillas.forEach(function(r){if(!s[r.f]){s[r.f]=1;a.push(r.f);}});return a.sort();})();
-  // 🔴 ESTE CONTROL ESTÁ MUDO, Y HAY QUE DECIRLO. Cruza la planilla contra la asistencia
-  //    marcada a mano en portería — que desde el 10/09/2026 ya no existe, y que además tenía
-  //    CERO filas en las cinco bases desde siempre. O sea: corre en cada importación de Excel
-  //    y no ha avisado nunca, no porque todo esté bien sino porque no tiene qué leer.
-  // ⇒ DECISIÓN PENDIENTE: repuntarlo a `asistencia_dia` (el fichaje con foto: 1.785 filas,
-  //    56 personas, del 20/07 al 10/09, todas con origen='fichaje').
-  // ⛔ Y NO SE COPIA LA VERSIÓN DEL CLON TAL CUAL: allá el cruce ya lee `asistencia_dia` con
-  //    `.eq('estado','presente')`, y la `asistencia_dia` de BETANGAR NO TIENE la columna
-  //    `estado` (14 columnas contra 15). Copiado a ciegas, esto da 400 — y un 400 dentro de
-  //    un `.then()` deja el control igual de mudo que ahora, pero pareciendo arreglado.
-  //    NO se hizo de una porque ese cruce ACUSA gente: hay que medir antes qué pasa con quien
-  //    trabaja en un sitio sin geocerca o con el teléfono sin señal, o el control va a nombrar
-  //    a quien sí estuvo. [[norma-una-alerta-no-puede-nombrar-a-quien-no-estaba]]
-  // ⚠️ Mientras tanto AVISA EN CONSOLA en vez de volverse en silencio: un control que se
-  //    calla se ve igual que un control que no encontró nada.
-  supabase.from('porteria').select('nombre,subtipo,fecha').eq('tipo','asistencia').in('fecha',fechas).then(function(res){
-    if(!res.data||!res.data.length){
-      console.warn('[verificarCruceExcel] sin fuente: la asistencia manual de portería se retiró el 10/09/2026. Este cruce no está midiendo nada hasta que se lo apunte a `asistencia_dia`.');
+  if(!fechas.length)return;
+  // ══════════════════════════════════════════════════════════════════════════
+  // CRUCE PLANILLA ↔ FICHAJE — encendido el 10/09/2026 por decisión de Máximo
+  //
+  // ⛔ ANTES ESTABA MUDO Y PARECÍA SANO. Leía la asistencia marcada a mano en
+  //    portería, que tenía CERO filas desde siempre en las cinco bases. Corría en
+  //    cada importación de Excel y no avisó nunca — no porque todo estuviera bien,
+  //    sino porque no tenía qué leer. [[norma-mirar-la-ultima-corrida-no-la-existencia]]
+  //
+  // ⛔ NO SE COPIÓ LA VERSIÓN DEL CLON: allá filtra por `estado='presente'` y la
+  //    `asistencia_dia` de Betangar NO TIENE esa columna (14 contra 15). A ciegas
+  //    daba 400 — y un 400 adentro de un `.then()` lo dejaba igual de mudo pero
+  //    pareciendo arreglado. Acá TODAS las filas son fichajes (`origen='fichaje'`,
+  //    medido: 1.785 de 1.785), así que la presencia es la fila misma.
+  //
+  // ⛔ Y ESTE CONTROL ACUSA PERSONAS. Se midió ANTES de encenderlo, contra los
+  //    datos reales (518 planillas y 1.785 fichajes desde el 20/07):
+  //      · 1.191 persona-día en planilla en días con fichaje;
+  //      · 60 sin fichaje = 5%. De esas, la enorme mayoría son de gente que ficha
+  //        todos los días (33 a 49 veces) y aparece 1 o 2 veces: FALTAS REALES.
+  //      · pero 10 de las 60 eran RUIDO, y de tres clases distintas.
+  //    Por eso el aviso NO es una sola lista: separa lo que puede afirmar de lo
+  //    que no. [[norma-una-alerta-no-puede-nombrar-a-quien-no-estaba]]
+  //
+  //    1) NOMBRE AMBIGUO. La planilla dice «LUIS FERNANDEZ FERRER» y en la nómina
+  //       hay DOS: «LUIS ALEJANDRO» y «LUIS ALEXANDER FERNANDEZ FERRER», los dos
+  //       ayudantes activos. Siete acusaciones salían de ahí. El sistema NO elige
+  //       —elegir mal acusa a quien sí estuvo— y tampoco se calla: pide que lo
+  //       escriban completo. [[norma-lo-ambiguo-se-mide-entre-candidatos]]
+  //    2) NUNCA FICHA. Quien tiene CERO fichajes en todo el período no faltó: no
+  //       usa el fichaje (sin teléfono, sitio sin geocerca, o se dio de baja). Si
+  //       se lo acusa, aparece TODOS los días y el aviso se vuelve papel tapiz.
+  //    3) NO ESTÁ ACTIVO. Un empleado inactivo dentro de una planilla es un
+  //       hallazgo, pero es OTRO: no es «no fichó», es «no debería estar ahí».
+  //
+  // ⚠️ Y solo se mira un día si ESE día fichó alguien: si no fichó nadie —feriado,
+  //    caída del servidor, sin señal— la ausencia de fichajes no acusa a nadie.
+  // ══════════════════════════════════════════════════════════════════════════
+  var _nn=(typeof _normNom==='function')?_normNom:function(s){return String(s||'').toUpperCase().trim();};
+
+  supabase.from('asistencia_dia').select('nombre,fecha').in('fecha',fechas).then(function(res){
+    if(res.error){ console.warn('[verificarCruceExcel] no se pudo leer asistencia_dia:', res.error.message); return; }
+    var filas=res.data||[];
+    if(!filas.length){
+      // ⛔ Se DICE. Un control que se calla se ve igual que uno que no encontró nada.
+      console.warn('[verificarCruceExcel] no hay ni un fichaje en las '+fechas.length+' fecha(s) de este Excel: no se cruza nada (no se acusa a nadie por falta de datos).');
       return;
     }
-    var discrepancias=[];
-    fechas.forEach(function(fecha){
-      var asistentes=(res.data||[]).filter(function(r){return r.fecha===fecha&&(r.subtipo==='llegó'||r.subtipo==='biometrico');}).map(function(r){return r.nombre.toUpperCase();});
-      if(!asistentes.length)return;
-      var planDia=planillas.filter(function(r){return r.f===fecha;});
-      var enPlanillas=new Set();
-      planDia.forEach(function(r){
-        if(r.ch)enPlanillas.add(r.ch.toUpperCase());
-        if(r.ay1)enPlanillas.add(r.ay1.toUpperCase());
-        if(r.ay2)enPlanillas.add(r.ay2.toUpperCase());
-      });
-      var sinAsis=(function(){var r=[];enPlanillas.forEach(function(n){if(n&&asistentes.indexOf(n)<0)r.push(n);});return r;})();
-      var sinPlan=asistentes.filter(function(n){
-        var emp=EMPLEADOS.find(function(e){return e.nombre.toUpperCase()===n&&(e.cargo==='Chofer'||e.cargo==='Ayudante');});
-        return emp&&!enPlanillas.has(n);
-      });
-      if(sinAsis.length||sinPlan.length)discrepancias.push({fecha:fecha,sinAsis:sinAsis,sinPlan:sinPlan});
+
+    // Índices: quién fichó cada día, y cuántas veces fichó cada quien EN TODO el Excel.
+    var fichoEse={}, fichoAlguna={};
+    filas.forEach(function(r){
+      var n=_nn(r.nombre); if(!n)return;
+      fichoEse[r.fecha+'|'+n]=1;
+      fichoAlguna[n]=(fichoAlguna[n]||0)+1;
     });
+
+    // La nómina, normalizada, para resolver ambigüedad y estado.
+    var porNombre={};
+    (typeof EMPLEADOS!=='undefined'?EMPLEADOS:[]).forEach(function(e){
+      var n=_nn(e.nombre); if(!n)return;
+      (porNombre[n]=porNombre[n]||[]).push(e);
+    });
+    // Candidatos para un nombre CORTO de planilla: coincidencia exacta, o los que
+    // contienen todas sus palabras. Devuelve la LISTA — no elige.
+    var candidatos=function(n){
+      if(porNombre[n]) return porNombre[n];
+      var toks=n.split(' ').filter(Boolean);
+      if(toks.length<2) return [];
+      var r=[];
+      Object.keys(porNombre).forEach(function(k){
+        var kt=k.split(' ');
+        if(toks.every(function(t){return kt.indexOf(t)>=0;})) r=r.concat(porNombre[k]);
+      });
+      return r;
+    };
+
+    var discrepancias=[], ambiguos={}, noFichan={}, inactivos={}, nSinPlan=0;
+    fechas.forEach(function(fecha){
+      var huboFichaje=filas.some(function(r){return r.fecha===fecha;});
+      if(!huboFichaje)return;   // ese día no fichó NADIE: no se acusa
+
+      var enPlan={};
+      planillas.filter(function(r){return r.f===fecha;}).forEach(function(r){
+        [r.ch,r.ay1,r.ay2,r.ay3].forEach(function(x){ var n=_nn(x); if(n)enPlan[n]=x; });
+      });
+
+      var sinFichaje=[];
+      Object.keys(enPlan).forEach(function(n){
+        if(fichoEse[fecha+'|'+n])return;                       // fichó: nada que decir
+        var cand=candidatos(n);
+        if(cand.length>1){ ambiguos[n]=cand.map(function(e){return e.nombre;}); return; }
+        var emp=cand[0];
+        if(emp && emp.activo===false){ inactivos[n]=emp.nombre; return; }
+        // Si CUALQUIERA de sus formas fichó ese día, tampoco se acusa.
+        if(emp && fichoEse[fecha+'|'+_nn(emp.nombre)])return;
+        if(!fichoAlguna[n] && !(emp&&fichoAlguna[_nn(emp.nombre)])){ noFichan[n]=(noFichan[n]||0)+1; return; }
+        sinFichaje.push(enPlan[n]);
+      });
+
+      // ⛔ LA DIRECCIÓN INVERSA —«fichó y no está en ninguna planilla»— SE APAGÓ, y no por
+      //    pereza: medida contra los datos reales daba 411 casos, 45 personas distintas y
+      //    47 de 52 días. O sea, saltaba casi todos los días con casi todo el mundo. Y es
+      //    ESPERABLE: un chofer o ayudante puede fichar y no salir en la planilla de ese día
+      //    porque no le tocó ruta, quedó en patio, o la planilla todavía no se cargó.
+      //    Un aviso que salta siempre no avisa de nada: enterraba las 29 que sí importan.
+      //    Se cuenta en una línea, sin nombres, para que el número esté a la vista.
+      filas.forEach(function(r){ if(r.fecha===fecha){ var n=_nn(r.nombre);
+        if(n&&!enPlan[n]){ var e=(porNombre[n]||[])[0];
+          if(e&&(e.cargo==='Chofer'||e.cargo==='Ayudante')&&e.activo!==false) nSinPlan++; } } });
+
+      if(sinFichaje.length)discrepancias.push({fecha:fecha,sinAsis:sinFichaje});
+    });
+
+    var hayRuido=Object.keys(ambiguos).length||Object.keys(noFichan).length||Object.keys(inactivos).length||nSinPlan;
+    if(!discrepancias.length&&!hayRuido)return;
+
+    var alertEl=document.getElementById('plan-dup-alert');
+    if(!alertEl)return;
+    var esc=(typeof _mEsc==='function')?_mEsc:function(s){return String(s==null?'':s);};
+    var html='';
     if(discrepancias.length){
-      var alertEl=document.getElementById('plan-dup-alert');
-      if(!alertEl)return;
-      var html='<div style="background:rgba(226,75,74,.1);border:1px solid rgba(226,75,74,.4);border-radius:12px;padding:14px;margin-bottom:12px">'+
-        '<div style="font-size:13px;font-weight:700;color:var(--red);margin-bottom:10px">⚠️ Discrepancias de asistencia en '+discrepancias.length+' días</div>';
+      html+='<div style="background:rgba(226,75,74,.1);border:1px solid rgba(226,75,74,.4);border-radius:12px;padding:14px;margin-bottom:12px">'+
+        '<div style="font-size:13px;font-weight:700;color:var(--red);margin-bottom:4px">⚠️ Discrepancias entre la planilla y el fichaje en '+discrepancias.length+' día(s)</div>'+
+        '<div style="font-size:11px;color:var(--text3);margin-bottom:10px">Solo se miran los días en que fichó alguien. Esto NO es una falta comprobada: es una diferencia para revisar.</div>';
       discrepancias.slice(0,8).forEach(function(d){
         html+='<div style="border-top:1px solid rgba(226,75,74,.2);padding:8px 0"><b style="font-size:12px">'+formatFecha(d.fecha)+'</b>';
-        if(d.sinAsis.length)html+='<div style="font-size:11px;color:var(--red)">En planilla sin asistencia: '+d.sinAsis.join(', ')+'</div>';
-        if(d.sinPlan.length)html+='<div style="font-size:11px;color:var(--yellow)">Con asistencia sin planilla: '+d.sinPlan.join(', ')+'</div>';
+        if(d.sinAsis.length)html+='<div style="font-size:11px;color:var(--red)">En planilla y SIN fichar: '+esc(d.sinAsis.join(', '))+'</div>';
         html+='</div>';
       });
+      if(discrepancias.length>8)html+='<div style="font-size:11px;color:var(--text3);padding-top:6px">… y '+(discrepancias.length-8)+' día(s) más.</div>';
       html+='</div>';
-      var resDiv=document.createElement('div');
-      resDiv.innerHTML=html;
-      alertEl.parentNode.insertBefore(resDiv,alertEl.nextSibling);
     }
+    if(hayRuido){
+      html+='<div style="background:rgba(239,159,39,.08);border:1px solid rgba(239,159,39,.35);border-radius:12px;padding:14px;margin-bottom:12px">'+
+        '<div style="font-size:13px;font-weight:700;color:var(--amber);margin-bottom:4px">🔎 Estos NO se contaron como falta, y el motivo importa</div>';
+      var ambN=Object.keys(ambiguos);
+      if(ambN.length)html+='<div style="font-size:11px;color:var(--text2);padding:6px 0;border-top:1px solid rgba(239,159,39,.25)"><b>El nombre apunta a más de una persona</b> — se escribió corto y en la nómina hay varios. No se acusa a nadie: hay que escribirlo completo en el Excel.<br>'+
+        ambN.slice(0,6).map(function(n){return '· «'+esc(n)+'» → '+esc(ambiguos[n].join(' / '));}).join('<br>')+'</div>';
+      var nfN=Object.keys(noFichan);
+      if(nfN.length)html+='<div style="font-size:11px;color:var(--text2);padding:6px 0;border-top:1px solid rgba(239,159,39,.25)"><b>No tiene NI UN fichaje en este período</b> — eso no es faltar, es no estar usando el fichaje (sin teléfono, sitio sin geocerca…). Si debería estar fichando, ahí hay algo que resolver.<br>'+
+        nfN.slice(0,8).map(function(n){return '· '+esc(n)+' ('+noFichan[n]+' día/s en planilla)';}).join('<br>')+'</div>';
+      if(nSinPlan)html+='<div style="font-size:11px;color:var(--text2);padding:6px 0;border-top:1px solid rgba(239,159,39,.25)"><b>'+nSinPlan+' vez/veces alguien fichó sin aparecer en ninguna planilla de ese día</b> — NO se listan porque es lo normal: puede no haberle tocado ruta, haber quedado en patio, o la planilla no estar cargada todavía. El número está acá por si un día se dispara.</div>';
+      var inN=Object.keys(inactivos);
+      if(inN.length)html+='<div style="font-size:11px;color:var(--text2);padding:6px 0;border-top:1px solid rgba(239,159,39,.25)"><b>Está INACTIVO en la nómina y aparece en una planilla</b> — no es «no fichó», es que no debería estar ahí.<br>'+
+        inN.slice(0,8).map(function(n){return '· '+esc(inactivos[n]);}).join('<br>')+'</div>';
+      html+='</div>';
+    }
+    var resDiv=document.createElement('div');
+    resDiv.innerHTML=html;
+    alertEl.parentNode.insertBefore(resDiv,alertEl.nextSibling);
   });
 }
-
-
-
 
 
 
