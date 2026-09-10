@@ -77,6 +77,15 @@
     return (w[0][0] + (w.length > 1 ? w[w.length > 2 ? 2 : 1][0] : '')).toUpperCase();
   }
 
+  // El nombre de nómina es el legal —cuatro palabras— y en una columna de la
+  // rejilla no entra ni se lee. Se muestra nombre + primer apellido y el
+  // completo queda en el `title`: se acorta lo que se VE, nunca el dato.
+  function nombreCorto(nombre) {
+    var w = String(nombre || '').trim().split(/\s+/).filter(Boolean);
+    if (w.length <= 2) return w.join(' ');
+    return w[0] + ' ' + w[w.length >= 4 ? 2 : 1];
+  }
+
   var NIVELES = [
     ['nada',    'No la ve',                   'ni sabe que existís en la agenda'],
     ['ocupado', 'Solo cuándo estoy ocupado',  've bloques grises, sin título'],
@@ -146,9 +155,15 @@
     function pintar() {
       if (!est.vivo) return;
       var rotos = est.diag.filter(function (d) { return !d.bien; });
-      var esperan = est.dia.filter(function (e) {
-        return e.mi_respuesta === 'pendiente' && !e.soy_organizador;
-      }).length;
+      // ⛔ POR EVENTO, NO POR FILA. `agn_dia()` devuelve UNA fila por
+      //    (agenda, evento): la misma reunión sale en la columna de cada
+      //    invitado. Contar filas decía «2» cuando había UNA sola reunión
+      //    esperando respuesta — un número que el que lo ve no puede explicar.
+      var vistos = {};
+      est.dia.forEach(function (e) {
+        if (e.mi_respuesta === 'pendiente' && !e.soy_organizador) vistos[e.evento_id] = 1;
+      });
+      var esperan = Object.keys(vistos).length;
 
       var html =
         '<div class="mag-top">' +
@@ -324,7 +339,8 @@
           (a.es_mia ? '1' : '0') + '">' +
           '<div class="mag-cabeza">' +
             '<div class="mag-ini">' + esc(a.clase === 'recurso' ? '▦' : iniciales(a.nombre)) + '</div>' +
-            '<div><div class="n" title="' + esc(a.nombre) + '">' + esc(a.nombre) + '</div>' +
+            '<div><div class="n" title="' + esc(a.nombre) + '">' +
+              esc(a.clase === 'recurso' ? a.nombre : nombreCorto(a.nombre)) + '</div>' +
               '<div class="v">' + esc(a.es_mia ? 'tu agenda' : etiquetaNivel(a.nivel)) + '</div></div>' +
           '</div>' +
           '<div class="mag-pista">' + pista + '</div></div>';

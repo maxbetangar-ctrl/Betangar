@@ -217,9 +217,15 @@
   justify-content: center; letter-spacing: .02em;
 }
 .mag-col[data-mia="1"] .mag-ini { background: var(--mag-normal); }
+/* ⛔ `min-width: 0` NO es adorno: sin él un hijo de flex no encoge por debajo de
+   su contenido, el `text-overflow: ellipsis` de abajo no se aplica NUNCA y el
+   nombre largo se desborda ENCIMA de la columna de al lado. Se vio al abrirlo
+   en el navegador; en el HTML generado no se nota. */
+.mag-cabeza > div:last-child { min-width: 0; flex: 1 1 auto; }
 .mag-cabeza .n { font-size: 12.5px; font-weight: 700; line-height: 1.2;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.mag-cabeza .v { font-size: 10px; color: var(--mag-tinta-3); }
+.mag-cabeza .v { font-size: 10px; color: var(--mag-tinta-3);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .mag-pista { position: relative; }
 .mag-hfila {
