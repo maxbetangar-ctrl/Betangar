@@ -23916,64 +23916,17 @@ function portSelNivel(val){
 }
 
 // ── ASISTENCIA ──
-function portAbrirAsistencia(){
-  var lista=g('port-asis-lista');
-  if(!lista)return;
-  var emps=EMPLEADOS.filter(function(e){return e.activo&&(e.cargo==='Chofer'||e.cargo==='Ayudante');});
-  emps.sort(function(a,b){return a.nombre.localeCompare(b.nombre);});
-  lista.innerHTML=emps.map(function(e){
-    return '<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:0.5px solid var(--border)">'+
-      '<div><div style="font-size:14px;font-weight:700;color:var(--text1)">'+e.nombre+'</div>'+
-      '<div style="font-size:11px;color:var(--text3)">'+e.cargo+' · '+e.unidad+'</div></div>'+
-      '<div style="display:flex;gap:6px">'+
-      '<button onclick="portMarcarAsis(this,this.dataset.n,\'llegó\')" data-n="'+e.nombre+'" class="btn" style="padding:8px 12px;font-size:13px;border-radius:8px">✅</button>'+
-      '<button onclick="portMarcarAsis(this,this.dataset.n,\'faltó\')" data-n="'+e.nombre+'" class="btn" style="padding:8px 12px;font-size:13px;border-radius:8px">❌</button>'+
-      '</div></div>';
-  }).join('');
-  portAbrirModal('modal-port-asis');
-}
-
-var PORT_ASIS_MAP={};
-function portMarcarAsis(btn,nombre,estado){
-  PORT_ASIS_MAP[nombre]=estado;
-  var row=btn.parentNode;
-  row.querySelectorAll('button').forEach(function(b){b.style.background='';b.style.borderColor='';});
-  btn.style.background=estado==='llegó'?'rgba(29,158,117,.2)':'rgba(226,75,74,.2)';
-  btn.style.borderColor=estado==='llegó'?'#1d9e75':'#e24b4a';
-}
-
-function portGuardarAsistencia(){
-  var keys=Object.keys(PORT_ASIS_MAP);
-  if(!keys.length){alert('Marca al menos un empleado');return;}
-  var hoy=fechaVE();
-  var hora=new Date().toLocaleTimeString('es-VE',{hour:'2-digit',minute:'2-digit'});
-  var vigilante=SESION.nombre||'Vigilante';
-  var registros=keys.map(function(nombre){
-    return{tipo:'asistencia',fecha:hoy,hora:hora,nombre:nombre,detalle:PORT_ASIS_MAP[nombre],subtipo:PORT_ASIS_MAP[nombre],vigilante:vigilante};
-  });
-  if(DB_READY&&supabase){
-    // Verificar biométrico — no sobreescribir si ya tiene registro biométrico
-    var hoyCheck=fechaVE();
-    supabase.from('porteria').select('nombre').eq('fecha',hoyCheck).eq('tipo','asistencia').eq('subtipo','biometrico').then(function(bio){
-      var bioNombres=(bio.data||[]).map(function(r){return r.nombre;});
-      var filtrados=registros.filter(function(r){return bioNombres.indexOf(r.nombre)<0;});
-      var omitidos=registros.length-filtrados.length;
-      var lista=filtrados.length?filtrados:registros; // Si no hay bio, guardar todos
-      supabase.from('porteria').insert(lista).then(function(r){
-        if(r.error){alert('Error guardando: '+r.error.message);return;}
-        var msg='✅ Asistencia guardada — '+lista.length+' registros';
-        if(omitidos>0)msg+='\n⚠️ '+omitidos+' ya tienen registro biométrico (no se sobreescribió)';
-        alert(msg);
-        PORT_ASIS_MAP={};
-        portCerrarModal('modal-port-asis');
-        portCargarHoy();
-      });
-    });
-  } else {
-    alert('Sin conexión — guardado localmente');
-    portCerrarModal('modal-port-asis');
-  }
-}
+// ⛔ ACÁ VIVÍAN `portAbrirAsistencia`, `PORT_ASIS_MAP`, `portMarcarAsis` y
+//    `portGuardarAsistencia`: la asistencia marcada A MANO por el vigilante.
+//    QUITADAS el 10/09/2026 por decisión de la dirección. La asistencia se lleva con el
+//    FICHAJE CON FOTO (nombre + últimos 4 de la cédula + selfie + GPS + geocerca), que cae
+//    en `asistencia_dia`. Tener dos formas de declarar lo mismo —una con foto y otra sin—
+//    hace que el dato no tenga una sola fuente y que nadie sepa cuál manda.
+//
+// 📌 Medido ANTES de borrar, no supuesto: `porteria` con tipo='asistencia' tenía CERO filas
+//    en las cinco bases (control positivo: la misma consulta sí devuelve galpon, novedad y
+//    entrada_salida), y `asistencia_dia` tenía 1.785 filas del 20/07 al 10/09. Esta pantalla
+//    no se usaba desde que existe el fichaje con foto. No se borró ni un registro.
 
 // ── ENTRADA/SALIDA ──
 
@@ -24910,30 +24863,34 @@ function mostrarAlertaDiscrepancia(personas,tipo,fecha){
   setTimeout(function(){if(banner)banner.style.display='none';},15000);
 }
 
-function verificarCruceAsistencia(planilla){
-  if(!DB_READY||!supabase)return;
-  var fecha=planilla.f;
-  var personas=[planilla.ch];
-  if(planilla.ay1)personas.push(planilla.ay1);
-  if(planilla.ay2)personas.push(planilla.ay2);
-  if(planilla.ay3)personas.push(planilla.ay3);
-  supabase.from('porteria').select('nombre,subtipo').eq('fecha',fecha).eq('tipo','asistencia').then(function(res){
-    var asistentes=(res.data||[]).filter(function(r){return r.subtipo==='llegó'||r.subtipo==='biometrico';}).map(function(r){return r.nombre.toUpperCase();});
-    if(!asistentes.length)return;
-    var ausentes=personas.filter(function(p){return p&&asistentes.indexOf(p.toUpperCase())<0;});
-    if(ausentes.length){
-      var msg='⚠ DISCREPANCIA: '+ausentes.join(', ')+' en planilla #'+planilla.p+' ('+fecha+') pero SIN asistencia registrada.';
-      mostrarAlertaDiscrepancia(ausentes,'planilla_sin_asis',fecha);
-      sendWA(msg,'socios');
-    }
-  });
-}
+// ⛔ ACÁ ESTABA `verificarCruceAsistencia(planilla)`. Se retiró el 10/09/2026 junto con la
+//    asistencia manual de portería, que era su única fuente. Doblemente muerta: NINGÚN lugar
+//    del código la llamaba —se comprobó— y su fuente tenía cero filas.
+//    El cruce que sí corre es `verificarCruceExcel`, acá abajo, y quedó anotado que está mudo.
 
 function verificarCruceExcel(planillas){
   if(!DB_READY||!supabase)return;
   var fechas=(function(){var s={},a=[];planillas.forEach(function(r){if(!s[r.f]){s[r.f]=1;a.push(r.f);}});return a.sort();})();
+  // 🔴 ESTE CONTROL ESTÁ MUDO, Y HAY QUE DECIRLO. Cruza la planilla contra la asistencia
+  //    marcada a mano en portería — que desde el 10/09/2026 ya no existe, y que además tenía
+  //    CERO filas en las cinco bases desde siempre. O sea: corre en cada importación de Excel
+  //    y no ha avisado nunca, no porque todo esté bien sino porque no tiene qué leer.
+  // ⇒ DECISIÓN PENDIENTE: repuntarlo a `asistencia_dia` (el fichaje con foto: 1.785 filas,
+  //    56 personas, del 20/07 al 10/09, todas con origen='fichaje').
+  // ⛔ Y NO SE COPIA LA VERSIÓN DEL CLON TAL CUAL: allá el cruce ya lee `asistencia_dia` con
+  //    `.eq('estado','presente')`, y la `asistencia_dia` de BETANGAR NO TIENE la columna
+  //    `estado` (14 columnas contra 15). Copiado a ciegas, esto da 400 — y un 400 dentro de
+  //    un `.then()` deja el control igual de mudo que ahora, pero pareciendo arreglado.
+  //    NO se hizo de una porque ese cruce ACUSA gente: hay que medir antes qué pasa con quien
+  //    trabaja en un sitio sin geocerca o con el teléfono sin señal, o el control va a nombrar
+  //    a quien sí estuvo. [[norma-una-alerta-no-puede-nombrar-a-quien-no-estaba]]
+  // ⚠️ Mientras tanto AVISA EN CONSOLA en vez de volverse en silencio: un control que se
+  //    calla se ve igual que un control que no encontró nada.
   supabase.from('porteria').select('nombre,subtipo,fecha').eq('tipo','asistencia').in('fecha',fechas).then(function(res){
-    if(!res.data||!res.data.length)return;
+    if(!res.data||!res.data.length){
+      console.warn('[verificarCruceExcel] sin fuente: la asistencia manual de portería se retiró el 10/09/2026. Este cruce no está midiendo nada hasta que se lo apunte a `asistencia_dia`.');
+      return;
+    }
     var discrepancias=[];
     fechas.forEach(function(fecha){
       var asistentes=(res.data||[]).filter(function(r){return r.fecha===fecha&&(r.subtipo==='llegó'||r.subtipo==='biometrico');}).map(function(r){return r.nombre.toUpperCase();});
