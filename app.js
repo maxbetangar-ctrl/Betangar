@@ -10551,7 +10551,10 @@ function _iniciarCierreOrden(id){
     // Sin ítem que calce, el texto de la orden se escribe EN EL BUSCADOR: desde ahí se
     // crea al guardar. Antes se marcaba el ítem '__nuevo' de la lista, que ya no existe.
     else { sv('hv-item',''); sv('hv-item-txt',o.item||''); try{ _hvItemDesdeTexto(); }catch(e){} }
-    var ttPorTipo={lavado:'lavado',cambio:'cambio',inspeccion:'inspeccion',correctivo:'correctivo',preventivo:'cambio'};
+    // ⛔ 'preventivo' caia en 'cambio' porque la hoja de vida no tenia ese tipo de trabajo.
+    //    Una orden PREVENTIVA quedaba registrada como una sustitucion, que es otra cosa.
+    //    Ahora que el tipo existe (pedido de Alejandra, 08/09/2026), se hereda tal cual.
+    var ttPorTipo={lavado:'lavado',cambio:'cambio',inspeccion:'inspeccion',correctivo:'correctivo',preventivo:'preventivo'};
     if(g('hv-tipotrabajo'))sv('hv-tipotrabajo',ttPorTipo[o.tipo]||'cambio');
     // La orden ya trae el taller ELEGIDO de la lista: se hereda el enlace, no el texto.
     if(o.proveedorId){ try{ _hvPoblarProv(); sv('hv-prov-sel',o.proveedorId); _hvProvOtro(); }catch(e){} }
@@ -11122,7 +11125,7 @@ function switchKmTab(t){['odo','lav','eng','prog','hist','hv','costos'].forEach(
 // Fuente única = mantenimientos.costo_usd (servicios, repuestos instalados, compras a unidad/patio,
 // instalaciones desde inventario). NO incluye combustible (gasoil, módulo aparte). Filtra por rango,
 // tipo de trabajo y proveedor. Agrupa por cam (unidad o PATIO) y por tipo.
-var _CC_TIPO_LBL={cambio:'🔧 Sustitución',reparacion:'🔩 Reparación',compra:'🛒 Compra',correctivo:'🛠 Correctivo',inspeccion:'🔎 Inspección',lavado:'🧽 Lavado',engrase:'🛢 Engrase',otro:'Otro','':'Otro'};
+var _CC_TIPO_LBL={cambio:'🔧 Sustitución',reparacion:'🔩 Reparación',compra:'🛒 Compra',preventivo:'📅 Preventivo',correctivo:'🛠 Correctivo',inspeccion:'🔎 Inspección',lavado:'🧽 Lavado',engrase:'🛢 Engrase',otro:'Otro','':'Otro'};
 function _ccRepPoblarProv(){
   var sp=g('cc-rep-prov'); if(!sp)return; var prev=sp.value, provs={};
   (MANTENIMIENTOS||[]).forEach(function(m){ if(m.proveedor)provs[m.proveedor]=1; });
