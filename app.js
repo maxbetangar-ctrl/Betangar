@@ -23746,6 +23746,7 @@ function portIniciar(){
   var cams=['JAC-B001','JAC-B002','JAC-B003','JAC-B004','JAC-B005','JAC-B006','JAC-B007','JAC-B008','JAC-B009','JAC-B010','JAC-B011','JAC-B012'];
   if(camDl)camDl.innerHTML=cams.map(function(c){return'<option value="'+c+'">';}).join('')+'<option value="Gasoil"><option value="Repuestos"><option value="Herramientas"><option value="Material de trabajo"><option value="Proveedor">';
   portCargarHoy();
+  try{ portHistSemana(); }catch(e){}
 }
 
 function portCargarHoy(){
@@ -23778,6 +23779,105 @@ function portCargarHoy(){
   }).catch(function(){lista.innerHTML='<span style="color:var(--red);font-size:12px">Error cargando registros</span>';});
 }
 
+
+// ══════════════════════════════════════════════════════════════════════════════
+// HISTORIAL DE PORTERÍA — pedido de Alejandra, 09/09/2026
+//
+//   «Que quede un historial en el módulo de portería. El objetivo es ver todo el
+//    histórico, es decir días anteriores y por supuesto el día actual. También
+//    buscar por unidad o persona.»
+//
+// Hasta hoy la garita solo mostraba `fecha = hoy`, y con `limit 20`: en un día
+// movido, lo de la mañana ya no estaba a la vista ni siquiera el mismo día.
+//
+// ⛔ SE BUSCA SOBRE `nombre`, `detalle` y `vigilante`, y eso NO es un descuido:
+//    en esta tabla la UNIDAD y la PERSONA viven las dos en `nombre` —el galpón
+//    guarda ahí «JAC-B007» y la entrada/salida guarda ahí a la persona—. Buscar
+//    solo por un campo dejaría fuera la mitad de lo que ella pidió.
+//
+// ⛔ SE ORDENA POR `fecha` Y `created_at`, NUNCA por `hora`: `hora` es TEXTO en
+//    formato de 12 horas («04:46 p. m.») y ordenarlo alfabéticamente pone la 1 de
+//    la tarde antes de las 5 de la mañana. Ya mordió antes en esta misma pantalla.
+//    [[norma-no-comparar-fechas-formateadas]]
+//
+// ⚠️ `fecha` ES TEXTO, no una fecha de verdad. El rango `gte/lte` funciona porque
+//    TODO viene en `AAAA-MM-DD`, donde el orden alfabético SÍ es el del calendario.
+//    Medido antes de confiar: 0 filas fuera de ese formato en las cinco bases. Si
+//    algún día entra una escrita de otra forma, este rango la deja afuera EN SILENCIO.
+//
+// ⚠️ Y EL TOPE SE DICE. PostgREST corta en 1.000 filas SIN AVISAR: si el rango
+//    trae más, acá sale escrito que hay más, en vez de dejar creer que eso es todo.
+//    [[norma-postgrest-corta-en-1000-sin-avisar]]
+var PORT_HIST_TOPE=500;
+function _portHistRango(){
+  // Por omisión, la semana: es lo que se mira de verdad al llegar a la garita.
+  var d=g('port-hist-desde'), h=g('port-hist-hasta');
+  if(d&&!d.value){ try{ var x=new Date(fechaVE()+'T00:00:00'); x.setDate(x.getDate()-6); d.value=x.toISOString().slice(0,10); }catch(e){ d.value=fechaVE(); } }
+  if(h&&!h.value) h.value=fechaVE();
+  return { desde:(d?d.value:'')||fechaVE(), hasta:(h?h.value:'')||fechaVE() };
+}
+function portHistorial(){
+  var cont=g('port-hist-lista'); if(!cont)return;
+  if(!(DB_READY&&supabase)){ cont.innerHTML='<span style="color:var(--text3);font-size:12px">Sin conexión</span>'; return; }
+  var r=_portHistRango();
+  if(r.desde>r.hasta){ cont.innerHTML='<span style="color:var(--red);font-size:12px">La fecha «desde» es posterior a la de «hasta».</span>'; return; }
+  var q=(gv('port-hist-buscar')||'').trim();
+  var tipo=gv('port-hist-tipo')||'';
+  cont.innerHTML='<span style="color:var(--text3);font-size:12px">Buscando…</span>';
+  var sel=supabase.from('porteria').select('*').gte('fecha',r.desde).lte('fecha',r.hasta);
+  if(tipo) sel=sel.eq('tipo',tipo);
+  if(q){
+    // Una coma dentro del texto rompería el `or` de PostgREST: se cambia por el
+    // comodín, que además hace la búsqueda más tolerante en vez de fallar.
+    var t=q.replace(/[,()]/g,'%');
+    sel=sel.or('nombre.ilike.%'+t+'%,detalle.ilike.%'+t+'%,vigilante.ilike.%'+t+'%');
+  }
+  sel.order('fecha',{ascending:false}).order('created_at',{ascending:false}).limit(PORT_HIST_TOPE)
+    .then(function(res){
+      if(res.error){ cont.innerHTML='<span style="color:var(--red);font-size:12px">'+_escHtml(res.error.message)+'</span>'; return; }
+      var filas=res.data||[];
+      if(!filas.length){ cont.innerHTML='<div style="color:var(--text3);font-size:12px;padding:10px">Sin registros de portería'+(q?(' con «'+_escHtml(q)+'»'):'')+' entre el '+formatFecha(r.desde)+' y el '+formatFecha(r.hasta)+'.</div>'; return; }
+      var iconos={asistencia:'👥',entrada_salida:'🚶',galpon:'🚛',novedad:'⚠️'};
+      var colores={asistencia:'#1d9e75',entrada_salida:'#378add',galpon:'#ef9f27',novedad:'#e24b4a'};
+      var porDia={}, orden=[];
+      filas.forEach(function(x){ if(!porDia[x.fecha]){porDia[x.fecha]=[];orden.push(x.fecha);} porDia[x.fecha].push(x); });
+      var tope=(filas.length>=PORT_HIST_TOPE)
+        ? '<div style="font-size:11px;color:var(--amber);margin-bottom:8px">⚠️ Se muestran los '+PORT_HIST_TOPE+' más recientes del rango: hay más. Acortá las fechas o buscá algo más preciso.</div>'
+        : '';
+      cont.innerHTML=tope+
+        '<div style="font-size:11px;color:var(--text2);margin-bottom:8px"><b>'+filas.length+'</b> registro(s) · '+orden.length+' día(s) · del '+formatFecha(r.desde)+' al '+formatFecha(r.hasta)+(q?(' · «'+_escHtml(q)+'»'):'')+'</div>'+
+        orden.map(function(f){
+          return '<div style="margin-top:10px"><div style="font-size:11px;font-weight:800;color:var(--text2);border-bottom:1px solid var(--border);padding-bottom:3px">'+formatFecha(f)+' · '+porDia[f].length+'</div>'+
+            porDia[f].map(function(x){
+              var titulo=x.nombre||x.detalle||x.tipo;
+              var cuerpo=(x.detalle&&String(x.detalle).trim()&&String(x.detalle).trim()!==String(titulo).trim())?String(x.detalle).trim():'';
+              return '<div style="display:flex;align-items:flex-start;gap:8px;padding:6px 0;border-bottom:1px solid var(--border)">'+
+                '<div style="width:8px;height:8px;border-radius:50%;background:'+(colores[x.tipo]||'#888')+';flex-shrink:0;margin-top:5px"></div>'+
+                '<div style="flex:1;min-width:0"><div style="font-size:13px;color:var(--text1)">'+(iconos[x.tipo]||'')+' '+_escHtml(titulo)+'</div>'+
+                (cuerpo?'<div style="font-size:12px;color:var(--text2);white-space:normal;overflow-wrap:anywhere;margin-top:2px">'+_escHtml(cuerpo)+'</div>':'')+
+                '<div style="font-size:10px;color:var(--text3);margin-top:2px">'+_escHtml(x.hora||'')+' · '+_escHtml(x.subtipo||x.tipo)+(x.vigilante?(' · '+_escHtml(x.vigilante)):'')+'</div></div></div>';
+            }).join('')+'</div>';
+        }).join('');
+    })
+    .catch(function(e){ cont.innerHTML='<span style="color:var(--red);font-size:12px">'+_escHtml((e&&e.message)||String(e))+'</span>'; });
+}
+function portHistHoy(){
+  var d=g('port-hist-desde'), h=g('port-hist-hasta');
+  if(d)d.value=fechaVE(); if(h)h.value=fechaVE();
+  portHistorial();
+}
+function portHistSemana(){
+  var d=g('port-hist-desde'), h=g('port-hist-hasta');
+  try{ var x=new Date(fechaVE()+'T00:00:00'); x.setDate(x.getDate()-6); if(d)d.value=x.toISOString().slice(0,10); }catch(e){ if(d)d.value=fechaVE(); }
+  if(h)h.value=fechaVE();
+  portHistorial();
+}
+function portHistMes(){
+  var d=g('port-hist-desde'), h=g('port-hist-hasta');
+  try{ var x=new Date(fechaVE()+'T00:00:00'); x.setDate(x.getDate()-29); if(d)d.value=x.toISOString().slice(0,10); }catch(e){ if(d)d.value=fechaVE(); }
+  if(h)h.value=fechaVE();
+  portHistorial();
+}
 function portAbrirModal(id){
   var m=g(id);if(m)m.style.display='flex';
   document.body.style.overflow='hidden';

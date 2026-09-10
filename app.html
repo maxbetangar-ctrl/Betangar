@@ -3051,7 +3051,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
 <script src="maxrecuerda.js?v=20260806-maxrecuerda"></script>
 <!-- Formato unico de los Excel de Maxware. VA ANTES de app.js. -->
 <script src="maxware-excel.js"></script>
-<script src="app.js?v=20260910-1448"></script>
+<script src="app.js?v=20260910-1459"></script>
 
 <!-- Modal global -->
 <div id="modal" class="moverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9990;align-items:center;justify-content:center;padding:16px">
@@ -3198,6 +3198,32 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
     <div class="card">
       <div class="sh"><div class="st">📋 Registros de hoy</div></div>
       <div id="port-lista-hoy" style="font-size:13px;color:var(--text3);padding:8px 0">Sin registros aún</div>
+    </div>
+    <div class="card" style="margin-top:12px">
+      <!-- HISTORIAL: pedido de Alejandra el 09/09/2026. Antes esta pantalla solo
+           mostraba el dia de hoy, y con tope de 20: lo de la manana ya no estaba
+           a la vista ni el mismo dia. Se busca por unidad O por persona porque en
+           esta tabla las dos viven en el mismo campo. -->
+      <div class="sh"><div class="st">🔎 Historial de portería</div></div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:flex-end;margin-bottom:8px">
+        <div class="fg" style="margin:0"><label style="font-size:10px">Desde</label><input class="fc" type="date" id="port-hist-desde" style="padding:6px 8px;font-size:12px"></div>
+        <div class="fg" style="margin:0"><label style="font-size:10px">Hasta</label><input class="fc" type="date" id="port-hist-hasta" style="padding:6px 8px;font-size:12px"></div>
+        <button class="btn btn-s btn-xs" onclick="portHistHoy()">Hoy</button>
+        <button class="btn btn-s btn-xs" onclick="portHistSemana()">7 días</button>
+        <button class="btn btn-s btn-xs" onclick="portHistMes()">30 días</button>
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px">
+        <input class="fc" type="search" id="port-hist-buscar" placeholder="🔎 Unidad o persona (ej: B007, o un nombre)" style="flex:1;min-width:180px;padding:6px 8px;font-size:12px" onkeydown="if(event.key==='Enter')portHistorial()">
+        <select class="fc" id="port-hist-tipo" style="max-width:170px;padding:6px 8px;font-size:12px" onchange="portHistorial()">
+          <option value="">Todo</option>
+          <option value="galpon">🚛 Galpón (unidades)</option>
+          <option value="entrada_salida">🚶 Entrada / Salida</option>
+          <option value="asistencia">👥 Asistencia</option>
+          <option value="novedad">⚠️ Novedades</option>
+        </select>
+        <button class="btn btn-g btn-sm" onclick="portHistorial()">Buscar</button>
+      </div>
+      <div id="port-hist-lista" style="font-size:13px;color:var(--text3)"></div>
     </div>
   </div>
 </div>
