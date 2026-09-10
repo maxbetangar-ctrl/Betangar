@@ -304,3 +304,35 @@
   .mag-fila select, .mag-fila .mag-fijo { grid-column: 2; max-width: none; width: 100%; }
 }
 @media (prefers-reduced-motion: reduce) { .mag * { transition: none !important; animation: none !important; } }
+
+/* ── Formulario de nueva reunión, y los dos paneles de mover/cancelar ───────
+   ⚠️ Las etiquetas van ARRIBA del campo, no al lado: en un teléfono, una
+   etiqueta al costado deja la caja de texto del ancho de un dedo. */
+.mag-campo { display: block; margin: 0 0 11px; }
+.mag-campo > span {
+  display: block; font-size: 12px; font-weight: 600; color: var(--mag-tinta-2);
+  margin-bottom: 4px;
+}
+.mag-in {
+  font: inherit; font-size: 14px; width: 100%;
+  padding: 9px 11px; border-radius: var(--mag-r-s);
+  border: 1px solid var(--mag-borde-2);
+  background: var(--mag-papel); color: var(--mag-tinta);
+}
+.mag-in:focus { outline: 2px solid var(--mag-normal); outline-offset: -1px; }
+
+.mag-tres { display: grid; grid-template-columns: 1.4fr 1fr 1fr; gap: 10px; }
+@media (max-width: 520px) { .mag-tres { grid-template-columns: 1fr 1fr; } }
+
+.mag-chks { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.mag-chk {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 12.5px; color: var(--mag-tinta-2); cursor: pointer; user-select: none;
+}
+.mag-chk input { width: 16px; height: 16px; accent-color: var(--mag-normal); cursor: pointer; }
+.mag-chk input:disabled { cursor: not-allowed; opacity: .5; }
+.mag-chk:has(input:disabled) { opacity: .5; cursor: not-allowed; }
+
+/* La lista de invitados usa las mismas filas que «¿Quién ve mi agenda?»: es la
+   misma pregunta —quién de esta gente— y verla distinta la haría parecer otra. */
+.mag-perm .mag-campo:first-child { margin-top: 8px; }

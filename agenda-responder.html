@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<title>Responder a la reunión</title>
+<!--
+  ============================================================================
+  MaxAgenda — RESPONDER, desde el WhatsApp
+  ============================================================================
+  El enlace llega en la invitación y el token ES la credencial: 64 caracteres
+  de un generador criptográfico, no un número correlativo. Con un id
+  correlativo, cualquiera contestaría por otro probando números.
+
+  ⛔ ESTA PÁGINA NO CONTESTA SOLA AL CARGARSE, y ésa es la diferencia con
+     `recordar.html`. Allá hay UNA sola respuesta posible y es idempotente
+     («ya lo hice»), así que puede marcarse al abrir. Acá hay TRES, y WhatsApp
+     pide la vista previa de todo enlace que manda: ese buscador «tocaría» una
+     de las tres antes de que la persona vea nada. Por eso al cargar solo se
+     LEE, y contestar es un segundo paso que hace un dedo humano.
+
+  Lo único que puede hacer: ver ESA invitación y contestarla. No lista nada, no
+  lee otra agenda, no borra nada. La anon key no alcanza ni las tablas.
+
+  ⚠️ AL INSTALARLA: la anon key tiene que ser LA MISMA que usa la app. Si esta
+  página dice «enlace inválido» para TODOS los enlaces, lo primero que hay que
+  probar es la key con curl: 401 = revocada.
+  ============================================================================
+-->
+<style>
+  :root{
+    --f:#f6f7f9; --p:#fff; --b:#e3e7ec; --b2:#cfd6de;
+    --t:#10151c; --t2:#56616f; --t3:#8b96a4;
+    --ok:#079455; --ok-b:#ecfdf3; --mal:#d92d20; --mal-b:#fef3f2;
+    --am:#dc6803; --am-b:#fffaeb; --az:#2570eb;
+    --s:0 8px 24px rgba(16,24,40,.10), 0 2px 6px rgba(16,24,40,.06);
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --f:#0d1117; --p:#161b22; --b:#262d38; --b2:#39414f;
+           --t:#e9edf2; --t2:#9aa5b4; --t3:#6e7a8a;
+           --ok-b:#0d2419; --mal-b:#2b1414; --am-b:#2a1e0c; }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--f);color:var(--t);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+    display:flex;align-items:center;justify-content:center;min-height:100vh;padding:20px;
+    -webkit-font-smoothing:antialiased}
+  .caja{background:var(--p);border:1px solid var(--b);border-radius:16px;box-shadow:var(--s);
+    padding:26px 22px;max-width:420px;width:100%;text-align:center}
+  .ic{font-size:40px;line-height:1;margin-bottom:10px}
+  h1{font-size:20px;font-weight:700;letter-spacing:-.02em;margin:0 0 4px;text-wrap:balance}
+  .quien{font-size:13.5px;color:var(--t2);margin-bottom:16px}
+  .ficha{background:var(--f);border:1px solid var(--b);border-radius:12px;
+    padding:14px 16px;text-align:left;margin:0 0 16px}
+  .ficha .t{font-size:16px;font-weight:700;margin-bottom:5px}
+  .ficha .l{font-size:13.5px;color:var(--t2);margin-top:3px;display:flex;gap:7px}
+  .ficha .l b{font-weight:600;color:var(--t)}
+  .obl{display:inline-block;margin-top:9px;font-size:11px;font-weight:700;letter-spacing:.05em;
+    text-transform:uppercase;padding:3px 8px;border-radius:6px;
+    background:var(--mal-b);color:var(--mal);border:1px solid var(--mal)}
+  .btns{display:flex;flex-direction:column;gap:9px}
+  button{font:inherit;font-size:15px;font-weight:600;padding:13px 16px;border-radius:11px;
+    border:1px solid var(--b2);background:var(--p);color:var(--t);cursor:pointer;width:100%}
+  button:active{transform:translateY(1px)}
+  button:disabled{opacity:.5;cursor:not-allowed}
+  .si{background:var(--ok);border-color:var(--ok);color:#fff}
+  .no{color:var(--mal);border-color:var(--mal)}
+  .otra{color:var(--am);border-color:var(--am)}
+  textarea{font:inherit;font-size:14px;width:100%;min-height:74px;padding:10px 12px;
+    border-radius:10px;border:1px solid var(--b2);background:var(--f);color:var(--t);
+    margin:4px 0 10px;resize:vertical}
+  .sello{margin-top:12px;font-size:13px;font-weight:600;padding:9px 12px;border-radius:10px;
+    background:var(--ok-b);color:var(--ok)}
+  .sello.mal{background:var(--mal-b);color:var(--mal)}
+  .sello.am{background:var(--am-b);color:var(--am)}
+  .pie{margin-top:14px;font-size:12.5px;color:var(--t3)}
+  .oculto{display:none}
+</style>
+</head>
+<body>
+<div class="caja" id="caja"><div class="ic">🗓️</div><h1>Un momento…</h1></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+(function(){
+  'use strict';
+  var SUPABASE_URL  = 'https://hrkjddehqnzcqwlkklqm.supabase.co';
+  var SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhya2pkZGVocW56Y3F3bGtrbHFtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc2NTk1NzIsImV4cCI6MjA5MzIzNTU3Mn0.kqWKthyZfPZ86toql7shGByF-ZhUpcQUS4Jw4RnG_ko';
+
+  var caja = document.getElementById('caja');
+  function esc(s){
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){
+      return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+    });
+  }
+  function pantalla(html){ caja.innerHTML = html; }
+  function cerrado(ic, tit, txt, sello, tipo){
+    pantalla('<div class="ic">'+ic+'</div><h1>'+esc(tit)+'</h1>'+
+      (txt ? '<div class="quien">'+esc(txt)+'</div>' : '')+
+      (sello ? '<div class="sello '+(tipo||'')+'">'+esc(sello)+'</div>' : '')+
+      '<div class="pie">Puede cerrar esta ventana.</div>');
+  }
+
+  var t = new URLSearchParams(location.search).get('t') || '';
+  if (t.length < 32) { cerrado('🔗','Enlace inválido','','No se pudo leer el enlace','mal'); return; }
+
+  if (SUPABASE_URL.indexOf('__') === 0) {
+    // Que la página esté sin configurar NO puede parecerse a «ya contestaste».
+    cerrado('⚙️','Falta configurar esta página','','agenda-responder.html sin credenciales','mal');
+    return;
+  }
+
+  var sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
+
+  // ── Paso 1: SOLO LEER ─────────────────────────────────────────────────────
+  sb.rpc('agn_ver_invitacion', { p_token: t }).then(function(r){
+    if (r.error || !r.data || !r.data.ok) {
+      cerrado('⚠️','No se pudo abrir la invitación','',
+              (r.data && r.data.motivo) || 'Enlace inválido o vencido','mal');
+      return;
+    }
+    var d = r.data;
+
+    if (d.cancelada) { cerrado('❌','Esa reunión se canceló', d.titulo, 'No hace falta que conteste','mal'); return; }
+    if (d.ya_paso)   { cerrado('🕒','Esa reunión ya pasó', d.titulo, '', 'am'); return; }
+
+    pintarPregunta(d);
+  }).catch(function(){
+    cerrado('📡','No hay conexión','','Vuelva a tocar el enlace','mal');
+  });
+
+  function pintarPregunta(d){
+    pantalla(
+      '<div class="ic">🗓️</div>'+
+      '<h1>¿Puede asistir?</h1>'+
+      '<div class="quien">'+esc(d.nombre)+'</div>'+
+      '<div class="ficha">'+
+        '<div class="t">'+esc(d.titulo)+'</div>'+
+        '<div class="l">🕒 <b>'+esc(d.cuando)+'</b></div>'+
+        (d.lugar ? '<div class="l">📍 '+esc(d.lugar)+'</div>' : '')+
+        '<div class="l">👤 La convoca '+esc(d.organizador)+'</div>'+
+        (d.obligatorio ? '<div class="obl">Asistencia obligatoria</div>' : '')+
+      '</div>'+
+      (d.respuesta && d.respuesta !== 'pendiente'
+        ? '<div class="sello am">Ya había contestado: '+esc(texto(d.respuesta))+'. Puede cambiarlo.</div>' : '')+
+      '<div class="btns" id="btns">'+
+        '<button class="si"   data-r="acepto">Sí, ahí estaré</button>'+
+        '<button class="no"   data-r="no_puedo">No puedo</button>'+
+        '<button class="otra" data-r="otra_hora">Propongo otra hora</button>'+
+      '</div>'+
+      '<div class="pie">Su respuesta le llega a quien la convocó.</div>');
+
+    document.getElementById('btns').addEventListener('click', function(ev){
+      var b = ev.target.closest('button[data-r]');
+      if (!b) return;
+      var r = b.getAttribute('data-r');
+      // Las dos que necesitan explicación la piden ANTES de mandarla: un «no
+      // puedo» pelado obliga al que convocó a llamar por teléfono, y ahí el
+      // módulo dejó de servir.
+      if (r === 'no_puedo' || r === 'otra_hora') pedirNota(d, r);
+      else contestar(d, r, null);
+    });
+  }
+
+  function pedirNota(d, r){
+    pantalla(
+      '<div class="ic">'+(r === 'no_puedo' ? '🔴' : '🟠')+'</div>'+
+      '<h1>'+(r === 'no_puedo' ? '¿Por qué no puede?' : '¿Qué hora le sirve?')+'</h1>'+
+      '<div class="quien">Opcional, pero ayuda a resolverlo sin llamadas.</div>'+
+      '<textarea id="nota" placeholder="'+
+        (r === 'no_puedo' ? 'Ese día estoy fuera de la ciudad…' : 'El jueves después de las 3…')+
+      '"></textarea>'+
+      '<div class="btns">'+
+        '<button class="si" id="mandar">Enviar respuesta</button>'+
+        '<button id="volver">Volver</button>'+
+      '</div>');
+    document.getElementById('volver').onclick = function(){ pintarPregunta(d); };
+    document.getElementById('mandar').onclick = function(){
+      contestar(d, r, document.getElementById('nota').value);
+    };
+  }
+
+  function texto(r){
+    return r === 'acepto' ? 'que sí asiste'
+         : r === 'no_puedo' ? 'que no puede'
+         : 'que pide otra hora';
+  }
+
+  function contestar(d, r, nota){
+    var bs = caja.querySelectorAll('button');
+    for (var i = 0; i < bs.length; i++) bs[i].disabled = true;
+
+    sb.rpc('agn_responder', { p_token: t, p_respuesta: r, p_nota: nota || null }).then(function(x){
+      if (x.error || !x.data) {
+        cerrado('📡','No se pudo enviar','','Vuelva a tocar el enlace','mal'); return;
+      }
+      var q = x.data;
+      if (!q.ok) {
+        // ⛔ Un choque NO es un error: es una respuesta, y se dice en cristiano.
+        //    Los botones vuelven, porque todavía tiene que contestar algo.
+        if (q.motivo === 'choque') {
+          pintarPregunta(d);
+          var av = document.createElement('div');
+          av.className = 'sello mal';
+          av.textContent = q.texto || 'A esa hora ya tiene otro compromiso.';
+          caja.insertBefore(av, document.getElementById('btns'));
+          return;
+        }
+        cerrado('⚠️','No se pudo registrar', q.texto || '', q.motivo || 'Intente de nuevo','mal');
+        return;
+      }
+      cerrado(r === 'acepto' ? '✅' : r === 'no_puedo' ? '🔴' : '🟠',
+        r === 'acepto' ? '¡Listo, quedó anotado!' : 'Gracias por avisar',
+        q.titulo,
+        'Quedó registrado ' + texto(r),
+        r === 'acepto' ? '' : 'am');
+    }).catch(function(){
+      cerrado('📡','No hay conexión','','Vuelva a tocar el enlace','mal');
+    });
+  }
+})();
+</script>
+</body>
+</html>

@@ -29139,10 +29139,14 @@ function renderMaxRecuerda(){
 // ═══════════════════════════════════════════════════════════════════════════
 // MAXAGENDA — la agenda de los directivos (modulo LEGO, ver ~/maxagenda)
 //
-// ETAPA 2: se LEE y se reparten los permisos. Todavia NO se puede crear una
-// reunion (eso es la etapa 3, con el aviso por WhatsApp y el token de
-// respuesta), y por eso la pantalla NO dibuja un boton «Nueva reunion»: un
-// boton que no hace nada se ve igual que uno roto.
+// ETAPA 3 (10/09): se propone, se responde y se avisa. La INVITACION sale ya
+// por `rec_entregar` -> `cola_mensajes` (la cola de siempre, un solo
+// transmisor); el AVISO previo lo produce MaxRecuerda, que es donde vive el
+// motor de horarios. MaxAgenda no abre un segundo motor.
+//
+// Quien contesta desde el WhatsApp cae en `agenda-responder.html`, que SOLO LEE
+// al abrirse: hay TRES respuestas posibles y WhatsApp pide la vista previa de
+// todo enlace que manda — ese buscador elegiria una.
 //
 // ⛔ La privacidad NO esta en esta pantalla: `agn_dia()` ya devuelve en null lo
 // que el que mira no puede ver. Si algun dia hay que esconder un campo aca, el

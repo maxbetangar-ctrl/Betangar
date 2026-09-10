@@ -9,12 +9,14 @@
            useEffect(() => MaxAgenda.montar(ref.current, {supabase}), []);
            // devuelve una función de desmontaje: se le pasa tal cual al return
 
-   ⛔ LO QUE ESTA ETAPA NO HACE, Y POR QUÉ NO HAY UN BOTÓN QUE LO FINJA:
-      todavía no se puede CREAR una reunión — eso es la etapa 3, junto con el
-      aviso por WhatsApp y el token de respuesta. Así que acá NO hay botón
-      «Nueva reunión»: un botón que no hace nada se ve exactamente igual que uno
-      roto, y el que lo aprieta no sabe cuál de las dos cosas le pasó. En su
-      lugar, el vacío DICE qué falta. [[norma-la-puerta-que-no-existe]]
+   ETAPA 3 (10/09): ya se PROPONE, se RESPONDE y se AVISA. El botón «Nueva
+   reunión» aparece solo si tenés agenda propia — si no, no hay desde dónde
+   convocar, y un botón que no puede funcionar se ve igual que uno roto.
+
+   ⛔ LO QUE TODAVÍA NO HACE: el choque de la SALA se muestra y se puede seguir
+      igual o cambiar la hora, pero «unirme a la reunión que ya está» —la otra
+      salida que pidió Máximo— es la etapa 4. No se dibuja lo que no existe.
+      [[norma-la-puerta-que-no-existe]]
 
    ⛔ LA PRIVACIDAD NO ESTÁ ACÁ. Esta pantalla no esconde nada: lo que no podés
       ver no llega. `agn_dia()` devuelve `visibilidad` y los campos que no
@@ -110,6 +112,10 @@
       permAgenda: null,   // qué agenda se está repartiendo
       permisos: [],
       cambios: {},
+      form: null,          // la reunión que se está escribiendo
+      mover: null,         // la que se está moviendo
+      borrar: null,        // la que se está por cancelar
+      enviando: false,
       aviso: null,
       todoElDia: false,
       vivo: true
@@ -180,6 +186,8 @@
               '<button class="mag-btn" data-acc="manana" title="El día siguiente">›</button>' +
             '</div>' +
             '<button class="mag-btn" data-acc="refrescar" title="Actualizar">↻</button>' +
+            // Solo con agenda propia: desde dónde se convoca es TU agenda.
+            (est.yo ? '<button class="mag-btn mag-btn-p" data-acc="nueva">＋ Nueva reunión</button>' : '') +
           '</div>' +
         '</div>';
 
@@ -202,7 +210,8 @@
 
       if (est.cargando) {
         html += '<div class="mag-cargando">Cargando la agenda…</div>';
-      } else if (est.tab === 'mia')      { html += verMia(); }
+      } else if (est.form)               { html += verNueva(); }
+      else if (est.tab === 'mia')        { html += verMia(); }
       else if (est.tab === 'dia')        { html += verDia(); }
       else                               { html += verPermisos(); }
 
@@ -216,6 +225,45 @@
     }
 
     // ── Mi agenda ──────────────────────────────────────────────────────────
+    // ⛔ NI `confirm()` NI `prompt()`. Un diálogo del navegador tranca la
+    //    pantalla, se ve distinto en cada teléfono y —lo que importa— no se
+    //    puede leer: «¿Seguro?» a secas no dice a QUIÉN se le va a avisar que
+    //    la reunión se cayó. Las dos cosas se preguntan acá adentro, con el
+    //    nombre y la hora a la vista.
+    function panelMover() {
+      var m = est.mover;
+      if (!m) return '';
+      return '<div class="mag-nota">' +
+        '<b>Mover «' + esc(m.titulo) + '»</b><br>' +
+        'Los que ya habían aceptado vuelven a «pendiente» y se les pregunta otra vez: ' +
+        'aceptaron <i>otra</i> hora.' +
+        '<div class="mag-tres" style="margin-top:10px">' +
+          '<label class="mag-campo"><span>Día</span>' +
+            '<input class="mag-in" type="date" data-m="fecha" value="' + esc(m.fecha) + '"></label>' +
+          '<label class="mag-campo"><span>Hora</span>' +
+            '<input class="mag-in" type="time" data-m="hora" value="' + esc(m.hora) + '"></label>' +
+        '</div>' +
+        '<div class="mag-acc">' +
+          '<button class="mag-btn mag-btn-p mag-btn-s" data-acc="mover-ok"' +
+            (est.enviando ? ' disabled' : '') + '>' + (est.enviando ? 'Moviendo…' : 'Mover y volver a preguntar') + '</button>' +
+          '<button class="mag-btn mag-btn-s" data-acc="mover-no">Dejarla como está</button>' +
+        '</div></div>';
+    }
+
+    function panelCancelar() {
+      var c = est.borrar;
+      if (!c) return '';
+      return '<div class="mag-roto">' +
+        '<b>⛔ Cancelar «' + esc(c.titulo) + '»</b>' +
+        '<div style="margin-top:5px;font-size:13px">Se le avisa por WhatsApp a los que ya habían ' +
+        'dicho que iban, y el aviso previo NO va a salir.</div>' +
+        '<div class="mag-acc">' +
+          '<button class="mag-btn mag-btn-no mag-btn-s" data-acc="cancelar-ok"' +
+            (est.enviando ? ' disabled' : '') + '>' + (est.enviando ? 'Cancelando…' : 'Sí, cancelarla') + '</button>' +
+          '<button class="mag-btn mag-btn-s" data-acc="cancelar-no">No, dejarla</button>' +
+        '</div></div>';
+    }
+
     function verMia() {
       if (!est.yo) {
         // ⚠️ Dos motivos distintos y NO se pueden decir igual: o no te
@@ -232,6 +280,9 @@
       }
 
       var mios = est.dia.filter(function (e) { return e.agenda_id === est.yo.agenda_id; });
+      var cabeza = est.aviso
+        ? '<div class="mag-aviso mag-aviso-' + (est.aviso.ok ? 'ok' : 'mal') + '">' +
+          esc(est.aviso.txt) + '</div>' : '';
       if (!mios.length) {
         return vacio('☕', 'Nada anotado el ' + enLetras(est.fecha),
           'Ojo: «nada anotado» no es «libre». Solo significa que el sistema no tiene nada a esa hora.');
@@ -240,7 +291,7 @@
       var espera = mios.filter(function (e) { return e.mi_respuesta === 'pendiente' && !e.soy_organizador; });
       var resto  = mios.filter(function (e) { return !(e.mi_respuesta === 'pendiente' && !e.soy_organizador); });
 
-      var h = '';
+      var h = cabeza + panelMover() + panelCancelar();
       if (espera.length) {
         h += '<div class="mag-grupo-tit">Esperan tu respuesta · ' + espera.length + '</div>' +
              '<div class="mag-lista">' + espera.map(tarjeta).join('') + '</div>';
@@ -287,6 +338,18 @@
         acc += '<a class="mag-btn mag-btn-p mag-btn-s" target="_blank" rel="noopener noreferrer" href="' +
                esc(e.enlace) + '">Entrar</a>';
       }
+      // Lo que espera TU respuesta: las mismas tres del WhatsApp, para que la
+      // persona que ya está adentro de la app no tenga que ir a buscar el chat.
+      if (e.mi_respuesta === 'pendiente' && !e.soy_organizador) {
+        acc += '<button class="mag-btn mag-btn-ok mag-btn-s" data-resp="acepto" data-ev="' + e.evento_id + '">Acepto</button>' +
+               '<button class="mag-btn mag-btn-no mag-btn-s" data-resp="no_puedo" data-ev="' + e.evento_id + '">No puedo</button>' +
+               '<button class="mag-btn mag-btn-s" data-resp="otra_hora" data-ev="' + e.evento_id + '">Otra hora</button>';
+      }
+      // Mover y cancelar solo las tuyas: la de otro se le pide a quien la lleva.
+      if (e.soy_organizador && e.estado !== 'cancelado') {
+        acc += '<button class="mag-btn mag-btn-s" data-acc="mover" data-ev="' + e.evento_id + '">Mover</button>' +
+               '<button class="mag-btn mag-btn-no mag-btn-s" data-acc="cancelar" data-ev="' + e.evento_id + '">Cancelar</button>';
+      }
 
       return '<div class="mag-card" data-est="' + estado + '">' +
         '<div class="mag-hhmm"><div class="h">' + esc(hhmm(e.inicio)) + '</div>' +
@@ -298,9 +361,192 @@
           (e.visibilidad === 'detalle' && e.asistentes > 1
             ? '<div class="mag-quienes">' + e.asistentes + ' personas invitadas</div>' : '') +
           (e.visibilidad === 'detalle' && e.aviso_min != null
-            ? '<div class="mag-quienes">Aviso ' + e.aviso_min + ' min antes</div>' : '') +
+            ? '<div class="mag-quienes">Aviso ' + e.aviso_min + ' min antes' +
+              // ⚠️ Se DICE cuándo saldría, sin pedir permiso ni retenerlo: la
+              //    persona aceptó ESA reunión a ESA hora. Es la excepción a la
+              //    franja 8:00–20:00, y se muestra para que no sorprenda.
+              (function () {
+                var m = minutos(e.inicio) - e.aviso_min;
+                if (m < 0) m += 1440;
+                var hh = String(Math.floor(m / 60)).padStart(2, '0') + ':' +
+                         String(m % 60).padStart(2, '0');
+                return (m < 8 * 60 || m >= 20 * 60)
+                  ? ' — saldría ' + hh + ', fuera del horario habitual de envío' : '';
+              })() + '</div>' : '') +
           (acc ? '<div class="mag-acc">' + acc + '</div>' : '') +
         '</div></div>';
+    }
+
+    // ── Nueva reunión ──────────────────────────────────────────────────────
+    // ⛔ El lugar es OBLIGATORIO y lo dice la base: sin recurso, sin sitio y sin
+    //    enlace, el WhatsApp diría «reunión a las 3» sin decir dónde, y el que lo
+    //    recibe tendría que llamar por teléfono. Acá se avisa ANTES de intentar
+    //    guardar, para que no llegue como un mensaje de PostgreSQL.
+    var DURACIONES = [[30, '30 min'], [45, '45 min'], [60, '1 hora'],
+                      [90, '1 h 30'], [120, '2 horas'], [180, '3 horas']];
+    var AVISOS = [['', 'sin aviso'], [10, '10 min antes'], [15, '15 min antes'],
+                  [30, '30 min antes'], [60, '1 hora antes'], [1440, '1 día antes']];
+
+    function formNuevo() {
+      return { titulo: '', fecha: est.fecha, hora: '09:00', dur: 60, clase: 'trabajo',
+               recurso_id: '', sitio: '', enlace: '', aviso_min: 30,
+               invitados: {}, obligatorios: {}, choques: null, error: null };
+    }
+
+    function campo(et, ctrl) {
+      return '<label class="mag-campo"><span>' + esc(et) + '</span>' + ctrl + '</label>';
+    }
+    function sel(nombre, ops, valor) {
+      return '<select class="mag-in" data-f="' + nombre + '">' + ops.map(function (o) {
+        return '<option value="' + esc(o[0]) + '"' +
+               (String(o[0]) === String(valor) ? ' selected' : '') + '>' + esc(o[1]) + '</option>';
+      }).join('') + '</select>';
+    }
+
+    // ⚠️ Se DICE a qué hora saldría el aviso cuando cae fuera del horario
+    //    habitual. No se retiene y no se pide permiso: la persona aceptó ESA
+    //    reunión a ESA hora, y el aviso es suyo. Pero que no sorprenda a quien
+    //    la convoca. Es la excepción escrita a la franja 8:00–20:00.
+    function avisoFuera(f) {
+      if (!f.aviso_min) return '';
+      var m = minutos(f.fecha + ' ' + f.hora) - (+f.aviso_min);
+      if (m < 0) m += 1440;
+      if (m >= 8 * 60 && m < 20 * 60) return '';
+      var hh = String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0');
+      return '<div class="mag-nota">El aviso saldría a las <b>' + hh + '</b>, fuera del horario ' +
+             'habitual de envío. <b>Sale igual</b>: la reunión es a esa hora y quien acepte lo sabe.</div>';
+    }
+
+    function verNueva() {
+      var f = est.form;
+      var personas = est.agendas.filter(function (a) { return a.clase === 'persona' && !a.es_mia; });
+      var recursos = est.agendas.filter(function (a) { return a.clase === 'recurso'; });
+
+      var h = '<div class="mag-top"><div><h2 style="font-size:17px">Nueva reunión</h2>' +
+              '<div class="mag-sub">La convocás vos · ' + esc(est.yo ? est.yo.nombre : '') + '</div></div></div>';
+
+      if (f.error) h += '<div class="mag-aviso mag-aviso-mal">' + esc(f.error) + '</div>';
+
+      // ⛔ EL CHOQUE NO TRANCA: PREGUNTA. Que la sala esté ocupada no prueba que
+      //    haya un error — «puede ser que precisamente no se sabía que se tenía
+      //    esa reunión». Las dos salidas de acá son seguir igual o cambiar la
+      //    hora; «unirme a la que ya está» es la etapa 4 y todavía no existe,
+      //    así que no se dibuja.
+      if (f.choques && f.choques.length) {
+        h += '<div class="mag-roto"><b>⛔ A esa hora ya hay algo</b><ul>' +
+          f.choques.map(function (c) {
+            return '<li>' + esc(c.quien) + ' · ' + esc(hhmm(c.inicio)) + '–' + esc(hhmm(c.fin)) +
+                   (c.titulo ? ' · ' + esc(c.titulo) : '') + '</li>';
+          }).join('') + '</ul>' +
+          '<div class="mag-acc">' +
+            '<button class="mag-btn mag-btn-s" data-acc="form-igual">Proponerla igual</button>' +
+            '<button class="mag-btn mag-btn-s mag-btn-p" data-acc="form-volver">Cambiar la hora</button>' +
+          '</div></div>';
+      }
+
+      h += '<div class="mag-perm" style="padding:6px 15px 15px">' +
+        campo('Asunto', '<input class="mag-in" data-f="titulo" value="' + esc(f.titulo) +
+              '" placeholder="Junta directiva mensual" maxlength="140">') +
+        '<div class="mag-tres">' +
+          campo('Día', '<input class="mag-in" type="date" data-f="fecha" value="' + esc(f.fecha) + '">') +
+          campo('Hora', '<input class="mag-in" type="time" data-f="hora" value="' + esc(f.hora) + '">') +
+          campo('Dura', sel('dur', DURACIONES, f.dur)) +
+        '</div>' +
+        campo('Tipo', sel('clase', [['trabajo', 'De trabajo'],
+              ['personal', 'Personal — los demás solo ven que estás ocupado']], f.clase)) +
+
+        '<div class="mag-grupo-tit">Dónde · hace falta al menos uno</div>' +
+        campo('Un recurso reservable', sel('recurso_id',
+              [['', '— ninguno —']].concat(recursos.map(function (r) {
+                return [String(r.agenda_id), r.nombre]; })), String(f.recurso_id))) +
+        campo('Un sitio, escrito a mano', '<input class="mag-in" data-f="sitio" value="' + esc(f.sitio) +
+              '" placeholder="Panadería La Esquina, av. Principal">') +
+        campo('Un enlace de videollamada', '<input class="mag-in" data-f="enlace" value="' + esc(f.enlace) +
+              '" placeholder="https://…">') +
+
+        '<div class="mag-grupo-tit">Quiénes</div>' +
+        (personas.length
+          ? personas.map(function (a) {
+              var va = !!f.invitados[a.persona_id];
+              return '<div class="mag-fila">' +
+                '<div class="mag-ini">' + esc(iniciales(a.nombre)) + '</div>' +
+                '<div><div class="nom">' + esc(nombreCorto(a.nombre)) + '</div>' +
+                  '<div class="ayuda">' + esc(etiquetaNivel(a.nivel)) + '</div></div>' +
+                '<div class="mag-chks">' +
+                  '<label class="mag-chk"><input type="checkbox" data-inv="' + esc(a.persona_id) + '"' +
+                    (va ? ' checked' : '') + '> va</label>' +
+                  '<label class="mag-chk"><input type="checkbox" data-obl="' + esc(a.persona_id) + '"' +
+                    (f.obligatorios[a.persona_id] ? ' checked' : '') + (va ? '' : ' disabled') +
+                    '> obligatorio</label>' +
+                '</div></div>';
+            }).join('')
+          : '<div class="mag-vacio" style="padding:16px"><div class="q">No hay otras agendas abiertas ' +
+            'todavía. Se abren desde Administración.</div></div>') +
+
+        '<div class="mag-grupo-tit">Aviso</div>' +
+        campo('Avisar por WhatsApp', sel('aviso_min', AVISOS, String(f.aviso_min))) +
+        avisoFuera(f) +
+      '</div>';
+
+      h += '<div class="mag-acc">' +
+        '<button class="mag-btn mag-btn-p" data-acc="form-guardar"' + (est.enviando ? ' disabled' : '') + '>' +
+          (est.enviando ? 'Guardando…' : 'Proponer y avisar') + '</button>' +
+        '<button class="mag-btn" data-acc="form-cerrar">Cancelar</button>' +
+      '</div>';
+      return h;
+    }
+
+    function guardarForm(igual) {
+      var f = est.form;
+      f.error = null; f.choques = null;
+      if (!f.titulo.trim()) { f.error = 'Falta el asunto.'; pintar(); return; }
+      if (!f.recurso_id && !f.sitio.trim() && !f.enlace.trim()) {
+        f.error = 'Falta el lugar: un recurso, un sitio escrito a mano o un enlace.';
+        pintar(); return;
+      }
+
+      var ini = f.fecha + ' ' + f.hora;
+      var m = minutos(ini) + (+f.dur);
+      var finFecha = f.fecha, mm = m;
+      // Una reunión puede cruzar la medianoche: no hay horario laboral.
+      if (m >= 1440) { finFecha = corrido(f.fecha, 1); mm = m - 1440; }
+      var fin = finFecha + ' ' + String(Math.floor(mm / 60)).padStart(2, '0') + ':' +
+                String(mm % 60).padStart(2, '0');
+
+      var asistentes = Object.keys(f.invitados)
+        .filter(function (k) { return f.invitados[k]; })
+        .map(function (k) { return { persona_id: k, obligatorio: !!f.obligatorios[k] }; });
+
+      est.enviando = true; pintar();
+      sb.rpc('agn_guardar', { p: {
+        titulo: f.titulo.trim(), inicio: ini, fin: fin, clase: f.clase,
+        recurso_id: f.recurso_id || null,
+        sitio: f.sitio.trim() || null, enlace: f.enlace.trim() || null,
+        aviso_min: f.aviso_min ? +f.aviso_min : null,
+        asistentes: asistentes,
+        igual_encimo: !!igual
+      } }).then(function (r) {
+        est.enviando = false;
+        if (r.error) { f.error = r.error.message; pintar(); return; }
+        var d = r.data || {};
+        if (!d.ok) {
+          if (d.motivo === 'choque') { f.choques = d.choques || []; pintar(); return; }
+          f.error = d.motivo || 'No se pudo guardar.'; pintar(); return;
+        }
+        // Guardar y avisar son DOS cosas: si el aviso falla, la reunión ya está
+        // guardada y no se pierde. Y se dice a cuántos de cuántos les llegó.
+        sb.rpc('agn_invitar', { p_evento_id: d.id }).then(function (i) {
+          var q = i.data || {};
+          est.form = null;
+          est.aviso = { ok: !i.error,
+            txt: i.error
+              ? 'La reunión quedó guardada, pero la invitación no salió: ' + i.error.message
+              : 'Propuesta. Invitación enviada a ' + (q.enviadas || 0) + ' de ' + (q.total || 0) +
+                ((q.sin_canal || 0) > 0
+                  ? ' — ' + q.sin_canal + ' sin teléfono al que escribirle' : '') + '.' };
+          refrescar();
+        });
+      });
     }
 
     // ── El día ─────────────────────────────────────────────────────────────
@@ -470,7 +716,36 @@
     }
 
     // ── Clics ──────────────────────────────────────────────────────────────
+    // ⚠️ `input` guarda y NO repinta: repintar en cada tecla rehace el HTML y el
+    //    cursor se va al principio de la caja. Repintar es cosa del `change`.
+    el.addEventListener('input', function (ev) {
+      var t = ev.target;
+      if (!t || !t.getAttribute) return;
+      var f = t.getAttribute('data-f');
+      if (f && est.form) est.form[f] = t.value;
+      var m = t.getAttribute('data-m');
+      if (m && est.mover) est.mover[m] = t.value;
+    });
+
     el.addEventListener('change', function (ev) {
+      var t = ev.target;
+      if (t && t.getAttribute) {
+        var campoF = t.getAttribute('data-f');
+        if (campoF && est.form) { est.form[campoF] = t.value; pintar(); return; }
+        var campoM = t.getAttribute('data-m');
+        if (campoM && est.mover) { est.mover[campoM] = t.value; pintar(); return; }
+        var inv = t.getAttribute('data-inv');
+        if (inv && est.form) {
+          est.form.invitados[inv] = t.checked;
+          // Dejar «obligatorio» marcado para alguien que ya no va sería una
+          // casilla que dice una cosa y significa otra.
+          if (!t.checked) delete est.form.obligatorios[inv];
+          pintar(); return;
+        }
+        var obl = t.getAttribute('data-obl');
+        if (obl && est.form) { est.form.obligatorios[obl] = t.checked; pintar(); return; }
+      }
+
       var s = ev.target.closest && ev.target.closest('select[data-persona]');
       if (!s) return;
       var pid = s.getAttribute('data-persona');
@@ -483,6 +758,30 @@
     });
 
     el.addEventListener('click', function (ev) {
+      // Responder a una invitación desde adentro de la app: la misma respuesta
+      // que el enlace del WhatsApp, por la misma puerta.
+      var rb = ev.target.closest && ev.target.closest('button[data-resp]');
+      if (rb) {
+        var evId = +rb.getAttribute('data-ev');
+        var resp = rb.getAttribute('data-resp');
+        rb.disabled = true; rb.textContent = '…';
+        sb.rpc('agn_responder_yo', { p_evento_id: evId, p_respuesta: resp, p_nota: null })
+          .then(function (r) {
+            var d = (r.data || {});
+            if (r.error || !d.ok) {
+              // ⛔ Un choque no es un error: es una respuesta, y se dice entera.
+              est.aviso = { ok: false, txt: d.texto || (r.error && r.error.message) ||
+                            'No se pudo registrar la respuesta.' };
+            } else {
+              est.aviso = { ok: true, txt: resp === 'acepto' ? 'Quedó anotado que asistís.'
+                          : resp === 'no_puedo' ? 'Avisado: no podés. Se lo dijimos a quien convocó.'
+                          : 'Avisado: pedís otra hora. Se lo dijimos a quien convocó.' };
+            }
+            refrescar();
+          });
+        return;
+      }
+
       var t = ev.target.closest && ev.target.closest('[data-tab],[data-acc]');
       if (!t) return;
 
@@ -499,6 +798,68 @@
       else if (acc === 'hoy')  { est.fecha = hoyISO();                refrescar(); }
       else if (acc === 'refrescar') { refrescar(); }
       else if (acc === '24h')  { est.todoElDia = !est.todoElDia; pintar(); }
+
+      // ── Nueva reunión ─────────────────────────────────────────────────────
+      else if (acc === 'nueva')        { est.aviso = null; est.form = formNuevo(); pintar(); }
+      else if (acc === 'form-cerrar')  { est.form = null; pintar(); }
+      else if (acc === 'form-volver')  { est.form.choques = null; pintar(); }
+      else if (acc === 'form-guardar') { guardarForm(false); }
+      else if (acc === 'form-igual')   { guardarForm(true); }
+
+      // ── Mover ─────────────────────────────────────────────────────────────
+      else if (acc === 'mover') {
+        var e1 = est.dia.filter(function (x) { return x.evento_id === +t.getAttribute('data-ev'); })[0];
+        if (!e1) return;
+        est.borrar = null;
+        est.mover = { ev: e1.evento_id, titulo: e1.titulo || 'la reunión',
+                      fecha: String(e1.inicio).slice(0, 10), hora: hhmm(e1.inicio) };
+        pintar();
+      }
+      else if (acc === 'mover-no') { est.mover = null; pintar(); }
+      else if (acc === 'mover-ok') {
+        var m = est.mover;
+        est.enviando = true; pintar();
+        sb.rpc('agn_mover', { p_evento_id: m.ev, p_inicio: m.fecha + ' ' + m.hora, p_fin: null })
+          .then(function (r) {
+            est.enviando = false;
+            var d = (r.data || {});
+            if (r.error || !d.ok) {
+              est.aviso = { ok: false, txt: d.motivo === 'choque'
+                ? 'A esa hora ya hay algo. Elegí otra.'
+                : (r.error && r.error.message) || 'No se pudo mover.' };
+              pintar(); return;
+            }
+            est.mover = null;
+            est.aviso = { ok: true, txt: 'Movida al ' + d.movida_a + '. Vuelven a pendiente ' +
+              d.volvieron_a_pendiente + ' y se les preguntó de nuevo' +
+              (d.organizador_aceptado === false
+                ? '. ⚠️ Vos quedaste en pendiente: a esa hora tenías otra cosa aceptada' : '') + '.' };
+            refrescar();
+          });
+      }
+
+      // ── Cancelar ──────────────────────────────────────────────────────────
+      else if (acc === 'cancelar') {
+        var e2 = est.dia.filter(function (x) { return x.evento_id === +t.getAttribute('data-ev'); })[0];
+        if (!e2) return;
+        est.mover = null;
+        est.borrar = { ev: e2.evento_id, titulo: e2.titulo || 'la reunión' };
+        pintar();
+      }
+      else if (acc === 'cancelar-no') { est.borrar = null; pintar(); }
+      else if (acc === 'cancelar-ok') {
+        var c = est.borrar;
+        est.enviando = true; pintar();
+        sb.rpc('agn_cancelar', { p_evento_id: c.ev, p_motivo: null }).then(function (r) {
+          est.enviando = false; est.borrar = null;
+          var d = (r.data || {});
+          est.aviso = (r.error || !d.ok)
+            ? { ok: false, txt: (r.error && r.error.message) || 'No se pudo cancelar.' }
+            : { ok: true, txt: 'Cancelada. Avisados ' + (d.avisados || 0) +
+                ' de los que habían aceptado, y el aviso previo ya no va a salir.' };
+          refrescar();
+        });
+      }
       else if (acc === 'cancelar-perm') {
         if (Object.keys(est.cambios).length) { est.cambios = {}; est.aviso = null; pintar(); }
         else { est.tab = 'mia'; est.aviso = null; pintar(); }   // ⚠️ TODA pantalla tiene salida
