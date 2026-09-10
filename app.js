@@ -19766,7 +19766,19 @@ async function cambiarContrasena(){
   if(nueva!==conf){alert('Las contrasenas no coinciden');return;}
   if(nueva.length<6){alert('La clave debe tener al menos 6 caracteres');return;}
   var j=await btgUsuariosAPI('POST',{accion:'clave',usuario:u,password:nueva});
-  if(j&&j.ok){ audit('Contrasena cambiada',u); ['cp-user','cp-nueva','cp-conf'].forEach(function(id){sv(id,'');}); alert('✅ Contrasena cambiada para '+u+'.'); }
+  if(j&&j.ok){
+    audit('Contrasena cambiada',u+(j.sesiones_cerradas?(' · sesiones cerradas: '+j.sesiones_cerradas):''));
+    ['cp-user','cp-nueva','cp-conf'].forEach(function(id){sv(id,'');});
+    // ⛔ SE DICE SI LAS SESIONES SE CERRARON. Hasta el 10/09/2026 cambiar la clave
+    //    NO cerraba las que ya estaban abiertas: la persona seguía trabajando
+    //    adentro y desde afuera se veía como «sigue tomando la vieja». Ahora se
+    //    cierran, y acá se informa cuántas — y si NO se pudieron cerrar, se avisa,
+    //    porque la clave sí cambió y quien estuviera dentro sigue dentro.
+    var extra = j.aviso ? ('\n\n⚠️ ' + j.aviso)
+      : (j.sesiones_cerradas ? ('\n\nSe cerraron ' + j.sesiones_cerradas + ' sesión(es) que tenía abiertas: tiene que volver a entrar con la clave nueva.')
+                             : '\n\nNo tenía ninguna sesión abierta.');
+    alert('✅ Contrasena cambiada para '+u+'.' + extra);
+  }
   else alert('No se pudo: '+((j&&j.error)||''));
 }
 
