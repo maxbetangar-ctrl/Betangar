@@ -531,6 +531,12 @@
       var f = est.form;
       f.error = null; f.choques = null;
       if (!f.titulo.trim()) { f.error = 'Falta el asunto.'; pintar(); return; }
+      // ⚠️ Esta guarda YA estaba y funciona: la regla `agn_evento_tiene_lugar` de
+      //    la base pide sala, sitio O enlace, y acá se dice antes de mandar.
+      //    Se anota porque el 11/09/2026 casi la doy por faltante: `agn_eventos`
+      //    tenía CERO filas y el reflejo fue «no valida el lugar». No era eso —
+      //    era que la pantalla no llegaba a abrirse (7,6 s de autodiagnóstico).
+      //    Una tabla vacía no dice POR QUÉ está vacía.
       if (!f.recurso_id && !f.sitio.trim() && !f.enlace.trim()) {
         f.error = 'Falta el lugar: un recurso, un sitio escrito a mano o un enlace.';
         pintar(); return;
