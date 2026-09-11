@@ -946,7 +946,23 @@
     });
 
     pintar();
-    pedirDiag().then(refrescar);
+    // ⛔ EL AUTODIAGNÓSTICO NO VA EN EL CAMINO DE ABRIR LA PANTALLA.
+    //    Medido el 11/09/2026 contra la base real: `agn_diagnostico()` tarda
+    //    **7,6 segundos** — prueba los triggers de verdad, escribiendo y
+    //    deshaciendo. Y acá se lo esperaba ANTES de cargar y pintar, así que
+    //    la agenda tardaba eso en aparecer… y cuando la base estaba un poco
+    //    cargada se pasaba del tope de 8 s y la pantalla moría con
+    //    «canceling statement due to statement timeout».
+    //    Eso fue lo que reportó Alejandra: «dice que la agenda no está
+    //    trabajando bien». No estaba rota: estaba esperando su propio examen.
+    // ⇒ Primero se carga y se pinta. El diagnóstico va DETRÁS y, si falla, se
+    //   anota como un chequeo más — nunca deja la pantalla sin abrir.
+    refrescar();
+    pedirDiag().then(pintar).catch(function (e) {
+      est.diag = (est.diag || []).concat([{ pieza: 'diagnóstico', bien: false,
+        detalle: 'no se pudo correr: ' + ((e && e.message) || e) }]);
+      pintar();
+    });
 
     est.vivo = true;
     return function desmontar() {
