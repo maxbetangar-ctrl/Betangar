@@ -17127,7 +17127,9 @@ function renderAsistencia(){
   // puede ver a simple vista si el tablero está pintando el día correcto — que es justo lo que falló.
   dias.forEach(function(d,i){
     var _fc=_fechaDeCelda(mes,sem,i), _et=_fc?(_fc.slice(8,10)+'/'+_fc.slice(5,7)):'';
-    html+='<th style="background:var(--bg3);padding:6px;text-align:center">'+d+
+    // El domingo se marca: en la mayoria de las semanas esta vacio, y un blanco
+    // igual a los demas se lee como que faltaron todos. (10/09/2026)
+    html+='<th style="background:var(--bg3);padding:6px;text-align:center'+(d==='D'?';opacity:.75':'')+'"'+(d==='D'?' title="Domingo: normalmente no se trabaja. Vacio NO es falta."':'')+'>'+d+
       (_et?'<div style="font-weight:400;font-size:9px;color:var(--text3)">'+_et+'</div>':'')+'</th>';
   });
   html+='<th style="background:var(--bg3);padding:6px">Total</th></tr></thead><tbody>';
@@ -17144,10 +17146,10 @@ function renderAsistencia(){
       html+='<td style="padding:5px;border-top:1px solid var(--border);text-align:center"><button onclick="marcarAsistencia(\''+emp.id+'\','+d+',\''+key+'\')"'+ttl+' style="background:'+bg+';border:1px solid var(--border);border-radius:4px;width:24px;height:24px;cursor:pointer;font-size:10px;font-weight:700;color:'+color+'">'+(v||'·')+'</button></td>';
       if(v==='P')semTotal++;
     }
-    html+='<td style="padding:5px;border-top:1px solid var(--border);text-align:center;font-family:var(--m);font-weight:700;color:var(--green)">'+semTotal+'/6</td></tr>';
+    html+='<td style="padding:5px;border-top:1px solid var(--border);text-align:center;font-family:var(--m);font-weight:700;color:var(--green)">'+semTotal+'/7</td></tr>';
   });
   html+='</tbody></table>';
-  html+='<div style="font-size:10px;color:var(--text3);margin-top:6px">🟢 fondo verde = fichó con la app. Clic para corregir a mano: · → P → A (Ausente) → J (Justificado) → ·</div>';
+  html+='<div style="font-size:10px;color:var(--text3);margin-top:6px">🟢 fondo verde = fichó con la app. Clic para corregir a mano: · → P → A (Ausente) → J (Justificado) → · · <b>D</b> = domingo, normalmente libre: vacío NO es falta</div>';
   var at=g('asis-tabla');if(at)at.innerHTML=html;
 }
 
