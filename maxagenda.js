@@ -191,14 +191,35 @@
               '<button class="mag-btn" data-acc="manana" title="El día siguiente">›</button>' +
             '</div>' +
             '<button class="mag-btn" data-acc="refrescar" title="Actualizar">↻</button>' +
-            // Solo con agenda propia: desde dónde se convoca es TU agenda.
-            (est.yo ? '<button class="mag-btn mag-btn-p" data-acc="nueva">＋ Nueva reunión</button>' : '') +
+            // ⛔ ESTE BOTON DESAPARECIA SIN DECIR NADA. Convocar exige agenda propia
+            //    —desde donde se convoca es TU agenda— pero a quien no la tiene, el
+            //    boton simplemente no le existia: la pantalla abria entera y no habia
+            //    forma de crear nada, ni una linea explicando por que. Eso es lo que
+            //    se reporto como «quise agendar algo y no me dejo» (10/09/2026).
+            //    Una pantalla que esconde su accion principal en silencio se ve igual
+            //    que una rota. [[norma-la-puerta-que-no-existe]]
+            (est.yo
+              ? '<button class="mag-btn mag-btn-p" data-acc="nueva">＋ Nueva reunión</button>'
+              : '<span class="mag-btn" style="opacity:.65;cursor:default" title="Para convocar reuniones hace falta que le abran su agenda, desde Administración">＋ Nueva reunión — necesita agenda propia</span>') +
           '</div>' +
         '</div>';
 
       // ⛔ Si el módulo no puede trabajar, LO GRITA arriba y en rojo. Un módulo
       //    roto con una pantalla prolija es peor que uno que no abre.
-      if (rotos.length) {
+      // ⚠️ PERO el autodiagnóstico que NO PUDO CORRER no es el módulo roto, y
+      //    confundirlos costó caro: `agn_diagnostico()` tarda 7,6 s, se pasaba del
+      //    tope, y esta franja roja salía diciendo «La agenda no está trabajando
+      //    bien» con un «statement timeout» adentro. Alejandra reportó esa frase
+      //    TAL CUAL — estaba citando la pantalla, no describiendo lo que veía.
+      //    La agenda andaba; el que no había podido correr era el examen.
+      var soloDiag = rotos.length > 0 && rotos.every(function (d) {
+        return d.pieza === 'diagnóstico';
+      });
+      if (soloDiag) {
+        html += '<div class="mag-nota">⚠️ No se pudo correr la revisión interna de la agenda' +
+          ' (' + esc(rotos[0].detalle || '') + '). <b>La agenda funciona igual</b>: esto es el' +
+          ' chequeo que se hace sola, no una falla del módulo.</div>';
+      } else if (rotos.length) {
         html +=
           '<div class="mag-roto"><b>⛔ La agenda no está trabajando bien</b>' +
             '<ul>' + rotos.map(function (d) {
