@@ -13252,7 +13252,25 @@ async function abrirEditarUnidad(cam){
   var fotoVer=foto;
   if(foto && String(foto).indexOf('data:')!==0){ try{ fotoVer=await _urlFirmada('asistencia',foto,3600)||''; }catch(e){ fotoVer=''; } }
   function inp(id,label,val,ph){return '<div class="fg"><label>'+label+'</label><input class="fc" id="'+id+'" value="'+_mEsc(val||'')+'"'+(ph?(' placeholder="'+_mEsc(ph)+'"'):'')+'></div>';}
+  // ⛔ UN CHOFER DADO DE BAJA SEGUIA FIGURANDO COMO EL ASIGNADO.
+  //    Alejandra, 10/09/2026: «es importante que [Hely Urdaneta y Richard
+  //    Villalobos] no aparezcan en ninguna de las pantallas». Los dos estan
+  //    INACTIVOS en la nomina y `unidad_config.chofer` seguia diciendo que
+  //    manejaban la B005 y la B009. Dar de baja a alguien no lo saca de las
+  //    unidades que tenia asignadas: nadie las desasigna.
+  // ⇒ NO se borra el dato a ciegas —quien maneja ahora lo sabe la oficina, no
+  //   yo— pero tampoco se muestra como si siguiera manejando. El campo queda
+  //   VACIO y el rotulo dice a quien habia y que ya no esta.
   var choferDef=c.chofer||(FLOTA[cam]&&FLOTA[cam].chofer)||'';
+  var choferRot='Chofer asignado';
+  if(choferDef){
+    var _act=(typeof EMPLEADOS!=='undefined'?EMPLEADOS:[]).some(function(e){
+      return e && e.activo && e.nombre && _normNom(e.nombre)===_normNom(choferDef); });
+    if(!_act){
+      choferRot='Chofer asignado ⚠️ estaba «'+_mEsc(choferDef)+'», que ya NO está activo — elegí quién maneja';
+      choferDef='';
+    }
+  }
   var html=
     '<div class="fr2">'+(nueva
       ?'<div class="fg"><label>N° de unidad (identificador)</label><input class="fc" id="u-cam" placeholder="ej: B001 / JAC-B001"><small style="color:var(--text3);font-size:10px">Así identifica el sistema a la unidad en toda la flota</small></div>'
@@ -13279,7 +13297,7 @@ async function abrirEditarUnidad(cam){
       '</select><small style="color:var(--text3);font-size:10px">Los camiones de <b>24 V llevan 2</b> (dos de 12 en serie). Con esto el sistema avisa si falta registrar alguna.</small></div>'+
       '<div class="fg" id="u-horas-fg" style="display:'+(c.medida==='horas'?'block':'none')+'"><label>Horas actuales</label><input class="fc" id="u-horas" type="number" value="'+(c.horasActuales||'')+'" placeholder="0" style="font-family:var(--m)"><small style="color:var(--text3);font-size:10px">Se actualiza al registrar mantenimiento por horas</small></div>'+
     '</div>'+
-    '<div class="fr2">'+inp('u-titular','Título a nombre de',c.titular)+inp('u-chofer','Chofer asignado',choferDef)+'</div>'+
+    '<div class="fr2">'+inp('u-titular','Título a nombre de',c.titular)+inp('u-chofer',choferRot,choferDef)+'</div>'+
     // Las piezas con serial de esta unidad (bateria, cauchos...). Va en la
     // FICHA porque es donde uno se pregunta «que bateria tiene puesta?».
     (nueva?'':(typeof _piezasResumenFicha==='function'?_piezasResumenFicha(cam):''))+
@@ -18992,6 +19010,15 @@ function _carnetCfg(){
            // sigue siendo el color del CARGO, que es como se veía hasta hoy. Declararlo
            // es lo que hace que el carnet «se vea de la empresa».
            acento:c.acento || ((typeof BTG_CONFIG!=='undefined'&&BTG_CONFIG.accent&&BTG_CONFIG.accent.green)||null),
+           // ⛔ EL LOGO A COLOR SE VOLVIA UN OVALO BLANCO. Alejandra, 10/09/2026:
+           //    «en el arte del carnet, en la cara, no sale el logo de Tony gas, se
+           //    ve el ovalo en blanco». El encabezado le aplicaba
+           //    `brightness(0) invert(1)`, que convierte CUALQUIER imagen en una
+           //    silueta blanca. Sirve para un logo monocromo pensado para ir en
+           //    blanco; a un PNG a color lo borra.
+           //    Por omision se mantiene en `true` para no cambiarle el carnet a
+           //    nadie sin que lo pida: el que tenga logo a color lo declara `false`.
+           logo_blanco: (c.logo_blanco !== false),
            sello: c.sello  || null,   // logo chico arriba a la derecha del FRENTE (Betangar: la Alcaldía)
            dorso: c.dorso  || null };
 }
@@ -19078,8 +19105,13 @@ function _carnetFrente(emp){
   var acento=cfg.acento||colorC;   // sin marca declarada, se conserva el color del cargo
   var selloSrc=(typeof cfg.sello==='function')?cfg.sello():cfg.sello;
   var sello=selloSrc?'<img src="'+selloSrc+'" style="position:absolute;top:6px;right:8px;height:26px;background:#fff;border-radius:50%;padding:1px">':'';
-  var logo=(typeof LOGO_SVG!=='undefined'&&LOGO_SVG)?'<img src="'+LOGO_SVG+'" height="30" style="filter:brightness(0) invert(1)">':
-           '<div style="color:#fff;font-size:11px;font-weight:900;letter-spacing:.5px">'+_esc(brandNomUp())+'</div>';
+  // Con `logo_blanco:false` el logo va TAL CUAL, sobre una pastilla blanca: sin
+  // ella, un logo oscuro sobre el encabezado oscuro tampoco se veria.
+  var logo=(typeof LOGO_SVG!=='undefined'&&LOGO_SVG)
+    ? (cfg.logo_blanco
+        ? '<img src="'+LOGO_SVG+'" height="30" style="filter:brightness(0) invert(1)">'
+        : '<span style="display:inline-flex;align-items:center;background:#fff;border-radius:6px;padding:3px 6px"><img src="'+LOGO_SVG+'" height="24" style="display:block"></span>')
+    : '<div style="color:#fff;font-size:11px;font-weight:900;letter-spacing:.5px">'+_esc(brandNomUp())+'</div>';
   var nn=_carnetNombre(emp.nombre);
   // Iniciales: primer nombre + primer apellido.
   var ini=_esc((nn.nom.charAt(0)||'')+(nn.ape.charAt(0)||''));
@@ -26373,7 +26405,33 @@ async function eliminarEmpDuplicado(id, nombre){
 // ══════════════════════════════════════════════════════
 // WIDGET VIAJES FLOTA
 // ══════════════════════════════════════════════════════
-var FLOTA_MAP_WF={'JAC-B001':'REINALDO','JAC-B002':'JOSE','JAC-B003':'MANUEL','JAC-B004':'MELVIN','JAC-B005':'HELY','JAC-B006':'JHAN','JAC-B007':'JAVIER','JAC-B008':'YURBENIS','JAC-B009':'RICHARD','JAC-B010':'ANDRY','JAC-B011':'OMAR','JAC-B012':'EDIOBER'};
+// ⛔ ERA UNA LISTA CONGELADA DE QUIEN MANEJA QUE, Y SE QUEDO VIEJA.
+//    Alejandra, 10/09/2026: «es importante que [Hely Urdaneta y Richard
+//    Villalobos] no aparezcan en ninguna de las pantallas». Los dos estan
+//    INACTIVOS en la nomina desde hace rato y este mapa seguia diciendo que
+//    manejaban la B005 y la B009 — porque estaba escrito a mano en el codigo.
+//    Era la TERCERA copia de la misma pregunta, despues de `FLOTA` y de
+//    `unidad_config`. El que se corrige no es el que se lee.
+// ⇒ Ahora sale del dato vivo, con la misma prioridad que el resto de la app:
+//    `unidad_config` manda, `FLOTA` es el respaldo.
+// ⚠️ Y si el chofer asignado YA NO es un empleado activo, no se lo nombra: se
+//    muestra la unidad sola. Nombrar a quien se fue es peor que no nombrar a nadie.
+function FLOTA_MAP_WF(){
+  var m = {}, act = {};
+  try {
+    (typeof EMPLEADOS !== 'undefined' ? EMPLEADOS : []).forEach(function (e) {
+      if (e && e.activo && e.nombre) act[_normNom(e.nombre)] = true;
+    });
+  } catch (e) {}
+  (typeof _unidadesTodas === 'function' ? _unidadesTodas() : []).forEach(function (cam) {
+    var uc = (typeof UNIDAD_CONFIG !== 'undefined' && UNIDAD_CONFIG[cam]) ? UNIDAD_CONFIG[cam] : null;
+    var fl = (typeof FLOTA !== 'undefined' && FLOTA[cam]) ? FLOTA[cam] : null;
+    var ch = (uc && uc.chofer) || (fl && fl.chofer) || '';
+    // Solo se nombra si esa persona sigue activa. Si no, la unidad va sola.
+    m[cam] = (ch && act[_normNom(ch)]) ? ch : '';
+  });
+  return m;
+}
 function puedeVerWidgetFlota(){if(!SESION)return false;return['superadmin','admin','operador','rrhh','visualizador','directivo'].indexOf(SESION.rol)>=0;}
 function getLunesWF(){var now=new Date();var day=now.getDay()||7;var l=new Date(now);l.setDate(now.getDate()-(day-1));l.setHours(0,0,0,0);return l.toISOString().slice(0,10);}
 function renderWidgetFlota(){
@@ -26383,7 +26441,7 @@ function renderWidgetFlota(){
   var hoy=fechaVE(),lunes=getLunesWF();
   var ld=new Date(lunes),dd=new Date(ld);dd.setDate(ld.getDate()+6);
   if(g4)g4.textContent=formatFecha(ld)+' – '+formatFecha(dd);
-  var cams=Object.keys(FLOTA_MAP_WF);
+  var _mapWF=FLOTA_MAP_WF(); var cams=Object.keys(_mapWF);
   Promise.all([
     supabase.from('viajes_chofer').select('cam,viaje_num').eq('fecha',hoy),
     supabase.from('viajes_chofer').select('cam,viaje_num,fecha').gte('fecha',lunes).lte('fecha',hoy),
@@ -26420,7 +26478,7 @@ function renderWidgetFlota(){
       +(ckFaltan.length?'<div style="margin-top:4px"><span style="background:rgba(248,113,113,.2);color:#f87171;font-size:11px;font-weight:800;padding:3px 9px;border-radius:8px;display:inline-block;border:1px solid rgba(248,113,113,.5)">⛔ FALTAN ('+ckFaltan.length+'): '+ckFaltan.join(' · ')+'</span></div>':'')
       +'</div>';
     g1.innerHTML=resumenCk+cams.map(function(cam){
-      var vh=ph[cam]||0,vs=ps[cam]||0,nm=(FLOTA_MAP_WF[cam]||cam).split(' ')[0],col=vh>0?'#7dc941':'var(--text3)';
+      var vh=ph[cam]||0,vs=ps[cam]||0,nm=(_mapWF[cam]||cam).split(' ')[0],col=vh>0?'#7dc941':'var(--text3)';
       var hizoCk=ckSet[cam]!==undefined;
       var estCk=(ckSet[cam]||'');
       var ckBadge;
