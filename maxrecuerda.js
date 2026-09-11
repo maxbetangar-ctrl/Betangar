@@ -211,10 +211,31 @@
           .select('*, rec_destinatarios(id,persona_id,nombre,telefono,papel)')
           .order('activo', { ascending: false }).order('id', { ascending: false }).limit(500),
         sb.rpc('rec_agenda', { p_dias: 30 }),
-        sb.rpc('rec_mis_pendientes')
+        sb.rpc('rec_mis_pendientes'),
+        // ⛔ Y LA LISTA BLANCA. `rec_destinos_extra` existe justamente para quien
+        //    NO está en la nómina y igual tiene que recibir avisos —la junta
+        //    directiva, un contratista, el dueño—, pero esta pantalla nunca la
+        //    leyó: solo ofrecía el directorio. Se podía autorizar a alguien y
+        //    después no había forma de elegirlo. Una lista blanca que la pantalla
+        //    no ofrece es una puerta que no se abre desde adentro.
+        //    ⚠️ VA AL FINAL del arreglo a propósito: metida en el medio corre los
+        //    índices de abajo y rompe recordatorios, agenda y pendientes en silencio.
+        sb.from('rec_destinos_extra').select('tel_canon,nombre,telefono,nota').limit(500)
       ]).then(function (r) {
         est.diag = (r[0].data || []);
         est.directorio = (r[1].data || []);
+        // Los autorizados aparte se suman al final, con su rótulo, para que se vea
+        // que NO son de la nómina. Sin `telefono` no se pueden ofrecer: la fila
+        // vieja solo guardaba los últimos 10 dígitos, que sirven para comparar y
+        // NO para escribirle a nadie.
+        (((r[5] || {}).data) || []).forEach(function (x) {
+          if (!x.telefono) return;
+          var k = String(x.telefono).replace(/\D/g, '').slice(-10);
+          if (est.directorio.some(function (p) {
+                return String(p.telefono || '').replace(/\D/g, '').slice(-10) === k; })) return;
+          est.directorio.push({ persona_id: null, nombre: x.nombre, telefono: x.telefono,
+                                rol: x.nota || 'Autorizado aparte', activo: true, extra: true });
+        });
         est.recordatorios = (r[2].data || []);
         est.proximos = (r[3].data || []);
         est.pendientes = (r[4].data || []);
@@ -905,6 +926,7 @@
                 //    él y la persona se queda pensando que quedó puesto.
                 refrescar();
               }
+
             });
           }
 
