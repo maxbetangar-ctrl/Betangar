@@ -114,6 +114,8 @@ Deno.serve(async (req) => {
 
   let sent = 0, fail = 0, bloq = 0;
   const bloqDetalle: Array<{ id: any; tipo: any; marca: string }> = [];
+  // ⛔ `bloq` cuenta TODO lo que se freno, no solo el candado de redaccion. Ver el
+  //    bloque del destino no autorizado, mas abajo, para el porque.
   for (const m of pend) {
     // CLAIM atómico: marca la fila 'enviando' SOLO si sigue 'pendiente'. Si dos corridas del cron se
     // solapan, únicamente una gana el claim; la otra ve 0 filas y salta → sin doble envío.
@@ -173,7 +175,18 @@ Deno.serve(async (req) => {
           estado: 'bloqueado', intentos: (m.intentos || 0) + 1,
           error: 'destino no autorizado: ' + phone + '. Agregalo en wa_destinos_permitidos o cargalo como teléfono del empleado.',
         }).eq('id', m.id);
-        fail++;
+        // ⛔ ESTO CUENTA PARA LA ALARMA. Hasta el 11/09/2026 hacia `fail++` y se iba:
+        //    la fila quedaba 'bloqueado' con el motivo escrito, pero la alarma solo
+        //    miraba `bloq`, que unicamente contaba el candado de redaccion. O sea que
+        //    un mensaje frenado por destino NO AVISABA A NADIE.
+        //    Costo concreto: al C.E.O. de Tony Gas se le frenaron 4 pedidos de
+        //    aprobacion (04/09 y 08/09) porque su telefono no estaba cargado donde la
+        //    puerta lo lee. Dos requisiciones quedaron 7 y 3 dias en `espera_firma`
+        //    esperando una firma que nunca se le pidio. Nadie lo noto: un mensaje
+        //    frenado se ve EXACTAMENTE IGUAL que no tener nada que mandar.
+        //    [[norma-la-alarma-no-sale-por-el-canal-que-vigila]]
+        bloq++;
+        bloqDetalle.push({ id: m.id, tipo: m.tipo, marca: 'destino no autorizado (' + phone + ')' });
         continue;
       }
 
@@ -187,7 +200,36 @@ Deno.serve(async (req) => {
         // mensaje que se reintentó y llegó queda "enviado" pero mostrando un error viejo, y quien
         // lo mire va a creer que no salió (pasó el 2026-07-20 con un 502: llegó en el reintento
         // pero el registro parecía fallido).
-        await sb.from('cola_mensajes').update({ estado: 'enviado', enviado_at: new Date().toISOString(), error: null }).eq('id', m.id);
+        // ⛔ SE GUARDA EL ID QUE DEVUELVE EL PROVEEDOR. Hasta el 11/09/2026 la
+        //    respuesta se tiraba a la basura: se miraba `r.ok` y nada mas. Por eso
+        //    nuestro 'enviado' solo queria decir «Wassenger acepto el pedido», y
+        //    despues NO habia con que preguntarle si el mensaje llego al telefono
+        //    de la persona. Costo dos dias de «a Fulana no le llegan los
+        //    recordatorios» sin poder contestar. Con el id se consulta el estado
+        //    real (delivered / read / se quedo en sent), que es lo unico que
+        //    prueba entrega. Nuestro 'enviado' es palabra nuestra.
+        let idProv: string | null = null;
+        try {
+          const j = await r.json();
+          idProv = (j && (j.id || j._id || (Array.isArray(j) ? j[0]?.id : null))) || null;
+        } catch (_) { /* si no devuelve JSON el envio igual salio: no se pierde por esto */ }
+
+        // error:null — al salir bien se BORRA el error del intento fallido anterior. Si no, un
+        // mensaje que se reintento y llego queda "enviado" pero mostrando un error viejo, y quien
+        // lo mire va a creer que no salio (paso el 2026-07-20 con un 502: llego en el reintento
+        // pero el registro parecia fallido).
+        const marca = { estado: 'enviado', enviado_at: new Date().toISOString(), error: null };
+
+        // ⛔ EL MENSAJE YA SALIO: marcarlo NO puede fallar por la columna nueva.
+        //    Si PostgREST todavia tiene el esquema viejo en cache, el update con
+        //    `proveedor_id` da 400, la fila se queda en 'pendiente' y el ciclo
+        //    siguiente LO MANDA OTRA VEZ. Una mejora de trazabilidad no puede
+        //    terminar en mensajes duplicados a un cliente: se reintenta sin el id.
+        const up = await sb.from('cola_mensajes').update({ ...marca, proveedor_id: idProv }).eq('id', m.id);
+        if (up.error) {
+          console.log('proveedor_id no se pudo guardar (' + up.error.message + '); se marca igual');
+          await sb.from('cola_mensajes').update(marca).eq('id', m.id);
+        }
         sent++;
       } else {
         const t = await r.text();
@@ -246,8 +288,8 @@ Deno.serve(async (req) => {
         // No se reproduce el TEXTO del mensaje: se dice qué palabra lo frenó y qué id
         // mirar. Copiar el texto acá sería sacar por otra puerta justo lo que se frenó.
         const detalle = bloqDetalle.slice(0, 5).map((b) => `#${b.id} (${b.tipo || 'sin tipo'}): "${b.marca}"`).join('\n');
-        const texto = `${etiqueta ? etiqueta + ': ' : ''}⚠️ El filtro de redacción frenó `
-          + `${bloq} mensaje${bloq > 1 ? 's' : ''} y NO se envió a nadie.\n\n${detalle}`
+        const texto = `${etiqueta ? etiqueta + ': ' : ''}⚠️ Se frenaron `
+          + `${bloq} mensaje${bloq > 1 ? 's' : ''} y NO se enviaron a nadie.\n\n${detalle}`
           + `${bloq > 5 ? `\n…y ${bloq - 5} más.` : ''}`
           + `\n\nEstán en la cola con estado "bloqueado" y el motivo escrito. Hay que corregir el texto y volver a encolarlos.`;
         try {
