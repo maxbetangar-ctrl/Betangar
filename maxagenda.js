@@ -433,6 +433,19 @@
     //    habitual. No se retiene y no se pide permiso: la persona aceptó ESA
     //    reunión a ESA hora, y el aviso es suyo. Pero que no sorprenda a quien
     //    la convoca. Es la excepción escrita a la franja 8:00–20:00.
+    // ⛔ EL MARGEN SE DICE, NO SE ESCONDE. El aviso sale unos minutos ANTES de lo
+    //    pedido porque el WhatsApp va por el número de Maxware, que manda muchas
+    //    otras cosas: medido, el proveedor llegó a espaciar un mensaje 26 minutos
+    //    un día cargado. Llegar temprano no molesta —el mensaje dice la hora de
+    //    la reunión—; llegar tarde es perder la reunión. Pero el que lo configura
+    //    tiene que saber por qué le llegó 15 minutos antes de lo que pidió.
+    function margenAviso(f) {
+      if (!f.aviso_min) return '';
+      return '<div class="mag-nota">El aviso sale <b>unos 15 minutos antes</b> de lo que pediste. ' +
+        'El WhatsApp va por el número de la empresa, que manda muchas cosas más, y ese ' +
+        'adelanto es para que <b>llegue a tiempo aunque la cola esté cargada</b>.</div>';
+    }
+
     function avisoFuera(f) {
       if (!f.aviso_min) return '';
       var m = minutos(f.fecha + ' ' + f.hora) - (+f.aviso_min);
@@ -537,6 +550,7 @@
 
         '<div class="mag-grupo-tit">Aviso</div>' +
         campo('Avisar por WhatsApp', sel('aviso_min', AVISOS, String(f.aviso_min))) +
+        margenAviso(f) +
         avisoFuera(f) +
       '</div>';
 
