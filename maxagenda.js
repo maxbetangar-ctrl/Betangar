@@ -112,6 +112,7 @@
       permAgenda: null,   // qué agenda se está repartiendo
       permisos: [],
       cambios: {},
+      grupos: [],          // del directorio: «todos los choferes», etc.
       form: null,          // la reunión que se está escribiendo
       mover: null,         // la que se está moviendo
       borrar: null,        // la que se está por cancelar
@@ -139,10 +140,14 @@
     function pedir() {
       return Promise.all([
         sb.rpc('agn_agendas_visibles'),
-        sb.rpc('agn_dia', { p_fecha: est.fecha, p_agendas: null })
+        sb.rpc('agn_dia', { p_fecha: est.fecha, p_agendas: null }),
+        // Los grupos salen del DIRECTORIO, no de una lista clavada acá: cada
+        // empresa tiene sus cargos y esta pantalla no puede saberlos.
+        sb.rpc('grp_catalogo')
       ]).then(function (r) {
         est.agendas = r[0].data || [];
         est.dia = r[1].data || [];
+        est.grupos = r[2].data || [];
         est.yo = est.agendas.filter(function (a) { return a.es_mia; })[0] || null;
         est.cargando = false;
 
@@ -389,7 +394,7 @@
 
     function formNuevo() {
       return { titulo: '', fecha: est.fecha, hora: '09:00', dur: 60, clase: 'trabajo',
-               recurso_id: '', sitio: '', enlace: '', aviso_min: 30,
+               recurso_id: '', sitio: '', enlace: '', aviso_min: 30, grupo_id: '',
                invitados: {}, obligatorios: {}, choques: null, error: null };
     }
 
@@ -415,6 +420,24 @@
       var hh = String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0');
       return '<div class="mag-nota">El aviso saldría a las <b>' + hh + '</b>, fuera del horario ' +
              'habitual de envío. <b>Sale igual</b>: la reunión es a esa hora y quien acepte lo sabe.</div>';
+    }
+
+    // ⛔ EL NÚMERO SE CANTA ANTES DE MANDAR, y se canta entero: no «le llega a
+    //    15» sino «le llega a 15 de 35». La diferencia es la que deja ver el
+    //    punto ciego — 20 personas que nadie va a alcanzar nunca, porque no
+    //    tienen teléfono y se decidió dejarlo así. Un número sin su total
+    //    parece completo.
+    function alcanceGrupo(f) {
+      if (!f.grupo_id) return '';
+      var g = est.grupos.filter(function (x) { return String(x.grupo_id) === String(f.grupo_id); })[0];
+      if (!g) return '';
+      var fuera = g.total - g.alcanzables;
+      return '<div class="mag-nota">A este grupo se le <b>avisa</b>: no se le pregunta si puede ' +
+        'ni se le mira el choque de horario.<br>' +
+        'Son <b>' + g.total + '</b> y el WhatsApp le llega a <b>' + g.alcanzables + '</b>.' +
+        (fuera > 0
+          ? '<br>⚠️ <b>' + fuera + ' no tienen teléfono cargado</b>: a ésos hay que avisarles por otra vía.'
+          : '') + '</div>';
     }
 
     function verNueva() {
@@ -483,6 +506,14 @@
           : '<div class="mag-vacio" style="padding:16px"><div class="q">No hay otras agendas abiertas ' +
             'todavía. Se abren desde Administración.</div></div>') +
 
+        '<div class="mag-grupo-tit">O convocar a un grupo entero</div>' +
+        campo('Convocar a', sel('grupo_id',
+              [['', '— a nadie —']].concat(est.grupos.map(function (x) {
+                return [String(x.grupo_id),
+                        x.nombre + '  (' + x.total + ' personas · le llega a ' + x.alcanzables + ')'];
+              })), String(f.grupo_id))) +
+        alcanceGrupo(f) +
+
         '<div class="mag-grupo-tit">Aviso</div>' +
         campo('Avisar por WhatsApp', sel('aviso_min', AVISOS, String(f.aviso_min))) +
         avisoFuera(f) +
@@ -537,14 +568,34 @@
         // guardada y no se pierde. Y se dice a cuántos de cuántos les llegó.
         sb.rpc('agn_invitar', { p_evento_id: d.id }).then(function (i) {
           var q = i.data || {};
-          est.form = null;
-          est.aviso = { ok: !i.error,
-            txt: i.error
-              ? 'La reunión quedó guardada, pero la invitación no salió: ' + i.error.message
-              : 'Propuesta. Invitación enviada a ' + (q.enviadas || 0) + ' de ' + (q.total || 0) +
-                ((q.sin_canal || 0) > 0
-                  ? ' — ' + q.sin_canal + ' sin teléfono al que escribirle' : '') + '.' };
-          refrescar();
+          var txt = i.error
+            ? 'La reunión quedó guardada, pero la invitación no salió: ' + i.error.message
+            : 'Propuesta. Invitación enviada a ' + (q.enviadas || 0) + ' de ' + (q.total || 0) +
+              ((q.sin_canal || 0) > 0
+                ? ' — ' + q.sin_canal + ' sin teléfono al que escribirle' : '') + '.';
+
+          if (!f.grupo_id) {
+            est.form = null;
+            est.aviso = { ok: !i.error, txt: txt };
+            refrescar();
+            return;
+          }
+          // La convocatoria va DESPUÉS y por separado: si falla, la reunión ya
+          // está guardada y las invitaciones ya salieron. Son dos cosas.
+          sb.rpc('agn_convocar', { p_evento_id: d.id, p_grupo_id: +f.grupo_id })
+            .then(function (c) {
+              var v = c.data || {};
+              est.form = null;
+              est.aviso = { ok: !c.error,
+                txt: c.error
+                  ? txt + ' La convocatoria NO salió: ' + c.error.message
+                  : txt + ' Convocados «' + v.grupo + '»: le llega a ' + v.avisados +
+                    ' de ' + v.total +
+                    ((v.sin_canal || 0) > 0
+                      ? ' — ' + v.sin_canal + ' sin teléfono, hay que avisarles por otra vía' : '') +
+                    '. Sale por el carril de fondo, sin trabar los avisos urgentes.' };
+              refrescar();
+            });
         });
       });
     }
