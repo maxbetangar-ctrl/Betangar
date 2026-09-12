@@ -7188,10 +7188,32 @@ async function guardarImportacionEnDB(resultado){
   }
 
   if(!DB_READY){
-    // Intentar reconectar Supabase
-    if(typeof window.supabase!=='undefined'&&typeof window.supabase.createClient==='function'){
-      try{supabase=window.supabase.createClient(SUPA_URL,SUPA_KEY);DB_READY=true;console.log('Reconexión Supabase OK');}catch(e2){DB_READY=false;}
-    }
+    // Reconectar con `initSupabaseClient()`, que YA EXISTE y es la unica que sabe
+    // armar el cliente bien. Antes se reconectaba a mano aca, y eso tenia DOS
+    // fallas (12/09/2026):
+    //
+    // (!) 1. REVENTABA. El guard era
+    //        `typeof window.supabase!=='undefined' && typeof window.supabase.createClient==='function'`
+    //        y `window.supabase` puede ser **null**: `app.js` declara
+    //        `var supabase=null`, que en el navegador es `window.supabase=null` y
+    //        PISA la libreria segun el orden de carga -- esta escrito en
+    //        `app.html` desde que se arreglo el DB_READY al recargar.
+    //        `typeof null` es 'object', asi que el guard pasaba y la linea
+    //        siguiente lanzaba TypeError. Y como esto es lo PRIMERO de la
+    //        funcion, el throw se llevaba puesto el respaldo a `localStorage`
+    //        que viene abajo: el Excel importado se perdia entero, en silencio.
+    //
+    // (!) 2. Y CUANDO NO REVENTABA, RECONECTABA MAL. Hacia
+    //        `createClient(SUPA_URL,SUPA_KEY)` SIN las opciones de auth, o sea un
+    //        cliente SIN SESION: las escrituras salian como `anon` y la RLS de
+    //        `planillas` las rechaza. Reconectaba, decia «Reconexion OK» y no
+    //        podia guardar nada.
+    //
+    // `initSupabaseClient()` cubre los tres caminos para encontrar `createClient`
+    // (incluido el respaldo `window.createClient`, que existe justo porque nadie
+    // lo pisa), le pone `persistSession` y el `storageKey`, engancha el JWT de la
+    // sesion y setea `DB_READY`. [[norma-bitacora-nombrar-la-pieza-que-ya-existe]]
+    try{ if(typeof initSupabaseClient==='function') initSupabaseClient(); }catch(e2){ console.log('reconexion:', e2&&e2.message); }
     if(!DB_READY){
       // Guardar en localStorage como respaldo
       try{localStorage.setItem('betangar_regs',JSON.stringify(resultado.nuevasRegs||[]));localStorage.setItem('betangar_abonos',JSON.stringify(ABONOS));}catch(e3){}
