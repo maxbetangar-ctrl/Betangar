@@ -17112,6 +17112,11 @@ function _asisEfectiva(empId,mes,sem,dow){
   return {v:'', fich:false, manual:false, fijo:false};
 }
 function renderAsistencia(){
+  // El cruce de cuadrillas vive en esta misma pantalla y se refresca con ella. Va en un
+  // try aparte y NO se espera: si tarda o falla, la grilla de asistencia —que es lo que la
+  // gente viene a ver— tiene que pintarse igual. La agenda ya enseñó el 11/09 que poner un
+  // diagnóstico caro en el camino crítico se ve como «el módulo está roto».
+  try{ renderCuadrillas(); }catch(e){ console.log('cuadrillas:', e && e.message); }
   // El selector se rearma con las semanas reales del mes elegido (un mes puede tener 6).
   try{_llenarSelectSemanas('asis-sem',gv('asis-mes'));}catch(e){}
   var sem=gv('asis-sem'),mes=gv('asis-mes');
@@ -30463,4 +30468,224 @@ async function reqCargarUnidades(){
   }
   REQ_UNIDADES = Object.keys(set).sort();
   return REQ_UNIDADES;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════════════════
+// CUADRILLA DEL DÍA — el cruce de las tres versiones del mismo día (2026-09-11)
+//
+// Máximo: *«la planilla y ese debe coincidir y cuando no coincidan debe haber un aviso y dar
+// la opción de cambiarlo»*.
+//
+// TRES DECLARACIONES INDEPENDIENTES, y cada una la hace quien NO puede falsearla:
+//   · PLANILLA      — el papel de la operación. Según CLAUDE.md es la verdad operativa, y por
+//                     eso acá es la referencia contra la que se mide todo lo demás.
+//   · CHOFER (QR)   — `cuadrilla_dia`. Escaneó el código pegado en el camión: la UNIDAD es suya.
+//   · FICHAJE       — `asistencia_dia.unidad`. Vino con selfie y GPS: la PRESENCIA es suya.
+//
+// 📌 POR QUÉ ESTA PANTALLA NACE CON DATOS Y NO VACÍA: el cruce chofer↔planilla ya tiene 217
+//    diferencias medidas del 01/06 al 11/09 (el 29,1% de 746 checklists comparables), porque
+//    hasta hoy el nombre del conductor salía de un mapa horneado. Las otras dos columnas se
+//    empiezan a llenar mañana, cuando la flota use el gate. Una pantalla que arranca vacía no
+//    se puede comprobar. [[norma-control-positivo-antes-de-creerle-al-vacio]]
+//
+// ⚠️ NO ACUSA A NADIE POR SÍ SOLA. Una diferencia puede ser un relevo legítimo, un cambio de
+//    camión a media jornada o un nombre escrito distinto. Por eso el botón dice «usar» y no
+//    «corregir»: lo que hace es DEJAR ASENTADO cuál de las versiones es la buena, con quién
+//    lo decidió. [[norma-auditoria-precondicion-antes-de-acusar]]
+// ══════════════════════════════════════════════════════════════════════════════════════════
+
+// ⛔ B/V, S/Z y Y/I SE PLIEGAN. En la primera medición del 11/09 el cotejo acusó 283
+//    diferencias; 66 de ellas eran «YURBENIS» (checklist) contra «YURVENIS» (planilla) — LA
+//    MISMA PERSONA. Acá se escribe indistinto y un cotejo que no lo contempla acusa a quien
+//    escribió bien. El número honesto, plegando, es 217.
+//    [[norma-lo-ambiguo-se-mide-entre-candidatos]]
+var _CUA_RE_DIAC = new RegExp('[' + String.fromCharCode(0x300) + '-' + String.fromCharCode(0x36f) + ']', 'g');
+function _cuaNorm(s){
+  try{
+    return String(s||'').toUpperCase().normalize('NFD').replace(_CUA_RE_DIAC,'')
+      .replace(/B/g,'V').replace(/Z/g,'S').replace(/Y/g,'I').replace(/\s+/g,' ').trim();
+  }catch(e){ return String(s||'').toUpperCase().trim(); }
+}
+// «JOSE ARANGURE» y «JOSE ELITE ARANGUREN GONZALEZ» son la misma persona: la planilla trae el
+// nombre completo y el resto suele traer el corto. Coinciden si cada palabra larga del corto
+// es prefijo de alguna del largo (o al revés).
+function _cuaMismaPersona(a,b){
+  var x=_cuaNorm(a).split(' ').filter(function(t){return t.length>2;});
+  var y=_cuaNorm(b).split(' ').filter(function(t){return t.length>2;});
+  if(!x.length || !y.length) return false;
+  var corto = x.length<=y.length ? x : y, largo = x.length<=y.length ? y : x;
+  return corto.every(function(t){ return largo.some(function(u){ return u.indexOf(t)===0 || t.indexOf(u)===0; }); });
+}
+
+var _CUA_DATA = null;
+
+function _cuaFecha(){
+  var f = gv('cua-fecha');
+  if(f) return f;
+  var hoy = _isoLocal(new Date(Date.now()-14400000));   // hoy en hora de Venezuela
+  sv('cua-fecha', hoy);
+  return hoy;
+}
+
+async function renderCuadrillas(){
+  var tb=g('cua-tabla'), rs=g('cua-resumen');
+  if(!tb) return;
+  if(!(DB_READY&&supabase)){ tb.innerHTML='<div style="color:var(--text3);font-size:12px;padding:12px">Sin conexión a la base.</div>'; return; }
+  var f=_cuaFecha();
+  tb.innerHTML='<div style="color:var(--text3);font-size:12px;padding:12px">Midiendo…</div>';
+  if(rs) rs.innerHTML='';
+
+  var pl,cu,as,ck,fichoSet={};
+  try{
+    // ⚠️ Cada consulta se mira POR SEPARADO: si una falla y se ignora, su columna sale vacía
+    //    y «vacío» se lee como «no lo declaró nadie». Un error de red no es una ausencia.
+    //    [[norma-control-positivo-antes-de-creerle-al-vacio]]
+    var r1=await supabase.from('planillas').select('cam,ch,ay1,ay2,ay3').eq('f',f);
+    var r2=await supabase.from('cuadrilla_dia').select('cam,empleado_id,nombre,cargo,rol,declarado_por').eq('fecha',f);
+    var r3=await supabase.from('asistencia_dia').select('empleado_id,nombre,cargo,unidad').eq('fecha',f);
+    var r4=await supabase.from('checklist').select('cam,conductor').eq('fecha',f);
+    var malo=[r1,r2,r3,r4].filter(function(r){return r&&r.error;});
+    if(malo.length){
+      tb.innerHTML='<div style="color:var(--red);font-size:12px;padding:12px">No se pudo leer: '
+        +malo.map(function(r){return _escHtml(r.error.message||'error');}).join(' · ')+'</div>';
+      return;
+    }
+    pl=r1.data||[]; cu=r2.data||[]; ck=r4.data||[];
+    // El fichaje se parte en dos: quién fichó (haya o no declarado unidad) y quién declaró cuál.
+    (r3.data||[]).forEach(function(x){ fichoSet[x.empleado_id]=1; });
+    as=(r3.data||[]).filter(function(x){ return x.unidad; });
+  }catch(e){
+    tb.innerHTML='<div style="color:var(--red);font-size:12px;padding:12px">Falló la consulta: '+_escHtml(e&&e.message)+'</div>';
+    return;
+  }
+
+  // Todos los camiones que aparecen en CUALQUIERA de las fuentes: si una unidad salió y no
+  // tiene planilla, esa fila es justamente la que hay que ver.
+  var cams={};
+  pl.forEach(function(r){ if(r.cam) cams[r.cam]=1; });
+  cu.forEach(function(r){ if(r.cam) cams[r.cam]=1; });
+  as.forEach(function(r){ if(r.unidad) cams[r.unidad]=1; });
+  ck.forEach(function(r){ if(r.cam) cams[r.cam]=1; });
+  var lista=Object.keys(cams).sort();
+
+  _CUA_DATA={fecha:f, pl:pl, cu:cu, as:as, ck:ck, ficho:fichoSet};
+
+  if(!lista.length){
+    tb.innerHTML='<div style="color:var(--text3);font-size:12px;padding:14px">Nada registrado para el '
+      +f.slice(8,10)+'/'+f.slice(5,7)+'. Ni planilla, ni checklist, ni cuadrilla.</div>';
+    return;
+  }
+
+  var filas='', nRojo=0, nAmar=0, nFalta=0;
+  lista.forEach(function(cam){
+    var p  = pl.filter(function(r){return r.cam===cam;})[0]||null;
+    var cch= cu.filter(function(r){return r.cam===cam && r.rol==='chofer';})[0]||null;
+    var cay= cu.filter(function(r){return r.cam===cam && r.rol==='ayudante';});
+    var ach= as.filter(function(r){return r.unidad===cam && /chofer/i.test(r.cargo||'');});
+    var aay= as.filter(function(r){return r.unidad===cam && !/chofer/i.test(r.cargo||'');});
+    var kk = ck.filter(function(r){return r.cam===cam;})[0]||null;
+
+    // ── CHOFER: planilla contra lo declarado (o, si nadie declaró, contra el checklist) ──
+    var pCh  = p&&p.ch ? p.ch : '';
+    var dCh  = cch ? cch.nombre : (kk&&kk.conductor ? kk.conductor : '');
+    var dQue = cch ? 'lo declaró él' : (kk ? 'del checklist' : '');
+    var estCh='', marca='';
+    if(!pCh && !dCh){ estCh='⏳'; nFalta++; }
+    else if(!pCh){ estCh='⏳ sin planilla'; nFalta++; }
+    else if(!dCh){ estCh='⏳ nadie declaró'; nFalta++; }
+    else if(_cuaMismaPersona(pCh,dCh)){ estCh='✅'; }
+    else { estCh='🔴'; nRojo++; marca='background:rgba(248,96,96,.07)'; }
+
+    // ── AYUDANTES: los nombres del papel contra los que declaró el chofer ──
+    var pAy=[p&&p.ay1, p&&p.ay2, p&&p.ay3].filter(function(x){return x&&String(x).trim();});
+    // ⚠️ Se descarta lo que venga sin nombre: una fila con el nombre vacío se pintaba como
+    //    un ayudante más y sacaba «declarado y no en planilla: , FULANO» — con la coma
+    //    colgando y acusando a un fantasma. Salió en el banco de pruebas del cruce.
+    cay = cay.filter(function(r){ return r.nombre && String(r.nombre).trim(); });
+    var dAy=cay.map(function(r){return r.nombre;});
+    // ⛔ SOLO SE COMPARAN LAS CUADRILLAS SI HAY ALGO QUE COMPARAR. Sin esta condición, todo
+    //    día anterior al 11/09 —cuando el QR todavía no preguntaba— sacaba «en planilla y no
+    //    declarado» en las 12 filas: un aviso que salta siempre no avisa de nada, y encima
+    //    entierra los 4 que sí importan. Si nadie declaró, eso se dice UNA vez y en gris.
+    var hayDecl = !!(cch || cay.length);
+    var soloPapel = hayDecl ? pAy.filter(function(n){ return !dAy.some(function(m){return _cuaMismaPersona(n,m);}); }) : [];
+    var soloDecl  = hayDecl ? cay.filter(function(r){ return !pAy.some(function(n){return _cuaMismaPersona(n,r.nombre);}); }) : [];
+    // ⚠️ EL AVISO QUE MÁS IMPORTA: alguien a quien el chofer subió a su camión y que NO fichó.
+    //    No se le crea la asistencia —eso sería inventarla— pero no puede pasar callado.
+    //    [[norma-una-alerta-no-puede-nombrar-a-quien-no-estaba]]
+    var sinFichar = cay.filter(function(r){ return !fichoSet[r.empleado_id]; });
+    if(cch && !fichoSet[cch.empleado_id]) sinFichar = sinFichar.concat([cch]);
+    if(soloPapel.length || soloDecl.length || sinFichar.length) nAmar++;
+
+    var _n=function(s){ return _escHtml(String(s||'—')); };
+    var _lista=function(a){ return a.length ? a.map(_n).join(' · ') : '<span style="color:var(--text3)">—</span>'; };
+
+    filas+='<tr style="'+marca+'">'
+      +'<td style="font-family:var(--m);font-weight:700;white-space:nowrap">'+_escHtml(cam)+'</td>'
+      +'<td>'+_n(pCh)+'<div style="font-size:10px;color:var(--text3)">'+_lista(pAy)+'</div></td>'
+      +'<td>'+_n(dCh)+(dQue?'<div style="font-size:10px;color:var(--text3)">'+dQue+'</div>':'')
+        +'<div style="font-size:10px;color:var(--text3)">'+_lista(dAy)+'</div></td>'
+      +'<td style="font-size:11px">'+(ach.length?_n(ach[0].nombre):'<span style="color:var(--text3)">—</span>')
+        +'<div style="font-size:10px;color:var(--text3)">'+(aay.length?aay.map(function(r){return _escHtml(r.nombre);}).join(' · '):'—')+'</div></td>'
+      +'<td style="white-space:nowrap">'+estCh
+        +(soloPapel.length?'<div style="font-size:10px;color:var(--yellow)">⚠️ en planilla y no declarado: '+soloPapel.map(_n).join(', ')+'</div>':'')
+        +(soloDecl.length?'<div style="font-size:10px;color:var(--yellow)">⚠️ declarado y no en planilla: '+soloDecl.map(function(r){return _escHtml(r.nombre);}).join(', ')+'</div>':'')
+        +(sinFichar.length?'<div style="font-size:10px;color:var(--red)">⚠️ declarado y SIN FICHAR: '+sinFichar.map(function(r){return _escHtml(r.nombre);}).join(', ')+'</div>':'')
+        +(!hayDecl?'<div style="font-size:10px;color:var(--text3)">⏳ el chofer no declaró cuadrilla</div>':'')
+      +'</td>'
+      +'<td style="white-space:nowrap">'
+        +(estCh==='🔴' ? '<button class="btn btn-s btn-sm" onclick="cuaUsar(this.dataset.cam,\'planilla\')" data-cam="'+_escHtml(cam)+'" title="Dejar asentado que el bueno es el de la planilla">usar planilla</button> '
+                        +'<button class="btn btn-s btn-sm" onclick="cuaUsar(this.dataset.cam,\'chofer\')" data-cam="'+_escHtml(cam)+'" title="Dejar asentado que el bueno es el que declaró el chofer">usar declarado</button>' : '')
+      +'</td></tr>';
+  });
+
+  if(rs){
+    rs.innerHTML='<div style="display:flex;gap:14px;flex-wrap:wrap;font-size:12px">'
+      +'<div><b style="color:var(--red)">'+nRojo+'</b> se contradicen</div>'
+      +'<div><b style="color:var(--yellow)">'+nAmar+'</b> con avisos</div>'
+      +'<div><b style="color:var(--text3)">'+nFalta+'</b> sin declarar</div>'
+      +'<div style="color:var(--text3)">'+lista.length+' unidades el '+f.slice(8,10)+'/'+f.slice(5,7)+'</div></div>';
+  }
+  tb.innerHTML='<table><thead><tr>'
+    +'<th>Unidad</th><th>Planilla (papel)</th><th>Declarado por el chofer</th>'
+    +'<th title="Lo que declaró cada persona en SU fichaje, con selfie y GPS">Fichaje propio</th>'
+    +'<th>Estado</th><th></th></tr></thead><tbody>'+filas+'</tbody></table>';
+}
+
+// Deja asentado cuál de las dos versiones vale. NO reescribe la planilla: es el papel firmado
+// y se corrige en el Excel, como ya dice la pantalla de Registro Diario. Lo que se corrige es
+// la CUADRILLA, que es el dato del sistema, y queda marcada como decidida por la oficina.
+async function cuaUsar(cam, cual){
+  if(!(DB_READY&&supabase)) return;
+  var d=_CUA_DATA; if(!d) return;
+  var p=d.pl.filter(function(r){return r.cam===cam;})[0];
+  if(cual==='planilla'){
+    if(!p||!p.ch){ mostrarToast('Esa unidad no tiene chofer en la planilla','warn'); return; }
+    // Hay que resolver el NOMBRE del papel a un empleado: sin id no se puede cruzar después.
+    var emp=(EMPLEADOS||[]).filter(function(e){ return e.activo!==false && _cuaMismaPersona(e.nombre,p.ch); })[0];
+    if(!emp){
+      mostrarToast('«'+p.ch+'» no coincide con ningún empleado activo. Revisá el alias de nombres.','error');
+      return;
+    }
+    if(!confirm('¿Dejar asentado que la '+cam+' la manejó '+emp.nombre+' (lo que dice la planilla)?')) return;
+    var fila={ fecha:d.fecha, cam:cam, empleado_id:emp.id, nombre:emp.nombre, cargo:emp.cargo,
+               rol:'chofer', declarado_por:'oficina:'+((SESION&&SESION.usuario)||'?') };
+    // ⛔ Se BORRA primero el chofer que hubiera declarado el QR para esa unidad y ese día: si no,
+    //    quedarían dos choferes para el mismo camión y el cruce de mañana mediría cualquier cosa.
+    var del=await supabase.from('cuadrilla_dia').delete().eq('fecha',d.fecha).eq('cam',cam).eq('rol','chofer');
+    if(del&&del.error){ mostrarToast('No se pudo corregir: '+del.error.message,'error'); return; }
+    // ⛔ Con `.select()`: un insert sin él afirma que guardó sin haberlo medido.
+    //    [[norma-insert-sin-select-no-mide]]
+    var ins=await supabase.from('cuadrilla_dia').insert([fila]).select();
+    if(ins&&ins.error){ mostrarToast('No se pudo guardar: '+ins.error.message,'error'); return; }
+    if(!ins.data||!ins.data.length){ mostrarToast('No se guardó: la base no devolvió la fila','error'); return; }
+    try{ audit('Cuadrilla corregida', cam+' '+d.fecha+' → '+emp.nombre+' (según la planilla)'); }catch(e){}
+    mostrarToast('Asentado: la '+cam+' la manejó '+emp.nombre,'ok');
+  } else {
+    // «usar declarado» no escribe nada: lo declarado YA está. Solo se deja el rastro de que
+    // alguien lo miró y lo dio por bueno, para que no se revise dos veces lo mismo.
+    try{ audit('Cuadrilla revisada', cam+' '+d.fecha+' → se da por bueno lo que declaró el chofer'); }catch(e){}
+    mostrarToast('Anotado: vale lo que declaró el chofer','ok');
+  }
+  renderCuadrillas();
 }

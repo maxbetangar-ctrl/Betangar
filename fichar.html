@@ -50,6 +50,19 @@ input{width:100%;background:#0f2038;border:1px solid rgba(255,255,255,.14);borde
     <div style="font-size:17px;font-weight:900;margin:4px 0 12px" id="sel-nombre"></div>
     <label>Últimos 4 dígitos de su cédula</label>
     <input id="clave" type="tel" inputmode="numeric" maxlength="4" placeholder="0000">
+    <!-- ══ ¿EN QUÉ UNIDAD VA HOY? (choferes y ayudantes) ═══════════════════════════════
+         Pedido por Máximo el 11/09/2026 para dejar de llevar el control a mano. Se guarda
+         en `asistencia_dia.unidad`, que EXISTE desde el 29/08 y tenía 0 de 1.833 filas
+         llenas porque acá se mandaba `p_unidad: null`.
+         ⚠️ NO es obligatorio: el que fiche en la oficina, o el que todavía no sepa a qué
+         camión lo mandan, deja «— sin unidad —» y ficha igual. Trancar el fichaje por esto
+         sería cambiar un control interno por gente que no puede marcar asistencia. -->
+    <div id="fg-unidad" style="display:none">
+      <div style="height:12px"></div>
+      <label id="lbl-unidad">¿En qué unidad va hoy?</label>
+      <select id="unidad"><option value="">— sin unidad —</option></select>
+      <div class="hint" id="unidad-hint" style="margin-top:4px"></div>
+    </div>
     <div style="height:12px"></div>
     <label>Selfie (obligatoria)</label>
     <button class="btn btn-o" onclick="document.getElementById('selfie').click()">🤳 Tomar selfie</button>
@@ -109,7 +122,43 @@ function elegir(id){
   $('sel-nombre').textContent = SEL.nombre;
   $('paso-emp').style.display='none'; $('paso-fichar').style.display='block';
   $('clave').value=''; SELFIE_FILE=null; $('prev').style.display='none'; $('res').innerHTML='';
+  prepararUnidad();
   iniciarGPS();
+}
+
+// ══ LA UNIDAD DEL DÍA ══════════════════════════════════════════════════════════════════
+// Solo se le pregunta a quien anda en un camión (Chofer / Ayudante). A la contadora no.
+// ⚠️ La lista de unidades NO se hornea acá: sale de `unidades_activas()`. En `chofer.html`
+//    había un mapa camión→chofer escrito a mano y el 29,1% de los checklists salió firmado
+//    por quien no manejó. Un dato operativo escrito en el HTML envejece y nadie lo nota.
+var UNIDADES = [];
+async function cargarUnidades(){
+  try{
+    var r = await SB.rpc('unidades_activas');
+    if(!r.error && r.data && r.data.length){ UNIDADES = r.data; try{localStorage.setItem('btg_unidades',JSON.stringify(UNIDADES));}catch(e){} }
+  }catch(e){}
+  if(!UNIDADES.length){ try{ UNIDADES = JSON.parse(localStorage.getItem('btg_unidades')||'[]'); }catch(e){ UNIDADES=[]; } }
+}
+async function prepararUnidad(){
+  var box=$('fg-unidad'), sel=$('unidad'), hint=$('unidad-hint');
+  var anda = SEL && /chofer|ayudante/i.test(SEL.cargo||'');
+  box.style.display = anda ? 'block' : 'none';
+  if(!anda) return;
+  if(!UNIDADES.length) await cargarUnidades();
+  sel.innerHTML = '<option value="">— sin unidad —</option>' +
+    UNIDADES.map(function(u){ return '<option value="'+esc(u.cam)+'">'+esc(u.cam)+(u.placa?(' · '+esc(u.placa)):'')+'</option>'; }).join('');
+  hint.textContent = '';
+  // 📌 CONFIRMAR, NO ELEGIR EN BLANCO. Si un chofer ya lo anotó en su cuadrilla, viene
+  //    marcada esa unidad y el ayudante solo confirma. Cuando las dos declaraciones
+  //    coinciden porque las dos son ciertas, la que NO coincide pasa a significar algo.
+  try{
+    var r = await SB.rpc('cuadrilla_de_persona', { p_id: SEL.id });
+    if(!r.error && r.data && r.data.length){
+      var c = r.data[0];
+      sel.value = c.cam;
+      hint.innerHTML = '👥 El chofer de la <b>'+esc(c.cam)+'</b> ya lo anotó. Si no es esa, cámbiela.';
+    }
+  }catch(e){}
 }
 function volver(){ if(watchId!=null){navigator.geolocation.clearWatch(watchId);watchId=null;} $('paso-fichar').style.display='none'; $('paso-emp').style.display='block'; }
 // Aviso GRANDE de éxito + auto-reset para el siguiente (celular compartido / fila de empleados).
@@ -125,6 +174,9 @@ function resetFichaje(){
   var ov=$('ok-overlay'); if(ov)ov.style.display='none';
   SEL=null; SELFIE_FILE=null; POS=null; var el;
   if(el=$('clave'))el.value=''; if(el=$('prev'))el.style.display='none'; if(el=$('res'))el.innerHTML=''; if(el=$('busca'))el.value='';
+  // ⛔ La unidad TAMBIÉN se limpia. Este teléfono es compartido y va pasando de mano en mano:
+  //    si quedara la del anterior, al siguiente se le ficha en el camión de otro sin que lo vea.
+  if(el=$('unidad'))el.value=''; if(el=$('unidad-hint'))el.textContent=''; if(el=$('fg-unidad'))el.style.display='none';
   render('');
   $('paso-fichar').style.display='none'; $('paso-emp').style.display='block';
   try{$('busca').focus();}catch(e){}
@@ -233,7 +285,10 @@ async function registrar(){
     var selfieUrl=(SB.storage.from('asistencia').getPublicUrl(path).data||{}).publicUrl||'';
     if(!selfieUrl){ res.innerHTML='<div class="res bad">La foto se subió pero no se pudo enlazar. Reintentá en unos segundos.</div>'; return; }
     // 2) registrar (valida ced-4 + geocerca en el servidor)
-    var r=await SB.rpc('fichar_asistencia',{p_id:SEL.id,p_clave:clave,p_lat:POS?POS.lat:null,p_lng:POS?POS.lng:null,p_selfie:selfieUrl,p_origen:SITIO_FIJO?'fichaje_qr':'fichaje',p_unidad:null,p_sitio_id:SITIO_FIJO?SITIO_FIJO.id:null});
+    // ⛔ ACÁ IBA `p_unidad: null` CLAVADO. La columna existía desde el 29/08 y en 1.833
+    //    fichajes quedó vacía las 1.833 veces. Ahora va lo que declaró la persona.
+    var _uni = ($('fg-unidad').style.display!=='none' && $('unidad')) ? ($('unidad').value||null) : null;
+    var r=await SB.rpc('fichar_asistencia',{p_id:SEL.id,p_clave:clave,p_lat:POS?POS.lat:null,p_lng:POS?POS.lng:null,p_selfie:selfieUrl,p_origen:SITIO_FIJO?'fichaje_qr':'fichaje',p_unidad:_uni,p_sitio_id:SITIO_FIJO?SITIO_FIJO.id:null});
     if(r.error){ res.innerHTML='<div class="res bad">Error: '+esc(r.error.message)+'</div>'; }
     else if(r.data && r.data.ok){ mostrarOK(SEL.nombre, r.data.sitio); }
     else { res.innerHTML='<div class="res bad">❌ '+esc((r.data&&r.data.msg)||'No se pudo registrar')+'</div>'; }
@@ -243,6 +298,7 @@ async function registrar(){
 
 cargarEmp();
 cargarSitioFijo();
+cargarUnidades();   // que la lista esté lista antes de que el primero toque su nombre
 </script>
 </body>
 </html>

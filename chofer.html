@@ -163,7 +163,10 @@ body{background:#0f1923;color:#fff;font-family:-apple-system,BlinkMacSystemFont,
     <div class="logo-text">BETANGAR</div>
   </div>
   <div class="cam-name" id="cam-display">Cargando...</div>
-  <div class="chofer-name" id="chofer-display"></div>
+  <div class="chofer-name" id="chofer-display" onclick="cambiarChoferDia()" style="cursor:pointer" title="Tocá tu nombre si cambia el chofer de esta unidad hoy"></div>
+  <!-- La cuadrilla se puede corregir en cualquier momento del día: alguien se suma en la
+       segunda vuelta, o se baja. Si no se ve, no se corrige. -->
+  <div id="cuadrilla-display" onclick="reabrirCuadrilla()" style="display:none;cursor:pointer;font-size:11px;color:rgba(255,255,255,.55);margin-top:2px" title="Tocá para cambiar quién va hoy"></div>
   <div class="fecha" id="fecha-display"></div>
   <button id="btn-cerrar-sesion" onclick="cerrarSesionUnidad()" style="display:none;margin-top:8px;background:rgba(248,96,96,.15);color:#ef6060;border:1px solid rgba(248,96,96,.35);border-radius:8px;padding:5px 12px;font-size:11px;font-weight:700;cursor:pointer">⎋ Cerrar sesión</button>
 </div>
@@ -184,6 +187,50 @@ body{background:#0f1923;color:#fff;font-family:-apple-system,BlinkMacSystemFont,
   <button id="login-btn" onclick="enviarLoginUnidad()" style="width:82%;max-width:280px;padding:14px;font-size:16px;font-weight:700;border:none;border-radius:12px;background:#7dc941;color:#04240a;cursor:pointer">Entrar</button>
   <div id="login-error" style="color:#ef6060;font-size:13px;margin-top:10px;min-height:16px"></div>
   <div style="color:rgba(255,255,255,.35);font-size:11px;margin-top:14px">Solo la primera vez — después entrás directo.</div>
+</div>
+
+<!-- ══════ ¿QUIÉN MANEJA HOY? ══════════════════════════════════════════════════════════
+     Hasta el 11/09/2026 el nombre del chofer salía de un mapa ESCRITO A MANO en este archivo
+     (`FLOTA_CHOFERES`), uno por camión, fijo. Medido contra las planillas del 01/06 al 11/09:
+     de 746 checklists comparables, **217 (29,1%) estaban firmados por quien NO manejó** — y
+     entre los 12 nombres horneados había DOS personas inactivas (Hely Urdaneta y Richard
+     Villalobos), con 55 checklists a su nombre en los últimos 30 días.
+     Ahora se le pregunta, como en Tony Gas: nombre (buscador) + los últimos 4 de la cédula.
+     La clave se valida EN EL TELÉFONO contra el hash que bajó `empleados_publicos` → anda
+     sin señal. Vale por DÍA y por UNIDAD: si se cambia de camión, se vuelve a preguntar. -->
+<div class="error-screen" id="chofer-gate" style="display:none">
+  <div class="error-icon">🆔</div>
+  <!-- ⚠️ El color se pisa a mano: `error-title` es ROJO, y esta no es una pantalla de error
+       sino la primera que ve el chofer todos los días a las 5 AM. Rojo se lee «algo se rompió». -->
+  <div class="error-title" style="color:#7dc941">¿Quién maneja hoy?</div>
+  <div class="error-msg" id="cg-unidad-lbl" style="margin-bottom:14px"></div>
+  <input id="cg-buscar" oninput="filtrarChoferes()" placeholder="Buscá tu nombre…" autocomplete="off" style="width:82%;max-width:300px;padding:12px;font-size:16px;border-radius:12px;border:1px solid #2a3f52;background:#0f1a24;color:#fff;margin-bottom:10px;box-sizing:border-box">
+  <div id="cg-lista" style="width:82%;max-width:300px;max-height:34vh;overflow-y:auto;margin-bottom:10px"></div>
+  <div id="cg-clave-box" style="display:none;width:82%;max-width:300px">
+    <div id="cg-sel-nombre" style="font-size:14px;font-weight:700;color:#7dc941;margin-bottom:8px"></div>
+    <input id="cg-clave" type="password" inputmode="numeric" maxlength="4" placeholder="Últimos 4 de tu cédula" onkeydown="if(event.key==='Enter')confirmarChoferGate()" style="width:100%;padding:13px;font-size:18px;text-align:center;letter-spacing:4px;border-radius:12px;border:1px solid #2a3f52;background:#0f1a24;color:#fff;box-sizing:border-box;margin-bottom:10px">
+    <button id="cg-btn" onclick="confirmarChoferGate()" style="width:100%;padding:14px;font-size:16px;font-weight:700;border:none;border-radius:12px;background:#7dc941;color:#04240a;cursor:pointer">Entrar</button>
+  </div>
+  <div id="cg-error" style="color:#ef6060;font-size:13px;margin-top:10px;min-height:16px"></div>
+  <div id="cg-pie" style="color:rgba(255,255,255,.35);font-size:11px;margin-top:12px;max-width:300px;line-height:1.5">Se pregunta una vez por día. Queda registrado que vos manejaste esta unidad hoy.</div>
+</div>
+
+<!-- ══════ ¿QUIÉNES VAN CON VOS HOY? ═══════════════════════════════════════════════════
+     Paso 2, inmediatamente después de identificarse. Hasta 3 ayudantes, y NO es obligatorio
+     (decisión de Máximo, 11/09/2026: *«la cantidad de ayudantes no es obligatoria»*).
+     Se pregunta acá y no en el fichaje del patio porque a esta altura la cuadrilla YA ESTÁ
+     MONTADA: a las 5 AM, cuando el ayudante ficha, todavía no sabe a qué camión lo mandan.
+     Y sobre todo: **es el único camino que ve a los 16 del IMAU**, que no aparecen en una
+     sola de las 965 planillas. -->
+<div class="error-screen" id="cuadrilla-gate" style="display:none">
+  <div class="error-icon">👥</div>
+  <div class="error-title" style="color:#7dc941">¿Quiénes van con vos hoy?</div>
+  <div class="error-msg" id="cq-sub" style="margin-bottom:12px">Hasta 3. Si andás solo, tocá <b>Listo</b>.</div>
+  <div id="cq-elegidos" style="width:82%;max-width:320px;margin-bottom:8px"></div>
+  <input id="cq-buscar" oninput="cqFiltrar()" placeholder="Buscá al ayudante…" autocomplete="off" style="width:82%;max-width:320px;padding:12px;font-size:16px;border-radius:12px;border:1px solid #2a3f52;background:#0f1a24;color:#fff;margin-bottom:8px;box-sizing:border-box">
+  <div id="cq-lista" style="width:82%;max-width:320px;max-height:30vh;overflow-y:auto;margin-bottom:10px"></div>
+  <button id="cq-btn" onclick="cqGuardar()" style="width:82%;max-width:320px;padding:14px;font-size:16px;font-weight:700;border:none;border-radius:12px;background:#7dc941;color:#04240a;cursor:pointer">Listo</button>
+  <div id="cq-error" style="color:#ef6060;font-size:13px;margin-top:10px;min-height:16px"></div>
 </div>
 
 <!-- APP PRINCIPAL -->
@@ -636,14 +683,21 @@ window.__supaLib = window.supabase || null;
 // ══════════════════════════════════════════════════════════
 
 // CONFIG DE INSTANCIA (chofer): al CLONAR para una empresa nueva, cambia data_url/data_key
-// por el Supabase de ESA empresa, y abajo el mapa FLOTA_CHOFERES con sus camiones/choferes.
+// por el Supabase de ESA empresa, y abajo la lista FLOTA_JAC con sus camiones. Los NOMBRES de
+// los choferes ya NO se declaran acá: se le preguntan al chofer (ver el gate más abajo).
 var BTG_CHOFER_CONFIG = {
   data_url: 'https://hrkjddehqnzcqwlkklqm.supabase.co',
   data_key: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhya2pkZGVocW56Y3F3bGtrbHFtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc2NTk1NzIsImV4cCI6MjA5MzIzNTU3Mn0.kqWKthyZfPZ86toql7shGByF-ZhUpcQUS4Jw4RnG_ko',
-  // Unidades NUEVAS (no en FLOTA_CHOFERES) se resuelven desde la tabla unidad_config.
+  // Unidades NUEVAS (no en FLOTA_JAC) se resuelven desde la tabla unidad_config.
   // login: false = sin clave (Betangar aseo, no complicar a los choferes actuales).
   //        true  = pide clave por unidad (clientes nuevos / clones FlotaMax).
   login: false,
+  // ¿Se le pregunta SIEMPRE quién maneja hoy (nombre + últimos 4 de cédula)?
+  // Decidido por Máximo el 11/09/2026: *«tiene que ser obligatoriamente chofer»*. Sin
+  // identificarse NO se guarda el checklist — no hay «continuar sin identificar», a
+  // diferencia de Tony Gas. Lo único que puede trancar es un teléfono que nunca bajó la
+  // lista Y está sin señal; ese caso se le DICE en pantalla, no se lo deja pasar mudo.
+  identificar: true,
   login_domain: 'flotamax.app'   // dominio del email sintético por unidad (debe coincidir con la edge function de provisión)
 };
 var SUPA_URL = BTG_CHOFER_CONFIG.data_url;
@@ -675,19 +729,29 @@ async function _cargarDestinatariosChecklist(){
   }catch(e){ /* con el respaldo alcanza */ }
 }
 
-var FLOTA_CHOFERES = {
-  'JAC-B001':'REINALDO FARIA',
-  'JAC-B002':'JOSE ARANGURE',
-  'JAC-B003':'MANUEL',
-  'JAC-B004':'MELVIN BARBOZA',
-  'JAC-B005':'HELY URDANETA',
-  'JAC-B006':'JHAN ROA',
-  'JAC-B007':'JAVIER URDANETA',
-  'JAC-B008':'YURBENIS BERMUDEZ',
-  'JAC-B009':'RICHARD VILLALOBOS',
-  'JAC-B010':'ANDRY ORTEGA',
-  'JAC-B011':'OMAR NAVA',
-  'JAC-B012':'EDIOBER BARRIOS'
+// ⛔ ACÁ VIVÍA `FLOTA_CHOFERES`: un nombre de chofer por camión, escrito a mano.
+//    NO SE BORRÓ POR PROLIJIDAD — el dato era FALSO y lo firmaba todo.
+//    Medido el 11/09/2026 contra las planillas (la verdad operativa, ver CLAUDE.md), del
+//    01/06 al 11/09: de **746** checklists comparables, **217 (29,1%)** llevaban el nombre
+//    de quien NO manejó. Los tres peores, todos por el mapa:
+//      · JAC-B003 decía «MANUEL» y manejó ANDRY JOSE CUBA SUAREZ — 60 veces.
+//        («MANUEL» no es ni chofer: Manuel F. López aparece de AYUDANTE en 4 camiones.)
+//      · JAC-B005 decía «HELY URDANETA» y manejó ALEXANDER HERNANDEZ — 43 veces.
+//      · JAC-B009 decía «RICHARD VILLALOBOS» y manejó JORWIN FARIA — 35 veces.
+//    Y Hely y Richard están **INACTIVOS**: 55 checklists de los últimos 30 días firmados
+//    por dos personas que ya no trabajan acá. [[norma-numero-que-el-dueno-no-puede-explicar]]
+//
+// 📌 La planilla muestra entre 3 y 6 choferes distintos POR CAMIÓN. El mapa tenía uno. No
+//    es que el chofer rote poco: es que el dato no existía y el respaldo lo INVENTABA.
+//    [[norma-respaldo-que-inventa-un-dato]]
+//
+// Lo único que hacía falta de verdad era saber CUÁLES cams son los 12 JAC del aseo, para
+// distinguirlos de una unidad nueva que hay que resolver contra `unidad_config`. Eso es esto,
+// y ya no tiene un solo nombre adentro que pueda mentir.
+var FLOTA_JAC = {
+  'JAC-B001':true, 'JAC-B002':true, 'JAC-B003':true, 'JAC-B004':true,
+  'JAC-B005':true, 'JAC-B006':true, 'JAC-B007':true, 'JAC-B008':true,
+  'JAC-B009':true, 'JAC-B010':true, 'JAC-B011':true, 'JAC-B012':true
 };
 
 var MAX_VIAJES = 4;
@@ -797,11 +861,14 @@ document.addEventListener('DOMContentLoaded', function(){
   var params = new URLSearchParams(window.location.search);
   cam = (params.get('cam') || '').toUpperCase().trim();
   if(!cam){ mostrarErrorCam(); return; }
+  // El encabezado decía «Cargando…» todo el rato que el chofer estaba en el gate. La unidad
+  // ya se sabe —viene del QR—: se pinta ya, así ve de entrada en qué camión está entrando.
+  try{ var _cd=document.getElementById('cam-display'); if(_cd) _cd.textContent=cam; }catch(e){}
 
-  if(FLOTA_CHOFERES[cam]){
-    // Unidad JAC fija (Betangar aseo): flujo de siempre, sin login, offline-first. SIN CAMBIOS.
-    chofer = FLOTA_CHOFERES[cam];
-    arrancarApp();
+  if(FLOTA_JAC[cam]){
+    // Unidad JAC del aseo: sin login de unidad, offline-first. Lo único que cambió (11/09/2026)
+    // es que el nombre del chofer YA NO SALE DE UN MAPA: se le pregunta.
+    gateChoferDia();
     return;
   }
   // Unidad NUEVA (no hardcodeada): resolver desde unidad_config (requiere red).
@@ -809,7 +876,7 @@ document.addEventListener('DOMContentLoaded', function(){
 });
 
 // Resuelve una unidad NUEVA (FlotaMax) desde unidad_config. Los 12 JAC NO pasan por aquí
-// (van directo por FLOTA_CHOFERES) → cero riesgo para la operación viva del aseo.
+// (van directo por FLOTA_JAC) → cero riesgo para la operación viva del aseo.
 function resolverUnidadNueva(){
   var lib = window.__supaLib || window.supabase;
   var fn = (lib && lib.createClient) ? lib.createClient : (window.createClient||null);
@@ -822,9 +889,14 @@ function resolverUnidadNueva(){
     .then(function(r){
       var u = (r && !r.error && Array.isArray(r.data) && r.data.length) ? r.data[0] : null;
       if(u){
-        chofer = u.chofer || u.nombre || u.placa || 'CHOFER';
-        if(BTG_CHOFER_CONFIG.login){ supabase = sb; gateLoginUnidad(u); } // clientes nuevos: pedir clave
-        else arrancarApp();                                               // Betangar aseo: directo
+        // ⛔ ACÁ SE LEÍA `u.chofer` COMO SI FUERA QUIÉN MANEJA HOY. No lo es: es a quién le
+        //    ASIGNARON la unidad en `unidad_config`, y dar de baja a alguien NO lo desasigna
+        //    — el 11/09/2026 Hely Urdaneta y Richard Villalobos seguían ahí, inactivos.
+        //    Ahora solo se usa como SUGERENCIA para ordenar la lista del gate.
+        _CG_SUGERIDO = u.chofer || '';
+        supabase = sb;
+        if(BTG_CHOFER_CONFIG.login){ gateLoginUnidad(u); }  // clientes nuevos: clave de unidad y después el gate
+        else gateChoferDia();                               // se pregunta quién maneja hoy
       } else if(r && r.error){
         mostrarErrorCam('No se pudo verificar la unidad.<br>Reintentá con internet.');
       } else {
@@ -855,7 +927,8 @@ function gateLoginUnidad(u){
   try{
     supabase.auth.getSession().then(function(res){
       var s=res&&res.data&&res.data.session;
-      if(s) arrancarApp(); else _mostrarLogin();
+      // La clave de UNIDAD abre el camión; después igual se pregunta QUIÉN maneja hoy.
+      if(s) gateChoferDia(); else _mostrarLogin();
     }).catch(function(){ _mostrarLogin(); });
   }catch(e){ _mostrarLogin(); }
 }
@@ -872,13 +945,423 @@ function enviarLoginUnidad(){
   supabase.auth.signInWithPassword({ email: synthEmailUnidad(cam), password: clave }).then(function(res){
     if(res&&res.error){ if(errEl) errEl.textContent='Clave incorrecta.'; if(btn){ btn.disabled=false; btn.textContent='Entrar'; } return; }
     var ls=document.getElementById('login-screen'); if(ls) ls.style.display='none';
-    arrancarApp();
+    gateChoferDia();
   }).catch(function(){ if(errEl) errEl.textContent='Sin conexión. Intentá de nuevo.'; if(btn){ btn.disabled=false; btn.textContent='Entrar'; } });
 }
 function cerrarSesionUnidad(){
   if(!confirm('¿Cerrar sesión de esta unidad? Tendrás que volver a poner la clave.'))return;
   try{ if(supabase&&supabase.auth) supabase.auth.signOut(); }catch(e){}
   setTimeout(function(){ window.location.reload(); }, 200);
+}
+
+// ══════════════════════════════════════════════════════════════════════════════════════════
+// ¿QUIÉN MANEJA HOY? — el gate del chofer
+//
+// Traído de Tony Gas/Flotilla el 11/09/2026 por pedido de Máximo, con UNA diferencia
+// deliberada: acá es OBLIGATORIO. Allá hay un botón «Continuar sin identificar» como válvula;
+// acá no, porque Máximo lo pidió así — *«tiene que ser obligatoriamente chofer»*.
+//
+// ⛔ NO SE INVENTÓ UNA PIEZA NUEVA. `empleados_publicos()` YA EXISTE en esta base y ya la usa
+//    `fichar.html` todos los días: devuelve `id, nombre, cargo` y `h = sha256(id || '|' || ced4)`.
+//    En Tony Gas la misma función se llama `choferes_publicos`. [[norma-bitacora-nombrar-la-pieza-que-ya-existe]]
+//
+// OFFLINE-FIRST: la lista se cachea y la clave se valida EN EL TELÉFONO contra ese hash, así
+// que después de bajarla una vez anda sin señal — que es la condición de una app que arranca a
+// las 5 AM en la calle. La cédula COMPLETA nunca sale del servidor.
+//
+// ⚠️ LO QUE ESTO **NO** ES: autenticación. Son 10.000 combinaciones y el hash se entrega a
+//    cualquiera con la llave `anon` (esta página es pública). Identifica, no autoriza. Lo que
+//    prueba que estuvo esa persona es la SELFIE del fichaje, no los 4 dígitos.
+//    [[norma-la-autorizacion-hereda-la-premisa]]
+// ══════════════════════════════════════════════════════════════════════════════════════════
+var CHOFERES_LISTA = [];      // [{id,nombre,cargo,h}]
+var _cgSel = null;            // el que tocó en la lista
+var _CG_SUGERIDO = '';        // a quién tiene asignada la unidad (solo para ordenar)
+var _cgVerTodos = false;      // false = solo cargo Chofer · true = todo el personal
+var CHOFER_ID = null, CHOFER_CLAVE = null;
+
+function _hoyVE(){ return new Date(Date.now()-14400000).toISOString().slice(0,10); }
+function _cgKey(){ return 'btg_chofer_dia_'+cam; }
+var _RE_DIAC = new RegExp('['+String.fromCharCode(0x300)+'-'+String.fromCharCode(0x36f)+']','g');
+function _norm(s){ try{ return (s||'').toString().toLowerCase().normalize('NFD').replace(_RE_DIAC,''); }catch(e){ return (s||'').toString().toLowerCase(); } }
+function _sha256hex(str){
+  try{
+    if(window.crypto && crypto.subtle && crypto.subtle.digest){
+      var enc = new TextEncoder().encode(str);
+      return crypto.subtle.digest('SHA-256', enc).then(function(buf){
+        return Array.prototype.map.call(new Uint8Array(buf), function(b){ return b.toString(16).padStart(2,'0'); }).join('');
+      });
+    }
+  }catch(e){}
+  return Promise.resolve(null);   // sin HTTPS no hay crypto.subtle → se le dice, no se lo deja pasar
+}
+
+// ⛔ DOS LLAVES DE CACHÉ, A PROPÓSITO. `flot_emps` es la que escribe `fichar.html`, y
+//    corre en el MISMO origen (betangar.com) → si el teléfono ya fichó alguna vez, la
+//    lista ya está ahí y el chofer no depende de tener señal ni la primera vez.
+function _cgListaKey(){ return 'btg_personal_lista'; }
+function _cacheListaLocal(arr){ try{ localStorage.setItem(_cgListaKey(), JSON.stringify(arr)); }catch(e){} }
+function _leerListaLocal(){
+  var out=[];
+  [_cgListaKey(),'flot_emps'].forEach(function(k){
+    if(out.length) return;
+    try{ var s=localStorage.getItem(k); var a=s?JSON.parse(s):null; if(Array.isArray(a)&&a.length) out=a; }catch(e){}
+  });
+  return out;
+}
+
+// Se llama en vez de arrancarApp(). Si ya se identificó HOY en ESTA unidad, entra directo.
+function gateChoferDia(){
+  if(BTG_CHOFER_CONFIG.identificar === false){ arrancarApp(); return; }   // clon que no lo quiera
+  try{
+    var raw = localStorage.getItem(_cgKey());
+    if(raw){
+      var c = JSON.parse(raw);
+      if(c && c.fecha === _hoyVE() && c.nombre){
+        chofer = c.nombre; CHOFER_ID = c.id || null; CHOFER_CLAVE = c.clave || null;
+        arrancarApp(); return;
+      }
+    }
+  }catch(e){}
+  var g = document.getElementById('chofer-gate'); if(g) g.style.display='flex';
+  // El gate necesita la lista: si el cliente no se creó todavía (camino JAC), se crea acá.
+  if(!supabase){
+    try{
+      var lib = window.__supaLib || window.supabase;
+      var fn = (lib && lib.createClient) ? lib.createClient : (window.createClient || null);
+      if(fn) supabase = fn(SUPA_URL, SUPA_KEY);
+    }catch(e){}
+  }
+  cargarChoferesGate();
+}
+
+function cargarChoferesGate(){
+  var err = document.getElementById('cg-error'); if(err) err.textContent='';
+  var lbl = document.getElementById('cg-unidad-lbl'); if(lbl) lbl.innerHTML='Unidad <b>'+cam+'</b>';
+  var cache = _leerListaLocal();
+  if(cache.length){ CHOFERES_LISTA = cache; renderChoferes(''); }
+  if(supabase && navigator.onLine !== false){
+    supabase.rpc('empleados_publicos').then(function(r){
+      if(r && !r.error && Array.isArray(r.data) && r.data.length){
+        CHOFERES_LISTA = r.data; _cacheListaLocal(r.data);
+        renderChoferes(_norm((document.getElementById('cg-buscar')||{}).value||''));
+      } else if(!cache.length){ _gateSinLista(); }
+    }).catch(function(){ if(!cache.length) _gateSinLista(); });
+  } else if(!cache.length){ _gateSinLista(); }
+}
+
+// ⛔ ACÁ NO HAY VÁLVULA — y por eso el mensaje tiene que DECIR QUÉ HACER.
+//    Máximo pidió que el chofer sea obligatorio. La consecuencia honesta es esta: un teléfono
+//    que nunca bajó la lista Y está sin señal no puede arrancar. Se le dice exactamente eso,
+//    en una línea, con la salida. Un candado mudo se ve igual que una app rota.
+//    [[norma-la-puerta-que-no-existe]]
+function _gateSinLista(){
+  var el = document.getElementById('cg-lista'); if(!el) return;
+  el.innerHTML = '<div style="color:#fbbf24;font-size:13px;text-align:center;padding:12px 6px;line-height:1.5">'
+    + '<b>Falta bajar la lista del personal.</b><br>Conectate a internet UNA vez —con datos o wifi— y tocá «Reintentar».<br>'
+    + 'Después esta pantalla funciona sin señal todos los días.</div>'
+    + '<button onclick="cargarChoferesGate()" style="width:100%;padding:12px;font-size:14px;font-weight:700;border:none;border-radius:10px;background:#233b4d;color:#fff;cursor:pointer">↻ Reintentar</button>';
+}
+
+function filtrarChoferes(){ renderChoferes(_norm((document.getElementById('cg-buscar')||{}).value||'')); }
+
+function renderChoferes(q){
+  var el = document.getElementById('cg-lista'); if(!el) return;
+  // 📌 Los CHOFERES primero, pero NO son un candado: la planilla muestra gente manejando que
+  //    no tiene cargo «Chofer» (ayudantes que cubren un día). Esconderlos los dejaría afuera
+  //    de su propio checklist. Se ofrece «ver todo el personal».
+  //    [[norma-no-estar-en-la-lista-no-es-candado]]
+  var base = _cgVerTodos ? CHOFERES_LISTA : CHOFERES_LISTA.filter(function(c){ return /chofer/i.test(c.cargo||''); });
+  if(!base.length) base = CHOFERES_LISTA;                       // base sin `cargo` → no esconder a nadie
+  var arr = q ? base.filter(function(c){ return _norm(c.nombre).indexOf(q)>=0; }) : base;
+  var sug = _norm(_CG_SUGERIDO);
+  if(sug) arr = arr.slice().sort(function(a,b){ return (_norm(b.nombre)===sug?1:0)-(_norm(a.nombre)===sug?1:0); });
+  var html = arr.slice(0,80).map(function(c){
+    var sel = _cgSel && _cgSel.id===c.id;
+    var idEsc = String(c.id).replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+    return '<div onclick="seleccionarChofer(\''+idEsc+'\')" style="padding:11px 13px;border-radius:10px;border:1px solid '
+      + (sel?'#7dc941':'#2a3f52') + ';background:' + (sel?'rgba(125,201,65,.15)':'#0f1a24')
+      + ';color:#fff;font-size:15px;font-weight:600;margin-bottom:6px;cursor:pointer;text-align:left">'
+      + ((c.nombre||'').replace(/</g,'&lt;'))
+      + (c.cargo ? '<div style="font-size:10px;font-weight:400;color:rgba(255,255,255,.45);margin-top:2px">'+String(c.cargo).replace(/</g,'&lt;')+'</div>' : '')
+      + '</div>';
+  }).join('');
+  if(!arr.length) html = '<div style="color:rgba(255,255,255,.5);font-size:13px;text-align:center;padding:10px">Sin coincidencias.</div>';
+  if(!_cgVerTodos) html += '<div onclick="_cgTodos()" style="text-align:center;font-size:12px;color:#7dc941;text-decoration:underline;padding:8px;cursor:pointer">No está tu nombre — ver todo el personal</div>';
+  el.innerHTML = html;
+}
+function _cgTodos(){ _cgVerTodos = true; renderChoferes(_norm((document.getElementById('cg-buscar')||{}).value||'')); }
+
+function seleccionarChofer(id){
+  var c = null;
+  for(var i=0;i<CHOFERES_LISTA.length;i++){ if(CHOFERES_LISTA[i].id===id){ c=CHOFERES_LISTA[i]; break; } }
+  if(!c) return;
+  _cgSel = { id:c.id, nombre:c.nombre, h:c.h };
+  renderChoferes(_norm((document.getElementById('cg-buscar')||{}).value||''));
+  var box = document.getElementById('cg-clave-box'); if(box) box.style.display='block';
+  var sn = document.getElementById('cg-sel-nombre'); if(sn) sn.textContent='👤 '+c.nombre;
+  var ci = document.getElementById('cg-clave');
+  if(ci){ ci.value=''; setTimeout(function(){ try{ci.focus();}catch(e){} },150); }
+  var err = document.getElementById('cg-error'); if(err) err.textContent='';
+}
+
+function confirmarChoferGate(){
+  var err = document.getElementById('cg-error'), btn = document.getElementById('cg-btn');
+  if(!_cgSel){ if(err) err.textContent='Elegí tu nombre en la lista.'; return; }
+  var clave = ((document.getElementById('cg-clave')||{}).value||'').replace(/\D/g,'');
+  if(clave.length<4){ if(err) err.textContent='Escribí los últimos 4 de tu cédula.'; return; }
+  if(err) err.textContent='';
+  if(btn){ btn.disabled=true; btn.textContent='Verificando…'; }
+  // ⛔ SIN HASH NO SE DEJA PASAR. Si a la fila le falta `h` (lista vieja cacheada de una versión
+  //    anterior de la RPC), cualquier clave "coincidiría" con undefined===undefined. Se refresca.
+  if(!_cgSel.h){
+    if(btn){ btn.disabled=false; btn.textContent='Entrar'; }
+    if(err) err.textContent='La lista guardada es vieja. Conectate y tocá tu nombre otra vez.';
+    try{ localStorage.removeItem(_cgListaKey()); localStorage.removeItem('flot_emps'); }catch(e){}
+    cargarChoferesGate(); return;
+  }
+  _sha256hex(_cgSel.id+'|'+clave).then(function(hx){
+    if(btn){ btn.disabled=false; btn.textContent='Entrar'; }
+    if(hx && hx===_cgSel.h){
+      chofer = _cgSel.nombre; CHOFER_ID = _cgSel.id; CHOFER_CLAVE = clave;
+      try{ localStorage.setItem(_cgKey(), JSON.stringify({fecha:_hoyVE(), id:CHOFER_ID, nombre:chofer, clave:clave})); }catch(e){}
+      var g = document.getElementById('chofer-gate'); if(g) g.style.display='none';
+      abrirCuadrillaGate();          // paso 2: quiénes van con él hoy (no obligatorio)
+    }
+    else if(!hx){ if(err) err.textContent='Este teléfono no puede verificar (hace falta HTTPS). Abrí la app desde betangar.com.'; }
+    else { if(err) err.textContent='Clave incorrecta. Son los últimos 4 dígitos de tu cédula.'; }
+  }).catch(function(){
+    if(btn){ btn.disabled=false; btn.textContent='Entrar'; }
+    if(err) err.textContent='No se pudo verificar. Intentá de nuevo.';
+  });
+}
+
+// Cambio de turno el mismo día: tocando el nombre en el header se vuelve a preguntar.
+// Hace falta de verdad — la planilla muestra hasta 6 choferes distintos en un mismo camión.
+function cambiarChoferDia(){
+  if(!confirm('¿Cambiar de chofer? Se va a pedir identificarse de nuevo.')) return;
+  try{ localStorage.removeItem(_cgKey()); localStorage.removeItem(_cqKey()); }catch(e){}
+  window.location.reload();
+}
+
+// ══════════════════════════════════════════════════════════════════════════════════════════
+// LA CUADRILLA DEL DÍA — hasta 3 ayudantes, declarados por el chofer
+//
+// ⛔ ESTO NO LE CREA LA ASISTENCIA A NADIE. Va a `cuadrilla_dia`, una tabla aparte; la
+//    asistencia la sigue creando cada persona con su selfie en `fichar.html`. Que el chofer
+//    diga «iba conmigo» y esa persona no haya fichado NO es un error a tapar: es el aviso
+//    que la oficina tiene que ver. [[norma-una-alerta-no-puede-nombrar-a-quien-no-estaba]]
+//
+// ⛔ Y NO TRANCA. Máximo: *«la cantidad de ayudantes no es obligatoria»*. Se entra con 0, 1,
+//    2 o 3, y sin señal se encola — un chofer nunca se queda parado por esto.
+// ══════════════════════════════════════════════════════════════════════════════════════════
+var CQ_SEL = [];                       // [{id,nombre,cargo}]
+var CQ_MAX = 3;
+function _cqKey(){ return 'btg_cuadrilla_dia_'+cam; }
+function _cqColaKey(){ return 'btg_cola_cuadrilla'; }
+
+// Se llama al terminar el gate del chofer. Si ya se declaró HOY en esta unidad, no molesta.
+function abrirCuadrillaGate(forzar){
+  try{
+    var raw = forzar ? null : localStorage.getItem(_cqKey());
+    if(raw){
+      var c = JSON.parse(raw);
+      if(c && c.fecha === _hoyVE()){
+        // Ya la declaró hoy: no se le vuelve a preguntar, pero igual se trae para el header
+        // — si no se VE lo que declaró, no hay forma de que note un error y lo corrija.
+        CQ_SEL = Array.isArray(c.ayud) ? c.ayud : [];
+        pintarCuadrilla();
+        cqTraerDelDia(true);
+        arrancarApp(); return;
+      }
+    }
+  }catch(e){}
+  // ⛔ AL REABRIR NO SE ARRANCA DE CERO. Si el chofer toca «✎» para SUMAR a uno y la lista
+  //    aparece vacía, al guardar borra a los que ya había declarado — y sin señal ni siquiera
+  //    puede traerlos del servidor. Se reponen de lo último guardado en este teléfono.
+  CQ_SEL = [];
+  try{
+    var prev = JSON.parse(localStorage.getItem(_cqKey())||'null');
+    if(prev && prev.fecha === _hoyVE() && Array.isArray(prev.ayud)) CQ_SEL = prev.ayud.slice(0,CQ_MAX);
+  }catch(e){}
+  var g = document.getElementById('cuadrilla-gate'); if(g) g.style.display='flex';
+  var b = document.getElementById('cq-buscar'); if(b) b.value='';
+  cqRender();
+  cqTraerDelDia(false);   // si la oficina (o él desde otro teléfono) ya la cargó, se pinta
+}
+
+// Trae la cuadrilla de hoy de esta unidad. `soloHeader` = la app ya arrancó y esto es al vuelo.
+function cqTraerDelDia(soloHeader){
+  if(!supabase || navigator.onLine === false) return;
+  try{
+    supabase.rpc('cuadrilla_del_dia', { p_cam: cam }).then(function(r){
+      if(!(r && !r.error && Array.isArray(r.data) && r.data.length)) return;
+      CQ_SEL = r.data.filter(function(x){ return x.rol==='ayudante'; })
+                     .map(function(x){ return {id:x.empleado_id, nombre:x.nombre, cargo:x.cargo}; })
+                     .slice(0,CQ_MAX);
+      if(soloHeader) pintarCuadrilla(); else cqRender();
+    }, function(){});
+  }catch(e){}
+}
+
+function cqFiltrar(){ cqRender(); }
+
+function cqRender(){
+  var cont = document.getElementById('cq-elegidos');
+  if(cont){
+    cont.innerHTML = CQ_SEL.length
+      ? CQ_SEL.map(function(a,i){
+          return '<div style="display:flex;align-items:center;gap:8px;background:rgba(125,201,65,.13);border:1px solid rgba(125,201,65,.5);border-radius:10px;padding:9px 11px;margin-bottom:5px;text-align:left">'
+            + '<div style="flex:1;color:#fff;font-size:14px;font-weight:600">'+((a.nombre||'').replace(/</g,'&lt;'))+'</div>'
+            + '<div onclick="cqQuitar('+i+')" style="color:#ef6060;font-size:18px;font-weight:700;cursor:pointer;padding:0 4px" title="Quitar">×</div></div>';
+        }).join('')
+      : '<div style="color:rgba(255,255,255,.35);font-size:12px;padding:4px 0">Todavía no elegiste a nadie.</div>';
+  }
+  var el = document.getElementById('cq-lista'); if(!el) return;
+  if(CQ_SEL.length >= CQ_MAX){
+    el.innerHTML = '<div style="color:rgba(255,255,255,.5);font-size:12px;text-align:center;padding:10px">Ya son 3. Quitá a alguno para cambiarlo.</div>';
+    return;
+  }
+  var q = _norm((document.getElementById('cq-buscar')||{}).value||'');
+  // Los AYUDANTES primero (internos y del IMAU, que es justo a quien nadie ve hoy), pero sin
+  // esconder al resto: en el aseo un chofer de relevo puede salir de ayudante.
+  var base = CHOFERES_LISTA.filter(function(c){ return /ayudante/i.test(c.cargo||''); });
+  if(!base.length) base = CHOFERES_LISTA;
+  var yaId = CQ_SEL.map(function(a){ return a.id; });
+  var arr = base.filter(function(c){ return c.id!==CHOFER_ID && yaId.indexOf(c.id)<0 && (!q || _norm(c.nombre).indexOf(q)>=0); });
+  if(!arr.length){ el.innerHTML='<div style="color:rgba(255,255,255,.5);font-size:13px;text-align:center;padding:10px">Sin coincidencias.</div>'; return; }
+  el.innerHTML = arr.slice(0,60).map(function(c){
+    var idEsc = String(c.id).replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+    return '<div onclick="cqAgregar(\''+idEsc+'\')" style="padding:10px 12px;border-radius:10px;border:1px solid #2a3f52;background:#0f1a24;color:#fff;font-size:14px;font-weight:600;margin-bottom:5px;cursor:pointer;text-align:left">'
+      + ((c.nombre||'').replace(/</g,'&lt;')) + '</div>';
+  }).join('');
+}
+
+function cqAgregar(id){
+  if(CQ_SEL.length >= CQ_MAX) return;
+  for(var i=0;i<CHOFERES_LISTA.length;i++){
+    if(CHOFERES_LISTA[i].id===id){
+      CQ_SEL.push({ id:id, nombre:CHOFERES_LISTA[i].nombre, cargo:CHOFERES_LISTA[i].cargo });
+      break;
+    }
+  }
+  var b = document.getElementById('cq-buscar'); if(b) b.value='';
+  cqRender();
+}
+function cqQuitar(i){ CQ_SEL.splice(i,1); cqRender(); }
+
+function cqGuardar(){
+  var btn = document.getElementById('cq-btn'), err = document.getElementById('cq-error');
+  if(err) err.textContent='';
+  // ⛔ DOS OBJETOS, NO UNO. La cola le agrega `fecha` para saber de qué día es cada pendiente,
+  //    y si fuera el MISMO objeto esa clave viajaría a la RPC como un parámetro más: PostgREST
+  //    no encuentra una función con ese argumento extra y devuelve PGRST202. Salió así en la
+  //    prueba del navegador —con el espía puesto, antes de tocar la base—: la llamada iba con
+  //    `{p_cam, p_id, p_clave, p_ayudantes, fecha}` y en producción no habría guardado NADA.
+  var reg = { p_cam: cam, p_id: CHOFER_ID, p_clave: CHOFER_CLAVE,
+              p_ayudantes: CQ_SEL.map(function(a){ return a.id; }) };
+  // Se anota en la cola ANTES de mandarla: un teléfono sin señal —o que se bloquea mientras
+  // sube— perdería la cuadrilla y nadie se enteraría.
+  cqEncolar({ p_cam:reg.p_cam, p_id:reg.p_id, p_clave:reg.p_clave, p_ayudantes:reg.p_ayudantes });
+  try{ localStorage.setItem(_cqKey(), JSON.stringify({fecha:_hoyVE(), ayud:CQ_SEL})); }catch(e){}
+  if(btn){ btn.disabled=true; btn.textContent='Guardando…'; }
+  var _entrar = function(){
+    if(btn){ btn.disabled=false; btn.textContent='Listo'; }
+    var g = document.getElementById('cuadrilla-gate'); if(g) g.style.display='none';
+    pintarCuadrilla();
+    // Si esto vino de «✎» con la app andando, NO se vuelve a arrancar: se devuelve la pantalla.
+    if(_CQ_REABRE){
+      _CQ_REABRE = false;
+      var am = document.getElementById('app-main');
+      if(am){ am.style.display='flex'; am.style.flexDirection='column'; }
+      if(typeof mostrarToast==='function') mostrarToast('Cuadrilla actualizada','ok');
+      return;
+    }
+    arrancarApp();
+  };
+  if(!supabase || navigator.onLine===false){ _entrar(); return; }
+  try{
+    supabase.rpc('cuadrilla_declarar', reg).then(function(r){
+      var d = r && r.data;
+      if(r && r.error){ _entrar(); return; }                     // queda encolada
+      cqDesencolar({ p_cam:reg.p_cam, fecha:_hoyVE() });
+      if(d && d.ok === false){
+        // La base la rechazó: NO se deja creer que quedó. Se le dice y se vuelve a preguntar.
+        try{ localStorage.removeItem(_cqKey()); }catch(e){}
+        if(btn){ btn.disabled=false; btn.textContent='Listo'; }
+        if(err) err.textContent = d.motivo || d.msg || 'No se pudo guardar la cuadrilla.';
+        return;
+      }
+      if(d && d.descartados && d.descartados.length && typeof mostrarToast==='function'){
+        mostrarToast('Alguno de los que elegiste ya no está activo y no se guardó','warn');
+      }
+      _entrar();
+    }, function(){ _entrar(); });
+  }catch(e){ _entrar(); }
+}
+
+// Reabre el paso 2 con la app ya andando (alguien se sumó a media jornada).
+// ⚠️ NO se borra `_cqKey()` acá: es de donde salen los que YA declaró, y sin señal es la
+//    única copia que hay. Se fuerza la apertura con un parámetro, no borrando la memoria.
+function reabrirCuadrilla(){
+  var am = document.getElementById('app-main'); if(am) am.style.display='none';
+  _CQ_REABRE = true;
+  abrirCuadrillaGate(true);
+}
+var _CQ_REABRE = false;
+
+// Pinta en el header a quiénes declaró. Sin señal se muestra lo último que se guardó acá.
+function pintarCuadrilla(){
+  var el = document.getElementById('cuadrilla-display'); if(!el) return;
+  // ⚠️ NO alcanza con el primer nombre: en la prueba salió «ALBERTO, ALBERTO» —son Alberto
+  //    Atencio y Alberto Venega, dos personas distintas. Un rótulo que no distingue no sirve
+  //    para lo único que tiene que servir: que el chofer note si se equivocó de persona.
+  var _corto = function(n){
+    var p = String(n||'').trim().split(/\s+/);
+    if(p.length <= 1) return p[0]||'';
+    // nombre + primer apellido; en la nómina el apellido suele ser la 3ª palabra (2 nombres)
+    return p[0]+' '+(p.length>=3 ? p[2] : p[1]);
+  };
+  var txt = CQ_SEL.length
+    ? '👥 '+CQ_SEL.map(function(a){ return _corto(a.nombre); }).join(' · ')+'  ✎'
+    : '👥 sin ayudantes  ✎';
+  el.textContent = txt;
+  el.style.display = 'block';
+}
+
+function cqEncolar(reg){
+  try{
+    var c = JSON.parse(localStorage.getItem(_cqColaKey())||'[]');
+    c = c.filter(function(x){ return !(x.p_cam===reg.p_cam && x.fecha===_hoyVE()); });
+    reg.fecha = _hoyVE(); c.push(reg);
+    localStorage.setItem(_cqColaKey(), JSON.stringify(c));
+  }catch(e){}
+}
+function cqDesencolar(reg){
+  try{
+    var c = JSON.parse(localStorage.getItem(_cqColaKey())||'[]');
+    c = c.filter(function(x){ return !(x.p_cam===reg.p_cam && x.fecha===(reg.fecha||_hoyVE())); });
+    localStorage.setItem(_cqColaKey(), JSON.stringify(c));
+  }catch(e){}
+}
+// ⚠️ Solo se reintenta lo de HOY: una cuadrilla de anteayer que subiera ahora quedaría
+//    fechada con el día de hoy (la RPC usa `now()`), o sea, en el camión equivocado.
+function cqSubirCola(){
+  if(!supabase) return;
+  var c = [];
+  try{ c = JSON.parse(localStorage.getItem(_cqColaKey())||'[]'); }catch(e){ return; }
+  if(!c.length) return;
+  var hoyv = _hoyVE(), viejas = c.filter(function(x){ return x.fecha !== hoyv; });
+  if(viejas.length){
+    try{ localStorage.setItem(_cqColaKey(), JSON.stringify(c.filter(function(x){ return x.fecha===hoyv; }))); }catch(e){}
+    console.log('cuadrilla: '+viejas.length+' de días pasados, no se reenvían (la RPC feche hoy)');
+  }
+  c.filter(function(x){ return x.fecha===hoyv; }).forEach(function(reg){
+    try{
+      supabase.rpc('cuadrilla_declarar', {p_cam:reg.p_cam, p_id:reg.p_id, p_clave:reg.p_clave, p_ayudantes:reg.p_ayudantes})
+        .then(function(r){ if(r && !r.error && r.data && r.data.ok !== false) cqDesencolar(reg); }, function(){});
+    }catch(e){}
+  });
 }
 
 // Arranca la app (cuerpo original del init). Se llama con `cam` y `chofer` ya definidos.
@@ -2242,8 +2725,9 @@ function registrarViaje(num){
   // Solo columnas REALES de viajes_chofer: fecha, cam, chofer, viaje_num, hora, sincronizado.
   // (Antes enviaba hora_registro/semana/año, que no existen → el upsert fallaba y el viaje
   //  quedaba atrapado en la cola offline sin llegar nunca al dashboard.)
+  // `chofer` sale del gate, así que ya es una persona real y no el nombre horneado del camión.
   var reg = {
-    fecha: hoy, cam: cam, chofer: chofer || FLOTA_CHOFERES[cam] || 'CHOFER',
+    fecha: hoy, cam: cam, chofer: chofer || 'SIN IDENTIFICAR',
     viaje_num: num, hora: hora, sincronizado: true
   };
 
@@ -2320,7 +2804,11 @@ function limpiarRegViaje(r){
   return {
     fecha: r.fecha,
     cam: r.cam,
-    chofer: r.chofer || FLOTA_CHOFERES[r.cam] || 'CHOFER',
+    // ⛔ ACÁ DECÍA `FLOTA_CHOFERES[r.cam] || 'CHOFER'`: a un viaje viejo sin chofer le PONÍA
+    //    el nombre horneado del camión. Eso no rescata un dato, lo INVENTA — y encima un
+    //    viaje de la cola puede ser de otro día y de otro chofer. [[norma-respaldo-que-inventa-un-dato]]
+    //    Ahora: lo que traiga la fila, y si no trae nada se DICE que no se sabe.
+    chofer: r.chofer || 'SIN IDENTIFICAR',
     viaje_num: r.viaje_num,
     hora: r.hora || r.hora_registro || '',
     sincronizado: true
@@ -2374,6 +2862,7 @@ function sincronizarCola(){
   // ── Entregas ──
   try{ subirColaEntregas(); }catch(e){}
   try{ subirColaSurtidas(); }catch(e){}
+  try{ cqSubirCola(); }catch(e){}          // la cuadrilla declarada sin señal
 
   // ── Viajes ──
   if(COLA_LOCAL.length){
@@ -3119,10 +3608,14 @@ async function _guardarChecklist(){
   // estado_vehiculo, hora/km/comb _salida/_entrada, observaciones). No existe columna
   // 'inspeccion' ni columnas por ítem para el chofer: los ítems en falla se resumen
   // dentro de observaciones para no perder la información.
+  // ⛔ EL NOMBRE QUE FIRMA EL CHECKLIST. Hasta el 11/09/2026 salía de `FLOTA_CHOFERES[cam]` y
+  //    era falso en el 29,1% de los casos. Ahora es el que se identificó en el gate, con su
+  //    nombre TAL COMO ESTÁ EN `empleados` — que es el que trae la planilla, así que el cotejo
+  //    contra el papel compara lo mismo contra lo mismo.
   var registro = {
     cam: cam,
     fecha: hoy,
-    conductor: chofer || FLOTA_CHOFERES[cam] || 'CHOFER',
+    conductor: chofer || 'SIN IDENTIFICAR',
     llenado_por: 'chofer',
     chofer_fecha_llenado: new Date().toISOString(),
     estado_vehiculo: CL_ESTADO || 'operativo',
