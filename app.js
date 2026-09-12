@@ -24032,7 +24032,62 @@ function portSelNivel(val){
 
 // ── ENTRADA/SALIDA ──
 
-function portGuardarEntrada(){
+// -----------------------------------------------------------------------------
+// GUARDAR UN REGISTRO DE PORTERIA -- y decir la VERDAD de lo que paso.
+//
+// 🔴 POR QUE EXISTE, 12/09/2026. Maximo: «en el modulo de vigilancia, donde
+//    anotan las incidencias de quien entra quien sale, no se guarda en historial
+//    para poderse revisar cuando se quiera».
+//
+//    Las TRES pantallas de la garita -entrada/salida, galpon y novedad- hacian
+//    `supabase.from('porteria').insert([reg])` a mano, y las tres terminaban en:
+//
+//        } else { alert('✅ Guardado localmente'); portCerrarModal(...); }
+//
+//    (!) ESE `else` NO GUARDABA NADA. Ni cola, ni localStorage, nada. Sin
+//        conexion el vigilante leia «Guardado localmente», cerraba el modal y el
+//        registro DESAPARECIA. Y la garita es justo donde la conexion se cae.
+//    (!) Y el `insert` iba SIN `.select()`: afirmaba sin medir.
+//        [[norma-insert-sin-select-no-mide]]
+//
+//    Medido el 12/09/2026, que es lo que le daba la razon: `entrada_salida`
+//    tenia **6 filas en 4 dias** desde el 17/08 (contra 147 de galpon). Una
+//    garita que registra gente todos los dias no produce 6 filas en un mes.
+//
+// ⇒ Ahora las tres pasan por aca, y aca se usa `dbIn()`, que YA EXISTIA y hace
+//   lo correcto: si no hay conexion ENCOLA de verdad (`COLA_OFFLINE`, con
+//   banner, reintento y dead-letter visible), inserta CON `.select()`, y
+//   distingue «el servidor lo rechazo» de «no hay internet».
+//   [[norma-bitacora-nombrar-la-pieza-que-ya-existe]]
+//
+// ⚠️ `dbIn()` devuelve null en LOS DOS casos de fallo, y no son lo mismo para
+//    quien esta en la garita: si se encolo, el registro esta a salvo y el modal
+//    se cierra; si el servidor lo rechazo, NO esta guardado y el modal se queda
+//    abierto para no perder lo escrito. Se distinguen mirando si la cola
+//    CRECIO. No se toca `dbIn()`: lo usa media app.
+//    [[norma-el-rebote-sin-rastro-es-una-adivinanza]]
+//
+// Devuelve: 'guardado' | 'encolado' | 'rechazado'
+// -----------------------------------------------------------------------------
+async function portGuardarRegistro(reg, textoOk){
+  var antes=(typeof COLA_OFFLINE!=='undefined'&&COLA_OFFLINE)?COLA_OFFLINE.length:0;
+  var r=await dbIn('porteria',reg);
+  if(r&&r.length){ alert('✅ '+textoOk); return 'guardado'; }
+  var ahora=(typeof COLA_OFFLINE!=='undefined'&&COLA_OFFLINE)?COLA_OFFLINE.length:0;
+  if(ahora>antes){
+    // Esto SI es «guardado localmente», y ahora es verdad.
+    alert('📴 Sin conexion.\n\n«'+textoOk+'» quedo GUARDADO en este equipo y se va a '
+      +'subir solo cuando vuelva el internet.\n\nNo lo anotes de nuevo: se duplicaria.');
+    return 'encolado';
+  }
+  // Ni guardado ni encolado: el servidor lo rechazo. `dbIn` ya mostro el motivo.
+  alert('⛔ NO se guardo.\n\nEl sistema rechazo el registro, asi que no quedo en '
+    +'ninguna parte. Fijate el mensaje rojo de arriba y volve a intentar; si sigue, '
+    +'avisale a la oficina ANTES de dejar pasar el turno.');
+  return 'rechazado';
+}
+
+async function portGuardarEntrada(){
   var nombre=gv('port-ent-nombre').trim();
   var tipo=PORT_TIPO_SELECTED['ent'];
   if(!nombre){alert('Escribe el nombre de la persona');return;}
@@ -24041,18 +24096,11 @@ function portGuardarEntrada(){
   var hora=new Date().toLocaleTimeString('es-VE',{hour:'2-digit',minute:'2-digit'});
   var obs=gv('port-ent-obs').trim();
   var reg={tipo:'entrada_salida',fecha:hoy,hora:hora,nombre:nombre,detalle:obs,subtipo:tipo==='llego'?'Llegó':'Salió',vigilante:SESION.nombre||'Vigilante'};
-  if(DB_READY&&supabase){
-    supabase.from('porteria').insert([reg]).then(function(r){
-      if(r.error){alert('Error: '+r.error.message);return;}
-      alert('✅ Registrado: '+nombre+' — '+(tipo==='llego'?'Llegó':'Salió'));
-      g('port-ent-nombre').value='';g('port-ent-obs').value='';
-      portCerrarModal('modal-port-entrada');
-      portCargarHoy();
-    });
-  } else {
-    alert('✅ Guardado localmente');
-    portCerrarModal('modal-port-entrada');
-  }
+  var res=await portGuardarRegistro(reg,'Registrado: '+nombre+' — '+(tipo==='llego'?'Llegó':'Salió'));
+  if(res==='rechazado')return;   // se deja el modal abierto: lo escrito no se pierde
+  g('port-ent-nombre').value='';g('port-ent-obs').value='';
+  portCerrarModal('modal-port-entrada');
+  portCargarHoy();
 }
 
 // ── GALPÓN ──
@@ -24084,7 +24132,7 @@ function portConfirmarRepetido(estadoPrevio, nombre, subtipoNuevo){
   return confirm(nombre+' ya figura como «'+subtipoNuevo+'» desde las '+(estadoPrevio.hora||'?')+'.\n\n'+
                  'Registrarlo otra vez deja dos veces el mismo movimiento.\n\n¿Registrar igual?');
 }
-function portGuardarGalpon(){
+async function portGuardarGalpon(){
   var que=gv('port-galp-que').trim();
   var tipo=PORT_TIPO_SELECTED['galp'];
   if(!que){alert('Escribe qué entró o salió');return;}
@@ -24094,47 +24142,47 @@ function portGuardarGalpon(){
   var det=gv('port-galp-det').trim();
   var sub=tipo==='entro'?'Entró al galpón':'Salió del galpón';
   var reg={tipo:'galpon',fecha:hoy,hora:hora,nombre:que,detalle:det,subtipo:sub,vigilante:SESION.nombre||'Vigilante'};
+  // El aviso de «repetido» necesita leer el estado de hoy, y eso pide conexion.
+  // Sin conexion NO se cancela el registro: se avisa que no se pudo comprobar y
+  // se guarda igual -- perder el movimiento es peor que registrar uno repetido.
   if(DB_READY&&supabase){
-    portUltimoEstadoPorUnidad(hoy).then(function(estados){
+    try{
+      var estados=await portUltimoEstadoPorUnidad(hoy);
       if(!portConfirmarRepetido(estados[que.trim().toUpperCase()], que, sub)) return;
-      return supabase.from('porteria').insert([reg]).then(function(r){
-        if(r.error){alert('Error: '+r.error.message);return;}
-        alert('✅ Registrado: '+que+' — '+(tipo==='entro'?'Entró':'Salió'));
-        g('port-galp-que').value='';g('port-galp-det').value='';
-        portCerrarModal('modal-port-galpon');
-        portCargarHoy();
-      });
-    }).catch(function(e){ alert('No pude comprobar el estado de la unidad: '+(e&&e.message||e)); });
-  } else {
-    alert('✅ Guardado localmente');
-    portCerrarModal('modal-port-galpon');
+    }catch(e){
+      if(!confirm('No pude comprobar si «'+que+'» ya estaba así (sin conexión con el '
+        +'sistema).\n\n¿Registro igual? Se guarda en este equipo y sube solo.'))return;
+    }
   }
+  var res=await portGuardarRegistro(reg,'Registrado: '+que+' — '+(tipo==='entro'?'Entró':'Salió'));
+  if(res==='rechazado')return;
+  g('port-galp-que').value='';g('port-galp-det').value='';
+  portCerrarModal('modal-port-galpon');
+  portCargarHoy();
 }
 
 // ── NOVEDAD ──
 function portAbrirNovedad(){portAbrirModal('modal-port-novedad');}
-function portGuardarNovedad(){
+async function portGuardarNovedad(){
   var texto=gv('port-nov-texto').trim();
   var nivel=PORT_TIPO_SELECTED['nov']||'info';
   if(!texto||texto.length<5){alert('Describe lo que pasó con más detalle');return;}
   var hoy=fechaVE();
   var hora=new Date().toLocaleTimeString('es-VE',{hour:'2-digit',minute:'2-digit'});
   var reg={tipo:'novedad',fecha:hoy,hora:hora,nombre:'Novedad '+nivel.toUpperCase(),detalle:texto,subtipo:nivel,vigilante:SESION.nombre||'Vigilante'};
-  if(DB_READY&&supabase){
-    supabase.from('porteria').insert([reg]).then(function(r){
-      if(r.error){alert('Error: '+r.error.message);return;}
+  var res=await portGuardarRegistro(reg,'Novedad registrada');
+  if(res==='rechazado')return;
+  {
       // Si es urgente, notificar por WA
+      // (!) El aviso sale tambien si la novedad quedo ENCOLADA: una novedad
+      //     urgente que espera internet para avisar es una urgencia que nadie
+      //     ve. `sendWA` tiene su propia cola. [[norma-mensaje-frenado-se-ve-igual-que-nada]]
       if(nivel==='urgente'){
         sendWA(brandTag()+' - URGENTE PORTERIA\n\nHora: '+hora+'\nReporte: '+texto+'\nVigilante: '+(SESION?SESION.nombre:'Vigilante'),'socios');
       }
-      alert('✅ Novedad registrada');
       g('port-nov-texto').value='';
       portCerrarModal('modal-port-novedad');
       portCargarHoy();
-    });
-  } else {
-    alert('✅ Guardado localmente');
-    portCerrarModal('modal-port-novedad');
   }
 }
 
