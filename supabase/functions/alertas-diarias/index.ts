@@ -265,12 +265,59 @@ Deno.serve(async (_req: Request) => {
     // 6) SIN PLANILLA (>=3 dias)
     // Paginada a propósito: son >1.000 filas y de acá sale la "última planilla" de cada
     // camión. Ver selPag() — leerla de un tiro daba diez avisos falsos de "sin planilla".
-    const plan = await selPag("planillas", `select=cam,f&order=f.asc,cam.asc`);
+    const plan = await selPag("planillas", `select=p,cam,f,ch,r,par,d,n,t,m&order=f.asc,cam.asc`);
     const ultPlan: Record<string, string> = {};
     for (const p of plan) { const c = String(p.cam || ""); if (!c) continue; const f = String(p.f || ""); if (!ultPlan[c] || f > ultPlan[c]) ultPlan[c] = f; }
     const fleet = Array.from(new Set(km.map((k: any) => String(k.cam || "")).filter((c: string) => c.startsWith("JAC-B")))).sort();
     const sinPlan: string[] = [];
     for (const k of km) { const cam = String(k.cam || ""); if (!cam.startsWith("JAC-")) continue; const est = String(k.estado || "").toLowerCase(); if (est && est !== "operativo") continue; const last = ultPlan[cam]; const d = last ? -diasHasta(last) : 999; if (!isNaN(d) && d >= 3) sinPlan.push(`• ${U(cam)}: ${last ? `${d} días` : "sin registro"} sin planilla`); }
+
+    // 6b) MISMOS VIAJES BAJO DOS NUMEROS DE PLANILLA
+    // 🔴 12/09/2026. La planilla `16772` era la `01672` cargada dos veces: identica
+    //    en todo, con el numero mal tecleado. El 06/09 quedo con 6 viajes en vez de
+    //    4 -inflado 50%- y la planilla es la que le factura al municipio y le paga
+    //    al chofer. Se encontro DE CASUALIDAD, mirando otra cosa.
+    //
+    //    Ya se puso un aviso al IMPORTAR, pero ese solo cubre lo que entra de ahora
+    //    en adelante. Esto caza lo que YA esta cargado.
+    //
+    // ⛔ LA RUTA Y LA PARROQUIA VAN EN LA CLAVE. El primer barrido que se hizo sin
+    //    ellas acuso 4 casos y eran 2: el 11/07 la JAC-B003 hizo BAJO SECO y despues
+    //    CORREDORES, dos planillas legitimas con los mismos 2 viajes. Un aviso que
+    //    acusa de mas se deja de leer igual que uno que no acusa nada.
+    //
+    // ⚠️ SE AVISA UNA VEZ POR PAR, con `yaEnviado`. Dos jornadas iguales el mismo dia
+    //    por la misma ruta PUEDEN existir (el caso del 19/05 quedo sin resolver justo
+    //    por eso), asi que esto NO es un error seguro: es algo que hay que mirar
+    //    contra el papel. Repetirlo cada dia hasta que alguien lo resuelva lo
+    //    convertiria en ruido.
+    const porTrabajo: Record<string, any[]> = {};
+    const norm = (x: any) => String(x ?? "").toUpperCase().replace(/\s+/g, " ").trim();
+    for (const r of plan) {
+      if (!r.f || !r.cam) continue;
+      const k = [r.f, norm(r.cam), norm(r.ch), norm(r.r), norm(r.par), Number(r.d) || 0, Number(r.n) || 0].join("|");
+      (porTrabajo[k] = porTrabajo[k] || []).push(r);
+    }
+    const repes: string[] = [];
+    for (const k of Object.keys(porTrabajo)) {
+      const g = porTrabajo[k];
+      if (g.length < 2) continue;
+      const nums = g.map((x) => String(x.p || "?")).sort();
+      // Una sola vez por par: la clave lleva los numeros, asi que un par nuevo
+      // vuelve a avisar y el mismo par no.
+      if (await yaEnviado(`plan-dup:${nums.join("+")}`, dry)) continue;
+      const de_mas = (g.length - 1) * (Number(g[0].m) || 0);
+      const viajes_de_mas = (g.length - 1) * (Number(g[0].t) || 0);
+      repes.push(`• N° ${nums.join(" + ")}  ·  ${g[0].f}  ${U(String(g[0].cam))}  ${norm(g[0].r)}`
+        + `\n   ${viajes_de_mas} viaje(s) y $${de_mas.toFixed(2)} contados de mas si es el mismo papel`);
+    }
+    if (repes.length) {
+      addBloque(`⚠️ ${repes.length} planilla(s) con LOS MISMOS VIAJES bajo otro numero\n`
+        + `${repes.join("\n")}\n`
+        + `   👉 Misma fecha, unidad, chofer, RUTA y viajes. Si es un numero mal tecleado se`
+        + ` cobra y se paga DOS VECES; si el camion hizo dos jornadas iguales, esta bien.`
+        + ` Hay que mirarlo contra el papel.`, ["admin"]);
+    }
 
     // 7) STOCK critico
     const inv = await sel(`inventario?select=nombre,stock,stock_min`);
