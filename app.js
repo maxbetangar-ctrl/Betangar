@@ -7147,6 +7147,46 @@ function importarExcel(input){
 
 // Guarda todo lo importado en Supabase en lotes
 async function guardarImportacionEnDB(resultado){
+  // ⛔ ESTO VA ANTES DEL `if(!DB_READY)` Y NO DESPUÉS. La primera versión quedó
+  //    más abajo y la prueba lo cazó: esta función **se va por un `return`** si
+  //    no hay conexión —y en esa rama guarda `nuevasRegs` en localStorage— así
+  //    que el aviso no salía justo cuando la conexión falla, y la planilla
+  //    repetida quedaba guardada igual, esperando sincronizar.
+  //    [[norma-la-puerta-que-no-existe]]
+  // ── SE PREGUNTA ANTES DE GUARDAR, NO DESPUÉS ──────────────────────────────
+  // Avisar de un viaje duplicado cuando ya está en la base obliga a borrarlo, y
+  // borrar lo corre Máximo. Preguntar acá cuesta un clic.
+  if(resultado.mismoTrabajo && resultado.mismoTrabajo.length){
+    var _mtTxt='⚠️ '+resultado.mismoTrabajo.length+' planilla(s) del Excel son EL MISMO TRABAJO que una ya cargada, con OTRO número:\n\n';
+    resultado.mismoTrabajo.slice(0,12).forEach(function(x){
+      _mtTxt+='  • N° '+x.p+' = N° '+x.pYaCargada+'  ·  '+x.f+'  '+x.cam+'  '+x.t+' viaje(s)\n';
+      _mtTxt+='      '+x.ch+'  ·  '+x.r+'\n';
+    });
+    if(resultado.mismoTrabajo.length>12)_mtTxt+='  … y '+(resultado.mismoTrabajo.length-12)+' mas\n';
+    _mtTxt+='\nMisma fecha, misma unidad, mismo chofer, MISMA RUTA y los mismos viajes.\n\n';
+    _mtTxt+='Si es un número mal tecleado, se cobran y se pagan DOS VECES.\n';
+    _mtTxt+='Si de verdad hizo dos jornadas iguales ese día, entonces son dos planillas.\n\n';
+    _mtTxt+='OK = SON otro viaje, guardalas\nCancelar = NO, dejalas afuera (el resto del Excel se guarda igual)';
+    if(!confirm(_mtTxt)){
+      var _fuera={};
+      resultado.mismoTrabajo.forEach(function(x){_fuera[x.p]=1;});
+      // Se saca de las dos listas: de lo que se va a guardar y de la memoria.
+      resultado.nuevasRegs=(resultado.nuevasRegs||[]).filter(function(r){return !_fuera[r.p];});
+      for(var _i=REGS.length-1;_i>=0;_i--){
+        if(REGS[_i]&&_fuera[REGS[_i].p]){
+          // Los viajes ya se habian sumado al contador de la unidad: se descuentan.
+          if(REGS[_i].cam)VX[REGS[_i].cam]=(VX[REGS[_i].cam]||0)-(REGS[_i].t||0);
+          REGS.splice(_i,1);
+        }
+      }
+      resultado.planillas-=Object.keys(_fuera).length;
+      audit('Planillas repetidas dejadas afuera',Object.keys(_fuera).join(', '));
+      if(typeof mostrarToast==='function')mostrarToast(Object.keys(_fuera).length+' planilla(s) repetida(s) NO se guardaron.','info');
+    } else {
+      audit('Planillas iguales guardadas a proposito',resultado.mismoTrabajo.map(function(x){return x.p+'='+x.pYaCargada;}).join(', '));
+    }
+  }
+
   if(!DB_READY){
     // Intentar reconectar Supabase
     if(typeof window.supabase!=='undefined'&&typeof window.supabase.createClient==='function'){
@@ -7287,7 +7327,7 @@ async function guardarImportacionEnDB(resultado){
 }
 
 function procesarExcelBetangar(wb){
-  var resultado={planillas:0,planillasIgnoradas:0,actualizadas:[],abonos:0,gasoil:0,duplicadas:[],nuevasRegs:[],nombresSinIdentificar:[],colVertedero:'',resimara:0};
+  var resultado={planillas:0,planillasIgnoradas:0,actualizadas:[],abonos:0,gasoil:0,duplicadas:[],mismoTrabajo:[],nuevasRegs:[],nombresSinIdentificar:[],colVertedero:'',resimara:0};
   var _sinIdentMap={}; // nombre normalizado -> {nombre,cam,fecha,rol,veces} de chofer/ayudante que NO casa con ningún empleado
   // PRECIO: siempre usa el configurado en la app, ignora cualquier precio del Excel
   var TARIFA=cfg.tarifa||317.88;
@@ -7698,6 +7738,41 @@ function procesarExcelBetangar(wb){
         resultado.nuevasRegs.push(nr);            // → se upsertea (onConflict:'p')
         continue;
       }
+
+      // ── ¿ESTE MISMO TRABAJO YA ESTÁ CARGADO CON OTRO NÚMERO? ────────────
+      // 🔴 12/09/2026. La planilla `16772` era la `01672` cargada dos veces:
+      //    idéntica en todo, con el número mal tecleado. El 06/09 quedó con 6
+      //    viajes en vez de 4 — inflado 50% — y la planilla es la que le
+      //    factura al municipio y le paga al chofer. Se encontró de casualidad.
+      //
+      //    El aviso que YA existía caza el caso contrario (`planillasVistas`:
+      //    mismo número, distinto camión). Este caza el de hoy: MISMO TRABAJO,
+      //    OTRO NÚMERO — que es el que la hoja de transcribir advierte desde
+      //    julio: «si el número cambia, crea otra y los viajes quedan contados
+      //    DOS VECES».
+      //
+      // ⛔ LA RUTA Y LA PARROQUIA VAN EN LA COMPARACIÓN, y no es un detalle:
+      //    el primer barrido que se hizo sin ellas acusó 4 casos y eran 2. El
+      //    11/07 la JAC-B003 hizo BAJO SECO y después CORREDORES: dos planillas
+      //    legítimas, mismo día, mismo chofer, los mismos 2 viajes. Sin la ruta,
+      //    trabajo real se ve como repetido. [[norma-la-vista-no-mide-lo-que-crees]]
+      //
+      // ⚠️ AVISA, NO DECIDE. Dos jornadas iguales el mismo día por la misma ruta
+      //    PUEDEN existir (el caso del 19/05 quedó sin resolver justo por eso),
+      //    así que acá no se pone un `UNIQUE` ni se descarta nada solo: se
+      //    pregunta. [[norma-candado-unico-codifica-un-supuesto]]
+      try{
+        var _mt=function(x){return String(x||'').toUpperCase().replace(/\s+/g,' ').trim();};
+        var _gemelo=REGS.find(function(x){
+          return x && x.p!==nr.p && x.f===nr.f && _mt(x.cam)===_mt(nr.cam)
+              && _mt(x.ch)===_mt(nr.ch) && _mt(x.r)===_mt(nr.r) && _mt(x.par)===_mt(nr.par)
+              && Number(x.d)===Number(nr.d) && Number(x.n)===Number(nr.n);
+        });
+        if(_gemelo){
+          resultado.mismoTrabajo.push({p:nr.p,pYaCargada:_gemelo.p,f:nr.f,cam:nr.cam,
+                                       ch:nr.ch,r:nr.r,t:nr.t,m:nr.m});
+        }
+      }catch(_e){ console.log('aviso mismo-trabajo:', _e && _e.message); }
 
       REGS.push(nr);
       resultado.nuevasRegs.push(nr);
