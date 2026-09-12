@@ -4614,7 +4614,7 @@ function descartarFallidos(){
 }
 // Clave de conflicto por tabla con UNIQUE → la cola debe reintentar como UPSERT, no INSERT plano
 // (si no, una planilla/abono/contrato hecho offline choca con su UNIQUE y cae al dead-letter).
-var _COLA_ONCONFLICT={planillas:'p',abonos:'fact',contratos:'id',prestamos:'id',multas:'id',empleados:'id',pagos_alcaldia:'id',gastos_variables:'id',gastos_fijos:'id',bnc_movimientos:'id',tipos_unidad:'id',unidades:'id',operaciones:'id',nomina_extras:'id',llantas:'id',inv_movimientos:'id',salidas_tanque:'id'};
+var _COLA_ONCONFLICT={planillas:'p',abonos:'fact',contratos:'id',prestamos:'id',multas:'id',empleados:'id',pagos_alcaldia:'id',gastos_variables:'id',gastos_fijos:'id',bnc_movimientos:'id',tipos_unidad:'id',unidades:'id',operaciones:'id',nomina_extras:'id',llantas:'id',inv_movimientos:'id',salidas_tanque:'id',rutas_estado:'fecha,parroquia',km_data:'cam'};
 function guardarEnCola(t,d,oc){
   COLA_OFFLINE.push({t:t,d:d,_try:0,oc:oc||_COLA_ONCONFLICT[t]||null});
   guardarColaLS();
@@ -24375,7 +24375,13 @@ function mecSelEstado(estado){
   if(lbl)lbl.textContent=estado==='operativo'?'Nota (opcional)':'¿Por qué? (obligatorio)';
 }
 
-function mecGuardarEstado(cam){
+// (!) 12/09/2026 -- ACA DECIA «Guardado localmente (sin conexion)» Y NO GUARDABA
+//     NADA. Tocaba `KM_DATA[cam]` -que vive SOLO EN MEMORIA, comprobado- y
+//     avisaba que estaba guardado. Una unidad que el mecanico pone INOPERATIVA
+//     volvia a aparecer operativa al recargar, y el dashboard la contaba como
+//     disponible. Ahora, si el servidor no confirma, va a la COLA OFFLINE.
+//     [[norma-guardado-localmente-es-una-mentira]]
+async function mecGuardarEstado(cam){
   var estado=window._mecEstadoSel;
   var nota=document.getElementById('mec-nota-inp')?document.getElementById('mec-nota-inp').value.trim():'';
   if(!estado){alert('Selecciona un estado');return;}
@@ -24405,28 +24411,43 @@ function mecGuardarEstado(cam){
   KM_DATA[cam].estado_desde=_desdeMec;
   KM_DATA[cam].estado_confirmado=(estado!=='operativo'); // el mecánico es autoridad → queda confirmado
   // Guardar en Supabase
+  var _cambios={estado:estado,nota_estado:nota,estado_desde:_desdeMec,estado_confirmado:(estado!=='operativo'),updated_by:SESION.nombre||''};
+  var _ok=false;
   if(DB_READY&&supabase){
-    supabase.from('km_data').update({estado:estado,nota_estado:nota,estado_desde:_desdeMec,estado_confirmado:(estado!=='operativo'),updated_by:SESION.nombre||''}).eq('cam',cam).then(function(res){
-      if(res.error){alert('Error: '+res.error.message);return;}
-      mecRenderizar();
-      closeModal();
-      // Notificar si es taller o inoperativo
-      var esOperativo = estado==='operativo';
-      var msgEstado=brandTag()+' - CAMBIO ESTADO FLOTA\n\n'+
-        'Unidad: '+cam+'\n'+
-        'Nuevo estado: '+estado.toUpperCase()+(esOperativo?' ✅ OPERATIVO':'')+
-        '\nMotivo: '+(nota||'Sin motivo')+'\n'+
-        'Por: '+(SESION.nombre||'Mecanico')+'\n'+
-        'Fecha: '+fmtFechaHora(new Date());
-      sendWA(msgEstado,['socios','operativo']);
-      // 2026-07-21: quitado el espejo a `flota_estado` (tabla sin lectores). El estado ya quedó
-      // guardado arriba en km_data, que es lo que lee el dashboard.
-    });
-  } else {
-    mecRenderizar();
-    closeModal();
-    alert('✅ Guardado localmente (sin conexión)');
+    try{
+      // (!) CON `.select()`: sin el, un update que no toco NINGUNA fila -porque
+      //     la unidad no esta en km_data- se veia igual que uno exitoso.
+      //     [[norma-insert-sin-select-no-mide]]
+      var res=await supabase.from('km_data').update(_cambios).eq('cam',cam).select();
+      if(res.error){
+        if(typeof mostrarToast==='function')mostrarToast('No se pudo guardar el estado: '+res.error.message,'error');
+      } else {
+        _ok=!!(res.data&&res.data.length);
+      }
+    }catch(e){ /* sin respuesta del servidor: se encola abajo */ }
   }
+  mecRenderizar();
+  closeModal();
+  if(!_ok){
+    // La cola lo reintenta como UPSERT por `cam` (esta en _COLA_ONCONFLICT), asi
+    // que el `cam` TIENE que viajar en el dato -- el update lo llevaba aparte.
+    guardarEnCola('km_data',Object.assign({cam:cam},_cambios));
+    alert('📴 El estado de '+cam+' quedó EN COLA, sin confirmar.\n\nEstá guardado '
+      +'en este equipo y se sube solo cuando haya conexión. No lo cargues de nuevo.');
+  }
+  // (!) El aviso sale en LOS DOS CASOS: una unidad que queda fuera de servicio y
+  //     nadie se entera hasta que vuelve el internet es una unidad que operativo
+  //     va a seguir programando. `sendWA` tiene su propia cola.
+  var esOperativo = estado==='operativo';
+  var msgEstado=brandTag()+' - CAMBIO ESTADO FLOTA\n\n'+
+    'Unidad: '+cam+'\n'+
+    'Nuevo estado: '+estado.toUpperCase()+(esOperativo?' ✅ OPERATIVO':'')+
+    '\nMotivo: '+(nota||'Sin motivo')+'\n'+
+    'Por: '+(SESION.nombre||'Mecanico')+'\n'+
+    'Fecha: '+fmtFechaHora(new Date());
+  sendWA(msgEstado,['socios','operativo']);
+  // 2026-07-21: quitado el espejo a `flota_estado` (tabla sin lectores). El estado ya quedó
+  // guardado arriba en km_data, que es lo que lee el dashboard.
 }
 
 function mecAgregarVehiculo(){
@@ -24638,7 +24659,16 @@ function operSelEstado(btn){
   operRenderParroquias(hoy);
 }
 
-function operGuardar(par,hoy){
+// (!) 12/09/2026 -- ACA DECIA «Guardado localmente» Y NO GUARDABA NADA.
+//     Sin conexion hacia `RUTAS_HOY[par]=reg` -que vive SOLO EN MEMORIA,
+//     comprobado: no se persiste en ninguna parte- y avisaba «✅ Guardado
+//     localmente». Al recargar la pagina el estado de la parroquia se perdia y
+//     el de operativo creia que estaba guardado.
+//     Ahora se sigue el patron que YA usa el guardado de planillas: si el
+//     servidor no CONFIRMA, el registro va a la COLA OFFLINE y el aviso dice
+//     «en cola, sin confirmar» -- nunca «guardado».
+//     [[norma-guardado-localmente-es-una-mentira]]
+async function operGuardar(par,hoy){
   var r=RUTAS_HOY[par];
   var estado=r?r.estado:null;
   if(!estado){alert('Selecciona el estado de la parroquia');return;}
@@ -24650,27 +24680,30 @@ function operGuardar(par,hoy){
   }
   var reg={fecha:hoy,parroquia:par,estado:estado,justificacion:just,registrado_por:SESION.nombre||'Operativo'};
   RUTAS_HOY[par]=reg;
-  if(!DB_READY||!supabase){
-    operRenderParroquias(hoy);
-    alert('✅ Guardado localmente');
-    operCargarStats();
-    return;
-  }
-  supabase.from('rutas_estado').upsert([reg],{onConflict:'fecha,parroquia'}).then(function(res){
-    if(res.error){alert('Error: '+res.error.message);return;}
-    operRenderParroquias(hoy);
-    operCargarStats();
+  // `dbUp` devuelve las filas si el servidor CONFIRMO, y null si no (sin
+  // conexion, rechazo o sin respuesta). En null se encola, igual que planillas.
+  var _res=await dbUp('rutas_estado',[reg],'fecha,parroquia');
+  operRenderParroquias(hoy);
+  operCargarStats();
+  if(_res){
     alert('✅ '+par.split(' ')[0]+'... guardado correctamente');
-    // Nivel 2: notificar a socios cuando operativo actualiza estado de ruta
-    var pct=estado==='100'?'100%':estado==='75'?'75%':estado==='50'?'50%':estado==='25'?'25%':'0%';
-    var msgRuta=brandTag()+' - Estado de Ruta Actualizado\n\n'+
-      'Parroquia: '+par+'\n'+
-      'Cobertura: '+pct+'\n'+
-      (just?'Observacion: '+just+'\n':'')+
-      'Por: '+(SESION.nombre||'Operativo')+'\n'+
-      'Fecha: '+fmtFechaHora(new Date());
-    sendWA(msgRuta,['socios']);
-  });
+  } else {
+    guardarEnCola('rutas_estado',reg);
+    alert('📴 «'+par+'» quedó EN COLA, sin confirmar.\n\nEstá guardado en este '
+      +'equipo y se sube solo cuando haya conexión. No lo cargues de nuevo.');
+  }
+  // (!) El aviso a los socios sale en LOS DOS CASOS. Lo que les importa es la
+  //     cobertura de la parroquia de hoy, y `sendWA` tiene su propia cola: si
+  //     esperara a que la fila esté confirmada, un día sin internet sería un día
+  //     sin reporte. [[norma-mensaje-frenado-se-ve-igual-que-nada]]
+  var pct=estado==='100'?'100%':estado==='75'?'75%':estado==='50'?'50%':estado==='25'?'25%':'0%';
+  var msgRuta=brandTag()+' - Estado de Ruta Actualizado\n\n'+
+    'Parroquia: '+par+'\n'+
+    'Cobertura: '+pct+'\n'+
+    (just?'Observacion: '+just+'\n':'')+
+    'Por: '+(SESION.nombre||'Operativo')+'\n'+
+    'Fecha: '+fmtFechaHora(new Date());
+  sendWA(msgRuta,['socios']);
 }
 
 function operCargarStats(){
