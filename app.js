@@ -17111,6 +17111,39 @@ function _asisEfectiva(empId,mes,sem,dow){
   if(dow<=5 && _asisteSiempre(empId)) return {v:'P', fich:false, manual:false, fijo:true};
   return {v:'', fich:false, manual:false, fijo:false};
 }
+// -----------------------------------------------------------------------------
+// QUIEN ENTRA AL CONTROL DE ASISTENCIA -- una sola definicion.
+//
+// La pantalla, el «marcar todos presentes» y la exportacion tenian este filtro
+// COPIADO TRES VECES, y las tres con el mismo error.
+//
+// (!) NO se compara el `cargo` tal cual. En la tabla el cargo cargado es
+//     «Administradora» y las tres copias preguntaban por «Administrador»: la
+//     exclusion NUNCA se cumplia. La administradora se marcaba presente cada vez
+//     que alguien usaba el boton, y el codigo afirmaba lo contrario. El mapa de
+//     orden de dos lineas mas abajo si escribe «Administradora» bien, o sea que
+//     el dato estaba a la vista. Ahora se normaliza -minusculas, sin acentos,
+//     espacios colapsados- y se acepta femenino y plural, que es lo que fallo.
+//     Misma normalizacion que `normCargo` del grid de empleados.
+//
+// (!) Y NO se usa `cargoFuncion()` del molde de FlotaMax: agrupa en
+//     «administrativo» a RRHH, contadora, auditora y asistente, y en
+//     «supervisor» mete al Supervisor junto con el Gerente General. Excluiria a
+//     gente cuya asistencia SI se controla. Este filtro es estrecho a proposito.
+//
+// «Socio» entra aca desde el 12/09/2026: el socio tiene ficha en `empleados`
+// para tener identidad en MaxRecuerda, no porque trabaje por horario.
+// -----------------------------------------------------------------------------
+var _CARGO_FUERA_ASIS=/^(gerente general|administrador|soci)(a|o|as|os)?s?$/;
+function _fueraDeAsistencia(cargo){
+  var s=(cargo||'').toLowerCase().normalize('NFD')
+    .replace(/[\u0300-\u036f]/g,'').replace(/\s+/g,' ').trim();
+  return _CARGO_FUERA_ASIS.test(s);
+}
+// El personal cuya asistencia se controla. Cada quien ordena como necesite.
+function _empsAsis(){
+  return EMPLEADOS.filter(function(e){ return e.activo&&!_fueraDeAsistencia(e.cargo); });
+}
 function renderAsistencia(){
   // El cruce de cuadrillas vive en esta misma pantalla y se refresca con ella. Va en un
   // try aparte y NO se espera: si tarda o falla, la grilla de asistencia —que es lo que la
@@ -17124,9 +17157,7 @@ function renderAsistencia(){
   if(!ASISTENCIA[key])ASISTENCIA[key]={};
   var dias=['L','M','Mi','J','V','S','D'];
   // Todo el personal activo excepto los socios (Gerente General)
-  var emps=EMPLEADOS.filter(function(e){
-    return e.activo&&e.cargo!=='Gerente General'&&e.cargo!=='Administrador';
-  }).sort(function(a,b){
+  var emps=_empsAsis().sort(function(a,b){
     // Ordenar: Choferes, Ayudantes, resto
     var orden={'Chofer':1,'Ayudante':2,'Mecanico':3,'Gte. Operaciones':4,'Supervisor de Ruta':5,'Administradora':6,'Asistente Operativa':7,'Vigilante':8};
     return (orden[a.cargo]||9)-(orden[b.cargo]||9);
@@ -17202,9 +17233,7 @@ function marcarTodosPresente(){
     // Domingo — preguntar si hay jornada especial
     if(!confirm('Hoy es domingo. ¿Hubo jornada especial? Marcar como Domingo (D) en vez de Presente (P)?'))return;
   }
-  var todosEmp=EMPLEADOS.filter(function(e){
-    return e.activo&&e.cargo!=='Gerente General'&&e.cargo!=='Administrador';
-  });
+  var todosEmp=_empsAsis();
   todosEmp.forEach(function(emp){
     var idx=diaIdx<6?diaIdx:5; // Si domingo, marcar en columna Sábado como extra
     ASISTENCIA[key][emp.id+'_dia_'+idx+'_'+key]=diaIdx===6?'J':'P';
@@ -17218,9 +17247,7 @@ async function exportarAsistencia(){
   var sem=gv('asis-sem'),mes=gv('asis-mes');
   var key=mes+'-'+sem;
   // Todo el personal activo excepto los socios (Gerente General)
-  var emps=EMPLEADOS.filter(function(e){
-    return e.activo&&e.cargo!=='Gerente General'&&e.cargo!=='Administrador';
-  }).sort(function(a,b){
+  var emps=_empsAsis().sort(function(a,b){
     // Ordenar: Choferes, Ayudantes, resto
     var orden={'Chofer':1,'Ayudante':2,'Mecanico':3,'Gte. Operaciones':4,'Supervisor de Ruta':5,'Administradora':6,'Asistente Operativa':7,'Vigilante':8};
     return (orden[a.cargo]||9)-(orden[b.cargo]||9);
