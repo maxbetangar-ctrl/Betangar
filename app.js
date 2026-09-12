@@ -17114,16 +17114,26 @@ function _asisEfectiva(empId,mes,sem,dow){
 // -----------------------------------------------------------------------------
 // QUIEN ENTRA AL CONTROL DE ASISTENCIA -- una sola definicion.
 //
-// La pantalla, el «marcar todos presentes» y la exportacion tenian este filtro
-// COPIADO TRES VECES, y las tres con el mismo error.
+// La regla es UNA: quedan afuera los DUEÑOS, no la oficina. Adentro entra todo
+// el personal activo, administracion incluida.
 //
-// (!) NO se compara el `cargo` tal cual. En la tabla el cargo cargado es
-//     «Administradora» y las tres copias preguntaban por «Administrador»: la
-//     exclusion NUNCA se cumplia. La administradora se marcaba presente cada vez
-//     que alguien usaba el boton, y el codigo afirmaba lo contrario. El mapa de
-//     orden de dos lineas mas abajo si escribe «Administradora» bien, o sea que
-//     el dato estaba a la vista. Ahora se normaliza -minusculas, sin acentos,
-//     espacios colapsados- y se acepta femenino y plural, que es lo que fallo.
+// (!) LA ADMINISTRADORA ENTRA. Declarado por Maximo el 12/09/2026, y por eso
+//     `administrador` NO esta en la lista de abajo.
+//     La historia, para que nadie lo "arregle" de nuevo: las tres copias de este
+//     filtro preguntaban por «Administrador» cuando el cargo cargado es
+//     «Administradora», asi que la exclusion NUNCA se cumplia y ella venia
+//     entrando al control desde siempre. Al unificar el filtro esa tarde se
+//     normalizo el texto y la exclusion EMPEZO a cumplirse -- o sea que el
+//     "arreglo" la saco de un control donde llevaba meses. Preguntado y
+//     contestado: entra. Se le quito `administrador` al patron y el
+//     comportamiento volvio a ser el de siempre, ahora escrito a proposito.
+//     ⇒ El comentario viejo decia «excepto los socios (Gerente General)»: ESA
+//       era la regla real, y `administrador` era un agregado que nunca funciono.
+//
+// (!) NO se compara el `cargo` tal cual: se normaliza -minusculas, sin acentos,
+//     espacios colapsados- y se acepta femenino y plural. Es la leccion de lo
+//     de arriba: «Gerente general», «GERENTE GENERAL» y «Socios» tienen que
+//     caer en la misma regla sin que nadie agregue un string mas.
 //     Misma normalizacion que `normCargo` del grid de empleados.
 //
 // (!) Y NO se usa `cargoFuncion()` del molde de FlotaMax: agrupa en
@@ -17131,10 +17141,10 @@ function _asisEfectiva(empId,mes,sem,dow){
 //     «supervisor» mete al Supervisor junto con el Gerente General. Excluiria a
 //     gente cuya asistencia SI se controla. Este filtro es estrecho a proposito.
 //
-// «Socio» entra aca desde el 12/09/2026: el socio tiene ficha en `empleados`
+// «Socio» entra a la lista el 12/09/2026: el socio tiene ficha en `empleados`
 // para tener identidad en MaxRecuerda, no porque trabaje por horario.
 // -----------------------------------------------------------------------------
-var _CARGO_FUERA_ASIS=/^(gerente general|administrador|soci)(a|o|as|os)?s?$/;
+var _CARGO_FUERA_ASIS=/^(gerente general|soci)(a|o|as|os)?s?$/;
 function _fueraDeAsistencia(cargo){
   var s=(cargo||'').toLowerCase().normalize('NFD')
     .replace(/[\u0300-\u036f]/g,'').replace(/\s+/g,' ').trim();
