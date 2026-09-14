@@ -3095,7 +3095,19 @@ function cargarChecklistSupabase(){
         // el botón trancado (choferes trancados el 31/07 a las 9am). Solo un km MAYOR QUE CERO
         // cierra el día. Misma regla que ya usa la auditoría: el 0 se trata como null SIEMPRE.
         var _kmEnt = parseFloat(String(d.km_entrada==null?'':d.km_entrada).replace(',','.')) || 0;
-        CL_MODO = (_kmEnt > 0) ? 'cerrado' : (d.km_salida ? 'llegada' : 'salida');
+        // ⛔ LA SALIDA SE PRUEBA CON LA HORA, NO CON EL KM. `km_salida` se guarda como
+        // `_kmVal(...) || null`, y `_kmVal` devuelve 0 cuando el campo viene vacío: un
+        // checklist de salida guardado SIN odómetro deja `km_salida` en null, y esta línea
+        // lo leía como «todavía no salió». El chofer guardaba, veía «modo llegada», se salía
+        // de la pantalla y al volver le aparecía otra vez la de salida.
+        // 🔴 Reporte de Alejandra, Tony Gas 14/09, punto 3. MEDIDO en la base: las filas de
+        //    `llenado_por='chofer'` tienen `km_salida` en null y `hora_salida` puesta
+        //    (13:49, 10:57, 16:03). La huella de que salió es la HORA.
+        // ⚠️ Y tampoco se baja por debajo de lo que el TELÉFONO ya sabe — misma regla que
+        //    la rama de arriba, que el 12/09 se arregló en UNA sola de las dos.
+        var _mLoc2=null; try{ _mLoc2=localStorage.getItem('btg_cl_modo_'+cam+'_'+hoy); }catch(e){}
+        CL_MODO = (_kmEnt > 0 || _mLoc2==='cerrado') ? 'cerrado'
+                : ((d.km_salida || d.hora_salida || _mLoc2==='llegada') ? 'llegada' : 'salida');
         // Cargar datos existentes
         precargarChecklist(d);
       }
