@@ -92,9 +92,17 @@ var GPS_BLOQUEADO=false;
 async function cargarSitioFijo(){
   try{
     var sid=new URLSearchParams(location.search).get('sitio'); if(!sid)return;
-    var r=await SB.from('sitios_asistencia').select('id,nombre').eq('id',sid).maybeSingle();
-    if(r&&r.data){ SITIO_FIJO=r.data; var b=document.getElementById('sitio-fijo'); b.style.display='block'; b.textContent='📍 '+r.data.nombre; }
-  }catch(e){}
+    // El sitio se pide por RPC. La tabla `sitios_asistencia` esta CERRADA a `anon`
+    // desde el 14/09: era la ultima que quedaba abierta del molde en los 5 clones.
+    // `sitio_publico` devuelve SOLO id y nombre de UN sitio activo -ni lat/lng ni el
+    // poligono de la geocerca-, y con un id que no existe devuelve vacio SIN error.
+    var r=await SB.rpc('sitio_publico',{p_id:String(sid)});
+    var st=(r&&r.data&&r.data[0])||null;
+    if(st){ SITIO_FIJO=st; var b=document.getElementById('sitio-fijo'); b.style.display='block'; b.textContent='📍 '+st.nombre; }
+    // Un fallo aca NO tranca el fichaje, pero deja rastro: sin esto, un RPC roto se ve
+    // EXACTAMENTE IGUAL que un QR sin sucursal, y el fichaje se guardaria sin la prueba
+    // de presencia con nadie enterandose.
+  }catch(e){ console.log('sitio_publico:', (e&&e.message)||e); }
 }
 
 function $(id){return document.getElementById(id);}
