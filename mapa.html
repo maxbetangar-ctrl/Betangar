@@ -1620,8 +1620,12 @@ async function cerrarGeocerca(){
 // el navegador no puede preguntarle a Postgres quién puede leer qué.
 // (29/08: Máximo sumó `revisor`, `operativo` y `mecanico` — los perfiles que trabajan
 //  con la operación y quedaban afuera. Ver `migrations/gps_roles_lectura_2026-08-29.sql`.)
+// (14/09: Máximo sumó `rrhh`, que el 29/08 se había dejado afuera A PROPÓSITO. Ya tenía
+//  `gps_dia` y `gps_equipos`: le faltaba justo el recorrido. Este archivo es público, así
+//  que quién lo pidió y para quién vive en la bitácora.
+//  Ver `migrations/gps_rrhh_lectura_2026-09-14.sql`.)
 var ROLES_MAPA = ['superadmin','admin','operador','visualizador','directivo','auditor',
-                  'revisor','operativo','mecanico'];
+                  'revisor','operativo','mecanico','rrhh'];
 // Quién puede CREAR y EDITAR geocercas. Tiene que espejar la RLS de `sitios_asistencia`.
 var ROLES_SITIOS = ['superadmin'];
 
