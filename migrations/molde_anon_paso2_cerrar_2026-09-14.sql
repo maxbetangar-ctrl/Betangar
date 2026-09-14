@@ -52,6 +52,17 @@ drop policy if exists chofer_anon_update on public.porteria;
 
 drop policy if exists cm_anon_ins on public.cola_mensajes;
 
+-- `destinos` no existe en Betangar (aseo urbano no tiene destinos de entrega), y
+-- `drop policy if exists` sobre una tabla que no está NO es benigno: revienta con
+-- «relation does not exist». El `if exists` perdona la policy, no la tabla.
+do $$
+begin
+  if to_regclass('public.destinos') is not null then
+    execute 'drop policy if exists destinos_anon_r on public.destinos';
+    execute 'revoke select, insert, update, delete on public.destinos from anon';
+  end if;
+end $$;
+
 -- ⛔ LA DE `sitios_asistencia` NO SE BORRA, Y NO ES UN OLVIDO.
 --    Se llama `sit_sel` en Betangar y `sit_r` en los cuatro clones, y en las
 --    cinco bases está puesta a **`authenticated` + `anon` a la vez**. En

@@ -1,3 +1,21 @@
+-- ⛔⛔ SUPERADA EL 2026-09-14 — NO CORRER EN UNA BASE VIVA
+--
+-- Este archivo ABRE a `anon` tablas que el 14/09/2026 se cerraron en las SEIS
+-- bases (los 5 clientes + MOLDE-FLOTAMAX). Correrlo hoy REABRE el agujero:
+-- con la llave publica -que esta en el JS de la pagina, la tiene cualquiera-
+-- se bajaban 5.611 filas con nombres de choferes y se podian INVENTAR viajes y
+-- mediciones de gasoil. Lo reporto un tercero por correo.
+--
+-- Lo deshace `migrations/molde_anon_paso2_cerrar_2026-09-14.sql`, que va DESPUES.
+-- Si alguna vez hay que correr este archivo entero (por ejemplo al rearmar una
+-- base), correr el paso 2 inmediatamente detras y comprobar con:
+--   node ~/maxware-tools/anon-lee-tablas.mjs --probar <ref>
+--
+-- ⚠️ NO se le borro el SQL a proposito: es el registro de por que existio cada
+--    permiso, y borrarlo dejaria sin explicacion al que venga. Lo que cambia es
+--    que ahora AVISA. [[norma-molde-se-regenera-no-se-mantiene]]
+-- ═══════════════════════════════════════════════════════════════════════════
+
 -- chofer_anon_no_delete_2026-07-17.sql  (Flotilla mcvizzknpqrggohbohcw + base compartida hrkjddehqnzcqwlkklqm)
 -- Espejar en Betangar (misma SQL). Aplicar en AMBAS bases.
 --
