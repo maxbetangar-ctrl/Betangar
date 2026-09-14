@@ -1600,9 +1600,9 @@ function anomRender(){
 // Trae las abiertas de ESTA unidad. Si no hay señal, se queda con el caché.
 function anomCargar(){
   if(!supabase || !cam) return;
-  supabase.from('anomalias').select('*')
-    .eq('cam', cam).eq('estado','abierta')
-    .order('critico',{ascending:false}).order('fecha_reporte',{ascending:true})
+  // Por RPC: la tabla `anomalias` esta CERRADA a `anon` desde el 14/09 y el chofer
+  // entra SIN login. `chofer_anomalias_dia` devuelve solo las ABIERTAS de ESTA unidad.
+  supabase.rpc('chofer_anomalias_dia',{p_cam:cam})
     .then(function(res){
       if(res.error || !res.data) return; // sin señal / error → queda el caché
       ANOM_LIST = res.data;
@@ -1615,40 +1615,21 @@ function anomCargar(){
 // Si esa falla YA está abierta, NO la duplica (índice único parcial cam+item_norm).
 function anomAbrirDesdeChecklist(fallas, obs, quien){
   if(!supabase || !cam || !fallas || !fallas.length) return Promise.resolve();
-  return supabase.from('anomalias').select('item_norm')
-    .eq('cam', cam).eq('estado','abierta')
-    .then(function(res){
-      var yaAbiertas = {};
-      if(res && res.data) res.data.forEach(function(a){ yaAbiertas[a.item_norm]=1; });
-      var nuevas = [];
-      fallas.forEach(function(k){
-        var norm = anomNorm(k);
-        if(yaAbiertas[norm]) return; // ya está reportada y sin resolver → no duplicar
-        var lblEl = document.querySelector('#ci-'+k+' .cl-item-name');
-        var label = lblEl ? lblEl.textContent.trim() : k.replace(/-/g,' ');
-        nuevas.push({
-          cam: cam, item: k, item_norm: norm, label: label,
-          critico: !!ANOM_CRITICOS[k],
-          detalle: obs || '',
-          origen: 'chofer',
-          reportado_por: quien || '',
-          fecha_reporte: hoy,
-          visto_ultima_fecha: hoy,
-          estado: 'abierta'
-        });
-      });
-      if(!nuevas.length) return;
-      // UNA POR UNA: el índice único parcial hace fallar el LOTE entero si esa falla ya
-      // la abrió el mecánico. Así el duplicado (23505) se ignora y las demás sí entran.
-      var cadena = Promise.resolve();
-      nuevas.forEach(function(n){
-        cadena = cadena.then(function(){
-          return supabase.from('anomalias').insert([n]).then(function(r){
-            if(r && r.error && r.error.code!=='23505') console.warn('anomalias insert:', r.error.message);
-          }, function(){});
-        });
-      });
-      return cadena;
+  // Por RPC. El deduplicado por `item_norm` y el alta van en UN SOLO statement del
+  // lado de la base. Antes eran un SELECT y N INSERT desde el navegador: entre el
+  // SELECT y el INSERT se podia colar otro telefono, y encima cualquiera con la llave
+  // publica podia abrir una anomalia a nombre de otro chofer. Aca sube lo que el
+  // chofer marco; QUE se abre y que se ignora por duplicado lo decide la base.
+  var items = fallas.map(function(k){
+    var lblEl = document.querySelector('#ci-'+k+' .cl-item-name');
+    return { item:k, item_norm:anomNorm(k),
+             label: lblEl ? lblEl.textContent.trim() : k.replace(/-/g,' '),
+             critico: !!ANOM_CRITICOS[k] };
+  });
+  return supabase.rpc('chofer_anomalias_abrir',{
+      p_cam:cam, p_items:items, p_obs:obs||'', p_quien:quien||'', p_fecha:hoy
+    }).then(function(r){
+      if(r && r.error) console.warn('anomalias abrir:', r.error.message);
     }, function(){})
     .then(function(){ anomCargar(); }, function(){ anomCargar(); });
 }
@@ -1670,28 +1651,14 @@ function anomAbrirDesdeChecklist(fallas, obs, quien){
 // [[estado-unidad-lo-declara-una-persona]]
 function anomAbrirObservacion(texto, estadoCl, quien){
   if(!supabase || !cam) return Promise.resolve();
-  var obs = String(texto||'').trim();
-  var fuera = !!estadoCl && String(estadoCl).toLowerCase() !== 'operativo';
-  if(!obs && !fuera) return Promise.resolve();       // nada que reportar
-  var detalle = obs || ('Reportada como '+String(estadoCl).replace(/_/g,' '));
-  return supabase.from('anomalias').select('id,detalle,critico,veces')
-    .eq('cam', cam).eq('item_norm','observacion').eq('estado','abierta').limit(1)
-    .then(function(res){
-      var ya = res && res.data && res.data[0];
-      if(ya){
-        var upd = { visto_ultima_fecha: hoy, veces: (ya.veces||1)+1, reportado_por: quien||'' };
-        if(detalle && detalle !== ya.detalle) upd.detalle = detalle;
-        if(fuera && !ya.critico) upd.critico = true;   // solo sube
-        return supabase.from('anomalias').update(upd).eq('id', ya.id);
-      }
-      return supabase.from('anomalias').insert([{
-        cam: cam, item: 'observacion', item_norm: 'observacion',
-        label: 'Observación del chofer', critico: fuera, detalle: detalle,
-        origen: 'chofer', reportado_por: quien||'',
-        fecha_reporte: hoy, visto_ultima_fecha: hoy, veces: 1, estado: 'abierta'
-      }]).then(function(r){
-        if(r && r.error && r.error.code!=='23505') console.warn('anomalias observacion:', r.error.message);
-      });
+  // Por RPC. La regla —UNA sola abierta por unidad, se REFRESCA si ya hay, y `critico`
+  // solo SUBE— vive ahora en `chofer_anomalia_observacion`, del lado de la base.
+  // Estaba escrita aca, en un archivo que cualquiera puede leer y saltar.
+  return supabase.rpc('chofer_anomalia_observacion',{
+      p_cam:cam, p_texto:String(texto||''), p_estado:String(estadoCl||''),
+      p_quien:quien||'', p_fecha:hoy
+    }).then(function(r){
+      if(r && r.error) console.warn('anomalias observacion:', r.error.message);
     }, function(){})
     .then(function(){ anomCargar(); }, function(){ anomCargar(); });
 }
@@ -2948,7 +2915,7 @@ function sincronizarCola(){
     pendI.forEach(function(reg){
       // Se normaliza al subir: las que quedaron atascadas con la forma vieja
       // (cam/chofer/ubicacion) subían y volvían a fallar para siempre.
-      supabase.from('porteria').insert([_filaIncidencia(reg)])
+      supabase.rpc('chofer_porteria_incidencia',{p_fila:_filaIncidencia(reg)})
       .then(function(res){ if(res.error){ fallI.push(reg); } else if(!isOnline){ actualizarConexion(true); } },
             function(){ fallI.push(reg); })
       .then(function(){ if(--restI <= 0){ COLA_INC = fallI; persistColaINC(); actualizarBannerCola(); } });
@@ -3707,7 +3674,7 @@ async function _guardarChecklist(){
       }
       // El chofer CONFIRMÓ un km sospechoso (le dio "Aceptar") → avisar a Máximo EN EL MOMENTO
       // (el worker Wassenger lo envía en ~3 min) para que lo revise/corrija en el sistema.
-      try{ if(typeof supabase!=='undefined'&&supabase){ supabase.from('cola_mensajes').insert([{telefono:'584147379886',mensaje:'⚠️ *Km sospechoso confirmado* — Unidad '+cam+' ('+(chofer||'chofer')+') guardó '+_kmIng.toLocaleString('es-VE')+' km viniendo de '+_ref.toLocaleString('es-VE')+' (+'+(_kmIng-_ref).toLocaleString('es-VE')+' en un día). Revísalo y corrígelo en el sistema si es un error.',tipo:'supervision',estado:'pendiente'}]).then(function(){},function(){}); } }catch(e){}
+      try{ if(typeof supabase!=='undefined'&&supabase){ supabase.rpc('chofer_aviso_km_sospechoso',{p_cam:cam,p_chofer:chofer||'',p_km:_kmIng,p_ref:_ref}).then(function(){},function(){}); } }catch(e){}
     } else if(_susp==='baja' || _susp==='baja_salida'){
       // ⚠️ Máximo, 18/08: «errores que no expliquen el porqué a unos choferes los
       //    preocupan y no resuelven». El mensaje anterior decía «no puede ser menor
@@ -4068,7 +4035,7 @@ function enviarIncidencia(){
   var reg = { fecha:hoy, cam:cam, chofer:chofer, tipo:'incidencia', subtipo:tipoIncActual, detalle:desc, ubicacion:ubi, hora:hora };
 
   if(isOnline && supabase){
-    supabase.from('porteria').insert([_filaIncidencia(reg)]).then(function(res){
+    supabase.rpc('chofer_porteria_incidencia',{p_fila:_filaIncidencia(reg)}).then(function(res){
       if(!res.error){
         mostrarToast('Reporte enviado');
         cerrarModalIncidencia();
