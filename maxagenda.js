@@ -357,6 +357,17 @@
         donde.push(e.visibilidad === 'personal'
           ? 'Los demás solo ven que estás ocupado'
           : 'No tenés permiso para ver de qué es');
+      } else if (!donde.length) {
+        // ⛔ NO SE DEJA VACÍO. Sin esto, «no tiene lugar a propósito» se ve
+        //    EXACTAMENTE igual que «el lugar no cargó»: la tarjeta no muestra
+        //    nada en los dos casos. [[norma-la-puerta-que-no-existe]]
+        //
+        // ⚠️ POR QUÉ SE PUEDE DEDUCIR, y no hace falta que la RPC devuelva la
+        //    bandera: `agn_evento_tiene_lugar` obliga a que, con visibilidad
+        //    `detalle`, los tres campos vacíos SOLO puedan venir de
+        //    `sin_lugar = true`. Lo garantiza la base, no una convención. El día
+        //    que ese candado se afloje, esto miente — y por eso queda escrito.
+        donde.push('Sin lugar');
       }
 
       var acc = '';
@@ -404,10 +415,22 @@
     }
 
     // ── Nueva reunión ──────────────────────────────────────────────────────
-    // ⛔ El lugar es OBLIGATORIO y lo dice la base: sin recurso, sin sitio y sin
-    //    enlace, el WhatsApp diría «reunión a las 3» sin decir dónde, y el que lo
-    //    recibe tendría que llamar por teléfono. Acá se avisa ANTES de intentar
-    //    guardar, para que no llegue como un mensaje de PostgreSQL.
+    // ⛔ EL LUGAR, 15/09/2026. Antes eran tres campos sueltos —recurso, sitio a
+    //    mano, enlace— y como hay UN solo recurso cargado («Sala de juntas»), el
+    //    bloque se leía como que había que usar la sala. Ahora es UNA lista que
+    //    junta las dos cosas, y se ve de un vistazo cuál reserva y cuál no.
+    //
+    // ⛔ LOS DE `LUGARES` NO SON RECURSOS Y NO PUEDEN SERLO. Un `recurso` lleva
+    //    el EXCLUDE `agn_recurso_sin_encimar`: si «Restaurante» fuera recurso,
+    //    dos reuniones en dos restaurantes DISTINTOS a la misma hora se
+    //    rechazarían entre sí. Éstos escriben `sitio`, que no reserva nada.
+    //
+    // ⚠️ LA LISTA VA CLAVADA ACÁ POR DECISIÓN DE MÁXIMO (15/09/2026), sabiendo
+    //    que va contra [[catalogo-categorias-unico-flota]]: agregar «Hotel»
+    //    pide tocar este archivo y desplegar. Si algún día molesta, el cambio es
+    //    mover este arreglo a una tabla; la pantalla ya lo trata como datos.
+    var LUGARES = ['Otra oficina', 'Oficina del cliente', 'Restaurante', 'Club',
+                   'Casa', 'En la calle / operativo', 'Por teléfono'];
     var DURACIONES = [[30, '30 min'], [45, '45 min'], [60, '1 hora'],
                       [90, '1 h 30'], [120, '2 horas'], [180, '3 horas']];
     var AVISOS = [['', 'sin aviso'], [10, '10 min antes'], [15, '15 min antes'],
@@ -415,6 +438,10 @@
 
     function formNuevo() {
       return { titulo: '', fecha: est.fecha, hora: '09:00', dur: 60, clase: 'trabajo',
+               // `lugar` es lo que se elige; `recurso_id`/`sitio`/`sin_lugar` salen de él
+               // al guardar. Se separan para que la pantalla no tenga que adivinar
+               // cuál de los tres campos de la base representa lo elegido.
+               lugar: '', detalle_lugar: '',
                recurso_id: '', sitio: '', enlace: '', aviso_min: 30, grupo_id: '',
                invitados: {}, obligatorios: {}, choques: null, error: null };
     }
@@ -512,13 +539,37 @@
         campo('Tipo', sel('clase', [['trabajo', 'De trabajo'],
               ['personal', 'Personal — los demás solo ven que estás ocupado']], f.clase)) +
 
-        '<div class="mag-grupo-tit">Dónde · hace falta al menos uno</div>' +
-        campo('Un recurso reservable', sel('recurso_id',
-              [['', '— ninguno —']].concat(recursos.map(function (r) {
-                return [String(r.agenda_id), r.nombre]; })), String(f.recurso_id))) +
-        campo('Un sitio, escrito a mano', '<input class="mag-in" data-f="sitio" value="' + esc(f.sitio) +
-              '" placeholder="Panadería La Esquina, av. Principal">') +
-        campo('Un enlace de videollamada', '<input class="mag-in" data-f="enlace" value="' + esc(f.enlace) +
+        '<div class="mag-grupo-tit">Dónde</div>' +
+        campo('Lugar', sel('lugar',
+              [['', '— elegí uno —']]
+                .concat(recursos.map(function (r) {
+                  // Sólo éstos reservan. Se rotula para que no haya que saberlo.
+                  return ['r:' + r.agenda_id, r.nombre + '  (se reserva)']; }))
+                .concat(LUGARES.map(function (n) { return ['t:' + n, n]; }))
+                .concat([['otro', 'Otro — lo escribo yo'],
+                         ['no',   'No aplica — sin lugar']]),
+              String(f.lugar))) +
+
+        // El detalle sólo aparece cuando puede servir de algo. Con «No aplica»
+        // no se muestra: un campo vivo debajo de «sin lugar» invita a escribir
+        // algo que después no se guarda.
+        (f.lugar && f.lugar !== 'no' && f.lugar.slice(0, 2) !== 'r:'
+          ? campo(f.lugar === 'otro' ? '¿Dónde? — escribilo' : 'Cuál, o la dirección (opcional)',
+                  '<input class="mag-in" data-f="detalle_lugar" value="' + esc(f.detalle_lugar) +
+                  '" placeholder="' + (f.lugar === 't:Restaurante'
+                    ? 'Panadería La Esquina, av. Principal'
+                    : f.lugar === 'otro' ? 'Casa de Jonaz, Cumaná' : 'nombre o dirección') + '">')
+          : '') +
+
+        // ⚠️ Se DICE lo que va a pasar, antes de guardar y no después. Una
+        //    reunión sin lugar es legítima, pero el WhatsApp entonces no va a
+        //    poder decir dónde es, y eso lo tiene que saber el que la arma.
+        (f.lugar === 'no'
+          ? '<div class="mag-aviso">El WhatsApp va a decir la hora pero no el lugar. ' +
+            'Quien lo reciba no va a saber dónde es.</div>'
+          : '') +
+
+        campo('Un enlace de videollamada (opcional)', '<input class="mag-in" data-f="enlace" value="' + esc(f.enlace) +
               '" placeholder="https://…">') +
 
         '<div class="mag-grupo-tit">Quiénes</div>' +
@@ -572,8 +623,34 @@
       //    tenía CERO filas y el reflejo fue «no valida el lugar». No era eso —
       //    era que la pantalla no llegaba a abrirse (7,6 s de autodiagnóstico).
       //    Una tabla vacía no dice POR QUÉ está vacía.
-      if (!f.recurso_id && !f.sitio.trim() && !f.enlace.trim()) {
-        f.error = 'Falta el lugar: un recurso, un sitio escrito a mano o un enlace.';
+      //
+      // ── De lo ELEGIDO a los campos de la base ────────────────────────────
+      // `lugar` es una sola cosa para el que escribe; abajo se reparte en los
+      // tres campos que la base entiende. Se hace acá, en un solo lugar, para
+      // que no haya dos sitios donde recordar la equivalencia.
+      var recursoId = null, sitio = '', sinLugar = false;
+      if (f.lugar === 'no') {
+        sinLugar = true;                       // declarado, no deducido de tres nulos
+      } else if (f.lugar.slice(0, 2) === 'r:') {
+        recursoId = f.lugar.slice(2);          // el ÚNICO caso que reserva
+        sitio = f.detalle_lugar.trim();
+      } else if (f.lugar.slice(0, 2) === 't:') {
+        // El tipo ES el lugar; el detalle lo precisa si lo hay.
+        sitio = f.lugar.slice(2) + (f.detalle_lugar.trim() ? ' — ' + f.detalle_lugar.trim() : '');
+      } else if (f.lugar === 'otro') {
+        sitio = f.detalle_lugar.trim();
+      }
+
+      if (!f.lugar) { f.error = 'Falta el lugar. Si no tiene, elegí «No aplica».'; pintar(); return; }
+      // ⛔ «Otro» sin escribir nada NO es «no aplica»: es un olvido, y se ve
+      //    igual que el otro en la tabla. Para no decir dónde es hay que
+      //    elegirlo a propósito.
+      if (f.lugar === 'otro' && !sitio && !f.enlace.trim()) {
+        f.error = 'Elegiste «Otro» pero no escribiste dónde. Escribilo, o elegí «No aplica».';
+        pintar(); return;
+      }
+      if (!sinLugar && !recursoId && !sitio && !f.enlace.trim()) {
+        f.error = 'Falta el lugar: elegí uno de la lista, escribilo, o poné «No aplica».';
         pintar(); return;
       }
 
@@ -592,8 +669,9 @@
       est.enviando = true; pintar();
       sb.rpc('agn_guardar', { p: {
         titulo: f.titulo.trim(), inicio: ini, fin: fin, clase: f.clase,
-        recurso_id: f.recurso_id || null,
-        sitio: f.sitio.trim() || null, enlace: f.enlace.trim() || null,
+        recurso_id: recursoId || null,
+        sitio: sitio || null, enlace: f.enlace.trim() || null,
+        sin_lugar: sinLugar,
         aviso_min: f.aviso_min ? +f.aviso_min : null,
         asistentes: asistentes,
         igual_encimo: !!igual
@@ -704,7 +782,10 @@
       if (e.visibilidad === 'detalle') {
         titulo = e.titulo;
         sub = [e.recurso_nombre, e.sitio, e.enlace ? 'videollamada' : null]
-                .filter(Boolean).join(' · ') || (e.asistentes > 1 ? e.asistentes + ' personas' : '');
+                .filter(Boolean).join(' · ')
+              // Mismo motivo que en la tarjeta: el hueco no puede quedar mudo.
+              // Si además no hay a quién nombrar, se dice que no tiene lugar.
+              || (e.asistentes > 1 ? e.asistentes + ' personas' : 'sin lugar');
       } else if (e.visibilidad === 'personal') {
         titulo = 'Ocupado';
         sub = 'algo personal suyo';
