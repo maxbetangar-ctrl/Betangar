@@ -288,11 +288,32 @@ function resetCola(){ app.COLA_OFFLINE=[]; app.COLA_FALLIDOS=[]; app._procesando
   eq('abonos → onConflict "fact"', app.COLA_OFFLINE[0].oc, 'fact');
   app.guardarEnCola('planillas', { p: '00251' });
   eq('planillas → onConflict "p"', app.COLA_OFFLINE[1].oc, 'p');
-  app.guardarEnCola('km_data', { cam: 'JAC-B001' });
+  // ⛔ LA TABLA DE EJEMPLO NO PUEDE SER UNA TABLA REAL.
+  // Hasta el 15/09/2026 acá decía `km_data`, elegida como «la que no tiene clave».
+  // Después a `km_data` le pusieron su `UNIQUE (cam)` en la base y —correctamente—
+  // entró al mapa. La prueba se puso roja acusando al código de un defecto que no
+  // tenía: el que había envejecido era el ejemplo. Una tabla real envejece; el
+  // contrato no. Lo que se prueba es el contrato.
+  // [[norma-arreglar-el-mecanismo-no-el-caso]] · [[norma-test-que-pasa-por-el-motivo-equivocado]]
+  var SIN_CLAVE = '__tabla_que_no_esta_en_el_mapa__';
+  ok('la tabla de ejemplo de verdad NO está en el mapa',
+     !Object.prototype.hasOwnProperty.call(app._COLA_ONCONFLICT, SIN_CLAVE));
+  app.guardarEnCola(SIN_CLAVE, { cam: 'JAC-B001' });
   eq('tabla sin clave → oc null', app.COLA_OFFLINE[2].oc, null);
   app.guardarEnCola('abonos', { fact: 'M2' }, 'custom');
   eq('oc explícito gana sobre el mapa', app.COLA_OFFLINE[3].oc, 'custom');
   eq('_try arranca en 0', app.COLA_OFFLINE[0]._try, 0);
+
+  // Y el contrato al derecho, contra el mapa entero y no contra un ejemplo suelto:
+  // TODA tabla del mapa sale con SU clave, sin excepción. Así, el día que se agregue
+  // una, queda cubierta sola.
+  resetCola();
+  var _malos = Object.keys(app._COLA_ONCONFLICT).filter(function (t) {
+    app.guardarEnCola(t, {});
+    return app.COLA_OFFLINE[app.COLA_OFFLINE.length - 1].oc !== app._COLA_ONCONFLICT[t];
+  });
+  eq('las ' + Object.keys(app._COLA_ONCONFLICT).length + ' tablas del mapa salen con su clave', _malos, []);
+  resetCola();
 
   app.DB_READY = true;
 
@@ -311,7 +332,9 @@ function resetCola(){ app.COLA_OFFLINE=[]; app.COLA_FALLIDOS=[]; app._procesando
   resetCola();
   var calls2 = [];
   app.supabase = mkSupa('ok', calls2);
-  app.COLA_OFFLINE = [{ t: 'km_data', d: { cam: 'X' }, _try: 0, oc: null }];
+  // Misma razón que arriba: la tabla es de mentira a propósito. Lo que se prueba es
+  // que SIN `oc` la cola reintenta con INSERT plano, no qué tabla es.
+  app.COLA_OFFLINE = [{ t: SIN_CLAVE, d: { cam: 'X' }, _try: 0, oc: null }];
   await app.procesarColaOffline();
   eq('sin oc → INSERT plano', calls2[0] && calls2[0].method, 'insert');
 
