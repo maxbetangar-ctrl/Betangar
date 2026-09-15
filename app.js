@@ -21969,8 +21969,21 @@ function bgFooter(){
 
 function imprimirPagina(){
   var activa=null;
-  document.querySelectorAll('.page.active').forEach(function(p){activa=p.id.replace('p-','');});
-  if(!activa){['porteria','mecanico','operativo','checklist'].forEach(function(m){var sec=document.getElementById('sec-'+m);if(sec&&sec.style.display!=='none')activa=m;});}
+  // ⛔ PRIMERO LO QUE SE VE, DESPUES LO QUE QUEDO MARCADO. El orden estaba al reves
+  //    y por eso «imprimo el check list y sale el dashboard» (Alejandra, Tony Gas 14/09).
+  //    La app tiene DOS familias de pantalla: 42 con class="page" —que el CSS de
+  //    impresion controla con `.page.active`— y 4 con class="section" (porteria,
+  //    mecanico, operativo, checklist), que se muestran con `style.display` y NO
+  //    participan de ese sistema. Si al entrar a una de esas 4 quedaba cualquier
+  //    `.page` con la clase `active`, esta funcion la elegia a ELLA y se imprimia
+  //    la pantalla equivocada.
+  // ⚠️ La seccion VISIBLE es la verdad: es lo que la persona tiene delante cuando
+  //    toca imprimir. `.page.active` es solo una marca, y puede quedar vieja.
+  ['porteria','mecanico','operativo','checklist'].forEach(function(m){
+    var sec=document.getElementById('sec-'+m);
+    if(sec&&sec.style.display!=='none'&&sec.offsetHeight>0)activa=m;
+  });
+  if(!activa){document.querySelectorAll('.page.active').forEach(function(p){activa=p.id.replace('p-','');});}
   var mapa={historico:imprimirHistorico,abonos:imprimirAbonos,nomina:imprimirNomina,
     combustible:imprimirCombustible,km:imprimirMantenimiento,asistencia:imprimirAsistencia,
     ranking:imprimirRanking,empleados:imprimirCarnets,financiero:imprimirReporteFinanciero};
