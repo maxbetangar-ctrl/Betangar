@@ -99,6 +99,7 @@ Deno.serve(async (_req: Request) => {
 
     let enviados = 0;
     let omitidos = 0;
+    let sin_unidad = 0;
     const sentKeys: string[] = [];
 
     // ── «SOLO AL QUE NO LO HIZO» ────────────────────────────────────────────
@@ -114,9 +115,38 @@ Deno.serve(async (_req: Request) => {
     //    entera. Se declara EN LA CONFIGURACIÓN, con `omitir_si`, y el código solo
     //    sabe resolver condiciones. [[norma-arreglar-el-mecanismo-no-el-caso]]
     //
-    // ⚠️ Si la persona NO tiene unidad (los dos «ADM - Administrativo»), NO se
-    //    omite: no hay nada contra qué comprobar, y ante la duda se avisa. Callar
-    //    por no saber es peor que un mensaje de más.
+    // ── LA UNIDAD TIENE QUE EXISTIR EN LA FLOTA ─────────────────────────────
+    // 🔴 15/09/2026. Dos empleados con cargo «Chofer» tienen como unidad
+    //    `ADM - Administrativo`, que **no está en `km_data`** (13 unidades, todas
+    //    JAC-B0XX) y **nunca tuvo un checklist**. Les llegaba todos los días
+    //    «Recuerda hacer el checklist del camión ADM - Administrativo»: un
+    //    recordatorio de algo que no se puede hacer, porque el vehículo no está
+    //    en el sistema de checklist.
+    // ⛔ Se resuelve contra una TABLA, no con una lista de nombres: si mañana el
+    //    vehículo administrativo entra a `km_data`, el recordatorio empieza a
+    //    salir solo. Y si se va un camión, deja de salir solo. Una excepción
+    //    escrita a mano acá habría que acordarse de sacarla.
+    //    [[norma-arreglar-el-mecanismo-no-el-caso]]
+    // ⚠️ Solo aplica a los mensajes que declaran un `omitir_si` de unidad: los
+    //    recordatorios que NO hablan de una unidad (administración, RRHH) no se
+    //    tocan. Y los dos siguen recibiendo todo lo demás.
+    // ⚠️ Sin unidad NINGUNA también cae acá, y es a propósito: el texto pondría
+    //    «el checklist del camión tu unidad», que no le dice nada a nadie.
+    //    Se cuenta APARTE de los «ya lo hizo» (`sin_unidad` vs `omitidos`): uno
+    //    es el mecanismo funcionando y el otro es un dato mal puesto que alguien
+    //    tiene que arreglar. Un solo contador los taparía.
+    //    [[norma-numero-que-el-dueno-no-puede-explicar]]
+    let flota: Set<string> | null = null;
+    async function unidadDeLaFlota(unidad: string): Promise<boolean> {
+      const uni = String(unidad || "").trim().toUpperCase();
+      if (!uni) return false;
+      if (!flota) {
+        const rows = await sel(`km_data?select=cam`);
+        flota = new Set(rows.map((r: any) => String(r.cam || "").trim().toUpperCase()));
+      }
+      return flota.has(uni);
+    }
+
     const cacheHecho: Record<string, Set<string>> = {};
     async function yaLoHizo(cond: string, unidad: string): Promise<boolean> {
       const uni = String(unidad || "").trim().toUpperCase();
@@ -147,7 +177,13 @@ Deno.serve(async (_req: Request) => {
         sentKeys.push(key);
         const dests = activos.filter((e: any) => rolMatch(rc.rol, e.cargo));
         for (const e of dests) {
-          if (m.omitir_si && await yaLoHizo(String(m.omitir_si), e.unidad)) { omitidos++; continue; }
+          if (m.omitir_si) {
+            // Dos motivos DISTINTOS para no mandarlo, y se cuentan aparte: uno es
+            // «ya lo hizo» (bueno) y el otro «esa unidad no existe» (un dato mal
+            // puesto). Sumarlos daría un número que nadie sabría explicar.
+            if (!(await unidadDeLaFlota(e.unidad))) { sin_unidad++; continue; }
+            if (await yaLoHizo(String(m.omitir_si), e.unidad)) { omitidos++; continue; }
+          }
           waSend(e.whatsapp, tpl(m.msg, e), dry); enviados++;
         }
         const we = empRol(rc.rol);
@@ -167,7 +203,7 @@ Deno.serve(async (_req: Request) => {
 
     if (!dry) await enqueue(pend);
 
-    return new Response(JSON.stringify({ ok: true, dry, ve_hora: `${String(now.getUTCHours()).padStart(2, "0")}:${String(now.getUTCMinutes()).padStart(2, "0")}`, enviados, omitidos, encolados: pend.length, claves: sentKeys, choferes_activos: activos.filter((e:any) => rolMatch("chofer", e.cargo)).length, preview: dry ? preview : undefined }, null, 2), { headers: { "Content-Type": "application/json" } });
+    return new Response(JSON.stringify({ ok: true, dry, ve_hora: `${String(now.getUTCHours()).padStart(2, "0")}:${String(now.getUTCMinutes()).padStart(2, "0")}`, enviados, omitidos, sin_unidad, encolados: pend.length, claves: sentKeys, choferes_activos: activos.filter((e:any) => rolMatch("chofer", e.cargo)).length, preview: dry ? preview : undefined }, null, 2), { headers: { "Content-Type": "application/json" } });
   } catch (e) {
     console.error("recordatorios-cron error", String(e));
     return new Response(JSON.stringify({ ok: false, error: String(e) }), { status: 500, headers: { "Content-Type": "application/json" } });
