@@ -721,7 +721,7 @@
               // Solo grupos que aporten: uno de una persona ya está en el buscador,
               // y uno ya completo no tiene nada que agregar.
               return porRol[r].length > 1 && porRol[r].some(function (p) {
-                return !sel.some(function (x) { return x.persona_id === p.persona_id; });
+                return !sel.some(function (x) { return claveDest(x) === claveDest(p); });
               });
             }).slice(0, 6);
             if (!chips.length) return '';
@@ -797,7 +797,7 @@
             if ((b = e.target.closest('[data-elegir]'))) {
               var cual2 = b.closest('[data-personas]').getAttribute('data-personas');
               var p = est.directorio[parseInt(b.getAttribute('data-elegir'), 10)];
-              if (p && !f[cual2].some(function (x) { return x.persona_id === p.persona_id; })) {
+              if (p && !f[cual2].some(function (x) { return claveDest(x) === claveDest(p); })) {
                 f[cual2].push({ persona_id: p.persona_id, nombre: p.nombre, telefono: p.telefono });
               }
               // Se vuelve al buscador con el cursor puesto: elegir a diez
@@ -809,7 +809,7 @@
               var rol = b.getAttribute('data-grupo'), n = 0;
               est.directorio.forEach(function (q) {
                 if ((q.rol || '').trim() !== rol) return;
-                if (f[cual3].some(function (x) { return x.persona_id === q.persona_id; })) return;
+                if (f[cual3].some(function (x) { return claveDest(x) === claveDest(q); })) return;
                 f[cual3].push({ persona_id: q.persona_id, nombre: q.nombre, telefono: q.telefono });
                 n++;
               });
@@ -846,6 +846,25 @@
               : '<div class="mrq-sug" style="cursor:default;color:var(--mrq-tinta-3)">' +
                 'Nadie con ese nombre. Solo aparece la gente activa y con teléfono cargado.</div>';
           });
+
+          // ⛔ EL `persona_id` NO ALCANZA COMO IDENTIDAD, Y EL NULO LOS VUELVE UNO SOLO.
+          // Los autorizados aparte —`rec_destinos_extra`: la junta, el dueño, un
+          // contratista— entran al directorio con `persona_id: null` porque no son de
+          // la nómina. Comparando por ese campo, el SEGUNDO que se elegía ya "estaba"
+          // (null === null) y la pantalla lo descartaba SIN DECIR NADA: se veía igual
+          // que si el clic no hubiera pasado.
+          // Reportado por Alejandra el 11 y el 14/09/2026 en Tony Gas: se elegía a
+          // Miguel Rey y ni Tibisay ni Maribel entraban, "pero a otras personas sí"
+          // —las de nómina, que sí traen persona_id—. Los tres están cargados y con
+          // teléfonos distintos: no era un dato faltante.
+          // La identidad de quien no tiene ficha es su TELÉFONO, que es justo lo que se
+          // usa para escribirle. [[norma-default-en-campo-que-se-declara]]
+          function claveDest(p) {
+            if (!p) return '';
+            if (p.persona_id) return 'p:' + p.persona_id;
+            var t = String(p.telefono || '').replace(/D/g, '').slice(-10);
+            return t ? 't:' + t : 'n:' + String(p.nombre || '').trim().toLowerCase();
+          }
 
           function norm(s) {
             return String(s || '').toLowerCase()
