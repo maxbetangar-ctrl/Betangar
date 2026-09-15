@@ -1,6 +1,11 @@
-// BETANGAR — CUMPLEAÑOS por WhatsApp. Cron ~6am. Al festejado: TARJETA (imagen del arte cumple.html, render
-// server-side vía microlink) directo por Wassenger. A todo el personal: recordatorio de texto (felicitar en
-// persona, no responder aquí). UNA vez al año (idempotente por cumple_log).
+// BETANGAR — CUMPLEAÑOS por WhatsApp. Cron 9:00 de Venezuela (`0 13 * * *` en UTC, que es como
+// lo guarda pg_cron). SOLO al festejado: TARJETA (imagen del arte cumple.html, render server-side
+// vía microlink) directo por Wassenger, y un texto de respaldo si la tarjeta no salió.
+// UNA vez al año (idempotente por cumple_log).
+//
+// ⛔ 14/09/2026: ya NO se le avisa al resto del personal. Eran 115 mensajes a 41 personas en 30
+//    días, y el cron estaba en UTC («10») así que llegaban a las 6:03 de la mañana. Decisión de
+//    Máximo. El detalle de por qué está abajo, en el bloque (b).
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, apikey, content-type' };
@@ -66,18 +71,24 @@ Deno.serve(async (req) => {
     } catch { textFallback.push(c); }
   }
 
-  // (b) Encolar: fallback de texto al festejado (si la tarjeta falló) + recordatorio a TODO el personal.
+  // (b) Encolar SOLO el fallback de texto al FESTEJADO, si la tarjeta de (a) no salió.
+  //
+  // ⛔ ACÁ VIVÍA EL AVISO A TODO EL PERSONAL, y se quitó el 14/09/2026 por decisión de
+  //    Máximo: «que solo le llegue al que cumple años y no a todos los que le enviabas
+  //    avisándoles que fulanito estaba de cumpleaños».
+  //
+  // 🔴 LO QUE COSTABA, medido antes de tocarlo: un solo cumpleaños encolaba UN mensaje
+  //    por CADA empleado activo con teléfono. En los últimos 30 días fueron **115
+  //    mensajes a 41 personas distintas** — y como el cron estaba en UTC, llegaban a las
+  //    **6:03 de la mañana**. Es el caso de libro del aviso que no le sirve a quien lo
+  //    recibe: no pide nada, no se puede responder (el propio texto decía «no respondas
+  //    por aquí»), y al llegar a diario enseña a ignorar los avisos de la empresa.
+  //    [[norma-reportes-whatsapp-digest-y-frecuencia]]
+  //
+  // ✅ LO QUE SE CONSERVA: la tarjeta al festejado, que es (a). Y este fallback de
+  //    texto, que NO es un duplicado: solo se llena cuando la tarjeta falló o no había
+  //    token. Sin él, un cumpleaños con Wassenger caído se pierde en silencio.
   const filas: any[] = textFallback.map((c: any) => ({ telefono: c.telefono, mensaje: msgCumple(c.nombre), tipo: 'app', estado: 'pendiente' }));
-  const { data: allEmps } = await sb.from('empleados').select('id,nombre,whatsapp,tel,activo');
-  const personal = (allEmps || []).filter((e: any) => e.activo !== false && (String(e.whatsapp || '').trim() || String(e.tel || '').trim()));
-  for (const c of nuevos) {
-    const nom = primerNombre(c.nombre);
-    for (const e of personal) {
-      if (String(e.id) === String(c.empleado_id)) continue;
-      const tel = String(e.whatsapp || '').trim() || String(e.tel || '').trim();
-      filas.push({ telefono: tel, mensaje: `🎂 *Recordatorio de cumpleaños*\n\nHoy cumple años *${nom}*. Si lo ves hoy en el trabajo, aprovecha para felicitarlo/a en persona 🎉\n\nℹ️ Es un aviso automático de la empresa — *no respondas por aquí* (este número no es el de ${nom}).`, tipo: 'app', estado: 'pendiente' });
-    }
-  }
   if (filas.length) { const { error: errIns } = await sb.from('cola_mensajes').insert(filas); if (errIns) return json({ ok: false, error: errIns.message }, 500); }
 
   const logRows = nuevos.map((c: any) => ({ empleado_id: c.empleado_id, anio, telefono: c.telefono, nombre: c.nombre }));

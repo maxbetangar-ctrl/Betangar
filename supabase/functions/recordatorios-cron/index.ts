@@ -98,7 +98,44 @@ Deno.serve(async (_req: Request) => {
     const activos = emps.filter((e: any) => e.activo !== false && e.whatsapp);
 
     let enviados = 0;
+    let omitidos = 0;
     const sentKeys: string[] = [];
+
+    // ── «SOLO AL QUE NO LO HIZO» ────────────────────────────────────────────
+    // 🔴 POR QUÉ, 14/09/2026. Máximo: «quiero eliminar muchos recordatorios, creo
+    //    que estamos enviando demasiadas cosas». Medido antes de tocar: el tipo
+    //    `recordatorio` son **32 mensajes por día a 18 personas**, y salían TODOS
+    //    los días hubiera o no algo pendiente. Un aviso que llega los 30 días del
+    //    mes no avisa de nada: enseña a ignorarlo.
+    //
+    // ⛔ NO se cableó «si es el rol chofer a las 05:00, mirá el checklist». Eso
+    //    ata el código a una fila de una configuración que se edita desde la app:
+    //    el día que alguien cambie la hora, el candado deja de aplicar y nadie se
+    //    entera. Se declara EN LA CONFIGURACIÓN, con `omitir_si`, y el código solo
+    //    sabe resolver condiciones. [[norma-arreglar-el-mecanismo-no-el-caso]]
+    //
+    // ⚠️ Si la persona NO tiene unidad (los dos «ADM - Administrativo»), NO se
+    //    omite: no hay nada contra qué comprobar, y ante la duda se avisa. Callar
+    //    por no saber es peor que un mensaje de más.
+    const cacheHecho: Record<string, Set<string>> = {};
+    async function yaLoHizo(cond: string, unidad: string): Promise<boolean> {
+      const uni = String(unidad || "").trim().toUpperCase();
+      if (!uni) return false;                       // sin unidad → se le avisa igual
+      if (!cacheHecho[cond]) {
+        let q = "";
+        if (cond === "checklist_hoy")      q = `checklist?fecha=eq.${hoy}&select=cam`;
+        else if (cond === "viajes_hoy")    q = `viajes_chofer?fecha=eq.${hoy}&select=cam`;
+        // ⚠️ `checklist_reciente` mira DOS días, no «ayer». Con «ayer» a secas, el
+        //    lunes nadie califica —el domingo no se trabaja— y los 13 choferes
+        //    reciben el recordatorio igual. Dos días hace que el sábado cuente.
+        //    La hora es la del NEGOCIO: `hoy` ya viene de `veNow()`.
+        else if (cond === "checklist_reciente") q = `checklist?fecha=gte.${ymd(new Date(veNow().getTime() - 2 * 864e5))}&select=cam`;
+        else return false;                          // condición desconocida → se avisa
+        const rows = await sel(q);
+        cacheHecho[cond] = new Set(rows.map((r: any) => String(r.cam || "").trim().toUpperCase()));
+      }
+      return cacheHecho[cond].has(uni);
+    }
 
     // Recordatorios por ROL
     for (const rc of roles) {
@@ -109,7 +146,10 @@ Deno.serve(async (_req: Request) => {
         if (await yaEnviado(key, dry)) continue;
         sentKeys.push(key);
         const dests = activos.filter((e: any) => rolMatch(rc.rol, e.cargo));
-        for (const e of dests) { waSend(e.whatsapp, tpl(m.msg, e), dry); enviados++; }
+        for (const e of dests) {
+          if (m.omitir_si && await yaLoHizo(String(m.omitir_si), e.unidad)) { omitidos++; continue; }
+          waSend(e.whatsapp, tpl(m.msg, e), dry); enviados++;
+        }
         const we = empRol(rc.rol);
         if (we) { waSend(we.num, tpl(m.msg, null), dry); enviados++; }
       }
@@ -127,7 +167,7 @@ Deno.serve(async (_req: Request) => {
 
     if (!dry) await enqueue(pend);
 
-    return new Response(JSON.stringify({ ok: true, dry, ve_hora: `${String(now.getUTCHours()).padStart(2, "0")}:${String(now.getUTCMinutes()).padStart(2, "0")}`, enviados, encolados: pend.length, claves: sentKeys, choferes_activos: activos.filter((e: any) => rolMatch("chofer", e.cargo)).length, preview: dry ? preview : undefined }, null, 2), { headers: { "Content-Type": "application/json" } });
+    return new Response(JSON.stringify({ ok: true, dry, ve_hora: `${String(now.getUTCHours()).padStart(2, "0")}:${String(now.getUTCMinutes()).padStart(2, "0")}`, enviados, omitidos, encolados: pend.length, claves: sentKeys, choferes_activos: activos.filter((e:any) => rolMatch("chofer", e.cargo)).length, preview: dry ? preview : undefined }, null, 2), { headers: { "Content-Type": "application/json" } });
   } catch (e) {
     console.error("recordatorios-cron error", String(e));
     return new Response(JSON.stringify({ ok: false, error: String(e) }), { status: 500, headers: { "Content-Type": "application/json" } });
