@@ -5241,7 +5241,8 @@ function poblarEmps(){
     sel.innerHTML='<option value="">-- Seleccionar --</option>';
     PROVEEDORES.forEach(function(p){sel.innerHTML+='<option value="'+p.id+'">'+p.nombre+'</option>';});
   });
-  var cp=g('cp-user');if(cp){cp.innerHTML='<option value="">-- Seleccionar --</option>';Object.keys(USUARIOS).forEach(function(u){cp.innerHTML+='<option>'+u+'</option>';});}
+  // El desplegable de «Cambiar Contraseña» ya NO se llena acá: lo llena renderUsuarios()
+  // con la MISMA lista que muestra la tabla. Ver _cpUserPoblar().
 }
 
 function poblarSems(){
@@ -19903,14 +19904,42 @@ async function btgUsuariosAPI(method, body){
   }catch(e){ return {ok:false, error:(e&&e.name==='TimeoutError')?'el servicio de usuarios no respondió (timeout)':((e&&e.message)||'sin conexión')}; }
 }
 
+// ⛔ LAS DOS LISTAS DEL MISMO TABLERO SALEN DE LA MISMA FUENTE.
+// Hasta el 15/09/2026, en la pantalla de Usuarios convivían dos listas distintas: la TABLA
+// traía los usuarios REALES de la empresa (por la API) y el desplegable de «Cambiar
+// Contraseña», al lado, se llenaba del objeto `USUARIOS` del código — que en los clones es
+// la lista del MOLDE. En Tony Gas eso ofrecía `maxbetangar`, `betangarvisor`, `operador1`…
+// y NO ofrecía a la gente real de la empresa.
+// Lo reportó Alejandra el 15/09: «al momento de seleccionar los usuarios, la lista que
+// despliega no corresponde (es de betangar)». No pudo cambiarle la clave a Katty porque
+// Katty no estaba en el desplegable, aunque sí estaba en la tabla de arriba.
+// [[norma-fuente-unica-datos]] · [[clon-no-puede-mostrar-ni-tocar-otro-cliente]]
+//
+// ⛔ Y SI LA LISTA NO CARGA, LO DICE. Un desplegable vacío se ve igual que una empresa sin
+// usuarios. [[norma-la-puerta-que-no-existe]]
+function _cpUserPoblar(usuarios, err){
+  var cp=g('cp-user'); if(!cp) return;
+  var previo=cp.value;
+  if(!usuarios){
+    cp.innerHTML='<option value="">-- no se pudo cargar la lista'+(err?': '+_escHtml(err):'')+' --</option>';
+    return;
+  }
+  cp.innerHTML='<option value="">-- Seleccionar --</option>'+usuarios.map(function(u){
+    return '<option value="'+_escHtml(u.usuario)+'">'+_escHtml(u.usuario)+
+      (u.nombre?' — '+_escHtml(u.nombre):'')+(u.activo===false?' (inactivo)':'')+'</option>';
+  }).join('');
+  if(previo) cp.value=previo;
+}
 async function renderUsuarios(){
   var tb=g('tb-usuarios');if(!tb)return;
   tb.innerHTML='<tr><td colspan="5" style="text-align:center;color:var(--text3);padding:14px">Cargando…</td></tr>';
   var j=await btgUsuariosAPI('GET');
   if(!j||!j.ok){
     tb.innerHTML='<tr><td colspan="5" style="text-align:left;color:var(--red);padding:14px;font-size:12px">⚠️ '+((j&&j.error)||'No se pudo cargar la lista de usuarios')+'</td></tr>';
+    _cpUserPoblar(null,(j&&j.error)||'');
     return;
   }
+  _cpUserPoblar(j.usuarios||[]);
   tb.innerHTML=(j.usuarios||[]).map(function(usr){
     var activo=usr.activo!==false;
     return '<tr><td style="font-family:var(--m);font-weight:700">'+usr.usuario+'</td><td>'+(usr.nombre||'')+'</td>'+
