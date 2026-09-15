@@ -109,12 +109,30 @@ function $(id){return document.getElementById(id);}
 function esc(s){return String(s||'').replace(/[<>&"]/g,function(c){return ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'})[c];});}
 
 async function cargarEmp(){
+  // TRES finales distintos, y un mensaje para cada uno.
+  //
+  // 🔴 Hasta el 15/09/2026 el texto se elegia SOLO por `EMPS.length`, asi que una
+  //    lista VACIA -la consulta contesto bien y no hay nadie cargado- se anunciaba
+  //    como «No se pudo cargar el personal. Revise la conexion.». Manda a la
+  //    persona a revisar una señal que esta perfecta, y esconde el problema real.
+  //    Medido en VIDECA: `empleados_publicos` devuelve 200 con CERO filas.
+  //    Una pantalla vacia se ve igual que una que fallo: hay que distinguirlas.
+  var fallo = false;
   try{
     var r = await SB.rpc('empleados_publicos');
-    if(!r.error && r.data){ EMPS=r.data; try{localStorage.setItem('flot_emps',JSON.stringify(EMPS));}catch(e){} }
-  }catch(e){ try{EMPS=JSON.parse(localStorage.getItem('flot_emps')||'[]');}catch(e2){} }
+    // ⛔ Y un segundo defecto del mismo bloque: si la consulta devolvia `error`,
+    //    NO se usaba el cache -solo se usaba al saltar una excepcion-. O sea que
+    //    el modo sin señal funcionaba de una sola de las dos formas de fallar.
+    if(r && r.error){ fallo = true; }
+    else if(r && r.data){ EMPS = r.data; try{localStorage.setItem('flot_emps',JSON.stringify(EMPS));}catch(e){} }
+  }catch(e){ fallo = true; }
+  // El cache SOLO se usa si fallo. Si contesto y vino vacia, vacia es la respuesta
+  // buena: pisarla con el cache mostraria gente que ya no esta.
+  if(fallo){ try{ EMPS = JSON.parse(localStorage.getItem('flot_emps')||'[]'); }catch(e2){ EMPS = []; } }
   render('');
-  $('emp-hint').textContent = EMPS.length? 'Toque su nombre.' : 'No se pudo cargar el personal. Revise la conexión.';
+  $('emp-hint').textContent = EMPS.length ? 'Toque su nombre.'
+    : (fallo ? 'No se pudo cargar el personal. Revise la conexión.'
+             : 'Todavía no hay personal cargado en el sistema. Avísele a la oficina.');
 }
 function render(q){
   q=(q||'').toUpperCase().trim();
