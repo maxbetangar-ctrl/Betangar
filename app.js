@@ -1338,9 +1338,25 @@ function permisosDe(rol){
 function misPermisos(){return permisosDe(SESION?SESION.rol:'');}
 function aplicarPermisos(){
   var perms=misPermisos();
+  // ⛔ LO QUE EL ROL NO TIENE SE SACA DEL DOM, NO SE ESCONDE. Hasta el 14/09 esto
+  //    ponia `display:none` y los 32 items quedaban en la pagina para CUALQUIER rol:
+  //    con un rol `mantenimiento` seguian ahi Banco, Nomina, Usuarios, Auditoria y
+  //    Configuracion, a un `display:flex` de distancia desde la consola.
+  //    No era un agujero de DATOS —el RLS se los niega igual— pero un menu que
+  //    esconde en vez de construir le muestra a cualquiera el mapa entero del
+  //    sistema, y le dice a un curioso exactamente que buscar.
+  // ⚠️ `remove()` es seguro acá: el rol NO cambia sin recargar la pagina (cerrar
+  //    sesion hace `location.reload()`), y los tres sitios que buscan `mi-<id>`
+  //    ya preguntan `if(mi)` antes de tocarlo. Es idempotente: si `aplicarPermisos`
+  //    corre dos veces, la segunda no encuentra nada que sacar.
+  // ⚠️ `cerrar-sesion` y `seguridad-2fa` NO estan en NAV_LABELS —comprobado por dos
+  //    vias antes de tocar esto—, asi que este bucle no los alcanza y nadie puede
+  //    quedarse sin poder salir.
   Object.keys(NAV_LABELS).forEach(function(p){
     var mi=document.getElementById('mi-'+p);
-    if(mi)mi.style.display=perms.indexOf(p)>=0?'flex':'none';
+    if(!mi)return;
+    if(perms.indexOf(p)>=0){ mi.style.display='flex'; }
+    else { mi.remove(); }
   });
   // El item de menú "💰 Finanzas" (mi-financiero → abrirFinanzas) es un HUB que agrupa
   // proveedores/financiero/cajachica. Antes solo aparecía con la llave 'financiero' → un rol con
