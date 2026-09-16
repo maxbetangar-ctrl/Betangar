@@ -19889,6 +19889,33 @@ function imprimirReporteFinanciero(){
 // ═══════════════════════════════════════════════════
 // Gestión de usuarios vía API (Geppetto, service_role) con el token del superadmin logueado.
 // Betangar no tiene backend → crear/desactivar/cambiar clave pasa por esta API.
+// ⛔ LO QUE LA PERSONA PUEDE CORREGIR NO SE MUESTRA COMO UNA FALLA DEL SISTEMA.
+// 🔴 16/09/2026: Alejandra reportó DOS VECES como bug —Katy el 08/09, Juan González
+//    el 15/09— un cartel que decía «No se pudo: HTTP 500 {"ok":false,"error":
+//    "Password is known to be weak and easy to guess, please choose a different
+//    one."}». No era una falla: el proveedor de acceso rechaza las claves que están
+//    en las listas de las más usadas del mundo, que es exactamente lo que tiene que
+//    hacer. Lo que estaba mal era CÓMO se contaba: en inglés, con un código de error
+//    de servidor y el JSON crudo. Quien lee eso entiende «se rompió» y lo reporta.
+// ⚠️ Lo que no esté en esta tabla sale tal cual vino: un motivo que no conocemos no
+//    se inventa ni se disfraza de otro. [[norma-la-pieza-dice-lo-que-no-hace]]
+function motivoUsuarios(err){
+  var e=String(err||'');
+  if(/weak and easy to guess|known to be weak/i.test(e))
+    return 'Esa clave está en las listas de las más usadas del mundo y el sistema de acceso no la admite.'+'\n\n'+'Poné otra distinta: que no sea "123456", ni el nombre de la empresa, ni la palabra "clave". Mezclá letras y números.';
+  if(/should be at least|at least \d+ characters/i.test(e))
+    return 'La clave es demasiado corta para el sistema de acceso. Poné una más larga.';
+  if(/already registered|already been registered|duplicate key/i.test(e))
+    return 'Ya existe un usuario con ese correo o con ese nombre de usuario.';
+  if(/invalid email|email address.*invalid/i.test(e))
+    return 'Ese correo no es válido. Revisá que esté bien escrito.';
+  if(/HTTP 401|HTTP 403|not authorized|no autorizado/i.test(e))
+    return 'Tu usuario no tiene permiso para hacer este cambio.';
+  if(/timeout|no respondió|sin conexión/i.test(e))
+    return 'El servicio de usuarios no contestó. Probá de nuevo en un minuto; si sigue igual, avisá.';
+  return e;
+}
+
 async function btgUsuariosAPI(method, body){
   var token='';
   try{ var s=await supabaseAuth.auth.getSession(); token=(s&&s.data&&s.data.session)?s.data.session.access_token:''; }catch(e){}
@@ -19954,7 +19981,7 @@ async function toggleUsuarioActivo(u, activar){
   if(!confirm((activar?'Activar':'Desactivar')+' a '+u+'?'))return;
   var j=await btgUsuariosAPI('POST',{accion:'activar',usuario:u,activo:activar});
   if(j&&j.ok){ audit('Usuario '+(activar?'activado':'desactivado'),u); renderUsuarios(); }
-  else alert('No se pudo: '+((j&&j.error)||''));
+  else alert('No se pudo: '+motivoUsuarios((j&&j.error)||''));
 }
 
 // El admin/superadmin le quita el 2FA a un usuario que perdió su teléfono (recuperación de acceso).
@@ -19962,7 +19989,7 @@ async function resetUsuario2FA(u){
   if(!confirm('¿Quitar el 2FA de "'+u+'"?\n\nÚsalo si perdió su teléfono. Podrá entrar solo con su contraseña y volver a activar el 2FA después.'))return;
   var j=await btgUsuariosAPI('POST',{accion:'reset2fa',usuario:u});
   if(j&&j.ok){ audit('2FA reseteado por admin',u); alert('✅ 2FA quitado para '+u+'. Ya puede entrar con su contraseña.'); }
-  else alert('No se pudo: '+((j&&j.error)||''));
+  else alert('No se pudo: '+motivoUsuarios((j&&j.error)||''));
 }
 async function crearUsuario(){
   var u=gv('nu-user').toLowerCase().trim(),p=gv('nu-pass'),nombre=gv('nu-nombre'),rol=gv('nu-rol'),email=(gv('nu-email')||'').trim().toLowerCase();
@@ -19975,7 +20002,7 @@ async function crearUsuario(){
   if((BTG_CONFIG.auth_correo_obligatorio||_rolOficina2fa) && (!email||email.indexOf('@')<1)){ alert((_rolOficina2fa?'El rol '+rol+' ':'Esta empresa ')+'requiere un CORREO real (para entrar por correo, 2FA y recuperar la clave).'); return; }
   var j=await btgUsuariosAPI('POST',{accion:'crear',usuario:u,password:p,nombre:nombre,rol:rol,email:email||null});
   if(j&&j.ok){ audit('Usuario creado',u+' rol:'+rol); ['nu-user','nu-pass','nu-nombre','nu-email'].forEach(function(id){sv(id,'');}); renderUsuarios(); alert('✅ Usuario '+u+' creado.'); }
-  else alert('No se pudo crear: '+((j&&j.error)||''));
+  else alert('No se pudo crear: '+motivoUsuarios((j&&j.error)||''));
 }
 
 async function cambiarContrasena(){
@@ -19997,7 +20024,7 @@ async function cambiarContrasena(){
                              : '\n\nNo tenía ninguna sesión abierta.');
     alert('✅ Contrasena cambiada para '+u+'.' + extra);
   }
-  else alert('No se pudo: '+((j&&j.error)||''));
+  else alert('No se pudo: '+motivoUsuarios((j&&j.error)||''));
 }
 
 // Cuántos movimientos tiene el registro COMPLETO. Se pide a la base y se guarda:
