@@ -310,6 +310,13 @@ var LLANTAS={};
 Object.keys(FLOTA).forEach(function(c){LLANTAS[c]=POS_LL.map(function(p){return{posicion:p,estado:'Buena',km:0,fecha:''};});});
 
 var REGS=[];
+// ⛔ LAS PLANILLAS QUE EL SISTEMA YA DECLARÓ DUPLICADAS VIVEN ACÁ, NO EN `REGS`.
+//    Una fila con prefijo `DUP` es un PENDIENTE de corregir, no un dato: si se
+//    queda en `REGS` suma en los 29 cálculos que recorren esa lista —viajes,
+//    plata, nómina, facturación— y nadie lo ve. Ya costó US$ 1.901,28 (02/09) y
+//    US$ 633,76 (12/09). Sigue guardada en la base y sigue saliendo en el aviso;
+//    lo único que no hace es contar. [[norma-arreglar-el-mecanismo-no-el-caso]]
+var REGS_DUP=[];
 var NOMINA_HIST=[]; // historial de nómina semanal (tabla nomina_historial); soporte por persona en .detalle
 var _ultimaNomina=null; // último cálculo de calcNom, para "Guardar en historial"
 // FASE 1 multi-contrato (aditivo): tipos de unidad, unidades y operaciones configurables.
@@ -4322,6 +4329,11 @@ async function cargarDatosDB(){
              ap1:r.ap1||'',ap2:r.ap2||'',gasoil:parseFloat(r.gasoil)||0,
              km:parseFloat(r.km)||0,mant:r.mant||'',vertedero:r.vertedero||''};
     });
+    // ⛔ ACÁ SE SEPARAN LAS DUPLICADAS, Y ES EL ÚNICO LUGAR DONDE HACE FALTA. Todo
+    //    lo que suma recorre `REGS`; sacándolas de raíz, los 29 cálculos dejan de
+    //    contarlas sin tocar ninguno. Ver `REGS_DUP`.
+    REGS_DUP=REGS.filter(function(r){ return r.p && String(r.p).indexOf('DUP')===0; });
+    REGS=REGS.filter(function(r){ return !(r.p && String(r.p).indexOf('DUP')===0); });
     // ABONOS — ordenar por fecha (y id como desempate) para que SIEMPRE salgan en el mismo
     // orden. Sin .order() PostgREST devuelve las filas en orden arbitrario que cambia tras
     // cada edicion/borrado, y eso hacia que aparecieran "en distinto orden cada vez".
@@ -6639,7 +6651,9 @@ function autoData(){
 }
 
 function editarPlanilla(p){
-  var r=REGS.find(function(x){return x.p===p;});
+  // Se busca en las dos listas: a una duplicada se entra justamente para
+  // asignarle el número correcto, y ya no vive en `REGS`.
+  var r=REGS.find(function(x){return x.p===p;})||REGS_DUP.find(function(x){return x.p===p;});
   if(!r){alert('Planilla no encontrada');return;}
   window._editP=p;
   var isDUP=p.startsWith('DUP');
@@ -7664,18 +7678,22 @@ function procesarExcelBetangar(wb){
       // ⇒ La DUP se reconoce por el VIAJE (fecha + camión + chofer), que es lo que no
       //    cambia al corregir el correlativo, y no por un número que la corrección
       //    justamente reemplaza.
-      var dupIdx=REGS.findIndex(function(r){return r.p==='DUP'+p;});
+      // ⛔ LAS DUP YA NO ESTÁN EN `REGS`: viven en `REGS_DUP` para que no sumen.
+      //    Si esta búsqueda siguiera mirando `REGS` no encontraría ninguna nunca,
+      //    y la limpieza automática del Excel corregido dejaría de funcionar en
+      //    silencio — que es peor que el problema que se vino a resolver.
+      var dupIdx=REGS_DUP.findIndex(function(r){return r.p==='DUP'+p;});
       if(dupIdx<0&&!String(p).startsWith('DUP')){
         var _f=String(fechaStr||''), _c=String(cam||''), _ch=String(cChofer||'').toUpperCase().trim();
-        dupIdx=REGS.findIndex(function(r){
+        dupIdx=REGS_DUP.findIndex(function(r){
           return r.p&&String(r.p).startsWith('DUP')&&String(r.f)===_f&&String(r.cam)===_c&&
                  String(r.ch||'').toUpperCase().trim()===_ch;
         });
       }
       if(dupIdx>=0){
-        var dupKey=REGS[dupIdx].p;
+        var dupKey=REGS_DUP[dupIdx].p;
         // Eliminar DUP de memoria
-        REGS.splice(dupIdx,1);
+        REGS_DUP.splice(dupIdx,1);
         resultado.dupsEliminadas=(resultado.dupsEliminadas||0)+1;
         resultado.dupsEliminadasKeys=(resultado.dupsEliminadasKeys||[]);
         resultado.dupsEliminadasKeys.push(dupKey);
@@ -21036,7 +21054,7 @@ function renderAlertaDuplicadasRRHH(){
   var lista=document.getElementById('plan-dup-lista');
   if(!el||!lista)return;
   // Buscar planillas DUP en REGS
-  var dups=REGS.filter(function(r){return r.p&&r.p.startsWith('DUP');});
+  var dups=REGS_DUP.slice();
   // También las guardadas en _DUPLS_ALERT
   var alertas=window._DUPLS_ALERT||[];
   if(!dups.length&&!alertas.length){el.style.display='none';return;}
