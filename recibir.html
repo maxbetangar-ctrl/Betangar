@@ -72,11 +72,47 @@ async function cargar(){
   }catch(e){ el('app').innerHTML='<div class="msg">Ocurrió un error al cargar. Recargá la página.</div>'; }
 }
 
-function render(){
+// ⛔ LA FOTO SE PIDE FIRMADA, Y SE PIDE DESPUÉS DE PINTAR. `_render()` tiene dos
+//    salidas —la entrega confirmada y la que falta confirmar— así que llamar al
+//    pintado adentro obligaba a acordarse en las dos. Acá se llama UNA vez.
+function render(){ _render(); try{ pintarFoto(); }catch(e){} }
+
+// ⚠️ SI LA FUNCIÓN NO CONTESTA, SE CAE A LO GUARDADO. Mientras el bucket siga
+//    público eso abre igual, así que este cambio no puede dejar sin foto a nadie
+//    —y por eso se puede desplegar antes de cerrar el bucket—. El día que el
+//    bucket sea privado, el respaldo deja de servir y la firma es el único camino:
+//    ahí el fallback pasa a ser un cartel, no una imagen rota.
+async function pintarFoto(){
+  var img = el('ev-foto');
+  if(!img || !ENT || !ENT.foto_url) return;
+  try{
+    var r = await supabase.functions.invoke('entrega-foto', { body: { token: TOKEN } });
+    var u = r && r.data && r.data.ok && r.data.url;
+    if(u){ img.src = u; return; }
+  }catch(e){ /* sin red o funcion caida: abajo el respaldo */ }
+  // ⛔ Y SI NADA CARGA, SALE UN CARTEL — NO UNA IMAGEN ROTA. Con el bucket ya
+  //    privado la URL guardada NO abre, así que el respaldo de abajo puede fallar:
+  //    una imagen quebrada en la pantalla del cliente se lee como «el sistema está
+  //    roto», y lo que corresponde decir es que la foto no se pudo cargar.
+  img.onerror = function(){
+    try{
+      var d = document.createElement('div');
+      d.className = 'msg';
+      d.textContent = 'No se pudo cargar la foto de la entrega. El resto de los datos es correcto.';
+      if (img.parentNode) img.parentNode.replaceChild(d, img);
+    }catch(_){}
+  };
+  img.src = ENT.foto_url;
+}
+
+function _render(){
   var e = ENT, esMant = (e.tipo==='mantenimiento'), esPunto = (e.tipo==='punto');
   el('sub').textContent = esMant ? 'Verificación de mantenimiento' : (esPunto ? 'Registro de punto / evento' : 'Confirmación de recepción');
   var conf = (e.estado==='confirmada');
-  var foto = e.foto_url ? '<img src="'+esc(e.foto_url)+'" onclick="verFoto(this.src)" alt="evidencia">' : '';
+  // La imagen nace SIN src: la URL firmada llega en `pintarFoto()`, que corre
+  // apenas se pinta. Antes iba la URL pública guardada, que es lo que obligaba a
+  // que el bucket fuera público.
+  var foto = e.foto_url ? '<img id="ev-foto" alt="evidencia" onclick="verFoto(this.src)">' : '';
   var badgeTxt = esMant ? '🔧 Mantenimiento' : (esPunto ? '📍 Punto / evento' : '📦 Entrega');
   var info =
     '<div class="pad">'+

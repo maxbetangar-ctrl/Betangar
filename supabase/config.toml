@@ -88,3 +88,9 @@ verify_jwt = true
 
 [functions.wa-autoreply]
 verify_jwt = false
+
+# ⛔ FALSE Y ES OBLIGATORIO: la llama `recibir.html`, que abre el CLIENTE FINAL
+# sin cuenta. Con true responde 401 y la foto de la entrega deja de cargar sin que
+# nada lo diga. El token de la entrega es la autorizacion, no un JWT.
+[functions.entrega-foto]
+verify_jwt = false
