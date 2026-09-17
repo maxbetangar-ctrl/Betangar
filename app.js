@@ -10312,7 +10312,7 @@ var _ordServCargadas=false;
 async function cargarOrdenesServicio(){
   if(!(DB_READY&&supabase))return;
   try{var r=await supabase.from('ordenes_servicio').select('*').order('creado_en',{ascending:false}).limit(2000);
-    if(!r.error&&Array.isArray(r.data))ORDENES_SERV=r.data.map(function(x){return{id:x.id,fecha:x.fecha,cams:Array.isArray(x.cams)?x.cams:[],proveedor:x.proveedor||'',proveedorId:x.proveedor_id||'',tipo:x.tipo_servicio||'',tipoOrden:x.tipo_orden||'servicio',item:x.item||'',notas:x.notas||'',estado:x.estado||'emitida',fechaCierre:x.fecha_cierre||null,costo:parseFloat(x.costo_usd)||0,codigoVerificacion:x.codigo_verificacion||''};});
+    if(!r.error&&Array.isArray(r.data))ORDENES_SERV=r.data.map(function(x){return{id:x.id,fecha:x.fecha,cams:Array.isArray(x.cams)?x.cams:[],proveedor:x.proveedor||'',proveedorId:x.proveedor_id||'',tipo:x.tipo_servicio||'',tipoOrden:x.tipo_orden||'servicio',item:x.item||'',notas:x.notas||'',estado:x.estado||'emitida',fechaCierre:x.fecha_cierre||null,costo:parseFloat(x.costo_usd)||0,codigoVerificacion:x.codigo_verificacion||'',reqId:x.req_id||''};});
   }catch(e){console.log('[ordenes_servicio]',e&&e.message);}
 }
 var _OS_TIPO_LBL={lavado:'🧽 Lavado',cambio:'🔧 Cambio/sust.',inspeccion:'🔎 Inspección',correctivo:'🛠 Correctivo',preventivo:'📅 Preventivo',otro:'Otro'};
@@ -10690,7 +10690,8 @@ function _iniciarCierreOrden(id){
     if(o.item)sv('hv-nota',o.item);
     // dejar el formulario a la vista: el usuario viene de otra pantalla y tiene que ver DÓNDE escribir
     try{var _foco=g('hv-cam'); if(_foco&&_foco.scrollIntoView)_foco.scrollIntoView({behavior:'smooth',block:'center'});}catch(e){}
-    if(typeof mostrarToast==='function')mostrarToast('Orden '+id+' → '+_unidadCorta(cam)+': completá km y costo acá abajo y tocá «Registrar en la hoja de vida». La orden se cierra al guardar.','exito');
+    var _ref=o.item?(' · pedía: '+o.item):'';
+    if(typeof mostrarToast==='function')mostrarToast('Orden '+id+' → '+_unidadCorta(cam)+_ref+'. Complete km y costo acá abajo y toque «Registrar en la hoja de vida». La orden se cierra al guardar.','exito');
   };
   if(typeof _cargarMantTodo==='function' && !(MANT_ITEMS&&MANT_ITEMS.length)){ _cargarMantTodo().then(_fill).catch(_fill); } else { _fill(); }
 }
@@ -30420,6 +30421,24 @@ async function reqNuevo(anom){
       (anom&&anom.id?' · viene de la falla «'+_rqE(anom.label||'')+'»':'')+
       '<input type="hidden" id="rq-anom" value="'+_rqE(anom&&anom.id?anom.id:'')+'">'+
     '</div>'+
+    // ⛔ QUÉ SE ESTÁ PIDIENDO LO DICE QUIEN PIDE, y va primero porque es lo que
+    //    decide en qué se convierte el pedido al aprobarse: una orden de COMPRA
+    //    —que al cerrarse pregunta renglón por renglón dónde fue cada cosa— o
+    //    una orden de SERVICIO, que se cierra registrando el trabajo en la hoja
+    //    de vida de la unidad.
+    // ⛔ Arranca SIN elegir a propósito. Medido en Tony Gas: «Revisión aire
+    //    acondicionado» es un servicio pedido suelto y «pintura» es una compra
+    //    nacida de una falla — ni el destino ni el origen lo saben, así que un
+    //    valor por omisión acertaría la mitad de las veces y nadie lo notaría.
+    //    [[norma-default-en-campo-que-se-declara]]
+    '<div class="fg" style="margin-top:4px"><label>¿Qué está pidiendo?</label>'+
+      '<select class="fc" id="rq-clase">'+
+        '<option value="">— elija —</option>'+
+        '<option value="compra">🛒 Cosas que hay que comprar (repuestos, insumos, materiales)</option>'+
+        '<option value="servicio">🔧 Un trabajo o reparación que hace un tercero</option>'+
+      '</select>'+
+      '<small style="color:var(--text3);font-size:11px;display:block;margin-top:3px">Con esto la orden nace bien y al cerrarla el sistema sabe qué preguntarle.</small>'+
+    '</div>'+
     '<div class="fr2">'+
       '<div class="fg"><label>¿Para qué es?</label><select class="fc" id="rq-destino" onchange="reqDestinoCambio()">'+
         '<option value="unidad">Una unidad</option><option value="area">Un área (oficina, planta)</option>'+
@@ -30494,8 +30513,16 @@ async function reqGuardarNuevo(){
   }
   if(!lineas.length){ alert('Escriba al menos un renglón: qué hace falta y cuánto.'); return; }
   var destino=gv('rq-destino')||'unidad';
+  // ⛔ NO SE MANDA SIN DECLARAR LA CLASE. Es lo que decide si la orden que nace
+  //    se cierra como compra (preguntando dónde fue cada cosa) o como servicio
+  //    (registrando el trabajo en la unidad). Si se deja pasar, la base lo toma
+  //    como compra y lo anota — que es lo correcto para lo viejo, pero no hay
+  //    motivo para que un pedido NUEVO nazca sin decirlo.
+  var clase=gv('rq-clase')||'';
+  if(!clase){ alert('Falta una cosa: ¿está pidiendo COSAS QUE SE COMPRAN o UN TRABAJO?\n\nEs lo que decide en qué se convierte el pedido cuando lo aprueben.'); var _c=g('rq-clase'); if(_c&&_c.focus)_c.focus(); return; }
   var datos={ origen: gv('rq-anom')?'anomalia':'suelto', origen_ref: gv('rq-anom')||null,
     destino:destino, cam: destino==='unidad'?gv('rq-cam'):null, area: destino==='area'?gv('rq-area'):null,
+    clase: clase,
     urgencia: gv('rq-urgencia')||'cuando_se_pueda', consecuencia: (gv('rq-consec')||'').trim()||null };
   var b=g('rq-enviar'); if(b){ b.disabled=true; b.textContent='Enviando…'; }
   try{
