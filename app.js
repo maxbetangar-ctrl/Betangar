@@ -17995,9 +17995,13 @@ async function _subirFotoInsumo(file){
     var nm=(''+(file.name||'foto.jpg')).replace(/[^\w.\-]/g,'_');
     var r=await supabase.storage.from('insumos').upload(Date.now()+'_'+nm,file,{upsert:false});
     if(r&&r.error){if(typeof mostrarToast==='function')mostrarToast('No se pudo subir la foto: '+r.error.message,'error');return null;}
-    var path=(r&&r.data&&r.data.path)||(Date.now()+'_'+nm);
-    var pub=supabase.storage.from('insumos').getPublicUrl(path);
-    return (pub&&pub.data&&pub.data.publicUrl)||null;
+    // ⛔ SE DEVUELVE LA RUTA, NO LA URL PÚBLICA. `getPublicUrl` solo abre si el
+    //    bucket es público, y ningún bucket de cliente puede serlo (decisión de
+    //    Máximo, 17/09). La ruta no vence y se firma al leer, que es lo que ya
+    //    hacen el carnet, la hoja de vida y las entregas.
+    // ⚠️ Y no se guarda una URL FIRMADA: vence a las horas y la fila queda con un
+    //    enlace muerto. Ver el comentario de `_firmarFotos`.
+    return (r&&r.data&&r.data.path)||(Date.now()+'_'+nm);
   }catch(e){if(typeof mostrarToast==='function')mostrarToast('Error subiendo la foto','error');return null;}
 }
 async function registrarUsoInv(){
@@ -18136,7 +18140,7 @@ async function entradaInvRapida(itemId){
 }
 function renderInvHist(){
   var tb=g('tb-inv-hist');
-  if(tb)tb.innerHTML=INV_MOV.slice().reverse().map(function(m){return'<tr><td>'+formatFecha(m.fecha)+'</td><td style="font-weight:700">'+m.item+'</td><td><span class="badge '+(m.tipo==='Entrada'?'bg':'by')+'">'+m.tipo+'</span></td><td style="font-family:var(--m);color:'+(m.cantidad>0?'var(--green)':'var(--red)')+'">'+m.cantidad+'</td><td>'+(m.cam||'')+'</td><td style="font-size:11px">'+(m.motivo||'')+'</td><td style="font-family:var(--m)">'+m.stockResult+'</td><td style="font-family:var(--m);font-size:10px">'+(m.factura||'—')+'</td><td>'+(m.fotoUrl?'<a href="'+m.fotoUrl+'" target="_blank" style="color:var(--teal);font-size:10px">📷 ver</a>':'—')+'</td>'+'<td style="font-size:10px">'+(m.quien?_escHtml(m.quien):'—')+'</td></tr>';}).join('')||'<tr><td colspan="10" style="text-align:center;color:var(--text3);padding:20px">Sin movimientos</td></tr>';
+  if(tb)tb.innerHTML=INV_MOV.slice().reverse().map(function(m){return'<tr><td>'+formatFecha(m.fecha)+'</td><td style="font-weight:700">'+m.item+'</td><td><span class="badge '+(m.tipo==='Entrada'?'bg':'by')+'">'+m.tipo+'</span></td><td style="font-family:var(--m);color:'+(m.cantidad>0?'var(--green)':'var(--red)')+'">'+m.cantidad+'</td><td>'+(m.cam||'')+'</td><td style="font-size:11px">'+(m.motivo||'')+'</td><td style="font-family:var(--m)">'+m.stockResult+'</td><td style="font-family:var(--m);font-size:10px">'+(m.factura||'—')+'</td><td>'+(m.fotoUrl?'<a href="javascript:void(0)" data-r="'+_escHtml(m.fotoUrl)+'" onclick="verFotoPrivada(&#39;insumos&#39;,this.getAttribute(&#39;data-r&#39;))" style="color:var(--teal);font-size:10px">📷 ver</a>':'—')+'</td>'+'<td style="font-size:10px">'+(m.quien?_escHtml(m.quien):'—')+'</td></tr>';}).join('')||'<tr><td colspan="10" style="text-align:center;color:var(--text3);padding:20px">Sin movimientos</td></tr>';
 }
 
 // ═══════════════════════════════════════════════════
