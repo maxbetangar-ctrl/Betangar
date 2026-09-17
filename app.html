@@ -1335,7 +1335,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
     </div>
   </div>
   <div id="tab-inv-hist" style="display:none">
-    <div class="tw"><table><thead><tr><th>Fecha</th><th>Item</th><th>Tipo</th><th>Cantidad</th><th>Camion</th><th>Motivo</th><th>Stock Result.</th><th>Factura</th><th>Foto</th></tr></thead><tbody id="tb-inv-hist"></tbody></table></div>
+    <div class="tw"><table><thead><tr><th>Fecha</th><th>Item</th><th>Tipo</th><th>Cantidad</th><th>Camion</th><th>Motivo</th><th>Stock Result.</th><th>Factura</th><th>Foto</th><th>Quién</th></tr></thead><tbody id="tb-inv-hist"></tbody></table></div>
   </div>
   <!-- #3 COMPRAS SUGERIDAS (predictibilidad: servicios próximos + insumos bajo mínimo) -->
   <div class="card" style="margin-top:10px;border:1px solid var(--blue)">
@@ -3081,7 +3081,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
 <script src="maxagenda.js?v=20260911-entrega"></script>
 <!-- Formato unico de los Excel de Maxware. VA ANTES de app.js. -->
 <script src="maxware-excel.js"></script>
-<script src="app.js?v=20260917-0857"></script>
+<script src="app.js?v=20260917-1239"></script>
 
 <!-- Modal global -->
 <div id="modal" class="moverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9990;align-items:center;justify-content:center;padding:16px">
@@ -3280,6 +3280,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
       </div>
       <div id="mec-anomalias" style="margin-top:6px"><div style="color:var(--text3);font-size:12px">Cargando…</div></div>
     </div>
+    <div class="card" style="margin:10px 0"><div class="sh" style="display:flex;justify-content:space-between;align-items:center"><div class="st">✅ Fallas ya reparadas</div><div style="font-size:9px;color:var(--text3)">qué se le hizo, quién y cuándo</div></div><div id="mec-reparadas" style="margin-top:6px"><div style="color:var(--text3);font-size:12px">Cargando…</div></div></div>
     <div id="mec-grid" style="margin-bottom:14px">
       <div style="text-align:center;color:var(--text3);padding:30px">Cargando flota...</div>
     </div>
@@ -3386,6 +3387,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
     </div>
 
     <div class="card" style="margin:10px 0"><div class="sh" style="display:flex;justify-content:space-between;align-items:center"><div class="st">🔧 Fallas pendientes</div><div style="font-size:9px;color:var(--text3)">siguen abiertas hasta que las cierres</div></div><div id="cl-anomalias" style="margin-top:6px"><div style="color:var(--text3);font-size:12px">Cargando…</div></div></div>
+    <div class="card" style="margin:10px 0"><div class="sh" style="display:flex;justify-content:space-between;align-items:center"><div class="st">✅ Fallas ya reparadas</div><div style="font-size:9px;color:var(--text3)">qué se le hizo, quién y cuándo</div></div><div id="cl-reparadas" style="margin-top:6px"><div style="color:var(--text3);font-size:12px">Cargando…</div></div></div>
 
     <!-- Selector de camión -->
     <div class="card" style="margin-bottom:12px">

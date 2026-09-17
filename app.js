@@ -6113,6 +6113,68 @@ function anomNorm(s){
     .replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,'');
 }
 
+// ══════════════════════════════════════════════════════════════════════════════
+//  EL HISTORIAL DE LAS FALLAS REPARADAS  (pedido de Alejandra, 08/09/2026)
+//
+//  ⛔ NO SE AGREGÓ NI UNA COLUMNA: `anomResolver` ya obliga a escribir qué se le
+//     hizo antes de cerrar una falla, y eso queda en `nota_resolucion`,
+//     `resuelta_por` y `resuelta_at`. Medido el 17/09 en Tony Gas: de 8 fallas
+//     cerradas, las 8 tienen las tres cosas. Lo único que faltaba era MIRARLO —
+//     la tarjeta de anomalías muestra solo las abiertas, así que una falla cerrada
+//     desaparecía de la pantalla para siempre.
+//
+//  ⚠️ Se piden 100 y se piden CON CUENTA EXACTA para poder decir cuántas quedan
+//     afuera. Una lista recortada que no lo declara se lee como el historial
+//     entero, y el propósito de esta pantalla es justamente el seguimiento.
+// ══════════════════════════════════════════════════════════════════════════════
+var FALLAS_REP_TOPE=100;
+async function renderFallasReparadas(){
+  var targets=['cl-reparadas','mec-reparadas'].map(function(id){return document.getElementById(id);}).filter(Boolean);
+  if(!targets.length)return;
+  if(!DB_READY||!supabase){ targets.forEach(function(el){el.innerHTML='<div style="color:var(--text3);font-size:12px;padding:8px">Sin conexión</div>';}); return; }
+  var r=null;
+  try{
+    r=await supabase.from('anomalias').select('*',{count:'exact'})
+        .eq('estado','resuelta').order('resuelta_at',{ascending:false}).limit(FALLAS_REP_TOPE);
+  }catch(e){}
+  if(!r||r.error||!r.data){ targets.forEach(function(el){el.innerHTML='<div style="color:var(--text3);font-size:12px;padding:8px">No se pudo cargar el historial</div>';}); return; }
+  var filas=r.data, total=(r.count==null?filas.length:r.count);
+  if(!filas.length){
+    targets.forEach(function(el){el.innerHTML='<div style="color:var(--text3);font-size:12px;padding:10px">Todavía no hay fallas cerradas. Cuando el mecánico cierre una del checklist, acá queda con lo que se le hizo.</div>';});
+    return;
+  }
+  // Cuántos días pasaron entre que se reportó y que se cerró. Es el dato que
+  // convierte una lista en seguimiento: dice si la falla esperó.
+  var dias=function(a,b){
+    try{ var d=(new Date(b)-new Date(a))/86400000; if(isNaN(d))return ''; d=Math.floor(d);
+         return d<=0?'el mismo día':(d===1?'1 día':d+' días'); }catch(e){ return ''; }
+  };
+  var esc=(typeof _escHtml==='function')?_escHtml:function(x){return String(x==null?'':x);};
+  var fmt=(typeof formatFecha==='function')?formatFecha:function(x){return String(x||'').slice(0,10);};
+  var cuerpo=filas.map(function(a){
+    var u=(typeof _unidadCorta==='function')?_unidadCorta(a.cam||''):(a.cam||'');
+    var tardo=dias(a.fecha_reporte||a.created_at,a.resuelta_at);
+    return '<tr>'+
+      '<td style="font-size:11px;white-space:nowrap">'+esc(fmt(String(a.resuelta_at||'').slice(0,10)))+'</td>'+
+      '<td style="font-size:11px;font-weight:700;white-space:nowrap">'+esc(u)+'</td>'+
+      '<td style="font-size:11px">'+esc(a.label||a.item||'—')+(a.critico?' <span style="color:#ef4444;font-size:9px">CRÍTICO</span>':'')+'</td>'+
+      '<td style="font-size:11px;color:var(--text2)">'+esc(a.nota_resolucion||'—')+'</td>'+
+      '<td style="font-size:11px;white-space:nowrap">'+esc(a.resuelta_por||'—')+'</td>'+
+      '<td style="font-size:10px;color:var(--text3);white-space:nowrap">'+esc(tardo)+'</td>'+
+      '<td style="font-size:10px;color:var(--text3)">'+esc(a.reportado_por||'—')+'</td>'+
+    '</tr>';
+  }).join('');
+  // ⛔ ACÁ SE DICE LO QUE NO SE ESTÁ MOSTRANDO.
+  var alcance=(total>filas.length)
+    ? '<div style="font-size:11px;color:var(--amber);margin-bottom:6px">Mostrando las <b>'+filas.length+'</b> más recientes de <b>'+total+'</b> reparadas. El resto no está en esta pantalla.</div>'
+    : '<div style="font-size:11px;color:var(--text2);margin-bottom:6px"><b>'+total+'</b> falla(s) reparada(s) — el historial completo.</div>';
+  var html=alcance+
+    '<div class="tw"><table><thead><tr>'+
+      '<th>Fecha</th><th>Unidad</th><th>Qué falló</th><th>Qué se le hizo</th><th>Quién lo hizo</th><th>Tardó</th><th>La reportó</th>'+
+    '</tr></thead><tbody>'+cuerpo+'</tbody></table></div>';
+  targets.forEach(function(el){el.innerHTML=html;});
+}
+
 async function renderChecklistAnomalias(){
   // ⛔ `mec-anomalias` es la tarjeta del MECÁNICO. Se agrega acá y no se escribe otra
   //    función: la lista de fallas abiertas es la misma en todas las pantallas, y dos
@@ -6171,6 +6233,10 @@ async function renderChecklistAnomalias(){
   });
   var html='<div style="font-size:10px;color:var(--text3);margin-bottom:4px">'+ANOM_ABIERTAS.length+' falla(s) pendiente(s) en '+Object.keys(porCam).length+' unidad(es)'+(nCrit?' · <b style="color:#ef4444">'+nCrit+' crítica(s)</b>':'')+'</div>'+filas.join('');
   targets.forEach(function(el){el.innerHTML=html;});
+  // Las abiertas y las reparadas salen de la MISMA tabla: cerrar una falla la saca
+  // de esta lista y la mete en la otra. Pintar solo una deja la pantalla
+  // contradiciéndose hasta que alguien recargue.
+  try{ renderFallasReparadas(); }catch(e){}
 }
 
 // Cierra una anomalía. Solo mecánico / jefe operativo (y admins).
@@ -17878,7 +17944,7 @@ async function guardarItemInv(){
 async function cargarInvMov(){
   if(!(DB_READY&&supabase))return;
   try{var r=await _selectAllG('inv_movimientos',['fecha','id']); // paginado: a >1000 filas el costo de repuestos por orden y la alerta de garantía salían truncados
-    if(r&&!r.error&&Array.isArray(r.data))INV_MOV=r.data.map(function(m){return{fecha:m.fecha,item:m.item,itemId:m.item_id||'',tipo:m.tipo,cantidad:parseFloat(m.cantidad)||0,cam:m.cam||'',motivo:m.motivo||'',stockResult:m.stock_result,factura:m.factura||'',fotoUrl:m.foto_url||'',precio:parseFloat(m.precio)||0,ordenId:m.orden_id||'',mantId:m.mant_id||'',garantiaHasta:m.garantia_hasta||null};});
+    if(r&&!r.error&&Array.isArray(r.data))INV_MOV=r.data.map(function(m){return{fecha:m.fecha,item:m.item,itemId:m.item_id||'',tipo:m.tipo,cantidad:parseFloat(m.cantidad)||0,cam:m.cam||'',motivo:m.motivo||'',stockResult:m.stock_result,factura:m.factura||'',fotoUrl:m.foto_url||'',precio:parseFloat(m.precio)||0,ordenId:m.orden_id||'',mantId:m.mant_id||'',garantiaHasta:m.garantia_hasta||null,quien:m.quien||''};});
   }catch(e){console.log('inv_mov load:',e&&e.message);}
 }
 // ── LA ÚNICA PUERTA POR DONDE SE MUEVE STOCK ────────────────────────────────────────────────
@@ -17904,7 +17970,10 @@ async function _invMovimiento(mov){
       cantidad:(mov.tipo==='Uso'||mov.tipo==='Merma'||mov.tipo==='Ajuste')?-Math.abs(mov.cantidad):Math.abs(mov.cantidad),
       cam:mov.cam||'',motivo:mov.motivo||'',stockResult:d.stock,factura:mov.factura||'',
       fotoUrl:mov.foto_url||'',precio:parseFloat(mov.precio)||0,ordenId:mov.orden_id||'',
-      mantId:mov.mant_id||'',garantiaHasta:mov.garantia_hasta||null});
+      mantId:mov.mant_id||'',garantiaHasta:mov.garantia_hasta||null,
+      // Se toma del resultado de la RPC, que es quien lo resolvió: así la fila que
+      // se acaba de agregar en pantalla dice lo mismo que la de la base.
+      quien:(d&&d.quien)||''});
     return d;
   }catch(e){
     if(typeof mostrarToast==='function')mostrarToast('Error al registrar el movimiento: '+(e&&e.message||''),'error');
@@ -18067,7 +18136,7 @@ async function entradaInvRapida(itemId){
 }
 function renderInvHist(){
   var tb=g('tb-inv-hist');
-  if(tb)tb.innerHTML=INV_MOV.slice().reverse().map(function(m){return'<tr><td>'+formatFecha(m.fecha)+'</td><td style="font-weight:700">'+m.item+'</td><td><span class="badge '+(m.tipo==='Entrada'?'bg':'by')+'">'+m.tipo+'</span></td><td style="font-family:var(--m);color:'+(m.cantidad>0?'var(--green)':'var(--red)')+'">'+m.cantidad+'</td><td>'+(m.cam||'')+'</td><td style="font-size:11px">'+(m.motivo||'')+'</td><td style="font-family:var(--m)">'+m.stockResult+'</td><td style="font-family:var(--m);font-size:10px">'+(m.factura||'—')+'</td><td>'+(m.fotoUrl?'<a href="'+m.fotoUrl+'" target="_blank" style="color:var(--teal);font-size:10px">📷 ver</a>':'—')+'</td></tr>';}).join('')||'<tr><td colspan="9" style="text-align:center;color:var(--text3);padding:20px">Sin movimientos</td></tr>';
+  if(tb)tb.innerHTML=INV_MOV.slice().reverse().map(function(m){return'<tr><td>'+formatFecha(m.fecha)+'</td><td style="font-weight:700">'+m.item+'</td><td><span class="badge '+(m.tipo==='Entrada'?'bg':'by')+'">'+m.tipo+'</span></td><td style="font-family:var(--m);color:'+(m.cantidad>0?'var(--green)':'var(--red)')+'">'+m.cantidad+'</td><td>'+(m.cam||'')+'</td><td style="font-size:11px">'+(m.motivo||'')+'</td><td style="font-family:var(--m)">'+m.stockResult+'</td><td style="font-family:var(--m);font-size:10px">'+(m.factura||'—')+'</td><td>'+(m.fotoUrl?'<a href="'+m.fotoUrl+'" target="_blank" style="color:var(--teal);font-size:10px">📷 ver</a>':'—')+'</td>'+'<td style="font-size:10px">'+(m.quien?_escHtml(m.quien):'—')+'</td></tr>';}).join('')||'<tr><td colspan="10" style="text-align:center;color:var(--text3);padding:20px">Sin movimientos</td></tr>';
 }
 
 // ═══════════════════════════════════════════════════
