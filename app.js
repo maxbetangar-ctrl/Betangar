@@ -24110,10 +24110,16 @@ function portHistorial(){
   var r=_portHistRango();
   if(r.desde>r.hasta){ cont.innerHTML='<span style="color:var(--red);font-size:12px">La fecha «desde» es posterior a la de «hasta».</span>'; return; }
   var q=(gv('port-hist-buscar')||'').trim();
-  var tipo=gv('port-hist-tipo')||'';
+  // ⛔ 'garita' NO es un tipo de la tabla: es TODO MENOS el reporte del chofer.
+  //    Existe porque este historial es el de la garita y el reporte del chofer no
+  //    es de ella —lo pidió Alejandra el 15/09 (SOP-20260915-C8UA)—, pero no se
+  //    esconde nada: se cuenta y se dice cómo verlo. El desplegable arranca acá.
+  var tipo=gv('port-hist-tipo');
+  if(tipo===null||tipo===undefined) tipo='garita';
   cont.innerHTML='<span style="color:var(--text3);font-size:12px">Buscando…</span>';
   var sel=supabase.from('porteria').select('*').gte('fecha',r.desde).lte('fecha',r.hasta);
-  if(tipo) sel=sel.eq('tipo',tipo);
+  if(tipo==='garita') sel=sel.neq('tipo','incidencia');
+  else if(tipo) sel=sel.eq('tipo',tipo);
   if(q){
     // Una coma dentro del texto rompería el `or` de PostgREST: se cambia por el
     // comodín, que además hace la búsqueda más tolerante en vez de fallar.
@@ -24132,7 +24138,17 @@ function portHistorial(){
       var tope=(filas.length>=PORT_HIST_TOPE)
         ? '<div style="font-size:11px;color:var(--amber);margin-bottom:8px">⚠️ Se muestran los '+PORT_HIST_TOPE+' más recientes del rango: hay más. Acortá las fechas o buscá algo más preciso.</div>'
         : '';
-      cont.innerHTML=tope+
+      // ⛔ LA LISTA DICE QUÉ NO ESTÁ MOSTRANDO. Sin esto, «lo de la garita» se lee
+      //    como todo lo del día y alguien concluye que no hubo incidencias.
+      //    [[norma-lista-filtrada-dice-que-deja-afuera]]
+      var _afuera='';
+      if(tipo==='garita'){
+        _afuera='<div style="font-size:11px;color:var(--text3);margin-bottom:8px">'+
+          'Esta lista es <b>lo que anotó la garita</b>. Los reportes que mandan los choferes '+
+          '(fallas, accidentes, observaciones) no salen acá: elegí «Reportes del chofer» arriba, '+
+          'o mirálos como fallas abiertas en la pantalla de Mecánico.</div>';
+      }
+      cont.innerHTML=tope+_afuera+
         '<div style="font-size:11px;color:var(--text2);margin-bottom:8px"><b>'+filas.length+'</b> registro(s) · '+orden.length+' día(s) · del '+formatFecha(r.desde)+' al '+formatFecha(r.hasta)+(q?(' · «'+_escHtml(q)+'»'):'')+'</div>'+
         orden.map(function(f){
           return '<div style="margin-top:10px"><div style="font-size:11px;font-weight:800;color:var(--text2);border-bottom:1px solid var(--border);padding-bottom:3px">'+formatFecha(f)+' · '+porDia[f].length+'</div>'+
@@ -24143,7 +24159,9 @@ function portHistorial(){
                 '<div style="width:8px;height:8px;border-radius:50%;background:'+(colores[x.tipo]||'#888')+';flex-shrink:0;margin-top:5px"></div>'+
                 '<div style="flex:1;min-width:0"><div style="font-size:13px;color:var(--text1)">'+(iconos[x.tipo]||'')+' '+_escHtml(titulo)+'</div>'+
                 (cuerpo?'<div style="font-size:12px;color:var(--text2);white-space:normal;overflow-wrap:anywhere;margin-top:2px">'+_escHtml(cuerpo)+'</div>':'')+
-                '<div style="font-size:10px;color:var(--text3);margin-top:2px">'+_escHtml(x.hora||'')+' · '+_escHtml(x.subtipo||x.tipo)+(x.vigilante?(' · '+_escHtml(x.vigilante)):'')+'</div></div></div>';
+                // ⚠️ En un reporte del chofer, la columna `vigilante` guarda a QUIEN REPORTÓ
+              //    —el chofer—, no a un vigilante. Se nombra por lo que es.
+              '<div style="font-size:10px;color:var(--text3);margin-top:2px">'+_escHtml(x.hora||'')+' · '+_escHtml(x.subtipo||x.tipo)+(x.vigilante?(' · '+(x.tipo==='incidencia'?'lo reportó ':'')+_escHtml(x.vigilante)):'')+'</div></div></div>';
             }).join('')+'</div>';
         }).join('');
     })

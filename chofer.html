@@ -2207,9 +2207,24 @@ async function subirColaEntregas(){
   if(!(isOnline && supabase) || !COLA_ENT.length) return;
   var pend = COLA_ENT.slice(); COLA_ENT = [];
   for(var i=0;i<pend.length;i++){
-    try{ var r = await supabase.rpc('entrega_registrar', { p: pend[i] });
-      if(r && r.error){ COLA_ENT.push(pend[i]); } }
-    catch(e){ COLA_ENT.push(pend[i]); }
+    try{
+      // `_int` cuenta los RECHAZOS, no los intentos de red: se separa del payload
+      // para que la RPC no reciba una clave que no espera.
+      var fila=pend[i], _int=(fila._int||0)+1, envio={};
+      for(var k in fila){ if(k!=='_int') envio[k]=fila[k]; }
+      var r = await supabase.rpc('entrega_registrar', { p: envio });
+      if(r && r.error){
+        // ⛔ TRES RECHAZOS DEL SERVIDOR NO SON UN PROBLEMA DE SEÑAL. Hasta el
+        //    17/09/2026 esto reencolaba en silencio y para siempre: la entrega se
+        //    quedaba en el teléfono, la pantalla decía «guardada» y no había un
+        //    error que mirar en ningún lado. Es la misma regla que ya tenían las
+        //    surtidas desde el 26-29/08. La entrega NO se descarta.
+        fila._int=_int; COLA_ENT.push(fila);
+        if(_int >= 3){
+          try{ mostrarToast('⚠️ Una entrega de las '+(fila.hora||'')+' lleva '+_int+' intentos y el sistema la sigue rechazando ('+((r.error&&r.error.message)||'').slice(0,60)+'). NO es falta de señal: avisale a la oficina.','error'); }catch(e2){}
+        }
+      } }
+    catch(e){ COLA_ENT.push(pend[i]); }   // sin red: se reintenta, sin gastar el contador
   }
   persistColaEnt();
 }
@@ -2960,7 +2975,13 @@ function actualizarBannerCola(){
   var banner = document.getElementById('cola-banner');
   var count  = document.getElementById('cola-count');
   if(!banner) return;
-  var total = COLA_LOCAL.length + (typeof COLA_CL !== 'undefined' ? COLA_CL.length : 0);
+  // ⛔ TODAS LAS COLAS. Hasta el 17/09/2026 las ENTREGAS, las SURTIDAS y las
+  //    INCIDENCIAS pendientes no se contaban acá, así que una entrega trabada era
+  //    invisible por los dos lados. [[norma-guardado-localmente-es-una-mentira]]
+  var total = (typeof COLA_ENT !== 'undefined' ? COLA_ENT.length : 0)
+            + (typeof COLA_SUR !== 'undefined' ? COLA_SUR.length : 0)
+            + (typeof COLA_INC !== 'undefined' ? COLA_INC.length : 0)
+            + COLA_LOCAL.length + (typeof COLA_CL !== 'undefined' ? COLA_CL.length : 0);
   if(total > 0){
     banner.style.display = 'block';
     if(count) count.textContent = total;
