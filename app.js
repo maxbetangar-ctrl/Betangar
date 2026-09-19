@@ -1280,7 +1280,7 @@ function _iniciarSesionCore(){
     sp('dashboard');
   }
   // Ocultar explícitamente secciones especiales para superadmin
-  ['porteria','mecanico','operativo','checklist'].forEach(function(m){
+  ['porteria','mecanico','operativo','checklist','histfallas'].forEach(function(m){
     var sec=document.getElementById('sec-'+m);
     if(sec)sec.style.display='none';
   });
@@ -3823,10 +3823,12 @@ function renderMantSubnav(activo){
     if(perms.indexOf(id)<0)return '';
     return '<div class="sw'+(id===activo?' on':'')+'" onclick="sp(\''+id+'\')">'+label+'</div>';
   }
+  // ⛔ 'histfallas' NO es un permiso: hereda el del CHECKLIST. Es el mismo dato
+  //    mirado hacia atrás, y una clave nueva obliga a tocar los doce roles.
   var ids=['checklist','mecanico','km','llantas'];
   var visibles=ids.reduce(function(s,i){return s+(perms.indexOf(i)>=0?1:0);},0);
-  var html=visibles>=2?('<div class="switch-row" style="margin-bottom:10px">'+tab('checklist','📋 Check List')+tab('mecanico','🔧 Mecánico')+tab('km','🛠 Km / Servicio')+tab('llantas','🔄 Llantas')+'</div>'):'';
-  ['subnav-checklist','subnav-mecanico','subnav-km','subnav-llantas'].forEach(function(pid){var el=document.getElementById(pid);if(el)el.innerHTML=html;});
+  var html=visibles>=2?('<div class="switch-row" style="margin-bottom:10px">'+tab('checklist','📋 Check List')+(perms.indexOf('checklist')>=0?('<div class="sw'+('histfallas'===activo?' on':'')+'" onclick="sp(\'histfallas\')">📜 Historial</div>'):'')+tab('mecanico','🔧 Mecánico')+tab('km','🛠 Km / Servicio')+tab('llantas','🔄 Llantas')+'</div>'):'';
+  ['subnav-checklist','subnav-mecanico','subnav-km','subnav-llantas','subnav-histfallas'].forEach(function(pid){var el=document.getElementById(pid);if(el)el.innerHTML=html;});
 }
 // Entrada de menú unificada "Mantenimiento": abre el primer sub-módulo que el rol pueda ver.
 // (Órdenes de Servicio se movió a Financiero → Proveedores; ya NO vive en Mantenimiento.)
@@ -4016,10 +4018,14 @@ function sp(id){
   // Abonos se fundió en Cobranza/Alcaldía → pestaña Pagos. Redirigir para no romper accesos directos.
   if(id==='abonos'){ sp('reporte'); setTimeout(function(){try{switchRptTab('pagos');}catch(e){}},0); return; }
   var perms=misPermisos();
-  if(perms.indexOf(id)<0){alert('No tienes permiso para esta seccion');return;}
+  // El historial de fallas reparadas se abre con el permiso del CHECKLIST: es el
+  // mismo dato mirado hacia atrás. Así no hay que agregarle una clave a doce roles
+  // —donde el que se olvide deja gente afuera sin que nadie lo note—.
+  var _histFallas=(id==='histfallas'&&perms.indexOf('histfallas')<0&&perms.indexOf('checklist')>=0);
+  if(perms.indexOf(id)<0 && !_histFallas){alert('No tienes permiso para esta seccion');return;}
   document.querySelectorAll('.page').forEach(function(p){p.classList.remove('active');p.style.display='none';});
   // También ocultar secciones especiales
-  ['porteria','mecanico','operativo','checklist'].forEach(function(m){
+  ['porteria','mecanico','operativo','checklist','histfallas'].forEach(function(m){
     var sec=document.getElementById('sec-'+m);if(sec)sec.style.display='none';
   });
   document.querySelectorAll('.menu-item').forEach(function(t){t.classList.remove('active');});
@@ -4030,6 +4036,7 @@ function sp(id){
   closeMenu();
   if(id==='planilla'){try{actualizarUltimaPlanilla();}catch(e){}}
   if(id==='requisitorio'){try{renderRequisitorio();}catch(e){console.log('[requisitorio]',e&&e.message);}}
+  if(id==='histfallas'){try{hfPoblarUnidades();renderFallasReparadas();renderMantSubnav('histfallas');}catch(e){console.log('[histfallas]',e&&e.message);}}
   try{
     if(id==='dashboard'){
     renderDash();
@@ -6128,14 +6135,47 @@ function anomNorm(s){
 //     entero, y el propósito de esta pantalla es justamente el seguimiento.
 // ══════════════════════════════════════════════════════════════════════════════
 var FALLAS_REP_TOPE=100;
+// Vuelve a la lista completa. Existe porque con cuatro filtros es fácil dejarse uno
+// puesto y concluir que "no hay nada", que es el error que esta pantalla vino a evitar.
+function hfLimpiar(){
+  ['hf-cam','hf-desde','hf-hasta','hf-quien'].forEach(function(id){ var e=document.getElementById(id); if(e)e.value=''; });
+  try{ renderFallasReparadas(); }catch(e){}
+}
+// El desplegable de unidades se llena de la MISMA fuente que el resto de la app.
+function hfPoblarUnidades(){
+  var s=document.getElementById('hf-cam'); if(!s)return;
+  var actual=s.value;
+  var cams=[];
+  try{ cams=Object.keys((typeof UNIDAD_CONFIG!=='undefined'&&UNIDAD_CONFIG)?UNIDAD_CONFIG:{}).sort(); }catch(e){}
+  if(!cams.length){ try{ cams=Object.keys((typeof FLOTA!=='undefined'&&FLOTA)?FLOTA:{}).sort(); }catch(e){} }
+  s.innerHTML='<option value="">Todas las unidades</option>'+cams.map(function(c){return '<option value="'+c+'">'+c+'</option>';}).join('');
+  if(actual)s.value=actual;
+}
 async function renderFallasReparadas(){
-  var targets=['cl-reparadas','mec-reparadas'].map(function(id){return document.getElementById(id);}).filter(Boolean);
+  var targets=['hf-lista','mec-reparadas'].map(function(id){return document.getElementById(id);}).filter(Boolean);
   if(!targets.length)return;
   if(!DB_READY||!supabase){ targets.forEach(function(el){el.innerHTML='<div style="color:var(--text3);font-size:12px;padding:8px">Sin conexión</div>';}); return; }
   var r=null;
   try{
-    r=await supabase.from('anomalias').select('*',{count:'exact'})
-        .eq('estado','resuelta').order('resuelta_at',{ascending:false}).limit(FALLAS_REP_TOPE);
+    // ⛔ LOS FILTROS SE APLICAN EN LA BASE, NO SOBRE LO YA TRAÍDO. Si se filtrara
+    //    acá, el tope de 100 se gastaría en filas que igual se van a descartar y la
+    //    búsqueda por unidad devolvería menos de lo que hay. Lo pidió Alejandra el
+    //    18/09: por unidad, por fecha y por persona.
+    var _q=supabase.from('anomalias').select('*',{count:'exact'}).eq('estado','resuelta');
+    var _cam=(typeof gv==='function'&&document.getElementById('hf-cam'))?gv('hf-cam'):'';
+    var _des=(document.getElementById('hf-desde'))?gv('hf-desde'):'';
+    var _has=(document.getElementById('hf-hasta'))?gv('hf-hasta'):'';
+    var _qui=(document.getElementById('hf-quien'))?String(gv('hf-quien')||'').trim():'';
+    if(_cam) _q=_q.eq('cam',_cam);
+    if(_des) _q=_q.gte('resuelta_at',_des);
+    // El 'hasta' incluye el día entero: sin esto, buscar "hasta hoy" deja afuera lo
+    // de hoy, que es justo lo que uno acaba de cerrar.
+    if(_has) _q=_q.lt('resuelta_at',_has+'T23:59:59.999');
+    if(_qui){
+      var _t=_qui.replace(/[,()]/g,'%');
+      _q=_q.or('resuelta_por.ilike.%'+_t+'%,reportado_por.ilike.%'+_t+'%');
+    }
+    r=await _q.order('resuelta_at',{ascending:false}).limit(FALLAS_REP_TOPE);
   }catch(e){}
   if(!r||r.error||!r.data){ targets.forEach(function(el){el.innerHTML='<div style="color:var(--text3);font-size:12px;padding:8px">No se pudo cargar el historial</div>';}); return; }
   var filas=r.data, total=(r.count==null?filas.length:r.count);
@@ -22172,7 +22212,7 @@ function imprimirPagina(){
   //    la pantalla equivocada.
   // ⚠️ La seccion VISIBLE es la verdad: es lo que la persona tiene delante cuando
   //    toca imprimir. `.page.active` es solo una marca, y puede quedar vieja.
-  ['porteria','mecanico','operativo','checklist'].forEach(function(m){
+  ['porteria','mecanico','operativo','checklist','histfallas'].forEach(function(m){
     var sec=document.getElementById('sec-'+m);
     if(sec&&sec.style.display!=='none'&&sec.offsetHeight>0)activa=m;
   });
