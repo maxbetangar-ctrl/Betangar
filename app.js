@@ -18967,7 +18967,16 @@ function renderEmpleados(){
     if(e.fingreso)h+='<div style="font-size:10px;color:var(--text3)">📅 Ingreso: '+formatFecha(e.fingreso)+'</div>';
     h+='<div style="display:flex;gap:6px;margin-top:6px">';
     h+='<button data-eid="'+e.id+'" onclick="event.stopPropagation();empEditClick(this)" class="btn btn-s" style="font-size:11px;padding:4px 10px">Edit</button>';
-    h+='<button data-eid="'+e.id+'" data-enombre="'+e.nombre+'" onclick="event.stopPropagation();empBajaClick(this)" class="btn btn-s" style="font-size:11px;padding:4px 10px;background:rgba(226,75,74,.1);border-color:rgba(226,75,74,.4);color:#e24b4a">Baja</button>';
+    // ⛔ EL BOTÓN QUE CORRESPONDE, NO LOS DOS. A alguien ya inactivo no se le
+    //    ofrece «Baja» —no hace nada y confunde—; se le ofrece volver.
+    //    Lo pidió Gladis el 18/09: «coloca un botón para poder hacerlo (activar a
+    //    un trabajador de nuevo)». Hasta hoy dar de baja tenía botón y revivir no,
+    //    así que cada error de fila terminaba en un WhatsApp al servicio técnico.
+    if(e.activo===false){
+      h+='<button data-eid="'+e.id+'" data-enombre="'+e.nombre+'" onclick="event.stopPropagation();empReactivarClick(this)" class="btn btn-s" style="font-size:11px;padding:4px 10px;background:rgba(34,197,94,.12);border-color:rgba(34,197,94,.45);color:#22c55e">Reactivar</button>';
+    } else {
+      h+='<button data-eid="'+e.id+'" data-enombre="'+e.nombre+'" onclick="event.stopPropagation();empBajaClick(this)" class="btn btn-s" style="font-size:11px;padding:4px 10px;background:rgba(226,75,74,.1);border-color:rgba(226,75,74,.4);color:#e24b4a">Baja</button>';
+    }
     // Botón probar WA
     if(e.whatsapp&&e.wa_apikey){
       h+='<button data-wa="'+e.whatsapp+'" data-key="'+e.wa_apikey+'" data-nombre="'+e.nombre+'" onclick="event.stopPropagation();testWAEmpCard(this)" class="btn btn-s" style="font-size:11px;padding:4px 10px;background:rgba(34,197,94,.1);border-color:rgba(34,197,94,.4);color:#16a34a" title="Probar WhatsApp">📱</button>';
@@ -26792,6 +26801,37 @@ function testWAEmpleado(num, key, nombre){
 }
 function empEditClick(el){switchEmpTab('nuevo');cargarEmp(el.dataset.eid);}
 function empBajaClick(el){bajaEmp(el.dataset.eid,el.dataset.enombre);}
+function empReactivarClick(el){reactivarEmp(el.dataset.eid,el.dataset.enombre);}
+
+// Volver a activar a alguien que se dio de baja. Lo pidió Gladis el 18/09/2026
+// (SOP-20260918-Y9H0) después de dar de baja a un ayudante por error: la pantalla
+// dejaba hacerlo y no deshacerlo.
+//
+// ⚠️ NO ES UN BOTÓN COSMÉTICO: la persona vuelve a la lista y vuelve a CONTAR para
+//    nómina y asistencia, así que el aviso lo dice antes de tocar nada.
+//    [[norma-solo-cuenta-el-empleado-activo]]
+//
+// ⛔ Y SE MIRA EL RESULTADO, con `.select()`: un update que no toca NINGUNA fila
+//    —porque el id no existe o porque la policy lo rechaza— devuelve éxito igual, y
+//    la pantalla diría «reactivado» sin que haya pasado nada.
+//    [[norma-insert-sin-select-no-mide]]
+async function reactivarEmp(id, nombre){
+  if(!confirm('¿Reactivar a '+nombre+'?\n\nVuelve a la lista de activos y vuelve a contar para nómina y asistencia.'))return;
+  var idx=EMPLEADOS.findIndex(function(e){return e.id===id;});
+  if(idx<0){alert('Empleado no encontrado');return;}
+  if(DB_READY&&supabase){
+    var res=await supabase.from('empleados').update({activo:true}).eq('id',id).select();
+    if(res.error){alert('No se pudo reactivar: '+res.error.message);return;}
+    if(!(res.data&&res.data.length)){
+      alert('NO se reactivó a '+nombre+': la base no tocó ninguna fila. Avisá al servicio técnico.');
+      return;
+    }
+  }
+  EMPLEADOS[idx].activo=true;
+  audit('Empleado reactivado',nombre);
+  alert('✅ '+nombre+' quedó activo de nuevo.');
+  renderEmpleados();
+}
 
 // Dar de baja al empleado (activo=false, NO elimina datos)
 async function bajaEmp(id, nombre){
