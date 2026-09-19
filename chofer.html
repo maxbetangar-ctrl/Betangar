@@ -769,6 +769,10 @@ var CL_ESTADO = '';
 var CL_MODO = 'salida'; // 'salida' o 'llegada'
 var CL_ID_EXISTENTE = null; // id del registro si ya existe hoy
 var CL_KM_PREV = 0; // último odómetro conocido de la unidad (para detectar km irreales/typos)
+// ⛔ ¿LO SABEMOS? Sin esto, «la unidad viene de 0» y «no pudimos preguntar» son el mismo
+//    cero — y con cero los candados de km se apagan sin decir nada. Por ahí entraron los
+//    983.346 km de la FC04 el 17/09/2026.
+var CL_KM_PREV_OK = false;
 var KM_MAX_DIA = 1500; // en Venezuela es imposible rodar >1500 km en 1 día → si el salto es mayor, es typo
 
 // ── INIT ──
@@ -3057,7 +3061,13 @@ function cargarChecklistSupabase(){
   // Odómetro previo de la unidad (para validar que el km que meta el chofer no sea irreal).
   try{
     supabase.rpc('chofer_unidad_km', {p_cam: cam}).then(function(rk){
-      if(rk && !rk.error && rk.data && rk.data[0] && rk.data[0].km) CL_KM_PREV = parseInt(rk.data[0].km)||0;
+      // ⛔ «VINO DE 0 KM» Y «NO SÉ DE CUÁNTO VINO» NO SON LO MISMO, y estaban mezclados
+      //    en el mismo cero. Si no volvió la respuesta, los cuatro candados de abajo se
+      //    apagaban solos —están escritos `CL_KM_PREV>0 && …`— y nadie se enteraba.
+      if(rk && !rk.error){
+        CL_KM_PREV_OK = true;
+        if(rk.data && rk.data[0] && rk.data[0].km) CL_KM_PREV = parseInt(rk.data[0].km)||0;
+      }
     });
   }catch(e){}
   supabase.rpc('chofer_checklist_dia', {p_cam: cam, p_fecha: hoy})
@@ -3654,6 +3664,20 @@ async function _guardarChecklist(){
     // TOPE DURO (NO se puede confirmar para pasarlo): un salto absurdo (dígito de más, ej. 1.400.800
     // en vez de 16.104) se RECHAZA. Con odómetro previo: no puede subir más de 100.000 km de golpe.
     // Sin previo (primer registro): no puede pasar de 1.000.000 (ningún camión de la flota llega a eso).
+    // ⛔ SI NO TENEMOS REFERENCIA, SE PREGUNTA DE NUEVO — una vez, acá mismo. La carga
+    //    de arriba es asíncrona y sin nadie esperándola: si el chofer aprieta Guardar
+    //    antes de que vuelva, o el teléfono no tenía señal, `CL_KM_PREV` queda en 0 y
+    //    los candados de abajo se apagan solos. Un candado sin referencia no es un
+    //    candado, y encima se ve igual que uno que aprobó.
+    if(!CL_KM_PREV_OK && typeof supabase!=='undefined' && supabase){
+      try{
+        var _rk2 = await supabase.from('km_data').select('km').eq('cam', cam).limit(1);
+        if(_rk2 && !_rk2.error){
+          CL_KM_PREV_OK = true;
+          if(_rk2.data && _rk2.data[0] && _rk2.data[0].km) CL_KM_PREV = parseInt(_rk2.data[0].km)||0;
+        }
+      }catch(e){}
+    }
     var _capDuro = (CL_KM_PREV>0) ? (CL_KM_PREV + 100000) : 1000000;
     if(_kmIng > _capDuro){
       mostrarToast('Kilometraje inválido: '+_kmIng.toLocaleString('es-VE')+' es demasiado alto. Revisa el tipeo (sobran dígitos).','error');
