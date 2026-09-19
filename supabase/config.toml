@@ -94,3 +94,11 @@ verify_jwt = false
 # nada lo diga. El token de la entrega es la autorizacion, no un JWT.
 [functions.entrega-foto]
 verify_jwt = false
+
+
+
+# ⛔ FALSE Y ES OBLIGATORIO: la llama quien FIRMA desde aprobar.html, sin cuenta.
+# Con true responde 401 y el boton del presupuesto deja de funcionar sin que nada
+# lo diga. El token de la requisicion es la autorizacion, no un JWT.
+[functions.req-archivo]
+verify_jwt = false

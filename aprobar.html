@@ -150,6 +150,24 @@ function pintarReq(){
            '</div><div class="q">' + cant(l.cantidad) + ' ' + esc(l.unidad || '') + '</div></div>';
   }).join('') || '<div class="msg" style="padding:10px">Sin renglones</div>';
 
+// ⛔ LA URL LA DA LA FUNCIÓN, NO ESTA PANTALLA. Acá no hay sesión: el token de la
+//    requisición es la autorización, y `req-archivo` comprueba que la cotización
+//    pedida sea de la requisición de ese token antes de firmar nada.
+// ⚠️ La ventana se abre ANTES del await, en el gesto del dedo: después, el navegador
+//    del teléfono la bloquea por emergente y el documento no se ve nunca.
+async function verPresupuesto(cotId){
+  var w=null; try{ w=window.open('','_blank'); }catch(e){}
+  if(w){ try{ w.document.write('<title>Presupuesto</title><p style="font:14px system-ui;padding:12px">Abriendo el presupuesto…</p>'); }catch(e){} }
+  try{
+    var r = await supabase.functions.invoke('req-archivo', { body: { token: TOKREQ, cotizacion_id: cotId } });
+    var u = r && r.data && r.data.ok && r.data.url;
+    if(u){ if(w){ w.location.href=u; } else { window.location.href=u; } return; }
+  }catch(e){}
+  // No se deja una pestaña en blanco: si no se pudo, se dice.
+  if(w){ try{ w.document.body.innerHTML='<p style="font:14px system-ui;padding:12px">No se pudo abrir el presupuesto. Avisá a quien cargó las ofertas.</p>'; }catch(e){ try{w.close();}catch(_){} } }
+  else { alert('No se pudo abrir el presupuesto.'); }
+}
+
   var ofertas = (q.ofertas||[]).map(function(o){
     return '<label class="of' + (o.id === OFE_SEL ? ' sel' : '') + '" onclick="elegirOferta(\'' + esc(o.id) + '\')">' +
       '<input type="radio" name="ofe"' + (o.id === OFE_SEL ? ' checked' : '') + '>' +
@@ -160,6 +178,13 @@ function pintarReq(){
       '</div>' +
       (o.recomendada ? '<div class="rec">RECOMENDADA POR COMPRAS</div>' : '') +
       (o.recomendada && o.motivo ? '<div class="pd" style="margin-top:5px">' + esc(o.motivo) + '</div>' : '') +
+      // ⛔ EL PRESUPUESTO DEL PROVEEDOR (pedido de Alejandra, 08/09/2026): quien firma
+      //    quiere ver el papel antes de aprobar. `req_ver` solo dice SI hay
+      //    (`tiene_archivo`), nunca dónde — la ruta no puede viajar hasta acá porque
+      //    esta página la abre cualquiera con el enlace.
+      // ⚠️ `stopPropagation`: la oferta es un <label> que al tocarlo la SELECCIONA.
+      //    Sin esto, abrir el presupuesto cambiaría la decisión sin que se note.
+      (o.tiene_archivo ? '<div class="pd" style="margin-top:6px"><a href="javascript:void(0)" onclick="event.stopPropagation();verPresupuesto(\'' + esc(o.id) + '\')" style="color:#7dd3fc">📄 Ver el presupuesto del proveedor</a></div>' : '') +
     '</label>';
   }).join('');
 

@@ -30562,13 +30562,19 @@ function reqPintarFicha(id){
       '<td>'+(l.desde_almacen?'<span style="color:#22c55e;font-size:11px">✓ sale del almacén</span>':'')+'</td></tr>';
   }).join('') || '<tr><td colspan="3" style="color:var(--text3)">Sin renglones</td></tr>';
 
-  var htmlOfertas = ofertas.length ? ('<div class="tw" style="margin-top:8px"><table><thead><tr><th>Proveedor</th><th style="text-align:right">Monto</th><th style="text-align:right">Entrega</th><th>Nota</th></tr></thead><tbody>'+
+  var htmlOfertas = ofertas.length ? ('<div class="tw" style="margin-top:8px"><table><thead><tr><th>Proveedor</th><th style="text-align:right">Monto</th><th style="text-align:right">Entrega</th><th>Nota</th><th>Presupuesto</th></tr></thead><tbody>'+
     ofertas.map(function(o){
       return '<tr'+(o.elegida?' style="background:rgba(34,197,94,.1);font-weight:600"':'')+'>'+
         '<td>'+_rqE(o.proveedor)+(o.recomendada?' <span style="font-size:10px;color:var(--accent)">recomendada</span>':'')+(o.elegida?' ✓':'')+'</td>'+
         '<td class="mono" style="text-align:right">'+_rqM(o.monto_usd)+'</td>'+
         '<td class="mono" style="text-align:right">'+(o.dias_entrega!=null?o.dias_entrega+' d':'—')+'</td>'+
-        '<td style="font-size:11px;color:var(--text3)">'+_rqE(o.nota||o.motivo_eleccion||'')+'</td></tr>';
+        '<td style="font-size:11px;color:var(--text3)">'+_rqE(o.nota||o.motivo_eleccion||'')+'</td>'+
+        // Acá SÍ hay sesión, así que la URL se firma en el navegador. La ruta viaja en
+        // `data-r` y no interpolada dentro del onclick: una ruta con una comilla no
+        // puede romper el atributo.
+        '<td style="font-size:11px">'+(o.archivo_url
+          ? ('<a href="javascript:void(0)" data-r="'+_rqE(o.archivo_url)+'" onclick="verFotoPrivada(&#39;documentos&#39;,this.getAttribute(&#39;data-r&#39;))" style="color:var(--teal)">📄 ver</a>')
+          : '<span style="color:var(--text3)">—</span>')+'</td></tr>';
     }).join('')+'</tbody></table></div>') : '';
 
   // Los botones dependen del estado Y del rol. Un botón que se muestra y después
@@ -30771,6 +30777,13 @@ function reqCotizarUI(id){
       '<div class="fg"><input class="fc" id="rc-monto'+n+'" type="number" step="0.01" placeholder="Monto US$"></div>'+
       '<div class="fg"><input class="fc" id="rc-dias'+n+'" type="number" placeholder="Días"></div>'+
       '<div class="fg"><input class="fc" id="rc-nota'+n+'" placeholder="Nota"></div>'+
+    '</div>'+
+    // El presupuesto del proveedor, lo pidió Alejandra el 08/09. Imagen o PDF: es lo
+    // que el proveedor manda por WhatsApp o por correo, y es lo que quien firma
+    // quiere mirar antes de aprobar.
+    '<div style="font-size:11px;color:var(--text3);margin:-2px 0 6px">'+
+      '<label style="font-size:11px;color:var(--text3)">Presupuesto del proveedor '+n+' <small>(foto o PDF, opcional)</small></label>'+
+      '<input class="fc" id="rc-arch'+n+'" type="file" accept="image/*,application/pdf" style="font-size:11px">'+
     '</div>';
   };
   var ov=document.createElement('div'); ov.id='req-modal';
@@ -30794,8 +30807,25 @@ async function reqGuardarCotizaciones(id){
   for(var n=1;n<=3;n++){
     var p=(gv('rc-prov'+n)||'').trim(); var m=parseFloat(gv('rc-monto'+n));
     if(!p || isNaN(m)) continue;
+    // ⛔ SE GUARDA LA RUTA, NO UNA URL: una firmada vence y la fila quedaría con un
+    //    enlace muerto; una pública no existe porque el bucket es privado.
+    // ⚠️ Y si la subida falla, la oferta se carga IGUAL. Perder las tres cotizaciones
+    //    porque un PDF no subió es cambiar un problema chico por uno grande.
+    var _ruta=null;
+    try{
+      var _fi=document.getElementById('rc-arch'+n);
+      var _f=(_fi&&_fi.files&&_fi.files[0])||null;
+      if(_f&&DB_READY&&supabase){
+        var _nm=String(_f.name||'presupuesto').replace(/[^\w.\-]/g,'_');
+        var _p='requisitorio/'+id+'/'+n+'_'+Date.now()+'_'+_nm;
+        var _up=await supabase.storage.from('documentos').upload(_p,_f,{upsert:true});
+        if(_up&&_up.error){ if(typeof mostrarToast==='function')mostrarToast('El presupuesto '+n+' no se pudo subir ('+_up.error.message+'): la oferta se carga igual.','warn'); }
+        else _ruta=(_up&&_up.data&&_up.data.path)||_p;
+      }
+    }catch(_e){}
     cots.push({ clave:String(n), proveedor:p, monto_usd:m,
-      dias_entrega: gv('rc-dias'+n)?parseInt(gv('rc-dias'+n)):null, nota:(gv('rc-nota'+n)||'').trim()||null });
+      dias_entrega: gv('rc-dias'+n)?parseInt(gv('rc-dias'+n)):null, nota:(gv('rc-nota'+n)||'').trim()||null,
+      archivo_url:_ruta });
   }
   if(!cots.length){ alert('Cargue al menos una oferta: proveedor y monto.'); return; }
   var rec = gv('rc-rec')||'1';
