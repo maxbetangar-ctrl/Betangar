@@ -30588,6 +30588,10 @@ function reqPintarFicha(id){
     acciones.push('<span style="font-size:12px;color:#f59e0b">⏳ Esperando la firma de '+_rqE(r.aprueba_usuario||r.aprueba_rol||'')+'</span>');
   if(['aprobada','atendida'].indexOf(r.estado)>=0)
     acciones.push('<button class="btn btn-g btn-sm" onclick="reqRecibirUI(\''+_rqE(r.id)+'\')">📦 Recibí y está conforme</button>');
+  // ⚠️ SOLO SI YA ESTÁ FIRMADA. Imprimir un pedido que nadie aprobó produce un papel
+  //    que PARECE autorizado y no lo está — y ese papel después circula.
+  if(['aprobada','atendida','recibida','cerrada'].indexOf(r.estado)>=0)
+    acciones.push('<button class="btn btn-s btn-sm" onclick="reqImprimir(\''+_rqE(r.id)+'\')">🖨 Imprimir</button>');
   // ⚠️ Va de ULTIMO y sin `btn-g`: anular no es una accion que uno busque, y ponerla
   //    en verde al lado de «Recibí» invita a tocarla por error.
   if(_rqPuedeAnular(r))
@@ -30800,6 +30804,82 @@ function reqCotizarUI(id){
     '<button class="btn btn-g" id="rc-enviar" onclick="reqGuardarCotizaciones(\''+_rqE(id)+'\')" style="width:100%;margin-top:14px">Pedir la firma</button>'+
   '</div>';
   document.body.appendChild(ov);
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  IMPRIMIR LA REQUISICIÓN APROBADA  (pedido de Alejandra, 08/09/2026)
+//
+//  «Que se observe la lista de los insumos solicitados y la firma del directivo.
+//   Algo similar a las ODS».
+//
+//  ⛔ Usa `abrirImpresionPremium`, la MISMA pieza que imprime la orden de servicio.
+//     Una segunda plantilla se queda vieja el día que cambie el membrete.
+//  ⛔ La «firma» es el RASTRO —quién aprobó, cuándo y por cuánto—, no un recuadro en
+//     blanco. Un espacio para firmar a mano no prueba nada; lo que prueba es que el
+//     sistema registró quién apretó el botón.
+//  ⚠️ Lo que no está cargado sale «—», nunca un número inventado.
+// ══════════════════════════════════════════════════════════════════════════════
+function reqImprimir(id){
+  var r=(REQS||[]).filter(function(x){return x.id===id;})[0];
+  if(!r){ alert('No se encontró el pedido'); return; }
+  if(['aprobada','atendida','recibida','cerrada'].indexOf(r.estado)<0){
+    alert('Este pedido todavía no está aprobado.\n\nUn papel impreso de algo que nadie firmó parece autorizado y no lo está.');
+    return;
+  }
+  var lineas=REQ_LIN[id]||[], ofertas=REQ_COT[id]||[];
+  var elegida=ofertas.filter(function(o){return o.elegida;})[0] || ofertas.filter(function(o){return o.recomendada;})[0] || {};
+  var donde=r.cam||r.area||(r.destino==='patio'?'Patio':(r.destino==='inventario'?'Almacén':'—'));
+
+  var filas=lineas.map(function(l,i){
+    return '<tr style="background:'+(i%2===0?'#fff':'#f5f9ff')+'">'+
+      '<td class="bv" style="text-align:center">'+(i+1)+'</td>'+
+      '<td><b>'+_mEsc(l.item||'—')+'</b>'+(l.especificacion?('<div style="font-size:11px;color:#5B6B7C">'+_mEsc(l.especificacion)+'</div>'):'')+'</td>'+
+      '<td class="mono" style="text-align:right">'+_mEsc(String(l.cantidad==null?'—':l.cantidad))+'</td>'+
+      '<td>'+_mEsc(l.unidad||'')+'</td>'+
+      '<td style="font-size:11px">'+(l.desde_almacen?'de almacén':'se compra')+'</td>'+
+    '</tr>';
+  }).join('') || '<tr><td colspan="5" style="text-align:center;color:#8899AA;padding:14px">Sin renglones</td></tr>';
+
+  var dato=function(k,v){
+    return '<tr><td style="padding:5px 10px;color:#5B6B7C;white-space:nowrap">'+k+'</td>'+
+           '<td style="padding:5px 10px;color:#1F2A37"><b>'+_mEsc(v==null||v===''?'—':String(v))+'</b></td></tr>';
+  };
+  var monto=(r.monto_aprobado_usd!=null&&r.monto_aprobado_usd!=='')
+    ? ('US$ '+Number(r.monto_aprobado_usd).toLocaleString('es-VE',{minimumFractionDigits:2,maximumFractionDigits:2}))
+    : '—';
+
+  var body=
+    '<table style="width:100%;border-collapse:collapse;margin-bottom:12px">'+
+      dato('Pedido', r.codigo||id)+
+      dato('Para', donde)+
+      dato('Lo pidió', r.solicitante)+
+      dato('Fecha del pedido', (typeof formatFecha==='function'&&r.fecha)?formatFecha(r.fecha):(r.fecha||'—'))+
+      (r.consecuencia?dato('Si no se hace', r.consecuencia):'')+
+    '</table>'+
+    '<table style="width:100%;border-collapse:collapse;font-size:13px">'+
+      '<thead><tr style="background:#123A5E;color:#fff">'+
+        '<th style="padding:6px">#</th><th style="padding:6px;text-align:left">Insumo</th>'+
+        '<th style="padding:6px;text-align:right">Cant.</th><th style="padding:6px;text-align:left">Unidad</th>'+
+        '<th style="padding:6px;text-align:left">Origen</th>'+
+      '</tr></thead><tbody>'+filas+'</tbody>'+
+    '</table>'+
+    // ⛔ LA FIRMA: quién, cuándo y por cuánto. Es lo que el papel tiene que sostener.
+    '<div style="margin-top:16px;border:1px solid #123A5E;border-radius:8px;overflow:hidden">'+
+      '<div style="background:#123A5E;color:#fff;padding:7px 12px;font-size:12px;letter-spacing:1px">APROBACIÓN</div>'+
+      '<table style="width:100%;border-collapse:collapse;background:#F7F9FB">'+
+        dato('Aprobó', r.decidida_por)+
+        dato('Cuándo', (typeof _rqF==='function'&&r.decidida_at)?_rqF(r.decidida_at):(r.decidida_at||'—'))+
+        dato('Proveedor elegido', elegida.proveedor)+
+        dato('Monto aprobado', monto)+
+        (r.decision_nota?dato('Nota de quien firmó', r.decision_nota):'')+
+        (r.orden_id?dato('Orden que nació de este pedido', r.orden_id):'')+
+      '</table>'+
+    '</div>';
+
+  abrirImpresionPremium(
+    (REQ_ETIQ||'Requisitorio')+' '+(r.codigo||id)+' — '+((typeof brandNom==='function')?brandNom():''),
+    'Aprobado por '+(r.decidida_por||'—')+' · '+((typeof _rqF==='function'&&r.decidida_at)?_rqF(r.decidida_at):''),
+    '', body);
 }
 
 async function reqGuardarCotizaciones(id){
