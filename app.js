@@ -10436,8 +10436,87 @@ var _ordServCargadas=false;
 async function cargarOrdenesServicio(){
   if(!(DB_READY&&supabase))return;
   try{var r=await supabase.from('ordenes_servicio').select('*').order('creado_en',{ascending:false}).limit(2000);
-    if(!r.error&&Array.isArray(r.data))ORDENES_SERV=r.data.map(function(x){return{id:x.id,fecha:x.fecha,cams:Array.isArray(x.cams)?x.cams:[],proveedor:x.proveedor||'',proveedorId:x.proveedor_id||'',tipo:x.tipo_servicio||'',tipoOrden:x.tipo_orden||'servicio',item:x.item||'',notas:x.notas||'',estado:x.estado||'emitida',fechaCierre:x.fecha_cierre||null,costo:parseFloat(x.costo_usd)||0,codigoVerificacion:x.codigo_verificacion||'',reqId:x.req_id||''};});
+    if(!r.error&&Array.isArray(r.data))ORDENES_SERV=r.data.map(function(x){return{id:x.id,fecha:x.fecha,cams:Array.isArray(x.cams)?x.cams:[],proveedor:x.proveedor||'',proveedorId:x.proveedor_id||'',tipo:x.tipo_servicio||'',tipoOrden:x.tipo_orden||'servicio',item:x.item||'',notas:x.notas||'',estado:x.estado||'emitida',fechaCierre:x.fecha_cierre||null,costo:parseFloat(x.costo_usd)||0,codigoVerificacion:x.codigo_verificacion||'',reqId:x.req_id||'',aprobadaPor:x.aprobada_por||'',aprobadaAt:x.aprobada_at||null,aprobadaNota:x.aprobada_nota||'',creadoEn:x.creado_en||null};});
   }catch(e){console.log('[ordenes_servicio]',e&&e.message);}
+  // LA REGLA LA DECLARA LA EMPRESA, no este archivo: en Tony Gas la firma del jefe es
+  // obligatoria (Máximo, 19/09), en el resto se registra y no traba.
+  try{
+    var _cf=await supabase.from('configuracion').select('valor').eq('clave','os_firma').maybeSingle();
+    if(_cf&&_cf.data&&_cf.data.valor){ var _j=JSON.parse(_cf.data.valor)||{};
+      OS_FIRMA={obliga:_j.obliga===true,desde:_j.desde||null,rol:_j.rol||'directivo'}; }
+  }catch(e){}   // llave rota o ausente = no obliga: no puede dejar a nadie sin cerrar órdenes
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  LA FIRMA DEL JEFE EN LA ORDEN  (pedido de Alejandra, 08/09/2026 · punto 9)
+//
+//  ⛔ ESTO NO ES EL CANDADO. El candado es el trigger `trg_os_firma_candado` en la
+//     base, porque la orden se cierra con un UPDATE directo y lo que vive en el
+//     navegador se salta desde la consola. Esto solo evita que alguien haga todo el
+//     trabajo y recién al final se entere de que falta una firma.
+// ══════════════════════════════════════════════════════════════════════════════
+var OS_FIRMA={obliga:false,desde:null,rol:'directivo'};
+
+function _osPuedeFirmar(){
+  var r=(typeof SESION!=='undefined'&&SESION&&SESION.rol)||'';
+  return r==='superadmin' || r===(OS_FIRMA.rol||'directivo');
+}
+// ⚠️ EN HORA DE CARACAS (UTC−4, sin horario de verano), igual que el trigger: `creado_en`
+//    es UTC y una orden emitida a las 9 de la noche caería del lado equivocado.
+function _osNacioBajoElCandado(o){
+  if(!OS_FIRMA.desde) return true;
+  if(!o||!o.creadoEn) return false;   // sin fecha no se acusa: se deja pasar
+  try{
+    var t=Date.parse(o.creadoEn); if(isNaN(t)) return false;
+    return new Date(t-4*3600000).toISOString().slice(0,10) >= OS_FIRMA.desde;
+  }catch(e){ return false; }
+}
+// Devuelve el aviso cuando falta la firma y hace falta; '' cuando el camino está libre.
+function _osFirmaFalta(o){
+  if(!o || o.aprobadaPor) return '';
+  if(!OS_FIRMA.obliga) return '';
+  if(!_osNacioBajoElCandado(o)) return '';
+  return 'La orden '+o.id+' todavía no la aprobó el jefe.\n\nPedile al '+String(OS_FIRMA.rol||'directivo').toUpperCase()+' que la apruebe con el botón «✍ Aprobar» en la lista de órdenes.';
+}
+
+// ⛔ EL NOMBRE LO PONE LA BASE, no esta pantalla: `os_aprobar` lo resuelve por la
+//    sesión. Acá el nombre ES la firma, y uno que viajara en el pedido se cambiaría
+//    desde la consola del navegador.
+async function osAprobar(id){
+  var o=(ORDENES_SERV||[]).find(function(x){return x.id===id;});
+  if(!o){ alert('Orden no encontrada'); return; }
+  if(!(DB_READY&&supabase)){ alert('Sin conexión: la aprobación se registra en el servidor, no acá.'); return; }
+  if(o.aprobadaPor){ alert('Esta orden ya la aprobó '+o.aprobadaPor+'.'); return; }
+  if(!confirm('¿Dejar registrada TU aprobación de la orden '+id+'?\n\nVa a quedar tu nombre y la fecha, y sale impreso en el papel.')) return;
+  var nota=prompt('Nota de la aprobación (opcional):','');
+  if(nota===null) nota='';
+  try{
+    var r=await supabase.rpc('os_aprobar',{p_id:id,p_nota:nota||null});
+    if(r.error){ alert('No se pudo registrar la aprobación: '+r.error.message); return; }
+    var d=r.data||{};
+    if(!d.ok){ alert(d.motivo||'No se pudo registrar la aprobación.'); return; }
+    if(d.repetido){ alert(d.motivo); }
+    else { try{ audit('Orden aprobada', id+' · '+(d.por||'')); }catch(e){}
+           if(typeof mostrarToast==='function') mostrarToast('✍ Orden '+id+' aprobada por '+(d.por||''),'exito'); }
+    o.aprobadaPor=d.por||''; o.aprobadaAt=d.cuando||null; o.aprobadaNota=nota||'';
+    try{ renderOrdenesServicio(); }catch(e){}
+  }catch(e){ alert('No se pudo registrar la aprobación.'); }
+}
+
+// El bloque de aprobación en el papel. Lo comparten la orden de servicio y la de
+// compra: una segunda plantilla se queda vieja el día que cambie una de las dos.
+function _osPieFirma(o){
+  var obliga=OS_FIRMA.obliga&&_osNacioBajoElCandado(o);
+  var cuerpo = o&&o.aprobadaPor
+    ? ('<tr><td style="padding:5px 10px;color:#5B6B7C;width:34%">Aprobó</td><td style="padding:5px 10px"><b>'+_mEsc(o.aprobadaPor)+'</b></td></tr>'+
+       '<tr><td style="padding:5px 10px;color:#5B6B7C">Cuándo</td><td style="padding:5px 10px"><b>'+_mEsc(o.aprobadaAt?String(o.aprobadaAt).slice(0,16).replace('T',' '):'—')+'</b></td></tr>'+
+       (o.aprobadaNota?('<tr><td style="padding:5px 10px;color:#5B6B7C">Nota</td><td style="padding:5px 10px">'+_mEsc(o.aprobadaNota)+'</td></tr>'):''))
+    // ⚠️ Un renglón vacío se lee como si estuviera aprobada. Se dice que NO lo está.
+    : ('<tr><td colspan="2" style="padding:9px 10px;color:#991b1b;font-weight:700">SIN APROBAR'+
+       (obliga?' — este papel no autoriza ningún trabajo ni ninguna compra':'')+'</td></tr>');
+  return '<div style="margin-top:14px;border:1px solid #123A5E;border-radius:8px;overflow:hidden;page-break-inside:avoid">'+
+    '<div style="background:#123A5E;color:#fff;padding:7px 12px;font-size:12px;letter-spacing:1px">APROBACIÓN</div>'+
+    '<table style="width:100%;border-collapse:collapse;background:#F7F9FB;font-size:12px">'+cuerpo+'</table></div>';
 }
 var _OS_TIPO_LBL={lavado:'🧽 Lavado',cambio:'🔧 Cambio/sust.',inspeccion:'🔎 Inspección',correctivo:'🛠 Correctivo',preventivo:'📅 Preventivo',otro:'Otro'};
 var _OS_EST_BADGE={emitida:'<span class="badge by">🟡 Emitida</span>',en_proceso:'<span class="badge bb">🔵 En proceso</span>',hecha:'<span class="badge bg">🟢 Hecha</span>',cancelada:'<span class="badge" style="background:#fee2e2;color:#991b1b">⛔ Cancelada</span>'};
@@ -10633,6 +10712,11 @@ function _osPieVerificacion(o){
     '</div></div>';
 }
 function _osImprimirOrden(o){
+  // ⚠️ DONDE LA FIRMA ES OBLIGATORIA, NO SE IMPRIME SIN ELLA. Este papel es el que
+  //    autoriza al taller o al proveedor a gastar: uno sin aprobar parece autorizado
+  //    y no lo está, y después circula.
+  var _falta=_osFirmaFalta(o);
+  if(_falta){ alert('⛔ No se puede imprimir todavía.\n\n'+_falta); return; }
   if(o.tipoOrden==='compra'){ return _osImprimirCompra(o); }
   var filas=(o.cams||[]).map(function(cam,i){
     var fl=FLOTA[cam]||{}, ui=(typeof unidadInfo==='function')?unidadInfo(cam):{};
@@ -10660,7 +10744,7 @@ function _osImprimirOrden(o){
   var body=banner+info+
     '<table><thead><tr><th>Unidad</th><th>Placa</th><th>VIN</th><th style="text-align:right">KM Actual</th><th style="text-align:right">Próx. Servicio</th><th>Chofer</th></tr></thead><tbody>'+filas+'</tbody></table>'+
     '<p style="margin-top:12px;font-size:11px;color:#374151">Unidades a ingresar a mantenimiento: <b>'+(o.cams||[]).length+'</b> ('+(o.cams||[]).map(function(c){return String(c).replace("JAC-B","");}).join(", ")+'). Intervalo de servicio: '+((cfg.km||5000).toLocaleString())+' km.</p>'+
-    (o.notas?('<p style="margin-top:6px;font-size:11px;color:#374151"><b>Notas:</b> '+_mEsc(o.notas)+'</p>'):'') + _osPieVerificacion(o);
+    (o.notas?('<p style="margin-top:6px;font-size:11px;color:#374151"><b>Notas:</b> '+_mEsc(o.notas)+'</p>'):'') + _osPieFirma(o) + _osPieVerificacion(o);
   abrirImpresionPremium('Orden de Servicio',(_OS_TIPO_LBL[o.tipo]||o.tipo)+' · '+formatFecha(o.fecha),'',body,{lbl:'Orden de servicio N°',ref:o.id});
 }
 // Impreso de ORDEN DE COMPRA: el papel que se lleva el encargado a la calle. Muestra en grande qué comprar,
@@ -10679,7 +10763,7 @@ function _osImprimirCompra(o){
     (o.notas?('<tr><td style="font-weight:700">Notas</td><td>'+_mEsc(o.notas)+'</td></tr>'):'')+
   '</tbody></table>';
   var pie='<p style="margin-top:14px;font-size:11px;color:#374151">Al regresar con la compra, marcá <b>✅ Hecho</b> en el sistema para registrar el <b>costo, proveedor real, foto de la factura, garantía</b> y el destino (unidad / inventario).</p>';
-  abrirImpresionPremium('Orden de Compra','Compra · '+formatFecha(o.fecha),'',banner+info+pie+_osPieVerificacion(o),{lbl:'Orden de compra N°',ref:o.id});
+  abrirImpresionPremium('Orden de Compra','Compra · '+formatFecha(o.fecha),'',banner+info+pie+_osPieFirma(o)+_osPieVerificacion(o),{lbl:'Orden de compra N°',ref:o.id});
 }
 function _osImprimirOrdenPorId(id){var o=ORDENES_SERV.find(function(x){return x.id===id;});if(o)_osImprimirOrden(o);}
 // CANCELAR una orden SIN borrarla: queda el registro con estado 'cancelada' + motivo sellado en notas
@@ -10748,7 +10832,15 @@ function renderOrdenesServicio(){
         '<td style="font-size:11px">'+_mEsc(o.proveedor||'—')+'</td>'+
         '<td style="font-size:11px">'+_mEsc(o.item||'—')+'</td>'+
         '<td>'+(_OS_EST_BADGE[o.estado]||o.estado)+'</td>'+
-        '<td><button class="btn btn-s btn-xs" onclick="_osImprimirOrdenPorId(\''+o.id+'\')">🖨</button>'+((o.estado!=='hecha'&&o.estado!=='cancelada')?' <button class="btn btn-g btn-xs" onclick="'+cerrar+'(\''+o.id+'\')">✅ Hecho</button> <button class="btn btn-xs" style="background:#fee2e2;color:#991b1b" title="Cancelar la orden sin borrarla (queda en el historial)" onclick="_osCancelarOrden(\''+o.id+'\')">⛔ Cancelar</button>':'')+'</td>'+
+        '<td>'+
+        // Firmada: se ve quién. Sin firmar: el botón, y solo a quien puede ponerla —
+        // ofrecérselo al que no puede es prometer algo que la base le va a negar.
+        (o.aprobadaPor
+          ? ('<span class="badge bg" title="Aprobada por '+_mEsc(o.aprobadaPor)+'">✍ '+_mEsc(String(o.aprobadaPor).split(' ')[0])+'</span> ')
+          : (_osPuedeFirmar()&&o.estado!=='cancelada'
+              ? '<button class="btn btn-s btn-xs" onclick="osAprobar(\''+o.id+'\')" title="Dejar registrada la aprobación del jefe. Sale impresa en el papel.">✍ Aprobar</button> '
+              : (_osFirmaFalta(o)?'<span class="badge" style="background:#fee2e2;color:#991b1b" title="Falta la aprobación del jefe">✍ falta firma</span> ':'')))+
+        '<button class="btn btn-s btn-xs" onclick="_osImprimirOrdenPorId(\''+o.id+'\')">🖨</button>'+((o.estado!=='hecha'&&o.estado!=='cancelada')?' <button class="btn btn-g btn-xs" onclick="'+cerrar+'(\''+o.id+'\')">✅ Hecho</button> <button class="btn btn-xs" style="background:#fee2e2;color:#991b1b" title="Cancelar la orden sin borrarla (queda en el historial)" onclick="_osCancelarOrden(\''+o.id+'\')">⛔ Cancelar</button>':'')+'</td>'+
       '</tr>';
     }).join('')||('<tr><td colspan="8" style="text-align:center;color:var(--text3);padding:20px">'+((q||est)?('Ninguna orden coincide con la búsqueda'+(q?(' «'+_mEsc(q)+'»'):'')):'Sin órdenes emitidas')+'</td></tr>');
   }
@@ -10865,6 +10957,16 @@ function _ccActualizarOrden(ordenId,terminar){
   var o=(ORDENES_SERV||[]).find(function(x){return x.id===ordenId;}); if(!o)return;
   o.costo=_ccCostoOrden(ordenId);
   var patch={costo_usd:o.costo};
+  // ⛔ SIN FIRMA NO CIERRA, PERO EL TRABAJO NO SE PIERDE: el costo se guarda igual y la
+  //    orden queda `en_proceso` esperando la aprobación. Y el estado local NO se pone en
+  //    'hecha': la base lo va a rechazar, y la lista estaría diciendo 🟢 Hecha sobre una
+  //    orden que sigue abierta.
+  var _faltaF=terminar?_osFirmaFalta(o):'';
+  if(_faltaF){
+    terminar=false;
+    if(o.estado==='emitida'){ o.estado='en_proceso'; patch.estado='en_proceso'; }
+    alert('⛔ La orden no se puede cerrar todavía.\n\n'+_faltaF+'\n\nEl trabajo y el costo SÍ quedaron registrados.');
+  }
   if(terminar){ o.estado='hecha'; o.fechaCierre=(typeof fechaVE==='function')?fechaVE():''; patch.estado='hecha'; patch.fecha_cierre=o.fechaCierre;
     // "Hecho" cierra la orden (hoja de vida), NO paga. Si hay deuda con saldo, avisar que sigue en CxP.
     try{
@@ -11051,6 +11153,10 @@ function _cerrarOrdenTrasMant(ordenId){
   var total=(o.cams||[]).length||1;
   var nHechas=(o.cams||[]).filter(function(c){return hechas[c];}).length;
   var nuevo=nHechas>=total?'hecha':(nHechas>0?'en_proceso':'emitida');
+  // ⛔ Mismo criterio que arriba: sin la firma la orden no se da por cerrada. El trabajo
+  //    registrado queda; lo que espera es la aprobación.
+  var _faltaF=(nuevo==='hecha')?_osFirmaFalta(o):'';
+  if(_faltaF){ nuevo='en_proceso'; alert('⛔ La orden no se puede cerrar todavía.\n\n'+_faltaF+'\n\nEl trabajo SÍ quedó registrado.'); }
   o.estado=nuevo;
   var patch={estado:nuevo};
   if(nuevo==='hecha'){ o.fechaCierre=(typeof fechaVE==='function')?fechaVE():''; patch.fecha_cierre=o.fechaCierre;
