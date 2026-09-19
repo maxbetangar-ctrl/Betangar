@@ -11377,7 +11377,16 @@ function renderCentroCostos(){
 }
 async function borrarOdo(cam){
   if(!KM_DATA[cam])return;
-  if(!confirm('¿Borrar el odometro registrado de '+cam+'? Se reinicia a sin datos.'))return;
+  // ⛔ BORRARLO NO ES LA FORMA DE CORREGIRLO, Y ADEMÁS APAGA EL CONTROL.
+  //    El trigger `km_solo_sube` compara contra el valor guardado; con el guardado
+  //    en CERO, cualquier número entra. Elicindo usó este botón tres veces seguidas
+  //    el 18/09 para poder bajar el odómetro de la FC04 — porque era el camino que
+  //    la pantalla le dejaba. Para corregir alcanza con escribir el número correcto:
+  //    el sistema ya acepta que la OFICINA lo baje.
+  if(!confirm('⚠️ Para CORREGIR el odómetro de '+cam+' no hace falta borrarlo:\n\n'
+    +'escribí el kilometraje correcto en «Registrar km» y listo, el sistema deja que la oficina lo baje.\n\n'
+    +'Si lo borrás, queda en CERO y mientras tanto el control que impide que el kilometraje vaya para atrás QUEDA APAGADO: cualquier número que cargue un chofer va a entrar.\n\n'
+    +'¿Borrarlo igual?'))return;
   KM_DATA[cam].km=0;KM_DATA[cam].ultsrv=0;KM_DATA[cam].f='';
   if(DB_READY&&supabase){try{var _r=await supabase.from('km_data').update({km:0,ultsrv:0,f:null}).eq('cam',cam);
     if(_r.error&&typeof mostrarToast==='function')mostrarToast('No se pudo borrar: '+_r.error.message,'error');}catch(e){}}
@@ -11448,8 +11457,19 @@ async function guardarKm(){
   if(DB_READY&&supabase){
     var kmUpdate={cam:cam,km:km,f:f,updated_by:SESION?SESION.nombre:''};
     if(mant.includes('5000'))kmUpdate.ultsrv=km;
-    supabase.from('km_data').upsert([kmUpdate],{onConflict:'cam'}).then(function(r){
-      if(r.error)console.error('Error km_data:',r.error);
+    // ⛔ SE MIRA EL RESULTADO, Y CON `.select()`. Hasta el 19/09/2026 esto solo
+    //    escribía en la consola si fallaba: si la base rechazaba el cambio, la
+    //    pantalla decía que guardó y la persona volvía a intentarlo sin entender.
+    //    Es literalmente lo que reportó Elicindo — «me hace los cambios pero en el
+    //    sistema no me agarra los números ingresados» (SOP-20260918-27EN).
+    //    [[norma-insert-sin-select-no-mide]]
+    supabase.from('km_data').upsert([kmUpdate],{onConflict:'cam'}).select().then(function(r){
+      if(r&&r.error){
+        console.error('Error km_data:',r.error);
+        if(typeof mostrarToast==='function')mostrarToast('NO se guardó el kilometraje de '+cam+': '+r.error.message,'error');
+      } else if(!(r&&r.data&&r.data.length)){
+        if(typeof mostrarToast==='function')mostrarToast('El kilometraje de '+cam+' NO quedó guardado: la base no tocó ninguna fila. Avisá al servicio técnico.','error');
+      }
     });
     if(mant){
       supabase.from('mantenimientos').upsert([{
