@@ -175,7 +175,14 @@ Deno.serve(async (req) => {
   // entraba topeada a 600 L y contaminaba el cuadre como si fuera un dato bueno).
   const alturaOk = (tq: any, cm: any): boolean => {
     const h = num(cm); if (h == null) return false;
-    return tq?.hmax ? (h >= 0 && h <= tq.hmax) : h >= 0;
+    // ⛔ + SIGMA_CM: la regla se lee en CENTÍMETROS ENTEROS. Con un tope de 52,5 un
+    //    tanque lleno se lee 53 SIEMPRE, y sin esta línea el sistema le reclamaba al
+    //    chofer medio centímetro que no podía escribir. Alexander llegó a pedir perdón
+    //    por eso el 15/09. La tolerancia es la del INSTRUMENTO, la misma que ya se usa
+    //    para el cuadre; no un número elegido. Un 53 se cubica como tanque lleno porque
+    //    `cubicar()` topa en el último punto de la tabla: no se inventa ningún litro.
+    //    Lo que es error de TECLEO (54, 175, 264 cm) sigue saltando igual.
+    return tq?.hmax ? (h >= 0 && h <= tq.hmax + SIGMA_CM) : h >= 0;
   };
   const tqDe = (m: any) => tanques.find((x) => String(x.id) === String(m.tanque_id)) || tanques.find((x) => x.tipo === 'vehiculo') || tanques[0];
   const diaSiguiente = (a: string, b: string): boolean => {
