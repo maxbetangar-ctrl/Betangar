@@ -79,7 +79,7 @@ Deno.serve(async (req) => {
   const fecha = url.searchParams.get('fecha') || new Date(new Date(hoyVE + 'T12:00:00Z').getTime() - 86400000).toISOString().slice(0, 10);
   const previo = new Date(new Date(fecha + 'T12:00:00Z').getTime() - 86400000).toISOString().slice(0, 10);
 
-  const [cfgT, med, gas, ck, emps, waCfg, logs, sur, cfgCorte, cfgAvisar, somb, uCfg] = await Promise.all([
+  const [cfgT, med, gas, ck, emps, waCfg, logs, sur, cfgCorte, cfgAvisar, cfgDuda, somb, uCfg] = await Promise.all([
     sb.from('combustible_tanques_config').select('*'),
     sb.from('combustible_mediciones').select('*').gte('fecha', previo).lte('fecha', fecha),
     sb.from('gasoil').select('*').gte('f', previo).lte('f', fecha),
@@ -90,11 +90,22 @@ Deno.serve(async (req) => {
     sb.from('surtidas').select('*').gte('fecha', previo).lte('fecha', fecha),
     sb.from('configuracion').select('valor').eq('clave', 'surtidas_corte').maybeSingle(),
     sb.from('configuracion').select('valor').eq('clave', 'aud_comb_avisar').maybeSingle(),
+    sb.from('configuracion').select('valor').eq('clave', 'aforo_en_duda').maybeSingle(),
     sb.from('comb_auditoria_sombra').select('veredicto,fecha,veredicto_at').order('veredicto_at', { ascending: false }).limit(300),
     sb.from('unidad_config').select('cam,capacidad_tanque_l,mide_tanque'),
   ]);
   if (cfgT.error) return json({ ok: false, error: cfgT.error.message }, 500);
   const corteSur = String(cfgCorte?.data?.valor || '').replace(/"/g, '').slice(0, 10);
+
+  // Unidades cuyo AFORO está en discusión: al chofer no se le reclama la altura, al jefe sí.
+  // Si la clave no existe o viene rota, la lista queda VACÍA y todo sigue como siempre: el
+  // modo seguro de este interruptor es "no callar nada".
+  let AFORO_EN_DUDA = new Set<string>();
+  try {
+    const cru = cfgDuda?.data?.valor;
+    const obj = typeof cru === 'string' ? JSON.parse(cru) : cru;
+    for (const u of (obj?.unidades || [])) AFORO_EN_DUDA.add(String(u).trim().toUpperCase());
+  } catch (_e) { /* lista vacía: se avisa de todo, como antes */ }
 
   const tanques = (cfgT.data || []).map((t: any) => {
     let tabla = t.tabla_cubicacion;
@@ -429,7 +440,9 @@ Deno.serve(async (req) => {
     for (const m of ms) {
       const tq = tqDe(m), cm = num(m.altura_cm), rec = num(m.litros_calculados);
       if (!alturaOk(tq, cm)) {
-        errores.push({ u, chofer: String(m.registrado_por || chofer), tipo: 'altura', txt: `la medición de ${m.momento} dice ${fmt(cm)} cm y ese tanque llega hasta ${fmt(tq?.hmax)} cm` });
+        // `solo_jefes`: el hallazgo vale igual y va al resumen, pero NO se le reclama al
+        // chofer mientras la altura del tanque sea nuestra y esté en discusión.
+        errores.push({ u, chofer: String(m.registrado_por || chofer), tipo: 'altura', solo_jefes: AFORO_EN_DUDA.has(String(u).trim().toUpperCase()), txt: `la medición de ${m.momento} dice ${fmt(cm)} cm y ese tanque llega hasta ${fmt(tq?.hmax)} cm` });
         continue;   // lectura inválida: no se compara con la tabla ni se usa para cuadrar
       }
       // Los litros guardados solo se le reclaman a alguien si se guardaron con ESTA tabla. Al
@@ -525,16 +538,16 @@ Deno.serve(async (req) => {
 
   // ── Mensajes al CHOFER (solo errores de carga, agrupados por persona) ──
   const porChofer: Record<string, any[]> = {};
-  errores.forEach((e) => { if (e.chofer) (porChofer[e.chofer] = porChofer[e.chofer] || []).push(e); });
+  errores.forEach((e) => { if (e.chofer && !e.solo_jefes) (porChofer[e.chofer] = porChofer[e.chofer] || []).push(e); });
   for (const ch of Object.keys(porChofer)) {
     const tel = telDe(ch);
     const key = `comb_chofer_${fecha}_${norm(ch).replace(/ /g, '_')}`;
     if (yaEnviado.has(key)) continue;
     if (!tel) continue;   // sin teléfono no se puede avisar (se informa en el resumen a los jefes)
     const lista = porChofer[ch].map((e) => `• ${e.u}: ${e.txt}`).join('\n');
-    const msg = `Hola ${primerNombre(ch)}, revisá por favor lo del ${fmtFecha(fecha)}:\n\n${lista}\n\n` +
+    const msg = `Hola ${primerNombre(ch)}, revise por favor lo del ${fmtFecha(fecha)}:\n\n${lista}\n\n` +
       `No es un reclamo: son datos que quedaron incompletos o raros y sin ellos no se puede cuadrar el combustible del día. ` +
-      `Si podés corregirlo en el sistema, mejor; si no, avisale al encargado para que lo ajuste. Gracias.`;
+      `Si puede corregirlo en el sistema, mejor; si no, avísele al encargado para que lo ajuste. Gracias.`;
     filas.push({ telefono: tel, mensaje: msg, tipo: 'auditoria' });
     marcar.push(key);
   }
