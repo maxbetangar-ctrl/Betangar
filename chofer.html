@@ -2695,6 +2695,38 @@ function cargarSemanaSupabase(){
 function registrarViaje(num){
   if(VIAJES_HOY[num]) return;
   if(num > 1 && !VIAJES_HOY[num-1]) return;
+  // ⛔ UN TOQUE POR ERROR NO PUEDE REGISTRAR UN VIAJE. Lo pidió Alejandra el 21/09:
+  //    «por error de dedo marcan sin querer los viajes». Y el chofer NO lo puede
+  //    desmarcar desde el celular (la primera línea se va si ya está), así que el
+  //    toque de más queda para siempre y lo tiene que corregir la oficina.
+  // 📌 LA CONFIRMACIÓN SOLA NO ALCANZA: el segundo toque del reflejo cae sobre el
+  //    «Sí» y estaríamos donde mismo. Por eso el botón de confirmar nace DESHABILITADO
+  //    y solo toma a los 600 ms. Eso es lo que de verdad frena el error de dedo.
+  pedirConfirmacionViaje(num);
+}
+
+function pedirConfirmacionViaje(num){
+  var prev=document.getElementById('modal-conf-viaje'); if(prev) prev.remove();
+  var ahora=new Date().toLocaleTimeString('es-VE',{hour:'2-digit',minute:'2-digit'});
+  var ov=document.createElement('div');
+  ov.className='modal'; ov.id='modal-conf-viaje'; ov.style.display='block';
+  ov.innerHTML='<div class="modal-box" style="margin-top:16vh;text-align:center">'+
+    '<div class="modal-title" style="margin-bottom:8px">¿Registrar el viaje '+num+'?</div>'+
+    '<div style="font-size:14px;opacity:.9;margin-bottom:6px">Se guarda con la hora '+ahora+'</div>'+
+    '<div style="font-size:12px;opacity:.7;margin-bottom:18px">Si lo tocó sin querer, cancele.</div>'+
+    '<button id="conf-viaje-si" disabled style="width:100%;padding:16px;font-size:16px;font-weight:800;border:none;border-radius:12px;background:#1d9e75;color:#fff;opacity:.45">Sí, registrar el viaje '+num+'</button>'+
+    '<button id="conf-viaje-no" style="width:100%;padding:14px;font-size:15px;font-weight:700;margin-top:10px;border:1px solid rgba(255,255,255,.35);border-radius:12px;background:none;color:#fff">Cancelar</button>'+
+  '</div>';
+  document.body.appendChild(ov);
+  var si=ov.querySelector('#conf-viaje-si'), no=ov.querySelector('#conf-viaje-no');
+  no.onclick=function(){ ov.remove(); };
+  si.onclick=function(){ if(si.disabled) return; ov.remove(); _registrarViajeYa(num); };
+  setTimeout(function(){ si.disabled=false; si.style.opacity='1'; }, 600);
+}
+
+function _registrarViajeYa(num){
+  if(VIAJES_HOY[num]) return;
+  if(num > 1 && !VIAJES_HOY[num-1]) return;
 
   var now  = new Date();
   var hora = now.toLocaleTimeString('es-VE',{hour:'2-digit',minute:'2-digit'});

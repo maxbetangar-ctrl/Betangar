@@ -18344,12 +18344,56 @@ function medirLlanta(cam,idx){
   var ll=LLANTAS[cam]&&LLANTAS[cam][idx]; if(!ll)return;
   var v=prompt('Profundidad del dibujo (mm) de '+ll.posicion+(ll.marca?' ('+ll.marca+')':'')+':', (ll.mm!=null?ll.mm:''));
   if(v===null)return;
-  var mm=parseFloat(v); if(isNaN(mm)||mm<0){alert('Profundidad inválida');return;}
+  var mm=parseFloat(v); if(isNaN(mm)||mm<=0){alert('Esa medida no puede ser: una llanta en servicio no mide 0 mm. Escriba los milímetros que marca el medidor, y si no la pudo medir toque Cancelar.');return;} // ⛔ EL CERO SE ACEPTABA Y PISABA UNA MEDIDA BUENA. FC10 trasera der. interna: 20,28 mm el 03/09 y el mismo día un 0 la dejó en «Cambiar Urgente». Cuatro llantas (FC10 y las tres de la FL03) están así, y de paso ensucian la lista de urgentes, donde se pierden las que SÍ están gastadas.
+  // ⛔ SIN EL ODÓMETRO NO HAY DESGASTE POR KILÓMETRO, por muchas mediciones que se junten.
+  //    Lo preguntó Carlos Serrano (FLOTILLA) el 22/09: «el reporte de seguimiento al desgaste
+  //    por kilometraje, ¿aparece automáticamente cuando existan varios registros?». No aparecía
+  //    ni podía: la medición guardaba los mm y la fecha, y el kilometraje del camión NO.
+  //    Se pide acá y no se obliga: una medida sin km sirve igual para el desgaste en el TIEMPO.
+  var vk=prompt('Kilometraje del '+cam+' hoy — es lo que permite ver el desgaste por kilómetro.\nSi no lo tiene a mano, déjelo vacío y siga.','');
+  if(vk===null)return;
+  var km=parseInt(String(vk).replace(/[^0-9]/g,''),10); if(isNaN(km)||km<=0)km=null;
+  // ⛔ LA MARCA SOLO SE PREGUNTA SI LA LLANTA NO LA TIENE. El único campo de marca vivía en
+  //    «Registrar Cambio de Llanta», que es para una llanta NUEVA y REINICIA la vida de la
+  //    posición (km y fecha de instalación). O sea que para anotarle la marca a una llanta ya
+  //    montada había que borrarle el arranque. Por eso de 119 llantas solo 10 tenían marca, y
+  //    sin marca el cuadro de rendimiento por marca no puede comparar nada.
+  if(!ll.marca){
+    var vm=prompt('¿Marca de esta llanta? (Goodyear, Pirelli…)\nSin marca no se puede comparar una marca contra otra. Si no la sabe, déjelo vacío.','');
+    if(vm===null)return;
+    vm=String(vm||'').trim(); if(vm)ll.marca=vm;
+  }
   ll.mm=mm; if(ll.mmInicial==null||mm>ll.mmInicial)ll.mmInicial=mm;
   ll.estado=_estadoLlMm(mm)||ll.estado;
   _guardarLlanta(cam,ll);
-  audit('Inspección llanta',cam+' '+ll.posicion+' '+mm+'mm → '+ll.estado);
+  _guardarMedicionLlanta(cam,ll,mm,km);
+  audit('Inspección llanta',cam+' '+ll.posicion+' '+mm+'mm'+(km!=null?' · '+km+' km':'')+' → '+ll.estado);
   renderLlantas();
+}
+
+// ⛔ UNA FILA POR MEDICIÓN, aparte de la llanta. `llantas.mm` guarda SOLO la última y se pisa
+//    en cada inspección: el 03/09 la FC10 trasera der. interna se midió en 20,28 mm y el mismo
+//    día un 0 la dejó en «Cambiar Urgente», sin rastro de la buena. Un dato que sirve para ver
+//    una TENDENCIA no puede vivir en una sola celda.
+//    La fila NO se puede editar ni borrar (authenticated solo tiene select e insert): una
+//    medición es un hecho con fecha, no un campo que se corrige encima.
+function _guardarMedicionLlanta(cam,ll,mm,km){
+  if(!(DB_READY&&supabase)||DEMO_MODE)return;
+  try{
+    supabase.from('llantas_mediciones').insert([{
+      cam:cam, posicion:ll.posicion,
+      fecha:(typeof fechaVE==='function'?fechaVE():new Date().toISOString().slice(0,10)),
+      mm:mm, km_unidad:(km!=null?km:null), marca:ll.marca||null, estado:ll.estado||null,
+      medido_por:(SESION?SESION.usuario:null)
+    }]).then(function(res){
+      // ⛔ NO SE TRAGA EL ERROR: si el historial no se guarda hay que enterarse ACÁ, no dentro
+      //    de tres semanas cuando el reporte salga con huecos.
+      if(res&&res.error&&typeof mostrarToast==='function')
+        mostrarToast('La medida quedó en la llanta pero NO en el historial: '+res.error.message,'error');
+    });
+  }catch(e){
+    if(typeof mostrarToast==='function')mostrarToast('La medida quedó en la llanta pero NO en el historial','error');
+  }
 }
 // Costo por mm de vida consumida de una llanta (precio / mm gastados). null si no hay datos.
 function _llCostoMm(ll){ if(!ll||!ll.precio||ll.mmInicial==null||ll.mm==null)return null; var gast=ll.mmInicial-ll.mm; return gast>0?ll.precio/gast:null; }
@@ -18396,6 +18440,7 @@ function renderLlantas(){
     rmEl.innerHTML=rm.length?('<div class="st" style="font-size:12px;margin-bottom:6px">🏁 Rendimiento por marca (menor $/mm = rinde más)</div><div class="tw"><table><thead><tr><th>Marca</th><th>Llantas</th><th>Costo $/mm</th></tr></thead><tbody>'+
       rm.map(function(r,i){return '<tr><td style="font-weight:700">'+(i===0?'🥇 ':'')+r.marca+'</td><td style="text-align:center">'+r.n+'</td><td style="font-family:var(--m);color:var(--teal)">$'+r.costoMm.toFixed(2)+'</td></tr>';}).join('')+'</tbody></table></div>'):'';
   }
+  try{ renderDesgasteLlantas(); }catch(e){}
   if(cambiar>0){
     var hoyLL=fechaVE();
     var keyLL='btg_wa_ll_'+hoyLL;
@@ -18405,6 +18450,146 @@ function renderLlantas(){
     }
   }
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+// 📉 DESGASTE POR LLANTA — el reporte que pidió Carlos Serrano el 21/09/2026:
+//    «para poder ver el comportamiento de las llantas semanalmente o
+//     quincenalmente ... ¿por dónde veo el Reporte?»
+//
+// ⛔ NO EXISTÍA Y NO PODÍA EXISTIR. Hasta el 22/09 la medición vivía en
+//    `llantas.mm`, UNA celda que se pisaba en cada inspección, y el kilometraje
+//    del camión no se guardaba en ninguna parte. Lee `llantas_mediciones`, que
+//    guarda una fila por medición.
+//
+// 📌 LO QUE MÁS CUESTA ACÁ NO ES CALCULAR: ES NO MENTIR. Tres cosas se ven
+//    igual que un desgaste y no lo son —una llanta nueva, una llanta cambiada
+//    por otra usada, y una remedición del mismo día—, y las tres dan un ritmo
+//    inventado. Se tratan una por una, y lo que no se puede afirmar se dice.
+// ════════════════════════════════════════════════════════════════════════════
+async function renderDesgasteLlantas(){
+  var el=g('ll-desgaste'); if(!el)return;
+  if(!(DB_READY&&supabase)){ el.innerHTML='<div style="color:var(--text3);font-size:12px;padding:8px">Sin conexión</div>'; return; }
+  var r=null;
+  try{ r=await supabase.from('llantas_mediciones').select('cam,posicion,fecha,mm,km_unidad,marca,origen').order('fecha',{ascending:true}); }catch(e){}
+  if(!r||r.error||!r.data){ el.innerHTML='<div style="color:var(--text3);font-size:12px;padding:8px">No se pudo cargar el historial de mediciones</div>'; return; }
+  var filas=r.data;
+  if(!filas.length){ el.innerHTML='<div style="color:var(--text3);font-size:12px;padding:10px">Todavía no hay mediciones guardadas. Toque una llanta en la cuadrícula de arriba y anote sus milímetros: con dos mediciones en fechas distintas ya se ve cómo se está gastando.</div>'; return; }
+
+  var MIN=parseFloat(cfg.llMmMin)||3, OK=parseFloat(cfg.llMmOk)||6;
+  var porLlanta={};
+  filas.forEach(function(f){ var k=f.cam+'|'+f.posicion; (porLlanta[k]=porLlanta[k]||[]).push(f); });
+
+  var conSerie=[], sinSerie=0, cortadas=0, remedidas=0;
+  Object.keys(porLlanta).forEach(function(k){
+    var s=porLlanta[k].slice().sort(function(a,b){ return String(a.fecha).localeCompare(String(b.fecha)); });
+
+    // ⛔ UN PUNTO POR DÍA, Y MANDA EL ÚLTIMO. Si alguien midió dos veces la misma
+    //    llanta el mismo día es porque se corrigió, y contar las dos da un tramo
+    //    de CERO días —o sea una división por cero disfrazada de dato—.
+    var porDia={}, hubo2=false;
+    s.forEach(function(f){ if(porDia[f.fecha]) hubo2=true; porDia[f.fecha]=f; });
+    if(hubo2) remedidas++;
+    s=Object.keys(porDia).sort().map(function(d){ return porDia[d]; });
+
+    // ⛔ SI LOS MILÍMETROS SUBEN, ESA YA NO ES LA MISMA LLANTA: alguien montó una
+    //    nueva en esa posición. Medir el desgaste a través de un cambio de llanta
+    //    da un número inventado, así que la serie arranca en el último aumento.
+    var desde=0;
+    for(var i=1;i<s.length;i++){ if(parseFloat(s[i].mm)>parseFloat(s[i-1].mm)+0.01) desde=i; }
+    if(desde>0) cortadas++;
+    s=s.slice(desde);
+    if(s.length<2){ sinSerie++; return; }
+
+    var a=s[0], z=s[s.length-1];
+    var gast=parseFloat(a.mm)-parseFloat(z.mm);
+    var dias=Math.round((new Date(z.fecha)-new Date(a.fecha))/86400000);
+    var km=(a.km_unidad!=null&&z.km_unidad!=null)?(z.km_unidad-a.km_unidad):null;
+
+    // ⛔ UNA CAÍDA DE MÁS DE LA MITAD DEL DIBUJO NO ES DESGASTE. Una llanta no
+    //    pierde la mitad de su profundidad entre dos inspecciones: o la cambiaron
+    //    por otra usada, o una de las dos medidas está floja. El dato se MUESTRA
+    //    —es lo que se midió— pero NO se proyecta: una alarma falsa de «cámbiela
+    //    en 5 días» hace que dejen de mirar las verdaderas.
+    var sospecha=(gast>0 && parseFloat(a.mm)>0 && (gast/parseFloat(a.mm))>0.5);
+
+    conSerie.push({
+      cam:a.cam, pos:a.posicion, n:s.length, serie:s, sospecha:sospecha,
+      marca:(z.marca||a.marca||''), mmAhora:parseFloat(z.mm), mmAntes:parseFloat(a.mm),
+      gast:gast, dias:dias, km:km,
+      mmMes:(!sospecha&&dias>0&&gast>0)?(gast/dias*30):null,
+      mmKKm:(!sospecha&&km&&km>0&&gast>0)?(gast/km*1000):null,
+      reconstruida:s.some(function(x){return x.origen==='rastro_auditoria';})
+    });
+  });
+
+  if(!conSerie.length){
+    el.innerHTML='<div style="font-size:12px;color:var(--text2);padding:10px">Hay <b>'+filas.length+'</b> medición(es) cargada(s), pero ninguna llanta tiene todavía <b>dos mediciones en fechas distintas</b>, que es lo que hace falta para ver el desgaste. Vuelva a medir las mismas llantas la semana que viene y acá aparece solo.</div>';
+    return;
+  }
+
+  // El que más rápido se gasta, primero: es el que hay que mirar.
+  conSerie.sort(function(x,y){ return (y.mmMes==null?-1:y.mmMes)-(x.mmMes==null?-1:x.mmMes); });
+
+  var esc=(typeof _escHtml==='function')?_escHtml:function(x){return String(x==null?'':x);};
+  var n1=function(v){ return v==null?'—':v.toFixed(1); };
+  var n2=function(v){ return v==null?'—':v.toFixed(2); };
+
+  var cuerpo=conSerie.map(function(t){
+    // Cuánto le queda hasta el mínimo, al ritmo que trae. Sin ritmo no se proyecta.
+    var quedan='—';
+    if(t.sospecha) quedan='<span style="color:var(--yellow)">revisar</span>';
+    else if(t.mmMes>0){ var m=(t.mmAhora-MIN)/t.mmMes; quedan=m<=0?'<span style="color:#ef4444">ya pasó el mínimo</span>':(m<1?Math.round(m*30)+' días':m.toFixed(1)+' meses'); }
+    var colorMm=t.mmAhora<MIN?'#ef4444':(t.mmAhora<OK?'#f59e0b':'var(--green)');
+    var marcas=(t.reconstruida?' <span title="Parte de esta serie se reconstruyó del registro de auditoría: esas mediciones no tienen kilometraje" style="color:var(--text3);font-size:9px">·rec</span>':'')+
+               (t.sospecha?' <span title="Entre las dos mediciones perdió más de la mitad del dibujo. Eso no es desgaste: lo más probable es que se haya cambiado la llanta, o que una de las dos medidas esté floja. Por eso no se proyecta nada." style="color:var(--yellow);font-size:9px">·revisar</span>':'');
+    return '<tr>'+
+      '<td style="font-size:11px;font-weight:700;white-space:nowrap">'+esc(t.cam)+'</td>'+
+      '<td style="font-size:11px;white-space:nowrap">'+esc(t.pos)+marcas+'</td>'+
+      '<td style="font-size:11px">'+_sparkLl(t.serie)+'</td>'+
+      '<td style="font-size:11px;text-align:center">'+t.n+'</td>'+
+      '<td style="font-size:11px;font-family:var(--m);color:'+colorMm+';font-weight:700">'+n1(t.mmAhora)+'</td>'+
+      '<td style="font-size:11px;font-family:var(--m)">'+n1(t.mmAntes)+' → '+n1(t.mmAhora)+'</td>'+
+      '<td style="font-size:11px;white-space:nowrap">'+t.dias+' d'+(t.km!=null?' · '+t.km.toLocaleString('es-VE')+' km':'')+'</td>'+
+      '<td style="font-size:11px;font-family:var(--m)">'+n2(t.mmMes)+'</td>'+
+      '<td style="font-size:11px;font-family:var(--m)">'+n2(t.mmKKm)+'</td>'+
+      '<td style="font-size:11px;white-space:nowrap;color:var(--text2)">'+quedan+'</td>'+
+    '</tr>';
+  }).join('');
+
+  var sinKm=conSerie.filter(function(t){return t.mmKKm==null&&!t.sospecha;}).length;
+  var nSosp=conSerie.filter(function(t){return t.sospecha;}).length;
+  var av=function(txt,color){ return '<div style="font-size:11px;color:'+color+';margin-bottom:4px">'+txt+'</div>'; };
+  var avisos='';
+  if(nSosp) avisos+=av('En <b>'+nSosp+'</b> posición(es) la llanta perdió <b>más de la mitad del dibujo</b> entre dos mediciones. Eso no es desgaste: o se cambió la llanta, o una de las dos medidas está floja. Salen marcadas como <b>revisar</b> y no se les proyecta nada.','var(--yellow)');
+  if(sinSerie) avisos+=av('Otras <b>'+sinSerie+'</b> llanta(s) tienen una sola medición: todavía no se les puede ver el desgaste. Con medirlas de nuevo alcanza.','var(--text3)');
+  if(sinKm) avisos+=av('A <b>'+sinKm+'</b> de estas series les falta el kilometraje en alguna punta, así que la columna <b>mm/1.000 km</b> les sale vacía. El kilometraje se pide al medir.','var(--text3)');
+  if(cortadas) avisos+=av('En <b>'+cortadas+'</b> posición(es) los milímetros subieron en algún momento, o sea que se montó una llanta nueva: la cuenta arranca desde ahí y no atraviesa el cambio.','var(--text3)');
+  if(remedidas) avisos+=av('En <b>'+remedidas+'</b> posición(es) hubo más de una medición el mismo día; se toma la última de cada día.','var(--text3)');
+
+  el.innerHTML=
+    '<div style="font-size:11px;color:var(--text2);margin-bottom:6px"><b>'+conSerie.length+'</b> llanta(s) con desgaste medible, de <b>'+filas.length+'</b> medición(es). Ordenadas por la que se gasta más rápido. El mínimo configurado es <b>'+MIN+' mm</b>.</div>'+
+    avisos+
+    '<div class="tw"><table><thead><tr>'+
+      '<th>Unidad</th><th>Posición</th><th>Cómo viene</th><th>Med.</th><th>mm hoy</th><th>De → a</th><th>En</th>'+
+      '<th title="Milímetros que pierde por mes al ritmo que trae">mm/mes</th>'+
+      '<th title="Milímetros que pierde cada 1.000 km. Necesita el kilometraje en las dos puntas">mm/1.000 km</th>'+
+      '<th title="Cuánto le falta para llegar al mínimo, al ritmo que trae">Le queda</th>'+
+    '</tr></thead><tbody>'+cuerpo+'</tbody></table></div>';
+}
+
+// Dibujito de la serie: los milímetros a lo largo del tiempo. Sin librerías.
+function _sparkLl(s){
+  if(!s||s.length<2)return '';
+  var v=s.map(function(x){return parseFloat(x.mm);});
+  var mx=Math.max.apply(null,v), mn=Math.min.apply(null,v), d=(mx-mn)||1;
+  var W=70,H=18;
+  var pts=v.map(function(y,i){ return (i*(W/(v.length-1))).toFixed(1)+','+(H-((y-mn)/d)*(H-4)-2).toFixed(1); }).join(' ');
+  var baja=v[v.length-1]<v[0];
+  return '<svg width="'+W+'" height="'+H+'" viewBox="0 0 '+W+' '+H+'" style="vertical-align:middle">'+
+    '<polyline points="'+pts+'" fill="none" stroke="'+(baja?'#f59e0b':'#22c55e')+'" stroke-width="1.5" stroke-linejoin="round"/>'+
+    '</svg>';
+}
+
 
 function ciclarLlanta(cam,idx){
   var estados=['Buena','Regular','Cambiar Urgente'];
