@@ -19260,6 +19260,10 @@ function renderEmpleados(){
   var filtCargo=gv('emp-filtro')||'';
   var grid=g('emp-grid');
   if(!grid)return;
+  // ⛔ LOS CARGOS SON LOS DE ESTA EMPRESA. Si cargarCargos() corrió antes de que
+  //    llegaran los empleados, la lista quedó con la del MOLDE (la de Betangar).
+  //    Acá ya hay gente: se rehace una vez.
+  if(typeof CARGOS_DEL_MOLDE!=='undefined'&&CARGOS_DEL_MOLDE&&EMPLEADOS.length){ CARGOS_DEL_MOLDE=false; cargarCargos(); }
 
   var ORDEN=['gerente general','operativo','administradora','rrhh','supervisor','mecanico','vigilante','chofer','ayudante'];
 
@@ -23529,7 +23533,14 @@ async function siguienteNumCorrelativo(){
 // ═══════════════════════════════════════════════════
 // GESTIÓN DE CARGOS
 // ═══════════════════════════════════════════════════
-var CARGOS_SISTEMA = [
+// ⛔ ESTA LISTA NO ES LA DE NINGÚN CLIENTE. Son los cargos con los que nació
+//    Betangar, y en un clon solo sirven de ARRANQUE: mientras la empresa no tenga
+//    un solo empleado cargado hay que ofrecerle algo. En cuanto hay gente, los
+//    cargos son los de ELLA — se arman abajo, en cargarCargos().
+//    Hasta el 23/09/2026 esta lista se mostraba tal cual en los 5 clones: en Tony
+//    Gas, 61 de sus 62 empleados tenían un cargo que el desplegable no ofrecía.
+//    [[clon-no-puede-mostrar-ni-tocar-otro-cliente]]
+var CARGOS_MOLDE = [
   {id:'c01',nombre:'Gerente General',cat:'directivo',sistema:true},
   {id:'c02',nombre:'Administradora',cat:'administrativo',sistema:true},
   {id:'c03',nombre:'RRHH',cat:'administrativo',sistema:true},
@@ -23542,45 +23553,86 @@ var CARGOS_SISTEMA = [
   {id:'c10',nombre:'Contadora',cat:'administrativo',sistema:true},
   {id:'c11',nombre:'Auditora',cat:'administrativo',sistema:true},
 ];
+var CARGOS_SISTEMA = CARGOS_MOLDE.slice();
+// ⚠️ Queda dicho si la lista salió del molde y no de la empresa: una lista ajena
+//    que no se anuncia se copia sin darse cuenta.
+var CARGOS_DEL_MOLDE = true;
 
+// La CATEGORÍA de un cargo escrito por el cliente. Reusa cargoFuncion(), que ya es
+// la pieza que traduce la palabra de cada empresa a su función operativa.
+function _cargoCategoria(nombre){
+  var s=(nombre||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+  if(/gerent|director|presiden|c\.?e\.?o|dueno|propietar/.test(s)) return 'directivo';
+  var f=cargoFuncion(nombre);
+  if(f==='mecanico')       return 'mantenimiento';
+  if(f==='chofer')         return 'campo';
+  if(f==='ayudante')       return 'campo';
+  if(f==='vigilante')      return 'operativo';
+  if(f==='supervisor')     return 'operativo';
+  if(f==='administrativo') return 'administrativo';
+  return 'otro';
+}
+
+// ⛔ UNA SOLA FUENTE. El desplegable de Cargo, el filtro de Personal y la pantalla
+//    de Gestión de Cargos salen todos de acá. Es el mismo patrón que ya usa
+//    poblarCarnetCargos() para los carnets: los cargos son los de la gente que hay.
 async function cargarCargos(){
-  // Cargar cargos personalizados de Supabase
-  if(DB_READY&&supabase){
-    var res=await supabase.from('configuracion').select('valor').eq('clave','cargos_custom').maybeSingle();
-    if(!res.error&&res.data){
-      try{
-        var custom=JSON.parse(res.data.valor||'[]');
-        // Agregar solo los que no estén ya
-        custom.forEach(function(c){
-          if(!CARGOS_SISTEMA.find(function(x){return x.id===c.id;})){
-            CARGOS_SISTEMA.push(c);
-          }
-        });
-      }catch(e){}
-    }
+  var lista=[], vistos={};
+  function _sumar(nombre, cat, esSistema){
+    var n=(nombre==null?'':String(nombre)).trim(); if(!n) return;
+    var k=n.toLowerCase();
+    if(vistos[k]) return; vistos[k]=true;
+    lista.push({ id:'c_'+k.replace(/[^a-z0-9]+/g,'_').replace(/^_|_$/g,''),
+                 nombre:n, cat:cat||_cargoCategoria(n), sistema:esSistema!==false });
   }
+  // 1) LOS CARGOS DE ESTA EMPRESA: los que de verdad tiene su gente cargada.
+  //    Van como `sistema` porque están EN USO: no se pueden borrar desde la pantalla.
+  try{
+    (typeof EMPLEADOS!=='undefined'&&EMPLEADOS?EMPLEADOS:[]).forEach(function(e){
+      if(e&&e.cargo) _sumar(e.cargo,null,true);
+    });
+  }catch(e){}
+  // 2) Los que el administrador creó a mano en Configuración → Cargos.
+  if(DB_READY&&supabase){
+    try{
+      var res=await supabase.from('configuracion').select('valor').eq('clave','cargos_custom').maybeSingle();
+      if(!res.error&&res.data){
+        JSON.parse(res.data.valor||'[]').forEach(function(c){ if(c&&c.nombre) _sumar(c.nombre,c.cat,false); });
+      }
+    }catch(e){}
+  }
+  // 3) Solo si la empresa todavía no tiene NADA, se arranca con la lista del molde.
+  CARGOS_DEL_MOLDE = (lista.length===0);
+  if(CARGOS_DEL_MOLDE) CARGOS_MOLDE.forEach(function(c){ _sumar(c.nombre,c.cat,true); });
+  lista.sort(function(a,b){ return a.nombre.localeCompare(b.nombre,'es'); });
+  CARGOS_SISTEMA.length=0;
+  lista.forEach(function(c){ CARGOS_SISTEMA.push(c); });
   // Actualizar dropdowns
   actualizarDropdownsCargos();
 }
 
+// ⛔ UN DESPLEGABLE VACÍO SE VE IGUAL QUE UNA EMPRESA SIN CARGOS. Si la lista no
+//    llegó, se dice; no se deja el hueco mudo.
 function actualizarDropdownsCargos(){
+  var vivos=CARGOS_SISTEMA.filter(function(c){return c.activo!==false;});
+  var ops=vivos.map(function(c){
+    var n=(typeof _mEsc==='function')?_mEsc(c.nombre):c.nombre;
+    return '<option value="'+n+'">'+n+'</option>';
+  }).join('');
+  var aviso=vivos.length?'':'<option value="" disabled>(no se pudieron cargar los cargos)</option>';
   // Actualizar dropdown de empleados
   var selEmp=g('ne-cargo');
   if(selEmp){
     var valActual=selEmp.value;
-    selEmp.innerHTML='<option value="">-- Seleccionar --</option>';
-    CARGOS_SISTEMA.filter(function(c){return c.activo!==false;}).forEach(function(c){
-      selEmp.innerHTML+='<option value="'+c.nombre+'">'+c.nombre+'</option>';
-    });
+    selEmp.innerHTML='<option value="">-- Seleccionar --</option>'+ops+aviso;
     selEmp.value=valActual;
   }
   // Actualizar filtro de búsqueda
   var selFiltro=g('emp-filtro');
   if(selFiltro){
-    selFiltro.innerHTML='<option value="">Todos los cargos</option>';
-    CARGOS_SISTEMA.filter(function(c){return c.activo!==false;}).forEach(function(c){
-      selFiltro.innerHTML+='<option value="'+c.nombre+'">'+c.nombre+'</option>';
-    });
+    var filActual=selFiltro.value;
+    selFiltro.innerHTML='<option value="">Todos los cargos</option>'+ops+aviso;
+    selFiltro.value=filActual;
   }
 }
 
@@ -27566,7 +27618,22 @@ function genRptAlcaldia(){
 // El IVA es el mismo que usa el módulo de pagos de la Alcaldía: 16% sobre la base.
 // ════════════════════════════════════════════════════════════════════════════
 var IVA_ALC = 0.16;
-var DIAS_SEM = ['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'];
+// ⛔ UNA SOLA LISTA. Las abreviadas se DERIVAN de las largas, no se escriben aparte:
+//    dos listas a mano se desincronizan y ya pasó siete veces en este repo.
+//    [[norma-dos-listas-a-mano-se-desincronizan]]
+var DIAS_SEM_LARGO = ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'];
+var DIAS_SEM = DIAS_SEM_LARGO.map(function(d){ return d.slice(0,3); });
+
+// La FECHA del día N de esa semana, para que la cabecera diga «Lunes 14/09/2026» y no
+// sólo «Lun». Máximo: «debe decir qué día es el lunes, qué fecha es el martes, y así».
+// ⛔ Se arma a mediodía y se lee con los getters LOCALES: `toISOString()` devuelve UTC
+//    y en Venezuela (UTC−4) una fecha a medianoche se corre al día anterior.
+function _relFechaDia(lunes, i){
+  var d = new Date(lunes + 'T12:00:00');
+  d.setDate(d.getDate() + i);
+  var p = function(n){ return (n < 10 ? '0' : '') + n; };
+  return p(d.getDate()) + '/' + p(d.getMonth() + 1) + '/' + d.getFullYear();
+}
 
 // Los viajes de UNA semana, camión por camión y día por día.
 function _relSemana(lunes, regs){
@@ -27643,7 +27710,7 @@ function genRelacionCamiones(){
       +   '</div>'
       +   '<div style="border-top:1px solid rgba(255,255,255,.15);margin-top:10px;padding-top:8px;display:flex;justify-content:space-between;align-items:flex-end">'
       +     '<div><div style="font-size:8px;opacity:.6;text-transform:uppercase;letter-spacing:1px">Semana</div>'
-      +       '<div style="font-size:13px;font-weight:700">'+fmtFechaCorta(L)+' al '+fmtFechaCorta(dom)+'</div></div>'
+      +       '<div style="font-size:13px;font-weight:700">Del lunes '+fmtFechaCorta(L)+' al domingo '+fmtFechaCorta(dom)+'</div></div>'
       +     '<div style="text-align:right"><div style="font-size:8px;opacity:.6;text-transform:uppercase;letter-spacing:1px">Viajes</div>'
       +       '<div style="font-size:22px;font-weight:900;color:#7dc941;line-height:1">'+tot.v+'</div></div>'
       +   '</div>'
@@ -27654,7 +27721,11 @@ function genRelacionCamiones(){
       + '<thead><tr style="background:#1e3a5f;color:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact">'
       +   '<th style="padding:6px 7px;text-align:left;font-size:9px;text-transform:uppercase">Unidad</th>'
       +   '<th style="padding:6px 7px;text-align:left;font-size:9px;text-transform:uppercase">Placa</th>'
-      +   DIAS_SEM.map(function(d){ return '<th style="padding:6px 4px;text-align:center;font-size:9px;text-transform:uppercase">'+d+'</th>'; }).join('')
+      // Cada día lleva su NOMBRE y su FECHA, calculada contra el lunes de ESTA semana.
+      +   DIAS_SEM_LARGO.map(function(d,i){
+            return '<th style="padding:5px 3px;text-align:center;font-size:8px;text-transform:uppercase;line-height:1.3">'+d
+              + '<div style="font-size:7.5px;font-weight:400;opacity:.85;font-family:monospace;letter-spacing:0;text-transform:none">'+_relFechaDia(L,i)+'</div></th>';
+          }).join('')
       +   '<th style="padding:6px 7px;text-align:center;font-size:9px;text-transform:uppercase">Viajes</th>'
       +   '<th style="padding:6px 7px;text-align:right;font-size:9px;text-transform:uppercase">Monto USD</th>'
       + '</tr></thead><tbody>';

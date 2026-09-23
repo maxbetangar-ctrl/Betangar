@@ -2389,7 +2389,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
   <div id="tab-emp-lista">
     <div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap">
       <input class="fc" id="emp-buscar" placeholder="Buscar empleado..." oninput="renderEmpleados()" style="max-width:200px;padding:6px 10px;font-size:12px">
-      <select class="fc" id="emp-filtro" onchange="renderEmpleados()" style="max-width:160px;padding:6px 8px;font-size:11px"><option value="">Todos los cargos</option><option>Gerente General</option><option>Administradora</option><option>RRHH</option><option>Operativo</option><option>Supervisor</option><option>Mecanico</option><option>Vigilante</option><option>Chofer</option><option>Ayudante</option></select>
+      <select class="fc" id="emp-filtro" onchange="renderEmpleados()" style="max-width:160px;padding:6px 8px;font-size:11px"><!-- ⛔ Los cargos NO van horneados aca: los pone actualizarDropdownsCargos() con los de ESTA empresa --><option value="">Todos los cargos</option></select>
       <label class="ctr" style="font-size:11px;color:var(--text2);cursor:pointer;gap:5px;font-weight:600"><input type="checkbox" id="emp-show-inactivos" onchange="renderEmpleados()" style="width:auto;cursor:pointer">Mostrar inactivos</label>
       <button class="btn btn-s btn-sm" style="margin-left:auto" onclick="descargarPlantillaEmpleados()" title="Descargá el Excel, que el cliente lo llene con cédulas/cuentas/sueldos, y volvé a subirlo">⬇️ Plantilla Excel</button>
       <label class="btn btn-s btn-sm" style="cursor:pointer">📥 Importar Excel<input type="file" accept=".xlsx,.xls" style="display:none" onchange="importarEmpleadosExcel(this)"></label>
@@ -2415,7 +2415,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
               </select>
             </div>
           </div>
-          <div class="fg"><label>Cargo</label><select class="fc" id="ne-cargo" onchange="toggleTipoAy(this.value)"><option value="">-- Seleccionar --</option><option>Gerente General</option><option>Administradora</option><option>RRHH</option><option>Operativo</option><option>Supervisor</option><option>Mecanico</option><option>Vigilante</option><option>Chofer</option><option>Ayudante</option><option>Contadora</option><option>Auditora</option></select></div><div class="fg" id="fg-tipoAy" style="display:none"><label>Tipo Ayudante</label><select class="fc" id="ne-tipoAy"><option value="interno">Interno ($5/viaje)</option><option value="imau">IMAU ($2.50/viaje)</option></select></div></div>
+          <div class="fg"><label>Cargo</label><select class="fc" id="ne-cargo" onchange="toggleTipoAy(this.value)"><!-- ⛔ Los cargos NO van horneados aca: los pone actualizarDropdownsCargos() con los de ESTA empresa --><option value="">-- Seleccionar --</option></select></div><div class="fg" id="fg-tipoAy" style="display:none"><label>Tipo Ayudante</label><select class="fc" id="ne-tipoAy"><option value="interno">Interno ($5/viaje)</option><option value="imau">IMAU ($2.50/viaje)</option></select></div></div>
         <div class="fg" id="fg-multicargo" style="display:none;background:rgba(168,85,247,.08);border:1px dashed rgba(168,85,247,.5);border-radius:8px;padding:8px 10px"><label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin:0"><input type="checkbox" id="ne-multicargo" style="width:auto"> 🔁 <b>Rota entre Chofer y Ayudante</b></label><div style="font-size:10px;color:var(--text3);margin-top:4px">El sistema lo detecta solo si en las planillas aparece manejando y ayudando. Marcá esto solo para <b>forzarlo</b> (ej. empleado nuevo sin historial aún). Se le paga según el rol real de cada viaje.</div></div>
         <div class="fg"><label>Unidad / Area</label><select class="fc" id="ne-unidad"></select><button onclick="agregarUnidadArea()" class="btn btn-s btn-sm" style="margin-top:4px;font-size:11px;width:100%">+ Agregar unidad/área</button></div>
         <!-- ⛔ CÓMO SE LE PAGA A ESTA PERSONA. Pedido por Máximo el 27/08: «debe haber
@@ -3101,7 +3101,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
 <script src="maxagenda.js?v=20260911-entrega"></script>
 <!-- Formato unico de los Excel de Maxware. VA ANTES de app.js. -->
 <script src="maxware-excel.js"></script>
-<script src="app.js?v=20260923-0130"></script>
+<script src="app.js?v=20260923-1445"></script>
 
 <!-- Modal global -->
 <div id="modal" class="moverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9990;align-items:center;justify-content:center;padding:16px">
