@@ -216,7 +216,7 @@ body{background:#0f1923;color:#fff;font-family:-apple-system,BlinkMacSystemFont,
 </div>
 
 <!-- ══════ ¿QUIÉNES VAN CON VOS HOY? ═══════════════════════════════════════════════════
-     Paso 2, inmediatamente después de identificarse. Hasta 3 ayudantes, y NO es obligatorio
+     Paso 2, inmediatamente después de identificarse. Hasta 4 ayudantes, y NO es obligatorio
      (decisión de Máximo, 11/09/2026: *«la cantidad de ayudantes no es obligatoria»*).
      Se pregunta acá y no en el fichaje del patio porque a esta altura la cuadrilla YA ESTÁ
      MONTADA: a las 5 AM, cuando el ayudante ficha, todavía no sabe a qué camión lo mandan.
@@ -224,8 +224,8 @@ body{background:#0f1923;color:#fff;font-family:-apple-system,BlinkMacSystemFont,
      sola de las 965 planillas. -->
 <div class="error-screen" id="cuadrilla-gate" style="display:none">
   <div class="error-icon">👥</div>
-  <div class="error-title" style="color:#7dc941">¿Quiénes van con vos hoy?</div>
-  <div class="error-msg" id="cq-sub" style="margin-bottom:12px">Hasta 3. Si andás solo, tocá <b>Listo</b>.</div>
+  <div class="error-title" style="color:#7dc941">¿Quiénes van con usted hoy?</div>
+  <div class="error-msg" id="cq-sub" style="margin-bottom:12px">Hasta 4. Si anda solo, toque <b>Listo</b>.</div>
   <div id="cq-elegidos" style="width:82%;max-width:320px;margin-bottom:8px"></div>
   <input id="cq-buscar" oninput="cqFiltrar()" placeholder="Buscá al ayudante…" autocomplete="off" style="width:82%;max-width:320px;padding:12px;font-size:16px;border-radius:12px;border:1px solid #2a3f52;background:#0f1a24;color:#fff;margin-bottom:8px;box-sizing:border-box">
   <div id="cq-lista" style="width:82%;max-width:320px;max-height:30vh;overflow-y:auto;margin-bottom:10px"></div>
@@ -1149,7 +1149,7 @@ function cambiarChoferDia(){
 }
 
 // ══════════════════════════════════════════════════════════════════════════════════════════
-// LA CUADRILLA DEL DÍA — hasta 3 ayudantes, declarados por el chofer
+// LA CUADRILLA DEL DÍA — hasta 4 ayudantes, declarados por el chofer
 //
 // ⛔ ESTO NO LE CREA LA ASISTENCIA A NADIE. Va a `cuadrilla_dia`, una tabla aparte; la
 //    asistencia la sigue creando cada persona con su selfie en `fichar.html`. Que el chofer
@@ -1160,7 +1160,12 @@ function cambiarChoferDia(){
 //    2 o 3, y sin señal se encola — un chofer nunca se queda parado por esto.
 // ══════════════════════════════════════════════════════════════════════════════════════════
 var CQ_SEL = [];                       // [{id,nombre,cargo}]
-var CQ_MAX = 3;
+// ⛔ EL TOPE TAMBIÉN VIVE EN LA BASE, en `cuadrilla_declarar`: si se sube acá y allá no, el
+//    servidor rechaza la declaración y el chofer no entiende por qué. Se cambian los dos.
+//    Máximo, 22/09: «máximo lleva 3 ayudantes, aunque en algún caso pudieran montarse 4;
+//    déjale límite de 4, aunque casi siempre serán 2 o 3».
+//    [[norma-dos-listas-a-mano-se-desincronizan]]
+var CQ_MAX = 4;
 function _cqKey(){ return 'btg_cuadrilla_dia_'+cam; }
 function _cqColaKey(){ return 'btg_cola_cuadrilla'; }
 
@@ -1223,14 +1228,24 @@ function cqRender(){
   }
   var el = document.getElementById('cq-lista'); if(!el) return;
   if(CQ_SEL.length >= CQ_MAX){
-    el.innerHTML = '<div style="color:rgba(255,255,255,.5);font-size:12px;text-align:center;padding:10px">Ya son 3. Quitá a alguno para cambiarlo.</div>';
+    // El número sale del tope, no escrito a mano: así no vuelve a quedar diciendo «3».
+    el.innerHTML = '<div style="color:rgba(255,255,255,.5);font-size:12px;text-align:center;padding:10px">Ya son '+CQ_MAX+'. Quite a alguno para cambiarlo.</div>';
     return;
   }
   var q = _norm((document.getElementById('cq-buscar')||{}).value||'');
-  // Los AYUDANTES primero (internos y del IMAU, que es justo a quien nadie ve hoy), pero sin
-  // esconder al resto: en el aseo un chofer de relevo puede salir de ayudante.
-  var base = CHOFERES_LISTA.filter(function(c){ return /ayudante/i.test(c.cargo||''); });
-  if(!base.length) base = CHOFERES_LISTA;
+  // ⛔ SE ORDENA, NO SE FILTRA. Esta línea decía `filter(/ayudante/i)` y el comentario de al
+  //    lado decía «sin esconder al resto» — pero el filtro los escondía: el respaldo de abajo
+  //    solo entraba si NINGUNO pasaba. Resultado medido el 22/09: DANIEL DARÍO CHACÍN, ayudante
+  //    del IMAU con el cargo VACÍO en su ficha, no aparecía en la lista y NO HABÍA FORMA de
+  //    declararlo — cero apariciones en `cuadrilla_dia` desde que existe la tabla.
+  // 📌 Que a una persona se la pueda nombrar no puede depender de cómo alguien escribió su
+  //    cargo. Los ayudantes siguen saliendo primero, que es lo que el chofer busca; el resto
+  //    queda abajo y alcanzable —en el aseo un chofer de relevo sale de ayudante—.
+  var _esAyu = function(c){ return /ayudante/i.test(c.cargo||''); };
+  var base = CHOFERES_LISTA.slice().sort(function(a,b){
+    var d = (_esAyu(b)?1:0) - (_esAyu(a)?1:0);
+    return d !== 0 ? d : String(a.nombre||'').localeCompare(String(b.nombre||''));
+  });
   var yaId = CQ_SEL.map(function(a){ return a.id; });
   var arr = base.filter(function(c){ return c.id!==CHOFER_ID && yaId.indexOf(c.id)<0 && (!q || _norm(c.nombre).indexOf(q)>=0); });
   if(!arr.length){ el.innerHTML='<div style="color:rgba(255,255,255,.5);font-size:13px;text-align:center;padding:10px">Sin coincidencias.</div>'; return; }
