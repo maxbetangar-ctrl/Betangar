@@ -27690,7 +27690,10 @@ function genRelacionCamiones(){
       +     '<td style="padding:9px 12px;text-align:right;font-family:monospace;font-weight:900;font-size:14px;color:#15803d">$'+n2(tot.m+iva)+'</td></tr>'
       + '</table>'
 
-      + '<div style="background:#f3f4f6;padding:7px 12px;border-top:1px solid #e5e7eb;display:flex;justify-content:space-between;font-size:8.5px;color:#9ca3af">'
+      // ⛔ EL PIE TAMBIEN SE LEE. Medido con WCAG: en gris #9ca3af a 8,5px daba 2,31 de
+      //    contraste sobre su propio fondo, contra el 4,5 que exige AA. Es el unico texto
+      //    del documento que no pasaba, y es el que lleva el RIF.
+      + '<div style="background:#f3f4f6;padding:7px 12px;border-top:1px solid #e5e7eb;display:flex;justify-content:space-between;font-size:9px;color:#5b6472">'
       +   '<div>'+brandNom()+' · '+brandRif()+' · '+brandCiudad()+'</div><div>'+gen+'</div>'
       + '</div>'
       + '</section>';
