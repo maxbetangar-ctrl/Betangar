@@ -22432,20 +22432,32 @@ async function checkAniversarioEmpresa(){
     if(!/^\d{4}-\d{2}-\d{2}$/.test(hoyStr))return;
     var ph=hoyStr.split('-'), anioH=parseInt(ph[0],10), mesH=parseInt(ph[1],10), diaH=parseInt(ph[2],10);
     if(mesH!==mesF||diaH!==diaF)return;
-    // Una vez por dia y por equipo, igual que el aviso de cumpleanos.
-    var key='btg_aniv_'+hoyStr;
-    try{ if(localStorage.getItem(key))return; localStorage.setItem(key,'1'); }catch(e){}
+    // ⛔ LA LLAVE ES «LO CERRÓ», NO «YA SE MOSTRÓ». Con un toast bastaba marcarlo una
+    //    vez porque el toast se iba solo; un banner que se esconde para siempre la
+    //    primera vez que alguien abre la app en el dia no lo ve casi nadie. Ahora se
+    //    muestra cada vez que entra, y solo desaparece si LA PERSONA lo cierra.
+    var key='btg_aniv_cerrado_'+hoyStr;
+    try{ if(localStorage.getItem(key))return; }catch(e){}
+    window._ANIV_KEY=key;
     var anios=anioH-anioF;
     // ⛔ Si la fundacion quedara cargada con un ano futuro o del mismo ano, «cumple
     //    0 anos» se lee como un error del sistema. En ese caso se saluda sin el numero.
     var nom=(typeof brandNom==='function'&&brandNom())?brandNom():'la empresa';
-    if(typeof mostrarToast==='function'){
-      mostrarToast(anios>0
-        ? ('\uD83C\uDF89 Hoy '+nom+' cumple '+anios+' a\u00f1os. \u00a1Felicitaciones a todo el equipo!')
-        : ('\uD83C\uDF89 Hoy es el aniversario de '+nom+'. \u00a1Felicitaciones a todo el equipo!'),
-        'exito');
-    }
+    var msg = anios>0
+      ? ('\uD83C\uDF89 Hoy '+nom+' cumple '+anios+' a\u00f1os. \u00a1Felicitaciones a todo el equipo!')
+      : ('\uD83C\uDF89 Hoy es el aniversario de '+nom+'. \u00a1Felicitaciones a todo el equipo!');
+    var b=document.getElementById('aniv-banner'), t=document.getElementById('aniv-txt');
+    if(b&&t){ t.textContent=msg; b.style.display='flex'; }
+    // ⛔ Respaldo: si este clon todavia no tiene el div, el aviso NO se pierde en
+    //    silencio. Un aviso que depende de un elemento que quiza no exista tiene que
+    //    decir que pasa cuando no esta.
+    else if(typeof mostrarToast==='function'){ mostrarToast(msg,'exito'); }
   }catch(e){}
+}
+// Cerrarlo es una decision de la persona, y se respeta hasta manana.
+function cerrarAnivBanner(){
+  var b=document.getElementById('aniv-banner'); if(b)b.style.display='none';
+  try{ if(window._ANIV_KEY)localStorage.setItem(window._ANIV_KEY,'1'); }catch(e){}
 }
 function checkCumpleAlerts(){
   // DESACTIVADO (2026-07-17): re-enviaba "Hoy es el cumpleaños de X. ¡Felicítalo!" a TODO el personal en CADA

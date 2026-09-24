@@ -247,6 +247,9 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
 <body>
 <div id="db-status-banner" style="display:none;position:fixed;top:8px;left:50%;transform:translateX(-50%);background:rgba(248,113,113,.1);border:1px solid rgba(248,113,113,.3);color:#fff;padding:8px 20px;border-radius:8px;z-index:9999;font-size:12px;text-align:center;min-width:300px"></div>
 <div class="demo-banner" id="demo-banner">⚠ MODO DEMO — Los cambios no se guardan</div>
+<!-- Aniversario de la empresa. Va como BANNER y no como toast: un toast se va solo y
+     quien estaba mirando otra cosa no lo vio. Se cierra a mano y no vuelve ese dia. -->
+<div id="aniv-banner" style="display:none;position:fixed;top:8px;left:50%;transform:translateX(-50%);background:rgba(125,201,65,.14);border:1px solid rgba(125,201,65,.45);color:#fff;padding:9px 16px 9px 20px;border-radius:10px;z-index:9999;font-size:13px;font-weight:700;text-align:center;width:max-content;max-width:92vw;align-items:center;gap:12px;box-shadow:0 6px 24px rgba(0,0,0,.35)"><span id="aniv-txt"></span><span onclick="cerrarAnivBanner()" title="Cerrar" style="cursor:pointer;opacity:.6;font-weight:900;font-size:15px;line-height:1;padding:0 2px">×</span></div>
 <!-- Sello de versión: sirve para verificar que un dispositivo cargó el código más reciente
      (si el celular muestra un build distinto al del computador, está en caché vieja). -->
 <div id="app-ver" style="position:fixed;bottom:2px;right:5px;font-size:8px;color:rgba(174,212,234,.35);z-index:9998;pointer-events:none;font-family:monospace">v9.0 · build 2026-06-16p</div>
@@ -3105,7 +3108,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
      Excel sale con el defecto ya corregido. Pasó midiendo este mismo cambio el
      23/09: dos corridas dieron un .xlsx idéntico byte por byte. -->
 <script src="maxware-excel.js?v=20260923-2252"></script>
-<script src="app.js?v=20260924c-2334"></script>
+<script src="app.js?v=20260924d-2334"></script>
 
 <!-- Modal global -->
 <div id="modal" class="moverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9990;align-items:center;justify-content:center;padding:16px">
