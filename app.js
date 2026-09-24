@@ -13319,6 +13319,12 @@ async function registrarMantItem(){
   audit(_editId?'Mantenimiento editado':'Mantenimiento registrado',cam+' · '+row.tipo+' ('+tipoTrab+')'+(km?(' · '+km+'km'):'')+(horas?(' · '+horas+'h'):'')+(costo?(' · $'+costo):''));
   window._hvEditId=''; var _gb=g('hv-guardar-btn'); if(_gb)_gb.textContent='Registrar en la hoja de vida';
   window._hvFotoUrl=''; sv('hv-km','');sv('hv-horas','');sv('hv-costo','');sv('hv-nota','');sv('hv-prov','');sv('hv-prov-sel','');sv('hv-prov-otro','');try{_hvProvOtro();}catch(e){}sv('hv-garantia','');
+  // ⛔ Y TAMBIÉN el ítem, su texto libre, la fecha y el tipo de trabajo. Un
+  // formulario que después de guardar sigue mostrando lo que se acaba de
+  // registrar se lee como que NO se guardó, y se vuelve a dar al botón.
+  // La UNIDAD se queda: se cargan varios ítems del mismo camión seguidos.
+  sv('hv-item','');sv('hv-item-txt','');sv('hv-tipotrabajo','cambio');
+  try{ sv('hv-fecha', (typeof fechaVE==='function')?fechaVE():''); }catch(e){}
   var fp=g('hv-foto-prev'); if(fp)fp.innerHTML='';
   renderHojaVida();
   if(typeof mostrarToast==='function')mostrarToast(ok?'✅ Mantenimiento guardado en la hoja de vida':'⚠️ En cola (sin conexión)',ok?'exito':'error');
