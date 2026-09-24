@@ -20474,7 +20474,7 @@ async function crearUsuario(){
   // y deben poder recuperar su clave. También si la empresa exige correo a todos (clones, flag on).
   // Operativos y operador: correo opcional (la API genera uno sintético si no se pone).
   var _rolOficina2fa=['superadmin','admin','rrhh'].indexOf(rol)>=0;
-  if((BTG_CONFIG.auth_correo_obligatorio||_rolOficina2fa) && (!email||email.indexOf('@')<1)){ alert((_rolOficina2fa?'El rol '+rol+' ':'Esta empresa ')+'requiere un CORREO real (para entrar por correo, 2FA y recuperar la clave).'); return; }
+  if((BTG_CONFIG.auth_correo_obligatorio||_rolOficina2fa) && (!email||email.indexOf('@')<1)){ alert((_rolOficina2fa?'El rol '+rol+' ':'Esta empresa ')+'requiere un CORREO real (para contacto y para poder recuperar el acceso).\n\nOJO: se entra con el NOMBRE DE USUARIO, no con el correo.'); return; }
   var j=await btgUsuariosAPI('POST',{accion:'crear',usuario:u,password:p,nombre:nombre,rol:rol,email:email||null});
   if(j&&j.ok){
     audit('Usuario creado',u+' rol:'+rol);
@@ -20483,11 +20483,17 @@ async function crearUsuario(){
     //    Sin esta línea, quien crea el usuario le pasa el nombre corto y la persona
     //    choca con «credenciales no válidas» teniendo la clave buena — pasó con
     //    Sandra el 31/08 y con Maygleth el 23/09. [[dominio-del-correo-lo-dicta-la-app]]
-    var _entraCon = (email && email.indexOf('@')>0) ? email : u;
+    // ⛔ CON QUE SE ENTRA LO DICE EL SERVIDOR, no esta pantalla. Desde el 24/09/2026
+    //    la cuenta se crea SIEMPRE como usuario@<dominio de la instancia>, tenga o no
+    //    correo propio, asi que el nombre corto entra siempre. Se cae al calculo viejo
+    //    solo si el endpoint todavia no manda `entra_con`, para que el cartel nunca
+    //    contradiga a la cuenta que se acaba de crear.
+    var _entraCon = (j && j.entra_con) ? j.entra_con : ((email && email.indexOf('@')>0) ? email : u);
     ['nu-user','nu-pass','nu-nombre','nu-email'].forEach(function(id){sv(id,'');});
     renderUsuarios();
     alert('✅ Usuario '+u+' creado.\n\nENTRA CON: '+_entraCon+
-          ((_entraCon!==u) ? '\n\nEscribe el correo completo en la casilla de usuario, no «'+u+'».' : ''));
+          ((_entraCon!==u) ? '\n\nEscriba el correo completo en la casilla de usuario, no «'+u+'».' : '')+
+          ((j && j.aviso) ? ('\n\n⚠️ '+j.aviso) : ''));
   }
   else alert('No se pudo crear: '+motivoUsuarios((j&&j.error)||''));
 }
