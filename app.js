@@ -921,7 +921,15 @@ async function doLogin(){
     _entrarSesion({usuario:u, rol:USUARIOS[u].rol, nombre:USUARIOS[u].nombre, demo:!!USUARIOS[u].demo});
     return;
   }
-  err.textContent = authMsg ? ('No se pudo entrar: '+authMsg) : 'Usuario o contrasena incorrectos';
+  // ⛔ EL MENSAJE NO PUEDE CULPAR A LA CLAVE CUANDO LA CAUSA ES EL CORREO.
+  //    Arriba se arma usuario+@maxware.app si no se tecleó arroba; las cuentas de
+  //    oficina (superadmin/admin/rrhh) llevan correo REAL y por ahí no entran.
+  //    Supabase devuelve siempre «Invalid login credentials», así que la pista la
+  //    pone la pantalla. No se busca el correo de nadie: solo se nombra la otra
+  //    puerta a quien ya está tecleando. [[dominio-del-correo-lo-dicta-la-app]]
+  var _sinArroba = u.indexOf('@')<0;
+  var _pista = _sinArroba ? '\nSi su cuenta tiene un correo, escríbalo completo.' : '';
+  err.textContent = (authMsg ? ('No se pudo entrar: '+authMsg) : 'Usuario o contrasena incorrectos') + _pista;
   err.style.display='block';document.getElementById('login-pass').value='';
   setTimeout(function(){err.style.display='none';err.textContent='Usuario o contrasena incorrectos';},6000);
 }
@@ -20462,7 +20470,19 @@ async function crearUsuario(){
   var _rolOficina2fa=['superadmin','admin','rrhh'].indexOf(rol)>=0;
   if((BTG_CONFIG.auth_correo_obligatorio||_rolOficina2fa) && (!email||email.indexOf('@')<1)){ alert((_rolOficina2fa?'El rol '+rol+' ':'Esta empresa ')+'requiere un CORREO real (para entrar por correo, 2FA y recuperar la clave).'); return; }
   var j=await btgUsuariosAPI('POST',{accion:'crear',usuario:u,password:p,nombre:nombre,rol:rol,email:email||null});
-  if(j&&j.ok){ audit('Usuario creado',u+' rol:'+rol); ['nu-user','nu-pass','nu-nombre','nu-email'].forEach(function(id){sv(id,'');}); renderUsuarios(); alert('✅ Usuario '+u+' creado.'); }
+  if(j&&j.ok){
+    audit('Usuario creado',u+' rol:'+rol);
+    // ⛔ SE DICE CON QUÉ VA A ENTRAR. Si la cuenta lleva un correo real, ESE es la
+    //    llave: el login arma usuario+@maxware.app y ahí el correo propio no cae.
+    //    Sin esta línea, quien crea el usuario le pasa el nombre corto y la persona
+    //    choca con «credenciales no válidas» teniendo la clave buena — pasó con
+    //    Sandra el 31/08 y con Maygleth el 23/09. [[dominio-del-correo-lo-dicta-la-app]]
+    var _entraCon = (email && email.indexOf('@')>0) ? email : u;
+    ['nu-user','nu-pass','nu-nombre','nu-email'].forEach(function(id){sv(id,'');});
+    renderUsuarios();
+    alert('✅ Usuario '+u+' creado.\n\nENTRA CON: '+_entraCon+
+          ((_entraCon!==u) ? '\n\nEscribe el correo completo en la casilla de usuario, no «'+u+'».' : ''));
+  }
   else alert('No se pudo crear: '+motivoUsuarios((j&&j.error)||''));
 }
 
@@ -23558,18 +23578,21 @@ var CARGOS_SISTEMA = CARGOS_MOLDE.slice();
 //    que no se anuncia se copia sin darse cuenta.
 var CARGOS_DEL_MOLDE = true;
 
-// La CATEGORÍA de un cargo escrito por el cliente. Reusa cargoFuncion(), que ya es
-// la pieza que traduce la palabra de cada empresa a su función operativa.
+// La CATEGORÍA de un cargo escrito por el cliente. Solo agrupa la pantalla de
+// Gestión de Cargos; lo que no se reconoce cae en «otro» y no se pierde nada.
+// ⛔ NO LLAMA A cargoFuncion(): esa pieza existe en los 5 clones pero NO en
+//    Betangar, y allá esto habría reventado con ReferenceError — un desplegable
+//    que revienta se ve igual que uno vacío, y `node --check` pasa en verde.
+//    [[norma-eslint-no-undef-en-todos-los-repos]]
 function _cargoCategoria(nombre){
   var s=(nombre||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
-  if(/gerent|director|presiden|c\.?e\.?o|dueno|propietar/.test(s)) return 'directivo';
-  var f=cargoFuncion(nombre);
-  if(f==='mecanico')       return 'mantenimiento';
-  if(f==='chofer')         return 'campo';
-  if(f==='ayudante')       return 'campo';
-  if(f==='vigilante')      return 'operativo';
-  if(f==='supervisor')     return 'operativo';
-  if(f==='administrativo') return 'administrativo';
+  if(/gerent|director|presiden|c\.?e\.?o|dueno|propietar|socio/.test(s)) return 'directivo';
+  if(/mecanic|manten|latoner|electricist|herrer/.test(s))                  return 'mantenimiento';
+  if(/chofer|conductor|piloto|operador de unidad/.test(s))                 return 'campo';
+  if(/ayudante|obrero|recolector|jardiner|patiero/.test(s))                return 'campo';
+  if(/vigilante|seguridad/.test(s))                                        return 'operativo';
+  if(/supervisor|jefe|coordinador|encargad|operativo/.test(s))             return 'operativo';
+  if(/administra|rrhh|talento humano|contad|auditor|asistente|analista|tesorer|nomina|compras|almacen|secretari|recepcion/.test(s)) return 'administrativo';
   return 'otro';
 }
 
@@ -27618,11 +27641,12 @@ function genRptAlcaldia(){
 // El IVA es el mismo que usa el módulo de pagos de la Alcaldía: 16% sobre la base.
 // ════════════════════════════════════════════════════════════════════════════
 var IVA_ALC = 0.16;
-// ⛔ UNA SOLA LISTA. Las abreviadas se DERIVAN de las largas, no se escriben aparte:
-//    dos listas a mano se desincronizan y ya pasó siete veces en este repo.
+// ⛔ UNA SOLA LISTA DE DÍAS, y lleva el nombre COMPLETO. Hubo un momento en que
+//    convivían las largas (el impreso) y las abreviadas (el Excel); desde que el
+//    Excel también lleva la fecha, las abreviadas no las usa nadie y se fueron.
+//    Una lista de más es una lista que alguien va a editar sola.
 //    [[norma-dos-listas-a-mano-se-desincronizan]]
 var DIAS_SEM_LARGO = ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'];
-var DIAS_SEM = DIAS_SEM_LARGO.map(function(d){ return d.slice(0,3); });
 
 // La FECHA del día N de esa semana, para que la cabecera diga «Lunes 14/09/2026» y no
 // sólo «Lun». Máximo: «debe decir qué día es el lunes, qué fecha es el martes, y así».
@@ -27743,7 +27767,7 @@ function genRelacionCamiones(){
 
     html += '</tbody><tfoot><tr style="background:#0f2544;color:#fff;font-weight:900;-webkit-print-color-adjust:exact;print-color-adjust:exact">'
       + '<td colspan="2" style="padding:8px 7px;font-size:10px">TOTAL · '+filas.length+' unidades</td>'
-      + DIAS_SEM.map(function(_,i){
+      + DIAS_SEM_LARGO.map(function(_,i){
           var s = filas.reduce(function(a,f){ return a + f.dias[i]; }, 0);
           return '<td style="padding:8px 4px;text-align:center;font-family:monospace">'+(s||'·')+'</td>';
         }).join('')
@@ -27823,23 +27847,50 @@ async function exportRelacionCamionesExcel(){
   var des = gv('alc-des'), hta = gv('alc-hta');
   var pf = REGS.filter(function(r){ if(des && r.f<des) return false; if(hta && r.f>hta) return false; return true; });
   if(!pf.length){ alert('Sin planillas en ese rango.'); return; }
-  var sem = agruparPorSemanas(pf), lunes = Object.keys(sem).sort(), filas = [];
+  var sem = agruparPorSemanas(pf), lunes = Object.keys(sem).sort();
+  var wb = _xlNuevo(), resumen = [];
+
+  // ⛔ UNA HOJA POR SEMANA, igual que el impreso saca UNA PÁGINA por semana.
+  //    Máximo: «al Excel también ponle fechas». En una sola hoja con todas las
+  //    semanas NO se puede: el encabezado de la columna es UNO solo, y el lunes
+  //    de cada semana es una fecha distinta. Ponerlas todas daría siete columnas
+  //    por semana —28 en un mes— o un encabezado que miente en todas menos una.
   lunes.forEach(function(L){
     var dom = getDomingoDeSemana(L), fs = _relSemana(L, sem[L]);
     var tot = fs.reduce(function(a,f){ return {v:a.v+f.viajes, m:a.m+f.monto}; }, {v:0,m:0});
+    var iva = tot.m * IVA_ALC, rango = L+' al '+dom, filas = [];
+    // El encabezado de cada día: el nombre y SU fecha, la misma que sale impresa.
+    var cols = DIAS_SEM_LARGO.map(function(d,i){ return d+' '+_relFechaDia(L,i); });
     fs.forEach(function(f){
-      var o = {Semana:L+' al '+dom, Unidad:f.cam, Placa:_relPlaca(f.cam)};
-      DIAS_SEM.forEach(function(d,i){ o[d] = f.dias[i]; });
+      var o = {Semana:rango, Unidad:f.cam, Placa:_relPlaca(f.cam)};
+      cols.forEach(function(c,i){ o[c] = f.dias[i]; });
       o.Viajes = f.viajes; o['Monto USD'] = Math.round(f.monto*100)/100;
       filas.push(o);
     });
-    var iva = tot.m * IVA_ALC;
-    filas.push({Semana:L+' al '+dom, Unidad:'TOTAL', Viajes:tot.v, 'Monto USD':Math.round(tot.m*100)/100});
-    filas.push({Semana:L+' al '+dom, Unidad:'IVA 16%', 'Monto USD':Math.round(iva*100)/100});
-    filas.push({Semana:L+' al '+dom, Unidad:'TOTAL + IVA', 'Monto USD':Math.round((tot.m+iva)*100)/100});
+    filas.push({Semana:rango, Unidad:'TOTAL', Viajes:tot.v, 'Monto USD':Math.round(tot.m*100)/100});
+    filas.push({Semana:rango, Unidad:'IVA 16%', 'Monto USD':Math.round(iva*100)/100});
+    filas.push({Semana:rango, Unidad:'TOTAL + IVA', 'Monto USD':Math.round((tot.m+iva)*100)/100});
+    // ⛔ EL NOMBRE DE LA HOJA NO PUEDE LLEVAR «/»: Excel lo prohíbe y `addWorksheet`
+    //    recorta a 31 caracteres pero NO limpia los prohibidos — reventaría y el
+    //    libro entero caería al camino SIN formato, avisando de otra cosa.
+    _xlAgregar(wb, filas, (fmtFechaCorta(L)+' al '+fmtFechaCorta(dom)).replace(/\//g,'-'),
+      'Relación de viajes por unidad · Del lunes '+fmtFechaCorta(L)+' al domingo '+fmtFechaCorta(dom));
+    resumen.push({Semana:rango, 'Desde (lunes)':L, 'Hasta (domingo)':dom, Viajes:tot.v,
+      'Monto base USD':Math.round(tot.m*100)/100, 'IVA 16% USD':Math.round(iva*100)/100,
+      'Total USD':Math.round((tot.m+iva)*100)/100});
   });
-  var wb = _xlNuevo();
-  _xlAgregar(wb, filas, 'Viajes por unidad');
+
+  // Igual que el impreso: si hay más de una semana, al final va el resumen de todas.
+  // El rango va en ISO a propósito — formateado como dd/mm/aaaa deja de ordenarse.
+  // [[norma-no-comparar-fechas-formateadas]]
+  if(resumen.length > 1){
+    var g = resumen.reduce(function(a,s){ return {v:a.v+s.Viajes, b:a.b+s['Monto base USD']}; }, {v:0,b:0});
+    var gi = g.b * IVA_ALC;
+    resumen.push({Semana:'TOTAL '+resumen.length+' semanas', Viajes:g.v,
+      'Monto base USD':Math.round(g.b*100)/100, 'IVA 16% USD':Math.round(gi*100)/100,
+      'Total USD':Math.round((g.b+gi)*100)/100});
+    _xlAgregar(wb, resumen, 'Resumen', 'Una línea por semana, y la suma de todas');
+  }
   await _xlGuardar(wb, brandArchivo()+'_Relacion_viajes_por_unidad_'+(des||'inicio')+'_a_'+(hta||'hoy')+'.xlsx');
 }
 

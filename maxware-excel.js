@@ -218,7 +218,14 @@
     // La celda lleva su propio formato (`numFmt`), así que se ve dd/mm/yyyy en
     // cualquier equipo, en cualquier idioma, y además ORDENA y FILTRA como fecha
     // —cosa que el texto no hace—. [[norma-fecha-venezolana-dd-mm-yyyy]]
-    var RE_ISO = /^(\d{4})-(\d{2})-(\d{2})(?:[T ]\d{2}:\d{2}(?::\d{2})?)?/;
+    // ⛔ ANCLADA AL FINAL (`$`). Sin eso alcanzaba con que el texto EMPEZARA con
+    //    una fecha: «2026-09-07 al 2026-09-13» se guardaba como la fecha del 07 y
+    //    el resto se tiraba. La celda quedaba diciendo media verdad y nadie lo
+    //    notaba, porque una fecha bien formateada no parece un error — se lee como
+    //    un dato. Apareció el 23/09/2026 en la columna «Semana» de la relación de
+    //    la Alcaldía, y llevaba ahí desde que existe la columna.
+    //    [[norma-arreglar-el-mecanismo-no-el-caso]]
+    var RE_ISO = /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::\d{2})?)?$/;
     function _ponerValor(c, v) {
       if (v == null || v === '') { c.value = ''; return; }
       if (v instanceof Date && !isNaN(v)) {
@@ -226,12 +233,16 @@
       }
       var m = (typeof v === 'string') ? v.match(RE_ISO) : null;
       if (m) {
-        // Mediodía UTC a propósito: con las 00:00 y un huso al oeste, Excel
-        // muestra el día ANTERIOR. Ya pasó con las fechas de Venezuela (−4).
-        var d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], 12));
+        // Mediodía UTC a propósito CUANDO NO VIENE HORA: con las 00:00 y un huso
+        // al oeste, Excel muestra el día ANTERIOR. Ya pasó con Venezuela (−4).
+        // ⛔ Y SI SÍ VIENE HORA, VA LA HORA QUE DICE. Antes se escribía el mediodía
+        //    igual y encima se formateaba «hh:mm», así que toda hora exportada
+        //    salía 12:00 — un dato inventado con cara de dato.
+        var hay = (m[4] != null);
+        var d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], hay ? +m[4] : 12, hay ? +m[5] : 0));
         if (!isNaN(d)) {
           c.value = d;
-          c.numFmt = (v.length > 10) ? 'dd/mm/yyyy hh:mm' : 'dd/mm/yyyy';
+          c.numFmt = hay ? 'dd/mm/yyyy hh:mm' : 'dd/mm/yyyy';
           return;
         }
       }
