@@ -1246,7 +1246,7 @@ function _iniciarSesionCore(){
       bncInitFlag().then(function(){renderDash();});
       renderDash();renderPlanHoy();renderKm();renderAbonos();
       recalcNom();renderGastosFijos();renderGastosVariables();
-      checkAlertas7AM();checkCumpleAlerts();
+      checkAlertas7AM();checkCumpleAlerts();checkAniversarioEmpresa();
     }
     // Para roles limitados: navegar PRIMERO antes de cualquier render
     var rolMod={asistencia:'asistencia',vigilante:'porteria',mecanico:'mecanico',operativo:'operativo'};
@@ -22402,6 +22402,51 @@ function emailReporteFinanciero(){
 // que NO dependan de que la app esté abierta ni se dupliquen. Se deja como no-op.
 function checkAlertas7AM(){ /* movido al servidor: edge function alertas-diarias */ }
 
+// ══════════════════════════════════════════════════════════════════════════════
+// ANIVERSARIO DE LA EMPRESA — un aviso DENTRO de la app, y nada mas.
+//
+// ⛔ ESTO NO MANDA UN SOLO MENSAJE, Y ES A PROPOSITO. Decision de Maximo
+//    (24/09/2026): «no envies mensaje por eso, pero si en la app de cada quien un
+//    aviso». El cumpleanos de una PERSONA si sale por WhatsApp (ver
+//    checkCumpleAlerts, justo abajo); el de la empresa se queda adentro. Si
+//    manana alguien agrega un sendWA aca, esta rompiendo una decision, no
+//    mejorando un aviso.
+//
+// La fecha vive en `configuracion.empresa.fundacion`, en formato aaaa-mm-dd.
+// ⛔ SIN FECHA CARGADA NO PASA NADA. Por eso esta funcion puede vivir en los seis
+//    repos: el clon que todavia no cargo su fundacion no ve ningun aviso.
+async function checkAniversarioEmpresa(){
+  try{
+    if(!(DB_READY&&supabase))return;
+    var r=await supabase.from('configuracion').select('valor').eq('clave','empresa').maybeSingle();
+    if(!r||r.error||!r.data||!r.data.valor)return;
+    var f='';
+    try{ f=(JSON.parse(r.data.valor)||{}).fundacion||''; }catch(e){ return; }
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(f))return;
+    // ⛔ LA FECHA SE PARTE A MANO, NO CON `new Date(f)`. `new Date('1971-07-12')`
+    //    se interpreta en UTC, y en Venezuela (-4) devuelve el dia ANTERIOR: el
+    //    aviso saldria el 11 de julio. Mismo defecto que ya se pago comparando
+    //    fechas formateadas.
+    var pf=f.split('-'), anioF=parseInt(pf[0],10), mesF=parseInt(pf[1],10), diaF=parseInt(pf[2],10);
+    var hoyStr=(typeof fechaVE==='function')?fechaVE():'';      // aaaa-mm-dd, hora de Venezuela
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(hoyStr))return;
+    var ph=hoyStr.split('-'), anioH=parseInt(ph[0],10), mesH=parseInt(ph[1],10), diaH=parseInt(ph[2],10);
+    if(mesH!==mesF||diaH!==diaF)return;
+    // Una vez por dia y por equipo, igual que el aviso de cumpleanos.
+    var key='btg_aniv_'+hoyStr;
+    try{ if(localStorage.getItem(key))return; localStorage.setItem(key,'1'); }catch(e){}
+    var anios=anioH-anioF;
+    // ⛔ Si la fundacion quedara cargada con un ano futuro o del mismo ano, «cumple
+    //    0 anos» se lee como un error del sistema. En ese caso se saluda sin el numero.
+    var nom=(typeof brandNom==='function'&&brandNom())?brandNom():'la empresa';
+    if(typeof mostrarToast==='function'){
+      mostrarToast(anios>0
+        ? ('\uD83C\uDF89 Hoy '+nom+' cumple '+anios+' a\u00f1os. \u00a1Felicitaciones a todo el equipo!')
+        : ('\uD83C\uDF89 Hoy es el aniversario de '+nom+'. \u00a1Felicitaciones a todo el equipo!'),
+        'exito');
+    }
+  }catch(e){}
+}
 function checkCumpleAlerts(){
   // DESACTIVADO (2026-07-17): re-enviaba "Hoy es el cumpleaños de X. ¡Felicítalo!" a TODO el personal en CADA
   // carga de la app. La idempotencia era localStorage = POR DISPOSITIVO, así que cada equipo/oficina que abría
