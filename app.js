@@ -5750,17 +5750,20 @@ async function imprimirDashboard(){
       deudaHtml='<h2>Deuda — '+_surEsc(_d.acreedor)+' · '+_surEsc(_d.concepto)+'</h2>'+
         (_vc>0?'<div style="background:#fdecea;border-left:3px solid #b3261e;color:#8c1d18;font-weight:800;padding:5px 9px;margin-bottom:6px;font-size:10px">'+
                _vc+' cuota'+(_vc>1?'s':'')+' VENCIDA'+(_vc>1?'S':'')+' sin pagar · '+usd(_e.monto_vencido)+'</div>':'')+
-        '<div class="kpis">'+
-          kpi('Saldo pendiente',usd(_e.saldo_pendiente),'de '+usd(_e.total_a_pagar)+' a pagar','#b3261e')+
-          kpi('Abonado',usd(_e.total_abonado),_pct+'% del total','#15803d')+
-          kpi('Cuota mensual',usd(_e.cuota_mensual),(Number(_d.tasa_anual)*100).toFixed(0)+'% anual · '+_d.plazo_meses+' cuotas')+
-          kpi('Próxima a vencer',_prox,(_dias===null?'':(_dias<0?'hace '+Math.abs(_dias)+' días':_dias===0?'HOY':'en '+_dias+' días')),
-              (_dias!==null&&_dias>=0&&_dias<=7)?'#b45309':'')+
-          (_c?kpi('Cuotas',_c.pagadas+' / '+_c.total,'pagadas · '+_c.por_pagar+' por pagar'+(_c.vencidas>0?', '+_c.vencidas+' vencida'+(_c.vencidas>1?'s':''):'')):'')+
-        '</div>'+
+        // ⛔ TABLA COMPACTA Y NO TARJETAS. A media columna las tarjetas de KPI se
+        //    apilan una debajo de otra y ocupan el triple de alto — justo lo que
+        //    hacia que el informe no entrara en una hoja.
+        '<table><tbody>'+
+          '<tr><td>Saldo pendiente</td><td style="text-align:right;font-weight:800;color:#b3261e">'+usd(_e.saldo_pendiente)+'</td></tr>'+
+          '<tr><td>Abonado ('+_pct+'%)</td><td style="text-align:right;font-weight:700;color:#15803d">'+usd(_e.total_abonado)+'</td></tr>'+
+          '<tr><td>Cuota mensual</td><td style="text-align:right">'+usd(_e.cuota_mensual)+'</td></tr>'+
+          '<tr><td>Próxima a vencer</td><td style="text-align:right'+((_dias!==null&&_dias>=0&&_dias<=7)?';color:#b45309;font-weight:800':'')+'">'+_prox+
+            (_dias!==null?' <span style="font-size:8px">('+(_dias<0?'hace '+Math.abs(_dias)+'d':_dias===0?'HOY':'en '+_dias+'d')+')</span>':'')+'</td></tr>'+
+          (_c?'<tr><td>Cuotas</td><td style="text-align:right"><b>'+_c.pagadas+' / '+_c.total+'</b> pagadas · '+_c.por_pagar+' por pagar'+
+              (_c.vencidas>0?', <span style="color:#b3261e;font-weight:800">'+_c.vencidas+' vencida'+(_c.vencidas>1?'s':'')+'</span>':'')+'</td></tr>':'')+
+        '</tbody></table>'+
         '<div class="bar"><i style="width:'+Math.min(100,_pct)+'%;background:#15803d"></i></div>'+
-        '<div class="mut">Abonado '+usd(_e.total_abonado)+' de '+usd(_e.total_a_pagar)+' ('+_pct+'%)'+
-          (_c?' · '+_c.pagadas+' de '+_c.total+' cuotas pagadas, '+_c.por_pagar+' por pagar':'')+'</div>';
+        '<div class="mut">de '+usd(_e.total_a_pagar)+' a pagar en total</div>';
     }
   }catch(e){
     // Si no se pudo traer, el informe lo DICE. Omitirla en silencio hace creer
@@ -5832,15 +5835,15 @@ async function imprimirDashboard(){
       '<div><h2>Estado de flota ('+op+' oper · '+tal+' taller'+(ino?' · '+ino+' inop':'')+')</h2>'+
         '<table><thead><tr><th>Unidad</th><th>Estado</th><th style="text-align:right">KM</th><th style="text-align:right">Próx. aceite</th></tr></thead><tbody>'+flotaRows+'</tbody></table></div>'+
       '<div><h2>Meta semana ('+semHoy+')</h2><div class="mut">'+fmt(vMeta)+' / '+fmt(meta.viajesFlota)+' viajes</div><div class="bar"><i style="width:'+pctMeta+'%;background:'+(pctMeta>=80?'#4ade80':pctMeta>=50?'#fbbf24':'#f87171')+'"></i></div><div class="mut">'+pctMeta+'% completado</div>'+
-        '<h2 style="margin-top:11px">Vencimientos (≤30 días)</h2><table><thead><tr><th>Documento</th><th>Vence</th></tr></thead><tbody>'+vencRows+'</tbody></table></div>'+
+        '<h2 style="margin-top:11px">Vencimientos (≤30 días)</h2><table><thead><tr><th>Documento</th><th>Vence</th></tr></thead><tbody>'+vencRows+'</tbody></table>'+
+        // ⛔ LA DEUDA VA ACA, en la columna DERECHA, y no despues de las dos.
+        //    Esa columna (Meta + Vencimientos) es mucho mas corta que la tabla de
+        //    flota de la izquierda: queda un hueco vacio de varios centimetros.
+        //    Puesta ahi, el bloque NO suma alto a la pagina y todo entra en una
+        //    sola hoja — que es lo que pidio Maximo. Debajo de las dos columnas
+        //    desbordaba y obligaba a una segunda.
+        deudaHtml+'</div>'+
     '</div>'+
-    // ⛔ LA DEUDA VA EN SU PROPIA HOJA. Todo el informe vive dentro de UN solo
-    //    `.pg`, y agregarle este bloque lo desbordaba: la pagina se cortaba y el
-    //    cuadro quedaba a medias, sin manera de bajar. La clase `.pg.page2` ya
-    //    existia en el CSS con `page-break-before:always` y no la usaba nadie.
-    //    Se cierra la primera hoja y se abre la segunda; el pie se va con ella,
-    //    que es donde corresponde. El `</div>` del final sigue cerrando una sola.
-    (deudaHtml?'</div><div class="pg page2">'+deudaHtml:'')+
     '<div class="ftr">'+brandNom()+' · '+brandRif()+' · '+brandCiudad()+' · '+brandEmail()+' · Generado '+gen+'</div>'+
     '</div></body></html>';
   abrirVentanaImpresion(html);
