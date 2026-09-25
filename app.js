@@ -30733,6 +30733,30 @@ function renderMaxDeudas(){
     alCambiar: function(){
       DEUDA_DASH = null;
       try{ if(typeof renderDeudaDash === 'function') renderDeudaDash(); }catch(e){ console.log('[deuda-dash]', e && e.message); }
+    },
+    // ⛔ EL MOLDE LO PONE LA APP, LOS DATOS EL MODULO. Maximo, 25/09: «esto deberia
+    //    yo poder imprimirlo en formato profesional como los otros». «Como los
+    //    otros» es ESTE molde —bgHeader/bgStats/bgFooter, el del reporte JAC— y el
+    //    modulo no tiene por que conocerlo: es LEGO y cae en FlotaMax y Tony Gas,
+    //    que tienen el suyo. El modulo manda titulo, subtitulo, cifras y tablas.
+    informe: function(inf){
+      try{
+        var alarma = inf.alarma
+          ? '<div style="margin:12px 28px 0;background:#fdecea;border-left:4px solid #b3261e;color:#8c1d18;'+
+            'font-weight:800;padding:8px 12px;font-size:12px">🔴 '+_mEsc(inf.alarma)+'</div>'
+          : '';
+        var html = bgCSS()+'<body>'+
+          bgHeader(_mEsc(inf.titulo), _mEsc(inf.sub))+
+          alarma+
+          bgStats(inf.stats.map(function(s){ return {l:_mEsc(s.l), v:_mEsc(s.v), s:_mEsc(s.s||'')}; }))+
+          '<div class="bg-table-wrap">'+inf.cuerpo+'</div>'+
+          bgFooter()+'</body></html>';
+        abrirVentanaImpresion(html);
+      }catch(e){
+        // Si el molde de la app falla, se DICE y no se imprime un papel a medias.
+        console.log('[deuda-imprimir]', e && e.message);
+        mostrarToast('No se pudo armar el informe de la deuda: '+((e&&e.message)||e), 'error');
+      }
     }
   });
 }

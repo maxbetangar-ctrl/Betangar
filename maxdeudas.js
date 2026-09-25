@@ -216,6 +216,7 @@
       if (est.puedeCargar && !est.form.abierto && !est.alta.abierto) {
         h += '<button type="button" class="mdz-btn" data-acc="abrir">＋ Registrar abono</button>';
       }
+      h += botonImprimir();
       h += botonAlta();
       h += '</div></div>';
 
@@ -310,6 +311,14 @@
       return '<button type="button" class="mdz-btn" data-acc="abrir-alta">＋ Nuevo financiamiento</button>';
     }
 
+    // ⛔ IMPRIMIR LO PUEDE HACER QUIEN VE, NO SOLO QUIEN CARGA. Leer la deuda y
+    //    llevarse el papel es la misma acción: el directivo y la auditora externa
+    //    entran a esta pantalla justamente para eso.
+    function botonImprimir() {
+      if (!est.puede || !est.deudas.length || est.form.abierto || est.alta.abierto) return '';
+      return '<button type="button" class="mdz-btn" data-acc="imprimir">🖨 Imprimir</button>';
+    }
+
     // ⛔ TODOS LOS ENGANCHES EN UN SOLO LUGAR, y se llama desde TODAS las ramas
     //    que dibujan algo. Antes vivían al final de `pintar()`, después del último
     //    `return`: la rama de «no hay financiamientos» salía sin engancharlos, y el
@@ -328,6 +337,7 @@
       clic('guardar', function () { guardar(false); });
       clic('forzar',  function () { guardar(true); });
 
+      clic('imprimir', function () { imprimir(); });
       clic('abrir-alta',  function () { cerrarTodo(); est.alta.abierto = true; pintar(); });
       clic('cerrar-alta', function () { est.alta.abierto = false; est.alta.error = null; pintar(); });
       clic('guardar-alta', function () { guardarAlta(false); });
@@ -693,6 +703,163 @@
         f.error = (e && e.message) || String(e);
         pintar();
       });
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // EL INFORME PARA IMPRIMIR
+    //
+    // Máximo, 25/09/2026, mirando la pantalla: «esto deberia yo poder imprimirlo
+    // en formato profesional como los otros».
+    //
+    // ⛔ SALE DE LO QUE LA PERSONA ESTÁ VIENDO, NO DE UNA CONSULTA NUEVA. Todo lo
+    //    que se imprime ya está en `est`: el estado, el cuadro, los abonos y el
+    //    conteo de cuotas, traídos en el mismo viaje. Volver a pedirlo abriría la
+    //    puerta a que el papel diga un saldo y la pantalla otro, del mismo momento
+    //    y delante de la misma persona. Es el mismo criterio por el que el widget
+    //    del dashboard y el PDF comparten una sola copia.
+    //    [[norma-dos-listas-a-mano-se-desincronizan]]
+    //
+    // ⛔ EL MÓDULO PONE LOS DATOS; LA APP PONE SU MOLDE. Este archivo no sabe —ni
+    //    debe saber— cómo es el encabezado de Betangar: es LEGO y el mes que viene
+    //    cae en FlotaMax y en Tony Gas, que tienen el suyo. Devuelve título,
+    //    subtítulo, cifras y tablas, y la app las envuelve con su logo, su RIF y su
+    //    pie. Si la app no da molde, imprime con uno propio mínimo — feo, pero sale.
+    // ═════════════════════════════════════════════════════════════════════════
+    function armarInforme() {
+      var d = est.deudas.filter(function (x) { return x.id === est.sel; })[0] || est.deudas[0];
+      var e = est.estado || {}, c = est.cuotas;
+      var pct = Number(e.total_a_pagar) > 0
+        ? Math.round((Number(e.total_abonado) / Number(e.total_a_pagar)) * 100) : 0;
+      var venc = Number(e.cuotas_vencidas || 0);
+      var dias = diasHasta(e.proxima_cuota);
+
+      // El subtítulo dice de QUÉ financiamiento habla el papel. ⚠️ Si hay varios, lo
+      // dice también: un informe que no aclara que es UNO de tres se archiva como si
+      // fuera la deuda entera. [[norma-numero-que-el-dueno-no-puede-explicar]]
+      var sub = d.concepto + (d.deudor ? ' · deudor: ' + d.deudor : '') +
+        ' · ' + d.plazo_meses + ' cuotas al ' + m2(Number(d.tasa_anual) * 100) + '% anual' +
+        ' · primera el ' + fechaVE(d.primera_cuota);
+      if (est.deudas.length > 1) {
+        sub += ' — ⚠️ este informe cubre UNO de los ' + est.deudas.length + ' financiamientos cargados';
+      }
+
+      var stats = [
+        { l: 'Saldo pendiente', v: 'US$ ' + m2(e.saldo_pendiente), s: 'de US$ ' + m2(e.total_a_pagar) + ' a pagar' },
+        { l: 'Abonado', v: 'US$ ' + m2(e.total_abonado), s: pct + '% del total' },
+        { l: 'Cuota mensual', v: 'US$ ' + m2(e.cuota_mensual), s: c ? (c.pagadas + ' de ' + c.total + ' pagadas') : '' },
+        { l: 'Próxima a vencer', v: fechaVE(e.proxima_cuota),
+          s: dias === null ? '' : (dias < 0 ? 'hace ' + Math.abs(dias) + ' días' : dias === 0 ? 'HOY' : 'en ' + dias + ' días') },
+      ];
+      if (venc > 0) stats.push({ l: 'Vencido sin pagar', v: 'US$ ' + m2(e.monto_vencido), s: venc + ' cuota' + (venc > 1 ? 's' : '') });
+
+      // ⛔ LO QUE DUELE VA ARRIBA TAMBIÉN EN EL PAPEL. En la pantalla las vencidas
+      //    van antes que el saldo; un informe que las entierra en la fila 5 de una
+      //    tabla de 18 es un informe que nadie mira dos veces.
+      var alarma = venc > 0
+        ? venc + ' cuota' + (venc > 1 ? 's' : '') + ' VENCIDA' + (venc > 1 ? 'S' : '') +
+          ' sin pagar · US$ ' + m2(e.monto_vencido)
+        : '';
+
+      var cuerpo = '';
+      if (c) {
+        // «de las cuales» y no tres números seguidos: 4 + 14 = 18, no 4 + 2 + 14.
+        cuerpo += '<p class="mdz-p"><b>' + c.pagadas + ' de ' + c.total + '</b> cuotas pagadas · <b>' +
+          c.por_pagar + '</b> por pagar' +
+          (Number(c.vencidas) > 0 ? ' (de las cuales <b>' + c.vencidas + '</b> vencida' +
+            (Number(c.vencidas) > 1 ? 's' : '') + ')' : '') + '.</p>';
+      }
+
+      cuerpo += '<h2 class="mdz-h2p">Cuadro de amortización</h2>' +
+        '<table><thead><tr><th>#</th><th>Vence</th><th class="n">Cuota</th><th class="n">Interés</th>' +
+        '<th class="n">Capital</th><th class="n">Saldo</th><th class="n">Abonado</th>' +
+        '<th class="n">Resta</th><th>Estado</th></tr></thead><tbody>';
+      est.tabla.forEach(function (f) {
+        cuerpo += '<tr><td>' + f.nro + '</td><td>' + fechaVE(f.vencimiento) + '</td>' +
+          '<td class="n">' + m2(f.cuota) + '</td><td class="n">' + m2(f.interes) + '</td>' +
+          '<td class="n">' + m2(f.capital) + '</td><td class="n">' + m2(f.saldo) + '</td>' +
+          '<td class="n">' + m2(f.abono_aplicado) + '</td><td class="n">' + m2(f.resta) + '</td>' +
+          '<td' + (f.estado === 'Vencida' ? ' class="mdz-mal"' : '') + '>' + esc(f.estado) + '</td></tr>';
+      });
+      cuerpo += '</tbody></table>';
+
+      cuerpo += '<h2 class="mdz-h2p">Abonos registrados (' + est.abonos.length + ')</h2>';
+      if (!est.abonos.length) {
+        cuerpo += '<p class="mdz-p">No hay abonos cargados.</p>';
+      } else {
+        var suma = 0;
+        cuerpo += '<table><thead><tr><th>Fecha</th><th class="n">Monto US$</th>' +
+          '<th>De dónde salió</th><th>Nota</th></tr></thead><tbody>';
+        est.abonos.forEach(function (a) {
+          suma += Number(a.monto) || 0;
+          var sinDecl = a.origen === 'sin_declarar';
+          cuerpo += '<tr><td>' + fechaVE(a.fecha) + '</td><td class="n">' + m2(a.monto) + '</td>' +
+            '<td' + (sinDecl ? ' class="mdz-mal"' : '') + '>' +
+            (sinDecl ? 'SIN DECLARAR' : esc(a.origen).replace(/_/g, ' ')) + '</td>' +
+            '<td>' + esc(a.nota || '') + '</td></tr>';
+        });
+        // ⛔ LA SUMA VA EN EL PAPEL. Quien recibe un listado de abonos lo primero que
+        //    hace es sumarlo a mano; si el total no está, o lo suma mal o desconfía.
+        cuerpo += '<tr class="tr-total"><td>TOTAL ABONADO</td><td class="n">' + m2(suma) +
+          '</td><td colspan="2"></td></tr></tbody></table>';
+      }
+
+      // ⚠️ Un abono sin origen declarado se dice en el papel igual que en la
+      //    pantalla: es el renglón que impide cuadrar la deuda contra el banco.
+      var sd = Number(e.abonos_sin_declarar || 0);
+      if (sd > 0) {
+        cuerpo += '<p class="mdz-p"><b>⚠️ ' + sd + ' abono' + (sd > 1 ? 's' : '') +
+          ' sin declarar de dónde salió la plata.</b> Mientras eso falte, esta deuda y ' +
+          'los movimientos del banco no se pueden cuadrar.</p>';
+      }
+
+      cuerpo += '<p class="mdz-pie-p">La cuota, la amortización, lo vencido y el saldo los calcula la base ' +
+        'a partir de dos datos: el financiamiento y los abonos. Este informe no recalcula nada: ' +
+        'muestra exactamente lo que estaba en pantalla al imprimirlo.</p>';
+
+      return {
+        titulo: 'ESTADO DE LA DEUDA — ' + d.acreedor,
+        sub: sub,
+        stats: stats,
+        alarma: alarma,
+        cuerpo: cuerpo,
+        deuda: d
+      };
+    }
+
+    function imprimir() {
+      var inf;
+      try { inf = armarInforme(); }
+      catch (err) {
+        // ⛔ NO SE IMPRIME A MEDIAS EN SILENCIO. Un papel al que le falta una sección
+        //    se archiva igual que uno completo. [[norma-la-red-que-traga-el-error-tapa-la-pieza]]
+        est.form.error = null;
+        alert('No se pudo armar el informe: ' + ((err && err.message) || err) +
+              '\n\nNo se imprimió nada. La pantalla sigue mostrando los datos.');
+        return;
+      }
+      // La app pone su molde. Si no lo puso, sale con uno propio: feo, pero sale, y
+      // con los mismos números.
+      if (op.informe && typeof op.informe === 'function') { op.informe(inf); return; }
+      var h = '<!doctype html><html><head><meta charset="utf-8"><title>' + esc(inf.titulo) + '</title>' +
+        '<style>body{font-family:Arial,Helvetica,sans-serif;color:#17212b;margin:22px}' +
+        'h1{font-size:18px;margin:0 0 3px}.s{color:#4a5765;font-size:12px;margin-bottom:12px}' +
+        'table{width:100%;border-collapse:collapse;font-size:11px;margin-bottom:12px}' +
+        'th{background:#1e3a5f;color:#fff;padding:5px 7px;text-align:left}' +
+        'td{padding:4px 7px;border-bottom:1px solid #dbe2ea}.n{text-align:right}' +
+        '.mdz-mal{color:#8c1d18;font-weight:700}.tr-total td{background:#1e3a5f;color:#fff;font-weight:800}' +
+        '.mdz-h2p{font-size:13px;margin:14px 0 5px}.mdz-p{font-size:11px;margin:6px 0}' +
+        '.mdz-pie-p{font-size:10px;color:#4a5765;margin-top:14px}' +
+        '.al{background:#fdecea;color:#8c1d18;font-weight:800;padding:6px 10px;margin-bottom:10px}</style></head><body>' +
+        '<h1>' + esc(inf.titulo) + '</h1><div class="s">' + esc(inf.sub) + '</div>' +
+        (inf.alarma ? '<div class="al">' + esc(inf.alarma) + '</div>' : '') +
+        inf.stats.map(function (s) {
+          return '<div class="mdz-p"><b>' + esc(s.l) + ':</b> ' + esc(s.v) + (s.s ? ' — ' + esc(s.s) : '') + '</div>';
+        }).join('') +
+        inf.cuerpo + '</body></html>';
+      var w = window.open('', '_blank');
+      if (!w) { alert('El navegador bloqueó la ventana de impresión. Permití las ventanas emergentes y probá otra vez.'); return; }
+      w.document.open(); w.document.write(h); w.document.close();
+      setTimeout(function () { try { w.focus(); w.print(); } catch (x) {} }, 300);
     }
 
     function kpi(rot, val, sub, cls) {

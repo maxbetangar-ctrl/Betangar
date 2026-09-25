@@ -10,7 +10,26 @@
    para texto legible. Se oscurecieron los tres tonos y, sobre todo, se dejo de
    pintar en gris las filas PAGADAS: una fila apagada se lee peor que una normal
    y esa informacion no es menos cierta por estar saldada. */
-.mdz { font-family: inherit; color: var(--ink, #17212b); }
+/* ⛔ EL MÓDULO NO INVENTA SUS COLORES: LOS TOMA DEL TEMA DE LA APP.
+   El 25/09 Máximo abrió la pantalla en el tema OSCURO —que es el de Betangar por
+   defecto— y el título se veía casi negro sobre fondo oscuro. El motivo: todo este
+   archivo pedía `var(--ink, …)`, `var(--line, …)`, `var(--sunk, …)`, y esas
+   variables NO EXISTEN en Betangar, que las llama `--text`, `--border` y `--bg3`.
+   Cada una caía a su valor de respaldo, que está pensado para fondo BLANCO.
+   ⚠️ Y yo medí los ocho pares de contraste contra fondo blanco: medí el tema que
+   la app NO usa. Un contraste medido en el tema equivocado no es una medición.
+   Acá se traducen UNA vez: el resto del archivo sigue pidiendo `--ink` y ahora eso
+   significa el color de texto de la app, sea clara u oscura. El respaldo claro
+   queda para las apps que no tengan ninguna de las dos. */
+.mdz {
+  --ink:   var(--text,   #17212b);
+  --ink-2: var(--text2,  #2b3742);
+  --ink-3: var(--text3,  #4a5765);
+  --line:  var(--border, #dbe2ea);
+  --sunk:  var(--bg3,    #e3e8ee);
+  font-family: inherit;
+  color: var(--ink);
+}
 
 .mdz-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; flex-wrap: wrap; margin-bottom: 14px; }
 .mdz-top h2 { margin: 0; font-size: 19px; font-weight: 750; }
@@ -29,15 +48,28 @@
 .mdz-kpi .v { font-size: 20px; font-weight: 760; margin-top: 4px; font-variant-numeric: tabular-nums; }
 .mdz-kpi .s { font-size: 12px; color: var(--ink-3, #4a5765); margin-top: 2px; }
 /* «urge» = vence dentro de 7 días. Se pinta solo, nadie lo decide a mano. */
-.mdz-kpi.urge { border-color: var(--warn, #8f6206); }
-.mdz-kpi.urge .v { color: var(--warn, #8f6206); }
+/* ⛔ LA TARJETA QUE URGE SE PINTA ENTERA, fondo y texto juntos. Antes solo se le
+   cambiaba el color al número: #8f6206 sobre la tarjeta del tema daba 2,38:1 en
+   oscuro. No existe UN ámbar que contraste contra blanco Y contra #1c3257 a la vez
+   —contra blanco tiene que ser oscuro, contra el oscuro tiene que ser claro—, así
+   que la tarjeta lleva su propio par, como la barra de alarma. Y de paso destaca
+   más: es la cuota que vence esta semana. */
+.mdz-kpi.urge { background: #faeeda; border-color: #8f6206; }
+.mdz-kpi.urge .r { color: #7a5406; }   /* 5,91:1 medido */
+.mdz-kpi.urge .v { color: #6b4a05; }   /* 7,02:1 medido */
+.mdz-kpi.urge .s { color: #7a5406; }
 
 .mdz-barra { height: 7px; background: var(--sunk, #e3e8ee); border-radius: 99px; margin: 14px 0 6px; overflow: hidden; }
 .mdz-barra-in { height: 100%; background: var(--ok, #1f6b4f); border-radius: 99px; }
 
 .mdz-cuotas { font-size: 14px; color: var(--ink-2, #2b3742); margin-top: 8px; }
 .mdz-cuotas b { font-weight: 750; }
-.mdz-venc { color: #8c1d18; font-weight: 650; }
+/* ⛔ PASTILLA, NO TEXTO DE COLOR. Este fragmento —«(de las cuales 2 vencidas)»— se
+   pinta directamente sobre el fondo de la app, y un rojo oscuro sobre el tema
+   oscuro de Betangar daba 1,40:1: la palabra «vencidas» era la MENOS legible de la
+   frase. Un color fijo solo se sostiene si el fondo también es fijo. */
+.mdz-venc { background: #fdecea; color: #8c1d18; font-weight: 700;
+  border-radius: 99px; padding: 1px 8px; }   /* 7,97:1 medido, igual en los dos temas */
 
 .mdz-h3 { font-size: 15px; font-weight: 700; margin: 22px 0 8px; }
 .mdz-cnt { font-size: 12px; font-weight: 600; color: var(--ink-3, #4a5765); background: var(--sunk, #e3e8ee);
@@ -50,9 +82,16 @@
 .mdz-tabla th { background: var(--sunk, #e3e8ee); font-size: 11.5px; text-transform: uppercase; letter-spacing: .03em; color: var(--ink-2, #2b3742); }
 .mdz-tabla tr:last-child td { border-bottom: 0; }
 .mdz-tabla .n { text-align: right; font-variant-numeric: tabular-nums; }
-.mdz-tabla tr.ok  td { color: inherit; }
-.mdz-tabla tr.ok  { background: #f4f8f5; }
-.mdz-tabla tr.mal td { background: var(--bad-bg, #fdecea); color: #7a1c16; font-weight: 600; }
+/* ⛔ LA FILA PAGADA NO LLEVA FONDO PROPIO, y es por el tema oscuro. Tenía un
+   #f4f8f5 fijo —casi blanco— con el texto heredado. Mientras el texto heredado era
+   oscuro se leía; desde que el módulo toma el color del tema, en Betangar ese texto
+   es CLARO y quedaría blanco sobre blanco. Un color fijo solo se puede poner de a
+   PARES: fondo y texto juntos, o ninguno de los dos.
+   Que la cuota está pagada ya lo dice su etiqueta verde, que sí es un par fijo. */
+.mdz-tabla tr.ok td { border-left: 3px solid var(--ok, #1f6b4f); }
+.mdz-tabla tr.ok td:not(:first-child) { border-left: 0; }
+/* Esta sí lleva los dos: fondo Y texto fijos, y se midió (#7a1c16 sobre #fdecea = 9,16:1). */
+.mdz-tabla tr.mal td { background: #fdecea; color: #7a1c16; font-weight: 600; }
 .mdz-nota { white-space: normal; font-size: 12.5px; color: var(--ink-2, #2b3742); max-width: 34ch; }
 
 .mdz-est { font-size: 11.5px; font-weight: 650; border-radius: 99px; padding: 2px 9px;
@@ -61,9 +100,14 @@
 .mdz-est.mal { background: var(--bad-bg, #fdecea); color: #8c1d18; }
 
 /* Un error se ve como un error, no como una pantalla vacía. */
-.mdz-error { background: var(--bad-bg, #f8e5e2); border: 1px solid var(--bad, #b0433a); border-radius: 12px; padding: 14px 16px; }
-.mdz-err-d { font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; margin: 7px 0; word-break: break-word; }
-.mdz-err-n { font-size: 13px; color: var(--ink-2, #2b3742); }
+/* ⛔ LA CAJA DE ERROR LLEVA SU FONDO Y SU TEXTO, LOS DOS FIJOS — y es la que más lo
+   necesita: acá dice «no se pudo leer» o «este usuario no tiene permiso». Tenía el
+   fondo rosa claro y el texto heredado del tema, así que en el tema oscuro de
+   Betangar quedaba claro sobre claro: el aviso que explica por qué no se ve nada
+   era justamente el que no se veía. Lo cazó la auditoría del CSS, no yo. */
+.mdz-error   { background: #f8e5e2; color: #7a1c16; border: 1px solid #b0433a; border-radius: 12px; padding: 14px 16px; }  /* 8,63:1 medido */
+.mdz-err-d   { font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; margin: 7px 0; word-break: break-word; color: #7a1c16; }
+.mdz-err-n   { font-size: 13px; color: #7a1c16; }
 
 .mdz-vacio { text-align: center; padding: 34px 16px; color: var(--ink-3, #4a5765); }
 .mdz-vacio .q { font-size: 15px; font-weight: 600; }
@@ -109,8 +153,13 @@
 .mdz-in { font: inherit; font-size: 14px; padding: 9px 10px; border-radius: 9px;
   border: 1px solid var(--line, #dbe2ea); background: var(--card, #fff); color: var(--ink, #17212b); width: 100%; }
 .mdz-in:focus { outline: 2px solid #1f6b4f; outline-offset: 1px; border-color: #1f6b4f; }
-/* ⚠️ Una opción apagada tiene que SEGUIR LEYÉNDOSE: dice por qué no se puede usar. */
-.mdz-in option:disabled { color: #6b7684; }
+/* ⚠️ Una opción apagada tiene que SEGUIR LEYÉNDOSE: dice por qué no se puede usar.
+   ⛔ Pero acá NO va un gris fijo. El desplegable de un <select> lo pinta el SISTEMA
+      —no esta hoja—, así que el fondo puede ser claro u oscuro según el equipo y el
+      tema, y no hay forma de medirlo desde acá. `GrayText` es la palabra que el
+      propio sistema usa para «apagado»: se adapta sola. El #6b7684 que había daba
+      2,77:1 sobre el tema oscuro. */
+.mdz-in option:disabled { color: GrayText; }
 .mdz-ayuda { font-size: 12.5px; color: var(--ink-2, #2b3742); margin-top: 5px; }
 
 .mdz-form-pie { display: flex; gap: 9px; margin-top: 16px; flex-wrap: wrap; }
