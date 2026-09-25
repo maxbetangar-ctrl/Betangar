@@ -5594,6 +5594,7 @@ async function imprimirDashboard(){
       var _d=_dz.deuda, _e=_dz.estado;
       var _f2=function(n){return Number(n||0).toLocaleString('es-VE',{minimumFractionDigits:2,maximumFractionDigits:2});};
       var _vc=Number(_e.cuotas_vencidas||0);
+      var _c=_dz.cuotas;
       var _pct=Number(_e.total_a_pagar)>0?Math.round(Number(_e.total_abonado)/Number(_e.total_a_pagar)*100):0;
       var _prox=_e.proxima_cuota?String(_e.proxima_cuota).slice(0,10).split('-').reverse().join('/'):'—';
       deudaHtml='<h2>Deuda — '+_dEsc(_d.acreedor)+'</h2>'+
@@ -5603,6 +5604,8 @@ async function imprimirDashboard(){
         '<tr><td>Abonado</td><td style="text-align:right;font-family:monospace">$'+_f2(_e.total_abonado)+'</td><td>'+_pct+'% del total</td></tr>'+
         '<tr><td>Cuota mensual</td><td style="text-align:right;font-family:monospace">$'+_f2(_e.cuota_mensual)+'</td><td>'+_d.plazo_meses+' cuotas · '+(Number(_d.tasa_anual)*100).toFixed(0)+'% anual</td></tr>'+
         '<tr><td>Proxima a vencer</td><td style="text-align:right;font-family:monospace">'+_prox+'</td><td>'+_dEsc(_d.concepto)+'</td></tr>'+
+        (_c?'<tr><td>Cuotas</td><td style="text-align:right;font-family:monospace;font-weight:800">'+_c.pagadas+' / '+_c.total+'</td><td>'+
+            _c.pagadas+' pagadas · '+_c.por_pagar+' por pagar'+(_c.vencidas>0?' (de las cuales '+_c.vencidas+' VENCIDA'+(_c.vencidas>1?'S':'')+')':'')+'</td></tr>':'')+
         '</tbody></table>';
     }
   }catch(e){
@@ -30524,7 +30527,8 @@ async function cargarDeudaDash(forzar){
     var d = ds.data[0];
     var es = await supabase.rpc('deuda_estado',{p_deuda:d.id});
     if(es.error || !es.data || !es.data.length) return null;
-    DEUDA_DASH = { deuda:d, estado:es.data[0] };
+    var ct = await supabase.rpc('deuda_cuotas',{p_deuda:d.id});
+    DEUDA_DASH = { deuda:d, estado:es.data[0], cuotas:(ct.data&&ct.data[0])||null };
     return DEUDA_DASH;
   }catch(e){ console.log('[deuda-dash]', e&&e.message); return null; }
 }
@@ -30539,6 +30543,11 @@ function renderDeudaDash(){
     if(e.proxima_cuota){ var hoy=new Date(); hoy.setHours(0,0,0,0);
       dias=Math.round((new Date(String(e.proxima_cuota).slice(0,10)+'T00:00:00')-hoy)/86400000); }
     var pct=Number(e.total_a_pagar)>0?Math.round(Number(e.total_abonado)/Number(e.total_a_pagar)*100):0;
+    var c=r.cuotas;
+    // ⚠️ Las VENCIDAS estan DENTRO de las por pagar: 4 + 14 = 18, no 4+2+14.
+    //    Decirlo asi evita que alguien sume las tres y le den 20 cuotas.
+    var cuotasTxt = c ? (c.pagadas+' de '+c.total+' pagadas · '+c.por_pagar+' por pagar'+
+                         (c.vencidas>0?' ('+c.vencidas+' vencida'+(c.vencidas>1?'s':'')+')':'')) : '';
     el.innerHTML =
       '<div class="card" style="margin:0">'+
         '<div class="sh" style="display:flex;justify-content:space-between;align-items:center">'+
@@ -30549,13 +30558,14 @@ function renderDeudaDash(){
         '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;margin-top:9px">'+
           _dzKpi('Saldo','US$ '+f2(e.saldo_pendiente),'de US$ '+f2(e.total_a_pagar))+
           _dzKpi('Abonado','US$ '+f2(e.total_abonado),pct+'% pagado')+
-          _dzKpi('Cuota','US$ '+f2(e.cuota_mensual),d.plazo_meses+' meses')+
+          _dzKpi('Cuota','US$ '+f2(e.cuota_mensual),c?(c.pagadas+'/'+c.total+' pagadas'):(d.plazo_meses+' meses'))+
           _dzKpi('Próxima',(e.proxima_cuota?String(e.proxima_cuota).slice(0,10).split('-').reverse().join('/'):'—'),
                  dias===null?'':(dias<0?'hace '+Math.abs(dias)+'d':dias===0?'HOY':'en '+dias+' días'),
                  (dias!==null&&dias>=0&&dias<=7))+
         '</div>'+
         '<div style="height:6px;background:var(--bg3);border-radius:99px;margin-top:9px;overflow:hidden">'+
           '<div style="height:100%;width:'+Math.min(100,pct)+'%;background:#1b7a4f;border-radius:99px"></div></div>'+
+        (cuotasTxt?'<div style="font-size:11px;color:#3a4654;margin-top:6px;font-weight:600">📋 '+cuotasTxt+'</div>':'')+
       '</div>';
   });
 }

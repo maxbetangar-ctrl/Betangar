@@ -91,7 +91,8 @@
       return Promise.all([
         sb.rpc('deuda_estado', { p_deuda: est.sel }),
         sb.rpc('deuda_amortizacion', { p_deuda: est.sel }),
-        sb.from('deuda_abonos').select('*').eq('deuda_id', est.sel).order('fecha')
+        sb.from('deuda_abonos').select('*').eq('deuda_id', est.sel).order('fecha'),
+        sb.rpc('deuda_cuotas', { p_deuda: est.sel })
       ]).then(function (r) {
         // ⛔ Un error de cualquiera de las tres se DICE. Antes se mostraba la
         //    pantalla a medias y parecía que no había datos.
@@ -100,6 +101,7 @@
         est.estado = (r[0].data || [])[0] || null;
         est.tabla = r[1].data || [];
         est.abonos = r[2].data || [];
+        est.cuotas = (r[3] && r[3].data && r[3].data[0]) || null;
       });
     }
 
@@ -180,6 +182,16 @@
       }
 
       h += '<div class="mdz-barra"><div class="mdz-barra-in" style="width:' + Math.min(100, pct) + '%"></div></div>';
+
+      // ⚠️ Las VENCIDAS van DENTRO de las por pagar: 4 + 14 = 18, no 4+2+14. Se
+      //    escribe «de las cuales» para que nadie sume las tres y le den 20.
+      var c = est.cuotas;
+      if (c) {
+        h += '<div class="mdz-cuotas">📋 <b>' + c.pagadas + ' de ' + c.total + '</b> cuotas pagadas · <b>' +
+             c.por_pagar + '</b> por pagar' +
+             (Number(c.vencidas) > 0 ? ' <span class="mdz-venc">(de las cuales ' + c.vencidas +
+               ' vencida' + (Number(c.vencidas) > 1 ? 's' : '') + ')</span>' : '') + '</div>';
+      }
 
       // ── La tabla ───────────────────────────────────────────────────────────
       h += '<h3 class="mdz-h3">Cuadro de amortización</h3>' +

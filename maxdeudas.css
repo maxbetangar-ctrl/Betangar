@@ -35,6 +35,10 @@
 .mdz-barra { height: 7px; background: var(--sunk, #e3e8ee); border-radius: 99px; margin: 14px 0 6px; overflow: hidden; }
 .mdz-barra-in { height: 100%; background: var(--ok, #1f6b4f); border-radius: 99px; }
 
+.mdz-cuotas { font-size: 14px; color: var(--ink-2, #2b3742); margin-top: 8px; }
+.mdz-cuotas b { font-weight: 750; }
+.mdz-venc { color: #8c1d18; font-weight: 650; }
+
 .mdz-h3 { font-size: 15px; font-weight: 700; margin: 22px 0 8px; }
 .mdz-cnt { font-size: 12px; font-weight: 600; color: var(--ink-3, #4a5765); background: var(--sunk, #e3e8ee);
   border-radius: 99px; padding: 2px 8px; margin-left: 6px; }
