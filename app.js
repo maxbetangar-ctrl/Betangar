@@ -14539,14 +14539,42 @@ function _rutaDeUrl(bucket, u){
   if(s.indexOf('http')===0) return '';          // URL de otro sitio: no es nuestra
   return s.replace(new RegExp('^'+bucket+'/'),'');  // ya venía como ruta
 }
+// ⛔ SE PRUEBAN LAS DOS RUTAS, Y NO ES POR LAS DUDAS.
+//    El bucket `asistencia` tiene DENTRO una carpeta que se llama igual, así que
+//    la ruta buena del objeto es `asistencia/E1864....jpg`. `_rutaDeUrl` le quita
+//    ese prefijo creyendo que es el nombre del bucket repetido, y firma una ruta
+//    que no existe: por eso NINGUNA selfie de fichaje se podía ver, en los tres
+//    clientes, desde que existe el fichaje. Lo reportó Alejandra el 24/09.
+//    Medido contra el Storage: sin el prefijo da 400, con el prefijo da 200.
+//    Sintácticamente no hay forma de distinguir «bucket+objeto» de
+//    «carpeta+objeto» cuando se llaman igual — la única que sabe es el Storage.
+//    Por eso NO se toca `_rutaDeUrl`: ese replace existe para normalizar lo que
+//    alguna vez se guardó como «bucket/ruta», y sacarlo arreglaría la asistencia
+//    rompiendo el otro caso.
+//    (Las de mantenimientos y empleados sí se veían: sus carpetas se llaman
+//    distinto que el bucket, así que el replace nunca las tocaba.)
+function _rutasAProbar(bucket, urlOruta){
+  var ruta=_rutaDeUrl(bucket, urlOruta), cruda=String(urlOruta||'');
+  var lista=[];
+  if(ruta) lista.push(ruta);
+  if(cruda && cruda.indexOf('http')!==0 && cruda!==ruta) lista.push(cruda);
+  return lista;
+}
 async function _urlFirmada(bucket, urlOruta, seg){
-  var ruta=_rutaDeUrl(bucket, urlOruta);
-  if(!ruta || !(DB_READY&&supabase)) return '';
-  try{
-    var r=await supabase.storage.from(bucket).createSignedUrl(ruta, seg||60);
-    if(r&&r.error){ console.log('firmar '+bucket, r.error.message); return ''; }
-    return (r&&r.data&&r.data.signedUrl)||'';
-  }catch(e){ console.log('firmar '+bucket, e.message); return ''; }
+  var rutas=_rutasAProbar(bucket, urlOruta);
+  if(!rutas.length || !(DB_READY&&supabase)) return '';
+  var ultimo='';
+  for(var i=0;i<rutas.length;i++){
+    try{
+      var r=await supabase.storage.from(bucket).createSignedUrl(rutas[i], seg||60);
+      if(r&&r.data&&r.data.signedUrl) return r.data.signedUrl;
+      if(r&&r.error) ultimo=r.error.message;
+    }catch(e){ ultimo=e.message; }
+  }
+  // ⛔ El aviso nombra LAS RUTAS QUE SE PROBARON. «no se pudo firmar» a secas obliga
+  //    a reproducirlo para saber qué se pidió, y esto se mira cuando ya pasó.
+  console.log('firmar '+bucket+': no abrió con ninguna de ['+rutas.join(' | ')+'] · '+ultimo);
+  return '';
 }
 // Firma EN LOTE las fotos de una colección, UNA sola vez al cargarla. Así los sitios que pintan
 // `<img src="...">` —el carnet, la hoja de vida, la rejilla de entregas— no se enteran del cambio:
@@ -14558,13 +14586,23 @@ async function _urlFirmada(bucket, urlOruta, seg){
 // siquiera un descuido rompe la foto — pero la base guarda la ruta, que es lo que corresponde.
 async function _firmarFotos(filas, campo, bucket){
   if(!Array.isArray(filas)||!filas.length||!(DB_READY&&supabase))return;
+  // Se mandan LAS DOS variantes de cada foto (ver `_rutasAProbar`): el lote firma
+  // todas de una y después se toma, para cada fila, la primera que haya abierto.
+  // Pedir dos por foto en UNA llamada cuesta menos que una llamada por foto.
   var rutas=[],idx=[];
-  filas.forEach(function(r,i){ var p=r?_rutaDeUrl(bucket,r[campo]):''; if(p){rutas.push(p);idx.push(i);} });
+  filas.forEach(function(r,i){
+    if(!r)return;
+    _rutasAProbar(bucket,r[campo]).forEach(function(p){ rutas.push(p); idx.push(i); });
+  });
   if(!rutas.length)return;
   try{
     var r=await supabase.storage.from(bucket).createSignedUrls(rutas,28800);
     if(r&&r.error){ console.log('firmar lote '+bucket,r.error.message); return; }
-    (r&&r.data||[]).forEach(function(x,k){ if(x&&x.signedUrl)filas[idx[k]][campo]=x.signedUrl; });
+    var puestas={};
+    (r&&r.data||[]).forEach(function(x,k){
+      var fila=idx[k];
+      if(x&&x.signedUrl&&!puestas[fila]){ filas[fila][campo]=x.signedUrl; puestas[fila]=1; }
+    });
   }catch(e){ console.log('firmar lote '+bucket,e.message); }
 }
 // Lo que va a la BASE es la RUTA, nunca la URL firmada.
