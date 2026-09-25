@@ -5583,6 +5583,11 @@ async function imprimirDashboard(){
   // segundo calculo: si se recalculara aca, el papel y la pantalla podrian decir
   // cosas distintas del mismo momento y nadie sabria cual creer.
   var deudaHtml='';
+  // ⛔ ESCAPE PROPIO Y NO `_surEsc`. La primera version usaba `_surEsc`, que se
+  //    ASIGNA 20 lineas mas abajo: acá todavia vale `undefined` y llamarla tiraba
+  //    TypeError. `var` iza la declaracion, no el valor.
+  var _dEsc=function(x){return String(x==null?'':x).replace(/[&<>"']/g,function(c){
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});};
   try{
     var _dz = await cargarDeudaDash();
     if(_dz){
@@ -5591,16 +5596,22 @@ async function imprimirDashboard(){
       var _vc=Number(_e.cuotas_vencidas||0);
       var _pct=Number(_e.total_a_pagar)>0?Math.round(Number(_e.total_abonado)/Number(_e.total_a_pagar)*100):0;
       var _prox=_e.proxima_cuota?String(_e.proxima_cuota).slice(0,10).split('-').reverse().join('/'):'—';
-      deudaHtml='<h2>Deuda — '+_surEsc(_d.acreedor)+'</h2>'+
+      deudaHtml='<h2>Deuda — '+_dEsc(_d.acreedor)+'</h2>'+
         (_vc>0?'<div style="background:#fdecea;border-left:3px solid #b3261e;color:#8c1d18;font-weight:800;padding:4px 8px;margin-bottom:4px;font-size:9.5px">'+_vc+' cuota'+(_vc>1?'s':'')+' VENCIDA'+(_vc>1?'S':'')+' · $'+_f2(_e.monto_vencido)+'</div>':'')+
         '<table><thead><tr><th>Concepto</th><th style="text-align:right">Monto</th><th>Detalle</th></tr></thead><tbody>'+
         '<tr><td>Saldo pendiente</td><td style="text-align:right;font-family:monospace;font-weight:800">$'+_f2(_e.saldo_pendiente)+'</td><td>de $'+_f2(_e.total_a_pagar)+' a pagar</td></tr>'+
         '<tr><td>Abonado</td><td style="text-align:right;font-family:monospace">$'+_f2(_e.total_abonado)+'</td><td>'+_pct+'% del total</td></tr>'+
         '<tr><td>Cuota mensual</td><td style="text-align:right;font-family:monospace">$'+_f2(_e.cuota_mensual)+'</td><td>'+_d.plazo_meses+' cuotas · '+(Number(_d.tasa_anual)*100).toFixed(0)+'% anual</td></tr>'+
-        '<tr><td>Proxima a vencer</td><td style="text-align:right;font-family:monospace">'+_prox+'</td><td>'+_surEsc(_d.concepto)+'</td></tr>'+
+        '<tr><td>Proxima a vencer</td><td style="text-align:right;font-family:monospace">'+_prox+'</td><td>'+_dEsc(_d.concepto)+'</td></tr>'+
         '</tbody></table>';
     }
-  }catch(e){}
+  }catch(e){
+    // Si la deuda no se pudo traer, el informe lo DICE. Omitirla en silencio
+    // hace creer que no hay deuda — que es justo lo contrario de la verdad.
+    console.log('[pdf-deuda]', e&&e.message);
+    deudaHtml='<h2>Deuda</h2><div class="mut">No se pudo incluir el estado de la deuda en este informe ('+
+      String((e&&e.message)||e).slice(0,90)+'). Esto NO quiere decir que no haya deuda.</div>';
+  }
   // ⛽ Combustible surtido HOY (por surtida)
   try{ await cargarSurtidas(); }catch(e){}
   var _surEsc=(typeof _mEsc==='function')?_mEsc:function(s){return String(s==null?'':s);};
