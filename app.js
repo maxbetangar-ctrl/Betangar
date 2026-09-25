@@ -30648,7 +30648,18 @@ function renderMaxDeudas(){
     return;
   }
   if(_MDZ_CERRAR){ try{ _MDZ_CERRAR(); }catch(e){} _MDZ_CERRAR = null; }
-  _MDZ_CERRAR = MaxDeudas.montar(el, { supabase: supabase });
+  _MDZ_CERRAR = MaxDeudas.montar(el, {
+    supabase: supabase,
+    // ⛔ CUANDO SE CARGA UN ABONO, EL DASHBOARD SE QUEDA CON EL SALDO VIEJO.
+    //    `DEUDA_DASH` es una copia en memoria que alimenta el widget Y el PDF:
+    //    sin esta linea, la pantalla de Deudas mostraria el saldo nuevo y el
+    //    informe impreso el anterior — dos verdades del mismo momento, que es
+    //    justo lo que el cache existia para evitar.
+    alCambiar: function(){
+      DEUDA_DASH = null;
+      try{ if(typeof renderDeudaDash === 'function') renderDeudaDash(); }catch(e){ console.log('[deuda-dash]', e && e.message); }
+    }
+  });
 }
 
 // La campanita de la barra de arriba: se monta UNA vez, cuando ya hay sesion.

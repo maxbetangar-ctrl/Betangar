@@ -62,18 +62,39 @@
     if (!el) return function () {};
     if (!sb) { el.innerHTML = '<div class="mdz-vacio">Falta la conexión a la base.</div>'; return function () {}; }
 
-    var est = { vivo: true, cargando: true, puede: false, deudas: [], sel: null, estado: null, tabla: [], abonos: [], error: null };
+    var est = { vivo: true, cargando: true, puede: false, puedeCargar: false, deudas: [], sel: null,
+                estado: null, tabla: [], abonos: [], origenes: [], compras: [], error: null,
+                form: { abierto: false, guardando: false, error: null, dup: null, ok: null, valores: null } };
     el.classList.add('mdz');
 
     // ⛔ SE PREGUNTA PRIMERO SI PUEDE VER. Las tablas tienen RLS, y una RLS que
     //    no deja pasar devuelve CERO FILAS, no un error: sin esto, «no te dejan
     //    ver» y «no hay deudas» se verian exactamente igual. Es el defecto que se
     //    corrigio el mismo dia en las 8 funciones financieras de Betangar.
+    // ⛔ SON DOS PREGUNTAS DISTINTAS Y SE HACEN LAS DOS. Ver la deuda lo puede
+    //    hacer un directivo o la auditora externa; cargarle un abono, no. Si la
+    //    pantalla asumiera que quien ve puede cargar, le mostraria el boton a
+    //    gente que va a recibir un «no tiene permiso» despues de escribir todo.
     function pedirPermiso() {
-      return sb.rpc('deuda_puede_ver').then(function (r) {
-        if (r.error) throw r.error;
-        est.puede = r.data === true;
-      });
+      return Promise.all([sb.rpc('deuda_puede_ver'), sb.rpc('deuda_puede_cargar')])
+        .then(function (r) {
+          if (r[0].error) throw r[0].error;
+          est.puede = r[0].data === true;
+          // ⚠️ Que ESTA falle no puede tumbar la pantalla: se lee igual, sin el
+          //    boton. Un modulo LEGO cae en apps donde la funcion puede no estar.
+          est.puedeCargar = !r[1].error && r[1].data === true;
+        });
+    }
+
+    // Lo que necesita el formulario: los origenes y las compras de dolares. Solo
+    // se piden si hay algo que cargar — a quien solo mira no se le gasta el viaje.
+    function pedirParaElForm() {
+      if (!est.puedeCargar) return Promise.resolve();
+      return Promise.all([sb.rpc('deuda_origenes'), sb.rpc('deuda_compras_disponibles')])
+        .then(function (r) {
+          est.origenes = (!r[0].error && r[0].data) || [];
+          est.compras  = (!r[1].error && r[1].data) || [];
+        });
     }
 
     function pedirLista() {
@@ -107,7 +128,7 @@
 
     function refrescar() {
       est.cargando = true; est.error = null; pintar();
-      return pedirPermiso().then(pedirLista).then(pedirDetalle)
+      return pedirPermiso().then(pedirLista).then(pedirDetalle).then(pedirParaElForm)
         .catch(function (e) { est.error = (e && (e.message || e.hint)) || String(e); })
         .then(function () { est.cargando = false; pintar(); });
     }
@@ -150,12 +171,22 @@
       h += '<div class="mdz-top"><div><h2>💳 ' + esc(d.acreedor) + '</h2>' +
         '<div class="mdz-sub">' + esc(d.concepto) +
            (d.deudor ? ' · deudor: ' + esc(d.deudor) : '') + '</div></div>';
+      h += '<div class="mdz-top-der">';
       if (est.deudas.length > 1) {
         h += '<select class="mdz-sel" data-acc="cambiar">' + est.deudas.map(function (x) {
           return '<option value="' + x.id + '"' + (x.id === d.id ? ' selected' : '') + '>' + esc(x.acreedor) + '</option>';
         }).join('') + '</select>';
       }
-      h += '</div>';
+      // El boton solo existe si la BASE dijo que si. Esconderlo no es el candado
+      // —el candado esta en `deuda_abonar()`— pero mostrarselo a quien no puede
+      // es mandarlo a llenar un formulario para que le digan que no.
+      if (est.puedeCargar && !est.form.abierto) {
+        h += '<button type="button" class="mdz-btn" data-acc="abrir">＋ Registrar abono</button>';
+      }
+      h += '</div></div>';
+
+      if (est.form.ok) h += '<div class="mdz-ok">✅ ' + esc(est.form.ok) + '</div>';
+      if (est.form.abierto) h += formHtml(d);
 
       // ── LO QUE DUELE, PRIMERO ──────────────────────────────────────────────
       if (venc > 0) {
@@ -233,6 +264,193 @@
 
       var s = el.querySelector('[data-acc="cambiar"]');
       if (s) s.addEventListener('change', function () { est.sel = Number(s.value); refrescar(); });
+
+      var clic = function (acc, fn) {
+        var b = el.querySelector('[data-acc="' + acc + '"]');
+        if (b) b.addEventListener('click', fn);
+      };
+      clic('abrir',  function () { est.form.abierto = true; est.form.error = null; est.form.ok = null; est.form.valores = null; pintar(); });
+      clic('cerrar', function () { est.form.abierto = false; est.form.error = null; pintar(); });
+      clic('guardar', function () { guardar(false); });
+      clic('forzar',  function () { guardar(true); });
+
+      // El selector de la compra aparece y desaparece SIN repintar: repintar
+      // aca borraria el monto y la nota que la persona ya escribio.
+      var so = el.querySelector('#mdz-f-origen'), caja = el.querySelector('#mdz-f-mov-caja');
+      if (so && caja) {
+        var ver = function () {
+          var o = so.options[so.selectedIndex];
+          var pide = !!(o && o.getAttribute('data-mov'));
+          caja.style.display = pide ? '' : 'none';
+          if (!pide) { var mv = el.querySelector('#mdz-f-mov'); if (mv) mv.value = ''; }
+        };
+        so.addEventListener('change', ver);
+        ver();
+      }
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // EL FORMULARIO
+    //
+    // ⛔ NO VALIDA NADA POR SU CUENTA, y es a proposito. Los seis controles
+    //    viven en `deuda_abonar()`, que es la unica puerta de escritura: si la
+    //    pantalla repitiera las reglas, en un mes habria dos criterios y el de
+    //    la pantalla seria el mentiroso. Lo que hace es MOSTRAR el mensaje que
+    //    devuelve la base — ya esta escrito para una persona.
+    //    [[norma-dos-listas-a-mano-se-desincronizan]]
+    //
+    // ⚠️ El maximo del campo fecha se arma en HORA LOCAL. Con `toISOString()`
+    //    —que pasa a UTC— a las 20:30 de Venezuela el tope ya seria MAÑANA.
+    //    [[norma-las-pruebas-corren-en-utc-como-vercel]]
+    // ═════════════════════════════════════════════════════════════════════════
+    function hoyLocal() {
+      var d = new Date(), p2 = function (n) { return (n < 10 ? '0' : '') + n; };
+      return d.getFullYear() + '-' + p2(d.getMonth() + 1) + '-' + p2(d.getDate());
+    }
+
+    function formHtml(d) {
+      var f = est.form;
+      var hoy = hoyLocal();
+      // ⛔ LO QUE LA PERSONA ESCRIBIÓ NO SE BORRA CUANDO EL GUARDADO FALLA.
+      //    `pintar()` rehace el HTML entero, así que sin esto los cinco campos
+      //    volvían vacíos justo cuando hay que corregir UNO. Y era peor que
+      //    molesto: el botón «cargarlo igual» del duplicado leía los campos ya
+      //    vacíos y mandaba el monto en NULL, así que confirmar no cargaba nada
+      //    y devolvía un error distinto. Lo cazó el banco de pruebas mirando lo
+      //    que se ENVÍA, no solo que el botón existiera.
+      //    [[norma-test-que-pasa-por-el-motivo-equivocado]]
+      var v = f.valores || {};
+      var val = function (k, x) { return esc(v[k] == null || v[k] === '' ? (x == null ? '' : x) : v[k]); };
+
+      // Las compras de dolares, con lo que le queda libre a cada una. Las que no
+      // sirven salen IGUAL pero apagadas y diciendo por que: una opcion que
+      // desaparece deja al que carga buscando algo que el ve en su banco.
+      var libreTotal = 0, conLibre = 0;
+      var ops = est.compras.map(function (c) {
+        var libre = Number(c.usd_libre);
+        var motivo = c.problema ? c.problema
+                   : (!(libre > 0.009) ? 'ya está aplicada entera' : null);
+        if (!motivo) { libreTotal += libre; conLibre++; }
+        // ⚠️ «quedan US$ X» solo se dice si algo YA se aplicó a esa compra. Hoy no
+        //    hay ningún abono atado a su compra, así que el libre es igual al
+        //    total: repetirlo al lado haría ver un dato donde no hay ninguno.
+        var algoAplicado = Number(c.usd_aplicado) > 0.009;
+        return '<option value="' + esc(c.mov_id) + '"' + (motivo ? ' disabled' : '') +
+          (c.mov_id === v.p_mov_id ? ' selected' : '') + '>' +
+          fechaVE(c.fecha) + ' · ' + esc(c.quien) + ' · US$ ' + m2(c.usd) +
+          (motivo ? ' — ' + esc(motivo)
+                  : (algoAplicado ? ' · quedan US$ ' + m2(libre) : '')) + '</option>';
+      }).join('');
+
+      var h = '<div class="mdz-form"><h3 class="mdz-form-t">Registrar un abono a ' + esc(d.acreedor) + '</h3>';
+
+      if (f.error) {
+        h += '<div class="mdz-form-err"><b>No se guardó.</b><div>' + esc(f.error) + '</div>' +
+             (f.dup ? '<button type="button" class="mdz-btn mdz-btn-peligro" data-acc="forzar">' +
+                      'Sí, son dos pagos distintos — cargarlo igual</button>' : '') + '</div>';
+      }
+
+      h += '<div class="mdz-campos">' +
+        campo('Fecha del pago', '<input type="date" id="mdz-f-fecha" class="mdz-in" max="' + hoy + '" value="' + val('p_fecha', hoy) + '">') +
+        campo('Monto en US$', '<input type="number" id="mdz-f-monto" class="mdz-in" step="0.01" min="0" placeholder="0,00" value="' + val('p_monto') + '">') +
+        campo('De dónde salió la plata',
+          '<select id="mdz-f-origen" class="mdz-in">' +
+          est.origenes.map(function (o) {
+            return '<option value="' + esc(o.valor) + '" data-mov="' + (o.pide_movimiento ? '1' : '') + '"' +
+                   (o.valor === (v.p_origen || 'compra_divisas') ? ' selected' : '') + '>' + esc(o.etiqueta) + '</option>';
+          }).join('') + '</select>') +
+        '</div>';
+
+      // El selector de la compra. Arranca visible porque «compra de dólares» es
+      // el origen de los 10 abonos que hay: es el caso normal, no la excepcion.
+      h += '<div class="mdz-campo mdz-ancho" id="mdz-f-mov-caja">' +
+        '<label class="mdz-lab">¿De cuál compra de dólares?</label>' +
+        '<select id="mdz-f-mov" class="mdz-in"><option value="">— elegí la compra —</option>' + ops + '</select>' +
+        '<div class="mdz-ayuda">' + ayudaCompras(libreTotal, conLibre) + '</div></div>';
+
+      h += '<div class="mdz-campo mdz-ancho"><label class="mdz-lab">Nota <span class="mdz-opt">(opcional)</span></label>' +
+        '<input type="text" id="mdz-f-nota" class="mdz-in" maxlength="160" placeholder="Ej.: transferencia a Auto Unión" value="' + val('p_nota') + '"></div>';
+
+      h += '<div class="mdz-form-pie">' +
+        '<button type="button" class="mdz-btn mdz-btn-ok" data-acc="guardar"' + (f.guardando ? ' disabled' : '') + '>' +
+          (f.guardando ? 'Guardando…' : 'Guardar abono') + '</button>' +
+        '<button type="button" class="mdz-btn mdz-btn-flojo" data-acc="cerrar">Cancelar</button>' +
+        '</div></div>';
+      return h;
+    }
+
+    // ⛔ EL NÚMERO GRANDE NO PUEDE DECIR MENOS DE LO QUE SE SABE. Hoy las 21
+    //    compras suman US$ 127.219,01 y NINGUNA tiene un abono atado, porque los
+    //    10 abonos que hay se cargaron por script el 24/09 sin decir de cuál
+    //    compra salieron. Mostrar «quedan US$ 127.219,01 sin aplicar» a secas
+    //    sería falso por US$ 111.318: esa plata YA está abonada, lo que falta es
+    //    la atadura. Se dicen los dos números y se dice qué falta.
+    //    [[norma-numero-que-el-dueno-no-puede-explicar]]
+    function ayudaCompras(libreTotal, conLibre) {
+      if (!est.compras.length) return 'No hay movimientos del banco marcados como compra de dólares.';
+      var sinAtar = 0;
+      est.abonos.forEach(function (a) { if (!a.mov_id) sinAtar += Number(a.monto) || 0; });
+      var t = 'Hay <b>US$ ' + m2(libreTotal) + '</b> de compras sin atar a un abono, en ' +
+              conLibre + ' movimiento' + (conLibre === 1 ? '' : 's') + '. ';
+      if (sinAtar > 0.009) {
+        t += '⚠️ Pero <b>US$ ' + m2(sinAtar) + '</b> de esta deuda ya están abonados <b>sin decir de cuál compra salieron</b> ' +
+             '(es la historia cargada a mano). Hasta que esa historia se ate, esa primera cifra está de más por esa misma plata. ';
+      }
+      t += 'Si un pago se fondeó con dos compras, cargá <b>dos abonos</b>, uno por cada una.';
+      return t;
+    }
+
+    function campo(rot, ctrl) {
+      return '<div class="mdz-campo"><label class="mdz-lab">' + esc(rot) + '</label>' + ctrl + '</div>';
+    }
+
+    // Lo que hay escrito en la pantalla AHORA. No se guarda en `est` a cada
+    // tecla: repintar en cada letra le roba el foco al campo que se esta usando.
+    function leerForm() {
+      var v = function (id) { var e = el.querySelector('#' + id); return e ? e.value : ''; };
+      var mo = parseFloat(String(v('mdz-f-monto')).replace(',', '.'));
+      return {
+        p_deuda: est.sel,
+        p_fecha: v('mdz-f-fecha') || null,
+        p_monto: isFinite(mo) ? mo : null,
+        p_origen: v('mdz-f-origen') || null,
+        p_mov_id: v('mdz-f-mov') || null,
+        p_nota: v('mdz-f-nota') || null
+      };
+    }
+
+    function guardar(forzar) {
+      var f = est.form;
+      if (f.guardando) return;
+      var datos = leerForm();
+      datos.p_forzar = !!forzar;
+      f.valores = datos;          // para que un repintado no borre lo escrito
+      f.guardando = true; f.error = null; f.dup = null; pintar();
+
+      sb.rpc('deuda_abonar', datos).then(function (r) {
+        f.guardando = false;
+        if (r.error) {
+          // ⚠️ SE MUESTRA EL MENSAJE DE LA BASE, TAL CUAL. Está escrito para una
+          //    persona y dice el número exacto. Cambiarlo por un «no se pudo
+          //    guardar» generico es tapar justo el dato que hace falta.
+          f.error = r.error.message || String(r.error);
+          // 23505 = ya hay uno igual. No es un error: es un freno que pide confirmar.
+          f.dup = (r.error.code === '23505');
+          pintar();
+          return;
+        }
+        f.abierto = false;
+        f.valores = null;         // el que sigue arranca limpio
+        f.ok = 'Abono registrado. El saldo y el cuadro de cuotas ya lo tienen adentro.';
+        // El widget del dashboard y el PDF leen su propia copia: si no se les
+        // avisa, siguen mostrando el saldo viejo hasta que alguien recargue.
+        if (typeof op.alCambiar === 'function') { try { op.alCambiar(); } catch (e) {} }
+        refrescar();
+      }, function (e) {
+        f.guardando = false;
+        f.error = (e && e.message) || String(e);
+        pintar();
+      });
     }
 
     function kpi(rot, val, sub, cls) {
@@ -250,6 +468,6 @@
     };
   }
 
-  raiz.MaxDeudas = { montar: montar, version: '0.1.0' };
+  raiz.MaxDeudas = { montar: montar, version: '0.2.0' };
   if (typeof module !== 'undefined' && module.exports) module.exports = raiz.MaxDeudas;
 })(typeof window !== 'undefined' ? window : globalThis);

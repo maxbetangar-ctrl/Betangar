@@ -76,3 +76,51 @@
   .mdz-kpi .v { font-size: 18px; }
   .mdz-tabla th, .mdz-tabla td { padding: 7px 9px; font-size: 12.5px; }
 }
+
+/* ==========================================================================
+   EL FORMULARIO DE ABONOS (25/09, pedido de Máximo: «haz el formulario para
+   cargar abonos»).
+   ==========================================================================
+   ⛔ Los colores de abajo están MEDIDOS contra el fondo sobre el que se pintan,
+      no elegidos a ojo — el 24/09 tres grises de este mismo archivo estaban por
+      debajo del mínimo legible de 4,5:1 y se veían «bien». */
+.mdz-top-der { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+
+.mdz-btn { font: inherit; font-size: 14px; font-weight: 650; cursor: pointer;
+  padding: 9px 15px; border-radius: 9px; border: 1px solid var(--line, #dbe2ea);
+  background: var(--card, #fff); color: var(--ink, #17212b); }
+.mdz-btn:hover { border-color: var(--ink-3, #4a5765); }
+.mdz-btn:disabled { opacity: .6; cursor: default; }
+.mdz-btn-ok { background: #1f6b4f; border-color: #1f6b4f; color: #fff; }        /* 6,41:1 medido */
+.mdz-btn-ok:hover { background: #185840; border-color: #185840; }
+.mdz-btn-flojo { background: transparent; color: var(--ink-2, #2b3742); }
+.mdz-btn-peligro { background: #8c1d18; border-color: #8c1d18; color: #fff; margin-top: 9px; } /* 9,11:1 medido */
+
+/* La caja se despega del resto: mientras está abierta es lo único que importa. */
+.mdz-form { background: var(--card, #fff); border: 1px solid var(--line, #dbe2ea);
+  border-left: 4px solid #1f6b4f; border-radius: 12px; padding: 15px 17px 17px; margin-bottom: 16px; }
+.mdz-form-t { margin: 0 0 13px; font-size: 16px; font-weight: 720; }
+
+.mdz-campos { display: grid; grid-template-columns: repeat(auto-fit, minmax(185px, 1fr)); gap: 12px; }
+.mdz-campo { display: flex; flex-direction: column; gap: 5px; }
+.mdz-ancho { margin-top: 12px; }
+.mdz-lab { font-size: 12.5px; font-weight: 650; color: var(--ink-2, #2b3742); }
+.mdz-opt { font-weight: 400; color: var(--ink-3, #4a5765); }
+.mdz-in { font: inherit; font-size: 14px; padding: 9px 10px; border-radius: 9px;
+  border: 1px solid var(--line, #dbe2ea); background: var(--card, #fff); color: var(--ink, #17212b); width: 100%; }
+.mdz-in:focus { outline: 2px solid #1f6b4f; outline-offset: 1px; border-color: #1f6b4f; }
+/* ⚠️ Una opción apagada tiene que SEGUIR LEYÉNDOSE: dice por qué no se puede usar. */
+.mdz-in option:disabled { color: #6b7684; }
+.mdz-ayuda { font-size: 12.5px; color: var(--ink-2, #2b3742); margin-top: 5px; }
+
+.mdz-form-pie { display: flex; gap: 9px; margin-top: 16px; flex-wrap: wrap; }
+
+/* El mensaje de la base va COMPLETO, con su número adentro. */
+.mdz-form-err { background: var(--bad-bg, #fdecea); border-left: 4px solid #8c1d18;
+  color: #7a1c16; border-radius: 9px; padding: 11px 13px; margin-bottom: 13px; font-size: 14px; }
+.mdz-form-err div { margin-top: 4px; }
+
+.mdz-ok { background: var(--ok-bg, #dff0e6); border-left: 4px solid #1f6b4f; color: #14533a;
+  border-radius: 9px; padding: 11px 14px; margin-bottom: 14px; font-size: 14.5px; }
+
+@media (max-width: 620px) { .mdz-campos { grid-template-columns: 1fr; } }
