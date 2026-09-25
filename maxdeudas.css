@@ -1,0 +1,68 @@
+/* ==========================================================================
+   MaxDeudas — estilos
+   ==========================================================================
+   Todo cuelga de `.mdz` para que montarlo en otro producto no le pise nada.
+   Los colores salen de las variables del tema cuando existen, con un valor de
+   respaldo: un módulo LEGO no puede asumir la paleta de la app que lo recibe.
+   ========================================================================== */
+.mdz { font-family: inherit; color: var(--ink, #12212e); }
+
+.mdz-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; flex-wrap: wrap; margin-bottom: 14px; }
+.mdz-top h2 { margin: 0; font-size: 19px; font-weight: 750; }
+.mdz-sub { font-size: 13px; color: var(--ink-3, #6b7c8c); margin-top: 3px; }
+.mdz-sel { padding: 8px 10px; border-radius: 9px; border: 1px solid var(--line, #dbe2ea); background: var(--card, #fff); color: inherit; font-size: 14px; }
+
+/* Lo que duele va primero y va rojo. */
+.mdz-alarma { background: var(--bad-bg, #f8e5e2); color: var(--bad, #b0433a); border-left: 4px solid var(--bad, #b0433a);
+  padding: 11px 14px; border-radius: 9px; margin-bottom: 14px; font-size: 15px; }
+.mdz-aviso { background: var(--warn-bg, #faeeda); color: var(--warn, #8f6206); border-left: 4px solid var(--warn, #8f6206);
+  padding: 10px 14px; border-radius: 9px; margin: 12px 0; font-size: 14px; }
+
+.mdz-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(165px, 1fr)); gap: 11px; }
+.mdz-kpi { background: var(--card, #fff); border: 1px solid var(--line, #dbe2ea); border-radius: 12px; padding: 12px 14px; }
+.mdz-kpi .r { font-size: 11px; letter-spacing: .04em; text-transform: uppercase; color: var(--ink-3, #6b7c8c); }
+.mdz-kpi .v { font-size: 20px; font-weight: 760; margin-top: 4px; font-variant-numeric: tabular-nums; }
+.mdz-kpi .s { font-size: 12px; color: var(--ink-3, #6b7c8c); margin-top: 2px; }
+/* «urge» = vence dentro de 7 días. Se pinta solo, nadie lo decide a mano. */
+.mdz-kpi.urge { border-color: var(--warn, #8f6206); }
+.mdz-kpi.urge .v { color: var(--warn, #8f6206); }
+
+.mdz-barra { height: 7px; background: var(--sunk, #e3e8ee); border-radius: 99px; margin: 14px 0 6px; overflow: hidden; }
+.mdz-barra-in { height: 100%; background: var(--ok, #1f6b4f); border-radius: 99px; }
+
+.mdz-h3 { font-size: 15px; font-weight: 700; margin: 22px 0 8px; }
+.mdz-cnt { font-size: 12px; font-weight: 600; color: var(--ink-3, #6b7c8c); background: var(--sunk, #e3e8ee);
+  border-radius: 99px; padding: 2px 8px; margin-left: 6px; }
+
+/* ⚠️ La tabla ancha scrollea DENTRO de su caja: la página nunca se mueve de lado. */
+.mdz-scroll { overflow-x: auto; border: 1px solid var(--line, #dbe2ea); border-radius: 12px; }
+.mdz-tabla { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+.mdz-tabla th, .mdz-tabla td { padding: 8px 11px; text-align: left; border-bottom: 1px solid var(--line, #dbe2ea); white-space: nowrap; }
+.mdz-tabla th { background: var(--sunk, #e3e8ee); font-size: 11.5px; text-transform: uppercase; letter-spacing: .03em; color: var(--ink-2, #3f5162); }
+.mdz-tabla tr:last-child td { border-bottom: 0; }
+.mdz-tabla .n { text-align: right; font-variant-numeric: tabular-nums; }
+.mdz-tabla tr.ok  td { color: var(--ink-3, #6b7c8c); }
+.mdz-tabla tr.mal td { background: var(--bad-bg, #f8e5e2); }
+.mdz-nota { white-space: normal; font-size: 12.5px; color: var(--ink-3, #6b7c8c); max-width: 34ch; }
+
+.mdz-est { font-size: 11.5px; font-weight: 650; border-radius: 99px; padding: 2px 9px;
+  background: var(--sunk, #e3e8ee); color: var(--ink-2, #3f5162); }
+.mdz-est.ok  { background: var(--ok-bg, #e2f0e9); color: var(--ok, #1f6b4f); }
+.mdz-est.mal { background: var(--bad-bg, #f8e5e2); color: var(--bad, #b0433a); }
+
+/* Un error se ve como un error, no como una pantalla vacía. */
+.mdz-error { background: var(--bad-bg, #f8e5e2); border: 1px solid var(--bad, #b0433a); border-radius: 12px; padding: 14px 16px; }
+.mdz-err-d { font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; margin: 7px 0; word-break: break-word; }
+.mdz-err-n { font-size: 13px; color: var(--ink-2, #3f5162); }
+
+.mdz-vacio { text-align: center; padding: 34px 16px; color: var(--ink-3, #6b7c8c); }
+.mdz-vacio .q { font-size: 15px; font-weight: 600; }
+.mdz-vacio .s { font-size: 13px; margin-top: 5px; }
+
+.mdz-pie { font-size: 12px; color: var(--ink-3, #6b7c8c); margin-top: 16px; }
+.mdz-pie code { font-family: ui-monospace, Consolas, monospace; font-size: 11.5px; }
+
+@media (max-width: 620px) {
+  .mdz-kpi .v { font-size: 18px; }
+  .mdz-tabla th, .mdz-tabla td { padding: 7px 9px; font-size: 12.5px; }
+}

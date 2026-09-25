@@ -4102,6 +4102,7 @@ function sp(id){
     if(id==='metas'){renderAnalisisSubnav('metas');prefillMeta();}
     if(id==='recordatorios')renderMaxRecuerda();
     if(id==='agenda')renderMaxAgenda();
+    if(id==='deudas')renderMaxDeudas();
     if(id==='contratos')renderContratosLista();
     if(id==='multicontrato')abrirMultiContrato();
     if(id==='config'){var _ce=g('cfg-especial'); if(_ce)_ce.checked=(typeof cfg!=='undefined'&&cfg&&cfg.especial===false)?false:true; if(typeof _cfgEspecialUI==='function')_cfgEspecialUI(); renderFlotaCfgLista();renderNomAdm();renderWANums();renderWAEmpresarial();renderRecordatorios();renderCfgCorrelativo();}
@@ -30468,6 +30469,22 @@ function renderMaxAgenda(){
   // vivo. Es el mismo error de los timers apilados del operativo.
   if(_MAG_CERRAR){ try{ _MAG_CERRAR(); }catch(e){} _MAG_CERRAR = null; }
   _MAG_CERRAR = MaxAgenda.montar(el, { supabase: supabase });
+}
+
+// MaxDeudas — financiamientos y su cuadro de amortizacion. Mismo molde que
+// MaxAgenda: se desmonta el anterior antes de montar, o cada visita deja otro
+// estado vivo.
+var _MDZ_CERRAR = null;
+function renderMaxDeudas(){
+  var el = g('p-deudas');
+  if(!el) return;
+  if(typeof MaxDeudas === 'undefined'){
+    el.innerHTML = '<div style="padding:24px;color:var(--red)">No cargo maxdeudas.js. '+
+                   'Recarga con Ctrl+F5.</div>';
+    return;
+  }
+  if(_MDZ_CERRAR){ try{ _MDZ_CERRAR(); }catch(e){} _MDZ_CERRAR = null; }
+  _MDZ_CERRAR = MaxDeudas.montar(el, { supabase: supabase });
 }
 
 // La campanita de la barra de arriba: se monta UNA vez, cuando ya hay sesion.
