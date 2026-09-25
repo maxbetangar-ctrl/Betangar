@@ -5582,39 +5582,6 @@ async function imprimirDashboard(){
   // 💳 DEUDA — misma fuente que el widget del dashboard (DEUDA_DASH), no un
   // segundo calculo: si se recalculara aca, el papel y la pantalla podrian decir
   // cosas distintas del mismo momento y nadie sabria cual creer.
-  var deudaHtml='';
-  // ⛔ ESCAPE PROPIO Y NO `_surEsc`. La primera version usaba `_surEsc`, que se
-  //    ASIGNA 20 lineas mas abajo: acá todavia vale `undefined` y llamarla tiraba
-  //    TypeError. `var` iza la declaracion, no el valor.
-  var _dEsc=function(x){return String(x==null?'':x).replace(/[&<>"']/g,function(c){
-    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});};
-  try{
-    var _dz = await cargarDeudaDash();
-    if(_dz){
-      var _d=_dz.deuda, _e=_dz.estado;
-      var _f2=function(n){return Number(n||0).toLocaleString('es-VE',{minimumFractionDigits:2,maximumFractionDigits:2});};
-      var _vc=Number(_e.cuotas_vencidas||0);
-      var _c=_dz.cuotas;
-      var _pct=Number(_e.total_a_pagar)>0?Math.round(Number(_e.total_abonado)/Number(_e.total_a_pagar)*100):0;
-      var _prox=_e.proxima_cuota?String(_e.proxima_cuota).slice(0,10).split('-').reverse().join('/'):'—';
-      deudaHtml='<h2>Deuda — '+_dEsc(_d.acreedor)+'</h2>'+
-        (_vc>0?'<div style="background:#fdecea;border-left:3px solid #b3261e;color:#8c1d18;font-weight:800;padding:4px 8px;margin-bottom:4px;font-size:9.5px">'+_vc+' cuota'+(_vc>1?'s':'')+' VENCIDA'+(_vc>1?'S':'')+' · $'+_f2(_e.monto_vencido)+'</div>':'')+
-        '<table><thead><tr><th>Concepto</th><th style="text-align:right">Monto</th><th>Detalle</th></tr></thead><tbody>'+
-        '<tr><td>Saldo pendiente</td><td style="text-align:right;font-family:monospace;font-weight:800">$'+_f2(_e.saldo_pendiente)+'</td><td>de $'+_f2(_e.total_a_pagar)+' a pagar</td></tr>'+
-        '<tr><td>Abonado</td><td style="text-align:right;font-family:monospace">$'+_f2(_e.total_abonado)+'</td><td>'+_pct+'% del total</td></tr>'+
-        '<tr><td>Cuota mensual</td><td style="text-align:right;font-family:monospace">$'+_f2(_e.cuota_mensual)+'</td><td>'+_d.plazo_meses+' cuotas · '+(Number(_d.tasa_anual)*100).toFixed(0)+'% anual</td></tr>'+
-        '<tr><td>Proxima a vencer</td><td style="text-align:right;font-family:monospace">'+_prox+'</td><td>'+_dEsc(_d.concepto)+'</td></tr>'+
-        (_c?'<tr><td>Cuotas</td><td style="text-align:right;font-family:monospace;font-weight:800">'+_c.pagadas+' / '+_c.total+'</td><td>'+
-            _c.pagadas+' pagadas · '+_c.por_pagar+' por pagar'+(_c.vencidas>0?' (de las cuales '+_c.vencidas+' VENCIDA'+(_c.vencidas>1?'S':'')+')':'')+'</td></tr>':'')+
-        '</tbody></table>';
-    }
-  }catch(e){
-    // Si la deuda no se pudo traer, el informe lo DICE. Omitirla en silencio
-    // hace creer que no hay deuda — que es justo lo contrario de la verdad.
-    console.log('[pdf-deuda]', e&&e.message);
-    deudaHtml='<h2>Deuda</h2><div class="mut">No se pudo incluir el estado de la deuda en este informe ('+
-      String((e&&e.message)||e).slice(0,90)+'). Esto NO quiere decir que no haya deuda.</div>';
-  }
   // ⛽ Combustible surtido HOY (por surtida)
   try{ await cargarSurtidas(); }catch(e){}
   var _surEsc=(typeof _mEsc==='function')?_mEsc:function(s){return String(s==null?'':s);};
@@ -5760,6 +5727,49 @@ async function imprimirDashboard(){
   var ultRows=ult.map(function(r){return '<tr><td style="font-family:monospace">#'+r.p+'</td><td>'+formatFecha(r.f)+'</td><td style="font-weight:700">'+r.cam.replace('JAC-','')+'</td><td style="font-size:8px">'+(r.ch||'--')+'</td><td style="text-align:center">'+r.t+'v</td><td style="text-align:right">'+usd(r.m)+'</td></tr>';}).join('')||'<tr><td colspan="6">Sin planillas</td></tr>';
   var gen=fmtFechaHora(new Date());
   var kpi=function(l,v,s,col){return '<div class="kpi"><div class="l">'+l+'</div><div class="v"'+(col?' style="color:'+col+'"':'')+'>'+v+'</div><div class="s">'+(s||'')+'</div></div>';};
+
+  // 💳 DEUDA — se arma ACA, DESPUES de `kpi()` y de `_surEsc`, no al principio de
+  // la funcion. La primera version estaba arriba, donde las dos todavia valen
+  // `undefined` (`var` iza la declaracion, no el valor). Eso hizo dos danos: el
+  // bloque no salia en el PDF —y un catch vacio se lo trago— y, cuando salio,
+  // salio como una tabla plana en vez de las tarjetas del resto del informe,
+  // porque `kpi()` no existia todavia en ese punto.
+  // Misma fuente que el widget del dashboard (DEUDA_DASH): recalcular aca
+  // abriria la puerta a que el papel y la pantalla digan cosas distintas.
+  var deudaHtml='';
+  try{
+    var _dz = await cargarDeudaDash();
+    if(_dz){
+      var _d=_dz.deuda, _e=_dz.estado, _c=_dz.cuotas;
+      var _vc=Number(_e.cuotas_vencidas||0);
+      var _pct=Number(_e.total_a_pagar)>0?Math.round(Number(_e.total_abonado)/Number(_e.total_a_pagar)*100):0;
+      var _prox=_e.proxima_cuota?String(_e.proxima_cuota).slice(0,10).split('-').reverse().join('/'):'--';
+      var _dias=null;
+      if(_e.proxima_cuota){var _h0=new Date();_h0.setHours(0,0,0,0);
+        _dias=Math.round((new Date(String(_e.proxima_cuota).slice(0,10)+'T00:00:00')-_h0)/86400000);}
+      deudaHtml='<h2>Deuda — '+_surEsc(_d.acreedor)+' · '+_surEsc(_d.concepto)+'</h2>'+
+        (_vc>0?'<div style="background:#fdecea;border-left:3px solid #b3261e;color:#8c1d18;font-weight:800;padding:5px 9px;margin-bottom:6px;font-size:10px">'+
+               _vc+' cuota'+(_vc>1?'s':'')+' VENCIDA'+(_vc>1?'S':'')+' sin pagar · '+usd(_e.monto_vencido)+'</div>':'')+
+        '<div class="kpis">'+
+          kpi('Saldo pendiente',usd(_e.saldo_pendiente),'de '+usd(_e.total_a_pagar)+' a pagar','#b3261e')+
+          kpi('Abonado',usd(_e.total_abonado),_pct+'% del total','#15803d')+
+          kpi('Cuota mensual',usd(_e.cuota_mensual),(Number(_d.tasa_anual)*100).toFixed(0)+'% anual · '+_d.plazo_meses+' cuotas')+
+          kpi('Próxima a vencer',_prox,(_dias===null?'':(_dias<0?'hace '+Math.abs(_dias)+' días':_dias===0?'HOY':'en '+_dias+' días')),
+              (_dias!==null&&_dias>=0&&_dias<=7)?'#b45309':'')+
+          (_c?kpi('Cuotas',_c.pagadas+' / '+_c.total,'pagadas · '+_c.por_pagar+' por pagar'+(_c.vencidas>0?', '+_c.vencidas+' vencida'+(_c.vencidas>1?'s':''):'')):'')+
+        '</div>'+
+        '<div class="bar"><i style="width:'+Math.min(100,_pct)+'%;background:#15803d"></i></div>'+
+        '<div class="mut">Abonado '+usd(_e.total_abonado)+' de '+usd(_e.total_a_pagar)+' ('+_pct+'%)'+
+          (_c?' · '+_c.pagadas+' de '+_c.total+' cuotas pagadas, '+_c.por_pagar+' por pagar':'')+'</div>';
+    }
+  }catch(e){
+    // Si no se pudo traer, el informe lo DICE. Omitirla en silencio hace creer
+    // que no hay deuda, que es lo contrario de la verdad.
+    console.log('[pdf-deuda]', e&&e.message);
+    deudaHtml='<h2>Deuda</h2><div class="mut">No se pudo incluir el estado de la deuda en este informe ('+
+      String((e&&e.message)||e).slice(0,90)+'). Esto NO quiere decir que no haya deuda.</div>';
+  }
+
   var css='*{margin:0;padding:0;box-sizing:border-box;font-family:Arial,Helvetica,sans-serif;-webkit-print-color-adjust:exact;print-color-adjust:exact}'+
     '@page{size:letter;margin:0}html,body{background:#fff;color:#17212b;font-size:10px}'+
     '.pg{padding:1.05cm 1.05cm .8cm}.pg.page2{page-break-before:always}'+
