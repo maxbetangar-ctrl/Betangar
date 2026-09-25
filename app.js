@@ -5834,7 +5834,13 @@ async function imprimirDashboard(){
       '<div><h2>Meta semana ('+semHoy+')</h2><div class="mut">'+fmt(vMeta)+' / '+fmt(meta.viajesFlota)+' viajes</div><div class="bar"><i style="width:'+pctMeta+'%;background:'+(pctMeta>=80?'#4ade80':pctMeta>=50?'#fbbf24':'#f87171')+'"></i></div><div class="mut">'+pctMeta+'% completado</div>'+
         '<h2 style="margin-top:11px">Vencimientos (≤30 días)</h2><table><thead><tr><th>Documento</th><th>Vence</th></tr></thead><tbody>'+vencRows+'</tbody></table></div>'+
     '</div>'+
-    deudaHtml+
+    // ⛔ LA DEUDA VA EN SU PROPIA HOJA. Todo el informe vive dentro de UN solo
+    //    `.pg`, y agregarle este bloque lo desbordaba: la pagina se cortaba y el
+    //    cuadro quedaba a medias, sin manera de bajar. La clase `.pg.page2` ya
+    //    existia en el CSS con `page-break-before:always` y no la usaba nadie.
+    //    Se cierra la primera hoja y se abre la segunda; el pie se va con ella,
+    //    que es donde corresponde. El `</div>` del final sigue cerrando una sola.
+    (deudaHtml?'</div><div class="pg page2">'+deudaHtml:'')+
     '<div class="ftr">'+brandNom()+' · '+brandRif()+' · '+brandCiudad()+' · '+brandEmail()+' · Generado '+gen+'</div>'+
     '</div></body></html>';
   abrirVentanaImpresion(html);
