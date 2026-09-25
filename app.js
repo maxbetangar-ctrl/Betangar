@@ -4103,6 +4103,7 @@ function sp(id){
     if(id==='recordatorios')renderMaxRecuerda();
     if(id==='agenda')renderMaxAgenda();
     if(id==='deudas')renderMaxDeudas();
+    if(id==='dashboard'){try{renderDeudaDash();}catch(e){}}
     if(id==='contratos')renderContratosLista();
     if(id==='multicontrato')abrirMultiContrato();
     if(id==='config'){var _ce=g('cfg-especial'); if(_ce)_ce.checked=(typeof cfg!=='undefined'&&cfg&&cfg.especial===false)?false:true; if(typeof _cfgEspecialUI==='function')_cfgEspecialUI(); renderFlotaCfgLista();renderNomAdm();renderWANums();renderWAEmpresarial();renderRecordatorios();renderCfgCorrelativo();}
@@ -5578,6 +5579,28 @@ async function imprimirDashboard(){
   // alcanzó a responder: acá se espera.
   try{ if(typeof cargarEgresosBanco==='function'&&!(EGRESOS_BANCO&&EGRESOS_BANCO.gasto>0)) await cargarEgresosBanco(); }catch(e){}
   var usd=function(n){return '$'+Number(n||0).toLocaleString('es-VE',{minimumFractionDigits:2,maximumFractionDigits:2});};
+  // 💳 DEUDA — misma fuente que el widget del dashboard (DEUDA_DASH), no un
+  // segundo calculo: si se recalculara aca, el papel y la pantalla podrian decir
+  // cosas distintas del mismo momento y nadie sabria cual creer.
+  var deudaHtml='';
+  try{
+    var _dz = await cargarDeudaDash();
+    if(_dz){
+      var _d=_dz.deuda, _e=_dz.estado;
+      var _f2=function(n){return Number(n||0).toLocaleString('es-VE',{minimumFractionDigits:2,maximumFractionDigits:2});};
+      var _vc=Number(_e.cuotas_vencidas||0);
+      var _pct=Number(_e.total_a_pagar)>0?Math.round(Number(_e.total_abonado)/Number(_e.total_a_pagar)*100):0;
+      var _prox=_e.proxima_cuota?String(_e.proxima_cuota).slice(0,10).split('-').reverse().join('/'):'—';
+      deudaHtml='<h2>Deuda — '+_surEsc(_d.acreedor)+'</h2>'+
+        (_vc>0?'<div style="background:#fdecea;border-left:3px solid #b3261e;color:#8c1d18;font-weight:800;padding:4px 8px;margin-bottom:4px;font-size:9.5px">'+_vc+' cuota'+(_vc>1?'s':'')+' VENCIDA'+(_vc>1?'S':'')+' · $'+_f2(_e.monto_vencido)+'</div>':'')+
+        '<table><thead><tr><th>Concepto</th><th style="text-align:right">Monto</th><th>Detalle</th></tr></thead><tbody>'+
+        '<tr><td>Saldo pendiente</td><td style="text-align:right;font-family:monospace;font-weight:800">$'+_f2(_e.saldo_pendiente)+'</td><td>de $'+_f2(_e.total_a_pagar)+' a pagar</td></tr>'+
+        '<tr><td>Abonado</td><td style="text-align:right;font-family:monospace">$'+_f2(_e.total_abonado)+'</td><td>'+_pct+'% del total</td></tr>'+
+        '<tr><td>Cuota mensual</td><td style="text-align:right;font-family:monospace">$'+_f2(_e.cuota_mensual)+'</td><td>'+_d.plazo_meses+' cuotas · '+(Number(_d.tasa_anual)*100).toFixed(0)+'% anual</td></tr>'+
+        '<tr><td>Proxima a vencer</td><td style="text-align:right;font-family:monospace">'+_prox+'</td><td>'+_surEsc(_d.concepto)+'</td></tr>'+
+        '</tbody></table>';
+    }
+  }catch(e){}
   // ⛽ Combustible surtido HOY (por surtida)
   try{ await cargarSurtidas(); }catch(e){}
   var _surEsc=(typeof _mEsc==='function')?_mEsc:function(s){return String(s==null?'':s);};
@@ -5724,20 +5747,20 @@ async function imprimirDashboard(){
   var gen=fmtFechaHora(new Date());
   var kpi=function(l,v,s,col){return '<div class="kpi"><div class="l">'+l+'</div><div class="v"'+(col?' style="color:'+col+'"':'')+'>'+v+'</div><div class="s">'+(s||'')+'</div></div>';};
   var css='*{margin:0;padding:0;box-sizing:border-box;font-family:Arial,Helvetica,sans-serif;-webkit-print-color-adjust:exact;print-color-adjust:exact}'+
-    '@page{size:letter;margin:0}html,body{background:#fff;color:#1f2937;font-size:10px}'+
+    '@page{size:letter;margin:0}html,body{background:#fff;color:#17212b;font-size:10px}'+
     '.pg{padding:1.05cm 1.05cm .8cm}.pg.page2{page-break-before:always}'+
     '.hdr{display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid #1e3a5f;padding-bottom:9px;margin-bottom:11px}'+
     '.hdr .lft{display:flex;align-items:center;gap:12px}.hdr img{height:46px;width:auto}'+
-    '.hdr .emp{font-size:16px;font-weight:800;color:#1e3a5f;letter-spacing:.3px}.hdr .rif{font-size:8px;color:#667085;margin-top:2px}'+
-    '.hdr .doc{text-align:right;font-size:8px;color:#667085}.hdr .doc b{display:block;font-size:11px;color:#1e3a5f;font-weight:800;letter-spacing:.5px;margin-bottom:2px}'+
+    '.hdr .emp{font-size:16px;font-weight:800;color:#1e3a5f;letter-spacing:.3px}.hdr .rif{font-size:8px;color:#485563;margin-top:2px}'+
+    '.hdr .doc{text-align:right;font-size:8px;color:#485563}.hdr .doc b{display:block;font-size:11px;color:#1e3a5f;font-weight:800;letter-spacing:.5px;margin-bottom:2px}'+
     'h2{font-size:9.5px;color:#1e3a5f;border-bottom:1px solid #d7dee8;margin:11px 0 5px;padding-bottom:3px;text-transform:uppercase;letter-spacing:.5px;font-weight:800}'+
     '.kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:7px}.kpi{border:1px solid #dbe3ee;background:#f6f9fc;border-radius:7px;padding:7px 10px;border-top:3px solid #1e3a5f}'+
-    '.kpi .l{font-size:8px;color:#667085;text-transform:uppercase;letter-spacing:.3px}.kpi .v{font-size:17px;font-weight:800;line-height:1.15;color:#1e3a5f}.kpi .s{font-size:8px;color:#8a94a6}'+
+    '.kpi .l{font-size:8px;color:#485563;text-transform:uppercase;letter-spacing:.3px}.kpi .v{font-size:17px;font-weight:800;line-height:1.15;color:#1e3a5f}.kpi .s{font-size:8px;color:#4a5765}'+
     'table{width:100%;border-collapse:collapse;margin-bottom:4px}th{background:#1e3a5f;color:#fff;font-size:8px;padding:4px 6px;text-align:left;text-transform:uppercase;letter-spacing:.3px}'+
-    'td{padding:3px 6px;border-bottom:1px solid #e5eaf1;font-size:9px;color:#374151}tr:nth-child(even) td{background:#f5f8fb}'+
+    'td{padding:3px 6px;border-bottom:1px solid #e5eaf1;font-size:9px;color:#26313d}tr:nth-child(even) td{background:#f5f8fb}'+
     '.cols{display:grid;grid-template-columns:1fr 1fr;gap:16px}'+
     '.bar{height:9px;background:#e5eaf1;border-radius:5px;overflow:hidden;margin:4px 0}.bar>i{display:block;height:100%;background:#16a34a}'+
-    '.mut{font-size:9px;color:#8a94a6}.ftr{margin-top:12px;border-top:1px solid #d7dee8;padding-top:6px;font-size:8px;color:#94a3b8;text-align:center}';
+    '.mut{font-size:9px;color:#4a5765}.ftr{margin-top:12px;border-top:1px solid #d7dee8;padding-top:6px;font-size:8px;color:#4a5765;text-align:center}';
   var _logoImg=(typeof LOGO_SVG!=='undefined'&&LOGO_SVG)?'<img src="'+LOGO_SVG+'" alt="logo">':'';
   var hdr='<div class="hdr"><div class="lft">'+_logoImg+'<div><div class="emp">'+brandNomUp()+'</div><div class="rif">RIF '+brandRif()+' · '+brandCiudad()+(brandContrato()?' · '+brandContrato():'')+'</div></div></div>'+
       '<div class="doc"><b>DASHBOARD DE CONTROL</b>'+gen+'<br>Sistema v9.0</div></div>';
@@ -5787,6 +5810,7 @@ async function imprimirDashboard(){
       '<div><h2>Meta semana ('+semHoy+')</h2><div class="mut">'+fmt(vMeta)+' / '+fmt(meta.viajesFlota)+' viajes</div><div class="bar"><i style="width:'+pctMeta+'%;background:'+(pctMeta>=80?'#4ade80':pctMeta>=50?'#fbbf24':'#f87171')+'"></i></div><div class="mut">'+pctMeta+'% completado</div>'+
         '<h2 style="margin-top:11px">Vencimientos (≤30 días)</h2><table><thead><tr><th>Documento</th><th>Vence</th></tr></thead><tbody>'+vencRows+'</tbody></table></div>'+
     '</div>'+
+    deudaHtml+
     '<div class="ftr">'+brandNom()+' · '+brandRif()+' · '+brandCiudad()+' · '+brandEmail()+' · Generado '+gen+'</div>'+
     '</div></body></html>';
   abrirVentanaImpresion(html);
@@ -30469,6 +30493,68 @@ function renderMaxAgenda(){
   // vivo. Es el mismo error de los timers apilados del operativo.
   if(_MAG_CERRAR){ try{ _MAG_CERRAR(); }catch(e){} _MAG_CERRAR = null; }
   _MAG_CERRAR = MaxAgenda.montar(el, { supabase: supabase });
+}
+
+// ── DEUDA EN EL DASHBOARD ───────────────────────────────────────────────────
+// Maximo, 24/09: «esa vista quisiera verla en el dashboard... y en el pdf que me
+// saca cuando le doy a imprimir».
+// Se cachea en DEUDA_DASH porque la usan DOS pantallas —el widget y el PDF— y
+// pedirla dos veces por separado abre la puerta a que muestren numeros distintos
+// del mismo momento. [[norma-dos-listas-a-mano-se-desincronizan]]
+var DEUDA_DASH = null;
+async function cargarDeudaDash(forzar){
+  if(DEUDA_DASH && !forzar) return DEUDA_DASH;
+  try{
+    if(!(typeof supabase!=='undefined'&&supabase)) return null;
+    var pv = await supabase.rpc('deuda_puede_ver');
+    if(pv.error || pv.data!==true) return null;   // sin permiso: no se dibuja nada
+    var ds = await supabase.from('deuda_financiamientos').select('*').order('id');
+    if(ds.error || !ds.data || !ds.data.length) return null;
+    var d = ds.data[0];
+    var es = await supabase.rpc('deuda_estado',{p_deuda:d.id});
+    if(es.error || !es.data || !es.data.length) return null;
+    DEUDA_DASH = { deuda:d, estado:es.data[0] };
+    return DEUDA_DASH;
+  }catch(e){ console.log('[deuda-dash]', e&&e.message); return null; }
+}
+function renderDeudaDash(){
+  var el = g('dash-deuda'); if(!el) return;
+  cargarDeudaDash().then(function(r){
+    if(!r){ el.innerHTML=''; return; }   // sin permiso o sin deudas: no ocupa lugar
+    var d=r.deuda, e=r.estado;
+    var f2=function(n){return Number(n||0).toLocaleString('es-VE',{minimumFractionDigits:2,maximumFractionDigits:2});};
+    var venc=Number(e.cuotas_vencidas||0);
+    var dias=null;
+    if(e.proxima_cuota){ var hoy=new Date(); hoy.setHours(0,0,0,0);
+      dias=Math.round((new Date(String(e.proxima_cuota).slice(0,10)+'T00:00:00')-hoy)/86400000); }
+    var pct=Number(e.total_a_pagar)>0?Math.round(Number(e.total_abonado)/Number(e.total_a_pagar)*100):0;
+    el.innerHTML =
+      '<div class="card" style="margin:0">'+
+        '<div class="sh" style="display:flex;justify-content:space-between;align-items:center">'+
+          '<div class="st">💳 Deuda — '+_mEsc(d.acreedor)+'</div>'+
+          '<button class="btn btn-s btn-xs" onclick="sp(\'deudas\')">Ver todo</button>'+
+        '</div>'+
+        (venc>0?'<div style="margin:8px 0 0;padding:8px 11px;border-radius:8px;background:#fdecea;border-left:4px solid #b3261e;color:#8c1d18;font-weight:700;font-size:12px">🔴 '+venc+' cuota'+(venc>1?'s':'')+' vencida'+(venc>1?'s':'')+' · US$ '+f2(e.monto_vencido)+'</div>':'')+
+        '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;margin-top:9px">'+
+          _dzKpi('Saldo','US$ '+f2(e.saldo_pendiente),'de US$ '+f2(e.total_a_pagar))+
+          _dzKpi('Abonado','US$ '+f2(e.total_abonado),pct+'% pagado')+
+          _dzKpi('Cuota','US$ '+f2(e.cuota_mensual),d.plazo_meses+' meses')+
+          _dzKpi('Próxima',(e.proxima_cuota?String(e.proxima_cuota).slice(0,10).split('-').reverse().join('/'):'—'),
+                 dias===null?'':(dias<0?'hace '+Math.abs(dias)+'d':dias===0?'HOY':'en '+dias+' días'),
+                 (dias!==null&&dias>=0&&dias<=7))+
+        '</div>'+
+        '<div style="height:6px;background:var(--bg3);border-radius:99px;margin-top:9px;overflow:hidden">'+
+          '<div style="height:100%;width:'+Math.min(100,pct)+'%;background:#1b7a4f;border-radius:99px"></div></div>'+
+      '</div>';
+  });
+}
+// ⛔ Contraste: #3a4654 sobre la tarjeta, no el gris de rotulo. El valor es el
+//    dato; un valor en gris claro se lee peor que uno que no esta.
+function _dzKpi(rot,val,sub,urge){
+  return '<div style="background:var(--bg3);border:1px solid '+(urge?'#8a6100':'var(--border)')+';border-radius:9px;padding:8px 10px">'+
+    '<div style="font-size:9.5px;letter-spacing:.04em;text-transform:uppercase;color:#5a6673">'+_mEsc(rot)+'</div>'+
+    '<div style="font-size:15px;font-weight:800;margin-top:2px;color:'+(urge?'#8a6100':'#1c2733')+';font-variant-numeric:tabular-nums">'+_mEsc(val)+'</div>'+
+    '<div style="font-size:10px;color:#5a6673;margin-top:1px">'+_mEsc(sub||'')+'</div></div>';
 }
 
 // MaxDeudas — financiamientos y su cuadro de amortizacion. Mismo molde que
