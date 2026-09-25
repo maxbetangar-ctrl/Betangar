@@ -5739,15 +5739,31 @@ async function imprimirDashboard(){
   var deudaHtml='';
   try{
     var _dz = await cargarDeudaDash();
-    if(_dz){
-      var _d=_dz.deuda, _e=_dz.estado, _c=_dz.cuotas;
+    // ⛔ QUE NO SE PUDO LEER LO DICE EL INFORME. Antes esto no funcionaba aunque el
+    //    catch de abajo lo prometia: `cargarDeudaDash()` se tragaba el error y
+    //    devolvia `null`, asi que un fallo de la consulta salia como un informe
+    //    firmado SIN la seccion de deuda y sin una palabra. Ahora la funcion dice
+    //    por que no hay nada y acá se distingue.
+    //    [[norma-la-red-que-traga-el-error-tapa-la-pieza]]
+    if(_dz && _dz.estado==='error'){
+      deudaHtml='<h2>Deuda</h2><div class="mut">No se pudo incluir el estado de la deuda en este informe ('+
+        _surEsc(String(_dz.msg||'').slice(0,110))+'). <b>Esto NO quiere decir que no haya deuda.</b></div>';
+    } else if(_dz && _dz.estado==='ok'){
+      var _e=_dz.r;
+      var _n=Number(_e.cuantos||0), _varias=_n>1;
       var _vc=Number(_e.cuotas_vencidas||0);
       var _pct=Number(_e.total_a_pagar)>0?Math.round(Number(_e.total_abonado)/Number(_e.total_a_pagar)*100):0;
       var _prox=_e.proxima_cuota?String(_e.proxima_cuota).slice(0,10).split('-').reverse().join('/'):'--';
       var _dias=null;
       if(_e.proxima_cuota){var _h0=new Date();_h0.setHours(0,0,0,0);
         _dias=Math.round((new Date(String(_e.proxima_cuota).slice(0,10)+'T00:00:00')-_h0)/86400000);}
-      deudaHtml='<h2>Deuda — '+_surEsc(_d.acreedor)+' · '+_surEsc(_d.concepto)+'</h2>'+
+      // ⛔ EL TITULO DICE CUANTAS SON. Antes decia el acreedor y el concepto del
+      //    PRIMERO y nada mas: con dos financiamientos, el informe firmado ponia un
+      //    nombre propio arriba de la suma de los dos, que es peor que no decir nada.
+      //    El concepto solo cabe —y solo es cierto— cuando hay uno solo.
+      deudaHtml='<h2>Deuda'+(_varias?' — '+_n+' financiamientos':' — '+_surEsc(_dzQuien(_e)))+'</h2>'+
+        (_varias?'<div class="mut" style="margin-bottom:4px">Los '+_n+' financiamientos vigentes, sumados: '+
+                 _surEsc(_dzQuien(_e))+'. El detalle de cada uno está en la pantalla de Deudas.</div>':'')+
         (_vc>0?'<div style="background:#fdecea;border-left:3px solid #b3261e;color:#8c1d18;font-weight:800;padding:5px 9px;margin-bottom:6px;font-size:10px">'+
                _vc+' cuota'+(_vc>1?'s':'')+' VENCIDA'+(_vc>1?'S':'')+' sin pagar · '+usd(_e.monto_vencido)+'</div>':'')+
         // ⛔ TABLA COMPACTA Y NO TARJETAS. A media columna las tarjetas de KPI se
@@ -5756,18 +5772,22 @@ async function imprimirDashboard(){
         '<table><tbody>'+
           '<tr><td>Saldo pendiente</td><td style="text-align:right;font-weight:800;color:#b3261e">'+usd(_e.saldo_pendiente)+'</td></tr>'+
           '<tr><td>Abonado ('+_pct+'%)</td><td style="text-align:right;font-weight:700;color:#15803d">'+usd(_e.total_abonado)+'</td></tr>'+
-          '<tr><td>Cuota mensual</td><td style="text-align:right">'+usd(_e.cuota_mensual)+'</td></tr>'+
+          '<tr><td>'+(_varias?'Cuotas del mes (las '+_n+')':'Cuota mensual')+'</td><td style="text-align:right">'+usd(_e.cuota_mensual)+'</td></tr>'+
           '<tr><td>Próxima a vencer</td><td style="text-align:right'+((_dias!==null&&_dias>=0&&_dias<=7)?';color:#b45309;font-weight:800':'')+'">'+_prox+
-            (_dias!==null?' <span style="font-size:8px">('+(_dias<0?'hace '+Math.abs(_dias)+'d':_dias===0?'HOY':'en '+_dias+'d')+')</span>':'')+'</td></tr>'+
-          (_c?'<tr><td>Cuotas</td><td style="text-align:right"><b>'+_c.pagadas+' / '+_c.total+'</b> pagadas · '+_c.por_pagar+' por pagar'+
-              (_c.vencidas>0?', <span style="color:#b3261e;font-weight:800">'+_c.vencidas+' vencida'+(_c.vencidas>1?'s':'')+'</span>':'')+'</td></tr>':'')+
+            (_dias!==null?' <span style="font-size:8px">('+(_dias<0?'hace '+Math.abs(_dias)+'d':_dias===0?'HOY':'en '+_dias+'d')+')</span>':'')+
+            // Con varias, la proxima es de UNA de ellas y el informe dice de cual.
+            ((_varias&&_e.proxima_de)?'<span style="font-size:8px"> · '+_surEsc(String(_e.proxima_de))+'</span>':'')+'</td></tr>'+
+          (Number(_e.cuotas_total||0)>0?'<tr><td>Cuotas</td><td style="text-align:right"><b>'+_e.cuotas_pagadas+' / '+_e.cuotas_total+'</b> pagadas · '+_e.cuotas_por_pagar+' por pagar'+
+              (_vc>0?', <span style="color:#b3261e;font-weight:800">'+_vc+' vencida'+(_vc>1?'s':'')+'</span>':'')+'</td></tr>':'')+
         '</tbody></table>'+
         '<div class="bar"><i style="width:'+Math.min(100,_pct)+'%;background:#15803d"></i></div>'+
         '<div class="mut">de '+usd(_e.total_a_pagar)+' a pagar en total</div>';
     }
+    // 'vacio' y 'sin-permiso' no ponen nada: no hay deuda que informar, o este
+    // usuario no tiene por que verla. Son los dos casos en que callarse es la verdad.
   }catch(e){
-    // Si no se pudo traer, el informe lo DICE. Omitirla en silencio hace creer
-    // que no hay deuda, que es lo contrario de la verdad.
+    // La red de seguridad, que ahora ademas IMPRIME el motivo. Un catch vacio en
+    // esta misma seccion ya dejo un informe firmado sin el cuadro, en silencio.
     console.log('[pdf-deuda]', e&&e.message);
     deudaHtml='<h2>Deuda</h2><div class="mut">No se pudo incluir el estado de la deuda en este informe ('+
       String((e&&e.message)||e).slice(0,90)+'). Esto NO quiere decir que no haya deuda.</div>';
@@ -30572,52 +30592,107 @@ function renderMaxAgenda(){
 // Se cachea en DEUDA_DASH porque la usan DOS pantallas —el widget y el PDF— y
 // pedirla dos veces por separado abre la puerta a que muestren numeros distintos
 // del mismo momento. [[norma-dos-listas-a-mano-se-desincronizan]]
+// ⛔ SE PIDE `deuda_resumen()`, QUE SUMA TODOS LOS VIGENTES. Antes esta funcion
+//    leia la tabla y se quedaba con `ds.data[0]`: el widget y el informe firmado
+//    mostraban EL PRIMER financiamiento y nada mas. Con uno solo eso era cierto;
+//    desde que existe el alta, el segundo aparece en la pantalla de Deudas y NO en
+//    el informe, sin una palabra que lo diga. Y la suma NO se hace aca: la hace la
+//    base, en un solo lugar, o el dashboard y la pantalla dirian numeros distintos
+//    del mismo momento. [[norma-dos-listas-a-mano-se-desincronizan]]
+//
+// ⛔ Y DEVUELVE POR QUE NO HAY NADA, no un `null` para las cuatro cosas. Antes
+//    «no tenes permiso», «no hay deudas cargadas» y «la consulta fallo» salian los
+//    tres como `null`, y el `catch` del PDF —el que iba a DECIR que no se pudo—
+//    nunca se enteraba: el error se lo tragaba esta funcion. El informe firmado
+//    salia sin la seccion y sin explicar por que. Es la misma red que traga el
+//    error, un piso mas arriba. [[norma-la-red-que-traga-el-error-tapa-la-pieza]]
+//    Estados: 'ok' (con `r`) · 'vacio' · 'sin-permiso' · 'error' (con `msg`).
+//
+// Se cachea porque la usan DOS pantallas —el widget y el PDF— y pedirla dos veces
+// por separado abre la puerta a que muestren numeros distintos del mismo momento.
 var DEUDA_DASH = null;
 async function cargarDeudaDash(forzar){
   if(DEUDA_DASH && !forzar) return DEUDA_DASH;
+  var res;
   try{
-    if(!(typeof supabase!=='undefined'&&supabase)) return null;
+    if(!(typeof supabase!=='undefined'&&supabase)) return {estado:'error',msg:'Sin conexion a la base.'};
     var pv = await supabase.rpc('deuda_puede_ver');
-    if(pv.error || pv.data!==true) return null;   // sin permiso: no se dibuja nada
-    var ds = await supabase.from('deuda_financiamientos').select('*').order('id');
-    if(ds.error || !ds.data || !ds.data.length) return null;
-    var d = ds.data[0];
-    var es = await supabase.rpc('deuda_estado',{p_deuda:d.id});
-    if(es.error || !es.data || !es.data.length) return null;
-    var ct = await supabase.rpc('deuda_cuotas',{p_deuda:d.id});
-    DEUDA_DASH = { deuda:d, estado:es.data[0], cuotas:(ct.data&&ct.data[0])||null };
-    return DEUDA_DASH;
-  }catch(e){ console.log('[deuda-dash]', e&&e.message); return null; }
+    if(pv.error) throw pv.error;
+    if(pv.data!==true) return {estado:'sin-permiso'};   // no se dibuja nada, y no es un error
+    var rs = await supabase.rpc('deuda_resumen');
+    if(rs.error) throw rs.error;
+    var r = (rs.data&&rs.data.length)?rs.data[0]:null;
+    // ⚠️ `deuda_resumen()` devuelve SIEMPRE una fila porque son agregados: con cero
+    //    vigentes trae `cuantos = 0`. Por eso el permiso se pregunta ARRIBA y no se
+    //    deduce de una fila vacia.
+    if(!r || Number(r.cuantos||0)===0) return {estado:'vacio'};
+    res = {estado:'ok', r:r};
+    DEUDA_DASH = res;      // solo se cachea lo bueno: un error no se guarda
+    return res;
+  }catch(e){
+    console.log('[deuda-dash]', e&&e.message);
+    return {estado:'error', msg:String((e&&(e.message||e.hint))||e).slice(0,140)};
+  }
+}
+// Como se nombra la deuda cuando hay mas de una. Se usa en el widget Y en el PDF,
+// escrito UNA vez: si cada uno lo armara por su cuenta, el papel y la pantalla
+// terminarian llamando distinto a lo mismo.
+function _dzQuien(r){
+  var n=Number(r.cuantos||0);
+  if(n<=1) return String(r.acreedor_1||'');
+  // ⛔ NO se dice «3 financiamientos» a secas: el nombre del primero es el dato que
+  //    permite reconocer de que se esta hablando sin abrir la pantalla.
+  return String(r.acreedor_1||'')+' y '+(n-1)+' más';
 }
 function renderDeudaDash(){
   var el = g('dash-deuda'); if(!el) return;
-  cargarDeudaDash().then(function(r){
-    if(!r){ el.innerHTML=''; return; }   // sin permiso o sin deudas: no ocupa lugar
-    var d=r.deuda, e=r.estado;
+  cargarDeudaDash().then(function(res){
+    // Sin permiso o sin deudas: no ocupa lugar. Son los dos casos en que callarse
+    // es la verdad.
+    if(!res || res.estado==='sin-permiso' || res.estado==='vacio'){ el.innerHTML=''; return; }
+    // ⛔ UN ERROR SI OCUPA LUGAR. Un widget que desaparece cuando la consulta falla
+    //    se ve exactamente igual que una empresa sin deudas.
+    if(res.estado!=='ok'){
+      el.innerHTML='<div class="card" style="margin:0"><div class="sh"><div class="st">💳 Deuda</div></div>'+
+        '<div style="padding:9px 11px;border-radius:8px;background:#fdecea;border-left:4px solid #b3261e;color:#8c1d18;font-size:12px">'+
+        '<b>No se pudo leer la deuda.</b><div style="font-weight:400;margin-top:3px">'+_mEsc(res.msg||'')+'</div>'+
+        '<div style="font-weight:400;margin-top:3px">Esto NO quiere decir que no haya deuda.</div></div></div>';
+      return;
+    }
+    var e=res.r;
     var f2=function(n){return Number(n||0).toLocaleString('es-VE',{minimumFractionDigits:2,maximumFractionDigits:2});};
     var venc=Number(e.cuotas_vencidas||0);
+    var varios=Number(e.cuantos||0)>1;
     var dias=null;
     if(e.proxima_cuota){ var hoy=new Date(); hoy.setHours(0,0,0,0);
       dias=Math.round((new Date(String(e.proxima_cuota).slice(0,10)+'T00:00:00')-hoy)/86400000); }
     var pct=Number(e.total_a_pagar)>0?Math.round(Number(e.total_abonado)/Number(e.total_a_pagar)*100):0;
-    var c=r.cuotas;
     // ⚠️ Las VENCIDAS estan DENTRO de las por pagar: 4 + 14 = 18, no 4+2+14.
     //    Decirlo asi evita que alguien sume las tres y le den 20 cuotas.
-    var cuotasTxt = c ? (c.pagadas+' de '+c.total+' pagadas · '+c.por_pagar+' por pagar'+
-                         (c.vencidas>0?' ('+c.vencidas+' vencida'+(c.vencidas>1?'s':'')+')':'')) : '';
+    var cuotasTxt = Number(e.cuotas_total||0)>0
+      ? (e.cuotas_pagadas+' de '+e.cuotas_total+' pagadas · '+e.cuotas_por_pagar+' por pagar'+
+         (venc>0?' ('+venc+' vencida'+(venc>1?'s':'')+')':'')) : '';
     el.innerHTML =
       '<div class="card" style="margin:0">'+
         '<div class="sh" style="display:flex;justify-content:space-between;align-items:center">'+
-          '<div class="st">💳 Deuda — '+_mEsc(d.acreedor)+'</div>'+
+          '<div class="st">💳 Deuda — '+_mEsc(_dzQuien(e))+'</div>'+
           '<button class="btn btn-s btn-xs" onclick="sp(\'deudas\')">Ver todo</button>'+
         '</div>'+
         (venc>0?'<div style="margin:8px 0 0;padding:8px 11px;border-radius:8px;background:#fdecea;border-left:4px solid #b3261e;color:#8c1d18;font-weight:700;font-size:12px">🔴 '+venc+' cuota'+(venc>1?'s':'')+' vencida'+(venc>1?'s':'')+' · US$ '+f2(e.monto_vencido)+'</div>':'')+
         '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;margin-top:9px">'+
           _dzKpi('Saldo','US$ '+f2(e.saldo_pendiente),'de US$ '+f2(e.total_a_pagar))+
           _dzKpi('Abonado','US$ '+f2(e.total_abonado),pct+'% pagado')+
-          _dzKpi('Cuota','US$ '+f2(e.cuota_mensual),c?(c.pagadas+'/'+c.total+' pagadas'):(d.plazo_meses+' meses'))+
+          // Con varias deudas la «cuota» es lo que sale POR MES en total, y se dice:
+          // un numero mensual sin decir que son las dos juntas se lee como una sola.
+          _dzKpi(varios?'Cuotas del mes':'Cuota','US$ '+f2(e.cuota_mensual),
+                 varios?('las '+e.cuantos+' juntas'):(e.cuotas_pagadas+'/'+e.cuotas_total+' pagadas'))+
+          // ⚠️ Con varias deudas hay que decir DE QUIEN es la proxima — «01/10» a secas
+          //    no sirve para nada— pero SIN perder el «en X dias», que es lo urgente.
+          //    Van los dos.
           _dzKpi('Próxima',(e.proxima_cuota?String(e.proxima_cuota).slice(0,10).split('-').reverse().join('/'):'—'),
-                 dias===null?'':(dias<0?'hace '+Math.abs(dias)+'d':dias===0?'HOY':'en '+dias+' días'),
+                 [ (varios&&e.proxima_de)?String(e.proxima_de):'',
+                   dias===null?'':(dias<0?'hace '+Math.abs(dias)+'d':dias===0?'HOY':'en '+dias+' días')
+                 ].filter(function(x){return x;}).join(' · '),
                  (dias!==null&&dias>=0&&dias<=7))+
         '</div>'+
         '<div style="height:6px;background:var(--bg3);border-radius:99px;margin-top:9px;overflow:hidden">'+

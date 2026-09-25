@@ -64,8 +64,22 @@
 
     var est = { vivo: true, cargando: true, puede: false, puedeCargar: false, deudas: [], sel: null,
                 estado: null, tabla: [], abonos: [], origenes: [], compras: [], error: null,
-                form: { abierto: false, guardando: false, error: null, dup: null, ok: null, valores: null } };
+                form: { abierto: false, guardando: false, error: null, dup: null, ok: null, valores: null },
+                alta: { abierto: false, guardando: false, error: null, dup: null, ok: null, valores: null } };
     el.classList.add('mdz');
+
+    // ⛔ UNA SOLA LISTA DE CÓDIGOS «esto se puede confirmar», y vive acá. La base
+    //    distingue dos clases de freno por SQLSTATE: unos son errores duros (falta
+    //    un dato, es imposible) y otros son avisos que la persona puede confirmar
+    //    —ya hay uno igual, los números no cierran, la tasa parece un porcentaje
+    //    mal escrito—. Si la pantalla se pusiera a leer el TEXTO del mensaje para
+    //    decidir, cualquier corrección de redacción apagaría el botón sin que nadie
+    //    se enterara. [[norma-el-guardia-mira-el-texto-no-la-intencion]]
+    // ⚠️ Son DOS códigos porque `deuda_abonar()` salió anoche con 23505 (que es
+    //    literalmente «ya hay uno igual») y `deuda_crear()` usa 23000 para los
+    //    cuatro casos confirmables que tiene. Están los dos en esta única lista a
+    //    propósito: un criterio, un lugar.
+    function sePuedeConfirmar(cod) { return cod === '23000' || cod === '23505'; }
 
     // ⛔ SE PREGUNTA PRIMERO SI PUEDE VER. Las tablas tienen RLS, y una RLS que
     //    no deja pasar devuelve CERO FILAS, no un error: sin esto, «no te dejan
@@ -152,9 +166,28 @@
         return;
       }
 
+      // ⛔ CUANDO NO HAY NINGUNO TAMBIÉN TIENE QUE HABER POR DÓNDE EMPEZAR. Hasta
+      //    hoy este caso se iba con un cartel y sin un solo botón: en Betangar no
+      //    se notaba porque el financiamiento de Auto Unión lo cargué por script,
+      //    pero este módulo es LEGO y en la app donde caiga limpio la pantalla
+      //    quedaba en un callejón sin salida. Es el mismo defecto de anoche —el
+      //    módulo se dibujaba perfecto y no se podía llegar a él— un piso más abajo.
       if (!est.deudas.length) {
-        el.innerHTML = '<div class="mdz-vacio"><div class="q">No hay financiamientos cargados.</div>' +
-          '<div class="s">Cuando se cargue uno, acá se ve su cuadro de amortización, lo abonado y lo que vence.</div></div>';
+        var h0 = '<div class="mdz-top"><div><h2>💳 Deudas</h2>' +
+          '<div class="mdz-sub">Financiamientos, su cuadro de amortización y lo que se abonó</div></div>' +
+          '<div class="mdz-top-der">' + botonAlta() + '</div></div>';
+        if (est.alta.ok) h0 += '<div class="mdz-ok">✅ ' + esc(est.alta.ok) + '</div>';
+        if (est.alta.abierto) {
+          h0 += altaHtml();
+        } else {
+          h0 += '<div class="mdz-vacio"><div class="q">No hay financiamientos cargados.</div>' +
+            '<div class="s">' + (est.puedeCargar
+              ? 'Cargá el primero con el botón de arriba: con el monto, la tasa, el plazo y la primera cuota, el cuadro de amortización sale solo.'
+              : 'Cuando se cargue uno, acá se ve su cuadro de amortización, lo abonado y lo que vence. Darlo de alta lo hace quien administre.') +
+            '</div></div>';
+        }
+        el.innerHTML = h0;
+        enganchar();
         return;
       }
 
@@ -180,13 +213,18 @@
       // El boton solo existe si la BASE dijo que si. Esconderlo no es el candado
       // —el candado esta en `deuda_abonar()`— pero mostrarselo a quien no puede
       // es mandarlo a llenar un formulario para que le digan que no.
-      if (est.puedeCargar && !est.form.abierto) {
+      if (est.puedeCargar && !est.form.abierto && !est.alta.abierto) {
         h += '<button type="button" class="mdz-btn" data-acc="abrir">＋ Registrar abono</button>';
       }
+      h += botonAlta();
       h += '</div></div>';
 
       if (est.form.ok) h += '<div class="mdz-ok">✅ ' + esc(est.form.ok) + '</div>';
+      if (est.alta.ok)  h += '<div class="mdz-ok">✅ ' + esc(est.alta.ok) + '</div>';
+      // Un formulario por vez: dos cajas abiertas a la vez son dos botones
+      // «Guardar» en pantalla y ninguna manera de saber cuál se está llenando.
       if (est.form.abierto) h += formHtml(d);
+      if (est.alta.abierto) h += altaHtml();
 
       // ── LO QUE DUELE, PRIMERO ──────────────────────────────────────────────
       if (venc > 0) {
@@ -261,7 +299,23 @@
            'Esta pantalla no calcula: muestra.</div>';
 
       el.innerHTML = h;
+      enganchar();
+    }
 
+    // El botón del alta. Se escribe UNA vez porque lo usan las dos ramas de
+    // `pintar()` —la que tiene financiamientos y la que no—, y un botón copiado
+    // en dos lugares es el que un día aparece en una rama y no en la otra.
+    function botonAlta() {
+      if (!est.puedeCargar || est.form.abierto || est.alta.abierto) return '';
+      return '<button type="button" class="mdz-btn" data-acc="abrir-alta">＋ Nuevo financiamiento</button>';
+    }
+
+    // ⛔ TODOS LOS ENGANCHES EN UN SOLO LUGAR, y se llama desde TODAS las ramas
+    //    que dibujan algo. Antes vivían al final de `pintar()`, después del último
+    //    `return`: la rama de «no hay financiamientos» salía sin engancharlos, y el
+    //    día que esa rama tuviera un botón —hoy— el botón no habría hecho nada.
+    //    Un botón que no responde se ve igual que un botón roto.
+    function enganchar() {
       var s = el.querySelector('[data-acc="cambiar"]');
       if (s) s.addEventListener('change', function () { est.sel = Number(s.value); refrescar(); });
 
@@ -269,10 +323,15 @@
         var b = el.querySelector('[data-acc="' + acc + '"]');
         if (b) b.addEventListener('click', fn);
       };
-      clic('abrir',  function () { est.form.abierto = true; est.form.error = null; est.form.ok = null; est.form.valores = null; pintar(); });
+      clic('abrir',  function () { cerrarTodo(); est.form.abierto = true; pintar(); });
       clic('cerrar', function () { est.form.abierto = false; est.form.error = null; pintar(); });
       clic('guardar', function () { guardar(false); });
       clic('forzar',  function () { guardar(true); });
+
+      clic('abrir-alta',  function () { cerrarTodo(); est.alta.abierto = true; pintar(); });
+      clic('cerrar-alta', function () { est.alta.abierto = false; est.alta.error = null; pintar(); });
+      clic('guardar-alta', function () { guardarAlta(false); });
+      clic('forzar-alta',  function () { guardarAlta(true); });
 
       // El selector de la compra aparece y desaparece SIN repintar: repintar
       // aca borraria el monto y la nota que la persona ya escribio.
@@ -287,6 +346,14 @@
         so.addEventListener('change', ver);
         ver();
       }
+    }
+
+    // Abrir uno cierra el otro y limpia SU error y SU aviso de éxito: un «✅
+    // guardado» del abono colgado arriba mientras se llena el alta hace pensar
+    // que lo que se está llenando ya se guardó.
+    function cerrarTodo() {
+      est.form.abierto = false; est.form.error = null; est.form.dup = null; est.form.ok = null; est.form.valores = null;
+      est.alta.abierto = false; est.alta.error = null; est.alta.dup = null; est.alta.ok = null; est.alta.valores = null;
     }
 
     // ═════════════════════════════════════════════════════════════════════════
@@ -400,8 +467,182 @@
       return t;
     }
 
-    function campo(rot, ctrl) {
-      return '<div class="mdz-campo"><label class="mdz-lab">' + esc(rot) + '</label>' + ctrl + '</div>';
+    // ⚠️ `rot` entra como HTML, no escapado, porque `obl()` y `opc()` le agregan un
+    //    <span>. Todos los rótulos de este archivo son literales escritos acá: no
+    //    hay ni uno que venga de la base o de lo que teclee alguien. Si algún día
+    //    hiciera falta un rótulo con un dato adentro, ese dato se pasa por `esc()`.
+    function campo(rot, ctrl, ayuda) {
+      return '<div class="mdz-campo"><label class="mdz-lab">' + rot + '</label>' + ctrl +
+        (ayuda ? '<div class="mdz-ayuda">' + ayuda + '</div>' : '') + '</div>';
+    }
+    // El rótulo de lo que no puede faltar lo dice el rótulo, no un asterisco que
+    // hay que ir a buscar al pie.
+    function obl(t) { return esc(t) + ' <span class="mdz-obl">obligatorio</span>'; }
+    function opc(t) { return esc(t) + ' <span class="mdz-opt">(opcional)</span>'; }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // EL FORMULARIO DE ALTA DE UN FINANCIAMIENTO
+    //
+    // ⛔ TAMPOCO VALIDA NADA POR SU CUENTA. Los siete bloques de control viven en
+    //    `deuda_crear()`, que es la unica puerta de escritura —la tabla no tiene
+    //    policy de INSERT y a `authenticated` se le quitaron los permisos de
+    //    escribir—. Esta pantalla muestra el mensaje que devuelve la base, que ya
+    //    esta escrito para una persona y trae los numeros exactos adentro.
+    //
+    // ⛔ NO SE PIDE EL «VALOR TOTAL», Y ES LA DECISION MAS IMPORTANTE DE ESTA
+    //    PANTALLA. Lo calcula la base por sus dos caminos —cantidad × valor
+    //    unitario, e inicial + financiado— y frena si no dan lo mismo. Ese cruce es
+    //    el que encontro los US$ 10.400 repetidos en el Excel de Maximo. Un campo
+    //    tecleado a mano al lado de los otros dos que lo determinan es la tercera
+    //    lista que se desincroniza. [[norma-dos-listas-a-mano-se-desincronizan]]
+    //
+    // ⛔ LA PRIMERA CUOTA ARRANCA VACIA, a proposito. De esa fecha cuelga el cuadro
+    //    entero, lo vencido y la proxima a pagar. Un `hoy` puesto de regalo en un
+    //    campo que la persona TIENE que declarar se acepta sin mirarlo, y despues
+    //    nadie sabe si esa fecha la eligio alguien o la puso el formulario.
+    //    [[norma-default-en-campo-que-se-declara]]
+    // ═════════════════════════════════════════════════════════════════════════
+    function altaHtml() {
+      var f = est.alta;
+      var v = f.valores || {};
+      // Lo que la persona escribio no se borra cuando el guardado falla: es el
+      // mismo defecto que ya se pago en el formulario de abonos, donde el boton de
+      // confirmar leia los campos vacios y mandaba el monto en NULL.
+      var val = function (k) { return esc(v[k] == null ? '' : v[k]); };
+
+      var h = '<div class="mdz-form"><h3 class="mdz-form-t">Dar de alta un financiamiento</h3>';
+
+      if (f.error) {
+        h += '<div class="mdz-form-err"><b>No se guardó.</b><div>' + esc(f.error) + '</div>' +
+             (f.dup ? '<button type="button" class="mdz-btn mdz-btn-peligro" data-acc="forzar-alta">' +
+                      'Ya lo revisé — cargarlo igual</button>' : '') + '</div>';
+      }
+
+      // ── A quién se le debe y por qué ────────────────────────────────────────
+      h += '<div class="mdz-campos">' +
+        campo(obl('A quién se le debe'),
+          '<input type="text" id="mdz-a-acreedor" class="mdz-in" maxlength="80" placeholder="Ej.: AUTO UNION DC" value="' + val('p_acreedor') + '">') +
+        campo(obl('Qué se financió'),
+          '<input type="text" id="mdz-a-concepto" class="mdz-in" maxlength="120" placeholder="Ej.: 12 camiones JAC 1131" value="' + val('p_concepto') + '">') +
+        campo(opc('Quién queda como deudor'),
+          '<input type="text" id="mdz-a-deudor" class="mdz-in" maxlength="80" placeholder="Ej.: TRANSPORTE ATLAS" value="' + val('p_deudor') + '">',
+          'Si la deuda quedó a nombre de otra empresa del grupo.') +
+        '</div>';
+
+      // ── El financiamiento, que es de donde sale TODO el cuadro ──────────────
+      h += '<h4 class="mdz-form-h4">El financiamiento</h4>' +
+        '<div class="mdz-campos">' +
+        campo(obl('Monto financiado en US$'),
+          '<input type="number" id="mdz-a-financiado" class="mdz-in" step="0.01" min="0" placeholder="384000,00" value="' + val('p_monto_financiado') + '">',
+          'Lo que se debe, sin la inicial.') +
+        campo(obl('Tasa % anual'),
+          '<input type="number" id="mdz-a-tasa" class="mdz-in" step="0.01" min="0" placeholder="12" value="' + val('_pct') + '">',
+          'El porcentaje: <b>12</b> para 12% anual. Poné 0 si no tiene intereses.') +
+        campo(obl('Cuántas cuotas'),
+          '<input type="number" id="mdz-a-plazo" class="mdz-in" step="1" min="1" placeholder="18" value="' + val('p_plazo_meses') + '">',
+          'Mensuales.') +
+        campo(obl('Primera cuota'),
+          '<input type="date" id="mdz-a-primera" class="mdz-in" value="' + val('p_primera_cuota') + '">',
+          'De esta fecha cuelga el cuadro entero.') +
+        '</div>';
+
+      // ── Lo que se compró: opcional, pero si viene sirve de control ──────────
+      h += '<h4 class="mdz-form-h4">Lo que se compró <span class="mdz-opt">(si aplica — sirve de control)</span></h4>' +
+        '<div class="mdz-campos">' +
+        campo(opc('Cuántas unidades'),
+          '<input type="number" id="mdz-a-cantidad" class="mdz-in" step="0.01" min="0" placeholder="12" value="' + val('p_cantidad') + '">') +
+        campo(opc('Valor de cada una en US$'),
+          '<input type="number" id="mdz-a-unitario" class="mdz-in" step="0.01" min="0" placeholder="65000,00" value="' + val('p_valor_unitario') + '">') +
+        campo(opc('Inicial que se pagó en US$'),
+          '<input type="number" id="mdz-a-inicial" class="mdz-in" step="0.01" min="0" placeholder="0,00" value="' + val('p_inicial') + '">',
+          'Si no hubo inicial, dejalo vacío.') +
+        '</div>' +
+        '<div class="mdz-ayuda mdz-ancho">⚠️ <b>El valor total no se pide: lo calcula la base por sus dos caminos</b> ' +
+        '—cantidad × valor de cada una, y inicial + financiado— y <b>frena si no dan lo mismo</b>. ' +
+        'Ese cruce es el que encontró los US$ 10.400 repetidos en el Excel. ' +
+        'La cantidad y el valor unitario van juntos o ninguno: con uno solo no hay nada que cruzar.</div>';
+
+      h += '<div class="mdz-campo mdz-ancho"><label class="mdz-lab">' + opc('Nota') + '</label>' +
+        '<input type="text" id="mdz-a-nota" class="mdz-in" maxlength="200" placeholder="Ej.: contrato firmado el 15/03, garantía sobre las unidades" value="' + val('p_nota') + '"></div>';
+
+      h += '<div class="mdz-form-pie">' +
+        '<button type="button" class="mdz-btn mdz-btn-ok" data-acc="guardar-alta"' + (f.guardando ? ' disabled' : '') + '>' +
+          (f.guardando ? 'Guardando…' : 'Dar de alta') + '</button>' +
+        '<button type="button" class="mdz-btn mdz-btn-flojo" data-acc="cerrar-alta">Cancelar</button>' +
+        '</div></div>';
+      return h;
+    }
+
+    // Lo que hay escrito en el formulario de alta AHORA.
+    //
+    // ⚠️ EL CAMPO DICE «%» Y LA BASE GUARDA FRACCIÓN. Nadie escribe 0,12 en un
+    //    campo que dice tasa: escribe 12. La conversión se hace en un solo lugar
+    //    —acá— y la base igual frena si le llega algo mayor que 1, porque este
+    //    módulo es LEGO y mañana lo llama otra pantalla que quizás no convierta.
+    //    Se redondea a 8 decimales: 1,1 / 100 en coma flotante da
+    //    0.011000000000000001 y eso no es una tasa, es basura guardada.
+    function leerAlta() {
+      var t = function (id) { var e = el.querySelector('#' + id); return e ? e.value.trim() : ''; };
+      var n = function (id) {
+        var x = parseFloat(String(t(id)).replace(',', '.'));
+        return isFinite(x) ? x : null;
+      };
+      var pct = n('mdz-a-tasa');
+      return {
+        p_acreedor: t('mdz-a-acreedor') || null,
+        p_concepto: t('mdz-a-concepto') || null,
+        p_monto_financiado: n('mdz-a-financiado'),
+        p_tasa_anual: pct === null ? null : Number((pct / 100).toFixed(8)),
+        p_plazo_meses: n('mdz-a-plazo'),
+        p_primera_cuota: t('mdz-a-primera') || null,
+        p_deudor: t('mdz-a-deudor') || null,
+        p_cantidad: n('mdz-a-cantidad'),
+        p_valor_unitario: n('mdz-a-unitario'),
+        p_inicial: n('mdz-a-inicial'),
+        p_nota: t('mdz-a-nota') || null,
+        // Lo que la persona TECLEÓ en el campo de la tasa, para volver a pintarlo
+        // tal cual si el guardado falla. Si se repintara desde la fracción, quien
+        // escribió 12 vería 0.12 y creería que el formulario le cambió el dato.
+        _pct: t('mdz-a-tasa')
+      };
+    }
+
+    function guardarAlta(forzar) {
+      var f = est.alta;
+      if (f.guardando) return;
+      var datos = leerAlta();
+      f.valores = datos;              // para que un repintado no borre lo escrito
+      f.guardando = true; f.error = null; f.dup = null; pintar();
+
+      // La fracción y el `_pct` no van juntos a la base: `_pct` es de la pantalla.
+      var envio = {};
+      Object.keys(datos).forEach(function (k) { if (k.charAt(0) !== '_') envio[k] = datos[k]; });
+      envio.p_forzar = !!forzar;
+
+      sb.rpc('deuda_crear', envio).then(function (r) {
+        f.guardando = false;
+        if (r.error) {
+          // Se muestra el mensaje de la base TAL CUAL: dice qué número no cierra.
+          f.error = r.error.message || String(r.error);
+          f.dup = sePuedeConfirmar(r.error.code);
+          pintar();
+          return;
+        }
+        f.abierto = false;
+        f.valores = null;
+        f.ok = 'Financiamiento dado de alta. El cuadro de amortización, la cuota y lo que vence ya salen de la base.';
+        // ⚠️ SE SALTA AL NUEVO. Sin esto la pantalla se quedaba mirando el que
+        //    estaba seleccionado y el alta parecía no haber hecho nada.
+        if (r.data) est.sel = Number(r.data);
+        // El widget del dashboard y el PDF leen su propia copia: si no se les
+        // avisa, siguen mostrando la deuda vieja hasta que alguien recargue.
+        if (typeof op.alCambiar === 'function') { try { op.alCambiar(); } catch (e) {} }
+        refrescar();
+      }, function (e) {
+        f.guardando = false;
+        f.error = (e && e.message) || String(e);
+        pintar();
+      });
     }
 
     // Lo que hay escrito en la pantalla AHORA. No se guarda en `est` a cada
@@ -434,8 +675,9 @@
           //    persona y dice el número exacto. Cambiarlo por un «no se pudo
           //    guardar» generico es tapar justo el dato que hace falta.
           f.error = r.error.message || String(r.error);
-          // 23505 = ya hay uno igual. No es un error: es un freno que pide confirmar.
-          f.dup = (r.error.code === '23505');
+          // No es un error: es un freno que pide confirmar. Los códigos están en
+          // UNA lista, arriba, compartida con el alta.
+          f.dup = sePuedeConfirmar(r.error.code);
           pintar();
           return;
         }
@@ -468,6 +710,6 @@
     };
   }
 
-  raiz.MaxDeudas = { montar: montar, version: '0.2.0' };
+  raiz.MaxDeudas = { montar: montar, version: '0.3.0' };
   if (typeof module !== 'undefined' && module.exports) module.exports = raiz.MaxDeudas;
 })(typeof window !== 'undefined' ? window : globalThis);

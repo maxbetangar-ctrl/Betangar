@@ -124,3 +124,29 @@
   border-radius: 9px; padding: 11px 14px; margin-bottom: 14px; font-size: 14.5px; }
 
 @media (max-width: 620px) { .mdz-campos { grid-template-columns: 1fr; } }
+
+/* ==========================================================================
+   EL ALTA DE UN FINANCIAMIENTO (25/09, el 🔴 que quedaba de anoche)
+   ==========================================================================
+   El formulario reusa .mdz-form / .mdz-campos / .mdz-in / .mdz-btn-* del de
+   abonos: son la misma caja y tienen que verse igual. Acá van solo las dos
+   piezas que no existían. */
+
+/* El alta pide once campos y cuatro son obligatorios. Un asterisco al lado del
+   rótulo obliga a ir a buscar la leyenda al pie; la palabra no. */
+.mdz-obl { font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: .04em;
+  color: #8c1d18; background: var(--bad-bg, #fdecea); border-radius: 99px; padding: 1px 7px;
+  margin-left: 4px; vertical-align: 1px; }   /* #8c1d18 sobre #fdecea = 7,97:1 medido */
+
+/* Once campos seguidos son una pared. Se parten en tres bloques con su título:
+   quién y qué · el financiamiento · lo que se compró. */
+.mdz-form-h4 { margin: 17px 0 9px; font-size: 13px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .04em; color: var(--ink-2, #2b3742);
+  border-top: 1px solid var(--line, #dbe2ea); padding-top: 13px; }   /* 12,15:1 medido */
+.mdz-form-h4 .mdz-opt { text-transform: none; letter-spacing: 0; font-size: 12.5px; }
+
+/* La ayuda del cruce de totales va ancha y despegada: es la que explica por qué
+   NO hay un campo de «valor total», y esa ausencia se nota. */
+/* ⚠️ Fondo NUEVO para este texto: se midió aparte. #2b3742 sobre #e3e8ee = 9,86:1. */
+.mdz-ayuda.mdz-ancho { margin-top: 11px; background: var(--sunk, #e3e8ee);
+  border-radius: 9px; padding: 10px 12px; }
