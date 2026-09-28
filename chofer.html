@@ -163,10 +163,10 @@ body{background:#0f1923;color:#fff;font-family:-apple-system,BlinkMacSystemFont,
     <div class="logo-text">BETANGAR</div>
   </div>
   <div class="cam-name" id="cam-display">Cargando...</div>
-  <div class="chofer-name" id="chofer-display" onclick="cambiarChoferDia()" style="cursor:pointer" title="Tocá tu nombre si cambia el chofer de esta unidad hoy"></div>
+  <div class="chofer-name" id="chofer-display" onclick="cambiarChoferDia()" style="cursor:pointer" title="Toque su nombre si cambia el chofer de esta unidad hoy"></div>
   <!-- La cuadrilla se puede corregir en cualquier momento del día: alguien se suma en la
        segunda vuelta, o se baja. Si no se ve, no se corrige. -->
-  <div id="cuadrilla-display" onclick="reabrirCuadrilla()" style="display:none;cursor:pointer;font-size:11px;color:rgba(255,255,255,.55);margin-top:2px" title="Tocá para cambiar quién va hoy"></div>
+  <div id="cuadrilla-display" onclick="reabrirCuadrilla()" style="display:none;cursor:pointer;font-size:11px;color:rgba(255,255,255,.55);margin-top:2px" title="Toque para cambiar quién va hoy"></div>
   <div class="fecha" id="fecha-display"></div>
   <button id="btn-cerrar-sesion" onclick="cerrarSesionUnidad()" style="display:none;margin-top:8px;background:rgba(248,96,96,.15);color:#ef6060;border:1px solid rgba(248,96,96,.35);border-radius:8px;padding:5px 12px;font-size:11px;font-weight:700;cursor:pointer">⎋ Cerrar sesión</button>
 </div>
@@ -175,13 +175,13 @@ body{background:#0f1923;color:#fff;font-family:-apple-system,BlinkMacSystemFont,
 <div class="error-screen" id="error-screen" style="display:none">
   <div class="error-icon">🚫</div>
   <div class="error-title">Acceso Inválido</div>
-  <div class="error-msg">Este enlace no es válido.<br>Escanea el código QR pegado<br>en tu camión para acceder.</div>
+  <div class="error-msg">Este enlace no es válido.<br>Escanee el código QR pegado<br>en su camión para acceder.</div>
 </div>
 
 <!-- LOGIN POR UNIDAD (solo si BTG_CHOFER_CONFIG.login=true — apagado en Betangar aseo) -->
 <div class="error-screen" id="login-screen" style="display:none">
   <div class="error-icon">🔒</div>
-  <div class="error-title">Ingresá a tu unidad</div>
+  <div class="error-title">Ingrese a su unidad</div>
   <div class="error-msg" id="login-unidad-lbl" style="margin-bottom:16px"></div>
   <input id="login-clave" type="password" inputmode="numeric" placeholder="Clave" autocomplete="current-password" onkeydown="if(event.key==='Enter')enviarLoginUnidad()" style="width:82%;max-width:280px;padding:14px;font-size:18px;text-align:center;border-radius:12px;border:1px solid #2a3f52;background:#0f1a24;color:#fff;margin-bottom:12px;box-sizing:border-box">
   <button id="login-btn" onclick="enviarLoginUnidad()" style="width:82%;max-width:280px;padding:14px;font-size:16px;font-weight:700;border:none;border-radius:12px;background:#7dc941;color:#04240a;cursor:pointer">Entrar</button>
@@ -204,15 +204,15 @@ body{background:#0f1923;color:#fff;font-family:-apple-system,BlinkMacSystemFont,
        sino la primera que ve el chofer todos los días a las 5 AM. Rojo se lee «algo se rompió». -->
   <div class="error-title" style="color:#7dc941">¿Quién maneja hoy?</div>
   <div class="error-msg" id="cg-unidad-lbl" style="margin-bottom:14px"></div>
-  <input id="cg-buscar" oninput="filtrarChoferes()" placeholder="Buscá tu nombre…" autocomplete="off" style="width:82%;max-width:300px;padding:12px;font-size:16px;border-radius:12px;border:1px solid #2a3f52;background:#0f1a24;color:#fff;margin-bottom:10px;box-sizing:border-box">
+  <input id="cg-buscar" oninput="filtrarChoferes()" placeholder="Busque su nombre…" autocomplete="off" style="width:82%;max-width:300px;padding:12px;font-size:16px;border-radius:12px;border:1px solid #2a3f52;background:#0f1a24;color:#fff;margin-bottom:10px;box-sizing:border-box">
   <div id="cg-lista" style="width:82%;max-width:300px;max-height:34vh;overflow-y:auto;margin-bottom:10px"></div>
   <div id="cg-clave-box" style="display:none;width:82%;max-width:300px">
     <div id="cg-sel-nombre" style="font-size:14px;font-weight:700;color:#7dc941;margin-bottom:8px"></div>
-    <input id="cg-clave" type="password" inputmode="numeric" maxlength="4" placeholder="Últimos 4 de tu cédula" onkeydown="if(event.key==='Enter')confirmarChoferGate()" style="width:100%;padding:13px;font-size:18px;text-align:center;letter-spacing:4px;border-radius:12px;border:1px solid #2a3f52;background:#0f1a24;color:#fff;box-sizing:border-box;margin-bottom:10px">
+    <input id="cg-clave" type="password" inputmode="numeric" maxlength="4" placeholder="Últimos 4 de su cédula" onkeydown="if(event.key==='Enter')confirmarChoferGate()" style="width:100%;padding:13px;font-size:18px;text-align:center;letter-spacing:4px;border-radius:12px;border:1px solid #2a3f52;background:#0f1a24;color:#fff;box-sizing:border-box;margin-bottom:10px">
     <button id="cg-btn" onclick="confirmarChoferGate()" style="width:100%;padding:14px;font-size:16px;font-weight:700;border:none;border-radius:12px;background:#7dc941;color:#04240a;cursor:pointer">Entrar</button>
   </div>
   <div id="cg-error" style="color:#ef6060;font-size:13px;margin-top:10px;min-height:16px"></div>
-  <div id="cg-pie" style="color:rgba(255,255,255,.35);font-size:11px;margin-top:12px;max-width:300px;line-height:1.5">Se pregunta una vez por día. Queda registrado que vos manejaste esta unidad hoy.</div>
+  <div id="cg-pie" style="color:rgba(255,255,255,.35);font-size:11px;margin-top:12px;max-width:300px;line-height:1.5">Se pregunta una vez por día. Queda registrado que usted manejó esta unidad hoy.</div>
 </div>
 
 <!-- ══════ ¿QUIÉNES VAN CON VOS HOY? ═══════════════════════════════════════════════════
@@ -227,7 +227,7 @@ body{background:#0f1923;color:#fff;font-family:-apple-system,BlinkMacSystemFont,
   <div class="error-title" style="color:#7dc941">¿Quiénes van con usted hoy?</div>
   <div class="error-msg" id="cq-sub" style="margin-bottom:12px">Hasta 4. Si anda solo, toque <b>Listo</b>.</div>
   <div id="cq-elegidos" style="width:82%;max-width:320px;margin-bottom:8px"></div>
-  <input id="cq-buscar" oninput="cqFiltrar()" placeholder="Buscá al ayudante…" autocomplete="off" style="width:82%;max-width:320px;padding:12px;font-size:16px;border-radius:12px;border:1px solid #2a3f52;background:#0f1a24;color:#fff;margin-bottom:8px;box-sizing:border-box">
+  <input id="cq-buscar" oninput="cqFiltrar()" placeholder="Busque al ayudante…" autocomplete="off" style="width:82%;max-width:320px;padding:12px;font-size:16px;border-radius:12px;border:1px solid #2a3f52;background:#0f1a24;color:#fff;margin-bottom:8px;box-sizing:border-box">
   <div id="cq-lista" style="width:82%;max-width:320px;max-height:30vh;overflow-y:auto;margin-bottom:10px"></div>
   <button id="cq-btn" onclick="cqGuardar()" style="width:82%;max-width:320px;padding:14px;font-size:16px;font-weight:700;border:none;border-radius:12px;background:#7dc941;color:#04240a;cursor:pointer">Listo</button>
   <div id="cq-error" style="color:#ef6060;font-size:13px;margin-top:10px;min-height:16px"></div>
@@ -245,8 +245,8 @@ body{background:#0f1923;color:#fff;font-family:-apple-system,BlinkMacSystemFont,
   </div>
 
   <!-- ══════ AVISO A LA UNIDAD (temporal, caduca solo) ══════
-       Mensaje puntual de administración para ESTA unidad (ej. "corregimos tu km,
-       registrá el real"). Lo trae la RPC aviso_unidad (anon-safe) y caduca por su
+       Mensaje puntual de administración para ESTA unidad (ej. "corregimos su km,
+       registre el real"). Lo trae la RPC aviso_unidad (anon-safe) y caduca por su
        fecha `hasta`. Se cachea en localStorage → se ve sin señal. Verde = informativo. -->
   <div id="aviso-banner" style="display:none;margin:8px 10px 0;background:rgba(45,190,120,.12);border:1px solid rgba(45,190,120,.45);border-radius:12px;padding:11px 13px">
     <div style="font-size:13px;font-weight:800;color:#7fe0a8">✅ <span id="aviso-titulo">Aviso</span></div>
@@ -272,7 +272,7 @@ body{background:#0f1923;color:#fff;font-family:-apple-system,BlinkMacSystemFont,
     <div class="content">
       <div class="card" style="background:#12233b;border:1px solid #24405f;border-radius:12px;padding:16px;margin-bottom:10px">
         <div style="font-weight:800;font-size:16px;color:#fff;margin-bottom:2px">⛽ Surtir combustible</div>
-        <div style="font-size:12px;color:#9fb3c8;margin-bottom:14px">Registrá cada surtida de tu unidad: de qué tanque, litros, foto del surtidor/recibo y ubicación.</div>
+        <div style="font-size:12px;color:#9fb3c8;margin-bottom:14px">Registre cada surtida de su unidad: de qué tanque, litros, foto del surtidor/recibo y ubicación.</div>
 
         <!-- ⛔ NINGUNO VIENE MARCADO, y el aviso de arriba lo dice. Antes «Galpón 1» arrancaba
              preseleccionado con el borde verde: si el chofer no tocaba nada, la surtida se
@@ -284,7 +284,7 @@ body{background:#0f1923;color:#fff;font-family:-apple-system,BlinkMacSystemFont,
              y los choferes se encontraron un error rojo donde antes daba Registrar y listo: hubo
              que revertirlo en caliente. Por eso ahora NO se rechaza nada — se avisa ANTES, el
              botón de guardar dice qué falta, y los tres quedan en ámbar hasta que se elija. -->
-        <div style="font-size:13px;color:#cfe0f0;font-weight:700;margin-bottom:6px">¿De dónde surtiste? <span id="sur-tanque-pide" style="color:#f4a300;font-weight:700">— tocá una</span></div>
+        <div style="font-size:13px;color:#cfe0f0;font-weight:700;margin-bottom:6px">¿De dónde surtió? <span id="sur-tanque-pide" style="color:#f4a300;font-weight:700">— toque una</span></div>
         <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">
           <button type="button" id="sur-tanque-galpon_1" onclick="surSetTanque('galpon_1')" style="flex:1;min-width:90px;background:#0e2038;border:2px solid #f4a300;border-radius:10px;padding:10px;color:#fff;font-weight:700;cursor:pointer;font-size:13px">🛢️ Galpón 1</button>
           <button type="button" id="sur-tanque-galpon_2" onclick="surSetTanque('galpon_2')" style="flex:1;min-width:90px;background:#0e2038;border:2px solid #f4a300;border-radius:10px;padding:10px;color:#fff;font-weight:700;cursor:pointer;font-size:13px">🛢️ Galpón 2</button>
@@ -308,8 +308,8 @@ body{background:#0f1923;color:#fff;font-family:-apple-system,BlinkMacSystemFont,
         <button class="btn-guardar" id="sur-btn" onclick="surGuardar()" style="margin-top:8px">✅ Registrar surtida</button>
       </div>
       <div class="card" style="background:#12233b;border:1px solid #24405f;border-radius:12px;padding:14px">
-        <div style="font-weight:700;color:#fff;margin-bottom:8px">Tus surtidas de hoy</div>
-        <div id="sur-hoy-lista" style="font-size:12px;color:#9fb3c8">Todavía no registraste ninguna.</div>
+        <div style="font-weight:700;color:#fff;margin-bottom:8px">Sus surtidas de hoy</div>
+        <div id="sur-hoy-lista" style="font-size:12px;color:#9fb3c8">Todavía no ha registrado ninguna.</div>
       </div>
     </div>
   </div>
@@ -318,8 +318,8 @@ body{background:#0f1923;color:#fff;font-family:-apple-system,BlinkMacSystemFont,
     <div class="content">
 
       <div class="cola-banner" id="cola-banner">
-        <div class="cola-banner-txt">⚠️ TIENES <span id="cola-count">0</span> REGISTRO(S) SIN ENVIAR
-          <small>Quedaron guardados en tu teléfono. <b>Ábrelo con señal</b> — no cierres la app hasta que desaparezca este aviso.</small>
+        <div class="cola-banner-txt">⚠️ TIENE <span id="cola-count">0</span> REGISTRO(S) SIN ENVIAR
+          <small>Quedaron guardados en su teléfono. <b>Ábralo con señal</b> — no cierre la app hasta que desaparezca este aviso.</small>
         </div>
         <button type="button" class="cola-banner-btn" onclick="reintentarYDiagnosticar()">🔄 Enviar ahora</button>
       </div>
@@ -361,7 +361,7 @@ body{background:#0f1923;color:#fff;font-family:-apple-system,BlinkMacSystemFont,
 
       <!-- Banner modo llegada -->
       <div class="llegada-banner" id="llegada-banner">
-        🌙 <b>Modo Llegada</b> — El checklist de esta mañana ya está registrado. Completa los datos de llegada.
+        🌙 <b>Modo Llegada</b> — El checklist de esta mañana ya está registrado. Complete los datos de llegada.
       </div>
 
       <!-- Modo badge -->
@@ -614,7 +614,7 @@ body{background:#0f1923;color:#fff;font-family:-apple-system,BlinkMacSystemFont,
         <div style="text-align:center;font-size:11px;color:rgba(255,255,255,.3);margin:12px 0">— o —</div>
 
         <!-- OPCIÓN 2: confirmar en este teléfono -->
-        <div id="ent-confirm-title" style="font-size:12px;font-weight:700;color:#fff;margin-bottom:6px">📝 Opción 2 · Confirmar acá mismo (quien recibe firma en tu teléfono)</div>
+        <div id="ent-confirm-title" style="font-size:12px;font-weight:700;color:#fff;margin-bottom:6px">📝 Opción 2 · Confirmar acá mismo (quien recibe firma en su teléfono)</div>
         <input id="ent-rec-nombre" placeholder="Nombre de quien recibe" style="width:100%;background:#111c26;border:1px solid rgba(255,255,255,.12);color:#fff;border-radius:10px;padding:12px;font-size:15px;margin-bottom:8px">
         <input id="ent-rec-ci" placeholder="Cédula (opcional)" style="width:100%;background:#111c26;border:1px solid rgba(255,255,255,.12);color:#fff;border-radius:10px;padding:12px;font-size:15px;margin-bottom:10px">
         <button id="ent-confirm-btn" onclick="entregaConfirmarRecepcion()" style="width:100%;background:#7dc941;color:#0f1923;border:none;border-radius:12px;padding:14px;font-size:15px;font-weight:800;cursor:pointer">Confirmar recepción</button>
@@ -894,7 +894,7 @@ function resolverUnidadNueva(){
   var fn = (lib && lib.createClient) ? lib.createClient : (window.createClient||null);
   if(!fn){ setTimeout(resolverUnidadNueva, 500); return; }
   var sb;
-  try{ sb = fn(SUPA_URL, SUPA_KEY); }catch(e){ mostrarErrorCam('No se pudo iniciar. Reintentá.'); return; }
+  try{ sb = fn(SUPA_URL, SUPA_KEY); }catch(e){ mostrarErrorCam('No se pudo iniciar. Reintente.'); return; }
   // unidad_config está cerrada a anon; el RPC unidad_publica (SECURITY DEFINER) devuelve
   // solo los datos mínimos de ESTA unidad (por su cam), sin exponer el registro completo.
   sb.rpc('unidad_publica', { p_cam: cam })
@@ -910,13 +910,13 @@ function resolverUnidadNueva(){
         if(BTG_CHOFER_CONFIG.login){ gateLoginUnidad(u); }  // clientes nuevos: clave de unidad y después el gate
         else gateChoferDia();                               // se pregunta quién maneja hoy
       } else if(r && r.error){
-        mostrarErrorCam('No se pudo verificar la unidad.<br>Reintentá con internet.');
+        mostrarErrorCam('No se pudo verificar la unidad.<br>Reintente con internet.');
       } else {
-        mostrarErrorCam('Esta unidad no está registrada o está inactiva.<br>Pedí en oficina que la den de alta.');
+        mostrarErrorCam('Esta unidad no está registrada o está inactiva.<br>Pida en oficina que la den de alta.');
       }
     })
     .catch(function(){
-      mostrarErrorCam('Sin conexión: no se pudo verificar la unidad.<br>Conectate a internet e intentá de nuevo.');
+      mostrarErrorCam('Sin conexión: no se pudo verificar la unidad.<br>Conéctese a internet e intente de nuevo.');
     });
 }
 
@@ -951,14 +951,14 @@ function _mostrarLogin(){
 function enviarLoginUnidad(){
   var claveEl=document.getElementById('login-clave'), errEl=document.getElementById('login-error'), btn=document.getElementById('login-btn');
   var clave=claveEl?claveEl.value:'';
-  if(!clave){ if(errEl) errEl.textContent='Escribí tu clave.'; return; }
+  if(!clave){ if(errEl) errEl.textContent='Escriba su clave.'; return; }
   if(errEl) errEl.textContent='';
   if(btn){ btn.disabled=true; btn.textContent='Entrando…'; }
   supabase.auth.signInWithPassword({ email: synthEmailUnidad(cam), password: clave }).then(function(res){
     if(res&&res.error){ if(errEl) errEl.textContent='Clave incorrecta.'; if(btn){ btn.disabled=false; btn.textContent='Entrar'; } return; }
     var ls=document.getElementById('login-screen'); if(ls) ls.style.display='none';
     gateChoferDia();
-  }).catch(function(){ if(errEl) errEl.textContent='Sin conexión. Intentá de nuevo.'; if(btn){ btn.disabled=false; btn.textContent='Entrar'; } });
+  }).catch(function(){ if(errEl) errEl.textContent='Sin conexión. Intente de nuevo.'; if(btn){ btn.disabled=false; btn.textContent='Entrar'; } });
 }
 function cerrarSesionUnidad(){
   if(!confirm('¿Cerrar sesión de esta unidad? Tendrás que volver a poner la clave.'))return;
@@ -1070,7 +1070,7 @@ function cargarChoferesGate(){
 function _gateSinLista(){
   var el = document.getElementById('cg-lista'); if(!el) return;
   el.innerHTML = '<div style="color:#fbbf24;font-size:13px;text-align:center;padding:12px 6px;line-height:1.5">'
-    + '<b>Falta bajar la lista del personal.</b><br>Conectate a internet UNA vez —con datos o wifi— y tocá «Reintentar».<br>'
+    + '<b>Falta bajar la lista del personal.</b><br>Conéctese a internet UNA vez —con datos o wifi— y toque «Reintentar».<br>'
     + 'Después esta pantalla funciona sin señal todos los días.</div>'
     + '<button onclick="cargarChoferesGate()" style="width:100%;padding:12px;font-size:14px;font-weight:700;border:none;border-radius:10px;background:#233b4d;color:#fff;cursor:pointer">↻ Reintentar</button>';
 }
@@ -1099,7 +1099,7 @@ function renderChoferes(q){
       + '</div>';
   }).join('');
   if(!arr.length) html = '<div style="color:rgba(255,255,255,.5);font-size:13px;text-align:center;padding:10px">Sin coincidencias.</div>';
-  if(!_cgVerTodos) html += '<div onclick="_cgTodos()" style="text-align:center;font-size:12px;color:#7dc941;text-decoration:underline;padding:8px;cursor:pointer">No está tu nombre — ver todo el personal</div>';
+  if(!_cgVerTodos) html += '<div onclick="_cgTodos()" style="text-align:center;font-size:12px;color:#7dc941;text-decoration:underline;padding:8px;cursor:pointer">No está su nombre — ver todo el personal</div>';
   el.innerHTML = html;
 }
 function _cgTodos(){ _cgVerTodos = true; renderChoferes(_norm((document.getElementById('cg-buscar')||{}).value||'')); }
@@ -1119,16 +1119,16 @@ function seleccionarChofer(id){
 
 function confirmarChoferGate(){
   var err = document.getElementById('cg-error'), btn = document.getElementById('cg-btn');
-  if(!_cgSel){ if(err) err.textContent='Elegí tu nombre en la lista.'; return; }
+  if(!_cgSel){ if(err) err.textContent='Elija su nombre en la lista.'; return; }
   var clave = ((document.getElementById('cg-clave')||{}).value||'').replace(/\D/g,'');
-  if(clave.length<4){ if(err) err.textContent='Escribí los últimos 4 de tu cédula.'; return; }
+  if(clave.length<4){ if(err) err.textContent='Escriba los últimos 4 de su cédula.'; return; }
   if(err) err.textContent='';
   if(btn){ btn.disabled=true; btn.textContent='Verificando…'; }
   // ⛔ SIN HASH NO SE DEJA PASAR. Si a la fila le falta `h` (lista vieja cacheada de una versión
   //    anterior de la RPC), cualquier clave "coincidiría" con undefined===undefined. Se refresca.
   if(!_cgSel.h){
     if(btn){ btn.disabled=false; btn.textContent='Entrar'; }
-    if(err) err.textContent='La lista guardada es vieja. Conectate y tocá tu nombre otra vez.';
+    if(err) err.textContent='La lista guardada es vieja. Conéctese y toque su nombre otra vez.';
     try{ localStorage.removeItem(_cgListaKey()); localStorage.removeItem('flot_emps'); }catch(e){}
     cargarChoferesGate(); return;
   }
@@ -1140,11 +1140,11 @@ function confirmarChoferGate(){
       var g = document.getElementById('chofer-gate'); if(g) g.style.display='none';
       abrirCuadrillaGate();          // paso 2: quiénes van con él hoy (no obligatorio)
     }
-    else if(!hx){ if(err) err.textContent='Este teléfono no puede verificar (hace falta HTTPS). Abrí la app desde betangar.com.'; }
-    else { if(err) err.textContent='Clave incorrecta. Son los últimos 4 dígitos de tu cédula.'; }
+    else if(!hx){ if(err) err.textContent='Este teléfono no puede verificar (hace falta HTTPS). Abra la app desde betangar.com.'; }
+    else { if(err) err.textContent='Clave incorrecta. Son los últimos 4 dígitos de su cédula.'; }
   }).catch(function(){
     if(btn){ btn.disabled=false; btn.textContent='Entrar'; }
-    if(err) err.textContent='No se pudo verificar. Intentá de nuevo.';
+    if(err) err.textContent='No se pudo verificar. Intente de nuevo.';
   });
 }
 
@@ -1232,7 +1232,7 @@ function cqRender(){
             + '<div style="flex:1;color:#fff;font-size:14px;font-weight:600">'+((a.nombre||'').replace(/</g,'&lt;'))+'</div>'
             + '<div onclick="cqQuitar('+i+')" style="color:#ef6060;font-size:18px;font-weight:700;cursor:pointer;padding:0 4px" title="Quitar">×</div></div>';
         }).join('')
-      : '<div style="color:rgba(255,255,255,.35);font-size:12px;padding:4px 0">Todavía no elegiste a nadie.</div>';
+      : '<div style="color:rgba(255,255,255,.35);font-size:12px;padding:4px 0">Todavía no eligió a nadie.</div>';
   }
   var el = document.getElementById('cq-lista'); if(!el) return;
   if(CQ_SEL.length >= CQ_MAX){
@@ -1320,7 +1320,7 @@ function cqGuardar(){
         return;
       }
       if(d && d.descartados && d.descartados.length && typeof mostrarToast==='function'){
-        mostrarToast('Alguno de los que elegiste ya no está activo y no se guardó','warn');
+        mostrarToast('Alguno de los que eligió ya no está activo y no se guardó','warn');
       }
       _entrar();
     }, function(){ _entrar(); });
@@ -1597,8 +1597,8 @@ function anomRender(){
   box.style.borderColor = nCrit ? 'rgba(226,75,74,.55)' : 'rgba(239,159,39,.45)';
   var t = document.getElementById('anom-titulo');
   if(t){
-    t.textContent = ANOM_LIST.length===1 ? '1 falla pendiente en tu camión'
-                                         : ANOM_LIST.length+' fallas pendientes en tu camión';
+    t.textContent = ANOM_LIST.length===1 ? '1 falla pendiente en su camión'
+                                         : ANOM_LIST.length+' fallas pendientes en su camión';
     t.parentNode.style.color = nCrit ? '#ff8a8a' : '#ffc46b';
   }
   var hoy0 = new Date();
@@ -1778,7 +1778,7 @@ function entSetTipo(t){
 function _entLinkURL(){ return (ENT_ULTIMA&&ENT_ULTIMA.token) ? (location.origin+'/recibir.html?t='+ENT_ULTIMA.token) : ''; }
 function _entLinkTexto(){
   var esMant = (ENT_ULTIMA&&ENT_ULTIMA.tipo==='mantenimiento');
-  return (esMant?'Confirmá la verificación del mantenimiento':'Confirmá la recepción de la entrega')+' de "'+((ENT_ULTIMA&&ENT_ULTIMA.cliente)||'')+'" (unidad '+((ENT_ULTIMA&&ENT_ULTIMA.cam)||'')+'):\n'+_entLinkURL();
+  return (esMant?'Confirme la verificación del mantenimiento':'Confirme la recepción de la entrega')+' de "'+((ENT_ULTIMA&&ENT_ULTIMA.cliente)||'')+'" (unidad '+((ENT_ULTIMA&&ENT_ULTIMA.cam)||'')+'):\n'+_entLinkURL();
 }
 // Normaliza un teléfono venezolano a formato internacional para wa.me (58XXXXXXXXXX, sin + ni 0).
 function _entTelWa(raw){
@@ -1792,15 +1792,15 @@ function _entTelWa(raw){
 }
 // Enviar el link por WhatsApp AL NÚMERO que escribió el chofer.
 function entEnviarWhatsApp(){
-  if(!ENT_ULTIMA || !ENT_ULTIMA.token){ mostrarToast('Registrá primero','error'); return; }
+  if(!ENT_ULTIMA || !ENT_ULTIMA.token){ mostrarToast('Registre primero','error'); return; }
   if(!isOnline){ mostrarToast('⚠️ Sin conexión: el link funcionará cuando suba el registro.','error'); }
   var num = _entTelWa(document.getElementById('ent-wa-num').value);
-  if(!num){ mostrarToast('Escribí el número de WhatsApp de quien recibe','error'); return; }
+  if(!num){ mostrarToast('Escriba el número de WhatsApp de quien recibe','error'); return; }
   window.open('https://wa.me/'+num+'?text='+encodeURIComponent(_entLinkTexto()), '_blank');
 }
 // Copiar el link al portapapeles.
 function entCopiarLink(){
-  var url = _entLinkURL(); if(!url){ mostrarToast('Registrá primero','error'); return; }
+  var url = _entLinkURL(); if(!url){ mostrarToast('Registre primero','error'); return; }
   if(navigator.clipboard && navigator.clipboard.writeText){
     navigator.clipboard.writeText(url).then(function(){ mostrarToast('✅ Link copiado','exito'); }).catch(function(){ _entCopiarFallback(url); });
   }else{ _entCopiarFallback(url); }
@@ -1810,7 +1810,7 @@ function _entCopiarFallback(url){
 }
 // Compartir por el menú nativo del celular (WhatsApp, Telegram, etc.) o WhatsApp genérico.
 function entCompartirLink(){
-  if(!ENT_ULTIMA || !ENT_ULTIMA.token){ mostrarToast('Registrá primero','error'); return; }
+  if(!ENT_ULTIMA || !ENT_ULTIMA.token){ mostrarToast('Registre primero','error'); return; }
   if(!isOnline){ mostrarToast('⚠️ Sin conexión: el link funcionará cuando suba el registro.','error'); }
   var url = _entLinkURL(), txt = _entLinkTexto();
   if(navigator.share){ navigator.share({ title:'FlotaMax', text:txt, url:url }).catch(function(){}); }
@@ -1905,7 +1905,7 @@ function abrirCamara(onFoto){
     msg.innerHTML =
       '<div style="max-width:520px">'
       + '<button type="button" id="cam-os" style="width:100%;padding:16px;border-radius:12px;background:#7dc941;color:#06210a;border:none;font-size:16px;font-weight:800;cursor:pointer;font-family:inherit">📲 Tomar la foto con la cámara del teléfono</button>'
-      + '<div style="font-size:12px;color:rgba(255,255,255,.55);margin:8px 0 18px">Esto abre la cámara de tu teléfono y no necesita ningún permiso del navegador. Podés seguir trabajando ya.</div>'
+      + '<div style="font-size:12px;color:rgba(255,255,255,.55);margin:8px 0 18px">Esto abre la cámara de su teléfono y no necesita ningún permiso del navegador. Puede seguir trabajando ya.</div>'
       + '<div style="border-top:1px solid rgba(255,255,255,.12);padding-top:16px">' + html + '</div>'
       + '</div>';
     var b = ov.querySelector('#cam-os'); if(b) b.onclick = ofrecerCamaraDelTelefono;
@@ -1913,7 +1913,7 @@ function abrirCamara(onFoto){
 
   if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
     fallar('<div><b style="color:#e8734a">Este navegador no puede abrir la cámara</b>'
-      + '<br><br><span style="color:rgba(255,255,255,.65);font-size:13px">Abrí la app en <b>Chrome</b> (Android) o <b>Safari</b> (iPhone) y volvé a intentar.</span></div>');
+      + '<br><br><span style="color:rgba(255,255,255,.65);font-size:13px">Abra la app en <b>Chrome</b> (Android) o <b>Safari</b> (iPhone) y vuelva a intentar.</span></div>');
     return;
   }
 
@@ -1947,14 +1947,14 @@ function abrirCamara(onFoto){
         // Respaldo por si `permisos.js` no cargó: la pantalla no puede quedarse muda ni mandar a un
         // solo lugar. Se nombran los dos, sin adivinar cuál es.
         fallar('<div><b style="color:#e8734a">La cámara está bloqueada</b>'
-          + '<br><br><span style="color:rgba(255,255,255,.75);font-size:13px">Revisá el permiso de <b>Cámara</b> en los dos lugares: el <b>candado 🔒</b> al lado de la dirección, y <b>Ajustes</b> del teléfono → <b>Aplicaciones</b> → tu navegador → <b>Permisos</b>.</span></div>');
+          + '<br><br><span style="color:rgba(255,255,255,.75);font-size:13px">Revise el permiso de <b>Cámara</b> en los dos lugares: el <b>candado 🔒</b> al lado de la dirección, y <b>Ajustes</b> del teléfono → <b>Aplicaciones</b> → su navegador → <b>Permisos</b>.</span></div>');
       }
     }else if(code === 'NotFoundError' || code === 'OverconstrainedError'){
       fallar('<div><b style="color:#e8734a">No se encontró la cámara</b>'
-        + '<br><br><span style="color:rgba(255,255,255,.65);font-size:13px">Cerrá las otras apps que la estén usando y volvé a intentar.</span></div>');
+        + '<br><br><span style="color:rgba(255,255,255,.65);font-size:13px">Cierre las otras apps que la estén usando y vuelva a intentar.</span></div>');
     }else if(code === 'NotReadableError'){
       fallar('<div><b style="color:#e8734a">La cámara está ocupada</b>'
-        + '<br><br><span style="color:rgba(255,255,255,.65);font-size:13px">Otra app la está usando. Cerrala y volvé a intentar.</span></div>');
+        + '<br><br><span style="color:rgba(255,255,255,.65);font-size:13px">Otra app la está usando. Ciérrela y vuelva a intentar.</span></div>');
     }else{
       fallar('<div><b style="color:#e8734a">No se pudo abrir la cámara</b>'
         + '<br><br><span style="color:rgba(255,255,255,.65);font-size:13px">'+String((err&&err.message)||'').replace(/[<>]/g,'')+'</span></div>');
@@ -2023,12 +2023,12 @@ function entregaTomarGPS(){
         MWPermiso.explicar('geolocation', function(html){ el.innerHTML = '📍 ' + html; });
       }else{
         el.innerHTML = '📍 <b style="color:#e8734a">Ubicación bloqueada</b>'
-          + '<br><span style="font-size:11px;color:rgba(255,255,255,.6)">Revisá el permiso de <b>Ubicación</b> en los dos lugares: el <b>candado 🔒</b> al lado de la dirección, y <b>Ajustes</b> del teléfono → <b>Aplicaciones</b> → tu navegador → <b>Permisos</b>. Y que el <b>GPS</b> esté encendido.</span>';
+          + '<br><span style="font-size:11px;color:rgba(255,255,255,.6)">Revise el permiso de <b>Ubicación</b> en los dos lugares: el <b>candado 🔒</b> al lado de la dirección, y <b>Ajustes</b> del teléfono → <b>Aplicaciones</b> → su navegador → <b>Permisos</b>. Y que el <b>GPS</b> esté encendido.</span>';
       }
     }else if(code === 3){  // TIMEOUT
-      el.innerHTML = '📍 <b style="color:#e8734a">Sin señal de GPS</b> <span style="font-size:11px;color:rgba(255,255,255,.6)">— salí de abajo del techo y tocá “Ubicar” otra vez.</span>';
+      el.innerHTML = '📍 <b style="color:#e8734a">Sin señal de GPS</b> <span style="font-size:11px;color:rgba(255,255,255,.6)">— salga de abajo del techo y toque “Ubicar” otra vez.</span>';
     }else{
-      el.innerHTML = '📍 <b style="color:#e8734a">No se pudo ubicar</b> <span style="font-size:11px;color:rgba(255,255,255,.6)">— activá el GPS y tocá “Ubicar” otra vez.</span>';
+      el.innerHTML = '📍 <b style="color:#e8734a">No se pudo ubicar</b> <span style="font-size:11px;color:rgba(255,255,255,.6)">— active el GPS y toque “Ubicar” otra vez.</span>';
     }
   }, { enableHighAccuracy:true, timeout:12000, maximumAge:0 });
 }
@@ -2103,13 +2103,13 @@ async function registrarEntrega(){
   var isMant = (ENT_TIPO==='mantenimiento'), isPunto = (ENT_TIPO==='punto');
   var _lblReg = isMant?'Mantenimiento':(isPunto?'Punto':'Entrega');
   var cliente = (document.getElementById('ent-cliente').value||'').trim();
-  if(!cliente){ mostrarToast(isMant?'Escribí el trabajo realizado':(isPunto?'Escribí el punto o evento':'Escribí el cliente/destino'),'error'); return; }
-  if(!ENT_FOTO_FILE){ mostrarToast('Tomá la foto','error'); return; }
+  if(!cliente){ mostrarToast(isMant?'Escriba el trabajo realizado':(isPunto?'Escriba el punto o evento':'Escriba el cliente/destino'),'error'); return; }
+  if(!ENT_FOTO_FILE){ mostrarToast('Tome la foto','error'); return; }
   if(!ENT_GPS){
     // El GPS puede fallar (permiso denegado / sin señal) y dejaba al chofer TRABADO sin poder registrar
     // la entrega, aunque el sello ya soporta "sin GPS". Tras 2 intentos, ofrecer registrar sin ubicación.
     ENT_GPS_FAILS++;
-    if(ENT_GPS_FAILS < 2){ mostrarToast('Falta la ubicación — tocá "Ubicar"','error'); entregaTomarGPS(); return; }
+    if(ENT_GPS_FAILS < 2){ mostrarToast('Falta la ubicación — toque "Ubicar"','error'); entregaTomarGPS(); return; }
     if(!confirm('No se pudo obtener el GPS (¿permiso denegado o sin señal?).\n\n¿Registrar la entrega SIN ubicación? Quedará marcada "sin GPS".')){ entregaTomarGPS(); return; }
     // continúa sin GPS (el sello lo marca "sin GPS")
   }
@@ -2144,7 +2144,7 @@ async function registrarEntrega(){
     if(ok){
       mostrarToast('✅ '+_lblReg+(isMant||isPunto?' registrado':' registrada'),'exito');
     }else if(rechazo){
-      mostrarToast('⚠️ NO quedó registrado: '+rechazo+'. Quedó guardado en el teléfono; avisale a la oficina.','error');
+      mostrarToast('⚠️ NO quedó registrado: '+rechazo+'. Quedó guardado en el teléfono; avísele a la oficina.','error');
     }else{
       mostrarToast('📵 Sin señal: guardado en el teléfono, se sube solo al reconectar','exito');
     }
@@ -2162,10 +2162,10 @@ async function registrarEntrega(){
 }
 
 async function entregaConfirmarRecepcion(){
-  if(!ENT_ULTIMA){ mostrarToast('Registrá primero','error'); return; }
+  if(!ENT_ULTIMA){ mostrarToast('Registre primero','error'); return; }
   var _esMantU = (ENT_ULTIMA.tipo==='mantenimiento');
   var nombre = (document.getElementById('ent-rec-nombre').value||'').trim();
-  if(!nombre){ mostrarToast(_esMantU?'Escribí quién verifica':'Escribí el nombre de quien recibe','error'); return; }
+  if(!nombre){ mostrarToast(_esMantU?'Escriba quién verifica':'Escriba el nombre de quien recibe','error'); return; }
   var ci = (document.getElementById('ent-rec-ci').value||'').trim();
   var patch = { estado:'confirmada', recibido_por:nombre, recibido_ci:ci, recibido_at:new Date().toISOString(), confirm_via:'sitio' };
   ENT_ULTIMA.estado='confirmada'; ENT_ULTIMA.recibido_por=nombre; ENT_ULTIMA.recibido_ci=ci; ENT_ULTIMA.recibido_at=patch.recibido_at;
@@ -2206,7 +2206,7 @@ async function entregaConfirmarRecepcion(){
   if(ok){
     mostrarToast((_esMantU?'✅ Verificado por ':'✅ Recepción confirmada por ')+nombre,'exito');
   }else if(rechazo){
-    mostrarToast('⚠️ NO quedó confirmada: '+rechazo+'. Quedó guardada en el teléfono; avisale a la oficina.','error');
+    mostrarToast('⚠️ NO quedó confirmada: '+rechazo+'. Quedó guardada en el teléfono; avísele a la oficina.','error');
   }else{
     mostrarToast('📵 Sin señal: la confirmación se sube sola al reconectar','exito');
   }
@@ -2248,7 +2248,7 @@ async function subirColaEntregas(){
         //    surtidas desde el 26-29/08. La entrega NO se descarta.
         fila._int=_int; COLA_ENT.push(fila);
         if(_int >= 3){
-          try{ mostrarToast('⚠️ Una entrega de las '+(fila.hora||'')+' lleva '+_int+' intentos y el sistema la sigue rechazando ('+((r.error&&r.error.message)||'').slice(0,60)+'). NO es falta de señal: avisale a la oficina.','error'); }catch(e2){}
+          try{ mostrarToast('⚠️ Una entrega de las '+(fila.hora||'')+' lleva '+_int+' intentos y el sistema la sigue rechazando ('+((r.error&&r.error.message)||'').slice(0,60)+'). NO es falta de señal: avísele a la oficina.','error'); }catch(e2){}
         }
       } }
     catch(e){ COLA_ENT.push(pend[i]); }   // sin red: se reintenta, sin gastar el contador
@@ -2353,7 +2353,7 @@ async function subirColaSurtidas(){
           // días (26-29/08) sin que nadie se enterara, porque la cola reintenta callada y la
           // pantalla decía «guardada». Se deja de insistir y se DICE.
           fila._int=_int; COLA_SUR.push(fila);
-          try{ mostrarToast('⚠️ Una surtida de las '+(fila.hora||'')+' lleva '+_int+' intentos y el sistema la sigue rechazando ('+(r.error.message||'').slice(0,60)+'). NO es falta de señal: avisale a la oficina.','error'); }catch(e2){}
+          try{ mostrarToast('⚠️ Una surtida de las '+(fila.hora||'')+' lleva '+_int+' intentos y el sistema la sigue rechazando ('+(r.error.message||'').slice(0,60)+'). NO es falta de señal: avísele a la oficina.','error'); }catch(e2){}
         } else {
           fila._int=_int; COLA_SUR.push(fila);
         }
@@ -2384,7 +2384,7 @@ function surPintarPide(){
   if(p) p.style.display = falta ? '' : 'none';
   var b = document.getElementById('sur-btn');
   if(b){
-    b.textContent = falta ? '👆 Primero tocá de dónde surtiste' : '✅ Registrar surtida';
+    b.textContent = falta ? '👆 Primero toque de dónde surtió' : '✅ Registrar surtida';
     b.style.opacity = falta ? '.65' : '';
   }
 }
@@ -2410,7 +2410,7 @@ function _surLit(){
 function _surHint(l){
   var h=document.getElementById('sur-litros-hint'); if(!h)return;
   if(!l){ h.textContent=''; return; }
-  if(l>SUR_MAX_L){ h.style.color='#ff6b6b'; h.textContent='⛔ '+_fmtVE(l,2)+' litros — eso es imposible. Revisá el tipeo.'; }
+  if(l>SUR_MAX_L){ h.style.color='#ff6b6b'; h.textContent='⛔ '+_fmtVE(l,2)+' litros — eso es imposible. Revise el tipeo.'; }
   else if(l>SUR_AVISO_L){ h.style.color='#ffc107'; h.textContent='⚠️ '+_fmtVE(l,2)+' litros — ¿seguro que es tanto?'; }
   else { h.style.color='#9fb3c8'; h.textContent='= '+_fmtVE(l,2)+' litros'; }
 }
@@ -2433,7 +2433,7 @@ function surTomarGPS(){
   navigator.geolocation.getCurrentPosition(function(pos){
     SUR_GPS={lat:pos.coords.latitude,lng:pos.coords.longitude,acc:pos.coords.accuracy};
     if(el)el.textContent='📍 Ubicación lista ('+Math.round(pos.coords.accuracy)+' m)';
-  }, function(){ if(el)el.textContent='📍 No se pudo ubicar — tocá de nuevo'; }, {enableHighAccuracy:true,maximumAge:0,timeout:8000});
+  }, function(){ if(el)el.textContent='📍 No se pudo ubicar — toque de nuevo'; }, {enableHighAccuracy:true,maximumAge:0,timeout:8000});
 }
 function _surCompress(file){
   return new Promise(function(resolve,reject){
@@ -2453,22 +2453,22 @@ async function surGuardar(){
   // El botón ya venía diciéndolo; esto es la última red, y lleva al chofer hasta los
   // botones en vez de dejarlo adivinando qué le falta.
   if(!SUR_TANQUE){
-    mostrarToast('Tocá arriba de dónde surtiste: Galpón 1, Galpón 2 o Estación','error');
+    mostrarToast('Toque arriba de dónde surtió: Galpón 1, Galpón 2 o Estación','error');
     var _ft=document.getElementById('sur-tanque-estacion');
     if(_ft){ try{ _ft.scrollIntoView({block:'center',behavior:'smooth'}); }catch(e){ try{ _ft.scrollIntoView(); }catch(e2){} } }
     return;
   }
   var lit=_surLit();
-  if(!(lit>0)){ mostrarToast('Ingresá los litros surtidos','error'); return; }
+  if(!(lit>0)){ mostrarToast('Ingrese los litros surtidos','error'); return; }
   // TOPE DURO (no se puede confirmar para pasarlo): un dígito de más corrompe el gasto de combustible.
   if(lit>SUR_MAX_L){
-    mostrarToast('Litros inválidos: '+_fmtVE(lit,2)+' L es demasiado. Revisá el tipeo (sobran dígitos).','error');
+    mostrarToast('Litros inválidos: '+_fmtVE(lit,2)+' L es demasiado. Revise el tipeo (sobran dígitos).','error');
     var _fh=document.getElementById('sur-litros'); if(_fh){ try{ _fh.focus(); _fh.select(); }catch(e){} }
     return;
   }
   if(lit>SUR_AVISO_L){
-    if(!confirm('⚠️ Estás registrando '+_fmtVE(lit,2)+' LITROS.\n\n'+
-      '¿Seguro que surtiste esa cantidad?\n\n'+
+    if(!confirm('⚠️ Está registrando '+_fmtVE(lit,2)+' LITROS.\n\n'+
+      '¿Seguro que surtió esa cantidad?\n\n'+
       '• Aceptar → el número es correcto.\n'+
       '• Cancelar → me equivoqué, pongo el real.')){
       var _f=document.getElementById('sur-litros'); if(_f){ try{ _f.focus(); _f.select(); }catch(e){} }
@@ -2502,10 +2502,10 @@ async function surGuardar(){
   //
   // 🔴 EL CANDADO SIGUE HACIENDO FALTA DONDE SÍ SE ESCRIBE EL PRECIO: `app.js`, en la
   // conciliación de la surtida. Ahí no hay ninguno, y desde el 26/08 se creyó que sí.
-  if(!SUR_FOTO_FILE){ mostrarToast('Tomá la foto del surtidor/recibo','error'); return; }
+  if(!SUR_FOTO_FILE){ mostrarToast('Tome la foto del surtidor/recibo','error'); return; }
   if(!SUR_GPS){
     SUR_GPS_FAILS++;
-    if(SUR_GPS_FAILS<2){ mostrarToast('Falta la ubicación — tocá "Ubicar"','error'); surTomarGPS(); return; }
+    if(SUR_GPS_FAILS<2){ mostrarToast('Falta la ubicación — toque "Ubicar"','error'); surTomarGPS(); return; }
     if(!confirm('No se pudo obtener el GPS. ¿Registrar la surtida SIN ubicación?')){ surTomarGPS(); return; }
   }
   var btn=document.getElementById('sur-btn'); btn.disabled=true; var t0=btn.textContent; btn.textContent='Guardando…';
@@ -2564,11 +2564,11 @@ async function surGuardar(){
     if(ok){
       mostrarToast('✅ Surtida registrada','exito');
     }else if(duplicada){
-      mostrarToast('✅ Esa carga ya estaba registrada — no se cargó dos veces. Revisá la lista de abajo.','exito');
+      mostrarToast('✅ Esa carga ya estaba registrada — no se cargó dos veces. Revise la lista de abajo.','exito');
     }else if(rechazo){
       // Un solo mensaje, y dice la verdad: no quedó registrada, quedó en el teléfono, y hay
       // que avisar — porque esto NO se arregla solo esperando señal.
-      mostrarToast('⚠️ NO quedó registrada: '+rechazo+'. Quedó guardada en el teléfono; avisale a la oficina.','error');
+      mostrarToast('⚠️ NO quedó registrada: '+rechazo+'. Quedó guardada en el teléfono; avísele a la oficina.','error');
     }else{
       mostrarToast('📵 Sin señal: guardada en el teléfono, se sube sola al reconectar','exito');
     }
@@ -2587,7 +2587,7 @@ function surRenderHoy(){
   var cont=document.getElementById('sur-hoy-lista'); if(!cont)return;
   var lista=SUR_HOY.slice();
   COLA_SUR.forEach(function(c){ if(c.cam===cam && c.fecha===hoy && !lista.some(function(x){return x.id===c.id;})) lista.push(c); });
-  if(!lista.length){ cont.innerHTML='Todavía no registraste ninguna.'; return; }
+  if(!lista.length){ cont.innerHTML='Todavía no ha registrado ninguna.'; return; }
   cont.innerHTML=lista.map(function(s){
     return '<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #1c3350">'+
       '<span>'+(s.hora||'')+' · '+(SUR_TANQUE_LBL[s.tanque]||s.tanque)+'</span>'+
@@ -3009,7 +3009,7 @@ async function reintentarYDiagnosticar(){
   L.push('Camion: '+(cam||'-')+' / '+(chofer||'SIN CHOFER'));
   if(!supabase){
     iniciarSupabase();
-    alert('La libreria de la base NO cargo (sin esto no sube nada).\n\n'+L.join('\n')+'\n\nVerifica internet y toca de nuevo en 5 seg.');
+    alert('La libreria de la base NO cargo (sin esto no sube nada).\n\n'+L.join('\n')+'\n\nVerifique internet y toque de nuevo en 5 seg.');
     return;
   }
   try{
@@ -3068,7 +3068,7 @@ function renderBotones(){
       html += '<button class="viaje-btn vb-pendiente" onclick="registrarViaje('+i+')">'+
         '<div class="viaje-num">'+i+'</div>'+
         '<div class="viaje-lbl">Viaje '+i+'</div>'+
-        '<div class="viaje-hora">Toca para registrar</div>'+
+        '<div class="viaje-hora">Toque para registrar</div>'+
         '</button>';
     } else {
       html += '<button class="viaje-btn vb-deshabilitado" disabled>'+
@@ -3172,7 +3172,7 @@ function cargarChecklistSupabase(){
 // Reabre la llegada ya registrada para corregirla. Trae la medición que quedó guardada para que
 // el chofer no tenga que volver a medir el tanque de noche solo porque se equivocó en el km.
 function clCorregirLlegada(){
-  if(!confirm('¿Vas a corregir la llegada que ya registraste?\n\nLo que guardes ahora REEMPLAZA lo anterior.'))return;
+  if(!confirm('¿Va a corregir la llegada que ya registró?\n\nLo que guardes ahora REEMPLAZA lo anterior.'))return;
   CL_MODO='llegada';
   try{localStorage.setItem('btg_cl_modo_'+cam+'_'+hoy,'llegada');}catch(e){}
   renderChecklistModo();
@@ -3181,7 +3181,7 @@ function clCorregirLlegada(){
     if(supabase) supabase.rpc('chofer_medicion', {p_cam: cam, p_fecha: hoy, p_momento: 'llegada'})
       .then(function(r){ if(r&&!r.error&&r.data!=null&&!gv('cl-cm-llegada')){ setVal('cl-cm-llegada', r.data); clCalcLitrosCm('llegada'); } });
   }catch(e){}
-  mostrarToast('Corregí lo que haga falta y toca Guardar Llegada','warn');
+  mostrarToast('Corrija lo que haga falta y toque Guardar Llegada','warn');
 }
 
 function precargarChecklist(d){
@@ -3211,7 +3211,7 @@ function renderChecklistModo(){
 
   if(CL_MODO === 'bloqueado'){
     if(badge)  { badge.textContent='🔒 MECÁNICO'; badge.className='cl-modo-badge'; badge.style.background='rgba(239,159,39,.15)'; badge.style.color='#ef9f27'; badge.style.border='1px solid rgba(239,159,39,.3)'; }
-    if(banner) { banner.style.display='block'; banner.style.background='rgba(239,159,39,.1)'; banner.style.borderColor='rgba(239,159,39,.3)'; banner.style.color='#ef9f27'; banner.innerHTML='🔒 <b>El mecánico ya completó este checklist.</b> No puedes modificarlo.'; }
+    if(banner) { banner.style.display='block'; banner.style.background='rgba(239,159,39,.1)'; banner.style.borderColor='rgba(239,159,39,.3)'; banner.style.color='#ef9f27'; banner.innerHTML='🔒 <b>El mecánico ya completó este checklist.</b> No puede modificarlo.'; }
     if(btnG)   { btnG.disabled=true; btnG.textContent='Checklist ya registrado por mecánico'; }
     return;
   }
@@ -3236,7 +3236,7 @@ function renderChecklistModo(){
   if(CL_MODO === 'llegada'){
     if(badge)  { badge.textContent='🌙 LLEGADA'; badge.className='cl-modo-badge badge-llegada'; }
     if(banner) { banner.style.display='block'; banner.style.background=''; banner.style.borderColor=''; banner.style.color='';
-                 banner.innerHTML='🌙 <b>Modo Llegada</b> — El checklist de esta mañana ya está registrado. Completa los datos de llegada.'; }
+                 banner.innerHTML='🌙 <b>Modo Llegada</b> — El checklist de esta mañana ya está registrado. Complete los datos de llegada.'; }
     if(rowLle) { rowLle.style.display='flex'; }
     if(secIns) { secIns.style.display='none'; }
     if(combLle){ combLle.style.display='block'; }
@@ -3576,7 +3576,7 @@ function clCalcLitrosCm(momento){
   var _imp=clAlturaImposible(v);
   if(_imp!==false){
     box.style.color='#ff5c5c';
-    box.innerHTML="⚠️ Acá van los <b>CENTÍMETROS que marca la regla</b>, no los litros. Tu tanque mide "+String(_imp).replace(".",",")+" cm de alto.";
+    box.innerHTML="⚠️ Acá van los <b>CENTÍMETROS que marca la regla</b>, no los litros. Su tanque mide "+String(_imp).replace(".",",")+" cm de alto.";
     return;
   }
   var l=clLitrosJac(v);
@@ -3607,7 +3607,7 @@ async function clGuardarMedicionCm(momento){
 
 async function guardarChecklist(){
   if(CL_MODO==='bloqueado'){ mostrarToast('El mecánico ya registró este checklist','warn'); return; }
-  if(CL_MODO==='cerrado'){ mostrarToast('La llegada de hoy ya está registrada. Si te equivocaste, toca "quiero corregir".','warn'); return; }
+  if(CL_MODO==='cerrado'){ mostrarToast('La llegada de hoy ya está registrada. Si se equivocó, toque "quiero corregir".','warn'); return; }
   if(_CL_GUARDANDO){ return; }   // el botón ya se deshabilita; esto tapa el doble disparo del toque
   _CL_GUARDANDO=true;
   // ⛔ Las líneas que convierten «no me deja» en un aviso. Se mira el RESULTADO,
@@ -3635,7 +3635,7 @@ async function _guardarChecklist(){
   // Se RECHAZA, no se topa: el checklist no se guarda hasta que la medida entre en el tanque.
   var _cmTope = clAlturaImposible(_cmVal);
   if(_cmTope!==false){
-    mostrarToast('Acá van los CENTÍMETROS de la regla, no los litros. Tu tanque mide '+String(_cmTope).replace('.',',')+' cm de alto.','warn');
+    mostrarToast('Acá van los CENTÍMETROS de la regla, no los litros. Su tanque mide '+String(_cmTope).replace('.',',')+' cm de alto.','warn');
     var _cmEl2=document.getElementById(_cmId); if(_cmEl2){ try{_cmEl2.focus();_cmEl2.select();_cmEl2.scrollIntoView({block:'center'});}catch(e){} }
     return;
   }
@@ -3657,7 +3657,7 @@ async function _guardarChecklist(){
   if (CL_MODO !== 'salida') {
     var _combGrupo = document.getElementById('cl-comb-llegada-btns');
     if (_combGrupo && _combGrupo.offsetParent !== null && !CL_COMB_LLE) {
-      mostrarToast('Marca con cuánto combustible llegaste antes de guardar','warn');
+      mostrarToast('Marque con cuánto combustible llegó antes de guardar','warn');
       try{ _combGrupo.scrollIntoView({block:'center'}); }catch(e){}
       return;
     }
@@ -3735,7 +3735,7 @@ async function _guardarChecklist(){
     }
     var _capDuro = (CL_KM_PREV>0) ? (CL_KM_PREV + 100000) : 1000000;
     if(_kmIng > _capDuro){
-      mostrarToast('Kilometraje inválido: '+_kmIng.toLocaleString('es-VE')+' es demasiado alto. Revisa el tipeo (sobran dígitos).','error');
+      mostrarToast('Kilometraje inválido: '+_kmIng.toLocaleString('es-VE')+' es demasiado alto. Revise el tipeo (sobran dígitos).','error');
       if(btn){ btn.disabled=false; btn.textContent='Guardar'; }
       var _fh=document.getElementById(CL_MODO==='salida'?'cl-km-salida':'cl-km-llegada');
       if(_fh){ try{ _fh.focus(); _fh.select(); _fh.scrollIntoView({block:'center'}); }catch(e){} }
@@ -3761,7 +3761,7 @@ async function _guardarChecklist(){
     }
     if(_susp==='salto' || _susp==='dia'){
       var _msg = '⚠️ Ese kilometraje parece que NO es real.\n\n'+
-        'Venías en '+_ref.toLocaleString('es-VE')+' km y de pronto pones '+_kmIng.toLocaleString('es-VE')+' km.\n'+
+        'Venía en '+_ref.toLocaleString('es-VE')+' km y de pronto pone '+_kmIng.toLocaleString('es-VE')+' km.\n'+
         'Son '+(_kmIng-_ref).toLocaleString('es-VE')+' km en un día — imposible.\n\n'+
         '¿Seguro que está bien?\n\n'+
         '• Aceptar → el número es correcto.\n'+
@@ -3785,11 +3785,11 @@ async function _guardarChecklist(){
       var _esSalida = (_susp==='baja_salida');
       var _msgB = 'El kilometraje no puede ir para atrás.\n\n'+
         (_esSalida
-          ? 'La última vez esta unidad quedó en '+_ref.toLocaleString('es-VE')+' km, y estás poniendo '+_kmIng.toLocaleString('es-VE')+'.'
-          : 'Saliste con '+_ref.toLocaleString('es-VE')+' km y estás poniendo '+_kmIng.toLocaleString('es-VE')+' de llegada.')+
+          ? 'La última vez esta unidad quedó en '+_ref.toLocaleString('es-VE')+' km, y está poniendo '+_kmIng.toLocaleString('es-VE')+'.'
+          : 'Salió con '+_ref.toLocaleString('es-VE')+' km y está poniendo '+_kmIng.toLocaleString('es-VE')+' de llegada.')+
         '\n\nEl odómetro solo sube, así que ese número no puede ser.\n\n'+
         '👉 Lo más común: poner acá la MEDIDA DEL TANQUE (los centímetros) en vez del kilometraje.\n\n'+
-        'Escribí el número que marca el tablero. No pasa nada, solo corregilo.';
+        'Escriba el número que marca el tablero. No pasa nada, solo corríjalo.';
       alert(_msgB);
       if(btn){ btn.disabled=false; btn.textContent='Guardar'; }
       var _fb=document.getElementById(_esSalida?'cl-km-salida':'cl-km-llegada');
@@ -3892,7 +3892,7 @@ async function _guardarChecklist(){
     // SOLO quedó en el teléfono (sin señal o falló el envío). NO decir "registrada": el chofer
     // debe saber que falta enviarlo, para no cerrar la app creyendo que ya está (bug B003 2026-07-08).
     sincronizarCola();   // intento inmediato (no depende de isOnline)
-    mostrarToast('⏳ SIN CONEXIÓN: quedó guardado en el teléfono. Se enviará solo al reconectar — NO cierres la app hasta que diga "registrada".','warn');
+    mostrarToast('⏳ SIN CONEXIÓN: quedó guardado en el teléfono. Se enviará solo al reconectar — NO cierre la app hasta que diga "registrada".','warn');
     // Avanzar de modo igual para que el chofer pueda seguir; la medición/WA se harán al enviarse.
     if(CL_MODO==='salida'){
       CL_MODO = 'llegada';
@@ -3900,7 +3900,7 @@ async function _guardarChecklist(){
       setTimeout(renderChecklistModo, 800);
     }
   } else {
-    mostrarToast('Error al guardar — verifica conexión','error');
+    mostrarToast('Error al guardar — verifique conexión','error');
   }
 
   // Si el día quedó CERRADO, el botón NO se rehabilita: lo deja quieto renderChecklistModo.
@@ -4022,7 +4022,7 @@ function _clAvisarBloqueo(){
   try{ drenarColaBloq(); }catch(e){}
   // Y que ÉL sepa que no está solo ahí parado. Si no, la única salida que le queda
   // es escribir por WhatsApp y esperar — que es lo que pasó estos dos días.
-  try{ mostrarToast('Ya avisamos a la oficina de que no te deja guardar.','warn'); }catch(e){}
+  try{ mostrarToast('Ya avisamos a la oficina de que no le deja guardar.','warn'); }catch(e){}
 }
 // ── UN AVISO QUE NO SALIÓ DEJA RASTRO ──────────────────────────────────────
 // El dato SIEMPRE queda registrado; lo que puede fallar es el AVISO. Y un aviso
@@ -4125,7 +4125,7 @@ function _filaIncidencia(reg){
 }
 
 function enviarIncidencia(){
-  if(!tipoIncActual){ mostrarToast('Selecciona el tipo','warn'); return; }
+  if(!tipoIncActual){ mostrarToast('Seleccione el tipo','warn'); return; }
   var desc = document.getElementById('inc-desc') ? document.getElementById('inc-desc').value.trim() : '';
   if(!desc){ mostrarToast('Describe qué pasó','warn'); return; }
   var ubi  = document.getElementById('inc-ubicacion') ? document.getElementById('inc-ubicacion').value.trim() : '';
@@ -4155,7 +4155,7 @@ function guardarIncidenciaLocal(reg, motivoRechazo){
     if(motivoRechazo){
       // ⛔ No se le miente al chofer. Queda guardado para no perderlo, pero se le
       //    dice que hay que avisar, porque reintentar solo no lo va a resolver.
-      mostrarToast('No se pudo registrar: ' + motivoRechazo + '. Queda anotado — avisá al vigilante.','error');
+      mostrarToast('No se pudo registrar: ' + motivoRechazo + '. Queda anotado — avise al vigilante.','error');
     } else {
       mostrarToast('Guardado sin conexión — se envía al reconectar','warn');
     }
