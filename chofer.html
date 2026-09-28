@@ -754,7 +754,15 @@ var FLOTA_JAC = {
   'JAC-B009':true, 'JAC-B010':true, 'JAC-B011':true, 'JAC-B012':true
 };
 
-var MAX_VIAJES = 4;
+// ⛔ EL TOPE DE VIAJES DEL DÍA. Máximo, 28/09/2026: «los choferes están trabajando ahora de
+//    noche, es posible que hagan más de 4 viajes». Pasa de 4 a 8.
+//    MEDIDO antes de subirlo, para que un 5º viaje no se pierda callado:
+//      · `viajes_chofer` NO tiene ningún CHECK sobre `viaje_num` (solo UNIQUE fecha+cam+num).
+//      · `chofer_viaje_guardar` no valida un máximo.
+//      · la oficina CUENTA filas, no asume 4; ninguna vista pivota viaje_1..viaje_4.
+//    O sea que este número es el ÚNICO tope del sistema: no hay una segunda lista que se
+//    desincronice, al revés que `CQ_MAX` de la cuadrilla, que sí vive también en la base.
+var MAX_VIAJES = 8;
 var cam = '', chofer = '', hoy = '';
 var supabase = null;
 var isOnline = false;
