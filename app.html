@@ -1737,13 +1737,22 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
         <div class="st">📋 Relación de viajes por unidad (Alcaldía)</div>
         <div style="font-size:9px;color:var(--text3)">unidad y placa, viajes de cada día, y el total con IVA — una semana por hoja</div>
       </div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;margin:8px 0">
+      <!-- 28/09/2026: rango PROPIO, como el resto de los reportes. Antes esta relación
+           dependía del rango del Estado de Cuenta de arriba y no se veía de dónde salía
+           la fecha. Si estos dos quedan vacíos se sigue usando el de arriba, para no
+           romperle la costumbre a quien ya lo venía usando así. -->
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin:8px 0;align-items:flex-end">
+        <div class="fg" style="margin:0"><label style="font-size:10px;color:var(--text3)">Desde</label><input type="date" class="fc" id="rel-des" style="padding:6px 8px;font-size:11px"></div>
+        <div class="fg" style="margin:0"><label style="font-size:10px;color:var(--text3)">Hasta</label><input type="date" class="fc" id="rel-hta" style="padding:6px 8px;font-size:11px"></div>
+        <button class="btn btn-y btn-sm" onclick="relSemanaPasada()">📅 Semana pasada (Lun–Dom)</button>
         <button class="btn btn-g btn-sm" onclick="genRelacionCamiones()">Generar relación</button>
         <button class="btn btn-s btn-sm" onclick="printRelacionCamiones()">🖨 Imprimir</button>
         <button class="btn btn-s btn-sm" onclick="exportRelacionCamionesExcel()">Excel</button>
       </div>
       <div id="rel-cam-cuadre"></div>
-      <div id="rel-cam-area"><div style="text-align:center;color:var(--text3);padding:30px;font-size:12px">Usa el mismo rango de arriba y toca «Generar relación».</div></div>
+      <!-- `data-vacio` es la marca que mira el botón de imprimir. Antes miraba el LARGO
+           del texto (<80) y este cartel mide 133, así que imprimía el cartel. -->
+      <div id="rel-cam-area"><div data-vacio="1" style="text-align:center;color:var(--text3);padding:30px;font-size:12px">Selecciona el rango y toca «Generar relación».</div></div>
     </div>
   </div>
   <div id="rpt-precios" style="display:none">
@@ -3115,7 +3124,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
      Excel sale con el defecto ya corregido. Pasó midiendo este mismo cambio el
      23/09: dos corridas dieron un .xlsx idéntico byte por byte. -->
 <script src="maxware-excel.js?v=20260923-2252"></script>
-<script src="app.js?v=20260925-1349"></script>
+<script src="app.js?v=20260928-1424"></script>
 
 <!-- Modal global -->
 <div id="modal" class="moverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9990;align-items:center;justify-content:center;padding:16px">

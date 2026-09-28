@@ -27872,11 +27872,41 @@ function _relPlaca(cam){
   try{ return (FLOTA && FLOTA[cam] && FLOTA[cam].placa) ? FLOTA[cam].placa : '—'; }catch(e){ return '—'; }
 }
 
+// Fija el rango a la SEMANA PASADA COMPLETA (lunes -> domingo) y genera la relacion.
+// ⛔ Lunes a DOMINGO, no a sabado como el reporte de Ejecucion: este documento saca
+//    UNA HOJA POR SEMANA y la cabecera dice «Del lunes X al domingo Y». Un atajo que
+//    cortara el sabado dejaria la hoja diciendo una cosa y trayendo otra.
+function relSemanaPasada(){
+  var hoy=new Date(); var dow=hoy.getDay()||7;            // 1=Lun..7=Dom
+  var lunEsta=new Date(hoy); lunEsta.setDate(hoy.getDate()-(dow-1));
+  var lunPas=new Date(lunEsta); lunPas.setDate(lunEsta.getDate()-7);
+  var domPas=new Date(lunPas);  domPas.setDate(lunPas.getDate()+6);
+  // ⛔ Fecha a MEDIODIA y getters LOCALES: `toISOString()` devuelve UTC y en Venezuela
+  //    (UTC-4) una fecha a medianoche se corre un dia. Misma trampa que ya estaba
+  //    anotada en la cabecera de este mismo reporte. [[norma-no-comparar-fechas-formateadas]]
+  var iso=function(d){ var x=new Date(d.getFullYear(),d.getMonth(),d.getDate(),12,0,0);
+    return x.getFullYear()+'-'+String(x.getMonth()+1).padStart(2,'0')+'-'+String(x.getDate()).padStart(2,'0'); };
+  sv('rel-des', iso(lunPas));
+  sv('rel-hta', iso(domPas));
+  genRelacionCamiones();
+}
+
+// ⛔ EL RANGO DE LA RELACION VIVE EN UN SOLO SITIO. Lo leen la pantalla y el Excel;
+//    si cada uno lo leyera por su cuenta, el papel y el Excel podrian salir de
+//    PERIODOS DISTINTOS y nadie lo notaria hasta tenerlos lado a lado.
+//    28/09/2026: rango PROPIO (`rel-des`/`rel-hta`), como el resto de los reportes.
+//    Si estan vacios se usa el del Estado de Cuenta de arriba, que es de donde salia
+//    antes: asi a quien lo venia usando asi no se le rompe nada.
+//    [[norma-dos-listas-a-mano-se-desincronizan]]
+function _relRango(){
+  return { des: gv('rel-des') || gv('alc-des'), hta: gv('rel-hta') || gv('alc-hta') };
+}
+
 function genRelacionCamiones(){
   var el = document.getElementById('rel-cam-area'); if(!el) return;
-  var des = gv('alc-des'), hta = gv('alc-hta');
+  var _r = _relRango(), des = _r.des, hta = _r.hta;
   var pf = REGS.filter(function(r){ if(des && r.f<des) return false; if(hta && r.f>hta) return false; return true; });
-  if(!pf.length){ el.innerHTML = '<div style="text-align:center;color:var(--text3);padding:40px;font-size:13px">Sin planillas en ese rango.</div>'; return; }
+  if(!pf.length){ el.innerHTML = '<div data-vacio="1" style="text-align:center;color:var(--text3);padding:40px;font-size:13px">Sin planillas en ese rango.</div>'; return; }
 
   var sem = agruparPorSemanas(pf), lunes = Object.keys(sem).sort();
   var esc = (typeof _escHtml==='function') ? _escHtml : function(x){ return String(x==null?'':x); };
@@ -28011,7 +28041,13 @@ function genRelacionCamiones(){
 
 function printRelacionCamiones(){
   var el = document.getElementById('rel-cam-area');
-  if(!el || el.innerHTML.length < 80 || el.innerHTML.indexOf('Sin planillas') >= 0){ alert('Primero genere la relación'); return; }
+  // ⛔ 28/09/2026: ESTO MIRABA EL LARGO DEL TEXTO (`< 80`). El cartel de «todavia no
+  //    generaste nada» mide 133, asi que el guarda NO lo cazaba: tocar Imprimir antes
+  //    de generar sacaba una hoja con el cartel impreso. Medido, no deducido.
+  //    Ahora mira una MARCA (`data-vacio`) que llevan los dos carteles — el inicial y
+  //    el de «Sin planillas» —, que no se rompe si alguien reescribe el texto.
+  //    [[norma-contar-el-nombre-no-es-medir-la-definicion]]
+  if(!el || el.querySelector('[data-vacio]')){ alert('Primero genera la relación'); return; }
   // ⛔ UNA SEMANA, UNA HOJA. Márgenes chicos y nada de escalar a mano: la tabla ya
   //    viene compacta y `page-break-inside:avoid` impide que una unidad quede
   //    separada de su total.
@@ -28029,7 +28065,7 @@ function printRelacionCamiones(){
 
 async function exportRelacionCamionesExcel(){
   if(typeof XLSX === 'undefined'){ alert('Excel no disponible (XLSX no cargado).'); return; }
-  var des = gv('alc-des'), hta = gv('alc-hta');
+  var _r = _relRango(), des = _r.des, hta = _r.hta;   // 28/09/2026: el MISMO rango que la pantalla
   var pf = REGS.filter(function(r){ if(des && r.f<des) return false; if(hta && r.f>hta) return false; return true; });
   if(!pf.length){ alert('Sin planillas en ese rango.'); return; }
   var sem = agruparPorSemanas(pf), lunes = Object.keys(sem).sort();
