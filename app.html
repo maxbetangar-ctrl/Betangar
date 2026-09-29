@@ -2578,7 +2578,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
       <div class="sep"></div>
       <div class="st" style="margin-bottom:8px;font-size:11px">Nuevo Usuario</div>
       <div class="fr2"><div class="fg"><label>Usuario</label><input class="fc" id="nu-user" style="font-family:var(--m)"></div><div class="fg"><label>Contrasena</label><input class="fc" id="nu-pass" type="password"></div></div>
-      <div class="fr2"><div class="fg"><label>Nombre</label><input class="fc" id="nu-nombre"></div><div class="fg"><label>Rol</label><select class="fc" id="nu-rol"><option value="operador">Operador</option><option value="rrhh">RRHH</option><option value="visualizador">Visualizador</option><option value="admin">Admin</option><option value="auditor">Auditor (solo consulta)</option><option value="revisor">Revisor (ve todo, pide autorización)</option><option value="asistencia">Solo Asistencia (Vigilante)</option><option value="analista">Analista de flota (taller, inventario y ordenes)</option></select></div></div>
+      <div class="fr2"><div class="fg"><label>Nombre</label><input class="fc" id="nu-nombre"></div><div class="fg"><label>Rol</label><select class="fc" id="nu-rol"><!-- ⛔ LAS OPCIONES LAS PINTA `pintarSelectRoles` (app.js). Estaban acá a mano, distintas en cada clon, y ninguna coincidía con los roles que su propia base usaba. --></select></div></div>
       <div class="fg"><label>Email</label><input class="fc" id="nu-email" type="email"></div>
       <button class="btn btn-g" style="width:100%" onclick="crearUsuario()">Crear Usuario</button>
     </div>
@@ -3124,7 +3124,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
      Excel sale con el defecto ya corregido. Pasó midiendo este mismo cambio el
      23/09: dos corridas dieron un .xlsx idéntico byte por byte. -->
 <script src="maxware-excel.js?v=20260923-2252"></script>
-<script src="app.js?v=20260928-1424"></script>
+<script src="app.js?v=20260929-1048"></script>
 
 <!-- Modal global -->
 <div id="modal" class="moverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9990;align-items:center;justify-content:center;padding:16px">

@@ -307,9 +307,16 @@ async function registrar(){
     var _hhmmss=_ve.toISOString().slice(11,23).replace(/[:.]/g,'');
     var path='asistencia/'+SEL.id+'_'+hoy+'_'+_hhmmss+'.jpg';
     var up=await SB.storage.from('asistencia').upload(path, blob, {contentType:'image/jpeg', upsert:false});
-    if(up.error){ res.innerHTML='<div class="res bad">No se pudo subir la foto ('+esc(up.error.message||'error')+'). Sin foto no se puede fichar: revisá la señal y tocá Registrar otra vez.</div>'; return; }
-    var selfieUrl=(SB.storage.from('asistencia').getPublicUrl(path).data||{}).publicUrl||'';
-    if(!selfieUrl){ res.innerHTML='<div class="res bad">La foto se subió pero no se pudo enlazar. Reintentá en unos segundos.</div>'; return; }
+    if(up.error){ res.innerHTML='<div class="res bad">No se pudo subir la foto ('+esc(up.error.message||'error')+'). Sin foto no se puede fichar: revise la señal y toque Registrar otra vez.</div>'; return; }
+    // ⛔ SE GUARDA LA RUTA, NO UNA URL PÚBLICA. El bucket `asistencia` es PRIVADO en las cinco
+    //    bases (medido el 29/09/2026: `public=false` en todas). `getPublicUrl` devuelve una URL con
+    //    buena pinta que responde HTTP 400 · Bucket not found: la foto SÍ se subió, el enlace no
+    //    lleva a ningún lado. El arreglo de `app.js` del 14/08 nunca tocó ESTE archivo, que es el
+    //    camino real del fichaje: las 13 filas que guardan bien la ruta son del 22/07 al 05/08,
+    //    o sea ANTERIORES a aquel arreglo, y las rotas siguen entrando hoy.
+    //    Quien lee ya sabe firmar la ruta (`_urlFirmada`), así que acá va la ruta y nada más.
+    //    Ya no hace falta comprobar que el enlace salga: `path` siempre existe.
+    var selfieUrl=path;
     // 2) registrar (valida ced-4 + geocerca en el servidor)
     // ⛔ ACÁ IBA `p_unidad: null` CLAVADO. La columna existía desde el 29/08 y en 1.833
     //    fichajes quedó vacía las 1.833 veces. Ahora va lo que declaró la persona.

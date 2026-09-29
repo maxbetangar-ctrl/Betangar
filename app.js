@@ -20493,17 +20493,29 @@ function imprimirReporteFinanciero(){
 function motivoUsuarios(err){
   var e=String(err||'');
   if(/weak and easy to guess|known to be weak/i.test(e))
-    return 'Esa clave está en las listas de las más usadas del mundo y el sistema de acceso no la admite.'+'\n\n'+'Poné otra distinta: que no sea "123456", ni el nombre de la empresa, ni la palabra "clave". Mezclá letras y números.';
+    return 'Esa clave está en las listas de las más usadas del mundo y el sistema de acceso no la admite.'+'\n\n'+'Ponga otra distinta: que no sea "123456", ni el nombre de la empresa, ni la palabra "clave". Mezcle letras y números.';
   if(/should be at least|at least \d+ characters/i.test(e))
-    return 'La clave es demasiado corta para el sistema de acceso. Poné una más larga.';
+    return 'La clave es demasiado corta para el sistema de acceso. Ponga una más larga.';
   if(/already registered|already been registered|duplicate key/i.test(e))
     return 'Ya existe un usuario con ese correo o con ese nombre de usuario.';
   if(/invalid email|email address.*invalid/i.test(e))
-    return 'Ese correo no es válido. Revisá que esté bien escrito.';
-  if(/HTTP 401|HTTP 403|not authorized|no autorizado/i.test(e))
-    return 'Tu usuario no tiene permiso para hacer este cambio.';
+    return 'Ese correo no es válido. Revise que esté bien escrito.';
+  // ⛔ UN 401 Y UN 403 NO SE ARREGLAN EN EL MISMO LUGAR, Y ACÁ DECÍAN LO MISMO. Los dos caían en
+  //    «Tu usuario no tiene permiso», que manda a la persona a pedir un permiso que a lo mejor ya
+  //    tiene. 401 es la SESIÓN vencida (se sale y se vuelve a entrar); 403 sí es el rol.
+  //    Alejandra, superadmin de Tony Gas, leyó el 25/09 «mi usuario no tiene acceso a esa opción»
+  //    al querer quitarle el 2FA a Abigail. Medido el 29/09: su fila tiene rol superadmin con su
+  //    auth_user_id, y dos días ANTES había creado a maygleth y a tibisay por este mismo camino y
+  //    el mismo candado. El permiso estaba. El mensaje la mandó a buscar donde no era.
+  //    [[norma-la-vista-no-mide-lo-que-crees]]
+  if(/no est[áa] habilitada/i.test(e))
+    return e;                       // el servidor ya explica por qué, y dice más que cualquier resumen
+  if(/HTTP 401|No autenticado|Sesi[óo]n inv[áa]lida/i.test(e))
+    return 'Su sesión se venció mientras tenía la pantalla abierta.'+String.fromCharCode(10,10)+'Salga y vuelva a entrar, y repita el cambio. No es un problema de permisos.';
+  if(/HTTP 403|not authorized|no autorizado|Solo un superadmin/i.test(e))
+    return 'Su usuario no tiene permiso para hacer este cambio. Esta pantalla es solo para superadmin.';
   if(/timeout|no respondió|sin conexión/i.test(e))
-    return 'El servicio de usuarios no contestó. Probá de nuevo en un minuto; si sigue igual, avisá.';
+    return 'El servicio de usuarios no contestó. Pruebe de nuevo en un minuto; si sigue igual, avísenos.';
   return e;
 }
 
@@ -20548,8 +20560,72 @@ function _cpUserPoblar(usuarios, err){
   }).join('');
   if(previo) cp.value=previo;
 }
+// ════════════════════════════════════════════════════════════════════════════════════════════
+// LOS ROLES QUE SE PUEDEN ASIGNAR — UNA sola lista, y se alimenta de lo que existe
+//
+// ⛔ POR QUÉ ESTÁ ACÁ Y NO CLAVADO EN EL HTML. Hasta el 29/09/2026 el <select id="nu-rol"> tenía
+//    las opciones escritas a mano DENTRO del HTML, y como cada clon tiene su propio HTML había
+//    CINCO listas distintas que nadie sincronizaba. Medido ese día, base por base:
+//      · Tony Gas    el select no ofrecía compras, directivo, mecanico ni supervisor
+//                    — y la base YA tenía 1, 1, 2 y 7 cuentas con esos roles
+//      · Betangar    faltaban directivo, mecanico, operativo y vigilante
+//      · FLOTILLA    faltaba supervisor
+//    Lo reportó Alejandra el 25/09 por Tony Gas. El defecto estaba en tres apps.
+//    [[norma-dos-listas-a-mano-se-desincronizan]] · [[norma-arreglar-el-mecanismo-no-el-caso]]
+//
+// ⛔ Y NO ALCANZA CON AGREGAR LAS QUE FALTAN HOY: mañana alguien crea un rol en la base y la
+//    lista vuelve a quedarse corta, en silencio. Por eso `rolesParaElSelect` SUMA los roles que
+//    de verdad están en uso en esta instancia. La lista de abajo es el catálogo del producto —
+//    lo que existe manda igual, aunque nadie lo haya declarado acá.
+//
+// `superadmin` NO se ofrece a propósito: no se crea desde esta pantalla.
+var ROLES_ASIGNABLES = [
+  ['operador',     'Operador'],
+  ['supervisor',   'Supervisor'],
+  ['rrhh',         'RRHH'],
+  ['visualizador', 'Visualizador'],
+  ['admin',        'Admin'],
+  ['compras',      'Compras'],
+  ['directivo',    'Directivo'],
+  ['mecanico',     'Mecánico'],
+  ['operativo',    'Operativo'],
+  ['vigilante',    'Vigilante'],
+  ['auditor',      'Auditor'],
+  ['revisor',      'Revisor'],
+  ['asistencia',   'Solo Asistencia (Vigilante)'],
+  ['analista',     'Analista de flota (taller, inventario y órdenes)'],
+  ['mantenimiento','Mantenimiento de flota (taller, órdenes y requisitorios)']
+];
+var ROLES_NO_ASIGNABLES = ['superadmin','demo_admin','demo_operador','demo_rrhh'];
+// Devuelve [valor, etiqueta] de todo lo que se puede elegir: el catálogo MÁS lo que esta
+// instancia ya usa. `usuarios` es lo que devolvió la API — si no vino, se pinta el catálogo.
+function rolesParaElSelect(usuarios){
+  var lista = ROLES_ASIGNABLES.slice(), vistos = {};
+  lista.forEach(function(r){ vistos[r[0]] = 1; });
+  (usuarios || []).forEach(function(u){
+    var r = u && u.rol;
+    if(!r || vistos[r] || ROLES_NO_ASIGNABLES.indexOf(r) >= 0) return;
+    vistos[r] = 1;
+    lista.push([r, r.charAt(0).toUpperCase() + r.slice(1)]);   // sin etiqueta: se muestra tal cual
+  });
+  return lista;
+}
+function pintarSelectRoles(usuarios){
+  var s = document.getElementById('nu-rol'); if(!s) return;
+  var elegido = s.value;                                  // no se le pisa la elección a nadie
+  s.innerHTML = rolesParaElSelect(usuarios).map(function(r){
+    return '<option value="' + r[0] + '">' + r[1] + '</option>';
+  }).join('');
+  if(elegido) s.value = elegido;
+}
 async function renderUsuarios(){
   var tb=g('tb-usuarios');if(!tb)return;
+  // ⛔ EL SELECT SE PINTA ANTES DE PREGUNTARLE A NADIE. Si la lista de usuarios no carga, abajo
+  //    hay un `return` — y un <select> vacío no se ve roto: se ve como si no hubiera roles.
+  //    Con el catálogo puesto de entrada, lo peor que puede pasar es que falte un rol que solo
+  //    existe en la base. Se repinta con lo que venga.
+  //    [[norma-una-seccion-condicional-sin-datos-parece-que-no-existe]]
+  pintarSelectRoles(null);
   tb.innerHTML='<tr><td colspan="5" style="text-align:center;color:var(--text3);padding:14px">Cargando…</td></tr>';
   var j=await btgUsuariosAPI('GET');
   if(!j||!j.ok){
@@ -20558,6 +20634,7 @@ async function renderUsuarios(){
     return;
   }
   _cpUserPoblar(j.usuarios||[]);
+  pintarSelectRoles(j.usuarios||[]);
   tb.innerHTML=(j.usuarios||[]).map(function(usr){
     var activo=usr.activo!==false;
     return '<tr><td style="font-family:var(--m);font-weight:700">'+usr.usuario+'</td><td>'+(usr.nombre||'')+'</td>'+
