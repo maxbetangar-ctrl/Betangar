@@ -10314,6 +10314,9 @@ function imprimirNomina(){
   abrirImpresionPremium('Nomina Semanal',mes+' — '+sem,stats,body);
 }
 
+// ⚠️ ESTE filtro `JAC-B*` SE QUEDA A PROPÓSITO: el reporte va al concesionario JAC
+// (soporte@jac.com.ve) y es de SUS unidades. No es la lista de «qué unidades hay»
+// —esa es `_unidadesTodas()`—, es un recorte deliberado. 30/09/2026.
 function imprimirReporteJAC(){
   var cams=Object.keys(FLOTA).filter(function(k){return k.startsWith('JAC-B');}).sort();
   var kmCfg=cfg.km||5000;
@@ -10350,6 +10353,9 @@ function imprimirReporteJAC(){
   abrirImpresionPremium('Reporte JAC — Kilometraje y Estado de Flota','Estado actual de '+cams.length+' unidades de la flota',stats,body);
 }
 
+// ⚠️ ESTE filtro `JAC-B*` SE QUEDA A PROPÓSITO: el reporte va al concesionario JAC
+// (soporte@jac.com.ve) y es de SUS unidades. No es la lista de «qué unidades hay»
+// —esa es `_unidadesTodas()`—, es un recorte deliberado. 30/09/2026.
 function enviarReporteJAC(){
   var cams=Object.keys(FLOTA).filter(function(k){return k.startsWith('JAC-B');});
   var body='Reporte de Kilometraje JAC - '+brandNom()+'\nFecha: '+formatFecha(new Date())+'\n\n';
@@ -10373,9 +10379,24 @@ function enviarReporteJAC(){
 // «qué unidades hay», cada una con su propio filtro y su propio origen. Se unifica
 // también acá —en la misma sesión— para que no vuelva a divergir.
 //
-// ⚠️ El FILTRO es el de Betangar y es la UNIÓN de los dos que ya usaba: `poblarCams`
-// dejaba pasar JAC-B* y AVANCE-*, y `_flotaUnidades` solo JAC-B*. Si se unifica al
-// más estrecho, el día que entre una unidad AVANCE- desaparece de doce desplegables.
+// ⛔ EL FILTRO ES UNA LISTA NEGRA, NO UNA LISTA BLANCA. Cambiado el 30/09/2026.
+//
+// Alejandra, 30/09: «añadí una nueva unidad y al momento de hacer las órdenes no
+// aparece en la lista». La unidad era `PEJ-B013` (placa A58CJ9A). El filtro de acá
+// dejaba pasar SOLO `JAC-B*` y `AVANCE-*`, así que una unidad con CUALQUIER otro
+// identificador quedaba invisible en todos los desplegables que cuelgan de esta
+// función. El comentario que estaba acá ya lo había predicho —«el día que entre una
+// unidad AVANCE- desaparece de doce desplegables»— y el día llegó con otra letra.
+//
+// Una lista blanca de prefijos NO puede decidir qué unidades existen: el
+// identificador lo tipea el cliente al dar de alta la unidad, así que la lista
+// blanca está siempre una unidad atrás. Lo que existe es lo que está declarado en
+// `unidad_config`; lo único que hay que sacar es la basura conocida (`SRV-001`, que
+// está en `km_data` de Betangar, y los `DUP-` de los clones).
+//
+// ✅ Es EXACTAMENTE el filtro que ya tienen flotilla-app, tonygas-app, videca-app y
+// flotamax-demo desde que se unificó la pieza. Betangar era el único que quedó con
+// la lista blanca. [[norma-arreglar-el-mecanismo-no-el-caso]]
 var _unidadesPidiendo=null;
 var _camsPedidas=false;   // Betangar no lo tenía: su FLOTA viene horneada y nunca hizo falta pedirla.
 function _unidadesTodas(){
@@ -10383,7 +10404,31 @@ function _unidadesTodas(){
   ['FLOTA','UNIDAD_CONFIG','KM_DATA'].forEach(function(n){
     try{ var o=window[n]; if(o) Object.keys(o).forEach(function(c){ if(c) set[c]=1; }); }catch(e){}
   });
-  return Object.keys(set).filter(function(k){return k.indexOf('JAC-B')===0||k.indexOf('AVANCE-')===0;}).sort();
+  return Object.keys(set).filter(function(k){return !/^(SRV|DUP)/.test(k);}).sort();
+}
+// ⛔ LOS DATOS DE UNA UNIDAD NO VIVEN SOLO EN `FLOTA`, y por eso esto existe.
+//
+// `FLOTA` está HORNEADA con las 12 JAC y `cargarUnidadConfig` dice textual que «no
+// agrega unidades nuevas a FLOTA». O sea que toda unidad dada de alta desde la
+// pantalla vive SOLO en `unidad_config`. Seis tableros hacían `FLOTA[cam].chofer` o
+// `.placa` directo: con una unidad nueva eso es `undefined.chofer` y la pantalla se
+// va entera en blanco, sin decir por qué.
+//
+// Nunca devuelve `undefined`. La precedencia es la que ya estaba declarada en
+// `cargarUnidadConfig`: `unidad_config` (registro maestro) MANDA sobre el horneado.
+function _datosUnidad(cam){
+  var f=(typeof FLOTA!=='undefined'&&FLOTA&&FLOTA[cam])||{};
+  var u=(typeof UNIDAD_CONFIG!=='undefined'&&UNIDAD_CONFIG&&UNIDAD_CONFIG[cam])||{};
+  return {
+    placa : u.placa  || f.placa  || '',
+    chofer: u.chofer || f.chofer || '',
+    vin   : u.vin    || f.vin    || '',
+    ay1   : f.ay1||'', ay2: f.ay2||'',
+    // `FLOTA` distingue operativo/taller; `unidad_config` solo tiene `activo`.
+    // Una unidad nueva sin estado declarado NO se pinta en taller: eso sería
+    // inventarle un dato que nadie declaró.
+    estado: f.estado || (u.activo===false ? 'inactivo' : 'operativo')
+  };
 }
 // Promesa con las unidades, pidiéndolas a la base si todavía no están. NUNCA
 // revienta: sin conexión resuelve con lo que haya, para que la pantalla decida.
@@ -11660,11 +11705,11 @@ function renderKm(){
   // Kilometraje = SOLO overview del km por unidad (nutrido del chofer). Las alertas de servicio/
   // preventivo se convergieron en el tab ⏰ Preventivo (un solo lugar, no duplicar).
   var rows=[];
-  var cams=Object.keys(FLOTA).filter(function(k){return k.startsWith('JAC-B');});
+  var cams=_unidadesTodas();
   cams.forEach(function(cam){
     var d=KM_DATA[cam]||{km:0};
     var km=kmActualCam(cam); // km más fresco: lo que cargó el chofer
-    rows.push('<tr><td style="font-weight:700">'+cam+'</td><td style="font-size:11px">'+FLOTA[cam].chofer+'</td><td style="font-family:var(--m);color:var(--teal)">'+(km?km.toLocaleString():'--')+'</td><td style="font-size:11px;color:var(--text3)">'+(d.f?formatFecha(d.f):'--')+'</td><td style="font-size:10px;color:var(--text3)">'+(d.nota||'')+'</td><td>'+(km?'<button onclick="borrarOdo(\''+cam+'\')" class="btn btn-xs" style="background:var(--red);color:#fff">🗑</button>':'')+'</td></tr>');
+    rows.push('<tr><td style="font-weight:700">'+cam+'</td><td style="font-size:11px">'+_datosUnidad(cam).chofer+'</td><td style="font-family:var(--m);color:var(--teal)">'+(km?km.toLocaleString():'--')+'</td><td style="font-size:11px;color:var(--text3)">'+(d.f?formatFecha(d.f):'--')+'</td><td style="font-size:10px;color:var(--text3)">'+(d.nota||'')+'</td><td>'+(km?'<button onclick="borrarOdo(\''+cam+'\')" class="btn btn-xs" style="background:var(--red);color:#fff">🗑</button>':'')+'</td></tr>');
   });
   var tb=g('tb-km');if(tb)tb.innerHTML=rows.join('');
 }
@@ -11977,11 +12022,34 @@ async function cargarUnidadConfig(){
     var r=await supabase.from('unidad_config').select(cols);
     if(r&&r.error){ r=await supabase.from('unidad_config').select('*'); } // fail-open si faltan columnas (migración no corrida)
     if(r&&!r.error&&Array.isArray(r.data)){var o={};r.data.forEach(function(x){o[x.cam]={tipo:x.tipo||'',combustible:x.combustible||'',uso:x.uso||'',nombre:x.nombre||'',marca:x.marca||'',modelo:x.modelo||'',anio:x.anio||'',placa:x.placa||'',vin:x.vin||'',serialMotor:x.serial_motor||'',serialCarroceria:x.serial_carroceria||'',titular:x.titular||'',chofer:x.chofer||'',activo:x.activo!==false,notas:x.notas||'',medida:x.medida||'',horasActuales:parseFloat(x.horas_actuales)||0,baterias:(x.baterias==null?null:parseInt(x.baterias)),kmServicio:parseFloat(x.km_servicio)||0,capacidad_tanque_l:parseFloat(x.capacidad_tanque_l)||null};});UNIDAD_CONFIG=o;
-      // FUENTE ÚNICA de placa/chofer/vin: `unidad_config` (registro maestro) MANDA sobre el FLOTA horneado
-      // para las unidades que ya estén en FLOTA. En Betangar los 12 JAC no están en unidad_config → no-op;
-      // protege a los clones (FlotaMax/Flotilla) donde el FLOTA horneado se desfasó y el QR/informe imprimía
-      // la placa de OTRA unidad. No agrega unidades nuevas a FLOTA (solo corrige las existentes).
-      try{ Object.keys(o).forEach(function(cam){ if(typeof FLOTA!=='undefined'&&FLOTA[cam]){ if(o[cam].placa)FLOTA[cam].placa=o[cam].placa; if(o[cam].chofer)FLOTA[cam].chofer=o[cam].chofer; if(o[cam].vin)FLOTA[cam].vin=o[cam].vin; } }); }catch(e){}
+      // ⛔ FUENTE ÚNICA DE LA FLOTA: lo que existe es lo que está en `unidad_config`.
+      //
+      // Hasta el 30/09/2026 esto SOLO corregía placa/chofer/vin de las unidades que YA
+      // estuvieran en el `FLOTA` horneado, y lo decía textual: «No agrega unidades nuevas
+      // a FLOTA». Esa línea era el bug. `FLOTA` está horneada con las 12 JAC, así que toda
+      // unidad dada de alta desde la pantalla vivía SOLO en `unidad_config` y quedaba
+      // invisible para las QUINCE lecturas de `Object.keys(FLOTA)` que hay en este archivo
+      // —el panel que las cuenta, el gasoil, los documentos, las llantas, el semáforo—.
+      //
+      // Lo destapó Alejandra el 30/09: dio de alta `PEJ-B013` y no le aparecía al hacer una
+      // orden de servicio. Taparlo lectura por lectura es exactamente cómo se desincronizan
+      // dos listas: se arregla acá una vez y lo ven las quince.
+      // [[norma-arreglar-el-mecanismo-no-el-caso]]
+      //
+      // ✅ Es lo que ya hacen flotilla-app, tonygas-app, videca-app y flotamax-demo.
+      //
+      // ⚠️ NO se copió de ellos el BORRADO de lo que no está en `unidad_config`. Allá existe
+      // por el incidente de Tony Gas —el clon arrastraba horneada la flota de FLOTILLA y la
+      // vio la clienta—. Acá `FLOTA` es la flota REAL de la casa y además es el último
+      // recurso si la base no carga: un borrado que hoy no quita nada, el día que alguien
+      // saque una fila de `unidad_config` se lleva un camión de verdad.
+      try{ Object.keys(o).forEach(function(cam){
+        if(typeof FLOTA==='undefined')return;
+        if(FLOTA[cam]){ if(o[cam].placa)FLOTA[cam].placa=o[cam].placa; if(o[cam].chofer)FLOTA[cam].chofer=o[cam].chofer; if(o[cam].vin)FLOTA[cam].vin=o[cam].vin; }
+        // La que existe en `unidad_config` y no está en el horneado: entra. Sin estado
+        // declarado NO se pinta en taller — sería inventarle un dato que nadie declaró.
+        else if(o[cam].activo!==false){ FLOTA[cam]={ placa:o[cam].placa||'', marca:o[cam].marca||'', modelo:o[cam].modelo||'', chofer:o[cam].chofer||'', vin:o[cam].vin||'', ay1:'', ay2:'', estado:'operativo' }; }
+      }); }catch(e){}
     }
   }catch(e){}
 }
@@ -17423,7 +17491,7 @@ function _docResumenBadge(docs, tipos){
   return hay?vencBadge(peor):'<span class="badge bt">Sin docs</span>';
 }
 function renderDocTablas(){
-  var cams=Object.keys(FLOTA).filter(function(k){return k.startsWith('JAC-B');});
+  var cams=_unidadesTodas();
   var tiposCam=['seguro','circulacion','revision'];
   var htmlCam=cams.map(function(cam){
     var d=DOCS_CAM[cam]||{};
@@ -18546,9 +18614,9 @@ function renderLlantas(){
   var buenas=0,regular=0,cambiar=0,total=0;
   var grid=g('llantas-grid');if(!grid)return;
   var html='';
-  Object.keys(FLOTA).filter(function(k){return k.startsWith('JAC-B');}).forEach(function(cam){
+  _unidadesTodas().forEach(function(cam){
     var lls=LLANTAS[cam]||[];total+=lls.length;
-    html+='<div class="card"><div style="font-size:12px;font-weight:800;color:var(--green);margin-bottom:8px">'+cam+'<span style="font-size:10px;color:var(--text3);margin-left:6px">'+FLOTA[cam].placa+'</span></div>'+
+    html+='<div class="card"><div style="font-size:12px;font-weight:800;color:var(--green);margin-bottom:8px">'+cam+'<span style="font-size:10px;color:var(--text3);margin-left:6px">'+_datosUnidad(cam).placa+'</span></div>'+
       '<div style="display:grid;grid-template-columns:1fr 1fr;gap:4px">';
     lls.forEach(function(ll){
       var c=ll.estado==='Buena'?'var(--green)':ll.estado==='Regular'?'var(--yellow)':'var(--red)';
@@ -18808,7 +18876,7 @@ function renderSemaforo(){
   var key=mes+'-'+sem;
   var meta=METAS[key]||{viajesCam:20,viajesFlota:200};
   var el=g('metas-semaforo');if(!el)return;
-  var cams=Object.keys(FLOTA).filter(function(k){return k.startsWith('JAC-B');});
+  var cams=_unidadesTodas();
   el.innerHTML=cams.map(function(cam){
     var v=REGS.filter(function(r){return r.cam===cam&&r.sem===sem&&r.mes===mes;}).reduce(function(s,r){return s+r.t;},0);
     var pct=meta.viajesCam>0?Math.min(100,Math.round((v/meta.viajesCam)*100)):0;
@@ -21428,8 +21496,8 @@ function agregarCamion(){
 
 function renderFlotaCfgLista(){
   var el=g('flota-cfg-lista');if(!el)return;
-  var cams=Object.keys(FLOTA).filter(function(k){return k.startsWith('JAC-B')||k.startsWith('AVANCE-');});
-  el.innerHTML=cams.map(function(cam){var f=FLOTA[cam];var km=KM_DATA[cam]?KM_DATA[cam].km:0;
+  var cams=_unidadesTodas();
+  el.innerHTML=cams.map(function(cam){var f=_datosUnidad(cam);var km=KM_DATA[cam]?KM_DATA[cam].km:0;
     return'<div style="padding:8px 0;border-bottom:1px solid var(--border)">'+
       '<div style="display:flex;justify-content:space-between;align-items:center">'+
         '<span style="font-weight:800;color:var(--green)">'+cam+'</span>'+
@@ -26221,7 +26289,7 @@ function renderMantProg(){
   }
   var estEl=document.getElementById('tb-mant-prog-estado');
   if(!estEl)return;
-  var cams=Object.keys(FLOTA).filter(function(k){return k.startsWith('JAC-B');}).sort();
+  var cams=_unidadesTodas();
   var tipos=cfg.mant_programados;
   if(!tipos.length){
     estEl.innerHTML='<p style="color:var(--text3);padding:10px">Define al menos un tipo</p>';
