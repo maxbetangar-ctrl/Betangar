@@ -5524,10 +5524,32 @@ function _renderDashCuerpo(){
   g('s-viajes-sub').textContent=ultSemTxt;
   g('s-ejec').textContent='$'+totalM.toLocaleString();
   if(g('s-ejec-sub'))g('s-ejec-sub').textContent=ultF?('📅 Cargado al '+formatFecha(ultF)):('@ $'+(cfg.tarifa||317.88).toFixed(2)+'/viaje');
-  if(SESION&&SESION.rol==='rrhh'){g('s-cobrado')&&(g('s-cobrado').textContent='—');g('s-cobrado-sub')&&(g('s-cobrado-sub').textContent='Restringido');}else g('s-cobrado').textContent='$'+totalCob.toLocaleString();
-  g('s-cobrado-sub').textContent=vCobV+' viajes';
-  if(!(SESION&&SESION.rol==='rrhh')){g('s-porcobrar').textContent='$'+porcobrar.toLocaleString();if(g('s-porcobrar-sub'))g('s-porcobrar-sub').textContent=Math.max(0,totalV-vCobV).toLocaleString()+' viajes';}
-  g('s-pbar').style.width=pct+'%';
+  // ⛔ CADA TARJETA IMPRIME SU PROPIO PORCENTAJE. La barra s-pbar mide cobrado/ejecutado y
+  // estaba dentro de la tarjeta "Por Cobrar" (app.html): una barra SIN RÓTULO hereda el
+  // significado de la tarjeta que la contiene, así que al 42% de cobrado la tarjeta roja se
+  // leía "42% por cobrar" — y de ahí "58% cobrado", exactamente al revés. La barra se mudó a
+  // "Cobrado" y ahora ADEMÁS cada sub dice su número: una barra muda vuelve a mentir en cuanto
+  // alguien la mueva de caja.
+  // ⚠️ Y el sub de "Por Cobrar" dice SIN FACTURAR, que es lo que mide (ejecutado − facturado).
+  // Lo facturado y no depositado por la Alcaldía es otra cosa y es mínimo — ver la pestaña
+  // Cobranza, que concilia factura por factura.
+  var _esRRHH=!!(SESION&&SESION.rol==='rrhh');
+  if(_esRRHH){
+    // El 'Restringido' de s-cobrado-sub lo PISABA la línea siguiente, que escribía los viajes
+    // cobrados siempre: la restricción era texto muerto. Y s-pbar se pintaba igual para RRHH —
+    // un número restringido también se filtra DIBUJADO.
+    if(g('s-cobrado'))g('s-cobrado').textContent='—';
+    if(g('s-cobrado-sub'))g('s-cobrado-sub').textContent='Restringido';
+    if(g('s-porcobrar'))g('s-porcobrar').textContent='—';
+    if(g('s-porcobrar-sub'))g('s-porcobrar-sub').textContent='Restringido';
+    if(g('s-pbar'))g('s-pbar').style.width='0%';
+  }else{
+    g('s-cobrado').textContent='$'+totalCob.toLocaleString();
+    g('s-cobrado-sub').textContent=vCobV.toLocaleString()+' viajes · '+pct+'% de lo ejecutado';
+    g('s-porcobrar').textContent='$'+porcobrar.toLocaleString();
+    if(g('s-porcobrar-sub'))g('s-porcobrar-sub').textContent=Math.max(0,totalV-vCobV).toLocaleString()+' viajes · '+(100-pct)+'% sin facturar';
+    g('s-pbar').style.width=pct+'%';
+  }
   if(BNC_SALDO>0&&puedeVerSaldo()){g('s-saldo-bnc').textContent='Bs '+(BNC_SALDO/1000).toFixed(0)+'k';g('s-saldo-sub').textContent='Actualizado';}
   // Utilidad Real = cobrado − TODOS los gastos (reemplaza el card "Resumen Financiero" redundante).
   if(g('s-util')){
