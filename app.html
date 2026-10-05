@@ -1469,15 +1469,19 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
   <div id="tab-mc-unidades">
     <div class="g2" style="margin-bottom:10px">
       <div class="card">
-        <div class="st" style="margin-bottom:10px">Registrar Unidad</div>
-        <div class="fg"><label>Placa / Identificador</label><input class="fc" id="mc-uni-placa" placeholder="ABC-123 / Chuto 01"></div>
+        <!-- ⛔ ESTA TARJETA ASIGNA, NO REGISTRA. El alta de la unidad vive en
+             "Unidades y Equipos" (`unidad_config`), que es el registro MAESTRO y ahora el
+             ÚNICO. Acá había un alta propia que escribía en la tabla `unidades`: un segundo
+             registro de la misma cosa, con 0 filas en las 5 bases. Esa duplicación ya hizo
+             medir mal (04/10: "Tony Gas tiene 0 unidades", teniendo 26). -->
+        <div class="st" style="margin-bottom:10px">Asignar contrato a una unidad</div>
+        <div style="font-size:11px;color:var(--text3);margin:-4px 0 8px">La unidad se registra <b>una sola vez</b> en &laquo;Unidades y Equipos&raquo;. Acá se le elige el contrato al que le trabaja habitualmente.</div>
         <div class="fr2">
-          <div class="fg"><label>Tipo de unidad</label><select class="fc" id="mc-uni-tipo"></select></div>
-          <div class="fg"><label>Contrato habitual (opcional)</label><select class="fc" id="mc-uni-contrato"></select></div>
+          <div class="fg"><label>Unidad</label><select class="fc" id="mc-uni-unidad"></select></div>
+          <div class="fg"><label>Contrato habitual</label><select class="fc" id="mc-uni-contrato"></select></div>
         </div>
-        <div class="fg"><label>Descripción (opcional)</label><input class="fc" id="mc-uni-desc" placeholder="Marca/modelo/nota"></div>
-        <div class="fg"><label>Estado</label><select class="fc" id="mc-uni-estado"><option value="operativa">Operativa</option><option value="mantenimiento">En mantenimiento</option><option value="inactiva">Inactiva</option></select></div>
-        <button class="btn btn-g" style="width:100%" onclick="guardarUnidadMC()">Guardar unidad</button>
+        <button class="btn btn-g" style="width:100%" onclick="asignarContratoUnidadMC()">Asignar contrato</button>
+
       </div>
       <div class="card">
         <div class="st" style="margin-bottom:10px">Tipos de unidad</div>
@@ -1496,8 +1500,8 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
       <div class="st" style="margin-bottom:10px;display:flex;justify-content:space-between;align-items:center">
         <span>Unidades registradas</span>
         <div style="display:flex;gap:6px;flex-wrap:wrap">
-          <button class="btn btn-g btn-sm" onclick="importarUnidadesDeRegistro()" title="Trae las unidades que ya cargaste en 'Unidades y Equipos' (el registro maestro) para enlazarlas a los contratos. Así las registrás una sola vez.">📥 De Unidades y Equipos</button>
-          <button class="btn btn-s btn-sm" onclick="importarFlotaJAC()" title="Crea una unidad por cada camión JAC de la flota y las asigna al contrato elegido. NO toca la flota actual.">📥 Importar flota JAC</button>
+          
+          
         </div>
       </div>
       <div style="font-size:11px;color:var(--text3);margin:-2px 0 8px">💡 El registro maestro de cada unidad (ficha, foto, QR, título) vive en <b>"Unidades y Equipos"</b>. Registralas <b>una vez</b> allá y traelas acá con "📥 De Unidades y Equipos" para asignarlas a contratos.</div>
@@ -3128,7 +3132,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
      Excel sale con el defecto ya corregido. Pasó midiendo este mismo cambio el
      23/09: dos corridas dieron un .xlsx idéntico byte por byte. -->
 <script src="maxware-excel.js?v=20260923-2252"></script>
-<script src="app.js?v=20261002-barra-cobrado"></script>
+<script src="app.js?v=20261005-un-solo-registro-unidades"></script>
 
 <!-- Modal global -->
 <div id="modal" class="moverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9990;align-items:center;justify-content:center;padding:16px">

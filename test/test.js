@@ -431,7 +431,16 @@ function resetCola(){ app.COLA_OFFLINE=[]; app.COLA_FALLIDOS=[]; app._procesando
 
   console.log('\nmulti-contrato Paso 3 (unidades ↔ contratos):');
   ok('abrirMultiContrato definida', typeof app.abrirMultiContrato === 'function');
-  ok('guardarUnidadMC definida', typeof app.guardarUnidadMC === 'function');
+  // UN SOLO REGISTRO DE UNIDADES (05/10/2026). Hasta hoy esta pantalla tenia su propia
+  // alta -- `guardarUnidadMC`, que escribia en la tabla `unidades`: un SEGUNDO registro
+  // de la misma cosa, con 0 filas en las 5 bases. Ahora ASIGNA sobre `unidad_config`,
+  // que es el maestro. Este test no se actualizo para ponerse verde: se afirma el
+  // diseno nuevo Y que el viejo NO volvio.
+  ok('asignarContratoUnidadMC definida', typeof app.asignarContratoUnidadMC === 'function');
+  ok('quitarContratoUnidadMC definida (saca del contrato, NO borra la unidad)', typeof app.quitarContratoUnidadMC === 'function');
+  ok('_unidadesDelRegistro definida (UNIDADES se DERIVA del maestro)', typeof app._unidadesDelRegistro === 'function');
+  ok('guardarUnidadMC YA NO existe: el alta vive en Unidades y Equipos', typeof app.guardarUnidadMC === 'undefined');
+  ok('los importadores del segundo registro ya no existen', typeof app.importarUnidadesDeRegistro === 'undefined' && typeof app.importarFlotaJAC === 'undefined');
   ok('switchMCTab definida', typeof app.switchMCTab === 'function');
   app.CONTRATOS = [{ id: 'CNT1', nombre: 'Alcaldía Maracaibo', estado: 'activo' }];
   eq('_contratoNombre mapea id→nombre (enlace unidad↔contrato)', app._contratoNombre('CNT1'), 'Alcaldía Maracaibo');

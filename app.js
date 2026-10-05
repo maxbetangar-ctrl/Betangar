@@ -4315,7 +4315,6 @@ async function cargarDatosDB(){
       supabase.from('auditoria').select('*').order('created_at',{ascending:false}).limit(200),
       _selectAll('nomina_historial'),
       _selectAll('tipos_unidad'),
-      _selectAll('unidades'),
       _selectAll('operaciones'),
       _selectAll('bnc_movimientos'),
       _selectAll('gastos_fijos'),
@@ -4324,7 +4323,7 @@ async function cargarDatosDB(){
     // allSettled: una consulta que falle (red, RLS de UNA tabla, etc.) NO tumba a las demás.
     // Antes, con Promise.all, un solo error transitorio dejaba TODO en 0 (incluidas planillas).
     var _res=_resS.map(function(x){return x.status==='fulfilled'?x.value:{data:null,error:((x.reason&&x.reason.message)||'consulta falló')};});
-    var p=_res[0],a=_res[1],e=_res[2],ga=_res[3],cxp=_res[4],pv=_res[5],pr=_res[6],ml=_res[7],inv=_res[8],co=_res[9],gv2=_res[10],palc=_res[11],km=_res[12],aul=_res[13],nh=_res[14],tu=_res[15],un=_res[16],op=_res[17],bm=_res[18],gf2=_res[19],cbf=_res[20];
+    var p=_res[0],a=_res[1],e=_res[2],ga=_res[3],cxp=_res[4],pv=_res[5],pr=_res[6],ml=_res[7],inv=_res[8],co=_res[9],gv2=_res[10],palc=_res[11],km=_res[12],aul=_res[13],nh=_res[14],tu=_res[15],op=_res[16],bm=_res[17],gf2=_res[18],cbf=_res[19];   // ⛔ `un` (tabla `unidades`) SALIO: un solo registro de unidades. Los indices de abajo CORRIERON uno.
     // Cobros por factura desde CUALQUIER banco (la Alcaldía decide al momento del pago desde cuál
     // transfiere: BNC, Banca Amiga, la que sea). Fuente única de "esta pata ya se cobró".
     if(cbf&&!cbf.error&&Array.isArray(cbf.data))COBROS_FACT=cbf.data;
@@ -4333,7 +4332,7 @@ async function cargarDatosDB(){
     if(bm&&!bm.error&&Array.isArray(bm.data))BNC_MOV=bm.data.map(function(x){return{id:x.id,fecha:x.fecha||'',monto:Number(x.monto)||0,tipo:x.tipo||'',desc:x.descripcion||'',ref:x.referencia||'',moneda:x.moneda||'',conciliado:!!x.conciliado,pendienteAutorizacion:!!x.pendiente_autorizacion,detalle:x.detalle||null};});
     // FASE 1 multi-contrato (aditivo, no toca el aseo): tipos de unidad, unidades, operaciones.
     if(tu&&!tu.error&&Array.isArray(tu.data))TIPOS_UNIDAD=tu.data;
-    if(un&&!un.error&&Array.isArray(un.data))UNIDADES=un.data;
+    // UNIDADES ya no sale de una tabla: se DERIVA de UNIDAD_CONFIG en _unidadesDelRegistro().
     if(op&&!op.error&&Array.isArray(op.data))OPERACIONES=op.data;
     // A1: gastos fijos desde la BD (fuente de verdad; ya no se pierden al recargar). Si la consulta
     // falla (RLS/red), NO se toca el array → conserva el seed en memoria (no borra la vista).
@@ -12040,10 +12039,10 @@ async function cargarUnidadConfig(){
   if(!(DB_READY&&supabase))return;
   try{
     // Columnas LIVIANAS (sin foto ni titulo_pdf → no cargamos blobs de todas las unidades a memoria).
-    var cols='cam,tipo,combustible,uso,nombre,marca,modelo,anio,placa,vin,serial_motor,serial_carroceria,titular,chofer,activo,notas,medida,horas_actuales,km_servicio,baterias,capacidad_tanque_l';
+    var cols='cam,tipo,combustible,uso,nombre,marca,modelo,anio,placa,vin,serial_motor,serial_carroceria,titular,chofer,activo,notas,medida,horas_actuales,km_servicio,baterias,capacidad_tanque_l,contrato_id';
     var r=await supabase.from('unidad_config').select(cols);
     if(r&&r.error){ r=await supabase.from('unidad_config').select('*'); } // fail-open si faltan columnas (migración no corrida)
-    if(r&&!r.error&&Array.isArray(r.data)){var o={};r.data.forEach(function(x){o[x.cam]={tipo:x.tipo||'',combustible:x.combustible||'',uso:x.uso||'',nombre:x.nombre||'',marca:x.marca||'',modelo:x.modelo||'',anio:x.anio||'',placa:x.placa||'',vin:x.vin||'',serialMotor:x.serial_motor||'',serialCarroceria:x.serial_carroceria||'',titular:x.titular||'',chofer:x.chofer||'',activo:x.activo!==false,notas:x.notas||'',medida:x.medida||'',horasActuales:parseFloat(x.horas_actuales)||0,baterias:(x.baterias==null?null:parseInt(x.baterias)),kmServicio:parseFloat(x.km_servicio)||0,capacidad_tanque_l:parseFloat(x.capacidad_tanque_l)||null};});UNIDAD_CONFIG=o;
+    if(r&&!r.error&&Array.isArray(r.data)){var o={};r.data.forEach(function(x){o[x.cam]={tipo:x.tipo||'',combustible:x.combustible||'',uso:x.uso||'',nombre:x.nombre||'',marca:x.marca||'',modelo:x.modelo||'',anio:x.anio||'',placa:x.placa||'',vin:x.vin||'',serialMotor:x.serial_motor||'',serialCarroceria:x.serial_carroceria||'',titular:x.titular||'',chofer:x.chofer||'',activo:x.activo!==false,contrato_id:x.contrato_id||null,notas:x.notas||'',medida:x.medida||'',horasActuales:parseFloat(x.horas_actuales)||0,baterias:(x.baterias==null?null:parseInt(x.baterias)),kmServicio:parseFloat(x.km_servicio)||0,capacidad_tanque_l:parseFloat(x.capacidad_tanque_l)||null};});UNIDAD_CONFIG=o;
       // ⛔ FUENTE ÚNICA DE LA FLOTA: lo que existe es lo que está en `unidad_config`.
       //
       // Hasta el 30/09/2026 esto SOLO corregía placa/chofer/vin de las unidades que YA
@@ -19050,88 +19049,107 @@ async function seedTiposUnidad(){
 function renderUnidadesMC(){
   _fillTipoUnidadSelect('mc-uni-tipo');
   _fillContratoSelectMC('mc-uni-contrato');
+  _fillUnidadSelectMC();
   renderTiposUnidadLista();
   renderUnidadesTabla();
 }
+// ⛔ UN SOLO REGISTRO DE UNIDADES. `unidad_config` es el maestro y es el ÚNICO.
+//
+// Acá había un SEGUNDO registro —la tabla `unidades`, con su propia alta, su borrado y
+// dos importadores que copiaban del maestro— y 7 de sus 8 columnas ya existían en
+// `unidad_config`. La única propia era `contrato_id`, que el 05/10/2026 se mudó al
+// maestro (`migraciones/2026-10-05-un-solo-registro-de-unidades.sql`).
+//
+// ⛔ LA DUPLICACIÓN YA COSTÓ: el 04/10 se midió `unidades` y se le reportó a Máximo que
+//    Tony Gas tenía CERO unidades — teniendo 26 y usándolas todos los días. `unidades` y
+//    `contratos` tenían 0 filas en las 5 bases: nadie usó nunca este segundo registro,
+//    así que no hubo un solo dato que migrar.
+//
+// Esta pantalla ahora ASIGNA, no REGISTRA: la unidad se da de alta UNA vez en
+// "Unidades y Equipos" y acá se le elige el contrato habitual.
+//
+// ⛔ Y EL BORRADO NO SE REAPUNTÓ AL MAESTRO. Hacerlo habría dejado que esta pantalla
+//    destruyera la ficha completa de la unidad —seriales, foto, título, capacidad del
+//    tanque, odómetro— desde un botón que decía "x". Lo que hace es QUITAR EL CONTRATO.
+//
+// `_unidadesTodas()`, la FUENTE ÚNICA de "qué unidades existen", no incluía a este
+// registro: ese era justo el segundo sitio. Ahora no hay segundo sitio.
+
+// UNIDADES deja de ser una tabla: se DERIVA del maestro.
+function _unidadesDelRegistro(){
+  var uc=(typeof UNIDAD_CONFIG!=='undefined'&&UNIDAD_CONFIG)?UNIDAD_CONFIG:{};
+  return Object.keys(uc).filter(function(c){return c && !/^(SRV|DUP)/.test(c);}).sort().map(function(c){
+    var u=uc[c]||{};
+    return { id:c, placa:(u.placa||c), tipo:(u.tipo||''), descripcion:(u.notas||''),
+             estado:(u.activo===false?'inactiva':'operativa'),
+             contrato_id:(u.contrato_id||null), activo:u.activo!==false };
+  });
+}
 function renderUnidadesTabla(){
   var tb=g('mc-uni-tabla'); if(!tb)return;
-  if(!(UNIDADES||[]).length){tb.innerHTML='<tr><td colspan="5" style="text-align:center;color:var(--text3);padding:16px">Sin unidades registradas</td></tr>';return;}
+  UNIDADES=_unidadesDelRegistro();
+  if(!UNIDADES.length){
+    // ⛔ Un vacío dice POR QUÉ está vacío y DÓNDE se arregla. "Sin unidades registradas"
+    //    mandaba a registrarlas acá, que es justo lo que ya no se hace acá.
+    tb.innerHTML='<tr><td colspan="5" style="text-align:center;color:var(--text3);padding:16px">Sin unidades en el registro maestro. Cargalas en <b>&laquo;Unidades y Equipos&raquo;</b> y aparecen acá solas.</td></tr>';
+    return;
+  }
   tb.innerHTML=UNIDADES.map(function(u){
     var est=u.estado||'operativa';
     var badge=est==='operativa'?'bg':(est==='mantenimiento'?'by':'br');
     return '<tr><td style="font-weight:700">'+(u.placa||'—')+'</td><td>'+(u.tipo||'—')+'</td>'+
       '<td style="font-size:11px">'+_contratoNombre(u.contrato_id)+'</td>'+
       '<td><span class="badge '+badge+'">'+est+'</span></td>'+
-      '<td><button class="btn btn-r btn-xs" onclick="elimUnidadMC(\''+u.id+'\')">x</button></td></tr>';
+      '<td>'+(u.contrato_id?('<button class="btn btn-r btn-xs" onclick="quitarContratoUnidadMC(\''+u.id+'\')" title="Quita la unidad del contrato. NO borra la unidad.">quitar</button>'):'')+'</td></tr>';
   }).join('');
 }
-async function guardarUnidadMC(){
-  var placa=(gv('mc-uni-placa')||'').trim(); if(!placa){alert('Escribí la placa/identificador');return;}
-  var tipo=gv('mc-uni-tipo'), contrato_id=gv('mc-uni-contrato')||null;
-  if(!tipo){alert('Elegí el tipo de unidad (o agregá uno).');return;}
-  // contrato_id es OPCIONAL: es el "contrato habitual" (pre-llena el de la operación). Una unidad
-  // puede trabajarle a varios clientes; el contrato real se elige en cada operación.
-  var row={id:'UN'+Date.now(),placa:placa,tipo:tipo,descripcion:gv('mc-uni-desc')||'',estado:gv('mc-uni-estado')||'operativa',contrato_id:contrato_id,activo:true};
-  UNIDADES.push(row);
-  var ok=await _mcGuardar('unidades',row);
-  audit('Unidad registrada',placa+' · '+tipo+' · '+_contratoNombre(contrato_id));
-  ['mc-uni-placa','mc-uni-desc'].forEach(function(id){sv(id,'');});
-  renderUnidadesTabla();
-  if(typeof mostrarToast==='function')mostrarToast(ok?'✅ Unidad guardada':'⚠️ En cola (sin conexión)',ok?'exito':'error');
-}
-function elimUnidadMC(id){
-  if(!confirm('¿Eliminar esta unidad?'))return;
-  // BORRAR = TOKEN (2026-07-25): sin autorización no se borra y queda el motivo.
-  solicitarToken('Eliminar unidad '+id,function(mot){
-    UNIDADES=UNIDADES.filter(function(u){return String(u.id)!==String(id);});
-    if(DB_READY&&supabase)supabase.from('unidades').delete().eq('id',id).then(function(r){if(r&&r.error)console.log('elimUnidadMC:',r.error.message);});
-    audit('Unidad ELIMINADA',String(id)+' -- '+mot);
-    renderUnidadesTabla();
-  },{op:'del',tabla:'unidades',col:'id',val:id});
-}
-async function importarFlotaJAC(){
-  var contrato_id=gv('mc-uni-contrato');
-  if(!contrato_id){alert('Primero elegí arriba (campo "Contrato") el contrato al que asignar la flota JAC.');return;}
-  var jac=Object.keys(FLOTA||{}).filter(function(k){return k.indexOf('JAC')===0;});
-  if(!jac.length){alert('No hay camiones JAC en la flota.');return;}
-  var faltan=jac.filter(function(p){return !(UNIDADES||[]).some(function(u){return (u.placa||'')===p;});});
-  if(!faltan.length){alert('Todos los JAC ya están como unidades.');return;}
-  if(!confirm('Crear '+faltan.length+' unidad(es) JAC (tipo Compactador) en el contrato "'+_contratoNombre(contrato_id)+'"?\nNO toca la flota actual.'))return;
-  if(!(TIPOS_UNIDAD||[]).some(function(t){return (t.nombre||'').toLowerCase()==='compactador';})){
-    var tcomp={id:'TU'+Date.now()+'_c',nombre:'Compactador',mide:'viaje',activo:true};
-    TIPOS_UNIDAD.push(tcomp); if(DB_READY&&supabase)await supabase.from('tipos_unidad').upsert([tcomp],{onConflict:'id'});
+// Llena el select con las unidades del REGISTRO MAESTRO. `_unidadesAsegurar()` las pide
+// a la base si todavía no están: a esta pantalla se puede entrar derecho, sin pasar por
+// Mantenimiento, que es donde UNIDAD_CONFIG se carga lazy.
+function _fillUnidadSelectMC(){
+  var el=g('mc-uni-unidad'); if(!el)return;
+  function pintar(){
+    var us=_unidadesDelRegistro(), prev=el.value;
+    el.innerHTML='<option value="">— unidad —</option>'+us.map(function(u){
+      return '<option value="'+u.id+'">'+(u.placa||u.id)+(u.tipo?(' · '+u.tipo):'')+(u.contrato_id?(' — ya en '+_contratoNombre(u.contrato_id)):'')+'</option>';
+    }).join('');
+    if(prev)el.value=prev;
   }
-  var nuevos=faltan.map(function(p,i){return {id:'UN'+Date.now()+'_'+i,placa:p,tipo:'Compactador',descripcion:(FLOTA[p]&&FLOTA[p].chofer?'Chofer: '+FLOTA[p].chofer:''),estado:'operativa',contrato_id:contrato_id,activo:true};});
-  nuevos.forEach(function(r){UNIDADES.push(r);});
-  if(DB_READY&&supabase){ var res=await supabase.from('unidades').upsert(nuevos,{onConflict:'id'}); if(res&&res.error&&typeof mostrarToast==='function')mostrarToast('No se pudieron guardar las unidades: '+res.error.message,'error'); }
-  audit('Flota JAC importada a unidades',nuevos.length+' al contrato '+_contratoNombre(contrato_id));
-  renderUnidadesTabla();
-  if(typeof mostrarToast==='function')mostrarToast('✅ '+nuevos.length+' unidad(es) JAC creadas','exito');
+  pintar();
+  if(typeof _unidadesAsegurar==='function') _unidadesAsegurar().then(pintar).catch(function(){});
 }
-// Puente para desenredar los 2 registros de unidad: trae las de "Unidades y Equipos"
-// (unidad_config = registro maestro) a Operación/Contratos, sin re-tipear. Registrás una vez allá.
-async function importarUnidadesDeRegistro(){
+async function asignarContratoUnidadMC(){
+  var cam=gv('mc-uni-unidad'); if(!cam){alert('Elegí la unidad.');return;}
   var contrato_id=gv('mc-uni-contrato')||null;
-  var cams=(typeof _unidadesLista==='function')?_unidadesLista():Object.keys(UNIDAD_CONFIG||{});
-  cams=cams.filter(function(c){ var u=(UNIDAD_CONFIG||{})[c]||{}; return u.activo!==false; });
-  if(!cams.length){alert('No hay unidades en "Unidades y Equipos". Registralas primero ahí (es el registro maestro).');return;}
-  var faltan=cams.filter(function(c){ var u=(UNIDAD_CONFIG||{})[c]||{}; var ident=(u.placa||c);
-    return !(UNIDADES||[]).some(function(x){return (x.placa||'')===ident || (x.placa||'')===c;}); });
-  if(!faltan.length){alert('Todas las unidades de "Unidades y Equipos" ya están acá.');return;}
-  if(!confirm('Traer '+faltan.length+' unidad(es) de "Unidades y Equipos"'+(contrato_id?(' al contrato "'+_contratoNombre(contrato_id)+'"'):'')+'?\nRegistrás las unidades allá una sola vez; acá solo se enlazan a los contratos.'))return;
-  var nuevos=[];
-  for(var i=0;i<faltan.length;i++){
-    var c=faltan[i], u=(UNIDAD_CONFIG||{})[c]||{};
-    var tnombre=((u.tipo||'').trim())||'Unidad';
-    var tipo=(TIPOS_UNIDAD||[]).find(function(t){return (t.nombre||'').toLowerCase()===tnombre.toLowerCase();});
-    if(!tipo){ tipo={id:'TU'+Date.now()+'_'+i,nombre:tnombre,mide:'viaje',activo:true}; TIPOS_UNIDAD.push(tipo); if(DB_READY&&supabase)await supabase.from('tipos_unidad').upsert([tipo],{onConflict:'id'}); }
-    nuevos.push({id:'UN'+Date.now()+'_'+i,placa:(u.placa||c),tipo:tipo.nombre,descripcion:(u.chofer?('Chofer: '+u.chofer):('N° '+c)),estado:'operativa',contrato_id:contrato_id,activo:true});
+  if(!contrato_id){alert('Elegí el contrato. Para sacar una unidad de su contrato usá «quitar» en la tabla.');return;}
+  var ok=false;
+  if(DB_READY&&supabase){
+    try{
+      var r=await supabase.from('unidad_config').update({contrato_id:contrato_id}).eq('cam',cam);
+      // ⛔ El error se REPORTA. Un "listo" que no guardó deja a la persona creyendo que sí.
+      if(r&&r.error){ if(typeof mostrarToast==='function')mostrarToast('No se pudo asignar: '+r.error.message,'error'); }
+      else ok=true;
+    }catch(e){ if(typeof mostrarToast==='function')mostrarToast('Sin conexión al asignar el contrato','error'); }
   }
-  nuevos.forEach(function(r){UNIDADES.push(r);});
-  if(DB_READY&&supabase){ var res=await supabase.from('unidades').upsert(nuevos,{onConflict:'id'}); if(res&&res.error&&typeof mostrarToast==='function')mostrarToast('No se pudieron guardar: '+res.error.message,'error'); }
-  audit('Unidades traídas del registro maestro',nuevos.length+(contrato_id?(' → '+_contratoNombre(contrato_id)):''));
-  renderUnidadesTabla();
-  if(typeof mostrarToast==='function')mostrarToast('✅ '+nuevos.length+' unidad(es) traídas','exito');
+  if(ok&&typeof UNIDAD_CONFIG!=='undefined'&&UNIDAD_CONFIG&&UNIDAD_CONFIG[cam]) UNIDAD_CONFIG[cam].contrato_id=contrato_id;
+  audit('Contrato asignado a unidad',cam+' → '+_contratoNombre(contrato_id));
+  renderUnidadesTabla(); _fillUnidadSelectMC();
+  if(typeof mostrarToast==='function')mostrarToast(ok?'✅ Contrato asignado':'⚠️ No se guardó',ok?'exito':'error');
+}
+// QUITAR DEL CONTRATO — NO borra la unidad. Conserva el token: cambia a quién se le
+// factura esa unidad, y eso tiene que quedar con su motivo y su autor.
+function quitarContratoUnidadMC(cam){
+  var u=(typeof UNIDAD_CONFIG!=='undefined'&&UNIDAD_CONFIG)?(UNIDAD_CONFIG[cam]||{}):{};
+  if(!confirm('¿Quitar '+(u.placa||cam)+' del contrato "'+_contratoNombre(u.contrato_id)+'"?\n\nLa unidad NO se borra: sigue en «Unidades y Equipos».'))return;
+  solicitarToken('Quitar del contrato la unidad '+cam, async function(mot){
+    if(DB_READY&&supabase){
+      var r=await supabase.from('unidad_config').update({contrato_id:null}).eq('cam',cam);
+      if(r&&r.error){ if(typeof mostrarToast==='function')mostrarToast('No se pudo quitar: '+r.error.message,'error'); return; }
+    }
+    if(typeof UNIDAD_CONFIG!=='undefined'&&UNIDAD_CONFIG&&UNIDAD_CONFIG[cam]) UNIDAD_CONFIG[cam].contrato_id=null;
+    audit('Unidad quitada del contrato',String(cam));
+    renderUnidadesTabla(); _fillUnidadSelectMC();
+  },{op:'upd',tabla:'unidad_config',col:'cam',val:cam});
 }
 // Guardado genérico de una fila multi-contrato (upsert + error toast + cola offline). Devuelve ok.
 async function _mcGuardar(tabla,row){
