@@ -5770,7 +5770,7 @@ async function imprimirDashboard(){
   // Vencimientos (<=30 dias)
   var venc=[];
   Object.keys(DOCS_CAM).forEach(function(cam){var d=DOCS_CAM[cam];['seguro','circulacion','revision'].forEach(function(t){if(d[t]&&d[t].venc){var dr=diasHasta(d[t].venc);if(dr<=30)venc.push({txt:cam.replace('JAC-','')+' '+t,dias:dr});}});});
-  Object.keys(DOCS_EMP).forEach(function(eid){var d=DOCS_EMP[eid];var emp=EMPLEADOS.find(function(e){return e.id===eid;});if(!emp)return;['cedula','licencia','medico'].forEach(function(t){if(d[t]&&d[t].venc){var dr=diasHasta(d[t].venc);if(dr<=30)venc.push({txt:emp.nombre.split(' ')[0]+' '+t,dias:dr});}});});
+  Object.keys(DOCS_EMP).forEach(function(eid){var d=DOCS_EMP[eid];var emp=EMPLEADOS.find(function(e){return e.id===eid;});if(!emp)return;['cedula','licencia','medico'].forEach(function(t){if(d[t]&&d[t].venc){var dr=diasHasta(d[t].venc);if(dr<=30)venc.push({txt:nombreQueDistingue(emp.nombre,_nombresEmpleados())+' '+t,dias:dr});}});});
   venc.sort(function(a,b){return a.dias-b.dias;});
   var vencRows=venc.slice(0,12).map(function(a){return '<tr><td>'+a.txt+'</td><td style="text-align:right;color:'+(a.dias<0?'#dc2626':'#b45309')+';font-weight:700">'+(a.dias<0?'VENCIDO '+Math.abs(a.dias)+'d':'en '+a.dias+'d')+'</td></tr>';}).join('')||'<tr><td colspan="2" style="color:#15803d">Todo al día</td></tr>';
   // Alertas
@@ -6615,7 +6615,7 @@ function renderVencimientosDash(){
   var el=g('dash-venc');if(!el)return;
   var alertas=[];
   Object.keys(DOCS_CAM).forEach(function(cam){var d=DOCS_CAM[cam];['seguro','circulacion','revision'].forEach(function(t){if(d[t]&&d[t].venc){var dr=diasHasta(d[t].venc);if(dr<=30)alertas.push({txt:cam.replace('JAC-','')+' '+t,dias:dr});}});});
-  Object.keys(DOCS_EMP).forEach(function(eid){var d=DOCS_EMP[eid];var emp=EMPLEADOS.find(function(e){return e.id===eid;});if(!emp)return;['cedula','licencia','medico'].forEach(function(t){if(d[t]&&d[t].venc){var dr=diasHasta(d[t].venc);if(dr<=30)alertas.push({txt:emp.nombre.split(' ')[0]+' '+t,dias:dr});}});});
+  Object.keys(DOCS_EMP).forEach(function(eid){var d=DOCS_EMP[eid];var emp=EMPLEADOS.find(function(e){return e.id===eid;});if(!emp)return;['cedula','licencia','medico'].forEach(function(t){if(d[t]&&d[t].venc){var dr=diasHasta(d[t].venc);if(dr<=30)alertas.push({txt:nombreQueDistingue(emp.nombre,_nombresEmpleados())+' '+t,dias:dr});}});});
   alertas.sort(function(a,b){return a.dias-b.dias;});
   el.innerHTML=alertas.length?alertas.slice(0,5).map(function(a){return'<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid var(--border)"><span style="font-size:11px">'+a.txt+'</span>'+vencBadge(a.dias)+'</div>';}).join(''):'<div style="color:var(--green);font-size:12px;padding:8px">✓ Todo al dia</div>';
 }
