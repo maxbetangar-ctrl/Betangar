@@ -3537,6 +3537,47 @@ function clAlturaImposible(cm){
   var top=clAlturaMaxCm();
   return (top!=null && cm>top+CL_ALTURA_GRACIA_CM) ? top : false;
 }
+// ── LA CAPACIDAD en litros de esta unidad: es el ÚLTIMO valor de su propia tabla ──────
+// Hace falta para poder distinguir «el tope está corto» de «marcó LITROS en el campo de
+// CENTÍMETROS». El chofer no recibe la capacidad en la RPC, pero la tiene: son los litros
+// al tope de su tabla.
+function clCapacidadL(){
+  var T=CL_TANQUE_UNIDAD; if(!T||!T.tabla) return null;
+  var top=clAlturaMaxCm(); if(top==null) return null;
+  var v=T.tabla[top]; if(v==null) v=T.tabla[Math.floor(top)];
+  var n=parseFloat(v); return (isFinite(n)&&n>0)?n:null;
+}
+var CL_REGLA_MAX_CM = 260;     // = TQ_LIMITES.alto_cm.max de cubicacion.js
+// ⛔ «PASÓ EL TOPE» NO ES UNA SOLA COSA, Y TRATARLO COMO UNA SOLA ARRUINA EL AVISO.
+//   Medido el 07/10/2026 en FLOTILLA, la lectura más alta de cada unidad contra su tope:
+//   FC14 con 7.129 cm (tope 27) · FC01 con 600 (tope 67, y 600 L es su CAPACIDAD) ·
+//   FC16 con 525 (tope 83) · FL01 con 75 y FL02 con 76 (tope 48, capacidad 76,8 L).
+//   O sea: la gente teclea LITROS en el campo de CENTÍMETROS. Y al revés, el FC17 marcaba
+//   48 con el tope en 27 porque su regla DE VERDAD recorre 48. Son tres cosas distintas y
+//   cada una necesita otra pregunta — si entran por la misma puerta, el aviso a
+//   mantenimiento dice «la unidad está marcando 7.129 cm» y nadie le cree nunca más.
+//   Se distinguen por el DATO, no por un porcentaje inventado.
+function clClaseDeLectura(cm){
+  cm=parseFloat(cm); if(isNaN(cm)||cm<=0) return null;
+  var top=clAlturaMaxCm();
+  if(top==null || cm<=top+CL_ALTURA_GRACIA_CM) return null;      // dentro de lo normal
+  if(cm>CL_REGLA_MAX_CM) return {clase:'imposible', tope:top, cm:cm};
+  var cap=clCapacidadL();
+  if(cap!=null && Math.abs(cm-cap)<=cap*0.05) return {clase:'parece_litros', tope:top, cm:cm, cap:cap};
+  return {clase:'sobre_el_tope', tope:top, cm:cm};
+}
+function _clN(n){ return String(n).replace('.',','); }
+// El aviso MIENTRAS escribe. De USTED, como en toda la casa — acá decía «Tu tanque» en
+// cuatro de los seis repos.
+function clAvisoLectura(cm){
+  var c=clClaseDeLectura(cm); if(!c) return null;
+  if(c.clase==='imposible') return {color:'#ff5c5c',
+    html:'⚠️ <b>'+_clN(c.cm)+' cm</b> son '+_clN(Math.round(c.cm/10)/10)+' metros: esa no puede ser la medida de una regla. Revise el número.'};
+  if(c.clase==='parece_litros') return {color:'#ff5c5c',
+    html:'⚠️ Acá van los <b>CENTÍMETROS que marca la regla</b>, no los litros — y el tanque de esta unidad tiene <b>'+_clN(c.cap)+' L</b>. La regla llega hasta '+_clN(c.tope)+' cm.'};
+  return {color:'#ef9f27',
+    html:'⚠️ La regla de esta unidad está configurada hasta <b>'+_clN(c.tope)+' cm</b> y usted marcó '+_clN(c.cm)+'. Si la regla llega a eso, al guardar le preguntamos y avisamos para que corrijan la configuración.'};
+}
 function clLitrosJac(cm){
   cm=parseFloat(cm); if(isNaN(cm)||cm<0)return 0;
   var T=CL_TANQUE_UNIDAD;
@@ -3573,10 +3614,11 @@ function clCalcLitrosCm(momento){
   var box=document.getElementById('cl-cm-'+momento+'-l');
   if(!box)return;
   // El aviso sale MIENTRAS escribe, no al guardar: si se le fue la coma lo ve en el momento.
-  var _imp=clAlturaImposible(v);
-  if(_imp!==false){
-    box.style.color='#ff5c5c';
-    box.innerHTML="⚠️ Acá van los <b>CENTÍMETROS que marca la regla</b>, no los litros. Su tanque mide "+String(_imp).replace(".",",")+" cm de alto.";
+  // Y DICE DE QUÉ SE TRATA: pasarse por poco (el tope puede estar corto) no es lo mismo que
+  // escribir los litros, ni que escribir un número que no es de este mundo.
+  var _av=clAvisoLectura(v);
+  if(_av){
+    box.style.color=_av.color; box.innerHTML=_av.html;
     return;
   }
   var l=clLitrosJac(v);
@@ -3632,12 +3674,27 @@ async function _guardarChecklist(){
     var _cmEl=document.getElementById(_cmId); if(_cmEl){ try{_cmEl.focus();_cmEl.scrollIntoView({block:'center'});}catch(e){} }
     return;
   }
-  // Se RECHAZA, no se topa: el checklist no se guarda hasta que la medida entre en el tanque.
-  var _cmTope = clAlturaImposible(_cmVal);
-  if(_cmTope!==false){
-    mostrarToast('Acá van los CENTÍMETROS de la regla, no los litros. Su tanque mide '+String(_cmTope).replace('.',',')+' cm de alto.','warn');
-    var _cmEl2=document.getElementById(_cmId); if(_cmEl2){ try{_cmEl2.focus();_cmEl2.select();_cmEl2.scrollIntoView({block:'center'});}catch(e){} }
-    return;
+  // ⛔ TRES CASOS, Y CADA UNO PIDE OTRA PREGUNTA. Ver `clClaseDeLectura`.
+  // 🔴 Y ACÁ SE RECHAZABA TODO CON UN `return` SECO: con el tope mal cargado el chofer NO
+  //    podía cerrar su jornada salvo anotando un número MÁS BAJO — o sea, una medición
+  //    inventada con cara de buena, que es lo peor que puede entrar. Eso se convirtió en una
+  //    PREGUNTA en flotilla-app el 12/09/2026 y nunca llegó a los otros cinco repos: un
+  //    arreglo en una sola instancia no es un arreglo.
+  //    [[norma-arreglo-en-una-es-arreglo-en-todas-misma-sesion]]
+  var _cls = clClaseDeLectura(_cmVal);
+  if(_cls){
+    var _volverAlCm=function(){ var e=document.getElementById(_cmId); if(e){ try{e.focus();e.select();e.scrollIntoView({block:'center'});}catch(err){} } };
+    if(_cls.clase==='imposible'){
+      // Lo único que NO se guarda ni preguntando: 2,6 m no es la profundidad de ningún tanque
+      // de camión, así que no hay lectura de regla que defender — es un número mal escrito, y
+      // guardarlo ensucia el historial que después usa el aviso para decidir.
+      mostrarToast('Escribió '+_clN(_cls.cm)+' cm, que son '+_clN(Math.round(_cls.cm/10)/10)+' metros. Esa no puede ser la medida de la regla: revise el número.','warn');
+      _volverAlCm(); return;
+    }
+    var _preg = (_cls.clase==='parece_litros')
+      ? ('Escribió '+_clN(_cls.cm)+' en CENTÍMETROS, y el tanque de '+cam+' tiene '+_clN(_cls.cap)+' litros.\n\n¿No marcó los LITROS en vez de los centímetros de la regla?\n\nSi la regla de verdad marca '+_clN(_cls.cm)+' cm, toque Aceptar.')
+      : ('Según la configuración, la regla del tanque de '+cam+' llega hasta '+_clN(_cls.tope)+' cm, y usted marcó '+_clN(_cls.cm)+' cm.\n\n¿Seguro que esa es la medida de la regla?\n\nSi es correcta, toque Aceptar: se guarda su medida REAL y avisamos para que corrijan la configuración del tanque.');
+    if(!window.confirm(_preg)){ _volverAlCm(); return; }
   }
 
   // ⛔ EL NIVEL DE COMBUSTIBLE AL LLEGAR ES OBLIGATORIO.
