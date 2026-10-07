@@ -1071,6 +1071,49 @@ function resetCola(){ app.COLA_OFFLINE=[]; app.COLA_FALLIDOS=[]; app._procesando
   eq('ya no queda nada por facturar', +app._cxpFacturablePendiente(deuda).toFixed(2), 0);
   eq('deuda = solo el neto de las dos facturas', deuda.neto_pagar, 104);
   eq('dos facturas cuelgan de la misma orden', app._cxpFacturasDe('CXP1').length, 2);
+  console.log('\nDiferencia de TASA entre la orden y la factura (lo reportó Alejandra, 05/10/2026):');
+  // ⛔ EL CASO REAL, con los números tal cual están en la base. La orden se pacta en dólares;
+  //    la factura llega en BOLÍVARES a su propia tasa. Al convertirla, la base facturada cae
+  //    unos céntimos por debajo de lo pactado — y eso NO es mercancía sin facturar: es la tasa.
+  //    Antes esos céntimos quedaban como deuda eterna: la factura se pagaba COMPLETA en
+  //    bolívares y la cuenta seguía 'pendiente' porque el saldo se mide en dólares.
+  // Mangueras Perijá, OS-2026-0073 · factura F-00000339 (cubre también la OS-2026-0079).
+  const mp = { id: 'CXPMP', base_usd: 24.96, neto_pagar: 25.95, total_usd: 28.93, orden_id: 'OS-2026-0073' };
+  app.CXP = [mp]; app.CXP_PAGOS = [];
+  app.CXP_FACTURAS = [{ id: 'F49', cxp_id: 'CXPMP', nro_factura: 'F-00000339', fecha: '2026-09-22',
+    base_bs: 42552.30, iva_pct: 16, iva_bs: 6808.37, ret_iva_bs: 5106.28, ret_islr_bs: 0, neto_bs: 44254.39, tasa_val: 857.88 }];
+  app.CXP_FAC_LINEAS = [{ id: 49, factura_id: 'F49', cxp_id: 'CXPMP', orden_id: 'OS-2026-0073',
+    base_bs: 21276.15, iva_bs: 3404.19, ret_iva_bs: 2553.14, ret_islr_bs: 0, neto_bs: 22127.20, tasa_val: 857.88 }];
+  app._aplicarFacturasACxp(mp);
+  eq('la deuda queda en el neto de la factura, sin los céntimos de tasa', mp.neto_pagar, 25.79);
+  // Se paga lo que dice la factura: 22.127,20 Bs, que a su tasa son 25,79 USD.
+  app.CXP_PAGOS = [{ id: 91, cxp_id: 'CXPMP', fecha: '2026-09-22', monto_bs: 22127.20, tasa_val: 857.88, monto_usd: 25.79 }];
+  ok('pagada la factura, NO queda saldo', Math.abs(app._cxpSaldoUsd(mp)) <= 0.005);
+  app._aplicarFacturasACxp(mp);
+  eq('y la cuenta se marca PAGADA sola', mp.estado, 'pagada');
+
+  // INCONSUMMCA, OS-2026-0126 · factura F-0000349 (cubre también la 114 y la 115). Con ISLR.
+  const ic = { id: 'CXPIC', base_usd: 150, neto_pagar: 153, total_usd: 173.97, orden_id: 'OS-2026-0126' };
+  app.CXP = [ic]; app.CXP_PAGOS = [];
+  app.CXP_FACTURAS = [{ id: 'F50', cxp_id: 'CXPIC', nro_factura: 'F-0000349', fecha: '2026-09-29',
+    base_bs: 257927.15, iva_pct: 16, iva_bs: 41268.34, ret_iva_bs: 30951.26, ret_islr_bs: 5158.54, neto_bs: 263085.69, tasa_val: 974.71 }];
+  app.CXP_FAC_LINEAS = [{ id: 50, factura_id: 'F50', cxp_id: 'CXPIC', orden_id: 'OS-2026-0126',
+    base_bs: 145996.50, iva_bs: 23359.44, ret_iva_bs: 17519.58, ret_islr_bs: 2919.93, neto_bs: 148916.43, tasa_val: 974.71 }];
+  app._aplicarFacturasACxp(ic);
+  eq('con retención de ISLR también: la deuda es el neto facturado', ic.neto_pagar, 152.78);
+
+  // ⚠️ CONTROL POSITIVO — el margen NO puede tapar una facturación parcial de verdad.
+  //    Sin esta prueba, poner el margen demasiado ancho perdonaría mercancía sin facturar
+  //    y la deuda desaparecería sin que nadie la pagara, que es justo lo que arregló el 02/08.
+  const pp = { id: 'CXPPP', base_usd: 100, neto_pagar: 100, total_usd: 100, orden_id: 'OS-P' };
+  app.CXP = [pp]; app.CXP_PAGOS = [];
+  app.CXP_FACTURAS = [{ id: 'FP', cxp_id: 'CXPPP', nro_factura: 'F-P', fecha: '2026-09-01',
+    base_bs: 9800, iva_pct: 16, iva_bs: 1568, ret_iva_bs: 1176, ret_islr_bs: 0, neto_bs: 10192, tasa_val: 100 }];
+  app.CXP_FAC_LINEAS = [{ id: 60, factura_id: 'FP', cxp_id: 'CXPPP', orden_id: 'OS-P',
+    base_bs: 9800, iva_bs: 1568, ret_iva_bs: 1176, ret_islr_bs: 0, neto_bs: 10192, tasa_val: 100 }];
+  app._aplicarFacturasACxp(pp);
+  // Pactado $100, facturado $98 → faltan $2 y el margen es $1: SIGUE siendo deuda.
+  eq('faltan $2 de mercancía (fuera del margen): sigue debiendo', pp.neto_pagar, 103.92);
 
   console.log('\nUna factura, varias órdenes:');
   // 3 órdenes de $50 c/u. Una sola factura cubre DOS y deja la tercera debiendo.

@@ -15894,7 +15894,19 @@ function _aplicarFacturasACxp(c,cb){
     var _pactadoTraeIva=(a.total>a.base) && Math.abs(base-a.total)<=_margen;
     // Si lo pactado ya traía el IVA y calza con el total, no falta nada por facturar. La
     // diferencia que quede es de tasa, no de mercancía, y no es una deuda.
-    var sinFacturar=_pactadoTraeIva ? 0 : Math.max(0, base-a.base);   // lo pactado que el proveedor todavía no facturó
+    // ⛔ Y EL MISMO MARGEN VALE PARA LA BASE — lo reportó Alejandra el 05/10/2026 y es la
+    //    SEGUNDA vez con este mecanismo (la 1ª fue el 25/08, también con Mangueras Perijá).
+    //    El 26/08 el margen se puso SOLO en el test de arriba. Cuando lo pactado viene SIN IVA
+    //    —el caso normal— cada céntimo de diferencia de TASA entre la orden y la factura se
+    //    quedaba como «mercancía que el proveedor todavía no facturó». Eso es deuda que NO
+    //    EXISTE y que nadie puede pagar: la factura se salda al céntimo en bolívares y la
+    //    cuenta igual se queda 'pendiente' para siempre, porque el saldo se mide en dólares.
+    //    Medido en Betangar el 07/10: las 5 cuentas que ella nombró (OS-73 y OS-79 de Mangueras
+    //    Perijá; OS-114, OS-115 y OS-126 de INCONSUMMCA) con US$ 0,71 de saldo fantasma entre
+    //    todas, y NINGUNA otra de las 93 con abono. Una diferencia DENTRO del margen es de
+    //    TASA, no de mercancía: no es deuda. Fuera del margen sigue siendo facturación parcial.
+    var _faltaBase=base-a.base;
+    var sinFacturar=(_pactadoTraeIva||_faltaBase<=_margen) ? 0 : _faltaBase;   // lo pactado que el proveedor todavía no facturó
     c._pactadoTraeIva=_pactadoTraeIva;   // para poder DECIRLO en pantalla, no adivinarlo
     upd={iva_pct:a.ivaPct||16, iva_usd:+a.iva.toFixed(2),
          total_usd:+(a.total+sinFacturar).toFixed(2), ret_iva_usd:+a.retIva.toFixed(2), ret_islr_usd:+a.retIslr.toFixed(2),
