@@ -857,7 +857,7 @@ function avisarPermisosAlArrancar(){
         var fila = document.createElement('div');
         fila.style.cssText = 'margin:4px 0';
         fila.innerHTML = '⚠️ <b>Este teléfono tiene bloqueada ' + que + '.</b> '
-          + '<a href="#" style="color:#ffd9c4;text-decoration:underline">Ver cómo arreglarlo</a> — mejor hacelo ahora, antes de salir.';
+          + '<a href="#" style="color:#ffd9c4;text-decoration:underline">Ver cómo arreglarlo</a> — mejor hágalo ahora, antes de salir.';
         fila.querySelector('a').onclick = function(ev){
           ev.preventDefault();
           if(hayMWPermiso()) MWPermiso.explicar(tipo, function(html){ fila.innerHTML = html; });
