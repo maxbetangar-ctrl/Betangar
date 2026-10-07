@@ -5129,6 +5129,41 @@ function kmActualCam(cam){
 // local, así que no la mueve ni el huso ni el horario de verano). OJO con el orden de los
 // argumentos: `_diasEntre(a,b)` devuelve b − a. [[norma-la-hora-es-la-del-negocio-no-la-del-servidor]]
 function diasDesde(f){if(!f)return 9999;var d=_diasEntre(String(f).slice(0,10),fechaVE());return isNaN(d)?9999:d;}
+// ═══ COMO SE NOMBRA A UNA PERSONA EN UNA LISTA — FUENTE UNICA ═══════════════════
+// 🔴 07/10/2026. Nacio en Geppetto: la Profesora de Robotica, que ve las 4 aulas
+//    juntas, no podia distinguir dos «Maximo» ni dos «Annie» porque las listas
+//    mostraban UNA sola palabra del nombre. Medido despues en los negocios, es PEOR:
+//      Betangar  60 empleados -> «JOSE» x4, «LUIS» x3, y 6 choques en total
+//      Tony Gas  69 empleados -> 6 choques
+//      FLOTILLA  22 empleados -> «JOSE GREGORIO» x2
+//    Elegir el chofer equivocado para un camion, o no saber a cual LUIS se le vence
+//    la licencia, no es un detalle de pantalla.
+//
+// ⛔ NINGUN FORMATO FIJO ALCANZA, y eso se midio, no se supuso:
+//      2 palabras  -> Betangar 0 choques, pero Tony Gas choca
+//                     (JULIO CESAR LEAL | JULIO CESAR LOPEZ)
+//      1a + 3a     -> Tony Gas 0, pero Betangar choca
+//                     (LUIS ALEJANDRO FERNANDEZ FERRER | LUIS HERMANO FERNANDEZ FERRER: hermanos)
+//      completo    -> 0 choques pero 34-37 chars: parte el diseno de un chip
+//    Por eso NO se elige un formato: se alarga SOLO LO NECESARIO. Dos palabras
+//    siempre, y una mas cada vez que todavia choque con otro de la lista.
+//    Donde nadie se parece, el nombre queda corto; donde dos se parecen, crece —
+//    y esa irregularidad es justo donde hace falta.
+function nombreQueDistingue(nombre, universo){
+  var pal=String(nombre||'').trim().split(' ').filter(Boolean);
+  if(!pal.length)return '';
+  var mio=pal.join(' ').toLowerCase();
+  var otros=(universo||[]).map(function(n){return String(n||'').trim().split(' ').filter(Boolean);})
+    .filter(function(p){return p.length&&p.join(' ').toLowerCase()!==mio;});
+  for(var k=2;k<=pal.length;k++){
+    var corto=pal.slice(0,k).join(' ').toLowerCase();
+    var choca=otros.some(function(p){return p.slice(0,k).join(' ').toLowerCase()===corto;});
+    if(!choca)return pal.slice(0,k).join(' ');
+  }
+  // Dos personas con el MISMO nombre completo: no hay nada mas que decir con el nombre.
+  return pal.join(' ');
+}
+function _nombresEmpleados(){try{return (EMPLEADOS||[]).map(function(e){return e.nombre;});}catch(e){return [];}}
 function diasHasta(f){if(!f)return 9999;var d=_diasEntre(fechaVE(),String(f).slice(0,10));return isNaN(d)?9999:d;}
 function addDays(d,n){var x=new Date(d);x.setDate(x.getDate()+n);return x.toISOString().split('T')[0];}
 function vencBadge(dr){
@@ -17541,7 +17576,7 @@ function renderDocAlertas(){
     var emp=EMPLEADOS.find(function(e){return e.id===eid;});if(!emp)return;
     ['cedula','licencia','medico'].forEach(function(tipo){
       var d=DOCS_EMP[eid][tipo];if(!d||!d.venc)return;
-      var dr=diasHasta(d.venc);var label=emp.nombre.split(' ')[0]+' — '+tipo;
+      var dr=diasHasta(d.venc);var label=nombreQueDistingue(emp.nombre,_nombresEmpleados())+' — '+tipo;
       if(dr<0)vencidos.push({label:label,dr:dr,badge:vencBadge(dr)});
       else if(dr<=30)proximos.push({label:label,dr:dr,badge:vencBadge(dr)});
     });
@@ -26160,7 +26195,7 @@ function autoAyudantes(cam){
       sg.appendChild(lbl);
       sugeridos.forEach(function(s){
         var btn=document.createElement('span');
-        btn.textContent=s.nombre.split(' ')[0];
+        btn.textContent=nombreQueDistingue(s.nombre,_nombresEmpleados());
         btn.title=s.nombre+' (asignado a '+cam+')';
         btn.style.cssText='cursor:pointer;background:rgba(29,158,117,.2);border:1px solid rgba(29,158,117,.5);border-radius:20px;padding:2px 8px;font-size:10px;color:var(--teal);margin:1px;font-weight:700';
         btn.onclick=(function(nom,num){return function(){
@@ -30652,7 +30687,7 @@ function renderInteligenciaFlota(){
     var malos=sc.rows.filter(function(r){return r.score<70;});
     cards.push(_intelCard(malos.length?'#ef4444':'#22c55e','🧑‍✈️ Salud del conductor',
       malos.length?(malos.length+' conductor(es) en rojo'):(sc.rows.length?'Todos en verde/amarillo':'Sin datos aún'),
-      malos.length?('Capacitar/revisar: '+malos.slice(0,3).map(function(r){return r.nombre.split(' ')[0]+' ('+r.score+')';}).join(', ')):'✓ Sin conductores críticos',
+      malos.length?('Capacitar/revisar: '+malos.slice(0,3).map(function(r){return nombreQueDistingue(r.nombre,_nombresEmpleados())+' ('+r.score+')';}).join(', ')):'✓ Sin conductores críticos',
       "sp('empleados')"));
   }catch(e){}
   el.innerHTML=cards.length?('<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px">'+cards.join('')+'</div>'):'';
