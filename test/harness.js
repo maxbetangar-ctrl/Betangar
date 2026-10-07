@@ -12,6 +12,11 @@ const moneyCode = fs.readFileSync(path.join(__dirname, '..', 'money.js'), 'utf8'
 // era el entorno de prueba, que no se parecía a la página. Cuando la página suma un <script>, el
 // harness tiene que sumarlo también o los tests corren contra un navegador que no existe.
 const excelCode = fs.readFileSync(path.join(__dirname, '..', 'maxware-excel.js'), 'utf8');
+// `cubicacion.js` lo carga app.html (linea 3086) y el harness NO lo cargaba: `tablaCubicacion` y
+// `volumenHasta` quedaban sin definir, asi que el motor del aforo —el que convierte la regla del
+// chofer en litros— no tenia UNA prueba. Es la misma leccion que la de maxware-excel de arriba, y
+// se pago el 07/10/2026 con el FC17: dos dias de un chofer peleando con la pantalla.
+const cubicacionCode = fs.readFileSync(path.join(__dirname, '..', 'cubicacion.js'), 'utf8');
 const code = fs.readFileSync(path.join(__dirname, '..', 'app.js'), 'utf8');
 
 const noop = function () {};
@@ -56,7 +61,9 @@ vm.createContext(sandbox);
 // money.js primero (igual que en app.html) → calcRetenciones/perfilRetencion quedan globales.
 try { vm.runInContext(moneyCode, sandbox, { filename: 'money.js' }); }
 catch (e) { if (process.env.HARNESS_DEBUG) console.error('[harness] money.js:', e.message); }
-// Mismo orden que app.html: los helpers de Excel antes que app.js, que los usa.
+// Mismo orden que app.html: cubicacion.js y los helpers de Excel antes que app.js, que los usa.
+try { vm.runInContext(cubicacionCode, sandbox, { filename: 'cubicacion.js' }); }
+catch (e) { if (process.env.HARNESS_DEBUG) console.error('[harness] cubicacion.js:', e.message); }
 try { vm.runInContext(excelCode, sandbox, { filename: 'maxware-excel.js' }); }
 catch (e) { if (process.env.HARNESS_DEBUG) console.error('[harness] maxware-excel.js:', e.message); }
 try {

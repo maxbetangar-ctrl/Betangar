@@ -112,12 +112,28 @@ function volumenHasta(forma, m, h){
   return area*L/1000;   // cm³ → litros
 }
 
-// Tabla cm → litros, de 1 en 1 cm hasta la altura máxima (incluye el tope aunque sea fraccionario).
-function tablaCubicacion(forma, m){
+// Tabla REGLA → litros. El índice es lo que LEE LA REGLA, no la altura del tanque.
+//
+// ⛔ POR QUÉ NO ES LO MISMO. La regla puede entrar en diagonal o por un cuello corrido, y
+//    entonces recorre MÁS que el alto del tanque: el FC17 tiene 27 cm de profundidad y su
+//    regla llega a 48. Los LITROS salen de la geometría (que es correcta) y el ÍNDICE es lo
+//    que la persona lee, así que la profundidad se escala:
+//        profundidad = alto × (lectura de la regla / recorrido de la regla)
+//
+// 🔴 Hasta el 07/10/2026 la tabla se armaba sobre el ALTO, y por eso la del FC17 llegaba a 27:
+//    todo lo que el chofer marcaba por encima —que era la medida BUENA— se quedaba sin litros.
+//    Lo reclamó Junior Gregorio: «no permite que nosotros podamos meter la medición exacta que
+//    da la regla». Tenía razón, y quien aforó también: eran dos mediciones, no una.
+//
+// `reglaCm` es OPCIONAL: sin él la tabla sale idéntica a antes (regla = alto), que es el caso
+// del tanque leído con la regla a plomo y tocando fondo.
+function tablaCubicacion(forma, m, reglaCm){
   var alto = (forma==='cilindro') ? (Number(m.diametro_cm)||0) : (Number(m.alto_cm)||0);
+  var regla = Number(reglaCm)||0; if(!(regla>0)) regla = alto;
+  var k = (regla>0) ? (alto/regla) : 1;        // 1 cm de REGLA = k cm de PROFUNDIDAD
   var t={};
-  for(var cm=1; cm<=Math.floor(alto); cm++) t[cm]=Math.round(volumenHasta(forma,m,cm)*100)/100;
-  if(alto>Math.floor(alto)) t[Math.round(alto*10)/10]=Math.round(volumenHasta(forma,m,alto)*100)/100;
+  for(var cm=1; cm<=Math.floor(regla); cm++) t[cm]=Math.round(volumenHasta(forma,m,cm*k)*100)/100;
+  if(regla>Math.floor(regla)) t[Math.round(regla*10)/10]=Math.round(volumenHasta(forma,m,regla*k)*100)/100;
   return t;
 }
 

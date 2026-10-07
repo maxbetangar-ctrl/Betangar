@@ -13752,8 +13752,56 @@ function tqCalcular(){
   pv.innerHTML='<b>Tope:</b> '+res.alto_max_cm+' cm → <b>'+res.litros_al_tope.toLocaleString('es-VE')+' L</b>'+difTxt+avisoRadio+
     '<br><b>Litros por cm:</b> fondo '+res.lcm_fondo+' · panza '+res.lcm_panza+' · arriba '+res.lcm_arriba+
     (recta?' <span style="color:var(--text3)">(iguales: es un tanque recto, y está bien que su tabla sea una recta)</span>':'')+
+    '<br>'+_tqAvisoRegla(f,m)+
     '<br><small style="color:var(--text3)">Se va a guardar como <b>calculada de medidas</b>: es geometría sobre el tanque real, otra categoría que una división — pero no es un aforo con bidón. El día que se afore, se reemplaza.</small>';
   bt.disabled=false;
+}
+// ⛔ EL RECORRIDO DE LA REGLA NO ES LA ALTURA DEL TANQUE, Y ES OTRA MEDICIÓN.
+//   `alto_cm` dice qué tan PROFUNDO es el tanque: con eso se calculan los LITROS.
+//   `altura_max_cm` dice hasta cuánto LLEGA LA REGLA con el tanque lleno: con eso se LEE la
+//   medición del chofer. La regla puede entrar en diagonal o por un cuello corrido y recorrer
+//   bastante más que el alto. Son dos mediciones, de dos personas y con dos instrumentos: el
+//   aforador tiene la cinta, el chofer tiene la regla.
+//
+// 🔴 POR QUÉ HIZO FALTA ESCRIBIRLO (07/10/2026). Hasta hoy `tqGuardar()` hacía
+//    `altura_max_cm: alto` dentro de un UPSERT DE LA FILA ENTERA, así que un re-aforo por
+//    geometría PISABA el recorrido de la regla. El 05/10 el FC17 pasó de 48 a 27: el chofer
+//    peleó dos días con la pantalla —«ustedes tienen un error gravísimo»—, el sistema le cantó
+//    150 L donde había 75, y la auditoría de esa unidad quedó 48 h sin un solo litro.
+// ⚠️ Y NO era un campo que faltara: en 11 de los 17 tanques de FLOTILLA ya estaba correctamente
+//    distinto, porque venía de la hoja de aforo del cliente. Lo rompía ESTE camino, y de paso
+//    borraba la evidencia de que estaba bien.
+//
+// ⇒ La geometría NO toca el recorrido de la regla. ÚNICA excepción: cuando el recorrido es un
+//   SUPUESTO —nadie lo midió y se asumió igual al alto—, porque ahí no hay medición que
+//   respetar. Y queda DICHO en `regla_origen`, no supuesto en silencio.
+//   [[norma-default-en-campo-que-se-declara]]
+//
+// ⚠️ UNA SOLA FUENTE para la pantalla y para el guardado: si el preview lo calculara aparte,
+//    la pantalla podría prometer un tope y el upsert escribir otro.
+function _tqRegla(prev, f, m){
+  var alto=(f==='cilindro')?(Number(m.diametro_cm)||0):(Number(m.alto_cm)||0);
+  var cmPrev=prev?parseFloat(prev.altura_max_cm):NaN;
+  var origen=(prev&&prev.regla_origen)||'';
+  // Fila vieja sin `regla_origen` (base donde todavía no corrió la migración): se deduce de lo
+  // único que hay — si el recorrido coincidía con el alto de ESA medición, era un supuesto.
+  if(!origen && prev && cmPrev>0){
+    var altoPrev=parseFloat((prev.forma==='cilindro')?prev.diametro_cm:prev.alto_cm);
+    origen=(altoPrev>0&&Math.abs(altoPrev-cmPrev)<0.05)?'supuesto_igual_al_alto':'medido_con_la_regla';
+  }
+  var medida=(cmPrev>0)&&(origen!=='supuesto_igual_al_alto');
+  return medida ? {cm:cmPrev, origen:origen||'medido_con_la_regla', medida:true}
+                : {cm:alto,   origen:'supuesto_igual_al_alto',      medida:false};
+}
+// Lo que se le DICE a quien está aforando, antes de que toque Guardar.
+function _tqAvisoRegla(f,m){
+  var r=_tqRegla(window._tqExistente,f,m);
+  var cm=String(r.cm).replace('.',',');
+  if(r.medida) return '<b>Regla:</b> recorre <b>'+cm+' cm</b> ('+_mEsc(String(r.origen).replace(/_/g,' '))+
+    ') y <b>no se toca</b>: la tabla se indexa por ahí, no por el alto.';
+  return '<span style="color:var(--yellow)">⚠️ <b>Nadie midió la regla de esta unidad.</b> Se va a '+
+    'suponer que recorre los '+cm+' cm del alto. Si el chofer marca más que eso, es que la regla '+
+    'recorre más: que lo reporte en vez de pensar que la app está mala.</span>';
 }
 async function tqGuardar(){
   var cam=window._tqCam, f=gv('tq-forma')||'redondeado', m=window._tqMedidasCalc, cap=_tqNum('tq-cap');
@@ -13764,14 +13812,16 @@ async function tqGuardar(){
   var _impG=(typeof medidaImposible==='function')?medidaImposible(f,m):null;
   if(_impG){ mostrarToast('No se guarda: '+_impG,'error'); return; }
   if(!(DB_READY&&supabase)){ mostrarToast('Sin conexión a la base','error'); return; }
-  var tabla=tablaCubicacion(f,m);
   var alto=(f==='cilindro')?m.diametro_cm:m.alto_cm;
   var total=volumenHasta(f,m,alto);
   var prev=window._tqExistente;
+  // El recorrido de la regla NO se pisa con el alto: ver `_tqRegla` arriba.
+  var reg=_tqRegla(prev,f,m);
+  var tabla=tablaCubicacion(f,m,reg.cm);
   var row={
     id:(prev&&prev.id)||('tanque-'+String(cam).toLowerCase()),
     nombre:'Tanque de '+cam, tipo:'vehiculo', vehiculo_id:cam,
-    capacidad_litros:Math.round(total*100)/100, altura_max_cm:alto,
+    capacidad_litros:Math.round(total*100)/100, altura_max_cm:reg.cm, regla_origen:reg.origen,
     tabla_cubicacion:tabla, forma:f, tabla_origen:'calculada_de_medidas',
     tabla_desde:new Date().toISOString(), activo:true,
     ancho_cm:m.ancho_cm||null, alto_cm:m.alto_cm||null, largo_cm:m.largo_cm||null,

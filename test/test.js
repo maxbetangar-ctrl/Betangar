@@ -1115,6 +1115,61 @@ function resetCola(){ app.COLA_OFFLINE=[]; app.COLA_FALLIDOS=[]; app._procesando
   // Pactado $100, facturado $98 → faltan $2 y el margen es $1: SIGUE siendo deuda.
   eq('faltan $2 de mercancía (fuera del margen): sigue debiendo', pp.neto_pagar, 103.92);
 
+  console.log('\nLa REGLA no es el ALTO del tanque (lo reportó Junior, 07/10/2026):');
+  // ⛔ EL CASO REAL. FC17: el tanque tiene 27 cm de profundidad (51 × 27 × 109 ≈ 150 L) y su
+  //    regla llega a 48 cm. Los LITROS salen de la geometría; el ÍNDICE, de lo que lee la regla.
+  //    Antes la tabla se armaba sobre el alto, así que todo lo que él marcaba por encima de 27
+  //    —que era la medida buena— se quedaba sin litros, y lo de abajo se convertía con la
+  //    escala equivocada: 24 cm se guardaron como 133,37 L cuando eran 75.
+  const fc17 = { ancho_cm: 51, alto_cm: 27, largo_cm: 109, radio_cm: 1 };
+  const t48 = app.tablaCubicacion('redondeado', fc17, 48);
+  eq('la tabla llega hasta donde llega la REGLA, no hasta el alto', Object.keys(t48).length, 48);
+  eq('tanque lleno: 48 cm de regla = los 150 L medidos', t48[48], 150);
+  // Los puntos que el chofer venía marcando y que la tabla vieja convertía bien.
+  ok('32 cm ≈ 100 L (lo que él llama tres cuartos)', Math.abs(t48[32] - 100) <= 0.3);
+  ok('24 cm ≈ 75 L — el tope corto los contaba como 133,37', Math.abs(t48[24] - 75) <= 0.3);
+  ok('42 cm ≈ 131,4 L, como decía la tabla vieja', Math.abs(t48[42] - 131.4) <= 0.3);
+  eq('por encima del alto del tanque la tabla NO se corta', [t48[30] > 0, t48[40] > 0], [true, true]);
+
+  // ⚠️ CONTROL POSITIVO de compatibilidad: sin recorrido de regla, la tabla sale IGUAL que antes.
+  //    Sin esto, el arreglo podría haber cambiado en silencio la tabla de los 16 tanques que
+  //    estaban bien.
+  const t27 = app.tablaCubicacion('redondeado', fc17);
+  eq('sin regla declarada: la tabla vuelve a ir hasta el alto', Object.keys(t27).length, 27);
+  eq('y el tope sigue dando los mismos litros', t27[27], 150);
+
+  // Un cajón es aritmética exacta —50 × 100 × h / 1000 = 5·h litros— así que sirve de patrón.
+  const caj = { ancho_cm: 50, alto_cm: 40, largo_cm: 100 };
+  eq('cajón sin regla: 20 cm de 40 es la mitad', app.tablaCubicacion('cajon', caj)[20], 100);
+  eq('cajón con regla de 80: 40 cm de REGLA son la mitad del TANQUE',
+    app.tablaCubicacion('cajon', caj, 80)[40], 100);
+  eq('cajón con regla de 80: el tope sigue siendo la capacidad',
+    app.tablaCubicacion('cajon', caj, 80)[80], 200);
+
+  console.log('\nUn aforo por geometría NO puede pisar el recorrido de la regla:');
+  // 🔴 LA REGRESIÓN, tal cual pasó el 05/10/2026: el FC17 tenía 48 y un re-aforo lo bajó a 27.
+  const prevMedida = { altura_max_cm: 48, regla_origen: 'tabla_del_cliente', alto_cm: 27, forma: 'redondeado' };
+  eq('con la regla MEDIDA, re-aforar no la toca', app._tqRegla(prevMedida, 'redondeado', fc17).cm, 48);
+  eq('y conserva de dónde salió', app._tqRegla(prevMedida, 'redondeado', fc17).origen, 'tabla_del_cliente');
+
+  // Si el recorrido era un SUPUESTO no hay medición que respetar: sigue al alto nuevo.
+  const fc17mas = { ancho_cm: 51, alto_cm: 30, largo_cm: 109, radio_cm: 1 };
+  eq('con la regla SUPUESTA, sí sigue al alto nuevo',
+    app._tqRegla({ altura_max_cm: 27, regla_origen: 'supuesto_igual_al_alto', alto_cm: 27, forma: 'redondeado' },
+      'redondeado', fc17mas).cm, 30);
+
+  // Tanque nuevo: nadie midió la regla, y queda DICHO que es un supuesto — no asumido en silencio.
+  eq('tanque nuevo: el recorrido es el alto, declarado como supuesto',
+    [app._tqRegla(null, 'redondeado', fc17).cm, app._tqRegla(null, 'redondeado', fc17).origen],
+    [27, 'supuesto_igual_al_alto']);
+
+  // Fila vieja de una base donde todavía no corrió la migración (sin `regla_origen`): se deduce
+  // de lo único que hay, y no se pisa lo que alguien midió.
+  eq('fila vieja con regla distinta del alto: se lee MEDIDA y se conserva',
+    app._tqRegla({ altura_max_cm: 48, alto_cm: 27, forma: 'redondeado' }, 'redondeado', fc17).cm, 48);
+  eq('fila vieja con regla IGUAL al alto: se lee supuesto y sigue al alto nuevo',
+    app._tqRegla({ altura_max_cm: 27, alto_cm: 27, forma: 'redondeado' }, 'redondeado', fc17mas).cm, 30);
+
   console.log('\nUna factura, varias órdenes:');
   // 3 órdenes de $50 c/u. Una sola factura cubre DOS y deja la tercera debiendo.
   const oA = { id: 'A', base_usd: 50, neto_pagar: 50, total_usd: 50, orden_id: 'OS-1' };
