@@ -155,17 +155,48 @@ function pintarReq(){
 //    pedida sea de la requisición de ese token antes de firmar nada.
 // ⚠️ La ventana se abre ANTES del await, en el gesto del dedo: después, el navegador
 //    del teléfono la bloquea por emergente y el documento no se ve nunca.
+// ⛔ EL PRESUPUESTO SE VE **ACÁ DENTRO**, NO EN OTRA PESTAÑA.
+//   Alejandra lo reclamó el 01/10/2026 (punto 10a: «al ingresar al link de aprobación no me deja
+//   ver la imagen cargada de los presupuestos») y el 08/09 antes de eso. Medido el 07/10 con sus
+//   datos reales (REQ-00024, Tumaca): la cadena del servidor funciona —`req_ver` devuelve
+//   `tiene_archivo: true` y `req-archivo` firma la URL con HTTP 200—. Lo frágil era el cliente:
+//   abría una PESTAÑA NUEVA, y en el teléfono eso se lo come el bloqueador de emergentes. Cuando
+//   `window.open` devolvía null, el código hacía `window.location.href=u`: o sea que se LLEVABA
+//   la pantalla de la firma a otra parte. Quien firma pierde la página y parece que no funcionó.
+// ⇒ Ahora la imagen se pinta debajo de la oferta, en la misma pantalla, y el mismo enlace la
+//   oculta. Un PDF no se puede incrustar en todos los teléfonos, así que ése sí va como enlace.
+// ⚠️ La URL se mete por el DOM (`img.src = u`), nunca armando HTML: la URL firmada lleva `?` y
+//   `&` y meterla en una cadena de HTML es pedir que un día se rompa por un escape.
 async function verPresupuesto(cotId){
-  var w=null; try{ w=window.open('','_blank'); }catch(e){}
-  if(w){ try{ w.document.write('<title>Presupuesto</title><p style="font:14px system-ui;padding:12px">Abriendo el presupuesto…</p>'); }catch(e){} }
+  var box = document.getElementById('pre-' + cotId);
+  // Segundo toque = se oculta. El enlace es un interruptor.
+  if(box && box.getAttribute('data-abierto') === '1'){
+    box.innerHTML=''; box.removeAttribute('data-abierto'); return;
+  }
+  if(box) box.innerHTML = '<div class="pd" style="margin-top:6px">Abriendo el presupuesto…</div>';
+  var u = null;
   try{
     var r = await supabase.functions.invoke('req-archivo', { body: { token: TOKREQ, cotizacion_id: cotId } });
-    var u = r && r.data && r.data.ok && r.data.url;
-    if(u){ if(w){ w.location.href=u; } else { window.location.href=u; } return; }
+    u = r && r.data && r.data.ok && r.data.url;
   }catch(e){}
-  // No se deja una pestaña en blanco: si no se pudo, se dice.
-  if(w){ try{ w.document.body.innerHTML='<p style="font:14px system-ui;padding:12px">No se pudo abrir el presupuesto. Avisá a quien cargó las ofertas.</p>'; }catch(e){ try{w.close();}catch(_){} } }
-  else { alert('No se pudo abrir el presupuesto.'); }
+  if(!u){
+    if(box) box.innerHTML = '<div class="pd" style="margin-top:6px;color:#fca5a5">No se pudo abrir el presupuesto. Avísele a quien cargó las ofertas.</div>';
+    else alert('No se pudo abrir el presupuesto.');
+    return;
+  }
+  if(!box){ window.location.href = u; return; }   // sin contenedor: no se deja sin ver
+  var esPdf = /\.pdf$/i.test(String(u).split('?')[0]);
+  box.innerHTML = ''; box.setAttribute('data-abierto','1');
+  if(esPdf){
+    var d = document.createElement('div'); d.className='pd'; d.style.marginTop='6px';
+    var a = document.createElement('a'); a.href=u; a.target='_blank'; a.rel='noopener';
+    a.style.color='#7dd3fc'; a.textContent='📄 Abrir el PDF del presupuesto';
+    d.appendChild(a); box.appendChild(d);
+  } else {
+    var img = document.createElement('img'); img.src=u; img.alt='Presupuesto';
+    img.style.cssText='margin-top:7px;width:100%;max-height:70vh;object-fit:contain;border-radius:8px;border:1px solid rgba(255,255,255,.15);background:#000';
+    box.appendChild(img);
+  }
 }
 
   var ofertas = (q.ofertas||[]).map(function(o){
@@ -184,7 +215,10 @@ async function verPresupuesto(cotId){
       //    esta página la abre cualquiera con el enlace.
       // ⚠️ `stopPropagation`: la oferta es un <label> que al tocarlo la SELECCIONA.
       //    Sin esto, abrir el presupuesto cambiaría la decisión sin que se note.
-      (o.tiene_archivo ? '<div class="pd" style="margin-top:6px"><a href="javascript:void(0)" onclick="event.stopPropagation();verPresupuesto(\'' + esc(o.id) + '\')" style="color:#7dd3fc">📄 Ver el presupuesto del proveedor</a></div>' : '') +
+      // ⚠️ El contenedor tambien lleva `stopPropagation`: vive DENTRO del <label> de la oferta,
+      //    asi que un toque en la imagen cambiaria la decision sin que se note.
+      (o.tiene_archivo ? ('<div class="pd" style="margin-top:6px"><a href="javascript:void(0)" onclick="event.stopPropagation();verPresupuesto(\'' + esc(o.id) + '\')" style="color:#7dd3fc">📄 Ver el presupuesto del proveedor</a></div>' +
+        '<div id="pre-' + esc(o.id) + '" onclick="event.stopPropagation()"></div>') : '') +
     '</label>';
   }).join('');
 

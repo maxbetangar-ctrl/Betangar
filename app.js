@@ -31803,7 +31803,9 @@ function reqKpis(){
 function reqPintarTablero(){
   var cont = g('req-cont');
   var vivos = REQS.filter(function(r){ return ['rechazada','anulada','cerrada','borrador'].indexOf(r.estado)<0; });
-  if(!vivos.length){
+  // ⚠️ Y el cartel de «no hay nada» tampoco puede comerse a los rechazados: si TODOS estuvieran
+  //    rechazados, antes se mostraba el vacío y seguían invisibles.
+  if(!vivos.length && !REQS.some(function(r){ return r.estado==='rechazada'; })){
     cont.innerHTML = '<div class="empty-state">Todavía no hay ningún '+_rqE(REQ_ETIQ.toLowerCase())+'.<br>'+
       '<span style="font-size:12px;color:var(--text3)">El botón «Pedir algo» arranca uno. También sale solo desde una falla del checklist.</span></div>';
     return;
@@ -31836,7 +31838,36 @@ function reqPintarTablero(){
     '</div>';
   }).join('');
 
-  cont.innerHTML = '<div style="display:grid;grid-template-columns:repeat('+REQ_COLS.length+',minmax(200px,1fr));gap:10px;overflow-x:auto;padding-bottom:6px">'+cols+'</div>';
+  // ⛔ UN RECHAZADO NO PUEDE DESAPARECER, Y DESAPARECÍA.
+  //   Lo reportó Alejandra el 01/10/2026, punto 10c: «al rechazar un requisitorio desaparece (no
+  //   se visualiza en el tablero), no debe ser». Tenía razón: el filtro de arriba saca 'rechazada'
+  //   de `vivos`, y como el tablero son columnas por estado, el pedido se esfumaba de la pantalla
+  //   — el dato seguía en la base, pero quien lo pidió veía que su pedido ya no estaba y no podía
+  //   saber si lo habían rechazado o si se había perdido.
+  //   ⚠️ NO van dentro del kanban: un rechazado no es trabajo pendiente y meterlo en una columna
+  //   lo haría contar como tal. Va en su propia sección, abajo, DICIENDO quién lo rechazó, cuándo
+  //   y con qué motivo — que es lo único que quien pidió necesita saber.
+  var rech = REQS.filter(function(r){ return r.estado==='rechazada'; })
+                 .sort(function(a,b){ return String(b.decidida_at||'').localeCompare(String(a.decidida_at||'')); });
+  var htmlRech = !rech.length ? '' : (
+    '<div class="card" style="margin-top:12px"><div class="sh"><div class="st">🚫 Rechazados</div>' +
+      '<span class="mono" style="font-size:11px;color:var(--text3)">' + rech.length + '</span></div>' +
+    rech.map(function(r){
+      var donde = r.cam || r.area || '';
+      return '<div onclick="reqAbrir(\'' + _rqE(r.id) + '\')" style="cursor:pointer;background:var(--bg2);border:1px solid var(--border);border-left:3px solid #ef4444;border-radius:8px;padding:9px 10px;margin-bottom:6px">' +
+        '<div style="display:flex;justify-content:space-between;gap:8px;font-size:10px;color:var(--text3)">' +
+          '<span class="mono">' + _rqE(r.codigo||'—') + '</span>' +
+          '<span>' + (r.decidida_at ? _rqF(r.decidida_at) : '') + '</span></div>' +
+        '<div style="font-weight:600;font-size:13px;margin:3px 0 4px;line-height:1.3">' + _rqE(reqResumen(r)) + '</div>' +
+        '<div style="font-size:11px;color:var(--text3)">' + _rqE(donde||'—') +
+          (r.decidida_por ? ' · lo rechazó <b>' + _rqE(r.decidida_por) + '</b>' : '') + '</div>' +
+        (r.decision_nota
+          ? '<div style="font-size:12px;color:var(--text2);margin-top:5px;border-left:2px solid var(--border);padding-left:7px">' + _rqE(r.decision_nota) + '</div>'
+          : '<div style="font-size:11px;color:var(--text3);margin-top:5px">Sin motivo escrito.</div>') +
+      '</div>';
+    }).join('') + '</div>');
+
+  cont.innerHTML = '<div style="display:grid;grid-template-columns:repeat('+REQ_COLS.length+',minmax(200px,1fr));gap:10px;overflow-x:auto;padding-bottom:6px">'+cols+'</div>' + htmlRech;
 }
 
 function reqResumen(r){
@@ -31931,6 +31962,21 @@ function reqPintarFicha(id){
         '<div class="mono" style="font-size:12px;color:var(--text3)">'+_rqE(r.codigo||'')+' · '+_rqE(REQ_EST_LBL[r.estado]||r.estado)+'</div>' +
       '</div>' +
       (r.consecuencia ? '<div style="border-left:3px solid '+u.c+';background:var(--bg2);padding:9px 12px;border-radius:0 8px 8px 0;margin-top:10px;font-size:13px"><b>Si no se hace:</b> '+_rqE(r.consecuencia)+'</div>' : '') +
+      // ⛔ LA NOTA DE QUIEN FIRMÓ SOLO SE VEÍA AL IMPRIMIR, Y ES LA INSTRUCCIÓN.
+      //   Lo reportó Alejandra el 01/10/2026, punto 10b: «al devolver a compras con una nota, no se
+      //   visualiza dicha nota». Tenía razón: `req_decidir` la guarda en `decision_nota` —al
+      //   devolver Y al rechazar— y en toda la aplicación aparecía en UN solo lugar: dentro de
+      //   `reqImprimir`. O sea que compras recibía el pedido de vuelta sin poder leer qué le
+      //   pidieron corregir, salvo que imprimiera el papel.
+      //   ⚠️ Devuelto (vuelve a 'tomada' con nota) se muestra como lo que es —una instrucción
+      //   pendiente, en ámbar—; rechazado, como constancia, en rojo.
+      (r.decision_nota ? ('<div style="border-left:3px solid '+(r.estado==='rechazada'?'#ef4444':'#f59e0b')+
+        ';background:var(--bg2);padding:9px 12px;border-radius:0 8px 8px 0;margin-top:10px;font-size:13px">'+
+        '<b>'+(r.estado==='rechazada'?'Por qué se rechazó':'Qué pidió corregir quien firma')+':</b> '+
+        _rqE(r.decision_nota)+
+        (r.decidida_por||r.decidida_at ? '<div style="font-size:11px;color:var(--text3);margin-top:4px">'+
+          _rqE(r.decidida_por||'')+(r.decidida_at?' · '+_rqF(r.decidida_at):'')+'</div>' : '')+
+        '</div>') : '') +
       '<div style="display:flex;overflow-x:auto;margin:16px 0 6px;padding-bottom:4px">'+tl+'</div>' +
     '</div></div>' +
     '<div class="card"><div class="sh"><div class="st">Qué se pidió</div></div>' +
