@@ -137,36 +137,18 @@ async function cargarReq(){
   }
 }
 
-function pintarReq(){
-  var q = REQ;
-  var u = URG[q.urgencia] || URG.cuando_se_pueda;
-  var donde = q.cam || q.area || (q.destino === 'patio' ? 'Patio' : (q.destino === 'inventario' ? 'Almacén' : ''));
-  var elegida = (q.ofertas||[]).filter(function(o){ return o.id === OFE_SEL; })[0] || {};
-
-  var renglones = (q.lineas||[]).map(function(l){
-    return '<div class="ren"><div>' + esc(l.item) +
-           (l.especificacion ? '<div class="of pd" style="padding:0;border:0;background:none;margin:2px 0 0">' + esc(l.especificacion) + '</div>' : '') +
-           (l.desde_almacen ? '<div class="alm">✓ sale del almacén, no se compra</div>' : '') +
-           '</div><div class="q">' + cant(l.cantidad) + ' ' + esc(l.unidad || '') + '</div></div>';
-  }).join('') || '<div class="msg" style="padding:10px">Sin renglones</div>';
-
-// ⛔ LA URL LA DA LA FUNCIÓN, NO ESTA PANTALLA. Acá no hay sesión: el token de la
-//    requisición es la autorización, y `req-archivo` comprueba que la cotización
-//    pedida sea de la requisición de ese token antes de firmar nada.
-// ⚠️ La ventana se abre ANTES del await, en el gesto del dedo: después, el navegador
-//    del teléfono la bloquea por emergente y el documento no se ve nunca.
-// ⛔ EL PRESUPUESTO SE VE **ACÁ DENTRO**, NO EN OTRA PESTAÑA.
-//   Alejandra lo reclamó el 01/10/2026 (punto 10a: «al ingresar al link de aprobación no me deja
-//   ver la imagen cargada de los presupuestos») y el 08/09 antes de eso. Medido el 07/10 con sus
-//   datos reales (REQ-00024, Tumaca): la cadena del servidor funciona —`req_ver` devuelve
-//   `tiene_archivo: true` y `req-archivo` firma la URL con HTTP 200—. Lo frágil era el cliente:
-//   abría una PESTAÑA NUEVA, y en el teléfono eso se lo come el bloqueador de emergentes. Cuando
-//   `window.open` devolvía null, el código hacía `window.location.href=u`: o sea que se LLEVABA
-//   la pantalla de la firma a otra parte. Quien firma pierde la página y parece que no funcionó.
-// ⇒ Ahora la imagen se pinta debajo de la oferta, en la misma pantalla, y el mismo enlace la
-//   oculta. Un PDF no se puede incrustar en todos los teléfonos, así que ése sí va como enlace.
-// ⚠️ La URL se mete por el DOM (`img.src = u`), nunca armando HTML: la URL firmada lleva `?` y
-//   `&` y meterla en una cadena de HTML es pedir que un día se rompa por un escape.
+// ⛔ UN `onclick=` DE UN ATRIBUTO HTML SOLO VE FUNCIONES DEL AMBITO GLOBAL.
+// 🔴 Alejandra Castillo, 08/10/2026, REQ-00008 de Tony Gas: «me dice *ver el presupuesto
+//    del proveedor* pero al darle click no hace nada, es decir no abre la imagen».
+//    `verPresupuesto` estaba declarada DENTRO de `pintarReq()` —escrita sin indentar, que
+//    es lo que engana al ojo— asi que no existia en el ambito global y el `onclick` del
+//    enlace tiraba `ReferenceError: verPresupuesto is not defined`: el toque no hacia NADA,
+//    ni un error a la vista. Por eso no se descubrio antes: la cadena del SERVIDOR estaba
+//    probada con datos reales (REQ-00024, Tumaca) y daba bien. Lo que no se probo fue EL TOQUE.
+// ⇒ Vive aca, al nivel superior, al lado de `elegirOferta` — que es global y por eso si
+//    funcionaba. Medido en el navegador contra el requisitorio real de Alejandra, con control
+//    positivo: `elegirOferta`/`pintarReq` daban "function" y `verPresupuesto` "undefined".
+// ⚠️ No usa nada local de `pintarReq`: `TOKREQ` y `supabase` son globales.
 async function verPresupuesto(cotId){
   var box = document.getElementById('pre-' + cotId);
   // Segundo toque = se oculta. El enlace es un interruptor.
@@ -198,6 +180,37 @@ async function verPresupuesto(cotId){
     box.appendChild(img);
   }
 }
+
+function pintarReq(){
+  var q = REQ;
+  var u = URG[q.urgencia] || URG.cuando_se_pueda;
+  var donde = q.cam || q.area || (q.destino === 'patio' ? 'Patio' : (q.destino === 'inventario' ? 'Almacén' : ''));
+  var elegida = (q.ofertas||[]).filter(function(o){ return o.id === OFE_SEL; })[0] || {};
+
+  var renglones = (q.lineas||[]).map(function(l){
+    return '<div class="ren"><div>' + esc(l.item) +
+           (l.especificacion ? '<div class="of pd" style="padding:0;border:0;background:none;margin:2px 0 0">' + esc(l.especificacion) + '</div>' : '') +
+           (l.desde_almacen ? '<div class="alm">✓ sale del almacén, no se compra</div>' : '') +
+           '</div><div class="q">' + cant(l.cantidad) + ' ' + esc(l.unidad || '') + '</div></div>';
+  }).join('') || '<div class="msg" style="padding:10px">Sin renglones</div>';
+
+// ⛔ LA URL LA DA LA FUNCIÓN, NO ESTA PANTALLA. Acá no hay sesión: el token de la
+//    requisición es la autorización, y `req-archivo` comprueba que la cotización
+//    pedida sea de la requisición de ese token antes de firmar nada.
+// ⚠️ La ventana se abre ANTES del await, en el gesto del dedo: después, el navegador
+//    del teléfono la bloquea por emergente y el documento no se ve nunca.
+// ⛔ EL PRESUPUESTO SE VE **ACÁ DENTRO**, NO EN OTRA PESTAÑA.
+//   Alejandra lo reclamó el 01/10/2026 (punto 10a: «al ingresar al link de aprobación no me deja
+//   ver la imagen cargada de los presupuestos») y el 08/09 antes de eso. Medido el 07/10 con sus
+//   datos reales (REQ-00024, Tumaca): la cadena del servidor funciona —`req_ver` devuelve
+//   `tiene_archivo: true` y `req-archivo` firma la URL con HTTP 200—. Lo frágil era el cliente:
+//   abría una PESTAÑA NUEVA, y en el teléfono eso se lo come el bloqueador de emergentes. Cuando
+//   `window.open` devolvía null, el código hacía `window.location.href=u`: o sea que se LLEVABA
+//   la pantalla de la firma a otra parte. Quien firma pierde la página y parece que no funcionó.
+// ⇒ Ahora la imagen se pinta debajo de la oferta, en la misma pantalla, y el mismo enlace la
+//   oculta. Un PDF no se puede incrustar en todos los teléfonos, así que ése sí va como enlace.
+// ⚠️ La URL se mete por el DOM (`img.src = u`), nunca armando HTML: la URL firmada lleva `?` y
+//   `&` y meterla en una cadena de HTML es pedir que un día se rompa por un escape.
 
   var ofertas = (q.ofertas||[]).map(function(o){
     return '<label class="of' + (o.id === OFE_SEL ? ' sel' : '') + '" onclick="elegirOferta(\'' + esc(o.id) + '\')">' +
