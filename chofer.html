@@ -767,6 +767,24 @@ var cam = '', chofer = '', hoy = '';
 var supabase = null;
 var isOnline = false;
 var VIAJES_HOY = {};   // {1:{hora,sincronizado}, ...}
+// ⛔ UN SOLO VALOR RARO EN LA COLA DEL TELÉFONO DEJA AL CHOFER SIN PODER REGISTRAR, Y NO SE VE.
+// 🔴 Junior Guerrero, FC17, 08/10/2026: «Error al registrar: Cannot read properties of null
+//    (reading 'id')». Registró 4 paradas de 6 y a las 09:41 se trancó; a las 10:21 mandó la
+//    foto del error y no volvió a entrar nada. El mecanismo: cuando el registro NO logra subir
+//    (sin señal, o el servidor lo rechaza) se llama `encolarEntrega`, que hace
+//    `COLA_ENT.filter(r => r.id !== row.id)`. Si la cola guardada trae un `null`, eso REVIENTA
+//    — y la excepción salta ANTES de encolar y ANTES del toast, así que el registro se pierde
+//    ENTERO con la foto ya subida. Y como la cola vive en localStorage, el valor malo vuelve en
+//    CADA arranque: el teléfono queda trancado hasta que alguien lo limpie a mano.
+// ⇒ Toda cola que se lee del teléfono se SANEA al cargar: lo que no es un objeto, afuera.
+//    Es el MECANISMO y no el caso: son DIEZ colas (entregas, surtidas, fotos, viajes,
+//    checklist, incidencias, asistencia, WhatsApp, bloqueos) y cualquiera tranca su camino.
+//    Reproducido en un navegador con control positivo: con la cola en [null] sale el error
+//    textual de Junior; con la cola vacía sale «Sin señal: guardado en el teléfono».
+function _colaSana(v){
+  if(!Array.isArray(v)) return [];
+  return v.filter(function(x){ return x && typeof x === 'object'; });
+}
 var COLA_LOCAL  = [];  // viajes offline pendientes
 
 // Estado checklist
@@ -2224,10 +2242,10 @@ async function entregaConfirmarRecepcion(){
 
 // Cola offline de entregas (upsert por id al reconectar).
 var COLA_ENT = [];
-function cargarColaEnt(){ try{ var s=localStorage.getItem('btg_cola_ent'); if(s) COLA_ENT=JSON.parse(s); }catch(e){ COLA_ENT=[]; } }
+function cargarColaEnt(){ try{ var s=localStorage.getItem('btg_cola_ent'); if(s) COLA_ENT=_colaSana(JSON.parse(s)); }catch(e){ COLA_ENT=[]; } }
 function persistColaEnt(){ try{ if(COLA_ENT.length) localStorage.setItem('btg_cola_ent',JSON.stringify(COLA_ENT)); else localStorage.removeItem('btg_cola_ent'); }catch(e){} }
 function encolarEntrega(row){
-  COLA_ENT = COLA_ENT.filter(function(r){ return r.id!==row.id; });
+  COLA_ENT = _colaSana(COLA_ENT).filter(function(r){ return r.id!==row.id; });
   COLA_ENT.push(row); persistColaEnt();
 }
 async function subirColaEntregas(){
@@ -2266,9 +2284,9 @@ async function subirColaEntregas(){
 var SUR_FOTO_FILE=null, SUR_GPS=null, SUR_GPS_FAILS=0, SUR_TANQUE=null, SUR_HOY=[];
 var SUR_TANQUE_LBL={galpon_1:'🛢️ Galpón 1', galpon_2:'🛢️ Galpón 2', estacion:'⛽ Estación de servicio'};
 var COLA_SUR=[];
-function cargarColaSur(){ try{ var s=localStorage.getItem('btg_cola_sur'); if(s) COLA_SUR=JSON.parse(s)||[]; }catch(e){ COLA_SUR=[]; } }
+function cargarColaSur(){ try{ var s=localStorage.getItem('btg_cola_sur'); if(s) COLA_SUR=_colaSana(JSON.parse(s)); }catch(e){ COLA_SUR=[]; } }
 function persistColaSur(){ try{ if(COLA_SUR.length) localStorage.setItem('btg_cola_sur',JSON.stringify(COLA_SUR)); else localStorage.removeItem('btg_cola_sur'); }catch(e){} }
-function surEncolar(row){ COLA_SUR=COLA_SUR.filter(function(r){return r.id!==row.id;}); COLA_SUR.push(row); persistColaSur(); }
+function surEncolar(row){ COLA_SUR=_colaSana(COLA_SUR).filter(function(r){return r.id!==row.id;}); COLA_SUR.push(row); persistColaSur(); }
 
 // ══════════════════════════════════════════════════════════════════════════════
 // SUBIDA DE FOTOS — punto ÚNICO. Antes, si el upload fallaba, la foto se guardaba
@@ -2282,7 +2300,7 @@ function surEncolar(row){ COLA_SUR=COLA_SUR.filter(function(r){return r.id!==row
 // ══════════════════════════════════════════════════════════════════════════════
 var COLA_FOTOS = [];
 var FOTOS_MAX_COLA = 25;   // el localStorage del teléfono no es infinito
-function cargarColaFotos(){ try{ var s=localStorage.getItem('btg_cola_fotos'); if(s)COLA_FOTOS=JSON.parse(s); }catch(e){ COLA_FOTOS=[]; } }
+function cargarColaFotos(){ try{ var s=localStorage.getItem('btg_cola_fotos'); if(s)COLA_FOTOS=_colaSana(JSON.parse(s)); }catch(e){ COLA_FOTOS=[]; } }
 function persistColaFotos(){
   try{
     while(COLA_FOTOS.length>FOTOS_MAX_COLA) COLA_FOTOS.shift();
@@ -2821,7 +2839,7 @@ function pedirBackgroundSync(tag){
 function cargarColaLocal(){
   try{
     var s = localStorage.getItem('btg_cola_chofer');
-    if(s) COLA_LOCAL = JSON.parse(s);
+    if(s) COLA_LOCAL = _colaSana(JSON.parse(s));
   }catch(e){ COLA_LOCAL = []; }
 }
 
@@ -2863,12 +2881,12 @@ function limpiarRegViaje(r){
 //    conexión, se guardaba solo en el teléfono y nunca subía al dashboard) ──
 var COLA_CL = [];
 var __ultErrSync = '';   // último error real de subida (para el botón de diagnóstico)
-function cargarColaCL(){ try{ var s=localStorage.getItem('btg_cola_cl'); if(s) COLA_CL=JSON.parse(s); }catch(e){ COLA_CL=[]; } }
+function cargarColaCL(){ try{ var s=localStorage.getItem('btg_cola_cl'); if(s) COLA_CL=_colaSana(JSON.parse(s)); }catch(e){ COLA_CL=[]; } }
 function persistColaCL(){ try{ if(COLA_CL.length) localStorage.setItem('btg_cola_cl',JSON.stringify(COLA_CL)); else localStorage.removeItem('btg_cola_cl'); }catch(e){} }
 // Cola de INCIDENCIAS (accidente/reporte del chofer). Antes se guardaba en 'btg_inc_'+hoy que NUNCA se
 // resubía → un reporte de accidente sin señal moría en el teléfono. Ahora entra a esta cola que se drena.
 var COLA_INC = [];
-function cargarColaINC(){ try{ var s=localStorage.getItem('btg_cola_inc'); if(s) COLA_INC=JSON.parse(s); }catch(e){ COLA_INC=[]; } }
+function cargarColaINC(){ try{ var s=localStorage.getItem('btg_cola_inc'); if(s) COLA_INC=_colaSana(JSON.parse(s)); }catch(e){ COLA_INC=[]; } }
 function persistColaINC(){ try{ if(COLA_INC.length) localStorage.setItem('btg_cola_inc',JSON.stringify(COLA_INC)); else localStorage.removeItem('btg_cola_inc'); }catch(e){} }
 function agregarChecklistCola(reg){
   // FUSIONAR (no reemplazar): si ya hay un checklist en cola para este cam+fecha (p.ej. la SALIDA),
@@ -4016,7 +4034,7 @@ function _clLoQueDiceLaPantalla(){
 // ── La cola del aviso. Un bloqueo sin señal NO puede perderse: sería el mismo
 //    silencio que esto viene a romper.
 var COLA_BLOQ=null;   // null = todavía no se leyó de localStorage
-function cargarColaBloq(){ if(COLA_BLOQ)return COLA_BLOQ; try{ var s=localStorage.getItem('btg_cola_bloq'); COLA_BLOQ=s?(JSON.parse(s)||[]):[]; }catch(e){ COLA_BLOQ=[]; } return COLA_BLOQ; }
+function cargarColaBloq(){ if(COLA_BLOQ)return COLA_BLOQ; try{ var s=localStorage.getItem('btg_cola_bloq'); COLA_BLOQ=s?_colaSana(JSON.parse(s)):[]; }catch(e){ COLA_BLOQ=[]; } return COLA_BLOQ; }
 function persistColaBloq(){ try{ if(COLA_BLOQ&&COLA_BLOQ.length) localStorage.setItem('btg_cola_bloq',JSON.stringify(COLA_BLOQ)); else localStorage.removeItem('btg_cola_bloq'); }catch(e){} }
 async function _bloqMandar(b){
   var salio=false;
