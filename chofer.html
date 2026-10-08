@@ -3109,7 +3109,17 @@ function renderHistorial(){
   var lista = document.getElementById('historial-lista');
   if(!cont || !lista) return;
   var keys = Object.keys(VIAJES_HOY).sort(function(a,b){return a-b;});
-  if(!keys.length){ cont.style.display = 'none'; return; }
+  // ⛔ UN BLOQUE QUE SE ESCONDE SOLO NO SE LEE COMO «VACIO»: SE LEE COMO «NO EXISTE».
+  // 🔴 Carlos Serrano, 08/10/2026: «Negativo no sale el historial en la aplicacion del
+  //    telefono de los conductores». No faltaba el historial: el bloque DESAPARECIA cuando
+  //    el chofer todavia no habia marcado ningun viaje, sin decir una palabra. Y en la MISMA
+  //    pantalla las entregas dicen «Sin registros hoy.» y las surtidas «Todavia no registraste
+  //    ninguna.» — era el unico de los tres que se borraba, asi que no fue una decision.
+  cont.style.display = 'block';
+  if(!keys.length){
+    lista.innerHTML = '<div style="color:rgba(255,255,255,.35);font-size:12px;padding:4px 0">Todavía no marcaste ningún viaje hoy.</div>';
+    return;
+  }
   cont.style.display = 'block';
   lista.innerHTML = keys.map(function(k){
     var v = VIAJES_HOY[k];
