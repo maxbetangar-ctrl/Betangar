@@ -112,7 +112,25 @@ Deno.serve(async (req) => {
     if (typeof tabla === 'string') { try { tabla = JSON.parse(tabla); } catch { tabla = null; } }
     return { id: t.id, tipo: t.tipo, hmax: num(t.altura_max_cm), tabla, forma: t.forma ?? null, tabla_origen: t.tabla_origen ?? null, tabla_desde: t.tabla_desde ?? null };
   });
-  if (!tanques.length) return json({ ok: true, nota: 'esta empresa no usa cubicación — nada que auditar', avisos: 0 });
+  // Sin tanques cubicados hay DOS situaciones que desde afuera se veian iguales, y una
+  // de las dos es un hueco: la empresa que no usa cubicacion (ninguna unidad marcada) y
+  // la que SI la usa pero no la tiene cargada. En la segunda los choferes miden en
+  // centimetros y esos centimetros no se convierten en ningun litro: medido en Tony Gas
+  // el 07/10, 18 unidades marcadas y 163 mediciones tomadas, y esto devolvia ok:true.
+  if (!tanques.length) {
+    const marcadas = (uCfg.data || []).filter((u: any) => u.mide_tanque).map((u: any) => String(u.cam || '').trim()).filter(Boolean);
+    if (marcadas.length) {
+      return json({
+        ok: false,
+        motivo: 'faltan los tanques cubicados: ' + marcadas.length + ' unidad(es) marcadas para medir el tanque y 0 filas en combustible_tanques_config, ' +
+                'asi que las mediciones en centimetros no se pueden convertir en litros y no hay nada que cuadrar',
+        unidades_marcadas: marcadas,
+        mediciones_en_la_ventana: (med.data || []).length,
+        avisos: 0,
+      }, 409);
+    }
+    return json({ ok: true, nota: 'esta empresa no usa cubicación — nada que auditar', avisos: 0 });
+  }
 
   const yaEnviado = new Set((logs.data || []).map((l: any) => l.alert_key));
   const marcar: string[] = [];
