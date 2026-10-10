@@ -20840,10 +20840,31 @@ async function renderUsuarios(){
   }
   _cpUserPoblar(j.usuarios||[]);
   pintarSelectRoles(j.usuarios||[]);
+  // ⛔ LAS OPCIONES SE ARMAN UNA VEZ, Y DE LA MISMA FUENTE QUE EL SELECT DE CREAR.
+  //    Si cada fila llamara a `rolesParaElSelect`, serían N listas del mismo catálogo y
+  //    mañana alguien cambia una y no las otras. Es la misma lista o no es.
+  var _opcRol = rolesParaElSelect(j.usuarios||[]);
+  var _ofrecido = {}; _opcRol.forEach(function(r){ _ofrecido[r[0]]=1; });
   tb.innerHTML=(j.usuarios||[]).map(function(usr){
     var activo=usr.activo!==false;
+    // ⛔ EL ROL SE CAMBIA DESDE ACA, Y ANTES NO SE PODIA DESDE NINGUN LADO. Esta celda era
+    //    una etiqueta de adorno: el rol solo se elegía al CREAR la cuenta, así que corregir
+    //    uno mal puesto obligaba a crear la cuenta de nuevo y desactivar la vieja — la
+    //    persona cambiaba de usuario por el tipeo de otro. Lo preguntó Alejandra el
+    //    07/10/2026 y no existía el botón: faltaba en la pantalla Y en el servidor.
+    // ⛔ DOS CASOS SE PINTAN COMO ETIQUETA, NO COMO DESPLEGABLE:
+    //    · `superadmin` — el servidor lo rechaza igual. Si se pudiera, un superadmin degrada
+    //      al otro (o a sí mismo de un roce) y la instancia queda sin nadie que gestione.
+    //    · un rol que NO está entre los ofrecidos (los `demo_*`) — un <select> que no
+    //      contiene su propio valor se dibuja mostrando OTRO rol: le miente a quien mira, y
+    //      un roce cambia de rol a una persona sin que nadie lo haya pedido.
+    var _rolFijo = (usr.rol==='superadmin') || !_ofrecido[usr.rol];
+    var celdaRol = _rolFijo
+      ? '<span class="badge bb" title="'+(usr.rol==='superadmin'?'El rol de un superadmin no se cambia desde esta pantalla':'Este rol no se asigna desde esta pantalla')+'">'+_escHtml(usr.rol||'')+'</span>'
+      : '<select class="fc" style="padding:3px 6px;font-size:11px;max-width:210px" data-rol-de="'+_escHtml(usr.usuario)+'" data-rol-era="'+_escHtml(usr.rol)+'" onchange="cambiarUsuarioRol(this)">'+
+        _opcRol.map(function(r){ return '<option value="'+r[0]+'"'+(r[0]===usr.rol?' selected':'')+'>'+r[1]+'</option>'; }).join('')+'</select>';
     return '<tr><td style="font-family:var(--m);font-weight:700">'+usr.usuario+'</td><td>'+(usr.nombre||'')+'</td>'+
-      '<td><span class="badge bb">'+usr.rol+'</span></td>'+
+      '<td>'+celdaRol+'</td>'+
       '<td><span class="badge '+(activo?'bg':'br')+'">'+(activo?'Activo':'Inactivo')+'</span></td>'+
       '<td><button onclick="toggleUsuarioActivo(\''+usr.usuario+'\','+(!activo)+')" class="btn '+(activo?'btn-r':'btn-g')+' btn-xs">'+(activo?'Desactivar':'Activar')+'</button> '+
       '<button onclick="resetUsuario2FA(\''+usr.usuario+'\')" class="btn btn-s btn-xs" title="Quitar el 2FA de este usuario (si perdió su teléfono)">🔐 Reset 2FA</button></td></tr>';
@@ -20863,6 +20884,36 @@ async function resetUsuario2FA(u){
   var j=await btgUsuariosAPI('POST',{accion:'reset2fa',usuario:u});
   if(j&&j.ok){ audit('2FA reseteado por admin',u); alert('✅ 2FA quitado para '+u+'. Ya puede entrar con su contraseña.'); }
   else alert('No se pudo: '+motivoUsuarios((j&&j.error)||''));
+}
+// ⛔ RECIBE EL <select>, NO EL TEXTO DEL ROL. Con un `onchange="cambiarUsuarioRol('pepe',
+//    'admin')"` habría que interpolar el rol viejo en el atributo y, si la persona
+//    cancela, no hay a qué volver: el desplegable YA cambió de valor y queda mintiendo.
+//    Pasándole el nodo se puede revertir a lo que era.
+// ⛔ Y ES GLOBAL A PROPOSITO: un `onchange=` de atributo HTML solo ve funciones globales.
+//    Declararla dentro de `renderUsuarios()` daría un ReferenceError MUDO y el desplegable
+//    no haría nada — el mismo defecto que dejó muerto el enlace del presupuesto el 08/10.
+async function cambiarUsuarioRol(sel){
+  var u=sel.getAttribute('data-rol-de'), nuevo=sel.value, viejo=sel.getAttribute('data-rol-era');
+  if(nuevo===viejo) return;
+  // Se avisa que se le cierra la sesion ANTES de hacerlo: la persona puede estar trabajando.
+  if(!confirm('Cambiarle el rol a "'+u+'"?\n\nDe '+viejo+' a '+nuevo+'.\n\nSe le cierran las sesiones abiertas: va a tener que entrar de nuevo para que le tome el rol nuevo.')){
+    sel.value=viejo; return;
+  }
+  sel.disabled=true;
+  var j=await btgUsuariosAPI('POST',{accion:'rol',usuario:u,rol:nuevo});
+  sel.disabled=false;
+  if(j&&j.ok){
+    audit('Rol cambiado',u+': '+viejo+' -> '+nuevo);
+    alert('\u2705 '+u+' qued\u00f3 como '+nuevo+'.'+
+      ((j.sesiones_cerradas)?('\n\nSe le cerraron '+j.sesiones_cerradas+' sesi\u00f3n(es) abiertas.'):'')+
+      ((j.aviso)?('\n\n\u26a0\ufe0f '+j.aviso):''));
+    renderUsuarios();
+  }else{
+    // ⛔ SE VUELVE A LO QUE ERA. Un desplegable que se queda en el rol nuevo despues de un
+    //    error dice que el cambio entró, y no entró.
+    sel.value=viejo;
+    alert('No se pudo cambiar el rol: '+motivoUsuarios((j&&j.error)||''));
+  }
 }
 async function crearUsuario(){
   var u=gv('nu-user').toLowerCase().trim(),p=gv('nu-pass'),nombre=gv('nu-nombre'),rol=gv('nu-rol'),email=(gv('nu-email')||'').trim().toLowerCase();
