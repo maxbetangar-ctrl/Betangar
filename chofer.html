@@ -3524,13 +3524,25 @@ var CL_JAC_CUB={1:8.26,2:17.57,3:27.50,4:37.91,5:48.68,6:59.76,7:71.08,8:82.60,9
 // es de ese modelo y no tiene tabla propia, no se calculan litros — se guarda la medida en cm.
 var CL_TANQUE_UNIDAD = null;
 function cargarTanqueDeLaUnidad(){
-  try{ var c=localStorage.getItem('btg_tanque_'+cam); if(c)CL_TANQUE_UNIDAD=JSON.parse(c); }catch(e){}
+  // ⛔ EL CACHE DEL TANQUE CADUCA A LAS 24 h, igual que `btg_flags_`. Antes no
+  //    caducaba nunca: el teléfono se quedaba con una tabla vieja y calculaba litros
+  //    con ella. Vencido se cae del lado SEGURO (sin litros, la medida en cm se
+  //    guarda igual) y desde el 12/10/2026 los litros los calcula la BASE.
+  //    Un caché sin `en` es del formato viejo: cuenta como vencido.
+  try{
+    var c=localStorage.getItem('btg_tanque_'+cam);
+    if(c){
+      var _tq=JSON.parse(c);
+      var _tqVencido = !_tq || !_tq.en || (Date.now()-Number(_tq.en)) > 86400000;
+      CL_TANQUE_UNIDAD = _tqVencido ? null : (_tq.t || null);
+    }
+  }catch(e){}
   try{ clPintarRangoCm(); }catch(e){}   // con el tanque cacheado, sin esperar a la red
   try{
     supabase.rpc('tanque_de_unidad',{p_cam:cam}).then(function(r){
       if(r && !r.error){
         CL_TANQUE_UNIDAD = r.data || null;
-        try{ if(r.data) localStorage.setItem('btg_tanque_'+cam, JSON.stringify(r.data));
+        try{ if(r.data) localStorage.setItem('btg_tanque_'+cam, JSON.stringify({en:Date.now(), t:r.data}));
              else localStorage.removeItem('btg_tanque_'+cam); }catch(e){}
         try{ clPintarRangoCm(); clCalcLitrosCm('salida'); clCalcLitrosCm('llegada'); }catch(e){}
       }
