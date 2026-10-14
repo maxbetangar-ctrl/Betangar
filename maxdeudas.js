@@ -56,6 +56,37 @@
     return Math.round((d - h) / 86400000);
   }
 
+  // ⛔ CONTAR FILAS VENCIDAS MIENTE CUANDO UNA ESTA PAGA A MEDIAS. Una cuota
+  //    abonada en tres cuartos cuenta igual que una sin tocar, y la alarma dice
+  //    «3 cuotas vencidas» cuando son DOS enteras y un pedazo de la tercera.
+  //    Maximo lo dijo con sus palabras: «es una cuota completa y una parte de la
+  //    otra». El conteo venia del Excel —celda «Cuotas vencidas»— y el producto
+  //    lo heredo sin mirarlo.
+  //
+  //    Como los abonos se aplican en orden, PARCIAL hay como mucho una: la
+  //    primera que el dinero no alcanzo a cubrir. Si alguna vez hubiera mas de
+  //    una, se cuentan todas como enteras antes que mentir al reves.
+  //    [[norma-numero-que-el-dueno-no-puede-explicar]]
+  function vencidasDicho(tabla) {
+    var enteras = 0, parciales = [];
+    (tabla || []).forEach(function (f) {
+      if (f.estado !== 'Vencida') return;
+      var cuota = Number(f.cuota) || 0, resta = Number(f.resta) || 0;
+      if (cuota <= 0) return;
+      if (resta >= cuota - 0.005) enteras++;
+      else if (resta > 0.005) parciales.push(resta);
+    });
+    if (parciales.length > 1) { enteras += parciales.length; parciales = []; }
+    if (!enteras && !parciales.length) return '';
+    var t = enteras ? enteras + ' cuota' + (enteras > 1 ? 's' : '') + ' vencida' + (enteras > 1 ? 's' : '') : '';
+    // ⛔ EL PEDAZO SE DICE EN PLATA, NO EN PORCENTAJE. Máximo lo lee así —«una
+    //    cuota completa y la otra 19.001»— y además así los tres números cierran
+    //    a la vista: enteras × cuota + el pedazo = el «sin pagar» de al lado.
+    if (parciales.length) t += enteras ? ' y US$ ' + m2(parciales[0]) + ' de otra'
+                                       : 'US$ ' + m2(parciales[0]) + ' de una cuota vencida';
+    return t;
+  }
+
   function montar(el, op) {
     op = op || {};
     var sb = op.supabase;
@@ -229,7 +260,7 @@
 
       // ── LO QUE DUELE, PRIMERO ──────────────────────────────────────────────
       if (venc > 0) {
-        h += '<div class="mdz-alarma">🔴 <b>' + venc + ' cuota' + (venc > 1 ? 's' : '') + ' vencida' + (venc > 1 ? 's' : '') + '</b>' +
+        h += '<div class="mdz-alarma">🔴 <b>' + vencidasDicho(est.tabla) + '</b>' +
              ' · US$ ' + m2(e.monto_vencido) + ' sin pagar</div>';
       }
 
@@ -259,8 +290,8 @@
       if (c) {
         h += '<div class="mdz-cuotas">📋 <b>' + c.pagadas + ' de ' + c.total + '</b> cuotas pagadas · <b>' +
              c.por_pagar + '</b> por pagar' +
-             (Number(c.vencidas) > 0 ? ' <span class="mdz-venc">(de las cuales ' + c.vencidas +
-               ' vencida' + (Number(c.vencidas) > 1 ? 's' : '') + ')</span>' : '') + '</div>';
+             (vencidasDicho(est.tabla) ? ' <span class="mdz-venc">(de las cuales ' +
+               vencidasDicho(est.tabla) + ')</span>' : '') + '</div>';
       }
 
       // ── La tabla ───────────────────────────────────────────────────────────
@@ -750,14 +781,13 @@
         { l: 'Próxima a vencer', v: fechaVE(e.proxima_cuota),
           s: dias === null ? '' : (dias < 0 ? 'hace ' + Math.abs(dias) + ' días' : dias === 0 ? 'HOY' : 'en ' + dias + ' días') },
       ];
-      if (venc > 0) stats.push({ l: 'Vencido sin pagar', v: 'US$ ' + m2(e.monto_vencido), s: venc + ' cuota' + (venc > 1 ? 's' : '') });
+      if (venc > 0) stats.push({ l: 'Vencido sin pagar', v: 'US$ ' + m2(e.monto_vencido), s: vencidasDicho(est.tabla) });
 
       // ⛔ LO QUE DUELE VA ARRIBA TAMBIÉN EN EL PAPEL. En la pantalla las vencidas
       //    van antes que el saldo; un informe que las entierra en la fila 5 de una
       //    tabla de 18 es un informe que nadie mira dos veces.
       var alarma = venc > 0
-        ? venc + ' cuota' + (venc > 1 ? 's' : '') + ' VENCIDA' + (venc > 1 ? 'S' : '') +
-          ' sin pagar · US$ ' + m2(e.monto_vencido)
+        ? vencidasDicho(est.tabla).toUpperCase() + ' SIN PAGAR · US$ ' + m2(e.monto_vencido)
         : '';
 
       var cuerpo = '';
@@ -765,8 +795,7 @@
         // «de las cuales» y no tres números seguidos: 4 + 14 = 18, no 4 + 2 + 14.
         cuerpo += '<p class="mdz-p"><b>' + c.pagadas + ' de ' + c.total + '</b> cuotas pagadas · <b>' +
           c.por_pagar + '</b> por pagar' +
-          (Number(c.vencidas) > 0 ? ' (de las cuales <b>' + c.vencidas + '</b> vencida' +
-            (Number(c.vencidas) > 1 ? 's' : '') + ')' : '') + '.</p>';
+          (vencidasDicho(est.tabla) ? ' (de las cuales <b>' + vencidasDicho(est.tabla) + '</b>)' : '') + '.</p>';
       }
 
       cuerpo += '<h2 class="mdz-h2p">Cuadro de amortización</h2>' +
