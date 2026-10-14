@@ -67,24 +67,40 @@
   //    primera que el dinero no alcanzo a cubrir. Si alguna vez hubiera mas de
   //    una, se cuentan todas como enteras antes que mentir al reves.
   //    [[norma-numero-que-el-dueno-no-puede-explicar]]
+  //    ⛔ LA FRASE SE ESCRIBE ACA Y EN NINGUN OTRO LADO. La usan la pantalla de
+  //       Deudas, su informe en papel, el widget del tablero y el informe del
+  //       tablero — cuatro lugares. Escrita cuatro veces, al tercer arreglo dos
+  //       dirian una cosa y dos otra. [[norma-dos-listas-a-mano-se-desincronizan]]
+  function fraseVencidas(enteras, parciales, parcialUsd) {
+    enteras = Number(enteras) || 0; parciales = Number(parciales) || 0;
+    parcialUsd = Number(parcialUsd) || 0;
+    if (!enteras && !parciales) return '';
+    var t = enteras ? enteras + ' cuota' + (enteras > 1 ? 's' : '') + ' vencida' + (enteras > 1 ? 's' : '') : '';
+    // ⛔ EL PEDAZO SE DICE EN PLATA, NO EN PORCENTAJE. Máximo lo lee así —«una
+    //    cuota completa y la otra 19.001»— y además así los tres números cierran
+    //    a la vista: enteras × cuota + el pedazo = el «sin pagar» de al lado.
+    if (parciales) {
+      var cola = parciales > 1 ? ' de otras ' + parciales : ' de otra';
+      t += enteras ? ' y US$ ' + m2(parcialUsd) + cola
+                   : 'US$ ' + m2(parcialUsd) + (parciales > 1 ? ' de ' + parciales + ' cuotas vencidas'
+                                                              : ' de una cuota vencida');
+    }
+    return t;
+  }
+
+  // La misma frase, contada desde el cuadro de amortización que ya está en
+  // pantalla. El tablero no tiene ese cuadro y la pide a la base con
+  // `deuda_vencido_detalle()`; las dos terminan en `fraseVencidas`.
   function vencidasDicho(tabla) {
-    var enteras = 0, parciales = [];
+    var enteras = 0, parciales = 0, usd = 0;
     (tabla || []).forEach(function (f) {
       if (f.estado !== 'Vencida') return;
       var cuota = Number(f.cuota) || 0, resta = Number(f.resta) || 0;
       if (cuota <= 0) return;
       if (resta >= cuota - 0.005) enteras++;
-      else if (resta > 0.005) parciales.push(resta);
+      else if (resta > 0.005) { parciales++; usd += resta; }
     });
-    if (parciales.length > 1) { enteras += parciales.length; parciales = []; }
-    if (!enteras && !parciales.length) return '';
-    var t = enteras ? enteras + ' cuota' + (enteras > 1 ? 's' : '') + ' vencida' + (enteras > 1 ? 's' : '') : '';
-    // ⛔ EL PEDAZO SE DICE EN PLATA, NO EN PORCENTAJE. Máximo lo lee así —«una
-    //    cuota completa y la otra 19.001»— y además así los tres números cierran
-    //    a la vista: enteras × cuota + el pedazo = el «sin pagar» de al lado.
-    if (parciales.length) t += enteras ? ' y US$ ' + m2(parciales[0]) + ' de otra'
-                                       : 'US$ ' + m2(parciales[0]) + ' de una cuota vencida';
-    return t;
+    return fraseVencidas(enteras, parciales, usd);
   }
 
   function montar(el, op) {
@@ -906,6 +922,9 @@
     };
   }
 
-  raiz.MaxDeudas = { montar: montar, version: '0.3.0' };
+  // ⚠️ `fraseVencidas` se exporta porque `app.js` la necesita para el widget y el
+  //    informe del tablero. `maxdeudas.js` se carga ANTES que `app.js` en
+  //    `app.html`, así que está disponible cuando aquél arranca.
+  raiz.MaxDeudas = { montar: montar, fraseVencidas: fraseVencidas, version: '0.4.0' };
   if (typeof module !== 'undefined' && module.exports) module.exports = raiz.MaxDeudas;
 })(typeof window !== 'undefined' ? window : globalThis);

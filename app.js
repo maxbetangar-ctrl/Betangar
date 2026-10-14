@@ -5821,7 +5821,7 @@ async function imprimirDashboard(){
         (_varias?'<div class="mut" style="margin-bottom:4px">Los '+_n+' financiamientos vigentes, sumados: '+
                  _surEsc(_dzQuien(_e))+'. El detalle de cada uno está en la pantalla de Deudas.</div>':'')+
         (_vc>0?'<div style="background:#fdecea;border-left:3px solid #b3261e;color:#8c1d18;font-weight:800;padding:5px 9px;margin-bottom:6px;font-size:10px">'+
-               _vc+' cuota'+(_vc>1?'s':'')+' VENCIDA'+(_vc>1?'S':'')+' sin pagar · '+usd(_e.monto_vencido)+'</div>':'')+
+               _dzVencidas(_e).toUpperCase()+' SIN PAGAR · '+usd(_e.monto_vencido)+'</div>':'')+
         // ⛔ TABLA COMPACTA Y NO TARJETAS. A media columna las tarjetas de KPI se
         //    apilan una debajo de otra y ocupan el triple de alto — justo lo que
         //    hacia que el informe no entrara en una hoja.
@@ -5834,7 +5834,7 @@ async function imprimirDashboard(){
             // Con varias, la proxima es de UNA de ellas y el informe dice de cual.
             ((_varias&&_e.proxima_de)?'<span style="font-size:8px"> · '+_surEsc(String(_e.proxima_de))+'</span>':'')+'</td></tr>'+
           (Number(_e.cuotas_total||0)>0?'<tr><td>Cuotas</td><td style="text-align:right"><b>'+_e.cuotas_pagadas+' / '+_e.cuotas_total+'</b> pagadas · '+_e.cuotas_por_pagar+' por pagar'+
-              (_vc>0?', <span style="color:#b3261e;font-weight:800">'+_vc+' vencida'+(_vc>1?'s':'')+'</span>':'')+'</td></tr>':'')+
+              (_vc>0?', <span style="color:#b3261e;font-weight:800">'+_dzVencidas(_e)+'</span>':'')+'</td></tr>':'')+
         '</tbody></table>'+
         '<div class="bar"><i style="width:'+Math.min(100,_pct)+'%;background:#15803d"></i></div>'+
         '<div class="mut">de '+usd(_e.total_a_pagar)+' a pagar en total</div>';
@@ -30991,6 +30991,18 @@ async function cargarDeudaDash(forzar){
     var rs = await supabase.rpc('deuda_resumen');
     if(rs.error) throw rs.error;
     var r = (rs.data&&rs.data.length)?rs.data[0]:null;
+    // ⛔ `cuotas_vencidas` CUENTA FILAS: una cuota paga en tres cuartos cuenta
+    //    igual que una sin tocar. `deuda_vencido_detalle()` separa las enteras
+    //    del pedazo. Si falla, se sigue sin ella y la frase cae al conteo viejo:
+    //    un tablero sin deuda por un dato de adorno seria peor que uno impreciso.
+    try{
+      var vd = await supabase.rpc('deuda_vencido_detalle');
+      if(!vd.error && vd.data && vd.data.length){
+        r.venc_enteras   = vd.data[0].enteras;
+        r.venc_parciales = vd.data[0].parciales;
+        r.venc_parcial_usd = vd.data[0].parcial_usd;
+      }
+    }catch(_x){ console.log('[deuda-dash] detalle vencido', _x&&_x.message); }
     // ⚠️ `deuda_resumen()` devuelve SIEMPRE una fila porque son agregados: con cero
     //    vigentes trae `cuantos = 0`. Por eso el permiso se pregunta ARRIBA y no se
     //    deduce de una fila vacia.
@@ -31006,6 +31018,18 @@ async function cargarDeudaDash(forzar){
 // Como se nombra la deuda cuando hay mas de una. Se usa en el widget Y en el PDF,
 // escrito UNA vez: si cada uno lo armara por su cuenta, el papel y la pantalla
 // terminarian llamando distinto a lo mismo.
+// ⛔ UNA SOLA FRASE PARA TODO. La escribe `MaxDeudas.fraseVencidas` en
+//    `maxdeudas.js`, que se carga ANTES que este archivo. Acá sólo se le pasan
+//    los números y se deja una salida por si el módulo no estuviera.
+//    [[norma-dos-listas-a-mano-se-desincronizan]]
+function _dzVencidas(r){
+  var ent=Number(r.venc_enteras), par=Number(r.venc_parciales), usd=Number(r.venc_parcial_usd);
+  var hayDetalle = !isNaN(ent) && !isNaN(par) && (r.venc_enteras!==null&&r.venc_enteras!==undefined);
+  if(hayDetalle && typeof MaxDeudas!=='undefined' && MaxDeudas && MaxDeudas.fraseVencidas)
+    return MaxDeudas.fraseVencidas(ent,par,usd);
+  var v=Number(r.cuotas_vencidas||0);
+  return v>0 ? v+' cuota'+(v>1?'s':'')+' vencida'+(v>1?'s':'') : '';
+}
 function _dzQuien(r){
   var n=Number(r.cuantos||0);
   if(n<=1) return String(r.acreedor_1||'');
@@ -31040,14 +31064,14 @@ function renderDeudaDash(){
     //    Decirlo asi evita que alguien sume las tres y le den 20 cuotas.
     var cuotasTxt = Number(e.cuotas_total||0)>0
       ? (e.cuotas_pagadas+' de '+e.cuotas_total+' pagadas · '+e.cuotas_por_pagar+' por pagar'+
-         (venc>0?' ('+venc+' vencida'+(venc>1?'s':'')+')':'')) : '';
+         (venc>0?' ('+_dzVencidas(e)+')':'')) : '';
     el.innerHTML =
       '<div class="card" style="margin:0">'+
         '<div class="sh" style="display:flex;justify-content:space-between;align-items:center">'+
           '<div class="st">💳 Deuda — '+_mEsc(_dzQuien(e))+'</div>'+
           '<button class="btn btn-s btn-xs" onclick="sp(\'deudas\')">Ver todo</button>'+
         '</div>'+
-        (venc>0?'<div style="margin:8px 0 0;padding:8px 11px;border-radius:8px;background:#fdecea;border-left:4px solid #b3261e;color:#8c1d18;font-weight:700;font-size:12px">🔴 '+venc+' cuota'+(venc>1?'s':'')+' vencida'+(venc>1?'s':'')+' · US$ '+f2(e.monto_vencido)+'</div>':'')+
+        (venc>0?'<div style="margin:8px 0 0;padding:8px 11px;border-radius:8px;background:#fdecea;border-left:4px solid #b3261e;color:#8c1d18;font-weight:700;font-size:12px">🔴 '+_dzVencidas(e)+' · US$ '+f2(e.monto_vencido)+'</div>':'')+
         '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;margin-top:9px">'+
           _dzKpi('Saldo','US$ '+f2(e.saldo_pendiente),'de US$ '+f2(e.total_a_pagar))+
           _dzKpi('Abonado','US$ '+f2(e.total_abonado),pct+'% pagado')+
