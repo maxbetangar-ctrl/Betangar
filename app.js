@@ -19734,6 +19734,36 @@ function renderEmpleados(){
   }
 
   if(!html)html='<div style="grid-column:1/-1;color:var(--text3);padding:20px;text-align:center">Sin resultados</div>';
+  // ⛔ LA LISTA QUE VE EL CHOFER EN SU TELÉFONO SALE DEL CARGO, Y ANTES NADA LO DECÍA.
+  //    El RPC que la arma exige que `cargo` contenga «conductor» o «chofer». Néstor Morales
+  //    (Tony Gas) estuvo ACTIVO y con el cargo en blanco del 25/09 al 05/10/2026: no aparecía, no
+  //    podía identificarse al escanear el QR, y la única señal de que algo pasaba fue que un
+  //    cliente lo reportara once días después. Desde esta pantalla era invisible: su ficha se ve
+  //    completa y correcta.
+  // ⇒ Si hay gente activa cuyo cargo no la mete en esa lista, se dice ACÁ y con nombres. Es el
+  //   criterio de siempre: lo que no se cuenta no existe.
+  //   [[norma-arreglar-un-tipo-de-adjunto-deja-los-otros-a-oscuras]] · [[norma-falta-de-dato-no-es-un-dato]]
+  try{
+    var _fuera=(typeof EMPLEADOS!=='undefined'?EMPLEADOS:[]).filter(function(e){
+      if(!e||e.activo===false||!e.nombre)return false;
+      return !/conductor|chofer/i.test(e.cargo||'');
+    });
+    if(_fuera.length){
+      var _sinCargo=_fuera.filter(function(e){return !String(e.cargo||'').trim();}).length;
+      var _detalle='No aparecen en la lista del chofer:'+String.fromCharCode(10,10)
+        +_fuera.map(function(e){ return (e.nombre||'')+' - '+(String(e.cargo||'').trim()||'SIN CARGO CARGADO'); }).join(String.fromCharCode(10))
+        +String.fromCharCode(10,10)+'Si alguno maneja, se le corrige el cargo en su ficha.';
+      html='<div style="grid-column:1/-1;background:rgba(239,159,39,.12);border:1px solid #ef9f27;'
+        +'border-radius:10px;padding:10px 12px;margin-bottom:10px;font-size:12.5px;line-height:1.5">'
+        +'<b>⚠️ '+_fuera.length+(_fuera.length===1?' persona activa no aparece':' personas activas no aparecen')
+        +' en la lista del chofer</b>'
+        +(_sinCargo?(' · '+_sinCargo+' sin cargo cargado'):'')
+        +'<br>Esa lista se arma con el <b>cargo</b>: entra solo quien lo tenga como «conductor» o '
+        +'«chofer». Quien no esté no puede identificarse al escanear el QR de su unidad.'
+        +' <button class="btn btn-s btn-xs" style="margin-left:6px" onclick="_avisoFueraDeLista()">Ver quiénes</button></div>'+html;
+      window._avisoFueraDeLista=function(){ alert(_detalle); };
+    }
+  }catch(_e){}
   grid.innerHTML=html;
 }
 function cargarEmp(id){
@@ -27763,17 +27793,45 @@ async function reactivarEmp(id, nombre){
 }
 
 // Dar de baja al empleado (activo=false, NO elimina datos)
+//
+// ⛔ UNA BAJA TIENE FECHA, Y ANTES NO SE GUARDABA NINGUNA. Medido el 15/10/2026: 8 bajas en
+//    TONY GAS y 25 en Betangar con `fegreso` vacío. Esta función escribía solo {activo:false},
+//    así que «¿desde cuándo no trabaja?» no tenía respuesta en ninguna parte — y es la pregunta
+//    que decide prestaciones, hasta cuándo contarlo en nómina y a quién se le atribuye un viaje.
+//    [[norma-una-medicion-tiene-hora]]
+//
+// ⚠️ NO SE ESTAMPA LA FECHA DE HOY POR OMISIÓN. La baja se carga días o semanas después del
+//    último día real de trabajo, así que rellenar con hoy INVENTA justo el dato que falta. Se
+//    PREGUNTA, con hoy como punto de partida; si se deja en blanco se guarda SIN fecha y el aviso
+//    lo dice, en vez de dejar creer que quedó completa. [[norma-respaldo-que-inventa-un-dato]]
+//
+// ⚠️ Y SE COMPRUEBA QUE LA BASE TOCÓ LA FILA, igual que hace `reactivarEmp` veinte líneas más
+//    arriba —que ya citaba la norma—. Acá faltaba: una baja que no escribía nada avisaba «dado de
+//    baja correctamente». [[norma-insert-sin-select-no-mide]]
 async function bajaEmp(id, nombre){
-  if(!confirm('¿Dar de baja a '+nombre+'?\n\nEl empleado quedará inactivo pero sus datos se conservan.'))return;
   var idx=EMPLEADOS.findIndex(function(e){return e.id===id;});
   if(idx<0){alert('Empleado no encontrado');return;}
-  EMPLEADOS[idx].activo=false;
+  if(!confirm('¿Dar de baja a '+nombre+'?\n\nQueda inactivo, sus datos se conservan y deja de contar para nómina y asistencia.'))return;
+  var _h=new Date();
+  var hoyISO=_h.getFullYear()+'-'+String(_h.getMonth()+1).padStart(2,'0')+'-'+String(_h.getDate()).padStart(2,'0');
+  var fe=prompt('¿Cuál fue su ÚLTIMO DÍA de trabajo?  (AAAA-MM-DD)\n\nEs la fecha que se usa para prestaciones y para saber hasta cuándo contarlo.\nSi no la sabe, borre el contenido y la ficha queda sin fecha.',hoyISO);
+  if(fe===null)return;                               // canceló: no se da de baja
+  fe=String(fe).trim();
+  if(fe&&!/^\d{4}-\d{2}-\d{2}$/.test(fe)){ alert('La fecha va como AAAA-MM-DD (por ejemplo '+hoyISO+').\n\nNO se dio de baja.'); return; }
+  if(fe&&fe>hoyISO&&!confirm('Esa fecha es futura ('+fe+').\n¿Es correcta?'))return;
+  var campos={activo:false}; if(fe)campos.fegreso=fe;
   if(DB_READY&&supabase){
-    var res=await supabase.from('empleados').update({activo:false}).eq('id',id);
+    var res=await supabase.from('empleados').update(campos).eq('id',id).select();
     if(res.error){alert('Error al dar de baja: '+res.error.message);return;}
+    if(!(res.data&&res.data.length)){
+      alert('NO se dio de baja a '+nombre+': la base no tocó ninguna fila. Avisá al servicio técnico.');
+      return;
+    }
   }
-  audit('Baja empleado',nombre);
-  alert('✅ '+nombre+' dado de baja correctamente.');
+  EMPLEADOS[idx].activo=false; if(fe)EMPLEADOS[idx].fegreso=fe;
+  audit('Baja empleado',nombre+(fe?' -- último día '+fe:' -- SIN fecha de egreso'));
+  alert(fe?('✅ '+nombre+' dado de baja, último día '+fe+'.')
+          :('✅ '+nombre+' dado de baja, pero SIN fecha de egreso: queda por completar en su ficha.'));
   renderEmpleados();
 }
 
@@ -27782,10 +27840,32 @@ async function eliminarEmpDuplicado(id, nombre){
   if(!esMando()){alert('Solo el superadmin o el revisor pueden eliminar registros');return;}
   if(!confirm('⚠️ ELIMINAR REGISTRO\n\n'+nombre+' ('+id+')\n\nEsta acción NO se puede deshacer.\n¿Continuar?'))return;
   if(!confirm('Confirma una vez más:\n¿Eliminar permanentemente a '+nombre+'?'))return;
-  // Solo permitir eliminar si hay otro registro con mismo nombre (es duplicado)
-  var duplicados=EMPLEADOS.filter(function(e){return e.nombre===nombre;});
+  // ⛔ EL DUPLICADO SE RECONOCE POR LA CÉDULA, NO POR EL NOMBRE EXACTO.
+  //    Tony Gas, 05/10/2026: el cliente quiso borrar la ficha repetida de Néstor Morales y este
+  //    control le contestó «no parece ser un duplicado, usa Dar de Baja». ERA un duplicado real
+  //    —misma cédula V-13330017, dos fichas— y lo único que los diferenciaba era UN ESPACIO en el
+  //    nombre: 30 caracteres contra 29. Hizo lo que el cartel le sugería, dos veces, con dos
+  //    personas, y la base quedó con dos cédulas duplicadas y dos fichas de baja sin fecha.
+  //    El control no falló por poco: comparaba la cosa equivocada. `_normNom` —que YA EXISTE en
+  //    este archivo y colapsa los espacios— habría bastado.
+  //    [[norma-la-palabra-que-identifica-es-la-rara]] · [[norma-bitacora-nombrar-la-pieza-que-ya-existe]]
+  // ⇒ Cuenta como duplicado la MISMA CÉDULA (lo que identifica a una persona) o el mismo nombre
+  //   normalizado. Y cuando se niega DICE POR QUÉ, en vez de recomendar un camino que deja la
+  //   base peor que antes. [[norma-el-guardia-mira-el-texto-no-la-intencion]]
+  var _ced=function(s){return String(s||'').replace(/[^0-9]/g,'');};
+  var _nn=function(s){return (typeof _normNom==='function')?_normNom(s):String(s||'').toUpperCase().replace(/\s+/g,' ').trim();};
+  var _yo=EMPLEADOS.filter(function(e){return e.id===id;})[0]||{};
+  var _cedYo=_ced(_yo.cedula), _nomYo=_nn(nombre);
+  var duplicados=EMPLEADOS.filter(function(e){
+    if(_cedYo&&_ced(e.cedula)===_cedYo)return true;   // la cédula manda
+    return _nn(e.nombre)===_nomYo;                     // y el nombre normalizado como respaldo
+  });
   if(duplicados.length<2){
-    alert('Este registro no parece ser un duplicado.\nUsa "Dar de Baja" en su lugar.');
+    alert('No se puede eliminar a '+nombre+': no hay otra ficha con su misma cédula'
+      +(_cedYo?(' ('+_yo.cedula+')'):' — y esta ficha no tiene cédula cargada, así que no se puede comparar')
+      +' ni con su mismo nombre.\n\nEliminar sirve solo para quitar una ficha REPETIDA de la misma'
+      +' persona. Si esta persona ya no trabaja acá, no se elimina: se le da de baja, que conserva'
+      +' su historial y su fecha de egreso.');
     return;
   }
   var idx=EMPLEADOS.findIndex(function(e){return e.id===id;});
