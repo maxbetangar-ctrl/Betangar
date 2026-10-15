@@ -209,10 +209,67 @@ Deno.serve(async (req) => {
         //    real (delivered / read / se quedo en sent), que es lo unico que
         //    prueba entrega. Nuestro 'enviado' es palabra nuestra.
         let idProv: string | null = null;
+        let wid: string | null = null;
         try {
           const j = await r.json();
           idProv = (j && (j.id || j._id || (Array.isArray(j) ? j[0]?.id : null))) || null;
+          wid = destinoDelMensaje(j);
+          if (!wid) console.log('aviso: el proveedor no dijo a que chat fue el mensaje ' + idProv + '; no se pudo comprobar el destino');
         } catch (_) { /* si no devuelve JSON el envio igual salio: no se pierde por esto */ }
+
+        // ══════════════════════════════════════════════════════════════════════
+        // ⛔ ¿EL DESTINO ES A QUIEN LE ESCRIBIMOS? (15/10/2026)
+        //
+        // El destino real NO es el `phone` que mandamos: es el `wid` que devuelve
+        // el proveedor. El 12/10 el MISMO numero de Alejandra resolvio unas veces
+        // a `5219512180813@c.us` (su chat real) y otras a `529512180813@c.us`,
+        // que NO EXISTE: Wassenger le come el «1» a los moviles de Mexico segun
+        // algo que no controlamos. Esos mensajes salen 'processed', se evaporan, y
+        // sin acuses desde el 29/09 se ven IDENTICOS a uno entregado.
+        // [[norma-el-destino-de-un-mensaje-es-el-wid]]
+        //
+        // ⚠️ POR QUE NO SE BLOQUEA POR «EL CHAT NO EXISTE», que seria lo obvio:
+        //    un empleado que nunca le escribio al numero de la empresa NO TIENE
+        //    conversacion, y es lo normal — WhatsApp la crea con el primer
+        //    mensaje. Ese candado le cortaria el PRIMER aviso a cada persona
+        //    nueva, y encima en silencio.
+        //    [[norma-un-candado-que-rompe-la-herramienta-es-peor]]
+        //
+        // ⇒ El unico indicio inequivoco es que el proveedor CAMBIE LOS DIGITOS.
+        //   Si los cambio, se pregunta si ESE chat existe: si existe, nos corrigio
+        //   hacia la cuenta real y se deja pasar (queda en el log); si no existe,
+        //   el mensaje se CANCELA y la fila queda 'bloqueado' — que es el unico
+        //   estado que alguien mira. Si los digitos coinciden, no se pregunta
+        //   nada: ahi no hay nada que dudar.
+        // ══════════════════════════════════════════════════════════════════════
+        if (cfg.device && cambioElDestino(wid, phone)) {
+          let existe = false, estadoChat = 0;
+          try {
+            const ch = await fetch('https://api.wassenger.com/v1/chat/' + cfg.device + '/chats/' + wid, { headers: { 'Token': cfg.token } });
+            estadoChat = ch.status;
+            existe = ch.ok;
+          } catch (_) {
+            // Si NO SE PUDO PREGUNTAR, no se bloquea: el mensaje ya salio y una
+            // falla de red nuestra no es prueba de que el destino este mal.
+            existe = true;
+            console.log('no se pudo comprobar el chat ' + wid + '; se deja pasar');
+          }
+          if (!existe) {
+            if (idProv) {
+              try {
+                await fetch('https://api.wassenger.com/v1/messages/' + idProv, { method: 'DELETE', headers: { 'Token': cfg.token } });
+              } catch (_) { /* si no se pudo cancelar, igual se reporta: peor es callarlo */ }
+            }
+            await sb.from('cola_mensajes').update({
+              estado: 'bloqueado', intentos: (m.intentos || 0) + 1,
+              error: 'el proveedor cambio el destino: se pidio ' + phone + ' y resolvio a ' + wid + ', donde no hay conversacion (HTTP ' + estadoChat + '). El mensaje fue CANCELADO para que no se pierda en silencio. Corregi el numero en la ficha del empleado: un movil de Mexico va 521 + 10 digitos.',
+            }).eq('id', m.id);
+            bloq++;
+            bloqDetalle.push({ id: m.id, tipo: m.tipo, marca: 'el proveedor cambio el destino (' + phone + ' -> ' + wid + ', sin conversacion)' });
+            continue;
+          }
+          console.log('aviso: ' + phone + ' resolvio a ' + wid + ', que SI tiene conversacion; se deja pasar');
+        }
 
         // error:null — al salir bien se BORRA el error del intento fallido anterior. Si no, un
         // mensaje que se reintento y llego queda "enviado" pero mostrando un error viejo, y quien
@@ -322,6 +379,39 @@ Deno.serve(async (req) => {
 // así que el mensaje se le iría a un desconocido sin que nadie se entere.
 //
 // Devuelve { tel } si se pudo resolver, o { motivo } explicando por qué no. Nunca adivina.
+// ════════════════════════════════════════════════════════════════════════════
+// ⛔ ¿A QUIEN LE FUE EL MENSAJE DE VERDAD?
+//
+// Exportadas a proposito, como `insinuaMaquina`: una decision que CANCELA un
+// mensaje tiene que poder probarse sin mandar ninguno.
+// [[norma-probar-el-camino-no-la-pieza]]
+//
+// ⚠️ El campo del destino CAMBIA segun el endpoint, medido el 15/10/2026:
+//    · POST /messages          → `wid`
+//    · el mensaje ya guardado  → `chat` y `to`, STRINGS ("5219512180813@c.us"),
+//                                y NINGUN `wid`
+//    Un `chat?.id` solo —que era lo que parecia razonable— da `undefined` sobre
+//    la forma guardada y deja el candado MUDO. Se buscan todos, en orden.
+// ════════════════════════════════════════════════════════════════════════════
+export function destinoDelMensaje(j: any): string | null {
+  const c = Array.isArray(j) ? j[0] : j;
+  if (!c || typeof c !== 'object') return null;
+  if (typeof c.wid === 'string' && c.wid) return c.wid;
+  if (typeof c.chat === 'string' && c.chat) return c.chat;
+  if (c.chat && typeof c.chat.id === 'string' && c.chat.id) return c.chat.id;
+  if (typeof c.to === 'string' && c.to) return c.to;
+  return null;
+}
+
+// true SOLO si el proveedor mando el mensaje a otros digitos de los que pedimos.
+// Un destino que no se pudo leer NO es un cambio de destino: es que no se sabe.
+export function cambioElDestino(destino: string | null, phone: string): boolean {
+  if (!destino || !destino.endsWith('@c.us')) return false;
+  const d = (x: string) => String(x || '').replace(/[^0-9]/g, '');
+  if (!d(destino) || !d(phone)) return false;
+  return d(destino) !== d(phone);
+}
+
 function normalizar(t: string, paisDefecto?: string | null): { tel?: string; motivo?: string } {
   let s = (t || '').replace(/\D/g, ''); // solo dígitos (quita +, espacios, guiones)
   if (!s) return { motivo: 'número vacío' };
