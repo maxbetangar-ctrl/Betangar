@@ -19744,22 +19744,31 @@ function renderEmpleados(){
   //   criterio de siempre: lo que no se cuenta no existe.
   //   [[norma-arreglar-un-tipo-de-adjunto-deja-los-otros-a-oscuras]] · [[norma-falta-de-dato-no-es-un-dato]]
   try{
+    // ⚠️ EL AVISO CUENTA SOLO A LOS QUE TIENEN EL CARGO EN BLANCO.
+    //    La primera versión de este aviso (15/10/2026, el mismo día) contaba a TODO activo cuyo
+    //    cargo no dijera «conductor» o «chofer». En Tony Gas eso son 55 personas: administración,
+    //    portería, ventas — gente que CORRECTAMENTE no va en la lista del chofer. Un aviso que sale
+    //    siempre y con un número enorme no avisa de nada: se aprende a ignorar en dos días, y
+    //    entonces el caso real —el cargo vacío— vuelve a pasar inadvertido, que es justo lo que
+    //    este aviso venía a evitar. [[norma-un-aviso-que-salta-siempre-no-avisa]]
+    // ⇒ Salta solo con el cargo VACÍO, el único caso en que no se puede saber si la persona
+    //   maneja. Un cargo que dice «Analista de Facturación» ya respondió la pregunta.
     var _fuera=(typeof EMPLEADOS!=='undefined'?EMPLEADOS:[]).filter(function(e){
       if(!e||e.activo===false||!e.nombre)return false;
-      return !/conductor|chofer/i.test(e.cargo||'');
+      if(/conductor|chofer/i.test(e.cargo||''))return false;   // ya entra en la lista
+      return !String(e.cargo||'').trim();                      // sin cargo: no se puede saber
     });
     if(_fuera.length){
-      var _sinCargo=_fuera.filter(function(e){return !String(e.cargo||'').trim();}).length;
-      var _detalle='No aparecen en la lista del chofer:'+String.fromCharCode(10,10)
-        +_fuera.map(function(e){ return (e.nombre||'')+' - '+(String(e.cargo||'').trim()||'SIN CARGO CARGADO'); }).join(String.fromCharCode(10))
-        +String.fromCharCode(10,10)+'Si alguno maneja, se le corrige el cargo en su ficha.';
+      var _detalle='Estas personas están ACTIVAS y no tienen cargo cargado, así que NO aparecen'
+        +String.fromCharCode(10)+'en la lista para identificarse al escanear el QR de la unidad:'
+        +String.fromCharCode(10,10)
+        +_fuera.map(function(e){ return '· '+(e.nombre||''); }).join(String.fromCharCode(10))
+        +String.fromCharCode(10,10)+'Si alguna de ellas maneja, con completarle el cargo aparece de inmediato.';
       html='<div style="grid-column:1/-1;background:rgba(239,159,39,.12);border:1px solid #ef9f27;'
         +'border-radius:10px;padding:10px 12px;margin-bottom:10px;font-size:12.5px;line-height:1.5">'
-        +'<b>⚠️ '+_fuera.length+(_fuera.length===1?' persona activa no aparece':' personas activas no aparecen')
-        +' en la lista del chofer</b>'
-        +(_sinCargo?(' · '+_sinCargo+' sin cargo cargado'):'')
-        +'<br>Esa lista se arma con el <b>cargo</b>: entra solo quien lo tenga como «conductor» o '
-        +'«chofer». Quien no esté no puede identificarse al escanear el QR de su unidad.'
+        +'<b>⚠️ '+_fuera.length+(_fuera.length===1?' persona activa sin cargo cargado':' personas activas sin cargo cargado')+'</b>'
+        +'<br>La lista para identificarse en el teléfono se arma con el <b>cargo</b>. Sin cargo, la '
+        +'persona no aparece y no puede tomar su unidad al escanear el QR.'
         +' <button class="btn btn-s btn-xs" style="margin-left:6px" onclick="_avisoFueraDeLista()">Ver quiénes</button></div>'+html;
       window._avisoFueraDeLista=function(){ alert(_detalle); };
     }
