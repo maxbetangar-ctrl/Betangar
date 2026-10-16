@@ -34,6 +34,18 @@ var BTG_CONFIG = {
                                                            //   login por usuario, sin forzar correo). Los
                                                            //   CLONES nuevos lo ponen en true → login por
                                                            //   correo + "olvidé mi contraseña" autoservicio.
+  // ⛔ QUE UNIDADES ENTRAN EN LAS TARJETAS DEL TABLERO DEL DUENO (disponibilidad de flota,
+  //    costo operativo por camion, compras sugeridas) Y EN RENTABILIDAD POR CAMION.
+  //    Medido el 16/10/2026: esas cuatro cuentas filtraban con `indexOf('JAC')===0` escrito a
+  //    mano. En Betangar las unidades son JAC-B0xx y estaba bien; en FlotaMax son FC, FL, FR,
+  //    TG-xx, D0x -- NINGUNA empieza con JAC. Resultado: el conjunto quedaba vacio y el dueno
+  //    leia "Disponibilidad: 0/0 operativas (0 por ciento)" EN VERDE, con "Por encima del
+  //    umbral". El propio comentario de `mercancia_prefijos` ya habia advertido exactamente
+  //    esto: "una lista 'FC' escrita en app.js le dejaria el tablero en CERO sin que nadie se
+  //    enterara". Paso.
+  //    Vacio o sin declarar = cuentan TODAS las unidades, que es lo correcto para un clon nuevo.
+  //    [[norma-arreglar-el-mecanismo-no-el-caso]] [[norma-dos-listas-a-mano-se-desincronizan]]
+  flota_prefijos: ['JAC'],
   chofer_login: false,                                     // ← Betangar: APAGADO (choferes del aseo sin clave,
                                                            //   12 QR JAC directos). Los CLONES nuevos lo ponen
                                                            //   en true → cada unidad nueva pide clave (login por
@@ -30524,6 +30536,29 @@ async function nuevoVehiculoComb(){
   renderCfgCombustible();
 }
 
+// ⛔ LAS UNIDADES DE LAS TARJETAS DEL DUENO, EN UN SOLO LUGAR.
+// Antes cada cuenta escribia su propio `indexOf('JAC')===0` -cuatro copias- y tomaba los codigos
+// de `FLOTA`, que es el SNAPSHOT del 21/07 y en los clones esta vacio a proposito. La fuente
+// unica de "que unidades existen" ya existe y se llama `_unidadesTodas()` (FLOTA + UNIDAD_CONFIG
+// + KM_DATA): nacio por el caso de Tony Gas del 10/09, "no hay unidades cargadas" con 26
+// cargadas. El prefijo sale de la configuracion de la empresa, no del codigo.
+function _flotaPrefijos(){
+  try{ var p=(typeof BTG_CONFIG==='object'&&BTG_CONFIG)?BTG_CONFIG.flota_prefijos:null;
+       return Array.isArray(p)?p.filter(function(x){return String(x||'').trim();}):[]; }catch(e){ return []; }
+}
+// Una fila (planilla, surtida) es de la flota que cuenta?  Sin prefijos declarados: todas.
+function _esDeLaFlota(cam){
+  var c=String(cam||'').toUpperCase(); if(!c) return false;
+  var pre=_flotaPrefijos(); if(!pre.length) return true;
+  return pre.some(function(p){ return c.indexOf(String(p).toUpperCase())===0; });
+}
+// Los codigos de unidad que cuentan, de la fuente unica.
+function _flotaDelTablero(){
+  var us=[];
+  try{ us=(typeof _unidadesTodas==='function')?_unidadesTodas():Object.keys((typeof FLOTA!=='undefined'&&FLOTA)||{}); }catch(e){ us=[]; }
+  return us.filter(_esDeLaFlota);
+}
+
 /* ============================================================================
    RENTABILIDAD POR CAMIÓN — Ingreso (planillas) − Combustible (gasoil) − Nómina
    (chofer + ayudantes). Usa los mismos datos reales que el resto de la app.
@@ -30604,7 +30639,7 @@ function _combEgresoUsd(g,corte){
 }
 function calcRentabilidadCamiones(des,hta){
   var tarChofer=cfg.chofer||10, tarAyud=cfg.ayud||5;
-  var pf=(typeof REGS!=='undefined'?REGS:[]).filter(function(r){if(!r.cam||String(r.cam).toUpperCase().indexOf('JAC')!==0)return false;if(des&&r.f<des)return false;if(hta&&r.f>hta)return false;return true;});
+  var pf=(typeof REGS!=='undefined'?REGS:[]).filter(function(r){if(!_esDeLaFlota(r.cam))return false;if(des&&r.f<des)return false;if(hta&&r.f>hta)return false;return true;});
   var map={};
   pf.forEach(function(r){
     var c=r.cam; if(!map[c])map[c]={cam:c,viajes:0,ingreso:0,ayViajes:0};
@@ -30622,7 +30657,7 @@ function calcRentabilidadCamiones(des,hta){
     if(_rentEsCompra(g))return;
     if(_corte&&String(g.f||'')>=_corte)return; // post-corte: la verdad es la surtida
     if(des&&g.f<des)return; if(hta&&g.f>hta)return;
-    var c=g.cam; if(!c||String(c).toUpperCase().indexOf('JAC')!==0)return; // solo camiones JAC
+    var c=g.cam; if(!_esDeLaFlota(c))return;   // solo las unidades que cuentan para esta empresa
     // A2 (auditoría 2026-07-04): NO descartar el combustible de un camión SIN planillas en el rango.
     // Antes `if(!map[g.cam])return` botaba ese costo en silencio (sobrestimaba la ganancia). Ahora se
     // crea la fila: un camión que quemó combustible sin hacer viajes queda con utilidad negativa = su
@@ -30637,7 +30672,7 @@ function calcRentabilidadCamiones(des,hta){
     (typeof SURT_RENT!=='undefined'?SURT_RENT:[]).forEach(function(s){
       var f=String(s.fecha||'').slice(0,10);
       if(f<_corte)return; if(des&&f<des)return; if(hta&&f>hta)return;
-      var c=s.cam; if(!c||String(c).toUpperCase().indexOf('JAC')!==0)return;
+      var c=s.cam; if(!_esDeLaFlota(c))return;
       if(!map[c])map[c]={cam:c,viajes:0,ingreso:0,ayViajes:0};
       map[c].combustible=(map[c].combustible||0)+_surCostoUsd(s);
       map[c].litros=(map[c].litros||0)+(parseFloat(s.litros)||0);
@@ -30674,7 +30709,7 @@ function calcRentabilidadCamiones(des,hta){
 // % de camiones JAC operativos. Si cae bajo el umbral (cfg.dispMin, default 80%) → riesgo de
 // incumplir el contrato (IMAU). Reusa el estado que ya fijan chofer/mecánico (KM_DATA[cam].estado).
 function calcDisponibilidadFlota(){
-  var jac=Object.keys(typeof FLOTA!=='undefined'?FLOTA:{}).filter(function(k){return k.indexOf('JAC')===0;});
+  var jac=_flotaDelTablero();
   var fuera=[];
   // MISMA fuente que el widget de flota (_estadoCamReal): operativo solo si el estado real es 'operativo'.
   jac.forEach(function(cam){
@@ -30705,7 +30740,7 @@ function _kmPorDiaCam(cam){
   return (dias>0&&dkm>0)?dkm/dias:0;
 }
 function calcComprasSugeridas(){
-  var jac=Object.keys(typeof FLOTA!=='undefined'?FLOTA:{}).filter(function(k){return k.indexOf('JAC')===0;});
+  var jac=_flotaDelTablero();
   var servicios=[];
   jac.forEach(function(cam){
     var km=(typeof kmActualCam==='function')?kmActualCam(cam):0; if(!km)return;
