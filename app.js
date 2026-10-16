@@ -30749,9 +30749,10 @@ function _kmPorDiaCam(cam){
 }
 function calcComprasSugeridas(){
   var jac=_flotaDelTablero();
-  var servicios=[];
+  var servicios=[], evaluadas=0;   // `evaluadas` = unidades con kilometraje con el que calcular
   jac.forEach(function(cam){
     var km=(typeof kmActualCam==='function')?kmActualCam(cam):0; if(!km)return;
+    evaluadas++;
     var prox=(typeof proxServicio==='function')?proxServicio(km,cam):0, falta=prox-km;
     var kmDia=_kmPorDiaCam(cam)||(parseFloat(cfg.kmDia)||0);
     var dias=kmDia>0?Math.round(falta/kmDia):null;
@@ -30767,7 +30768,10 @@ function calcComprasSugeridas(){
       return {nombre:it.nombre,stock:s,min:mn,unidad:it.unidad||'',
               sugerido:Math.round(Math.max(mn*2-s,1)*100)/100,precio:parseFloat(it.precio)||0};})
     .sort(function(a,b){return (a.stock-a.min)-(b.stock-b.min);});   // lo mas faltante primero
-  return {servicios:servicios,bajos:bajos};
+  // ⛔ `evaluadas` sale de acá para que la tarjeta pueda distinguir «no hay nada urgente» de
+  //    «no pude calcular nada». Visto en un navegador el 16/10/2026: con 23 unidades cargadas y
+  //    NINGUNA con kilometraje, la tarjeta decía «Nada urgente por comprar ✓» en verde.
+  return {servicios:servicios,bajos:bajos,evaluadas:evaluadas,unidades:jac.length};
 }
 function renderComprasSugeridas(){
   var el=g('inv-compras-sugeridas'); if(!el)return;
@@ -30820,13 +30824,27 @@ function renderScoringChoferes(){
     '<div style="font-size:10px;color:var(--text3);margin-top:6px">Estimado SIN telemetría (no usa GPS): se basa en multas y en el consumo de los camiones que manejó. La telemetría real (frenadas/velocidad) necesita hardware GPS — pendiente.</div>';
 }
 
+// ⛔ UN TOTAL EN CERO NO SE PINTA DE VERDE. Medido en un navegador el 16/10/2026: con el
+//    conjunto vacio, la tarjeta decia «0/0 operativas (0%)» en VERDE y con un ✓ «Por encima del
+//    umbral (80%)». El dueno leia que su flota esta bien cuando lo que pasaba es que la cuenta no
+//    tenia una sola unidad. Verde = medido y esta bien; GRIS = no hay con que medir. Son dos
+//    cosas distintas y se veian iguales.
+//    [[norma-falta-de-dato-no-es-un-dato]] [[norma-control-positivo-antes-de-creerle-al-vacio]]
+var INTEL_GRIS='#94a3b8';
 function renderInteligenciaFlota(){
   var el=g('dash-inteligencia'); if(!el)return;
   var cards=[];
+  // Cuantas unidades entran en estas cuentas. Si son CERO, ninguna tarjeta puede decir «bien».
+  var _nFlota=0; try{ _nFlota=(typeof _flotaDelTablero==='function')?_flotaDelTablero().length:0; }catch(e){}
+  var _porQueVacio='No hay ninguna unidad para esta cuenta'+
+    (_flotaPrefijos().length?(' con el prefijo declarado ('+_flotaPrefijos().join(', ')+')'):'')+
+    '. Cargalas en Configuracion → Unidades.';
   // #6 Disponibilidad vs contrato
   try{
     var d=calcDisponibilidadFlota();
-    cards.push(_intelCard(d.enRiesgo?'#ef4444':'#22c55e','🚛 Disponibilidad de flota',
+    if(!d.total){
+      cards.push(_intelCard(INTEL_GRIS,'🚛 Disponibilidad de flota','sin unidades que contar',_porQueVacio,"sp('multicontrato')"));
+    } else cards.push(_intelCard(d.enRiesgo?'#ef4444':'#22c55e','🚛 Disponibilidad de flota',
       d.operativas+'/'+d.total+' operativas ('+d.pct+'%)',
       d.enRiesgo?('⚠️ Bajo el '+d.umbral+'% — riesgo de incumplir contrato'+(d.fuera.length?': '+d.fuera.map(function(x){return x.cam.replace('JAC-','');}).join(', '):'')):'✓ Por encima del umbral ('+d.umbral+'%)',
       "sp('multicontrato')"));
@@ -30835,7 +30853,11 @@ function renderInteligenciaFlota(){
   try{
     var R=calcRentabilidadCamiones('','');
     var caros=R.rows.filter(function(r){return r.sobreCosto;}).sort(function(a,b){return b.sobreCostoPct-a.sobreCostoPct;});
-    cards.push(_intelCard(caros.length?'#f59e0b':'#22c55e','💸 Costo operativo por camión',
+    if(!R.rows.length){
+      cards.push(_intelCard(INTEL_GRIS,'💸 Costo operativo por camión','sin datos para calcularlo',
+        _nFlota?'Hay unidades cargadas pero ninguna tiene planillas ni combustible en el rango.':_porQueVacio,
+        "sp('rentabilidad')"));
+    } else cards.push(_intelCard(caros.length?'#f59e0b':'#22c55e','💸 Costo operativo por camión',
       caros.length?(caros.length+' sobre el promedio de la flota'):'Todos cerca del promedio',
       caros.length?('Revisar: '+caros.slice(0,4).map(function(r){return r.cam.replace('JAC-','')+' (+'+r.sobreCostoPct+'%)';}).join(', ')+' — posible falla oculta o mal uso'):'✓ Sin desvíos de costo >15%',
       "sp('rentabilidad')"));
@@ -30860,7 +30882,13 @@ function renderInteligenciaFlota(){
     if(nBajos)_det+=(_det?'<br>':'')+'<b>Reponer:</b> '+_bj+(nBajos>3?(' <i>y '+(nBajos-3)+' más</i>'):'')+
       (_costo>0?(' · ≈ <b>$'+_invNum(_costo)+'</b>'):'');
     if(!_det)_det='✓ Inventario y servicios al día';
-    cards.push(_intelCard(totalCs?'#38bdf8':'#22c55e','🛒 Compras / servicios por venir',
+    var _hayInv=(typeof INVENTARIO!=='undefined'?INVENTARIO:[]).length;
+    if(!totalCs&&!cs.evaluadas&&!_hayInv){
+      // Ni una unidad con kilometraje ni un insumo cargado: «nada urgente» sería una verdad vacía.
+      cards.push(_intelCard(INTEL_GRIS,'🛒 Compras / servicios por venir','sin datos para calcularlo',
+        (cs.unidades?('Hay '+cs.unidades+' unidad(es) pero ninguna tiene kilometraje cargado, así que no se puede proyectar el próximo servicio.'):_porQueVacio),
+        "sp('inventario')"));
+    } else cards.push(_intelCard(totalCs?'#38bdf8':'#22c55e','🛒 Compras / servicios por venir',
       totalCs?(nServ+' servicio(s) próximo(s)'+(nBajos?' · '+nBajos+' insumo(s) bajo mínimo':'')):'Nada urgente por comprar',
       _det, "sp('inventario')"));
   }catch(e){}
@@ -30868,8 +30896,12 @@ function renderInteligenciaFlota(){
   try{
     var sc=calcScoringChoferes('','');
     var malos=sc.rows.filter(function(r){return r.score<70;});
-    cards.push(_intelCard(malos.length?'#ef4444':'#22c55e','🧑‍✈️ Salud del conductor',
-      malos.length?(malos.length+' conductor(es) en rojo'):(sc.rows.length?'Todos en verde/amarillo':'Sin datos aún'),
+    if(!sc.rows.length){
+      // Decia «Sin datos aún» con el ✓ verde al lado: el ✓ afirma lo que la linea de arriba niega.
+      cards.push(_intelCard(INTEL_GRIS,'🧑‍✈️ Salud del conductor','sin datos para calcularlo',
+        'Ningun conductor tiene viajes ni novedades en el rango.', "sp('empleados')"));
+    } else cards.push(_intelCard(malos.length?'#ef4444':'#22c55e','🧑‍✈️ Salud del conductor',
+      malos.length?(malos.length+' conductor(es) en rojo'):'Todos en verde/amarillo',
       malos.length?('Capacitar/revisar: '+malos.slice(0,3).map(function(r){return nombreQueDistingue(r.nombre,_nombresEmpleados())+' ('+r.score+')';}).join(', ')):'✓ Sin conductores críticos',
       "sp('empleados')"));
   }catch(e){}
