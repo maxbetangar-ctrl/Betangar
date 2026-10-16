@@ -46,6 +46,15 @@ var BTG_CONFIG = {
   //    Vacio o sin declarar = cuentan TODAS las unidades, que es lo correcto para un clon nuevo.
   //    [[norma-arreglar-el-mecanismo-no-el-caso]] [[norma-dos-listas-a-mano-se-desincronizan]]
   flota_prefijos: ['JAC'],
+  // ⛔ A QUE ROSTER LE ESCRIBE EL BOTON «Enviar Mensaje» DEL PANEL DE COMUNICADOS.
+  //    `null` = esta instalacion NO tiene comunicado al personal, y el boton queda APAGADO.
+  //    Medido el 16/10/2026: la app mandaba `empresa: (rubro==='transporte' ? 'flot' : 'bet')`,
+  //    o sea que los CINCO repos de FlotaMax -todos rubro transporte- apuntaban el comunicado a
+  //    la base de FLOTILLA. La funcion central solo tiene credenciales para 'bet' y 'flot': lo
+  //    que no esta declarado no se adivina. Para habilitar un cliente hacen falta su URL y su
+  //    service key en el entorno de `enviar-personal`, y eso se decide a mano.
+  //    [[clon-no-puede-mostrar-ni-tocar-otro-cliente]]
+  comunicado_empresa: 'bet',
   chofer_login: false,                                     // ← Betangar: APAGADO (choferes del aseo sin clave,
                                                            //   12 QR JAC directos). Los CLONES nuevos lo ponen
                                                            //   en true → cada unidad nueva pide clave (login por
@@ -25055,7 +25064,7 @@ var TOOLTIPS={
   guardarGeminiKey:'Guardar la clave de la IA (Gemini)',
   guardarCfgCorrelativo:'Guardar el correlativo (numeración) de documentos',
   // Reportes / WhatsApp / Excel genéricos
-  enviarMensajeWA:'Enviar un mensaje por WhatsApp',
+  enviarMensajeMasivo:'Enviar un comunicado a todo el personal',
   enviarReporteJAC:'Enviar el reporte a JAC por WhatsApp',
   enviarResumenAnomaliasWA:'Enviar por WhatsApp el resumen de anomalías de RRHH',
   generarQRChoferes:'Generar los códigos QR para los choferes (app del chofer)',
@@ -27368,7 +27377,34 @@ function renderMensajesWA(){
   });
 }
 
+// ⛔ LA EMPRESA DESTINO DEL COMUNICADO SE DECLARA, NO SE ADIVINA. Antes salia de un ternario
+//    sobre el rubro: `rubro==='transporte' ? 'flot' : 'bet'`, y los 5 repos de FlotaMax son de
+//    rubro transporte, asi que los 5 apuntaban al roster de FLOTILLA. Ahora sale de
+//    BTG_CONFIG.comunicado_empresa, y si no esta declarada el boton ni siquiera se enciende.
+function _comunicadoEmpresa(){
+  try{ var e=(typeof BTG_CONFIG==='object'&&BTG_CONFIG)?BTG_CONFIG.comunicado_empresa:null;
+       return (typeof e==='string'&&e.trim())?e.trim():''; }catch(e){ return ''; }
+}
+// Apaga el boton cuando esta instalacion no tiene comunicado habilitado, y dice por que.
+function _comunicadoPintarBoton(){
+  var b=document.getElementById('msg-wa-btn'); if(!b)return;
+  if(_comunicadoEmpresa())return;
+  b.disabled=true;
+  b.title='Esta instalacion no tiene habilitado el comunicado al personal. Pedilo a Maxware.';
+  var t=document.getElementById('msg-wa-texto'); if(t)t.placeholder='El comunicado al personal no esta habilitado en esta instalacion.';
+}
+// Si el app.js se carga DESPUES de que el documento termino, DOMContentLoaded ya paso y el
+// listener no corre nunca: el boton quedaria encendido sin estarlo. Se cubren los dos casos.
+try{ if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',_comunicadoPintarBoton);
+     else _comunicadoPintarBoton(); }catch(e){}
+
 async function enviarMensajeMasivo(){
+  // ⛔ FALLA CERRADO: sin empresa declarada no se manda a ningun lado. Antes se adivinaba por el
+  //    rubro y el comunicado de un cliente podia salirle al personal de otro.
+  if(!_comunicadoEmpresa()){
+    alert('Esta instalacion no tiene habilitado el comunicado al personal.\n\nNo se envio nada. Pedilo a Maxware.');
+    return;
+  }
   var msg = (document.getElementById('msg-wa-texto')||{}).value; msg=(msg||'').trim();
   if(!msg){ alert('Escribe el mensaje primero'); return; }
   var dest = (document.getElementById('msg-wa-dest')||{}).value || 'todos';
@@ -27388,7 +27424,7 @@ async function enviarMensajeMasivo(){
     var r=await fetch(SUPA_URL+'/functions/v1/enviar-personal',{
       method:'POST',
       headers:{'Content-Type':'application/json','apikey':SUPA_KEY,'Authorization':'Bearer '+tok},
-      body:JSON.stringify({empresa:(BTG_CONFIG.rubro==='transporte'?'flot':'bet'),mensaje:msg,roles:roles})
+      body:JSON.stringify({empresa:_comunicadoEmpresa(),mensaje:msg,roles:roles})
     });
     var j=await r.json();
     if(!j.ok){ alert('No se pudo enviar: '+(j.error||'error')); if(btn){btn.textContent='Enviar';btn.disabled=false;} return; }
