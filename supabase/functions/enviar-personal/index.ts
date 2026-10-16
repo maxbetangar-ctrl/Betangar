@@ -13,6 +13,10 @@
 // Encola en cola_mensajes con el saludo por hora; el worker antepone la etiqueta de la empresa.
 //
 // POST { empresa:'bet'|'flot', mensaje:'...', roles?:['socios',...], forzar_todos?:false }
+//   ⛔ `empresa` SOLO puede ser una de las que esta funcion tiene credenciales para atender
+//      (hoy 'bet' y 'flot'). Cualquier otra se RECHAZA con 400: antes se adivinaba 'bet' y el
+//      comunicado de un cliente podia salirle al personal de otro. Para habilitar un cliente
+//      nuevo hace falta su URL y su service key en el entorno, decidido a mano.
 //   forzar_todos=true ignora el filtro de calientes (usar solo cuando se sabe que todos escribieron).
 //   ?dry=1 arma y devuelve a quien iria SIN encolar.
 // ════════════════════════════════════════════════════════════════════════════════════════════════
@@ -43,35 +47,61 @@ Deno.serve(async (req) => {
     const url = new URL(req.url);
     const dry = url.searchParams.get("dry") === "1";
     const body = await req.json().catch(() => ({}));
-    const empresa = (body.empresa === "flot") ? "flot" : "bet";
-    const _tUrl0 = empresa === "bet" ? BET_URL : FLOT_URL;
-    // AUTORIZACION: el secreto (yo/cron) O un usuario logueado ADMIN de la app. Sin esto, el numero
-    // del que dependen las 4 apps quedaria a merced de cualquiera con la URL. El secreto NO viaja al
-    // navegador: el boton de la app manda el token del usuario, y aca se verifica su rol.
+    // ⛔ SOLO LAS EMPRESAS QUE ESTA FUNCION TIENE CREDENCIALES PARA ATENDER.
+    //    Antes decia: `empresa = (body.empresa === "flot") ? "flot" : "bet"`, o sea que
+    //    CUALQUIER valor que no fuera "flot" caia en Betangar sin aviso.
+    //    Medido el 16/10/2026: los 5 repos de FlotaMax mandan `empresa:'flot'` porque los 5
+    //    tienen rubro 'transporte' -- Tony Gas, VIDECA, la demo y demo-nuevo apuntan su boton
+    //    de comunicado a la base de FLOTILLA. Hoy no filtra nada porque el permiso se mide
+    //    CONTRA LA BASE DESTINO y ningun auth_user_id de admin de Tony Gas existe en los
+    //    btg_usuarios de FLOTILLA (cruzados los 5 de FLOTILLA contra los 6 de Tony Gas: cero
+    //    coincidencias). O sea: alla el boton esta MUERTO, no filtrando -- y le contesta a la
+    //    administradora "solo un administrador puede enviar comunicados", que es acusarla de
+    //    algo que no es. Pero el dia que exista un usuario en las dos bases, el comunicado se
+    //    va al personal del OTRO cliente firmado "FLOTILLA S.A.".
+    //    Esto lo cierra de raiz: una empresa que no este en la tabla se rechaza, no se adivina.
+    const EMPRESAS: Record<string, { url: string; key: string; nombre: string }> = {};
+    if (BET_URL && BET_KEY) EMPRESAS.bet = { url: BET_URL, key: BET_KEY, nombre: "Inversiones Betangar C.A." };
+    if (FLOT_URL && FLOT_KEY) EMPRESAS.flot = { url: FLOT_URL, key: FLOT_KEY, nombre: "FLOTILLA S.A." };
+    const pedida = String(body.empresa || "");
+    const emp = EMPRESAS[pedida];
+    if (!emp) {
+      return json({ ok: false, error: `Esta instalacion no tiene habilitado el comunicado al personal (empresa "${pedida || "(sin declarar)"}"). NO se envio nada.`, empresa_pedida: pedida, habilitadas: Object.keys(EMPRESAS) }, 400);
+    }
+    const tUrl = emp.url, tKey = emp.key, empNombre = emp.nombre, empresa = pedida;
+    // AUTORIZACION: el secreto (yo/cron) O un usuario logueado ADMIN **de la empresa destino**.
+    // ⛔ ANTES SE DECODIFICABA EL TOKEN SIN VERIFICAR LA FIRMA, y el comentario del helper decia
+    //    que no importaba "porque solo identifica al usuario para mirar su rol". Aca la identidad
+    //    ES la autorizacion: con esta funcion se le escribe a TODO el personal por el numero del
+    //    que dependen las 4 apps, y un numero baneado las deja mudas a las cuatro. Y
+    //    `verify_jwt = false` en config.toml es OBLIGATORIO (la llama el navegador de otra base),
+    //    asi que la plataforma tampoco verificaba nada: cualquiera que supiera el auth_user_id de
+    //    un admin podia armar un token sin firma con ese `sub` y disparar un comunicado masivo.
+    //    Ahora el token se valida CONTRA LA BASE DESTINO, la unica que tiene el secreto con que
+    //    se firmo. [[norma-una-asercion-mal-escrita-acusa-al-producto]]
     let autorizado = (SECRET && url.searchParams.get("key") === SECRET);
+    let negado = "";
     if (!autorizado) {
-      const auth = (req.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
-      const sub = subDeJWT(auth);   // id del usuario logueado, del token
-      if (sub) {
+      const tok = (req.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+      const uid = await idDelTokenVerificado(tUrl, tKey, tok);
+      if (!uid) negado = "Tu sesion no pudo verificarse contra la base de esta empresa. Cerra sesion y volve a entrar.";
+      else {
         try {
           // Se busca por auth_user_id con service_role (sin depender del RLS de btg_usuarios).
-          const tKey0 = empresa === "bet" ? BET_KEY : FLOT_KEY;
-          const r = await fetch(`${_tUrl0}/rest/v1/btg_usuarios?auth_user_id=eq.${encodeURIComponent(sub)}&select=rol`, { headers: H(tKey0) });
+          const r = await fetch(`${tUrl}/rest/v1/btg_usuarios?auth_user_id=eq.${encodeURIComponent(uid)}&select=rol`, { headers: H(tKey) });
           const rows = r.ok ? await r.json() : [];
           const rol = rows && rows[0] ? String(rows[0].rol || "") : "";
           if (["superadmin", "admin"].includes(rol)) autorizado = true;
-        } catch { /* no autoriza */ }
+          else if (rol) negado = `Tu rol (${rol}) no puede enviar comunicados: hace falta admin o superadmin.`;
+          else negado = "Tu usuario no figura en la empresa a la que iria este comunicado: el boton esta apuntando a otra base. Avisale a Maxware; no se envio nada.";
+        } catch { negado = "No se pudo comprobar tu rol; no se envio nada."; }
       }
     }
-    if (!autorizado) return json({ ok: false, error: "solo un administrador puede enviar comunicados" }, 401);
+    if (!autorizado) return json({ ok: false, error: negado || "solo un administrador puede enviar comunicados" }, 401);
     const mensaje = String(body.mensaje || "").trim();
     const roles = Array.isArray(body.roles) ? body.roles : null;   // null = todos los cargos
     const forzar = body.forzar_todos === true;
     if (!mensaje) return json({ ok: false, error: "falta el mensaje" }, 400);
-
-    const tUrl = empresa === "bet" ? BET_URL : FLOT_URL;
-    const tKey = empresa === "bet" ? BET_KEY : FLOT_KEY;
-    const empNombre = empresa === "bet" ? "Inversiones Betangar C.A." : "FLOTILLA S.A.";
 
     // Empleados activos con telefono (del que corresponda a esa empresa).
     const emps = await sel(tUrl, tKey, "empleados?select=nombre,cargo,whatsapp,tel,activo");
@@ -111,14 +141,16 @@ Deno.serve(async (req) => {
     return json({ ok: false, error: String(e) }, 200);
   }
 });
-// Saca el `sub` (id de usuario) del JWT de Supabase, SIN validar firma: no da acceso a datos por si
-// mismo (todo lo sensible pasa por RLS/rol); solo identifica al usuario para mirar su rol en la tabla.
-function subDeJWT(token: string): string {
+// Verifica el token CONTRA LA BASE DESTINO y devuelve el id del usuario, o "" si no sirve.
+// Solo esa base tiene el secreto con el que se firmo su propio token, asi que es la unica que
+// puede decir si es legitimo. Reemplaza al helper viejo, que leia el `sub` sin verificar nada.
+async function idDelTokenVerificado(url: string, key: string, token: string): Promise<string> {
+  if (!token) return "";
   try {
-    const parte = token.split(".")[1]; if (!parte) return "";
-    const b64 = parte.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((parte.length + 3) % 4);
-    const payload = JSON.parse(atob(b64));
-    return String(payload.sub || "");
+    const r = await fetch(`${url}/auth/v1/user`, { headers: { apikey: key, Authorization: `Bearer ${token}` } });
+    if (!r.ok) return "";
+    const u = await r.json();
+    return String((u && u.id) || "");
   } catch { return ""; }
 }
 function json(b: unknown, status = 200) { return new Response(JSON.stringify(b), { status, headers: { ...CORS, "Content-Type": "application/json" } }); }
