@@ -14914,6 +14914,10 @@ async function verFotoPrivada(bucket, urlOruta){ await _fotoPintar(_fotoVentana(
 async function _surVerFoto(idOrSrc){
   if(!idOrSrc)return;
   var s=String(idOrSrc), w=_fotoVentana();
+  // ⛔ 'undefined' NO ES UN ID: llega así cuando quien pinta el 📷 no tenía el id a mano. Decirle
+  //    «esta surtida no tiene foto» hace que se reporte como foto perdida — pasó el 15/10/2026 en
+  //    FLOTILLA, con 409 de 410 fotos guardadas. Acá el 📷 sale de la RPC, que sí trae el id.
+  if(s==='undefined'||s==='null'){ _fotoFallar(w,'No llegó el id de la surtida: avisar a Maxware'); return; }
   if(!/^(https?:|data:)/.test(s)){
     if(!(DB_READY&&supabase)){ _fotoFallar(w,'Sin conexión para traer la foto'); return; }
     try{
