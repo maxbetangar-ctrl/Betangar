@@ -66,7 +66,11 @@ self.addEventListener('fetch', function(event) {
 
   // Para el chofer.html y sus recursos: Network First
   event.respondWith(
-    (esDoc ? fetch(url, { cache: 'no-store' }) : fetch(event.request))
+    // ⛔ `no-cache`, NO `no-store`: los dos piden a la red, pero `no-store` saltea el pedido
+    // CONDICIONAL, asi que el servidor no puede contestar 304 y el telefono se baja el
+    // chofer.html entero en cada apertura. `no-cache` revalida siempre y la frescura es la
+    // misma. Medido en FlotaMax: unas 13 MB por mes por chofer de mas.
+    (esDoc ? fetch(url, { cache: 'no-cache' }) : fetch(event.request))
       .then(function(response) {
         // Si la respuesta es válida, actualizar cache
         if (response && response.status === 200) {

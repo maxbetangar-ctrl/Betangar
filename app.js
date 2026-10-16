@@ -22512,6 +22512,10 @@ function registrarTokenLocal(token, cb, motivo){
 async function pollTokensAprobados(){
   var toks=Object.keys(PENDING_TOKEN_CB);
   if(!toks.length){if(_pollTokensInt){clearInterval(_pollTokensInt);_pollTokensInt=null;}return;}
+  // Con la pestana oculta se salta el tick, SIN apagar el intervalo: cuando el usuario vuelve,
+  // sigue esperando su aprobacion. (El corte va DESPUES del clearInterval de arriba, que es el
+  // que apaga el poller cuando ya no hay nada pendiente.)
+  if(typeof document!=='undefined'&&document.hidden)return;
   await _ensureJWT(); // tokens_pendientes tiene anon REVOCADO: sin JWT el GET cae a anon y da 401 → la aprobación nunca se detecta (mismo patrón que _pollSesionTokens)
   console.log('[POLLING] revisando '+toks.length+' token(s) pendiente(s):',toks.join(','));
   toks.forEach(function(tk){
@@ -22584,6 +22588,10 @@ function iniciarPollSesionTokens(){
 }
 async function _pollSesionTokens(){
   if(!SESION||!SESION.nombre)return;
+  // ⛔ CON LA PESTANA OCULTA NO SE PREGUNTA. Esto corre cada 5 s mientras haya sesion: 17.280
+  // consultas por dia POR PESTANA abierta, y nadie esta mirando para que se aplique nada. Al
+  // volver, el proximo tick tarda 5 s. Medido el 16/10/2026.
+  if(typeof document!=='undefined'&&document.hidden)return;
   await _ensureJWT(); // sin JWT no detecta la aprobación (401 anon revocado)
   var url=SUPA_URL+'/rest/v1/tokens_pendientes?select=id,token,usuario,aprobado,accion_data&usuario=eq.'+encodeURIComponent(SESION.nombre)+'&aprobado=eq.true&order=created_at.desc&limit=25';
   fetch(url,{headers:_tokRestHdr()}).then(function(r){return r.json();}).then(function(rows){
