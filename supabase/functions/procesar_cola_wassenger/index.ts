@@ -37,7 +37,9 @@ const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers
 // ⚠️ CADA `\b` HACE FALTA. La primera versión de esta lista los perdió al
 // escribirla y quedó sin límites de palabra: así `IA` en mayúsculas casa adentro
 // de MARIA, FAMILIA o POLICIA, y el candado habría trabado media mensajería en vez
-// de proteger nada. Antes de tocar esto, correr `pruebas/candado-marca.test.mjs`.
+// de proteger nada. Antes de tocar esto, correr `deno test pruebas/candado-marca.test.ts`
+// (36 aserciones; existe desde el 16/10/2026 — hasta ese dia este comentario mandaba correr un
+// archivo .mjs que no existia en ninguno de los 5 repos, y el candado no tenia una sola prueba).
 const MARCA_PROHIBIDA: Array<[string, RegExp]> = [
   ['inteligencia artificial', /inteligencia\s+artificial/i],
   ['IA (sigla)',              /\bI\.?A\.?\b/],   // sin flag i: «ia» minúscula es final de media lengua
@@ -52,7 +54,11 @@ const MARCA_PROHIBIDA: Array<[string, RegExp]> = [
   ['copilot',                 /\bcopilot\b/i],
   ['asistente virtual',       /asistente\s+virtual/i],
   ['soy un asistente',        /soy\s+(un|una)\s+(asistente|inteligencia|modelo)/i],
-  ['generado por IA',         /generad[oa]s?\s+por\s+(una?\s+)?(inteligencia|ia\b|modelo|máquina)/i],
+  // ⚠️ `m[aá]quina`, con y SIN acento: lo encontro `pruebas/candado-marca.test.ts` el 16/10/2026,
+  //    el dia que se escribio la primera prueba de este candado. Decia solo `máquina` y
+  //    «generado por maquina» -como lo teclea cualquiera en un telefono- pasaba limpio por la
+  //    norma inquebrantable. Se compara como la gente escribe, no como se escribe bien.
+  ['generado por IA',         /generad[oa]s?\s+por\s+(una?\s+)?(inteligencia|ia\b|modelo|m[aá]quina)/i],
 ];
 
 /** Devuelve la etiqueta de lo que se encontró, o null si el texto está limpio. */
@@ -70,9 +76,6 @@ Deno.serve(async (req) => {
   const { data: cfgRow } = await sb.from('configuracion').select('valor').eq('clave', 'wassenger').maybeSingle();
   let cfg: any = {};
   try { cfg = cfgRow?.valor ? (typeof cfgRow.valor === 'string' ? JSON.parse(cfgRow.valor) : cfgRow.valor) : {}; } catch { cfg = {}; }
-  if (!cfg.token || cfg.activo === false) {
-    return json({ ok: true, nota: 'Wassenger no configurado o desactivado — nada que enviar', sent: 0 });
-  }
 
   // Etiqueta de la empresa: se antepone a CADA mensaje para poder COMPARTIR un mismo número entre empresas
   // (FLOTILLA / Betangar / MaxCredit) sin que quien recibe se confunda (clave anti-spam con conocidos).
@@ -101,19 +104,58 @@ Deno.serve(async (req) => {
   //    volvía a 'pendiente' conservando esa fecha y quedaba diciendo que se había enviado algo
   //    que nunca salió (2026-08-07, id 2309: enviado_at puesto con un 502 adentro).
   const staleTs = new Date(Date.now() - 10 * 60 * 1000).toISOString();
-  await sb.from('cola_mensajes').update({ estado: 'pendiente' }).eq('estado', 'enviando').lt('tomado_at', staleTs);
+  // ⛔ EL RESCATE CUENTA EL INTENTO (16/10/2026). Antes devolvia la fila a 'pendiente' sin
+  //    incrementar `intentos`, y ahi estaba el agujero: una corrida que muere DESPUES de que el
+  //    mensaje salio y ANTES de marcarlo deja la fila trabada; a los 10 minutos el rescate la
+  //    devuelve y se MANDA OTRA VEZ. Como el contador no subia, el tope de 4 (`lt('intentos',4)`)
+  //    no actuaba nunca y el ciclo se repetia cada corrida del cron hasta que el caducador de 12 h
+  //    lo mataba: decenas de copias del mismo mensaje al mismo telefono.
+  //    Se hace fila por fila porque PostgREST no sabe escribir `intentos = intentos + 1`.
+  let rescatados = 0;
+  {
+    const { data: trabadas } = await sb.from('cola_mensajes')
+      .select('id,intentos').eq('estado', 'enviando').lt('tomado_at', staleTs).limit(200);
+    for (const t of (trabadas || [])) {
+      const n = (t.intentos || 0) + 1;
+      await sb.from('cola_mensajes').update({
+        estado: n >= 4 ? 'fallido' : 'pendiente',
+        intentos: n,
+        error: 'una corrida murio con este mensaje tomado; puede haber SALIDO sin quedar marcado. '
+             + 'Rescatado con el intento contado (' + n + ' de 4)' + (n >= 4 ? ', y agotado: no se reintenta mas.' : '.'),
+      }).eq('id', t.id);
+      rescatados++;
+    }
+  }
   //    Guardia de transición: una fila reclamada por la versión ANTERIOR tiene enviado_at pero no
   //    tomado_at, y el filtro de arriba no la alcanza (NULL no compara). Sin esto quedaría trabada
   //    en 'enviando' para siempre. Se puede quitar cuando no queden filas viejas en vuelo.
   await sb.from('cola_mensajes').update({ estado: 'pendiente' })
     .eq('estado', 'enviando').is('tomado_at', null).lt('enviado_at', staleTs);
 
+  // ⛔ EL CORTE POR CREDENCIAL SE MUEVE AQUI ABAJO, DESPUES DE LIMPIAR LA COLA (16/10/2026).
+  //    Estaba ARRIBA del caducador y del rescate, asi que una base SIN canal nunca caducaba
+  //    nada, nunca rescataba nada y nunca alarmaba: el worker se iba en esta linea.
+  //    Lo que figuro un mes como "hay que decidir si se limpia la alarma trancada del 11/09 de
+  //    la DEMO" no era una decision pendiente: era que el codigo NO PODIA limpiarla. Mismo caso
+  //    en VIDECA. Limpiar la cola no necesita credencial -son updates a nuestra propia base-;
+  //    lo unico que necesita token es ENVIAR. [[norma-una-asercion-mal-escrita-acusa-al-producto]]
+  if (!cfg.token || cfg.activo === false) {
+    return json({
+      ok: true, sent: 0,
+      nota: 'Wassenger no configurado o desactivado — nada que enviar',
+      caducados: caducados?.length || 0, rescatados,
+    });
+  }
+
   // 2) mensajes pendientes (tanda)
   const { data: pend } = await sb.from('cola_mensajes').select('*').eq('estado', 'pendiente').lt('intentos', 4).order('id').limit(25);
   if (!pend || !pend.length) return json({ ok: true, sent: 0, caducados: caducados?.length || 0 });
 
-  let sent = 0, fail = 0, bloq = 0;
+  let sent = 0, fail = 0, bloq = 0, trabado = 0;
   const bloqDetalle: Array<{ id: any; tipo: any; marca: string }> = [];
+  // `trabado` = filas que NO SE PUDIERON NI COMPROBAR (el control de destino fallo). No son
+  // bloqueos -siguen 'pendiente' y se reintentan- pero avisan igual: ver el bloque de errPerm.
+  const trabadoDetalle: Array<{ id: any; tipo: any; motivo: string }> = [];
   // ⛔ `bloq` cuenta TODO lo que se freno, no solo el candado de redaccion. Ver el
   //    bloque del destino no autorizado, mas abajo, para el porque.
   for (const m of pend) {
@@ -167,6 +209,17 @@ Deno.serve(async (req) => {
           estado: 'pendiente', intentos: (m.intentos || 0) + 1,
           error: 'no se pudo comprobar la lista de destinos: ' + String(errPerm.message || errPerm).slice(0, 200),
         }).eq('id', m.id);
+        // ⛔ ESTO TIENE QUE DISPARAR LA ALARMA (16/10/2026). Antes hacia `fail++` y la alarma solo
+        //    mira los frenados: si a `wa_destino_permitido` se le cambia la firma -y esa funcion
+        //    NO esta en ninguna migracion de ningun repo, o sea que vive fuera de git-, NINGUN
+        //    mensaje sale en NINGUNA de las 5 bases, cada fila gasta sus 4 intentos, a las 12 h el
+        //    caducador las descarta y la alarma no suena una sola vez. Silencio identico a "no
+        //    habia nada que mandar", que es el peor de los dos.
+        //    La fila queda 'pendiente' a proposito: un fallo del control puede ser pasajero y el
+        //    mensaje tiene que poder salir en la proxima. Lo que NO puede es ser silencioso.
+        //    [[norma-la-alarma-no-sale-por-el-canal-que-vigila]] [[norma-una-funcion-de-base-es-codigo-fuera-de-git]]
+        trabado++;
+        trabadoDetalle.push({ id: m.id, tipo: m.tipo, motivo: String(errPerm.message || errPerm).slice(0, 120) });
         fail++;
         continue;
       }
@@ -327,7 +380,7 @@ Deno.serve(async (req) => {
   // este repo es público. Si no está configurado, no se inventa un número: se dice en la
   // respuesta que la alarma no tiene a dónde ir.
   let alarma = 'no hubo bloqueados';
-  if (bloq > 0) {
+  if (bloq > 0 || trabado > 0) {
     const { data: telRow } = await sb.from('configuracion').select('valor').eq('clave', 'alarma_tel').maybeSingle();
     let telAlarma = '';
     try {
@@ -345,10 +398,20 @@ Deno.serve(async (req) => {
         // No se reproduce el TEXTO del mensaje: se dice qué palabra lo frenó y qué id
         // mirar. Copiar el texto acá sería sacar por otra puerta justo lo que se frenó.
         const detalle = bloqDetalle.slice(0, 5).map((b) => `#${b.id} (${b.tipo || 'sin tipo'}): "${b.marca}"`).join('\n');
-        const texto = `${etiqueta ? etiqueta + ': ' : ''}⚠️ Se frenaron `
-          + `${bloq} mensaje${bloq > 1 ? 's' : ''} y NO se enviaron a nadie.\n\n${detalle}`
-          + `${bloq > 5 ? `\n…y ${bloq - 5} más.` : ''}`
-          + `\n\nEstán en la cola con estado "bloqueado" y el motivo escrito. Hay que corregir el texto y volver a encolarlos.`;
+        // Los dos casos se nombran distinto porque se arreglan distinto: el BLOQUEADO hay que
+        // corregirlo y volver a encolarlo; el que no se pudo comprobar se arregla arreglando el
+        // control, y mientras tanto NO SALE NADA en esta base.
+        const detTrab = trabadoDetalle.slice(0, 3).map((b) => `#${b.id} (${b.tipo || 'sin tipo'}): ${b.motivo}`).join('\n');
+        const texto = `${etiqueta ? etiqueta + ': ' : ''}⚠️ `
+          + (bloq > 0
+              ? `Se frenaron ${bloq} mensaje${bloq > 1 ? 's' : ''} y NO se enviaron a nadie.\n\n${detalle}`
+                + `${bloq > 5 ? `\n…y ${bloq - 5} más.` : ''}`
+                + `\n\nEstán en la cola con estado "bloqueado" y el motivo escrito. Hay que corregir el texto y volver a encolarlos.`
+              : '')
+          + (trabado > 0
+              ? `${bloq > 0 ? '\n\n— — —\n\n' : ''}🚨 ${trabado} mensaje${trabado > 1 ? 's' : ''} NO se pudieron ni comprobar: `
+                + `fallo el control de destinos permitidos. Mientras eso falle, de esta base NO SALE NINGUN mensaje.\n\n${detTrab}`
+              : '');
         try {
           const ra = await fetch('https://api.wassenger.com/v1/messages', {
             method: 'POST', headers: { 'Content-Type': 'application/json', 'Token': cfg.token },
