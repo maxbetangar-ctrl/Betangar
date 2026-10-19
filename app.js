@@ -6984,6 +6984,11 @@ async function calcCostoPorTonelada(des,hta){
   }
 
   // 3) LA FINANCIADORA.
+  // ⛔ EL PANEL SE BASTA SOLO. El cuadro de amortización se pide al cargar los datos, pero la
+  //    pantalla puede abrirse antes de que llegue — y entonces el primer número que vería el
+  //    dueño sería el de SIN la cuota, con su aviso al lado. Un número correcto tarde es mejor
+  //    que uno barato a tiempo, así que acá se espera.
+  if(DEUDA_CUOTAS_ESTADO==='no_cargado'){ try{ await cargarCuotasFinanciamiento(); }catch(e){} }
   R.fin=financiadoraDevengadaUsd(des,hta);
   if(R.fin.estado!=='ok'){
     var porque={sin_permiso:'este usuario no tiene permiso para ver los financiamientos',
