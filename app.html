@@ -2545,7 +2545,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
     <div class="sw" id="sw-fin-nompago" onclick="switchFinTab('nompago')">Nomina Pago</div>
     <div class="sw" id="sw-fin-banco" onclick="switchFinTab('banco')">Cuentas</div>
   </div>
-  <div id="tab-fin-dash"><div style="display:flex;gap:8px;margin-bottom:10px"><select class="fc" id="fin-periodo" onchange="renderFinDash()" style="max-width:160px;padding:6px 8px;font-size:11px"><option value="semana">Esta Semana</option><option value="mes">Este Mes</option><option value="todo">Todo</option></select><select class="fc" id="fin-sem-sel" style="max-width:160px;padding:6px 8px;font-size:11px" onchange="renderFinDash()"><option>Semana 1</option><option>Semana 2</option><option>Semana 3</option><option>Semana 4</option><option>Semana 5</option></select><button class="btn btn-s btn-sm" onclick="imprimirReporteFinanciero()">Imprimir</button><button class="btn btn-s btn-sm" onclick="emailReporteFinanciero()">✉ Correo</button></div><div style="display:flex;gap:6px;align-items:flex-end;flex-wrap:wrap;margin-bottom:8px"><div class="fg" style="margin:0"><label style="font-size:10px;color:var(--text3)">Costo/tonelada desde</label><input type="date" class="fc" id="ct-des" style="padding:6px 8px;font-size:11px" onchange="renderCostoTonelada()"></div><div class="fg" style="margin:0"><label style="font-size:10px;color:var(--text3)">hasta</label><input type="date" class="fc" id="ct-hta" style="padding:6px 8px;font-size:11px" onchange="renderCostoTonelada()"></div><button class="btn btn-s btn-sm" onclick="document.getElementById('ct-des').value='';document.getElementById('ct-hta').value='';renderCostoTonelada()">Todo</button></div><div id="ct-panel" style="margin-bottom:12px"></div><div id="fin-dash-content"></div></div>
+  <div id="tab-fin-dash"><div style="display:flex;gap:8px;margin-bottom:10px"><select class="fc" id="fin-periodo" onchange="renderFinDash()" style="max-width:160px;padding:6px 8px;font-size:11px"><option value="todo" selected>Todo</option><option value="mes">Este Mes</option><option value="semana">Una semana</option></select><select class="fc" id="fin-sem-sel" style="max-width:190px;padding:6px 8px;font-size:11px;display:none" onchange="renderFinDash()" title="Semanas reales del mes en curso, lunes a domingo"></select><button class="btn btn-s btn-sm" onclick="imprimirReporteFinanciero()">Imprimir</button><button class="btn btn-s btn-sm" onclick="emailReporteFinanciero()">✉ Correo</button></div><div id="ct-panel" style="margin-bottom:12px"></div><div id="fin-dash-content"></div></div>
   <div id="tab-fin-ingresos" style="display:none">
     <div class="g2" style="margin-bottom:10px">
       <div class="card">
@@ -3139,7 +3139,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
      Excel sale con el defecto ya corregido. Pasó midiendo este mismo cambio el
      23/09: dos corridas dieron un .xlsx idéntico byte por byte. -->
 <script src="maxware-excel.js?v=20260923-2252"></script>
-<script src="app.js?v=20261019-1515"></script>
+<script src="app.js?v=20261019-1537"></script>
 
 <!-- Modal global -->
 <div id="modal" class="moverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9990;align-items:center;justify-content:center;padding:16px">

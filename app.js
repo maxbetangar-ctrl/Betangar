@@ -4497,7 +4497,7 @@ async function cargarDatosDB(){
     // CONTRATOS
     if(co.data&&co.data.length)CONTRATOS=co.data.map(function(x){return{id:x.id,nombre:x.nombre,parte:x.parte||'',cliente:x.cliente||x.parte||'',monto:parseFloat(x.monto)||0,forma_cobro:x.forma_cobro||'',tarifa_cliente:parseFloat(x.tarifa_cliente)||0,tarifa_operador:parseFloat(x.tarifa_operador)||0,moneda:x.moneda||'USD',inicio:x.inicio||'',venc:x.vencimiento||'',cond:x.condiciones||'',estado:x.estado||'activo',retenciones:(x.retenciones&&typeof x.retenciones==='object')?x.retenciones:null};});
     // GASTOS VARIABLES
-    if(gv2.data&&gv2.data.length)GASTOS_VARIABLES=gv2.data.map(function(x){return{id:x.id,fecha:x.fecha,cat:x.categoria||'',desc:x.descripcion||'',bs:parseFloat(x.monto_bs)||0,usd:parseFloat(x.monto_usd)||0,ref:x.referencia||'',fact:x.factura||''};});
+    if(gv2.data&&gv2.data.length)GASTOS_VARIABLES=gv2.data.map(function(x){return{id:x.id,fecha:x.fecha,cat:x.categoria||'',desc:x.descripcion||'',bs:parseFloat(x.bs!=null?x.bs:x.monto_bs)||0,usd:parseFloat(x.usd!=null?x.usd:x.monto_usd)||0,ref:x.referencia||'',fact:x.factura||''};});
     // PAGOS ALCALDÍA
     // Fuente de verdad Supabase: usar resultado aunque sea vacío (sin error) → no reaparecen seeds.
     if(!palc.error&&Array.isArray(palc.data)){PAGOS_ALC=palc.data.map(function(x){var _b=parseFloat(x.base_usd)||0,_iva=_b*0.16;return{id:x.id,fecha:x.fecha,fact:x.factura,ref:x.referencia||'',viajes:parseInt(x.viajes)||0,tasa:parseFloat(x.tasa_bcv)||0,base:_b,iva:_iva,total:_b+_iva,neto:parseFloat(x.neto_usd)||0,fiel:parseFloat(x.fiel_usd)||0,fielDevuelto:x.fiel_devuelto||false,pct75:x.pct75_pagado||false};});
@@ -6947,14 +6947,33 @@ async function _gastoBancoRango(desde,hasta){
   }catch(e){ return {error:(e&&e.message)||String(e)}; }
 }
 
+// La PRIMERA fecha que el banco tiene cargada — que no es la misma que la que se le pide.
+// ⛔ `btg_resumen_socio('2026-01-01', hoy)` devuelve el gasto desde enero, pero `bnc_movimientos`
+//    arranca el 23/03/2026 y las planillas el 04/03: hay viajes cuyas toneladas no tienen detrás
+//    ningún gasto. El costo por tonelada sale MÁS BARATO de lo real y nada lo decía, porque el
+//    rótulo del período es el de la consulta, no el de los datos.
+//    [[norma-control-positivo-antes-de-creerle-al-vacio]]
+var _BANCO_DESDE=null;   // null = sin preguntar · '' = no se pudo saber · 'YYYY-MM-DD'
+async function _primerMovimientoBanco(){
+  if(_BANCO_DESDE!==null)return _BANCO_DESDE;
+  _BANCO_DESDE='';
+  if(!(DB_READY&&supabase)||DEMO_MODE)return _BANCO_DESDE;
+  try{
+    var r=await supabase.from('bnc_movimientos').select('fecha').order('fecha',{ascending:true}).limit(1);
+    if(!r.error&&r.data&&r.data.length)_BANCO_DESDE=String(r.data[0].fecha||'').slice(0,10);
+  }catch(e){}
+  return _BANCO_DESDE;
+}
+
 // ── EL MOTOR ÚNICO DEL COSTO POR TONELADA ────────────────────────────────────────────────────
 // Devuelve SIEMPRE un objeto. Si no se puede dar el número, viene `bloqueado` con el motivo y la
 // pantalla muestra ESO: una cifra que no corresponde a nada es peor que ninguna cifra.
 async function calcCostoPorTonelada(des,hta){
   des=(des||'').slice(0,10); hta=(hta||'').slice(0,10);
   var R={des:des,hta:hta,tonsPorViaje:_tonsPorViaje(),avisos:[],bloqueado:null,
-         viajes:0,planillas:0,tons:0,ingreso:0,gasto:0,cambiario:0,fin:null,banco:null,
-         costoTotal:0,costoTon:0,costoTonSinFin:0,ingresoTon:0,margenTon:0,fuente:''};
+         viajes:0,planillas:0,tons:0,ingreso:0,gasto:0,cambiario:0,fin:null,banco:null,desdeReal:'',
+         costoTotal:0,costoTon:0,costoTonSinFin:0,finPorTon:0,ingresoTon:0,margenTon:0,fuente:'',
+         viajesSinGasto:0,tonsSinGasto:0,bancoDesde:'',costoTonConRespaldo:0};
 
   // 1) LAS TONELADAS. Viajes de las planillas de la flota de ESTA empresa, en el mismo rango.
   (typeof REGS!=='undefined'?REGS:[]).forEach(function(r){
@@ -6965,6 +6984,7 @@ async function calcCostoPorTonelada(des,hta){
     R.viajes+=parseInt(r.t)||0;
     R.ingreso+=parseFloat(r.m)||0;
     R.planillas++;
+    if(!R.desdeReal||f<R.desdeReal)R.desdeReal=f;
   });
   R.tons=R.viajes*R.tonsPorViaje;
 
@@ -6974,6 +6994,24 @@ async function calcCostoPorTonelada(des,hta){
     R.gasto=b.gasto; R.cambiario=b.cambiario; R.banco=b;
     R.fuente='del estado de cuenta del banco · '+b.desde+' → '+b.hasta;
     if(b.sinTasa>0)R.avisos.push(b.sinTasa+' movimiento(s) del banco sin tasa del día: NO están sumados en el gasto, así que el costo real es un poco más alto.');
+    // ⛔ TONELADAS SIN GASTO DETRÁS. Si en el período hay viajes anteriores a la primera fecha que
+    //    el banco tiene cargada, esas toneladas engordan el divisor sin que nada engorde el
+    //    dividendo: el costo por tonelada sale más barato de lo real. Se dice CON EL NÚMERO y con
+    //    cuánto daría sin ellas, que es lo único que sirve para decidir.
+    var _bd=await _primerMovimientoBanco();
+    if(_bd&&R.desdeReal&&R.desdeReal<_bd){
+      var vSin=0;
+      (typeof REGS!=='undefined'?REGS:[]).forEach(function(r){
+        if(!_esDeLaFlota(r.cam))return;
+        var f=String(r.f||''); if(!f||f>=_bd)return;
+        if(des&&f<des)return; if(hta&&f>hta)return;
+        vSin+=parseInt(r.t)||0;
+      });
+      // Acá solo se MIDE. El aviso se redacta al final: necesita el costo total ya hecho, y la
+      // cuota de la financiadora todavía no se sumó. Redactarlo acá daba la cifra corregida SIN
+      // la cuota — más barata que la barata. [[norma-la-vista-no-mide-lo-que-crees]]
+      if(vSin>0){ R.viajesSinGasto=vSin; R.tonsSinGasto=vSin*R.tonsPorViaje; R.bancoDesde=_bd; }
+    }
   }else if(des||hta){
     // ⛔ Con rango puesto y sin banco, el camino viejo daría el gasto de TODA la historia sobre las
     //    toneladas del rango. Eso no es un número incompleto: es un número falso. No se muestra.
@@ -7021,10 +7059,27 @@ async function calcCostoPorTonelada(des,hta){
   //    leen —, porque un cuadro que no cierra a la vista se discute en vez de usarse.
   R.ingresoTon=Math.round(R.ingresoTon*100)/100;
   R.costoTon=Math.round(R.costoTon*100)/100;
-  R.costoTonSinFin=Math.round(R.costoTonSinFin*100)/100;
   R.margenTon=Math.round((R.ingresoTon-R.costoTon)*100)/100;
+  // ⛔ Y EL RENGLÓN DE LA FINANCIADORA TAMBIÉN TIENE QUE CERRAR CONTRA EL TOTAL. Redondear por
+  //    separado «el costo» y «el costo sin la financiadora» daba 11,82 + 3,82 = 15,64 contra un
+  //    total de 15,65: un centavo que en la pantalla se ve como un cuadro que no suma. El valor
+  //    por tonelada de la cuota se redondea UNA vez y el «sin ella» se SACA del total menos eso,
+  //    así los tres números que se leen cierran exacto.
+  R.finPorTon=(R.tons>0&&R.fin)?(Math.round(R.fin.usd/R.tons*100)/100):0;
+  R.costoTonSinFin=Math.round((R.costoTon-R.finPorTon)*100)/100;
   // ⛔ Dividir por cero no da «cero costo»: no da nada. Y un 0 en verde es una mentira tranquila.
   if(R.tons<=0)R.bloqueado='No hay viajes cargados en este rango, así que no hay toneladas entre las que dividir.';
+  // Las toneladas sin gasto detrás, ahora que el costo total ya está hecho: se dice el número y
+  // CUÁNTO DARÍA sin ellas, que es lo único con lo que se puede decidir.
+  if(R.tonsSinGasto>0){
+    var tCon=R.tons-R.tonsSinGasto;
+    R.costoTonConRespaldo=tCon>0?(Math.round(R.costoTotal/tCon*100)/100):0;
+    R.avisos.unshift('El banco solo tiene movimientos desde el '+formatFecha(R.bancoDesde)+', y en este período hay '+
+      R.viajesSinGasto.toLocaleString('es-VE')+' viaje(s) anteriores ('+Math.round(R.tonsSinGasto).toLocaleString('es-VE')+' t). '+
+      'Esas toneladas no tienen gasto detrás, así que este costo sale MÁS BARATO de lo real: contando solo las '+
+      Math.round(tCon).toLocaleString('es-VE')+' t con respaldo daría $'+
+      (tCon>0?R.costoTonConRespaldo.toLocaleString('es-VE',{minimumFractionDigits:2}):'—')+'/t.');
+  }
   return R;
 }
 
@@ -7041,16 +7096,26 @@ function _ctFila(lbl,usd,tons,color,nota){
     '<td style="text-align:right;font-family:var(--m);color:'+(color||'var(--text2)')+'">$'+_ctFmt(usd,0)+'</td>'+
     '<td style="text-align:right;font-family:var(--m);color:'+(color||'var(--text2)')+'">'+(tons>0?('$'+_ctFmt(porTon,2)):'—')+'</td></tr>';
 }
+// ⛔ UN SOLO PERÍODO POR PANTALLA. Este panel nació con su propio Desde/Hasta porque el selector
+//    de arriba no hacía nada. Conectado el selector, dos controles de período en la misma pantalla
+//    serían dos cifras del mismo rubro para dos meses distintos, una debajo de la otra — y nadie
+//    podría decir cuál es la buena. Manda el selector. [[norma-fuente-unica-datos]]
+// Igual que `_ctFila`, pero con el por-tonelada YA decidido afuera: se usa donde ese número tiene
+// que ser el MISMO que en otra parte de la tarjeta, no uno redondeado por su cuenta.
+function _ctFilaFija(lbl,usd,porTon,color,nota){
+  return '<tr><td style="padding:3px 0">'+lbl+(nota?' <span style="color:var(--text3);font-size:10px">'+nota+'</span>':'')+'</td>'+
+    '<td style="text-align:right;font-family:var(--m);color:'+(color||'var(--text2)')+'">$'+_ctFmt(usd,0)+'</td>'+
+    '<td style="text-align:right;font-family:var(--m);color:'+(color||'var(--text2)')+'">$'+_ctFmt(porTon,2)+'</td></tr>';
+}
 async function renderCostoTonelada(){
   var el=g('ct-panel'); if(!el)return;
   el.innerHTML='<div style="padding:10px;color:var(--text3);font-size:12px">Calculando el costo por tonelada…</div>';
+  var P=(typeof _finPeriodo==='function')?_finPeriodo():{des:'',hta:'',etiqueta:'toda la historia cargada'};
   var R;
-  try{ R=await calcCostoPorTonelada(gv('ct-des'),gv('ct-hta')); }
+  try{ R=await calcCostoPorTonelada(P.des,P.hta); }
   catch(e){ el.innerHTML='<div style="padding:10px;color:var(--red);font-size:12px">⛔ No se pudo calcular: '+((e&&e.message)||e)+'</div>'; return; }
   _CT_ULTIMO=R;
-  var periodo=(R.des||R.hta)
-    ? ((R.des?formatFecha(R.des):'el inicio')+' → '+(R.hta?formatFecha(R.hta):'hoy'))
-    : 'toda la historia cargada';
+  var periodo=P.etiqueta;
 
   if(R.bloqueado){
     // ⛔ Gris, no verde, y con la causa. Un recuadro de color sobre un número que no existe afirma
@@ -7073,7 +7138,7 @@ async function renderCostoTonelada(){
      '<div style="font-size:11px;color:var(--text2)">'+
        _ctFmt(R.tons,0)+' toneladas = '+R.viajes.toLocaleString('es-VE')+' viajes × '+_ctFmt(R.tonsPorViaje,0)+' t'+
        ' · cobra $'+_ctFmt(R.ingresoTon,2)+'/t ⇒ le queda <b style="color:'+col+'">$'+_ctFmt(R.margenTon,2)+'/t</b></div>'+
-     '<div style="font-size:10px;color:var(--text3);margin-top:3px">Gasto '+_escHtml(R.fuente)+'. Las toneladas por viaje se declaran en Config ▸ General.</div>'+
+     '<div style="font-size:10px;color:var(--text3);margin-top:3px">Gasto '+_escHtml(R.fuente)+'. El período lo manda el selector de arriba. Las toneladas por viaje se declaran en Config ▸ General.</div>'+
      '</div>';
 
   // ── DE DÓNDE SALE, renglón por renglón ────────────────────────────────────
@@ -7092,8 +7157,10 @@ async function renderCostoTonelada(){
   }else{
     h+=_ctFila('Gasto cargado a mano (nómina, gasoil, fijos, variables, CxP, multas…)',R.gasto,R.tons);
   }
-  h+=_ctFila('Cuota de la financiadora'+(fin.acreedores.length?' — '+_escHtml(fin.acreedores.join(', ')):''),
-       fin.usd,R.tons,'var(--purple)',
+  // El por-tonelada de este renglón sale de `R.finPorTon`, el mismo que usa la frase de abajo:
+  // dos redondeos independientes del mismo número es como un cuadro deja de sumar.
+  h+=_ctFilaFija('Cuota de la financiadora'+(fin.acreedores.length?' — '+_escHtml(fin.acreedores.join(', ')):''),
+       fin.usd,R.finPorTon,'var(--purple)',
        fin.n?('('+fin.n+' cuota'+(fin.n>1?'s':'')+' de $'+_ctFmt(fin.usd/fin.n,2)+' que venci'+(fin.n>1?'eron':'ó')+
               ' en el período, pagada'+(fin.n>1?'s':'')+' o no — entra la CUOTA COMPLETA: '+
               'capital $'+_ctFmt(fin.capital,0)+' + interés $'+_ctFmt(fin.interes,0)+')'):'(ninguna en el período)');
@@ -7105,7 +7172,7 @@ async function renderCostoTonelada(){
   if(fin.usd>0&&R.tons>0){
     h+='<div style="font-size:11px;color:var(--text2);margin-top:6px;padding-top:6px;border-top:1px dashed var(--border)">'+
        'Sin la financiadora el costo sería <b style="font-family:var(--m)">$'+_ctFmt(R.costoTonSinFin,2)+'/t</b>: '+
-       'los camiones le ponen <b style="font-family:var(--m);color:var(--purple)">$'+_ctFmt(R.costoTon-R.costoTonSinFin,2)+'/t</b> '+
+       'los camiones le ponen <b style="font-family:var(--m);color:var(--purple)">$'+_ctFmt(R.finPorTon,2)+'/t</b> '+
        '('+Math.round((R.costoTotal>0?(fin.usd/R.costoTotal*100):0))+'% del costo).</div>';
   }
   h+='</div>';
@@ -7930,7 +7997,7 @@ async function guardarImportacionEnDB(resultado){
     if(PRESTAMOS.length)await _otra('prestamos',supabase.from('prestamos').upsert(PRESTAMOS.map(function(p){return{id:p.id,emp_id:p.empId,emp_nombre:p.empNombre,fecha:p.fecha,monto_usd:p.montoUsd,semanas:p.semanas,cuota_usd:p.cuotaUsd,pagado:p.pagado,semanas_pagadas:p.semanasPagadas,motivo:p.motivo,estado:p.estado};}),{onConflict:'id'}));
     if(MULTAS.length)await _otra('multas',supabase.from('multas').upsert(MULTAS.map(function(m){return{id:m.id,cam_id:m.camId,fecha:m.fecha,descripcion:m.desc,monto_bs:m.montoBs,ref:m.ref,responsable:m.resp,chofer_id:m.choferId,cuotas:m.cuotas,cuota_bs:m.cuotaBs,pagado_bs:m.pagadoBs,cuotas_pagas:m.cuotasPagas,estado:m.estado,moneda:m.moneda||null,monto_div:m.montoDiv||null,cuota_div:m.cuotaDiv||null,pagado_div:m.pagadoDiv||0};}),{onConflict:'id'}));
     if(PAGOS_ALC.length)await _otra('pagos_alcaldia',supabase.from('pagos_alcaldia').upsert(PAGOS_ALC.map(function(p){return{id:p.id,fecha:p.fecha,factura:p.fact,referencia:p.ref,viajes:p.viajes,tasa_bcv:p.tasa,base_usd:p.base,neto_usd:p.neto,fiel_usd:p.fiel,pct75_usd:Math.round(((p.neto||0)*0.075)*100)/100,neto_bs:Math.round(((p.neto||0)*(p.tasa||0))*100)/100,fiel_devuelto:p.fielDevuelto,pct75_pagado:p.pct75};}),{onConflict:'id'}));
-    if(GASTOS_VARIABLES.length)await _otra('gastos_variables',supabase.from('gastos_variables').upsert(GASTOS_VARIABLES.map(function(x){return{id:x.id,fecha:x.fecha,categoria:x.cat,descripcion:x.desc,monto_bs:x.bs,monto_usd:x.usd,referencia:x.ref,factura:x.fact};}),{onConflict:'id'}));
+    if(GASTOS_VARIABLES.length)await _otra('gastos_variables',supabase.from('gastos_variables').upsert(GASTOS_VARIABLES.map(function(x){return{id:x.id,fecha:x.fecha,categoria:x.cat,descripcion:x.desc,bs:x.bs,usd:x.usd,referencia:x.ref,factura:x.fact};}),{onConflict:'id'}));
     progEl.style.borderColor=fallos.length?'var(--red)':'var(--green)';
     try{localStorage.setItem('betangar_regs',JSON.stringify(REGS));localStorage.setItem('betangar_abonos',JSON.stringify(ABONOS));}catch(e3){}
     if(progEl.parentNode)progEl.parentNode.removeChild(progEl);
@@ -20685,26 +20752,132 @@ function emailArteCumple(){
 // ═══════════════════════════════════════════════════
 function switchFinTab(t){['dash','ingresos','gastos','vars','nompago','banco'].forEach(function(x){var el=g('tab-fin-'+x);var sw=g('sw-fin-'+x);if(el)el.style.display=x===t?'block':'none';if(sw){sw.classList.remove('on');if(x===t)sw.classList.add('on');}});if(t==='dash')renderFinDash();if(t==='ingresos'){renderAlcResumen();renderPagosAlcTabla();autoLlenarTasasEnFormularios();calcPagoAlc();}if(t==='gastos')renderGastosFijos();if(t==='vars')renderGastosVariables();if(t==='banco')renderBancoFin();}
 
-function renderFinDash(){
+// ── EL PERÍODO DEL RESUMEN FINANCIERO ────────────────────────────────────────────────────────
+// ⛔ ESTE SELECTOR NO HACÍA NADA. Estaba en la pantalla desde siempre —«Esta Semana / Este Mes /
+//    Todo»— y `renderFinDash()` no lo leía ni una vez: quien eligiera «Este Mes» seguía viendo
+//    los números de TODA la historia sin que nada se lo dijera. Un control muerto al lado de
+//    cifras de plata es peor que no tenerlo, porque AFIRMA que el número es del mes.
+//    [[norma-una-pantalla-que-valida-no-protege-si-no-se-visita]]
+//
+// ⛔ ARRANCA EN «TODO» A PROPÓSITO: es lo que la pantalla venía mostrando de verdad. Conectarlo y
+//    además cambiarle el default a «esta semana» le movería el piso a quien ya la usa todos los
+//    días, y encima parecería que los números cambiaron.
+//
+// Devuelve las dos fechas Y la etiqueta que se escribe en pantalla: el período se LEE, no se
+// deduce de cómo quedó un desplegable. [[norma-una-medicion-tiene-hora]]
+function _finPeriodo(){
+  var modo=gv('fin-periodo')||'todo';
+  var mes=(typeof mesBtg==='function')?mesBtg():'';
+  if(modo==='mes'){
+    var q=(typeof _mesPartes==='function')?_mesPartes(mes):null;
+    if(q){
+      var d1=_isoLocal(new Date(q.yy,q.mi,1,12,0,0));
+      var dN=_isoLocal(new Date(q.yy,q.mi+1,0,12,0,0));   // día 0 del mes siguiente = último de este
+      return {modo:'mes',des:d1,hta:dN,mes:mes,
+        etiqueta:'el mes en curso · '+formatFecha(d1)+' al '+formatFecha(dN)};
+    }
+  }
+  if(modo==='semana'){
+    var l1=(typeof _lunesMes1==='function')?_lunesMes1(mes):null;
+    if(l1){
+      // Las semanas de la empresa son lunes–domingo y se numeran DENTRO del mes, igual que en
+      // nómina y en el histórico. La misma definición, no una segunda. [[norma-semana-real-no-bloque-de-dias]]
+      var n=parseInt(String(gv('fin-sem-sel')||'').replace(/\D+/g,''),10);
+      if(!(n>0))n=_numSemanaMes(_isoLocal(new Date()))||1;
+      var lun=new Date(l1); lun.setDate(lun.getDate()+(n-1)*7);
+      var dom=new Date(lun); dom.setDate(dom.getDate()+6);
+      var di=_isoLocal(lun), df=_isoLocal(dom);
+      return {modo:'semana',des:di,hta:df,mes:mes,sem:n,
+        etiqueta:'Semana '+n+' de '+mes+' · '+formatFecha(di)+' al '+formatFecha(df)};
+    }
+  }
+  return {modo:'todo',des:'',hta:'',mes:mes,etiqueta:'toda la historia cargada'};
+}
+
+// Arma los dos desplegables antes de pintar: las semanas REALES del mes con su rango de fechas a
+// la vista (así nadie adivina qué días abarca «Semana 4», y un mes de 6 semanas no pierde la
+// última), y el de semana ESCONDIDO cuando el período no es semanal — un control visible que no
+// aplica invita a tocarlo para nada.
+var _FIN_SEM_LISTO=false;
+function _finPrepararSelectores(){
+  var sel=g('fin-periodo'); if(!sel)return;
+  if(typeof _llenarSelectSemanas==='function'){ try{ _llenarSelectSemanas('fin-sem-sel',mesBtg()); }catch(e){} }
+  var ss=g('fin-sem-sel');
+  if(ss){
+    if(!_FIN_SEM_LISTO){
+      // Primera vez: la semana EN CURSO, no la 1 del mes. Si el mes arranca en semana 1 igual
+      // coincide; en la semana 3 de octubre, mostrar la 1 sería un número viejo con cara de nuevo.
+      var hoySem=(typeof getSem==='function')?getSem():'';
+      if(hoySem&&[].some.call(ss.options,function(o){return o.value===hoySem;}))ss.value=hoySem;
+      _FIN_SEM_LISTO=true;
+    }
+    ss.style.display=(sel.value==='semana')?'':'none';
+  }
+}
+
+async function renderFinDash(){
   // El costo por tonelada va ARRIBA y se pinta solo (es asíncrono: le pregunta el gasto del
   // rango al banco). Si falla, lo dice en su propia tarjeta sin tumbar el resto de la pantalla.
   try{ renderCostoTonelada(); }catch(e){ console.log('[costo/ton]',e&&e.message); }
   var el=g('fin-dash-content');if(!el)return;
-  var totalFact=REGS.reduce(function(s,r){return s+r.m;},0);
-  var totalCob=Math.min(ABONOS.reduce(function(s,a){return s+a.m;},0),totalFact);
-  var porcobrar=Math.max(0,totalFact-totalCob);
-  var egNom=_nominaRealUsd();  // nómina REAL (historial calcNom) — misma fuente que _totalEgresos (auditoría #2)
-  // Combustible = solo COMPRAS (no despachos); las CxP de combustible se excluyen de egCxP (= _totalEgresos)
+  _finPrepararSelectores();
+  var P=_finPeriodo(), des=P.des, hta=P.hta, hayRango=!!(des||hta);
+
+  // ⛔ UNA FILA SIN FECHA NO SE PUEDE UBICAR EN UN PERÍODO, y meterla igual la sumaría a TODOS.
+  //    Se deja afuera y se CUENTA, para decirlo abajo. [[norma-falta-de-dato-no-es-un-dato]]
+  var sinFecha=0;
+  function enRango(f){
+    if(!hayRango)return true;
+    var s=String(f||'').slice(0,10);
+    if(!s){ sinFecha++; return false; }
+    if(des&&s<des)return false;
+    if(hta&&s>hta)return false;
+    return true;
+  }
+
+  var totalFact=REGS.reduce(function(s,r){return enRango(r.f)?s+r.m:s;},0);
+  var cobBruto=ABONOS.reduce(function(s,a){return enRango(a.f)?s+(parseFloat(a.m)||0):s;},0);
+  // El tope «cobrado ≤ facturado» vale para TODA la historia, no para un mes: en octubre se cobra
+  // lo facturado en septiembre y el tope lo recortaría a mano. Con rango se muestra lo cobrado tal
+  // cual. [[norma-un-candado-que-vacia-una-columna-no-se-nota]]
+  var totalCob=hayRango?cobBruto:Math.min(cobBruto,totalFact);
+  // ⛔ «POR COBRAR» ES UN SALDO, NO UN FLUJO: es lo que la Alcaldía debe HOY, y no cambia porque
+  //    se mire un mes. Se muestra siempre el total y la tarjeta lo dice, en vez de un
+  //    «facturado del mes − cobrado del mes» que no es una deuda de nadie.
+  var factTodo=REGS.reduce(function(s,r){return s+r.m;},0);
+  var cobTodo=Math.min(ABONOS.reduce(function(s,a){return s+(parseFloat(a.m)||0);},0),factTodo);
+  var porcobrar=Math.max(0,factTodo-cobTodo);
+
+  // NÓMINA del período: las semanas del historial que CAEN dentro (la fuente oficial `calcNom`,
+  // no la estimación viajes×tarifa). Sin rango, la misma función de siempre.
+  var egNom, nomParcial=0;
+  if(!hayRango){ egNom=_nominaRealUsd(); }
+  else {
+    egNom=0;
+    (typeof NOMINA_HIST!=='undefined'?NOMINA_HIST:[]).forEach(function(h){
+      var d=String(h.fecha_desde||'').slice(0,10), f=String(h.fecha_hasta||'').slice(0,10);
+      if(!d&&!f){ sinFecha++; return; }
+      // Una semana de nómina puede quedar a caballo del borde del mes. Se cuenta si SE SOLAPA, y
+      // se avisa cuántas entraron enteras estando partidas: repartirla por días sería inventar.
+      if(hta&&d&&d>hta)return;
+      if(des&&f&&f<des)return;
+      egNom+=parseFloat(h.total_usd)||0;
+      if((des&&d&&d<des)||(hta&&f&&f>hta))nomParcial++;
+    });
+  }
+
   // Combustible = la PLATA que salió a comprarlo: carga del tanque + lo surtido en ESTACIÓN.
   // Lo que sale del tanque de patio NO suma (ya se pagó al comprarlo). Ver _combEgresoUsd.
   var _combCorte=(typeof cfg!=='undefined'&&cfg&&cfg.surtidasCorte)?String(cfg.surtidasCorte).slice(0,10):'';
-  var egGas=GASOIL.reduce(function(s,g){return s+_combEgresoUsd(g,_combCorte);},0);
+  var egGas=GASOIL.reduce(function(s,g){return enRango(g.f)?s+_combEgresoUsd(g,_combCorte):s;},0);
   // Desde el corte, la verdad es la SURTIDA del chofer. Las de GALPÓN salen del tanque ya comprado
   // (no suman); las de ESTACIÓN son compra directa y suman su costo — pero valen $0 mientras
   // administración no las cueste, y eso se avisa aparte (no se puede inventar el precio).
   if(_combCorte){
     egGas+=(typeof SURT_RENT!=='undefined'?SURT_RENT:[]).reduce(function(s,x){
-      if(String(x.fecha||'').slice(0,10)<_combCorte)return s;
+      var f=String(x.fecha||'').slice(0,10);
+      if(f<_combCorte)return s;
+      if(!enRango(f))return s;
       if(String(x.tanque||'').toLowerCase().indexOf('estacion')<0)return s;
       // ⛔ La que ya pertenece a un PERIODO costeado NO se suma aca: su costo entra por egEst
       //    (combustible_periodos.costo_total_usd). Contarla en los dos lados es el mismo
@@ -20713,28 +20886,96 @@ function renderFinDash(){
       return s+((typeof _surCostoUsd==='function')?(_surCostoUsd(x)||0):(parseFloat(x.costo_usd)||0));
     },0);
   }
-  var eg75=totalCob*0.075;
-  var egFijos=GASTOS_FIJOS.reduce(function(s,gf){return s+gf.monto;},0);
-  var egVars=GASTOS_VARIABLES.reduce(function(s,gv){return s+(gv.usd||0);},0);
-  // CxP — TODAS (pagadas + pendientes) MENOS las de combustible (ya contadas en egGas, sin duplicar)
-  var egCxP=CXP.filter(_cxpCuentaEnEgresos).reduce(function(s,c){return s+_cxpCostoUsd(c);},0);
-  var utilBruta=totalCob-egNom-egGas;
-  // Total de egresos y Utilidad Neta = MISMA fuente única que el dashboard (_totalEgresos), para que coincidan.
-  var totalEg=_totalEgresos(totalCob);
-  var utilNeta=totalCob-totalEg;
-  el.innerHTML=
-    '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px;margin-bottom:12px">'+
-    '<div class="stat" style="border-top-color:var(--green)"><div class="stat-lbl">Facturado</div><div class="stat-val" style="font-size:16px;color:var(--green)">$'+totalFact.toLocaleString()+'</div></div>'+
-    '<div class="stat" style="border-top-color:var(--teal)"><div class="stat-lbl">Cobrado</div><div class="stat-val" style="font-size:16px;color:var(--teal)">$'+totalCob.toLocaleString()+'</div></div>'+
-    '<div class="stat r"><div class="stat-lbl">Por Cobrar</div><div class="stat-val" style="font-size:16px;color:var(--red)">$'+porcobrar.toLocaleString()+'</div></div>'+
-    '<div class="stat y"><div class="stat-lbl">7.5% '+brandNom()+'</div><div class="stat-val" style="font-size:16px;color:var(--yellow)">$'+eg75.toFixed(0)+'</div></div>'+
-    '<div class="stat b"><div class="stat-lbl">Nomina Total</div><div class="stat-val" style="font-size:16px;color:var(--blue)">$'+egNom.toLocaleString()+'</div></div>'+
-    '<div class="stat" style="border-top-color:var(--orange)"><div class="stat-lbl">Gastos Fijos</div><div class="stat-val" style="font-size:16px;color:var(--orange)">$'+egFijos.toLocaleString()+'</div></div>'+
-    '<div class="stat" style="border-top-color:var(--purple)"><div class="stat-lbl">Gasoil</div><div class="stat-val" style="font-size:16px;color:var(--purple)">$'+egGas.toFixed(0)+'</div></div>'+
-    '<div class="stat" style="border-top-color:#e879f9"><div class="stat-lbl">CxP (todas)</div><div class="stat-val" style="font-size:16px;color:#e879f9">$'+egCxP.toFixed(0)+'</div></div>'+
-    '<div class="stat" style="border-top-color:'+(utilNeta>=0?'var(--green)':'var(--red)')+'"><div class="stat-lbl">Utilidad Neta</div><div class="stat-val" style="font-size:16px;color:'+(utilNeta>=0?'var(--green)':'var(--red)')+'">$'+utilNeta.toFixed(0)+'</div></div>'+
-    '</div>'+
-    '<div class="cbox"><div class="ctitle">Distribucion de Ingresos</div>'+svgDonut([egNom,egGas,eg75,egFijos,egCxP,Math.max(1,utilNeta)],['Nomina','Gasoil','7.5%','Fijos','CxP','Utilidad'],['#60a5fa','#fbbf24','#a78bfa','#fb923c','#e879f9','#22c55e'])+'</div>';
+
+  // Pago a socio: cada factura con el porcentaje que le tocaba, del período. La función ya toma
+  // rango — es la misma que usa la Utilidad Real. No se vuelve a inventar un 7,5% plano.
+  var eg75=(typeof pagoSocioDesglose==='function')?pagoSocioDesglose(des,hta).total:(totalCob*0.075);
+  // ⛔ LOS GASTOS FIJOS NO TIENEN FECHA: son un monto MENSUAL con su día de pago. Para «Este Mes»
+  //    el monto del mes es correcto; para una SEMANA no lo es, y repartirlo entre 4,33 sería
+  //    inventar un dato que nadie declaró. Se muestra el mensual y la tarjeta dice qué es.
+  var egFijos=GASTOS_FIJOS.reduce(function(s,gf){return s+(gf.monto||0);},0);
+  var egVars=GASTOS_VARIABLES.reduce(function(s,gv){return enRango(gv.fecha)?s+(gv.usd||0):s;},0);
+  // CxP — TODAS (pagadas + pendientes) MENOS las de combustible y la del SENIAT. Se ubican por la
+  // fecha de la FACTURA, no por la del pago: cuentan desde que se deben. [[cxp-factura-manda-sobre-deuda]]
+  var egCxP=CXP.filter(_cxpCuentaEnEgresos).reduce(function(s,c){return enRango(c.fecha)?s+_cxpCostoUsd(c):s;},0);
+
+  // ── EL TOTAL Y LA UTILIDAD ────────────────────────────────────────────────
+  // Sin rango: exactamente la misma fuente única de siempre (el dashboard y esta pantalla no
+  // pueden diferir). Con rango: el banco PARA ESE RANGO, el mismo motor que el costo por
+  // tonelada de arriba — así los dos paneles de esta pantalla cuentan igual.
+  var totalEg=null, utilNeta=null, fuenteEg='', trabaEg='';
+  if(!hayRango){
+    totalEg=_totalEgresos(totalCob);
+    utilNeta=(typeof _utilReal==='function')?_utilReal(totalCob):(totalCob-totalEg);
+    fuenteEg=(typeof _fuenteEgresos==='function')?_fuenteEgresos().txt:'';
+  }else{
+    var b=await _gastoBancoRango(des,hta);
+    if(b&&!b.error){
+      totalEg=b.gasto+b.cambiario;
+      utilNeta=(b.cobrado+b.otras)-totalEg;
+      fuenteEg='del estado de cuenta del banco · '+b.desde+' → '+b.hasta;
+    }else{
+      // ⛔ NO SE MUESTRA UN TOTAL DE OTRO PERÍODO. `_totalEgresos` ignora las fechas: devolvería
+      //    el gasto de TODA la historia bajo un rótulo que dice «este mes». Eso no es un número
+      //    incompleto, es uno falso, así que acá va el motivo en su lugar.
+      trabaEg='No se pudo leer el gasto del banco para este período ('+((b&&b.error)||'sin respuesta')+'). '+
+        'El cálculo de respaldo no sabe de fechas: daría el gasto de TODA la historia con el rótulo de este período.';
+    }
+  }
+
+  // ── LO QUE NO ES DEL PERÍODO, DICHO ──────────────────────────────────────
+  var notas=[];
+  if(hayRango){
+    notas.push('«Por Cobrar» es el saldo TOTAL que debe la Alcaldía al día de hoy: no es del período.');
+    notas.push('«Gastos Fijos» es el monto MENSUAL (no tiene fecha de pago cargada por mes), así que en una semana no es lo de esa semana.');
+    if(nomParcial>0)notas.push(nomParcial+' semana(s) de nómina quedan a caballo del borde del período y se cuentan ENTERAS: repartirlas por día sería inventar.');
+    if(sinFecha>0)notas.push(sinFecha+' registro(s) sin fecha quedaron afuera: no se pueden ubicar en un período.');
+  }
+
+  var cab='<div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:6px;margin-bottom:8px">'+
+    '<div style="font-size:12px;font-weight:800;color:var(--text2)">📅 Período: '+_escHtml(P.etiqueta)+'</div>'+
+    (fuenteEg?'<div style="font-size:10px;color:var(--text3)">Gasto '+_escHtml(fuenteEg)+'</div>':'')+'</div>';
+
+  function tarj(borde,lbl,val,col,sub){
+    return '<div class="stat" style="border-top-color:'+borde+'"><div class="stat-lbl">'+lbl+'</div>'+
+      '<div class="stat-val" style="font-size:16px;color:'+col+'">'+val+'</div>'+
+      (sub?'<div class="stat-sub">'+sub+'</div>':'')+'</div>';
+  }
+  var n0=function(x){return '$'+Math.round(x||0).toLocaleString('es-VE');};
+  var subPer=hayRango?'del período':'todo';
+
+  var tarjetas=
+    tarj('var(--green)','Facturado',n0(totalFact),'var(--green)',subPer)+
+    tarj('var(--teal)','Cobrado',n0(totalCob),'var(--teal)',subPer)+
+    tarj('var(--red)','Por Cobrar',n0(porcobrar),'var(--red)',hayRango?'saldo TOTAL a hoy':'todo')+
+    tarj('var(--yellow)','7.5% '+brandNom(),n0(eg75),'var(--yellow)',subPer)+
+    tarj('var(--blue)','Nomina',n0(egNom),'var(--blue)',subPer)+
+    tarj('var(--orange)','Gastos Fijos',n0(egFijos),'var(--orange)',hayRango?'monto MENSUAL':'todo')+
+    tarj('var(--purple)','Gasoil',n0(egGas),'var(--purple)',subPer)+
+    tarj('#e879f9','CxP (todas)',n0(egCxP),'#e879f9',subPer)+
+    (trabaEg
+      ? tarj('var(--text3)','Utilidad Neta','no se puede','var(--text3)','sin el gasto del período')
+      : tarj((utilNeta>=0?'var(--green)':'var(--red)'),'Utilidad Neta',n0(utilNeta),(utilNeta>=0?'var(--green)':'var(--red)'),
+             'ingresos − '+n0(totalEg)+' de gasto'));
+
+  var aviso=trabaEg
+    ? '<div style="background:var(--card);border:1px solid var(--border);border-left:4px solid var(--text3);border-radius:10px;padding:8px 12px;margin-bottom:10px;font-size:11px;color:var(--text2)">⛔ '+_escHtml(trabaEg)+'</div>'
+    : '';
+  var pie=notas.length
+    ? '<div style="background:rgba(251,191,36,.10);border:1px solid var(--border);border-radius:10px;padding:8px 12px;margin-top:10px;font-size:11px;color:var(--text2)">'+
+      '<div style="font-weight:800;margin-bottom:4px">⚠️ Qué no es del período en este cuadro</div><ul style="margin:0;padding-left:16px">'+
+      notas.map(function(x){return '<li style="margin:2px 0">'+_escHtml(x)+'</li>';}).join('')+'</ul></div>'
+    : '';
+  // El donut necesita un total; sin el gasto del período no hay reparto que dibujar y una rueda
+  // armada con los pedazos que sí hay diría que ese es todo el gasto.
+  var dona=trabaEg?'' :
+    '<div class="cbox"><div class="ctitle">Distribucion de Ingresos</div>'+
+    svgDonut([egNom,egGas,eg75,egFijos,egCxP,Math.max(1,utilNeta)],['Nomina','Gasoil','7.5%','Fijos','CxP','Utilidad'],
+             ['#60a5fa','#fbbf24','#a78bfa','#fb923c','#e879f9','#22c55e'])+'</div>';
+
+  el.innerHTML=cab+aviso+
+    '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px;margin-bottom:12px">'+tarjetas+'</div>'+
+    dona+pie;
 }
 
 function calcPagoAlc(){
@@ -20926,11 +21167,24 @@ function guardarGastoVar(){
   GASTOS_VARIABLES.push(item);
   if(DB_READY&&supabase){
     supabase.from('gastos_variables').insert([{
+      // ⛔ LAS COLUMNAS SON `bs` Y `usd`. Esto escribia `monto_bs`/`monto_usd` y un
+      //    `registrado_por` que la tabla NO TIENE, asi que Postgres rechazaba el insert
+      //    completo: en toda la historia de la app no se guardo NI UN gasto variable (0 filas
+      //    el 19/10/2026) y la pantalla igual decia que si, porque el error solo iba a la
+      //    consola. El lector tenia el mismo error al reves, mapeando `monto_usd` a `usd`:
+      //    aunque el insert hubiera entrado, cada gasto habria valido $0.
       id:item.id,fecha:item.fecha,categoria:item.cat,
-      descripcion:item.desc,monto_bs:item.bs,monto_usd:item.usd,
-      referencia:item.ref,factura:item.fact,
-      registrado_por:SESION?SESION.nombre:''
-    }]).then(function(r){if(r.error)console.error('Error gasto:',r.error);});
+      descripcion:item.desc,bs:item.bs,usd:item.usd,
+      referencia:item.ref,factura:item.fact
+    }]).then(function(r){
+      if(r.error){
+        // Y que NO se pierda en la consola: un gasto que no se guardo le falta a la Utilidad
+        // Real, y nadie mira la consola. [[norma-la-barra-que-no-dice-que-sigue]]
+        console.error('Error gasto:',r.error);
+        if(typeof mostrarToast==='function')mostrarToast('NO se guardo el gasto variable: '+(r.error.message||r.error),'error');
+        if(typeof guardarEnCola==='function')guardarEnCola('gastos_variables',{id:item.id,fecha:item.fecha,categoria:item.cat,descripcion:item.desc,bs:item.bs,usd:item.usd,referencia:item.ref,factura:item.fact});
+      }
+    });
   }
   audit('Gasto variable registrado',desc+' $'+usd);
   ['gv-desc','gv-bs','gv-usd','gv-ref','gv-fact'].forEach(function(id){sv(id,'');});
@@ -21042,7 +21296,11 @@ function imprimirReporteFinanciero(){
     '<tbody>'+filaMeses+'</tbody>'+
     '<tfoot><tr class="tr-tot"><td>TOTALES</td><td style="text-align:center">'+REGS.reduce(function(s,r){return s+r.t;},0)+'</td><td>$'+totalFact.toLocaleString('es-VE',{minimumFractionDigits:2})+'</td><td>Bs '+(totalFact*tasa/1000000).toFixed(2)+'M</td></tr></tfoot>'+
     '</table>';
-  abrirImpresionPremium('Reporte Financiero','Resumen ejecutivo — '+formatFecha(new Date()),stats,body);
+  // ⛔ ESTE IMPRESO ES DE TODA LA HISTORIA y trae su propio detalle por mes: NO sigue al
+  //    selector de periodo de la pantalla. Se dice en el subtitulo, porque dos cifras
+  //    distintas para «lo mismo» —una en pantalla y otra en el papel— es como se pierde la
+  //    confianza en las dos. [[norma-numero-que-el-dueno-no-puede-explicar]]
+  abrirImpresionPremium('Reporte Financiero','Historia completa al '+formatFecha(new Date())+' — no sigue el filtro de período de la pantalla',stats,body);
 }
 
 

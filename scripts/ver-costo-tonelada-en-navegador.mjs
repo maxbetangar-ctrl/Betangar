@@ -87,9 +87,19 @@ const AMORT = [];
   }
   AMORT.push({ nro: 8, vencimiento: '2026-11-01', cuota: 23417.11, interes: 2427.80, capital: 20989.31, saldo: 0, abono_aplicado: 0, resta: 0, estado: 'Por pagar' });
 }
+// ⛔ LA SEGUNDA VA DENTRO DEL MES EN CURSO A PROPOSITO. Con las dos fuera, el estado «periodo
+//    elegido y banco caido» se bloqueaba por NO HABER VIAJES y la asercion del banco pasaba igual
+//    — la prueba habria quedado en verde por el motivo equivocado.
+//    [[norma-test-que-pasa-por-el-motivo-equivocado]]
+const HOY = new Date();
+const ISO = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+const MES_1 = ISO(new Date(HOY.getFullYear(), HOY.getMonth(), 1));
+const MES_N = ISO(new Date(HOY.getFullYear(), HOY.getMonth() + 1, 0));
+const EN_EL_MES = ISO(new Date(HOY.getFullYear(), HOY.getMonth(), Math.min(HOY.getDate(), 15)));
 const PLANILLAS = [
-  { f: '2026-04-15', cam: 'JAC-B001', t: 2580, m: 2580 * 317.88 },
-  { f: '2026-09-15', cam: 'JAC-B002', t: 2580, m: 2580 * 317.88 }
+  { f: '2026-03-10', cam: 'JAC-B003', t: 203, m: 203 * 317.88, mes: 'mar-26' },  // ANTES del banco
+  { f: '2026-04-15', cam: 'JAC-B001', t: 2580, m: 2580 * 317.88, mes: 'abr-26' },
+  { f: EN_EL_MES, cam: 'JAC-B002', t: 2580, m: 2580 * 317.88, mes: 'oct-26' }
 ];
 
 // El estado que se está revisando lo deciden estas dos banderas, que leen las rutas.
@@ -113,12 +123,21 @@ const js = (o) => ({ status: 200, contentType: 'application/json', body: JSON.st
 //    respaldo y marcaba $1,92/t — un numero creible, sacado de la nada. Lo mismo le pasaria a
 //    cualquiera que lea esta prueba en verde sin mirar los numeros.
 await page.route('**/*.supabase.co/**', r => r.fulfill(js([])));          // todo lo demas, cortado
-await page.route('**/rpc/btg_resumen_socio*', r => MODO.banco
+// Lo que la pantalla le PIDE al banco se guarda: es la unica forma de probar que el periodo
+// elegido llega de verdad a la consulta y no se queda en el rotulo.
+const pedidos = [];
+await page.route('**/rpc/btg_resumen_socio*', r => (
+  (() => { try { pedidos.push(JSON.parse(r.request().postData() || '{}')); } catch (e) { pedidos.push({ ilegible: true }); } })(),
+  MODO.banco
   ? r.fulfill(js([RESUMEN]))
-  : r.fulfill({ status: 403, contentType: 'application/json', body: JSON.stringify({ message: 'El modulo financiero no esta disponible para este usuario' }) }));
+  : r.fulfill({ status: 403, contentType: 'application/json', body: JSON.stringify({ message: 'El modulo financiero no esta disponible para este usuario' }) })));
 await page.route('**/rpc/deuda_puede_ver*', r => r.fulfill(js(MODO.deuda)));
 await page.route('**/rpc/deuda_amortizacion*', r => r.fulfill(js(AMORT)));
 await page.route('**/deuda_financiamientos*', r => r.fulfill(js([{ id: 1, acreedor: 'AUTO UNION DC', estado: 'vigente' }])));
+// ⛔ LA PRIMERA FECHA QUE EL BANCO TIENE, que NO es la que se le pide. En Betangar
+//    `bnc_movimientos` arranca el 23/03/2026 y las planillas el 04/03: hay toneladas sin gasto
+//    detras y el costo sale mas barato de lo real.
+await page.route('**/bnc_movimientos*', r => r.fulfill(js([{ fecha: '2026-03-23' }])));
 
 page.on('dialog', async d => { await d.dismiss(); });
 
@@ -139,14 +158,20 @@ await page.evaluate(() => {
 let fallas = 0;
 const linea = (ok, txt) => { if (!ok) fallas++; console.log(`  ${ok ? 'OK   ' : 'FALLA'} ${txt}`); };
 
-async function pintar(des, hta, tons) {
-  await page.evaluate(([d, h, t]) => {
+// ⛔ SE CONDUCE EL SELECTOR, QUE ES EL CAMINO REAL. Antes este panel tenia su propio
+//    Desde/Hasta; al conectar el selector de periodo se unifico, porque dos controles de periodo
+//    en una pantalla muestran dos meses distintos uno debajo del otro.
+//    `modo` es 'todo' | 'mes' | 'semana' y `sem` el numero de semana cuando aplica.
+async function pintar(modo, sem, tons) {
+  await page.evaluate(([m, w, t]) => {
     window.DEMO_MODE = false;
     window.REGS = window.__PLAN;
     window.cfg = window.cfg || {}; window.cfg.tonsViaje = t;
-    const a = document.getElementById('ct-des'), c = document.getElementById('ct-hta');
-    if (a) a.value = d; if (c) c.value = h;
-  }, [des || '', hta || '', tons || 8]);
+    const sp = document.getElementById('fin-periodo'); if (sp) sp.value = m;
+    if (typeof _finPrepararSelectores === 'function') _finPrepararSelectores();
+    const ss = document.getElementById('fin-sem-sel');
+    if (ss && w) ss.value = 'Semana ' + w;
+  }, [modo || 'todo', sem || '', tons || 8]);
   await page.evaluate(() => renderCostoTonelada());
   await page.waitForFunction('!/Calculando/.test(document.getElementById("ct-panel").innerText)', null, { timeout: 30000 });
   return page.evaluate(() => {
@@ -177,19 +202,22 @@ console.log('\nCuadro de amortizacion leido: estado=' + await page.evaluate(() =
 
 // ── 1 · NORMAL ────────────────────────────────────────────────────────────────
 console.log('\n── 1 · NORMAL: banco OK + deuda OK ──────────────────────────────────');
-let v = await pintar('', '');
+let v = await pintar('todo');
 // 5.160 viajes × 8 t = 41.280 t. Gasto 484.481 + cambiario 22.853 + 7 cuotas 163.919,77
 // = 671.253,77 ⇒ 16,26 $/t. Sin la financiadora: 507.334/41.280 = 12,29 $/t.
-linea(/\$16,26/.test(v.numero || ''), 'el numero grande dice $16,26/t → ' + v.numero);
-linea(/41\.280 toneladas/.test(v.texto), 'dice las toneladas: 41.280 = 5.160 viajes × 8 t');
+// 5.363 viajes × 8 = 42.904 t ⇒ 671.253,77/42.904 = 15,65 $/t
+linea(/\$15,65/.test(v.numero || ''), 'el numero grande dice $15,65/t → ' + v.numero);
+linea(/42\.904 toneladas/.test(v.texto), 'dice las toneladas: 42.904 = 5.363 viajes × 8 t');
 linea(/AUTO UNION DC/.test(v.texto), 'nombra a la financiadora');
 linea(/7 cuotas de \$23\.417,11 que vencieron en el per/.test(v.texto), 'dice cuantas cuotas vencieron y de cuanto');
 // ⛔ Maximo lo declaro el 19/10/2026: entra la cuota COMPLETA, capital + interes. Que lo diga la
 //    pantalla y no solo un comentario del codigo: es la diferencia entre un criterio y una regla.
 linea(/entra la CUOTA COMPLETA/.test(v.texto), 'y que entra la CUOTA COMPLETA, no solo el interes');
 linea(/capital \$141\.220 \+ interés \$22\.700/.test(v.texto), 'con el desglose, para quien quiera leer solo el interes');
-linea(/Sin la financiadora el costo ser/.test(v.texto) && /\$12,29/.test(v.texto), 'dice cuanto seria SIN la financiadora ($12,29/t)');
+// ⛔ Y los tres tienen que CERRAR: 11,83 + 3,82 = 15,65, el total que dice el cuadro.
+linea(/Sin la financiadora el costo ser/.test(v.texto) && /\$11,83/.test(v.texto), 'dice cuanto seria SIN la financiadora ($11,83/t)');
 linea(/24% del costo/.test(v.texto), 'y que peso tiene la financiadora en el costo (24%)');
+linea(/le ponen \$3,82\/t/.test(v.texto), 'y los tres numeros CIERRAN: 11,83 + 3,82 = 15,65');
 linea(/Operaci[oó]n/.test(v.texto) && /Administraci[oó]n/.test(v.texto) && /Obligaciones/.test(v.texto) && /socio/i.test(v.texto) && /cambiaria/i.test(v.texto),
   'el desglose trae los cinco bloques del gasto del banco');
 linea(/estado de cuenta del banco/.test(v.texto), 'declara que el gasto sale del banco');
@@ -197,8 +225,13 @@ linea(/39,74/.test(v.texto), 'dice lo que cobra por tonelada ($39,74 = 317,88 / 
 // ⛔ LOS TRES NUMEROS DE LA LINEA TIENEN QUE CERRAR: 39,74 − 16,26 = 23,48. A precision
 //    completa daba 23,47 (la tarifa por tonelada es 317,88/8 = 39,735 exactos) y cualquiera que
 //    restara a mano los dos numeros que VE pensaria que el cuadro esta mal.
-linea(/23,48/.test(v.texto), 'y lo que le queda: 39,74 − 16,26 = $23,48/t, con los numeros que se VEN');
+linea(/24,09/.test(v.texto), 'y lo que le queda: 39,74 − 15,65 = $24,09/t, con los numeros que se VEN');
 linea(!/financiadora NO está sumada/.test(v.texto), 'NO avisa de la financiadora: esta sumada');
+// ⛔ TONELADAS SIN GASTO DETRAS: el banco arranca el 23/03 y hay 203 viajes antes. El costo sale
+//    mas barato de lo real, y eso no se puede callar ni dejar en un comentario del codigo.
+linea(/banco solo tiene movimientos desde el 23\/03\/2026/.test(v.texto), 'avisa que el banco arranca despues que las planillas');
+linea(/203 viaje\(s\) anteriores \(1\.624 t\)/.test(v.texto), 'con el numero exacto de viajes y toneladas sin respaldo');
+linea(/41\.280 t con respaldo dar[ií]a \$16,26/.test(v.texto), 'y cuanto daria contando solo las toneladas con respaldo ($16,26/t)');
 linea(/rgb\(/.test(v.colorNumero || '') && !/128, 128, 128/.test(v.colorNumero || ''), 'el numero esta en color de margen positivo → ' + v.colorNumero);
 
 // ── 2 · SIN PERMISO A LA DEUDA ────────────────────────────────────────────────
@@ -206,8 +239,11 @@ console.log('\n── 2 · SIN PERMISO A LA DEUDA: el numero baja y TIENE que de
 MODO.deuda = false;
 await page.evaluate(() => cargarCuotasFinanciamiento());
 await page.waitForFunction('DEUDA_CUOTAS_ESTADO==="sin_permiso"', null, { timeout: 30000 });
-v = await pintar('', '');
-linea(/\$12,29/.test(v.numero || ''), 'el numero BAJA a $12,29/t (sin la cuota) → ' + v.numero);
+v = await pintar('todo');
+// Aca el titular es el COCIENTE real sin cuota (507.334/42.904 = 11,82). En el estado 1 el
+// «sin la financiadora» vale 11,83 porque sale del total MENOS la cuota redondeada, para que
+// el cuadro sume. Un centavo de diferencia, y cada uno correcto en su contexto.
+linea(/\$11,82/.test(v.numero || ''), 'el numero BAJA a $11,82/t (sin la cuota) → ' + v.numero);
 linea(/financiadora NO está sumada/.test(v.texto), '⛔ y el aviso lo dice en la pantalla');
 linea(/permiso/.test(v.texto), '…nombrando la causa (permiso), no un «no se pudo» mudo');
 MODO.deuda = true;
@@ -215,19 +251,21 @@ await page.evaluate(() => cargarCuotasFinanciamiento());
 await page.waitForFunction('DEUDA_CUOTAS_ESTADO==="ok"', null, { timeout: 30000 });
 
 // ── 3 · RANGO PUESTO Y BANCO CAIDO ───────────────────────────────────────────
-console.log('\n── 3 · RANGO PUESTO Y BANCO CAIDO: no puede salir ningun numero ─────');
+console.log('\n── 3 · PERIODO ELEGIDO Y BANCO CAIDO: no puede salir ningun numero ──');
 MODO.banco = false;
-v = await pintar('2026-09-01', '2026-09-30');
+v = await pintar('mes');
 linea(v.numero === null, 'no dibuja numero grande');
 linea(/no se puede calcular/.test(v.texto), 'dice «no se puede calcular»');
 linea(/banco/i.test(v.texto) && /rango/i.test(v.texto), 'y por que: el banco y el rango');
 linea(!/\$1[0-9],/.test(v.texto), 'no se cuela ninguna cifra por tonelada');
+// ⛔ Y que se bloquee por EL BANCO, no por falta de viajes: hay 2.580 viajes en el mes.
+linea(!/no hay viajes/i.test(v.texto), 'y se bloquea por el BANCO, no por falta de viajes');
 linea(/128, 128, 128|107, 114, 128|156, 163, 175|115, 115, 115/.test(v.borde || '') || !/34, 197, 94/.test(v.borde || ''),
   'el recuadro NO va en verde → borde ' + v.borde);
 
 // ── 3b · SIN RANGO Y BANCO CAIDO: da numero, pero DECLARADO ──────────────────
-console.log('\n── 3b · SIN RANGO y banco caido: da numero y declara que es incompleto ─');
-v = await pintar('', '');
+console.log('\n── 3b · «Todo» y banco caido: da numero y declara que es incompleto ─');
+v = await pintar('todo');
 linea(v.numero !== null, 'si dibuja numero (un numero incompleto avisado vale mas que ninguno)');
 linea(/no viene del banco/i.test(v.texto), 'avisa que el gasto no viene del banco');
 linea(/61%/.test(v.texto), 'y cuanto faltaba la ultima vez que se midio (61%)');
@@ -237,7 +275,7 @@ MODO.banco = true;
 // ── 4 · SIN VIAJES ───────────────────────────────────────────────────────────
 console.log('\n── 4 · SIN VIAJES: no puede salir «$0,00» ───────────────────────────');
 await page.evaluate(() => { window.__PLAN = []; });
-v = await pintar('', '');
+v = await pintar('todo');
 linea(v.numero === null, 'no dibuja numero grande');
 linea(/no hay viajes|toneladas/i.test(v.texto), 'dice que no hay toneladas entre las que dividir');
 linea(!/\$0,00/.test(v.texto), 'y NO muestra $0,00 en verde');
@@ -245,9 +283,9 @@ await page.evaluate((p) => { window.__PLAN = p; }, PLANILLAS);
 
 // ── 5 · LAS TONELADAS POR VIAJE SE DECLARAN ──────────────────────────────────
 console.log('\n── 5 · cambiar las toneladas por viaje cambia el numero ─────────────');
-const v10 = await pintar('', '', 10);
-linea(/51\.600 toneladas/.test(v10.texto), 'con 10 t/viaje las toneladas son 51.600');
-linea(/\$13,01/.test(v10.numero || ''), 'y el costo baja a $13,01/t → ' + v10.numero);
+const v10 = await pintar('todo', '', 10);
+linea(/53\.630 toneladas/.test(v10.texto), 'con 10 t/viaje las toneladas son 53.630');
+linea(/\$12,52/.test(v10.numero || ''), 'y el costo baja a $12,52/t → ' + v10.numero);
 
 // ── 6 · EL CAMPO DE CONFIG EXISTE Y SE PRELLENA ──────────────────────────────
 console.log('\n── 6 · Config ▸ General: el campo y el prellenado ───────────────────');
@@ -297,11 +335,121 @@ linea(/Costo DIRECTO por tonelada/i.test(rent.kpi), 'el KPI dice DIRECTO, para n
 linea(/120 t = 15 × 8 t/.test(rent.kpi), 'y declara las toneladas y de donde salen → ' + (rent.kpi.match(/\d+ t = .*?t/) || [''])[0]);
 linea(/solo comb\.\+nómina/.test(rent.kpi), 'y que solo cuenta combustible y nomina');
 
+// ── 8 · EL PERIODO ELEGIDO LLEGA DE VERDAD A LA CONSULTA ─────────────────────
+// ⛔ Lo unico que prueba que el selector esta CONECTADO es lo que sale hacia la base. Un
+//    rotulo que dice «octubre» sobre una consulta sin fechas es exactamente el defecto que se
+//    vino a arreglar. [[norma-probar-el-camino-no-la-pieza]]
+console.log('\n── 8 · el periodo elegido llega a la consulta del banco ─────────');
+pedidos.length = 0;
+await pintar('mes');
+const pMes = pedidos[pedidos.length - 1] || {};
+linea(pMes.p_desde === MES_1 && pMes.p_hasta === MES_N,
+  'con «Este Mes» le pide al banco ' + MES_1 + ' → ' + MES_N + ' → ' + JSON.stringify(pMes));
+pedidos.length = 0;
+await pintar('semana', 2);
+const pSem = pedidos[pedidos.length - 1] || {};
+const dSem = new Date(pSem.p_desde + 'T12:00:00'), hSem = new Date(pSem.p_hasta + 'T12:00:00');
+linea(dSem.getDay() === 1 && hSem.getDay() === 0 && Math.round((hSem - dSem) / 86400000) === 6,
+  'con una semana le pide LUNES a DOMINGO, 7 dias → ' + pSem.p_desde + ' → ' + pSem.p_hasta);
+pedidos.length = 0;
+await pintar('todo');
+const pTodo = pedidos[pedidos.length - 1] || {};
+linea(pTodo.p_desde === '2026-01-01', 'con «Todo» no manda un rango inventado → ' + JSON.stringify(pTodo));
+
+// ── 9 · EL RESUMEN FINANCIERO, con sus tres periodos ─────────────────────────
+// ⛔ Lo que hay que ver es que una fila FUERA del periodo deje de contar. Sin control negativo,
+//    «el numero cambio» no prueba que cambio por la razon correcta.
+console.log('\n── 9 · el resumen financiero sigue el periodo ───────────────');
+await page.evaluate(([enMes]) => {
+  // Cada tabla con UNA fila dentro del mes y UNA fuera: si el filtro no corre, los totales son
+  // el doble y se nota.
+  window.ABONOS = [
+    { f: enMes, m: 20000, fact: '0700' },
+    { f: '2026-04-10', m: 10000, fact: '0600' }
+  ];
+  window.GASOIL = [
+    { f: enMes, cam: 'COMPRA GRANEL', m: 4000, lit: 5000, src: 'tumaca' },
+    { f: '2026-04-10', cam: 'COMPRA GRANEL', m: 7000, lit: 9000, src: 'tumaca' }
+  ];
+  window.SURT_RENT = [];
+  window.GASTOS_FIJOS = [{ id: 'GF1', nombre: 'Alquiler', monto: 1600 }, { id: 'GF2', nombre: 'Contador', monto: 200 }];
+  window.GASTOS_VARIABLES = [];
+  window.CXP = [
+    { id: 'C1', fecha: enMes, prov_nombre: 'REPUESTOS X', descripcion: 'frenos', total_usd: 3000, estado: 'pendiente' },
+    { id: 'C2', fecha: '2026-04-02', prov_nombre: 'REPUESTOS X', descripcion: 'cauchos', total_usd: 5000, estado: 'pagada' }
+  ];
+  window.NOMINA_HIST = [
+    { id: 'SEM-A', fecha_desde: enMes, fecha_hasta: enMes, total_usd: 4600 },
+    { id: 'SEM-B', fecha_desde: '2026-04-06', fecha_hasta: '2026-04-12', total_usd: 3900 }
+  ];
+  const fd = document.getElementById('tab-fin-dash'); if (fd) fd.style.display = 'block';
+  for (let n = document.getElementById('fin-dash-content'); n && n !== document.body; n = n.parentElement) {
+    n.style.display = ''; n.classList.add('activa', 'active'); n.removeAttribute('hidden');
+  }
+}, [EN_EL_MES]);
+
+async function finDash(modo, sem) {
+  await page.evaluate(([m, w]) => {
+    const sp = document.getElementById('fin-periodo'); if (sp) sp.value = m;
+    if (typeof _finPrepararSelectores === 'function') _finPrepararSelectores();
+    const ss = document.getElementById('fin-sem-sel'); if (ss && w) ss.value = 'Semana ' + w;
+  }, [modo, sem || '']);
+  await page.evaluate(() => renderFinDash());
+  await page.waitForFunction('/Per[ií]odo:/.test(document.getElementById("fin-dash-content").innerText)', null, { timeout: 30000 });
+  return page.evaluate(() => {
+    const el = document.getElementById('fin-dash-content');
+    const tarj = {};
+    el.querySelectorAll('.stat').forEach(d => {
+      const l = d.querySelector('.stat-lbl'), v = d.querySelector('.stat-val'), s2 = d.querySelector('.stat-sub');
+      if (l && v) tarj[l.innerText.trim().toUpperCase()] = { val: v.innerText.trim(), sub: s2 ? s2.innerText.trim() : '' };
+    });
+    return { texto: el.innerText, tarj: tarj, semVisible: (document.getElementById('fin-sem-sel') || {}).style ? document.getElementById('fin-sem-sel').style.display : null };
+  });
+}
+
+let F = await finDash('todo');
+// 5.160 viajes × 317,88 = 1.640.260,80 facturado; abonos 30.000; CxP 8.000; nomina 8.500
+linea(/toda la historia cargada/.test(F.texto), '«Todo» lo dice en el encabezado');
+linea(F.tarj['FACTURADO'].val === '$1.704.790', 'facturado de TODO → ' + F.tarj['FACTURADO'].val);
+linea(F.tarj['NOMINA'].val === '$8.500', 'nomina de TODO (las 2 semanas) → ' + F.tarj['NOMINA'].val);
+linea(F.tarj['CXP (TODAS)'].val === '$8.000', 'CxP de TODO (las 2) → ' + F.tarj['CXP (TODAS)'].val);
+linea(F.tarj['GASOIL'].val === '$11.000', 'gasoil de TODO (las 2 compras) → ' + F.tarj['GASOIL'].val);
+linea(F.semVisible === 'none', 'el desplegable de semana esta ESCONDIDO cuando no aplica');
+
+F = await finDash('mes');
+linea(/el mes en curso/.test(F.texto), '«Este Mes» lo dice con las dos fechas');
+// ⛔ CONTROL NEGATIVO: la mitad de cada tabla esta fuera del mes y TIENE que dejar de contar.
+linea(F.tarj['FACTURADO'].val === '$820.130', 'facturado SOLO del mes (la planilla de abril ya no cuenta) → ' + F.tarj['FACTURADO'].val);
+linea(F.tarj['COBRADO'].val === '$20.000', 'cobrado solo del mes → ' + F.tarj['COBRADO'].val);
+linea(F.tarj['NOMINA'].val === '$4.600', 'nomina solo de la semana del mes → ' + F.tarj['NOMINA'].val);
+linea(F.tarj['CXP (TODAS)'].val === '$3.000', 'CxP solo del mes → ' + F.tarj['CXP (TODAS)'].val);
+linea(F.tarj['GASOIL'].val === '$4.000', 'gasoil solo del mes → ' + F.tarj['GASOIL'].val);
+// ⛔ Y lo que NO es del periodo, dicho: un saldo y un monto mensual no se vuelven del mes.
+linea(/saldo TOTAL a hoy/.test(F.tarj['POR COBRAR'].sub), '«Por Cobrar» se declara saldo TOTAL, no del mes');
+linea(F.tarj['POR COBRAR'].val === '$1.674.790', 'y vale el saldo entero → ' + F.tarj['POR COBRAR'].val);
+linea(/MENSUAL/.test(F.tarj['GASTOS FIJOS'].sub), '«Gastos Fijos» se declara monto MENSUAL');
+linea(/no es del per/i.test(F.texto) && /MENSUAL/.test(F.texto), 'y el pie lista lo que no es del periodo');
+
+F = await finDash('semana', 2);
+linea(/Semana 2 de /.test(F.texto), 'una semana lo dice con su numero y su rango');
+linea(F.semVisible !== 'none', 'y ahi SI se ve el desplegable de semana');
+
+// ⛔ Con el banco caido y un periodo elegido NO puede salir una Utilidad Neta: `_totalEgresos`
+//    ignora las fechas y devolveria el gasto de toda la historia bajo el rotulo del mes.
+MODO.banco = false;
+F = await finDash('mes');
+linea(F.tarj['UTILIDAD NETA'].val === 'no se puede', 'banco caido + mes: la Utilidad Neta NO se inventa → ' + F.tarj['UTILIDAD NETA'].val);
+linea(/TODA la historia con el r[oó]tulo/.test(F.texto), 'y dice exactamente por que');
+linea(!/Distribucion de Ingresos/.test(F.texto), 'ni se dibuja la rueda de reparto sin el total');
+MODO.banco = true;
+F = await finDash('todo');
+linea(/\$/.test(F.tarj['UTILIDAD NETA'].val), 'con el banco de vuelta, la Utilidad Neta vuelve → ' + F.tarj['UTILIDAD NETA'].val);
+
 // El panel dibujado se VUELCA SIEMPRE, falle o no. Un cuadro de plata se lee; no se da por bueno
 // desde una lista de OK — las aserciones miran lo que alguien penso en mirar.
 {
   console.log('\n── El panel, tal como quedo dibujado (estado NORMAL) ────────────────');
-  const txt = await pintar('', '');
+  const txt = await pintar('todo');
   console.log(txt.texto.split('\n').map(l => '  | ' + l).join('\n'));
 }
 await b.close();
