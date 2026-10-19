@@ -3910,9 +3910,16 @@ function renderFinanzasSubnav(activo){
   ['subnav-proveedores','subnav-financiero','subnav-cajachica'].forEach(function(pid){var el=document.getElementById(pid);if(el)el.innerHTML=html;});
 }
 // Entrada de menú unificada "Finanzas": abre el primer sub-módulo que el rol pueda ver.
+// ⛔ EL ORDEN DE ESTA LISTA ES A DONDE CAE LA GENTE. Decia
+//    ['proveedores','financiero','cajachica'], asi que tocar «💰 Finanzas» abria
+//    PROVEEDORES y el rotulo decia «Proveedores». Máximo, 19/10/2026: «sigo sin ver en el
+//    software el costo por tonelada, ¿donde lo veo?» — estaba donde le dije, pero el menu
+//    lo dejaba una pantalla antes. Medido en el navegador contra betangar.com, no supuesto.
+//    Quien toca «Finanzas» busca el dinero de la empresa; proveedores es trabajo de
+//    administracion y sigue a un clic en la fila de arriba.
 function abrirFinanzas(){
   var perms=misPermisos();
-  var orden=['proveedores','financiero','cajachica'];
+  var orden=['financiero','proveedores','cajachica'];
   for(var i=0;i<orden.length;i++){if(perms.indexOf(orden[i])>=0){sp(orden[i]);return;}}
   alert('No tienes permiso para esta sección');
 }
@@ -31460,8 +31467,43 @@ function renderScoringChoferes(){
 //    cosas distintas y se veian iguales.
 //    [[norma-falta-de-dato-no-es-un-dato]] [[norma-control-positivo-antes-de-creerle-al-vacio]]
 var INTEL_GRIS='#94a3b8';
+// ⛔ EL NUMERO DEL DUEÑO VA DONDE EL DUEÑO ENTRA. El costo por tonelada vivia solo en
+//    Financiero ▸ Dashboard, y a esa pantalla habia que llegar por dos clics — el primero
+//    de los cuales caia en Proveedores. Acá va la misma cifra, del MISMO motor
+//    (`calcCostoPorTonelada`), y tocarla lleva al desglose completo. No se recalcula nada.
+//    [[norma-costo-por-unidad-es-el-numero-principal]]
+// Es asincrona porque el gasto se lo pide al banco: se pinta la tarjeta en gris diciendo que
+// esta calculando, y se rellena al llegar. Una tarjeta que no aparece hasta que el dato llega
+// se lee como «eso no existe».
+async function renderCostoTonDash(){
+  var el=g('dash-costo-ton'); if(!el)return;
+  el.innerHTML=_intelCard(INTEL_GRIS,'🏋️ Costo por tonelada','calculando…',
+    'Pidiendole el gasto del periodo al banco.',"sp('financiero')");
+  try{
+    var R=await calcCostoPorTonelada('','');
+    if(R.bloqueado){
+      el.innerHTML=_intelCard(INTEL_GRIS,'🏋️ Costo por tonelada','no se puede calcular',
+        _escHtml(String(R.bloqueado).slice(0,140)),"sp('financiero')");
+      return;
+    }
+    var col=(R.margenTon>=0)?'#22c55e':'#ef4444';
+    var $=function(x,d){return (Math.round(x*Math.pow(10,d))/Math.pow(10,d)).toLocaleString('es-VE',{minimumFractionDigits:d,maximumFractionDigits:d});};
+    el.innerHTML=_intelCard(col,'🏋️ Costo por tonelada','$'+$(R.costoTon,2)+' por tonelada',
+      Math.round(R.tons).toLocaleString('es-VE')+' t = '+R.viajes.toLocaleString('es-VE')+' viajes × '+
+      $(R.tonsPorViaje,0)+' t · cobra $'+$(R.ingresoTon,2)+' ⇒ le queda $'+$(R.margenTon,2)+
+      (R.avisos&&R.avisos.length?(' · ⚠️ '+R.avisos.length+' cosa(s) que mirar'):''),
+      "sp('financiero')");
+  }catch(e){
+    // Se DICE que no se pudo, con la causa. Una tarjeta que desaparece cuando algo falla deja
+    // al dueño creyendo que ese numero no existe. [[norma-falta-de-dato-no-es-un-dato]]
+    el.innerHTML=_intelCard(INTEL_GRIS,'🏋️ Costo por tonelada','no se pudo calcular',
+      _escHtml(String((e&&e.message)||e).slice(0,140)),"sp('financiero')");
+  }
+}
+
 function renderInteligenciaFlota(){
   var el=g('dash-inteligencia'); if(!el)return;
+  try{ renderCostoTonDash(); }catch(e){ console.log('[costo/ton dash]',e&&e.message); }
   var cards=[];
   // Cuantas unidades entran en estas cuentas. Si son CERO, ninguna tarjeta puede decir «bien».
   var _nFlota=0; try{ _nFlota=(typeof _flotaDelTablero==='function')?_flotaDelTablero().length:0; }catch(e){}

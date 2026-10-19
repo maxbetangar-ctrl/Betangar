@@ -445,6 +445,35 @@ MODO.banco = true;
 F = await finDash('todo');
 linea(/\$/.test(F.tarj['UTILIDAD NETA'].val), 'con el banco de vuelta, la Utilidad Neta vuelve → ' + F.tarj['UTILIDAD NETA'].val);
 
+// ── 10 · DONDE ENTRA EL DUEÑO: el menu y la tarjeta del tablero ─────────────
+// ⛔ Máximo, 19/10/2026: «sigo sin ver en el software el costo por tonelada». Estaba donde se
+//    le dijo, pero «💰 Finanzas» abria PROVEEDORES. Una ruta correcta que nadie puede andar
+//    es lo mismo que no tenerla. Esto prueba las dos puntas: a donde lleva el menu y que la
+//    cifra este en la PRIMERA pantalla.
+console.log('\n── 10 · donde entra el dueño ─────────────────────────');
+const destino = await page.evaluate(() => {
+  window.SESION = { usuario: 'maxbetangar', nombre: 'Maximo', rol: 'superadmin' };
+  try { abrirFinanzas(); } catch (e) { return { error: e.message }; }
+  const act = [...document.querySelectorAll('.page')].filter(p => p.classList.contains('active'));
+  return { pagina: act.map(p => p.id).join(','), rotulo: (document.getElementById('nav-active-label') || {}).textContent || '' };
+});
+linea(destino.pagina === 'p-financiero', '«Finanzas» abre FINANCIERO, no Proveedores → ' + destino.pagina);
+linea(/Financiero/i.test(destino.rotulo), 'y el rotulo lo dice → ' + destino.rotulo);
+
+// La tarjeta del tablero: misma cifra, mismo motor, y lleva al desglose.
+await page.evaluate(() => { window.REGS = window.__PLAN; window.cfg.tonsViaje = 8; });
+await page.evaluate(() => renderCostoTonDash());
+await page.waitForFunction('!/calculando/i.test(document.getElementById("dash-costo-ton").innerText)', null, { timeout: 30000 });
+const tarjeta = await page.evaluate(() => {
+  const el = document.getElementById('dash-costo-ton');
+  return { texto: el.innerText, onclick: (el.firstElementChild || {}).getAttribute ? el.firstElementChild.getAttribute('onclick') : '' };
+});
+const tl = tarjeta.texto.split('\n');
+linea(/\$15,65 por tonelada/.test(tarjeta.texto), 'la tarjeta del tablero trae la MISMA cifra que el panel → ' + tl.slice(0, 60));
+linea(/42\.904 t = 5\.363 viajes/.test(tarjeta.texto), 'y de donde sale → ' + tl.slice(60, 140));
+linea(/cosa\(s\) que mirar/.test(tarjeta.texto), 'y avisa que hay cosas que mirar, en vez de darlo por limpio');
+linea(/sp\('financiero'\)/.test(tarjeta.onclick || ''), 'tocarla lleva al desglose completo');
+
 // El panel dibujado se VUELCA SIEMPRE, falle o no. Un cuadro de plata se lee; no se da por bueno
 // desde una lista de OK — las aserciones miran lo que alguien penso en mirar.
 {
