@@ -6849,6 +6849,12 @@ function _fuenteEgresos(){
 //    pagado por comprar esos dólares (la pérdida cambiaria realizada: se compró a 620–860 lo que a
 //    BCV valía 477–747). La CUOTA es otro hecho. Sumar las dos no duplica nada.
 //
+// ⛔ ENTRA LA CUOTA COMPLETA: CAPITAL + INTERÉS. Máximo, 19/10/2026: «interés y capital, que son
+//    cuotas de 23 mil y pico de dólares». Contablemente solo el interés sería gasto y el capital
+//    sería amortización de deuda — pero la pregunta que se contesta acá no es contable: es qué
+//    plata hay que poner para mover una tonelada, y la cuota sale entera todos los meses. La
+//    pantalla igual muestra el desglose, así que el que quiera leer solo el interés lo tiene.
+//
 // ⛔ SE CUENTA LA CUOTA DEVENGADA, NO LA PAGADA. La que venció en el rango, se haya pagado o no —
 //    la misma regla que ya usa la Utilidad Real con las CxP: es obligación real. Al 19/10/2026 hay
 //    cuotas vencidas sin pagar, y un costo por tonelada que las ignorara sería más barato que la
@@ -7088,7 +7094,8 @@ async function renderCostoTonelada(){
   }
   h+=_ctFila('Cuota de la financiadora'+(fin.acreedores.length?' — '+_escHtml(fin.acreedores.join(', ')):''),
        fin.usd,R.tons,'var(--purple)',
-       fin.n?('('+fin.n+' cuota'+(fin.n>1?'s':'')+' que venci'+(fin.n>1?'eron':'ó')+' en el período, pagada'+(fin.n>1?'s':'')+' o no · '+
+       fin.n?('('+fin.n+' cuota'+(fin.n>1?'s':'')+' de $'+_ctFmt(fin.usd/fin.n,2)+' que venci'+(fin.n>1?'eron':'ó')+
+              ' en el período, pagada'+(fin.n>1?'s':'')+' o no — entra la CUOTA COMPLETA: '+
               'capital $'+_ctFmt(fin.capital,0)+' + interés $'+_ctFmt(fin.interes,0)+')'):'(ninguna en el período)');
   h+='<tr style="border-top:1px solid var(--border)"><td style="padding:6px 0;font-weight:800">= Costo total del período</td>'+
      '<td style="text-align:right;font-family:var(--m);font-weight:900">$'+_ctFmt(R.costoTotal,0)+'</td>'+

@@ -183,7 +183,11 @@ let v = await pintar('', '');
 linea(/\$16,26/.test(v.numero || ''), 'el numero grande dice $16,26/t → ' + v.numero);
 linea(/41\.280 toneladas/.test(v.texto), 'dice las toneladas: 41.280 = 5.160 viajes × 8 t');
 linea(/AUTO UNION DC/.test(v.texto), 'nombra a la financiadora');
-linea(/7 cuotas que vencieron en el per/.test(v.texto), 'dice cuantas cuotas vencieron en el periodo');
+linea(/7 cuotas de \$23\.417,11 que vencieron en el per/.test(v.texto), 'dice cuantas cuotas vencieron y de cuanto');
+// ⛔ Maximo lo declaro el 19/10/2026: entra la cuota COMPLETA, capital + interes. Que lo diga la
+//    pantalla y no solo un comentario del codigo: es la diferencia entre un criterio y una regla.
+linea(/entra la CUOTA COMPLETA/.test(v.texto), 'y que entra la CUOTA COMPLETA, no solo el interes');
+linea(/capital \$141\.220 \+ interés \$22\.700/.test(v.texto), 'con el desglose, para quien quiera leer solo el interes');
 linea(/Sin la financiadora el costo ser/.test(v.texto) && /\$12,29/.test(v.texto), 'dice cuanto seria SIN la financiadora ($12,29/t)');
 linea(/24% del costo/.test(v.texto), 'y que peso tiene la financiadora en el costo (24%)');
 linea(/Operaci[oó]n/.test(v.texto) && /Administraci[oó]n/.test(v.texto) && /Obligaciones/.test(v.texto) && /socio/i.test(v.texto) && /cambiaria/i.test(v.texto),
@@ -293,9 +297,9 @@ linea(/Costo DIRECTO por tonelada/i.test(rent.kpi), 'el KPI dice DIRECTO, para n
 linea(/120 t = 15 × 8 t/.test(rent.kpi), 'y declara las toneladas y de donde salen → ' + (rent.kpi.match(/\d+ t = .*?t/) || [''])[0]);
 linea(/solo comb\.\+nómina/.test(rent.kpi), 'y que solo cuenta combustible y nomina');
 
-// Cuando algo falla se VUELCA el panel dibujado: adivinar que dice una pantalla es como se
-// termina arreglando lo que no estaba roto.
-if (fallas) {
+// El panel dibujado se VUELCA SIEMPRE, falle o no. Un cuadro de plata se lee; no se da por bueno
+// desde una lista de OK — las aserciones miran lo que alguien penso en mirar.
+{
   console.log('\n── El panel, tal como quedo dibujado (estado NORMAL) ────────────────');
   const txt = await pintar('', '');
   console.log(txt.texto.split('\n').map(l => '  | ' + l).join('\n'));
