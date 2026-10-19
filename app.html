@@ -2370,11 +2370,11 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
       <button class="btn btn-s btn-sm" onclick="imprimirRentabilidad()">🖨 Imprimir</button>
     </div>
   </div>
-  <div style="font-size:11px;color:var(--text3);margin-bottom:10px">Ingreso (planillas) − Combustible (gasoil) − Nómina (chofer + ayudantes). Fuente: datos reales por camión.</div>
+  <div style="font-size:11px;color:var(--text3);margin-bottom:10px">Ingreso (planillas) − Combustible (gasoil) − Nómina (chofer + ayudantes). Fuente: datos reales por camión. <b>El $/tonelada de esta pantalla es el DIRECTO</b> (solo combustible y nómina de cada camión): el costo por tonelada de la empresa — con todo gasto y la cuota de la financiadora — está en <b>Financiero ▸ Resumen</b>.</div>
   <div id="rent-kpis" class="g4" style="margin-bottom:10px"></div>
   <div class="card" style="margin-bottom:10px">
     <div class="sh"><div class="st">Ranking de rentabilidad</div></div>
-    <div class="tw" style="overflow-x:auto"><table><thead><tr><th>#</th><th>Camión</th><th>Viajes</th><th>Ingreso</th><th>Combustible</th><th>Nómina</th><th>Utilidad oper.</th><th>Margen oper.</th><th>L/viaje</th><th>$/viaje oper.</th></tr></thead><tbody id="rent-tabla"></tbody></table></div>
+    <div class="tw" style="overflow-x:auto"><table><thead><tr><th>#</th><th>Camión</th><th>Viajes</th><th>Ingreso</th><th>Combustible</th><th>Nómina</th><th>Utilidad oper.</th><th>Margen oper.</th><th>L/viaje</th><th>$/viaje oper.</th><th>$/ton directo</th></tr></thead><tbody id="rent-tabla"></tbody></table></div>
   </div>
   <div class="cbox"><div class="ctitle">Utilidad por camión</div><div id="rent-chart"></div></div>
 </div>
@@ -2545,7 +2545,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
     <div class="sw" id="sw-fin-nompago" onclick="switchFinTab('nompago')">Nomina Pago</div>
     <div class="sw" id="sw-fin-banco" onclick="switchFinTab('banco')">Cuentas</div>
   </div>
-  <div id="tab-fin-dash"><div style="display:flex;gap:8px;margin-bottom:10px"><select class="fc" id="fin-periodo" onchange="renderFinDash()" style="max-width:160px;padding:6px 8px;font-size:11px"><option value="semana">Esta Semana</option><option value="mes">Este Mes</option><option value="todo">Todo</option></select><select class="fc" id="fin-sem-sel" style="max-width:160px;padding:6px 8px;font-size:11px" onchange="renderFinDash()"><option>Semana 1</option><option>Semana 2</option><option>Semana 3</option><option>Semana 4</option><option>Semana 5</option></select><button class="btn btn-s btn-sm" onclick="imprimirReporteFinanciero()">Imprimir</button><button class="btn btn-s btn-sm" onclick="emailReporteFinanciero()">✉ Correo</button></div><div id="fin-dash-content"></div></div>
+  <div id="tab-fin-dash"><div style="display:flex;gap:8px;margin-bottom:10px"><select class="fc" id="fin-periodo" onchange="renderFinDash()" style="max-width:160px;padding:6px 8px;font-size:11px"><option value="semana">Esta Semana</option><option value="mes">Este Mes</option><option value="todo">Todo</option></select><select class="fc" id="fin-sem-sel" style="max-width:160px;padding:6px 8px;font-size:11px" onchange="renderFinDash()"><option>Semana 1</option><option>Semana 2</option><option>Semana 3</option><option>Semana 4</option><option>Semana 5</option></select><button class="btn btn-s btn-sm" onclick="imprimirReporteFinanciero()">Imprimir</button><button class="btn btn-s btn-sm" onclick="emailReporteFinanciero()">✉ Correo</button></div><div style="display:flex;gap:6px;align-items:flex-end;flex-wrap:wrap;margin-bottom:8px"><div class="fg" style="margin:0"><label style="font-size:10px;color:var(--text3)">Costo/tonelada desde</label><input type="date" class="fc" id="ct-des" style="padding:6px 8px;font-size:11px" onchange="renderCostoTonelada()"></div><div class="fg" style="margin:0"><label style="font-size:10px;color:var(--text3)">hasta</label><input type="date" class="fc" id="ct-hta" style="padding:6px 8px;font-size:11px" onchange="renderCostoTonelada()"></div><button class="btn btn-s btn-sm" onclick="document.getElementById('ct-des').value='';document.getElementById('ct-hta').value='';renderCostoTonelada()">Todo</button></div><div id="ct-panel" style="margin-bottom:12px"></div><div id="fin-dash-content"></div></div>
   <div id="tab-fin-ingresos" style="display:none">
     <div class="g2" style="margin-bottom:10px">
       <div class="card">
@@ -2712,7 +2712,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
       <div class="card">
         <div class="st" style="margin-bottom:10px">Parametros del Sistema</div>
         <div class="fr2"><div class="fg"><label>Tasa BsD/USD</label><input class="fc" id="cfg-tasa" type="number" placeholder="487.12" style="font-family:var(--m)"></div><div class="fg"><label>Tarifa Alcaldia ($/viaje)</label><input class="fc" id="cfg-tarifa" type="number" value="317.88" style="font-family:var(--m)"></div></div>
-        <div class="fr3"><div class="fg"><label>Chofer ($/viaje)</label><input class="fc" id="cfg-chofer" type="number" value="10" style="font-family:var(--m)"></div><div class="fg"><label>Ayudante ($/viaje)</label><input class="fc" id="cfg-ayud" type="number" value="5" style="font-family:var(--m)"></div><div class="fg"><label>IMAU ($/viaje)</label><input class="fc" id="cfg-imau" type="number" value="2.50" style="font-family:var(--m)"></div></div>
+        <div class="fr3"><div class="fg"><label>Chofer ($/viaje)</label><input class="fc" id="cfg-chofer" type="number" value="10" style="font-family:var(--m)"></div><div class="fg"><label>Ayudante ($/viaje)</label><input class="fc" id="cfg-ayud" type="number" value="5" style="font-family:var(--m)"></div><div class="fg"><label>IMAU ($/viaje)</label><input class="fc" id="cfg-imau" type="number" value="2.50" style="font-family:var(--m)"></div></div><div class="fr2"><div class="fg"><label>Toneladas por viaje</label><input class="fc" id="cfg-tons-viaje" type="number" step="0.1" min="0.1" value="8" style="font-family:var(--m)"><div style="font-size:10px;color:var(--text3);margin-top:2px">La unidad de costo de la empresa: con esto sale el <b>costo por tonelada</b> (Financiero ▸ Resumen y Rentabilidad). Lo declara la empresa; no se deduce de ningún dato.</div></div><div class="fg"></div></div>
         <!-- IDENTIDAD FISCAL. Decide si a los proveedores se les retiene IVA. El ISLR va aparte:
              se retiene igual aunque la empresa NO sea contribuyente especial. -->
         <div class="fg" style="border:1px solid var(--border);border-radius:8px;padding:10px 12px;background:var(--bg3)">
@@ -3139,7 +3139,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
      Excel sale con el defecto ya corregido. Pasó midiendo este mismo cambio el
      23/09: dos corridas dieron un .xlsx idéntico byte por byte. -->
 <script src="maxware-excel.js?v=20260923-2252"></script>
-<script src="app.js?v=20261016-0936"></script>
+<script src="app.js?v=20261019-costo-tonelada"></script>
 
 <!-- Modal global -->
 <div id="modal" class="moverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9990;align-items:center;justify-content:center;padding:16px">

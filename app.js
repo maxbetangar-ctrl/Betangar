@@ -381,7 +381,7 @@ var cfg={tarifa:(function(){
   // Cargar tarifa guardada de localStorage si existe
   try{var t=parseFloat(localStorage.getItem('betangar_cfg_tarifa'));if(t&&t>100)return t;}catch(e){}
   return 317.88;
-})(),chofer:10,ayud:5,km:5000,tanque:4600,tasa:0,imau:2.5,tipos_mant:['Solo registro km','GARANTIA (Servicio 5000km)','CORRECTIVO','PREVENTIVO','CAMBIO DE ACEITE','CAMBIO FILTROS','FRENOS','SUSPENSION','ELECTRICO','MOTOR','TRANSMISION','OTROS'],mant_programados:[{id:'lavado',nombre:'Lavado',dias:7,campo:'lavado'},{id:'engrase',nombre:'Engrase',dias:15,campo:'engrase'},{id:'aceite',nombre:'Cambio de Aceite',dias:90,campo:'aceite'}],unidades_areas:['ADM - Administrativo','OPERATIVO - Jefe Operaciones','PORTERIA - Vigilancia','MANT - Mantenimiento','TRANS - Transporte','JAC-B001','JAC-B002','JAC-B003','JAC-B004','JAC-B005','JAC-B006','JAC-B007','JAC-B008','JAC-B009','JAC-B010','JAC-B011','JAC-B012','SRV-001','PEUGEOT-001','MOTO-001']};
+})(),chofer:10,ayud:5,km:5000,tanque:4600,tasa:0,imau:2.5,tonsViaje:8,tipos_mant:['Solo registro km','GARANTIA (Servicio 5000km)','CORRECTIVO','PREVENTIVO','CAMBIO DE ACEITE','CAMBIO FILTROS','FRENOS','SUSPENSION','ELECTRICO','MOTOR','TRANSMISION','OTROS'],mant_programados:[{id:'lavado',nombre:'Lavado',dias:7,campo:'lavado'},{id:'engrase',nombre:'Engrase',dias:15,campo:'engrase'},{id:'aceite',nombre:'Cambio de Aceite',dias:90,campo:'aceite'}],unidades_areas:['ADM - Administrativo','OPERATIVO - Jefe Operaciones','PORTERIA - Vigilancia','MANT - Mantenimiento','TRANS - Transporte','JAC-B001','JAC-B002','JAC-B003','JAC-B004','JAC-B005','JAC-B006','JAC-B007','JAC-B008','JAC-B009','JAC-B010','JAC-B011','JAC-B012','SRV-001','PEUGEOT-001','MOTO-001']};
 
 // ── PERFIL DE RETENCIONES (configurable POR CONTRATO) ──
 // RET_DEFAULT, perfilRetencion() y calcRetenciones() viven ahora en money.js (cargado ANTES que
@@ -4103,6 +4103,7 @@ function sp(id){
     if(id==='aud-combustible'){ renderCombSubnav('aud-combustible');
       if(!gv('ac-desde'))sv('ac-desde',_acMenos(14)); if(!gv('ac-hasta'))sv('ac-hasta',_acHoy()); }
     if(id==='rentabilidad'){renderAnalisisSubnav('rentabilidad');renderRentabilidad();}
+    if(id==='config'){try{cargarConfigForm();}catch(e){console.log('[config]',e&&e.message);}}
     if(id==='salud'){renderSaludDatos();}
     if(id==='km'){renderMantSubnav('km');renderKm();renderTiposMant();_cargarMantTodo().then(function(){try{renderHistMant();}catch(e){}try{_poblarKmItem();}catch(e){}}).catch(function(){});}
     if(id==='banco'){renderBancoSubnav('banco');renderBNCDash();}
@@ -4579,6 +4580,10 @@ async function cargarDatosDB(){
     cargarAnomaliasDecisiones(); // Decisiones RRHH previas (validado/rechazado) para el cotejo
     cargarCombustibleData(); // Cargar config/mediciones/alertas del módulo Control Combustible
     cargarCxP(); // Cargar CxP al inicio
+    // Cuadro de amortización de los financiamientos: lo necesita el COSTO POR TONELADA, que sin
+    // la cuota de la financiadora sale más barato que la verdad. Si no se puede leer, el panel
+    // lo dice en pantalla en vez de dar un número incompleto callado.
+    cargarCuotasFinanciamiento();
     // Notificar pagos BNC pendientes ahora que DB está lista
     if(SESION){setTimeout(notificarPagosBNCNuevos,500);}
     // Poll de sesion: aplica eliminaciones aprobadas aunque el solicitante haya recargado
@@ -6818,6 +6823,288 @@ function _fuenteEgresos(){
   return (EGRESOS_BANCO&&EGRESOS_BANCO.gasto>0)
     ? {ok:true, txt:'del estado de cuenta del banco'}
     : {ok:false, txt:'⚠️ de lo cargado a mano — el banco no respondió, faltan gastos'};
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+// 🏋️ COSTO POR TONELADA — la unidad de costo de esta empresa
+//
+// Máximo, 19/10/2026: «necesito tener mi costo por tonelada teniendo en cuenta que cada viaje son
+// 8 tons» · «que el costo incluya el pago mensual a la financiadora de los camiones» · «todo
+// gasto» · «que no quede ningún gasto por fuera para así saber realmente mi costo por tonelada».
+//
+// ⛔ ACÁ NO SE RECALCULA EL GASTO: SE LEE DEL MISMO MOTOR QUE LA UTILIDAD REAL. El gasto sale de
+//    `btg_resumen_socio` (el banco, cada movimiento a la tasa de SU día), igual que `_totalEgresos`.
+//    Si se sumara tabla por tabla acá, el dueño tendría dos costos distintos para el mismo mes y
+//    ninguna de las dos pantallas podría explicarle a la otra.
+//    [[norma-costo-por-unidad-es-el-numero-principal]] [[norma-fuente-unica-datos]]
+//
+// ⛔ LO ÚNICO QUE SE LE SUMA ES LA CUOTA DE LA FINANCIADORA, Y NO POR CAPRICHO: los 12 camiones se
+//    financiaron con AUTO UNIÓN DC (US$ 384.000 · 18 cuotas de US$ 23.417,11). Betangar le pasa
+//    BOLÍVARES, Auto Unión COMPRA los dólares y los aplica a la deuda — así que en el banco esa
+//    salida está clasificada `compra_divisas`, que cae en el bloque PATRIMONIAL y **no es gasto**.
+//    Para la UTILIDAD eso está bien (es ahorro que después se vuelve pago de deuda), pero para
+//    saber qué cuesta mover una tonelada es gasto puro: sin esos camiones no hay viaje.
+//
+// ⛔ NO SE CUENTA DOS VECES. Lo que el banco ya tiene cargado de esta deuda es el SOBREPRECIO
+//    pagado por comprar esos dólares (la pérdida cambiaria realizada: se compró a 620–860 lo que a
+//    BCV valía 477–747). La CUOTA es otro hecho. Sumar las dos no duplica nada.
+//
+// ⛔ SE CUENTA LA CUOTA DEVENGADA, NO LA PAGADA. La que venció en el rango, se haya pagado o no —
+//    la misma regla que ya usa la Utilidad Real con las CxP: es obligación real. Al 19/10/2026 hay
+//    cuotas vencidas sin pagar, y un costo por tonelada que las ignorara sería más barato que la
+//    verdad justamente por estar en mora.
+//
+// ⛔ EL GASTO Y LAS TONELADAS TIENEN QUE SER DEL MISMO RANGO. Es la trampa de esta cuenta: el gasto
+//    de toda la historia dividido entre las toneladas de un mes da un número que no corresponde a
+//    nada. Por eso el rango se le pide al banco (`btg_resumen_socio` toma desde/hasta) y, si el
+//    banco no contesta, con un rango puesto esto NO muestra un número: se niega y dice por qué.
+//    [[norma-falta-de-dato-no-es-un-dato]]
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+
+// Cuántas toneladas mueve un viaje. Lo DECLARA la empresa (Config ▸ General), no se adivina; 8 por
+// defecto porque es lo que declaró Máximo el 19/10/2026. UNA sola definición — si mañana cambia la
+// capacidad, se cambia acá y lo ven todas las pantallas a la vez.
+function _tonsPorViaje(){
+  var t=parseFloat((typeof cfg!=='undefined'&&cfg)?cfg.tonsViaje:null);
+  return (isFinite(t)&&t>0)?t:8;
+}
+
+// ── EL CUADRO DE AMORTIZACIÓN, TAL COMO LO CALCULA LA BASE ───────────────────────────────────
+// ⛔ Acá no se amortiza nada. `deuda_amortizacion` es la fuente (lo mismo que manda la pantalla de
+//    MaxDeudas: «esta pantalla no calcula nada»). Replicar la fórmula en el navegador sería una
+//    segunda definición de la cuota, y la que se vería en el costo podría no ser la que se cobra.
+var DEUDA_CUOTAS=[];                      // [{nro,vencimiento,cuota,interes,capital,acreedor}]
+var DEUDA_CUOTAS_ESTADO='no_cargado';     // no_cargado | ok | sin_deudas | sin_permiso | error
+var DEUDA_CUOTAS_ERROR='';
+async function cargarCuotasFinanciamiento(){
+  if(!(DB_READY&&supabase)||DEMO_MODE){ DEUDA_CUOTAS_ESTADO='error'; DEUDA_CUOTAS_ERROR='sin conexión a la base'; return DEUDA_CUOTAS; }
+  try{
+    var pv=await supabase.rpc('deuda_puede_ver');
+    if(pv.error||pv.data!==true){ DEUDA_CUOTAS=[]; DEUDA_CUOTAS_ESTADO='sin_permiso';
+      DEUDA_CUOTAS_ERROR=(pv.error&&pv.error.message)||'este usuario no puede ver los financiamientos'; return DEUDA_CUOTAS; }
+    var fs=await supabase.from('deuda_financiamientos').select('id,acreedor,estado').order('id');
+    if(fs.error)throw fs.error;
+    // Solo los VIGENTES: una deuda ya liquidada no le carga cuota a ningún mes.
+    var deudas=(fs.data||[]).filter(function(d){ return String(d.estado||'vigente')==='vigente'; });
+    if(!deudas.length){ DEUDA_CUOTAS=[]; DEUDA_CUOTAS_ESTADO='sin_deudas'; DEUDA_CUOTAS_ERROR=''; return DEUDA_CUOTAS; }
+    var filas=[];
+    for(var i=0;i<deudas.length;i++){
+      var am=await supabase.rpc('deuda_amortizacion',{p_deuda:deudas[i].id});
+      if(am.error)throw am.error;
+      var acr=deudas[i].acreedor||'';
+      (am.data||[]).forEach(function(f){
+        filas.push({nro:f.nro, vencimiento:String(f.vencimiento||'').slice(0,10),
+          cuota:parseFloat(f.cuota)||0, interes:parseFloat(f.interes)||0, capital:parseFloat(f.capital)||0,
+          acreedor:acr});
+      });
+    }
+    DEUDA_CUOTAS=filas; DEUDA_CUOTAS_ESTADO='ok'; DEUDA_CUOTAS_ERROR='';
+  }catch(e){ DEUDA_CUOTAS=[]; DEUDA_CUOTAS_ESTADO='error'; DEUDA_CUOTAS_ERROR=(e&&(e.message||e.hint))||String(e); }
+  return DEUDA_CUOTAS;
+}
+
+// Lo que la financiadora DEVENGÓ en el rango: las cuotas que vencen dentro de él.
+// Sin rango = todas las que ya vencieron hasta hoy. Las futuras no entran: cargarle al período de
+// hoy una cuota que todavía no venció es restarle un gasto que no ocurrió.
+function financiadoraDevengadaUsd(des,hta){
+  var hoy=new Date().toISOString().slice(0,10);
+  var d=(des||'').slice(0,10), h=(hta||'').slice(0,10)||hoy;
+  var r={usd:0,interes:0,capital:0,n:0,estado:DEUDA_CUOTAS_ESTADO,error:DEUDA_CUOTAS_ERROR,acreedores:[]};
+  (DEUDA_CUOTAS||[]).forEach(function(f){
+    if(!f.vencimiento)return;
+    if(d&&f.vencimiento<d)return;
+    if(f.vencimiento>h)return;
+    r.usd+=f.cuota; r.interes+=f.interes; r.capital+=f.capital; r.n++;
+    if(f.acreedor&&r.acreedores.indexOf(f.acreedor)<0)r.acreedores.push(f.acreedor);
+  });
+  return r;
+}
+
+// El gasto del banco PARA UN RANGO. Hermano de `cargarEgresosBanco`, con una diferencia a propósito:
+// ⛔ NO escribe `EGRESOS_BANCO`. Ese global es el del período completo que usan el dashboard y la
+//    Utilidad Real; si esta consulta de un mes lo sobreescribiera, el dueño vería la utilidad del
+//    año reemplazada por la de un mes sin que nada se lo dijera.
+//    [[norma-un-candado-que-vacia-una-columna-no-se-nota]]
+async function _gastoBancoRango(desde,hasta){
+  if(!(DB_READY&&supabase)||DEMO_MODE)return {error:'sin conexión a la base'};
+  var d=(desde||'').slice(0,10)||'2026-01-01', h=(hasta||'').slice(0,10)||new Date().toISOString().slice(0,10);
+  try{
+    var r=await supabase.rpc('btg_resumen_socio',{p_desde:d,p_hasta:h});
+    if(r.error)return {error:r.error.message||String(r.error)};
+    var x=Array.isArray(r.data)?r.data[0]:r.data;
+    if(!x)return {error:'la base no devolvió ninguna fila'};
+    return { gasto:Number(x.gasto_usd)||0, cambiario:Number(x.cambiario_usd)||0,
+      cobrado:Number(x.cobrado_usd)||0, otras:Number(x.otras_entradas_usd)||0,
+      operacion:Number(x.operacion_usd)||0, administracion:Number(x.administracion_usd)||0,
+      obligaciones:Number(x.obligaciones_usd)||0, socio:Number(x.socio_usd)||0,
+      sinTasa:Number(x.movs_sin_tasa)||0, desde:d, hasta:h };
+  }catch(e){ return {error:(e&&e.message)||String(e)}; }
+}
+
+// ── EL MOTOR ÚNICO DEL COSTO POR TONELADA ────────────────────────────────────────────────────
+// Devuelve SIEMPRE un objeto. Si no se puede dar el número, viene `bloqueado` con el motivo y la
+// pantalla muestra ESO: una cifra que no corresponde a nada es peor que ninguna cifra.
+async function calcCostoPorTonelada(des,hta){
+  des=(des||'').slice(0,10); hta=(hta||'').slice(0,10);
+  var R={des:des,hta:hta,tonsPorViaje:_tonsPorViaje(),avisos:[],bloqueado:null,
+         viajes:0,planillas:0,tons:0,ingreso:0,gasto:0,cambiario:0,fin:null,banco:null,
+         costoTotal:0,costoTon:0,costoTonSinFin:0,ingresoTon:0,margenTon:0,fuente:''};
+
+  // 1) LAS TONELADAS. Viajes de las planillas de la flota de ESTA empresa, en el mismo rango.
+  (typeof REGS!=='undefined'?REGS:[]).forEach(function(r){
+    if(!_esDeLaFlota(r.cam))return;
+    var f=String(r.f||'');
+    if(des&&f<des)return;
+    if(hta&&f>hta)return;
+    R.viajes+=parseInt(r.t)||0;
+    R.ingreso+=parseFloat(r.m)||0;
+    R.planillas++;
+  });
+  R.tons=R.viajes*R.tonsPorViaje;
+
+  // 2) EL GASTO, del MISMO rango.
+  var b=await _gastoBancoRango(des,hta);
+  if(b&&!b.error){
+    R.gasto=b.gasto; R.cambiario=b.cambiario; R.banco=b;
+    R.fuente='del estado de cuenta del banco · '+b.desde+' → '+b.hasta;
+    if(b.sinTasa>0)R.avisos.push(b.sinTasa+' movimiento(s) del banco sin tasa del día: NO están sumados en el gasto, así que el costo real es un poco más alto.');
+  }else if(des||hta){
+    // ⛔ Con rango puesto y sin banco, el camino viejo daría el gasto de TODA la historia sobre las
+    //    toneladas del rango. Eso no es un número incompleto: es un número falso. No se muestra.
+    R.bloqueado='No se pudo leer el gasto del banco para este rango ('+((b&&b.error)||'sin respuesta')+'). '+
+      'Con un rango puesto, el cálculo de respaldo sumaría los gastos de TODA la historia y los dividiría entre las toneladas del rango: eso no sería un costo por tonelada. Toque «Todo» o reintente.';
+    return R;
+  }else{
+    // Sin rango el respaldo sí es comparable (suma todo contra todo), pero es INCOMPLETO y se dice.
+    R.gasto=(typeof _totalEgresosLegacy==='function')?_totalEgresosLegacy(R.ingreso):0;
+    R.cambiario=0;
+    R.fuente='⚠️ de lo cargado a mano — el banco no respondió'+((b&&b.error)?' ('+b.error+')':'');
+    R.avisos.push('El gasto NO viene del banco: viene de las tablas que alguien tiene que teclear. La última vez que se midió esa diferencia (09/08/2026) por ese camino faltaba el 61% del gasto real, así que este costo por tonelada está POR DEBAJO del verdadero.');
+    R.avisos.push('La pérdida cambiaria realizada (lo que se pagó de más por los dólares) no entra por este camino.');
+  }
+
+  // 3) LA FINANCIADORA.
+  R.fin=financiadoraDevengadaUsd(des,hta);
+  if(R.fin.estado!=='ok'){
+    var porque={sin_permiso:'este usuario no tiene permiso para ver los financiamientos',
+                sin_deudas:'no hay ningún financiamiento vigente cargado',
+                no_cargado:'todavía no se cargó el cuadro de amortización',
+                error:R.fin.error||'error al leerlo'}[R.fin.estado]||R.fin.estado;
+    if(R.fin.estado!=='sin_deudas')
+      R.avisos.push('⛔ La cuota de la financiadora NO está sumada ('+porque+'): este costo por tonelada está por debajo del real.');
+  }else if(R.fin.n===0){
+    R.avisos.push('Ninguna cuota de financiamiento venció dentro de este rango, así que no suma nada.');
+  }
+
+  // 4) LO QUE NINGÚN CAMINO PUEDE VER — se dice, no se calla. [[norma-falta-de-dato-no-es-un-dato]]
+  R.avisos.push('Solo cuenta la plata que pasó por la cuenta del banco que está cargada. Lo que se pague en efectivo o desde otra cuenta no está acá.');
+
+  // 5) EL NÚMERO.
+  R.costoTonSinFin=R.tons>0?((R.gasto+R.cambiario)/R.tons):0;
+  R.costoTotal=R.gasto+R.cambiario+(R.fin?R.fin.usd:0);
+  R.costoTon=R.tons>0?(R.costoTotal/R.tons):0;
+  R.ingresoTon=R.tons>0?(R.ingreso/R.tons):0;
+  // ⛔ LOS TRES NÚMEROS TIENEN QUE CERRAR A LA VISTA. Con la resta a precisión completa la
+  //    pantalla decía «cobra $39,74 · cuesta $16,26 ⇒ le queda $23,47», y a cualquiera que reste
+  //    a mano le da 23,48. El margen se saca de los DOS NÚMEROS REDONDEADOS — los mismos que se
+  //    leen —, porque un cuadro que no cierra a la vista se discute en vez de usarse.
+  R.ingresoTon=Math.round(R.ingresoTon*100)/100;
+  R.costoTon=Math.round(R.costoTon*100)/100;
+  R.costoTonSinFin=Math.round(R.costoTonSinFin*100)/100;
+  R.margenTon=Math.round((R.ingresoTon-R.costoTon)*100)/100;
+  // ⛔ Dividir por cero no da «cero costo»: no da nada. Y un 0 en verde es una mentira tranquila.
+  if(R.tons<=0)R.bloqueado='No hay viajes cargados en este rango, así que no hay toneladas entre las que dividir.';
+  return R;
+}
+
+// ── LA PANTALLA DEL COSTO POR TONELADA ───────────────────────────────────────────────────────
+// Va ARRIBA del resumen financiero: es el número principal del dueño, no una fila al final de una
+// tabla. [[norma-costo-por-unidad-es-el-numero-principal]]
+// ⛔ Lo que no se pudo medir se escribe en la misma tarjeta. Un costo por tonelada sin decir qué
+//    gasto le falta es exactamente el número que hace tomar una decisión equivocada.
+var _CT_ULTIMO=null;   // lo último que se calculó, para que el impreso no recalcule
+function _ctFmt(x,dec){ var d=(dec==null?2:dec); return (Math.round((x||0)*Math.pow(10,d))/Math.pow(10,d)).toLocaleString('es-VE',{minimumFractionDigits:d,maximumFractionDigits:d}); }
+function _ctFila(lbl,usd,tons,color,nota){
+  var porTon=(tons>0)?(usd/tons):0;
+  return '<tr><td style="padding:3px 0">'+lbl+(nota?' <span style="color:var(--text3);font-size:10px">'+nota+'</span>':'')+'</td>'+
+    '<td style="text-align:right;font-family:var(--m);color:'+(color||'var(--text2)')+'">$'+_ctFmt(usd,0)+'</td>'+
+    '<td style="text-align:right;font-family:var(--m);color:'+(color||'var(--text2)')+'">'+(tons>0?('$'+_ctFmt(porTon,2)):'—')+'</td></tr>';
+}
+async function renderCostoTonelada(){
+  var el=g('ct-panel'); if(!el)return;
+  el.innerHTML='<div style="padding:10px;color:var(--text3);font-size:12px">Calculando el costo por tonelada…</div>';
+  var R;
+  try{ R=await calcCostoPorTonelada(gv('ct-des'),gv('ct-hta')); }
+  catch(e){ el.innerHTML='<div style="padding:10px;color:var(--red);font-size:12px">⛔ No se pudo calcular: '+((e&&e.message)||e)+'</div>'; return; }
+  _CT_ULTIMO=R;
+  var periodo=(R.des||R.hta)
+    ? ((R.des?formatFecha(R.des):'el inicio')+' → '+(R.hta?formatFecha(R.hta):'hoy'))
+    : 'toda la historia cargada';
+
+  if(R.bloqueado){
+    // ⛔ Gris, no verde, y con la causa. Un recuadro de color sobre un número que no existe afirma
+    //    lo que la línea de al lado niega. [[norma-una-asercion-mal-escrita-acusa-al-producto]]
+    el.innerHTML='<div style="background:var(--card);border:1px solid var(--border);border-left:4px solid var(--text3);border-radius:10px;padding:12px 14px">'+
+      '<div style="font-size:12px;font-weight:800;color:var(--text2)">🏋️ Costo por tonelada — '+_escHtml(periodo)+'</div>'+
+      '<div style="font-size:16px;font-weight:800;color:var(--text3);margin:4px 0">no se puede calcular</div>'+
+      '<div style="font-size:11px;color:var(--text2)">'+_escHtml(R.bloqueado)+'</div></div>';
+    return;
+  }
+
+  var fin=R.fin||{usd:0,n:0,interes:0,capital:0,acreedores:[]};
+  var col=(R.margenTon>=0)?'var(--green2)':'var(--red)';
+  var h='';
+
+  // ── EL NÚMERO, primero y grande ───────────────────────────────────────────
+  h+='<div style="background:var(--card);border:1px solid var(--border);border-left:4px solid '+col+';border-radius:10px;padding:12px 14px;margin-bottom:8px">'+
+     '<div style="font-size:11px;color:var(--text3);font-weight:700">🏋️ COSTO POR TONELADA · '+_escHtml(periodo)+'</div>'+
+     '<div style="font-size:30px;font-weight:900;color:'+col+';font-family:var(--m);margin:2px 0">$'+_ctFmt(R.costoTon,2)+'</div>'+
+     '<div style="font-size:11px;color:var(--text2)">'+
+       _ctFmt(R.tons,0)+' toneladas = '+R.viajes.toLocaleString('es-VE')+' viajes × '+_ctFmt(R.tonsPorViaje,0)+' t'+
+       ' · cobra $'+_ctFmt(R.ingresoTon,2)+'/t ⇒ le queda <b style="color:'+col+'">$'+_ctFmt(R.margenTon,2)+'/t</b></div>'+
+     '<div style="font-size:10px;color:var(--text3);margin-top:3px">Gasto '+_escHtml(R.fuente)+'. Las toneladas por viaje se declaran en Config ▸ General.</div>'+
+     '</div>';
+
+  // ── DE DÓNDE SALE, renglón por renglón ────────────────────────────────────
+  // Un número que el dueño no puede explicar no sirve. [[norma-numero-que-el-dueno-no-puede-explicar]]
+  h+='<div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:10px 14px;font-size:12px">'+
+     '<div style="font-weight:800;color:var(--text2);margin-bottom:6px">🧾 Todo lo que entra en ese costo</div>'+
+     '<table style="width:100%;border-collapse:collapse"><thead><tr style="font-size:10px;color:var(--text3)">'+
+     '<th style="text-align:left;font-weight:700">Concepto</th><th style="text-align:right;font-weight:700">US$</th>'+
+     '<th style="text-align:right;font-weight:700">por tonelada</th></tr></thead><tbody>';
+  if(R.banco){
+    h+=_ctFila('Operación (nómina, combustible, mantenimiento, dotación)',R.banco.operacion,R.tons);
+    h+=_ctFila('Administración (servicios, alquiler, seguros, comisiones…)',R.banco.administracion,R.tons);
+    h+=_ctFila('Obligaciones (impuestos, retenciones, responsabilidad social)',R.banco.obligaciones,R.tons);
+    h+=_ctFila('Pago a socio y comisión 1B',R.banco.socio,R.tons);
+    h+=_ctFila('Pérdida cambiaria ya realizada',R.cambiario,R.tons,'var(--yellow)','(bolívares que perdieron valor + sobreprecio pagado por los dólares)');
+  }else{
+    h+=_ctFila('Gasto cargado a mano (nómina, gasoil, fijos, variables, CxP, multas…)',R.gasto,R.tons);
+  }
+  h+=_ctFila('Cuota de la financiadora'+(fin.acreedores.length?' — '+_escHtml(fin.acreedores.join(', ')):''),
+       fin.usd,R.tons,'var(--purple)',
+       fin.n?('('+fin.n+' cuota'+(fin.n>1?'s':'')+' que venci'+(fin.n>1?'eron':'ó')+' en el período, pagada'+(fin.n>1?'s':'')+' o no · '+
+              'capital $'+_ctFmt(fin.capital,0)+' + interés $'+_ctFmt(fin.interes,0)+')'):'(ninguna en el período)');
+  h+='<tr style="border-top:1px solid var(--border)"><td style="padding:6px 0;font-weight:800">= Costo total del período</td>'+
+     '<td style="text-align:right;font-family:var(--m);font-weight:900">$'+_ctFmt(R.costoTotal,0)+'</td>'+
+     '<td style="text-align:right;font-family:var(--m);font-weight:900;color:'+col+'">$'+_ctFmt(R.costoTon,2)+'</td></tr>';
+  h+='</tbody></table>';
+  // Cuánto de ese costo es la financiadora: el dueño preguntó por ella, así que se dice aparte.
+  if(fin.usd>0&&R.tons>0){
+    h+='<div style="font-size:11px;color:var(--text2);margin-top:6px;padding-top:6px;border-top:1px dashed var(--border)">'+
+       'Sin la financiadora el costo sería <b style="font-family:var(--m)">$'+_ctFmt(R.costoTonSinFin,2)+'/t</b>: '+
+       'los camiones le ponen <b style="font-family:var(--m);color:var(--purple)">$'+_ctFmt(R.costoTon-R.costoTonSinFin,2)+'/t</b> '+
+       '('+Math.round((R.costoTotal>0?(fin.usd/R.costoTotal*100):0))+'% del costo).</div>';
+  }
+  h+='</div>';
+
+  // ── LO QUE NO ESTÁ ADENTRO ────────────────────────────────────────────────
+  if(R.avisos&&R.avisos.length){
+    h+='<div style="background:rgba(251,191,36,.10);border:1px solid var(--border);border-radius:10px;padding:8px 12px;margin-top:8px;font-size:11px;color:var(--text2)">'+
+       '<div style="font-weight:800;margin-bottom:4px">⚠️ Qué puede quedar afuera de este número</div>'+
+       '<ul style="margin:0;padding-left:16px">'+R.avisos.map(function(a){return '<li style="margin:2px 0">'+_escHtml(a)+'</li>';}).join('')+'</ul></div>';
+  }
+  el.innerHTML=h;
 }
 function _totalEgresos(totalCob){
   // El banco manda cuando está disponible. Reemplaza, no suma.
@@ -20387,6 +20674,9 @@ function emailArteCumple(){
 function switchFinTab(t){['dash','ingresos','gastos','vars','nompago','banco'].forEach(function(x){var el=g('tab-fin-'+x);var sw=g('sw-fin-'+x);if(el)el.style.display=x===t?'block':'none';if(sw){sw.classList.remove('on');if(x===t)sw.classList.add('on');}});if(t==='dash')renderFinDash();if(t==='ingresos'){renderAlcResumen();renderPagosAlcTabla();autoLlenarTasasEnFormularios();calcPagoAlc();}if(t==='gastos')renderGastosFijos();if(t==='vars')renderGastosVariables();if(t==='banco')renderBancoFin();}
 
 function renderFinDash(){
+  // El costo por tonelada va ARRIBA y se pinta solo (es asíncrono: le pregunta el gasto del
+  // rango al banco). Si falla, lo dice en su propia tarjeta sin tumbar el resto de la pantalla.
+  try{ renderCostoTonelada(); }catch(e){ console.log('[costo/ton]',e&&e.message); }
   var el=g('fin-dash-content');if(!el)return;
   var totalFact=REGS.reduce(function(s,r){return s+r.m;},0);
   var totalCob=Math.min(ABONOS.reduce(function(s,a){return s+a.m;},0),totalFact);
@@ -21687,6 +21977,22 @@ async function exportarAuditoria(){
 // ═══════════════════════════════════════════════════
 function switchCfgTab(t){['general','flota','wa','rec','nomadm','correlativo','cargos','combustible'].forEach(function(x){var el=g('tab-cfg-'+x);var sw=g('sw-cfg-'+x);if(el)el.style.display=x===t?'block':'none';if(sw){sw.classList.remove('on');if(x===t)sw.classList.add('on');}});if(t==='rec'){renderWAEmpresarial();renderRecordatorios();}if(t==='correlativo'){renderCfgCorrelativo();}if(t==='cargos'){renderCfgCargos();}if(t==='combustible'){renderCfgCombustible();}}
 
+// Prellenar el formulario con lo que está GUARDADO. Se llama al abrir Config.
+// ⛔ Sin esto, abrir Config y tocar Guardar devolvía cada campo a su `value=` del HTML — o sea
+//    que guardar REVERTÍA lo guardado, en silencio. No se notaba porque los defaults del HTML
+//    coincidían con los de `cfg`; con un campo que el cliente cambia de verdad, sí se nota.
+//    [[norma-dos-listas-a-mano-se-desincronizan]]
+function cargarConfigForm(){
+  if(typeof cfg==='undefined'||!cfg)return;
+  sv('cfg-tarifa',cfg.tarifa||317.88);
+  sv('cfg-chofer',cfg.chofer||10);
+  sv('cfg-ayud',cfg.ayud||5);
+  sv('cfg-km',cfg.km||5000);
+  sv('cfg-tanque',cfg.tanque||4600);
+  sv('cfg-imau',(cfg.imau==null?2.5:cfg.imau));
+  sv('cfg-tons-viaje',_tonsPorViaje());
+  var esp=g('cfg-especial'); if(esp)esp.checked=(cfg.especial!==false);
+}
 function guardarConfig(){
   cfg.tarifa=parseFloat(gv('cfg-tarifa'))||317.88;
   cfg.chofer=parseFloat(gv('cfg-chofer'))||10;
@@ -21694,6 +22000,10 @@ function guardarConfig(){
   cfg.km=parseFloat(gv('cfg-km'))||5000;
   cfg.tanque=parseFloat(gv('cfg-tanque'))||4600;
   cfg.imau=parseFloat(gv('cfg-imau'))||2.5;
+  // Toneladas por viaje: la unidad de costo de esta empresa. Si se teclea 0 o basura se queda
+  // en 8 (lo declarado por Máximo el 19/10/2026), no en cero: con 0 no habría nada entre lo
+  // que dividir y el costo por tonelada dejaría de existir sin que nadie lo pidiera.
+  cfg.tonsViaje=parseFloat(gv('cfg-tons-viaje'))||8;
   // Identidad fiscal: decide si se les retiene IVA a los proveedores (el ISLR va aparte).
   cfg.especial=g('cfg-especial')?!!g('cfg-especial').checked:(cfg.especial!==false);
   // Precio $/L de referencia por fuente (fuente única: despacho a camión + import de planillas)
@@ -30738,6 +31048,12 @@ function calcRentabilidadCamiones(des,hta){
       combPendL:x.combPendL||0,combPendN:x.combPendN||0,
       nomina:nomina,nominaChofer:nominaChofer,nominaAyud:nominaAyud,utilidad:utilidad,margen:margen,
       costoOp:costoOp,costoViaje:x.viajes>0?costoOp/x.viajes:0,
+      tons:x.viajes*_tonsPorViaje(),
+      // ⛔ COSTO DIRECTO por tonelada — solo combustible + nómina de ESTE camión. NO es el costo
+      //    por tonelada de la empresa (ese vive en Financiero y suma TODO gasto + la
+      //    financiadora). Van con nombres distintos a propósito: dos números distintos con el
+      //    mismo nombre es cómo dos pantallas del mismo sistema se desmienten.
+      costoTonDir:(x.viajes>0&&_tonsPorViaje()>0)?costoOp/(x.viajes*_tonsPorViaje()):0,
       lViaje:x.viajes>0?litros/x.viajes:0,utilPorViaje:x.viajes>0?utilidad/x.viajes:0};
   }).sort(function(a,b){return b.utilidad-a.utilidad;});
   // INTELIGENCIA: costo operativo por viaje vs PROMEDIO de la flota. Si un camión supera el promedio
@@ -30750,7 +31066,10 @@ function calcRentabilidadCamiones(des,hta){
     r.sobreCosto=(avgCV>0&&r.viajes>0&&r.costoViaje>avgCV*1.15);
   });
   var tot=rows.reduce(function(s,r){return{ingreso:s.ingreso+r.ingreso,combustible:s.combustible+r.combustible,nomina:s.nomina+r.nomina,utilidad:s.utilidad+r.utilidad,viajes:s.viajes+r.viajes,pendN:s.pendN+(r.combPendN||0),pendL:s.pendL+(r.combPendL||0)};},{ingreso:0,combustible:0,nomina:0,utilidad:0,viajes:0,pendN:0,pendL:0});
-  return {rows:rows,total:tot,avgCostoViaje:avgCV};
+  tot.tons=tot.viajes*_tonsPorViaje();
+  tot.costoTonDir=tot.tons>0?((tot.combustible+tot.nomina)/tot.tons):0;
+  tot.ingresoTon=tot.tons>0?(tot.ingreso/tot.tons):0;
+  return {rows:rows,total:tot,avgCostoViaje:avgCV,tonsPorViaje:_tonsPorViaje()};
 }
 
 // ── #6 DISPONIBILIDAD DE FLOTA vs CONTRATO ──────────────────────────────────
@@ -30976,6 +31295,7 @@ function renderRentabilidad(){
     '<div class="stat" style="border-top-color:var(--green2)"><div class="stat-lbl">Ingreso (facturado)</div><div class="stat-val" style="font-size:16px;color:var(--green2)">'+$m(R.total.ingreso)+'</div><div class="stat-sub">'+R.total.viajes+' viajes</div></div>'+
     '<div class="stat y"><div class="stat-lbl">Costos directos (comb.+nómina)</div><div class="stat-val" style="font-size:16px;color:var(--yellow)">'+$m(R.total.combustible+R.total.nomina)+'</div><div class="stat-sub">⛽ '+$m(R.total.combustible)+' · 👷 '+$m(R.total.nomina)+'</div></div>'+
     '<div class="stat b"><div class="stat-lbl">Utilidad operativa</div><div class="stat-val" style="font-size:16px;color:var(--blue)">'+$m(R.total.utilidad)+'</div><div class="stat-sub">ingreso − comb − nómina</div></div>'+
+    '<div class="stat y"><div class="stat-lbl">Costo DIRECTO por tonelada</div><div class="stat-val" style="font-size:16px;color:var(--yellow)">'+(R.total.tons>0?('$'+(Math.round(R.total.costoTonDir*100)/100).toLocaleString('es-VE',{minimumFractionDigits:2})):'—')+'</div><div class="stat-sub">'+Math.round(R.total.tons).toLocaleString('es-VE')+' t = '+R.total.viajes+' × '+R.tonsPorViaje+' t · solo comb.+nómina</div></div>'+
     '<div class="stat"><div class="stat-lbl">Margen operativo</div><div class="stat-val" style="font-size:16px;color:'+(margenTot>=0?'var(--green2)':'var(--red)')+'">'+margenTot+'%</div><div class="stat-sub">operativa/ingreso</div></div>'+
     _recon+_pendWarn;
   var tb=g('rent-tabla');
@@ -30990,8 +31310,9 @@ function renderRentabilidad(){
       '<td style="font-family:var(--m);font-weight:700;color:'+col+'">'+$m(r.utilidad)+'</td>'+
       '<td style="font-family:var(--m);color:'+col+'">'+Math.round(r.margen)+'%</td>'+
       '<td style="font-family:var(--m)">'+(r.lViaje?r.lViaje.toFixed(1)+' L':'—')+'</td>'+
-      '<td style="font-family:var(--m)">'+$m(r.utilPorViaje)+'</td></tr>';
-  }).join('')||'<tr><td colspan="10" style="text-align:center;color:var(--text3);padding:14px">Sin datos en el período</td></tr>';
+      '<td style="font-family:var(--m)">'+$m(r.utilPorViaje)+'</td>'+
+      '<td style="font-family:var(--m);color:var(--yellow)">'+(r.tons>0?('$'+(Math.round(r.costoTonDir*100)/100).toFixed(2)):'—')+'</td></tr>';
+  }).join('')||'<tr><td colspan="11" style="text-align:center;color:var(--text3);padding:14px">Sin datos en el período</td></tr>';
   renderRentChart(R.rows);
 }
 
