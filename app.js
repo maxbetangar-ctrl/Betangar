@@ -8154,7 +8154,10 @@ async function guardarImportacionEnDB(resultado){
       // factura ya existia, Postgres rechazaba el LOTE ENTERO en silencio y los abonos
       // nuevos legitimos NO se guardaban. Con upsert, lo existente se actualiza y lo nuevo
       // entra; nunca se duplica (lo garantiza UNIQUE) ni se pierde el lote.
-      try{var ra=await supabase.from('abonos').upsert(abRows,{onConflict:'fact'});if(ra&&ra.error)fallos.push('abonos: '+ra.error.message);}
+      // ⛔ LA LLAVE ES (fact, ref), NO `fact`: una factura puede recibir VARIOS pagos
+      //    (20/10/2026). Dejarlo en `fact` falla —esa restricción ya no existe— y pasarlo a
+      //    INSERT a secas haría que volver a correr este importador DUPLIQUE todos los abonos.
+      try{var ra=await supabase.from('abonos').upsert(abRows,{onConflict:'fact,ref'});if(ra&&ra.error)fallos.push('abonos: '+ra.error.message);}
       catch(e){fallos.push('abonos (red): '+(e&&e.message||e));}
     }
 
@@ -8775,14 +8778,35 @@ async function guardarAbono(){
   // La FACTURA es la identidad del abono (NO la fecha). Exigirla evita que el mismo pago
   // entre dos veces con fechas distintas.
   if(!ab.fact){alert('Escribe el numero de factura.\n\nLa factura es la que identifica el abono (no la fecha), para que el mismo pago no se duplique.');return;}
-  // Si ya existe esa factura, NO duplicar: ofrecer actualizarla con los datos nuevos,
-  // aunque la fecha registrada sea distinta a la que se introduce ahora.
-  var idx=ABONOS.findIndex(function(a){return String(a.fact)===String(ab.fact);});
-  if(idx>=0){
-    var ex=ABONOS[idx];
-    if(!confirm('Ya existe un abono con la factura '+ab.fact+'\n(monto $'+ex.m+', fecha '+formatFecha(ex.f)+').\n\nNO se va a duplicar. ¿Actualizar ese abono con los datos nuevos?')) return;
-    ABONOS[idx]=ab;
+  // ⛔ UNA FACTURA PUEDE RECIBIR VARIOS PAGOS. Hasta el 20/10/2026 la tabla tenía UNIQUE(fact)
+  //    y acá se preguntaba «¿actualizar ese abono?»: el segundo pago PISABA al primero en vez de
+  //    sumarse. Por eso las facturas 000646 y 000647 figuraban con la mitad cobrada — la Alcaldía
+  //    paga en partes y el sistema no lo admitía. Ahora lo que identifica un pago es (factura +
+  //    REFERENCIA), así que dos pagos distintos conviven y el MISMO pago sigue sin duplicarse.
+  //    [[norma-un-pago-cubre-varias-facturas]]
+  var _mismos=ABONOS.filter(function(a){return String(a.fact)===String(ab.fact);});
+  var _mismoPago=_mismos.filter(function(a){return String(a.ref||'')===String(ab.ref||'');});
+  if(_mismoPago.length){
+    // Misma factura Y misma referencia: es el MISMO pago, se corrige.
+    var ex=_mismoPago[0];
+    if(!confirm('Ya está registrado ESE MISMO pago de la factura '+ab.fact+'\n'+
+      '(monto $'+ex.m+', fecha '+formatFecha(ex.f)+', referencia '+(ex.ref||'sin referencia')+').\n\n'+
+      '¿Corregirlo con los datos nuevos?')) return;
+    ABONOS[ABONOS.indexOf(ex)]=ab;
   } else {
+    // ⛔ Y SI YA HAY OTROS PAGOS DE ESA FACTURA, SE DICE CUÁNTO LLEVA. El que carga tiene que
+    //    saber que esto SUMA y no reemplaza, o va a creer que corrigió algo y habrá cobrado dos
+    //    veces en el sistema. [[norma-un-mensaje-negativo-debe-decir-cual-causa]]
+    if(_mismos.length){
+      var _ya=_mismos.reduce(function(t,a){return t+(parseFloat(a.m)||0);},0);
+      if(!ab.ref){
+        alert('La factura '+ab.fact+' ya tiene '+_mismos.length+' pago(s) por $'+_ya.toLocaleString('es-VE',{minimumFractionDigits:2})+'.\n\n'+
+          'Para registrar OTRO pago de la misma factura hace falta la REFERENCIA bancaria: es lo que distingue un pago del otro.');
+        return;
+      }
+      if(!confirm('La factura '+ab.fact+' ya tiene '+_mismos.length+' pago(s) por $'+_ya.toLocaleString('es-VE',{minimumFractionDigits:2})+'.\n\n'+
+        'Este se SUMA (no reemplaza): quedaría en $'+(_ya+(parseFloat(ab.m)||0)).toLocaleString('es-VE',{minimumFractionDigits:2})+'.\n\n¿Seguir?')) return;
+    }
     ABONOS.push(ab);
   }
   // A3 (auditoría 2026-07-04): NO dar por registrado si no se guardó. Si el upsert falla (RLS/red),
@@ -8790,7 +8814,10 @@ async function guardarAbono(){
   // socios "registrado"). Con la cola, se sube apenas vuelva la conexión → el aviso es cierto.
   var _abOk=false;
   if(DB_READY&&supabase){
-    var rUp=await supabase.from('abonos').upsert({f:ab.f,fact:ab.fact,v:ab.v,m:ab.m,obs:ab.obs,ref:ab.ref},{onConflict:'fact'});
+    // ⛔ (fact, ref), no `fact`: dos pagos de la MISMA factura son dos abonos distintos y se
+    //    distinguen por su referencia bancaria. Con `fact` a secas, el segundo pago PISABA al
+    //    primero en vez de sumarse — así se perdieron los segundos pagos de 000646 y 000647.
+    var rUp=await supabase.from('abonos').upsert({f:ab.f,fact:ab.fact,v:ab.v,m:ab.m,obs:ab.obs,ref:ab.ref},{onConflict:'fact,ref'});
     if(rUp&&rUp.error){ if(typeof mostrarToast==='function')mostrarToast('No se pudo guardar en la nube; quedó en cola: '+rUp.error.message,'error'); }
     else _abOk=true;
   }
@@ -21242,7 +21269,9 @@ async function guardarPagoAlcaldia(){
   // grande) se perdía al recargar pese al "✅ Pago registrado". Ahora se ESPERA y se ENCOLA si falla.
   var _abOk=false;
   if(DB_READY&&supabase){
-    var _rAb=await supabase.from('abonos').upsert(abAlc,{onConflict:'fact'});
+    // ⛔ (fact, ref): ver el comentario de `guardarAbono`. Este importador también tenía
+    //    `fact` y por lo tanto pisaba el pago anterior de una factura ya cobrada en partes.
+    var _rAb=await supabase.from('abonos').upsert(abAlc,{onConflict:'fact,ref'});
     if(_rAb&&_rAb.error){ if(typeof mostrarToast==='function')mostrarToast('Abono Alcaldía no subió; quedó en cola: '+_rAb.error.message,'error'); }
     else _abOk=true;
   }
