@@ -3168,6 +3168,14 @@ async function _infCargar(d,h){
     if(r.error)console.error(pares[i][1],r.error.message);
   }
   var rd=await supabase.rpc('btg_donde_estan_los_dolares'); out.dolares=rd.error?[]:(rd.data||[]);
+  // ⛔ EL COSTO POR TONELADA ABRE EL INFORME. Máximo, 20/10/2026: «sigo sin saber dónde me da
+  //    ese costo en el software, debería aparecer en el informe» — y tenía razón desde antes:
+  //    la norma de la casa dice que el costo por unidad es el número que ABRE el informe
+  //    financiero, no una fila al final. Estaba en dos pantallas y en ninguna de las dos lo
+  //    buscaba. [[norma-costo-por-unidad-es-el-numero-principal]]
+  // Se calcula con el gasto que esta misma función ya trajo para ESTE rango: no se vuelve a
+  // preguntar nada ni se recalcula, así que no puede diferir del resto del informe.
+  out.ton=await _infCostoTonelada(d,h,out.res);
   var re=await supabase.rpc('btg_utilidad_real_y_estimada',{p_desde:d,p_hasta:h});
   out.est=re.error?null:((Array.isArray(re.data)?re.data[0]:re.data)||null);
   // ── EL MES A MES ENGAÑA, Y HAY QUE MOSTRARLO ACUMULADO ────────────────────────────────────
@@ -3217,6 +3225,54 @@ async function renderInforme(){
       : '<div class="card" style="color:var(--red)">No se pudo armar el informe: '+relEsc(e.message||e)+'</div>';
   }
 }
+// El costo por tonelada del informe. Mismo gasto que el resto del informe (el que ya trajo
+// `btg_resumen_socio` para este rango) más la cuota de la financiadora, entre las toneladas de
+// los MISMOS días. Devuelve null si no se puede, y entonces el informe lo DICE en vez de callarlo.
+async function _infCostoTonelada(d,h,res){
+  try{
+    if(typeof DEUDA_CUOTAS_ESTADO!=='undefined'&&DEUDA_CUOTAS_ESTADO==='no_cargado'){
+      try{ await cargarCuotasFinanciamiento(); }catch(e){}
+    }
+    var tpv=(typeof _tonsPorViaje==='function')?_tonsPorViaje():8;
+    var viajes=0, ingreso=0, primera='';
+    (typeof REGS!=='undefined'?REGS:[]).forEach(function(r){
+      if(typeof _esDeLaFlota==='function'&&!_esDeLaFlota(r.cam))return;
+      var f=String(r.f||''); if(!f)return;
+      if(d&&f<d)return; if(h&&f>h)return;
+      viajes+=parseInt(r.t)||0; ingreso+=parseFloat(r.m)||0;
+    });
+    // ⛔ Y LOS QUE QUEDAN AFUERA SE CUENTAN APARTE. Antes esto se calculaba dentro del bucle de
+    //    arriba, que ya descarta lo anterior al rango: «hay viajes antes del desde» era imposible
+    //    por construcción y el aviso NUNCA podía salir. Un aviso que no puede dispararse hace
+    //    creer que se comprobó algo. [[norma-una-asercion-mal-escrita-acusa-al-producto]]
+    var viajesAntes=0;
+    (typeof REGS!=='undefined'?REGS:[]).forEach(function(r){
+      if(typeof _esDeLaFlota==='function'&&!_esDeLaFlota(r.cam))return;
+      var f=String(r.f||''); if(!f||!d||f>=d)return;
+      viajesAntes+=parseInt(r.t)||0;
+      if(!primera||f<primera)primera=f;
+    });
+    var tons=viajes*tpv;
+    var fin=(typeof financiadoraDevengadaUsd==='function')?financiadoraDevengadaUsd(d,h)
+            :{usd:0,n:0,capital:0,interes:0,estado:'no_cargado',acreedores:[]};
+    var gasto=(Number(res&&res.gasto_usd)||0)+(Number(res&&res.cambiario_usd)||0);
+    var total=gasto+(fin.usd||0);
+    // ⛔ Sin toneladas no hay costo por tonelada. Un 0 acá sería el número más barato posible
+    //    justo cuando no se sabe nada.
+    if(!(tons>0))return {sinViajes:true,desde:d,hasta:h,tonsPorViaje:tpv};
+    var costoTon=Math.round(total/tons*100)/100;
+    var finTon=Math.round((fin.usd||0)/tons*100)/100;
+    var ingTon=Math.round(ingreso/tons*100)/100;
+    return {
+      viajes:viajes, tons:tons, tonsPorViaje:tpv, desde:d, hasta:h, primera:primera, viajesAntes:viajesAntes,
+      gasto:gasto, fin:fin, total:total,
+      costoTon:costoTon, finTon:finTon, sinFinTon:Math.round((costoTon-finTon)*100)/100,
+      ingresoTon:ingTon, margenTon:Math.round((ingTon-costoTon)*100)/100,
+      pesoFin:total>0?Math.round((fin.usd||0)/total*1000)/10:0
+    };
+  }catch(e){ console.error('_infCostoTonelada',e); return null; }
+}
+
 function _infHtml(D,desde,hasta,paraImprimir){
   var r=D.res||{}, P=paraImprimir;
   var card=function(t,c){ return P?('<div class="blk"><h2>'+t+'</h2>'+c+'</div>')
@@ -3230,6 +3286,73 @@ function _infHtml(D,desde,hasta,paraImprimir){
     '<div style="font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px">'+l+'</div>'+
     '<div style="font-size:18px;font-weight:900;font-family:var(--m);color:'+(c||'var(--text1)')+'">'+v+'</div>'+
     (s?'<div style="font-size:10px;color:var(--text3);margin-top:2px">'+s+'</div>':'')+'</div>'; };
+  // ── EL NÚMERO QUE ABRE EL INFORME ─────────────────────────────────────────────────────────
+  // El dueño no piensa en totales — el total lo tiene en el banco. Lo que no tiene es la
+  // DIVISIÓN. En esta empresa la unidad de costo es la TONELADA.
+  var T=D.ton;
+  if(T&&T.sinViajes){
+    html+=card('🏋️ Su costo por tonelada',
+      '<div style="font-size:13px;color:var(--text2)">No hay viajes cargados entre '+relEsc(formatFecha(T.desde))+' y '+relEsc(formatFecha(T.hasta))+
+      ', así que no hay toneladas entre las que dividir el gasto.</div>');
+  } else if(T){
+    var col=T.margenTon>=0?'#15803d':'#dc2626';
+    var n2f=function(x,dd){ return (Math.round(x*Math.pow(10,dd))/Math.pow(10,dd)).toLocaleString('es-VE',{minimumFractionDigits:dd,maximumFractionDigits:dd}); };
+    var fila=function(lbl,usd,porTon,nota){
+      return '<tr><td style="padding:3px 0">'+lbl+(nota?' <span style="color:var(--text3);font-size:10px">'+nota+'</span>':'')+'</td>'+
+        '<td style="text-align:right;font-family:var(--m)">'+_infUsd(usd)+'</td>'+
+        '<td style="text-align:right;font-family:var(--m)">$'+n2f(porTon,2)+'</td></tr>';
+    };
+    var avisos=[];
+    if(T.fin.estado!=='ok'&&T.fin.estado!=='sin_deudas')
+      avisos.push('⛔ La cuota de la financiadora NO está sumada ('+relEsc(T.fin.error||T.fin.estado)+'): este costo está por debajo del real.');
+    if(T.viajesAntes>0)
+      avisos.push(T.viajesAntes.toLocaleString('es-VE')+' viaje(s) anteriores al '+relEsc(formatFecha(T.desde))+
+        ' quedan afuera (el primero es del '+relEsc(formatFecha(T.primera))+'): el banco no tiene movimientos de esos días, '+
+        'así que contarlos abarataría el costo sin que nada lo respalde.');
+    avisos.push('Solo cuenta la plata que pasó por la cuenta del banco cargada: el efectivo y otra cuenta no están.');
+    html+=card('🏋️ Su costo por tonelada',
+      '<div style="display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px">'+
+        '<div><div style="font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px">Le cuesta mover una tonelada</div>'+
+          '<div style="font-size:30px;font-weight:900;font-family:var(--m);color:'+col+'">$'+n2f(T.costoTon,2)+'</div></div>'+
+        '<div style="font-size:20px;color:var(--text3);padding-bottom:10px">vs</div>'+
+        '<div><div style="font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px">Cobra</div>'+
+          '<div style="font-size:22px;font-weight:900;font-family:var(--m);color:#0f172a">$'+n2f(T.ingresoTon,2)+'</div></div>'+
+        '<div style="font-size:20px;color:var(--text3);padding-bottom:10px">=</div>'+
+        '<div><div style="font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px">Le queda</div>'+
+          '<div style="font-size:22px;font-weight:900;font-family:var(--m);color:'+col+'">$'+n2f(T.margenTon,2)+'</div></div>'+
+      '</div>'+
+      '<div style="font-size:11px;color:var(--text3);margin-bottom:8px">'+
+        Math.round(T.tons).toLocaleString('es-VE')+' toneladas = '+T.viajes.toLocaleString('es-VE')+
+        ' viajes × '+n2f(T.tonsPorViaje,0)+' t, del '+relEsc(formatFecha(T.desde))+' al '+relEsc(formatFecha(T.hasta))+'.</div>'+
+      tabla('<th>De dónde sale</th><th style="text-align:right">US$</th><th style="text-align:right">por tonelada</th>',
+        fila('Todo el gasto del período',T.gasto,T.costoTon-T.finTon,'(el mismo del cuadro de abajo, con la pérdida cambiaria)')+
+        fila('Cuota de la financiadora'+(T.fin.acreedores&&T.fin.acreedores.length?' — '+relEsc(T.fin.acreedores.join(', ')):''),
+             T.fin.usd,T.finTon,
+             T.fin.n?('('+T.fin.n+' cuota'+(T.fin.n>1?'s':'')+' que venci'+(T.fin.n>1?'eron':'ó')+' en el período, pagada'+(T.fin.n>1?'s':'')+' o no — entra COMPLETA: capital '+_infUsd(T.fin.capital)+' + interés '+_infUsd(T.fin.interes)+')'):'(ninguna en el período)')+
+        '<tr style="border-top:1px solid var(--border)"><td style="padding:6px 0;font-weight:800">= Costo total</td>'+
+        '<td style="text-align:right;font-family:var(--m);font-weight:900">'+_infUsd(T.total)+'</td>'+
+        '<td style="text-align:right;font-family:var(--m);font-weight:900;color:'+col+'">$'+n2f(T.costoTon,2)+'</td></tr>')+
+      (T.fin.usd>0?('<div style="font-size:11px;color:var(--text2);margin-top:8px">Sin la financiadora el costo sería <b>$'+n2f(T.sinFinTon,2)+'/t</b>: '+
+        '<b>los camiones le ponen $'+n2f(T.finTon,2)+'/t, el '+n2f(T.pesoFin,1)+'% del costo</b>.</div>'):'')+
+      // ⛔ LO QUE SE DEBE SE CUENTA EN EL COSTO Y ADEMÁS SE DICE. La cuota entra devengada
+      //    —si no, estar en mora abarataría el costo— pero esa plata TODAVÍA NO SALIÓ del banco,
+      //    y el dueño necesita las dos cosas: lo que le cuesta y lo que todavía debe de eso.
+      //    Máximo, 20/10/2026: «estamos caidos en 1 cuota y pico de los camiones».
+      ((T.fin.sinPagar>0&&T.tons>0)?('<div style="background:rgba(220,38,38,.08);border-left:3px solid #dc2626;border-radius:6px;padding:8px 10px;margin-top:8px;font-size:11px;color:var(--text2)">'+
+        '🔴 <b>De esas cuotas hay '+_infUsd(T.fin.sinPagar)+' SIN PAGAR</b> ('+
+        (T.fin.enteras?(T.fin.enteras+' cuota'+(T.fin.enteras>1?'s':'')+' entera'+(T.fin.enteras>1?'s':'')+
+          ((T.fin.nSinPagar>T.fin.enteras)?' y parte de otra':'')):'parte de una cuota')+
+        '). Ya están contadas en el costo de arriba — <b>$'+n2f(Math.round(T.fin.sinPagar/T.tons*100)/100,2)+' de cada tonelada</b> — '+
+        'pero esa plata todavía no salió del banco: la debe.</div>'):'')+
+      '<div style="font-size:10px;color:var(--text3);margin-top:8px;line-height:1.6;border-top:1px solid var(--border);padding-top:6px">'+
+        avisos.map(function(a){return '• '+a;}).join('<br>')+'</div>');
+  } else {
+    // ⛔ Que el bloque DESAPAREZCA sería peor: el dueño leería un informe sin su número
+    //    principal y sin saber que falta. [[norma-falta-de-dato-no-es-un-dato]]
+    html+=card('🏋️ Su costo por tonelada',
+      '<div style="font-size:13px;color:var(--text2)">No se pudo calcular. El resto del informe sigue siendo válido.</div>');
+  }
+
   html+=card('1 · El resultado del período',
     '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">'+
       kpi('Cobrado',_infUsd(r.cobrado_usd),'de la Alcaldía','#16a34a')+
@@ -6908,6 +7031,9 @@ async function cargarCuotasFinanciamiento(){
       (am.data||[]).forEach(function(f){
         filas.push({nro:f.nro, vencimiento:String(f.vencimiento||'').slice(0,10),
           cuota:parseFloat(f.cuota)||0, interes:parseFloat(f.interes)||0, capital:parseFloat(f.capital)||0,
+          // Lo ABONADO y lo que RESTA de cada cuota: con eso se puede decir cuanto de este costo
+          // todavia NO salio del banco. Sin esto solo se sabia cuanto se DEBIA devengar.
+          abonado:parseFloat(f.abono_aplicado)||0, resta:parseFloat(f.resta)||0,
           acreedor:acr});
       });
     }
@@ -6922,12 +7048,19 @@ async function cargarCuotasFinanciamiento(){
 function financiadoraDevengadaUsd(des,hta){
   var hoy=new Date().toISOString().slice(0,10);
   var d=(des||'').slice(0,10), h=(hta||'').slice(0,10)||hoy;
-  var r={usd:0,interes:0,capital:0,n:0,estado:DEUDA_CUOTAS_ESTADO,error:DEUDA_CUOTAS_ERROR,acreedores:[]};
+  var r={usd:0,interes:0,capital:0,n:0,sinPagar:0,nSinPagar:0,enteras:0,
+         estado:DEUDA_CUOTAS_ESTADO,error:DEUDA_CUOTAS_ERROR,acreedores:[]};
   (DEUDA_CUOTAS||[]).forEach(function(f){
     if(!f.vencimiento)return;
     if(d&&f.vencimiento<d)return;
     if(f.vencimiento>h)return;
     r.usd+=f.cuota; r.interes+=f.interes; r.capital+=f.capital; r.n++;
+    // ⛔ LO DEVENGADO Y LO PAGADO SON DOS NUMEROS DISTINTOS Y LOS DOS HACEN FALTA. El costo se
+    //    calcula con lo DEVENGADO —si no, estar en mora abarataria el costo—, pero el dueño
+    //    necesita saber cuanto de ese costo todavia NO salio del banco. Máximo, 20/10/2026:
+    //    «estamos caidos en 1 cuota y pico de los camiones».
+    var resta=(f.resta!=null)?f.resta:0;
+    if(resta>0.005){ r.sinPagar+=resta; r.nSinPagar++; if(resta>=f.cuota-0.005)r.enteras++; }
     if(f.acreedor&&r.acreedores.indexOf(f.acreedor)<0)r.acreedores.push(f.acreedor);
   });
   return r;
@@ -7181,6 +7314,13 @@ async function renderCostoTonelada(){
        'Sin la financiadora el costo sería <b style="font-family:var(--m)">$'+_ctFmt(R.costoTonSinFin,2)+'/t</b>: '+
        'los camiones le ponen <b style="font-family:var(--m);color:var(--purple)">$'+_ctFmt(R.finPorTon,2)+'/t</b> '+
        '('+Math.round((R.costoTotal>0?(fin.usd/R.costoTotal*100):0))+'% del costo).</div>';
+    // La mora, dicha aparte: está contada en el costo, pero todavía no salió del banco.
+    if(fin.sinPagar>0){
+      h+='<div style="background:rgba(220,38,38,.08);border-left:3px solid var(--red);border-radius:6px;padding:7px 10px;margin-top:6px;font-size:11px;color:var(--text2)">'+
+         '🔴 <b>$'+_ctFmt(fin.sinPagar,0)+' de esas cuotas están SIN PAGAR</b> ('+
+         (fin.enteras?(fin.enteras+' entera'+(fin.enteras>1?'s':'')+((fin.nSinPagar>fin.enteras)?' y parte de otra':'')):'parte de una')+
+         '). Ya cuentan en el costo — $'+_ctFmt(fin.sinPagar/R.tons,2)+'/t — pero esa plata todavía no salió del banco.</div>';
+    }
   }
   h+='</div>';
 
