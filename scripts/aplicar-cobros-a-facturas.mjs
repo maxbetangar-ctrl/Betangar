@@ -60,7 +60,14 @@ const BANCO = `select id, fecha, referencia,
   from bnc_movimientos
   where tipo='credito' and categoria='cobro_alcaldia'
     and fecha>='${DESDE}' and fecha<='${HASTA}' and not btg_es_espejo(id)`
-const YA = `select lpad(regexp_replace(regexp_replace(fact,'\\\\D','','g'),'^0+',''),6,'0') nro, sum(m) usd
+// ⛔ EL ESCAPE VA CON DOS BARRAS ACÁ, UNA EN EL SQL — y esto costó tres abonos duplicados.
+//    Estaba con CUATRO: el template literal de JS las deja en dos, y en SQL `'\\D'` busca un
+//    BACKSLASH LITERAL, no «no-dígito». Así, `M1005` se normalizaba a `0M1005` en vez de
+//    `001005` y NUNCA calzaba con el cobro del banco: el script concluyó que esas facturas no
+//    tenían abono, y sí lo tenían, con la serie «M». Se crearon 3 abonos que ya existían y
+//    hubo que borrarlos. Un escape de más NO da error: da un resultado distinto, y creíble.
+//    [[norma-control-positivo-antes-de-creerle-al-vacio]]
+const YA = `select lpad(regexp_replace(regexp_replace(fact,'\\D','','g'),'^0+',''),6,'0') nro, sum(m) usd
   from abonos where nullif(trim(fact),'') is not null group by 1`
 
 const aplicables = await q(`
