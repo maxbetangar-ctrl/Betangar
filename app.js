@@ -3176,6 +3176,13 @@ async function _infCargar(d,h){
   // Se calcula con el gasto que esta misma función ya trajo para ESTE rango: no se vuelve a
   // preguntar nada ni se recalcula, así que no puede diferir del resto del informe.
   out.ton=await _infCostoTonelada(d,h,out.res);
+  // ⛔ EL MISMO COBRO, DOS VECES. Buscando por qué el banco y los abonos no cuadraban apareció
+  //    algo peor que una carga pendiente: 7 cobros cargados A MANO que repiten un movimiento del
+  //    estado de cuenta (la referencia del manual está DENTRO de la del real, con un día de
+  //    diferencia). Son US$ 168.244 contados dos veces, y por eso el Cobrado y la UTILIDAD están
+  //    inflados. Un ingreso duplicado no se nota: deja la cifra creíble y más alta.
+  try{ var rdup=await supabase.rpc('btg_cobros_duplicados',{p_desde:d,p_hasta:h});
+       out.dup=rdup.error?null:(rdup.data||[]); }catch(e){ out.dup=null; }
   var re=await supabase.rpc('btg_utilidad_real_y_estimada',{p_desde:d,p_hasta:h});
   out.est=re.error?null:((Array.isArray(re.data)?re.data[0]:re.data)||null);
   // ── EL MES A MES ENGAÑA, Y HAY QUE MOSTRARLO ACUMULADO ────────────────────────────────────
@@ -3387,13 +3394,26 @@ function _infHtml(D,desde,hasta,paraImprimir){
     //    dices que van 600 y pico». Las dos cifras eran correctas, cada una midiendo otra cosa, y
     //    ninguna pantalla lo decía. Un número que el dueño no puede explicar no sirve.
     //    [[norma-numero-que-el-dueno-no-puede-explicar]]
+    // ⛔ EL MISMO COBRO ANOTADO DOS VECES INFLA LA UTILIDAD, Y HAY QUE DECIRLO ARRIBA DE TODO.
+    //    La primera versión de este aviso decía «faltan X por aplicar», y era FALSO: al emparejar
+    //    por número de factura, la mayor parte de esa diferencia no era carga pendiente sino
+    //    doble conteo. Se corrigió el mismo día, midiendo. [[norma-el-pendiente-viejo-se-verifica-contra-el-producto]]
+    ((D.dup&&D.dup.length)?
+      (function(){ var t=D.dup.reduce(function(x,y){return x+(Number(y.usd_a_mano)||0);},0);
+        return '<div style="background:rgba(220,38,38,.10);border-left:3px solid #dc2626;border-radius:6px;padding:9px 11px;margin-bottom:10px;font-size:11px;color:var(--text2)">'+
+        '🔴 <b>'+D.dup.length+' cobro(s) están anotados DOS veces: '+_infUsd(t)+'.</b> '+
+        'Son pagos cargados a mano que el estado de cuenta ya traía — la referencia del cargado a mano '+
+        'aparece dentro de la del movimiento del banco, con un día de diferencia. '+
+        '<b>Mientras no se resuelva, el Cobrado y la Utilidad de abajo están ALTOS en esa cifra</b> '+
+        '(serían '+_infUsd((Number(r.cobrado_usd)||0)-t)+' y '+_infUsd((Number(r.utilidad_usd)||0)-t)+'). '+
+        'El detalle, en Banco ▸ Conciliación.</div>'; })():'')+
+    // Y aparte, lo que entró y nadie aplicó contra una factura. Son dos cosas distintas.
     ((D.ton&&D.ton.abonos!=null&&(Number(r.cobrado_usd)||0)-D.ton.abonos>1)?
       ('<div style="background:rgba(217,119,6,.10);border-left:3px solid #d97706;border-radius:6px;padding:8px 10px;margin-bottom:10px;font-size:11px;color:var(--text2)">'+
-        '⚠️ <b>Entró '+_infUsd(r.cobrado_usd)+' y en el sistema hay '+_infUsd(D.ton.abonos)+' aplicados a facturas: '+
-        'faltan '+_infUsd((Number(r.cobrado_usd)||0)-D.ton.abonos)+' por aplicar.</b> '+
-        'Arriba manda el BANCO, que es donde la plata se movió de verdad. El otro número —el que se ve en '+
-        'Cobranza y en el tablero— es lo que administración alcanzó a registrar contra una factura, '+
-        'y va por debajo. No son dos verdades: es trabajo de carga pendiente.</div>'):'')+
+        '⚠️ <b>El banco trae '+_infUsd(r.cobrado_usd)+' y en el sistema hay '+_infUsd(D.ton.abonos)+' aplicados a facturas.</b> '+
+        'Parte de esa diferencia es el doble conteo de arriba; el resto son cobros que entraron y '+
+        'nadie registró contra una factura. Arriba manda el BANCO: ahí la plata se movió de verdad. '+
+        'El otro número —el de Cobranza y el tablero— es lo que administración alcanzó a cargar.</div>'):'')+
     '<div style="font-size:11px;color:var(--text3);line-height:1.7">'+
       'Cada movimiento convertido a la tasa de <b>su día</b>, nunca a un promedio. '+
       (Number(r.movs_sin_tasa)?('<b style="color:var(--amber)">⚠️ '+r.movs_sin_tasa+' movimiento(s) sin tasa: NO se convirtieron y quedan fuera de estos totales.</b>'):'')+

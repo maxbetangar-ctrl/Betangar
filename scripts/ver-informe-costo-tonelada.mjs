@@ -45,7 +45,7 @@ const RESUMEN = {
   cobrado_usd: 878250, otras_entradas_usd: 9797,
   operacion_usd: 288001, administracion_usd: 83782, obligaciones_usd: 46055, socio_usd: 66656,
   gasto_usd: 484494, cambiario_usd: 0,
-  utilidad_usd: -62390, margen_pct: -14.8, ahorro_divisas_usd: 181474,
+  utilidad_usd: 369867, margen_pct: -14.8, ahorro_divisas_usd: 181474,
   movs_sin_tasa: 0, divisas_sin_valuar: 0
 };
 const AMORT = [];
@@ -89,6 +89,17 @@ await page.route('**/rpc/btg_utilidad_real_y_estimada*', r => r.fulfill(js([])))
 // Lo MEDIDO el 20/10/2026 con `btg_operacion_periodo('2026-03-23','2026-10-20')`.
 // ⛔ Los viajes salen de la BASE: antes el bloque los sacaba de `REGS` (el array del
 //    navegador) y por eso decia «no hay viajes» en una pantalla que mostraba 3.185.
+// Los 7 duplicados MEDIDOS el 20/10/2026: cobros cargados a mano que el estado de cuenta
+// ya traia. La referencia del manual esta DENTRO de la del real.
+await page.route('**/rpc/btg_cobros_duplicados*', r => r.fulfill(js([
+  { id_a_mano:'m1', fecha_a_mano:'2026-08-11', usd_a_mano:42145, texto_a_mano:'Pago Alcaldia Fact.000639', ref_a_mano:'00378645', id_real:'r1', fecha_real:'2026-08-12', usd_real:38028, texto_real:'TRANSFERENCIA RECIBIDA' },
+  { id_a_mano:'m2', fecha_a_mano:'2026-08-20', usd_a_mano:32956, texto_a_mano:'Pago Alcaldia Fact.000640', ref_a_mano:'00381395', id_real:'r2', fecha_real:'2026-08-21', usd_real:29859, texto_real:'TRANSFERENCIA RECIBIDA' },
+  { id_a_mano:'m3', fecha_a_mano:'2026-09-11', usd_a_mano:25667, texto_a_mano:'Pago Alcaldia Fact.000643', ref_a_mano:'800388157', id_real:'r3', fecha_real:'2026-09-11', usd_real:23332, texto_real:'TRANSFERENCIA RECIBIDA' },
+  { id_a_mano:'m4', fecha_a_mano:'2026-09-14', usd_a_mano:17112, texto_a_mano:'Pago Alcaldia Fact.000644', ref_a_mano:'500388701', id_real:'r4', fecha_real:'2026-09-15', usd_real:15375, texto_real:'TRANSFERENCIA RECIBIDA' },
+  { id_a_mano:'m5', fecha_a_mano:'2026-09-04', usd_a_mano:17112, texto_a_mano:'Pago Alcaldia Fact.000641', ref_a_mano:'153447185', id_real:'r5', fecha_real:'2026-09-04', usd_real:15554, texto_real:'TRANSFERENCIA RECIBIDA' },
+  { id_a_mano:'m6', fecha_a_mano:'2026-09-07', usd_a_mano:17112, texto_a_mano:'Pago Alcaldia Fact.000642', ref_a_mano:'100386544', id_real:'r6', fecha_real:'2026-09-08', usd_real:15536, texto_real:'TRANSFERENCIA RECIBIDA' },
+  { id_a_mano:'m7', fecha_a_mano:'2026-09-18', usd_a_mano:16142, texto_a_mano:'Pago Alcaldia Fact.000645', ref_a_mano:'162618186', id_real:'r7', fecha_real:'2026-09-18', usd_real:14000, texto_real:'TRANSFERENCIA RECIBIDA' }
+])));
 await page.route('**/rpc/btg_operacion_periodo*', r => r.fulfill(js(MODO.viajes ? [{
   viajes: 4957, facturado_usd: 1559972.24, planillas: 1993, primera: '2026-03-04',
   viajes_antes: 203, abonos_usd: 612578.84, abonos_n: 27
@@ -152,15 +163,27 @@ linea(/1 cuota entera y parte de otra/.test(V.texto), 'y lo descompone como lo d
 linea(/Ya están contadas en el costo/.test(V.texto), 'aclara que YA estan contadas en el costo de arriba');
 linea(/\$1,07 de cada tonelada/.test(V.texto), 'y cuanto pesa por tonelada (42.417,77 / 39.656 = $1,07)');
 
+console.log('\n── 2d · EL MISMO COBRO DOS VECES: inflaba la utilidad ──');
+linea(/7 cobro\(s\) están anotados DOS veces/.test(V.texto), 'dice cuantos y que estan dos veces');
+linea(/\$168\.24[0-9]/.test(V.texto), 'con la cifra duplicada → ' + (V.texto.match(/DOS veces: \$[\d.]+/) || [''])[0]);
+linea(/Cobrado y la Utilidad de abajo están ALTOS/.test(V.texto), 'y que por eso el Cobrado y la Utilidad estan ALTOS');
+linea(/\$710\.00[0-9]/.test(V.texto) && /\$201\.62[0-9]/.test(V.texto), 'con lo que serian sin el doble conteo (710.006 y 201.623)');
+// ⛔ Y la nota vieja ya NO puede decir «faltan X por aplicar»: era falso.
+linea(!/faltan \$[\d.]+ por aplicar/.test(V.texto), 'y YA NO afirma «faltan X por aplicar», que era falso');
+
 console.log('\n── 2c · DOS FUENTES para «lo cobrado», y se dice cual manda ─');
 // ⛔ Máximo, 20/10/2026: «cobrados van 800 y pico afuera y en los calculos 600 y pico». Las dos
 //    cifras eran correctas midiendo cosas distintas (el banco vs los abonos aplicados) y ninguna
 //    pantalla lo decia. [[norma-numero-que-el-dueno-no-puede-explicar]]
-linea(/Entró \$878\.250 y en el sistema hay \$612\.579 aplicados/.test(V.texto),
-  'dice las dos cifras juntas → ' + (V.texto.match(/Entró \$[\d.]+ y en el sistema hay \$[\d.]+/) || [''])[0]);
-linea(/faltan \$265\.67[01] por aplicar/.test(V.texto), 'y cuanto falta aplicar → ' + (V.texto.match(/faltan \$[\d.]+ por aplicar/) || [''])[0]);
+linea(/El banco trae \$878\.250 y en el sistema hay \$612\.579 aplicados/.test(V.texto),
+  'dice las dos cifras juntas → ' + (V.texto.match(/El banco trae \$[\d.]+ y en el sistema hay \$[\d.]+/) || [''])[0]);
+// ⛔ Ya NO dice «faltan X por aplicar»: al medir, la mayor parte de esa diferencia era el
+//    doble conteo, no carga pendiente. Afirmar de mas es el defecto que se corrigio.
+linea(/Parte de esa diferencia es el doble conteo de arriba/.test(V.texto),
+  'y NO atribuye toda la diferencia a carga pendiente: nombra el doble conteo');
 linea(/manda el BANCO/.test(V.texto), 'y cual de las dos manda');
-linea(/trabajo de carga pendiente/.test(V.texto), 'sin acusar al producto: es carga pendiente, no dos verdades');
+linea(/nadie registró contra una factura/.test(V.texto) || /nadie registró contra una factura/.test(V.texto),
+  'y dice que el resto si son cobros sin registrar');
 
 console.log('\n── 3 · los tres números de la cabecera CIERRAN ─────────────');
 const tres = await page.evaluate(() => {
