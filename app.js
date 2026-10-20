@@ -3398,15 +3398,17 @@ function _infHtml(D,desde,hasta,paraImprimir){
     //    La primera versión de este aviso decía «faltan X por aplicar», y era FALSO: al emparejar
     //    por número de factura, la mayor parte de esa diferencia no era carga pendiente sino
     //    doble conteo. Se corrigió el mismo día, midiendo. [[norma-el-pendiente-viejo-se-verifica-contra-el-producto]]
+    // ⛔ Y CUANDO EL DEFECTO SE ARREGLA, EL AVISO TIENE QUE CAMBIAR CON ÉL. Este cartel decía
+    //    «el Cobrado y la Utilidad están ALTOS»; desde que `btg_es_espejo()` los descuenta en la
+    //    base, eso ya NO es cierto y dejarlo sería la misma mentira al revés. Ahora informa que
+    //    se detectaron y que YA no cuentan. [[norma-una-asercion-mal-escrita-acusa-al-producto]]
     ((D.dup&&D.dup.length)?
       (function(){ var t=D.dup.reduce(function(x,y){return x+(Number(y.usd_a_mano)||0);},0);
-        return '<div style="background:rgba(220,38,38,.10);border-left:3px solid #dc2626;border-radius:6px;padding:9px 11px;margin-bottom:10px;font-size:11px;color:var(--text2)">'+
-        '🔴 <b>'+D.dup.length+' cobro(s) están anotados DOS veces: '+_infUsd(t)+'.</b> '+
-        'Son pagos cargados a mano que el estado de cuenta ya traía — la referencia del cargado a mano '+
-        'aparece dentro de la del movimiento del banco, con un día de diferencia. '+
-        '<b>Mientras no se resuelva, el Cobrado y la Utilidad de abajo están ALTOS en esa cifra</b> '+
-        '(serían '+_infUsd((Number(r.cobrado_usd)||0)-t)+' y '+_infUsd((Number(r.utilidad_usd)||0)-t)+'). '+
-        'El detalle, en Banco ▸ Conciliación.</div>'; })():'')+
+        return '<div style="background:rgba(100,116,139,.12);border-left:3px solid #64748b;border-radius:6px;padding:9px 11px;margin-bottom:10px;font-size:11px;color:var(--text2)">'+
+        '✓ <b>'+D.dup.length+' cobro(s) estaban anotados dos veces ('+_infUsd(t)+') y ya NO se cuentan.</b> '+
+        'Son los que la app fabrica al registrar un abono y que el estado de cuenta después trae igual; '+
+        'se reconocen porque la referencia del primero aparece dentro de la del movimiento del banco. '+
+        'Las cifras de abajo ya salen sin ellos. El detalle, en Banco ▸ Conciliación.</div>'; })():'')+
     // Y aparte, lo que entró y nadie aplicó contra una factura. Son dos cosas distintas.
     ((D.ton&&D.ton.abonos!=null&&(Number(r.cobrado_usd)||0)-D.ton.abonos>1)?
       ('<div style="background:rgba(217,119,6,.10);border-left:3px solid #d97706;border-radius:6px;padding:8px 10px;margin-bottom:10px;font-size:11px;color:var(--text2)">'+
@@ -8809,7 +8811,17 @@ async function guardarAbono(){
   // `getTasaFecha` ya existía y hace lo correcto: busca la del día y, si cae fin de semana o
   // feriado, la del último día hábil. Solo faltaba usarla. Ver [tasa-del-dia-que-no-existe].
   var _tasaAb = (typeof getTasaFecha==='function' && getTasaFecha(ab.f,'dolar')) || TASAS.bcvDolar || cfg.tasa;
-  bncMovPush({id:Date.now()+'',fecha:ab.f,monto:ab.m*_tasaAb,tipo:'credito',desc:'Pago Alcaldia Fact.'+ab.fact,ref:ab.ref,conciliado:true});
+  // ⛔ ESTE MOVIMIENTO ES UN ESPEJO, Y SE DECLARA COMO TAL. Existe para que el ingreso se vea
+  //    ANTES de que llegue el estado de cuenta; cuando el banco trae el mismo cobro, el de acá
+  //    sobra. Hasta el 20/10/2026 nadie lo retiraba y la plata quedaba contada DOS veces: eran
+  //    7 movimientos por US$ 168.244, y por eso la utilidad del informe salía alta.
+  //    Ahora `btg_es_espejo()` lo reconoce en la base —por la REFERENCIA, que es el dato que
+  //    identifica— y el informe deja de sumarlo solo cuando el gemelo real ya llegó.
+  //    El `detalle` lo deja escrito para que no haya que deducirlo de lo que FALTA.
+  //    [[norma-arreglar-el-mecanismo-no-el-caso]]
+  bncMovPush({id:Date.now()+'',fecha:ab.f,monto:ab.m*_tasaAb,tipo:'credito',desc:'Pago Alcaldia Fact.'+ab.fact,ref:ab.ref,conciliado:true,
+    detalle:{origen:'abono', factura:ab.fact||'', provisional:true,
+             nota:'Lo fabricó el registro del abono. Cuando el estado de cuenta traiga este mismo cobro, deja de contar solo.'}});
   // Aviso: socios (Máximo, Francisco) + Jonaz y Alejandro Castillo (socios que quieren TODO ingreso).
   // El rol admin quedó vacante el 06/08/2026; los socios reciben todo igual.
   var _msgAbono='Abono registrado\n'+

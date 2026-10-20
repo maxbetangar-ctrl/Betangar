@@ -42,10 +42,10 @@ if (!jsLocal.includes('function _infCostoTonelada')) {
 // Lo MEDIDO en la base el 19/10/2026, para que el informe se vea con cifras reales.
 // El rango por defecto del informe es 23/03 → hoy, que es justo cuando arranca el banco.
 const RESUMEN = {
-  cobrado_usd: 878250, otras_entradas_usd: 9797,
+  cobrado_usd: 710007, otras_entradas_usd: 9797,
   operacion_usd: 288001, administracion_usd: 83782, obligaciones_usd: 46055, socio_usd: 66656,
   gasto_usd: 484494, cambiario_usd: 0,
-  utilidad_usd: 369867, margen_pct: -14.8, ahorro_divisas_usd: 181474,
+  utilidad_usd: 201623, margen_pct: -14.8, ahorro_divisas_usd: 181474,
   movs_sin_tasa: 0, divisas_sin_valuar: 0
 };
 const AMORT = [];
@@ -164,10 +164,13 @@ linea(/Ya están contadas en el costo/.test(V.texto), 'aclara que YA estan conta
 linea(/\$1,07 de cada tonelada/.test(V.texto), 'y cuanto pesa por tonelada (42.417,77 / 39.656 = $1,07)');
 
 console.log('\n── 2d · EL MISMO COBRO DOS VECES: inflaba la utilidad ──');
-linea(/7 cobro\(s\) están anotados DOS veces/.test(V.texto), 'dice cuantos y que estan dos veces');
-linea(/\$168\.24[0-9]/.test(V.texto), 'con la cifra duplicada → ' + (V.texto.match(/DOS veces: \$[\d.]+/) || [''])[0]);
-linea(/Cobrado y la Utilidad de abajo están ALTOS/.test(V.texto), 'y que por eso el Cobrado y la Utilidad estan ALTOS');
-linea(/\$710\.00[0-9]/.test(V.texto) && /\$201\.62[0-9]/.test(V.texto), 'con lo que serian sin el doble conteo (710.006 y 201.623)');
+linea(/7 cobro\(s\) estaban anotados dos veces/.test(V.texto), 'dice cuantos estaban dos veces');
+linea(/\$168\.24[0-9]/.test(V.texto), 'con la cifra → ' + (V.texto.match(/dos veces \(\$[\d.]+\)/) || [''])[0]);
+// ⛔ El cartel decia «el Cobrado y la Utilidad estan ALTOS». Desde que la base los descuenta
+//    sola, eso ya NO es cierto: dejarlo seria la misma mentira al reves.
+linea(/ya NO se cuentan/.test(V.texto), 'y que YA no se cuentan');
+linea(!/están ALTOS/.test(V.texto), 'y NO sigue diciendo que las cifras estan infladas');
+linea(/\$710\.007/.test(V.texto), 'el Cobrado ya sale limpio → 710.007');
 // ⛔ Y la nota vieja ya NO puede decir «faltan X por aplicar»: era falso.
 linea(!/faltan \$[\d.]+ por aplicar/.test(V.texto), 'y YA NO afirma «faltan X por aplicar», que era falso');
 
@@ -175,7 +178,7 @@ console.log('\n── 2c · DOS FUENTES para «lo cobrado», y se dice cual mand
 // ⛔ Máximo, 20/10/2026: «cobrados van 800 y pico afuera y en los calculos 600 y pico». Las dos
 //    cifras eran correctas midiendo cosas distintas (el banco vs los abonos aplicados) y ninguna
 //    pantalla lo decia. [[norma-numero-que-el-dueno-no-puede-explicar]]
-linea(/El banco trae \$878\.250 y en el sistema hay \$612\.579 aplicados/.test(V.texto),
+linea(/El banco trae \$710\.007 y en el sistema hay \$612\.579 aplicados/.test(V.texto),
   'dice las dos cifras juntas → ' + (V.texto.match(/El banco trae \$[\d.]+ y en el sistema hay \$[\d.]+/) || [''])[0]);
 // ⛔ Ya NO dice «faltan X por aplicar»: al medir, la mayor parte de esa diferencia era el
 //    doble conteo, no carga pendiente. Afirmar de mas es el defecto que se corrigio.
