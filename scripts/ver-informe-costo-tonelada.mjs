@@ -42,7 +42,7 @@ if (!jsLocal.includes('function _infCostoTonelada')) {
 // Lo MEDIDO en la base el 19/10/2026, para que el informe se vea con cifras reales.
 // El rango por defecto del informe es 23/03 → hoy, que es justo cuando arranca el banco.
 const RESUMEN = {
-  cobrado_usd: 412307, otras_entradas_usd: 9797,
+  cobrado_usd: 878250, otras_entradas_usd: 9797,
   operacion_usd: 288001, administracion_usd: 83782, obligaciones_usd: 46055, socio_usd: 66656,
   gasto_usd: 484494, cambiario_usd: 0,
   utilidad_usd: -62390, margen_pct: -14.8, ahorro_divisas_usd: 181474,
@@ -86,6 +86,13 @@ await page.route('**/rpc/btg_donde_se_fue*', r => r.fulfill(js([
 await page.route('**/rpc/btg_donde_esta_utilidad*', r => r.fulfill(js([])));
 await page.route('**/rpc/btg_donde_estan_los_dolares*', r => r.fulfill(js([])));
 await page.route('**/rpc/btg_utilidad_real_y_estimada*', r => r.fulfill(js([])));
+// Lo MEDIDO el 20/10/2026 con `btg_operacion_periodo('2026-03-23','2026-10-20')`.
+// ⛔ Los viajes salen de la BASE: antes el bloque los sacaba de `REGS` (el array del
+//    navegador) y por eso decia «no hay viajes» en una pantalla que mostraba 3.185.
+await page.route('**/rpc/btg_operacion_periodo*', r => r.fulfill(js(MODO.viajes ? [{
+  viajes: 4957, facturado_usd: 1559972.24, planillas: 1993, primera: '2026-03-04',
+  viajes_antes: 203, abonos_usd: 612578.84, abonos_n: 27
+}] : [{ viajes: 0, facturado_usd: 0, planillas: 0, primera: null, viajes_antes: 0, abonos_usd: 0, abonos_n: 0 }])));
 await page.route('**/rpc/deuda_puede_ver*', r => r.fulfill(js(MODO.deuda)));
 await page.route('**/rpc/deuda_amortizacion*', r => r.fulfill(js(AMORT)));
 await page.route('**/deuda_financiamientos*', r => r.fulfill(js([{ id: 1, acreedor: 'AUTO UNION DC', estado: 'vigente' }])));
@@ -144,6 +151,16 @@ linea(/\$42\.41[78] SIN PAGAR/.test(V.texto), 'dice cuanto hay sin pagar → ' +
 linea(/1 cuota entera y parte de otra/.test(V.texto), 'y lo descompone como lo dice el: 1 entera y parte de otra');
 linea(/Ya están contadas en el costo/.test(V.texto), 'aclara que YA estan contadas en el costo de arriba');
 linea(/\$1,07 de cada tonelada/.test(V.texto), 'y cuanto pesa por tonelada (42.417,77 / 39.656 = $1,07)');
+
+console.log('\n── 2c · DOS FUENTES para «lo cobrado», y se dice cual manda ─');
+// ⛔ Máximo, 20/10/2026: «cobrados van 800 y pico afuera y en los calculos 600 y pico». Las dos
+//    cifras eran correctas midiendo cosas distintas (el banco vs los abonos aplicados) y ninguna
+//    pantalla lo decia. [[norma-numero-que-el-dueno-no-puede-explicar]]
+linea(/Entró \$878\.250 y en el sistema hay \$612\.579 aplicados/.test(V.texto),
+  'dice las dos cifras juntas → ' + (V.texto.match(/Entró \$[\d.]+ y en el sistema hay \$[\d.]+/) || [''])[0]);
+linea(/faltan \$265\.67[01] por aplicar/.test(V.texto), 'y cuanto falta aplicar → ' + (V.texto.match(/faltan \$[\d.]+ por aplicar/) || [''])[0]);
+linea(/manda el BANCO/.test(V.texto), 'y cual de las dos manda');
+linea(/trabajo de carga pendiente/.test(V.texto), 'sin acusar al producto: es carga pendiente, no dos verdades');
 
 console.log('\n── 3 · los tres números de la cabecera CIERRAN ─────────────');
 const tres = await page.evaluate(() => {

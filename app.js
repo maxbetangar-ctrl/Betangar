@@ -3234,24 +3234,18 @@ async function _infCostoTonelada(d,h,res){
       try{ await cargarCuotasFinanciamiento(); }catch(e){}
     }
     var tpv=(typeof _tonsPorViaje==='function')?_tonsPorViaje():8;
-    var viajes=0, ingreso=0, primera='';
-    (typeof REGS!=='undefined'?REGS:[]).forEach(function(r){
-      if(typeof _esDeLaFlota==='function'&&!_esDeLaFlota(r.cam))return;
-      var f=String(r.f||''); if(!f)return;
-      if(d&&f<d)return; if(h&&f>h)return;
-      viajes+=parseInt(r.t)||0; ingreso+=parseFloat(r.m)||0;
-    });
-    // ⛔ Y LOS QUE QUEDAN AFUERA SE CUENTAN APARTE. Antes esto se calculaba dentro del bucle de
-    //    arriba, que ya descarta lo anterior al rango: «hay viajes antes del desde» era imposible
-    //    por construcción y el aviso NUNCA podía salir. Un aviso que no puede dispararse hace
-    //    creer que se comprobó algo. [[norma-una-asercion-mal-escrita-acusa-al-producto]]
-    var viajesAntes=0;
-    (typeof REGS!=='undefined'?REGS:[]).forEach(function(r){
-      if(typeof _esDeLaFlota==='function'&&!_esDeLaFlota(r.cam))return;
-      var f=String(r.f||''); if(!f||!d||f>=d)return;
-      viajesAntes+=parseInt(r.t)||0;
-      if(!primera||f<primera)primera=f;
-    });
+    // ⛔ LOS VIAJES SALEN DE LA BASE, NO DE `REGS`. Ese array es del NAVEGADOR y puede no estar
+    //    cargado cuando se abre el informe. Máximo lo vio el 20/10/2026: el bloque decía «no hay
+    //    viajes cargados entre 23/03 y 20/10» en una pantalla que dos renglones más abajo
+    //    mostraba 3.185 viajes, y en la base hay 4.957. Todo el informe sale de la base MENOS
+    //    este bloque, y por eso falló solo él. [[norma-fuente-unica-datos]]
+    var viajes=0, ingreso=0, primera='', viajesAntes=0, abonos=null, abonosN=0;
+    var ro=await supabase.rpc('btg_operacion_periodo',{p_desde:d,p_hasta:h});
+    if(ro.error)throw ro.error;
+    var o=(Array.isArray(ro.data)?ro.data[0]:ro.data)||{};
+    viajes=Number(o.viajes)||0; ingreso=Number(o.facturado_usd)||0;
+    primera=String(o.primera||'').slice(0,10); viajesAntes=Number(o.viajes_antes)||0;
+    abonos=Number(o.abonos_usd)||0; abonosN=Number(o.abonos_n)||0;
     var tons=viajes*tpv;
     var fin=(typeof financiadoraDevengadaUsd==='function')?financiadoraDevengadaUsd(d,h)
             :{usd:0,n:0,capital:0,interes:0,estado:'no_cargado',acreedores:[]};
@@ -3265,6 +3259,7 @@ async function _infCostoTonelada(d,h,res){
     var ingTon=Math.round(ingreso/tons*100)/100;
     return {
       viajes:viajes, tons:tons, tonsPorViaje:tpv, desde:d, hasta:h, primera:primera, viajesAntes:viajesAntes,
+      facturado:ingreso, abonos:abonos, abonosN:abonosN, cobradoBanco:Number(res&&res.cobrado_usd)||0,
       gasto:gasto, fin:fin, total:total,
       costoTon:costoTon, finTon:finTon, sinFinTon:Math.round((costoTon-finTon)*100)/100,
       ingresoTon:ingTon, margenTon:Math.round((ingTon-costoTon)*100)/100,
@@ -3355,7 +3350,7 @@ function _infHtml(D,desde,hasta,paraImprimir){
 
   html+=card('1 · El resultado del período',
     '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">'+
-      kpi('Cobrado',_infUsd(r.cobrado_usd),'de la Alcaldía','#16a34a')+
+      kpi('Cobrado',_infUsd(r.cobrado_usd),'del banco — lo que entró de verdad','#16a34a')+
       kpi('Gasto real',_infUsd(r.gasto_usd),'todo lo que salió','#dc2626')+
       kpi('Pérdida cambiaria',_infUsd(r.cambiario_usd),'bolívares + sobreprecio','#d97706')+
       kpi('UTILIDAD',_infUsd(util),'margen '+(r.margen_pct||0)+'%',util>=0?'#15803d':'#dc2626')+
@@ -3386,6 +3381,19 @@ function _infHtml(D,desde,hasta,paraImprimir){
         '<b>Los gastos de esos viajes ya están restados en la utilidad real</b>: se pagó la nómina, el combustible y el mantenimiento para hacerlos. Lo que falta es el cobro.<br>'+
         '⚠️ <b>La estimada no es una certeza.</b> '+relEsc(D.est.supuestos)+' Y en Venezuela no se factura hasta el momento del pago, así que no se sabe cuándo entra.'+
       '</div></div>'):'')+
+    // ⛔ DOS FUENTES PARA «LO COBRADO», Y LA PANTALLA TIENE QUE DECIRLO. El banco dice lo que
+    //    ENTRÓ; los abonos dicen lo que alguien alcanzó a APLICAR contra una factura. Máximo,
+    //    20/10/2026: «dice valores que no son: cobrados van 800 y pico afuera y en los cálculos
+    //    dices que van 600 y pico». Las dos cifras eran correctas, cada una midiendo otra cosa, y
+    //    ninguna pantalla lo decía. Un número que el dueño no puede explicar no sirve.
+    //    [[norma-numero-que-el-dueno-no-puede-explicar]]
+    ((D.ton&&D.ton.abonos!=null&&(Number(r.cobrado_usd)||0)-D.ton.abonos>1)?
+      ('<div style="background:rgba(217,119,6,.10);border-left:3px solid #d97706;border-radius:6px;padding:8px 10px;margin-bottom:10px;font-size:11px;color:var(--text2)">'+
+        '⚠️ <b>Entró '+_infUsd(r.cobrado_usd)+' y en el sistema hay '+_infUsd(D.ton.abonos)+' aplicados a facturas: '+
+        'faltan '+_infUsd((Number(r.cobrado_usd)||0)-D.ton.abonos)+' por aplicar.</b> '+
+        'Arriba manda el BANCO, que es donde la plata se movió de verdad. El otro número —el que se ve en '+
+        'Cobranza y en el tablero— es lo que administración alcanzó a registrar contra una factura, '+
+        'y va por debajo. No son dos verdades: es trabajo de carga pendiente.</div>'):'')+
     '<div style="font-size:11px;color:var(--text3);line-height:1.7">'+
       'Cada movimiento convertido a la tasa de <b>su día</b>, nunca a un promedio. '+
       (Number(r.movs_sin_tasa)?('<b style="color:var(--amber)">⚠️ '+r.movs_sin_tasa+' movimiento(s) sin tasa: NO se convirtieron y quedan fuera de estos totales.</b>'):'')+
