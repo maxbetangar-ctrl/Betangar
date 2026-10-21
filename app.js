@@ -7834,6 +7834,99 @@ function _fechaXL(v){
   var d=new Date(Date.UTC(+m[1],+m[2]-1,+m[3],12));
   return isNaN(d)?v:d;
 }
+// ═══ TONELADAS MES A MES — el reporte imprimible que pidieron los socios ════════════════════════
+// Máximo, 21/10/2026: «mis socios me están pidiendo cuántas toneladas se hicieron mes a mes desde
+// que empezamos» → y después: «que en algún lado del software exista un reporte de eso».
+//
+// ⛔ SALE DE LA BASE (`btg_viajes_por_mes`), NO DE `REGS`. Dos razones y cada una alcanza:
+//    Supabase devuelve ~1000 filas por consulta y `planillas` ya pasa las 2.000 —contar en el
+//    navegador es contar lo que alcanzó a llegar—, y el 20/10 el informe llegó a decir «no hay
+//    viajes cargados» dos renglones debajo de «3.185 viajes» justo por leer el array del
+//    navegador. [[norma-fuente-unica-datos]]
+//
+// ⛔ LA TONELADA SE DEDUCE Y ESO VA ESCRITO EN EL PAPEL. La base devuelve VIAJES; las toneladas
+//    son los viajes por la capacidad que declara la empresa (`_tonsPorViaje()`, Config ▸ General).
+//    Un socio que ve «41.280 toneladas» sin esa línea cree que alguien las pesó.
+//    [[norma-un-valor-derivado-depende-de-la-version-de-su-regla]]
+//
+// ⛔ SI LA BASE NO CONTESTA NO SE IMPRIME NADA. Un cuadro de toneladas a medias se firma igual que
+//    uno completo y nadie lo nota al mes siguiente. [[norma-falta-de-dato-no-es-un-dato]]
+function _mesCap(m){ return m?(m.charAt(0).toUpperCase()+m.slice(1)):''; }
+async function imprimirToneladasMes(){
+  if(DEMO_MODE){ alert('En modo demostración este reporte no sale: los números serían de mentira.'); return; }
+  if(!(DB_READY&&supabase)){ alert('No hay conexión con la base. Este reporte se cuenta en la base, no en lo que tenga cargado esta pantalla, así que sin conexión no se imprime un número a medias.'); return; }
+  var r;
+  try{ r=await supabase.rpc('btg_viajes_por_mes'); }
+  catch(e){ r={error:{message:(e&&e.message)||String(e)}}; }
+  if(r&&r.error){ alert('No se pudo leer los viajes por mes: '+(r.error.message||r.error)); return; }
+  var filas=(r&&r.data)||[];
+  if(!filas.length){ alert('No hay planillas cargadas todavía: el reporte sale de las planillas de viaje.'); return; }
+
+  var tpv=_tonsPorViaje();
+  var hoy=new Date().toISOString().slice(0,10);
+  var acum=0, totV=0, totP=0, totD=0, totM=0, mesAbierto=null;
+
+  var cuerpo=filas.map(function(x,i){
+    var v=Number(x.viajes)||0, tons=v*tpv, dias=Number(x.dias)||0;
+    acum+=tons; totV+=v; totP+=Number(x.planillas)||0; totD+=dias; totM+=Number(x.monto_usd)||0;
+    var mm=String(x.mes||'').split('-');
+    var nom=(_SEM_MESES[(parseInt(mm[1],10)||1)-1]||'').toUpperCase()+' '+(mm[0]||'');
+    // El mes en curso se marca EN LA FILA, no en una nota al pie: el que lo compare con el mes
+    // anterior mira el renglón, no el pie. Es «en curso» mientras le falten días por cargar.
+    var abierto=(i===filas.length-1)&&String(x.ultima||'')<hoy;
+    if(abierto)mesAbierto=x;
+    return '<tr>'+
+      '<td class="bv"><b>'+nom+'</b>'+(abierto?' <span class="bk-warn">EN CURSO</span>':'')+'</td>'+
+      '<td class="mono" style="font-size:10px">'+formatFecha(x.primera)+' → '+formatFecha(x.ultima)+'</td>'+
+      '<td class="mono" style="text-align:right">'+dias+'</td>'+
+      '<td class="mono" style="text-align:right">'+v.toLocaleString('es-VE')+'</td>'+
+      '<td class="gv" style="text-align:right;font-size:13px">'+tons.toLocaleString('es-VE')+'</td>'+
+      '<td class="mono" style="text-align:right">'+acum.toLocaleString('es-VE')+'</td>'+
+      '<td class="mono" style="text-align:right">'+(dias>0?(tons/dias).toLocaleString('es-VE',{maximumFractionDigits:1}):'—')+'</td>'+
+      '<td class="mono" style="text-align:right">'+usd(x.monto_usd)+'</td></tr>';
+  }).join('');
+
+  var totT=totV*tpv;
+  cuerpo+='<tr class="tr-tot"><td>TOTAL</td><td class="mono" style="font-size:10px">'+
+    formatFecha(filas[0].primera)+' → '+formatFecha(filas[filas.length-1].ultima)+'</td>'+
+    '<td style="text-align:right">'+totD+'</td>'+
+    '<td style="text-align:right">'+totV.toLocaleString('es-VE')+'</td>'+
+    '<td style="text-align:right">'+totT.toLocaleString('es-VE')+'</td>'+
+    '<td></td>'+
+    '<td style="text-align:right">'+(totD>0?(totT/totD).toLocaleString('es-VE',{maximumFractionDigits:1}):'—')+'</td>'+
+    '<td style="text-align:right">'+usd(totM)+'</td></tr>';
+
+  var mejor=filas.reduce(function(a,b){return (Number(b.viajes)||0)>(Number(a.viajes)||0)?b:a;},filas[0]);
+  var mmj=String(mejor.mes||'').split('-');
+  var nomMejor=_mesCap(_SEM_MESES[(parseInt(mmj[1],10)||1)-1]||'')+' '+(mmj[0]||'');
+
+  var stats=mkStat('Toneladas',totT.toLocaleString('es-VE'),'En '+filas.length+' mes(es)','verde')+
+    mkStat('Viajes',totV.toLocaleString('es-VE'),totP.toLocaleString('es-VE')+' planillas','azul')+
+    mkStat('Por viaje',tpv+' t','Capacidad declarada','amari')+
+    mkStat('Mejor mes',((Number(mejor.viajes)||0)*tpv).toLocaleString('es-VE')+' t',nomMejor,'verde')+
+    mkStat('Días con viajes',totD,'Promedio '+(totD>0?(totT/totD).toLocaleString('es-VE',{maximumFractionDigits:1}):'—')+' t/día','azul');
+
+  var body='<table><thead><tr>'+
+      '<th>Mes</th><th>Período</th><th style="text-align:right">Días</th>'+
+      '<th style="text-align:right">Viajes</th><th style="text-align:right">Toneladas</th>'+
+      '<th style="text-align:right">Acumulado</th><th style="text-align:right">t / día</th>'+
+      '<th style="text-align:right">Trabajo ejecutado</th>'+
+    '</tr></thead><tbody>'+cuerpo+'</tbody></table>'+
+    '<h3>Cómo leer este cuadro</h3>'+
+    '<ul style="font-size:10.5px;color:#374151;line-height:1.6;padding-left:18px">'+
+      '<li><b>La tonelada es deducida, no pesada:</b> cada viaje son '+tpv+' toneladas, la capacidad que declara la empresa. Las '+totT.toLocaleString('es-VE')+' toneladas son los '+totV.toLocaleString('es-VE')+' viajes multiplicados por '+tpv+'.</li>'+
+      '<li><b>«Días» son días con viajes registrados</b>, no los días del mes. Es lo único con lo que se pueden comparar meses de distinto largo.</li>'+
+      '<li><b>«Trabajo ejecutado» no es lo facturado ni lo cobrado:</b> es el trabajo hecho, valorado a tarifa.</li>'+
+      (mesAbierto?('<li><b>'+_mesCap(_SEM_MESES[(parseInt(String(mesAbierto.mes).split('-')[1],10)||1)-1]||'')+' está en curso:</b> la última planilla cargada es del '+formatFecha(mesAbierto.ultima)+', así que esa fila todavía va a subir.</li>'):'')+
+      '<li>Cada viaje tiene detrás una planilla con su número, su fecha, su camión y su chofer. El detalle de cualquier mes se saca en Histórico.</li>'+
+    '</ul>';
+
+  abrirImpresionPremium('Toneladas movidas, mes a mes',
+    formatFecha(filas[0].primera)+' → '+formatFecha(filas[filas.length-1].ultima)+' · '+totT.toLocaleString('es-VE')+' toneladas en '+totV.toLocaleString('es-VE')+' viajes',
+    stats, body, {lbl:'Reporte', ref:'TONELADAS'});
+  audit('Reporte toneladas mes a mes', filas.length+' meses · '+totT+' t');
+}
+
 async function exportHistExcel(){
   if(typeof XLSX==='undefined'){alert('XLSX no cargado');return;}
   var wb=_xlNuevo();

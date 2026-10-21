@@ -1704,6 +1704,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
     <button class="btn btn-s btn-sm" onclick="limpH()">✕ Limpiar</button>
     <button class="btn btn-s btn-sm" onclick="detectarPlanillasFaltantes()" title="Detecta números de planilla ausentes en el correlativo y permite justificar cada faltante (anulada, unidad en taller, etc.)">🔎 Faltantes</button>
     <button class="btn btn-s btn-sm" onclick="exportHistExcel()">Excel</button>
+    <button class="btn btn-g btn-sm" onclick="imprimirToneladasMes()" title="Toneladas movidas mes a mes desde el primer viaje, listo para imprimir o guardar en PDF">⚖ Toneladas mes a mes</button>
     <label class="btn btn-s btn-sm" style="cursor:pointer">Importar Excel<input type="file" id="import-file" accept=".xlsx,.xlsm,.xls" style="display:none" onchange="importarExcel(this)"></label>
   </div>
   <div class="g5" style="margin-bottom:10px">
@@ -3140,7 +3141,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
      Excel sale con el defecto ya corregido. Pasó midiendo este mismo cambio el
      23/09: dos corridas dieron un .xlsx idéntico byte por byte. -->
 <script src="maxware-excel.js?v=20260923-2252"></script>
-<script src="app.js?v=20261020-1757"></script>
+<script src="app.js?v=20261021-1830"></script>
 
 <!-- Modal global -->
 <div id="modal" class="moverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9990;align-items:center;justify-content:center;padding:16px">
