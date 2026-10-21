@@ -49,6 +49,13 @@ async function sel(path: string): Promise<any[]> {
   if (!r.ok) { console.error("sel", path, r.status, await r.text()); return []; }
   return await r.json();
 }
+async function rpc(fn: string, body: any): Promise<any[]> {
+  const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/${fn}`, {
+    method: "POST", headers: { ...HDR, "Content-Type": "application/json" }, body: JSON.stringify(body),
+  });
+  if (!r.ok) { console.error("rpc", fn, r.status, await r.text()); return []; }
+  return await r.json();
+}
 async function one(clave: string): Promise<string> {
   const r = await sel(`configuracion?clave=eq.${clave}&select=valor`);
   return String(r[0]?.valor ?? "");
@@ -81,6 +88,8 @@ function telLindo(t: string): string {
 }
 // Nombre en Mayúscula Inicial: EN MAYÚSCULA TODO se lee como un grito en WhatsApp.
 const titulo = (s: string) => String(s || "").toLowerCase().replace(/\b[a-záéíóúñ]/g, (c) => c.toUpperCase());
+const lista = (xs: string[]) => xs.length < 2 ? (xs[0] || "")
+  : `${xs.slice(0, -1).join(", ")} y ${xs[xs.length - 1]}`;
 const DIAS = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"];
 const MESES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
 
@@ -116,6 +125,35 @@ Deno.serve(async (req) => {
     if (n) (porNombre[n] = porNombre[n] || []).push(e);
   }
   const telDe = (e: any) => String(e?.whatsapp || "").trim() || String(e?.tel || "").trim() || "";
+
+  // ── ⛔ ¿SALIÓ DE VERDAD A TRABAJAR? ────────────────────────────────────────
+  // Máximo, 21/10/2026: «ese reporte tiene que estar anclado a que lleguen
+  // realmente unidades que salieron a trabajar… si una unidad no salió dice
+  // salieron 11 de 12 unidades».
+  //
+  // ⛔ EL CHECKLIST NO PRUEBA QUE SALIÓ: prueba que el chofer revisó el camión.
+  //    Un camión revisado y dejado en el patio tiene checklist igual. La prueba
+  //    de que salió es que SE MOVIÓ: GPS con velocidad real.
+  //
+  // ⛔ LO AGRUPA LA BASE, NO ESTA FUNCIÓN. `btg_salidas_del_dia` devuelve, por
+  //    unidad: si tiene equipo GPS y a qué hora de Venezuela se movió por primera
+  //    vez. Leer las posiciones crudas desde acá ya falló: PostgREST corta en
+  //    1000 filas y `gps_posiciones` tiene ~600 por unidad POR DÍA, así que el
+  //    mensaje salió diciendo que once unidades no tienen GPS. El tope no avisa.
+  //    [[norma-la-barra-que-no-dice-que-sigue]]
+  //
+  // ⛔ Y las que NO tienen equipo (B011 y B012, fuera de la cuenta del proveedor
+  //    desde agosto) no se listan a mano: la base las deduce de quién reportó
+  //    algo en los últimos 7 días. El día que el proveedor las conecte, esto se
+  //    entera solo. [[norma-arreglar-el-mecanismo-no-el-caso]]
+  const salidas = await rpc("btg_salidas_del_dia", { p_fecha: hoy });
+  const salioA: Record<string, string> = {};
+  const conEquipo = new Set<string>();
+  for (const s of salidas) {
+    const c = String(s.cam || ""); if (!c) continue;
+    if (s.tiene_equipo) conEquipo.add(c);
+    if (s.primera_salida) salioA[c] = String(s.primera_salida);
+  }
 
   const activasHoy = new Set<string>();
   for (const c of cks) if (c.cam) activasHoy.add(String(c.cam));
@@ -160,36 +198,54 @@ Deno.serve(async (req) => {
       if (fi.empleado_id && porId[String(fi.empleado_id)]) tel = telDe(porId[String(fi.empleado_id)]);
     }
 
-    return { cam, placa: String(u.placa || ""), nombre, tel, hora: fuente };
+    // ⛔ «Salió» = SE MOVIÓ. Para las que no tienen equipo GPS el aparato no
+    //    puede decir nada, así que vale la hora de salida que registró el chofer
+    //    — y abajo el mensaje aclara de dónde salió ese dato, para que el IMAU no
+    //    crea que todas están confirmadas igual.
+    const tieneEquipo = conEquipo.has(cam);
+    const salio = tieneEquipo ? !!salioA[cam] : !!(ck?.hora_salida);
+    const horaSalida = tieneEquipo ? (salioA[cam] || "") : String(ck?.hora_salida || "").slice(0, 5);
+
+    return { cam, placa: String(u.placa || ""), nombre, tel, hora: fuente, salio, horaSalida, tieneEquipo };
   });
 
-  const confirmadas = filas.filter((r) => r.nombre);
-  const horas = confirmadas.map((r) => r.hora).filter(Boolean).sort();
+  const salieron = filas.filter((r) => r.salio);
+  const noSalieron = filas.filter((r) => !r.salio);
+  const sinEquipoQueSalieron = salieron.filter((r) => !r.tieneEquipo);
+  const horas = salieron.map((r) => r.horaSalida).filter(Boolean).sort();
 
   // ── El mensaje ─────────────────────────────────────────────────────────────
+  // ⛔ Solo se listan las que SALIERON: el IMAU usa esto para llamar al chofer de
+  //    una unidad que está en la calle. Llenar la lista con camiones que no
+  //    salieron es darles números que no sirven y esconder los que sí.
   let msg = `*CHOFERES POR UNIDAD*\n_${fechaLarga}_\n\n`;
-  if (!confirmadas.length) {
-    msg += `⚠️ Todavía no hay ninguna unidad con chofer confirmado para hoy.\n` +
-      `Se confirma cuando el chofer revisa su unidad antes de salir del patio. ` +
-      `En cuanto eso ocurra, aparece acá.\n`;
+  if (!salieron.length) {
+    msg += `⚠️ Al momento de este reporte *no ha salido ninguna unidad* todavía.\n` +
+      `En cuanto salgan, aparecen acá con su chofer y su número.\n`;
   } else {
-    for (const r of filas) {
+    for (const r of salieron) {
       const cortito = r.cam.replace(/^[A-Z]+-/, "");
-      if (!r.nombre) { msg += `*${cortito}* · ${r.placa}\n_sin confirmar_\n`; continue; }
-      msg += `*${cortito}* · ${r.placa}\n${titulo(r.nombre)}\n` +
-        `${r.tel ? telLindo(r.tel) : "_sin teléfono en ficha_"}\n`;
+      msg += `*${cortito}* · ${r.placa}\n`;
+      msg += r.nombre
+        ? `${titulo(r.nombre)}\n${r.tel ? telLindo(r.tel) : "_sin teléfono en ficha_"}\n`
+        : `_salió, pero sin chofer identificado_\n`;
     }
-    msg += `\n_${confirmadas.length} de ${filas.length} unidades con chofer confirmado._\n`;
+    msg += `\n*Salieron ${salieron.length} de ${filas.length} unidades.*\n`;
     if (horas.length) {
       msg += horas[0] === horas[horas.length - 1]
-        ? `_Confirmado por el propio chofer al revisar su unidad, a las ${horas[0]}._\n`
-        : `_Confirmado por el propio chofer al revisar su unidad, entre las ${horas[0]} y las ${horas[horas.length - 1]}._\n`;
+        ? `_Salida registrada a las ${horas[0]}._\n`
+        : `_Salidas entre las ${horas[0]} y las ${horas[horas.length - 1]}._\n`;
     }
-    const faltan = filas.length - confirmadas.length;
-    if (faltan > 0) {
-      msg += `_Las ${faltan} que dicen «sin confirmar» todavía no registraron esa revisión hoy; ` +
-        `preferimos decirlo antes que darle un nombre que podría no ser el correcto._\n`;
-    }
+  }
+  if (noSalieron.length) {
+    msg += `\n_No ${noSalieron.length === 1 ? "salió" : "salieron"}: ` +
+      `${lista(noSalieron.map((r) => r.cam.replace(/^[A-Z]+-/, "")))} ` +
+      `(al momento de este reporte)._\n`;
+  }
+  if (sinEquipoQueSalieron.length) {
+    msg += `\n_${sinEquipoQueSalieron.map((r) => r.cam.replace(/^[A-Z]+-/, "")).join(" y ")}: ` +
+      `${sinEquipoQueSalieron.length === 1 ? "su salida se toma" : "sus salidas se toman"} ` +
+      `del registro del chofer, no del GPS._\n`;
   }
 
   // ── Destinatarios ──────────────────────────────────────────────────────────
@@ -205,7 +261,8 @@ Deno.serve(async (req) => {
   if (dry) {
     return new Response(JSON.stringify({
       ok: true, dry: true, fecha: hoy, unidades: filas.length,
-      confirmadas: confirmadas.length, sin_telefono: confirmadas.filter((r) => !r.tel).length,
+      salieron: salieron.length, no_salieron: noSalieron.map((r) => r.cam),
+      sin_telefono: salieron.filter((r) => r.nombre && !r.tel).length,
       destinatarios: tels.length, ya_salio_hoy: await yaMarcado(key), mensaje: msg,
     }, null, 1), { headers: { "Content-Type": "application/json" } });
   }
@@ -225,6 +282,6 @@ Deno.serve(async (req) => {
   if (ok) await marcar(key);
   return new Response(JSON.stringify({
     ok: true, fecha: hoy, encolados: ok ? tels.length : 0, marcado: ok,
-    unidades: filas.length, confirmadas: confirmadas.length,
+    unidades: filas.length, salieron: salieron.length,
   }), { headers: { "Content-Type": "application/json" } });
 });
