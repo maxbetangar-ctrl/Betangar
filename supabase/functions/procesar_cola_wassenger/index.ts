@@ -147,6 +147,49 @@ Deno.serve(async (req) => {
     });
   }
 
+  // 1.5) ¿EL CANAL ESTÁ EN PIE? SE PREGUNTA ANTES DE ENTREGARLE NADA (21/10/2026)
+  //
+  // ⛔ POR QUÉ. Entregar un mensaje a un canal caído DESARMA nuestra propia caducidad.
+  //    El caducador de arriba solo toca filas en 'pendiente'; en cuanto hacemos el POST
+  //    la fila pasa a 'enviado' y ya nadie la puede frenar. Wassenger ACEPTA el POST con
+  //    la sesión en `authorize` (sin teléfono enlazado), se lo guarda, y lo suelta cuando
+  //    vuelve — días después. Desde nuestro lado nunca hubo retraso: encolado 17:00,
+  //    entregado al proveedor 17:03, 'enviado' ✅. Los 12 h de vigencia no se gastan nunca.
+  //
+  // 📌 MEDIDO EL 21/10/2026, con los acuses del propio proveedor (`events.delivered.date`):
+  //    el recordatorio de VIAJES del 10/10 17:04 le llegó a Gladis el 13/10 11:29 — 66 h
+  //    tarde— y tres de los de Alejandra cayeron juntos el 18/10 15:57, el aluvión clásico
+  //    de una cola represada que se vacía de golpe. Dos salieron a la 01:53, fuera de la
+  //    franja 8:00–20:00 que la casa respeta al ENCOLAR. Lo reportó ella: «los mensajes de
+  //    recordatorios están llegando muy tarde».
+  //    ⇒ Un aviso operativo que llega 3 días tarde no es un aviso tarde: es uno FALSO,
+  //      porque dice «hoy» de un día que ya pasó.
+  //
+  // ⇒ Si el canal no está en pie, NO se entrega: las filas se quedan en 'pendiente' y el
+  //   caducador de arriba hace su trabajo en la próxima corrida. Preferimos que un aviso
+  //   operativo CADUQUE a que llegue fuera de su día.
+  //   [[norma-probar-el-camino-no-la-pieza]] · [[norma-la-caducidad-solo-cubre-el-tramo-propio]]
+  //
+  // ⚠️ `status: 'operative'` NO dice que esté conectado: manda `session.status`. Y un aparato
+  //    online con la cola del proveedor trancada tampoco entrega. Las dos cosas las sabía
+  //    `maxware-tools/puede-hablar.mjs` desde hacía semanas; acá faltaban.
+  if (cfg.device) {
+    try {
+      const rd = await fetch('https://api.wassenger.com/v1/devices/' + cfg.device, { headers: { 'Token': cfg.token } });
+      if (rd.ok) {
+        const motivo = canalCaido(await rd.json());
+        if (motivo) {
+          return json({
+            ok: true, sent: 0,
+            nota: `canal caído: ${motivo} — NO se entrega nada; lo pendiente caduca a las ${VIGENCIA_HORAS}h`,
+            caducados: caducados?.length || 0, rescatados,
+          });
+        }
+      }
+      // rd no ok: se sigue. No poder PREGUNTAR por el canal no es prueba de que esté caído.
+    } catch { /* sin red para preguntar: se sigue, igual que arriba */ }
+  }
+
   // 2) mensajes pendientes (tanda)
   const { data: pend } = await sb.from('cola_mensajes').select('*').eq('estado', 'pendiente').lt('intentos', 4).order('id').limit(25);
   if (!pend || !pend.length) return json({ ok: true, sent: 0, caducados: caducados?.length || 0 });
@@ -503,3 +546,23 @@ function normalizar(t: string, paisDefecto?: string | null): { tel?: string; mot
   return { tel: '+' + s };
 }
 function json(b: unknown) { return new Response(JSON.stringify(b), { headers: { ...CORS, 'Content-Type': 'application/json' } }); }
+
+// ¿El canal está caído? Devuelve el MOTIVO en castellano, o null si está en pie.
+// Las formas salen de medir `GET /devices/:id` el 21/10/2026, no de suponerlas.
+//   · `status: 'operative'` NO dice que esté conectado — manda `session.status`.
+//   · un aparato online con `session.queue.status != 'active'` tampoco entrega.
+// ⛔ CONTROL POSITIVO: un campo que NO VINO se lee igual que uno en falso. Si la API
+//    cambia y deja de mandar `session`, esto NO frena la cola: devuelve null y se envía.
+//    Frenar toda la casa por no encontrar una clave sería peor que el problema que arregla.
+//    [[norma-control-positivo-antes-de-creerle-al-vacio]]
+export function canalCaido(d: any): string | null {
+  const ses = d?.session?.status;
+  if (ses !== undefined && ses !== 'online') {
+    return `la sesión del teléfono no está conectada (session.status = "${ses}")`;
+  }
+  const q = d?.session?.queue;
+  if (q?.status !== undefined && q.status !== 'active') {
+    return `la cola del proveedor no está activa (queue.status = "${q.status}", ${q?.size ?? '?'} parado(s))`;
+  }
+  return null;
+}

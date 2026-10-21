@@ -502,6 +502,236 @@ Deno.serve(async (req) => {
       }), { headers: { "Content-Type": "application/json" } });
     }
 
+    // ── 0.c EL REENVÍO A LA ALCALDÍA (`?modo=reenvio`) ───────────────────────
+    //
+    //  POR QUÉ EXISTE, y es la razón más cara de todas: desde el 21/10 las
+    //  posiciones se le reenvían a IMAU Flota, el software de la Alcaldía. Y
+    //  Máximo lo dijo con todas las letras: «después la Alcaldía puede pensar
+    //  que no estuve en un sitio que sí estuve».
+    //
+    //  ⛔ UN REENVÍO CAÍDO NO DA NINGÚN ERROR: simplemente deja de entrar
+    //  recorrido del lado de ellos. Nuestra base sigue perfecta, el sondeo sigue
+    //  guardando, el mapa de la oficina se ve bien — y en la pantalla con la que
+    //  la Alcaldía verifica el servicio ese camión no pasó por ningún lado.
+    //  El daño no es técnico: es que el recorrido que falta se lee como ausencia.
+    //
+    //  DOS CADENCIAS, A PROPÓSITO (`?modo=reenvio` y `?modo=reenvio&parte=1`):
+    //   · LA VIGILANCIA mira seguido y habla solo cuando se rompe algo.
+    //   · EL PARTE sale UNA VEZ AL DÍA Y SIEMPRE, aunque todo esté bien. Es la
+    //     norma de la casa: un informe que solo sale cuando hay novedad no
+    //     distingue «no hubo novedad» de «el que avisa está muerto».
+    //
+    //  ⚠️ Y EL PARTE ES EL ÚNICO QUE DELATA EL INTERRUPTOR APAGADO. La
+    //  vigilancia se calla cuando `gps_reenvio_activo=false`, porque avisar de
+    //  algo que se apagó a propósito es el aviso que salta siempre. Pero
+    //  entonces un apagado que nadie volvió a encender sería invisible para
+    //  siempre: por eso el parte diario lo dice todos los días, con la fecha
+    //  desde cuándo. Se apaga a mano; que siga apagado no se olvida solo.
+    if (new URL(req.url).searchParams.get("modo") === "reenvio") {
+      const esParte = new URL(req.url).searchParams.get("parte") === "1";
+      const activo = String(await cfg("gps_reenvio_activo") ?? "true").toLowerCase() !== "false";
+
+      // ⚠️ ENSAYO — SOLO EN SECO. Baja los umbrales a 0 y, sobre todo, SE SALTA EL
+      // «está apagado»: si no, mientras el reenvío está apagado —que es justo
+      // ahora— el ensayo no probaría ni una línea del camino y la alarma se
+      // estrenaría el día que tiene que funcionar. Probar la pieza no es probar
+      // el camino. ⛔ Va atado a `dry`: sin él se ignora, porque un modo de
+      // prueba que puede enviar de verdad es un accidente esperando la tecla
+      // equivocada.
+      const ensayo = dry && new URL(req.url).searchParams.get("ensayo") === "1";
+      const minSinCorrer = ensayo ? 0 : (Number(await cfg("gps_reenvio_min_sin_correr")) || 15);
+      const minAtraso    = ensayo ? 0 : (Number(await cfg("gps_reenvio_min_atraso"))     || 20);
+
+      const estados = await sel(
+        "gps_reenvio_estado?select=cam,enviado_hasta,ultima_corrida,ultimo_ok,ultimo_error,intentos_fallidos,enviadas_total&order=cam",
+      );
+      const atraso = await rpc("gps_reenvio_atraso", {});
+      const imeiRaros = await rpc("gps_reenvio_imei_discrepante", {});
+
+      // ── EL PARTE DIARIO ────────────────────────────────────────────────────
+      if (esParte) {
+        const ayer = new Date(Date.now() - 4 * 3600 * 1000 - 86400000)
+          .toISOString().slice(0, 10);
+        const cuadre = (await rpc("gps_reenvio_cuadre", { p_desde: ayer }))
+          .filter((f: any) => f.f === ayer);
+
+        const faltan   = cuadre.filter((f: any) => f.estado === "FALTAN");
+        const nada     = cuadre.filter((f: any) => f.estado === "nada salió");
+        const cuadran  = cuadre.filter((f: any) => String(f.estado).startsWith("cuadra"));
+        const sinImei  = cuadre.filter((f: any) => f.estado === "sin IMEI: no se manda");
+        const totPos   = cuadre.reduce((a: number, f: any) => a + Number(f.posiciones || 0), 0);
+        const totEnv   = cuadre.reduce((a: number, f: any) => a + Number(f.enviadas || 0), 0);
+
+        const l: string[] = [];
+        if (!activo) {
+          // ⛔ Lo primero y en rojo: está apagado y eso no es una falla, es una
+          // decisión que alguien tiene que volver a tomar.
+          l.push(`⛔ *El reenvío está APAGADO.* A la Alcaldía no se le mandó ninguna ` +
+                 `posición del ${ayer.slice(8)}/${ayer.slice(5, 7)}. Se enciende poniendo ` +
+                 `\`gps_reenvio_activo\` en \`true\`.`);
+        }
+        if (totPos) {
+          l.push(`De ${totPos.toLocaleString("es-VE")} posiciones guardadas, ` +
+                 `salieron *${totEnv.toLocaleString("es-VE")}*.`);
+        }
+        if (faltan.length) {
+          l.push(`🔴 *Faltan posiciones en ${faltan.length} camión${faltan.length > 1 ? "es" : ""}:*\n` +
+            faltan.map((f: any) =>
+              `• ${f.cam} — de ${f.posiciones} salieron ${f.enviadas} (*${f.faltan} sin mandar*)`,
+            ).join("\n") +
+            `\n\n⚠️ En el mapa de la Alcaldía a esos camiones les falta ese recorrido.`);
+        }
+        if (nada.length && activo) {
+          l.push(`🔴 *No salió NADA de ${nada.length} camión${nada.length > 1 ? "es" : ""}:* ` +
+                 nada.map((f: any) => f.cam).join(", "));
+        }
+        if (cuadran.length) l.push(`✅ Cuadra en ${cuadran.length} camión${cuadran.length > 1 ? "es" : ""}.`);
+        if (sinImei.length) {
+          l.push(`ℹ️ Sin mandar por no tener número de equipo: ` +
+                 sinImei.map((f: any) => f.cam).join(", ") +
+                 ` — el proveedor todavía no los habilitó.`);
+        }
+        if (imeiRaros.length) {
+          l.push(`🔴 *Un equipo está reportando en otro camión* (${imeiRaros.length}): ` +
+                 imeiRaros.map((r: any) => `${r.cam}`).join(", ") +
+                 `. El camión que la Alcaldía ve en el mapa NO es el que creemos.`);
+        }
+        if (!cuadre.length) {
+          l.push(`No hay posiciones guardadas del ${ayer}. Eso lo mira el vigilante del ` +
+                 `sondeo, no este parte.`);
+        }
+
+        const msg = `🛰️ *Reenvío a la Alcaldía — parte del ${ayer.slice(8)}/${ayer.slice(5, 7)}*\n\n` +
+                    l.join("\n\n");
+        const clave = `gps-reenvio-parte-${ayer}`;
+
+        // El parte sale aunque no haya nada que contar, pero una sola vez por día.
+        if (!dry && !(await yaAviso(clave))) {
+          await encolar([{ tipo: "gps_reenvio", telefono: AVISAR_A, mensaje: msg, ref: clave }]);
+          await marcar(clave);
+        }
+        return new Response(JSON.stringify({
+          ok: true, modo: "reenvio", parte: true, dry, activo, dia: ayer,
+          posiciones: totPos, enviadas: totEnv,
+          faltan: faltan.length, nada: nada.length, cuadran: cuadran.length,
+          clave, mensaje: msg,
+        }), { headers: { "Content-Type": "application/json" } });
+      }
+
+      // ── LA VIGILANCIA ──────────────────────────────────────────────────────
+      // Apagado a propósito = no se avisa. Avisar de algo que alguien apagó es
+      // el aviso que salta siempre, y un aviso que salta siempre no avisa de
+      // nada. Que siga apagado lo dice el PARTE, todos los días.
+      if (!activo && !ensayo) {
+        return new Response(JSON.stringify({
+          ok: true, modo: "reenvio", apagado: true,
+          nota: "gps_reenvio_activo=false: la vigilancia se calla a propósito. " +
+                "Que esté apagado lo dice el parte diario, todos los días.",
+        }), { headers: { "Content-Type": "application/json" } });
+      }
+
+      const cola: any[] = [];
+      const claves: string[] = [];
+      const detalle: Record<string, unknown> = {};
+
+      // (1) ¿CORRIÓ? Es la pregunta de FLOTA y va primero.
+      // ⛔ Un reenviador muerto, mostrado unidad por unidad, se lee como diez
+      // fallas distintas. Cada línea sería correcta y el sujeto estaría mal:
+      // la misma lección que el apagón del 31/08.
+      const corridas = estados
+        .map((e: any) => (e.ultima_corrida ? new Date(e.ultima_corrida).getTime() : 0));
+      const ultimaCorrida = Math.max(0, ...corridas);
+      const minDesde = ultimaCorrida ? (ahora - ultimaCorrida) / 60000 : Infinity;
+      const pendTotal = atraso.reduce((a: number, r: any) => a + Number(r.pendientes || 0), 0);
+
+      if (minDesde > minSinCorrer) {
+        // Una clave por instante de parada: mientras siga clavado en el mismo
+        // momento no vuelve a avisar. Un reenvío caído el viernes avisa una vez,
+        // no una cada cinco minutos todo el fin de semana.
+        const clave = `gps-reenvio-detenido-${ultimaCorrida || "nunca"}`;
+        const errores = [...new Set(estados.map((e: any) => e.ultimo_error).filter(Boolean))];
+        const texto =
+          `🛰️ *El reenvío a la Alcaldía está detenido*\n\n` +
+          (ultimaCorrida
+            ? `La última vez que se le mandó algo fue ${horaVE(new Date(ultimaCorrida).toISOString())} ` +
+              `(${hace(ahora - ultimaCorrida)}).\n`
+            : `*Nunca se le ha mandado nada.* La tarea no ha corrido ni una vez.\n`) +
+          `Quedan *${pendTotal.toLocaleString("es-VE")} posiciones* sin mandar de ` +
+          `${atraso.filter((r: any) => Number(r.pendientes) > 0).length} camiones.\n\n` +
+          `⚠️ Mientras esté detenido, en el mapa de la Alcaldía a esos camiones les ` +
+          `falta el recorrido de este rato — y un recorrido que falta se lee como que ` +
+          `el camión no estuvo ahí.\n\n` +
+          (errores.length
+            ? `Lo último que falló: ${String(errores[0]).slice(0, 180)}`
+            : `No quedó ningún error escrito: lo más probable es que la tarea no se esté ` +
+              `ejecutando.`) +
+          `\n\n✅ Lo guardado NO se pierde: cuando vuelva, sigue desde donde quedó.`;
+
+        if (!dry && !(await yaAviso(clave))) { cola.push({ tipo: "gps_reenvio", telefono: AVISAR_A, mensaje: texto, ref: clave }); claves.push(clave); }
+        detalle.detenido = { desde: ultimaCorrida ? horaVE(new Date(ultimaCorrida).toISOString()) : null, pendientes: pendTotal, clave, mensaje: texto };
+      } else {
+        // (2) ¿ALGUNA UNIDAD SE QUEDÓ ATRÁS? Solo si el reenvío SÍ está corriendo:
+        // si está detenido, todas están atrás y ya se avisó arriba.
+        const atrasadas = atraso.filter((r: any) =>
+          Number(r.pendientes) > 0 && Number(r.atraso_min) > minAtraso);
+
+        if (atrasadas.length) {
+          // ⛔ LA CLAVE ES EL INSTANTE EN QUE SE TRANCÓ CADA UNA, no su atraso.
+          // La primera versión la armaba con los minutos de atraso redondeados a
+          // media hora: una unidad trancada habría avisado CADA 30 MINUTOS para
+          // siempre, y un aviso que salta siempre no avisa de nada. Con el corte,
+          // mientras el cursor no se mueva es el mismo episodio y se avisa una
+          // vez; en cuanto avanza y se vuelve a trancar, es otro y vuelve a
+          // avisar. Mismo criterio que el apagón de flota.
+          const corte = (cam: string) =>
+            estados.find((e: any) => e.cam === cam)?.enviado_hasta || "?";
+          const clave = `gps-reenvio-atraso-` +
+            atrasadas.map((r: any) => `${r.cam}:${new Date(corte(r.cam)).getTime()}`).join("_");
+          const texto =
+            `🟡 *Reenvío atrasado en ${atrasadas.length} camión${atrasadas.length > 1 ? "es" : ""}*\n\n` +
+            atrasadas.map((r: any) =>
+              `• ${r.cam} — ${r.pendientes} posiciones sin mandar, la más vieja de ` +
+              `hace ${Math.round(Number(r.atraso_min))} min` +
+              (r.ultimo_error ? `\n   falló: ${String(r.ultimo_error).slice(0, 120)}` : ""),
+            ).join("\n") +
+            `\n\nEl resto de la flota sí está saliendo, así que no es la tarea: es algo ` +
+            `de esos camiones o de cómo los recibe el otro lado.`;
+
+          if (!dry && !(await yaAviso(clave))) { cola.push({ tipo: "gps_reenvio", telefono: AVISAR_A, mensaje: texto, ref: clave }); claves.push(clave); }
+          detalle.atrasadas = { unidades: atrasadas.map((r: any) => r.cam), clave, mensaje: texto };
+        }
+      }
+
+      // (3) UN EQUIPO REPORTANDO EN OTRO CAMIÓN. No es atraso, es identidad:
+      // la Alcaldía estaría viendo un camión donde hay otro.
+      if (imeiRaros.length) {
+        const clave = `gps-reenvio-imei-${imeiRaros.map((r: any) => r.cam).join("_")}`;
+        const texto =
+          `🔴 *Un equipo de GPS está reportando en otro camión*\n\n` +
+          imeiRaros.map((r: any) =>
+            `• ${r.cam}: declarado ${r.imei_declarado}, está llegando ${r.imei_que_llego} ` +
+            `(${r.posiciones} posiciones desde ${horaVE(r.desde)})`,
+          ).join("\n") +
+          `\n\n⚠️ El camión que la Alcaldía ve en el mapa NO es el que creemos. Hay que ` +
+          `revisar si cambiaron un equipo de unidad antes de seguir mandando.`;
+        if (!dry && !(await yaAviso(clave))) { cola.push({ tipo: "gps_reenvio", telefono: AVISAR_A, mensaje: texto, ref: clave }); claves.push(clave); }
+        detalle.imei_discrepante = { clave, mensaje: texto };
+      }
+
+      if (!dry && cola.length) {
+        await encolar(cola);
+        for (const k of claves) await marcar(k);
+      }
+
+      return new Response(JSON.stringify({
+        ok: true, modo: "reenvio", dry, ensayo, activo,
+        avisos: cola.length,
+        sin_correr_min: Number.isFinite(minDesde) ? Math.round(minDesde) : null,
+        pendientes: pendTotal,
+        ...(Object.keys(detalle).length ? { detalle } : { sin_novedad: true }),
+      }), { headers: { "Content-Type": "application/json" } });
+    }
+
     if (!equipos.length) {
       return new Response(JSON.stringify({ ok: true, aviso: "no hay unidades activas" }), {
         headers: { "Content-Type": "application/json" } });
