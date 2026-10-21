@@ -7862,7 +7862,18 @@ async function imprimirToneladasMes(){
   var filas=(r&&r.data)||[];
   if(!filas.length){ alert('No hay planillas cargadas todavía: el reporte sale de las planillas de viaje.'); return; }
 
-  var tpv=_tonsPorViaje();
+  // ⛔ LA CAPACIDAD SE PIDE CON SU PROCEDENCIA, no se da por sabida. `btg_capacidad_viaje()`
+  //    contesta cuánto carga un viaje, desde cuándo rige y QUIÉN lo declaró, y eso va impreso:
+  //    un socio que ve «41.280 toneladas» sin saber de dónde sale el 8 no tiene cómo discutirlo.
+  //    Es la misma lección que dejó la hoja del aforo de FC13 el 21/10: lo que se gana no es el
+  //    número —ya estaba bien— es la PROCEDENCIA.
+  var cap=null;
+  try{ var rc=await supabase.rpc('btg_capacidad_viaje'); if(rc&&!rc.error&&rc.data&&rc.data.length)cap=rc.data[0]; }catch(e){}
+  var tpv=cap?(Number(cap.toneladas)||_tonsPorViaje()):_tonsPorViaje();
+  // ⛔ Si la declaración de la base y lo que usa el resto de las pantallas no coinciden, eso se
+  //    DICE. Elegir una en silencio hace que dos informes de la misma empresa den cifras
+  //    distintas y nadie sepa cuál creer. [[norma-una-asercion-mal-escrita-acusa-al-producto]]
+  var discrepa=(cap&&Number(cap.toneladas)!==_tonsPorViaje())?_tonsPorViaje():null;
   var hoy=new Date().toISOString().slice(0,10);
   var acum=0, totV=0, totP=0, totD=0, totM=0, mesAbierto=null;
 
@@ -7902,7 +7913,7 @@ async function imprimirToneladasMes(){
 
   var stats=mkStat('Toneladas',totT.toLocaleString('es-VE'),'En '+filas.length+' mes(es)','verde')+
     mkStat('Viajes',totV.toLocaleString('es-VE'),totP.toLocaleString('es-VE')+' planillas','azul')+
-    mkStat('Por viaje',tpv+' t','Capacidad declarada','amari')+
+    mkStat('Por viaje',tpv+' t',cap?('Declarada · '+formatFecha(cap.desde)):'Capacidad declarada',discrepa?'rojo':'amari')+
     mkStat('Mejor mes',((Number(mejor.viajes)||0)*tpv).toLocaleString('es-VE')+' t',nomMejor,'verde')+
     mkStat('Días con viajes',totD,'Promedio '+(totD>0?(totT/totD).toLocaleString('es-VE',{maximumFractionDigits:1}):'—')+' t/día','azul');
 
@@ -7914,7 +7925,9 @@ async function imprimirToneladasMes(){
     '</tr></thead><tbody>'+cuerpo+'</tbody></table>'+
     '<h3>Cómo leer este cuadro</h3>'+
     '<ul style="font-size:10.5px;color:#374151;line-height:1.6;padding-left:18px">'+
-      '<li><b>La tonelada es deducida, no pesada:</b> cada viaje son '+tpv+' toneladas, la capacidad que declara la empresa. Las '+totT.toLocaleString('es-VE')+' toneladas son los '+totV.toLocaleString('es-VE')+' viajes multiplicados por '+tpv+'.</li>'+
+      '<li><b>La tonelada es deducida, no pesada:</b> cada viaje son '+tpv+' toneladas, la capacidad que declara la empresa. Las '+totT.toLocaleString('es-VE')+' toneladas son los '+totV.toLocaleString('es-VE')+' viajes multiplicados por '+tpv+'.'+
+        (cap?(' Declarada por <b>'+cap.declarado_por+'</b>, rige desde el '+formatFecha(cap.desde)+(Number(cap.cambios)>1?(' · '+cap.cambios+' declaraciones en el historial'):'')+'.'):' ⚠️ No se pudo leer de la base quién declaró esa capacidad ni desde cuándo: el número sale de la configuración de esta pantalla.')+'</li>'+
+      (discrepa?('<li style="color:#b91c1c"><b>⚠️ Atención:</b> la capacidad declarada en la base es '+tpv+' t por viaje y la configuración de esta pantalla dice '+discrepa+' t. Este cuadro usa la de la base. Hay que cuadrarlo antes de repartir este papel.</li>'):'')+
       '<li><b>«Días» son días con viajes registrados</b>, no los días del mes. Es lo único con lo que se pueden comparar meses de distinto largo.</li>'+
       '<li><b>«Trabajo ejecutado» no es lo facturado ni lo cobrado:</b> es el trabajo hecho, valorado a tarifa.</li>'+
       (mesAbierto?('<li><b>'+_mesCap(_SEM_MESES[(parseInt(String(mesAbierto.mes).split('-')[1],10)||1)-1]||'')+' está en curso:</b> la última planilla cargada es del '+formatFecha(mesAbierto.ultima)+', así que esa fila todavía va a subir.</li>'):'')+
