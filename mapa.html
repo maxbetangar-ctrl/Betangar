@@ -83,6 +83,16 @@
   .e-mud{background:rgba(217,48,37,.16);color:var(--rojo)}
   .u-dir{font-size:12px;color:var(--suave);margin:5px 0 0;line-height:1.35}
   .u-dat{display:flex;gap:14px;margin-top:6px;font-size:12px;color:var(--suave);flex-wrap:wrap}
+  /* Quién maneja hoy. El NOMBRE se ve siempre; el TELÉFONO solo al elegir la
+     unidad — es lo que pidió Máximo y además evita tener doce números a la
+     vista de cualquiera que pase por delante de la pantalla de la oficina.
+     Se resuelve con CSS y no con JS porque `elegir()` solo cambia la clase
+     `sel` y no vuelve a dibujar las tarjetas. */
+  .u-chof{display:flex;gap:10px;margin-top:6px;font-size:12px;color:var(--suave);flex-wrap:wrap;align-items:baseline}
+  .u-tel{display:none}
+  .u.sel .u-tel{display:inline}
+  .u-chof a{color:inherit;text-decoration:underline}
+  body.tv .u-chof{font-size:15px;margin-top:9px}
   .u-dat b{color:var(--tinta);font-weight:650}
 
   .aviso{margin:10px 14px;padding:9px 11px;border-radius:8px;font-size:12.5px;line-height:1.4}
@@ -241,7 +251,7 @@
 // sobre una función que estaba puesta hacía una hora.
 // Con el sello a la vista, la pregunta «¿estás viendo la última?» se contesta mirando,
 // en vez de adivinando. Al tocar este archivo, subir la fecha.
-var VERSION_PANTALLA = '20260901-1125';
+var VERSION_PANTALLA = '20261021-1505';
 
 var SUPA_URL = 'https://hrkjddehqnzcqwlkklqm.supabase.co';
 var SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhya2pkZGVocW56Y3F3bGtrbHFtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc2NTk1NzIsImV4cCI6MjA5MzIzNTU3Mn0.kqWKthyZfPZ86toql7shGByF-ZhUpcQUS4Jw4RnG_ko';
@@ -1026,6 +1036,7 @@ function pintar(){
       +'<span class="u-nom">'+esc(cam)+'</span>'
       +'<span class="u-est '+clase+'">'+texto+'</span></div>'
       +(ult.ubicacion?'<div class="u-dir">'+esc(ult.ubicacion)+'</div>':'')
+      +lineaChofer(cam)
       +'<div class="u-dat"><span>Último reporte <b>'+horaVE(ult.ts)+'</b>'+(hist?'':' ('+hace(min)+')')+'</span></div>'
       +'<div class="u-dat">'
       +'<span>Km '+(hist?'del día':'de hoy')+' <b>'+(kmDia===null?'—':miles(kmDia,1))+'</b></span>'
@@ -1122,7 +1133,9 @@ async function repaso(){
     // ⛔ ANTES de pintar: `pintar()` decide con esto si lo que muestra es «todavía
     // no llegó» o «el proveedor dejó de entregar», y son dos pantallas distintas.
     await traerEstado();
-    crudo=await traer(); pintar(); marcarVivo();
+    crudo=await traer();
+    await cargarChoferes();   // se auto-limita: no consulta en cada repaso
+    pintar(); marcarVivo();
     document.getElementById('avisos').innerHTML+='';
   }catch(e){
     document.getElementById('avisos').innerHTML=
@@ -1183,7 +1196,9 @@ async function irADia(f){
   document.getElementById('sello').textContent='cargando…';
   try{
     if(esHoy()) await traerEstado();
-    crudo=await traer(); pintar();
+    crudo=await traer();
+    await cargarChoferes(true);   // forzado: cambió el día. Antes de pintar, o la primera pasada sale sin chofer
+    pintar();
     if(esHoy()) marcarVivo();
   }catch(e){
     document.getElementById('avisos').innerHTML=
@@ -1357,6 +1372,70 @@ function panelSitio(poli){
 // mirar son de julio y agosto, y de esos días no existe recorrido (el sondeo arrancó
 // el 14/08 y con una sola unidad).
 var SURTIDAS=[], capaSurt=[], MODO_SURT='ninguna';   // ninguna · fuera · todas
+
+// ── Quién maneja cada unidad ese día ────────────────────────────────────────
+// Lo contesta `chofer_del_dia()` en la base, de una sola vez para toda la flota.
+// ⛔ Acá NO se decide de dónde sale el dato ni se cruza ningún nombre: eso vive
+// en la función, que para HOY mira el checklist (las planillas van días
+// atrasadas y darían vacío siempre) y para un día cerrado la planilla.
+// La regla de a qué número se le escribe tampoco se repite: la función devuelve
+// `wa` ya normalizado con `tel_para_escribir()`, el mismo que usa la cola.
+var CHOFERES={}, CHOF_TS=0, CHOF_DIA='';
+var CHOF_REFRESCO_MS=5*60*1000;
+// `repaso()` corre cada poco; esto no tiene por qué. El chofer de una unidad
+// cambia una vez al día, pero NO se puede cargar una sola vez al abrir: el que
+// firma el checklist a las 7 no aparecería en una pantalla abierta a las 6.
+// Punto medio: se refresca cada 5 minutos, y al cambiar de día se fuerza.
+async function cargarChoferes(forzar){
+  if(!forzar && CHOF_DIA===DIA && (Date.now()-CHOF_TS)<CHOF_REFRESCO_MS) return;
+  CHOF_TS=Date.now(); CHOF_DIA=DIA;
+  CHOFERES={};
+  try{
+    var r=await sb.rpc('chofer_del_dia',{p_fecha:DIA});
+    if(r.error){
+      // ⛔ Un error acá NO puede quedar en silencio: sin chofer la tarjeta se ve
+      // igual que si nadie hubiera firmado el checklist, y eso manda a buscar el
+      // problema al chofer en vez de al permiso.
+      document.getElementById('avisos').innerHTML+=
+        '<div class="aviso mal"><b>No se pudo saber quién maneja cada unidad.</b> '
+        +esc(r.error.message)+'</div>';
+      return;
+    }
+    (r.data||[]).forEach(function(f){ CHOFERES[f.cam]=f; });
+  }catch(e){
+    document.getElementById('avisos').innerHTML+=
+      '<div class="aviso mal"><b>No se pudo saber quién maneja cada unidad.</b> '
+      +esc(e.message||e)+'</div>';
+  }
+}
+
+/** La línea de la tarjeta. Devuelve '' solo si de esa unidad no se sabe NADA. */
+function lineaChofer(cam){
+  var c=CHOFERES[cam];
+  if(!c) return '';
+  // Sin nombre no se inventa: se dice que nadie firmó.
+  if(!c.nombre){
+    return '<div class="u-chof"><span style="color:var(--ambar)">Sin chofer declarado</span>'
+      +(c.nota?'<span>'+esc(c.nota)+'</span>':'')+'</div>';
+  }
+  var h='<div class="u-chof"><span>Chofer <b>'+esc(c.nombre)+'</b></span>';
+  if(c.wa){
+    // `stopPropagation` para que tocar el teléfono no cuente como elegir la unidad.
+    h+='<span class="u-tel">📱 <a href="https://wa.me/'+esc(c.wa)+'" target="_blank" rel="noopener"'
+      +' onclick="event.stopPropagation()">'+esc(c.telefono||c.wa)+'</a></span>';
+  }else{
+    h+='<span class="u-tel" style="color:var(--ambar)">'+esc(c.nota||'sin teléfono')+'</span>';
+  }
+  // Si el checklist y la planilla no coinciden, se dice en la cara: puede ser un
+  // cambio de chofer a mitad del día o una planilla cargada mal, y las dos cosas
+  // hay que mirarlas.
+  if(c.otro_nombre){
+    h+='<span class="u-tel" style="color:var(--ambar)" title="La planilla y el checklist '
+      +'nombran a personas distintas">⚠️ el checklist lo firmó '+esc(c.otro_nombre)+'</span>';
+  }
+  if(c.fuente) h+='<span class="u-tel" style="opacity:.7">('+esc(c.fuente)+')</span>';
+  return h+'</div>';
+}
 
 async function cargarSurtidas(){
   if(SURTIDAS.length) return;
