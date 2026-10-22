@@ -257,13 +257,37 @@ Deno.serve(async (req) => {
     if (!n || vistos.has(n)) return false; vistos.add(n); return true;
   });
 
+  // ── ⛔ ¿EL DESTINO ESTÁ AUTORIZADO? ────────────────────────────────────────
+  // 22/10/2026, el PRIMER día automático: el reporte se armó, se encoló… y el
+  // worker lo BLOQUEÓ — «destino no autorizado: +584146058764». Hay una lista
+  // blanca (`wa_destinos_permitidos`) y el IMAU no estaba en ella porque no es
+  // empleado. El IMAU se quedó sin su reporte y nos enteramos porque Máximo lo
+  // reclamó a las 11.
+  //
+  // ⛔ Y LA PRUEBA DE AYER NO PODÍA CAZARLO: se probó punta a punta apuntando el
+  //    envío al número de MÁXIMO, que es empleado y por eso ya estaba
+  //    autorizado. Probar el camino con OTRO destinatario no es probar el
+  //    camino. [[norma-probar-el-camino-no-la-pieza]]
+  //
+  // Acá no se autoriza a nadie —eso es decisión de quien configura, y una lista
+  // blanca que se auto-rellena deja de ser una lista blanca—: se AVISA, y se
+  // avisa nombrando el daño («el IMAU no va a recibir su reporte»), no el
+  // síntoma («un número no autorizado»), que es lo que el vigilante de la cola
+  // ya dijo a las 8:15 y nadie pudo conectar con esto.
+  // [[norma-un-mensaje-negativo-debe-decir-cual-causa]]
+  const permitidos = tels.length
+    ? await sel(`wa_destinos_permitidos?telefono_canon=in.(${tels.map((t) => t.slice(-10)).join(",")})&select=telefono_canon`)
+    : [];
+  const okCanon = new Set(permitidos.map((p: any) => String(p.telefono_canon)));
+  const sinPermiso = tels.filter((t) => !okCanon.has(t.slice(-10)));
+
   const key = `choferes_dia_${hoy}`;
   if (dry) {
     return new Response(JSON.stringify({
       ok: true, dry: true, fecha: hoy, unidades: filas.length,
       salieron: salieron.length, no_salieron: noSalieron.map((r) => r.cam),
       sin_telefono: salieron.filter((r) => r.nombre && !r.tel).length,
-      destinatarios: tels.length, ya_salio_hoy: await yaMarcado(key), mensaje: msg,
+      destinatarios: tels.length, sin_permiso: sinPermiso, ya_salio_hoy: await yaMarcado(key), mensaje: msg,
     }, null, 1), { headers: { "Content-Type": "application/json" } });
   }
 
@@ -277,7 +301,26 @@ Deno.serve(async (req) => {
       { headers: { "Content-Type": "application/json" } });
   }
 
-  const ok = await enqueue(tels.map((t) => ({ telefono: t, mensaje: msg, tipo: "choferes-dia", estado: "pendiente" })));
+  const filasCola: any[] = tels.map((t) => ({ telefono: t, mensaje: msg, tipo: "choferes-dia", estado: "pendiente" }));
+  // El aviso va a quien atiende las alarmas de esta base, que SÍ está autorizado.
+  if (sinPermiso.length) {
+    const alarma = soloDig(await one("alarma_tel"));
+    if (alarma) {
+      filasCola.push({
+        telefono: alarma, tipo: "alerta", estado: "pendiente",
+        mensaje: `🚨 El reporte de choferes de hoy NO le va a llegar al IMAU.
+
+` +
+          `El número ${lista(sinPermiso.map(telLindo))} no está autorizado para recibir mensajes ` +
+          `en esta base, así que el envío se va a quedar trancado.
+
+` +
+          `Se arregla agregándolo en la lista de destinos permitidos. El reporte queda guardado: ` +
+          `en cuanto se autorice, sale.`,
+      });
+    }
+  }
+  const ok = await enqueue(filasCola);
   // Se marca SOLO si el encolado salió bien: si falla, mañana no se pierde el día.
   if (ok) await marcar(key);
   return new Response(JSON.stringify({
