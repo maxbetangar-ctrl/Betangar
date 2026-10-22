@@ -119,6 +119,22 @@ const r = await pag.evaluate(([con, sin]) => {
   const todoBien = con.filter(f => f.estado === 'pasó')
   out.textoTodoBien = textoResumenDen(todoBien, todoBien)
   out.fechaMenos = fechaMenos(30)
+
+  // MODO ZONA. Con 3 esquinas la pregunta es otra: entro o no entro. El radio
+  // deja de tener sentido y NO puede seguir ofreciendose.
+  DEN.vertices = [[10.6695,-71.6045],[10.6695,-71.5995],[10.6750,-71.5995]]
+  out.esZona3 = denEsZona()
+  pintarPanelDenuncia(con)
+  const c2 = document.querySelector('#tapa .caja')
+  out.zonaHTML = c2.innerText
+  out.zonaRadios = c2.querySelectorAll('[data-den-radio]').length
+  out.zonaDiasVivos = [...c2.querySelectorAll('[data-den-dias]')]
+    .filter(b => typeof b.onclick === 'function').length
+  out.textoZona = textoResumenDen(con.filter(f => f.estado === 'pasó'), con)
+  // Con 2 esquinas todavia NO es zona: la base exige 3.
+  DEN.vertices = [[10.6695,-71.6045],[10.6695,-71.5995]]
+  out.esZona2 = denEsZona()
+  DEN.vertices = []
   return out
 }, [CON, SIN])
 
@@ -137,6 +153,14 @@ exige(r.copiarVivo, 'el botón Copiar quedó muerto')
 exige(/no puede afirmarse/.test(r.textoCon), 'el texto copiado no lleva la salvedad')
 exige(/no puede afirmarse/.test(r.textoTodoBien), '⛔ con todo en verde, el texto copiado OMITE la salvedad')
 exige(/^\d{4}-\d{2}-\d{2}$/.test(r.fechaMenos), `fechaMenos devolvió ${r.fechaMenos}`)
+exige(r.esZona3 === true, 'con 3 esquinas no se considera zona')
+exige(r.esZona2 === false, 'con 2 esquinas ya se considera zona (la base exige 3)')
+exige(/Zona dibujada de .*3 esquinas/.test(r.zonaHTML), 'la zona no se anuncia en el panel')
+exige(r.zonaRadios === 0, `sobre una zona se siguen ofreciendo ${r.zonaRadios} botones de radio`)
+exige(r.zonaDiasVivos === 3, `en modo zona los botones de dias quedaron ${r.zonaDiasVivos}/3`)
+exige(/poligono de 3 vertices|pol.gono de 3 v.rtices/.test(r.textoZona), 'el texto copiado no describe la zona')
+exige(r.textoZona.indexOf('10.66950,-71.60450') >= 0, 'el texto copiado no lleva los vertices')
+exige(r.textoZona.indexOf('radio de') < 0, 'el texto copiado de una zona habla de un radio que no existe')
 exige(errores.length === 0, 'errores de JS: ' + errores.join(' · '))
 
 console.log('\n── EL PANEL, CON JORNADAS ──\n' + r.conHTML.trim())

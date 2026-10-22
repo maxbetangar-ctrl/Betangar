@@ -162,6 +162,8 @@
     </span>
     <button class="btn ocultarTv" id="bSitio" style="display:none">📐 Marcar geocerca</button>
     <button class="btn ocultarTv" id="bDen" title="Marcá en el mapa el sitio por el que están reclamando y el sistema contesta qué días se pasó por ahí, con fechas, horas y unidades.">🛡️ ¿Pasamos por aquí?</button>
+    <button class="btn ocultarTv" id="bDenOk" style="display:none" title="Cerrar la zona dibujada y consultar qué días se pasó por ella">✅ Consultar la zona</button>
+    <button class="btn ocultarTv" id="bDenUndo" style="display:none" title="Quitar la última esquina">↩︎ Quitar esquina</button>
     <button class="btn ocultarTv" id="bDeshacer" style="display:none" title="Quitar la última esquina">↶ Deshacer</button>
     <button class="btn ocultarTv" id="bCerrar" style="display:none" title="Cerrar el polígono y ponerle nombre">✓ Cerrar y guardar</button>
     <button class="btn ocultarTv" id="bClave" title="Pegar la clave de Stadia Maps para probar sus fondos">🔑</button>
@@ -252,7 +254,7 @@
 // sobre una función que estaba puesta hacía una hora.
 // Con el sello a la vista, la pregunta «¿estás viendo la última?» se contesta mirando,
 // en vez de adivinando. Al tocar este archivo, subir la fecha.
-var VERSION_PANTALLA = '20261022-0820';
+var VERSION_PANTALLA = '20261022-0905';
 
 var SUPA_URL = 'https://hrkjddehqnzcqwlkklqm.supabase.co';
 var SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhya2pkZGVocW56Y3F3bGtrbHFtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc2NTk1NzIsImV4cCI6MjA5MzIzNTU3Mn0.kqWKthyZfPZ86toql7shGByF-ZhUpcQUS4Jw4RnG_ko';
@@ -1454,16 +1456,22 @@ function lineaChofer(cam){
 // ⛔ Y MUESTRA LOS TRES ESTADOS, no un sí/no: «pasó», «NO pasó» y «no se puede
 // afirmar». El tercero es el que vuelve creíble a los otros dos: un informe que
 // dijera que se pasó todos los días se cae el primer día que lo revisen.
-var DEN = { lat:null, lon:null, radio:100, dias:30, capa:[] };
+var DEN = { lat:null, lon:null, radio:100, dias:30, capa:[], vertices:[] };
+
+/** Una esquina = un punto con radio. Tres o más = la zona dibujada. */
+function denEsZona(){ return DEN.vertices.length >= 3; }
 
 function modoDenuncia(){
   if(DEN.activo){ salirDeDenuncia(); return; }
   if(marcando) { salirDeMarcar(); borrarDibujo(); editando=null; }
-  DEN.activo=true;
+  DEN.activo=true; DEN.vertices=[]; DEN.lat=null; DEN.lon=null;
+  borrarMarcaDen();
   var b=document.getElementById('bDen');
-  b.classList.add('on'); b.textContent='Tocá el sitio denunciado… (cancelar)';
+  b.classList.add('on');
+  b.textContent='Tocá el sitio… 1 toque = un punto, 3 o más = una zona (cancelar)';
   mapa.getContainer().style.cursor='crosshair';
   mapa.on('click', alClicDenuncia);
+  botonesDen();
 }
 function salirDeDenuncia(){
   mapa.off('click', alClicDenuncia);
@@ -1471,6 +1479,15 @@ function salirDeDenuncia(){
   var b=document.getElementById('bDen');
   b.classList.remove('on'); b.textContent='🛡️ ¿Pasamos por aquí?';
   DEN.activo=false;
+  botonesDen();
+}
+/** Los dos botones de la zona solo existen mientras se está dibujando. */
+function botonesDen(){
+  var ok=document.getElementById('bDenOk'), un=document.getElementById('bDenUndo');
+  var dib = DEN.activo && DEN.vertices.length > 0;
+  un.style.display = dib ? '' : 'none';
+  ok.style.display = (DEN.activo && denEsZona()) ? '' : 'none';
+  ok.textContent = '✅ Consultar la zona ('+DEN.vertices.length+' esquinas)';
 }
 function borrarMarcaDen(){
   DEN.capa.forEach(function(c){ try{ mapa.removeLayer(c); }catch(e){} });
@@ -1478,17 +1495,45 @@ function borrarMarcaDen(){
 }
 function pintarMarcaDen(){
   borrarMarcaDen();
-  if(DEN.lat==null) return;
-  // El círculo es del RADIO que se está usando: que se vea qué se preguntó.
-  DEN.capa.push(L.circle([DEN.lat,DEN.lon],{radius:DEN.radio,color:'#c0392b',
-    weight:2,fillColor:'#c0392b',fillOpacity:.12}).addTo(mapa));
-  DEN.capa.push(L.marker([DEN.lat,DEN.lon],{icon:L.divIcon({className:'',
-    html:'<div style="font-size:20px;line-height:1;transform:translate(-50%,-100%)">📍</div>'})}).addTo(mapa));
+  if(!DEN.vertices.length) return;
+  // Cada esquina se ve: si no, no hay forma de saber qué se dibujó ni dónde
+  // deshacer. Son el dato de la consulta, no un adorno.
+  DEN.vertices.forEach(function(v,i){
+    DEN.capa.push(L.marker(v,{icon:L.divIcon({className:'',
+      html:'<div style="width:11px;height:11px;border-radius:50%;background:#c0392b;'
+         +'border:2px solid #fff;box-shadow:0 0 3px rgba(0,0,0,.5);'
+         +'transform:translate(-50%,-50%)" title="esquina '+(i+1)+'"></div>'})}).addTo(mapa));
+  });
+  if(denEsZona()){
+    DEN.capa.push(L.polygon(DEN.vertices,{color:'#c0392b',weight:2,
+      fillColor:'#c0392b',fillOpacity:.12}).addTo(mapa));
+  }else{
+    // Con una sola esquina la pregunta es «este punto y un radio»: se dibuja el
+    // círculo que se va a consultar, para que no haya que imaginárselo.
+    DEN.capa.push(L.circle(DEN.vertices[0],{radius:DEN.radio,color:'#c0392b',
+      weight:2,fillColor:'#c0392b',fillOpacity:.12}).addTo(mapa));
+  }
 }
 function alClicDenuncia(ev){
-  DEN.lat=ev.latlng.lat; DEN.lon=ev.latlng.lng;
-  salirDeDenuncia();
+  DEN.vertices.push([ev.latlng.lat, ev.latlng.lng]);
+  DEN.lat=DEN.vertices[0][0]; DEN.lon=DEN.vertices[0][1];
   pintarMarcaDen();
+  botonesDen();
+  // Con la PRIMERA esquina ya se contesta: el caso más común es un punto, y
+  // obligar a dibujar una zona para preguntar por una esquina sería pedirle
+  // trabajo de más a quien está contestando una denuncia con el teléfono en la
+  // mano. Si sigue tocando, la consulta se rehace sobre la zona.
+  if(DEN.vertices.length===1) consultarDenuncia();
+}
+function denDeshacer(){
+  DEN.vertices.pop();
+  if(DEN.vertices.length){ DEN.lat=DEN.vertices[0][0]; DEN.lon=DEN.vertices[0][1]; }
+  else { DEN.lat=null; DEN.lon=null; }
+  pintarMarcaDen(); botonesDen();
+}
+function denCerrarZona(){
+  if(!denEsZona()){ alert('Hacen falta al menos 3 esquinas para encerrar una zona.'); return; }
+  salirDeDenuncia();
   consultarDenuncia();
 }
 
@@ -1498,10 +1543,15 @@ async function consultarDenuncia(){
   c.innerHTML='<h2>🛡️ ¿Pasamos por aquí?</h2><p>Consultando el recorrido…</p>';
   var r;
   try{
-    r=await sb.rpc('dias_por_aqui',{
-      p_lat:DEN.lat, p_lon:DEN.lon, p_radio_m:DEN.radio,
-      p_desde:fechaMenos(DEN.dias), p_hasta:DIA
-    });
+    // Dos preguntas distintas, no una con un parametro de mas: contra una zona
+    // dibujada se pregunta si el camion ENTRO o la ATRAVESO, y ahi el radio no
+    // significa nada. Mezclarlas obligaria a inventar un radio para el poligono.
+    r = denEsZona()
+      ? await sb.rpc('dias_por_poligono',{
+          p_poli:DEN.vertices, p_desde:fechaMenos(DEN.dias), p_hasta:DIA })
+      : await sb.rpc('dias_por_aqui',{
+          p_lat:DEN.lat, p_lon:DEN.lon, p_radio_m:DEN.radio,
+          p_desde:fechaMenos(DEN.dias), p_hasta:DIA });
   }catch(e){ r={error:{message:String(e.message||e)}}; }
 
   if(r.error){
@@ -1532,9 +1582,12 @@ function pintarPanelDenuncia(filas){
   var duda = filas.filter(function(f){ return f.estado==='no se puede afirmar'; });
 
   var h='<h2>🛡️ ¿Pasamos por aquí?</h2>';
-  h+='<p style="font-size:12px;color:var(--suave);margin:0 0 10px">Punto marcado: '
-    +DEN.lat.toFixed(5)+', '+DEN.lon.toFixed(5)+' · radio <b>'+DEN.radio+' m</b> · '
-    +'últimos <b>'+DEN.dias+'</b> días</p>';
+  h+='<p style="font-size:12px;color:var(--suave);margin:0 0 10px">'
+    +(denEsZona()
+      ? 'Zona dibujada de <b>'+DEN.vertices.length+' esquinas</b>'
+      : 'Punto marcado: '+DEN.lat.toFixed(5)+', '+DEN.lon.toFixed(5)
+        +' · radio <b>'+DEN.radio+' m</b>')
+    +' · últimos <b>'+DEN.dias+'</b> días</p>';
 
   // El titular, que es lo que se contesta.
   if(paso.length){
@@ -1566,13 +1619,17 @@ function pintarPanelDenuncia(filas){
     +'<b>'+duda.length+'</b> en los que <b>no se puede afirmar</b> porque ese día el rastreo '
     +'tuvo un silencio de 20 minutos o más con el motor encendido.</p>';
 
-  h+='<div style="display:flex;gap:6px;flex-wrap:wrap;margin:10px 0">'
-    +'<span style="font-size:12px;color:var(--suave);align-self:center">Radio:</span>';
-  [60,100,150,300].forEach(function(m){
-    h+='<button class="btn'+(DEN.radio===m?' on':'')+'" data-den-radio="'+m+'" '
-      +'style="padding:4px 9px;font-size:12px">'+m+' m</button>';
-  });
-  h+='<span style="font-size:12px;color:var(--suave);align-self:center;margin-left:8px">Días:</span>';
+  h+='<div style="display:flex;gap:6px;flex-wrap:wrap;margin:10px 0">';
+  // El radio SOLO se ofrece cuando se pregunto por un punto. Sobre una zona
+  // dibujada no significa nada, y un control que no hace nada confunde.
+  if(!denEsZona()){
+    h+='<span style="font-size:12px;color:var(--suave);align-self:center">Radio:</span>';
+    [60,100,150,300].forEach(function(m){
+      h+='<button class="btn'+(DEN.radio===m?' on':'')+'" data-den-radio="'+m+'" '
+        +'style="padding:4px 9px;font-size:12px">'+m+' m</button>';
+    });
+  }
+  h+='<span style="font-size:12px;color:var(--suave);align-self:center">Días:</span>';
   [15,30,60].forEach(function(d){
     h+='<button class="btn'+(DEN.dias===d?' on':'')+'" data-den-dias="'+d+'" '
       +'style="padding:4px 9px;font-size:12px">'+d+'</button>';
@@ -1602,8 +1659,12 @@ function pintarPanelDenuncia(filas){
 /** El texto que se pega en un mensaje o en un oficio. Sin jerga del sistema. */
 function textoResumenDen(paso, filas){
   var t='Recorrido registrado por el sistema satelital de la flota\n'
-   +'Punto consultado: '+DEN.lat.toFixed(5)+', '+DEN.lon.toFixed(5)
-   +' (radio de '+DEN.radio+' metros)\n'
+   +(denEsZona()
+      ? 'Zona consultada: polígono de '+DEN.vertices.length+' vértices — '
+        + DEN.vertices.map(function(v){ return v[0].toFixed(5)+','+v[1].toFixed(5); }).join('  ')
+        + '\n'
+      : 'Punto consultado: '+DEN.lat.toFixed(5)+', '+DEN.lon.toFixed(5)
+        +' (radio de '+DEN.radio+' metros)\n')
    +'Período: últimos '+DEN.dias+' días, hasta el '+fechaCorta(DIA)+'\n\n';
   if(!paso.length){
     t+='En el período consultado no se registra paso por ese punto.\n';
@@ -1923,6 +1984,8 @@ async function arrancarVista(){
   inp.onchange = function(){ irADia(inp.value || DIA); };
   document.getElementById('bHoy').onclick = function(){ irADia(fechaVE(new Date())); };
   document.getElementById('bDen').onclick = modoDenuncia;
+  document.getElementById('bDenOk').onclick = denCerrarZona;
+  document.getElementById('bDenUndo').onclick = denDeshacer;
   // El rol se pregunta ANTES de traer nada: si no puede leer, lo que corresponde es
   // decírselo, no dibujarle un mapa vacío.
   try{ var rr=await sb.rpc('app_rol'); if(!rr.error) MI_ROL=rr.data||''; }catch(e){}
