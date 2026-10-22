@@ -10,8 +10,9 @@
 //   2. ⛔ QUE NO ROBEN EL CLIC (`interactive:false`). Si lo robaran, el botón
 //      «¿Pasamos por aquí?» dejaría de poder marcar un punto sobre una
 //      parroquia — o sea, sobre toda la ciudad.
-//   3. Las CUATRO de Betangar: color propio, borde más marcado y su nombre.
-//      Las otras: grises, punteadas y SIN etiqueta (18 nombres son ruido).
+//   3. SOLO las CUATRO de Betangar se dibujan. Las otras 14 quedan guardadas
+//      en la base pero NO se pintan: catorce contornos cruzando la ciudad son
+//      ruido encima del recorrido, que es lo que de verdad hay que leer.
 //   4. El interruptor apaga y prende, y no deja capas colgadas.
 //
 // Cómo: se corre el código REAL de `mapa.html` (se le quita solo la envoltura
@@ -112,14 +113,15 @@ const r = await pag.evaluate((parr) => {
   const halos    = pol.filter(x => /^#0{3,6}$/i.test(String(x.opts.color)))
   const regiones = pol.filter(x => !/^#0{3,6}$/i.test(String(x.opts.color)))
   const mias  = regiones.filter(x => !x.opts.dashArray)
+  // Ya no se dibujan las ajenas: lo que llegue de mas es una regresion.
   const otras = regiones.filter(x => !!x.opts.dashArray)
   // ⛔ NINGUNA puede tener relleno. Es la regresión que hay que impedir: una
   //    tinta sobre la parroquia apaga justo la zona donde andan los camiones, y
   //    multiplicada por 18 apaga la ciudad. Máximo lo dijo mirando la pantalla:
   //    «ahora me quitaste la vista del recorrido».
-  const sinRelleno = pol.every(x => x.opts.fill === false
-                                 || x.opts.fillOpacity === 0
-                                 || x.opts.fillOpacity === undefined)
+  // El tinte vuelve, pero muy bajo: marca territorio sin apagar la zona por
+  // donde andan los camiones. Mas de 0.12 ya opaca el recorrido.
+  const relleveSuave = regiones.every(x => (x.opts.fillOpacity || 0) <= 0.12)
   const out = {
     poligonos: pol.length, etiquetas: eti.length, halos: halos.length,
     regiones: regiones.length, mias: mias.length, otras: otras.length,
@@ -135,7 +137,7 @@ const r = await pag.evaluate((parr) => {
     // mismo color suma brillo y no separa: contra una marana de rutas de neon,
     // mas color es mas ruido. Si alguien lo vuelve a pintar del color, esto cae.
     casingOscuro: halos.every(h => /^#0{3,6}$/i.test(String(h.opts.color))),
-    sinRelleno,
+    relleveSuave,
     miasMasFuertes: mias.every(m => m.opts.opacity >= 0.9)
                     && otras.every(o => o.opts.opacity < 0.9),
     todosEnPanel: pol.every(x => x.opts.pane === 'parroquias'),
@@ -156,19 +158,18 @@ const r = await pag.evaluate((parr) => {
 
 const fallos = []
 const exige = (ok, q) => { if (!ok) fallos.push(q) }
-exige(r.regiones === 6, `se dibujaron ${r.regiones} regiones de 6`)
 exige(r.halos === 4, `${r.halos} halos: uno por cada parroquia nuestra`)
-exige(r.sinRelleno, 'ALGUNA parroquia trae relleno: eso apaga el recorrido de los camiones')
+exige(r.relleveSuave, 'el relleno paso de 0.12: a partir de ahi apaga el recorrido de los camiones')
+exige(r.regiones === 4, `se dibujaron ${r.regiones} parroquias: solo van las 4 de Betangar`)
+exige(r.otras === 0, `se dibujaron ${r.otras} parroquias ajenas: no deben pintarse`)
 exige(r.casingOscuro, '⛔ el halo volvio a ser del color de la linea: suma brillo pero no separa')
 exige(r.haloMasAncho, '⛔ el halo no es más ancho que el borde: el límite no se despega del fondo')
 exige(r.miasMasFuertes, 'las nuestras no se distinguen de las ajenas por intensidad')
-exige(r.mias === 4 && r.otras === 2, `resaltadas ${r.mias} (deberían ser 4), de fondo ${r.otras}`)
 exige(r.etiquetas === 4, `${r.etiquetas} etiquetas: solo las 4 nuestras llevan nombre`)
 exige(r.todosEnPanel, '⛔ alguna parroquia NO va al panel de abajo: taparía los recorridos')
 exige(r.etiquetasEnPanel, 'alguna etiqueta no va al panel de abajo')
 exige(r.ningunoInteractivo, '⛔ las parroquias roban el clic: no se podría marcar un punto encima')
 exige(r.coloresDistintos === 4, `las 4 nuestras comparten color (${r.coloresDistintos} distintos)`)
-exige(r.otras === 2 && r.otrasPunteadas, 'las parroquias ajenas no van punteadas')
 exige(r.miasSinPuntear, 'las nuestras salieron punteadas como las ajenas')
 exige(r.apagado === false && r.prendido === true, 'el interruptor no alterna')
 exige(r.quedanVivas === 0, `al apagar quedaron ${r.quedanVivas} capas colgadas`)

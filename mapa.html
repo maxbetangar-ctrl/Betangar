@@ -255,7 +255,7 @@
 // sobre una función que estaba puesta hacía una hora.
 // Con el sello a la vista, la pregunta «¿estás viendo la última?» se contesta mirando,
 // en vez de adivinando. Al tocar este archivo, subir la fecha.
-var VERSION_PANTALLA = '20261022-1205';
+var VERSION_PANTALLA = '20261022-1245';
 
 var SUPA_URL = 'https://hrkjddehqnzcqwlkklqm.supabase.co';
 var SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhya2pkZGVocW56Y3F3bGtrbHFtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc2NTk1NzIsImV4cCI6MjA5MzIzNTU3Mn0.kqWKthyZfPZ86toql7shGByF-ZhUpcQUS4Jw4RnG_ko';
@@ -566,8 +566,13 @@ function iniciarMapa(){
   // El panel de las parroquias, POR DEBAJO de los recorridos. El de las capas
   // normales (`overlayPane`) va en 400; con 350 las manchas de color quedan
   // siempre atras, aunque `pintar()` vuelva a dibujar las rutas cien veces.
+  // ⛔ 250, NO 350. El panel de las rutas (`overlayPane`) va en 400, asi que con
+  // 350 ya quedaban debajo — pero Maximo reporto dos veces que el recorrido se
+  // le perdia, y entre discutir la teoria y dejarlo fuera de toda duda, se deja
+  // fuera de toda duda: 250 esta apenas encima de los mosaicos del mapa (200) y
+  // muy por debajo de cualquier cosa que dibuje el recorrido.
   mapa.createPane('parroquias');
-  mapa.getPane('parroquias').style.zIndex = 350;
+  mapa.getPane('parroquias').style.zIndex = 250;
   mapa.getPane('parroquias').style.pointerEvents = 'none';
   var sel=document.getElementById('selFondo');
   sel.innerHTML=Object.keys(FONDOS).map(function(k){
@@ -1502,7 +1507,13 @@ function pintarParroquias(){
   PARROQUIAS.forEach(function(p){
     if(!p.poligono || p.poligono.length<3) return;
     var mia=p.es_nuestra===true;
-    var color = mia ? COLOR_PARR[(i++)%COLOR_PARR.length] : '#9aa3ab';
+    // ⛔ SOLO LAS NUESTRAS SE DIBUJAN (Maximo, dos veces: «solo me interesan las
+    //    4 mias»). Las otras 14 quedan guardadas en la base —costaron lo mismo y
+    //    sirven para consultar— pero NO se pintan: catorce contornos punteados
+    //    cruzando la ciudad son ruido encima del recorrido, que es lo que de
+    //    verdad hay que leer.
+    if(!mia) return;
+    var color = COLOR_PARR[(i++)%COLOR_PARR.length];
     if(mia){
       // ⛔ EL LÍMITE SE LEE COMO LÍNEA, NO COMO MANCHA, Y LO QUE LO HACE RESALTAR
       //    ES CONTRASTE, NO MÁS COLOR. Van dos versiones fallidas:
@@ -1527,9 +1538,11 @@ function pintarParroquias(){
     //    (brillo sin separación) → franja oscura + línea, y sin relleno.
     capaParr.push(L.polygon(p.poligono,{
       pane:'parroquias',
-      color:color, weight: mia?5:1.2, opacity: mia?1:.5,
-      fill:false,
-      dashArray: mia?null:'5 5',
+      color:color, weight:5, opacity:1,
+      // Tinte de acuarela SOLO en las nuestras y muy bajo: marca territorio sin
+      // apagar la zona por donde andan los camiones. Las otras 14 van sin nada:
+      // dieciocho tintes encimados son una ciudad pintada de gris.
+      fill:true, fillColor:color, fillOpacity:.07,
       interactive:false            // no roba el clic: el mapa se sigue usando igual
     }).addTo(mapa));
     if(mia){
