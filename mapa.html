@@ -255,7 +255,7 @@
 // sobre una función que estaba puesta hacía una hora.
 // Con el sello a la vista, la pregunta «¿estás viendo la última?» se contesta mirando,
 // en vez de adivinando. Al tocar este archivo, subir la fecha.
-var VERSION_PANTALLA = '20261022-1115';
+var VERSION_PANTALLA = '20261022-1150';
 
 var SUPA_URL = 'https://hrkjddehqnzcqwlkklqm.supabase.co';
 var SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhya2pkZGVocW56Y3F3bGtrbHFtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc2NTk1NzIsImV4cCI6MjA5MzIzNTU3Mn0.kqWKthyZfPZ86toql7shGByF-ZhUpcQUS4Jw4RnG_ko';
@@ -1504,18 +1504,22 @@ function pintarParroquias(){
     var mia=p.es_nuestra===true;
     var color = mia ? COLOR_PARR[(i++)%COLOR_PARR.length] : '#9aa3ab';
     if(mia){
-      // ⛔ EL LÍMITE SE LEE COMO LÍNEA, NO COMO MANCHA. La primera versión lo
-      // fiaba al relleno y en el mapa de verdad no se veía: el fondo es oscuro
-      // y los recorridos son neón, así que una mancha suave desaparece —y
-      // subirle el relleno taparía el recorrido, que es lo que hay que leer.
-      // Se dibuja DOS veces: un halo ancho y translúcido, y encima el borde
-      // nítido. Así el límite salta a la vista sin pelearle color a las rutas.
+      // ⛔ EL LÍMITE SE LEE COMO LÍNEA, NO COMO MANCHA, Y LO QUE LO HACE RESALTAR
+      //    ES CONTRASTE, NO MÁS COLOR. Van dos versiones fallidas:
+      //    1ª: solo relleno suave → sobre fondo oscuro desapareció, y subirlo
+      //        habría tapado el recorrido, que es lo que hay que leer.
+      //    2ª: halo DEL MISMO COLOR que la línea → sumaba brillo pero no
+      //        separaba: contra una maraña de rutas de neón, más color es más
+      //        ruido.
+      //    Lo que funciona es el recurso de cartografía de siempre: una FRANJA
+      //    OSCURA alrededor (casing) que despeja el ruido, y encima la línea de
+      //    color. El contorno se despega aunque le pase un recorrido por encima.
       capaParr.push(L.polygon(p.poligono,{pane:'parroquias',interactive:false,
-        color:color, weight:10, opacity:.22, fill:false}).addTo(mapa));
+        color:'#000', weight:14, opacity:.55, fill:false}).addTo(mapa));
     }
     capaParr.push(L.polygon(p.poligono,{
       pane:'parroquias',
-      color:color, weight: mia?3:1.2, opacity: mia?1:.55,
+      color:color, weight: mia?5:1.2, opacity: mia?1:.55,
       fillColor:color, fillOpacity: mia?.10:.04,
       dashArray: mia?null:'5 5',
       interactive:false            // no roba el clic: el mapa se sigue usando igual
@@ -1526,9 +1530,10 @@ function pintarParroquias(){
       // mapa puede estar en claro o en oscuro, y el blanco solo sirve en uno.
       var c=centroDe(p.poligono);
       capaParr.push(L.marker(c,{pane:'parroquias',interactive:false,icon:L.divIcon({className:'',
-        html:'<div style="transform:translate(-50%,-50%);white-space:nowrap;font-size:12px;'
-          +'font-weight:800;letter-spacing:.3px;color:'+color+';background:rgba(0,0,0,.55);'
-          +'border:1px solid '+color+';border-radius:5px;padding:2px 7px">'
+        html:'<div style="transform:translate(-50%,-50%);white-space:nowrap;font-size:14px;'
+          +'font-weight:800;letter-spacing:.4px;color:'+color+';background:rgba(0,0,0,.78);'
+          +'border:2px solid '+color+';border-radius:6px;padding:3px 10px;'
+          +'box-shadow:0 0 10px rgba(0,0,0,.7)">'
           +esc(p.nombre.replace(/^Parroquia /,''))+'</div>'})}).addTo(mapa));
     }
   });

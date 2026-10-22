@@ -119,9 +119,13 @@ const r = await pag.evaluate((parr) => {
     // límite de un fondo oscuro lleno de rutas de neón. Si algún día alguien
     // los iguala, el límite vuelve a desaparecer y nadie se entera.
     haloMasAncho: halos.length > 0
-                  && halos.every(h => h.opts.weight >= 6)
-                  && mias.every(m => m.opts.weight >= 2.5)
+                  && halos.every(h => h.opts.weight >= 10)
+                  && mias.every(m => m.opts.weight >= 4)
                   && halos.every(h => mias.every(m => h.opts.weight > m.opts.weight)),
+    // El casing tiene que ser OSCURO, no del color de la linea. Un halo del
+    // mismo color suma brillo y no separa: contra una marana de rutas de neon,
+    // mas color es mas ruido. Si alguien lo vuelve a pintar del color, esto cae.
+    casingOscuro: halos.every(h => /^#0{3,6}$/i.test(String(h.opts.color))),
     miasMasFuertes: mias.every(m => m.opts.opacity >= 0.9)
                     && otras.every(o => o.opts.opacity < 0.9),
     todosEnPanel: pol.every(x => x.opts.pane === 'parroquias'),
@@ -144,6 +148,7 @@ const fallos = []
 const exige = (ok, q) => { if (!ok) fallos.push(q) }
 exige(r.regiones === 6, `se dibujaron ${r.regiones} regiones de 6`)
 exige(r.halos === 4, `${r.halos} halos: uno por cada parroquia nuestra`)
+exige(r.casingOscuro, '⛔ el halo volvio a ser del color de la linea: suma brillo pero no separa')
 exige(r.haloMasAncho, '⛔ el halo no es más ancho que el borde: el límite no se despega del fondo')
 exige(r.miasMasFuertes, 'las nuestras no se distinguen de las ajenas por intensidad')
 exige(r.mias === 4 && r.otras === 2, `resaltadas ${r.mias} (deberían ser 4), de fondo ${r.otras}`)
