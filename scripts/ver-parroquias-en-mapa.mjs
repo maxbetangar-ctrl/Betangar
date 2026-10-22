@@ -106,11 +106,24 @@ const r = await pag.evaluate((parr) => {
   const d = window.__dibujos
   const pol = d.filter(x => x.tipo === 'polygon')
   const eti = d.filter(x => x.tipo === 'marker')
-  const mias = pol.filter(x => x.opts.fillOpacity > 0.1)
-  const otras = pol.filter(x => x.opts.fillOpacity <= 0.1)
+  // Cada parroquia nuestra se dibuja DOS veces: un halo ancho sin relleno y
+  // encima el borde nítido. Las ajenas, una sola vez y punteadas.
+  const halos    = pol.filter(x => x.opts.fill === false)
+  const regiones = pol.filter(x => x.opts.fill !== false)
+  const mias  = regiones.filter(x => !x.opts.dashArray)
+  const otras = regiones.filter(x => !!x.opts.dashArray)
   const out = {
-    poligonos: pol.length, etiquetas: eti.length,
-    mias: mias.length, otras: otras.length,
+    poligonos: pol.length, etiquetas: eti.length, halos: halos.length,
+    regiones: regiones.length, mias: mias.length, otras: otras.length,
+    // ⛔ El halo tiene que ser MÁS ANCHO que el borde: es lo que despega el
+    // límite de un fondo oscuro lleno de rutas de neón. Si algún día alguien
+    // los iguala, el límite vuelve a desaparecer y nadie se entera.
+    haloMasAncho: halos.length > 0
+                  && halos.every(h => h.opts.weight >= 6)
+                  && mias.every(m => m.opts.weight >= 2.5)
+                  && halos.every(h => mias.every(m => h.opts.weight > m.opts.weight)),
+    miasMasFuertes: mias.every(m => m.opts.opacity >= 0.9)
+                    && otras.every(o => o.opts.opacity < 0.9),
     todosEnPanel: pol.every(x => x.opts.pane === 'parroquias'),
     etiquetasEnPanel: eti.every(x => x.opts.pane === 'parroquias'),
     ningunoInteractivo: pol.concat(eti).every(x => x.opts.interactive === false),
@@ -129,20 +142,23 @@ const r = await pag.evaluate((parr) => {
 
 const fallos = []
 const exige = (ok, q) => { if (!ok) fallos.push(q) }
-exige(r.poligonos === 6, `se dibujaron ${r.poligonos} polígonos de 6`)
+exige(r.regiones === 6, `se dibujaron ${r.regiones} regiones de 6`)
+exige(r.halos === 4, `${r.halos} halos: uno por cada parroquia nuestra`)
+exige(r.haloMasAncho, '⛔ el halo no es más ancho que el borde: el límite no se despega del fondo')
+exige(r.miasMasFuertes, 'las nuestras no se distinguen de las ajenas por intensidad')
 exige(r.mias === 4 && r.otras === 2, `resaltadas ${r.mias} (deberían ser 4), de fondo ${r.otras}`)
 exige(r.etiquetas === 4, `${r.etiquetas} etiquetas: solo las 4 nuestras llevan nombre`)
 exige(r.todosEnPanel, '⛔ alguna parroquia NO va al panel de abajo: taparía los recorridos')
 exige(r.etiquetasEnPanel, 'alguna etiqueta no va al panel de abajo')
 exige(r.ningunoInteractivo, '⛔ las parroquias roban el clic: no se podría marcar un punto encima')
 exige(r.coloresDistintos === 4, `las 4 nuestras comparten color (${r.coloresDistintos} distintos)`)
-exige(r.otrasPunteadas, 'las parroquias ajenas no van punteadas')
+exige(r.otras === 2 && r.otrasPunteadas, 'las parroquias ajenas no van punteadas')
 exige(r.miasSinPuntear, 'las nuestras salieron punteadas como las ajenas')
 exige(r.apagado === false && r.prendido === true, 'el interruptor no alterna')
 exige(r.quedanVivas === 0, `al apagar quedaron ${r.quedanVivas} capas colgadas`)
 exige(errores.length === 0, 'errores de JS: ' + errores.join(' · '))
 
-console.log(`\npolígonos ${r.poligonos} · resaltadas ${r.mias} · de fondo ${r.otras} · etiquetas ${r.etiquetas}`)
+console.log(`\nregiones ${r.regiones} · resaltadas ${r.mias} (+${r.halos} halos) · de fondo ${r.otras} · etiquetas ${r.etiquetas}`)
 console.log(`todas en el panel de abajo: ${r.todosEnPanel} · ninguna roba el clic: ${r.ningunoInteractivo}`)
 if (fallos.length) { console.log(`\n⛔ ${fallos.length} falla(s):`); fallos.forEach(f => console.log('   · ' + f)) }
 else console.log('\n✅ Las 4 resaltadas con nombre, las otras de fondo, todas por DEBAJO de los recorridos y sin robar el clic.')

@@ -255,7 +255,7 @@
 // sobre una función que estaba puesta hacía una hora.
 // Con el sello a la vista, la pregunta «¿estás viendo la última?» se contesta mirando,
 // en vez de adivinando. Al tocar este archivo, subir la fecha.
-var VERSION_PANTALLA = '20261022-1030';
+var VERSION_PANTALLA = '20261022-1115';
 
 var SUPA_URL = 'https://hrkjddehqnzcqwlkklqm.supabase.co';
 var SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhya2pkZGVocW56Y3F3bGtrbHFtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc2NTk1NzIsImV4cCI6MjA5MzIzNTU3Mn0.kqWKthyZfPZ86toql7shGByF-ZhUpcQUS4Jw4RnG_ko';
@@ -1473,7 +1473,10 @@ function lineaChofer(cam){
 var PARROQUIAS=[], capaParr=[], VER_PARR=true;
 // Tonos de acuarela: se distinguen entre sí y NO compiten con los colores de
 // las unidades, que son los que tienen que saltar a la vista.
-var COLOR_PARR=['#2e7d8f','#8a6d3b','#7b5ea7','#2f7d4f'];
+// ⚠️ Tonos que leen sobre fondo OSCURO (es como se usa en la oficina) y que no
+// compiten con el neón de los recorridos: claros y poco saturados, para que
+// marquen territorio sin pelearle la atención a las unidades.
+var COLOR_PARR=['#ffd27f','#9fe0ff','#d7b3ff','#a8f0c6'];
 
 async function cargarParroquias(){
   if(PARROQUIAS.length) return;
@@ -1500,19 +1503,32 @@ function pintarParroquias(){
     if(!p.poligono || p.poligono.length<3) return;
     var mia=p.es_nuestra===true;
     var color = mia ? COLOR_PARR[(i++)%COLOR_PARR.length] : '#9aa3ab';
+    if(mia){
+      // ⛔ EL LÍMITE SE LEE COMO LÍNEA, NO COMO MANCHA. La primera versión lo
+      // fiaba al relleno y en el mapa de verdad no se veía: el fondo es oscuro
+      // y los recorridos son neón, así que una mancha suave desaparece —y
+      // subirle el relleno taparía el recorrido, que es lo que hay que leer.
+      // Se dibuja DOS veces: un halo ancho y translúcido, y encima el borde
+      // nítido. Así el límite salta a la vista sin pelearle color a las rutas.
+      capaParr.push(L.polygon(p.poligono,{pane:'parroquias',interactive:false,
+        color:color, weight:10, opacity:.22, fill:false}).addTo(mapa));
+    }
     capaParr.push(L.polygon(p.poligono,{
       pane:'parroquias',
-      color:color, weight: mia?2:1, opacity: mia?.85:.45,
-      fillColor:color, fillOpacity: mia?.14:.05,
-      dashArray: mia?null:'4 4',
+      color:color, weight: mia?3:1.2, opacity: mia?1:.55,
+      fillColor:color, fillOpacity: mia?.10:.04,
+      dashArray: mia?null:'5 5',
       interactive:false            // no roba el clic: el mapa se sigue usando igual
     }).addTo(mapa));
     if(mia){
       // El nombre, solo en las nuestras: dieciocho etiquetas serían ruido.
+      // Va sobre una chapa oscura translúcida en vez de un borde blanco: el
+      // mapa puede estar en claro o en oscuro, y el blanco solo sirve en uno.
       var c=centroDe(p.poligono);
       capaParr.push(L.marker(c,{pane:'parroquias',interactive:false,icon:L.divIcon({className:'',
-        html:'<div style="transform:translate(-50%,-50%);white-space:nowrap;font-size:11px;'
-          +'font-weight:700;color:'+color+';text-shadow:0 0 3px #fff,0 0 3px #fff,0 0 3px #fff">'
+        html:'<div style="transform:translate(-50%,-50%);white-space:nowrap;font-size:12px;'
+          +'font-weight:800;letter-spacing:.3px;color:'+color+';background:rgba(0,0,0,.55);'
+          +'border:1px solid '+color+';border-radius:5px;padding:2px 7px">'
           +esc(p.nombre.replace(/^Parroquia /,''))+'</div>'})}).addTo(mapa));
     }
   });
