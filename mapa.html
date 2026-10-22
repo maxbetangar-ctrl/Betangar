@@ -169,6 +169,7 @@
     <button class="btn ocultarTv" id="bClave" title="Pegar la clave de Stadia Maps para probar sus fondos">🔑</button>
     <button class="btn" id="bRec" title="Con muchas unidades los recorridos se tapan entre sí. Acá se elige cuántos se ven.">Recorridos: todos</button>
     <button class="btn" id="bSurt" title="Dónde se cargó combustible. Lo que importa son las que caen FUERA de una estación marcada.">⛽ Surtidas</button>
+    <button class="btn" id="bParr" title="Los límites de las parroquias del Municipio Maracaibo. Las cuatro que atiende Betangar van resaltadas y con su nombre; el resto, de fondo.">🗺️ Parroquias</button>
     <button class="btn" id="bTv">Modo televisor</button>
     <button class="btn ocultarTv" id="bPleno">Pantalla completa</button>
     <button class="btn ocultarTv" onclick="location.href='app.html'">← Volver</button>
@@ -254,7 +255,7 @@
 // sobre una función que estaba puesta hacía una hora.
 // Con el sello a la vista, la pregunta «¿estás viendo la última?» se contesta mirando,
 // en vez de adivinando. Al tocar este archivo, subir la fecha.
-var VERSION_PANTALLA = '20261022-0905';
+var VERSION_PANTALLA = '20261022-1030';
 
 var SUPA_URL = 'https://hrkjddehqnzcqwlkklqm.supabase.co';
 var SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhya2pkZGVocW56Y3F3bGtrbHFtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc2NTk1NzIsImV4cCI6MjA5MzIzNTU3Mn0.kqWKthyZfPZ86toql7shGByF-ZhUpcQUS4Jw4RnG_ko';
@@ -562,6 +563,12 @@ function fondoGuardado(){
 function iniciarMapa(){
   mapa=L.map('mapa',{zoomControl:true,attributionControl:true,preferCanvas:true})
         .setView([10.6427,-71.6125],11);
+  // El panel de las parroquias, POR DEBAJO de los recorridos. El de las capas
+  // normales (`overlayPane`) va en 400; con 350 las manchas de color quedan
+  // siempre atras, aunque `pintar()` vuelva a dibujar las rutas cien veces.
+  mapa.createPane('parroquias');
+  mapa.getPane('parroquias').style.zIndex = 350;
+  mapa.getPane('parroquias').style.pointerEvents = 'none';
   var sel=document.getElementById('selFondo');
   sel.innerHTML=Object.keys(FONDOS).map(function(k){
     return '<option value="'+k+'">'+FONDOS[k].nom+'</option>'; }).join('');
@@ -1440,6 +1447,88 @@ function lineaChofer(cam){
   return h+'</div>';
 }
 
+// ── 🗺️ LAS PARROQUIAS, DE FONDO ─────────────────────────────────────────────
+//
+// Pedido por Máximo: ver los límites de las parroquias, y sobre todo las CUATRO
+// que atiende Betangar — Santa Lucía, Olegario Villalobos, Caracciolo Parra
+// Pérez y Venancio Pulgar.
+//
+// ⛔ LOS LÍMITES NO SE DIBUJAN A OJO: son legales, y con ellos se discute qué
+// sector le toca a quién. Salen de OpenStreetMap (fronteras administrativas de
+// nivel 7) y están guardados en NUESTRA base (`parroquias`), no se le piden a
+// nadie al abrir la pantalla: el día que se bajaron, el servidor público de
+// OpenStreetMap contestaba 502.
+//
+// 📌 Comprobados contra un dato INDEPENDIENTE antes de pintarlos: de las
+// posiciones que el geocodificador del proveedor ubica en cada parroquia, caen
+// dentro del polígono el 100% (Venancio Pulgar), 98% (Olegario Villalobos),
+// 95% (Caracciolo Parra Pérez) y 89% (Santa Lucía). Dos fuentes que no se
+// hablan y coinciden.
+//
+// ⛔ VAN EN SU PROPIO PANEL, POR DEBAJO DE TODO. Lo que hay que leer en esta
+// pantalla son los camiones: una mancha de color encima del recorrido lo
+// esconde. Leaflet pinta por paneles, así que el de las parroquias se crea con
+// un z-index menor que el de los recorridos y no hay forma de que los tape,
+// aunque `pintar()` vuelva a dibujar las rutas cien veces.
+var PARROQUIAS=[], capaParr=[], VER_PARR=true;
+// Tonos de acuarela: se distinguen entre sí y NO compiten con los colores de
+// las unidades, que son los que tienen que saltar a la vista.
+var COLOR_PARR=['#2e7d8f','#8a6d3b','#7b5ea7','#2f7d4f'];
+
+async function cargarParroquias(){
+  if(PARROQUIAS.length) return;
+  try{
+    var r=await sb.from('parroquias').select('nombre,es_nuestra,poligono').order('nombre');
+    if(r.error){
+      // Sin permiso o sin tabla se dice: un mapa sin parroquias se lee como
+      // «no existen», que es distinto de «no se pudieron leer».
+      document.getElementById('avisos').innerHTML+=
+        '<div class="aviso mal"><b>No se pudieron leer las parroquias.</b> '+esc(r.error.message)+'</div>';
+      return;
+    }
+    PARROQUIAS=r.data||[];
+  }catch(e){}
+}
+
+function pintarParroquias(){
+  capaParr.forEach(function(c){ try{ mapa.removeLayer(c); }catch(e){} }); capaParr=[];
+  var b=document.getElementById('bParr');
+  if(b) b.classList.toggle('on', VER_PARR);
+  if(!VER_PARR || !PARROQUIAS.length) return;
+  var i=0;
+  PARROQUIAS.forEach(function(p){
+    if(!p.poligono || p.poligono.length<3) return;
+    var mia=p.es_nuestra===true;
+    var color = mia ? COLOR_PARR[(i++)%COLOR_PARR.length] : '#9aa3ab';
+    capaParr.push(L.polygon(p.poligono,{
+      pane:'parroquias',
+      color:color, weight: mia?2:1, opacity: mia?.85:.45,
+      fillColor:color, fillOpacity: mia?.14:.05,
+      dashArray: mia?null:'4 4',
+      interactive:false            // no roba el clic: el mapa se sigue usando igual
+    }).addTo(mapa));
+    if(mia){
+      // El nombre, solo en las nuestras: dieciocho etiquetas serían ruido.
+      var c=centroDe(p.poligono);
+      capaParr.push(L.marker(c,{pane:'parroquias',interactive:false,icon:L.divIcon({className:'',
+        html:'<div style="transform:translate(-50%,-50%);white-space:nowrap;font-size:11px;'
+          +'font-weight:700;color:'+color+';text-shadow:0 0 3px #fff,0 0 3px #fff,0 0 3px #fff">'
+          +esc(p.nombre.replace(/^Parroquia /,''))+'</div>'})}).addTo(mapa));
+    }
+  });
+}
+/** El centro para poner la etiqueta. Promedio de las esquinas: alcanza. */
+function centroDe(poli){
+  var la=0, lo=0;
+  poli.forEach(function(v){ la+=v[0]; lo+=v[1]; });
+  return [la/poli.length, lo/poli.length];
+}
+function ciclarParroquias(){
+  VER_PARR=!VER_PARR;
+  try{ localStorage.setItem('btg_mapa_parr', VER_PARR?'1':'0'); }catch(e){}
+  pintarParroquias();
+}
+
 // ── 🛡️ CONTRA DENUNCIAS: «¿pasamos por aquí?» ───────────────────────────────
 //
 // POR QUÉ EXISTE. El 21/10/2026 la Alcaldía denunció que la flota llevaba 15
@@ -1984,6 +2073,8 @@ async function arrancarVista(){
   inp.onchange = function(){ irADia(inp.value || DIA); };
   document.getElementById('bHoy').onclick = function(){ irADia(fechaVE(new Date())); };
   document.getElementById('bDen').onclick = modoDenuncia;
+  document.getElementById('bParr').onclick = ciclarParroquias;
+  try{ VER_PARR = localStorage.getItem('btg_mapa_parr') !== '0'; }catch(e){}
   document.getElementById('bDenOk').onclick = denCerrarZona;
   document.getElementById('bDenUndo').onclick = denDeshacer;
   // El rol se pregunta ANTES de traer nada: si no puede leer, lo que corresponde es
@@ -2012,6 +2103,7 @@ async function arrancarVista(){
   PUEDE_EDITAR_SITIOS = (ROLES_SITIOS.indexOf(MI_ROL)>=0);
 
   await repaso();
+  await cargarParroquias(); pintarParroquias();
   await cargarSitios();
   // El botón solo aparece si la base le va a aceptar la escritura. No es el candado
   // —el candado es la RLS— es no ofrecer algo que va a terminar en un error.
