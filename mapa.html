@@ -255,7 +255,7 @@
 // sobre una función que estaba puesta hacía una hora.
 // Con el sello a la vista, la pregunta «¿estás viendo la última?» se contesta mirando,
 // en vez de adivinando. Al tocar este archivo, subir la fecha.
-var VERSION_PANTALLA = '20261022-1150';
+var VERSION_PANTALLA = '20261022-1205';
 
 var SUPA_URL = 'https://hrkjddehqnzcqwlkklqm.supabase.co';
 var SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhya2pkZGVocW56Y3F3bGtrbHFtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc2NTk1NzIsImV4cCI6MjA5MzIzNTU3Mn0.kqWKthyZfPZ86toql7shGByF-ZhUpcQUS4Jw4RnG_ko';
@@ -1515,12 +1515,20 @@ function pintarParroquias(){
       //    OSCURA alrededor (casing) que despeja el ruido, y encima la línea de
       //    color. El contorno se despega aunque le pase un recorrido por encima.
       capaParr.push(L.polygon(p.poligono,{pane:'parroquias',interactive:false,
-        color:'#000', weight:14, opacity:.55, fill:false}).addTo(mapa));
+        color:'#000', weight:9, opacity:.5, fill:false}).addTo(mapa));
     }
+    // ⛔ SIN RELLENO, NINGUNA. Y ésta es la tercera corrección del mismo asunto,
+    //    la que lo entendió: Máximo lo miró y dijo «ahora me quitaste la vista
+    //    del recorrido». El relleno era eso. Una tinta sobre la parroquia apaga
+    //    JUSTO la zona donde andan los camiones — y multiplicada por 18
+    //    parroquias, apaga la ciudad entera. Un límite no necesita pintar lo de
+    //    adentro: necesita que se vea el borde.
+    //    Las tres versiones: relleno suave (no se veía) → halo del mismo color
+    //    (brillo sin separación) → franja oscura + línea, y sin relleno.
     capaParr.push(L.polygon(p.poligono,{
       pane:'parroquias',
-      color:color, weight: mia?5:1.2, opacity: mia?1:.55,
-      fillColor:color, fillOpacity: mia?.10:.04,
+      color:color, weight: mia?5:1.2, opacity: mia?1:.5,
+      fill:false,
       dashArray: mia?null:'5 5',
       interactive:false            // no roba el clic: el mapa se sigue usando igual
     }).addTo(mapa));

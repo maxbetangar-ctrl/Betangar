@@ -108,24 +108,34 @@ const r = await pag.evaluate((parr) => {
   const eti = d.filter(x => x.tipo === 'marker')
   // Cada parroquia nuestra se dibuja DOS veces: un halo ancho sin relleno y
   // encima el borde nítido. Las ajenas, una sola vez y punteadas.
-  const halos    = pol.filter(x => x.opts.fill === false)
-  const regiones = pol.filter(x => x.opts.fill !== false)
+  // El casing se reconoce por ser NEGRO; el resto son los contornos.
+  const halos    = pol.filter(x => /^#0{3,6}$/i.test(String(x.opts.color)))
+  const regiones = pol.filter(x => !/^#0{3,6}$/i.test(String(x.opts.color)))
   const mias  = regiones.filter(x => !x.opts.dashArray)
   const otras = regiones.filter(x => !!x.opts.dashArray)
+  // ⛔ NINGUNA puede tener relleno. Es la regresión que hay que impedir: una
+  //    tinta sobre la parroquia apaga justo la zona donde andan los camiones, y
+  //    multiplicada por 18 apaga la ciudad. Máximo lo dijo mirando la pantalla:
+  //    «ahora me quitaste la vista del recorrido».
+  const sinRelleno = pol.every(x => x.opts.fill === false
+                                 || x.opts.fillOpacity === 0
+                                 || x.opts.fillOpacity === undefined)
   const out = {
     poligonos: pol.length, etiquetas: eti.length, halos: halos.length,
     regiones: regiones.length, mias: mias.length, otras: otras.length,
     // ⛔ El halo tiene que ser MÁS ANCHO que el borde: es lo que despega el
     // límite de un fondo oscuro lleno de rutas de neón. Si algún día alguien
     // los iguala, el límite vuelve a desaparecer y nadie se entera.
+    // Lo que importa es la RELACIÓN, no un número mágico: la franja oscura
+    // tiene que sobresalir a los dos lados de la línea de color, o no separa.
     haloMasAncho: halos.length > 0
-                  && halos.every(h => h.opts.weight >= 10)
                   && mias.every(m => m.opts.weight >= 4)
-                  && halos.every(h => mias.every(m => h.opts.weight > m.opts.weight)),
+                  && halos.every(h => mias.every(m => h.opts.weight >= m.opts.weight + 3)),
     // El casing tiene que ser OSCURO, no del color de la linea. Un halo del
     // mismo color suma brillo y no separa: contra una marana de rutas de neon,
     // mas color es mas ruido. Si alguien lo vuelve a pintar del color, esto cae.
     casingOscuro: halos.every(h => /^#0{3,6}$/i.test(String(h.opts.color))),
+    sinRelleno,
     miasMasFuertes: mias.every(m => m.opts.opacity >= 0.9)
                     && otras.every(o => o.opts.opacity < 0.9),
     todosEnPanel: pol.every(x => x.opts.pane === 'parroquias'),
@@ -148,6 +158,7 @@ const fallos = []
 const exige = (ok, q) => { if (!ok) fallos.push(q) }
 exige(r.regiones === 6, `se dibujaron ${r.regiones} regiones de 6`)
 exige(r.halos === 4, `${r.halos} halos: uno por cada parroquia nuestra`)
+exige(r.sinRelleno, 'ALGUNA parroquia trae relleno: eso apaga el recorrido de los camiones')
 exige(r.casingOscuro, '⛔ el halo volvio a ser del color de la linea: suma brillo pero no separa')
 exige(r.haloMasAncho, '⛔ el halo no es más ancho que el borde: el límite no se despega del fondo')
 exige(r.miasMasFuertes, 'las nuestras no se distinguen de las ajenas por intensidad')
