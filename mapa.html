@@ -180,7 +180,14 @@
      la foto se comía casi un tercio de la pantalla para texto que a 3 metros no
      se lee. Se achica a 300 px y la tarjeta se queda con lo que SÍ se lee de
      lejos: qué unidad, cómo está, y el número grande. */
-  body.tv #panel{width:300px}
+  body.tv #panel{width:260px}
+  /* ⛔ SEGUNDA PASADA, 23/10/2026: «sigue viéndose demasiado grande la descripción
+     de camiones y el mapa no». Se van del televisor el contador del odómetro, la
+     cantidad de puntos y las paradas en ruta: son números para ANALIZAR sentado,
+     no para mirar de lejos. Queda lo que contesta la pregunta del que pasa por la
+     oficina: qué unidad, cómo está, quién maneja, a qué hora reportó y cuántos km
+     lleva. Los otros siguen en la vista normal, enteros. */
+  body.tv .soloPc{display:none}
   body.tv .titpanel{font-size:12px;padding:10px 14px 4px}
   body.tv .u{padding:10px 14px}
   body.tv .u-nom{font-size:19px}
@@ -353,6 +360,7 @@
           <b id="brilloTxt">130%</b>
         </span>
         <button class="btn" id="bRec" title="Con muchas unidades los recorridos se tapan entre sí. Acá se elige cuántos se ven.">Recorridos: todos</button>
+        <button class="btn" id="bLimp" title="Dibuja SOLO lo que se recorrió dentro de tus cuatro parroquias. Los viajes al vertedero y el traslado por carretera no se pintan: son kilómetros, no limpieza, y son los que abren el mapa y achican la zona de trabajo.">🧽 Solo lo limpiado</button>
         <button class="btn" id="bParr" title="Los límites de las parroquias del Municipio Maracaibo. Las cuatro que atiende Betangar van resaltadas y con su nombre; el resto, de fondo.">🗺️ Parroquias</button>
         <button class="btn" id="bSurt" title="Dónde se cargó combustible. Lo que importa son las que caen FUERA de una estación marcada.">⛽ Surtidas</button>
         <button class="btn ocultarTv" id="bFalta" title="Pinta las calles de tus parroquias por las que NO hay registro de paso en los ultimos dias. Sin registro no es lo mismo que no pasaron.">🧹 Sin registro</button>
@@ -389,7 +397,7 @@
 // sobre una función que estaba puesta hacía una hora.
 // Con el sello a la vista, la pregunta «¿estás viendo la última?» se contesta mirando,
 // en vez de adivinando. Al tocar este archivo, subir la fecha.
-var VERSION_PANTALLA = '20261023-1820';
+var VERSION_PANTALLA = '20261023-1910';
 
 var SUPA_URL = 'https://hrkjddehqnzcqwlkklqm.supabase.co';
 var SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhya2pkZGVocW56Y3F3bGtrbHFtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc2NTk1NzIsImV4cCI6MjA5MzIzNTU3Mn0.kqWKthyZfPZ86toql7shGByF-ZhUpcQUS4Jw4RnG_ko';
@@ -1096,6 +1104,8 @@ function pintar(){
 
     var linea=pts.filter(function(p){return p.lat&&p.lon;}).map(function(p){return [p.lat,p.lon];});
     var tramos=partirRecorrido(pts);
+    // ⛔ Recortado a nuestras parroquias: el acarreo al vertedero no es limpieza.
+    tramos.medidos = soloLimpiado(tramos.medidos);
     var tv=document.body.classList.contains('tv');
 
     if(!dibujo[cam]){
@@ -1196,9 +1206,9 @@ function pintar(){
       +'<div class="u-dat"><span>Último reporte <b>'+horaVE(ult.ts)+'</b>'+(hist?'':' ('+hace(min)+')')+'</span></div>'
       +'<div class="u-dat">'
       +'<span>Km '+(hist?'del día':'de hoy')+' <b>'+(kmDia===null?'—':miles(kmDia,1))+'</b></span>'
-      +'<span>Contador <b>'+miles(ult.odometro,0)+'</b></span>'
-      +'<span>Puntos <b>'+miles(pts.length)+'</b></span>'
-      +'<span title="Veces que el camión estuvo detenido 2 minutos o más fuera de la base. Las paradas más cortas no se alcanzan a ver con la frecuencia con que reporta el equipo, así que este número siempre se queda corto: nunca dice de más.">Paradas en ruta <b>'+(estado[cam].paradasRuta==null?'—':miles(estado[cam].paradasRuta))+'</b></span>'
+      +'<span class="soloPc">Contador <b>'+miles(ult.odometro,0)+'</b></span>'
+      +'<span class="soloPc">Puntos <b>'+miles(pts.length)+'</b></span>'
+      +'<span class="soloPc" title="Veces que el camión estuvo detenido 2 minutos o más fuera de la base. Las paradas más cortas no se alcanzan a ver con la frecuencia con que reporta el equipo, así que este número siempre se queda corto: nunca dice de más.">Paradas en ruta <b>'+(estado[cam].paradasRuta==null?'—':miles(estado[cam].paradasRuta))+'</b></span>'
       +(hueco>MUDO_MIN?'<span style="color:var(--ambar)" title="El rato más largo que el camión anduvo sin que supiéramos dónde estaba. No cuenta el tiempo apagado.">Andando sin reportar <b>'+hueco+' min</b></span>':'')
       +'</div></div>';
   });
@@ -1259,6 +1269,26 @@ function ciclarRecorridos(){
                         : MODO_REC==='uno' ? 'solo el elegido' : 'ocultos');
   try{ localStorage.setItem('btg_mapa_rec', MODO_REC); }catch(e){}
   pintar();
+}
+
+/** Enciende y apaga el recorte a nuestras parroquias. */
+function ciclarLimpiado(){
+  SOLO_LIMP = !SOLO_LIMP;
+  pintarBotonLimpiado();
+  try{ localStorage.setItem('btg_mapa_limp', SOLO_LIMP ? '1' : '0'); }catch(e){}
+  // ⛔ Las líneas ya dibujadas hay que rehacerlas, no solo repintar: `dibujo`
+  //    guarda la polilínea con los puntos viejos y `setLatLngs` es lo que la
+  //    cambia. `pintar()` lo hace, pero solo si no se saltea por estar igual.
+  pintar();
+}
+
+function pintarBotonLimpiado(){
+  var b=document.getElementById('bLimp');
+  if(!b) return;
+  b.classList.toggle('on', SOLO_LIMP);
+  // ⛔ El botón dice LO QUE SE ESTÁ VIENDO, no lo que haría al tocarlo. Un botón
+  //    que se lee como orden («mostrar todo») y está encendido no se entiende.
+  b.textContent = SOLO_LIMP ? '🧽 Solo lo limpiado' : '🧽 Todo el recorrido';
 }
 
 function marcarVivo(){
@@ -1341,7 +1371,7 @@ function limpiarDibujo(){
     (d.paradas||[]).forEach(function(c){ try{ mapa.removeLayer(c); }catch(e){} });
     (d.saltos||[]).forEach(function(c){ try{ mapa.removeLayer(c); }catch(e){} });
   });
-  dibujo={}; estado={}; crudo=[]; primeraVez=true; LIM_PARR=null;
+  dibujo={}; estado={}; crudo=[]; primeraVez=true; LIM_PARR=null; CAJAS_PARR=null;
   // ⚠️ Las surtidas NO se borran acá: no dependen del día que se esté viendo. Borrarlas
   // al cambiar de fecha haría desaparecer justo lo que se está yendo a buscar.
 }
@@ -1641,7 +1671,77 @@ async function cargarParroquias(){
       return;
     }
     PARROQUIAS=r.data||[];
+    // La caja envolvente y el encuadre se derivan de esto: se invalidan juntos.
+    CAJAS_PARR=null; LIM_PARR=null;
   }catch(e){}
+}
+
+// ── SOLO LO LIMPIADO: EL RECORRIDO RECORTADO A NUESTRAS PARROQUIAS ──────────
+//
+// ⛔ POR QUÉ (23/10/2026, Máximo con la segunda foto del televisor): «no me
+//    interesa ver las idas al vertedero sino las rutas que limpió, más de cerca,
+//    exclusivamente». En la foto se ve el motivo: los recorridos se estiran
+//    desde Maracaibo hasta el VERTEDERO DE LA CONCEPCIÓN, ~25 km al suroeste.
+//    Ese tramo es acarreo por carretera, no limpieza — y es lo que abre el mapa
+//    y deja la zona de trabajo chiquita en una esquina.
+//
+// ⚠️ NO SE BORRA NADA: el viaje al vertedero sigue en la base, se sigue contando
+//    para los viajes que se le facturan a la Alcaldía, y el botón lo vuelve a
+//    mostrar. Acá solo se decide qué se DIBUJA.
+//
+// ⚠️ Y SE RECORTA A LAS CUATRO NUESTRAS, no a la del día: hay unidades que
+//    trabajan en dos parroquias la misma jornada (B008 y B010 lo hicieron el
+//    22/10). Recortar a la del día borraría limpieza de verdad.
+var SOLO_LIMP = true;   // ⛔ encendido por defecto: es lo que se pidió ver
+
+/** Caja envolvente de cada parroquia, calculada UNA vez.
+ *  ⚠️ Sin esto el recorte no es viable: 4.000 posiciones por 4 polígonos de
+ *     hasta 1.800 vértices son millones de comparaciones EN CADA REPASO. Con la
+ *     caja, un punto del vertedero se descarta con 4 comparaciones. */
+var CAJAS_PARR = null;
+function cajasNuestras(){
+  if(CAJAS_PARR) return CAJAS_PARR;
+  if(!PARROQUIAS.length) return null;
+  var cs = [];
+  PARROQUIAS.forEach(function(p){
+    if(!p.es_nuestra || !p.poligono || p.poligono.length < 3) return;
+    var n=-90, s=90, o=180, e=-180;
+    p.poligono.forEach(function(v){
+      if(v[0]>n)n=v[0]; if(v[0]<s)s=v[0]; if(v[1]<o)o=v[1]; if(v[1]>e)e=v[1];
+    });
+    cs.push({ poli:p.poligono, n:n, s:s, o:o, e:e });
+  });
+  if(!cs.length) return null;
+  CAJAS_PARR = cs;
+  return cs;
+}
+
+function enAlgunaParroquia(lat, lon, cajas){
+  for(var i=0;i<cajas.length;i++){
+    var c=cajas[i];
+    if(lat<c.s||lat>c.n||lon<c.o||lon>c.e) continue;   // la caja descarta barato
+    if(dentroPoligono(lat, lon, c.poli)) return true;
+  }
+  return false;
+}
+
+/** Recorta los tramos a lo que cae dentro de nuestras parroquias.
+ *  ⛔ Donde el camión SALE, el tramo se CORTA: no se une un punto de antes con
+ *     uno de después, porque eso dibujaría una recta por donde nunca pasó. */
+function soloLimpiado(tramos){
+  if(!SOLO_LIMP) return tramos;
+  var cajas = cajasNuestras();
+  if(!cajas) return tramos;          // todavía no se sabe: no se recorta nada
+  var fuera = [];
+  tramos.forEach(function(tr){
+    var act = [];
+    for(var k=0;k<tr.length;k++){
+      if(enAlgunaParroquia(tr[k][0], tr[k][1], cajas)) act.push(tr[k]);
+      else { if(act.length>1) fuera.push(act); act=[]; }
+    }
+    if(act.length>1) fuera.push(act);
+  });
+  return fuera;
 }
 
 // ── EL ENCUADRE: LA ZONA DE TRABAJO, NO EL CAMIÓN MÁS LEJOS ─────────────────
@@ -2773,6 +2873,13 @@ try{
   }
 }catch(e){}
 document.getElementById('bRec').onclick=ciclarRecorridos;
+// «Solo lo limpiado» también se recuerda. ⛔ Y nace ENCENDIDO: solo se apaga si
+// alguna vez se apagó a propósito. Un `localStorage` vacío no es un «no».
+try{
+  if(localStorage.getItem('btg_mapa_limp')==='0') SOLO_LIMP=false;
+}catch(e){}
+pintarBotonLimpiado();
+document.getElementById('bLimp').onclick=ciclarLimpiado;
 document.getElementById('bSurt').onclick=ciclarSurtidas;
 document.getElementById('bPleno').onclick=function(){
   if(document.fullscreenElement) document.exitFullscreen();

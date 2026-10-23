@@ -45,7 +45,7 @@ const laboratorio = `<!doctype html><html><head><style>${mEstilo[1]}</style></he
 <div id="tapa" style="display:none"><div class="caja"><p id="tapaTxt"></p><button id="tapaBtn"></button></div></div>
 <div id="lista"></div><div id="avisos"></div><div id="sello"></div><div id="vivo"><span id="vivoTxt"></span></div>
 <input id="selDia"><button id="bHoy"></button><button id="bDen"></button><button id="bDenOk"></button>
-<button id="bDenUndo"></button><button id="bRec"></button><button id="bSurt"></button><button id="bParr"></button>
+<button id="bDenUndo"></button><button id="bRec"></button><button id="bSurt"></button><button id="bParr"></button><button id="bLimp"></button>
 <button id="bFalta"></button><button id="bSitio"></button><button id="bCerrar"></button><button id="bDeshacer"></button>
 <button id="bClave"></button><button id="bTv"></button><button id="bPleno"></button><span id="verSello"></span>
 <a id="sNo"></a><button id="sOk"></button><a id="eNo"></a><button id="eOk"></button>

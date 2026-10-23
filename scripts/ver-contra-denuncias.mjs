@@ -59,7 +59,7 @@ pag.on('pageerror', e => errores.push(String(e.message).slice(0, 200)))
 await pag.setContent(`<!doctype html><html><head><style>${mEstilo[1]}</style></head><body>
 <div id="tapa" style="display:none"><div class="caja"><p id="tapaTxt"></p><button id="tapaBtn"></button></div></div>
 <div id="lista"></div><div id="avisos"></div><div id="sello"></div><div id="vivo"><span id="vivoTxt"></span></div>
-<input id="selDia"><button id="bHoy"></button><button id="bDen"></button><button id="bRec"></button>
+<input id="selDia"><button id="bHoy"></button><button id="bDen"></button><button id="bRec"></button><button id="bLimp"></button>
 <button id="bSurt"></button><button id="bSitio"></button><button id="bCerrar"></button><button id="bDeshacer"></button>
 <button id="bClave"></button><span id="verSello"></span>
 <button id="bTv"></button><button id="bPleno"></button>
