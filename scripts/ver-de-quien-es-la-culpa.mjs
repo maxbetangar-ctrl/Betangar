@@ -178,6 +178,18 @@ exige(/No se pudo comprobar tu permiso/.test(fuente),
 exige(/Reintentar/.test(fuente), 'el caso de error no ofrece reintentar')
 exige(/no tiene un rol asignado/.test(fuente),
   'no distingue «entró bien pero no tiene rol» de «su rol no alcanza»')
+// ⛔ Y EL CUARTO CASO, que costo una segunda captura el mismo dia: `app_rol()` es
+//    `select rol ... where auth_user_id = auth.uid()`, asi que da vacio TAMBIEN
+//    cuando no hay nadie autenticado — y eso pasa en silencio cuando el token
+//    vence y el cliente sigue consultando con la clave publica. A Maximo le dijo
+//    «no tenes rol» siendo superadmin.
+exige(/sb\.auth\.getUser\(\)/.test(fuente),
+  '⛔ ante un rol vacio NO SE PREGUNTA QUIEN ES: una sesion vencida se sigue leyendo como '
+  + '«este usuario no tiene rol»')
+exige(/sesión venció/.test(fuente), 'no existe el caso «la sesion vencio»')
+exige(/usr\.email/.test(fuente),
+  'cuando hay cuenta sin rol no se dice CUAL: en un equipo compartido manda a revisar la equivocada')
+exige(/signOut\(\)/.test(fuente), 'no ofrece salir y entrar con otra cuenta')
 exige(/rolLeido/.test(fuente), 'no hay una bandera que diga si el rol se pudo leer')
 exige(errores.length === 0, 'errores de JS: ' + errores.join(' · '))
 

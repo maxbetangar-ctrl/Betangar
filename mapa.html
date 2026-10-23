@@ -397,7 +397,7 @@
 // sobre una función que estaba puesta hacía una hora.
 // Con el sello a la vista, la pregunta «¿estás viendo la última?» se contesta mirando,
 // en vez de adivinando. Al tocar este archivo, subir la fecha.
-var VERSION_PANTALLA = '20261023-2110';
+var VERSION_PANTALLA = '20261023-2200';
 
 var SUPA_URL = 'https://hrkjddehqnzcqwlkklqm.supabase.co';
 var SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhya2pkZGVocW56Y3F3bGtrbHFtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc2NTk1NzIsImV4cCI6MjA5MzIzNTU3Mn0.kqWKthyZfPZ86toql7shGByF-ZhUpcQUS4Jw4RnG_ko';
@@ -2863,12 +2863,43 @@ async function arrancarVista(){
     return;
   }
   if(!MI_ROL){
-    // Sí contestó, y contestó que no hay rol. Eso es otra cosa, y tiene otro arreglo:
-    // la cuenta existe pero no está dada de alta en el sistema.
-    tapa('Tu usuario entró bien, pero no tiene un rol asignado en el sistema, así que '
-      +'todavía no puede ver el recorrido de la flota. No es una falla ni es tu clave: '
-      +'falta que te den de alta. Pedíselo a quien administra los usuarios.', true);
-    document.getElementById('tapaBtn').textContent='Volver al sistema';
+    // ⛔ VACÍO TAMPOCO ES UNA SOLA COSA, Y ÉSTA FUE LA SEGUNDA VEZ EN EL MISMO DÍA.
+    //    `app_rol()` es `select rol from btg_usuarios where auth_user_id = auth.uid()`:
+    //    devuelve vacío si al usuario le falta la ficha, PERO TAMBIÉN si no hay
+    //    nadie autenticado. Y eso último pasa sin que la pantalla se entere: cuando
+    //    el token vence y no se puede renovar, el cliente sigue consultando con la
+    //    clave pública, la consulta SALE BIEN y contesta vacío. Máximo, 23/10/2026
+    //    a las 19:47, con la sesión de las 12:48 ya vencida: la pantalla le dijo que
+    //    no tenía rol, siendo superadmin.
+    //    Por eso acá se PREGUNTA QUIÉN ES contra el servidor antes de concluir nada.
+    //    [[norma-control-positivo-antes-de-creerle-al-vacio]]
+    var usr=null, fallaUsr='';
+    try{
+      var ru=await sb.auth.getUser();
+      if(ru && ru.error) fallaUsr=ru.error.message||'';
+      usr=ru && ru.data && ru.data.user;
+    }catch(e){ fallaUsr=String((e&&e.message)||e||''); }
+
+    if(!usr){
+      tapa('Tu sesión venció y hay que volver a entrar. No es tu clave ni un problema de '
+        +'permisos: el acceso caduca solo cada tanto, y esta pantalla se quedó sin saber '
+        +'quién sos. El GPS siguió grabando igual.'
+        +(fallaUsr ? ' (' + fallaUsr + ')' : ''), true);
+      var bE=document.getElementById('tapaBtn');
+      bE.textContent='Iniciar sesión';
+      bE.onclick=function(){ try{ sb.auth.signOut(); }catch(e){} location.reload(); };
+      return;
+    }
+    // Sí hay alguien, y ese alguien no tiene ficha. Es otra cosa y tiene otro arreglo.
+    // ⛔ Se NOMBRA la cuenta: en un equipo compartido, «no tenés rol» sin decir de
+    //    quién habla manda a revisar la cuenta equivocada.
+    tapa('La cuenta ' + (usr.email || 'con la que entraste') + ' no tiene un rol asignado en '
+      +'el sistema, así que todavía no puede ver el recorrido de la flota. No es una falla '
+      +'ni es la clave: falta darla de alta. Si esperabas entrar con otra cuenta, cerrá '
+      +'sesión y volvé a entrar.', true);
+    var bS=document.getElementById('tapaBtn');
+    bS.textContent='Entrar con otra cuenta';
+    bS.onclick=function(){ try{ sb.auth.signOut(); }catch(e){} location.reload(); };
     return;
   }
   if(ROLES_MAPA.indexOf(MI_ROL)<0){
