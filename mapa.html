@@ -174,14 +174,27 @@
   body.tv .vivo{font-size:16px;padding:5px 14px}
   body.tv .grp::before{font-size:12px}
   body.tv .btn{font-size:16px;padding:9px 14px}
-  body.tv #panel{width:430px}
-  body.tv .titpanel{font-size:14px;padding:14px 20px 6px}
-  body.tv .u{padding:16px 20px}
-  body.tv .u-nom{font-size:24px}
-  body.tv .u-est{font-size:14px;padding:4px 12px}
-  body.tv .punto{width:15px;height:15px}
-  body.tv .u-dir{font-size:15px;margin-top:8px}
-  body.tv .u-dat{font-size:15px;margin-top:9px;gap:8px}
+  /* ⛔ EN TELEVISOR EL PROTAGONISTA ES EL MAPA (Máximo, 23/10/2026, con la foto:
+     «se ve tan grande la descripción de los camiones y lo que interesa ver
+     principalmente es el mapa»). El panel tenía 430 px y tipografía grande: en
+     la foto se comía casi un tercio de la pantalla para texto que a 3 metros no
+     se lee. Se achica a 300 px y la tarjeta se queda con lo que SÍ se lee de
+     lejos: qué unidad, cómo está, y el número grande. */
+  body.tv #panel{width:300px}
+  body.tv .titpanel{font-size:12px;padding:10px 14px 4px}
+  body.tv .u{padding:10px 14px}
+  body.tv .u-nom{font-size:19px}
+  body.tv .u-est{font-size:12px;padding:3px 9px}
+  body.tv .punto{width:12px;height:12px}
+  body.tv .u-dat{font-size:13px;margin-top:6px;gap:6px}
+  body.tv .u-chof{font-size:13px;margin-top:5px}
+  /* ⛔ LA DIRECCIÓN ESCRITA SE VA EN TELEVISOR, Y NO SE PIERDE INFORMACIÓN:
+     ocupaba TRES renglones por unidad («Calle 71, Parroquia Caracciolo Parra
+     Pérez, Municipio Maracaibo, Zulia, 4005, Venezuela») para decir lo que el
+     mapa muestra mejor — dónde está el camión. De lejos no se lee, y
+     multiplicada por doce unidades es media pantalla de panel.
+     En la vista normal se queda: ahí sí se lee y sirve para copiar. */
+  body.tv .u-dir{display:none}
   body.tv .leyenda{display:none}
   body.tv .ocultarTv{display:none}
   #reloj{display:none;font-variant-numeric:tabular-nums;font-weight:700}
@@ -376,7 +389,7 @@
 // sobre una función que estaba puesta hacía una hora.
 // Con el sello a la vista, la pregunta «¿estás viendo la última?» se contesta mirando,
 // en vez de adivinando. Al tocar este archivo, subir la fecha.
-var VERSION_PANTALLA = '20261023-1745';
+var VERSION_PANTALLA = '20261023-1820';
 
 var SUPA_URL = 'https://hrkjddehqnzcqwlkklqm.supabase.co';
 var SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhya2pkZGVocW56Y3F3bGtrbHFtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc2NTk1NzIsImV4cCI6MjA5MzIzNTU3Mn0.kqWKthyZfPZ86toql7shGByF-ZhUpcQUS4Jw4RnG_ko';
@@ -1203,7 +1216,7 @@ function pintar(){
       '<div class="aviso ojo"><b>Estás viendo el '+fechaCorta(DIA)+'</b>, no la flota de ahora. '
       +'Los camiones están dibujados donde quedaron ese día.</div>';
     document.getElementById('sello').textContent=fechaCorta(DIA)+' · '+cams.length+' unidad'+(cams.length>1?'es':'');
-    if(primeraVez&&bordes.length){ mapa.fitBounds(bordes,{padding:[50,50],maxZoom:15}); primeraVez=false; }
+    encuadrar(bordes);
     return;
   }
   // ⛔ SI EL PROVEEDOR NO ESTÁ ENTREGANDO, LA PANTALLA NO PUEDE ACUSAR AL CAMIÓN.
@@ -1224,7 +1237,7 @@ function pintar(){
   document.getElementById('avisos').innerHTML += avisoDescarte();
 
   document.getElementById('sello').textContent=cams.length+' unidad'+(cams.length>1?'es':'');
-  if(primeraVez&&bordes.length){ mapa.fitBounds(bordes,{padding:[50,50],maxZoom:15}); primeraVez=false; }
+  encuadrar(bordes);
 }
 
 function elegir(cam){
@@ -1328,7 +1341,7 @@ function limpiarDibujo(){
     (d.paradas||[]).forEach(function(c){ try{ mapa.removeLayer(c); }catch(e){} });
     (d.saltos||[]).forEach(function(c){ try{ mapa.removeLayer(c); }catch(e){} });
   });
-  dibujo={}; estado={}; crudo=[]; primeraVez=true;
+  dibujo={}; estado={}; crudo=[]; primeraVez=true; LIM_PARR=null;
   // ⚠️ Las surtidas NO se borran acá: no dependen del día que se esté viendo. Borrarlas
   // al cambiar de fecha haría desaparecer justo lo que se está yendo a buscar.
 }
@@ -1629,6 +1642,68 @@ async function cargarParroquias(){
     }
     PARROQUIAS=r.data||[];
   }catch(e){}
+}
+
+// ── EL ENCUADRE: LA ZONA DE TRABAJO, NO EL CAMIÓN MÁS LEJOS ─────────────────
+//
+// ⛔ POR QUÉ (23/10/2026, Máximo con la foto del televisor). El mapa se abría con
+//    `fitBounds` sobre TODAS las posiciones del día. Basta que una unidad suba a
+//    Mojón o a Sinamaica —pasa, hay viajes largos— para que el encuadre se abra
+//    80 km y las cuatro parroquias queden apretadas en una esquina, medio
+//    cortadas. En un televisor, que se mira de lejos y nadie toca, eso deja la
+//    pantalla mostrando lago y campo donde no se recoge basura.
+//
+//    El sujeto de esta pantalla es LA ZONA QUE SE TRABAJA HOY, no el camión que
+//    más se alejó. Así que se encuadra la parroquia del día: completa, y lo más
+//    cerca posible. Un camión fuera de cuadro no se pierde —la lista lo nombra y
+//    el mapa se puede mover— pero la zona de trabajo no puede quedar ilegible.
+var LIM_PARR = null;   // cache: recalcularlo en cada repaso no cambia nada
+
+/** La caja que contiene las parroquias que tocan hoy, o null si no se sabe. */
+function cajaDelDia(){
+  if(LIM_PARR) return LIM_PARR;
+  if(!PARROQUIAS.length) return null;
+  var hoy = parroquiasDeHoy();
+  if(!hoy.length) return null;          // domingo o sin cronograma: no hay zona
+  var pts = [];
+  PARROQUIAS.forEach(function(p){
+    if(hoy.indexOf(p.nombre) < 0 || !p.poligono || p.poligono.length < 3) return;
+    p.poligono.forEach(function(v){ pts.push(v); });
+  });
+  if(pts.length < 3) return null;
+  LIM_PARR = pts;
+  return pts;
+}
+
+/** El primer encuadre. `bordes` son las posiciones, y quedan de RESERVA. */
+function encuadrar(bordes){
+  if(!primeraVez) return;
+
+  // ⛔ «TODAVÍA NO SE SABE» NO ES «NO HAY ZONA», y confundirlos rompe esto entero.
+  //    Si las parroquias aún no cargaron, encuadrar por posiciones y dar el
+  //    encuadre por hecho deja el mapa abierto hasta donde llegó el camión más
+  //    lejano PARA SIEMPRE: el encuadre bueno ya no puede corregirlo. Acá se
+  //    encuadra provisional y NO se gasta `primeraVez`, así se corrige solo en
+  //    cuanto lleguen. [[norma-falta-de-dato-no-es-un-dato]]
+  if(!PARROQUIAS.length){
+    if(bordes && bordes.length) mapa.fitBounds(bordes,{padding:[50,50],maxZoom:15});
+    return;
+  }
+
+  var zona = cajaDelDia();
+  if(zona){
+    // Poco margen a propósito: se pidió «completa pero lo más cerca posible».
+    mapa.fitBounds(zona, { padding: [24, 24] });
+    primeraVez = false;
+    return;
+  }
+  // Sin zona conocida (domingo, sin cronograma, o parroquias sin cargar) se
+  // vuelve al encuadre de antes. ⛔ Lo que NO se hace es dejar el mapa donde
+  // cayó: una pantalla sin encuadrar es peor que una encuadrada de más.
+  if(bordes && bordes.length){
+    mapa.fitBounds(bordes, { padding:[50,50], maxZoom:15 });
+    primeraVez = false;
+  }
 }
 
 function pintarParroquias(){
@@ -2603,11 +2678,17 @@ async function arrancarVista(){
   // 📌 Una bandera que se lee mientras se dibuja tiene que estar puesta ANTES de dibujar.
   PUEDE_EDITAR_SITIOS = (ROLES_SITIOS.indexOf(MI_ROL)>=0);
 
-  await repaso();
   await cargarFlota();               // ⛔ ANTES del cronograma: la franja la usa
   await cargarDescartes();           // para que el primer pintado ya lo diga
   await cargarCronograma();          // antes de pintar: decide cual se resalta
-  await cargarParroquias(); pintarParroquias();
+  await cargarParroquias();
+  // ⛔ `repaso()` VA DESPUES DE LAS PARROQUIAS Y DEL CRONOGRAMA, y no es un detalle
+  //    de orden: `repaso()` pinta, y pintar ENCUADRA. Estando antes, el primer
+  //    encuadre no conocia la zona del dia, caia en la reserva (las posiciones) y
+  //    gastaba `primeraVez`: el encuadre bueno no llegaba NUNCA. Es el mismo
+  //    defecto que se vino a arreglar, un escalon mas arriba.
+  await repaso();
+  pintarParroquias();
   await cargarSitios();
   // El botón solo aparece si la base le va a aceptar la escritura. No es el candado
   // —el candado es la RLS— es no ofrecer algo que va a terminar en un error.

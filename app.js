@@ -667,10 +667,22 @@ async function _retoMFA(){
   if(v&&v.error) throw new Error(v.error.message||'código inválido');
   return !!r.trust;
 }
-// "Confiar en este equipo": marca local por usuario, 30 días. Evita pedir el 2FA en cada login
+// "Confiar en este equipo": marca local por usuario. Evita pedir el 2FA en cada login
 // en SU equipo (la contraseña SÍ se sigue pidiendo). No usar en equipos compartidos/kiosco.
-function _dispositivoConfiable(uid){ try{ var t=parseFloat(localStorage.getItem('btg_trust_'+uid)); return !!(t&&Date.now()<t); }catch(e){ return false; } }
-function _marcarConfiable(uid){ try{ localStorage.setItem('btg_trust_'+uid, String(Date.now()+30*24*60*60*1000)); }catch(e){} }
+//
+// ⛔ CUÁNTO DURA ES LO QUE SACA DEL AIRE A LAS PANTALLAS FIJAS. Eran 30 días, y al mes
+//    el TV de la oficina volvía a pedir el código de 6 dígitos sin que nada lo explicara:
+//    la SESIÓN no había caducado (el servidor tiene `sessions_inactivity_timeout: 0` y no
+//    hay timebox, verificado el 23/10/2026) — lo que caducaba era el permiso de NO pedir
+//    2FA. Un año. Sigue venciendo, y un dispositivo NUEVO siempre pasa por el código:
+//    esto no apaga el 2FA, solo deja de re-preguntar tan seguido.
+var TRUST_DIAS=365;
+// ⛔ LA VENTANA ES DESLIZANTE, NO UNA FECHA FIJA. Con fecha fija, la pantalla que se usa
+//    todos los días igual te echa el día que se cumple el plazo: contaba desde el último
+//    código tecleado, no desde el último uso. Cada vez que este equipo se reconoce, el
+//    permiso se empuja otro año. Dejar de usarlo un año SÍ lo vence — eso es a propósito.
+function _dispositivoConfiable(uid){ try{ var t=parseFloat(localStorage.getItem('btg_trust_'+uid)); var ok=!!(t&&Date.now()<t); if(ok)_marcarConfiable(uid); return ok; }catch(e){ return false; } }
+function _marcarConfiable(uid){ try{ localStorage.setItem('btg_trust_'+uid, String(Date.now()+TRUST_DIAS*24*60*60*1000)); }catch(e){} }
 // "Olvidé mi contraseña" (autoservicio): envía el enlace de recuperación al correo. Requiere que
 // el usuario tenga correo REAL y que el proyecto tenga SMTP propio configurado (si no, no llega).
 // Si la cuenta no tiene correo, el admin la resetea desde el módulo Usuarios.
@@ -882,6 +894,12 @@ async function doLogin(){
   // 1) AUTH REAL (Supabase Auth). El rol sale del TOKEN (user_metadata) → NO depende de
   //    leer btg_usuarios (eso podía fallar por RLS/timing en el navegador y dejaba afuera).
   var authMsg='';
+  // ⛔ SE AUTENTICÓ BIEN PERO ESTA APP NO LE DIO ROL. La credencial NO es el problema:
+  //    la cuenta existe en Auth y la clave es correcta, pero no tiene fila en btg_usuarios
+  //    (o la tiene sin rol). Decirle «clave incorrecta» lo manda a cambiar una clave que
+  //    está bien, y a culparse. El 23/10/2026 costó una llamada de soporte.
+  //    [[norma-una-asercion-mal-escrita-acusa-al-producto]]
+  var _autenticoSinRol=false;
   try{
     // La CDN de Supabase carga ASÍNCRONA → al hacer login rápido aún no está lista.
     // Esperamos hasta ~6s a que el cliente con .auth exista antes de autenticar.
@@ -934,6 +952,11 @@ async function doLogin(){
           }
         }
         if(rol){ _entrarSesion({usuario:usuario, rol:rol, nombre:nombre, demo:demo, exigeToken:exigeToken}); return; }
+        // Auth dijo SÍ y la app no tiene a quién dejar entrar. Se cierra la sesión huérfana
+        // (si no, queda un token authenticated en el storage sin sesión de app) y se marca
+        // la causa REAL para el mensaje de abajo.
+        _autenticoSinRol=true;
+        try{ await supabaseAuth.auth.signOut(); }catch(_e){}
       }
     } else { authMsg='Supabase no cargó'; }
   }catch(e){ authMsg=(e&&e.message)||'error'; }
@@ -948,6 +971,13 @@ async function doLogin(){
   //    Supabase devuelve siempre «Invalid login credentials», así que la pista la
   //    pone la pantalla. No se busca el correo de nadie: solo se nombra la otra
   //    puerta a quien ya está tecleando. [[dominio-del-correo-lo-dicta-la-app]]
+  // La causa manda sobre el texto: si autenticó y lo que falta es el ROL, no se nombra la clave.
+  if(_autenticoSinRol){
+    err.textContent='Su clave es correcta, pero esta cuenta no tiene acceso a '+((typeof BTG_CONFIG!=='undefined'&&BTG_CONFIG.empresa_marca)||'esta aplicacion')+'.\nPídale al administrador que le habilite el usuario.';
+    err.style.display='block';document.getElementById('login-pass').value='';
+    setTimeout(function(){err.style.display='none';err.textContent='Usuario o contrasena incorrectos';},8000);
+    return;
+  }
   var _sinArroba = u.indexOf('@')<0;
   var _pista = _sinArroba ? '\nSi su cuenta tiene un correo, escríbalo completo.' : '';
   err.textContent = (authMsg ? ('No se pudo entrar: '+authMsg) : 'Usuario o contrasena incorrectos') + _pista;
