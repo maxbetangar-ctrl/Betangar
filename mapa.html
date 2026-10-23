@@ -397,7 +397,7 @@
 // sobre una función que estaba puesta hacía una hora.
 // Con el sello a la vista, la pregunta «¿estás viendo la última?» se contesta mirando,
 // en vez de adivinando. Al tocar este archivo, subir la fecha.
-var VERSION_PANTALLA = '20261023-1910';
+var VERSION_PANTALLA = '20261023-2035';
 
 var SUPA_URL = 'https://hrkjddehqnzcqwlkklqm.supabase.co';
 var SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhya2pkZGVocW56Y3F3bGtrbHFtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc2NTk1NzIsImV4cCI6MjA5MzIzNTU3Mn0.kqWKthyZfPZ86toql7shGByF-ZhUpcQUS4Jw4RnG_ko';
@@ -902,7 +902,10 @@ async function traer(){
   // todo lo posterior y el recorrido saldría hecho un nudo de varios días.
   var desde=DIA+'T00:00:00-04:00';
   var hasta=diaSiguiente(DIA)+'T00:00:00-04:00';
-  var sel='cam,ts,lat,lon,velocidad,rumbo,ignicion,odometro,ubicacion';
+  // ⛔ `creado` ES LO QUE SEPARA «el camion no reporta» de «el proveedor
+  //    entrega tarde». Sin el, las dos causas se ven identicas y la pantalla
+  //    termina acusando al camion de algo que hace el proveedor.
+  var sel='cam,ts,creado,lat,lon,velocidad,rumbo,ignicion,odometro,ubicacion';
   var rango=function(q){ return q.gte('ts',desde).lt('ts',hasta); };
 
   // 1) La primera página Y el conteo exacto en la misma consulta.
@@ -1022,12 +1025,48 @@ function avisoRastreo(){
     +'nos están llegando sus posiciones, y esto no se arregla desde esta pantalla.</div>';
 }
 
+// ── ¿EL ATRASO ES DEL CAMIÓN O DEL PROVEEDOR? ───────────────────────────────
+//
+// ⛔ POR QUÉ (23/10/2026). La pantalla decía «11 unidades sin reportar hace más de
+//    15 min» y eso ACUSA A LOS CAMIONES de algo que estaba haciendo el proveedor:
+//    ese día su plataforma pasó de entregar al minuto (0-1 % de atraso del 16 al
+//    22) a entregar en tandas de hasta 91 minutos. Los equipos reportaban cada
+//    minuto igual que siempre. El aviso saltaba casi todo el día, y un aviso que
+//    salta siempre deja de leerse — justo el día que uno de verdad importe.
+//
+// Lo que distingue las dos causas es `creado` contra `ts`: si HACE POCO QUE
+// RECIBIMOS algo y aun así el dato más nuevo es viejo, el que llega tarde es el
+// proveedor. Si no recibimos nada hace rato, eso es otra cosa y la dice
+// `avisoRastreo()`. [[norma-un-filtro-nuestro-tapa-un-dato-que-si-llega]]
+var RECIBIDO_FRESCO_MIN = 5;   // recibimos algo hace menos de esto = la conexión anda
+
+function atrasoDelProveedor(){
+  if(!crudo.length || !esHoy()) return null;
+  var maxCreado=0, maxTs=0;
+  crudo.forEach(function(f){
+    var t=new Date(f.ts).getTime();          if(t>maxTs) maxTs=t;
+    var c=f.creado?new Date(f.creado).getTime():0; if(c>maxCreado) maxCreado=c;
+  });
+  // ⛔ Sin `creado` NO SE AFIRMA NADA. Una consulta vieja en caché, o un día
+  //    anterior a que existiera la columna, no puede hacernos decir de quién es
+  //    la culpa. [[norma-control-positivo-antes-de-creerle-al-vacio]]
+  if(!maxCreado || !maxTs) return null;
+  var ahora=Date.now();
+  var recibidoHace=(ahora-maxCreado)/60000;
+  var datoHace=(ahora-maxTs)/60000;
+  if(recibidoHace<=RECIBIDO_FRESCO_MIN && datoHace>MUDO_MIN)
+    return { recibidoHace:Math.round(recibidoHace), datoDe:maxTs, atraso:Math.round(datoHace) };
+  return null;
+}
+
 var crudo=[];
 function pintar(){
   var porCam={};
   crudo.forEach(function(f){ (porCam[f.cam]=porCam[f.cam]||[]).push(f); });
   var cams=Object.keys(porCam).sort();
   var ahora=Date.now(), htm='', bordes=[];
+  // De quien es el atraso: se calcula UNA vez y lo usan la ficha y el aviso.
+  var atrasoProv=atrasoDelProveedor();
   // Un día pasado NO es «en vivo»: no hay «hace X minutos» contra el reloj de ahora,
   // y marcar «sin señal» a las unidades sería inventar una alarma sobre algo que ya
   // terminó. Ver un registro y ver la flota andando son dos lecturas distintas.
@@ -1099,7 +1138,7 @@ function pintar(){
     var clase=hist?'e-par':(mudo?'e-mud':(andando?'e-and':'e-par'));
     var texto=hist
       ? 'último a las '+horaVE(ult.ts)
-      : (mudo?'sin señal':(andando?'andando':(ult.ignicion===true?'prendido, parado':'apagado')));
+      : (mudo?(atrasoProv?'dato atrasado':'sin señal'):(andando?'andando':(ult.ignicion===true?'prendido, parado':'apagado')));
     estado[cam]={ult:ult,color:color,mudo:mudo};
 
     var linea=pts.filter(function(p){return p.lat&&p.lon;}).map(function(p){return [p.lat,p.lon];});
@@ -1238,11 +1277,20 @@ function pintar(){
   var corteVivo = avisoRastreo();
   document.getElementById('avisos').innerHTML = corteVivo
     ? corteVivo
+      // ⛔ SI EL QUE LLEGA TARDE ES EL PROVEEDOR, EL SUJETO NO ES EL CAMIÓN.
+      //    «11 unidades sin reportar» manda a revisar once equipos sanos. Acá las
+      //    unidades reportan cada minuto: lo que llega tarde es la ENTREGA.
+      : (atrasoProv
+      ? '<div class="aviso ojo"><b>El GPS está entregando con atraso.</b> Seguimos recibiendo '
+        +'datos (el último llegó hace '+atrasoProv.recibidoHace+' min), pero traen posiciones '
+        +'de las '+horaVE(atrasoProv.datoDe)+' — hace '+atrasoProv.atraso+' min. '
+        +'<b>Los camiones sí están reportando</b>: lo que llega tarde es la entrega del '
+        +'proveedor. Cada unidad está dibujada donde estaba a esa hora, no donde está ahora.</div>'
     : (mudos.length
       ? '<div class="aviso ojo"><b>'+mudos.length+' unidad'+(mudos.length>1?'es':'')+' sin reportar</b> hace más de '
         +MUDO_MIN+' min: '+mudos.map(function(c){return c.replace('JAC-','');}).join(', ')
         +'. En el mapa se ve dónde se les perdió el rastro, no dónde están ahora.</div>'
-      : '');
+      : ''));
 
   document.getElementById('avisos').innerHTML += avisoDescarte();
 
@@ -2755,7 +2803,40 @@ async function arrancarVista(){
   document.getElementById('bDenUndo').onclick = denDeshacer;
   // El rol se pregunta ANTES de traer nada: si no puede leer, lo que corresponde es
   // decírselo, no dibujarle un mapa vacío.
-  try{ var rr=await sb.rpc('app_rol'); if(!rr.error) MI_ROL=rr.data||''; }catch(e){}
+  // ⛔ «NO SE PUDO PREGUNTAR» NO ES «NO TENÉS PERMISO», Y CONFUNDIRLOS ACUSA A UNA
+  //    PERSONA. Esto estaba así: `if(!rr.error) MI_ROL=rr.data||''` dentro de un
+  //    `catch` vacío — el error se tiraba, `MI_ROL` quedaba en blanco, y tres
+  //    líneas abajo la pantalla le decía al DUEÑO que su usuario no tiene permiso.
+  //    Pasó el 23/10/2026 con la base caída: Máximo mandó la captura. Y la pista
+  //    de que era eso estaba en lo que el mensaje NO decía — salía SIN el rol,
+  //    porque nunca se leyó ninguno.
+  //    [[norma-una-asercion-mal-escrita-acusa-al-producto]] [[norma-falta-de-dato-no-es-un-dato]]
+  var rolLeido=false, fallaRol='';
+  try{
+    var rr=await sb.rpc('app_rol');
+    if(rr.error) fallaRol=rr.error.message||'la consulta falló';
+    else { MI_ROL=rr.data||''; rolLeido=true; }
+  }catch(e){ fallaRol=String((e&&e.message)||e||'no hubo respuesta'); }
+
+  if(!rolLeido){
+    tapa('No se pudo comprobar tu permiso: '+fallaRol+'. Esto NO quiere decir que no '
+      +'tengas acceso — quiere decir que no se pudo preguntar, casi siempre porque la '
+      +'conexión con el sistema se cortó. El GPS sigue grabando igual. Probá de nuevo en '
+      +'un momento.', true);
+    var bR=document.getElementById('tapaBtn');
+    bR.textContent='Reintentar';
+    bR.onclick=function(){ location.reload(); };
+    return;
+  }
+  if(!MI_ROL){
+    // Sí contestó, y contestó que no hay rol. Eso es otra cosa, y tiene otro arreglo:
+    // la cuenta existe pero no está dada de alta en el sistema.
+    tapa('Tu usuario entró bien, pero no tiene un rol asignado en el sistema, así que '
+      +'todavía no puede ver el recorrido de la flota. No es una falla ni es tu clave: '
+      +'falta que te den de alta. Pedíselo a quien administra los usuarios.', true);
+    document.getElementById('tapaBtn').textContent='Volver al sistema';
+    return;
+  }
   if(ROLES_MAPA.indexOf(MI_ROL)<0){
     // `tapa()` escribe con textContent, así que acá NO va `esc()`: escaparlo mostraría
     // las entidades HTML en pantalla.
