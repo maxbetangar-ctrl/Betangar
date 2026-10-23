@@ -397,7 +397,7 @@
 // sobre una función que estaba puesta hacía una hora.
 // Con el sello a la vista, la pregunta «¿estás viendo la última?» se contesta mirando,
 // en vez de adivinando. Al tocar este archivo, subir la fecha.
-var VERSION_PANTALLA = '20261023-2035';
+var VERSION_PANTALLA = '20261023-2110';
 
 var SUPA_URL = 'https://hrkjddehqnzcqwlkklqm.supabase.co';
 var SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhya2pkZGVocW56Y3F3bGtrbHFtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc2NTk1NzIsImV4cCI6MjA5MzIzNTU3Mn0.kqWKthyZfPZ86toql7shGByF-ZhUpcQUS4Jw4RnG_ko';
@@ -1710,7 +1710,7 @@ var COLOR_PARR=['#ffd27f','#9fe0ff','#d7b3ff','#a8f0c6'];
 async function cargarParroquias(){
   if(PARROQUIAS.length) return;
   try{
-    var r=await sb.from('parroquias').select('nombre,es_nuestra,poligono').order('nombre');
+    var r=await sb.from('parroquias').select('nombre,es_nuestra,poligono,poligono_zona').order('nombre');
     if(r.error){
       // Sin permiso o sin tabla se dice: un mapa sin parroquias se lee como
       // «no existen», que es distinto de «no se pudieron leer».
@@ -1807,6 +1807,26 @@ function soloLimpiado(tramos){
 //    el mapa se puede mover— pero la zona de trabajo no puede quedar ilegible.
 var LIM_PARR = null;   // cache: recalcularlo en cada repaso no cambia nada
 
+/** Los anillos que hay que DIBUJAR de una parroquia: la zona de trabajo si se
+ *  calculó, y si no el límite.
+ *
+ *  ⛔ LA ZONA ES «DONDE LOS CAMIONES DE VERDAD PASARON», derivada del GPS. En
+ *     Venancio el límite legal son 71,5 km² y la zona 11,66: el 83 % de esa
+ *     parroquia es campo donde no se recoge, y dibujarlo entero hacía que la
+ *     parte trabajada se viera diminuta. En las otras tres no hay zona guardada
+ *     porque los camiones las cubren enteras (Caracciolo 100 %, Olegario 98 %,
+ *     Santa Lucía 94 %) y no habría nada que recortar.
+ *
+ *  ⚠️ ESTO ES PARA DIBUJAR Y ENCUADRAR, NO PARA RECORTAR EL RECORRIDO. El
+ *     recorte sigue usando `poligono` — ver `soloLimpiado()`. Si recortáramos
+ *     con la zona, una calle nueva que empezaran a limpiar caería fuera y no se
+ *     vería nunca: la zona se define por dónde fueron, y solo mostraríamos lo de
+ *     adentro. Un círculo que se cierra sobre sí mismo y esconde trabajo real. */
+function anillosDe(p){
+  if(p.poligono_zona && p.poligono_zona.length) return p.poligono_zona;
+  return (p.poligono && p.poligono.length >= 3) ? [p.poligono] : [];
+}
+
 /** La caja que contiene las parroquias que tocan hoy, o null si no se sabe. */
 function cajaDelDia(){
   if(LIM_PARR) return LIM_PARR;
@@ -1815,8 +1835,10 @@ function cajaDelDia(){
   if(!hoy.length) return null;          // domingo o sin cronograma: no hay zona
   var pts = [];
   PARROQUIAS.forEach(function(p){
-    if(hoy.indexOf(p.nombre) < 0 || !p.poligono || p.poligono.length < 3) return;
-    p.poligono.forEach(function(v){ pts.push(v); });
+    if(hoy.indexOf(p.nombre) < 0) return;
+    anillosDe(p).forEach(function(anillo){
+      anillo.forEach(function(v){ pts.push(v); });
+    });
   });
   if(pts.length < 3) return null;
   LIM_PARR = pts;
@@ -1885,8 +1907,12 @@ function pintarParroquias(){
       //    Lo que funciona es el recurso de cartografía de siempre: una FRANJA
       //    OSCURA alrededor (casing) que despeja el ruido, y encima la línea de
       //    color. El contorno se despega aunque le pase un recorrido por encima.
-      capaParr.push(L.polygon(p.poligono,{pane:'parroquias',interactive:false,
-        color:'#000', weight: toca?13:9, opacity:.5, fill:false}).addTo(mapa));
+      // ⛔ SE DIBUJA LA ZONA DE TRABAJO, no el limite legal, cuando la hay: en
+      //    Venancio el limite son 71,5 km2 y el 83% es campo donde no se recoge.
+      anillosDe(p).forEach(function(anillo){
+        capaParr.push(L.polygon(anillo,{pane:'parroquias',interactive:false,
+          color:'#000', weight: toca?13:9, opacity:.5, fill:false}).addTo(mapa));
+        });
     }
     // ⛔ SIN RELLENO, NINGUNA. Y ésta es la tercera corrección del mismo asunto,
     //    la que lo entendió: Máximo lo miró y dijo «ahora me quitaste la vista
@@ -1896,20 +1922,28 @@ function pintarParroquias(){
     //    adentro: necesita que se vea el borde.
     //    Las tres versiones: relleno suave (no se veía) → halo del mismo color
     //    (brillo sin separación) → franja oscura + línea, y sin relleno.
-    capaParr.push(L.polygon(p.poligono,{
+    anillosDe(p).forEach(function(anillo){
+      capaParr.push(L.polygon(anillo,{
       pane:'parroquias',
       color:color, weight: toca?8:4, opacity: toca?1:.75,
       // Tinte de acuarela SOLO en las nuestras y muy bajo: marca territorio sin
       // apagar la zona por donde andan los camiones. Las otras 14 van sin nada:
       // dieciocho tintes encimados son una ciudad pintada de gris.
       fill:true, fillColor:color, fillOpacity: toca?.10:.05,
-      interactive:false            // no roba el clic: el mapa se sigue usando igual
-    }).addTo(mapa));
+        interactive:false          // no roba el clic: el mapa se sigue usando igual
+      }).addTo(mapa));
+    });
     if(mia){
       // El nombre, solo en las nuestras: dieciocho etiquetas serían ruido.
       // Va sobre una chapa oscura translúcida en vez de un borde blanco: el
       // mapa puede estar en claro o en oscuro, y el blanco solo sirve en uno.
-      var c=centroDe(p.poligono);
+      // ⛔ LA ETIQUETA VA EN EL CENTRO DE LO QUE SE DIBUJÓ, no del límite legal.
+      //    En Venancio el centro legal cae en pleno campo, a kilómetros de la
+      //    zona pintada: el nombre quedaría flotando solo en un vacío y
+      //    señalando terreno que no se trabaja. Se usa el anillo más grande.
+      var _an=anillosDe(p), _gr=_an[0];
+      _an.forEach(function(a){ if(a.length>_gr.length) _gr=a; });
+      var c=centroDe(_gr);
       capaParr.push(L.marker(c,{pane:'parroquias',interactive:false,icon:L.divIcon({className:'',
         html:'<div style="transform:translate(-50%,-50%);white-space:nowrap;font-size:14px;'
           +'font-weight:800;letter-spacing:.4px;color:'+color+';background:rgba(0,0,0,.78);'

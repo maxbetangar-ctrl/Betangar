@@ -62,7 +62,7 @@ await pag.setContent(`<!doctype html><html><head><style>${mEstilo[1]}</style></h
 <div id="mapa"></div><select id="selFondo"></select><input id="brillo" type="range">
 <script>
   window.__dibujos = []
-  const capa = (tipo) => (a, o) => { const c = { tipo, opts: o || {}, quitada: false }
+  const capa = (tipo) => (a, o) => { const c = { tipo, pts: a, opts: o || {}, quitada: false }
     window.__dibujos.push(c); return { addTo: function(){ return this }, on: function(){}, __c: c } }
   window.L = { map:function(){ return { setView:function(){return this}, on:function(){}, off:function(){},
       getContainer:function(){return document.body}, removeLayer:function(l){ if(l&&l.__c) l.__c.quitada=true },
@@ -169,6 +169,31 @@ const r = await pag.evaluate((parr) => {
   out.quedanVivas = window.__dibujos.filter(x => !x.quitada && x.tipo === 'polygon').length
   ciclarParroquias()
   out.prendido = VER_PARR
+  // ── ⛔ LA ZONA DE TRABAJO ─────────────────────────────────────────────────
+  //  Venancio: el limite legal son 71,5 km2 y los camiones solo tocan 11,66.
+  //  Cuando hay zona calculada SE DIBUJA LA ZONA, no el limite — si no, la
+  //  parte trabajada se ve diminuta dentro de un campo que no se recoge.
+  const LEJOS = [[10.60,-71.80],[10.60,-71.60],[10.78,-71.60],[10.78,-71.80]]  // el limite legal
+  const ZONA1 = [[10.70,-71.70],[10.70,-71.68],[10.72,-71.68],[10.72,-71.70]]
+  const ZONA2 = [[10.74,-71.66],[10.74,-71.65],[10.745,-71.65],[10.745,-71.66]]
+  CRONO = [{ dia:'miercoles', tipo:'parroquia', parroquia:'Parroquia Venancio Pulgar', camiones:12 }]
+  PARROQUIAS = [{ nombre:'Parroquia Venancio Pulgar', es_nuestra:true,
+                  poligono: LEJOS, poligono_zona: [ZONA1, ZONA2] }]
+  window.__dibujos = []
+  pintarParroquias()
+  const dz = window.__dibujos
+  const polz = dz.filter(x => x.tipo === 'polygon')
+  const etiz = dz.filter(x => x.tipo === 'marker')
+  const puntos = [].concat.apply([], polz.map(x => x.pts || []))
+  out.zona = {
+    poligonos: polz.length,
+    // ⛔ Si aparece UN SOLO punto del limite legal, se dibujo el limite y no la zona.
+    usaLimiteLegal: puntos.some(v => Math.abs(v[1] - (-71.80)) < 1e-9 || Math.abs(v[0] - 10.60) < 1e-9),
+    usaZona: puntos.some(v => Math.abs(v[0] - 10.70) < 1e-9 && Math.abs(v[1] - (-71.70)) < 1e-9),
+    // La etiqueta tiene que caer DENTRO de la zona grande, no en medio del campo.
+    etiqueta: etiz.length ? etiz[0].pts : null
+  }
+
   return out
 }, PARR)
 
@@ -189,6 +214,17 @@ exige(r.coloresDistintos === 4, `las 4 nuestras comparten color (${r.coloresDist
 exige(r.miasSinPuntear, 'las nuestras salieron punteadas como las ajenas')
 exige(r.apagado === false && r.prendido === true, 'el interruptor no alterna')
 exige(r.quedanVivas === 0, `al apagar quedaron ${r.quedanVivas} capas colgadas`)
+// ── La zona de trabajo ───────────────────────────────────────────────────────
+exige(r.zona.poligonos === 4,
+  `con 2 anillos de zona se esperaban 4 poligonos (halo + borde por anillo), hubo ${r.zona.poligonos}`)
+exige(!r.zona.usaLimiteLegal,
+  '⛔ SE SIGUE DIBUJANDO EL LIMITE LEGAL teniendo zona de trabajo: en Venancio eso pinta 71,5 km2 '
+  + 'de los que el 83% es campo donde no se recoge')
+exige(r.zona.usaZona, '⛔ no se dibujo la zona de trabajo')
+exige(r.zona.etiqueta && r.zona.etiqueta[0] > 10.69 && r.zona.etiqueta[0] < 10.73
+      && r.zona.etiqueta[1] > -71.71 && r.zona.etiqueta[1] < -71.67,
+  `⛔ la etiqueta cae fuera de la zona dibujada (${JSON.stringify(r.zona.etiqueta)}): en Venancio `
+  + 'el centro del limite legal esta en pleno campo, a kilometros de donde se trabaja')
 exige(errores.length === 0, 'errores de JS: ' + errores.join(' · '))
 
 console.log(`\nregiones ${r.regiones} · resaltadas ${r.mias} (+${r.halos} halos) · de fondo ${r.otras} · etiquetas ${r.etiquetas}`)
