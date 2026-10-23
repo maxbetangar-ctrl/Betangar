@@ -376,7 +376,7 @@
 // sobre una función que estaba puesta hacía una hora.
 // Con el sello a la vista, la pregunta «¿estás viendo la última?» se contesta mirando,
 // en vez de adivinando. Al tocar este archivo, subir la fecha.
-var VERSION_PANTALLA = '20261023-1400';
+var VERSION_PANTALLA = '20261023-1710';
 
 var SUPA_URL = 'https://hrkjddehqnzcqwlkklqm.supabase.co';
 var SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhya2pkZGVocW56Y3F3bGtrbHFtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc2NTk1NzIsImV4cCI6MjA5MzIzNTU3Mn0.kqWKthyZfPZ86toql7shGByF-ZhUpcQUS4Jw4RnG_ko';
@@ -1716,9 +1716,60 @@ function ciclarParroquias(){
 // sin abrir el historial: «el lunes no toca Venancio Pulgar, toca miércoles y
 // sábado».
 //
-// ⛔ Y LOS «12 CAMIONES» SON LOS COMPROMETIDOS, NO LOS QUE SE PUEDEN VER: solo
-// 10 de 12 unidades tienen GPS. Eso va escrito en la franja, no escondido.
+// ⛔ Y LOS «12 CAMIONES» SON LOS COMPROMETIDOS, NO LOS QUE SE PUEDEN VER. La
+// diferencia va escrita en la franja, no escondida — pero SACADA DEL DATO.
 var CRONO = [];
+
+// ── CUÁNTAS UNIDADES NO SE PUEDEN VER ───────────────────────────────────────
+//
+// ⛔ ESTO ESTUVO ESCRITO A MANO Y MINTIÓ. La franja decía «JAC-B011 y JAC-B012
+//    no tienen equipo de GPS» con los nombres puestos en el código. El 23/10/2026
+//    el proveedor habilitó esas dos unidades, empezaron a reportar con posición
+//    válida — y la pantalla siguió diciendo que no tenían GPS, porque nadie
+//    vuelve a editar un texto que ya está escrito. Dos listas a mano se
+//    desincronizan, y la que miente es siempre la de la pantalla.
+//    [[norma-dos-listas-a-mano-se-desincronizan]]
+//
+// Ahora sale de `gps_equipos`: el día que las 12 estén activas la salvedad
+// desaparece sola, y el día que una se caiga aparece sola con su nombre.
+var FLOTA = null;        // null = no se pudo leer · {total, sinGps:[cam,…]}
+
+async function cargarFlota(){
+  try{
+    var r = await sb.from('gps_equipos').select('cam,activo').order('cam');
+    if(r.error || !r.data){ FLOTA = null; return; }
+    FLOTA = {
+      total: r.data.length,
+      sinGps: r.data.filter(function(e){ return !e.activo; })
+                    .map(function(e){ return e.cam; })
+    };
+  }catch(e){ FLOTA = null; }
+}
+
+/** «B011 y B012», «B011, B012 y B003». */
+function listar(xs){
+  if(xs.length === 1) return xs[0];
+  return xs.slice(0, -1).join(', ') + ' y ' + xs[xs.length - 1];
+}
+
+/** La salvedad de lo que la pantalla NO puede mostrar.
+ *  ⛔ Si no se pudo leer la flota NO se calla: un «no sé» que se ve igual que un
+ *     «están todas» es justo lo que hace creer que un camión no salió.
+ *     [[norma-falta-de-dato-no-es-un-dato]] */
+function salvedadSinGps(comprometidos){
+  if(FLOTA === null)
+    return 'No se pudo comprobar cuáles unidades tienen GPS activo: si falta alguna en el '
+      + 'mapa, puede ser eso y no que no haya salido.';
+  if(!FLOTA.sinGps.length) return '';          // las ve todas: no hay nada que advertir
+  var n = FLOTA.sinGps.length, ven = FLOTA.total - n;
+  var tiene = n === 1 ? ' no tiene' : ' no tienen';
+  return comprometidos > ven
+    ? comprometidos + ' camiones comprometidos; en el mapa se ven como máximo ' + ven
+      + ', porque ' + listar(FLOTA.sinGps) + tiene + ' GPS activo.'
+    : comprometidos + ' camiones comprometidos. ' + listar(FLOTA.sinGps) + tiene
+      + ' GPS activo: si alguno de los asignados es ' + (n === 1 ? 'ése' : 'uno de ellos')
+      + ', no va a aparecer en el mapa.';
+}
 
 async function cargarCronograma(){
   try{
@@ -1779,17 +1830,12 @@ function pintarCronograma(err){
   var total = CRONO.reduce(function(a,c){ return a + (c.camiones || 0); }, 0);
 
   d.style.display = '';
-  // ⛔ La salvedad de los 2 sin GPS va SIEMPRE, pero redactada segun el caso:
-  //    con 12 comprometidos el tope de 10 es lo que importa; con 9, decir «se
-  //    ven como máximo 10» confunde más de lo que aclara. Lo que no cambia es
-  //    que se diga, y en la franja.
-  var fin = total > 10
-    ? total + ' camiones comprometidos; en el mapa se ven como máximo 10, porque '
-      + 'JAC-B011 y JAC-B012 no tienen equipo de GPS.'
-    : total + ' camiones comprometidos. JAC-B011 y JAC-B012 no tienen equipo de GPS: '
-      + 'si alguno de los asignados es uno de ellos, no va a aparecer en el mapa.';
+  // La salvedad va cuando HAY algo que advertir, y redactada según el caso: si
+  // se compromete más de lo que se puede ver, lo que importa es el tope; si no,
+  // importa que el asignado pueda ser justo uno de los que no se ven.
+  var fin = salvedadSinGps(total);
   d.innerHTML = cab + partes.join(' &nbsp;+&nbsp; ')
-    + '<span class="cfin"> &nbsp;·&nbsp; ' + fin + '</span>';
+    + (fin ? '<span class="cfin"> &nbsp;·&nbsp; ' + fin + '</span>' : '');
 }
 
 // ── 🧹 POR DÓNDE NO HAY REGISTRO DE PASO ────────────────────────────────────
@@ -2502,6 +2548,7 @@ async function arrancarVista(){
   PUEDE_EDITAR_SITIOS = (ROLES_SITIOS.indexOf(MI_ROL)>=0);
 
   await repaso();
+  await cargarFlota();               // ⛔ ANTES del cronograma: la franja la usa
   await cargarCronograma();          // antes de pintar: decide cual se resalta
   await cargarParroquias(); pintarParroquias();
   await cargarSitios();
