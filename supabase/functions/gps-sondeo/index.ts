@@ -330,6 +330,35 @@ Deno.serve(async (req) => {
     }
   }
 
+  // ── QUE EL DESCARTE QUEDE POR ESCRITO ──────────────────────────────────────
+  //
+  // ⛔ ESTO FALTABA Y COSTO CARO (23/10/2026). `ajenas` se calculaba y se metia
+  //    acá abajo, en el JSON de la respuesta — y esta respuesta NO LA LEE NADIE:
+  //    el sondeo lo corre un cron cada minuto y el cuerpo se descarta. Cuando el
+  //    proveedor habilito B011 y B012, el conector supo desde el primer minuto
+  //    que le llegaban dos placas desconocidas, tiro sus posiciones, y no quedo
+  //    rastro: NO SE PUEDE SABER CUANTOS DIAS DESCARTAMOS.
+  //    Tres lineas mas arriba, para una unidad activa que NO VINO, este mismo
+  //    archivo dice «una ausencia se ve igual que todo en orden si no se escribe»
+  //    y la escribe. El descarte no se escribia. Era la misma ceguera.
+  //
+  // ⚠️ SIN `catch` QUE LO CALLE. Si lo que falla es justo la pieza que deja el
+  //    rastro, eso tiene que salir en la respuesta — un error tapado acá nos
+  //    devuelve exactamente al problema que esto arregla.
+  //    [[norma-la-falta-de-un-dato-no-es-un-dato]]
+  //
+  // Con la lista vacia BORRA la marca: tiene que auto-curarse, o avisaria de un
+  // problema ya resuelto y el dia que vuelva nadie le va a creer.
+  let anotado: string | null = null;
+  {
+    const r = await fetch(`${URL_SB}/rest/v1/rpc/gps_ajenas_anotar`, {
+      method: "POST",
+      headers: { ...cabSb, "Content-Type": "application/json" },
+      body: JSON.stringify({ p_placas: ajenas }),
+    });
+    if (!r.ok) anotado = "no se pudo anotar el descarte: " + (await r.text()).slice(0, 200);
+  }
+
   return json({
     ok: true,
     modo,
@@ -338,6 +367,7 @@ Deno.serve(async (req) => {
     con_error: resumen.filter((x) => x.error).length,
     sin_noticia: sinNoticia,          // activas que el proveedor no mandó
     placas_ajenas: ajenas,            // que mandó y no tenemos registradas
+    ...(anotado ? { ERROR_anotando_descarte: anotado } : {}),
     segundos: Math.round((Date.now() - t0) / 1000),
     detalle: resumen,
   });

@@ -376,7 +376,7 @@
 // sobre una función que estaba puesta hacía una hora.
 // Con el sello a la vista, la pregunta «¿estás viendo la última?» se contesta mirando,
 // en vez de adivinando. Al tocar este archivo, subir la fecha.
-var VERSION_PANTALLA = '20261023-1710';
+var VERSION_PANTALLA = '20261023-1745';
 
 var SUPA_URL = 'https://hrkjddehqnzcqwlkklqm.supabase.co';
 var SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhya2pkZGVocW56Y3F3bGtrbHFtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc2NTk1NzIsImV4cCI6MjA5MzIzNTU3Mn0.kqWKthyZfPZ86toql7shGByF-ZhUpcQUS4Jw4RnG_ko';
@@ -1029,7 +1029,9 @@ function pintar(){
           : 'Todavía no hay posiciones de hoy. El sistema consulta cada minuto; en cuanto '
             +'el primer camión reporte, aparece acá solo.')
       +'</div></div>';
-    if(corte) document.getElementById('avisos').innerHTML = corte;
+    // ⛔ El descarte va TAMBIÉN acá: sin posiciones es cuando más explica.
+    var desc = avisoDescarte();
+    if(corte || desc) document.getElementById('avisos').innerHTML = (corte || '') + desc;
     document.getElementById('sello').textContent = hist
       ? 'sin datos del '+fechaCorta(DIA)
       : (corte ? 'el proveedor no entrega desde las '+horaVE(ESTADO.ultimo) : 'sin datos de hoy');
@@ -1219,6 +1221,8 @@ function pintar(){
         +'. En el mapa se ve dónde se les perdió el rastro, no dónde están ahora.</div>'
       : '');
 
+  document.getElementById('avisos').innerHTML += avisoDescarte();
+
   document.getElementById('sello').textContent=cams.length+' unidad'+(cams.length>1?'es':'');
   if(primeraVez&&bordes.length){ mapa.fitBounds(bordes,{padding:[50,50],maxZoom:15}); primeraVez=false; }
 }
@@ -1276,6 +1280,7 @@ async function repaso(){
     await traerEstado();
     crudo=await traer();
     await cargarChoferes();   // se auto-limita: no consulta en cada repaso
+    await cargarDescartes();  // idem: un descarte no cambia minuto a minuto
     pintar(); marcarVivo();
     document.getElementById('avisos').innerHTML+='';
   }catch(e){
@@ -1733,6 +1738,57 @@ var CRONO = [];
 // Ahora sale de `gps_equipos`: el día que las 12 estén activas la salvedad
 // desaparece sola, y el día que una se caiga aparece sola con su nombre.
 var FLOTA = null;        // null = no se pudo leer · {total, sinGps:[cam,…]}
+
+// ── EL DESCARTE SILENCIOSO ──────────────────────────────────────────────────
+//
+// ⛔ POR QUÉ ESTÁ ACÁ (23/10/2026). El conector puede estar recibiendo posiciones
+//    y tirándolas, y eso se ve EXACTAMENTE igual que todo en orden. Pasó: el
+//    proveedor habilitó B011 y B012, el sondeo supo desde el primer minuto que
+//    le llegaban dos placas desconocidas, descartó sus posiciones y no quedó
+//    rastro — no se puede saber cuántos días. Lo encontró Máximo mirando la
+//    pantalla, no el sistema. Ahora se escribe y se muestra acá.
+//    [[norma-la-falta-de-un-dato-no-es-un-dato]]
+var DESCARTE = null, DESC_TS = 0;
+var DESC_REFRESCO_MS = 5 * 60 * 1000;
+
+async function cargarDescartes(forzar){
+  if(!forzar && DESC_TS && (Date.now() - DESC_TS) < DESC_REFRESCO_MS) return;
+  DESC_TS = Date.now();
+  try{
+    var r = await sb.rpc('gps_descartes');
+    if(r.error){ DESCARTE = null; return; }
+    DESCARTE = (r.data && r.data.length) ? r.data[0] : null;
+  }catch(e){ DESCARTE = null; }
+}
+
+/** El aviso del descarte, o '' si no se está descartando nada.
+ *
+ *  ⛔ VA APARTE DEL CORTE DE RASTREO, Y EN LOS DOS CAMINOS DE `pintar()`. El
+ *     sujeto es otro: acá no hay un camión con falla ni un proveedor que dejó de
+ *     entregar — hay dato LLEGANDO que nosotros tiramos, y la acción no es
+ *     revisar nada en la calle sino registrar una unidad.
+ *  ⛔ Y SOBRE TODO: tiene que salir TAMBIÉN cuando no hay ni una posición, que es
+ *     el camino en que `pintar()` se devuelve temprano. Si el conector estuviera
+ *     descartando TODAS las placas —una recodificación de la flota, por ejemplo—
+ *     habría cero posiciones y la pantalla diría «todavía no hay posiciones de
+ *     hoy»: el aviso faltaría justo en el caso que lo explica todo. */
+function avisoDescarte(){
+  if(!DESCARTE || !DESCARTE.placas || !DESCARTE.placas.length) return '';
+  var np = DESCARTE.placas.length, s = np > 1 ? 's' : '';
+  return '<div class="aviso mal"><b>El GPS está mandando '+np+' placa'+s+' que no tenemos '
+    +'registrada'+s+'</b> ('+esc(DESCARTE.placas.join(', '))+'): sus posiciones se están '
+    +'descartando '+antiguedad(DESCARTE.horas)+'. Si es un camión nuestro, no aparece en '
+    +'el mapa hasta que se registre.</div>';
+}
+
+/** «hace 3 h», «hace 2 días». Una antigüedad en horas sueltas no se lee. */
+function antiguedad(h){
+  h = Number(h) || 0;
+  if(h < 1)  return 'hace menos de una hora';
+  if(h < 24) return 'hace ' + Math.round(h) + ' h';
+  var d = Math.round(h / 24);
+  return 'hace ' + d + (d === 1 ? ' día' : ' días');
+}
 
 async function cargarFlota(){
   try{
@@ -2549,6 +2605,7 @@ async function arrancarVista(){
 
   await repaso();
   await cargarFlota();               // ⛔ ANTES del cronograma: la franja la usa
+  await cargarDescartes();           // para que el primer pintado ya lo diga
   await cargarCronograma();          // antes de pintar: decide cual se resalta
   await cargarParroquias(); pintarParroquias();
   await cargarSitios();
