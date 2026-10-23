@@ -96,6 +96,12 @@
   .u-dat b{color:var(--tinta);font-weight:650}
 
   .aviso{margin:10px 14px;padding:9px 11px;border-radius:8px;font-size:12.5px;line-height:1.4}
+  #crono{display:none;padding:8px 14px;font-size:13.5px;line-height:1.35;
+         border-bottom:1px solid var(--linea);background:rgba(0,0,0,.25)}
+  #crono b{font-weight:800}
+  #crono .cfin{font-size:11.5px;color:var(--suave);font-weight:400}
+  body.tv #crono{font-size:20px;padding:12px 18px}
+  body.tv #crono .cfin{font-size:15px}
   .aviso.ojo{background:rgba(244,163,0,.15);color:var(--ambar)}
   .aviso.mal{background:rgba(217,48,37,.15);color:var(--rojo)}
   .titpanel{padding:10px 14px 4px;font-size:11px;letter-spacing:.6px;text-transform:uppercase;color:var(--suave);font-weight:700}
@@ -177,6 +183,13 @@
   </div>
 </header>
 
+<!-- ⛔ LA FRANJA DEL CRONOGRAMA NO LLEVA `ocultarTv`. En el televisor de la
+     oficina es justo lo que hay que poder leer de lejos: qué parroquia toca
+     hoy. Y la aclaración de los 2 camiones sin GPS va ACÁ, a la vista, no en un
+     tooltip: a veces esta pantalla la mira la Alcaldía, y un asterisco
+     escondido es lo que después parece ocultamiento. -->
+<div id="crono"></div>
+
 <div id="cuerpo">
   <div id="panel">
     <div id="avisos"></div>
@@ -256,7 +269,7 @@
 // sobre una función que estaba puesta hacía una hora.
 // Con el sello a la vista, la pregunta «¿estás viendo la última?» se contesta mirando,
 // en vez de adivinando. Al tocar este archivo, subir la fecha.
-var VERSION_PANTALLA = '20261023-0915';
+var VERSION_PANTALLA = '20261023-1020';
 
 var SUPA_URL = 'https://hrkjddehqnzcqwlkklqm.supabase.co';
 var SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhya2pkZGVocW56Y3F3bGtrbHFtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc2NTk1NzIsImV4cCI6MjA5MzIzNTU3Mn0.kqWKthyZfPZ86toql7shGByF-ZhUpcQUS4Jw4RnG_ko';
@@ -1219,6 +1232,8 @@ async function irADia(f){
     if(esHoy()) await traerEstado();
     crudo=await traer();
     await cargarChoferes(true);   // forzado: cambió el día. Antes de pintar, o la primera pasada sale sin chofer
+    await cargarCronograma();     // el cronograma es POR DÍA: cambia con selDia
+    pintarParroquias();           // y con el cambia cuál parroquia va resaltada
     pintar();
     if(esHoy()) marcarVivo();
   }catch(e){
@@ -1520,6 +1535,10 @@ function pintarParroquias(){
     //    verdad hay que leer.
     if(!mia) return;
     var color = COLOR_PARR[(i++)%COLOR_PARR.length];
+    // La que TOCA ese dia se despega de las otras tres: es la pregunta que la
+    // pantalla contesta de un vistazo. Las demas siguen dibujadas —el camion
+    // puede estar en cualquiera— pero mas tenues.
+    var toca = parroquiasDeHoy().indexOf(p.nombre) >= 0;
     if(mia){
       // ⛔ EL LÍMITE SE LEE COMO LÍNEA, NO COMO MANCHA, Y LO QUE LO HACE RESALTAR
       //    ES CONTRASTE, NO MÁS COLOR. Van dos versiones fallidas:
@@ -1532,7 +1551,7 @@ function pintarParroquias(){
       //    OSCURA alrededor (casing) que despeja el ruido, y encima la línea de
       //    color. El contorno se despega aunque le pase un recorrido por encima.
       capaParr.push(L.polygon(p.poligono,{pane:'parroquias',interactive:false,
-        color:'#000', weight:9, opacity:.5, fill:false}).addTo(mapa));
+        color:'#000', weight: toca?13:9, opacity:.5, fill:false}).addTo(mapa));
     }
     // ⛔ SIN RELLENO, NINGUNA. Y ésta es la tercera corrección del mismo asunto,
     //    la que lo entendió: Máximo lo miró y dijo «ahora me quitaste la vista
@@ -1544,11 +1563,11 @@ function pintarParroquias(){
     //    (brillo sin separación) → franja oscura + línea, y sin relleno.
     capaParr.push(L.polygon(p.poligono,{
       pane:'parroquias',
-      color:color, weight:5, opacity:1,
+      color:color, weight: toca?8:4, opacity: toca?1:.75,
       // Tinte de acuarela SOLO en las nuestras y muy bajo: marca territorio sin
       // apagar la zona por donde andan los camiones. Las otras 14 van sin nada:
       // dieciocho tintes encimados son una ciudad pintada de gris.
-      fill:true, fillColor:color, fillOpacity:.07,
+      fill:true, fillColor:color, fillOpacity: toca?.10:.05,
       interactive:false            // no roba el clic: el mapa se sigue usando igual
     }).addTo(mapa));
     if(mia){
@@ -1561,7 +1580,8 @@ function pintarParroquias(){
           +'font-weight:800;letter-spacing:.4px;color:'+color+';background:rgba(0,0,0,.78);'
           +'border:2px solid '+color+';border-radius:6px;padding:3px 10px;'
           +'box-shadow:0 0 10px rgba(0,0,0,.7)">'
-          +esc(p.nombre.replace(/^Parroquia /,''))+'</div>'})}).addTo(mapa));
+          +esc(p.nombre.replace(/^Parroquia /,''))
+          +(toca ? (esHoy() ? ' — HOY' : ' — ESE DÍA') : '')+'</div>'})}).addTo(mapa));
     }
   });
 }
@@ -1575,6 +1595,94 @@ function ciclarParroquias(){
   VER_PARR=!VER_PARR;
   try{ localStorage.setItem('btg_mapa_parr', VER_PARR?'1':'0'); }catch(e){}
   pintarParroquias();
+}
+
+// ── 📅 EL CRONOGRAMA: QUÉ PARROQUIA TOCA ────────────────────────────────────
+//
+// Declarado por Máximo el 22/10: lunes y jueves Olegario Villalobos (7) +
+// Santa Lucía (2); martes y viernes Caracciolo Parra Pérez (12); miércoles y
+// sábado Venancio Pulgar (12); domingo, operativo que define el IMAU.
+//
+// ⛔ QUÉ PREGUNTA CONTESTA QUE HOY NO SE PUEDE CONTESTAR. «¿Pasamos por aquí?»
+// dice si se pasó por un punto tal día, pero nadie en la pantalla sabe si ESE
+// DÍA TOCABA pasar. Con el cronograma a la vista, media denuncia se contesta
+// sin abrir el historial: «el lunes no toca Venancio Pulgar, toca miércoles y
+// sábado».
+//
+// ⛔ Y LOS «12 CAMIONES» SON LOS COMPROMETIDOS, NO LOS QUE SE PUEDEN VER: solo
+// 10 de 12 unidades tienen GPS. Eso va escrito en la franja, no escondido.
+var CRONO = [];
+
+async function cargarCronograma(){
+  try{
+    var r = await sb.rpc('cronograma_del_dia', { p_fecha: DIA });
+    if(r.error){ CRONO = []; pintarCronograma(r.error.message); return; }
+    CRONO = r.data || [];
+  }catch(e){ CRONO = []; pintarCronograma(String(e.message||e)); return; }
+  pintarCronograma();
+}
+
+/** El nombre corto de la parroquia que toca, para resaltarla en el mapa. */
+function parroquiasDeHoy(){
+  return CRONO.filter(function(c){ return c.tipo === 'parroquia' && c.parroquia; })
+              .map(function(c){ return c.parroquia; });
+}
+
+function pintarCronograma(err){
+  var d = document.getElementById('crono');
+  if(!d) return;
+  var hoy = esHoy();
+
+  if(err){
+    d.style.display = '';
+    d.innerHTML = '<span style="color:var(--ambar)">⚠️ No se pudo leer el cronograma:</span> '
+      + esc(err);
+    return;
+  }
+  if(!CRONO.length){
+    // ⛔ TERCER ESTADO, y no es un detalle: «sin cronograma vigente» no es «hoy
+    // no toca nada». Pasa al mirar un día anterior a la fecha en que se cargó
+    // el cronograma, y decirlo evita leer ese día como una jornada sin trabajo.
+    d.style.display = '';
+    d.innerHTML = '<span style="color:var(--suave)">Sin cronograma vigente para el '
+      + esc(fechaCorta(DIA)) + '.</span> '
+      + '<span class="cfin">No es que no tocara nada: ese día todavía no regía este '
+      + 'cronograma.</span>';
+    return;
+  }
+
+  var dia = CRONO[0].dia || '';
+  var cab = hoy ? ('<b>Hoy ' + esc(dia) + ':</b> ')
+                : ('<b>El ' + esc(dia) + ' ' + esc(fechaCorta(DIA)) + ' tocaba:</b> ');
+
+  var op = CRONO.filter(function(c){ return c.tipo === 'operativo_imau'; });
+  if(op.length){
+    d.style.display = '';
+    d.innerHTML = cab + 'operativo que define el IMAU. '
+      + '<span class="cfin">' + esc(op[0].nota || 'Sin parroquia asignada de antemano.')
+      + '</span>';
+    return;
+  }
+
+  var partes = CRONO.filter(function(c){ return c.tipo === 'parroquia'; })
+    .map(function(c){
+      return '<b>' + esc(String(c.parroquia).replace('Parroquia ','')) + '</b> ('
+        + c.camiones + (c.camiones === 1 ? ' camión' : ' camiones') + ')';
+    });
+  var total = CRONO.reduce(function(a,c){ return a + (c.camiones || 0); }, 0);
+
+  d.style.display = '';
+  // ⛔ La salvedad de los 2 sin GPS va SIEMPRE, pero redactada segun el caso:
+  //    con 12 comprometidos el tope de 10 es lo que importa; con 9, decir «se
+  //    ven como máximo 10» confunde más de lo que aclara. Lo que no cambia es
+  //    que se diga, y en la franja.
+  var fin = total > 10
+    ? total + ' camiones comprometidos; en el mapa se ven como máximo 10, porque '
+      + 'JAC-B011 y JAC-B012 no tienen equipo de GPS.'
+    : total + ' camiones comprometidos. JAC-B011 y JAC-B012 no tienen equipo de GPS: '
+      + 'si alguno de los asignados es uno de ellos, no va a aparecer en el mapa.';
+  d.innerHTML = cab + partes.join(' &nbsp;+&nbsp; ')
+    + '<span class="cfin"> &nbsp;·&nbsp; ' + fin + '</span>';
 }
 
 // ── 🧹 POR DÓNDE NO HAY REGISTRO DE PASO ────────────────────────────────────
@@ -2287,6 +2395,7 @@ async function arrancarVista(){
   PUEDE_EDITAR_SITIOS = (ROLES_SITIOS.indexOf(MI_ROL)>=0);
 
   await repaso();
+  await cargarCronograma();          // antes de pintar: decide cual se resalta
   await cargarParroquias(); pintarParroquias();
   await cargarSitios();
   // El botón solo aparece si la base le va a aceptar la escritura. No es el candado

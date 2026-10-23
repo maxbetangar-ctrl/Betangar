@@ -101,6 +101,8 @@ const r = await pag.evaluate((parr) => {
   // una fuga de capas quedaria INVISIBLE para esta prueba.
   try { iniciarMapa() } catch (e) { /* el fondo no se prueba aca */ }
   if (!window.mapa && typeof mapa === 'undefined') throw new Error('no quedo `mapa`')
+  // Se declara que hoy toca Santa Lucia: es lo que decide el resaltado.
+  CRONO = [{ dia:'lunes', tipo:'parroquia', parroquia:'Parroquia Santa Lucía', camiones:2 }]
   PARROQUIAS = parr; VER_PARR = true
   window.__dibujos = []
   pintarParroquias()
@@ -130,16 +132,30 @@ const r = await pag.evaluate((parr) => {
     // los iguala, el límite vuelve a desaparecer y nadie se entera.
     // Lo que importa es la RELACIÓN, no un número mágico: la franja oscura
     // tiene que sobresalir a los dos lados de la línea de color, o no separa.
-    haloMasAncho: halos.length > 0
-                  && mias.every(m => m.opts.weight >= 4)
-                  && halos.every(h => mias.every(m => h.opts.weight >= m.opts.weight + 3)),
+    // ⛔ EMPAREJADOS, no cruzados. Al existir dos grosores (la del dia y las
+    // otras), comparar cada halo contra TODAS las lineas hacia fallar al halo
+    // flaco contra la linea gruesa, que no son la misma parroquia. Se ordenan
+    // los dos y se comparan de a pares.
+    haloMasAncho: (() => {
+      if (!halos.length || halos.length !== mias.length) return false
+      const h = halos.map(x => x.opts.weight).sort((a, b) => a - b)
+      const l = mias.map(x => x.opts.weight).sort((a, b) => a - b)
+      return l.every(w => w >= 4) && h.every((w, i) => w >= l[i] + 3)
+    })(),
     // El casing tiene que ser OSCURO, no del color de la linea. Un halo del
     // mismo color suma brillo y no separa: contra una marana de rutas de neon,
     // mas color es mas ruido. Si alguien lo vuelve a pintar del color, esto cae.
     casingOscuro: halos.every(h => /^#0{3,6}$/i.test(String(h.opts.color))),
     relleveSuave,
-    miasMasFuertes: mias.every(m => m.opts.opacity >= 0.9)
-                    && otras.every(o => o.opts.opacity < 0.9),
+    // La que TOCA ese dia se dibuja mas fuerte que las otras tres. Antes esta
+    // comprobacion distinguia «mias vs ajenas», pero ya no se dibujan las
+    // ajenas: lo que hay que proteger ahora es que la del dia se despegue.
+    tocaMasFuerte: (() => {
+      const t = mias.filter(m => m.opts.weight >= 8)
+      const n = mias.filter(m => m.opts.weight < 8)
+      return t.length === 1 && n.length === mias.length - 1
+             && t[0].opts.opacity >= 0.9 && n.every(x => x.opts.opacity < 0.9)
+    })(),
     todosEnPanel: pol.every(x => x.opts.pane === 'parroquias'),
     etiquetasEnPanel: eti.every(x => x.opts.pane === 'parroquias'),
     ningunoInteractivo: pol.concat(eti).every(x => x.opts.interactive === false),
@@ -164,7 +180,7 @@ exige(r.regiones === 4, `se dibujaron ${r.regiones} parroquias: solo van las 4 d
 exige(r.otras === 0, `se dibujaron ${r.otras} parroquias ajenas: no deben pintarse`)
 exige(r.casingOscuro, '⛔ el halo volvio a ser del color de la linea: suma brillo pero no separa')
 exige(r.haloMasAncho, '⛔ el halo no es más ancho que el borde: el límite no se despega del fondo')
-exige(r.miasMasFuertes, 'las nuestras no se distinguen de las ajenas por intensidad')
+exige(r.tocaMasFuerte, 'la parroquia que TOCA ese dia no se despega de las otras tres')
 exige(r.etiquetas === 4, `${r.etiquetas} etiquetas: solo las 4 nuestras llevan nombre`)
 exige(r.todosEnPanel, '⛔ alguna parroquia NO va al panel de abajo: taparía los recorridos')
 exige(r.etiquetasEnPanel, 'alguna etiqueta no va al panel de abajo')
