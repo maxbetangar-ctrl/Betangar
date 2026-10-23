@@ -77,13 +77,19 @@ await pag.setContent(lab, { waitUntil: 'load' })
 
 const r = await pag.evaluate(() => {
   const leer = () => document.getElementById('crono').innerText.replace(/\s+/g, ' ').trim()
+  // ⛔ Y SI SE VE, NO SOLO QUÉ DICE. Esta prueba estuvo CIEGA a un error real:
+  //    el CSS tenía `#crono{display:none}` fijo y el JS la "mostraba" con
+  //    `style.display=''`, que no le gana a la hoja de estilos — la franja NUNCA
+  //    apareció en producción. La prueba pasaba igual porque `innerText`, en un
+  //    elemento oculto, devuelve el texto lo mismo. Medía lo que DICE, no si se VE.
+  const seVe = () => getComputedStyle(document.getElementById('crono')).display !== 'none'
   const out = {}
 
   // Hoy, un martes: una sola parroquia.
   DIA = fechaVE(new Date())
   CRONO = [{ f: DIA, dia: 'martes', tipo: 'parroquia',
              parroquia: 'Parroquia Caracciolo Parra Pérez', camiones: 12, nota: null }]
-  pintarCronograma(); out.unaSola = leer()
+  pintarCronograma(); out.unaSola = leer(); out.unaSolaSeVe = seVe()
   out.tocaUna = parroquiasDeHoy()
 
   // Lunes: dos parroquias, 7 + 2.
@@ -100,7 +106,7 @@ const r = await pag.evaluate(() => {
 
   // Sin cronograma vigente: el tercer estado.
   CRONO = []
-  pintarCronograma(); out.sinVigencia = leer()
+  pintarCronograma(); out.sinVigencia = leer(); out.sinVigenciaSeVe = seVe()
 
   // Un día pasado: tiene que hablar en pasado.
   DIA = '2026-10-19'
@@ -116,6 +122,8 @@ const fallos = []
 const exige = (ok, q) => { if (!ok) fallos.push(q) }
 exige(/Caracciolo/.test(r.unaSola) && /12 camiones/.test(r.unaSola), 'un día normal no nombra parroquia y camiones')
 exige(/Hoy martes/.test(r.unaSola), 'no dice que es hoy')
+exige(r.unaSolaSeVe, '⛔ la franja tiene el texto pero NO SE VE: un display:none de la hoja de estilos le gana al style.display del JS')
+exige(r.sinVigenciaSeVe, 'la franja sin cronograma vigente tampoco se ve')
 exige(/B011 y JAC-B012|B011/.test(r.unaSola), '⛔ no dice en la franja que 2 camiones no tienen GPS')
 exige(/máximo 10/.test(r.unaSola), 'con 12 comprometidos no dice el tope de 10 visibles')
 // Con 9 comprometidos, decir «se ven como máximo 10» confunde: la salvedad va

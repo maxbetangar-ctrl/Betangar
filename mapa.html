@@ -34,83 +34,146 @@
 -->
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <style>
+  /* ══ PRESENTACIÓN ════════════════════════════════════════════════════════
+     La interfaz es OSCURA SIEMPRE: esta pantalla vive en el televisor de la
+     oficina, en el escritorio y en el teléfono, y los recorridos son líneas
+     de neón — el resto de la interfaz va apagado a propósito para que nada
+     compita con ellas. `body.tv` ya NO cambia los colores (son los mismos):
+     solo agranda todo para leerlo de lejos. */
   :root{
-    --tinta:#0f1720; --papel:#f4f6f8; --linea:#d8dee6; --suave:#66738a; --panel:#fff;
-    --verde:#0f9d58; --ambar:#f4a300; --rojo:#d93025; --azul:#1a73e8;
-  }
-  /* Modo televisor: oscuro, para que las rutas resalten a distancia. */
-  body.tv{
-    --tinta:#e8edf4; --papel:#080b11; --linea:#1e2836; --suave:#8494ab; --panel:#0e1420;
-    --verde:#22d37a; --ambar:#ffc233; --rojo:#ff5a4d; --azul:#4da3ff;
+    --tinta:#e7ecf3; --papel:#0b0e14; --panel:#121722; --panel2:#1a2130;
+    --linea:#242c3c; --suave:#8c98ad;
+    --verde:#2bd98b; --ambar:#ffc24a; --rojo:#ff6157; --azul:#5aa2ff;
+    --velo:rgba(7,9,14,.76);
+    color-scheme:dark;
   }
   *{box-sizing:border-box}
   html,body{height:100%;margin:0}
-  body{font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:var(--tinta);background:var(--papel);display:flex;flex-direction:column;overflow:hidden}
+  body{font:14.5px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:var(--tinta);background:var(--papel);display:flex;flex-direction:column;overflow:hidden}
 
-  header{display:flex;align-items:center;gap:12px;padding:10px 16px;background:var(--panel);border-bottom:1px solid var(--linea);flex-shrink:0}
-  header h1{font-size:17px;margin:0;font-weight:650;letter-spacing:-.2px;white-space:nowrap}
-  .sello{font-size:12px;color:var(--suave);white-space:nowrap}
-  .btn{border:1px solid var(--linea);background:var(--panel);color:var(--tinta);border-radius:8px;padding:7px 13px;font-size:13px;cursor:pointer;font-weight:550;white-space:nowrap}
-  .btn:hover{border-color:var(--azul)}
-  .btn.on{background:var(--azul);color:#fff;border-color:var(--azul)}
-  .der{margin-left:auto;display:flex;gap:8px;align-items:center}
-  select.btn{padding:7px 9px}
+  /* ── Cabecera MÍNIMA: identidad, pulso del canal y lo que cambia la VISTA
+     (día y pantalla). Antes eran 15 botones en una fila sin jerarquía: los que
+     operan SOBRE el mapa ahora flotan sobre el mapa (ver .flotantes). ── */
+  header{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:9px 14px;background:var(--panel);border-bottom:1px solid var(--linea);flex-shrink:0}
+  header h1{display:flex;align-items:center;gap:9px;font-size:16px;margin:0;font-weight:700;letter-spacing:.2px;white-space:nowrap}
+  header h1::before{content:'';width:10px;height:10px;border-radius:3px;background:linear-gradient(135deg,var(--azul),var(--verde));flex-shrink:0}
+  .sello{font-size:12px;color:var(--suave);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
   /* Latido: prueba a la vista de que el canal está vivo. */
-  .vivo{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:650;color:var(--verde)}
-  .vivo i{width:8px;height:8px;border-radius:50%;background:var(--verde);display:block;animation:late 2s infinite}
-  .vivo.mudo{color:var(--rojo)} .vivo.mudo i{background:var(--rojo);animation:none}
+  .vivo{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:650;color:var(--verde);background:rgba(43,217,139,.09);border:1px solid rgba(43,217,139,.25);border-radius:20px;padding:3px 10px;white-space:nowrap}
+  .vivo i{width:7px;height:7px;border-radius:50%;background:var(--verde);display:block;animation:late 2s infinite}
+  .vivo.mudo{color:var(--rojo);background:rgba(255,97,87,.09);border-color:rgba(255,97,87,.3)} .vivo.mudo i{background:var(--rojo);animation:none}
   @keyframes late{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.25;transform:scale(.7)}}
 
-  #cuerpo{flex:1;display:flex;min-height:0}
-  #panel{width:335px;flex-shrink:0;overflow-y:auto;background:var(--panel);border-right:1px solid var(--linea)}
+  /* Cada grupo de la barra es una pastilla con su rótulo. */
+  .der{margin-left:auto;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .grp{display:flex;align-items:center;gap:2px;flex-wrap:wrap;background:rgba(255,255,255,.025);border:1px solid var(--linea);border-radius:11px;padding:3px}
+  .grp::before{content:attr(data-g);font-size:9.5px;font-weight:700;letter-spacing:.9px;text-transform:uppercase;color:var(--suave);padding:0 6px 0 9px;opacity:.85}
+
+  .btn{border:1px solid var(--linea);background:var(--panel2);color:var(--tinta);border-radius:8px;padding:6px 11px;font-size:12.5px;cursor:pointer;font-weight:550;white-space:nowrap;transition:background .15s,border-color .15s,color .15s}
+  .btn:hover{border-color:var(--azul)}
+  .btn:focus-visible{outline:2px solid var(--azul);outline-offset:1px}
+  .btn.on{background:rgba(90,162,255,.18);color:var(--azul);border-color:rgba(90,162,255,.55)}
+  /* Dentro de un grupo el botón va «fantasma»: la pastilla ya pone el borde. */
+  .grp .btn{border-color:transparent;background:transparent}
+  .grp .btn:hover{background:rgba(255,255,255,.07);border-color:transparent}
+  .grp .btn.on{background:rgba(90,162,255,.18);color:var(--azul)}
+  select.btn{padding:6px 8px}
+  input[type=date].btn{font-family:inherit;padding:5px 8px}
+
+  .ctrlBrillo{display:flex;align-items:center;gap:7px;font-size:11.5px;color:var(--suave);white-space:nowrap;padding:0 7px}
+  .ctrlBrillo input{width:78px;accent-color:var(--azul);cursor:pointer}
+  .ctrlBrillo b{color:var(--tinta);font-variant-numeric:tabular-nums;min-width:38px}
+  body.tv .ctrlBrillo{font-size:15px} body.tv .ctrlBrillo input{width:110px}
+
+  #cuerpo{flex:1;display:flex;min-height:0;position:relative}
+  #panel{width:340px;flex-shrink:0;overflow-y:auto;background:var(--panel);border-right:1px solid var(--linea)}
   #mapa{flex:1;min-width:0;background:var(--papel)}
 
-  .u{padding:11px 14px;border-bottom:1px solid var(--linea);cursor:pointer}
-  .u:hover{background:rgba(125,125,125,.08)}
-  .u.sel{box-shadow:inset 3px 0 0 var(--azul);background:rgba(77,163,255,.10)}
+  /* ── FLOTANTES SOBRE EL MAPA: capas y herramientas viven donde se usan, en
+     paneles plegables (`<details>`, sin JS). Cerrados no tapan nada; el mapa
+     queda limpio y la barra de arriba deja de ser una fila de 15 botones. ── */
+  .flotantes{position:absolute;top:12px;right:12px;z-index:1100;display:flex;flex-direction:column;align-items:flex-end;gap:8px;pointer-events:none}
+  .flotantes>*{pointer-events:auto}
+  .flot{background:rgba(18,23,34,.93);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);border:1px solid var(--linea);border-radius:12px;box-shadow:0 6px 24px rgba(0,0,0,.45);overflow:hidden}
+  .flot summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:10px;padding:8px 12px;font-size:12.5px;font-weight:650;white-space:nowrap;user-select:none}
+  .flot summary::-webkit-details-marker{display:none}
+  .flot summary::after{content:'▾';margin-left:auto;color:var(--suave);font-size:10px;transition:transform .15s}
+  .flot[open] summary::after{transform:rotate(180deg)}
+  .flot[open] summary{border-bottom:1px solid var(--linea)}
+  .flotCuerpo{display:flex;flex-direction:column;align-items:stretch;gap:3px;padding:7px}
+  .flotCuerpo .btn{border-color:transparent;background:transparent;text-align:left}
+  .flotCuerpo .btn:hover{background:rgba(255,255,255,.07);border-color:transparent}
+  .flotCuerpo .btn.on{background:rgba(90,162,255,.18);color:var(--azul)}
+  .flotCuerpo select.btn{background:var(--panel2);border-color:var(--linea)}
+  .flotCuerpo .ctrlBrillo{padding:4px 7px}
+  /* Botones de un flujo ACTIVO (consultar la zona, cerrar y guardar, deshacer):
+     el JS los muestra solo mientras sirven; flotan sueltos y bien visibles. */
+  .ctxBar{display:flex;flex-direction:column;align-items:flex-end;gap:6px}
+  .btn.ctx{background:var(--panel);border-color:rgba(90,162,255,.55);box-shadow:0 6px 20px rgba(0,0,0,.5);font-weight:650}
+  .btn.ctx:hover{background:var(--panel2)}
+  body.tv .flot summary{font-size:17px;padding:11px 16px}
+  #panel::-webkit-scrollbar{width:9px}
+  #panel::-webkit-scrollbar-thumb{background:var(--linea);border-radius:8px;border:2px solid var(--panel)}
+  #panel::-webkit-scrollbar-track{background:transparent}
+
+  /* ── Tarjetas de unidades ── */
+  .u{padding:12px 14px;border-bottom:1px solid var(--linea);cursor:pointer;transition:background .12s}
+  .u:hover{background:rgba(255,255,255,.035)}
+  .u.sel{box-shadow:inset 3px 0 0 var(--azul);background:rgba(90,162,255,.08)}
   .u-cab{display:flex;align-items:center;gap:8px}
   /* La muestra de línea (color + forma) es la leyenda: dice cómo está dibujado ese
      camión en el mapa. Va pegada al punto de color, con menos aire que el resto. */
   .u-cab svg{margin-left:-4px}
   body.tv .u-cab svg{width:38px;height:12px}
-  input[type=date].btn{font-family:inherit;padding:6px 8px}
   .punto{width:11px;height:11px;border-radius:50%;flex-shrink:0}
-  .u-nom{font-weight:650;font-size:14px}
-  .u-est{margin-left:auto;font-size:11px;font-weight:650;padding:2px 8px;border-radius:20px}
-  .e-and{background:rgba(15,157,88,.16);color:var(--verde)}
-  .e-par{background:rgba(244,163,0,.16);color:var(--ambar)}
-  .e-mud{background:rgba(217,48,37,.16);color:var(--rojo)}
-  .u-dir{font-size:12px;color:var(--suave);margin:5px 0 0;line-height:1.35}
-  .u-dat{display:flex;gap:14px;margin-top:6px;font-size:12px;color:var(--suave);flex-wrap:wrap}
+  .u-nom{font-weight:700;font-size:14px;letter-spacing:.2px}
+  .u-est{margin-left:auto;font-size:10.5px;font-weight:700;padding:3px 9px;border-radius:20px;letter-spacing:.2px}
+  .e-and{background:rgba(43,217,139,.14);color:var(--verde)}
+  .e-par{background:rgba(255,194,74,.13);color:var(--ambar)}
+  .e-mud{background:rgba(255,97,87,.13);color:var(--rojo)}
+  .u-dir{font-size:12px;color:var(--suave);margin:6px 0 0;line-height:1.4}
+  /* Los datos van en fichitas: el NÚMERO claro, el rótulo apagado. */
+  .u-dat{display:flex;gap:5px;margin-top:7px;font-size:11.5px;color:var(--suave);flex-wrap:wrap}
+  .u-dat span{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.05);border-radius:6px;padding:2px 7px;line-height:1.5}
+  .u-dat b{color:var(--tinta);font-weight:650;font-variant-numeric:tabular-nums}
   /* Quién maneja hoy. El NOMBRE se ve siempre; el TELÉFONO solo al elegir la
      unidad — es lo que pidió Máximo y además evita tener doce números a la
      vista de cualquiera que pase por delante de la pantalla de la oficina.
      Se resuelve con CSS y no con JS porque `elegir()` solo cambia la clase
      `sel` y no vuelve a dibujar las tarjetas. */
-  .u-chof{display:flex;gap:10px;margin-top:6px;font-size:12px;color:var(--suave);flex-wrap:wrap;align-items:baseline}
+  .u-chof{display:flex;gap:10px;margin-top:7px;font-size:12px;color:var(--suave);flex-wrap:wrap;align-items:baseline}
   .u-tel{display:none}
   .u.sel .u-tel{display:inline}
   .u-chof a{color:inherit;text-decoration:underline}
   body.tv .u-chof{font-size:15px;margin-top:9px}
-  .u-dat b{color:var(--tinta);font-weight:650}
 
-  .aviso{margin:10px 14px;padding:9px 11px;border-radius:8px;font-size:12.5px;line-height:1.4}
-  #crono{display:none;padding:8px 14px;font-size:13.5px;line-height:1.35;
-         border-bottom:1px solid var(--linea);background:rgba(0,0,0,.25)}
+  .aviso{margin:10px 12px;padding:10px 12px;border-radius:10px;font-size:12.5px;line-height:1.45;border:1px solid transparent}
+  .aviso.ojo{background:rgba(255,194,74,.10);border-color:rgba(255,194,74,.25);color:var(--ambar)}
+  .aviso.mal{background:rgba(255,97,87,.10);border-color:rgba(255,97,87,.3);color:var(--rojo)}
+
+  /* La franja del cronograma. ⛔ NUNCA lleva `ocultarTv`: en el televisor es lo
+     primero que hay que leer. Se oculta SOLO mientras está vacía (`:empty`):
+     el JS la muestra con `style.display=''`, que no le gana a una regla de la
+     hoja — con el `display:none` fijo que había acá, la franja no salía nunca. */
+  #crono{display:block;padding:10px 16px;font-size:13.5px;line-height:1.4;border-bottom:1px solid var(--linea);background:linear-gradient(90deg,rgba(90,162,255,.12),rgba(90,162,255,.02) 70%);box-shadow:inset 3px 0 0 var(--azul)}
+  #crono:empty{display:none}
   #crono b{font-weight:800}
   #crono .cfin{font-size:11.5px;color:var(--suave);font-weight:400}
-  body.tv #crono{font-size:20px;padding:12px 18px}
+  body.tv #crono{font-size:20px;padding:14px 20px}
   body.tv #crono .cfin{font-size:15px}
-  .aviso.ojo{background:rgba(244,163,0,.15);color:var(--ambar)}
-  .aviso.mal{background:rgba(217,48,37,.15);color:var(--rojo)}
-  .titpanel{padding:10px 14px 4px;font-size:11px;letter-spacing:.6px;text-transform:uppercase;color:var(--suave);font-weight:700}
-  .leyenda{padding:10px 14px 16px;font-size:11.5px;color:var(--suave);line-height:1.5;border-top:1px solid var(--linea)}
 
-  /* ── MODO TELEVISOR ───────────────────────────────────────────────────── */
-  body.tv header{padding:14px 26px}
+  .titpanel{padding:12px 14px 6px;font-size:10.5px;letter-spacing:1px;text-transform:uppercase;color:var(--suave);font-weight:700}
+  .leyenda{padding:12px 14px 18px;font-size:11.5px;color:var(--suave);line-height:1.55;border-top:1px solid var(--linea)}
+  .leyenda b{color:var(--tinta)}
+
+  /* ── MODO TELEVISOR: mismos colores, todo más grande ─────────────────────── */
+  body.tv header{padding:14px 26px;gap:18px}
   body.tv header h1{font-size:26px}
-  body.tv .sello,body.tv .vivo{font-size:17px}
+  body.tv .sello{font-size:17px}
+  body.tv .vivo{font-size:16px;padding:5px 14px}
+  body.tv .grp::before{font-size:12px}
+  body.tv .btn{font-size:16px;padding:9px 14px}
   body.tv #panel{width:430px}
   body.tv .titpanel{font-size:14px;padding:14px 20px 6px}
   body.tv .u{padding:16px 20px}
@@ -118,7 +181,7 @@
   body.tv .u-est{font-size:14px;padding:4px 12px}
   body.tv .punto{width:15px;height:15px}
   body.tv .u-dir{font-size:15px;margin-top:8px}
-  body.tv .u-dat{font-size:15px;margin-top:9px;gap:18px}
+  body.tv .u-dat{font-size:15px;margin-top:9px;gap:8px}
   body.tv .leyenda{display:none}
   body.tv .ocultarTv{display:none}
   #reloj{display:none;font-variant-numeric:tabular-nums;font-weight:700}
@@ -127,22 +190,39 @@
   body.tv .leaflet-control-zoom{display:none}
   body.tv .leaflet-control-attribution{font-size:10px;opacity:.45}
 
-  #tapa{position:fixed;inset:0;background:var(--papel);display:flex;align-items:center;justify-content:center;z-index:9999}
-  #tapa .caja{background:var(--panel);border:1px solid var(--linea);border-radius:12px;padding:26px 30px;max-width:400px;text-align:center}
+  #tapa{position:fixed;inset:0;background:var(--velo);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);display:flex;align-items:center;justify-content:center;z-index:9999;padding:16px}
+  #tapa .caja{background:var(--panel);border:1px solid var(--linea);border-radius:14px;padding:26px 30px;max-width:440px;width:100%;max-height:86vh;overflow:auto;text-align:center;box-shadow:0 24px 70px rgba(0,0,0,.55)}
   #tapa h2{margin:0 0 8px;font-size:17px}
-  #tapa p{margin:0 0 16px;color:var(--suave);font-size:13.5px;line-height:1.5}
-  #tapa input{width:100%;padding:9px 11px;margin-bottom:8px;border:1px solid var(--linea);border-radius:8px;font-size:14px;background:var(--papel);color:var(--tinta)}
+  #tapa p{margin:0 0 16px;color:var(--suave);font-size:13.5px;line-height:1.55}
+  #tapa input{width:100%;padding:10px 12px;margin-bottom:8px;border:1px solid var(--linea);border-radius:9px;font-size:14px;background:var(--papel);color:var(--tinta)}
+  #tapa input:focus{outline:none;border-color:var(--azul)}
 
-  .ctrlBrillo{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--suave);white-space:nowrap}
-  .ctrlBrillo input{width:78px;accent-color:var(--azul);cursor:pointer}
-  .ctrlBrillo b{color:var(--tinta);font-variant-numeric:tabular-nums;min-width:38px}
-  body.tv .ctrlBrillo{font-size:15px} body.tv .ctrlBrillo input{width:110px}
-
-  .eti{border-radius:6px;padding:2px 7px;font-size:11px;font-weight:700;white-space:nowrap;box-shadow:0 1px 4px rgba(0,0,0,.35);background:var(--panel)}
+  .eti{border-radius:7px;padding:2px 7px;font-size:11px;font-weight:700;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,.5);background:rgba(13,17,26,.92)}
   body.tv .eti{font-size:16px;padding:4px 11px}
   /* Halo del camión: se ve que está vivo aunque el reporte tarde en llegar. */
   .halo{border-radius:50%;background:currentColor;opacity:.30;animation:pulso 2.4s ease-out infinite}
   @keyframes pulso{0%{transform:scale(.45);opacity:.55}100%{transform:scale(1.7);opacity:0}}
+
+  /* ── Los controles de Leaflet, a juego con la interfaz (siempre oscura) ── */
+  .leaflet-bar a,.leaflet-bar a:hover{background:var(--panel);color:var(--tinta);border-bottom-color:var(--linea)}
+  .leaflet-bar{box-shadow:0 2px 12px rgba(0,0,0,.55)}
+  .leaflet-control-attribution{background:rgba(11,14,20,.72);color:var(--suave)}
+  .leaflet-control-attribution a{color:var(--suave)}
+  .leaflet-container .leaflet-tooltip{background:var(--panel);color:var(--tinta);border:1px solid var(--linea);box-shadow:0 6px 18px rgba(0,0,0,.5);border-radius:8px}
+  .leaflet-tooltip-top:before{border-top-color:var(--linea)}
+  .leaflet-tooltip-bottom:before{border-bottom-color:var(--linea)}
+  .leaflet-tooltip-left:before{border-left-color:var(--linea)}
+  .leaflet-tooltip-right:before{border-right-color:var(--linea)}
+
+  /* ── Teléfono: el mapa arriba y las unidades abajo; la barra se envuelve ── */
+  @media (max-width:760px){
+    header{padding:8px 10px;gap:8px}
+    .der{gap:6px}
+    #cuerpo{flex-direction:column}
+    #mapa{order:1}
+    #panel{order:2;width:100%;height:42%;border-right:none;border-top:1px solid var(--linea)}
+    .flotantes{top:8px;right:8px}
+  }
 </style>
 </head>
 <body>
@@ -151,35 +231,24 @@
   <h1>Flota en vivo</h1>
   <span class="vivo" id="vivo"><i></i><span id="vivoTxt">conectando…</span></span>
   <span class="sello" id="sello">cargando…</span>
+  <!-- Arriba queda SOLO lo que cambia la vista: el día y la pantalla. Lo que
+       opera sobre el mapa (capas, herramientas) flota sobre el mapa. -->
   <div class="der">
     <span id="reloj">--:--</span>
-    <!-- ⛔ ANTES ESTA PANTALLA SOLO PODÍA MOSTRAR EL DÍA EN CURSO. Si nadie la miraba
-         ese día, el recorrido ya no se podía revisar nunca — y revisar el recorrido de
-         un día pasado es justo lo que hay que poder hacer para probarle a la Alcaldía
-         que el camión estuvo donde dice la planilla. El dato ya estaba guardado; lo que
-         faltaba era poder pedirlo. -->
-    <input type="date" class="btn ocultarTv" id="selDia" title="Día que se está viendo. En vivo solo el de hoy.">
-    <button class="btn ocultarTv" id="bHoy" style="display:none" title="Volver al día de hoy y al seguimiento en vivo">Hoy</button>
-    <select class="btn" id="selFondo" title="Fondo del mapa"></select>
-    <span class="ctrlBrillo" title="Realce del fondo: subilo hasta que las calles se despeguen en tu pantalla">
-      <span>Calles</span>
-      <input type="range" id="brillo" min="80" max="230" step="5" value="130">
-      <b id="brilloTxt">130%</b>
-    </span>
-    <button class="btn ocultarTv" id="bSitio" style="display:none">📐 Marcar geocerca</button>
-    <button class="btn ocultarTv" id="bFalta" title="Pinta las calles de tus parroquias por las que NO hay registro de paso en los ultimos dias. Sin registro no es lo mismo que no pasaron.">🧹 Sin registro</button>
-    <button class="btn ocultarTv" id="bDen" title="Marcá en el mapa el sitio por el que están reclamando y el sistema contesta qué días se pasó por ahí, con fechas, horas y unidades.">🛡️ ¿Pasamos por aquí?</button>
-    <button class="btn ocultarTv" id="bDenOk" style="display:none" title="Cerrar la zona dibujada y consultar qué días se pasó por ella">✅ Consultar la zona</button>
-    <button class="btn ocultarTv" id="bDenUndo" style="display:none" title="Quitar la última esquina">↩︎ Quitar esquina</button>
-    <button class="btn ocultarTv" id="bDeshacer" style="display:none" title="Quitar la última esquina">↶ Deshacer</button>
-    <button class="btn ocultarTv" id="bCerrar" style="display:none" title="Cerrar el polígono y ponerle nombre">✓ Cerrar y guardar</button>
-    <button class="btn ocultarTv" id="bClave" title="Pegar la clave de Stadia Maps para probar sus fondos">🔑</button>
-    <button class="btn" id="bRec" title="Con muchas unidades los recorridos se tapan entre sí. Acá se elige cuántos se ven.">Recorridos: todos</button>
-    <button class="btn" id="bSurt" title="Dónde se cargó combustible. Lo que importa son las que caen FUERA de una estación marcada.">⛽ Surtidas</button>
-    <button class="btn" id="bParr" title="Los límites de las parroquias del Municipio Maracaibo. Las cuatro que atiende Betangar van resaltadas y con su nombre; el resto, de fondo.">🗺️ Parroquias</button>
-    <button class="btn" id="bTv">Modo televisor</button>
-    <button class="btn ocultarTv" id="bPleno">Pantalla completa</button>
-    <button class="btn ocultarTv" onclick="location.href='app.html'">← Volver</button>
+    <div class="grp ocultarTv" data-g="Día">
+      <!-- ⛔ ANTES ESTA PANTALLA SOLO PODÍA MOSTRAR EL DÍA EN CURSO. Si nadie la miraba
+           ese día, el recorrido ya no se podía revisar nunca — y revisar el recorrido de
+           un día pasado es justo lo que hay que poder hacer para probarle a la Alcaldía
+           que el camión estuvo donde dice la planilla. El dato ya estaba guardado; lo que
+           faltaba era poder pedirlo. -->
+      <input type="date" class="btn ocultarTv" id="selDia" title="Día que se está viendo. En vivo solo el de hoy.">
+      <button class="btn ocultarTv" id="bHoy" style="display:none" title="Volver al día de hoy y al seguimiento en vivo">Hoy</button>
+    </div>
+    <div class="grp" data-g="Pantalla">
+      <button class="btn" id="bTv">Modo televisor</button>
+      <button class="btn ocultarTv" id="bPleno">Pantalla completa</button>
+      <button class="btn ocultarTv" onclick="location.href='app.html'">← Volver</button>
+    </div>
   </div>
 </header>
 
@@ -247,6 +316,44 @@
     </div>
   </div>
   <div id="mapa"></div>
+  <!-- ── FLOTANTES SOBRE EL MAPA ──────────────────────────────────────────────
+       Los controles que operan SOBRE el mapa viven sobre el mapa, en dos paneles
+       plegables (`<details>`: se abren y cierran sin una línea de JS). Los
+       botones contextuales de un flujo activo (consultar la zona, cerrar y
+       guardar, deshacer) van SUELTOS en .ctxBar: nacen ocultos y el JS los
+       muestra con `style.display=''`, así que no pueden vivir dentro de un
+       plegable que podría estar cerrado justo cuando aparecen. -->
+  <div class="flotantes">
+    <div class="ctxBar">
+      <button class="btn ctx ocultarTv" id="bDenOk" style="display:none" title="Cerrar la zona dibujada y consultar qué días se pasó por ella">✅ Consultar la zona</button>
+      <button class="btn ctx ocultarTv" id="bDenUndo" style="display:none" title="Quitar la última esquina">↩︎ Quitar esquina</button>
+      <button class="btn ctx ocultarTv" id="bDeshacer" style="display:none" title="Quitar la última esquina">↶ Deshacer</button>
+      <button class="btn ctx ocultarTv" id="bCerrar" style="display:none" title="Cerrar el polígono y ponerle nombre">✓ Cerrar y guardar</button>
+    </div>
+    <details class="flot">
+      <summary>🗺️ Capas</summary>
+      <div class="flotCuerpo">
+        <select class="btn" id="selFondo" title="Fondo del mapa"></select>
+        <span class="ctrlBrillo" title="Realce del fondo: subilo hasta que las calles se despeguen en tu pantalla">
+          <span>Calles</span>
+          <input type="range" id="brillo" min="80" max="230" step="5" value="130">
+          <b id="brilloTxt">130%</b>
+        </span>
+        <button class="btn" id="bRec" title="Con muchas unidades los recorridos se tapan entre sí. Acá se elige cuántos se ven.">Recorridos: todos</button>
+        <button class="btn" id="bParr" title="Los límites de las parroquias del Municipio Maracaibo. Las cuatro que atiende Betangar van resaltadas y con su nombre; el resto, de fondo.">🗺️ Parroquias</button>
+        <button class="btn" id="bSurt" title="Dónde se cargó combustible. Lo que importa son las que caen FUERA de una estación marcada.">⛽ Surtidas</button>
+        <button class="btn ocultarTv" id="bFalta" title="Pinta las calles de tus parroquias por las que NO hay registro de paso en los ultimos dias. Sin registro no es lo mismo que no pasaron.">🧹 Sin registro</button>
+      </div>
+    </details>
+    <details class="flot ocultarTv">
+      <summary>🛠️ Herramientas</summary>
+      <div class="flotCuerpo">
+        <button class="btn ocultarTv" id="bDen" title="Marcá en el mapa el sitio por el que están reclamando y el sistema contesta qué días se pasó por ahí, con fechas, horas y unidades.">🛡️ ¿Pasamos por aquí?</button>
+        <button class="btn ocultarTv" id="bSitio" style="display:none">📐 Marcar geocerca</button>
+        <button class="btn ocultarTv" id="bClave" title="Pegar la clave de Stadia Maps para probar sus fondos">🔑</button>
+      </div>
+    </details>
+  </div>
 </div>
 
 <div id="tapa"><div class="caja">
@@ -269,7 +376,7 @@
 // sobre una función que estaba puesta hacía una hora.
 // Con el sello a la vista, la pregunta «¿estás viendo la última?» se contesta mirando,
 // en vez de adivinando. Al tocar este archivo, subir la fecha.
-var VERSION_PANTALLA = '20261023-1020';
+var VERSION_PANTALLA = '20261023-1400';
 
 var SUPA_URL = 'https://hrkjddehqnzcqwlkklqm.supabase.co';
 var SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhya2pkZGVocW56Y3F3bGtrbHFtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc2NTk1NzIsImV4cCI6MjA5MzIzNTU3Mn0.kqWKthyZfPZ86toql7shGByF-ZhUpcQUS4Jw4RnG_ko';
