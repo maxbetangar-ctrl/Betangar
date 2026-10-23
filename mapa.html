@@ -161,6 +161,7 @@
       <b id="brilloTxt">130%</b>
     </span>
     <button class="btn ocultarTv" id="bSitio" style="display:none">📐 Marcar geocerca</button>
+    <button class="btn ocultarTv" id="bFalta" title="Pinta las calles de tus parroquias por las que NO hay registro de paso en los ultimos dias. Sin registro no es lo mismo que no pasaron.">🧹 Sin registro</button>
     <button class="btn ocultarTv" id="bDen" title="Marcá en el mapa el sitio por el que están reclamando y el sistema contesta qué días se pasó por ahí, con fechas, horas y unidades.">🛡️ ¿Pasamos por aquí?</button>
     <button class="btn ocultarTv" id="bDenOk" style="display:none" title="Cerrar la zona dibujada y consultar qué días se pasó por ella">✅ Consultar la zona</button>
     <button class="btn ocultarTv" id="bDenUndo" style="display:none" title="Quitar la última esquina">↩︎ Quitar esquina</button>
@@ -255,7 +256,7 @@
 // sobre una función que estaba puesta hacía una hora.
 // Con el sello a la vista, la pregunta «¿estás viendo la última?» se contesta mirando,
 // en vez de adivinando. Al tocar este archivo, subir la fecha.
-var VERSION_PANTALLA = '20261022-1245';
+var VERSION_PANTALLA = '20261023-0915';
 
 var SUPA_URL = 'https://hrkjddehqnzcqwlkklqm.supabase.co';
 var SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhya2pkZGVocW56Y3F3bGtrbHFtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc2NTk1NzIsImV4cCI6MjA5MzIzNTU3Mn0.kqWKthyZfPZ86toql7shGByF-ZhUpcQUS4Jw4RnG_ko';
@@ -573,6 +574,11 @@ function iniciarMapa(){
   // muy por debajo de cualquier cosa que dibuje el recorrido.
   mapa.createPane('parroquias');
   mapa.getPane('parroquias').style.zIndex = 250;
+  // Las calles sin registro van ENCIMA de las parroquias y DEBAJO del recorrido:
+  // tienen que verse sobre el limite, pero nunca tapar por donde SI se paso.
+  mapa.createPane('faltantes');
+  mapa.getPane('faltantes').style.zIndex = 300;
+  mapa.getPane('faltantes').style.pointerEvents = 'none';
   mapa.getPane('parroquias').style.pointerEvents = 'none';
   var sel=document.getElementById('selFondo');
   sel.innerHTML=Object.keys(FONDOS).map(function(k){
@@ -1571,6 +1577,141 @@ function ciclarParroquias(){
   pintarParroquias();
 }
 
+// ── 🧹 POR DÓNDE NO HAY REGISTRO DE PASO ────────────────────────────────────
+//
+// Pedido por Máximo: «muéstrame por dónde no están pasando en Olegario, para
+// avisarle a operaciones por dónde no pasaron para que pasen».
+//
+// ⛔ LO QUE SE PINTA ES «SIN REGISTRO», NO «NO PASARON». El equipo se calla
+// hasta 57 minutos con el motor encendido: una calle sin registro pudo haberse
+// recogido igual. Es una LISTA PARA IR A MIRAR, no una condena — y por eso la
+// leyenda lo dice con esas palabras, no con un semáforo.
+//
+// ⛔ Y SOLO SE PINTA LO QUE FALTA. Las cubiertas no se dibujan: en Olegario son
+// 515 de 595, y pintarlas taparía el recorrido para mostrar justo lo que NO hay
+// que mirar.
+//
+// La cuenta pesada (cruzar el recorrido contra 2.255 calles) vive en la base y
+// se calcula una vez por día; acá solo se pide el resultado.
+var FALTAN = [], capaFalta = [], VER_FALTA = false, FALTA_DIAS = 7;
+
+async function cargarFaltantes(){
+  var c = document.querySelector('#tapa .caja');
+  document.getElementById('tapa').style.display='flex';
+  c.innerHTML = '<h2>🧹 Por dónde no hay registro</h2><p>Cruzando el recorrido con las calles…</p>';
+  try{
+    var r = await sb.rpc('calles_faltantes', {
+      p_desde: fechaMenos(FALTA_DIAS), p_hasta: DIA });
+    if(r.error){
+      // ⛔ Un error se dice. Un mapa sin calles rojas se lee como «está todo
+      // cubierto», que es lo contrario de «no se pudo calcular».
+      c.innerHTML = '<h2>🧹 Por dónde no hay registro</h2>'
+        + '<p class="mal"><b>No se pudo calcular.</b> ' + esc(r.error.message) + '</p>'
+        + '<button class="btn" id="faltaCerrar" style="width:100%;padding:9px">Cerrar</button>';
+      document.getElementById('faltaCerrar').onclick = cerrarTapaDen;
+      VER_FALTA = false; botonFalta();
+      return false;
+    }
+    FALTAN = r.data || [];
+    return true;
+  }catch(e){
+    c.innerHTML = '<h2>🧹 Por dónde no hay registro</h2>'
+      + '<p class="mal"><b>No se pudo calcular.</b> ' + esc(e.message||e) + '</p>'
+      + '<button class="btn" id="faltaCerrar" style="width:100%;padding:9px">Cerrar</button>';
+    document.getElementById('faltaCerrar').onclick = cerrarTapaDen;
+    VER_FALTA = false; botonFalta();
+    return false;
+  }
+}
+
+function borrarFaltantes(){
+  capaFalta.forEach(function(c){ try{ mapa.removeLayer(c); }catch(e){} });
+  capaFalta = [];
+}
+function pintarFaltantes(){
+  borrarFaltantes();
+  botonFalta();
+  if(!VER_FALTA) return;
+  FALTAN.forEach(function(f){
+    if(!f.geom || f.geom.length < 2) return;
+    var sin = f.estado === 'sin registro';
+    // Casing oscuro debajo, igual que en las parroquias: sobre un fondo oscuro
+    // lleno de rutas de neón, lo que separa es contraste, no más color.
+    capaFalta.push(L.polyline(f.geom, {pane:'faltantes', interactive:false,
+      color:'#000', weight: sin?8:6, opacity:.5}).addTo(mapa));
+    capaFalta.push(L.polyline(f.geom, {pane:'faltantes', interactive:false,
+      color: sin ? '#ff3b30' : '#ffb020', weight: sin?4:3, opacity:1,
+      dashArray: sin ? null : '6 5'}).addTo(mapa));
+  });
+}
+function botonFalta(){
+  var b = document.getElementById('bFalta');
+  if(b) b.classList.toggle('on', VER_FALTA);
+}
+
+function panelFaltantes(){
+  var porParr = {};
+  FALTAN.forEach(function(f){
+    var k = (f.parroquia||'').replace('Parroquia ','');
+    porParr[k] = porParr[k] || {sin:0, par:0, km:0};
+    if(f.estado === 'sin registro'){ porParr[k].sin++; porParr[k].km += (f.metros||0)/1000; }
+    else porParr[k].par++;
+  });
+  var h = '<h2>🧹 Por dónde no hay registro de paso</h2>'
+    + '<p style="font-size:12px;color:var(--suave);margin:0 0 10px">Últimos <b>'
+    + FALTA_DIAS + '</b> días, hasta el ' + fechaCorta(DIA) + '</p>'
+    + '<table style="width:100%;border-collapse:collapse;font-size:12px">'
+    + '<tr style="text-align:left;color:var(--suave)"><th>Parroquia</th>'
+    + '<th>Sin registro</th><th>Parciales</th><th>Km</th></tr>';
+  Object.keys(porParr).sort(function(a,b){ return porParr[b].km - porParr[a].km; })
+    .forEach(function(k){
+      var v = porParr[k];
+      h += '<tr style="border-top:1px solid var(--linea)">'
+        + '<td style="padding:4px 6px 4px 0"><b>'+esc(k)+'</b></td>'
+        + '<td style="padding:4px 6px 4px 0;color:#ff3b30"><b>'+v.sin+'</b></td>'
+        + '<td style="padding:4px 6px 4px 0;color:#ffb020">'+v.par+'</td>'
+        + '<td style="padding:4px 0">'+v.km.toFixed(1)+'</td></tr>';
+    });
+  h += '</table>';
+
+  h += '<p style="font-size:12px;color:var(--suave);margin:10px 0">'
+    + '<span style="color:#ff3b30">▬</span> sin registro de paso &nbsp; '
+    + '<span style="color:#ffb020">▬</span> recorrida a medias</p>';
+
+  // ⛔ ESTO NO ES UN TEXTO DE RELLENO. Lo que se está mostrando se parece mucho
+  // a una acusación, y la pantalla la mira gente que toma decisiones sobre
+  // choferes. Va en el panel, no en un tooltip.
+  h += '<p style="font-size:12px;color:var(--ambar);margin:0 0 10px">'
+    + '⚠️ <b>«Sin registro» no es «no pasaron».</b> El equipo de GPS se queda callado '
+    + 'hasta 57 minutos con el motor encendido, así que una calle puede estar recogida '
+    + 'y no tener registro. Es una lista para ir a mirar.</p>';
+
+  h += '<div style="display:flex;gap:6px;flex-wrap:wrap;margin:10px 0">'
+    + '<span style="font-size:12px;color:var(--suave);align-self:center">Días:</span>';
+  [7,14].forEach(function(d){
+    h += '<button class="btn'+(FALTA_DIAS===d?' on':'')+'" data-falta-dias="'+d+'" '
+      + 'style="padding:4px 9px;font-size:12px">'+d+'</button>';
+  });
+  h += '</div>'
+    + '<button class="btn" id="faltaCerrar" style="width:100%;padding:9px">Cerrar</button>';
+
+  var c = document.querySelector('#tapa .caja');
+  c.innerHTML = h;
+  document.getElementById('faltaCerrar').onclick = cerrarTapaDen;
+  Array.prototype.forEach.call(c.querySelectorAll('[data-falta-dias]'), function(b){
+    b.onclick = async function(){
+      FALTA_DIAS = Number(b.getAttribute('data-falta-dias'));
+      if(await cargarFaltantes()){ pintarFaltantes(); panelFaltantes(); }
+    };
+  });
+}
+
+async function ciclarFaltantes(){
+  if(VER_FALTA){ VER_FALTA = false; pintarFaltantes(); return; }
+  VER_FALTA = true;
+  if(await cargarFaltantes()){ pintarFaltantes(); panelFaltantes(); }
+}
+
 // ── 🛡️ CONTRA DENUNCIAS: «¿pasamos por aquí?» ───────────────────────────────
 //
 // POR QUÉ EXISTE. El 21/10/2026 la Alcaldía denunció que la flota llevaba 15
@@ -2116,6 +2257,7 @@ async function arrancarVista(){
   document.getElementById('bHoy').onclick = function(){ irADia(fechaVE(new Date())); };
   document.getElementById('bDen').onclick = modoDenuncia;
   document.getElementById('bParr').onclick = ciclarParroquias;
+  document.getElementById('bFalta').onclick = ciclarFaltantes;
   try{ VER_PARR = localStorage.getItem('btg_mapa_parr') !== '0'; }catch(e){}
   document.getElementById('bDenOk').onclick = denCerrarZona;
   document.getElementById('bDenUndo').onclick = denDeshacer;
