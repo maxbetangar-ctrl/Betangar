@@ -4591,7 +4591,46 @@ async function cargarDatosDB(){
     DATOS_CARGA.fallos=[];
     if(p&&p.error)DATOS_CARGA.fallos.push('planillas: '+((p.error&&p.error.message)||p.error));
     if(a&&a.error)DATOS_CARGA.fallos.push('abonos: '+((a.error&&a.error.message)||a.error));
+    // ⛔ LA BASE ES LA QUE DICE QUÉ ROL TENÉS, NO LO QUE LA APP SE ACUERDA.
+    //
+    // 🔴 26/10/2026. Máximo: «sigue apareciendo en 0 lo cobrado». La causa fue un cambio del
+    //    23/10: su fila de `btg_usuarios` se movió de la cuenta `maxbetangar@betangar.local`
+    //    a la de su correo, para que pudiera entrar desde el televisor. Pero las sesiones acá
+    //    NO CADUCAN (`sessions_inactivity_timeout: 0`, sin timebox), así que su sesión de
+    //    AGOSTO siguió viva — autenticada y sin rol.
+    //    Y las dos tablas del dashboard no se comportan igual:
+    //      · `planillas` → `plan_sel` para authenticated con `true`  ⇒ CARGA (Ejecutado se ve)
+    //      · `abonos`    → exige `app_rol()` en una lista            ⇒ VACÍO, Y SIN ERROR
+    //    Resultado: «Ejecutado $1,68 M» y «Cobrado $0», que se lee como que la Alcaldía no
+    //    pagó nada, con US$ 715.247 cobrados en la base.
+    //
+    // ⛔ Un filtro NUESTRO que descarta se ve igual que un dato que no llega. La RLS no
+    //    devuelve error cuando niega: devuelve CERO FILAS. Así que hay que PREGUNTARLE a la
+    //    base quién cree que somos. [[norma-un-filtro-nuestro-tapa-un-dato-que-si-llega]]
+    //    [[norma-control-positivo-antes-de-creerle-al-vacio]]
+    try{
+      var _rr=await supabase.rpc('app_rol');
+      // ⛔ NORMALIZAR ANTES DE COMPARAR. `.rpc()` puede devolver el escalar, `null`, o un
+      // array de una fila según la forma de la función y del cliente. Sin esto, un `[]`
+      // es TRUTHY y `String([])` es '' → el aviso salía diciendo «la base le da el rol «»»,
+      // que no explica nada. Un mensaje negativo tiene que decir CUÁL es la causa.
+      // [[norma-un-mensaje-negativo-debe-decir-cual-causa]]
+      var _rd=(_rr&&!_rr.error)?_rr.data:undefined;
+      if(Array.isArray(_rd))_rd=_rd.length?(_rd[0]&&_rd[0].app_rol!==undefined?_rd[0].app_rol:_rd[0]):null;
+      var _rolBD=(_rd==null)?'':String(_rd).trim();
+      if(_rr&&!_rr.error&&!_rolBD){
+        DATOS_CARGA.fallos.push('su sesión no tiene rol en la base — cierre sesión y vuelva a entrar');
+        DATOS_CARGA.sinRol=true;
+      }else if(_rolBD&&SESION&&SESION.rol&&String(_rolBD)!==String(SESION.rol)){
+        // La app cree una cosa y la base otra: los módulos por rol van a salir incompletos.
+        DATOS_CARGA.fallos.push('la base le da el rol «'+_rolBD+'» y la app usa «'+SESION.rol+'» — cierre sesión y vuelva a entrar');
+      }
+    }catch(e){}
     DATOS_CARGA.hecha=true;
+    // Que no haya que adivinarlo: si la sesión perdió el rol, se dice con todas las letras.
+    if(DATOS_CARGA.sinRol){
+      try{ mostrarToast('Su sesión quedó sin permisos: salga con 🚪 Salir y vuelva a entrar. Hasta entonces los cobros y otros módulos se van a ver vacíos.','error'); }catch(e){}
+    }
     // ABONOS — ordenar por fecha (y id como desempate) para que SIEMPRE salgan en el mismo
     // orden. Sin .order() PostgREST devuelve las filas en orden arbitrario que cambia tras
     // cada edicion/borrado, y eso hacia que aparecieran "en distinto orden cada vez".

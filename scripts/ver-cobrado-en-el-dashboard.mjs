@@ -86,6 +86,7 @@ page.on('pageerror', e => errores.push('PAGEERROR: ' + e.message))
 // Así que acá se reproduce lo que ve Máximo: su sesión de verdad, los datos de verdad, y
 // TODA escritura bloqueada (solo pasan GET) para que mirar no cambie nada.
 const REAL = process.argv.includes('--real')
+
 if (REAL) {
   const bloqueadas = []
   await page.route('**/*', route => {
@@ -94,11 +95,29 @@ if (REAL) {
     if (m === 'GET' || m === 'HEAD' || m === 'OPTIONS') return route.continue()
     // El login es un POST legítimo y necesario; lo demás que escriba, no pasa.
     if (/\/auth\/v1\/(token|user|factors)/.test(r.url())) return route.continue()
+    // ⚠️ LOS RPC SON POST Y SON LECTURAS. Bloquearlos hizo que `app_rol` devolviera `[]` y el
+    // aviso saliera con el rol vacío: un defecto del ARNÉS que parecía del producto.
+    if (/\/rest\/v1\/rpc\//.test(r.url())) return route.continue()
     bloqueadas.push(m + ' ' + r.url().split('?')[0])
     return route.fulfill({ status: 200, contentType: 'application/json', body: '[]' })
   })
   page._bloqueadas = bloqueadas
 }
+
+// ⚠️ EL ORDEN DE REGISTRO MANDA: en Playwright gana la ruta registrada ULTIMA. La 1ª
+// version registraba `--sinrol` ANTES del catch-all de `--real` y quedaba pisada: el
+// control decia verde sin haber probado nada. Va al final a proposito.
+// ── MODO SIN ROL (--sinrol): reproduce EXACTAMENTE lo que le pasó a Máximo ───────────────
+// Su sesión de agosto seguía viva pero sin fila en `btg_usuarios` (se movió el 23/10). La RLS
+// entonces no da error: da CERO FILAS en `abonos` y las da TODAS en `planillas`, que no pide
+// rol. Acá se simula justo eso sobre la app real: `app_rol` devuelve null y `abonos` vuelve
+// vacío. Sin este control no hay forma de saber si el aviso nuevo sale cuando toca.
+const SINROL = process.argv.includes('--sinrol')
+if (SINROL) {
+  await page.route('**/rest/v1/rpc/app_rol*', r => r.fulfill({ status: 200, contentType: 'application/json', body: 'null' }))
+  await page.route('**/rest/v1/abonos*', r => r.fulfill({ status: 200, contentType: 'application/json', headers: { 'Content-Range': '*/0' }, body: '[]' }))
+}
+
 
 // ── Toda la red a Supabase se corta y se responde a mano ────────────────────
 const json = (route, body, headers = {}) =>
@@ -145,7 +164,28 @@ await page.evaluate(s => {
   try { if (s && s.user) localStorage.setItem('btg_trust_' + s.user.id, String(Date.now() + 864e5)) } catch (e) {}
 }, ses)
 await page.reload({ waitUntil: 'load' })
-await page.waitForTimeout(REAL ? 25000 : 9000)
+// ⛔ NO SE ESPERA UN RATO FIJO: SE ESPERA LA SEÑAL. Con 25 s fijos este control dijo dos veces
+// «Cargando…» con la sesión buena y los datos buenos — o sea acusó al producto de un defecto
+// que era la espera corta. Un control que falla al azar es peor que no tener control: enseña a
+// desconfiar del verde. Se espera a que la app DECLARE que terminó de cargar.
+// [[norma-una-asercion-mal-escrita-acusa-al-producto]]
+// Medido el 26/10 en esta misma app: la carga declara `hecha` a los ~15 s y la tarjeta se
+// REPINTA ~10 s DESPUÉS. Por eso no basta con esperar la carga: hay que esperar el repintado.
+// En esa ventana de 10 s la tarjeta decía «$0» — justo la mentira que se vino a arreglar.
+let listo = false
+for (let i = 0; i < 24; i++) {
+  await page.waitForTimeout(5000)
+  const st = await page.evaluate(() => ({
+    hecha: typeof DATOS_CARGA !== 'undefined' && DATOS_CARGA.hecha === true,
+    sub: ((document.getElementById('s-cobrado-sub') || {}).textContent || '').trim(),
+  }))
+  // ⛔ LA SEÑAL ES EL REPINTADO, NO EL FIN DE LA CARGA. Cortar en `hecha` leía la tarjeta
+  // ANTES de que se redibujara, así que el control informaba «Cargando…» incluso en el caso
+  // que sí funcionaba. El subtítulo es lo que cambia en los dos finales posibles: la cifra
+  // («2.288 viajes · 42%…») o el motivo («No se pudo cargar — …»).
+  if (st.hecha && st.sub && st.sub !== 'Cargando…' && st.sub !== '-') { listo = true; break }
+}
+if (!listo) console.log('⚠️ A los 120 s la pantalla seguía sin un valor definitivo — lo de abajo es el estado a medio cargar.')
 
 const leer = id => page.evaluate(i => { const e = document.getElementById(i); return e ? e.textContent.trim() : '(no existe)' }, id)
 const visto = {
