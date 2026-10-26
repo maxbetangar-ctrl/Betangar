@@ -412,6 +412,16 @@ body{background:#0f1923;color:#fff;font-family:-apple-system,BlinkMacSystemFont,
         </div>
         <div id="cl-comb-llegada-cont" style="margin-top:12px;display:none">
           <label class="cl-label">Nivel al Llegar</label>
+          <!-- ⛔ ESTE AVISO SE QUEDA PUESTO. Un toast se desvanece: el 24/10/2026 Melvin
+               Barboza (JAC-B004) lleno el km de llegada y los centimetros del tanque, toco
+               Guardar, y el checklist NO se guardo porque faltaba marcar este nivel. El aviso
+               salio y se fue; el se quedo viendo sus datos en pantalla, creyendo que estaban
+               guardados, y reporto «algo no anda bien». Lo mismo le paso a Jhan (B006) y a
+               Andry (B010) ese mismo dia. Ahora el motivo queda A LA VISTA hasta que se
+               resuelva. [[norma-un-mensaje-negativo-debe-decir-cual-causa]] -->
+          <div id="cl-comb-llegada-falta" style="display:none;margin:4px 0 6px;padding:7px 10px;border-radius:8px;background:rgba(248,113,113,.12);border:1px solid rgba(248,113,113,.45);color:#fca5a5;font-size:12px;font-weight:700">
+            ⚠️ Falta esto: sin marcar el nivel, el checklist NO se guarda.
+          </div>
           <div class="comb-btns" id="cl-comb-llegada-btns">
             <button class="comb-btn" onclick="selComb('llegada','lleno',this)">LLENO</button>
             <button class="comb-btn" onclick="selComb('llegada','3/4',this)">3/4</button>
@@ -3458,6 +3468,15 @@ function selComb(momento, val, btn){
   var group = document.getElementById(groupId);
   if(group) group.querySelectorAll('.comb-btn').forEach(function(b){ b.classList.remove('sel'); });
   btn.classList.add('sel');
+  // Y el aviso de «falta esto» se APAGA al marcarlo: un rojo que se queda despues de
+  // resuelto miente igual que no avisar. [[norma-un-control-muerto-afirma-lo-que-no-hace]]
+  if(momento!=='salida'){
+    try{
+      var _av = document.getElementById('cl-comb-llegada-falta');
+      if(_av) _av.style.display = 'none';
+      if(group){ group.style.outline = ''; group.style.outlineOffset = ''; }
+    }catch(e){}
+  }
   clGuardarBorrador();
 }
 
@@ -3755,6 +3774,16 @@ async function _guardarChecklist(){
     var _combGrupo = document.getElementById('cl-comb-llegada-btns');
     if (_combGrupo && _combGrupo.offsetParent !== null && !CL_COMB_LLE) {
       mostrarToast('Marque con cuánto combustible llegó antes de guardar','warn');
+      // ⛔ EL MOTIVO SE QUEDA EN LA PANTALLA, no solo en un toast que se va. Si no, la
+      //    persona ve sus datos escritos y cree que guardó. Pasó el 24/10/2026 con tres
+      //    choferes el mismo día. [[norma-una-pantalla-se-revisa-en-una-pantalla]]
+      try{
+        var _av = document.getElementById('cl-comb-llegada-falta');
+        if(_av) _av.style.display = 'block';
+        _combGrupo.style.outline = '2px solid rgba(248,113,113,.65)';
+        _combGrupo.style.outlineOffset = '3px';
+        _combGrupo.style.borderRadius = '8px';
+      }catch(e){}
       try{ _combGrupo.scrollIntoView({block:'center'}); }catch(e){}
       return;
     }
