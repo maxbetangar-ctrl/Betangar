@@ -345,6 +345,24 @@ var TIPOS_UNIDAD=[], UNIDADES=[], OPERACIONES=[];
 // Sin semilla hardcodeada: estos 5 abonos de muestra REAPARECÍAN al recargar tras borrarlos
 // (Supabase es la fuente de verdad). Si la tabla está vacía, no debe haber abonos.
 var ABONOS=[];
+// ⛔ MIENTRAS NO SE SEPA SI EL DATO LLEGÓ, EL DASHBOARD NO PUEDE AFIRMAR «CERO».
+// Máximo, 26/10/2026: «dice el dashboard que no se ha cobrado nada? está en 0 y todo está
+// por cobrar … ni tampoco estaba así». No se había perdido nada: `abonos` tenía sus 32
+// filas y US$ 715.247, y con su sesión real la pantalla dibuja $715.247 (42%). Lo que vio
+// fue la pantalla ANTES de que cargara —o con la carga fallada— afirmando «$0» y
+// «100% sin facturar», que se lee como «la Alcaldía no te pagó nada». Un dato que falta
+// NO es un dato. [[norma-falta-de-dato-no-es-un-dato]]
+// [[norma-una-asercion-mal-escrita-acusa-al-producto]]
+var DATOS_CARGA={hecha:false,fallos:[]};
+// Por qué el dashboard NO puede dar un número, o null si sí puede. Lo leen las DOS copias
+// del cálculo (la pantalla y el PDF) para que no se desincronicen.
+// [[norma-dos-listas-a-mano-se-desincronizan]]
+function _dashSinDatos(){
+  if(DATOS_CARGA.fallos.length) return 'No se pudo cargar — '+DATOS_CARGA.fallos[0];
+  if(!DATOS_CARGA.hecha) return 'Cargando…';
+  // La carga terminó bien y de verdad no hay planillas: ahí el 0 SÍ es un dato.
+  return null;
+}
 // Núcleos de factura (solo dígitos, sin ceros a la izquierda) de abonos PROTEGIDOS: el
 // import de Excel NUNCA los toca (se corrigieron a mano, ej. pagados a $288). Se llena al
 // cargar de Supabase (columna abonos.protegido). Compara por dígitos para que "M1004" y
@@ -4567,6 +4585,13 @@ async function cargarDatosDB(){
     //    contarlas sin tocar ninguno. Ver `REGS_DUP`.
     REGS_DUP=REGS.filter(function(r){ return r.p && String(r.p).indexOf('DUP')===0; });
     REGS=REGS.filter(function(r){ return !(r.p && String(r.p).indexOf('DUP')===0); });
+    // ⛔ QUEDA ESCRITO SI EL DATO DEL DINERO LLEGÓ. Las dos tablas con las que el dashboard
+    // calcula «Ejecutado», «Cobrado» y «Por Cobrar». Si una falla, la pantalla tiene que
+    // DECIRLO en vez de pintar un 0 que se lee como «no te pagaron».
+    DATOS_CARGA.fallos=[];
+    if(p&&p.error)DATOS_CARGA.fallos.push('planillas: '+((p.error&&p.error.message)||p.error));
+    if(a&&a.error)DATOS_CARGA.fallos.push('abonos: '+((a.error&&a.error.message)||a.error));
+    DATOS_CARGA.hecha=true;
     // ABONOS — ordenar por fecha (y id como desempate) para que SIEMPRE salgan en el mismo
     // orden. Sin .order() PostgREST devuelve las filas en orden arbitrario que cambia tras
     // cada edicion/borrado, y eso hacia que aparecieran "en distinto orden cada vez".
@@ -5788,10 +5813,12 @@ function _renderDashCuerpo(){
     var _vv=REGS.filter(function(r){return r.f>=_lunS&&r.f<=_domS;}).reduce(function(s,r){return s+r.t;},0);
     ultSemTxt='Últ. semana: '+_vv+' viajes · '+formatFecha(_lunS).slice(0,5)+'–'+formatFecha(_domS).slice(0,5);
   }
-  g('s-viajes').textContent=totalV.toLocaleString();
+  // Mismo criterio que abajo: sin dato cargado, un guion — no un cero.
+  var _sdTop=_dashSinDatos();
+  g('s-viajes').textContent=_sdTop?'—':totalV.toLocaleString();
   try{actualizarUltimaPlanilla();}catch(e){}
-  g('s-viajes-sub').textContent=ultSemTxt;
-  g('s-ejec').textContent='$'+totalM.toLocaleString();
+  g('s-viajes-sub').textContent=_sdTop||ultSemTxt;
+  g('s-ejec').textContent=_sdTop?'—':('$'+totalM.toLocaleString());
   if(g('s-ejec-sub'))g('s-ejec-sub').textContent=ultF?('📅 Cargado al '+formatFecha(ultF)):('@ $'+(cfg.tarifa||317.88).toFixed(2)+'/viaje');
   // ⛔ CADA TARJETA IMPRIME SU PROPIO PORCENTAJE. La barra s-pbar mide cobrado/ejecutado y
   // estaba dentro de la tarjeta "Por Cobrar" (app.html): una barra SIN RÓTULO hereda el
@@ -5813,11 +5840,23 @@ function _renderDashCuerpo(){
     if(g('s-porcobrar-sub'))g('s-porcobrar-sub').textContent='Restringido';
     if(g('s-pbar'))g('s-pbar').style.width='0%';
   }else{
+    // ⛔ SIN DATO NO SE AFIRMA UN NÚMERO. Si la carga no terminó o falló, estas cuatro cifras
+    // serían 0 y el sub diría «100% sin facturar» — que es exactamente lo que Máximo leyó el
+    // 26/10 como «la Alcaldía no ha pagado nada», con US$ 715.247 cobrados en la base.
+    var _sd=_dashSinDatos();
+    if(_sd){
+      g('s-cobrado').textContent='—';
+      g('s-cobrado-sub').textContent=_sd;
+      g('s-porcobrar').textContent='—';
+      if(g('s-porcobrar-sub'))g('s-porcobrar-sub').textContent=_sd;
+      g('s-pbar').style.width='0%';
+    }else{
     g('s-cobrado').textContent='$'+totalCob.toLocaleString();
     g('s-cobrado-sub').textContent=vCobV.toLocaleString()+' viajes · '+pct+'% de lo ejecutado';
     g('s-porcobrar').textContent='$'+porcobrar.toLocaleString();
     if(g('s-porcobrar-sub'))g('s-porcobrar-sub').textContent=Math.max(0,totalV-vCobV).toLocaleString()+' viajes · '+(100-pct)+'% sin facturar';
     g('s-pbar').style.width=pct+'%';
+    }
   }
   if(BNC_SALDO>0&&puedeVerSaldo()){g('s-saldo-bnc').textContent='Bs '+(BNC_SALDO/1000).toFixed(0)+'k';g('s-saldo-sub').textContent='Actualizado';}
   // Utilidad Real = cobrado − TODOS los gastos (reemplaza el card "Resumen Financiero" redundante).
@@ -5886,6 +5925,11 @@ async function imprimirDashboard(){
     surtHtml='<h2>⛽ Combustible surtido hoy</h2><table><thead><tr><th>Hora</th><th>Unidad</th><th>Tanque</th><th style="text-align:right">Litros</th><th style="text-align:right">Costo</th></tr></thead><tbody>'+_sRows+
       '<tr style="font-weight:800;border-top:2px solid #cbd5e1"><td colspan="3">TOTAL '+_sUn+' unidad(es)</td><td style="text-align:right;font-family:monospace">'+_sLit.toLocaleString('es-VE')+' L</td><td style="text-align:right;font-family:monospace">'+usd(_sUsd)+(_sTasa?' <span style="color:#8a94a6">≈ Bs '+(_sUsd*_sTasa).toLocaleString('es-VE',{maximumFractionDigits:0})+'</span>':'')+'</td></tr></tbody></table>';
   }
+  // ⛔ UN PDF NO SE IMPRIME CON DATOS A MEDIO CARGAR. El dashboard ya se niega a afirmar un
+  // número sin dato; imprimirlo sería peor, porque el papel sale de la pantalla y se manda.
+  // [[norma-falta-de-dato-no-es-un-dato]]
+  var _sdPdf=_dashSinDatos();
+  if(_sdPdf){ mostrarToast('No se puede imprimir el dashboard: '+_sdPdf,'error'); return; }
   // KPIs (mismos cálculos que el dashboard)
   var totalV=REGS.reduce(function(s,r){return s+r.t;},0);
   var totalM=REGS.reduce(function(s,r){return s+r.m;},0);

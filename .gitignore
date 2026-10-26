@@ -17,3 +17,7 @@ package-lock.json
 # Lo que sí se versiona es `pruebas/datos/combustible.json`, recortado y sin personas
 # (lo arma `pruebas/datos/reducir.mjs`).
 pruebas/datos/combustible-real.json
+
+# Datos reales volcados para revisar una pantalla (incluye sesiones): NUNCA al repo.
+# Betangar es un repo PUBLICO.
+scripts/_datos-reales/
