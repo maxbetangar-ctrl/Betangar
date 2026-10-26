@@ -4626,6 +4626,36 @@ async function cargarDatosDB(){
         DATOS_CARGA.fallos.push('la base le da el rol «'+_rolBD+'» y la app usa «'+SESION.rol+'» — cierre sesión y vuelva a entrar');
       }
     }catch(e){}
+    // ⛔ LA TARIFA DEL VIAJE SALE DE LA BASE, NO DEL NAVEGADOR DE CADA UNO.
+    //
+    // 🔴 26/10/2026. Era `cfg.tarifa` en localStorage, así que el valor que quedaba grabado en
+    //    una planilla dependía de QUIÉN la cargaba. Resultado medido: 6 días de octubre con
+    //    DOS tarifas a la vez, y del 19 al 22 «volvió» a la vieja porque la cargó otra
+    //    persona. Se corrigieron 93 planillas (migrations/descuento_pronto_pago_2026-10-26.sql).
+    //    Y el 261,20 del abono 000651 entró por acá: `calcMontoAbono()` multiplica por
+    //    `cfg.tarifa`, y quien registró ese pago tenía la tarifa cambiada en su navegador.
+    //
+    // La tarifa se guarda POR TONELADA porque así se negocia el contrato (el viaje son 8 t).
+    // TARIFA_PRONTO_PAGO es la de la concesión: NO se usa para valorar viajes, solo cuando se
+    // marca un abono como premiado. [[norma-un-valor-derivado-depende-de-la-version-de-su-regla]]
+    try{
+      var _ct=await supabase.from('configuracion').select('clave,valor').in('clave',['tarifa_contrato_ton','tarifa_pronto_pago_ton','tarifa_toneladas_viaje']);
+      if(_ct&&!_ct.error&&Array.isArray(_ct.data)){
+        var _cm={}; _ct.data.forEach(function(x){_cm[x.clave]=parseFloat(x.valor);});
+        var _tons=(_cm.tarifa_toneladas_viaje>0)?_cm.tarifa_toneladas_viaje:(cfg.tonsViaje||8);
+        if(_cm.tarifa_contrato_ton>0){
+          cfg.tonsViaje=_tons;
+          cfg.tarifaTon=_cm.tarifa_contrato_ton;
+          cfg.tarifa=Math.round(_cm.tarifa_contrato_ton*_tons*100)/100;   // la de CONTRATO manda
+          // Se deja de escribir la tarifa en localStorage: era la vía por la que se colaba.
+          try{localStorage.removeItem('betangar_cfg_tarifa');}catch(e){}
+        }
+        if(_cm.tarifa_pronto_pago_ton>0){
+          cfg.tarifaProntoPagoTon=_cm.tarifa_pronto_pago_ton;
+          cfg.tarifaProntoPago=Math.round(_cm.tarifa_pronto_pago_ton*_tons*100)/100;
+        }
+      }
+    }catch(e){console.log('tarifas load:',e&&e.message);}
     DATOS_CARGA.hecha=true;
     // Que no haya que adivinarlo: si la sesión perdió el rol, se dice con todas las letras.
     if(DATOS_CARGA.sinRol){
@@ -4637,7 +4667,7 @@ async function cargarDatosDB(){
     // Supabase es la FUENTE DE VERDAD: si la consulta tuvo éxito (sin error), usar su
     // resultado AUNQUE sea vacío → así, si borraste todos, NO reaparecen. Antes
     // (a.data&&a.data.length) ignoraba el caso vacío y conservaba abonos viejos en memoria.
-    if(!a.error&&Array.isArray(a.data))ABONOS=a.data.map(function(x){return{f:x.f,fact:x.fact,v:x.v,m:x.m,obs:x.obs||'',ref:x.ref||'',contrato:x.contrato||null};});
+    if(!a.error&&Array.isArray(a.data))ABONOS=a.data.map(function(x){return{f:x.f,fact:x.fact,v:x.v,m:x.m,obs:x.obs||'',ref:x.ref||'',contrato:x.contrato||null,descuento:x.descuento===true};});
     // Cargar los abonos PROTEGIDOS (no los pisa el Excel) por núcleo de dígitos.
     if(!a.error&&Array.isArray(a.data))ABONOS_PROTEGIDOS=new Set(a.data.filter(function(x){return x.protegido;}).map(function(x){return _factCore(x.fact);}));
     // EMPLEADOS
@@ -4824,6 +4854,17 @@ async function cargarDatosDB(){
       if(cfgDB.data&&cfgDB.data.valor){
         var cfgSaved=JSON.parse(cfgDB.data.valor);
         Object.assign(cfg,cfgSaved);
+        // ⛔ `general` NO PUEDE PISAR LA TARIFA. Esta clave guarda el objeto `cfg` ENTERO, así
+        //    que arrastraba su propia copia de `tarifa` — y el 26/10/2026 esa copia decía
+        //    261,2. Como se carga DESPUÉS de las tarifas, le ganaba: el dashboard calculaba
+        //    «por cobrar» a la tarifa con descuento y cada planilla importada quedaba
+        //    estampada a 261,20, para TODOS (la clave es compartida, no del navegador).
+        //    La tarifa de CONTRATO vive en `tarifa_contrato_ton` y es la única fuente; acá se
+        //    vuelve a imponer después del Object.assign.
+        //    [[norma-dos-listas-a-mano-se-desincronizan]]
+        if(cfg.tarifaTon>0){
+          cfg.tarifa=Math.round(cfg.tarifaTon*(cfg.tonsViaje||8)*100)/100;
+        }
         aplicarModulosApagados();   // lo que este cliente no compró, fuera del menú
       }
     }catch(e4){}
@@ -5838,7 +5879,15 @@ function _renderDashCuerpo(){
   var totalV=REGS.reduce(function(s,r){return s+r.t;},0);
   var totalM=REGS.reduce(function(s,r){return s+r.m;},0);
   var totalCob=Math.min(ABONOS.reduce(function(s,a){return s+a.m;},0),totalM);
-  var porcobrar=Math.max(0,totalM-totalCob);
+  // ⛔ LO DESCONTADO NO ES «POR COBRAR»: ESTA PERDONADO. Los viajes que un abono ya
+  // liquido valen la tarifa de CONTRATO; si ese pago se premio con el descuento por
+  // pronto pago, la diferencia es una concesion que no vuelve. Restar solo el efectivo
+  // cobrado dejaba esa plata figurando como cobrable para siempre.
+  // 26/10/2026: son US$ 9.774; el techo, si se premiara todo lo pendiente, ~157 mil.
+  var _vLiq=ABONOS.reduce(function(s,a){return s+(a.v||0);},0);
+  var _liquidado=Math.min(_vLiq*(cfg.tarifa||317.88),totalM);
+  var _descuento=Math.max(0,_liquidado-totalCob);
+  var porcobrar=Math.max(0,totalM-_liquidado);
   var pct=totalM>0?Math.round((totalCob/totalM)*100):0;
   var vCobV=Math.min(ABONOS.reduce(function(s,a){return s+a.v;},0),totalV);
   var ultF=REGS.reduce(function(mx,r){return (r.f&&r.f>mx)?r.f:mx;},'');
@@ -5894,6 +5943,9 @@ function _renderDashCuerpo(){
     g('s-cobrado-sub').textContent=vCobV.toLocaleString()+' viajes · '+pct+'% de lo ejecutado';
     g('s-porcobrar').textContent='$'+porcobrar.toLocaleString();
     if(g('s-porcobrar-sub'))g('s-porcobrar-sub').textContent=Math.max(0,totalV-vCobV).toLocaleString()+' viajes · '+(100-pct)+'% sin facturar';
+    // El descuento otorgado se DICE, no se esconde: es plata que se decidio no cobrar, y la
+    // decision se toma pago por pago. Si no se nombra, desaparece dentro de la diferencia.
+    if(_descuento>0.5&&g('s-cobrado-sub'))g('s-cobrado-sub').textContent+=' · $'+Math.round(_descuento).toLocaleString('es-VE')+' descontados por pronto pago';
     g('s-pbar').style.width=pct+'%';
     }
   }
@@ -5973,7 +6025,15 @@ async function imprimirDashboard(){
   var totalV=REGS.reduce(function(s,r){return s+r.t;},0);
   var totalM=REGS.reduce(function(s,r){return s+r.m;},0);
   var totalCob=Math.min(ABONOS.reduce(function(s,a){return s+a.m;},0),totalM);
-  var porcobrar=Math.max(0,totalM-totalCob);
+  // ⛔ LO DESCONTADO NO ES «POR COBRAR»: ESTA PERDONADO. Los viajes que un abono ya
+  // liquido valen la tarifa de CONTRATO; si ese pago se premio con el descuento por
+  // pronto pago, la diferencia es una concesion que no vuelve. Restar solo el efectivo
+  // cobrado dejaba esa plata figurando como cobrable para siempre.
+  // 26/10/2026: son US$ 9.774; el techo, si se premiara todo lo pendiente, ~157 mil.
+  var _vLiq=ABONOS.reduce(function(s,a){return s+(a.v||0);},0);
+  var _liquidado=Math.min(_vLiq*(cfg.tarifa||317.88),totalM);
+  var _descuento=Math.max(0,_liquidado-totalCob);
+  var porcobrar=Math.max(0,totalM-_liquidado);
   var pct=totalM>0?Math.round((totalCob/totalM)*100):0;
   var vCobV=Math.min(ABONOS.reduce(function(s,a){return s+a.v;},0),totalV);
   var vPorCob=Math.max(0,totalV-vCobV);
@@ -8984,12 +9044,27 @@ function calcMontoAbono(){
   var vEl=g('ab-v');var mEl=g('ab-m');var lblEl=g('ab-v-calc');
   if(!vEl||!mEl)return;
   var v=parseInt(vEl.value)||0;
-  var tarifa=cfg.tarifa||317.88;
+  // ⛔ LA TARIFA DEL DESCUENTO SOLO SE USA SI SE MARCO EL PAGO. Por defecto manda la de
+  // CONTRATO: el viaje vale lo mismo siempre, y el descuento es una concesion de ESTE pago.
+  var _conDesc=!!(g('ab-desc')&&g('ab-desc').checked);
+  var tarifa=(_conDesc&&cfg.tarifaProntoPago>0)?cfg.tarifaProntoPago:(cfg.tarifa||317.88);
+  // Que se vea EN NUMEROS cuanto se esta regalando, antes de apretar Registrar. Un descuento
+  // que no muestra su costo se da sin pensarlo. [[norma-un-mensaje-negativo-debe-decir-cual-causa]]
+  var _sub=g('ab-desc-sub');
+  if(_sub){
+    if(_conDesc&&cfg.tarifaProntoPago>0){
+      var _reg=v>0?((cfg.tarifa||0)-cfg.tarifaProntoPago)*v:0;
+      _sub.innerHTML='Se liquidan a <b>$'+cfg.tarifaProntoPago+'</b> por viaje en vez de $'+(cfg.tarifa||0)+
+        (v>0?(' · se le descuenta <b style="color:var(--amber)">$'+_reg.toLocaleString('es-VE',{maximumFractionDigits:2})+'</b>'):'');
+    }else{
+      _sub.innerHTML='Marcalo solo si este abono lo merece. Los viajes de este pago se liquidan a la tarifa con descuento; el resto sigue a tarifa de contrato.';
+    }
+  }
   if(v>0){
-    var monto=v*tarifa;
+    var monto=Math.round(v*tarifa*100)/100;
     mEl.value=monto;
     mEl.style.color='var(--green)';
-    if(lblEl)lblEl.innerHTML=v+' × $'+tarifa+' = <b>$'+monto.toLocaleString('es-VE')+'</b>';
+    if(lblEl)lblEl.innerHTML=v+' × $'+tarifa+(_conDesc?' <span style="color:var(--amber)">(pronto pago)</span>':'')+' = <b>$'+monto.toLocaleString('es-VE')+'</b>';
   } else {
     mEl.value='';
     mEl.style.color='';
@@ -9011,7 +9086,9 @@ function normFact(s){ s=String(s==null?'':s).trim().toUpperCase().replace(/\s+/g
 function _factCore(f){ return String(f==null?'':f).replace(/\D/g,'').replace(/^0+/,''); }
 
 async function guardarAbono(){
-  var ab={f:gv('ab-f'),fact:normFact(gv('ab-fact')),v:parseInt(gv('ab-v'))||0,m:parseFloat(gv('ab-m'))||0,obs:gv('ab-obs'),ref:gv('ab-ref')};
+  var ab={f:gv('ab-f'),fact:normFact(gv('ab-fact')),v:parseInt(gv('ab-v'))||0,m:parseFloat(gv('ab-m'))||0,obs:gv('ab-obs'),ref:gv('ab-ref'),
+          // La decision del descuento viaja CON el pago: es lo que lo explica despues.
+          descuento:!!(g('ab-desc')&&g('ab-desc').checked)};
   if(!ab.f||!(ab.m>0)){alert('Completa la fecha y un monto MAYOR a 0.');return;}
   // La FACTURA es la identidad del abono (NO la fecha). Exigirla evita que el mismo pago
   // entre dos veces con fechas distintas.
@@ -9055,12 +9132,12 @@ async function guardarAbono(){
     // ⛔ (fact, ref), no `fact`: dos pagos de la MISMA factura son dos abonos distintos y se
     //    distinguen por su referencia bancaria. Con `fact` a secas, el segundo pago PISABA al
     //    primero en vez de sumarse — así se perdieron los segundos pagos de 000646 y 000647.
-    var rUp=await supabase.from('abonos').upsert({f:ab.f,fact:ab.fact,v:ab.v,m:ab.m,obs:ab.obs,ref:ab.ref},{onConflict:'fact,ref'});
+    var rUp=await supabase.from('abonos').upsert({f:ab.f,fact:ab.fact,v:ab.v,m:ab.m,obs:ab.obs,ref:ab.ref,descuento:!!ab.descuento},{onConflict:'fact,ref'});
     if(rUp&&rUp.error){ if(typeof mostrarToast==='function')mostrarToast('No se pudo guardar en la nube; quedó en cola: '+rUp.error.message,'error'); }
     else _abOk=true;
   }
   if(!_abOk){
-    guardarEnCola('abonos',{f:ab.f,fact:ab.fact,v:ab.v,m:ab.m,obs:ab.obs,ref:ab.ref});
+    guardarEnCola('abonos',{f:ab.f,fact:ab.fact,v:ab.v,m:ab.m,obs:ab.obs,ref:ab.ref,descuento:!!ab.descuento});
   }
   audit('Abono registrado','$'+ab.m+' Fact:'+ab.fact);
   // Conciliar en BNC automaticamente.
@@ -22708,7 +22785,11 @@ function switchCfgTab(t){['general','flota','wa','rec','nomadm','correlativo','c
 //    [[norma-dos-listas-a-mano-se-desincronizan]]
 function cargarConfigForm(){
   if(typeof cfg==='undefined'||!cfg)return;
-  sv('cfg-tarifa',cfg.tarifa||317.88);
+  // ⛔ EN CONFIG SE EDITA LA TARIFA POR TONELADA, que es como se negocia el contrato. Antes
+  //    se editaba el $/viaje y de ahi salia el lio: cambiarla aca reescribia el valor de
+  //    TODA planilla que se importara despues, para todos. Ahora el $/viaje se deriva.
+  sv('cfg-tarifa',cfg.tarifaTon||39.61);
+  sv('cfg-tarifa-pp',cfg.tarifaProntoPagoTon||32.65);
   sv('cfg-chofer',cfg.chofer||10);
   sv('cfg-ayud',cfg.ayud||5);
   sv('cfg-km',cfg.km||5000);
@@ -22718,7 +22799,21 @@ function cargarConfigForm(){
   var esp=g('cfg-especial'); if(esp)esp.checked=(cfg.especial!==false);
 }
 function guardarConfig(){
-  cfg.tarifa=parseFloat(gv('cfg-tarifa'))||317.88;
+  // La por tonelada es la fuente; el $/viaje se DERIVA. Si se guardara solo el $/viaje, al
+  // recargar `tarifaTon` volveria a imponerse y el cambio se perderia EN SILENCIO: un campo
+  // que parece guardar y no guarda. [[norma-un-control-muerto-afirma-lo-que-no-hace]]
+  var _tt=parseFloat(gv('cfg-tarifa'))||39.61;
+  var _tp=parseFloat(gv('cfg-tarifa-pp'))||32.65;
+  cfg.tarifaTon=_tt;
+  cfg.tarifaProntoPagoTon=_tp;
+  cfg.tarifa=Math.round(_tt*(cfg.tonsViaje||8)*100)/100;
+  cfg.tarifaProntoPago=Math.round(_tp*(cfg.tonsViaje||8)*100)/100;
+  // Y se escriben tambien las claves sueltas, que son las que lee la carga.
+  try{ supabase.from('configuracion').upsert([
+    {clave:'tarifa_contrato_ton',valor:String(_tt)},
+    {clave:'tarifa_pronto_pago_ton',valor:String(_tp)},
+    {clave:'tarifa_toneladas_viaje',valor:String(cfg.tonsViaje||8)}
+  ],{onConflict:'clave'}).then(function(r){ if(r&&r.error&&typeof mostrarToast==='function')mostrarToast('No se pudo guardar la tarifa: '+r.error.message,'error'); }); }catch(e){}
   cfg.chofer=parseFloat(gv('cfg-chofer'))||10;
   cfg.ayud=parseFloat(gv('cfg-ayud'))||5;
   cfg.km=parseFloat(gv('cfg-km'))||5000;
