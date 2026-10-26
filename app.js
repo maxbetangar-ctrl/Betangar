@@ -5277,7 +5277,26 @@ function _llenarSelectSemanas(idSel,mes){
 // y consecutivo sin depender del selector mensual "Semana 1-5".
 function _lunesSem(fISO){ var d=new Date(String(fISO).slice(0,10)+'T12:00:00'); var g=d.getDay(); d.setDate(d.getDate()+(g===0?-6:1-g)); d.setHours(12,0,0,0); return d; }
 var _SEM_MESES=['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
-function _fechaLargaES(d){ return d.getDate()+' de '+_SEM_MESES[d.getMonth()]; }
+// ⛔ ACEPTA Date O 'YYYY-MM-DD' (24/10/2026). La propiedad `lunes` viene de dos sitios y
+//    con dos TIPOS distintos: `_semDeFecha()` la arma como Date, y `_semanasFaltantesNomina()`
+//    como string (`_isoLocal(...)`). Esta funcion solo sabia de Date, asi que con el string
+//    tiraba «d.getDate is not a function», y eso rompio DOS cosas en silencio:
+//      · el recuadro amarillo de «semanas con planillas que NO estan en el historial»: el
+//        throw ocurre mientras se arma el HTML, el `catch` de `renderNominaHist()` solo hace
+//        `console.log`, y `av.innerHTML` NUNCA se asigna ⇒ ni aviso, ni botones, ni error a
+//        la vista. Se perdia tambien el aviso de «dias de patio cargados dos veces», que se
+//        pinta en el mismo contenedor.
+//      · `irASemanaNomina()`: la semana SI se carga (`recalcNom()` ya corrio) pero el toast
+//        revienta y el `catch` saca un cartel «No se pudo cargar esa semana» que es MENTIRA.
+//    🔴 Lo reporto Alejandra el 23/10: «ESTE BOTON NO ESTA». Tenia razon. Eran 17 semanas de
+//    nomina sin cerrar y la Utilidad Real de Betangar inflada ~US$ 80-90 mil.
+//    Se arregla ACA, en la funcion, y no en los dos sitios que llaman: asi tambien queda
+//    cubierto el que venga. [[norma-arreglar-el-mecanismo-no-el-caso]]
+//    Verificado en navegador con `scripts/ver-semanas-faltantes-nomina-en-navegador.mjs`.
+function _fechaLargaES(d){
+  if(typeof d==='string') d=new Date(String(d).slice(0,10)+'T12:00:00');
+  return d.getDate()+' de '+_SEM_MESES[d.getMonth()];
+}
 function _semDeFecha(fISO){
   if(!fISO) return null;
   var lun=_lunesSem(fISO), dom=new Date(lun); dom.setDate(dom.getDate()+6);
