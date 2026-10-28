@@ -717,13 +717,22 @@
               if (!r) return;
               (porRol[r] = porRol[r] || []).push(p);
             });
+            // ⛔ ACÁ HABÍA UN `.slice(0, 6)` Y SE COMÍA LOS GRUPOS SIN DECIRLO.
+            //    Medido en Tony Gas el 28/10/2026: de los 11 grupos que calificaban,
+            //    la pantalla ofrecía 6 — los 6 PRIMEROS DEL ALFABETO. Los que
+            //    quedaban cortados eran «Jefe de Flota Vehícular» y «Jefe de
+            //    Planta», o sea justo los jefes. Desde la pantalla no había forma
+            //    de saber que faltaban: un recorte silencioso se ve igual que «no
+            //    hay más». Se ofrecen TODOS; si un día son cuarenta, eso se VE y se
+            //    decide, que es mejor que esconder treinta y cuatro.
+            //    [[norma-la-barra-que-no-dice-que-sigue]]
             var chips = Object.keys(porRol).sort().filter(function (r) {
               // Solo grupos que aporten: uno de una persona ya está en el buscador,
               // y uno ya completo no tiene nada que agregar.
               return porRol[r].length > 1 && porRol[r].some(function (p) {
                 return !sel.some(function (x) { return claveDest(x) === claveDest(p); });
               });
-            }).slice(0, 6);
+            });
             if (!chips.length) return '';
             return '<div class="mrq-ejemplos" style="justify-content:flex-start;margin-top:8px">' +
               chips.map(function (r) {
@@ -862,7 +871,15 @@
           function claveDest(p) {
             if (!p) return '';
             if (p.persona_id) return 'p:' + p.persona_id;
-            var t = String(p.telefono || '').replace(/D/g, '').slice(-10);
+            // ⚠️ `\D` CON SU BARRA. Nació como `/D/g` —sin la barra— y eso no quita
+            //    los no-dígitos: quita la letra D, que en un teléfono no hay. La clave
+            //    pasaba a ser los últimos 10 CARACTERES del texto crudo, con el «+»,
+            //    los espacios y los guiones adentro. Con los teléfonos de hoy, que
+            //    están cargados pelados, daba el mismo resultado por casualidad — así
+            //    que el arreglo del 11/09 se veía bien y estaba a medias: el día que
+            //    alguien cargue «+1 754 308 4552» vuelve el bug que se arregló.
+            //    [[norma-test-que-pasa-por-el-motivo-equivocado]]
+            var t = String(p.telefono || '').replace(/\D/g, '').slice(-10);
             return t ? 't:' + t : 'n:' + String(p.nombre || '').trim().toLowerCase();
           }
 
@@ -931,6 +948,21 @@
               //    «llegó tarde» se ven IGUAL cuando uno está esperando — y así se
               //    reportó: «los recordatorios están llegando tarde».
               //    Ahora, cuando no hay próximo aviso, se dice QUÉ pasó y qué hacer.
+              // ⛔ A QUIEN NO ENTRÓ SE LE PONE NOMBRE, Y NO SE CIERRA LA PANTALLA.
+              //    `rec_guardar` ya no tumba la difusión entera por un destinatario
+              //    malo: lo aparta. Pero apartarlo y no decirlo es peor que el fallo
+              //    viejo — el viejo al menos se notaba. Acá se nombran uno por uno,
+              //    con el motivo, y el formulario queda abierto para corregirlo.
+              //    [[norma-falta-de-dato-no-es-un-dato]]
+              var fuera = (d.rechazados || []);
+              if (fuera.length) {
+                toast('⚠️ Guardado, pero ' + fuera.length + ' no entró' + (fuera.length > 1 ? 'ron' : '') + ': ' +
+                      fuera.map(function (x) { return x.nombre + ' (' + x.motivo + ')'; }).join(' · ') +
+                      (d.proximo ? '. Al resto le llega el ' + d.proximo.replace(' ', ' a las ') : ''),
+                      'mrq-toast-mal');
+                refrescar();
+                return;
+              }
               if (d.proximo) {
                 toast('Guardado. Primer aviso: ' + d.proximo.replace(' ', ' a las '), 'mrq-toast-ok');
                 cerrarFn(); refrescar();
