@@ -11647,9 +11647,16 @@ function _osProvOtro(){var s=g('os-prov'),w=g('os-prov-otro-wrap');if(w)w.style.
 // (repuestos/insumos/lo que sea; destino unidad o Patio; proveedor OPCIONAL — se define al comprar).
 function _osTipoOrden(){
   var t=gv('os-tipoorden')||'servicio', compra=(t==='compra');
-  var destino=compra?(gv('os-destino')||'unidad'):'unidad';
-  var noUnidad=compra&&(destino==='patio'||destino==='inventario'); // no requiere unidad
-  var patioWrap=g('os-patio-wrap'); if(patioWrap)patioWrap.style.display=compra?'block':'none';
+  // ⛔ El Destino vale para los DOS tipos de orden. Hasta el 28/10/2026 solo salía en COMPRA y
+  // en servicio el destino era SIEMPRE una unidad: para mandar a reparar algo que no es un
+  // vehículo (unas llantas sueltas, una herramienta) había que inventar una unidad, y eso
+  // ensucia la cuenta de la flota. Ahora una reparación puede ir a 🏭 Patio / uso general.
+  // INVENTARIO queda solo para compra: una reparación no entra a existencia.
+  var invOpt=g('os-destino-inv'); if(invOpt){ invOpt.hidden=!compra; invOpt.disabled=!compra; }
+  if(!compra && (gv('os-destino')==='inventario') && typeof sv==='function')sv('os-destino','unidad');
+  var destino=gv('os-destino')||'unidad';
+  var noUnidad=(destino==='patio')||(compra&&destino==='inventario'); // no requiere unidad
+  var patioWrap=g('os-patio-wrap'); if(patioWrap)patioWrap.style.display='block';
   var tipoWrap=g('os-tipo-wrap'); if(tipoWrap)tipoWrap.style.display=compra?'none':'block';
   var camsLbl=g('os-cams-lbl'); if(camsLbl)camsLbl.textContent=compra?'¿Para cuáles unidades? (ej: 1,2,3)':'Unidades (ej: 1,2,3)';
   var camsInp=g('os-cams'); if(camsInp){camsInp.disabled=!!noUnidad; camsInp.style.opacity=noUnidad?'0.5':'1'; camsInp.placeholder=(destino==='patio'?'— Patio / uso general —':(destino==='inventario'?'— Va a inventario —':(compra?'1,2,3':'1,2,3')));} if(typeof _osCamsHint==='function')_osCamsHint();
@@ -11659,7 +11666,9 @@ function _osTipoOrden(){
   var btn=g('os-btn-lbl'); if(btn)btn.textContent=compra?'🛒 Emitir orden de compra':'📋 Emitir orden';
   var ayuda=g('os-ayuda'); if(ayuda)ayuda.innerHTML=compra
     ?'Para mandar a comprar cualquier cosa (repuestos, insumos, oficina). Se imprime para el encargado. El <b>costo, proveedor real, foto y destino</b> se llenan al <b>cerrarla</b> (marcar ✅ Hecho).'
-    :'Para mandar unidades a cualquier trabajo (lavado, mantenimiento, arreglo). Se guarda y queda <b>Emitida</b>; el km/costo se llenan al <b>cerrarla</b> (registrar que se hizo).';
+    :(destino==='patio'
+      ?'Para mandar a arreglar algo que <b>no es un vehículo</b> (llantas sueltas, herramientas, equipos del patio). No pide unidad ni km: el costo queda como gasto de <b>Patio / uso general</b> y no se le carga a ningún camión.'
+      :'Para mandar unidades a cualquier trabajo (lavado, mantenimiento, arreglo). Se guarda y queda <b>Emitida</b>; el km/costo se llenan al <b>cerrarla</b> (registrar que se hizo).');
 }
 function _osPoblarForm(){
   var sp=g('os-prov');
@@ -11713,7 +11722,8 @@ function _osIdRepetido(err){
 }
 async function _osEmitirOrden(){
   var tipoOrden=gv('os-tipoorden')||'servicio', esCompra=(tipoOrden==='compra');
-  var destino=esCompra?(gv('os-destino')||'unidad'):'unidad';
+  var destino=gv('os-destino')||'unidad';
+  if(!esCompra && destino==='inventario')destino='unidad';   // una reparación no entra a existencia
   var cams;
   if(destino==='patio'){ cams=['PATIO']; }
   else if(destino==='inventario'){ cams=['INVENTARIO']; }
@@ -11722,7 +11732,7 @@ async function _osEmitirOrden(){
     // Lo que no se reconoce YA NO se descarta en silencio: se avisa antes de emitir la orden.
     if(_r.malos.length && !confirm('No reconozco: '+_r.malos.join(', ')+'\n\n'+(cams.length?('La orden saldría solo para: '+cams.map(_lblUnidad).join(', ')):'No quedaría ninguna unidad.')+'\n\n¿Emitir igual?')) return;
   }
-  if(!cams.length){alert(esCompra?'Escribe para cuáles unidades es la compra (ej: 1,2,3), o elegí Destino: Patio o Inventario.':'Escribe al menos una unidad válida (solo números, ej: 1,2,3).');return;}
+  if(!cams.length){alert(esCompra?'Escribe para cuáles unidades es la compra (ej: 1,2,3), o elegí Destino: Patio o Inventario.':'Escribe al menos una unidad válida (ej: 1,2,3) — o si el trabajo no es sobre un vehículo, elegí Destino: 🏭 Patio / uso general.');return;}
   var provSel=gv('os-prov'), provNom='', provId='';
   if(provSel==='__otro'){
     // ANTES: el nombre escrito a mano se guardaba SIN proveedor_id → la orden quedaba huérfana y
@@ -11840,7 +11850,11 @@ function _osImprimirOrden(o){
   var _falta=_osFirmaFalta(o);
   if(_falta){ alert('⛔ No se puede imprimir todavía.\n\n'+_falta); return; }
   if(o.tipoOrden==='compra'){ return _osImprimirCompra(o); }
-  var filas=(o.cams||[]).map(function(cam,i){
+  // ⛔ Una orden de servicio SIN unidad (Patio) no lleva tabla de km: con cam='PATIO' salía
+  // placa "—", VIN "—", KM 0 y "Próx. Servicio 5.000" — un papel afirmando un próximo
+  // servicio que no existe. Se imprime el DESTINO, como en la orden de compra.
+  var _sinUnidad=(o.cams||[]).length===1&&(o.cams[0]==='PATIO'||o.cams[0]==='INVENTARIO');
+  var filas=_sinUnidad?'':(o.cams||[]).map(function(cam,i){
     var fl=FLOTA[cam]||{}, ui=(typeof unidadInfo==='function')?unidadInfo(cam):{};
     return '<tr style="background:'+(i%2===0?'#fff':'#f5f9ff')+'">'+
       '<td class="bv"><b>'+_mEsc(cam)+'</b></td>'+
@@ -11863,9 +11877,15 @@ function _osImprimirOrden(o){
   // cuatro veces en la misma hoja —cabecera, título, esta línea— y "Inversiones Betangar C.A."
   // tres. El papel se lee peor cuando repite lo mismo que cuando le falta algo.
   var info='<div style="margin-bottom:10px;font-size:12px"><b>Proveedor / taller:</b> '+_mEsc(o.proveedor||'—')+'</div>';
-  var body=banner+info+
-    '<table><thead><tr><th>Unidad</th><th>Placa</th><th>VIN</th><th style="text-align:right">KM Actual</th><th style="text-align:right">Próx. Servicio</th><th>Chofer</th></tr></thead><tbody>'+filas+'</tbody></table>'+
-    '<p style="margin-top:12px;font-size:11px;color:#374151">Unidades a ingresar a mantenimiento: <b>'+(o.cams||[]).length+'</b> ('+(o.cams||[]).map(function(c){return String(c).replace("JAC-B","");}).join(", ")+'). Intervalo de servicio: '+((cfg.km||5000).toLocaleString())+' km.</p>'+
+  var _tabla=_sinUnidad
+    ? '<table><tbody><tr><td style="font-weight:700;width:38%">Destino</td><td><b>'+
+      _mEsc((o.cams||[])[0]==='INVENTARIO'?'📦 Inventario (existencia)':'🏭 Patio / uso general')+
+      '</b></td></tr></tbody></table>'+
+      '<p style="margin-top:12px;font-size:11px;color:#374151">Este trabajo <b>no es sobre un vehículo</b>: '+
+      'no lleva kilometraje ni próximo servicio. El costo se registra como gasto de uso general.</p>'
+    : '<table><thead><tr><th>Unidad</th><th>Placa</th><th>VIN</th><th style="text-align:right">KM Actual</th><th style="text-align:right">Próx. Servicio</th><th>Chofer</th></tr></thead><tbody>'+filas+'</tbody></table>'+
+      '<p style="margin-top:12px;font-size:11px;color:#374151">Unidades a ingresar a mantenimiento: <b>'+(o.cams||[]).length+'</b> ('+(o.cams||[]).map(function(c){return String(c).replace("JAC-B","");}).join(", ")+'). Intervalo de servicio: '+((cfg.km||5000).toLocaleString())+' km.</p>';
+  var body=banner+info+_tabla+
     (o.notas?('<p style="margin-top:6px;font-size:11px;color:#374151"><b>Notas:</b> '+_mEsc(o.notas)+'</p>'):'') + _osPieFirma(o) + _osPieVerificacion(o);
   abrirImpresionPremium('Orden de Servicio',(_OS_TIPO_LBL[o.tipo]||o.tipo)+' · '+formatFecha(o.fecha),'',body,{lbl:'Orden de servicio N°',ref:o.id});
 }
@@ -11945,7 +11965,11 @@ function renderOrdenesServicio(){
       var esCompra=(o.tipoOrden==='compra');
       var destino=(o.cams||[]).map(function(c){return c==='PATIO'?'🏭 Patio':(c==='INVENTARIO'?'📦 Inventario':_unidadCorta(c));}).join(', ');
       var tipoCel=esCompra?'<span class="badge" style="background:#fff7ed;color:#7a3b00">🛒 Compra</span>':_mEsc(_OS_TIPO_LBL[o.tipo]||o.tipo);
-      var cerrar=esCompra?'_iniciarCierreCompra':'_iniciarCierreOrden';
+      // ⛔ Se enruta por DESTINO, no por tipo: una orden (de compra O de servicio) que no va a una
+      // unidad cierra por el camino que sabe aterrizar un gasto sin unidad. La Hoja de Vida pide
+      // unidad y km, y con cam='PATIO' no calza ninguna opción: la orden no cerraría nunca.
+      var _sinUnidad=(o.cams||[]).length===1&&(o.cams[0]==='PATIO'||o.cams[0]==='INVENTARIO');
+      var cerrar=(esCompra||_sinUnidad)?'_iniciarCierreCompra':'_iniciarCierreOrden';
       return '<tr>'+
         '<td class="mono" style="font-size:10px">'+_mEsc(o.id)+'</td>'+
         '<td>'+formatFecha(o.fecha)+'</td>'+
@@ -12046,7 +12070,11 @@ function _iniciarCierreCompra(id){
   var esPatio=(o.cams||[]).length===1&&o.cams[0]==='PATIO';
   var esInv=(o.cams||[]).length===1&&o.cams[0]==='INVENTARIO';
   var destino=esInv?'📦 Inventario (existencia)':(esPatio?'🏭 Patio / uso general':(o.cams||[]).map(function(c){return _unidadCorta(c);}).join(', '));
-  var enc=g('cc-encab'); if(enc)enc.innerHTML='<b>'+_mEsc(o.id)+'</b> · '+_mEsc(o.item||'compra')+' · destino sugerido: '+_mEsc(destino);
+  // Una orden de SERVICIO tambien cierra por aqui cuando no va a una unidad (Patio): el titulo y
+  // el encabezado tienen que decir qué se está cerrando, no «compra» siempre.
+  var _esServ=(o.tipoOrden!=='compra');
+  var _tit=g('cc-titulo'); if(_tit)_tit.textContent=_esServ?'🔧 Cerrar orden de servicio':'🛒 Cerrar orden de compra';
+  var enc=g('cc-encab'); if(enc)enc.innerHTML='<b>'+_mEsc(o.id)+'</b> · '+_mEsc(o.item||(_esServ?'trabajo':'compra'))+' · destino sugerido: '+_mEsc(destino);
   _ccPoblarProv(); _ccPoblarInv();
   if(o.proveedorId)sv('cc-prov',o.proveedorId); _ccProvOtro();
   sv('cc-item',o.item||''); sv('cc-cant','1'); sv('cc-costo',''); sv('cc-garantia',''); sv('cc-pago','contado');
@@ -12183,7 +12211,7 @@ function _ccItemCatalogo(nombre){
 }
 async function _ccAgregarLinea(){
   var ordenId=window._ccOrden, o=(ORDENES_SERV||[]).find(function(x){return x.id===ordenId;}); if(!o){alert('Orden no encontrada');return;}
-  var nombre=(gv('cc-item')||'').trim(); if(!nombre){alert('Escribe qué se compró');return;}
+  var nombre=(gv('cc-item')||'').trim(); if(!nombre){alert(o.tipoOrden==='compra'?'Escribe qué se compró':'Escribe qué trabajo se hizo');return;}
   // parseFloat, NO parseInt: hay materiales por METRO/LITRO/KG (22.40 mts de manguera se
   // guardaba como 22 y se perdían 40 cm en cada carga). Se redondea a 2 decimales.
   var cant=parseFloat(String(gv('cc-cant')||'').replace(',','.'))||1; if(cant<=0)cant=1;
@@ -12229,8 +12257,13 @@ async function _ccAgregarLinea(){
       if(km>0){ if(!KM_DATA[cam])KM_DATA[cam]={km:0,f:'',ultsrv:0,mant:[],lavado:'',engrase:''}; if(km>=(parseInt(KM_DATA[cam].km)||0)){KM_DATA[cam].km=km;KM_DATA[cam].f=fecha;} }
     } else if(destino==='patio'){
       var centro=gv('cc-centro')||'otros', idP='MT'+Date.now();
-      var row2={id:idP,cam:'PATIO',f:fecha,km:0,horas:0,item_id:'',tipo:nombre,tipo_trabajo:'compra',desc_trabajo:nombre+(cant>1?(' x'+cant):''),costo_usd:costo,proveedor:provNom,proveedor_id:provId||null,foto_url:fotoUrl,anomalia:false,motivo:'',orden_id:ordenId,garantia_hasta:garHasta,centro_costo:centro,origen:'',ejecutor:'externo'};
-      var mem2={id:idP,cam:'PATIO',fecha:fecha,km:0,horas:0,itemId:'',tipo:nombre,tipoTrabajo:'compra',desc:row2.desc_trabajo,costo:costo,proveedor:provNom,foto:fotoUrl,anomalia:false,motivo:'',ordenId:ordenId,garantiaHasta:garHasta,centroCosto:centro,origen:''};
+      // ⛔ El tipo de gasto se DERIVA de la orden. Estaba fijo en 'compra', y desde que una orden
+      // de SERVICIO puede cerrar en el patio (28/10/2026) eso contaba una REPARACIÓN como compra
+      // en «Por tipo de gasto». Una orden de compra sigue siendo compra.
+      var _ttPatio=(o.tipoOrden==='compra')?'compra'
+        :({lavado:'lavado',cambio:'cambio',inspeccion:'inspeccion',correctivo:'correctivo',preventivo:'preventivo'}[o.tipo]||'correctivo');
+      var row2={id:idP,cam:'PATIO',f:fecha,km:0,horas:0,item_id:'',tipo:nombre,tipo_trabajo:_ttPatio,desc_trabajo:nombre+(cant>1?(' x'+cant):''),costo_usd:costo,proveedor:provNom,proveedor_id:provId||null,foto_url:fotoUrl,anomalia:false,motivo:'',orden_id:ordenId,garantia_hasta:garHasta,centro_costo:centro,origen:'',ejecutor:'externo'};
+      var mem2={id:idP,cam:'PATIO',fecha:fecha,km:0,horas:0,itemId:'',tipo:nombre,tipoTrabajo:_ttPatio,desc:row2.desc_trabajo,costo:costo,proveedor:provNom,foto:fotoUrl,anomalia:false,motivo:'',ordenId:ordenId,garantiaHasta:garHasta,centroCosto:centro,origen:''};
       await _ccInsertMant(row2,mem2);
     } else { // inventario
       var invSel=gv('cc-invitem'), item=null;

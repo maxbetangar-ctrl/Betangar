@@ -1048,7 +1048,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
       <div class="card">
         <div class="sh"><div class="st">📋 Emitir orden</div></div>
         <div style="font-size:11px;color:var(--text3);margin-bottom:8px" id="os-ayuda">Para mandar unidades a cualquier trabajo (lavado, mantenimiento, arreglo). Se guarda y queda <b>Emitida</b>; el km/costo se llenan al <b>cerrarla</b> (registrar que se hizo).</div>
-        <div class="fr2"><div class="fg"><label>Tipo de orden</label><select class="fc" id="os-tipoorden" onchange="_osTipoOrden()"><option value="servicio">🔧 Servicio / Reparación</option><option value="compra">🛒 Compra (repuestos, insumos, lo que sea)</option></select></div><div class="fg" id="os-patio-wrap" style="display:none"><label>Destino de la compra</label><select class="fc" id="os-destino" onchange="_osTipoOrden()"><option value="unidad">🚛 Para unidad(es)</option><option value="patio">🏭 Patio / uso general</option><option value="inventario">📦 Inventario (existencia / consumible)</option></select></div></div>
+        <div class="fr2"><div class="fg"><label>Tipo de orden</label><select class="fc" id="os-tipoorden" onchange="_osTipoOrden()"><option value="servicio">🔧 Servicio / Reparación</option><option value="compra">🛒 Compra (repuestos, insumos, lo que sea)</option></select></div><div class="fg" id="os-patio-wrap" style="display:none"><label>Destino</label><select class="fc" id="os-destino" onchange="_osTipoOrden()"><option value="unidad">🚛 Para unidad(es)</option><option value="patio">🏭 Patio / uso general</option><option value="inventario" id="os-destino-inv">📦 Inventario (existencia / consumible)</option></select></div></div>
         <div class="fr2"><div class="fg"><label id="os-cams-lbl">Unidades (ej: 1,2,3)</label><div style="display:flex;gap:6px;align-items:center"><input class="fc" id="os-cams" placeholder="1,2,3 · id · placa" oninput="_osCamsHint()" style="flex:1"><button class="btn btn-s btn-sm" type="button" onclick="abrirSelectorUnidadesOS()" title="Buscar y elegir las unidades de una lista">🔎 Elegir</button></div><div id="os-cams-hint" style="font-size:10px;margin-top:3px;min-height:12px"></div></div><div class="fg" id="os-tipo-wrap"><label>Tipo de servicio</label><select class="fc" id="os-tipo"><option value="lavado">🧽 Lavado / limpieza</option><option value="cambio">🔧 Cambio / sustitución</option><option value="inspeccion">🔎 Inspección / revisión</option><option value="correctivo">🛠 Correctivo</option><option value="preventivo">📅 Preventivo</option><option value="otro">Otro</option></select></div></div>
         <div class="fr2"><div class="fg"><label id="os-prov-lbl">Proveedor / taller</label><select class="fc" id="os-prov" onchange="_osProvOtro()"><option value="">— elegir —</option></select></div><div class="fg"><label>Fecha</label><input class="fc" id="os-fecha" type="date"></div></div>
         <div class="fg" id="os-prov-otro-wrap" style="display:none"><label>Nombre del proveedor (nuevo)</label><input class="fc" id="os-prov-otro" placeholder="Escribe el taller/proveedor"></div>
@@ -3157,7 +3157,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
      Excel sale con el defecto ya corregido. Pasó midiendo este mismo cambio el
      23/09: dos corridas dieron un .xlsx idéntico byte por byte. -->
 <script src="maxware-excel.js?v=20260923-2252"></script>
-<script src="app.js?v=20261028-1237"></script>
+<script src="app.js?v=20261028-1456"></script>
 
 <!-- Modal global -->
 <div id="modal" class="moverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9990;align-items:center;justify-content:center;padding:16px">
@@ -3635,7 +3635,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
 <div id="modal-cierre-compra" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.7);z-index:999;overflow-y:auto">
   <div style="max-width:660px;margin:24px auto;background:var(--bg2);border-radius:16px;padding:22px">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
-      <div style="font-weight:700;font-size:16px">🛒 Cerrar orden de compra</div>
+      <div style="font-weight:700;font-size:16px" id="cc-titulo">🛒 Cerrar orden de compra</div>
       <button onclick="_ccCerrarModal()" style="background:none;border:none;color:var(--text3);font-size:20px;cursor:pointer">✕</button>
     </div>
     <div id="cc-encab" style="font-size:12px;color:var(--text3);margin-bottom:10px"></div>
