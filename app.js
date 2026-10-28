@@ -24396,10 +24396,31 @@ async function exportExcelCompleto(){
   var wb=_xlNuevo();
   if(REGS.length)_xlAgregar(wb,(REGS.map(function(r){return{Planilla:r.p,Fecha:r.f,Mes:r.mes,Camion:r.cam,Chofer:r.ch,Ruta:r.r,Parroquia:r.par,Diurnos:r.d,Nocturnos:r.n,Total:r.t,Semana:r.sem,'Monto $':r.m};})),'Planillas');
   if(ABONOS.length)_xlAgregar(wb,(ABONOS),'Abonos');
-  if(EMPLEADOS.length)_xlAgregar(wb,(EMPLEADOS.map(function(e){return{ID:e.id,Nombre:e.nombre,Cargo:e.cargo,Unidad:e.unidad,Cedula:e.cedula,Banco:e.banco,Cuenta:e.ncuenta};})),'Empleados');
+  // ⛔ EL PADRÓN DE PERSONAL NO SALE PARA CUALQUIERA. Este botón vive en la barra SUPERIOR
+  // (app.html:305): se ve en TODAS las pantallas y no miraba rol ninguno, así que un
+  // `visualizador` o un `directivo` —que ni siquiera tienen Empleados en el menú— se bajaba
+  // nombre, cédula, banco y número de cuenta de las 88 personas de la nómina (69 cuentas
+  // bancarias reales). Reportado por Alejandra el 12/10/2026 (SOP-20261012-XXIG).
+  //   · Sin el permiso del módulo, la hoja Empleados NO VA.
+  //   · En DEMO la hoja va SIN cédula/banco/cuenta: los tres roles demo_* SÍ tienen 'empleados',
+  //     así que el candado de permiso solo no los tapa — y un demo se muestra afuera.
+  var _perms=(typeof misPermisos==='function')?misPermisos():[];
+  var _veEmpleados=_perms.indexOf('empleados')>=0||_perms.indexOf('nomina')>=0;
+  var _demo=(typeof DEMO_MODE!=='undefined'&&DEMO_MODE);
+  var _hojaEmp='';
+  if(EMPLEADOS.length&&_veEmpleados){
+    _hojaEmp=_demo?'empleados (sin datos bancarios, por ser demo)':'empleados CON cédula/banco/cuenta';
+    _xlAgregar(wb,(EMPLEADOS.map(function(e){
+      var o={ID:e.id,Nombre:e.nombre,Cargo:e.cargo,Unidad:e.unidad};
+      if(!_demo){ o.Cedula=e.cedula; o.Banco=e.banco; o.Cuenta=e.ncuenta; }
+      return o;
+    })),'Empleados');
+  }
   if(GASTOS_VARIABLES.length)_xlAgregar(wb,(GASTOS_VARIABLES),'GastosVariables');
   await _xlGuardar(wb,brandArchivo()+'_Completo_'+formatFecha(new Date()).replace(/\//g,'-')+'.xlsx');
-  audit('Excel completo exportado','');
+  // La auditoría dice QUÉ se llevó. Antes anotaba 'Excel completo exportado' a secas, así que
+  // no había forma de saber si en esa descarga salieron o no las cuentas bancarias.
+  audit('Excel completo exportado',(_hojaEmp||'sin la hoja de empleados')+' · rol: '+((typeof SESION!=='undefined'&&SESION&&SESION.rol)||'?'));
 }
 
 // ═══════════════════════════════════════════════════
