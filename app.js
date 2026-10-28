@@ -4984,7 +4984,7 @@ function descartarFallidos(){
 }
 // Clave de conflicto por tabla con UNIQUE → la cola debe reintentar como UPSERT, no INSERT plano
 // (si no, una planilla/abono/contrato hecho offline choca con su UNIQUE y cae al dead-letter).
-var _COLA_ONCONFLICT={planillas:'p',abonos:'fact',contratos:'id',prestamos:'id',multas:'id',empleados:'id',pagos_alcaldia:'id',gastos_variables:'id',gastos_fijos:'id',bnc_movimientos:'id',tipos_unidad:'id',unidades:'id',operaciones:'id',nomina_extras:'id',llantas:'id',inv_movimientos:'id',salidas_tanque:'id',rutas_estado:'fecha,parroquia',km_data:'cam'};
+var _COLA_ONCONFLICT={planillas:'p',abonos:'fact',contratos:'id',prestamos:'id',multas:'id',empleados:'id',pagos_alcaldia:'id',gastos_variables:'id',gastos_fijos:'id',bnc_movimientos:'id',tipos_unidad:'id',unidades:'id',operaciones:'id',nomina_extras:'id',llantas:'id',inv_movimientos:'id',salidas_tanque:'id',rutas_estado:'fecha,parroquia',km_data:'cam',unidad_config:'cam'};
 function guardarEnCola(t,d,oc){
   COLA_OFFLINE.push({t:t,d:d,_try:0,oc:oc||_COLA_ONCONFLICT[t]||null});
   guardarColaLS();
@@ -11460,12 +11460,26 @@ function _lblUnidad(cam){
 // el selector y el guardado de la orden: los tres no pueden discrepar.
 function _osCamsParse(txt){
   var s=(txt!=null?txt:((typeof gv==='function'?gv('os-cams'):'')||''));
-  var toks=String(s).split(/[,;\s]+/).map(function(t){return t.trim();}).filter(Boolean);
+  // ⛔ Se parte por COMA/PUNTO Y COMA, y cada trozo se prueba ENTERO antes de partirlo por
+  // espacios. Antes se partía por /[,;\s]+/ y un identificador con espacios era IRRECUPERABLE:
+  // "Llantas de repuesto" se volvía tres tokens y la orden acusaba "no existen: Llantas, de,
+  // repuesto" aunque la unidad estuviera bien dada de alta. Peor: el selector con checks escribe
+  // el campo con `join(', ')`, así que ni eligiéndola de la lista servía — lo que el selector
+  // escribía, el parser no lo sabía leer. (SOP-20261026-BEQI, Alejandra, 26/10/2026)
+  // Se mantiene el atajo de tirar "1 3 7" de corrido: el espacio sigue separando, pero SÓLO
+  // cuando el trozo completo no resuelve.
   var cams=[], malos=[];
-  toks.forEach(function(t){
-    var c=_resolverUnidad(t);
-    if(!c){ if(malos.indexOf(t)<0)malos.push(t); return; }
-    if(cams.indexOf(c)<0)cams.push(c);
+  var _push=function(c){ if(cams.indexOf(c)<0)cams.push(c); };
+  var _malo=function(t){ if(malos.indexOf(t)<0)malos.push(t); };
+  String(s).split(/[,;]+/).map(function(t){return t.trim();}).filter(Boolean).forEach(function(trozo){
+    var c=_resolverUnidad(trozo);
+    if(c){ _push(c); return; }                                  // caso 1: el trozo ES una unidad
+    var toks=trozo.split(/\s+/).filter(Boolean);
+    if(toks.length<2){ _malo(trozo); return; }
+    var r=toks.map(function(t){ return {t:t, u:_resolverUnidad(t)}; });
+    // Si NINGUN token casa, el trozo era UNO solo que no existe: se acusa entero y no en pedazos.
+    if(!r.some(function(x){return x.u;})){ _malo(trozo); return; }
+    r.forEach(function(x){ if(x.u)_push(x.u); else _malo(x.t); });
   });
   return {cams:cams, malos:malos};
 }
@@ -14885,13 +14899,41 @@ async function guardarUnidad(){
   var reg={cam:cam,nombre:(gv('u-nombre')||'').trim(),marca:(gv('u-marca')||'').trim(),modelo:(gv('u-modelo')||'').trim(),anio:(gv('u-anio')||'').trim(),placa:(gv('u-placa')||'').trim().toUpperCase(),vin:(gv('u-vin')||'').trim().toUpperCase(),serial_motor:(gv('u-smotor')||'').trim(),serial_carroceria:(gv('u-scarr')||'').trim(),tipo:(gv('u-tipo')||'').trim(),combustible:gv('u-comb')||'',uso:gv('u-uso')||'',medida:gv('u-medida')||'',horas_actuales:parseFloat(gv('u-horas'))||0,baterias:(gv('u-baterias')===''?null:parseInt(gv('u-baterias'))),titular:(gv('u-titular')||'').trim(),chofer:(gv('u-chofer')||'').trim(),notas:(gv('u-notas')||'').trim(),activo:!(g('u-activo')&&!g('u-activo').checked),foto:window._unidadFoto||'',titulo_pdf:window._unidadPdf||''};
   var ok=false;
   if(DB_READY&&supabase){ try{ var res=await supabase.from('unidad_config').upsert([reg],{onConflict:'cam'}); if(res&&res.error){mostrarToast('No se pudo guardar: '+res.error.message,'error');} else ok=true; }catch(e){mostrarToast('Sin conexión al guardar la unidad.','error');} }
+  // ⛔ Si la base NO confirmo, la ficha se ENCOLA y se DICE. Antes se escribía igual en memoria
+  // y la auditoría anotaba "Unidad guardada": la unidad se veía en la lista hasta recargar, la
+  // auditoría afirmaba un alta que nunca ocurrió, y en la base no había nada. Alejandra dio de
+  // alta "Llantas de repuesto" DOS VECES (23/10 15:20 y 26/10 16:36) porque la pantalla le decía
+  // que sí. `unidad_config` era la ÚNICA tabla del alta sin cola, teniéndola ~20 tablas.
+  // (SOP-20261026-BEQI) — pieza que ya existía: guardarEnCola().
+  var _enCola=false, _pesados=[];
+  if(!ok){
+    var _regCola=Object.assign({},reg);
+    ['foto','titulo_pdf'].forEach(function(k){
+      // Un data: URL (hasta 4MB el PDF) en la cola revienta el localStorage — y guardarColaLS()
+      // se come el error en silencio, así que se perdería TODA la cola, no solo esta ficha.
+      if(/^data:/.test(String(_regCola[k]||''))){ _pesados.push(k==='foto'?'la foto':'el título (PDF)'); _regCola[k]=''; }
+    });
+    if(typeof guardarEnCola==='function'){ guardarEnCola('unidad_config',_regCola,'cam'); _enCola=true; }
+  }
+  if(!ok && !_enCola){
+    // No se guardó y no se pudo encolar: no se toca la memoria ni se cierra la ficha, y se avisa
+    // con un alert (no un toast) porque el dato esta por perderse.
+    audit('Unidad NO guardada (la base no confirmó y no se pudo encolar)',cam+(reg.placa?(' · '+reg.placa):''));
+    alert('⛔ '+cam+' NO se guardó.\n\nNo se pudo confirmar contra la base ni dejar en cola. '+
+          'No cierres esta ficha sin anotar los datos aparte.');
+    return;
+  }
   // memoria (fuente única) — SIN los blobs foto/pdf.
   UNIDAD_CONFIG[cam]={tipo:reg.tipo,combustible:reg.combustible,uso:reg.uso,medida:reg.medida,horasActuales:reg.horas_actuales,baterias:reg.baterias,nombre:reg.nombre,marca:reg.marca,modelo:reg.modelo,anio:reg.anio,placa:reg.placa,vin:reg.vin,serialMotor:reg.serial_motor,serialCarroceria:reg.serial_carroceria,titular:reg.titular,chofer:reg.chofer,activo:reg.activo,notas:reg.notas};
   window._unidadFoto='';window._unidadPdf='';
-  audit('Unidad guardada',cam+(reg.placa?(' · '+reg.placa):''));
+  audit(ok?'Unidad guardada':'Unidad EN COLA, sin confirmar en la base',cam+(reg.placa?(' · '+reg.placa):''));
   if(typeof closeModal==='function')closeModal();
   renderUnidades();
-  if(typeof mostrarToast==='function')mostrarToast(ok?'✅ Unidad guardada':'⚠️ No se confirmó el guardado (revisá conexión)',ok?'exito':'error');
+  if(ok){ if(typeof mostrarToast==='function')mostrarToast('✅ Unidad guardada','exito'); }
+  else { alert('📴 '+cam+' quedó EN COLA, sin confirmar.\n\nEstá guardada en este equipo y se sube '+
+               'sola cuando haya conexión. NO la cargues de nuevo.'+
+               (_pesados.length?('\n\n⚠️ '+_pesados.join(' y ')+' no viaja(n) en la cola: cargá(los) de nuevo '+
+                'cuando la unidad ya esté arriba.'):'')); }
   // Login por unidad (clientes nuevos, chofer_login ON): si se puso clave, provisionar el acceso.
   if(ok && BTG_CONFIG.chofer_login){
     var _clave=(gv('u-clave')||'').trim();
