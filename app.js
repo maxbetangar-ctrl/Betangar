@@ -21354,7 +21354,7 @@ function emailArteCumple(){
 // ═══════════════════════════════════════════════════
 // FINANCIERO
 // ═══════════════════════════════════════════════════
-function switchFinTab(t){['dash','ingresos','gastos','vars','nompago','banco'].forEach(function(x){var el=g('tab-fin-'+x);var sw=g('sw-fin-'+x);if(el)el.style.display=x===t?'block':'none';if(sw){sw.classList.remove('on');if(x===t)sw.classList.add('on');}});if(t==='dash')renderFinDash();if(t==='ingresos'){renderAlcResumen();renderPagosAlcTabla();autoLlenarTasasEnFormularios();calcPagoAlc();}if(t==='gastos')renderGastosFijos();if(t==='vars')renderGastosVariables();if(t==='banco')renderBancoFin();}
+function switchFinTab(t){['dash','ingresos','gastos','vars','nompago','banco','socios'].forEach(function(x){var el=g('tab-fin-'+x);var sw=g('sw-fin-'+x);if(el)el.style.display=x===t?'block':'none';if(sw){sw.classList.remove('on');if(x===t)sw.classList.add('on');}});if(t==='dash')renderFinDash();if(t==='ingresos'){renderAlcResumen();renderPagosAlcTabla();autoLlenarTasasEnFormularios();calcPagoAlc();}if(t==='gastos')renderGastosFijos();if(t==='vars')renderGastosVariables();if(t==='banco')renderBancoFin();if(t==='socios')renderResumenSocios();}
 
 // ── EL PERÍODO DEL RESUMEN FINANCIERO ────────────────────────────────────────────────────────
 // ⛔ ESTE SELECTOR NO HACÍA NADA. Estaba en la pantalla desde siempre —«Esta Semana / Este Mes /
@@ -34235,3 +34235,227 @@ async function cuaUsar(cam, cual){
   }
   renderCuadrillas();
 }
+
+// ══════════════════════════════════════════════════════════════════════════════════════════════
+// RESUMEN A SOCIOS — la pantalla. Máximo, 28/10/2026: «¿cómo sé que va a llegarme semanal? ¿o
+// debería haber un sitio en la app donde yo pueda imprimirlo por fechas?». Las dos cosas:
+//
+//   1. IMPRIMIR POR FECHAS. Dos fechas y el mismo PDF que sale los lunes, de cualquier período.
+//   2. SABER QUE ESTÁ SALIENDO. La tabla de abajo es el registro de envíos: cuándo salió, qué
+//      período cubrió y a cuántos les llegó. Es la ÚNICA prueba de que el informe salió, y por
+//      eso nadie la puede escribir desde acá (RLS sin policy de insert).
+//
+// ⛔ LOS NÚMEROS NO SE CALCULAN ACÁ. Son los mismos de `btg_resumen_socios()`, la misma función
+//    que imprime el PDF y que lee la corrida de los lunes. Recalcularlos en JavaScript sería una
+//    segunda definición de «gasto» que se desincroniza de la primera sin que nadie se entere.
+//    [[norma-fuente-unica-datos]]
+//
+// ⛔ DESDE ACÁ NO SE MANDA NADA. La función contesta 403 si se le pide el envío con una sesión:
+//    un botón que le manda el informe a cuatro personas no puede quedar a un clic. El envío lo
+//    hace el cron de los lunes y nadie más.
+// ══════════════════════════════════════════════════════════════════════════════════════════════
+
+// La ventana que el informe cubriría HOY, preguntada a la base. No se deduce en pantalla: la
+// regla de dónde arranca el ciclo vive en `btg_ciclo_alcaldia()` y es una sola.
+async function rsCicloActual(){
+  _rsEstado('Buscando el ciclo abierto...');
+  try{
+    var r=await supabase.rpc('btg_ciclo_alcaldia');
+    if(r.error) throw r.error;
+    var c=Array.isArray(r.data)?r.data[0]:r.data;
+    if(!c){ _rsEstado('No se pudo leer el ciclo.','mal'); return; }
+    g('rs-desde').value=String(c.desde).slice(0,10);
+    g('rs-hasta').value=String(c.hasta).slice(0,10);
+    _rsEstado(c.arranque==='sin_pago'
+      ? 'Ciclo abierto: la Alcaldia no ha vuelto a pagar, van '+c.dias+' dias.'
+      : 'Ciclo abierto desde el pago de la Alcaldia: '+c.dias+' dias, '+c.cobros+' cobro(s).');
+    await rsVer();
+  }catch(e){ _rsEstado('No se pudo leer el ciclo: '+(e.message||e),'mal'); }
+}
+
+function _rsEstado(txt,clase){
+  var el=g('rs-estado'); if(!el) return;
+  el.textContent=txt||'';
+  el.style.color = clase==='mal' ? 'var(--red)' : 'var(--text2)';
+}
+// ⛔ Las dos fechas se LEEN y se validan antes de pedir nada. Un rango al revés devolvería un
+//    informe vacío, y un informe vacío se lee como «esa semana no se movió plata».
+function _rsRango(){
+  var d=gv('rs-desde'), h=gv('rs-hasta');
+  if(!d||!h){ _rsEstado('Elegi las dos fechas.','mal'); return null; }
+  if(d>h){ _rsEstado('La fecha "desde" es posterior a la de "hasta".','mal'); return null; }
+  return {d:d,h:h};
+}
+
+// Los números en pantalla, para mirar sin abrir el PDF.
+async function rsVer(){
+  var q=_rsRango(); if(!q) return;
+  var cont=g('rs-numeros'); if(cont) cont.innerHTML='<div class="card" style="font-size:11px;color:var(--text2)">Calculando...</div>';
+  try{
+    var r=await supabase.rpc('btg_resumen_socios',{p_desde:q.d,p_hasta:q.h});
+    if(r.error) throw r.error;
+    _rsPintar(r.data);
+    _rsEstado('Del '+_rsDdmm(q.d)+' al '+_rsDdmm(q.h)+'.');
+  }catch(e){
+    // ⛔ El error se MUESTRA. Una pantalla que falla en silencio y queda vacía afirma que no hay
+    //    movimientos, que es exactamente lo contrario de lo que pasó.
+    if(cont) cont.innerHTML='<div class="card" style="font-size:11px;color:var(--red)">No se pudieron traer los numeros: '+
+      _rsEsc(e.message||String(e))+'</div>';
+    _rsEstado('Fallo el calculo.','mal');
+  }
+}
+
+var _rsEsc=function(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){
+  return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); };
+var _rsDdmm=function(s){ var p=String(s).slice(0,10).split('-'); return p.length===3?p[2]+'/'+p[1]+'/'+p[0]:s; };
+var _rsN=function(v,d){ return Number(v||0).toLocaleString('es-VE',{minimumFractionDigits:d==null?2:d,maximumFractionDigits:d==null?2:d}); };
+var _rsUsd=function(v){ return 'US$ '+_rsN(v); };
+var _rsBs=function(v){ return 'Bs '+_rsN(v); };
+var RS_NOMBRE={nomina:'Nomina',combustible:'Combustible (gasoil)',mantenimiento:'Mantenimiento y repuestos',
+  impuestos:'Impuestos',seguro:'Seguro',servicios:'Servicios',alquiler:'Alquiler',resp_social:'Responsabilidad social 3%',
+  asignacion_1b:'Asignacion 1B',pago_socio:'Pago a socio',software:'Software',comision_banco:'Comisiones del banco',
+  otro:'Otros gastos',sin_clasificar:'SIN CLASIFICAR todavia'};
+
+function _rsPintar(r){
+  var cont=g('rs-numeros'); if(!cont||!r) return;
+  var fila=function(etq,der,op){ op=op||{};
+    return '<div style="display:flex;justify-content:space-between;gap:12px;padding:3px 0;'+
+      (op.bold?'font-weight:700;':'')+(op.color?'color:'+op.color+';':'')+'">'+
+      '<span>'+_rsEsc(etq)+'</span><span style="font-family:var(--m);white-space:nowrap">'+_rsEsc(der)+'</span></div>'; };
+  var h='';
+
+  h+='<div class="card" style="margin-bottom:10px;font-size:11px">';
+  h+='<div class="st" style="margin-bottom:6px;font-size:11px">ENTRO</div>';
+  var alc=r.entro&&r.entro.alcaldia||[];
+  if(alc.length){ alc.forEach(function(c){
+    h+=fila('Alcaldia - factura '+c.factura+' ('+(c.pata==='fiel'?'fiel 10%':c.pata)+'), '+_rsDdmm(c.fecha),
+            _rsBs(c.bs)+'   '+_rsUsd(c.usd)); }); }
+  else h+=fila('La Alcaldia no pago en este periodo','—',{color:'var(--red)'});
+  (r.entro&&r.entro.otros||[]).forEach(function(o){
+    h+=fila(o.categoria+' - '+String(o.texto||'').slice(0,40)+', '+_rsDdmm(o.fecha), _rsBs(o.bs)+'   '+_rsUsd(o.usd)); });
+  h+=fila('TOTAL QUE ENTRO',_rsUsd(r.entro&&r.entro.total_usd),{bold:true,color:'var(--green)'});
+  h+='</div>';
+
+  h+='<div class="card" style="margin-bottom:10px;font-size:11px">';
+  h+='<div class="st" style="margin-bottom:6px;font-size:11px">SALIO - GASTO DE LA OPERACION</div>';
+  ((r.salio_gasto&&r.salio_gasto.por_categoria)||[]).forEach(function(c){
+    h+=fila((RS_NOMBRE[c.categoria]||c.categoria)+' ('+c.n+')', _rsBs(c.bs)+'   '+_rsUsd(c.usd),
+            {color:c.categoria==='sin_clasificar'?'var(--red)':null}); });
+  h+=fila('TOTAL GASTO',_rsUsd(r.salio_gasto&&r.salio_gasto.total_usd),{bold:true,color:'var(--red)'});
+  h+='</div>';
+
+  // ⛔ El bloque que NO es gasto va en su propia tarjeta y nunca se suma con el de arriba.
+  //    [[norma-salida-de-banco-no-es-gasto]]
+  h+='<div class="card" style="margin-bottom:10px;font-size:11px">';
+  h+='<div class="st" style="margin-bottom:6px;font-size:11px">SALIO DEL BANCO, PERO NO ES GASTO</div>';
+  var cam=(r.salio_no_gasto&&r.salio_no_gasto.camiones)||[];
+  cam.forEach(function(c){ h+=fila('Abono a la deuda de los camiones, '+_rsDdmm(c.fecha)+' (a '+_rsN(c.tasa,2)+')',
+    _rsBs(c.bs)+'   '+_rsUsd(c.usd)); });
+  ((r.salio_no_gasto&&r.salio_no_gasto.divisas_sin_destino)||[]).forEach(function(d){
+    h+=fila('Dolares comprados sin destino declarado, '+_rsDdmm(d.fecha), _rsBs(d.bs)+'   '+_rsUsd(d.usd),{color:'var(--red)'}); });
+  if(!cam.length && !((r.salio_no_gasto&&r.salio_no_gasto.divisas_sin_destino)||[]).length) h+=fila('Nada en este periodo','—');
+  h+=fila('TOTAL QUE SALIO SIN SER GASTO',_rsUsd(r.salio_no_gasto&&r.salio_no_gasto.total_usd),{bold:true});
+  h+='<div style="margin-top:6px;color:var(--text2);font-size:10px">No empobrece a la empresa: baja la deuda de los camiones, que es patrimonio. Solo los intereses de la cuota son gasto.</div>';
+  h+='</div>';
+
+  var saldo=Number(r.saldo_usd||0);
+  h+='<div class="card" style="margin-bottom:10px;font-size:11px">';
+  h+=fila('DIFERENCIA DEL CICLO',_rsUsd(saldo),{bold:true,color:saldo>=0?'var(--green)':'var(--red)'});
+  h+='<div style="margin-top:4px;color:var(--text2);font-size:10px">No es la utilidad del mes: hay gastos ya debidos que no salieron del banco y trabajo ejecutado sin facturar.</div>';
+  h+='</div>';
+
+  h+='<div class="card" style="margin-bottom:10px;font-size:11px">';
+  h+='<div class="st" style="margin-bottom:6px;font-size:11px">A QUIEN SE LE PAGO</div>';
+  var prov=r.proveedores||[];
+  if(!prov.length) h+=fila('No hubo pagos a proveedores','—');
+  prov.forEach(function(x){
+    h+=fila((x.identificado?x.nombre:'Sin identificar - p. ej. '+String(x.muestra||'').slice(0,34))+' ('+x.n+')',
+            _rsBs(x.bs)+'   '+_rsUsd(x.usd),{color:x.identificado?null:'var(--text2)'}); });
+  h+='</div>';
+
+  var av=r.avisos||{}, atr=(av.fiel_sin_entrar||[]).filter(function(f){ return !f.en_plazo; });
+  if(atr.length || (av.sin_clasificar&&av.sin_clasificar.n>0)){
+    h+='<div class="card" style="font-size:11px">';
+    h+='<div class="st" style="margin-bottom:6px;font-size:11px">LO QUE HAY QUE MIRAR</div>';
+    if(atr.length){
+      h+=fila('Fiel cumplimiento 10% que la Alcaldia no devolvio ('+atr.length+' facturas)',
+              _rsBs(av.fiel_atrasada_bs),{bold:true,color:'var(--red)'});
+      atr.forEach(function(f){ h+=fila('   factura '+f.factura+', cobrada el '+_rsDdmm(f.desde)+' - '+f.dias+' dias',
+              _rsBs(f.fiel_estimada_bs)+' aprox.',{color:'var(--text2)'}); });
+    }
+    if(av.sin_clasificar&&av.sin_clasificar.n>0)
+      h+=fila('Movimientos que salieron sin clasificar ('+av.sin_clasificar.n+')',
+              _rsBs(av.sin_clasificar.bs)+'   '+_rsUsd(av.sin_clasificar.usd),{color:'var(--red)'});
+    h+='</div>';
+  }
+  cont.innerHTML=h;
+}
+
+// El PDF: el MISMO que sale los lunes, pedido a la misma función. No se arma otro en el
+// navegador — dos documentos distintos con el mismo nombre es la receta para que alguien
+// discuta una cifra contra un papel que nadie puede reproducir.
+async function rsPdf(){
+  var q=_rsRango(); if(!q) return;
+  var btn=g('rs-btn-pdf'); if(btn) btn.disabled=true;
+  _rsEstado('Armando el PDF...');
+  try{
+    if(!_SESSION_JWT) throw new Error('no hay sesion abierta');
+    var r=await fetch(SUPA_URL+'/functions/v1/resumen-socios?pdf=1&desde='+encodeURIComponent(q.d)+'&hasta='+encodeURIComponent(q.h),
+      {method:'POST',headers:{apikey:SUPA_KEY,Authorization:'Bearer '+_SESSION_JWT}});
+    if(!r.ok) throw new Error('HTTP '+r.status+' '+(await r.text()).slice(0,160));
+    var blob=await r.blob();
+    var url=URL.createObjectURL(blob);
+    var w=window.open(url,'_blank');
+    if(!w){
+      // El navegador bloqueó la ventana. ⛔ No se deja en silencio: se ofrece el enlace, porque
+      // si no la pantalla parece que no hizo nada.
+      _rsEstado('El navegador bloqueo la ventana. Permiti las ventanas emergentes y proba de nuevo.','mal');
+    } else {
+      _rsEstado('PDF abierto en otra pestana. Desde ahi se imprime o se guarda.');
+    }
+    // Se libera un rato después: revocarlo ya mismo deja la pestaña nueva sin nada que mostrar.
+    setTimeout(function(){ try{URL.revokeObjectURL(url);}catch(e){} },60000);
+  }catch(e){
+    _rsEstado('No se pudo armar el PDF: '+(e.message||e),'mal');
+  }finally{ if(btn) btn.disabled=false; }
+}
+
+// ── El registro de envíos: la prueba de que está saliendo ───────────────────────────────────
+// ⛔ ESTO CONTESTA «¿CÓMO SÉ QUE ME VA A LLEGAR?». Sin esta tabla la única forma de saberlo es
+//    acordarse de si llegó el lunes pasado, y nadie se acuerda. Acá consta cada envío con su
+//    período y a cuántos salió. Si la última es de hace más de 8 días, lo dice EN ROJO: un
+//    informe que dejó de salir se ve exactamente igual que una semana tranquila.
+async function rsCorridas(){
+  var cont=g('rs-corridas'); if(!cont) return;
+  try{
+    var r=await supabase.from('btg_resumen_socios_corridas')
+      .select('desde,hasta,enviado_at,destinos').order('enviado_at',{ascending:false}).limit(12);
+    if(r.error) throw r.error;
+    var filas=r.data||[];
+    var h='<div class="card" style="font-size:11px">';
+    h+='<div class="st" style="margin-bottom:6px;font-size:11px">ENVIOS A LOS SOCIOS</div>';
+    h+='<div style="color:var(--text2);font-size:10px;margin-bottom:8px">Sale solo los lunes a las 9:00. Aca consta cada envio: si falta el de esta semana, no llego.</div>';
+    if(!filas.length){
+      h+='<div style="color:var(--text2)">Todavia no salio ninguno. El primero sale el proximo lunes.</div>';
+    }else{
+      var ult=new Date(filas[0].enviado_at);
+      var dias=Math.floor((Date.now()-ult.getTime())/86400000);
+      if(dias>8) h+='<div style="color:var(--red);font-weight:700;margin-bottom:6px">El ultimo salio hace '+dias+' dias. Deberia salir cada lunes.</div>';
+      h+='<table style="width:100%;border-collapse:collapse"><tr style="text-align:left;color:var(--text2)">'+
+         '<th>Salio</th><th>Periodo</th><th>A cuantos</th></tr>';
+      filas.forEach(function(f){
+        var n=(f.destinos||[]).length;
+        h+='<tr><td>'+_rsEsc(_rsDdmm(f.enviado_at))+'</td><td>'+_rsEsc(_rsDdmm(f.desde)+' al '+_rsDdmm(f.hasta))+
+           '</td><td>'+n+'</td></tr>';
+      });
+      h+='</table>';
+    }
+    h+='</div>';
+    cont.innerHTML=h;
+  }catch(e){
+    cont.innerHTML='<div class="card" style="font-size:11px;color:var(--red)">No se pudo leer el registro de envios: '+
+      _rsEsc(e.message||String(e))+'</div>';
+  }
+}
+
+function renderResumenSocios(){ rsCorridas(); if(!gv('rs-desde')) rsCicloActual(); }

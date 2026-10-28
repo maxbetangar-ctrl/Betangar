@@ -37,6 +37,9 @@
 // 📌 EL PDF NO LLEVA EMOJI. La fuente estándar de un PDF (Helvetica, WinAnsi) no los tiene: un
 //    emoji no sale mal, hace FALLAR la escritura entera. Los acentos y la ñ sí entran.
 //
+// Dos puertas: la LLAVE (`x-api-key`, el cron) puede todo; la SESIÓN de una persona que puede
+// ver el financiero solo puede MIRAR e IMPRIMIR — nunca disparar el envío a los socios.
+//
 // Uso:  POST /resumen-socios            → calcula, arma el PDF, lo manda y registra la corrida
 //       POST /resumen-socios?dry=1      → devuelve los números y el texto, sin mandar ni registrar
 //       POST /resumen-socios?pdf=1      → devuelve el PDF en crudo, para mirarlo antes de soltarlo
@@ -57,7 +60,7 @@ const HORA_HASTA = 20;
 const ROLES = ["socios", "admin", "banco"];
 
 const json = (o: unknown, s = 200) =>
-  new Response(JSON.stringify(o), { status: s, headers: { "Content-Type": "application/json" } });
+  new Response(JSON.stringify(o), { status: s, headers: { "Content-Type": "application/json", ...CORS } });
 
 // ⛔ EL MISMO CANDADO QUE `divisas-banco` Y `bnc-traer`. Se despliega sin verificación de JWT
 // (así la llama el cron) y su respuesta trae el estado de cuenta entero: sin esto, cualquiera con
@@ -71,6 +74,44 @@ function autorizado(req: Request): boolean {
   for (let i = 0; i < k.length; i++) d |= k.charCodeAt(i) ^ FN_SECRET.charCodeAt(i);
   return d === 0;
 }
+
+// ── La otra puerta: la PANTALLA ─────────────────────────────────────────────────────────────
+// Máximo (28/10/2026): «¿debería haber un sitio en la app donde yo pueda imprimirlo por fechas?».
+// Sí — y para eso el navegador tiene que poder llamar acá. Pero el navegador NO puede tener el
+// secreto del cron: está en el HTML, lo lee cualquiera.
+//
+// ⛔ QUIÉN DECIDE ES LA BASE, NO ESTA FUNCIÓN. Se le pregunta a Postgres con el token de la
+//    persona: si `btg_ve_financiero()` dice que sí, pasa. Así el permiso vive en UN solo sitio y
+//    no hay una segunda lista de roles acá que se desincronice del día que cambie la de allá.
+//    [[norma-dos-listas-a-mano-se-desincronizan]]
+//
+// ⛔ Y CON SESIÓN SOLO SE MIRA, NUNCA SE MANDA. El envío a los socios lo dispara el cron y nadie
+//    más: un botón que le manda el informe a cuatro personas no puede quedar a un clic de
+//    distancia en una pantalla. Por eso esta puerta solo abre `?pdf=1` y `?dry=1`.
+async function puedeVerDesdeLaApp(req: Request): Promise<boolean> {
+  const auth = req.headers.get("Authorization") || "";
+  if (!auth.toLowerCase().startsWith("bearer ")) return false;
+  const token = auth.slice(7).trim();
+  // ⛔ El token de servicio NO entra por acá: si alguien lo pegara en el navegador, esta puerta
+  //    no es la que tiene que dejarlo pasar. La de la llave es la otra.
+  if (!token || token === SERVICE_KEY) return false;
+  try {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/btg_ve_financiero`, {
+      method: "POST",
+      headers: { apikey: Deno.env.get("SUPABASE_ANON_KEY") || "", Authorization: `Bearer ${token}`,
+                 "Content-Type": "application/json" },
+      body: "{}",
+    });
+    if (!r.ok) return false;
+    return (await r.json()) === true;
+  } catch (e) { console.error("puedeVerDesdeLaApp", String(e)); return false; }
+}
+
+const CORS: Record<string, string> = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-api-key",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+};
 
 async function sel(path: string): Promise<any[]> {
   const r = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, { headers: HDR });
@@ -386,11 +427,21 @@ async function armarPdf(r: any, ciclo: any, empresa: string, membrete: any): Pro
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 Deno.serve(async (req) => {
-  if (!autorizado(req)) return json({ error: "No autorizado" }, 401);
+  if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
+
+  const u = new URL(req.url);
+  const dry = u.searchParams.get("dry") === "1";
+  const soloPdf = u.searchParams.get("pdf") === "1";
+
+  // Dos puertas. La LLAVE (el cron) puede todo; la SESIÓN solo puede mirar e imprimir.
+  const conLlave = autorizado(req);
+  const conSesion = conLlave ? false : await puedeVerDesdeLaApp(req);
+  if (!conLlave && !conSesion) return json({ error: "No autorizado" }, 401);
+  if (conSesion && !soloPdf && !dry) {
+    return json({ error: "Desde la app el informe se mira y se imprime; el envío a los socios lo hace la corrida de los lunes." }, 403);
+  }
+
   try {
-    const u = new URL(req.url);
-    const dry = u.searchParams.get("dry") === "1";
-    const soloPdf = u.searchParams.get("pdf") === "1";
 
     // ── La ventana ───────────────────────────────────────────────────────────────────────────
     let desde = u.searchParams.get("desde");
@@ -447,7 +498,7 @@ Deno.serve(async (req) => {
 
     if (soloPdf) {
       return new Response(pdf, { headers: { "Content-Type": "application/pdf",
-        "Content-Disposition": `inline; filename="${nombre}"` } });
+        "Content-Disposition": `inline; filename="${nombre}"`, ...CORS } });
     }
 
     // El pie del documento. Corto a propósito: el detalle está en el PDF, y un pie largo tapa el

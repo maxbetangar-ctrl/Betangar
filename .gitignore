@@ -21,3 +21,5 @@ pruebas/datos/combustible-real.json
 # Datos reales volcados para revisar una pantalla (incluye sesiones): NUNCA al repo.
 # Betangar es un repo PUBLICO.
 scripts/_datos-reales/
+# Las fotos de la revisión en navegador se regeneran al correr la prueba; no van al repo.
+test/_pantalla-*.png

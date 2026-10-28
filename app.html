@@ -2558,6 +2558,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
     <div class="sw" id="sw-fin-vars" onclick="switchFinTab('vars')">Gastos Variables</div>
     <div class="sw" id="sw-fin-nompago" onclick="switchFinTab('nompago')">Nomina Pago</div>
     <div class="sw" id="sw-fin-banco" onclick="switchFinTab('banco')">Cuentas</div>
+    <div class="sw" id="sw-fin-socios" onclick="switchFinTab('socios')">Resumen a Socios</div>
   </div>
   <div id="tab-fin-dash"><div style="display:flex;gap:8px;margin-bottom:10px"><select class="fc" id="fin-periodo" onchange="renderFinDash()" style="max-width:160px;padding:6px 8px;font-size:11px"><option value="todo" selected>Todo</option><option value="mes">Este Mes</option><option value="semana">Una semana</option></select><select class="fc" id="fin-sem-sel" style="max-width:190px;padding:6px 8px;font-size:11px;display:none" onchange="renderFinDash()" title="Semanas reales del mes en curso, lunes a domingo"></select><button class="btn btn-s btn-sm" onclick="imprimirReporteFinanciero()">Imprimir</button><button class="btn btn-s btn-sm" onclick="emailReporteFinanciero()">✉ Correo</button></div><div id="ct-panel" style="margin-bottom:12px"></div><div id="fin-dash-content"></div></div>
   <div id="tab-fin-ingresos" style="display:none">
@@ -2589,6 +2590,23 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
       <div class="card"><div class="st" style="margin-bottom:10px">Pago Nomina Semanal</div><div class="fr2"><div class="fg"><label>Semana</label><select class="fc" id="np-sem"><option>Semana 1</option><option>Semana 2</option><option>Semana 3</option><option>Semana 4</option><option>Semana 5</option></select></div><div class="fg"><label>Mes</label><select class="fc" id="np-mes"><option value="ene-26">Enero 2026</option><option value="feb-26">Febrero 2026</option><option value="mar-26">Marzo 2026</option><option value="abr-26">Abril 2026</option><option value="may-26">Mayo 2026</option><option value="jun-26">Junio 2026</option><option value="jul-26">Julio 2026</option><option value="ago-26">Agosto 2026</option><option value="sep-26">Septiembre 2026</option><option value="oct-26">Octubre 2026</option><option value="nov-26">Noviembre 2026</option><option value="dic-26">Diciembre 2026</option></select></div></div><div class="fr2"><div class="fg"><label>Fecha de pago</label><input class="fc" id="np-fecha" type="date"></div><div class="fg"><label>Tasa BCV $</label><input class="fc" id="np-tasa" type="number" style="font-family:var(--m)" oninput="calcularNomina()"></div></div><button class="btn btn-s btn-sm" style="width:100%;margin-bottom:8px" onclick="calcularNomina()">Calcular</button><div id="np-lista"></div><div class="fr2" style="margin-top:8px"><div class="fg"><label>N. Referencia</label><input class="fc" id="np-ref" style="font-family:var(--m)"></div><div class="fg"><label>Total Bs</label><input class="fc" id="np-total-bs" readonly style="font-family:var(--m);color:var(--green);font-weight:700"></div></div><div style="display:flex;gap:8px;margin-top:8px"><button class="btn btn-g" style="flex:1" onclick="registrarPagoNom()">Confirmar Pago</button><button class="btn btn-b" style="flex:1" onclick="montarNominaBNC()">🏦 Montar BNC</button></div></div>
       <div class="card"><div class="st" style="margin-bottom:8px">Historial</div><div id="np-historial"></div></div>
     </div>
+  </div>
+  <div id="tab-fin-socios" style="display:none">
+    <div class="card" style="margin-bottom:12px">
+      <div class="st" style="margin-bottom:8px;font-size:11px">Resumen del ciclo &mdash; imprimir por fechas</div>
+      <div class="fr2">
+        <div class="fg"><label>Desde</label><input class="fc" id="rs-desde" type="date"></div>
+        <div class="fg"><label>Hasta</label><input class="fc" id="rs-hasta" type="date"></div>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <button class="btn btn-s btn-sm" onclick="rsCicloActual()">Ciclo actual</button>
+        <button class="btn btn-g btn-sm" onclick="rsVer()">Ver numeros</button>
+        <button class="btn btn-sm" onclick="rsPdf()" id="rs-btn-pdf">Abrir PDF</button>
+        <span id="rs-estado" style="font-size:11px;color:var(--text2)"></span>
+      </div>
+    </div>
+    <div id="rs-numeros" style="margin-bottom:12px"></div>
+    <div id="rs-corridas"></div>
   </div>
   <div id="tab-fin-banco" style="display:none">
     <div class="g2">
@@ -3157,7 +3175,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
      Excel sale con el defecto ya corregido. Pasó midiendo este mismo cambio el
      23/09: dos corridas dieron un .xlsx idéntico byte por byte. -->
 <script src="maxware-excel.js?v=20260923-2252"></script>
-<script src="app.js?v=20261028-1456"></script>
+<script src="app.js?v=20261028-socios"></script>
 
 <!-- Modal global -->
 <div id="modal" class="moverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9990;align-items:center;justify-content:center;padding:16px">
