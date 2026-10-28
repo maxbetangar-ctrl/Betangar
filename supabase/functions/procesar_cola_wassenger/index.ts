@@ -288,6 +288,14 @@ Deno.serve(async (req) => {
 
       const body: any = { phone, message: conEtiqueta(m.mensaje) };
       if (cfg.device) body.device = cfg.device;
+      // ⛔ EL ADJUNTO VA POR ID, NO POR BYTES (28/10/2026). Wassenger no recibe el archivo en
+      //    este POST: quien encola ya lo subió a /v1/files y acá solo se lo nombra. Si la fila
+      //    trae `media_file`, el `message` deja de ser el mensaje y pasa a ser el PIE del
+      //    documento — que es como lo muestra WhatsApp.
+      //    📌 El candado de redacción de arriba se aplica IGUAL: el pie es texto que lee una
+      //    persona, así que una frase que insinúe que la escribió una máquina frena el envío
+      //    aunque lo que viaje sea un PDF. [[norma-nada-que-insinue-ia-al-cliente]]
+      if (m.media_file) body.media = { file: m.media_file };
       const r = await fetch('https://api.wassenger.com/v1/messages', {
         method: 'POST', headers: { 'Content-Type': 'application/json', 'Token': cfg.token }, body: JSON.stringify(body),
       });
