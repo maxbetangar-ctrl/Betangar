@@ -123,7 +123,10 @@ for (const caso of CASOS) {
   await p.evaluate(([resumen, ciclo, corridas]) => {
     window.DB_READY = true
     window.supabase = {
-      rpc: (fn) => Promise.resolve({ data: fn === 'btg_ciclo_alcaldia' ? ciclo : resumen, error: null }),
+      rpc: (fn) => Promise.resolve({
+        data: fn === 'btg_ciclo_alcaldia' ? ciclo
+            : fn === 'btg_resumen_socios_cuando' ? 'miércoles a las 09:00'
+            : resumen, error: null }),
       from: () => ({ select: () => ({ order: () => ({ limit: () => Promise.resolve({ data: corridas, error: null }) }) }) }),
     }
   }, [caso.resumen, CICLO, caso.corridas])
@@ -155,6 +158,7 @@ for (const caso of CASOS) {
   const debe = caso.nombre === 'sin-pago'
     ? ['La Alcaldia no pago en este periodo', 'TOTAL GASTO', 'DIFERENCIA DEL CICLO', 'No hubo pagos a proveedores']
     : ['ENTRO', 'TOTAL GASTO', 'NO ES GASTO', 'DIFERENCIA DEL CICLO', 'A QUIEN SE LE PAGO']
+  debe.push('Sale solo los miércoles a las 09:00')   // leído del cron, no escrito en la pantalla
   if (caso.nombre === 'envio-atrasado') debe.push('El ultimo salio hace')
   if (caso.nombre === 'sin-envios') debe.push('Todavia no salio ninguno')
 

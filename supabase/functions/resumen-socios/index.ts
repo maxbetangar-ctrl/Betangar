@@ -11,7 +11,7 @@
 //    IMPRIME y ENTREGA. Si mañana el informe se quiere además en pantalla o por la puerta de
 //    WhatsApp, lee la misma función y dice exactamente lo mismo. [[norma-fuente-unica-datos]]
 //
-// ⛔ EL PERÍODO LO MARCA EL PAGO, NO EL LUNES. `btg_ciclo_alcaldia()` da la ventana: arranca en
+// ⛔ EL PERÍODO LO MARCA EL PAGO, NO EL DÍA DE ENVÍO. `btg_ciclo_alcaldia()` da la ventana: arranca en
 //    el cobro de la Alcaldía más viejo que todavía no se informó. Si la Alcaldía no pagó esta
 //    semana, el informe SALE IGUAL y lo dice — un canal de entrega caído se ve exactamente igual
 //    que «no había nada que contar», y por eso el silencio nunca es una opción.
@@ -27,9 +27,10 @@
 //    [[norma-informe-mensual-va-al-dueno]] [[norma-no-nombrar-al-dueno-en-tercera-persona]]
 //    ⛔ Y nada acá puede sonar a que lo redactó una máquina. [[norma-nada-que-insinue-ia-al-cliente]]
 //
-// ⛔ LA FIRMA MANUSCRITA SOLO SE DIBUJA SI ESTÁ CARGADA. Mientras `informe_membrete.firma_png_b64`
-//    esté vacía queda la línea con el nombre y el cargo, que es un bloque de firma válido. No se
-//    inventa una firma en un documento financiero. [[norma-documento-no-afirma-lo-que-nadie-declaro]]
+// ⛔ LA FIRMA DE PUÑO NO ENTRA ACÁ. Es un instrumento que autentica, vive en
+//    `_PRIVADO-NO-SUBIR-NUBE` y no sale de la PC de Máximo — y esto corre en la nube.
+//    [[norma-la-firma-no-es-un-logo]] El PDF cierra con el bloque de firma (línea, nombre, cargo);
+//    el papel firmado de puño lo arma `maxware-tools/firmar-resumen.py` en la PC.
 //
 // 📌 EL LOGO Y EL FIRMANTE SALEN DE `configuracion.informe_membrete`, no del código: cambiarlos
 //    no puede exigir un despliegue.
@@ -124,6 +125,19 @@ async function rpc(fn: string, args: Record<string, unknown> = {}): Promise<any>
   });
   if (!r.ok) { console.error("rpc", fn, r.status, await r.text()); return null; }
   return await r.json();
+}
+
+// Encolar es ESCRIBIR EN `cola_mensajes`, nunca llamar al proveedor: así el mensaje hereda los
+// candados que ya viven en el worker —el `wid`, el teléfono canónico, los reintentos, la franja
+// horaria y el candado de redacción—. [[norma-el-destino-de-un-mensaje-es-el-wid]]
+async function enqueue(filas: any[]): Promise<boolean> {
+  if (!filas.length) return true;
+  const r = await fetch(`${SUPABASE_URL}/rest/v1/cola_mensajes`, {
+    method: "POST", headers: { ...HDR, "Content-Type": "application/json", Prefer: "return=minimal" },
+    body: JSON.stringify(filas),
+  });
+  if (!r.ok) console.error("enqueue", r.status, await r.text());
+  return r.ok;
 }
 
 const ahoraVE = () => new Date(Date.now() - 4 * 3600 * 1000);
@@ -393,17 +407,18 @@ async function armarPdf(r: any, ciclo: any, empresa: string, membrete: any): Pro
   txt("Quedo a la orden,", M, 9.5, normal, TINTA);
   y -= 46;
 
-  // La firma MANUSCRITA, si está cargada en `configuracion.informe_membrete`. Mientras no esté,
-  // queda la línea con el nombre y el cargo debajo, que es un bloque de firma válido.
-  // ⛔ NO SE DIBUJA NINGUNA FIRMA QUE NO HAYA DECLARADO SU DUEÑO. Una firma inventada en un
-  //    documento financiero no es un detalle de diseño. [[norma-documento-no-afirma-lo-que-nadie-declaro]]
-  if (membrete?.firma_png_b64) {
-    try {
-      const img = await doc.embedPng(Uint8Array.from(atob(membrete.firma_png_b64), (c) => c.charCodeAt(0)));
-      const anchoF = Math.min(160, (img.width / img.height) * 42);
-      pag.drawImage(img, { x: M, y: y + 6, width: anchoF, height: (img.height / img.width) * anchoF });
-    } catch (e) { console.error("firma", String(e)); }
-  }
+  // ⛔ ACÁ NO VA, NI VA A IR, LA FIRMA DE PUÑO. Decisión de Máximo, 28/10/2026, sobre su propia
+  //    norma [[norma-la-firma-no-es-un-logo]]: la firma es un INSTRUMENTO QUE AUTENTICA, vive en
+  //    `_PRIVADO-NO-SUBIR-NUBE` y **no sale de su PC**. Esta función corre en la nube.
+  //
+  //    Y el sitio obvio donde alguien la pondría —`configuracion.informe_membrete`— es el PEOR:
+  //    la policy `cfg_sel` deja leer TODA clave que no esté en `cfg_clave_secreta()`, y esa lista
+  //    es solo wassenger/gemini/resend. O sea que ahí la firma quedaría al alcance de CUALQUIER
+  //    empleado con login — un chofer incluido. (Medido el 28/10/2026.)
+  //
+  //    Lo que sale de acá es el bloque de firma: línea, nombre, cargo y empresa, que es un cierre
+  //    válido. El papel firmado de puño se arma en la PC con `maxware-tools/firmar-resumen.py`,
+  //    que lee la carpeta privada y estampa este mismo PDF sin que la imagen viaje a ningún lado.
   pag.drawLine({ start: { x: M, y }, end: { x: M + 210, y }, thickness: 0.8, color: TINTA });
   y -= 13;
   txt(membrete?.firmante || "", M, 10, negrita, TINTA); y -= 12;
@@ -425,6 +440,89 @@ async function armarPdf(r: any, ciclo: any, empresa: string, membrete: any): Pro
   return await doc.save();
 }
 
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+// EL ACUSE: qué pasó con el envío de esta semana
+//
+// ⛔ NO DICE «LE LLEGÓ». Dice lo que el sistema SABE. Que el proveedor acepte un mensaje no es
+//    una entrega: sin acuses desde el 29/09/2026, `processed` se ve igual que `entregado`, y un
+//    chat que no existe acepta el mensaje y lo evapora. Afirmar entrega acá sería exactamente la
+//    clase de aserción que acusa al producto cuando falla.
+//    [[norma-el-destino-de-un-mensaje-es-el-wid]] [[norma-una-asercion-mal-escrita-acusa-al-producto]]
+//
+// ⛔ Y SE MANDA AUNQUE TODO HAYA SALIDO BIEN. Un acuse que solo aparece cuando algo falla es
+//    indistinguible de un acuse roto. [[norma-el-silencio-no-es-una-respuesta]]
+async function avisarComoSalio(): Promise<Response> {
+  // La corrida más nueva que todavía no avisó. Si no hay ninguna, el envío NO se hizo —y eso es
+  // justamente lo que hay que decir, en vez de callarse.
+  const pend = await sel("btg_resumen_socios_corridas?acuse_at=is.null&order=enviado_at.desc&limit=1" +
+    "&select=id,desde,hasta,destinos,cola_ids,enviado_at");
+  const c = pend[0];
+
+  const cfgWA = await sel("configuracion?clave=eq.whatsapp&select=valor");
+  let wa: any[] = [];
+  try { wa = JSON.parse(cfgWA[0]?.valor || "[]"); } catch { wa = []; }
+  const quien = (tel: string) => {
+    const t = String(tel).replace(/[\s\-+]/g, "");
+    const f = (Array.isArray(wa) ? wa : []).find((x: any) => String(x.num || "").replace(/[\s\-+]/g, "") === t);
+    // Si la ficha no tiene nombre, los últimos 4 dígitos alcanzan para reconocer a la persona
+    // sin escribir el número entero.
+    return (f?.nombre || "").trim() || "…" + t.slice(-4);
+  };
+  const dueno = (Array.isArray(wa) ? wa : [])
+    .filter((x: any) => x.num && x.activo && x.rol === "socios")
+    .map((x: any) => String(x.num).replace(/[\s\-+]/g, ""));
+  const destinoAviso = dueno.length ? [dueno[0]] : ["584147379886"];
+
+  if (!c) {
+    const msg = "⚠️ *El resumen de esta semana no salió*\n\n" +
+      "No quedó registrada ninguna corrida nueva. Puede ser que el trabajo programado no " +
+      "disparara, o que se cortara antes de encolar. Nadie lo recibió.";
+    await enqueue(destinoAviso.map((n) => ({ telefono: n, mensaje: msg, tipo: "resumen_acuse", estado: "pendiente" })));
+    return json({ ok: true, acuse: true, corrida: null, aviso: "no hubo corrida" });
+  }
+
+  const ids: number[] = Array.isArray(c.cola_ids) ? c.cola_ids : [];
+  const filas = ids.length
+    ? await sel(`cola_mensajes?id=in.(${ids.join(",")})&select=id,telefono,estado,error`)
+    : [];
+
+  const salio = filas.filter((f: any) => f.estado === "enviado");
+  const fallo = filas.filter((f: any) => f.estado !== "enviado");
+
+  let msg = `📄 *Resumen del ${ddmm(String(c.desde))} al ${ddmm(String(c.hasta))}*\n\n`;
+  if (!filas.length) {
+    // Las filas existieron al encolar y ahora no están: el worker las caducó (12 h) o las borró
+    // alguien. No se inventa un estado.
+    msg += "⚠️ No se pudo leer qué pasó con los envíos de esta corrida.\n" +
+           `Salió para ${(c.destinos || []).length} destinatario(s), pero la cola ya no tiene esas filas.`;
+  } else {
+    msg += `✅ *Salió para ${salio.length} de ${filas.length}:*\n`;
+    for (const f of salio) msg += `   • ${quien(f.telefono)}\n`;
+    if (fallo.length) {
+      msg += `\n⛔ *No salió para ${fallo.length}:*\n`;
+      for (const f of fallo) {
+        msg += `   • ${quien(f.telefono)} — ${f.estado}` +
+               (f.error ? `: ${String(f.error).slice(0, 110)}` : "") + "\n";
+      }
+    }
+    // La línea incómoda, y va siempre. Sin ella este aviso se leería como un acuse de entrega.
+    msg += `\n📌 «Salió» quiere decir que el mensaje se entregó al canal de WhatsApp. ` +
+           `No hay confirmación de lectura, así que no se puede afirmar que lo hayan abierto.`;
+  }
+
+  await enqueue(destinoAviso.map((n) => ({ telefono: n, mensaje: msg, tipo: "resumen_acuse", estado: "pendiente" })));
+
+  // ⛔ Marcar DESPUÉS de encolar, nunca antes: si se marcara primero y el encolado fallara, la
+  //    corrida quedaría dada por avisada y el aviso se perdería sin dejar rastro.
+  await fetch(`${SUPABASE_URL}/rest/v1/btg_resumen_socios_corridas?id=eq.${c.id}`, {
+    method: "PATCH", headers: { ...HDR, "Content-Type": "application/json", Prefer: "return=minimal" },
+    body: JSON.stringify({ acuse_at: new Date().toISOString() }),
+  });
+
+  return json({ ok: true, acuse: true, corrida: c.id, salieron: salio.length, fallaron: fallo.length, mensaje: msg });
+}
+
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
@@ -432,16 +530,28 @@ Deno.serve(async (req) => {
   const u = new URL(req.url);
   const dry = u.searchParams.get("dry") === "1";
   const soloPdf = u.searchParams.get("pdf") === "1";
+  const acuse = u.searchParams.get("acuse") === "1";
 
   // Dos puertas. La LLAVE (el cron) puede todo; la SESIÓN solo puede mirar e imprimir.
   const conLlave = autorizado(req);
   const conSesion = conLlave ? false : await puedeVerDesdeLaApp(req);
   if (!conLlave && !conSesion) return json({ error: "No autorizado" }, 401);
   if (conSesion && !soloPdf && !dry) {
-    return json({ error: "Desde la app el informe se mira y se imprime; el envío a los socios lo hace la corrida de los lunes." }, 403);
+    return json({ error: "Desde la app el informe se mira y se imprime; el envío a los socios lo hace la corrida programada." }, 403);
   }
 
   try {
+    // ── MODO ACUSE ───────────────────────────────────────────────────────────────────────────
+    // Máximo (28/10/2026): «también me lo envías a mí para saber que sí les llegó a ellos». Él ya
+    // es destinatario, así que lo que falta no es otra copia: es saber qué pasó con las de los
+    // demás. Corre 45 minutos después del envío, cuando el worker de la cola (cada 3 min) ya
+    // intentó las cuatro filas y dejó escrito qué pasó con cada una.
+    //
+    // ⛔ DICE LO QUE SABE, NO LO QUE CONVIENE. Que el proveedor acepte un mensaje NO prueba que
+    //    llegó al teléfono: sin acuses de entrega desde el 29/09, «enviado» es palabra nuestra.
+    //    Por eso el texto dice «salió», nunca «le llegó». [[norma-el-destino-de-un-mensaje-es-el-wid]]
+    if (acuse) return await avisarComoSalio();
+
 
     // ── La ventana ───────────────────────────────────────────────────────────────────────────
     let desde = u.searchParams.get("desde");
@@ -520,7 +630,7 @@ Deno.serve(async (req) => {
     if (dry) {
       return json({ ok: true, dry: true, hora_ve: h, en_franja: enFranja, ciclo,
         periodo: { desde, hasta }, destinos: nums, faltan, sin_logo: sinLogo,
-        firmante: membrete?.firmante ?? null, firma_escaneada: !!membrete?.firma_png_b64,
+        firmante: membrete?.firmante ?? null,
         pdf_bytes: pdf.length, pie, resumen: r });
     }
     if (faltan.length) return json({ ok: false, error: "faltan herramientas", faltan }, 500);
@@ -549,17 +659,21 @@ Deno.serve(async (req) => {
       telefono: t, mensaje: pie, tipo: "resumen_socios", estado: "pendiente",
       media_file: fid, media_nombre: nombre,
     }));
+    // `return=representation` para quedarnos con los ids: sin ellos, decir después a quién le
+    // salió obligaría a adivinar cruzando por fecha y teléfono.
     const enc = await fetch(`${SUPABASE_URL}/rest/v1/cola_mensajes`, {
-      method: "POST", headers: { ...HDR, "Content-Type": "application/json", Prefer: "return=minimal" },
+      method: "POST", headers: { ...HDR, "Content-Type": "application/json", Prefer: "return=representation" },
       body: JSON.stringify(filas),
     });
     if (!enc.ok) return json({ ok: false, error: `no se pudo encolar (HTTP ${enc.status})`, detalle: (await enc.text()).slice(0, 300) }, 500);
+    let colaIds: number[] = [];
+    try { colaIds = (await enc.json()).map((f: any) => f.id).filter(Boolean); } catch { colaIds = []; }
 
     // Recién acá se registra: con el documento subido y las filas en la cola. Antes de esto, un
     // registro diría que el informe salió cuando no salió, y el próximo empezaría tarde.
     await fetch(`${SUPABASE_URL}/rest/v1/btg_resumen_socios_corridas`, {
       method: "POST", headers: { ...HDR, "Content-Type": "application/json", Prefer: "return=minimal" },
-      body: JSON.stringify({ desde, hasta, destinos: nums, resumen: r }),
+      body: JSON.stringify({ desde, hasta, destinos: nums, resumen: r, cola_ids: colaIds }),
     });
 
     return json({ ok: true, enviado: true, periodo: { desde, hasta }, destinos: nums.length,

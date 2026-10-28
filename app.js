@@ -34261,19 +34261,19 @@ async function cuaUsar(cam, cual){
 // RESUMEN A SOCIOS — la pantalla. Máximo, 28/10/2026: «¿cómo sé que va a llegarme semanal? ¿o
 // debería haber un sitio en la app donde yo pueda imprimirlo por fechas?». Las dos cosas:
 //
-//   1. IMPRIMIR POR FECHAS. Dos fechas y el mismo PDF que sale los lunes, de cualquier período.
+//   1. IMPRIMIR POR FECHAS. Dos fechas y el mismo PDF que sale en la corrida semanal, de cualquier período.
 //   2. SABER QUE ESTÁ SALIENDO. La tabla de abajo es el registro de envíos: cuándo salió, qué
 //      período cubrió y a cuántos les llegó. Es la ÚNICA prueba de que el informe salió, y por
 //      eso nadie la puede escribir desde acá (RLS sin policy de insert).
 //
 // ⛔ LOS NÚMEROS NO SE CALCULAN ACÁ. Son los mismos de `btg_resumen_socios()`, la misma función
-//    que imprime el PDF y que lee la corrida de los lunes. Recalcularlos en JavaScript sería una
+//    que imprime el PDF y que lee la corrida semanal. Recalcularlos en JavaScript sería una
 //    segunda definición de «gasto» que se desincroniza de la primera sin que nadie se entere.
 //    [[norma-fuente-unica-datos]]
 //
 // ⛔ DESDE ACÁ NO SE MANDA NADA. La función contesta 403 si se le pide el envío con una sesión:
 //    un botón que le manda el informe a cuatro personas no puede quedar a un clic. El envío lo
-//    hace el cron de los lunes y nadie más.
+//    hace el cron semanal y nadie más.
 // ══════════════════════════════════════════════════════════════════════════════════════════════
 
 // La ventana que el informe cubriría HOY, preguntada a la base. No se deduce en pantalla: la
@@ -34412,7 +34412,7 @@ function _rsPintar(r){
   cont.innerHTML=h;
 }
 
-// El PDF: el MISMO que sale los lunes, pedido a la misma función. No se arma otro en el
+// El PDF: el MISMO que sale en la corrida semanal, pedido a la misma función. No se arma otro en el
 // navegador — dos documentos distintos con el mismo nombre es la receta para que alguien
 // discuta una cifra contra un papel que nadie puede reproducir.
 async function rsPdf(){
@@ -34443,25 +34443,34 @@ async function rsPdf(){
 
 // ── El registro de envíos: la prueba de que está saliendo ───────────────────────────────────
 // ⛔ ESTO CONTESTA «¿CÓMO SÉ QUE ME VA A LLEGAR?». Sin esta tabla la única forma de saberlo es
-//    acordarse de si llegó el lunes pasado, y nadie se acuerda. Acá consta cada envío con su
+//    acordarse de si llegó la semana pasada, y nadie se acuerda. Acá consta cada envío con su
 //    período y a cuántos salió. Si la última es de hace más de 8 días, lo dice EN ROJO: un
 //    informe que dejó de salir se ve exactamente igual que una semana tranquila.
 async function rsCorridas(){
   var cont=g('rs-corridas'); if(!cont) return;
   try{
+    // ⛔ EL DIA NO SE ESCRIBE ACA. Decia «sale los lunes» en texto fijo, y el 28/10 Maximo lo
+    //    paso al miercoles: la pantalla habria seguido afirmando el dia viejo, sin dar error y
+    //    sin que nadie se entere. Ahora sale del trabajo programado DE VERDAD, asi que no puede
+    //    mentir — y si el cron quedara apagado, lo dice. [[norma-dos-listas-a-mano-se-desincronizan]]
+    var cuando='';
+    try{ var rc=await supabase.rpc('btg_resumen_socios_cuando'); if(!rc.error) cuando=rc.data||''; }catch(e){}
     var r=await supabase.from('btg_resumen_socios_corridas')
       .select('desde,hasta,enviado_at,destinos').order('enviado_at',{ascending:false}).limit(12);
     if(r.error) throw r.error;
     var filas=r.data||[];
     var h='<div class="card" style="font-size:11px">';
     h+='<div class="st" style="margin-bottom:6px;font-size:11px">ENVIOS A LOS SOCIOS</div>';
-    h+='<div style="color:var(--text2);font-size:10px;margin-bottom:8px">Sale solo los lunes a las 9:00. Aca consta cada envio: si falta el de esta semana, no llego.</div>';
+    h+='<div style="color:var(--text2);font-size:10px;margin-bottom:8px">'+
+       (cuando ? 'Sale solo los '+_rsEsc(cuando)+' (hora de Venezuela).' : 'No se pudo leer cuando sale.')+
+       ' Aca consta cada envio: si falta el de esta semana, no llego.</div>';
     if(!filas.length){
-      h+='<div style="color:var(--text2)">Todavia no salio ninguno. El primero sale el proximo lunes.</div>';
+      h+='<div style="color:var(--text2)">Todavia no salio ninguno.'+(cuando?' El primero sale el proximo '+_rsEsc(cuando.split(' a las ')[0]).replace(/s$/,''):'')+'.</div>';
     }else{
       var ult=new Date(filas[0].enviado_at);
       var dias=Math.floor((Date.now()-ult.getTime())/86400000);
-      if(dias>8) h+='<div style="color:var(--red);font-weight:700;margin-bottom:6px">El ultimo salio hace '+dias+' dias. Deberia salir cada lunes.</div>';
+      if(dias>8) h+='<div style="color:var(--red);font-weight:700;margin-bottom:6px">El ultimo salio hace '+dias+' dias'+
+        (cuando?', y deberia salir cada semana los '+_rsEsc(cuando.split(' a las ')[0]):'')+'.</div>';
       h+='<table style="width:100%;border-collapse:collapse"><tr style="text-align:left;color:var(--text2)">'+
          '<th>Salio</th><th>Periodo</th><th>A cuantos</th></tr>';
       filas.forEach(function(f){
