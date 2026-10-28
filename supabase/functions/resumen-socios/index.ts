@@ -20,9 +20,19 @@
 //    queda para la corrida siguiente. Marcarla acá perdería el informe en silencio.
 //    [[norma-hora-del-destinatario-antes-de-enviar]]
 //
-// ⛔ EL DOCUMENTO SE DIRIGE A LA JUNTA DE SOCIOS, no a una persona por su nombre. Betangar es de
-//    Máximo y de sus socios, y un papel dirigido por nombre a quien lo firma delata que no lo
-//    escribió él. [[norma-informe-mensual-va-al-dueno]] [[norma-no-nombrar-al-dueno-en-tercera-persona]]
+// ⛔ LO ESCRIBE Y LO FIRMA MÁXIMO. (28/10/2026: «no tiene ni el logo de Betangar ni mi firma, y
+//    que esté llenado como si yo lo hubiese escrito».) Por eso el texto va en PRIMERA PERSONA
+//    —«nos pagó», «pagamos», «nuestra deuda»— y se dirige a sus socios, nunca a nadie por su
+//    nombre. Un texto impersonal debajo de una firma delata que no lo escribió quien firma.
+//    [[norma-informe-mensual-va-al-dueno]] [[norma-no-nombrar-al-dueno-en-tercera-persona]]
+//    ⛔ Y nada acá puede sonar a que lo redactó una máquina. [[norma-nada-que-insinue-ia-al-cliente]]
+//
+// ⛔ LA FIRMA MANUSCRITA SOLO SE DIBUJA SI ESTÁ CARGADA. Mientras `informe_membrete.firma_png_b64`
+//    esté vacía queda la línea con el nombre y el cargo, que es un bloque de firma válido. No se
+//    inventa una firma en un documento financiero. [[norma-documento-no-afirma-lo-que-nadie-declaro]]
+//
+// 📌 EL LOGO Y EL FIRMANTE SALEN DE `configuracion.informe_membrete`, no del código: cambiarlos
+//    no puede exigir un despliegue.
 //
 // 📌 EL PDF NO LLEVA EMOJI. La fuente estándar de un PDF (Helvetica, WinAnsi) no los tiene: un
 //    emoji no sale mal, hace FALLAR la escritura entera. Los acentos y la ñ sí entran.
@@ -97,7 +107,7 @@ const corto = (s: unknown, n: number) => { const t = limpio(s); return t.length 
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // EL PDF
 // ─────────────────────────────────────────────────────────────────────────────────────────────
-async function armarPdf(r: any, ciclo: any, empresa: string): Promise<Uint8Array> {
+async function armarPdf(r: any, ciclo: any, empresa: string, membrete: any): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
   const normal = await doc.embedFont(StandardFonts.Helvetica);
   const negrita = await doc.embedFont(StandardFonts.HelveticaBold);
@@ -164,19 +174,50 @@ async function armarPdf(r: any, ciclo: any, empresa: string): Promise<Uint8Array
   }
 
   // ── Membrete ───────────────────────────────────────────────────────────────────────────────
-  txt(empresa.toUpperCase(), M, 15, negrita); y -= 19;
-  txt("Resumen financiero del ciclo", M, 11, normal, SUAVE); y -= 15;
-  // ⛔ A la Junta de Socios, no a una persona por su nombre.
-  txt("Atención: Junta de Socios", M, 9.5, negrita); y -= 16;
+  // El logo sale de `configuracion.informe_membrete`, no del código: cambiarlo no puede exigir
+  // un despliegue. Si no está o no se puede dibujar, el informe sale IGUAL con el nombre de la
+  // empresa escrito — un papel sin logo se entiende; un informe que no sale, no.
+  let altoLogo = 0;
+  if (membrete?.logo_png_b64) {
+    try {
+      const img = await doc.embedPng(Uint8Array.from(atob(membrete.logo_png_b64), (c) => c.charCodeAt(0)));
+      const anchoLogo = 136;
+      altoLogo = (img.height / img.width) * anchoLogo;
+      pag.drawImage(img, { x: M, y: y - altoLogo, width: anchoLogo, height: altoLogo });
+    } catch (e) { console.error("logo", String(e)); altoLogo = 0; }
+  }
+  if (!altoLogo) { txt(empresa.toUpperCase(), M, 15, negrita); altoLogo = 19; }
 
+  // A la derecha del logo, el título y el período. Alineado a la derecha para que el membrete
+  // quede equilibrado con el logo a la izquierda.
+  const der = (s: string, yy: number, size: number, f: any, color: any) =>
+    pag.drawText(limpio(s), { x: ANCHO - M - f.widthOfTextAtSize(limpio(s), size), y: yy, size, font: f, color });
   const p = r.periodo;
-  const arranque = ciclo?.arranque === "sin_pago"
-    ? `Del ${ddmm(p.desde)} al ${ddmm(p.hasta)} (${p.dias} días). La Alcaldía no volvió a pagar: el ciclo sigue abierto.`
-    : `Del ${ddmm(p.desde)} al ${ddmm(p.hasta)} (${p.dias} días), contados desde el pago de la Alcaldía.`;
-  nota(arranque);
-  y -= 4;
+  der("RESUMEN DEL CICLO", y - 11, 11, negrita, TINTA);
+  der(`${ddmm(p.desde)} al ${ddmm(p.hasta)}  ·  ${p.dias} días`, y - 25, 9, normal, SUAVE);
+  der(`Emitido el ${ddmm(ahoraVE().toISOString())}`, y - 37, 8, normal, SUAVE);
+
+  y -= altoLogo + 14;
   pag.drawLine({ start: { x: M, y }, end: { x: ANCHO - M, y }, thickness: 1.3, color: TINTA });
-  y -= 16;
+  y -= 18;
+
+  // ── La entrada, en primera persona ─────────────────────────────────────────────────────────
+  // ⛔ ESTE INFORME LO FIRMA MÁXIMO Y ESTÁ ESCRITO COMO LO ESCRIBIRÍA ÉL (28/10/2026: «que esté
+  //    llenado como si yo lo hubiese escrito»). Por eso habla en primera persona del plural —
+  //    «nos pagó», «pagamos», «nuestra deuda»— y se dirige a sus socios. Un texto impersonal
+  //    debajo de una firma delata que no lo escribió quien firma.
+  //    ⛔ Y por eso mismo NADA acá puede sonar a que lo redactó una máquina.
+  //    [[norma-nada-que-insinue-ia-al-cliente]] [[norma-no-nombrar-al-dueno-en-tercera-persona]]
+  txt("Para mis socios:", M, 10, negrita); y -= 15;
+  const entrada = (r.entro.alcaldia?.length)
+    ? `Les resumo cómo se movió el dinero desde que la Alcaldía nos pagó. Están todos los `
+      + `movimientos del banco de estos ${p.dias} días, en bolívares y en dólares, y abajo `
+      + `detallo a quién le pagamos.`
+    : `Les resumo cómo se movió el dinero en estos ${p.dias} días. La Alcaldía todavía no nos `
+      + `volvió a pagar, así que seguimos dentro del mismo ciclo: lo que ven acá salió de lo que `
+      + `entró la vez anterior.`;
+  for (const l of partir(entrada, 100)) { sitio(14); txt(l, M, 9.5, normal, TINTA); y -= 12.5; }
+  y -= 2;
 
   // ── ENTRÓ ──────────────────────────────────────────────────────────────────────────────────
   titulo("Entró");
@@ -224,9 +265,10 @@ async function armarPdf(r: any, ciclo: any, empresa: string): Promise<Uint8Array
   }
   if (!cam.length && !(r.salio_no_gasto.divisas_sin_destino || []).length) fila("Nada en este período", "—");
   fila("TOTAL QUE SALIÓ SIN SER GASTO", usd(r.salio_no_gasto.total_usd), { bold: true, size: 10.5 });
-  nota("Esto no empobrece a la empresa: son los mismos dólares en otro lado. El abono a AUTO UNIÓN baja "
-     + "la deuda de los camiones, que es patrimonio; solo la parte de intereses de la cuota es gasto. Si "
-     + "se sumara acá abajo junto con la nómina y el gasoil, la utilidad se vería más baja de lo que es.");
+  nota("Quiero que quede claro que esto no nos empobrece: son los mismos dólares, solo que en otro lado. "
+     + "Con ese abono bajamos nuestra deuda de los camiones, que es patrimonio nuestro; de la cuota, "
+     + "gasto es nada más la parte de intereses. Si lo sumáramos junto con la nómina y el gasoil, "
+     + "nuestra utilidad se vería más baja de lo que realmente es.");
 
   // ── EL SALDO ───────────────────────────────────────────────────────────────────────────────
   titulo("Cómo quedó el ciclo");
@@ -235,9 +277,10 @@ async function armarPdf(r: any, ciclo: any, empresa: string): Promise<Uint8Array
   fila("Menos lo que salió sin ser gasto", "-" + usd(r.salio_no_gasto.total_usd));
   fila("DIFERENCIA DEL CICLO", usd(r.saldo_usd),
        { bold: true, size: 11.5, color: Number(r.saldo_usd) >= 0 ? VERDE : ROJO });
-  nota("Es la diferencia entre lo que entró y lo que salió en estos días, no la utilidad del mes: hay "
-     + "gastos que ya se deben y todavía no salieron del banco, y trabajo ya ejecutado que aún no se "
-     + "facturó. No incluye los traspasos entre cuentas propias de la empresa, que no entran ni salen.");
+  nota("Ojo: esta es la diferencia entre lo que entró y lo que salió en estos días, no es nuestra "
+     + "utilidad del mes. Tenemos gastos que ya debemos y todavía no salieron del banco, y trabajo que "
+     + "ya ejecutamos y aún no facturamos. Tampoco cuento los traspasos entre nuestras propias cuentas, "
+     + "que no entran ni salen.");
 
   // ── PROVEEDOR POR PROVEEDOR ────────────────────────────────────────────────────────────────
   titulo("A quién se le pagó");
@@ -255,10 +298,11 @@ async function armarPdf(r: any, ciclo: any, empresa: string): Promise<Uint8Array
     fila(`Sin identificar - ${x.n} ${x.n === 1 ? "pago" : "pagos"}, p. ej. ${limpio(x.muestra)}`,
          `${bs(x.bs)}   ${usd(x.usd)}`, { color: SUAVE });
   }
-  nota("El nombre sale del texto del banco: por el RIF cuando lo trae, y si no por el nombre. Lo que no "
-     + "se pudo atribuir con certeza va aparte en vez de repartirse: cargar a esos beneficiarios en "
-     + "Proveedores hace que aparezcan con su nombre en el próximo informe. La nómina, los impuestos y "
-     + "las comisiones del banco no entran en esta lista porque no son proveedores a quien reclamar.");
+  nota("El nombre lo saco del texto del banco: por el RIF cuando lo trae, y si no por el nombre. Lo que "
+     + "no pude atribuir con certeza lo dejo aparte en vez de repartirlo entre los demás; en cuanto "
+     + "carguemos a esos beneficiarios en Proveedores van a aparecer con su nombre. La nómina, los "
+     + "impuestos y las comisiones del banco no los pongo acá porque no son proveedores a quienes "
+     + "reclamarles.");
 
   // ── LO QUE HAY QUE MIRAR ───────────────────────────────────────────────────────────────────
   const av = r.avisos || {};
@@ -266,7 +310,7 @@ async function armarPdf(r: any, ciclo: any, empresa: string): Promise<Uint8Array
   const atrasadas = fiel.filter((f: any) => !f.en_plazo);
   const sc = av.sin_clasificar || {};
   if (atrasadas.length || Number(sc.n) > 0 || Number(av.movimientos_sin_tasa) > 0) {
-    titulo("Lo que hay que mirar");
+    titulo("Lo que quiero que miren");
     if (atrasadas.length) {
       fila(`Fiel cumplimiento 10% que la Alcaldía todavía no devolvió (${atrasadas.length} facturas)`,
            bs(av.fiel_atrasada_bs), { bold: true, color: ROJO });
@@ -274,33 +318,68 @@ async function armarPdf(r: any, ciclo: any, empresa: string): Promise<Uint8Array
         fila(`factura ${f.factura}, cobrada el ${ddmm(f.desde)} - ${f.dias} días`,
              `${bs(f.fiel_estimada_bs)} aprox.`, { size: 8.5, sangria: 14, color: SUAVE });
       }
-      nota("La Alcaldía retiene el 10% de cada factura y lo devuelve días después, en un depósito aparte. "
-         + "Estas facturas cobraron su neto y ese depósito no aparece en el estado de cuenta. El monto es "
-         + "estimado desde el neto que sí entró; el exacto lo tiene cada factura.");
+      nota("La Alcaldía nos retiene el 10% de cada factura y nos lo devuelve días después, en un depósito "
+         + "aparte. De estas facturas cobramos el neto y ese depósito todavía no aparece en el estado de "
+         + "cuenta. El monto que pongo es estimado a partir del neto que sí entró; el exacto lo tiene cada "
+         + "factura. Es plata nuestra que está afuera.");
     }
     if (Number(sc.n) > 0) {
       y -= 6;
       fila(`Movimientos que salieron sin clasificar (${sc.n})`, `${bs(sc.bs)}   ${usd(sc.usd)}`, { color: ROJO });
-      nota("Están contados como gasto porque salieron del banco, pero nadie declaró a qué fueron. Hasta "
-         + "que se clasifiquen, ese monto puede estar en la columna equivocada.");
+      nota("Los estoy contando como gasto porque salieron del banco, pero todavía no tenemos declarado a qué "
+         + "fueron. Hasta que los clasifiquemos, ese monto puede estar en la columna equivocada.");
     }
     if (Number(av.movimientos_sin_tasa) > 0) {
       y -= 6;
       fila(`Movimientos sin tasa del día, que no se pudieron pasar a dólares`, String(av.movimientos_sin_tasa), { color: ROJO });
-      nota("Sus bolívares sí están contados; sus dólares no. El total en US$ de este informe se queda corto "
-         + "en esos movimientos hasta que se cargue la tasa de esos días.");
+      nota("Sus bolívares sí los estoy contando; sus dólares no. El total en US$ de este resumen se queda "
+         + "corto en esos movimientos hasta que carguemos la tasa de esos días.");
     }
   }
 
-  // ── Pie ────────────────────────────────────────────────────────────────────────────────────
-  sitio(40);
-  y -= 8;
+  // ── Cierre y firma ─────────────────────────────────────────────────────────────────────────
+  // ⛔ LA FIRMA NO SE PARTE DE SU DESPEDIDA. `sitio()` se pide UNA vez para el bloque entero:
+  //    si se pidiera renglón por renglón, una firma podría quedar sola arriba de una hoja nueva,
+  //    separada del texto que firma — y un papel así no lo firma nadie.
+  sitio(132);
+  y -= 10;
   pag.drawLine({ start: { x: M, y }, end: { x: ANCHO - M, y }, thickness: 0.7, color: RAYA });
-  y -= 12;
-  nota(`Hecho con el estado de cuenta del banco, movimiento por movimiento. Cada uno se pasó a dólares `
-     + `con la tasa de su propio día -y con la tasa pactada, no la del BCV, cuando fue una compra de `
-     + `divisas-. Emitido el ${ddmm(ahoraVE().toISOString())} a las `
-     + `${String(ahoraVE().getUTCHours()).padStart(2, "0")}:${String(ahoraVE().getUTCMinutes()).padStart(2, "0")} de Venezuela.`);
+  y -= 14;
+  nota(`Lo armé con el estado de cuenta del banco, movimiento por movimiento. Cada uno lo pasé a `
+     + `dólares con la tasa de su propio día -y con la tasa que pactamos, no la del BCV, cuando fue `
+     + `una compra de divisas-. Cualquier cifra de acá se la puedo mostrar movimiento por movimiento.`);
+  y -= 10;
+  txt("Quedo a la orden,", M, 9.5, normal, TINTA);
+  y -= 46;
+
+  // La firma MANUSCRITA, si está cargada en `configuracion.informe_membrete`. Mientras no esté,
+  // queda la línea con el nombre y el cargo debajo, que es un bloque de firma válido.
+  // ⛔ NO SE DIBUJA NINGUNA FIRMA QUE NO HAYA DECLARADO SU DUEÑO. Una firma inventada en un
+  //    documento financiero no es un detalle de diseño. [[norma-documento-no-afirma-lo-que-nadie-declaro]]
+  if (membrete?.firma_png_b64) {
+    try {
+      const img = await doc.embedPng(Uint8Array.from(atob(membrete.firma_png_b64), (c) => c.charCodeAt(0)));
+      const anchoF = Math.min(160, (img.width / img.height) * 42);
+      pag.drawImage(img, { x: M, y: y + 6, width: anchoF, height: (img.height / img.width) * anchoF });
+    } catch (e) { console.error("firma", String(e)); }
+  }
+  pag.drawLine({ start: { x: M, y }, end: { x: M + 210, y }, thickness: 0.8, color: TINTA });
+  y -= 13;
+  txt(membrete?.firmante || "", M, 10, negrita, TINTA); y -= 12;
+  txt(membrete?.cargo || "", M, 9, normal, SUAVE); y -= 11;
+  txt(empresa, M, 9, normal, SUAVE);
+
+  // ── «Página N de M», al final de todo ──────────────────────────────────────────────────────
+  // Se escribe acá porque recién ahora se sabe CUÁNTAS páginas son. Y se escribe siempre, aunque
+  // sea una sola: un documento financiero del que se traspapela una hoja no avisa, y el que lo
+  // lee no tiene cómo darse cuenta de que le falta la mitad de los proveedores.
+  const hojas = doc.getPages();
+  hojas.forEach((h, i) => {
+    const t = `Página ${i + 1} de ${hojas.length}`;
+    h.drawText(t, {
+      x: ANCHO - M - normal.widthOfTextAtSize(t, 8), y: M - 14, size: 8, font: normal, color: SUAVE,
+    });
+  });
 
   return await doc.save();
 }
@@ -333,6 +412,14 @@ Deno.serve(async (req) => {
     const cfgW = await sel("configuracion?clave=eq.wassenger&select=valor");
     let w: any = {};
     try { w = JSON.parse(cfgW[0]?.valor ?? "{}"); } catch { w = typeof cfgW[0]?.valor === "object" ? cfgW[0].valor : {}; }
+    // El membrete: el logo, quién firma y con qué cargo. Vive en la CONFIGURACIÓN y no en el
+    // código para que cambiar el logo o el firmante no exija desplegar — y para poder pegarle la
+    // firma escaneada el día que exista, sin tocar nada. [[norma-arreglar-el-mecanismo-no-el-caso]]
+    const cfgM = await sel("configuracion?clave=eq.informe_membrete&select=valor");
+    let membrete: any = {};
+    try { membrete = JSON.parse(cfgM[0]?.valor ?? "{}"); }
+    catch { membrete = typeof cfgM[0]?.valor === "object" ? cfgM[0].valor : {}; }
+
     const cfgE = await sel("configuracion?clave=eq.empresa&select=valor");
     let emp: any = {};
     try { emp = JSON.parse(cfgE[0]?.valor ?? "{}"); } catch { emp = typeof cfgE[0]?.valor === "object" ? cfgE[0].valor : {}; }
@@ -348,9 +435,14 @@ Deno.serve(async (req) => {
     const faltan: string[] = [];
     if (!w?.token) faltan.push("configuracion.wassenger.token");
     if (!nums.length) faltan.push("configuracion.whatsapp sin ningún destino activo en los roles " + ROLES.join("/"));
+    // ⛔ Un informe que sale sin firmante no es el que se pidió: se planta y lo dice.
+    if (!membrete?.firmante) faltan.push("configuracion.informe_membrete sin `firmante`: el informe va firmado");
+    // El logo NO se planta a propósito: sin logo el informe se entiende igual, y dejar a los
+    // socios sin su resumen por un asunto de presentación sería peor. Queda avisado y sale.
+    const sinLogo = !membrete?.logo_png_b64;
 
     // ── El PDF ───────────────────────────────────────────────────────────────────────────────
-    const pdf = await armarPdf(r, ciclo, empresa);
+    const pdf = await armarPdf(r, ciclo, empresa, membrete);
     const nombre = `Betangar - resumen del ciclo ${String(desde).slice(0, 10)} al ${String(hasta).slice(0, 10)}.pdf`;
 
     if (soloPdf) {
@@ -361,22 +453,24 @@ Deno.serve(async (req) => {
     // El pie del documento. Corto a propósito: el detalle está en el PDF, y un pie largo tapa el
     // adjunto en la pantalla del teléfono.
     const pie =
-      `Resumen del ciclo ${ddmm(String(desde))} al ${ddmm(String(hasta))}\n\n` +
+      `Les paso el resumen del ${ddmm(String(desde))} al ${ddmm(String(hasta))}.\n\n` +
       (r.entro.alcaldia?.length
-        ? `Entró de la Alcaldía: ${usd(r.entro.alcaldia_usd)}\n`
-        : `La Alcaldía no pagó en estos días.\n`) +
-      `Gasto de la operación: ${usd(r.salio_gasto.total_usd)}\n` +
+        ? `Nos pagó la Alcaldía: ${usd(r.entro.alcaldia_usd)}\n`
+        : `La Alcaldía todavía no nos volvió a pagar.\n`) +
+      `Gastamos en la operación: ${usd(r.salio_gasto.total_usd)}\n` +
       (Number(r.salio_no_gasto.camiones_usd) > 0
-        ? `Abonado a los camiones: ${usd(r.salio_no_gasto.camiones_usd)}\n` : "") +
+        ? `Abonamos a los camiones: ${usd(r.salio_no_gasto.camiones_usd)}\n` : "") +
       `Diferencia del ciclo: ${usd(r.saldo_usd)}\n\n` +
-      `El detalle, proveedor por proveedor, va en el documento adjunto.`;
+      `En el documento les detallo a quién le pagamos.`;
 
     const h = horaVE();
     const enFranja = h >= HORA_DESDE && h < HORA_HASTA;
 
     if (dry) {
       return json({ ok: true, dry: true, hora_ve: h, en_franja: enFranja, ciclo,
-        periodo: { desde, hasta }, destinos: nums, faltan, pdf_bytes: pdf.length, pie, resumen: r });
+        periodo: { desde, hasta }, destinos: nums, faltan, sin_logo: sinLogo,
+        firmante: membrete?.firmante ?? null, firma_escaneada: !!membrete?.firma_png_b64,
+        pdf_bytes: pdf.length, pie, resumen: r });
     }
     if (faltan.length) return json({ ok: false, error: "faltan herramientas", faltan }, 500);
     // ⛔ Fuera de hora NO se registra la corrida: si se registrara, el informe de esta semana
