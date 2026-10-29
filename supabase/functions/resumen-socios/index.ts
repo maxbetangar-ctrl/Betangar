@@ -462,13 +462,7 @@ async function avisarComoSalio(): Promise<Response> {
   const cfgWA = await sel("configuracion?clave=eq.whatsapp&select=valor");
   let wa: any[] = [];
   try { wa = JSON.parse(cfgWA[0]?.valor || "[]"); } catch { wa = []; }
-  const quien = (tel: string) => {
-    const t = String(tel).replace(/[\s\-+]/g, "");
-    const f = (Array.isArray(wa) ? wa : []).find((x: any) => String(x.num || "").replace(/[\s\-+]/g, "") === t);
-    // Si la ficha no tiene nombre, los últimos 4 dígitos alcanzan para reconocer a la persona
-    // sin escribir el número entero.
-    return (f?.nombre || "").trim() || "…" + t.slice(-4);
-  };
+
   const dueno = (Array.isArray(wa) ? wa : [])
     .filter((x: any) => x.num && x.activo && x.rol === "socios")
     .map((x: any) => String(x.num).replace(/[\s\-+]/g, ""));
@@ -489,6 +483,23 @@ async function avisarComoSalio(): Promise<Response> {
 
   const salio = filas.filter((f: any) => f.estado === "enviado");
   const fallo = filas.filter((f: any) => f.estado !== "enviado");
+
+  // ⛔ LOS NOMBRES NO SE LEEN DE LA CONFIG. Los de `configuracion.whatsapp` están todos en NULL,
+  //    y el reflejo era escribirlos ahí — una segunda lista que se desincroniza de la ficha el
+  //    día que alguien cambie un teléfono, y esta casa ya perdió 103 mensajes por tener el dato
+  //    mal en UN solo sitio. `btg_quien_es_tel()` los busca donde la empresa ya los mantiene:
+  //    `empleados` y después `torre_contactos`. [[norma-dos-listas-a-mano-se-desincronizan]]
+  const nombres = new Map<string, string>();
+  for (const f of filas) {
+    const t = String(f.telefono || "");
+    if (!t || nombres.has(t)) continue;
+    const n = await rpc("btg_quien_es_tel", { p_tel: t });
+    if (typeof n === "string" && n.trim()) nombres.set(t, n.trim());
+  }
+  // Si no se lo conoce, los últimos 4 dígitos alcanzan para reconocer a la persona sin escribir
+  // el número entero — y NO se inventa un nombre.
+  const quien = (tel: string) =>
+    nombres.get(String(tel)) || "…" + String(tel).replace(/\D/g, "").slice(-4);
 
   let msg = `📄 *Resumen del ${ddmm(String(c.desde))} al ${ddmm(String(c.hasta))}*\n\n`;
   if (!filas.length) {
