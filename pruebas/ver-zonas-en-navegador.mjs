@@ -159,7 +159,10 @@ const acercar = async (n) => {
 }
 // Dos alturas, porque contestan cosas distintas: de lejos se ve si las zonas
 // se distinguen entre si; de cerca, si el globo dice lo que tiene que decir.
-await acercar(3)
+// ⛔ DOS ALTURAS Y LAS DOS SE CAPTURAN. De lejos se contesta «¿esta todo
+//    montado?» —las cuatro parroquias con sus 34 zonas— y de cerca «¿el borde
+//    cae donde debe?». Una sola captura deja una de las dos sin probar.
+await acercar(1)
 
 // ── Lo que se exige ──────────────────────────────────────────────────────────
 const medida = await p.evaluate(() => ({
@@ -174,8 +177,10 @@ let fallos = 0
 if (medida.chapasZona !== ZONAS.length) {
   console.log(`⛔ se esperaban ${ZONAS.length} chapas de zona y hay ${medida.chapasZona}`); fallos++
 }
+await p.screenshot({ path: 'pruebas/_zonas-lejos.png' })
+await acercar(4)
 await p.screenshot({ path: 'pruebas/_zonas-mapa.png' })
-await acercar(3)
+await acercar(2)
 
 // ── El camino entero: tocar el mapa y leer la respuesta ─────────────────────
 const c = await chapa().boundingBox().catch(() => null)
@@ -191,7 +196,7 @@ else {
   await p.screenshot({ path: 'pruebas/_zonas-clic.png' })
 }
 console.log(fallos ? `\n⛔ ${fallos} fallo(s)` : '\n✅ la capa de zonas se dibuja y contesta')
-console.log('capturas: pruebas/_zonas-mapa.png · pruebas/_zonas-clic.png')
+console.log('capturas: pruebas/_zonas-lejos.png · _zonas-mapa.png · _zonas-clic.png')
 if (errores.length) console.log('⛔ errores:\n  ' + errores.slice(0, 6).join('\n  '))
 else console.log('✅ sin errores de JS')
 
