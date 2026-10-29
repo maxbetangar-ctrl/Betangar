@@ -398,7 +398,7 @@
 // sobre una función que estaba puesta hacía una hora.
 // Con el sello a la vista, la pregunta «¿estás viendo la última?» se contesta mirando,
 // en vez de adivinando. Al tocar este archivo, subir la fecha.
-var VERSION_PANTALLA = '20261029-1700';
+var VERSION_PANTALLA = '20261029-1800';
 
 var SUPA_URL = 'https://hrkjddehqnzcqwlkklqm.supabase.co';
 var SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhya2pkZGVocW56Y3F3bGtrbHFtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc2NTk1NzIsImV4cCI6MjA5MzIzNTU3Mn0.kqWKthyZfPZ86toql7shGByF-ZhUpcQUS4Jw4RnG_ko';
@@ -2014,9 +2014,26 @@ function pintarZonas(){
   if(b) b.classList.toggle('on', VER_ZONA);
   if(!VER_ZONA || !ZONAS.length) return;
 
+  // ── SOLO SE ROTULAN LAS DEL DIA ─────────────────────────────────────────
+  //
+  // Pedido de Maximo: «si, que resalten las del dia». Con las 34 chapas puestas
+  // a la vez se encinan y no se lee ninguna; las del dia son 8 + 4 (lunes y
+  // jueves), 10 (martes y viernes) o 12 (miercoles y sabado).
+  //
+  // ⛔ PERO SI EL CRONOGRAMA NO DICE NADA DE ESE DIA —domingo, o no se pudo
+  //    leer— SE MUESTRAN TODAS. Esconderlas se veria exactamente igual que «no
+  //    hay zonas cargadas», y seria un filtro NUESTRO tapando un dato que si
+  //    esta. [[norma-un-filtro-nuestro-tapa-un-dato-que-si-llega]]
+  //
+  // El CONTORNO de las demas se sigue dibujando, tenue y punteado: el territorio
+  // no deja de existir porque hoy no toque. Lo que se saca es la etiqueta.
+  // Y el globo al tocar el mapa contesta igual en cualquier zona, toque o no.
+  var deHoy = parroquiasDeHoy();
+  var soloDelDia = deHoy.length > 0;
+
   ZONAS.forEach(function(z){
     var color = COLOR_PARR[(z.color||0) % COLOR_PARR.length];
-    var toca = parroquiasDeHoy().indexOf(z.parroquia) >= 0;
+    var toca = deHoy.indexOf(z.parroquia) >= 0;
     (z.anillos||[]).forEach(function(anillo){
       if(!anillo || anillo.length < 3) return;
       capaZona.push(L.polygon(anillo,{pane:'zonas',interactive:false,
@@ -2039,8 +2056,9 @@ function pintarZonas(){
     //    [[norma-la-falta-de-un-dato-no-es-un-dato]]
     var c = z.centro && z.centro.length===2 ? z.centro : null;
     if(!c) return;
+    if(soloDelDia && !toca) return;      // su contorno ya quedo dibujado arriba
     var quien = z.cam
-      ? '<b style="font-size:'+(toca?14:12)+'px;letter-spacing:.2px">'
+      ? '<b style="font-size:'+(toca?15:12)+'px;letter-spacing:.2px">'
           +esc(String(z.cam).replace(/^JAC-/,''))+'</b>'
       : '<b style="font-size:'+(toca?12:10)+'px;opacity:.8">SIN CAMIÓN</b>';
     capaZona.push(L.marker(c,{pane:'zonas',interactive:false,icon:L.divIcon({className:'',

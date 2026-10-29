@@ -40,6 +40,18 @@ async function sql(q) {
 //    producto. Son las mismas filas que va a devolver la RPC en producción.
 const ZONAS = (await sql(`select * from zonas_mapa(current_date)`))
 const PARR = await sql(`select nombre, es_nuestra, poligono, poligono_zona from parroquias order by nombre`)
+// El cronograma DE VERDAD del dia de hoy.
+// No se inventa: si se le dan parroquias de mentira, lo que se prueba no es el
+// producto. `cronograma_del_dia` no se puede llamar desde aca (exige rol), asi
+// que se lee la tabla con el mismo criterio que usa ella.
+const CRONO = await sql(`
+  select c.tipo, c.parroquia, c.camiones, c.nota
+    from cronograma_recoleccion c
+   where c.dia_semana = extract(dow from current_date)::int
+     and c.vigente_desde = (select max(vigente_desde) from cronograma_recoleccion
+                             where dia_semana = extract(dow from current_date)::int)`)
+const DEL_DIA = CRONO.filter((c) => c.parroquia).map((c) => c.parroquia)
+console.log(`Cronograma de hoy: ${DEL_DIA.map((x) => x.replace('Parroquia ', '')).join(' + ') || '(ninguna)'}`)
 console.log(`Traído de la base: ${ZONAS.length} zonas, ${ZONAS.filter(z => z.cam).length} con camión.`)
 
 const tipos = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
@@ -104,6 +116,7 @@ await p.route('**/auth/v1/**', (r) => {
   return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(cuerpo) })
 })
 
+let conCronograma = true
 await p.route('**/rest/v1/**', (ruta) => {
   const u = ruta.request().url()
   const dar = (d) => ruta.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(d) })
@@ -117,6 +130,10 @@ await p.route('**/rest/v1/**', (ruta) => {
       por: 'calle', calle: 'Calle de prueba', a_metros: 12 }] : [])
   }
   if (u.includes('/rpc/app_rol')) return dar('superadmin')
+  // El cronograma se sirve o NO segun el caso que se este probando: con el,
+  // solo se rotulan las zonas del dia; sin el tienen que salir TODAS, porque
+  // esconderlas se veria igual que 'no hay zonas'. Los dos casos se prueban.
+  if (u.includes('/rpc/cronograma_del_dia')) return dar(conCronograma ? CRONO : [])
   if (u.includes('/parroquias')) return dar(PARR)
   return dar([])          // lo demás, vacío: no estorba
 })
@@ -178,9 +195,11 @@ const medida = await p.evaluate(() => ({
 }))
 console.log('En pantalla:', medida)
 let fallos = 0
-if (medida.chapasZona !== ZONAS.length) {
-  console.log(`⛔ se esperaban ${ZONAS.length} chapas de zona y hay ${medida.chapasZona}`); fallos++
-}
+// Con el cronograma puesto, solo se rotulan las del dia.
+const esperadas = ZONAS.filter((z) => DEL_DIA.includes(z.parroquia)).length
+if (medida.chapasZona !== esperadas) {
+  console.log(`\u26d4 se esperaban ${esperadas} chapas (las del dia) y hay ${medida.chapasZona}`); fallos++
+} else console.log(`\u2705 solo se rotulan las ${esperadas} zonas del dia, de ${ZONAS.length}`)
 await p.screenshot({ path: 'pruebas/_zonas-lejos.png' })
 await acercar(4)
 await p.screenshot({ path: 'pruebas/_zonas-mapa.png' })
@@ -200,6 +219,15 @@ else {
   else { console.log(`⛔ al globo le falta: ${faltan.join(' · ')}`); fallos++ }
   await p.screenshot({ path: 'pruebas/_zonas-clic.png' })
 }
+// EL CASO DEL DATO AUSENTE, que es el que se olvida: sin cronograma
+// (domingo, o la consulta fallo) tienen que salir LAS 34, no cero.
+conCronograma = false
+await p.reload({ waitUntil: 'networkidle' })
+await p.waitForTimeout(2200)
+const sinCrono = await p.evaluate(() => document.querySelectorAll('.chapaZona').length)
+if (sinCrono === ZONAS.length) console.log(`\u2705 sin cronograma salen las ${ZONAS.length}, no cero`)
+else { console.log(`\u26d4 sin cronograma salieron ${sinCrono} y debian ser ${ZONAS.length}`); fallos++ }
+
 console.log(fallos ? `\n⛔ ${fallos} fallo(s)` : '\n✅ la capa de zonas se dibuja y contesta')
 console.log('capturas: pruebas/_zonas-lejos.png · _zonas-mapa.png · _zonas-clic.png')
 if (errores.length) console.log('⛔ errores:\n  ' + errores.slice(0, 6).join('\n  '))
