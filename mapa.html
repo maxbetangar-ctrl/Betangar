@@ -491,7 +491,7 @@
 // sobre una función que estaba puesta hacía una hora.
 // Con el sello a la vista, la pregunta «¿estás viendo la última?» se contesta mirando,
 // en vez de adivinando. Al tocar este archivo, subir la fecha.
-var VERSION_PANTALLA = '20261029-2100';
+var VERSION_PANTALLA = '20261029-2200';
 
 var SUPA_URL = 'https://hrkjddehqnzcqwlkklqm.supabase.co';
 var SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhya2pkZGVocW56Y3F3bGtrbHFtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc2NTk1NzIsImV4cCI6MjA5MzIzNTU3Mn0.kqWKthyZfPZ86toql7shGByF-ZhUpcQUS4Jw4RnG_ko';
@@ -2029,6 +2029,7 @@ function pintarParroquias(){
     //    verdad hay que leer.
     if(!mia) return;
     var color = tonoSegunFondo(COLOR_PARR[(i++)%COLOR_PARR.length]);
+    if(MODO_REPORTE && parroquiasDeHoy().length && parroquiasDeHoy().indexOf(p.nombre) < 0) return;
     // La que TOCA ese dia se despega de las otras tres: es la pregunta que la
     // pantalla contesta de un vistazo. Las demas siguen dibujadas —el camion
     // puede estar en cualquiera— pero mas tenues.
@@ -2071,8 +2072,10 @@ function pintarParroquias(){
         interactive:false          // no roba el clic: el mapa se sigue usando igual
       }).addTo(mapa));
     });
-    if(mia){
+    if(mia && !MODO_REPORTE){
       // El nombre, solo en las nuestras: dieciocho etiquetas serían ruido.
+      // Y en el reporte, ninguna: la cabecera ya dice la parroquia y el rótulo
+      // cruza el mapa justo por donde está el recorrido.
       // Va sobre una chapa oscura translúcida en vez de un borde blanco: el
       // mapa puede estar en claro o en oscuro, y el blanco solo sirve en uno.
       // ⛔ LA ETIQUETA VA EN EL CENTRO DE LO QUE SE DIBUJÓ, no del límite legal.
@@ -2122,6 +2125,15 @@ function ciclarParroquias(){
 //    en la chapa, sí. El que identifica es el NÚMERO; el color sólo separa.
 var ZONAS=[], capaZona=[], VER_ZONA=false;
 
+// ⛔ MIENTRAS SE ARMA EL REPORTE SE DIBUJA MENOS, Y NO ES UN CAPRICHO. El PDF se
+//    manda; la pantalla se mira con el raton encima. En papel, el contorno de
+//    una parroquia que ESE DIA no toca y el nombre gigante de la parroquia son
+//    ruido que tapa justo lo que se quiere mostrar —el recorrido—, y ademas la
+//    cabecera del reporte ya dice de que parroquia se trata.
+//    No se puede resolver con CSS: el mapa dibuja con `preferCanvas`, asi que
+//    los contornos van a un lienzo y no hay elemento que esconder. Se repinta.
+var MODO_REPORTE = false;
+
 async function cargarZonas(){
   if(ZONAS.length) return;
   try{
@@ -2163,6 +2175,8 @@ function pintarZonas(){
   ZONAS.forEach(function(z){
     var color = tonoSegunFondo(COLOR_PARR[(z.color||0) % COLOR_PARR.length]);
     var toca = deHoy.indexOf(z.parroquia) >= 0;
+    // En el reporte, la que no toca ese dia no se dibuja: ni contorno ni chapa.
+    if(MODO_REPORTE && soloDelDia && !toca) return;
     (z.anillos||[]).forEach(function(anillo){
       if(!anillo || anillo.length < 3) return;
       capaZona.push(L.polygon(anillo,{pane:'zonas',interactive:false,
@@ -2237,6 +2251,11 @@ function imprimirReporte(){
     + 'unidad aproximadamente cada minuto. Capas dibujadas: ' + (capas.length? esc(capas.join(', ')) : 'sólo el recorrido')
     + '. &nbsp;·&nbsp; Pantalla ' + esc(VERSION_PANTALLA) + '.';
 
+  // Se dibuja la version de papel: sin lo que ese dia no toca y sin los
+  // nombres de parroquia encima del mapa.
+  MODO_REPORTE = true;
+  try{ pintarParroquias(); pintarZonas(); }catch(e){}
+
   // Encuadre y, recién cuando el mapa se acomodó, el diálogo de impresión.
   var caja = cajaDelDia();
   if(caja){ try{ mapa.fitBounds(caja, { padding:[18,18] }); }catch(e){} }
@@ -2245,6 +2264,15 @@ function imprimirReporte(){
     setTimeout(function(){ window.print(); }, 450);
   }, 450);
 }
+
+// ⛔ Y SE VUELVE A LA PANTALLA NORMAL AL TERMINAR. Si el usuario cancela la
+//    impresión y la pantalla queda en «modo papel», se habrían perdido capas
+//    que él tenía puestas, sin que nada lo dijera.
+window.addEventListener('afterprint', function(){
+  if(!MODO_REPORTE) return;
+  MODO_REPORTE = false;
+  try{ pintarParroquias(); pintarZonas(); }catch(e){}
+});
 // El navegador tambien puede imprimir por Ctrl+P sin pasar por el boton: el
 // aviso a Leaflet tiene que estar en los dos caminos.
 window.addEventListener('beforeprint', function(){ try{ mapa.invalidateSize(); }catch(e){} });
