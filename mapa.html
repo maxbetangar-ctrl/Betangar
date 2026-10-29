@@ -234,13 +234,48 @@
   .leaflet-tooltip-left:before{border-left-color:var(--linea)}
   .leaflet-tooltip-right:before{border-right-color:var(--linea)}
 
-  /* ── Teléfono: el mapa arriba y las unidades abajo; la barra se envuelve ── */
+  /* Fuera del teléfono la manija no existe.
+     ⛔ ESTA REGLA VA ANTES DEL MEDIA QUERY. Puesta después lo pisa —misma
+        especificidad, gana la última— y la manija queda invisible también en el
+        teléfono, con el panel inalcanzable. Lo cazó la prueba al intentar
+        tocarla: «element is not visible». */
+  #manija{display:none}
+
+  /* ── TELÉFONO ─────────────────────────────────────────────────────────────
+     ⛔ MEDIDO ANTES DE TOCAR NADA (390x844): al mapa le quedaban 347 px, el 41%
+        de la pantalla. La cabecera sola se comía 186 px —el título grande, el
+        aviso del proveedor, el selector de día y TRES botones de pantalla
+        apilados— y el panel de unidades se llevaba el resto. Máximo: «desde el
+        celular nunca puedo ver el mapa porque lo del lado izquierdo quita toda
+        la vista».
+     La regla que había ya ponía el mapa arriba; el problema no era el orden,
+     era el REPARTO del alto. Entonces:
+       · el panel de unidades se PLIEGA (manija abajo), y nace cerrado;
+       · del televisor y la pantalla completa no se habla en un teléfono;
+       · el título y el reloj se achican.
+     ── */
   @media (max-width:760px){
-    header{padding:8px 10px;gap:8px}
+    header{padding:6px 10px;gap:6px}
+    header h1{font-size:15px}
     .der{gap:6px}
+    #reloj{display:none}
+    /* En un teléfono no hay televisor ni pantalla completa que valga. */
+    #bTv,#bPleno{display:none}
+    #crono{font-size:12px;padding:6px 10px}
     #cuerpo{flex-direction:column}
-    #mapa{order:1}
-    #panel{order:2;width:100%;height:42%;border-right:none;border-top:1px solid var(--linea)}
+    #mapa{order:1;flex:1 1 auto;min-height:0}
+
+    /* El panel: hoja de abajo, plegada por defecto. ⛔ No se OCULTA: se pliega
+       y queda la manija. Un panel escondido sin rastro se lee como «no hay
+       unidades», que es distinto de «están ahí, guardadas». */
+    #manija{order:2;display:flex;align-items:center;justify-content:center;gap:8px;
+      flex:0 0 auto;padding:9px 12px;background:var(--panel);
+      border-top:1px solid var(--linea);font-size:13px;font-weight:650;
+      color:var(--tinta);cursor:pointer;user-select:none}
+    #manija b{font-weight:800}
+    #panel{order:3;width:100%;flex:0 0 0;height:0;overflow:hidden;
+      border-right:none;border-top:1px solid var(--linea);transition:height .18s ease}
+    body.panelAbierto #panel{flex:0 0 auto;height:56vh;overflow-y:auto}
     .flotantes{top:8px;right:8px}
   }
 </style>
@@ -280,6 +315,10 @@
 <div id="crono"></div>
 
 <div id="cuerpo">
+  <!-- La manija del panel: sólo se ve en el teléfono. Dice CUÁNTAS unidades hay
+       aunque esté plegado, para que plegarlo no parezca que no hay ninguna. -->
+  <div id="manija" role="button" tabindex="0" aria-expanded="false"
+       aria-controls="panel"><span id="manijaFlecha">▲</span> <b id="manijaTxt">Unidades</b></div>
   <div id="panel">
     <div id="avisos"></div>
     <div class="titpanel">Unidades</div>
@@ -398,7 +437,7 @@
 // sobre una función que estaba puesta hacía una hora.
 // Con el sello a la vista, la pregunta «¿estás viendo la última?» se contesta mirando,
 // en vez de adivinando. Al tocar este archivo, subir la fecha.
-var VERSION_PANTALLA = '20261029-1930';
+var VERSION_PANTALLA = '20261029-2000';
 
 var SUPA_URL = 'https://hrkjddehqnzcqwlkklqm.supabase.co';
 var SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhya2pkZGVocW56Y3F3bGtrbHFtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc2NTk1NzIsImV4cCI6MjA5MzIzNTU3Mn0.kqWKthyZfPZ86toql7shGByF-ZhUpcQUS4Jw4RnG_ko';
@@ -3021,6 +3060,21 @@ async function arrancarVista(){
   document.getElementById('bParr').onclick = ciclarParroquias;
   document.getElementById('bFalta').onclick = ciclarFaltantes;
   document.getElementById('bZona').onclick = ciclarZonas;
+  // ── La manija del panel en el teléfono ─────────────────────────────────
+  // ⛔ Al abrir o cerrar hay que avisarle a Leaflet que el mapa cambió de
+  //    tamaño, o queda dibujado con el alto viejo y aparecen franjas grises.
+  (function(){
+    var man = document.getElementById('manija');
+    if(!man) return;
+    function alternar(){
+      var abierto = document.body.classList.toggle('panelAbierto');
+      man.setAttribute('aria-expanded', abierto ? 'true' : 'false');
+      document.getElementById('manijaFlecha').textContent = abierto ? '▼' : '▲';
+      setTimeout(function(){ try{ mapa.invalidateSize(); }catch(e){} }, 220);
+    }
+    man.onclick = alternar;
+    man.onkeydown = function(e){ if(e.key === 'Enter' || e.key === ' '){ e.preventDefault(); alternar(); } };
+  })();
   try{ VER_PARR = localStorage.getItem('btg_mapa_parr') !== '0'; }catch(e){}
   // ⛔ Las zonas nacen APAGADAS. Esta pantalla vive en el televisor de la
   //    oficina mostrando los recorridos; dieciocho contornos encima sin que
