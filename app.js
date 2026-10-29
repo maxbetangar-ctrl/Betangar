@@ -27641,7 +27641,7 @@ function verificarCruceExcel(planillas){
   // ══════════════════════════════════════════════════════════════════════════
   var _nn=(typeof _normNom==='function')?_normNom:function(s){return String(s||'').toUpperCase().trim();};
 
-  supabase.from('asistencia_dia').select('nombre,fecha').in('fecha',fechas).then(function(res){
+  supabase.from('asistencia_dia').select('nombre,fecha,origen').in('fecha',fechas).then(function(res){
     if(res.error){ console.warn('[verificarCruceExcel] no se pudo leer asistencia_dia:', res.error.message); return; }
     var filas=res.data||[];
     if(!filas.length){
@@ -27651,9 +27651,18 @@ function verificarCruceExcel(planillas){
     }
 
     // Índices: quién fichó cada día, y cuántas veces fichó cada quien EN TODO el Excel.
-    var fichoEse={}, fichoAlguna={};
+    // ⛔ UNA FILA CON `origen` DISTINTO DE 'fichaje' NO ES UN FICHAJE. Hasta el 28/10/2026
+    //    este control daba por fichado a cualquiera que tuviera fila, y su propio comentario
+    //    decía «acá TODAS las filas son fichajes (medido: 1.785 de 1.785)»: era cierto cuando
+    //    se midió y dejó de serlo. Una asistencia derivada del checklist prueba que la persona
+    //    TRABAJÓ, no que haya fichado — son dos afirmaciones distintas y se cuentan aparte.
+    //    Confundirlas rompe el control en las DOS direcciones: da por fichado a quien no fichó,
+    //    y acusa de faltar a quien se puede probar que trabajó.
+    var fichoEse={}, fichoAlguna={}, trabajoEse={};
     filas.forEach(function(r){
       var n=_nn(r.nombre); if(!n)return;
+      trabajoEse[r.fecha+'|'+n]=1;                      // estuvo, haya fichado o no
+      if((r.origen||'fichaje')!=='fichaje')return;      // derivada: NO cuenta como fichaje
       fichoEse[r.fecha+'|'+n]=1;
       fichoAlguna[n]=(fichoAlguna[n]||0)+1;
     });
@@ -27678,7 +27687,7 @@ function verificarCruceExcel(planillas){
       return r;
     };
 
-    var discrepancias=[], ambiguos={}, noFichan={}, inactivos={}, nSinPlan=0;
+    var discrepancias=[], ambiguos={}, noFichan={}, inactivos={}, nSinPlan=0, faltaFichaje={};
     fechas.forEach(function(fecha){
       var huboFichaje=filas.some(function(r){return r.fecha===fecha;});
       if(!huboFichaje)return;   // ese día no fichó NADIE: no se acusa
@@ -27691,12 +27700,17 @@ function verificarCruceExcel(planillas){
       var sinFichaje=[];
       Object.keys(enPlan).forEach(function(n){
         if(fichoEse[fecha+'|'+n])return;                       // fichó: nada que decir
+        // ⛔ TRABAJÓ Y NO FICHÓ NO ES FALTAR. Si hay asistencia derivada del checklist, está
+        //    probado que estuvo: lo que falta es el fichaje, y eso se dice aparte. Acusarlo
+        //    sería acusar a la persona por un dato que no cargó ella.
+        if(trabajoEse[fecha+'|'+n]){ faltaFichaje[n]=(faltaFichaje[n]||0)+1; return; }
         var cand=candidatos(n);
         if(cand.length>1){ ambiguos[n]=cand.map(function(e){return e.nombre;}); return; }
         var emp=cand[0];
         if(emp && emp.activo===false){ inactivos[n]=emp.nombre; return; }
         // Si CUALQUIERA de sus formas fichó ese día, tampoco se acusa.
         if(emp && fichoEse[fecha+'|'+_nn(emp.nombre)])return;
+        if(emp && trabajoEse[fecha+'|'+_nn(emp.nombre)]){ faltaFichaje[n]=(faltaFichaje[n]||0)+1; return; }
         if(!fichoAlguna[n] && !(emp&&fichoAlguna[_nn(emp.nombre)])){ noFichan[n]=(noFichan[n]||0)+1; return; }
         sinFichaje.push(enPlan[n]);
       });
@@ -27715,7 +27729,7 @@ function verificarCruceExcel(planillas){
       if(sinFichaje.length)discrepancias.push({fecha:fecha,sinAsis:sinFichaje});
     });
 
-    var hayRuido=Object.keys(ambiguos).length||Object.keys(noFichan).length||Object.keys(inactivos).length||nSinPlan;
+    var hayRuido=Object.keys(ambiguos).length||Object.keys(noFichan).length||Object.keys(inactivos).length||nSinPlan||Object.keys(faltaFichaje).length;
     if(!discrepancias.length&&!hayRuido)return;
 
     var alertEl=document.getElementById('plan-dup-alert');
@@ -27744,6 +27758,9 @@ function verificarCruceExcel(planillas){
       if(nfN.length)html+='<div style="font-size:11px;color:var(--text2);padding:6px 0;border-top:1px solid rgba(239,159,39,.25)"><b>No tiene NI UN fichaje en este período</b> — eso no es faltar, es no estar usando el fichaje (sin teléfono, sitio sin geocerca…). Si debería estar fichando, ahí hay algo que resolver.<br>'+
         nfN.slice(0,8).map(function(n){return '· '+esc(n)+' ('+noFichan[n]+' día/s en planilla)';}).join('<br>')+'</div>';
       if(nSinPlan)html+='<div style="font-size:11px;color:var(--text2);padding:6px 0;border-top:1px solid rgba(239,159,39,.25)"><b>'+nSinPlan+' vez/veces alguien fichó sin aparecer en ninguna planilla de ese día</b> — NO se listan porque es lo normal: puede no haberle tocado ruta, haber quedado en patio, o la planilla no estar cargada todavía. El número está acá por si un día se dispara.</div>';
+      var ffN=Object.keys(faltaFichaje);
+      if(ffN.length)html+='<div style="font-size:11px;color:var(--text2);padding:6px 0;border-top:1px solid rgba(239,159,39,.25)"><b>Trabajó pero le falta el fichaje</b> — tiene el checklist cargado ese día, así que estuvo: lo que no entró es el fichaje. No es una falta, y la corrección es del lado nuestro, no de la persona.<br>'+
+        ffN.slice(0,8).map(function(n){return '· '+esc(n)+' ('+faltaFichaje[n]+' día/s)';}).join('<br>')+'</div>';
       var inN=Object.keys(inactivos);
       if(inN.length)html+='<div style="font-size:11px;color:var(--text2);padding:6px 0;border-top:1px solid rgba(239,159,39,.25)"><b>Está INACTIVO en la nómina y aparece en una planilla</b> — no es «no fichó», es que no debería estar ahí.<br>'+
         inN.slice(0,8).map(function(n){return '· '+esc(inactivos[n]);}).join('<br>')+'</div>';
