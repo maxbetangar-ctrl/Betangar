@@ -398,7 +398,7 @@
 // sobre una función que estaba puesta hacía una hora.
 // Con el sello a la vista, la pregunta «¿estás viendo la última?» se contesta mirando,
 // en vez de adivinando. Al tocar este archivo, subir la fecha.
-var VERSION_PANTALLA = '20261029-1800';
+var VERSION_PANTALLA = '20261029-1930';
 
 var SUPA_URL = 'https://hrkjddehqnzcqwlkklqm.supabase.co';
 var SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhya2pkZGVocW56Y3F3bGtrbHFtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc2NTk1NzIsImV4cCI6MjA5MzIzNTU3Mn0.kqWKthyZfPZ86toql7shGByF-ZhUpcQUS4Jw4RnG_ko';
@@ -703,6 +703,35 @@ function fondoGuardado(){
   try{ return localStorage.getItem('btg-mapa-fondo')||'oscuroCasa'; }catch(e){ return 'oscuroCasa'; }
 }
 
+// ⛔ EL CONTORNO NO SE DIBUJA IGUAL EN LOS DOS FONDOS, Y ESO NO ES ESTETICA.
+//    El recurso de cartografia que hace resaltar un limite es una FRANJA de
+//    contraste alrededor de la linea de color (casing). Sobre el fondo oscuro
+//    del televisor esa franja va NEGRA. Sobre el fondo claro —el que usa
+//    Maximo en su maquina— la franja negra se come el pastel y la zona queda
+//    como un garabato negro: se pierde el color, que es lo que identifica.
+//    Medido: con `--fondo calles`, Venancio y Caracciolo salian como manchas
+//    negras y el nombre de la parroquia no se leia.
+//    La franja va BLANCA y el color se oscurece para que agarre sobre blanco.
+function fondoEsClaro(){
+  var c = fondoGuardado();
+  return c === 'calles' || c === 'satelite';
+}
+/** La franja de contraste: negra sobre fondo oscuro, blanca sobre claro. */
+function colorFranja(){ return fondoEsClaro() ? '#fff' : '#000'; }
+// ⛔ SOBRE CLARO NO SE OSCURECE EL PASTEL: SE CAMBIA LA PALETA. Bajarle la luz
+//    a un pastel da un color sucio y sin fuerza — se probo y sobre el callejero
+//    de OpenStreetMap las lineas seguian lavadas. Los pasteles existen porque
+//    funcionan sobre negro; sobre blanco hace falta color SATURADO y oscuro.
+//    Estos cuatro estan validados para superficie clara (separacion suficiente
+//    entre todos los pares, con vision normal y con daltonismo), que es lo que
+//    permite que cuatro tonos alcancen para 34 zonas: ninguna vecina comparte.
+var COLOR_PARR_CLARO = ['#eda100','#2a78d6','#b5179e','#007a2f'];
+function tonoSegunFondo(hex){
+  if(!fondoEsClaro()) return hex;
+  var i = COLOR_PARR.indexOf(hex);
+  return i >= 0 ? COLOR_PARR_CLARO[i % COLOR_PARR_CLARO.length] : hex;
+}
+
 function iniciarMapa(){
   mapa=L.map('mapa',{zoomControl:true,attributionControl:true,preferCanvas:true})
         .setView([10.6427,-71.6125],11);
@@ -731,7 +760,12 @@ function iniciarMapa(){
   sel.innerHTML=Object.keys(FONDOS).map(function(k){
     return '<option value="'+k+'">'+FONDOS[k].nom+'</option>'; }).join('');
   sel.value=fondoGuardado();
-  sel.onchange=function(){ ponerFondo(sel.value); };
+  sel.onchange=function(){
+    ponerFondo(sel.value);
+    // ⛔ El contorno depende del fondo: sin repintar queda el estilo del
+    //    fondo anterior y la franja negra reaparece sobre el mapa claro.
+    try{ pintarParroquias(); pintarZonas(); }catch(e){}
+  };
   document.getElementById('brillo').oninput=aplicarBrillo;
   ponerFondo(sel.value);
 }
@@ -1901,7 +1935,7 @@ function pintarParroquias(){
     //    cruzando la ciudad son ruido encima del recorrido, que es lo que de
     //    verdad hay que leer.
     if(!mia) return;
-    var color = COLOR_PARR[(i++)%COLOR_PARR.length];
+    var color = tonoSegunFondo(COLOR_PARR[(i++)%COLOR_PARR.length]);
     // La que TOCA ese dia se despega de las otras tres: es la pregunta que la
     // pantalla contesta de un vistazo. Las demas siguen dibujadas —el camion
     // puede estar en cualquiera— pero mas tenues.
@@ -1921,7 +1955,8 @@ function pintarParroquias(){
       //    Venancio el limite son 71,5 km2 y el 83% es campo donde no se recoge.
       anillosDe(p).forEach(function(anillo){
         capaParr.push(L.polygon(anillo,{pane:'parroquias',interactive:false,
-          color:'#000', weight: toca?13:9, opacity:.5, fill:false}).addTo(mapa));
+          color:colorFranja(), weight: toca?13:9,
+          opacity: fondoEsClaro()?.85:.5, fill:false}).addTo(mapa));
         });
     }
     // ⛔ SIN RELLENO, NINGUNA. Y ésta es la tercera corrección del mismo asunto,
@@ -1956,9 +1991,10 @@ function pintarParroquias(){
       var c=centroDe(_gr);
       capaParr.push(L.marker(c,{pane:'parroquias',interactive:false,icon:L.divIcon({className:'',
         html:'<div style="transform:translate(-50%,-50%);white-space:nowrap;font-size:14px;'
-          +'font-weight:800;letter-spacing:.4px;color:'+color+';background:rgba(0,0,0,.78);'
+          +'font-weight:800;letter-spacing:.4px;color:'+color+';background:'
+          +(fondoEsClaro()?'rgba(255,255,255,.92)':'rgba(0,0,0,.78)')+';'
           +'border:2px solid '+color+';border-radius:6px;padding:3px 10px;'
-          +'box-shadow:0 0 10px rgba(0,0,0,.7)">'
+          +'box-shadow:0 0 10px '+(fondoEsClaro()?'rgba(0,0,0,.25)':'rgba(0,0,0,.7)')+'">'
           +esc(p.nombre.replace(/^Parroquia /,''))
           +(toca ? (esHoy() ? ' — HOY' : ' — ESE DÍA') : '')+'</div>'})}).addTo(mapa));
     }
@@ -2032,14 +2068,16 @@ function pintarZonas(){
   var soloDelDia = deHoy.length > 0;
 
   ZONAS.forEach(function(z){
-    var color = COLOR_PARR[(z.color||0) % COLOR_PARR.length];
+    var color = tonoSegunFondo(COLOR_PARR[(z.color||0) % COLOR_PARR.length]);
     var toca = deHoy.indexOf(z.parroquia) >= 0;
     (z.anillos||[]).forEach(function(anillo){
       if(!anillo || anillo.length < 3) return;
       capaZona.push(L.polygon(anillo,{pane:'zonas',interactive:false,
-        color:'#000', weight: toca?7:5, opacity:.45, fill:false}).addTo(mapa));
+        color:colorFranja(), weight: toca?7:5, opacity: fondoEsClaro()?.85:.45,
+        fill:false}).addTo(mapa));
       capaZona.push(L.polygon(anillo,{pane:'zonas',interactive:false,
-        color:color, weight: toca?3:2, opacity: toca?1:.6, fill:false,
+        color:color, weight: toca?(fondoEsClaro()?3.5:3):2,
+        opacity: toca?1:(fondoEsClaro()?.75:.6), fill:false,
         dashArray: toca?null:'6,6'}).addTo(mapa));
     });
     // ── LA CHAPA: EL CAMIÓN ADELANTE ──────────────────────────────────────
@@ -2064,8 +2102,10 @@ function pintarZonas(){
     capaZona.push(L.marker(c,{pane:'zonas',interactive:false,icon:L.divIcon({className:'',
       html:'<div class="chapaZona" style="transform:translate(-50%,-50%);white-space:nowrap;'
         +'display:flex;align-items:baseline;gap:5px;font-weight:800;color:'+color+';'
-        +'background:rgba(0,0,0,.82);border:2px solid '+color+';border-radius:6px;'
-        +'padding:2px 8px;box-shadow:0 0 10px rgba(0,0,0,.7);opacity:'+(toca?1:.7)+'">'
+        +'background:'+(fondoEsClaro()?'rgba(255,255,255,.92)':'rgba(0,0,0,.82)')+';'
+        +'border:2px solid '+color+';border-radius:6px;'
+        +'padding:2px 8px;box-shadow:0 0 10px '
+        +(fondoEsClaro()?'rgba(0,0,0,.25)':'rgba(0,0,0,.7)')+';opacity:'+(toca?1:.7)+'">'
         + quien
         + '<span style="font-size:'+(toca?10:9)+'px;font-weight:600;opacity:.72">z'+z.zona+'</span>'
         + '</div>'})}).addTo(mapa));

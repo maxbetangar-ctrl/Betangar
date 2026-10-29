@@ -23,6 +23,11 @@ const { chromium } = await import(
 
 const REF = 'hrkjddehqnzcqwlkklqm'
 const PUERTO = Number(process.argv[process.argv.indexOf('--puerto') + 1]) || 8745
+// El fondo del mapa. Por defecto el oscuro, que es como vive en el televisor
+// de la oficina; pero Maximo lo mira en CLARO desde su maquina y los colores
+// de las zonas se eligieron para el oscuro. Hay que poder ver los dos.
+const FONDO = process.argv.includes('--fondo')
+  ? process.argv[process.argv.indexOf('--fondo') + 1] : 'oscuroCasa'
 const RAIZ = path.resolve(path.dirname(new URL(import.meta.url).pathname.slice(1)), '..')
 
 async function sql(q) {
@@ -80,7 +85,10 @@ await ctx.addInitScript((s) => {
   //    inventado lo descarta en silencio, la pantalla muestra la tapa de login
   //    y uno se queda mirando una captura vacía creyendo que la capa no anda.
   //    Se intercepta el CLIENTE: `getSession` contesta lo que queremos.
-  try { localStorage.setItem('btg_mapa_zona', '1') } catch (e) {}   // la capa, puesta
+  try {
+    localStorage.setItem('btg_mapa_zona', '1')     // la capa, puesta
+    localStorage.setItem('btg-mapa-fondo', s.__fondo)
+  } catch (e) {}
   let guardado
   Object.defineProperty(window, 'supabase', {
     configurable: true,
@@ -100,7 +108,7 @@ await ctx.addInitScript((s) => {
       guardado = v
     },
   })
-}, sesion)
+}, Object.assign({ __fondo: FONDO }, sesion))
 
 const p = await ctx.newPage()
 const errores = []
@@ -200,9 +208,9 @@ const esperadas = ZONAS.filter((z) => DEL_DIA.includes(z.parroquia)).length
 if (medida.chapasZona !== esperadas) {
   console.log(`\u26d4 se esperaban ${esperadas} chapas (las del dia) y hay ${medida.chapasZona}`); fallos++
 } else console.log(`\u2705 solo se rotulan las ${esperadas} zonas del dia, de ${ZONAS.length}`)
-await p.screenshot({ path: 'pruebas/_zonas-lejos.png' })
+await p.screenshot({ path: `pruebas/_zonas-lejos-${FONDO}.png` })
 await acercar(4)
-await p.screenshot({ path: 'pruebas/_zonas-mapa.png' })
+await p.screenshot({ path: `pruebas/_zonas-mapa-${FONDO}.png` })
 await acercar(2)
 
 // ── El camino entero: tocar el mapa y leer la respuesta ─────────────────────
@@ -217,7 +225,7 @@ else {
   console.log(`Clic en el centro de la zona ${z0.zona} → «${globo.replace(/\s+/g, ' ').trim().slice(0, 95)}»`)
   if (!faltan.length) console.log(`✅ el globo dice el camión, la parroquia y la zona`)
   else { console.log(`⛔ al globo le falta: ${faltan.join(' · ')}`); fallos++ }
-  await p.screenshot({ path: 'pruebas/_zonas-clic.png' })
+  await p.screenshot({ path: `pruebas/_zonas-clic-${FONDO}.png` })
 }
 // EL CASO DEL DATO AUSENTE, que es el que se olvida: sin cronograma
 // (domingo, o la consulta fallo) tienen que salir LAS 34, no cero.
@@ -229,7 +237,7 @@ if (sinCrono === ZONAS.length) console.log(`\u2705 sin cronograma salen las ${ZO
 else { console.log(`\u26d4 sin cronograma salieron ${sinCrono} y debian ser ${ZONAS.length}`); fallos++ }
 
 console.log(fallos ? `\n⛔ ${fallos} fallo(s)` : '\n✅ la capa de zonas se dibuja y contesta')
-console.log('capturas: pruebas/_zonas-lejos.png · _zonas-mapa.png · _zonas-clic.png')
+console.log(`capturas: pruebas/_zonas-*-${FONDO}.png`)
 if (errores.length) console.log('⛔ errores:\n  ' + errores.slice(0, 6).join('\n  '))
 else console.log('✅ sin errores de JS')
 
