@@ -278,6 +278,38 @@
     body.panelAbierto #panel{flex:0 0 auto;height:56vh;overflow-y:auto}
     .flotantes{top:8px;right:8px}
   }
+
+  /* ── EL REPORTE IMPRIMIBLE ───────────────────────────────────────────────
+     Maximo: «poder imprimir el mapa como quedo la ruta en un pdf, sin que
+     salga el menu de un lado, solo la parroquia, en formato profesional, en
+     cualquier momento del dia por si me piden un reporte».
+     En pantalla esto no existe; al imprimir es lo unico que existe junto al
+     mapa. ── */
+  #repCab,#repPie{display:none}
+  @media print{
+    @page{size:A4 landscape;margin:8mm}
+    /* ⛔ Al imprimir, el fondo del mapa va CLARO aunque en pantalla este
+       oscuro: un mapa negro en papel se come el toner y no se lee. */
+    html,body{background:#fff!important;color:#111!important;height:auto!important}
+    header,#crono,#panel,#manija,.flotantes,#tapa,.leaflet-control-zoom{display:none!important}
+    #cuerpo{display:block!important;height:auto!important}
+    #mapa{height:155mm!important;width:100%!important;border:1px solid #bbb}
+
+    #repCab{display:flex!important;align-items:flex-end;justify-content:space-between;
+      gap:16px;padding:0 0 7px;margin-bottom:7px;border-bottom:2px solid #111}
+    .repTit b{display:block;font-size:15px;font-weight:800;letter-spacing:-.2px;color:#111}
+    .repTit span{font-size:10px;color:#555}
+    .repDatos{display:flex;gap:18px}
+    .repDatos div{text-align:right}
+    .repDatos i{display:block;font-style:normal;font-size:8px;letter-spacing:.09em;
+      text-transform:uppercase;color:#777}
+    .repDatos b{font-size:12px;font-weight:700;color:#111}
+
+    #repPie{display:block!important;margin-top:6px;padding-top:5px;
+      border-top:1px solid #ccc;font-size:8.5px;color:#555;line-height:1.5}
+    /* Que no se rompa en dos paginas por un pelo. */
+    #mapa,#repCab,#repPie{break-inside:avoid}
+  }
 </style>
 </head>
 <body>
@@ -313,6 +345,23 @@
      tooltip: a veces esta pantalla la mira la Alcaldía, y un asterisco
      escondido es lo que después parece ocultamiento. -->
 <div id="crono"></div>
+
+<!-- ── LA CABECERA DEL REPORTE ───────────────────────────────────────────────
+     Solo existe al imprimir. ⛔ Un mapa suelto en un PDF no es un reporte: sin
+     QUE parroquia, QUE dia y A QUE HORA se genero, quien lo recibe no puede
+     usarlo para nada ni volver a pedirlo igual. Y la hora importa: esta
+     pantalla cambia durante el dia. -->
+<div id="repCab" aria-hidden="true">
+  <div class="repTit">
+    <b>Inversiones Betangar C.A.</b>
+    <span>Recolección de desechos sólidos · Municipio Maracaibo</span>
+  </div>
+  <div class="repDatos">
+    <div><i>Parroquia</i><b id="repParr">—</b></div>
+    <div><i>Día</i><b id="repDia">—</b></div>
+    <div><i>Generado</i><b id="repHora">—</b></div>
+  </div>
+</div>
 
 <div id="cuerpo">
   <!-- La manija del panel: sólo se ve en el teléfono. Dice CUÁNTAS unidades hay
@@ -411,11 +460,16 @@
       <div class="flotCuerpo">
         <button class="btn ocultarTv" id="bDen" title="Marcá en el mapa el sitio por el que están reclamando y el sistema contesta qué días se pasó por ahí, con fechas, horas y unidades.">🛡️ ¿Pasamos por aquí?</button>
         <button class="btn ocultarTv" id="bSitio" style="display:none">📐 Marcar geocerca</button>
+        <button class="btn" id="bReporte" title="Arma un reporte imprimible con el mapa como está ahora: sin menús ni panel, encuadrado en la parroquia del día, con la fecha y la hora. Desde el diálogo de impresión se guarda como PDF.">🖨️ Reporte PDF</button>
         <button class="btn ocultarTv" id="bClave" title="Pegar la clave de Stadia Maps para probar sus fondos">🔑</button>
       </div>
     </details>
   </div>
 </div>
+
+<!-- El pie: de donde salen los datos. Un reporte sin fuente no se puede
+     defender si alguien lo discute. -->
+<div id="repPie" aria-hidden="true"></div>
 
 <div id="tapa"><div class="caja">
   <h2>Flota en vivo</h2>
@@ -437,7 +491,7 @@
 // sobre una función que estaba puesta hacía una hora.
 // Con el sello a la vista, la pregunta «¿estás viendo la última?» se contesta mirando,
 // en vez de adivinando. Al tocar este archivo, subir la fecha.
-var VERSION_PANTALLA = '20261029-2000';
+var VERSION_PANTALLA = '20261029-2100';
 
 var SUPA_URL = 'https://hrkjddehqnzcqwlkklqm.supabase.co';
 var SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhya2pkZGVocW56Y3F3bGtrbHFtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc2NTk1NzIsImV4cCI6MjA5MzIzNTU3Mn0.kqWKthyZfPZ86toql7shGByF-ZhUpcQUS4Jw4RnG_ko';
@@ -2151,6 +2205,51 @@ function pintarZonas(){
   });
 }
 
+// ── 🖨️ EL REPORTE ──────────────────────────────────────────────────────────
+//
+// ⛔ ENCUADRA EN LA PARROQUIA DEL DIA, no en lo que el usuario dejo en pantalla.
+//    Un reporte que sale con el mapa corrido o mostrando medio estado no se
+//    puede mandar, y nadie se da cuenta hasta que ya lo mando.
+//    Si ese dia no hay cronograma se respeta el encuadre actual: no hay
+//    parroquia que elegir y mover el mapa solo seria peor.
+//
+// ⛔ Y SE LE AVISA A LEAFLET DEL CAMBIO DE TAMANO. Al imprimir, el contenedor
+//    pasa a medir la pagina; sin `invalidateSize` el mapa se imprime con el
+//    alto de la pantalla y quedan franjas en blanco donde deberia haber mapa.
+function imprimirReporte(){
+  var hoy = parroquiasDeHoy();
+  document.getElementById('repParr').textContent =
+    hoy.length ? hoy.map(function(x){ return x.replace(/^Parroquia /,''); }).join('  ·  ')
+               : 'Todas las parroquias atendidas';
+  var d = (document.getElementById('selDia')||{}).value || DIA;
+  var pz = String(d).split('-');
+  document.getElementById('repDia').textContent =
+    pz.length===3 ? (pz[2]+'/'+pz[1]+'/'+pz[0]) : String(d);
+  document.getElementById('repHora').textContent = horaVE(new Date()) + ' (Venezuela)';
+
+  // El pie: que se esta viendo y de donde sale. Sin esto el mapa no se defiende.
+  var capas = [];
+  if(VER_ZONA) capas.push('zonas por camión');
+  if(VER_PARR) capas.push('límites de parroquia');
+  if(typeof VER_FALTA !== 'undefined' && VER_FALTA) capas.push('calles sin registro');
+  document.getElementById('repPie').innerHTML =
+    'Recorrido reconstruido con las posiciones GPS de la flota, reportadas por el equipo de cada '
+    + 'unidad aproximadamente cada minuto. Capas dibujadas: ' + (capas.length? esc(capas.join(', ')) : 'sólo el recorrido')
+    + '. &nbsp;·&nbsp; Pantalla ' + esc(VERSION_PANTALLA) + '.';
+
+  // Encuadre y, recién cuando el mapa se acomodó, el diálogo de impresión.
+  var caja = cajaDelDia();
+  if(caja){ try{ mapa.fitBounds(caja, { padding:[18,18] }); }catch(e){} }
+  setTimeout(function(){
+    try{ mapa.invalidateSize(); }catch(e){}
+    setTimeout(function(){ window.print(); }, 450);
+  }, 450);
+}
+// El navegador tambien puede imprimir por Ctrl+P sin pasar por el boton: el
+// aviso a Leaflet tiene que estar en los dos caminos.
+window.addEventListener('beforeprint', function(){ try{ mapa.invalidateSize(); }catch(e){} });
+window.addEventListener('afterprint',  function(){ try{ mapa.invalidateSize(); }catch(e){} });
+
 function ciclarZonas(){
   VER_ZONA=!VER_ZONA;
   try{ localStorage.setItem('btg_mapa_zona', VER_ZONA?'1':'0'); }catch(e){}
@@ -3060,6 +3159,8 @@ async function arrancarVista(){
   document.getElementById('bParr').onclick = ciclarParroquias;
   document.getElementById('bFalta').onclick = ciclarFaltantes;
   document.getElementById('bZona').onclick = ciclarZonas;
+  var bRep = document.getElementById('bReporte');
+  if(bRep) bRep.onclick = imprimirReporte;
   // ── La manija del panel en el teléfono ─────────────────────────────────
   // ⛔ Al abrir o cerrar hay que avisarle a Leaflet que el mapa cambió de
   //    tamaño, o queda dibujado con el alto viejo y aparecen franjas grises.
