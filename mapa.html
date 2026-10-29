@@ -362,7 +362,7 @@
         <button class="btn" id="bRec" title="Con muchas unidades los recorridos se tapan entre sí. Acá se elige cuántos se ven.">Recorridos: todos</button>
         <button class="btn" id="bLimp" title="Dibuja SOLO lo que se recorrió dentro de tus cuatro parroquias. Los viajes al vertedero y el traslado por carretera no se pintan: son kilómetros, no limpieza, y son los que abren el mapa y achican la zona de trabajo.">🧽 Solo lo limpiado</button>
         <button class="btn" id="bParr" title="Los límites de las parroquias del Municipio Maracaibo. Las cuatro que atiende Betangar van resaltadas y con su nombre; el resto, de fondo.">🗺️ Parroquias</button>
-        <button class="btn" id="bZona" title="Divide cada parroquia propia en una zona por compactadora y dice qué camión tiene cada una. Con esto puesto, tocando cualquier punto del mapa se responde a qué camión llamar por esa calle.">🚛 Zonas</button>
+        <button class="btn" id="bZona" title="La división de ruta por camión: cada parroquia queda dividida en una zona por compactadora, rotulada con el camión que la tiene. Con esto puesto, tocando cualquier punto del mapa se responde a qué camión llamar por esa calle.">🚛 Zonas</button>
         <button class="btn" id="bSurt" title="Dónde se cargó combustible. Lo que importa son las que caen FUERA de una estación marcada.">⛽ Surtidas</button>
         <button class="btn ocultarTv" id="bFalta" title="Pinta las calles de tus parroquias por las que NO hay registro de paso en los ultimos dias. Sin registro no es lo mismo que no pasaron.">🧹 Sin registro</button>
       </div>
@@ -398,7 +398,7 @@
 // sobre una función que estaba puesta hacía una hora.
 // Con el sello a la vista, la pregunta «¿estás viendo la última?» se contesta mirando,
 // en vez de adivinando. Al tocar este archivo, subir la fecha.
-var VERSION_PANTALLA = '20261029-1600';
+var VERSION_PANTALLA = '20261029-1700';
 
 var SUPA_URL = 'https://hrkjddehqnzcqwlkklqm.supabase.co';
 var SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhya2pkZGVocW56Y3F3bGtrbHFtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc2NTk1NzIsImV4cCI6MjA5MzIzNTU3Mn0.kqWKthyZfPZ86toql7shGByF-ZhUpcQUS4Jw4RnG_ko';
@@ -2025,19 +2025,32 @@ function pintarZonas(){
         color:color, weight: toca?3:2, opacity: toca?1:.6, fill:false,
         dashArray: toca?null:'6,6'}).addTo(mapa));
     });
-    // La chapa: el número y el camión. ⛔ Si la zona no tiene camión asignado lo
-    //    DICE. Una zona sin dueño pintada igual que una con dueño esconde justo
-    //    lo que falta hacer. [[norma-la-falta-de-un-dato-no-es-un-dato]]
+    // ── LA CHAPA: EL CAMIÓN ADELANTE ──────────────────────────────────────
+    //
+    // ⛔ Decía «Z7 · B012» y Máximo lo corrigió: *«rotulada con la división de
+    //    ruta por camión»*. Tenía razón y el orden no es un detalle — la
+    //    pregunta que esta capa existe para contestar es **de quién es esta
+    //    zona**, no cómo la numeramos nosotros. El número de zona es
+    //    bookkeeping; el camión es la respuesta. Va grande el camión y chico el
+    //    número, que sigue haciendo falta para cruzarlo con la hoja del chofer.
+    //
+    // ⛔ Y si la zona NO tiene camión, lo DICE. Una zona sin dueño pintada igual
+    //    que una con dueño esconde justo lo que falta hacer.
+    //    [[norma-la-falta-de-un-dato-no-es-un-dato]]
     var c = z.centro && z.centro.length===2 ? z.centro : null;
     if(!c) return;
-    var quien = z.cam ? esc(String(z.cam).replace(/^JAC-/,''))
-                      : '<span style="opacity:.75">sin camión</span>';
+    var quien = z.cam
+      ? '<b style="font-size:'+(toca?14:12)+'px;letter-spacing:.2px">'
+          +esc(String(z.cam).replace(/^JAC-/,''))+'</b>'
+      : '<b style="font-size:'+(toca?12:10)+'px;opacity:.8">SIN CAMIÓN</b>';
     capaZona.push(L.marker(c,{pane:'zonas',interactive:false,icon:L.divIcon({className:'',
-      html:'<div class="chapaZona" style="transform:translate(-50%,-50%);white-space:nowrap;font-size:'
-        +(toca?13:11)+'px;font-weight:800;letter-spacing:.3px;color:'+color+';'
-        +'background:rgba(0,0,0,.80);border:2px solid '+color+';border-radius:6px;'
+      html:'<div class="chapaZona" style="transform:translate(-50%,-50%);white-space:nowrap;'
+        +'display:flex;align-items:baseline;gap:5px;font-weight:800;color:'+color+';'
+        +'background:rgba(0,0,0,.82);border:2px solid '+color+';border-radius:6px;'
         +'padding:2px 8px;box-shadow:0 0 10px rgba(0,0,0,.7);opacity:'+(toca?1:.7)+'">'
-        +'Z'+z.zona+' · '+quien+'</div>'})}).addTo(mapa));
+        + quien
+        + '<span style="font-size:'+(toca?10:9)+'px;font-weight:600;opacity:.72">z'+z.zona+'</span>'
+        + '</div>'})}).addTo(mapa));
   });
 }
 
@@ -2073,9 +2086,9 @@ async function preguntarZona(e){
     var color = COLOR_PARR[(z.color||0) % COLOR_PARR.length];
     pop.setContent(
       '<div style="font:13px/1.55 system-ui;min-width:210px">'
-      +'<div style="font-weight:800;font-size:15px;color:'+color+'">Zona '+z.zona
-      +' · '+(z.cam ? esc(z.cam) : 'SIN CAMIÓN ASIGNADO')+'</div>'
-      +'<div style="opacity:.85">'+esc(z.parroquia.replace(/^Parroquia /,''))+'</div>'
+      +'<div style="font-weight:800;font-size:16px;color:'+color+'">'
+      +(z.cam ? esc(z.cam) : 'SIN CAMIÓN ASIGNADO')+'</div>'
+      +'<div style="opacity:.85">'+esc(z.parroquia.replace(/^Parroquia /,''))+' · zona '+z.zona+'</div>'
       +(z.por==='calle'
         ? '<div style="margin-top:5px;opacity:.85">'+esc(z.calle)+' · a '+z.a_metros+' m</div>'
         : '<div style="margin-top:5px;opacity:.85">Por el contorno de la zona: ahí no tenemos ninguna calle cargada cerca.</div>')

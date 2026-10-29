@@ -144,7 +144,11 @@ await p.waitForTimeout(2500)
 //    buscaba en `window`, informaba ceros con la capa perfectamente dibujada.
 //    Se maneja como una persona: la rueda del mouse sobre la zona.
 const z0 = ZONAS.find((z) => z.parroquia.includes('Olegario') && z.zona === 7) || ZONAS[0]
-const marca = `Z${z0.zona} · ${String(z0.cam || '').replace(/^JAC-/, '')}`
+// ⛔ La chapa ahora lidera con el CAMIÓN («B012» grande, «z7» chico) porque la
+//    pregunta es de quién es la zona. Su texto queda como «B012z7».
+//    Y OJO: el camión solo NO identifica — el mismo tiene zona en tres
+//    parroquias distintas. Por eso después se exige también la parroquia.
+const marca = `${String(z0.cam || '').replace(/^JAC-/, '')}z${z0.zona}`
 const chapa = () => p.locator('.chapaZona', { hasText: marca }).first()
 
 const acercar = async (n) => {
@@ -189,10 +193,11 @@ else {
   await p.mouse.click(c.x + c.width / 2, c.y + c.height / 2)
   await p.waitForTimeout(1000)
   const globo = (await p.textContent('.leaflet-popup-content').catch(() => '')) || ''
-  const esperado = `Zona ${z0.zona} · ${z0.cam}`
-  console.log(`Clic en el centro de la zona ${z0.zona} → «${globo.replace(/\s+/g, ' ').trim().slice(0, 90)}»`)
-  if (globo.includes(esperado)) console.log(`✅ el globo dice «${esperado}»`)
-  else { console.log(`⛔ se esperaba «${esperado}»`); fallos++ }
+  const corto = z0.parroquia.replace(/^Parroquia /, '')
+  const faltan = [z0.cam, corto, `zona ${z0.zona}`].filter((x) => !globo.includes(x))
+  console.log(`Clic en el centro de la zona ${z0.zona} → «${globo.replace(/\s+/g, ' ').trim().slice(0, 95)}»`)
+  if (!faltan.length) console.log(`✅ el globo dice el camión, la parroquia y la zona`)
+  else { console.log(`⛔ al globo le falta: ${faltan.join(' · ')}`); fallos++ }
   await p.screenshot({ path: 'pruebas/_zonas-clic.png' })
 }
 console.log(fallos ? `\n⛔ ${fallos} fallo(s)` : '\n✅ la capa de zonas se dibuja y contesta')
