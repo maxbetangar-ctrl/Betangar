@@ -362,6 +362,7 @@
         <button class="btn" id="bRec" title="Con muchas unidades los recorridos se tapan entre sí. Acá se elige cuántos se ven.">Recorridos: todos</button>
         <button class="btn" id="bLimp" title="Dibuja SOLO lo que se recorrió dentro de tus cuatro parroquias. Los viajes al vertedero y el traslado por carretera no se pintan: son kilómetros, no limpieza, y son los que abren el mapa y achican la zona de trabajo.">🧽 Solo lo limpiado</button>
         <button class="btn" id="bParr" title="Los límites de las parroquias del Municipio Maracaibo. Las cuatro que atiende Betangar van resaltadas y con su nombre; el resto, de fondo.">🗺️ Parroquias</button>
+        <button class="btn" id="bZona" title="Divide cada parroquia propia en una zona por compactadora y dice qué camión tiene cada una. Con esto puesto, tocando cualquier punto del mapa se responde a qué camión llamar por esa calle.">🚛 Zonas</button>
         <button class="btn" id="bSurt" title="Dónde se cargó combustible. Lo que importa son las que caen FUERA de una estación marcada.">⛽ Surtidas</button>
         <button class="btn ocultarTv" id="bFalta" title="Pinta las calles de tus parroquias por las que NO hay registro de paso en los ultimos dias. Sin registro no es lo mismo que no pasaron.">🧹 Sin registro</button>
       </div>
@@ -397,7 +398,7 @@
 // sobre una función que estaba puesta hacía una hora.
 // Con el sello a la vista, la pregunta «¿estás viendo la última?» se contesta mirando,
 // en vez de adivinando. Al tocar este archivo, subir la fecha.
-var VERSION_PANTALLA = '20261023-2200';
+var VERSION_PANTALLA = '20261029-1600';
 
 var SUPA_URL = 'https://hrkjddehqnzcqwlkklqm.supabase.co';
 var SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhya2pkZGVocW56Y3F3bGtrbHFtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc2NTk1NzIsImV4cCI6MjA5MzIzNTU3Mn0.kqWKthyZfPZ86toql7shGByF-ZhUpcQUS4Jw4RnG_ko';
@@ -717,6 +718,11 @@ function iniciarMapa(){
   mapa.getPane('parroquias').style.zIndex = 250;
   // Las calles sin registro van ENCIMA de las parroquias y DEBAJO del recorrido:
   // tienen que verse sobre el limite, pero nunca tapar por donde SI se paso.
+  // Las zonas van ENCIMA del límite de la parroquia (son su subdivisión) y
+  // debajo de todo lo que dibuje el recorrido.
+  mapa.createPane('zonas');
+  mapa.getPane('zonas').style.zIndex = 260;
+  mapa.getPane('zonas').style.pointerEvents = 'none';
   mapa.createPane('faltantes');
   mapa.getPane('faltantes').style.zIndex = 300;
   mapa.getPane('faltantes').style.pointerEvents = 'none';
@@ -1437,6 +1443,10 @@ async function irADia(f){
     await cargarChoferes(true);   // forzado: cambió el día. Antes de pintar, o la primera pasada sale sin chofer
     await cargarCronograma();     // el cronograma es POR DÍA: cambia con selDia
     pintarParroquias();           // y con el cambia cuál parroquia va resaltada
+    // Las zonas tambien se repintan: el resalte depende de que parroquia toca
+    // ESE dia, y el camion de cada zona sale de la asignacion vigente ESE dia.
+    ZONAS = []; if(VER_ZONA) await cargarZonas();
+    pintarZonas();
     pintar();
     if(esHoy()) marcarVivo();
   }catch(e){
@@ -1964,6 +1974,113 @@ function ciclarParroquias(){
   VER_PARR=!VER_PARR;
   try{ localStorage.setItem('btg_mapa_parr', VER_PARR?'1':'0'); }catch(e){}
   pintarParroquias();
+}
+
+// ── 🚛 LAS ZONAS: UN CAMIÓN POR PEDAZO ──────────────────────────────────────
+//
+// PEDIDO (Máximo, 29/10/2026): «que el mapa se vea así delimitado para saber a
+// qué zona representa cada parte y saber a qué camión llamar».
+//
+// ⛔ SE DIBUJA COMO LÍMITE, NO COMO MANCHA — y esto ya está aprendido en esta
+//    misma pantalla, a costa de tres versiones de las parroquias: un relleno
+//    sobre la zona apaga justo por donde andan los camiones, que es lo que hay
+//    que leer. Multiplicado por dieciocho zonas, apaga la ciudad. Entonces lo
+//    mismo que allá: franja oscura (casing) + línea de color, y sin relleno.
+//
+// ⛔ LOS CUATRO TONOS ALCANZAN PORQUE NINGUNA ZONA VECINA COMPARTE EL SUYO (lo
+//    garantiza el sectorizador, con una búsqueda exacta de coloreo). Dieciocho
+//    tonos distintos NO se distinguen con ningún criterio; cuatro más el número
+//    en la chapa, sí. El que identifica es el NÚMERO; el color sólo separa.
+var ZONAS=[], capaZona=[], VER_ZONA=false;
+
+async function cargarZonas(){
+  if(ZONAS.length) return;
+  try{
+    var r=await sb.rpc('zonas_mapa',{p_fecha:DIA});
+    if(r.error){
+      // Un mapa sin zonas se lee como «no hay zonas», que no es lo mismo que
+      // «no se pudieron leer». Se dice.
+      document.getElementById('avisos').innerHTML+=
+        '<div class="aviso mal"><b>No se pudieron leer las zonas.</b> '+esc(r.error.message)+'</div>';
+      return;
+    }
+    ZONAS=r.data||[];
+  }catch(e){}
+}
+
+function pintarZonas(){
+  capaZona.forEach(function(c){ try{ mapa.removeLayer(c); }catch(e){} }); capaZona=[];
+  var b=document.getElementById('bZona');
+  if(b) b.classList.toggle('on', VER_ZONA);
+  if(!VER_ZONA || !ZONAS.length) return;
+
+  ZONAS.forEach(function(z){
+    var color = COLOR_PARR[(z.color||0) % COLOR_PARR.length];
+    var toca = parroquiasDeHoy().indexOf(z.parroquia) >= 0;
+    (z.anillos||[]).forEach(function(anillo){
+      if(!anillo || anillo.length < 3) return;
+      capaZona.push(L.polygon(anillo,{pane:'zonas',interactive:false,
+        color:'#000', weight: toca?7:5, opacity:.45, fill:false}).addTo(mapa));
+      capaZona.push(L.polygon(anillo,{pane:'zonas',interactive:false,
+        color:color, weight: toca?3:2, opacity: toca?1:.6, fill:false,
+        dashArray: toca?null:'6,6'}).addTo(mapa));
+    });
+    // La chapa: el número y el camión. ⛔ Si la zona no tiene camión asignado lo
+    //    DICE. Una zona sin dueño pintada igual que una con dueño esconde justo
+    //    lo que falta hacer. [[norma-la-falta-de-un-dato-no-es-un-dato]]
+    var c = z.centro && z.centro.length===2 ? z.centro : null;
+    if(!c) return;
+    var quien = z.cam ? esc(String(z.cam).replace(/^JAC-/,''))
+                      : '<span style="opacity:.75">sin camión</span>';
+    capaZona.push(L.marker(c,{pane:'zonas',interactive:false,icon:L.divIcon({className:'',
+      html:'<div class="chapaZona" style="transform:translate(-50%,-50%);white-space:nowrap;font-size:'
+        +(toca?13:11)+'px;font-weight:800;letter-spacing:.3px;color:'+color+';'
+        +'background:rgba(0,0,0,.80);border:2px solid '+color+';border-radius:6px;'
+        +'padding:2px 8px;box-shadow:0 0 10px rgba(0,0,0,.7);opacity:'+(toca?1:.7)+'">'
+        +'Z'+z.zona+' · '+quien+'</div>'})}).addTo(mapa));
+  });
+}
+
+function ciclarZonas(){
+  VER_ZONA=!VER_ZONA;
+  try{ localStorage.setItem('btg_mapa_zona', VER_ZONA?'1':'0'); }catch(e){}
+  if(VER_ZONA) cargarZonas().then(pintarZonas); else pintarZonas();
+}
+
+// ── ¿A QUÉ CAMIÓN LLAMO POR ESTA ESQUINA? ───────────────────────────────────
+//
+// ⛔ LA RESPUESTA NO SALE DEL POLÍGONO QUE SE ESTÁ VIENDO, sale de `zona_en_punto`
+//    en la base. El contorno dibujado es una rejilla de 25 m y para 33 de 725
+//    tramos dice una zona distinta a la que figura en la hoja de ese chofer.
+//    Quien atiende el teléfono tiene que dar la MISMA zona que el chofer tiene
+//    en la mano, así que manda la calle más cercana y la pieza lo dice.
+async function preguntarZona(e){
+  if(!VER_ZONA) return;
+  var pop = L.popup({className:'popZona'}).setLatLng(e.latlng)
+    .setContent('<div style="font:600 13px system-ui">Buscando…</div>').openOn(mapa);
+  try{
+    var r = await sb.rpc('zona_en_punto',
+      {p_lat:e.latlng.lat, p_lon:e.latlng.lng, p_fecha:DIA});
+    if(r.error){ pop.setContent('<b>No se pudo preguntar.</b><br>'+esc(r.error.message)); return; }
+    var z = (r.data||[])[0];
+    if(!z){
+      // ⛔ «No cae en ninguna zona» NO es «no se sabe»: es que ese punto está
+      //    fuera de las dos parroquias que están repartidas.
+      pop.setContent('<div style="font:600 13px system-ui;line-height:1.5">Fuera de las parroquias repartidas.'
+        +'<br><span style="font-weight:400;opacity:.8">Hoy sólo están divididas en zonas Olegario Villalobos y Caracciolo Parra Pérez.</span></div>');
+      return;
+    }
+    var color = COLOR_PARR[(z.color||0) % COLOR_PARR.length];
+    pop.setContent(
+      '<div style="font:13px/1.55 system-ui;min-width:210px">'
+      +'<div style="font-weight:800;font-size:15px;color:'+color+'">Zona '+z.zona
+      +' · '+(z.cam ? esc(z.cam) : 'SIN CAMIÓN ASIGNADO')+'</div>'
+      +'<div style="opacity:.85">'+esc(z.parroquia.replace(/^Parroquia /,''))+'</div>'
+      +(z.por==='calle'
+        ? '<div style="margin-top:5px;opacity:.85">'+esc(z.calle)+' · a '+z.a_metros+' m</div>'
+        : '<div style="margin-top:5px;opacity:.85">Por el contorno de la zona: ahí no tenemos ninguna calle cargada cerca.</div>')
+      +'</div>');
+  }catch(err){ pop.setContent('<b>No se pudo preguntar.</b>'); }
 }
 
 // ── 📅 EL CRONOGRAMA: QUÉ PARROQUIA TOCA ────────────────────────────────────
@@ -2832,7 +2949,16 @@ async function arrancarVista(){
   document.getElementById('bDen').onclick = modoDenuncia;
   document.getElementById('bParr').onclick = ciclarParroquias;
   document.getElementById('bFalta').onclick = ciclarFaltantes;
+  document.getElementById('bZona').onclick = ciclarZonas;
   try{ VER_PARR = localStorage.getItem('btg_mapa_parr') !== '0'; }catch(e){}
+  // ⛔ Las zonas nacen APAGADAS. Esta pantalla vive en el televisor de la
+  //    oficina mostrando los recorridos; dieciocho contornos encima sin que
+  //    nadie los haya pedido es ruido. Se prenden y quedan prendidas.
+  try{ VER_ZONA = localStorage.getItem('btg_mapa_zona') === '1'; }catch(e){}
+  if(VER_ZONA) cargarZonas().then(pintarZonas);
+  // Tocar el mapa contesta «¿a qué camión llamo?» — sólo con las zonas puestas,
+  // para no robarle el clic a todo lo demás.
+  mapa.on('click', preguntarZona);
   document.getElementById('bDenOk').onclick = denCerrarZona;
   document.getElementById('bDenUndo').onclick = denDeshacer;
   // El rol se pregunta ANTES de traer nada: si no puede leer, lo que corresponde es
@@ -2935,6 +3061,7 @@ async function arrancarVista(){
   //    defecto que se vino a arreglar, un escalon mas arriba.
   await repaso();
   pintarParroquias();
+  pintarZonas();
   await cargarSitios();
   // El botón solo aparece si la base le va a aceptar la escritura. No es el candado
   // —el candado es la RLS— es no ofrecer algo que va a terminar en un error.

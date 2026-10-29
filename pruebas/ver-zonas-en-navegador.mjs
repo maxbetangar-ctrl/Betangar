@@ -1,0 +1,199 @@
+// ═══════════════════════════════════════════════════════════════════════════════
+// VER LA CAPA DE ZONAS EN UN NAVEGADOR DE VERDAD, sin sesión.
+//
+// ⛔ Para mirar una pantalla detrás de login NO hace falta una sesión: se
+//    INTERCEPTA la API y se le sirven respuestas armadas. El navegador es real y
+//    la página es la misma que se despliega.
+//    [[verificar-pantalla-en-navegador-sin-sesion]]
+//
+// Lo que esto SÍ prueba: que la capa se dibuja, que el contorno cae donde debe,
+// que la chapa dice la zona y el camión, y que tocar el mapa contesta.
+// ⛔ Lo que NO prueba: el RLS, los permisos ni que la RPC exista en producción.
+//    Eso se comprueba aparte, contra la base. [[norma-probar-el-camino-no-la-pieza]]
+//
+// Uso:  node pruebas/ver-zonas-en-navegador.mjs [--puerto 8745]
+// ═══════════════════════════════════════════════════════════════════════════════
+import fs from 'node:fs'
+import http from 'node:http'
+import path from 'node:path'
+import { getPAT } from '../../maxware-tools/pat.mjs'
+
+const { chromium } = await import(
+  'file:///C:/Users/Maxbetangar/AppData/Roaming/npm/node_modules/playwright/index.mjs')
+
+const REF = 'hrkjddehqnzcqwlkklqm'
+const PUERTO = Number(process.argv[process.argv.indexOf('--puerto') + 1]) || 8745
+const RAIZ = path.resolve(path.dirname(new URL(import.meta.url).pathname.slice(1)), '..')
+
+async function sql(q) {
+  const pat = await getPAT()
+  const r = await fetch(`https://api.supabase.com/v1/projects/${REF}/database/query`, {
+    method: 'POST', headers: { Authorization: `Bearer ${pat}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query: q }),
+  })
+  if (!r.ok) throw new Error(`SQL ${r.status}: ${(await r.text()).slice(0, 300)}`)
+  return r.json()
+}
+
+// ── Los datos de verdad, de la base ──────────────────────────────────────────
+// ⛔ No se inventan: si se le dan zonas de mentira, lo que se mira no es el
+//    producto. Son las mismas filas que va a devolver la RPC en producción.
+const ZONAS = (await sql(`select * from zonas_mapa(current_date)`))
+const PARR = await sql(`select nombre, es_nuestra, poligono, poligono_zona from parroquias order by nombre`)
+console.log(`Traído de la base: ${ZONAS.length} zonas, ${ZONAS.filter(z => z.cam).length} con camión.`)
+
+const tipos = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8', '.json': 'application/json', '.png': 'image/png',
+  '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.webmanifest': 'application/manifest+json' }
+const servidor = http.createServer((req, res) => {
+  const f = path.join(RAIZ, decodeURIComponent(req.url.split('?')[0]).replace(/^\/+/, '') || 'mapa.html')
+  if (!f.startsWith(RAIZ) || !fs.existsSync(f) || fs.statSync(f).isDirectory()) { res.writeHead(404); return res.end('no') }
+  res.writeHead(200, { 'content-type': tipos[path.extname(f)] || 'application/octet-stream' })
+  fs.createReadStream(f).pipe(res)
+}).listen(PUERTO)
+
+const navegador = await chromium.launch()
+const ctx = await navegador.newContext({ viewport: { width: 1500, height: 950 } })
+
+// ── La API, servida por nosotros ─────────────────────────────────────────────
+const sesion = {
+  access_token: 'prueba', token_type: 'bearer', expires_in: 3600,
+  expires_at: Math.floor(Date.now() / 1000) + 3600, refresh_token: 'prueba',
+  user: { id: '00000000-0000-0000-0000-000000000001', email: 'prueba@betangar', role: 'authenticated',
+    aud: 'authenticated', app_metadata: {}, user_metadata: {} },
+}
+await ctx.addInitScript((s) => {
+  // ⛔ NO SE FALSIFICA LA SESIÓN EN localStorage. El cliente v2 DECODIFICA el
+  //    `access_token` como JWT para sacarle el vencimiento; con un token
+  //    inventado lo descarta en silencio, la pantalla muestra la tapa de login
+  //    y uno se queda mirando una captura vacía creyendo que la capa no anda.
+  //    Se intercepta el CLIENTE: `getSession` contesta lo que queremos.
+  try { localStorage.setItem('btg_mapa_zona', '1') } catch (e) {}   // la capa, puesta
+  let guardado
+  Object.defineProperty(window, 'supabase', {
+    configurable: true,
+    get() { return guardado },
+    set(v) {
+      if (v && v.createClient && !v.__parcheado) {
+        const orig = v.createClient.bind(v)
+        v.createClient = (...a) => {
+          const c = orig(...a)
+          c.auth.getSession = async () => ({ data: { session: s }, error: null })
+          c.auth.getUser = async () => ({ data: { user: s.user }, error: null })
+          c.auth.onAuthStateChange = () => ({ data: { subscription: { unsubscribe() {} } } })
+          return c
+        }
+        v.__parcheado = true
+      }
+      guardado = v
+    },
+  })
+}, sesion)
+
+const p = await ctx.newPage()
+const errores = []
+p.on('pageerror', (e) => errores.push(String(e)))
+p.on('console', (m) => { if (m.type() === 'error') errores.push('console: ' + m.text()) })
+
+await p.route('**/auth/v1/**', (r) => {
+  // ⛔ `/token` devuelve una SESIÓN y `/user` devuelve un USUARIO. Con un solo
+  //    cuerpo para los dos, el refresco devolvía un usuario, el cliente lo leía
+  //    como sesión inválida y volvía a la tapa de login.
+  const u = r.request().url()
+  const cuerpo = /\/user/.test(u) ? sesion.user : sesion
+  return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(cuerpo) })
+})
+
+await p.route('**/rest/v1/**', (ruta) => {
+  const u = ruta.request().url()
+  const dar = (d) => ruta.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(d) })
+  if (u.includes('/rpc/zonas_mapa')) return dar(ZONAS)
+  if (u.includes('/rpc/zona_en_punto')) {
+    // ⛔ Se contesta con la zona de VERDAD del punto pedido, no con una fija:
+    //    si se devolviera siempre lo mismo, el popup «anda» aunque esté roto.
+    const b = (() => { try { return JSON.parse(ruta.request().postData() || '{}') } catch (e) { return {} } })()
+    const z = ZONAS.find((x) => dentro(b.p_lat, b.p_lon, x.anillos))
+    return dar(z ? [{ parroquia: z.parroquia, zona: z.zona, color: z.color, cam: z.cam,
+      por: 'calle', calle: 'Calle de prueba', a_metros: 12 }] : [])
+  }
+  if (u.includes('/rpc/app_rol')) return dar('superadmin')
+  if (u.includes('/parroquias')) return dar(PARR)
+  return dar([])          // lo demás, vacío: no estorba
+})
+
+function dentro(la, lo, anillos) {
+  let n = 0
+  for (const ring of anillos || []) {
+    let d = false
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      const [ai, oi] = ring[i], [aj, oj] = ring[j]
+      if ((oi > lo) !== (oj > lo) && la < (aj - ai) * (lo - oi) / (oj - oi) + ai) d = !d
+    }
+    if (d) n++
+  }
+  return n % 2 === 1
+}
+
+await p.goto(`http://127.0.0.1:${PUERTO}/mapa.html`, { waitUntil: 'networkidle' })
+await p.waitForTimeout(2500)
+
+// ── Acercar, que es como se mira de verdad ──────────────────────────────────
+//
+// ⛔ Todo el JS de la pantalla vive dentro de un IIFE, así que NO hay `window.mapa`
+//    ni ninguna otra variable global que tocar — y la primera medición, que las
+//    buscaba en `window`, informaba ceros con la capa perfectamente dibujada.
+//    Se maneja como una persona: la rueda del mouse sobre la zona.
+const z0 = ZONAS.find((z) => z.parroquia.includes('Olegario') && z.zona === 7) || ZONAS[0]
+const marca = `Z${z0.zona} · ${String(z0.cam || '').replace(/^JAC-/, '')}`
+const chapa = () => p.locator('.chapaZona', { hasText: marca }).first()
+
+const acercar = async (n) => {
+  for (let i = 0; i < n; i++) {
+    const c = await chapa().boundingBox().catch(() => null)
+    if (!c) break
+    await p.mouse.move(c.x + c.width / 2, c.y + c.height / 2)
+    await p.mouse.wheel(0, -400)
+    await p.waitForTimeout(450)
+  }
+  await p.waitForTimeout(800)
+}
+// Dos alturas, porque contestan cosas distintas: de lejos se ve si las zonas
+// se distinguen entre si; de cerca, si el globo dice lo que tiene que decir.
+await acercar(3)
+
+// ── Lo que se exige ──────────────────────────────────────────────────────────
+const medida = await p.evaluate(() => ({
+  chapasZona: document.querySelectorAll('.chapaZona').length,
+  sinCamion: [...document.querySelectorAll('.chapaZona')]
+    .filter((d) => /sin camión/.test(d.textContent || '')).length,
+  botonPrendido: !!document.querySelector('#bZona.on'),
+  tapa: getComputedStyle(document.getElementById('tapa')).display,
+}))
+console.log('En pantalla:', medida)
+let fallos = 0
+if (medida.chapasZona !== ZONAS.length) {
+  console.log(`⛔ se esperaban ${ZONAS.length} chapas de zona y hay ${medida.chapasZona}`); fallos++
+}
+await p.screenshot({ path: 'pruebas/_zonas-mapa.png' })
+await acercar(3)
+
+// ── El camino entero: tocar el mapa y leer la respuesta ─────────────────────
+const c = await chapa().boundingBox().catch(() => null)
+if (!c) { console.log(`⛔ no se encontró la chapa «${marca}»`); fallos++ }
+else {
+  await p.mouse.click(c.x + c.width / 2, c.y + c.height / 2)
+  await p.waitForTimeout(1000)
+  const globo = (await p.textContent('.leaflet-popup-content').catch(() => '')) || ''
+  const esperado = `Zona ${z0.zona} · ${z0.cam}`
+  console.log(`Clic en el centro de la zona ${z0.zona} → «${globo.replace(/\s+/g, ' ').trim().slice(0, 90)}»`)
+  if (globo.includes(esperado)) console.log(`✅ el globo dice «${esperado}»`)
+  else { console.log(`⛔ se esperaba «${esperado}»`); fallos++ }
+  await p.screenshot({ path: 'pruebas/_zonas-clic.png' })
+}
+console.log(fallos ? `\n⛔ ${fallos} fallo(s)` : '\n✅ la capa de zonas se dibuja y contesta')
+console.log('capturas: pruebas/_zonas-mapa.png · pruebas/_zonas-clic.png')
+if (errores.length) console.log('⛔ errores:\n  ' + errores.slice(0, 6).join('\n  '))
+else console.log('✅ sin errores de JS')
+
+await navegador.close()
+servidor.close()
