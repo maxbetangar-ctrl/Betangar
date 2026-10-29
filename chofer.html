@@ -376,23 +376,23 @@ body{background:#0f1923;color:#fff;font-family:-apple-system,BlinkMacSystemFont,
         <div class="cl-row">
           <div class="cl-field">
             <label class="cl-label">KM Salida</label>
-            <input class="cl-input" type="tel" inputmode="numeric" pattern="[0-9]*" id="cl-km-salida" placeholder="0" oninput="_kmInput(this,'cl-km-salida-h')">
+            <input class="cl-input" type="tel" inputmode="numeric" pattern="[0-9]*" autocomplete="off" id="cl-km-salida" placeholder="0" oninput="_kmInput(this,'cl-km-salida-h')">
             <div class="cl-km-hint" id="cl-km-salida-h" style="font-size:12px;color:#6b7280;margin-top:3px;font-weight:600"></div>
           </div>
           <div class="cl-field">
             <label class="cl-label">Hora Salida</label>
-            <input class="cl-input" type="time" id="cl-hora-salida">
+            <input class="cl-input" type="time" autocomplete="off" id="cl-hora-salida">
           </div>
         </div>
         <div class="cl-row" id="cl-row-llegada" style="display:none">
           <div class="cl-field">
             <label class="cl-label">KM Llegada</label>
-            <input class="cl-input" type="tel" inputmode="numeric" pattern="[0-9]*" id="cl-km-llegada" placeholder="0" oninput="_kmInput(this,'cl-km-llegada-h')">
+            <input class="cl-input" type="tel" inputmode="numeric" pattern="[0-9]*" autocomplete="off" id="cl-km-llegada" placeholder="0" oninput="_kmInput(this,'cl-km-llegada-h')">
             <div class="cl-km-hint" id="cl-km-llegada-h" style="font-size:12px;color:#6b7280;margin-top:3px;font-weight:600"></div>
           </div>
           <div class="cl-field">
             <label class="cl-label">Hora Llegada</label>
-            <input class="cl-input" type="time" id="cl-hora-llegada">
+            <input class="cl-input" type="time" autocomplete="off" id="cl-hora-llegada">
           </div>
         </div>
       </div>
@@ -435,12 +435,12 @@ body{background:#0f1923;color:#fff;font-family:-apple-system,BlinkMacSystemFont,
           <div class="cl-row">
             <div class="cl-field" id="cl-cm-salida-cont">
               <label class="cl-label" id="cl-cm-salida-lbl">CM al SALIR del galpón</label>
-              <input class="cl-input" type="number" step="0.1" min="0" max="52.5" id="cl-cm-salida" placeholder="0" oninput="clCalcLitrosCm('salida')">
+              <input class="cl-input" type="number" step="0.1" min="0" max="52.5" autocomplete="off" id="cl-cm-salida" placeholder="0" oninput="clCalcLitrosCm('salida')">
               <div id="cl-cm-salida-l" style="font-size:12px;color:#7dc941;margin-top:3px"></div>
             </div>
             <div class="cl-field" id="cl-cm-llegada-cont" style="display:none">
               <label class="cl-label" id="cl-cm-llegada-lbl">CM al REGRESAR al galpón</label>
-              <input class="cl-input" type="number" step="0.1" min="0" max="52.5" id="cl-cm-llegada" placeholder="0" oninput="clCalcLitrosCm('llegada')">
+              <input class="cl-input" type="number" step="0.1" min="0" max="52.5" autocomplete="off" id="cl-cm-llegada" placeholder="0" oninput="clCalcLitrosCm('llegada')">
               <div id="cl-cm-llegada-l" style="font-size:12px;color:#7dc941;margin-top:3px"></div>
             </div>
           </div>
@@ -552,14 +552,14 @@ body{background:#0f1923;color:#fff;font-family:-apple-system,BlinkMacSystemFont,
         </div>
         <div id="cl-motivo-cont" style="display:none;margin-top:12px">
           <label class="cl-label">Motivo / Descripción del problema</label>
-          <textarea class="cl-input" id="cl-motivo" rows="3" placeholder="Describe el problema o motivo..." style="resize:none;font-size:13px"></textarea>
+          <textarea class="cl-input" autocomplete="off" id="cl-motivo" rows="3" placeholder="Describe el problema o motivo..." style="resize:none;font-size:13px"></textarea>
         </div>
       </div>
 
       <!-- Observaciones -->
       <div class="cl-section">
         <div class="cl-sec-title">📝 Observaciones</div>
-        <textarea class="cl-input" id="cl-observaciones" rows="3" placeholder="Escribe aquí cualquier observación del vehículo o ruta..." style="resize:none;font-size:13px"></textarea>
+        <textarea class="cl-input" autocomplete="off" id="cl-observaciones" rows="3" placeholder="Escribe aquí cualquier observación del vehículo o ruta..." style="resize:none;font-size:13px"></textarea>
       </div>
 
       <!-- Botón guardar -->
@@ -897,6 +897,8 @@ function avisarPermisosAlArrancar(){
 }
 
 document.addEventListener('DOMContentLoaded', function(){
+  // Lo PRIMERO de todo: lo que haya quedado en las casillas del checklist no es un dato.
+  try{ clVaciarCamposUnaVez(); }catch(e){}
   try{ avisarPermisosAlArrancar(); }catch(e){}
   var params = new URLSearchParams(window.location.search);
   cam = (params.get('cam') || '').toUpperCase().trim();
@@ -3223,6 +3225,8 @@ function clCorregirLlegada(){
 }
 
 function precargarChecklist(d){
+  // El cm de la mañana sale de la BASE, no de lo que haya quedado en la pantalla.
+  clTraerMedicionSalida();
   if(d.km_salida) setVal('cl-km-salida', _milesNum(d.km_salida));
   if(d.hora_salida) setVal('cl-hora-salida', d.hora_salida);
   // Datos de llegada: hacen falta para que la pantalla de "día cerrado" muestre lo REGISTRADO
@@ -3426,6 +3430,70 @@ function clRestaurarBorrador(){
   }catch(e){}
 }
 
+
+// ⛔ LA MEDICIÓN DE HOY NO PUEDE VENIR DE AYER (29/10/2026).
+//    ANDRY ORTEGA (JAC-B010) midió 12 cm en la regla y la casilla ya traía 18: los de
+//    ayer. Se guardaron los 18 — 71,64 litros que nadie echó. El mismo día, en la misma
+//    fila, el odómetro repitió 24233 km, el de la jornada anterior.
+//    NADIE los escribió: **el navegador repone el valor de una casilla de texto cuando la
+//    página se recarga**, y esta app se recarga SOLA al cambiar el día (ver el vigilante
+//    de `hr!==hoy`). Pasada la medianoche con la app abierta, los números de ayer vuelven
+//    solos a la pantalla de hoy, donde ya no hay base ni borrador que los pise.
+//
+//    Entonces se vacía a propósito, y después de esto lo único que puede aparecer en el
+//    checklist es lo que el sistema puso sabiendo lo que hacía: la fila de la base, o el
+//    borrador de HOY. [[norma-control-positivo-antes-de-creerle-al-vacio]]
+//
+// ⛔ UNA SOLA VEZ POR CARGA. No puede ir en `cargarChecklistSupabase()`: a esa la vuelve
+//    a llamar `verificarConexion()` cada vez que vuelve internet, y vaciar ahí le borra al
+//    chofer lo que está escribiendo justo cuando se le reconecta el teléfono — el mismo
+//    error que arregló el borrador, al revés.
+//
+// ⛔ Y LA LISTA DE CAMPOS ES UNA SOLA: `CL_DRAFT_CAMPOS`, la misma que usa el borrador.
+//    Una segunda lista acá se desincronizaría con el próximo campo que se agregue, y el
+//    campo nuevo nacería sin vaciar. [[norma-dos-listas-a-mano-se-desincronizan]]
+//    Pero esa lista se asigna más abajo en el archivo, y `clEngancharBorrador()` lo llama
+//    una cadena de funciones de arranque: si todavía no está, esto NO se da por hecho ni
+//    se calla — grita y reintenta en el próximo tick, que corre antes de que vuelva
+//    cualquier respuesta de la base. [[norma-control-positivo-antes-de-creerle-al-vacio]]
+var _CL_YA_VACIADO = false;
+function clVaciarCamposUnaVez(){
+  if(_CL_YA_VACIADO) return;
+  var campos = (typeof CL_DRAFT_CAMPOS !== 'undefined') ? CL_DRAFT_CAMPOS : null;
+  if(!campos || !campos.length){
+    console.error('clVaciarCamposUnaVez: CL_DRAFT_CAMPOS todavia no existe; reintento en el proximo tick');
+    setTimeout(clVaciarCamposUnaVez, 0);
+    return;
+  }
+  _CL_YA_VACIADO = true;
+  campos.forEach(function(id){
+    var el = document.getElementById(id);
+    if(el) el.value = '';
+  });
+}
+
+// El cm con el que la unidad salió esta mañana, LEÍDO DE LA BASE.
+// ⛔ Antes no se leía de ningún lado: en modo llegada la etiqueta decía «ya registrado
+//    esta mañana» y lo que se mostraba era lo que había quedado en la pantalla desde la
+//    mañana. Mientras la app no se recargaba se veía bien; recargada, el campo salía
+//    vacío con la etiqueta afirmando que ahí había un dato. Y al vaciar a propósito
+//    (arriba) esa referencia se perdería siempre — así que ahora se trae de verdad.
+//    [[norma-una-asercion-mal-escrita-acusa-al-producto]]
+// Solo rellena si está VACÍO: lo que el chofer esté escribiendo nunca se pisa.
+function clTraerMedicionSalida(){
+  try{
+    if(!supabase) return;
+    if(gv('cl-cm-salida')) return;
+    supabase.rpc('chofer_medicion', {p_cam: cam, p_fecha: hoy, p_momento: 'salida'})
+      .then(function(r){
+        // La RPC devuelve la altura SUELTA (numeric), no una fila: no hay `.data[0]`.
+        if(r && !r.error && r.data != null && !gv('cl-cm-salida')){
+          setVal('cl-cm-salida', r.data);
+          try{ clCalcLitrosCm('salida'); }catch(e){}
+        }
+      }, function(){});
+  }catch(e){}
+}
 function clBorrarBorrador(){ try{ localStorage.removeItem(clBorradorKey()); }catch(e){} }
 
 // Cualquier cosa que se escriba dentro del checklist queda guardada al momento.
