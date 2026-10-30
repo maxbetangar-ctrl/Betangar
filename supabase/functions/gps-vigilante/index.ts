@@ -548,6 +548,29 @@ Deno.serve(async (req) => {
       const atraso = await rpc("gps_reenvio_atraso", {});
       const imeiRaros = await rpc("gps_reenvio_imei_discrepante", {});
 
+      // ⛔ EL ATRASO DE ENTREGA DEL PROVEEDOR ES OTRA CAUSA, Y HASTA HOY NO TENÍA AVISO.
+      // `gps_reenvio_atraso` contesta «hace cuánto tenemos un dato sin mandar» — culpa
+      // nuestra. Esto contesta «hace cuánto el proveedor no nos entrega» — y mientras eso
+      // pasa, nosotros no estamos atrasados: estamos esperando. Confundirlas hacía que el
+      // aviso señalara a los camiones o a la Alcaldía por algo de un tercero.
+      // Detalle y calibración: `migrations/gps_atraso_dos_causas_2026-10-30.sql`.
+      const entrega = (await rpc("gps_atraso_entrega", {}))[0] ?? null;
+      // ⛔ `ensayo` (atado a `dry`) FUERZA la condición para poder leer el mensaje EXACTO que
+      // saldría. Sin esto, el aviso del proveedor solo se podría probar el día que el
+      // proveedor falle de verdad — o sea se estrenaría en el peor momento, y una alarma de
+      // la que solo sé que CALLA no está probada. Mismo criterio que `minAtraso` arriba.
+      if (entrega && ensayo) entrega.pasa_el_tope = Number(entrega.posiciones) > 0;
+
+      // ⛔ Minutos para leer, no para redondear a entero siempre. Redondeando, 0,32 salía
+      // como «*0 min* de retraso» y un aviso que puede decir eso se desacredita solo. Lo
+      // destapó la prueba con `ensayo=1` — con los umbrales reales nunca se habría visto,
+      // porque el aviso solo sale arriba de 20. Se declara ACÁ y no dentro de un bloque:
+      // lo usan dos mensajes distintos, y dos copias del mismo formato se desincronizan.
+      const mins = (v: unknown) => {
+        const n = Number(v);
+        return n < 10 ? n.toFixed(1).replace(".", ",") : String(Math.round(n));
+      };
+
       // ── EL PARTE DIARIO ────────────────────────────────────────────────────
       if (esParte) {
         const ayer = new Date(Date.now() - 4 * 3600 * 1000 - 86400000)
@@ -595,6 +618,30 @@ Deno.serve(async (req) => {
           l.push(`🔴 *Un equipo está reportando en otro camión* (${imeiRaros.length}): ` +
                  imeiRaros.map((r: any) => `${r.cam}`).join(", ") +
                  `. El camión que la Alcaldía ve en el mapa NO es el que creemos.`);
+        }
+
+        // CÓMO ENTREGÓ EL PROVEEDOR AYER. Va en el parte —que sale siempre— y no en la
+        // vigilancia, porque es un dato del día cerrado: si solo se avisara cuando está
+        // mal, nadie sabría cómo es un día normal, y el día que haga falta reclamar no
+        // habría con qué comparar. Sale de `gps_dia`, que lo guarda desde el 30/10/2026.
+        const atrDia = await sel(
+          `gps_dia?select=cam,puntos,atraso_p50_min,atraso_p95_min,atraso_tardias&f=eq.${ayer}`,
+        );
+        const conDato = atrDia.filter((r: any) => r.atraso_p50_min !== null);
+        if (conDato.length) {
+          const peor = conDato.slice().sort((a: any, b: any) =>
+            Number(b.atraso_p50_min) - Number(a.atraso_p50_min))[0];
+          const tardias = conDato.reduce((s: number, r: any) => s + Number(r.atraso_tardias || 0), 0);
+          const puntos  = conDato.reduce((s: number, r: any) => s + Number(r.puntos || 0), 0);
+          // ⛔ El umbral del texto es el mismo 20 min de la vigilancia, para que el parte y
+          // el aviso no se contradigan: dos umbrales a mano se desincronizan.
+          l.push(Number(peor.atraso_p50_min) > 20
+            ? `🟠 *El proveedor entregó tarde*: la peor unidad fue ${peor.cam}, con la mitad ` +
+              `de sus posiciones a más de ${Math.round(Number(peor.atraso_p50_min))} min. ` +
+              `${tardias} de ${puntos} posiciones del día llegaron con más de 30 min. ` +
+              `Nada se perdió, pero durante ese rato el mapa de ellos iba atrasado.`
+            : `⏱️ Entrega del proveedor: al día (la peor unidad, ${peor.cam}, con la mitad ` +
+              `de sus posiciones dentro de ${Number(peor.atraso_p50_min).toFixed(1)} min).`);
         }
         if (!cuadre.length) {
           l.push(`No hay posiciones guardadas del ${ayer}. Eso lo mira el vigilante del ` +
@@ -694,12 +741,65 @@ Deno.serve(async (req) => {
               `hace ${Math.round(Number(r.atraso_min))} min` +
               (r.ultimo_error ? `\n   falló: ${String(r.ultimo_error).slice(0, 120)}` : ""),
             ).join("\n") +
-            `\n\nEl resto de la flota sí está saliendo, así que no es la tarea: es algo ` +
-            `de esos camiones o de cómo los recibe el otro lado.`;
+            // ⛔ ESTA FRASE SE DICE SOLO SI ES VERDAD. Antes salía siempre, y el 23/10 —con
+            // la flota entera esperando— habría afirmado que «el resto sí está saliendo» y
+            // mandado a buscar el problema en los camiones o en la Alcaldía, cuando era el
+            // proveedor entregándonos tarde. Una aserción mal escrita acusa al producto, y
+            // acá acusaba al cliente.
+            (atrasadas.length < atraso.length
+              ? `\n\nEl resto de la flota sí está saliendo, así que no es la tarea: es algo ` +
+                `de esos camiones o de cómo los recibe el otro lado.`
+              : `\n\n⚠️ Son TODAS las unidades, así que no es de un camión en particular. ` +
+                (entrega?.pasa_el_tope
+                  ? `Y el proveedor nos está entregando con ${mins(entrega.p50_min)} min ` +
+                    `de atraso: no hay nada trabado de este lado, estamos esperando el dato.`
+                  : `El proveedor sí nos está entregando al día, así que lo trabado está ` +
+                    `entre nosotros y la plataforma de ellos.`));
 
           if (!dry && !(await yaAviso(clave))) { cola.push({ tipo: "gps_reenvio", telefono: AVISAR_A, mensaje: texto, ref: clave }); claves.push(clave); }
           detalle.atrasadas = { unidades: atrasadas.map((r: any) => r.cam), clave, mensaje: texto };
         }
+      }
+
+      // (2.b) EL PROVEEDOR NOS ESTÁ ENTREGANDO TARDE. Causa distinta de todo lo de arriba:
+      // acá el reenvío funciona perfecto y no hay nada trabado — lo que no llega es el dato.
+      //
+      // ⛔ POR QUÉ IMPORTA Y NO ES UN DETALLE TÉCNICO: mientras el dato no llega, el mapa de
+      // la Alcaldía muestra al camión quieto donde estuvo por última vez. No se pierde nada
+      // (el peor día, 23/10, cuadró completo), pero su pantalla dice algo que no es cierto, y
+      // eso es exactamente «pensar que no estuve en un sitio que sí estuve». El único momento
+      // en que esto se puede explicar es MIENTRAS pasa.
+      //
+      // ⛔ EL UMBRAL ES LA MEDIANA DE LOS ÚLTIMOS 30 MIN, no el p95, y vale 20 minutos.
+      // Calibrado sobre 358 ventanas de 12 días: con el p95 habría hablado en 10 de 12 días
+      // —porque el p95 caza las posiciones rezagadas de una unidad que volvió de un hueco de
+      // cobertura, o sea el sistema recuperándose— y con la mediana habla en 3, que son los 3
+      // incidentes reales. La función también exige 20 muestras: de madrugada entran 4 o 5 y
+      // una mediana sobre 5 muestras es ruido, no medición.
+      if (entrega?.pasa_el_tope) {
+        // La clave lleva la HORA REDONDEADA A LA BAJA cada 3 h, no los minutos de atraso:
+        // un episodio largo —el 23/10 duró 11 horas— avisa cada 3 h, no cada 10 minutos.
+        // Mismo criterio que el resto: mirar seguido y avisar seguido son cosas distintas.
+        const bloque = new Date(Math.floor(Date.now() / (3 * 3600 * 1000)) * 3 * 3600 * 1000);
+        const clave = `gps-entrega-atrasada-${bloque.toISOString().slice(0, 13)}`;
+        const piso = entrega.sondeo_cada_min;
+        const texto =
+          `🟠 *El proveedor del GPS nos está entregando tarde*\n\n` +
+          `De las últimas ${entrega.posiciones} posiciones que entraron, la mitad llegó con ` +
+          `más de *${mins(entrega.p50_min)} min* de retraso ` +
+          `(la peor, ${mins(entrega.peor_min)} min).\n\n` +
+          `El reenvío a la Alcaldía está funcionando: le mandamos cada posición en cuanto la ` +
+          `tenemos. Lo que pasa es que todavía no la tenemos — así que *en su mapa los ` +
+          `camiones se ven detenidos donde estuvieron por última vez*, aunque estén andando.\n\n` +
+          `⚠️ Nada se pierde: lo que llega tarde llega igual y se le reenvía igual. Pero si ` +
+          `hoy reclaman que una unidad estuvo parada, esta es la explicación.` +
+          (piso ? `\n\nNuestro lado consulta cada ${piso} min, así que el retraso no es de acá.` : "");
+
+        if (!dry && !(await yaAviso(clave))) {
+          cola.push({ tipo: "gps_reenvio", telefono: AVISAR_A, mensaje: texto, ref: clave });
+          claves.push(clave);
+        }
+        detalle.entrega_atrasada = { ...entrega, clave, mensaje: texto };
       }
 
       // (3) UN EQUIPO REPORTANDO EN OTRO CAMIÓN. No es atraso, es identidad:
