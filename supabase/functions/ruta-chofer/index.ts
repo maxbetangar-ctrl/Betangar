@@ -158,8 +158,25 @@ Deno.serve(async (req) => {
 
     // La cobertura la contesta el producto, no una consulta propia: dos piezas que
     // responden "que quedo sin pasar" tienen que responder lo mismo.
-    const cob = await rpc("zona_cobertura_del_dia", { p_fecha: dia });
-    if (!cob.length) return json({ ok: true, dia, nota: "sin cobertura calculada para ese dia" });
+    const cobTodo = await rpc("zona_cobertura_del_dia", { p_fecha: dia });
+    if (!cobTodo.length) return json({ ok: true, dia, nota: "sin cobertura calculada para ese dia" });
+
+    // ⛔ SOLO LAS PARROQUIAS QUE SALIERON ESE DIA. `zona_cobertura_del_dia` devuelve las
+    //    zonas de TODAS las parroquias donde el camion tiene sector, y un camion tiene uno
+    //    en cada una. Sin este filtro, el 30/10 (viernes, sale Caracciolo) el PDF le decia
+    //    a B008 «18 de 76 calles» sumandole sus zonas de Santa Lucia y Venancio Pulgar, que
+    //    NO SE TRABAJAN LOS VIERNES — o sea un reclamo por algo que no tenia que hacer.
+    //    Lo destapo el ensayo con `dry=1`; leyendo el codigo no se veia.
+    const salieron = new Set(
+      (await rpc("cronograma_del_dia", { p_fecha: dia }))
+        .map((c: any) => c.parroquia).filter(Boolean),
+    );
+    const cob = cobTodo.filter((f: any) => salieron.has(f.parroquia));
+    if (!cob.length) {
+      return json({ ok: true, dia, enviado: false,
+        parroquias_del_dia: [...salieron],
+        nota: "ninguna zona de las parroquias que salieron hoy tiene cobertura calculada" });
+    }
 
     const choferes = await rpc("chofer_del_dia", { p_fecha: dia });
     const quien: Record<string, any> = {};

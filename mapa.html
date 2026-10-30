@@ -1277,7 +1277,9 @@ function pintar(){
     var linea=pts.filter(function(p){return p.lat&&p.lon;}).map(function(p){return [p.lat,p.lon];});
     var tramos=partirRecorrido(pts);
     // ⛔ Recortado a nuestras parroquias: el acarreo al vertedero no es limpieza.
-    tramos.medidos = soloLimpiado(tramos.medidos);
+    var part = soloLimpiado(tramos.medidos);
+    tramos.medidos = part.dentro;
+    tramos.fuera   = part.fuera;
     var tv=document.body.classList.contains('tv');
 
     if(!dibujo[cam]){
@@ -1285,6 +1287,12 @@ function pintar(){
         // Varios arreglos = varios tramos sueltos en una sola capa. El recorrido queda
         // CORTADO donde no se supo, en vez de rellenado con una recta inventada.
         linea:L.polyline(tramos.medidos,{color:color,weight:tv?5:3.5,opacity:.8,dashArray:trazoDe(i)}).addTo(mapa),
+        // ⛔ LO DE AFUERA DE LA PARROQUIA DEL DIA: se REGISTRA pero NO CUENTA.
+        //    Fino y apagado, para que no se confunda con la ruta que si cuenta.
+        //    Borrarlo seria perder el registro de donde estuvo la unidad; dibujarlo
+        //    igual que el resto seria contarlo como trabajo. Ninguna de las dos.
+        fuera:L.polyline(tramos.fuera||[],{color:color,weight:tv?2:1.5,opacity:.28,
+                         dashArray:'2 6',interactive:false}).addTo(mapa),
         halo:L.marker(ult.lat&&ult.lon?[ult.lat,ult.lon]:[0,0],{interactive:false,
           icon:L.divIcon({className:'',html:'<div class="halo" style="width:34px;height:34px;color:'+color+'"></div>',iconSize:[34,34],iconAnchor:[17,17]})}).addTo(mapa),
         marca:L.marker([ult.lat,ult.lon],{icon:L.divIcon({className:'',
@@ -1296,6 +1304,7 @@ function pintar(){
       dibujo[cam].saltos=[];
     }else{
       dibujo[cam].linea.setLatLngs(tramos.medidos).setStyle({weight:tv?5:3.5});
+      if(dibujo[cam].fuera) dibujo[cam].fuera.setLatLngs(tramos.fuera||[]).setStyle({weight:tv?2:1.5});
       if(hist){
         // En un día pasado no hay nada que animar: el camión ya llegó donde llegó.
         dibujo[cam].marca.setLatLng([ult.lat,ult.lon]);
@@ -1548,11 +1557,12 @@ function limpiarDibujo(){
   Object.keys(dibujo).forEach(function(cam){
     var d=dibujo[cam]; if(!d) return;
     if(anim[cam]){ cancelAnimationFrame(anim[cam]); delete anim[cam]; }
-    [d.linea,d.halo,d.marca].forEach(function(c){ if(c){ try{ mapa.removeLayer(c); }catch(e){} } });
+    [d.linea,d.fuera,d.halo,d.marca].forEach(function(c){ if(c){ try{ mapa.removeLayer(c); }catch(e){} } });
     (d.paradas||[]).forEach(function(c){ try{ mapa.removeLayer(c); }catch(e){} });
     (d.saltos||[]).forEach(function(c){ try{ mapa.removeLayer(c); }catch(e){} });
   });
   dibujo={}; estado={}; crudo=[]; primeraVez=true; LIM_PARR=null; CAJAS_PARR=null;
+  CAJAS_DIA=undefined;   // `undefined` = sin calcular. `null` significa otra cosa.
   // ⚠️ Las surtidas NO se borran acá: no dependen del día que se esté viendo. Borrarlas
   // al cambiar de fecha haría desaparecer justo lo que se está yendo a buscar.
 }
@@ -1857,7 +1867,7 @@ async function cargarParroquias(){
     }
     PARROQUIAS=r.data||[];
     // La caja envolvente y el encuadre se derivan de esto: se invalidan juntos.
-    CAJAS_PARR=null; LIM_PARR=null;
+    CAJAS_PARR=null; LIM_PARR=null; CAJAS_DIA=undefined;
   }catch(e){}
 }
 
@@ -1884,6 +1894,9 @@ var SOLO_LIMP = true;   // ⛔ encendido por defecto: es lo que se pidió ver
  *     hasta 1.800 vértices son millones de comparaciones EN CADA REPASO. Con la
  *     caja, un punto del vertedero se descarta con 4 comparaciones. */
 var CAJAS_PARR = null;
+// ⛔ `undefined` = sin calcular; `null` = calculado y no se sabe. Son estados
+//    distintos: con un solo valor, «todavia no» y «no hay» se leen igual.
+var CAJAS_DIA;
 function cajasNuestras(){
   if(CAJAS_PARR) return CAJAS_PARR;
   if(!PARROQUIAS.length) return null;
@@ -1894,7 +1907,7 @@ function cajasNuestras(){
     p.poligono.forEach(function(v){
       if(v[0]>n)n=v[0]; if(v[0]<s)s=v[0]; if(v[1]<o)o=v[1]; if(v[1]>e)e=v[1];
     });
-    cs.push({ poli:p.poligono, n:n, s:s, o:o, e:e });
+    cs.push({ nombre:p.nombre, poli:p.poligono, n:n, s:s, o:o, e:e });
   });
   if(!cs.length) return null;
   CAJAS_PARR = cs;
@@ -1910,23 +1923,59 @@ function enAlgunaParroquia(lat, lon, cajas){
   return false;
 }
 
-/** Recorta los tramos a lo que cae dentro de nuestras parroquias.
- *  ⛔ Donde el camión SALE, el tramo se CORTA: no se une un punto de antes con
- *     uno de después, porque eso dibujaría una recta por donde nunca pasó. */
-function soloLimpiado(tramos){
-  if(!SOLO_LIMP) return tramos;
+/** Las parroquias que TOCAN ESE DÍA, con su polígono. Si no hay cronograma
+ *  (domingo, o día sin cargar) devuelve las cuatro nuestras: es preferible
+ *  recortar de menos que dejar la pantalla en blanco. */
+function cajasDelDia(){
+  if(CAJAS_DIA !== undefined) return CAJAS_DIA;
   var cajas = cajasNuestras();
-  if(!cajas) return tramos;          // todavía no se sabe: no se recorta nada
-  var fuera = [];
+  if(!cajas){ return (CAJAS_DIA = null); }
+  var hoy = (typeof parroquiasDeHoy === 'function') ? parroquiasDeHoy() : [];
+  if(!hoy || !hoy.length){ return (CAJAS_DIA = cajas); }
+  var cs = cajas.filter(function(c){ return hoy.indexOf(c.nombre) >= 0; });
+  return (CAJAS_DIA = (cs.length ? cs : cajas));
+}
+
+/** Parte el recorrido en lo que cuenta y lo que no.
+ *
+ *  ⛔ SE RECORTA A LA PARROQUIA DEL DÍA, no a las cuatro nuestras. Antes se
+ *     recortaba contra todas, y como en Maracaibo están pegadas, un camión que
+ *     trabaja Caracciolo y pasa por Olegario o Venancio seguía dibujado como
+ *     recorrido — que es lo que Máximo vio el 30/10: «las rutas de los choferes
+ *     las tienes pintadas por fuera».
+ *
+ *  ⛔ Y LO DE AFUERA NO SE BORRA. Regla de Máximo del 30/10: «se registra dónde
+ *     estuvieron pero se contabiliza es su ruta dentro de su parroquia». Trabajan
+ *     un poco fuera —levantan basura camino al bote, o tienen una marañita— y eso
+ *     tiene que verse: el día que haya que explicar dónde estuvo una unidad, el
+ *     recorrido completo tiene que estar. Se dibuja fino y apagado, para que se
+ *     distinga de la ruta que sí cuenta.
+ *     [[norma-se-registra-donde-estuvo-se-cuenta-su-parroquia]]
+ *
+ *  ⛔ Donde el camión CRUZA el límite, el tramo se CORTA: no se une un punto de
+ *     adentro con uno de afuera, porque eso dibujaría una recta por donde nunca
+ *     pasó. Mismo criterio que con los huecos de señal.
+ */
+function soloLimpiado(tramos){
+  if(!SOLO_LIMP) return { dentro: tramos, fuera: [] };
+  var cajas = cajasDelDia();
+  if(!cajas) return { dentro: tramos, fuera: [] };   // no se sabe: no se recorta
+  var dentro = [], fuera = [];
   tramos.forEach(function(tr){
-    var act = [];
+    var act = [], act2 = [];
     for(var k=0;k<tr.length;k++){
-      if(enAlgunaParroquia(tr[k][0], tr[k][1], cajas)) act.push(tr[k]);
-      else { if(act.length>1) fuera.push(act); act=[]; }
+      if(enAlgunaParroquia(tr[k][0], tr[k][1], cajas)){
+        if(act2.length>1) fuera.push(act2); act2=[];
+        act.push(tr[k]);
+      } else {
+        if(act.length>1) dentro.push(act); act=[];
+        act2.push(tr[k]);
+      }
     }
-    if(act.length>1) fuera.push(act);
+    if(act.length>1) dentro.push(act);
+    if(act2.length>1) fuera.push(act2);
   });
-  return fuera;
+  return { dentro: dentro, fuera: fuera };
 }
 
 // ── EL ENCUADRE: LA ZONA DE TRABAJO, NO EL CAMIÓN MÁS LEJOS ─────────────────
@@ -1943,6 +1992,9 @@ function soloLimpiado(tramos){
 //    cerca posible. Un camión fuera de cuadro no se pierde —la lista lo nombra y
 //    el mapa se puede mover— pero la zona de trabajo no puede quedar ilegible.
 var LIM_PARR = null;   // cache: recalcularlo en cada repaso no cambia nada
+// ⛔ Los dos caches se tiran JUNTOS al cambiar de dia: el recorte depende de que
+//    parroquia toca, y eso cambia con el dia. Si se olvida uno, el mapa de un
+//    martes recorta con las parroquias del viernes y nadie lo nota.
 
 /** Los anillos que hay que DIBUJAR de una parroquia: la zona de trabajo si se
  *  calculó, y si no el límite.
