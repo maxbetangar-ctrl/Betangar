@@ -113,13 +113,39 @@ async function cfg(clave: string): Promise<any> {
   try { return JSON.parse(v); } catch { return v; }
 }
 
+// ⛔ NINGUNA CONSULTA PUEDE FALLAR EN SILENCIO. `rpc` devuelve [] cuando no pudo
+//    preguntar, y seis llamadas de este archivo leen ese [] como «no hay novedad»: el
+//    vigilante manda «todo en orden» justo cuando dejo de ver. En vez de reescribir las
+//    seis con semanticas distintas, el fallo QUEDA ANOTADO y el aviso lo dice.
+//    [[norma-falta-de-dato-no-es-un-dato]] [[norma-arreglar-el-mecanismo-no-el-caso]]
+// ⚠️ Se limpia al empezar cada pedido, no al cargar el modulo: en Deno el isolate
+//    se reusa entre invocaciones y si no, el fallo de una corrida se arrastraria a la
+//    siguiente.
+let rpcFallado: string[] = [];
+// ⛔ EL MOTIVO SE GUARDA, NO SÓLO EL NOMBRE. `console.error` queda en un registro que
+//    desde acá no se puede leer: el 31/10 se perdió media hora adivinando por qué
+//    fallaba una consulta que por fuera andaba en 0,6 s. El detalle vuelve en la
+//    respuesta JSON de la función — nunca en el WhatsApp, que es para una persona.
+let rpcDetalle: string[] = [];
+
 async function rpc(fn: string, args: Record<string, unknown>): Promise<any[]> {
   const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/${fn}`, {
     method: "POST", headers: { ...HDR, "Content-Type": "application/json" },
     body: JSON.stringify(args),
   });
-  if (!r.ok) { console.error("rpc", fn, r.status, await r.text()); return []; }
+  if (!r.ok) {
+    const txt = await r.text();
+    console.error("rpc", fn, r.status, txt);
+    if (!rpcFallado.includes(fn)) rpcFallado.push(fn);
+    rpcDetalle.push(`${fn} -> HTTP ${r.status}: ${txt.slice(0, 200)}`);
+    return [];
+  }
   return await r.json();
+}
+
+/** El DIA en Venezuela (UTC-4). Para claves de aviso: una por dia, no por corrida. */
+function hoyVE(): string {
+  return new Date(Date.now() - 4 * 3600 * 1000).toISOString().slice(0, 10);
 }
 
 /** La hora del NEGOCIO (Venezuela, UTC-4), que es la que decide si se puede escribir. */
@@ -156,6 +182,7 @@ function hace(ms: number): string {
 
 Deno.serve(async (req) => {
   try {
+    rpcFallado = []; rpcDetalle = [];
     const dry = new URL(req.url).searchParams.get("dry") === "1";
     const ahora = Date.now();
 
@@ -905,10 +932,75 @@ Deno.serve(async (req) => {
       lineas.push(`🟡 *El proveedor de GPS está devolviendo error:*\n` + errs.join("\n"));
     }
 
+    // ── 4. LAS CALLES FIJAS DEL DIA ────────────────────────────────
+    // Hay calles con camion EXIGIDO fijo: cuando toca esa parroquia, esa unidad las
+    // tiene que recorrer, sin ambiguedad. Esto comprueba, calle por calle, si paso.
+    // ⛔ SOLO EN LA CORRIDA DE LA TARDE. El cron corre 10:40 y 17:40 VE; a las 10:40
+    //    la unidad todavia no llego y avisar seria una falsa alarma que ensena a
+    //    ignorar el aviso. A las 17:40 queda margen para mandar a alguien.
+    // ⛔ Y SI NO SE PUDO PREGUNTAR, SE DICE. Un `[]` por error se lee igual que «esta
+    //    todo recorrido», y aca el silencio es justo lo que no puede pasar.
+    if (horaNegocio() >= 14) {
+      const fijas = await rpc("calles_fijas_del_dia", { p_fecha: null });
+      if (rpcFallado.includes("calles_fijas_del_dia")) {
+        const k = `calles-fijas-sin-poder-mirar-${hoyVE()}`;
+        claves.push(k);
+        if (!(await yaAviso(k))) {
+          lineas.push(
+            `🔴 *No se pudo comprobar las calles vigiladas.* La consulta fallo, ` +
+            `asi que hoy NO se sabe si se recorrieron. No es «estan bien».`
+          );
+        } else { claves.pop(); }
+      } else {
+        // ⛔ ENSAYO, ATADO A `dry`. Medido: los tres dias de Olegario (22, 26 y 29/10)
+        //    las cuatro calles quedaron recorridas, asi que NO HAY un caso real donde
+        //    ver disparar esta alarma — y una alarma que nunca se vio funcionar se
+        //    estrenaria el dia que hace falta que funcione. Con `?dry=1&ensayo=calles`
+        //    se fuerza el caso positivo sobre las calles de verdad, sin mandar nada.
+        //    [[norma-probar-el-camino-no-la-pieza]]
+        const ensayoCalles = dry && new URL(req.url).searchParams.get("ensayo") === "calles";
+        const tocaban = ensayoCalles ? fijas : fijas.filter((f: any) => f.le_tocaba);
+        const faltan = ensayoCalles ? tocaban : tocaban.filter((f: any) => !f.recorrida);
+        if (faltan.length) {
+          const k = `calles-fijas-${hoyVE()}`;
+          claves.push(k);
+          if (!(await yaAviso(k))) {
+            lineas.push(
+              `🔴 *${faltan.length} de ${tocaban.length} calle(s) vigilada(s) sin recorrer hoy.*\n` +
+              // ⛔ LA REFERENCIA VA SÍ O SÍ. El ensayo del 31/10 sacó esto, cuatro veces:
+              //    «• (sin nombre en el callejero) (634 m) — exigida a JAC-B006».
+              //    Correcto y COMPLETAMENTE INÚTIL: con eso no se puede mandar a nadie,
+              //    y es la alarma que más importa del sistema. Los tramos vigilados no
+              //    tienen nombre en el callejero, así que `referencia` trae la calle con
+              //    nombre más cercana. Sólo se ve leyendo el texto que saldría.
+              //    [[norma-probar-el-camino-no-la-pieza]]
+              faltan.map((f: any) => {
+                const donde = f.referencia ? ` cerca de ${f.referencia}` : "";
+                const como = f.nombre && !String(f.nombre).startsWith("(sin nombre")
+                  ? f.nombre : `tramo de ${f.metros} m`;
+                return `• ${como}${donde} — exigida a ${f.cam_exigido}`;
+              }).join("\n") +
+              `\nTodavia hay tiempo de mandar la unidad.`
+            );
+          } else { claves.pop(); }
+        }
+      }
+    }
+
+    // ⛔ UN INFORME INCOMPLETO LO DICE. Si alguna consulta no se pudo hacer, el
+    //    «sin novedad» de abajo seria mentira: se avisa igual.
+    if (rpcFallado.length) {
+      lineas.push(
+        `⚠️ *Este informe puede estar incompleto:* no se pudo consultar ` +
+        rpcFallado.join(", ") + `. Lo que no aparezca abajo no quiere decir que este bien.`
+      );
+    }
+
     if (!lineas.length) {
       return new Response(JSON.stringify({
         ok: true, sin_novedad: true, unidades: equipos.length,
         min_sin_correr: Math.round(minSinCorrer),
+        fallos: rpcDetalle.length ? rpcDetalle : undefined,
       }), { headers: { "Content-Type": "application/json" } });
     }
 
@@ -921,6 +1013,7 @@ Deno.serve(async (req) => {
 
     return new Response(JSON.stringify({
       ok: true, dry, avisos: lineas.length, claves, mensaje: msg,
+      fallos: rpcDetalle.length ? rpcDetalle : undefined,
     }), { headers: { "Content-Type": "application/json" } });
 
   } catch (e) {
