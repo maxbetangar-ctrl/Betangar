@@ -49,13 +49,39 @@ async function sel(path: string): Promise<any[]> {
   if (!r.ok) { console.error("sel", path, r.status, await r.text()); return []; }
   return await r.json();
 }
-async function rpc(fn: string, args: Record<string, unknown>): Promise<any[]> {
-  const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/${fn}`, {
+// ⛔ EL TOPE VA EXPLÍCITO Y SE COMPRUEBA. PostgREST corta el resultado en su límite por
+//    omisión y NO avisa: devuelve 200 con menos filas. `zona_cobertura_del_dia` trae 1.942
+//    filas ordenadas por parroquia alfabéticamente, así que el corte se comía **Venancio
+//    Pulgar entera** (694 filas, la última del alfabeto) — y los sábados y miércoles, que
+//    son sus días, la pieza iba a contestar «no hay cobertura» PARA SIEMPRE sin un solo
+//    error. Lo destapó probar un sábado; el viernes no se notó porque Caracciolo es la
+//    primera. [[norma-la-barra-que-no-dice-que-sigue]]
+// ⚠️ `?limit=` NO sirve para esto: el tope lo pone el SERVIDOR (`db-max-rows`) y el
+//    parametro solo puede BAJARLO. Hay que PAGINAR con `Range`.
+//    ⛔ Se pagina con RANGO, no con `offset`: offset vuelve a recorrer lo ya leido en cada
+//       pagina y el costo crece al cuadrado. Acá son 2 o 3 páginas, pero la forma correcta
+//       no cuesta más escribirla. [[norma-paginar-con-offset-es-cuadratico]]
+// ⚠️ El tope de filas lo pone el SERVIDOR (`db-max-rows`): `?limit=` solo puede BAJARLO
+//    y el `Range` no resolvio. La salida es pedir MENOS: se filtra en el servidor por
+//    parroquia. Igual se comprueba el corte — si vuelve justo un multiplo redondo
+//    sospechoso, se avisa en el log en vez de confiar.
+const SOSPECHA = 1000;
+async function rpc(
+  fn: string, args: Record<string, unknown>, filtro = "",
+): Promise<any[] | null> {
+  const url = `${SUPABASE_URL}/rest/v1/rpc/${fn}` + (filtro ? `?${filtro}` : "");
+  const r = await fetch(url, {
     method: "POST", headers: { ...HDR, "Content-Type": "application/json" },
     body: JSON.stringify(args),
   });
-  if (!r.ok) { console.error("rpc", fn, r.status, await r.text()); return []; }
-  return await r.json();
+  // ⛔ Devuelve null —no []— cuando no se pudo preguntar: un error que se vuelve lista
+  //    vacia se lee igual que «no hay nada».
+  if (!r.ok) { console.error("rpc", fn, filtro, r.status, await r.text()); return null; }
+  const filas = await r.json();
+  if (Array.isArray(filas) && filas.length === SOSPECHA) {
+    console.error("rpc", fn, filtro, "devolvio exactamente", SOSPECHA, "filas: puede estar cortado");
+  }
+  return filas;
 }
 async function cfg(clave: string): Promise<any> {
   const r = await sel(`configuracion?select=valor&clave=eq.${clave}`);
@@ -92,9 +118,15 @@ async function armarPdf(d: {
   zona: number; calles: number; km: number; hechas: number;
   pendientes: { nombre: string; metros: number }[];
   noEntro: boolean; ocultas: number;
+  cubiertas: number; cubiertasPor: string; kmSucios: number;
 }): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
-  const pag = doc.addPage([595, 842]);              // A4
+  // ⛔ `pag` CAMBIA al pasar de hoja. Antes era `const` y el salto hacia
+  //    `doc.addPage()` pero seguia escribiendo en la PRIMERA pagina: el texto que
+  //    sobraba se dibujaba fuera del papel y la hoja nueva salia en blanco. No se
+  //    noto porque ninguna lista llego a 38 lineas todavia.
+  let pag = doc.addPage([595, 842]);              // A4
+  const nuevaHoja = () => { pag = doc.addPage([595, 842]); return 790; };
   const neg = await doc.embedFont(StandardFonts.HelveticaBold);
   const reg = await doc.embedFont(StandardFonts.Helvetica);
   const tinta = rgb(0.1, 0.1, 0.12), suave = rgb(0.42, 0.42, 0.46);
@@ -109,25 +141,46 @@ async function armarPdf(d: {
   esc(`Zona ${d.zona}  -  ${d.calles} calles  -  ${d.km.toFixed(1)} km`, 48, reg, 11, suave); y -= 30;
 
   esc(`Recorrio hoy:  ${d.hechas} de ${d.calles}`, 48, reg, 12); y -= 18;
-  esc(`Quedo sin pasar:  ${d.pendientes.length}`, 48, neg, 12); y -= 26;
+  // ⛔ LOS METROS VAN AL LADO DE LA CUENTA. «6 calles» no dice si son 600 m o 4 km,
+  //    y lo que quedo sin recoger se mide en calle, no en cantidad de nombres.
+  esc(`Quedo sin recoger:  ${d.pendientes.length}` +
+      (d.kmSucios >= 0.1 ? `  (${d.kmSucios.toFixed(1)} km)` : ""), 48, neg, 12); y -= 26;
 
   if (d.noEntro) {
-    // ⛔ ESTA LINEA NO ES CORTESIA. Sin ella, una hoja con 15 calles sin pasar se lee como
-    // un reclamo por algo que el chofer no hizo mal: el 30/10 este camion se paso el dia
-    // en la carretera al vertedero de La Concepcion. Un numero sin su motivo acusa.
+    // ⛔ ESTA LINEA NO ES CORTESIA: sin ella, una hoja con 15 calles sin pasar se lee como
+    //    un reclamo por algo que el chofer no hizo mal.
+    // ⛔ PERO DICE SOLO LO QUE SE SABE. La version anterior afirmaba «esta unidad NO ENTRO
+    //    A LA PARROQUIA: estuvo en el acarreo al vertedero». Eso era falso el 31/10: B007
+    //    tuvo 274 posiciones de trabajo DENTRO de Venancio Pulgar y aun asi hizo 0 de las
+    //    79 calles de SU zona — estuvo en la parroquia, trabajando otro sector.
+    //    «No hizo ninguna calle de su zona» y «no entro a la parroquia» son cosas
+    //    distintas, y la segunda es una acusacion que el GPS desmiente.
+    //    [[norma-una-asercion-mal-escrita-acusa-al-producto]]
     for (const l of [
-      "Segun el registro del GPS, esta unidad no entro a la parroquia este dia:",
-      "estuvo en el acarreo al vertedero. La zona quedo sin recorrer por eso,",
-      "no por el trabajo del dia.",
+      "El registro del GPS no muestra recorrido en las calles de esta zona.",
+      "Puede ser que la unidad haya trabajado otro sector, o que haya estado",
+      "en el acarreo al vertedero. La hoja no lo distingue: hay que preguntarlo.",
     ]) { esc(l, 48, reg, 10, suave); y -= 14; }
     y -= 12;
   }
 
+  // ⛔ TERCER ESTADO, APARTE. Una calle que recorrio OTRO camion no es pendiente
+  //    —la basura se recogio— pero tampoco la hizo el de la zona. Van en su propia
+  //    linea, sin sumarse ni a lo hecho ni a lo pendiente, porque son dos preguntas:
+  //    «¿quedo sucia?» la contesta cualquier camion, «¿quien tenia que hacerla?» la
+  //    contesta la asignacion. Y OJO: «paso otro» NO es «esta limpia» — uno que va
+  //    despacio camino al vertedero marca el tramo igual.
+  if (d.cubiertas > 0) {
+    esc(`${d.cubiertas} calle(s) de su zona las recorrio otra unidad` +
+        (d.cubiertasPor ? ` (${d.cubiertasPor})` : "") + ".", 48, reg, 10, suave);
+    y -= 22;
+  }
+
   if (!d.pendientes.length) { esc("Zona completa.", 48, neg, 12); }
   else {
-    esc("Calles de su zona por las que no paso:", 48, neg, 11); y -= 20;
+    esc("Calles de su zona por las que no paso ninguna unidad:", 48, neg, 11); y -= 20;
     for (const p of d.pendientes) {
-      if (y < 70) { y = 790; doc.addPage([595, 842]); }
+      if (y < 70) y = nuevaHoja();
       esc(`-  ${p.nombre}`, 56, reg, 11);
       pag.drawText(`${Math.round(p.metros)} m`, { x: 470, y, size: 10, font: reg, color: suave });
       y -= 16;
@@ -158,27 +211,57 @@ Deno.serve(async (req) => {
 
     // La cobertura la contesta el producto, no una consulta propia: dos piezas que
     // responden "que quedo sin pasar" tienen que responder lo mismo.
-    const cobTodo = await rpc("zona_cobertura_del_dia", { p_fecha: dia });
-    if (!cobTodo.length) return json({ ok: true, dia, nota: "sin cobertura calculada para ese dia" });
-
-    // ⛔ SOLO LAS PARROQUIAS QUE SALIERON ESE DIA. `zona_cobertura_del_dia` devuelve las
-    //    zonas de TODAS las parroquias donde el camion tiene sector, y un camion tiene uno
-    //    en cada una. Sin este filtro, el 30/10 (viernes, sale Caracciolo) el PDF le decia
-    //    a B008 «18 de 76 calles» sumandole sus zonas de Santa Lucia y Venancio Pulgar, que
-    //    NO SE TRABAJAN LOS VIERNES — o sea un reclamo por algo que no tenia que hacer.
-    //    Lo destapo el ensayo con `dry=1`; leyendo el codigo no se veia.
-    const salieron = new Set(
-      (await rpc("cronograma_del_dia", { p_fecha: dia }))
-        .map((c: any) => c.parroquia).filter(Boolean),
+    // ── 1. QUE PARROQUIAS SALIERON ESE DIA ──────────────────────────────────
+    // ⛔ SE LEE LA TABLA, NO `cronograma_del_dia`. Esa tiene el candado de rol
+    //    (`gps_ve_o_falla`) y esta pieza corre con `service_role`, que NO es un usuario con
+    //    rol: el candado la rechaza, `rpc()` devolvia [] y el codigo leia «hoy no salio
+    //    ninguna parroquia» cuando la verdad era «no pude preguntar». El 31/10 eso dejo la
+    //    pieza muda un sabado con 12 camiones trabajando.
+    //    [[norma-falta-de-dato-no-es-un-dato]]
+    const dow = new Date(dia + "T12:00:00Z").getUTCDay();
+    const vig = await sel(
+      `cronograma_recoleccion?select=vigente_desde&dia_semana=eq.${dow}` +
+      `&vigente_desde=lte.${dia}&order=vigente_desde.desc&limit=1`,
     );
-    const cob = cobTodo.filter((f: any) => salieron.has(f.parroquia));
-    if (!cob.length) {
-      return json({ ok: true, dia, enviado: false,
-        parroquias_del_dia: [...salieron],
-        nota: "ninguna zona de las parroquias que salieron hoy tiene cobertura calculada" });
+    if (!vig.length) {
+      return json({ ok: false, dia, enviado: false,
+        error: `no hay cronograma vigente para el ${dia} (dia_semana ${dow}). No se manda nada.` }, 500);
+    }
+    const crono = await sel(
+      `cronograma_recoleccion?select=parroquia,tipo,camiones&dia_semana=eq.${dow}` +
+      `&vigente_desde=eq.${vig[0].vigente_desde}`,
+    );
+    const salieron = [...new Set(crono.map((c: any) => c.parroquia).filter(Boolean))] as string[];
+    if (!salieron.length) {
+      return json({ ok: true, dia, enviado: false, tipos: crono.map((c: any) => c.tipo),
+        nota: "el cronograma de hoy no asigna parroquias (p. ej. domingo: lo define el IMAU)" });
     }
 
-    const choferes = await rpc("chofer_del_dia", { p_fecha: dia });
+    // ── 2. LA COBERTURA, PARROQUIA POR PARROQUIA ────────────────────────────
+    // ⛔ Filtrando EN EL SERVIDOR (`?parroquia=eq....`). `zona_cobertura_del_dia` devuelve
+    //    1.942 filas de las cuatro parroquias y el tope de PostgREST cortaba la ultima del
+    //    alfabeto —Venancio Pulgar, 694 filas— DEVOLVIENDO 200 SIN AVISAR. O sea: los
+    //    miercoles y sabados, sus dias, esto contestaba «no hay cobertura» para siempre.
+    //    Pidiendo solo la del dia son ~694 filas, por debajo del tope, y no hace falta
+    //    paginar. [[norma-la-barra-que-no-dice-que-sigue]]
+    const cob: any[] = [];
+    for (const parr of salieron) {
+      const filas = await rpc("zona_cobertura_del_dia", { p_fecha: dia },
+        `parroquia=eq.${encodeURIComponent(parr)}`);
+      // ⛔ `null` = no se pudo preguntar. NO es «no hay cobertura»: se corta acá, antes de
+      //    mandarle a nadie una lista de calles calculada sobre datos que no se leyeron.
+      if (filas === null) {
+        return json({ ok: false, dia, enviado: false, parroquia: parr,
+          error: "no se pudo leer la cobertura de esa parroquia (ver logs). No se manda nada." }, 502);
+      }
+      cob.push(...filas);
+    }
+    if (!cob.length) {
+      return json({ ok: true, dia, enviado: false, parroquias_del_dia: salieron,
+        nota: "las parroquias de hoy no tienen zonas con cobertura calculada" });
+    }
+
+    const choferes = await rpc("chofer_del_dia", { p_fecha: dia }) ?? [];
     const quien: Record<string, any> = {};
     for (const c of choferes) quien[c.cam] = c;
 
@@ -190,12 +273,27 @@ Deno.serve(async (req) => {
       por[k] ??= {
         cam: k, zona: f.zona, parroquia: f.parroquia, calles: 0, km: 0,
         hechas: 0, pendientes: [] as any[], ocultas: 0,
+        cubiertas: 0, cubiertas_por: new Set<string>(), metros_sucios: 0,
       };
       por[k].calles++; por[k].km += Number(f.metros || 0) / 1000;
       if (f.hecho) { por[k].hechas++; continue; }
+      // ⛔ PENDIENTE ES «NO PASO NADIE», NO «NO PASO EL ASIGNADO». Los choferes se
+      //    cubren entre ellos: el 31/10, 134 de los 694 tramos de Venancio los hizo un
+      //    camion distinto al de la zona. Contarlos como pendientes le reclamaba a un
+      //    chofer por calles que su compañero ya habia recorrido — y a B007 le armaba
+      //    una hoja de 15 calles cuando lo exigible de verdad eran 7.
+      //    `hecho_alguien` / `hecho_por` salen de `zona_cobertura_del_dia`.
+      //    [[norma-una-asercion-mal-escrita-acusa-al-producto]]
+      if (f.hecho_alguien) {
+        por[k].cubiertas++;
+        if (f.hecho_por) por[k].cubiertas_por.add(String(f.hecho_por).replace("JAC-", ""));
+        continue;
+      }
       const nom = limpio(f.nombre);
-      if (nom && Number(f.metros) >= MIN_METROS) por[k].pendientes.push({ nombre: nom, metros: Number(f.metros) });
-      else por[k].ocultas++;
+      if (nom && Number(f.metros) >= MIN_METROS) {
+        por[k].pendientes.push({ nombre: nom, metros: Number(f.metros) });
+        por[k].metros_sucios += Number(f.metros);
+      } else por[k].ocultas++;
     }
 
     const conPendiente = Object.values(por).filter((p: any) => p.pendientes.length > 0);
@@ -206,6 +304,9 @@ Deno.serve(async (req) => {
       chofer: limpio((quien[p.cam]?.nombre || "").split(" ").slice(0, 2).join(" ")) || "(chofer no declarado)",
       zona: p.zona, calles: p.calles, km: p.km, hechas: p.hechas,
       pendientes: p.pendientes, noEntro: p.hechas === 0, ocultas: p.ocultas,
+      cubiertas: p.cubiertas,
+      cubiertasPor: [...p.cubiertas_por].sort().join(", "),
+      kmSucios: p.metros_sucios / 1000,
     });
 
     // ── Mirar UN PDF antes de soltar nada ────────────────────────────────────
@@ -224,6 +325,9 @@ Deno.serve(async (req) => {
       con_pendientes: conPendiente.map((p: any) => ({
         cam: p.cam, zona: p.zona, chofer: limpio(quien[p.cam]?.nombre || ""),
         hechas: p.hechas, de: p.calles, sin_pasar: p.pendientes.length,
+        km_sin_recoger: Number((p.metros_sucios / 1000).toFixed(1)),
+        cubiertas_por_otro: p.cubiertas,
+        cubrio: [...p.cubiertas_por].sort().join(" ") || null,
         no_listadas: p.ocultas, no_entro: p.hechas === 0,
       })),
       // ⛔ Los que completaron se NOMBRAN acá aunque no reciban mensaje: si no, no se
@@ -279,11 +383,12 @@ Deno.serve(async (req) => {
       try { const j = JSON.parse(subTxt); fid = j?.id || (Array.isArray(j) ? j[0]?.id : null); } catch { /* abajo */ }
       if (!fid) { resumen.frenados.push({ cam: p.cam, motivo: "el proveedor no devolvio el id del archivo" }); continue; }
 
-      const texto = p.hechas === 0
-        ? `${p.cam}: el registro del GPS no muestra recorrido en la parroquia el ${ddmm(dia)}. ` +
-          `Va el detalle de la zona en el archivo.`
-        : `${p.cam}: del ${ddmm(dia)} quedaron ${p.pendientes.length} ` +
-          `${p.pendientes.length === 1 ? "calle" : "calles"} de su zona sin pasar. Van en el archivo.`;
+      // El mensaje dice lo mismo que la hoja: «sin recoger» = no paso NINGUNA unidad.
+      const n = p.pendientes.length;
+      const km = p.metros_sucios / 1000;
+      const texto = `${p.cam}: del ${ddmm(dia)} quedaron ${n} ` +
+        `${n === 1 ? "calle" : "calles"} de su zona sin recoger` +
+        (km >= 0.1 ? ` (${km.toFixed(1)} km)` : "") + `. Van en el archivo.`;
 
       const enc = await fetch(`${SUPABASE_URL}/rest/v1/cola_mensajes`, {
         method: "POST", headers: { ...HDR, "Content-Type": "application/json", Prefer: "return=representation" },
