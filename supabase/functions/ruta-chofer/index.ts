@@ -140,7 +140,9 @@ async function armarPdf(d: {
   esc(`${d.cam}   ${d.chofer}`, 48, neg, 13); y -= 18;
   esc(`Zona ${d.zona}  -  ${d.calles} calles  -  ${d.km.toFixed(1)} km`, 48, reg, 11, suave); y -= 30;
 
-  esc(`Recorrio hoy:  ${d.hechas} de ${d.calles}`, 48, reg, 12); y -= 18;
+  // ⛔ «hoy» NO: la fecha de la hoja ya esta arriba, y una hoja del viernes mandada
+  //    el sabado decia «recorrio hoy» por un dia que no era hoy.
+  esc(`Recorrido:  ${d.hechas} de ${d.calles}`, 48, reg, 12); y -= 18;
   // ⛔ LOS METROS VAN AL LADO DE LA CUENTA. «6 calles» no dice si son 600 m o 4 km,
   //    y lo que quedo sin recoger se mide en calle, no en cantidad de nombres.
   esc(`Quedo sin recoger:  ${d.pendientes.length}` +
@@ -261,9 +263,26 @@ Deno.serve(async (req) => {
         nota: "las parroquias de hoy no tienen zonas con cobertura calculada" });
     }
 
-    const choferes = await rpc("chofer_del_dia", { p_fecha: dia }) ?? [];
+    // ⛔ SIN PADRON NO SE MANDA NADA. De acá salen el nombre Y EL TELEFONO. El
+    //    `?? []` que estaba antes convertía un error en «no hay choferes»: la hoja
+    //    salía con «(chofer no declarado)» y, peor, los cinco destinatarios caían en
+    //    «no hay telefono» — el envío no mandaba UN SOLO mensaje y lo reportaba como
+    //    hecho, con cada uno anotado en `frenados` donde nadie mira. Se vio el 31/10
+    //    al renderizar el PDF en un navegador, no en los números.
+    //    [[norma-falta-de-dato-no-es-un-dato]]
+    const choferes = await rpc("chofer_del_dia", { p_fecha: dia });
+    if (choferes === null) {
+      return json({ ok: false, dia, enviado: false,
+        error: "no se pudo leer el padron de choferes (ver logs). No se manda nada." }, 502);
+    }
     const quien: Record<string, any> = {};
     for (const c of choferes) quien[c.cam] = c;
+    // ⚠️ Y si el padrón viene VACIO tampoco se sigue: puede ser un dia sin
+    //    checklist cargado, pero mandar hojas sin nombre ni telefono no es la salida.
+    if (!Object.keys(quien).length) {
+      return json({ ok: false, dia, enviado: false,
+        error: "el padron no devolvio ningun chofer para ese dia. No se manda nada." }, 409);
+    }
 
     // Agrupado por camion. `parroquia` sale del dato, no de un parametro: si un dia salen
     // dos parroquias, cada chofer recibe la suya.
