@@ -17,6 +17,10 @@ const excelCode = fs.readFileSync(path.join(__dirname, '..', 'maxware-excel.js')
 // chofer en litros— no tenia UNA prueba. Es la misma leccion que la de maxware-excel de arriba, y
 // se pago el 07/10/2026 con el FC17: dos dias de un chofer peleando con la pantalla.
 const cubicacionCode = fs.readFileSync(path.join(__dirname, '..', 'cubicacion.js'), 'utf8');
+// `retencion-comprobante.js` lo carga app.html (02/11/2026) y `app.js` lo usa para emitir
+// los comprobantes legales. Misma leccion que las dos de arriba: si la pagina suma un
+// <script>, el harness tiene que sumarlo o los tests corren contra un navegador que no existe.
+const retencionCode = fs.readFileSync(path.join(__dirname, '..', 'retencion-comprobante.js'), 'utf8');
 const code = fs.readFileSync(path.join(__dirname, '..', 'app.js'), 'utf8');
 
 const noop = function () {};
@@ -66,6 +70,8 @@ try { vm.runInContext(cubicacionCode, sandbox, { filename: 'cubicacion.js' }); }
 catch (e) { if (process.env.HARNESS_DEBUG) console.error('[harness] cubicacion.js:', e.message); }
 try { vm.runInContext(excelCode, sandbox, { filename: 'maxware-excel.js' }); }
 catch (e) { if (process.env.HARNESS_DEBUG) console.error('[harness] maxware-excel.js:', e.message); }
+try { vm.runInContext(retencionCode, sandbox, { filename: 'retencion-comprobante.js' }); }
+catch (e) { if (process.env.HARNESS_DEBUG) console.error('[harness] retencion-comprobante.js:', e.message); }
 try {
   vm.runInContext(code, sandbox, { filename: 'app.js' });
 } catch (e) {
