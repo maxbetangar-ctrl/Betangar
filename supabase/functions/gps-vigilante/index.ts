@@ -919,14 +919,33 @@ Deno.serve(async (req) => {
       );
     }
 
-    // ── 3. ¿El proveedor está rechazando? ────────────────────────────────────
+    // ── 3. ERRORES: ¿DE QUIÉN? ────────────────────────────────────
+    // ⛔ ANTES DECÍA SIEMPRE «el proveedor de GPS está devolviendo error», y eso ES
+    //    FALSO cuando el que falló fue el INSERT en NUESTRA base. El 2/11/2026, con la
+    //    base caída 2 h 36 min, `ultimo_error` guardó «insert: PGRST002 Could not query
+    //    the database» — un error nuestro — y el vigilante lo iba a reportar como culpa
+    //    del proveedor.
+    // ⛔ Y NO ES COSMÉTICO: Máximo pidió ese mismo día que estos avisos vayan al
+    //    PROVEEDOR para reclamarle. Mandarle un reclamo por una falla nuestra destruye
+    //    la credibilidad del reclamo de verdad.
+    //    [[norma-una-asercion-mal-escrita-acusa-al-producto]]
+    const esNuestro = (t: string) =>
+      /PGRST|Could not query the database|Connection terminated|insert:|statement timeout|fetch failed|ECONNRESET/i.test(t);
     const conError = estados.filter((e) => e.ultimo_error);
-    const errs: string[] = [];
+    const errs: string[] = [], errsNuestros: string[] = [];
     for (const e of conError) {
-      const k = `gps-error-${e.cam}-${String(e.ultimo_error).slice(0, 40)}`;
+      const txt = String(e.ultimo_error);
+      const k = `gps-error-${e.cam}-${txt.slice(0, 40)}`;
       if (await yaAviso(k)) continue;
       claves.push(k);
-      errs.push(`• ${e.cam}: ${String(e.ultimo_error).slice(0, 90)}`);
+      (esNuestro(txt) ? errsNuestros : errs).push(`• ${e.cam}: ${txt.slice(0, 90)}`);
+    }
+    if (errsNuestros.length) {
+      lineas.push(
+        `🟡 *${errsNuestros.length} unidad(es) con error AL GUARDAR, de nuestro lado* ` +
+        `(no es el proveedor):\n` + errsNuestros.join("\n") +
+        `\nSi la base estuvo caída, es el rastro de eso y se limpia solo en la próxima corrida.`
+      );
     }
     if (errs.length) {
       lineas.push(`🟡 *El proveedor de GPS está devolviendo error:*\n` + errs.join("\n"));
