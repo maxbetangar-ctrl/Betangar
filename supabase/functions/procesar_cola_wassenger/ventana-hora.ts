@@ -84,3 +84,46 @@ export function leerVentana(valor: unknown, avisar: (s: string) => void = consol
   }
   return { ventana, sinLimite };
 }
+
+/**
+ * El CORTE de caducidad contando SOLO las horas en que el mensaje se pudo enviar.
+ *
+ * 🔴 POR QUÉ EXISTE (02/11/2026, antes de desplegar la ventana). El worker
+ *    descarta a las 12 h lo que sigue `pendiente` —«un aviso operativo es de su
+ *    día»— y ese barrido corre ANTES de la ventana. Juntas, las dos reglas se
+ *    comen mensajes: lo encolado a las 20:01 se retiene hasta las 8:00 y llega
+ *    con 12 h 04 → **descartado sin haber tenido un solo minuto para salir**.
+ *    Y la ventana se mueve desde el teléfono: puesta en 8-18, TODO lo encolado
+ *    de noche muere, en silencio. Mi propia retención le contaba como abandono.
+ *    [[norma-la-caducidad-solo-cubre-el-tramo-propio]]
+ *
+ * ⛔ LA REGLA: la edad se mide en HORAS ENTREGABLES. Las horas en que la casa
+ *    tenía la puerta cerrada no cuentan. Así el aviso sigue siendo «de su día»
+ *    —se tira si tuvo 12 h de horario y nadie lo mandó— pero no se castiga al
+ *    mensaje por una espera que le impusimos nosotros.
+ *
+ * ⚠️ Devuelve un INSTANTE, no un filtro por fila, y eso es a propósito: el
+ *    barrido es un `UPDATE ... WHERE created_at < corte` de PostgREST, que no
+ *    sabe llamar a una función. Vale porque la edad entregable CRECE con la
+ *    antigüedad: si una fila pasa el corte, toda fila más vieja también.
+ *
+ * ⚠️ Camina de minuto en minuto en vez de calcular los tramos. Son ~1.440
+ *    vueltas con la ventana de 12 h —nada, y corre una vez por invocación— y
+ *    así no hay aritmética de husos que revisar: pregunta por cada minuto si
+ *    era entregable, que es literalmente la regla. Lo claro le gana a lo listo.
+ */
+export function corteDeCaducidad(
+  ahora: Date, ventana: Ventana = VENTANA_POR_DEFECTO, horas = 12,
+): Date {
+  let t = ahora.getTime();
+  let faltan = Math.round(horas * 60);
+  // Tope de seguridad: 30 días. Con `leerVentana` la ventana nunca es vacía
+  // (exige desde < hasta), pero esta función es pública y nadie debe poder
+  // colgar el worker pasándole una ventana imposible.
+  const TOPE = 30 * 24 * 60;
+  for (let pasos = 0; faltan > 0 && pasos < TOPE; pasos++) {
+    t -= 60_000;
+    if (enHorarioVE(new Date(t), ventana)) faltan--;
+  }
+  return new Date(t);
+}

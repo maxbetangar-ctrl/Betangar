@@ -15,7 +15,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 // La ventana de hora vive aparte para poder probarla: importar este index
 // arranca el `serve()` y el runner de pruebas se cae. Mismo motivo que
 // `puerta-datos.ts` en wa-autoreply.
-import { horaVE, enHorarioVE, leerVentana } from './ventana-hora.ts';
+import { corteDeCaducidad, horaVE, enHorarioVE, leerVentana } from './ventana-hora.ts';
 
 const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, apikey, content-type' };
 
@@ -91,16 +91,49 @@ Deno.serve(async (req) => {
   }
   const conEtiqueta = (msg: string) => (etiqueta && !msg.startsWith(etiqueta)) ? `${etiqueta}: ${msg}` : msg;
 
+  // La ventana de hora se lee ANTES del barrido de caducidad y no después: el
+  // barrido necesita saber cuáles horas eran entregables para no cobrarle al
+  // mensaje la espera que le impuso la casa. El porqué largo, en el paso 2.
+  const { data: vh } = await sb.from('configuracion').select('valor').eq('clave', 'ventana_hora').maybeSingle();
+  const { ventana: VENTANA, sinLimite } = leerVentana(vh?.valor, (s) => console.log(s));
+  const ahoraVE = new Date();
+  const hVE = horaVE(ahoraVE);
+  const enHorario = enHorarioVE(ahoraVE, VENTANA);
+
   // 0) CADUCAR lo viejo ANTES de enviar nada. Va primero a propósito: si la cola venía represada,
   //    esto evita el aluvión de mensajes de ayer en cuanto el servicio vuelve.
   //    Norma de Máximo (2026-07-21): "lo que se haya pasado de ayer ya no lo envíes hoy". Un aviso
   //    operativo es de SU día: al día siguiente confunde a quien lo recibe, que ya actuó o ya no
   //    puede actuar. Se DESCARTAN (no se borran) dejando el motivo escrito.
+  //
+  // ⛔ Y SON DOS BARRIDOS, NO UNO, porque la noche no les pesa igual a los dos
+  //    grupos. A un tercero la casa le RETIENE el mensaje de 20:00 a 8:00: esas
+  //    horas no se le pueden cobrar como abandono, así que su edad se mide en
+  //    HORAS ENTREGABLES (`corteDeCaducidad`). A Máximo se le escribe a cualquier
+  //    hora —sus alarmas no se retienen nunca—, así que para él la vigencia
+  //    sigue siendo 12 h de RELOJ: una alarma de las 2 a. m. que no salió no
+  //    sirve a las 8 p. m., y con el corte entregable sobreviviría hasta ahí.
   const VIGENCIA_HORAS = 12;
-  const corte = new Date(Date.now() - VIGENCIA_HORAS * 60 * 60 * 1000).toISOString();
-  const { data: caducados } = await sb.from('cola_mensajes')
-    .update({ estado: 'descartado', error: `caducado: encolado hace mas de ${VIGENCIA_HORAS}h; un aviso operativo es de su dia y no se reenvia despues` })
-    .eq('estado', 'pendiente').lt('created_at', corte).select('id');
+  const motivoCaduco = `caducado: encolado hace mas de ${VIGENCIA_HORAS}h; un aviso operativo es de su dia y no se reenvia despues`;
+  const corteLlano = new Date(Date.now() - VIGENCIA_HORAS * 60 * 60 * 1000).toISOString();
+  const corteEntregable = corteDeCaducidad(ahoraVE, VENTANA, VIGENCIA_HORAS).toISOString();
+  const { data: cadCasa } = await sb.from('cola_mensajes')
+    .update({ estado: 'descartado', error: motivoCaduco })
+    .eq('estado', 'pendiente').in('telefono', sinLimite).lt('created_at', corteLlano).select('id');
+  const { data: cadTerceros } = await sb.from('cola_mensajes')
+    .update({ estado: 'descartado', error: `${motivoCaduco} (12h de horario ${VENTANA.desde}-${VENTANA.hasta}; la espera nocturna no cuenta)` })
+    // ⚠️ `telefono.is.null` VA EN EL `or` Y NO SOBRA. `NOT (telefono IN (...))`
+    //    da NULL cuando el teléfono es nulo, así que esa fila no la barre
+    //    NINGUNO de los dos cortes: quedaría `pendiente` para siempre, y una
+    //    fila inmortal en la cola es un arma cargada. Hoy no hay ninguna
+    //    (medido: 0 de 8.756), y por eso justamente se cierra ahora.
+    .eq('estado', 'pendiente')
+    .or(`telefono.is.null,telefono.not.in.(${sinLimite.join(',')})`)
+    .lt('created_at', corteEntregable).select('id');
+  const caducados = [...(cadCasa || []), ...(cadTerceros || [])];
+  if (caducados.length) {
+    console.log(`caducados ${caducados.length}: ${cadCasa?.length || 0} de la casa (corte de reloj) y ${cadTerceros?.length || 0} de terceros (corte entregable ${corteEntregable})`);
+  }
 
   // 1) Recupera mensajes trabados en 'enviando' por una corrida que murió a mitad (>10 min).
   //    `tomado_at` es la marca de RECLAMO; si quedó vieja, la fila vuelve a 'pendiente'.
@@ -214,11 +247,16 @@ Deno.serve(async (req) => {
   //    más importan. De noche se piden SOLO las que sí pueden salir.
   //
   // ⚠️ LO RETENIDO NO SE DESCARTA: queda `pendiente`, sin tocarle `intentos` ni
-  //    `tomado_at`, y sale en la primera corrida después de las 8:00. Y compone
-  //    bien con el caducador de arriba: 12 h de vigencia cubren la noche entera
-  //    (lo encolado a las 20:30 sale a las 8:00 con 11,5 h), y lo que igual
-  //    caduque se descarta con su motivo escrito — que es lo correcto para un
-  //    aviso operativo de ayer.
+  //    `tomado_at`, y sale en la primera corrida después de las 8:00.
+  //
+  // 🔴 Y ACÁ HABÍA UN AGUJERO, cazado el 02/11 ANTES de desplegar esto. Este
+  //    comentario decía que las dos reglas «componían bien: lo encolado a las
+  //    20:30 sale a las 8:00 con 11,5 h». Es verdad para las 20:30 y FALSO para
+  //    las 20:01, que llega con 12 h 04 y el caducador —que barre ANTES— lo tira
+  //    sin haberle dado un minuto de horario. Y la ventana se mueve desde el
+  //    teléfono: puesta en 8-18, muere TODO lo encolado de tarde. Un caso bien
+  //    pensado no es la regla. ⇒ El corte ahora se mide en HORAS ENTREGABLES:
+  //    ver `corteDeCaducidad` en `ventana-hora.ts` y el paso 0.
   //
   // ⛔ A MÁXIMO SE LE ESCRIBE A CUALQUIER HORA, y es deliberado: las alarmas de
   //    la casa (una base caída, el respaldo que no corrió, el GPS atrasado) son
@@ -226,11 +264,6 @@ Deno.serve(async (req) => {
   //    lista cae a sus dos números conocidos en vez de "no restringir nada":
   //    así, falte lo que falte, las alarmas salen y un tercero no recibe un
   //    mensaje a medianoche.
-  const { data: vh } = await sb.from('configuracion').select('valor').eq('clave', 'ventana_hora').maybeSingle();
-  const { ventana: VENTANA, sinLimite } = leerVentana(vh?.valor, (s) => console.log(s));
-  const ahoraVE = new Date();
-  const hVE = horaVE(ahoraVE);
-  const enHorario = enHorarioVE(ahoraVE, VENTANA);
 
   // 2) mensajes pendientes (tanda)
   let consulta = sb.from('cola_mensajes').select('*').eq('estado', 'pendiente').lt('intentos', 4).order('id').limit(25);
