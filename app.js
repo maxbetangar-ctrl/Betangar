@@ -24,6 +24,10 @@ var BTG_CONFIG = {
   excel_bajada: 'Gestion de flota y operaciones',
   empresa_marca: 'Betangar',
   empresa_rif: 'J-29566107-0',                             // ← RIF de ESTA empresa (sale en TODO impreso)
+  // ⛔ DIRECCIÓN FISCAL — es obligatoria en el comprobante de retención. Se
+  //    declara acá porque `marca_publica()` devuelve {} y nunca la hidrató.
+  //    El texto es el que ya figura en los comprobantes que Betangar emitió.
+  empresa_direccion: 'AV 18A CON CALLE 96 CASA NRO S/N SECTOR LA FLORIDA',
   empresa_ciudad: 'Maracaibo, Edo. Zulia',                 // ← ciudad/estado (encabezados)
   empresa_contrato: 'Contrato Aseo Urbano — Alcaldía de Maracaibo', // ← descripción del contrato/cliente principal
   empresa_email: 'betangar@gmail.com',                     // ← correo (pie de impresos)
@@ -18155,7 +18159,8 @@ function renderRetenciones(){
       '<td>'+(f.islr_aplica?((parseFloat(f.ret_islr_pct)||0)+'%'):'—')+'</td>'+
       '<td style="font-family:var(--m);color:var(--red)">'+_bs2(f.ret_islr_bs)+'</td>'+
       '<td style="font-family:var(--m);font-weight:700;color:var(--green)">'+_bs2(f.neto_bs)+'</td>'+
-      '<td><button class="btn btn-xs" style="background:#fee2e2;color:#991b1b" onclick="borrarFactura(\''+f.id+'\')" title="Borrar">🗑️</button></td>'+
+      '<td style="white-space:nowrap">'+_btnComprobante(f,'IVA')+_btnComprobante(f,'ISLR')+
+        '<button class="btn btn-xs" style="background:#fee2e2;color:#991b1b" onclick="borrarFactura(\''+f.id+'\')" title="Borrar">🗑️</button></td>'+
     '</tr>';
   }).join('')||'<tr><td colspan="13" style="text-align:center;color:var(--text3);padding:16px">Sin facturas cargadas en '+mes+'</td></tr>';
 }
@@ -18205,6 +18210,87 @@ function borrarFactura(id){
     else done();
   },{op:'del',tabla:'cxp_facturas',col:'id',val:id});
 }
+// Botón por tipo. Si ya se emitió, muestra el NÚMERO y reimprime ese mismo:
+// que el papel se pueda volver a sacar no puede significar un número nuevo.
+function _btnComprobante(f,tipo){
+  var hay=(tipo==='ISLR')?Number(f.ret_islr_bs||0)>0:Number(f.ret_iva_bs||0)>0;
+  if(!hay)return'';
+  var num=(tipo==='ISLR')?f.comp_islr:f.comp_iva;
+  var color=(tipo==='ISLR')?'#ccfbf1;color:#115e59':'#dbeafe;color:#1e40af';
+  return '<button class="btn btn-xs" style="background:'+color+';margin-right:3px" '+
+    'onclick="emitirComprobanteRet(\''+f.id+'\',\''+tipo+'\')" title="'+
+    (num?('Ya emitido: '+num+' — vuelve a imprimirlo'):('Emitir comprobante de retención de '+tipo))+'">'+
+    (num?'🖨️ ':'')+tipo+'</button>';
+}
+
+// ══════════ EMITIR EL COMPROBANTE DE RETENCIÓN (el legal, en Bs) ══════════
+// ⛔ SE EMITE POR FACTURA, no por pago. El formulario del SENIAT pide fecha del
+//    documento, número de factura y número de control: eso vive en
+//    `cxp_facturas`, no en la deuda. El recibo viejo salía de `cxp` —en dólares
+//    y con el porcentaje en 0— y por eso no servía para entregar.
+// ⛔ Y EL NÚMERO NO SE REPITE: si la factura ya tiene uno, se REIMPRIME el
+//    mismo. Pedir otro dejaría dos comprobantes vivos para la misma retención.
+async function emitirComprobanteRet(idFactura, tipo){
+  if(typeof retProblemas!=='function'){alert('Falta retencion-comprobante.js');return;}
+  var f=CXP_FACTURAS.find(function(x){return String(x.id)===String(idFactura);});
+  if(!f){alert('No encuentro esa factura');return;}
+  var prov=PROVEEDORES.find(function(p){return String(p.id)===String(f.prov_id)||p.nombre===f.prov_nombre;})||{};
+
+  var d={
+    fecha:f.fecha, nro_factura:f.nro_factura, num_control:f.num_control,
+    base_bs:f.base_bs, iva_pct:f.iva_pct, iva_bs:f.iva_bs,
+    ret_iva_pct:f.ret_iva_pct, ret_iva_bs:f.ret_iva_bs,
+    ret_islr_pct:f.ret_islr_pct, sustraendo_bs:f.sustraendo_bs, ret_islr_bs:f.ret_islr_bs,
+    total_bs:f.total_bs,
+    agente_nombre:(brandNom()||'').toUpperCase(), agente_rif:brandRif(),
+    agente_direccion:BTG_CONFIG.empresa_direccion||'',
+    ciudad:(BTG_CONFIG.empresa_ciudad||'').split(',')[0],
+    prov_nombre:f.prov_nombre, prov_rif:prov.rif||'',
+    tipo_doc_fiscal:'01', tipo_doc_texto:'FACTURA'
+  };
+
+  // ⛔ Mejor no emitir que emitir mal: un comprobante con el RIF equivocado ya
+  //    consumió número y ya está en manos del proveedor.
+  var problemas=retProblemas(d,tipo);
+  if(problemas.length){
+    alert('No se puede emitir el comprobante de '+tipo+':\n\n• '+problemas.join('\n• ')+
+          '\n\nCorrige eso primero (la ficha del proveedor o la factura).');
+    return;
+  }
+
+  var campo=(tipo==='ISLR')?'comp_islr':'comp_iva';
+  var campoF=(tipo==='ISLR')?'comp_islr_fecha':'comp_iva_fecha';
+  var numero=f[campo];
+
+  if(!numero){
+    if(!confirm('Se va a emitir el comprobante de retención de '+tipo+' para '+f.prov_nombre+
+                '.\n\nEl número se consume aunque después no lo entregues. ¿Seguimos?'))return;
+    // El número lo reparte la BASE, no el navegador: dos personas emitiendo a la
+    // vez leerían el mismo «último» y saldrían dos comprobantes iguales.
+    var r=await supabase.rpc('ret_siguiente_comprobante',
+                             {p_tipo:tipo, p_periodo:String(f.fecha).slice(0,7)});
+    if(r.error||!r.data){alert('No se pudo pedir el número: '+((r.error&&r.error.message)||'sin respuesta'));return;}
+    numero=r.data;
+    var up={}; up[campo]=numero; up[campoF]=(typeof fechaVE==='function'?fechaVE():new Date().toISOString().slice(0,10));
+    var g2=await supabase.from('cxp_facturas').update(up).eq('id',f.id);
+    if(g2.error){
+      // ⛔ El número ya se consumió. Se dice, no se esconde: si no queda escrito,
+      //    la próxima emisión pide otro y este queda de hueco sin explicación.
+      alert('⚠️ Se emitió el número '+numero+' pero NO se pudo guardar en la factura ('+g2.error.message+
+            ').\nAnótalo: si vuelves a emitir, saldrá uno nuevo y este queda en el aire.');
+    }else{
+      f[campo]=numero; f[campoF]=up[campoF];
+      audit('Comprobante de retención '+tipo+' emitido', numero+' · '+(f.nro_factura||'')+' · '+f.prov_nombre);
+      if(typeof renderRetenciones==='function')renderRetenciones();
+    }
+  }
+
+  var html=(tipo==='ISLR')?retHtmlISLR(d,numero):retHtmlIVA(d,numero);
+  var w=window.open('','_blank');
+  if(w){w.document.write(html);w.document.close();w.focus();setTimeout(function(){try{w.print();}catch(e){}},400);}
+  else alert('El navegador bloqueó la ventana. Habilita las ventanas emergentes para imprimir.');
+}
+
 function exportRetenciones(){
   var mes=gv('ret-mes')||new Date().toISOString().slice(0,7);
   var facs=CXP_FACTURAS.filter(function(f){return String(f.fecha||'').slice(0,7)===mes;});
