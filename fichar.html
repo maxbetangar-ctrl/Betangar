@@ -262,8 +262,99 @@ function comprimir(file){
   });
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// LA FOTO DEL FICHAJE CUANDO EL ALMACÉN SE CAE (02/11/2026)
+//
+// 🔴 Ese día Supabase empezó a devolver «The connection to the database timed out»
+//    al subir, y como había UN solo intento y sin foto no se ficha, la gente quedó
+//    sin poder marcar entrada. Máximo: «quieren fichar y les dice que no tomó la
+//    foto, cuando sí lo hizo».
+// ⛔ El candado NO se quitó: la foto es la evidencia de que la persona estuvo, y
+//    cuando no estaba el candado entraron 13 fichajes sin foto (01/06 al 05/08).
+//    Lo que cambia es que una caída AJENA ya no le cuesta el jornal a nadie:
+//      1) se reintenta tres veces;
+//      2) si sigue caído, la foto se guarda EN EL TELÉFONO y el fichaje entra
+//         marcado `pendiente:` — nunca como si tuviera foto;
+//      3) al abrir la página se reintenta sola y, cuando sube, `fichaje_foto_subida`
+//         asciende la fila. Esa función solo puede ascender lo pendiente: no puede
+//         pisar la foto de nadie.
+// ─────────────────────────────────────────────────────────────────────────────
+var selfiePendiente = false;
+var COLA_FOTOS = 'btg_fichaje_fotos_pendientes';
+
+// ⛔ CADA INTENTO TIENE TOPE DE 7 SEGUNDOS, Y NO ES UN NÚMERO ELEGIDO AL AZAR.
+//    Probado el 02/11 contra el almacén caído de verdad: SIN tope, los tres intentos
+//    tardaron **62 segundos** y recién ahí contestaron. Nadie se queda un minuto
+//    parado frente al teléfono — cierra la página y se va sin fichar, que es
+//    exactamente lo que esto viene a evitar. Con el tope, el peor caso son ~23 s y
+//    después la foto queda en el teléfono.
+// ⚠️ La subida que se abandona puede entrar igual más tarde, del lado del servidor.
+//    No es un problema: el reintento posterior recibe «already exists» y eso se
+//    cuenta como ÉXITO, no como fallo.
+var TOPE_SUBIDA_MS = 7000;
+
+function _conTope(promesa, ms){
+  return Promise.race([
+    promesa,
+    new Promise(function(res){ setTimeout(function(){ res({error:{message:'tardó más de '+(ms/1000)+' s'}}); }, ms); })
+  ]);
+}
+
+async function subirConReintentos(path, blob){
+  var ult = {error:{message:'sin intentar'}};
+  for (var i=0; i<3; i++){
+    if(i) await new Promise(function(r){ setTimeout(r, 800*i); });
+    try{
+      ult = await _conTope(SB.storage.from('asistencia').upload(path, blob, {contentType:'image/jpeg', upsert:false}), TOPE_SUBIDA_MS);
+      if(!ult.error) return ult;
+      // ⛔ Si el archivo YA ESTÁ, no es un fallo: es un intento anterior que sí llegó.
+      if(String(ult.error.message||'').toLowerCase().indexOf('exist') >= 0) return {data:{path:path}};
+    }catch(e){ ult = {error:{message:String(e && e.message || e)}}; }
+  }
+  return ult;
+}
+
+function _leerCola(){ try{ return JSON.parse(localStorage.getItem(COLA_FOTOS)||'[]'); }catch(e){ return []; } }
+function _escribirCola(c){ try{ localStorage.setItem(COLA_FOTOS, JSON.stringify(c)); return true; }catch(e){ return false; } }
+
+// Guarda la foto en el teléfono. Devuelve false si no se pudo: ahí SÍ se corta, porque
+// sin foto guardada en ningún lado el fichaje volvería a ser uno de los 13 sin evidencia.
+function guardarFotoPendiente(path, blob){
+  return new Promise(function(res){
+    try{
+      var fr=new FileReader();
+      fr.onload=function(){
+        var c=_leerCola();
+        c.push({path:path, b64:String(fr.result||''), en:Date.now()});
+        // ⚠️ Tope de 8: `localStorage` es chico y una foto comprimida pesa ~40 KB. Si se
+        //    llenara, se perdería la MÁS VIEJA, que es la que más tiempo lleva esperando.
+        while(c.length>8) c.shift();
+        res(_escribirCola(c));
+      };
+      fr.onerror=function(){ res(false); };
+      fr.readAsDataURL(blob);
+    }catch(e){ res(false); }
+  });
+}
+
+async function reintentarFotosPendientes(){
+  var c=_leerCola(); if(!c.length || !SB) return;
+  var quedan=[];
+  for (var i=0; i<c.length; i++){
+    var it=c[i];
+    try{
+      var r=await fetch(it.b64); var blob=await r.blob();
+      var up=await subirConReintentos(it.path, blob);
+      if(up.error){ quedan.push(it); continue; }
+      // Subió: recién ahora la fila puede decir que tiene foto.
+      await SB.rpc('fichaje_foto_subida', {p_ruta: it.path});
+    }catch(e){ quedan.push(it); }
+  }
+  _escribirCola(quedan);
+}
+
 async function registrar(){
-  var res=$('res'); res.innerHTML='';
+  var res=$('res'); res.innerHTML=''; selfiePendiente=false;
   if(!SEL){ return; }
   var clave=($('clave').value||'').replace(/\D/g,'');
   if(clave.length<4){ res.innerHTML='<div class="res bad">Ponga los 4 dígitos de su cédula.</div>'; return; }
@@ -306,8 +397,26 @@ async function registrar(){
     // Con milésimas: sin `upsert` dos toques en el mismo segundo chocarían y el 2º daría error.
     var _hhmmss=_ve.toISOString().slice(11,23).replace(/[:.]/g,'');
     var path='asistencia/'+SEL.id+'_'+hoy+'_'+_hhmmss+'.jpg';
-    var up=await SB.storage.from('asistencia').upload(path, blob, {contentType:'image/jpeg', upsert:false});
-    if(up.error){ res.innerHTML='<div class="res bad">No se pudo subir la foto ('+esc(up.error.message||'error')+'). Sin foto no se puede fichar: revise la señal y toque Registrar otra vez.</div>'; return; }
+    // ⛔ TRES INTENTOS, NO UNO. El 02/11/2026 el almacén de Supabase empezó a
+    //    devolver «The connection to the database timed out» y con UN solo intento
+    //    el fichaje moría ahí. Un hipo de la infraestructura no puede costarle el
+    //    jornal a nadie. [[norma-un-adjunto-que-falla-se-lleva-la-fila]]
+    var up=await subirConReintentos(path, blob);
+    if(up.error){
+      // ⛔ Y SI DESPUÉS DE TRES SIGUE CAÍDO, NO SE PIERDE NI LA FOTO NI EL FICHAJE.
+      //    No se quita el candado de «sin foto no hay fichaje» —está bien puesto: antes
+      //    el fichaje entraba con `selfie_url=''` y hubo 13 así entre el 01/06 y el
+      //    05/08—. Lo que se hace es guardar la foto EN EL TELÉFONO y registrar el
+      //    fichaje MARCADO como `pendiente:`, nunca como si tuviera foto. Cuando el
+      //    almacén vuelve, la foto sube sola a ESA MISMA ruta y `fichaje_foto_subida`
+      //    la asciende. Esa función no puede pisar una foto que ya exista.
+      var guardada = await guardarFotoPendiente(path, blob);
+      if(!guardada){
+        res.innerHTML='<div class="res bad">No se pudo subir la foto ('+esc(up.error.message||'error')+') y tampoco guardarla en el teléfono. Sin foto no se puede fichar: revise la señal y toque Registrar otra vez.</div>';
+        return;
+      }
+      selfiePendiente = true;
+    }
     // ⛔ SE GUARDA LA RUTA, NO UNA URL PÚBLICA. El bucket `asistencia` es PRIVADO en las cinco
     //    bases (medido el 29/09/2026: `public=false` en todas). `getPublicUrl` devuelve una URL con
     //    buena pinta que responde HTTP 400 · Bucket not found: la foto SÍ se subió, el enlace no
@@ -316,14 +425,25 @@ async function registrar(){
     //    o sea ANTERIORES a aquel arreglo, y las rotas siguen entrando hoy.
     //    Quien lee ya sabe firmar la ruta (`_urlFirmada`), así que acá va la ruta y nada más.
     //    Ya no hace falta comprobar que el enlace salga: `path` siempre existe.
-    var selfieUrl=path;
+    //    ⛔ Si quedó pendiente se guarda con el prefijo, NO con la ruta pelada: una fila
+    //       que dice tener foto y no la tiene es peor que una que avisa que falta.
+    //       [[norma-falta-de-dato-no-es-un-dato]]
+    var selfieUrl = selfiePendiente ? ('pendiente:'+path) : path;
     // 2) registrar (valida ced-4 + geocerca en el servidor)
     // ⛔ ACÁ IBA `p_unidad: null` CLAVADO. La columna existía desde el 29/08 y en 1.833
     //    fichajes quedó vacía las 1.833 veces. Ahora va lo que declaró la persona.
     var _uni = ($('fg-unidad').style.display!=='none' && $('unidad')) ? ($('unidad').value||null) : null;
     var r=await SB.rpc('fichar_asistencia',{p_id:SEL.id,p_clave:clave,p_lat:POS?POS.lat:null,p_lng:POS?POS.lng:null,p_selfie:selfieUrl,p_origen:SITIO_FIJO?'fichaje_qr':'fichaje',p_unidad:_uni,p_sitio_id:SITIO_FIJO?SITIO_FIJO.id:null});
     if(r.error){ res.innerHTML='<div class="res bad">Error: '+esc(r.error.message)+'</div>'; }
-    else if(r.data && r.data.ok){ mostrarOK(SEL.nombre, r.data.sitio); }
+    else if(r.data && r.data.ok){
+      mostrarOK(SEL.nombre, r.data.sitio);
+      // ⛔ SE LE DICE. Quedó fichado, pero su foto todavía no subió, y eso la persona
+      //    tiene que saberlo: si después le preguntan por la evidencia, no puede
+      //    enterarse ahí. No es un error suyo y el mensaje lo deja claro.
+      if(selfiePendiente){
+        res.innerHTML='<div class="res">✅ Su asistencia quedó registrada.<br>⚠️ La foto no pudo subir en este momento (el servidor no responde), así que quedó guardada en este teléfono y se sube sola cuando vuelva. No tiene que hacer nada ni fichar de nuevo.</div>';
+      }
+    }
     else { res.innerHTML='<div class="res bad">❌ '+esc((r.data&&r.data.msg)||'No se pudo registrar')+'</div>'; }
   }catch(e){ res.innerHTML='<div class="res bad">Falló: '+esc(e.message||e)+'</div>'; }
   finally{ btn.disabled=false; btn.textContent='✅ Registrar asistencia'; }
@@ -331,6 +451,9 @@ async function registrar(){
 
 cargarEmp();
 cargarSitioFijo();
+// Al abrir la página se intenta subir lo que quedó pendiente de un fichaje anterior.
+// ⚠️ Va sin `await` y con su propio catch: si esto falla, NO puede impedir fichar hoy.
+try{ reintentarFotosPendientes().catch(function(){}); }catch(e){}
 cargarUnidades();   // que la lista esté lista antes de que el primero toque su nombre
 </script>
 </body>
