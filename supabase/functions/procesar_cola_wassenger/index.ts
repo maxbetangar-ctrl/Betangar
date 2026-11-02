@@ -12,6 +12,10 @@
 // Usa SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY (env estándar de Supabase).
 // ════════════════════════════════════════════════════════════════════════════
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+// La ventana de hora vive aparte para poder probarla: importar este index
+// arranca el `serve()` y el runner de pruebas se cae. Mismo motivo que
+// `puerta-datos.ts` en wa-autoreply.
+import { horaVE, enHorarioVE, leerVentana } from './ventana-hora.ts';
 
 const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, apikey, content-type' };
 
@@ -190,8 +194,51 @@ Deno.serve(async (req) => {
     } catch { /* sin red para preguntar: se sigue, igual que arriba */ }
   }
 
+  // ── 🕗 LA VENTANA DE HORA VIVE ACÁ, Y NO EN CADA EMISOR (02/11/2026) ───────
+  //
+  // 🔴 POR QUÉ. La norma de la casa es no escribirle a nadie fuera de 8:00-20:00
+  //    hora de Venezuela, y la cumplían SEIS funciones emisoras, cada una por su
+  //    cuenta (`auditar-combustible`, `choferes-dia`, `cumpleanos`,
+  //    `enviar-personal`, `km-sin-viaje`, `viajes-semanal`). Este worker —por el
+  //    que pasan TODOS los mensajes— no la miraba. Resultado medido el 02/11:
+  //      · 28/10 23:52 → un `soporte-programado` a Alejandra (que vive acá)
+  //      · 28/10 22:00 → un `cierre-checklist` a un chofer
+//    Y eso es exactamente lo que Virginia reportó el 21/10: «los recordatorios
+  //    están llegando muy tarde». El emisor que nace sin la regla la rompe.
+  //    ⇒ La regla va en el único lugar por el que pasa todo.
+  //    [[norma-arreglar-el-mecanismo-no-el-caso]]
+  //
+  // ⛔ Y SE FILTRA EN LA CONSULTA, NO EN EL BUCLE. Si se saltaran las filas
+  //    adentro del `for`, una noche con 25 mensajes retenidos llenaría la tanda
+  //    (`limit(25)`) y las ALARMAS a Máximo se quedarían sin turno justo cuando
+  //    más importan. De noche se piden SOLO las que sí pueden salir.
+  //
+  // ⚠️ LO RETENIDO NO SE DESCARTA: queda `pendiente`, sin tocarle `intentos` ni
+  //    `tomado_at`, y sale en la primera corrida después de las 8:00. Y compone
+  //    bien con el caducador de arriba: 12 h de vigencia cubren la noche entera
+  //    (lo encolado a las 20:30 sale a las 8:00 con 11,5 h), y lo que igual
+  //    caduque se descarta con su motivo escrito — que es lo correcto para un
+  //    aviso operativo de ayer.
+  //
+  // ⛔ A MÁXIMO SE LE ESCRIBE A CUALQUIER HORA, y es deliberado: las alarmas de
+  //    la casa (una base caída, el respaldo que no corrió, el GPS atrasado) son
+  //    de madrugada o no sirven. Y si la clave de configuración no está, la
+  //    lista cae a sus dos números conocidos en vez de "no restringir nada":
+  //    así, falte lo que falte, las alarmas salen y un tercero no recibe un
+  //    mensaje a medianoche.
+  const { data: vh } = await sb.from('configuracion').select('valor').eq('clave', 'ventana_hora').maybeSingle();
+  const { ventana: VENTANA, sinLimite } = leerVentana(vh?.valor, (s) => console.log(s));
+  const ahoraVE = new Date();
+  const hVE = horaVE(ahoraVE);
+  const enHorario = enHorarioVE(ahoraVE, VENTANA);
+
   // 2) mensajes pendientes (tanda)
-  const { data: pend } = await sb.from('cola_mensajes').select('*').eq('estado', 'pendiente').lt('intentos', 4).order('id').limit(25);
+  let consulta = sb.from('cola_mensajes').select('*').eq('estado', 'pendiente').lt('intentos', 4).order('id').limit(25);
+  if (!enHorario) {
+    console.log(`fuera de horario (${hVE}h VE, ventana ${VENTANA.desde}-${VENTANA.hasta}): solo salen los avisos de la casa`);
+    consulta = consulta.in('telefono', sinLimite);
+  }
+  const { data: pend } = await consulta;
   if (!pend || !pend.length) return json({ ok: true, sent: 0, caducados: caducados?.length || 0 });
 
   let sent = 0, fail = 0, bloq = 0, trabado = 0;
