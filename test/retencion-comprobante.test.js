@@ -99,5 +99,25 @@ ok('el de ISLR NO cita la Providencia del IVA', htmlIslr.indexOf('SNAT/2015/0049
 ok('el de ISLR lleva «Firma y Sello»', htmlIslr.indexOf('Firma y Sello') > -1);
 eq('el ISLR retenido como en el papel', R.retBs(dIslr.ret_islr_bs), '6.925,66');
 
+// ── 6. El botón en la tabla, contra la app de verdad ────────────────────────
+// Se carga `app.js` en el harness: si el botón se rompe, la pestaña Retenciones
+// deja de pintar y eso no lo ve ninguna prueba del módulo suelto.
+const S = require('./harness.js');
+ok('la app ve el módulo del comprobante', typeof S.retHtmlIVA === 'function');
+ok('existe el emisor',                    typeof S.emitirComprobanteRet === 'function');
+
+eq('una factura sin retención no muestra botón',
+   S._btnComprobante({ id: 'F1', ret_iva_bs: 0, ret_islr_bs: 0 }, 'IVA'), '');
+const conIva = { id: 'F2', ret_iva_bs: 19353.77, ret_islr_bs: 0 };
+ok('con retención de IVA sale el botón de IVA',  S._btnComprobante(conIva, 'IVA').indexOf('IVA') > -1);
+eq('…y NO el de ISLR, que no le corresponde',    S._btnComprobante(conIva, 'ISLR'), '');
+ok('el botón lleva el id de la factura',         S._btnComprobante(conIva, 'IVA').indexOf("'F2','IVA'") > -1);
+ok('si ya se emitió, el botón muestra el número',
+   S._btnComprobante({ id: 'F3', ret_iva_bs: 100, comp_iva: '20260900000571' }, 'IVA')
+     .indexOf('20260900000571') > -1);
+const ambas = { id: 'F4', ret_iva_bs: 100, ret_islr_bs: 50 };
+ok('una factura con las dos retenciones muestra los dos botones',
+   !!S._btnComprobante(ambas, 'IVA') && !!S._btnComprobante(ambas, 'ISLR'));
+
 console.log('\n  ' + pass + ' pasaron, ' + fail + ' fallaron\n');
 process.exit(fail ? 1 : 0);
