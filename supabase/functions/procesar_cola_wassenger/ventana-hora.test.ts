@@ -17,7 +17,7 @@
 //    el caso que de verdad pasó. [[norma-la-foto-que-manda-la-persona-es-el-diagnostico]]
 // ═══════════════════════════════════════════════════════════════════════════════
 import { assertEquals } from "jsr:@std/assert@1";
-import { horaVE, enHorarioVE, leerVentana } from "./ventana-hora.ts";
+import { corteDeCaducidad, horaVE, enHorarioVE, leerVentana } from "./ventana-hora.ts";
 
 const V = { desde: 8, hasta: 20 };
 const en = (iso: string) => enHorarioVE(new Date(iso), V);
@@ -108,4 +108,49 @@ Deno.test("un JSON roto no abre la ventana", () => {
 Deno.test("los numeros se limpian de signos", () => {
   const r = leerVentana('{"sin_limite":["+58 414-737.9886"]}', () => {});
   assertEquals(r.sinLimite, ["584147379886"]);
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// EL CORTE DE CADUCIDAD — que la retención propia no cuente como abandono
+// ⚠️ Venezuela es UTC-4 y no mueve el reloj, así que 08:05 VE = 12:05Z.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const VE = (iso: string) => new Date(iso); // los literales ya van en Z, explícitos
+
+Deno.test('el caso que iba a perder mensajes: encolado 20:01, se barre a las 8:05 → NO caduca', () => {
+  const ahora = VE('2026-11-03T12:05:00Z');            // 08:05 VE
+  const corte = corteDeCaducidad(ahora, { desde: 8, hasta: 20 }, 12);
+  const encolado = VE('2026-11-03T00:01:00Z');          // 20:01 VE del 02
+  assertEquals(encolado > corte, true,
+    `encolado ${encolado.toISOString()} deberia sobrevivir al corte ${corte.toISOString()}`);
+  // Con el corte VIEJO (12 h de reloj) habria muerto: esa es la prueba del bug.
+  const corteViejo = new Date(ahora.getTime() - 12 * 3600_000);
+  assertEquals(encolado < corteViejo, true, 'el corte de reloj si lo mataba');
+});
+
+Deno.test('el que SI tuvo 12 h de horario y nadie lo mando: caduca', () => {
+  const ahora = VE('2026-11-03T12:05:00Z');            // 08:05 VE
+  const corte = corteDeCaducidad(ahora, { desde: 8, hasta: 20 }, 12);
+  // 12 h entregables hacia atras desde 08:05 VE caen en 08:05 VE del dia anterior.
+  const viejo = VE('2026-11-02T11:00:00Z');             // 07:00 VE del 02
+  assertEquals(viejo < corte, true, 'tuvo toda la jornada del 02 y no salio');
+});
+
+Deno.test('ventana angosta (8-18): lo encolado a las 18:05 llega vivo a la manana', () => {
+  const ahora = VE('2026-11-03T12:05:00Z');            // 08:05 VE
+  const corte = corteDeCaducidad(ahora, { desde: 8, hasta: 18 }, 12);
+  const encolado = VE('2026-11-02T22:05:00Z');          // 18:05 VE del 02
+  assertEquals(encolado > corte, true, 'con 8-18 la noche es mas larga y no debe castigar');
+});
+
+Deno.test('sin ventana (0-24) el corte es exactamente el de reloj', () => {
+  const ahora = VE('2026-11-03T12:05:00Z');
+  const corte = corteDeCaducidad(ahora, { desde: 0, hasta: 24 }, 12);
+  assertEquals(corte.getTime(), ahora.getTime() - 12 * 3600_000);
+});
+
+Deno.test('una ventana imposible no cuelga el worker', () => {
+  const corte = corteDeCaducidad(VE('2026-11-03T12:05:00Z'), { desde: 5, hasta: 5 }, 12);
+  // Se frena en el tope de 30 dias en vez de girar para siempre.
+  assertEquals(corte < VE('2026-10-05T00:00:00Z'), true);
 });
