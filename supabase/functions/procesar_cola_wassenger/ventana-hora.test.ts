@@ -17,7 +17,7 @@
 //    el caso que de verdad pasó. [[norma-la-foto-que-manda-la-persona-es-el-diagnostico]]
 // ═══════════════════════════════════════════════════════════════════════════════
 import { assertEquals } from "jsr:@std/assert@1";
-import { corteDeCaducidad, horaVE, enHorarioVE, leerVentana } from "./ventana-hora.ts";
+import { proximaApertura, URGENTES_POR_DEFECTO, esUrgente, leerUrgentes, corteDeCaducidad, horaVE, enHorarioVE, leerVentana } from "./ventana-hora.ts";
 
 const V = { desde: 8, hasta: 20 };
 const en = (iso: string) => enHorarioVE(new Date(iso), V);
@@ -153,4 +153,84 @@ Deno.test('una ventana imposible no cuelga el worker', () => {
   const corte = corteDeCaducidad(VE('2026-11-03T12:05:00Z'), { desde: 5, hasta: 5 }, 12);
   // Se frena en el tope de 30 dias en vez de girar para siempre.
   assertEquals(corte < VE('2026-10-05T00:00:00Z'), true);
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// LO URGENTE NO ESPERA A LAS 8:00 — y lo que NO es urgente, sí
+// ═══════════════════════════════════════════════════════════════════════════════
+
+Deno.test('un mensaje de acceso no espera, ni con sufijo', () => {
+  assertEquals(esUrgente('acceso'), true);
+  assertEquals(esUrgente('acceso_2fa'), true);
+  assertEquals(esUrgente('clave_nueva'), true);
+  assertEquals(esUrgente('TOKEN'), true);          // no importa la caja
+});
+
+Deno.test('⛔ `alerta` NO es urgente en esta casa: son los 734 avisos de aceite', () => {
+  // La prueba que protege el sentido de toda la ventana. Geppetto SÍ tiene
+  // `alerta` como urgente; acá copiarla dejaba la ventana hueca.
+  assertEquals(esUrgente('alerta'), false);
+  assertEquals(esUrgente('aceite'), false);
+  assertEquals(esUrgente('cierre-checklist'), false);
+  assertEquals(esUrgente('auditoria'), false);
+});
+
+Deno.test('un tipo vacio o nulo no se cuela como urgente', () => {
+  assertEquals(esUrgente(null), false);
+  assertEquals(esUrgente(''), false);
+  assertEquals(esUrgente(undefined), false);
+});
+
+Deno.test('un urgente con coma o parentesis se IGNORA: rompe el filtro de PostgREST', () => {
+  const avisos: string[] = [];
+  const u = leerUrgentes('{"urgentes":["acceso","mal,o","otro)"]}', (s) => avisos.push(s));
+  assertEquals(u, ['acceso']);
+  assertEquals(avisos.length, 1);
+});
+
+Deno.test('una lista de urgentes VACIA se respeta: todo espera a las 8:00', () => {
+  assertEquals(leerUrgentes('{"urgentes":[]}', () => {}), []);
+});
+
+Deno.test('sin la clave, los urgentes son los de la casa', () => {
+  assertEquals(leerUrgentes(null), URGENTES_POR_DEFECTO);
+  assertEquals(leerUrgentes('{"desde":8,"hasta":20}'), URGENTES_POR_DEFECTO);
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// PROGRAMAR EN VEZ DE RETENER
+// ═══════════════════════════════════════════════════════════════════════════════
+
+Deno.test('a las 22:00 VE se programa para las 8:00 de MANANA', () => {
+  // 22:00 VE del 2 = 02:00 UTC del 3
+  const d = proximaApertura(new Date('2026-11-03T02:00:00Z'), { desde: 8, hasta: 20 });
+  assertEquals(d.toISOString(), '2026-11-03T12:00:00.000Z');   // 8:00 VE del 3
+  assertEquals(horaVE(d), 8);
+});
+
+Deno.test('a las 6:00 VE se programa para las 8:00 de HOY, no de manana', () => {
+  const d = proximaApertura(new Date('2026-11-03T10:00:00Z'), { desde: 8, hasta: 20 });
+  assertEquals(d.toISOString(), '2026-11-03T12:00:00.000Z');
+  assertEquals(d > new Date('2026-11-03T10:00:00Z'), true);
+});
+
+Deno.test('a las 20:30 VE, que es el caso que mas sale, cae a las 8:00 del dia siguiente', () => {
+  // 20:30 VE del 2 = 00:30 UTC del 3
+  const d = proximaApertura(new Date('2026-11-03T00:30:00Z'), { desde: 8, hasta: 20 });
+  assertEquals(horaVE(d), 8);
+  assertEquals((d.getTime() - new Date('2026-11-03T00:30:00Z').getTime()) / 3600000, 11.5);
+});
+
+Deno.test('con una ventana que abre a las 7, programa para las 7', () => {
+  const d = proximaApertura(new Date('2026-11-03T02:00:00Z'), { desde: 7, hasta: 20 });
+  assertEquals(horaVE(d), 7);
+});
+
+Deno.test('lo programado NUNCA queda en el pasado, a cualquier hora del dia', () => {
+  for (let h = 0; h < 24; h++) {
+    const ahora = new Date(Date.UTC(2026, 10, 3, h, 17, 0));
+    const d = proximaApertura(ahora, { desde: 8, hasta: 20 });
+    assertEquals(d > ahora, true, `fallo a las ${h}:17 UTC`);
+    assertEquals(horaVE(d), 8, `no cayo en la apertura a las ${h}:17 UTC`);
+  }
 });

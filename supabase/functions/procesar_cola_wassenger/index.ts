@@ -15,7 +15,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 // La ventana de hora vive aparte para poder probarla: importar este index
 // arranca el `serve()` y el runner de pruebas se cae. Mismo motivo que
 // `puerta-datos.ts` en wa-autoreply.
-import { corteDeCaducidad, horaVE, enHorarioVE, leerVentana } from './ventana-hora.ts';
+import { corteDeCaducidad, horaVE, enHorarioVE, leerVentana, leerUrgentes, esUrgente, proximaApertura } from './ventana-hora.ts';
 
 const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, apikey, content-type' };
 
@@ -96,6 +96,7 @@ Deno.serve(async (req) => {
   // mensaje la espera que le impuso la casa. El porqué largo, en el paso 2.
   const { data: vh } = await sb.from('configuracion').select('valor').eq('clave', 'ventana_hora').maybeSingle();
   const { ventana: VENTANA, sinLimite } = leerVentana(vh?.valor, (s) => console.log(s));
+  const URGENTES = leerUrgentes(vh?.valor, (s) => console.log(s));
   const ahoraVE = new Date();
   const hVE = horaVE(ahoraVE);
   const enHorario = enHorarioVE(ahoraVE, VENTANA);
@@ -267,14 +268,23 @@ Deno.serve(async (req) => {
 
   // 2) mensajes pendientes (tanda)
   let consulta = sb.from('cola_mensajes').select('*').eq('estado', 'pendiente').lt('intentos', 4).order('id').limit(25);
+  // ⛔ DE NOCHE NO SE RETIENE: SE PROGRAMA. La primera version de hoy filtraba
+  //    la consulta y dejaba las filas en `pendiente` hasta las 8:00. Funciona,
+  //    pero la casa ya sabe que es la peor opcion: Geppetto lo resolvio el 28/08
+  //    con `deliverAt` de Wassenger y su comentario lo dice con numero --
+  //    «retener es crear un monton que despues hay que barrer a mano: ya paso en
+  //    agosto con 102 mensajes». Programado, el mensaje sale SOLO a las 8:00, la
+  //    fila se cierra ahora, y no hay pila nocturna que pueda caducar, trabarse
+  //    ni llenar la tanda de 25. [[norma-arreglar-el-mecanismo-no-el-caso]]
+  //    ⇒ La tanda se pide COMPLETA incluso de noche; quien espera lo decide
+  //    `aQueHoraSale` abajo, fila por fila.
   if (!enHorario) {
-    console.log(`fuera de horario (${hVE}h VE, ventana ${VENTANA.desde}-${VENTANA.hasta}): solo salen los avisos de la casa`);
-    consulta = consulta.in('telefono', sinLimite);
+    console.log(`fuera de horario (${hVE}h VE, ventana ${VENTANA.desde}-${VENTANA.hasta}): a los terceros se les PROGRAMA para las ${VENTANA.desde}:00; salen ya los avisos de la casa y lo urgente (${URGENTES.join(', ') || 'nada'})`);
   }
   const { data: pend } = await consulta;
   if (!pend || !pend.length) return json({ ok: true, sent: 0, caducados: caducados?.length || 0 });
 
-  let sent = 0, fail = 0, bloq = 0, trabado = 0;
+  let sent = 0, fail = 0, bloq = 0, trabado = 0, programados = 0;
   const bloqDetalle: Array<{ id: any; tipo: any; marca: string }> = [];
   // `trabado` = filas que NO SE PUDIERON NI COMPROBAR (el control de destino fallo). No son
   // bloqueos -siguen 'pendiente' y se reintentan- pero avisan igual: ver el bloque de errPerm.
@@ -366,8 +376,23 @@ Deno.serve(async (req) => {
         continue;
       }
 
+      // ⛔ A QUE HORA SALE ESTA FILA. `null` = ya. Un instante = se le pide a
+      //    Wassenger que lo entregue entonces (`deliverAt`), y la fila se cierra
+      //    igual en esta vuelta.
+      //    Salen YA, aunque sea medianoche: los avisos de la casa (una base
+      //    caida, el respaldo que no corrio) y lo URGENTE -- un `tipo='acceso'`
+      //    programado deja a una persona sin poder entrar hasta la manana.
+      //    ⚠️ La lista de urgentes NO es la de Geppetto: aca `alerta` son los 734
+      //    avisos de aceite, y copiarla dejaba la ventana hueca.
+      const aQueHoraSale = (enHorario || sinLimite.includes(phone) || esUrgente(m.tipo, URGENTES))
+        ? null : proximaApertura(ahoraVE, VENTANA).toISOString();
+
       const body: any = { phone, message: conEtiqueta(m.mensaje) };
       if (cfg.device) body.device = cfg.device;
+      // ✅ Comprobado contra la API el 02/11: con `deliverAt` devuelve 201 y
+      //    `status: queued`, y trae el `wid` igual que un envio normal -- asi que
+      //    el control de destino de mas abajo sigue valiendo tal cual.
+      if (aQueHoraSale) body.deliverAt = aQueHoraSale;
       // ⛔ EL ADJUNTO VA POR ID, NO POR BYTES (28/10/2026). Wassenger no recibe el archivo en
       //    este POST: quien encola ya lo subió a /v1/files y acá solo se lo nombra. Si la fila
       //    trae `media_file`, el `message` deja de ser el mensaje y pasa a ser el PIE del
@@ -459,7 +484,16 @@ Deno.serve(async (req) => {
         // mensaje que se reintento y llego queda "enviado" pero mostrando un error viejo, y quien
         // lo mire va a creer que no salio (paso el 2026-07-20 con un 502: llego en el reintento
         // pero el registro parecia fallido).
-        const marca = { estado: 'enviado', enviado_at: new Date().toISOString(), error: null };
+        // ⚠️ `programado_para` SE ESCRIBE O LA FILA MIENTE. Sin esa columna la fila
+        //    dice «enviado 22:03» y la persona lo recibe a las 8:00: cualquiera
+        //    que mida «a que hora le escribimos» lee la hora del DESPACHO y no la
+        //    de la entrega. Es el error que me hizo medir mal a Geppetto hoy
+        //    mismo («92 mensajes a las 7h» eran despachos, no entregas).
+        //    Se pone en null cuando sale ya, para que un reintento que esta vez
+        //    salio en horario no quede marcado como programado.
+        const marca = { estado: 'enviado', enviado_at: new Date().toISOString(), error: null,
+                        programado_para: aQueHoraSale };
+        if (aQueHoraSale) programados++;
 
         // ⛔ EL MENSAJE YA SALIO: marcarlo NO puede fallar por la columna nueva.
         //    Si PostgREST todavia tiene el esquema viejo en cache, el update con
@@ -469,7 +503,19 @@ Deno.serve(async (req) => {
         const up = await sb.from('cola_mensajes').update({ ...marca, proveedor_id: idProv }).eq('id', m.id);
         if (up.error) {
           console.log('proveedor_id no se pudo guardar (' + up.error.message + '); se marca igual');
-          await sb.from('cola_mensajes').update(marca).eq('id', m.id);
+          const up2 = await sb.from('cola_mensajes').update(marca).eq('id', m.id);
+          // ⛔ Y UN ULTIMO ESCALON CON LO MINIMO. Este respaldo existe para
+          //    DEGRADAR cuando falta una columna, y al meterle `programado_para`
+          //    dejo de degradar: en una base sin esa columna fallarian los DOS
+          //    updates, la fila quedaria `pendiente` con el mensaje YA ENTREGADO,
+          //    y la vuelta siguiente lo manda de nuevo. Marcar la fila es mas
+          //    importante que guardarle el detalle. (La columna esta puesta en
+          //    las 6 bases el 02/11; esto es para la septima.)
+          if (up2.error) {
+            console.log('tampoco con el detalle (' + up2.error.message + '); se marca lo minimo');
+            await sb.from('cola_mensajes')
+              .update({ estado: 'enviado', enviado_at: marca.enviado_at, error: null }).eq('id', m.id);
+          }
         }
         sent++;
       } else {
@@ -557,7 +603,7 @@ Deno.serve(async (req) => {
   }
 
   // `bloqueados` va en la respuesta a propósito: es el respaldo por si la alarma falla.
-  return json({ ok: true, sent, fail, bloqueados: bloq, alarma, caducados: caducados?.length || 0 });
+  return json({ ok: true, sent, fail, bloqueados: bloq, programados, alarma, caducados: caducados?.length || 0 });
 });
 
 // Venezuela: 04141234567 / 0414-1234567 → +584141234567
