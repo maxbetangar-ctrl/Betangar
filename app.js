@@ -18245,7 +18245,10 @@ async function emitirComprobanteRet(idFactura, tipo){
     agente_nombre:(brandNom()||'').toUpperCase(), agente_rif:brandRif(),
     agente_direccion:BTG_CONFIG.empresa_direccion||'',
     ciudad:(BTG_CONFIG.empresa_ciudad||'').split(',')[0],
-    prov_nombre:f.prov_nombre, prov_rif:prov.rif||'',
+    // ⛔ Va la RAZÓN SOCIAL, no el nombre con el que la casa lo llama: «(ATLAS)»
+    //    y las demás coletillas son anotaciones internas y no pueden salir en un
+    //    comprobante fiscal.
+    prov_nombre:retRazonSocial(prov.razon_social, f.prov_nombre), prov_rif:prov.rif||'',
     tipo_doc_fiscal:'01', tipo_doc_texto:'FACTURA'
   };
 
@@ -18263,8 +18266,17 @@ async function emitirComprobanteRet(idFactura, tipo){
   var numero=f[campo];
 
   if(!numero){
-    if(!confirm('Se va a emitir el comprobante de retención de '+tipo+' para '+f.prov_nombre+
-                '.\n\nEl número se consume aunque después no lo entregues. ¿Seguimos?'))return;
+    // ⛔ Se muestra EXACTAMENTE lo que va a salir impreso. Si la razón social se
+    //    dedujo del nombre interno, acá es donde la persona lo ve — después del
+    //    número ya no hay vuelta atrás.
+    var derivada=!String(prov.razon_social||'').trim();
+    if(!confirm('Comprobante de retención de '+tipo+'\n\n'+
+                'Sujeto retenido:  '+d.prov_nombre+'\n'+
+                'RIF:              '+(retRevisarRif(d.prov_rif).formateado||d.prov_rif)+'\n'+
+                'Factura:          '+d.nro_factura+'   ·   Control: '+d.num_control+'\n'+
+                (derivada?'\n⚠️ Ese nombre se dedujo del nombre interno «'+f.prov_nombre+
+                          '». Si la razón social es otra, corrígela en la ficha ANTES de emitir.\n':'')+
+                '\nEl número se consume aunque después no lo entregues. ¿Seguimos?'))return;
     // El número lo reparte la BASE, no el navegador: dos personas emitiendo a la
     // vez leerían el mismo «último» y saldrían dos comprobantes iguales.
     var r=await supabase.rpc('ret_siguiente_comprobante',

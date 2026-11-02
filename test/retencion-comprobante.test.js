@@ -99,6 +99,22 @@ ok('el de ISLR NO cita la Providencia del IVA', htmlIslr.indexOf('SNAT/2015/0049
 ok('el de ISLR lleva «Firma y Sello»', htmlIslr.indexOf('Firma y Sello') > -1);
 eq('el ISLR retenido como en el papel', R.retBs(dIslr.ret_islr_bs), '6.925,66');
 
+// ── 5b. La razón social NO es el nombre interno ─────────────────────────────
+// Medido contra los comprobantes reales: ninguno trae la coletilla de la casa.
+eq('la razón social guardada manda',
+   R.retRazonSocial('HUMBERTO PACCINI', 'HUMBERTO PACCINI (ATLAS)'), 'HUMBERTO PACCINI');
+eq('sin razón social, se le quita la coletilla «(ATLAS)»',
+   R.retRazonSocial('', 'HUMBERTO PACCINI (ATLAS)'), 'HUMBERTO PACCINI');
+eq('…y a «INCONSUMMCA, C.A. (ATLAS)»',
+   R.retRazonSocial(null, 'INCONSUMMCA, C.A. (ATLAS)'), 'INCONSUMMCA, C.A.');
+eq('un nombre sin coletilla se deja igual',
+   R.retRazonSocial('', 'AUTO UNION DC, C.A.'), 'AUTO UNION DC, C.A.');
+eq('sólo se quita el paréntesis FINAL, no uno del medio',
+   R.retRazonSocial('', 'FERRE (NORTE) MATERIALES'), 'FERRE (NORTE) MATERIALES');
+ok('el comprobante sale con la razón social, no con el nombre interno',
+   R.retHtmlIVA(Object.assign({}, d571, { prov_nombre: R.retRazonSocial('', 'HUMBERTO PACCINI (ATLAS)') }),
+                '20260900000571').indexOf('(ATLAS)') === -1);
+
 // ── 6. El botón en la tabla, contra la app de verdad ────────────────────────
 // Se carga `app.js` en el harness: si el botón se rompe, la pestaña Retenciones
 // deja de pintar y eso no lo ve ninguna prueba del módulo suelto.

@@ -55,6 +55,25 @@ function retRevisarRif(rif) {
   return { ok: true, formateado: letra + '-' + nums.slice(0, 8) + '-' + nums.charAt(8) };
 }
 
+// ── La razón social, que no es el nombre con el que la casa lo llama ─────────
+/**
+ * ⛔ `proveedores.nombre` lleva anotaciones internas —«(ATLAS)», «(E/S PALOTAL)»,
+ *    «(COPERCA)»— para encontrarlo en una lista. Ninguna puede salir en un
+ *    comprobante fiscal: medido contra los que Betangar ya emitió, ninguno la trae.
+ *      sistema                      comprobante real
+ *      HUMBERTO PACCINI (ATLAS)  →  HUMBERTO PACCINI
+ *      INCONSUMMCA, C.A. (ATLAS) →  INCONSUMMCA, C.A
+ *
+ * Si hay razón social guardada manda ésa. Si no, se DERIVA quitando la coletilla
+ * — y quien emite la ve en la confirmación antes de gastar el número, porque
+ * derivar un nombre fiscal en silencio es inventarlo.
+ */
+function retRazonSocial(razonGuardada, nombreInterno) {
+  var r = String(razonGuardada || '').trim();
+  if (r) return r;
+  return String(nombreInterno || '').replace(/\s*\([^)]*\)\s*$/, '').trim();
+}
+
 // ── El número de comprobante ─────────────────────────────────────────────────
 /**
  * AAAAMM del PERÍODO FISCAL + el correlativo con ceros delante.
@@ -300,5 +319,6 @@ function retHtmlISLR(d, numero) {
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { retRevisarRif: retRevisarRif, retDigitoVerificador: retDigitoVerificador,
                      retNumComprobante: retNumComprobante, retBs: retBs, retFecha: retFecha,
-                     retProblemas: retProblemas, retHtmlIVA: retHtmlIVA, retHtmlISLR: retHtmlISLR };
+                     retProblemas: retProblemas, retHtmlIVA: retHtmlIVA, retHtmlISLR: retHtmlISLR,
+                     retRazonSocial: retRazonSocial };
 }
