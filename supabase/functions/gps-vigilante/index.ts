@@ -52,7 +52,25 @@ const HDR = { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` };
 // 14/08/2026 con la primera prueba de esta función.
 const AVISAR_A = Deno.env.get("GPS_AVISAR_A") || "584147379886";  // Máximo
 const MIN_CONECTOR = 30;   // minutos sin correr el sondeo = está caído
-const HS_MUDO = 5;         // horas sin reportar de una unidad activa
+// ⛔ EL PROVEEDOR SE ENTERA DE LO SUYO. Máximo, 2/11/2026: «no me avises tanto a mí,
+//    avísale a la gente de gpstraker, es decir Enyuli, que es quien necesitamos que lo
+//    resuelva». Lo del EQUIPO y lo del PROVEEDOR van a ella; lo operativo —el conector
+//    nuestro, las calles vigiladas— sigue siendo de la casa.
+// ⚠️ Es un TERCERO: sólo dentro de la franja y sólo si está en la lista blanca. Su
+//    número se agregó el 30/10 después de descubrir que 43 avisos habían quedado
+//    bloqueados desde el 11/09 sin que nadie se enterara.
+const AVISAR_GPS = Deno.env.get("GPS_AVISAR_PROVEEDOR") || "584123436898";  // Enyuli Albarrán
+
+// ⛔ EN MINUTOS, NO EN HORAS. Estaba en 5 horas, y el mapa avisa a los 15 minutos: un
+//    camión callado media hora sólo se veía si alguien miraba la pantalla. El 2/11
+//    Máximo lo notó de casualidad con B004 y B005, callados 26 y 28 minutos con el
+//    proveedor entregando al día para los otros diez — o sea, los equipos.
+//    30 min son 30 reportes perdidos: no es un retraso, es una falla.
+// ⚠️ Y SÓLO PARA ESTE AVISO. `HS_MUDO` lo usa también el camino del APAGÓN DE FLOTA,
+//    que es otra alarma con otro destinatario y otra cadencia: bajarle el umbral de
+//    5 h a 30 min la haría saltar todo el tiempo. Se tocan por separado.
+const MIN_MUDO = 30;       // minutos sin reportar de una unidad activa, en jornada
+const HS_MUDO = 5;         // horas — SOLO para el apagón de flota, no tocar acá
 
 // ── Apagón de flota ──────────────────────────────────────────────────────────
 const APAGON_MIN_MUDEZ = 10;   // minutos sin reportar para contar como muda
@@ -868,6 +886,16 @@ Deno.serve(async (req) => {
     estados.forEach((e) => { porCam[e.cam] = e; });
 
     const lineas: string[] = [];
+    // ⛔ DOS BOLSAS, DOS DESTINATARIOS. Lo del EQUIPO y lo del PROVEEDOR va a Enyuli,
+    //    que es quien lo puede resolver; lo operativo —el conector nuestro, las calles
+    //    vigiladas, un informe incompleto— se queda en la casa. Mezclarlos hacía que al
+    //    proveedor le llegara lo que no le toca, y a la casa ruido que no puede atender.
+    const lineasGps: string[] = [];
+    // ⛔ Y LAS MARCAS TAMBIÉN VAN SEPARADAS. Si lo del proveedor no sale por la hora,
+    //    sus claves no se marcan —para que salga en la próxima corrida— pero las de la
+    //    casa SÍ, porque ese mensaje ya se mandó. Con una sola lista, no mandarle al
+    //    proveedor hacía que a la casa le llegara todo repetido.
+    const clavesGps: string[] = [];
     const claves: string[] = [];
 
     // ── 1. ¿Está corriendo el conector? ──────────────────────────────────────
@@ -895,27 +923,51 @@ Deno.serve(async (req) => {
     }
 
     // ── 2. ¿Qué unidades se callaron? ────────────────────────────────────────
+    // ⛔ ESTO VA AL PROVEEDOR, no a la casa: es el equipo el que dejó de reportar y es
+    //    él quien lo tiene que resolver. Va a `lineasGps`, que se manda aparte.
+    // ⛔ Y SÓLO EN JORNADA. Un equipo callado a las 3 de la mañana con el camión en el
+    //    patio no es una falla; avisarlo enseña a ignorar el aviso.
     const mudas: string[] = [];
+    const enJornada = horaNegocio() >= 6 && horaNegocio() < 19;
+    // ⛔ ENSAYO, ATADO A `dry`. Este mensaje SALE DE LA EMPRESA, a un proveedor. Un
+    //    texto que nadie leyó nunca se estrena el día que hay un problema de verdad, y
+    //    ahí ya es tarde para notar que dice algo torpe o de más.
+    //    `?dry=1&ensayo=mudo` lo fuerza con las unidades reales, sin mandar nada.
+    //    [[norma-probar-el-camino-no-la-pieza]]
+    const ensayoMudo = dry && new URL(req.url).searchParams.get("ensayo") === "mudo";
     for (const eq of equipos) {
+      if (ensayoMudo) {
+        const st0 = porCam[eq.cam];
+        mudas.push(`• ${eq.cam} — último reporte ${st0?.bajado_hasta ? horaVE(st0.bajado_hasta) : "nunca"} (ENSAYO)`);
+        continue;
+      }
+      if (!enJornada) break;
       const st = porCam[eq.cam];
       const ult = st?.bajado_hasta ? new Date(st.bajado_hasta).getTime() : 0;
-      const hs = ult ? (ahora - ult) / 3600000 : 99999;
-      if (hs <= HS_MUDO) continue;
+      const min = ult ? (ahora - ult) / 60000 : 99999;
+      if (min <= MIN_MUDO) continue;
 
       // Clave por EPISODIO (el momento desde el que está muda), no por día.
       const k = `gps-mudo-${eq.cam}-${ult || "nunca"}`;
       if (await yaAviso(k)) continue;
-      claves.push(k);
+      clavesGps.push(k);
       mudas.push(
         ult ? `• ${eq.cam} — último reporte ${horaVE(st.bajado_hasta)} (${hace(ahora - ult)})`
             : `• ${eq.cam} — nunca ha reportado`
       );
     }
     if (mudas.length) {
-      lineas.push(
-        `🟡 *${mudas.length} unidad${mudas.length > 1 ? "es" : ""} sin reportar* hace más de ${HS_MUDO} horas:\n` +
-        mudas.join("\n") +
-        `\nPuede ser el equipo desconectado, sin señal, o el camión sin trabajar.`
+      // ⛔ «Las demás sí reportan» SÓLO SI ES CIERTO. Si están calladas TODAS, esa frase
+      //    es falsa y además apunta al lugar equivocado: lo que falla entonces no son
+      //    los equipos sino la entrega, y eso cambia el reclamo entero.
+      //    [[norma-una-asercion-mal-escrita-acusa-al-producto]]
+      const siguen = equipos.length - mudas.length;
+      lineasGps.push(
+        `🟡 *${mudas.length} unidad${mudas.length > 1 ? "es" : ""} sin reportar* hace más de ` +
+        `${MIN_MUDO} minutos:\n` + mudas.join("\n") +
+        (siguen > 0
+          ? `\nLas otras ${siguen} sí están reportando, así que la entrega viene andando.`
+          : `\n⚠️ NINGUNA unidad está reportando: esto no parece de los equipos.`)
       );
     }
 
@@ -937,8 +989,9 @@ Deno.serve(async (req) => {
       const txt = String(e.ultimo_error);
       const k = `gps-error-${e.cam}-${txt.slice(0, 40)}`;
       if (await yaAviso(k)) continue;
-      claves.push(k);
-      (esNuestro(txt) ? errsNuestros : errs).push(`• ${e.cam}: ${txt.slice(0, 90)}`);
+      const nuestro = esNuestro(txt);
+      (nuestro ? claves : clavesGps).push(k);
+      (nuestro ? errsNuestros : errs).push(`• ${e.cam}: ${txt.slice(0, 90)}`);
     }
     if (errsNuestros.length) {
       lineas.push(
@@ -948,7 +1001,7 @@ Deno.serve(async (req) => {
       );
     }
     if (errs.length) {
-      lineas.push(`🟡 *El proveedor de GPS está devolviendo error:*\n` + errs.join("\n"));
+      lineasGps.push(`🟡 *El proveedor de GPS está devolviendo error:*\n` + errs.join("\n"));
     }
 
     // ── 4. LAS CALLES FIJAS DEL DIA ────────────────────────────────
@@ -1015,7 +1068,7 @@ Deno.serve(async (req) => {
       );
     }
 
-    if (!lineas.length) {
+    if (!lineas.length && !lineasGps.length) {
       return new Response(JSON.stringify({
         ok: true, sin_novedad: true, unidades: equipos.length,
         min_sin_correr: Math.round(minSinCorrer),
@@ -1023,15 +1076,41 @@ Deno.serve(async (req) => {
       }), { headers: { "Content-Type": "application/json" } });
     }
 
-    const msg = `🛰️ *Rastreo GPS*\n\n` + lineas.join("\n\n");
+    const msg = lineas.length ? `🛰️ *Rastreo GPS*\n\n` + lineas.join("\n\n") : null;
+
+    // ⛔ EL MENSAJE AL PROVEEDOR SE ESCRIBE DISTINTO. Es alguien de afuera: tiene que
+    //    saber de quién le llega, qué se le pide y en qué unidades. Y NADA de lo
+    //    nuestro — ni el conector, ni las calles vigiladas, ni el estado de la base.
+    const msgGps = lineasGps.length
+      ? `*Inversiones Betangar, C.A.* — rastreo de flota\n\n` + lineasGps.join("\n\n") +
+        `\n\nAgradecemos revisar y confirmar.`
+      : null;
+
+    // ⛔ LA FRANJA ES PARA EL DE AFUERA. A la casa se le escribe a cualquier hora; a un
+    //    tercero, entre las ${FRANJA_DESDE} y las ${FRANJA_HASTA}. Fuera de eso NO se
+    //    manda y NO se marca la clave, así el aviso sale solo en la próxima corrida en
+    //    vez de perderse. [[norma-hora-del-destinatario-antes-de-enviar]]
+    const hora = horaNegocio();
+    const puedeAlProveedor = hora >= FRANJA_DESDE && hora < FRANJA_HASTA;
 
     if (!dry) {
-      await encolar([{ tipo: "gps_vigilante", telefono: AVISAR_A, mensaje: msg, ref: "gps-vigilante" }]);
-      for (const k of claves) await marcar(k);
+      const cola = [];
+      if (msg) cola.push({ tipo: "gps_vigilante", telefono: AVISAR_A, mensaje: msg, ref: "gps-vigilante" });
+      if (msgGps && puedeAlProveedor)
+        cola.push({ tipo: "gps_proveedor", telefono: AVISAR_GPS, mensaje: msgGps, ref: "gps-proveedor" });
+      if (cola.length) await encolar(cola);
+      // Lo de la casa se marca siempre que se haya mandado; lo del proveedor, sólo si
+      // de verdad salió. Así un aviso retenido por la hora reaparece en la próxima.
+      if (msg) for (const k of claves) await marcar(k);
+      if (msgGps && puedeAlProveedor) for (const k of clavesGps) await marcar(k);
     }
 
     return new Response(JSON.stringify({
-      ok: true, dry, avisos: lineas.length, claves, mensaje: msg,
+      ok: true, dry,
+      avisos: lineas.length, mensaje: msg,
+      avisos_proveedor: lineasGps.length, mensaje_proveedor: msgGps,
+      al_proveedor: msgGps ? (puedeAlProveedor ? AVISAR_GPS : "fuera de franja, sale en la proxima corrida") : null,
+      claves, claves_proveedor: clavesGps,
       fallos: rpcDetalle.length ? rpcDetalle : undefined,
     }), { headers: { "Content-Type": "application/json" } });
 
