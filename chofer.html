@@ -861,8 +861,14 @@ function reportarPermisos(){
   try{
     MWPermiso.medir(function(e){
       ['camera','geolocation'].forEach(function(t){
-        if(!e[t]) return;                       // el navegador no supo contestar: no se inventa un estado
-        try{ supabase.rpc('permiso_reportar', { p_cam: cam, p_permiso: t, p_estado: e[t], p_nav: e.navegador }); }catch(err){}
+        // ⛔ NO INVENTAR UN ESTADO ESTÁ BIEN; TIRARLO, NO. Hasta el 2026-11-03 acá había un
+        //    `return` cuando el navegador no sabía contestar, y entonces «este teléfono no te lo
+        //    puede decir» se leía EXACTAMENTE IGUAL que «esta pantalla nunca corrió»: las dos
+        //    cosas eran cero filas. `dispositivo_permisos` estuvo VACÍA tres meses —la pieza es
+        //    del 11/08/2026— y ese silencio no se pudo interpretar por esta línea.
+        //    `desconocido` SÍ es un dato: dice que de ese teléfono no vamos a saberlo por esta vía.
+        var estado = e[t] || 'desconocido';
+        try{ supabase.rpc('permiso_reportar', { p_cam: cam, p_permiso: t, p_estado: estado, p_nav: e.navegador }); }catch(err){}
       });
     });
   }catch(err){}
@@ -1953,10 +1959,32 @@ function abrirCamara(onFoto){
   }).then(function(stream){
     if(!document.getElementById('cam-overlay')){ stream.getTracks().forEach(function(t){t.stop();}); return; } // ya cerró
     _CAM_STREAM = stream;
+    // Se APAGA la marca de la oficina. Sin esto, un teléfono que se arregló queda marcado como
+    // roto para siempre y la pantalla de la oficina se vuelve un cementerio que nadie mira.
+    try{ if(supabase && cam) supabase.rpc('camara_ok_reportar', { p_cam: cam,
+           p_nav: (hayMWPermiso() ? MWPermiso.nombreNavegador() : '') }); }catch(e2){}
     video.srcObject = stream;
     var p = video.play(); if(p && p.catch) p.catch(function(){});
   }).catch(function(err){
     var code = err && err.name;
+    // 🔴 QUE LA OFICINA SE ENTERE, NO SOLO EL CHOFER. Este es el único hecho que no se discute:
+    //    la cámara falló AHORA, en esta unidad, con este error. `permiso_reportar` no alcanza,
+    //    porque el permiso puede decir 'granted' y fallar igual — es el caso (b) de abajo, Chrome
+    //    sin permiso en los Ajustes de Android, el que reportó Omar el 08/08/2026.
+    // ⚠️ Va en su propio `try` y NO devuelve nada: si el reporte falla, el chofer tiene que ver su
+    //    explicación igual. Un aviso a la oficina no puede quedar delante de quien está trabajando.
+    try{
+      if(supabase && cam && hayMWPermiso()){
+        MWPermiso.medir(function(ee){
+          try{ supabase.rpc('camara_fallo_reportar', { p_cam: cam, p_error: code || 'desconocido',
+                 p_permiso_dice: (ee && ee.camera) || 'desconocido',
+                 p_nav: (ee && ee.navegador) || '' }); }catch(e3){}
+        });
+      } else if(supabase && cam){
+        try{ supabase.rpc('camara_fallo_reportar', { p_cam: cam, p_error: code || 'desconocido',
+               p_permiso_dice: 'desconocido', p_nav: '' }); }catch(e3){}
+      }
+    }catch(e2){}
     if(code === 'NotAllowedError' || code === 'SecurityError'){
       // ⛔ POR ACÁ LLEGAN DOS COSAS DISTINTAS CON EL MISMO NOMBRE DE ERROR, y se arreglan en
       // lugares diferentes del teléfono:
