@@ -399,11 +399,30 @@ var PAGOS_ALC=[];
 //    Declararla vacía NO es volver a la semilla de demo: no trae ningún número
 //    inventado, solo hace que la variable exista antes de que le escriban.
 var VX = {};
+// ⛔ LA TARIFA TIENE FECHA. Un viaje vale lo que valía EL DÍA QUE SE HIZO: $316,88
+//    hasta el 04/10/2026 y $261,20 desde el 05/10 (Máximo, 04/11/2026 — el primer
+//    lunes de octubre). Valorar con «la tarifa de hoy» reescribe el pasado cada vez
+//    que alguien edita o reimporta una planilla vieja, que es exactamente cómo se
+//    metieron dos tarifas en octubre. La regla vive en `tarifas_contrato` (base) con
+//    su vigencia, no en un número suelto que alguien pisa.
+//    [[norma-un-valor-derivado-depende-de-la-version-de-su-regla]]
+//    Ver migrations/tarifa_por_fecha_2026-11-04.sql
+var TARIFAS=[];   // [{desde:'2026-10-05', viaje:261.20}, ...] — MÁS NUEVA PRIMERO
+function tarifaDe(f){
+  var d=String(f||'').slice(0,10);
+  if(d&&TARIFAS.length){
+    for(var i=0;i<TARIFAS.length;i++){ if(TARIFAS[i].desde<=d) return TARIFAS[i].viaje; }
+  }
+  // Sin historial cargado (o fecha anterior a la primera vigencia): la vigente, que
+  // es lo que ya hacía antes. Nunca cero: un viaje sin tarifa no vale nada y eso
+  // sería peor que la tarifa equivocada. [[norma-falta-de-dato-no-es-un-dato]]
+  return cfg.tarifa||317.88;
+}
 var cfg={tarifa:(function(){
   // Cargar tarifa guardada de localStorage si existe
   try{var t=parseFloat(localStorage.getItem('betangar_cfg_tarifa'));if(t&&t>100)return t;}catch(e){}
   return 317.88;
-})(),chofer:10,ayud:5,km:5000,tanque:4600,tasa:0,imau:2.5,tonsViaje:8,tipos_mant:['Solo registro km','GARANTIA (Servicio 5000km)','CORRECTIVO','PREVENTIVO','CAMBIO DE ACEITE','CAMBIO FILTROS','FRENOS','SUSPENSION','ELECTRICO','MOTOR','TRANSMISION','OTROS'],mant_programados:[{id:'lavado',nombre:'Lavado',dias:7,campo:'lavado'},{id:'engrase',nombre:'Engrase',dias:15,campo:'engrase'},{id:'aceite',nombre:'Cambio de Aceite',dias:90,campo:'aceite'}],unidades_areas:['ADM - Administrativo','OPERATIVO - Jefe Operaciones','PORTERIA - Vigilancia','MANT - Mantenimiento','TRANS - Transporte','JAC-B001','JAC-B002','JAC-B003','JAC-B004','JAC-B005','JAC-B006','JAC-B007','JAC-B008','JAC-B009','JAC-B010','JAC-B011','JAC-B012','SRV-001','PEUGEOT-001','MOTO-001']};
+})(),chofer:10,ayud:5,km:5000,tanque:4600,tasa:0,imau:2.5,tonsViaje:8,_tarifaPorFecha:true,tipos_mant:['Solo registro km','GARANTIA (Servicio 5000km)','CORRECTIVO','PREVENTIVO','CAMBIO DE ACEITE','CAMBIO FILTROS','FRENOS','SUSPENSION','ELECTRICO','MOTOR','TRANSMISION','OTROS'],mant_programados:[{id:'lavado',nombre:'Lavado',dias:7,campo:'lavado'},{id:'engrase',nombre:'Engrase',dias:15,campo:'engrase'},{id:'aceite',nombre:'Cambio de Aceite',dias:90,campo:'aceite'}],unidades_areas:['ADM - Administrativo','OPERATIVO - Jefe Operaciones','PORTERIA - Vigilancia','MANT - Mantenimiento','TRANS - Transporte','JAC-B001','JAC-B002','JAC-B003','JAC-B004','JAC-B005','JAC-B006','JAC-B007','JAC-B008','JAC-B009','JAC-B010','JAC-B011','JAC-B012','SRV-001','PEUGEOT-001','MOTO-001']};
 
 // ── PERFIL DE RETENCIONES (configurable POR CONTRATO) ──
 // RET_DEFAULT, perfilRetencion() y calcRetenciones() viven ahora en money.js (cargado ANTES que
@@ -4576,7 +4595,7 @@ async function cargarDatosDB(){
       var d=parseInt(r.d)||0,n=parseInt(r.n)||0;
       var t=parseInt(r.t)||0;if(t===0&&(d>0||n>0))t=d+n;
       return{p:r.p,f:r.f,mes:r.mes||'',cam:r.cam,ch:r.ch,r:r.r||'',par:r.par||'',
-             d:d,n:n,t:t,sem:r.sem||'',m:parseFloat(r.m)||t*(cfg.tarifa||317.88),
+             d:d,n:n,t:t,sem:r.sem||'',m:parseFloat(r.m)||t*tarifaDe(r.f),
              obs:r.obs||'',inc:r.inc||'',incDesc:r.inc_desc||'',
              ay1:r.ay1||'',ay2:r.ay2||'',ay3:r.ay3||'',
              // ap1/ap2 = ayudantes de APOYO. Si no se mapean aquí, calcNom NUNCA los ve y siguen
@@ -4658,6 +4677,14 @@ async function cargarDatosDB(){
           cfg.tarifaProntoPagoTon=_cm.tarifa_pronto_pago_ton;
           cfg.tarifaProntoPago=Math.round(_cm.tarifa_pronto_pago_ton*_tons*100)/100;
         }
+      }
+      // El HISTORIAL de tarifas, que es lo que de verdad valora un viaje.
+      var _th=await supabase.from('tarifas_contrato').select('desde,usd_por_ton,tons_por_viaje').order('desde',{ascending:false});
+      if(_th&&!_th.error&&Array.isArray(_th.data)&&_th.data.length){
+        TARIFAS=_th.data.map(function(x){
+          return {desde:String(x.desde).slice(0,10),
+                  viaje:Math.round(Number(x.usd_por_ton)*(Number(x.tons_por_viaje)||8)*100)/100};
+        });
       }
     }catch(e){console.log('tarifas load:',e&&e.message);}
     DATOS_CARGA.hecha=true;
@@ -5883,15 +5910,17 @@ function _renderDashCuerpo(){
   var totalV=REGS.reduce(function(s,r){return s+r.t;},0);
   var totalM=REGS.reduce(function(s,r){return s+r.m;},0);
   var totalCob=Math.min(ABONOS.reduce(function(s,a){return s+a.m;},0),totalM);
-  // ⛔ LO DESCONTADO NO ES «POR COBRAR»: ESTA PERDONADO. Los viajes que un abono ya
-  // liquido valen la tarifa de CONTRATO; si ese pago se premio con el descuento por
-  // pronto pago, la diferencia es una concesion que no vuelve. Restar solo el efectivo
-  // cobrado dejaba esa plata figurando como cobrable para siempre.
-  // 26/10/2026: son US$ 9.774; el techo, si se premiara todo lo pendiente, ~157 mil.
+  // ⛔ POR COBRAR = EJECUTADO − COBRADO. Nada de valorar los viajes liquidados con
+  // «la tarifa», porque no hay UNA tarifa: hay 316,88 hasta el 04/10 y 261,20 desde
+  // el 05/10, y un abono no dice QUÉ viajes pagó. Multiplicar la cuenta de viajes
+  // por un número suelto daba 640.724 de liquidado cuando se cobraron 758.345.
+  // 04/11/2026: el «descuento por pronto pago» de las facturas 000651 y 000652 NO
+  // era un descuento — era la tarifa nueva. A 261,20 el viaje, 165 × 261,20 = 43.098,
+  // exactamente lo que pagó la Alcaldía. Ya no hay nada perdonado que descontar.
+  // Ver migrations/tarifa_por_fecha_2026-11-04.sql
   var _vLiq=ABONOS.reduce(function(s,a){return s+(a.v||0);},0);
-  var _liquidado=Math.min(_vLiq*(cfg.tarifa||317.88),totalM);
-  var _descuento=Math.max(0,_liquidado-totalCob);
-  var porcobrar=Math.max(0,totalM-_liquidado);
+  var _descuento=0;
+  var porcobrar=Math.max(0,totalM-totalCob);
   var pct=totalM>0?Math.round((totalCob/totalM)*100):0;
   var vCobV=Math.min(ABONOS.reduce(function(s,a){return s+a.v;},0),totalV);
   var ultF=REGS.reduce(function(mx,r){return (r.f&&r.f>mx)?r.f:mx;},'');
@@ -5911,7 +5940,7 @@ function _renderDashCuerpo(){
   try{actualizarUltimaPlanilla();}catch(e){}
   g('s-viajes-sub').textContent=_sdTop||ultSemTxt;
   g('s-ejec').textContent=_sdTop?'—':('$'+totalM.toLocaleString());
-  if(g('s-ejec-sub'))g('s-ejec-sub').textContent=ultF?('📅 Cargado al '+formatFecha(ultF)):('@ $'+(cfg.tarifa||317.88).toFixed(2)+'/viaje');
+  if(g('s-ejec-sub'))g('s-ejec-sub').textContent=ultF?('📅 Cargado al '+formatFecha(ultF)):('@ $'+tarifaDe(new Date().toISOString().slice(0,10)).toFixed(2)+'/viaje (vigente; $316,88 hasta el 04/10)');
   // ⛔ CADA TARJETA IMPRIME SU PROPIO PORCENTAJE. La barra s-pbar mide cobrado/ejecutado y
   // estaba dentro de la tarjeta "Por Cobrar" (app.html): una barra SIN RÓTULO hereda el
   // significado de la tarjeta que la contiene, así que al 42% de cobrado la tarjeta roja se
@@ -6029,15 +6058,17 @@ async function imprimirDashboard(){
   var totalV=REGS.reduce(function(s,r){return s+r.t;},0);
   var totalM=REGS.reduce(function(s,r){return s+r.m;},0);
   var totalCob=Math.min(ABONOS.reduce(function(s,a){return s+a.m;},0),totalM);
-  // ⛔ LO DESCONTADO NO ES «POR COBRAR»: ESTA PERDONADO. Los viajes que un abono ya
-  // liquido valen la tarifa de CONTRATO; si ese pago se premio con el descuento por
-  // pronto pago, la diferencia es una concesion que no vuelve. Restar solo el efectivo
-  // cobrado dejaba esa plata figurando como cobrable para siempre.
-  // 26/10/2026: son US$ 9.774; el techo, si se premiara todo lo pendiente, ~157 mil.
+  // ⛔ POR COBRAR = EJECUTADO − COBRADO. Nada de valorar los viajes liquidados con
+  // «la tarifa», porque no hay UNA tarifa: hay 316,88 hasta el 04/10 y 261,20 desde
+  // el 05/10, y un abono no dice QUÉ viajes pagó. Multiplicar la cuenta de viajes
+  // por un número suelto daba 640.724 de liquidado cuando se cobraron 758.345.
+  // 04/11/2026: el «descuento por pronto pago» de las facturas 000651 y 000652 NO
+  // era un descuento — era la tarifa nueva. A 261,20 el viaje, 165 × 261,20 = 43.098,
+  // exactamente lo que pagó la Alcaldía. Ya no hay nada perdonado que descontar.
+  // Ver migrations/tarifa_por_fecha_2026-11-04.sql
   var _vLiq=ABONOS.reduce(function(s,a){return s+(a.v||0);},0);
-  var _liquidado=Math.min(_vLiq*(cfg.tarifa||317.88),totalM);
-  var _descuento=Math.max(0,_liquidado-totalCob);
-  var porcobrar=Math.max(0,totalM-_liquidado);
+  var _descuento=0;
+  var porcobrar=Math.max(0,totalM-totalCob);
   var pct=totalM>0?Math.round((totalCob/totalM)*100):0;
   var vCobV=Math.min(ABONOS.reduce(function(s,a){return s+a.v;},0),totalV);
   var vPorCob=Math.max(0,totalV-vCobV);
@@ -6254,7 +6285,7 @@ async function imprimirDashboard(){
     '<div class="mut" style="margin-bottom:6px">Tasas del día: '+tasasTxt+'</div>'+
     '<div class="kpis">'+
       kpi('Total Viajes',fmt(totalV),(ultF?'Cargado al '+formatFecha(ultF):''))+
-      kpi('Ejecutado',usd(totalM),'@ $'+(cfg.tarifa||317.88).toFixed(2)+'/viaje','#15803d')+
+      kpi('Ejecutado',usd(totalM),'@ $'+tarifaDe(new Date().toISOString().slice(0,10)).toFixed(2)+'/viaje (vigente; $316,88 hasta el 04/10)','#15803d')+
       kpi('Cobrado',usd(totalCob),fmt(vCobV)+' viajes · '+pct+'%','#16a34a')+
       kpi('Por Cobrar',usd(porcobrar),fmt(vPorCob)+' viajes','#dc2626')+
       // La Utilidad Real dice DE DÓNDE sale. Antes decía «cobrado − todos los gastos» y sonaba a
@@ -7654,7 +7685,7 @@ function renderDashFinanciero(totalM,totalCob,porcobrar){
 // ═══════════════════════════════════════════════════
 // PLANILLA
 // ═══════════════════════════════════════════════════
-function cc(t,d){if(t==='d'){cntD=Math.max(0,cntD+d);g('cd').textContent=cntD;}else{cntN=Math.max(0,cntN+d);g('cn').textContent=cntN;}var tot=cntD+cntN;g('ctot').textContent=tot;g('cmonto').textContent='$'+(tot*cfg.tarifa).toLocaleString();}
+function cc(t,d){if(t==='d'){cntD=Math.max(0,cntD+d);g('cd').textContent=cntD;}else{cntN=Math.max(0,cntN+d);g('cn').textContent=cntN;}var tot=cntD+cntN;g('ctot').textContent=tot;g('cmonto').textContent='$'+(tot*tarifaDe(gv('rp-fecha'))).toLocaleString();}
 
 function autoData(){
   var c=gv('rp-cam');
@@ -7727,7 +7758,7 @@ function guardarEdicionPlanilla(pOriginal){
     par:document.getElementById('ep-par').value,
     d:d,n:n,t:t,
     mes:REGS[idx].mes,sem:REGS[idx].sem,
-    m:t*(cfg.tarifa||317.88),
+    m:t*tarifaDe(document.getElementById('ep-fecha').value),
     obs:document.getElementById('ep-obs').value,
     inc:REGS[idx].inc||'',incDesc:REGS[idx].incDesc||'',
     ay1:_ay1,ay2:_ay2,ay3:_ay3,
@@ -7854,7 +7885,7 @@ async function guardarPlanilla(){
   });
   if(noCasan.length){ if(!confirm('⚠ Estos nombres no coinciden con ningún empleado registrado:\n\n'+noCasan.join('\n')+'\n\nSe guardarán tal cual (la nómina/anomalías podrían no reconocerlos). ¿Continuar?'))return; }
   var vert=gv('rp-vert')||'La Concepción';
-  var nr={p:ns,f:f,mes:gv('rp-mes'),cam:c,ch:chC,r:gv('rp-ruta'),par:gv('rp-par'),d:cntD,n:cntN,t:tot,sem:gv('rp-sem'),m:tot*cfg.tarifa,obs:gv('rp-obs'),inc:gv('rp-inc'),incDesc:gv('rp-inc-desc'),ay1:ay1,ay2:ay2,ay3:ay3,ap1:ap1,ap2:ap2,vertedero:vert};
+  var nr={p:ns,f:f,mes:gv('rp-mes'),cam:c,ch:chC,r:gv('rp-ruta'),par:gv('rp-par'),d:cntD,n:cntN,t:tot,sem:gv('rp-sem'),m:tot*tarifaDe(f),obs:gv('rp-obs'),inc:gv('rp-inc'),incDesc:gv('rp-inc-desc'),ay1:ay1,ay2:ay2,ay3:ay3,ap1:ap1,ap2:ap2,vertedero:vert};
   var row={p:nr.p,f:nr.f,mes:nr.mes,cam:nr.cam,ch:nr.ch,r:nr.r,par:nr.par,d:nr.d,n:nr.n,t:nr.t,sem:nr.sem,m:nr.m,obs:nr.obs,inc:nr.inc,inc_desc:nr.incDesc,ay1:ay1,ay2:ay2,ay3:ay3,ap1:ap1,ap2:ap2,gasoil:0,km:0,mant:'',vertedero:vert};
   // P1: Supabase es la fuente de verdad. Guardar PRIMERO y solo confirmar éxito si responde OK.
   var _res=await dbUp('planillas',row,'p');
@@ -8875,7 +8906,7 @@ function procesarExcelBetangar(wb){
         ch:_nombreCanonico(String(cChofer||'')),
         r:String(cRuta||'').trim(),
         par:String(cPar||'').trim(),
-        d:d,n:n,t:t,sem:semStr,m:t*TARIFA,
+        d:d,n:n,t:t,sem:semStr,m:t*tarifaDe(fechaStr),
         obs:String(cObs||'').trim(),
         inc:'',incDesc:'',
         ay1:ay1,ay2:ay2,
@@ -30086,7 +30117,7 @@ function genRptEjecucion(){
   // DETALLE planilla por planilla (formato Alcaldía): lista plana del rango filtrado.
   var regs=f.slice().sort(function(a,b){return a.f!==b.f?(a.f<b.f?-1:1):(String(a.p)<String(b.p)?-1:1);});
   var rows=regs.map(function(r,k){
-    var monto=(typeof r.m==='number'&&r.m)?r.m:(r.t*(cfg.tarifa||317.88));
+    var monto=(typeof r.m==='number'&&r.m)?r.m:(r.t*tarifaDe(r.f));
     tv+=r.t;tm+=monto;tD+=(r.d||0);tN+=(r.n||0);cnt++;
     var lun=getLunesDeRango(r.f),dom=getDomingoDeSemana(lun);
     return '<tr style="background:'+(k%2===0?'#fff':'#f4f7fb')+'">'+
