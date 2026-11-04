@@ -421,7 +421,13 @@ function tarifaDe(f){
 var cfg={tarifa:(function(){
   // Cargar tarifa guardada de localStorage si existe
   try{var t=parseFloat(localStorage.getItem('betangar_cfg_tarifa'));if(t&&t>100)return t;}catch(e){}
-  return 317.88;
+  // ⚠️ Semilla, válida solo el instante antes de que la base conteste: la VIGENTE
+  //    ($32,65/t × 8 = $261,20 desde el 05/10/2026). Antes decía 317,88, un número
+  //    que nunca fue la tarifa de nada. Y ya no decide nada importante: desde el
+  //    04/11 el monto de la planilla lo recalcula la BASE con la tarifa de su fecha
+  //    (`trg_planilla_monto_por_tarifa`), así que una pestaña con la semilla vieja
+  //    ya no puede guardar un precio equivocado.
+  return 261.20;
 })(),chofer:10,ayud:5,km:5000,tanque:4600,tasa:0,imau:2.5,tonsViaje:8,_tarifaPorFecha:true,tipos_mant:['Solo registro km','GARANTIA (Servicio 5000km)','CORRECTIVO','PREVENTIVO','CAMBIO DE ACEITE','CAMBIO FILTROS','FRENOS','SUSPENSION','ELECTRICO','MOTOR','TRANSMISION','OTROS'],mant_programados:[{id:'lavado',nombre:'Lavado',dias:7,campo:'lavado'},{id:'engrase',nombre:'Engrase',dias:15,campo:'engrase'},{id:'aceite',nombre:'Cambio de Aceite',dias:90,campo:'aceite'}],unidades_areas:['ADM - Administrativo','OPERATIVO - Jefe Operaciones','PORTERIA - Vigilancia','MANT - Mantenimiento','TRANS - Transporte','JAC-B001','JAC-B002','JAC-B003','JAC-B004','JAC-B005','JAC-B006','JAC-B007','JAC-B008','JAC-B009','JAC-B010','JAC-B011','JAC-B012','SRV-001','PEUGEOT-001','MOTO-001']};
 
 // ── PERFIL DE RETENCIONES (configurable POR CONTRATO) ──
@@ -8535,8 +8541,10 @@ async function guardarImportacionEnDB(resultado){
 function procesarExcelBetangar(wb){
   var resultado={planillas:0,planillasIgnoradas:0,actualizadas:[],abonos:0,gasoil:0,duplicadas:[],mismoTrabajo:[],nuevasRegs:[],nombresSinIdentificar:[],colVertedero:'',resimara:0};
   var _sinIdentMap={}; // nombre normalizado -> {nombre,cam,fecha,rol,veces} de chofer/ayudante que NO casa con ningún empleado
-  // PRECIO: siempre usa el configurado en la app, ignora cualquier precio del Excel
-  var TARIFA=cfg.tarifa||317.88;
+  // PRECIO: lo pone la tarifa de LA FECHA de cada fila (ver `tarifaDe`), nunca el
+  // precio que venga en el Excel. Acá había un `var TARIFA = cfg.tarifa || 317.88`
+  // que quedó sin uso al valorar por fecha: se saca porque un número muerto, y
+  // encima equivocado —317,88 nunca fue la tarifa—, es una trampa para el que venga.
 
   // ── HELPERS ──
   // Convierte serial Excel, Date JS, o string a 'YYYY-MM-DD'
