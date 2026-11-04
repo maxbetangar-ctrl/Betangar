@@ -59,14 +59,16 @@ Deno.serve(async (_req: Request) => {
     const lunesParam = url.searchParams.get("lunes");
 
     const hoy = veNow();
-    // Semana reportada = lunes a sábado ANTERIORES al lunes en que corre.
+    // ⛔ Semana reportada = lunes a DOMINGO anteriores al lunes en que corre.
+    //    04/11/2026: cerraba en sábado y el domingo no entraba en ninguna semana.
+    //    Máximo: «todo debe ser de lunes a domingo».
     const lunesEstaSem = new Date(hoy);
     const dow = lunesEstaSem.getUTCDay();               // 0=dom, 1=lun
     lunesEstaSem.setUTCDate(lunesEstaSem.getUTCDate() - ((dow + 6) % 7));
     const ini = new Date(lunesEstaSem); ini.setUTCDate(ini.getUTCDate() - 7);
-    const fin = new Date(ini); fin.setUTCDate(fin.getUTCDate() + 5);   // sábado
+    const fin = new Date(ini); fin.setUTCDate(fin.getUTCDate() + 6);   // domingo
     const desde = lunesParam || ymd(ini);
-    const hasta = lunesParam ? ymd(new Date(new Date(lunesParam + "T12:00:00Z").getTime() + 5 * 86400000)) : ymd(fin);
+    const hasta = lunesParam ? ymd(new Date(new Date(lunesParam + "T12:00:00Z").getTime() + 6 * 86400000)) : ymd(fin);
 
     const key = `km_semanal_${desde}`;
     if (!(await tomarCandado(key, dry))) {

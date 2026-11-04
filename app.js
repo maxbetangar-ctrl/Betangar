@@ -29114,14 +29114,17 @@ function generarQRUnidad(cam){
   abrirVentanaImpresion(html);
 }
 
-// Resumen semanal de pagos los sabados
+// Resumen semanal de pagos, al cerrar la semana
+// ⛔ LA SEMANA ES LUNES A DOMINGO (Máximo, 04/11/2026). Esto salía los SÁBADOS y cubría
+//    lunes–sábado, así que los pagos del domingo no entraban en ningún resumen. Ahora sale
+//    el DOMINGO y cubre la semana completa.
 function checkResumenPagosSabado(){
   var now=new Date();
-  if(now.getDay()!==6)return; // Solo sabados
+  if(now.getDay()!==0)return; // Solo domingos: es el día en que la semana cierra
   var key='btg_resumen_pag_'+now.toISOString().slice(0,10);
   if(localStorage.getItem(key))return;
   if(!DB_READY||!supabase||!SESION)return;
-  // Calcular lunes y sabado de esta semana
+  // Lunes de esta semana y HOY, que es el domingo que la cierra
   var lunes=new Date(now);lunes.setDate(now.getDate()-(now.getDay()||7)+1);lunes.setHours(0,0,0,0);
   var lunesStr=lunes.toISOString().slice(0,10);
   var sabStr=now.toISOString().slice(0,10);
@@ -29944,9 +29947,11 @@ function renderWidgetFlota(){
     var porDia={};
     if(!res[1].error&&res[1].data)res[1].data.forEach(function(v){if(ps[v.cam]!==undefined)ps[v.cam]++;porDia[v.fecha]=(porDia[v.fecha]||0)+1;});
     // Desglose semanal por día (lunes a sábado, la operación es L-S) — vista en vivo choferes
-    var nomDias=['Lun','Mar','Mié','Jue','Vie','Sáb'];
+    // ⛔ LUNES A DOMINGO (Máximo, 04/11/2026). Faltaba la columna del domingo y los viajes
+    //    de ese día no se veían acá: la operación SÍ trabaja los domingos.
+    var nomDias=['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'];
     var celdas='';
-    for(var di=0;di<6;di++){
+    for(var di=0;di<7;di++){
       var dfecha=new Date(ld);dfecha.setDate(ld.getDate()+di);var ds=dfecha.toISOString().slice(0,10);
       var nv=porDia[ds]||0; var esHoy=(ds===hoy);
       celdas+='<div style="flex:1;text-align:center;padding:4px 2px;border-radius:6px;'+(esHoy?'background:rgba(125,201,65,.12);border:1px solid rgba(125,201,65,.35)':'background:var(--bg3)')+'">'+
@@ -30108,7 +30113,8 @@ function rptSemanaPasada(){
   var hoy=new Date(); var dow=hoy.getDay()||7; // 1=Lun..7=Dom
   var lunEsta=new Date(hoy); lunEsta.setDate(hoy.getDate()-(dow-1)); // lunes de esta semana
   var lunPas=new Date(lunEsta); lunPas.setDate(lunEsta.getDate()-7); // lunes pasado
-  var sabPas=new Date(lunPas); sabPas.setDate(lunPas.getDate()+5);   // sábado pasado
+  // ⛔ LUNES A DOMINGO (Maximo, 04/11/2026). Cerraba en sabado y el domingo quedaba fuera.
+  var sabPas=new Date(lunPas); sabPas.setDate(lunPas.getDate()+6);   // DOMINGO pasado
   sv('rr-des',lunPas.toISOString().slice(0,10));
   sv('rr-hta',sabPas.toISOString().slice(0,10));
   genRptEjecucion();

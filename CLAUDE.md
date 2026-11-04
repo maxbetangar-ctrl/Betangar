@@ -23,7 +23,7 @@ ERP de **Inversiones Betangar C.A.** (aseo urbano, 12 camiones JAC-B001…B012, 
 ## Reglas de datos (NO romper)
 - **PLANILLAS (`REGS`) = verdad operativa** para nómina, alcaldía, combustible y todo cálculo real (1 fila por `cam`+`f`, `t`=viajes).
 - **viajes_chofer + checklist = SOLO vista en tiempo real / estimación** (widget flota del dashboard). No alimentan nada operativo.
-- Fechas en BD = `YYYY-MM-DD`; `cam` = `JAC-B0XX`; UI muestra dd/mm/aa; semanas **lunes–sábado**.
+- Fechas en BD = `YYYY-MM-DD`; `cam` = `JAC-B0XX`; UI muestra dd/mm/aa; semanas **lunes–domingo** (Máximo, 04/11/2026: «todo debe ser de lunes a domingo». Antes decía lunes–sábado y los viajes del domingo no entraban en ningún cierre).
 
 ## Gotchas que ya causaron bugs (verificar siempre)
 - **Misma anon key** en `app.html` y `chofer.html` (la válida termina en `...RnG_ko`). Si "guarda pero no aparece en BD", probar la key con `curl` REST (401 = revocada).

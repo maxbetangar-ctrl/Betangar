@@ -42,11 +42,20 @@ const norm = (n: string) => String(n || "").replace(/[\s\-\+]/g, "");
 
 Deno.serve(async (req) => {
   const dry = new URL(req.url).searchParams.get("dry") === "1";
-  // HOY en Venezuela (domingo). Semana que cerró = lunes..sábado anteriores.
+  // ⛔ LA SEMANA ES LUNES A DOMINGO. Máximo, 04/11/2026: «la incoherencia de lunes a sábado y
+  //    lunes a domingo debes arreglarlo, todo debe ser de lunes a domingo».
+  //
+  // 🔴 NO ERA UNA INCOHERENCIA DE FORMATO: esto cerraba en SÁBADO y **los viajes del domingo no
+  //    entraban en ninguna semana**. Medido en la semana del 26/10: la relación que ve el IMAU
+  //    (lunes a domingo) trae 193 viajes y este cierre traía 174. La diferencia, 19, son
+  //    exactamente los del domingo 01/11. Se le estuvo informando de menos a la Alcaldía.
+  //
+  // ⚠️ POR ESO ESTO AHORA CORRE EL LUNES, no el domingo: una semana que termina el domingo no se
+  //    puede cerrar el domingo por la mañana. El cron pasó de `0 13 * * 0` a `0 13 * * 1`.
   const hoyStr = new Date().toLocaleDateString("en-CA", { timeZone: "America/Caracas" });
   const base = new Date(hoyStr + "T12:00:00Z");
-  const lunes = new Date(base.getTime() - 6 * 86400000).toISOString().slice(0, 10);
-  const sabado = new Date(base.getTime() - 1 * 86400000).toISOString().slice(0, 10);
+  const lunes = new Date(base.getTime() - 7 * 86400000).toISOString().slice(0, 10);
+  const sabado = new Date(base.getTime() - 1 * 86400000).toISOString().slice(0, 10);  // DOMINGO
 
   // Mapa unidad → placa (norma: al nombrar una unidad, mostrar también la placa)
   const ucfg = await sel(`unidad_config?select=cam,placa`);
