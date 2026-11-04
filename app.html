@@ -387,7 +387,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
   <div id="bnc-dash-resumen"></div>
   <div class="g6" style="margin-bottom:10px">
     <div class="stat"><div class="stat-lbl">Total Viajes</div><div class="stat-val" id="s-viajes">-</div><div class="stat-sub" id="s-viajes-sub">-</div></div>
-    <div class="stat y"><div class="stat-lbl">Ejecutado</div><div class="stat-val" style="font-size:16px;color:var(--yellow)" id="s-ejec">-</div><div class="stat-sub" id="s-ejec-sub">@ $317.88/viaje</div></div>
+    <div class="stat y"><div class="stat-lbl">Ejecutado</div><div class="stat-val" style="font-size:16px;color:var(--yellow)" id="s-ejec">-</div><div class="stat-sub" id="s-ejec-sub">cargando tarifa…</div></div>
     <!-- La barra s-pbar mide COBRADO/EJECUTADO y por eso vive en la tarjeta "Cobrado".
          Estaba metida en "Por Cobrar": una barra sin rotulo hereda el significado de la
          tarjeta que la contiene, asi que al 42% cobrado la tarjeta roja se leia "42% por
@@ -1784,7 +1784,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
     <div class="card" style="margin-bottom:12px">
       <div class="sh"><div class="st">🔄 Cambiar Precio</div></div>
       <div class="fr2" style="margin-top:10px">
-        <div class="fg"><label>Nuevo precio ($/viaje)</label><input class="fc" id="pc-precio" type="number" placeholder="Ej: 316.88" step="0.01" style="font-family:var(--m);font-size:18px;font-weight:700"></div>
+        <div class="fg"><label>Nuevo precio ($/viaje)</label><input class="fc" id="pc-precio" type="number" placeholder="Ej: 261.20" step="0.01" style="font-family:var(--m);font-size:18px;font-weight:700"></div>
         <div class="fg"><label>Fecha de vigencia</label><input class="fc" id="pc-fecha" type="date"></div>
       </div>
       <div style="margin:12px 0;background:var(--bg2);border-radius:8px;padding:10px 12px">
@@ -1834,7 +1834,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
       <div class="fg"><label>N. Referencia BNC</label><input class="fc" id="ab-ref" placeholder="00000000000" style="font-family:var(--m)"></div>
       <div class="fg"><label>Observaciones</label><input class="fc" id="ab-obs" placeholder="Transferencia Alcaldia..."></div>
       <!-- ⛔ EL DESCUENTO SE DECIDE ACA, EN EL PAGO, Y NO EN LA TARIFA. Los viajes valen
-           SIEMPRE la tarifa de contrato ($39,61/t). Si la Alcaldia abona bien, se premia ESE
+           la tarifa de contrato de SU FECHA: $39,61/t hasta el 04/10/2026 y $32,65/t desde el 05/10. Si la Alcaldia abona bien, se premia ESE
            pago: solo esos viajes vienen con el descuento. Si no, quedan a tarifa plena.
            Antes esto se hacia cambiando la tarifa en Config, y eso contaminaba las planillas
            de todos. Ver migrations/descuento_pronto_pago_2026-10-26.sql -->
@@ -2766,7 +2766,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
     <div class="g2">
       <div class="card">
         <div class="st" style="margin-bottom:10px">Parametros del Sistema</div>
-        <div class="fr2"><div class="fg"><label>Tasa BsD/USD</label><input class="fc" id="cfg-tasa" type="number" placeholder="487.12" style="font-family:var(--m)"></div><div class="fg"><label>Tarifa de contrato ($/tonelada)</label><input class="fc" id="cfg-tarifa" type="number" step="0.01" value="39.61" style="font-family:var(--m)"><div style="font-size:10px;color:var(--text3);margin-top:3px">El viaje son 8 t · a $39,61 son <b>$316,88</b> por viaje. TODO viaje se valora acá.</div></div></div>
+        <div class="fr2"><div class="fg"><label>Tasa BsD/USD</label><input class="fc" id="cfg-tasa" type="number" placeholder="487.12" style="font-family:var(--m)"></div><div class="fg"><label>Tarifa de contrato ($/tonelada)</label><input class="fc" id="cfg-tarifa" type="number" step="0.01" value="32.65" style="font-family:var(--m)"><div style="font-size:10px;color:var(--text3);margin-top:3px">El viaje son 8 t · a $32,65 son <b>$261,20</b> por viaje, vigente desde el <b>lunes 05/10/2026</b>. Antes eran $39,61/t = $316,88. Cada viaje se valora con la tarifa de SU fecha: el historial vive en <code>tarifas_contrato</code>.</div></div></div>
         <!-- ⛔ ESTA NO VALORA VIAJES. Solo se usa cuando se marca un abono como «pronto pago»
              en Reportes ▸ Abonos: ahi esos viajes se liquidan a este precio. Si se usara para
              valorar, volveriamos al problema del 26/10 (planillas con dos tarifas distintas). -->
@@ -3199,7 +3199,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
      Excel sale con el defecto ya corregido. Pasó midiendo este mismo cambio el
      23/09: dos corridas dieron un .xlsx idéntico byte por byte. -->
 <script src="maxware-excel.js?v=20260923-2252"></script>
-<script src="app.js?v=20261104-1020"></script>
+<script src="app.js?v=20261104-1700"></script>
 
 <!-- Modal global -->
 <div id="modal" class="moverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9990;align-items:center;justify-content:center;padding:16px">

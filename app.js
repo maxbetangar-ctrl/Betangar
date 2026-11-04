@@ -416,7 +416,7 @@ function tarifaDe(f){
   // Sin historial cargado (o fecha anterior a la primera vigencia): la vigente, que
   // es lo que ya hacía antes. Nunca cero: un viaje sin tarifa no vale nada y eso
   // sería peor que la tarifa equivocada. [[norma-falta-de-dato-no-es-un-dato]]
-  return cfg.tarifa||317.88;
+  return cfg.tarifa||316.88;
 }
 var cfg={tarifa:(function(){
   // Cargar tarifa guardada de localStorage si existe
@@ -9082,7 +9082,7 @@ function calcMontoAbono(){
   // ⛔ LA TARIFA DEL DESCUENTO SOLO SE USA SI SE MARCO EL PAGO. Por defecto manda la de
   // CONTRATO: el viaje vale lo mismo siempre, y el descuento es una concesion de ESTE pago.
   var _conDesc=!!(g('ab-desc')&&g('ab-desc').checked);
-  var tarifa=(_conDesc&&cfg.tarifaProntoPago>0)?cfg.tarifaProntoPago:(cfg.tarifa||317.88);
+  var tarifa=(_conDesc&&cfg.tarifaProntoPago>0)?cfg.tarifaProntoPago:tarifaDe(gv('ab-fecha'));
   // Que se vea EN NUMEROS cuanto se esta regalando, antes de apretar Registrar. Un descuento
   // que no muestra su costo se da sin pensarlo. [[norma-un-mensaje-negativo-debe-decir-cual-causa]]
   var _sub=g('ab-desc-sub');
@@ -22281,7 +22281,7 @@ function calcPagoAlc(){
   var tasa=parseFloat(gv('alc-tasa'))||TASAS.bcvDolar||cfg.tasa;
   if(!viajes){g('alc-calculo').style.display='none';return;}
   var p=perfilRetencion(gv('alc-contrato'));
-  var base=viajes*cfg.tarifa;
+  var base=viajes*tarifaDe(gv('alc-fecha'));
   var r=calcRetenciones(base,p,gv('alc-laboral'));
   var netoBs=r.neto*tasa;
   var pc=function(x){return (Math.round(x*10000)/100)+'%';}; // 0.16 → "16%"
@@ -22312,7 +22312,7 @@ async function guardarPagoAlcaldia(){
   var tasa=parseFloat(gv('alc-tasa'))||cfg.tasa;
   var contratoId=gv('alc-contrato')||'';
   var p=perfilRetencion(contratoId);
-  var base=viajes*cfg.tarifa;
+  var base=viajes*tarifaDe(gv('alc-fecha'));
   var r=calcRetenciones(base,p,gv('alc-laboral'));
   // Identidad por FACTURA (no por fecha) para NO duplicar. Bug histórico (auditoría 2026-07-06):
   // se hacía PAGOS_ALC.push incondicional con id NUEVO ('ALC'+Date.now()) cada vez y el upsert a
@@ -26329,7 +26329,7 @@ async function verificarBNCvsAbonos(){
     var montoPago = parseFloat(pago.monto||0);
     if(!montoPago)return;
     // Calcular cuántos viajes representa ese monto
-    var viajesEquiv = Math.round(montoPago/(cfg.tarifa||317.88));
+    var viajesEquiv = Math.round(montoPago/tarifaDe(pago.fecha));
     // Buscar si hay semanas sin pago cercanas a ese monto
     var semanasSinPago = calcSemanasAbiertas();
     var match = semanasSinPago.filter(function(s){
@@ -26391,7 +26391,7 @@ function registrarAbonoDesdeWNC(){
   if(!BNC_ABONO_PENDIENTE)return;
   var pago = BNC_ABONO_PENDIENTE.pago;
   var monto = parseFloat(pago.monto||0);
-  var viajes = Math.round(monto/(cfg.tarifa||317.88));
+  var viajes = Math.round(monto/tarifaDe(pago.fecha));
   // Pre-llenar formulario de abono
   sp('abonos');
   setTimeout(function(){
@@ -30134,7 +30134,7 @@ function genRptEjecucion(){
       '<div style="font-size:12px;color:#555">RIF: '+brandRif()+' | '+brandCiudad()+'</div>'+
       '<div style="font-size:15px;font-weight:900;margin-top:12px;color:#1e3a5f">RESUMEN VIAJES DIARIOS COMPACTADORES — MUNICIPIO MARACAIBO</div>'+
       '<div style="font-size:13px;font-weight:800;margin-top:6px;color:#0f2544">DESDE '+fmtFechaCorta(des||ls[0])+'   HASTA '+fmtFechaCorta(hta||getDomingoDeSemana(ls[ls.length-1]))+'</div>'+
-      '<div style="font-size:11px;color:#777;margin-top:2px">Tarifa por viaje: $'+(cfg.tarifa||317.88).toLocaleString('es-VE',{minimumFractionDigits:2})+'</div></div>'+
+      '<div style="font-size:11px;color:#777;margin-top:2px">Tarifa por viaje: $'+tarifaDe(fechaVE()).toLocaleString('es-VE',{minimumFractionDigits:2})+' (desde el 05/10/2026; antes $316,88)</div></div>'+
     '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:20px">'+
       '<div style="background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:12px;text-align:center"><div style="font-size:10px;color:#16a34a;font-weight:700;text-transform:uppercase">Total Viajes</div><div style="font-size:30px;font-weight:900">'+tv+'</div></div>'+
       '<div style="background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:12px;text-align:center"><div style="font-size:10px;color:#16a34a;font-weight:700;text-transform:uppercase">Monto USD</div><div style="font-size:24px;font-weight:900;color:#16a34a">$'+tm.toLocaleString('es-VE',{minimumFractionDigits:2})+'</div></div>'+
@@ -30577,7 +30577,7 @@ async function exportAlcaldiaExcel(){
 var PC_PREVIEW=null;
 function cargarPrecioActual(){
   var el=document.getElementById('precio-actual-display'),el2=document.getElementById('precio-vigente-desde');
-  if(el)el.textContent='$'+(cfg.tarifa||317.88);
+  if(el)el.textContent='$'+tarifaDe(fechaVE()).toFixed(2);
   if(el2)el2.textContent='Tarifa configurada actualmente';
   cargarHistorialPrecios();
   var hoy=fechaVE();

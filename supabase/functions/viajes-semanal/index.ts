@@ -65,9 +65,22 @@ Deno.serve(async (req) => {
   }
   const lineas = Object.keys(porCam).sort().map((c) => `• ${Us(c)}: ${porCam[c]} viaje${porCam[c] === 1 ? "" : "s"}`);
 
+  // ⛔ 04/11/2026. Esto decía «Facturado: **Bs** {totMonto}» y `planillas.m` está en
+  //    DÓLARES. O sea que el cierre de semana que se manda afuera afirmaba bolívares
+  //    sobre una cifra en dólares: un número 889 veces más chico, con la moneda
+  //    equivocada. No es un detalle de formato — es el monto que se factura.
+  //
+  // ⛔ Y se dice CON QUÉ TARIFA se valoró, porque desde el lunes 05/10/2026 el viaje
+  //    pasó de $316,88 a $261,20 y un total sin su tarifa no se puede verificar.
+  //    Cada planilla ya trae su monto a la tarifa de SU fecha; acá solo se informa
+  //    cuál o cuáles rigieron en la semana. [[norma-numero-que-el-dueno-no-puede-explicar]]
+  const tarifas = [...new Set(plan.map((p: any) =>
+    Number(p.t || 0) > 0 ? (Number(p.m || 0) / Number(p.t)).toFixed(2) : null).filter(Boolean))];
   let msg = `🗓️ Cierre de semana (${ddmm(lunes)} al ${ddmm(sabado)})\n\n`;
   msg += `🚛 Viajes totales: ${totViajes.toLocaleString("es-VE")}\n`;
-  msg += `💵 Facturado: Bs ${totMonto.toLocaleString("es-VE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\n`;
+  msg += `💵 Facturado: US$ ${totMonto.toLocaleString("es-VE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\n`;
+  if (tarifas.length === 1) msg += `📐 Tarifa: US$ ${tarifas[0]} por viaje (8 t)\n`;
+  else if (tarifas.length > 1) msg += `📐 Tarifas en la semana: US$ ${tarifas.join(" y US$ ")} por viaje (8 t)\n`;
   if (lineas.length) msg += `\nPor unidad:\n${lineas.join("\n")}`;
 
   const tel = norm(await one("viajes_semanal_tel"));
