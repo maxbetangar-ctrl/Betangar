@@ -30142,7 +30142,12 @@ function genRptEjecucion(){
       '<div style="font-size:12px;color:#555">RIF: '+brandRif()+' | '+brandCiudad()+'</div>'+
       '<div style="font-size:15px;font-weight:900;margin-top:12px;color:#1e3a5f">RESUMEN VIAJES DIARIOS COMPACTADORES — MUNICIPIO MARACAIBO</div>'+
       '<div style="font-size:13px;font-weight:800;margin-top:6px;color:#0f2544">DESDE '+fmtFechaCorta(des||ls[0])+'   HASTA '+fmtFechaCorta(hta||getDomingoDeSemana(ls[ls.length-1]))+'</div>'+
-      '<div style="font-size:11px;color:#777;margin-top:2px">Tarifa por viaje: $'+tarifaDe(fechaVE()).toLocaleString('es-VE',{minimumFractionDigits:2})+' (desde el 05/10/2026; antes $316,88)</div></div>'+
+      // ⛔ ACÁ NO VA LA TARIFA. Máximo, 04/11/2026: «en el membrete de los reportes de esos
+      //    viajes hay una nota que dice tarifa por viaje 261,20 desde 05/10/2026, antes
+      //    316,88; es como debe ser pero no debe ir ahí, solo que esté en el sistema, no es
+      //    necesario que eso vaya escrito». Este documento sale al IMAU: lleva los viajes y
+      //    el monto, no cómo se calculó por dentro.
+      '</div>'+
     '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:20px">'+
       '<div style="background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:12px;text-align:center"><div style="font-size:10px;color:#16a34a;font-weight:700;text-transform:uppercase">Total Viajes</div><div style="font-size:30px;font-weight:900">'+tv+'</div></div>'+
       '<div style="background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:12px;text-align:center"><div style="font-size:10px;color:#16a34a;font-weight:700;text-transform:uppercase">Monto USD</div><div style="font-size:24px;font-weight:900;color:#16a34a">$'+tm.toLocaleString('es-VE',{minimumFractionDigits:2})+'</div></div>'+
