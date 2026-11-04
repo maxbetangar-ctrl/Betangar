@@ -325,9 +325,31 @@ async function armarPdf(r: any, ciclo: any, empresa: string, membrete: any): Pro
      + "gasto es nada más la parte de intereses. Si lo sumáramos junto con la nómina y el gasoil, "
      + "nuestra utilidad se vería más baja de lo que realmente es.");
 
+  // ── LOS DÓLARES COMPRADOS, FUERA DE LA CUENTA ──────────────────────────────────────────────
+  // ⛔ Van aparte y NO entran en el saldo: comprar dólares no es ingreso ni gasto, son los
+  //    mismos bolívares en otra moneda. Pero se MUESTRAN porque Máximo los pidió expresamente
+  //    («se compraron tantos dólares») y porque callarlos obliga al socio a adivinar.
+  //    El 04/11/2026 un socio sumó la intervención a la diferencia del ciclo y entendió 22.291
+  //    donde había 3.190. Ver migrations/divisas_dos_patas_2026-11-04.sql
+  const dc = r.divisas_compradas ?? { usd: 0, operaciones: 0 };
+  if (Number(dc.usd) > 0) {
+    titulo("Dólares que compramos (ni ingreso ni gasto)");
+    fila(`Compramos ${usd(dc.usd)} en ${dc.operaciones} ${dc.operaciones === 1 ? "operación" : "operaciones"}`,
+         usd(dc.usd));
+    nota("Esto NO suma ni resta en la diferencia de abajo, y no hay que sumarlo aparte: son los "
+       + "mismos bolívares convertidos a dólares, que siguen siendo nuestros. Salieron de una "
+       + "cuenta nuestra y entraron a otra cuenta nuestra.");
+  }
+  for (const s of (r.avisos?.divisas_sin_pata ?? [])) {
+    fila(`⚠️ Dólares que entraron SIN su salida en bolívares, ${ddmm(s.fecha)} - ${limpio(s.texto)}`,
+         usd(s.usd), { color: ROJO });
+  }
+
   // ── EL SALDO ───────────────────────────────────────────────────────────────────────────────
   titulo("Cómo quedó el ciclo");
-  fila("Entró", usd(r.entro.total_usd));
+  fila("Nos pagó la Alcaldía", usd(r.entro.alcaldia_usd));
+  if (Number(r.entro.otros_usd) > 0) fila("Otras entradas", usd(r.entro.otros_usd));
+  fila("Entró en total", usd(r.entro.total_usd), { bold: true });
   fila("Menos el gasto de la operación", "-" + usd(r.salio_gasto.total_usd));
   fila("Menos lo que salió sin ser gasto", "-" + usd(r.salio_no_gasto.total_usd));
   fila("DIFERENCIA DEL CICLO", usd(r.saldo_usd),
@@ -626,14 +648,28 @@ Deno.serve(async (req) => {
     // adjunto en la pantalla del teléfono.
     const pie =
       `Les paso el resumen del ${ddmm(String(desde))} al ${ddmm(String(hasta))}.\n\n` +
+      // ⛔ EL PIE TIENE QUE PODER LLEGAR A SU PROPIO TOTAL. El 04/11/2026 decía
+      //    «pagó 16.367, gastamos 13.414, diferencia 15.191» — tres cifras que no se
+      //    pueden sumar, porque faltaban las otras entradas y lo que salió sin ser
+      //    gasto. Un socio hizo la cuenta que podía hacer: sumó la intervención y
+      //    entendió 22.291. Si una línea no está, el que lee la inventa.
+      //    [[norma-numero-que-el-dueno-no-puede-explicar]]
       (r.entro.alcaldia?.length
         ? `Nos pagó la Alcaldía: ${usd(r.entro.alcaldia_usd)}\n`
         : `La Alcaldía todavía no nos volvió a pagar.\n`) +
-      `Gastamos en la operación: ${usd(r.salio_gasto.total_usd)}\n` +
-      (Number(r.salio_no_gasto.camiones_usd) > 0
-        ? `Abonamos a los camiones: ${usd(r.salio_no_gasto.camiones_usd)}\n` : "") +
-      `Diferencia del ciclo: ${usd(r.saldo_usd)}\n\n` +
-      `En el documento les detallo a quién le pagamos.`;
+      (Number(r.entro.otros_usd) > 0 ? `Otras entradas: ${usd(r.entro.otros_usd)}\n` : "") +
+      `Gastamos en la operación: -${usd(r.salio_gasto.total_usd)}\n` +
+      (Number(r.salio_no_gasto.total_usd) > 0
+        ? `Salió sin ser gasto: -${usd(r.salio_no_gasto.total_usd)}` +
+          (Number(r.salio_no_gasto.camiones_usd) > 0
+            ? ` (abono a los camiones: ${usd(r.salio_no_gasto.camiones_usd)})` : "") + `\n`
+        : "") +
+      `Diferencia del ciclo: ${usd(r.saldo_usd)}\n` +
+      (Number(r.divisas_compradas?.usd) > 0
+        ? `\nAparte compramos ${usd(r.divisas_compradas.usd)} en dólares. Eso NO se suma a la ` +
+          `diferencia ni se resta: son los mismos bolívares en otra moneda, y siguen siendo nuestros.\n`
+        : "") +
+      `\nEn el documento les detallo a quién le pagamos.`;
 
     const h = horaVE();
     const enFranja = h >= HORA_DESDE && h < HORA_HASTA;
