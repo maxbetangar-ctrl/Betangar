@@ -10681,6 +10681,541 @@ function _semanasFaltantesNomina(){
       .map(function(l){ return {lunes:l, planillas:conPlanilla[l]}; });
   }catch(e){ return []; }
 }
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+// IMPORTAR LA «RELACIÓN DE PAGO» — el Excel con que la oficina paga la nómina
+//
+// ⛔ POR QUÉ EXISTE. El motor de nómina calcula desde las planillas, y eso da bien el total de
+//    viajes de la flota — se midió el 04/11/2026 contra 6 semanas: 192/187/202/188/191/193,
+//    exacto en las seis. Pero NO da bien la plata POR PERSONA (los viajes de un relevo quedan
+//    cargados al chofer fijo, y las diferencias se cancelan dentro de la semana), y sobre todo
+//    hay un bloque entero que las planillas NO PUEDEN conocer: el APOYO IMAU, 20 personas con
+//    un monto semanal que fija la oficina y que no sale de ningún viaje registrado. Esos son
+//    los «22 que el banco pagó y la nómina no tenía» que quedaron sin explicar en julio.
+//    La nómina se paga POR PERSONA, así que para cerrar una semana hace falta el Excel.
+//
+// ⛔ Y el Excel NO es una estimación paralela: el 04/11/2026 se cruzó contra el BNC y es, línea
+//    por línea, lo que el banco pagó (MÁXIMO 660.007,84 · ANDRY CUBA 161.495,37 · REINALDO
+//    FARIA 71.656,25 · YOHENDRY TAPIA 121.488,42). Es el registro del pago.
+//
+// ⛔ NADA se ubica por POSICIÓN de celda: las cuatro clases de hoja (CHOFERES / AYUD / ADM /
+//    APOYO IMAU) tienen formas distintas, cambian entre meses y los nombres de hoja traen
+//    espacios de sobra ('SEM-34 CHOFERES  '). Todo se busca por su ENCABEZADO.
+//    [[norma-la-vista-no-mide-lo-que-crees]]
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+
+function _npNorm(s){
+  if(s==null)return '';
+  var t=String(s);
+  try{ t=t.normalize('NFD').replace(/[\u0300-\u036f]/g,''); }catch(e){}
+  return t.replace(/\s+/g,' ').trim().toUpperCase();
+}
+function _npNum(v){
+  if(v==null||v==='')return null;
+  if(typeof v==='number')return isFinite(v)?v:null;
+  if(typeof v!=='string')return null;
+  var t=v.replace(/[^\d.,-]/g,'');
+  if(!t||!/\d/.test(t))return null;
+  // 1.234,56 (VE) vs 1234.56. Si hay coma, la coma es el decimal.
+  if(t.indexOf(',')>=0)t=t.replace(/\./g,'').replace(',','.');
+  var n=parseFloat(t);
+  return isFinite(n)?n:null;
+}
+
+// Qué bloque de la nómina es esta hoja. El orden importa: 'APOYO IMAU' antes que nada, porque
+// una hoja 'SEM-34 APOYO IMAU' también contiene la palabra que no queremos que gane.
+var _NP_TIPOS=[['APOYO IMAU','imau'],['AYUD','ayudantes'],['CHOFER','choferes'],['ADM','adm']];
+var _NP_ROTULO={choferes:'Choferes',ayudantes:'Ayudantes',adm:'Administrativos',imau:'Apoyo IMAU'};
+
+// La columna de $. De lo MÁS específico a lo más general: en las hojas ADM conviven
+// 'SALARIO SEMANAL/$' (el sueldo base, mes/4) y 'SALARIO SEMANA EN $' (lo que de verdad se
+// devenga, con feriado y domingo). Quedarse con el primero que calce pagaría DE MENOS.
+var _NP_HDR_USD=['TOTAL A DEVENGAR ($)','SALARIO SEMANA EN $','SALARIO SEMANAL / $','SALARIO SEMANAL/$'];
+var _NP_HDR_BRUTO=['SUB-TOTAL A DEVENGAR (BS','SALARIO SEM/BS','SALARIO SEM / BS','SALARIO SEM'];
+// ⛔ EL NETO NO PUEDE SER EL SUB-TOTAL. «SUB-TOTAL A DEVENGAR (Bs.)» CONTIENE la cadena
+//    «TOTAL A DEVENGAR (BS», así que buscar por `indexOf` agarraba la columna del BRUTO —que
+//    además viene ANTES— y la guardaba como lo que cobra cada persona. La diferencia no es
+//    chica: en SEM-34 son Bs 1.858.893,50 contra Bs 1.584.335,15, un 17% de más, que es
+//    justamente lo que se le descuenta a la gente (seguro médico, lentes, préstamos). Y el
+//    banco paga el NETO: se cotejó contra el BNC y REINALDO FARIA cobró 71.656,25, que es el
+//    neto. Lo delató la captura de pantalla, no el resultado del parser.
+//    [[norma-la-vista-no-mide-lo-que-crees]]
+var _NP_HDR_NETO=['TOTAL A DEVENGAR (BS','TOTAL A DEVENGAR'];
+var _NP_NO_NETO='SUB-TOTAL';
+
+// El lunes de una SEM-N, con el MISMO ancla que `_semDeFecha` (SEM-16 = 15/06/2026). Si esto se
+// escribiera aparte, una semana importada y la misma semana calculada quedarían en dos filas
+// distintas del historial — que es exactamente el duplicado que hubo que borrar a mano en julio.
+// [[norma-dos-listas-a-mano-se-desincronizan]]
+function _npLunesDeSem(num){
+  var d=new Date('2026-06-15T12:00:00');
+  d.setDate(d.getDate()+(num-16)*7);
+  return d;
+}
+
+// `excluir`: una cadena que, si está en el encabezado, lo descarta aunque calce. Hace falta
+// porque un encabezado puede estar CONTENIDO en otro («TOTAL A DEVENGAR (Bs.)» dentro de
+// «SUB-TOTAL A DEVENGAR (Bs.)») y entonces el calce no distingue dos columnas distintas.
+function _npBuscarCol(filas, candidatos, excluir){
+  for(var ci=0;ci<candidatos.length;ci++){
+    for(var r=0;r<filas.length;r++){
+      var fila=filas[r]||[];
+      for(var c=0;c<fila.length;c++){
+        var h=_npNorm(fila[c]);
+        if(!h||h.indexOf(candidatos[ci])<0)continue;
+        if(excluir&&h.indexOf(excluir)>=0)continue;
+        return {col:c,hdr:h};
+      }
+    }
+  }
+  return null;
+}
+
+// Una hoja → un bloque. Devuelve null si la hoja no es de la relación de pago.
+function _npParsearHoja(aoa, nombreHoja){
+  var nh=_npNorm(nombreHoja);
+  var m=nh.match(/SEM[- ]?(\d+)/);
+  if(!m)return null;
+  var tipo=null;
+  for(var i=0;i<_NP_TIPOS.length;i++){ if(nh.indexOf(_NP_TIPOS[i][0])>=0){tipo=_NP_TIPOS[i][1];break;} }
+  if(!tipo)return null;
+  var num=parseInt(m[1],10);
+  var base={semana:'SEM-'+num, num:num, tipo:tipo, hoja:String(nombreHoja).trim()};
+
+  // ── La fila de encabezados: la que trae NOMBRE y APELLIDO, en cualquier orden ──
+  // (CHOFERES dice 'NOMBRES Y APELLIDOS', ADM e IMAU dicen 'APELLIDOS Y NOMBRES'.)
+  var filaHdr=-1, colNom=-1;
+  for(var r=0;r<Math.min(20,aoa.length)&&filaHdr<0;r++){
+    var fila=aoa[r]||[];
+    for(var c=0;c<fila.length;c++){
+      var h=_npNorm(fila[c]);
+      if(h.indexOf('NOMBRE')>=0&&h.indexOf('APELLIDO')>=0){ filaHdr=r; colNom=c; break; }
+    }
+  }
+  if(filaHdr<0)return Object.assign(base,{error:'no se halló la fila de encabezados (NOMBRES Y APELLIDOS)'});
+
+  var filasHdr=[aoa[filaHdr-1]||[], aoa[filaHdr]||[], aoa[filaHdr+1]||[]];
+  var col={nombre:colNom};
+  filasHdr.forEach(function(fila){
+    (fila||[]).forEach(function(v,c){
+      var h=_npNorm(v);
+      if(!h)return;
+      if(h==='C.I.'||h==='CI'||h==='CEDULA'){ if(col.ci==null)col.ci=c; }
+      else if(h==='UNIDAD'){ if(col.unidad==null)col.unidad=c; }
+      else if(h==='CARGO'||h==='ASIGNACION'){ if(col.cargo==null)col.cargo=c; }
+      else if(h==='VIAJES'){ if(col.viajes==null)col.viajes=c; }
+      else if(h.indexOf('PRESTAMO')>=0&&h.indexOf('DESCUENTO')>=0){ if(col.prestamo==null)col.prestamo=c; }
+    });
+  });
+  var bu=_npBuscarCol(filasHdr,_NP_HDR_USD);
+  var br=_npBuscarCol(filasHdr,_NP_HDR_BRUTO);
+  var ne=_npBuscarCol(filasHdr,_NP_HDR_NETO,_NP_NO_NETO);
+  if(!bu)return Object.assign(base,{error:'no se halló la columna de $ (se buscó: '+_NP_HDR_USD.join(' / ')+')'});
+  col.usd=bu.col; if(br)col.bruto=br.col; if(ne)col.neto=ne.col;
+  // Las hojas de APOYO IMAU traen UNA sola columna de Bs («SALARIO SEM / BS») y ahí no hay
+  // deducciones: ese Bs ES lo que cobra la persona. Sin esto quedaban sin neto y la pantalla
+  // mostraba «—» en una columna que sí tiene dato.
+  base.netoEsElBruto=false;
+  if(!ne&&br){ col.neto=br.col; base.netoEsElBruto=true; }
+  base.hdrBruto=br?br.hdr:null; base.hdrNeto=ne?ne.hdr:(br?br.hdr:null);
+
+  // ── PERIODO y FECHA. Por etiqueta si la hay; si no, por forma ──
+  // ⛔ Las hojas APOYO IMAU no rotulan NI la fecha NI el periodo: el dato está suelto arriba.
+  //    Exigir la etiqueta las dejaba sin periodo, y una semana sin periodo es una semana que
+  //    después nadie puede ubicar en el calendario. [[norma-falta-de-dato-no-es-un-dato]]
+  var fecha=null, periodo=null;
+  for(var r2=0;r2<filaHdr;r2++){
+    var f2=aoa[r2]||[];
+    for(var c2=0;c2<f2.length;c2++){
+      var h2=_npNorm(f2[c2]);
+      if(h2==='FECHA'&&!fecha){
+        for(var d=1;d<=5;d++){ var v=f2[c2+d]; if(v instanceof Date){ fecha=_isoLocal(v); break; } }
+      }else if(h2.indexOf('PERIODO')===0&&!periodo){
+        for(var d2=1;d2<=8;d2++){ var v2=f2[c2+d2]; if(typeof v2==='string'&&v2.trim()){ periodo=v2.trim(); break; } }
+      }
+    }
+  }
+  for(var r3=0;r3<filaHdr&&(!fecha||!periodo);r3++){
+    var f3=aoa[r3]||[];
+    for(var c3=0;c3<f3.length;c3++){
+      if(!fecha&&f3[c3] instanceof Date) fecha=_isoLocal(f3[c3]);
+      if(!periodo&&typeof f3[c3]==='string'&&/^\s*DEL\s/i.test(_npNorm(f3[c3]))) periodo=f3[c3].trim();
+    }
+  }
+
+  // ── La gente ──
+  var gente=[], filaTotal=-1;
+  for(var r4=filaHdr+1;r4<aoa.length;r4++){
+    var f4=aoa[r4]||[];
+    var rotulos=[col.nombre,col.unidad,col.cargo,col.usd-1].map(function(cc){ return cc!=null?_npNorm(f4[cc]):''; });
+    if(rotulos.some(function(x){ return x==='TOTAL'||x==='TOTALES'; })){ filaTotal=r4; break; }
+    var nom=f4[col.nombre];
+    var nn=_npNorm(nom);
+    if(!nn||nn.length<4||!/[A-Z]{3}/.test(nn))continue;
+    var usd=_npNum(f4[col.usd]);
+    var neto=col.neto!=null?_npNum(f4[col.neto]):null;
+    var bruto=col.bruto!=null?_npNum(f4[col.bruto]):null;
+    if(usd==null&&neto==null)continue;
+    gente.push({
+      n:String(nom).trim(),
+      ci:col.ci!=null?String(f4[col.ci]==null?'':f4[col.ci]).replace(/\D/g,''):'',
+      u:String((col.unidad!=null?f4[col.unidad]:(col.cargo!=null?f4[col.cargo]:''))||'').trim(),
+      viajes:col.viajes!=null?_npNum(f4[col.viajes]):null,
+      usd:usd, bs:neto, brutoBs:bruto,
+      prestamo:col.prestamo!=null?_npNum(f4[col.prestamo]):null
+    });
+  }
+  var total={};
+  if(filaTotal>=0){
+    ['viajes','usd','bruto','neto'].forEach(function(k){
+      if(col[k]!=null)total[k]=_npNum((aoa[filaTotal]||[])[col[k]]);
+    });
+  }
+
+  // ── La TASA, DERIVADA de los renglones (Bs brutos ÷ $), no leída de una celda suelta ──
+  // Una celda suelta arriba se puede quedar vieja sin que nada avise. El cociente de los
+  // renglones no miente; y si los renglones no coinciden ENTRE SÍ, eso mismo es el hallazgo.
+  // (En las hojas ADM la dispersión es ESPERADA: a algunos se les suma bono de guerra y cesta
+  // ticket dentro del bruto, así que ahí el cociente no es la tasa de todos.)
+  var ratios=[];
+  gente.forEach(function(p){ if(p.brutoBs&&p.usd)ratios.push(Math.round(p.brutoBs/p.usd*10000)/10000); });
+  ratios.sort(function(a,b){ return a-b; });
+  var tasa=ratios.length?ratios[Math.floor(ratios.length/2)]:null;
+  var tasaDispersa=ratios.length>1&&(ratios[ratios.length-1]-ratios[0])>0.05;
+
+  var sumaUsd=0, sumaBs=0;
+  gente.forEach(function(p){ sumaUsd+=p.usd||0; sumaBs+=p.bs||0; });
+
+  return Object.assign(base,{
+    fechaPago:fecha, periodo:periodo, tasa:tasa, tasaDispersa:tasaDispersa,
+    tasasVistas:ratios.filter(function(v,i,a){ return a.indexOf(v)===i; }),
+    gente:gente, n:gente.length,
+    sumaUsd:Math.round(sumaUsd*100)/100, sumaBs:Math.round(sumaBs*100)/100,
+    total:total,
+    totalNoCasa:(total.usd!=null&&Math.abs(total.usd-sumaUsd)>0.5)?Math.round((total.usd-sumaUsd)*100)/100:0
+  });
+}
+
+// Un libro → las semanas que trae, cada una con sus bloques.
+function procesarNominaPagoExcel(wb){
+  var bloques=[], ignoradas=[];
+  (wb.SheetNames||[]).forEach(function(nombre){
+    var ws=wb.Sheets[nombre];
+    if(!ws){ ignoradas.push({hoja:nombre,motivo:'hoja vacía'}); return; }
+    var aoa=XLSX.utils.sheet_to_json(ws,{header:1,raw:true,defval:null,blankrows:true});
+    var b=_npParsearHoja(aoa,nombre);
+    if(!b){ ignoradas.push({hoja:nombre,motivo:'no es una hoja SEM-N de la relación de pago'}); return; }
+    bloques.push(b);
+  });
+
+  var porSem={};
+  bloques.forEach(function(b){
+    var s=porSem[b.num]||(porSem[b.num]={num:b.num,semana:b.semana,bloques:{},errores:[]});
+    if(b.error){ s.errores.push({tipo:b.tipo,hoja:b.hoja,error:b.error}); return; }
+    // Dos hojas del mismo bloque y la misma semana: no se elige en silencio, se avisa.
+    if(s.bloques[b.tipo]) s.errores.push({tipo:b.tipo,hoja:b.hoja,error:'hay DOS hojas de '+_NP_ROTULO[b.tipo]+' para '+b.semana+'; se usó la primera ("'+s.bloques[b.tipo].hoja+'")'});
+    else s.bloques[b.tipo]=b;
+  });
+
+  var semanas=Object.keys(porSem).map(function(k){ return porSem[k]; })
+    .sort(function(a,b){ return a.num-b.num; });
+
+  semanas.forEach(function(s){
+    var lun=_npLunesDeSem(s.num), dom=new Date(lun); dom.setDate(dom.getDate()+6);
+    s.lunes=_isoLocal(lun); s.domingo=_isoLocal(dom);
+    s.periodoCalc='Del '+_fechaLargaES(s.lunes)+' al '+_fechaLargaES(s.domingo)+' de '+dom.getFullYear();
+    var tipos=['choferes','ayudantes','adm','imau'];
+    s.faltan=tipos.filter(function(t){ return !s.bloques[t]; });
+    s.totUsd=0; s.nPers=0; s.tasa=null;
+    tipos.forEach(function(t){
+      var b=s.bloques[t]; if(!b)return;
+      s.totUsd+=b.sumaUsd; s.nPers+=b.n;
+    });
+    s.totUsd=Math.round(s.totUsd*100)/100;
+    // La tasa de la semana sale de CHOFERES: es el bloque limpio (en ADM el bruto trae bonos
+    // metidos adentro, así que su cociente no es la tasa).
+    var bc=s.bloques.choferes||s.bloques.ayudantes||s.bloques.imau;
+    s.tasa=bc?bc.tasa:null;
+    // Tasas distintas entre bloques de la MISMA semana = una hoja quedó con la tasa de la
+    // semana pasada. Pasó en SEM-35 (ayudantes a 887,30 y el resto a 891,10).
+    var tasasBloques=tipos.map(function(t){ return s.bloques[t]?s.bloques[t].tasa:null; })
+      .filter(function(v){ return v!=null; });
+    s.tasasBloques=tasasBloques.filter(function(v,i,a){ return a.indexOf(v)===i; });
+    s.tasaInconsistente=s.tasasBloques.length>1&&(Math.max.apply(null,s.tasasBloques)-Math.min.apply(null,s.tasasBloques))>0.05;
+    s.totBs=s.tasa?Math.round(s.totUsd*s.tasa*100)/100:null;
+    // El periodo que escribió la oficina, para poder contrastarlo con el calculado.
+    var bp=s.bloques.choferes||s.bloques.ayudantes||s.bloques.adm||s.bloques.imau;
+    s.periodoExcel=bp?bp.periodo:null;
+  });
+
+  return {semanas:semanas, ignoradas:ignoradas, bloques:bloques};
+}
+
+// ── Lo que el sistema ya sabe de esa semana, para poder CONTRASTAR antes de guardar ──
+function _npContraste(s){
+  var r={viajesPlanillas:null, choferesPlanillas:null, yaGuardada:null};
+  try{
+    var regs=(typeof REGS!=='undefined'?REGS:[]).filter(function(x){
+      return x.f&&x.f>=s.lunes&&x.f<=s.domingo;
+    });
+    if(regs.length){
+      var v=0, chs={};
+      regs.forEach(function(x){ v+=(parseFloat(x.t)||0); if(x.ch)chs[_npNorm(x.ch)]=1; });
+      r.viajesPlanillas=v; r.choferesPlanillas=Object.keys(chs).length; r.planillas=regs.length;
+    }else{ r.planillas=0; }
+  }catch(e){}
+  try{
+    r.yaGuardada=(typeof NOMINA_HIST!=='undefined'?NOMINA_HIST:[]).find(function(x){
+      if(!x.fecha_desde)return false;
+      try{ return _isoLocal(_lunesSem(String(x.fecha_desde).slice(0,10)))===s.lunes; }catch(e){ return false; }
+    })||null;
+  }catch(e){}
+  var bc=s.bloques.choferes;
+  if(bc){
+    var vx=bc.total.viajes!=null?bc.total.viajes:bc.gente.reduce(function(a,p){ return a+(p.viajes||0); },0);
+    r.viajesExcel=vx;
+    r.difViajes=(r.viajesPlanillas!=null)?Math.round((vx-r.viajesPlanillas)*100)/100:null;
+  }
+  return r;
+}
+
+// ── La FILA del historial que corresponde a una semana del Excel ──
+// Esto es una función aparte y PURA a propósito: la arma la pantalla al darle «Cerrar la
+// semana», y la arma también cualquier script que cierre semanas desde la PC. Si cada uno
+// armara la suya, las dos filas dirían cosas distintas de la misma semana — que es la forma
+// exacta en que nació el duplicado de julio. [[norma-dos-listas-a-mano-se-desincronizan]]
+function _npFilaHistorial(s, yaGuardada, archivo){
+  var mapa=function(t){
+    var b=s.bloques[t]; if(!b)return [];
+    return b.gente.map(function(p){
+      return {n:p.n, ci:p.ci||'', u:p.u||'', viajes:p.viajes, usd:p.usd||0,
+              bs:(p.bs!=null?p.bs:(p.usd||0)*s.tasa)};
+    });
+  };
+  var op=(s.bloques.choferes?s.bloques.choferes.sumaUsd:0)+(s.bloques.ayudantes?s.bloques.ayudantes.sumaUsd:0);
+  var adm=s.bloques.adm?s.bloques.adm.sumaUsd:0;
+  var imau=s.bloques.imau?s.bloques.imau.sumaUsd:0;
+  return {
+    // ⛔ El id es el MISMO esquema que usa «Guardar esta semana» (`APP-<lunes>`), para que la
+    //    semana importada y la calculada sean UNA fila y no dos. El duplicado de julio
+    //    (`SEM-14` contra «Semana 1», la misma semana con dos totales distintos) salió
+    //    justamente de que había dos esquemas de id. Y si la semana ya está guardada con
+    //    OTRO id, se reutiliza ése: lo que manda es la semana, no el nombre.
+    id:(yaGuardada?yaGuardada.id:('APP-'+s.lunes)),
+    semana:s.semana, periodo:s.periodoCalc,
+    fecha_desde:s.lunes, fecha_hasta:s.domingo,
+    total_usd:Math.round(s.totUsd*100)/100,
+    total_bs:Math.round((s.totBs||0)*100)/100,
+    op_usd:Math.round(op*100)/100,
+    adm_usd:Math.round(adm*100)/100,
+    imau_bs:Math.round(imau*(s.tasa||0)*100)/100,
+    tasa:s.tasa,
+    detalle:{
+      choferes:mapa('choferes'), ayudantes:mapa('ayudantes'),
+      adm:mapa('adm'), imau:mapa('imau'), extras:[],
+      // ⛔ `total_bs` es el BRUTO ($ × tasa), que es lo que cuesta la nómina a la empresa y la
+      //    convención del resto del historial. El `bs` de CADA PERSONA es el NETO: lo que el
+      //    banco le transfiere después de seguro médico, lentes y préstamos. Entonces la suma
+      //    de las personas NO da `total_bs`, y sin esto esa diferencia se lee como un
+      //    descuadre. Acá queda dicha, con su número. [[norma-numero-que-el-dueno-no-puede-explicar]]
+      resumen:(function(){
+        var neto=0, tipos=['choferes','ayudantes','adm','imau'];
+        tipos.forEach(function(t){ (s.bloques[t]?s.bloques[t].gente:[]).forEach(function(p){ neto+=(p.bs||0); }); });
+        neto=Math.round(neto*100)/100;
+        var bruto=Math.round((s.totBs||0)*100)/100;
+        return {bruto_bs:bruto, neto_pagado_bs:neto,
+                deducciones_bs:Math.round((bruto-neto)*100)/100,
+                nota:'bruto = $ x tasa (costo para la empresa). neto = lo que el banco transfiere '+
+                     'a cada persona, ya descontados seguro médico, lentes y préstamos.'};
+      })(),
+      // De dónde salió esta fila. Sin esto, dentro de tres meses nadie puede decir si el
+      // número vino del Excel de la oficina o de un cálculo, ni de qué hoja exactamente.
+      origen:{archivo:archivo||null,
+        hojas:(['choferes','ayudantes','adm','imau'])
+          .map(function(t){ return s.bloques[t]?s.bloques[t].hoja:null; }).filter(Boolean),
+        periodo_escrito:s.periodoExcel||null, importado:new Date().toISOString(),
+        faltan:s.faltan, tasas_por_bloque:s.tasasBloques}
+    },
+    // ⛔ 'excel-pago' y no 'app': lo que distingue a esta fila es que NO la calculó el sistema.
+    //    Si después alguien recalcula y guarda encima, tiene que poder enterarse de que está
+    //    pisando el registro de un pago. [[norma-un-valor-derivado-depende-de-la-version-de-su-regla]]
+    fuente:'excel-pago'
+  };
+}
+
+var _NP_RES=null;
+
+function importarNominaPago(input){
+  var file=input&&input.files&&input.files[0];
+  if(!file)return;
+  if(!_xlsxListo()){ input.value=''; return; }
+  var reader=new FileReader();
+  reader.onload=function(e){
+    try{
+      var wb=XLSX.read(e.target.result,{type:'binary',cellDates:true});
+      var res=procesarNominaPagoExcel(wb);
+      res.archivo=file.name;
+      if(!res.semanas.length){
+        // ⛔ Un archivo que no trae ninguna semana NO se reporta como «0 importadas»: se dice QUÉ
+        //    se miró y por qué no sirvió, porque el archivo equivocado se ve igual que un archivo
+        //    vacío. [[norma-falta-de-dato-no-es-un-dato]]
+        alert('Ese archivo no trae ninguna semana de la RELACIÓN DE PAGO.\n\n'+
+              'Se miraron '+(wb.SheetNames||[]).length+' hoja(s):\n  '+
+              (wb.SheetNames||[]).map(function(x){ return '• '+x; }).join('\n  ')+
+              '\n\nSe esperan hojas llamadas como «SEM-34 CHOFERES», «SEM-34 AYUD», «SEM-34 ADM» '+
+              'y «SEM-34 APOYO IMAU».\n\n'+
+              '👉 Si lo que querés subir es el Excel de VIAJES (las planillas), ése va por '+
+              '«Importar Excel» en el módulo Histórico, no acá.');
+        input.value=''; return;
+      }
+      _NP_RES=res;
+      renderNomPagoPanel();
+      try{ var p=g('np-panel'); if(p)p.scrollIntoView({behavior:'smooth',block:'nearest'}); }catch(e2){}
+    }catch(err){
+      alert('No se pudo leer el Excel: '+(err&&err.message?err.message:err)+
+            '\n\nSi el archivo abre bien en Excel, avisá — el problema es nuestro, no tuyo.');
+    }
+    input.value='';
+  };
+  reader.onerror=function(){ alert('No se pudo abrir el archivo.'); input.value=''; };
+  reader.readAsBinaryString(file);
+}
+
+function renderNomPagoPanel(){
+  var box=g('np-panel'); if(!box)return;
+  var res=_NP_RES;
+  if(!res){ box.innerHTML=''; return; }
+  var h='';
+  h+='<div class="sh" style="margin-bottom:6px"><div class="st">📥 '+_mEsc(res.archivo||'Excel')+
+     ' — '+res.semanas.length+' semana(s) reconocida(s)</div>'+
+     '<button class="btn btn-s btn-xs solo-ui" onclick="_NP_RES=null;renderNomPagoPanel()">✕ cerrar</button></div>';
+
+  res.semanas.forEach(function(s,i){
+    var c=_npContraste(s);
+    s._c=c;
+    var avisos=[];
+    if(s.faltan.length)avisos.push('⛔ falta(n) la(s) hoja(s) de <b>'+s.faltan.map(function(t){ return _NP_ROTULO[t]; }).join(', ')+'</b>: esa plata NO va a entrar');
+    if(s.tasaInconsistente)avisos.push('⚠️ los bloques traen tasas distintas ('+s.tasasBloques.join(' y ')+' Bs/$): una hoja quedó con la tasa de otra semana');
+    if(c.difViajes!=null&&c.difViajes!==0)avisos.push('⚠️ viajes: el Excel dice <b>'+c.viajesExcel+'</b> y las planillas del sistema <b>'+c.viajesPlanillas+'</b> (dif '+(c.difViajes>0?'+':'')+c.difViajes+')');
+    if(c.difViajes===0)avisos.push('✅ los '+c.viajesExcel+' viajes del Excel casan EXACTO con las planillas del sistema');
+    if(c.planillas===0)avisos.push('⚠️ el sistema no tiene NINGUNA planilla de esa semana: no hay con qué contrastar');
+    if(c.yaGuardada)avisos.push('⚠️ esa semana YA está en el historial como <b>'+_mEsc(c.yaGuardada.id)+'</b> ($'+
+      (parseFloat(c.yaGuardada.total_usd)||0).toFixed(2)+', fuente «'+_mEsc(c.yaGuardada.fuente||'?')+'»): guardar la REEMPLAZA');
+    s.errores.forEach(function(e){ avisos.push('⛔ hoja «'+_mEsc(e.hoja)+'»: '+_mEsc(e.error)); });
+    (['choferes','ayudantes','adm','imau']).forEach(function(t){
+      var b=s.bloques[t]; if(!b)return;
+      if(b.totalNoCasa)avisos.push('⚠️ '+_NP_ROTULO[t]+': la fila TOTAL de la hoja dice $'+(b.total.usd||0).toFixed(2)+
+        ' y los renglones suman $'+b.sumaUsd.toFixed(2)+' (dif '+(b.totalNoCasa>0?'+':'')+b.totalNoCasa.toFixed(2)+')');
+      if(!b.periodo)avisos.push('⚠️ '+_NP_ROTULO[t]+': la hoja no trae periodo escrito');
+    });
+    // El periodo que escribió la oficina contra el que sale del calendario. En las hojas de
+    // APOYO IMAU el rótulo viene copiado de otra semana más de una vez (SEM-27 decía «del 03
+    // al 09 de AGOSTO»), así que manda el NÚMERO de la hoja, no el texto.
+    var pe=_npNorm(s.periodoExcel||'');
+    var mes=_npNorm(_fechaLargaES(s.lunes)).split(' DE ')[1]||'';
+    if(pe&&mes&&pe.indexOf(mes)<0)avisos.push('⚠️ el periodo escrito en la hoja («'+_mEsc(s.periodoExcel)+
+      '») no menciona el mes de '+s.semana+' según el calendario ('+_mEsc(s.periodoCalc)+'). Manda el número de la hoja.');
+
+    h+='<div class="card" style="margin-bottom:8px;border-left:3px solid var(--'+(s.faltan.length?'red':'green')+')">';
+    h+='<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">';
+    h+='<div><b style="font-size:13px">'+s.semana+'</b> <span style="font-size:11px;color:var(--text2)">'+_mEsc(s.periodoCalc)+'</span>'+
+       '<div style="font-size:10px;color:var(--text3)">'+s.lunes+' → '+s.domingo+' · tasa '+(s.tasa?s.tasa.toFixed(2):'—')+' Bs/$</div></div>';
+    h+='<div style="text-align:right"><div style="font-family:var(--m);font-size:16px;font-weight:700;color:var(--green)">$'+
+       s.totUsd.toLocaleString('es-VE',{minimumFractionDigits:2,maximumFractionDigits:2})+'</div>'+
+       '<div style="font-size:10px;color:var(--text3)">'+(s.totBs!=null?('Bs '+s.totBs.toLocaleString('es-VE',{maximumFractionDigits:0})):'sin tasa')+' · '+s.nPers+' personas</div></div>';
+    h+='</div>';
+    h+='<div class="tw" style="margin-top:6px"><table><thead><tr><th>Bloque</th><th>Personas</th><th>Viajes</th><th>Total $</th><th>Total Bs</th></tr></thead><tbody>';
+    (['choferes','ayudantes','adm','imau']).forEach(function(t){
+      var b=s.bloques[t];
+      if(!b){ h+='<tr style="opacity:.5"><td>'+_NP_ROTULO[t]+'</td><td colspan="4" style="color:var(--red)">sin hoja en el archivo</td></tr>'; return; }
+      var vj=b.total.viajes!=null?b.total.viajes:b.gente.reduce(function(a,p){ return a+(p.viajes||0); },0);
+      h+='<tr><td>'+_NP_ROTULO[t]+'</td><td>'+b.n+'</td><td>'+(vj||'—')+'</td><td style="font-family:var(--m)">'+b.sumaUsd.toFixed(2)+'</td><td style="font-family:var(--m)">'+(b.sumaBs?b.sumaBs.toLocaleString('es-VE',{maximumFractionDigits:0}):'—')+'</td></tr>';
+    });
+    h+='</tbody></table></div>';
+    if(avisos.length)h+='<div style="font-size:11px;margin-top:6px;line-height:1.6">'+avisos.map(function(a){ return '<div>'+a+'</div>'; }).join('')+'</div>';
+    h+='<div style="margin-top:7px;display:flex;gap:6px;flex-wrap:wrap">'+
+       '<button class="btn btn-g btn-sm solo-ui" onclick="guardarNomPagoSemana('+i+')">💾 Cerrar '+s.semana+' en el historial</button>'+
+       '<button class="btn btn-s btn-xs solo-ui" onclick="verNomPagoDetalle('+i+')">👁 ver persona por persona</button>'+
+       '</div>';
+    h+='</div>';
+  });
+
+  if(res.ignoradas.length){
+    h+='<div style="font-size:10px;color:var(--text3);margin-top:4px">Hojas que no se usaron: '+
+       res.ignoradas.map(function(x){ return _mEsc(x.hoja)+' ('+x.motivo+')'; }).join(' · ')+'</div>';
+  }
+  box.innerHTML=h;
+}
+
+function verNomPagoDetalle(i){
+  var s=_NP_RES&&_NP_RES.semanas[i]; if(!s)return;
+  var h='<div style="font-size:12px"><b>'+s.semana+'</b> — '+_mEsc(s.periodoCalc)+'</div>';
+  (['choferes','ayudantes','adm','imau']).forEach(function(t){
+    var b=s.bloques[t]; if(!b)return;
+    h+='<div class="sh" style="margin:8px 0 4px"><div class="st">'+_NP_ROTULO[t]+' ('+b.n+') — hoja «'+_mEsc(b.hoja)+'»</div></div>';
+    h+='<div class="tw"><table><thead><tr><th>#</th><th>Nombre</th><th>C.I.</th><th>Unidad/Cargo</th><th>Viajes</th><th>$</th><th>Bs a pagar</th></tr></thead><tbody>';
+    b.gente.forEach(function(p,j){
+      h+='<tr><td>'+(j+1)+'</td><td>'+_mEsc(p.n)+'</td><td>'+_mEsc(p.ci||'—')+'</td><td>'+_mEsc(p.u||'—')+'</td>'+
+         '<td>'+(p.viajes!=null?p.viajes:'—')+'</td><td style="font-family:var(--m)">'+(p.usd!=null?p.usd.toFixed(2):'—')+'</td>'+
+         '<td style="font-family:var(--m)">'+(p.bs!=null?p.bs.toLocaleString('es-VE',{maximumFractionDigits:2}):'—')+'</td></tr>';
+    });
+    h+='</tbody></table></div>';
+  });
+  // Mismo overlay que usa el detalle del historial (`verNominaHistDetalle`): acá no hay una
+  // función `abrirModal` suelta, aunque el nombre lo sugiera.
+  var prev=document.getElementById('np-modal'); if(prev)prev.remove();
+  var ov=document.createElement('div'); ov.id='np-modal';
+  ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:13000;display:flex;align-items:center;justify-content:center;padding:16px';
+  ov.onclick=function(e){ if(e.target===ov)ov.remove(); };
+  ov.innerHTML='<div style="background:var(--bg2,#16181d);border:1px solid var(--border);border-radius:12px;max-width:760px;width:100%;max-height:88vh;overflow:auto;padding:16px">'+
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">'+
+    '<div style="font-weight:800">📋 Relación de pago — '+s.semana+'</div>'+
+    '<button class="btn btn-r btn-xs" onclick="document.getElementById(\'np-modal\').remove()">✕</button></div>'+
+    h+'</div>';
+  document.body.appendChild(ov);
+}
+
+// ── Cerrar la semana: escribe la fila del historial con el Excel como fuente ──
+async function guardarNomPagoSemana(i){
+  var s=_NP_RES&&_NP_RES.semanas[i];
+  if(!s){ alert('No hay semana para guardar.'); return; }
+  if(!(DB_READY&&supabase)){ alert('Sin conexión a la base: no se puede cerrar la semana.'); return; }
+  if(!s.tasa){
+    // ⛔ Sin tasa los Bs no se pueden reconstruir NI auditar después. Seis filas viejas del
+    //    historial quedaron con tasa 0 y hoy no hay forma de rehacer sus Bs.
+    alert('⛔ No se pudo DERIVAR la tasa de esa semana (Bs ÷ $ de los renglones).\n\n'+
+          'Sin tasa, los bolívares quedan sin poder reconstruirse ni auditarse — es exactamente '+
+          'lo que les pasó a seis semanas viejas del historial. No se guarda así.');
+    return;
+  }
+  var c=s._c||_npContraste(s);
+  var aviso='';
+  if(s.faltan.length)aviso+='\n\n⛔ FALTAN hojas: '+s.faltan.map(function(t){ return _NP_ROTULO[t]; }).join(', ')+
+    '.\nEsa semana va a quedar guardada INCOMPLETA (de menos).';
+  if(c.yaGuardada)aviso+='\n\n⚠️ Esa semana YA está guardada como "'+c.yaGuardada.id+'" con $'+
+    (parseFloat(c.yaGuardada.total_usd)||0).toFixed(2)+' (fuente «'+(c.yaGuardada.fuente||'?')+'»). Se REEMPLAZA.';
+  if(c.difViajes!=null&&c.difViajes!==0)aviso+='\n\n⚠️ Los viajes no casan: Excel '+c.viajesExcel+
+    ' contra '+c.viajesPlanillas+' en las planillas del sistema.';
+  if(!confirm('¿Cerrar '+s.semana+' ('+s.periodoCalc+') en el historial?\n\n'+
+              '$'+s.totUsd.toFixed(2)+' · Bs '+(s.totBs||0).toLocaleString('es-VE',{maximumFractionDigits:0})+
+              ' · '+s.nPers+' personas · tasa '+s.tasa.toFixed(2)+
+              '\n\nFuente: el Excel de la oficina (lo que se pagó), no el cálculo del sistema.'+aviso))return;
+
+  var row=_npFilaHistorial(s,c.yaGuardada,(_NP_RES||{}).archivo);
+  // ⛔ A diferencia de «Guardar esta semana», esto NO avanza cuotas de préstamos ni multas: el
+  //    Excel ya trae los descuentos aplicados en los montos que se pagaron. Avanzarlas acá los
+  //    cobraría DOS veces. Por eso va por `upsert` y no por la RPC `avanzar_nomina`.
+  var res=await supabase.from('nomina_historial').upsert(row,{onConflict:'id'}).select();
+  if(res.error){ mostrarToast('No se pudo cerrar la semana: '+res.error.message,'error'); return; }
+  try{
+    var idx=(NOMINA_HIST||[]).findIndex(function(x){ return x.id===row.id; });
+    if(idx>=0)NOMINA_HIST[idx]=row; else NOMINA_HIST.push(row);
+  }catch(e){}
+  s._cerrada=true;
+  mostrarToast('✅ '+s.semana+' cerrada en el historial ($'+row.total_usd.toFixed(2)+')','ok');
+  try{ renderNominaHist(); }catch(e){}
+  try{ _NP_RES.semanas[i]._c=_npContraste(s); renderNomPagoPanel(); }catch(e){}
+}
+
 function renderNominaHist(){
   try{llenarAudSem();}catch(e){}
   var lista=g('nm-hist-lista'); if(!lista)return;
@@ -10902,11 +11437,36 @@ async function guardarNominaHist(){
     fecha_desde:n.fdesde||null, fecha_hasta:n.fhasta||null,
     total_usd:Math.round((n.totCh+n.totAy+(n.totAdm||0)+(n.totImau||0)+(n.totExtras||0))*100)/100, total_bs:Math.round(n.totBs*100)/100,
     op_usd:Math.round((n.totCh+n.totAy)*100)/100, adm_usd:Math.round((n.totAdm||0)*100)/100, imau_bs:Math.round((n.totImau||0)*(n.tasa||0)*100)/100, tasa:n.tasa,
-    detalle:{choferes:n.choferes,ayudantes:n.ayudantes,imau:[],adm:(typeof NOM_ADM!=='undefined'?NOM_ADM:[]).map(function(a){var u=Math.round(((parseFloat(a.monto)||0)/4)*100)/100;return {n:a.cargo,u:'fijo semanal',usd:u,bs:Math.round(u*(n.tasa||0)*100)/100};}),extras:n.extras||[]}, fuente:'app'};
+    // ⛔ 04/11/2026: acá decía `imau:[]`, fijo. `calcNom` SÍ arma el detalle del personal IMAU
+    //    persona por persona —con sus días pagos, sus días sin declarar y el `usdRetenido`— y
+    //    hay un comentario donde se calcula que dice, con todas las letras, que eso tiene que
+    //    quedar guardado para poder auditar dentro de tres meses una semana ya pagada. Y al
+    //    guardar se tiraba. El total (`imau_bs`) sí se escribía, así que la semana cerraba por
+    //    el monto correcto y el detalle de QUIÉN cobró quedaba vacío: las dos únicas semanas
+    //    guardadas por la app (jun-26 Semana1 y Semana3) tienen 0 filas de IMAU contra ~20 de
+    //    las que vinieron del Excel. Se ve igual que una semana en la que el IMAU no cobró.
+    //    [[norma-un-dato-que-se-recoge-y-no-se-convierte-se-tira]]
+    detalle:{choferes:n.choferes,ayudantes:n.ayudantes,imau:n.imau||[],adm:(typeof NOM_ADM!=='undefined'?NOM_ADM:[]).map(function(a){var u=Math.round(((parseFloat(a.monto)||0)/4)*100)/100;return {n:a.cargo,u:'fijo semanal',usd:u,bs:Math.round(u*(n.tasa||0)*100)/100};}),extras:n.extras||[]}, fuente:'app'};
   var avisoDesc=(!yaExistia&&(nPrest||nMulta))
     ?('\n\n⚠️ Esto avanzará 1 cuota a '+nPrest+' préstamo(s) y '+nMulta+' multa(s) activas (el descuento de ESTA semana).')
     :((yaExistia&&(nPrest||nMulta))?'\n\n(Esta semana ya estaba guardada → las cuotas NO se vuelven a avanzar.)':'');
-  if(!confirm('¿Guardar la nómina de "'+_semLabel+'" ('+_periodo+') en el historial?\nTotal $'+row.total_usd.toFixed(0)+' · '+n.choferes.length+' choferes, '+n.ayudantes.length+' ayudantes.'+avisoDesc+'\n(Si ya existe esa semana, se reemplaza.)'))return;
+  // ⛔ PISAR EL REGISTRO DE UN PAGO NO PUEDE SER SILENCIOSO. Si la fila que está ahí vino del
+  //    Excel de la oficina (`fuente` 'excel' o 'excel-pago'), ESO es lo que el banco pagó,
+  //    persona por persona — se cotejó contra el BNC el 04/11/2026 y casa línea por línea. El
+  //    cálculo desde planillas da bien el total de viajes de la flota pero NO la plata por
+  //    persona, y no puede ver el bloque de APOYO IMAU (20 personas que no salen de ninguna
+  //    planilla). Reemplazar lo uno por lo otro sin decirlo cambia un hecho por una estimación.
+  //    [[norma-un-valor-derivado-depende-de-la-version-de-su-regla]]
+  var avisoFuente='';
+  if(_yaFila&&/excel/i.test(String(_yaFila.fuente||''))){
+    var _dUsd=row.total_usd-(parseFloat(_yaFila.total_usd)||0);
+    avisoFuente='\n\n⛔ OJO: esa semana está guardada con el EXCEL DE LA OFICINA como fuente'+
+      ' («'+_yaFila.fuente+'», $'+(parseFloat(_yaFila.total_usd)||0).toFixed(2)+'), o sea con lo que'+
+      ' SE PAGÓ.\nEsto lo reemplaza por el cálculo del sistema ($'+row.total_usd.toFixed(2)+
+      ', dif '+(_dUsd>=0?'+':'')+_dUsd.toFixed(2)+'), que no incluye el APOYO IMAU ni reparte igual'+
+      ' la plata por persona.\n\n¿Seguro?';
+  }
+  if(!confirm('¿Guardar la nómina de "'+_semLabel+'" ('+_periodo+') en el historial?\nTotal $'+row.total_usd.toFixed(0)+' · '+n.choferes.length+' choferes, '+n.ayudantes.length+' ayudantes.'+avisoDesc+avisoFuente+'\n(Si ya existe esa semana, se reemplaza.)'))return;
   if(!(DB_READY&&supabase)){alert('Sin conexión a la base.');return;}
   // ATÓMICO (cierra el crítico de doble-cobro): la RPC avanzar_nomina guarda la nómina Y avanza las
   // cuotas de préstamos/multas en UNA transacción (todo-o-nada). Las cuotas que se completan se

@@ -12,6 +12,10 @@
 // Usa SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY (env estándar de Supabase).
 // ════════════════════════════════════════════════════════════════════════════
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+// La ventana de hora vive aparte para poder probarla: importar este index
+// arranca el `serve()` y el runner de pruebas se cae. Mismo motivo que
+// `puerta-datos.ts` en wa-autoreply.
+import { corteDeCaducidad, horaVE, enHorarioVE, leerVentana, leerUrgentes, esUrgente, proximaApertura } from './ventana-hora.ts';
 
 const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, apikey, content-type' };
 
@@ -87,16 +91,50 @@ Deno.serve(async (req) => {
   }
   const conEtiqueta = (msg: string) => (etiqueta && !msg.startsWith(etiqueta)) ? `${etiqueta}: ${msg}` : msg;
 
+  // La ventana de hora se lee ANTES del barrido de caducidad y no después: el
+  // barrido necesita saber cuáles horas eran entregables para no cobrarle al
+  // mensaje la espera que le impuso la casa. El porqué largo, en el paso 2.
+  const { data: vh } = await sb.from('configuracion').select('valor').eq('clave', 'ventana_hora').maybeSingle();
+  const { ventana: VENTANA, sinLimite } = leerVentana(vh?.valor, (s) => console.log(s));
+  const URGENTES = leerUrgentes(vh?.valor, (s) => console.log(s));
+  const ahoraVE = new Date();
+  const hVE = horaVE(ahoraVE);
+  const enHorario = enHorarioVE(ahoraVE, VENTANA);
+
   // 0) CADUCAR lo viejo ANTES de enviar nada. Va primero a propósito: si la cola venía represada,
   //    esto evita el aluvión de mensajes de ayer en cuanto el servicio vuelve.
   //    Norma de Máximo (2026-07-21): "lo que se haya pasado de ayer ya no lo envíes hoy". Un aviso
   //    operativo es de SU día: al día siguiente confunde a quien lo recibe, que ya actuó o ya no
   //    puede actuar. Se DESCARTAN (no se borran) dejando el motivo escrito.
+  //
+  // ⛔ Y SON DOS BARRIDOS, NO UNO, porque la noche no les pesa igual a los dos
+  //    grupos. A un tercero la casa le RETIENE el mensaje de 20:00 a 8:00: esas
+  //    horas no se le pueden cobrar como abandono, así que su edad se mide en
+  //    HORAS ENTREGABLES (`corteDeCaducidad`). A Máximo se le escribe a cualquier
+  //    hora —sus alarmas no se retienen nunca—, así que para él la vigencia
+  //    sigue siendo 12 h de RELOJ: una alarma de las 2 a. m. que no salió no
+  //    sirve a las 8 p. m., y con el corte entregable sobreviviría hasta ahí.
   const VIGENCIA_HORAS = 12;
-  const corte = new Date(Date.now() - VIGENCIA_HORAS * 60 * 60 * 1000).toISOString();
-  const { data: caducados } = await sb.from('cola_mensajes')
-    .update({ estado: 'descartado', error: `caducado: encolado hace mas de ${VIGENCIA_HORAS}h; un aviso operativo es de su dia y no se reenvia despues` })
-    .eq('estado', 'pendiente').lt('created_at', corte).select('id');
+  const motivoCaduco = `caducado: encolado hace mas de ${VIGENCIA_HORAS}h; un aviso operativo es de su dia y no se reenvia despues`;
+  const corteLlano = new Date(Date.now() - VIGENCIA_HORAS * 60 * 60 * 1000).toISOString();
+  const corteEntregable = corteDeCaducidad(ahoraVE, VENTANA, VIGENCIA_HORAS).toISOString();
+  const { data: cadCasa } = await sb.from('cola_mensajes')
+    .update({ estado: 'descartado', error: motivoCaduco })
+    .eq('estado', 'pendiente').in('telefono', sinLimite).lt('created_at', corteLlano).select('id');
+  const { data: cadTerceros } = await sb.from('cola_mensajes')
+    .update({ estado: 'descartado', error: `${motivoCaduco} (12h de horario ${VENTANA.desde}-${VENTANA.hasta}; la espera nocturna no cuenta)` })
+    // ⚠️ `telefono.is.null` VA EN EL `or` Y NO SOBRA. `NOT (telefono IN (...))`
+    //    da NULL cuando el teléfono es nulo, así que esa fila no la barre
+    //    NINGUNO de los dos cortes: quedaría `pendiente` para siempre, y una
+    //    fila inmortal en la cola es un arma cargada. Hoy no hay ninguna
+    //    (medido: 0 de 8.756), y por eso justamente se cierra ahora.
+    .eq('estado', 'pendiente')
+    .or(`telefono.is.null,telefono.not.in.(${sinLimite.join(',')})`)
+    .lt('created_at', corteEntregable).select('id');
+  const caducados = [...(cadCasa || []), ...(cadTerceros || [])];
+  if (caducados.length) {
+    console.log(`caducados ${caducados.length}: ${cadCasa?.length || 0} de la casa (corte de reloj) y ${cadTerceros?.length || 0} de terceros (corte entregable ${corteEntregable})`);
+  }
 
   // 1) Recupera mensajes trabados en 'enviando' por una corrida que murió a mitad (>10 min).
   //    `tomado_at` es la marca de RECLAMO; si quedó vieja, la fila vuelve a 'pendiente'.
@@ -190,11 +228,63 @@ Deno.serve(async (req) => {
     } catch { /* sin red para preguntar: se sigue, igual que arriba */ }
   }
 
+  // ── 🕗 LA VENTANA DE HORA VIVE ACÁ, Y NO EN CADA EMISOR (02/11/2026) ───────
+  //
+  // 🔴 POR QUÉ. La norma de la casa es no escribirle a nadie fuera de 8:00-20:00
+  //    hora de Venezuela, y la cumplían SEIS funciones emisoras, cada una por su
+  //    cuenta (`auditar-combustible`, `choferes-dia`, `cumpleanos`,
+  //    `enviar-personal`, `km-sin-viaje`, `viajes-semanal`). Este worker —por el
+  //    que pasan TODOS los mensajes— no la miraba. Resultado medido el 02/11:
+  //      · 28/10 23:52 → un `soporte-programado` a Alejandra (que vive acá)
+  //      · 28/10 22:00 → un `cierre-checklist` a un chofer
+//    Y eso es exactamente lo que Virginia reportó el 21/10: «los recordatorios
+  //    están llegando muy tarde». El emisor que nace sin la regla la rompe.
+  //    ⇒ La regla va en el único lugar por el que pasa todo.
+  //    [[norma-arreglar-el-mecanismo-no-el-caso]]
+  //
+  // ⛔ Y SE FILTRA EN LA CONSULTA, NO EN EL BUCLE. Si se saltaran las filas
+  //    adentro del `for`, una noche con 25 mensajes retenidos llenaría la tanda
+  //    (`limit(25)`) y las ALARMAS a Máximo se quedarían sin turno justo cuando
+  //    más importan. De noche se piden SOLO las que sí pueden salir.
+  //
+  // ⚠️ LO RETENIDO NO SE DESCARTA: queda `pendiente`, sin tocarle `intentos` ni
+  //    `tomado_at`, y sale en la primera corrida después de las 8:00.
+  //
+  // 🔴 Y ACÁ HABÍA UN AGUJERO, cazado el 02/11 ANTES de desplegar esto. Este
+  //    comentario decía que las dos reglas «componían bien: lo encolado a las
+  //    20:30 sale a las 8:00 con 11,5 h». Es verdad para las 20:30 y FALSO para
+  //    las 20:01, que llega con 12 h 04 y el caducador —que barre ANTES— lo tira
+  //    sin haberle dado un minuto de horario. Y la ventana se mueve desde el
+  //    teléfono: puesta en 8-18, muere TODO lo encolado de tarde. Un caso bien
+  //    pensado no es la regla. ⇒ El corte ahora se mide en HORAS ENTREGABLES:
+  //    ver `corteDeCaducidad` en `ventana-hora.ts` y el paso 0.
+  //
+  // ⛔ A MÁXIMO SE LE ESCRIBE A CUALQUIER HORA, y es deliberado: las alarmas de
+  //    la casa (una base caída, el respaldo que no corrió, el GPS atrasado) son
+  //    de madrugada o no sirven. Y si la clave de configuración no está, la
+  //    lista cae a sus dos números conocidos en vez de "no restringir nada":
+  //    así, falte lo que falte, las alarmas salen y un tercero no recibe un
+  //    mensaje a medianoche.
+
   // 2) mensajes pendientes (tanda)
-  const { data: pend } = await sb.from('cola_mensajes').select('*').eq('estado', 'pendiente').lt('intentos', 4).order('id').limit(25);
+  let consulta = sb.from('cola_mensajes').select('*').eq('estado', 'pendiente').lt('intentos', 4).order('id').limit(25);
+  // ⛔ DE NOCHE NO SE RETIENE: SE PROGRAMA. La primera version de hoy filtraba
+  //    la consulta y dejaba las filas en `pendiente` hasta las 8:00. Funciona,
+  //    pero la casa ya sabe que es la peor opcion: Geppetto lo resolvio el 28/08
+  //    con `deliverAt` de Wassenger y su comentario lo dice con numero --
+  //    «retener es crear un monton que despues hay que barrer a mano: ya paso en
+  //    agosto con 102 mensajes». Programado, el mensaje sale SOLO a las 8:00, la
+  //    fila se cierra ahora, y no hay pila nocturna que pueda caducar, trabarse
+  //    ni llenar la tanda de 25. [[norma-arreglar-el-mecanismo-no-el-caso]]
+  //    ⇒ La tanda se pide COMPLETA incluso de noche; quien espera lo decide
+  //    `aQueHoraSale` abajo, fila por fila.
+  if (!enHorario) {
+    console.log(`fuera de horario (${hVE}h VE, ventana ${VENTANA.desde}-${VENTANA.hasta}): a los terceros se les PROGRAMA para las ${VENTANA.desde}:00; salen ya los avisos de la casa y lo urgente (${URGENTES.join(', ') || 'nada'})`);
+  }
+  const { data: pend } = await consulta;
   if (!pend || !pend.length) return json({ ok: true, sent: 0, caducados: caducados?.length || 0 });
 
-  let sent = 0, fail = 0, bloq = 0, trabado = 0;
+  let sent = 0, fail = 0, bloq = 0, trabado = 0, programados = 0;
   const bloqDetalle: Array<{ id: any; tipo: any; marca: string }> = [];
   // `trabado` = filas que NO SE PUDIERON NI COMPROBAR (el control de destino fallo). No son
   // bloqueos -siguen 'pendiente' y se reintentan- pero avisan igual: ver el bloque de errPerm.
@@ -286,8 +376,23 @@ Deno.serve(async (req) => {
         continue;
       }
 
+      // ⛔ A QUE HORA SALE ESTA FILA. `null` = ya. Un instante = se le pide a
+      //    Wassenger que lo entregue entonces (`deliverAt`), y la fila se cierra
+      //    igual en esta vuelta.
+      //    Salen YA, aunque sea medianoche: los avisos de la casa (una base
+      //    caida, el respaldo que no corrio) y lo URGENTE -- un `tipo='acceso'`
+      //    programado deja a una persona sin poder entrar hasta la manana.
+      //    ⚠️ La lista de urgentes NO es la de Geppetto: aca `alerta` son los 734
+      //    avisos de aceite, y copiarla dejaba la ventana hueca.
+      const aQueHoraSale = (enHorario || sinLimite.includes(phone) || esUrgente(m.tipo, URGENTES))
+        ? null : proximaApertura(ahoraVE, VENTANA).toISOString();
+
       const body: any = { phone, message: conEtiqueta(m.mensaje) };
       if (cfg.device) body.device = cfg.device;
+      // ✅ Comprobado contra la API el 02/11: con `deliverAt` devuelve 201 y
+      //    `status: queued`, y trae el `wid` igual que un envio normal -- asi que
+      //    el control de destino de mas abajo sigue valiendo tal cual.
+      if (aQueHoraSale) body.deliverAt = aQueHoraSale;
       // ⛔ EL ADJUNTO VA POR ID, NO POR BYTES (28/10/2026). Wassenger no recibe el archivo en
       //    este POST: quien encola ya lo subió a /v1/files y acá solo se lo nombra. Si la fila
       //    trae `media_file`, el `message` deja de ser el mensaje y pasa a ser el PIE del
@@ -379,7 +484,16 @@ Deno.serve(async (req) => {
         // mensaje que se reintento y llego queda "enviado" pero mostrando un error viejo, y quien
         // lo mire va a creer que no salio (paso el 2026-07-20 con un 502: llego en el reintento
         // pero el registro parecia fallido).
-        const marca = { estado: 'enviado', enviado_at: new Date().toISOString(), error: null };
+        // ⚠️ `programado_para` SE ESCRIBE O LA FILA MIENTE. Sin esa columna la fila
+        //    dice «enviado 22:03» y la persona lo recibe a las 8:00: cualquiera
+        //    que mida «a que hora le escribimos» lee la hora del DESPACHO y no la
+        //    de la entrega. Es el error que me hizo medir mal a Geppetto hoy
+        //    mismo («92 mensajes a las 7h» eran despachos, no entregas).
+        //    Se pone en null cuando sale ya, para que un reintento que esta vez
+        //    salio en horario no quede marcado como programado.
+        const marca = { estado: 'enviado', enviado_at: new Date().toISOString(), error: null,
+                        programado_para: aQueHoraSale };
+        if (aQueHoraSale) programados++;
 
         // ⛔ EL MENSAJE YA SALIO: marcarlo NO puede fallar por la columna nueva.
         //    Si PostgREST todavia tiene el esquema viejo en cache, el update con
@@ -389,7 +503,19 @@ Deno.serve(async (req) => {
         const up = await sb.from('cola_mensajes').update({ ...marca, proveedor_id: idProv }).eq('id', m.id);
         if (up.error) {
           console.log('proveedor_id no se pudo guardar (' + up.error.message + '); se marca igual');
-          await sb.from('cola_mensajes').update(marca).eq('id', m.id);
+          const up2 = await sb.from('cola_mensajes').update(marca).eq('id', m.id);
+          // ⛔ Y UN ULTIMO ESCALON CON LO MINIMO. Este respaldo existe para
+          //    DEGRADAR cuando falta una columna, y al meterle `programado_para`
+          //    dejo de degradar: en una base sin esa columna fallarian los DOS
+          //    updates, la fila quedaria `pendiente` con el mensaje YA ENTREGADO,
+          //    y la vuelta siguiente lo manda de nuevo. Marcar la fila es mas
+          //    importante que guardarle el detalle. (La columna esta puesta en
+          //    las 6 bases el 02/11; esto es para la septima.)
+          if (up2.error) {
+            console.log('tampoco con el detalle (' + up2.error.message + '); se marca lo minimo');
+            await sb.from('cola_mensajes')
+              .update({ estado: 'enviado', enviado_at: marca.enviado_at, error: null }).eq('id', m.id);
+          }
         }
         sent++;
       } else {
@@ -477,7 +603,7 @@ Deno.serve(async (req) => {
   }
 
   // `bloqueados` va en la respuesta a propósito: es el respaldo por si la alarma falla.
-  return json({ ok: true, sent, fail, bloqueados: bloq, alarma, caducados: caducados?.length || 0 });
+  return json({ ok: true, sent, fail, bloqueados: bloq, programados, alarma, caducados: caducados?.length || 0 });
 });
 
 // Venezuela: 04141234567 / 0414-1234567 → +584141234567
