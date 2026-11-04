@@ -279,9 +279,31 @@ async function armarPdf(r: any, ciclo: any, empresa: string, membrete: any): Pro
   const alc: any[] = r.entro.alcaldia || [];
   if (alc.length) {
     for (const c of alc) {
+      // ⛔ UN DEPÓSITO QUE TRAE LA FIEL DE VARIAS FACTURAS NO ES «UNA FACTURA SIN NÚMERO».
+      //    04/11/2026, Máximo: «dices que entró de la alcaldía factura sin número… tú sabes que
+      //    eso no es factura, eso es devolución de fiel cumplimiento de varias facturas, debería
+      //    decir eso si tú ya sabes qué es». Lo sabía: `cobros_factura` tenía las siete filas
+      //    desde esa misma mañana. El dato estaba cargado y el informe no lo miraba.
+      //    [[norma-estar-cargado-no-es-saberlo]]
+      const d = c.detalle;
+      if (d && Number(d.n) > 0) {
+        // ⛔ CORTO A PROPOSITO. La etiqueta se trunca cerca de los 70 caracteres y la primera
+        //    version perdia justo el dato que importa -- hasta que factura llega el pago.
+        const qué = d.pata === "fiel" ? "fiel cumplimiento 10%" : String(d.pata ?? "?");
+        const cuáles = Number(d.n) === 1
+          ? `factura ${d.desde}`
+          : `${d.n} facturas ${d.desde}-${d.hasta}`;
+        fila(`Alcaldía - ${qué} de ${cuáles}, ${ddmm(c.fecha)}`,
+             `${bs(c.bs)}   ${usd(c.usd)}`);
+        continue;
+      }
       const pata = c.pata === "fiel" ? "fiel cumplimiento 10%" : c.pata === "neto" ? "neto" : String(c.pata);
-      fila(`Alcaldía - factura ${c.factura} (${pata}), ${diaDe(c.fecha)} ${ddmm(c.fecha)}`,
-           `${bs(c.bs)}   ${usd(c.usd)}`);
+      const quéFactura = c.factura && c.factura !== "(sin número)"
+        ? `factura ${c.factura} (${pata})`
+        : "cobro que todavía no sabemos a qué factura corresponde";
+      fila(`Alcaldía - ${quéFactura}, ${diaDe(c.fecha)} ${ddmm(c.fecha)}`,
+           `${bs(c.bs)}   ${usd(c.usd)}`,
+           (c.factura && c.factura !== "(sin número)") ? {} : { color: ROJO });
     }
   } else {
     fila("La Alcaldía no pagó en este período", "—", { color: ROJO });
@@ -320,7 +342,10 @@ async function armarPdf(r: any, ciclo: any, empresa: string, membrete: any): Pro
   }
   if (!cam.length && !(r.salio_no_gasto.divisas_sin_destino || []).length) fila("Nada en este período", "—");
   fila("TOTAL QUE SALIÓ SIN SER GASTO", usd(r.salio_no_gasto.total_usd), { bold: true, size: 10.5 });
-  nota("Quiero que quede claro que esto no nos empobrece: son los mismos dólares, solo que en otro lado. "
+  // ⛔ 04/11/2026: esta nota salia SIEMPRE, incluso con el bloque en «Nada en este período».
+  //    Les llego a los socios una explicacion entera sobre «ese abono» a los camiones cuando no
+  //    hubo ningun abono. Una nota que explica algo que no paso hace dudar de todo lo demas.
+  if (cam.length) nota("Quiero que quede claro que esto no nos empobrece: son los mismos dólares, solo que en otro lado. "
      + "Con ese abono bajamos nuestra deuda de los camiones, que es patrimonio nuestro; de la cuota, "
      + "gasto es nada más la parte de intereses. Si lo sumáramos junto con la nómina y el gasoil, "
      + "nuestra utilidad se vería más baja de lo que realmente es.");
@@ -389,7 +414,7 @@ async function armarPdf(r: any, ciclo: any, empresa: string, membrete: any): Pro
   if (atrasadas.length || Number(sc.n) > 0 || Number(av.movimientos_sin_tasa) > 0) {
     titulo("Lo que quiero que miren");
     if (atrasadas.length) {
-      fila(`Fiel cumplimiento 10% que la Alcaldía todavía no devolvió (${atrasadas.length} facturas)`,
+      fila(`Fiel cumplimiento 10% que la Alcaldía todavía no devolvió (${atrasadas.length} ${atrasadas.length === 1 ? "factura" : "facturas"})`,
            bs(av.fiel_atrasada_bs), { bold: true, color: ROJO });
       for (const f of atrasadas) {
         fila(`factura ${f.factura}, cobrada el ${ddmm(f.desde)} - ${f.dias} días`,
