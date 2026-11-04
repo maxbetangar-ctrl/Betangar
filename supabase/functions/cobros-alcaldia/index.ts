@@ -192,7 +192,7 @@ Deno.serve(async (req) => {
     // cuenta no respalda puede ser un cobro real que entró por fuera del BNC (para eso nació la
     // tabla) o puede ser un error de este módulo — y no hay forma de distinguirlos desde acá.
     // Borrar plata cobrada por si acaso es peor que reportarla. Se avisa y decide una persona.
-    const huerfanas = cfActual.filter((c: any) =>
+    let huerfanas = cfActual.filter((c: any) =>
       !sellados.some((s: any) => String(s.factura) === String(c.fact) && s.pata === c.pata));
 
     const patas: Pata[] = [];
@@ -218,6 +218,21 @@ Deno.serve(async (req) => {
       `bnc_movimientos?tipo=eq.credito&categoria=eq.cobro_alcaldia&fecha=gte.${desde}` +
       `&select=id,fecha,monto,referencia,concepto_banco,descripcion,factura,pata&order=fecha.asc`,
     );
+    // ⛔ UN DEPOSITO PUEDE CUBRIR VARIAS FACTURAS, Y ENTONCES NO HAY UN MOVIMIENTO POR CADA UNA.
+    //    04/11/2026: la Alcaldia pago junta la fiel de las facturas 000646 a la 000652 en un solo
+    //    deposito (Bs 14.555.054,23). Al registrar las siete filas en `cobros_factura`, este
+    //    supervisor busco un movimiento sellado por cada una, no lo encontro, y mando SIETE avisos
+    //    de «un cobro registrado que el banco no respalda» — a Maximo y a Francisco. Eran falsos:
+    //    el banco SI lo respalda, con una sola fila.
+    //
+    //    Por eso una fila deja de ser huerfana tambien si su REFERENCIA es la de un credito real de
+    //    la Alcaldia. La referencia es la misma en el movimiento y en las siete filas, y no depende
+    //    de que alguien haya sellado factura+pata. [[norma-arreglar-el-mecanismo-no-el-caso]]
+    const refsDelBanco = new Set(
+      crudos.map((m: any) => soloDig(String(m.referencia || ""))).filter((x: string) => x.length > 0),
+    );
+    huerfanas = huerfanas.filter((c: any) => !refsDelBanco.has(soloDig(String(c.referencia || ""))));
+
     const movs: Mov[] = crudos.map((m: any) => ({
       id: String(m.id),
       fecha: String(m.fecha || "").slice(0, 10),
