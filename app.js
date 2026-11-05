@@ -29141,20 +29141,15 @@ function clVerificarKmChofer(cam){
       }
     }
   }catch(e){}
-  // También verificar en Supabase
-  if(DB_READY&&supabase){
-    var hoy=fechaVE();
-    supabase.from('km_data').select('km_entrada_ayer').eq('cam',cam).single().then(function(res){
-      if(res.data&&res.data.km_entrada_ayer){
-        var inp=document.getElementById('cl-km-entrada');
-        if(inp&&!inp.value){
-          inp.value=res.data.km_entrada_ayer;
-          inp.style.borderColor='#3b8fd4';
-          clCalcKmDiff();
-        }
-      }
-    });
-  }
+  // ⛔ ACÁ SE RELLENABA EL KM DE LLEGADA CON `km_data.km_entrada_ayer`, que es el km con el
+  //    que la unidad ENTRÓ AYER — el mismo número con el que hoy SALIÓ. O sea que el campo
+  //    de llegada mostraba la salida de hoy disfrazada de llegada, con el borde azul de
+  //    «precargado» para que pareciera un dato bueno. Si alguien guardaba, ese número
+  //    reemplazaba el kilometraje real de la llegada y el recorrido del día quedaba en cero.
+  //    Quitado el 05/11/2026 con el reporte de Alejandra. La única precarga legítima del km
+  //    de llegada es la de arriba: la que mandó EL CHOFER, que está guardada con la fecha de
+  //    HOY en la llave. Un dato de ayer no es un dato de hoy.
+  //    [[norma-respaldo-que-inventa-un-dato]] · [[norma-falta-de-dato-no-es-un-dato]]
 }
 
 function clKmEntradaChange(){
@@ -29678,7 +29673,33 @@ function clModoNoche(datosManana){
     var cont = document.getElementById('cl-km-salida');
     if(cont) cont.closest('.card').parentNode.insertBefore(banner, cont.closest('.card'));
   }
-  banner.innerHTML = '🌙 <b>Modo Llegada</b> — El checklist de esta mañana ya está registrado.<br>Solo completa los datos de llegada.';
+  // ⛔ 05/11/2026 — ESTA PANTALLA MENTÍA DOS VECES. Lo reportó Alejandra el 04/11:
+  //    «el kilometraje de llegada no es el correcto y la leyenda indica que no se ha
+  //     realizado el cierre del checklist de llegada cuando sí se realizó».
+  //    1) EL CARTEL decía SIEMPRE «Solo completa los datos de llegada», también cuando la
+  //       llegada ya estaba cerrada. Un cartel que no mira el dato no informa: afirma.
+  //    2) LOS CAMPOS DE LLEGADA quedaban VACÍOS aunque la fila los tuviera —acá solo se
+  //       precargaba la SALIDA— y 500 ms después `clVerificarKmChofer` los rellenaba con
+  //       `km_data.km_entrada_ayer`, que es el km de AYER. Lo que se veía como «kilometraje
+  //       de llegada» era el de la jornada anterior, y al guardar PISABA el km real de hoy.
+  //    Un campo vacío y un campo con el dato de ayer se leen los dos como «falta cargarlo».
+  //    [[norma-una-asercion-mal-escrita-acusa-al-producto]] · [[norma-falta-de-dato-no-es-un-dato]]
+  var _llegadaCerrada = !!(datosManana.km_entrada || datosManana.hora_entrada);
+  banner.innerHTML = _llegadaCerrada
+    ? '✅ <b>Jornada cerrada</b> — Salida y llegada ya están registradas.<br>Abajo están los datos guardados: cambie solo lo que haya que corregir.'
+    : '🌙 <b>Modo Llegada</b> — El checklist de esta mañana ya está registrado.<br>Solo completa los datos de llegada.';
+
+  // Lo que YA está guardado se muestra. Antes esto no se hacía y por eso el campo quedaba
+  // libre para que lo pisara el km de ayer.
+  var kmEnt = document.getElementById('cl-km-entrada');
+  if(kmEnt && datosManana.km_entrada) kmEnt.value = datosManana.km_entrada;
+  var horaEnt = document.getElementById('cl-hora-entrada');
+  if(horaEnt && datosManana.hora_entrada) horaEnt.value = datosManana.hora_entrada;
+  if(datosManana.comb_entrada){ CL_COMB.entrada = datosManana.comb_entrada; }
+  // ⚠️ Los totales NO se calculan acá: el km de SALIDA se escribe más abajo en esta misma
+  //    función, así que calcular ahora daría el recorrido contra una salida vacía. Lo agarró
+  //    la prueba en navegador: decía «21.541 km recorridos» en vez de 133.
+  //    [[norma-probar-el-camino-no-la-pieza]]
 
   // Ocultar secciones de mañana
   var seccionesOcultar = ['cl-sec-luces','cl-sec-externa','cl-sec-interna','cl-sec-tapas',
@@ -29699,6 +29720,10 @@ function clModoNoche(datosManana){
   // Mostrar datos de mañana como referencia
   var comb = document.getElementById('cl-comb-salida-btns');
   if(comb) comb.closest('.card') && (comb.closest('div').style.opacity = '.5');
+
+  // Recién ahora, con la salida YA escrita, los totales dan el número real.
+  try{ clCalcKmDiff(); }catch(e){}
+  try{ clCalcCombDiff(); }catch(e){}
 }
 
 function verFlotaMec(){sp('mecanico');}
