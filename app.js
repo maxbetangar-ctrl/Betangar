@@ -30866,13 +30866,22 @@ function genRelacionCamiones(){
 
       // ── El cierre: base, IVA y total, uno debajo del otro ─────────────────
       + '<table style="width:100%;border-collapse:collapse;font-size:11.5px;margin-top:0">'
-      +   '<tr style="border-bottom:1px solid #e5e7eb"><td style="padding:6px 12px;color:#374151">Monto base (sin IVA)</td>'
-      +     '<td style="padding:6px 12px;text-align:right;font-family:monospace;font-weight:700;width:160px">$'+n2(tot.m)+'</td></tr>'
-      +   '<tr style="border-bottom:1px solid #e5e7eb"><td style="padding:6px 12px;color:#374151">IVA 16%</td>'
-      +     '<td style="padding:6px 12px;text-align:right;font-family:monospace;font-weight:700">$'+n2(iva)+'</td></tr>'
+      // ⛔ ENCABEZA LA BASE; EL IVA VA COMO NOTA. Máximo, 04/11/2026.
+      //    Este documento lo usa la oficina de operaciones del IMAU para VERIFICAR VIAJES, y
+      //    encabezaba con «TOTAL A PAGAR (base + IVA)»: se leía como una factura y chocaba con
+      //    el resumen, que muestra la base. El mismo día Máximo preguntó por qué uno decía
+      //    50.411,60 y el otro 58.477,46 — eran las dos cifras correctas de dos cosas
+      //    distintas, puestas de modo que parecieran la misma.
+      //    La factura es otro documento; acá manda lo ejecutado.
+      //    [[norma-numero-que-el-dueno-no-puede-explicar]]
       +   '<tr style="background:#f0fdf4;-webkit-print-color-adjust:exact;print-color-adjust:exact">'
-      +     '<td style="padding:9px 12px;font-weight:900;color:#15803d">TOTAL A PAGAR (base + IVA)</td>'
-      +     '<td style="padding:9px 12px;text-align:right;font-family:monospace;font-weight:900;font-size:14px;color:#15803d">$'+n2(tot.m+iva)+'</td></tr>'
+      +     '<td style="padding:9px 12px;font-weight:900;color:#15803d">MONTO DEL SERVICIO EJECUTADO</td>'
+      +     '<td style="padding:9px 12px;text-align:right;font-family:monospace;font-weight:900;font-size:14px;color:#15803d;width:160px">$'+n2(tot.m)+'</td></tr>'
+      +   '<tr><td colspan="2" style="padding:7px 12px;color:#6b7280;font-size:10px;line-height:1.5">'
+      +     'A efectos de la factura, sobre este monto corresponde un IVA del 16% de <b>$'+n2(iva)+'</b>, '
+      +     'que lleva el total facturado a <b>$'+n2(tot.m+iva)+'</b>. El monto de arriba es el del '
+      +     'servicio ejecutado en el período y es el que coincide con el resumen de cobranza.'
+      +   '</td></tr>'
       + '</table>'
 
       // ⛔ EL PIE TAMBIEN SE LEE. Medido con WCAG: en gris #9ca3af a 8,5px daba 2,31 de
