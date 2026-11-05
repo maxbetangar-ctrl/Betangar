@@ -3261,10 +3261,15 @@ function cargarChecklistSupabase(){
       // ⛔ «VINO DE 0 KM» Y «NO SÉ DE CUÁNTO VINO» NO SON LO MISMO, y estaban mezclados
       //    en el mismo cero. Si no volvió la respuesta, los cuatro candados de abajo se
       //    apagaban solos —están escritos `CL_KM_PREV>0 && …`— y nadie se enteraba.
-      if(rk && !rk.error){
-        CL_KM_PREV_OK = true;
-        if(rk.data && rk.data[0] && rk.data[0].km) CL_KM_PREV = parseInt(rk.data[0].km)||0;
-      }
+      // ⛔ Y «NO VOLVIÓ NINGUNA FILA» TAMPOCO ES SABERLO. Acá decía `if(rk && !rk.error)`:
+      //    con la RPC contestando CERO FILAS —unidad sin historial, `chofer_puede_ver` en
+      //    falso— se ponía `CL_KM_PREV_OK = true` con `CL_KM_PREV` en 0, y los cuatro
+      //    candados de abajo, que están escritos `CL_KM_PREV>0 && …`, se apagaban igual.
+      //    Es la MISMA confusión que el comentario de arriba dice haber arreglado, repetida
+      //    una línea más abajo. Sólo es «sé de cuánto venía» si volvió un km mayor que cero.
+      //    [[norma-control-positivo-antes-de-creerle-al-vacio]]
+      var _kmRef = (rk && !rk.error && rk.data && rk.data[0]) ? (parseInt(rk.data[0].km)||0) : 0;
+      if(_kmRef > 0){ CL_KM_PREV = _kmRef; CL_KM_PREV_OK = true; }
     });
   }catch(e){}
   supabase.rpc('chofer_checklist_dia', {p_cam: cam, p_fecha: hoy, p_turno: CL_TURNO})
@@ -3710,7 +3715,29 @@ function _kmInput(inp, hintId){
   inp.value=_milesNum(inp.value);
   var h=hintId&&document.getElementById(hintId); if(h)h.textContent='';
 }
-function _kmVal(id){ var el=document.getElementById(id); if(!el)return 0; var n=parseInt(String(el.value||'').replace(/\D/g,''),10); return isFinite(n)?n:0; }
+// ⛔ UNA COMA DECIMAL NO ES UN DÍGITO MÁS: MULTIPLICA EL ODÓMETRO POR DIEZ.
+//    Esto hacía `replace(/\D/g,'')`, o sea borraba los puntos Y LAS COMAS. Si el tablero
+//    marca décimas y el chofer copia lo que ve —98.334,6— quedaba literalmente 983346.
+//    Es la explicación que mejor calza con los dos números de la FC04 del 17 y 18/09/2026
+//    (983346 y 984046: los dos terminan en 6, los dos son un odómetro plausible seguido de
+//    una décima). Confirmado o no el caso, concatenar un decimal NUNCA es lo correcto.
+// ⚠️ Y el punto sigue siendo separador de MILES, que es como se escribe acá: «98.354» son
+//    98.354 km, no 98 con 354 milésimas. Por eso la coma decide y el punto se descarta.
+function _kmVal(id){
+  var el=document.getElementById(id); if(!el)return 0;
+  var s=String(el.value||'').trim();
+  // Con coma: lo de la izquierda es el entero (sin puntos de miles) y lo de la derecha, la
+  // décima. Se redondea, porque el odómetro que se guarda es un entero.
+  var i=s.lastIndexOf(',');
+  if(i>=0){
+    var ent=parseInt(s.slice(0,i).replace(/\D/g,''),10);
+    var dec=parseFloat('0.'+(s.slice(i+1).replace(/\D/g,'')||'0'));
+    if(!isFinite(ent))return 0;
+    return Math.round(ent + (isFinite(dec)?dec:0));
+  }
+  var n=parseInt(s.replace(/\D/g,''),10);
+  return isFinite(n)?n:0;
+}
 function _fmtKm(inp, hintId){ return _kmInput(inp, hintId); }   // nombre viejo, por si algo más lo llama
 
 // ── GUARDAR CHECKLIST ──
@@ -4056,10 +4083,9 @@ async function _guardarChecklist(){
     if(!CL_KM_PREV_OK && typeof supabase!=='undefined' && supabase){
       try{
         var _rk2 = await supabase.from('km_data').select('km').eq('cam', cam).limit(1);
-        if(_rk2 && !_rk2.error){
-          CL_KM_PREV_OK = true;
-          if(_rk2.data && _rk2.data[0] && _rk2.data[0].km) CL_KM_PREV = parseInt(_rk2.data[0].km)||0;
-        }
+        // Mismo criterio que arriba: cero filas NO es una referencia.
+        var _kmRef2 = (_rk2 && !_rk2.error && _rk2.data && _rk2.data[0]) ? (parseInt(_rk2.data[0].km)||0) : 0;
+        if(_kmRef2 > 0){ CL_KM_PREV = _kmRef2; CL_KM_PREV_OK = true; }
       }catch(e){}
     }
     var _capDuro = (CL_KM_PREV>0) ? (CL_KM_PREV + 100000) : 1000000;
@@ -4069,6 +4095,28 @@ async function _guardarChecklist(){
       var _fh=document.getElementById(CL_MODO==='salida'?'cl-km-salida':'cl-km-llegada');
       if(_fh){ try{ _fh.focus(); _fh.select(); _fh.scrollIntoView({block:'center'}); }catch(e){} }
       return;
+    }
+    // ⛔ SIN REFERENCIA NO SE APRUEBA EN SILENCIO. Carlos Serrano, FC04, 17 y 18/09/2026:
+    //    entraron 983.346 y 984.046 km sin UNA sola advertencia, y el día 18 quedó sin
+    //    cerrar porque después ningún 98.523 podía ser mayor que ese número imposible.
+    //    El motivo: sin `CL_KM_PREV` el tope cae a 1.000.000 y cualquier cosa debajo pasa.
+    //    Un tope de un millón en una flota cuyo odómetro más alto no llega a 110.000 no es
+    //    un candado: es una puerta abierta con cartel de candado.
+    // ⚠️ No se RECHAZA, porque una unidad nueva de verdad no tiene historial y hay que
+    //    poder cargarla. Se PREGUNTA, diciendo que no se pudo verificar — que es la
+    //    diferencia entre «está bien» y «no sé». [[norma-falta-de-dato-no-es-un-dato]]
+    if(!(CL_KM_PREV>0) && _kmIng >= 1000){
+      if(!confirm('⚠️ No pude verificar este kilometraje.\n\n'+
+          'No tengo el kilometraje anterior de esta unidad, así que no puedo decirte si '+
+          _kmIng.toLocaleString('es-VE')+' km tiene sentido o si te sobran dígitos.\n\n'+
+          'Mirá el tablero otra vez y confirmá:\n\n'+
+          '• Aceptar → ese número es el que marca el tablero.\n'+
+          '• Cancelar → lo reviso.')){
+        if(btn){ btn.disabled=false; btn.textContent='Guardar'; }
+        var _fs=document.getElementById(CL_MODO==='salida'?'cl-km-salida':'cl-km-llegada');
+        if(_fs){ try{ _fs.focus(); _fs.select(); _fs.scrollIntoView({block:'center'}); }catch(e){} }
+        return;
+      }
     }
     var _susp='', _ref=0;
     if(CL_MODO==='salida'){

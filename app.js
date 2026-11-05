@@ -2820,7 +2820,14 @@ function _acAnomalias(todas,desde,hasta,ref){
       j.cam,j.fecha,x.corto,_quien(j.cam,j.fecha));
   });
 
-  AC_JORNADAS.forEach(function(j){
+  // El último odómetro conocido de cada unidad, para poder ver un salto imposible (R10b).
+  // ⛔ Las jornadas se recorren EN ORDEN DE FECHA: si no, «lo anterior» sería cualquier cosa
+  //    y la regla compararía contra el futuro. Se ordena una copia, no el arreglo de todos.
+  var _acPrevKm={}, _acPrevFecha={};
+  var _acOrden=AC_JORNADAS.slice().sort(function(a,b){
+    return (a.cam===b.cam) ? String(a.fecha).localeCompare(String(b.fecha)) : String(a.cam).localeCompare(String(b.cam));
+  });
+  _acOrden.forEach(function(j){
     // CONSUMO NEGATIVO: llegó con MÁS de lo que salió. Rodando eso no puede pasar: cargó en el día
     // y no quedó registrado. Va al montón de R13 en vez de salir como alerta suelta.
     if(j.conf==='completa'&&j.consumo!=null&&j.consumo<-2*(j.tol||0)){
@@ -2867,6 +2874,45 @@ function _acAnomalias(todas,desde,hasta,ref){
         'Revisá el odómetro y cómo se anotó el checklist.',
         j.cam,j.fecha,null,_quien(j.cam,j.fecha));
     }
+    // ⛔ R10b — EL SALTO HACIA ARRIBA, QUE NO MIRABA NADIE. R10 solo cazaba el odómetro que
+    //    RETROCEDE. Un número imposible hacia ARRIBA no disparaba ninguna regla: la FC04
+    //    entró el 17/09/2026 con 983.346 km viniendo de 98.154 —un salto de +885.192— y
+    //    estuvo QUINCE DÍAS en la base hasta que lo vio Operaciones a ojo. El candado del
+    //    teléfono también estaba apagado ese día, así que no quedó ninguna red.
+    //
+    // ⚠️ EL UMBRAL SALE DE LO MEDIDO, no de una corazonada. En 969 jornadas de esta flota el
+    //    promedio es 162 km/día y el máximo histórico 1.270. Se avisa recién pasados 5.000 km
+    //    POR DÍA transcurrido: casi cuatro veces el día más largo que existió, así que no
+    //    ensucia, y aun así el caso de la FC04 lo supera 177 veces.
+    //    Se escala por días porque entre dos jornadas puede haber fines de semana o taller.
+    // ⚠️ Y SE MIRAN LOS DOS LADOS. El primer intento solo comparaba la SALIDA contra la
+    //    jornada anterior, y con eso el caso real NO saltaba: la salida del 17/09 era
+    //    98.154 —correcta— y el número imposible estaba en la ENTRADA (983.346). O sea que
+    //    la regla nueva habría dejado pasar exactamente el caso que la motivó. Lo agarró el
+    //    control positivo de la prueba, no la lectura. [[norma-control-positivo-antes-de-creerle-al-vacio]]
+    if(j.kmS!=null && j.kmE!=null && j.kmE-j.kmS > 5000){
+      add('alta','R10b','Kilometraje imposible',
+        'La unidad '+U(j.cam)+' salió el '+formatFecha(j.fecha)+' con '+_acFmt(j.kmS)+' km y entró con '+_acFmt(j.kmE)+'. '+
+        'Son '+_acFmt(j.kmE-j.kmS)+' km en un solo día: eso no lo recorrió. Casi siempre sobran dígitos o se leyó mal el '+
+        'tablero — revisá ese checklist antes de que arrastre el consumo y el mantenimiento.',
+        j.cam,j.fecha,null,_quien(j.cam,j.fecha));
+    }
+    else if(j.kmS!=null && _acPrevKm[j.cam]!=null && j.kmS > _acPrevKm[j.cam]){
+      var _dias=Math.max(1, Math.round((new Date(j.fecha+'T00:00:00Z')-new Date(_acPrevFecha[j.cam]+'T00:00:00Z'))/86400000));
+      var _salto=j.kmS-_acPrevKm[j.cam];
+      if(_salto > 5000*_dias){
+        add('alta','R10b','Kilometraje imposible',
+          'La unidad '+U(j.cam)+' salió el '+formatFecha(j.fecha)+' con '+_acFmt(j.kmS)+' km, y la última vez que se la vio '+
+          (_dias===1?'(el día anterior)':('hace '+_dias+' días'))+' tenía '+_acFmt(_acPrevKm[j.cam])+'. '+
+          'Son '+_acFmt(_salto)+' km de diferencia: eso no lo recorrió. Casi siempre sobran dígitos o se leyó mal el tablero — '+
+          'revisá ese checklist antes de que arrastre el consumo y el mantenimiento.',
+          j.cam,j.fecha,null,_quien(j.cam,j.fecha));
+      }
+    }
+    // Se recuerda el último odómetro conocido de cada unidad para la comparación de arriba.
+    // Va DESPUÉS de la regla: la jornada se compara contra lo anterior, no contra sí misma.
+    if(j.kmE!=null && j.kmE>0){ _acPrevKm[j.cam]=j.kmE; _acPrevFecha[j.cam]=j.fecha; }
+    else if(j.kmS!=null && j.kmS>0 && (_acPrevKm[j.cam]==null || j.kmS>_acPrevKm[j.cam])){ _acPrevKm[j.cam]=j.kmS; _acPrevFecha[j.cam]=j.fecha; }
     // R12 — CHECKLIST SIN CERRAR: salió y el día ya pasó, pero nunca se anotó el km de entrada.
     // Sin ese número no se puede saber si la unidad estuvo parada, y R1 no puede opinar de nada.
     if(j.kmS!=null&&j.kmE==null&&j.fecha<_acHoy()){
