@@ -16461,7 +16461,9 @@ function surCorregir(id){
     '</div>'+
     '<div style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:8px;font-size:12px;margin-bottom:10px">'+
       'Lo que está cargado hoy: <b>'+_surFmtVE(lit,2)+' L</b>'+(cl?(' · $'+_surFmtVE(lit*cl,2)):'')+'</div>'+
-    '<div class="fg"><label>Litros REALES</label>'+
+    // Que la salida EXISTA no alcanza: hay que decir dónde está. Carlos intentó poner cero
+    // solo y el sistema se lo rechazó; si no se nombra acá, nadie vuelve a intentarlo.
+    '<div class="fg"><label>Litros REALES <span style="font-weight:400;color:var(--text3)">— poné <b>0</b> para ANULAR este registro</span></label>'+
       '<input class="fc" id="sur-cor-litros" inputmode="decimal" oninput="_surMilesInput(this)" placeholder="0" style="font-family:var(--m);font-size:18px">'+
       '<div id="sur-cor-hint" style="font-size:12px;color:var(--text3);margin-top:4px"></div></div>'+
     '<div class="fg"><label>¿Por qué se corrige? (queda registrado)</label>'+
@@ -16479,7 +16481,36 @@ async function surCorregirGuardar(){
   if(!s){ mostrarToast('No encontré esa surtida','error'); return; }
   var lit=_surLeerLitros();
   var motivo=(g('sur-cor-motivo')?g('sur-cor-motivo').value:'').trim();
-  if(!(lit>0)){ mostrarToast('Escribí los litros reales','error'); return; }
+  // ⛔ CERO LITROS ES ANULAR, Y HASTA HOY NO SE PODÍA. Carlos Serrano lo pidió el 03/10/2026 y
+  //    lo intentó solo: *«ya intenté colocarlo en cero, no me guarda, me pide colocar un
+  //    litraje»* y *«me permite editarlo pero solo modificar el litraje, no eliminarlo»*.
+  //    Tenía razón: esta misma validación se lo impedía. Un registro duplicado o cargado a la
+  //    unidad equivocada se quedaba vivo sumando litros y plata, y cada caso terminaba
+  //    arreglándose A MANO en la base — una de esas veces quedó a medias y dejó US$ 192 y
+  //    100 L vivos dentro del inventario. Un mes esperando por una validación.
+  //
+  // ⚠️ NO SE BORRA LA FILA, SE ANULA. La foto del surtidor es la prueba de que alguien cargó
+  //    algo, y el historial dice qué decía antes y por qué cambió. Borrar la fila se llevaría
+  //    las dos cosas y después nadie puede explicar el hueco.
+  //    Al quedar en 0 litros, el costo se recalcula a 0 solo (más abajo): deja de sumar
+  //    litros y deja de sumar plata, que es lo que se quería.
+  //    [[norma-un-dato-que-se-recoge-y-no-se-convierte-se-tira]]
+  // ⛔ «ESCRIBIÓ CERO» Y «NO ESCRIBIÓ NADA» NO SON LO MISMO, y `_surLeerLitros()` devuelve 0
+  //    para los dos. Sin esta distinción, dejar la casilla vacía abriría la pregunta de
+  //    anular — que es justo lo contrario de lo que esa persona quiso hacer.
+  //    [[norma-falta-de-dato-no-es-un-dato]]
+  var _crudo=String((g('sur-cor-litros')||{}).value||'').trim();
+  if(!_crudo){ mostrarToast('Escribí los litros reales','error'); return; }
+  var _esCero=/^0+([.,]0*)?$/.test(_crudo.replace(/\./g,'').replace(',','.')) ||
+              parseFloat(_crudo.replace(/\./g,'').replace(',','.'))===0;
+  if(_esCero){
+    if(!confirm('¿ANULAR esta surtida?\n\n'+
+      'Queda en CERO litros: deja de sumar litros y deja de sumar plata.\n\n'+
+      'NO se borra: la foto del surtidor y el número que tenía antes quedan guardados, y la '+
+      'lista la va a mostrar como ANULADA con el motivo que escribas.\n\n'+
+      'Se usa cuando el registro está duplicado o se cargó en la unidad equivocada.'))return;
+    if(!motivo){ mostrarToast('Para anular hace falta el motivo — sin eso no se guarda','error'); return; }
+  } else if(!(lit>0)){ mostrarToast('Escribí los litros reales','error'); return; }
   if(lit>2000){ mostrarToast('Litros inválidos: '+_surFmtVE(lit,2)+' L es demasiado. Revisá el tipeo.','error'); return; }
   if(!motivo){ mostrarToast('Escribí por qué se corrige — sin motivo no se guarda','error'); return; }
   var antes=parseFloat(s.litros)||0;
@@ -16488,14 +16519,21 @@ async function surCorregirGuardar(){
   var tasa=parseFloat(s.tasa_bcv)||0;
   // Si la surtida todavía no tiene costo por litro (estación pendiente de costear), NO se inventa:
   // se corrigen los litros y el costo lo pone administración cuando cierre el período.
-  var nuevoUsd=cl?Math.round(lit*cl*100)/100:(parseFloat(s.costo_usd)||0);
+  // ⛔ AL ANULAR, LA PLATA TAMBIÉN SE VA A CERO, Y NO SALE SOLO. Sin esta línea, una surtida
+  //    sin `costo_litro_usd` conservaba su `costo_usd` viejo: quedaba en 0 litros y seguía
+  //    sumando dólares. Eso es exactamente lo que pasó la vez que se arregló a mano y dejó
+  //    US$ 192 vivos dentro del inventario. Anular es anular las dos cosas.
+  var nuevoUsd=_esCero?0:(cl?Math.round(lit*cl*100)/100:(parseFloat(s.costo_usd)||0));
   var histo=(s.valor_anterior&&s.valor_anterior.historial)?s.valor_anterior.historial.slice():[];
   histo.push({litros:antes, costo_usd:parseFloat(s.costo_usd)||0, motivo:motivo,
               por:(SESION&&SESION.usuario)||'', fecha:new Date().toISOString()});
   var set={ litros:lit, costo_usd:nuevoUsd,
-            costo_bs: tasa?Math.round(nuevoUsd*tasa*100)/100:(s.costo_bs||null),
+            // Misma razón que arriba: en una anulación los bolívares van a 0.
+            costo_bs: _esCero?0:(tasa?Math.round(nuevoUsd*tasa*100)/100:(s.costo_bs||null)),
             corregido_por:(SESION&&SESION.usuario)||'', corregido_at:new Date().toISOString(),
             valor_anterior:{historial:histo} };
+  // ⚠️ Si esos litros iban para un generador, anulada la surtida tampoco se llevó nada.
+  if(_esCero && (parseFloat(s.litros_transporte)||0)>0) set.litros_transporte=0;
   var detalle=(s.cam||'')+' '+String(s.fecha||'').slice(0,10)+': '+_surFmtVE(antes,2)+' L → '+_surFmtVE(lit,2)+' L -- '+motivo;
   // Un rol que debe pedir autorización para editar (ej. el auditor) tampoco corrige solo:
   // pide el token y quien aprueba aplica el cambio con el mismo payload.
@@ -16531,9 +16569,23 @@ function renderSurtidasHoy(){
   var filas=arr.map(function(s){
     var l=parseFloat(s.litros)||0, cu=_surCostoUsd(s);
     // Una surtida corregida lo DICE: si no, el número cambia y nadie sabe que alguien lo tocó.
-    var corr=s.corregido_por?(' <span title="Corregido por '+_surEscC(s.corregido_por)+'" style="font-size:9px;color:var(--yellow)">✏️ corregida</span>'):'';
+    // ⛔ UNA ANULADA TIENE QUE DECIRLO FUERTE. Queda en 0 litros, así que en la lista se
+    //    vería como una fila cualquiera con un cero — indistinguible de un error de carga.
+    //    Se marca, se tacha, y se dice POR QUÉ se anuló y quién.
+    var _anulada = (s.corregido_por && l===0);
+    var _motivoAnul = '';
+    if(_anulada){
+      try{
+        var _h=(s.valor_anterior&&s.valor_anterior.historial)||[];
+        var _u=_h[_h.length-1]||{};
+        _motivoAnul=(_u.motivo||'')+(_u.litros?(' · tenía '+_surFmtVE(parseFloat(_u.litros)||0,2)+' L'):'');
+      }catch(e){}
+    }
+    var corr=s.corregido_por?(_anulada
+      ? (' <span title="'+_surEscC('Anulada por '+(s.corregido_por||'')+(_motivoAnul?(' — '+_motivoAnul):''))+'" style="font-size:9px;color:var(--red);font-weight:700">⛔ ANULADA</span>')
+      : (' <span title="Corregido por '+_surEscC(s.corregido_por)+'" style="font-size:9px;color:var(--yellow)">✏️ corregida</span>')):'';
     var btnCor=_surPuedeCorregir()?(' <a href="#" onclick="surCorregir(\''+_surEscC(s.id)+'\');return false" style="color:var(--yellow)" title="Corregir los litros">✏️</a>'):'';
-    return '<tr><td style="font-size:11px">'+(s.hora||'')+'</td><td style="font-weight:700;font-size:11px">'+(s.cam||'')+'</td><td style="font-size:11px">'+_surLbl(s.tanque)+'</td><td style="font-family:var(--m);text-align:right">'+l.toLocaleString('es-VE')+' L</td><td style="font-family:var(--m);text-align:right;color:var(--green)">$'+cu.toFixed(2)+'</td><td style="text-align:center">'+(s.foto_url?'<a href="#" onclick="_surVerFoto(\''+_mEsc(s.foto_url)+'\');return false" style="color:var(--teal)">📷</a>':'')+''+btnCor+'</td></tr>';
+    return '<tr'+(_anulada?' style="opacity:.55"':'')+'><td style="font-size:11px">'+(s.hora||'')+'</td><td style="font-weight:700;font-size:11px">'+(s.cam||'')+'</td><td style="font-size:11px">'+_surLbl(s.tanque)+'</td><td style="font-family:var(--m);text-align:right'+(_anulada?';text-decoration:line-through':'')+'">'+l.toLocaleString('es-VE')+' L'+corr+'</td><td style="font-family:var(--m);text-align:right;color:var(--green)">$'+cu.toFixed(2)+'</td><td style="text-align:center">'+(s.foto_url?'<a href="#" onclick="_surVerFoto(\''+_mEsc(s.foto_url)+'\');return false" style="color:var(--teal)">📷</a>':'')+''+btnCor+'</td></tr>';
   }).join('');
   cont.innerHTML='<div style="margin-bottom:8px">'+chips+'<span style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:3px 8px;font-size:11px">Total: <b style="color:var(--green)">$'+totUsd.toFixed(2)+'</b>'+(tasa?' ≈ Bs '+(totUsd*tasa).toLocaleString('es-VE',{maximumFractionDigits:0}):'')+'</span></div>'+
     '<div style="overflow-x:auto"><table style="width:100%"><thead><tr><th>Hora</th><th>Unidad</th><th>Tanque</th><th style="text-align:right">Litros</th><th style="text-align:right">Costo</th><th>Foto</th></tr></thead><tbody>'+filas+'</tbody></table></div>';
