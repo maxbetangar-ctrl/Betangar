@@ -23135,16 +23135,79 @@ function guardarGastoVar(){
   renderGastosVariables();
 }
 
+// ⛔ UN TOTAL SIN PERÍODO NO SE PUEDE COMPARAR CON NADA. Carlos Serrano, 05/11/2026:
+//    «el resumen variable me muestra un solo total de todo lo cargado sin importar la fecha.
+//     Es recomendable poder visualizarlo en un lapso de fecha determinado».
+//    Ni contra el mes anterior, ni contra un presupuesto, ni contra una factura.
+//    El filtro es UNO SOLO y lo usan la tabla, el resumen y el reporte impreso.
+//    [[norma-fuente-unica-datos]]
+function _gvFiltro(){
+  return { desde:(gv('gv-f-desde')||''), hasta:(gv('gv-f-hasta')||''), cat:(gv('gv-f-cat')||'') };
+}
+function _gvFiltrados(){
+  var f=_gvFiltro();
+  return (GASTOS_VARIABLES||[]).filter(function(x){
+    var d=String(x.fecha||'').slice(0,10);
+    if(f.desde && d<f.desde) return false;
+    if(f.hasta && d>f.hasta) return false;
+    if(f.cat && String(x.cat||'')!==f.cat) return false;
+    return true;
+  });
+}
+function _gvPeriodoTexto(){
+  var f=_gvFiltro(), p='';
+  if(f.desde&&f.hasta) p='del '+formatFecha(f.desde)+' al '+formatFecha(f.hasta);
+  else if(f.desde) p='desde el '+formatFecha(f.desde);
+  else if(f.hasta) p='hasta el '+formatFecha(f.hasta);
+  else p='de TODO lo cargado';
+  if(f.cat) p+=' · '+f.cat;
+  return p;
+}
+function gvFiltroMes(){
+  var h=fechaVE(), d=h.slice(0,8)+'01';
+  var e1=g('gv-f-desde'), e2=g('gv-f-hasta');
+  if(e1)e1.value=d; if(e2)e2.value=h;
+  renderGastosVariables();
+}
+function gvFiltroTodo(){
+  ['gv-f-desde','gv-f-hasta','gv-f-cat'].forEach(function(id){ var e=g(id); if(e)e.value=''; });
+  renderGastosVariables();
+}
+// El desplegable se llena de las categorías QUE DE VERDAD TIENEN GASTOS: así no depende de
+// ninguna otra pieza y no ofrece filtros que solo pueden dar una lista vacía.
+function _gvLlenarFiltroCat(){
+  var sel=g('gv-f-cat'); if(!sel) return;
+  var vistas={}, cats=[];
+  (GASTOS_VARIABLES||[]).forEach(function(x){
+    var c=String(x.cat||'').trim();
+    if(c && !vistas[c]){ vistas[c]=1; cats.push(c); }
+  });
+  cats.sort();
+  var antes=sel.value;
+  sel.innerHTML='<option value="">Todas</option>'+cats.map(function(c){ return '<option>'+_surEscC(c)+'</option>'; }).join('');
+  if(antes){ if(cats.indexOf(antes)<0) sel.innerHTML+='<option>'+_surEscC(antes)+'</option>'; sel.value=antes; }
+}
+
 function renderGastosVariables(){
-  var totalBs=GASTOS_VARIABLES.reduce(function(s,x){return s+x.bs;},0);
-  var totalUsd=GASTOS_VARIABLES.reduce(function(s,x){return s+(x.usd||0);},0);
+  _gvLlenarFiltroCat();
+  var _lista=_gvFiltrados();
+  var totalBs=_lista.reduce(function(s,x){return s+(x.bs||0);},0);
+  var totalUsd=_lista.reduce(function(s,x){return s+(x.usd||0);},0);
   var res=g('gv-resumen');
-  if(res)res.innerHTML='<div class="g2" style="gap:8px"><div class="card card-sm"><div class="stat-lbl">Total Bs</div><div style="font-family:var(--m);font-size:16px;color:var(--red)">Bs '+totalBs.toFixed(0)+'</div></div><div class="card card-sm"><div class="stat-lbl">Total USD equiv</div><div style="font-family:var(--m);font-size:16px;color:var(--yellow)">$'+totalUsd.toFixed(0)+'</div></div></div>';
+  // El número de arriba dice SIEMPRE de qué período habla: un total suelto no se puede seguir.
+  if(res)res.innerHTML='<div style="font-size:11px;color:var(--text3);margin-bottom:6px">'+
+      _lista.length+' gasto(s) '+_surEscC(_gvPeriodoTexto())+'</div>'+
+    '<div class="g2" style="gap:8px"><div class="card card-sm"><div class="stat-lbl">Total Bs</div><div style="font-family:var(--m);font-size:16px;color:var(--red)">Bs '+totalBs.toFixed(0)+'</div></div><div class="card card-sm"><div class="stat-lbl">Total USD equiv</div><div style="font-family:var(--m);font-size:16px;color:var(--yellow)">$'+totalUsd.toFixed(0)+'</div></div></div>';
   var tb=g('tb-gv');
   if(tb){
     tb.innerHTML='';
-    var arr=GASTOS_VARIABLES.slice().reverse();
-    if(!arr.length){ tb.innerHTML='<tr><td colspan="8" style="text-align:center;color:var(--text3);padding:20px">Sin gastos variables</td></tr>'; return; }
+    var arr=_lista.slice().reverse();
+    // ⛔ «NO HAY NINGUNO» Y «NO HAY NINGUNO EN ESTE FILTRO» NO SON LO MISMO. Si no se dice,
+    //    un filtro mal puesto se lee como que no se cargó nada y alguien vuelve a cargarlo.
+    if(!arr.length){ tb.innerHTML='<tr><td colspan="8" style="text-align:center;color:var(--text3);padding:20px">'+
+      ((GASTOS_VARIABLES||[]).length
+        ? 'Ningún gasto '+_surEscC(_gvPeriodoTexto())+'. Hay '+GASTOS_VARIABLES.length+' cargados en total — probá con «Todo».'
+        : 'Sin gastos variables')+'</td></tr>'; return; }
     // Se ANEXAN nodos DOM reales (no rows.join()→innerHTML): así el .onclick del botón X SOBREVIVE.
     // Antes se hacía tr.onclick=... y luego return tr.outerHTML → la serialización perdía el handler
     // y el botón quedaba inerte (no se podía borrar un gasto mal cargado). Pitfall onclick/outerHTML.
@@ -23162,6 +23225,58 @@ function renderGastosVariables(){
     });
   }
 }
+// ⛔ EL REPORTE SALE DE LO QUE SE ESTÁ VIENDO, no de una consulta aparte. Carlos, 05/11/2026:
+//    «no tiene la opción de, una vez seleccionados los parámetros requeridos, poder generar un
+//     Reporte para compartir o imprimir». Si el papel se armara por su cuenta, tarde o temprano
+//    diría otra cosa que la pantalla y nadie sabría cuál creer. [[norma-fuente-unica-datos]]
+function imprimirGastosVariables(){
+  var lista=_gvFiltrados();
+  if(!lista.length){ alert('No hay gastos en ese período.\n\nCambiá las fechas o la categoría y volvé a intentar.'); return; }
+  var f=_gvFiltro();
+  var ord=lista.slice().sort(function(a,b){ return String(a.fecha).localeCompare(String(b.fecha)); });
+  var totBs=0, totUsd=0, porCat={};
+  ord.forEach(function(x){
+    totBs+=(x.bs||0); totUsd+=(x.usd||0);
+    var c=x.cat||'(sin categoría)';
+    if(!porCat[c])porCat[c]={n:0,bs:0,usd:0};
+    porCat[c].n++; porCat[c].bs+=(x.bs||0); porCat[c].usd+=(x.usd||0);
+  });
+  var filas=ord.map(function(x,i){
+    return '<tr style="background:'+(i%2===0?'#fff':'#f5f9ff')+'">'+
+      '<td>'+formatFecha(x.fecha)+'</td>'+
+      '<td><b>'+_mEsc(x.cat||'')+'</b></td>'+
+      '<td style="font-size:10px">'+_mEsc(x.desc||'')+'</td>'+
+      '<td class="mono" style="text-align:right">Bs '+(x.bs||0).toLocaleString('es-VE',{maximumFractionDigits:0})+'</td>'+
+      '<td class="gv" style="text-align:right">$'+(x.usd||0).toLocaleString('es-VE',{minimumFractionDigits:2,maximumFractionDigits:2})+'</td>'+
+      '<td style="font-size:10px">'+_mEsc(x.ref||'—')+'</td>'+
+      '<td style="font-size:10px">'+_mEsc(x.fact||'—')+'</td></tr>';
+  }).join('');
+  // El desglose por categoría es lo que Carlos va a querer mirar primero: sin eso el reporte
+  // es la misma lista de la pantalla, en papel.
+  var cats=Object.keys(porCat).sort(function(a,b){ return porCat[b].bs-porCat[a].bs; }).map(function(c){
+    return '<tr><td><b>'+_mEsc(c)+'</b></td><td style="text-align:center">'+porCat[c].n+'</td>'+
+      '<td class="mono" style="text-align:right">Bs '+porCat[c].bs.toLocaleString('es-VE',{maximumFractionDigits:0})+'</td>'+
+      '<td class="gv" style="text-align:right">$'+porCat[c].usd.toLocaleString('es-VE',{minimumFractionDigits:2,maximumFractionDigits:2})+'</td>'+
+      '<td style="text-align:right;color:#6b7280">'+(totBs?Math.round(porCat[c].bs*100/totBs):0)+'%</td></tr>';
+  }).join('');
+  var stats=mkStat('Gastos',ord.length,_gvPeriodoTexto(),'azul')+
+    mkStat('Total Bs','Bs '+totBs.toLocaleString('es-VE',{maximumFractionDigits:0}),'','amari')+
+    mkStat('Total USD','$'+totUsd.toLocaleString('es-VE',{minimumFractionDigits:2,maximumFractionDigits:2}),'','verde')+
+    mkStat('Categorías',Object.keys(porCat).length,'','azul');
+  var body='<h3 style="margin:14px 0 6px">Por categoría</h3>'+
+    '<table><thead><tr><th>Categoría</th><th style="text-align:center">Gastos</th><th style="text-align:right">Bs</th><th style="text-align:right">USD</th><th style="text-align:right">% del total</th></tr></thead>'+
+    '<tbody>'+cats+'</tbody></table>'+
+    '<h3 style="margin:18px 0 6px">Detalle</h3>'+
+    '<table><thead><tr><th>Fecha</th><th>Categoría</th><th>Descripción</th><th style="text-align:right">Bs</th><th style="text-align:right">USD</th><th>Ref.</th><th>Factura</th></tr></thead>'+
+    '<tbody>'+filas+
+    '<tr class="tr-tot"><td colspan="3">TOTAL</td>'+
+      '<td style="text-align:right">Bs '+totBs.toLocaleString('es-VE',{maximumFractionDigits:0})+'</td>'+
+      '<td style="text-align:right">$'+totUsd.toLocaleString('es-VE',{minimumFractionDigits:2,maximumFractionDigits:2})+'</td>'+
+      '<td colspan="2"></td></tr></tbody></table>';
+  var sub='Gastos variables '+_gvPeriodoTexto();
+  abrirImpresionPremium('Reporte de Gastos Variables', sub, stats, body);
+}
+
 function calcularNomina(){
   // RETIRADO (unificación 2026-06-27): este cálculo rápido sumaba SOLO viajes×tarifa de chofer
   // — sin ayudantes, sin IMAU, sin recargo de domingo y SIN descontar préstamos/multas →
