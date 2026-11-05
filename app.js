@@ -28882,9 +28882,20 @@ function clMarcar(btn,campo,val){
 function clCargarExistente(cam){
   if(!DB_READY||!supabase)return;
   var hoy=fechaVE();
-  supabase.from('checklist').select('*').eq('fecha',hoy).eq('cam',cam).single().then(function(res){
-    if(!res.data)return;
-    var d=res.data;
+  // ⛔ `.single()` REVIENTA si vuelve más de una fila, y desde el 04/11/2026 una unidad puede
+  //    tener DOS checklists el mismo día (turno diurno y nocturno). Con `.single()` esta
+  //    pantalla habría empezado a fallar justo el día en que arranque la jornada nocturna
+  //    —y solo en las unidades que hicieran los dos turnos—, con un error de base que no le
+  //    dice nada a quien lo lee. Se piden los dos ORDENADOS y se toma el último cargado:
+  //    es el que la oficina está mirando cuando entra a corregir.
+  //    [[norma-correccion-heredada-toca-todas-las-tablas]]
+  supabase.from('checklist').select('*').eq('fecha',hoy).eq('cam',cam)
+    .order('turno',{ascending:true}).then(function(res){
+    if(!res.data||!res.data.length)return;
+    // Si hay dos, manda el NOCTURNO: es el último de la jornada y el que se está cerrando.
+    var d=res.data.length>1
+      ? (res.data.filter(function(x){return x.turno==='nocturno';})[0]||res.data[res.data.length-1])
+      : res.data[0];
     // Detectar modo: si ya tiene datos de mañana → modo noche
     if(d.hora_salida||d.km_salida){
       clModoNoche(d);
