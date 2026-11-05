@@ -21793,7 +21793,17 @@ async function guardarEmpleado(){
     //    del historial, y si la ficha tambien lo escribiera ganaria el ultimo en
     //    correr: un aumento cargado con fecha futura quedaria aplicado hoy.
     //    La ficha guarda la FORMA de pago; el MONTO entra por el historial.
-    forma_pago:emp.formaPago||''
+    forma_pago:emp.formaPago||'',
+    // ⛔ 05/11/2026 — EL MISMO DEFECTO, OTRA VEZ, Y EN EL MISMO UPSERT. El campo «Fecha de
+    //    Egreso» se agregó el 04/11, `emp.fegreso` se arma bien arriba, la pantalla decía
+    //    «guardado correctamente»… y la columna NO SE MANDABA. Nómina tiene un cartel que
+    //    pide cargar las 25 fechas de egreso que faltan: RRHH las habría cargado una por una
+    //    y se habrían perdido todas, con la app diciendo que sí. Un campo que se ve, se
+    //    llena y se confirma es indistinguible de uno que guarda.
+    //    Es la tercera vez que una columna nueva se olvida acá (fnac/fingreso, forma_pago,
+    //    y ahora ésta): al agregar un campo a la ficha hay que agregarlo TAMBIÉN al upsert.
+    //    [[norma-una-asercion-mal-escrita-acusa-al-producto]] · [[norma-dos-listas-a-mano-se-desincronizan]]
+    fegreso:emp.fegreso||null
   }],{onConflict:'id'});
   if(resEmp.error){
     console.error('Error guardando empleado:',resEmp.error);
