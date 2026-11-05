@@ -308,8 +308,29 @@ async function armarPdf(r: any, ciclo: any, empresa: string, membrete: any): Pro
   } else {
     fila("La Alcaldía no pagó en este período", "—", { color: ROJO });
   }
+  // ⛔ ACÁ NO VAN NOMBRES DE LA BASE NI EL TEXTO CRUDO DEL BANCO. Máximo, 04/11/2026:
+  //    «¿seguro que ya está bien y se explica bien, se entiende?». No se entendía: salían
+  //    cinco renglones encabezados por «otro_ingreso» —que es el nombre interno de una
+  //    categoría— y CUATRO de ellos eran «Ints. mensual de su cuenta INTABO Ints. mensu.»,
+  //    el texto del banco cortado a la mitad, por US$ 37,89 y US$ 77,32. Un socio no tiene
+  //    por qué leer el diccionario de nuestra base ni el recorte del estado de cuenta.
+  //    Se agrupa por concepto, con nombre en castellano, igual que el bloque del gasto —
+  //    que ya se leía bien. [[norma-nada-que-insinue-ia-al-cliente]]
+  const NOMBRE_IN: Record<string, string> = {
+    otro_ingreso: "Intereses y devoluciones de las cuentas",
+    reverso: "Devoluciones recibidas",
+    divisas_recibidas: "Dólares que entraron por compra de divisas",
+  };
+  const juntos = new Map<string, { n: number; bs: number; usd: number }>();
   for (const o of (r.entro.otros || [])) {
-    fila(`${o.categoria} - ${corto(o.texto, 46)}, ${ddmm(o.fecha)}`, `${bs(o.bs)}   ${usd(o.usd)}`);
+    const k = String(o.categoria ?? "otros");
+    const a = juntos.get(k) ?? { n: 0, bs: 0, usd: 0 };
+    a.n += 1; a.bs += Number(o.bs) || 0; a.usd += Number(o.usd) || 0;
+    juntos.set(k, a);
+  }
+  for (const [k, a] of juntos) {
+    fila(`${NOMBRE_IN[k] ?? k} (${a.n} ${a.n === 1 ? "movimiento" : "movimientos"})`,
+         `${bs(a.bs)}   ${usd(a.usd)}`);
   }
   fila("TOTAL QUE ENTRÓ", usd(r.entro.total_usd), { bold: true, size: 10.5, color: VERDE });
 
@@ -397,8 +418,17 @@ async function armarPdf(r: any, ciclo: any, empresa: string, membrete: any): Pro
     // ⛔ Lo que no se pudo atribuir NO se esconde en «otros»: se nombra, con el texto del banco,
     //    para que alguien lo pueda reconocer y cargar. Un total que cuadra tapando lo que no
     //    entendió es peor que uno que avisa.
-    fila(`Sin identificar - ${x.n} ${x.n === 1 ? "pago" : "pagos"}, p. ej. ${limpio(x.muestra)}`,
+    // ⛔ El ejemplo iba en la MISMA etiqueta y se cortaba a la mitad de una palabra
+    //    («TRANSFERENCIA A FAVOR DE: PACCINI PAJAR...»). Un renglón truncado en el segundo
+    //    monto más grande del informe se lee como descuido. El nombre va corto arriba y el
+    //    ejemplo, entero, debajo.
+    fila(`Sin identificar (${x.n} ${x.n === 1 ? "pago" : "pagos"})`,
          `${bs(x.bs)}   ${usd(x.usd)}`, { color: SUAVE });
+    if (x.muestra) {
+      // `corto` recorta con puntos suspensivos; sin él la fila lo parte a la mitad de una
+      // palabra («…ANTONIO PA») y parece un error nuestro, no un nombre largo del banco.
+      fila(`por ejemplo: ${corto(limpio(x.muestra), 54)}`, "", { size: 8.5, sangria: 14, color: SUAVE });
+    }
   }
   nota("El nombre lo saco del texto del banco: por el RIF cuando lo trae, y si no por el nombre. Lo que "
      + "no pude atribuir con certeza lo dejo aparte en vez de repartirlo entre los demás; en cuanto "
