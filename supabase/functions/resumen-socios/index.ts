@@ -391,6 +391,65 @@ async function armarPdf(r: any, ciclo: any, empresa: string, membrete: any): Pro
          usd(s.usd), { color: ROJO });
   }
 
+  // ── DE DÓNDE SALIÓ TODO: EL DINERO EN BOLÍVARES ────────────────────────────────────────────
+  // ⛔ APRENDIZAJE QUE VALE PARA TODOS LOS INFORMES, NO SOLO PARA ESTE.
+  //    Máximo, 04/11/2026: «debería decir eso así desglosado, y que en dólares se fueron esos
+  //    bolívares, y que la diferencia de lo que dice que entró y que salió es más porque
+  //    quedaban bolívares del cierre de la semana anterior; porque si no es difícil entender
+  //    cómo entraron 16 millones y logró rendir para tanto».
+  //
+  //    Tenía razón y era el agujero que hacía el informe ilegible: un estado de cuenta SIN EL
+  //    SALDO CON EL QUE SE VENÍA no se puede seguir. Entraron Bs 14,5 millones y se compraron
+  //    Bs 17,3 millones en dólares — leído solo, parece imposible; con el saldo de apertura,
+  //    es obvio. **Un informe de plata empieza por con cuánto se venía.**
+  //    [[norma-numero-que-el-dueno-no-puede-explicar]]
+  //
+  // ⛔ EL SALDO DE APERTURA NO SE GUARDA EN NINGÚN LADO: SE DEDUCE del saldo que el banco da
+  //    HOY menos lo que se movió en el período. Así el ancla es el banco, no una cuenta nuestra
+  //    que podría venir arrastrando un error viejo. Si el banco no contesta, el bloque NO SE
+  //    INVENTA: se omite y se dice. [[norma-falta-de-dato-no-es-un-dato]]
+  try {
+    const rs = await fetch(`${SUPABASE_URL}/functions/v1/bnc-saldo`, {
+      method: "POST",
+      headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "resumen" }),
+    });
+    const js = await rs.json();
+    const ves = (js?.cuentas ?? []).filter((c: any) => c.moneda === "VES" && c.saldoActual !== null && c.saldoActual !== undefined);
+    if (ves.length) {
+      const final = ves.reduce((s: number, c: any) => s + Number(c.saldoActual), 0);
+      const entroBs = Number(r.entro.alcaldia_bs || 0) + Number(r.entro.otros_bs || 0);
+      const salioBs = Number(r.salio_gasto.total_bs || 0) + Number(r.salio_no_gasto.total_bs || 0) +
+                      Number(r.divisas_compradas?.bs || 0);
+      const inicial = Math.round((final - entroBs + salioBs) * 100) / 100;
+      titulo("De dónde salió todo — el dinero en bolívares");
+      fila("Veníamos con (al arrancar el ciclo)", bs(inicial), { bold: true });
+      if (Number(r.entro.alcaldia_bs) > 0) fila("Nos pagó la Alcaldía", "+" + bs(r.entro.alcaldia_bs));
+      if (Number(r.entro.otros_bs) > 0) fila("Otras entradas", "+" + bs(r.entro.otros_bs));
+      fila("Pagamos la operación", "-" + bs(r.salio_gasto.total_bs), { color: ROJO });
+      if (Number(r.salio_no_gasto.total_bs) > 0) fila("Salió sin ser gasto", "-" + bs(r.salio_no_gasto.total_bs));
+      if (Number(r.divisas_compradas?.bs) > 0) {
+        fila(`Compramos dólares (se fueron a nuestra cuenta en US$)`, "-" + bs(r.divisas_compradas.bs));
+      }
+      fila("Quedamos con", bs(final), { bold: true, size: 11.5, color: VERDE });
+      // 📌 La fuente estándar del PDF se come la raya larga y deja los montos pegados
+      //    («en dólares Bs 17.258.839,13»). Van paréntesis.
+      nota("Esta es la cuenta completa de los bolívares, y arranca con lo que ya teníamos porque "
+         + "sin ese renglón no se puede seguir. "
+         + (Number(r.divisas_compradas?.bs) > 0
+            ? `Fíjense: compramos ${usd(r.divisas_compradas.usd)} en dólares (${bs(r.divisas_compradas.bs)}) y entró menos que eso. `
+              + `La diferencia salió del saldo con el que veníamos, no de lo que cobramos esta semana, y esos dólares siguen siendo nuestros: están en la cuenta en US$. `
+            : "")
+         + "Si alguna vez las cuentas no les cuadraron, no era que las cifras estuvieran mal: era que faltaba este renglón. "
+         + "Viendo solo lo que entró y lo que salió, es imposible explicar en qué se usó el dinero, porque parte venía de la semana anterior. "
+         + "El cierre de abajo, en dólares, mide otra cosa: solo lo que entró y salió en estos días.");
+    }
+  } catch (e) {
+    nota("⚠️ No pude armar el detalle en bolívares esta vez porque el banco no respondió el saldo. "
+       + "Las cifras en dólares de abajo salen igual del estado de cuenta, movimiento por movimiento.");
+    console.error("bloque bolivares:", String(e));
+  }
+
   // ── EL SALDO ───────────────────────────────────────────────────────────────────────────────
   titulo("Cómo quedó el ciclo");
   fila("Nos pagó la Alcaldía", usd(r.entro.alcaldia_usd));
