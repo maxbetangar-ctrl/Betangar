@@ -410,7 +410,11 @@ Deno.serve(async (req)=>{
           //    DE DÓNDE SALE, para que nadie lo confunda con el saldo del banco.
           //    Control positivo: da US$ 23.900,00, que es exactamente lo que muestra el
           //    portal del BNC. [[norma-control-positivo-antes-de-creerle-al-vacio]]
-          saldoCalculado: sinSaldo ? await saldoDeMovimientos(acc) : null,
+          //    Se calcula para TODAS, no solo para las que el banco no da: así el vigilante
+          //    diario puede comparar las dos y avisar si se separan. Un saldo calculado que
+          //    nadie contrasta se vuelve mentira el día que falte un movimiento — y encima
+          //    parecería bueno. (Máximo, 04/11/2026: «compáralo contra banco cada tiempo».)
+          saldoCalculado: await saldoDeMovimientos(acc),
           movimientosHoy: movsHoy.length,
           movimientos: movsHoy.map((m)=>({
               tipo: String(m.Type || '').trim(),

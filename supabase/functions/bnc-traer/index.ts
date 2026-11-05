@@ -150,11 +150,95 @@ Deno.serve(async (req) => {
         `Movimientos nuevos guardados: ${e.nuevos_24h}\n` +
         `Última corrida buena: ${new Date(e.ultima_ok).toLocaleString('es-VE')}`;
 
+    // ── EL CUADRE CONTRA EL BANCO, CUENTA POR CUENTA ────────────────────────────────────────
+    // ⛔ POR QUÉ ACÁ Y NO EN UN AVISO NUEVO: este vigilante YA sale todos los días, diga lo que
+    //    diga. Colgarle el cuadre no cuesta ni un mensaje más, y hereda su mejor propiedad —
+    //    que su silencio ya significa algo. Un aviso aparte sería otro que nadie mira.
+    //
+    // 🔴 QUÉ VIGILA. Desde el 04/11/2026 el saldo de la cuenta en dólares …1897 NO lo da el
+    //    banco (`Balance: 0`) y lo calculamos con `bnc_movimientos`: hoy da US$ 23.900 y cuadra
+    //    al centavo con el portal. Pero un saldo calculado que nadie contrasta se vuelve mentira
+    //    el día que falte un movimiento, **y encima parecería bueno**. Máximo: «compáralo contra
+    //    banco cada tiempo». ⇒ Todos los días se comparan los dos números en las cuentas donde
+    //    el banco SÍ da saldo; si se separan, es que nos falta (o nos sobra) un movimiento.
+    //    [[norma-numero-que-el-dueno-no-puede-explicar]]
+    let cuadre = "";
+    let descuadrada = false;
+    try {
+      const rs = await fetch(`${SUPABASE_URL}/functions/v1/bnc-saldo`, {
+        method: "POST",
+        headers: { apikey: SRK, Authorization: `Bearer ${SRK}`,
+                   "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "resumen" }),
+      });
+      const js = await rs.json();
+      const lineas: string[] = [];
+      // ⛔ NO SE COMPARAN SALDOS: SE COMPARAN MOVIMIENTOS.
+      //    Probado el 04/11/2026 antes de soltarlo, y menos mal: comparar el saldo del banco
+      //    contra la suma de `bnc_movimientos` daba TRES rojos falsos —la cuenta …2653 decía
+      //    «nosotros Bs 153.575.967» contra «banco Bs 665.160»— porque esa suma solo es un
+      //    saldo si la tabla arranca en la apertura de la cuenta. Para la de dólares sí (nació
+      //    en cero el 24/08); para las de bolívares no. Un vigilante que grita todos los días
+      //    es el cuento del lobo otra vez, justo lo que se quitó hoy.
+      //    ⇒ Lo que de verdad importa es si nos FALTA un movimiento, y eso se pregunta
+      //      movimiento por movimiento. [[norma-una-asercion-mal-escrita-acusa-al-producto]]
+      for (const c of (js?.cuentas ?? [])) {
+        const acc = String(c.cuenta);
+        const sim = c.moneda === "USD" ? "$" : "Bs ";
+        const n = (v: number) => Number(v).toLocaleString("es-VE", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        const rm = await fetch(`${SUPABASE_URL}/functions/v1/bnc-saldo`, {
+          method: "POST",
+          headers: { apikey: SRK, Authorization: `Bearer ${SRK}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "movimientos", account_number: acc }),
+        });
+        const jm = await rm.json();
+        const delBanco = Array.isArray(jm?.data) ? jm.data : (Array.isArray(jm?.movimientos) ? jm.movimientos : []);
+        if (!delBanco.length) { lineas.push(`• …${acc.slice(-4)} ${c.moneda}: el banco no devolvió movimientos para comparar`); continue; }
+        // Los nuestros de esos mismos días, por fecha y monto.
+        const fechas = [...new Set(delBanco.map((m: any) => {
+          const p = String(m.Date || m.date || "").split("/");
+          return p.length === 3 ? `${p[2]}-${p[1]}-${p[0]}` : "";
+        }).filter(Boolean))];
+        const rn = await fetch(`${SUPABASE_URL}/rest/v1/bnc_movimientos?cuenta=eq.${encodeURIComponent(acc)}` +
+          `&fecha=in.(${fechas.map((f) => `"${f}"`).join(",")})&select=fecha,monto`,
+          { headers: { apikey: SRK, Authorization: `Bearer ${SRK}` } });
+        const nuestros = rn.ok ? await rn.json() : [];
+        const tengo = new Set((nuestros as any[]).map((x) => `${x.fecha}|${Math.round(parseFloat(x.monto) * 100)}`));
+        const faltan = delBanco.filter((m: any) => {
+          const p = String(m.Date || m.date || "").split("/");
+          const f = p.length === 3 ? `${p[2]}-${p[1]}-${p[0]}` : "";
+          return !tengo.has(`${f}|${Math.round(parseFloat(m.Amount || m.amount || 0) * 100)}`);
+        });
+        if (!faltan.length) {
+          lineas.push(`• …${acc.slice(-4)} ${c.moneda}: los ${delBanco.length} movimientos del banco están cargados` +
+            (c.saldoActual === null ? ` · saldo calculado ${sim}${c.saldoCalculado === null ? "—" : n(c.saldoCalculado)}` : ""));
+        } else {
+          descuadrada = true;
+          lineas.push(`🔴 …${acc.slice(-4)} ${c.moneda}: al banco le constan ${delBanco.length} movimientos y NOS FALTAN ${faltan.length}` +
+            ` (p. ej. ${String(faltan[0].Date || "")} por ${sim}${n(parseFloat(faltan[0].Amount || 0))})`);
+        }
+      }
+      if (lineas.length) {
+        cuadre = `\n\n🏦 Cuadre con el banco, cuenta por cuenta:\n` + lineas.join("\n") +
+          (descuadrada
+            ? `\n\n⚠️ Donde dice NOS FALTAN, el banco tiene movimientos que nosotros no cargamos. Mientras eso siga así, la utilidad y los saldos de esa cuenta están incompletos.`
+            : "");
+      }
+    } catch (e) {
+      // ⛔ Si el cuadre no se pudo hacer, SE DICE. Omitirlo en silencio dejaría el mensaje
+      //    diario igual de prolijo que cuando todo cuadró. [[norma-falta-de-dato-no-es-un-dato]]
+      cuadre = `\n\n⚠️ No se pudo hacer el cuadre con el banco hoy: ${String(e).slice(0, 90)}`;
+    }
+
     const tels = await telefonosDe(ROLES_AVISO);
-    const enviados = dry ? 0 : await encolar(tels, msg, 'bnc_vigilante');
+    const enviados = dry ? 0 : await encolar(tels, msg + cuadre, 'bnc_vigilante');
     // `destinatarios` viaja en la respuesta a propósito: es lo que permite ver desde afuera que el
     // vigilante tiene a quién hablarle. Si da 0, el vigilante corre y no sirve para nada.
-    return json({ ok: tels.length > 0, vigilante: true, caido, horas, destinatarios: tels.length, enviados, dry, sin_destinatarios: tels.length === 0, mensaje: msg, estado: e });
+    // ⛔ `mensaje` TIENE QUE SER EL QUE SE MANDA, no el de antes de pegarle el cuadre. La
+    //    primera versión devolvía `msg` pelado y la prueba en seco mostraba un mensaje que no
+    //    existía: una prueba que no enseña lo que saldría de verdad no prueba nada.
+    //    [[norma-probar-el-camino-no-la-pieza]]
+    return json({ ok: tels.length > 0, vigilante: true, caido, descuadrada, horas, destinatarios: tels.length, enviados, dry, sin_destinatarios: tels.length === 0, mensaje: msg + cuadre, estado: e });
   }
 
   // ── MODO TRAER ────────────────────────────────────────────────────────────────────────────────
