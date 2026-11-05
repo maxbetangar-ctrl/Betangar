@@ -18627,6 +18627,34 @@ function guardarFactura(){
   var v=_calcFacVals();
   if(!(v.base>0)){alert('Ingresá la base imponible en Bs.');return;}
   if(!gv('fac-num')){alert('Ingresá el N° de factura.');return;}
+  // ⛔ EL N° DE CONTROL SE PIDE ACÁ, AL CARGAR. Alejandra, 05/11/2026, eligiendo entre cargarlo
+  //    después a mano o pedirlo en el momento: «pedirlo al cargar cada factura».
+  //    La razón es dura: SIN ese número el comprobante de retención NO SE PUEDE EMITIR
+  //    legalmente, y para cuando alguien lo necesita la factura de papel ya no está a mano.
+  //    Cuando se puso esto había 48 de 53 facturas sin él —ninguna de septiembre ni de
+  //    octubre— y esas 48 hay que completarlas a mano. Que no se sumen más.
+  //    📌 No lleva escape: una factura fiscal SIEMPRE trae número de control. Si el papel no lo
+  //    trae, no es una factura y la retención tampoco se puede emitir contra ella.
+  //    [[norma-el-dato-se-pide-cuando-el-papel-esta-delante]]
+  var _ctrl=String(gv('fac-control')||'').trim();
+  if(!_ctrl){
+    alert('⛔ Falta el N° de Control de la factura.\n\n'+
+          'Está impreso en la factura, arriba, aparte del N° de factura (por ejemplo 00-00012345).\n\n'+
+          'Sin ese número el comprobante de retención no se puede emitir legalmente, y después '+
+          'nadie tiene el papel a mano para buscarlo.');
+    var _fc=g('fac-control'); if(_fc){ if(_fc.focus)_fc.focus(); if(_fc.scrollIntoView)_fc.scrollIntoView({behavior:'smooth',block:'center'}); }
+    return;
+  }
+  // Mismo proveedor + mismo n° de control = la misma factura cargada dos veces, aunque le hayan
+  // escrito distinto el n° de factura. El de control es el que no se repite.
+  var _repeCtrl=CXP_FACTURAS.find(function(f){
+    return String(f.prov_id||'')===String(pid) &&
+           String(f.num_control||'').trim().toLowerCase()===_ctrl.toLowerCase();
+  });
+  if(_repeCtrl&&!confirm('⚠️ Este proveedor ya tiene una factura con el N° de Control '+_ctrl+
+      ' (la '+(_repeCtrl.nro_factura||'s/n')+', del '+formatFecha(_repeCtrl.fecha)+').\n\n'+
+      'Dos facturas no pueden compartir número de control: o es la misma cargada dos veces, o '+
+      'uno de los dos números está mal escrito.\n\n¿Cargarla igual?'))return;
   // ⛔ SIN SOPORTE NO SE CIERRA UN PAGO. Pedido de Máximo (18/08/2026): al cerrar la factura para
   //    pagar tiene que haber el documento, o una explicación escrita de por qué no lo hay. El
   //    único caso previsto sin soporte es la NÓMINA.
@@ -18881,7 +18909,18 @@ function renderRetenciones(){
     return'<tr>'+
       '<td>'+formatFecha(f.fecha)+'</td>'+
       '<td style="font-size:11px;font-weight:700">'+_mEsc(f.prov_nombre||'')+'</td>'+
-      '<td style="font-family:var(--m);font-size:10px">'+_mEsc(f.nro_factura||'')+'</td>'+
+      // ⛔ EL N° DE CONTROL SE VE ACÁ, Y SI FALTA SE PUEDE CARGAR DESDE ACÁ. Hasta el
+      //    05/11/2026 no se mostraba y NO HABÍA NINGUNA FORMA de completarlo después: 48 de
+      //    53 facturas estaban sin él y sus comprobantes de retención quedaban imposibles de
+      //    emitir para siempre, con el único aviso apareciendo al intentar emitir —cuando ya
+      //    no se puede hacer nada—. Un dato que falta y no se puede cargar no es un pendiente:
+      //    es una puerta cerrada. [[norma-arreglar-el-mecanismo-no-el-caso]]
+      '<td style="font-family:var(--m);font-size:10px">'+_mEsc(f.nro_factura||'')+
+        (String(f.num_control||'').trim()
+          ? '<div style="font-size:9px;color:var(--text3)">ctrl '+_mEsc(f.num_control)+'</div>'
+          : '<button class="btn btn-xs" style="background:rgba(255,193,7,.15);color:var(--yellow);border:1px solid rgba(255,193,7,.35);margin-top:2px;font-size:9px;padding:1px 5px" '+
+            'onclick="facPonerControl(\''+f.id+'\')" title="Sin el N° de Control no se puede emitir el comprobante de retención. Tocá acá y cargalo.">⚠️ falta n° control</button>')+
+      '</td>'+
       '<td style="font-family:var(--m);font-size:9px">'+celOrd+'</td>'+
       '<td style="font-size:10px">'+(f.concepto==='bienes'?'Bienes':'Servicios')+'</td>'+
       '<td style="font-family:var(--m)">'+_bs2(f.base_bs)+'</td>'+
@@ -18896,6 +18935,37 @@ function renderRetenciones(){
     '</tr>';
   }).join('')||'<tr><td colspan="13" style="text-align:center;color:var(--text3);padding:16px">Sin facturas cargadas en '+mes+'</td></tr>';
 }
+// Cargar el N° de Control de una factura que ya está guardada. El dato está en el papel; lo
+// que faltaba era dónde escribirlo. No se toca nada más de la factura.
+async function facPonerControl(id){
+  var f=CXP_FACTURAS.find(function(x){return String(x.id)===String(id);}); if(!f)return;
+  var t=prompt('N° de Control de la factura '+(f.nro_factura||'')+' — '+(f.prov_nombre||'')+
+               ' ('+formatFecha(f.fecha)+')\n\n'+
+               'Está impreso en la factura, arriba, aparte del N° de factura. Ej: 00-00012345\n\n'+
+               'Sin él no se puede emitir el comprobante de retención.', f.num_control||'');
+  if(t===null)return;                       // canceló: no se toca nada
+  t=String(t).trim();
+  if(!t){alert('No escribiste nada. La factura queda como estaba.');return;}
+  // Mismo proveedor + mismo control = la misma factura dos veces. Se avisa, no se impide:
+  // quien tiene el papel delante decide.
+  var repe=CXP_FACTURAS.find(function(x){
+    return String(x.id)!==String(id) && String(x.prov_id||'')===String(f.prov_id||'') &&
+           String(x.num_control||'').trim().toLowerCase()===t.toLowerCase();
+  });
+  if(repe&&!confirm('⚠️ Ese N° de Control ya está en la factura '+(repe.nro_factura||'s/n')+
+      ' del mismo proveedor ('+formatFecha(repe.fecha)+').\n\n¿Guardarlo igual?'))return;
+  if(!(DB_READY&&supabase)){alert('⛔ Sin conexión a la base. No se guardó: probá de nuevo.');return;}
+  // ⛔ El aviso de error NO se calla: si esto fallara en silencio, la pantalla mostraría el
+  //    número y la base seguiría vacía — justo el defecto de la Fecha de Egreso.
+  var res=await supabase.from('cxp_facturas').update({num_control:t}).eq('id',f.id).select();
+  if(res.error){alert('⛔ No se pudo guardar: '+res.error.message);return;}
+  if(!res.data||!res.data.length){alert('⛔ La base no guardó esa fila (¿permisos?). No quedó.');return;}
+  f.num_control=res.data[0].num_control;
+  try{audit('N° de Control cargado','factura '+(f.nro_factura||f.id)+' de '+(f.prov_nombre||'')+' → '+t);}catch(e){}
+  renderRetenciones();
+  if(typeof mostrarToast==='function')mostrarToast('✅ N° de Control guardado','exito');
+}
+
 function borrarFactura(id){
   var f=CXP_FACTURAS.find(function(x){return String(x.id)===String(id);}); if(!f)return;
   // Una factura puede cubrir VARIAS órdenes: hay que saber CUÁLES antes de borrarla, porque
@@ -27820,10 +27890,33 @@ async function mecRenderSalidas(){
   if(!DB_READY||!supabase){ el.innerHTML='<div style="color:var(--text3);font-size:12px;padding:8px">Sin conexión</div>'; return; }
   var hoy=(typeof fechaVE==='function')?fechaVE():new Date().toISOString().slice(0,10);
   var r=null;
-  try{ r=await supabase.from('checklist').select('cam,conductor,hora_salida,hora_entrada').eq('fecha',hoy); }catch(e){}
+  try{ r=await supabase.from('checklist').select('cam,conductor,turno,hora_salida,hora_entrada').eq('fecha',hoy); }catch(e){}
   if(!r||r.error){ el.innerHTML='<div style="color:var(--text3);font-size:12px;padding:8px">No se pudo leer el checklist de hoy</div>'; return; }
-  var salieron={}, volvieron={};
-  (r.data||[]).forEach(function(c){ if(c.cam){ salieron[c.cam]=c; if(c.hora_entrada)volvieron[c.cam]=1; } });
+  // ⛔ ACÁ LA SEGUNDA JORNADA PISABA A LA PRIMERA. Era `salieron[c.cam]=c`: con los dos turnos
+  //    del 04/11/2026 una unidad tiene DOS filas el mismo día y esta pantalla se quedaba con
+  //    una sola. Peor: `volvieron[c.cam]=1` se prendía si CUALQUIERA de las dos tenía hora de
+  //    entrada, así que una unidad con el diurno cerrado y el nocturno todavía en la calle se
+  //    veía como «ya volvió». La jornada abierta desaparecía del tablero del mecánico.
+  //    Alejandra, 05/11/2026, eligiendo cómo verlo: «las dos jornadas una debajo de la otra».
+  //    Se cuenta por JORNADA, no por unidad. [[norma-correccion-heredada-toca-todas-las-tablas]]
+  var ORD={diurno:0,nocturno:1};
+  var porCam={};
+  (r.data||[]).forEach(function(c){
+    // Sin hora de salida no hay jornada: es una fila empezada, no una unidad en la calle.
+    if(!c.cam||!c.hora_salida)return;
+    if(!porCam[c.cam])porCam[c.cam]=[];
+    porCam[c.cam].push(c);
+  });
+  Object.keys(porCam).forEach(function(k){
+    porCam[k].sort(function(a,b){
+      var da=(ORD[a.turno]===undefined?0:ORD[a.turno]), db=(ORD[b.turno]===undefined?0:ORD[b.turno]);
+      return da-db || String(a.hora_salida||'').localeCompare(String(b.hora_salida||''));
+    });
+  });
+  var salieron=porCam;
+  var jornadas=[].concat.apply([], Object.keys(porCam).map(function(k){return porCam[k];}));
+  var abiertas=jornadas.filter(function(j){return !j.hora_entrada;});
+  var dobles=Object.keys(porCam).filter(function(k){return porCam[k].length>1;});
 
   // La flota activa sale de la misma fuente que usa el resto de la pantalla.
   var todas=Object.keys(UNIDAD_CONFIG||{}).filter(function(c){
@@ -27835,7 +27928,11 @@ async function mecRenderSalidas(){
   var chip=function(txt,color){return '<span style="display:inline-block;background:'+color+'22;color:'+color+';border-radius:6px;padding:2px 7px;font-size:11px;margin:2px 3px 2px 0">'+txt+'</span>';};
   var html='<div style="display:flex;gap:14px;align-items:baseline;margin-bottom:6px">'+
     '<div><span style="font-size:22px;font-weight:700;color:#1d9e75">'+Object.keys(salieron).length+'</span>'+
-    '<span style="font-size:11px;color:var(--text3)"> salieron</span></div>'+
+    '<span style="font-size:11px;color:var(--text3)"> salieron'+
+      // El número grande sigue siendo UNIDADES, que es lo que mira el mecánico. Si alguna
+      // hizo dos turnos se dice al lado: así el número no cambia de significado sin avisar.
+      (dobles.length?(' <span style="color:#3b8fd4">· '+jornadas.length+' jornadas</span>'):'')+
+    '</span></div>'+
     '<div><span style="font-size:22px;font-weight:700;color:'+(fuera.length?'#e24b4a':'var(--text3)')+'">'+fuera.length+'</span>'+
     '<span style="font-size:11px;color:var(--text3)"> no salieron</span></div>'+
     '<div style="font-size:11px;color:var(--text3);margin-left:auto">de '+todas.length+' unidades</div></div>';
@@ -27851,10 +27948,33 @@ async function mecRenderSalidas(){
   } else {
     html+='<div style="font-size:12px;color:#1d9e75;margin-top:4px">Salieron todas.</div>';
   }
-  var faltaVolver=Object.keys(salieron).filter(function(c){return !volvieron[c];});
-  if(faltaVolver.length)
+  // ── Las DOS jornadas, una debajo de la otra ──────────────────────────────────────────────
+  // Solo se despliega cuando de verdad hay una unidad con dos turnos: con un turno solo, esto
+  // sería una lista de doce renglones repitiendo lo que ya dicen los números de arriba.
+  if(dobles.length){
+    var nom=function(t){ return t==='nocturno'?'🌙 nocturno':'☀️ diurno'; };
+    html+='<div style="font-size:11px;color:var(--text3);margin-top:10px;margin-bottom:3px">'+
+      'Unidades con dos jornadas hoy:</div>';
+    html+=dobles.sort().map(function(c){
+      return '<div style="margin-bottom:4px">'+
+        '<div style="font-size:11px;font-weight:700">'+_mEsc(c)+'</div>'+
+        porCam[c].map(function(j){
+          var cerrada=!!j.hora_entrada;
+          return '<div style="font-size:10px;color:'+(cerrada?'var(--text3)':'#ef9f27')+';padding-left:10px">'+
+            nom(j.turno)+' · '+_mEsc(j.hora_salida||'—')+' → '+(cerrada?_mEsc(j.hora_entrada):'<b>sin cerrar</b>')+
+            ' · '+_mEsc(j.conductor||'sin chofer')+'</div>';
+        }).join('')+
+      '</div>';
+    }).join('');
+  }
+  // ⛔ Se cuentan JORNADAS abiertas, no unidades. Antes, si el diurno de una unidad cerraba,
+  //    la unidad salía de esta lista aunque el nocturno siguiera en la calle.
+  if(abiertas.length)
     html+='<div style="font-size:11px;color:var(--text3);margin-top:8px">Todavía sin cerrar la llegada: '+
-      faltaVolver.map(function(c){return chip(c,'#8a94a6');}).join('')+'</div>';
+      abiertas.map(function(j){
+        var dosTurnos=porCam[j.cam].length>1;
+        return chip(j.cam+(dosTurnos?(' · '+(j.turno||'diurno')):''),'#8a94a6');
+      }).join('')+'</div>';
   el.innerHTML=html;
 }
 
