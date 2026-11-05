@@ -38,12 +38,17 @@
 //    Esto prueba LA HOJA. [[norma-probar-el-camino-no-la-pieza]]
 //
 // Uso: node scripts/ver-comprobante-sellado.mjs [url]
+//      node scripts/ver-comprobante-sellado.mjs --desplegado
+//        ↑ con `--desplegado` NO se sirve el código de disco: se mira EL QUE
+//          ESTÁ EN LA CALLE. Un `push` que salió bien no prueba que GitHub
+//          Pages ya lo publicara — tardó entre 18 s y 10 min.
+//          [[norma-un-push-a-main-es-el-despliegue]]
 // ═══════════════════════════════════════════════════════════════════════════════
 import { pathToFileURL, fileURLToPath } from 'url'
 import { readFileSync, writeFileSync, mkdirSync } from 'fs'
 import { getPAT } from '../../maxware-tools/pat.mjs'
 
-const URL_APP = process.argv[2] || 'https://betangar.com/app.html'
+const URL_APP = process.argv.slice(2).find(a => a.startsWith('http')) || 'https://betangar.com/app.html'
 const REF = 'hrkjddehqnzcqwlkklqm'
 const RAIZ = new URL('../', import.meta.url)
 const SALIDA = new URL('./pruebas/_sello/', RAIZ)
@@ -112,9 +117,14 @@ const errores = []
 page.on('console', m => { if (m.type() === 'error') errores.push(m.text()) })
 page.on('pageerror', e => errores.push('PAGEERROR: ' + e.message))
 
-// El código de disco en lugar del desplegado.
-await page.route('**/app.js*', route => route.fulfill({ contentType: 'application/javascript', body: JS_APP }))
-await page.route('**/retencion-comprobante.js*', route => route.fulfill({ contentType: 'application/javascript', body: JS_RET }))
+// El código de disco en lugar del desplegado — salvo con `--desplegado`.
+const DESPLEGADO = process.argv.includes('--desplegado')
+if (!DESPLEGADO) {
+  await page.route('**/app.js*', route => route.fulfill({ contentType: 'application/javascript', body: JS_APP }))
+  await page.route('**/retencion-comprobante.js*', route => route.fulfill({ contentType: 'application/javascript', body: JS_RET }))
+} else {
+  console.log('⚠️  --desplegado: se mira el código DE LA CALLE, no el de disco.')
+}
 
 // ⛔ NADA real: todo Supabase se contesta acá. El sello se sirve a mano porque
 //    su RLS se prueba aparte, adentro de la base.
