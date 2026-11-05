@@ -168,6 +168,12 @@ body{background:#0f1923;color:#fff;font-family:-apple-system,BlinkMacSystemFont,
        segunda vuelta, o se baja. Si no se ve, no se corrige. -->
   <div id="cuadrilla-display" onclick="reabrirCuadrilla()" style="display:none;cursor:pointer;font-size:11px;color:rgba(255,255,255,.55);margin-top:2px" title="Toque para cambiar quién va hoy"></div>
   <div class="fecha" id="fecha-display"></div>
+  <!-- ⛔ EL TURNO VA EN EL ENCABEZADO, no solo en la pestaña del checklist. El chofer pasa
+       casi todo el rato en VIAJES, que es donde toca los botones: si no ve en qué turno
+       está, puede registrar la jornada de la noche dentro de la de la mañana. El dato
+       quedaría bien guardado en el turno equivocado, que es peor que no guardarlo porque
+       nadie lo va a ir a buscar ahí. Se toca para entregar la unidad. -->
+  <div id="turno-display" onclick="soltarUnidadTurno()" style="display:none;cursor:pointer;margin-top:4px;font-size:12px;font-weight:700;padding:3px 10px;border-radius:999px" title="Toque para entregar la unidad al turno siguiente"></div>
   <button id="btn-cerrar-sesion" onclick="cerrarSesionUnidad()" style="display:none;margin-top:8px;background:rgba(248,96,96,.15);color:#ef6060;border:1px solid rgba(248,96,96,.35);border-radius:8px;padding:5px 12px;font-size:11px;font-weight:700;cursor:pointer">⎋ Cerrar sesión</button>
 </div>
 
@@ -1184,6 +1190,62 @@ function confirmarChoferGate(){
   });
 }
 
+// ═══════════════════════════════════════════════════════════════════════════════════════
+// EL TURNO — desde el 04/11/2026 cada unidad hace DOS jornadas al dia
+//
+// ⛔ En el turno nocturno los choferes CAMBIAN DE UNIDAD y con ellos los ayudantes, asi que
+//    cada turno lleva su propio checklist (salida y llegada), sus viajes y su cuadrilla.
+//
+// ⛔ EL SUFIJO NO ES UN DETALLE. El telefono guarda el estado del dia en claves
+//    `btg_*_<cam>_<hoy>`. Sin separar por turno, el chofer de la noche abre la app y se
+//    encuentra el estado que dejo el de la manana — "dia cerrado", sin checklist y con el
+//    boton trancado — sin haber salido todavia. Es el mismo accidente que ya paso el 31/07
+//    por leer un 0 como odometro, y se ve igual: la app "no deja".
+// ═══════════════════════════════════════════════════════════════════════════════════════
+var CL_TURNO = 'diurno';
+function _turnoKey(){ return 'btg_turno_'+cam+'_'+hoy; }
+function _cargarTurno(){
+  try{ var t=localStorage.getItem(_turnoKey()); if(t==='nocturno'||t==='diurno') CL_TURNO=t; }catch(e){}
+  return CL_TURNO;
+}
+function _setTurno(t){
+  CL_TURNO = (t==='nocturno') ? 'nocturno' : 'diurno';
+  try{ localStorage.setItem(_turnoKey(), CL_TURNO); }catch(e){}
+}
+// Sufijo de TODA clave local del dia. El diurno se queda SIN sufijo a proposito: asi los
+// telefonos que ya tienen estado guardado de hoy no lo pierden al actualizar la app.
+function _tSuf(){ return CL_TURNO==='nocturno' ? '_n' : ''; }
+function _turnoNombre(){ return CL_TURNO==='nocturno' ? 'Nocturno' : 'Diurno'; }
+// Pinta el turno en el encabezado, donde se ve desde CUALQUIER pestaña.
+function _pintarTurno(){
+  try{
+    var e=document.getElementById('turno-display'); if(!e)return;
+    var noc=(CL_TURNO==='nocturno');
+    e.style.display='inline-block';
+    e.textContent=(noc?'🌙 Turno nocturno':'☀️ Turno diurno');
+    e.style.background=noc?'rgba(109,90,205,.22)':'rgba(239,159,39,.16)';
+    e.style.color=noc?'#cdbdfb':'#ef9f27';
+  }catch(err){}
+}
+
+// Pasar al turno nocturno = SOLTAR LA UNIDAD. Se borra la identidad del chofer y su
+// cuadrilla para que el que entra se identifique: la unidad cambia de manos.
+function soltarUnidadTurno(){
+  if(CL_TURNO==='nocturno'){
+    if(!confirm('Ya esta en el turno NOCTURNO.\n\n¿Volver al turno diurno?')) return;
+    _setTurno('diurno');
+  } else {
+    if(!confirm('🌙 EMPEZAR EL TURNO NOCTURNO\n\nLa unidad queda libre para el chofer que entra:\n'+
+                '• se le va a pedir identificarse\n'+
+                '• declara su propia cuadrilla\n'+
+                '• hace su propio checklist de salida y llegada\n\n'+
+                'Lo del turno de hoy en la mañana NO se borra ni se toca.')) return;
+    _setTurno('nocturno');
+  }
+  try{ localStorage.removeItem(_cgKey()); localStorage.removeItem(_cqKey()); }catch(e){}
+  window.location.reload();
+}
+
 // Cambio de turno el mismo día: tocando el nombre en el header se vuelve a preguntar.
 // Hace falta de verdad — la planilla muestra hasta 6 choferes distintos en un mismo camión.
 function cambiarChoferDia(){
@@ -1433,6 +1495,12 @@ function arrancarApp(){
   // HOY en hora de Venezuela (UTC-4). Antes usaba UTC (toISOString) y de noche marcaba el
   // día siguiente → el viaje/checklist quedaba con otra fecha y el dashboard no lo veía "hoy".
   hoy = new Date(Date.now()-14400000).toISOString().slice(0,10);
+  // ⛔ EL TURNO SE CARGA ACÁ, apenas se sabe `cam` y `hoy` y ANTES de que se lea una sola
+  //    clave local. Cada clave del día lleva el sufijo del turno (`_tSuf()`), así que si
+  //    esto corriera después, el teléfono leería el estado del turno equivocado — y el
+  //    chofer de la noche vería «día cerrado» sin haber salido.
+  _cargarTurno();
+  _pintarTurno();
   // Si la PWA quedó abierta y AMANECIÓ (Android la conserva en memoria días): al volver a primer plano,
   // si la fecha real cambió, recargar → no dejar al chofer trabado viendo/registrando con la fecha de ayer.
   if(!window._hoyWatch){ window._hoyWatch = true; document.addEventListener('visibilitychange', function(){
@@ -1472,12 +1540,12 @@ function arrancarApp(){
   avisoLeerCache();  // aviso de administración al instante, aunque no haya señal
 
   // Verificar si ya llenó la salida hoy (modo llegada) desde localStorage
-  var modoGuardado = localStorage.getItem('btg_cl_modo_'+cam+'_'+hoy);
+  var modoGuardado = localStorage.getItem('btg_cl_modo_'+cam+'_'+hoy+_tSuf());
   if(modoGuardado==='llegada' || modoGuardado==='cerrado'){
     CL_MODO = (modoGuardado==='cerrado') ? 'cerrado' : 'llegada';
     // Cargar datos guardados localmente
     try{
-      var clLocal = localStorage.getItem('btg_cl_'+cam+'_'+hoy);
+      var clLocal = localStorage.getItem('btg_cl_'+cam+'_'+hoy+_tSuf());
       if(clLocal){
         var clData = JSON.parse(clLocal);
         if(clData.km_salida) document.getElementById('cl-km-salida').value = _milesNum(clData.km_salida);
@@ -2714,7 +2782,7 @@ function getLunesDeSemana(){
 }
 
 function cargarViajesLocal(){
-  var key = 'btg_viajes_'+cam+'_'+hoy;
+  var key = 'btg_viajes_'+cam+'_'+hoy+_tSuf();
   // ⛔ VACIAR SIEMPRE PRIMERO. Antes, si no había nada guardado del día, el mapa se quedaba con
   // lo que tuviera de antes: un viaje de AYER seguía contando como de HOY, el chofer veía un viaje
   // que no hizo y el siguiente le salía numerado de más (Melvin, 11/08: su único viaje del día
@@ -2727,13 +2795,13 @@ function cargarViajesLocal(){
 }
 
 function guardarViajesLocal(){
-  var key = 'btg_viajes_'+cam+'_'+hoy;
+  var key = 'btg_viajes_'+cam+'_'+hoy+_tSuf();
   try{ localStorage.setItem(key, JSON.stringify(VIAJES_HOY)); }catch(e){}
 }
 
 function cargarViajesSupabase(){
   if(!supabase) return;
-  supabase.rpc('chofer_viajes_dia', {p_cam: cam, p_fecha: hoy})
+  supabase.rpc('chofer_viajes_dia', {p_cam: cam, p_fecha: hoy, p_turno: CL_TURNO})
   .then(function(res){
     if(res.error || !res.data) return;
     var enServidor = {};
@@ -2826,7 +2894,7 @@ function _registrarViajeYa(num){
   //  quedaba atrapado en la cola offline sin llegar nunca al dashboard.)
   // `chofer` sale del gate, así que ya es una persona real y no el nombre horneado del camión.
   var reg = {
-    fecha: hoy, cam: cam, chofer: chofer || 'SIN IDENTIFICAR',
+    fecha: hoy, cam: cam, turno: CL_TURNO, chofer: chofer || 'SIN IDENTIFICAR',
     viaje_num: num, hora: hora, sincronizado: true
   };
 
@@ -3193,7 +3261,7 @@ function cargarChecklistSupabase(){
       }
     });
   }catch(e){}
-  supabase.rpc('chofer_checklist_dia', {p_cam: cam, p_fecha: hoy})
+  supabase.rpc('chofer_checklist_dia', {p_cam: cam, p_fecha: hoy, p_turno: CL_TURNO})
   .then(function(res){
     if(res.error || !res.data || !res.data.length){
       CL_MODO = 'salida';
@@ -3226,7 +3294,7 @@ function cargarChecklistSupabase(){
         //    (13:49, 10:57, 16:03). La huella de que salió es la HORA.
         // ⚠️ Y tampoco se baja por debajo de lo que el TELÉFONO ya sabe — misma regla que
         //    la rama de arriba, que el 12/09 se arregló en UNA sola de las dos.
-        var _mLoc2=null; try{ _mLoc2=localStorage.getItem('btg_cl_modo_'+cam+'_'+hoy); }catch(e){}
+        var _mLoc2=null; try{ _mLoc2=localStorage.getItem('btg_cl_modo_'+cam+'_'+hoy+_tSuf()); }catch(e){}
         CL_MODO = (_kmEnt > 0 || _mLoc2==='cerrado') ? 'cerrado'
                 : ((d.km_salida || d.hora_salida || _mLoc2==='llegada') ? 'llegada' : 'salida');
         // Cargar datos existentes
@@ -3242,7 +3310,7 @@ function cargarChecklistSupabase(){
 function clCorregirLlegada(){
   if(!confirm('¿Va a corregir la llegada que ya registró?\n\nLo que guardes ahora REEMPLAZA lo anterior.'))return;
   CL_MODO='llegada';
-  try{localStorage.setItem('btg_cl_modo_'+cam+'_'+hoy,'llegada');}catch(e){}
+  try{localStorage.setItem('btg_cl_modo_'+cam+'_'+hoy+_tSuf(),'llegada');}catch(e){}
   renderChecklistModo();
   try{
     // La RPC devuelve la altura SUELTA (numeric), no una fila: no hay `.data[0]`.
@@ -3272,6 +3340,28 @@ function precargarChecklist(d){
 }
 
 function renderChecklistModo(){
+  // ⛔ EL TURNO TIENE QUE VERSE SIEMPRE, no solo al entregar la unidad. Si no se ve, el
+  //    chofer de la noche puede estar cargando sus viajes creyendo que es el turno de la
+  //    mañana (o al revés) y el dato queda bien guardado en el turno equivocado — que es
+  //    peor que no guardarlo, porque nadie lo va a buscar.
+  try{
+    var _tb=document.getElementById('cl-turno-badge');
+    if(!_tb){
+      var _cont=document.getElementById('cl-modo-badge');
+      if(_cont&&_cont.parentNode){
+        _tb=document.createElement('span');
+        _tb.id='cl-turno-badge';
+        _tb.style.cssText='margin-left:6px;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:700';
+        _cont.parentNode.insertBefore(_tb,_cont.nextSibling);
+      }
+    }
+    if(_tb){
+      var _noc=(CL_TURNO==='nocturno');
+      _tb.textContent=(_noc?'🌙 ':'☀️ ')+_turnoNombre();
+      _tb.style.background=_noc?'rgba(109,90,205,.18)':'rgba(239,159,39,.14)';
+      _tb.style.color=_noc?'#cdbdfb':'#ef9f27';
+    }
+  }catch(e){}
   var badge  = document.getElementById('cl-modo-badge');
   var banner = document.getElementById('llegada-banner');
   var rowLle = document.getElementById('cl-row-llegada');
@@ -3292,7 +3382,15 @@ function renderChecklistModo(){
   if(CL_MODO === 'cerrado'){
     if(badge)  { badge.textContent='✅ REGISTRADO'; badge.className='cl-modo-badge badge-llegada'; }
     if(banner) { banner.style.display='block'; banner.style.background='rgba(125,201,65,.10)'; banner.style.borderColor='rgba(125,201,65,.35)'; banner.style.color='#7dc941';
-                 banner.innerHTML='✅ <b>Llegada registrada.</b> Ya está todo cargado por hoy — no hace falta guardar de nuevo.<br><span style="cursor:pointer;text-decoration:underline" onclick="clCorregirLlegada()">Me equivoqué en algo, quiero corregir</span>'; }
+                 // ⛔ ACÁ TERMINABA TODO. Con dos turnos, «día cerrado» ya no es el final: es el
+                 //    momento en que la unidad CAMBIA DE MANOS. Si la pantalla no ofrece la
+                 //    entrega, el chofer de la noche se encuentra el camión «ya registrado» y no
+                 //    tiene por dónde empezar — y la jornada nocturna no queda en ninguna parte.
+                 banner.innerHTML='✅ <b>Llegada registrada</b> del turno <b>'+_turnoNombre().toLowerCase()+'</b>. Ya está todo cargado — no hace falta guardar de nuevo.'+
+                   '<br><span style="cursor:pointer;text-decoration:underline" onclick="clCorregirLlegada()">Me equivoqué en algo, quiero corregir</span>'+
+                   (CL_TURNO==='diurno'
+                     ? '<br><br><button onclick="soltarUnidadTurno()" style="width:100%;padding:11px;border:none;border-radius:10px;background:#3b2f63;color:#cdbdfb;font-weight:700;font-size:14px;cursor:pointer">🌙 Entregar la unidad — empezar turno nocturno</button>'
+                     : '<br><br><span style="cursor:pointer;text-decoration:underline;opacity:.75" onclick="soltarUnidadTurno()">Volver al turno diurno</span>'); }
     if(rowLle) { rowLle.style.display='flex'; }
     if(secIns) { secIns.style.display='none'; }
     if(combLle){ combLle.style.display='block'; }
@@ -3410,7 +3508,7 @@ function renderEstadoVehiculo(){
 // ══════════════════════════════════════════════════════════════════════════════
 var CL_DRAFT_CAMPOS = ['cl-km-salida','cl-km-llegada','cl-hora-salida','cl-hora-llegada',
                        'cl-cm-salida','cl-cm-llegada','cl-observaciones','cl-motivo'];
-function clBorradorKey(){ return 'btg_cl_draft_' + cam + '_' + hoy; }
+function clBorradorKey(){ return 'btg_cl_draft_' + cam + '_' + hoy + _tSuf(); }
 
 function clGuardarBorrador(){
   try{
@@ -3798,8 +3896,8 @@ async function clGuardarMedicionCm(momento){
   var row={fecha:hoy,tanque_id:((CL_TANQUE_UNIDAD&&CL_TANQUE_UNIDAD.tanque_id)||'tanque-jac'),vehiculo_id:cam,momento:momento,altura_cm:cmV,litros_calculados:litros,registrado_por:(chofer||'chofer'),notas:'Medición chofer '+cam};
   try{
     if(isOnline&&supabase){ var r=await supabase.rpc('chofer_medicion_guardar', {p: row}); if(r.error){ console.error('medicion cm error',r.error); throw r.error; } }
-    else { localStorage.setItem('btg_medcm_'+cam+'_'+hoy+'_'+momento, JSON.stringify(row)); }
-  }catch(e){ try{localStorage.setItem('btg_medcm_'+cam+'_'+hoy+'_'+momento, JSON.stringify(row));}catch(e2){} }
+    else { localStorage.setItem('btg_medcm_'+cam+'_'+hoy+_tSuf()+'_'+momento, JSON.stringify(row)); }
+  }catch(e){ try{localStorage.setItem('btg_medcm_'+cam+'_'+hoy+_tSuf()+'_'+momento, JSON.stringify(row));}catch(e2){} }
 }
 
 async function guardarChecklist(){
@@ -3902,6 +4000,9 @@ async function _guardarChecklist(){
   var registro = {
     cam: cam,
     fecha: hoy,
+    // El turno viaja con el registro: sin esto el checklist de la noche pisaría el de la
+    // mañana, que es justo lo que la migración de hoy vino a impedir.
+    turno: CL_TURNO,
     conductor: chofer || 'SIN IDENTIFICAR',
     llenado_por: 'chofer',
     chofer_fecha_llenado: new Date().toISOString(),
@@ -4022,7 +4123,7 @@ async function _guardarChecklist(){
 
   // Guardar localmente primero
   try{
-    localStorage.setItem('btg_cl_'+cam+'_'+hoy, JSON.stringify(registro));
+    localStorage.setItem('btg_cl_'+cam+'_'+hoy+_tSuf(), JSON.stringify(registro));
   }catch(e){}
 
   var guardadoOk = false, enCola = false;
@@ -4101,11 +4202,11 @@ async function _guardarChecklist(){
     // dice (antes quedaba igual que antes de guardar y el chofer volvía a tocar el botón).
     if(CL_MODO==='salida'){
       CL_MODO = 'llegada';
-      try{localStorage.setItem('btg_cl_modo_'+cam+'_'+hoy,'llegada');}catch(e){}
+      try{localStorage.setItem('btg_cl_modo_'+cam+'_'+hoy+_tSuf(),'llegada');}catch(e){}
       setTimeout(renderChecklistModo, 800);
     } else {
       CL_MODO = 'cerrado';
-      try{localStorage.setItem('btg_cl_modo_'+cam+'_'+hoy,'cerrado');}catch(e){}
+      try{localStorage.setItem('btg_cl_modo_'+cam+'_'+hoy+_tSuf(),'cerrado');}catch(e){}
       setTimeout(renderChecklistModo, 800);
     }
   } else if(enCola){
@@ -4118,7 +4219,7 @@ async function _guardarChecklist(){
     // Avanzar de modo igual para que el chofer pueda seguir; la medición/WA se harán al enviarse.
     if(CL_MODO==='salida'){
       CL_MODO = 'llegada';
-      try{localStorage.setItem('btg_cl_modo_'+cam+'_'+hoy,'llegada');}catch(e){}
+      try{localStorage.setItem('btg_cl_modo_'+cam+'_'+hoy+_tSuf(),'llegada');}catch(e){}
       setTimeout(renderChecklistModo, 800);
     }
   } else {
