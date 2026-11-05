@@ -315,11 +315,47 @@ Deno.serve(async (req)=>{
         detalle: sres
       });
       const saldos = sres.data;
+      // Las cuentas cuyo saldo el BNC no nos deja ver. Se declaran en la base para que
+      // agregar o quitar una no exija desplegar. Si la consulta falla, la lista queda
+      // vacía y se muestra lo que diga el banco: nunca se oculta un saldo por un error
+      // nuestro de lectura.
+      const SIN_SALDO = new Set<string>();
+      try {
+        const cs = await fetch(
+          `${Deno.env.get("SUPABASE_URL")}/rest/v1/configuracion?clave=eq.bnc_cuentas_sin_saldo&select=valor`,
+          { headers: { apikey: Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+                       Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!}` } });
+        if (cs.ok) {
+          const fila = (await cs.json())[0];
+          const lista = JSON.parse(fila?.valor ?? "[]");
+          if (Array.isArray(lista)) for (const x of lista) SIN_SALDO.add(String(x));
+        }
+      } catch (e) { console.error("bnc_cuentas_sin_saldo:", String(e)); }
       const vet = new Date(Date.now() - 4 * 3600 * 1000);
       const today = String(vet.getUTCDate()).padStart(2, '0') + '/' + String(vet.getUTCMonth() + 1).padStart(2, '0') + '/' + vet.getUTCFullYear();
       const cuentas = [];
       for (const acc of Object.keys(saldos)){
-        const saldoActual = parseFloat(saldos[acc] && (saldos[acc].Balance ?? saldos[acc].balance) || 0);
+        // ⛔ UNA CUENTA QUE EL BANCO NO DEVOLVIÓ NO VALE CERO.
+        //    04/11/2026: el tablero mostraba la cuenta en dólares …1897 en **$0,00** y Máximo
+        //    mandó la pantalla del BNC: tiene **US$ 23.900,00** — seis compras desde el 24/08 y
+        //    ni un solo débito, el saldo acumulado de su propia captura lo confirma. El sistema
+        //    no tiene acceso a esa cuenta, así que el banco no manda su saldo… y este `|| 0`
+        //    convertía «no pude leerla» en «tiene cero». Un cero AFIRMA; la falta de dato no.
+        //    Ahora va `null` y la pantalla escribe «sin acceso».
+        //    [[norma-falta-de-dato-no-es-un-dato]] [[norma-control-positivo-antes-de-creerle-al-vacio]]
+        // ⛔ Y EL BANCO NO DEVUELVE «NADA»: DEVUELVE CERO. Medido el 04/11/2026 llamando a la
+        //    función: para la cuenta en dólares …1897 el BNC manda `{"CurrencyCode":"USD",
+        //    "Balance":0}` — y esa cuenta tiene **US$ 23.900,00** (la pantalla del portal del
+        //    banco que mandó Máximo, seis compras desde el 24/08 sin un solo débito). O sea que
+        //    el cero no se puede distinguir de un cero real mirando la respuesta: la cuenta
+        //    …4881, en bolívares, SÍ está en cero de verdad.
+        //    ⇒ Cuál cuenta no podemos leer es un HECHO DECLARADO, no algo que se adivine: vive
+        //      en `configuracion.bnc_cuentas_sin_saldo`. Para esas no se escribe número.
+        //      [[norma-un-filtro-nuestro-tapa-un-dato-que-si-llega]]
+        const crudoSaldo = saldos[acc] && (saldos[acc].Balance ?? saldos[acc].balance);
+        const sinSaldo = SIN_SALDO.has(String(acc)) ||
+          (crudoSaldo === undefined || crudoSaldo === null || crudoSaldo === '');
+        const saldoActual = sinSaldo ? null : parseFloat(crudoSaldo);
         const moneda = saldos[acc] && (saldos[acc].CurrencyCode || saldos[acc].currencyCode) || 'VES';
         let ingresos = 0, egresos = 0, movsHoy = [];
         const mres = await consulta('/Position/History', {
@@ -339,11 +375,14 @@ Deno.serve(async (req)=>{
         cuentas.push({
           cuenta: acc,
           moneda,
-          saldoInicial: Math.round((saldoActual - neto) * 100) / 100,
+          // Sin saldo leído no hay saldo inicial que calcular: restarle el neto a un cero
+          // inventado daría un número con aspecto de dato. Van los dos en null.
+          saldoInicial: sinSaldo ? null : Math.round((saldoActual! - neto) * 100) / 100,
           ingresos: Math.round(ingresos * 100) / 100,
           egresos: Math.round(egresos * 100) / 100,
           neto: Math.round(neto * 100) / 100,
-          saldoActual: Math.round(saldoActual * 100) / 100,
+          saldoActual: sinSaldo ? null : Math.round(saldoActual! * 100) / 100,
+          sinAcceso: sinSaldo,
           movimientosHoy: movsHoy.length,
           movimientos: movsHoy.map((m)=>({
               tipo: String(m.Type || '').trim(),

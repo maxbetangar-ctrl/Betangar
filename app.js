@@ -6148,7 +6148,20 @@ async function imprimirDashboard(){
   try{
     if(puedeVerSaldo()&&typeof _bncResumenCache!=='undefined'&&_bncResumenCache&&_bncResumenCache.cuentas&&_bncResumenCache.cuentas.length){
       var f2=function(n){return Number(n||0).toLocaleString('es-VE',{minimumFractionDigits:2,maximumFractionDigits:2});};
-      var rowsB=_bncResumenCache.cuentas.map(function(c){var sim=c.moneda==='USD'?'$':'Bs ';return '<tr><td style="font-family:monospace">'+(c.cuenta||'--')+'</td><td>'+c.moneda+'</td><td style="text-align:right;color:#15803d;font-weight:800">'+sim+f2(c.saldoActual)+'</td><td style="text-align:right;color:#8a94a6">'+sim+f2(c.saldoInicial)+'</td></tr>';}).join('');
+      // ⛔ UNA CUENTA QUE NO SE PUEDE LEER NO VALE CERO.
+      //    04/11/2026: el tablero mostraba la cuenta en dólares …1897 en **$0,00**, y Máximo
+      //    mandó la pantalla del BNC: tiene **US$ 23.900,00** (seis compras desde el 24/08, sin
+      //    un solo débito — el saldo acumulado de su propia captura lo confirma). El sistema no
+      //    tiene acceso a esa cuenta, así que el cero no era un saldo: era «no pude leerla», y
+      //    afirmarlo como cero es una mentira sobre plata que existe.
+      //    `f2(null)` devolvía 0,00 y por eso la falta de dato se veía igual que un saldo vacío.
+      //    [[norma-falta-de-dato-no-es-un-dato]] [[norma-control-positivo-antes-de-creerle-al-vacio]]
+      var _saldoTxt=function(v,sim){
+        return (v===null||v===undefined||v==='')
+          ? '<span style="color:#b45309;font-weight:700">sin acceso</span>'
+          : sim+f2(v);
+      };
+      var rowsB=_bncResumenCache.cuentas.map(function(c){var sim=c.moneda==='USD'?'$':'Bs ';return '<tr><td style="font-family:monospace">'+(c.cuenta||'--')+'</td><td>'+c.moneda+'</td><td style="text-align:right;color:#15803d;font-weight:800">'+_saldoTxt(c.saldoActual,sim)+'</td><td style="text-align:right;color:#8a94a6">'+_saldoTxt(c.saldoInicial,sim)+'</td></tr>';}).join('');
       bancosHtml='<h2>Saldos en cuenta — BNC'+(_bncResumenCache.fecha?' (día '+formatFecha(_bncResumenCache.fecha)+')':'')+(_bncResumenCache.esPrueba?' · DATOS DE PRUEBA':'')+'</h2><table><thead><tr><th>Cuenta</th><th>Moneda</th><th>Saldo actual</th><th>Inició día</th></tr></thead><tbody>'+rowsB+'</tbody></table>';
     } else if(puedeVerSaldo()){
       bancosHtml='<h2>Saldos en cuenta — BNC</h2><div class="mut">Abre/actualiza el dashboard (botón ↻ de Saldos BNC) antes de imprimir para incluir los saldos.</div>';
@@ -30899,7 +30912,15 @@ async function renderBncDashResumen(forzar){
   }catch(e){el.innerHTML='<div style="font-size:11px;color:var(--text3);padding:8px">🏦 Saldos BNC no disponibles ahora</div>';}
 }
 function _pintarBncResumen(el,d){
-  var fmt=function(n){return Number(n||0).toLocaleString('es-VE',{minimumFractionDigits:2,maximumFractionDigits:2});};
+  // ⛔ `Number(null||0)` escribía 0,00 sobre una cuenta que el banco NO devolvió, y así la
+  //    cuenta en dólares con US$ 23.900 se veía en cero (04/11/2026, con la pantalla del BNC
+  //    de Máximo al lado). Sin saldo no se escribe un número: se dice que no se pudo leer.
+  //    [[norma-falta-de-dato-no-es-un-dato]]
+  var fmt=function(n){
+    return (n===null||n===undefined||n==='')
+      ? 's/d'
+      : Number(n).toLocaleString('es-VE',{minimumFractionDigits:2,maximumFractionDigits:2});
+  };
   var cuentas=d.cuentas||[];
   var badge=d.esPrueba?'<span style="font-size:9px;background:rgba(251,191,36,.15);color:var(--yellow);border:1px solid rgba(251,191,36,.3);border-radius:6px;padding:1px 6px;margin-left:6px">DATOS DE PRUEBA</span>':'';
   var html='<div style="background:linear-gradient(135deg,var(--card),var(--card2));border:1px solid var(--border);border-radius:12px;padding:12px;margin-bottom:10px">'+
