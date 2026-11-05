@@ -1111,7 +1111,12 @@ function initSupabaseClient(){
       // CLIENTE ÚNICO AUTENTICADO: tras el login, la sesión Auth viaja en TODAS las consultas
       // de datos (RLS por rol → ISO 27001). Antes de iniciar sesión es anónimo, pero la pantalla
       // de login no lee datos. La RLS concede 'authenticated' en todas las tablas (migración 2a).
-      supabase=createFn(SUPA_URL,SUPA_KEY,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:false,storageKey:'btg-auth'}});
+      // ⛔ `global.fetch`: EL REINTENTO VALE PARA TODO, NO SOLO PARA LAS RPC. `_rpc` cubre las
+      //    llamadas a funciones, pero las LECTURAS DE TABLA (`supabase.from(...)`) son la
+      //    mayoría y no pasaban por ahí: con el token dormido mostraban su propio error feo.
+      //    Acá se engancha una sola vez, al crear el cliente, y lo cubre todo sin tocar un
+      //    solo sitio de llamada. [[norma-arreglar-el-mecanismo-no-el-caso]]
+      supabase=createFn(SUPA_URL,SUPA_KEY,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:false,storageKey:'btg-auth'},global:{fetch:_fetchQueRevive}});
       supabaseAuth=supabase; // mismo cliente para identidad (login/logout/getSession) y datos
       // Mantener el JWT de sesión disponible para los fetch REST directos. Dispara al instante
       // con la sesión restaurada (INITIAL_SESSION) y en cada login/refresh/logout.
@@ -1165,6 +1170,32 @@ function initSupabaseClient(){
 //    muerto aunque el de refresco siga bueno. Un reintento silencioso le ahorra a la persona
 //    salir y entrar por nada.
 // ═══════════════════════════════════════════════════════════════════════════════════════════
+
+// ⛔ EL REINTENTO SILENCIOSO, PARA TODA LA BASE Y NO SOLO PARA LAS RPC.
+//    Se engancha al crear el cliente, así que cubre también `supabase.from(...)`, que es la
+//    mayoría de las llamadas y la que `_rpc` no podía alcanzar.
+//
+// ⚠️ SOLO SE REINTENTA UN 401, Y ESO NO ES UN DETALLE. Un 401 significa que la petición NO
+//    SE EJECUTÓ —el servidor la rechazó antes de mirarla—, así que repetirla no puede
+//    duplicar nada. Un 403, un 409 o un 500 SÍ pueden haber dejado algo hecho: esos no se
+//    tocan. Repetir a ciegas un POST que quizá entró es cómo se duplican los pagos.
+// ⚠️ Y NUNCA se reintenta `/auth/`: ahí es donde se pide el token nuevo, y reintentarlo
+//    desde acá sería morderse la cola.
+var _reviviendoSesion=false;
+function _fetchQueRevive(entrada,opciones){
+  var url=String((entrada&&entrada.url)||entrada||'');
+  return fetch(entrada,opciones).then(function(r){
+    if(!r||r.status!==401)return r;
+    if(_reviviendoSesion)return r;              // ya estamos pidiendo el token: no recursar
+    if(url.indexOf('/auth/')>=0)return r;       // el pedido del token no se reintenta
+    if(typeof SESION==='undefined'||!SESION)return r;  // antes del login no hay nada que revivir
+    _reviviendoSesion=true;
+    return _revivirSesion()
+      .then(function(vivo){ return vivo ? fetch(entrada,opciones) : r; })
+      .catch(function(){ return r; })
+      .then(function(res){ _reviviendoSesion=false; return res; });
+  });
+}
 
 // La firma de «esto llegó sin identidad». No se mira el texto suelto: se miran los códigos.
 function _esFaltaDeSesion(err){
@@ -8965,7 +8996,7 @@ function procesarExcelBetangar(wb){
         //    cargado con un número válido — si el reemplazo no existe, no borra.
         if(DB_READY&&!DEMO_MODE){
           (function(k){
-            supabase.rpc('planilla_borrar_dup_corregida',{p_dup:k}).then(function(r){
+            _rpc('planilla_borrar_dup_corregida',{p_dup:k}).then(function(r){
               var d=r&&r.data;
               if(r&&r.error){
                 console.error('DUP NO se pudo eliminar:',k,r.error);
@@ -27577,7 +27608,7 @@ function portIniciar(){
     // lo tienen cargado; la RPC lo reemplaza cuando llega, que es la lista completa.
     _pintarDl((EMPLEADOS||[]).filter(function(e){return e.activo&&e.nombre;}).map(function(e){return e.nombre;}));
     if(DB_READY&&supabase){
-      supabase.rpc('porteria_personas').then(function(r){
+      _rpc('porteria_personas').then(function(r){
         if(r&&!r.error&&Array.isArray(r.data)&&r.data.length) _pintarDl(r.data.map(function(x){return x.nombre;}));
         else if(r&&r.error) console.log('[porteria_personas]', r.error.message);
       }).catch(function(e){ console.log('[porteria_personas]', e&&e.message); });

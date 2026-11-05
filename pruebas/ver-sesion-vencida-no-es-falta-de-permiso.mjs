@@ -125,6 +125,49 @@ console.log('   ' + d.mensaje)
 chequear('se respeta el mensaje de la base', /Sin permiso para ver las surtidas/.test(d.mensaje || ''))
 chequear('no se reintenta', d.intentos === 1, d.intentos + ' intentos')
 
+// ── 5 · EL REINTENTO SILENCIOSO VALE PARA TODA LA BASE, NO SOLO PARA LAS RPC ──────────────
+// `_rpc` cubre las funciones; las LECTURAS DE TABLA son la mayoría y no pasaban por ahí.
+// `_fetchQueRevive` se engancha al crear el cliente y las cubre a todas.
+console.log('\n── el reintento silencioso, enganchado al propio cliente ──')
+const correrFetch = (e) => page.evaluate(async (e) => {
+  const pedidos = []
+  let quedan = e.fallos
+  window.SESION = e.haySesion ? { usuario: 'carlos' } : null
+  window.fetch = async (entrada, opciones) => {
+    const url = String((entrada && entrada.url) || entrada || '')
+    pedidos.push(url)
+    if (quedan > 0) { quedan--; return { status: e.estado, url } }
+    return { status: 200, url }
+  }
+  window.supabaseAuth = { auth: {
+    getSession: async () => ({ data: { session: e.revive ? { access_token: 'nuevo' } : null } }),
+    refreshSession: async () => ({ data: { session: e.revive ? { access_token: 'nuevo' } : null } }),
+  } }
+  const r = await _fetchQueRevive(e.url, { method: e.metodo || 'GET' })
+  return { intentos: pedidos.length, estadoFinal: r.status }
+}, e)
+
+const T = 'https://x.supabase.co/rest/v1/surtidas?select=id'
+let f = await correrFetch({ url: T, estado: 401, fallos: 1, haySesion: true, revive: true })
+chequear('una lectura de TABLA con 401 se reintenta y sale bien',
+  f.intentos === 2 && f.estadoFinal === 200, `${f.intentos} intentos · HTTP ${f.estadoFinal}`)
+
+f = await correrFetch({ url: T, estado: 401, fallos: 9, haySesion: true, revive: false })
+chequear('si la sesión está muerta, no se reintenta en bucle', f.intentos === 1, f.intentos + ' intentos')
+
+f = await correrFetch({ url: T, estado: 401, fallos: 9, haySesion: false, revive: true })
+chequear('antes del login no se intenta revivir nada', f.intentos === 1, f.intentos + ' intentos')
+
+// ⛔ Lo que NO se puede reintentar. Un 401 dice que la petición no se ejecutó; un 403 o un
+//    500 pueden haber dejado algo hecho, y repetir un POST a ciegas es cómo se duplica un pago.
+f = await correrFetch({ url: T, estado: 403, fallos: 9, haySesion: true, revive: true })
+chequear('un 403 NO se reintenta (puede haber dejado algo hecho)', f.intentos === 1, f.intentos + ' intentos')
+f = await correrFetch({ url: T, estado: 500, fallos: 9, haySesion: true, revive: true, metodo: 'POST' })
+chequear('un 500 en un POST NO se repite', f.intentos === 1, f.intentos + ' intentos')
+f = await correrFetch({ url: 'https://x.supabase.co/auth/v1/token?grant_type=refresh_token',
+  estado: 401, fallos: 9, haySesion: true, revive: true })
+chequear('el pedido del token NO se reintenta (sería morderse la cola)', f.intentos === 1, f.intentos + ' intentos')
+
 await navegador.close(); srv.close()
 console.log(`\n${fallos ? '⛔ ' + fallos + ' fallo(s)' : '✅ todo verde'}`)
 process.exit(fallos ? 1 : 0)
