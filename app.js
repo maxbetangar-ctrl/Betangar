@@ -622,7 +622,7 @@ async function hidratarMarcaDesdeBD(){
   if(MARCA_HIDRATADA)return false;
   try{
     if(typeof supabase==='undefined'||!supabase)return false;
-    var r=await supabase.rpc('marca_publica');
+    var r=await _rpc('marca_publica');
     if(!r||r.error||!r.data)return false;
     var m=(typeof r.data==='string')?JSON.parse(r.data):r.data;
     if(!m||typeof m!=='object')return false;
@@ -783,7 +783,7 @@ async function accRecuperar(que){
       m.textContent='No se pudo conectar con el servidor. Revise su internet y vuelva a intentar.';
       return;
     }
-    var r=await supabase.rpc('acceso_recuperar',{ p_cedula:ced, p_que:que });
+    var r=await _rpc('acceso_recuperar',{ p_cedula:ced, p_que:que });
     // ⛔ El error se REPORTA. Un «listo» que en realidad falló es peor que el problema:
     //    la persona se queda esperando un mensaje que nunca se encoló.
     if(r&&r.error){ m.style.color='#f87171'; m.textContent='No se pudo: '+r.error.message; return; }
@@ -1141,6 +1141,82 @@ function initSupabaseClient(){
     console.warn('⚠ Supabase CDN aún no disponible');DB_READY=false;return false;
   }catch(e){console.error('Supabase init error:',e);DB_READY=false;return false;}
 }
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+// UNA SESIÓN QUE SE VENCIÓ NO ES UN PROBLEMA DE PERMISOS, Y HASTA HOY LO PARECÍA
+//
+// ⛔ EL CASO. Carlos Serrano, 05/11/2026: en «Combustible Surtido Hoy» la lista se veía y al
+//    pedir la foto salía *«No se pudo traer la foto: permission denied for function
+//    surtida_foto»*. Eso NO es su rol: es que ESA llamada llegó a la base SIN SESIÓN. La
+//    lista ya estaba dibujada de antes, así que solo falló lo que se pidió después.
+//    Medido contra la base ese día, llamando como anónimo:
+//      · `surtidas_listar` → P0001 «Sin permiso para ver las surtidas»
+//      · `surtida_foto`    → 42501 «permission denied for function surtida_foto»
+//    El segundo es textual el de Carlos.
+//
+// ⛔ POR QUÉ IMPORTA MÁS QUE UNA FOTO. Un 42501 manda a la persona a pedir un permiso que YA
+//    TIENE, y a nosotros a mirar roles que están bien. Es la misma lección que ya estaba
+//    escrita para la pantalla de Usuarios —«un 401 y un 403 no se arreglan en el mismo
+//    lugar»— pero vivía solo ahí. Acá vale para TODA llamada a la base.
+//    [[norma-una-asercion-mal-escrita-acusa-al-producto]] · [[norma-arreglar-el-mecanismo-no-el-caso]]
+//
+// ⚠️ Y PRIMERO SE INTENTA REVIVIRLA, no se avisa y listo: `autoRefreshToken` solo corre
+//    mientras la pestaña está despierta, así que una laptop que durmió vuelve con el token
+//    muerto aunque el de refresco siga bueno. Un reintento silencioso le ahorra a la persona
+//    salir y entrar por nada.
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+
+// La firma de «esto llegó sin identidad». No se mira el texto suelto: se miran los códigos.
+function _esFaltaDeSesion(err){
+  if(!err)return false;
+  var c=String(err.code||'');
+  if(c==='42501')return true;                 // permission denied for function/table
+  if(c==='PGRST301')return true;              // JWT inválido o vencido
+  var m=String(err.message||'');
+  return /JWT expired|invalid JWT|permission denied for (function|table|relation)/i.test(m);
+}
+
+// Devuelve true si DESPUÉS de intentarlo hay sesión viva.
+async function _revivirSesion(){
+  try{
+    if(!supabaseAuth||!supabaseAuth.auth)return false;
+    // `getSession()` ya refresca solo si el access token venció y el de refresco sirve.
+    var s=await supabaseAuth.auth.getSession();
+    if(s&&s.data&&s.data.session)return true;
+    var r=await supabaseAuth.auth.refreshSession();
+    return !!(r&&r.data&&r.data.session);
+  }catch(e){ return false; }
+}
+
+var MSG_SESION_VENCIDA='Su sesión se venció mientras tenía la pantalla abierta.\n\n'+
+  'Salga y vuelva a entrar, y repítalo. No es un problema de permisos: su usuario está bien.';
+
+// ⛔ TODA RPC DEBERÍA PASAR POR ACÁ. Hace lo mismo que `supabase.rpc`, pero si falló por falta
+//    de sesión la revive y REINTENTA UNA VEZ; y si no se puede, cambia el mensaje de la base
+//    por uno que dice qué hacer. Devuelve la misma forma {data,error} para que el que llama
+//    no tenga que cambiar nada más.
+async function _rpc(nombre,args){
+  if(!(DB_READY&&supabase))return {data:null,error:{message:'Sin conexión a la base',code:'SIN_CONEXION'}};
+  // ⛔ ACÁ VA `supabase.rpc`, NO `_rpc`: esta es la ÚNICA función que puede llamar a la de
+  //    abajo. Al migrar los 52 sitios con un reemplazo de texto, estas dos líneas también se
+  //    cambiaron y quedó llamándose a sí misma — recursión infinita. `node --check` lo dio
+  //    por bueno: compilaba perfecto. Que compile no prueba que funcione.
+  //    [[norma-control-positivo-antes-de-creerle-al-vacio]]
+  var r=await supabase.rpc(nombre,args||{});
+  if(!(r&&r.error&&_esFaltaDeSesion(r.error)))return r;
+  // ⛔ ANTES DE DECIR «SE VENCIÓ», HAY QUE SABER QUE HUBO UNA. Hay llamadas que son anónimas
+  //    A PROPÓSITO y corren ANTES del login —la marca de la empresa en la pantalla de entrada,
+  //    la recuperación de clave—. Decirles «su sesión se venció» sería mentir y mandar a la
+  //    persona a salir y entrar de una pantalla donde todavía no entró.
+  //    [[norma-una-asercion-mal-escrita-acusa-al-producto]]
+  if(!SESION)return r;                           // sin sesión previa: el error queda como vino
+  if(await _revivirSesion()){
+    r=await supabase.rpc(nombre,args||{});       // el reintento, ya con sesión
+    if(!(r&&r.error&&_esFaltaDeSesion(r.error)))return r;
+  }
+  return {data:null,error:{message:MSG_SESION_VENCIDA,code:'SESION_VENCIDA',original:r.error}};
+}
+
 function iniciarSesion(){
   // Crear/asegurar cliente Supabase
   initSupabaseClient();
@@ -1574,7 +1650,7 @@ async function bncInitFlag(){
     // los 17 representantes de los colegios— leia el estado bancario. La RPC
     // devuelve lo mismo enmascarado, pero exige rol superadmin/admin en la BASE,
     // no solo en este JavaScript (que se salta abriendo la consola).
-    var r=await supabase.rpc('bnc_estado');
+    var r=await _rpc('bnc_estado');
     var d=(r.data&&r.data.length)?r.data[0]:null;
     if(d&&d.tiene_credenciales){
       BNC_CONFIG.guid=BNC_CONFIG.guid||'✓';
@@ -1590,7 +1666,7 @@ async function bncCargarConfig(){
   try{
     // Leer la vista segura (no expone secretos en claro al navegador). limit(1) evita
     // el error de .single() cuando hay 0 ó varias filas.
-    var r=await supabase.rpc('bnc_estado');
+    var r=await _rpc('bnc_estado');
     var d=(r.data&&r.data.length)?r.data[0]:null;
     var el=function(id){return document.getElementById(id);};
     if(d){
@@ -1641,7 +1717,7 @@ async function bncGuardarConfig(){
   // Se guarda vía RPC SECURITY DEFINER (la tabla bnc_config es solo service_role por
   // seguridad). Los campos de credencial en blanco NO sobrescriben las actuales.
   try{
-    var r=await supabase.rpc('bnc_actualizar_config',{
+    var r=await _rpc('bnc_actualizar_config',{
       p_client_guid: el('bnc-client-guid')||null,
       p_master_key:  el('bnc-master-key')||null,
       p_cuenta:      el('bnc-cuenta')||null,
@@ -3232,19 +3308,19 @@ async function _infCargar(d,h){
   // datos» en vez de «no te toca». Se pregunta primero para poder decir el motivo.
   // El candado real está en la base (btg_ve_financiero); esto es solo el mensaje.
   try{
-    var rv=await supabase.rpc('btg_ve_financiero');
+    var rv=await _rpc('btg_ve_financiero');
     if(!rv.error&&rv.data===false)throw new Error('__SIN_PERMISO__');
   }catch(e){ if(e&&e.message==='__SIN_PERMISO__')throw e; }
-  var rp=await supabase.rpc('btg_resumen_socio',{p_desde:d,p_hasta:h});
+  var rp=await _rpc('btg_resumen_socio',{p_desde:d,p_hasta:h});
   if(rp.error)throw new Error(rp.error.message);
   var out={ res:(Array.isArray(rp.data)?rp.data[0]:rp.data)||{} };
   var pares=[['gasto','btg_donde_se_fue'],['donde','btg_donde_esta_utilidad']];
   for(var i=0;i<pares.length;i++){
-    var r=await supabase.rpc(pares[i][1],{p_desde:d,p_hasta:h});
+    var r=await _rpc(pares[i][1],{p_desde:d,p_hasta:h});
     out[pares[i][0]]=(r.error?[]:(r.data||[]));
     if(r.error)console.error(pares[i][1],r.error.message);
   }
-  var rd=await supabase.rpc('btg_donde_estan_los_dolares'); out.dolares=rd.error?[]:(rd.data||[]);
+  var rd=await _rpc('btg_donde_estan_los_dolares'); out.dolares=rd.error?[]:(rd.data||[]);
   // ⛔ EL COSTO POR TONELADA ABRE EL INFORME. Máximo, 20/10/2026: «sigo sin saber dónde me da
   //    ese costo en el software, debería aparecer en el informe» — y tenía razón desde antes:
   //    la norma de la casa dice que el costo por unidad es el número que ABRE el informe
@@ -3258,9 +3334,9 @@ async function _infCargar(d,h){
   //    estado de cuenta (la referencia del manual está DENTRO de la del real, con un día de
   //    diferencia). Son US$ 168.244 contados dos veces, y por eso el Cobrado y la UTILIDAD están
   //    inflados. Un ingreso duplicado no se nota: deja la cifra creíble y más alta.
-  try{ var rdup=await supabase.rpc('btg_cobros_duplicados',{p_desde:d,p_hasta:h});
+  try{ var rdup=await _rpc('btg_cobros_duplicados',{p_desde:d,p_hasta:h});
        out.dup=rdup.error?null:(rdup.data||[]); }catch(e){ out.dup=null; }
-  var re=await supabase.rpc('btg_utilidad_real_y_estimada',{p_desde:d,p_hasta:h});
+  var re=await _rpc('btg_utilidad_real_y_estimada',{p_desde:d,p_hasta:h});
   out.est=re.error?null:((Array.isArray(re.data)?re.data[0]:re.data)||null);
   // ── EL MES A MES ENGAÑA, Y HAY QUE MOSTRARLO ACUMULADO ────────────────────────────────────
   // Abril da 8,1% de margen y mayo 46,4%. Eso NO es el negocio moviéndose: es que el cobro de la
@@ -3276,14 +3352,14 @@ async function _infCargar(d,h){
       var d1=(yy===y&&mm===mIni)?d:(yy+'-'+String(mm).padStart(2,'0')+'-01');
       var ultDia=new Date(Date.UTC(yy,mm,0)).getUTCDate();
       var h1=(yy===yFin&&mm===mFin)?h:(yy+'-'+String(mm).padStart(2,'0')+'-'+ultDia);
-      var rm=await supabase.rpc('btg_resumen_socio',{p_desde:d1,p_hasta:h1});
+      var rm=await _rpc('btg_resumen_socio',{p_desde:d1,p_hasta:h1});
       if(!rm.error){ var x=Array.isArray(rm.data)?rm.data[0]:rm.data;
         if(x)out.meses.push({mes:yy+'-'+String(mm).padStart(2,'0'),cobrado:Number(x.cobrado_usd)||0,
           gasto:(Number(x.gasto_usd)||0)+(Number(x.cambiario_usd)||0),utilidad:Number(x.utilidad_usd)||0}); }
       if(out.meses.length>18)break;
     }
   }catch(e){ console.error('meses',e); }
-  var rc=await supabase.rpc('btg_cambiario_mensual',{p_desde:d,p_hasta:h}); out.camb=rc.error?[]:(rc.data||[]);
+  var rc=await _rpc('btg_cambiario_mensual',{p_desde:d,p_hasta:h}); out.camb=rc.error?[]:(rc.data||[]);
   var rpos=await supabase.from('btg_posicion').select('*').order('monto_usd',{ascending:false}); out.pos=rpos.error?[]:(rpos.data||[]);
   var rf=await supabase.from('v_cobro_facturas').select('*').order('fecha',{ascending:false}); out.fact=rf.error?[]:(rf.data||[]);
   // Con QUÉ fechas se armó. Sin esto, imprimir podía sacar un PDF cuya cabecera dice un período y
@@ -3324,7 +3400,7 @@ async function _infCostoTonelada(d,h,res){
     //    mostraba 3.185 viajes, y en la base hay 4.957. Todo el informe sale de la base MENOS
     //    este bloque, y por eso falló solo él. [[norma-fuente-unica-datos]]
     var viajes=0, ingreso=0, primera='', viajesAntes=0, abonos=null, abonosN=0;
-    var ro=await supabase.rpc('btg_operacion_periodo',{p_desde:d,p_hasta:h});
+    var ro=await _rpc('btg_operacion_periodo',{p_desde:d,p_hasta:h});
     if(ro.error)throw ro.error;
     var o=(Array.isArray(ro.data)?ro.data[0]:ro.data)||{};
     viajes=Number(o.viajes)||0; ingreso=Number(o.facturado_usd)||0;
@@ -4638,7 +4714,7 @@ async function cargarDatosDB(){
     //    base quién cree que somos. [[norma-un-filtro-nuestro-tapa-un-dato-que-si-llega]]
     //    [[norma-control-positivo-antes-de-creerle-al-vacio]]
     try{
-      var _rr=await supabase.rpc('app_rol');
+      var _rr=await _rpc('app_rol');
       // ⛔ NORMALIZAR ANTES DE COMPARAR. `.rpc()` puede devolver el escalar, `null`, o un
       // array de una fila según la forma de la función y del cliente. Sin esto, un `[]`
       // es TRUTHY y `String([])` es '' → el aviso salía diciendo «la base le da el rol «»»,
@@ -4881,7 +4957,7 @@ async function cargarDatosDB(){
       // Antes leía la fila `configuracion.wassenger` DIRECTO, así que el token de WhatsApp de la
       // empresa viajaba al navegador de cualquier usuario logueado. La PWA del chofer ya usaba la
       // RPC; la oficina no. (2026-07-21)
-      var wsr=await supabase.rpc('wassenger_estado');
+      var wsr=await _rpc('wassenger_estado');
       var wsc={data:null}; if(!wsr.error&&wsr.data){ var _w=(typeof wsr.data==='string')?JSON.parse(wsr.data):wsr.data; wsc={data:{valor:JSON.stringify({activo:_w.activo,token:(_w.tiene_token?'***':'')})}}; }
       if(wsc.data&&wsc.data.valor){ var wsv=typeof wsc.data.valor==='string'?JSON.parse(wsc.data.valor):wsc.data.valor; WASSENGER_ON=!!(wsv&&wsv.activo===true&&wsv.token); console.log('Wassenger '+(WASSENGER_ON?'ACTIVO — WhatsApp por cola':'inactivo — WhatsApp por CallMeBot')); }
     }catch(eW){}
@@ -5647,7 +5723,7 @@ async function bncGuardarDesdeBanco(movs){
   }
   // Clasificar lo recién entrado. Si no se llama, la categoría queda NULL y el movimiento no
   // aparece en ningún cuadro: se pierde en silencio, que es peor que no haberlo traído.
-  if(ok){ try{ var rc=await supabase.rpc('bnc_clasificar'); if(rc&&rc.error)console.error('bnc_clasificar:',rc.error.message); }catch(e){ console.error('bnc_clasificar:',e.message); } }
+  if(ok){ try{ var rc=await _rpc('bnc_clasificar'); if(rc&&rc.error)console.error('bnc_clasificar:',rc.error.message); }catch(e){ console.error('bnc_clasificar:',e.message); } }
   return {ok:ok,sin:sin,error:err};
 }
 function g(id){return document.getElementById(id);}
@@ -6953,7 +7029,7 @@ async function renderAvisos(){
   var card=g('avisos-card'); if(!card)return;
   if(!DB_READY||!supabase)return;
   // ¿Esta persona administra avisos? Lo dice el servidor, no SESION.rol.
-  var perm=await supabase.rpc('aviso_gestion_permitida');
+  var perm=await _rpc('aviso_gestion_permitida');
   if(perm.error||!perm.data){ card.style.display='none'; return; }
   card.style.display='';
 
@@ -6970,7 +7046,7 @@ async function renderAvisos(){
   if(f&&!f.value){ f.value=addDays(fechaVE(),7); }
   if(f){ f.min=fechaVE(); f.max=addDays(fechaVE(),90); }
 
-  var r=await supabase.rpc('avisos_listar');
+  var r=await _rpc('avisos_listar');
   AVISOS_LISTA=(r&&r.data)||[];
   var box=g('av-lista'); if(!box)return;
   if(!AVISOS_LISTA.length){ box.innerHTML='<div style="font-size:11px;color:var(--text3)">Todavía no se mandó ningún aviso.</div>'; return; }
@@ -6999,7 +7075,7 @@ async function avisoEnviar(){
   if(!hasta){ mostrarToast('Poné hasta qué día se muestra','error'); return; }
   var btn=g('av-btn'); if(btn){ btn.disabled=true; btn.textContent='Mandando…'; }
   // La validación de verdad está en la RPC: esta pantalla se puede saltar.
-  var r=await supabase.rpc('aviso_crear',{p_cam:cam,p_titulo:tit,p_mensaje:msg,p_hasta:hasta});
+  var r=await _rpc('aviso_crear',{p_cam:cam,p_titulo:tit,p_mensaje:msg,p_hasta:hasta});
   if(btn){ btn.disabled=false; btn.textContent='📣 Mandar aviso'; }
   if(r&&r.error){ mostrarToast('No se pudo mandar: '+r.error.message,'error'); return; }
   if(typeof audit==='function')audit('Aviso a unidad',cam+' hasta '+hasta+': '+msg.slice(0,80));
@@ -7012,7 +7088,7 @@ async function avisoEnviar(){
 async function avisoQuitar(id){
   var a=AVISOS_LISTA.filter(function(x){return x.id===id;})[0];
   if(!confirm('¿Quitar este aviso'+(a?(' de '+String(a.cam).replace('JAC-','')):'')+'?\nDeja de verse en el celular del chofer.'))return;
-  var r=await supabase.rpc('aviso_borrar',{p_id:id});
+  var r=await _rpc('aviso_borrar',{p_id:id});
   if(r&&r.error){ mostrarToast('No se pudo quitar: '+r.error.message,'error'); return; }
   if(!r.data){ mostrarToast('Ese aviso ya no estaba','warn'); renderAvisos(); return; }
   if(typeof audit==='function')audit('Aviso quitado',(a?a.cam+': '+String(a.mensaje||'').slice(0,60):'id '+id));
@@ -7205,7 +7281,7 @@ async function cargarEgresosBanco(desde,hasta){
   if(!(DB_READY&&supabase)||DEMO_MODE)return null;
   try{
     var d=desde||'2026-01-01', h=hasta||new Date().toISOString().slice(0,10);
-    var r=await supabase.rpc('btg_resumen_socio',{p_desde:d,p_hasta:h});
+    var r=await _rpc('btg_resumen_socio',{p_desde:d,p_hasta:h});
     if(r.error){ console.error('btg_resumen_socio:',r.error.message); return null; }
     var x=Array.isArray(r.data)?r.data[0]:r.data;
     if(!x)return null;
@@ -7294,7 +7370,7 @@ var DEUDA_CUOTAS_ERROR='';
 async function cargarCuotasFinanciamiento(){
   if(!(DB_READY&&supabase)||DEMO_MODE){ DEUDA_CUOTAS_ESTADO='error'; DEUDA_CUOTAS_ERROR='sin conexión a la base'; return DEUDA_CUOTAS; }
   try{
-    var pv=await supabase.rpc('deuda_puede_ver');
+    var pv=await _rpc('deuda_puede_ver');
     if(pv.error||pv.data!==true){ DEUDA_CUOTAS=[]; DEUDA_CUOTAS_ESTADO='sin_permiso';
       DEUDA_CUOTAS_ERROR=(pv.error&&pv.error.message)||'este usuario no puede ver los financiamientos'; return DEUDA_CUOTAS; }
     var fs=await supabase.from('deuda_financiamientos').select('id,acreedor,estado').order('id');
@@ -7304,7 +7380,7 @@ async function cargarCuotasFinanciamiento(){
     if(!deudas.length){ DEUDA_CUOTAS=[]; DEUDA_CUOTAS_ESTADO='sin_deudas'; DEUDA_CUOTAS_ERROR=''; return DEUDA_CUOTAS; }
     var filas=[];
     for(var i=0;i<deudas.length;i++){
-      var am=await supabase.rpc('deuda_amortizacion',{p_deuda:deudas[i].id});
+      var am=await _rpc('deuda_amortizacion',{p_deuda:deudas[i].id});
       if(am.error)throw am.error;
       var acr=deudas[i].acreedor||'';
       (am.data||[]).forEach(function(f){
@@ -7354,7 +7430,7 @@ async function _gastoBancoRango(desde,hasta){
   if(!(DB_READY&&supabase)||DEMO_MODE)return {error:'sin conexión a la base'};
   var d=(desde||'').slice(0,10)||'2026-01-01', h=(hasta||'').slice(0,10)||new Date().toISOString().slice(0,10);
   try{
-    var r=await supabase.rpc('btg_resumen_socio',{p_desde:d,p_hasta:h});
+    var r=await _rpc('btg_resumen_socio',{p_desde:d,p_hasta:h});
     if(r.error)return {error:r.error.message||String(r.error)};
     var x=Array.isArray(r.data)?r.data[0]:r.data;
     if(!x)return {error:'la base no devolvió ninguna fila'};
@@ -8105,7 +8181,7 @@ async function imprimirToneladasMes(){
   if(DEMO_MODE){ alert('En modo demostración este reporte no sale: los números serían de mentira.'); return; }
   if(!(DB_READY&&supabase)){ alert('No hay conexión con la base. Este reporte se cuenta en la base, no en lo que tenga cargado esta pantalla, así que sin conexión no se imprime un número a medias.'); return; }
   var r;
-  try{ r=await supabase.rpc('btg_viajes_por_mes'); }
+  try{ r=await _rpc('btg_viajes_por_mes'); }
   catch(e){ r={error:{message:(e&&e.message)||String(e)}}; }
   if(r&&r.error){ alert('No se pudo leer los viajes por mes: '+(r.error.message||r.error)); return; }
   var filas=(r&&r.data)||[];
@@ -8117,7 +8193,7 @@ async function imprimirToneladasMes(){
   //    Es la misma lección que dejó la hoja del aforo de FC13 el 21/10: lo que se gana no es el
   //    número —ya estaba bien— es la PROCEDENCIA.
   var cap=null;
-  try{ var rc=await supabase.rpc('btg_capacidad_viaje'); if(rc&&!rc.error&&rc.data&&rc.data.length)cap=rc.data[0]; }catch(e){}
+  try{ var rc=await _rpc('btg_capacidad_viaje'); if(rc&&!rc.error&&rc.data&&rc.data.length)cap=rc.data[0]; }catch(e){}
   var tpv=cap?(Number(cap.toneladas)||_tonsPorViaje()):_tonsPorViaje();
   // ⛔ Si la declaración de la base y lo que usa el resto de las pantallas no coinciden, eso se
   //    DICE. Elegir una en silencio hace que dos informes de la misma empresa den cifras
@@ -11624,7 +11700,7 @@ async function guardarNominaHist(){
   });
   var prestCompletan=[];
   if(!yaExistia)(n._prestAplicar||[]).forEach(function(d){var p=PRESTAMOS.find(function(x){return x.id===d.id;});if(p&&p.estado==='activo'&&(p.semanasPagadas||0)+1>=p.semanas)prestCompletan.push({nombre:d.empNombre||p.empNombre,monto:d.montoUsd||p.montoUsd});});
-  var rpc=await supabase.rpc('avanzar_nomina',{p_row:row,p_prestamos:prestPayload,p_multas:multaPayload});
+  var rpc=await _rpc('avanzar_nomina',{p_row:row,p_prestamos:prestPayload,p_multas:multaPayload});
   if(rpc.error){
     // Si la migración add_rpc_avanzar_nomina.sql aún no corrió, NO bloquear: camino anterior.
     if(String(rpc.error.code)==='PGRST202'||/avanzar_nomina|could not find|does not exist|not found/i.test(rpc.error.message||'')){
@@ -12319,7 +12395,7 @@ async function osAprobar(id){
   var nota=prompt('Nota de la aprobación (opcional):','');
   if(nota===null) nota='';
   try{
-    var r=await supabase.rpc('os_aprobar',{p_id:id,p_nota:nota||null});
+    var r=await _rpc('os_aprobar',{p_id:id,p_nota:nota||null});
     if(r.error){ alert('No se pudo registrar la aprobación: '+r.error.message); return; }
     var d=r.data||{};
     if(!d.ok){ alert(d.motivo||'No se pudo registrar la aprobación.'); return; }
@@ -12976,7 +13052,7 @@ async function _ccAgregarLinea(){
       if(invSel==='__nuevo'||!invSel){
         var nn=((gv('cc-invnuevo')||'').trim())||nombre;
         if(!(DB_READY&&supabase)){alert('Sin conexión: no se puede crear el ítem de inventario.');return;}
-        var _rn=await supabase.rpc('inv_item_crear',{p:{nombre:nn,categoria:'Otros',unidad:'u',stock_inicial:0,stock_min:2,precio:0}});
+        var _rn=await _rpc('inv_item_crear',{p:{nombre:nn,categoria:'Otros',unidad:'u',stock_inicial:0,stock_min:2,precio:0}});
         if(_rn.error||!(_rn.data&&_rn.data.ok)){alert((_rn.data&&_rn.data.error)||'No se pudo crear el ítem.');return;}
         item={id:_rn.data.id,nombre:nn,cat:'Otros',unidad:'u',stock:0,stockMin:2,precio:0,activo:true};
         INVENTARIO.push(item);
@@ -14159,7 +14235,7 @@ async function guardarPieza(){
   var pzId='PZ'+Date.now();
   var res;
   try{
-    res=await supabase.rpc('piezas_reemplazar',{
+    res=await _rpc('piezas_reemplazar',{
       p_id:pzId, p_cam:cam, p_tipo:tipo, p_serial:serial, p_fecha:fecha,
       p_posicion:pos, p_marca:marca, p_km:km, p_costo_usd:costo,
       p_garantia_meses:garMeses, p_proveedor:prov, p_orden_id:filaMant.orden_id||null,
@@ -14470,7 +14546,7 @@ async function _procesarPiezasExcel(rows,input){
       // Se usa la MISMA función que un cambio normal: si la unidad ya tenía una
       // registrada, esta la reemplaza y queda la cadena. No hay un camino
       // especial para la carga inicial que después se comporte distinto.
-      var r=await supabase.rpc('piezas_reemplazar',{
+      var r=await _rpc('piezas_reemplazar',{
         p_id:'PZ'+Date.now()+'-'+i, p_cam:b.cam, p_tipo:b.tipo, p_serial:b.serial,
         p_fecha:b.fecha||fechaVE(),
         // Misma normalizacion que el formulario: si el Excel trae la posicion
@@ -15156,7 +15232,7 @@ async function registrarMantItem(){
   // pieza no se registra y el usuario se entera — mejor que un serial huerfano.
   if(ok && it && it.llevaSerial && _pzEsCambio && _pzSerial && !_editId){
     try{
-      var _pzRes=await supabase.rpc('piezas_reemplazar',{
+      var _pzRes=await _rpc('piezas_reemplazar',{
         p_id:'PZ'+Date.now(), p_cam:cam, p_tipo:itemId, p_serial:_pzSerial, p_fecha:fecha,
         p_posicion:(gv('hv-pz-pos')||'').trim(), p_marca:(gv('hv-pz-marca')||'').trim(),
         p_km:km, p_costo_usd:costo, p_garantia_meses:(parseInt(gv('hv-pz-gar'))||0),
@@ -17484,7 +17560,7 @@ async function guardarConfigBNC(){
   // persiste en el navegador; los campos en blanco NO sobrescriben lo ya guardado.
   if(!supabase){alert('Sin conexion a base de datos');return;}
   try{
-    var r=await supabase.rpc('bnc_actualizar_config',{
+    var r=await _rpc('bnc_actualizar_config',{
       p_client_guid: gv('bnc-guid')||null,
       p_master_key:  gv('bnc-mkey')||null,
       p_cuenta:      gv('bnc-cuenta-legacy')||null
@@ -19139,7 +19215,7 @@ async function emitirComprobanteRet(idFactura, tipo){
                 '\nEl número se consume aunque después no lo entregues. ¿Seguimos?'))return;
     // El número lo reparte la BASE, no el navegador: dos personas emitiendo a la
     // vez leerían el mismo «último» y saldrían dos comprobantes iguales.
-    var r=await supabase.rpc('ret_siguiente_comprobante',
+    var r=await _rpc('ret_siguiente_comprobante',
                              {p_tipo:tipo, p_periodo:String(f.fecha).slice(0,7)});
     if(r.error||!r.data){alert('No se pudo pedir el número: '+((r.error&&r.error.message)||'sin respuesta'));return;}
     numero=r.data;
@@ -20369,7 +20445,7 @@ async function guardarItemInv(){
   var _btn=g('inv-add-btn'); if(_btn){_btn.disabled=true;_btn.textContent='Guardando…';}
   var item=null;
   try{
-    var _rc=await supabase.rpc('inv_item_crear',{p:{nombre:nombre,categoria:gv('inv-cat'),unidad:gv('inv-unidad'),stock_inicial:parseFloat(gv('inv-stock-ini'))||0,stock_min:parseFloat(gv('inv-stock-min'))||2,precio:parseFloat(gv('inv-precio'))||0,fecha:fechaVE()}});
+    var _rc=await _rpc('inv_item_crear',{p:{nombre:nombre,categoria:gv('inv-cat'),unidad:gv('inv-unidad'),stock_inicial:parseFloat(gv('inv-stock-ini'))||0,stock_min:parseFloat(gv('inv-stock-min'))||2,precio:parseFloat(gv('inv-precio'))||0,fecha:fechaVE()}});
     if(_rc.error){alert('No se pudo guardar el item: '+_rc.error.message);return;}
     var _d=_rc.data||{};
     if(!_d.ok){alert(_d.error||'No se pudo guardar el item.'); if(_d.duplicado)switchInvTab('add'); return;}
@@ -20405,7 +20481,7 @@ async function _invMovimiento(mov){
     return null;
   }
   try{
-    var r=await supabase.rpc('inv_movimiento_registrar',{p:mov});
+    var r=await _rpc('inv_movimiento_registrar',{p:mov});
     if(r.error){ if(typeof mostrarToast==='function')mostrarToast('No se pudo registrar: '+r.error.message,'error'); return null; }
     var d=r.data||{};
     if(!d.ok){ if(typeof mostrarToast==='function')mostrarToast(d.error||'No se pudo registrar el movimiento.','error'); else alert(d.error||'No se pudo registrar.'); return null; }
@@ -20506,7 +20582,7 @@ async function eliminarItemInv(id){
   solicitarToken('Eliminar del inventario: '+item.nombre,async function(mot){
       if(!(DB_READY&&supabase)){alert('Sin conexión: no se hizo nada.');return;}
   try{
-    var _ra=await supabase.rpc('inv_item_archivar',{p_id:id,p_motivo:(mot||'')});
+    var _ra=await _rpc('inv_item_archivar',{p_id:id,p_motivo:(mot||'')});
     if(_ra.error){if(typeof mostrarToast==='function')mostrarToast('No se pudo: '+_ra.error.message,'error');return;}
     var _d=_ra.data||{};
     if(_d.borrado)INVENTARIO=INVENTARIO.filter(function(x){return x.id!==id;});
@@ -33861,10 +33937,10 @@ async function cargarDeudaDash(forzar){
   var res;
   try{
     if(!(typeof supabase!=='undefined'&&supabase)) return {estado:'error',msg:'Sin conexion a la base.'};
-    var pv = await supabase.rpc('deuda_puede_ver');
+    var pv = await _rpc('deuda_puede_ver');
     if(pv.error) throw pv.error;
     if(pv.data!==true) return {estado:'sin-permiso'};   // no se dibuja nada, y no es un error
-    var rs = await supabase.rpc('deuda_resumen');
+    var rs = await _rpc('deuda_resumen');
     if(rs.error) throw rs.error;
     var r = (rs.data&&rs.data.length)?rs.data[0]:null;
     // ⛔ `cuotas_vencidas` CUENTA FILAS: una cuota paga en tres cuartos cuenta
@@ -33872,7 +33948,7 @@ async function cargarDeudaDash(forzar){
     //    del pedazo. Si falla, se sigue sin ella y la frase cae al conteo viejo:
     //    un tablero sin deuda por un dato de adorno seria peor que uno impreciso.
     try{
-      var vd = await supabase.rpc('deuda_vencido_detalle');
+      var vd = await _rpc('deuda_vencido_detalle');
       if(!vd.error && vd.data && vd.data.length){
         r.venc_enteras   = vd.data[0].enteras;
         r.venc_parciales = vd.data[0].parciales;
@@ -34294,7 +34370,7 @@ async function renderCambiarioUsd(){
   var el=g('usd-camb'); if(!el)return;
   if(!(DB_READY&&supabase)){ el.innerHTML='<div style="color:var(--text3);padding:10px">Conectá la base.</div>'; return; }
   try{
-    var r=await supabase.rpc('btg_cambiario_mensual',{p_desde:'2026-01-01',p_hasta:new Date().toISOString().slice(0,10)});
+    var r=await _rpc('btg_cambiario_mensual',{p_desde:'2026-01-01',p_hasta:new Date().toISOString().slice(0,10)});
     if(r.error)throw new Error(r.error.message);
     var ms=r.data||[];
     if(!ms.length){ el.innerHTML='<div style="color:var(--text3);padding:12px">Sin datos.</div>'; return; }
@@ -35067,7 +35143,7 @@ async function reqGuardarNuevo(){
     urgencia: gv('rq-urgencia')||'cuando_se_pueda', consecuencia: (gv('rq-consec')||'').trim()||null };
   var b=g('rq-enviar'); if(b){ b.disabled=true; b.textContent='Enviando…'; }
   try{
-    var r = await supabase.rpc('req_crear', { p_datos: datos, p_lineas: lineas });
+    var r = await _rpc('req_crear', { p_datos: datos, p_lineas: lineas });
     if(r.error || !r.data || !r.data.ok){
       alert('No se pudo enviar: ' + ((r.error&&r.error.message)||'intente de nuevo'));
       if(b){ b.disabled=false; b.textContent='Enviar '+REQ_ETIQ.toLowerCase(); }
@@ -35086,7 +35162,7 @@ async function reqGuardarNuevo(){
 // ── Tomar / cotizar / recibir ───────────────────────────────────────────────
 async function reqTomarUI(id){
   try{
-    var r = await supabase.rpc('req_tomar', { p_id: id });
+    var r = await _rpc('req_tomar', { p_id: id });
     if(r.error){ mostrarToast('No se pudo: '+r.error.message,'error'); return; }
     if(r.data && r.data.ok===false){ mostrarToast(r.data.error,'warn'); }
     else mostrarToast('Queda a su nombre','exito');
@@ -35243,7 +35319,7 @@ async function reqGuardarCotizaciones(id){
   }
   var b=g('rc-enviar'); if(b){ b.disabled=true; b.textContent='Enviando…'; }
   try{
-    var r = await supabase.rpc('req_cotizar', { p_id:id, p_cotizaciones:cots, p_recomendada:rec, p_motivo:motivo||null });
+    var r = await _rpc('req_cotizar', { p_id:id, p_cotizaciones:cots, p_recomendada:rec, p_motivo:motivo||null });
     if(r.error){ alert('No se pudo: '+r.error.message); if(b){b.disabled=false;b.textContent='Pedir la firma';} return; }
     reqCerrarModal();
     if(r.data && r.data.aviso===false) mostrarToast('⚠️ Guardado, pero el aviso no salió: '+(r.data.motivo||''), 'warn');
@@ -35267,7 +35343,7 @@ async function reqAnularUI(id){
   motivo = String(motivo).trim();
   if(motivo.length < 4){ mostrarToast('Hace falta el motivo. Sin eso no se anula.','error'); return; }
   try{
-    var res = await supabase.rpc('req_anular', { p_id:id, p_motivo:motivo, p_quien:((SESION&&SESION.nombre)||(SESION&&SESION.usuario)||'') });
+    var res = await _rpc('req_anular', { p_id:id, p_motivo:motivo, p_quien:((SESION&&SESION.nombre)||(SESION&&SESION.usuario)||'') });
     if(res.error){ mostrarToast('No se pudo: '+res.error.message,'error'); return; }
     var d = res.data||{};
     if(d.ok===false){ mostrarToast(d.error||'No se pudo anular','error'); return; }
@@ -35283,7 +35359,7 @@ async function reqRecibirUI(id){
   var nota = prompt('¿Llegó bien y sirve?\n\nEscriba una nota (opcional). Si algo no está conforme, cancele y avise.');
   if(nota===null) return;
   try{
-    var r = await supabase.rpc('req_recibir', { p_id:id, p_conforme:true, p_nota:nota||null });
+    var r = await _rpc('req_recibir', { p_id:id, p_conforme:true, p_nota:nota||null });
     if(r.error){ mostrarToast('No se pudo: '+r.error.message,'error'); return; }
     if(r.data && r.data.anomalias_cerradas) mostrarToast('✅ Recibido — y la falla del checklist se cerró sola','exito');
     else mostrarToast('✅ Recibido','exito');
@@ -35692,7 +35768,7 @@ async function cuaUsar(cam, cual){
 async function rsCicloActual(){
   _rsEstado('Buscando el ciclo abierto...');
   try{
-    var r=await supabase.rpc('btg_ciclo_alcaldia');
+    var r=await _rpc('btg_ciclo_alcaldia');
     if(r.error) throw r.error;
     var c=Array.isArray(r.data)?r.data[0]:r.data;
     if(!c){ _rsEstado('No se pudo leer el ciclo.','mal'); return; }
@@ -35724,7 +35800,7 @@ async function rsVer(){
   var q=_rsRango(); if(!q) return;
   var cont=g('rs-numeros'); if(cont) cont.innerHTML='<div class="card" style="font-size:11px;color:var(--text2)">Calculando...</div>';
   try{
-    var r=await supabase.rpc('btg_resumen_socios',{p_desde:q.d,p_hasta:q.h});
+    var r=await _rpc('btg_resumen_socios',{p_desde:q.d,p_hasta:q.h});
     if(r.error) throw r.error;
     _rsPintar(r.data);
     _rsEstado('Del '+_rsDdmm(q.d)+' al '+_rsDdmm(q.h)+'.');
@@ -35865,7 +35941,7 @@ async function rsCorridas(){
     //    sin que nadie se entere. Ahora sale del trabajo programado DE VERDAD, asi que no puede
     //    mentir — y si el cron quedara apagado, lo dice. [[norma-dos-listas-a-mano-se-desincronizan]]
     var cuando='';
-    try{ var rc=await supabase.rpc('btg_resumen_socios_cuando'); if(!rc.error) cuando=rc.data||''; }catch(e){}
+    try{ var rc=await _rpc('btg_resumen_socios_cuando'); if(!rc.error) cuando=rc.data||''; }catch(e){}
     var r=await supabase.from('btg_resumen_socios_corridas')
       .select('desde,hasta,enviado_at,destinos').order('enviado_at',{ascending:false}).limit(12);
     if(r.error) throw r.error;
