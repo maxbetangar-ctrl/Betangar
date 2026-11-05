@@ -9960,8 +9960,56 @@ function poblarSemanasNom(){
 // Tarifa del ayudante de APOYO — FUENTE ÚNICA. Escalón por DÍA según los viajes de ese día
 // (regla de Gladys/RRHH 2026-07-20, verificada contra los pagos reales del banco).
 // Si algún día cambia, se cambia AQUÍ y en ningún otro lado.
-function tarifaApoyoDia(viajes){
+// ═══════════════════════════════════════════════════════════════════════════════════════
+// LO QUE COBRA EL APOYO IMAU UN DÍA — y la regla CAMBIÓ DOS VECES
+//
+// ⛔ Declarado por Máximo el 04/11/2026, con sus fechas:
+//      · hasta el 31/08/2026 — ESCALÓN: 2 viajes $2 · 3 o más $5 · 1 o ninguno nada.
+//      · desde el 01/09/2026 — POR VIAJE: $2,50 cada uno. Ya no es un escalón, y un solo
+//        viaje TAMBIÉN paga.
+//      · desde la SEM-35 (02/11/2026) — los DOMINGOS a $7,50 por viaje, igual que un
+//        ayudante de Betangar.
+//
+// ⛔ POR QUÉ LA FECHA ES UN ARGUMENTO Y NO UNA CONFIGURACIÓN. Una semana vieja que se vuelva
+//    a calcular tiene que dar lo que se pagó ENTONCES, no lo que se paga hoy. Si la tarifa
+//    saliera de `cfg`, recalcular agosto con la regla de noviembre reescribiría la historia
+//    y nadie podría explicar el número. El valor derivado depende de la VERSIÓN de su regla.
+//    [[norma-un-valor-derivado-depende-de-la-version-de-su-regla]]
+//
+// ✅ Comprobado contra el Excel de la oficina (SEM-34): ANDERSON FUENMAYOR $32,50 = 13×2,50 ·
+//    MERALDO PAZ $37,50 = 15×2,50 · ALBERTO VENEGA $42,50 = 17×2,50 · GREGORIO VILCHEZ
+//    $12,50 = 5×2,50.
+// ═══════════════════════════════════════════════════════════════════════════════════════
+// ⛔ EL APOYO IMAU ES SIEMPRE $2,50 POR VIAJE — y esto es una ACLARACIÓN DE MÁXIMO que casi
+//    se mete mal (04/11/2026). Las tarifas que cambian por DOMINGO, FERIADO o NOCTURNO son
+//    las de los choferes y ayudantes DE BETANGAR (el 1,5× de domingo y feriado nacional,
+//    el nocturno de Resimara). Al apoyo IMAU NO se le aplican: su tarifa es plana.
+//    La ÚNICA excepción, declarada por él: desde la SEM-35 (02/11/2026) el DOMINGO se le
+//    paga $7,50 por viaje, igual que a un ayudante de Betangar.
+//
+//    Y se comprobó contra el Excel antes de escribir esto: en la SEM-33, que incluye el
+//    FERIADO del 12 de octubre, todos los montos del apoyo IMAU siguen siendo múltiplos de
+//    $2,50 — ahí no hay ningún recargo. Meterle un 1,5× de feriado habría pagado de más y
+//    el número no se habría podido explicar contra el Excel de la oficina.
+//    [[norma-un-valor-derivado-depende-de-la-version-de-su-regla]]
+var IMAU_REGLA_POR_VIAJE = '2026-09-01';   // desde acá, $2,50 por viaje (se acabó el escalón)
+var IMAU_REGLA_DOMINGO   = '2026-11-02';   // desde la SEM-35, el domingo va a $7,50 por viaje
+function _esDomingoISO(f){
+  try{ return new Date(String(f).slice(0,10)+'T12:00:00').getDay()===0; }catch(e){ return false; }
+}
+function tarifaApoyoDia(viajes, fecha){
   var v=parseInt(viajes)||0;
+  if(v<=0)return 0;
+  var f=String(fecha||'').slice(0,10);
+  // Sin fecha se usa la regla VIEJA a propósito: es lo que hacía antes de este cambio, así
+  // que ninguna pantalla que todavía no pase la fecha empieza a pagar distinto de callada.
+  if(f && f>=IMAU_REGLA_POR_VIAJE){
+    // Plana, salvo el domingo desde la SEM-35. Sin feriado y sin nocturno: no le aplican.
+    var porViaje=(f>=IMAU_REGLA_DOMINGO && _esDomingoISO(f))
+      ? (cfg.apoyoDom!=null?cfg.apoyoDom:7.5)
+      : (cfg.apoyoViaje!=null?cfg.apoyoViaje:2.5);
+    return Math.round(v*porViaje*100)/100;
+  }
   if(v>=3)return (cfg.apoyo3!=null?cfg.apoyo3:5);   // del 3er viaje en adelante
   if(v===2)return (cfg.apoyo2!=null?cfg.apoyo2:2);  // exactamente 2
   return 0;                                          // 1 viaje o ninguno: no se paga
@@ -10124,7 +10172,9 @@ function calcNom(){
   var apMap={};
   f.forEach(function(r){
     var vj=parseInt(r.t)||0;
-    var pago=tarifaApoyoDia(vj); if(pago<=0)return;   // 1 viaje o ninguno: no se paga
+    // La FECHA de la planilla decide la regla: desde el 01/09 es por viaje y desde el 02/11
+    // el domingo va a 7,50. Sin pasarla, agosto se pagaria con la tarifa de noviembre.
+    var pago=tarifaApoyoDia(vj, r.f); if(pago<=0)return;   // sin viajes no se paga
     // Nocturno en Resimara: el día de apoyo se paga 1.5× (el apoyo va en ese viaje). El escalón es
     // por día, así que se multiplica el pago del día. No aplica recargo de domingo al apoyo (nunca lo tuvo).
     if(_esResimaraNoche(r)) pago=Math.round(pago*1.5*100)/100;
@@ -10247,7 +10297,7 @@ function calcNom(){
         // que se guarde, y montarse en otro a hacer 1 más — son 3 y el escalón va sobre 3. Ese
         // reparto no lo sabe nadie más que RRHH, por eso se puede escribir. Vacío = los de su
         // unidad, que es lo normal.
-        var vj=(dec.v!=null)?dec.v:vjUni, tarifa=tarifaApoyoDia(vj);
+        var vj=(dec.v!=null)?dec.v:vjUni, tarifa=tarifaApoyoDia(vj, dia);
         // La asistencia solo importa el día que HAY algo que pagar. Si hizo 1 viaje o ninguno, no
         // cobra fue o no fue: no tiene sentido pedirle el dato a RRHH.
         var pres=(tarifa>0)?_imauPresente(e.id,dia):'P';
