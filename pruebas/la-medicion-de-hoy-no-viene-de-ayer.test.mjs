@@ -136,20 +136,40 @@ for (const id of ['cl-km-salida', 'cl-km-llegada', 'cl-hora-salida', 'cl-hora-ll
 // ══ 6 · VERIFICACIÓN AL REVÉS: contra el archivo anterior, el caso 1 falla ═══
 console.log('\n6 · al revés: con el código anterior el residuo SOBREVIVE')
 {
+  // ⛔ EL «ANTES» NO PUEDE SER `HEAD`, Y ESO TUVO LA SUITE EN ROJO DESDE EL 29/10/2026.
+  //    Mientras el arreglo vivía en una rama, `HEAD:chofer.html` era el código viejo y el
+  //    control al revés corría. En cuanto se mergeó, HEAD YA TRAE EL ARREGLO: el control se
+  //    declara a sí mismo imposible y suma un fallo — para siempre, en cada corrida.
+  //    ⇒ Una suite que está roja pase lo que pase no avisa de nada: se vuelve ruido y se
+  //      deja de mirar. Costó que nadie notara nada en siete días.
+  //    El «antes» correcto es FIJO: el padre del commit que introdujo el arreglo. Ese
+  //    commit no se mueve nunca, así que el control sigue pudiendo correr para siempre.
+  //    [[norma-un-aviso-que-salta-siempre-no-avisa]]
   let antes = null
+  // El repo del archivo QUE SE ESTÁ PROBANDO, no el de esta prueba: así la verificación
+  // al revés sirve igual cuando se corre apuntando a otro de los seis clones.
+  const repo = path.dirname(ruta instanceof URL ? fileURLToPath(ruta) : path.resolve(ruta))
+  const git = (args) => execFileSync('git', args, { cwd: repo, encoding: 'utf8', maxBuffer: 50 * 1024 * 1024 })
+  let dondeSalio = ''
   try {
-    // El repo del archivo QUE SE ESTÁ PROBANDO, no el de esta prueba: así la verificación
-    // al revés sirve igual cuando se corre apuntando a otro de los seis clones.
-    const repo = path.dirname(ruta instanceof URL ? fileURLToPath(ruta) : path.resolve(ruta))
-    antes = execFileSync('git', ['show', 'HEAD:chofer.html'],
-      { cwd: repo, encoding: 'utf8', maxBuffer: 50 * 1024 * 1024 })
+    // El commit más viejo que tocó esa función en este archivo = el que la agregó.
+    const commits = git(['log', '-S', 'clVaciarCamposUnaVez', '--format=%H', '--', 'chofer.html'])
+      .trim().split('\n').filter(Boolean)
+    const introdujo = commits[commits.length - 1]
+    if (!introdujo) throw new Error('no encuentro el commit que agregó `clVaciarCamposUnaVez`')
+    dondeSalio = introdujo.slice(0, 7) + '^'
+    antes = git(['show', `${introdujo}^:chofer.html`])
   } catch (e) {
-    console.log('  ⚠️  no pude leer `git show HEAD:chofer.html` — la verificación al revés NO corrió')
+    console.log('  ⚠️  no pude armar el «antes» (' + String(e.message).split('\n')[0].slice(0, 80) +
+                ') — la verificación al revés NO corrió')
     fallos++
   }
   if (antes) {
+    // Control positivo del control negativo: si el «antes» YA trajera el arreglo, no estaría
+    // probando nada y hay que decirlo — pero ahora eso sería un error de la prueba, no del
+    // producto. [[norma-control-positivo-antes-de-creerle-al-vacio]]
     if (antes.includes('clVaciarCamposUnaVez')) {
-      console.log('  ⚠️  HEAD ya trae el arreglo: comparo contra otro commit o esto no prueba nada')
+      console.log(`  ⚠️  el «antes» (${dondeSalio}) ya trae el arreglo: la prueba está mal armada`)
       fallos++
     } else {
       const c = montar(antes)
@@ -157,7 +177,7 @@ console.log('\n6 · al revés: con el código anterior el residuo SOBREVIVE')
       let reventó = false
       try { vm.runInContext('clVaciarCamposUnaVez()', c) } catch (e) { reventó = true }
       ok(reventó || c._cajas['cl-cm-salida'].value === '18',
-         'sin el arreglo los 18 cm de ayer se quedan en la casilla (no había nada que los sacara)')
+         `sin el arreglo (${dondeSalio}) los 18 cm de ayer se quedan en la casilla`)
     }
   }
 }
