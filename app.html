@@ -2514,6 +2514,12 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
         <div id="ne-sueldo-hist" style="display:none;font-size:11px;color:var(--text3);background:rgba(125,125,125,.06);border-radius:8px;padding:8px 10px;margin-top:-4px"></div>
         <div class="fg"><label>Fecha de Nacimiento</label><input class="fc" id="ne-fnac" type="date"></div>
           <div class="fg"><label>Fecha de Ingreso</label><input class="fc" id="ne-fingreso" type="date"></div>
+          <!-- ⛔ 04/11/2026: este campo NO EXISTÍA. Al dar de baja a alguien sin poner la fecha,
+               la app decía «queda por completar en su ficha» — y la ficha no tenía dónde. 26
+               fichas inactivas quedaron sin fecha de egreso y no había forma de arreglarlas
+               desde la pantalla. Es el dato que decide prestaciones y hasta cuándo contar a la
+               persona en nómina. -->
+          <div class="fg"><label>Fecha de Egreso <span style="font-weight:400;color:var(--text3)">(último día trabajado)</span></label><input class="fc" id="ne-fegreso" type="date" title="Solo para fichas dadas de baja. Es la fecha que se usa para prestaciones y para saber hasta cuándo contarlo en nómina."></div>
         <div class="fr2">
           <div class="fg"><label>Email</label><input class="fc" id="ne-email" type="email" placeholder="correo@ejemplo.com"></div>
         <div class="fg"><label>Teléfono / WhatsApp</label><input class="fc" id="ne-tel" type="tel" placeholder="+58 414-000-0000"></div>
@@ -3199,7 +3205,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
      Excel sale con el defecto ya corregido. Pasó midiendo este mismo cambio el
      23/09: dos corridas dieron un .xlsx idéntico byte por byte. -->
 <script src="maxware-excel.js?v=20260923-2252"></script>
-<script src="app.js?v=20261104-1730"></script>
+<script src="app.js?v=20261104-2022"></script>
 
 <!-- Modal global -->
 <div id="modal" class="moverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9990;align-items:center;justify-content:center;padding:16px">

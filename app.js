@@ -10474,6 +10474,43 @@ function calcNom(){
     var alias=(typeof _ALIAS_NOMBRES!=='undefined')&&_ALIAS_NOMBRES[k];
     return !casa && !alias;
   }).map(function(k){return _scMap[k];}).sort(function(a,b){return b.viajes-a.viajes;});
+  // ⛔ EL NOMBRE QUE DOS FICHAS SE DISPUTAN. Esto NO se avisaba, y es de donde vuelve siempre
+  //    el lío de los hermanos FERNANDEZ FERRER: los dos se llaman LUIS y comparten los dos
+  //    apellidos, así que el mismo texto de planilla lo reclaman las dos fichas. La casa ya
+  //    tiene la norma —«ante dos candidatos indistinguibles no se elige uno, se avisa»— pero
+  //    estaba aplicada solo al ARMADO de alias, no acá. Resultado: se ponían parches sobre el
+  //    NOMBRE («Luis Hermano» para distinguirlos a ojo), el nombre no alcanza nunca porque es
+  //    el identificador débil, y el problema volvía.
+  //    Medido el 04/11/2026 sobre 2.271 planillas: SEIS nombres distintos los reclaman dos
+  //    fichas. Acá se ven, con a quién se le está pagando y con qué alias se resolvió.
+  //    [[norma-nombre-corto-que-apunta-a-dos-personas]] · [[norma-la-palabra-que-identifica-es-la-rara]]
+  var _ambiguos=Object.keys(_scMap).map(function(k){
+    var x=_scMap[k];
+    var reclaman=(typeof EMPLEADOS!=='undefined'?EMPLEADOS:[]).filter(function(e){
+      return (typeof _nomCasa==='function')&&_nomCasa(x.nombre,e.nombre);
+    });
+    if(reclaman.length<2)return null;
+    var elegido=(typeof _empPorNombre==='function')?_empPorNombre(x.nombre):null;
+    return {nombre:x.nombre, viajes:x.viajes, reclaman:reclaman, elegido:elegido,
+            porAlias:!!((typeof _ALIAS_NOMBRES!=='undefined')&&_ALIAS_NOMBRES[k])};
+  }).filter(Boolean).sort(function(a,b){return b.viajes-a.viajes;});
+  if(_ambiguos.length){
+    var _ambList=_ambiguos.map(function(x){
+      var quienes=x.reclaman.map(function(e){
+        var yo=x.elegido&&e.id===x.elegido.id;
+        return (yo?'<b>':'')+_scEsc(e.nombre)+' ('+_scEsc(e.cedula||'sin cédula')+')'+(yo?'</b> ←':'');
+      }).join(' vs ');
+      return '<div style="margin-top:3px">▸ <b>'+_scEsc(x.nombre)+'</b> <span style="color:var(--text3)">('+x.viajes+' viajes)</span>'+
+             '<br><span style="margin-left:12px">'+quienes+'</span>'+
+             (x.elegido?('<span style="color:var(--text3)"> — se le paga a esa'+(x.porAlias?', por un alias cargado a mano':'')+'</span>')
+                       :'<span style="color:#e24b4a"> — el sistema NO elige: esos viajes quedan sin pagar a nadie</span>')+'</div>';
+    }).join('');
+    descBanners.unshift('<div style="margin-bottom:6px;font-size:11px;background:rgba(245,158,11,.12);border:1px solid rgba(245,158,11,.6);color:var(--amber);padding:8px 10px;border-radius:8px">'+
+      '⚠️ <b>'+_ambiguos.length+' nombre(s) de planilla los reclaman DOS fichas o más</b>'+_ambList+
+      '<div style="font-size:10px;color:var(--text3);margin-top:5px">Pasa cuando dos personas comparten el primer nombre y un apellido (hermanos, por ejemplo). '+
+      'Cambiarle el nombre a uno NO lo arregla: lo que los separa es el <b>alias</b> (Nómina ▸ Alias de nombres), que manda sobre el parecido. '+
+      'Revisá que la ficha en negrita sea la que de verdad hizo esos viajes.</div></div>');
+  }
   if(_sinCasar.length){
     var _scList=_sinCasar.map(function(x){return '<b>'+_scEsc(x.nombre)+'</b> <span style="color:var(--text3)">('+Object.keys(x.roles).join('/')+', '+x.viajes+' viajes)</span>';}).join(' · ');
     descBanners.unshift('<div style="margin-bottom:6px;font-size:11px;background:rgba(226,75,74,.12);border:1px solid rgba(226,75,74,.5);color:#e24b4a;padding:8px 10px;border-radius:8px">⚠️ <b>'+_sinCasar.length+' nombre(s) en las planillas NO casan con ningún empleado</b> (typo del Excel o empleado sin registrar):<br>'+_scList+'.<div style="font-size:10px;color:var(--text3);margin-top:4px">Corregí el nombre en el Excel o registrá al empleado. Mientras, esos viajes no se enlazan a una ficha (banco/cédula) y pueden confundirse.</div></div>');
@@ -18717,8 +18754,26 @@ function _cxpPagoHermanos(p){
 }
 function renderRetenciones(){
   var mesHoy=(typeof fechaVE==='function'?fechaVE():new Date().toISOString().slice(0,10)).slice(0,7);
-  if(g('ret-mes')&&!gv('ret-mes'))sv('ret-mes',mesHoy);
-  var mes=gv('ret-mes')||mesHoy;
+  // ⛔ 04/11/2026: el selector arrancaba en el MES DE HOY. La última factura de compra era del
+  //    13/10, así que en noviembre la pantalla abría VACÍA — y como la tabla se pinta con
+  //    `facs.map(...)`, una lista vacía deja el `<tbody>` en blanco, sin una sola palabra.
+  //    El botón del comprobante de retención se dibuja POR FACTURA, así que sin facturas no
+  //    hay botones: se ve EXACTAMENTE igual que si el módulo no estuviera desplegado. Eso fue
+  //    lo que se reportó —«el módulo de emisión de retenciones no está, no lo veo»— el mismo
+  //    día en que se desplegó, estando bien. 38 de las 53 facturas SÍ tienen su botón; solo
+  //    que ninguna es de noviembre.
+  //    Ahora arranca en el ÚLTIMO MES QUE TIENE FACTURAS, y si el mes elegido no tiene,
+  //    la tabla lo DICE y nombra los que sí.
+  //    [[norma-una-seccion-condicional-sin-datos-parece-que-no-existe]] · [[norma-falta-de-dato-no-es-un-dato]]
+  var _meses=[];
+  (CXP_FACTURAS||[]).forEach(function(f){
+    var m=String(f.fecha||'').slice(0,7);
+    if(m&&_meses.indexOf(m)<0)_meses.push(m);
+  });
+  _meses.sort();
+  var _mesConDatos=_meses.length?_meses[_meses.length-1]:mesHoy;
+  if(g('ret-mes')&&!gv('ret-mes'))sv('ret-mes',_mesConDatos);
+  var mes=gv('ret-mes')||_mesConDatos;
   var facs=CXP_FACTURAS.filter(function(f){return String(f.fecha||'').slice(0,7)===mes;});
   _refrescarKpiRetBs();
   var sumBase=facs.reduce(function(s,f){return s+(parseFloat(f.base_bs)||0);},0);
@@ -18737,6 +18792,18 @@ function renderRetenciones(){
     '<div>Ret. ISLR: <b style="font-family:var(--m);color:var(--teal)">'+fBs(sumRIslr)+'</b></div>'+
     '</div>';
   var tb=g('tb-ret'); if(!tb)return;
+  // Una tabla vacía no puede quedarse muda: hay que poder distinguir «ese mes no tuvo
+  // facturas» de «esta pantalla no funciona».
+  if(!facs.length){
+    var _otros=_meses.filter(function(m){return m!==mes;});
+    tb.innerHTML='<tr><td colspan="13" style="padding:14px;text-align:center;color:var(--text2);font-size:12px">'+
+      '<b>No hay facturas de compra cargadas en '+_mEsc(mes)+'.</b><br>'+
+      '<span style="font-size:11px;color:var(--text3)">El botón para emitir el comprobante de retención sale '+
+      '<b>en cada factura</b>, así que en un mes sin facturas no aparece ninguno — no es que falte el módulo.'+
+      (_otros.length?('<br>Meses con facturas: '+_otros.slice(-6).map(_mEsc).join(' · ')):'')+
+      '</span></td></tr>';
+    return;
+  }
   tb.innerHTML=facs.map(function(f){
     // Qué órdenes cubre esta factura. Es el dato que faltaba: con el nº de factura en la mano,
     // saber a qué trabajos corresponde sin tener que abrir deuda por deuda.
@@ -21272,7 +21339,7 @@ function switchEmpTab(t){['lista','nuevo','carnets','bancario','cumple'].forEach
   if(t==='bancario')renderBancario();
   if(t==='cumple')renderCumpleanos();
   if(t==='nuevo'){
-    ['ne-id','ne-nombre','ne-cargo','ne-unidad','ne-ced','ne-rif','ne-fnac','ne-fingreso','ne-email','ne-tel','ne-banco','ne-tcuenta','ne-ncuenta','ne-imau','ne-tipoAy','ne-whatsapp','ne-wa-apikey','ne-forma-pago','ne-sueldo','ne-sueldo-desde','ne-sueldo-motivo'].forEach(function(fid){var el=g(fid);if(el)el.value='';});
+    ['ne-id','ne-nombre','ne-cargo','ne-unidad','ne-ced','ne-rif','ne-fnac','ne-fingreso','ne-fegreso','ne-email','ne-tel','ne-banco','ne-tcuenta','ne-ncuenta','ne-imau','ne-tipoAy','ne-whatsapp','ne-wa-apikey','ne-forma-pago','ne-sueldo','ne-sueldo-desde','ne-sueldo-motivo'].forEach(function(fid){var el=g(fid);if(el)el.value='';});
     var _mcn=g('ne-multicargo'); if(_mcn)_mcn.checked=false; try{toggleTipoAy('');}catch(e){}
     sv('ne-foto-b64','');
     var prev=g('ne-foto-preview');if(prev)prev.innerHTML='<span style="font-size:40px;color:var(--text3)">👤</span>';
@@ -21388,9 +21455,15 @@ function renderEmpleados(){
 
   if(betangar.length){
     html+=secHdr('🏢 '+brandNom(),'var(--lime)',betangar.length);
+    // ⛔ 04/11/2026: esta lista de grupos está escrita A MANO y el catálogo de cargos vive en
+    //    otro lado. Cuatro cargos REALES y activos no estaban acá —Socio, Jefe de Operaciones,
+    //    Auditora y Contadora— y la pantalla los mandaba al cajón de abajo rotulado «Sin
+    //    cargo», aunque su ficha SÍ lo tuviera. Se reportó por Samuel Mendoza, que es Jefe de
+    //    Operaciones; eran cuatro. Auditora y Contadora se habían agregado al catálogo en
+    //    junio y acá nadie las sumó. [[norma-dos-listas-a-mano-se-desincronizan]]
     var grupos=[
-      {l:'👔 Dirección',c:['Gerente General']},
-      {l:'🏢 Administrativo',c:['Operativo','Administradora','RRHH','Supervisor']},
+      {l:'👔 Dirección',c:['Gerente General','Jefe de Operaciones','Socio']},
+      {l:'🏢 Administrativo',c:['Operativo','Administradora','RRHH','Supervisor','Contadora','Auditora']},
       {l:'🔧 Operaciones',c:['Mecanico','Vigilante']},
       {key:'mixtos',l:'🔁 Chofer y Ayudante (rotan)'},
       {key:'chofer',l:'🚛 Choferes',c:['Chofer']},
@@ -21413,10 +21486,28 @@ function renderEmpleados(){
       html+=m.map(function(e){return card(e, grp.key==='mixtos'?(_actMap[e.id]||{ch:0,ay:0}):null);}).join('');
       m.forEach(function(e){if(yaRend.indexOf(e.id)<0)yaRend.push(e.id);});
     });
+    // ⛔ Y EL CAJÓN DE SOBRAS NO PUEDE MENTIR. Acá caía todo el que no entrara en un grupo, y
+    //    el rótulo decía «Sin cargo» — una ACUSACIÓN a la ficha, cuando lo que faltaba era el
+    //    grupo. Ahora se separan: quien TIENE cargo va a «Otros cargos» con el suyo a la
+    //    vista, y «Sin cargo» queda solo para el que de verdad lo tiene vacío. Así el próximo
+    //    cargo nuevo se verá raro, pero no dirá algo falso de la persona.
+    //    [[norma-una-asercion-mal-escrita-acusa-al-producto]]
     var sinGrupo=betangar.filter(function(e){return yaRend.indexOf(e.id)<0;});
-    if(sinGrupo.length){
-      html+='<div style="grid-column:1/-1;font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;padding:6px 0 2px;margin-top:4px">👤 Sin cargo ('+sinGrupo.length+')</div>';
-      sinGrupo.forEach(function(e){html+=card(e);});
+    var _rotulo=function(txt,n){
+      return '<div style="grid-column:1/-1;font-size:10px;color:var(--text3);text-transform:uppercase;'+
+             'letter-spacing:1px;padding:6px 0 2px;margin-top:4px">'+txt+' ('+n+')</div>';
+    };
+    var conCargo=sinGrupo.filter(function(e){return String(e.cargo||'').trim()!=='';});
+    var vacios=sinGrupo.filter(function(e){return String(e.cargo||'').trim()==='';});
+    if(conCargo.length){
+      var _cs=[];
+      conCargo.forEach(function(e){var c=String(e.cargo).trim();if(_cs.indexOf(c)<0)_cs.push(c);});
+      html+=_rotulo('🏷️ Otros cargos — '+_mEsc(_cs.join(', ')),conCargo.length);
+      conCargo.forEach(function(e){html+=card(e);});
+    }
+    if(vacios.length){
+      html+=_rotulo('👤 Sin cargo',vacios.length);
+      vacios.forEach(function(e){html+=card(e);});
     }
   }
 
@@ -21489,6 +21580,7 @@ function cargarEmp(id){
   renderUnidadesSelect(e.unidad||'');
   sv('ne-fnac',e.fnac||'');
   sv('ne-fingreso',e.fingreso||'');
+  sv('ne-fegreso',e.fegreso||'');
   sv('ne-email',e.email||'');
   sv('ne-tel',e.tel||'');
   sv('ne-whatsapp',e.whatsapp||'');
@@ -21614,7 +21706,7 @@ async function guardarEmpleado(){
   var idx=EMPLEADOS.findIndex(function(e){return e.id===id;});
   // Preservar baja: editar un empleado dado de baja NO debe reactivarlo. Nuevos empleados nacen activos.
   var activoPrev=idx>=0?(EMPLEADOS[idx].activo!==false):true;
-  var emp={id:id,nombre:nombre.toUpperCase(),cargo:gv('ne-cargo'),imau:gv('ne-imau')==='true',unidad:gv('ne-unidad'),cedula:gv('ne-ced'),rif:_rifFmt(gv('ne-rif'))||'',fnac:gv('ne-fnac'),fingreso:gv('ne-fingreso')||'',email:gv('ne-email'),tel:gv('ne-tel')||'',banco:gv('ne-banco'),whatsapp:gv('ne-whatsapp')||'',wa_apikey:gv('ne-wa-apikey')||'',tcuenta:gv('ne-tcuenta'),ncuenta:_cuentaFmt(gv('ne-ncuenta')),tipoAy:gv('ne-tipoAy'),foto:gv('ne-foto-b64')||'',activo:activoPrev,multicargo:(g('ne-multicargo')?g('ne-multicargo').checked:false),
+  var emp={id:id,nombre:nombre.toUpperCase(),cargo:gv('ne-cargo'),imau:gv('ne-imau')==='true',unidad:gv('ne-unidad'),cedula:gv('ne-ced'),rif:_rifFmt(gv('ne-rif'))||'',fnac:gv('ne-fnac'),fingreso:gv('ne-fingreso')||'',fegreso:gv('ne-fegreso')||null,email:gv('ne-email'),tel:gv('ne-tel')||'',banco:gv('ne-banco'),whatsapp:gv('ne-whatsapp')||'',wa_apikey:gv('ne-wa-apikey')||'',tcuenta:gv('ne-tcuenta'),ncuenta:_cuentaFmt(gv('ne-ncuenta')),tipoAy:gv('ne-tipoAy'),foto:gv('ne-foto-b64')||'',activo:activoPrev,multicargo:(g('ne-multicargo')?g('ne-multicargo').checked:false),
     formaPago:gv('ne-forma-pago')||'',
     // ⚠️ Solo se guarda el monto si el pago es FIJO. Si alguien escribio un numero
     //    y despues cambio a «por viaje», ese numero NO debe quedar guardado: un
