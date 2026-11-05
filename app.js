@@ -1343,7 +1343,7 @@ function _iniciarSesionCore(){
     if(!_rl[SESION.rol]){
       bncInitFlag().then(function(){renderDash();});
       renderDash();renderPlanHoy();renderKm();renderAbonos();
-      recalcNom();renderGastosFijos();renderGastosVariables();
+      recalcNom();renderGastosFijos();renderGastosVariables();try{cargarGvCats();}catch(e){}  // las categorias las pone cada casa: salen de la base
       checkAlertas7AM();checkCumpleAlerts();checkAniversarioEmpresa();
     }
     // Para roles limitados: navegar PRIMERO antes de cualquier render
@@ -22608,7 +22608,139 @@ function agregarGastoFijo(){
 
 // La vista previa usa la MISMA tasa que va a quedar guardada (la del día del gasto), o mostraría
 // un número y guardaría otro.
-function calcGastoVar(){var usd=parseFloat(gv('gv-usd'))||0;var tasa=_tasaDelGastoVar();var bs=usd*(tasa||0);var el=document.getElementById('gv-bs');if(el)el.value=bs>0?bs.toFixed(0):'';}
+// ⛔ NO PISAR LO QUE ESCRIBIO LA PERSONA. Si ya corrigio los bolivares a mano, ese es el
+// desembolso real y recalcularlo se lo borraria mientras escribe.
+// ═══════════════════════════════════════════════════════════════════════════════════════
+// GASTOS VARIABLES — las categorías las pone cada casa, y los bolívares se pueden corregir
+//
+// ⛔ LAS CATEGORÍAS ESTABAN ESCRITAS A MANO EN EL HTML, y eran las de BETANGAR: «Gasoil
+//    Tumaca», «Mantenimiento JAC». En Flotilla quedaron del clonado, y por eso el reporte
+//    decía «no son las indicadas y no satisfacen su operatividad». Una lista fija en el
+//    HTML no la puede arreglar quien la usa: hay que tocar el código y desplegar.
+//    Ahora viven en `configuracion` (clave `gastos_categorias`), se siembran con las que
+//    había para no perder nada, y se agregan y quitan desde la pantalla.
+//    [[norma-catalogo-no-puede-trancar-el-registro]]
+//
+// ⛔ Y LOS BOLÍVARES ERAN `readonly`. Se calculaban solos y no se podían corregir, así que
+//    un gasto cargado días después NO coincidía con el desembolso real. Lo reportó
+//    Alejandra (04/11/2026). Ahora: se siguen calculando solos con la tasa DEL DÍA DEL
+//    GASTO, pero si la persona escribe los bolívares que de verdad salieron, ESO MANDA —
+//    es el dato duro, y la tasa que implica queda a la vista.
+//    [[norma-la-factura-manda-sobre-la-deuda]]
+// ═══════════════════════════════════════════════════════════════════════════════════════
+var GV_CATS = null;          // null = todavía no se leyó de la base
+var GV_CATS_DEF = ['Gasoil Estacion','Gasoil Tumaca','Mantenimiento JAC','Repuestos',
+                   'Herramientas','Administrativo','Peajes','Otros'];
+// ⚠️ `_gvBsTocado` distingue «el usuario escribió los bolívares» de «los calculó la app».
+//    Sin esa distinción, recalcular al cambiar el monto en dólares le pisaría el número
+//    que la persona acaba de escribir mirando el comprobante.
+var _gvBsTocado = false;
+
+async function cargarGvCats(){
+  GV_CATS = GV_CATS_DEF.slice();
+  try{
+    if(DB_READY&&supabase){
+      var r=await supabase.from('configuracion').select('valor').eq('clave','gastos_categorias').maybeSingle();
+      if(r&&r.data&&r.data.valor){
+        var v=JSON.parse(r.data.valor);
+        if(Array.isArray(v)&&v.length) GV_CATS=v;
+      }
+    }
+  }catch(e){ console.log('cats gasto var:',e&&e.message); }
+  renderGvCats();
+}
+async function guardarGvCats(){
+  try{
+    if(DB_READY&&supabase){
+      var r=await supabase.from('configuracion').upsert([{clave:'gastos_categorias',valor:JSON.stringify(GV_CATS)}],{onConflict:'clave'});
+      if(r&&r.error){ mostrarToast('No se pudo guardar la lista: '+r.error.message,'error'); return false; }
+    }
+  }catch(e){ mostrarToast('No se pudo guardar la lista','error'); return false; }
+  return true;
+}
+function renderGvCats(){
+  var sel=g('gv-cat'); if(!sel) return;
+  var antes=sel.value;
+  var cats=GV_CATS||GV_CATS_DEF;
+  sel.innerHTML=cats.map(function(c){ return '<option>'+_mEsc(c)+'</option>'; }).join('');
+  if(antes&&cats.indexOf(antes)>=0) sel.value=antes;
+  var cont=g('gv-cats-admin');
+  if(cont){
+    cont.innerHTML=cats.map(function(c){
+      return '<span style="display:inline-flex;align-items:center;gap:4px;background:var(--bg3,rgba(255,255,255,.05));border:1px solid var(--border);border-radius:999px;padding:2px 6px 2px 10px;margin:0 4px 4px 0;font-size:11px">'+
+        _mEsc(c)+'<button class="solo-ui" onclick="gvQuitarCat('+JSON.stringify(c).replace(/"/g,'&quot;')+')" title="Quitar" style="background:none;border:none;color:var(--red);cursor:pointer;font-size:13px;line-height:1;padding:0 2px">×</button></span>';
+    }).join('');
+  }
+}
+async function gvAgregarCat(){
+  var inp=g('gv-cat-nueva'); if(!inp) return;
+  var t=String(inp.value||'').trim();
+  if(!t){ mostrarToast('Escribí el nombre de la categoría','error'); return; }
+  if(!GV_CATS) GV_CATS=GV_CATS_DEF.slice();
+  // Sin repetir, mirando sin distinguir mayúsculas ni tildes: dos categorías que se leen
+  // igual parten el mismo gasto en dos y ninguna suma lo que debería.
+  // Comparador PROPIO: no se apoya en `_npNorm`, que solo existe en Betangar. Nombrar una
+  // funcion que no existe NO es falso, LANZA, y el boton de agregar quedaba muerto en
+  // Flotilla. Lo agarro la prueba. [[norma-arreglo-en-una-es-arreglo-en-todas-misma-sesion]]
+  var norm=function(s){
+    var t=String(s||'').trim().toUpperCase();
+    try{ t=t.normalize('NFD').replace(/[̀-ͯ]/g,''); }catch(e){}
+    return t.replace(/\s+/g,' ');
+  };
+  if(GV_CATS.some(function(c){ return norm(c)===norm(t); })){
+    mostrarToast('Esa categoría ya está en la lista','error'); return;
+  }
+  GV_CATS.push(t);
+  if(await guardarGvCats()){ inp.value=''; renderGvCats(); mostrarToast('✅ Categoría agregada','exito'); }
+}
+async function gvQuitarCat(cat){
+  if(!GV_CATS) return;
+  // ⛔ Una categoría que YA SE USÓ no se borra: los gastos que la tienen quedarían
+  //    apuntando a algo que no existe y después nadie sabe qué eran.
+  var usada=(GASTOS_VARIABLES||[]).some(function(x){ return (x.cat||x.categoria)===cat; });
+  if(usada){
+    alert('No se puede quitar «'+cat+'»: ya hay gastos cargados con esa categoría.\n\n'+
+          'Si se quitara, esos gastos quedarían apuntando a una categoría que no existe.');
+    return;
+  }
+  if(GV_CATS.length<=1){ mostrarToast('Tiene que quedar al menos una categoría','error'); return; }
+  if(!confirm('¿Quitar la categoría «'+cat+'»?')) return;
+  GV_CATS=GV_CATS.filter(function(c){ return c!==cat; });
+  if(await guardarGvCats()){ renderGvCats(); mostrarToast('Categoría quitada','exito'); }
+}
+
+// Los bolívares los escribió una persona: a partir de ahí mandan ellos.
+function gvBsEditado(){
+  _gvBsTocado = String((g('gv-bs')||{}).value||'').trim() !== '';
+  gvPintarTasaImplicita();
+}
+function gvPintarTasaImplicita(){
+  var h=g('gv-tasa-hint'); if(!h) return;
+  var usd=parseFloat(gv('gv-usd'))||0;
+  var bs=parseFloat(gv('gv-bs'))||0;
+  var tasaDia=(typeof _tasaDelGastoVar==='function')?_tasaDelGastoVar():0;
+  if(!(usd>0)){ h.textContent=''; return; }
+  if(_gvBsTocado && bs>0){
+    var imp=bs/usd;
+    var dif=tasaDia?Math.abs(imp-tasaDia)/tasaDia*100:0;
+    h.style.color=(dif>5)?'var(--amber)':'var(--text3)';
+    h.textContent='Se guardan '+bs.toLocaleString('es-VE',{maximumFractionDigits:2})+' Bs — eso es una tasa de '+
+      imp.toLocaleString('es-VE',{maximumFractionDigits:2})+' Bs/$'+
+      (tasaDia?(' (la del día del gasto fue '+tasaDia.toLocaleString('es-VE',{maximumFractionDigits:2})+')'):'');
+  }else{
+    h.style.color='var(--text3)';
+    h.textContent=tasaDia
+      ? ('Calculado a la tasa del día del gasto ('+tasaDia.toLocaleString('es-VE',{maximumFractionDigits:2})+' Bs/$). Se puede corregir si el desembolso fue otro.')
+      : '⚠️ No hay tasa para esa fecha: escribí los bolívares que salieron.';
+  }
+}
+
+function calcGastoVar(){
+  if(_gvBsTocado){ gvPintarTasaImplicita(); return; }
+  var usd=parseFloat(gv('gv-usd'))||0;var tasa=_tasaDelGastoVar();var bs=usd*(tasa||0);
+  var el=document.getElementById('gv-bs');if(el)el.value=bs>0?bs.toFixed(0):'';
+  gvPintarTasaImplicita();
+}
 // ⛔ MISMO DEFECTO QUE EL DE LOS ABONOS (encontrado el 2026-08-08 cotejando con el banco): un gasto
 // del martes cargado el viernes quedaba convertido a la tasa del VIERNES. La fecha del gasto está
 // ahí, en el formulario; hay que usarla. `getTasaFecha` resuelve fin de semana y feriado solo.
@@ -22622,7 +22754,11 @@ function guardarGastoVar(){
   // Prioridad: la tasa DEL DÍA DEL GASTO. Si no hay ninguna, pedirla manual y reintentar.
   var tasa=_tasaDelGastoVar();
   if(!tasa){ tasaOManual('bcvDolar', function(){ guardarGastoVar(); }); return; }
-  var usd=parseFloat(gv('gv-usd'))||0;var bs=usd*tasa;
+  var usd=parseFloat(gv('gv-usd'))||0;
+  // ⛔ LOS BOLIVARES QUE ESCRIBIO LA PERSONA MANDAN: son los que de verdad salieron del
+  //    banco. La tasa es una estimacion; el desembolso es el hecho.
+  var _bsMano=parseFloat(gv('gv-bs'))||0;
+  var bs=(_gvBsTocado && _bsMano>0) ? _bsMano : usd*tasa;
   if(!(usd>0)){alert('Ingresa un monto en USD MAYOR a 0.');return;} // M6: no aceptar $0 ni negativos
   var item={id:'GV'+Date.now(),fecha:gv('gv-fecha'),cat:gv('gv-cat'),desc:desc,bs:bs,usd:usd,ref:gv('gv-ref'),fact:gv('gv-fact')};
   GASTOS_VARIABLES.push(item);
