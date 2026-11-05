@@ -109,6 +109,19 @@ function retEsc(s) {
   return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+/**
+ * ⛔ `retEsc` NO alcanza dentro de un atributo. Escapa `& < >`, que es lo que
+ *    hace falta en el TEXTO de la página, pero no la comilla — y un valor que
+ *    entra en `src="…"` con una comilla cierra el atributo y lo que sigue se
+ *    lee como HTML. Lo encontró la prueba del sello el 05/11/2026: el valor
+ *    `x" onerror="alert(1)` pasaba entero.
+ *    Dos contextos distintos piden dos escapes distintos; usar el de texto en
+ *    un atributo es el error que se ve igual que lo correcto.
+ */
+function retEscAttr(s) {
+  return retEsc(s).replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
 // ── Lo que NO se puede emitir ────────────────────────────────────────────────
 /**
  * Devuelve la lista de motivos por los que ESTE comprobante no se puede emitir.
@@ -150,7 +163,24 @@ var RET_CSS =
   '.firmas{width:100%;margin-top:120px}' +
   '.firmas td{text-align:center;font-size:8px;padding-top:2px;width:50%}' +
   '.raya{border-top:1px solid #000;width:62%;margin:0 auto 3px}' +
-  '@media print{body{margin:0}}';
+  // El sello va ENCIMA de la raya, como se estampa a mano: la cruza, no se
+  // apoya arriba. La celda es el ancla (`position:relative`) y el alto manda
+  // sobre el ancho para que el PNG no se deforme — 445×333, con transparencia,
+  // así que la raya se sigue viendo por debajo.
+  //
+  // ⛔ EL ALTO DE LA CAJA NO ES EL ALTO DEL SELLO. El PNG trae 85 px
+  //    transparentes arriba y 72 abajo (medido): la TINTA ocupa de 85 a 261 de
+  //    333. Con la caja apoyada justo sobre la raya, el sello quedaba flotando
+  //    ~1 cm por encima y la hoja parecía un logo suelto, no una firma. Por eso
+  //    la caja BAJA 32 px por debajo de la raya: ahí es donde la tinta la cruza.
+  //    Se vio mirando el PNG renderizado, no en las medidas — que daban verde.
+  //    [[norma-una-pantalla-se-revisa-en-una-pantalla]]
+  '.firmas td.sellada{position:relative}' +
+  '.sello{position:absolute;left:50%;top:-112px;transform:translateX(-50%);' +
+    'height:150px;width:auto;pointer-events:none}' +
+  // ⛔ Que se imprima el fondo del PNG: sin esto, algunos navegadores sacan el
+  //    sello en blanco al imprimir «sin gráficos de fondo».
+  '@media print{body{margin:0}.sello{-webkit-print-color-adjust:exact;print-color-adjust:exact}}';
 
 function retCabecera(d, titulo, numero, etiquetaNum) {
   var per = String(d.fecha || '').slice(0, 7).split('-');
@@ -182,9 +212,21 @@ function retCabecera(d, titulo, numero, etiquetaNum) {
   '</table>';
 }
 
-function retFirmas(izq, der) {
+/**
+ * Las dos rayas del pie. Si viene `sello` (dataURL del PNG), se estampa sobre
+ * la del AGENTE DE RETENCIÓN — la izquierda —, que es la que firma Betangar.
+ *
+ * ⛔ NUNCA sobre la del sujeto retenido: esa raya la firma el proveedor cuando
+ *    recibe el comprobante. Estamparla sería firmar por él.
+ *
+ * ⛔ Y el sello no se inventa: si no vino, la raya sale vacía para firmar a
+ *    mano. Un comprobante sin sello es un comprobante que falta sellar; un
+ *    hueco gris que insinúe un sello sería decir que ya está firmado.
+ */
+function retFirmas(izq, der, sello) {
+  var img = sello ? '<img class="sello" src="' + retEscAttr(sello) + '" alt="">' : '';
   return '<table class="firmas"><tr>' +
-    '<td><div class="raya"></div>' + izq + '</td>' +
+    '<td' + (sello ? ' class="sellada"' : '') + '>' + img + '<div class="raya"></div>' + izq + '</td>' +
     '<td><div class="raya"></div>' + der + '</td>' +
   '</tr></table>';
 }
@@ -249,7 +291,7 @@ function retHtmlIVA(d, numero) {
   '</table>' +
   '<div class="legal">Este comprobante se emite según lo establecido en el Artículo Nº 16 de la Providencia ' +
     'SNAT/2015/0049 de fecha 14/07/2015, publicada en Gaceta Oficial Nº 40.720 del 10 de Agosto de 2015.</div>' +
-  retFirmas('Agente de Retención (Fecha de Entrega)', 'Sujeto Retenido (Fecha de Recepción)') +
+  retFirmas('Agente de Retención (Fecha de Entrega)', 'Sujeto Retenido (Fecha de Recepción)', d.sello) +
   '</body></html>';
 }
 
@@ -312,7 +354,7 @@ function retHtmlISLR(d, numero) {
     '<tr><td colspan="8" class="r lbl"><b>Total I.S.L.R. Retenido</b></td>' +
       '<td class="r num"><b>' + retBs(ret) + '</b></td></tr>' +
   '</table>' +
-  retFirmas('Firma y Sello<br>Agente de Retención', 'Firma<br>Sujeto Retenido') +
+  retFirmas('Firma y Sello<br>Agente de Retención', 'Firma<br>Sujeto Retenido', d.sello) +
   '</body></html>';
 }
 
@@ -320,5 +362,6 @@ if (typeof module !== 'undefined' && module.exports) {
   module.exports = { retRevisarRif: retRevisarRif, retDigitoVerificador: retDigitoVerificador,
                      retNumComprobante: retNumComprobante, retBs: retBs, retFecha: retFecha,
                      retProblemas: retProblemas, retHtmlIVA: retHtmlIVA, retHtmlISLR: retHtmlISLR,
+                     retEsc: retEsc, retEscAttr: retEscAttr,
                      retRazonSocial: retRazonSocial };
 }

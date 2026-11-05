@@ -23,3 +23,11 @@ pruebas/datos/combustible-real.json
 scripts/_datos-reales/
 # Las fotos de la revisión en navegador se regeneran al correr la prueba; no van al repo.
 test/_pantalla-*.png
+
+# ⛔ LAS HOJAS DE PRUEBA DEL SELLO LLEVAN LA FIRMA DENTRO.
+# `scripts/ver-comprobante-sellado.mjs` deja acá el comprobante renderizado para
+# mirarlo antes de soltar — y ese PNG trae estampados el sello y la firma de
+# Máximo. Este repo es PÚBLICO (GitHub Pages): subir la captura publicaría
+# exactamente lo que se sacó del repo al guardar el sello en la base.
+# El sello vive en `empresa_sello`, detrás de RLS. Acá no entra ni su foto.
+pruebas/_sello/

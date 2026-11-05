@@ -18962,6 +18962,42 @@ function _btnComprobante(f,tipo){
 //    y con el porcentaje en 0— y por eso no servía para entregar.
 // ⛔ Y EL NÚMERO NO SE REPITE: si la factura ya tiene uno, se REIMPRIME el
 //    mismo. Pedir otro dejaría dos comprobantes vivos para la misma retención.
+// ── El sello y la firma de la empresa ────────────────────────────────
+// ⛔ NO VIVE EN EL REPO. Betangar se publica por GitHub Pages: cualquier
+//    archivo del repo se baja sin sesión, y el sello es lo que autentica un
+//    documento fiscal en nombre de la empresa. Vive en `empresa_sello`, con
+//    RLS: lo leen superadmin, revisor y admin — no un operador ni un
+//    visualizador. La firma de la empresa no se reparte con el acceso a una
+//    pantalla.
+// Se cachea en memoria (son ~66 KB): diez comprobantes seguidos no son diez
+// descargas. No va a localStorage: ahí quedaría en el disco de quien entró.
+var _RET_SELLO=null;
+async function retTraerSello(){
+  if(_RET_SELLO!==null)return _RET_SELLO;
+  try{
+    // ⛔ NO ALCANZA CON QUE `supabase` EXISTA: HAY QUE MIRAR QUE SEA EL CLIENTE.
+    //    `app.js` declara `var supabase=null` en el ámbito global —o sea
+    //    `window.supabase`— y el CDN de supabase-js, al cargar, PISA esa
+    //    variable con LA LIBRERÍA. `!supabase` da false, el cliente no se crea
+    //    y la librería no tiene `.from`. Es el mismo tropiezo que Alejandra
+    //    fotografió el 08/09 («supabase.rpc is not a function»), y la primera
+    //    versión de esta función lo repetía: lo encontró
+    //    `scripts/ver-comprobante-sellado.mjs` el 05/11, no un cliente.
+    //    Se mira una PROPIEDAD, no la verdad del objeto.
+    if((!supabase || typeof supabase.from!=='function') && typeof initSupabaseClient==='function') initSupabaseClient();
+    if(!supabase || typeof supabase.from!=='function'){
+      console.warn('sello: todavía no hay cliente de base');_RET_SELLO='';return '';
+    }
+    var r=await supabase.from('empresa_sello').select('png_dataurl').eq('clave','retencion').maybeSingle();
+    // ⛔ Un error y una tabla vacía no son lo mismo, y ninguno de los dos se
+    //    calla: sin esto, 'no hay sello' y 'no tengo permiso' se verían igual.
+    if(r.error){console.warn('sello: '+r.error.message);_RET_SELLO='';return '';}
+    if(!r.data||!r.data.png_dataurl){console.warn('sello: la tabla no tiene la fila \u00abretencion\u00bb');_RET_SELLO='';return '';}
+    _RET_SELLO=r.data.png_dataurl;
+  }catch(e){console.warn('sello: '+e.message);_RET_SELLO='';}
+  return _RET_SELLO;
+}
+
 async function emitirComprobanteRet(idFactura, tipo){
   if(typeof retProblemas!=='function'){alert('Falta retencion-comprobante.js');return;}
   var f=CXP_FACTURAS.find(function(x){return String(x.id)===String(idFactura);});
@@ -18991,6 +19027,24 @@ async function emitirComprobanteRet(idFactura, tipo){
     alert('No se puede emitir el comprobante de '+tipo+':\n\n• '+problemas.join('\n• ')+
           '\n\nCorrige eso primero (la ficha del proveedor o la factura).');
     return;
+  }
+
+  // ⛔ EL SELLO SE PIDE ANTES DE GASTAR EL NÚMERO. Si se pidiera después y
+  //    fallara, el correlativo ya estaría consumido y el papel saldría en
+  //    blanco justo donde la empresa firma. Vive en la base (`empresa_sello`)
+  //    y NO en el repo: el repo se publica en GitHub Pages y la firma de
+  //    Máximo quedaría descargable por cualquiera, sin sesión. La tabla sólo
+  //    la leen superadmin, revisor y admin.
+  d.sello=await retTraerSello();
+  if(!d.sello){
+    // ⛔ Esto NO se resuelve en silencio: un comprobante sin sello parece
+    //    terminado y se entrega igual.
+    if(!confirm('No pude traer el sello y la firma de la empresa.'+String.fromCharCode(10,10)+
+                'El comprobante saldría SIN sellar y habría que sellarlo a mano antes de entregarlo.'+
+                String.fromCharCode(10,10)+
+                'Si tu rol no es admin, revisor o superadmin, la base no te da el sello: '+
+                'pídele a administración que lo emita.'+String.fromCharCode(10,10)+
+                '¿Emito igual, sin sello?'))return;
   }
 
   var campo=(tipo==='ISLR')?'comp_islr':'comp_iva';
@@ -19024,7 +19078,11 @@ async function emitirComprobanteRet(idFactura, tipo){
             ').\nAnótalo: si vuelves a emitir, saldrá uno nuevo y este queda en el aire.');
     }else{
       f[campo]=numero; f[campoF]=up[campoF];
-      audit('Comprobante de retención '+tipo+' emitido', numero+' · '+(f.nro_factura||'')+' · '+f.prov_nombre);
+      // ⛔ Queda escrito SI salió sellado. Uno sin sello que después nadie
+      //    selló es un documento fiscal entregado sin firmar, y en un mes
+      //    nadie se acuerda de cuál fue.
+      audit('Comprobante de retención '+tipo+' emitido', numero+' · '+(f.nro_factura||'')+' · '+f.prov_nombre+
+            (d.sello?' · sellado':' · ⚠️ SIN SELLO: hay que sellarlo a mano'));
       if(typeof renderRetenciones==='function')renderRetenciones();
     }
   }

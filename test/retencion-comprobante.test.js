@@ -135,5 +135,51 @@ const ambas = { id: 'F4', ret_iva_bs: 100, ret_islr_bs: 50 };
 ok('una factura con las dos retenciones muestra los dos botones',
    !!S._btnComprobante(ambas, 'IVA') && !!S._btnComprobante(ambas, 'ISLR'));
 
+// -- 7. EL SELLO Y LA FIRMA (05/11/2026) --------------------------------------
+// Maximo: «que la retencion venga de una con el sello y mi firma de betangar».
+// Hasta hoy el papel salia con la raya vacia y el sello se ponia por otro
+// camino (Keily lo mandaba por WhatsApp y la PC lo sellaba). Lo que esta
+// prueba fija es que el sello va donde va y NUNCA donde no va.
+const SELLO = 'data:image/png;base64,iVBORw0KGgoAAAA-DEPRUEBA';
+
+const ivaSellado  = R.retHtmlIVA(Object.assign({}, d571, { sello: SELLO }), '20260900000571');
+const ivaSinSello = R.retHtmlIVA(d571, '20260900000571');
+const islrSellado = R.retHtmlISLR(Object.assign({}, dIslr, { sello: SELLO }), '2026100000000199');
+
+ok('IVA: el sello sale impreso en el comprobante',  ivaSellado.indexOf(SELLO) > -1);
+ok('ISLR: tambien, que es el que dice «Firma y Sello»', islrSellado.indexOf(SELLO) > -1);
+
+// La prueba que importa: de que LADO quedo. La izquierda es el agente de
+// retencion (Betangar). La derecha la firma el proveedor cuando recibe, y
+// estamparla ahi seria firmar por el.
+function celdas(html) {
+  const t = html.slice(html.indexOf('class="firmas"'));
+  return t.split('<td').slice(1, 3);
+}
+const cIva = celdas(ivaSellado);
+ok('el sello va en la celda del AGENTE DE RETENCION (la izquierda)',
+   cIva[0].indexOf(SELLO) > -1);
+ok('y NO en la del sujeto retenido: esa la firma el proveedor',
+   cIva[1].indexOf(SELLO) === -1);
+const cIslr = celdas(islrSellado);
+ok('ISLR: igual, el sello del lado del agente',   cIslr[0].indexOf(SELLO) > -1);
+ok('ISLR: nada del lado del sujeto retenido',     cIslr[1].indexOf(SELLO) === -1);
+
+// Sin sello, la raya sale VACIA para firmar a mano. No hay hueco gris ni
+// marco que insinue un sello: eso seria decir que ya esta firmado.
+ok('sin sello no se dibuja ninguna imagen',       ivaSinSello.indexOf('<img') === -1);
+ok('sin sello la raya del agente sigue estando',  ivaSinSello.indexOf('class="raya"') > -1);
+ok('sin sello tampoco se marca la celda del agente',
+   celdas(ivaSinSello)[0].indexOf('sellada') === -1);
+
+// Un dataURL con una comilla no puede romper el atributo src y colarse como
+// HTML: el comprobante se arma con texto.
+const sucio = R.retHtmlIVA(Object.assign({}, d571, { sello: 'x" onerror="alert(1)' }), '1');
+ok('un sello con comillas sale escapado, no como HTML',
+   sucio.indexOf('onerror="alert') === -1);
+
+// Y la app: el emisor pide el sello antes de gastar el numero.
+ok('la app sabe traer el sello',  typeof S.retTraerSello === 'function');
+
 console.log('\n  ' + pass + ' pasaron, ' + fail + ' fallaron\n');
 process.exit(fail ? 1 : 0);
