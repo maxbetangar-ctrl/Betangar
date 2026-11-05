@@ -281,7 +281,38 @@ Deno.serve(async (req) => {
   if (!enHorario) {
     console.log(`fuera de horario (${hVE}h VE, ventana ${VENTANA.desde}-${VENTANA.hasta}): a los terceros se les PROGRAMA para las ${VENTANA.desde}:00; salen ya los avisos de la casa y lo urgente (${URGENTES.join(', ') || 'nada'})`);
   }
-  const { data: pend } = await consulta;
+  const { data: pendCrudo } = await consulta;
+
+  // ⛔ LOS TIPOS QUE SE AGRUPAN SE DEJAN REPOSAR 90 SEGUNDOS.
+  //    04/11/2026: a las 21:00 salieron SIETE avisos `cobros` sueltos —uno por cada
+  //    factura de la 646 a la 652— al canal que debía recibir uno. El agrupador
+  //    (`cola_agrupar_avisos`, cada 2 min) existe y los habría juntado, pero este
+  //    worker corre cada 3 min y le ganó de mano: mandó los sueltos y después no
+  //    quedó nada que agrupar. Agrupar sin cerrar esta carrera no garantiza nada.
+  //
+  // ⛔ FALLA ABIERTO, A PROPÓSITO: si el agrupador se muere, estos mensajes salen
+  //    igual 90 segundos más tarde, sueltos. Nunca se quedan retenidos. Se descartó
+  //    el camino de un estado nuevo («agrupando») porque falla CERRADO — con el
+  //    agrupador caído los mensajes quedarían ahí y el silencio se vería igual que
+  //    «no había nada que mandar». [[norma-falta-de-dato-no-es-un-dato]]
+  //
+  // 📌 Qué tipos son, lo dice `avisos_ruta.agrupar`, la MISMA tabla que lee el
+  //    agrupador. Si la consulta falla, no se retiene nada. [[norma-fuente-unica-datos]]
+  let pend = pendCrudo;
+  try {
+    const { data: agr } = await sb.from('avisos_ruta').select('tipo').eq('agrupar', true);
+    const AGRUPABLES = new Set((agr || []).map((x: any) => String(x.tipo)));
+    if (AGRUPABLES.size && pend?.length) {
+      const corte = Date.now() - 90_000;
+      const antes = pend.length;
+      pend = pend.filter((m: any) =>
+        !AGRUPABLES.has(String(m.tipo)) || new Date(m.created_at).getTime() < corte);
+      if (pend.length < antes) {
+        console.log(`agrupables en reposo: ${antes - pend.length} fila(s) esperan 90 s para que el agrupador las junte`);
+      }
+    }
+  } catch (e) { console.error('no se pudo leer avisos_ruta.agrupar, no se retiene nada:', String(e)); }
+
   if (!pend || !pend.length) return json({ ok: true, sent: 0, caducados: caducados?.length || 0 });
 
   let sent = 0, fail = 0, bloq = 0, trabado = 0, programados = 0;
