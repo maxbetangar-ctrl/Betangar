@@ -3205,7 +3205,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
      Excel sale con el defecto ya corregido. Pasó midiendo este mismo cambio el
      23/09: dos corridas dieron un .xlsx idéntico byte por byte. -->
 <script src="maxware-excel.js?v=20260923-2252"></script>
-<script src="app.js?v=20261104-2056"></script>
+<script src="app.js?v=20261104-2102"></script>
 
 <!-- Modal global -->
 <div id="modal" class="moverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9990;align-items:center;justify-content:center;padding:16px">
@@ -3482,6 +3482,41 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
 
       <div style="font-weight:700;margin:16px 0 6px;font-size:13px">Últimas salidas</div>
       <div id="stq-lista" style="font-size:12px;color:var(--text3)">Cargando…</div>
+    </div>
+
+    <!-- ════ GASOIL DE UNA UNIDAD A OTRA ════
+         Pedido urgente de Máximo (04/11/2026): la tarjeta de arriba registra lo que sale DEL
+         TANQUE hacia otro destino, pero lo que de verdad hacía falta es cuando se le saca
+         gasoil a UNA UNIDAD para echárselo a OTRA. Eso NO toca el tanque: el galpón no
+         entrega ni recibe un litro, y por eso va a su propia tabla. Sin registrarlo, la
+         unidad de origen aparece gastando de más y la de destino andando con combustible
+         que nadie le echó.
+         Mismo estilo que la de arriba a propósito: dos toques y un número. -->
+    <div class="card">
+      <div class="sh"><div class="st">🔁 Pasar gasoil de una unidad a otra</div></div>
+      <div style="font-size:12px;color:var(--text3);margin-bottom:10px">
+        Cuando se le saca combustible a un camión para echárselo a otro. <b>El tanque del galpón
+        no se toca</b>: ese gasoil ya había salido. Se registra para que el consumo de cada
+        unidad cuadre.
+      </div>
+
+      <div style="font-weight:700;margin-bottom:6px;font-size:13px">¿De cuál unidad SALIÓ?</div>
+      <select class="fc" id="trs-origen" onchange="trsCambio()" style="margin-bottom:10px"></select>
+
+      <div style="font-weight:700;margin-bottom:6px;font-size:13px">¿A cuál unidad SE LE ECHÓ?</div>
+      <select class="fc" id="trs-destino" onchange="trsCambio()" style="margin-bottom:10px"></select>
+
+      <div style="font-weight:700;margin-bottom:6px;font-size:13px">¿Cuántos litros?</div>
+      <input class="fc" id="trs-lit" type="text" inputmode="decimal" placeholder="0"
+             oninput="trsLitInput()" style="font-size:20px;padding:14px;text-align:center;font-family:var(--m)">
+      <div id="trs-lit-hint" style="font-size:12px;min-height:16px;margin-bottom:10px"></div>
+
+      <input class="fc" id="trs-nota" type="text" placeholder="¿Por qué? (opcional — ej.: se quedó sin gasoil en ruta)" style="margin-bottom:10px">
+
+      <button class="btn btn-g" id="trs-btn" onclick="trsGuardar()" style="width:100%;padding:16px;font-size:15px;font-weight:700;border-radius:12px">✅ Registrar el traslado</button>
+
+      <div style="font-weight:700;margin:16px 0 6px;font-size:13px">Últimos traslados</div>
+      <div id="trs-lista" style="font-size:12px;color:var(--text3)">Cargando…</div>
     </div>
 
     <div class="card">

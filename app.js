@@ -5021,7 +5021,7 @@ function descartarFallidos(){
 }
 // Clave de conflicto por tabla con UNIQUE → la cola debe reintentar como UPSERT, no INSERT plano
 // (si no, una planilla/abono/contrato hecho offline choca con su UNIQUE y cae al dead-letter).
-var _COLA_ONCONFLICT={planillas:'p',abonos:'fact',contratos:'id',prestamos:'id',multas:'id',empleados:'id',pagos_alcaldia:'id',gastos_variables:'id',gastos_fijos:'id',bnc_movimientos:'id',tipos_unidad:'id',unidades:'id',operaciones:'id',nomina_extras:'id',llantas:'id',inv_movimientos:'id',salidas_tanque:'id',rutas_estado:'fecha,parroquia',km_data:'cam',unidad_config:'cam'};
+var _COLA_ONCONFLICT={planillas:'p',abonos:'fact',contratos:'id',prestamos:'id',multas:'id',empleados:'id',pagos_alcaldia:'id',gastos_variables:'id',gastos_fijos:'id',bnc_movimientos:'id',tipos_unidad:'id',unidades:'id',operaciones:'id',nomina_extras:'id',llantas:'id',inv_movimientos:'id',salidas_tanque:'id',trasvases_unidad:'id',rutas_estado:'fecha,parroquia',km_data:'cam',unidad_config:'cam'};
 function guardarEnCola(t,d,oc){
   COLA_OFFLINE.push({t:t,d:d,_try:0,oc:oc||_COLA_ONCONFLICT[t]||null});
   guardarColaLS();
@@ -27848,6 +27848,7 @@ function operIniciar(){
   try{renderChecklistAnomalias();}catch(e){}  // fallas pendientes (puede cerrarlas)
   operProgramarRecordatorio();
   try{stqRenderLista();}catch(e){}
+  try{trsLlenarSelects();trsLista();}catch(e){}
 }
 
 // ════════════════════════════════════════════════════════════════════════════════════════════
@@ -27941,6 +27942,134 @@ async function stqGuardar(){
   } finally {
     if(btn){ btn.disabled=false; btn.textContent=t0||'✅ Registrar salida'; }
   }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════════════
+// GASOIL DE UNA UNIDAD A OTRA (trasvase)
+//
+// ⛔ POR QUÉ ES OTRA COSA QUE «sacar del tanque». Acá el tanque del galpón NO SE TOCA: ese
+//    combustible ya había salido. Si esto se registrara como una salida de tanque, se
+//    restaría del galpón algo que nunca salió de él y el cuadre quedaría PEOR que sin
+//    registrarlo.
+//
+// ⛔ Y POR QUÉ HAY QUE REGISTRARLO IGUAL: sin esta fila, la unidad de ORIGEN aparece gastando
+//    de más y la de DESTINO andando con combustible que nadie le echó. Eso ya se vio: el
+//    04/11/2026 la auditoría de FLOTILLA marcó 5 cargas por encima de la capacidad del
+//    tanque que «huelen a traslado sin marcar».
+//
+// ⚠️ Mismo criterio de pantalla que la tarjeta de arriba: para alguien que no es de
+//    tecnología. Sin campo de fecha (es hoy) y con el aviso del número imposible MIENTRAS
+//    escribe, no al apretar.
+// ═══════════════════════════════════════════════════════════════════════════════════════
+var TRS_MAX_L = 600;   // ningún camión de la flota lleva más que esto en su tanque
+
+function _trsUnidades(){
+  var l = Object.keys(UNIDAD_CONFIG||{}).filter(function(c){
+    var u=UNIDAD_CONFIG[c]; return !u || u.activo!==false;
+  });
+  if(!l.length) l = Object.keys(FLOTA||{});
+  return l.sort();
+}
+function trsLlenarSelects(){
+  var o=g('trs-origen'), d=g('trs-destino');
+  if(!o||!d) return;
+  var us=_trsUnidades();
+  if(!us.length){
+    // ⛔ Un desplegable vacío se ve igual que uno que no cargó. Que lo DIGA.
+    var vacio='<option value="">— no hay unidades activas cargadas —</option>';
+    o.innerHTML=vacio; d.innerHTML=vacio; return;
+  }
+  var opts='<option value="">— elegir —</option>'+us.map(function(c){
+    return '<option value="'+_mEsc(c)+'">'+_mEsc(c)+'</option>';
+  }).join('');
+  if(!o.value) o.innerHTML=opts;
+  if(!d.value) d.innerHTML=opts;
+}
+function _trsLit(){
+  var v=String((g('trs-lit')||{}).value||'').replace(',','.').trim();
+  var n=parseFloat(v); return isFinite(n)?n:null;
+}
+function trsLitInput(){
+  var h=g('trs-lit-hint'); if(!h) return;
+  var l=_trsLit();
+  if(l==null||l<=0){ h.textContent=''; return; }
+  if(l>TRS_MAX_L){
+    h.style.color='var(--red)';
+    h.textContent='⛔ '+l.toLocaleString('es-VE')+' L no caben en el tanque de un camión (máximo '+TRS_MAX_L.toLocaleString('es-VE')+' L).';
+  } else { h.style.color='var(--text3)'; h.textContent=l.toLocaleString('es-VE')+' L'; }
+}
+// Avisa EN EL MOMENTO si eligió la misma unidad de los dos lados, en vez de dejarlo llenar
+// todo y rechazárselo al final.
+function trsCambio(){
+  var o=gv('trs-origen'), d=gv('trs-destino'), h=g('trs-lit-hint');
+  if(o && d && o===d && h){
+    h.style.color='var(--red)';
+    h.textContent='⛔ Es la misma unidad de los dos lados.';
+  } else { trsLitInput(); }
+}
+
+async function trsGuardar(){
+  var o=gv('trs-origen'), d=gv('trs-destino');
+  if(!o){ mostrarToast('Elegí de cuál unidad salió','error'); return; }
+  if(!d){ mostrarToast('Elegí a cuál unidad se le echó','error'); return; }
+  // ⛔ La base también lo rechaza (constraint `trasvase_no_a_si_misma`): esto es la puerta
+  //    cómoda, no el candado. [[norma-las-barreras-de-prompt-no-son-candados]]
+  if(o===d){ mostrarToast('No puede ser la misma unidad de los dos lados','error'); return; }
+  var lit=_trsLit();
+  if(!(lit>0)){ mostrarToast('Escribí cuántos litros se pasaron','error'); return; }
+  // ⛔ TOPE DURO: un dato imposible se RECHAZA, no se topa. Un número topado queda en la base
+  //    como si fuera cierto y nadie sabe que se corrigió solo.
+  if(lit>TRS_MAX_L){
+    mostrarToast('En el tanque de un camión no caben '+lit.toLocaleString('es-VE')+' L (el máximo es '+TRS_MAX_L.toLocaleString('es-VE')+'). Revisá el número.','error');
+    var f=g('trs-lit'); if(f){ try{ f.focus(); f.select(); }catch(e){} }
+    return;
+  }
+  var nota=String((g('trs-nota')||{}).value||'').trim();
+  if(!confirm('¿Registrar que se le pasaron '+lit.toLocaleString('es-VE')+' L de la '+o+' a la '+d+'?\n\n'+
+              'El tanque del galpón no se toca: ese gasoil ya había salido.')) return;
+
+  var btn=g('trs-btn'); var t0=btn?btn.textContent:'';
+  if(btn){ btn.disabled=true; btn.textContent='Guardando…'; }
+  var row={ id:'TRS-'+Date.now(), fecha:fechaVE(), cam_origen:o, cam_destino:d,
+            litros:lit, nota:nota||null, registrado_por:(SESION&&SESION.nombre)||'' };
+  var ok=false;
+  try{
+    if(DB_READY&&supabase){
+      // ⛔ Con `.select()`: un insert sin él afirma que guardó sin haberlo medido.
+      //    [[norma-insert-sin-select-no-mide]]
+      var res=await supabase.from('trasvases_unidad').insert([row]).select();
+      if(res.error){ mostrarToast('No se pudo guardar: '+res.error.message,'error'); }
+      else if(!res.data||!res.data.length){ mostrarToast('No se guardó: la base no devolvió la fila','error'); }
+      else ok=true;
+    }
+    if(!ok) guardarEnCola('trasvases_unidad',row);
+    try{ audit('trasvase_unidad', o+' → '+d+' · '+lit+' L'+(nota?(' · '+nota):'')); }catch(e){}
+    mostrarToast(ok?'✅ Traslado registrado':'📵 Guardado (se sube al reconectar)','exito');
+    try{ g('trs-lit').value=''; g('trs-nota').value=''; trsLitInput(); }catch(e){}
+    try{ sv('trs-origen',''); sv('trs-destino',''); }catch(e){}
+    trsLista();
+  }catch(e){ mostrarToast('No se pudo guardar: '+(e&&e.message||e),'error'); }
+  if(btn){ btn.disabled=false; btn.textContent=t0||'✅ Registrar el traslado'; }
+}
+
+async function trsLista(){
+  var el=g('trs-lista'); if(!el) return;
+  if(!(DB_READY&&supabase)){ el.textContent='Sin conexión a la base.'; return; }
+  var r=await supabase.from('trasvases_unidad').select('*')
+    .order('fecha',{ascending:false}).order('created_at',{ascending:false}).limit(10);
+  if(r.error){ el.innerHTML='<span style="color:var(--red)">No se pudo leer: '+_mEsc(r.error.message)+'</span>'; return; }
+  if(!r.data||!r.data.length){
+    // Una lista vacía se dice, no se deja en blanco.
+    el.textContent='Todavía no se registró ningún traslado entre unidades.'; return;
+  }
+  el.innerHTML=r.data.map(function(x){
+    return '<div style="padding:5px 0;border-bottom:1px solid var(--border)">'+
+      '<b>'+_mEsc(x.cam_origen)+'</b> → <b>'+_mEsc(x.cam_destino)+'</b> · '+
+      '<span style="font-family:var(--m);color:var(--amber)">'+(parseFloat(x.litros)||0).toLocaleString('es-VE')+' L</span> · '+
+      formatFecha(x.fecha)+
+      (x.nota?('<br><span style="color:var(--text3)">'+_mEsc(x.nota)+'</span>'):'')+
+      '</div>';
+  }).join('');
 }
 
 async function stqRenderLista(){
