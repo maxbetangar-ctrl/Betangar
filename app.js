@@ -18633,17 +18633,21 @@ function guardarFactura(){
   //    legalmente, y para cuando alguien lo necesita la factura de papel ya no está a mano.
   //    Cuando se puso esto había 48 de 53 facturas sin él —ninguna de septiembre ni de
   //    octubre— y esas 48 hay que completarlas a mano. Que no se sumen más.
-  //    📌 No lleva escape: una factura fiscal SIEMPRE trae número de control. Si el papel no lo
-  //    trae, no es una factura y la retención tampoco se puede emitir contra ella.
-  //    [[norma-el-dato-se-pide-cuando-el-papel-esta-delante]]
+  //    ⚠️ PERO NO ES UN MURO. Ella pidió que se PIDA, no que se tranque: hay papeles que de
+  //    verdad no traen número —una nota de entrega, un recibo— y dejarla sin poder cargar una
+  //    deuda que la empresa SÍ tiene sería peor que el problema que se arregla. Así que se
+  //    pide, se explica lo que se pierde, y si insiste se guarda igual: la decisión es de
+  //    quien tiene el papel delante. Lo que no puede pasar es que se guarde sin que nadie se
+  //    entere, que es lo que venía pasando en 48 de 53.
+  //    [[norma-catalogo-no-puede-trancar-el-registro]]
   var _ctrl=String(gv('fac-control')||'').trim();
   if(!_ctrl){
-    alert('⛔ Falta el N° de Control de la factura.\n\n'+
-          'Está impreso en la factura, arriba, aparte del N° de factura (por ejemplo 00-00012345).\n\n'+
-          'Sin ese número el comprobante de retención no se puede emitir legalmente, y después '+
-          'nadie tiene el papel a mano para buscarlo.');
     var _fc=g('fac-control'); if(_fc){ if(_fc.focus)_fc.focus(); if(_fc.scrollIntoView)_fc.scrollIntoView({behavior:'smooth',block:'center'}); }
-    return;
+    if(!confirm('⛔ Falta el N° de Control de la factura.\n\n'+
+          'Está impreso en la factura, arriba, aparte del N° de factura (por ejemplo 00-00012345).\n\n'+
+          'SIN ESE NÚMERO NO SE VA A PODER EMITIR EL COMPROBANTE DE RETENCIÓN de esta factura, '+
+          'y después nadie va a tener el papel a mano para buscarlo.\n\n'+
+          '¿El papel de verdad no lo trae? Aceptar la guarda igual, sin número.'))return;
   }
   // Mismo proveedor + mismo n° de control = la misma factura cargada dos veces, aunque le hayan
   // escrito distinto el n° de factura. El de control es el que no se repite.

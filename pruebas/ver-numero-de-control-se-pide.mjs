@@ -56,10 +56,11 @@ page.on('pageerror', (e) => console.log('   pageerror: ' + e.message))
 // Los diálogos se contestan desde acá: lo que nos interesa es QUÉ dicen.
 const dichos = []
 let respuestaDelPrompt = CONTROL
+let decirQueSi = true          // qué se contesta a un confirm
 page.on('dialog', async (d) => {
   dichos.push({ tipo: d.type(), texto: d.message() })
   if (d.type() === 'prompt') await d.accept(respuestaDelPrompt)
-  else if (d.type() === 'confirm') await d.accept()
+  else if (d.type() === 'confirm' && decirQueSi) await d.accept()
   else await d.dismiss()
 })
 
@@ -100,8 +101,8 @@ if (!hayBase) { console.log('⛔ no se pudo armar el cliente de base: la prueba 
 let fallos = 0
 const chequear = (t, ok, d) => { if (!ok) fallos++; console.log(`${ok ? '✅' : '⛔'} ${t}${d ? ' · ' + d : ''}`) }
 
-// ── 1 · Al cargar una factura, sin N° de Control NO se guarda ─────────────────────────────
-dichos.length = 0
+// ── 1 · Al cargar una factura, sin N° de Control se PREGUNTA ──────────────────────────────
+dichos.length = 0; decirQueSi = false
 await page.evaluate(() => {
   // El formulario, completo salvo el N° de Control. Las dos piezas que leen la grilla de
   // órdenes se reemplazan: lo que se prueba es la validación, no el reparto.
@@ -122,12 +123,17 @@ await page.waitForTimeout(500)
 const aviso = (dichos.find((d) => /control/i.test(d.texto)) || {}).texto || ''
 console.log('\n── se intenta guardar sin N° de Control ──\n   ' + aviso.replace(/\n/g, ' / '))
 chequear('frena y lo dice', /Falta el N° de Control/i.test(aviso))
-chequear('explica POR QUÉ hace falta', /retención no se puede emitir/i.test(aviso))
+chequear('explica QUÉ se pierde sin él', /no se va a poder emitir el comprobante/i.test(aviso))
 chequear('dice DÓNDE está en el papel', /impreso en la factura/i.test(aviso))
-chequear('no se escribió nada en la base', escrituras.length === 0, escrituras.length + ' escrituras')
+// ⚠️ Tiene que ser un `confirm`, no un `alert`: si fuera un muro, un papel que de verdad no
+//    trae número dejaría a la administradora sin poder cargar una deuda que la empresa SÍ
+//    tiene. Se pide y se explica; la decisión es de quien mira el papel.
+chequear('es una pregunta, no un muro', (dichos.find((d) => /control/i.test(d.texto)) || {}).tipo === 'confirm',
+  (dichos.find((d) => /control/i.test(d.texto)) || {}).tipo || '(ninguno)')
+chequear('al decir que NO, no se escribió nada', escrituras.length === 0, escrituras.length + ' escrituras')
 
 // ── 2 · Una factura VIEJA sin control se puede completar ──────────────────────────────────
-dichos.length = 0; escrituras.length = 0
+dichos.length = 0; escrituras.length = 0; decirQueSi = true
 const ok1 = await page.evaluate(async () => {
   window.CXP_FACTURAS = [{ id: 'F1', prov_id: 'P1', prov_nombre: 'PACCINI', nro_factura: 'F-349',
     fecha: '2026-10-13', num_control: '' }]
