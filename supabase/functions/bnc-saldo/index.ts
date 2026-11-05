@@ -315,6 +315,25 @@ Deno.serve(async (req)=>{
         detalle: sres
       });
       const saldos = sres.data;
+      // El saldo que SÍ se puede saber: lo que tenemos registrado de esa cuenta.
+      // Devuelve null si no hay ni un movimiento — de la nada no sale un cero.
+      const saldoDeMovimientos = async (acc: string): Promise<number | null> => {
+        try {
+          const u = `${Deno.env.get("SUPABASE_URL")}/rest/v1/bnc_movimientos` +
+            `?cuenta=eq.${encodeURIComponent(acc)}&select=tipo,monto`;
+          const rr = await fetch(u, { headers: { apikey: Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+                      Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!}` } });
+          if (!rr.ok) return null;
+          const filas = await rr.json();
+          if (!Array.isArray(filas) || !filas.length) return null;
+          let s = 0;
+          for (const f of filas) {
+            const v = parseFloat(f.monto || 0);
+            s += (String(f.tipo) === "debito") ? -v : v;
+          }
+          return Math.round(s * 100) / 100;
+        } catch (e) { console.error("saldoDeMovimientos", acc, String(e)); return null; }
+      };
       // Las cuentas cuyo saldo el BNC no nos deja ver. Se declaran en la base para que
       // agregar o quitar una no exija desplegar. Si la consulta falla, la lista queda
       // vacía y se muestra lo que diga el banco: nunca se oculta un saldo por un error
@@ -383,6 +402,15 @@ Deno.serve(async (req)=>{
           neto: Math.round(neto * 100) / 100,
           saldoActual: sinSaldo ? null : Math.round(saldoActual! * 100) / 100,
           sinAcceso: sinSaldo,
+          // ⛔ SI EL BANCO NO DA EL SALDO PERO SÍ LOS MOVIMIENTOS, EL SALDO SE SABE.
+          //    04/11/2026: `/Position/Current` devuelve la cuenta en dólares …1897 en
+          //    `Balance: 0` y `/Position/History` devuelve sus movimientos sin problema.
+          //    Decir «sin acceso» teniendo los movimientos es decir que no sabemos algo
+          //    que sí sabemos. Se calcula con lo que hay en `bnc_movimientos` y se dice
+          //    DE DÓNDE SALE, para que nadie lo confunda con el saldo del banco.
+          //    Control positivo: da US$ 23.900,00, que es exactamente lo que muestra el
+          //    portal del BNC. [[norma-control-positivo-antes-de-creerle-al-vacio]]
+          saldoCalculado: sinSaldo ? await saldoDeMovimientos(acc) : null,
           movimientosHoy: movsHoy.length,
           movimientos: movsHoy.map((m)=>({
               tipo: String(m.Type || '').trim(),

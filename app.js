@@ -6156,12 +6156,15 @@ async function imprimirDashboard(){
       //    afirmarlo como cero es una mentira sobre plata que existe.
       //    `f2(null)` devolvía 0,00 y por eso la falta de dato se veía igual que un saldo vacío.
       //    [[norma-falta-de-dato-no-es-un-dato]] [[norma-control-positivo-antes-de-creerle-al-vacio]]
-      var _saldoTxt=function(v,sim){
-        return (v===null||v===undefined||v==='')
-          ? '<span style="color:#b45309;font-weight:700">sin acceso</span>'
-          : sim+f2(v);
+      // Si el banco no da el saldo pero sí sus movimientos, se muestra el CALCULADO y se
+      // dice que lo es. Callarlo sería decir que no sabemos algo que sí sabemos.
+      var _saldoTxt=function(v,sim,calc){
+        if(v!==null&&v!==undefined&&v!=='')return sim+f2(v);
+        if(calc!==null&&calc!==undefined&&calc!=='')
+          return sim+f2(calc)+' <span style="color:#b45309;font-size:9px">calculado con los movimientos</span>';
+        return '<span style="color:#b45309;font-weight:700">sin acceso</span>';
       };
-      var rowsB=_bncResumenCache.cuentas.map(function(c){var sim=c.moneda==='USD'?'$':'Bs ';return '<tr><td style="font-family:monospace">'+(c.cuenta||'--')+'</td><td>'+c.moneda+'</td><td style="text-align:right;color:#15803d;font-weight:800">'+_saldoTxt(c.saldoActual,sim)+'</td><td style="text-align:right;color:#8a94a6">'+_saldoTxt(c.saldoInicial,sim)+'</td></tr>';}).join('');
+      var rowsB=_bncResumenCache.cuentas.map(function(c){var sim=c.moneda==='USD'?'$':'Bs ';return '<tr><td style="font-family:monospace">'+(c.cuenta||'--')+'</td><td>'+c.moneda+'</td><td style="text-align:right;color:#15803d;font-weight:800">'+_saldoTxt(c.saldoActual,sim,c.saldoCalculado)+'</td><td style="text-align:right;color:#8a94a6">'+_saldoTxt(c.saldoInicial,sim,null)+'</td></tr>';}).join('');
       bancosHtml='<h2>Saldos en cuenta — BNC'+(_bncResumenCache.fecha?' (día '+formatFecha(_bncResumenCache.fecha)+')':'')+(_bncResumenCache.esPrueba?' · DATOS DE PRUEBA':'')+'</h2><table><thead><tr><th>Cuenta</th><th>Moneda</th><th>Saldo actual</th><th>Inició día</th></tr></thead><tbody>'+rowsB+'</tbody></table>';
     } else if(puedeVerSaldo()){
       bancosHtml='<h2>Saldos en cuenta — BNC</h2><div class="mut">Abre/actualiza el dashboard (botón ↻ de Saldos BNC) antes de imprimir para incluir los saldos.</div>';
@@ -31088,7 +31091,7 @@ function _pintarBncResumen(el,d){
         '<div><div style="font-size:9px;color:var(--text3);margin-bottom:2px">Inició día</div><div style="font-size:12px;font-weight:700;color:var(--text1)">'+sim+fmt(c.saldoInicial)+'</div></div>'+
         '<div><div style="font-size:9px;color:var(--text3);margin-bottom:2px">Ingresos</div><div style="font-size:12px;font-weight:700;color:var(--green)">+'+fmt(c.ingresos)+'</div></div>'+
         '<div><div style="font-size:9px;color:var(--text3);margin-bottom:2px">Egresos</div><div style="font-size:12px;font-weight:700;color:var(--red)">-'+fmt(c.egresos)+'</div></div>'+
-        '<div><div style="font-size:9px;color:var(--text3);margin-bottom:2px">Saldo actual</div><div style="font-size:13px;font-weight:900;color:var(--green)">'+sim+fmt(c.saldoActual)+'</div></div>'+
+        '<div><div style="font-size:9px;color:var(--text3);margin-bottom:2px">Saldo actual</div><div style="font-size:13px;font-weight:900;color:'+((c.saldoActual===null||c.saldoActual===undefined)&&c.saldoCalculado!==null&&c.saldoCalculado!==undefined?'var(--yellow)':'var(--green)')+'">'+((c.saldoActual===null||c.saldoActual===undefined)&&c.saldoCalculado!==null&&c.saldoCalculado!==undefined?sim+fmt(c.saldoCalculado):sim+fmt(c.saldoActual))+'</div>'+((c.saldoActual===null||c.saldoActual===undefined)&&c.saldoCalculado!==null&&c.saldoCalculado!==undefined?'<div style="font-size:8px;color:var(--text3)">calculado</div>':'')+'</div>'+
       '</div>'+
     '</div>';
   });
