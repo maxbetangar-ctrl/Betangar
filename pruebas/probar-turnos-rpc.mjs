@@ -76,7 +76,21 @@ await probar('el turno NOCTURNO responde y viene vacío (todavía no existe)',
 await probar('los viajes de un turno se piden aparte',
   'chofer_viajes_dia', { p_cam: CAM, p_fecha: FECHA, p_turno: 'nocturno' }, vacio)
 
-// 3) CONTROL POSITIVO: una unidad que NO existe tiene que ser RECHAZADA. Si todo diera
+// 3) LA CUADRILLA. El `on conflict` de `cuadrilla_declarar` nombraba la llave vieja y quedó
+//    ROTO con la primera migración: cada chofer la llama al declarar su cuadrilla a las 5:40.
+//    Acá no se declara nada de verdad —haría falta la clave de una persona— pero una CLAVE
+//    MALA tiene que contestar «clave incorrecta», no reventar: si la función estuviera rota,
+//    el error sería de la base y se vería distinto.
+await probar('la cuadrilla responde con su motivo, no con un error de base (2 argumentos)',
+  'cuadrilla_declarar', { p_cam: CAM, p_id: 'E001', p_clave: '0000' },
+  (r) => r.ok && /clave|no se encontr|unidad/i.test(r.cuerpo))
+await probar('la cuadrilla acepta el turno',
+  'cuadrilla_declarar', { p_cam: CAM, p_id: 'E001', p_clave: '0000', p_turno: 'nocturno' },
+  (r) => r.ok && /clave|no se encontr|unidad/i.test(r.cuerpo))
+await probar('se puede leer la cuadrilla de un turno',
+  'cuadrilla_del_dia', { p_cam: CAM, p_turno: 'diurno' }, (r) => r.ok)
+
+// 4) CONTROL POSITIVO: una unidad que NO existe tiene que ser RECHAZADA. Si todo diera
 //    verde, incluso lo imposible, la prueba no estaría probando nada.
 await probar('una unidad que no existe viene vacía — y la real NO, que es lo que lo hace valer',
   'chofer_checklist_dia', { p_cam: 'NO-EXISTE-999', p_fecha: FECHA }, vacio)

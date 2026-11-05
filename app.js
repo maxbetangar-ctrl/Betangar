@@ -28963,7 +28963,15 @@ function clGuardar(){
   // Guardar en Supabase
   if(!DB_READY||!supabase){alert('Sin conexión — no se pudo guardar');return;}
 
-  supabase.from('checklist').upsert([reg],{onConflict:'fecha,cam'}).then(function(res){
+  // ⛔ EL TURNO ENTRA EN LA LLAVE (04/11/2026). `checklist` dejó de ser UNIQUE (fecha, cam)
+  //    y pasó a (fecha, cam, turno) para que la jornada nocturna pueda llevar su propio
+  //    control. Un `upsert` con `onConflict` que nombre una llave que ya no existe NO se
+  //    cae a la mitad: Postgres lo rechaza entero, así que la oficina habría dejado de poder
+  //    guardar un checklist a mano — y el mensaje sería un error de base sin sentido para
+  //    quien lo lee. Si el registro no trae turno, es el de siempre.
+  //    [[norma-correccion-heredada-toca-todas-las-tablas]]
+  if(!reg.turno) reg.turno='diurno';
+  supabase.from('checklist').upsert([reg],{onConflict:'fecha,cam,turno'}).then(function(res){
     if(res.error){alert('Error guardando: '+res.error.message);return;}
 
     // Actualizar KM_DATA con el km de entrada (para precargar mañana como salida).
@@ -35072,12 +35080,22 @@ async function cuaUsar(cam, cual){
       mostrarToast('«'+p.ch+'» no coincide con ningún empleado activo. Revisá el alias de nombres.','error');
       return;
     }
-    if(!confirm('¿Dejar asentado que la '+cam+' la manejó '+emp.nombre+' (lo que dice la planilla)?')) return;
-    var fila={ fecha:d.fecha, cam:cam, empleado_id:emp.id, nombre:emp.nombre, cargo:emp.cargo,
+    // ⛔ EL TURNO ACOTA ESTA CORRECCIÓN (04/11/2026). Desde que hay dos jornadas al día, la
+    //    misma unidad tiene DOS choferes en `cuadrilla_dia`. El borrado de abajo filtraba
+    //    solo por fecha+unidad+rol, así que se habría llevado puesto también al chofer del
+    //    OTRO turno — borrando un dato que nadie pidió corregir y dejando esa jornada sin
+    //    chofer declarado. Las planillas todavía no traen turno, así que esto corrige el
+    //    DIURNO; cuando la planilla lo traiga, sale de ahí.
+    //    [[norma-correccion-heredada-toca-todas-las-tablas]]
+    var _turno=(d && d.turno) ? d.turno : 'diurno';
+    if(!confirm('¿Dejar asentado que la '+cam+' la manejó '+emp.nombre+' en el turno '+_turno+
+                ' (lo que dice la planilla)?')) return;
+    var fila={ fecha:d.fecha, cam:cam, turno:_turno, empleado_id:emp.id, nombre:emp.nombre, cargo:emp.cargo,
                rol:'chofer', declarado_por:'oficina:'+((SESION&&SESION.usuario)||'?') };
-    // ⛔ Se BORRA primero el chofer que hubiera declarado el QR para esa unidad y ese día: si no,
-    //    quedarían dos choferes para el mismo camión y el cruce de mañana mediría cualquier cosa.
-    var del=await supabase.from('cuadrilla_dia').delete().eq('fecha',d.fecha).eq('cam',cam).eq('rol','chofer');
+    // ⛔ Se BORRA primero el chofer que hubiera declarado el QR para esa unidad, ese día y ESE
+    //    TURNO: si no, quedarían dos choferes para la misma jornada y el cruce de mañana
+    //    mediría cualquier cosa.
+    var del=await supabase.from('cuadrilla_dia').delete().eq('fecha',d.fecha).eq('cam',cam).eq('turno',_turno).eq('rol','chofer');
     if(del&&del.error){ mostrarToast('No se pudo corregir: '+del.error.message,'error'); return; }
     // ⛔ Con `.select()`: un insert sin él afirma que guardó sin haberlo medido.
     //    [[norma-insert-sin-select-no-mide]]

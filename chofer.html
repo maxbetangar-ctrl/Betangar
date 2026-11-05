@@ -1309,7 +1309,7 @@ function abrirCuadrillaGate(forzar){
 function cqTraerDelDia(soloHeader){
   if(!supabase || navigator.onLine === false) return;
   try{
-    supabase.rpc('cuadrilla_del_dia', { p_cam: cam }).then(function(r){
+    supabase.rpc('cuadrilla_del_dia', { p_cam: cam, p_turno: CL_TURNO }).then(function(r){
       if(!(r && !r.error && Array.isArray(r.data) && r.data.length)) return;
       CQ_SEL = r.data.filter(function(x){ return x.rol==='ayudante'; })
                      .map(function(x){ return {id:x.empleado_id, nombre:x.nombre, cargo:x.cargo}; })
@@ -1383,11 +1383,15 @@ function cqGuardar(){
   //    no encuentra una función con ese argumento extra y devuelve PGRST202. Salió así en la
   //    prueba del navegador —con el espía puesto, antes de tocar la base—: la llamada iba con
   //    `{p_cam, p_id, p_clave, p_ayudantes, fecha}` y en producción no habría guardado NADA.
-  var reg = { p_cam: cam, p_id: CHOFER_ID, p_clave: CHOFER_CLAVE,
+  // ⛔ El TURNO va en la declaración (04/11/2026). Sin él, el chofer de la noche declara su
+  //    cuadrilla y le BORRA la del de la mañana — la función reescribe lo que el chofer
+  //    declaró ese día para esa unidad, y sin turno «ese día» son los dos turnos.
+  //    Y la cuadrilla es lo que dice quién trabajó: perderla es perder a quién pagarle.
+  var reg = { p_cam: cam, p_id: CHOFER_ID, p_clave: CHOFER_CLAVE, p_turno: CL_TURNO,
               p_ayudantes: CQ_SEL.map(function(a){ return a.id; }) };
   // Se anota en la cola ANTES de mandarla: un teléfono sin señal —o que se bloquea mientras
   // sube— perdería la cuadrilla y nadie se enteraría.
-  cqEncolar({ p_cam:reg.p_cam, p_id:reg.p_id, p_clave:reg.p_clave, p_ayudantes:reg.p_ayudantes });
+  cqEncolar({ p_cam:reg.p_cam, p_id:reg.p_id, p_clave:reg.p_clave, p_turno:reg.p_turno, p_ayudantes:reg.p_ayudantes });
   try{ localStorage.setItem(_cqKey(), JSON.stringify({fecha:_hoyVE(), ayud:CQ_SEL})); }catch(e){}
   if(btn){ btn.disabled=true; btn.textContent='Guardando…'; }
   var _entrar = function(){
@@ -1483,7 +1487,9 @@ function cqSubirCola(){
   }
   c.filter(function(x){ return x.fecha===hoyv; }).forEach(function(reg){
     try{
-      supabase.rpc('cuadrilla_declarar', {p_cam:reg.p_cam, p_id:reg.p_id, p_clave:reg.p_clave, p_ayudantes:reg.p_ayudantes})
+      // El turno viaja también en el reintento de la cola: si no, una cuadrilla que subió
+      // tarde entraría en el turno de siempre y pisaría la que sí estaba bien.
+      supabase.rpc('cuadrilla_declarar', {p_cam:reg.p_cam, p_id:reg.p_id, p_clave:reg.p_clave, p_turno:(reg.p_turno||'diurno'), p_ayudantes:reg.p_ayudantes})
         .then(function(r){ if(r && !r.error && r.data && r.data.ok !== false) cqDesencolar(reg); }, function(){});
     }catch(e){}
   });
