@@ -923,7 +923,13 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
         <input type="hidden" id="pv-edit-id">
         <button class="btn btn-g" style="width:100%" onclick="guardarProveedor()">Guardar Proveedor</button>
       </div>
-      <div class="card"><div class="st" style="margin-bottom:10px">Proveedores Registrados</div><div id="pv-lista-render"></div></div>
+      <div class="card"><div class="st" style="margin-bottom:10px;display:flex;gap:6px;align-items:center;flex-wrap:wrap">Proveedores Registrados
+        <!-- Carga masiva: bajar la plantilla, llenarla y subirla. Se reconocen por
+             RIF o nombre, así que subirla dos veces NO duplica.
+             [[norma-todo-modulo-lleva-su-excel-y-su-carga-masiva]] -->
+        <button class="btn btn-s btn-sm" style="margin-left:auto" onclick="descargarPlantillaProveedores()" title="Descargá el Excel, que lo llenen con RIF, cuentas y retenciones, y volvé a subirlo">⬇️ Plantilla Excel</button>
+        <label class="btn btn-s btn-sm" style="cursor:pointer" title="Subí el Excel lleno. Los que ya existen se actualizan, no se duplican">📥 Importar Excel<input type="file" accept=".xlsx,.xlsm,.xls" style="display:none" onchange="importarProveedoresExcel(this)"></label>
+      </div><div id="pv-lista-render"></div></div>
     </div>
   </div>
   <div id="tab-prov-ret" style="display:none">
@@ -1027,6 +1033,12 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
           <div style="display:flex;gap:6px;align-items:center">
             <input type="month" class="fc" id="ret-mes" onchange="renderRetenciones()" style="padding:4px 6px;font-size:11px">
             <button class="btn btn-s btn-xs" onclick="exportRetenciones()">⬇️ Excel</button>
+            <!-- ⛔ Esto NO da de alta facturas: les COMPLETA el número de control, que
+                 viene impreso en la factura del proveedor y no está en ningún sistema.
+                 Sin esta pieza había que pedirlo por correo y cargarlo a mano (05/11/2026).
+                 [[norma-todo-modulo-lleva-su-excel-y-su-carga-masiva]] -->
+            <button class="btn btn-s btn-xs" onclick="descargarPlantillaControles()" title="Baja SOLO las facturas con retención a las que les falta el número de control, para que administración lo complete">⬇️ Plantilla de números de control</button>
+            <label class="btn btn-s btn-xs" style="cursor:pointer" title="Subí esa misma planilla llena. Sólo completa el número de control: no da de alta ni borra nada">📥 Cargar números de control<input type="file" accept=".xlsx,.xlsm,.xls" style="display:none" onchange="importarControlesExcel(this)"></label>
           </div>
         </div>
         <div id="ret-resumen"></div>
@@ -3222,8 +3234,8 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
      navegador sigue sirviendo el archivo viejo aunque el app.js sea nuevo, y el
      Excel sale con el defecto ya corregido. Pasó midiendo este mismo cambio el
      23/09: dos corridas dieron un .xlsx idéntico byte por byte. -->
-<script src="maxware-excel.js?v=20260923-2252"></script>
-<script src="app.js?v=20261106-1400"></script>
+<script src="maxware-excel.js?v=20261106-excel"></script>
+<script src="app.js?v=20261106-excel"></script>
 
 <!-- Modal global -->
 <div id="modal" class="moverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9990;align-items:center;justify-content:center;padding:16px">

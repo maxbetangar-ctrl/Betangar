@@ -14621,18 +14621,7 @@ async function descargarPlantillaMaestra(){
 }
 
 // Importa el Excel de alta completo: cada hoja va a su procesador, EN ORDEN.
-function importarPlantillaMaestra(input){
-  var f=input&&input.files&&input.files[0]; if(!f)return;
-  if(!_xlsxListo()){ input.value=''; return; }
-  var reader=new FileReader();
-  reader.onload=function(e){
-    var wb;
-    try{ wb=XLSX.read(e.target.result,{type:'binary',cellDates:true}); }
-    catch(err){ alert('No se pudo leer el Excel: '+((err&&err.message)||err)); input.value=''; return; }
-    _procesarAltaMaestra(wb,input);
-  };
-  reader.readAsBinaryString(f);
-}
+function importarPlantillaMaestra(input){ _leerExcelY(input,_procesarAltaMaestra); }
 
 async function _procesarAltaMaestra(wb,input){
   // Se busca la hoja por nombre sin importar mayusculas ni acentos: el cliente
@@ -14705,19 +14694,7 @@ async function descargarPlantillaPiezas(){
   }catch(e){ alert('No se pudo generar la plantilla: '+((e&&e.message)||e)); }
 }
 
-function importarPiezasExcel(input){
-  var f=input&&input.files&&input.files[0]; if(!f)return;
-  if(!_xlsxListo()){ input.value=''; return; }
-  var reader=new FileReader();
-  reader.onload=function(e){
-    var rows;
-    try{ var wb=XLSX.read(e.target.result,{type:'binary',cellDates:true});
-         rows=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{defval:''}); }
-    catch(err){ alert('No se pudo leer el Excel: '+((err&&err.message)||err)); input.value=''; return; }
-    _procesarPiezasExcel(rows,input);
-  };
-  reader.readAsBinaryString(f);
-}
+function importarPiezasExcel(input){ _leerExcelY(input,_procesarPiezasExcel); }
 
 async function _procesarPiezasExcel(rows,input){
   if(!rows||!rows.length){ alert('El Excel no tiene filas.'); if(input)input.value=''; return; }
@@ -16041,17 +16018,7 @@ function _plantillaUnidadesPlano(){
   XLSX.writeFile(wb,'FlotaMax_Plantilla_Unidades.xlsx');
   if(typeof mostrarToast==='function')mostrarToast('⬇️ Plantilla descargada. Llenala y volvela a subir con "Importar Excel".','exito');
 }
-function importarUnidadesExcel(input){
-  var file=input&&input.files&&input.files[0]; if(!file)return;
-  var reader=new FileReader();
-  reader.onload=function(e){
-    var rows;
-    try{ var wb=XLSX.read(e.target.result,{type:'binary',cellDates:true}); var sh=wb.Sheets[wb.SheetNames[0]]; rows=XLSX.utils.sheet_to_json(sh,{defval:''}); }
-    catch(err){ alert('No se pudo leer el Excel: '+((err&&err.message)||err)); return; }
-    _procesarUnidadesExcel(rows,input);
-  };
-  reader.readAsBinaryString(file);
-}
+function importarUnidadesExcel(input){ _leerExcelY(input,_procesarUnidadesExcel); }
 async function _procesarUnidadesExcel(rows,input){
   if(!rows||!rows.length){alert('El Excel (hoja 1) no tiene filas.');return;}
   var alias={cam:['n_unidad','no_unidad','numero','numero_unidad','unidad','id','codigo','n'],nombre:['nombre','alias','nombre_alias'],marca:['marca'],modelo:['modelo'],anio:['ano','anio','year','a_o'],placa:['placa','matricula'],vin:['vin'],serial_motor:['serial_motor','serial_de_motor','motor','n_motor'],serial_carroceria:['serial_carroceria','serial_de_carroceria','carroceria','chasis','n_carroceria'],tipo:['tipo','tipo_unidad','tipo_de_unidad','tipo_equipo'],combustible:['combustible','fuel'],medida:['medida','como_se_mide','se_mide'],horas_actuales:['horas','horas_actuales','horimetro'],uso:['uso'],titular:['titular','titulo_a_nombre_de','propietario','dueno'],chofer:['chofer','conductor','operador'],notas:['notas','observaciones','obs'],baterias:['baterias','bateria','n_baterias','cantidad_baterias']};
@@ -16123,12 +16090,28 @@ function _plantillaEmpleadosPlano(){
   XLSX.writeFile(wb,'FlotaMax_Plantilla_Empleados.xlsx');
   if(typeof mostrarToast==='function')mostrarToast('⬇️ Plantilla de empleados descargada.','exito');
 }
-function importarEmpleadosExcel(input){
-  var file=input&&input.files&&input.files[0]; if(!file)return;
-  var reader=new FileReader();
-  reader.onload=function(e){ var rows; try{ var wb=XLSX.read(e.target.result,{type:'binary',cellDates:true}); rows=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{defval:''}); }catch(err){ alert('No se pudo leer el Excel: '+((err&&err.message)||err)); return; } _procesarEmpleadosExcel(rows,input); };
-  reader.readAsBinaryString(file);
+// ⛔ LA LECTURA ES UNA SOLA, Y ANTES ESTABA ROTA EN LAS CUATRO.
+//    Cada importador tenia su propia copia de FileReader + XLSX.read +
+//    sheet_to_json, y las cuatro tomaban la FILA 1 como encabezado. Pero las
+//    plantillas de la casa ponen un banner de marca arriba y los encabezados
+//    de verdad en la fila 4: al releer la plantilla, las columnas salian
+//    «BETANGAR, __EMPTY, __EMPTY_1…» y el importador avisaba que faltaba la
+//    columna que estaba ahi. Medido el 05/11/2026 sobre las plantillas de
+//    Empleados, Unidades y Maestra: las tres.
+//    Nadie lo vio porque cada mitad andaba bien por separado.
+//    [[norma-probar-el-camino-no-la-pieza]]
+//
+//    Ahora las cuatro pasan por `MaxwareExcel.leerInput`, que BUSCA la fila de
+//    encabezados en vez de suponerla. [[norma-dos-listas-a-mano-se-desincronizan]]
+async function _leerExcelY(input, procesar, alias) {
+  var r;
+  try { r = await MaxwareExcel.leerInput(input, { alias: alias || null }); }
+  catch (e) { alert(e.message); return; }
+  if (!r.filas.length) { alert('El Excel (hoja 1) no tiene filas con datos.'); return; }
+  return procesar(r.filas, input);
 }
+
+function importarEmpleadosExcel(input){ _leerExcelY(input,_procesarEmpleadosExcel); }
 async function _procesarEmpleadosExcel(rows,input){
   if(!rows||!rows.length){alert('El Excel (hoja 1) no tiene filas.');return;}
   var alias={nombre:['nombre','nombre_completo','nombre_y_apellido','empleado'],cedula:['cedula','ci','documento'],rif:['rif'],cargo:['cargo','puesto'],unidad:['unidad','unidad_area','area','unidad_asignada'],banco:['banco'],tcuenta:['tipo_de_cuenta','tipo_cuenta','tcuenta'],ncuenta:['n_de_cuenta','numero_de_cuenta','numero_cuenta','ncuenta','cuenta'],tel:['telefono','tel','celular'],whatsapp:['whatsapp','wa'],email:['email','correo'],forma_pago:['forma_de_pago','forma_pago','modalidad_pago'],sueldo:['sueldo_tarifa','sueldo','tarifa','salario','monto'],fnac:['fecha_nacimiento','fnac','nacimiento'],fingreso:['fecha_ingreso','fingreso','ingreso'],activo:['activo','activo_si_no','estado']};
@@ -36429,3 +36412,216 @@ async function rsCorridas(){
 }
 
 function renderResumenSocios(){ rsCorridas(); if(!gv('rs-desde')) rsCicloActual(); }
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  CARGA MASIVA DESDE EXCEL — PROVEEDORES y NÚMEROS DE CONTROL
+//
+//  Máximo, 05/11/2026: «todo modulo deberia tener su excel y su modulo de carga
+//  en batch desde el excel […] para que asi sea automanejable por cada empresa
+//  […] y que no siempre dependan de nosotros».
+//
+//  Estos dos salieron primero porque son los que nos tenían de teclado del
+//  cliente: para pedirle a Keily 35 números de control hubo que escribir un
+//  script, armar un CSV y mandárselo — y cargarlos a mano al volver.
+//
+//  ⛔ LA LECTURA NO SE VUELVE A ESCRIBIR. `MaxwareExcel.leerInput/mapear/cruzar`
+//     es la pieza compartida: acá sólo va lo propio de cada módulo (qué
+//     columnas, qué validar, en qué tabla). [[norma-dos-listas-a-mano-se-desincronizan]]
+// ══════════════════════════════════════════════════════════════════════════════
+
+// ── PROVEEDORES ───────────────────────────────────────────────────────────────
+async function descargarPlantillaProveedores(){
+  var headers=['Nombre / Razon Social','RIF','Categoria','Telefono','Banco','Tipo de Cuenta',
+               'N de Cuenta','Tipo de Contribuyente','% Ret. IVA','% Ret. ISLR','Notas'];
+  var widths=[34,16,18,15,16,14,24,22,11,12,30];
+  var rows=[
+    ['INVERSIONES EJEMPLO, C.A.','J-12345678-9','Repuestos','0261-0000000','Banesco','Corriente','01340000000000000000','ordinario','75','2','paga a 15 dias'],
+    ['JUAN PEREZ','V-12345678-0','Servicios','0414-0000000','','','','formal','75','0','']
+  ];
+  if(typeof ExcelJS==='undefined')return _plantillaPlano(headers,rows,'plantilla-proveedores.csv');
+  try{
+    var wb=new ExcelJS.Workbook(); wb.creator='Maxware C.A.';
+    _xlHoja(wb,{name:'Proveedores',subtitulo:'Un proveedor por fila (las grises son ejemplos, borrelas)',
+                headers:headers,widths:widths,rows:rows,ejemplos:2,vacias:25});
+    _xlHoja(wb,{name:'Instrucciones',subtitulo:'Como llenar cada columna',headers:['Campo','Como llenarlo'],
+                widths:[30,92],ejemplos:0,rows:[
+      ['Nombre / Razon Social','OBLIGATORIO. El nombre FISCAL, como aparece en la factura.'],
+      ['RIF','OBLIGATORIO para retenciones. Formato J-12345678-9 o V-12345678-0, CON el ultimo digito.'],
+      ['Categoria','Para agrupar en los informes: Repuestos, Servicios, Combustible, Oficina...'],
+      ['Tipo de Contribuyente','ordinario / formal / especial. Decide como se le retiene.'],
+      ['% Ret. IVA','Normalmente 75 o 100. Si no sabe, deje 75.'],
+      ['% Ret. ISLR','0 si no se le retiene ISLR.'],
+      ['Si el proveedor YA EXISTE','Se reconoce por el RIF y se le ACTUALIZAN los datos. No se duplica.']
+    ]});
+    await _xlDescargar(wb,'Plantilla_Proveedores.xlsx');
+  }catch(e){ console.error(e); _plantillaPlano(headers,rows,'plantilla-proveedores.csv'); }
+}
+
+function importarProveedoresExcel(input){ _importarProveedores(input); }
+
+async function _importarProveedores(input){
+  // El ALIAS va ANTES de leer: con el se encuentra en que fila estan los
+  // encabezados. La plantilla los pone en la 4, debajo del banner de marca.
+  var ALIAS={
+    nombre:['nombre_razon_social','nombre','razon_social','proveedor'],
+    rif:['rif','rif_del_proveedor'],
+    cat:['categoria','rubro'],
+    tel:['telefono','tel','celular'],
+    banco:['banco'], tcuenta:['tipo_de_cuenta','tipo_cuenta'],
+    ncuenta:['n_de_cuenta','numero_de_cuenta','cuenta'],
+    tipo_contrib:['tipo_de_contribuyente','tipo_contribuyente','contribuyente'],
+    ret_pct:['ret_iva','_ret_iva','porcentaje_ret_iva','ret_pct'],
+    islr_pct:['ret_islr','_ret_islr','porcentaje_ret_islr','islr_pct'],
+    notas:['notas','observaciones']
+  };
+  var r; try{ r=await MaxwareExcel.leerInput(input,{alias:ALIAS}); }catch(e){ alert(e.message); return; }
+  if(!r.filas.length){ alert('La hoja no tiene filas con datos.'); return; }
+  var m=MaxwareExcel.mapear(r.filas,ALIAS,['nombre']);
+  if(m.faltan.length){
+    alert('Al Excel le falta la columna "Nombre / Razon Social".\n\nUse la plantilla: boton "⬇️ Plantilla Excel".');
+    return;
+  }
+  var T=function(f,c){return MaxwareExcel.texto(f,m.col,c);};
+
+  // ⛔ EL RIF SE REVISA ANTES DE CARGAR. Un RIF mal cargado no se nota hasta
+  //    que se emite un comprobante fiscal con el — y ahi ya salio.
+  var nuevos=[], actualiza=[], malos=[], sinNombre=0, ts=Date.now();
+  r.filas.forEach(function(f,i){
+    var nombre=T(f,'nombre'); if(!nombre){ sinNombre++; return; }
+    var rif=T(f,'rif');
+    if(rif && typeof retRevisarRif==='function'){
+      var v=retRevisarRif(rif);
+      if(!v.ok){ malos.push('fila '+(i+2)+' · '+nombre+': '+v.motivo+(v.sugerido?(' (seria '+v.sugerido+')'):'')); return; }
+      rif=v.formateado;
+    }
+    var ex=(PROVEEDORES||[]).find(function(p){
+      return (rif&&p.rif&&MaxwareExcel.llave(p.rif)===MaxwareExcel.llave(rif))
+          || MaxwareExcel.llave(p.nombre)===MaxwareExcel.llave(nombre); });
+    var fila={ id: ex?ex.id:('P'+String(ts+i)), nombre:nombre.toUpperCase(), rif:rif,
+      categoria:T(f,'cat'), tel:T(f,'tel'), banco:T(f,'banco'), tcuenta:T(f,'tcuenta'),
+      ncuenta:T(f,'ncuenta'), tipo_contrib:T(f,'tipo_contrib')||'ordinario',
+      ret_pct: MaxwareExcel.numero(T(f,'ret_pct'))===null?75:MaxwareExcel.numero(T(f,'ret_pct')),
+      islr_pct: MaxwareExcel.numero(T(f,'islr_pct'))||0,
+      notas:T(f,'notas'), activo:true };
+    (ex?actualiza:nuevos).push(fila);
+  });
+
+  // ⛔ LOS RECHAZADOS SE NOMBRAN. Un «se cargaron 20 de 25» sin decir cuales
+  //    faltaron obliga a comparar a mano 25 filas.
+  var aviso=[];
+  aviso.push('ALTA: '+nuevos.length+' proveedor(es) nuevo(s).');
+  if(actualiza.length) aviso.push('ACTUALIZA: '+actualiza.length+' que ya existian (se reconocen por RIF o nombre).');
+  if(sinNombre) aviso.push(sinNombre+' fila(s) sin nombre se omiten.');
+  if(malos.length) aviso.push('\n⛔ '+malos.length+' con el RIF mal, NO se cargan:\n  '+malos.slice(0,8).join('\n  ')+(malos.length>8?('\n  …y '+(malos.length-8)+' mas'):''));
+  var todos=nuevos.concat(actualiza);
+  if(!todos.length){ alert('No hay nada que cargar.\n\n'+aviso.join('\n')); return; }
+  if(!confirm(aviso.join('\n')+'\n\n¿Sigo?')) return;
+  if(!(DB_READY&&supabase)){ alert('Sin conexion a la base: no se cargo nada.'); return; }
+
+  var err=await _guardarPorTandas('proveedores',todos,'id');
+  if(err){ mostrarToast('No se pudo cargar: '+err,'error'); return; }
+  try{ var re=await supabase.from('proveedores').select('*'); if(re&&!re.error&&re.data)await cargarDatosDB(); }catch(e){}
+  audit('Proveedores importados de Excel', nuevos.length+' nuevos · '+actualiza.length+' actualizados');
+  try{ _provRefrescarUI(); }catch(e){}
+  if(input)input.value='';
+  mostrarToast('✅ '+todos.length+' proveedor(es) cargados.','exito');
+}
+
+// ── NÚMEROS DE CONTROL DE LAS FACTURAS — el caso de ACTUALIZAR ────────────────
+// ⛔ ESTE NO DA DE ALTA NADA. Las facturas ya estan; lo que falta es un dato.
+//    Es el modo que no existia y el que pidio este trabajo: el 05/11 habia 35
+//    facturas con retencion sin numero de control, Bs 870.820 de IVA sin ese
+//    respaldo, y la unica forma de completarlo era que lo hicieramos nosotros.
+async function descargarPlantillaControles(){
+  var faltan=(CXP_FACTURAS||[]).filter(function(f){
+    return (Number(f.ret_iva_bs)>0||Number(f.ret_islr_bs)>0) && !String(f.num_control||'').trim(); });
+  if(!faltan.length){ alert('✅ No falta ningun numero de control.'); return; }
+  var headers=['Fecha','Proveedor','N de Factura','Base Bs','Ret. IVA Bs','Ret. ISLR Bs','N DE CONTROL'];
+  var widths=[12,40,16,15,14,14,24];
+  var rows=faltan.map(function(f){
+    return [ (String(f.fecha||'').slice(0,10).split('-').reverse().join('/')),
+             f.prov_nombre||'', f.nro_factura||'',
+             Number(f.base_bs)||0, Number(f.ret_iva_bs)||0, Number(f.ret_islr_bs)||0, '' ]; });
+  if(typeof ExcelJS==='undefined')return _plantillaPlano(headers,rows,'numeros-de-control.csv');
+  try{
+    var wb=new ExcelJS.Workbook(); wb.creator='Maxware C.A.';
+    _xlHoja(wb,{name:'Numeros de control',
+                subtitulo:'Llene SOLO la ultima columna. Lo demas identifica la factura: no lo cambie.',
+                headers:headers,widths:widths,rows:rows,ejemplos:0,vacias:0});
+    _xlHoja(wb,{name:'Instrucciones',subtitulo:'Lea antes de llenar',headers:['Nota'],widths:[104],ejemplos:0,rows:[
+      ['El numero de control viene IMPRESO en la factura del proveedor. No esta en el sistema.'],
+      ['Llene solo la columna "N DE CONTROL". El resto esta para que ubique cada factura.'],
+      ['No agregue ni borre filas: cada una corresponde a una factura que ya esta cargada.'],
+      ['Si deja una celda en blanco, esa factura se queda como esta. No se borra nada.'],
+      ['Cuando termine, suba el archivo con el boton "📥 Cargar numeros de control".']
+    ]});
+    await _xlDescargar(wb,'Numeros_de_control.xlsx');
+  }catch(e){ console.error(e); _plantillaPlano(headers,rows,'numeros-de-control.csv'); }
+}
+
+function importarControlesExcel(input){ _importarControles(input); }
+
+async function _importarControles(input){
+  var ALIAS={ nro_factura:['n_de_factura','numero_de_factura','factura','nro_factura'],
+              num_control:['n_de_control','numero_de_control','control','n_control'] };
+  var r; try{ r=await MaxwareExcel.leerInput(input,{alias:ALIAS}); }catch(e){ alert(e.message); return; }
+  if(!r.filas.length){ alert('La hoja no tiene filas con datos.'); return; }
+  var m=MaxwareExcel.mapear(r.filas,ALIAS,['nro_factura','num_control']);
+  if(m.faltan.length){
+    alert('Al Excel le faltan columnas: '+m.faltan.join(', ')+
+          '\n\nUse la plantilla: boton "⬇️ Plantilla de numeros de control".');
+    return;
+  }
+  var delExcel=r.filas.map(function(f){
+    return { nro_factura: MaxwareExcel.texto(f,m.col,'nro_factura'),
+             num_control: MaxwareExcel.texto(f,m.col,'num_control') }; });
+
+  // El cruce lo hace la pieza compartida: separa lo que cambia, lo que ya
+  // estaba igual, lo que no existe y lo que vino repetido.
+  var x=MaxwareExcel.cruzar(CXP_FACTURAS||[], delExcel, 'nro_factura', ['num_control']);
+
+  var detalle='';
+  if(x.sinCalzar.length){
+    detalle='\n\nNO se encontraron (quedan sin cargar):\n  '+
+      x.sinCalzar.slice(0,10).map(function(s){return 'fila '+s.fila+': '+(s.dato.nro_factura||'(sin numero)');}).join('\n  ')+
+      (x.sinCalzar.length>10?('\n  …y '+(x.sinCalzar.length-10)+' mas'):'');
+  }
+  if(!x.cambios.length){ alert(MaxwareExcel.resumen(x)+detalle); return; }
+  if(!confirm(MaxwareExcel.resumen(x)+detalle+'\n\n¿Aplico los '+x.cambios.length+' cambios?')) return;
+  if(!(DB_READY&&supabase)){ alert('Sin conexion a la base: no se cargo nada.'); return; }
+
+  var filas=x.cambios.map(function(c){ return { id:c.existente.id, num_control:c.cambios.num_control }; });
+  var err=await _guardarPorTandas('cxp_facturas',filas,'id');
+  if(err){ mostrarToast('No se pudo cargar: '+err,'error'); return; }
+  x.cambios.forEach(function(c){ c.existente.num_control=c.cambios.num_control; });
+  audit('Numeros de control cargados de Excel', x.cambios.length+' factura(s)');
+  try{ renderRetenciones(); }catch(e){}
+  if(input)input.value='';
+  mostrarToast('✅ '+x.cambios.length+' numero(s) de control cargados.','exito');
+}
+
+// ── Lo compartido por los dos ────────────────────────────────────────────────
+/**
+ * Guarda en tandas de 100. Devuelve '' si salio todo, o el mensaje del error.
+ * ⛔ CORTA en el primer error en vez de seguir: si la tanda 3 de 8 falla,
+ *    seguir deja la carga a medias y nadie sabe por donde quedo.
+ */
+async function _guardarPorTandas(tabla,filas,llave){
+  for(var i=0;i<filas.length;i+=100){
+    try{
+      var rr=await supabase.from(tabla).upsert(filas.slice(i,i+100),{onConflict:llave});
+      if(rr&&rr.error) return rr.error.message+(i?(' (se guardaron las primeras '+i+' filas)'):'');
+    }catch(e){ return ((e&&e.message)||e)+(i?(' (se guardaron las primeras '+i+' filas)'):''); }
+  }
+  return '';
+}
+
+/** El CSV de respaldo cuando ExcelJS no cargo. Mismo dato, sin formato. */
+function _plantillaPlano(headers,rows,nombre){
+  var q=function(v){ var s=String(v==null?'':v); return /[";\n]/.test(s)?('"'+s.replace(/"/g,'""')+'"'):s; };
+  var csv='﻿'+[headers.join(';')].concat(rows.map(function(r){return r.map(q).join(';');})).join('\r\n');
+  var a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8;'}));
+  a.download=nombre; a.click();
+  setTimeout(function(){URL.revokeObjectURL(a.href);},1500);
+}

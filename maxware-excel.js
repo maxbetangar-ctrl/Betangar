@@ -379,6 +379,247 @@
     return false;
   }
 
+  // ════════════════════════════════════════════════════════════════════════
+  //  LEER — la otra mitad, la que faltaba
+  //
+  //  POR QUÉ EXISTE (Máximo, 05/11/2026): «todo modulo deberia tener su excel
+  //  y su modulo de carga en batch desde el excel […] para que asi sea
+  //  automanejable por cada empresa […] y que no siempre dependan de
+  //  nosotros». Este archivo era la fuente única del Excel que SALE; el que
+  //  ENTRA no tenía nada, y las seis líneas de `FileReader` + `XLSX.read` +
+  //  `sheet_to_json` estaban copiadas en CADA importador — cinco veces sólo
+  //  en Betangar. Mientras siga copiada, cada módulo nuevo se vuelve a
+  //  escribir a mano y la norma se incumple sola.
+  //  [[norma-todo-modulo-lleva-su-excel-y-su-carga-masiva]]
+  // ════════════════════════════════════════════════════════════════════════
+
+  /** ENCABEZADO → nombre comparable. «N° de Factura» → `n_de_factura`. */
+  function slug(s) {
+    return String(s == null ? '' : s).toLowerCase().normalize('NFD')
+      .replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '');
+  }
+
+  /**
+   * LLAVE para comparar dos valores que señalan la misma cosa.
+   *
+   * ⛔ NO es `slug()`, y la diferencia importa. En un encabezado el guion
+   *    SEPARA («N° de Factura» → `n_de_factura`); en una llave el guion es
+   *    ADORNO y tiene que desaparecer, o `J-29566107-0` y `J295661070` serían
+   *    dos proveedores distintos. Lo encontró la prueba: usar el de
+   *    encabezados para comparar llaves daba «no existe en el sistema» sobre
+   *    una fila que sí estaba.
+   */
+  function llave(s) {
+    return String(s == null ? '' : s).toLowerCase().normalize('NFD')
+      .replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '');
+  }
+
+  /**
+   * Lee el Excel que la persona eligió en un <input type="file">.
+   * Devuelve una promesa con las filas de la PRIMERA hoja, como objetos.
+   *
+   * ⛔ NO SE TRAGA EL ERROR. Un Excel que no se pudo abrir y uno vacío se ven
+   *    igual —los dos dan cero filas— y así el que lo subió se queda esperando
+   *    algo que nunca pasó. Acá rechaza con un motivo que se puede leer.
+   */
+  /**
+   * ⛔ EN QUÉ FILA ESTÁN LOS ENCABEZADOS. No en la 1.
+   *
+   * 🔴 Esto es el defecto que hacía que NINGÚN importador pudiera leer su
+   *    propia plantilla. `hoja()` escribe un banner de marca en la fila 1 y el
+   *    subtítulo debajo; los encabezados de verdad caen en la 4. Al releer el
+   *    archivo, `sheet_to_json` toma la fila 1 como encabezado y todas las
+   *    columnas salen `__EMPTY_1`, `__EMPTY_2`… El cliente llenaba la
+   *    plantilla, la subía, y el sistema le decía que le faltaba la columna
+   *    que estaba ahí.
+   *    Lo encontró `scripts/ver-carga-masiva-excel.mjs` el 05/11/2026 —
+   *    generando la plantilla y volviéndola a leer en el mismo navegador.
+   *    Ninguna prueba de unidad lo veía: cada mitad andaba bien por separado.
+   *    [[norma-probar-el-camino-no-la-pieza]]
+   *
+   * Se elige la fila que MÁS columnas esperadas reconoce. Si no se pasan
+   * alias, la primera con dos o más celdas con texto. Así entra igual un
+   * archivo que la persona armó a mano con los encabezados en la fila 1.
+   */
+  function filaDeEncabezado(matriz, alias) {
+    var esperados = {};
+    Object.keys(alias || {}).forEach(function (c) {
+      (alias[c] || []).forEach(function (a) { esperados[a] = true; });
+    });
+    var hayAlias = Object.keys(esperados).length > 0;
+    var mejor = -1, mejorPuntaje = 0;
+    var tope = Math.min(matriz.length, 15);
+    for (var i = 0; i < tope; i++) {
+      var fila = matriz[i] || [];
+      var textos = fila.filter(function (c) { return String(c == null ? '' : c).trim() !== ''; });
+      if (textos.length < 2) continue;
+      var puntaje = hayAlias
+        ? textos.filter(function (c) { return esperados[slug(c)]; }).length
+        : 1;
+      if (puntaje > mejorPuntaje) { mejorPuntaje = puntaje; mejor = i; }
+      if (!hayAlias && mejor >= 0) break;        // sin alias: la primera sirve
+    }
+    return mejor;
+  }
+
+  function leerInput(input, opciones) {
+    var o = opciones || {};
+    return new Promise(function (resolve, reject) {
+      var file = input && input.files && input.files[0];
+      if (!file) return reject(new Error('No elegiste ningún archivo.'));
+      if (typeof XLSX === 'undefined') {
+        return reject(new Error('No cargó el lector de Excel (xlsx). Recargá la página.'));
+      }
+      var reader = new FileReader();
+      reader.onerror = function () { reject(new Error('No se pudo leer el archivo del disco.')); };
+      reader.onload = function (e) {
+        try {
+          var wb = XLSX.read(e.target.result, { type: 'binary', cellDates: true });
+          var nombreHoja = o.hoja && wb.Sheets[o.hoja] ? o.hoja : wb.SheetNames[0];
+          if (!nombreHoja) throw new Error('el archivo no tiene ninguna hoja');
+          var matriz = XLSX.utils.sheet_to_json(wb.Sheets[nombreHoja], { header: 1, defval: '' });
+          var iCab = filaDeEncabezado(matriz, o.alias);
+          if (iCab < 0) throw new Error('no encontré la fila de encabezados en la hoja «' + nombreHoja + '»');
+          var cab = (matriz[iCab] || []).map(function (c) { return String(c == null ? '' : c).trim(); });
+          var filas = [];
+          for (var i = iCab + 1; i < matriz.length; i++) {
+            var f = matriz[i] || {}, obj = {}, algo = false;
+            cab.forEach(function (h, j) {
+              if (!h) return;
+              var v = f[j] == null ? '' : f[j];
+              obj[h] = v;
+              if (String(v).trim() !== '') algo = true;
+            });
+            // Las filas totalmente vacías son las que deja la plantilla para
+            // escribir: no son datos y no cuentan como error.
+            if (algo) filas.push(obj);
+          }
+          resolve({ filas: filas, hoja: nombreHoja, hojas: wb.SheetNames,
+                    archivo: file.name, filaEncabezado: iCab + 1 });
+        } catch (err) {
+          reject(new Error('No se pudo leer el Excel: ' + ((err && err.message) || err)));
+        }
+      };
+      reader.readAsBinaryString(file);
+    });
+  }
+
+  /**
+   * Ata los encabezados que vinieron a los campos que el módulo espera.
+   *
+   * `alias` es {campo: ['como_puede_venir', 'otra_forma', …]}.
+   * Devuelve {col, faltan, sobran}:
+   *   col    → {campo: 'Encabezado tal cual vino'}
+   *   faltan → los campos OBLIGATORIOS que no aparecieron
+   *
+   * ⛔ LOS QUE FALTAN SE DEVUELVEN TODOS JUNTOS. Avisar de a uno obliga a
+   *    subir el archivo, corregir, subir, corregir. Una sola pasada dice todo
+   *    lo que hay que arreglar.
+   */
+  function mapear(filas, alias, obligatorios) {
+    var col = {}, cabeceras = filas && filas.length ? Object.keys(filas[0]) : [];
+    cabeceras.forEach(function (h) {
+      var s = slug(h);
+      Object.keys(alias).forEach(function (campo) {
+        if (col[campo]) return;                       // gana el primero que calza
+        if ((alias[campo] || []).indexOf(s) >= 0) col[campo] = h;
+      });
+    });
+    var faltan = (obligatorios || []).filter(function (c) { return !col[c]; });
+    return { col: col, faltan: faltan, cabeceras: cabeceras };
+  }
+
+  /** El valor de un campo en una fila, ya mapeado y sin espacios de sobra. */
+  function texto(fila, col, campo) {
+    return col[campo] ? String(fila[col[campo]] == null ? '' : fila[col[campo]]).trim() : '';
+  }
+
+  /** Número tolerante: acepta «1.234,56» y «1234.56». Vacío → null. */
+  function numero(v) {
+    var s = String(v == null ? '' : v).trim();
+    if (!s) return null;
+    if (/,\d{1,2}$/.test(s)) s = s.replace(/\./g, '').replace(',', '.');
+    else s = s.replace(/,/g, '');
+    var n = parseFloat(s);
+    return isNaN(n) ? null : n;
+  }
+
+  /** Fecha a 'AAAA-MM-DD'. Acepta ISO, dd/mm/aaaa y lo que Excel devuelve como Date. */
+  function fecha(v) {
+    if (v instanceof Date && !isNaN(v)) {
+      return v.getFullYear() + '-' + ('0' + (v.getMonth() + 1)).slice(-2) +
+             '-' + ('0' + v.getDate()).slice(-2);
+    }
+    var s = String(v == null ? '' : v).trim();
+    var iso = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (iso) return iso[1] + '-' + iso[2] + '-' + iso[3];
+    var ve = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+    if (ve) return ve[3] + '-' + ('0' + ve[2]).slice(-2) + '-' + ('0' + ve[1]).slice(-2);
+    return null;
+  }
+
+  /**
+   * CRUZA el Excel contra lo que YA EXISTE, para ACTUALIZAR en masa.
+   *
+   * ⛔ ESTA ES LA PIEZA QUE FALTABA, y es la que más se usa. Las cuatro cargas
+   *    que había sólo DABAN DE ALTA. El caso que la pidió —35 facturas a las
+   *    que les falta el número de control, 05/11/2026— no es dar de alta nada:
+   *    es completarle un dato a filas que ya están.
+   *
+   * ⛔ Y NO ESCRIBE: devuelve lo que PASARÍA. Quien llama muestra el resumen,
+   *    pide confirmación y recién ahí guarda. Una carga masiva que se aplica
+   *    sola es una carga masiva que no se puede revisar.
+   *
+   * ⛔ Los que NO CALZARON se devuelven, no se descartan en silencio. «No
+   *    encontré esa factura» y «esa factura ya estaba igual» son dos cosas
+   *    distintas y se cuentan aparte.
+   *    [[norma-un-filtro-nuestro-tapa-un-dato-que-si-llega]]
+   *
+   * @param existentes  las filas que ya están (array de objetos)
+   * @param filas       las del Excel, ya mapeadas a {clave, campos…}
+   * @param clave       función(fila) → la llave comparable, o nombre de campo
+   * @param campos      qué campos se pueden actualizar
+   */
+  function cruzar(existentes, filas, clave, campos) {
+    var llaveDe = typeof clave === 'function' ? clave
+                : function (x) { return llave(x[clave]); };
+    var indice = {};
+    (existentes || []).forEach(function (e) {
+      var k = llaveDe(e); if (k && !(k in indice)) indice[k] = e;
+    });
+    var cambios = [], iguales = [], sinCalzar = [], ambiguos = [];
+    var vistas = {};
+    (filas || []).forEach(function (f, i) {
+      var k = llaveDe(f);
+      if (!k) { sinCalzar.push({ fila: i + 2, motivo: 'la fila no trae la columna llave', dato: f }); return; }
+      if (vistas[k]) { ambiguos.push({ fila: i + 2, llave: k, dato: f }); return; }
+      vistas[k] = true;
+      var ex = indice[k];
+      if (!ex) { sinCalzar.push({ fila: i + 2, motivo: 'no existe en el sistema', llave: k, dato: f }); return; }
+      var dif = {};
+      campos.forEach(function (c) {
+        var nuevo = f[c];
+        if (nuevo === undefined || nuevo === null || nuevo === '') return;  // vacío = no tocar
+        var viejo = ex[c] == null ? '' : ex[c];
+        if (String(viejo).trim() !== String(nuevo).trim()) dif[c] = nuevo;
+      });
+      if (Object.keys(dif).length) cambios.push({ fila: i + 2, existente: ex, cambios: dif, llave: k });
+      else iguales.push({ fila: i + 2, llave: k });
+    });
+    return { cambios: cambios, iguales: iguales, sinCalzar: sinCalzar, ambiguos: ambiguos };
+  }
+
+  /** El resumen en palabras de lo que `cruzar()` encontró, para el confirm. */
+  function resumen(r) {
+    var L = [];
+    L.push('Se van a ACTUALIZAR ' + r.cambios.length + ' fila(s).');
+    if (r.iguales.length) L.push(r.iguales.length + ' ya estaban con ese mismo dato: no se tocan.');
+    if (r.sinCalzar.length) L.push('⛔ ' + r.sinCalzar.length + ' NO se encontraron en el sistema y quedan SIN cargar.');
+    if (r.ambiguos.length) L.push('⛔ ' + r.ambiguos.length + ' están repetidas en el Excel: sólo cuenta la primera.');
+    return L.join('\n');
+  }
+
   // ── Misma forma que la API vieja de XLSX, para convertir código sin dolor ──
   function nuevo() { return { __hojas: [] }; }
   function agregar(wb, arr, nombre, subtitulo) {
@@ -394,6 +635,10 @@
            libro_desde_hojas: libro_desde_hojas, nuevo: nuevo, agregar: agregar,
            guardar: guardar, borde: borde, marca: marca, usar: usar,
            logoEnNavegador: logoEnNavegador,
+           // La mitad que LEE (05/11/2026)
+           leerInput: leerInput, mapear: mapear, texto: texto, numero: numero,
+           fecha: fecha, slug: slug, llave: llave, cruzar: cruzar, resumen: resumen,
+           filaDeEncabezado: filaDeEncabezado,
            PALETA: { NAVY: NAVY, SLATE: SLATE, LIGHT: LIGHT, EJEMPLO: EJEMPLO, BORDE: BORDE } };
   return api_ref;
 });
