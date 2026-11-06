@@ -13535,6 +13535,153 @@ function renderCentroCostos(){
     pt.innerHTML=tks.length?('<div class="card" style="padding:12px"><div class="st" style="font-size:12px;margin-bottom:6px">Por tipo de gasto</div>'+tks.map(function(t){return '<div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0;border-bottom:1px solid var(--border)"><span>'+(_CC_TIPO_LBL[t]||t)+'</span><span class="mono">$'+porTipo[t].toFixed(2)+'</span></div>';}).join('')+'</div>'):'';
   }
 }
+// ── EL REPORTE DE COSTO POR UNIDAD ───────────────────────────────────────────
+// ⛔ 06/11/2026 — Alejandra (QA), sobre FLOTILLA: «Centro de Costos — gasto por
+//    unidad: Genera reporte de km y mantenimiento (Equivocado) debe generar su
+//    reporte con respecto a costos de la unidad». Tenía razón, y la causa era
+//    chica: el botón de imprimir de este módulo llamaba a `imprimirMantenimiento`,
+//    así que parado en el centro de costos salía el historial de mantenimiento.
+//    Al preguntarle qué tenía que traer, contestó: «me parece bien lo que me
+//    comentas» — combustible de esa unidad, mantenimientos, repuestos, gastos
+//    variables que le correspondan y el costo por kilómetro — y agregó que el
+//    de km y mantenimiento «debe ser solo para el módulo de mantenimiento, allí
+//    sí corresponde». Así quedó: cada tab imprime lo suyo.
+// ⛔ Y DE ESOS CINCO, UNO NO SE PUEDE: `gastos_variables` NO TIENE UNIDAD
+//    (medido — id, fecha, categoria, descripcion, bs, usd, referencia, factura,
+//    proveedor). Repartirlos por unidad sería inventar una atribución, y un
+//    renglón que falta sin avisar se lee como que no hubo gasto: va DICHO en el
+//    papel.  [[norma-falta-de-dato-no-es-un-dato]]
+// ⛔ LAS SURTIDAS NO SE LEEN DE MEMORIA. `SURTIDAS` trae solo los últimos 35 días
+//    (ver `cargarSurtidas`), así que un reporte de septiembre habría dicho
+//    «combustible $0» con los datos enteros en la base. Se piden para el rango
+//    pedido, y si la consulta falla el papel lo DICE en vez de poner 0.
+//    [[norma-un-filtro-nuestro-tapa-un-dato-que-si-llega]]
+// ⛔ Y LOS REPUESTOS NO SE SUMAN DOS VECES: un movimiento de inventario con
+//    `mant_id` ya está dentro del costo de ese mantenimiento. Medido en FLOTILLA:
+//    los 6 movimientos que tienen unidad son todos de tipo «Uso» y los 6 tienen
+//    `mant_id` ⇒ hoy el renglón de repuestos aparte da 0, y eso es lo correcto.
+// Qué imprime el módulo de Kilometraje: lo que la persona tiene DELANTE.
+function _imprimirDelModuloKm(){
+  var cc=document.getElementById('tab-km-costos');
+  if(cc&&cc.style.display!=='none'&&cc.offsetHeight>0){ imprimirCentroCostos(); return; }
+  imprimirMantenimiento();
+}
+
+async function imprimirCentroCostos(){
+  var desde=gv('cc-rep-desde')||'', hasta=gv('cc-rep-hasta')||'';
+  if(!desde||!hasta){ alert('Elegí DESDE y HASTA.\n\nEl costo de una unidad es siempre de un período: sin fechas no se puede comparar con nada.'); return; }
+  if(desde>hasta){ alert('El DESDE ('+desde+') es posterior al HASTA ('+hasta+').'); return; }
+  if(typeof _cargarMantTodo==='function' && !(MANTENIMIENTOS&&MANTENIMIENTOS.length)){ try{ await _cargarMantTodo(); }catch(e){} }
+  var tipo=gv('cc-rep-tipo')||'', prov=gv('cc-rep-prov')||'';
+  var enRango=function(f){ f=String(f||'').slice(0,10); return !!f&&f>=desde&&f<=hasta; };
+  var por={};
+  var fila=function(c){ c=c||'—'; if(!por[c])por[c]={mant:0,mantN:0,comb:0,combL:0,rep:0,repN:0,km:0}; return por[c]; };
+
+  // 1 · MANTENIMIENTO — la misma fuente que la pantalla, para que no den distinto
+  (MANTENIMIENTOS||[]).forEach(function(m){
+    if(!enRango(m.fecha))return;
+    var f=fila(m.cam); f.mant+=(parseFloat(m.costo)||0); f.mantN++;
+  });
+
+  // 2 · REPUESTOS que NO están dentro de un mantenimiento ya contado
+  (typeof INV_MOV!=='undefined'?INV_MOV:[]).forEach(function(x){
+    if(!enRango(x.fecha)||!x.cam||x.mantId)return;
+    if(String(x.tipo||'').toLowerCase().indexOf('uso')!==0)return;
+    var f=fila(x.cam);
+    f.rep+=Math.abs((parseFloat(x.precio)||0)*(parseFloat(x.cantidad)||0)); f.repN++;
+  });
+
+  // 3 · COMBUSTIBLE de cada unidad y 4 · KM recorridos — de la base, por el rango
+  var fallas=[];
+  if(DB_READY&&supabase){
+    try{
+      var rs=await _rpc('surtidas_listar',{ p_desde: desde });
+      if(rs&&rs.error)fallas.push('combustible: '+(rs.error.message||'no se pudo leer'));
+      else (rs&&rs.data||[]).forEach(function(s){
+        if(!enRango(s.fecha)||s.anulada)return;
+        var f=fila(s.cam); f.comb+=_surCostoUsd(s); f.combL+=(parseFloat(s.litros)||0);
+      });
+    }catch(e){ fallas.push('combustible: '+((e&&e.message)||'sin conexión')); }
+    try{
+      var rk=await supabase.from('checklist').select('cam,km_salida,km_entrada').gte('fecha',desde).lte('fecha',hasta);
+      if(rk&&rk.error)fallas.push('kilometraje: '+(rk.error.message||'no se pudo leer'));
+      else (rk&&rk.data||[]).forEach(function(c){
+        var s=parseInt(c.km_salida)||0, e=parseInt(c.km_entrada)||0;
+        // Solo jornadas CERRADAS y coherentes. Un salto absurdo no se promedia: se deja afuera.
+        if(!(s>0&&e>=s))return;
+        var d=e-s; if(d>5000)return;
+        fila(c.cam).km+=d;
+      });
+    }catch(e){ fallas.push('kilometraje: '+((e&&e.message)||'sin conexión')); }
+  } else { fallas.push('combustible y kilometraje: la app está sin conexión a la base'); }
+
+  var cams=Object.keys(por).filter(function(c){ var f=por[c]; return f.mant||f.comb||f.rep||f.km; });
+  if(!cams.length){ alert('No hay costos ni kilometraje de ninguna unidad entre '+desde+' y '+hasta+'.'); return; }
+  var tot={mant:0,comb:0,combL:0,rep:0,km:0};
+  // ⛔ EL $/km DEL TOTAL SOLO USA LAS UNIDADES QUE TIENEN KM. Sumar el costo de una
+  //    unidad sin jornadas cerradas y dividirlo por los km de las OTRAS infla el
+  //    número de toda la flota: en la prueba, FC09 ($155,25 y 0 km) llevaba el total
+  //    de $1,151 a $1,373 sin haber recorrido nada. Se cuentan aparte y el papel
+  //    dice cuántas quedaron afuera.  [[norma-una-asercion-mal-escrita-acusa-al-producto]]
+  var costoConKm=0, sinKm=0;
+  cams.forEach(function(c){
+    var f=por[c]; tot.mant+=f.mant; tot.comb+=f.comb; tot.combL+=f.combL; tot.rep+=f.rep; tot.km+=f.km;
+    if(f.km>0)costoConKm+=(f.mant+f.comb+f.rep); else sinKm++;
+  });
+  var totCosto=tot.mant+tot.comb+tot.rep;
+  var kmTxt=tot.km>0?('$'+(costoConKm/tot.km).toLocaleString('es-VE',{minimumFractionDigits:3,maximumFractionDigits:3})):'—';
+  var kmSub=sinKm?(sinKm+' unidad(es) sin jornadas cerradas quedan fuera de este promedio'):'';
+  var $=function(n){ return '$'+(n||0).toLocaleString('es-VE',{minimumFractionDigits:2,maximumFractionDigits:2}); };
+  cams.sort(function(a,b){ return (por[b].mant+por[b].comb+por[b].rep)-(por[a].mant+por[a].comb+por[a].rep); });
+
+  var filas=cams.map(function(c,i){
+    var f=por[c], costo=f.mant+f.comb+f.rep;
+    var lbl=c==='PATIO'?'🏭 Patio / uso general':(typeof _unidadCorta==='function'?_unidadCorta(c):c);
+    // ⛔ El costo por km SOLO sale si hay km. Sin km es «—», nunca 0 ni el costo entero:
+    //    un «$0,00/km» se lee como una unidad baratísima.  [[norma-falta-de-dato-no-es-un-dato]]
+    var ckm=f.km>0?('$'+(costo/f.km).toLocaleString('es-VE',{minimumFractionDigits:3,maximumFractionDigits:3})):'—';
+    var lkm=(f.km>0&&f.combL>0)?((f.km/f.combL).toLocaleString('es-VE',{minimumFractionDigits:2,maximumFractionDigits:2})):'—';
+    return '<tr style="background:'+(i%2===0?'#fff':'#f5f9ff')+'">'+
+      '<td style="font-weight:600">'+_mEsc(lbl)+'</td>'+
+      '<td class="mono" style="text-align:right">'+(f.km>0?f.km.toLocaleString('es-VE'):'—')+'</td>'+
+      '<td class="mono" style="text-align:right">'+$(f.comb)+'</td>'+
+      '<td class="mono" style="text-align:right">'+(f.combL>0?f.combL.toLocaleString('es-VE',{maximumFractionDigits:0})+' L':'—')+'</td>'+
+      '<td class="mono" style="text-align:right">'+$(f.mant)+'<small style="color:#6b7280"> ('+f.mantN+')</small></td>'+
+      '<td class="mono" style="text-align:right">'+$(f.rep)+'</td>'+
+      '<td class="mono" style="text-align:right;font-weight:700">'+$(costo)+'</td>'+
+      '<td class="mono" style="text-align:right">'+ckm+'</td>'+
+      '<td class="mono" style="text-align:right">'+lkm+'</td></tr>';
+  }).join('');
+
+  var stats=mkStat('Unidades',cams.length,formatFecha(desde)+' al '+formatFecha(hasta),'azul')+
+    mkStat('Costo total',$(totCosto),'combustible + mantenimiento + repuestos','verde')+
+    mkStat('Km recorridos',tot.km>0?tot.km.toLocaleString('es-VE'):'—','de las jornadas cerradas','azul')+
+    mkStat('Costo por km',kmTxt,kmSub,'amari');
+
+  var aviso='';
+  if(fallas.length)aviso+='<div style="border:2px solid #dc2626;background:#fef2f2;padding:9px 11px;border-radius:6px;margin:10px 0;font-size:11px;color:#991b1b"><b>⚠️ Este reporte está INCOMPLETO.</b> No se pudo leer: '+fallas.map(_mEsc).join(' · ')+'. Los renglones afectados NO son cero: no se pudieron medir.</div>';
+  if(tipo||prov)aviso+='<div style="border:1px solid #f59e0b;background:#fffbeb;padding:8px 11px;border-radius:6px;margin:10px 0;font-size:11px;color:#92400e"><b>Nota:</b> los filtros <b>Tipo</b> y <b>Proveedor</b> de la pantalla <b>no se aplicaron</b> acá: valen para mantenimiento, y este reporte suma además combustible y repuestos. El período sí es el que eligió.</div>';
+  // El renglón que falta se NOMBRA. Si no, se lee como que esas unidades no tuvieron gastos variables.
+  aviso+='<div style="border:1px solid #cbd5e1;background:#f8fafc;padding:8px 11px;border-radius:6px;margin:10px 0;font-size:11px;color:#475569"><b>Qué no incluye y por qué:</b> los <b>gastos variables</b> no entran, porque hoy se cargan <b>sin unidad</b> — no hay forma de saber a qué camión corresponde cada uno, y repartirlos sería inventarlo. Tampoco entran la nómina ni los gastos fijos, que son de la empresa y no de una unidad.</div>';
+
+  var body=aviso+
+    '<table><thead><tr><th>Unidad</th><th style="text-align:right">Km</th><th style="text-align:right">Combustible</th>'+
+    '<th style="text-align:right">Litros</th><th style="text-align:right">Mantenim. (ev.)</th><th style="text-align:right">Repuestos</th>'+
+    '<th style="text-align:right">COSTO TOTAL</th><th style="text-align:right">$/km</th><th style="text-align:right">km/L</th></tr></thead>'+
+    '<tbody>'+filas+
+    '<tr class="tr-tot"><td>TOTAL</td>'+
+      '<td style="text-align:right">'+(tot.km>0?tot.km.toLocaleString('es-VE'):'—')+'</td>'+
+      '<td style="text-align:right">'+$(tot.comb)+'</td>'+
+      '<td style="text-align:right">'+(tot.combL>0?tot.combL.toLocaleString('es-VE',{maximumFractionDigits:0})+' L':'—')+'</td>'+
+      '<td style="text-align:right">'+$(tot.mant)+'</td>'+
+      '<td style="text-align:right">'+$(tot.rep)+'</td>'+
+      '<td style="text-align:right">'+$(totCosto)+'</td>'+
+      '<td style="text-align:right">'+kmTxt+'</td>'+
+      '<td style="text-align:right">'+((tot.km>0&&tot.combL>0)?(tot.km/tot.combL).toLocaleString('es-VE',{minimumFractionDigits:2,maximumFractionDigits:2}):'—')+'</td>'+
+    '</tr></tbody></table>';
+  abrirImpresionPremium('Costo por unidad','Del '+formatFecha(desde)+' al '+formatFecha(hasta),stats,body);
+}
+
 async function borrarOdo(cam){
   if(!KM_DATA[cam])return;
   // ⛔ BORRARLO NO ES LA FORMA DE CORREGIRLO, Y ADEMÁS APAGA EL CONTROL.
@@ -25842,7 +25989,12 @@ function imprimirPagina(){
   });
   if(!activa){document.querySelectorAll('.page.active').forEach(function(p){activa=p.id.replace('p-','');});}
   var mapa={historico:imprimirHistorico,abonos:imprimirAbonos,nomina:imprimirNomina,
-    combustible:imprimirCombustible,km:imprimirMantenimiento,asistencia:imprimirAsistencia,
+        // ⛔ EL MÓDULO «km» TIENE DOS PESTAÑAS QUE IMPRIMEN COSAS DISTINTAS, y antes
+    //    las dos sacaban el historial de mantenimiento. Parado en «Centro de
+    //    Costos — gasto por unidad», imprimir daba km y mantenimiento: eso es lo
+    //    que Alejandra reportó como «equivocado» el 06/11/2026. La pestaña VISIBLE
+    //    manda, igual que arriba con las secciones.
+    combustible:imprimirCombustible,km:_imprimirDelModuloKm,asistencia:imprimirAsistencia,
     ranking:imprimirRanking,empleados:imprimirCarnets,financiero:imprimirReporteFinanciero};
   if(activa&&mapa[activa])mapa[activa]();
   else window.print();
