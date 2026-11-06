@@ -67,6 +67,37 @@ const r = await page.evaluate(async () => {
   return out
 })
 if (!r) { console.log('⛔ no se capturó el papel' + (avisos.length ? ` · avisó: ${avisos.join(' | ')}` : '')); await nav.close(); srv.close(); process.exit(1) }
+
+// ── EL CASO DE BETANGAR: la RPC `surtidas_listar` NO EXISTE en esa base ────────
+// ⛔ Alejandra lo encontró una hora después de soltarlo: el papel salía SIEMPRE con
+//    el cartel rojo de «INCOMPLETO». Acá se reproduce el error exacto de PostgREST
+//    y se exige que caiga al select directo y traiga los mismos números.
+//    Y la contraprueba: ante una NEGATIVA DE PERMISO no se cae al select — se dice.
+const sinRpc = await page.evaluate(async () => {
+  const SURT = [
+    { fecha: '2026-10-06', cam: 'FC01', litros: 200, costo_usd: 150 },
+    { fecha: '2026-10-19', cam: 'FC01', litros: 100, costo_usd: 75 },
+  ]
+  const hacer = async (err) => {
+    window._rpc = async () => ({ error: err })
+    window.supabase = {
+      from: (t) => (t === 'surtidas'
+        ? { select: () => ({ gte: () => ({ lte: async () => ({ data: SURT }) }) }) }
+        : { select: () => ({ gte: () => ({ lte: async () => ({ data: [{ cam: 'FC01', km_salida: 10000, km_entrada: 10700 }] }) }) }) }),
+    }
+    let out = null
+    const orig = window.open
+    window.open = function () { return { document: { open () {}, close () {}, write (h) { out = h } }, print () {} } }
+    try { await imprimirCentroCostos() } finally { window.open = orig }
+    return out
+  }
+  return {
+    noExiste: await hacer({ code: 'PGRST202', message: 'Could not find the function public.surtidas_listar(p_desde) in the schema cache' }),
+    sinPermiso: await hacer({ code: 'P0001', message: 'Sin permiso para ver las surtidas' }),
+  }
+})
+const txtNoExiste = sinRpc.noExiste ? sinRpc.noExiste.replace(/<[^>]+>/g, ' ') : ''
+const txtSinPermiso = sinRpc.sinPermiso ? sinRpc.sinPermiso.replace(/<[^>]+>/g, ' ') : ''
 const p2 = await (await nav.newContext({ viewport: { width: 1200, height: 1500 } })).newPage()
 await p2.setContent(r, { waitUntil: 'domcontentloaded' })
 await p2.waitForTimeout(500)
@@ -104,6 +135,14 @@ const pruebas = [
   ['dice qué NO incluye y por qué', /gastos variables/i.test(texto) && /sin unidad/i.test(texto)],
   ['nombra que la nómina y los fijos no son de la unidad', /n[óo]mina/i.test(texto)],
   ['no quedó ningún aviso de error', avisos.length === 0],
+  // ── sin la RPC (el caso Betangar) ──
+  ['sin la RPC el papel igual sale', !!txtNoExiste],
+  ['y NO dice que está incompleto', !/INCOMPLETO/i.test(txtNoExiste), txtNoExiste.slice(0, 160)],
+  ['porque cae al select directo y trae el combustible', /225,00/.test(txtNoExiste), txtNoExiste.slice(0, 160)],
+  // ── pero una negativa de permiso NO se esquiva ──
+  ['ante «sin permiso» SÍ avisa que está incompleto', /INCOMPLETO/i.test(txtSinPermiso)],
+  ['y repite el motivo que dio la base', /Sin permiso para ver las surtidas/i.test(txtSinPermiso)],
+  ['y no muestra un combustible que no pudo leer', !/225,00/.test(txtSinPermiso)],
 ]
 let mal = 0
 pruebas.forEach(([t, ok]) => { if (!ok) mal++; console.log(`${ok ? '✅' : '⛔'} ${t}`) })

@@ -13595,9 +13595,29 @@ async function imprimirCentroCostos(){
   var fallas=[];
   if(DB_READY&&supabase){
     try{
+      // ⛔ 06/11/2026, UNA HORA DESPUÉS DE SOLTARLO — Alejandra: «al sacar el reporte
+      //    costo por unidad de betangar me dice que está incompleto». Tenía razón y
+      //    era mío: `surtidas_listar` NO EXISTE en la base de Betangar (medido: la
+      //    función está en FLOTILLA y no acá), así que el papel salía con el cartel
+      //    rojo de «INCOMPLETO» SIEMPRE. La RPC se creó en los clones para que la
+      //    base decida qué ve cada rol; Betangar lee `surtidas` con un select directo
+      //    en todas sus otras pantallas.
+      // ⛔ Y LAS DOS COSAS NO SE CONFUNDEN: «la función no existe» se cae al select
+      //    directo, pero un «no tenés permiso» (P0001) NO — eso se dice y se respeta.
+      //    Caer al select ante una negativa de permiso sería saltarse el candado.
+      //    [[norma-una-asercion-mal-escrita-acusa-al-producto]]
       var rs=await _rpc('surtidas_listar',{ p_desde: desde });
-      if(rs&&rs.error)fallas.push('combustible: '+(rs.error.message||'no se pudo leer'));
-      else (rs&&rs.data||[]).forEach(function(s){
+      var _surt=null;
+      if(rs&&rs.error){
+        var _cod=String(rs.error.code||''), _msg=String(rs.error.message||'');
+        if(_cod==='PGRST202'||_cod==='42883'||/does not exist|Could not find the function|schema cache/i.test(_msg)){
+          var rd=await supabase.from('surtidas').select('fecha,cam,litros,costo_usd,costo_litro_usd')
+                   .gte('fecha',desde).lte('fecha',hasta);
+          if(rd&&rd.error)fallas.push('combustible: '+(rd.error.message||'no se pudo leer'));
+          else _surt=rd.data||[];
+        } else { fallas.push('combustible: '+(_msg||'no se pudo leer')); }
+      } else { _surt=(rs&&rs.data)||[]; }
+      (_surt||[]).forEach(function(s){
         if(!enRango(s.fecha)||s.anulada)return;
         var f=fila(s.cam); f.comb+=_surCostoUsd(s); f.combL+=(parseFloat(s.litros)||0);
       });
