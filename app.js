@@ -23349,12 +23349,69 @@ function imprimirReporteFinanciero(){
     mkStat('Total Cobrado','$'+totalCob.toLocaleString('es-VE',{minimumFractionDigits:2}),pct+'% del total','verde')+
     mkStat('Por Cobrar','$'+porCobrar.toLocaleString('es-VE',{minimumFractionDigits:2}),'Bs '+(porCobrar*tasa/1000000).toFixed(2)+'M','rojo')+
     mkStat('Tasa BCV',tasa.toFixed(2),'Bs/$','amari');
+  // ⛔ UN REPORTE FINANCIERO SIN LOS GASTOS NO ES UN REPORTE FINANCIERO. Alejandra,
+  //    06/11/2026: «al darle imprimir, el reporte solo contiene lo cobrado y lo pendiente por
+  //    facturar, pero también es necesario el detalle de gastos por categoría».
+  //    Tenía razón: este papel mostraba los INGRESOS y nada más. Quien lo recibía podía creer
+  //    que lo cobrado era lo que quedaba.
+  //    Los egresos salen de `_totalEgresos`, que es la MISMA fuente del tablero: si se
+  //    recalcularan acá, el papel y la pantalla terminarían diciendo cosas distintas.
+  //    [[norma-fuente-unica-datos]]
+  var _egNom=_nominaRealUsd();
+  var _egGas=GASOIL.reduce(function(s,x){return s+(_rentEsCompra(x)?(parseFloat(x.m)||0):0);},0);
+  var _egFij=(typeof GASTOS_FIJOS!=='undefined'?GASTOS_FIJOS:[]).reduce(function(s,x){return s+(x.monto||0);},0);
+  var _egVar=(typeof GASTOS_VARIABLES!=='undefined'?GASTOS_VARIABLES:[]).reduce(function(s,x){return s+(x.usd||0);},0);
+  var _egCxP=(typeof CXP!=='undefined'?CXP:[]).filter(function(c){return !_esCxpCombustible(c);})
+    .reduce(function(s,c){return s+(parseFloat(c.neto_pagar||c.netoPagar||c.total_usd||0)||0);},0);
+  // ⛔ ACÁ EL APORTE ES REAL Y TIENE SU PROPIA FUENTE. En los demás productos el porcentaje
+  //    lo declara la instancia (`_aporteUsd`), pero en Betangar el pago a socios NO es un
+  //    7,5 % plano: cada factura lleva el porcentaje que le tocaba (7 % hasta la 625, 7,5 %
+  //    desde la 626) y eso lo sabe `pagoSocioDesglose`. Usar el plano acá cambiaría una cifra
+  //    de plata que los socios leen. [[norma-fuente-unica-datos]]
+  var _egApo=(typeof pagoSocioDesglose==='function')?(pagoSocioDesglose('','').total||0):0;
+  var _egTot=_totalEgresos(totalCob);
+  var _util=totalCob-_egTot;
+  var _usd=function(n){ return '$'+(n||0).toLocaleString('es-VE',{minimumFractionDigits:2,maximumFractionDigits:2}); };
+  var _ren=function(l,v,extra){
+    return '<tr'+(extra||'')+'><td>'+l+'</td><td class="mono" style="text-align:right">'+_usd(v)+'</td>'+
+      '<td style="text-align:right;color:#6b7280">'+(totalCob>0?Math.round(v*100/totalCob):0)+'%</td></tr>';
+  };
+  var _egresos='<h3 style="margin:18px 0 6px">Egresos</h3>'+
+    '<table><thead><tr><th>Concepto</th><th style="text-align:right">USD</th><th style="text-align:right">% de lo cobrado</th></tr></thead><tbody>'+
+    _ren('Nómina',_egNom)+_ren('Combustible (compras)',_egGas)+
+    (_egApo>0?_ren('Pago a socios (7% / 7,5%)',_egApo):'')+
+    _ren('Gastos fijos',_egFij)+_ren('Gastos variables',_egVar)+_ren('Cuentas por pagar',_egCxP)+
+    '<tr class="tr-tot"><td>TOTAL EGRESOS</td><td style="text-align:right">'+_usd(_egTot)+'</td>'+
+      '<td style="text-align:right">'+(totalCob>0?Math.round(_egTot*100/totalCob):0)+'%</td></tr>'+
+    '<tr class="tr-tot"><td>UTILIDAD NETA</td><td style="text-align:right">'+_usd(_util)+'</td>'+
+      '<td style="text-align:right">'+(totalCob>0?Math.round(_util*100/totalCob):0)+'%</td></tr>'+
+    '</tbody></table>';
+  // Y el detalle por categoría, que es lo que ella pidió con esas palabras.
+  var _porCat={};
+  (typeof GASTOS_VARIABLES!=='undefined'?GASTOS_VARIABLES:[]).forEach(function(x){
+    var c=x.cat||'(sin categoría)';
+    if(!_porCat[c])_porCat[c]={n:0,usd:0,bs:0};
+    _porCat[c].n++; _porCat[c].usd+=(x.usd||0); _porCat[c].bs+=(x.bs||0);
+  });
+  var _cats=Object.keys(_porCat).sort(function(a,b){return _porCat[b].usd-_porCat[a].usd;});
+  var _detVar=_cats.length
+    ? ('<h3 style="margin:18px 0 6px">Gastos variables por categoría</h3>'+
+       '<table><thead><tr><th>Categoría</th><th style="text-align:center">Gastos</th><th style="text-align:right">Bs</th><th style="text-align:right">USD</th><th style="text-align:right">% de los variables</th></tr></thead><tbody>'+
+       _cats.map(function(c){ return '<tr><td><b>'+_mEsc(c)+'</b></td><td style="text-align:center">'+_porCat[c].n+'</td>'+
+         '<td class="mono" style="text-align:right">Bs '+_porCat[c].bs.toLocaleString('es-VE',{maximumFractionDigits:0})+'</td>'+
+         '<td class="gv" style="text-align:right">'+_usd(_porCat[c].usd)+'</td>'+
+         '<td style="text-align:right;color:#6b7280">'+(_egVar>0?Math.round(_porCat[c].usd*100/_egVar):0)+'%</td></tr>'; }).join('')+
+       '<tr class="tr-tot"><td colspan="3">TOTAL VARIABLES</td><td style="text-align:right">'+_usd(_egVar)+'</td><td></td></tr>'+
+       '</tbody></table>')
+    : '<h3 style="margin:18px 0 6px">Gastos variables por categoría</h3>'+
+      '<div style="font-size:12px;color:#6b7280;padding:6px 0">No hay gastos variables cargados.</div>';
+
   var body=barra+
     '<h3>Detalle por Mes</h3>'+
     '<table><thead><tr><th>Mes</th><th style="text-align:center">Viajes</th><th>Facturado USD</th><th>En Bolivares</th></tr></thead>'+
     '<tbody>'+filaMeses+'</tbody>'+
     '<tfoot><tr class="tr-tot"><td>TOTALES</td><td style="text-align:center">'+REGS.reduce(function(s,r){return s+r.t;},0)+'</td><td>$'+totalFact.toLocaleString('es-VE',{minimumFractionDigits:2})+'</td><td>Bs '+(totalFact*tasa/1000000).toFixed(2)+'M</td></tr></tfoot>'+
-    '</table>';
+    '</table>'+_egresos+_detVar;
   // ⛔ ESTE IMPRESO ES DE TODA LA HISTORIA y trae su propio detalle por mes: NO sigue al
   //    selector de periodo de la pantalla. Se dice en el subtitulo, porque dos cifras
   //    distintas para «lo mismo» —una en pantalla y otra en el papel— es como se pierde la
