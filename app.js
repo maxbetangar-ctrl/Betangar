@@ -941,6 +941,7 @@ async function doLogin(){
   // 1) AUTH REAL (Supabase Auth). El rol sale del TOKEN (user_metadata) → NO depende de
   //    leer btg_usuarios (eso podía fallar por RLS/timing en el navegador y dejaba afuera).
   var authMsg='';
+  // (ver `_authEnCastellano` más abajo: el error de Supabase viene en inglés)
   // ⛔ SE AUTENTICÓ BIEN PERO ESTA APP NO LE DIO ROL. La credencial NO es el problema:
   //    la cuenta existe en Auth y la clave es correcta, pero no tiene fila en btg_usuarios
   //    (o la tiene sin rol). Decirle «clave incorrecta» lo manda a cambiar una clave que
@@ -1027,10 +1028,42 @@ async function doLogin(){
   }
   var _sinArroba = u.indexOf('@')<0;
   var _pista = _sinArroba ? '\nSi su cuenta tiene un correo, escríbalo completo.' : '';
-  err.textContent = (authMsg ? ('No se pudo entrar: '+authMsg) : 'Usuario o contrasena incorrectos') + _pista;
+  err.textContent = (authMsg ? _authEnCastellano(authMsg) : 'Usuario o contrasena incorrectos') + _pista;
   err.style.display='block';document.getElementById('login-pass').value='';
   setTimeout(function(){err.style.display='none';err.textContent='Usuario o contrasena incorrectos';},6000);
 }
+// ── EL ERROR DE ENTRAR, EN CASTELLANO Y DICIENDO QUÉ HACER ───────────────────
+// ⛔ 07/11/2026 — Gladis reportó: «No pude entrar» · «Dice mensaje invalido». Lo que
+//    la pantalla le mostraba era **«No se pudo entrar: Invalid login credentials»**:
+//    el texto crudo de Supabase, en inglés, pegado tal cual. Ella lo tradujo como
+//    pudo y nos lo devolvió como «mensaje inválido», y con eso NO se puede saber si
+//    falló el usuario, la clave o el rol.
+// ⛔ Y en su caso la causa era otra, medida: pidió la clave TRES VECES en menos de
+//    dos minutos (10:00:57, 10:01:55, 10:02:41 — `acceso_recuperacion`). Cada pedido
+//    GENERA UNA CLAVE NUEVA Y PISA LA ANTERIOR, y los tres mensajes se ven iguales.
+//    Usó una de las dos primeras, que ya no servía. El mensaje que le llega no dice
+//    en ninguna parte que reemplaza a la anterior.
+//    ⇒ Eso se arregla en la función `acceso_recuperar` de la base, no acá.
+//       Migración: `piezas/acceso-recuperar-avisa-que-reemplaza_2026-11-07.sql`
+// ⇒ Acá se arregla lo que SÍ es de la app: que el aviso se entienda y diga qué hacer.
+//    Sin inventar una causa que no se sabe. [[norma-una-asercion-mal-escrita-acusa-al-producto]]
+function _authEnCastellano(m){
+  m=String(m||'');
+  if(/Invalid login credentials/i.test(m))
+    return 'Usuario o clave incorrectos.\nSi pidió una clave provisional varias veces, sirve SOLO la del ÚLTIMO mensaje: cada pedido anula el anterior.';
+  if(/Email not confirmed/i.test(m))
+    return 'Esta cuenta todavía no está confirmada. Avísenos y la habilitamos.';
+  if(/(too many|rate limit)/i.test(m))
+    return 'Demasiados intentos seguidos. Espere un minuto y pruebe otra vez.';
+  if(/network|fetch|Failed to fetch|timeout/i.test(m))
+    return 'No hay conexión con el servidor. Revise su internet y pruebe de nuevo.';
+  if(/User not found/i.test(m))
+    return 'No existe una cuenta con ese usuario. Revise que esté bien escrito.';
+  // ⛔ Lo que no se reconoce NO se disfraza: se muestra tal cual, porque un mensaje
+  //    inventado manda a buscar el problema donde no está.
+  return 'No se pudo entrar: '+m;
+}
+
 // ── ENTRAR CON LA LLAVE DE LA TORRE ──────────────────────────────────────────
 // La Torre abre `app.html#acceso=<token>` con un token de UN SOLO USO generado en
 // ESTA base. Se canjea por una sesion y se entra por EL MISMO CAMINO que un login
