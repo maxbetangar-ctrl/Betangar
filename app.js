@@ -2883,6 +2883,22 @@ function _acAnomalias(todas,desde,hasta,ref){
       // surte, o leerla del recibo del surtidor. Mientras tanto, el agujero lo reportan R9 y R13,
       // que no acusan a nadie. [[norma-la-premisa-antes-de-acusar]]
 
+      // 🔴 EL CANDADO QUE ESTABA ESCRITO ARRIBA Y NO ESTABA EN EL CÓDIGO (06/11/2026).
+      // Todo el bloque (d) explica que con una carga declarada cerca R1 SE CALLA… y `cargaCerca`
+      // se calculaba nada más para pasárselo a `_acTol`. Nunca gateó nada. Resultado medido en la
+      // noche del 14/10: la pantalla reportaba 8 unidades y la edge function 5, y las 3 de más
+      // —B002 y B009 entre ellas— tenían 200 y 400 L ASENTADOS ese mismo día. O sea que la
+      // pantalla acusaba justo en las noches donde no se puede saber nada, que es el fallo que ya
+      // había producido 3 de las 5 acusaciones falsas de toda la historia.
+      // ⚠️ Y pasó desapercibido porque el comentario decía la verdad y el código no: leyendo el
+      //    bloque se veía correcto. [[norma-probar-el-camino-no-la-pieza]]
+      var puedeOpinar=(cargaCerca===0);
+      if(!puedeOpinar){
+        // No es un hueco silencioso: el agujero de registro lo siguen diciendo R9 y R13, que no
+        // acusan a nadie. Lo que no se puede sostener es el cuadre de ESTA noche.
+        continue;
+      }
+
       if(delta<-2*tolN){
         // Sin nombre de chofer: de noche el custodio es el PATIO, no la persona que manejó.
         add('alta','R1','Faltó combustible en el patio',
