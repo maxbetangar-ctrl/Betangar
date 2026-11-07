@@ -154,4 +154,72 @@ console.log(`   ${SUR.length} surtidas · ${sinTurno.length} sin turno · ${sinC
 if (sinTurno.length) console.log('   ⚠️ las que no tienen turno no se le cargan a ninguna jornada (sí al período)')
 
 await browser.close()
+
+// ── 6 · ¿ESTÁ CERRADO EL CIRCUITO? ─────────────────────────────────────────
+// Una auditoría de combustible es un BALANCE DE MASA, y un balance necesita
+// los dos lados. Si el origen no se mide y la transferencia no se asienta, el
+// litro que se mueve aparece de la nada en el camión — y el día siguiente sale
+// con un consumo que no puede ser cierto. Casi todo el dato imposible viene de
+// acá, no del cálculo.
+console.log('\n── 6 · ¿ESTÁ CERRADO EL CIRCUITO DEL COMBUSTIBLE? ────────────────────')
+const medPorTanque = await sql(`select tanque_id, count(*)::int n, min(fecha)::text desde, max(fecha)::text hasta
+                                  from combustible_mediciones group by 1 order by 2 desc`)
+const tqGalpon = TAN.filter((t) => t.tipo === 'galpon')
+console.log('   Tanques del galpón configurados: ' + tqGalpon.length +
+            ' (' + tqGalpon.map((t) => t.nombre).join(' · ') + ')')
+for (const t of tqGalpon) {
+  const m = medPorTanque.find((x) => x.tanque_id === t.id)
+  if (!m) console.log(`   ⛔ «${t.nombre}» NUNCA se midió: 0 lecturas de regla en toda la historia`)
+  else console.log(`   ✓ «${t.nombre}»: ${m.n} lecturas (${m.desde} → ${m.hasta})`)
+}
+const desp = await sql(`select count(*)::int n, max(f)::text ultimo from gasoil where tipo_operacion='despacho'`)
+const salT = await sql('select count(*)::int n from salidas_tanque')
+const porOrigen = await sql(`select coalesce(nullif(tanque,''),'(sin declarar)') origen, count(*)::int n,
+                                    round(sum(litros))::int litros, max(fecha)::text ultimo
+                               from surtidas group by 1 order by 3 desc`)
+console.log('')
+console.log(`   Despachos en \`gasoil\`: ${desp[0].n} · el último fue el ${desp[0].ultimo}`)
+console.log(`   \`salidas_tanque\` (gasoil que sale y no va a un camión): ${salT[0].n} filas`)
+console.log('   De dónde dicen las surtidas que salió el combustible:')
+for (const o of porOrigen) console.log(`      ${String(o.origen).padEnd(16)} ${String(o.n).padStart(4)} surtidas · ${String(o.litros).padStart(6)} L · hasta ${o.ultimo}`)
+
+// El balance de las noches limpias: el camión llegó, no se le cargó nada en
+// ninguno de los dos días, y volvió a salir. Ahí el tanque NO puede cambiar.
+const noches = await sql(`
+  with m as (select vehiculo_id cam, fecha::date f, coalesce(turno,'diurno') t,
+               max(case when momento='salida' then litros_calculados end) sl,
+               max(case when momento='llegada' then litros_calculados end) ll
+             from combustible_mediciones where coalesce(no_confiable,false)=false group by 1,2,3),
+       o as (select m.*, lag(ll) over (w) ll_ant, lag(f) over (w) f_ant
+               from m window w as (partition by cam order by f, t)),
+       car as (select cam, fecha::date f from surtidas group by 1,2),
+       n as (select o.cam, (o.sl - o.ll_ant) d from o
+              where o.sl is not null and o.ll_ant is not null and o.f - o.f_ant = 1
+                and not exists (select 1 from car c where c.cam=o.cam and c.f=o.f)
+                and not exists (select 1 from car c where c.cam=o.cam and c.f=o.f_ant))
+  select count(*)::int noches,
+         count(*) filter (where d = 0)::int sin_cambio,
+         count(*) filter (where d > 0 and d <= 68)::int subio_poco,
+         count(*) filter (where d < 0 and d >= -68)::int bajo_poco,
+         count(*) filter (where d > 68)::int subio_mucho,
+         count(*) filter (where d < -68)::int bajo_mucho,
+         round(sum(d) filter (where d > 68))::int L_subio_mucho,
+         round(sum(d) filter (where abs(d) <= 68))::int L_del_goteo
+    from n`)
+const N = noches[0]
+console.log('')
+console.log(`   NOCHES LIMPIAS (sin ninguna carga registrada en los dos días): ${N.noches}`)
+console.log(`      ${N.sin_cambio} el tanque quedó IGUAL  ← esto valida la regla y el proceso`)
+console.log(`      ${N.subio_mucho} subieron más de 68 L (+${N.l_subio_mucho} L): entró combustible sin registrarse — lo ve R13`)
+console.log(`      ${N.bajo_mucho} bajaron más de 68 L: lo ve R1`)
+console.log(`      ${N.bajo_poco} bajaron poco y ${N.subio_poco} subieron poco (neto ${N.l_del_goteo} L): NINGUNA regla puede probarlo de a una`)
+if (N.bajo_poco > 0 && N.subio_poco > 0) {
+  const n = N.bajo_poco + N.subio_poco
+  const z = Math.abs(N.bajo_poco - n / 2) / Math.sqrt(n * 0.25)
+  console.log(`      ⚠️ asimetría: ${N.bajo_poco} bajan contra ${N.subio_poco} que suben — ${z.toFixed(1)}σ`)
+  console.log(`         (si fuera sólo ruido de lectura deberían ser parecidas. NO dice que falte`)
+  console.log(`          gasoil: un sesgo de MEDICIÓN —leer de madrugada, el camión en otra pendiente—`)
+  console.log(`          produce exactamente lo mismo. Lo que hace falta es un control, no una acusación.)`)
+}
+
 console.log('')
