@@ -2010,7 +2010,16 @@ function _acAlturaValida(tanque,alturaCm){
 // sabe de verdad. Y el cuadre de la NOCHE dejó de restar cargas: no se puede saber si entraron
 // antes o después de la lectura, así que R1 se calla cuando hay carga declarada cerca (ver R1).
 // 📌 [[norma-created-at-no-es-la-hora-del-hecho]] — vale para toda la casa, no solo para acá.
-function _acEntradas(cam,desde,hasta,incluirDesde){
+// ⛔ `turno` NO ES OPCIONAL CUANDO SE PREGUNTA POR UN DIA. Lo que entra al
+//    camion se le suma a la jornada, y antes se le sumaba a TODAS las jornadas
+//    del dia -- con un solo turno era exacto, con dos cuenta los MISMOS litros
+//    dos veces y acusa a los dos choferes de un consumo que no hubo.
+//    Pasado `turno`, sólo cuentan las surtidas de ESE turno. Sin `turno` (una
+//    consulta por período, no por jornada) cuentan todas, que es lo correcto
+//    ahí: el período incluye los dos turnos.
+//    Una surtida sin turno deducido NO se le carga a nadie en una jornada: se
+//    la cuenta igual en el período. [[norma-falta-de-dato-no-es-un-dato]]
+function _acEntradas(cam,desde,hasta,incluirDesde,turno){
   var corte=AC_META.corteSurtidas||'', suma=0;
   var dentro=function(f){ return (incluirDesde?(f>=desde):(f>desde)) && f<=hasta; };
   (AC_SURTIDAS||[]).forEach(function(s){
@@ -2018,11 +2027,15 @@ function _acEntradas(cam,desde,hasta,incluirDesde){
     var f=String(s.fecha||'').slice(0,10);
     if(corte&&f<corte)return;                              // antes del corte manda gasoil
     if(!dentro(f))return;
+    if(turno && String(s.turno||'')!==String(turno))return;
     suma+=(_acNum(s.litros)||0);
   });
   (AC_GASOIL||[]).forEach(function(g){
     if(String(g.cam)!==String(cam))return;
     if(String(g.tipo_operacion||'')==='compra')return;     // compra = entra al galpón, no al camión
+    // El histórico `gasoil` es todo anterior al 04/11/2026, cuando no había más
+    // que un turno: pedirle el nocturno es pedirle algo que no existía.
+    if(turno && turno!=='diurno')return;
     var f=String(g.f||'').slice(0,10);
     if(!dentro(f))return;
     if(corte&&f>=corte)return;                             // desde el corte manda surtidas
@@ -2131,7 +2144,7 @@ async function acCargar(desde,hasta){
     supabase.from('combustible_tanques_config').select('*'),
     _acPaginar(function(){ return supabase.from('combustible_mediciones').select('*').gte('fecha',desdeExt).lte('fecha',hasta).order('id'); }),
     _acPaginar(function(){ return supabase.from('gasoil').select('*').gte('f',desdeExt).lte('f',hasta).order('id'); }),
-    _acPaginar(function(){ return supabase.from('checklist').select('fecha,cam,conductor,km_salida,km_entrada').gte('fecha',desdeExt).lte('fecha',hasta).order('fecha').order('cam'); }),
+    _acPaginar(function(){ return supabase.from('checklist').select('fecha,cam,turno,conductor,km_salida,km_entrada').gte('fecha',desdeExt).lte('fecha',hasta).order('fecha').order('cam'); }),
     supabase.from('configuracion').select('valor').eq('clave','tanque_costo').maybeSingle(),
     supabase.from('configuracion').select('valor').eq('clave','aud_comb_rend_ref').maybeSingle(),
     supabase.from('unidad_config').select('cam,modelo,marca'),
@@ -2271,8 +2284,15 @@ function _acArmarJornadas(desde,hasta){
     // registrarse» —el cartel de «$2.743 que no entran a la Utilidad Real»— cuando la carga
     // estaba registrada, con foto y GPS. La MISMA fila caía fuera del día y dentro de la noche:
     // justo al revés de donde va. [[norma-created-at-no-es-la-hora-del-hecho]]
-    j.desp=_acEntradas(j.cam,j.fecha,j.fecha,true);
-    var ck=AC_CK.find(function(c){ return String(c.cam)===j.cam && String(c.fecha).slice(0,10)===j.fecha; });
+    j.desp=_acEntradas(j.cam,j.fecha,j.fecha,true,j.turno);
+    // ⛔ Y EL CHECKLIST TAMBIEN POR TURNO. De acá salen los km de la jornada, o
+    //    sea el km/L. Con dos checklists en el día, un `.find()` sin turno toma
+    //    SIEMPRE el primero: los km del diurno se le cargaban también al
+    //    nocturno y el rendimiento de los dos salía mal.
+    var ck=AC_CK.find(function(c){ return String(c.cam)===j.cam && String(c.fecha).slice(0,10)===j.fecha
+                                       && (!j.turno || String(c.turno||'diurno')===String(j.turno)); })
+        // Datos viejos: el checklist de antes del 04/11 no trae turno.
+        || AC_CK.find(function(c){ return String(c.cam)===j.cam && String(c.fecha).slice(0,10)===j.fecha && !c.turno; });
     // Un 0 en el odómetro NO es un odómetro en cero: es el checklist sin cerrar o sin dato. Antes
     // se tomaba como número y daba km del día de −14.008, y "kilometraje al revés" para cualquier
     // jornada todavía abierta (hoy, con la flota en la calle, eso es TODA la flota).
@@ -2670,11 +2690,13 @@ function _acAnomalias(todas,desde,hasta,ref){
   };
   // Quién estaba a cargo ese día en esa unidad: para que la auditoría en pantalla diga lo mismo que
   // el aviso automático de WhatsApp — a quién hay que preguntarle.
-  var _quien=function(cam,fecha){
-    var j=(AC_JORNADAS||[]).find(function(x){return x.cam===cam&&x.fecha===fecha;});
+  var _quien=function(cam,fecha,turno){
+    var caza=function(x){ return !turno || String(x.turno||'diurno')===String(turno); };
+    var j=(AC_JORNADAS||[]).find(function(x){return x.cam===cam&&x.fecha===fecha&&caza(x);});
     if(j&&j.chofer)return j.chofer;
     if(j&&j.por)return j.por;
-    var ck=(AC_CK||[]).find(function(x){return String(x.cam)===cam&&String(x.fecha).slice(0,10)===fecha;});
+    var ck=(AC_CK||[]).find(function(x){return String(x.cam)===cam&&String(x.fecha).slice(0,10)===fecha&&caza(x);})
+        || (AC_CK||[]).find(function(x){return String(x.cam)===cam&&String(x.fecha).slice(0,10)===fecha;});
     return ck?String(ck.conductor||''):'';
   };
   var U=function(c){ return (typeof _lblUnidad==='function')?_lblUnidad(c):c; };
@@ -2845,7 +2867,7 @@ function _acAnomalias(todas,desde,hasta,ref){
       'Son '+_acFmt(x.corto,1)+' L de más'+$(x.corto)+
       (repite>=3?('. Y no es un día suelto: le pasó '+repite+' veces en dos semanas, ahí ya hay un patrón que conviene mirar de cerca.')
                :'. Puede ser mucho ralentí, compactador trabajando o una cola larga; un día suelto no dice nada por sí solo.'),
-      j.cam,j.fecha,x.corto,_quien(j.cam,j.fecha));
+      j.cam,j.fecha,x.corto,_quien(j.cam,j.fecha,j.turno));
   });
 
   // El último odómetro conocido de cada unidad, para poder ver un salto imposible (R10b).
@@ -2867,7 +2889,7 @@ function _acAnomalias(todas,desde,hasta,ref){
         'El '+formatFecha(j.fecha)+' la unidad '+U(j.cam)+' trabajó ('+_acFmt(j.km)+' km) pero no se midió el tanque a la '+
         (j.salida==null?'SALIDA':'LLEGADA')+'. Sin esa lectura el consumo de ese día no se puede cuadrar. '+
         'Recordale al responsable que la regla se pasa siempre, al salir y al llegar.',
-        j.cam,j.fecha,null,_quien(j.cam,j.fecha));
+        j.cam,j.fecha,null,_quien(j.cam,j.fecha,j.turno));
     }
     // R8 — MEDICIÓN QUE NO CUADRA CON LA TABLA: altura fuera de rango, o litros guardados != cubicación.
     var t=j.tanque;
@@ -2884,12 +2906,12 @@ function _acAnomalias(todas,desde,hasta,ref){
           add('media','R8','Medición fuera de rango',
             'La medición de '+p[0]+' de la unidad '+U(j.cam)+' del '+formatFecha(j.fecha)+' marca '+_acFmt(cm,1)+' cm, y ese tanque llega hasta '+
             _acFmt(t.hmax,0)+' cm. Revisá cómo se cargó esa medición.',
-            j.cam,j.fecha,null,_quien(j.cam,j.fecha));
+            j.cam,j.fecha,null,_quien(j.cam,j.fecha,j.turno));
         } else if(!conTablaVieja&&rec!=null&&calc!=null&&Math.abs(rec-calc)>2){
           add('media','R8','Litros que no cuadran con la tabla',
             'En la unidad '+U(j.cam)+' ('+formatFecha(j.fecha)+', '+p[0]+') la regla marca '+_acFmt(cm,1)+' cm: por la tabla de cubicación son '+
             _acFmt(calc,2)+' L, pero quedaron guardados '+_acFmt(rec,2)+' L. Revisá cómo se registró.',
-            j.cam,j.fecha,null,_quien(j.cam,j.fecha));
+            j.cam,j.fecha,null,_quien(j.cam,j.fecha,j.turno));
         }
       });
     }
@@ -2900,7 +2922,7 @@ function _acAnomalias(todas,desde,hasta,ref){
       add('media','R10','Kilometraje al revés',
         'La unidad '+U(j.cam)+' entró el '+formatFecha(j.fecha)+' con menos kilómetros ('+_acFmt(j.kmE)+') de los que tenía al salir ('+_acFmt(j.kmS)+'). '+
         'Revisá el odómetro y cómo se anotó el checklist.',
-        j.cam,j.fecha,null,_quien(j.cam,j.fecha));
+        j.cam,j.fecha,null,_quien(j.cam,j.fecha,j.turno));
     }
     // ⛔ R10b — EL SALTO HACIA ARRIBA, QUE NO MIRABA NADIE. R10 solo cazaba el odómetro que
     //    RETROCEDE. Un número imposible hacia ARRIBA no disparaba ninguna regla: la FC04
@@ -2923,7 +2945,7 @@ function _acAnomalias(todas,desde,hasta,ref){
         'La unidad '+U(j.cam)+' salió el '+formatFecha(j.fecha)+' con '+_acFmt(j.kmS)+' km y entró con '+_acFmt(j.kmE)+'. '+
         'Son '+_acFmt(j.kmE-j.kmS)+' km en un solo día: eso no lo recorrió. Casi siempre sobran dígitos o se leyó mal el '+
         'tablero — revisá ese checklist antes de que arrastre el consumo y el mantenimiento.',
-        j.cam,j.fecha,null,_quien(j.cam,j.fecha));
+        j.cam,j.fecha,null,_quien(j.cam,j.fecha,j.turno));
     }
     else if(j.kmS!=null && _acPrevKm[j.cam]!=null && j.kmS > _acPrevKm[j.cam]){
       var _dias=Math.max(1, Math.round((new Date(j.fecha+'T00:00:00Z')-new Date(_acPrevFecha[j.cam]+'T00:00:00Z'))/86400000));
@@ -2934,7 +2956,7 @@ function _acAnomalias(todas,desde,hasta,ref){
           (_dias===1?'(el día anterior)':('hace '+_dias+' días'))+' tenía '+_acFmt(_acPrevKm[j.cam])+'. '+
           'Son '+_acFmt(_salto)+' km de diferencia: eso no lo recorrió. Casi siempre sobran dígitos o se leyó mal el tablero — '+
           'revisá ese checklist antes de que arrastre el consumo y el mantenimiento.',
-          j.cam,j.fecha,null,_quien(j.cam,j.fecha));
+          j.cam,j.fecha,null,_quien(j.cam,j.fecha,j.turno));
       }
     }
     // Se recuerda el último odómetro conocido de cada unidad para la comparación de arriba.
@@ -2947,14 +2969,14 @@ function _acAnomalias(todas,desde,hasta,ref){
       add('baja','R12','Checklist sin cerrar',
         'La unidad '+U(j.cam)+' salió el '+formatFecha(j.fecha)+' con '+_acFmt(j.kmS)+' km y no quedó anotado el kilometraje de entrada. '+
         'Ese día no se puede cuadrar: sin el km de llegada no hay forma de saber cuánto rodó ni cuánto debía consumir.',
-        j.cam,j.fecha,null,_quien(j.cam,j.fecha));
+        j.cam,j.fecha,null,_quien(j.cam,j.fecha,j.turno));
     }
     // R9 — DESPACHO SIN RESPALDO: le cargaron pero ese día no se midió el tanque.
     if(j.desp>0&&(j.salida==null||j.llegada==null)){
       add('media','R9','Despacho sin forma de verificar',
         'Hay un despacho de '+_acFmt(j.desp,1)+' L a la unidad '+U(j.cam)+' el '+formatFecha(j.fecha)+', pero ese día falta una medición del tanque. '+
         'El despacho quedó sin manera de comprobarse. Pedí que toda carga vaya con su lectura de regla antes y después.',
-        j.cam,j.fecha,j.desp,_quien(j.cam,j.fecha));
+        j.cam,j.fecha,j.desp,_quien(j.cam,j.fecha,j.turno));
     }
   });
 

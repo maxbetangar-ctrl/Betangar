@@ -133,5 +133,36 @@ const dosDias = jornadas([
 ]);
 eq('dos días distintos no se emparejan entre sí', dosDias.length, 2);
 
+
+// ── 4. LO QUE ENTRA AL CAMIÓN NO SE CUENTA DOS VECES ───────────────────────
+// El consumo es `salida − llegada + lo que le echaron en el camino`. La
+// auditoría le sumaba a CADA jornada del día TODAS las surtidas de ese día:
+// con un turno era exacto; con dos, los mismos litros se cuentan dos veces y
+// los dos choferes aparecen consumiendo 350 L de más.
+ok('las surtidas de la jornada se piden POR TURNO',
+   APP.includes('j.desp=_acEntradas(j.cam,j.fecha,j.fecha,true,j.turno);'));
+ok('`_acEntradas` sabe filtrar por turno',
+   APP.includes("if(turno && String(s.turno||'')!==String(turno))return;"));
+ok('una consulta por PERÍODO (sin turno) las sigue contando todas',
+   APP.includes('function _acEntradas(cam,desde,hasta,incluirDesde,turno){'));
+ok('el gasoil histórico no se le carga al nocturno, que no existía',
+   APP.includes("if(turno && turno!=='diurno')return;"));
+
+// ── 5. LOS KM DE LA JORNADA SON LOS DE SU TURNO ────────────────────────────
+// De acá sale el km/L. Con dos checklists en el día, un `.find()` sin turno
+// toma siempre el primero y el rendimiento de los dos turnos sale mal.
+ok('el checklist se busca por turno',
+   APP.includes("String(c.turno||'diurno')===String(j.turno)"));
+ok('la auditoría TRAE el turno del checklist',
+   APP.includes("select('fecha,cam,turno,conductor,km_salida,km_entrada')"));
+
+// ── 6. A QUIÉN SE LE RECLAMA ───────────────────────────────────────────────
+// No es exactitud de números: es no acusar al chofer equivocado.
+ok('`_quien` recibe el turno', APP.includes('var _quien=function(cam,fecha,turno){'));
+ok('y los nueve avisos se lo pasan',
+   APP.split('_quien(j.cam,j.fecha,j.turno)').length - 1 === 9);
+ok('no queda ninguna llamada sin turno',
+   APP.indexOf('_quien(j.cam,j.fecha)') === -1);
+
 console.log('\n  ' + pass + ' pasaron, ' + fail + ' fallaron\n');
 process.exit(fail ? 1 : 0);
