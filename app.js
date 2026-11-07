@@ -34157,7 +34157,7 @@ async function guardarVehiculoComb(id){
 }
 
 async function nuevoVehiculoComb(){
-  var id=prompt('ID del vehículo (ej: JAC-B013):'); if(!id||!id.trim())return; id=id.trim();
+  var id=prompt('ID del vehículo:'); if(!id||!id.trim())return; id=id.trim();
   if(ccVehiculo(id)){alert('Ya existe ese ID');return;}
   var row={id:id,nombre:id,marca:'',modelo:'',consumo_fabrica_l100km:null,consumo_estimado_por_viaje:22.5,tolerancia_alerta_pct:15,tanque_id:'tanque-jac',activo:true};
   try{var r=await supabase.from('combustible_vehiculos_config').insert([row]).select();
