@@ -33269,7 +33269,42 @@ function combLitros(tanqueId, alturaCm){
 function ccEsCompra(row){return String(row.cam||'').toUpperCase().indexOf('COMPRA')===0;}
 function ccDespachosFecha(fecha){return GASOIL.filter(function(x){return x.f===fecha&&!ccEsCompra(x);});}
 function ccLitrosDespachadosFecha(fecha){return ccDespachosFecha(fecha).reduce(function(s,x){return s+(parseFloat(x.lit)||0);},0);}
-function ccLitrosCamFecha(cam,fecha){return GASOIL.filter(function(x){return x.f===fecha&&x.cam===cam;}).reduce(function(s,x){return s+(parseFloat(x.lit)||0);},0);}
+// ⛔ 07/11/2026 — ESTA FUNCIÓN LEÍA UNA TABLA QUE LA CASA DEJÓ DE USAR, y por eso
+//    las alertas de combustible llevaban MUERTAS DESDE EL 23/06. Medido:
+//      `gasoil`  → última fila el **02/09**   (hace más de dos meses)
+//      `surtidas`→ última fila el **04/11**   (viva)
+//    Como `real<=0` hacía `return` para cada unidad, las alertas 2 y 3 no podían
+//    dispararse NUNCA. No estaba rota: estaba leyendo el lugar equivocado, que se
+//    ve exactamente igual que «no hubo nada que avisar».
+//    [[norma-falta-de-dato-no-es-un-dato]] · [[norma-un-filtro-nuestro-tapa-un-dato-que-si-llega]]
+// ⛔ El orden importa: PRIMERO `gasoil`, que es donde viven las fechas viejas. Así
+//    un reporte de agosto sigue dando exactamente el mismo número que antes, y lo
+//    nuevo sale de donde hoy se carga.
+function ccLitrosCamFecha(cam,fecha){
+  var vieja=GASOIL.filter(function(x){return x.f===fecha&&x.cam===cam;}).reduce(function(s,x){return s+(parseFloat(x.lit)||0);},0);
+  if(vieja>0)return vieja;
+  return (typeof SURTIDAS!=='undefined'?SURTIDAS:[]).filter(function(s){
+    return String(s.fecha||'').slice(0,10)===fecha && s.cam===cam && !s.anulada;
+  }).reduce(function(s,x){return s+(parseFloat(x.litros)||0);},0);
+}
+// Litros cargados a una unidad en un RANGO. Ver por qué el rango, en `checkAlertasCombustible`.
+function ccLitrosCamRango(cam,desde,hasta){
+  var t=0;
+  GASOIL.forEach(function(x){ if(x.cam===cam&&x.f>=desde&&x.f<=hasta)t+=(parseFloat(x.lit)||0); });
+  (typeof SURTIDAS!=='undefined'?SURTIDAS:[]).forEach(function(s){
+    var f=String(s.fecha||'').slice(0,10);
+    if(s.cam===cam&&f>=desde&&f<=hasta&&!s.anulada)t+=(parseFloat(s.litros)||0);
+  });
+  return t;
+}
+// Viajes de planilla por unidad en un rango.
+function viajesPlanillaMapaRango(desde,hasta){
+  var map={};
+  (typeof REGS!=='undefined'?REGS:[]).forEach(function(r){
+    if(r.f>=desde&&r.f<=hasta)map[r.cam]=(map[r.cam]||0)+(parseInt(r.t)||0);
+  });
+  return map;
+}
 function ccComprasFecha(fecha){return GASOIL.filter(function(x){return x.f===fecha&&ccEsCompra(x);});}
 function ccLitrosComprasFecha(fecha){return ccComprasFecha(fecha).reduce(function(s,x){return s+(parseFloat(x.lit)||0);},0);}
 
@@ -33634,6 +33669,11 @@ function ccAlertaExiste(fecha,tipo,ref){
 }
 async function checkAlertasCombustible(forzar){
   if(!DB_READY||!supabase)return;
+  // ⛔ SIN LAS SURTIDAS CARGADAS, ESTO MIDE CERO Y SE VE IGUAL QUE «todo en orden».
+  //    Es el mismo error que tenía la pieza: leer una fuente vacía y callar.
+  if(!(typeof SURTIDAS!=='undefined'&&SURTIDAS&&SURTIDAS.length)&&typeof cargarSurtidas==='function'){
+    try{ await cargarSurtidas(); }catch(e){ console.log('[COMB] surtidas',e&&e.message); }
+  }
   var hoy=ccHoy();
   var nuevas=[];
   // ALERTA 1 — Fuga tanque galpón (balance del día)
@@ -33649,13 +33689,48 @@ async function checkAlertasCombustible(forzar){
   // ALERTA 2 — Exceso de consumo por camión (litros vs viajes). Se evalúa sobre la ÚLTIMA
   // fecha con planillas (día operativo cerrado) porque los viajes reales vienen de planillas.
   var fop=ultimaFechaPlanilla();
-  var viajes=viajesPlanillaMapaFecha(fop);
-  ccVehiculosActivos().forEach(function(v){
-    var vi=viajes[v.id]||0, real=ccLitrosCamFecha(v.id,fop);
-    if(real<=0)return;
-    if(vi===0){ if(!ccAlertaExiste(fop,'Combustible sin viajes',v.id)) nuevas.push({fecha:fop,tipo:'Combustible sin viajes',vehiculo_id:v.id,tanque_id:null,descripcion:v.nombre+' recibió '+Math.round(real)+' L el '+fmtFechaCorta(fop)+' pero no tiene viajes en planilla.',diferencia_litros:Math.round(real),severidad:'critica',revisada:false}); return; }
-    if(real>vi*32){ if(!ccAlertaExiste(fop,'Exceso consumo crítico',v.id)) nuevas.push({fecha:fop,tipo:'Exceso consumo crítico',vehiculo_id:v.id,tanque_id:null,descripcion:v.nombre+' ('+fmtFechaCorta(fop)+'): '+Math.round(real)+' L para '+vi+' viajes ('+(real/vi).toFixed(1)+' L/viaje, límite 32).',diferencia_litros:Math.round(real-vi*22.5),severidad:'critica',revisada:false}); }
-    else if(real>vi*27){ if(!ccAlertaExiste(fop,'Exceso consumo',v.id)) nuevas.push({fecha:fop,tipo:'Exceso consumo',vehiculo_id:v.id,tanque_id:null,descripcion:v.nombre+' ('+fmtFechaCorta(fop)+'): '+Math.round(real)+' L para '+vi+' viajes ('+(real/vi).toFixed(1)+' L/viaje, esperado ~22.5).',diferencia_litros:Math.round(real-vi*22.5),severidad:'advertencia',revisada:false}); }
+  // ⛔ UNA CARGA NO ES UN CONSUMO, Y COMPARARLA CON LOS VIAJES DE UN SOLO DÍA ERA
+  //    LA RAÍZ DEL DEFECTO. Nadie tanquea todos los días: se llena cada tres o
+  //    cuatro. Medido sobre el 02/11, la regla vieja habría gritado «CRÍTICA, 50
+  //    L/viaje» por la B009 y la B011 — que en 14 días promedian **20,5 y 22,6
+  //    L/viaje**, o sea las dos MÁS eficientes de la flota. Un aviso que acusa a
+  //    las mejores unidades es peor que no tener aviso: enseña a ignorarlo.
+  //    [[norma-un-aviso-que-salta-siempre-no-avisa]]
+  // ⇒ La ventana es de 14 DÍAS, donde las cargas y el gasto se emparejan solos.
+  //    Medido en ese período: la flota va de 10,3 a 33,7 L/viaje con la mediana
+  //    cerca de los 22,5 que el módulo ya daba por esperados — o sea que el umbral
+  //    siempre fue razonable; lo que estaba mal era el marco en que se aplicaba.
+  var VENT=14;
+  var _d=new Date(fop+'T12:00:00'); _d.setDate(_d.getDate()-(VENT-1));
+  var fini=_d.toISOString().slice(0,10);
+  var viajesV=viajesPlanillaMapaRango(fini,fop);
+  var _per=' (del '+fmtFechaCorta(fini)+' al '+fmtFechaCorta(fop)+')';
+  // ⛔ SIN PLANILLAS NO HAY CON QUÉ COMPARAR, Y ESO NO ES «NADIE TRABAJÓ».
+  //    Estas tres alertas se apoyan en los viajes de planilla. Si la empresa no
+  //    usa planillas —FLOTILLA, medido: 0 filas, su operación son ENTREGAS— o si
+  //    todavía no se cargaron, tratar el vacío como «cero viajes» hace que CADA
+  //    unidad con combustible dispare una crítica y le llegue por WhatsApp a los
+  //    socios. El vacío se calla y se dice, no se interpreta.
+  //    [[norma-falta-de-dato-no-es-un-dato]] · [[norma-un-aviso-que-salta-siempre-no-avisa]]
+  var _hayPlanillas=Object.keys(viajesV).length>0;
+  if(!_hayPlanillas)console.log('[COMB] sin planillas entre '+fini+' y '+fop+': las alertas por viaje no se evalúan (no es que no hubo viajes, es que no hay con qué comparar)');
+  if(_hayPlanillas)ccVehiculosActivos().forEach(function(v){
+    var vi=viajesV[v.id]||0, real=ccLitrosCamRango(v.id,fini,fop);
+    // ⛔ «CERO LITROS» NO ES «NADA QUE VER»: ES EL CASO MÁS SOSPECHOSO DE TODOS.
+    //    La regla vieja hacía `return` ahí, así que una unidad que trabaja y nunca
+    //    figura cargando combustible era justo la que NO se miraba. Medido: la
+    //    JAC-B008 hizo 32 viajes en 14 días con 0 L cargados. O no se le registra
+    //    la surtida, o se tanquea por fuera; las dos cosas hay que mirarlas.
+    if(real<=0){
+      if(vi>=5&&!ccAlertaExiste(fop,'Trabajó sin cargar combustible',v.id))
+        nuevas.push({fecha:fop,tipo:'Trabajó sin cargar combustible',vehiculo_id:v.id,tanque_id:null,
+          descripcion:v.nombre+' hizo '+vi+' viajes'+_per+' y no tiene NI UN litro cargado. O no se le está registrando la surtida, o se tanquea por fuera del sistema.',
+          diferencia_litros:null,severidad:'critica',revisada:false});
+      return;
+    }
+    if(vi===0){ if(!ccAlertaExiste(fop,'Combustible sin viajes',v.id)) nuevas.push({fecha:fop,tipo:'Combustible sin viajes',vehiculo_id:v.id,tanque_id:null,descripcion:v.nombre+' recibió '+Math.round(real)+' L'+_per+' pero no tiene viajes en planilla.',diferencia_litros:Math.round(real),severidad:'critica',revisada:false}); return; }
+    if(real>vi*32){ if(!ccAlertaExiste(fop,'Exceso consumo crítico',v.id)) nuevas.push({fecha:fop,tipo:'Exceso consumo crítico',vehiculo_id:v.id,tanque_id:null,descripcion:v.nombre+_per+': '+Math.round(real)+' L para '+vi+' viajes ('+(real/vi).toFixed(1)+' L/viaje, límite 32).',diferencia_litros:Math.round(real-vi*22.5),severidad:'critica',revisada:false}); }
+    else if(real>vi*27){ if(!ccAlertaExiste(fop,'Exceso consumo',v.id)) nuevas.push({fecha:fop,tipo:'Exceso consumo',vehiculo_id:v.id,tanque_id:null,descripcion:v.nombre+_per+': '+Math.round(real)+' L para '+vi+' viajes ('+(real/vi).toFixed(1)+' L/viaje, esperado ~22.5).',diferencia_litros:Math.round(real-vi*22.5),severidad:'advertencia',revisada:false}); }
   });
   // ALERTA 4 — Rendimiento bajo por KM (si hay consumo_fabrica_l100km configurado)
   ccVehiculosActivos().forEach(function(v){
