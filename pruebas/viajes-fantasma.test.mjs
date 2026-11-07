@@ -33,8 +33,20 @@ function extraer(nombre) {
 }
 // `getSemanaISO` va porque `registrarViaje` todavía la llama (resto de cuando el viaje subía con
 // semana/año; esas columnas ya no se mandan). Se extrae igual: la prueba corre el código REAL.
-const cuerpo = ['getSemanaISO', 'cargarViajesLocal', 'guardarViajesLocal', 'cargarViajesSupabase', 'registrarViaje']
+// ⛔ `_tSuf` FALTABA y esta prueba quedo roja desde el 04/11 sin que nadie lo viera: se agrego a
+//    chofer.html ese dia (el sufijo del TURNO en la llave de localStorage) y esta lista no se
+//    actualizo. Una lista de funciones a mano se desincroniza del codigo que extrae.
+//    [[norma-dos-listas-a-mano-se-desincronizan]]
+// Y `_registrarViajeYa`, que es donde quedó el trabajo de verdad cuando `registrarViaje` pasó a
+// pedir confirmación: el botón solo abre el modal.
+const cuerpo = ['_tSuf', 'getSemanaISO', 'cargarViajesLocal', 'guardarViajesLocal',
+                'cargarViajesSupabase', '_registrarViajeYa', 'registrarViaje']
   .map(extraer).join('\n')
+  // ⛔ EL CHOFER CONFIRMA. `registrarViaje` abre un modal y el registro ocurre al tocar «sí». Esta
+  //    prueba mide el MAPA, no el modal, así que el doble confirma de inmediato — eso conserva
+  //    exactamente lo que la prueba medía antes de que existiera la confirmación. Dejarlo como un
+  //    no-op silencioso hacía que no se registrara nada y los casos 8a/8b daban [].
+  + '\nfunction pedirConfirmacionViaje(num){ _registrarViajeYa(num); }'
 
 // Arma el teléfono: el mapa en memoria, lo guardado del día, la cola y lo que tiene el servidor.
 function telefono({ enMemoria = {}, guardado = null, cola = [], servidor = [], cam = 'JAC-B004', hoy = '2026-08-11' }) {
@@ -43,6 +55,11 @@ function telefono({ enMemoria = {}, guardado = null, cola = [], servidor = [], c
 
   const ctx = {
     cam, hoy,
+    // ⛔ `CL_TURNO` lo necesita `_tSuf`, que entro el 04/11 (el turno en la llave de localStorage).
+    //    Sin declararlo aca la caja revienta con «CL_TURNO is not defined» — y la prueba quedo
+    //    roja tres dias sin que nadie lo viera. El turno por omision es el DIURNO, que es el que
+    //    no lleva sufijo: asi estos casos siguen probando exactamente lo que probaban.
+    CL_TURNO: 'diurno',
     VIAJES_HOY: { ...enMemoria },
     COLA_LOCAL: cola.slice(),
     FLOTA_CHOFERES: { 'JAC-B004': 'MELVIN BARBOZA' },
@@ -56,11 +73,19 @@ function telefono({ enMemoria = {}, guardado = null, cola = [], servidor = [], c
     // El servidor contesta lo que le pasamos. La cadena imita al builder de supabase-js.
     supabase: {
       from: () => ({ select: () => ({ eq: () => ({ eq: () => ({ then: (cb) => cb({ data: servidor.slice(), error: null }) }) }) }) }),
+      // ⛔ `rpc` FALTABA. El 04/11 la consulta del dia paso de `from().select()` a la RPC
+      //    `chofer_viajes_dia` (lleva el TURNO como parametro) y esta caja solo sabia imitar el
+      //    builder: la prueba reventaba con «supabase.rpc is not a function» y quedo roja tres
+      //    dias. Devuelve lo mismo que devolvia el select, que es lo que la RPC devuelve.
+      rpc: () => ({ then: (cb) => cb({ data: servidor.slice(), error: null }) }),
     },
     // La pantalla no se dibuja acá: lo que se mide es el MAPA, que es de donde salen el número y el contador.
     renderBotones() {}, renderHistorial() {}, actualizarContador() {}, mostrarToast() {},
     agregarACola(r) { ctx.COLA_LOCAL.push(r) }, idbPut() {}, pedirBackgroundSync() {},
     actualizarBannerCola() {}, cargarSemanaSupabase() {}, navigator: {},
+    // (`pedirConfirmacionViaje` se define arriba, dentro del cuerpo, para que pueda llamar a
+    //  `_registrarViajeYa`: desde acá no lo alcanza.)
+    document: { getElementById: () => null, createElement: () => ({ style: {}, querySelector: () => ({ onclick: null }), remove() {} }), body: { appendChild() {} } },
     Date,
   }
   const f = new Function('ctx', `with(ctx){ ${cuerpo};

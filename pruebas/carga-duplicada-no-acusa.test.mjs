@@ -55,9 +55,15 @@ caso(3, 'y NADIE queda acusado de haber quemado de más ese día',
   'sigue el R4 contra el chofer de la B009')
 
 const r15 = anom.find((a) => a.cod === 'R15' && a.cam === 'JAC-B009' && a.fecha === '2026-09-05')
+// ⚠️ Se mira el TITULO y el CUERPO juntos. El 07/11 R15 se reescribio —el total del dia no podia
+//    probar nada, ver `norma-antes-de-afirmar-imposible-hacer-el-algebra`— y la duplicacion quedo
+//    dicha en el titulo («Una carga quedo asentada dos veces»). La asercion buscaba «dos veces»
+//    solo en el cuerpo y se puso roja contra un mensaje que dice exactamente lo que tiene que
+//    decir. Lo que esta prueba defiende es el SENTIDO, no donde cae la frase.
+const r15txt = r15 ? ((r15.titulo || '') + ' ' + (r15.texto || '')) : ''
 caso(4, 'pero SÍ se dice: R15 lo reporta, sin nombrar a nadie, y sugiere mirar las fotos',
-  !!r15 && !r15.quien && /dos veces/.test(r15.texto) && /fotos/.test(r15.texto),
-  r15 ? ('quien=' + r15.quien) : 'R15 no salió — el día desaparecería en silencio')
+  !!r15 && !r15.quien && /dos veces|DOS cargas/.test(r15txt) && /fotos/.test(r15txt),
+  r15 ? ('quien=' + r15.quien + ' · titulo=' + r15.titulo) : 'R15 no salió — el día desaparecería en silencio')
 
 caso(5, 'B012 26/07: R4 no acusa sobre un día cuya carga vino del volcado en lote',
   !anom.some((a) => a.cod === 'R4' && a.cam === 'JAC-B012' && a.fecha === '2026-07-26'),

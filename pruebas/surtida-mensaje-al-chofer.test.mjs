@@ -56,7 +56,10 @@ if (textos['el servidor rechazó'] && textos['sin señal'] &&
 // El rechazo tiene que decir que NO quedó y pedir avisar: esperar no lo arregla.
 const rech = textos['el servidor rechazó'] || '';
 if (!/NO quedó registrada/i.test(rech)) { console.error('FALLA: el rechazo no dice que NO quedó registrada.'); malos++; }
-if (!/avisa/i.test(rech))               { console.error('FALLA: el rechazo no pide avisar a nadie.'); malos++; }
+// ⛔ `/avisa/i` NO calza con «avísele» —tilde y otra terminacion— y el mensaje dice «avisele a la
+//    oficina», o sea que cumple el requisito y la prueba se ponia roja igual. Lo que se defiende
+//    es que PIDA AVISAR, no una conjugacion. [[norma-una-asercion-mal-escrita-acusa-al-producto]]
+if (!/avisa|av[ií]s[ea]/i.test(rech))   { console.error('FALLA: el rechazo no pide avisar a nadie.'); malos++; }
 // Y la falta de señal SÍ tiene que decir que se sube sola: ahí esperar sirve.
 if (!/reconectar|se sube sola/i.test(textos['sin señal'] || '')) {
   console.error('FALLA: el caso sin señal no dice que se sube sola al reconectar.'); malos++;

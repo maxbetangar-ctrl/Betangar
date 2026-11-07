@@ -16,7 +16,13 @@ function trozo(src, nombre, opcional = false){
   return src.slice(ini, fin + 2)
 }
 
-const FUNCS = ['_acHoy','_acNum','_acFmt','_acUsd','_acCubicar','_acLitrosPorCm','_acTol',
+// ⛔ `_acSigmaDe` FALTABA y rompio 5 pruebas en silencio desde el 06/11: se agrego a app.js
+//    ese dia (la tolerancia sale de la PRECISION de la lectura) y esta lista no se actualizo.
+//    `_acTol` la llama, asi que toda prueba que armara una jornada reventaba con
+//    «_acSigmaDe is not defined» — y nadie lo vio porque las pruebas no las corre nadie solo.
+//    📌 Una lista de funciones a mano se desincroniza del codigo que extrae.
+//    [[norma-dos-listas-a-mano-se-desincronizan]]
+const FUNCS = ['_acHoy','_acNum','_acFmt','_acUsd','_acCubicar','_acLitrosPorCm','_acTol','_acSigmaDe',
   '_acDiaSiguiente','_acAlturaValida','_acLotesSurtidas','_acSurtidaUbicable','_acEntradas',
   '_acEntradasSinHora','_acCargaEnLote','_acTanqueDe','_acEsGalpon','_acDedupe','_acArmarJornadas','_acRefModelo',
   '_acRefRend','_acTs','_acAntesDe','_acAnomalias']
