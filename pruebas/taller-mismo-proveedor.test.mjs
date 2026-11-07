@@ -6,7 +6,7 @@
 //  son el mismo. Acá se prueba que el sistema ya los reconoce; unir los registros viejos de
 //  Betangar es aparte y lo decide él.)
 //
-// 15/08/2026. Carlos Serrano pidió comparar precios entre talleres: quién le vende el mismo
+// 15/08/2026. el jefe de operaciones de otra empresa pidió comparar precios entre talleres: quién le vende el mismo
 // repuesto más caro, quién le cobra la mano de obra más cara. Al medir la base de FLOTILLA para
 // armar ese comparativo, esto era lo que había en `mantenimientos` (23 registros, 22 cargados por
 // la hoja de vida, donde el taller era un campo de TEXTO LIBRE):

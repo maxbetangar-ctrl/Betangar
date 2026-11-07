@@ -2624,7 +2624,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
       <div class="card"><div class="st" style="margin-bottom:10px">Registrar Gasto Variable</div><div class="fr2"><div class="fg"><label>Fecha</label><input class="fc" id="gv-fecha" type="date"></div><div class="fg"><label>Categoria</label><select class="fc" id="gv-cat"></select><div style="margin-top:5px"><div id="gv-cats-admin" style="margin-bottom:4px"></div><div style="display:flex;gap:5px"><input class="fc" id="gv-cat-nueva" placeholder="Agregar categoria..." style="font-size:11px;padding:5px 8px" onkeydown="if(event.key==='Enter')gvAgregarCat()"><button class="btn btn-s btn-xs solo-ui" onclick="gvAgregarCat()" style="white-space:nowrap">+ Agregar</button></div></div></div></div><div class="fg"><label>Descripcion</label><input class="fc" id="gv-desc" placeholder="Detalle..."></div><div class="fr2"><div class="fg"><label>Monto USD $</label><input class="fc" id="gv-usd" type="number" placeholder="0.00" oninput="calcGastoVar()" style="font-family:var(--m)"></div><div class="fg"><label>Bs (auto)</label><input class="fc" id="gv-bs" type="number" oninput="gvBsEditado()" title="Se calcula solo con la tasa del dia del gasto. Si el desembolso fue otro, escribilo." style="font-family:var(--m)"><div id="gv-tasa-hint" style="font-size:11px;color:var(--text3);margin-top:3px;min-height:15px"></div></div></div><div class="fr2"><div class="fg"><label>Referencia</label><input class="fc" id="gv-ref" placeholder="00000000000" style="font-family:var(--m)"></div><div class="fg"><label>Factura</label><input class="fc" id="gv-fact" placeholder="F-001"></div></div><button class="btn btn-g" style="width:100%" onclick="guardarGastoVar()">Registrar</button></div>
       <div class="card"><div class="st" style="margin-bottom:8px">Resumen Variables</div><div id="gv-resumen"></div></div>
     </div>
-    <!-- ⛔ VER UN PERÍODO, NO «TODO». Carlos Serrano, 05/11/2026: «el resumen variable me muestra
+    <!-- ⛔ VER UN PERÍODO, NO «TODO». el jefe de operaciones de otra empresa, 05/11/2026: «el resumen variable me muestra
          un solo total de todo lo cargado sin importar la fecha». Un total sin período no se puede
          comparar con nada: ni con el mes anterior, ni con un presupuesto, ni con una factura. -->
     <div class="card" style="margin-bottom:10px">
@@ -3235,7 +3235,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
      Excel sale con el defecto ya corregido. Pasó midiendo este mismo cambio el
      23/09: dos corridas dieron un .xlsx idéntico byte por byte. -->
 <script src="maxware-excel.js?v=20261106-excel"></script>
-<script src="app.js?v=20261107-1358"></script>
+<script src="app.js?v=20261107-1533"></script>
 
 <!-- Modal global -->
 <div id="modal" class="moverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9990;align-items:center;justify-content:center;padding:16px">

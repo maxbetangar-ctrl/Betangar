@@ -2,7 +2,7 @@
 // ═══════════════════════════════════════════════════════════════════════════════════════════
 // EL CANDADO DEL ODÓMETRO NO PUEDE APAGARSE SOLO.
 //
-// ⛔ EL CASO. Carlos Serrano, 02/10/2026: *«La unidad una unidad los días 17 y 18 de septiembre
+// ⛔ EL CASO. el jefe de operaciones de otra empresa, 02/10/2026: *«La unidad una unidad los días 17 y 18 de septiembre
 //    tuvo un error al cargar el kilometraje»*. En la base quedaron, de la una unidad:
 //      · 17/09  km_entrada = 983.346   (venía de 98.154)
 //      · 18/09  km_salida  = 984.046   y el día quedó SIN CERRAR

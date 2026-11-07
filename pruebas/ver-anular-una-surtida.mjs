@@ -2,7 +2,7 @@
 // ═══════════════════════════════════════════════════════════════════════════════════════════
 // UNA SURTIDA MAL CARGADA SE PUEDE ANULAR — Y ANULAR ES ANULAR TAMBIÉN LA PLATA.
 //
-// ⛔ POR QUÉ. Carlos Serrano, 03/10/2026, tres mensajes el mismo día:
+// ⛔ POR QUÉ. el jefe de operaciones de otra empresa, 03/10/2026, tres mensajes el mismo día:
 //      · «La unidad una unidad realizó dos registros de combustible, uno de 50 L y otro de 30 L. El
 //         registro de 30 L solicito su eliminación»
 //      · «Me permite editarlo pero solo modificar el litraje, no eliminarlo»

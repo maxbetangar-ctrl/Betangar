@@ -2,7 +2,7 @@
 // ═══════════════════════════════════════════════════════════════════════════════════════════
 // GASTOS VARIABLES: FILTRAR POR PERÍODO Y CATEGORÍA, Y SACAR EL REPORTE.
 //
-// ⛔ POR QUÉ. Carlos Serrano, 05/11/2026, probando el módulo que se le arregló esa mañana:
+// ⛔ POR QUÉ. el jefe de operaciones de otra empresa, 05/11/2026, probando el módulo que se le arregló esa mañana:
 //      «No tiene opción para filtrar por categoría y fecha»
 //      «El resumen variable me muestra un solo total de todo lo cargado sin importar la
 //       fecha. Es recomendable poder visualizarlo en un lapso de fecha determinado»

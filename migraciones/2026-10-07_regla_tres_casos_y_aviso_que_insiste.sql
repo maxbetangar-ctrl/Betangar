@@ -3,7 +3,7 @@
 --
 -- ✅ LO PRIMERO, QUE SE MIDIÓ ANTES DE TOCAR NADA: **el aviso YA EXISTÍA Y FUNCIONÓ.**
 --    El 06/10/2026 a las 11:56:03, al minuto de la primera lectura trancada del una unidad, salió
---    a `mant_aprobador_tel` (+584146153554, Carlos Serrano) y quedó `enviado`:
+--    a `mant_aprobador_tel` (+584146153554, el jefe de operaciones de otra empresa) y quedó `enviado`:
 --      «Sr. Carlos, la unidad una unidad está marcando 32 cm con la regla, pero el tanque según la
 --       configuración mide 27 cm de alto. ¿Puede revisarlo y ajustarlo…?»
 --    Y a las 13:08 salió otro igual por el una unidad. O sea que el guardián disparó, nombró la

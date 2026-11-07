@@ -2,7 +2,7 @@
 // ═══════════════════════════════════════════════════════════════════════════════════════════
 // UNA SESIÓN VENCIDA NO PUEDE LEERSE COMO «NO TIENE PERMISO».
 //
-// ⛔ EL CASO. Carlos Serrano, 05/11/2026, en «Combustible Surtido Hoy»: la lista se veía y al
+// ⛔ EL CASO. el jefe de operaciones de otra empresa, 05/11/2026, en «Combustible Surtido Hoy»: la lista se veía y al
 //    pedir la foto salía *«No se pudo traer la foto: permission denied for function
 //    surtida_foto»*. Medido ese día llamando a la base como anónimo:
 //      · `surtidas_listar` → P0001 «Sin permiso para ver las surtidas»

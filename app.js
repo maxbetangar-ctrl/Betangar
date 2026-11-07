@@ -495,7 +495,7 @@ var PERMISOS={
   vigilante:['porteria'],
   mecanico:['mecanico','checklist','llantas','km','unidades','requisitorio'],
   operativo:['operativo','requisitorio'],
-  // ANALISTA DE FLOTA. Lo pidio Carlos Serrano (FLOTILLA) el 03/09/2026 para Yudis Fernandez:
+  // ANALISTA DE FLOTA. Lo pidio el jefe de operaciones de otra empresa (FLOTILLA) el 03/09/2026 para Yudis Fernandez:
   // «los registros de mantenimiento, inventarios y ordenes de servicio. Para anular, modificar
   // o crear debe solicitar autorizacion al sup. administrador».
   // ⛔ NINGUN ROL EXISTENTE LO CUBRIA, y por eso se creo en vez de acomodarla en uno parecido:
@@ -1183,7 +1183,7 @@ function initSupabaseClient(){
 // ═══════════════════════════════════════════════════════════════════════════════════════════
 // UNA SESIÓN QUE SE VENCIÓ NO ES UN PROBLEMA DE PERMISOS, Y HASTA HOY LO PARECÍA
 //
-// ⛔ EL CASO. Carlos Serrano, 05/11/2026: en «Combustible Surtido Hoy» la lista se veía y al
+// ⛔ EL CASO. el jefe de operaciones de otra empresa, 05/11/2026: en «Combustible Surtido Hoy» la lista se veía y al
 //    pedir la foto salía *«No se pudo traer la foto: permission denied for function
 //    surtida_foto»*. Eso NO es su rol: es que ESA llamada llegó a la base SIN SESIÓN. La
 //    lista ya estaba dibujada de antes, así que solo falló lo que se pidió después.
@@ -13266,7 +13266,7 @@ function _iniciarCierreOrden(id){
   window._ordCerrando={id:id,cam:cam};
   // La Hoja de Vida vive en OTRA página (p-km); las Órdenes están en p-proveedores. Sin saltar de página
   // el usuario se queda mirando la lista de órdenes, ve solo el toast y cree que el botón no hizo nada
-  // (reporte de Carlos Serrano, 24/07/2026). sp() valida el permiso y oculta el resto de las páginas.
+  // (reporte de el jefe de operaciones de otra empresa, 24/07/2026). sp() valida el permiso y oculta el resto de las páginas.
   var _permsCierre=(typeof misPermisos==='function')?misPermisos():[];
   if(_permsCierre.indexOf('km')<0){
     window._ordCerrando=null;
@@ -14516,7 +14516,7 @@ async function _migrarLavadoEngrase(){
 // PIEZAS CON SERIAL — la batería (y cualquier pieza que se cambie) deja de ser
 // un renglón de texto y pasa a ser una COSA con serial, historia y garantía.
 //
-// Lo pidió Carlos Serrano (FLOTILLA, 2026-08-07): «¿tiene cómo registrar los
+// Lo pidió el jefe de operaciones de otra empresa (FLOTILLA, 2026-08-07): «¿tiene cómo registrar los
 // seriales de las baterías asignadas a cada vehículo, y que quede registrado
 // cuando se reemplaza?». Antes de esto los únicos seriales de la app eran los
 // del MOTOR y la CARROCERÍA — o sea, del vehículo, no de las piezas.
@@ -15227,7 +15227,7 @@ function _hvItemSerial(){
   //    la trae del catálogo único. Un select acá dejaría que el mismo repuesto
   //    quedara en dos categorías distintas según quién cargue — que es el defecto
   //    que el catálogo vino a cerrar, y por el que el gasto no sumaba.
-  //    Lo pidió Carlos Serrano el 20/08: quería VERLA, no cargarla.
+  //    Lo pidió el jefe de operaciones de otra empresa el 20/08: quería VERLA, no cargarla.
   try{ _hvPintarCategoria(); }catch(e){}
   var w=g('hv-serial-wrap'); if(!w)return;
   var it=(MANT_ITEMS||[]).filter(function(x){return x.id===gv('hv-item');})[0];
@@ -15303,7 +15303,7 @@ function _setSelPreserve(id,html){var s=g(id);if(!s)return;var cur=s.value;s.inn
 // ═══════════════════════════════════════════════════════════════════════════════
 // EL BUSCADOR DE REPUESTOS — escribir en vez de buscar en una lista
 //
-// ⛔ POR QUÉ EXISTE, y por qué NO se hizo lo que se pidió. Carlos Serrano pidió el
+// ⛔ POR QUÉ EXISTE, y por qué NO se hizo lo que se pidió. el jefe de operaciones de otra empresa pidió el
 //    25/08 registrar el mantenimiento eligiendo solo la CATEGORÍA y poniendo el
 //    repuesto en el campo Nota, porque «a medida que avance la operatividad la
 //    lista será demasiado extensa». Medido contra sus propios datos:
@@ -15438,7 +15438,7 @@ function _mantItemParecido(nombre){
 // ⛔ Si falla el guardado NO se traba el registro del trabajo: queda el ítem en
 //    memoria y el mantenimiento se carga igual. Un catálogo no puede impedir que se
 //    registre lo que ya pasó.
-// ⛔ `intervaloKm` lo pidio CARLOS SERRANO el 27/08: el item nacia con `intervalo: 0`
+// ⛔ `intervaloKm` lo pidio el jefe de operaciones de otra empresa el 27/08: el item nacia con `intervalo: 0`
 //    -sin aviso- y habia que ir despues al catalogo a completarlo.
 // ⚠️ ES OPCIONAL: vacio deja el item igual que antes. Un campo nuevo obligatorio
 //    trancaria el registro de un trabajo que YA se hizo.
@@ -16901,7 +16901,7 @@ async function _perAplicar(){
   // ── EL PRECIO POR LITRO SE MIDE ANTES DE APLICARLO ──────────────────────────────
   // 🔴 26/08/2026: en el una unidad se escribió 100 en la casilla del precio —era 1— y quedó una
   //    surtida de 100 L por $10.000. El sistema la aceptó sin decir nada: los LITROS tenían
-  //    tope desde el caso de los «25.115», el PRECIO no. Lo reportó Carlos Serrano. Un monto
+  //    tope desde el caso de los «25.115», el PRECIO no. Lo reportó el jefe de operaciones de otra empresa. Un monto
   //    así entra derecho al costo del mes y al costo por kilómetro, que es el número
   //    principal del producto.
   //
@@ -17067,7 +17067,7 @@ async function surCorregirGuardar(){
   if(!s){ mostrarToast('No encontré esa surtida','error'); return; }
   var lit=_surLeerLitros();
   var motivo=(g('sur-cor-motivo')?g('sur-cor-motivo').value:'').trim();
-  // ⛔ CERO LITROS ES ANULAR, Y HASTA HOY NO SE PODÍA. Carlos Serrano lo pidió el 03/10/2026 y
+  // ⛔ CERO LITROS ES ANULAR, Y HASTA HOY NO SE PODÍA. el jefe de operaciones de otra empresa lo pidió el 03/10/2026 y
   //    lo intentó solo: *«ya intenté colocarlo en cero, no me guarda, me pide colocar un
   //    litraje»* y *«me permite editarlo pero solo modificar el litraje, no eliminarlo»*.
   //    Tenía razón: esta misma validación se lo impedía. Un registro duplicado o cargado a la
@@ -21369,7 +21369,7 @@ function medirLlanta(cam,idx){
   if(v===null)return;
   var mm=parseFloat(v); if(isNaN(mm)||mm<=0){alert('Esa medida no puede ser: una llanta en servicio no mide 0 mm. Escriba los milímetros que marca el medidor, y si no la pudo medir toque Cancelar.');return;} // ⛔ EL CERO SE ACEPTABA Y PISABA UNA MEDIDA BUENA. una unidad trasera der. interna: 20,28 mm el 03/09 y el mismo día un 0 la dejó en «Cambiar Urgente». Cuatro llantas (una unidad y las tres de la una unidad) están así, y de paso ensucian la lista de urgentes, donde se pierden las que SÍ están gastadas.
   // ⛔ SIN EL ODÓMETRO NO HAY DESGASTE POR KILÓMETRO, por muchas mediciones que se junten.
-  //    Lo preguntó Carlos Serrano (FLOTILLA) el 22/09: «el reporte de seguimiento al desgaste
+  //    Lo preguntó el jefe de operaciones de otra empresa (FLOTILLA) el 22/09: «el reporte de seguimiento al desgaste
   //    por kilometraje, ¿aparece automáticamente cuando existan varios registros?». No aparecía
   //    ni podía: la medición guardaba los mm y la fecha, y el kilometraje del camión NO.
   //    Se pide acá y no se obliga: una medida sin km sirve igual para el desgaste en el TIEMPO.
@@ -21475,7 +21475,7 @@ function renderLlantas(){
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// 📉 DESGASTE POR LLANTA — el reporte que pidió Carlos Serrano el 21/09/2026:
+// 📉 DESGASTE POR LLANTA — el reporte que pidió el jefe de operaciones de otra empresa el 21/09/2026:
 //    «para poder ver el comportamiento de las llantas semanalmente o
 //     quincenalmente ... ¿por dónde veo el Reporte?»
 //
@@ -23675,7 +23675,7 @@ function guardarGastoVar(){
   renderGastosVariables();
 }
 
-// ⛔ UN TOTAL SIN PERÍODO NO SE PUEDE COMPARAR CON NADA. Carlos Serrano, 05/11/2026:
+// ⛔ UN TOTAL SIN PERÍODO NO SE PUEDE COMPARAR CON NADA. el jefe de operaciones de otra empresa, 05/11/2026:
 //    «el resumen variable me muestra un solo total de todo lo cargado sin importar la fecha.
 //     Es recomendable poder visualizarlo en un lapso de fecha determinado».
 //    Ni contra el mes anterior, ni contra un presupuesto, ni contra una factura.
