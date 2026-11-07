@@ -2083,11 +2083,18 @@ function _acEsGalpon(m){ var t=_acTanqueDe(m); return !!(t&&t.tipo==='galpon'); 
 // Ahora se colapsa por unidad+fecha+momento y se toma la ÚLTIMA por created_at: si el chofer
 // volvió a cargar, es porque está corrigiendo. El día queda marcado como "corregido" y las reglas
 // que hablan de sustracción no opinan sobre él.
+  var _acTurno=function(m){ return String(m&&m.turno||'diurno'); };
+// ⛔ Y DESDE EL 06/11/2026 LA LLAVE LLEVA TURNO. Con dos turnos por dia, juntar
+// por unidad+fecha+momento mete la salida del DIURNO y la del NOCTURNO en la
+// misma bolsa y se queda con la ultima: la jornada del primer turno desaparece
+// de la auditoria. Es el mismo defecto que tenia la llave de la tabla, pero del
+// lado de la pantalla -- arreglar solo la base lo habria dejado vivo aca.
+// [[norma-correccion-heredada-toca-todas-las-tablas]]
 function _acDedupe(filas){
   var porMomento={}, dupIguales=0;
   (filas||[]).slice().sort(function(a,b){ return String(a.created_at||'').localeCompare(String(b.created_at||'')); })
   .forEach(function(m){
-    var k=[m.vehiculo_id,String(m.fecha).slice(0,10),m.momento].join('|');
+    var k=[m.vehiculo_id,String(m.fecha).slice(0,10),m.momento,_acTurno(m)].join('|');
     (porMomento[k]=porMomento[k]||[]).push(m);
   });
   var out=[], corregidas={}, noConf={};
@@ -2193,40 +2200,61 @@ function _acArmarJornadas(desde,hasta){
     (porUnidad[u]=porUnidad[u]||[]).push(m);
   });
   var jor=[];
+  // ⛔ LA JORNADA SE ARMA POR GRUPO, NO RECORRIENDO EN ORDEN.
+  //
+  //    Antes se recorrian las mediciones por hora: una salida ABRIA la jornada
+  //    y la siguiente llegada la CERRABA. Eso depende de que los datos vengan
+  //    en el orden esperado, y no vienen. El 06/11/2026, al reponer la salida
+  //    de 37 cm que el turno nocturno habia pisado, quedo grabada DESPUES de
+  //    su propia llegada: la auditoria partio la jornada del diurno en dos
+  //    —una llegada huerfana y una salida sin cerrar— y el consumo volvio a
+  //    no calcularse. Lo encontro `scripts/ver-auditoria-dos-turnos.mjs`.
+  //
+  //    La llave unica de la tabla ya garantiza, desde hoy, que haya como mucho
+  //    UNA salida y UNA llegada por unidad+fecha+turno. Entonces no hace falta
+  //    adivinar cual va con cual: se juntan POR ESA MISMA LLAVE. Lo que se
+  //    deduce de una regla de la base no se vuelve a deducir del orden.
+  //    [[norma-un-valor-derivado-depende-de-la-version-de-su-regla]]
   Object.keys(porUnidad).forEach(function(u){
-    var lista=porUnidad[u].sort(function(a,b){
-      var c=String(a.fecha).localeCompare(String(b.fecha)); if(c)return c;
-      return String(a.created_at||'').localeCompare(String(b.created_at||''));
-    });
-    var abierta=null;
-    var _fueCorregida=function(m){ return !!AC_META.corregidas&&!!AC_META.corregidas[[m.vehiculo_id,String(m.fecha).slice(0,10),m.momento].join('|')]; };
-    // El tercer estado, leído por la MISMA llave que las corregidas.
-    var _noConf=function(m){ return (AC_META.noConf||{})[[m.vehiculo_id,String(m.fecha).slice(0,10),m.momento].join('|')]||null; };
-    lista.forEach(function(m){
-      var t=_acTanqueDe(m), cm=_acNum(m.altura_cm), ok=_acAlturaValida(t,cm);
-      // Altura imposible = lectura descartada, NO topeada. Se guarda el cm crudo para que R8 pueda
-      // señalarla, pero los litros quedan en null y esa jornada no se cuadra.
-      var litros=ok?_acCubicar(t,cm):null;
-      var rec=_acNum(m.litros_calculados), corr=_fueCorregida(m), nc=_noConf(m);
-      if(String(m.momento)==='salida'){
-        if(abierta)jor.push(abierta);                     // salida sin llegada: queda sin cerrar
-        abierta={cam:u,fecha:String(m.fecha).slice(0,10),salida:litros,salidaCm:cm,salidaMala:!ok,
-                 salidaRec:rec,llegada:null,llegadaCm:null,llegadaRec:null,llegadaMala:false,
-                 por:m.registrado_por||'',fechaLl:null,tanque:t,corregida:corr,noConf:nc,
-                 salidaAt:String(m.created_at||'')};
-      } else if(String(m.momento)==='llegada'){
-        if(abierta){ abierta.llegada=litros; abierta.llegadaCm=cm; abierta.llegadaRec=rec;
-                     abierta.llegadaMala=!ok; abierta.corregida=abierta.corregida||corr;
-                     abierta.noConf=abierta.noConf||nc;
-                     abierta.llegadaAt=String(m.created_at||'');
-                     abierta.fechaLl=String(m.fecha).slice(0,10); jor.push(abierta); abierta=null; }
-        else jor.push({cam:u,fecha:String(m.fecha).slice(0,10),salida:null,salidaCm:null,salidaRec:null,
-                       salidaMala:false,llegada:litros,llegadaCm:cm,llegadaRec:rec,llegadaMala:!ok,
-                       por:m.registrado_por||'',fechaLl:String(m.fecha).slice(0,10),tanque:t,
-                       corregida:corr,noConf:nc,salidaAt:'',llegadaAt:String(m.created_at||'')});
+    var grupos={}, orden=[];
+    porUnidad[u].forEach(function(m){
+      var f=String(m.fecha).slice(0,10), t=_acTurno(m), k=f+'|'+t;
+      if(!grupos[k]){ grupos[k]={fecha:f,turno:t,salida:null,llegada:null}; orden.push(k); }
+      var mo=String(m.momento);
+      // Si por lo que sea llegaran dos del mismo momento, manda la ULTIMA
+      // cargada: es la correccion. (`_acDedupe` ya deberia haber dejado una.)
+      if(mo==='salida'||mo==='llegada'){
+        var ant=grupos[k][mo];
+        if(!ant||String(m.created_at||'')>=String(ant.created_at||''))grupos[k][mo]=m;
       }
     });
-    if(abierta)jor.push(abierta);
+    // Las jornadas salen en orden de fecha y turno, que es como se leen.
+    orden.sort(function(a,b){ return a.localeCompare(b); });
+    // Las dos leen por la MISMA llave con la que se guardaron: si una lleva
+    // turno y la otra no, el aviso aparece en la jornada equivocada.
+    var _llave=function(m){ return [m.vehiculo_id,String(m.fecha).slice(0,10),m.momento,_acTurno(m)].join('|'); };
+    var _fueCorregida=function(m){ return !!m&&!!AC_META.corregidas&&!!AC_META.corregidas[_llave(m)]; };
+    var _noConf=function(m){ return m?((AC_META.noConf||{})[_llave(m)]||null):null; };
+    orden.forEach(function(k){
+      var g=grupos[k], ms=g.salida, ml=g.llegada;
+      var ts=ms?_acTanqueDe(ms):null, tl=ml?_acTanqueDe(ml):null;
+      var cms=ms?_acNum(ms.altura_cm):null, cml=ml?_acNum(ml.altura_cm):null;
+      // Altura imposible = lectura descartada, NO topeada. Se guarda el cm crudo para que R8 pueda
+      // señalarla, pero los litros quedan en null y esa jornada no se cuadra.
+      var oks=ms?_acAlturaValida(ts,cms):false, okl=ml?_acAlturaValida(tl,cml):false;
+      jor.push({cam:u, fecha:g.fecha, turno:g.turno,
+                salida:  (ms&&oks)?_acCubicar(ts,cms):null, salidaCm: cms, salidaMala:  ms?!oks:false,
+                llegada: (ml&&okl)?_acCubicar(tl,cml):null, llegadaCm:cml, llegadaMala: ml?!okl:false,
+                salidaRec:  ms?_acNum(ms.litros_calculados):null,
+                llegadaRec: ml?_acNum(ml.litros_calculados):null,
+                por:(ms&&ms.registrado_por)||(ml&&ml.registrado_por)||'',
+                fechaLl: ml?String(ml.fecha).slice(0,10):null,
+                tanque: ts||tl,
+                corregida:(_fueCorregida(ms)||_fueCorregida(ml)),
+                noConf:(_noConf(ms)||_noConf(ml)),
+                salidaAt: ms?String(ms.created_at||''):'',
+                llegadaAt: ml?String(ml.created_at||''):''});
+    });
   });
 
   // Despachos y km del día, y el cálculo del consumo.

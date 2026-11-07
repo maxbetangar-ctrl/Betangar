@@ -3926,7 +3926,12 @@ async function clGuardarMedicionCm(momento){
   // cola offline. Guardarlo en la cola sería peor: resucita días después sin nadie mirando.
   if(clAlturaImposible(cmV)!==false){ console.warn('medicion cm rechazada: '+cmV+' cm no entra en el tanque'); return; }
   var litros=clLitrosJac(cmV);
-  var row={fecha:hoy,tanque_id:((CL_TANQUE_UNIDAD&&CL_TANQUE_UNIDAD.tanque_id)||'tanque-jac'),vehiculo_id:cam,momento:momento,altura_cm:cmV,litros_calculados:litros,registrado_por:(chofer||'chofer'),notas:'Medición chofer '+cam};
+  // El TURNO va en la fila: desde el 04/11 hay dos por dia y sin el, el
+  // segundo chofer PISABA la medicion del primero (06/11: la salida de 37 cm
+  // del B009 la borro la del nocturno y la auditoria mostro 0 litros).
+  // La base igual lo deduce del checklist por si este telefono sirve una
+  // version vieja en cache -- pero mandarlo es gratis y dice la intencion.
+  var row={fecha:hoy,tanque_id:((CL_TANQUE_UNIDAD&&CL_TANQUE_UNIDAD.tanque_id)||'tanque-jac'),vehiculo_id:cam,momento:momento,turno:CL_TURNO,altura_cm:cmV,litros_calculados:litros,registrado_por:(chofer||'chofer'),notas:'Medición chofer '+cam};
   try{
     if(isOnline&&supabase){ var r=await supabase.rpc('chofer_medicion_guardar', {p: row}); if(r.error){ console.error('medicion cm error',r.error); throw r.error; } }
     else { localStorage.setItem('btg_medcm_'+cam+'_'+hoy+_tSuf()+'_'+momento, JSON.stringify(row)); }
