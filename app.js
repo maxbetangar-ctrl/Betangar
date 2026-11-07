@@ -3535,7 +3535,9 @@ function _acRender(){
     _acCard('Anomalías',String(AC_ANOM.length),altas.length+' graves · '+(AC_ANOM.length-altas.length)+' por revisar',altas.length?'var(--red)':'var(--green)')+
     _acCard('Días auditables',pctAud+'%',completas+' de '+J.length+' jornadas con salida, llegada y km. Por debajo de 90% el resto de los números queda cojo'+
       (nNoConf?(' · '+nNoConf+' quedaron fuera porque el dato se declaró falso y no se pudo averiguar el verdadero'):'')+
-      (nCargaMala?(' · '+nCargaMala+' quedaron fuera porque la carga de ese día no cabe en el tanque (ver la anomalía)'):''),
+      // El motivo ya no es «no cabe en el tanque» —esa afirmación no se podía probar y se quitó—:
+      // ahora un día sale de la cuenta por una carga DUPLICADA o por una más del doble del tanque.
+      (nCargaMala?(' · '+nCargaMala+' quedaron fuera por una carga que no puede ser cierta —duplicada o más del doble del tanque— (ver la anomalía)'):''),
       pctAud>=90?'var(--green)':'var(--yellow)')+
     _acCard('Jornadas analizadas',String(J.length),(AC_META.duplicadas?('se ignoraron '+AC_META.duplicadas+' mediciones repetidas'):'sin mediciones repetidas'))+
   '</div>';
