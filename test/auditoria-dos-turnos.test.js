@@ -143,8 +143,14 @@ ok('las surtidas de la jornada se piden POR TURNO',
    APP.includes('j.desp=_acEntradas(j.cam,j.fecha,j.fecha,true,j.turno);'));
 ok('`_acEntradas` sabe filtrar por turno',
    APP.includes("if(turno && String(s.turno||'')!==String(turno))return;"));
+// ⛔ La firma se comprueba con REGEX y no con texto exacto. Lo que esta línea tiene que
+//    garantizar es que `turno` siga siendo el 5º parámetro —si se corriera de lugar, una llamada
+//    vieja le pasaría otra cosa y el filtro de arriba se aplicaría con basura—. Pedir la firma
+//    LITERAL hacía que cualquier parámetro agregado al final pusiera roja una prueba que no
+//    tenía nada que ver: pasó el 07/11 al sumar `despuesDe`. Una prueba que se rompe por un
+//    cambio que no afecta lo que mide enseña a ignorarla.
 ok('una consulta por PERÍODO (sin turno) las sigue contando todas',
-   APP.includes('function _acEntradas(cam,desde,hasta,incluirDesde,turno){'));
+   /function _acEntradas\(cam,desde,hasta,incluirDesde,turno(,[A-Za-z0-9_]+)*\)\{/.test(APP));
 ok('el gasoil histórico no se le carga al nocturno, que no existía',
    APP.includes("if(turno && turno!=='diurno')return;"));
 

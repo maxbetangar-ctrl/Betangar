@@ -540,7 +540,32 @@ Deno.serve(async (req) => {
     return tSur < (tSal as number) - 15 * 60 * 1000;
   };
 
-  const entradas = (u: string, fA: string, fB: string, incluirFA: boolean) => {
+  // ⛔ EL OTRO EXTREMO DE LA JORNADA: una carga asentada DESPUÉS de la lectura de LLEGADA no está
+  //    en esa lectura. Lo decide EL NIVEL y no el reloj, porque el reloj se equivoca en los dos
+  //    sentidos: medido el 07/11/2026 sobre 12 jornadas reales, en 5 el tanque había SUBIDO
+  //    durante el día (una de 10 a 36 cm) con la carga guardada minutos después de la llegada —
+  //    el combustible SÍ estaba, la fila se guardó tarde—. Restarla ahí da consumo NEGATIVO, que
+  //    acusa de no haber asentado una carga que se asentó con foto y GPS (es el caso del 29/08
+  //    que se arregló el 08/09). Y en las otras 7 sumarla infla el consumo hasta 446 L para 91 km.
+  //      cA = salida + (carga no posterior) − llegada
+  //      cA < 0 → ya está en la llegada ⇒ se cuenta · cA >= 0 → todavía no ⇒ sale del cuadre
+  // ⛔ EL UMBRAL ES CERO Y NO LA TOLERANCIA: con −TOL, una jornada del 28/07 (157 km) quedaba
+  //    con consumo NEGATIVO de −10,18 L que ninguna regla caza, y antes daba 1,75 km/L.
+  // 📌 NO se decide por cuál cuenta "da un rendimiento más creíble": eso elegiría siempre la
+  //    versión que deja al día sin culpa. El criterio es físico y no mira los km.
+  // GEMELA de `_acDespDelCuadre` en `app.js` — si se toca una, se toca la otra.
+  const despDelCuadre = (salida: number | null, llegada: number | null, desp: number,
+                         despPost: number): number => {
+    if (!(despPost > 0) || salida == null || llegada == null) return desp;
+    const sin = Math.round((desp - despPost) * 100) / 100;
+    const cA = Math.round((salida + sin - llegada) * 100) / 100;
+    return cA >= 0 ? sin : desp;
+  };
+
+  // `despuesDe` (ms) acota a lo ASENTADO DESPUÉS de un instante. Va acá adentro y no en una cuenta
+  // aparte para que el corte, el turno y `yaEnElNivel` sean LOS MISMOS: dos listas a mano se
+  // desincronizan. El histórico `gasoil` no tiene hora: nunca entra en ese subconjunto.
+  const entradas = (u: string, fA: string, fB: string, incluirFA: boolean, despuesDe?: number) => {
     const dentro = (f: string) => (incluirFA ? f >= fA : f > fA) && f <= fB;
     let suma = 0;
     (sur.data || []).forEach((s: any) => {
@@ -549,9 +574,11 @@ Deno.serve(async (req) => {
       if (corteSur && f < corteSur) return;              // antes del corte manda gasoil
       if (!dentro(f)) return;
       if (yaEnElNivel(u, f, s)) return;                  // ya está dentro del nivel de salida
+      if (despuesDe != null) { const t = ts(s.created_at); if (t == null || t <= despuesDe) return; }
       suma += (num(s.litros) || 0);
     });
     (gas.data || []).forEach((gg: any) => {
+      if (despuesDe != null) return;                     // sin hora no se puede ubicar
       if (String(gg.cam) !== u) return;
       if (String(gg.tipo_operacion || '') === 'compra') return;   // compra = entra al galpón
       const f = String(gg.f || '').slice(0, 10);
@@ -754,7 +781,12 @@ Deno.serve(async (req) => {
     if (sal && lle && alturaOk(tqDe(sal), sal.altura_cm) && alturaOk(tqDe(lle), lle.altura_cm)
         && !corregidas.has([u, fecha, 'salida'].join('|')) && !corregidas.has([u, fecha, 'llegada'].join('|'))) {
       const s2 = cubicar(tqDe(sal), sal.altura_cm), l2 = cubicar(tqDe(lle), lle.altura_cm);
-      const desp2 = entradas(u, fecha, fecha, true);   // por la FECHA declarada, no por el sello
+      const desp2Total = entradas(u, fecha, fecha, true);   // por la FECHA declarada, no por el sello
+      // Lo asentado DESPUÉS de la llegada sale del cuadre del día (ver `despDelCuadre`). 15 min de
+      // margen, igual que `yaEnElNivel`: no se decide por segundos.
+      const tLle = ts(lle.created_at);
+      const post = tLle != null ? entradas(u, fecha, fecha, true, (tLle as number) + 15 * 60 * 1000) : 0;
+      const desp2 = despDelCuadre(s2, l2, desp2Total, post);
       // Un día cuya carga no cabe no se cuadra: su consumo es falso y no puede alimentar ningún
       // número. Lo dice R15, no se esconde. GEMELA de `j.cargaImposible` en `app.js`.
       if (s2 != null && l2 != null && !cargaImposibleDia) {

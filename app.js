@@ -2087,7 +2087,35 @@ function _acAlturaValida(tanque,alturaCm){
 //    ahí: el período incluye los dos turnos.
 //    Una surtida sin turno deducido NO se le carga a nadie en una jornada: se
 //    la cuenta igual en el período. [[norma-falta-de-dato-no-es-un-dato]]
-function _acEntradas(cam,desde,hasta,incluirDesde,turno){
+// ⛔ `despuesDe` (ms) acota a lo ASENTADO DESPUÉS de un instante — se usa para separar la carga
+//    que entró después de la lectura de llegada. Va acá adentro y no en una cuenta aparte para
+//    que el corte, el turno y el dedupe sean LOS MISMOS: dos listas a mano se desincronizan.
+//    El histórico `gasoil` no tiene hora, así que nunca entra en ese subconjunto.
+// ⛔ ¿Una carga asentada DESPUÉS de la lectura de llegada ya está en esa lectura?
+//    Lo decide EL NIVEL, no el reloj: un tanque no puede ganar combustible que no está.
+//      cA = salida + (carga no posterior) − llegada
+//      cA <  0  → ya está en la llegada (la fila se guardó tarde) ⇒ se cuenta en el día
+//      cA ≥  0  → todavía no está                                 ⇒ sale del cuadre
+//
+// ⛔ EL UMBRAL ES CERO, NO LA TOLERANCIA, y eso se midió. Con `cA ≥ −TOL` una jornada del 28/07
+//    —157 km, carga de 100 L— daba cA = −10,18: adentro del ruido, así que la regla sacaba la
+//    carga y dejaba el día con **consumo NEGATIVO de −10,18 L**, que no lo caza NINGUNA regla
+//    (R13 pide pasar −2·TOL y `rendImposible` pide consumo > 0). Antes ese día daba 1,75 km/L,
+//    perfectamente normal. ⇒ Un arreglo que empeora un caso bueno no está terminado.
+//    Con el umbral en cero esa jornada vuelve a contar la carga y queda en 1,75 km/L.
+// 📌 La frase física exacta es «excluir la carga no puede dejar un consumo negativo», y no
+//    necesita tolerancia: el cero no es un número elegido, es el límite de lo posible.
+//
+//    Está aparte para que la prueba la SAQUE de acá y no la reescriba: una copia de la regla en
+//    la prueba hace que la prueba pase mientras el producto está roto.
+//    [[norma-dos-listas-a-mano-se-desincronizan]]
+function _acDespDelCuadre(salida,llegada,desp,despPost){
+  if(!(despPost>0)||salida==null||llegada==null)return desp;
+  var sin=Math.round((desp-despPost)*100)/100;
+  var cA=Math.round((salida+sin-llegada)*100)/100;
+  return (cA>=0)?sin:desp;
+}
+function _acEntradas(cam,desde,hasta,incluirDesde,turno,despuesDe){
   var corte=AC_META.corteSurtidas||'', suma=0;
   var dentro=function(f){ return (incluirDesde?(f>=desde):(f>desde)) && f<=hasta; };
   (AC_SURTIDAS||[]).forEach(function(s){
@@ -2096,9 +2124,11 @@ function _acEntradas(cam,desde,hasta,incluirDesde,turno){
     if(corte&&f<corte)return;                              // antes del corte manda gasoil
     if(!dentro(f))return;
     if(turno && String(s.turno||'')!==String(turno))return;
+    if(despuesDe!=null){ var _ts=_acTs(s.created_at); if(_ts==null||_ts<=despuesDe)return; }
     suma+=(_acNum(s.litros)||0);
   });
   (AC_GASOIL||[]).forEach(function(g){
+    if(despuesDe!=null)return;                             // sin hora no se puede ubicar
     if(String(g.cam)!==String(cam))return;
     if(String(g.tipo_operacion||'')==='compra')return;     // compra = entra al galpón, no al camión
     // El histórico `gasoil` es todo anterior al 04/11/2026, cuando no había más
@@ -2353,6 +2383,47 @@ function _acArmarJornadas(desde,hasta){
     // estaba registrada, con foto y GPS. La MISMA fila caía fuera del día y dentro de la noche:
     // justo al revés de donde va. [[norma-created-at-no-es-la-hora-del-hecho]]
     j.desp=_acEntradas(j.cam,j.fecha,j.fecha,true,j.turno);
+
+    // ══════════════════════════════════════════════════════════════════════════════════════════
+    // UNA CARGA ASENTADA DESPUÉS DE LA LECTURA DE LLEGADA NO ESTÁ EN ESA LECTURA
+    //
+    // 🔴 Medido en Betangar el 07/11/2026: 9 jornadas con la carga asentada después de la medición
+    //    de llegada. En 6 de ellas el sistema le imputaba al chofer un consumo de 220 L de
+    //    promedio —hasta 446,3 L para 91 km— porque sumaba al día un combustible que todavía no
+    //    estaba en el tanque cuando se midió. Eso dispara R4, que es la ÚNICA regla que le
+    //    atribuye a una PERSONA cómo manejó. Seis acusaciones falsas de sobreconsumo.
+    //
+    // ⛔ PERO EL RELOJ SOLO NO ALCANZA, y por eso esto no es "si la hora es mayor, se resta".
+    //    En las otras 3 el tanque SUBIÓ durante el día (una de 10 a 36 cm) con la carga asentada
+    //    14 min después de la llegada: el combustible SÍ estaba en la lectura, la fila se guardó
+    //    tarde. Restarla ahí da consumo NEGATIVO —hasta −310 L—, que es una acusación PEOR: dice
+    //    que apareció combustible de la nada, o sea que la carga no se asentó, cuando sí se
+    //    asentó, con foto y GPS. Es exactamente el problema que se arregló el 08/09 (B003 y B004
+    //    el 29/08, 21:25 y 21:31 «ya en el patio»). Esto NO puede revertir aquello.
+    //
+    // ✅ LO QUE DECIDE ES EL NIVEL, NO EL RELOJ: un tanque no puede ganar combustible que no está.
+    //       cA = salida + (cargas no posteriores) − llegada
+    //       cA <  0  → el combustible YA está en la llegada  ⇒ se cuenta (como siempre)
+    //       cA ≥  0  → todavía no está                        ⇒ sale del cuadre del día
+    //    Verificado contra las 9 jornadas y contra los 2 casos históricos del 29/08: acierta en
+    //    las 11, y ninguna queda cerca del umbral (las más próximas son +35,8 y −119,4 L).
+    //    📌 NO se decide mirando cuál de las dos cuentas "da un rendimiento más creíble": eso
+    //       sería elegir la versión que deja al día sin culpa y silenciaría a R4 para siempre.
+    //       El criterio es físico y no mira los km. [[norma-una-asercion-mal-escrita-acusa-al-producto]]
+    //
+    // ⚠️ `j.desp` SIGUE SIENDO EL TOTAL CARGADO: lo muestran la tabla, R9, el acumulado por unidad
+    //    y la exportación, y ahí el número tiene que ser el real. Lo que sale del cuadre va en
+    //    `j.despJornada` y lo apartado queda visible en `j.despPost`: un descarte que no se
+    //    escribe es un número que el dueño no puede explicar.
+    // GEMELA de `yaEnElNivel` en `auditar-combustible/index.ts` (que cubre el lado de la SALIDA).
+    // ══════════════════════════════════════════════════════════════════════════════════════════
+    j.despPost=0;
+    var _tLle=_acTs(j.llegadaAt);
+    // 15 min de margen, igual que `yaEnElNivel`: no se decide por segundos.
+    if(_tLle!=null) j.despPost=_acEntradas(j.cam,j.fecha,j.fecha,true,j.turno,_tLle+15*60*1000);
+    j.despJornada=_acDespDelCuadre(j.salida,j.llegada,j.desp,j.despPost);
+    j.cargaPostFuera=(j.despJornada!==j.desp);
+
     // ⛔ Y EL CHECKLIST TAMBIEN POR TURNO. De acá salen los km de la jornada, o
     //    sea el km/L. Con dos checklists en el día, un `.find()` sin turno toma
     //    SIEMPRE el primero: los km del diurno se le cargaban también al
@@ -2430,7 +2501,8 @@ function _acArmarJornadas(desde,hasta){
       if(Math.abs(_ta-_tb)<=30*60*1000){ j.cargaDuplicada={litros:_la,minutos:Math.round(Math.abs(_ta-_tb)/60000)}; }
     } }
     j.cargaImposible=!!(j.cargaGrosera||j.cargaDuplicada);
-    j.consumo=(j.salida!=null&&j.llegada!=null&&!j.noConf&&!j.cargaImposible)?Math.round((j.salida+j.desp-j.llegada)*100)/100:null;
+    // `despJornada` y no `desp`: la carga asentada después de la llegada no está en esa lectura.
+    j.consumo=(j.salida!=null&&j.llegada!=null&&!j.noConf&&!j.cargaImposible)?Math.round((j.salida+j.despJornada-j.llegada)*100)/100:null;
     // ⛔ UN RENDIMIENTO FÍSICAMENTE IMPOSIBLE TAMBIÉN INVALIDA EL DÍA.
     //
     // 🔴 Máximo, 06/11/2026, con la foto de la fila: «Solo gasto 5.3 litros en toda la jornada».
@@ -2455,7 +2527,9 @@ function _acArmarJornadas(desde,hasta){
     // La tolerancia de ESTA jornada se calcula ANTES que nada: de ella depende
     // si el faltante es explicable por el error de lectura, y eso decide si la
     // jornada vale. Estaba mas abajo y `rendImposible` la leia en `undefined`.
-    j.tol=_acTol(j.tanque,j.salidaCm,j.llegadaCm,j.desp);
+    // La tolerancia va sobre lo que ENTRÓ AL CUADRE: su término de volumen es el 1,5% de lo
+    // despachado, y lo que quedó fuera del cuadre no aporta error a este balance.
+    j.tol=_acTol(j.tanque,j.salidaCm,j.llegadaCm,j.despJornada);
     var _refMod=_acRefModelo(j.cam);
     // ⛔ DOS CONDICIONES, Y HACEN FALTA LAS DOS. El techo de km/L dice que la
     //    PROPORCION es imposible; que el faltante supere la TOLERANCIA dice que
@@ -3314,7 +3388,11 @@ function _acAnomalias(todas,desde,hasta,ref){
       'Un camión de aseo no rinde eso. '+
       (_debio!=null?('Para esos km debió gastar alrededor de '+_acFmt(_debio,0)+' L. '):'')+
       'La cuenta sale de tres números —salió con '+_acFmt(j.salida,1)+' L ('+_acFmt(j.salidaCm,1)+' cm), '+
-      'le cargaron '+_acFmt(j.desp,1)+' L y llegó con '+_acFmt(j.llegada,1)+' L ('+_acFmt(j.llegadaCm,1)+' cm)— '+
+      'le cargaron '+_acFmt(j.despJornada,1)+' L y llegó con '+_acFmt(j.llegada,1)+' L ('+_acFmt(j.llegadaCm,1)+' cm)— '+
+      // Si parte de la carga quedó fuera del cuadre hay que DECIRLO acá: si no, los tres números
+      // de la frase no suman y el dueño queda con una cuenta que no puede rehacer.
+      (j.cargaPostFuera?('(aparte se asentaron '+_acFmt(j.despPost,1)+' L DESPUÉS de la medición de llegada, '+
+        'así que no entran en el cuadre de este día: ya están en el nivel con el que amanece) '):'')+
       'y los tres no pueden ser ciertos a la vez: o la medición de salida quedó baja, o la de llegada alta, '+
       'o esa carga no entró entera a este tanque. '+
       '⛔ Ese día NO cuenta para el consumo ni para el rendimiento: un número que no puede ser cierto '+
@@ -3694,7 +3772,7 @@ async function acExcel(){
   var wb=_xlNuevo();
   _xlAgregar(wb,(AC_JORNADAS.map(function(j){
     return {Fecha:j.fecha,Unidad:j.cam,Chofer:j.chofer||'','Regla salida cm':j.salidaCm,'Litros salida':j.salida,
-      Despacho:j.desp,'Regla llegada cm':j.llegadaCm,'Litros llegada':j.llegada,Consumo:j.consumo,Km:j.km,
+      Despacho:j.desp,'Carga fuera del cuadre':(j.despPost||0),'Regla llegada cm':j.llegadaCm,'Litros llegada':j.llegada,Consumo:j.consumo,Km:j.km,
       'Km/L':(j.rend!=null?Math.round(j.rend*100)/100:'')};
   })),'Jornadas');
   _xlAgregar(wb,(AC_ANOM.map(function(a){

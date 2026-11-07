@@ -8,8 +8,12 @@ import vm from 'node:vm'
 const RUTA_APP = new URL('../app.js', import.meta.url)
 
 function trozo(src, nombre, opcional = false){
-  const ini = src.indexOf('function ' + nombre + '(')
+  let ini = src.indexOf('function ' + nombre + '(')
   if (ini < 0){ if (opcional) return ''; throw new Error('no encontré function ' + nombre) }
+  // ⛔ SI ES `async function`, EL `async` VA ADENTRO. Cortar en `function` deja un cuerpo con
+  //    `await` dentro de una función común y el `vm` muere con un SyntaxError que apunta a una
+  //    línea del archivo generado, no del fuente. (Costó un intento el 07/11 con `_acPaginar`.)
+  if (src.slice(Math.max(0, ini - 6), ini) === 'async ') ini -= 6
   // hasta el primer `\n}` a nivel de columna 0
   const fin = src.indexOf('\n}', ini)
   if (fin < 0) throw new Error('no cerré function ' + nombre)
@@ -22,10 +26,14 @@ function trozo(src, nombre, opcional = false){
 //    «_acSigmaDe is not defined» — y nadie lo vio porque las pruebas no las corre nadie solo.
 //    📌 Una lista de funciones a mano se desincroniza del codigo que extrae.
 //    [[norma-dos-listas-a-mano-se-desincronizan]]
+//    🔴 Y VOLVIÓ A PASAR el 07/11 con `_acDespDelCuadre`: misma lista, mismo síntoma, misma
+//    prueba reventada. Dos veces alcanza. Ahora la lista SE CONTROLA SOLA (ver `faltantes`):
+//    si el código extraído llama a un `_acAlgo` que no está acá, el banco se para y lo NOMBRA,
+//    en vez de explotar adentro de un `vm` con un «is not defined» sin contexto.
 const FUNCS = ['_acHoy','_acNum','_acFmt','_acUsd','_acCubicar','_acLitrosPorCm','_acTol','_acSigmaDe',
   '_acDiaSiguiente','_acAlturaValida','_acLotesSurtidas','_acSurtidaUbicable','_acEntradas',
   '_acEntradasSinHora','_acCargaEnLote','_acTanqueDe','_acEsGalpon','_acDedupe','_acArmarJornadas','_acRefModelo',
-  '_acRefRend','_acTs','_acAntesDe','_acAnomalias']
+  '_acRefRend','_acTs','_acAntesDe','_acAnomalias','_acDespDelCuadre','_acMenos','_acCostoL']
 
 export function cargarAuditoria(rutaApp = RUTA_APP){
   const src = readFileSync(rutaApp, 'utf8')
@@ -51,9 +59,34 @@ export function cargarAuditoria(rutaApp = RUTA_APP){
   // ANTERIOR (`git show HEAD:app.js`) y se comprueba que la prueba se pone ROJA sin ellas.
   // Opcionales: las que existen en una versión y no en la otra, para que el MISMO banco
   // pueda correr contra el código anterior y mostrar en qué se pone rojo.
-  const NUEVAS = { _acLotesSurtidas:1, _acSurtidaUbicable:1, _acEntradasSinHora:1, _acCargaEnLote:1 }
+  const NUEVAS = { _acLotesSurtidas:1, _acSurtidaUbicable:1, _acEntradasSinHora:1, _acCargaEnLote:1,
+                   _acDespDelCuadre:1 }
   const BR = String.fromCharCode(10)
-  vm.runInContext(FUNCS.map(f => trozo(src, f, !!NUEVAS[f])).join(BR), ctx)
+  const codigo = FUNCS.map(f => trozo(src, f, !!NUEVAS[f])).join(BR)
+
+  // ⛔ LA LISTA SE CONTROLA SOLA. Lo que se extrae puede llamar a otro `_acAlgo` que no esté en
+  //    FUNCS, y entonces el `vm` revienta con «_acX is not defined» y un stack que no dice qué
+  //    hay que hacer. Pasó dos veces (`_acSigmaDe` el 06/11, `_acDespDelCuadre` el 07/11). Acá
+  //    se mira qué llama el código extraído y se exige que esté — nombrando lo que falta.
+  //    ⚠️ Se buscan llamadas `_acAlgo(` que NO vengan precedidas de un punto (eso sería un
+  //    método de un objeto, no una función suelta del archivo).
+  const llamadas = new Set((codigo.match(/(^|[^.\w])_ac[A-Za-z0-9_]*\s*\(/g) || [])
+    .map(s => (s.match(/_ac[A-Za-z0-9_]*/) || [''])[0]))
+  // ⚠️ Lo definido ADENTRO de lo extraído no falta: `_acTurno` es una `var` local de
+  //    `_acArmarJornadas`, y pedirla en FUNCS sería pedir una función que no existe suelta.
+  const propias = new Set((codigo.match(/(?:function|var|let|const)\s+_ac[A-Za-z0-9_]*/g) || [])
+    .map(s => (s.match(/_ac[A-Za-z0-9_]*/) || [''])[0]))
+  // Las que el banco NO provee a proposito, con el motivo al lado: una exencion sin motivo
+  // escrito es el lugar donde se esconden las de verdad.
+  const EXENTAS = { _acPaginar: 'baja filas de la base; el banco siembra el volcado a mano' }
+  const faltantes = [...llamadas].filter(n => n && !FUNCS.includes(n) && !propias.has(n)
+                                           && !(n in EXENTAS) && !(n in ctx))
+  if (faltantes.length) {
+    throw new Error('el banco extrae código que llama a ' + faltantes.join(', ') +
+      ', y no está(n) en FUNCS de pruebas/_banco-combustible.mjs. Agregalas ahí ' +
+      '(y a NUEVAS si no existen en la versión anterior de app.js).')
+  }
+  vm.runInContext(codigo, ctx)
   return ctx
 }
 
