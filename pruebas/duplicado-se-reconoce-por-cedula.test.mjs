@@ -19,8 +19,15 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const APP = path.join(path.dirname(new URL(import.meta.url).pathname.slice(1)), '..', 'app.js');
+// ⛔ ACÁ IBA `new URL(import.meta.url).pathname.slice(1)`, y eso solo funciona en Windows.
+//    En Windows `pathname` es «/C:/Users/…» y quitarle el primer carácter deja «C:/Users/…», que
+//    sirve. En LINUX es «/home/runner/…» y quitárselo deja «home/runner/…» —una ruta RELATIVA—,
+//    así que el archivo no se encuentra y la prueba falla. Pasaba desapercibido porque acá nunca
+//    falla: el CI corre en Linux y por esto estuvo rojo.
+//    `fileURLToPath` es la forma correcta y da lo mismo en los dos sistemas.
+const APP = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'app.js');
 const src = fs.readFileSync(APP, 'utf8');
 
 let pass = 0, fail = 0;

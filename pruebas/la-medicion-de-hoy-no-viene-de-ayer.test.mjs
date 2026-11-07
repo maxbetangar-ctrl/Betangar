@@ -160,9 +160,22 @@ console.log('\n6 · al revés: con el código anterior el residuo SOBREVIVE')
     dondeSalio = introdujo.slice(0, 7) + '^'
     antes = git(['show', `${introdujo}^:chofer.html`])
   } catch (e) {
-    console.log('  ⚠️  no pude armar el «antes» (' + String(e.message).split('\n')[0].slice(0, 80) +
-                ') — la verificación al revés NO corrió')
-    fallos++
+    // ⛔ HAY QUE DISTINGUIR DOS COSAS QUE SE VEÍAN IGUAL. Si el repo es un clon SUPERFICIAL no
+    //    hay historia que mirar: eso es el entorno, no un defecto, y contarlo como fallo pone la
+    //    prueba en rojo por algo que el producto no hizo. `actions/checkout` clona superficial
+    //    por omisión, y por esto el CI estuvo rojo. Si en cambio SÍ hay historia y aun así no
+    //    pude armar el «antes», eso sí es un problema y se cuenta.
+    //    [[norma-un-filtro-nuestro-tapa-un-dato-que-si-llega]]
+    let superficial = false
+    try { superficial = git(['rev-parse', '--is-shallow-repository']).trim() === 'true' } catch (_) {}
+    const porque = String(e.message).split('\n')[0].slice(0, 80)
+    if (superficial) {
+      console.log('  ⏭  clon SUPERFICIAL (sin historia): la verificación al revés no se puede hacer acá.')
+      console.log('     No cuenta como fallo. Para que corra en el CI: `fetch-depth: 0` en actions/checkout.')
+    } else {
+      console.log(`  ⚠️  no pude armar el «antes» (${porque}) — la verificación al revés NO corrió`)
+      fallos++
+    }
   }
   if (antes) {
     // Control positivo del control negativo: si el «antes» YA trajera el arreglo, no estaría

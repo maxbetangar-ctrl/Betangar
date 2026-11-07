@@ -21,6 +21,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # ⛔ CON HISTORIA. `actions/checkout` clona SUPERFICIAL por omision y hay pruebas que se
+          #    comprueban AL REVES: miran la version anterior de una funcion con `git show` para
+          #    demostrar que, contra el codigo viejo, se ponen rojas. Sin historia eso no se puede
+          #    hacer, y era una de las dos causas del CI en rojo.
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
