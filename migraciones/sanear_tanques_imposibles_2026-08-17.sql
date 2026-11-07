@@ -5,7 +5,7 @@
 -- salieron del mismo molde y del mismo código, así que lo que ensució a uno pudo ensuciar a
 -- cualquiera. Donde no hay nada que arreglar, esto no toca ni una fila.
 --
--- QUÉ PASÓ: FC16 (MACK GU813) quedó cargado con un tanque de 8.639 cm de diámetro —86 metros—
+-- QUÉ PASÓ: una unidad (MACK GU813) quedó cargado con un tanque de 8.639 cm de diámetro —86 metros—
 -- y 8.909.645 litros. Se le fue la coma al teclear y nada lo frenó: la verificación que existía
 -- corría solo para la forma 'redondeado' y solo si se declaraba la capacidad de fábrica.
 -- El candado ya se cerró en `cubicacion.js` (medidaImposible), pero el dato viejo sigue haciendo
@@ -21,7 +21,7 @@
 --
 -- ⛔ TAMPOCO SE BORRA EL TANQUE: se ARCHIVA (activo=false) con la nota de por qué. Borrarlo
 -- perdería las medidas que Carlos tomó y no habría cómo saber de dónde salió el disparate.
--- Mientras esté archivado, `tanque_de_unidad('FC16')` devuelve NULL y el chofer guarda sus
+-- Mientras esté archivado, `tanque_de_unidad('una unidad')` devuelve NULL y el chofer guarda sus
 -- centímetros SIN litros — que es exactamente lo correcto hasta que alguien lo vuelva a medir.
 -- ════════════════════════════════════════════════════════════════════════════════════════
 
@@ -102,7 +102,7 @@ commit;
 
 -- ── VERIFICACIÓN ────────────────────────────────────────────────────────────────────────────
 -- Que dé cero no prueba nada si el control no detecta. Antes de creerle al vacío, el control
--- positivo ya corrió: la misma consulta encontró FC16 en Flotilla y no lo encontró en las otras
+-- positivo ya corrió: la misma consulta encontró una unidad en Flotilla y no lo encontró en las otras
 -- tres, así que sabemos que MIRA.
 --   select vehiculo_id, activo, altura_max_cm, capacidad_litros
 --     from public.combustible_tanques_config

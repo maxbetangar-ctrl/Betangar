@@ -2,11 +2,11 @@
 -- PIEZAS 3 Y 4 · «PASÓ EL TOPE» NO ES UNA SOLA COSA, Y EL AVISO NO PUEDE CALLARSE
 --
 -- ✅ LO PRIMERO, QUE SE MIDIÓ ANTES DE TOCAR NADA: **el aviso YA EXISTÍA Y FUNCIONÓ.**
---    El 06/10/2026 a las 11:56:03, al minuto de la primera lectura trancada del FC17, salió
+--    El 06/10/2026 a las 11:56:03, al minuto de la primera lectura trancada del una unidad, salió
 --    a `mant_aprobador_tel` (+584146153554, Carlos Serrano) y quedó `enviado`:
---      «Sr. Carlos, la unidad FC17 está marcando 32 cm con la regla, pero el tanque según la
+--      «Sr. Carlos, la unidad una unidad está marcando 32 cm con la regla, pero el tanque según la
 --       configuración mide 27 cm de alto. ¿Puede revisarlo y ajustarlo…?»
---    Y a las 13:08 salió otro igual por el FC13. O sea que el guardián disparó, nombró la
+--    Y a las 13:08 salió otro igual por el una unidad. O sea que el guardián disparó, nombró la
 --    unidad, nombró los dos números y llegó a la persona correcta. **No hacía falta construirlo.**
 --    ⇒ Lo que falló fue lo que el aviso DICE y lo que hace después. Esto es eso.
 --
@@ -21,13 +21,13 @@
 --
 -- 🔴 DEFECTO 3 · SE CALLA UN MES. El `ref` llevaba el mes adentro: UN aviso por unidad por mes.
 --    Un aviso que dispara una vez y se queda callado **no se distingue de un problema resuelto**.
---    El FC17 pasó 46 h mudo después de ese único mensaje. Ahora insiste UNA VEZ POR DÍA mientras
+--    El una unidad pasó 46 h mudo después de ese único mensaje. Ahora insiste UNA VEZ POR DÍA mientras
 --    el problema siga, dice cuántos días lleva, y **se apaga solo** cuando se corrige.
 --
 -- 🔴 DEFECTO 4 (pieza 4) · «PASÓ EL TOPE» METÍA TRES COSAS DISTINTAS POR LA MISMA PUERTA.
 --    Medido el 07/10 en FLOTILLA, la lectura más alta de cada unidad contra su propio tope:
---      FC14 **7.129 cm** (tope 27) · FC01 **600** (tope 67 — y 600 L es su capacidad) ·
---      FC16 525 (tope 83) · FC12 180 (tope 72) · FL01 **75** y FL02 **76** (tope 48, y la
+--      una unidad **7.129 cm** (tope 27) · una unidad **600** (tope 67 — y 600 L es su capacidad) ·
+--      una unidad 525 (tope 83) · una unidad 180 (tope 72) · una unidad **75** y una unidad **76** (tope 48, y la
 --      capacidad de los dos es 76,8 L).
 --    O sea: **la gente teclea LITROS en el campo de CENTÍMETROS.** Si eso entra por la misma
 --    puerta que una regla que de verdad recorre más, el aviso sale diciendo «la unidad está
@@ -40,7 +40,7 @@
 --      'parece_litros'  → cae a menos del 5% de la CAPACIDAD en litros de ese mismo tanque.
 --                         Que el número coincida con los litros no es casualidad.
 --      'sobre_el_tope'  → lo demás, y es el único que avisa: la regla puede estar recorriendo
---                         más de lo configurado, que es lo que le pasó al FC17 (48 contra 27).
+--                         más de lo configurado, que es lo que le pasó al una unidad (48 contra 27).
 --
 -- ⛔ LO QUE NO SE TOCA, Y ES A PROPÓSITO: **la medición del chofer SIEMPRE se guarda**, en los
 --    tres casos. Un `raise` acá no protege nada: el chofer corre offline-first y el código
@@ -181,10 +181,10 @@ end $function$;
 -- ═══════════════════════════════════════════════════════════════════════════════
 -- Y PARA NO DEPENDER DE UN WHATSAPP QUE SE LEYÓ O NO: la lista, consultable.
 --
--- 🔴 El aviso del FC17 salió, llegó y quedó `enviado` — y la unidad estuvo 46 h muda igual.
+-- 🔴 El aviso del una unidad salió, llegó y quedó `enviado` — y la unidad estuvo 46 h muda igual.
 --    Un aviso es un empujón; esto es el ESTADO, y se puede mirar cuando uno quiera.
 --    Filtra lo que NO es una lectura de regla (los más de 260 cm y lo que coincide con la
---    capacidad en litros), porque si no la lista queda llena de FC14 con 7.129 cm.
+--    capacidad en litros), porque si no la lista queda llena de una unidad con 7.129 cm.
 -- ═══════════════════════════════════════════════════════════════════════════════
 -- ⚠️ `security_invoker`: sin esto una vista corre con los permisos de su DUEÑO y se saltea
 --    el RLS de las tablas de abajo. Acá las dos leen con `using (true)`, así que no cambia lo

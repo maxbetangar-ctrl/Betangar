@@ -2915,7 +2915,7 @@ function _acAnomalias(todas,desde,hasta,ref){
       // ── (b) ¿Rodó? El odómetro es el testigo, y se mira SIEMPRE, aunque falten las lecturas ──
       var kmFantasma=(ant.kmE!=null&&hoy.kmS!=null)?(hoy.kmS-ant.kmE):null;
       // ⛔ EL PISO SALE DE LOS DATOS. Estaba en 1 km y le reportaba al jefe movimientos de patio:
-      //    el 06/11 salió «FC04: son 10 km hechos sin planilla», que es cierto y no sirve de nada.
+      //    el 06/11 salió «una unidad: son 10 km hechos sin planilla», que es cierto y no sirve de nada.
       //    Medido en 901 huecos de turno a turno de FLOTILLA: 2–10 km son 23 (patio, taller),
       //    11–30 son 8 y más de 30 son 57. Con piso de 10 se van 23 de 88 avisos y no se pierde
       //    ninguno real. GEMELA del `KM_FANTASMA_MIN` de la edge function.
@@ -3182,7 +3182,7 @@ function _acAnomalias(todas,desde,hasta,ref){
         j.cam,j.fecha,null,_quien(j.cam,j.fecha,j.turno));
     }
     // ⛔ R10b — EL SALTO HACIA ARRIBA, QUE NO MIRABA NADIE. R10 solo cazaba el odómetro que
-    //    RETROCEDE. Un número imposible hacia ARRIBA no disparaba ninguna regla: la FC04
+    //    RETROCEDE. Un número imposible hacia ARRIBA no disparaba ninguna regla: la una unidad
     //    entró el 17/09/2026 con 983.346 km viniendo de 98.154 —un salto de +885.192— y
     //    estuvo QUINCE DÍAS en la base hasta que lo vio Operaciones a ojo. El candado del
     //    teléfono también estaba apagado ese día, así que no quedó ninguna red.
@@ -3190,7 +3190,7 @@ function _acAnomalias(todas,desde,hasta,ref){
     // ⚠️ EL UMBRAL SALE DE LO MEDIDO, no de una corazonada. En 969 jornadas de esta flota el
     //    promedio es 162 km/día y el máximo histórico 1.270. Se avisa recién pasados 5.000 km
     //    POR DÍA transcurrido: casi cuatro veces el día más largo que existió, así que no
-    //    ensucia, y aun así el caso de la FC04 lo supera 177 veces.
+    //    ensucia, y aun así el caso de la una unidad lo supera 177 veces.
     //    Se escala por días porque entre dos jornadas puede haber fines de semana o taller.
     // ⚠️ Y SE MIRAN LOS DOS LADOS. El primer intento solo comparaba la SALIDA contra la
     //    jornada anterior, y con eso el caso real NO saltaba: la salida del 17/09 era
@@ -6003,7 +6003,7 @@ function _defMesSelects(){var m=mesBtg();['nm-mes','asis-mes','meta-mes','np-mes
 // 12.000→15.000, etc. Siempre un número futuro.
 // ⛔ EL PRÓXIMO SERVICIO SE CUENTA DESDE EL ÚLTIMO CAMBIO DE ACEITE, NO DESDE EL ODÓMETRO.
 // Antes esto devolvía el siguiente múltiplo de 5.000 del km ACTUAL. Eso no mide el mantenimiento:
-// mide el odómetro. El 2026-08-04 el FC01 llevaba 4.365 km desde su cambio de aceite (le faltaban
+// mide el odómetro. El 2026-08-04 el una unidad llevaba 4.365 km desde su cambio de aceite (le faltaban
 // 635) y el tablero decía VERDE, «faltan 4.983». Y como el número se reinicia solo cada 5.000 km,
 // una unidad NUNCA aparecía vencida — el JAC-B012 de Betangar estaba 88 km pasado y nadie avisaba.
 //
@@ -8657,7 +8657,7 @@ async function imprimirToneladasMes(){
   // ⛔ LA CAPACIDAD SE PIDE CON SU PROCEDENCIA, no se da por sabida. `btg_capacidad_viaje()`
   //    contesta cuánto carga un viaje, desde cuándo rige y QUIÉN lo declaró, y eso va impreso:
   //    un socio que ve «41.280 toneladas» sin saber de dónde sale el 8 no tiene cómo discutirlo.
-  //    Es la misma lección que dejó la hoja del aforo de FC13 el 21/10: lo que se gana no es el
+  //    Es la misma lección que dejó la hoja del aforo de una unidad el 21/10: lo que se gana no es el
   //    número —ya estaba bien— es la PROCEDENCIA.
   var cap=null;
   try{ var rc=await _rpc('btg_capacidad_viaje'); if(rc&&!rc.error&&rc.data&&rc.data.length)cap=rc.data[0]; }catch(e){}
@@ -12700,7 +12700,7 @@ function _placaDe(cam){
     return (f&&f.placa)||(c&&c.placa)||'';
   }catch(e){return '';}
 }
-// Etiqueta visible de una unidad: "FC01 · ABC123" (id + placa) cuando hay placa.
+// Etiqueta visible de una unidad: "una unidad · ABC123" (id + placa) cuando hay placa.
 function _lblUnidad(cam){
   if(typeof camLabel==='function')return camLabel(cam);
   var p=_placaDe(cam); return p?(cam+' · '+p):String(cam||'');
@@ -14030,7 +14030,7 @@ async function imprimirCentroCostos(){
   var tot={mant:0,comb:0,combL:0,rep:0,km:0};
   // ⛔ EL $/km DEL TOTAL SOLO USA LAS UNIDADES QUE TIENEN KM. Sumar el costo de una
   //    unidad sin jornadas cerradas y dividirlo por los km de las OTRAS infla el
-  //    número de toda la flota: en la prueba, FC09 ($155,25 y 0 km) llevaba el total
+  //    número de toda la flota: en la prueba, una unidad ($155,25 y 0 km) llevaba el total
   //    de $1,151 a $1,373 sin haber recorrido nada. Se cuentan aparte y el papel
   //    dice cuántas quedaron afuera.  [[norma-una-asercion-mal-escrita-acusa-al-producto]]
   var costoConKm=0, sinKm=0;
@@ -14097,7 +14097,7 @@ async function borrarOdo(cam){
   // ⛔ BORRARLO NO ES LA FORMA DE CORREGIRLO, Y ADEMÁS APAGA EL CONTROL.
   //    El trigger `km_solo_sube` compara contra el valor guardado; con el guardado
   //    en CERO, cualquier número entra. Elicindo usó este botón tres veces seguidas
-  //    el 18/09 para poder bajar el odómetro de la FC04 — porque era el camino que
+  //    el 18/09 para poder bajar el odómetro de la una unidad — porque era el camino que
   //    la pantalla le dejaba. Para corregir alcanza con escribir el número correcto:
   //    el sistema ya acepta que la OFICINA lo baje.
   if(!confirm('⚠️ Para CORREGIR el odómetro de '+cam+' no hace falta borrarlo:\n\n'
@@ -15006,7 +15006,7 @@ async function descargarPlantillaMaestra(){
       headers:['Punto','Que hacer'],widths:[30,100],ejemplos:0,rows:[
       ['EN QUE ORDEN','Llene primero Unidades, despues Empleados y por ultimo Piezas: las piezas se cuelgan de una unidad que tiene que existir.'],
       ['Las filas grises','Son EJEMPLOS. Borrelas antes de mandar el archivo.'],
-      ['N° Unidad','Es el codigo con el que usted llama al vehiculo (B001, FC03...). Tiene que escribirse IGUAL en las hojas Unidades y Piezas.'],
+      ['N° Unidad','Es el codigo con el que usted llama al vehiculo (el mismo que usan en la calle). Tiene que escribirse IGUAL en las hojas Unidades y Piezas.'],
       ['Baterias','Cuantas lleva la unidad. Los camiones de 24 V llevan 2 (dos de 12 en serie). Vacio si no se sabe.'],
       ['Piezas · Serial','Es lo unico imprescindible de esa hoja. Sin serial la fila no se carga.'],
       ['Piezas · Posicion','Si la unidad lleva DOS baterias, use "Bateria 1" y "Bateria 2" (una fila cada una). Si lleva una sola, dejelo vacio.'],
@@ -15313,9 +15313,9 @@ function _setSelPreserve(id,html){var s=g(id);if(!s)return;var cur=s.value;s.inn
 //        repuestos con precios y frecuencias distintas (aceite 10 veces/315,50 ·
 //        combustible 9/218,31 · trampa 5/185,88 · aire 3/59,97 · cabina · antipolen).
 //        Con solo la categoría, los seis caen en un saco de 791,83 USD;
-//      · y al FC03 le cambiaron el filtro de combustible TRES veces entre el 06/06
+//      · y al una unidad le cambiaron el filtro de combustible TRES veces entre el 06/06
 //        y el 22/07 — la señal de agua o suciedad en el tanque. Eso se ve porque el
-//        repuesto está identificado; en una nota de texto libre, el FC03 diría
+//        repuesto está identificado; en una nota de texto libre, el una unidad diría
 //        «Filtros» cinco veces y no diría nada.
 //    Su molestia era real, pero no era del DATO: era de la PANTALLA. Se arregla acá.
 //
@@ -16156,7 +16156,7 @@ function tqCalcular(){
 //
 // 🔴 POR QUÉ HIZO FALTA ESCRIBIRLO (07/10/2026). Hasta hoy `tqGuardar()` hacía
 //    `altura_max_cm: alto` dentro de un UPSERT DE LA FILA ENTERA, así que un re-aforo por
-//    geometría PISABA el recorrido de la regla. El 05/10 el FC17 pasó de 48 a 27: el chofer
+//    geometría PISABA el recorrido de la regla. El 05/10 el una unidad pasó de 48 a 27: el chofer
 //    peleó dos días con la pantalla —«ustedes tienen un error gravísimo»—, el sistema le cantó
 //    150 L donde había 75, y la auditoría de esa unidad quedó 48 h sin un solo litro.
 // ⚠️ Y NO era un campo que faltara: en 11 de los 17 tanques de FLOTILLA ya estaba correctamente
@@ -16265,7 +16265,7 @@ async function abrirEditarUnidad(cam){
   }
   var html=
     '<div class="fr2">'+(nueva
-      ?'<div class="fg"><label>N° de unidad (identificador)</label><input class="fc" id="u-cam" placeholder="ej: B001 / JAC-B001"><small style="color:var(--text3);font-size:10px">Así identifica el sistema a la unidad en toda la flota</small></div>'
+      ?'<div class="fg"><label>N° de unidad (identificador)</label><input class="fc" id="u-cam" placeholder="el código de la unidad"><small style="color:var(--text3);font-size:10px">Así identifica el sistema a la unidad en toda la flota</small></div>'
       :'<div class="fg"><label>N° de unidad</label><input class="fc" id="u-cam" value="'+_mEsc(cam)+'" readonly style="opacity:.7"></div>')+
       inp('u-nombre','Nombre / alias',c.nombre,'opcional')+'</div>'+
     '<div class="fr3">'+inp('u-marca','Marca',c.marca)+inp('u-modelo','Modelo',c.modelo)+inp('u-anio','Año',c.anio)+'</div>'+
@@ -16899,7 +16899,7 @@ async function _perAplicar(){
   var cBs=Math.round(cUsd*tasaSel*100)/100;
 
   // ── EL PRECIO POR LITRO SE MIDE ANTES DE APLICARLO ──────────────────────────────
-  // 🔴 26/08/2026: en el FC16 se escribió 100 en la casilla del precio —era 1— y quedó una
+  // 🔴 26/08/2026: en el una unidad se escribió 100 en la casilla del precio —era 1— y quedó una
   //    surtida de 100 L por $10.000. El sistema la aceptó sin decir nada: los LITROS tenían
   //    tope desde el caso de los «25.115», el PRECIO no. Lo reportó Carlos Serrano. Un monto
   //    así entra derecho al costo del mes y al costo por kilómetro, que es el número
@@ -21367,7 +21367,7 @@ function medirLlanta(cam,idx){
   var ll=LLANTAS[cam]&&LLANTAS[cam][idx]; if(!ll)return;
   var v=prompt('Profundidad del dibujo (mm) de '+ll.posicion+(ll.marca?' ('+ll.marca+')':'')+':', (ll.mm!=null?ll.mm:''));
   if(v===null)return;
-  var mm=parseFloat(v); if(isNaN(mm)||mm<=0){alert('Esa medida no puede ser: una llanta en servicio no mide 0 mm. Escriba los milímetros que marca el medidor, y si no la pudo medir toque Cancelar.');return;} // ⛔ EL CERO SE ACEPTABA Y PISABA UNA MEDIDA BUENA. FC10 trasera der. interna: 20,28 mm el 03/09 y el mismo día un 0 la dejó en «Cambiar Urgente». Cuatro llantas (FC10 y las tres de la FL03) están así, y de paso ensucian la lista de urgentes, donde se pierden las que SÍ están gastadas.
+  var mm=parseFloat(v); if(isNaN(mm)||mm<=0){alert('Esa medida no puede ser: una llanta en servicio no mide 0 mm. Escriba los milímetros que marca el medidor, y si no la pudo medir toque Cancelar.');return;} // ⛔ EL CERO SE ACEPTABA Y PISABA UNA MEDIDA BUENA. una unidad trasera der. interna: 20,28 mm el 03/09 y el mismo día un 0 la dejó en «Cambiar Urgente». Cuatro llantas (una unidad y las tres de la una unidad) están así, y de paso ensucian la lista de urgentes, donde se pierden las que SÍ están gastadas.
   // ⛔ SIN EL ODÓMETRO NO HAY DESGASTE POR KILÓMETRO, por muchas mediciones que se junten.
   //    Lo preguntó Carlos Serrano (FLOTILLA) el 22/09: «el reporte de seguimiento al desgaste
   //    por kilometraje, ¿aparece automáticamente cuando existan varios registros?». No aparecía
@@ -21395,7 +21395,7 @@ function medirLlanta(cam,idx){
 }
 
 // ⛔ UNA FILA POR MEDICIÓN, aparte de la llanta. `llantas.mm` guarda SOLO la última y se pisa
-//    en cada inspección: el 03/09 la FC10 trasera der. interna se midió en 20,28 mm y el mismo
+//    en cada inspección: el 03/09 la una unidad trasera der. interna se midió en 20,28 mm y el mismo
 //    día un 0 la dejó en «Cambiar Urgente», sin rastro de la buena. Un dato que sirve para ver
 //    una TENDENCIA no puede vivir en una sola celda.
 //    La fila NO se puede editar ni borrar (authenticated solo tiene select e insert): una
@@ -26807,48 +26807,10 @@ function checkResumenChecklist(){
   // TODAS las unidades llenaran y, como los carros no operativos no llenan, nunca salía).
   // No-op en el cliente para no duplicar.
   return;
-  /* eslint-disable */
-  if(!DB_READY||!supabase)return;
-  var hoy=fechaVE();
-  // Solo enviar una vez por día
-  var keyRes='btg_cl_resumen_'+hoy;
-  if(localStorage.getItem(keyRes))return;
-  // Las 12 unidades activas
-  var camsActivos=['JAC-B001','JAC-B002','JAC-B003','JAC-B004','JAC-B005','JAC-B006',
-                   'JAC-B007','JAC-B008','JAC-B009','JAC-B010','JAC-B011','JAC-B012'];
-  // Columnas reales de la tabla checklist
-  supabase.from('checklist').select('cam,conductor,km_salida,hora_salida,estado_vehiculo,created_at')
-    .eq('fecha',hoy).not('hora_salida','is',null)
-    .then(function(res){
-      if(res.error||!res.data)return;
-      var data=res.data;
-      if(data.length<camsActivos.length)return;
-      var perfectas=data.filter(function(r){
-        var ev=(r.estado_vehiculo||'').toLowerCase();
-        return ev===''||ev==='operativo'||ev==='ok'||ev==='bueno';
-      });
-      var conFallas=data.filter(function(r){
-        var ev=(r.estado_vehiculo||'').toLowerCase();
-        return ev==='taller'||ev==='falla'||ev==='malo'||ev==='regular';
-      });
-      var msg=brandTag()+' - Resumen Checklist '+hoy+'\n'+
-        'Total unidades: '+data.length+'/'+camsActivos.length+'\n\n';
-      if(perfectas.length>0){
-        msg+='EN PERFECTO ESTADO ('+perfectas.length+'):\n';
-        perfectas.forEach(function(r){
-          msg+='  B'+r.cam.replace('JAC-B','')+ ' - '+(r.conductor||'--')+'\n';
-        });
-      }
-      if(conFallas.length>0){
-        msg+='\nCON OBSERVACIONES ('+conFallas.length+'):\n';
-        conFallas.forEach(function(r){
-          msg+='  B'+r.cam.replace('JAC-B','')+' - '+(r.conductor||'--')+' - '+(r.estado_vehiculo||'OBSERVACION').toUpperCase()+'\n';
-        });
-      }
-      msg+='\nHora: '+new Date().toLocaleTimeString('es-VE',{hour:'2-digit',minute:'2-digit'});
-      sendWA(msg,['socios','mecanico','operativo']);
-      localStorage.setItem(keyRes,'1');
-    });
+  // ⛔ ACÁ VIVÍA EL CUERPO VIEJO, Y SE BORRÓ EL 07/11/2026. Era código muerto —la función
+  //    sale por el `return;` de arriba desde que el resumen se movió al cron del servidor—
+  //    y arrastraba una LISTA FIJA de unidades que en este producto no existen. Un cuerpo
+  //    que no corre no se revisa, y así es como una lista ajena se queda años adentro.
 }
 // Verificar cada 15 minutos
 setInterval(checkResumenChecklist, 900000);
@@ -33410,7 +33372,7 @@ async function guardarMedicionTanque(){
   // Acá había un confirm() que ofrecía «¿Registrar de todos modos como tanque lleno?». Con
   // aceptar una vez, la medición entraba TOPADA contra la capacidad y quedaba guardada con
   // cara de dato real: de 72 mediciones de FLOTILLA, 33 quedaron clavadas en el máximo, y el
-  // FC01 reportó tanque lleno a la SALIDA y a la LLEGADA del mismo día — o sea consumo cero.
+  // una unidad reportó tanque lleno a la SALIDA y a la LLEGADA del mismo día — o sea consumo cero.
   // El lado del chofer se cerró el 17/08; faltaba éste, el de oficina.
   // ⚠️ MISMA gracia que allá (2 cm, medida contra 988 mediciones reales de Betangar): dos
   // criterios distintos para la misma cosa son otro error esperando turno.

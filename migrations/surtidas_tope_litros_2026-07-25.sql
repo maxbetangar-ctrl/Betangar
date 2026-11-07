@@ -1,7 +1,7 @@
 -- ════════════════════════════════════════════════════════════════════════════
 -- TOPE DE LITROS POR SURTIDA   2026-07-25
 --
--- CAUSA (pasó en FLOTILLA, unidad FC09 placa A13BW6V): el chofer escribió "25.115"
+-- CAUSA (pasó en FLOTILLA, unidad una unidad placa una placa): el chofer escribió "25.115"
 -- litros, el <input type="number"> se comió el punto y se guardaron 25.115 L
 -- valuados en $20.092,00 en un camión que carga ~250 L. La RPC solo validaba > 0.
 --

@@ -790,7 +790,7 @@ var supabase = null;
 var isOnline = false;
 var VIAJES_HOY = {};   // {1:{hora,sincronizado}, ...}
 // ⛔ UN SOLO VALOR RARO EN LA COLA DEL TELÉFONO DEJA AL CHOFER SIN PODER REGISTRAR, Y NO SE VE.
-// 🔴 Junior Guerrero, FC17, 08/10/2026: «Error al registrar: Cannot read properties of null
+// 🔴 Junior Guerrero, una unidad, 08/10/2026: «Error al registrar: Cannot read properties of null
 //    (reading 'id')». Registró 4 paradas de 6 y a las 09:41 se trancó; a las 10:21 mandó la
 //    foto del error y no volvió a entrar nada. El mecanismo: cuando el registro NO logra subir
 //    (sin señal, o el servidor lo rechaza) se llama `encolarEntrega`, que hace
@@ -819,7 +819,7 @@ var CL_ID_EXISTENTE = null; // id del registro si ya existe hoy
 var CL_KM_PREV = 0; // último odómetro conocido de la unidad (para detectar km irreales/typos)
 // ⛔ ¿LO SABEMOS? Sin esto, «la unidad viene de 0» y «no pudimos preguntar» son el mismo
 //    cero — y con cero los candados de km se apagan sin decir nada. Por ahí entraron los
-//    983.346 km de la FC04 el 17/09/2026.
+//    983.346 km de la una unidad el 17/09/2026.
 var CL_KM_PREV_OK = false;
 var KM_MAX_DIA = 1500; // en Venezuela es imposible rodar >1500 km en 1 día → si el salto es mayor, es typo
 
@@ -2615,7 +2615,7 @@ async function surGuardar(){
   }
   // ⛔ ACÁ NO VA NINGÚN CANDADO DE PRECIO, Y BORRARLO FUE URGENTE (29/08/2026).
   //
-  // El 26/08 se agregó uno por un caso real: en el FC16 se escribió 100 en la casilla
+  // El 26/08 se agregó uno por un caso real: en el una unidad se escribió 100 en la casilla
   // del precio —era 1— y quedó una surtida de 100 L por $10.000, que entra derecho al
   // costo por kilómetro. Lo reportó Carlos Serrano y el problema es de verdad.
   //
@@ -2654,7 +2654,7 @@ async function surGuardar(){
     var now=new Date(), p2=function(n){return String(n).padStart(2,'0');};
     var row={
       // ⛔ EL ID NO PUEDE SER EL RELOJ, Y ESTO ES PLATA.
-      // 🔴 Eduardo Gotopo, 09/09: surtio UNA vez el FC06 y le quedaron TRES cargas de 56,94 L
+      // 🔴 Eduardo Gotopo, 09/09: surtio UNA vez el una unidad y le quedaron TRES cargas de 56,94 L
       //    a las 12:27, 12:28 y 12:29. Le dio a Registrar, no le confirmo, y volvio a darle —
       //    que es lo que haria cualquiera. Con `Date.now()` cada toque generaba un id NUEVO,
       //    asi que la cola no los reconocia como el mismo y la clave primaria tampoco: iban a
@@ -3510,7 +3510,7 @@ function renderEstadoVehiculo(){
 //  marcado. Y se perdía DESPAREJO: el kilometraje sobrevivía porque vive en una
 //  casilla de texto que el navegador restaura, y el combustible no, porque era
 //  una variable en memoria. De ahí el «aparece el km pero el combustible no»
-//  que reportó Carlos Serrano con el FR03.
+//  que reportó Carlos Serrano con el una unidad.
 //
 //  QUÉ HACE. Guarda TODO el checklist en curso —ítems, kilometraje, horas,
 //  centímetros, combustible, observaciones y motivo— en el teléfono, en cada
@@ -3724,7 +3724,7 @@ function _kmInput(inp, hintId){
 // ⛔ UNA COMA DECIMAL NO ES UN DÍGITO MÁS: MULTIPLICA EL ODÓMETRO POR DIEZ.
 //    Esto hacía `replace(/\D/g,'')`, o sea borraba los puntos Y LAS COMAS. Si el tablero
 //    marca décimas y el chofer copia lo que ve —98.334,6— quedaba literalmente 983346.
-//    Es la explicación que mejor calza con los dos números de la FC04 del 17 y 18/09/2026
+//    Es la explicación que mejor calza con los dos números de la una unidad del 17 y 18/09/2026
 //    (983346 y 984046: los dos terminan en 6, los dos son un odómetro plausible seguido de
 //    una décima). Confirmado o no el caso, concatenar un decimal NUNCA es lo correcto.
 // ⚠️ Y el punto sigue siendo separador de MILES, que es como se escribe acá: «98.354» son
@@ -3842,9 +3842,9 @@ function clCapacidadL(){
 var CL_REGLA_MAX_CM = 260;     // = TQ_LIMITES.alto_cm.max de cubicacion.js
 // ⛔ «PASÓ EL TOPE» NO ES UNA SOLA COSA, Y TRATARLO COMO UNA SOLA ARRUINA EL AVISO.
 //   Medido el 07/10/2026 en FLOTILLA, la lectura más alta de cada unidad contra su tope:
-//   FC14 con 7.129 cm (tope 27) · FC01 con 600 (tope 67, y 600 L es su CAPACIDAD) ·
-//   FC16 con 525 (tope 83) · FL01 con 75 y FL02 con 76 (tope 48, capacidad 76,8 L).
-//   O sea: la gente teclea LITROS en el campo de CENTÍMETROS. Y al revés, el FC17 marcaba
+//   una unidad con 7.129 cm (tope 27) · una unidad con 600 (tope 67, y 600 L es su CAPACIDAD) ·
+//   una unidad con 525 (tope 83) · una unidad con 75 y una unidad con 76 (tope 48, capacidad 76,8 L).
+//   O sea: la gente teclea LITROS en el campo de CENTÍMETROS. Y al revés, el una unidad marcaba
 //   48 con el tope en 27 porque su regla DE VERDAD recorre 48. Son tres cosas distintas y
 //   cada una necesita otra pregunta — si entran por la misma puerta, el aviso a
 //   mantenimiento dice «la unidad está marcando 7.129 cm» y nadie le cree nunca más.
@@ -3890,7 +3890,7 @@ function clLitrosJac(cm){
 }
 // El rango que ve el chofer es el de SU tanque, o ninguno. El «(0-46)» venía clavado en el HTML:
 // era el resto de la tabla vieja de Betangar (600 L a 46 cm) que se sacó del motor el 25/07 y
-// quedó pegado en la etiqueta. A FC01 —que mide 53— le decía 0-46 mientras el error le contestaba
+// quedó pegado en la etiqueta. A una unidad —que mide 53— le decía 0-46 mientras el error le contestaba
 // «53 cm»: dos números distintos en la misma pantalla, y ninguno de su unidad. A los IVECO, que
 // no tienen tabla, les inventaba un rango prestado.
 function clPintarRangoCm(){
@@ -4107,7 +4107,7 @@ async function _guardarChecklist(){
       if(_fh){ try{ _fh.focus(); _fh.select(); _fh.scrollIntoView({block:'center'}); }catch(e){} }
       return;
     }
-    // ⛔ SIN REFERENCIA NO SE APRUEBA EN SILENCIO. Carlos Serrano, FC04, 17 y 18/09/2026:
+    // ⛔ SIN REFERENCIA NO SE APRUEBA EN SILENCIO. Carlos Serrano, una unidad, 17 y 18/09/2026:
     //    entraron 983.346 y 984.046 km sin UNA sola advertencia, y el día 18 quedó sin
     //    cerrar porque después ningún 98.523 podía ser mayor que ese número imposible.
     //    El motivo: sin `CL_KM_PREV` el tope cae a 1.000.000 y cualquier cosa debajo pasa.
@@ -4305,7 +4305,7 @@ async function _guardarChecklist(){
 //    a cada candado obliga a acordarse cada vez, y de eso ya sabemos cómo termina.
 //
 // 🔴 EL CASO QUE LO PIDIÓ: el 19/08 tres choferes quedaron sin cerrar la jornada
-//    y el bloqueo vivió una noche entera sin que nadie lo supiera. El FC05 estuvo
+//    y el bloqueo vivió una noche entera sin que nadie lo supiera. El una unidad estuvo
 //    trancado del 17 al 20/08 y se supo porque dos personas escribieron.
 // ══════════════════════════════════════════════════════════════════════════
 var _CL_QUEDO_GUARDADO=false;   // lo pone en true el punto donde quedó de verdad
@@ -4334,7 +4334,7 @@ function _clLoQueDiceLaPantalla(){
 }
 // El `alert()` sí se envuelve: ahí no hay sutileza —es una propiedad de window— y
 // su texto no queda en ninguna parte del DOM. Es el camino del candado «el
-// kilometraje no puede ir para atrás», justo el que trancó al FC05.
+// kilometraje no puede ir para atrás», justo el que trancó al una unidad.
 (function(){
   try{
     var _a=window.alert;

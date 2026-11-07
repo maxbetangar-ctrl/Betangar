@@ -57,8 +57,8 @@ returns jsonb language sql stable security definer set search_path to 'public' a
 $$;
 grant execute on function public.tanque_de_unidad(text) to anon, authenticated;
 
--- Verificado: tanque_de_unidad('FC09') devuelve el suyo; tanque_de_unidad('FC10') devuelve
--- NULL en vez de heredar el de FC09.
+-- Verificado: tanque_de_unidad('una unidad') devuelve el suyo; tanque_de_unidad('una unidad') devuelve
+-- NULL en vez de heredar el de una unidad.
 
 -- ════════════════════════════════════════════════════════════════════════════
 -- Y LA REGLA DE CUÁNDO SE COMPARTE UNA TABLA (misma fecha)

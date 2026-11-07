@@ -2,7 +2,7 @@
 // ═══════════════════════════════════════════════════════════════════════════════════════════
 // UN ODÓMETRO QUE SALTA HACIA ARRIBA TIENE QUE SALTAR EN LA AUDITORÍA (R10b).
 //
-// ⛔ EL CASO. FC04, 17/09/2026: entró con 983.346 km viniendo de 98.154 — un salto de
+// ⛔ EL CASO. una unidad, 17/09/2026: entró con 983.346 km viniendo de 98.154 — un salto de
 //    +885.192 km en un día. Estuvo QUINCE DÍAS en la base hasta que lo vio Operaciones a ojo.
 //    La auditoría tenía R10 (el odómetro que RETROCEDE) y R12 (día sin cerrar); hacia ARRIBA
 //    no miraba nada. Y el candado del teléfono estaba apagado ese mismo día, así que no quedó

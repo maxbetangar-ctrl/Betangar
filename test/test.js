@@ -1116,7 +1116,7 @@ function resetCola(){ app.COLA_OFFLINE=[]; app.COLA_FALLIDOS=[]; app._procesando
   eq('faltan $2 de mercancía (fuera del margen): sigue debiendo', pp.neto_pagar, 103.92);
 
   console.log('\nLa REGLA no es el ALTO del tanque (lo reportó Junior, 07/10/2026):');
-  // ⛔ EL CASO REAL. FC17: el tanque tiene 27 cm de profundidad (51 × 27 × 109 ≈ 150 L) y su
+  // ⛔ EL CASO REAL. una unidad: el tanque tiene 27 cm de profundidad (51 × 27 × 109 ≈ 150 L) y su
   //    regla llega a 48 cm. Los LITROS salen de la geometría; el ÍNDICE, de lo que lee la regla.
   //    Antes la tabla se armaba sobre el alto, así que todo lo que él marcaba por encima de 27
   //    —que era la medida buena— se quedaba sin litros, y lo de abajo se convertía con la
@@ -1147,7 +1147,7 @@ function resetCola(){ app.COLA_OFFLINE=[]; app.COLA_FALLIDOS=[]; app._procesando
     app.tablaCubicacion('cajon', caj, 80)[80], 200);
 
   console.log('\nUn aforo por geometría NO puede pisar el recorrido de la regla:');
-  // 🔴 LA REGRESIÓN, tal cual pasó el 05/10/2026: el FC17 tenía 48 y un re-aforo lo bajó a 27.
+  // 🔴 LA REGRESIÓN, tal cual pasó el 05/10/2026: el una unidad tenía 48 y un re-aforo lo bajó a 27.
   const prevMedida = { altura_max_cm: 48, regla_origen: 'tabla_del_cliente', alto_cm: 27, forma: 'redondeado' };
   eq('con la regla MEDIDA, re-aforar no la toca', app._tqRegla(prevMedida, 'redondeado', fc17).cm, 48);
   eq('y conserva de dónde salió', app._tqRegla(prevMedida, 'redondeado', fc17).origen, 'tabla_del_cliente');

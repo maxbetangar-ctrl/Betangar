@@ -3,10 +3,10 @@
 //
 // Por qué existe: «pasó el tope» metía TRES cosas distintas por la misma puerta, y cada una
 // necesita otra pregunta. Medido el 07/10/2026 en FLOTILLA, la lectura más alta de cada
-// unidad contra su propio tope: FC14 con 7.129 cm (tope 27) · FC01 con 600 (tope 67, y
-// 600 L es su capacidad) · FC16 con 525 (tope 83) · FL01 con 75 y FL02 con 76 (tope 48 y
+// unidad contra su propio tope: una unidad con 7.129 cm (tope 27) · una unidad con 600 (tope 67, y
+// 600 L es su capacidad) · una unidad con 525 (tope 83) · una unidad con 75 y una unidad con 76 (tope 48 y
 // capacidad 76,8 L). O sea: la gente teclea LITROS en el campo de CENTÍMETROS. Y al revés,
-// el FC17 marcaba 48 con el tope en 27 porque su regla DE VERDAD recorre 48.
+// el una unidad marcaba 48 con el tope en 27 porque su regla DE VERDAD recorre 48.
 //
 // ⚠️ Esto prueba la función PURA. No prueba la pantalla ni el guardado: eso lo mira
 //    `scripts/ver-aforo-en-navegador.mjs` del lado del aforo, y del lado del chofer sigue
@@ -66,7 +66,7 @@ function eq(q, a, b) {
 }
 
 const clase = (cm) => { const r = sandbox.clClaseDeLectura(cm); return r ? r.clase : null; };
-// El tanque de prueba: tope de regla 48 cm, capacidad 150 L — el FC17 tal como quedó.
+// El tanque de prueba: tope de regla 48 cm, capacidad 150 L — el una unidad tal como quedó.
 function montarTanque(tope, cap) {
   const tabla = {};
   for (let i = 1; i <= Math.floor(tope); i++) tabla[i] = Math.round((cap * i / tope) * 100) / 100;
@@ -81,7 +81,7 @@ eq('la capacidad se saca de la propia tabla', sandbox.clCapacidadL(), 150);
 eq('una lectura normal no es nada', clase(32), null);
 eq('el tope exacto tampoco', clase(48), null);
 eq('dentro de la gracia de 2 cm tampoco', clase(50), null);
-// Pasarse por poco = el tope puede estar CORTO. Es el caso del FC17 y el único que avisa.
+// Pasarse por poco = el tope puede estar CORTO. Es el caso del una unidad y el único que avisa.
 eq('pasarse por poco es «sobre el tope»', clase(55), 'sobre_el_tope');
 eq('y el FC17 con el tope viejo también lo era', (montarTanque(27, 150), clase(48)), 'sobre_el_tope');
 // Los litros tecleados en el campo de centímetros.
@@ -89,7 +89,7 @@ montarTanque(48, 150);
 eq('un número que es la capacidad en litros: «parece litros»', clase(150), 'parece_litros');
 eq('dentro del 5% de la capacidad, también', clase(146), 'parece_litros');
 eq('justo afuera del 5% ya no se acusa de litros', clase(130), 'sobre_el_tope');
-// El caso real de FL01/FL02: tope 48, capacidad 76,8 — la gente marcó 75 y 76.
+// El caso real de una unidad/una unidad: tope 48, capacidad 76,8 — la gente marcó 75 y 76.
 montarTanque(48, 76.8);
 eq('FL01: 75 con capacidad 76,8 es «parece litros»', clase(75), 'parece_litros');
 eq('FL02: 76 con capacidad 76,8 también', clase(76), 'parece_litros');

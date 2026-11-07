@@ -8,7 +8,7 @@
 //                                   marca más que eso
 //
 // 🔴 POR QUÉ EXISTE. El 05/10/2026 un re-aforo por geometría bajó el recorrido de la regla
-//    del FC17 de 48 a 27 cm, y la pantalla no dijo una palabra. Dos días de un chofer
+//    del una unidad de 48 a 27 cm, y la pantalla no dijo una palabra. Dos días de un chofer
 //    peleando —«ustedes tienen un error gravísimo»—, 150 L cantados donde había 75, y la
 //    auditoría de esa unidad 48 h sin un solo litro. Un default que no se declara no se
 //    puede discutir, así que ahora se declara EN LA PANTALLA; esto comprueba que se vea.
@@ -43,7 +43,7 @@ catch {
 const chromium = pw.chromium || (pw.default && pw.default.chromium);
 if (!chromium) { console.error('Playwright se importo pero no trae `chromium`.'); process.exit(1); }
 
-// Las medidas REALES del FC17: 51 x 27 x 109 cm = 150,09 L, y su regla recorre 48 cm.
+// Las medidas REALES del una unidad: 51 x 27 x 109 cm = 150,09 L, y su regla recorre 48 cm.
 const FC17 = { ancho_cm: 51, alto_cm: 27, largo_cm: 109, radio_cm: 1 };
 
 const b = await chromium.launch();
@@ -68,7 +68,7 @@ const preguntar = (prev, m) => page.evaluate(x => {
   return { texto, cm: r.cm, origen: r.origen, claves: Object.keys(t).length, tope: t[r.cm], en24: t[24], en32: t[32] };
 }, { prev, m: m });
 
-// ── ESTADO 1 · la regla la midió alguien (el FC17 de hoy) ────────────────────
+// ── ESTADO 1 · la regla la midió alguien (el una unidad de hoy) ────────────────────
 const medida = await preguntar(
   { altura_max_cm: 48, regla_origen: 'historial_del_chofer', alto_cm: 27, forma: 'redondeado' }, FC17);
 console.log('(1) La regla la midio alguien:');

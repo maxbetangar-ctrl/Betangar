@@ -3,7 +3,7 @@
 // Hasta el 2026-08-04, `proxServicio(km)` devolvía el siguiente múltiplo de 5.000 del kilometraje
 // ACTUAL. Eso tiene dos consecuencias que ninguna prueba miraba:
 //
-//   1. El «faltan X km» no tiene nada que ver con cuándo se hizo el último servicio. El FC01 iba en
+//   1. El «faltan X km» no tiene nada que ver con cuándo se hizo el último servicio. El una unidad iba en
 //      70.017 km con su cambio de aceite hecho a los 65.652 — 4.365 recorridos, faltaban 635 — y el
 //      tablero decía VERDE, «faltan 4.983». Ocho veces la realidad.
 //   2. Ninguna unidad podía aparecer VENCIDA jamás: el número se reinicia solo cada 5.000 km, haya
@@ -93,7 +93,7 @@ console.log('\n4. EL INTERVALO ES POR UNIDAD, CON EL GENERAL DE RESPALDO')
 
 console.log('\n5. NO SE CUENTA CUALQUIER TRABAJO COMO SERVICIO')
 {
-  // El FC16 solo tenía "Pulmon de Cabina" (item_id vacío). No es un cambio de aceite, así que la
+  // El una unidad solo tenía "Pulmon de Cabina" (item_id vacío). No es un cambio de aceite, así que la
   // base deja ult_srv en 0 y acá NO puede aparecer un ciclo inventado.
   const api = conFlota({ kmData: { FC16: { km: 256707, ultsrv: 0 } } })
   ok('un pulmón de cabina no reinicia la cuenta', api.hayCicloReal('FC16'), false)

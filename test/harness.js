@@ -15,7 +15,7 @@ const excelCode = fs.readFileSync(path.join(__dirname, '..', 'maxware-excel.js')
 // `cubicacion.js` lo carga app.html (linea 3086) y el harness NO lo cargaba: `tablaCubicacion` y
 // `volumenHasta` quedaban sin definir, asi que el motor del aforo —el que convierte la regla del
 // chofer en litros— no tenia UNA prueba. Es la misma leccion que la de maxware-excel de arriba, y
-// se pago el 07/10/2026 con el FC17: dos dias de un chofer peleando con la pantalla.
+// se pago el 07/10/2026 con el una unidad: dos dias de un chofer peleando con la pantalla.
 const cubicacionCode = fs.readFileSync(path.join(__dirname, '..', 'cubicacion.js'), 'utf8');
 // `retencion-comprobante.js` lo carga app.html (02/11/2026) y `app.js` lo usa para emitir
 // los comprobantes legales. Misma leccion que las dos de arriba: si la pagina suma un

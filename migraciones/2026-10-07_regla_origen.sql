@@ -6,14 +6,14 @@
 --    mediciones distintas, de dos personas distintas y con dos instrumentos distintos:
 --    el aforador tiene la cinta, el chofer tiene la regla. Las columnas YA existían y YA
 --    funcionaban —medido el 07/10: en 11 de los 17 tanques de FLOTILLA están
---    correctamente distintas (FC01 53/67 · FC03 y FC04 22/43,5 · FC06 33/36)— porque
+--    correctamente distintas (una unidad 53/67 · una unidad y una unidad 22/43,5 · una unidad 33/36)— porque
 --    cuando la tabla viene de la hoja de aforo del cliente, ya está indexada por la regla.
 --
 -- ⛔ LO QUE LAS ROMPÍA ERA UN SOLO CAMINO DE ESCRITURA: `tqGuardar()` hacía
 --    `altura_max_cm: alto` dentro de un **upsert de la fila entera**, así que un re-aforo
 --    por geometría PISABA un recorrido de regla que podía estar perfecto — y pisaba
 --    también `tabla_origen`, que era el único rastro de que había habido tabla del cliente.
---    🔴 Eso es exactamente lo que le pasó al FC17 el 05/10 21:05 VE: tenía 48 y quedó en
+--    🔴 Eso es exactamente lo que le pasó al una unidad el 05/10 21:05 VE: tenía 48 y quedó en
 --    27. Dos días de un chofer peleando con la pantalla, 150 L cantados donde había 75, y
 --    la auditoría de esa unidad sin un solo litro durante 48 h.
 --
@@ -26,7 +26,7 @@
 --    Valores, y qué significa cada uno:
 --      'medido_con_la_regla'    → alguien metió la regla en el tanque lleno y lo anotó
 --      'tabla_del_cliente'      → vino en la hoja de aforo del cliente, ya indexada por regla
---      'historial_del_chofer'   → se reconstruyó de lo que la regla venía marcando (FC17)
+--      'historial_del_chofer'   → se reconstruyó de lo que la regla venía marcando (una unidad)
 --      'supuesto_igual_al_alto' → NADIE lo midió: se asumió que la regla recorre el alto
 --
 -- ⚠️ El relleno NO adivina: se deduce de lo que ya está escrito en la fila
@@ -34,9 +34,9 @@
 --    único rastro que hay. Lo que quede en 'supuesto_igual_al_alto' es precisamente la
 --    lista de tanques donde nadie midió la regla — y es la lista que hay que ir a medir.
 --
--- ⛔ LO QUE NO ARREGLA: FC13 y FC14 (FORD CARGO, 27/27, 150 L) van a quedar en
+-- ⛔ LO QUE NO ARREGLA: una unidad y una unidad (FORD CARGO, 27/27, 150 L) van a quedar en
 --    'supuesto_igual_al_alto', que es la verdad — pero su recorrido real sigue sin medirse,
---    y las tres (con FC17) se aforaron el 06/10 con las MISMAS medidas 51 × 27 × 109.
+--    y las tres (con una unidad) se aforaron el 06/10 con las MISMAS medidas 51 × 27 × 109.
 --    Eso lo resuelve una persona con una regla, no una migración.
 -- ═══════════════════════════════════════════════════════════════════════════════
 

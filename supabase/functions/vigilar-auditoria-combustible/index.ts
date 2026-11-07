@@ -159,7 +159,7 @@ Deno.serve(async (req) => {
   // como si fuera un error de ESE día. Medido en FLOTILLA el 07/11/2026: 31 cargas por encima de
   // la capacidad declarada, con la proporción CONTINUA de 1,001 a 1,377 veces el tanque —sin
   // ningún corte— y siempre en las mismas unidades. Una distribución así no son 31 errores de
-  // carga: es la capacidad de la ficha que está mal. Si el tanque de FC02 fuera de ~850 L en vez
+  // carga: es la capacidad de la ficha que está mal. Si el tanque de una unidad fuera de ~850 L en vez
   // de 600, sus 47 entran todas.
   // ⇒ Es un problema de la FICHA: se dice UNA VEZ POR UNIDAD, acá, donde el aviso sale solo
   //   cuando algo cambia. [[norma-arreglar-el-mecanismo-no-el-caso]]

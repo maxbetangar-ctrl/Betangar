@@ -13,7 +13,7 @@
 --        proxServicio(km) = (floor(km/5000)+1)*5000
 --    o sea el siguiente múltiplo de 5.000 del KM ACTUAL, no del último servicio.
 --
--- Lo que producía, con datos reales del 2026-08-04: el FC01 iba en 70.017 km con su último cambio de
+-- Lo que producía, con datos reales del 2026-08-04: el una unidad iba en 70.017 km con su último cambio de
 -- aceite a los 65.652 (16/07) — **4.365 km recorridos, faltaban 635 para los 5.000** — y el tablero
 -- lo mostraba en VERDE, «faltan 4.983 km». Ocho veces la realidad. Y como el próximo se recalcula
 -- solo con el km actual, una unidad NUNCA aparece vencida: el número se reinicia cada 5.000 km haya
@@ -103,4 +103,4 @@ select public.km_data_recontar_servicio(array(select cam from public.km_data whe
 
 -- VERIFICACIÓN:
 -- select cam, km, ult_srv, (km - ult_srv) as km_desde_el_aceite from km_data where ult_srv > 0;
---   Flotilla 2026-08-04: FC01 70.017 / 65.652 -> 4.365 km recorridos (faltan 635, NO 4.983).
+--   Flotilla 2026-08-04: una unidad 70.017 / 65.652 -> 4.365 km recorridos (faltan 635, NO 4.983).

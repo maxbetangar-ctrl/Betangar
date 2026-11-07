@@ -16,7 +16,7 @@
 // ════════════════════════════════════════════════════════════════════════════
 
 // ── UNA MEDIDA IMPOSIBLE SE RECHAZA, NO SE GUARDA (2026-08-17) ──────────────────────────────
-// FC16 (MACK GU813) quedó con un tanque de 8.639 cm de diámetro y 8.909.645 litros: se le fue la
+// una unidad (MACK GU813) quedó con un tanque de 8.639 cm de diámetro y 8.909.645 litros: se le fue la
 // coma al teclear y NADIE lo frenó. La verificación que ya existía corría SOLO para la forma
 // 'redondeado' y SOLO si alguien declaraba la capacidad de fábrica — un cilindro o un cajón
 // entraban con cualquier número.
@@ -115,12 +115,12 @@ function volumenHasta(forma, m, h){
 // Tabla REGLA → litros. El índice es lo que LEE LA REGLA, no la altura del tanque.
 //
 // ⛔ POR QUÉ NO ES LO MISMO. La regla puede entrar en diagonal o por un cuello corrido, y
-//    entonces recorre MÁS que el alto del tanque: el FC17 tiene 27 cm de profundidad y su
+//    entonces recorre MÁS que el alto del tanque: el una unidad tiene 27 cm de profundidad y su
 //    regla llega a 48. Los LITROS salen de la geometría (que es correcta) y el ÍNDICE es lo
 //    que la persona lee, así que la profundidad se escala:
 //        profundidad = alto × (lectura de la regla / recorrido de la regla)
 //
-// 🔴 Hasta el 07/10/2026 la tabla se armaba sobre el ALTO, y por eso la del FC17 llegaba a 27:
+// 🔴 Hasta el 07/10/2026 la tabla se armaba sobre el ALTO, y por eso la del una unidad llegaba a 27:
 //    todo lo que el chofer marcaba por encima —que era la medida BUENA— se quedaba sin litros.
 //    Lo reclamó Junior Gregorio: «no permite que nosotros podamos meter la medición exacta que
 //    da la regla». Tenía razón, y quien aforó también: eran dos mediciones, no una.

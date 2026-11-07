@@ -484,7 +484,7 @@ Deno.serve(async (req) => {
   // ⛔ NO TODA UNIDAD MIDE EL TANQUE CON REGLA, Y ESTA PIEZA NO LO MIRABA.
   //    Medido el 04/09 en FLOTILLA: las FL y las FR tienen `mide_tanque=false`
   //    —solo las FC miden— y aun así se les reclamaba «no quedó registrada la
-  //    medición del tanque» todos los días que trabajaban. A Adolfo Pinto (FL02)
+  //    medición del tanque» todos los días que trabajaban. A Adolfo Pinto (una unidad)
   //    le llegó el 03 y el 04 seguido, por un dato que a su unidad NADIE le pide.
   //    Es lo peor que puede hacer un aviso: acusar de no trabajar a quien trabajó.
   //    Y un aviso que salta siempre deja de leerse, así que también se lleva
@@ -519,7 +519,7 @@ Deno.serve(async (req) => {
   // DESPUÉS de leer la salida. Cuando no es así, esa carga se cuenta DOS VECES: está en el nivel
   // de salida y además se suma.
   //
-  // Medido el 06/11/2026 en FLOTILLA: FC12 cargó 143,26 L a las 12:18 y midió la salida a las
+  // Medido el 06/11/2026 en FLOTILLA: una unidad cargó 143,26 L a las 12:18 y midió la salida a las
   // 12:22 —cuatro minutos después, tanque lleno—. Su consumo del día salía **156,7 L** cuando de
   // verdad fue **13,4 L**: once veces más. Y encima disparaba R15 diciendo que la carga no cabía.
   //
@@ -635,7 +635,7 @@ Deno.serve(async (req) => {
         //      disparaba en 110 (39 %) · demostrablemente imposibles: 31 · **81 sin poder
         //      probarlo (74 % de lo que decía)**
         // Y una de esas 81 salió el 06/11 en el resumen de FLOTILLA diciendo que lo más probable
-        // era una carga cargada dos veces: FC02 había cargado 737 L con 368 L de consumo en el
+        // era una carga cargada dos veces: una unidad había cargado 737 L con 368 L de consumo en el
         // día, y hacían falta 227. Entraba perfecto.
         //
         // ✅ LO ÚNICO QUE SE PUEDE AFIRMAR SIN SUPONER NADA: una carga SUELTA más grande que el
@@ -651,9 +651,9 @@ Deno.serve(async (req) => {
         // ⛔ Y TAMPOCO SE DICE TODOS LOS DÍAS, PORQUE NO ES UN HECHO DEL DÍA.
         //    Medido en FLOTILLA: 31 cargas superan la capacidad declarada, y la proporción va
         //    CONTINUA de 1,001 a 1,377 veces el tanque, sin ningún corte — y siempre en las mismas
-        //    unidades (FC01, FC02, FC09, FC10, FC11, FC16, las de tanque más grande). Una
+        //    unidades (una unidad, una unidad, una unidad, una unidad, una unidad, una unidad, las de tanque más grande). Una
         //    distribución así no son 31 errores de carga: es **la capacidad de la ficha que está
-        //    mal**. Si el tanque de FC02 fuera de ~850 L en vez de 600, las 47 suyas entran todas.
+        //    mal**. Si el tanque de una unidad fuera de ~850 L en vez de 600, las 47 suyas entran todas.
         //    ⇒ Es un problema de la FICHA, se dice UNA VEZ POR UNIDAD y lo reporta el vigilante
         //      (`vigilar-auditoria-combustible`), que habla solo cuando algo cambia. Repetirlo en
         //      el resumen diario sería el mismo aviso 47 veces, y eso enseña a ignorarlo.
@@ -702,7 +702,7 @@ Deno.serve(async (req) => {
     const kmEayer = km(ckPrevio.find((x: any) => String(x.cam) === u)?.km_entrada);
 
     // ⛔ EL PISO SALE DE LOS DATOS, NO DE UN NÚMERO REDONDO. Estaba en 1 km y reportaba al jefe
-    //    movimientos de patio: el 06/11 salió «FC04: son 10 km hechos sin planilla ni checklist»,
+    //    movimientos de patio: el 06/11 salió «una unidad: son 10 km hechos sin planilla ni checklist»,
     //    que es cierto y no sirve para nada. Medido en 901 huecos de turno a turno de FLOTILLA:
     //      2–10 km: 23 (patio, taller, acomodar la unidad) · 11–30 km: 8 · más de 30 km: 57
     //    Con piso de 10 km se van 23 de 88 avisos (el 26 %) y no se pierde ni uno de los reales.
