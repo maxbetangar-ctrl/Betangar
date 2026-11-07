@@ -22,7 +22,18 @@ function correr(marca, accentPrevio) {
   const document = { getElementById: () => null, querySelector: () => null,
                      createElement: () => ({}), head: { appendChild(){} },
                      documentElement: { style: { setProperty(){} } } }
-  const ctx = { BTG_CONFIG, MARCA_HIDRATADA, supabase, document,
+  // ⛔ `_rpc` FALTABA y esta prueba quedo roja desde el 05/11 sin que nadie lo viera. Ese dia
+  //    `hidratarMarcaDesdeBD` paso de llamar `supabase.rpc('marca_publica')` a llamar el
+  //    envoltorio `_rpc(...)`, que detecta la sesion vencida. En la caja `_rpc` no existia, la
+  //    llamada tiraba, el try/catch se la comia y la funcion devolvia false: el acento nunca se
+  //    aplicaba y el caso 1 daba `undefined`. **El producto estaba bien** — lo que no sabia del
+  //    cambio era la caja.
+  //    📌 Acá se simula SOLO el camino feliz del envoltorio, que es lo que esta prueba necesita:
+  //       lo que mide es el MAPEO DE COLORES, no la renovacion de sesion.
+  //    [[norma-dos-listas-a-mano-se-desincronizan]]
+  const _rpc = async (nombre, args) => supabase.rpc(nombre, args || {})
+  const ctx = { BTG_CONFIG, MARCA_HIDRATADA, supabase, document, _rpc,
+                DB_READY: true,
                 LOGO_SVG: null, aplicarMarcaAccent(){}, console }
   const f = new Function('ctx', `with(ctx){ ${cuerpo}; return hidratarMarcaDesdeBD() }`)
   return f(ctx).then(() => BTG_CONFIG)

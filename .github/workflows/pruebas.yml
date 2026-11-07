@@ -1,0 +1,33 @@
+name: pruebas
+# ⛔ LAS PRUEBAS SE DESCUBREN, NO SE LISTAN. Betangar tenia una lista a mano con 18 de 33 y las
+#    5 que se rompieron el 04-06/11 no estaban en ella: el CI quedo VERDE tres dias mientras el
+#    repo estaba rojo. Con el patron, una prueba nueva entra sola.
+#
+# Corre en cada push y, ademas, TODOS LOS DIAS a las 11:20 UTC (07:20 VE): una prueba puede
+# ponerse roja sin que nadie toque el repo —se cae un supuesto, cambia una dependencia— y el
+# push no es el unico momento en que eso importa.
+#
+# Si falla, GitHub le manda un correo al dueno del repo. No hace falta ningun secreto.
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  schedule:
+    - cron: '20 11 * * *'
+  workflow_dispatch:
+jobs:
+  pruebas:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Sintaxis
+        run: |
+          for f in app.js chofer-sw.js cubicacion.js permisos.js money.js; do
+            [ -f "$f" ] && node --check "$f" || true
+          done
+      - name: Pruebas (descubiertas, no listadas)
+        run: node --test "test/**/*.test.js" "pruebas/**/*.test.mjs"
