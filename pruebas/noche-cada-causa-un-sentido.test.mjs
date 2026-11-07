@@ -127,6 +127,27 @@ ok('10. hay tope de días y está declarado como constante', /var AC_NOCHE_DIAS_
 // Antes decía SIEMPRE «el odómetro confirma que no se movió» y «no hay ninguna carga registrada».
 // Con la regla nueva las dos frases pueden ser falsas, y un aviso que afirma algo falso se
 // desarma la primera vez que alguien lo comprueba.
+// ── ⛔ QUÉ INVALIDA UN TRAMO: LA LECTURA, NO LA ARITMÉTICA DEL DÍA ───────────────────────────
+// La noche usa UNA lectura de cada jornada. `conf` mezclaba «las lecturas sirven» con «la cuenta
+// del día cierra» (`rend_imposible`, `incompleta`), y por eso callaba 162 tramos sanos. Y la edge
+// nunca miró `conf`: las gemelas venían diciendo cosas distintas.
+ok('11a. el tramo se invalida por la LECTURA, no por `conf`',
+   /if\(ant\.noConf\|\|hoy\.noConf\)continue;/.test(plano) &&
+   /if\(ant\.corregida\|\|hoy\.corregida\)continue;/.test(plano) &&
+   /if\(ant\.llegadaMala\|\|hoy\.salidaMala\)continue;/.test(plano),
+   'volvió a gatear por `conf`, que mezcla dos cosas distintas')
+ok('11b. ya NO exige conf===completa para el tramo',
+   !/if\(ant\.conf!=='completa'\|\|hoy\.conf!=='completa'\)continue;/.test(plano),
+   'sigue el gate viejo: 162 tramos sanos quedan mudos')
+// ⛔ PERO el FALTANTE pide más: `rend_imposible` sospecha de una lectura INFLADA, y una llegada
+//    inflada AGRANDA la caída ⇒ faltante falso. En el sobrante la achica ⇒ no puede inventar.
+ok('11c. el FALTANTE no habla si se sospecha de la lectura',
+   /_veredicto==='falta'&&!_sospechaLectura/.test(plano),
+   'el faltante puede dispararse sobre una lectura que el propio módulo marcó como sospechosa')
+ok('11d. el SOBRANTE sí habla igual (una lectura inflada lo achica, no lo inventa)',
+   /else if\(_veredicto==='sobra'\)/.test(plano) && !/_veredicto==='sobra'&&!_sospechaLectura/.test(plano),
+   'el sobrante quedó bloqueado por la misma sospecha que no lo puede afectar')
+
 ok('11. el aviso dice los km SOLO si rodó', /kmFantasma>0 \? \('rodó '/.test(plano) || /kmFantasma>0\?\('rodó '/.test(plano),
    'el texto no se arma con los hechos del tramo')
 ok('12. el aviso dice la carga SOLO si hubo', /cargaCerca>0 \? \('hubo '/.test(plano) || /cargaCerca>0\?\('hubo '/.test(plano),

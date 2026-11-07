@@ -91,16 +91,23 @@ Deno.serve(async (req) => {
   const fecha = url.searchParams.get('fecha') || (soloNoche ? hoyVE
                 : new Date(new Date(hoyVE + 'T12:00:00Z').getTime() - 86400000).toISOString().slice(0, 10));
   const previo = new Date(new Date(fecha + 'T12:00:00Z').getTime() - 86400000).toISOString().slice(0, 10);
+  // ⛔ EL TRAMO DE PATIO PUEDE TENER UN FIN DE SEMANA ADENTRO. Hasta el 07/11/2026 esta funcion
+  //    cargaba SOLO `previo..fecha` (dos dias), asi que un camion que llegaba el viernes y salia
+  //    el lunes no se auditaba NUNCA: no habia llegada en `previo`. La pantalla si lo miraba, y
+  //    por eso las gemelas se separaban — lo encontro `pruebas/gemelas-dicen-lo-mismo.mjs`.
+  //    4 dias cubre el fin de semana largo. GEMELO de `AC_NOCHE_DIAS_MAX` en `app.js`.
+  const NOCHE_DIAS_MAX = 4;
+  const desdeVent = new Date(new Date(fecha + 'T12:00:00Z').getTime() - NOCHE_DIAS_MAX * 86400000).toISOString().slice(0, 10);
 
   const [cfgT, med, gas, ck, emps, waCfg, logs, sur, cfgCorte, cfgAvisar, cfgDuda, somb, uCfg, cfgManana, cfgRolCargos, cfgRendRef] = await Promise.all([
     sb.from('combustible_tanques_config').select('*'),
-    sb.from('combustible_mediciones').select('*').gte('fecha', previo).lte('fecha', fecha),
-    sb.from('gasoil').select('*').gte('f', previo).lte('f', fecha),
-    sb.from('checklist').select('fecha,cam,conductor,km_salida,km_entrada').gte('fecha', previo).lte('fecha', fecha),
+    sb.from('combustible_mediciones').select('*').gte('fecha', desdeVent).lte('fecha', fecha),
+    sb.from('gasoil').select('*').gte('f', desdeVent).lte('f', fecha),
+    sb.from('checklist').select('fecha,cam,conductor,km_salida,km_entrada').gte('fecha', desdeVent).lte('fecha', fecha),
     sb.from('empleados').select('nombre,whatsapp,tel,activo,cargo'),
     sb.from('configuracion').select('valor').eq('clave', 'whatsapp').maybeSingle(),
     sb.from('alertas_log').select('alert_key').like('alert_key', 'comb_%'),
-    sb.from('surtidas').select('*').gte('fecha', previo).lte('fecha', fecha),
+    sb.from('surtidas').select('*').gte('fecha', desdeVent).lte('fecha', fecha),
     sb.from('configuracion').select('valor').eq('clave', 'surtidas_corte').maybeSingle(),
     sb.from('configuracion').select('valor').eq('clave', 'aud_comb_avisar').maybeSingle(),
     sb.from('configuracion').select('valor').eq('clave', 'aforo_en_duda').maybeSingle(),
@@ -619,6 +626,36 @@ Deno.serve(async (req) => {
     return Math.round(suma * 100) / 100;
   };
 
+  // ⛔ ¿EL DÍA DE ESA UNIDAD CONSUMIÓ ALGO FÍSICAMENTE IMPOSIBLE?
+  //    GEMELA de `j.rendImposible` en `app.js`. Hace falta acá por un motivo concreto: el
+  //    FALTANTE de la noche no puede hablar cuando el propio módulo ya sospecha que una lectura
+  //    está INFLADA. Un día que "consumió implausiblemente poco" apunta a una llegada inflada, y
+  //    una llegada inflada AGRANDA la caída de esa noche ⇒ faltante falso.
+  //    ⚠️ El SOBRANTE no lo necesita: una llegada inflada ACHICA la subida, así que ahí no puede
+  //      inventar nada. Por eso esto gatea una sola dirección.
+  //    📌 Sin referencia de rendimiento devuelve false: no se sospecha de lo que no se puede
+  //      medir, y la regla queda como estaba. [[norma-falta-de-dato-no-es-un-dato]]
+  const rendImposibleDe = (u: string, f: string): boolean => {
+    const ref = refModelo(u);
+    if (ref == null || ref <= 0) return false;
+    const ms = medUnica.filter((m: any) => String(m.vehiculo_id) === u && String(m.fecha).slice(0, 10) === f);
+    const sa = ms.find((m: any) => String(m.momento) === 'salida');
+    const ll = ms.find((m: any) => String(m.momento) === 'llegada');
+    if (!sa || !ll || !alturaOk(tqDe(sa), sa.altura_cm) || !alturaOk(tqDe(ll), ll.altura_cm)) return false;
+    const s2 = cubicar(tqDe(sa), sa.altura_cm), l2 = cubicar(tqDe(ll), ll.altura_cm);
+    if (s2 == null || l2 == null) return false;
+    const c = (ck.data || []).find((x: any) => String(x.cam) === u && String(x.fecha).slice(0, 10) === f);
+    const kmS2 = km(c?.km_salida), kmE2 = km(c?.km_entrada);
+    if (kmS2 == null || kmE2 == null || (kmE2 - kmS2) < 30) return false;
+    const kmD = kmE2 - kmS2;
+    const desp = entradas(u, f, f, true);
+    const consumo = Math.round((s2 + desp - l2) * 100) / 100;
+    if (consumo <= 0) return false;
+    const espera = kmD / ref;
+    return (kmD / consumo) > ref * 2 && (espera - consumo) > tol(tqDe(sa), sa.altura_cm, ll.altura_cm, desp);
+  };
+
+
   for (const u of unidades.concat(ckDia.map((c: any) => String(c.cam)).filter((x) => !unidades.includes(x)))) {
     const ms = delDia.filter((m: any) => String(m.vehiculo_id) === u);
     const sal = ms.find((m: any) => String(m.momento) === 'salida');
@@ -755,8 +792,17 @@ Deno.serve(async (req) => {
     // Para poder hablar de FALTANTE tienen que ser verdad TODAS: días consecutivos · el odómetro
     // dice que no rodó · las dos lecturas válidas y sin corrección encima · sin despacho · fuera
     // de 2·TOL. Si el odómetro avanzó, no se habla de merma: se avisa que rodó sin registrarse.
-    const lleAyer = medUnica.find((m: any) => String(m.vehiculo_id) === u && String(m.fecha).slice(0, 10) === previo && String(m.momento) === 'llegada');
-    const kmEayer = km(ckPrevio.find((x: any) => String(x.cam) === u)?.km_entrada);
+    // La ULTIMA llegada anterior dentro de la ventana. Con dias consecutivos da lo mismo que
+    // antes; con un fin de semana de por medio es la unica forma de ver el tramo.
+    const lleAyer = medUnica
+      .filter((m: any) => String(m.vehiculo_id) === u && String(m.momento) === 'llegada'
+                       && String(m.fecha).slice(0, 10) < fecha && String(m.fecha).slice(0, 10) >= desdeVent)
+      .sort((x: any, y: any) => String(x.fecha).localeCompare(String(y.fecha)))
+      .pop();
+    // ⚠️ El km y las cargas se leen del DIA DE ESA LLEGADA, no de `previo`: con un hueco de
+    //    varios dias, mirar `previo` seria mirar un dia en el que no paso nada.
+    const previoN = lleAyer ? String(lleAyer.fecha).slice(0, 10) : previo;
+    const kmEayer = km((ck.data || []).find((x: any) => String(x.cam) === u && String(x.fecha).slice(0, 10) === previoN)?.km_entrada);
 
     // ⛔ EL PISO SALE DE LOS DATOS, NO DE UN NÚMERO REDONDO. Estaba en 1 km y reportaba al jefe
     //    movimientos de patio: el 06/11 salió «una unidad: son 10 km hechos sin planilla ni checklist»,
@@ -771,10 +817,10 @@ Deno.serve(async (req) => {
     const KM_DIA_IMPOSIBLE = 1000;
     if (kmEayer != null && kmS != null && (kmS - kmEayer) > KM_DIA_IMPOSIBLE) {
       errores.push({ u, chofer, tipo: 'km',
-        txt: `el odómetro pasó de ${fmt(kmEayer)} km el ${fmtFecha(previo)} a ${fmt(kmS)} km el ${fmtFecha(fecha)}: son ${fmt(kmS - kmEayer)} km, que no los hizo. Es un dígito de más al anotar — hay que corregir la lectura o los km de esa unidad quedan mal para siempre` });
+        txt: `el odómetro pasó de ${fmt(kmEayer)} km el ${fmtFecha(previoN)} a ${fmt(kmS)} km el ${fmtFecha(fecha)}: son ${fmt(kmS - kmEayer)} km, que no los hizo. Es un dígito de más al anotar — hay que corregir la lectura o los km de esa unidad quedan mal para siempre` });
     } else if (kmEayer != null && kmS != null && (kmS - kmEayer) > KM_FANTASMA_MIN) {
       hallazgos.push({ u, tipo: 'R11',
-        txt: `marcaba ${fmt(kmEayer)} km al llegar el ${fmtFecha(previo)} y ${fmt(kmS)} km al salir el ${fmtFecha(fecha)}: son ${fmt(kmS - kmEayer)} km hechos sin planilla ni checklist` });
+        txt: `marcaba ${fmt(kmEayer)} km al llegar el ${fmtFecha(previoN)} y ${fmt(kmS)} km al salir el ${fmtFecha(fecha)}: son ${fmt(kmS - kmEayer)} km hechos sin planilla ni checklist` });
     }
 
     // ⛔ R11 YA NO ES EXCLUYENTE CON R1 (07/11/2026). Estaba encadenado con `else if`, así que
@@ -785,9 +831,11 @@ Deno.serve(async (req) => {
     // ⚠️ Lo que SÍ sigue frenando todo es un salto IMPOSIBLE de odómetro: ese km es un dedazo, y
     //    un `volKm` calculado sobre basura descontaría litros que nadie recorrió.
     const _saltoImposible = (kmEayer != null && kmS != null && (kmS - kmEayer) > KM_DIA_IMPOSIBLE);
-    if (!_saltoImposible && sal && lleAyer && diaSiguiente(previo, fecha) && kmEayer != null && kmS != null
+    const _diasHueco = lleAyer
+      ? Math.round((new Date(fecha + 'T12:00:00Z').getTime() - new Date(previoN + 'T12:00:00Z').getTime()) / 86400000) : 0;
+    if (!_saltoImposible && sal && lleAyer && _diasHueco >= 1 && _diasHueco <= NOCHE_DIAS_MAX && kmEayer != null && kmS != null
                && alturaOk(tqDe(sal), sal.altura_cm) && alturaOk(tqDe(lleAyer), lleAyer.altura_cm)
-               && !corregidas.has([u, fecha, 'salida'].join('|')) && !corregidas.has([u, previo, 'llegada'].join('|'))) {
+               && !corregidas.has([u, fecha, 'salida'].join('|')) && !corregidas.has([u, previoN, 'llegada'].join('|'))) {
       const a = cubicar(tqDe(sal), sal.altura_cm), b = cubicar(tqDe(lleAyer), lleAyer.altura_cm);
       // ── LA CARGA DE «ESA NOCHE» NO SE PUEDE SABER, Y HABÍA QUE DEJAR DE FINGIR QUE SÍ ──────
       // Una surtida declara una FECHA, no una hora. Antes esto restaba la carga ubicándola con
@@ -799,7 +847,9 @@ Deno.serve(async (req) => {
       // con los datos que existen, y acusar con datos que no distinguen es lo que trajo los tres
       // faltantes falsos. Se recupera capturando la hora REAL de la surtida.
       // GEMELA del bloque R1 de `app.js` — si se toca una, se toca la otra.
-      const cargaCerca = Math.round((entradas(u, previo, previo, true) + entradas(u, fecha, fecha, true)) * 100) / 100;
+      // La ventana de cargas cubre TODO el tramo: con un fin de semana de por medio, una carga
+      // del sabado quedaba afuera de la cuenta y el sobrante del lunes salia sin explicacion.
+      const cargaCerca = Math.round(entradas(u, previoN, fecha, true) * 100) / 100;
       if (a != null && b != null) {
         const d = Math.round((a - b) * 100) / 100;
         const t1 = tol(tqDe(sal), lleAyer.altura_cm, sal.altura_cm, cargaCerca);
@@ -834,13 +884,16 @@ Deno.serve(async (req) => {
             : 'sin ninguna carga registrada en esos dos dias',
         ].join(' y ');
         // Sin nombre de chofer: de noche el custodio es el PATIO, no la persona que manejo.
-        if (-d > umbralFalta) graves.push({ u, litros: d, tol: t1, txt: `quedo el ${fmtFecha(previo)} con ${fmt(b)} L y amanecio con ${fmt(a)} L: faltan ${fmt(Math.abs(d))} L, ${_porque} (lo que puede explicar todo eso junto mas el error de la regla son ${fmt(umbralFalta)} L)` });
+        // ⛔ El FALTANTE no habla si el modulo ya sospecha de una lectura inflada (ver
+        //    `rendImposibleDe`). GEMELA de `_sospechaLectura` en `app.js`.
+        const _sospechaLectura = rendImposibleDe(u, previoN) || rendImposibleDe(u, fecha);
+        if (-d > umbralFalta && !_sospechaLectura) graves.push({ u, litros: d, tol: t1, txt: `quedo el ${fmtFecha(previoN)} con ${fmt(b)} L y amanecio con ${fmt(a)} L: faltan ${fmt(Math.abs(d))} L, ${_porque} (lo que puede explicar todo eso junto mas el error de la regla son ${fmt(umbralFalta)} L)` });
         // AMANECIÓ CON MÁS. Va aparte de la subida del MISMO día (R13) porque es otra pregunta:
         // ahí el camión andaba y alguien lo cargó en ruta; acá estuvo parado toda la noche. Lleva
         // la noche, los dos litrajes y la tolerancia porque R14 PREGUNTA, y una pregunta sin el
         // dato concreto no se puede contestar. 23 noches así quedaron sin respuesta cuando esto
         // salía nada más como un total sumado (medido 06/11/2026: 3.339 L).
-        else if (d > umbralSobra) entraron.push({ u, litros: d, noche: previo, manana: fecha, tol: umbralSobra, antes: b, ahora: a });
+        else if (d > umbralSobra) entraron.push({ u, litros: d, noche: previoN, manana: fecha, tol: umbralSobra, antes: b, ahora: a });
       }
     }
 

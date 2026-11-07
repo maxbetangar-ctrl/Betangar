@@ -3093,7 +3093,24 @@ function _acAnomalias(todas,desde,hasta,ref){
       var _diasHueco=Math.round((new Date(hoy.fecha+'T12:00:00')-new Date(fLle+'T12:00:00'))/86400000);
       if(!(_diasHueco>=1&&_diasHueco<=AC_NOCHE_DIAS_MAX))continue;   // (a) hueco fuera de rango
       if(kmFantasma==null)continue;                       // sin odómetro no se opina de merma
-      if(ant.conf!=='completa'||hoy.conf!=='completa')continue;  // (c)
+      // ⛔ LA NOCHE USA **UNA LECTURA DE CADA JORNADA**, NO LA ARITMÉTICA DEL DÍA.
+      //    Antes acá decía `if(ant.conf!=='completa'||hoy.conf!=='completa')continue`, y `conf`
+      //    mezcla dos cosas distintas: si las LECTURAS sirven (que es lo que importa) y si la
+      //    CUENTA DEL DÍA cierra (`rend_imposible`, `carga_imposible`, `incompleta`), que no.
+      //    📌 Medido: 162 tramos se callaban por `conf` teniendo las dos lecturas sanas.
+      //    ⚠️ La edge function nunca miró `conf` — miraba la validez de las lecturas. O sea que
+      //      las gemelas venían diciendo cosas distintas, y lo encontró `gemelas-dicen-lo-mismo`.
+      if(ant.noConf||hoy.noConf)continue;              // alguien marcó el dato como falso
+      if(ant.corregida||hoy.corregida)continue;        // una lectura con corrección encima
+      if(ant.llegadaMala||hoy.salidaMala)continue;     // altura fuera del rango físico
+      // ⛔ PERO EL FALTANTE PIDE MÁS, Y ES LA MISMA ASIMETRÍA DE SIEMPRE.
+      //    Un día marcado `rend_imposible` consumió implausiblemente POCO ⇒ la sospecha concreta
+      //    es que una lectura está **INFLADA**. Y una llegada inflada **AGRANDA la caída** de esa
+      //    noche ⇒ faltante falso. En cambio **ACHICA la subida** ⇒ en el sobrante no puede
+      //    inventar nada, y ahí la noche CONFIRMA lo que el día ya insinuaba: entró combustible.
+      //    📌 Medido con este criterio: **0 faltantes nuevos** y **7 sobrantes** que hoy nadie
+      //      mira, todos con carga CERO y de 107 a 322 L.
+      var _sospechaLectura=!!(ant.rendImposible||hoy.rendImposible);
 
       // ── (d) LA CARGA DE «ESA NOCHE» NO SE PUEDE SABER, Y HABÍA QUE DEJAR DE FINGIR QUE SÍ ──
       // Una surtida declara una FECHA, no una hora: `hora` la escribe la PWA con el reloj del
@@ -3176,7 +3193,7 @@ function _acAnomalias(todas,desde,hasta,ref){
       var umbralSobra=Math.round((2*tolN+cargaCerca)*100)/100;
       var _veredicto=_acVeredictoNoche(delta,tolN,volKm,cargaCerca);
 
-      if(_veredicto==='falta'){
+      if(_veredicto==='falta'&&!_sospechaLectura){
         // ⛔ EL TEXTO SE ARMA CON LOS HECHOS DEL TRAMO. Antes afirmaba siempre «el odómetro
         //    confirma que no se movió» y «no hay ninguna carga registrada»: con la regla nueva
         //    las dos frases pueden ser FALSAS, y un aviso que afirma algo falso se desarma solo
