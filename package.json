@@ -1,9 +1,9 @@
 {
   "name": "betangar-erp",
   "private": true,
-  "description": "ERP Betangar — app estática (app.html + app.js) servida por GitHub Pages. Este package.json es solo para QA/tests locales; GitHub Pages lo ignora.",
+  "description": "ERP Betangar \u2014 app est\u00e1tica (app.html + app.js) servida por GitHub Pages. Este package.json es solo para QA/tests locales; GitHub Pages lo ignora.",
   "scripts": {
     "check": "node --check money.js && node --check app.js",
-    "test": "node --test \"test/**/*.test.js\" \"pruebas/**/*.test.mjs\""
+    "test": "node pruebas/correr-todas.mjs"
   }
 }

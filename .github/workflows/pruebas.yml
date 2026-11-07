@@ -30,4 +30,4 @@ jobs:
             [ -f "$f" ] && node --check "$f" || true
           done
       - name: Pruebas (descubiertas, no listadas)
-        run: node --test "test/**/*.test.js" "pruebas/**/*.test.mjs"
+        run: node pruebas/correr-todas.mjs
