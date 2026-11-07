@@ -2738,6 +2738,11 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
       ⛔ <b>«Sin ubicación» no es «correcta»</b>: es una carga que no se puede verificar.
     </div>
     <div id="sfe-resumen"></div>
+    <!-- ⛔ EL MAPA VA ANTES DE LA TABLA. Una lista de coordenadas no se puede juzgar: «a 5.643 m
+         de Las Banderas» no dice si eso es otra estación, el patio o un error del GPS. Con las
+         geocercas dibujadas y los puntos encima, se ve de un vistazo. Así se descubrió el 08/11
+         que 4 cargas caían todas juntas en una estación que faltaba cargar. -->
+    <div id="sfe-mapa" style="height:300px;border-radius:10px;margin-bottom:10px;display:none"></div>
     <div id="sfe-tabla"></div>
   </div>
   <!-- CARPETA DEL AUDITOR — no toca la bitácora de acciones de abajo, que es otra cosa.
@@ -3235,7 +3240,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
      Excel sale con el defecto ya corregido. Pasó midiendo este mismo cambio el
      23/09: dos corridas dieron un .xlsx idéntico byte por byte. -->
 <script src="maxware-excel.js?v=20261106-excel"></script>
-<script src="app.js?v=20261108-0015"></script>
+<script src="app.js?v=20261107-1842"></script>
 
 <!-- Modal global -->
 <div id="modal" class="moverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9990;align-items:center;justify-content:center;padding:16px">

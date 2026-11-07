@@ -24596,6 +24596,55 @@ async function renderGpsVsPlanilla(){
 // geocercas, TODA surtida da «FUERA» y esta pantalla acusaría a la flota entera por no
 // haber podido leer una tabla. Un cálculo que da el peor resultado posible cuando le
 // falta un dato tiene que negarse a correr, no entregarlo.
+// ═══ EL MAPA DE DÓNDE SE CARGÓ ═════════════════════════════════════════════════════════════
+// ⛔ POR QUÉ HACE FALTA. La tabla dice «a 5.643 m de Las Banderas» y con eso NO se puede decidir
+//    nada: no se sabe si ese punto es otra estación, el patio, o un GPS que saltó. Dibujando las
+//    geocercas y los puntos encima se ve de un vistazo.
+//    📌 Así se encontró el 08/11/2026 que CUATRO cargas del 02/11 caían todas juntas, a 4-43 m
+//      una de otra, en una estación real que faltaba cargar (E/S SERVICIOS MARACAIBO). Leídas
+//      como filas de una tabla parecían cuatro anomalías sueltas.
+// ⚠️ Las geocercas se guardan como [[lat,lng],…], que es exactamente lo que Leaflet espera: no
+//    hay que darlas vuelta. Invertirlas pondría las estaciones en otro continente y la pantalla
+//    acusaría a la flota entera.
+var _sfeMapObj=null, _sfeCapas=[];
+async function _sfeRenderMapa(filas){
+  var cont=g('sfe-mapa'); if(!cont||typeof L==='undefined')return;
+  var conGps=(filas||[]).filter(function(x){ return x.lat&&x.lng; });
+  // Sin un solo punto el mapa queda gris y se lee como «se rompió». Mejor no mostrarlo.
+  if(!conGps.length){ cont.style.display='none'; return; }
+  cont.style.display='block';
+  if(!_sfeMapObj){
+    // scrollWheelZoom:false → la rueda scrollea la PÁGINA; el mapa no atrapa el scroll.
+    _sfeMapObj=L.map(cont,{scrollWheelZoom:false}).setView([10.6,-71.64],11);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap'}).addTo(_sfeMapObj);
+  }
+  setTimeout(function(){ try{ _sfeMapObj.invalidateSize(); }catch(e){} },60);
+  _sfeCapas.forEach(function(c){ try{ _sfeMapObj.removeLayer(c); }catch(e){} }); _sfeCapas=[];
+  var pts=[];
+  // Las geocercas PRIMERO, para que los puntos queden encima y se puedan tocar.
+  try{
+    var est=await supabase.from('sitios_asistencia').select('nombre,poligono').eq('tipo','estacion').eq('activo',true);
+    ((est&&est.data)||[]).forEach(function(e){
+      if(!e.poligono||!e.poligono.length)return;
+      var poly=L.polygon(e.poligono,{color:'#22c55e',weight:2,fillOpacity:.12}).addTo(_sfeMapObj);
+      poly.bindPopup('<b>'+_mEsc(e.nombre||'')+'</b><br>geocerca de estación');
+      _sfeCapas.push(poly);
+      e.poligono.forEach(function(p){ pts.push(p); });
+    });
+  }catch(err){ console.log('sfe geocercas: '+(err&&err.message)); }
+  var COL={'en estación':'#22c55e','dentro de la tolerancia':'#3b82f6',
+           'carga del galpón':'#a78bfa','FUERA de toda estación':'#ef4444'};
+  conGps.forEach(function(x){
+    var c=COL[x.veredicto]||'#94a3b8';
+    var mk=L.circleMarker([x.lat,x.lng],{radius:7,color:c,fillColor:c,fillOpacity:.85,weight:2}).addTo(_sfeMapObj);
+    mk.bindPopup('<b>'+_mEsc(x.cam||'')+'</b> · '+formatFecha(x.fecha)+' '+_mEsc(x.hora||'')+'<br>'
+      +_acFmt(x.litros,0)+' L · dice: '+_mEsc(x.dice_la_surtida||'(sin nombre)')+'<br><b>'+_mEsc(x.veredicto||'')+'</b>'
+      +(x.m_al_borde!=null?(' · a '+_acFmt(x.m_al_borde,0)+' m de '+_mEsc(x.estacion_mas_cerca||'?')):'')
+      +(x.precision_m!=null?('<br><span style="color:#888">precisión del GPS: ±'+_acFmt(x.precision_m,0)+' m</span>'):''));
+    _sfeCapas.push(mk); pts.push([x.lat,x.lng]);
+  });
+  if(pts.length){ try{ _sfeMapObj.fitBounds(pts,{padding:[25,25],maxZoom:15}); }catch(e){} }
+}
 async function renderSurtidasUbicacion(){
   var cont=g('sfe-tabla'), res=g('sfe-resumen');
   if(!cont) return;
@@ -24628,12 +24677,34 @@ async function renderSurtidasUbicacion(){
   var lit=function(v){ return f.filter(function(x){return x.veredicto===v;}).reduce(function(a,x){return a+(Number(x.litros)||0);},0); };
   var fuera=f.filter(function(x){return x.veredicto==='FUERA de toda estación';});
 
+  // ⛔ ACÁ SE LLAMABA A `_acFmt(...)`, UNA FUNCIÓN QUE NO EXISTE EN NINGUNA PARTE.
+  //    Medido el 08/11/2026: 5 usos en este archivo, CERO definiciones. Esta pantalla reventaba
+  //    con `ReferenceError: miles is not defined` apenas intentaba armar el resumen, y no pintaba
+  //    NADA. **Nunca funcionó.**
+  //    📌 Por eso las 11 surtidas que caían fuera de toda estación —2.678 L— no las había visto
+  //      nadie: el dato estaba bien calculado en la vista y moría en el render.
+  //    ⚠️ Lo encontró `pruebas/ver-mapa-donde-se-cargo.mjs` al abrir la pantalla en un NAVEGADOR.
+  //      `node --check` NO lo ve: llamar a una función que no existe es sintaxis válida hasta que
+  //      se ejecuta. Por eso una pantalla se revisa en una pantalla.
+  //      [[norma-probar-el-camino-no-la-pieza]] · [[norma-revisar-antes-de-soltar]]
+  //    `_acFmt(n,d)` tiene exactamente la misma firma y el mismo formato es-VE.
   res.innerHTML='<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">'
-    +mkStat('En estación',cnt('en estación'),miles(lit('en estación'),0)+' L verificados','t')
+    +mkStat('En estación',cnt('en estación'),_acFmt(lit('en estación'),0)+' L verificados','t')
     +mkStat('Dentro del margen',cnt('dentro de la tolerancia'),'a metros del borde','b')
-    +mkStat('FUERA',fuera.length,miles(lit('FUERA de toda estación'),0)+' L a revisar','r')
-    +mkStat('Sin ubicación',cnt('sin ubicación'),miles(lit('sin ubicación'),0)+' L no verificables','y')
+    +mkStat('FUERA',fuera.length,_acFmt(lit('FUERA de toda estación'),0)+' L a revisar','r')
+    +mkStat('Sin ubicación',cnt('sin ubicación'),_acFmt(lit('sin ubicación'),0)+' L no verificables','y')
+    // ⛔ EL GALPÓN VA EN SU PROPIA TARJETA, NO ESCONDIDO. Hasta el 08/11/2026 la vista medía las
+    //    cargas del galpón contra las geocercas de las ESTACIONES: 7 de ellas caían por casualidad
+    //    adentro de un polígono y el módulo las daba por «verificadas en estación» — una falsa
+    //    verificación, que es peor que un falso «fuera». Ahora tienen veredicto propio; si en vez
+    //    de eso se las hubiera sacado de la vista, desaparecerían de los totales y nadie podría
+    //    auditarlas. [[norma-un-filtro-nuestro-tapa-un-dato-que-si-llega]]
+    +mkStat('Del galpón',cnt('carga del galpón'),_acFmt(lit('carga del galpón'),0)+' L — no se miden contra estaciones','a')
     +'</div>';
+
+  // El mapa va con TODAS las filas, no solo con las que piden algo: una carga «FUERA» solo se
+  // entiende viendo dónde están las que sí cayeron adentro.
+  try{ await _sfeRenderMapa(f); }catch(e){ console.log('sfe mapa: '+(e&&e.message)); }
 
   // Solo se listan las que piden algo: las verificadas no necesitan una fila cada una.
   var ver=fuera.concat(f.filter(function(x){return x.veredicto==='dentro de la tolerancia';}));
@@ -24653,7 +24724,7 @@ async function renderSurtidasUbicacion(){
        +'<td style="font-family:var(--m);font-size:11px">'+formatFecha(x.fecha)+(x.hora?' '+_fx(x.hora):'')+'</td>'
        +'<td>'+_fx(x.cam)+'</td>'
        +'<td style="font-size:11px">'+_fx(x.chofer||'—')+'</td>'
-       +'<td style="text-align:right"><b>'+miles(x.litros,2)+'</b></td>'
+       +'<td style="text-align:right"><b>'+_acFmt(x.litros,2)+'</b></td>'
        +'<td style="font-size:11px">'+_fx(x.tanque||'—')+'</td>'
        +'<td style="font-size:11px">'+_fx(x.estacion_mas_cerca||'—')+'</td>'
        +'<td style="text-align:right;font-family:var(--m);font-size:11px">'+(x.m_al_borde==null?'—':x.m_al_borde+' m')+'</td>'
