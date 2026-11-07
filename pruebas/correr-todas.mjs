@@ -45,6 +45,40 @@ if (!archivos.length) {
 }
 
 console.log(`▶ ${archivos.length} prueba(s) descubierta(s) en ${CARPETAS.filter((c) => existsSync(path.join(RAIZ, c))).join(' y ')}\n`)
-const r = spawnSync(process.execPath, ['--test', ...archivos], { cwd: RAIZ, stdio: 'inherit' })
-if (r.error) { console.error('⛔ no pude arrancar el corredor:', r.error.message); process.exit(1) }
+
+// ── EN EL CI, EL FALLO TIENE QUE EXPLICARSE SOLO ──────────────────────────────────────────────
+// 🔴 Medido el 07/11/2026: el workflow fallaba y lo único visible desde afuera era «Process
+//    completed with exit code 1». Los logs piden credenciales, así que no se podía saber QUÉ
+//    prueba fallaba sin entrar a GitHub — y entrar a GitHub es justamente lo que no se puede
+//    hacer desde acá. Un fallo que no dice qué falló obliga a adivinar, y adivinar fue lo que
+//    me hizo perder dos intentos (el import del repo hermano y el glob).
+// ⇒ Bajo GitHub Actions se corre con el reportero TAP y cada archivo rojo sale como `::error`,
+//   que GitHub convierte en una ANOTACIÓN — y las anotaciones sí se leen sin credenciales.
+const enCI = !!process.env.GITHUB_ACTIONS
+if (!enCI) {
+  const r = spawnSync(process.execPath, ['--test', ...archivos], { cwd: RAIZ, stdio: 'inherit' })
+  if (r.error) { console.error('⛔ no pude arrancar el corredor:', r.error.message); process.exit(1) }
+  process.exit(r.status === null ? 1 : r.status)
+}
+
+const r = spawnSync(process.execPath, ['--test', '--test-reporter=tap', ...archivos],
+                    { cwd: RAIZ, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 })
+const salida = (r.stdout || '') + (r.stderr || '')
+console.log(salida)                                   // el log completo, igual que antes
+if (r.error) { console.log(`::error::no pude arrancar el corredor: ${r.error.message}`); process.exit(1) }
+
+// `not ok N - <archivo>` es la línea que marca un archivo rojo en TAP.
+const rojos = [...salida.matchAll(/^not ok \d+ - (.+)$/gm)].map((m) => m[1].trim())
+// Y el motivo de cada uno: TAP lo pone en el bloque YAML de abajo, en `error:` o `failureType:`.
+const motivo = (arch) => {
+  const i = salida.indexOf(`not ok`), trozo = salida.slice(Math.max(0, salida.indexOf(arch)), salida.indexOf(arch) + 1400)
+  const m = /error:\s*'?([^\n']{5,220})/.exec(trozo)
+  return m ? m[1].trim() : 'sin detalle en el TAP'
+}
+for (const a of [...new Set(rojos)]) {
+  console.log(`::error file=${a},title=prueba en rojo::${motivo(a).replace(/\r?\n/g, ' ')}`)
+}
+if (!rojos.length && r.status !== 0) {
+  console.log(`::error::el corredor salió ${r.status} y ninguna prueba figura como 'not ok' — mirá el log entero`)
+}
 process.exit(r.status === null ? 1 : r.status)
