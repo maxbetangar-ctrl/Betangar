@@ -2361,8 +2361,45 @@ function _acArmarJornadas(desde,hasta){
     j.huecoSalida=(_capJ!=null&&j.salida!=null)?Math.round((_capJ-j.salida)*10)/10:null;
     j.cargaImposible=(_capJ!=null&&j.huecoSalida!=null&&j.desp>j.huecoSalida+_capJ*0.25);
     j.consumo=(j.salida!=null&&j.llegada!=null&&!j.noConf&&!j.cargaImposible)?Math.round((j.salida+j.desp-j.llegada)*100)/100:null;
+    // ⛔ UN RENDIMIENTO FÍSICAMENTE IMPOSIBLE TAMBIÉN INVALIDA EL DÍA.
+    //
+    // 🔴 Máximo, 06/11/2026, con la foto de la fila: «Solo gasto 5.3 litros en toda la jornada».
+    //    B006 el 04/11: salió con 6 cm (59,8 L), le cargaron 350 L y llegó con 35 cm (404,5 L)
+    //    ⇒ 59,8 + 350 − 404,5 = 5,3 L para 104 km. Son 19,6 km/L en un camión de aseo que hace
+    //    2,1. No existe. Y el módulo lo mostraba como una jornada normal.
+    //
+    // ⛔ POR QUÉ NO LO CAZABA NINGUNA REGLA. Todas miraban hacia UN SOLO LADO:
+    //      R4            → consumo de MÁS
+    //      R1 / R13      → el tanque GANA litros (consumo negativo)
+    //    Un consumo POSITIVO pero absurdamente BAJO caía justo en el medio. Y es el caso más
+    //    peligroso de los tres: así se ve un robo cuando además se infla la lectura de llegada.
+    //
+    // ⛔ Y NO SE PUEDE DECIDIR CON LA TOLERANCIA. Con ±32 L de incertidumbre, la regla del tanque
+    //    NO distingue 5 L de 43: eso es cierto y por eso R1 se calla, con razón. Pero hay un
+    //    SEGUNDO TESTIGO independiente — el odómetro — y dice 104 km. El que no se pueda resolver
+    //    con un instrumento no quiere decir que no se pueda resolver.
+    //    [[norma-control-positivo-antes-de-creerle-al-vacio]]
+    //
+    // El techo es el ESTÁNDAR DEL MODELO por 2. Con 1,9 del JAC da 3,8 km/L: el doble de lo que
+    // la unidad mejor rendida de la flota logra en su mejor día. Nada honesto lo cruza.
+    // La tolerancia de ESTA jornada se calcula ANTES que nada: de ella depende
+    // si el faltante es explicable por el error de lectura, y eso decide si la
+    // jornada vale. Estaba mas abajo y `rendImposible` la leia en `undefined`.
+    j.tol=_acTol(j.tanque,j.salidaCm,j.llegadaCm,j.desp);
+    var _refMod=_acRefModelo(j.cam);
+    // ⛔ DOS CONDICIONES, Y HACEN FALTA LAS DOS. El techo de km/L dice que la
+    //    PROPORCION es imposible; que el faltante supere la TOLERANCIA dice que
+    //    no lo explica el error de lectura. Medido sobre 1.303 jornadas: solo
+    //    con el techo saltan 60, y 48 de esas caen en el borde (3,8-6 km/L)
+    //    justo dentro de la incertidumbre de la regla -- o sea que podrian ser
+    //    ruido. Pidiendo las dos quedan 43, y de cada una se puede decir por
+    //    que no puede ser cierta. [[norma-una-asercion-mal-escrita-acusa-al-producto]]
+    var _esperaJ=(_refMod!=null&&_refMod>0&&j.km!=null)?(j.km/_refMod):null;
+    j.rendImposible=(j.consumo!=null&&j.consumo>0&&j.km!=null&&j.km>=30
+                     &&_refMod!=null&&_refMod>0&&(j.km/j.consumo)>_refMod*2
+                     &&_esperaJ!=null&&(_esperaJ-j.consumo)>j.tol);
     // Rendimiento solo con números que aguanten: con menos de 10 L o 5 km, el ruido de la regla manda.
-    j.rend=(j.consumo!=null&&j.consumo>=10&&j.km!=null&&j.km>=5)?(j.km/j.consumo):null;
+    j.rend=(j.consumo!=null&&j.consumo>=10&&j.km!=null&&j.km>=5&&!j.rendImposible)?(j.km/j.consumo):null;
     // CONFIANZA de la jornada. Las reglas que insinúan sustracción solo pueden opinar sobre las
     // 'completa': dos lecturas válidas y sin corrección encima. Sobre las demás se puede pedir que
     // arreglen el dato, nunca sugerir que falta combustible.
@@ -2370,11 +2407,10 @@ function _acArmarJornadas(desde,hasta){
     // que es el caso que faltaba. Las reglas ya se callan solas con cualquier valor distinto de
     // 'completa'.
     j.conf=j.noConf ? 'no_confiable'
+          : (j.rendImposible ? 'rend_imposible'
           : (j.cargaImposible ? 'carga_imposible'
           : ((j.salida!=null&&j.llegada!=null&&!j.salidaMala&&!j.llegadaMala)
-             ? (j.corregida?'corregida':'completa') : 'incompleta'));
-    // Tolerancia propia de ESTA jornada, según a qué altura se leyó la regla.
-    j.tol=_acTol(j.tanque,j.salidaCm,j.llegadaCm,j.desp);
+             ? (j.corregida?'corregida':'completa') : 'incompleta')));
   });
   // Solo las jornadas que arrancan dentro del período pedido (el día extra es para el nocturno).
   AC_JORNADAS=jor.filter(function(j){ return j.fecha>=desde && j.fecha<=hasta; });
@@ -3075,6 +3111,29 @@ function _acAnomalias(todas,desde,hasta,ref){
       j.cam,j.fecha,j.desp,'');
   });
 
+  // ── R4b — CONSUMIÓ MENOS DE LO QUE FÍSICAMENTE PUEDE ───────────────────────────────────────
+  // El espejo de R4, y el que faltaba. No acusa a nadie: dice que TRES NÚMEROS no pueden ser los
+  // tres ciertos a la vez, y cuál hay que volver a mirar.
+  AC_JORNADAS.forEach(function(j){
+    if(!j.rendImposible)return;
+    if(j.fecha<desde||j.fecha>hasta)return;
+    var _r=j.km/j.consumo, _refM=_acRefModelo(j.cam);
+    var _debio=(_refM&&_refM>0)?(j.km/_refM):null;
+    add('alta','R4b','Consumió menos de lo que el camión puede',
+      'La unidad '+U(j.cam)+' figura el '+formatFecha(j.fecha)+' con '+_acFmt(j.consumo,1)+' L para '+
+      _acFmt(j.km)+' km: son '+_acFmt(_r,1)+' km/L, y el estándar de ese modelo es '+_acFmt(_refM,2)+'. '+
+      'Un camión de aseo no rinde eso. '+
+      (_debio!=null?('Para esos km debió gastar alrededor de '+_acFmt(_debio,0)+' L. '):'')+
+      'La cuenta sale de tres números —salió con '+_acFmt(j.salida,1)+' L ('+_acFmt(j.salidaCm,1)+' cm), '+
+      'le cargaron '+_acFmt(j.desp,1)+' L y llegó con '+_acFmt(j.llegada,1)+' L ('+_acFmt(j.llegadaCm,1)+' cm)— '+
+      'y los tres no pueden ser ciertos a la vez: o la medición de salida quedó baja, o la de llegada alta, '+
+      'o esa carga no entró entera a este tanque. '+
+      '⛔ Ese día NO cuenta para el consumo ni para el rendimiento: un número que no puede ser cierto '+
+      'ensucia el promedio de toda la flota. No es una acusación — es una contradicción entre datos. '+
+      'Lo que destraba esto es volver a tomar la lectura y preguntarle a quien midió.',
+      j.cam,j.fecha,null,_quien(j.cam,j.fecha,j.turno));
+  });
+
   // R13 — COMBUSTIBLE QUE ENTRÓ SIN REGISTRARSE. Un solo hallazgo con TODO junto: el problema no
   // es cada camión, es que desde el 07/07 no se está cargando ningún despacho. Y lo que importa no
   // son los litros de una unidad sino la plata que no está entrando a la Utilidad Real.
@@ -3226,7 +3285,7 @@ function _acRender(){
   //    aun así no se puede cuadrar, así que su consumo quedó en null y salió de todos los números.
   //    Si contara acá, «días auditables» diría 99% mientras el consumo de ese día no existe — el
   //    indicador de calidad del dato subiendo justo con los días que sabemos que están mal.
-  var completas=J.filter(function(j){return j.salida!=null&&j.llegada!=null&&j.km!=null&&!j.noConf&&!j.cargaImposible;}).length;
+  var completas=J.filter(function(j){return j.salida!=null&&j.llegada!=null&&j.km!=null&&!j.noConf&&!j.cargaImposible&&!j.rendImposible;}).length;
   var nNoConf=J.filter(function(j){return !!j.noConf;}).length;
   var nCargaMala=J.filter(function(j){return !!j.cargaImposible;}).length;
   var pctAud=J.length?Math.round(completas*100/J.length):0;
