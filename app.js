@@ -3033,6 +3033,50 @@ function _acAnomalias(todas,desde,hasta,ref){
       j.cam,j.fecha,x.corto,_quien(j.cam,j.fecha,j.turno));
   });
 
+  // R4c — CONSUMO POR DEBAJO DE LO CREÍBLE. El espejo de R4, y faltaba.
+  // ⛔ 06/11/2026, Máximo con la foto del tablero: «Solo gastó 5.3 litros en toda la
+  //    jornada». Medido: JAC-B006 el 04/11 — salió con 6,0 cm (59,8 L), le cargaron
+  //    350,0 L y llegó con 35,0 cm (404,5 L) ⇒ 59,8 + 350 − 404,5 = 5,3 L para 104 km.
+  //    Ningún camión de aseo hace 104 km con 5 litros. Y NADA lo marcó: la auditoría
+  //    solo miraba el consumo ALTO.
+  // ⛔ Y un consumo bajo no es una buena noticia: casi siempre significa que una carga
+  //    se asentó con más litros de los que entraron, o que una medición de la regla
+  //    está mal. Las dos cosas ENSUCIAN el tanque hacia adelante — el sobrante queda
+  //    en los libros y el faltante de mañana se compensa solo, que es exactamente
+  //    cómo un faltante real deja de verse.
+  // ⛔ NO ACUSA A NADIE DE MANEJAR MAL, y por eso no comparte el texto de R4: acá el
+  //    sospechoso es EL NÚMERO, no la persona. Se nombra a quién preguntarle, que es
+  //    distinto. [[norma-la-premisa-antes-de-acusar]]
+  var _r4c=[];
+  AC_JORNADAS.forEach(function(j){
+    if(j.conf!=='completa'||j.consumo==null)return;
+    if(j.km==null||j.km<30||j.km>350)return;
+    if(_acCargaEnLote(j.cam,j.fecha)>0)return;
+    var refU=ref[j.cam]&&(ref[j.cam].fija||ref[j.cam].n>=3)?ref[j.cam].mediana:null;
+    if(!refU||refU<=0)return;
+    var espera=j.km/refU;
+    var sobra=Math.round((espera-j.consumo)*100)/100;
+    // El mismo umbral que R4, del otro lado: el mayor entre 2·TOL y el 35% de lo esperado.
+    if(sobra>Math.max(2*(j.tol||0),espera*0.35))_r4c.push({j:j,sobra:sobra,espera:espera,ref:refU});
+  });
+  _r4c.forEach(function(x){
+    var j=x.j;
+    var repite=_r4c.filter(function(y){
+      if(y.j.cam!==j.cam)return false;
+      var d=Math.abs(new Date(y.j.fecha+'T12:00:00')-new Date(j.fecha+'T12:00:00'))/86400000;
+      return d<=14;
+    }).length;
+    add(repite>=3?'alta':'media','R4c','Consumo por debajo de lo creíble',
+      'La unidad '+U(j.cam)+' figura gastando solo '+_acFmt(j.consumo,1)+' L para '+_acFmt(j.km)+' km el '+formatFecha(j.fecha)+
+      ', cuando por su propio historial le tocarían unos '+_acFmt(x.espera,1)+' L ('+_acFmt(x.ref,2)+' km/L). '+
+      'Son '+_acFmt(x.sobra,1)+' L que el tanque dice tener y el recorrido no explica'+$(x.sobra)+'. '+
+      'Esto no es un ahorro: lo más probable es que una carga se haya asentado con más litros de los que entraron, '+
+      'o que una medición de la regla esté mal anotada. Conviene revisar la carga del día y las dos lecturas antes '+
+      'de que el sobrante se arrastre'+
+      (repite>=3?('. Y no es un día suelto: le pasó '+repite+' veces en dos semanas.'):'.'),
+      j.cam,j.fecha,x.sobra,_quien(j.cam,j.fecha,j.turno));
+  });
+
   // El último odómetro conocido de cada unidad, para poder ver un salto imposible (R10b).
   // ⛔ Las jornadas se recorren EN ORDEN DE FECHA: si no, «lo anterior» sería cualquier cosa
   //    y la regla compararía contra el futuro. Se ordena una copia, no el arreglo de todos.
