@@ -31,7 +31,7 @@ const PUERTO = Number(process.env.PUERTO_PRUEBA || 8891)
 
 // El caso de Carlos: la de 30 L que hay que sacar. Sin `costo_litro_usd`, que es el caso en
 // que la plata NO se recalcula sola y se quedaba viva.
-const SURTIDA = { id: 'S30', cam: 'FC03', fecha: '2026-10-03', hora: '10:20', tanque: 'la_limpia',
+const SURTIDA = { id: 'S30', cam: 'U02', fecha: '2026-10-03', hora: '10:20', tanque: 'la_limpia',
   tipo_combustible: 'gasoil', litros: 30, litros_transporte: 10, costo_litro_usd: null,
   costo_usd: 22.5, costo_bs: 20000, tasa_bcv: 889, corregido_por: null, valor_anterior: null }
 

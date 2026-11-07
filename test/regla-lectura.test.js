@@ -83,7 +83,7 @@ eq('el tope exacto tampoco', clase(48), null);
 eq('dentro de la gracia de 2 cm tampoco', clase(50), null);
 // Pasarse por poco = el tope puede estar CORTO. Es el caso del una unidad y el único que avisa.
 eq('pasarse por poco es «sobre el tope»', clase(55), 'sobre_el_tope');
-eq('y el FC17 con el tope viejo también lo era', (montarTanque(27, 150), clase(48)), 'sobre_el_tope');
+eq('y el U07 con el tope viejo también lo era', (montarTanque(27, 150), clase(48)), 'sobre_el_tope');
 // Los litros tecleados en el campo de centímetros.
 montarTanque(48, 150);
 eq('un número que es la capacidad en litros: «parece litros»', clase(150), 'parece_litros');
@@ -91,11 +91,11 @@ eq('dentro del 5% de la capacidad, también', clase(146), 'parece_litros');
 eq('justo afuera del 5% ya no se acusa de litros', clase(130), 'sobre_el_tope');
 // El caso real de una unidad/una unidad: tope 48, capacidad 76,8 — la gente marcó 75 y 76.
 montarTanque(48, 76.8);
-eq('FL01: 75 con capacidad 76,8 es «parece litros»', clase(75), 'parece_litros');
-eq('FL02: 76 con capacidad 76,8 también', clase(76), 'parece_litros');
+eq('U08: 75 con capacidad 76,8 es «parece litros»', clase(75), 'parece_litros');
+eq('U09: 76 con capacidad 76,8 también', clase(76), 'parece_litros');
 // Y lo que no es de este mundo.
 montarTanque(27, 150);
-eq('FC14: 7.129 cm es «imposible»', clase(7129), 'imposible');
+eq('U05: 7.129 cm es «imposible»', clase(7129), 'imposible');
 eq('261 cm ya es imposible (el tope de cubicacion.js es 260)', clase(261), 'imposible');
 eq('260 justo todavía se trata como tope corto', clase(260), 'sobre_el_tope');
 // ⚠️ Sin tanque configurado (IVECO y los que no llevan regla) NO se juzga nada.

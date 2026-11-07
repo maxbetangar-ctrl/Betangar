@@ -73,10 +73,10 @@ const J = (cam, fecha, kmS, kmE) => ({ cam, fecha, kmS, kmE, km: (kmE != null &&
   salida: null, llegada: null, conf: 'parcial', consumo: null, tol: 0, desp: 0 })
 
 // ── 1 · EL CASO REAL ──────────────────────────────────────────────────────────────────────
-let r = await auditar([J('FC04', '2026-09-16', 98100, 98153), J('FC04', '2026-09-17', 98154, 983346)])
+let r = await auditar([J('U03', '2026-09-16', 98100, 98153), J('U03', '2026-09-17', 98154, 983346)])
 const err = r.find((x) => x.regla === 'ERROR')
 if (err) { console.log('⛔ la auditoría reventó: ' + err.titulo); fallos++ }
-console.log('\n── el caso de la FC04 (98.154 → 983.346) ──')
+console.log('\n── el caso de la U03 (98.154 → 983.346) ──')
 const r10b = r.filter((x) => x.regla === 'R10b')
 chequear('salta R10b', r10b.length === 1, r.map((x) => x.regla).join(',') || '(nada)')
 if (r10b[0]) {
@@ -87,32 +87,32 @@ if (r10b[0]) {
 
 // ── 2 · CONTROLES NEGATIVOS: lo que NO tiene que sonar ────────────────────────────────────
 console.log('\n── lo que NO debe disparar ──')
-r = await auditar([J('FC04', '2026-09-16', 98100, 98153), J('FC04', '2026-09-17', 98154, 98354)])
+r = await auditar([J('U03', '2026-09-16', 98100, 98153), J('U03', '2026-09-17', 98154, 98354)])
 chequear('un día normal (200 km) no dispara nada', !r.some((x) => x.regla === 'R10b'), r.map((x) => x.regla).join(',') || '(nada)')
 
-r = await auditar([J('FC04', '2026-09-16', 98100, 99370), J('FC04', '2026-09-17', 99371, 99500)])
+r = await auditar([J('U03', '2026-09-16', 98100, 99370), J('U03', '2026-09-17', 99371, 99500)])
 chequear('el día más largo de la historia (1.270 km) tampoco', !r.some((x) => x.regla === 'R10b'))
 
 // Entre dos jornadas puede haber fin de semana o taller: el umbral se escala por días.
 // ⚠️ El día en sí tiene que ser normal: si se le pone una jornada de 11.800 km, lo que salta
 //    es la regla del MISMO día —y bien—, no la de la comparación entre jornadas.
-r = await auditar([J('FC04', '2026-09-01', 98100, 98200), J('FC04', '2026-09-30', 110000, 110150)])
+r = await auditar([J('U03', '2026-09-01', 98100, 98200), J('U03', '2026-09-30', 110000, 110150)])
 chequear('29 días sin aparecer y +11.800 km en el odómetro, tampoco', !r.some((x) => x.regla === 'R10b'),
   r.filter((x) => x.regla === 'R10b').map((x) => x.texto.slice(0, 60)).join(''))
 
 // Pero el mismo salto en UN día sí: es la diferencia entre «estuvo un mes afuera» y «ayer».
-r = await auditar([J('FC04', '2026-09-29', 98100, 98200), J('FC04', '2026-09-30', 110000, 110150)])
+r = await auditar([J('U03', '2026-09-29', 98100, 98200), J('U03', '2026-09-30', 110000, 110150)])
 chequear('el mismo salto de un día para el otro SÍ salta', r.some((x) => x.regla === 'R10b'),
   r.map((x) => x.regla).join(',') || '(nada)')
 
-r = await auditar([J('FC05', '2026-09-16', 50000, 50100), J('FC04', '2026-09-17', 98154, 98354)])
+r = await auditar([J('U04', '2026-09-16', 50000, 50100), J('U03', '2026-09-17', 98154, 98354)])
 chequear('no se compara una unidad contra OTRA', !r.some((x) => x.regla === 'R10b'))
 
-r = await auditar([J('FC04', '2026-09-17', 98154, 98354)])
+r = await auditar([J('U03', '2026-09-17', 98154, 98354)])
 chequear('la primera jornada de una unidad no tiene contra qué comparar', !r.some((x) => x.regla === 'R10b'))
 
 // ── 3 · Y el orden: la regla compara contra lo ANTERIOR, no contra el futuro ──────────────
-r = await auditar([J('FC04', '2026-09-17', 98154, 983346), J('FC04', '2026-09-16', 98100, 98153)])
+r = await auditar([J('U03', '2026-09-17', 98154, 983346), J('U03', '2026-09-16', 98100, 98153)])
 chequear('aunque lleguen desordenadas, igual lo caza', r.some((x) => x.regla === 'R10b'),
   r.map((x) => x.regla).join(',') || '(nada)')
 

@@ -49,7 +49,7 @@ const CASOS = [
   ['1,60 — el precio subió de verdad',         [{ precio_usd: 1.6 }],                 'PREGUNTA'],
   ['5,00 — el tope exacto, todavía no rechaza',[{ precio_usd: 5 }],                   'PREGUNTA'],
   ['5,01 — pasado el tope',                    [{ precio_usd: 5.01 }],                'RECHAZA'],
-  ['100 — EL CASO DEL FC16 (era 1)',           [{ precio_usd: 100 }],                 'RECHAZA'],
+  ['100 — EL CASO DEL U06 (era 1)',           [{ precio_usd: 100 }],                 'RECHAZA'],
   ['escalera: 0,50 y un 100 escondido atrás',  [{ precio_usd: 0.5 }, { precio_usd: 100 }], 'RECHAZA'],
   ['escalera normal 0,55 + 0,75',              [{ precio_usd: 0.55 }, { precio_usd: 0.75 }], 'PASA'],
   // El arreglo de la escalera mete un tramo {escalera:{…}} SIN precio_usd: no puede romper.
@@ -67,4 +67,4 @@ for (const [nombre, tramos, esperado] of CASOS) {
 console.log(`vara leída de app.js: rechaza sobre $${PRECIO_MAX_L}/L · pregunta sobre $${PRECIO_AVISO_L}/L`);
 console.log(`casos probados: ${CASOS.length}`);
 if (malos) { console.error(`\nFALLA: ${malos} caso(s) mal.`); process.exit(1); }
-console.log('OK — deja pasar lo que se paga de verdad y frena el error de tipeo del FC16.');
+console.log('OK — deja pasar lo que se paga de verdad y frena el error de tipeo del U06.');

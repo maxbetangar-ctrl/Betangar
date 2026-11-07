@@ -45,15 +45,15 @@ function ok(desc, real, esperado) {
   console.log('  ' + (bien ? '✅' : '❌') + ' ' + desc + (bien ? '' : `   → dio ${real}, esperaba ${esperado}`))
 }
 
-console.log('\n1. EL CASO REAL QUE LO DESTAPÓ — FC01 de Flotilla, 2026-08-04')
+console.log('\n1. EL CASO REAL QUE LO DESTAPÓ — U01 de Flotilla, 2026-08-04')
 {
-  const api = conFlota({ kmData: { FC01: { km: 70017, ultsrv: 65652 } } })
+  const api = conFlota({ kmData: { U01: { km: 70017, ultsrv: 65652 } } })
   const km = 70017
-  const prox = api.proxServicio(km, 'FC01')
+  const prox = api.proxServicio(km, 'U01')
   ok('el próximo servicio se cuenta desde el aceite (65.652 + 5.000)', prox, 70652)
   ok('faltan 635 km, no 4.983', prox - km, 635)
   ok('y eso lo pone en PRÓXIMO (<= 500 es amarillo; 635 aún no)', prox - km > 500, true)
-  ok('tiene ciclo real, así que el dato NO es una suposición', api.hayCicloReal('FC01'), true)
+  ok('tiene ciclo real, así que el dato NO es una suposición', api.hayCicloReal('U01'), true)
 }
 
 console.log('\n2. UNA UNIDAD PUEDE ESTAR VENCIDA — JAC-B012 de Betangar, 2026-08-04')
@@ -71,9 +71,9 @@ console.log('\n2. UNA UNIDAD PUEDE ESTAR VENCIDA — JAC-B012 de Betangar, 2026-
 
 console.log('\n3. SIN CAMBIO DE ACEITE REGISTRADO NO SE INVENTA UN CICLO')
 {
-  const api = conFlota({ kmData: { FC17: { km: 7547, ultsrv: 0 } } })
-  ok('no hay ciclo real', api.hayCicloReal('FC17'), false)
-  ok('cae al redondeo del odómetro, como antes', api.proxServicio(7547, 'FC17'), 10000)
+  const api = conFlota({ kmData: { U07: { km: 7547, ultsrv: 0 } } })
+  ok('no hay ciclo real', api.hayCicloReal('U07'), false)
+  ok('cae al redondeo del odómetro, como antes', api.proxServicio(7547, 'U07'), 10000)
   // La pantalla marca estas con * y dice que es una suposición, no un dato.
 }
 
@@ -95,8 +95,8 @@ console.log('\n5. NO SE CUENTA CUALQUIER TRABAJO COMO SERVICIO')
 {
   // El una unidad solo tenía "Pulmon de Cabina" (item_id vacío). No es un cambio de aceite, así que la
   // base deja ult_srv en 0 y acá NO puede aparecer un ciclo inventado.
-  const api = conFlota({ kmData: { FC16: { km: 256707, ultsrv: 0 } } })
-  ok('un pulmón de cabina no reinicia la cuenta', api.hayCicloReal('FC16'), false)
+  const api = conFlota({ kmData: { U06: { km: 256707, ultsrv: 0 } } })
+  ok('un pulmón de cabina no reinicia la cuenta', api.hayCicloReal('U06'), false)
 }
 
 console.log('\n' + (fallas ? `❌ ${fallas} de ${corridas} fallaron` : `✅ todo en verde (${corridas} comprobaciones)`))

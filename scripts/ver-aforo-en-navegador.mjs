@@ -44,7 +44,7 @@ const chromium = pw.chromium || (pw.default && pw.default.chromium);
 if (!chromium) { console.error('Playwright se importo pero no trae `chromium`.'); process.exit(1); }
 
 // Las medidas REALES del una unidad: 51 x 27 x 109 cm = 150,09 L, y su regla recorre 48 cm.
-const FC17 = { ancho_cm: 51, alto_cm: 27, largo_cm: 109, radio_cm: 1 };
+const U07 = { ancho_cm: 51, alto_cm: 27, largo_cm: 109, radio_cm: 1 };
 
 const b = await chromium.launch();
 const ctx = await b.newContext();           // contexto NUEVO siempre
@@ -70,14 +70,14 @@ const preguntar = (prev, m) => page.evaluate(x => {
 
 // ── ESTADO 1 · la regla la midió alguien (el una unidad de hoy) ────────────────────
 const medida = await preguntar(
-  { altura_max_cm: 48, regla_origen: 'historial_del_chofer', alto_cm: 27, forma: 'redondeado' }, FC17);
+  { altura_max_cm: 48, regla_origen: 'historial_del_chofer', alto_cm: 27, forma: 'redondeado' }, U07);
 console.log('(1) La regla la midio alguien:');
 console.log('    dice   : ' + medida.texto);
 console.log('    usa    : ' + medida.cm + ' cm (' + medida.origen + ')');
 console.log('    tabla  : ' + medida.claves + ' claves · tope ' + medida.tope + ' L · 24cm=' + medida.en24 + ' · 32cm=' + medida.en32 + '\n');
 
 // ── ESTADO 2 · nadie la midió (tanque nuevo) ─────────────────────────────────
-const supuesta = await preguntar(null, FC17);
+const supuesta = await preguntar(null, U07);
 console.log('(2) Nadie midio la regla:');
 console.log('    dice   : ' + supuesta.texto);
 console.log('    usa    : ' + supuesta.cm + ' cm (' + supuesta.origen + ')');

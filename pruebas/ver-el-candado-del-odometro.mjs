@@ -61,7 +61,7 @@ const page = await (await navegador.newContext({ viewport: { width: 420, height:
 page.on('pageerror', (e) => console.log('   pageerror: ' + e.message))
 await page.route('**/rest/v1/**', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: '[]' }))
 
-await page.goto(`http://127.0.0.1:${PUERTO}/chofer.html?cam=FC04`, { waitUntil: 'domcontentloaded' })
+await page.goto(`http://127.0.0.1:${PUERTO}/chofer.html?cam=U03`, { waitUntil: 'domcontentloaded' })
 await page.waitForFunction(() => typeof window._kmVal === 'function', { timeout: 25000 })
 
 let fallos = 0
