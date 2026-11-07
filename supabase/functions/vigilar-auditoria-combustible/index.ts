@@ -45,7 +45,7 @@ Deno.serve(async (req) => {
     new Date(new Date(hoyVE + 'T12:00:00Z').getTime() - 30 * 86400000).toISOString().slice(0, 10);
 
   const [tan, uCfg, med, ck, sur, gas, salT, emps, waCfg, cfgRC, cfgFirma] = await Promise.all([
-    sb.from('combustible_tanques_config').select('id,nombre,tipo,forma,tabla_origen,altura_max_cm,tabla_cubicacion'),
+    sb.from('combustible_tanques_config').select('id,nombre,tipo,forma,tabla_origen,altura_max_cm,tabla_cubicacion,capacidad_litros,vehiculo_id'),
     sb.from('unidad_config').select('cam,capacidad_tanque_l,mide_tanque'),
     sb.from('combustible_mediciones').select('vehiculo_id,fecha,momento,turno,tanque_id,altura_cm,litros_calculados').gte('fecha', desde),
     sb.from('checklist').select('fecha,cam,turno,km_salida,km_entrada').gte('fecha', desde),
@@ -151,6 +151,45 @@ Deno.serve(async (req) => {
   if ((salT.data || []).length === 0 && tanquesGalpon.length) {
     hallazgos.push({ clave: 'sin_salidas_tanque', grave: false,
       txt: `cero filas en salidas_tanque: el gasoil que sale del galpón y NO va a un camión no se registra en ninguna parte` });
+  }
+
+  // 5b · LA CAPACIDAD DE LA FICHA CONTRA LO QUE LA UNIDAD DE VERDAD RECIBE ────────────────────
+  // Esto vivía en el resumen DIARIO como «la carga no cabe en el tanque», y estaba mal de dos
+  // maneras: lo decía todos los días (el mismo aviso 47 veces para la misma unidad) y lo decía
+  // como si fuera un error de ESE día. Medido en FLOTILLA el 07/11/2026: 31 cargas por encima de
+  // la capacidad declarada, con la proporción CONTINUA de 1,001 a 1,377 veces el tanque —sin
+  // ningún corte— y siempre en las mismas unidades. Una distribución así no son 31 errores de
+  // carga: es la capacidad de la ficha que está mal. Si el tanque de FC02 fuera de ~850 L en vez
+  // de 600, sus 47 entran todas.
+  // ⇒ Es un problema de la FICHA: se dice UNA VEZ POR UNIDAD, acá, donde el aviso sale solo
+  //   cuando algo cambia. [[norma-arreglar-el-mecanismo-no-el-caso]]
+  const capDeclarada: Record<string, number> = {};
+  for (const t of (tan.data || [])) {
+    if (t.tipo === 'vehiculo' && (t as any).vehiculo_id && Number(t.capacidad_litros) > 0) {
+      capDeclarada[String((t as any).vehiculo_id).trim()] = Number(t.capacidad_litros);
+    }
+  }
+  // Se mira TODA la historia de surtidas, no la ventana: la ficha no cambia por mes.
+  const surTodas = Object.keys(capDeclarada).length
+    ? await sb.from('surtidas').select('cam,litros').gt('litros', 0)
+    : { data: [] as any[] };
+  const excede: Record<string, { n: number; max: number }> = {};
+  for (const s of ((surTodas as any).data || [])) {
+    const u = String(s.cam || '').trim(); const cap = capDeclarada[u]; const l = Number(s.litros);
+    if (!cap || !isFinite(l) || l <= cap) continue;
+    const e = excede[u] || { n: 0, max: 0 };
+    e.n++; e.max = Math.max(e.max, l);
+    excede[u] = e;
+  }
+  // Una sola carga por encima puede ser el cuello de llenado. Tres o más, no.
+  const fichasDudosas = Object.keys(excede).filter((u) => excede[u].n >= 3).sort();
+  if (fichasDudosas.length) {
+    const det = fichasDudosas.map((u) =>
+      `${u}: ${excede[u].n} cargas por encima, la mayor de ${excede[u].max.toLocaleString('es-VE', { maximumFractionDigits: 0 })} L contra ${capDeclarada[u].toLocaleString('es-VE', { maximumFractionDigits: 0 })} L declarados`).join(' · ');
+    hallazgos.push({ clave: 'ficha_capacidad_' + fichasDudosas.join('_'), grave: true,
+      txt: `la capacidad declarada no concuerda con lo que estas unidades reciben de verdad — ${det}. ` +
+           `Repetido tantas veces no es un error de carga: hay que volver a medir el tanque y corregir la ficha. ` +
+           `Mientras esté mal, el cuadre de esas unidades no se puede sostener` });
   }
 
   // 6 · El propio aviso de la mañana: si no tiene a quién preguntarle, no existe.

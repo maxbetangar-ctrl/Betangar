@@ -514,6 +514,32 @@ Deno.serve(async (req) => {
   // ⇒ La carga se cuenta por la FECHA QUE DECLARÓ QUIEN SURTIÓ, que es lo único que esa fila sabe.
   // GEMELA de `_acEntradas` en `app.js`: si se toca una, se toca la otra.
   // 📌 [[norma-created-at-no-es-la-hora-del-hecho]]
+  // ── UNA CARGA ASENTADA ANTES DE LA MEDICIÓN DE SALIDA YA ESTÁ DENTRO DE ESE NIVEL ────────────
+  // El consumo del día se calcula `salida + cargas − llegada`, que asume que toda carga entró
+  // DESPUÉS de leer la salida. Cuando no es así, esa carga se cuenta DOS VECES: está en el nivel
+  // de salida y además se suma.
+  //
+  // Medido el 06/11/2026 en FLOTILLA: FC12 cargó 143,26 L a las 12:18 y midió la salida a las
+  // 12:22 —cuatro minutos después, tanque lleno—. Su consumo del día salía **156,7 L** cuando de
+  // verdad fue **13,4 L**: once veces más. Y encima disparaba R15 diciendo que la carga no cabía.
+  //
+  // ⚠️ Acá SÍ se puede usar el sello de tiempo, y en el cuadre de la NOCHE no. La diferencia es la
+  //    distancia: allá hay que ubicar una carga dentro de una ventana de muchas horas y el sello
+  //    no alcanza (de ahí salieron tres faltantes falsos). Acá los dos registros están a minutos
+  //    uno del otro y la `hora` que declaró la persona coincide con su `created_at`. Se exige un
+  //    margen de 15 min para no decidir por segundos.
+  // 📌 Es raro —3 de 314 surtidas en FLOTILLA, 0 en Betangar— pero produce una acusación falsa y
+  //    un consumo 11× inflado cuando pasa. [[norma-created-at-no-es-la-hora-del-hecho]]
+  const yaEnElNivel = (u: string, f: string, s: any): boolean => {
+    if (String(s.cam) !== u || String(s.fecha || '').slice(0, 10) !== f) return false;
+    const tSal = medUnica
+      .filter((m: any) => String(m.vehiculo_id) === u && String(m.fecha).slice(0, 10) === f && String(m.momento) === 'salida')
+      .map((m: any) => ts(m.created_at)).filter((t: number | null) => t != null).sort()[0];
+    const tSur = ts(s.created_at);
+    if (tSal == null || tSur == null) return false;
+    return tSur < (tSal as number) - 15 * 60 * 1000;
+  };
+
   const entradas = (u: string, fA: string, fB: string, incluirFA: boolean) => {
     const dentro = (f: string) => (incluirFA ? f >= fA : f > fA) && f <= fB;
     let suma = 0;
@@ -522,6 +548,7 @@ Deno.serve(async (req) => {
       const f = String(s.fecha || '').slice(0, 10);
       if (corteSur && f < corteSur) return;              // antes del corte manda gasoil
       if (!dentro(f)) return;
+      if (yaEnElNivel(u, f, s)) return;                  // ya está dentro del nivel de salida
       suma += (num(s.litros) || 0);
     });
     (gas.data || []).forEach((gg: any) => {
@@ -588,24 +615,56 @@ Deno.serve(async (req) => {
       const capU = capacidadDe(u);
       const nivelSal = cubicar(tqDe(sal), sal.altura_cm);
       if (capU != null && capU > 0 && nivelSal != null && alturaOk(tqDe(sal), sal.altura_cm)) {
-        const libre = capU - nivelSal;
-        const gracia = capU * 0.25;
+        // ══════════════════════════════════════════════════════════════════════════════════════
+        // ⛔ ESTA REGLA AFIRMABA UNA IMPOSIBILIDAD QUE NO PODÍA DEMOSTRAR (reescrita 07/11/2026)
+        //
+        // Comparaba las cargas del día contra el HUECO QUE HABÍA AL SALIR, más una «gracia» del
+        // 25 % de la capacidad puesta a dedo como sustituto de lo que el camión podría haber
+        // quemado antes de cargar. Eso no es una prueba: es una estimación disfrazada de hecho.
+        //
+        // El álgebra, con las cargas del día = ΣL, el nivel de salida S, el de llegada LL y la
+        // capacidad C. Para que las cargas quepan hace falta consumir, antes o entre ellas,
+        // al menos ΣL − (C − S). Y el consumo que el día REALMENTE tuvo sale de su propio
+        // balance: Σc = S + ΣL − LL. Entonces el día es imposible solo si
+        //      S + ΣL − LL  <  ΣL − (C − S)      ⇔      LL > C
+        // ⇒ **el TOTAL del día nunca puede ser imposible** si la lectura de llegada es válida,
+        //   y que sea válida ya lo garantiza `alturaOk`. Medido en FLOTILLA: 0 llegadas por
+        //   encima de la capacidad, en toda la historia.
+        //
+        // Medido lo que esa rama venía haciendo, sobre 281 jornadas con carga y salida:
+        //      disparaba en 110 (39 %) · demostrablemente imposibles: 31 · **81 sin poder
+        //      probarlo (74 % de lo que decía)**
+        // Y una de esas 81 salió el 06/11 en el resumen de FLOTILLA diciendo que lo más probable
+        // era una carga cargada dos veces: FC02 había cargado 737 L con 368 L de consumo en el
+        // día, y hacían falta 227. Entraba perfecto.
+        //
+        // ✅ LO ÚNICO QUE SE PUEDE AFIRMAR SIN SUPONER NADA: una carga SUELTA más grande que el
+        //    tanque entero no entra, esté el tanque como esté y queme lo que queme.
+        //    Lo demás —un consumo que los km no justifican— lo dice R4b, que es otra frase.
+        //    [[norma-una-asercion-mal-escrita-acusa-al-producto]]
+        // ══════════════════════════════════════════════════════════════════════════════════════
         const delDia = (sur.data || [])
-          .filter((s: any) => String(s.cam) === u && String(s.fecha).slice(0, 10) === fecha);
-        let dicho = false;
+          .filter((s: any) => String(s.cam) === u && String(s.fecha).slice(0, 10) === fecha)
+          // Una carga ASENTADA ANTES de la medición de salida ya está dentro de ese nivel: ni se
+          // le mide el hueco ni se le suma al consumo (ver `yaEnElNivel`).
+          .filter((s: any) => !yaEnElNivel(u, fecha, s));
+        // ⛔ Y TAMPOCO SE DICE TODOS LOS DÍAS, PORQUE NO ES UN HECHO DEL DÍA.
+        //    Medido en FLOTILLA: 31 cargas superan la capacidad declarada, y la proporción va
+        //    CONTINUA de 1,001 a 1,377 veces el tanque, sin ningún corte — y siempre en las mismas
+        //    unidades (FC01, FC02, FC09, FC10, FC11, FC16, las de tanque más grande). Una
+        //    distribución así no son 31 errores de carga: es **la capacidad de la ficha que está
+        //    mal**. Si el tanque de FC02 fuera de ~850 L en vez de 600, las 47 suyas entran todas.
+        //    ⇒ Es un problema de la FICHA, se dice UNA VEZ POR UNIDAD y lo reporta el vigilante
+        //      (`vigilar-auditoria-combustible`), que habla solo cuando algo cambia. Repetirlo en
+        //      el resumen diario sería el mismo aviso 47 veces, y eso enseña a ignorarlo.
+        //    Acá solo queda el caso grosero —más del doble del tanque—, que no puede ser la ficha.
         delDia.forEach((s: any) => {
           const l = num(s.litros);
-          if (l == null || l <= libre + gracia) return;
-          dicho = true; cargaImposibleDia = true;
-          hallazgos.push({ u, tipo: 'R15',
-            txt: `se cargaron ${fmt(l)} L pero al salir el tanque marcaba ${fmt(nivelSal)} L de ${fmt(capU)} L: solo quedaban ${fmt(libre)} L libres. Uno de los dos números está mal —la medición o la carga—; hay que preguntar cuál, no dar por buena ninguna.` });
-        });
-        const totDia = Math.round(delDia.reduce((a: number, s: any) => a + (num(s.litros) || 0), 0) * 100) / 100;
-        if (!dicho && delDia.length > 1 && totDia > libre + gracia) {
+          if (l == null || l <= capU * 2) return;
           cargaImposibleDia = true;
           hallazgos.push({ u, tipo: 'R15',
-            txt: `se le cargaron ${fmt(totDia)} L en ${delDia.length} cargas, pero al salir el tanque marcaba ${fmt(nivelSal)} L de ${fmt(capU)} L: solo quedaban ${fmt(libre)} L libres. Ni quemando todo el día entra esa cantidad. Lo más probable es que una de esas cargas esté cargada dos veces —pasa cuando la pantalla dice «guardada» y la persona vuelve a intentar—: mirá las fotos. Ese día no se cuadra y no se le reclama nada a nadie` });
-        }
+            txt: `quedó asentada una carga de ${fmt(l)} L y el tanque entero es de ${fmt(capU)} L: más del doble. Eso no lo explica un error de la ficha — o la carga está mal anotada, o es combustible para más de una unidad asentado en esta` });
+        });
       }
     }
 
@@ -642,7 +701,21 @@ Deno.serve(async (req) => {
     const lleAyer = medUnica.find((m: any) => String(m.vehiculo_id) === u && String(m.fecha).slice(0, 10) === previo && String(m.momento) === 'llegada');
     const kmEayer = km(ckPrevio.find((x: any) => String(x.cam) === u)?.km_entrada);
 
-    if (kmEayer != null && kmS != null && (kmS - kmEayer) > 1) {
+    // ⛔ EL PISO SALE DE LOS DATOS, NO DE UN NÚMERO REDONDO. Estaba en 1 km y reportaba al jefe
+    //    movimientos de patio: el 06/11 salió «FC04: son 10 km hechos sin planilla ni checklist»,
+    //    que es cierto y no sirve para nada. Medido en 901 huecos de turno a turno de FLOTILLA:
+    //      2–10 km: 23 (patio, taller, acomodar la unidad) · 11–30 km: 8 · más de 30 km: 57
+    //    Con piso de 10 km se van 23 de 88 avisos (el 26 %) y no se pierde ni uno de los reales.
+    //    Un aviso que salta siempre no avisa de nada — y se lleva puestos los que sí importan.
+    const KM_FANTASMA_MIN = 10;
+    // Un salto enorme no es un viaje: es un dígito de más al tipear. Medido: 4 jornadas de 1.028
+    // en FLOTILLA, una con 885.192 km (`983346` en vez de `98334`). Se dice como error de carga,
+    // no como «rodó sin registrar», porque mandar a buscar ese viaje es mandar a buscar nada.
+    const KM_DIA_IMPOSIBLE = 1000;
+    if (kmEayer != null && kmS != null && (kmS - kmEayer) > KM_DIA_IMPOSIBLE) {
+      errores.push({ u, chofer, tipo: 'km',
+        txt: `el odómetro pasó de ${fmt(kmEayer)} km el ${fmtFecha(previo)} a ${fmt(kmS)} km el ${fmtFecha(fecha)}: son ${fmt(kmS - kmEayer)} km, que no los hizo. Es un dígito de más al anotar — hay que corregir la lectura o los km de esa unidad quedan mal para siempre` });
+    } else if (kmEayer != null && kmS != null && (kmS - kmEayer) > KM_FANTASMA_MIN) {
       hallazgos.push({ u, tipo: 'R11',
         txt: `marcaba ${fmt(kmEayer)} km al llegar el ${fmtFecha(previo)} y ${fmt(kmS)} km al salir el ${fmtFecha(fecha)}: son ${fmt(kmS - kmEayer)} km hechos sin planilla ni checklist` });
     } else if (sal && lleAyer && diaSiguiente(previo, fecha) && kmEayer != null && kmS != null

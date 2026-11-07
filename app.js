@@ -2392,7 +2392,44 @@ function _acArmarJornadas(desde,hasta){
     // silencio: lo dice R15. [[norma-la-premisa-antes-de-acusar]]
     var _capJ=(j.tanque&&j.tanque.cap!=null)?j.tanque.cap:null;
     j.huecoSalida=(_capJ!=null&&j.salida!=null)?Math.round((_capJ-j.salida)*10)/10:null;
-    j.cargaImposible=(_capJ!=null&&j.huecoSalida!=null&&j.desp>j.huecoSalida+_capJ*0.25);
+    // ══════════════════════════════════════════════════════════════════════════════════════════
+    // ⛔ REESCRITO 07/11/2026: ESTA REGLA AFIRMABA UNA IMPOSIBILIDAD QUE NO PODÍA DEMOSTRAR
+    //
+    // Era `j.desp > j.huecoSalida + cap*0.25`: las cargas del día contra el hueco que había AL
+    // SALIR, más un cuarto de tanque puesto a dedo como sustituto de lo que el camión quemó antes
+    // de cargar. El álgebra dice que ese test no puede probar nada: con ΣL las cargas, S la
+    // salida, LL la llegada y C la capacidad, el consumo que el día realmente tuvo es S+ΣL−LL, y
+    // hace falta ΣL−(C−S). Imposible solo si  S+ΣL−LL < ΣL−(C−S)  ⇔  **LL > C**, que `alturaOk`
+    // ya impide. Medido: 0 llegadas por encima de la capacidad en toda la historia.
+    //
+    // Lo que venía haciendo, medido sobre 281 jornadas de FLOTILLA con carga y salida:
+    //   disparaba en 110 (39%) · demostrables: 31 · **81 sin poder probarlo (74%)**
+    // Y como además ANULA `j.consumo`, FLOTILLA perdió el consumo de 110 días por nada.
+    //
+    // ✅ El caso que la justificaba —la B009 con dos surtidas de 350 L el 05/09— se prueba DIRECTO
+    //    y sin suponer: dos cargas del MISMO monto, el MISMO día, a MINUTOS una de otra. Medido:
+    //    3 casos en las dos flotas (Betangar 1 de 350 L, FLOTILLA 2) contra 110 disparos.
+    //    Un instrumento que acierta 3 de 110 no es el instrumento. [[norma-una-asercion-mal-escrita-acusa-al-producto]]
+    // ══════════════════════════════════════════════════════════════════════════════════════════
+    var _surJ=(AC_SURTIDAS||[]).filter(function(s){
+      return String(s.cam)===j.cam && String(s.fecha||'').slice(0,10)===j.fecha; });
+    // Más del DOBLE del tanque en una sola carga: eso no lo explica una ficha mal medida.
+    j.cargaGrosera=(_capJ!=null)&&_surJ.some(function(s){ return (parseFloat(s.litros)||0) > _capJ*2; });
+    // Dos cargas idénticas a menos de 30 min: la persona la mandó dos veces.
+    j.cargaDuplicada=null;
+    for(var _a=0;_a<_surJ.length;_a++){ for(var _b=_a+1;_b<_surJ.length;_b++){
+      var _la=parseFloat(_surJ[_a].litros)||0, _lb=parseFloat(_surJ[_b].litros)||0;
+      if(Math.abs(_la-_lb)>0.01||_la<=0)continue;
+      // ⛔ `Date.parse` NO sirve acá: Postgres devuelve «2026-09-05 18:08:04.554609+00», con
+      //    espacio y offset de DOS dígitos, y eso da NaN. `_acTs` lo normaliza, y existe justo
+      //    por este motivo. La primera versión usaba Date.parse y el duplicado REAL de la B009
+      //    —dos surtidas de 350 L a 21 minutos— no se detectaba: `isFinite` daba false y seguía
+      //    de largo. [[norma-created-at-no-es-la-hora-del-hecho]]
+      var _ta=_acTs(_surJ[_a].created_at), _tb=_acTs(_surJ[_b].created_at);
+      if(_ta==null||_tb==null)continue;
+      if(Math.abs(_ta-_tb)<=30*60*1000){ j.cargaDuplicada={litros:_la,minutos:Math.round(Math.abs(_ta-_tb)/60000)}; }
+    } }
+    j.cargaImposible=!!(j.cargaGrosera||j.cargaDuplicada);
     j.consumo=(j.salida!=null&&j.llegada!=null&&!j.noConf&&!j.cargaImposible)?Math.round((j.salida+j.desp-j.llegada)*100)/100:null;
     // ⛔ UN RENDIMIENTO FÍSICAMENTE IMPOSIBLE TAMBIÉN INVALIDA EL DÍA.
     //
@@ -2877,7 +2914,20 @@ function _acAnomalias(todas,desde,hasta,ref){
 
       // ── (b) ¿Rodó? El odómetro es el testigo, y se mira SIEMPRE, aunque falten las lecturas ──
       var kmFantasma=(ant.kmE!=null&&hoy.kmS!=null)?(hoy.kmS-ant.kmE):null;
-      if(kmFantasma!=null&&kmFantasma>1){
+      // ⛔ EL PISO SALE DE LOS DATOS. Estaba en 1 km y le reportaba al jefe movimientos de patio:
+      //    el 06/11 salió «FC04: son 10 km hechos sin planilla», que es cierto y no sirve de nada.
+      //    Medido en 901 huecos de turno a turno de FLOTILLA: 2–10 km son 23 (patio, taller),
+      //    11–30 son 8 y más de 30 son 57. Con piso de 10 se van 23 de 88 avisos y no se pierde
+      //    ninguno real. GEMELA del `KM_FANTASMA_MIN` de la edge function.
+      if(kmFantasma!=null&&kmFantasma>1000){
+        add('alta','R11b','El odómetro saltó un dígito',
+          'La unidad '+U(u)+' pasó de '+_acFmt(ant.kmE)+' km el '+formatFecha(fLle)+' a '+_acFmt(hoy.kmS)+
+          ' km el '+formatFecha(hoy.fecha)+': son '+_acFmt(kmFantasma)+' km, que no los hizo. Es un dígito '+
+          'de más al anotar — hay que corregir la lectura o los km de esa unidad quedan mal para siempre.',
+          u,hoy.fecha,null,'');
+        continue;
+      }
+      if(kmFantasma!=null&&kmFantasma>10){
         // R11 — RODÓ SIN JORNADA REGISTRADA. Vale por sí solo: la unidad se movió y no quedó
         // asentado. No es una acusación de robo, es un agujero de registro (¿viaje sin facturar?).
         //
@@ -3230,21 +3280,24 @@ function _acAnomalias(todas,desde,hasta,ref){
     var capJ=(j.tanque&&j.tanque.cap!=null)?j.tanque.cap:null;
     var nSur=(AC_SURTIDAS||[]).filter(function(s){
       return String(s.cam)===j.cam && String(s.fecha||'').slice(0,10)===j.fecha; }).length;
-    add('alta','R15','La carga del día no cabe en el tanque',
-      'El '+formatFecha(j.fecha)+' se le cargaron '+_acFmt(j.desp,0)+' L a '+U(j.cam)+
-      (nSur>1?(' en '+nSur+' cargas'):'')+', pero al salir el tanque marcaba '+_acFmt(j.salida,0)+
-      ' L de '+_acFmt(capJ,0)+' L: solo quedaban '+_acFmt(j.huecoSalida,0)+' L libres. '+
-      'Ni quemando todo el día entra esa cantidad. '+
-      (nSur>1?('Lo más probable es que una de esas cargas esté cargada dos veces —pasa cuando la '+
-               'pantalla dice «guardada» y la persona vuelve a intentar—. Mirá las fotos: si son '+
-               'del mismo surtidor y la misma hora, sobra una. '):
-              ('Uno de los dos números está mal —la medición de salida o los litros cargados—, y no '+
-               'se puede saber cuál desde acá: hay que preguntarle a quien estuvo. ')) +
-      '⛔ Ese día NO se cuadra y NO cuenta para el consumo, el rendimiento ni el costo por km: un '+
-      'número sacado de una carga imposible es peor que no tener número. Y no se le reclama nada a '+
-      'nadie por ese día. No es una acusación, es una contradicción entre dos datos que no pueden '+
-      'ser los dos ciertos.',
-      j.cam,j.fecha,j.desp,'');
+    var _cierre='⛔ Ese día NO se cuadra y NO cuenta para el consumo, el rendimiento ni el costo por km: '+
+      'un número sacado de una carga que no puede ser cierta es peor que no tener número. Y no se le '+
+      'reclama nada a nadie por ese día. No es una acusación, es una contradicción entre datos.';
+    if(j.cargaDuplicada){
+      add('alta','R15','Una carga quedó asentada dos veces',
+        'El '+formatFecha(j.fecha)+' '+U(j.cam)+' tiene DOS cargas del mismo monto —'+
+        _acFmt(j.cargaDuplicada.litros,0)+' L cada una— asentadas a '+j.cargaDuplicada.minutos+
+        ' minuto(s) una de otra. Eso pasa cuando la pantalla dice «guardada» y la persona vuelve a '+
+        'intentar. Mirá las fotos: si son del mismo surtidor, sobra una y hay que borrarla. '+
+        'Mientras esté duplicada, el consumo de ese día sale '+_acFmt(j.cargaDuplicada.litros,0)+' L de más. '+
+        _cierre, j.cam,j.fecha,j.desp,'');
+    } else if(j.cargaGrosera){
+      add('alta','R15','Una carga es más del doble del tanque',
+        'El '+formatFecha(j.fecha)+' se le asentó a '+U(j.cam)+' una carga más grande que el DOBLE de su '+
+        'tanque ('+_acFmt(capJ,0)+' L). Eso no lo explica una ficha mal medida: o la carga está mal '+
+        'anotada, o es combustible para más de una unidad asentado en esta. '+_cierre,
+        j.cam,j.fecha,j.desp,'');
+    }
   });
 
   // ── R4b — CONSUMIÓ MENOS DE LO QUE FÍSICAMENTE PUEDE ───────────────────────────────────────
