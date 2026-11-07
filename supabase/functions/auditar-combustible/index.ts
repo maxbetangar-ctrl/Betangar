@@ -92,7 +92,7 @@ Deno.serve(async (req) => {
                 : new Date(new Date(hoyVE + 'T12:00:00Z').getTime() - 86400000).toISOString().slice(0, 10));
   const previo = new Date(new Date(fecha + 'T12:00:00Z').getTime() - 86400000).toISOString().slice(0, 10);
 
-  const [cfgT, med, gas, ck, emps, waCfg, logs, sur, cfgCorte, cfgAvisar, cfgDuda, somb, uCfg, cfgManana] = await Promise.all([
+  const [cfgT, med, gas, ck, emps, waCfg, logs, sur, cfgCorte, cfgAvisar, cfgDuda, somb, uCfg, cfgManana, cfgRolCargos] = await Promise.all([
     sb.from('combustible_tanques_config').select('*'),
     sb.from('combustible_mediciones').select('*').gte('fecha', previo).lte('fecha', fecha),
     sb.from('gasoil').select('*').gte('f', previo).lte('f', fecha),
@@ -104,9 +104,10 @@ Deno.serve(async (req) => {
     sb.from('configuracion').select('valor').eq('clave', 'surtidas_corte').maybeSingle(),
     sb.from('configuracion').select('valor').eq('clave', 'aud_comb_avisar').maybeSingle(),
     sb.from('configuracion').select('valor').eq('clave', 'aforo_en_duda').maybeSingle(),
-    sb.from('comb_auditoria_sombra').select('veredicto,fecha,veredicto_at').order('veredicto_at', { ascending: false }).limit(300),
+    sb.from('comb_auditoria_sombra').select('regla,veredicto,fecha,veredicto_at').order('veredicto_at', { ascending: false }).limit(300),
     sb.from('unidad_config').select('cam,capacidad_tanque_l,mide_tanque'),
     sb.from('configuracion').select('valor').eq('clave', 'aud_comb_aviso_manana').maybeSingle(),
+    sb.from('configuracion').select('valor').eq('clave', 'rol_cargos').maybeSingle(),
   ]);
   if (cfgT.error) return json({ ok: false, error: cfgT.error.message }, 500);
   const corteSur = String(cfgCorte?.data?.valor || '').replace(/"/g, '').slice(0, 10);
@@ -134,10 +135,53 @@ Deno.serve(async (req) => {
   if (!tanques.length) {
     const marcadas = (uCfg.data || []).filter((u: any) => u.mide_tanque).map((u: any) => String(u.cam || '').trim()).filter(Boolean);
     if (marcadas.length) {
+      // ⛔ EL DIAGNÓSTICO TIENE QUE DISTINGUIR DOS CAUSAS QUE SE VEÍAN IGUAL, Y UNA ES PEOR.
+      //    Este 409 decía «cargá las tablas de cubicación». Pero si lo que los choferes están
+      //    anotando NO son centímetros, cargar la tabla convierte esos números como si lo fueran
+      //    y devuelve litros con toda autoridad y completamente falsos — peor que el 409.
+      //
+      //    La firma es medible, y se midió el 07/11/2026:
+      //      Betangar (regla de verdad):  2.724 lecturas · 21,7% múltiplos de 5 · 85 valores
+      //      Tony Gas:                      311 lecturas ·  100% múltiplos de 5 · 24 valores,
+      //                                     y el máximo de cada unidad CALZA con su capacidad en
+      //                                     litros (tanque de 90 → 90 · de 200 → 200)
+      //    Una regla leída en centímetros por veinte personas no da 100% de múltiplos de 5.
+      //    ⇒ Ahí se está anotando el CONTENIDO EN LITROS en el campo de los centímetros.
+      //    [[norma-una-asercion-mal-escrita-acusa-al-producto]] [[norma-control-positivo-antes-de-creerle-al-vacio]]
+      const firma = await sb.from('combustible_mediciones')
+        .select('altura_cm, vehiculo_id').not('altura_cm', 'is', null).order('fecha', { ascending: false }).limit(400);
+      const vals = (firma.data || []).map((m: any) => Number(m.altura_cm)).filter((n) => isFinite(n));
+      const mult5 = vals.filter((n) => n % 5 === 0).length;
+      const pct5 = vals.length ? Math.round(1000 * mult5 / vals.length) / 10 : null;
+      const distintos = new Set(vals).size;
+      // El techo de cada unidad contra su capacidad declarada: si calzan, son litros.
+      const capDe: Record<string, number> = {};
+      for (const u of (uCfg.data || [])) if (u.capacidad_tanque_l) capDe[String(u.cam).trim()] = Number(u.capacidad_tanque_l);
+      const topePorUnidad: Record<string, number> = {};
+      for (const m of (firma.data || [])) {
+        const u = String(m.vehiculo_id || '').trim(); const v = Number(m.altura_cm);
+        if (u && isFinite(v)) topePorUnidad[u] = Math.max(topePorUnidad[u] ?? -1, v);
+      }
+      const conCap = Object.keys(topePorUnidad).filter((u) => capDe[u]);
+      const calzanConLaCapacidad = conCap.filter((u) => topePorUnidad[u] <= capDe[u] && topePorUnidad[u] >= capDe[u] * 0.85);
+      // Dos señales juntas, no una: casi todo múltiplo de 5 Y el techo pegado a la capacidad.
+      const parecenLitros = vals.length >= 30 && pct5 != null && pct5 >= 90
+                            && conCap.length >= 2 && calzanConLaCapacidad.length >= conCap.length / 2;
       return json({
         ok: false,
-        motivo: 'faltan los tanques cubicados: ' + marcadas.length + ' unidad(es) marcadas para medir el tanque y 0 filas en combustible_tanques_config, ' +
-                'asi que las mediciones en centimetros no se pueden convertir en litros y no hay nada que cuadrar',
+        motivo: parecenLitros
+          ? 'LO QUE SE ESTÁ ANOTANDO NO PARECEN CENTÍMETROS, SINO LITROS. ' +
+            `De las últimas ${vals.length} lecturas, el ${pct5}% son múltiplos de 5 y hay apenas ${distintos} valores distintos; ` +
+            `y en ${calzanConLaCapacidad.length} de ${conCap.length} unidades el valor más alto que se anotó coincide con la CAPACIDAD en litros del tanque. ` +
+            'Una regla leída en centímetros no da eso (en Betangar, con la misma app y regla de verdad, el 21,7% son múltiplos de 5 sobre 85 valores distintos). ' +
+            '⛔ POR ESO NO ALCANZA CON CARGAR LAS TABLAS DE CUBICACIÓN: convertirían esos números como si fueran centímetros y devolverían litros falsos con toda autoridad — peor que este error. ' +
+            'Primero hay que decidir cómo se mide de verdad en esta empresa: si con regla (hacen falta las medidas de cinta de cada modelo de tanque, y explicarle a los choferes que va la ALTURA en cm) ' +
+            'o declarando litros a ojo (entonces el campo tiene que ser de litros, con su propia tolerancia, y no se cubica nada).'
+          : 'faltan los tanques cubicados: ' + marcadas.length + ' unidad(es) marcadas para medir el tanque y 0 filas en combustible_tanques_config, ' +
+            'asi que las mediciones en centimetros no se pueden convertir en litros y no hay nada que cuadrar',
+        parecen_litros: parecenLitros,
+        firma_de_las_lecturas: { lecturas: vals.length, pct_multiplos_de_5: pct5, valores_distintos: distintos,
+                                 unidades_cuyo_tope_calza_con_la_capacidad: `${calzanConLaCapacidad.length} de ${conCap.length}` },
         unidades_marcadas: marcadas,
         mediciones_en_la_ventana: (med.data || []).length,
         avisos: 0,
@@ -160,12 +204,54 @@ Deno.serve(async (req) => {
            || (emps.data || []).find((x: any) => x.activo !== false && norm(x.nombre).startsWith(n.split(' ')[0]) && n.split(' ').length > 1 && norm(x.nombre).includes(n.split(' ')[1]));
     return e ? String(e.whatsapp || e.tel || '').trim() : '';
   };
-  // Jefes: del roster por rol. Mecánica y operativo son los que atienden esto; socios ve el resumen.
+  // ── UN ROL SE RESUELVE POR ROSTER *O* POR CARGO ───────────────────────────────────────────────
+  // 🔴 Medido el 07/11/2026: los CUATRO clones tienen la clave `configuracion.whatsapp`
+  //    INEXISTENTE. `telsRol()` devolvía [] y por lo tanto `jefes` también ⇒ el resumen diario de
+  //    combustible y el aviso del kill-switch **nunca le llegaron a nadie en ningún clon**, con
+  //    Tony Gas encima teniendo `aud_comb_avisar='on'`. Desde afuera se veía igual que «no había
+  //    nada que avisar». [[norma-la-barra-que-no-dice-que-sigue]]
+  //
+  // Lo que SÍ está cargado en los clones son las FICHAS (Tony Gas 59 de 65 con WhatsApp, Flotilla
+  // 23 de 23) y ahí el `cargo` ya dice quién supervisa. Y es el idioma que esas apps ya usan:
+  // `flotilla-resumen` busca al de mantenimiento por cargo desde antes que esto.
+  //
+  // Entonces un rol se resuelve por la UNIÓN de dos fuentes, y alcanza con que exista una:
+  //   1. el roster (`configuracion.whatsapp`), como siempre — en Betangar sigue siendo la fuente;
+  //   2. la clave `rol_cargos`, que declara de qué está hecho cada rol EN ESTA EMPRESA:
+  //        {"operativo":{"cargos":["Jefe de Operaciones"]}, "socios":{"tels":["5841…"]}}
+  //      Los `cargos` se resuelven contra las fichas VIVAS: el día que cambia la persona que
+  //      ocupa el cargo, cambia el destinatario solo. Los `tels` son para quien no es un cargo.
+  // ⛔ Si ninguna de las dos tiene nada, el rol queda VACÍO y no se elige a nadie por omisión.
+  //    Un destinatario por omisión es una fuga. [[norma-un-destinatario-por-omision-es-una-fuga]]
   let roster: any[] = [];
   try { roster = JSON.parse(String(waCfg.data?.valor || '[]')); } catch { roster = []; }
-  const telsRol = (roles: string[]) => (Array.isArray(roster) ? roster : [])
-    .filter((w: any) => w.num && w.activo !== false && roles.includes(w.rol))
-    .map((w: any) => String(w.num));
+  let rolCargos: Record<string, any> = {};
+  try {
+    const cru = cfgRolCargos?.data?.valor;
+    rolCargos = (typeof cru === 'string' ? JSON.parse(cru) : cru) || {};
+  } catch (_e) { rolCargos = {}; }
+  // Los cargos se comparan NORMALIZADOS: la ficha de Tony Gas dice «Jefe de Flota Vehícular» con
+  // tilde y «Operador de Mantenimineto» con el error de tipeo de quien la cargó. Comparar letra
+  // por letra haría que el rol quedara vacío y se viera igual que un rol sin configurar.
+  const telsPorCargos = (cargos: any[]): string[] => {
+    const q = (cargos || []).map((c: any) => norm(c)).filter(Boolean);
+    if (!q.length) return [];
+    return (emps.data || [])
+      .filter((e: any) => e.activo !== false && q.includes(norm(e.cargo)))
+      .map((e: any) => String(e.whatsapp || e.tel || '').replace(/\D/g, ''))
+      .filter(Boolean);
+  };
+  const telsRol = (roles: string[]): string[] => {
+    const delRoster = (Array.isArray(roster) ? roster : [])
+      .filter((w: any) => w.num && w.activo !== false && roles.includes(w.rol))
+      .map((w: any) => String(w.num).replace(/\D/g, ''));
+    const delCargo = roles.flatMap((r) => {
+      const d = rolCargos[r]; if (!d) return [];
+      const tels = (Array.isArray(d) ? d : (d.tels || [])).map((t: any) => String(t).replace(/\D/g, ''));
+      return [...tels, ...telsPorCargos(d.cargos || [])];
+    });
+    return [...new Set([...delRoster, ...delCargo])].filter(Boolean);
+  };
   const jefes = [...new Set([...telsRol(['mecanica', 'operativo', 'socios'])])];
 
   // ── A QUIÉN LE LLEGA LA PREGUNTA DE LA MAÑANA (R14) ────────────────────────────────────────────
@@ -178,12 +264,23 @@ Deno.serve(async (req) => {
   //      ya tiene declarado "combustible crítico" en lo que recibe.
   // ⛔ Si no hay ni clave ni rol no se elige a nadie: el aviso NO sale y la respuesta lo dice. Un
   //    destinatario por omisión es una fuga, no un default.
+  //
+  // 📌 LA CLAVE PUEDE DECLARAR CARGOS EN VEZ DE TELÉFONOS, y es la forma preferida:
+  //      {"cargos":["Jefe de Flota Vehícular"]}   ⇒ los números salen de las fichas VIVAS
+  //      {"tels":["58414…"]}                      ⇒ números fijos (para alguien que no es un cargo)
+  //    Medido el 07/11/2026: los cuatro clones tienen el roster VACÍO —la clave `whatsapp` no
+  //    existe— así que el rol del roster no alcanzaba y el aviso no habría salido en ninguno. Pero
+  //    las fichas sí están cargadas (Tony Gas 59 de 65 con WhatsApp, Flotilla 23 de 23), y ahí el
+  //    cargo ya dice quién supervisa la flota. Una lista de teléfonos a mano se desincroniza el día
+  //    que esa persona cambia; un CARGO sigue apuntando a quien lo ocupa. Las dos formas conviven.
   let avisoManana: string[] = [];
   try {
     const cru = cfgManana?.data?.valor;
     const obj = typeof cru === 'string' ? JSON.parse(cru) : cru;
-    const lista = Array.isArray(obj) ? obj : (obj?.tels || []);
-    avisoManana = lista.map((t: any) => String(t).replace(/\D/g, '')).filter(Boolean);
+    const tels = (Array.isArray(obj) ? obj : (obj?.tels || []))
+      .map((t: any) => String(t).replace(/\D/g, '')).filter(Boolean);
+    // Misma pieza que resuelve los roles: una sola implementación del "cargo ➜ teléfonos".
+    avisoManana = [...tels, ...telsPorCargos(obj?.cargos || [])];
   } catch (_e) { avisoManana = []; }
   if (!avisoManana.length) avisoManana = telsRol(['operativo', 'mecanica']);
   avisoManana = [...new Set(avisoManana)];
@@ -285,7 +382,14 @@ Deno.serve(async (req) => {
   const aforoOk = tablaDescribeTanque(tanques.find((x) => x.tipo === 'vehiculo') || tanques[0]);
 
   // 2. ¿Pasó el examen del modo sombra? Solo cuentan los veredictos humanos ya dados.
-  const vered = (somb.data || []).filter((x: any) => x.veredicto === 'verdadera' || x.veredicto === 'falsa');
+  // ⛔ EL EXAMEN ES SOLO DE R1, Y ESTO ES LO MÁS DELICADO DEL MÓDULO.
+  //    Este portón es lo único que impide que el sistema vuelva a insinuarle a una persona que
+  //    se robó combustible. Mide si el detector de FALTANTES acierta. Al empezar a guardar R14
+  //    (sobrantes nocturnos) en la misma tabla, sus 18 filas entraban al cálculo: marcar «sí, esa
+  //    noche le cargaron» habría contado como un faltante bien detectado y podía ABRIR el portón
+  //    con cero faltantes verificados. Son dos preguntas distintas y dos detectores distintos.
+  //    [[norma-correccion-heredada-toca-todas-las-tablas]]
+  const vered = (somb.data || []).filter((x: any) => (x.regla || 'R1') === 'R1' && (x.veredicto === 'verdadera' || x.veredicto === 'falsa'));
   const okN = vered.filter((x: any) => x.veredicto === 'verdadera').length;
   const prec = vered.length ? okN / vered.length : 0;
   const limFalsas = new Date(new Date(fecha + 'T12:00:00Z').getTime() - DIAS_SIN_FALSAS * 86400000).toISOString().slice(0, 10);
@@ -719,8 +823,16 @@ Deno.serve(async (req) => {
         `no puede seguir señalando con números que no aguantan.\n\n` +
         `Se sigue calculando y guardando todo en Combustible → Auditoría → Modo sombra. Cuando se corrija lo que esté fallando ` +
         `y vuelva a pasar el examen, se enciende de nuevo desde ahí.`;
-      telsRol(['socios']).forEach((t) => filas.push({ telefono: t, mensaje: aviso, tipo: 'auditoria' }));
-      marcar.push(kkey);
+      // ⛔ ESTE AVISO NO PUEDE QUEDARSE MUDO. Dice que el módulo DEJÓ DE HABLAR: si no llega, nadie
+      //    se entera de que se apagó y el silencio se lee igual que «no hay nada que reportar».
+      //    En los clones el rol `socios` no está declarado —quién recibe en nombre del dueño lo
+      //    decide Máximo— así que cae en los jefes, diciendo por qué les llegó a ellos.
+      const aSocios = telsRol(['socios']);
+      const destKill = aSocios.length ? aSocios : jefes;
+      const txtKill = aSocios.length ? aviso
+        : aviso + `\n\nℹ️ Esto normalmente va a los socios. Le llega a usted porque en esta empresa todavía no está declarado quién recibe en nombre del dueño (configuración: \`rol_cargos\`, rol \`socios\`).`;
+      destKill.forEach((t) => filas.push({ telefono: t, mensaje: txtKill, tipo: 'auditoria' }));
+      if (destKill.length) marcar.push(kkey);   // misma razón que arriba: sin destinatario no se sella
     }
   }
 
@@ -757,7 +869,14 @@ Deno.serve(async (req) => {
     }
     msg += `\n\nEl detalle completo está en Combustible → Auditoría.`;
     jefes.forEach((t) => filas.push({ telefono: t, mensaje: msg, tipo: 'auditoria' }));
-    marcar.push(keyJefes);
+    // ⛔ LA CLAVE SE MARCA SOLO SI HUBO A QUIÉN MANDARLE. Se marcaba siempre, así que un día sin
+    //    destinatarios quedaba sellado como «ya avisado» y no se recuperaba nunca. Medido en
+    //    Flotilla el 07/11/2026: **65 días** marcados desde el 18/08, todos a cero personas —
+    //    y al configurar por fin los destinatarios, el día de hoy ya venía quemado.
+    //    Una marca de «ya se envió» que no comprueba que se enviara convierte un error de
+    //    configuración en pérdida definitiva. [[norma-la-falta-de-un-dato-no-es-un-dato]]
+    if (jefes.length) marcar.push(keyJefes);
+    else console.log(`[jefes] ${fecha}: había ${errores.length + hallazgos.length} cosa(s) que decir y NINGÚN destinatario (roster vacío y rol_cargos sin operativo/mecanica/socios) — la clave NO se marca, así que se recupera cuando se configure`);
   }
 
   const resumen = { fecha, corte: corteSur || null, duplicados: dupIguales, corregidas: corregidas.size,
@@ -767,6 +886,9 @@ Deno.serve(async (req) => {
     // R14 sale en la respuesta con sus destinatarios: así se ve a quién le habla sin leer el código,
     // y si la lista está vacía se ve que por eso no salió (y no porque no hubiera nada que preguntar).
     amanecio_con_mas: entraronNoche.length, aviso_manana_a: avisoManana.length,
+    // ⛔ El conteo de destinatarios sale SIEMPRE. Sin esto, "0 avisos" se lee igual con nada que
+    //    decir que con cosas que decir y nadie a quien decírselas — que es lo que pasó 65 días.
+    jefes: jefes.length, fuente_destinatarios: { roster: roster.length, rol_cargos: Object.keys(rolCargos).filter((k) => !k.startsWith('_')) },
     // El estado del portón sale siempre en la respuesta: si alguien se pregunta por qué no avisó,
     // acá está la razón exacta, sin tener que leer el código.
     porton: { avisa: AVISAR_SUSTRACCION, aforoOk, examenOk, interruptor, dosFalsas, evaluados: vered.length, precision: Math.round(prec * 100) } };

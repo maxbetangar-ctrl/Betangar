@@ -2613,7 +2613,15 @@ function _acAntesDe(ts,corte){
   return (a!=null&&b!=null&&a<b);
 }
 function _acSombraEstado(){
-  var ev=(AC_SOMBRA||[]).filter(function(x){ return x.veredicto==='verdadera'||x.veredicto==='falsa'; });
+  // ⛔ EL EXAMEN ES SOLO DE R1, Y ES LO MÁS DELICADO DEL MÓDULO. Este portón es lo único que impide
+  //    que el sistema vuelva a insinuarle a una persona que se robó combustible: mide si el
+  //    detector de FALTANTES acierta. Al empezar a guardar R14 —sobrantes nocturnos— en la misma
+  //    tabla, sus filas entraban al cálculo, y marcar «sí, esa noche le cargaron» habría contado
+  //    como un faltante bien detectado: el portón podía ABRIRSE con cero faltantes verificados.
+  //    Son dos preguntas distintas y dos detectores distintos.
+  //    GEMELA del filtro de `vered` en la edge function. [[norma-correccion-heredada-toca-todas-las-tablas]]
+  var esR1=function(x){ return String(x.regla||'R1')==='R1'; };
+  var ev=(AC_SOMBRA||[]).filter(function(x){ return esR1(x)&&(x.veredicto==='verdadera'||x.veredicto==='falsa'); });
   var ok=ev.filter(function(x){ return x.veredicto==='verdadera'; }).length;
   var prec=ev.length?(ok/ev.length):null;
   var hoy=_acHoy(), lim14=_acMenos(14,hoy);
@@ -2627,7 +2635,10 @@ function _acSombraEstado(){
           examenOk:examenOk, aforoOk:aforoOk, interruptor:!!AC_META.avisarSustraccion,
           listo:(examenOk&&aforoOk),
           avisando:(examenOk&&aforoOk&&!!AC_META.avisarSustraccion),
-          pend:(AC_SOMBRA||[]).filter(function(x){return x.veredicto==='pendiente';})};
+          // `pend` es la cola del EXAMEN: solo faltantes. Las noches de R14 van aparte, en `pendNoche`,
+          // porque son otra pregunta —«¿le cargaron?»— y no se le reclaman a nadie.
+          pend:(AC_SOMBRA||[]).filter(function(x){return esR1(x)&&x.veredicto==='pendiente';}),
+          pendNoche:(AC_SOMBRA||[]).filter(function(x){return String(x.regla||'')==='R14'&&x.veredicto==='pendiente';})};
 }
 function _acSombraHtml(){
   if(!AC_SOMBRA||!AC_SOMBRA.length)return '';
@@ -2676,7 +2687,36 @@ function _acSombraHtml(){
     }).join('');
     if(e.pend.length>20)h+='<div style="font-size:11px;color:var(--text3)">…y '+(e.pend.length-20)+' más.</div>';
   }
-  return h+'</div>';
+  h+='</div>';
+
+  // ── LAS NOCHES DE R14: OTRA PREGUNTA, OTRA LISTA, Y NO ENTRAN AL EXAMEN ──────────────────────
+  // Naranja y no rojo, y redactado como pregunta: acá no falta combustible, SOBRA. No se le
+  // reclama nada a nadie — de noche el camión está en el patio. Y marcarlas NO mueve el portón
+  // del aviso de faltantes, que mide otra cosa.
+  if(e.pendNoche&&e.pendNoche.length){
+    var tn=e.pendNoche.reduce(function(s,x){ return s+Math.abs(x.litros||0); },0);
+    h+='<div class="card" style="margin-bottom:10px">'+
+      '<div class="st" style="margin-bottom:4px">⛽ Noches en que un tanque amaneció con más — sin respuesta</div>'+
+      '<div style="font-size:10px;color:var(--text3);margin-bottom:8px">'+e.pendNoche.length+' noche(s) · '+_acFmt(tn,0)+' L que entraron sin carga asentada. '+
+      'La pregunta sale sola a la mañana siguiente, pero estas quedaron viejas. '+
+      '<b>Si alguien se acuerda de que esa noche se cargó</b>, lo que corresponde es <b>asentar la surtida</b> — y el día cuadra solo. '+
+      'Marcar acá solo cierra la pregunta; no acusa a nadie ni toca el aviso de faltantes.</div>';
+    h+=e.pendNoche.slice(0,20).map(function(x){
+      return '<div style="padding:8px 10px;margin-bottom:6px;border-left:3px solid var(--orange);background:var(--bg3);border-radius:0 8px 8px 0">'+
+        '<div style="font-size:11px;font-weight:800;color:var(--orange)">⛽ '+_mEsc(U(x.cam||''))+' · '+formatFecha(x.fecha)+
+          (x.litros!=null?(' · +'+_acFmt(Math.abs(x.litros),1)+' L'):'')+'</div>'+
+        '<div style="font-size:11px;color:var(--text2);line-height:1.5;margin:3px 0 6px">'+_mEsc(x.detalle||'')+'</div>'+
+        (_acPuedeVeredicto()
+          ? ('<div style="display:flex;gap:6px;flex-wrap:wrap">'+
+             '<button class="btn btn-sm" onclick="acVeredicto(\''+x.id+'\',\'verdadera\')">✅ Sí le cargaron — falta asentarla</button>'+
+             '<button class="btn btn-sm" onclick="acVeredicto(\''+x.id+'\',\'falsa\')">⚪ No le cargaron — revisar la regla</button></div>')
+          : '<div style="font-size:10px;color:var(--text3)">Lo marca administración o los socios.</div>')+
+        '</div>';
+    }).join('');
+    if(e.pendNoche.length>20)h+='<div style="font-size:11px;color:var(--text3)">…y '+(e.pendNoche.length-20)+' más.</div>';
+    h+='</div>';
+  }
+  return h;
 }
 // Encender o apagar el aviso por WhatsApp. Encender NO alcanza por sí solo: la edge function vuelve
 // a comprobar el aforo y el examen antes de mandar nada. Esto es el tercer candado, no el único —
@@ -3324,7 +3364,11 @@ function _acRender(){
   //     está entrando a la Utilidad Real, no gasoil perdido.
   // 📌 [[norma-numero-que-el-dueno-no-puede-explicar]] · [[norma-el-resumen-no-nombra-causas-que-no-midio]]
   var litrosFaltan=altas.reduce(function(s,a){return s+((a.litros!=null&&a.litros<0)?Math.abs(a.litros):0);},0);
-  var litrosEntraron=altas.reduce(function(s,a){return s+((a.cod==='R13'&&a.litros>0)?a.litros:0);},0);
+  // ⛔ R14 VA ACÁ TAMBIÉN. Al partir R13 en dos (lo que entró de día y lo que entró de noche), los
+  //    litros de la mitad nocturna se cayeron en silencio de este KPI — que es el que el dueño lee
+  //    primero. Partir un código obliga a revisar a TODOS los que lo consumían.
+  //    [[norma-correccion-heredada-toca-todas-las-tablas]]
+  var litrosEntraron=altas.reduce(function(s,a){return s+(((a.cod==='R13'||a.cod==='R14')&&a.litros>0)?a.litros:0);},0);
   var g_=AC_META.galpon||{};
   // Calidad del dato: días con las dos mediciones y km, sobre el total de jornadas.
   // ⛔ Una jornada con una lectura DECLARADA FALSA no es auditable, aunque tenga las tres cosas
