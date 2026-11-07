@@ -16,7 +16,24 @@
 // Uso:  node pruebas/moneda-del-movimiento.test.mjs
 // ════════════════════════════════════════════════════════════════════════════════════════════
 import fs from 'node:fs'
-import { getPAT } from '../../maxware-tools/pat.mjs'
+
+// ⛔ ESTA PRUEBA NECESITA DOS COSAS QUE EL CI NO TIENE: el repo hermano
+//    `maxware-tools` (el CI clona UN repo) y el PAT para leer los datos reales.
+//    Con un `import` estático arriba, en el CI el archivo ni arranca: tira al
+//    importar y la corrida entera queda roja. Así quedó rojo el workflow `tests`
+//    de este repo — y nadie lo leyó.
+//
+// 📌 Entonces se SALTA cuando sus requisitos no están, y LO DICE. Lo que no se
+//    puede hacer es pasar en silencio: una prueba que no corrió y se ve verde es
+//    peor que una roja. [[norma-falta-de-dato-no-es-un-dato]]
+let getPAT
+try {
+  ({ getPAT } = await import('../../maxware-tools/pat.mjs'))
+} catch (e) {
+  console.log('⏭  SALTADA: necesita el repo `maxware-tools` y el PAT, y acá no están.')
+  console.log('   (Es una prueba contra los DATOS REALES; corre en la máquina de Máximo, no en el CI.)')
+  process.exit(0)
+}
 
 const src = fs.readFileSync(new URL('../app.js', import.meta.url), 'utf8')
 
