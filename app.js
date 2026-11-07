@@ -1928,6 +1928,11 @@ var _acCargando=false;
 // vez más fino que la regla; no lo devuelvas.)
 var AC_SIGMA_CM=1;      // error real de UNA lectura: redondeo + tanque no nivelado + chapoteo
 var AC_TOL_PISO=8;      // piso: que una tabla plana no genere una tolerancia ridícula
+// ⛔ HASTA CUÁNTOS DÍAS DE HUECO SE AUDITA UN TRAMO DE PATIO. 4 cubre el fin de semana largo
+//    (viernes → martes). Más allá, el tramo deja de ser una pregunta contestable: nadie se acuerda
+//    de qué pasó, y un aviso que no se puede contestar enseña a ignorar los que sí.
+//    Medido el 07/11/2026: con el tope en 1 (solo días consecutivos) quedaban 381 L sin auditar.
+var AC_NOCHE_DIAS_MAX=4;
 
 // Historia que se trae ADEMÁS del rango pedido, SOLO para medir cuánto rinde cada unidad. El
 // rendimiento de referencia es la MEDIANA de las jornadas de esa unidad, y una mediana sacada de
@@ -2109,6 +2114,33 @@ function _acAlturaValida(tanque,alturaCm){
 //    Está aparte para que la prueba la SAQUE de acá y no la reescriba: una copia de la regla en
 //    la prueba hace que la prueba pase mientras el producto está roto.
 //    [[norma-dos-listas-a-mano-se-desincronizan]]
+// ⛔ EL VEREDICTO DE UN TRAMO DE PATIO. Es una función aparte, pura y sin DOM, para que la prueba
+//    la SAQUE de acá y no la reescriba — y porque es la decisión más delicada del módulo: de este
+//    lado está R1, que dice que FALTÓ COMBUSTIBLE.
+//
+//    Cada causa empuja el nivel en UN SOLO SENTIDO, y de ahí sale que las dos direcciones NO
+//    resten lo mismo:
+//      rodar    → el nivel solo puede BAJAR, hasta `volKm`      ⇒ se le resta al FALTANTE
+//      cargar   → el nivel solo puede SUBIR, hasta `cargaCerca` ⇒ se le resta al SOBRANTE
+//      la regla → ±2·TOL para cualquier lado                     ⇒ se les resta a las dos
+//
+// 📌 El faltante NO resta la carga, y esa es la parte contraintuitiva: no se sabe cuándo entró,
+//    pero si entró DENTRO del tramo la pérdida real es `caída + carga`, y si entró ANTES es
+//    `caída`. En los dos casos es **mayor o igual** a la caída medida ⇒ ignorarla subestima,
+//    nunca inventa. Antes esto se callaba entero y por eso no miraba 277 tramos.
+// 📌 El sobrante SÍ la resta: una subida es exactamente lo que una carga explica.
+//
+// ⚠️ Medido el 07/11/2026 contra la base real: con esta regla R1 pasa de 6 a 8 avisos, y los 2
+//    nuevos son legítimos (uno de 167,2 L con el camión apenas movido, otro de 86,0 L con el
+//    odómetro quieto). Y los 3 tramos de fin de semana que yo había contado como «sin auditar»
+//    NO disparan, que es lo correcto: el camión rodó 177, 335 y 240 km en ellos. Una regla que
+//    solo mirara los litros habría inventado 3 acusaciones ahí.
+function _acVeredictoNoche(delta,tolN,volKm,cargaCerca){
+  var faltan=Math.round((-delta)*100)/100;
+  if(faltan>Math.round((2*tolN+(volKm||0))*100)/100)return 'falta';
+  if(delta>Math.round((2*tolN+(cargaCerca||0))*100)/100)return 'sobra';
+  return null;
+}
 function _acDespDelCuadre(salida,llegada,desp,despPost){
   if(!(despPost>0)||salida==null||llegada==null)return desp;
   var sin=Math.round((desp-despPost)*100)/100;
@@ -3036,11 +3068,30 @@ function _acAnomalias(todas,desde,hasta,ref){
             : '')+
           'Mientras eso no esté registrado, de ese combustible no se puede decir nada.',
           u,hoy.fecha,null,'');
-        continue;                       // rodó: R1 no tiene nada que decir acá
+        // ⛔ ACÁ HABÍA UN `continue` Y SE LLEVABA PUESTA A R1 (quitado el 07/11/2026).
+        //    El razonamiento era «rodó, así que la caída la explica el viaje». No es cierto: la
+        //    explica HASTA lo que esos km consumen, y ni un litro más. Con el `continue`, mover
+        //    el camión 12 km alcanzaba para que una caída de 150 L no la mirara NADIE — el único
+        //    aviso era «hizo 12 km sin planilla», que son ~6 L.
+        //    📌 Medido en Betangar: 97 tramos con R11; en 1 el tanque bajó 151 L MÁS de lo que
+        //      esos km podían consumir, sin ninguna carga registrada. Nunca se reportó.
+        //    R11 y R1 son dos frases distintas y las dos pueden ser verdad a la vez: «rodó sin
+        //    planilla» y «falta combustible que el viaje no explica». Ahora se sigue de largo y
+        //    los km se DESCUENTAN del faltante más abajo, que es lo que corresponde.
       }
 
       if(ant.llegada==null||hoy.salida==null)continue;    // sin las dos lecturas no hay cuadre
-      if(!_acDiaSiguiente(fLle,hoy.fecha))continue;       // (a) días no consecutivos
+      // ⛔ ANTES ERA `if(!_acDiaSiguiente(...))continue` Y EL FIN DE SEMANA NO LO MIRABA NADIE.
+      //    Un camión que llega el viernes y sale el lunes tiene DOS días de por medio, así que la
+      //    condición daba falso y el tramo no se auditaba nunca. Medido en Betangar: 156 tramos
+      //    no consecutivos, 4 con una caída mayor a 2·TOL ⇒ **381 L que no mira nadie**.
+      // 📌 Lo que cambia con más días NO es la física, es cuántas cosas pudieron pasar. Y las dos
+      //    que pueden pasar ya están medidas: lo que se rodó (odómetro) y lo que se cargó. Por eso
+      //    alcanza con ampliar la ventana de cargas a TODO el tramo (abajo) y poner un tope de
+      //    días, porque a partir de cierto hueco el tramo deja de ser una respuesta útil: nadie
+      //    puede decir qué pasó un jueves de la semana pasada.
+      var _diasHueco=Math.round((new Date(hoy.fecha+'T12:00:00')-new Date(fLle+'T12:00:00'))/86400000);
+      if(!(_diasHueco>=1&&_diasHueco<=AC_NOCHE_DIAS_MAX))continue;   // (a) hueco fuera de rango
       if(kmFantasma==null)continue;                       // sin odómetro no se opina de merma
       if(ant.conf!=='completa'||hoy.conf!=='completa')continue;  // (c)
 
@@ -3057,7 +3108,16 @@ function _acAnomalias(todas,desde,hasta,ref){
       //   • si no → se calla. Un faltante que depende de dónde caiga un sello no es un faltante.
       // Cuando NO hay ninguna carga cerca, el cuadre es limpio: salió con X, llegó con Y, y las
       // dos lecturas se comparan solas. Ahí es donde R1 tiene derecho a hablar, y sigue hablando.
-      var cargaCerca=Math.round((_acEntradas(u,fLle,fLle,true)+_acEntradas(u,hoy.fecha,hoy.fecha,true))*100)/100;
+      // ⛔ LA VENTANA DE CARGAS ES TODO EL TRAMO, NO LAS DOS PUNTAS. Con días consecutivos daba
+      //    igual; con un fin de semana de por medio, una carga del SÁBADO quedaba afuera de la
+      //    cuenta y el sobrante de la mañana del lunes salía acusado sin que nadie lo explicara.
+      //    Ampliar el hueco sin ampliar esta ventana habría creado acusaciones falsas nuevas.
+      var cargaCerca=Math.round(_acEntradas(u,fLle,hoy.fecha,true)*100)/100;
+      // Lo que el odómetro justifica: los km que se hicieron en el tramo, al rendimiento de ESTA
+      // unidad (su mediana medida si la hay; si no, el estándar del modelo). Sin referencia no se
+      // descuenta nada —queda en 0— y la regla se vuelve más exigente, no menos.
+      var _refNoche=(ref&&ref[u]&&(ref[u].fija||ref[u].n>=3))?ref[u].mediana:_acRefModelo(u);
+      var volKm=(kmFantasma>0&&_refNoche>0)?Math.round((kmFantasma/_refNoche)*100)/100:0;
       var delta=Math.round((hoy.salida-ant.llegada)*100)/100;
       // (e) tolerancia de ESAS dos lecturas, y el doble para tener derecho a mostrarse
       var tolN=_acTol(ant.tanque||hoy.tanque,ant.llegadaCm,hoy.salidaCm,cargaCerca);
@@ -3089,28 +3149,67 @@ function _acAnomalias(todas,desde,hasta,ref){
       // había producido 3 de las 5 acusaciones falsas de toda la historia.
       // ⚠️ Y pasó desapercibido porque el comentario decía la verdad y el código no: leyendo el
       //    bloque se veía correcto. [[norma-probar-el-camino-no-la-pieza]]
-      var puedeOpinar=(cargaCerca===0);
-      if(!puedeOpinar){
-        // No es un hueco silencioso: el agujero de registro lo siguen diciendo R9 y R13, que no
-        // acusan a nadie. Lo que no se puede sostener es el cuadre de ESTA noche.
-        continue;
-      }
+      // ══════════════════════════════════════════════════════════════════════════════════════
+      // CADA CAUSA EMPUJA EL NIVEL EN UN SOLO SENTIDO, Y POR ESO LAS DOS DIRECCIONES NO RESTAN
+      // LO MISMO. Esto reemplaza al `puedeOpinar = (cargaCerca===0)`, que callaba las DOS.
+      //
+      //   rodar      → el nivel SOLO puede BAJAR  (hasta volKm)      ⇒ se resta al FALTANTE
+      //   cargar     → el nivel SOLO puede SUBIR  (hasta cargaCerca) ⇒ se resta al SOBRANTE
+      //   la regla   → ±2·TOL en cualquier sentido                   ⇒ se resta a las dos
+      //
+      // ⛔ POR QUÉ EL FALTANTE NO NECESITA RESTAR LA CARGA, que es lo que lo tenía callado:
+      //    no se sabe si la carga entró antes o después de la lectura. Pero si entró DENTRO del
+      //    tramo, la pérdida real es `caída + carga`; si entró ANTES, es `caída`. En los dos
+      //    casos la pérdida real es **mayor o igual** a la caída medida. ⇒ Ignorar la carga
+      //    SUBESTIMA el faltante, nunca lo inventa. Callarse era más conservador de lo necesario.
+      //    📌 Medido en Betangar: R1 se calla en 277 tramos por una carga cerca; 2 de ellos
+      //      hablarían con este criterio, por 277 L que hoy no mira nadie.
+      //    ⚠️ El SOBRANTE sí la necesita: ahí la carga es exactamente lo que explica la subida.
+      //      Por eso R14 sigue exigiendo superar `2·TOL + cargaCerca` y no cambia de fondo.
+      //
+      // 📌 Y esto NO revive el fallo del 14/10 (3 acusaciones falsas en noches con 200 y 400 L
+      //    asentados ese día): aquellas eran del lado del SOBRANTE —el tanque había SUBIDO— y ese
+      //    lado sigue restando la carga entera. [[norma-una-asercion-mal-escrita-acusa-al-producto]]
+      // ══════════════════════════════════════════════════════════════════════════════════════
+      var faltan=Math.round((-delta)*100)/100;                       // >0 si el tanque BAJÓ
+      var umbralFalta=Math.round((2*tolN+volKm)*100)/100;
+      var umbralSobra=Math.round((2*tolN+cargaCerca)*100)/100;
+      var _veredicto=_acVeredictoNoche(delta,tolN,volKm,cargaCerca);
 
-      if(delta<-2*tolN){
+      if(_veredicto==='falta'){
+        // ⛔ EL TEXTO SE ARMA CON LOS HECHOS DEL TRAMO. Antes afirmaba siempre «el odómetro
+        //    confirma que no se movió» y «no hay ninguna carga registrada»: con la regla nueva
+        //    las dos frases pueden ser FALSAS, y un aviso que afirma algo falso se desarma solo
+        //    la primera vez que alguien lo comprueba.
+        var _porque=[];
+        _porque.push(kmFantasma>0
+          ? ('rodó '+_acFmt(kmFantasma)+' km en el tramo, que a su rendimiento explican unos '+_acFmt(volKm,1)+' L')
+          : ('el odómetro confirma que no se movió ('+_acFmt(ant.kmE)+' km las dos veces)'));
+        _porque.push(cargaCerca>0
+          ? ('hubo '+_acFmt(cargaCerca,1)+' L cargados en el tramo, y una carga solo puede hacer el faltante MAYOR, nunca menor')
+          : 'no hay ninguna carga registrada en el tramo');
+        var _cuando=(_diasHueco===1)
+          ? ('y amaneció el '+formatFecha(hoy.fecha))
+          : ('y en su siguiente salida, '+_diasHueco+' días después ('+formatFecha(hoy.fecha)+'),');
         // Sin nombre de chofer: de noche el custodio es el PATIO, no la persona que manejó.
         add('alta','R1','Faltó combustible en el patio',
-          'La unidad '+U(u)+' quedó el '+formatFecha(fLle)+' con '+_acFmt(ant.llegada,1)+' L y amaneció el '+
-          formatFecha(hoy.fecha)+' con '+_acFmt(hoy.salida,1)+' L: faltan '+_acFmt(Math.abs(delta),1)+' L'+$(delta)+'. '+
-          'El odómetro confirma que no se movió ('+_acFmt(ant.kmE)+' km las dos veces) y '+
-          'no hay ninguna carga registrada en esos dos días. '+
-          'Es más de lo que puede explicar el error de la regla (±'+_acFmt(2*tolN,0)+' L). '+
-          'Revisá quién tuvo acceso al patio esa noche y volvé a tomar las dos lecturas para confirmarlo.',
+          'La unidad '+U(u)+' quedó el '+formatFecha(fLle)+' con '+_acFmt(ant.llegada,1)+' L '+_cuando+
+          ' con '+_acFmt(hoy.salida,1)+' L: faltan '+_acFmt(faltan,1)+' L'+$(delta)+'. '+
+          _porque.join(', y ')+'. '+
+          'Es más de lo que puede explicar todo eso junto más el error de la regla (±'+_acFmt(umbralFalta,0)+' L). '+
+          'Revisá quién tuvo acceso al patio en ese tramo y volvé a tomar las dos lecturas para confirmarlo.',
           u,hoy.fecha,delta,'');
-      } else if(delta>2*tolN){
+      } else if(_veredicto==='sobra'){
+        // ⛔ ACÁ LA CARGA SÍ SE RESTA ENTERA, y es la diferencia con el faltante: una subida de
+        //    nivel es exactamente lo que una carga puede explicar. Si la subida supera a TODA la
+        //    carga declarada en el tramo más el error de la regla, ninguna de esas cargas la
+        //    explica y la pregunta es legítima. Antes esto exigía `cargaCerca === 0`, que es más
+        //    fuerte de lo necesario: callaba también cuando la subida era enorme al lado de una
+        //    carga chiquita.
         // Lleva la noche y los dos litrajes porque R14 PREGUNTA, y una pregunta sin el dato
         // concreto no se puede contestar. GEMELA del push de R14 en la edge function.
         _entraron.push({cam:u,fecha:hoy.fecha,litros:delta,cuando:'de noche',
-                        noche:fLle,antes:ant.llegada,ahora:hoy.salida,tol:2*tolN});
+                        noche:fLle,antes:ant.llegada,ahora:hoy.salida,tol:umbralSobra});
       }
     }
   });
@@ -3174,6 +3273,22 @@ function _acAnomalias(todas,desde,hasta,ref){
   var _r4c=[];
   AC_JORNADAS.forEach(function(j){
     if(j.conf!=='completa'||j.consumo==null)return;
+    // ⛔ UN CONSUMO NEGATIVO NO ES «CONSUMIÓ MENOS»: ES QUE ENTRÓ COMBUSTIBLE.
+    //
+    // 🔴 Medido el 07/11/2026 sobre los 4,5 meses de la base: de los 74 avisos de R4c, **72 eran
+    //    sobre jornadas con consumo NEGATIVO**. El peor decía «figura gastando solo −399,9 L para
+    //    132 km»: el tanque GANÓ 400 L. Esa frase no se puede leer, y una regla que es 97% ruido
+    //    no se desactiva — se ignora, y con ella se ignora el módulo entero.
+    //
+    // La pregunta correcta para un tanque que sube ya existe y es otra: R13 («entraron N L sin
+    // ninguna carga registrada»), que señala el AGUJERO DE REGISTRO y no a una jornada. Las 83
+    // jornadas con consumo negativo entran ahí, agrupadas, que es como se puede contestar.
+    //
+    // ⇒ R4c queda para lo que de verdad le toca: un consumo POSITIVO pero demasiado chico para
+    //   los km, que es la forma que tiene un robo cuando además se infla la lectura de llegada.
+    //   R4b (`rendImposible`) ya exigía `consumo > 0` desde que se escribió; R4c nunca lo pidió.
+    // [[norma-una-asercion-mal-escrita-acusa-al-producto]]
+    if(j.consumo<=0)return;
     if(j.km==null||j.km<30||j.km>350)return;
     if(_acCargaEnLote(j.cam,j.fecha)>0)return;
     var refU=ref[j.cam]&&(ref[j.cam].fija||ref[j.cam].n>=3)?ref[j.cam].mediana:null;

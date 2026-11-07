@@ -33,7 +33,7 @@ function trozo(src, nombre, opcional = false){
 const FUNCS = ['_acHoy','_acNum','_acFmt','_acUsd','_acCubicar','_acLitrosPorCm','_acTol','_acSigmaDe',
   '_acDiaSiguiente','_acAlturaValida','_acLotesSurtidas','_acSurtidaUbicable','_acEntradas',
   '_acEntradasSinHora','_acCargaEnLote','_acTanqueDe','_acEsGalpon','_acDedupe','_acArmarJornadas','_acRefModelo',
-  '_acRefRend','_acTs','_acAntesDe','_acAnomalias','_acDespDelCuadre','_acMenos','_acCostoL']
+  '_acRefRend','_acTs','_acAntesDe','_acAnomalias','_acDespDelCuadre','_acVeredictoNoche','_acMenos','_acCostoL']
 
 export function cargarAuditoria(rutaApp = RUTA_APP){
   const src = readFileSync(rutaApp, 'utf8')
@@ -55,12 +55,19 @@ export function cargarAuditoria(rutaApp = RUTA_APP){
     if (!m) throw new Error('no encontré ' + nom + ' en el app.js — el banco mediría con otra vara')
     vm.runInContext(m[0], ctx)
   }
+  // Las que aparecieron DESPUÉS: si no están, es que se está corriendo contra el código anterior
+  // —que es justo para lo que sirve este banco— y ese código no las usa. Si estuvieran y no se
+  // leyeran, el banco mediría con otra vara; por eso se leen del archivo igual que las de arriba.
+  for (const nom of ['AC_NOCHE_DIAS_MAX']) {
+    const m = src.match(new RegExp('var ' + nom + '\\s*=[^;\\n]*;'))
+    if (m) vm.runInContext(m[0], ctx)
+  }
   // Las de la corrección del 07/09 son opcionales: así el MISMO banco corre contra el código
   // ANTERIOR (`git show HEAD:app.js`) y se comprueba que la prueba se pone ROJA sin ellas.
   // Opcionales: las que existen en una versión y no en la otra, para que el MISMO banco
   // pueda correr contra el código anterior y mostrar en qué se pone rojo.
   const NUEVAS = { _acLotesSurtidas:1, _acSurtidaUbicable:1, _acEntradasSinHora:1, _acCargaEnLote:1,
-                   _acDespDelCuadre:1 }
+                   _acDespDelCuadre:1, _acVeredictoNoche:1 }
   const BR = String.fromCharCode(10)
   const codigo = FUNCS.map(f => trozo(src, f, !!NUEVAS[f])).join(BR)
 

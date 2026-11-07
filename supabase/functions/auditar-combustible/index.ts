@@ -92,7 +92,7 @@ Deno.serve(async (req) => {
                 : new Date(new Date(hoyVE + 'T12:00:00Z').getTime() - 86400000).toISOString().slice(0, 10));
   const previo = new Date(new Date(fecha + 'T12:00:00Z').getTime() - 86400000).toISOString().slice(0, 10);
 
-  const [cfgT, med, gas, ck, emps, waCfg, logs, sur, cfgCorte, cfgAvisar, cfgDuda, somb, uCfg, cfgManana, cfgRolCargos] = await Promise.all([
+  const [cfgT, med, gas, ck, emps, waCfg, logs, sur, cfgCorte, cfgAvisar, cfgDuda, somb, uCfg, cfgManana, cfgRolCargos, cfgRendRef] = await Promise.all([
     sb.from('combustible_tanques_config').select('*'),
     sb.from('combustible_mediciones').select('*').gte('fecha', previo).lte('fecha', fecha),
     sb.from('gasoil').select('*').gte('f', previo).lte('f', fecha),
@@ -105,9 +105,13 @@ Deno.serve(async (req) => {
     sb.from('configuracion').select('valor').eq('clave', 'aud_comb_avisar').maybeSingle(),
     sb.from('configuracion').select('valor').eq('clave', 'aforo_en_duda').maybeSingle(),
     sb.from('comb_auditoria_sombra').select('regla,veredicto,fecha,veredicto_at').order('veredicto_at', { ascending: false }).limit(300),
-    sb.from('unidad_config').select('cam,capacidad_tanque_l,mide_tanque'),
+    // ⛔ `modelo` ENTRA ACÁ porque el rendimiento de referencia sale del modelo del tanque, y sin
+    //    él no se puede saber cuántos litros justifica un kilómetro. Sin eso, quitar la exclusión
+    //    de R11 convertiría cada día que el camión rodó en un faltante falso.
+    sb.from('unidad_config').select('cam,capacidad_tanque_l,mide_tanque,modelo'),
     sb.from('configuracion').select('valor').eq('clave', 'aud_comb_aviso_manana').maybeSingle(),
     sb.from('configuracion').select('valor').eq('clave', 'rol_cargos').maybeSingle(),
+    sb.from('configuracion').select('valor').eq('clave', 'aud_comb_rend_ref').maybeSingle(),
   ]);
   if (cfgT.error) return json({ ok: false, error: cfgT.error.message }, 500);
   const corteSur = String(cfgCorte?.data?.valor || '').replace(/"/g, '').slice(0, 10);
@@ -121,6 +125,32 @@ Deno.serve(async (req) => {
     const obj = typeof cru === 'string' ? JSON.parse(cru) : cru;
     for (const u of (obj?.unidades || [])) AFORO_EN_DUDA.add(String(u).trim().toUpperCase());
   } catch (_e) { /* lista vacía: se avisa de todo, como antes */ }
+
+  // ── EL RENDIMIENTO DE REFERENCIA, POR MODELO ─────────────────────────────────────────────────
+  // GEMELA de `_acRefModelo` en `app.js`: la clave del mapa es un pedazo del nombre del modelo
+  // («1131») y el valor son km/L. Si falta la clave, falta el modelo, o el valor no es un número,
+  // devuelve null y **no se descuenta nada** — la regla queda más exigente, nunca más floja.
+  // ⛔ El modo seguro de un dato que no está es no usarlo, no inventarle un valor por defecto.
+  let REND_REF: Record<string, number> = {};
+  try {
+    const cru = cfgRendRef?.data?.valor;
+    const obj = typeof cru === 'string' ? JSON.parse(cru) : cru;
+    if (obj && typeof obj === 'object') REND_REF = obj as Record<string, number>;
+  } catch (_e) { /* mapa vacío: no se descuenta nada */ }
+  const modeloDe: Record<string, string> = {};
+  for (const r of (uCfg.data || [])) modeloDe[String(r.cam)] = String(r.modelo || '').toLowerCase();
+  const refModelo = (u: string): number | null => {
+    const modelo = modeloDe[u] || '';
+    if (!modelo) return null;
+    let val: number | null = null;
+    for (const k of Object.keys(REND_REF)) {
+      if (k && modelo.indexOf(String(k).toLowerCase()) >= 0) {
+        const v = num(REND_REF[k]);
+        if (v != null && v > 0) val = v;
+      }
+    }
+    return val;
+  };
 
   const tanques = (cfgT.data || []).map((t: any) => {
     let tabla = t.tabla_cubicacion;
@@ -745,7 +775,17 @@ Deno.serve(async (req) => {
     } else if (kmEayer != null && kmS != null && (kmS - kmEayer) > KM_FANTASMA_MIN) {
       hallazgos.push({ u, tipo: 'R11',
         txt: `marcaba ${fmt(kmEayer)} km al llegar el ${fmtFecha(previo)} y ${fmt(kmS)} km al salir el ${fmtFecha(fecha)}: son ${fmt(kmS - kmEayer)} km hechos sin planilla ni checklist` });
-    } else if (sal && lleAyer && diaSiguiente(previo, fecha) && kmEayer != null && kmS != null
+    }
+
+    // ⛔ R11 YA NO ES EXCLUYENTE CON R1 (07/11/2026). Estaba encadenado con `else if`, así que
+    //    cuando el camión había rodado, R1 no se evaluaba nunca: mover la unidad 12 km alcanzaba
+    //    para que una caída de 150 L no la mirara nadie. Son DOS frases distintas y pueden ser
+    //    verdad a la vez. Los km ahora se DESCUENTAN del faltante (ver `volKm`) en vez de
+    //    cancelar la pregunta. GEMELA del mismo cambio en `app.js`.
+    // ⚠️ Lo que SÍ sigue frenando todo es un salto IMPOSIBLE de odómetro: ese km es un dedazo, y
+    //    un `volKm` calculado sobre basura descontaría litros que nadie recorrió.
+    const _saltoImposible = (kmEayer != null && kmS != null && (kmS - kmEayer) > KM_DIA_IMPOSIBLE);
+    if (!_saltoImposible && sal && lleAyer && diaSiguiente(previo, fecha) && kmEayer != null && kmS != null
                && alturaOk(tqDe(sal), sal.altura_cm) && alturaOk(tqDe(lleAyer), lleAyer.altura_cm)
                && !corregidas.has([u, fecha, 'salida'].join('|')) && !corregidas.has([u, previo, 'llegada'].join('|'))) {
       const a = cubicar(tqDe(sal), sal.altura_cm), b = cubicar(tqDe(lleAyer), lleAyer.altura_cm);
@@ -763,17 +803,44 @@ Deno.serve(async (req) => {
       if (a != null && b != null) {
         const d = Math.round((a - b) * 100) / 100;
         const t1 = tol(tqDe(sal), lleAyer.altura_cm, sal.altura_cm, cargaCerca);
-        // Con carga declarada cerca no se puede ubicar nada: R1 no opina, ni de faltante ni de
-        // sobrante. El bloque vacío sería una invitación a "arreglarlo": va explícito.
-        const puedeOpinar = cargaCerca === 0;
-        // Sin nombre de chofer: de noche el custodio es el PATIO, no la persona que manejó.
-        if (puedeOpinar && d < -2 * t1) graves.push({ u, litros: d, tol: t1, txt: `quedó el ${fmtFecha(previo)} con ${fmt(b)} L y amaneció con ${fmt(a)} L: faltan ${fmt(Math.abs(d))} L, con el odómetro igual y sin ninguna carga registrada en esos dos días (el error de la regla explica hasta ±${fmt(2 * t1)} L)` });
+        // ═════ CADA CAUSA EMPUJA EL NIVEL EN UN SOLO SENTIDO ═════
+        //   rodar    → el nivel SOLO puede BAJAR, hasta `volKm`      ⇒ se resta al FALTANTE
+        //   cargar   → el nivel SOLO puede SUBIR, hasta `cargaCerca` ⇒ se resta al SOBRANTE
+        //   la regla → ±2·TOL para cualquier lado                     ⇒ se resta a las dos
+        //
+        // ⛔ Esto reemplaza al `puedeOpinar = (cargaCerca === 0)`, que callaba las DOS direcciones.
+        //    El faltante NO resta la carga, y es la parte contraintuitiva: no se sabe cuando entro,
+        //    pero si entro DENTRO del tramo la perdida real es `caida + carga` y si entro ANTES es
+        //    `caida`. En los dos casos es mayor o igual a la caida medida ⇒ ignorarla SUBESTIMA,
+        //    nunca inventa. El sobrante SI la resta: una subida es lo que una carga explica.
+        // 📌 Esto NO revive el fallo del 14/10 (3 acusaciones en noches con 200 y 400 L
+        //    asentados): aquellas eran del lado del SOBRANTE, que sigue restando la carga entera.
+        // GEMELA de `_acVeredictoNoche` en `app.js` — si se toca una, se toca la otra.
+        const _ref = refModelo(u);
+        const _kmTramo = (kmS != null && kmEayer != null) ? (kmS - kmEayer) : 0;
+        const volKm = (_kmTramo > 0 && _ref != null && _ref > 0)
+          ? Math.round((_kmTramo / _ref) * 100) / 100 : 0;
+        const umbralFalta = Math.round((2 * t1 + volKm) * 100) / 100;
+        const umbralSobra = Math.round((2 * t1 + cargaCerca) * 100) / 100;
+        // ⛔ EL TEXTO SE ARMA CON LOS HECHOS. Antes afirmaba siempre «con el odometro igual y sin
+        //    ninguna carga registrada»: con esta regla las dos frases pueden ser FALSAS, y un aviso
+        //    que afirma algo falso se desarma la primera vez que alguien lo comprueba.
+        const _porque = [
+          _kmTramo > 0
+            ? `rodo ${fmt(_kmTramo)} km en el tramo, que a su rendimiento explican unos ${fmt(volKm)} L`
+            : 'con el odometro igual',
+          cargaCerca > 0
+            ? `con ${fmt(cargaCerca)} L cargados en el tramo, que solo pueden hacer el faltante MAYOR`
+            : 'sin ninguna carga registrada en esos dos dias',
+        ].join(' y ');
+        // Sin nombre de chofer: de noche el custodio es el PATIO, no la persona que manejo.
+        if (-d > umbralFalta) graves.push({ u, litros: d, tol: t1, txt: `quedo el ${fmtFecha(previo)} con ${fmt(b)} L y amanecio con ${fmt(a)} L: faltan ${fmt(Math.abs(d))} L, ${_porque} (lo que puede explicar todo eso junto mas el error de la regla son ${fmt(umbralFalta)} L)` });
         // AMANECIÓ CON MÁS. Va aparte de la subida del MISMO día (R13) porque es otra pregunta:
         // ahí el camión andaba y alguien lo cargó en ruta; acá estuvo parado toda la noche. Lleva
         // la noche, los dos litrajes y la tolerancia porque R14 PREGUNTA, y una pregunta sin el
         // dato concreto no se puede contestar. 23 noches así quedaron sin respuesta cuando esto
         // salía nada más como un total sumado (medido 06/11/2026: 3.339 L).
-        else if (puedeOpinar && d > 2 * t1) entraron.push({ u, litros: d, noche: previo, manana: fecha, tol: t1, antes: b, ahora: a });
+        else if (d > umbralSobra) entraron.push({ u, litros: d, noche: previo, manana: fecha, tol: umbralSobra, antes: b, ahora: a });
       }
     }
 
