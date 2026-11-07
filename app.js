@@ -2890,11 +2890,14 @@ function _acAnomalias(todas,desde,hasta,ref){
           formatFecha(hoy.fecha)+' con '+_acFmt(hoy.salida,1)+' L: faltan '+_acFmt(Math.abs(delta),1)+' L'+$(delta)+'. '+
           'El odómetro confirma que no se movió ('+_acFmt(ant.kmE)+' km las dos veces) y '+
           'no hay ninguna carga registrada en esos dos días. '+
-          'Es más de lo que puede explicar el error de la regla (±'+_acFmt(tolN,0)+' L). '+
+          'Es más de lo que puede explicar el error de la regla (±'+_acFmt(2*tolN,0)+' L). '+
           'Revisá quién tuvo acceso al patio esa noche y volvé a tomar las dos lecturas para confirmarlo.',
           u,hoy.fecha,delta,'');
       } else if(delta>2*tolN){
-        _entraron.push({cam:u,fecha:hoy.fecha,litros:delta,cuando:'de noche'});
+        // Lleva la noche y los dos litrajes porque R14 PREGUNTA, y una pregunta sin el dato
+        // concreto no se puede contestar. GEMELA del push de R14 en la edge function.
+        _entraron.push({cam:u,fecha:hoy.fecha,litros:delta,cuando:'de noche',
+                        noche:fLle,antes:ant.llegada,ahora:hoy.salida,tol:2*tolN});
       }
     }
   });
@@ -3134,22 +3137,52 @@ function _acAnomalias(todas,desde,hasta,ref){
       j.cam,j.fecha,null,_quien(j.cam,j.fecha,j.turno));
   });
 
-  // R13 — COMBUSTIBLE QUE ENTRÓ SIN REGISTRARSE. Un solo hallazgo con TODO junto: el problema no
-  // es cada camión, es que desde el 07/07 no se está cargando ningún despacho. Y lo que importa no
-  // son los litros de una unidad sino la plata que no está entrando a la Utilidad Real.
-  if(_entraron.length){
-    var totL=_entraron.reduce(function(s,x){ return s+(x.litros||0); },0);
+  // R13 — COMBUSTIBLE QUE ENTRÓ SIN REGISTRARSE MIENTRAS EL CAMIÓN ANDABA. Un solo hallazgo con
+  // todo junto: el problema no es cada camión, es que desde el 07/07 no se está cargando ningún
+  // despacho. Y lo que importa no son los litros de una unidad sino la plata que no entra a la
+  // Utilidad Real.
+  // ⚠️ Las nocturnas salen APARTE, en R14: son otra pregunta y se le hace a otra gente. Mezcladas
+  //    acá quedaban dentro de un total que nadie podía contestar — 23 noches sin cerrar.
+  var _entrDia=_entraron.filter(function(x){ return x.cuando!=='de noche'; });
+  var _entrNoche=_entraron.filter(function(x){ return x.cuando==='de noche'; });
+  if(_entrDia.length){
+    var totL=_entrDia.reduce(function(s,x){ return s+(x.litros||0); },0);
     var porCam={};
-    _entraron.forEach(function(x){ porCam[x.cam]=(porCam[x.cam]||0)+(x.litros||0); });
+    _entrDia.forEach(function(x){ porCam[x.cam]=(porCam[x.cam]||0)+(x.litros||0); });
     var top=Object.keys(porCam).sort(function(a,b){ return porCam[b]-porCam[a]; }).slice(0,4)
               .map(function(c){ return U(c)+' '+_acFmt(porCam[c],0)+' L'; }).join(' · ');
     add('alta','R13','Entró combustible sin registrarse',
       'En el período entraron unos '+_acFmt(totL,0)+' L a las unidades'+$(totL)+' sin ninguna carga registrada, '+
-      'repartidos en '+_entraron.length+' ocasión(es) de '+Object.keys(porCam).length+' unidad(es). Los tanques subieron y en el sistema no figura de dónde salió ese combustible. '+
+      'repartidos en '+_entrDia.length+' ocasión(es) de '+Object.keys(porCam).length+' unidad(es). Los tanques subieron y en el sistema no figura de dónde salió ese combustible. '+
       'Las que más acumulan: '+top+'. '+
       'Esto no es un tema del chofer: es que la carga no se está asentando, y mientras no se asiente ese gasto no entra a la Utilidad Real ni al costo por camión, '+
       'y ninguna revisión de faltantes puede sostenerse — no se puede decir que falta combustible cuando tampoco se sabe cuánto entró.',
       '','',totL,'');
+  }
+
+  // R14 — AMANECIÓ CON MÁS. Aparte de R13 porque es OTRA pregunta: ahí el camión andaba y alguien
+  // lo cargó en ruta; acá estuvo toda la noche en el patio. Se lista NOCHE POR NOCHE, con unidad y
+  // litros, porque el aviso de la mañana siguiente le pregunta exactamente esto a quien administra
+  // y la pantalla tiene que mostrar lo mismo que dice el WhatsApp.
+  // GEMELA del bloque R14 de la edge function `auditar-combustible`.
+  if(_entrNoche.length){
+    var totN=_entrNoche.reduce(function(s,x){ return s+(x.litros||0); },0);
+    var camN={};
+    _entrNoche.forEach(function(x){ camN[x.cam]=1; });
+    var det=_entrNoche.slice().sort(function(a,b){ return String(a.noche||'')<String(b.noche||'')?-1:1; })
+      .slice(0,6).map(function(x){
+        return U(x.cam)+' la noche del '+formatFecha(x.noche)+': quedó con '+_acFmt(x.antes,0)+
+               ' L y amaneció con '+_acFmt(x.ahora,0)+' L (+'+_acFmt(x.litros,0)+' L)';
+      }).join(' · ');
+    add('alta','R14','Amaneció con más combustible del que dejó',
+      'En '+_entrNoche.length+' noche(s) el tanque subió estando el camión en el patio, sin ninguna carga asentada: '+
+      'unos '+_acFmt(totN,0)+' L en total'+$(totN)+' repartidos en '+Object.keys(camN).length+' unidad(es). '+
+      det+(_entrNoche.length>6?' …y '+(_entrNoche.length-6)+' más.':'')+' '+
+      'Cada una pasa lo que puede explicar el error de la regla. '+
+      'A la mañana siguiente el sistema le pregunta esto a quien administra, mientras la gente todavía se acuerda: '+
+      'si cargaron —en estación o del galpón— hay que asentar la surtida, y si no cargó nadie hay que volver a pasar la regla a ese tanque. '+
+      'No señala a ningún chofer: de noche el custodio es el patio. Mientras no se cierre, el consumo del día siguiente sale mal.',
+      '','',totN,'');
   }
   if(AC_META.duplicadas>0){
     add('media','R0','Mediciones repetidas',

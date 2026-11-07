@@ -74,12 +74,25 @@ Deno.serve(async (req) => {
   // Sirve para rellenar días ya pasados sin ningún riesgo de que salga un WhatsApp viejo (norma:
   // lo de ayer no se envía hoy).
   const soloSombra = url.searchParams.get('sombra') === '1';
+  // ?manana=1 → SOLO la pregunta de la mañana siguiente (R14), y sobre HOY, no sobre ayer.
+  //
+  // ⛔ POR QUÉ NECESITA SU PROPIO MODO. Todo lo demás audita el día YA CERRADO —ayer— porque
+  //    necesita la salida y la llegada del mismo día. R14 no: le alcanzan la llegada de ANOCHE y la
+  //    salida de ESTA MAÑANA, y las dos existen a las 7 am. Corriendo con el `fecha` de siempre, la
+  //    pregunta salía sobre la noche de ANTEAYER y el mensaje decía "anoche": un día tarde, que es
+  //    justo lo que esta pieza venía a arreglar — se pregunta mientras la gente se acuerda.
+  //
+  // 📌 Y no es una copia de la regla: es la MISMA vuelta del bucle (el bloque R1, que compara la
+  //    llegada de `previo` con la salida de `fecha`) corrida con fecha=hoy. Lo único que hace el
+  //    modo es no emitir el resto, porque sobre un día abierto el resto todavía no sabe nada.
+  const soloNoche = url.searchParams.get('manana') === '1';
   // Por defecto revisa AYER (el día ya cerrado). ?fecha=YYYY-MM-DD para revisar otro.
   const hoyVE = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Caracas' });
-  const fecha = url.searchParams.get('fecha') || new Date(new Date(hoyVE + 'T12:00:00Z').getTime() - 86400000).toISOString().slice(0, 10);
+  const fecha = url.searchParams.get('fecha') || (soloNoche ? hoyVE
+                : new Date(new Date(hoyVE + 'T12:00:00Z').getTime() - 86400000).toISOString().slice(0, 10));
   const previo = new Date(new Date(fecha + 'T12:00:00Z').getTime() - 86400000).toISOString().slice(0, 10);
 
-  const [cfgT, med, gas, ck, emps, waCfg, logs, sur, cfgCorte, cfgAvisar, cfgDuda, somb, uCfg] = await Promise.all([
+  const [cfgT, med, gas, ck, emps, waCfg, logs, sur, cfgCorte, cfgAvisar, cfgDuda, somb, uCfg, cfgManana] = await Promise.all([
     sb.from('combustible_tanques_config').select('*'),
     sb.from('combustible_mediciones').select('*').gte('fecha', previo).lte('fecha', fecha),
     sb.from('gasoil').select('*').gte('f', previo).lte('f', fecha),
@@ -93,6 +106,7 @@ Deno.serve(async (req) => {
     sb.from('configuracion').select('valor').eq('clave', 'aforo_en_duda').maybeSingle(),
     sb.from('comb_auditoria_sombra').select('veredicto,fecha,veredicto_at').order('veredicto_at', { ascending: false }).limit(300),
     sb.from('unidad_config').select('cam,capacidad_tanque_l,mide_tanque'),
+    sb.from('configuracion').select('valor').eq('clave', 'aud_comb_aviso_manana').maybeSingle(),
   ]);
   if (cfgT.error) return json({ ok: false, error: cfgT.error.message }, 500);
   const corteSur = String(cfgCorte?.data?.valor || '').replace(/"/g, '').slice(0, 10);
@@ -153,6 +167,41 @@ Deno.serve(async (req) => {
     .filter((w: any) => w.num && w.activo !== false && roles.includes(w.rol))
     .map((w: any) => String(w.num));
   const jefes = [...new Set([...telsRol(['mecanica', 'operativo', 'socios'])])];
+
+  // ── A QUIÉN LE LLEGA LA PREGUNTA DE LA MAÑANA (R14) ────────────────────────────────────────────
+  // Máximo (06/11/2026): «en el caso de betangar le avisas a gladys y alejandra, pero en las otras
+  // empresas a los supervisores». Eso es un dato de CADA EMPRESA, no una línea de código: escrito
+  // en el código, el clon de Tony Gas le escribiría a Gladys, que no trabaja ahí. Entonces:
+  //   1) si la clave `aud_comb_aviso_manana` trae teléfonos, son esos (en Betangar: Gladys y
+  //      Alejandra);
+  //   2) si no existe, el rol `operativo`/`mecanica` del roster — el supervisor de esa empresa, que
+  //      ya tiene declarado "combustible crítico" en lo que recibe.
+  // ⛔ Si no hay ni clave ni rol no se elige a nadie: el aviso NO sale y la respuesta lo dice. Un
+  //    destinatario por omisión es una fuga, no un default.
+  let avisoManana: string[] = [];
+  try {
+    const cru = cfgManana?.data?.valor;
+    const obj = typeof cru === 'string' ? JSON.parse(cru) : cru;
+    const lista = Array.isArray(obj) ? obj : (obj?.tels || []);
+    avisoManana = lista.map((t: any) => String(t).replace(/\D/g, '')).filter(Boolean);
+  } catch (_e) { avisoManana = []; }
+  if (!avisoManana.length) avisoManana = telsRol(['operativo', 'mecanica']);
+  avisoManana = [...new Set(avisoManana)];
+
+  // ── LA HORA DEL AVISO ES LA DE CADA PERSONA, NO LA DEL SERVIDOR ───────────────────────────────
+  // El cron corre 07:00 VE. Alejandra tiene número de México (UTC−6): allá son las 5 de la mañana.
+  // Así que la fila se ENCOLA ahora y se PROGRAMA para las 8 de la mañana de QUIEN la recibe — la
+  // cola ya respeta `programado_para`. Código de país que no conozco ⇒ se trata como Venezuela,
+  // que es la hora de la casa: eso no es adivinarle la zona a nadie, es no mover la que ya regía.
+  const UTC_MENOS: Record<string, number> = { '58': 4, '52': 6 };   // ni VE ni MX mueven el reloj
+  const aLasOchoDeSuManana = (tel: string): string => {
+    const cc = Object.keys(UTC_MENOS).find((c) => String(tel || '').startsWith(c)) || '58';
+    const ahoraUTC = new Date();
+    const sale = new Date(Date.UTC(ahoraUTC.getUTCFullYear(), ahoraUTC.getUTCMonth(), ahoraUTC.getUTCDate(),
+                                   (8 + UTC_MENOS[cc]) % 24, 0, 0, 0));
+    // Si esa hora ya pasó, sale YA: guardarlo para mañana sería contestar una pregunta de anteayer.
+    return (sale <= ahoraUTC ? ahoraUTC : sale).toISOString();
+  };
 
   // ── Cubicación: altura ➜ litros, interpolando (los tanques del galpón NO son lineales) ──
   const puntos = (tq: any): number[] => Object.keys(tq?.tabla || {}).map(Number).filter((x) => !isNaN(x)).sort((a, b) => a - b);
@@ -514,8 +563,13 @@ Deno.serve(async (req) => {
         // sobrante. El bloque vacío sería una invitación a "arreglarlo": va explícito.
         const puedeOpinar = cargaCerca === 0;
         // Sin nombre de chofer: de noche el custodio es el PATIO, no la persona que manejó.
-        if (puedeOpinar && d < -2 * t1) graves.push({ u, litros: d, tol: t1, txt: `quedó el ${fmtFecha(previo)} con ${fmt(b)} L y amaneció con ${fmt(a)} L: faltan ${fmt(Math.abs(d))} L, con el odómetro igual y sin ninguna carga registrada en esos dos días (el error de la regla explica hasta ±${fmt(t1)} L)` });
-        else if (puedeOpinar && d > 2 * t1) entraron.push({ u, litros: d });
+        if (puedeOpinar && d < -2 * t1) graves.push({ u, litros: d, tol: t1, txt: `quedó el ${fmtFecha(previo)} con ${fmt(b)} L y amaneció con ${fmt(a)} L: faltan ${fmt(Math.abs(d))} L, con el odómetro igual y sin ninguna carga registrada en esos dos días (el error de la regla explica hasta ±${fmt(2 * t1)} L)` });
+        // AMANECIÓ CON MÁS. Va aparte de la subida del MISMO día (R13) porque es otra pregunta:
+        // ahí el camión andaba y alguien lo cargó en ruta; acá estuvo parado toda la noche. Lleva
+        // la noche, los dos litrajes y la tolerancia porque R14 PREGUNTA, y una pregunta sin el
+        // dato concreto no se puede contestar. 23 noches así quedaron sin respuesta cuando esto
+        // salía nada más como un total sumado (medido 06/11/2026: 3.339 L).
+        else if (puedeOpinar && d > 2 * t1) entraron.push({ u, litros: d, noche: previo, manana: fecha, tol: t1, antes: b, ahora: a });
       }
     }
 
@@ -528,16 +582,18 @@ Deno.serve(async (req) => {
       // número. Lo dice R15, no se esconde. GEMELA de `j.cargaImposible` en `app.js`.
       if (s2 != null && l2 != null && !cargaImposibleDia) {
         const consumo = s2 + desp2 - l2;
-        if (consumo < -2 * tol(tqDe(sal), sal.altura_cm, lle.altura_cm, desp2)) entraron.push({ u, litros: Math.abs(consumo) });
+        if (consumo < -2 * tol(tqDe(sal), sal.altura_cm, lle.altura_cm, desp2)) entraron.push({ u, litros: Math.abs(consumo), dia: fecha });
       }
     }
   }
 
-  // Todo el combustible que entró sin registrarse se dice UNA vez y junto: el problema no es cada
-  // camión, es que la carga no se está asentando. De a una línea taparía lo poco que hay que mirar.
-  if (entraron.length) {
-    const totL = entraron.reduce((s: number, x: any) => s + (x.litros || 0), 0);
-    const cams = [...new Set(entraron.map((x: any) => x.u))];
+  // Lo que entró MIENTRAS EL CAMIÓN ANDABA se dice UNA vez y junto: el problema no es cada camión,
+  // es que la carga no se está asentando. De a una línea taparía lo poco que hay que mirar.
+  const entraronDia = entraron.filter((x: any) => x.dia);
+  const entraronNoche = entraron.filter((x: any) => x.noche);
+  if (entraronDia.length) {
+    const totL = entraronDia.reduce((s: number, x: any) => s + (x.litros || 0), 0);
+    const cams = [...new Set(entraronDia.map((x: any) => x.u))];
     hallazgos.push({ u: '', tipo: 'R13',
       txt: `entraron unos ${fmt(totL)} L a ${cams.length} unidad(es) (${cams.join(', ')}) sin ninguna carga registrada. Los tanques subieron y en el sistema no figura de dónde salió ese combustible — ese gasto no está entrando a la Utilidad Real` });
   }
@@ -548,13 +604,29 @@ Deno.serve(async (req) => {
   // lo marque verdadera o falsa. Sin ese veredicto humano guardado no hay forma objetiva de saber
   // si el módulo ya se ganó el derecho a volver a hablar — se decidiría por fe, que es como se
   // llegó al problema. Idempotente por `alert_key`: el cron puede reprocesar sin duplicar.
-  if (!dry && graves.length) {
-    const sombra = graves.map((x: any) => ({
-      alert_key: `sombra_R1_${x.u}_${fecha}`,
-      fecha, regla: 'R1', cam: x.u,
-      litros: x.litros, tolerancia: x.tol,
-      detalle: `${x.u} ${x.txt}`,
-    }));
+  // ⚠️ Los FALTANTES se guardaban para veredicto humano y los SOBRANTES no se guardaban en ningún
+  // lado: se decían por WhatsApp y se perdían. Esa asimetría es la que dejó 23 noches sin cerrar —
+  // nadie podía ver la lista porque no existía. Ahora R14 entra a sombra igual que R1.
+  // En modo mañana el día está ABIERTO: los faltantes de R1 no se pueden anotar todavía (falta la
+  // llegada de hoy), así que solo entran las filas de R14. Anotar lo otro sería guardar un
+  // veredicto sobre un día que no terminó.
+  if (!dry && (graves.length || entraronNoche.length)) {
+    const sombra = [
+      ...(soloNoche ? [] : graves).map((x: any) => ({
+        alert_key: `sombra_R1_${x.u}_${fecha}`,
+        fecha, regla: 'R1', cam: x.u,
+        litros: x.litros, tolerancia: x.tol,
+        detalle: `${x.u} ${x.txt}`,
+      })),
+      ...entraronNoche.map((x: any) => ({
+        alert_key: `sombra_R14_${x.u}_${x.noche}`,
+        fecha, regla: 'R14', cam: x.u,
+        // El umbral que la regla aplica de verdad es 2·tol (`tol()` ya trae su propio ×2 adentro).
+        // Se guarda ESE, no la mitad, para que la fila diga lo que el control realmente exigió.
+        litros: x.litros, tolerancia: Math.round(2 * x.tol * 10) / 10,
+        detalle: `${x.u} quedó el ${fmtFecha(x.noche)} con ${fmt(x.antes)} L y amaneció el ${fmtFecha(x.manana)} con ${fmt(x.ahora)} L: entraron ${fmt(x.litros)} L sin carga asentada (umbral ${fmt(2 * x.tol)} L)`,
+      })),
+    ];
     const up = await sb.from('comb_auditoria_sombra')
       .upsert(sombra, { onConflict: 'alert_key', ignoreDuplicates: true });
     if (up.error) return json({ ok: false, error: 'sombra: ' + up.error.message }, 500);
@@ -564,7 +636,8 @@ Deno.serve(async (req) => {
   // ── Mensajes al CHOFER (solo errores de carga, agrupados por persona) ──
   const porChofer: Record<string, any[]> = {};
   errores.forEach((e) => { if (e.chofer && !e.solo_jefes) (porChofer[e.chofer] = porChofer[e.chofer] || []).push(e); });
-  for (const ch of Object.keys(porChofer)) {
+  // En modo mañana nada de esto habla: al chofer se le reclama el día cerrado, y hoy está abierto.
+  for (const ch of (soloNoche ? [] : Object.keys(porChofer))) {
     const tel = telDe(ch);
     const key = `comb_chofer_${fecha}_${norm(ch).replace(/ /g, '_')}`;
     if (yaEnviado.has(key)) continue;
@@ -575,6 +648,61 @@ Deno.serve(async (req) => {
       `Si puede corregirlo en el sistema, mejor; si no, avísele al encargado para que lo ajuste. Gracias.`;
     filas.push({ telefono: tel, mensaje: msg, tipo: 'auditoria' });
     marcar.push(key);
+  }
+
+  // ── R14: AMANECIÓ CON MÁS — la pregunta de la mañana siguiente ───────────────────────────────
+  // Por qué es su propio aviso y no una línea del resumen a los jefes: esto SE PREGUNTA, y se
+  // pregunta hoy, mientras la gente se acuerda de lo que cargó anoche. Durante 23 noches salió
+  // nada más como un total sumado dentro de R13 —"entraron 3.339 L a 9 unidades"— y no se cerró
+  // ni una: un total no se puede contestar. Con la unidad, la noche y los litros, sí.
+  //
+  // Va UNA sola por mañana con la lista. Seis preguntas sueltas la misma mañana (pasó: la noche
+  // del 14→15/10 se le cargó a 5 unidades y a 6 no) enseñan a ignorar el aviso.
+  //
+  // 📌 Y es INDEPENDIENTE DEL ORIGEN, que es lo que la hace la pieza correcta: sirve igual si
+  //    cargaron en estación, si cargaron del galpón —que hoy está parado pero algún día se va a
+  //    usar— o si no cargó nadie y lo que hay que revisar es la lectura de la regla.
+  // ⛔ PREGUNTA UN SOLO MODO, y es el de la mañana. La corrida normal de las 7:00 audita AYER, así
+  //    que su R14 habla de la noche de ANTEAYER: si también preguntara, cada mañana saldrían DOS
+  //    preguntas y una de las dos sería un día vieja. La corrida normal sí ANOTA en sombra (arriba),
+  //    que es la red por si una salida se registra tarde y la pregunta de las 8 no la alcanzó.
+  const keyNoche = `comb_noche_${fecha}`;
+  if (soloNoche && entraronNoche.length && !yaEnviado.has(keyNoche) && avisoManana.length) {
+    const totN = entraronNoche.reduce((s: number, x: any) => s + (x.litros || 0), 0);
+    const lista = entraronNoche
+      .map((x: any) => `• ${x.u}: quedó con ${fmt(x.antes)} L y amaneció con ${fmt(x.ahora)} L — entraron ${fmt(x.litros)} L`)
+      .join('\n');
+    const unaOVarias = entraronNoche.length === 1 ? 'una unidad amaneció' : `${entraronNoche.length} unidades amanecieron`;
+    // ⛔ "Anoche" solo si la mañana auditada ES hoy. Corrido sobre un día viejo (?fecha=) decir
+    //    "anoche" manda a buscar en la noche equivocada, y el que contesta no tiene cómo saberlo.
+    const esHoy = fecha === hoyVE;
+    const cuando = esHoy ? 'Anoche' : `La noche del ${fmtFecha(entraronNoche[0].noche)}`;
+    const salioEl = esHoy ? 'la salida de hoy' : `la salida del ${fmtFecha(fecha)}`;
+    const saludo = esHoy ? 'Buenos días. ' : '';
+    const msg = `⛽ ${saludo}${cuando} ${unaOVarias} con más combustible del que dejó\n\n` +
+      `${lista}\n\n` +
+      `Son unos ${fmt(totN)} L que entraron entre la llegada del ${fmtFecha(entraronNoche[0].noche)} y ${salioEl}, ` +
+      `y en el sistema no figura ninguna carga asentada esa noche. La diferencia pasa lo que puede explicar la lectura de la regla.\n\n` +
+      `¿Se le cargó a ${entraronNoche.length === 1 ? 'esa unidad' : 'alguna de esas unidades'} anoche? ` +
+      `Si fue en estación o del galpón, hay que asentar la surtida: sin eso el consumo del día siguiente sale mal ` +
+      `y ese gasto no entra en la Utilidad Real. Si no se le cargó a ninguna, conviene volver a pasar la regla a esos tanques.\n\n` +
+      `No es un reclamo a nadie: de noche el camión está en el patio. Es un registro que falta.\n` +
+      `Queda anotado en Combustible → Auditoría → Modo sombra para marcarlo cuando se sepa.`;
+    avisoManana.forEach((t) => filas.push({ telefono: t, mensaje: msg, tipo: 'auditoria', programado_para: aLasOchoDeSuManana(t) }));
+    marcar.push(keyNoche);
+  }
+  // La respuesta dice por qué NO salió, que es la mitad que se necesita cuando no sale: sin esto,
+  // "0 avisos" se lee igual con 0 noches que con 0 destinatarios cargados.
+  if (soloNoche) {
+    const motivo = entraronNoche.length === 0 ? 'ninguna unidad amaneció con más'
+                 : !avisoManana.length ? '⛔ hay noches para preguntar pero NO hay destinatarios: cargá la clave `aud_comb_aviso_manana` o el rol operativo/mecanica en el roster'
+                 : yaEnviado.has(keyNoche) ? 'ya se preguntó hoy' : null;
+    if (dry || !filas.length) return json({ ok: true, modo: 'manana', dry, fecha, amanecio_con_mas: entraronNoche.length,
+      aviso_manana_a: avisoManana.length, encolaria: filas.length, motivo, muestra: filas, detalle: { entraronNoche } });
+    const insN = await sb.from('cola_mensajes').insert(filas);
+    if (insN.error) return json({ ok: false, error: insN.error.message }, 500);
+    await sb.from('alertas_log').insert([...new Set(marcar)].map((k) => ({ alert_key: k })));
+    return json({ ok: true, modo: 'manana', fecha, amanecio_con_mas: entraronNoche.length, avisos: filas.length });
   }
 
   // ── KILL-SWITCH EN ACCIÓN ────────────────────────────────────────────────────────────────────
@@ -636,6 +764,9 @@ Deno.serve(async (req) => {
     // Se dice aparte: son días que salen de los números porque el dato es falso, no porque falte.
     no_confiables: noConfiables.size,
     errores: errores.length, hallazgos: hallazgos.length, graves: graves.length,
+    // R14 sale en la respuesta con sus destinatarios: así se ve a quién le habla sin leer el código,
+    // y si la lista está vacía se ve que por eso no salió (y no porque no hubiera nada que preguntar).
+    amanecio_con_mas: entraronNoche.length, aviso_manana_a: avisoManana.length,
     // El estado del portón sale siempre en la respuesta: si alguien se pregunta por qué no avisó,
     // acá está la razón exacta, sin tener que leer el código.
     porton: { avisa: AVISAR_SUSTRACCION, aforoOk, examenOk, interruptor, dosFalsas, evaluados: vered.length, precision: Math.round(prec * 100) } };
@@ -643,7 +774,7 @@ Deno.serve(async (req) => {
   //    creerle al número. El modo existe justamente para ver qué DIRÍA antes de que lo diga, así que
   //    devuelve también el detalle. Sin esto, verificar un control nuevo obliga a mandarlo de verdad.
   if (dry) return json({ ok: true, dry: true, ...resumen, encolaria: filas.length, muestra: filas.slice(-2),
-    detalle: { errores, hallazgos, graves } });
+    detalle: { errores, hallazgos, graves, entraronNoche } });
   if (!filas.length) return json({ ok: true, ...resumen, avisos: 0, nota: 'nada que avisar' });
 
   const ins = await sb.from('cola_mensajes').insert(filas);
