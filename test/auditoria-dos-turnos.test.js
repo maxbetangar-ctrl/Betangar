@@ -159,8 +159,12 @@ ok('la auditoría TRAE el turno del checklist',
 // ── 6. A QUIÉN SE LE RECLAMA ───────────────────────────────────────────────
 // No es exactitud de números: es no acusar al chofer equivocado.
 ok('`_quien` recibe el turno', APP.includes('var _quien=function(cam,fecha,turno){'));
-ok('y los nueve avisos se lo pasan',
-   APP.split('_quien(j.cam,j.fecha,j.turno)').length - 1 === 9);
+// ⛔ No se cuenta un numero exacto: al agregar R10c pasaron a ser diez y la
+//    prueba se puso roja sin que nada estuviera mal. Lo que hay que garantizar
+//    no es «cuantos hay» sino que NINGUNO quede sin turno -- eso lo mide el
+//    chequeo de abajo. [[norma-una-asercion-mal-escrita-acusa-al-producto]]
+ok('todos los avisos le pasan el turno (son >= 9)',
+   APP.split('_quien(j.cam,j.fecha,j.turno)').length - 1 >= 9);
 ok('no queda ninguna llamada sin turno',
    APP.indexOf('_quien(j.cam,j.fecha)') === -1);
 

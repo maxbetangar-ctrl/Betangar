@@ -438,6 +438,12 @@ body{background:#0f1923;color:#fff;font-family:-apple-system,BlinkMacSystemFont,
         </div>
         <div style="margin-top:14px;border-top:1px dashed rgba(255,255,255,.15);padding-top:10px">
           <div class="cl-label" style="margin-bottom:6px">📐 Medición del tanque con regla (cm) — <b style="color:#ef9f27">OBLIGATORIO cada día</b></div>
+          <!-- ⛔ EL MEDIO CENTÍMETRO NO ES UN CAPRICHO. En este tanque 1 cm son 11,94 L,
+               así que redondear al centímetro mete ±34 L de incertidumbre en la jornada
+               — más que todo lo que consume un turno (~29 L). Anotando el medio, esa
+               incertidumbre baja a 17 L y recién ahí el consumo del turno se puede
+               auditar. La tolerancia se ajusta SOLA a la precisión que se escriba. -->
+          <div class="cl-label" style="margin-bottom:8px;color:#9fb3c8;font-size:12px">Si la regla cae entre dos marcas, anótelo con el medio (ej. <b>34,5</b>): con eso la medición del día queda el doble de precisa.</div>
           <div class="cl-row">
             <div class="cl-field" id="cl-cm-salida-cont">
               <label class="cl-label" id="cl-cm-salida-lbl">CM al SALIR del galpón</label>

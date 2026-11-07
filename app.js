@@ -1934,6 +1934,16 @@ function _acUsd(l){ var c=_acCostoL(); return (c>0&&l!=null)?(Math.abs(l)*c):nul
 function _acCubicar(tanque,alturaCm){
   var h=_acNum(alturaCm); if(h==null||!tanque||!tanque.tabla)return null;
   var t=tanque.tabla;
+  // ⛔ SE TOPA EN LA ALTURA DEL TANQUE, IGUAL QUE LA BASE. `tanque_veredicto`
+  //    hace `least(cm, altura_max_cm)`: una lectura de 53 en un tanque de 52,5
+  //    vale lo que vale el tanque lleno, no más. Acá se topaba en el ÚLTIMO
+  //    PUNTO DE LA TABLA, que no es lo mismo — y desde que la tabla se extendió
+  //    a 53 para que el tope interpole bien (06/11/2026), esa diferencia
+  //    empezaba a dar dos litrajes distintos para el mismo centímetro.
+  //    Son dos implementaciones de la misma regla: tienen que topar igual.
+  //    [[norma-dos-listas-a-mano-se-desincronizan]]
+  var hmax=_acNum(tanque.hmax);
+  if(hmax!=null&&hmax>0&&h>hmax)h=hmax;
   if(t[String(h)]!=null)return _acNum(t[String(h)]);
   var puntos=Object.keys(t).map(function(k){return _acNum(k);}).filter(function(x){return x!=null;}).sort(function(a,b){return a-b;});
   if(!puntos.length)return null;
@@ -1964,11 +1974,36 @@ function _acLitrosPorCm(tanque,alturaCm){
   return Math.abs(l1-l0)/(h1-h0);
 }
 // Tolerancia de un cuadre que usa DOS lecturas de regla y, opcional, litros surtidos en el medio.
+// ⛔ EL ERROR DE UNA LECTURA SALE DE COMO SE ESCRIBIO, NO DE UN NUMERO FIJO.
+//    `AC_SIGMA_CM=1` supone que la regla se lee al centimetro entero. Pero hay
+//    choferes que anotan 34,5 — y a esa lectura castigarla con ±1 cm es tirar
+//    a la basura la mitad de la precision que tomaron el trabajo de dar.
+//
+// 🔴 POR QUE IMPORTA TANTO (medido el 06/11/2026). En la zona de trabajo del
+//    tanque JAC, 1 cm = 11,94 L. Con sigma de 1 cm la tolerancia de una
+//    jornada es 33,8 L, y un dia entero consume ~57,9 L: la tolerancia sola es
+//    el 58% de TODO lo que el camion gasta. Partido en dos turnos, cada
+//    jornada consume ~28,9 L y la tolerancia (33,8) es MAS GRANDE que el
+//    consumo entero. R4 pide 2xTOL = 67,5 L de exceso: en un turno eso es
+//    consumir 3,3 veces lo normal.
+//    ⇒ Leyendo al medio centimetro, sigma baja a 0,5 y la tolerancia cae a
+//      16,9 L. Es lo unico que hace posible auditar un turno de verdad.
+//
+// Entonces: cada lectura trae su propia precision. Entera → ±1 cm. Con medio
+// → ±0,5. Con un decimal fino → ±0,25. La tolerancia premia al que mide mejor
+// en vez de castigar a todos por igual.
+function _acSigmaDe(h){
+  var n=_acNum(h); if(n==null)return AC_SIGMA_CM;
+  var r=Math.round(n*100)/100;
+  if(r===Math.round(r))return AC_SIGMA_CM;              // 34      → +-1 cm
+  if(Math.abs(r*2-Math.round(r*2))<1e-9)return 0.5;     // 34,5    → +-0,5
+  return 0.25;                                          // 34,25.. → +-0,25
+}
 function _acTol(tanque,hA,hB,surtido){
   var sA=_acLitrosPorCm(tanque,hA), sB=_acLitrosPorCm(tanque,hB);
   if(sA==null&&sB==null)return AC_TOL_PISO*2;
   if(sA==null)sA=sB; if(sB==null)sB=sA;
-  var eA=sA*AC_SIGMA_CM, eB=sB*AC_SIGMA_CM, eS=(_acNum(surtido)||0)*0.015;
+  var eA=sA*_acSigmaDe(hA), eB=sB*_acSigmaDe(hB), eS=(_acNum(surtido)||0)*0.015;
   return Math.max(AC_TOL_PISO, Math.round(2*Math.sqrt(eA*eA+eB*eB+eS*eS)*10)/10);
 }
 // ¿Son dos fechas de días de calendario consecutivos? R1 solo puede opinar de "la noche" si la
@@ -2958,6 +2993,27 @@ function _acAnomalias(todas,desde,hasta,ref){
           'revisá ese checklist antes de que arrastre el consumo y el mantenimiento.',
           j.cam,j.fecha,null,_quien(j.cam,j.fecha,j.turno));
       }
+    }
+    // ── R10c — EL ODÓMETRO VA PARA ATRÁS ───────────────────────────────────────────────────────
+    // 🔴 R10b sólo miraba el salto HACIA ADELANTE. El error más común es el otro: un dígito
+    //    mal tecleado que deja el km de salida POR DEBAJO del km con que la unidad llegó la
+    //    vez anterior. Un odómetro no retrocede, así que esto no necesita criterio: o está mal
+    //    escrito, o le cambiaron el tablero.
+    // 📌 Y es gratis de detectar — el dato para comprobarlo ya está en la tabla. Medido el
+    //    06/11/2026: 6 jornadas desde el 01/07 arrancan con menos km que la llegada anterior,
+    //    sobre 1.264 comparables. La peor, la B002 del 01/08: salida 14108 cuando el día antes
+    //    había llegado con 15108 — un 4 por un 5 — y el día figuraba con 1.115 km en vez de 115.
+    //    Con esos km el rendimiento de esa jornada daba 10 veces lo real.
+    //    [[norma-control-positivo-antes-de-creerle-al-vacio]]
+    else if(j.kmS!=null && _acPrevKm[j.cam]!=null && j.kmS < _acPrevKm[j.cam]){
+      var _atras=_acPrevKm[j.cam]-j.kmS;
+      add('alta','R10c','El odómetro va para atrás',
+        'La unidad '+U(j.cam)+' salió el '+formatFecha(j.fecha)+' con '+_acFmt(j.kmS)+' km, '+
+        'pero la vez anterior había llegado con '+_acFmt(_acPrevKm[j.cam])+'. '+
+        'Son '+_acFmt(_atras)+' km MENOS: un odómetro no retrocede. '+
+        'Casi siempre es un dígito mal tecleado en el checklist — y mientras esté así, los km de '+
+        'ese día y el rendimiento de esa unidad salen mal.',
+        j.cam,j.fecha,null,_quien(j.cam,j.fecha,j.turno));
     }
     // Se recuerda el último odómetro conocido de cada unidad para la comparación de arriba.
     // Va DESPUÉS de la regla: la jornada se compara contra lo anterior, no contra sí misma.
