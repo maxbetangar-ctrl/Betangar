@@ -2114,6 +2114,115 @@ function _acAlturaValida(tanque,alturaCm){
 //    Está aparte para que la prueba la SAQUE de acá y no la reescriba: una copia de la regla en
 //    la prueba hace que la prueba pase mientras el producto está roto.
 //    [[norma-dos-listas-a-mano-se-desincronizan]]
+// ══════════════════════════════════════════════════════════════════════════════════════════════
+// EL CUADRE SEMANAL POR UNIDAD — lunes a domingo
+//
+// 🔴 Máximo, 08/11/2026: *«construir el cuadre semanal por unidad pero con cuidado y como
+//    experto»* · *«el cierre semanal debe ser de lunes a domingo»*.
+//
+// ⛔ POR QUÉ HACE FALTA, medido: el consumo MEDIANO de una jornada es 59,7 L y el umbral del
+//    módulo (2·TOL) es 67,6 L — **el 113% de lo que el camión gasta en todo el día**. En 681 de
+//    1.224 jornadas (56%) el umbral SUPERA al consumo entero: ahí el módulo no puede ver nada
+//    salvo que el camión consuma más del doble. Un robo de 20 o 30 L es invisible.
+//    📌 La tolerancia depende SOLO de las dos lecturas de los extremos, no de cuántos días
+//      pasen. Sobre una semana el consumo mediano es 357 L y el umbral queda en el 19%: el mismo
+//      dato, ~6 veces más sensible.
+//
+// ⛔ PERO NO ES UNA REGLA QUE ACUSE, Y ESO SE DECIDIÓ MIDIENDO. El primer diseño señalaba 78
+//    semanas; 75 eran «consumió de menos» con rendimientos de hasta 86 km/L en camiones que
+//    hacen 1,9. No eran robos: eran cargas que nadie asentó, que es exactamente lo que ya dice
+//    R13. Una regla nueva que repite lo que otra ya dijo cuenta el mismo hecho dos veces.
+//
+// ✅ LO QUE SÍ AGREGA INFORMACIÓN ES LA DESCOMPOSICIÓN, y es una IDENTIDAD, no una estimación:
+//
+//        desvío de la semana  =  Σ(desvíos de los días)  −  Σ(cambios de las noches)
+//
+//    Porque el cuadre semanal usa solo los dos extremos, mientras que sumar los días arrastra
+//    además lo que pasó entre la llegada de un día y la salida del siguiente. Comprobado sobre
+//    un caso real: −138,6 − 131,3 = −269,9, exacto.
+//    ⇒ Así el dueño ve de dónde viene el agujero: si de los DÍAS (se gastó distinto de lo
+//      esperado) o de las NOCHES (entró o salió combustible con el camión parado).
+//
+// ⚠️ Devuelve filas, NO hallazgos. Quien acusa sigue siendo R1/R4/R13/R14, cada una con su
+//    pregunta. [[norma-una-asercion-mal-escrita-acusa-al-producto]]
+function _acLunesDe(f){
+  var x=new Date(String(f).slice(0,10)+'T12:00:00Z');
+  x.setUTCDate(x.getUTCDate()-((x.getUTCDay()+6)%7));   // 0=domingo ⇒ (d+6)%7 da días desde el lunes
+  return x.toISOString().slice(0,10);
+}
+function _acCuadreSemanal(todas,ref){
+  var g={};
+  (todas||[]).forEach(function(j){
+    if(j.salida==null&&j.llegada==null)return;
+    var k=j.cam+'|'+_acLunesDe(j.fecha); (g[k]=g[k]||[]).push(j);
+  });
+  var filas=[];
+  Object.keys(g).sort().forEach(function(k){
+    var a=g[k].slice().sort(function(x,y){ return x.fecha<y.fecha?-1:1; });
+    var cam=k.split('|')[0], sem=k.split('|')[1];
+    // Los dos extremos tienen que ser LECTURAS VÁLIDAS: lo que invalida el cuadre es la lectura,
+    // no que la aritmética de un día del medio no cierre (ver el tramo de patio).
+    var ini=null,fin=null;
+    for(var i=0;i<a.length;i++){ if(ini==null&&a[i].salida!=null&&!a[i].salidaMala&&!a[i].noConf&&!a[i].corregida)ini=a[i]; }
+    for(var z=a.length-1;z>=0;z--){ if(fin==null&&a[z].llegada!=null&&!a[z].llegadaMala&&!a[z].noConf&&!a[z].corregida)fin=a[z]; }
+    if(!ini||!fin||ini.fecha>=fin.fecha){ filas.push({cam:cam,semana:sem,mide:false,motivo:'faltan las dos lecturas de los extremos'}); return; }
+    var dentro=a.filter(function(j){ return j.fecha>=ini.fecha&&j.fecha<=fin.fecha; });
+    // ⛔ LOS KM TIENEN QUE ESTAR COMPLETOS. Si falta el km de un día del medio, lo esperado sale
+    //    corto y la semana parece consumir de más: es la única forma de inventar un faltante acá.
+    var sinKm=dentro.filter(function(j){ return j.km==null||j.km<=0; }).length;
+    if(sinKm){ filas.push({cam:cam,semana:sem,mide:false,motivo:'faltan los km de '+sinKm+' día(s)'}); return; }
+    var km=dentro.reduce(function(s,j){ return s+j.km; },0);
+    var despTotal=_acEntradas(cam,ini.fecha,fin.fecha,true);
+    // Lo asentado DESPUÉS de la lectura final no está en esa lectura: mismo criterio que el día.
+    var tFin=_acTs(fin.llegadaAt);
+    var post=(tFin!=null)?_acEntradas(cam,fin.fecha,fin.fecha,true,null,tFin+15*60*1000):0;
+    var desp=_acDespDelCuadre(ini.salida,fin.llegada,despTotal,post);
+    var consumo=Math.round((ini.salida+desp-fin.llegada)*100)/100;
+    var tol=_acTol(ini.tanque||fin.tanque,ini.salidaCm,fin.llegadaCm,desp)||0;
+    var r=ref&&ref[cam], refU=(r&&(r.fija||r.n>=3))?r.mediana:_acRefModelo(cam);
+    var espera=(refU&&refU>0&&km>0)?(km/refU):null;
+    // La descomposición: cuánto ponen los DÍAS y cuánto las NOCHES.
+    // ⛔ LA IDENTIDAD SOLO VALE SI TODOS LOS DÍAS DEL TRAMO SE PUDIERON CUADRAR, y medido falla
+    //    en 22 de 184 semanas (peor error 550 L) porque hay días con `consumo = null` — carga
+    //    imposible, lectura descartada, rendimiento imposible. Esos días SÍ cuentan en el cuadre
+    //    de los extremos y NO pueden contar en la suma de los días.
+    // ⇒ En vez de esconder la diferencia, se la NOMBRA: `resto` es lo que ponen los días que no
+    //   se pudieron cuadrar, y así `desvio = porDias − porNoches + resto` cierra SIEMPRE.
+    //   Una descomposición que no cierra es peor que no tenerla: invita a creerle a dos términos
+    //   que no suman. [[norma-un-numero-que-el-dueno-no-puede-explicar]]
+    // ⛔ Y HAY UN TERCER TÉRMINO, que descubrí porque la prueba lo cazó: una carga asentada
+    //    DESPUÉS de la llegada sale del cuadre de SU día, pero sigue contando en el total de la
+    //    semana. La diferencia `despSemana − Σ despJornada` es exactamente eso. Dejar que la
+    //    absorbiera el `resto` habría convertido ese término en un cajón de sastre — y un cajón
+    //    de sastre es donde se esconde el próximo defecto.
+    var desvDias=0, noches=0, prev=null, detNoches=[], sinCuadrar=0, sumaDespDia=0;
+    dentro.forEach(function(j){
+      sumaDespDia+=(j.despJornada!=null?j.despJornada:(j.desp||0));
+      if(j.consumo!=null&&j.km!=null&&refU>0) desvDias+=(j.consumo-(j.km/refU));
+      else sinCuadrar++;
+      if(prev!=null&&j.salida!=null){
+        var n=Math.round((j.salida-prev)*100)/100;
+        if(n!==0){ noches+=n; detNoches.push({fecha:j.fecha,litros:n}); }
+      }
+      if(j.llegada!=null)prev=j.llegada;
+    });
+    filas.push({cam:cam,semana:sem,mide:true,desde:ini.fecha,hasta:fin.fecha,dias:dentro.length,
+      km:km,consumo:consumo,desp:desp,despPost:Math.round((despTotal-desp)*100)/100,
+      espera:(espera!=null)?Math.round(espera*10)/10:null,
+      desvio:(espera!=null)?Math.round((consumo-espera)*100)/100:null,
+      umbral:Math.round(2*tol*10)/10,
+      rend:(consumo>0&&km>0)?Math.round((km/consumo)*100)/100:null, ref:refU||null,
+      porDias:Math.round(desvDias*100)/100, porNoches:Math.round(noches*100)/100,
+      diasSinCuadrar:sinCuadrar, detNoches:detNoches,
+      // Cargas que cuentan en la semana pero NO en el cuadre de su día (se asentaron después de
+      // la llegada de ese día). Es un término con nombre, no un residuo.
+      cargasCorridas:Math.round((desp-sumaDespDia)*100)/100,
+      // `resto` queda SOLO para los días que no se pudieron cuadrar. La identidad completa es
+      //    desvío = porDías − porNoches + cargasCorridas + resto
+      resto:(espera!=null)?Math.round(((consumo-espera)-(desvDias-noches)-(desp-sumaDespDia))*100)/100:null});
+  });
+  return filas;
+}
 // ⛔ EL VEREDICTO DE UN TRAMO DE PATIO. Es una función aparte, pura y sin DOM, para que la prueba
 //    la SAQUE de acá y no la reescriba — y porque es la decisión más delicada del módulo: de este
 //    lado está R1, que dice que FALTÓ COMBUSTIBLE.
@@ -3887,6 +3996,62 @@ function _acRender(){
       '</td>'+
     '</tr>';
   }).join('');
+  // ══ CUADRE SEMANAL POR UNIDAD (lunes → domingo) ══════════════════════════════════════════
+  // ⛔ POR QUÉ ESTÁ ACÁ Y NO ES UNA ALARMA MÁS. Medido: el umbral de una jornada (2·TOL ≈ 68 L)
+  //    es el 113% de lo que el camión gasta en todo el día, y en el 56% de las jornadas supera
+  //    al consumo entero — ahí el módulo no puede ver nada. Sobre la semana el umbral cae al
+  //    19% del consumo: el MISMO dato, ~6 veces más sensible, porque la tolerancia depende solo
+  //    de las dos lecturas de los extremos y no de cuántos días pasen.
+  //    📌 Pero NO acusa: las señales de la semana resultaron ser, casi todas, cargas que nadie
+  //      asentó — que es lo que ya dice R13. Lo que agrega es DE DÓNDE viene el agujero.
+  try{
+    // ⛔ `ref` NO EXISTE ACÁ: vive dentro de `_acAnomalias`. En `_acRender` el mapa de referencia
+    //    es `AC_META.ref` — es el mismo que usa la tabla «Por unidad» unas líneas más arriba.
+    //    Casi mando otro `ReferenceError`, que es EXACTAMENTE el bug que acabo de arreglar en la
+    //    pantalla de «dónde se cargó» y que `node --check` no ve. [[norma-probar-el-camino-no-la-pieza]]
+    var _sem=_acCuadreSemanal(J,(AC_META&&AC_META.ref)||{}).filter(function(x){ return x.mide&&x.desvio!=null; });
+    var _malas=_sem.filter(function(x){ return Math.abs(x.desvio)>x.umbral; })
+                   .sort(function(a,b){ return Math.abs(b.desvio)-Math.abs(a.desvio); });
+    if(_sem.length){
+      html+='<div class="card" style="margin-bottom:10px"><div class="st" style="margin-bottom:6px">🗓️ Cuadre semanal por unidad (lunes → domingo)</div>'+
+        '<div style="font-size:10px;color:var(--text3);margin-bottom:6px">'+
+        'La semana se cuadra con DOS lecturas —la primera salida y la última llegada— más lo que se cargó en el medio. '+
+        'Por eso el margen de error es el mismo que el de un día pero el consumo es siete veces mayor: '+
+        '<b>lo que en una jornada se pierde en el ruido, acá se ve</b>. '+
+        'El desvío se abre en sus causas, y las cuatro SUMAN exacto.</div>'+
+        '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:11px">'+
+        '<thead><tr style="color:var(--text3);text-align:left">'+
+        '<th>SEMANA</th><th>UNIDAD</th><th style="text-align:right">KM</th><th style="text-align:right">CONSUMO</th>'+
+        '<th style="text-align:right">ESPERADO</th><th style="text-align:right">DESVÍO</th>'+
+        '<th style="text-align:right">por los DÍAS</th><th style="text-align:right">por las NOCHES</th>'+
+        '<th style="text-align:right">cargas corridas</th><th style="text-align:right">días sin cuadrar</th></tr></thead><tbody>'+
+        (_malas.length?_malas.slice(0,20):[]).map(function(x){
+          var sg=function(v){ return (v>0?'+':'')+_acFmt(v,0); };
+          return '<tr>'+
+            '<td style="font-family:var(--m);font-size:10px;white-space:nowrap">'+formatFecha(x.semana)+'</td>'+
+            '<td style="font-weight:700">'+_mEsc(U(x.cam))+'</td>'+
+            '<td style="text-align:right;font-family:var(--m)">'+_acFmt(x.km,0)+'</td>'+
+            '<td style="text-align:right;font-family:var(--m)">'+_acFmt(x.consumo,1)+' L</td>'+
+            '<td style="text-align:right;font-family:var(--m);color:var(--text3)">'+_acFmt(x.espera,0)+' L</td>'+
+            '<td style="text-align:right;font-family:var(--m);font-weight:700;color:'+(x.desvio<0?'var(--amari)':'var(--red)')+'">'+sg(x.desvio)+' L</td>'+
+            '<td style="text-align:right;font-family:var(--m);color:var(--text2)">'+sg(x.porDias)+'</td>'+
+            // El signo se invierte a propósito: la identidad RESTA las noches, y mostrarlas con
+            // su signo crudo haría que las cuatro columnas no sumen a la vista.
+            '<td style="text-align:right;font-family:var(--m);color:var(--text2)">'+sg(-x.porNoches)+'</td>'+
+            '<td style="text-align:right;font-family:var(--m);color:var(--text2)">'+(x.cargasCorridas?sg(x.cargasCorridas):'—')+'</td>'+
+            '<td style="text-align:right;font-family:var(--m);color:var(--text3)">'+(x.diasSinCuadrar?x.diasSinCuadrar+' ('+sg(x.resto)+')':'—')+'</td>'+
+          '</tr>';
+        }).join('')+'</tbody></table></div>'+
+        '<div style="font-size:10px;color:var(--text3);margin-top:6px">'+
+        (_malas.length
+          ? ('<b>'+_malas.length+'</b> de <b>'+_sem.length+'</b> semanas-unidad no cuadran fuera del margen de la regla'+
+             (_malas.length>20?' (se muestran las 20 mayores)':'')+'. '+
+             'Un desvío NEGATIVO grande casi siempre significa <b>carga que no se asentó</b>, no que el camión gastara menos.')
+          : ('Las <b>'+_sem.length+'</b> semanas-unidad cuadran dentro del margen de la regla.'))+
+        '</div></div>';
+    }
+  }catch(e){ console.log('cuadre semanal: '+(e&&e.message)); }
+
   html+='<div class="card"><div class="st" style="margin-bottom:6px">📋 Detalle por jornada</div>'+
     '<div style="font-size:10px;color:var(--text3);margin-bottom:6px">Consumo = lo que tenía al salir + lo que le despacharon − lo que le quedó al llegar.</div>'+
     '<div class="tw"><table><thead><tr><th>Fecha</th><th>Unidad</th><th>Chofer</th>'+
