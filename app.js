@@ -3006,7 +3006,7 @@ var AC_GRUPOS=[
    titulo:'Plata que no se explica',
    reglas:['R1','R13','R14','R16'],
    que:'Gasoil que entró o salió del patio y ningún camión lo recibió, o una factura que no cuadra con lo que se asignó. Es lo único de esta lista que cuesta dinero.',
-   accion:'Preguntale a quien tuvo acceso al patio esos días, y revisá la factura contra las cargas.'},
+   accion:'Preguntale a quien tuvo acceso al patio esos días. Si al chofer se le olvidó registrar una surtida, la oficina la puede asentar en Combustible → Operación → «Surtida que el chofer no cargó».'},
   {k:'contra', ico:'🟠', col:'var(--yellow)',
    titulo:'Números que se contradicen',
    // ⛔ R4 y R4c —consumo por encima o por debajo de lo normal— van ACÁ y no en «plata» a
@@ -3021,13 +3021,17 @@ var AC_GRUPOS=[
   {k:'cargar', ico:'🟡', col:'var(--text3)',
    titulo:'Falta cargar — es papeleo, no plata',
    reglas:['R0','R0b','R7','R9','R11','R12'],
-   que:'Faltan planillas, checklist o lecturas de la regla. No se perdió nada; lo que se pierde es poder decir algo de esos días.',
-   accion:'Pedile a la oficina las planillas y los checklist que faltan. Cada uno que entre, destapa un día.'},
+   // ⛔ ESTO DECÍA «pedile a la oficina las planillas y los checklist» y Máximo preguntó
+   //    «¿planillas de qué? ¿de viajes?». Si el dueño tiene que preguntar qué papel es, el aviso
+   //    falló en lo único que tenía que hacer. Son TRES cosas distintas, y las hace GENTE
+   //    DISTINTA: meterlas en una frase genérica hace que nadie se dé por aludido.
+   que:'Son tres cosas, y cada una la hace alguien distinto: (1) la PLANILLA DE VIAJES del día —la del camión, con los viajes al vertedero—; (2) el KILOMETRAJE DE ENTRADA, que cierra el checklist cuando el camión vuelve; (3) la LECTURA DE LA REGLA del tanque, al salir y al llegar. No se perdió gasoil: lo que se pierde es poder decir algo de esos días.',
+   accion:'La planilla de viajes la carga la OFICINA, en el módulo Planillas. El kilometraje de entrada se completa en el módulo KM. La regla la pasa el CHOFER en el camión, y esa no se puede cargar después desde la oficina: hay que ir y medir.'},
   {k:'sincomp', ico:'⚪', col:'var(--text3)',
    titulo:'No se puede comprobar',
    reglas:['R17'],
-   que:'No dice que falte combustible: dice que no hay con qué saberlo.',
-   accion:'Dos pasadas de regla al tanque y este grupo se cierra para siempre.'}
+   que:'No dice que falte combustible: dice que no hay con qué saberlo. Los papeles tienen la cuenta completa —lo que entró menos lo que salió— pero nadie le puso nunca la regla al tanque para confirmarla.',
+   accion:'Andá al tanque, pasá la regla y cargá los centímetros en Combustible → Operación → «Registrar Medición». Una ahora fija el punto de partida; de ahí en más, una antes y una después de cada vez que se surta de ahí.'}
 ];
 function _acGrupoDe(cod){
   var c=String(cod||'');
