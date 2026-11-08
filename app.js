@@ -17569,7 +17569,7 @@ function renderSurtidasCosteo(){
   // Períodos
   var tp=g('sc-periodos'); if(tp){ if(!(COMB_PERIODOS||[]).length){ tp.innerHTML='<tr><td colspan="6" style="text-align:center;color:#9fb3c8">Ninguno todavía.</td></tr>'; }
     else tp.innerHTML=(COMB_PERIODOS||[]).map(function(p){
-      return '<tr><td>'+_surEsc(formatFecha(p.desde)+'→'+formatFecha(p.hasta))+'</td><td>'+_surEsc(p.estacion_nombre||'')+'</td><td style="text-align:right;font-family:var(--m)">'+(parseFloat(p.litros_facturados)||0).toLocaleString('es-VE')+'</td><td style="text-align:right;font-family:var(--m)">$'+(parseFloat(p.precio_mezclado)||0).toFixed(3)+'</td><td style="text-align:right;font-family:var(--m)">'+usd(parseFloat(p.costo_total_usd)||0)+'</td><td>'+_surEsc(p.pago_estado||'')+'</td></tr>';
+      return '<tr><td>'+_surEsc(formatFecha(p.desde)+'→'+formatFecha(p.hasta))+'</td><td>'+_surEsc(p.estacion_nombre||'')+'</td><td style="text-align:right;font-family:var(--m)">'+(parseFloat(p.litros_facturados)||0).toLocaleString('es-VE')+'</td><td style="text-align:right;font-family:var(--m)">$'+(parseFloat(p.precio_mezclado)||0).toFixed(3)+'</td><td style="text-align:right;font-family:var(--m)">'+usd(parseFloat(p.costo_total_usd)||0)+'</td><td>'+_perPagoCelda(p)+'</td></tr>';
     }).join('');
   }
 }
@@ -17595,6 +17595,49 @@ function renderSurtidasCosteo(){
 // ══════════════════════════════════════════════════════════════════════════════
 var _perModo='tramos';        // 'tramos' (precio del total) | 'escalera' (por camión)
 var _perEsc={litros:80,p1:'',p2:''};
+// ── ¿ESTE PERÍODO ESTÁ PAGADO? ────────────────────────────────────────────────
+//
+// 🔴 LO QUE HABÍA. `pago_estado` se escribía SIEMPRE como 'pendiente' (un literal en
+//    `_perAplicar`) y no existía ninguna pantalla para cambiarlo. O sea que la columna no era
+//    información: era un adorno que siempre decía que se debía plata.
+//    El 08/11/2026 había **19 períodos marcados «pendiente» por US$ 25.793,61** y Máximo
+//    confirmó que no se le debe gasoil a nadie: estaban todos pagados. Los 10 que sí decían
+//    «pagado» habían quedado así porque alguien los tocó directo en la base.
+//
+// ⚠️ No alimentó ningún total —se usó solo para mostrarse— así que no hubo deuda fantasma en
+//    ningún reporte. Pero una columna que solo puede decir una cosa termina engañando a quien
+//    la lee. [[norma-un-aviso-que-salta-siempre-no-avisa]]
+//
+// ⛔ EL CANDADO DE ROL ES EL DE LA BASE. Acá solo se evita mostrar un botón que va a fallar:
+//    la política `btg_rol_upd` de `combustible_periodos` decide de verdad.
+function _perPagoCelda(p){
+  var pagado=String(p.pago_estado||'')==='pagado';
+  var txt=pagado?'✅ pagado':'⏳ pendiente';
+  var col=pagado?'var(--green)':'var(--yellow)';
+  if(!_surPuedeCorregir())return '<span style="color:'+col+'">'+txt+'</span>';
+  return '<button class="btn btn-s btn-xs" style="color:'+col+'" title="Tocar para cambiarlo" '+
+         'onclick="_perMarcarPago(\''+_surEscC(p.id)+'\','+(pagado?'false':'true')+')">'+txt+'</button>';
+}
+async function _perMarcarPago(id,aPagado){
+  if(!_surPuedeCorregir()){ mostrarToast('Esto lo hace administración.','error'); return; }
+  var p=(COMB_PERIODOS||[]).find(function(x){return String(x.id)===String(id);});
+  if(!p){ mostrarToast('No encuentro ese período','error'); return; }
+  var quien=((typeof SESION!=='undefined'&&SESION)?SESION.nombre:'')||'oficina';
+  if(!confirm('Marcar el período de '+(p.estacion_nombre||'')+' del '+formatFecha(p.desde)+
+      ' ('+usd(parseFloat(p.costo_total_usd)||0)+') como '+(aPagado?'PAGADO':'PENDIENTE')+'?')) return;
+  if(!(DB_READY&&supabase)){ mostrarToast('Sin conexión a la base.','error'); return; }
+  // ⛔ Queda RASTRO en la nota: quién y cuándo. Un estado de pago que cambia sin autor no se
+  //    le puede preguntar a nadie después.
+  var marca='['+quien+' '+fechaVE()+'] marcado '+(aPagado?'PAGADO':'PENDIENTE')+'.';
+  var res=await supabase.from('combustible_periodos')
+    .update({pago_estado:(aPagado?'pagado':'pendiente'), nota:((p.nota?p.nota+' | ':'')+marca)}).eq('id',id);
+  if(res&&res.error){ mostrarToast('No se pudo: '+(res.error.message||''),'error'); return; }
+  p.pago_estado=(aPagado?'pagado':'pendiente'); p.nota=((p.nota?p.nota+' | ':'')+marca);
+  audit('Pago de período de combustible',(p.estacion_nombre||'')+' '+p.desde+' → '+(aPagado?'pagado':'pendiente'));
+  mostrarToast(aPagado?'✅ Marcado pagado':'⏳ Marcado pendiente','exito');
+  renderSurtidasCosteo();
+}
+
 var _perSel={};               // id de surtida -> true/false (lo que el usuario marcó)
 function _perPend(){          // surtidas de estación pendientes dentro del rango
   var des=gv('per-des'), hta=gv('per-hta');
@@ -17927,7 +17970,11 @@ async function _perAplicar(){
       +target.length+' surtida(s) de "'+est+'" y generar la cuenta por pagar de '+usd(cUsd)+'?')) return;
   var litSur=target.reduce(function(a,s){return a+(parseFloat(s.litros)||0);},0);
   // 1) Insertar período
-  var perRow={desde:des,hasta:hta,estacion_nombre:est,tramos:tramos,litros_facturados:litF,litros_surtidos:litSur,costo_total_usd:Math.round(cUsd*100)/100,costo_total_bs:Math.round(cBs*100)/100,precio_mezclado:Math.round(mezc*10000)/10000,pago_estado:'pendiente',creado_por:(typeof SESION!=='undefined'&&SESION?SESION.nombre:'')||''};
+  var perRow={desde:des,hasta:hta,estacion_nombre:est,tramos:tramos,litros_facturados:litF,litros_surtidos:litSur,costo_total_usd:Math.round(cUsd*100)/100,costo_total_bs:Math.round(cBs*100)/100,precio_mezclado:Math.round(mezc*10000)/10000,
+    // ⛔ Nace 'pendiente' porque todavía no se pagó —eso es cierto en el momento de cargarlo—,
+    //    pero AHORA se puede cambiar desde la tabla de períodos. Antes no, y por eso 19 quedaron
+    //    diciendo que se debían US$ 25.793 que estaban pagados.
+    pago_estado:'pendiente',creado_por:(typeof SESION!=='undefined'&&SESION?SESION.nombre:'')||''};
   var perId=null;
   try{ var rp=await supabase.from('combustible_periodos').insert([perRow]).select();
     if(rp.error){ mostrarToast('No se pudo guardar el período: '+rp.error.message,'error'); return; }
