@@ -30,9 +30,32 @@ import { cargarAuditoria, sembrar, auditar } from './_banco-combustible.mjs'
 
 const rutaApp = process.argv[2] || new URL('../app.js', import.meta.url)
 const datos = JSON.parse(readFileSync(new URL('./datos/combustible.json', import.meta.url), 'utf8'))
+// ⛔ EL CASO SE REPRODUCE EN UN FIXTURE, NO SE LEE DEL DATO VIVO.
+//    Esta prueba se puso ROJA el 08/11/2026 **porque el duplicado se arregló**: la segunda carga
+//    de 350 L de la B009 del 05/09 se anuló (quedó en 0 L, con su historial), así que ya no hay
+//    700 L que detectar. Una prueba cuyo fixture es el dato de producción **no distingue «se
+//    arregló» de «se rompió»**, y encima castiga a quien corrige los datos.
+//    📌 Lo que hay que proteger para siempre es la REGLA: que una carga duplicada se vea, que
+//      el día no se cuadre con ella adentro, y que NADIE quede acusado. Eso se prueba sembrando
+//      el duplicado a propósito. El caso real queda documentado arriba, que es donde va la
+//      historia. [[norma-el-pendiente-viejo-se-verifica-contra-el-producto]]
+const DUP = { id: 'DUP-PRUEBA', fecha: '2026-09-05', cam: 'JAC-B009', litros: 350,
+  tanque: 'estacion', turno: 'diurno', hora: '18:28', created_at: '2026-09-05 22:28:00+00' }
+const base = (datos.surt || []).filter((x) => !(x.cam === 'JAC-B009' && String(x.fecha).slice(0, 10) === '2026-09-05'))
+// La carga REAL de 350 L mas su duplicado: los mismos 700 L del caso del 08/09/2026.
+const conDup = base.concat([{ ...DUP, id: 'REAL-PRUEBA', hora: '18:08', created_at: '2026-09-05 22:08:00+00' }, DUP])
 const ctx = cargarAuditoria(rutaApp)
-sembrar(ctx, datos)
+sembrar(ctx, { ...datos, surt: conDup })
 const anom = auditar(ctx, '2026-07-24', '2026-09-07')
+
+// ⛔ Y EL CONTROL POSITIVO DEL FIXTURE: sin el duplicado, el dia tiene que cuadrar. Si no, la
+//    prueba de abajo podria estar verde por cualquier otro motivo del dia.
+const ctxLimpio = cargarAuditoria(rutaApp)
+sembrar(ctxLimpio, { ...datos, surt: base.concat([{ ...DUP, id: 'REAL-PRUEBA', hora: '18:08', created_at: '2026-09-05 22:08:00+00' }]) })
+// Las jornadas se arman al AUDITAR, no al sembrar: sin esta llamada `AC_JORNADAS` esta vacio
+// y el control positivo daria rojo por un motivo que no es el suyo.
+auditar(ctxLimpio, '2026-07-24', '2026-09-07')
+const jLimpio = ctxLimpio.AC_JORNADAS.find((j) => j.cam === 'JAC-B009' && j.fecha === '2026-09-05')
 const jor = (cam, f) => ctx.AC_JORNADAS.find((j) => j.cam === cam && j.fecha === f)
 
 let fallos = 0
@@ -40,6 +63,11 @@ const caso = (n, desc, ok, detalle) => {
   if (ok) console.log(`✅ ${n}. ${desc}`)
   else { fallos++; console.log(`❌ ${n}. ${desc}\n      ${detalle}`) }
 }
+
+caso(0, 'CONTROL POSITIVO: con UNA sola carga de 350 L el dia cuadra normal',
+  !!jLimpio && jLimpio.desp === 350 && !jLimpio.cargaImposible,
+  'desp=' + (jLimpio && jLimpio.desp) + ' cargaImposible=' + (jLimpio && jLimpio.cargaImposible) +
+  ' — si esto falla, el verde de abajo no prueba que el duplicado sea lo detectado')
 
 const b9 = jor('JAC-B009', '2026-09-05')
 caso(1, 'B009 05/09: las dos cargas de 350 L se ven como 700 L, y 700 no caben en 600',

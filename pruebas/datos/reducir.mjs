@@ -60,7 +60,12 @@ const out = {
 // ── 2. EL GUARDIA, ANTES DE ESCRIBIR ─────────────────────────────────────────────────────────
 // ⛔ Mira los VALORES, no los nombres de columna, justamente para cazar lo que la capa 1 no vio.
 const sospechas = []
-const EXENTAS_DE_NOMBRE = new Set(['estacion_nombre', 'modelo'])
+// ⛔ `lugar_gps` se agregó el 08/11 y el guardia se puso ROJO con «E/S LAS BANDERAS», que es el
+//    nombre de una estación y no de una persona. Funcionó exactamente como tiene que funcionar:
+//    una columna nueva que el patrón no conoce FRENA el volcado en vez de publicarlo.
+//    Se exime del patrón de nombre —no de los cortes de largo ni de TOKENISH— igual que
+//    `estacion_nombre`, porque guarda lo mismo: dónde estaba el camión.
+const EXENTAS_DE_NOMBRE = new Set(['estacion_nombre', 'estacion_declarada', 'lugar_gps', 'modelo'])
 const NOMBRE = /[A-ZÁÉÍÓÚÑ]{3,}\s+[A-ZÁÉÍÓÚÑ]{3,}/           // DOS PALABRAS EN MAYÚSCULAS
 const TOKENISH = /^[a-z0-9]{16,}$/                            // forma de token: largo, sin espacios
 // ⛔ PROSA Y CÓDIGO SE MIDEN DISTINTO, y el criterio es si tiene ESPACIOS —no una lista de columnas

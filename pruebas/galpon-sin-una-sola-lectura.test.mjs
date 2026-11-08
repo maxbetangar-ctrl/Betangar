@@ -71,9 +71,31 @@ if (!datos) {
      'un hueco sin cifra no se prioriza: es justo el defecto que esto arregla')
   ok('4. ⛔ NO ACUSA A NADIE, y lo dice con esas palabras', /NO es una acusación/.test(txt(r17[0] || {})),
      'una regla de medición que se lee como una de robo enseña a no creerle al módulo')
-  ok('5. el saldo negativo se explica como un asiento que falta, NO como gasoil faltante',
-     /no puede pasar/.test(txt(r17[0] || {})) && /falta asentar/.test(txt(r17[0] || {})),
-     'presentar −1.561 L como faltante sería acusar con un error de papeles')
+  // ⛔ ESTA SE PRUEBA CON UN FIXTURE, NO CON LOS DATOS VIVOS, y la razón es que la asersión
+  //    anterior se puso ROJA el 08/11/2026 **porque el defecto se arregló**: el saldo del galpón
+  //    pasó de −1.561 L a +540 L al dejar de contar los despachos de estación como salidas del
+  //    tanque. Una prueba cuyo fixture es el dato de producción se rompe cuando alguien corrige
+  //    el dato — y entonces no distingue «se arregló» de «se rompió».
+  //    Lo que hay que proteger para siempre es LA REDACCIÓN de la rama negativa: que un saldo
+  //    imposible se explique como un asiento que falta y NO como gasoil faltante, porque
+  //    presentarlo como faltante es acusar a alguien con un error de papeles.
+  const ctxNeg = cargarAuditoria(rutaApp)
+  sembrar(ctxNeg, {
+    ...datos,
+    // entró MENOS de lo que salió ⇒ saldo negativo, que es fisicamente imposible
+    gasoil: [{ f: '2026-03-05', cam: 'JAC-B003', lit: 100, src: 'Tumaca', tipo_operacion: 'compra' },
+             { f: '2026-04-10', cam: 'JAC-B003', lit: 900, src: 'Tumaca', tipo_operacion: 'despacho' }],
+    surt: [], med: (datos.med || []).filter((m) => !m.tanque_id || !/galpon/.test(String(m.tanque_id))),
+  })
+  const r17neg = auditar(ctxNeg, '2026-07-24', '2026-09-07').filter((a) => (a.cod || a.regla) === 'R17')
+  ok('5. CON SALDO NEGATIVO lo explica como un asiento que falta, NO como gasoil faltante',
+     r17neg.length === 1 && /no puede pasar/.test(txt(r17neg[0])) && /falta asentar/.test(txt(r17neg[0])) &&
+     !/falta gasoil/i.test(txt(r17neg[0])),
+     'dio ' + r17neg.length + ' avisos; texto: ' + txt(r17neg[0] || {}).slice(0, 200))
+  // ⛔ Y LA OTRA MITAD: con saldo POSITIVO esa frase NO puede aparecer. Sin este control, una
+  //    regla que dijera siempre «falta asentar» pasaría la asersión de arriba.
+  ok('5b. …y con saldo positivo NO dice nada de eso', !/no puede pasar/.test(txt(r17[0] || {})),
+     'dice que el saldo es imposible cuando no lo es: ' + txt(r17[0] || {}).slice(0, 160))
   ok('6. y dice cómo se cierra', /pasando la regla/.test(txt(r17[0] || {})),
      'un aviso sin salida es una queja')
 

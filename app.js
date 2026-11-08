@@ -17891,6 +17891,23 @@ function _perCalc(){
   var cBs=cUsd*tasa;
   var mezc=litF>0?cUsd/litF:0;
   if(!marc.length) warn='<div style="color:#ff6b6b;margin-top:4px">⚠️ No marcaste ninguna surtida: el período se guardaría sin costear nada.</div>'+warn;
+  // ⛔ SI LA ESTACIÓN NO CALZA CON NINGÚN PROVEEDOR, SE DICE ACÁ Y NO DESPUÉS. `_cxpProvDeEstacion`
+  //    ya resuelve el caso normal —el proveedor es la PERSONA con la estación entre paréntesis,
+  //    «YORBIS CHOURIO (E/S LAS BANDERAS)»— y se niega a adivinar si hay dos candidatos. Pero
+  //    cuando no encuentra a nadie la CxP nace sin proveedor y entonces NO SE PUEDE FACTURAR
+  //    NUNCA, porque el selector de Facturas agrupa por proveedor. Eso se descubría meses
+  //    después. Un nombre mal escrito acá cuesta eso.
+  //    📌 Los proveedores ya traen la correspondencia en el nombre: Yorbis es Las Banderas y
+  //      Comercializadora Paz Jiménez es El Palotal. El sistema la sabe; solo faltaba decirla.
+  var _estAviso=gv('per-est');
+  if(_estAviso && typeof _cxpProvDeEstacion==='function'){
+    var _pv=_cxpProvDeEstacion(_estAviso);
+    warn=(_pv
+      ? '<div style="color:var(--text3);margin-top:4px">La cuenta por pagar va a nombre de <b>'+_mEsc(_pv.nombre)+'</b>.</div>'
+      : '<div style="margin-top:4px;padding:6px 8px;border-radius:8px;background:rgba(251,191,36,.12);border:1px solid var(--yellow)">'+
+        '⚠️ <b>«'+_mEsc(_estAviso)+'» no coincide con ningún proveedor cargado</b>, así que la cuenta por pagar '+
+        'nacería sin dueño y no se va a poder facturar. Revisá el nombre, o cargá el proveedor primero.</div>')+warn;
+  }
   box.innerHTML='Litros facturados: <b>'+litF.toLocaleString('es-VE')+' L</b> · Surtidas marcadas: <b>'+marc.length+' ('+litSur.toLocaleString('es-VE')+' L)</b><br>'
     +'Costo total: <b style="color:#7dc941">'+usd(cUsd)+'</b> · Bs '+cBs.toLocaleString('es-VE',{maximumFractionDigits:2})+'<br>'
     +'Precio '+(_perModo==='escalera'?'promedio resultante':'mezclado')+': <b>$'+mezc.toFixed(4)+'/L</b>'+warn;
