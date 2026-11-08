@@ -278,7 +278,9 @@ body{background:#0f1923;color:#fff;font-family:-apple-system,BlinkMacSystemFont,
     <div class="content">
       <div class="card" style="background:#12233b;border:1px solid #24405f;border-radius:12px;padding:16px;margin-bottom:10px">
         <div style="font-weight:800;font-size:16px;color:#fff;margin-bottom:2px">⛽ Surtir combustible</div>
-        <div style="font-size:12px;color:#9fb3c8;margin-bottom:14px">Registre cada surtida de su unidad: de qué tanque, litros, foto del surtidor/recibo y ubicación.</div>
+        <!-- ⚠️ Decía «de qué tanque» y ya no se pregunta. Un texto que describe un campo que no
+             existe manda a buscar algo que no está. -->
+        <div style="font-size:12px;color:#9fb3c8;margin-bottom:14px">Registre cada surtida de su unidad: litros, foto del surtidor/recibo y ubicación.</div>
 
         <!-- ⛔ NINGUNO VIENE MARCADO, y el aviso de arriba lo dice. Antes «Galpón 1» arrancaba
              preseleccionado con el borde verde: si el chofer no tocaba nada, la surtida se
@@ -290,11 +292,21 @@ body{background:#0f1923;color:#fff;font-family:-apple-system,BlinkMacSystemFont,
              y los choferes se encontraron un error rojo donde antes daba Registrar y listo: hubo
              que revertirlo en caliente. Por eso ahora NO se rechaza nada — se avisa ANTES, el
              botón de guardar dice qué falta, y los tres quedan en ámbar hasta que se elija. -->
-        <div style="font-size:13px;color:#cfe0f0;font-weight:700;margin-bottom:6px">¿De dónde surtió? <span id="sur-tanque-pide" style="color:#f4a300;font-weight:700">— toque una</span></div>
-        <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">
-          <button type="button" id="sur-tanque-galpon_1" onclick="surSetTanque('galpon_1')" style="flex:1;min-width:90px;background:#0e2038;border:2px solid #f4a300;border-radius:10px;padding:10px;color:#fff;font-weight:700;cursor:pointer;font-size:13px">🛢️ Galpón 1</button>
-          <button type="button" id="sur-tanque-galpon_2" onclick="surSetTanque('galpon_2')" style="flex:1;min-width:90px;background:#0e2038;border:2px solid #f4a300;border-radius:10px;padding:10px;color:#fff;font-weight:700;cursor:pointer;font-size:13px">🛢️ Galpón 2</button>
-          <button type="button" id="sur-tanque-estacion" onclick="surSetTanque('estacion')" style="flex:1;min-width:90px;background:#0e2038;border:2px solid #f4a300;border-radius:10px;padding:10px;color:#fff;font-weight:700;cursor:pointer;font-size:13px">⛽ Estación</button>
+        <!-- ⛔ YA NO SE PREGUNTA DE DÓNDE SURTIÓ: LO DICE EL GPS. (08/11/2026)
+             Acá había tres botones —Galpón 1, Galpón 2, Estación— y el chofer tenía que elegir.
+             Lo que pasó, medido sobre las 213 surtidas reales:
+               · 11 cargas (2.101 L) quedaron marcadas «galpón» siendo de estación. El tanque del
+                 galpón terminó con un saldo en libros de −1.561 L, que es IMPOSIBLE.
+               · 8 de esas 11 son anteriores al 29/08, cuando este selector venía con `galpon_1`
+                 PUESTO POR OMISIÓN: el que no tocaba nada registraba galpón.
+             Máximo, 08/11: «que ellos no escojan de dónde, que no se los pregunte sino lo tome
+             del gps... ellos simplemente ponen cuántos litros».
+             ⇒ La app manda SIEMPRE `estacion` y el disparador `tg_surtidas_ubicar` de la base lo
+               refina con el GPS. El galpón pasó a ser una acción deliberada de la oficina.
+             ⚠️ El candado vive en la BASE y no acá: una pestaña vieja en caché o la cola offline
+               escriben directo, y si la regla viviera en esta pantalla la saltarían sin avisar. -->
+        <div style="font-size:12px;color:#9fb3c8;background:#0e2038;border-radius:10px;padding:8px 10px;margin-bottom:14px">
+          📍 <b style="color:#cfe0f0">El lugar lo toma el GPS</b> — no hace falta elegir nada. Solo ponga los litros.
         </div>
 
         <div style="font-size:13px;color:#cfe0f0;font-weight:700;margin-bottom:6px">Litros surtidos</div>
@@ -2397,11 +2409,19 @@ async function subirColaEntregas(){
 // ════════════════════════════════
 // MÓDULO SURTIR (combustible por surtida: tanque + litros + foto + GPS). Costo real $0,75/L (USD).
 // ════════════════════════════════
-// ⛔ `SUR_TANQUE` arranca VACÍO: un valor por defecto en un campo que el chofer tiene que
-// DECLARAR no es una comodidad, es una respuesta que el sistema pone por él y que después
-// se lee como si la hubiera dado la persona. Costó 1.811 litros atribuidos al tanque
-// equivocado (ver el comentario del selector, arriba).
-var SUR_FOTO_FILE=null, SUR_GPS=null, SUR_GPS_FAILS=0, SUR_TANQUE=null, SUR_HOY=[];
+// HISTORIA, porque explica por qué la pregunta terminó desapareciendo:
+//    Hasta el 29/08/2026 `SUR_TANQUE` arrancaba en 'galpon_1'. Un valor por omisión en un campo
+//    que la persona tiene que DECLARAR no es una comodidad: es una respuesta que el sistema pone
+//    por ella y que después se lee como si la hubiera dado. Costó 1.811 L atribuidos al tanque
+//    equivocado. Ese día se puso en null y el botón pasó a pedir que eligieran — y aun así
+//    entraron 3 errores más. Por eso el 08/11 se quitó la pregunta entera.
+//
+// ⛔ AHORA VALE SIEMPRE 'estacion' Y NO SE ELIGE. Lo refina el disparador `tg_surtidas_ubicar`
+//    de la base con el GPS. El valor importa: el RPC decide el PRECIO mirando `tanques_internos`
+//    (hoy ["galpon_1"]) — con 'estacion' el costo queda NULL y lo pone administración al cierre,
+//    que es lo correcto. Mandar null lo volvería 'principal' dentro del RPC y también andaría,
+//    pero 'estacion' es lo que de verdad está declarando la app.
+var SUR_FOTO_FILE=null, SUR_GPS=null, SUR_GPS_FAILS=0, SUR_TANQUE='estacion', SUR_HOY=[];
 var SUR_TANQUE_LBL={galpon_1:'🛢️ Galpón 1', galpon_2:'🛢️ Galpón 2', estacion:'⛽ Estación de servicio'};
 var COLA_SUR=[];
 function cargarColaSur(){ try{ var s=localStorage.getItem('btg_cola_sur'); if(s) COLA_SUR=_colaSana(JSON.parse(s)); }catch(e){ COLA_SUR=[]; } }
@@ -2517,7 +2537,10 @@ function surSetTanque(t){
  * la bomba igual pueda intentar y ver el motivo, en vez de quedarse con un botón muerto.
  */
 function surPintarPide(){
-  var falta = !SUR_TANQUE;
+  // ⛔ YA NO HAY NADA QUE ELEGIR, así que nunca falta nada. Se deja la función y sus llamadas
+  //    en su lugar a propósito: devolver siempre el botón listo es más seguro que arrancar las
+  //    llamadas de todos lados y que alguna quede colgando.
+  var falta = false;
   var p = document.getElementById('sur-tanque-pide');
   if(p) p.style.display = falta ? '' : 'none';
   var b = document.getElementById('sur-btn');
@@ -2590,12 +2613,10 @@ async function surGuardar(){
   // factura se concilia: si no se eligió, se pregunta — no se supone.
   // El botón ya venía diciéndolo; esto es la última red, y lleva al chofer hasta los
   // botones en vez de dejarlo adivinando qué le falta.
-  if(!SUR_TANQUE){
-    mostrarToast('Toque arriba de dónde surtió: Galpón 1, Galpón 2 o Estación','error');
-    var _ft=document.getElementById('sur-tanque-estacion');
-    if(_ft){ try{ _ft.scrollIntoView({block:'center',behavior:'smooth'}); }catch(e){ try{ _ft.scrollIntoView(); }catch(e2){} } }
-    return;
-  }
+  // ⛔ ACÁ ESTABA LA RED QUE PEDÍA ELEGIR EL TANQUE. Se quitó el 08/11/2026 junto con la
+  //    pregunta: un candado que ya no puede dispararse no protege nada y engaña al que lo lee.
+  //    Lo que SÍ sigue siendo obligatorio es el GPS — se exige unas líneas más abajo — porque
+  //    ahora es el ÚNICO dato que dice dónde se surtió.
   var lit=_surLit();
   if(!(lit>0)){ mostrarToast('Ingrese los litros surtidos','error'); return; }
   // TOPE DURO (no se puede confirmar para pasarlo): un dígito de más corrompe el gasto de combustible.
@@ -2668,7 +2689,7 @@ async function surGuardar(){
       //    [[norma-catalogo-no-puede-trancar-el-registro]]
       id:(cam||'X')+'-S-'+hoy+'-'+String(SUR_TANQUE||'').replace(/[^A-Za-z0-9]/g,'').slice(0,10)+'-'+String(lit).replace('.','_')+'-'+Math.floor(now.getTime()/600000),
       fecha:hoy, hora:p2(now.getHours())+':'+p2(now.getMinutes()),
-      cam:cam||'', chofer:chofer||'', tanque:SUR_TANQUE, litros:lit, costo_litro_usd:(SUR_TANQUE==='estacion'?null:0.812),
+      cam:cam||'', chofer:chofer||'', tanque:SUR_TANQUE, litros:lit, costo_litro_usd:null,
       foto_url:fotoUrl, lat:(SUR_GPS?SUR_GPS.lat:null), lng:(SUR_GPS?SUR_GPS.lng:null),
       precision_gps:(SUR_GPS?SUR_GPS.acc:null), token:tok
     };
@@ -2713,7 +2734,7 @@ async function surGuardar(){
     document.getElementById('sur-litros').value=''; SUR_FOTO_FILE=null; SUR_GPS_FAILS=0;
     // El tanque tambien se limpia: cada surtida es una declaracion propia. Dejar puesto el
     // de la anterior seria volver a poner un valor por defecto, con otro nombre.
-    SUR_TANQUE=null;
+    SUR_TANQUE='estacion';   // no vuelve a null: ya no hay nada que elegir
     ['galpon_1','galpon_2','estacion'].forEach(function(x){ var bb=document.getElementById('sur-tanque-'+x); if(bb)bb.style.border='2px solid #f4a300'; });
     var pv=document.getElementById('sur-foto-prev'); if(pv)pv.style.display='none';
     var gt=document.getElementById('sur-gps-txt'); if(gt)gt.textContent='';
