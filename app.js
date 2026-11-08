@@ -2363,7 +2363,71 @@ function _acTanqueDe(m){
   if(t)return t;
   return AC_TANQUES.find(function(x){return x.tipo==='vehiculo';})||AC_TANQUES[0]||null;
 }
-function _acEsGalpon(m){ var t=_acTanqueDe(m); return !!(t&&t.tipo==='galpon'); }
+// ── ⛔ UNA SOLA LISTA DE QUÉ TANQUES SON DE LA EMPRESA ───────────────────────────
+//
+// ������ EL PROBLEMA. «Es un tanque nuestro» estaba escrito a mano en CINCO lugares y de TRES formas
+//    distintas: `t.tipo==='galpon'` sobre la tabla de tanques (`_acEsGalpon`, el reduce de
+//    capacidad, `sinGalpon`), el substring `indexOf('galpon')` sobre el campo `tanque` de la
+//    surtida (`_acSalidasGalpon`, `_surEsExterna`), y la clave `tanques_internos` de la
+//    configuración — que el motor no leía nunca. [[norma-dos-listas-a-mano-se-desincronizan]]
+//
+// ������ MEDIDO el 08/11/2026 sobre las bases que usan este motor, y las tres formas YA estaban
+//    desincronizadas entre sí. Los tres casos que aparecieron, sin nombrar a nadie:
+//    · La clave de configuración nombra UN tanque y la tabla tiene DOS. Calzaban igual, pero por
+//      el substring — o sea que cada forma estaba tapando el hueco de la otra, que es la manera
+//      en que dos listas a mano se ven bien hasta el día en que no.
+//    · Hay tanques propios declarados **solo** en la configuración, sin NI UNO en la tabla de
+//      tanques. Ahí el reduce de capacidad daba 0, R17 se iba por su propia puerta de salida, y
+//      `_acSalidasGalpon` no contaba una sola salida: **miles de litros salieron de tanques
+//      propios y el módulo los trataba como combustible comprado en la bomba.** Es exactamente
+//      el problema que R17 existe para ver, y no lo veía.
+//    · Hay surtidas cuyo `tanque` no está declarado en ninguno de los dos lados. ⛔ Eso NO se
+//      adivina acá: la lista es la declaración, y un id que no está declarado no se convierte en
+//      propio porque el nombre suene conocido. Queda como no-propio y se dice.
+//      [[norma-la-falta-de-un-dato-no-es-un-dato]]
+//
+// ⛔ EL ORDEN DE LOS TRES CRITERIOS NO ES CASUAL: primero la tabla de tanques, que es la única
+//    que puede traer capacidad; después la lista de la configuración; y el substring al final,
+//    como compatibilidad con el dato viejo que ya está escrito así. Un id que no entra por
+//    ninguno de los tres NO es nuestro.
+function _acTanquePropio(id){
+  var k=String(id==null?'':id); if(!k)return false;
+  var T=AC_TANQUES||[];
+  for(var i=0;i<T.length;i++){ if(T[i]&&T[i].tipo==='galpon'&&String(T[i].id)===k)return true; }
+  var L=(AC_META&&AC_META.tanquesPropios)||[];
+  for(var j=0;j<L.length;j++){ if(L[j]===k)return true; }
+  return k.indexOf('galpon')>=0;
+}
+// ¿Tiene esta empresa algún tanque propio declarado, de cualquiera de los dos lados?
+function _acHayTanquePropio(){
+  if((AC_TANQUES||[]).some(function(t){return t&&t.tipo==='galpon';}))return true;
+  return (((AC_META&&AC_META.tanquesPropios)||[]).length>0);
+}
+// La capacidad sumada de los tanques propios.
+// ⛔ DEVUELVE `null`, NO 0, cuando no se sabe. Un tanque propio que está declarado en la
+//    configuración pero no en la tabla no tiene capacidad CERO: tiene capacidad DESCONOCIDA.
+//    Devolver un número hace que las dos cosas se lean igual, y encima el 0 apagaba R17 por su
+//    puerta de salida `cap<=0`. [[norma-falta-de-dato-no-es-un-dato]]
+function _acCapTanquesPropios(){
+  var suma=0, n=0;
+  (AC_TANQUES||[]).forEach(function(t){
+    if(!t||t.tipo!=='galpon')return;
+    // 'cap' y NO 'capacidad_litros': así se llama el campo DESPUÉS de que el cargador normaliza
+    // el tanque. Leer el nombre de la columna de la base daba `undefined`, y `||0` lo convertía
+    // en capacidad CERO, con lo que R17 se iba sin disparar nunca. Un campo que NO EXISTE se lee
+    // igual que uno vacío. [[norma-control-positivo-antes-de-creerle-al-vacio]]
+    var v=_acNum(t.cap)||0; if(v>0){ suma+=v; n++; }
+  });
+  return n>0?Math.round(suma*100)/100:null;
+}
+function _acEsGalpon(m){
+  // ⚠️ Se pregunta por el id que trae la MEDICIÓN antes de resolver el tanque, porque
+  //    `_acTanqueDe` cae a un tanque de VEHÍCULO cuando no encuentra el id — y un tanque propio
+  //    declarado solo en la configuración no está en la tabla, así que resolverlo caía siempre
+  //    en ese fallback y su medición se contaba como la de un camión.
+  if(m&&_acTanquePropio(m.tanque_id))return true;
+  var t=_acTanqueDe(m); return !!(t&&t.tipo==='galpon');
+}
 
 // ── DEDUPE de mediciones ──────────────────────────────────────────────────────────────────────
 // Hay filas repetidas (misma unidad, fecha, momento y altura, 2-3 veces). CAUSA REAL, hallada el
@@ -2449,6 +2513,17 @@ async function acCargar(desde,hasta){
     //      ninguna unidad antes del 29/08, y da CERO en los 16 períodos siguientes. Funciona.
     supabase.from('combustible_periodos').select('*')
   ];
+  // ⛔ QUÉ TANQUES SON DE LA EMPRESA lo dice la configuración, y el motor NO la leía.
+  //    Algunas bases lo declaran en los dos lados (`tipo='galpon'` en la tabla de tanques + esta
+  //    clave) y otras **solo acá**, con todos sus tanques de la tabla marcados como de vehículo.
+  //    En esas, miles de litros salieron de tanques propios que el motor no reconocía, y sin esta
+  //    consulta el cuadre estaba ciego justo donde hay más movimiento.
+  // ⚠️ VA AL FINAL Y CON SU ÍNDICE GUARDADO. Insertarla en el medio obligaba a correr a mano
+  //    los `r[9]`, `r[10]`, `r[11]` de más abajo — la segunda lista a mano del mismo día.
+  //    [[norma-dos-listas-a-mano-se-desincronizan]]
+  var _iPeriodos=q.length-1;
+  var _iTqProp=q.length;
+  q.push(supabase.from('configuracion').select('valor').eq('clave','tanques_internos').maybeSingle());
   var r=await Promise.all(q);
   if(r[0].error)throw new Error('tanques: '+r[0].error.message);
   if(r[1].error)throw new Error('mediciones: '+r[1].error.message);
@@ -2481,9 +2556,24 @@ async function acCargar(desde,hasta){
   if(r[7]&&r[7].error)console.log('surtidas auditoria:',r[7].error.message);
   var _c=null; try{ _c=(r[8]&&r[8].data)?String(r[8].data.valor).replace(/"/g,'').slice(0,10):null; }catch(e){}
   AC_META.corteSurtidas=_c||'';
+  // Los ids de los tanques que son de la empresa. ⛔ Se distingue «la lista está vacía» de «no
+  // la pude leer»: si la clave no existe o viene rota queda `tanquesPropiosLeido=false`, y el
+  // cuadre dice que no lo sabe en vez de afirmar que no hay tanques.
+  // [[norma-control-positivo-antes-de-creerle-al-vacio]]
+  AC_META.tanquesPropios=[]; AC_META.tanquesPropiosLeido=false;
+  try{
+    var _ti=(r[_iTqProp]&&!r[_iTqProp].error&&r[_iTqProp].data)?r[_iTqProp].data.valor:null;
+    if(_ti!=null){
+      var _arr=(typeof _ti==='string')?JSON.parse(_ti):_ti;
+      if(Array.isArray(_arr)){
+        AC_META.tanquesPropios=_arr.map(function(x){return String(x);}).filter(function(x){return !!x;});
+        AC_META.tanquesPropiosLeido=true;
+      }
+    }
+  }catch(e){ console.log('tanques_internos no se pudo leer:',e&&e.message); }
   AC_SOMBRA=(r[9]&&r[9].data)||[];
   // El último del arreglo: los períodos de facturación de la estación (ver R16).
-  AC_PERIODOS=(r[r.length-1]&&r[r.length-1].data)||[];
+  AC_PERIODOS=(r[_iPeriodos]&&r[_iPeriodos].data)||[];
   if(r[9]&&r[9].error)console.log('sombra auditoria:',r[9].error.message);
   var _av=null; try{ _av=(r[10]&&r[10].data)?String(r[10].data.valor).replace(/"/g,'').toLowerCase():null; }catch(e){}
   AC_META.avisarSustraccion=(_av==='on');
@@ -2811,7 +2901,7 @@ function _acSalidasGalpon(desde,hasta){
     var f=String(s.fecha||'').slice(0,10);
     if(f<desde||f>hasta)return;
     if(corte&&f<corte)return;
-    if(String(s.tanque||'').indexOf('galpon')<0)return;
+    if(!_acTanquePropio(s.tanque))return;
     suma+=(_acNum(s.litros)||0);
   });
   (AC_GASOIL||[]).forEach(function(g){
@@ -2908,11 +2998,17 @@ function _acConfianza(o){
 
   // 3. ¿El galpón se puede comprobar? Es el único tanque donde nadie mira.
   var g=o.galpon||{};
+  // ⚠️ «Tanque propio» y no «galpón»: cada empresa le pone el nombre de su sitio, y la
+  //    condición es la misma en todas — es el tanque de la casa, donde nadie mira.
+  var gSal=(g.litrosPropios!=null?g.litrosPropios:null);
   c.push({clave:'galpon', ok:(g.mediciones>=2||g.sinGalpon===true),
-    titulo:'El tanque del galpón se puede cuadrar',
+    titulo:'El tanque propio de la empresa se puede cuadrar',
     cifra:(g.sinGalpon?'no aplica':((g.mediciones||0)+' lectura(s)')),
-    detalle:(g.sinGalpon?'esta empresa no tiene tanque de galpón':'hacen falta 2 lecturas de regla para cuadrarlo'),
-    falta:'Pasar la regla a los tanques del galpón antes y después de cada vez que se surta de ahí.'});
+    detalle:(g.sinGalpon
+      ? 'esta empresa no tiene tanque propio'
+      : ('hacen falta 2 lecturas de regla para cuadrarlo'+
+         (gSal!=null&&gSal>0?(' · ya salieron '+_acFmt(gSal,0)+' L de ahí'):''))),
+    falta:'Pasar la regla a los tanques propios antes y después de cada vez que se surta de ahí.'});
 
   // 4. ⛔ EL ÚNICO TESTIGO QUE NO DEPENDE DE LA VARILLA. Si la regla se lee mal, todo el módulo
   //    se equivoca a la vez y no hay forma de notarlo desde adentro. R16 mira la factura contra
@@ -3003,16 +3099,10 @@ function _acPisoDeteccion(J){
 function _acSaldoLibrosGalpon(){
   var AMPLIO='0000-01-01', FUTURO='9999-12-31';
   var ent=_acComprasGalpon(AMPLIO,FUTURO), sal=_acSalidasGalpon(AMPLIO,FUTURO);
-  var cap=(AC_TANQUES||[]).reduce(function(s,t){
-    // 'cap' y NO 'capacidad_litros': asi se llama el campo DESPUES de que el cargador normaliza
-    // el tanque. Leer el nombre de la columna de la base daba `undefined`, y `||0` lo convertia
-    // en capacidad CERO, con lo que R17 se iba por su propia puerta de salida sin disparar nunca.
-    // Un campo que NO EXISTE se lee igual que uno vacio. [[norma-control-positivo-antes-de-creerle-al-vacio]]
-    return s+((t&&t.tipo==='galpon')?(_acNum(t.cap)||0):0);
-  },0);
+  var cap=_acCapTanquesPropios();   // `null` si no está declarada — ver la función
   var med=(AC_MED||[]).filter(_acEsGalpon).length;
   return {entradas:ent, salidas:sal, saldo:Math.round((ent-sal)*100)/100,
-          capacidad:Math.round(cap*100)/100, medicionesTotales:med,
+          capacidad:cap, capacidadConocida:(cap!=null), medicionesTotales:med,
           nuncaMedido:med===0};
 }
 
@@ -3737,12 +3827,13 @@ function _acAnomalias(todas,desde,hasta,ref){
   //    perfecto todo este tiempo. Lo que no se puede es afirmarlo.
   (function(){
     var sl=_acSaldoLibrosGalpon();
-    var cap=(AC_TANQUES||[]).reduce(function(s,t){ // 'cap' y NO 'capacidad_litros': asi se llama el campo DESPUES de que el cargador normaliza
-    // el tanque. Leer el nombre de la columna de la base daba `undefined`, y `||0` lo convertia
-    // en capacidad CERO, con lo que R17 se iba por su propia puerta de salida sin disparar nunca.
-    // Un campo que NO EXISTE se lee igual que uno vacio. [[norma-control-positivo-antes-de-creerle-al-vacio]]
-    return s+((t&&t.tipo==='galpon')?(_acNum(t.cap)||0):0); },0);
-    if(cap<=0)return;                                  // esta empresa no tiene galpón: nada que decir
+    var cap=_acCapTanquesPropios();
+    // ⛔ LA PUERTA DE SALIDA ERA `cap<=0`, O SEA: «no hay capacidad declarada» se leía como
+    //    «esta empresa no tiene tanque». Son dos cosas distintas, y el caso real existe: tanques
+    //    propios declarados en la configuración, con miles de litros que salieron de ellos, y
+    //    CERO capacidad en la tabla — así que la regla se apagaba sola exactamente donde más
+    //    falta hace. Ahora la puerta pregunta lo que de verdad quiere saber.
+    if(!_acHayTanquePropio())return;                   // esta empresa no tiene tanque propio: nada que decir
     var g=_acCuadreGalpon(desde,hasta);
     var movio=(g.compras+g.despachos)>0;
     // Con 2 lecturas en el rango el cuadre REAL ya se calcula y lo informa `_acCuadreGalpon`:
@@ -3753,24 +3844,39 @@ function _acAnomalias(todas,desde,hasta,ref){
     if(!movio&&!sl.nuncaMedido)return;
     var sev=movio?'alta':'media';
     var apertura=(sl.saldo<0);
-    add(sev,'R17','El tanque del galpón no tiene con qué comprobarse',
+    // ⛔ EL TEXTO DE UNA ANOMALÍA VA EN TEXTO PLANO. Se dibuja con `_mEsc()`, que escapa el
+    //    HTML — y tiene que escaparlo, porque interpola datos que escribe gente (el nombre de la
+    //    estación, la unidad). Las otras 20 reglas escriben plano; esta era la única que metía
+    //    `<b>`, y sus etiquetas salían CRUDAS en la pantalla: «<b>no se han medido</b>», literal.
+    //    ������ Lo destapó MIRAR LA CAPTURA. Las 43 aserciones estaban en verde: ninguna mira cómo se
+    //      ve. El énfasis va en MAYÚSCULAS, que es lo que usa el resto.
+    //      [[norma-una-pantalla-se-revisa-en-una-pantalla]]
+    add(sev,'R17','El tanque propio no tiene con qué comprobarse',
       (sl.nuncaMedido
-        ? ('Los tanques del galpón ('+_acFmt(cap,0)+' L de capacidad) <b>no se han medido NI UNA VEZ</b> desde que existe el sistema. ')
-        : ('En este período los tanques del galpón tienen '+g.mediciones+' lectura(s) de regla y hacen falta 2 para cuadrarlos. '))+
+        ? ('Los tanques propios'+(cap!=null?(' ('+_acFmt(cap,0)+' L de capacidad)'):'')+' NO SE HAN MEDIDO NI UNA VEZ desde que existe el sistema. ')
+        : ('En este período los tanques propios tienen '+g.mediciones+' lectura(s) de regla y hacen falta 2 para cuadrarlos. '))+
       (movio
         ? ('Y sí se movió combustible: entraron '+_acFmt(g.compras,0)+' L y salieron '+_acFmt(g.despachos,0)+' L. ')
-        : ('En este período no se movió combustible del galpón. '))+
+        : ('En este período no se movió combustible del tanque propio. '))+
       'Los papeles dicen que debería haber '+_acFmt(sl.saldo,0)+' L ('+_acFmt(sl.entradas,0)+' L que entraron menos '+
       _acFmt(sl.salidas,0)+' L que salieron, desde el primer movimiento). '+
       (apertura
-        ? ('<b>Ese número es negativo, y eso no puede pasar</b>: un tanque no entrega más de lo que entró. '+
+        ? ('Ese número es NEGATIVO, y eso NO PUEDE PASAR: un tanque no entrega más de lo que entró. '+
            'No significa que falte gasoil — significa que falta asentar el combustible que ya estaba en el tanque '+
            'cuando empezó el registro (al menos '+_acFmt(Math.abs(sl.saldo),0)+' L). ')
         : '')+
-      '<b>Esto NO es una acusación</b>: puede estar todo perfecto. Lo que no se puede es comprobarlo, '+
-      'y lo que no se comprueba son hasta '+_acFmt(cap,0)+' L'+$(cap)+' sobre los que la auditoría no puede opinar. '+
-      'Se arregla pasando la regla a los dos tanques <b>dos veces</b>: una vez ahora para fijar el punto de partida, '+
-      'y de ahí en más antes y después de cada vez que se surta del galpón.',
+      'Esto NO ES UNA ACUSACIÓN: puede estar todo perfecto. Lo que no se puede es comprobarlo. '+
+      // ⛔ Con capacidad desconocida NO se dice una cifra de litros expuestos. La frase «hasta X L
+      //    sobre los que no se puede opinar» necesita saber cuánto entra en el tanque; con `cap`
+      //    en `null` esa cifra sería inventada. Se dice el hueco que SÍ está medido — que la
+      //    capacidad no está declarada — porque eso también hay que arreglarlo.
+      (cap!=null
+        ? ('Lo que no se comprueba son hasta '+_acFmt(cap,0)+' L'+$(cap)+', sobre los que la auditoría no puede opinar. ')
+        : ('Y NO SE SABE CUÁNTA CAPACIDAD TIENEN: estos tanques están declarados en la configuración '+
+           'pero no en la tabla de tanques, así que no hay con qué decir cuántos litros quedan sin comprobar. '))+
+      'Se arregla pasando la regla a los tanques DOS VECES: una vez ahora para fijar el punto de partida, '+
+      'y de ahí en más antes y después de cada vez que se surta de ahí.'+
+      (cap==null?' Y declarando los tanques con su capacidad, que es lo que permite ponerle número al hueco.':''),
       '',hasta,sl.saldo,'');
   })();
 
@@ -4195,7 +4301,7 @@ function _acRender(){
     pctAud:pctAud, completas:completas, total:J.length,
     piso:pdK_,
     galpon:{mediciones:(AC_META.galpon&&AC_META.galpon.mediciones)||0,
-            sinGalpon:!(AC_TANQUES||[]).some(function(t){return t&&t.tipo==='galpon';})},
+            sinGalpon:!_acHayTanquePropio(), litrosPropios:_acSaldoLibrosGalpon().salidas},
     r16:(AC_ANOM||[]).filter(function(a){return (a.cod||a.regla)==='R16';}).length,
     // ⛔ `pend` del modo sombra es un ARRAY, no un número. Pasarlo crudo habría impreso
     //    «[object Object],[object Object]» en el texto de qué falta.
@@ -4278,7 +4384,7 @@ function _acRender(){
 
   // ── Cuadre del galpón
   if(AC_META.modo==='cubicacion'){
-    html+='<div class="card" style="margin-bottom:10px"><div class="st" style="margin-bottom:6px">🛢️ Cuadre del tanque del galpón</div>';
+    html+='<div class="card" style="margin-bottom:10px"><div class="st" style="margin-bottom:6px">🛢️ Cuadre del tanque propio</div>';
     // El galpón es el BACKUP: se usa solo cuando no hay en la estación. Puede estar un mes quieto.
     // Por eso se cuenta distinto según esté DURMIENDO o EN USO, y no se le reclama una medición
     // semanal a un tanque que nadie está tocando.
@@ -4292,7 +4398,7 @@ function _acRender(){
         '<div style="margin-top:8px;padding:8px 10px;border-radius:8px;background:'+(bajo?'rgba(248,113,113,.1)':'rgba(163,230,53,.08)')+';border:1px solid '+(bajo?'var(--red)':'var(--green)')+'">'+
           (bajo?('⚠️ <b>Bajó '+_acFmt(Math.abs(g_.dif),1)+' L sin que nadie surtiera</b>'+(_acUsd(g_.dif)!=null?(' ≈ $'+_acFmt(_acUsd(g_.dif),2)):'')+'. '+
                  'Un tanque que nadie tocó tiene que conservar el nivel. Es más de lo que explica la regla (±'+_acFmt(g_.tol,0)+' L): '+
-                 'revisá quién tiene acceso al galpón y confirmá las dos lecturas.')
+                 'revisá quién tiene acceso al tanque y confirmá las dos lecturas.')
                :('✅ El nivel se mantuvo (diferencia de '+_acFmt(g_.dif,1)+' L, dentro del margen de la regla ±'+_acFmt(g_.tol,0)+' L). '+
                  'Es la prueba más barata que hay: dos lecturas separadas en el tiempo, sin movimientos en el medio.'))+
         '</div></div>';
@@ -4310,8 +4416,8 @@ function _acRender(){
                 :('✅ Cuadra. Diferencia de '+_acFmt(g_.dif,1)+' L, dentro del margen de la regla (±'+_acFmt(g_.tol,0)+' L).'))+
         '</div></div>';
     } else if(g_.reposo){
-      html+='<div style="font-size:12px;color:var(--text2);line-height:1.7">🌙 <b>El galpón estuvo en reposo</b>: en este período no se le compró ni se surtió de ahí. '+
-        'Es lo normal — el galpón es el respaldo para cuando no se consigue en la estación.<br>'+
+      html+='<div style="font-size:12px;color:var(--text2);line-height:1.7">🌙 <b>El tanque propio estuvo en reposo</b>: en este período no se le compró ni se surtió de ahí. '+
+        'Es lo normal — el tanque propio es el respaldo para cuando no se consigue en la estación.<br>'+
         (g_.mediciones>=1
           ? 'Hay '+g_.mediciones+' medición física en el período: con una sola no se puede comparar contra nada.'
           : 'No se pasó la regla ni una vez en el período.')+
@@ -4324,7 +4430,7 @@ function _acRender(){
       //    plata expuesta, y se pinta como lo que es: algo que no se puede comprobar.
       var sl_=_acSaldoLibrosGalpon();
       html+='<div style="font-size:12px;line-height:1.7">'+
-        'El galpón <b>sí movió combustible</b> en este período: entraron '+_acFmt(g_.compras,1)+' L y salieron '+_acFmt(g_.despachos,1)+' L.<br>'+
+        'El tanque propio <b>sí movió combustible</b> en este período: entraron '+_acFmt(g_.compras,1)+' L y salieron '+_acFmt(g_.despachos,1)+' L.<br>'+
         'Tiene <b>'+(g_.mediciones||0)+' lectura(s) de regla</b> en el período y hacen falta 2 para cuadrarlo.'+
         '<div style="margin-top:8px;padding:8px 10px;border-radius:8px;background:rgba(251,191,36,.1);border:1px solid var(--yellow)">'+
           '⚠️ <b>Sin dos lecturas no se puede saber si falta gasoil</b> — y no lo damos por bueno ni por malo.'+
@@ -4334,10 +4440,12 @@ function _acRender(){
             ? ('<br><b>Ese número es negativo y eso no puede pasar</b>: un tanque no entrega más de lo que entró. '+
                'No es que falte gasoil — falta asentar lo que ya había en el tanque cuando arrancó el registro (al menos '+_acFmt(Math.abs(sl_.saldo),0)+' L).')
             : '')+
-          '<br>Sin comprobar quedan hasta <b>'+_acFmt(sl_.capacidad,0)+' L</b>'+
-          (_acUsd(sl_.capacidad)!=null?(' ≈ $'+_acFmt(_acUsd(sl_.capacidad),2)):'')+'.'+
+          (sl_.capacidadConocida
+            ? ('<br>Sin comprobar quedan hasta <b>'+_acFmt(sl_.capacidad,0)+' L</b>'+
+               (_acUsd(sl_.capacidad)!=null?(' ≈ $'+_acFmt(_acUsd(sl_.capacidad),2)):'')+'.')
+            : '<br>⚠️ <b>No se sabe cuánta capacidad tienen</b>: están declarados en la configuración pero no en la tabla de tanques, así que no hay con qué ponerle número al hueco.')+
           '<div style="margin-top:6px">✅ <b>Cómo se cierra:</b> pasá la regla a los dos tanques <b>dos veces</b> — una ahora, para fijar el punto de partida, '+
-          'y de ahí en más antes y después de cada vez que se surta del galpón. No hace falta nada más.</div>'+
+          'y de ahí en más antes y después de cada vez que se surta de ahí. No hace falta nada más.</div>'+
         '</div></div>';
     }
     html+='</div>';
@@ -17454,7 +17562,7 @@ function _surtidasHoy(){ var hoy=fechaVE(); return (SURTIDAS||[]).filter(functio
 //    surtida sin ubicar quedaba fuera del costeo PARA SIEMPRE —ni siquiera después de que
 //    administración le pusiera precio— y además no figuraba como pendiente: valía $0 y nadie
 //    se enteraba. [[norma-falta-de-dato-no-es-un-dato]]
-function _surEsExterna(s){ return !!s && String(s.tanque||'').indexOf('galpon')<0; }
+function _surEsExterna(s){ return !!s && !_acTanquePropio(s.tanque); }
 function _surCostoUsd(s){ if(_surEsExterna(s)&&!s.costo_definido)return 0; return parseFloat(s&&s.costo_usd)||0; } // costo HORNEADO (galpón=promedio tanque, estación=mezclado); pendiente=0
 function _surPendiente(s){ return _surEsExterna(s)&&!s.costo_definido; }
 function _surLbl(t){ return TANQUE_LBL[t]||t||''; }
@@ -35365,15 +35473,34 @@ function _rentEsCompra(row){return String(row.cam||'').toUpperCase().indexOf('CO
 // BETANGAR: el gasoil se compra a granel y entra al tanque del patio (en la base, `Tumaca`). Lo que
 // sale de ese tanque es movimiento interno. Las compras de verdad son a estaciones, y la que más
 // aparece es **E/S EL PALOTAL** (17 pagos, Bs 6,6 millones entre marzo y junio).
-var COMB_FUENTES_TANQUE=['tumaca','galpon','galpón','patio','tanque','reserva','la limpia','canchancha','cdp'];
-var COMB_FUENTES_AFUERA=['estacion','estación','e/s','palotal','en ruta','camino','bomba','pdv','servicio'];
+// ── ⛔ UN SOLO CLASIFICADOR DE «¿SALIÓ DE NUESTRO TANQUE O SE COMPRÓ AFUERA?» ───────────
+//
+// ������ HABÍA DOS MOTORES contestando la misma pregunta, y uno de ellos decide la PLATA
+//    (`_combEgresoUsd` cuenta la fila como gasto solo si es 'afuera'):
+//      · `_acSrcEsTanque` — el de la auditoría: calce EXACTO, y devuelve `true`/`false`/`null`
+//        a propósito, porque «no lo sé» es una respuesta y no un `||`.
+//      · esta función — el de la rentabilidad: dos listas de 9 palabras buscadas por SUBSTRING.
+//    Dos listas a mano del mismo concepto se desincronizan; que hoy coincidan no es una garantía,
+//    es una casualidad que nadie está vigilando. [[norma-dos-listas-a-mano-se-desincronizan]]
+//
+// ������ MEDIDO el 08/11/2026 contra TODOS los valores de `src` que existen en las 5 bases, antes de
+//    tocar nada: **los dos motores no se contradicen en una sola fila.** Y de las 18 palabras de
+//    las dos listas, las únicas que clasifican algo son las que el motor de la auditoría ya
+//    reconoce por nombre exacto. Las otras —nombres de sitios y de depósitos escritos a mano—
+//    **no calzan con NI UNA fila en ninguna base**: eran nombres propios de clientes viviendo en
+//    el código sin hacer nada. [[norma-un-comentario-es-codigo-que-se-publica]]
+//
+// ⚠️ LA ÚNICA DIFERENCIA DE COMPORTAMIENTO, medida: un `src` que la auditoría reconoce como
+//    tanque y estas listas no reconocían caía en 'desconocida'. Ahora cae en 'tanque'.
+//    Para la plata da LO MISMO (las dos ramas devuelven 0 en `_combEgresoUsd`); lo que cambia es
+//    que deja de contarse como «despacho que no se pudo clasificar», porque sí se puede.
 function _combNorm(s){ return String(s||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').trim(); }
 function _combClaseFuente(g){
-  var s=_combNorm(g&&g.src);
-  if(!s)return 'desconocida';
-  for(var i=0;i<COMB_FUENTES_AFUERA.length;i++) if(s.indexOf(_combNorm(COMB_FUENTES_AFUERA[i]))>=0)return 'afuera';
-  for(var j=0;j<COMB_FUENTES_TANQUE.length;j++) if(s.indexOf(_combNorm(COMB_FUENTES_TANQUE[j]))>=0)return 'tanque';
-  return 'desconocida';
+  if(!_combNorm(g&&g.src))return 'desconocida';
+  var t=_acSrcEsTanque(g&&g.src);
+  // `null` NO se convierte en una clase: se dice que no se sabe, y `_combDespachosSinFuente` lo
+  // cuenta y lo muestra. Un nombre nuevo se avisa, no se adivina.
+  return t===true?'tanque':(t===false?'afuera':'desconocida');
 }
 // Despachos que no se saben clasificar: se asumen del tanque (lectura conservadora, la de siempre)
 // pero hay que decirlo. Si una de esas fue comprada afuera, es gasto real escondido tras un texto.

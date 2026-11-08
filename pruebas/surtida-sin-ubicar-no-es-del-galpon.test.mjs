@@ -37,10 +37,21 @@ const saca = (nombre) => {
 }
 
 const fE = saca('_surEsExterna'), fP = saca('_surPendiente'), fC = saca('_surCostoUsd')
-ok('0. CONTROL POSITIVO: las tres funciones existen', !!fE && !!fP && !!fC,
-   'falta alguna: ' + [['_surEsExterna', fE], ['_surPendiente', fP], ['_surCostoUsd', fC]].filter((x) => !x[1]).map((x) => x[0]).join(', '))
-if (!fE || !fP || !fC) { console.log('\n⛔ sin las funciones no se prueba nada.'); process.exit(1) }
-const api = new Function(fE + '\n' + fP + '\n' + fC + '\n return {_surEsExterna,_surPendiente,_surCostoUsd};')()
+// ⛔ `_surEsExterna` ya NO decide sola: delega en `_acTanquePropio`, el criterio unico de "este
+//    tanque es de la empresa" que reemplazo a cinco listas escritas a mano. Se extrae del MISMO
+//    app.js, no se escribe una copia aca: una prueba con su propia version del criterio prueba la
+//    copia. [[norma-probar-el-camino-no-la-pieza]]
+const fT = saca('_acTanquePropio')
+ok('0. CONTROL POSITIVO: las cuatro funciones existen', !!fE && !!fP && !!fC && !!fT,
+   'falta alguna: ' + [['_surEsExterna', fE], ['_surPendiente', fP], ['_surCostoUsd', fC], ['_acTanquePropio', fT]].filter((x) => !x[1]).map((x) => x[0]).join(', '))
+if (!fE || !fP || !fC || !fT) { console.log('\n⛔ sin las funciones no se prueba nada.'); process.exit(1) }
+// El estado de partida: ni tanques en la tabla ni clave leida. Asi el criterio cae en el
+// substring, que es la compatibilidad con el dato viejo, y los casos 1-4 miden eso.
+const armar = (tanques, propios) => new Function(
+  'var AC_TANQUES=' + JSON.stringify(tanques) + ', AC_META={tanquesPropios:' + JSON.stringify(propios) + '};\n' +
+  fT + '\n' + fE + '\n' + fP + '\n' + fC + '\n' +
+  ' return {_surEsExterna,_surPendiente,_surCostoUsd,_acTanquePropio};')()
+const api = armar([], [])
 
 // ── 1. Los tres estados ─────────────────────────────────────────────────────────────────────
 ok('1. una de estación es EXTERNA', api._surEsExterna({ tanque: 'estacion' }) === true, 'dio otra cosa')
@@ -51,6 +62,27 @@ ok('3. ⛔ el galpón NO es externa', api._surEsExterna({ tanque: 'galpon_1' }) 
 ok('4. una fila sin tanque no revienta ni se cuenta como galpón',
    api._surEsExterna({}) === true && api._surEsExterna(null) === false,
    'un tanque vacío no es el galpón: el galpón hay que declararlo')
+
+// ── 1b. ⛔ EL TANQUE PROPIO QUE NO SE LLAMA «GALPÓN» ───────────────────────────────
+// Antes del 08/11/2026 «es nuestro» se decidia buscando la palabra `galpon` en el id, o el
+// `tipo='galpon'` en la tabla de tanques. Una empresa que declara sus tanques SOLO en la clave
+// `tanques_internos` de la configuracion —y que los llama con el nombre de su sitio— tenia todas
+// sus salidas contadas como combustible comprado en la bomba. Estos tres casos son el control
+// positivo de que eso ya no pasa, y el negativo de que no se adivina.
+{
+  const conClave = armar([], ['mi_patio', 'cisterna_2'])
+  ok('4b. CONTROL POSITIVO: un tanque declarado SOLO en la configuración es PROPIO',
+     conClave._surEsExterna({ tanque: 'mi_patio' }) === false &&
+     conClave._surEsExterna({ tanque: 'cisterna_2' }) === false,
+     'sigue contándose como compra en la bomba: es el defecto que esto arregla')
+  ok('4c. y el que NO está declarado en ningún lado sigue siendo externo',
+     conClave._surEsExterna({ tanque: 'bomba_de_la_esquina' }) === true,
+     'un id que nadie declaró no se vuelve propio porque el nombre suene conocido')
+  const porTabla = armar([{ id: 'tq-patio', tipo: 'galpon', cap: 2300 }], [])
+  ok('4d. y el declarado en la TABLA de tanques también, sin la palabra «galpón» en el id',
+     porTabla._surEsExterna({ tanque: 'tq-patio' }) === false,
+     'las dos formas de declararlo tienen que valer: por eso hay un solo criterio')
+}
 
 // ── 2. ⛔ LO QUE FALTA COSTEAR ───────────────────────────────────────────────────────────────
 ok('5. la de estación sin costear está PENDIENTE',

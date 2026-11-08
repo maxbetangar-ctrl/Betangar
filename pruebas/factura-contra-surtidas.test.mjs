@@ -65,8 +65,20 @@ ok('4. no reporta períodos anteriores al rango pedido', fuera.length === 0,
 
 // ── 3. El código ─────────────────────────────────────────────────────────────────────────────
 const plano = js.replace(/\s+/g, ' ')
-ok('5. el motor CARGA los períodos', /AC_PERIODOS=\(r\[r\.length-1\]/.test(plano),
+// ⛔ ESTA ASERCION FIJABA LA EXPRESION LITERAL `r[r.length-1]`, que es un DETALLE de como se
+//    indexa el arreglo de consultas, no la regla. El 08/11/2026 se cambio a un indice guardado
+//    (`_iPeriodos`) justo para poder agregar una consulta al final sin romper nada — y la
+//    asercion se puso roja sobre codigo correcto, acusando al producto de un cambio que lo
+//    mejoraba. Ahora mide las DOS cosas que de verdad importan, sin atarse a la forma:
+//      a) que la consulta de periodos este en el cargador de la auditoria, y
+//      b) que su resultado termine en `AC_PERIODOS`, que es lo que R16 lee.
+//    [[norma-una-asercion-mal-escrita-acusa-al-producto]]
+ok('5a. el motor CONSULTA los períodos de facturación',
+   /from\('combustible_periodos'\)/.test(plano),
    'la regla existiría pero sin datos que mirar')
+ok('5b. …y el resultado termina en `AC_PERIODOS`, que es lo que lee R16',
+   /AC_PERIODOS=\(r\[[^\]]+\]/.test(plano),
+   'se consulta pero no se guarda: R16 miraria un arreglo vacio y diria que todo cuadra')
 ok('6. el nombre de estación se compara sin distinguir mayúsculas',
    /toLowerCase\(\)!==est\.toLowerCase\(\)/.test(plano),
    'en `surtidas` lo escribe el chofer y en los períodos la oficina: se separarían por una mayúscula')

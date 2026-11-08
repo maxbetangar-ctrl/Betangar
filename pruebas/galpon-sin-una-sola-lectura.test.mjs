@@ -65,11 +65,16 @@ if (!datos) {
      'disparó ' + r17.length + ' veces con ' + (ctx.AC_JORNADAS || []).length + ' jornadas en el rango')
 
   // ── 2. Lo que dice ──────────────────────────────────────────────────────────────────────────
-  ok('2. dice que los tanques NO se midieron ni una vez', /no se han medido NI UNA VEZ/.test(txt(r17[0] || {})),
+  // ⛔ SIN DISTINGUIR MAYÚSCULAS. El 08/11/2026 el énfasis del texto pasó de `<b>` a MAYÚSCULAS
+  //    —porque la pantalla escapa el HTML y las etiquetas salían crudas— y estas tres aserciones
+  //    se pusieron ROJAS sobre un texto que seguía diciendo exactamente lo mismo. Lo que hay que
+  //    proteger es QUÉ DICE, no cómo está escrito en el archivo.
+  //    [[norma-una-asercion-mal-escrita-acusa-al-producto]]
+  ok('2. dice que los tanques NO se midieron ni una vez', /no se han medido NI UNA VEZ/i.test(txt(r17[0] || {})),
      'sin esa frase el aviso se lee como «falta una lectura más», no como «no hay ninguna»')
   ok('3. trae el saldo en litros, no una vaguedad', /-?[\d.,]+ L/.test(txt(r17[0] || {})),
      'un hueco sin cifra no se prioriza: es justo el defecto que esto arregla')
-  ok('4. ⛔ NO ACUSA A NADIE, y lo dice con esas palabras', /NO es una acusación/.test(txt(r17[0] || {})),
+  ok('4. ⛔ NO ACUSA A NADIE, y lo dice con esas palabras', /NO es una acusación/i.test(txt(r17[0] || {})),
      'una regla de medición que se lee como una de robo enseña a no creerle al módulo')
   // ⛔ ESTA SE PRUEBA CON UN FIXTURE, NO CON LOS DATOS VIVOS, y la razón es que la asersión
   //    anterior se puso ROJA el 08/11/2026 **porque el defecto se arregló**: el saldo del galpón
@@ -89,12 +94,12 @@ if (!datos) {
   })
   const r17neg = auditar(ctxNeg, '2026-07-24', '2026-09-07').filter((a) => (a.cod || a.regla) === 'R17')
   ok('5. CON SALDO NEGATIVO lo explica como un asiento que falta, NO como gasoil faltante',
-     r17neg.length === 1 && /no puede pasar/.test(txt(r17neg[0])) && /falta asentar/.test(txt(r17neg[0])) &&
+     r17neg.length === 1 && /no puede pasar/i.test(txt(r17neg[0])) && /falta asentar/i.test(txt(r17neg[0])) &&
      !/falta gasoil/i.test(txt(r17neg[0])),
      'dio ' + r17neg.length + ' avisos; texto: ' + txt(r17neg[0] || {}).slice(0, 200))
   // ⛔ Y LA OTRA MITAD: con saldo POSITIVO esa frase NO puede aparecer. Sin este control, una
   //    regla que dijera siempre «falta asentar» pasaría la asersión de arriba.
-  ok('5b. …y con saldo positivo NO dice nada de eso', !/no puede pasar/.test(txt(r17[0] || {})),
+  ok('5b. …y con saldo positivo NO dice nada de eso', !/no puede pasar/i.test(txt(r17[0] || {})),
      'dice que el saldo es imposible cuando no lo es: ' + txt(r17[0] || {}).slice(0, 160))
   ok('6. y dice cómo se cierra', /pasando la regla/.test(txt(r17[0] || {})),
      'un aviso sin salida es una queja')
