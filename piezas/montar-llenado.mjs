@@ -38,8 +38,48 @@ let html = fs.readFileSync(fhtml, 'utf8')
 const crlf = (s) => js.includes('\r\n') ? s.replace(/\r?\n/g, '\r\n') : s
 const crlfH = (s) => html.includes('\r\n') ? s.replace(/\r?\n/g, '\r\n') : s
 
+// ── Si ya lo tiene, se ACTUALIZA el módulo (no se duplica ni se deja viejo) ──
+// Sin esto, mejorar el módulo obligaba a editar seis copias a mano, que es
+// justo lo que esta pieza existe para evitar.
 if (js.includes('function renderLlenado')) {
-  console.log(`${nombre}: ya lo tiene — no se toca.`); process.exit(0)
+  const ini = js.indexOf('// LLENADO DE LA APP POR EMPLEADO')
+  const marcaIni = js.lastIndexOf('// ═', ini) >= 0 ? js.lastIndexOf('// ═', ini) : ini
+  const fin = js.indexOf('function _lleTile(lbl,val,col){', ini)
+  let cierre = -1
+  if (fin >= 0) {
+    let prof = 0
+    for (let p = js.indexOf('{', fin); p < js.length; p++) {
+      if (js[p] === '{') prof++
+      else if (js[p] === '}') { prof--; if (prof === 0) { cierre = p + 1; break } }
+    }
+    // y la función de imprimir, que va justo después
+    const imp = js.indexOf('async function imprimirLlenado(', cierre)
+    if (imp >= 0 && imp - cierre < 200) {
+      prof = 0
+      for (let p = js.indexOf('{', imp); p < js.length; p++) {
+        if (js[p] === '{') prof++
+        else if (js[p] === '}') { prof--; if (prof === 0) { cierre = p + 1; break } }
+      }
+    }
+  }
+  if (ini < 0 || cierre < 0) {
+    console.error(`${nombre}: ⛔ ya lo tiene pero no encontré dónde empieza/termina el módulo. No se toca.`)
+    process.exit(1)
+  }
+  const js3 = js.slice(0, marcaIni) + crlf(modulo).trimEnd() + js.slice(cierre)
+  fs.writeFileSync(fjs + '.tmp', js3, 'utf8'); fs.renameSync(fjs + '.tmp', fjs)
+  const sello2 = new Date().toISOString().slice(0, 10).replace(/-/g, '') + '-llenado'
+  html = html.replace(/app\.js\?v=[0-9a-zA-Z-]+/g, 'app.js?v=' + sello2)
+  fs.writeFileSync(fhtml + '.tmp', html, 'utf8'); fs.renameSync(fhtml + '.tmp', fhtml)
+  const v = fs.readFileSync(fjs, 'utf8')
+  const falta = ['function renderLlenado', 'function _lleEsc(', 'function _lleRevisar(',
+    'function imprimirLlenado', 'function _llePapel('].filter(m => !v.includes(m))
+  if (v.indexOf('function renderLlenado') !== v.lastIndexOf('function renderLlenado')) {
+    console.error(`${nombre}: ⛔ quedó DUPLICADO`); process.exit(1)
+  }
+  if (falta.length) { console.error(`${nombre}: ⛔ tras actualizar falta ${falta.join(', ')}`); process.exit(1) }
+  console.log(`${nombre}: módulo ACTUALIZADO (${modulo.length} car.) · ?v=${sello2}`)
+  process.exit(0)
 }
 
 const pasos = []

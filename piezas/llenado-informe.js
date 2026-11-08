@@ -201,10 +201,15 @@ function _lleHtml(D, imp){
   var adv=(D.advertencias||[]).map(function(a){return '<li style="margin-bottom:3px">'+_lleEsc(a)+'</li>';}).join('');
   var notas=!adv?'':('<h3 style="margin-top:18px">Lo que esta medición no puede decir</h3><ul style="font-size:11px;color:var(--text3);padding-left:16px;line-height:1.5">'+adv+'</ul>');
 
+  // ⛔ LOS CARGOS QUE EL PATRÓN NO RECONOCIÓ SE MUESTRAN. La base los devuelve
+  //    justamente para que no caigan callados en «oficina»; si la pantalla no
+  //    los dibujara, el dato existiría y nadie lo vería nunca.
+  var revisar=_lleRevisar(D,false);
+
   return aviso+titular+tiles+
     '<h3>Lo que hay que atender</h3>'+
     '<div style="font-size:11px;color:var(--text3);margin-bottom:6px">Con esta lista se entra a la reunión. El resto del informe la respalda.</div>'+
-    accion+areas+fallas+mods+notas;
+    accion+areas+fallas+mods+revisar+notas;
 }
 
 // ── EL PAPEL ─────────────────────────────────────────────────────────────────
@@ -323,12 +328,54 @@ function _llePapel(D){
   }
 
   // 8 — cómo se midió
+  // Antes de la metodología: lo que la empresa tiene que confirmar.
+  var rev=_lleRevisar(D,true);
+  if(rev){
+    out+=sec('Para confirmar con la empresa',
+      'No son errores: son cargos que el informe no supo clasificar solo y midió como oficina. Confirmarlos una vez deja el informe fino de ahí en adelante.');
+    out+=rev.replace(/^<h3[^>]*>[\s\S]*?<\/h3>/, '');
+  }
+
   out+=sec('Cómo se midió, y qué no puede decir esta medición',
     'Período del '+formatFecha(D.desde)+' al '+formatFecha(D.hasta)+'. Los números salen de los registros de la propia aplicación.');
   var adv=(D.advertencias||[]).map(function(a){return '<li style="margin-bottom:4px">'+_lleEsc(a)+'</li>';}).join('');
   out+='<ul style="font-size:10px;color:#444;padding-left:16px;line-height:1.55;margin-top:4px">'+adv+
     '<li style="margin-bottom:4px">Con menos de 10 días exigibles no se pone nota: la muestra es demasiado chica para sostener una exigencia.</li>'+
     '</ul>';
+  return out;
+}
+
+// ── LOS CARGOS A CONFIRMAR, y los checklists que no se le contaron a nadie ──
+// ⛔ Esto NO es una lista de errores: es una lista de CONFIRMAR. El patrón
+//    manda a «oficina» todo lo que no reconoce, y a veces acierta (un Contador
+//    es oficina) y a veces no (un «Operador de Llenado de GLP» no lo es). Si no
+//    se mostrara, media plantilla quedaría medida por lo que no hace y el
+//    informe se vería impecable. [[norma-falta-de-dato-no-es-un-dato]]
+function _lleRevisar(D, imp){
+  var C=D.cargos_sin_clasificar||[], sinAtrib=Number(D.checklists_sin_atribuir||0);
+  if(!C.length && !sinAtrib) return '';
+  var dim=imp?'#555':'var(--text3)';
+  var out='<h3 style="margin-top:18px">Para confirmar con la empresa</h3>';
+  if(C.length){
+    var total=C.reduce(function(a,c){return a+Number(c.personas||0);},0);
+    out+='<div style="font-size:11px;color:'+dim+';margin-bottom:6px">'+
+      'A estos <b>'+_lleNum(total)+'</b> empleados se los midió como <b>oficina</b> porque su cargo no se reconoció solo. '+
+      'Si alguno conduce, va en cuadrilla, vigila o es del taller, hay que decirlo una vez y el informe lo toma de ahí en adelante.</div>'+
+      '<table><thead><tr><th>Cargo</th><th>Personas</th><th>Se lo está midiendo como</th></tr></thead><tbody>'+
+      C.map(function(c){
+        var sin=/sin cargo/i.test(c.cargo||'');
+        return '<tr><td'+(sin?' style="color:'+(imp?'#b91c1c':'var(--red)')+'"':'')+'>'+_lleEsc(c.cargo)+'</td>'+
+          '<td class="mono">'+_lleNum(c.personas)+'</td>'+
+          '<td style="color:'+dim+';font-size:11px">'+(sin
+            ? 'nada: sin cargo en la ficha no entra en ninguna medición'
+            : 'oficina (días con actividad en la aplicación)')+'</td></tr>';
+      }).join('')+'</tbody></table>';
+  }
+  if(sinAtrib){
+    out+='<div style="font-size:11px;color:'+(imp?'#b91c1c':'var(--red)')+';margin-top:8px">'+
+      '⛔ <b>'+_lleNum(sinAtrib)+'</b> checklists del período llevan un nombre que no está en el roster: '+
+      'esos días <b>no se le cuentan a nadie</b>. O falta esa gente en Personal, o el checklist guardó un nombre viejo.</div>';
+  }
   return out;
 }
 

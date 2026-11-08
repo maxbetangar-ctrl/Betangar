@@ -169,6 +169,11 @@ try {
     const nombres = await pg.$$eval('#lle-body table tbody tr td:first-child',
       c => new Set(c.map(x => x.innerText.trim())).size)
     ok(nombres >= 40, `el detalle por área reparte a toda la gente (${nombres} nombres distintos)`)
+    // ⛔ Los cargos que el patrón no reconoció TIENEN que verse: la base los
+    //    devuelve justamente para eso. Si la pantalla no los dibuja, el dato
+    //    existe y nadie lo ve — que es igual a no tenerlo.
+    ok(/Para confirmar con la empresa/.test(t), 'muestra los cargos a confirmar')
+    ok(/se los midió como/i.test(t), 'dice CÓMO se los está midiendo mientras tanto')
     await pg.screenshot({ path: path.join(SALIDA, 'llenado-1-con-datos.png'), fullPage: true })
     await ctx.close()
   }
@@ -221,9 +226,14 @@ try {
     ok(/Del \d{2}\/\d{2}\/\d{4} al \d{2}\/\d{2}\/\d{4}/.test(papel), 'la cabecera dice QUÉ período')
     ok(/A corregir/.test(papel) && /Qué se le exige/.test(papel), 'lleva los veredictos y las exigencias')
     // Las secciones numeradas: es lo que hace que se pueda leer en una reunión.
-    for (const s of ['1. Lo que hay que atender', '5. El detalle, área por área',
-      '8. Cómo se midió']) {
-      ok(papel.includes(s), `el papel trae la sección «${s}»`)
+    // ⛔ Se comprueba el TÍTULO, no el número. Al intercalar una sección nueva
+    //    todas las de abajo se corren, y una aserción con el número escrito
+    //    («8. Cómo se midió») se pone roja sin que nada esté mal. Mismo vicio
+    //    que la columna por índice fijo.
+    for (const s of ['Lo que hay que atender', 'El detalle, área por área',
+      'Para confirmar con la empresa', 'Cómo se midió']) {
+      ok(new RegExp('\\d+\\.\\s*' + s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).test(papel),
+        `el papel trae la sección «${s}», numerada`)
     }
     for (const a of ['Choferes', 'Ayudantes', 'Vigilancia', 'Taller y supervisión',
       'Oficina y dirección']) {
