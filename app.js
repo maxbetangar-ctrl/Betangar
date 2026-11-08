@@ -2789,6 +2789,22 @@ function _acRefRend(todas){
 // `_acEntradas`: desde el corte son las surtidas de tanque `galpon_*`; antes, el gasoil histórico.
 // Una surtida de ESTACIÓN no sale del galpón: el camión cargó afuera, el tanque del galpón ni se
 // enteró. Meterla acá haría que el galpón nunca cuadrara.
+// ── ¿ESTE MOVIMIENTO SALIÓ DEL TANQUE DEL GALPÓN, O DE LA BOMBA? ─────────────────────────────
+// En `gasoil.src` viven dos cosas distintas que se parecen:
+//   · 'Tumaca' / 'Boscán'  → son los TANQUES del galpón (los proveedores que los llenan le dan
+//                            el nombre). El despacho BAJA el tanque: es una salida del galpón.
+//   · 'Estacion'           → se compró en la bomba y se puso directo en el camión. El tanque del
+//                            galpón no se movió ni un centímetro.
+// Devuelve `true` / `false` / `null` a propósito: `null` es «no lo sé», y quien pregunta decide
+// qué hacer con eso en vez de que se lo decida un `||`. [[norma-falta-de-dato-no-es-un-dato]]
+function _acSrcEsTanque(src){
+  var s=String(src==null?'':src).trim().toLowerCase().replace(/[áàä]/g,'a').replace(/[éèë]/g,'e')
+        .replace(/[íìï]/g,'i').replace(/[óòö]/g,'o').replace(/[úùü]/g,'u');
+  if(!s)return null;
+  if(s==='estacion')return false;
+  if(s==='tumaca'||s==='boscan')return true;
+  return null;   // un nombre nuevo: se avisa, no se adivina
+}
 function _acSalidasGalpon(desde,hasta){
   var corte=AC_META.corteSurtidas||'', suma=0;
   (AC_SURTIDAS||[]).forEach(function(s){
@@ -2800,6 +2816,20 @@ function _acSalidasGalpon(desde,hasta){
   });
   (AC_GASOIL||[]).forEach(function(g){
     if(String(g.tipo_operacion||'')==='compra')return;
+    // ⛔ SOLO LO QUE SALIÓ DEL TANQUE. `src` dice de dónde vino el combustible, y hasta el
+    //    08/11/2026 esto NO lo miraba: contaba como salida del galpón los **389 despachos de
+    //    `src='Estacion'` (55.367 L)**, que son combustible comprado en la bomba y puesto
+    //    DIRECTO en el camión. Lo confirma el código que escribía esas filas: el despacho de
+    //    estación se guarda con `bajarTanque=false` — nunca tocó el tanque del galpón.
+    //    🔴 Qué hacía: «nivel + compras − despachos» con 55.367 L de salidas inventadas da un
+    //      faltante enorme y FALSO, y un faltante falso señala a quien tiene la llave del galpón.
+    //      No se vio nunca porque el galpón no tiene NI UNA medición, así que el cuadre jamás
+    //      llegó a calcularse — pero sí volvía `reposo=false` y la pantalla decía «el galpón SÍ
+    //      se movió» en períodos en los que no se movió. [[norma-una-asercion-mal-escrita-acusa-al-producto]]
+    //    ⚠️ LA ASIMETRÍA ES A PROPÓSITO: un `src` que no reconozcamos NO se cuenta. Contar de
+    //      más crea un faltante (acusa a una persona); contar de menos crea un sobrante, que el
+    //      propio texto ya explica como «falta anotar una compra». Ante la duda, no se acusa.
+    if(!_acSrcEsTanque(g.src))return;
     var f=String(g.f||'').slice(0,10);
     if(f<desde||f>hasta)return;
     if(corte&&f>=corte)return;
@@ -2824,11 +2854,56 @@ function _acComprasGalpon(desde,hasta){
   var suma=0;
   (AC_GASOIL||[]).forEach(function(g){
     if(String(g.tipo_operacion||'')!=='compra')return;
+    // ⛔ ACÁ LA ASIMETRÍA SE DA VUELTA, y es el mismo razonamiento al revés. En las SALIDAS la
+    //    duda no se cuenta, porque contar una salida de más fabrica un faltante y un faltante
+    //    señala a una persona. En las ENTRADAS es al contrario: dejar una compra afuera también
+    //    fabrica un faltante. Así que acá la duda SÍ se cuenta y solo se descarta lo que sabemos
+    //    que no entró al tanque (`=== false`, la compra hecha en la bomba).
+    //    📌 Las dos reglas empujan al mismo lado —hacia «sobra»—, que es el veredicto que pide
+    //      anotar un papel en vez de acusar a alguien.
+    if(_acSrcEsTanque(g.src)===false)return;
     var f=String(g.f||'').slice(0,10);
     if(f<desde||f>hasta)return;
     suma+=(_acNum(g.lit)||0);
   });
   return Math.round(suma*100)/100;
+}
+
+// ── EL SALDO EN LIBROS DEL GALPÓN, DESDE SIEMPRE ─────────────────────────────────────────────
+//
+// 🔴 QUÉ PROBLEMA RESUELVE. `_acCuadreGalpon` cuadra un PERÍODO, y para eso necesita dos lecturas
+//    de regla. El galpón de Betangar no tiene NI UNA desde que existe el sistema: los dos tanques
+//    de 2.300 L nunca se midieron. Así que ese cuadre nunca se calcula, y la pantalla lo decía en
+//    gris, en el mismo tono que «todo normal», sin un solo número. Un hueco sin cifra no se
+//    prioriza: parece un detalle.
+//
+// ✅ Lo que SÍ se puede calcular sin una sola lectura es el saldo que dicen los papeles:
+//      entradas (compras al tanque) − salidas (despachos del tanque + surtidas del galpón
+//      + lo que salió y no fue a un camión)
+//    acumulado desde el primer movimiento, sin recorte de fechas — porque lo que nunca se
+//    verificó se viene arrastrando desde el principio, no desde el lunes pasado.
+//
+// 📌 MEDIDO el 08/11/2026 sobre los datos reales: entraron 5.300 L (3 compras, 05/03→02/09),
+//    salieron 4.760 L por despachos viejos y 2.101,23 L en 11 surtidas ⇒ **saldo −1.561,23 L**.
+//    Negativo es FÍSICAMENTE IMPOSIBLE: un tanque no puede entregar más de lo que entró. La
+//    lectura honesta es que había un stock inicial anterior al 05/03 que nunca se asentó, de al
+//    menos 1.561 L. Y como no hay una sola lectura, nadie sabe cuánto hay HOY.
+//    ⚠️ El signo importa más que el número: `saldo<0` no es un faltante, es la PRUEBA de que
+//      falta un asiento de apertura. Decirlo como faltante sería acusar con un error de registro.
+function _acSaldoLibrosGalpon(){
+  var AMPLIO='0000-01-01', FUTURO='9999-12-31';
+  var ent=_acComprasGalpon(AMPLIO,FUTURO), sal=_acSalidasGalpon(AMPLIO,FUTURO);
+  var cap=(AC_TANQUES||[]).reduce(function(s,t){
+    // 'cap' y NO 'capacidad_litros': asi se llama el campo DESPUES de que el cargador normaliza
+    // el tanque. Leer el nombre de la columna de la base daba `undefined`, y `||0` lo convertia
+    // en capacidad CERO, con lo que R17 se iba por su propia puerta de salida sin disparar nunca.
+    // Un campo que NO EXISTE se lee igual que uno vacio. [[norma-control-positivo-antes-de-creerle-al-vacio]]
+    return s+((t&&t.tipo==='galpon')?(_acNum(t.cap)||0):0);
+  },0);
+  var med=(AC_MED||[]).filter(_acEsGalpon).length;
+  return {entradas:ent, salidas:sal, saldo:Math.round((ent-sal)*100)/100,
+          capacidad:Math.round(cap*100)/100, medicionesTotales:med,
+          nuncaMedido:med===0};
 }
 
 // ── CUADRE DEL TANQUE DEL GALPÓN ──────────────────────────────────────────────────────────────
@@ -3531,6 +3606,64 @@ function _acAnomalias(todas,desde,hasta,ref){
       '',h,dif,'');
   });
 
+  // ══ R17 — EL GALPÓN SE MUEVE Y NADIE LO MIDE ═══════════════════════════════════════════════
+  // ⛔ TAMBIÉN VA FUERA DE TODO BUCLE, por la misma razón que R16: mira UN tanque, no las
+  //    jornadas. Si viviera adentro dispararía una vez por jornada. [[norma-arreglar-el-mecanismo-no-el-caso]]
+  //
+  // 🔴 POR QUÉ ES UNA ANOMALÍA Y NO SOLO UN TEXTO EN LA PANTALLA. Esto YA se decía en la pestaña
+  //    de combustible, en gris, en el mismo tono que «todo normal» y sin un solo número. Un hueco
+  //    sin cifra no se prioriza: parece un detalle. Como fila de la auditoría entra en la lista
+  //    que se lee de arriba abajo, lleva los litros y los dólares, y cuenta para el puntaje.
+  //
+  // ⛔ Y POR QUÉ **NO** VA AL AVISO DIARIO DE WHATSAPP, aunque la gemela del cron podría llevarla.
+  //    R17 va a dispararse TODOS LOS DÍAS hasta que alguien pase la regla. Un aviso que salta
+  //    siempre deja de ser un aviso y encima entrena a no creerle a los otros, que sí son del día.
+  //    Esta pertenece a la pantalla y al puntaje, no al canal.
+  //    📌 La gemela (`auditar-combustible/index.ts`) implementa a propósito un SUBCONJUNTO —R1,
+  //      R11, R13, R14, R15: las que describen un hecho de UN DÍA. R16 y R17 miran acumulados, y
+  //      un acumulado no es noticia diaria. Que falte ahí no es una divergencia: es el criterio.
+  //
+  // ⚠️ NO ACUSA A NADIE y el texto lo dice. Es un hueco de MEDICIÓN: el combustible pudo estar
+  //    perfecto todo este tiempo. Lo que no se puede es afirmarlo.
+  (function(){
+    var sl=_acSaldoLibrosGalpon();
+    var cap=(AC_TANQUES||[]).reduce(function(s,t){ // 'cap' y NO 'capacidad_litros': asi se llama el campo DESPUES de que el cargador normaliza
+    // el tanque. Leer el nombre de la columna de la base daba `undefined`, y `||0` lo convertia
+    // en capacidad CERO, con lo que R17 se iba por su propia puerta de salida sin disparar nunca.
+    // Un campo que NO EXISTE se lee igual que uno vacio. [[norma-control-positivo-antes-de-creerle-al-vacio]]
+    return s+((t&&t.tipo==='galpon')?(_acNum(t.cap)||0):0); },0);
+    if(cap<=0)return;                                  // esta empresa no tiene galpón: nada que decir
+    var g=_acCuadreGalpon(desde,hasta);
+    var movio=(g.compras+g.despachos)>0;
+    // Con 2 lecturas en el rango el cuadre REAL ya se calcula y lo informa `_acCuadreGalpon`:
+    // no hace falta un aviso de que falta medir.
+    if(g.mediciones>=2)return;
+    // En reposo y con el tanque quieto, la falta de medición es una recomendación, no una
+    // anomalía — salvo que NUNCA se haya medido, que es otra cosa.
+    if(!movio&&!sl.nuncaMedido)return;
+    var sev=movio?'alta':'media';
+    var apertura=(sl.saldo<0);
+    add(sev,'R17','El tanque del galpón no tiene con qué comprobarse',
+      (sl.nuncaMedido
+        ? ('Los tanques del galpón ('+_acFmt(cap,0)+' L de capacidad) <b>no se han medido NI UNA VEZ</b> desde que existe el sistema. ')
+        : ('En este período los tanques del galpón tienen '+g.mediciones+' lectura(s) de regla y hacen falta 2 para cuadrarlos. '))+
+      (movio
+        ? ('Y sí se movió combustible: entraron '+_acFmt(g.compras,0)+' L y salieron '+_acFmt(g.despachos,0)+' L. ')
+        : ('En este período no se movió combustible del galpón. '))+
+      'Los papeles dicen que debería haber '+_acFmt(sl.saldo,0)+' L ('+_acFmt(sl.entradas,0)+' L que entraron menos '+
+      _acFmt(sl.salidas,0)+' L que salieron, desde el primer movimiento). '+
+      (apertura
+        ? ('<b>Ese número es negativo, y eso no puede pasar</b>: un tanque no entrega más de lo que entró. '+
+           'No significa que falte gasoil — significa que falta asentar el combustible que ya estaba en el tanque '+
+           'cuando empezó el registro (al menos '+_acFmt(Math.abs(sl.saldo),0)+' L). ')
+        : '')+
+      '<b>Esto NO es una acusación</b>: puede estar todo perfecto. Lo que no se puede es comprobarlo, '+
+      'y lo que no se comprueba son hasta '+_acFmt(cap,0)+' L'+$(cap)+' sobre los que la auditoría no puede opinar. '+
+      'Se arregla pasando la regla a los dos tanques <b>dos veces</b>: una vez ahora para fijar el punto de partida, '+
+      'y de ahí en más antes y después de cada vez que se surta del galpón.',
+      '',hasta,sl.saldo,'');
+  })();
+
   _r4c.forEach(function(x){
     var j=x.j;
     var repite=_r4c.filter(function(y){
@@ -4010,10 +4143,27 @@ function _acRender(){
         ' <b>Conviene pasar la regla de vez en cuando aunque no se use</b> (una vez al mes alcanza): '+
         'dos lecturas con el tanque quieto son la forma más barata de confirmar que no se fue nada mientras dormía.</div>';
     } else {
-      html+='<div style="font-size:12px;color:var(--text2)">El galpón SÍ se movió en este período (entraron '+_acFmt(g_.compras,1)+' L en compras y salieron '+_acFmt(g_.despachos,1)+' L en surtidas), '+
-        'pero hay '+(g_.mediciones||0)+' medición(es) física(s): hacen falta 2 para cuadrarlo. '+
-        '<b>Sin dos lecturas de regla no se puede saber si falta gasoil</b> — no lo damos por bueno ni por malo. '+
-        'Cuando se vaya a surtir del galpón, pasá la regla antes y después: es el único momento en que hace falta.</div>';
+      // ⛔ ESTO ERA TEXTO GRIS, y el gris es el color de «todo normal». Decía la verdad —hacen
+      //    falta 2 lecturas— pero sin una sola cifra, así que un hueco de hasta 4.600 L se leía
+      //    como un detalle de configuración. Ahora lleva el saldo que dicen los papeles y la
+      //    plata expuesta, y se pinta como lo que es: algo que no se puede comprobar.
+      var sl_=_acSaldoLibrosGalpon();
+      html+='<div style="font-size:12px;line-height:1.7">'+
+        'El galpón <b>sí movió combustible</b> en este período: entraron '+_acFmt(g_.compras,1)+' L y salieron '+_acFmt(g_.despachos,1)+' L.<br>'+
+        'Tiene <b>'+(g_.mediciones||0)+' lectura(s) de regla</b> en el período y hacen falta 2 para cuadrarlo.'+
+        '<div style="margin-top:8px;padding:8px 10px;border-radius:8px;background:rgba(251,191,36,.1);border:1px solid var(--yellow)">'+
+          '⚠️ <b>Sin dos lecturas no se puede saber si falta gasoil</b> — y no lo damos por bueno ni por malo.'+
+          (sl_.nuncaMedido?('<br>🔴 <b>Estos tanques no se han medido NI UNA VEZ</b> desde que existe el sistema.'):'')+
+          '<br>Los papeles dicen <b>'+_acFmt(sl_.saldo,0)+' L</b> ('+_acFmt(sl_.entradas,0)+' L que entraron − '+_acFmt(sl_.salidas,0)+' L que salieron, desde el primer movimiento).'+
+          (sl_.saldo<0
+            ? ('<br><b>Ese número es negativo y eso no puede pasar</b>: un tanque no entrega más de lo que entró. '+
+               'No es que falte gasoil — falta asentar lo que ya había en el tanque cuando arrancó el registro (al menos '+_acFmt(Math.abs(sl_.saldo),0)+' L).')
+            : '')+
+          '<br>Sin comprobar quedan hasta <b>'+_acFmt(sl_.capacidad,0)+' L</b>'+
+          (_acUsd(sl_.capacidad)!=null?(' ≈ $'+_acFmt(_acUsd(sl_.capacidad),2)):'')+'.'+
+          '<div style="margin-top:6px">✅ <b>Cómo se cierra:</b> pasá la regla a los dos tanques <b>dos veces</b> — una ahora, para fijar el punto de partida, '+
+          'y de ahí en más antes y después de cada vez que se surta del galpón. No hace falta nada más.</div>'+
+        '</div></div>';
     }
     html+='</div>';
   }
@@ -4725,14 +4875,86 @@ async function renderLlenado(){
 function _llePct(n){ return (Math.round(Number(n||0)*1000)/10).toLocaleString('es-VE')+'%'; }
 function _lleNum(n){ return Number(n||0).toLocaleString('es-VE'); }
 
-// `imp` = true cuando el HTML va al papel: ahí no van los buscadores ni los colores de pantalla.
+// Las áreas, en el orden en que se recorren en una reunión: primero los que
+// manejan, después la cuadrilla, después quien controla, al final la oficina.
+var LLE_AREAS=[
+  {id:'chof', t:'Choferes',             cargos:['Chofer'],
+   mide:'De los días que registró, cuántos cerró con salida y llegada; y cuántos días fichó sin dejar checklist.'},
+  {id:'ayud', t:'Ayudantes',            cargos:['Ayudante'],
+   mide:'Constancia del fichaje de asistencia con foto, sobre los días que la flota operó estando ya en la empresa.'},
+  {id:'vigi', t:'Vigilancia',           cargos:['Vigilante'],
+   mide:'Días con registros de portería. El fichaje se mira aparte: la portería ya prueba que estuvo.'},
+  {id:'tall', t:'Taller y supervisión', cargos:['Mecanico','Supervisor'],
+   mide:'Firmas en el checklist del chofer y cierre de las fallas que él reporta.'},
+  {id:'ofic', t:'Oficina y dirección',  cargos:null,
+   mide:'Días con actividad propia en la aplicación dentro del período.'}
+];
+function _lleArea(cargo){
+  for(var i=0;i<LLE_AREAS.length;i++){
+    var a=LLE_AREAS[i];
+    if(a.cargos&&a.cargos.indexOf(cargo)>=0)return a;
+  }
+  return LLE_AREAS[LLE_AREAS.length-1];
+}
+var LLE_ORDEN={'A corregir':0,'Observado':1,'Cumple':2,'Sin evaluar':3};
+
+function _lleBadge(v, imp){
+  if(imp){
+    var c=v==='A corregir'?'bk-err':v==='Observado'?'bk-warn':v==='Cumple'?'bk-ok':'';
+    return c?('<span class="'+c+'">'+relEsc(v)+'</span>'):('<span style="color:#6b7280">'+relEsc(v)+'</span>');
+  }
+  var col=v==='A corregir'?'var(--red)':v==='Observado'?'#d97706':v==='Cumple'?'var(--green)':'var(--text3)';
+  return '<b style="color:'+col+'">'+relEsc(v)+'</b>';
+}
+
+// Una fila de persona con las columnas que su área hace falta mirar.
+function _lleFilaArea(p, area, imp){
+  var c='<td>'+relEsc(p.nombre)+'</td><td style="color:'+(imp?'#555':'var(--text3)')+'">'+relEsc(p.cargo)+'</td>';
+  if(area.id==='chof'){
+    c+='<td style="color:'+(imp?'#555':'var(--text3)')+'">'+relEsc(p.unidad)+'</td>'+
+      '<td class="mono">'+_lleNum(p.dias_exigibles)+'</td>'+
+      '<td class="mono">'+_lleNum(p.dias_registro)+'</td>'+
+      '<td class="mono">'+_lleNum(p.dias_cerrados)+'</td>'+
+      '<td class="mono'+(Number(p.dias_sin_cerrar)>2?' rv':'')+'">'+_lleNum(p.dias_sin_cerrar)+'</td>'+
+      '<td class="mono">'+_llePct(p.cierre)+'</td>'+
+      '<td class="mono'+(Number(p.ficho_sin_checklist)>2?' rv':'')+'">'+_lleNum(p.ficho_sin_checklist)+'</td>'+
+      '<td class="mono">'+_lleNum(p.dias_con_obs)+'</td>'+
+      '<td class="mono">'+_lleNum(p.viajes)+'</td><td class="mono">'+_lleNum(p.surtidas)+'</td>';
+  } else if(area.id==='vigi'){
+    c+='<td class="mono">'+_lleNum(p.dias_exigibles)+'</td>'+
+      '<td class="mono">'+_lleNum(p.dias_porteria)+'</td>'+
+      '<td class="mono">'+_lleNum(p.porteria_registros)+'</td>'+
+      '<td class="mono">'+_lleNum(p.dias_ficho)+'</td>';
+  } else if(area.id==='ofic'||area.id==='tall'){
+    c+='<td class="mono">'+_lleNum(p.dias_exigibles)+'</td>'+
+      '<td class="mono">'+_lleNum(p.dias_ficho)+'</td>'+
+      '<td class="mono">'+_lleNum(p.dias_oficina)+'</td>'+
+      '<td class="mono">'+_lleNum(p.acciones_oficina)+'</td>';
+  } else {
+    c+='<td class="mono">'+_lleNum(p.dias_exigibles)+'</td>'+
+      '<td class="mono">'+_lleNum(p.dias_ficho)+'</td>'+
+      '<td class="mono">'+_llePct(p.tasa_fichaje)+'</td>';
+  }
+  return '<tr>'+c+'<td>'+_lleBadge(p.veredicto,imp)+'</td>'+
+    '<td style="font-size:11px">'+relEsc(p.motivo)+'</td></tr>';
+}
+function _lleCabArea(area){
+  var c='<th>Persona</th><th>Cargo</th>';
+  if(area.id==='chof')c+='<th>Unidad</th><th>Exig.</th><th>Registró</th><th>Cerrados</th><th>Sin cerrar</th><th>% cierre</th><th>Fichó sin llenar</th><th>Reportó</th><th>Viajes</th><th>Surtidas</th>';
+  else if(area.id==='vigi')c+='<th>Exig.</th><th>Días portería</th><th>Registros</th><th>Fichó</th>';
+  else if(area.id==='ofic'||area.id==='tall')c+='<th>Exig.</th><th>Fichó</th><th>Días en app</th><th>Acciones</th>';
+  else c+='<th>Exig.</th><th>Fichó</th><th>%</th>';
+  return '<tr>'+c+'<th>Veredicto</th><th>Motivo</th></tr>';
+}
+
+// ── LA PANTALLA ──────────────────────────────────────────────────────────────
 function _lleHtml(D, imp){
   if(!D) return '<div class="card" style="color:var(--text3)">Sin datos.</div>';
   if(D.vacio) return '<div class="card" style="color:var(--text2)">'+relEsc(D.aviso||'No hay días medibles en ese período.')+'</div>';
+  if(imp) return _llePapel(D);
   var R=D.resumen||{}, P=D.personas||[], F=D.fallas||[], M=D.modulos||[];
-  var aviso=D.aviso?('<div class="card" style="border-left:3px solid var(--amber,#d97706);color:var(--text2);font-size:12px;margin-bottom:10px">⚠️ '+relEsc(D.aviso)+'</div>'):'';
+  var aviso=D.aviso?('<div class="card" style="border-left:3px solid #d97706;color:var(--text2);font-size:12px;margin-bottom:10px">⚠️ '+relEsc(D.aviso)+'</div>'):'';
 
-  // El titular: el número que contesta la pregunta de la reunión.
   var titular='<div class="card" style="margin-bottom:10px;font-size:13px;line-height:1.55">'+
     'De <b>'+_lleNum(R.empleados)+'</b> empleados activos, <b>'+_lleNum(R.corregir)+'</b> hay que corregir y <b>'+
     _lleNum(R.observado)+'</b> están observados. Los choferes cerraron <b>'+_lleNum(R.cierre_pct)+'%</b> de los días que trabajaron'+
@@ -4742,44 +4964,37 @@ function _lleHtml(D, imp){
     '</div>';
 
   var tiles='<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">'+
-    _lleTile('Cumple',R.cumple,'var(--green)')+
-    _lleTile('Observado',R.observado,'#d97706')+
-    _lleTile('A corregir',R.corregir,'var(--red)')+
-    _lleTile('Sin evaluar',R.sin_evaluar,'var(--text3)')+
-    _lleTile('Días que operó',R.dias_opero,'var(--text1)')+
-    _lleTile('Checklists',R.checklists,'var(--text1)')+
+    _lleTile('Cumple',R.cumple,'var(--green)')+_lleTile('Observado',R.observado,'#d97706')+
+    _lleTile('A corregir',R.corregir,'var(--red)')+_lleTile('Sin evaluar',R.sin_evaluar,'var(--text3)')+
+    _lleTile('Días que operó',R.dias_opero,'var(--text1)')+_lleTile('Checklists',R.checklists,'var(--text1)')+
     '</div>';
 
-  var filas=P.map(function(p){
-    var bk=LLE_COL[p.veredicto]||'';
-    return '<tr>'+
-      '<td class="mono" style="color:var(--text3)">'+relEsc(p.id)+'</td>'+
-      '<td>'+relEsc(p.nombre)+'</td>'+
-      '<td style="color:var(--text3)">'+relEsc(p.cargo)+'</td>'+
-      '<td>'+(imp?('<span class="'+bk+'">'+relEsc(p.veredicto)+'</span>')
-                 :('<b style="color:'+(p.veredicto==='A corregir'?'var(--red)':p.veredicto==='Observado'?'#d97706':p.veredicto==='Cumple'?'var(--green)':'var(--text3)')+'">'+relEsc(p.veredicto)+'</b>'))+'</td>'+
-      '<td style="color:var(--text3);font-size:11px">'+relEsc(p.que_le_toca)+'</td>'+
-      '<td style="font-size:11px">'+relEsc(p.motivo)+'</td>'+
-      '<td style="font-size:11px">'+relEsc(p.se_le_exige)+'</td>'+
-      '</tr>';
+  // 1. Lo que hay que atender: la lista con la que se entra a la reunión.
+  var corregir=P.filter(function(p){return p.veredicto==='A corregir';});
+  var accion=!corregir.length
+    ? '<div class="card" style="color:var(--green)">Nadie quedó en «A corregir» en este período.</div>'
+    : '<div class="card" style="padding:0;overflow:hidden"><table style="margin:0"><thead><tr>'+
+      '<th style="width:28px">#</th><th>Persona</th><th>Cargo</th><th>Qué le pide la app</th><th>Motivo</th><th>Qué se le exige</th>'+
+      '</tr></thead><tbody>'+corregir.map(function(p,i){
+        return '<tr><td class="mono" style="color:var(--text3)">'+(i+1)+'</td>'+
+          '<td><b>'+relEsc(p.nombre)+'</b></td><td style="color:var(--text3)">'+relEsc(p.cargo)+'</td>'+
+          '<td style="font-size:11px;color:var(--text3)">'+relEsc(p.que_le_toca)+'</td>'+
+          '<td style="font-size:11px;color:var(--red)">'+relEsc(p.motivo)+'</td>'+
+          '<td style="font-size:11px">'+relEsc(p.se_le_exige)+'</td></tr>';
+      }).join('')+'</tbody></table></div>';
+
+  // 2. El detalle, área por área.
+  var areas=LLE_AREAS.map(function(a){
+    var lista=P.filter(function(p){return _lleArea(p.cargo).id===a.id;})
+      .sort(function(x,y){ return (LLE_ORDEN[x.veredicto]-LLE_ORDEN[y.veredicto])||String(x.nombre).localeCompare(String(y.nombre),'es'); });
+    if(!lista.length)return '';
+    return '<h3 style="margin-top:18px">'+a.t+' <span style="font-weight:400;color:var(--text3)">('+lista.length+')</span></h3>'+
+      '<div style="font-size:11px;color:var(--text3);margin-bottom:6px">'+a.mide+'</div>'+
+      '<table><thead>'+_lleCabArea(a)+'</thead><tbody>'+
+      lista.map(function(p){return _lleFilaArea(p,a,false);}).join('')+'</tbody></table>';
   }).join('');
 
-  var tabla='<h3>Evaluación persona por persona</h3>'+
-    '<div style="font-size:11px;color:var(--text3);margin-bottom:6px">De peor a mejor. Cada quien se mide contra lo que la app le pide a su cargo, y sólo sobre los días en que ya estaba trabajando. Un día libre no cuenta como falta.</div>'+
-    '<table><thead><tr><th>ID</th><th>Persona</th><th>Cargo</th><th>Veredicto</th><th>Qué le pide la app</th><th>Motivo</th><th>Qué se le exige</th></tr></thead><tbody>'+filas+'</tbody></table>';
-
-  var chof=P.filter(function(p){return p.cargo==='Chofer';});
-  var tablaCh=!chof.length?'':('<h3>Detalle de los choferes</h3><table><thead><tr>'+
-    '<th>Chofer</th><th>Unidad</th><th>Exigibles</th><th>Registró</th><th>Cerrados</th><th>Sin cerrar</th><th>% cierre</th><th>Fichó sin llenar</th><th>Reportó algo</th><th>Viajes</th><th>Surtidas</th>'+
-    '</tr></thead><tbody>'+chof.map(function(c){
-      return '<tr><td>'+relEsc(c.nombre)+'</td><td style="color:var(--text3)">'+relEsc(c.unidad)+'</td>'+
-        '<td class="mono">'+_lleNum(c.dias_exigibles)+'</td><td class="mono">'+_lleNum(c.dias_registro)+'</td>'+
-        '<td class="mono">'+_lleNum(c.dias_cerrados)+'</td><td class="mono'+(Number(c.dias_sin_cerrar)>2?' rv':'')+'">'+_lleNum(c.dias_sin_cerrar)+'</td>'+
-        '<td class="mono">'+_llePct(c.cierre)+'</td><td class="mono'+(Number(c.ficho_sin_checklist)>2?' rv':'')+'">'+_lleNum(c.ficho_sin_checklist)+'</td>'+
-        '<td class="mono">'+_lleNum(c.dias_con_obs)+'</td><td class="mono">'+_lleNum(c.viajes)+'</td><td class="mono">'+_lleNum(c.surtidas)+'</td></tr>';
-    }).join('')+'</tbody></table>');
-
-  var tablaFa=!F.length?'':('<h3>Lo que el chofer reporta y nadie cierra</h3>'+
+  var fallas=!F.length?'':('<h3 style="margin-top:18px">Reportes del chofer sin cerrar <span style="font-weight:400;color:var(--text3)">('+F.length+')</span></h3>'+
     '<div style="font-size:11px;color:var(--text3);margin-bottom:6px">Seguían abiertos al '+formatFecha(D.hasta)+'. «Días reportando» son los días en que el chofer de esa unidad escribió algo.</div>'+
     '<table><thead><tr><th>Unidad</th><th>Tipo</th><th>Último texto del chofer</th><th>Quién lo reportó</th><th>Días abierta</th><th>Días reportando</th></tr></thead><tbody>'+
     F.map(function(f){
@@ -4788,7 +5003,7 @@ function _lleHtml(D, imp){
         '<td class="mono'+(Number(f.dias_abierta)>30?' rv':'')+'">'+_lleNum(f.dias_abierta)+'</td><td class="mono">'+_lleNum(f.dias_reportando)+'</td></tr>';
     }).join('')+'</tbody></table>');
 
-  var tablaMo=!M.length?'':('<h3>Qué módulo se usa y quién lo llena</h3><table><thead><tr><th>Módulo</th><th>A quién le toca</th><th>Registros</th></tr></thead><tbody>'+
+  var mods=!M.length?'':('<h3 style="margin-top:18px">Qué módulo se usa y quién lo llena</h3><table><thead><tr><th>Módulo</th><th>A quién le toca</th><th>Registros</th></tr></thead><tbody>'+
     M.map(function(m){
       var cero=Number(m.registros)===0;
       return '<tr><td'+(cero?' style="color:var(--red)"':'')+'>'+relEsc(m.modulo)+'</td>'+
@@ -4796,11 +5011,138 @@ function _lleHtml(D, imp){
         '<td class="mono'+(cero?' rv':'')+'">'+_lleNum(m.registros)+'</td></tr>';
     }).join('')+'</tbody></table>');
 
-  // ⛔ Lo que el informe NO puede decir viaja CON el informe, no en la cabeza de quien lo armó.
   var adv=(D.advertencias||[]).map(function(a){return '<li style="margin-bottom:3px">'+relEsc(a)+'</li>';}).join('');
-  var notas=!adv?'':('<h3>Lo que esta medición no puede decir</h3><ul style="font-size:11px;color:'+(imp?'#555':'var(--text3)')+';padding-left:16px;line-height:1.5">'+adv+'</ul>');
+  var notas=!adv?'':('<h3 style="margin-top:18px">Lo que esta medición no puede decir</h3><ul style="font-size:11px;color:var(--text3);padding-left:16px;line-height:1.5">'+adv+'</ul>');
 
-  return aviso+(imp?'':titular)+(imp?'':tiles)+tabla+tablaCh+tablaFa+tablaMo+notas;
+  return aviso+titular+tiles+
+    '<h3>Lo que hay que atender</h3>'+
+    '<div style="font-size:11px;color:var(--text3);margin-bottom:6px">Con esta lista se entra a la reunión. El resto del informe la respalda.</div>'+
+    accion+areas+fallas+mods+notas;
+}
+
+// ── EL PAPEL ─────────────────────────────────────────────────────────────────
+// Secciones numeradas, cada una diciendo qué mide, y el detalle agrupado POR
+// ÁREA: a un chofer no se le miden las mismas cosas que a un ayudante, y una
+// sola tabla de 66 filas mezcladas no se puede leer en una reunión.
+function _llePapel(D){
+  var R=D.resumen||{}, P=D.personas||[], F=D.fallas||[], M=D.modulos||[];
+  var n=0;
+  var sec=function(t,sub){ n++; return '<h3 style="page-break-after:avoid">'+n+'. '+t+'</h3>'+
+    (sub?'<div style="font-size:10px;color:#555;margin:-6px 0 8px">'+sub+'</div>':''); };
+  var salto='<div style="page-break-before:always"></div>';
+  var out='';
+
+  if(D.aviso){
+    out+='<div style="border-left:3px solid #d97706;background:#fffbeb;padding:8px 12px;margin-bottom:14px;font-size:10px;color:#92400e">'+
+      '<b>Atención.</b> '+relEsc(D.aviso)+'</div>';
+  }
+
+  // Resumen en una frase, que es lo que se lee primero y a veces lo único.
+  out+='<div style="background:#f8fafc;border-left:4px solid #0f2544;padding:11px 14px;margin-bottom:16px;font-size:11.5px;line-height:1.6">'+
+    'De <b>'+_lleNum(R.empleados)+'</b> empleados activos, <b>'+_lleNum(R.corregir)+'</b> hay que corregir y <b>'+
+    _lleNum(R.observado)+'</b> están observados. Los choferes cerraron <b>'+_lleNum(R.cierre_pct)+'%</b> de los días que trabajaron'+
+    (F.length?(', y <b>'+_lleNum(F.length)+'</b> reportes que ellos escribieron seguían sin cerrar al '+formatFecha(D.hasta)+'.'):'.')+
+    ((Number(R.firmas_mecanico)===0&&Number(R.firmas_supervisor)===0)
+      ? ' <b>Nadie firmó el checklist después del chofer</b> en todo el período.':'')+
+    '</div>';
+
+  // 1 — la lista de acción
+  var corregir=P.filter(function(p){return p.veredicto==='A corregir';});
+  out+=sec('Lo que hay que atender','Con esta lista se entra a la reunión. Las secciones siguientes la respaldan.');
+  out+=!corregir.length
+    ? '<div style="font-size:11px;color:#15803d">Nadie quedó en «A corregir» en este período.</div>'
+    : '<table><thead><tr><th style="width:26px">#</th><th>Persona</th><th>Cargo</th><th>Qué le pide la app</th><th>Motivo</th><th>Qué se le exige</th></tr></thead><tbody>'+
+      corregir.map(function(p,i){
+        return '<tr><td class="mono">'+(i+1)+'</td><td><b>'+relEsc(p.nombre)+'</b></td>'+
+          '<td>'+relEsc(p.cargo)+'</td><td style="font-size:10px">'+relEsc(p.que_le_toca)+'</td>'+
+          '<td style="font-size:10px;color:#b91c1c">'+relEsc(p.motivo)+'</td>'+
+          '<td style="font-size:10px">'+relEsc(p.se_le_exige)+'</td></tr>';
+      }).join('')+'</tbody></table>';
+
+  // 2 — observados
+  var obs=P.filter(function(p){return p.veredicto==='Observado';});
+  if(obs.length){
+    out+=sec('Observados','Lo hacen, pero dejan días sueltos. No es falta grave; es el aviso antes de que lo sea.');
+    out+='<table><thead><tr><th>Persona</th><th>Cargo</th><th>Motivo</th><th>Qué se le exige</th></tr></thead><tbody>'+
+      obs.map(function(p){
+        return '<tr><td>'+relEsc(p.nombre)+'</td><td>'+relEsc(p.cargo)+'</td>'+
+          '<td style="font-size:10px">'+relEsc(p.motivo)+'</td>'+
+          '<td style="font-size:10px">'+relEsc(p.se_le_exige)+'</td></tr>';
+      }).join('')+'</tbody></table>';
+  }
+
+  // 3 — cumplen (compacto: el reconocimiento también es parte de la reunión)
+  var cumple=P.filter(function(p){return p.veredicto==='Cumple';});
+  if(cumple.length){
+    out+=sec('Cumplen ('+cumple.length+')','Hacen lo que su cargo les pide, sin huecos. Conviene nombrarlos.');
+    out+='<table><thead><tr><th>Persona</th><th>Cargo</th><th>Motivo</th><th>Persona</th><th>Cargo</th><th>Motivo</th></tr></thead><tbody>';
+    for(var i=0;i<cumple.length;i+=2){
+      var a=cumple[i], b=cumple[i+1];
+      out+='<tr><td>'+relEsc(a.nombre)+'</td><td style="font-size:10px">'+relEsc(a.cargo)+'</td>'+
+        '<td style="font-size:10px">'+relEsc(a.motivo)+'</td>'+
+        (b?('<td>'+relEsc(b.nombre)+'</td><td style="font-size:10px">'+relEsc(b.cargo)+'</td><td style="font-size:10px">'+relEsc(b.motivo)+'</td>')
+           :'<td></td><td></td><td></td>')+'</tr>';
+    }
+    out+='</tbody></table>';
+  }
+
+  // 4 — sin evaluar (se dice POR QUÉ, para que nadie crea que se los saltó)
+  var sinev=P.filter(function(p){return p.veredicto==='Sin evaluar';});
+  if(sinev.length){
+    out+=sec('Sin evaluar ('+sinev.length+')','No se les pone nota, y acá está la razón de cada uno. Que no tengan nota NO es que estén mal.');
+    out+='<table><thead><tr><th>Persona</th><th>Cargo</th><th>Por qué no se evalúa</th></tr></thead><tbody>'+
+      sinev.map(function(p){
+        return '<tr><td>'+relEsc(p.nombre)+'</td><td>'+relEsc(p.cargo)+'</td>'+
+          '<td style="font-size:10px">'+relEsc(p.motivo)+'</td></tr>';
+      }).join('')+'</tbody></table>';
+  }
+
+  // 5 — el detalle, área por área
+  out+=salto+sec('El detalle, área por área','A cada cargo se lo mide contra lo que la aplicación le pide a él, y sólo sobre los días en que ya estaba trabajando. «Exig.» son esos días. Un día libre no cuenta como falta.');
+  out+=LLE_AREAS.map(function(a){
+    var lista=P.filter(function(p){return _lleArea(p.cargo).id===a.id;})
+      .sort(function(x,y){ return (LLE_ORDEN[x.veredicto]-LLE_ORDEN[y.veredicto])||String(x.nombre).localeCompare(String(y.nombre),'es'); });
+    if(!lista.length)return '';
+    return '<h3 style="font-size:10px;color:#0f2544;margin-top:14px;page-break-after:avoid">'+a.t+' ('+lista.length+')</h3>'+
+      '<div style="font-size:9.5px;color:#666;margin:-6px 0 6px">'+a.mide+'</div>'+
+      '<table><thead>'+_lleCabArea(a)+'</thead><tbody>'+
+      lista.map(function(p){return _lleFilaArea(p,a,true);}).join('')+'</tbody></table>';
+  }).join('');
+
+  // 6 — fallas
+  if(F.length){
+    out+=salto+sec('Reportes del chofer sin cerrar ('+F.length+')',
+      'Seguían abiertos al '+formatFecha(D.hasta)+'. «Días reportando» son los días en que el chofer de esa unidad escribió algo en el checklist.');
+    out+='<table><thead><tr><th>Unidad</th><th>Tipo</th><th>Último texto del chofer</th><th>Quién lo reportó</th><th>Días abierta</th><th>Días rep.</th></tr></thead><tbody>'+
+      F.map(function(f){
+        return '<tr><td>'+relEsc(f.unidad)+'</td><td style="font-size:10px">'+relEsc(f.tipo)+'</td>'+
+          '<td style="font-size:10px">'+relEsc(f.ultimo_reporte)+'</td>'+
+          '<td style="font-size:10px">'+relEsc(f.quien_reporto)+'</td>'+
+          '<td class="mono'+(Number(f.dias_abierta)>30?' rv':'')+'">'+_lleNum(f.dias_abierta)+'</td>'+
+          '<td class="mono">'+_lleNum(f.dias_reportando)+'</td></tr>';
+      }).join('')+'</tbody></table>';
+  }
+
+  // 7 — módulos
+  if(M.length){
+    out+=sec('Qué módulo se usa y quién lo llena','Las filas en rojo son trabajo que la aplicación pide y nadie hace. Eso no es de una persona: es del proceso.');
+    out+='<table><thead><tr><th>Módulo</th><th>A quién le toca</th><th>Registros</th></tr></thead><tbody>'+
+      M.map(function(m){
+        var cero=Number(m.registros)===0;
+        return '<tr><td'+(cero?' style="color:#b91c1c;font-weight:700"':'')+'>'+relEsc(m.modulo)+'</td>'+
+          '<td>'+relEsc(m.a_quien_toca)+'</td>'+
+          '<td class="mono'+(cero?' rv':'')+'">'+_lleNum(m.registros)+'</td></tr>';
+      }).join('')+'</tbody></table>';
+  }
+
+  // 8 — cómo se midió
+  out+=sec('Cómo se midió, y qué no puede decir esta medición',
+    'Período del '+formatFecha(D.desde)+' al '+formatFecha(D.hasta)+'. Los números salen de los registros de la propia aplicación.');
+  var adv=(D.advertencias||[]).map(function(a){return '<li style="margin-bottom:4px">'+relEsc(a)+'</li>';}).join('');
+  out+='<ul style="font-size:10px;color:#444;padding-left:16px;line-height:1.55;margin-top:4px">'+adv+
+    '<li style="margin-bottom:4px">Con menos de 10 días exigibles no se pone nota: la muestra es demasiado chica para sostener una exigencia.</li>'+
+    '</ul>';
+  return out;
 }
 
 function _lleTile(lbl,val,col){

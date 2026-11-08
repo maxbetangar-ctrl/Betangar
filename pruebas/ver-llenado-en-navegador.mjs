@@ -146,13 +146,25 @@ try {
     // ⛔ UNA COLUMNA VACÍA NO SE QUEJA. «Motivo» y «Qué se le exige» salieron en
     //    blanco en la primera versión —la función SQL nunca los calculaba— y
     //    todo lo demás daba verde: son las dos columnas que se usan en la
-    //    reunión. Lo agarró la captura. Ahora se cuentan.
-    const celdas = await pg.$$eval('#lle-body table tbody tr', fs => fs
-      .filter(f => f.cells.length >= 7)
-      .map(f => [f.cells[5].innerText.trim(), f.cells[6].innerText.trim()]))
-    const sinTexto = celdas.filter(c => !c[0] || !c[1]).length
-    ok(celdas.length >= 60 && sinTexto === 0,
-      `cada persona trae motivo y exigencia (${celdas.length} filas, ${sinTexto} incompletas)`)
+    //    reunión. Lo agarró la captura. Ahora se cuentan, y se cuentan POR
+    //    NOMBRE DE COLUMNA: con el rediseño el índice fijo dejó de apuntar a
+    //    donde yo creía, y la comprobación seguía en verde midiendo otra cosa.
+    const accion = await pg.$$eval('#lle-body table', ts => {
+      const t = ts.find(x => /Qué se le exige/i.test(x.tHead?.innerText || ''))
+      if (!t) return null
+      const cab = [...t.tHead.rows[0].cells].map(c => c.innerText.trim())
+      const iM = cab.findIndex(c => /^Motivo$/i.test(c))
+      const iE = cab.findIndex(c => /Qué se le exige/i.test(c))
+      return [...t.tBodies[0].rows].map(f =>
+        [f.cells[iM]?.innerText.trim() || '', f.cells[iE]?.innerText.trim() || ''])
+    })
+    const huecos = accion ? accion.filter(c => !c[0] || !c[1]).length : -1
+    ok(accion && accion.length >= 1 && huecos === 0,
+      `la lista de acción trae motivo y exigencia en cada fila (${accion ? accion.length : 0} filas, ${huecos} incompletas)`)
+    // Y que estén TODAS las personas repartidas por área, no sólo las de acción.
+    const nombres = await pg.$$eval('#lle-body table tbody tr td:first-child',
+      c => new Set(c.map(x => x.innerText.trim())).size)
+    ok(nombres >= 40, `el detalle por área reparte a toda la gente (${nombres} nombres distintos)`)
     await pg.screenshot({ path: path.join(SALIDA, 'llenado-1-con-datos.png'), fullPage: true })
     await ctx.close()
   }
@@ -204,6 +216,15 @@ try {
     ok(/Llenado de la app por empleado/.test(papel), 'lleva el título del informe')
     ok(/Del \d{2}\/\d{2}\/\d{4} al \d{2}\/\d{2}\/\d{4}/.test(papel), 'la cabecera dice QUÉ período')
     ok(/A corregir/.test(papel) && /Qué se le exige/.test(papel), 'lleva los veredictos y las exigencias')
+    // Las secciones numeradas: es lo que hace que se pueda leer en una reunión.
+    for (const s of ['1. Lo que hay que atender', '5. El detalle, área por área',
+      '8. Cómo se midió']) {
+      ok(papel.includes(s), `el papel trae la sección «${s}»`)
+    }
+    for (const a of ['Choferes', 'Ayudantes', 'Vigilancia', 'Taller y supervisión',
+      'Oficina y dirección']) {
+      ok(papel.includes(a), `el detalle separa el área «${a}»`)
+    }
     if (papel) {
       const hoja = await ctx.newPage()
       await hoja.setContent(papel, { waitUntil: 'domcontentloaded' })
