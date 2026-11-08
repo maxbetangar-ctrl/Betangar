@@ -19,63 +19,80 @@ import { cargarAuditoria, sembrar, auditar } from './_banco-combustible.mjs'
 
 const rutaApp = process.argv[2] || new URL('../app.js', import.meta.url)
 const js = readFileSync(rutaApp, 'utf8')
-const datos = JSON.parse(readFileSync(new URL('./datos/combustible.json', import.meta.url), 'utf8'))
-const ctx = cargarAuditoria(rutaApp)
-sembrar(ctx, datos)
 
 let fallos = 0
 const ok = (n, c, d) => { console.log((c ? '✅' : '❌') + ' ' + n + (c ? '' : '  → ' + d)); if (!c) fallos++ }
 const txt = (a) => String(a.msg || a.texto || a.detalle || '')
 
-// ── 0. ⛔ CONTROL POSITIVO, Y ESTE EXISTE POR UN DEFECTO REAL ────────────────────────────────
-// La primera version de R17 leia `t.capacidad_litros` —el nombre de la columna en la base— pero
-// el cargador normaliza el tanque y ahi el campo se llama `cap`. Daba `undefined`, el `||0` lo
-// convertia en capacidad CERO, y la regla se iba por su propia puerta de salida (`if(cap<=0)
-// return`) SIN DISPARAR NUNCA. No habia error: solo silencio, que se lee igual que «todo bien».
-// Si esta asercion se pone roja, ninguna de las de abajo significa nada.
-const galpones = (ctx.AC_TANQUES || []).filter((t) => t && t.tipo === 'galpon')
-ok('0. CONTROL POSITIVO: hay tanques de galpón Y con capacidad > 0',
-   galpones.length > 0 && galpones.every((t) => Number(t.cap) > 0),
-   'sin capacidad la regla no dispara y el hueco de 4.600 L queda invisible otra vez')
-if (!galpones.length) { console.log('\n⛔ sin tanques de galpón no se prueba nada.'); process.exit(1) }
+// ⛔ ESTA PRUEBA VIVE SOLO EN BETANGAR: necesita `_banco-combustible.mjs` y el volcado, y ninguno
+//    de los dos existe en los clones. El MISMO cambio del motor sí se replicó a los 4, y allá lo
+//    que lo protege es `ver-el-galpon-sin-medir.mjs`, que trae su propio fixture sintético —con un
+//    despacho de 50.000 L de `src='Estacion'` que NO puede contarse— y lo verifica en un navegador
+//    de verdad. [[norma-arreglo-en-una-es-arreglo-en-todas-misma-sesion]]
+//
+// ⚠️ El guardia de abajo es por si alguien corre esto sin haber bajado el volcado: entonces 0-7
+//    dicen QUE NO SE MIDIERON en vez de darse por buenas. Un verde que no midió nada es peor que
+//    un hueco declarado. [[norma-falta-de-dato-no-es-un-dato]]
+let datos = null
+try { datos = JSON.parse(readFileSync(new URL('./datos/combustible.json', import.meta.url), 'utf8')) } catch (e) { datos = null }
 
-// ── 1. Dispara UNA VEZ, no una por jornada ──────────────────────────────────────────────────
-// ⛔ Esta asercion es la hermana de la de R16, y existe por el mismo defecto: una regla que mira
-//    UN TANQUE colocada dentro del bucle de jornadas disparo 37.827 veces en vez de 8. Pedir
-//    «mas de cero» no distingue una regla que funciona de una que grita.
-const anom = auditar(ctx, '2026-07-24', '2026-09-07')
-const r17 = anom.filter((a) => (a.cod || a.regla) === 'R17')
-ok('1. R17 dispara EXACTAMENTE una vez, no una por jornada', r17.length === 1,
-   'disparó ' + r17.length + ' veces con ' + (ctx.AC_JORNADAS || []).length + ' jornadas en el rango')
+// El contexto se arma SIEMPRE —extraer las funciones de `app.js` no necesita datos— y solo se
+// siembra cuando hay volcado. Así las aserciones 8-14 corren en los 5 repos.
+const ctx = cargarAuditoria(rutaApp)
+if (!datos) {
+  console.log('—  0-7. (no aplica: este repo no versiona el volcado de pruebas)')
+} else {
+  sembrar(ctx, datos)
+  // ── 0. ⛔ CONTROL POSITIVO, Y ESTE EXISTE POR UN DEFECTO REAL ────────────────────────────────
+  // La primera version de R17 leia `t.capacidad_litros` —el nombre de la columna en la base— pero
+  // el cargador normaliza el tanque y ahi el campo se llama `cap`. Daba `undefined`, el `||0` lo
+  // convertia en capacidad CERO, y la regla se iba por su propia puerta de salida (`if(cap<=0)
+  // return`) SIN DISPARAR NUNCA. No habia error: solo silencio, que se lee igual que «todo bien».
+  // Si esta asercion se pone roja, ninguna de las de abajo significa nada.
+  const galpones = (ctx.AC_TANQUES || []).filter((t) => t && t.tipo === 'galpon')
+  ok('0. CONTROL POSITIVO: hay tanques de galpón Y con capacidad > 0',
+     galpones.length > 0 && galpones.every((t) => Number(t.cap) > 0),
+     'sin capacidad la regla no dispara y el hueco de 4.600 L queda invisible otra vez')
+  if (!galpones.length) { console.log('\n⛔ sin tanques de galpón no se prueba nada.'); process.exit(1) }
 
-// ── 2. Lo que dice ──────────────────────────────────────────────────────────────────────────
-ok('2. dice que los tanques NO se midieron ni una vez', /no se han medido NI UNA VEZ/.test(txt(r17[0] || {})),
-   'sin esa frase el aviso se lee como «falta una lectura más», no como «no hay ninguna»')
-ok('3. trae el saldo en litros, no una vaguedad', /-?[\d.,]+ L/.test(txt(r17[0] || {})),
-   'un hueco sin cifra no se prioriza: es justo el defecto que esto arregla')
-ok('4. ⛔ NO ACUSA A NADIE, y lo dice con esas palabras', /NO es una acusación/.test(txt(r17[0] || {})),
-   'una regla de medición que se lee como una de robo enseña a no creerle al módulo')
-ok('5. el saldo negativo se explica como un asiento que falta, NO como gasoil faltante',
-   /no puede pasar/.test(txt(r17[0] || {})) && /falta asentar/.test(txt(r17[0] || {})),
-   'presentar −1.561 L como faltante sería acusar con un error de papeles')
-ok('6. y dice cómo se cierra', /pasando la regla/.test(txt(r17[0] || {})),
-   'un aviso sin salida es una queja')
+  // ── 1. Dispara UNA VEZ, no una por jornada ──────────────────────────────────────────────────
+  // ⛔ Esta asercion es la hermana de la de R16, y existe por el mismo defecto: una regla que mira
+  //    UN TANQUE colocada dentro del bucle de jornadas disparo 37.827 veces en vez de 8. Pedir
+  //    «mas de cero» no distingue una regla que funciona de una que grita.
+  const anom = auditar(ctx, '2026-07-24', '2026-09-07')
+  const r17 = anom.filter((a) => (a.cod || a.regla) === 'R17')
+  ok('1. R17 dispara EXACTAMENTE una vez, no una por jornada', r17.length === 1,
+     'disparó ' + r17.length + ' veces con ' + (ctx.AC_JORNADAS || []).length + ' jornadas en el rango')
 
-// ── 3. ⛔ Y NO DISPARA CUANDO YA SE PUEDE CUADRAR ───────────────────────────────────────────
-// Con dos lecturas en el rango, `_acCuadreGalpon` calcula el cuadre de verdad y lo informa él:
-// avisar ademas de que «falta medir» seria un aviso falso.
-const med0 = (datos.med || [])[0] || {}
-const conDos = JSON.parse(JSON.stringify(datos))
-const tqG = galpones[0].id
-conDos.med = (conDos.med || []).concat([
-  { ...med0, id: 'g1', tanque_id: tqG, vehiculo_id: null, fecha: '2026-08-01', momento: 'salida', altura_cm: 60, created_at: '2026-08-01 08:00:00+00', corregida: false, no_confiable: false },
-  { ...med0, id: 'g2', tanque_id: tqG, vehiculo_id: null, fecha: '2026-08-20', momento: 'salida', altura_cm: 55, created_at: '2026-08-20 08:00:00+00', corregida: false, no_confiable: false },
-])
-const ctx2 = cargarAuditoria(rutaApp)
-sembrar(ctx2, conDos)
-const r17b = auditar(ctx2, '2026-07-24', '2026-09-07').filter((a) => (a.cod || a.regla) === 'R17')
-ok('7. con DOS lecturas en el rango, R17 se calla', r17b.length === 0,
-   'siguió avisando que falta medir cuando el cuadre real ya se puede calcular')
+  // ── 2. Lo que dice ──────────────────────────────────────────────────────────────────────────
+  ok('2. dice que los tanques NO se midieron ni una vez', /no se han medido NI UNA VEZ/.test(txt(r17[0] || {})),
+     'sin esa frase el aviso se lee como «falta una lectura más», no como «no hay ninguna»')
+  ok('3. trae el saldo en litros, no una vaguedad', /-?[\d.,]+ L/.test(txt(r17[0] || {})),
+     'un hueco sin cifra no se prioriza: es justo el defecto que esto arregla')
+  ok('4. ⛔ NO ACUSA A NADIE, y lo dice con esas palabras', /NO es una acusación/.test(txt(r17[0] || {})),
+     'una regla de medición que se lee como una de robo enseña a no creerle al módulo')
+  ok('5. el saldo negativo se explica como un asiento que falta, NO como gasoil faltante',
+     /no puede pasar/.test(txt(r17[0] || {})) && /falta asentar/.test(txt(r17[0] || {})),
+     'presentar −1.561 L como faltante sería acusar con un error de papeles')
+  ok('6. y dice cómo se cierra', /pasando la regla/.test(txt(r17[0] || {})),
+     'un aviso sin salida es una queja')
+
+  // ── 3. ⛔ Y NO DISPARA CUANDO YA SE PUEDE CUADRAR ───────────────────────────────────────────
+  // Con dos lecturas en el rango, `_acCuadreGalpon` calcula el cuadre de verdad y lo informa él:
+  // avisar ademas de que «falta medir» seria un aviso falso.
+  const med0 = (datos.med || [])[0] || {}
+  const conDos = JSON.parse(JSON.stringify(datos))
+  const tqG = galpones[0].id
+  conDos.med = (conDos.med || []).concat([
+    { ...med0, id: 'g1', tanque_id: tqG, vehiculo_id: null, fecha: '2026-08-01', momento: 'salida', altura_cm: 60, created_at: '2026-08-01 08:00:00+00', corregida: false, no_confiable: false },
+    { ...med0, id: 'g2', tanque_id: tqG, vehiculo_id: null, fecha: '2026-08-20', momento: 'salida', altura_cm: 55, created_at: '2026-08-20 08:00:00+00', corregida: false, no_confiable: false },
+  ])
+  const ctx2 = cargarAuditoria(rutaApp)
+  sembrar(ctx2, conDos)
+  const r17b = auditar(ctx2, '2026-07-24', '2026-09-07').filter((a) => (a.cod || a.regla) === 'R17')
+  ok('7. con DOS lecturas en el rango, R17 se calla', r17b.length === 0,
+     'siguió avisando que falta medir cuando el cuadre real ya se puede calcular')
+}
 
 // ── 4. `_acSrcEsTanque` — las tres respuestas ───────────────────────────────────────────────
 // 🔴 EL DEFECTO QUE ESTO CIERRA: `_acSalidasGalpon` no miraba `src` y contaba como salidas del
