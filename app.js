@@ -9350,7 +9350,11 @@ function _totalEgresosLegacy(totalCob){
   if(_combCorte){
     egGas+=(typeof SURT_RENT!=='undefined'?SURT_RENT:[]).reduce(function(s,x){
       if(String(x.fecha||'').slice(0,10)<_combCorte)return s;
-      if(String(x.tanque||'').toLowerCase().indexOf('estacion')<0)return s;
+      // Toda compra que NO sea del galpon entra aca, incluida la que el GPS no pudo
+      // ubicar: `sin_confirmar` es «no se CUAL estacion», no «no se si se compro».
+      // Con la comparacion vieja quedaba fuera del gasto para siempre, aun despues de
+      // que administracion le pusiera precio.
+      if(!_surEsExterna(x))return s;
       // ⛔ La que ya pertenece a un PERIODO costeado NO se suma aca: su costo entra por egEst
       //    (combustible_periodos.costo_total_usd). Contarla en los dos lados es el mismo
       //    combustible dos veces — y con 0 periodos cargados eso no se notaba.
@@ -17778,7 +17782,10 @@ async function cargarEntregas(){
 }
 // ⛽ Surtidas de combustible (oficina): carga y resumen del día para dashboard/informe.
 var SURTIDAS=[];
-var TANQUE_LBL={galpon_1:'🛢️ Galpón 1', galpon_2:'🛢️ Galpón 2', principal:'🛢️ Tanque'};
+// `sin_confirmar` lleva etiqueta PROPIA y no cae en el `||t` crudo del final de `_surLbl`:
+// en la tabla se leia literalmente "sin_confirmar", que no le dice nada a nadie.
+var TANQUE_LBL={galpon_1:'🛢️ Galpón 1', galpon_2:'🛢️ Galpón 2', principal:'🛢️ Tanque',
+  estacion:'⛽ Estación de servicio', sin_confirmar:'❓ Sin ubicar (el GPS no pudo)'};
 async function cargarSurtidas(){
   if(!(DB_READY&&supabase))return;
   try{
@@ -17788,8 +17795,16 @@ async function cargarSurtidas(){
   }catch(e){ console.log('surtidas load',e&&e.message); }
 }
 function _surtidasHoy(){ var hoy=fechaVE(); return (SURTIDAS||[]).filter(function(s){return String(s.fecha||'').slice(0,10)===hoy;}); }
-function _surCostoUsd(s){ if(s&&s.tanque==='estacion'&&!s.costo_definido)return 0; return parseFloat(s&&s.costo_usd)||0; } // costo HORNEADO (galpón=promedio tanque, estación=mezclado); pendiente=0
-function _surPendiente(s){ return s&&s.tanque==='estacion'&&!s.costo_definido; }
+// ⛔ EL CRITERIO ES «NO ES DEL GALPÓN», no «es igual a 'estacion'». Desde el 08/11/2026 existe
+//    un tercer valor, `sin_confirmar`, para cuando el GPS no pudo ubicar la carga. Eso significa
+//    «no sé CUÁL estación», NO «no sé si se compró»: nunca es el galpón, porque el galpón ahora
+//    exige una marca deliberada de la oficina. Con la comparación vieja (`==='estacion'`) una
+//    surtida sin ubicar quedaba fuera del costeo PARA SIEMPRE —ni siquiera después de que
+//    administración le pusiera precio— y además no figuraba como pendiente: valía $0 y nadie
+//    se enteraba. [[norma-falta-de-dato-no-es-un-dato]]
+function _surEsExterna(s){ return !!s && String(s.tanque||'').indexOf('galpon')<0; }
+function _surCostoUsd(s){ if(_surEsExterna(s)&&!s.costo_definido)return 0; return parseFloat(s&&s.costo_usd)||0; } // costo HORNEADO (galpón=promedio tanque, estación=mezclado); pendiente=0
+function _surPendiente(s){ return _surEsExterna(s)&&!s.costo_definido; }
 function _surLbl(t){ return TANQUE_LBL[t]||t||''; }
 
 // ═══════ F2: SURTIDAS Y COSTEO (combustible por origen; admin cuesta las de estación) ═══════
@@ -17832,7 +17847,7 @@ function _scInit(){ // fija fechas por defecto (últimos 14 días) la primera ve
 }
 function scAbrir(){ _scInit(); scRecargar(); }
 function scRecargar(){ _scInit(); cargarSurtidasCosteo(gv('sc-des'),gv('sc-hta')).then(renderSurtidasCosteo); }
-function _scCostoUsd(s){ return (s.tanque==='estacion'&&!s.costo_definido)?0:(parseFloat(s.costo_usd)||0); }
+function _scCostoUsd(s){ return (_surEsExterna(s)&&!s.costo_definido)?0:(parseFloat(s.costo_usd)||0); }
 function renderSurtidasCosteo(){
   var cont=g('sc-body'); if(!cont)return;
   // Poblar selector de unidad (con las que aparezcan)
@@ -17846,13 +17861,26 @@ function renderSurtidasCosteo(){
     if(fe==='pend' && s.costo_definido)return false;
     return true;
   });
-  var litGal=0,litEst=0,litPend=0,totUsd=0;
+  // ⛔ YA NO SON DOS CAJONES. Desde el 08/11/2026 el tanque lo decide el GPS, y cuando no puede
+  //    —sin señal, o lejos de toda estación— la surtida queda en `sin_confirmar`. Este `else`
+  //    decía «si no es estación, es galpón» y le habría cargado al galpón litros que nadie
+  //    ubicó: justo el error que la corrección vino a borrar, reaparecido en la oficina.
+  //    📌 Un tercer estado no se reparte entre los dos que ya existían: se muestra aparte, que
+  //      es lo que hace que alguien lo resuelva. [[norma-falta-de-dato-no-es-un-dato]]
+  var litGal=0,litEst=0,litPend=0,litSin=0,totUsd=0;
   (SURT_ADMIN||[]).forEach(function(s){ var l=parseFloat(s.litros)||0;
-    if(s.tanque==='estacion'){ litEst+=l; if(!s.costo_definido)litPend+=l; } else litGal+=l;
+    var t=String(s.tanque||'');
+    if(t==='estacion'){ litEst+=l; if(!s.costo_definido)litPend+=l; }
+    else if(t.indexOf('galpon')>=0){ litGal+=l; }
+    else { litSin+=l; }
     totUsd+=_scCostoUsd(s);
   });
   var chip=function(lbl,val,col){ return '<div style="flex:1;min-width:110px;background:#0e2038;border:1px solid #24405f;border-radius:10px;padding:8px 10px"><div style="font-size:10px;color:#9fb3c8">'+lbl+'</div><div style="font-size:16px;font-weight:800;color:'+(col||'#fff')+'">'+val+'</div></div>'; };
-  var k=g('sc-kpis'); if(k) k.innerHTML=chip('Litros galpón',Math.round(litGal).toLocaleString('es-VE')+' L')+chip('Litros estación',Math.round(litEst).toLocaleString('es-VE')+' L')+chip('Estación SIN costear',Math.round(litPend).toLocaleString('es-VE')+' L',litPend>0?'#ff6b6b':'#7dc941')+chip('Costo total',usd(totUsd),'#7dc941');
+  var k=g('sc-kpis'); if(k) k.innerHTML=chip('Litros galpón',Math.round(litGal).toLocaleString('es-VE')+' L')+chip('Litros estación',Math.round(litEst).toLocaleString('es-VE')+' L')+chip('Estación SIN costear',Math.round(litPend).toLocaleString('es-VE')+' L',litPend>0?'#ff6b6b':'#7dc941')+
+    // El renglón solo aparece cuando hay algo sin ubicar: una tarjeta en cero todos los días
+    // deja de leerse. [[norma-un-aviso-que-salta-siempre-no-avisa]]
+    (litSin>0?chip('Sin ubicar (el GPS no pudo)',Math.round(litSin).toLocaleString('es-VE')+' L','#f4a300'):'')+
+    chip('Costo total',usd(totUsd),'#7dc941');
   // ── CUÁNTO SE ECHÓ EN CADA ESTACIÓN (Máximo, 2026-08-17) ─────────────────────────────
   // Betangar surte en más de una y cobran distinto: Las Banderas precio plano, El Palotal una
   // escalera por camión. Sin este corte, «combustible» es un solo número y no se puede comparar
@@ -17880,7 +17908,7 @@ function renderSurtidasCosteo(){
   }
   if(!arr.length){ cont.innerHTML='<tr><td colspan="7" style="text-align:center;color:#9fb3c8">Sin surtidas en el filtro.</td></tr>'; }
   else cont.innerHTML=arr.map(function(s){
-    var l=parseFloat(s.litros)||0, pend=(s.tanque==='estacion'&&!s.costo_definido);
+    var l=parseFloat(s.litros)||0, pend=_surPendiente(s);   // 'estacion' Y 'sin_confirmar': las dos hay que costearlas
     var cl=pend?'—':('$'+(parseFloat(s.costo_litro_usd)||0).toFixed(3));
     var co=pend?'<span style="color:#ffb020">⏳ por definir</span>':usd(parseFloat(s.costo_usd)||0);
     var est=pend?'<span style="color:#ffb020">pendiente</span>':'<span style="color:#7dc941">✅ costeado</span>';
@@ -17919,7 +17947,9 @@ var _perSel={};               // id de surtida -> true/false (lo que el usuario 
 function _perPend(){          // surtidas de estación pendientes dentro del rango
   var des=gv('per-des'), hta=gv('per-hta');
   return (SURT_ADMIN||[]).filter(function(s){
-    return s.tanque==='estacion' && !s.costo_definido
+    // ⛔ Las «sin ubicar» también esperan precio. Si no entraran acá, administración no
+    //    tendría dónde costéarlas y quedarían en cero sin que nadie las viera.
+    return _surPendiente(s)
         && String(s.fecha||'')>=des && String(s.fecha||'')<=hta;
   }).sort(function(a,b){ return String(a.fecha+a.cam)<String(b.fecha+b.cam)?-1:1; });
 }
@@ -24397,7 +24427,11 @@ async function renderFinDash(){
       var f=String(x.fecha||'').slice(0,10);
       if(f<_combCorte)return s;
       if(!enRango(f))return s;
-      if(String(x.tanque||'').toLowerCase().indexOf('estacion')<0)return s;
+      // Toda compra que NO sea del galpon entra aca, incluida la que el GPS no pudo
+      // ubicar: `sin_confirmar` es «no se CUAL estacion», no «no se si se compro».
+      // Con la comparacion vieja quedaba fuera del gasto para siempre, aun despues de
+      // que administracion le pusiera precio.
+      if(!_surEsExterna(x))return s;
       // ⛔ La que ya pertenece a un PERIODO costeado NO se suma aca: su costo entra por egEst
       //    (combustible_periodos.costo_total_usd). Contarla en los dos lados es el mismo
       //    combustible dos veces — y con 0 periodos cargados eso no se notaba.
