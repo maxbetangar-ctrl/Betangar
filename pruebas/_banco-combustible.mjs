@@ -49,7 +49,8 @@ function trozo(src, nombre, opcional = false){
 const FUNCS = ['_acHoy','_acNum','_acFmt','_acUsd','_acCubicar','_acLitrosPorCm','_acTol','_acSigmaDe',
   '_acDiaSiguiente','_acAlturaValida','_acLotesSurtidas','_acSurtidaUbicable','_acEntradas',
   '_acEntradasSinHora','_acCargaEnLote','_acTanqueDe','_acEsGalpon','_acDedupe','_acArmarJornadas','_acRefModelo',
-  '_acRefRend','_acTs','_acAntesDe','_acAnomalias','_acDespDelCuadre','_acVeredictoNoche','_acCuadreSemanal','_acLunesDe','_acEntroDespuesDe','_acMenos','_acCostoL','_fx']
+  '_acRefRend','_acTs','_acAntesDe','_acAnomalias','_acDespDelCuadre','_acVeredictoNoche','_acCuadreSemanal','_acLunesDe','_acEntroDespuesDe','_acMenos','_acCostoL','_fx',
+  '_acSrcEsTanque','_acComprasGalpon','_acSalidasGalpon','_acCuadreGalpon','_acSaldoLibrosGalpon']
 
 export function cargarAuditoria(rutaApp = RUTA_APP){
   const src = readFileSync(rutaApp, 'utf8')
@@ -96,7 +97,8 @@ export function cargarAuditoria(rutaApp = RUTA_APP){
   // Opcionales: las que existen en una versión y no en la otra, para que el MISMO banco
   // pueda correr contra el código anterior y mostrar en qué se pone rojo.
   const NUEVAS = { _acLotesSurtidas:1, _acSurtidaUbicable:1, _acEntradasSinHora:1, _acCargaEnLote:1,
-                   _acDespDelCuadre:1, _acVeredictoNoche:1, _acCuadreSemanal:1, _acLunesDe:1, _acEntroDespuesDe:1 }
+                   _acDespDelCuadre:1, _acVeredictoNoche:1, _acCuadreSemanal:1, _acLunesDe:1, _acEntroDespuesDe:1,
+                   _acSrcEsTanque:1, _acSaldoLibrosGalpon:1 }
   const BR = String.fromCharCode(10)
   const codigo = FUNCS.map(f => trozo(src, f, !!NUEVAS[f])).join(BR)
 
