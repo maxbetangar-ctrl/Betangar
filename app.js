@@ -2869,6 +2869,75 @@ function _acComprasGalpon(desde,hasta){
   return Math.round(suma*100)/100;
 }
 
+// ── ¿CUÁNTO SE LE PUEDE CREER A ESTE MÓDULO HOY? ─────────────────────────────────────────────
+//
+// 🔴 EL PROBLEMA. La respuesta ya existía, pero repartida en seis lugares: el % de días
+//    auditables en una tarjeta, el piso de detección en otro panel, el galpón más abajo, el
+//    examen del modo sombra al final de todo, R16 entre las anomalías. Nadie la ve junta, así
+//    que nadie sabe si puede usar estos números para tomar una decisión.
+//
+// ⛔ Y NO ES UN PUNTAJE DE 0 A 100. Un promedio ponderado necesita pesos, y los pesos los
+//    inventaría yo: el número saldría preciso y no estaría medido. Esto es una LISTA DE
+//    CONDICIONES, cada una con su cifra real y con qué falta para cerrarla. Son verificables de
+//    a una, y «4 de 6» no finge una exactitud que no existe.
+//    [[norma-antes-de-afirmar-imposible-hacer-el-algebra]]
+//
+// ⚠️ Cada condición dice QUÉ FALTA, no solo que falta. Un tablero que marca rojo sin decir el
+//    próximo paso se vuelve parte del paisaje.
+function _acConfianza(o){
+  o=o||{};
+  var c=[];
+  var pct=function(n,d){ return d>0?Math.round(n*100/d):null; };
+
+  // 1. ¿Están los datos? Sin las dos mediciones y los km no hay nada que cuadrar.
+  c.push({clave:'cobertura', ok:(o.pctAud!=null&&o.pctAud>=90),
+    titulo:'Los días tienen los datos completos',
+    cifra:(o.pctAud!=null?(o.pctAud+'%'):'—'),
+    detalle:(o.pctAud!=null
+      ? (o.completas+' de '+o.total+' jornadas con salida, llegada y km')
+      : 'sin jornadas en el período'),
+    falta:'Cargar la medición de salida, la de llegada y el odómetro todos los días. Por debajo de 90% el resto de los números queda cojo.'});
+
+  // 2. ¿Ve lo suficiente? Si el piso tapa un día entero, «0 anomalías» no dice casi nada.
+  var pd=o.piso||{};
+  c.push({clave:'piso', ok:(pd.pctDelDia!=null&&pd.pctDelDia<100),
+    titulo:'La regla ve menos de un día de consumo',
+    cifra:(pd.pctDelDia!=null?(pd.pctDelDia+'% de un día'):'—'),
+    detalle:(pd.piso!=null?('no detecta diferencias menores a '+_acFmt(pd.piso,1)+' L en una jornada'):'sin tolerancia calculada'),
+    falta:'Leer la regla al medio centímetro en vez de centímetros enteros: el piso baja a la mitad. La app del chofer ya acepta décimas.'});
+
+  // 3. ¿El galpón se puede comprobar? Es el único tanque donde nadie mira.
+  var g=o.galpon||{};
+  c.push({clave:'galpon', ok:(g.mediciones>=2||g.sinGalpon===true),
+    titulo:'El tanque del galpón se puede cuadrar',
+    cifra:(g.sinGalpon?'no aplica':((g.mediciones||0)+' lectura(s)')),
+    detalle:(g.sinGalpon?'esta empresa no tiene tanque de galpón':'hacen falta 2 lecturas de regla para cuadrarlo'),
+    falta:'Pasar la regla a los tanques del galpón antes y después de cada vez que se surta de ahí.'});
+
+  // 4. ⛔ EL ÚNICO TESTIGO QUE NO DEPENDE DE LA VARILLA. Si la regla se lee mal, todo el módulo
+  //    se equivoca a la vez y no hay forma de notarlo desde adentro. R16 mira la factura contra
+  //    lo asignado: no toca una sola lectura.
+  c.push({clave:'factura', ok:(o.r16===0),
+    titulo:'La factura de la estación cuadra con lo asignado',
+    cifra:(o.r16===0?'cuadra':(o.r16+' período(s) sin cuadrar')),
+    detalle:'es la única comprobación que no usa la regla del tanque',
+    falta:'Asentar las surtidas que faltan, o corregir las fechas del período de facturación.'});
+
+  // 5. ¿Se gana el derecho a señalar a alguien? El aviso está apagado desde el 24/07 por acusar
+  //    en falso, y para reencenderlo hace falta prueba, no confianza.
+  var s=o.sombra||{};
+  c.push({clave:'examen', ok:!!s.examenOk,
+    titulo:'El auditor aprobó el examen para volver a avisar',
+    cifra:((s.ev||0)+' juzgadas'+(s.prec!=null?(' · '+Math.round(s.prec*100)+'% acierto'):'')),
+    detalle:'hacen falta '+(s.min||15)+' con '+Math.round((s.prec_min||0.9)*100)+'% de acierto y ninguna falsa en 2 semanas',
+    falta:(s.pend>0
+      ? ('Marcar los '+s.pend+' faltantes que esperan veredicto, acá abajo. Cada uno es un clic.')
+      : 'Esperar a que aparezcan casos para juzgar.')});
+
+  var ok=c.filter(function(x){return x.ok;}).length;
+  return {cond:c, ok:ok, total:c.length};
+}
+
 // ── EL PISO DE DETECCIÓN: LO QUE ESTA AUDITORÍA NO PUEDE VER ─────────────────────────────────
 //
 // 🔴 EL PROBLEMA QUE RESUELVE. La pantalla dice «0 anomalías» y eso se lee como «no falta nada».
@@ -4117,6 +4186,41 @@ function _acRender(){
   // ⛔ EL MARGEN VA PEGADO AL NÚMERO, no en una nota al pie. Un número sin su margen se lee como
   //    exacto, y este sale de leer una varilla en centímetros enteros. [[norma-una-medicion-tiene-hora]]
   var pdK_=_acPisoDeteccion(J);
+
+  // ── ⛔ ¿CUÁNTO SE LE PUEDE CREER HOY? — VA PRIMERO, ANTES QUE NINGÚN NÚMERO ────────────────
+  // Porque su trabajo es decir si los números de abajo sirven para decidir algo. Abajo del todo
+  // no cumple esa función: ya los leíste.
+  var sb_=(typeof _acSombraEstado==='function')?_acSombraEstado():{};
+  var cf_=_acConfianza({
+    pctAud:pctAud, completas:completas, total:J.length,
+    piso:pdK_,
+    galpon:{mediciones:(AC_META.galpon&&AC_META.galpon.mediciones)||0,
+            sinGalpon:!(AC_TANQUES||[]).some(function(t){return t&&t.tipo==='galpon';})},
+    r16:(AC_ANOM||[]).filter(function(a){return (a.cod||a.regla)==='R16';}).length,
+    // ⛔ `pend` del modo sombra es un ARRAY, no un número. Pasarlo crudo habría impreso
+    //    «[object Object],[object Object]» en el texto de qué falta.
+    sombra:{examenOk:!!sb_.examenOk, ev:sb_.ev, prec:sb_.prec,
+            min:AC_SOMBRA_MIN, prec_min:AC_SOMBRA_PREC,
+            pend:(sb_.pend||[]).length}
+  });
+  var cfVerde_=(cf_.ok===cf_.total);
+  html+='<div class="card" style="margin-bottom:10px;border-left:3px solid '+(cfVerde_?'var(--green)':'var(--yellow)')+'">'+
+    '<div class="st" style="margin-bottom:2px">🎯 ¿Cuánto se le puede creer a estos números hoy?</div>'+
+    '<div style="font-family:var(--m);font-size:20px;font-weight:900;color:'+(cfVerde_?'var(--green)':'var(--yellow)')+'">'+
+      cf_.ok+' de '+cf_.total+'<span style="font-size:12px;font-weight:600;color:var(--text2)"> condiciones cumplidas</span></div>'+
+    '<div style="font-size:10px;color:var(--text3);margin-bottom:8px">No es un puntaje: es una lista de cosas comprobables de a una. '+
+    'Cada una dice su cifra real y qué falta para cerrarla.</div>'+
+    cf_.cond.map(function(x){
+      return '<div style="display:flex;gap:8px;align-items:flex-start;padding:6px 0;border-top:1px solid var(--bg3)">'+
+        '<div style="font-size:13px;line-height:1.2">'+(x.ok?'✅':'⚠️')+'</div>'+
+        '<div style="flex:1;min-width:0">'+
+          '<div style="font-size:12px;font-weight:700">'+x.titulo+
+            ' <span style="font-family:var(--m);font-weight:900;color:'+(x.ok?'var(--green)':'var(--yellow)')+'">'+x.cifra+'</span></div>'+
+          '<div style="font-size:10px;color:var(--text3)">'+x.detalle+'</div>'+
+          (x.ok?'':('<div style="font-size:11px;color:var(--text2);margin-top:2px">▶️ '+x.falta+'</div>'))+
+        '</div></div>';
+    }).join('')+
+  '</div>';
   var margen_=(pdK_.margenPeriodo!=null)?(' · margen del método ±'+_acFmt(pdK_.margenPeriodo,0)+' L'):'';
   // ── KPIs
   html+='<div class="g4" style="margin-bottom:10px">'+
