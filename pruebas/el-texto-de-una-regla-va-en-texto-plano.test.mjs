@@ -30,7 +30,12 @@ const ok = (n, c, d) => { console.log((c ? '✅' : '❌') + ' ' + n + (c ? '' : 
 // ── 0. CONTROL POSITIVO ──────────────────────────────────────────────────────────
 // Si no encuentro las llamadas, esta prueba daría verde sin haber mirado nada: un
 // vacío por fallo de lectura se ve igual que un vacío de verdad.
-const RX = /\badd\(\s*(?:sev|'alta'|'media'|'baja')\s*,\s*'(R\d+[a-z]?)'/g
+// ⛔ LA SEVERIDAD PUEDE SER UNA EXPRESIÓN, no solo `sev` o una cadena. R16 la calcula
+//    (`Math.abs(dif)>200?'alta':'media'`) y el patrón anterior —que listaba las formas
+//    literales— **no la veía**: la regla existía y esta prueba daba verde sin mirarla.
+//    Ahora se acepta cualquier primer argumento sin comas, que es lo que de verdad define
+//    la forma de la llamada. [[norma-control-positivo-antes-de-creerle-al-vacio]]
+const RX = /\badd\(\s*[^,()]*(?:\([^()]*\))?[^,]*,\s*'(R\d+[a-z]?)'/g
 const codigos = [...js.matchAll(RX)].map(m => m[1])
 ok('0. CONTROL POSITIVO: se encontraron las reglas en el archivo', codigos.length >= 10,
    `solo encontré ${codigos.length}: el patrón dejó de calzar y esto no estaría midiendo nada`)

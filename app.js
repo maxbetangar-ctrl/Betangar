@@ -2974,6 +2974,123 @@ function _acComprasGalpon(desde,hasta){
 //
 // ⚠️ Cada condición dice QUÉ FALTA, no solo que falta. Un tablero que marca rojo sin decir el
 //    próximo paso se vuelve parte del paisaje.
+// ── 🎯 PARA DECIDIR: LAS ANOMALÍAS EN 4 GRUPOS Y 4 ACCIONES ───────────────────────────────────
+//
+// 🔴 EL PROBLEMA, dicho por Máximo el 08/11/2026: «necesito que me arroje información que me
+//    permita tomar decisiones correctas y oportunas sin yo tener que tener muchos conocimientos,
+//    de manera que entienda un tonto».
+//    La pantalla le mostraba **44 avisos**, cada uno un párrafo con centímetros, km/L y el
+//    estándar del modelo. Pero esos 44 son **5 o 6 cosas repetidas**, y la mayoría NO ES PLATA:
+//    es papeleo que falta cargar. Un dueño que ve 44 renglones iguales no prioriza nada — y el
+//    que importaba, el único que de verdad cuesta dinero, estaba perdido en el medio.
+//
+// ⛔ LO QUE ESTE BLOQUE **NO** HACE: no inventa una conclusión ni un puntaje. Agrupa lo que las
+//    reglas ya dijeron, le pone el precio en dólares, y dice **qué hacer** con cada grupo. Las 44
+//    filas siguen abajo, enteras: esto es la portada, no un reemplazo.
+//
+// 📌 LOS CUATRO GRUPOS, y por qué esa división y no otra. La pregunta que contesta cada uno es
+//    distinta, y mezclarlos es lo que hacía la pantalla ilegible:
+//      🔴 PLATA      — gasoil que entró o salió y nadie puede explicar. Es lo único que cuesta.
+//      🟠 SE CONTRADICEN — el tanque y el odómetro no cuentan lo mismo. ⚠️ NO es robo: casi
+//                      siempre es una lectura mal tomada, y el sospechoso es el dato.
+//      🟡 FALTA CARGAR  — huecos de registro. No se perdió nada; lo que se pierde es la
+//                      capacidad de opinar sobre esos días.
+//      ⚪ SIN COMPROBAR — lo que no tiene testigo. No afirma que falte: afirma que no se sabe.
+//
+// ⚠️ EL MAPA ES EXPLÍCITO A PROPÓSITO. Una regla nueva que no esté acá cae en «otros» y se dice
+//    que no está clasificada, en vez de meterse en un grupo por descarte. Un aviso en el grupo
+//    equivocado manda al dueño a buscar plata donde solo falta un papel.
+//    [[norma-falta-de-dato-no-es-un-dato]]
+var AC_GRUPOS=[
+  {k:'plata', ico:'🔴', col:'var(--red)',
+   titulo:'Plata que no se explica',
+   reglas:['R1','R13','R14','R16'],
+   que:'Gasoil que entró o salió del patio y ningún camión lo recibió, o una factura que no cuadra con lo que se asignó. Es lo único de esta lista que cuesta dinero.',
+   accion:'Preguntale a quien tuvo acceso al patio esos días, y revisá la factura contra las cargas.'},
+  {k:'contra', ico:'🟠', col:'var(--yellow)',
+   titulo:'Números que se contradicen',
+   // ⛔ R4 y R4c —consumo por encima o por debajo de lo normal— van ACÁ y no en «plata» a
+   //    propósito. Son un RITMO que no calza con el estándar del modelo, no litros que falten:
+   //    un recorrido con más carga, más cola o más cuestas los explica igual de bien que un
+   //    faltante. Ponerlos en «plata» mandaría al dueño a buscar un robo donde puede no haberlo.
+   //    ⚠️ Lo que SÍ vale perseguir es el mismo camión repitiéndolo: por eso la regla sube a
+   //      «alta» recién a la tercera vez, y así llega marcado a esta lista.
+   reglas:['R4','R4b','R4c','R8','R10','R10b','R10c','R11b','R15'],
+   que:'El tanque, el odómetro y el rendimiento esperado no cuentan lo mismo. Casi siempre es una lectura mal tomada o un recorrido distinto, no un faltante: por eso no lleva monto.',
+   accion:'Volvé a tomar la lectura y preguntale a quien midió. Si es SIEMPRE el mismo camión, ahí sí vale revisarlo a fondo. Mientras tanto, estos días no sirven para calcular rendimiento.'},
+  {k:'cargar', ico:'🟡', col:'var(--text3)',
+   titulo:'Falta cargar — es papeleo, no plata',
+   reglas:['R0','R0b','R7','R9','R11','R12'],
+   que:'Faltan planillas, checklist o lecturas de la regla. No se perdió nada; lo que se pierde es poder decir algo de esos días.',
+   accion:'Pedile a la oficina las planillas y los checklist que faltan. Cada uno que entre, destapa un día.'},
+  {k:'sincomp', ico:'⚪', col:'var(--text3)',
+   titulo:'No se puede comprobar',
+   reglas:['R17'],
+   que:'No dice que falte combustible: dice que no hay con qué saberlo.',
+   accion:'Dos pasadas de regla al tanque y este grupo se cierra para siempre.'}
+];
+function _acGrupoDe(cod){
+  var c=String(cod||'');
+  for(var i=0;i<AC_GRUPOS.length;i++){ if(AC_GRUPOS[i].reglas.indexOf(c)>=0) return AC_GRUPOS[i].k; }
+  return null;   // ⛔ `null` y no un grupo por descarte: una regla nueva se DICE, no se adivina
+}
+function _acParaDecidir(costoPeriodo,costoPorKm){
+  var A=AC_ANOM||[];
+  var acum={}, sinClasificar=[];
+  AC_GRUPOS.forEach(function(g){ acum[g.k]={n:0,litros:0,alta:0,ejemplos:[]}; });
+  A.forEach(function(a){
+    var k=_acGrupoDe(a.cod);
+    if(!k){ sinClasificar.push(a.cod||'?'); return; }
+    var x=acum[k]; x.n++;
+    if(a.sev==='alta')x.alta++;
+    x.litros+=Math.abs(_acNum(a.litros)||0);
+    if(x.ejemplos.length<3&&a.titulo)x.ejemplos.push(a.titulo);
+  });
+
+  var html='<div class="card" style="margin-bottom:10px;border:1px solid var(--lime);border-left:4px solid var(--lime)">'+
+    '<div class="st" style="margin-bottom:2px">🎯 Para decidir</div>'+
+    '<div style="font-size:10px;color:var(--text3);margin-bottom:10px">Los mismos avisos de abajo, agrupados por <b>qué hay que hacer con ellos</b>. El detalle completo sigue más abajo.</div>';
+
+  // La cabecera de plata: lo que costó y lo que cuesta cada kilómetro. Es lo primero que mira
+  // cualquiera, y estaba repartido en dos tarjetas más abajo.
+  if(costoPeriodo>0){
+    html+='<div style="font-size:13px;margin-bottom:10px;padding:8px 10px;border-radius:8px;background:var(--bg3)">'+
+      '💵 El gasoil costó <b>$'+_acFmt(costoPeriodo,2)+'</b> en este período'+
+      ((costoPorKm>0)?(' — <b>$'+_acFmt(costoPorKm,3)+'</b> por kilómetro'):'')+'.</div>';
+  }
+
+  var hubo=false;
+  AC_GRUPOS.forEach(function(g){
+    var x=acum[g.k]; if(!x.n)return;
+    hubo=true;
+    var usd=_acUsd(x.litros);
+    html+='<div style="padding:9px 11px;margin-bottom:7px;border-left:3px solid '+g.col+';background:var(--bg3);border-radius:0 8px 8px 0">'+
+      '<div style="font-size:12px;font-weight:800;color:'+g.col+'">'+g.ico+' '+g.titulo+
+        ' <span style="color:var(--text2);font-weight:600">· '+x.n+(x.n===1?' caso':' casos')+'</span>'+
+        // ⛔ EL PRECIO SOLO DONDE SIGNIFICA PLATA. En «falta cargar» y en «se contradicen» no hay
+        //    litros perdidos: ponerles un monto los haría ver como una pérdida que no existe.
+        ((g.k==='plata'&&usd!=null&&x.litros>0)?(' <span style="color:var(--red)">· $'+_acFmt(usd,2)+'</span>'):'')+
+        ((g.k==='sincomp'&&usd!=null&&x.litros>0)?(' <span style="color:var(--text2);font-weight:600">· hasta $'+_acFmt(usd,2)+' sin poder opinar</span>'):'')+
+      '</div>'+
+      '<div style="font-size:11px;color:var(--text2);line-height:1.5;margin-top:3px">'+g.que+'</div>'+
+      '<div style="font-size:11px;color:var(--lime);line-height:1.5;margin-top:4px">▶ '+g.accion+'</div>'+
+    '</div>';
+  });
+
+  if(!hubo){
+    html+='<div style="font-size:12px;color:var(--green2);padding:6px">✅ No hay nada que decidir en este período: ninguna regla saltó.</div>';
+  }
+
+  // ⚠️ Una regla que no está en el mapa se DICE. Si se callara, el dueño leería «4 grupos» y
+  //    estaría viendo menos avisos de los que hay, sin manera de notarlo.
+  if(sinClasificar.length){
+    var unicos=[]; sinClasificar.forEach(function(c){ if(unicos.indexOf(c)<0)unicos.push(c); });
+    html+='<div style="font-size:11px;color:var(--yellow);padding:6px 10px;border-radius:8px;background:rgba(251,191,36,.1);margin-top:4px">'+
+      '⚠️ Hay '+sinClasificar.length+' aviso(s) que todavía no están agrupados ('+unicos.join(', ')+'). '+
+      'Están completos más abajo — esto no los esconde.</div>';
+  }
+  return html+'</div>';
+}
 function _acConfianza(o){
   o=o||{};
   var c=[];
@@ -4255,6 +4372,10 @@ function _acRender(){
   var rendFlota=(consC>0&&kmC>0)?(kmC/consC):null;
   var costoL=_acCostoL();
   var costoTot=(costoL>0)?(totCons*costoL):null;
+  // ⛔ SE ARMA ACÁ Y SE ANTEPONE AL FINAL. El bloque necesita el costo, que recién se calcula en
+  //    esta línea — pero tiene que LEERSE primero, antes que ningún número. Moverlo arriba
+  //    obligaba a mover el cálculo; anteponer el texto no mueve nada y da el mismo orden.
+  var _decidir=_acParaDecidir(costoTot,(costoL>0&&rendFlota!=null)?(costoL/rendFlota):null);
   var altas=AC_ANOM.filter(function(a){return a.sev==='alta';});
   // ── EL CARTEL ROJO SUMABA GASOIL QUE FALTÓ CON GASOIL QUE ENTRÓ ─────────────────────────────
   // Hasta el 07/09/2026 este número tomaba el `litros` de TODA anomalía grave en valor absoluto y
@@ -4600,7 +4721,7 @@ function _acRender(){
     '<th style="text-align:right">Consumo</th><th style="text-align:right">Km</th><th style="text-align:right">Km/L</th><th></th>'+
     '</tr></thead><tbody>'+(det||'<tr><td colspan="12" style="text-align:center;color:var(--text3);padding:12px">Sin jornadas en el período</td></tr>')+'</tbody></table></div></div>';
 
-  cont.innerHTML=html;
+  cont.innerHTML=_decidir+html;
 }
 
 async function acExcel(){
