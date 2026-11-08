@@ -14,10 +14,26 @@ function trozo(src, nombre, opcional = false){
   //    `await` dentro de una función común y el `vm` muere con un SyntaxError que apunta a una
   //    línea del archivo generado, no del fuente. (Costó un intento el 07/11 con `_acPaginar`.)
   if (src.slice(Math.max(0, ini - 6), ini) === 'async ') ini -= 6
-  // hasta el primer `\n}` a nivel de columna 0
-  const fin = src.indexOf('\n}', ini)
+  // ⛔ SE CUENTAN LAS LLAVES. Antes cortaba en el primer `\n}` a columna 0, y eso rompe con las
+  //    funciones DE UNA SOLA LÍNEA: `_acMenos` cierra al final de su renglón, así que el corte
+  //    se iba hasta el final de la SIGUIENTE función y arrastraba `_acPaginar` entero — con su
+  //    `await` adentro. Por eso hubo que parchear el `async`, y por eso la exención de
+  //    `_acPaginar` no servía: se colaba igual. Lo destapó el guardia el 08/11.
+  //    ⚠️ Se saltean cadenas y comentarios: una `}` dentro de un texto no cierra nada.
+  let p = 0, fin = -1, k = src.indexOf('{', ini)
+  for (; k < src.length; k++) {
+    const c = src[k], dos = src.slice(k, k + 2)
+    if (dos === '//') { k = src.indexOf('\n', k); if (k < 0) break; continue }
+    if (dos === '/*') { k = src.indexOf('*/', k) + 1; continue }
+    if (c === "'" || c === '"' || c === '`') {
+      for (k++; k < src.length; k++) { if (src[k] === '\\') k++; else if (src[k] === c) break }
+      continue
+    }
+    if (c === '{') p++
+    else if (c === '}') { p--; if (p === 0) { fin = k + 1; break } }
+  }
   if (fin < 0) throw new Error('no cerré function ' + nombre)
-  return src.slice(ini, fin + 2)
+  return src.slice(ini, fin)
 }
 
 // ⛔ `_acSigmaDe` FALTABA y rompio 5 pruebas en silencio desde el 06/11: se agrego a app.js
@@ -33,7 +49,7 @@ function trozo(src, nombre, opcional = false){
 const FUNCS = ['_acHoy','_acNum','_acFmt','_acUsd','_acCubicar','_acLitrosPorCm','_acTol','_acSigmaDe',
   '_acDiaSiguiente','_acAlturaValida','_acLotesSurtidas','_acSurtidaUbicable','_acEntradas',
   '_acEntradasSinHora','_acCargaEnLote','_acTanqueDe','_acEsGalpon','_acDedupe','_acArmarJornadas','_acRefModelo',
-  '_acRefRend','_acTs','_acAntesDe','_acAnomalias','_acDespDelCuadre','_acVeredictoNoche','_acCuadreSemanal','_acLunesDe','_acEntroDespuesDe','_acMenos','_acCostoL']
+  '_acRefRend','_acTs','_acAntesDe','_acAnomalias','_acDespDelCuadre','_acVeredictoNoche','_acCuadreSemanal','_acLunesDe','_acEntroDespuesDe','_acMenos','_acCostoL','_fx']
 
 export function cargarAuditoria(rutaApp = RUTA_APP){
   const src = readFileSync(rutaApp, 'utf8')
@@ -44,7 +60,7 @@ export function cargarAuditoria(rutaApp = RUTA_APP){
     formatFecha:(f)=>String(f||'').slice(0,10).split('-').reverse().join('/'),
     _fmtFecha:(f)=>String(f||'').slice(0,10).split('-').reverse().join('/'),
     _lblUnidad:(c)=>String(c),
-    console, Math, Date, String, Number, Object, Array, JSON, isNaN, parseFloat, parseInt,
+    console, Math, Date, String, Number, Object, Array, JSON, isNaN, isFinite, parseFloat, parseInt,
   }
   vm.createContext(ctx)
   // Las constantes de tolerancia salen del archivo REAL, sí o sí: si no están, se para. Puestas
@@ -62,6 +78,19 @@ export function cargarAuditoria(rutaApp = RUTA_APP){
     const m = src.match(new RegExp('var ' + nom + '\\s*=[^;\\n]*;'))
     if (m) vm.runInContext(m[0], ctx)
   }
+  // ⛔ AYUDANTES GLOBALES DECLARADOS COMO `var X = function(...)`. `trozo()` solo sabe sacar
+  //    `function X(`, así que estos hay que leerlos aparte. `_acTurno` es uno: vive en el nivel
+  //    del archivo, no adentro de ninguna función, y `_acArmarJornadas` lo llama.
+  //    📌 Antes se colaba POR ACCIDENTE, porque el corte viejo (hasta el primer `\n}`) se pasaba
+  //      de largo y arrastraba lo que viniera después. Al arreglar el corte, el guardia lo
+  //      destapó enseguida — que es exactamente para lo que está.
+  for (const nom of ['_acTurno']) {
+    // ⚠️ Hasta el FIN DE RENGLÓN, no hasta el primer `;`: el primer punto y coma está ADENTRO
+    //    del cuerpo (`return String(...);`) y cortar ahí deja la función sin cerrar — `vm` muere
+    //    con «Unexpected end of input», que no dice nada de dónde está el problema.
+    const m = src.match(new RegExp('var ' + nom + '\\s*=\\s*function[^\\n]*'))
+    if (m) vm.runInContext(m[0], ctx)
+  }
   // Las de la corrección del 07/09 son opcionales: así el MISMO banco corre contra el código
   // ANTERIOR (`git show HEAD:app.js`) y se comprueba que la prueba se pone ROJA sin ellas.
   // Opcionales: las que existen en una versión y no en la otra, para que el MISMO banco
@@ -77,15 +106,36 @@ export function cargarAuditoria(rutaApp = RUTA_APP){
   //    se mira qué llama el código extraído y se exige que esté — nombrando lo que falta.
   //    ⚠️ Se buscan llamadas `_acAlgo(` que NO vengan precedidas de un punto (eso sería un
   //    método de un objeto, no una función suelta del archivo).
-  const llamadas = new Set((codigo.match(/(^|[^.\w])_ac[A-Za-z0-9_]*\s*\(/g) || [])
-    .map(s => (s.match(/_ac[A-Za-z0-9_]*/) || [''])[0]))
+  // ⛔ EL GUARDIA MIRABA SOLO LOS `_ac*` Y POR AHÍ SE COLÓ `_fx` (08/11). Es la tercera vez que
+  //    una pieza que el código extraído llama y el banco no provee revienta adentro del `vm`.
+  //    Ahora se vigila CUALQUIER llamada suelta, no solo las del prefijo.
+  //    ⚠️ Y hay que mirar SOLO EL CÓDIGO. El primer intento escaneaba el archivo entero y los
+  //      comentarios en castellano lo volvieron inútil: reportó «DIGO», «litros», «regla» y
+  //      sesenta palabras más, porque en el texto cualquier palabra puede ir seguida de «(».
+  //      Un guardia que grita sesenta nombres falsos se desactiva al día siguiente.
+  const RESERVADAS = new Set(['if', 'for', 'while', 'switch', 'catch', 'return', 'function',
+    'typeof', 'new', 'do', 'else', 'try', 'throw', 'delete', 'void', 'in', 'of', 'case'])
+  const soloCodigo = codigo
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')            // comentarios de bloque
+    .replace(/(^|[^:])\/\/[^\n]*/g, '$1 ')        // de línea (ojo con las URL `http://`)
+    .replace(/'(?:\\.|[^'\\])*'/g, "''")          // cadenas simples
+    .replace(/"(?:\\.|[^"\\])*"/g, '""')          // dobles
+    .replace(/`(?:\\.|[^`\\])*`/g, '``')          // plantillas
+  const llamadas = new Set((soloCodigo.match(/(^|[^.\w$])([A-Za-z_$][A-Za-z0-9_$]*)\s*\(/g) || [])
+    .map(s => (s.match(/[A-Za-z_$][A-Za-z0-9_$]*/) || [''])[0])
+    .filter(x => x && !RESERVADAS.has(x)))
   // ⚠️ Lo definido ADENTRO de lo extraído no falta: `_acTurno` es una `var` local de
   //    `_acArmarJornadas`, y pedirla en FUNCS sería pedir una función que no existe suelta.
-  const propias = new Set((codigo.match(/(?:function|var|let|const)\s+_ac[A-Za-z0-9_]*/g) || [])
-    .map(s => (s.match(/_ac[A-Za-z0-9_]*/) || [''])[0]))
+  const propias = new Set((codigo.match(/(?:function|var|let|const)\s+[A-Za-z_$][A-Za-z0-9_$]*/g) || [])
+    .map(s => (s.match(/[A-Za-z_$][A-Za-z0-9_$]*$/) || [''])[0]))
   // Las que el banco NO provee a proposito, con el motivo al lado: una exencion sin motivo
   // escrito es el lugar donde se esconden las de verdad.
-  const EXENTAS = { _acPaginar: 'baja filas de la base; el banco siembra el volcado a mano' }
+  const EXENTAS = {
+    _acPaginar: 'baja filas de la base; el banco siembra el volcado a mano',
+    // Se llama SIEMPRE detras de `typeof fechaVE==="function"`: si no esta, `_acHoy` usa la
+    // fecha del sistema. Es una ausencia prevista, no una pieza faltante.
+    fechaVE: 'la llamada esta guardada con typeof; sin ella `_acHoy` cae en la fecha del sistema',
+  }
   const faltantes = [...llamadas].filter(n => n && !FUNCS.includes(n) && !propias.has(n)
                                            && !(n in EXENTAS) && !(n in ctx))
   if (faltantes.length) {
@@ -119,6 +169,9 @@ export function sembrar(ctx, datos){
   ctx.AC_SURTIDAS = datos.surt
   ctx.AC_GASOIL   = datos.gasoil
   ctx.AC_CK       = datos.ck
+  // ⛔ Los períodos de facturación (R16). Si el volcado no los trae, la regla no puede hablar —
+  //    y eso NO es «todo cuadra». La prueba de R16 exige que estén, con control positivo.
+  ctx.AC_PERIODOS = datos.periodos || []
   ctx.AC_META     = {
     corteSurtidas: String(cfg.surtidas_corte).replace(/"/g, ''),
     rendRefMapa:   JSON.parse(cfg.aud_comb_rend_ref),

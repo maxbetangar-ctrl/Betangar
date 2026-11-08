@@ -92,12 +92,30 @@ ok('12. y cuando el GPS no sabe, cae en created_at como siempre',
    'sin respaldo, un apagón del rastreador cambiaría el resultado en silencio')
 // ⛔ Solo Betangar tiene volcado y GPS. En los clones esta asercion NO aplica, y se dice
 //    que no aplica en vez de darla por buena: un verde que no midio nada es peor que un hueco.
+// ⛔ ESTO SE MIDE SOBRE EL VOLCADO, NO SOBRE EL TEXTO DE LA CONSULTA. La primera version buscaba
+//    la cadena `hora_gps,hora_gps_fin from surtidas` dentro de `bajar.mjs`, y se puso ROJA el
+//    08/11/2026 cuando esa consulta paso a `select *` — un cambio que trae MAS columnas, no menos.
+//    La asercion acusaba al producto por mejorar. [[norma-una-asercion-mal-escrita-acusa-al-producto]]
+//    📌 Una lista de columnas escrita a mano DENTRO de una prueba es una lista a mano igual: se
+//      desincroniza. Lo que hay que exigir es el EFECTO —que la columna este y traiga datos—, que
+//      es lo unico de lo que depende el banco. [[norma-dos-listas-a-mano-se-desincronizan]]
 let bajar = null
 try { bajar = readFileSync(new URL('./datos/bajar.mjs', import.meta.url), 'utf8') } catch (e) { bajar = null }
 if (bajar === null) console.log('—  13. (no aplica: este repo no tiene volcado de pruebas ni GPS)')
-else ok('13. el volcado de pruebas trae las columnas nuevas',
-   /hora_gps,hora_gps_fin from surtidas/.test(bajar),
-   'el banco mediria SIEMPRE el camino de respaldo — el mismo defecto que la columna `turno`')
+else {
+  // El volcado solo existe en Betangar; en los clones esta prueba corre igual con los casos de arriba.
+  let datos = null
+  try { datos = JSON.parse(readFileSync(new URL('./datos/combustible.json', import.meta.url), 'utf8')) } catch (e) { datos = null }
+  if (!datos) { console.log('—  13. (no aplica: este repo no versiona el volcado)'); process.exit(fallos === 0 ? 0 : 1) }
+  const unaSurtida = (datos.surt || [])[0] || {}
+  ok('13. el volcado de pruebas TRAE las columnas del GPS',
+     'hora_gps' in unaSurtida && 'hora_gps_fin' in unaSurtida,
+     'el banco mediria SIEMPRE el camino de respaldo — el mismo defecto que la columna `turno`')
+  // ⛔ Y CON DATOS ADENTRO: una columna presente y toda vacia se lee igual que «el GPS no sirve».
+  const conGps = (datos.surt || []).filter((s) => s.hora_gps && s.hora_gps_fin).length
+  ok('13b. …y con horas de verdad adentro, no la columna vacia', conGps > 0,
+     'las ' + (datos.surt || []).length + ' surtidas del volcado tienen `hora_gps` nulo: el caso 10 no prueba nada')
+}
 
 console.log('\n' + (fallos === 0 ? '✅ TODAS PASAN' : '⛔ ' + fallos + ' MAL'))
 process.exit(fallos === 0 ? 0 : 1)
