@@ -9,6 +9,10 @@
 //    el primer intento usaba `ref`, que no existe en `_acRender`.
 //    [[norma-probar-el-camino-no-la-pieza]] · [[norma-revisar-antes-de-soltar]]
 //
+// ⛔ LA UNIDAD DEL FIXTURE ES NEUTRA (U01) A PROPOSITO: este arnes vive en los 5 repos y
+//    un codigo de la flota de una empresa dentro del repo de otra lo bloquea el candado de
+//    datos ajenos -- y bien. Aca lo que se prueba es la aritmetica, no de quien es el camion.
+//
 // Uso:  node pruebas/ver-cuadre-semanal.mjs [--ver]
 // ═══════════════════════════════════════════════════════════════════════════════════════════
 import fs from 'node:fs'
@@ -57,14 +61,14 @@ const seVe = await page.evaluate(() => {
   // el tanque subió 60 L sin carga asentada — ahí está la mitad del agujero.
   const T = { cap: 600, hmax: 52.5 }
   const dia = (f, sal, salCm, lle, lleCm, km) => ({
-    cam: 'JAC-B001', fecha: f, turno: 'diurno', tanque: T, chofer: 'CHOFER DE PRUEBA',
+    cam: 'U01', fecha: f, turno: 'diurno', tanque: T, chofer: 'CHOFER DE PRUEBA',
     salida: sal, salidaCm: salCm, llegada: lle, llegadaCm: lleCm, km, conf: 'completa',
     noConf: null, corregida: false, salidaMala: false, llegadaMala: false,
     desp: 0, despJornada: 0, despPost: 0, cargaPostFuera: false, tol: 33.7,
     consumo: Math.round((sal - lle) * 100) / 100, salidaAt: f + ' 06:00:00+00', llegadaAt: f + ' 18:00:00+00',
   })
   window.AC_SURTIDAS = []; window.AC_GASOIL = []
-  window.AC_META = Object.assign({}, window.AC_META || {}, { ref: { 'JAC-B001': { mediana: 1.9, n: 99, fija: true } }, corteSurtidas: '' })
+  window.AC_META = Object.assign({}, window.AC_META || {}, { ref: { 'U01': { mediana: 1.9, n: 99, fija: true } }, corteSurtidas: '' })
   window.AC_JORNADAS = [
     dia('2026-11-02', 577.53, 50, 512.00, 45, 120),
     dia('2026-11-03', 512.00, 45, 452.00, 40, 115),
