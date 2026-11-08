@@ -2092,6 +2092,34 @@ function _acAlturaValida(tanque,alturaCm){
 //    ahí: el período incluye los dos turnos.
 //    Una surtida sin turno deducido NO se le carga a nadie en una jornada: se
 //    la cuenta igual en el período. [[norma-falta-de-dato-no-es-un-dato]]
+// ⛔ ¿ESTA CARGA ENTRÓ DESPUÉS DE UN INSTANTE DADO? Devuelve 'si', 'no', o null = NO SE PUEDE SABER.
+//
+// 🔴 Toda la complejidad de este módulo alrededor de las cargas —`yaEnElNivel`, `_acDespDelCuadre`,
+//    los 15 minutos de margen, tres correcciones distintas (29/08, 08/09, 07/11)— existe por una
+//    sola razón: `surtidas.hora` la escribe la persona y `created_at` es cuando se GUARDÓ la fila.
+//    Ninguno de los dos es la hora en que el combustible entró al tanque.
+//
+// ✅ EL GPS DEL CAMIÓN SÍ LO SABE, y desde el 08/11/2026 está asentado en `hora_gps`/`hora_gps_fin`.
+//    Medido: 82% de cobertura sobre las surtidas con coordenada, y **el 93% de las horas declaradas
+//    cae DENTRO de la parada** del camión. La parada dura 14 min de mediana — lo que tarda surtir.
+//
+// ⛔ ES UN INTERVALO, NO UN INSTANTE, y por eso hay TRES respuestas y no dos:
+//      la parada TERMINÓ antes del instante  → 'no': el combustible ya estaba ahí, seguro
+//      la parada EMPEZÓ después              → 'si': no estaba, seguro
+//      el instante cae DENTRO de la parada   → null: el chofer midió el tanque EN la bomba y
+//                                                    nadie puede saberlo por el reloj
+//    Validado contra el nivel en los 8 casos con GPS: 6 exactos, 2 declarados ambiguos, **0
+//    contradicciones**. Y corrige los dos donde la hora declarada mentía (por 2 y por 44 min).
+//
+// ⚠️ `null` NO es «no entró después»: es «no se sabe», y quien llama tiene que caer en su regla
+//    anterior. Confundir las dos cosas es exactamente [[norma-falta-de-dato-no-es-un-dato]].
+function _acEntroDespuesDe(s,instante){
+  var ini=_acTs(s&&s.hora_gps), fin=_acTs(s&&s.hora_gps_fin);
+  if(ini==null||fin==null||instante==null)return null;
+  if(fin<=instante)return 'no';
+  if(ini>instante)return 'si';
+  return null;
+}
 // ⛔ `despuesDe` (ms) acota a lo ASENTADO DESPUÉS de un instante — se usa para separar la carga
 //    que entró después de la lectura de llegada. Va acá adentro y no en una cuenta aparte para
 //    que el corte, el turno y el dedupe sean LOS MISMOS: dos listas a mano se desincronizan.
@@ -2265,7 +2293,12 @@ function _acEntradas(cam,desde,hasta,incluirDesde,turno,despuesDe){
     if(corte&&f<corte)return;                              // antes del corte manda gasoil
     if(!dentro(f))return;
     if(turno && String(s.turno||'')!==String(turno))return;
-    if(despuesDe!=null){ var _ts=_acTs(s.created_at); if(_ts==null||_ts<=despuesDe)return; }
+    // ⛔ MANDA EL GPS CUANDO SABE; el sello de guardado es el respaldo, no al revés.
+    if(despuesDe!=null){
+      var _v=_acEntroDespuesDe(s,despuesDe);
+      if(_v==='no')return;                               // la parada terminó antes: ya estaba
+      if(_v==null){ var _ts=_acTs(s.created_at); if(_ts==null||_ts<=despuesDe)return; }
+    }
     suma+=(_acNum(s.litros)||0);
   });
   (AC_GASOIL||[]).forEach(function(g){

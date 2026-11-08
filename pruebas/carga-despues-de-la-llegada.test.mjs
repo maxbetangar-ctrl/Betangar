@@ -42,6 +42,10 @@ const fCuadre = saca('_acDespDelCuadre')
 const fEntradas = saca('_acEntradas')
 const fTs = saca('_acTs')
 const fNum = saca('_acNum')
+// ⛔ `_acEntradas` consulta al GPS antes que al sello de guardado, asi que el sandbox
+//    tiene que traer tambien esa funcion. Sin ella revienta con un ReferenceError adentro
+//    del `new Function` -- la misma clase de defecto que la lista a mano del banco.
+const fGps = saca('_acEntroDespuesDe') || ''
 ok('0. las piezas existen en app.js', !!fCuadre && !!fEntradas && !!fTs && !!fNum,
    'falta alguna de _acDespDelCuadre / _acEntradas / _acTs / _acNum')
 if (!fCuadre || !fEntradas || !fTs || !fNum) { console.log('\n⛔ Sin las funciones no se prueba nada.'); process.exit(1) }
@@ -127,7 +131,7 @@ const SUR = [
   { cam: 'U01', fecha: '2026-11-04', litros: 250, created_at: T('23:00') },   // después
 ]
 const armar = () => new Function('AC_META', 'AC_SURTIDAS', 'AC_GASOIL',
-  fNum + '\n' + fTs + '\n' + fEntradas + '\n return _acEntradas;')({}, SUR, [])
+  fNum + '\n' + fTs + '\n' + fGps + '\n' + fEntradas + '\n return _acEntradas;')({}, SUR, [])
 const ent = armar()
 const corte = Date.parse('2026-11-04T20:00:00Z')
 ok('10. sin `despuesDe` cuenta todo', ent('U01', '2026-11-04', '2026-11-04', true) === 350,
@@ -137,7 +141,7 @@ ok('11. con `despuesDe` cuenta SOLO lo posterior',
    'quedó ' + ent('U01', '2026-11-04', '2026-11-04', true, null, corte))
 // ⛔ El histórico `gasoil` no tiene hora: no se puede ubicar y NO puede colarse en el subconjunto.
 const entG = new Function('AC_META', 'AC_SURTIDAS', 'AC_GASOIL',
-  fNum + '\n' + fTs + '\n' + fEntradas + '\n return _acEntradas;')({}, [], [{ cam: 'U01', f: '2026-11-04', lit: 500 }])
+  fNum + '\n' + fTs + '\n' + fGps + '\n' + fEntradas + '\n return _acEntradas;')({}, [], [{ cam: 'U01', f: '2026-11-04', lit: 500 }])
 ok('12. el histórico sin hora NUNCA entra en lo "posterior"',
    entG('U01', '2026-11-04', '2026-11-04', true, null, corte) === 0,
    'se coló un dato sin hora, que es justo lo que no se puede ubicar')

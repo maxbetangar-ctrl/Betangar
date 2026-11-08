@@ -602,6 +602,23 @@ Deno.serve(async (req) => {
   // `despuesDe` (ms) acota a lo ASENTADO DESPUÉS de un instante. Va acá adentro y no en una cuenta
   // aparte para que el corte, el turno y `yaEnElNivel` sean LOS MISMOS: dos listas a mano se
   // desincronizan. El histórico `gasoil` no tiene hora: nunca entra en ese subconjunto.
+  // ⛔ ¿ESTA CARGA ENTRO DESPUES DE UN INSTANTE DADO? 'si' | 'no' | null = NO SE PUEDE SABER.
+  //    GEMELA de `_acEntroDespuesDe` en `app.js`. El GPS del camion sabe cuando estuvo DETENIDO
+  //    en el punto de la surtida (`hora_gps` / `hora_gps_fin`, asentadas desde el 08/11/2026).
+  //    Es un INTERVALO, no un instante, y por eso hay TRES respuestas:
+  //      la parada TERMINO antes  -> 'no'   el combustible ya estaba, seguro
+  //      la parada EMPEZO despues -> 'si'   no estaba, seguro
+  //      el instante cae ADENTRO  -> null   el chofer midio EN la bomba: el reloj no lo sabe
+  // ⚠️ EL GPS NO MANDA SOLO: se apaga, pierde senal y tiene margen. `null` NO es "no entro
+  //    despues", es "no se sabe", y quien llama cae en su regla anterior (`created_at`).
+  const entroDespuesDe = (s: any, instante: number | null): 'si' | 'no' | null => {
+    const ini = ts(s?.hora_gps), fin = ts(s?.hora_gps_fin);
+    if (ini == null || fin == null || instante == null) return null;
+    if (fin <= instante) return 'no';
+    if (ini > instante) return 'si';
+    return null;
+  };
+
   const entradas = (u: string, fA: string, fB: string, incluirFA: boolean, despuesDe?: number) => {
     const dentro = (f: string) => (incluirFA ? f >= fA : f > fA) && f <= fB;
     let suma = 0;
@@ -611,7 +628,12 @@ Deno.serve(async (req) => {
       if (corteSur && f < corteSur) return;              // antes del corte manda gasoil
       if (!dentro(f)) return;
       if (yaEnElNivel(u, f, s)) return;                  // ya está dentro del nivel de salida
-      if (despuesDe != null) { const t = ts(s.created_at); if (t == null || t <= despuesDe) return; }
+      // ⛔ MANDA EL GPS CUANDO SABE; el sello de guardado es el respaldo, no al reves.
+      if (despuesDe != null) {
+        const v = entroDespuesDe(s, despuesDe);
+        if (v === 'no') return;                            // la parada termino antes: ya estaba
+        if (v == null) { const t = ts(s.created_at); if (t == null || t <= despuesDe) return; }
+      }
       suma += (num(s.litros) || 0);
     });
     (gas.data || []).forEach((gg: any) => {

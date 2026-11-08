@@ -18,7 +18,12 @@ const out = {}
 // TODAS las surtidas -- `j.desp` daba 0 en cada jornada y el consumo medido era una ficcion.
 // Un banco que mide con otra vara que el producto no prueba el producto.
 out.med     = await q("select vehiculo_id,fecha,momento,altura_cm,litros_calculados,registrado_por,created_at,corregida,no_confiable,tanque_id,turno from combustible_mediciones order by vehiculo_id,created_at")
-out.surt    = await q("select id,cam,fecha,hora,chofer,tanque,litros,created_at,turno from surtidas order by created_at")
+// ⛔ `hora_gps`/`hora_gps_fin` VAN SÍ O SÍ, por el mismo motivo que `turno`: si la columna no
+//    baja, el banco mide SIEMPRE el camino de respaldo (`created_at`) y nunca el del GPS — y eso
+//    se ve igual que «el GPS no sirve». El 07/11 la columna `turno` faltante hizo que el banco
+//    descartara TODAS las surtidas y midiera un consumo que no existe.
+//    📌 Toda columna nueva que el producto lea tiene que entrar acá en la MISMA sesión.
+out.surt    = await q("select id,cam,fecha,hora,chofer,tanque,litros,created_at,turno,hora_gps,hora_gps_fin from surtidas order by created_at")
 out.gasoil  = await q("select * from gasoil order by f")
 out.tanques = await q("select * from combustible_tanques_config")
 out.ck      = await q("select cam,fecha,conductor,km_salida,km_entrada,turno from checklist order by fecha")
