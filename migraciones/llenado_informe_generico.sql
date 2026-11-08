@@ -135,6 +135,12 @@ begin
            then e.fingreso::date end ingreso_ok
     from empleados e where e.activo
   ),
+  -- ⛔ 'no_aplica' SACA a la persona del informe, no la deja con nota vacia.
+  --    La tabla lo promete («saca al cargo del informe») y hasta ahora no lo
+  --    cumplia: la cuenta de soporte de la casa seguia figurando entre los
+  --    empleados de TONY GAS, y un informe que se le entrega a un cliente no
+  --    puede listar a nuestra gente como suya.
+  emp_fuera as (select id from emp where fn = 'no_aplica'),
   rastro as (
     select e.id, least(
         (select min(a.fecha) from asistencia_dia a where a.empleado_id = e.id),
@@ -146,7 +152,7 @@ begin
           where (p.ch = e.nombre or p.ay1 = e.nombre or p.ay2 = e.nombre)
             and p.f ~ '^\d{4}-\d{2}-\d{2}$')
       )::date primera
-    from emp e
+    from emp e where e.id not in (select id from emp_fuera)
   ),
   inicio as (
     select e.id, greatest(v_d, coalesce(e.ingreso_ok, r.primera, v_d))::date d,
@@ -241,6 +247,8 @@ begin
     left join sur s on s.nom = e.nombre
     left join act ac on ac.id = e.id
     left join firmas fm on fm.id = e.id
+    -- Acá, DESPUÉS de los joins: los cargos marcados `no_aplica` no entran.
+    where e.id not in (select id from emp_fuera)
   ),
   juzgado as (
     select b.*,
@@ -276,6 +284,12 @@ begin
         when b.fn = 'no_aplica' then 'su cargo esta declarado como fuera del informe'
         when b.fn in ('conduce','cuadrilla') and b.dias_exigibles < MIN_DIAS
           then 'solo ' || b.dias_exigibles || ' dias exigibles: entro hace muy poco'
+        -- ⛔ CERO DIAS REGISTRADOS NO ES UN PORCENTAJE. Decia «cierra 0% de los
+        --    0 dias que registro», que no es una frase: es una division que
+        --    nadie pidio. Aparecio en TONY GAS, donde hay choferes que no
+        --    abrieron la app una sola vez; en Betangar nunca se vio.
+        when b.fn = 'conduce' and b.dias_registro = 0 then
+          'no registro NINGUN checklist en ' || b.dias_exigibles || ' dias que le tocaban'
         when b.fn = 'conduce' then
           case when b.ficho_sin_checklist >= 2 then b.ficho_sin_checklist || ' dias ficho y no lleno nada'
                else 'cierra ' || round(b.cierre*100) || '% de los ' || b.dias_registro || ' dias que registro' end
@@ -295,6 +309,8 @@ begin
         when b.fn = 'no_aplica' then 'Nada.'
         when b.fn in ('conduce','cuadrilla') and b.dias_exigibles < MIN_DIAS
           then 'Volver a medirlo cuando cumpla un mes.'
+        when b.fn = 'conduce' and b.dias_registro = 0 then
+          'Empezar a llenar el checklist. No hay un solo registro suyo en el periodo.'
         when b.fn = 'conduce' then
           case when b.ficho_sin_checklist >= 5
                  then 'Que no haya un dia de trabajo sin checklist. Son ' || b.ficho_sin_checklist || ' dias sin rastro.'

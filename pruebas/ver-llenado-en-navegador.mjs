@@ -235,8 +235,10 @@ try {
       ok(new RegExp('\\d+\\.\\s*' + s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).test(papel),
         `el papel trae la sección «${s}», numerada`)
     }
-    for (const a of ['Choferes', 'Ayudantes', 'Vigilancia', 'Taller y supervisión',
-      'Oficina y dirección']) {
+    // Las áreas salen de `LLE_AREAS`, que se agrupa por la FUNCIÓN que calcula
+    // la base. Si se agrega o renombra una, se actualiza acá.
+    for (const a of ['Choferes', 'Ayudantes', 'Vigilancia', 'Taller',
+      'Supervisión y jefaturas', 'Oficina y dirección']) {
       ok(papel.includes(a), `el detalle separa el área «${a}»`)
     }
     if (papel) {

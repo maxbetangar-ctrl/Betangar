@@ -2091,7 +2091,10 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
     </div>
     <div class="fr2" style="margin-bottom:6px">
       <div class="fg" style="margin-bottom:0"><label>Unidad</label><select class="fc" id="sc-cam" onchange="renderSurtidasCosteo()"><option value="">Todas</option></select></div>
-      <div class="fg" style="margin-bottom:0"><label>Origen</label><select class="fc" id="sc-origen" onchange="renderSurtidasCosteo()"><option value="">Todos</option><option value="galpon_1">Galpón 1</option><option value="galpon_2">Galpón 2</option><option value="estacion">Estación</option></select></div>
+      <div class="fg" style="margin-bottom:0"><label>Origen</label><!-- ⛔ «Sin ubicar» TIENE que estar en el filtro. Desde el 08/11 existe ese tercer estado, y sin
+     la opción no hay forma de LISTAR las que hay que resolver: se ven de a una, mezcladas entre
+     las otras 200. Un estado que el sistema crea y no deja buscar no se resuelve nunca. -->
+<select class="fc" id="sc-origen" onchange="renderSurtidasCosteo()"><option value="">Todos</option><option value="estacion">Estación</option><option value="sin_confirmar">❓ Sin ubicar (el GPS no pudo)</option><option value="galpon_1">Galpón 1</option><option value="galpon_2">Galpón 2</option></select></div>
       <div class="fg" style="margin-bottom:0"><label>Costo</label><select class="fc" id="sc-estado" onchange="renderSurtidasCosteo()"><option value="">Todos</option><option value="def">Definido</option><option value="pend">Pendiente</option></select></div>
     </div>
     <div style="text-align:right;margin-bottom:8px">

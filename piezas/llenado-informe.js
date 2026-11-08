@@ -15,7 +15,14 @@ var LLE_COL={'A corregir':'bk-err','Observado':'bk-warn','Cumple':'bk-ok','Sin e
 
 // El primer día que el checklist dice QUIÉN lo llenó. Antes guardaba el nombre de una lista fija
 // camión→chofer. La base aplica el mismo piso; acá sólo sirve para el botón «Todo lo medible».
-var LLE_PISO='2026-09-12';
+// ⛔ NO SE ESCRIBE NINGUNA FECHA DE NINGUNA EMPRESA ACÁ. El día desde el cual el
+//    checklist dice QUIÉN lo llenó es distinto en cada base (Betangar 12/09,
+//    FLOTILLA 25/07, TONY GAS 20/10, la demo nunca falló), y este módulo es el
+//    MISMO en las seis. Antes decía '2026-09-12' —el de Betangar— y las otras
+//    cinco arrancaban con una fecha ajena. Lo dice la base: viene en `piso`.
+var LLE_PISO=null;
+// Un comienzo neutro mientras la base no haya contestado todavía.
+function _lleHace(dias){ var d=new Date(); d.setDate(d.getDate()-dias); return d.toISOString().slice(0,10); }
 
 function llenadoRapido(v){
   if(!v)return;
@@ -27,7 +34,9 @@ function llenadoRapido(v){
     d=f(new Date(hoy.getFullYear(),hoy.getMonth()-1,1));
     h=f(new Date(hoy.getFullYear(),hoy.getMonth(),0));
   }
-  else if(v==='todo'){ d=LLE_PISO; }
+  // Si la base todavia no dijo su piso, se pide ANCHO: la funcion recorta sola
+  // y avisa, y de su respuesta queda sabido el piso para la proxima vez.
+  else if(v==='todo'){ d=LLE_PISO||_lleHace(365); }
   if(d){ sv('lle-des',d); sv('lle-hta',h); renderLlenado(); }
 }
 
@@ -35,9 +44,9 @@ async function renderLlenado(){
   var el=g('lle-body'); if(!el)return;
   if(!(DB_READY&&supabase)){ el.innerHTML='<div class="card" style="color:var(--text3)">Conectá la base.</div>'; return; }
   var hoy=new Date().toISOString().slice(0,10);
-  if(g('lle-des')&&!gv('lle-des'))sv('lle-des',LLE_PISO);
+  if(g('lle-des')&&!gv('lle-des'))sv('lle-des',LLE_PISO||_lleHace(60));
   if(g('lle-hta')&&!gv('lle-hta'))sv('lle-hta',hoy);
-  var d=gv('lle-des')||LLE_PISO, h=gv('lle-hta')||hoy;
+  var d=gv('lle-des')||LLE_PISO||_lleHace(60), h=gv('lle-hta')||hoy;
   el.innerHTML='<div style="text-align:center;color:var(--text3);padding:30px">Midiendo el período…</div>';
   var r=await _rpc('btg_informe_llenado',{p_desde:d,p_hasta:h});
   if(r.error){
@@ -55,6 +64,8 @@ async function renderLlenado(){
   var D=Array.isArray(r.data)?r.data[0]:r.data;
   // Con QUÉ fechas se armó, para que imprimir no mezcle cabecera de un período con números de otro.
   if(D){ D._d=d; D._h=h; }
+  // La base dice cual es SU piso: queda sabido para «Todo lo medible».
+  if(D && D.piso) LLE_PISO=String(D.piso).slice(0,10);
   LLE_DATA=D;
   el.innerHTML=_lleHtml(D,false);
 }
@@ -64,23 +75,34 @@ function _lleNum(n){ return Number(n||0).toLocaleString('es-VE'); }
 
 // Las áreas, en el orden en que se recorren en una reunión: primero los que
 // manejan, después la cuadrilla, después quien controla, al final la oficina.
+// ⛔ SE AGRUPA POR LA FUNCIÓN QUE CALCULA LA BASE (`fn`), NO POR EL TEXTO DEL
+//    CARGO. Esto decía `cargos:['Chofer']`, `['Ayudante']`, `['Mecanico',
+//    'Supervisor']` — los cargos de Betangar. En TONY GAS, donde el cargo es
+//    «Conductor Auto Tanque» o «Ayudante de Baranda», NINGUNO calzaba y las 65
+//    personas caían enteras en «Oficina y dirección»: los veredictos salían
+//    bien y el informe igual era ilegible. Es el mismo error que ya se había
+//    sacado del SQL, sobreviviendo en la capa que dibuja.
+//    [[norma-replicar-a-los-clones-es-medir-no-copiar]]
 var LLE_AREAS=[
-  {id:'chof', t:'Choferes',             cargos:['Chofer'],
+  {id:'conduce',   t:'Choferes',
    mide:'De los días que registró, cuántos cerró con salida y llegada; y cuántos días fichó sin dejar checklist.'},
-  {id:'ayud', t:'Ayudantes',            cargos:['Ayudante'],
+  {id:'cuadrilla', t:'Ayudantes',
    mide:'Constancia del fichaje de asistencia con foto, sobre los días que la flota operó estando ya en la empresa.'},
-  {id:'vigi', t:'Vigilancia',           cargos:['Vigilante'],
+  {id:'vigila',    t:'Vigilancia',
    mide:'Días con registros de portería. El fichaje se mira aparte: la portería ya prueba que estuvo.'},
-  {id:'tall', t:'Taller y supervisión', cargos:['Mecanico','Supervisor'],
+  {id:'taller',    t:'Taller',
    mide:'Firmas en el checklist del chofer y cierre de las fallas que él reporta.'},
-  {id:'ofic', t:'Oficina y dirección',  cargos:null,
-   mide:'Días con actividad propia en la aplicación dentro del período.'}
+  {id:'supervisa', t:'Supervisión y jefaturas',
+   mide:'Firmas en el checklist del chofer y cierre de las fallas que él reporta.'},
+  {id:'oficina',   t:'Oficina y dirección',
+   mide:'Días con actividad propia en la aplicación dentro del período.'},
+  {id:'sincargo',  t:'Sin cargo en la ficha',
+   mide:'No se les puede exigir nada todavía: hasta que la ficha diga el cargo, no entran en ninguna medición.'}
 ];
-function _lleArea(cargo){
-  for(var i=0;i<LLE_AREAS.length;i++){
-    var a=LLE_AREAS[i];
-    if(a.cargos&&a.cargos.indexOf(cargo)>=0)return a;
-  }
+// `fn` viene de la base; si faltara, la persona va al grupo de «sin cargo» y se
+// ve, en vez de disolverse en oficina.
+function _lleArea(fn){
+  for(var i=0;i<LLE_AREAS.length;i++){ if(LLE_AREAS[i].id===fn) return LLE_AREAS[i]; }
   return LLE_AREAS[LLE_AREAS.length-1];
 }
 var LLE_ORDEN={'A corregir':0,'Observado':1,'Cumple':2,'Sin evaluar':3};
@@ -97,7 +119,7 @@ function _lleBadge(v, imp){
 // Una fila de persona con las columnas que su área hace falta mirar.
 function _lleFilaArea(p, area, imp){
   var c='<td>'+_lleEsc(p.nombre)+'</td><td style="color:'+(imp?'#555':'var(--text3)')+'">'+_lleEsc(p.cargo)+'</td>';
-  if(area.id==='chof'){
+  if(area.id==='conduce'){
     c+='<td style="color:'+(imp?'#555':'var(--text3)')+'">'+_lleEsc(p.unidad)+'</td>'+
       '<td class="mono">'+_lleNum(p.dias_exigibles)+'</td>'+
       '<td class="mono">'+_lleNum(p.dias_registro)+'</td>'+
@@ -107,12 +129,12 @@ function _lleFilaArea(p, area, imp){
       '<td class="mono'+(Number(p.ficho_sin_checklist)>2?' rv':'')+'">'+_lleNum(p.ficho_sin_checklist)+'</td>'+
       '<td class="mono">'+_lleNum(p.dias_con_obs)+'</td>'+
       '<td class="mono">'+_lleNum(p.viajes)+'</td><td class="mono">'+_lleNum(p.surtidas)+'</td>';
-  } else if(area.id==='vigi'){
+  } else if(area.id==='vigila'){
     c+='<td class="mono">'+_lleNum(p.dias_exigibles)+'</td>'+
       '<td class="mono">'+_lleNum(p.dias_porteria)+'</td>'+
       '<td class="mono">'+_lleNum(p.porteria_registros)+'</td>'+
       '<td class="mono">'+_lleNum(p.dias_ficho)+'</td>';
-  } else if(area.id==='ofic'||area.id==='tall'){
+  } else if(area.id==='oficina'||area.id==='taller'||area.id==='supervisa'){
     c+='<td class="mono">'+_lleNum(p.dias_exigibles)+'</td>'+
       '<td class="mono">'+_lleNum(p.dias_ficho)+'</td>'+
       '<td class="mono">'+_lleNum(p.dias_oficina)+'</td>'+
@@ -127,9 +149,9 @@ function _lleFilaArea(p, area, imp){
 }
 function _lleCabArea(area){
   var c='<th>Persona</th><th>Cargo</th>';
-  if(area.id==='chof')c+='<th>Unidad</th><th>Exig.</th><th>Registró</th><th>Cerrados</th><th>Sin cerrar</th><th>% cierre</th><th>Fichó sin llenar</th><th>Reportó</th><th>Viajes</th><th>Surtidas</th>';
-  else if(area.id==='vigi')c+='<th>Exig.</th><th>Días portería</th><th>Registros</th><th>Fichó</th>';
-  else if(area.id==='ofic'||area.id==='tall')c+='<th>Exig.</th><th>Fichó</th><th>Días en app</th><th>Acciones</th>';
+  if(area.id==='conduce')c+='<th>Unidad</th><th>Exig.</th><th>Registró</th><th>Cerrados</th><th>Sin cerrar</th><th>% cierre</th><th>Fichó sin llenar</th><th>Reportó</th><th>Viajes</th><th>Surtidas</th>';
+  else if(area.id==='vigila')c+='<th>Exig.</th><th>Días portería</th><th>Registros</th><th>Fichó</th>';
+  else if(area.id==='oficina'||area.id==='taller'||area.id==='supervisa')c+='<th>Exig.</th><th>Fichó</th><th>Días en app</th><th>Acciones</th>';
   else c+='<th>Exig.</th><th>Fichó</th><th>%</th>';
   return '<tr>'+c+'<th>Veredicto</th><th>Motivo</th></tr>';
 }
@@ -172,7 +194,7 @@ function _lleHtml(D, imp){
 
   // 2. El detalle, área por área.
   var areas=LLE_AREAS.map(function(a){
-    var lista=P.filter(function(p){return _lleArea(p.cargo).id===a.id;})
+    var lista=P.filter(function(p){return _lleArea(p.fn).id===a.id;})
       .sort(function(x,y){ return (LLE_ORDEN[x.veredicto]-LLE_ORDEN[y.veredicto])||String(x.nombre).localeCompare(String(y.nombre),'es'); });
     if(!lista.length)return '';
     return '<h3 style="margin-top:18px">'+a.t+' <span style="font-weight:400;color:var(--text3)">('+lista.length+')</span></h3>'+
@@ -292,7 +314,7 @@ function _llePapel(D){
   // 5 — el detalle, área por área
   out+=salto+sec('El detalle, área por área','A cada cargo se lo mide contra lo que la aplicación le pide a él, y sólo sobre los días en que ya estaba trabajando. «Exig.» son esos días. Un día libre no cuenta como falta.');
   out+=LLE_AREAS.map(function(a){
-    var lista=P.filter(function(p){return _lleArea(p.cargo).id===a.id;})
+    var lista=P.filter(function(p){return _lleArea(p.fn).id===a.id;})
       .sort(function(x,y){ return (LLE_ORDEN[x.veredicto]-LLE_ORDEN[y.veredicto])||String(x.nombre).localeCompare(String(y.nombre),'es'); });
     if(!lista.length)return '';
     return '<h3 style="font-size:10px;color:#0f2544;margin-top:14px;page-break-after:avoid">'+a.t+' ('+lista.length+')</h3>'+
@@ -387,7 +409,7 @@ function _lleTile(lbl,val,col){
 
 async function imprimirLlenado(){
   var hoy=new Date().toISOString().slice(0,10);
-  var d=gv('lle-des')||LLE_PISO, h=gv('lle-hta')||hoy;
+  var d=gv('lle-des')||LLE_PISO||_lleHace(60), h=gv('lle-hta')||hoy;
   // ⛔ LA CABECERA Y LOS NÚMEROS TIENEN QUE SER DEL MISMO PERÍODO. Los `input[type=date]` disparan
   //    `change` al PERDER EL FOCO: si alguien escribe una fecha y hace clic directo en «Imprimir»,
   //    el clic dispara el change (que arranca renderLlenado, asíncrono) y acto seguido esta
