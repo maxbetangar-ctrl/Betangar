@@ -2869,6 +2869,47 @@ function _acComprasGalpon(desde,hasta){
   return Math.round(suma*100)/100;
 }
 
+// ── EL PISO DE DETECCIÓN: LO QUE ESTA AUDITORÍA NO PUEDE VER ─────────────────────────────────
+//
+// 🔴 EL PROBLEMA QUE RESUELVE. La pantalla dice «0 anomalías» y eso se lee como «no falta nada».
+//    No es lo mismo. Las reglas disparan cuando la diferencia supera `2·TOL`, y TOL sale de la
+//    varilla: cuánto cambia el volumen por centímetro, por el error de leer en centímetros
+//    enteros. Debajo de ese piso la auditoría NO VE NADA — y no tiene manera de verlo.
+//
+// 📌 MEDIDO el 08/11/2026 sobre los datos reales: el piso mediano es **67,6 L por jornada**, que
+//    es el **113% del consumo mediano de un día**. En el **56% de las jornadas el piso es mayor
+//    que lo que el camión gastó ese día**: ahí no se puede detectar ningún faltante, por grande
+//    que sea en proporción. Decir «0 anomalías» sin decir esto es dejar creer algo que no se midió.
+//
+// ⚠️ No es un defecto que se arregle con código: se arregla leyendo la regla al medio centímetro
+//    (la PWA ya acepta décimas) o con una varilla más fina. Lo que sí es un defecto es NO DECIRLO.
+//    [[norma-falta-de-dato-no-es-un-dato]] · [[norma-una-medicion-tiene-hora]]
+function _acPisoDeteccion(J){
+  var mediana=function(a){
+    if(!a.length)return null;
+    var b=a.slice().sort(function(x,y){return x-y;}), m=Math.floor(b.length/2);
+    return b.length%2?b[m]:Math.round(((b[m-1]+b[m])/2)*100)/100;
+  };
+  var pisos=[], consumos=[], ciegas=0, conAmbos=0;
+  (J||[]).forEach(function(j){
+    var t=_acNum(j.tol); if(t!=null&&t>0)pisos.push(Math.round(2*t*100)/100);
+    var c=_acNum(j.consumo); if(c!=null&&c>0)consumos.push(c);
+    if(t!=null&&t>0&&c!=null&&c>0){ conAmbos++; if((2*t)>=c)ciegas++; }
+  });
+  var piso=mediana(pisos), cons=mediana(consumos);
+  // ⛔ EL MARGEN DEL PERÍODO NO ES LA SUMA DE LOS MARGENES. Los errores de lectura de días
+  //    distintos son independientes: se combinan en CUADRATURA (√Σtol²), no sumándose. Sumarlos
+  //    daría un margen enorme y falso —184 jornadas × 34 L = 6.200 L— que haría parecer que el
+  //    consumo del período no se sabe, cuando se sabe bastante mejor que un día suelto.
+  var cuad=0; (J||[]).forEach(function(j){ var t=_acNum(j.tol); if(t!=null&&t>0)cuad+=t*t; });
+  return {piso:piso, consumo:cons, ciegas:ciegas, conAmbos:conAmbos,
+          margenPeriodo:cuad>0?Math.round(Math.sqrt(cuad)*10)/10:null,
+          pctCiegas:conAmbos?Math.round(ciegas*100/conAmbos):null,
+          // Qué tan grande es el piso comparado con un día típico. >100% significa que un camión
+          // podría perder TODO el gasoil de un día sin que ninguna regla lo note.
+          pctDelDia:(piso!=null&&cons!=null&&cons>0)?Math.round(piso*100/cons):null};
+}
+
 // ── EL SALDO EN LIBROS DEL GALPÓN, DESDE SIEMPRE ─────────────────────────────────────────────
 //
 // 🔴 QUÉ PROBLEMA RESUELVE. `_acCuadreGalpon` cuadra un PERÍODO, y para eso necesita dos lecturas
@@ -4073,9 +4114,13 @@ function _acRender(){
   var pctAud=J.length?Math.round(completas*100/J.length):0;
 
   var html='';
+  // ⛔ EL MARGEN VA PEGADO AL NÚMERO, no en una nota al pie. Un número sin su margen se lee como
+  //    exacto, y este sale de leer una varilla en centímetros enteros. [[norma-una-medicion-tiene-hora]]
+  var pdK_=_acPisoDeteccion(J);
+  var margen_=(pdK_.margenPeriodo!=null)?(' · margen del método ±'+_acFmt(pdK_.margenPeriodo,0)+' L'):'';
   // ── KPIs
   html+='<div class="g4" style="margin-bottom:10px">'+
-    _acCard('Consumo del período',_acFmt(totCons,1)+' L','Gasoil que salió de los tanques, cuadrado con la regla')+
+    _acCard('Consumo del período',_acFmt(totCons,1)+' L','Gasoil que salió de los tanques, cuadrado con la regla'+margen_)+
     _acCard('Costo',costoTot!=null?('$'+_acFmt(costoTot,2)):'—',costoL>0?('a $'+_acFmt(costoL,3)+'/L, el costo real vigente'):'falta cargar el costo por litro')+
     _acCard('Rendimiento de flota',rendFlota!=null?(_acFmt(rendFlota,2)+' km/L'):'—','Km por litro, sobre '+cuadr.length+' de '+J.length+' jornadas (solo las que tienen las dos mediciones y km). Si baja de un período a otro, mirá las anomalías antes de culpar a los camiones')+
     _acCard('Costo por km',(costoL>0&&rendFlota!=null)?('$'+_acFmt(costoL/rendFlota,3)):'—','Lo que te cuesta en gasoil mover un camión un kilómetro. Sale de las jornadas cuadradas, no de todas')+
@@ -4100,6 +4145,32 @@ function _acRender(){
       pctAud>=90?'var(--green)':'var(--yellow)')+
     _acCard('Jornadas analizadas',String(J.length),(AC_META.duplicadas?('se ignoraron '+AC_META.duplicadas+' mediciones repetidas'):'sin mediciones repetidas'))+
   '</div>';
+
+  // ── ⛔ LO QUE ESTA AUDITORÍA NO PUEDE VER ───────────────────────────────────────────────────
+  // Va ARRIBA, pegado a los números, y no abajo en letra chica: su trabajo es impedir que
+  // «0 anomalías» se lea como «no falta nada». Son dos cosas distintas y la diferencia es el
+  // piso de detección. [[norma-falta-de-dato-no-es-un-dato]]
+  var pd_=pdK_;
+  if(pd_.piso!=null){
+    var ciego_=(pd_.pctCiegas!=null&&pd_.pctCiegas>=30);
+    html+='<div class="card" style="margin-bottom:10px;border-left:3px solid '+(ciego_?'var(--yellow)':'var(--green)')+'">'+
+      '<div class="st" style="margin-bottom:6px">⚖️ Hasta dónde ve esta auditoría</div>'+
+      '<div style="font-size:12px;line-height:1.7">'+
+        'La regla dispara cuando la diferencia pasa de <b>'+_acFmt(pd_.piso,1)+' L en una jornada</b>'+
+        (_acUsd(pd_.piso)!=null?(' ≈ $'+_acFmt(_acUsd(pd_.piso),2)):'')+'. '+
+        'Debajo de eso <b>no se ve nada</b>, y no es que no esté: es que la varilla no lo distingue.'+
+        (pd_.consumo!=null?('<br>Un día típico gasta <b>'+_acFmt(pd_.consumo,1)+' L</b>'+
+          (pd_.pctDelDia!=null?(', así que el piso es el <b>'+pd_.pctDelDia+'%</b> de un día entero'):'')+'.'):'')+
+        (pd_.pctCiegas!=null
+          ? ('<div style="margin-top:8px;padding:8px 10px;border-radius:8px;background:'+(ciego_?'rgba(251,191,36,.1)':'rgba(163,230,53,.08)')+';border:1px solid '+(ciego_?'var(--yellow)':'var(--green)')+'">'+
+             (ciego_?'⚠️ ':'✅ ')+'En <b>'+pd_.ciegas+' de '+pd_.conAmbos+' jornadas ('+pd_.pctCiegas+'%)</b> el piso es mayor que lo que el camión gastó ese día: '+
+             'ahí <b>no se puede detectar ningún faltante</b>, por grande que sea en proporción.'+
+             '<div style="margin-top:6px;color:var(--text2)">Esto no se arregla con código. El piso baja a la mitad si la regla se lee al <b>medio centímetro</b> '+
+             '— la app del chofer ya acepta décimas, es solo costumbre anotar enteros.</div>'+
+             '</div>')
+          : '')+
+      '</div></div>';
+  }
 
   // ── Cuadre del galpón
   if(AC_META.modo==='cubicacion'){
