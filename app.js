@@ -3095,6 +3095,122 @@ function _acParaDecidir(costoPeriodo,costoPorKm){
   }
   return html+'</div>';
 }
+// ── ⛽ LITROS POR VIAJE: ¿QUIÉN ESTÁ DENTRO DE LA NORMA? ──────────────────────────────────────
+//
+// 🔴 LA IDEA ES DE MÁXIMO (08/11/2026): «cuántos litros por viaje, que es un dato importante…
+//    saber quiénes están en ese promedio y quiénes no, y así tener un refuerzo más de si hay
+//    desvío y qué camión».
+//
+// 📌 MEDIDO ANTES DE CONSTRUIRLO, sobre 3 meses de datos reales, porque una norma que no
+//    discrimina es un aviso que no avisa:
+//      · km POR VIAJE: dispersión **5%** (todos entre 47,9 y 59,7 km).
+//        ⇒ **UN VIAJE ES UN VIAJE.** Esto es lo que hace válida toda la idea: si las rutas
+//          fueran de largos muy distintos, comparar litros por viaje no diría nada.
+//      · LITROS por viaje: dispersión 13% entre unidades, rango 15,6 a 25,8.
+//      · Y el km/L ordena las unidades IGUAL que los litros por viaje — dos medidas
+//        independientes que coinciden. Ese es el mejor control que hay.
+//
+// ⛔ CÓMO SE LEE, Y ES LO MÁS IMPORTANTE DE TODO EL BLOQUE:
+//      · POR ENCIMA de la norma → mirar al CHOFER y al CAMIÓN. Gasta más haciendo el mismo
+//        recorrido. Puede ser el camión (motor, cauchos, carga) o puede ser otra cosa.
+//      · POR DEBAJO de la norma → mirar el REGISTRO, no al chofer. Gastar mucho menos haciendo
+//        los mismos kilómetros casi siempre significa que **faltan surtidas por asentar**, no
+//        que el camión sea mágico. Tratarlo como virtud premia al que no registra.
+//
+// ⚠️ NO ACUSA A NADIE. Dice quién está fuera de la banda y por cuánto. El porqué se pregunta.
+function _acLitrosPorViaje(J,desde,hasta){
+  // Viajes y chofer salen de la PLANILLA, que es la verdad operativa. `t` son los viajes.
+  var pl={};
+  (typeof REGS!=='undefined'?REGS:[]).forEach(function(r){
+    var f=String(r.f||'').slice(0,10); if(f<desde||f>hasta)return;
+    var v=parseInt(r.t,10)||0; if(v<=0)return;
+    pl[String(r.cam||'')+'|'+f]={viajes:v,chofer:String(r.ch||'').trim()};
+  });
+  var porU={}, porC={}, litSinDuenio=0, litTotal=0;
+  (J||[]).forEach(function(j){
+    var lit=_acNum(j.desp)||0; litTotal+=lit;
+    var p=pl[String(j.cam)+'|'+String(j.fecha).slice(0,10)];
+    // ⛔ UN DÍA SIN PLANILLA NO SE REPARTE. Sus litros existen pero no tienen a quién
+    //    atribuirse: se cuentan aparte y se dicen. Repartirlos "proporcionalmente" sería
+    //    inventar. [[norma-falta-de-dato-no-es-un-dato]]
+    if(!p){ litSinDuenio+=lit; return; }
+    var u=porU[j.cam]||(porU[j.cam]={cam:j.cam,viajes:0,litros:0,km:0,dias:0});
+    u.viajes+=p.viajes; u.litros+=lit; u.km+=(_acNum(j.km)||0); u.dias++;
+    if(p.chofer){
+      var c=porC[p.chofer]||(porC[p.chofer]={chofer:p.chofer,viajes:0,litros:0,km:0,dias:0});
+      c.viajes+=p.viajes; c.litros+=lit; c.km+=(_acNum(j.km)||0); c.dias++;
+    }
+  });
+  var armar=function(mapa,minViajes){
+    var f=Object.keys(mapa).map(function(k){return mapa[k];})
+      .filter(function(x){return x.viajes>=minViajes;})
+      .map(function(x){
+        x.lv=x.viajes>0?(x.litros/x.viajes):null;
+        x.kv=x.viajes>0?(x.km/x.viajes):null;
+        return x;
+      }).filter(function(x){return x.lv!=null&&x.lv>0;});
+    if(!f.length)return {filas:[],norma:null};
+    var v=f.map(function(x){return x.lv;}).sort(function(a,b){return a-b;});
+    var norma=v[Math.floor(v.length/2)];   // la MEDIANA, no el promedio: un solo caso extremo
+    f.forEach(function(x){ x.dif=(x.lv-norma)/norma; });                 // no corre la mediana
+    f.sort(function(a,b){return b.lv-a.lv;});
+    return {filas:f,norma:norma};
+  };
+  return {unidades:armar(porU,30), choferes:armar(porC,40),
+          litSinDuenio:Math.round(litSinDuenio*100)/100, litTotal:Math.round(litTotal*100)/100};
+}
+function _acLpvHtml(r){
+  if(!r.unidades.filas.length)
+    return '<div class="card" style="margin-bottom:10px"><div class="st" style="margin-bottom:6px">⛽ Litros por viaje</div>'+
+      '<div style="font-size:12px;color:var(--text3)">Hace falta la planilla de viajes del período para calcularlo. Sin los viajes cargados no hay con qué dividir.</div></div>';
+  var pct=function(d){ return (d>0?'+':'')+Math.round(d*100)+'%'; };
+  var tabla=function(t,llave,g,unidad){
+    if(!g.filas.length)return '';
+    var h='<div style="font-size:11px;font-weight:800;color:var(--text2);margin:10px 0 4px">'+t+
+      ' <span style="font-weight:600;color:var(--text3)">· la norma es '+_acFmt(g.norma,1)+' L por viaje</span></div>'+
+      '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:11px">'+
+      '<thead><tr style="color:var(--text3);text-align:left">'+
+      '<th>'+unidad+'</th><th style="text-align:right">Viajes</th><th style="text-align:right">Litros</th>'+
+      '<th style="text-align:right">L/viaje</th><th style="text-align:right">Km/viaje</th><th>Qué dice</th>'+
+      '</tr></thead><tbody>';
+    g.filas.forEach(function(x){
+      // ⚠️ La banda es ±20% de la MEDIANA. No sale de una norma de la industria: sale de que
+      //    la dispersión medida entre unidades es 13%, así que ±20% deja afuera solo lo que
+      //    de verdad se sale. Si mañana la flota se vuelve más pareja, hay que apretarla.
+      var fuera=Math.abs(x.dif)>0.20;
+      var arriba=x.dif>0;
+      var col=!fuera?'var(--green2)':(arriba?'var(--red)':'var(--yellow)');
+      var dice=!fuera?'dentro de la norma'
+        :(arriba?('gasta '+pct(x.dif)+' más haciendo el mismo recorrido — preguntarle al chofer y revisar el camión')
+                :('gasta '+pct(x.dif)+' menos — casi siempre significa que FALTAN SURTIDAS POR ASENTAR, no que ahorre'));
+      h+='<tr style="border-top:1px solid var(--bg3)">'+
+        '<td style="font-weight:700">'+_mEsc(String(x[llave]))+'</td>'+
+        '<td style="text-align:right;font-family:var(--m)">'+x.viajes+'</td>'+
+        '<td style="text-align:right;font-family:var(--m)">'+_acFmt(x.litros,0)+'</td>'+
+        '<td style="text-align:right;font-family:var(--m);font-weight:800;color:'+col+'">'+_acFmt(x.lv,1)+'</td>'+
+        '<td style="text-align:right;font-family:var(--m);color:var(--text3)">'+(x.kv?_acFmt(x.kv,1):'—')+'</td>'+
+        '<td style="color:'+col+'">'+dice+'</td></tr>';
+    });
+    return h+'</tbody></table></div>';
+  };
+  var sinD=(r.litTotal>0)?Math.round(r.litSinDuenio*100/r.litTotal):0;
+  return '<div class="card" style="margin-bottom:10px">'+
+    '<div class="st" style="margin-bottom:2px">⛽ Litros por viaje — ¿quién está dentro de la norma?</div>'+
+    '<div style="font-size:10px;color:var(--text3);margin-bottom:2px">'+
+      'Los viajes salen de la planilla; los litros, de lo que recibió el camión. La norma es la MEDIANA del período, no un número puesto a mano.</div>'+
+    '<div style="font-size:10px;color:var(--text3);margin-bottom:6px">'+
+      '⚠️ <b>Por encima</b> = mirar al chofer y al camión. <b>Por debajo</b> = mirar el registro: gastar mucho menos haciendo los mismos kilómetros casi siempre es que faltan surtidas por asentar.</div>'+
+    tabla('POR UNIDAD','cam',r.unidades,'Unidad')+
+    tabla('POR CHOFER','chofer',r.choferes,'Chofer')+
+    // ⛔ LO QUE NO SE PUDO REPARTIR SE DICE. Si se callara, las cifras de arriba parecerían
+    //    cubrir todo el combustible del período y no es así.
+    ((r.litSinDuenio>0)
+      ? ('<div style="font-size:11px;color:var(--yellow);margin-top:8px;padding:6px 10px;border-radius:8px;background:rgba(251,191,36,.1)">'+
+         '⚠️ <b>'+_acFmt(r.litSinDuenio,0)+' L ('+sinD+'%) no entraron en esta cuenta</b>: son días con combustible cargado pero sin planilla de viajes. '+
+         'Cuando la oficina cargue esas planillas, estos números se vuelven más exactos.</div>')
+      : '')+
+  '</div>';
+}
 function _acConfianza(o){
   o=o||{};
   var c=[];
@@ -4631,6 +4747,14 @@ function _acRender(){
       '<td style="text-align:right;font-size:11px">'+(nAn?('<span style="color:var(--red);font-weight:700">'+nAn+'</span>'):'—')+'</td>'+
     '</tr>';
   }).join('');
+  // ⛽ Litros por viaje va ANTES del detalle por unidad: contesta «¿quién se sale de la
+  //    norma?», que es la pregunta con la que se entra a esta parte de la pantalla.
+  // ⛔ EL PERÍODO SALE DE `AC_META`, NO de `desde`/`hasta`: esas viven en `_acAnomalias`,
+  //    no acá. La primera versión las usó y lanzó un ReferenceError que mató la pantalla
+  //    ENTERA — quedó en 41 caracteres. ⚠️ La prueba unitaria no lo vio porque llama a la
+  //    función con los argumentos a mano: lo destapó el navegador.
+  //    [[norma-probar-el-camino-no-la-pieza]]
+  html+=_acLpvHtml(_acLitrosPorViaje(J,AC_META.desde||'',AC_META.hasta||'9999-12-31'));
   html+='<div class="card" style="margin-bottom:10px"><div class="st" style="margin-bottom:6px">📊 Por unidad</div>'+
     '<div class="tw"><table><thead><tr><th>Unidad</th><th style="text-align:right">Jornadas</th><th style="text-align:right">Km</th>'+
     '<th style="text-align:right">Litros</th><th style="text-align:right">Costo</th><th style="text-align:right">Km/L</th><th>Señal</th><th style="text-align:right">Alertas</th>'+

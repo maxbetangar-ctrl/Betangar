@@ -160,6 +160,12 @@ try {
     // La pantalla dibuja el TITULO de la anomalia, no su codigo: se busca lo que la persona lee.
     ok(/no tiene con qué comprobarse/.test(txt), 'la anomalía del tanque propio aparece en la lista')
     ok(/tanques propios|tanque propio/i.test(txt), 'habla de «tanque propio», no solo de «galpón»')
+    // La tarjeta de litros por viaje. Con este fixture NO hay planillas, asi que tiene que
+    // salir su estado vacio HONESTO — decir que falta el dato— y no desaparecer en silencio:
+    // una seccion condicional sin datos parece que no existe.
+    ok(/Litros por viaje/.test(txt), 'la tarjeta de litros por viaje aparece')
+    ok(/Hace falta la planilla de viajes/.test(txt),
+       'sin planillas tiene que DECIR que falta el dato, no desaparecer')
     // Sin distinguir mayúsculas: el énfasis del texto va en MAYÚSCULAS y la frase es la misma.
     const dice = (f) => txt.toLowerCase().includes(f.toLowerCase())
     for (const f of caso.debeDecir) ok(dice(f), `dice «${f}»`)
