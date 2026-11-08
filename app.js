@@ -4574,422 +4574,6 @@ function renderBancoSubnav(activo){
 // ⛔ TODO SALE DEL BANCO, y cada movimiento a la tasa de SU día. Lo que no se puede convertir
 // NO se convierte y se avisa. Un informe que rellena huecos para que el cuadro cierre es el que
 // destruye la confianza el día que alguien pregunta por una línea.
-// ═══════════════════════════════════════════════════════════════════════════════════════════════
-var INF_DATA=null;
-function _infUsd(n,dec){ return '$'+Number(n||0).toLocaleString('es-VE',{minimumFractionDigits:dec==null?0:dec,maximumFractionDigits:dec==null?0:dec}); }
-async function _infCargar(d,h){
-  // ⛔ EL CANDADO DE LA BASE DEVUELVE VACÍO, NO ERROR — y un informe vacío se lee como «no hay
-  // datos» en vez de «no te toca». Se pregunta primero para poder decir el motivo.
-  // El candado real está en la base (btg_ve_financiero); esto es solo el mensaje.
-  try{
-    var rv=await _rpc('btg_ve_financiero');
-    if(!rv.error&&rv.data===false)throw new Error('__SIN_PERMISO__');
-  }catch(e){ if(e&&e.message==='__SIN_PERMISO__')throw e; }
-  var rp=await _rpc('btg_resumen_socio',{p_desde:d,p_hasta:h});
-  if(rp.error)throw new Error(rp.error.message);
-  var out={ res:(Array.isArray(rp.data)?rp.data[0]:rp.data)||{} };
-  var pares=[['gasto','btg_donde_se_fue'],['donde','btg_donde_esta_utilidad']];
-  for(var i=0;i<pares.length;i++){
-    var r=await _rpc(pares[i][1],{p_desde:d,p_hasta:h});
-    out[pares[i][0]]=(r.error?[]:(r.data||[]));
-    if(r.error)console.error(pares[i][1],r.error.message);
-  }
-  var rd=await _rpc('btg_donde_estan_los_dolares'); out.dolares=rd.error?[]:(rd.data||[]);
-  // ⛔ EL COSTO POR TONELADA ABRE EL INFORME. Máximo, 20/10/2026: «sigo sin saber dónde me da
-  //    ese costo en el software, debería aparecer en el informe» — y tenía razón desde antes:
-  //    la norma de la casa dice que el costo por unidad es el número que ABRE el informe
-  //    financiero, no una fila al final. Estaba en dos pantallas y en ninguna de las dos lo
-  //    buscaba. [[norma-costo-por-unidad-es-el-numero-principal]]
-  // Se calcula con el gasto que esta misma función ya trajo para ESTE rango: no se vuelve a
-  // preguntar nada ni se recalcula, así que no puede diferir del resto del informe.
-  out.ton=await _infCostoTonelada(d,h,out.res);
-  // ⛔ EL MISMO COBRO, DOS VECES. Buscando por qué el banco y los abonos no cuadraban apareció
-  //    algo peor que una carga pendiente: 7 cobros cargados A MANO que repiten un movimiento del
-  //    estado de cuenta (la referencia del manual está DENTRO de la del real, con un día de
-  //    diferencia). Son US$ 168.244 contados dos veces, y por eso el Cobrado y la UTILIDAD están
-  //    inflados. Un ingreso duplicado no se nota: deja la cifra creíble y más alta.
-  try{ var rdup=await _rpc('btg_cobros_duplicados',{p_desde:d,p_hasta:h});
-       out.dup=rdup.error?null:(rdup.data||[]); }catch(e){ out.dup=null; }
-  var re=await _rpc('btg_utilidad_real_y_estimada',{p_desde:d,p_hasta:h});
-  out.est=re.error?null:((Array.isArray(re.data)?re.data[0]:re.data)||null);
-  // ── EL MES A MES ENGAÑA, Y HAY QUE MOSTRARLO ACUMULADO ────────────────────────────────────
-  // Abril da 8,1% de margen y mayo 46,4%. Eso NO es el negocio moviéndose: es que el cobro de la
-  // Alcaldía llega desfasado del gasto que lo produjo (se factura al momento del pago). Un socio
-  // que ve esa serie lee una montaña rusa que no existe. El acumulado sí describe la operación:
-  // cada mes agrega su parte y la curva se estabiliza.
-  out.meses=[];
-  try{
-    var y=Number(String(d).slice(0,4)), mIni=Number(String(d).slice(5,7)), mFin=Number(String(h).slice(5,7));
-    var yFin=Number(String(h).slice(0,4));
-    for(var yy=y, mm=mIni; (yy<yFin)||(yy===yFin&&mm<=mFin); mm++){
-      if(mm>12){mm=1;yy++;}
-      var d1=(yy===y&&mm===mIni)?d:(yy+'-'+String(mm).padStart(2,'0')+'-01');
-      var ultDia=new Date(Date.UTC(yy,mm,0)).getUTCDate();
-      var h1=(yy===yFin&&mm===mFin)?h:(yy+'-'+String(mm).padStart(2,'0')+'-'+ultDia);
-      var rm=await _rpc('btg_resumen_socio',{p_desde:d1,p_hasta:h1});
-      if(!rm.error){ var x=Array.isArray(rm.data)?rm.data[0]:rm.data;
-        if(x)out.meses.push({mes:yy+'-'+String(mm).padStart(2,'0'),cobrado:Number(x.cobrado_usd)||0,
-          gasto:(Number(x.gasto_usd)||0)+(Number(x.cambiario_usd)||0),utilidad:Number(x.utilidad_usd)||0}); }
-      if(out.meses.length>18)break;
-    }
-  }catch(e){ console.error('meses',e); }
-  var rc=await _rpc('btg_cambiario_mensual',{p_desde:d,p_hasta:h}); out.camb=rc.error?[]:(rc.data||[]);
-  var rpos=await supabase.from('btg_posicion').select('*').order('monto_usd',{ascending:false}); out.pos=rpos.error?[]:(rpos.data||[]);
-  var rf=await supabase.from('v_cobro_facturas').select('*').order('fecha',{ascending:false}); out.fact=rf.error?[]:(rf.data||[]);
-  // Con QUÉ fechas se armó. Sin esto, imprimir podía sacar un PDF cuya cabecera dice un período y
-  // cuyos números son de otro. Ver imprimirInforme().
-  out._d=d; out._h=h;
-  return out;
-}
-async function renderInforme(){
-  var el=g('inf-body'); if(!el)return;
-  if(!(DB_READY&&supabase)){ el.innerHTML='<div class="card" style="color:var(--text3)">Conectá la base.</div>'; return; }
-  var hoy=new Date().toISOString().slice(0,10);
-  if(g('inf-des')&&!gv('inf-des'))sv('inf-des','2026-03-23');
-  if(g('inf-hta')&&!gv('inf-hta'))sv('inf-hta',hoy);
-  var d=gv('inf-des')||'2026-03-23', h=gv('inf-hta')||hoy;
-  el.innerHTML='<div style="text-align:center;color:var(--text3);padding:30px">Calculando desde el banco…</div>';
-  try{
-    INF_DATA=await _infCargar(d,h);
-    el.innerHTML=_infHtml(INF_DATA,d,h,false);
-  }catch(e){
-    el.innerHTML=(e&&e.message==='__SIN_PERMISO__')
-      ? '<div class="card" style="color:var(--text2)"><b>El informe financiero no está disponible para tu usuario.</b><br>'+
-        '<span style="font-size:12px;color:var(--text3)">Lo ven los socios, el visualizador y la dirección. Si te hace falta, pedilo por administración.</span></div>'
-      : '<div class="card" style="color:var(--red)">No se pudo armar el informe: '+relEsc(e.message||e)+'</div>';
-  }
-}
-// El costo por tonelada del informe. Mismo gasto que el resto del informe (el que ya trajo
-// `btg_resumen_socio` para este rango) más la cuota de la financiadora, entre las toneladas de
-// los MISMOS días. Devuelve null si no se puede, y entonces el informe lo DICE en vez de callarlo.
-async function _infCostoTonelada(d,h,res){
-  try{
-    if(typeof DEUDA_CUOTAS_ESTADO!=='undefined'&&DEUDA_CUOTAS_ESTADO==='no_cargado'){
-      try{ await cargarCuotasFinanciamiento(); }catch(e){}
-    }
-    var tpv=(typeof _tonsPorViaje==='function')?_tonsPorViaje():8;
-    // ⛔ LOS VIAJES SALEN DE LA BASE, NO DE `REGS`. Ese array es del NAVEGADOR y puede no estar
-    //    cargado cuando se abre el informe. Máximo lo vio el 20/10/2026: el bloque decía «no hay
-    //    viajes cargados entre 23/03 y 20/10» en una pantalla que dos renglones más abajo
-    //    mostraba 3.185 viajes, y en la base hay 4.957. Todo el informe sale de la base MENOS
-    //    este bloque, y por eso falló solo él. [[norma-fuente-unica-datos]]
-    var viajes=0, ingreso=0, primera='', viajesAntes=0, abonos=null, abonosN=0;
-    var ro=await _rpc('btg_operacion_periodo',{p_desde:d,p_hasta:h});
-    if(ro.error)throw ro.error;
-    var o=(Array.isArray(ro.data)?ro.data[0]:ro.data)||{};
-    viajes=Number(o.viajes)||0; ingreso=Number(o.facturado_usd)||0;
-    primera=String(o.primera||'').slice(0,10); viajesAntes=Number(o.viajes_antes)||0;
-    abonos=Number(o.abonos_usd)||0; abonosN=Number(o.abonos_n)||0;
-    var tons=viajes*tpv;
-    var fin=(typeof financiadoraDevengadaUsd==='function')?financiadoraDevengadaUsd(d,h)
-            :{usd:0,n:0,capital:0,interes:0,estado:'no_cargado',acreedores:[]};
-    var gasto=(Number(res&&res.gasto_usd)||0)+(Number(res&&res.cambiario_usd)||0);
-    var total=gasto+(fin.usd||0);
-    // ⛔ Sin toneladas no hay costo por tonelada. Un 0 acá sería el número más barato posible
-    //    justo cuando no se sabe nada.
-    if(!(tons>0))return {sinViajes:true,desde:d,hasta:h,tonsPorViaje:tpv};
-    var costoTon=Math.round(total/tons*100)/100;
-    var finTon=Math.round((fin.usd||0)/tons*100)/100;
-    var ingTon=Math.round(ingreso/tons*100)/100;
-    return {
-      viajes:viajes, tons:tons, tonsPorViaje:tpv, desde:d, hasta:h, primera:primera, viajesAntes:viajesAntes,
-      facturado:ingreso, abonos:abonos, abonosN:abonosN, cobradoBanco:Number(res&&res.cobrado_usd)||0,
-      gasto:gasto, fin:fin, total:total,
-      costoTon:costoTon, finTon:finTon, sinFinTon:Math.round((costoTon-finTon)*100)/100,
-      ingresoTon:ingTon, margenTon:Math.round((ingTon-costoTon)*100)/100,
-      pesoFin:total>0?Math.round((fin.usd||0)/total*1000)/10:0
-    };
-  }catch(e){ console.error('_infCostoTonelada',e); return null; }
-}
-
-function _infHtml(D,desde,hasta,paraImprimir){
-  var r=D.res||{}, P=paraImprimir;
-  var card=function(t,c){ return P?('<div class="blk"><h2>'+t+'</h2>'+c+'</div>')
-    :('<div class="card" style="margin-bottom:12px"><div class="ctitle" style="margin-bottom:8px">'+t+'</div>'+c+'</div>'); };
-  var tabla=function(cols,filas){ return '<div class="tw"><table><thead><tr>'+cols+'</tr></thead><tbody>'+filas+'</tbody></table></div>'; };
-  var util=Number(r.utilidad_usd)||0;
-  var html='';
-
-  // ── 1. EL RESULTADO ────────────────────────────────────────────────────────────────────────
-  var kpi=function(l,v,s,c){ return '<div style="flex:1;min-width:135px;background:var(--bg3);border-radius:8px;padding:9px 11px;border-top:3px solid '+(c||'var(--text3)')+'">'+
-    '<div style="font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px">'+l+'</div>'+
-    '<div style="font-size:18px;font-weight:900;font-family:var(--m);color:'+(c||'var(--text1)')+'">'+v+'</div>'+
-    (s?'<div style="font-size:10px;color:var(--text3);margin-top:2px">'+s+'</div>':'')+'</div>'; };
-  // ── EL NÚMERO QUE ABRE EL INFORME ─────────────────────────────────────────────────────────
-  // El dueño no piensa en totales — el total lo tiene en el banco. Lo que no tiene es la
-  // DIVISIÓN. En esta empresa la unidad de costo es la TONELADA.
-  var T=D.ton;
-  if(T&&T.sinViajes){
-    html+=card('🏋️ Su costo por tonelada',
-      '<div style="font-size:13px;color:var(--text2)">No hay viajes cargados entre '+relEsc(formatFecha(T.desde))+' y '+relEsc(formatFecha(T.hasta))+
-      ', así que no hay toneladas entre las que dividir el gasto.</div>');
-  } else if(T){
-    var col=T.margenTon>=0?'#15803d':'#dc2626';
-    var n2f=function(x,dd){ return (Math.round(x*Math.pow(10,dd))/Math.pow(10,dd)).toLocaleString('es-VE',{minimumFractionDigits:dd,maximumFractionDigits:dd}); };
-    var fila=function(lbl,usd,porTon,nota){
-      return '<tr><td style="padding:3px 0">'+lbl+(nota?' <span style="color:var(--text3);font-size:10px">'+nota+'</span>':'')+'</td>'+
-        '<td style="text-align:right;font-family:var(--m)">'+_infUsd(usd)+'</td>'+
-        '<td style="text-align:right;font-family:var(--m)">$'+n2f(porTon,2)+'</td></tr>';
-    };
-    var avisos=[];
-    if(T.fin.estado!=='ok'&&T.fin.estado!=='sin_deudas')
-      avisos.push('⛔ La cuota de la financiadora NO está sumada ('+relEsc(T.fin.error||T.fin.estado)+'): este costo está por debajo del real.');
-    if(T.viajesAntes>0)
-      avisos.push(T.viajesAntes.toLocaleString('es-VE')+' viaje(s) anteriores al '+relEsc(formatFecha(T.desde))+
-        ' quedan afuera (el primero es del '+relEsc(formatFecha(T.primera))+'): el banco no tiene movimientos de esos días, '+
-        'así que contarlos abarataría el costo sin que nada lo respalde.');
-    avisos.push('Solo cuenta la plata que pasó por la cuenta del banco cargada: el efectivo y otra cuenta no están.');
-    html+=card('🏋️ Su costo por tonelada',
-      '<div style="display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px">'+
-        '<div><div style="font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px">Le cuesta mover una tonelada</div>'+
-          '<div style="font-size:30px;font-weight:900;font-family:var(--m);color:'+col+'">$'+n2f(T.costoTon,2)+'</div></div>'+
-        '<div style="font-size:20px;color:var(--text3);padding-bottom:10px">vs</div>'+
-        '<div><div style="font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px">Cobra</div>'+
-          '<div style="font-size:22px;font-weight:900;font-family:var(--m);color:#0f172a">$'+n2f(T.ingresoTon,2)+'</div></div>'+
-        '<div style="font-size:20px;color:var(--text3);padding-bottom:10px">=</div>'+
-        '<div><div style="font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px">Le queda</div>'+
-          '<div style="font-size:22px;font-weight:900;font-family:var(--m);color:'+col+'">$'+n2f(T.margenTon,2)+'</div></div>'+
-      '</div>'+
-      '<div style="font-size:11px;color:var(--text3);margin-bottom:8px">'+
-        Math.round(T.tons).toLocaleString('es-VE')+' toneladas = '+T.viajes.toLocaleString('es-VE')+
-        ' viajes × '+n2f(T.tonsPorViaje,0)+' t, del '+relEsc(formatFecha(T.desde))+' al '+relEsc(formatFecha(T.hasta))+'.</div>'+
-      tabla('<th>De dónde sale</th><th style="text-align:right">US$</th><th style="text-align:right">por tonelada</th>',
-        fila('Todo el gasto del período',T.gasto,T.costoTon-T.finTon,'(el mismo del cuadro de abajo, con la pérdida cambiaria)')+
-        fila('Cuota de la financiadora'+(T.fin.acreedores&&T.fin.acreedores.length?' — '+relEsc(T.fin.acreedores.join(', ')):''),
-             T.fin.usd,T.finTon,
-             T.fin.n?('('+T.fin.n+' cuota'+(T.fin.n>1?'s':'')+' que venci'+(T.fin.n>1?'eron':'ó')+' en el período, pagada'+(T.fin.n>1?'s':'')+' o no — entra COMPLETA: capital '+_infUsd(T.fin.capital)+' + interés '+_infUsd(T.fin.interes)+')'):'(ninguna en el período)')+
-        '<tr style="border-top:1px solid var(--border)"><td style="padding:6px 0;font-weight:800">= Costo total</td>'+
-        '<td style="text-align:right;font-family:var(--m);font-weight:900">'+_infUsd(T.total)+'</td>'+
-        '<td style="text-align:right;font-family:var(--m);font-weight:900;color:'+col+'">$'+n2f(T.costoTon,2)+'</td></tr>')+
-      (T.fin.usd>0?('<div style="font-size:11px;color:var(--text2);margin-top:8px">Sin la financiadora el costo sería <b>$'+n2f(T.sinFinTon,2)+'/t</b>: '+
-        '<b>los camiones le ponen $'+n2f(T.finTon,2)+'/t, el '+n2f(T.pesoFin,1)+'% del costo</b>.</div>'):'')+
-      // ⛔ LO QUE SE DEBE SE CUENTA EN EL COSTO Y ADEMÁS SE DICE. La cuota entra devengada
-      //    —si no, estar en mora abarataría el costo— pero esa plata TODAVÍA NO SALIÓ del banco,
-      //    y el dueño necesita las dos cosas: lo que le cuesta y lo que todavía debe de eso.
-      //    Máximo, 20/10/2026: «estamos caidos en 1 cuota y pico de los camiones».
-      ((T.fin.sinPagar>0&&T.tons>0)?('<div style="background:rgba(220,38,38,.08);border-left:3px solid #dc2626;border-radius:6px;padding:8px 10px;margin-top:8px;font-size:11px;color:var(--text2)">'+
-        '🔴 <b>De esas cuotas hay '+_infUsd(T.fin.sinPagar)+' SIN PAGAR</b> ('+
-        (T.fin.enteras?(T.fin.enteras+' cuota'+(T.fin.enteras>1?'s':'')+' entera'+(T.fin.enteras>1?'s':'')+
-          ((T.fin.nSinPagar>T.fin.enteras)?' y parte de otra':'')):'parte de una cuota')+
-        '). Ya están contadas en el costo de arriba — <b>$'+n2f(Math.round(T.fin.sinPagar/T.tons*100)/100,2)+' de cada tonelada</b> — '+
-        'pero esa plata todavía no salió del banco: la debe.</div>'):'')+
-      '<div style="font-size:10px;color:var(--text3);margin-top:8px;line-height:1.6;border-top:1px solid var(--border);padding-top:6px">'+
-        avisos.map(function(a){return '• '+a;}).join('<br>')+'</div>');
-  } else {
-    // ⛔ Que el bloque DESAPAREZCA sería peor: el dueño leería un informe sin su número
-    //    principal y sin saber que falta. [[norma-falta-de-dato-no-es-un-dato]]
-    html+=card('🏋️ Su costo por tonelada',
-      '<div style="font-size:13px;color:var(--text2)">No se pudo calcular. El resto del informe sigue siendo válido.</div>');
-  }
-
-  html+=card('1 · El resultado del período',
-    '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">'+
-      kpi('Cobrado',_infUsd(r.cobrado_usd),'del banco — lo que entró de verdad','#16a34a')+
-      kpi('Gasto real',_infUsd(r.gasto_usd),'todo lo que salió','#dc2626')+
-      kpi('Pérdida cambiaria',_infUsd(r.cambiario_usd),'bolívares + sobreprecio','#d97706')+
-      kpi('UTILIDAD',_infUsd(util),'margen '+(r.margen_pct||0)+'%',util>=0?'#15803d':'#dc2626')+
-    '</div>'+
-    // ── LA REAL Y LA ESTIMADA ──────────────────────────────────────────────────────────────
-    // Máximo: los US$ 500.000 y pico de viajes ejecutados y no facturados «en algún momento son
-    // utilidad, solo que no es la real». Y tiene razón por una razón contable concreta: **los
-    // gastos de esos viajes YA están restados arriba** —nómina, combustible, mantenimiento— pero
-    // su ingreso no entró. O sea que la utilidad real está SUBESTIMADA: carga el costo de un
-    // trabajo cuyo cobro todavía no aparece.
-    // Se muestran las dos, nunca una sola, y la estimada va marcada con sus supuestos: en
-    // Venezuela no se factura hasta el momento del pago, así que nadie sabe cuándo entra.
-    (D.est?('<div style="background:var(--bg3);border-radius:8px;padding:10px 12px;margin-bottom:10px">'+
-      '<div style="display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end">'+
-        '<div><div style="font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px">Utilidad REAL</div>'+
-          '<div style="font-size:19px;font-weight:900;font-family:var(--m);color:#15803d">'+_infUsd(D.est.utilidad_real_usd)+'</div>'+
-          '<div style="font-size:10px;color:var(--text3)">la plata que existe hoy · margen '+D.est.margen_real_pct+'%</div></div>'+
-        '<div style="font-size:22px;color:var(--text3);padding-bottom:8px">+</div>'+
-        '<div><div style="font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px">Ya trabajado, sin facturar</div>'+
-          '<div style="font-size:19px;font-weight:900;font-family:var(--m);color:#d97706">'+_infUsd(D.est.por_facturar_usd)+'</div>'+
-          '<div style="font-size:10px;color:var(--text3)">'+relEsc(D.est.viajes_sin_facturar)+' viajes × $'+relEsc(D.est.tarifa_usada)+'</div></div>'+
-        '<div style="font-size:22px;color:var(--text3);padding-bottom:8px">=</div>'+
-        '<div><div style="font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px">Utilidad ESTIMADA</div>'+
-          '<div style="font-size:19px;font-weight:900;font-family:var(--m);color:#0f172a">'+_infUsd(D.est.utilidad_estimada_usd)+'</div>'+
-          '<div style="font-size:10px;color:var(--text3)">cuando se facture y cobre · margen '+D.est.margen_estimado_pct+'%</div></div>'+
-      '</div>'+
-      '<div style="font-size:10px;color:var(--text3);margin-top:8px;line-height:1.6;border-top:1px solid var(--border);padding-top:6px">'+
-        '<b>Los gastos de esos viajes ya están restados en la utilidad real</b>: se pagó la nómina, el combustible y el mantenimiento para hacerlos. Lo que falta es el cobro.<br>'+
-        '⚠️ <b>La estimada no es una certeza.</b> '+relEsc(D.est.supuestos)+' Y en Venezuela no se factura hasta el momento del pago, así que no se sabe cuándo entra.'+
-      '</div></div>'):'')+
-    // ⛔ DOS FUENTES PARA «LO COBRADO», Y LA PANTALLA TIENE QUE DECIRLO. El banco dice lo que
-    //    ENTRÓ; los abonos dicen lo que alguien alcanzó a APLICAR contra una factura. Máximo,
-    //    20/10/2026: «dice valores que no son: cobrados van 800 y pico afuera y en los cálculos
-    //    dices que van 600 y pico». Las dos cifras eran correctas, cada una midiendo otra cosa, y
-    //    ninguna pantalla lo decía. Un número que el dueño no puede explicar no sirve.
-    //    [[norma-numero-que-el-dueno-no-puede-explicar]]
-    // ⛔ EL MISMO COBRO ANOTADO DOS VECES INFLA LA UTILIDAD, Y HAY QUE DECIRLO ARRIBA DE TODO.
-    //    La primera versión de este aviso decía «faltan X por aplicar», y era FALSO: al emparejar
-    //    por número de factura, la mayor parte de esa diferencia no era carga pendiente sino
-    //    doble conteo. Se corrigió el mismo día, midiendo. [[norma-el-pendiente-viejo-se-verifica-contra-el-producto]]
-    // ⛔ Y CUANDO EL DEFECTO SE ARREGLA, EL AVISO TIENE QUE CAMBIAR CON ÉL. Este cartel decía
-    //    «el Cobrado y la Utilidad están ALTOS»; desde que `btg_es_espejo()` los descuenta en la
-    //    base, eso ya NO es cierto y dejarlo sería la misma mentira al revés. Ahora informa que
-    //    se detectaron y que YA no cuentan. [[norma-una-asercion-mal-escrita-acusa-al-producto]]
-    ((D.dup&&D.dup.length)?
-      (function(){ var t=D.dup.reduce(function(x,y){return x+(Number(y.usd_a_mano)||0);},0);
-        return '<div style="background:rgba(100,116,139,.12);border-left:3px solid #64748b;border-radius:6px;padding:9px 11px;margin-bottom:10px;font-size:11px;color:var(--text2)">'+
-        '✓ <b>'+D.dup.length+' cobro(s) estaban anotados dos veces ('+_infUsd(t)+') y ya NO se cuentan.</b> '+
-        'Son los que la app fabrica al registrar un abono y que el estado de cuenta después trae igual; '+
-        'se reconocen porque la referencia del primero aparece dentro de la del movimiento del banco. '+
-        'Las cifras de abajo ya salen sin ellos. El detalle, en Banco ▸ Conciliación.</div>'; })():'')+
-    // Y aparte, lo que entró y nadie aplicó contra una factura. Son dos cosas distintas.
-    ((D.ton&&D.ton.abonos!=null&&(Number(r.cobrado_usd)||0)-D.ton.abonos>1)?
-      ('<div style="background:rgba(217,119,6,.10);border-left:3px solid #d97706;border-radius:6px;padding:8px 10px;margin-bottom:10px;font-size:11px;color:var(--text2)">'+
-        '⚠️ <b>El banco trae '+_infUsd(r.cobrado_usd)+' y en el sistema hay '+_infUsd(D.ton.abonos)+' aplicados a facturas.</b> '+
-        'Parte de esa diferencia es el doble conteo de arriba; el resto son cobros que entraron y '+
-        'nadie registró contra una factura. Arriba manda el BANCO: ahí la plata se movió de verdad. '+
-        'El otro número —el de Cobranza y el tablero— es lo que administración alcanzó a cargar.</div>'):'')+
-    '<div style="font-size:11px;color:var(--text3);line-height:1.7">'+
-      'Cada movimiento convertido a la tasa de <b>su día</b>, nunca a un promedio. '+
-      (Number(r.movs_sin_tasa)?('<b style="color:var(--amber)">⚠️ '+r.movs_sin_tasa+' movimiento(s) sin tasa: NO se convirtieron y quedan fuera de estos totales.</b>'):'')+
-      (Number(r.divisas_sin_valuar)?(' <b style="color:var(--red)">⚠️ '+r.divisas_sin_valuar+' compra(s) de dólares sin su tasa: hay que preguntarla.</b>'):'')+
-    '</div>');
-
-  // ── 2. QUÉ SE COMIÓ LA PLATA ───────────────────────────────────────────────────────────────
-  html+=card('2 · Qué se comió la plata',
-    tabla('<th>Concepto</th><th style="text-align:right">US$</th><th style="text-align:right">% del gasto</th><th style="width:110px"></th>',
-      (D.gasto||[]).map(function(x){
-        var p=Number(x.pct)||0;
-        return '<tr><td>'+relEsc(x.concepto)+'</td>'+
-          '<td style="text-align:right;font-family:var(--m)">'+_infUsd(x.usd)+'</td>'+
-          '<td style="text-align:right;font-family:var(--m)">'+p.toFixed(1)+'%</td>'+
-          '<td><div style="height:7px;background:var(--bg3);border-radius:4px;overflow:hidden"><div style="height:100%;width:'+Math.min(100,p*3)+'%;background:'+(p>=15?'#dc2626':p>=7?'#d97706':'#64748b')+'"></div></div></td></tr>';
-      }).join('')));
-
-  // ── 3. DÓNDE ESTÁ LA UTILIDAD (la pregunta del socio) ──────────────────────────────────────
-  html+=card('3 · ¿Dónde está esa utilidad?',
-    '<div style="font-size:11px;color:var(--text3);margin-bottom:8px">La utilidad no es plata guardada en una caja: se transformó. Esto es en qué.</div>'+
-    tabla('<th>Se convirtió en</th><th style="text-align:right">US$</th><th>Qué significa</th>',
-      (D.donde||[]).map(function(x){
-        return '<tr><td>'+relEsc(x.concepto)+'</td>'+
-          '<td style="text-align:right;font-family:var(--m);font-weight:700">'+_infUsd(x.usd)+'</td>'+
-          '<td style="font-size:10px;color:var(--text3)">'+relEsc(String(x.nota||'').slice(0,150))+'</td></tr>';
-      }).join('')+
-      '<tr style="font-weight:800;border-top:2px solid var(--border)"><td>TOTAL</td>'+
-      '<td style="text-align:right;font-family:var(--m)">'+_infUsd((D.donde||[]).reduce(function(a,x){return a+Number(x.usd||0);},0))+'</td><td></td></tr>'));
-
-  // ── 4. LOS DÓLARES ─────────────────────────────────────────────────────────────────────────
-  html+=card('4 · Los dólares: comprados, usados y lo que queda',
-    tabla('<th>Concepto</th><th style="text-align:right">US$</th><th>Detalle</th>',
-      (D.dolares||[]).map(function(x){
-        var tot=/^=/.test(String(x.concepto));
-        return '<tr'+(tot?' style="font-weight:800;background:var(--bg3)"':'')+'><td>'+relEsc(x.concepto)+'</td>'+
-          '<td style="text-align:right;font-family:var(--m)">'+_infUsd(x.usd)+'</td>'+
-          '<td style="font-size:10px;color:var(--text3)">'+relEsc(String(x.nota||'').slice(0,140))+'</td></tr>';
-      }).join('')));
-
-  // ── 5. LO QUE CUESTA EL CAMBIO ─────────────────────────────────────────────────────────────
-  var peor=(D.camb||[]).reduce(function(a,x){return (Number(x.pct_del_cobrado)||0)>(Number(a.pct_del_cobrado)||0)?x:a;},(D.camb||[])[0]||{});
-  html+=card('5 · Lo que cuesta el cambio, mes a mes',
-    tabla('<th>Mes</th><th style="text-align:right">Cobrado</th><th style="text-align:right">Bs parados</th><th style="text-align:right">Sobreprecio</th><th style="text-align:right">Total</th><th style="text-align:right">% del cobrado</th><th>Brecha</th>',
-      (D.camb||[]).map(function(x){
-        var p=Number(x.pct_del_cobrado);
-        var col=p>=8?'#dc2626':p>=4?'#d97706':'#15803d';
-        var br=Number(x.compras)>0?((x.brecha_min_pct===x.brecha_max_pct?x.brecha_min_pct+'%':x.brecha_min_pct+'% – '+x.brecha_max_pct+'%')+' ('+x.compras+')'):'—';
-        return '<tr'+(x.mes===peor.mes&&p>0?' style="background:rgba(220,38,38,.06)"':'')+'>'+
-          '<td style="font-family:var(--m)">'+relEsc(x.mes)+'</td>'+
-          '<td style="text-align:right;font-family:var(--m)">'+_infUsd(x.cobrado_usd)+'</td>'+
-          '<td style="text-align:right;font-family:var(--m);color:var(--text3)">'+_infUsd(x.parados_usd)+'</td>'+
-          '<td style="text-align:right;font-family:var(--m);color:var(--text3)">'+_infUsd(x.sobreprecio_usd)+'</td>'+
-          '<td style="text-align:right;font-family:var(--m);font-weight:700">'+_infUsd(x.total_usd)+'</td>'+
-          '<td style="text-align:right;font-family:var(--m);font-weight:800;color:'+col+'">'+(p!=null?p.toFixed(2)+'%':'—')+'</td>'+
-          '<td style="font-size:10px">'+br+'</td></tr>';
-      }).join(''))+
-    '<div style="font-size:11px;color:var(--text3);margin-top:6px;line-height:1.7">'+
-      'La brecha va <b>mínima–máxima</b>, nunca promediada: sube y baja, y promediarla esconde justo lo que sirve para decidir <b>cuándo</b> comprar. '+
-      (peor.mes?('El mes más caro fue <b>'+relEsc(peor.mes)+'</b> con <b>'+Number(peor.pct_del_cobrado).toFixed(2)+'%</b> del cobrado.'):'')+
-    '</div>');
-
-  // ── 5.b MES A MES, Y EL ACUMULADO AL LADO ──────────────────────────────────────────────────
-  if((D.meses||[]).length>1){
-    var ac={c:0,g:0,u:0};
-    html+=card('6 · Mes a mes — y el acumulado, que es el que describe el negocio',
-      '<div style="font-size:11px;color:var(--text3);margin-bottom:8px">'+
-        '⚠️ <b>El margen de un mes suelto engaña.</b> El cobro de la Alcaldía llega desfasado del gasto que lo produjo '+
-        '(no se factura hasta el momento del pago), así que un mes puede dar 8% y el siguiente 46% sin que el negocio '+
-        'haya cambiado. <b>Mirá la columna del acumulado</b>: esa sí describe la operación.</div>'+
-      tabla('<th>Mes</th><th style="text-align:right">Cobrado</th><th style="text-align:right">Gasto</th><th style="text-align:right">Utilidad</th><th style="text-align:right">Margen del mes</th><th style="text-align:right">Margen ACUMULADO</th>',
-        (D.meses||[]).map(function(m){
-          ac.c+=m.cobrado; ac.g+=m.gasto; ac.u+=m.utilidad;
-          var mm=m.cobrado>0?(m.utilidad/m.cobrado*100):0;
-          var ma=ac.c>0?(ac.u/ac.c*100):0;
-          return '<tr><td style="font-family:var(--m)">'+relEsc(m.mes)+'</td>'+
-            '<td style="text-align:right;font-family:var(--m)">'+_infUsd(m.cobrado)+'</td>'+
-            '<td style="text-align:right;font-family:var(--m)">'+_infUsd(m.gasto)+'</td>'+
-            '<td style="text-align:right;font-family:var(--m)">'+_infUsd(m.utilidad)+'</td>'+
-            '<td style="text-align:right;font-family:var(--m);color:var(--text3)">'+mm.toFixed(1)+'%</td>'+
-            '<td style="text-align:right;font-family:var(--m);font-weight:800;color:'+(ma>=15?'#15803d':ma>=0?'#d97706':'#dc2626')+'">'+ma.toFixed(1)+'%</td></tr>';
-        }).join(''))+
-      '<div style="font-size:10px;color:var(--text3);margin-top:6px">La columna gris salta porque el cobro y el gasto no caen en el mismo mes. La negra es la del negocio.</div>');
-  }
-
-  // ── 7. LA POSICIÓN ─────────────────────────────────────────────────────────────────────────
-  var grupo=function(g,t){
-    var f=(D.pos||[]).filter(function(x){return x.grupo===g;});
-    if(!f.length)return '';
-    return '<div style="margin-bottom:10px"><div style="font-size:11px;font-weight:800;color:var(--text2);margin-bottom:4px">'+t+'</div>'+
-      tabla('<th>Concepto</th><th style="text-align:right">US$</th><th>Al</th>',
-        f.map(function(x){
-          return '<tr><td>'+relEsc(x.titulo)+(x.supuesto?' <span class="badge by" title="Descansa en algo sin confirmar">supuesto</span>':'')+'</td>'+
-            '<td style="text-align:right;font-family:var(--m);font-weight:700">'+_infUsd(x.monto_usd)+'</td>'+
-            '<td style="font-size:10px;color:var(--text3)">'+formatFecha(x.vigente_al)+'</td></tr>';
-        }).join(''))+'</div>';
-  };
-  var faltan=(D.fact||[]).filter(function(f){return !f.neto_cobrado||!f.fiel_cobrado;});
-  html+=card('7 · Dónde está la plata, qué nos deben y qué debemos',
-    grupo('ACTIVO','LO QUE TENEMOS')+grupo('POR_COBRAR','LO QUE NOS DEBEN')+grupo('DEUDA','LO QUE DEBEMOS')+
-    (faltan.length?('<div style="font-size:11px;color:var(--red);margin-top:4px">🔴 '+faltan.length+' factura(s) con algo sin cobrar: '+
-      faltan.map(function(f){return relEsc(f.factura);}).join(', ')+'</div>')
-      :'<div style="font-size:11px;color:var(--green);margin-top:4px">✅ Todas las facturas cobradas enteras.</div>'));
-
-  return html;
-}
-async function imprimirInforme(){
-  var d=gv('inf-des')||'2026-03-23', h=gv('inf-hta')||new Date().toISOString().slice(0,10);
-  // ⛔ LA CABECERA Y LOS NÚMEROS TIENEN QUE SER DEL MISMO PERÍODO.
-  // Antes bastaba con que INF_DATA existiera. Pero los `input[type=date]` disparan `change` al
-  // PERDER EL FOCO: si alguien escribe una fecha nueva y hace clic directo en «Imprimir», el clic
-  // dispara el change (que arranca renderInforme, asíncrono) y ACTO SEGUIDO esta función, que lee
-  // las fechas NUEVAS de los inputs y los números VIEJOS de INF_DATA. Sale un PDF que dice un
-  // período y muestra otro — y no hay forma de notarlo mirándolo.
-  // Ahora se compara contra las fechas con las que se armó y se recarga si no coinciden.
-  if(!INF_DATA||INF_DATA._d!==d||INF_DATA._h!==h)await renderInforme();
-  if(!INF_DATA||INF_DATA._d!==d||INF_DATA._h!==h){ alert('No se pudo armar el informe para ese período.'); return; }
-  // ⛔ NO SE INVENTA UN DISEÑO: SE USA EL QUE YA EXISTE.
-  // Máximo (09/08): «le falta estética, no lleva logo, debería estar mejor delimitado… usá el de
-  // auditoría que tiene Flotilla, en Betangar también». Y ese molde YA ESTÁ EN ESTE ARCHIVO:
-  // `abrirImpresionPremium()` — cabecera azul con el LOGO incrustado, RIF, ciudad y contrato;
-  // barra de título; tarjetas de cifras; tablas con encabezado oscuro; y pie con la marca.
-  // Es el mismo que usan los demás reportes, así que el informe deja de ser el raro de la casa.
-  // Antes esta función se dibujaba su propio HTML a mano, con un `<h1>` y una línea: por eso no
-  // llevaba logo. [[norma-bitacora-nombrar-la-pieza-que-ya-existe]] · [[norma-tambien-se-vende-por-los-ojos]]
-  var R=(INF_DATA&&INF_DATA.res)||{}, E=(INF_DATA&&INF_DATA.est)||{};
-  var _u=function(n){ return '$'+Number(n||0).toLocaleString('es-VE',{maximumFractionDigits:0}); };
-  var stats=
-    mkStat('Cobrado',_u(R.cobrado_usd),'del banco','azul')+
-    mkStat('Gasto real',_u(R.gasto_usd),'','rojo')+
-    mkStat('Pérdida cambiaria',_u(R.cambiario_usd),'ya ocurrida','rojo')+
-    mkStat('Utilidad real',_u(R.utilidad_usd),'margen '+(R.margen_pct||0)+'%','verde')+
-    mkStat('Utilidad estimada',_u(E.utilidad_estimada_usd),'si se cobra lo ejecutado','amari');
-  var pie='<div style="margin-top:18px;border-top:1px solid #e5e7eb;padding-top:8px;font-size:10px;color:#64748b">'+
-      // ⛔ EL PIE AFIRMABA DE MÁS: decía «TODAS las cifras salen del estado de cuenta bancario», y
-      // no es verdad. Lo cobrado, lo gastado y la utilidad REAL sí. Pero lo ejecutado y no
-      // facturado —el renglón más grande del informe— sale de las PLANILLAS y de las facturas, no
-      // del banco: es trabajo hecho que todavía no pasó por ninguna cuenta. Un documento que va a
-      // los socios no puede atribuirle al banco un número que el banco no respalda.
-      // [[norma-documento-no-afirma-lo-que-nadie-declaro]]
-      '<b>De dónde sale cada cifra.</b> Lo cobrado, lo gastado y la utilidad real salen del <b>estado de cuenta bancario</b>, '+
-      'movimiento por movimiento, cada uno convertido a la tasa del día en que ocurrió; las compras de dólares se valúan a su '+
-      'tasa pactada, nunca a la oficial. Lo <b>ejecutado y no facturado</b> NO sale del banco: son viajes de las planillas que '+
-      'todavía no se han facturado ni cobrado, valorados a la tarifa vigente del contrato, y depende de los supuestos indicados.</div>';
-  abrirImpresionPremium('Informe financiero',
-    'Del '+formatFecha(d)+' al '+formatFecha(h),
-    stats, _infHtml(INF_DATA,d,h,true)+pie);
-}
 // LLENADO DE LA APP POR EMPLEADO
 //
 // ⛔ ACÁ NO SE CALCULA NINGUNA NOTA. El veredicto de cada persona, su motivo y qué exigirle los
@@ -5007,7 +4591,14 @@ var LLE_COL={'A corregir':'bk-err','Observado':'bk-warn','Cumple':'bk-ok','Sin e
 
 // El primer día que el checklist dice QUIÉN lo llenó. Antes guardaba el nombre de una lista fija
 // camión→chofer. La base aplica el mismo piso; acá sólo sirve para el botón «Todo lo medible».
-var LLE_PISO='2026-09-12';
+// ⛔ NO SE ESCRIBE NINGUNA FECHA DE NINGUNA EMPRESA ACÁ. El día desde el cual el
+//    checklist dice QUIÉN lo llenó es distinto en cada base (Betangar 12/09,
+//    FLOTILLA 25/07, TONY GAS 20/10, la demo nunca falló), y este módulo es el
+//    MISMO en las seis. Antes decía '2026-09-12' —el de Betangar— y las otras
+//    cinco arrancaban con una fecha ajena. Lo dice la base: viene en `piso`.
+var LLE_PISO=null;
+// Un comienzo neutro mientras la base no haya contestado todavía.
+function _lleHace(dias){ var d=new Date(); d.setDate(d.getDate()-dias); return d.toISOString().slice(0,10); }
 
 function llenadoRapido(v){
   if(!v)return;
@@ -5019,7 +4610,9 @@ function llenadoRapido(v){
     d=f(new Date(hoy.getFullYear(),hoy.getMonth()-1,1));
     h=f(new Date(hoy.getFullYear(),hoy.getMonth(),0));
   }
-  else if(v==='todo'){ d=LLE_PISO; }
+  // Si la base todavia no dijo su piso, se pide ANCHO: la funcion recorta sola
+  // y avisa, y de su respuesta queda sabido el piso para la proxima vez.
+  else if(v==='todo'){ d=LLE_PISO||_lleHace(365); }
   if(d){ sv('lle-des',d); sv('lle-hta',h); renderLlenado(); }
 }
 
@@ -5027,9 +4620,9 @@ async function renderLlenado(){
   var el=g('lle-body'); if(!el)return;
   if(!(DB_READY&&supabase)){ el.innerHTML='<div class="card" style="color:var(--text3)">Conectá la base.</div>'; return; }
   var hoy=new Date().toISOString().slice(0,10);
-  if(g('lle-des')&&!gv('lle-des'))sv('lle-des',LLE_PISO);
+  if(g('lle-des')&&!gv('lle-des'))sv('lle-des',LLE_PISO||_lleHace(60));
   if(g('lle-hta')&&!gv('lle-hta'))sv('lle-hta',hoy);
-  var d=gv('lle-des')||LLE_PISO, h=gv('lle-hta')||hoy;
+  var d=gv('lle-des')||LLE_PISO||_lleHace(60), h=gv('lle-hta')||hoy;
   el.innerHTML='<div style="text-align:center;color:var(--text3);padding:30px">Midiendo el período…</div>';
   var r=await _rpc('btg_informe_llenado',{p_desde:d,p_hasta:h});
   if(r.error){
@@ -5047,6 +4640,8 @@ async function renderLlenado(){
   var D=Array.isArray(r.data)?r.data[0]:r.data;
   // Con QUÉ fechas se armó, para que imprimir no mezcle cabecera de un período con números de otro.
   if(D){ D._d=d; D._h=h; }
+  // La base dice cual es SU piso: queda sabido para «Todo lo medible».
+  if(D && D.piso) LLE_PISO=String(D.piso).slice(0,10);
   LLE_DATA=D;
   el.innerHTML=_lleHtml(D,false);
 }
@@ -5056,23 +4651,34 @@ function _lleNum(n){ return Number(n||0).toLocaleString('es-VE'); }
 
 // Las áreas, en el orden en que se recorren en una reunión: primero los que
 // manejan, después la cuadrilla, después quien controla, al final la oficina.
+// ⛔ SE AGRUPA POR LA FUNCIÓN QUE CALCULA LA BASE (`fn`), NO POR EL TEXTO DEL
+//    CARGO. Esto decía `cargos:['Chofer']`, `['Ayudante']`, `['Mecanico',
+//    'Supervisor']` — los cargos de Betangar. En TONY GAS, donde el cargo es
+//    «Conductor Auto Tanque» o «Ayudante de Baranda», NINGUNO calzaba y las 65
+//    personas caían enteras en «Oficina y dirección»: los veredictos salían
+//    bien y el informe igual era ilegible. Es el mismo error que ya se había
+//    sacado del SQL, sobreviviendo en la capa que dibuja.
+//    [[norma-replicar-a-los-clones-es-medir-no-copiar]]
 var LLE_AREAS=[
-  {id:'chof', t:'Choferes',             cargos:['Chofer'],
+  {id:'conduce',   t:'Choferes',
    mide:'De los días que registró, cuántos cerró con salida y llegada; y cuántos días fichó sin dejar checklist.'},
-  {id:'ayud', t:'Ayudantes',            cargos:['Ayudante'],
+  {id:'cuadrilla', t:'Ayudantes',
    mide:'Constancia del fichaje de asistencia con foto, sobre los días que la flota operó estando ya en la empresa.'},
-  {id:'vigi', t:'Vigilancia',           cargos:['Vigilante'],
+  {id:'vigila',    t:'Vigilancia',
    mide:'Días con registros de portería. El fichaje se mira aparte: la portería ya prueba que estuvo.'},
-  {id:'tall', t:'Taller y supervisión', cargos:['Mecanico','Supervisor'],
+  {id:'taller',    t:'Taller',
    mide:'Firmas en el checklist del chofer y cierre de las fallas que él reporta.'},
-  {id:'ofic', t:'Oficina y dirección',  cargos:null,
-   mide:'Días con actividad propia en la aplicación dentro del período.'}
+  {id:'supervisa', t:'Supervisión y jefaturas',
+   mide:'Firmas en el checklist del chofer y cierre de las fallas que él reporta.'},
+  {id:'oficina',   t:'Oficina y dirección',
+   mide:'Días con actividad propia en la aplicación dentro del período.'},
+  {id:'sincargo',  t:'Sin cargo en la ficha',
+   mide:'No se les puede exigir nada todavía: hasta que la ficha diga el cargo, no entran en ninguna medición.'}
 ];
-function _lleArea(cargo){
-  for(var i=0;i<LLE_AREAS.length;i++){
-    var a=LLE_AREAS[i];
-    if(a.cargos&&a.cargos.indexOf(cargo)>=0)return a;
-  }
+// `fn` viene de la base; si faltara, la persona va al grupo de «sin cargo» y se
+// ve, en vez de disolverse en oficina.
+function _lleArea(fn){
+  for(var i=0;i<LLE_AREAS.length;i++){ if(LLE_AREAS[i].id===fn) return LLE_AREAS[i]; }
   return LLE_AREAS[LLE_AREAS.length-1];
 }
 var LLE_ORDEN={'A corregir':0,'Observado':1,'Cumple':2,'Sin evaluar':3};
@@ -5089,7 +4695,7 @@ function _lleBadge(v, imp){
 // Una fila de persona con las columnas que su área hace falta mirar.
 function _lleFilaArea(p, area, imp){
   var c='<td>'+_lleEsc(p.nombre)+'</td><td style="color:'+(imp?'#555':'var(--text3)')+'">'+_lleEsc(p.cargo)+'</td>';
-  if(area.id==='chof'){
+  if(area.id==='conduce'){
     c+='<td style="color:'+(imp?'#555':'var(--text3)')+'">'+_lleEsc(p.unidad)+'</td>'+
       '<td class="mono">'+_lleNum(p.dias_exigibles)+'</td>'+
       '<td class="mono">'+_lleNum(p.dias_registro)+'</td>'+
@@ -5099,12 +4705,12 @@ function _lleFilaArea(p, area, imp){
       '<td class="mono'+(Number(p.ficho_sin_checklist)>2?' rv':'')+'">'+_lleNum(p.ficho_sin_checklist)+'</td>'+
       '<td class="mono">'+_lleNum(p.dias_con_obs)+'</td>'+
       '<td class="mono">'+_lleNum(p.viajes)+'</td><td class="mono">'+_lleNum(p.surtidas)+'</td>';
-  } else if(area.id==='vigi'){
+  } else if(area.id==='vigila'){
     c+='<td class="mono">'+_lleNum(p.dias_exigibles)+'</td>'+
       '<td class="mono">'+_lleNum(p.dias_porteria)+'</td>'+
       '<td class="mono">'+_lleNum(p.porteria_registros)+'</td>'+
       '<td class="mono">'+_lleNum(p.dias_ficho)+'</td>';
-  } else if(area.id==='ofic'||area.id==='tall'){
+  } else if(area.id==='oficina'||area.id==='taller'||area.id==='supervisa'){
     c+='<td class="mono">'+_lleNum(p.dias_exigibles)+'</td>'+
       '<td class="mono">'+_lleNum(p.dias_ficho)+'</td>'+
       '<td class="mono">'+_lleNum(p.dias_oficina)+'</td>'+
@@ -5119,9 +4725,9 @@ function _lleFilaArea(p, area, imp){
 }
 function _lleCabArea(area){
   var c='<th>Persona</th><th>Cargo</th>';
-  if(area.id==='chof')c+='<th>Unidad</th><th>Exig.</th><th>Registró</th><th>Cerrados</th><th>Sin cerrar</th><th>% cierre</th><th>Fichó sin llenar</th><th>Reportó</th><th>Viajes</th><th>Surtidas</th>';
-  else if(area.id==='vigi')c+='<th>Exig.</th><th>Días portería</th><th>Registros</th><th>Fichó</th>';
-  else if(area.id==='ofic'||area.id==='tall')c+='<th>Exig.</th><th>Fichó</th><th>Días en app</th><th>Acciones</th>';
+  if(area.id==='conduce')c+='<th>Unidad</th><th>Exig.</th><th>Registró</th><th>Cerrados</th><th>Sin cerrar</th><th>% cierre</th><th>Fichó sin llenar</th><th>Reportó</th><th>Viajes</th><th>Surtidas</th>';
+  else if(area.id==='vigila')c+='<th>Exig.</th><th>Días portería</th><th>Registros</th><th>Fichó</th>';
+  else if(area.id==='oficina'||area.id==='taller'||area.id==='supervisa')c+='<th>Exig.</th><th>Fichó</th><th>Días en app</th><th>Acciones</th>';
   else c+='<th>Exig.</th><th>Fichó</th><th>%</th>';
   return '<tr>'+c+'<th>Veredicto</th><th>Motivo</th></tr>';
 }
@@ -5164,7 +4770,7 @@ function _lleHtml(D, imp){
 
   // 2. El detalle, área por área.
   var areas=LLE_AREAS.map(function(a){
-    var lista=P.filter(function(p){return _lleArea(p.cargo).id===a.id;})
+    var lista=P.filter(function(p){return _lleArea(p.fn).id===a.id;})
       .sort(function(x,y){ return (LLE_ORDEN[x.veredicto]-LLE_ORDEN[y.veredicto])||String(x.nombre).localeCompare(String(y.nombre),'es'); });
     if(!lista.length)return '';
     return '<h3 style="margin-top:18px">'+a.t+' <span style="font-weight:400;color:var(--text3)">('+lista.length+')</span></h3>'+
@@ -5284,7 +4890,7 @@ function _llePapel(D){
   // 5 — el detalle, área por área
   out+=salto+sec('El detalle, área por área','A cada cargo se lo mide contra lo que la aplicación le pide a él, y sólo sobre los días en que ya estaba trabajando. «Exig.» son esos días. Un día libre no cuenta como falta.');
   out+=LLE_AREAS.map(function(a){
-    var lista=P.filter(function(p){return _lleArea(p.cargo).id===a.id;})
+    var lista=P.filter(function(p){return _lleArea(p.fn).id===a.id;})
       .sort(function(x,y){ return (LLE_ORDEN[x.veredicto]-LLE_ORDEN[y.veredicto])||String(x.nombre).localeCompare(String(y.nombre),'es'); });
     if(!lista.length)return '';
     return '<h3 style="font-size:10px;color:#0f2544;margin-top:14px;page-break-after:avoid">'+a.t+' ('+lista.length+')</h3>'+
@@ -5379,7 +4985,7 @@ function _lleTile(lbl,val,col){
 
 async function imprimirLlenado(){
   var hoy=new Date().toISOString().slice(0,10);
-  var d=gv('lle-des')||LLE_PISO, h=gv('lle-hta')||hoy;
+  var d=gv('lle-des')||LLE_PISO||_lleHace(60), h=gv('lle-hta')||hoy;
   // ⛔ LA CABECERA Y LOS NÚMEROS TIENEN QUE SER DEL MISMO PERÍODO. Los `input[type=date]` disparan
   //    `change` al PERDER EL FOCO: si alguien escribe una fecha y hace clic directo en «Imprimir»,
   //    el clic dispara el change (que arranca renderLlenado, asíncrono) y acto seguido esta
@@ -17999,6 +17605,99 @@ function _perPend(){          // surtidas de estación pendientes dentro del ran
         && String(s.fecha||'')>=des && String(s.fecha||'')<=hta;
   }).sort(function(a,b){ return String(a.fecha+a.cam)<String(b.fecha+b.cam)?-1:1; });
 }
+// ═══════════ LA SURTIDA QUE EL CHOFER NO CARGÓ ═══════════
+//
+// 🔴 POR QUÉ EXISTE. Alejandra lo pidió por WhatsApp: la oficina podía CORREGIR los litros de una
+//    surtida (permiso `corregir-chofer`) pero no AGREGAR una que el chofer nunca registró.
+//    El caso que lo destapó: el 20/10/2026 la factura de E/S Las Banderas era de **3.000 L**
+//    —250 L a cada uno de los 12 camiones— y en el sistema había **9 surtidas, 2.250 L**.
+//    Faltaban **750 L de 3 choferes** que surtieron y no lo cargaron. Esos 750 L no se veían por
+//    ningún lado: el consumo de esas 3 unidades quedaba inflado y el costo por km, mal.
+//
+// ⛔ EL CANDADO DE ROL NO ESTÁ ACÁ. Está en `surtida_agregar_oficina()`, que vuelve a comprobar
+//    el rol del lado del servidor. Esto solo evita mostrar un botón que va a fallar: una pestaña
+//    vieja o la consola llaman igual a la RPC. [[norma-las-barreras-de-prompt-no-son-candados]]
+//
+// ⚠️ NO LLEVA GPS, y eso es un dato y no una falta: nadie de la oficina estaba en la bomba. Queda
+//    con `origen='oficina'` y `ubicacion_como='manual'`, distinta para siempre de una que cargó
+//    un chofer y distinta también de una que el GPS no pudo ubicar.
+function abrirModalSurtidaOficina(){
+  // Se reusa el guardia que YA existe para el mismo permiso, en vez de escribir otro: dos
+  // comprobaciones del mismo candado se desincronizan. [[norma-dos-listas-a-mano-se-desincronizan]]
+  if(!_surPuedeCorregir()){ mostrarToast('Esto lo hace administración.','error'); return; }
+  var hoy=fechaVE();
+  var cams=Array.from(new Set((typeof UNIDADES!=='undefined'&&UNIDADES?UNIDADES.map(function(u){return u.cam;}):[])
+            .concat((SURT_ADMIN||[]).map(function(s){return s.cam;})).filter(Boolean))).sort();
+  var body=''
+    +'<div style="font-size:11px;color:var(--text3);margin-bottom:8px">Para cuando el chofer surtió y no lo registró. '
+    +'Queda marcada como cargada por la oficina y con el motivo escrito — no se confunde nunca con una del chofer.</div>'
+    +'<div class="fr2">'
+      +'<div class="fg"><label>Fecha de la surtida</label><input class="fc" id="so-fecha" type="date" value="'+hoy+'" onchange="_soSugerir()"></div>'
+      +'<div class="fg"><label>Unidad</label><select class="fc" id="so-cam" onchange="_soSugerir()"><option value="">Elegí…</option>'
+        +cams.map(function(c){return '<option value="'+_surEscC(c)+'">'+_surEsc(c)+'</option>';}).join('')+'</select></div>'
+    +'</div>'
+    +'<div class="fr2">'
+      +'<div class="fg"><label>Litros</label><input class="fc" id="so-lit" type="number" step="0.01" placeholder="250"></div>'
+      +'<div class="fg"><label>Estación (opcional)</label><input class="fc" id="so-est" list="so-est-lista" placeholder="la de la factura"><datalist id="so-est-lista"></datalist></div>'
+    +'</div>'
+    // ⛔ El motivo es obligatorio y el servidor lo exige igual (mínimo 10 caracteres). Una surtida
+    //    que aparece sin explicación, puesta por alguien que no estaba en la bomba, es
+    //    indistinguible de una inventada. El motivo es lo que la vuelve auditable.
+    +'<div class="fg"><label>¿Por qué se agrega? (obligatorio)</label>'
+      +'<textarea class="fc" id="so-nota" rows="2" placeholder="De qué factura sale y quién lo confirmó. Ej: Factura E/S Las Banderas 20/10, 250 L por camión a los 12; este chofer no la cargó."></textarea></div>'
+    +'<div id="so-aviso" style="font-size:11px;margin:6px 0"></div>'
+    +'<button class="btn btn-g btn-sm" style="width:100%;margin-top:8px" onclick="_soGuardar()">➕ Agregar la surtida</button>';
+  openModal('Agregar surtida que el chofer no cargó', body);
+  var dl=g('so-est-lista');
+  if(dl){ var nombres=Array.from(new Set((SURT_ADMIN||[]).concat(COMB_PERIODOS||[])
+            .map(function(x){return x.estacion_nombre;}).filter(Boolean))).sort();
+          dl.innerHTML=nombres.map(function(n){return '<option value="'+_surEscC(n)+'">';}).join(''); }
+  _soSugerir();
+}
+
+// ⛔ AYUDA A VER SI FALTA, NO DECIDE POR NADIE. Muestra quiénes cargaron ese día y con cuántos
+//    litros, que es justo lo que hace falta para saber si esta unidad quedó afuera. No rellena
+//    los litros solo: un número puesto por el sistema se lee después como si lo hubiera dicho una
+//    persona, que es exactamente el defecto que costó 1.811 L en el selector del chofer.
+function _soSugerir(){
+  var el=g('so-aviso'); if(!el)return;
+  var f=gv('so-fecha'), cam=gv('so-cam');
+  if(!f){ el.innerHTML=''; return; }
+  var dia=(SURT_ADMIN||[]).filter(function(s){ return String(s.fecha||'').slice(0,10)===f; });
+  if(!dia.length){ el.innerHTML='<span style="color:var(--text3)">Ese día no hay ninguna surtida cargada.</span>'; return; }
+  var lits=Array.from(new Set(dia.map(function(s){ return parseFloat(s.litros)||0; })));
+  var cams=dia.map(function(s){ return s.cam; });
+  var yaEsta=cam&&cams.indexOf(cam)>=0;
+  el.innerHTML='<span style="color:var(--text2)">Ese día cargaron <b>'+dia.length+'</b> unidad(es)'
+    +(lits.length===1?(', todas de <b>'+lits[0].toLocaleString('es-VE')+' L</b>'):'')
+    +'.</span>'
+    +(yaEsta?('<br><span style="color:var(--yellow)">⚠️ '+_surEsc(cam)+' YA tiene una surtida ese día. Revisá que no sea la misma.</span>'):'');
+}
+
+async function _soGuardar(){
+  var f=gv('so-fecha'), cam=gv('so-cam'), lit=parseFloat(gv('so-lit'))||0, nota=(gv('so-nota')||'').trim();
+  if(!f||!cam){ mostrarToast('Falta la fecha o la unidad','error'); return; }
+  if(!(lit>0)){ mostrarToast('Poné los litros','error'); return; }
+  // El servidor lo exige igual; acá se avisa ANTES para no hacerle escribir todo de nuevo.
+  if(nota.length<10){ mostrarToast('Escribí por qué se agrega (de qué factura sale, quién lo confirmó)','error'); return; }
+  if(!confirm('Agregar '+lit.toLocaleString('es-VE')+' L a '+cam+' del '+formatFecha(f)+'?'+String.fromCharCode(10)+String.fromCharCode(10)
+      +'Va a quedar registrada como cargada por la oficina, con tu nombre y el motivo.')) return;
+  if(!(DB_READY&&supabase)){ mostrarToast('Sin conexión a la base: esto no se puede encolar, hay que hacerlo en línea.','error'); return; }
+  var res=await supabase.rpc('surtida_agregar_oficina',{ p:{
+    cam:cam, fecha:f, litros:lit, nota:nota,
+    estacion_nombre:(gv('so-est')||'').trim()||null,
+    quien:((typeof SESION!=='undefined'&&SESION)?SESION.nombre:'')||'oficina'
+  }});
+  // ⛔ EL ERROR DEL SERVIDOR SE MUESTRA TAL CUAL. Los mensajes de la RPC dicen qué falta y por
+  //    qué (duplicada, tope del tanque, rol). Taparlos con un «no se pudo» genérico obliga a
+  //    adivinar. [[norma-una-asercion-mal-escrita-acusa-al-producto]]
+  if(res&&res.error){ mostrarToast('No se agregó: '+(res.error.message||'error del servidor'),'error'); return; }
+  audit('Surtida agregada por oficina', cam+' '+f+' '+lit+'L · '+nota.slice(0,80));
+  mostrarToast('✅ Surtida agregada','exito');
+  closeModal();
+  if(typeof scRecargar==='function') scRecargar();
+}
+
 function abrirModalPeriodo(){
   _perTramos=[{litros:'',precio:'',tasaTipo:'bcvDolar'}];
   _perModo='tramos'; _perEsc={litros:80,p1:'',p2:''}; _perSel={};
@@ -18037,7 +17736,20 @@ function _perSetModo(m){
       +'<div class="fr2"><div class="fg" style="margin:0"><label style="font-size:10px">Primeros… (L)</label><input class="fc" type="number" id="per-esc-lit" value="'+(_perEsc.litros||80)+'" oninput="_perEscSet(\'litros\',this.value)"></div>'
       +'<div class="fg" style="margin:0"><label style="font-size:10px">…a $/L</label><input class="fc" type="number" step="0.001" id="per-esc-p1" value="'+(_perEsc.p1||'')+'" oninput="_perEscSet(\'p1\',this.value)" placeholder="0.50"></div>'
       +'<div class="fg" style="margin:0"><label style="font-size:10px">Resto a $/L</label><input class="fc" type="number" step="0.001" id="per-esc-p2" value="'+(_perEsc.p2||'')+'" oninput="_perEscSet(\'p2\',this.value)" placeholder="0.75"></div>'
-      +'<div class="fg" style="margin:0"><label style="font-size:10px">Tasa</label><select class="fc" id="per-esc-tasa" onchange="_perCalc()">'+['bcvDolar','bcvEuro','binance','promedio'].map(function(o){return '<option value="'+o+'">'+o+'</option>';}).join('')+'</select></div></div>';
+      +'<div class="fg" style="margin:0"><label style="font-size:10px">Tasa</label><select class="fc" id="per-esc-tasa" onchange="_perCalc()">'+['bcvDolar','bcvEuro','binance','promedio'].map(function(o){return '<option value="'+o+'">'+o+'</option>';}).join('')+'</select></div></div>'
+      // ⛔ LOS LITROS DE LA FACTURA SE ESCRIBEN, NO SE COPIAN. Hasta el 08/11/2026 este modo hacía
+      //    `litF=litSur`: los litros «facturados» se igualaban a la suma de las surtidas marcadas.
+      //    Con eso R16 —la única comprobación que NO usa la varilla del tanque— quedaba comparando
+      //    un número contra sí mismo. Los 16 períodos desde el 29/08 tienen facturado = surtido
+      //    EXACTO, y no porque cuadraran: porque era el mismo dato.
+      //    🔴 El caso: el 20/10 la factura de Las Banderas era de 3.000 L (250 L × 12 camiones) y
+      //      el período decía 2.250, que es justo lo que habían cargado 9 choferes. Los 750 L de
+      //      los otros 3 desaparecieron de los dos lados a la vez. El monto ($1.800) siempre
+      //      estuvo bien: a 3.000 L da $0,600/L, la misma tarifa del 17/10 y el 24/10.
+      //    ⚠️ Va VACÍA a propósito. Si se pre-llenara con la suma, volvería a pasar lo mismo:
+      //      nadie corrige un número que ya parece correcto.
+      +'<div class="fg" style="margin:6px 0 0"><label style="font-size:10px">Litros que dice la FACTURA (de la factura física, no del sistema)</label>'
+      +'<input class="fc" type="number" step="0.01" id="per-esc-litfac" placeholder="dejalo vacío si la factura coincide con lo marcado" oninput="_perCalc()"></div>';
   }else{
     c.innerHTML='<div id="per-tramos"></div><button class="btn btn-s btn-xs" style="margin-top:4px" onclick="_perAddTramo()">+ Agregar tramo</button>';
     _perRenderTramos();
@@ -18101,8 +17813,31 @@ function _perCalc(){
     var n=parseFloat(_perEsc.litros)||0, a=parseFloat(_perEsc.p1)||0, b=parseFloat(_perEsc.p2)||0;
     var lBase=0,lResto=0;
     marc.forEach(function(s){ var l=parseFloat(s.litros)||0; lBase+=Math.min(l,n); lResto+=Math.max(0,l-n); });
-    litF=litSur; cUsd=Math.round((lBase*a+lResto*b)*100)/100;
+    cUsd=Math.round((lBase*a+lResto*b)*100)/100;
+    // ⛔ Si la oficina escribió los litros de la FACTURA, mandan ellos. Si la dejó vacía, se usa
+    //    la suma de lo marcado — pero entonces no hay comparación posible y se dice.
+    var _lf=parseFloat(gv('per-esc-litfac'));
+    litF=(_lf>0)?_lf:litSur;
     box.dataset.lbase=lBase; box.dataset.lresto=lResto;
+    // ⛔ LA DIFERENCIA NO ES UN ERROR DE TIPEO: ES LA CUENTA DE LOS CHOFERES QUE NO CARGARON.
+    //    Se dice en litros Y en camiones, porque «faltan 750 L» no mueve a nadie y «faltan 3
+    //    camiones de 250 L» se resuelve en cinco minutos mirando quién trabajó ese día.
+    if(_lf>0){
+      var _dif=Math.round((_lf-litSur)*100)/100;
+      if(Math.abs(_dif)>0.5){
+        var _porCam=(marc.length>0)?(litSur/marc.length):0;
+        var _faltan=(_porCam>0)?Math.round(_dif/_porCam):0;
+        warn='<div style="margin-top:6px;padding:6px 8px;border-radius:8px;background:rgba(251,191,36,.12);border:1px solid var(--yellow);color:var(--text)">'
+          +(_dif>0
+            ? ('⚠️ La factura dice <b>'+_dif.toLocaleString('es-VE')+' L más</b> de lo que hay cargado.'
+               +(_faltan>0?(' A '+Math.round(_porCam).toLocaleString('es-VE')+' L por camión son <b>'+_faltan+' surtida(s)</b> que nadie registró.'):'')
+               +'<br>Mirá qué unidades trabajaron ese día y no aparecen, y agregalas con <b>«Agregar surtida que el chofer no cargó»</b>.')
+            : ('⚠️ Hay <b>'+Math.abs(_dif).toLocaleString('es-VE')+' L cargados de MÁS</b> respecto de la factura. Puede ser una surtida duplicada o de otro día.'))
+          +'</div>';
+      }
+    } else {
+      warn='<div style="margin-top:6px;font-size:10px;color:var(--text3)">Sin los litros de la factura no se puede comprobar nada: se da por bueno lo cargado.</div>';
+    }
     warn='<div style="color:#9fb3c8;margin-top:4px">'+marc.length+' camión(es) × primeros '+n+' L a $'+a.toFixed(3)+' ('+lBase.toLocaleString('es-VE')+' L) + resto a $'+b.toFixed(3)+' ('+lResto.toLocaleString('es-VE')+' L). <b>Cada unidad queda con SU $/L real</b>, no con el promedio.</div>';
   }else{
     _perTramos.forEach(function(t){ var l=parseFloat(t.litros)||0, pr=parseFloat(t.precio)||0;

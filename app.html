@@ -2095,6 +2095,11 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
       <div class="fg" style="margin-bottom:0"><label>Costo</label><select class="fc" id="sc-estado" onchange="renderSurtidasCosteo()"><option value="">Todos</option><option value="def">Definido</option><option value="pend">Pendiente</option></select></div>
     </div>
     <div style="text-align:right;margin-bottom:8px">
+      <!-- ⛔ LA SURTIDA QUE EL CHOFER NO CARGÓ (08/11/2026). Alejandra lo pidió por WhatsApp: la
+           oficina podía CORREGIR los litros de una surtida, pero no AGREGAR una que nunca se
+           cargó. El 20/10 la factura era de 3.000 L (250 L × 12 camiones) y había 9 surtidas:
+           faltaban 750 L de 3 choferes que surtieron y no lo registraron. -->
+      <button class="btn btn-sm" id="sc-btn-agregar" onclick="abrirModalSurtidaOficina()">➕ Agregar surtida que el chofer no cargó</button>
       <button class="btn btn-g btn-sm" onclick="abrirModalPeriodo()">💵 Definir costo del período (estación)</button>
     </div>
     <div class="tw" style="max-height:280px;overflow-y:auto"><table><thead><tr><th>Fecha</th><th>Unidad</th><th>Origen</th><th>Litros</th><th>$/L</th><th>Costo</th><th>Estado</th></tr></thead><tbody id="sc-body"></tbody></table></div>
@@ -3272,7 +3277,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
      Excel sale con el defecto ya corregido. Pasó midiendo este mismo cambio el
      23/09: dos corridas dieron un .xlsx idéntico byte por byte. -->
 <script src="maxware-excel.js?v=20261106-excel"></script>
-<script src="app.js?v=20261108-1714"></script>
+<script src="app.js?v=20261108-1356"></script>
 
 <!-- Modal global -->
 <div id="modal" class="moverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9990;align-items:center;justify-content:center;padding:16px">
