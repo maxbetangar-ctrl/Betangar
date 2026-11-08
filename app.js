@@ -4998,6 +4998,11 @@ async function imprimirInforme(){
 //    acá serían dos listas a mano, y se desincronizan [[norma-dos-listas-a-mano-se-desincronizan]].
 //    Esta pieza pide, dibuja e imprime. Nada más.
 // ══════════════════════════════════════════════════════════════════════════════════════════════
+// ⛔ ESCAPE PROPIO. Antes usaba `relEsc`, que SOLO existe en Betangar (es de la
+//    relacion de gastos): copiado tal cual a los clones, la pantalla reventaba
+//    al dibujar la primera fila. Este modulo no depende de nada del repo.
+function _lleEsc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
 var LLE_DATA=null;
 var LLE_COL={'A corregir':'bk-err','Observado':'bk-warn','Cumple':'bk-ok','Sin evaluar':''};
 
@@ -5037,7 +5042,7 @@ async function renderLlenado(){
     el.innerHTML='<div class="card" style="color:var(--'+(sinPermiso?'text2':'red')+')">'+
       (sinPermiso
         ? '<b>Este informe no está disponible para tu usuario.</b><br><span style="font-size:12px;color:var(--text3)">Lo ven dirección, RRHH y auditoría. No es que no haya registros: es que tu rol no los puede ver.</span>'
-        : 'No se pudo armar el informe: '+relEsc(r.error.message||r.error))+'</div>';
+        : 'No se pudo armar el informe: '+_lleEsc(r.error.message||r.error))+'</div>';
     return;
   }
   var D=Array.isArray(r.data)?r.data[0]:r.data;
@@ -5076,17 +5081,17 @@ var LLE_ORDEN={'A corregir':0,'Observado':1,'Cumple':2,'Sin evaluar':3};
 function _lleBadge(v, imp){
   if(imp){
     var c=v==='A corregir'?'bk-err':v==='Observado'?'bk-warn':v==='Cumple'?'bk-ok':'';
-    return c?('<span class="'+c+'">'+relEsc(v)+'</span>'):('<span style="color:#6b7280">'+relEsc(v)+'</span>');
+    return c?('<span class="'+c+'">'+_lleEsc(v)+'</span>'):('<span style="color:#6b7280">'+_lleEsc(v)+'</span>');
   }
   var col=v==='A corregir'?'var(--red)':v==='Observado'?'#d97706':v==='Cumple'?'var(--green)':'var(--text3)';
-  return '<b style="color:'+col+'">'+relEsc(v)+'</b>';
+  return '<b style="color:'+col+'">'+_lleEsc(v)+'</b>';
 }
 
 // Una fila de persona con las columnas que su área hace falta mirar.
 function _lleFilaArea(p, area, imp){
-  var c='<td>'+relEsc(p.nombre)+'</td><td style="color:'+(imp?'#555':'var(--text3)')+'">'+relEsc(p.cargo)+'</td>';
+  var c='<td>'+_lleEsc(p.nombre)+'</td><td style="color:'+(imp?'#555':'var(--text3)')+'">'+_lleEsc(p.cargo)+'</td>';
   if(area.id==='chof'){
-    c+='<td style="color:'+(imp?'#555':'var(--text3)')+'">'+relEsc(p.unidad)+'</td>'+
+    c+='<td style="color:'+(imp?'#555':'var(--text3)')+'">'+_lleEsc(p.unidad)+'</td>'+
       '<td class="mono">'+_lleNum(p.dias_exigibles)+'</td>'+
       '<td class="mono">'+_lleNum(p.dias_registro)+'</td>'+
       '<td class="mono">'+_lleNum(p.dias_cerrados)+'</td>'+
@@ -5111,7 +5116,7 @@ function _lleFilaArea(p, area, imp){
       '<td class="mono">'+_llePct(p.tasa_fichaje)+'</td>';
   }
   return '<tr>'+c+'<td>'+_lleBadge(p.veredicto,imp)+'</td>'+
-    '<td style="font-size:11px">'+relEsc(p.motivo)+'</td></tr>';
+    '<td style="font-size:11px">'+_lleEsc(p.motivo)+'</td></tr>';
 }
 function _lleCabArea(area){
   var c='<th>Persona</th><th>Cargo</th>';
@@ -5125,10 +5130,10 @@ function _lleCabArea(area){
 // ── LA PANTALLA ──────────────────────────────────────────────────────────────
 function _lleHtml(D, imp){
   if(!D) return '<div class="card" style="color:var(--text3)">Sin datos.</div>';
-  if(D.vacio) return '<div class="card" style="color:var(--text2)">'+relEsc(D.aviso||'No hay días medibles en ese período.')+'</div>';
+  if(D.vacio) return '<div class="card" style="color:var(--text2)">'+_lleEsc(D.aviso||'No hay días medibles en ese período.')+'</div>';
   if(imp) return _llePapel(D);
   var R=D.resumen||{}, P=D.personas||[], F=D.fallas||[], M=D.modulos||[];
-  var aviso=D.aviso?('<div class="card" style="border-left:3px solid #d97706;color:var(--text2);font-size:12px;margin-bottom:10px">⚠️ '+relEsc(D.aviso)+'</div>'):'';
+  var aviso=D.aviso?('<div class="card" style="border-left:3px solid #d97706;color:var(--text2);font-size:12px;margin-bottom:10px">⚠️ '+_lleEsc(D.aviso)+'</div>'):'';
 
   var titular='<div class="card" style="margin-bottom:10px;font-size:13px;line-height:1.55">'+
     'De <b>'+_lleNum(R.empleados)+'</b> empleados activos, <b>'+_lleNum(R.corregir)+'</b> hay que corregir y <b>'+
@@ -5152,10 +5157,10 @@ function _lleHtml(D, imp){
       '<th style="width:28px">#</th><th>Persona</th><th>Cargo</th><th>Qué le pide la app</th><th>Motivo</th><th>Qué se le exige</th>'+
       '</tr></thead><tbody>'+corregir.map(function(p,i){
         return '<tr><td class="mono" style="color:var(--text3)">'+(i+1)+'</td>'+
-          '<td><b>'+relEsc(p.nombre)+'</b></td><td style="color:var(--text3)">'+relEsc(p.cargo)+'</td>'+
-          '<td style="font-size:11px;color:var(--text3)">'+relEsc(p.que_le_toca)+'</td>'+
-          '<td style="font-size:11px;color:var(--red)">'+relEsc(p.motivo)+'</td>'+
-          '<td style="font-size:11px">'+relEsc(p.se_le_exige)+'</td></tr>';
+          '<td><b>'+_lleEsc(p.nombre)+'</b></td><td style="color:var(--text3)">'+_lleEsc(p.cargo)+'</td>'+
+          '<td style="font-size:11px;color:var(--text3)">'+_lleEsc(p.que_le_toca)+'</td>'+
+          '<td style="font-size:11px;color:var(--red)">'+_lleEsc(p.motivo)+'</td>'+
+          '<td style="font-size:11px">'+_lleEsc(p.se_le_exige)+'</td></tr>';
       }).join('')+'</tbody></table></div>';
 
   // 2. El detalle, área por área.
@@ -5173,20 +5178,20 @@ function _lleHtml(D, imp){
     '<div style="font-size:11px;color:var(--text3);margin-bottom:6px">Seguían abiertos al '+formatFecha(D.hasta)+'. «Días reportando» son los días en que el chofer de esa unidad escribió algo.</div>'+
     '<table><thead><tr><th>Unidad</th><th>Tipo</th><th>Último texto del chofer</th><th>Quién lo reportó</th><th>Días abierta</th><th>Días reportando</th></tr></thead><tbody>'+
     F.map(function(f){
-      return '<tr><td>'+relEsc(f.unidad)+'</td><td style="color:var(--text3);font-size:11px">'+relEsc(f.tipo)+'</td>'+
-        '<td style="font-size:11px">'+relEsc(f.ultimo_reporte)+'</td><td style="color:var(--text3);font-size:11px">'+relEsc(f.quien_reporto)+'</td>'+
+      return '<tr><td>'+_lleEsc(f.unidad)+'</td><td style="color:var(--text3);font-size:11px">'+_lleEsc(f.tipo)+'</td>'+
+        '<td style="font-size:11px">'+_lleEsc(f.ultimo_reporte)+'</td><td style="color:var(--text3);font-size:11px">'+_lleEsc(f.quien_reporto)+'</td>'+
         '<td class="mono'+(Number(f.dias_abierta)>30?' rv':'')+'">'+_lleNum(f.dias_abierta)+'</td><td class="mono">'+_lleNum(f.dias_reportando)+'</td></tr>';
     }).join('')+'</tbody></table>');
 
   var mods=!M.length?'':('<h3 style="margin-top:18px">Qué módulo se usa y quién lo llena</h3><table><thead><tr><th>Módulo</th><th>A quién le toca</th><th>Registros</th></tr></thead><tbody>'+
     M.map(function(m){
       var cero=Number(m.registros)===0;
-      return '<tr><td'+(cero?' style="color:var(--red)"':'')+'>'+relEsc(m.modulo)+'</td>'+
-        '<td style="color:var(--text3)">'+relEsc(m.a_quien_toca)+'</td>'+
+      return '<tr><td'+(cero?' style="color:var(--red)"':'')+'>'+_lleEsc(m.modulo)+'</td>'+
+        '<td style="color:var(--text3)">'+_lleEsc(m.a_quien_toca)+'</td>'+
         '<td class="mono'+(cero?' rv':'')+'">'+_lleNum(m.registros)+'</td></tr>';
     }).join('')+'</tbody></table>');
 
-  var adv=(D.advertencias||[]).map(function(a){return '<li style="margin-bottom:3px">'+relEsc(a)+'</li>';}).join('');
+  var adv=(D.advertencias||[]).map(function(a){return '<li style="margin-bottom:3px">'+_lleEsc(a)+'</li>';}).join('');
   var notas=!adv?'':('<h3 style="margin-top:18px">Lo que esta medición no puede decir</h3><ul style="font-size:11px;color:var(--text3);padding-left:16px;line-height:1.5">'+adv+'</ul>');
 
   return aviso+titular+tiles+
@@ -5209,7 +5214,7 @@ function _llePapel(D){
 
   if(D.aviso){
     out+='<div style="border-left:3px solid #d97706;background:#fffbeb;padding:8px 12px;margin-bottom:14px;font-size:10px;color:#92400e">'+
-      '<b>Atención.</b> '+relEsc(D.aviso)+'</div>';
+      '<b>Atención.</b> '+_lleEsc(D.aviso)+'</div>';
   }
 
   // Resumen en una frase, que es lo que se lee primero y a veces lo único.
@@ -5228,10 +5233,10 @@ function _llePapel(D){
     ? '<div style="font-size:11px;color:#15803d">Nadie quedó en «A corregir» en este período.</div>'
     : '<table><thead><tr><th style="width:26px">#</th><th>Persona</th><th>Cargo</th><th>Qué le pide la app</th><th>Motivo</th><th>Qué se le exige</th></tr></thead><tbody>'+
       corregir.map(function(p,i){
-        return '<tr><td class="mono">'+(i+1)+'</td><td><b>'+relEsc(p.nombre)+'</b></td>'+
-          '<td>'+relEsc(p.cargo)+'</td><td style="font-size:10px">'+relEsc(p.que_le_toca)+'</td>'+
-          '<td style="font-size:10px;color:#b91c1c">'+relEsc(p.motivo)+'</td>'+
-          '<td style="font-size:10px">'+relEsc(p.se_le_exige)+'</td></tr>';
+        return '<tr><td class="mono">'+(i+1)+'</td><td><b>'+_lleEsc(p.nombre)+'</b></td>'+
+          '<td>'+_lleEsc(p.cargo)+'</td><td style="font-size:10px">'+_lleEsc(p.que_le_toca)+'</td>'+
+          '<td style="font-size:10px;color:#b91c1c">'+_lleEsc(p.motivo)+'</td>'+
+          '<td style="font-size:10px">'+_lleEsc(p.se_le_exige)+'</td></tr>';
       }).join('')+'</tbody></table>';
 
   // 2 — observados
@@ -5240,9 +5245,9 @@ function _llePapel(D){
     out+=sec('Observados','Lo hacen, pero dejan días sueltos. No es falta grave; es el aviso antes de que lo sea.');
     out+='<table><thead><tr><th>Persona</th><th>Cargo</th><th>Motivo</th><th>Qué se le exige</th></tr></thead><tbody>'+
       obs.map(function(p){
-        return '<tr><td>'+relEsc(p.nombre)+'</td><td>'+relEsc(p.cargo)+'</td>'+
-          '<td style="font-size:10px">'+relEsc(p.motivo)+'</td>'+
-          '<td style="font-size:10px">'+relEsc(p.se_le_exige)+'</td></tr>';
+        return '<tr><td>'+_lleEsc(p.nombre)+'</td><td>'+_lleEsc(p.cargo)+'</td>'+
+          '<td style="font-size:10px">'+_lleEsc(p.motivo)+'</td>'+
+          '<td style="font-size:10px">'+_lleEsc(p.se_le_exige)+'</td></tr>';
       }).join('')+'</tbody></table>';
   }
 
@@ -5253,9 +5258,9 @@ function _llePapel(D){
     out+='<table><thead><tr><th>Persona</th><th>Cargo</th><th>Motivo</th><th>Persona</th><th>Cargo</th><th>Motivo</th></tr></thead><tbody>';
     for(var i=0;i<cumple.length;i+=2){
       var a=cumple[i], b=cumple[i+1];
-      out+='<tr><td>'+relEsc(a.nombre)+'</td><td style="font-size:10px">'+relEsc(a.cargo)+'</td>'+
-        '<td style="font-size:10px">'+relEsc(a.motivo)+'</td>'+
-        (b?('<td>'+relEsc(b.nombre)+'</td><td style="font-size:10px">'+relEsc(b.cargo)+'</td><td style="font-size:10px">'+relEsc(b.motivo)+'</td>')
+      out+='<tr><td>'+_lleEsc(a.nombre)+'</td><td style="font-size:10px">'+_lleEsc(a.cargo)+'</td>'+
+        '<td style="font-size:10px">'+_lleEsc(a.motivo)+'</td>'+
+        (b?('<td>'+_lleEsc(b.nombre)+'</td><td style="font-size:10px">'+_lleEsc(b.cargo)+'</td><td style="font-size:10px">'+_lleEsc(b.motivo)+'</td>')
            :'<td></td><td></td><td></td>')+'</tr>';
     }
     out+='</tbody></table>';
@@ -5267,8 +5272,8 @@ function _llePapel(D){
     out+=sec('Sin evaluar ('+sinev.length+')','No se les pone nota, y acá está la razón de cada uno. Que no tengan nota NO es que estén mal.');
     out+='<table><thead><tr><th>Persona</th><th>Cargo</th><th>Por qué no se evalúa</th></tr></thead><tbody>'+
       sinev.map(function(p){
-        return '<tr><td>'+relEsc(p.nombre)+'</td><td>'+relEsc(p.cargo)+'</td>'+
-          '<td style="font-size:10px">'+relEsc(p.motivo)+'</td></tr>';
+        return '<tr><td>'+_lleEsc(p.nombre)+'</td><td>'+_lleEsc(p.cargo)+'</td>'+
+          '<td style="font-size:10px">'+_lleEsc(p.motivo)+'</td></tr>';
       }).join('')+'</tbody></table>';
   }
 
@@ -5290,9 +5295,9 @@ function _llePapel(D){
       'Seguían abiertos al '+formatFecha(D.hasta)+'. «Días reportando» son los días en que el chofer de esa unidad escribió algo en el checklist.');
     out+='<table><thead><tr><th>Unidad</th><th>Tipo</th><th>Último texto del chofer</th><th>Quién lo reportó</th><th>Días abierta</th><th>Días rep.</th></tr></thead><tbody>'+
       F.map(function(f){
-        return '<tr><td>'+relEsc(f.unidad)+'</td><td style="font-size:10px">'+relEsc(f.tipo)+'</td>'+
-          '<td style="font-size:10px">'+relEsc(f.ultimo_reporte)+'</td>'+
-          '<td style="font-size:10px">'+relEsc(f.quien_reporto)+'</td>'+
+        return '<tr><td>'+_lleEsc(f.unidad)+'</td><td style="font-size:10px">'+_lleEsc(f.tipo)+'</td>'+
+          '<td style="font-size:10px">'+_lleEsc(f.ultimo_reporte)+'</td>'+
+          '<td style="font-size:10px">'+_lleEsc(f.quien_reporto)+'</td>'+
           '<td class="mono'+(Number(f.dias_abierta)>30?' rv':'')+'">'+_lleNum(f.dias_abierta)+'</td>'+
           '<td class="mono">'+_lleNum(f.dias_reportando)+'</td></tr>';
       }).join('')+'</tbody></table>';
@@ -5304,8 +5309,8 @@ function _llePapel(D){
     out+='<table><thead><tr><th>Módulo</th><th>A quién le toca</th><th>Registros</th></tr></thead><tbody>'+
       M.map(function(m){
         var cero=Number(m.registros)===0;
-        return '<tr><td'+(cero?' style="color:#b91c1c;font-weight:700"':'')+'>'+relEsc(m.modulo)+'</td>'+
-          '<td>'+relEsc(m.a_quien_toca)+'</td>'+
+        return '<tr><td'+(cero?' style="color:#b91c1c;font-weight:700"':'')+'>'+_lleEsc(m.modulo)+'</td>'+
+          '<td>'+_lleEsc(m.a_quien_toca)+'</td>'+
           '<td class="mono'+(cero?' rv':'')+'">'+_lleNum(m.registros)+'</td></tr>';
       }).join('')+'</tbody></table>';
   }
@@ -5313,7 +5318,7 @@ function _llePapel(D){
   // 8 — cómo se midió
   out+=sec('Cómo se midió, y qué no puede decir esta medición',
     'Período del '+formatFecha(D.desde)+' al '+formatFecha(D.hasta)+'. Los números salen de los registros de la propia aplicación.');
-  var adv=(D.advertencias||[]).map(function(a){return '<li style="margin-bottom:4px">'+relEsc(a)+'</li>';}).join('');
+  var adv=(D.advertencias||[]).map(function(a){return '<li style="margin-bottom:4px">'+_lleEsc(a)+'</li>';}).join('');
   out+='<ul style="font-size:10px;color:#444;padding-left:16px;line-height:1.55;margin-top:4px">'+adv+
     '<li style="margin-bottom:4px">Con menos de 10 días exigibles no se pone nota: la muestra es demasiado chica para sostener una exigencia.</li>'+
     '</ul>';

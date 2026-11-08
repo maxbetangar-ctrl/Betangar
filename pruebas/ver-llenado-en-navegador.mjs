@@ -28,9 +28,13 @@ import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const AQUI = path.dirname(fileURLToPath(import.meta.url))
-const RAIZ = path.resolve(AQUI, '..')
+// Sirve para CUALQUIER repo de la familia: el módulo de llenado es el mismo en
+// los seis. Sin argumento, revisa el repo donde vive esta prueba.
+//   node pruebas/ver-llenado-en-navegador.mjs ../flotilla-app
+const argRepo = process.argv.slice(2).find(a => !a.startsWith('--'))
+const RAIZ = argRepo ? path.resolve(argRepo) : path.resolve(AQUI, '..')
 const VER = process.argv.includes('--ver')
-const SALIDA = process.env.LLENADO_SALIDA || path.join(RAIZ, 'pruebas', '_salida')
+const SALIDA = process.env.LLENADO_SALIDA || path.join(AQUI, "_salida", path.basename(RAIZ))
 
 let chromium
 try {
@@ -235,7 +239,18 @@ try {
       //    [[norma-una-asercion-mal-escrita-acusa-al-producto]]
       const leido = await hoja.evaluate(() => document.body.innerText)
       ok(!/undefined|NaN|\[object/.test(leido), 'el papel no muestra undefined ni NaN')
-      ok(/Inversiones Betangar/i.test(leido), 'el papel sale con la cabecera de la empresa')
+      // ⛔ La cabecera se comprueba GENÉRICA: esta prueba corre en los seis
+      //    repos y cada empresa tiene su nombre. Antes decía «Inversiones
+      //    Betangar» y daba rojo en los cinco clones por culpa de la aserción,
+      //    no del producto. Lo que debe estar es el bloque de marca: el RIF y
+      //    un nombre no vacío, los pone `abrirImpresionPremium()`.
+      const marca = await hoja.evaluate(() => {
+        const h = document.querySelector('.hdr .empresa')
+        return h ? { nom: (h.querySelector('.nombre') || {}).textContent || '',
+                     rif: (h.querySelector('.rif') || {}).textContent || '' } : null
+      })
+      ok(!!marca && marca.nom.trim().length > 2 && /RIF/i.test(marca.rif),
+        `el papel sale con la cabecera de la empresa (${marca ? marca.nom.trim().slice(0, 28) : 'sin cabecera'})`)
       await hoja.screenshot({ path: path.join(SALIDA, 'llenado-4-papel.png'), fullPage: false })
       await hoja.close()
     }
