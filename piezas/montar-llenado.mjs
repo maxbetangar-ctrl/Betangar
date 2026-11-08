@@ -38,6 +38,12 @@ let html = fs.readFileSync(fhtml, 'utf8')
 const crlf = (s) => js.includes('\r\n') ? s.replace(/\r?\n/g, '\r\n') : s
 const crlfH = (s) => html.includes('\r\n') ? s.replace(/\r?\n/g, '\r\n') : s
 
+// ⛔ EL SELLO LLEVA LA HORA. Con solo la fecha, reaplicar el MISMO día dejaba el
+//    `?v=` igual: el app.js cambiaba y el navegador seguía sirviendo el viejo de
+//    su caché. Lo cazó el hook de pre-commit de los clones, no yo.
+//    [[norma-un-reemplazo-por-valor-falla-en-silencio]]
+const sello = () => new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '')
+
 // ── Si ya lo tiene, se ACTUALIZA el módulo (no se duplica ni se deja viejo) ──
 // Sin esto, mejorar el módulo obligaba a editar seis copias a mano, que es
 // justo lo que esta pieza existe para evitar.
@@ -68,7 +74,7 @@ if (js.includes('function renderLlenado')) {
   }
   const js3 = js.slice(0, marcaIni) + crlf(modulo).trimEnd() + js.slice(cierre)
   fs.writeFileSync(fjs + '.tmp', js3, 'utf8'); fs.renameSync(fjs + '.tmp', fjs)
-  const sello2 = new Date().toISOString().slice(0, 10).replace(/-/g, '') + '-llenado'
+  const sello2 = sello()
   html = html.replace(/app\.js\?v=[0-9a-zA-Z-]+/g, 'app.js?v=' + sello2)
   fs.writeFileSync(fhtml + '.tmp', html, 'utf8'); fs.renameSync(fhtml + '.tmp', fhtml)
   const v = fs.readFileSync(fjs, 'utf8')
@@ -155,9 +161,9 @@ poner('ítem del menú', !!anclaMenu, () => {
 })
 
 // 7 — romper la caché. Por PATRÓN, nunca por el valor que uno cree que hay.
-const sello = new Date().toISOString().slice(0, 10).replace(/-/g, '') + '-llenado'
+const selloNuevo = sello()
 poner('bump de caché', /app\.js\?v=[0-9a-zA-Z-]+/.test(html), () => {
-  html = html.replace(/app\.js\?v=[0-9a-zA-Z-]+/g, 'app.js?v=' + sello)
+  html = html.replace(/app\.js\?v=[0-9a-zA-Z-]+/g, 'app.js?v=' + selloNuevo)
 })
 
 // ── Escribir y COMPROBAR ────────────────────────────────────────────────────
@@ -174,8 +180,8 @@ comprobar('NAV_LABELS', js2.includes("llenado:'Llenado de la app'"))
 comprobar('enganche sp()', js2.includes("if(id==='llenado')"))
 comprobar('página p-llenado', html2.includes('id="p-llenado"'))
 comprobar('ítem mi-llenado', html2.includes('id="mi-llenado"'))
-comprobar('caché bumpeada', html2.includes('app.js?v=' + sello))
+comprobar('caché bumpeada', html2.includes('app.js?v=' + selloNuevo))
 
 console.log(`${nombre}: ${pasos.join(' · ')}`)
 if (fallos.length) { console.error(`  ⛔ NO quedó: ${fallos.join(', ')}`); process.exit(1) }
-console.log(`  ✅ las 8 comprobaciones pasan · ?v=${sello}`)
+console.log(`  ✅ las 8 comprobaciones pasan · ?v=${selloNuevo}`)
