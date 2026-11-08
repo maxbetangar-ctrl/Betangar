@@ -31,3 +31,6 @@ test/_pantalla-*.png
 # exactamente lo que se sacó del repo al guardar el sello en la base.
 # El sello vive en `empresa_sello`, detrás de RLS. Acá no entra ni su foto.
 pruebas/_sello/
+
+# Capturas de las pruebas en navegador: llevan datos reales de la pantalla.
+pruebas/_salida/

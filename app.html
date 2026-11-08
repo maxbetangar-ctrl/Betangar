@@ -341,6 +341,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
     <div class="menu-item" onclick="sp('inventario')" id="mi-inventario">📦 Inventario</div>
     <div class="menu-group">RRHH</div>
     <div class="menu-item" onclick="sp('empleados')" id="mi-empleados">👤 Personal</div>
+    <div class="menu-item" onclick="sp('llenado')" id="mi-llenado">📝 Llenado de la app</div>
     <div class="menu-item" onclick="sp('unidades')" id="mi-unidades">🚛 Unidades y Equipos</div>
     <div class="menu-group">ANALISIS</div>
     <div class="menu-item" onclick="abrirAnalisis()" id="mi-ranking">📊 Analisis</div>
@@ -3159,6 +3160,37 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
   <div id="inf-body"><div style="text-align:center;color:var(--text3);padding:30px">Cargando…</div></div>
 </div>
 
+<!-- ══════════════════════════════════════════════════════════════════════════════════════════════
+     LLENADO DE LA APP POR EMPLEADO — el que se lleva a la reunión con el personal.
+     Máximo, 08/11/2026: «que yo lo pueda imprimir desde la app cada vez que lo necesite por
+     filtro de fechas que yo defina por parametros».
+     ⛔ La NOTA de cada persona NO se calcula acá: la calcula `btg_informe_llenado()` en la base.
+        Esta pantalla sólo dibuja lo que esa función devuelve.
+══════════════════════════════════════════════════════════════════════════════════════════════ -->
+<div class="page" id="p-llenado">
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;margin-bottom:10px">
+    <div>
+      <div style="font-size:18px;font-weight:800;color:var(--text1)">📝 Llenado de la app por empleado</div>
+      <div style="font-size:11px;color:var(--text3)">Quién llena lo que su cargo le exige, y quién no. Elegí el período y se recalcula todo.</div>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <input type="date" class="fc" id="lle-des" style="width:145px" onchange="renderLlenado()">
+      <input type="date" class="fc" id="lle-hta" style="width:145px" onchange="renderLlenado()">
+      <select class="fc" id="lle-rapido" style="width:150px" onchange="llenadoRapido(this.value)">
+        <option value="">Período…</option>
+        <option value="7">Últimos 7 días</option>
+        <option value="30">Últimos 30 días</option>
+        <option value="mes">Este mes</option>
+        <option value="mespas">Mes pasado</option>
+        <option value="todo">Todo lo medible</option>
+      </select>
+      <button class="btn btn-s btn-sm" onclick="renderLlenado()">Actualizar</button>
+      <button class="btn btn-g btn-sm" onclick="imprimirLlenado()">🖨️ Imprimir / PDF</button>
+    </div>
+  </div>
+  <div id="lle-body"><div style="text-align:center;color:var(--text3);padding:30px">Cargando…</div></div>
+</div>
+
 <div class="page" id="p-relacion">
   <div id="subnav-relacion"></div>
   <div style="font-size:18px;font-weight:800;color:var(--text1);margin-bottom:4px">📋 Relación de gastos y cobros</div>
@@ -3240,7 +3272,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
      Excel sale con el defecto ya corregido. Pasó midiendo este mismo cambio el
      23/09: dos corridas dieron un .xlsx idéntico byte por byte. -->
 <script src="maxware-excel.js?v=20261106-excel"></script>
-<script src="app.js?v=20261107-2141"></script>
+<script src="app.js?v=20261108-0530"></script>
 
 <!-- Modal global -->
 <div id="modal" class="moverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9990;align-items:center;justify-content:center;padding:16px">

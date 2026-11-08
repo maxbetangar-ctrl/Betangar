@@ -524,6 +524,16 @@ var PERMISOS={
   if(PERMISOS[r] && PERMISOS[r].indexOf('recordatorios')<0) PERMISOS[r].push('recordatorios');
 });
 
+// Informe de llenado — los MISMOS roles que `btg_ve_llenado_o_falla()` en la base.
+// Si esta lista dejara entrar a uno que el servidor rechaza, la persona abriría la
+// pantalla y recibiría un error 42501 sin entender por qué; si dejara afuera a uno
+// que el servidor acepta, tendría el permiso y ninguna puerta.
+// ⚠️ Son dos listas a mano y se desincronizan: si cambiás una, cambiá la otra, y
+//    la que manda SIEMPRE es la de la base. [[norma-dos-listas-a-mano-se-desincronizan]]
+['superadmin','admin','rrhh','directivo','operativo','auditor'].forEach(function(r){
+  if(PERMISOS[r] && PERMISOS[r].indexOf('llenado')<0) PERMISOS[r].push('llenado');
+});
+
 // MaxAgenda — quien lleva agenda, mas quien la reparte. Va ANTES de
 // `PERMISOS.revisor = PERMISOS.superadmin.slice()` para que el revisor lo herede
 // solo: fuente unica, igual que el resto.
@@ -590,7 +600,8 @@ var NAV_LABELS={
   documentos:'Documentos',inventario:'Inventario',llantas:'Llantas',metas:'Metas',
   empleados:'Empleados',unidades:'Unidades y Equipos',prestamos:'Prestamos',multas:'Multas',stats:'Estadisticas',rentabilidad:'Rentabilidad x Camion',salud:'Salud de Datos',multicontrato:'Operación / Contratos',
   porteria:'Porteria',mecanico:'Mecanico',checklist:'Check List',operativo:'Operativo',ranking:'Ranking',contratos:'Contratos',usuarios:'Usuarios',auditoria:'Auditoria',
-  recordatorios:'Recordatorios',config:'Configuracion',galeria:'Galeria','mensajes-wa':'Mensajes WA',cxp:'Cuentas x Pagar',deudas:'Deudas',cajachica:'Caja Chica',entregas:'Trazabilidad (Entregas, Mant., Puntos)'
+  recordatorios:'Recordatorios',config:'Configuracion',galeria:'Galeria','mensajes-wa':'Mensajes WA',cxp:'Cuentas x Pagar',deudas:'Deudas',cajachica:'Caja Chica',entregas:'Trazabilidad (Entregas, Mant., Puntos)',
+  llenado:'Llenado de la app'
 };
 
 // ⛔ EL LOGO DE LOS DOCUMENTOS, UNA SOLA VEZ. Estaba pegado 5 veces dentro de app.js
@@ -1910,7 +1921,7 @@ async function bncRenderCuentas(){
 // MODO: si hay tanques configurados ➜ auditoría por CUBICACIÓN (Betangar). Si no ➜ modo SURTIDAS
 // (Flotilla). Se decide por los datos, nunca por el nombre de la empresa: es un clon.
 // ══════════════════════════════════════════════════════════════════════════════════════════════
-var AC_TANQUES=[], AC_MED=[], AC_GASOIL=[], AC_SURTIDAS=[], AC_CK=[], AC_JORNADAS=[], AC_ANOM=[], AC_META={}, AC_SALIDAS_TANQUE=[];
+var AC_TANQUES=[], AC_MED=[], AC_GASOIL=[], AC_SURTIDAS=[], AC_CK=[], AC_JORNADAS=[], AC_ANOM=[], AC_META={}, AC_SALIDAS_TANQUE=[], AC_PERIODOS=[];
 var _acCargando=false;
 
 // ── RUIDO DE LA MEDICIÓN: la tolerancia sale del INSTRUMENTO, no de un número redondo ─────────
@@ -2430,7 +2441,13 @@ async function acCargar(desde,hasta){
     supabase.from('configuracion').select('valor').eq('clave','aud_comb_avisar').maybeSingle(),
     // Gasoil que sale del galpón y NO va a un camión (planta eléctrica, préstamo, trasvase).
     // Hasta el 18/08/2026 no había dónde registrarlo y el cuadre lo contaba como faltante.
-    supabase.from('salidas_tanque').select('*').gte('fecha',desdeExt).lte('fecha',hasta)
+    supabase.from('salidas_tanque').select('*').gte('fecha',desdeExt).lte('fecha',hasta),
+    // ⛔ LOS PERÍODOS DE FACTURACIÓN ENTRAN AL MOTOR. Hasta el 08/11/2026 la auditoría solo
+    //    verificaba el combustible contra el TANQUE. La factura de la estación es un testigo
+    //    INDEPENDIENTE —la plata contra la operación— y no se estaba usando.
+    //    📌 Medido antes de construirlo: el cruce detecta 16.816 L facturados y no asignados a
+    //      ninguna unidad antes del 29/08, y da CERO en los 16 períodos siguientes. Funciona.
+    supabase.from('combustible_periodos').select('*')
   ];
   var r=await Promise.all(q);
   if(r[0].error)throw new Error('tanques: '+r[0].error.message);
@@ -2465,6 +2482,8 @@ async function acCargar(desde,hasta){
   var _c=null; try{ _c=(r[8]&&r[8].data)?String(r[8].data.valor).replace(/"/g,'').slice(0,10):null; }catch(e){}
   AC_META.corteSurtidas=_c||'';
   AC_SOMBRA=(r[9]&&r[9].data)||[];
+  // El último del arreglo: los períodos de facturación de la estación (ver R16).
+  AC_PERIODOS=(r[r.length-1]&&r[r.length-1].data)||[];
   if(r[9]&&r[9].error)console.log('sombra auditoria:',r[9].error.message);
   var _av=null; try{ _av=(r[10]&&r[10].data)?String(r[10].data.valor).replace(/"/g,'').toLowerCase():null; }catch(e){}
   AC_META.avisarSustraccion=(_av==='on');
@@ -3457,6 +3476,61 @@ function _acAnomalias(todas,desde,hasta,ref){
     // El mismo umbral que R4, del otro lado: el mayor entre 2·TOL y el 35% de lo esperado.
     if(sobra>Math.max(2*(j.tol||0),espera*0.35))_r4c.push({j:j,sobra:sobra,espera:espera,ref:refU});
   });
+
+  // ⛔ R16 VA FUERA DEL BUCLE DE JORNADAS, y no es un detalle de estilo: la primera
+  //    version quedo ADENTRO y disparo **37.827 veces** (1.400 jornadas x 27 periodos) en
+  //    vez de 8. `node --check` no lo ve y la prueba unitaria tampoco —pedia "mas de cero"—:
+  //    lo cazó la medición ANTES/DESPUES sobre los datos reales.
+  //    📌 Una regla que mira PERIODOS no puede vivir en un bucle que recorre DIAS.
+  // ══ R16 — LA FACTURA DE LA ESTACIÓN CONTRA LO ASIGNADO A LAS UNIDADES ══════════════════════
+  // ⛔ POR QUÉ ES DISTINTA A TODAS LAS DEMÁS. Cada regla de este módulo verifica el combustible
+  //    contra el TANQUE: la varilla, la cubicación, la tolerancia. Si la varilla se lee mal, todo
+  //    el módulo se equivoca a la vez. Esta mira la PLATA contra la OPERACIÓN — la estación
+  //    facturó N litros, ¿están los N repartidos entre unidades? — y no toca una sola lectura.
+  //    **Es el único testigo del módulo que no depende de la regla.**
+  //
+  // 📌 MEDIDO ANTES DE ESCRIBIRLA, sobre los 27 períodos cargados: detecta **16.816 L facturados
+  //    y no asignados a ninguna unidad** en 8 períodos hasta el 29/08, y da **CERO** en los 16
+  //    períodos siguientes. O sea que el defecto existió, se corrigió, y la regla lo habría visto
+  //    el mismo día en vez de cuatro meses después.
+  //
+  // ⚠️ NO ACUSA A NADIE. Un litro facturado y no asignado es un agujero de REGISTRO: puede ser
+  //    una surtida que no se cargó, una factura que incluye otra cosa, o un período mal fechado.
+  //    Dice el número y a quién preguntarle. [[norma-una-asercion-mal-escrita-acusa-al-producto]]
+  // ⚠️ Y se calla cuando no puede saber: sin períodos cargados no hay nada que comparar, y eso
+  //    NO es «todo cuadra». [[norma-falta-de-dato-no-es-un-dato]]
+  (AC_PERIODOS||[]).forEach(function(p){
+    var lf=_acNum(p.litros_facturados); if(lf==null||lf<=0)return;
+    if(!p.desde||!p.hasta)return;
+    var d=String(p.desde).slice(0,10), h=String(p.hasta).slice(0,10);
+    // Solo se opina de períodos DENTRO del rango que se está auditando: si la pantalla mira
+    // octubre, un descuadre de julio no es de este informe.
+    if(h<desde||d>hasta)return;
+    var est=String(p.estacion_nombre||'').trim();
+    var asignado=(AC_SURTIDAS||[]).reduce(function(s,x){
+      var f=String(x.fecha||'').slice(0,10);
+      if(f<d||f>h)return s;
+      // El nombre de la estación se compara sin distinguir mayúsculas: en `surtidas` lo escribe
+      // el chofer y en `combustible_periodos` lo carga la oficina.
+      if(est&&String(x.estacion_nombre||'').trim().toLowerCase()!==est.toLowerCase())return s;
+      return s+(_acNum(x.litros)||0);
+    },0);
+    var dif=Math.round((lf-asignado)*100)/100;
+    // El umbral no es la tolerancia de la regla: acá no hay varilla. Un litro de diferencia es
+    // un litro de diferencia. Se deja un margen chico por redondeos de factura.
+    if(Math.abs(dif)<=2)return;
+    add(Math.abs(dif)>200?'alta':'media','R16','La factura de la estación no cuadra con lo asignado a las unidades',
+      (dif>0
+        ? ('La estación '+_fx(est||'(sin nombre)')+' facturó '+_acFmt(lf,0)+' L del '+formatFecha(d)+' al '+formatFecha(h)+
+           ', y en el sistema solo hay '+_acFmt(asignado,0)+' L repartidos entre unidades: faltan '+_acFmt(dif,0)+' L por asentar'+$(dif)+'. ')
+        : ('A las unidades se les asignaron '+_acFmt(asignado,0)+' L de la estación '+_fx(est||'(sin nombre)')+
+           ' del '+formatFecha(d)+' al '+formatFecha(h)+', pero la factura dice '+_acFmt(lf,0)+' L: hay '+_acFmt(-dif,0)+' L de más. '))+
+      'Esta comprobación NO usa la regla del tanque: compara la factura contra las surtidas, así que un error de medición no puede causarla. '+
+      'Lo más común es una surtida que no se cargó, o un período con las fechas corridas. '+
+      'Mientras no cuadre, el costo por kilómetro de esas unidades está mal.',
+      '',h,dif,'');
+  });
+
   _r4c.forEach(function(x){
     var j=x.j;
     var repite=_r4c.filter(function(y){
@@ -4591,6 +4665,174 @@ async function imprimirInforme(){
     'Del '+formatFecha(d)+' al '+formatFecha(h),
     stats, _infHtml(INF_DATA,d,h,true)+pie);
 }
+// ══════════════════════════════════════════════════════════════════════════════════════════════
+// LLENADO DE LA APP POR EMPLEADO
+//
+// ⛔ ACÁ NO SE CALCULA NINGUNA NOTA. El veredicto de cada persona, su motivo y qué exigirle los
+//    arma `btg_informe_llenado(p_desde, p_hasta)` en la base. Si la regla se escribiera también
+//    acá serían dos listas a mano, y se desincronizan [[norma-dos-listas-a-mano-se-desincronizan]].
+//    Esta pieza pide, dibuja e imprime. Nada más.
+// ══════════════════════════════════════════════════════════════════════════════════════════════
+var LLE_DATA=null;
+var LLE_COL={'A corregir':'bk-err','Observado':'bk-warn','Cumple':'bk-ok','Sin evaluar':''};
+
+// El primer día que el checklist dice QUIÉN lo llenó. Antes guardaba el nombre de una lista fija
+// camión→chofer. La base aplica el mismo piso; acá sólo sirve para el botón «Todo lo medible».
+var LLE_PISO='2026-09-12';
+
+function llenadoRapido(v){
+  if(!v)return;
+  var hoy=new Date(), f=function(d){ return d.toISOString().slice(0,10); };
+  var d,h=f(hoy);
+  if(v==='7'||v==='30'){ var x=new Date(hoy); x.setDate(x.getDate()-(Number(v)-1)); d=f(x); }
+  else if(v==='mes'){ d=f(new Date(hoy.getFullYear(),hoy.getMonth(),1)); }
+  else if(v==='mespas'){
+    d=f(new Date(hoy.getFullYear(),hoy.getMonth()-1,1));
+    h=f(new Date(hoy.getFullYear(),hoy.getMonth(),0));
+  }
+  else if(v==='todo'){ d=LLE_PISO; }
+  if(d){ sv('lle-des',d); sv('lle-hta',h); renderLlenado(); }
+}
+
+async function renderLlenado(){
+  var el=g('lle-body'); if(!el)return;
+  if(!(DB_READY&&supabase)){ el.innerHTML='<div class="card" style="color:var(--text3)">Conectá la base.</div>'; return; }
+  var hoy=new Date().toISOString().slice(0,10);
+  if(g('lle-des')&&!gv('lle-des'))sv('lle-des',LLE_PISO);
+  if(g('lle-hta')&&!gv('lle-hta'))sv('lle-hta',hoy);
+  var d=gv('lle-des')||LLE_PISO, h=gv('lle-hta')||hoy;
+  el.innerHTML='<div style="text-align:center;color:var(--text3);padding:30px">Midiendo el período…</div>';
+  var r=await _rpc('btg_informe_llenado',{p_desde:d,p_hasta:h});
+  if(r.error){
+    LLE_DATA=null;
+    // ⛔ «Sin permiso» y «sin datos» NO se dicen igual. La base levanta 42501 a propósito
+    //    para que esto se pueda distinguir; si acá se mostrara una tabla vacía, el jefe
+    //    concluiría que nadie llenó nunca.
+    var sinPermiso=(r.error.code==='42501'||/permiso/i.test(r.error.message||''));
+    el.innerHTML='<div class="card" style="color:var(--'+(sinPermiso?'text2':'red')+')">'+
+      (sinPermiso
+        ? '<b>Este informe no está disponible para tu usuario.</b><br><span style="font-size:12px;color:var(--text3)">Lo ven dirección, RRHH y auditoría. No es que no haya registros: es que tu rol no los puede ver.</span>'
+        : 'No se pudo armar el informe: '+relEsc(r.error.message||r.error))+'</div>';
+    return;
+  }
+  var D=Array.isArray(r.data)?r.data[0]:r.data;
+  // Con QUÉ fechas se armó, para que imprimir no mezcle cabecera de un período con números de otro.
+  if(D){ D._d=d; D._h=h; }
+  LLE_DATA=D;
+  el.innerHTML=_lleHtml(D,false);
+}
+
+function _llePct(n){ return (Math.round(Number(n||0)*1000)/10).toLocaleString('es-VE')+'%'; }
+function _lleNum(n){ return Number(n||0).toLocaleString('es-VE'); }
+
+// `imp` = true cuando el HTML va al papel: ahí no van los buscadores ni los colores de pantalla.
+function _lleHtml(D, imp){
+  if(!D) return '<div class="card" style="color:var(--text3)">Sin datos.</div>';
+  if(D.vacio) return '<div class="card" style="color:var(--text2)">'+relEsc(D.aviso||'No hay días medibles en ese período.')+'</div>';
+  var R=D.resumen||{}, P=D.personas||[], F=D.fallas||[], M=D.modulos||[];
+  var aviso=D.aviso?('<div class="card" style="border-left:3px solid var(--amber,#d97706);color:var(--text2);font-size:12px;margin-bottom:10px">⚠️ '+relEsc(D.aviso)+'</div>'):'';
+
+  // El titular: el número que contesta la pregunta de la reunión.
+  var titular='<div class="card" style="margin-bottom:10px;font-size:13px;line-height:1.55">'+
+    'De <b>'+_lleNum(R.empleados)+'</b> empleados activos, <b>'+_lleNum(R.corregir)+'</b> hay que corregir y <b>'+
+    _lleNum(R.observado)+'</b> están observados. Los choferes cerraron <b>'+_lleNum(R.cierre_pct)+'%</b> de los días que trabajaron'+
+    (F.length?(', y <b>'+_lleNum(F.length)+'</b> reportes que ellos escribieron seguían sin cerrar al '+formatFecha(D.hasta)+'.'):'.')+
+    ((Number(R.firmas_mecanico)===0&&Number(R.firmas_supervisor)===0)
+      ? ' <b>Nadie firmó el checklist después del chofer</b> en todo el período.' : '')+
+    '</div>';
+
+  var tiles='<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">'+
+    _lleTile('Cumple',R.cumple,'var(--green)')+
+    _lleTile('Observado',R.observado,'#d97706')+
+    _lleTile('A corregir',R.corregir,'var(--red)')+
+    _lleTile('Sin evaluar',R.sin_evaluar,'var(--text3)')+
+    _lleTile('Días que operó',R.dias_opero,'var(--text1)')+
+    _lleTile('Checklists',R.checklists,'var(--text1)')+
+    '</div>';
+
+  var filas=P.map(function(p){
+    var bk=LLE_COL[p.veredicto]||'';
+    return '<tr>'+
+      '<td class="mono" style="color:var(--text3)">'+relEsc(p.id)+'</td>'+
+      '<td>'+relEsc(p.nombre)+'</td>'+
+      '<td style="color:var(--text3)">'+relEsc(p.cargo)+'</td>'+
+      '<td>'+(imp?('<span class="'+bk+'">'+relEsc(p.veredicto)+'</span>')
+                 :('<b style="color:'+(p.veredicto==='A corregir'?'var(--red)':p.veredicto==='Observado'?'#d97706':p.veredicto==='Cumple'?'var(--green)':'var(--text3)')+'">'+relEsc(p.veredicto)+'</b>'))+'</td>'+
+      '<td style="color:var(--text3);font-size:11px">'+relEsc(p.que_le_toca)+'</td>'+
+      '<td style="font-size:11px">'+relEsc(p.motivo)+'</td>'+
+      '<td style="font-size:11px">'+relEsc(p.se_le_exige)+'</td>'+
+      '</tr>';
+  }).join('');
+
+  var tabla='<h3>Evaluación persona por persona</h3>'+
+    '<div style="font-size:11px;color:var(--text3);margin-bottom:6px">De peor a mejor. Cada quien se mide contra lo que la app le pide a su cargo, y sólo sobre los días en que ya estaba trabajando. Un día libre no cuenta como falta.</div>'+
+    '<table><thead><tr><th>ID</th><th>Persona</th><th>Cargo</th><th>Veredicto</th><th>Qué le pide la app</th><th>Motivo</th><th>Qué se le exige</th></tr></thead><tbody>'+filas+'</tbody></table>';
+
+  var chof=P.filter(function(p){return p.cargo==='Chofer';});
+  var tablaCh=!chof.length?'':('<h3>Detalle de los choferes</h3><table><thead><tr>'+
+    '<th>Chofer</th><th>Unidad</th><th>Exigibles</th><th>Registró</th><th>Cerrados</th><th>Sin cerrar</th><th>% cierre</th><th>Fichó sin llenar</th><th>Reportó algo</th><th>Viajes</th><th>Surtidas</th>'+
+    '</tr></thead><tbody>'+chof.map(function(c){
+      return '<tr><td>'+relEsc(c.nombre)+'</td><td style="color:var(--text3)">'+relEsc(c.unidad)+'</td>'+
+        '<td class="mono">'+_lleNum(c.dias_exigibles)+'</td><td class="mono">'+_lleNum(c.dias_registro)+'</td>'+
+        '<td class="mono">'+_lleNum(c.dias_cerrados)+'</td><td class="mono'+(Number(c.dias_sin_cerrar)>2?' rv':'')+'">'+_lleNum(c.dias_sin_cerrar)+'</td>'+
+        '<td class="mono">'+_llePct(c.cierre)+'</td><td class="mono'+(Number(c.ficho_sin_checklist)>2?' rv':'')+'">'+_lleNum(c.ficho_sin_checklist)+'</td>'+
+        '<td class="mono">'+_lleNum(c.dias_con_obs)+'</td><td class="mono">'+_lleNum(c.viajes)+'</td><td class="mono">'+_lleNum(c.surtidas)+'</td></tr>';
+    }).join('')+'</tbody></table>');
+
+  var tablaFa=!F.length?'':('<h3>Lo que el chofer reporta y nadie cierra</h3>'+
+    '<div style="font-size:11px;color:var(--text3);margin-bottom:6px">Seguían abiertos al '+formatFecha(D.hasta)+'. «Días reportando» son los días en que el chofer de esa unidad escribió algo.</div>'+
+    '<table><thead><tr><th>Unidad</th><th>Tipo</th><th>Último texto del chofer</th><th>Quién lo reportó</th><th>Días abierta</th><th>Días reportando</th></tr></thead><tbody>'+
+    F.map(function(f){
+      return '<tr><td>'+relEsc(f.unidad)+'</td><td style="color:var(--text3);font-size:11px">'+relEsc(f.tipo)+'</td>'+
+        '<td style="font-size:11px">'+relEsc(f.ultimo_reporte)+'</td><td style="color:var(--text3);font-size:11px">'+relEsc(f.quien_reporto)+'</td>'+
+        '<td class="mono'+(Number(f.dias_abierta)>30?' rv':'')+'">'+_lleNum(f.dias_abierta)+'</td><td class="mono">'+_lleNum(f.dias_reportando)+'</td></tr>';
+    }).join('')+'</tbody></table>');
+
+  var tablaMo=!M.length?'':('<h3>Qué módulo se usa y quién lo llena</h3><table><thead><tr><th>Módulo</th><th>A quién le toca</th><th>Registros</th></tr></thead><tbody>'+
+    M.map(function(m){
+      var cero=Number(m.registros)===0;
+      return '<tr><td'+(cero?' style="color:var(--red)"':'')+'>'+relEsc(m.modulo)+'</td>'+
+        '<td style="color:var(--text3)">'+relEsc(m.a_quien_toca)+'</td>'+
+        '<td class="mono'+(cero?' rv':'')+'">'+_lleNum(m.registros)+'</td></tr>';
+    }).join('')+'</tbody></table>');
+
+  // ⛔ Lo que el informe NO puede decir viaja CON el informe, no en la cabeza de quien lo armó.
+  var adv=(D.advertencias||[]).map(function(a){return '<li style="margin-bottom:3px">'+relEsc(a)+'</li>';}).join('');
+  var notas=!adv?'':('<h3>Lo que esta medición no puede decir</h3><ul style="font-size:11px;color:'+(imp?'#555':'var(--text3)')+';padding-left:16px;line-height:1.5">'+adv+'</ul>');
+
+  return aviso+(imp?'':titular)+(imp?'':tiles)+tabla+tablaCh+tablaFa+tablaMo+notas;
+}
+
+function _lleTile(lbl,val,col){
+  return '<div class="card" style="flex:1;min-width:110px;padding:10px 12px;margin:0">'+
+    '<div style="font-size:10px;text-transform:uppercase;letter-spacing:.6px;color:var(--text3)">'+lbl+'</div>'+
+    '<div style="font-size:22px;font-weight:900;color:'+col+';font-family:var(--m)">'+_lleNum(val)+'</div></div>';
+}
+
+async function imprimirLlenado(){
+  var hoy=new Date().toISOString().slice(0,10);
+  var d=gv('lle-des')||LLE_PISO, h=gv('lle-hta')||hoy;
+  // ⛔ LA CABECERA Y LOS NÚMEROS TIENEN QUE SER DEL MISMO PERÍODO. Los `input[type=date]` disparan
+  //    `change` al PERDER EL FOCO: si alguien escribe una fecha y hace clic directo en «Imprimir»,
+  //    el clic dispara el change (que arranca renderLlenado, asíncrono) y acto seguido esta
+  //    función, que leería las fechas NUEVAS y los números VIEJOS. Mismo bug que tuvo
+  //    `imprimirInforme()`: sale un PDF que dice un período y muestra otro, y no hay forma de
+  //    notarlo mirándolo.
+  if(!LLE_DATA||LLE_DATA._d!==d||LLE_DATA._h!==h) await renderLlenado();
+  if(!LLE_DATA||LLE_DATA._d!==d||LLE_DATA._h!==h){ alert('No se pudo armar el informe para ese período.'); return; }
+  var R=LLE_DATA.resumen||{};
+  var stats=
+    mkStat('Cumple',_lleNum(R.cumple),'hace lo que le toca','verde')+
+    mkStat('Observado',_lleNum(R.observado),'deja días sueltos','amari')+
+    mkStat('A corregir',_lleNum(R.corregir),'exigirle en la reunión','rojo')+
+    mkStat('Sin evaluar',_lleNum(R.sin_evaluar),'entró hace poco o no le toca','azul')+
+    mkStat('Cierre del checklist',_lleNum(R.cierre_pct)+'%','de los días trabajados','azul')+
+    mkStat('Días que operó',_lleNum(R.dias_opero),_lleNum(R.checklists)+' checklists','azul');
+  abrirImpresionPremium('Llenado de la app por empleado',
+    'Del '+formatFecha(LLE_DATA.desde)+' al '+formatFecha(LLE_DATA.hasta),
+    stats, _lleHtml(LLE_DATA,true), {lbl:'Informe'});
+}
+
 var REL_TAB='pend', REL_CACHE={};
 // El nombre en castellano de cada categoría. Es la MISMA lista que usa el Excel de la relación
 // (herramientas/relacion-gastos-excel.mjs): si se agrega una acá, hay que agregarla allá.
@@ -5258,6 +5500,7 @@ function sp(id){
   closeMenu();
   if(id==='planilla'){try{actualizarUltimaPlanilla();}catch(e){}}
   if(id==='requisitorio'){try{renderRequisitorio();}catch(e){console.log('[requisitorio]',e&&e.message);}}
+  if(id==='llenado'){try{renderLlenado();}catch(e){console.log('[llenado]',e&&e.message);}}
   if(id==='histfallas'){try{hfPoblarUnidades();renderFallasReparadas();renderMantSubnav('histfallas');}catch(e){console.log('[histfallas]',e&&e.message);}}
   try{
     if(id==='dashboard'){
