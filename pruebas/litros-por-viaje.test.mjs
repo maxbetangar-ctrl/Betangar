@@ -126,6 +126,51 @@ const num = (x) => { const v = parseFloat(x); return isFinite(v) ? v : null }
      'contando anomalías R11, que miden kilómetros y no días')
 }
 
+// ── 1c. ⛔ EL QUE LLENA EL TANQUE Y COMPARTE CAMIÓN NO PUEDE QUEDAR MARCADO ──────
+//
+// 🔴 EL CASO REAL que lo destapó (08/11/2026). Un chofer manejó 68 días de un camión
+//    y cargó los 4.588 L del período. Otros manejaron 14 días, **1.758 km, sin cargar
+//    una gota**. El método le cargó a él los litros y a ellos los kilómetros: su km/L
+//    salía 1,83 —el peor de la flota— y el informe lo señalaba con un +25%.
+//    Sumando esos km a los litros que de verdad los movieron da **2,21**, y con eso
+//    deja de estar señalado. El número no hablaba de cómo maneja: hablaba de con
+//    quién comparte el camión.
+//
+// ⛔ Y el dueño ya tenía una sospecha sobre esa persona. Un informe que le hubiera
+//    dado la razón con un número sesgado habría puesto a alguien en una reunión por
+//    un reparto mal hecho. [[norma-una-asercion-mal-escrita-acusa-al-producto]]
+//
+// ⚠️ NO se reparte el combustible «proporcionalmente»: eso sería inventar quién quemó
+//    qué. Se MIDE cuánto kilómetro ajeno hay en cada cuenta, y si pesa, se dice.
+{
+  const REGS = [], J = []
+  for (let d = 1; d <= 31; d++) {
+    const fe = '2026-10-' + String(d).padStart(2, '0')
+    // ANA maneja el U07 casi siempre y es la que carga el tanque.
+    // BRUNO lo agarra los lunes y no carga nunca: sus km van a la cuenta de ella.
+    const esDeBruno = (d % 7 === 0)
+    // 5 viajes por dia: ANA maneja 27 de 31 dias = 135 viajes, que pasa el minimo de 120.
+    REGS.push({ cam: 'U07', f: fe, t: 5, ch: esDeBruno ? 'BRUNO SILVA' : 'ANA ROJAS' })
+    J.push({ cam: 'U07', fecha: fe, desp: esDeBruno ? 0 : 120, km: 200 })
+    // Tres unidades mas, cada una con su chofer fijo, para que haya norma.
+    for (const [cam, ch] of [['U01', 'CARLA DIAZ'], ['U04', 'DORA PAZ'], ['U06', 'ELSA MORA']]) {
+      REGS.push({ cam, f: fe, t: 5, ch })
+      J.push({ cam, fecha: fe, desp: 100, km: 200 })
+    }
+  }
+  const r = api(REGS, num)._acLitrosPorViaje(J, '2026-09-01', '2026-10-31')
+  const c = {}
+  r.choferes.filas.forEach((x) => { c[x.chofer] = x })
+  const ana = c['ANA ROJAS']
+
+  ok('9. CONTROL POSITIVO: se mide el desbalance entre su combustible y sus kilometros',
+     !!ana && ana.sesgo > 0.10,
+     'sin medirlo el sesgo es invisible: ' + JSON.stringify(ana && { km: ana.km, sesgo: ana.sesgo }))
+  ok('10. ⛔ y por eso NO se la confirma, aunque su número se salga',
+     !!ana && ana.compartido === true && ana.confirmado !== true,
+     'el número no habla de cómo maneja, habla de con quién comparte el camión')
+}
+
 // ── 2. LA LECTURA: el texto no puede premiar al que no registra ──────────────────
 ok('8. ⛔ «por debajo» manda a revisar el REGISTRO, no felicita al chofer',
    /FALTAN SURTIDAS POR ASENTAR/.test(fHtml) && !/ahorr|eficien|felicit/i.test(fHtml.replace(/no que ahorre/g, '')),
@@ -159,6 +204,11 @@ ok('13. el chofer pasa por el resolvedor que YA EXISTE',
 ok('14. ...y si el resolvedor falla, no revienta el reporte',
    /catch\s*\(/.test(fCalc) && /typeof _nombreCanonico==='function'/.test(fCalc),
    'una excepcion al resolver un nombre no puede tumbar toda la tarjeta')
+
+// ── 2c. Y LOS DOS TEXTOS LO DICEN ───────────────────────────────────────────────
+ok('11. ⛔ la pantalla explica por qué no se puede comparar',
+   /no se puede comparar/.test(fHtml) && /puntos más de combustible que de kilómetros/.test(fHtml),
+   'un renglón en blanco se lee como «ese está bien» o como «ese algo esconde»')
 
 // ── 3. CONTROL NEGATIVO ──────────────────────────────────────────────────────────
 {

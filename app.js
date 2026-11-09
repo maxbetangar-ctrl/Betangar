@@ -3189,9 +3189,12 @@ function _acLitrosPorViaje(J,desde,hasta){
     var u=porU[j.cam]||(porU[j.cam]={cam:j.cam,viajes:0,litros:0,km:0,dias:0});
     u.viajes+=p.viajes; u.litros+=lit; u.km+=(_acNum(j.km)||0); u.dias++;
     if(p.chofer){
-      var c=porC[p.chofer]||(porC[p.chofer]={chofer:p.chofer,viajes:0,litros:0,km:0,dias:0});
+      var c=porC[p.chofer]||(porC[p.chofer]={chofer:p.chofer,viajes:0,litros:0,km:0,dias:0,porCam:{}});
       c.viajes+=p.viajes; c.litros+=lit; c.km+=(_acNum(j.km)||0); c.dias++;
+      var pc=c.porCam[j.cam]||(c.porCam[j.cam]={km:0,litros:0});
+      pc.km+=(_acNum(j.km)||0); pc.litros+=lit;
     }
+
   });
   // ⛔ DOS MEDIDAS, NO UNA — y es lo que hace al informe difícil de discutir.
   //
@@ -3205,6 +3208,38 @@ function _acLitrosPorViaje(J,desde,hasta){
   // ������ MEDIDO el 08/11/2026: las dos ordenan las unidades IGUAL sobre 3 meses. Que dos medidas
   //    independientes coincidan es la prueba más fuerte que hay acá — y cuando NO coinciden, eso
   //    también es información: significa que la ruta explica la diferencia, no el camión.
+  // ⛔ EL SESGO DEL QUE LLENA EL TANQUE Y COMPARTE CAMIÓN.
+  //
+  // ������ EL COMBUSTIBLE SE CARGA UN DÍA Y SE QUEMA EN LOS SIGUIENTES. Si uno llena el tanque y
+  //    otro maneja al día siguiente, los LITROS quedan en la cuenta del primero y los KM en la
+  //    del segundo. Para un CAMIÓN eso se promedia en tres meses; para una PERSONA que comparte
+  //    camión, NO: castiga sistemáticamente al que carga.
+  //
+  // ������ MEDIDO el 08/11/2026 sobre un caso real: un chofer manejó 68 días y en su cuenta quedó
+  //    el **96% del combustible** del camión pero solo el **81% de los kilómetros** — otros
+  //    manejaron 1.758 km sin cargar una gota. Su km/L salía **1,83**, el peor de la flota, y el
+  //    informe lo señalaba con un +25%. Repartido bien da **2,21**, y deja de estar señalado.
+  //    El número no hablaba de cómo maneja: hablaba de con quién comparte el camión.
+  //
+  // ⛔ SE MIDE LA DIFERENCIA ENTRE LAS DOS PARTES, no "los km ajenos". La primera versión sumaba
+  //    los km de todos los días sin carga a todos los demás choferes del camión: como la mayoría
+  //    de los días no hay carga, daba 89% y 69% — un número que no significaba lo que su etiqueta
+  //    decía. Esto es exacto: cuánto del combustible del camión está en su cuenta, contra cuánto
+  //    de los kilómetros. [[norma-una-asercion-mal-escrita-acusa-al-producto]]
+  //
+  // ⚠️ NO se reparte el combustible «proporcionalmente»: eso sería inventar quién quemó qué.
+  //    Se dice que no se puede comparar, y se deja ahí.
+  Object.keys(porC).forEach(function(k){
+    var c=porC[k], difMax=0;
+    Object.keys(c.porCam||{}).forEach(function(cam){
+      var u=porU[cam]; if(!u||u.litros<=0||u.km<=0)return;
+      var pLit=c.porCam[cam].litros/u.litros;      // qué parte del combustible es suya
+      var pKm=c.porCam[cam].km/u.km;               // qué parte de los kilómetros es suya
+      var d=pLit-pKm;                              // si es positiva, su km/L sale más bajo de lo real
+      if(d>difMax)difMax=d;
+    });
+    c.sesgo=difMax;
+  });
   var armar=function(mapa,minViajes){
     var f=Object.keys(mapa).map(function(k){return mapa[k];})
       .filter(function(x){return x.viajes>=minViajes;})
@@ -3229,8 +3264,15 @@ function _acLitrosPorViaje(J,desde,hasta){
       var fueraLv=Math.abs(x.dif)>0.20;
       var fueraKl=(x.difKl!=null)&&Math.abs(x.difKl)>0.15;
       var mismoLado=(x.difKl!=null)&&((x.dif>0)===(x.difKl>0));
-      x.confirmado=fueraLv&&fueraKl&&mismoLado;
-      x.soloViajes=fueraLv&&!x.confirmado;
+      // ⛔ SI HAY MUCHO KILÓMETRO AJENO EN SU CUENTA, NO SE CONFIRMA NADA. Por encima del 10%
+      //    el número ya no habla de cómo maneja esa persona: habla de con quién comparte el
+      //    camión. Se dice y se deja ahí.
+      // ⚠️ 10 puntos de diferencia entre su parte del combustible y su parte de los kilómetros
+      //    alcanzan para mover el km/L lo suficiente como para marcar a alguien por nada.
+      x.pctAjeno=x.sesgo||0;
+      x.compartido=x.pctAjeno>0.10;
+      x.confirmado=fueraLv&&fueraKl&&mismoLado&&!x.compartido;
+      x.soloViajes=fueraLv&&!x.confirmado&&!x.compartido;
     });
     f.sort(function(a,b){return b.lv-a.lv;});
     return {filas:f,norma:norma,normaKl:normaKl};
@@ -3280,7 +3322,9 @@ function _acLpvHtml(r){
       var fuera=!!x.confirmado;
       var arriba=x.dif>0;
       var col=x.soloViajes?'var(--text2)':(!fuera?'var(--green2)':(arriba?'var(--red)':'var(--yellow)'));
-      var dice=x.soloViajes
+      var dice=x.compartido
+        ? ('no se puede comparar: en su cuenta hay '+Math.round(x.pctAjeno*100)+' puntos más de combustible que de kilómetros — otro manejó con el gasoil que cargó él, así que su km/L sale más bajo de lo real')
+        : x.soloViajes
         ? (pct(x.dif)+' '+(arriba?'más':'menos')+' por viaje, pero NORMAL por kilómetro: el recorrido es más '+(arriba?'largo':'corto')+', no el camión')
         : (!fuera?'dentro de la norma'
         :(arriba?('gasta '+pct(x.dif)+' más y el km/litro lo confirma — preguntarle al chofer y revisar el camión')
@@ -3494,7 +3538,10 @@ function acImprimirInforme(){
       //    recorrido explica la diferencia y la fila lo DICE, en vez de dejar un +25% suelto
       //    que cualquiera lee como una acusación.
       var txt, col;
-      if(x.confirmado){ col=(x.dif>0?'rv':'bv');
+      if(x.compartido){ col='mono';
+        txt='no se puede comparar: en su cuenta hay '+Math.round(x.pctAjeno*100)+' puntos más de '+
+            'combustible que de kilómetros, así que su km/litro sale más bajo de lo real'; }
+      else if(x.confirmado){ col=(x.dif>0?'rv':'bv');
         txt=(x.dif>0?'gasta ':'figura gastando ')+Math.round(Math.abs(x.dif)*100)+'% '+(x.dif>0?'más':'menos')+
             ' — y el km/litro lo confirma'; }
       else if(x.soloViajes){ col='mono';
