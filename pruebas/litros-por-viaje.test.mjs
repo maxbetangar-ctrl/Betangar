@@ -122,6 +122,19 @@ ok('10. ⛔ los litros que no se pudieron repartir se DICEN',
 ok('11. y se explica que la norma sale de los datos, no de un número a mano',
    /MEDIANA del período/.test(fHtml), 'un umbral sin origen se discute para siempre')
 
+// ── 2b. EL NOMBRE SE RESUELVE CON LO QUE YA EXISTE ───────────────────────────────
+// ⛔ Ya habia un resolvedor en el producto (`_nombreCanonico` + `_empPorNombre` +
+//    el mapa de alias). Medido contra los 26 nombres reales de chofer: resuelve 25,
+//    incluido "YURBENIS BERMUDEZ" -> "YURVENIS FRANCISCO BERMUDEZ SUAREZ". Escribir
+//    un septimo mecanismo al lado habria sido otra lista a mano que se desincroniza.
+//    [[norma-antes-de-escribir-una-regla-buscar-si-ya-esta]]
+ok('13. el chofer pasa por el resolvedor que YA EXISTE',
+   /_nombreCanonico/.test(fCalc),
+   'si agrupa por el texto crudo, el mismo senor escrito de dos formas sale en dos filas')
+ok('14. ...y si el resolvedor falla, no revienta el reporte',
+   /catch\s*\(/.test(fCalc) && /typeof _nombreCanonico==='function'/.test(fCalc),
+   'una excepcion al resolver un nombre no puede tumbar toda la tarjeta')
+
 // ── 3. CONTROL NEGATIVO ──────────────────────────────────────────────────────────
 {
   const falso = 'gasta menos: excelente rendimiento, felicitar al chofer'

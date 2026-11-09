@@ -3120,11 +3120,28 @@ function _acParaDecidir(costoPeriodo,costoPorKm){
 // ⚠️ NO ACUSA A NADIE. Dice quién está fuera de la banda y por cuánto. El porqué se pregunta.
 function _acLitrosPorViaje(J,desde,hasta){
   // Viajes y chofer salen de la PLANILLA, que es la verdad operativa. `t` son los viajes.
+  //
+  // ⛔ EL NOMBRE PASA POR `_nombreCanonico`, EL RESOLVEDOR QUE YA EXISTE. No se escribió uno
+  //    nuevo: medido el 08/11/2026 contra los 26 nombres de chofer que hay en `surtidas`, el del
+  //    producto resuelve **25**. Incluye «YURBENIS BERMUDEZ» → «YURVENIS FRANCISCO BERMUDEZ
+  //    SUAREZ» (V por B, y dos palabras de menos) y también a los choferes que YA NO TRABAJAN,
+  //    porque el padrón se carga entero, sin filtrar por `activo`.
+  //    ������ El único que no resuelve es «MANUEL» a secas: hay más de un Manuel y el sistema NO
+  //      adivina. Eso se arregla escribiendo el apellido, no aflojando el criterio.
+  //    ⚠️ Sin esto, el mismo señor escrito de dos formas sale en DOS filas, y las dos dan un
+  //      consumo por viaje que no es el suyo — que es exactamente el error con el que se
+  //      acusaría a alguien en una reunión.
+  //    [[norma-antes-de-escribir-una-regla-buscar-si-ya-esta]]
+  var canon=function(n){
+    var t=String(n||'').trim(); if(!t)return '';
+    try{ return (typeof _nombreCanonico==='function')?(_nombreCanonico(t)||t.toUpperCase()):t.toUpperCase(); }
+    catch(e){ return t.toUpperCase(); }
+  };
   var pl={};
   (typeof REGS!=='undefined'?REGS:[]).forEach(function(r){
     var f=String(r.f||'').slice(0,10); if(f<desde||f>hasta)return;
     var v=parseInt(r.t,10)||0; if(v<=0)return;
-    pl[String(r.cam||'')+'|'+f]={viajes:v,chofer:String(r.ch||'').trim()};
+    pl[String(r.cam||'')+'|'+f]={viajes:v,chofer:canon(r.ch)};
   });
   var porU={}, porC={}, litSinDuenio=0, litTotal=0;
   (J||[]).forEach(function(j){
@@ -3207,7 +3224,8 @@ function _acLpvHtml(r){
     ((r.litSinDuenio>0)
       ? ('<div style="font-size:11px;color:var(--yellow);margin-top:8px;padding:6px 10px;border-radius:8px;background:rgba(251,191,36,.1)">'+
          '⚠️ <b>'+_acFmt(r.litSinDuenio,0)+' L ('+sinD+'%) no entraron en esta cuenta</b>: son días con combustible cargado pero sin planilla de viajes. '+
-         'Cuando la oficina cargue esas planillas, estos números se vuelven más exactos.</div>')
+         'Los litros están; lo que falta es con cuántos viajes dividirlos. '+
+         '<b>En cuanto la oficina cargue esas planillas, estas cifras se vuelven exactas</b> — no hace falta nada más.</div>')
       : '')+
   '</div>';
 }
