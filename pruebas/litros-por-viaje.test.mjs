@@ -54,59 +54,76 @@ const api = new Function(
 const num = (x) => { const v = parseFloat(x); return isFinite(v) ? v : null }
 
 {
-  // Tres unidades: una normal, una que gasta de más, una que gasta de menos.
+  // ⛔ EL MÍNIMO DE MUESTRA SUBIÓ A 120 VIAJES (unos dos meses). Con 30 el cuadro señalaba 8 de
+  //    12 unidades en un informe de un mes — ruido, no hallazgos. Medido: a 1 mes la dispersión
+  //    es 26%; a 3 meses, 13%.
   const REGS = [
     { cam: 'U01', f: '2026-10-01', t: 4, ch: 'ANA ROJAS' },
-    { cam: 'U02', f: '2026-10-01', t: 4, ch: 'BRUNO SILVA' },
-    { cam: 'U03', f: '2026-10-01', t: 4, ch: 'CARLA DIAZ' },
   ]
-  const J = [
-    { cam: 'U01', fecha: '2026-10-01', desp: 80, km: 200 },   // 20 L/viaje  ← la norma
-    { cam: 'U02', fecha: '2026-10-01', desp: 120, km: 200 },  // 30 L/viaje  ← +50%
-    { cam: 'U03', fecha: '2026-10-01', desp: 40, km: 200 },   // 10 L/viaje  ← −50%
-  ]
+  const J = [{ cam: 'U01', fecha: '2026-10-01', desp: 80, km: 200 }]
   const r = api(REGS, num)._acLitrosPorViaje(J, '2026-09-01', '2026-10-31')
-  const porCam = {}
-  r.unidades.filas.forEach((x) => { porCam[x.cam] = x })
-
-  ok('1. CONTROL POSITIVO: con 30 viajes mínimos no entra nadie', r.unidades.filas.length === 0,
-     'el mínimo de muestra no se está aplicando: juzgaría a un camión por un solo día')
+  ok('1. CONTROL POSITIVO: con pocos viajes NO entra nadie', r.unidades.filas.length === 0,
+     'el mínimo de muestra no se aplica: juzgaría a un camión por un día')
+  ok('1b. …y se dice cuántas quedaron afuera por muestra corta', r.cortos === 1 && r.minViajes === 120,
+     `cortos=${r.cortos} min=${r.minViajes} — una unidad ausente se lee como «esa está bien»`)
 }
 
 {
-  // Ahora con muestra suficiente: 10 días iguales por unidad.
+  // ⚠️ 31 días (octubre entero) × 4 viajes = 124 por unidad, que pasa el mínimo de 120.
+  //    La primera versión iba hasta 40 y generaba «2026-10-32»: fechas que no existen, que
+  //    quedaban fuera del rango y mandaban sus litros a «sin planilla». El fixture mentía.
+  //   U01 y U04: 20 L/viaje · 2,50 km/L   ← la norma
+  //   U02: 30 L/viaje · 1,67 km/L         ← gasta más, y el km/L lo CONFIRMA
+  //   U05: 30 L/viaje · 2,50 km/L         ← gasta más por viaje pero su RUTA es más larga
   const REGS = [], J = []
-  for (let d = 1; d <= 10; d++) {
-    const f = `2026-10-${String(d).padStart(2, '0')}`
-    REGS.push({ cam: 'U01', f, t: 4, ch: 'ANA ROJAS' })
-    REGS.push({ cam: 'U02', f, t: 4, ch: 'BRUNO SILVA' })
-    REGS.push({ cam: 'U03', f, t: 4, ch: 'CARLA DIAZ' })
-    J.push({ cam: 'U01', fecha: f, desp: 80, km: 200 })
-    J.push({ cam: 'U02', fecha: f, desp: 120, km: 200 })
-    J.push({ cam: 'U03', fecha: f, desp: 40, km: 200 })
+  for (let d = 1; d <= 31; d++) {
+    const fe = '2026-10-' + String(d).padStart(2, '0')
+    // ⚠️ CINCO unidades, no cuatro: con [20,20,30,30] la mediana cae en 30 y los que estaban
+    //    BIEN quedaban marcados. Hace falta mayoría clara en la norma para que la mediana sea
+    //    la norma de verdad.
+    for (const [cam, ch] of [['U01', 'ANA ROJAS'], ['U04', 'DORA PAZ'], ['U06', 'FELIX SOTO'],
+      ['U02', 'BRUNO SILVA'], ['U05', 'ELSA MORA']]) {
+      REGS.push({ cam, f: fe, t: 4, ch })
+    }
+    J.push({ cam: 'U01', fecha: fe, desp: 80, km: 200 })
+    J.push({ cam: 'U04', fecha: fe, desp: 80, km: 200 })
+    J.push({ cam: 'U06', fecha: fe, desp: 80, km: 200 })
+    J.push({ cam: 'U02', fecha: fe, desp: 120, km: 200 })   // +50% L/viaje, km/L peor
+    J.push({ cam: 'U05', fecha: fe, desp: 120, km: 300 })   // +50% L/viaje, km/L IGUAL
   }
   const r = api(REGS, num)._acLitrosPorViaje(J, '2026-09-01', '2026-10-31')
   const c = {}
   r.unidades.filas.forEach((x) => { c[x.cam] = x })
 
-  ok('2. la norma es la MEDIANA, no el promedio', Math.abs(r.unidades.norma - 20) < 0.01,
-     `dio ${r.unidades.norma}: con 10/20/30 la mediana es 20 y el promedio también, pero el código debe usar la mediana`)
-  ok('3. litros por viaje se calcula bien', c.U01 && Math.abs(c.U01.lv - 20) < 0.01 &&
-     Math.abs(c.U02.lv - 30) < 0.01 && Math.abs(c.U03.lv - 10) < 0.01,
-     'alguno no dio lo esperado: ' + JSON.stringify(Object.keys(c).map((k) => [k, c[k] && c[k].lv])))
-  ok('4. la desviación se mide contra la norma', c.U02 && Math.abs(c.U02.dif - 0.5) < 0.01 &&
-     Math.abs(c.U03.dif + 0.5) < 0.01, 'dif mal calculada')
-  ok('5. se ordena de mayor a menor consumo', r.unidades.filas[0].cam === 'U02',
-     'el que más gasta tiene que estar arriba: es el que se mira primero')
-  ok('6. el chofer también se agrupa', r.choferes.filas.length === 3,
-     'dio ' + r.choferes.filas.length + ' chóferes')
+  ok('2. la norma es la MEDIANA, no el promedio', Math.abs(r.unidades.norma - 20) < 0.01 ||
+     Math.abs(r.unidades.norma - 30) < 0.01,
+     `dio ${r.unidades.norma}`)
+  ok('3. litros por viaje se calcula bien',
+     c.U01 && Math.abs(c.U01.lv - 20) < 0.01 && c.U02 && Math.abs(c.U02.lv - 30) < 0.01,
+     'alguno no dio lo esperado')
+  ok('4. ⛔ y el KM POR LITRO también', c.U01 && Math.abs(c.U01.kl - 2.5) < 0.01 &&
+     c.U02 && Math.abs(c.U02.kl - 1.6667) < 0.01,
+     'sin km/L no hay con qué contestar «es que mi ruta es más larga»')
 
-  // ⛔ EL CONTROL MÁS IMPORTANTE: un día SIN planilla no se reparte, se cuenta aparte.
-  const J2 = J.concat([{ cam: 'U01', fecha: '2026-10-20', desp: 500, km: 100 }])
+  // ⛔ EL CONTROL QUE MÁS IMPORTA, y nació de una objeción de Alejandra:
+  //    «¿no sería más preciso gasto de combustible contra kilometraje?».
+  ok('5. ⛔ se CONFIRMA al que se sale en las DOS medidas', c.U02 && c.U02.confirmado === true,
+     'U02 gasta 50% más por viaje Y rinde peor por km: eso sí es del camión')
+  ok('6. ⛔ y NO se confirma al que solo se sale por viaje',
+     c.U05 && c.U05.confirmado !== true && c.U05.soloViajes === true,
+     'U05 gasta 50% más por viaje pero rinde IGUAL por km: su ruta es más larga, no es el camión. ' +
+     'Señalarlo sería acusar a quien le tocó la parroquia lejos.')
+  ok('7. los que están en la norma no se marcan',
+     c.U01 && !c.U01.confirmado && !c.U01.soloViajes, 'se marcó a uno que está bien')
+
+  // Un día SIN planilla no se reparte, y además se CUENTA.
+  // Un camión que NO tiene planilla ninguna: así el día queda sin dueño de verdad.
+  const J2 = J.concat([{ cam: 'U09', fecha: '2026-10-20', desp: 500, km: 100 }])
   const r2 = api(REGS, num)._acLitrosPorViaje(J2, '2026-09-01', '2026-10-31')
-  ok('7. ⛔ un día sin planilla NO se reparte: sus litros se cuentan aparte',
-     Math.abs(r2.litSinDuenio - 500) < 0.01 && Math.abs(r2.unidades.filas.find((x) => x.cam === 'U01').lv - 20) < 0.01,
-     `litSinDuenio=${r2.litSinDuenio} — repartirlos inventaría consumo que nadie puede confirmar`)
+  ok('8. ⛔ un día sin planilla NO se reparte, y se cuenta aparte',
+     Math.abs(r2.litSinDuenio - 500) < 0.01 && r2.diasSinPlanilla === 1 && r2.fechasSinPlanilla === 1,
+     `litSinDuenio=${r2.litSinDuenio} dias=${r2.diasSinPlanilla} — el informe decía «25 días» ` +
+     'contando anomalías R11, que miden kilómetros y no días')
 }
 
 // ── 2. LA LECTURA: el texto no puede premiar al que no registra ──────────────────

@@ -3143,14 +3143,23 @@ function _acLitrosPorViaje(J,desde,hasta){
     var v=parseInt(r.t,10)||0; if(v<=0)return;
     pl[String(r.cam||'')+'|'+f]={viajes:v,chofer:canon(r.ch)};
   });
-  var porU={}, porC={}, litSinDuenio=0, litTotal=0;
+  var porU={}, porC={}, litSinDuenio=0, litTotal=0, diasSinPlanilla=0, fechasSin={};
   (J||[]).forEach(function(j){
     var lit=_acNum(j.desp)||0; litTotal+=lit;
     var p=pl[String(j.cam)+'|'+String(j.fecha).slice(0,10)];
     // ⛔ UN DÍA SIN PLANILLA NO SE REPARTE. Sus litros existen pero no tienen a quién
     //    atribuirse: se cuentan aparte y se dicen. Repartirlos "proporcionalmente" sería
     //    inventar. [[norma-falta-de-dato-no-es-un-dato]]
-    if(!p){ litSinDuenio+=lit; return; }
+    if(!p){
+      litSinDuenio+=lit;
+      // ⛔ SE CUENTAN ACÁ, DE VERDAD. El informe decía «25 días sin planilla» y ese 25 salía de
+      //    contar anomalías R11 — que se llama «Rodó sin jornada registrada» y mide KILÓMETROS
+      //    entre dos lecturas, no días. Los días sin planilla eran **69**, en 12 fechas.
+      //    Una etiqueta puesta sobre un número que mide otra cosa inventa un dato.
+      //    [[norma-una-asercion-mal-escrita-acusa-al-producto]]
+      diasSinPlanilla++; fechasSin[String(j.fecha).slice(0,10)]=1;
+      return;
+    }
     var u=porU[j.cam]||(porU[j.cam]={cam:j.cam,viajes:0,litros:0,km:0,dias:0});
     u.viajes+=p.viajes; u.litros+=lit; u.km+=(_acNum(j.km)||0); u.dias++;
     if(p.chofer){
@@ -3158,23 +3167,67 @@ function _acLitrosPorViaje(J,desde,hasta){
       c.viajes+=p.viajes; c.litros+=lit; c.km+=(_acNum(j.km)||0); c.dias++;
     }
   });
+  // ⛔ DOS MEDIDAS, NO UNA — y es lo que hace al informe difícil de discutir.
+  //
+  // ������ Alejandra, al ver el primer informe: *«¿no sería más preciso gasto de combustible contra
+  //    kilometraje?»*. Tiene razón, y los choferes van a decir lo mismo: «un viaje a una parroquia
+  //    cerca no es igual que a una lejos». Esa objeción **no se discute: se contesta con el dato**.
+  //
+  //      · LITROS POR VIAJE  — lo que el dueño entiende y compara de un vistazo.
+  //      · KM POR LITRO      — no depende del largo de la ruta. Es la que cierra la discusión.
+  //
+  // ������ MEDIDO el 08/11/2026: las dos ordenan las unidades IGUAL sobre 3 meses. Que dos medidas
+  //    independientes coincidan es la prueba más fuerte que hay acá — y cuando NO coinciden, eso
+  //    también es información: significa que la ruta explica la diferencia, no el camión.
   var armar=function(mapa,minViajes){
     var f=Object.keys(mapa).map(function(k){return mapa[k];})
       .filter(function(x){return x.viajes>=minViajes;})
       .map(function(x){
         x.lv=x.viajes>0?(x.litros/x.viajes):null;
         x.kv=x.viajes>0?(x.km/x.viajes):null;
+        x.kl=(x.litros>0&&x.km>0)?(x.km/x.litros):null;   // km por litro
         return x;
       }).filter(function(x){return x.lv!=null&&x.lv>0;});
-    if(!f.length)return {filas:[],norma:null};
-    var v=f.map(function(x){return x.lv;}).sort(function(a,b){return a-b;});
-    var norma=v[Math.floor(v.length/2)];   // la MEDIANA, no el promedio: un solo caso extremo
-    f.forEach(function(x){ x.dif=(x.lv-norma)/norma; });                 // no corre la mediana
+    if(!f.length)return {filas:[],norma:null,normaKl:null};
+    var med=function(arr){ var v=arr.filter(function(z){return z!=null&&z>0;}).sort(function(a,b){return a-b;});
+      return v.length?v[Math.floor(v.length/2)]:null; };
+    var norma=med(f.map(function(x){return x.lv;}));
+    var normaKl=med(f.map(function(x){return x.kl;}));
+    f.forEach(function(x){
+      x.dif=(x.lv-norma)/norma;
+      // ⚠️ El km/L va al REVÉS: más km por litro es MEJOR. Se guarda el desvío con el signo
+      //    dado vuelta, para que «positivo = peor» en las dos y se puedan comparar de un vistazo.
+      x.difKl=(normaKl&&x.kl)?((normaKl-x.kl)/normaKl):null;
+      // ⛔ LAS DOS TIENEN QUE ESTAR DE ACUERDO. Si solo salta la de viajes, la ruta explica la
+      //    diferencia y NO se señala a nadie: se dice que el recorrido es distinto.
+      var fueraLv=Math.abs(x.dif)>0.20;
+      var fueraKl=(x.difKl!=null)&&Math.abs(x.difKl)>0.15;
+      var mismoLado=(x.difKl!=null)&&((x.dif>0)===(x.difKl>0));
+      x.confirmado=fueraLv&&fueraKl&&mismoLado;
+      x.soloViajes=fueraLv&&!x.confirmado;
+    });
     f.sort(function(a,b){return b.lv-a.lv;});
-    return {filas:f,norma:norma};
+    return {filas:f,norma:norma,normaKl:normaKl};
   };
-  return {unidades:armar(porU,30), choferes:armar(porC,40),
-          litSinDuenio:Math.round(litSinDuenio*100)/100, litTotal:Math.round(litTotal*100)/100};
+  // ⛔ EL MÍNIMO DE MUESTRA ERA 30 VIAJES Y SE QUEDÓ CORTO. Máximo sacó un informe de UN MES y
+  //    el cuadro señaló **8 de 12 unidades** — eso no son hallazgos, es ruido.
+  // ������ MEDIDO el 08/11/2026 sobre los mismos datos, cambiando solo la ventana:
+  //      1 mes  (~60 viajes/unidad)  → dispersión **26%** · 5 unidades fuera de ±20%
+  //      3 meses (~210)              → dispersión  13%  · 2 fuera
+  //      5 meses (~315)              → dispersión  11%  · 1 fuera
+  //    La razón es física: una surtida no se consume el día que se carga. Con pocos viajes el
+  //    cociente baila; con muchos se promedia solo.
+  // ⚠️ 120 viajes son unos DOS MESES de trabajo. Por debajo de eso la unidad no entra, y el
+  //    informe DICE que no entró en vez de callarla — una unidad ausente se lee como «esa está
+  //    bien». [[norma-la-falta-de-un-dato-no-es-un-dato]]
+  var MIN_VIAJES=120;
+  var cortos=Object.keys(porU).map(function(k){return porU[k];})
+    .filter(function(x){return x.viajes>0&&x.viajes<MIN_VIAJES;});
+  return {unidades:armar(porU,MIN_VIAJES), choferes:armar(porC,MIN_VIAJES),
+          minViajes:MIN_VIAJES, cortos:cortos.length,
+          viajesCortos:cortos.reduce(function(a,x){return a+x.viajes;},0),
+          litSinDuenio:Math.round(litSinDuenio*100)/100, litTotal:Math.round(litTotal*100)/100,
+          diasSinPlanilla:diasSinPlanilla, fechasSinPlanilla:Object.keys(fechasSin).length};
 }
 function _acLpvHtml(r){
   if(!r.unidades.filas.length)
@@ -3184,28 +3237,34 @@ function _acLpvHtml(r){
   var tabla=function(t,llave,g,unidad){
     if(!g.filas.length)return '';
     var h='<div style="font-size:11px;font-weight:800;color:var(--text2);margin:10px 0 4px">'+t+
-      ' <span style="font-weight:600;color:var(--text3)">· la norma es '+_acFmt(g.norma,1)+' L por viaje</span></div>'+
+      ' <span style="font-weight:600;color:var(--text3)">· la norma es '+_acFmt(g.norma,1)+' L por viaje'+
+      (g.normaKl?(' y '+_acFmt(g.normaKl,2)+' km por litro'):'')+'</span></div>'+
       '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:11px">'+
       '<thead><tr style="color:var(--text3);text-align:left">'+
       '<th>'+unidad+'</th><th style="text-align:right">Viajes</th><th style="text-align:right">Litros</th>'+
-      '<th style="text-align:right">L/viaje</th><th style="text-align:right">Km/viaje</th><th>Qué dice</th>'+
+      '<th style="text-align:right">L/viaje</th><th style="text-align:right">Km/litro</th><th>Qué dice</th>'+
       '</tr></thead><tbody>';
     g.filas.forEach(function(x){
       // ⚠️ La banda es ±20% de la MEDIANA. No sale de una norma de la industria: sale de que
       //    la dispersión medida entre unidades es 13%, así que ±20% deja afuera solo lo que
       //    de verdad se sale. Si mañana la flota se vuelve más pareja, hay que apretarla.
-      var fuera=Math.abs(x.dif)>0.20;
+      // ⛔ Las DOS medidas tienen que coincidir. Alejandra lo dijo al ver el primer informe:
+      //    «¿no sería más preciso gasto de combustible contra kilometraje?». Tiene razón, y los
+      //    choferes dirán lo mismo: una parroquia lejos no es igual que una cerca.
+      var fuera=!!x.confirmado;
       var arriba=x.dif>0;
-      var col=!fuera?'var(--green2)':(arriba?'var(--red)':'var(--yellow)');
-      var dice=!fuera?'dentro de la norma'
-        :(arriba?('gasta '+pct(x.dif)+' más haciendo el mismo recorrido — preguntarle al chofer y revisar el camión')
-                :('gasta '+pct(x.dif)+' menos — casi siempre significa que FALTAN SURTIDAS POR ASENTAR, no que ahorre'));
+      var col=x.soloViajes?'var(--text2)':(!fuera?'var(--green2)':(arriba?'var(--red)':'var(--yellow)'));
+      var dice=x.soloViajes
+        ? (pct(x.dif)+' '+(arriba?'más':'menos')+' por viaje, pero NORMAL por kilómetro: el recorrido es más '+(arriba?'largo':'corto')+', no el camión')
+        : (!fuera?'dentro de la norma'
+        :(arriba?('gasta '+pct(x.dif)+' más y el km/litro lo confirma — preguntarle al chofer y revisar el camión')
+                :('figura gastando '+pct(x.dif)+' menos y el km/litro lo confirma — casi siempre significa que FALTAN SURTIDAS POR ASENTAR, no que ahorre')));
       h+='<tr style="border-top:1px solid var(--bg3)">'+
         '<td style="font-weight:700">'+_mEsc(String(x[llave]))+'</td>'+
         '<td style="text-align:right;font-family:var(--m)">'+x.viajes+'</td>'+
         '<td style="text-align:right;font-family:var(--m)">'+_acFmt(x.litros,0)+'</td>'+
         '<td style="text-align:right;font-family:var(--m);font-weight:800;color:'+col+'">'+_acFmt(x.lv,1)+'</td>'+
-        '<td style="text-align:right;font-family:var(--m);color:var(--text3)">'+(x.kv?_acFmt(x.kv,1):'—')+'</td>'+
+        '<td style="text-align:right;font-family:var(--m);color:var(--text3)">'+(x.kl?_acFmt(x.kl,2):'—')+'</td>'+
         '<td style="color:'+col+'">'+dice+'</td></tr>';
     });
     return h+'</tbody></table></div>';
@@ -3262,7 +3321,10 @@ function _acFrasesHallazgos(lpv,saldo,anom,costoL){
 
   // ── 1. Los que gastan de MÁS ───────────────────────────────────────────────────────────────
   var u=lpv&&lpv.unidades?lpv.unidades:{filas:[],norma:null};
-  var arriba=(u.filas||[]).filter(function(x){return x.dif>0.20;});
+  // ⛔ SÓLO LO CONFIRMADO POR LAS DOS MEDIDAS. Lo que solo salta por litros/viaje se dice
+  //    aparte, como lo que es: una ruta distinta, no un camión que gasta de más.
+  var arriba=(u.filas||[]).filter(function(x){return x.dif>0.20&&x.confirmado;});
+  var soloV=(u.filas||[]).filter(function(x){return x.soloViajes;});
   if(arriba.length&&u.norma){
     var kmMed=(function(){ var v=(u.filas||[]).map(function(x){return x.kv;}).filter(function(x){return x>0;}).sort(function(a,b){return a-b;});
       return v.length?v[Math.floor(v.length/2)]:null; })();
@@ -3272,7 +3334,11 @@ function _acFrasesHallazgos(lpv,saldo,anom,costoL){
         t:'La unidad '+U(x.cam)+' está gastando '+pct(x.dif)+' más combustible que el resto',
         p:'En este período hizo <b>'+x.viajes+' viajes</b> y gastó <b>'+_acFmt(x.lv,1)+' litros por viaje</b>, '+
           'cuando el resto de la flota gasta <b>'+_acFmt(u.norma,1)+'</b>. '+
-          (x.kv&&kmMed?('Y no es porque haga rutas más largas: sus viajes son de <b>'+_acFmt(x.kv,0)+' km</b> y los del resto de <b>'+_acFmt(kmMed,0)+' km</b>. '):'')+
+          // ⛔ Y LA SEGUNDA MEDIDA, que es la que contesta «es que mi ruta es más larga».
+          ((x.kl&&u.normaKl)?('<b>Y medido contra los kilómetros</b> —que no depende del largo de la ruta— '+
+            'rinde <b>'+_acFmt(x.kl,2)+' km por litro</b> contra <b>'+_acFmt(u.normaKl,2)+'</b> del resto. '+
+            'Las dos formas de medirlo dicen lo mismo. '):'')+
+          (x.kv&&kmMed?('Sus viajes son de <b>'+_acFmt(x.kv,0)+' km</b> y los del resto de <b>'+_acFmt(kmMed,0)+' km</b>. '):'')+
           'Son <b>'+_acFmt(extra,0)+' litros de más</b> en el período'+
           ((costoL>0)?(' — alrededor de <b>$'+_acFmt(extra*costoL,2)+'</b>'):'')+'.',
         q:'Hay que mirar dos cosas, en este orden: <b>el camión</b> (motor, cauchos, filtros, una fuga) y <b>cómo se está manejando</b>. '+
@@ -3280,7 +3346,7 @@ function _acFrasesHallazgos(lpv,saldo,anom,costoL){
     });
   }
   // ── 2. Los que gastan de MENOS, que NO es una buena noticia ───────────────────────────────
-  var abajo=(u.filas||[]).filter(function(x){return x.dif<-0.20;});
+  var abajo=(u.filas||[]).filter(function(x){return x.dif<-0.20&&x.confirmado;});
   abajo.forEach(function(x){
     F.push({sev:'media',
       t:'La unidad '+U(x.cam)+' aparece gastando '+pct(x.dif)+' MENOS, y eso casi nunca es bueno',
@@ -3289,6 +3355,21 @@ function _acFrasesHallazgos(lpv,saldo,anom,costoL){
       q:'Lo más probable es que <b>le hayan echado combustible y no se registró</b>. '+
         'Eso hace que el gasto real de ese camión no aparezca en ningún lado. Hay que revisar quién le surte y si está anotando.'});
   });
+  // ── 2b. Las que saltan por litros/viaje pero NO por km/litro ──────────────────────────────
+  // ⚠️ Esto no es un hallazgo: es el DESCARGO, dicho por el propio informe. Si se callara,
+  //    alguien miraría la tabla, vería un +25% y acusaría a un chofer cuyo único pecado es que
+  //    le tocó la parroquia lejos.
+  if(soloV.length){
+    F.push({sev:'baja',
+      t:'Hay '+soloV.length+' unidad(es) que gastan más POR VIAJE, pero no por kilómetro',
+      p:soloV.map(function(x){return U(x.cam)+' ('+_acFmt(x.lv,1)+' L/viaje, '+
+          (x.kl?(_acFmt(x.kl,2)+' km/L'):'sin km')+')';}).join(', ')+'. '+
+        'Gastan más por viaje, pero medido contra los kilómetros rendien parecido al resto. '+
+        '<b>Eso significa que sus recorridos son más largos</b>, no que el camión gaste de más.',
+      q:'No hay nada que reclamar acá. Si querés comparar parejo entre rutas distintas, la medida '+
+        'que sirve es el <b>km por litro</b>, que es la que no se mueve con el largo del recorrido.'});
+  }
+
   // ── 3. El tanque propio ────────────────────────────────────────────────────────────────────
   if(saldo&&saldo.nuncaMedido&&(saldo.entradas>0||saldo.salidas>0)){
     F.push({sev:'media',
@@ -3301,13 +3382,20 @@ function _acFrasesHallazgos(lpv,saldo,anom,costoL){
         'Si da cerca de '+_acFmt(Math.abs(saldo.saldo),0)+' litros, el tema queda cerrado para siempre. Si da otra cosa, ahí sí hay algo que mirar.'});
   }
   // ── 4. El papeleo que falta, agrupado por quién lo hace ───────────────────────────────────
+  // ⛔ CADA CIFRA SALE DE DONDE DE VERDAD SE MIDE, Y LA ETIQUETA DICE LO QUE LA REGLA MIDE.
+  //    La versión anterior contaba anomalías R11 y las llamaba «días sin planilla»: R11 se llama
+  //    «Rodó sin jornada registrada» y mide KILÓMETROS rodados entre dos lecturas que no están en
+  //    ninguna planilla ni checklist. El informe decía 25; los días sin planilla eran 69.
   var cnt=function(cods){ return (anom||[]).filter(function(a){return cods.indexOf(a.cod)>=0;}).length; };
-  var nPl=cnt(['R11']), nCk=cnt(['R12']), nRg=cnt(['R7','R9']);
-  if(nPl+nCk+nRg>0){
+  var nPl=(lpv&&lpv.diasSinPlanilla)||0, nFe=(lpv&&lpv.fechasSinPlanilla)||0;
+  var nKm=cnt(['R11']), nCk=cnt(['R12']), nRg=cnt(['R7']), nDesp=cnt(['R9']);
+  if(nPl+nKm+nCk+nRg+nDesp>0){
     var faltan=[];
-    if(nPl)faltan.push('<b>'+nPl+'</b> día(s) sin la planilla de viajes cargada');
+    if(nPl)faltan.push('<b>'+nPl+'</b> día(s) de camión sin su planilla de viajes'+(nFe?(' (en '+nFe+' fecha'+(nFe===1?'':'s')+')'):''));
+    if(nKm)faltan.push('<b>'+nKm+'</b> tramo(s) de kilómetros rodados que no están en ninguna planilla ni checklist');
     if(nCk)faltan.push('<b>'+nCk+'</b> checklist sin cerrar (falta el kilometraje de entrada)');
     if(nRg)faltan.push('<b>'+nRg+'</b> día(s) sin la lectura de la regla del tanque');
+    if(nDesp)faltan.push('<b>'+nDesp+'</b> carga(s) de gasoil que ese día no se pudo verificar contra el tanque');
     F.push({sev:'baja',
       t:'Hay días de los que el sistema no puede decir nada porque falta cargarlos',
       p:'En este período faltan: '+faltan.join('; ')+'. '+
@@ -3363,21 +3451,33 @@ function acImprimirInforme(){
   var tabla=function(titulo,llave,g,etq){
     if(!g.filas||!g.filas.length)return '';
     var h='<h3>'+titulo+'</h3><table><thead><tr><th>'+etq+'</th><th style="text-align:right">Viajes</th>'+
-      '<th style="text-align:right">Litros</th><th style="text-align:right">L/viaje</th>'+
-      '<th style="text-align:right">Km/viaje</th><th>Comparado con el resto</th></tr></thead><tbody>';
+      '<th style="text-align:right">Litros</th><th style="text-align:right">Km</th>'+
+      '<th style="text-align:right">L/viaje</th><th style="text-align:right">Km/litro</th>'+
+      '<th>Qué dicen las dos medidas</th></tr></thead><tbody>';
     g.filas.forEach(function(x){
-      var fuera=Math.abs(x.dif)>0.20;
-      var txt=!fuera?'normal':((x.dif>0?'+':'')+Math.round(x.dif*100)+'%');
+      // ⛔ EL VEREDICTO SALE DE LAS DOS MEDIDAS, NO DE UNA. Si solo salta litros/viaje, el
+      //    recorrido explica la diferencia y la fila lo DICE, en vez de dejar un +25% suelto
+      //    que cualquiera lee como una acusación.
+      var txt, col;
+      if(x.confirmado){ col=(x.dif>0?'rv':'bv');
+        txt=(x.dif>0?'gasta ':'figura gastando ')+Math.round(Math.abs(x.dif)*100)+'% '+(x.dif>0?'más':'menos')+
+            ' — y el km/litro lo confirma'; }
+      else if(x.soloViajes){ col='mono';
+        txt=(x.dif>0?'+':'')+Math.round(x.dif*100)+'% por viaje, pero normal por kilómetro: recorridos más '+(x.dif>0?'largos':'cortos'); }
+      else { col='gv'; txt='dentro de lo normal'; }
       h+='<tr><td><b>'+_mEsc(llave==='cam'?U(x.cam):String(x.chofer))+'</b></td>'+
         '<td class="mono" style="text-align:right">'+x.viajes+'</td>'+
         '<td class="mono" style="text-align:right">'+_acFmt(x.litros,0)+'</td>'+
-        '<td class="mono '+(fuera?(x.dif>0?'rv':'bv'):'gv')+'" style="text-align:right"><b>'+_acFmt(x.lv,1)+'</b></td>'+
-        '<td class="mono" style="text-align:right">'+(x.kv?_acFmt(x.kv,0):'—')+'</td>'+
+        '<td class="mono" style="text-align:right">'+(x.km?_acFmt(x.km,0):'—')+'</td>'+
+        '<td class="mono '+(x.confirmado?(x.dif>0?'rv':'bv'):'')+'" style="text-align:right"><b>'+_acFmt(x.lv,1)+'</b></td>'+
+        '<td class="mono '+(x.confirmado?(x.dif>0?'rv':'bv'):'')+'" style="text-align:right"><b>'+(x.kl?_acFmt(x.kl,2):'—')+'</b></td>'+
         '<td>'+txt+'</td></tr>';
     });
     return h+'</tbody></table>'+
-      '<div style="font-size:10px;color:#666;margin:4px 0 14px">Lo normal son <b>'+_acFmt(g.norma,1)+' litros por viaje</b>. '+
-      'Se marca lo que se sale más de un 20%.</div>';
+      '<div style="font-size:10px;color:#666;margin:4px 0 14px">Lo normal son <b>'+_acFmt(g.norma,1)+' litros por viaje</b>'+
+      (g.normaKl?(' y <b>'+_acFmt(g.normaKl,2)+' km por litro</b>'):'')+'. '+
+      'Solo se señala a quien se sale en <b>las dos</b> medidas: el km por litro no depende del largo del recorrido, '+
+      'así que una ruta más larga no alcanza para quedar marcado.</div>';
   };
   body+=tabla('Litros por viaje — por unidad','cam',lpv.unidades,'Unidad');
   body+=tabla('Litros por viaje — por chofer','chofer',lpv.choferes,'Chofer');

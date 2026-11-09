@@ -49,23 +49,29 @@ const api = new Function('_acFmt', '_lblUnidad',
   (n, d) => (n == null ? '—' : Number(n).toFixed(d == null ? 0 : d)),
   (c) => String(c))
 
-// ── 1. UNA UNIDAD QUE GASTA DE MÁS ───────────────────────────────────────────────
+// ── 1. UNA UNIDAD QUE GASTA DE MÁS, CONFIRMADA POR LAS DOS MEDIDAS ──────────────
+// ⛔ Alejandra, al ver el primer informe: «¿no sería más preciso gasto de combustible
+//    contra kilometraje?». Y los choferes dirán lo mismo: «un viaje a una parroquia
+//    cerca no es igual que a una lejos». Por eso un hallazgo necesita que las DOS
+//    medidas coincidan — litros/viaje Y km/litro.
 {
-  // Tres unidades, no dos: con dos, la mediana de km incluye a la propia acusada y la
-  // comparacion se vuelve trivial. Con tres, el "resto" es de verdad el resto.
-  const lpv = { unidades: { norma: 20, filas: [
-    { cam: 'U01', viajes: 200, litros: 4000, lv: 20, kv: 50, dif: 0 },
-    { cam: 'U04', viajes: 200, litros: 4000, lv: 20, kv: 50, dif: 0 },
-    { cam: 'U02', viajes: 200, litros: 5440, lv: 27.2, kv: 51, dif: 0.36 },
+  const lpv = { unidades: { norma: 20, normaKl: 2.5, filas: [
+    { cam: 'U01', viajes: 200, litros: 4000, km: 10000, lv: 20, kv: 50, kl: 2.5, dif: 0, difKl: 0 },
+    { cam: 'U04', viajes: 200, litros: 4000, km: 10000, lv: 20, kv: 50, kl: 2.5, dif: 0, difKl: 0 },
+    { cam: 'U02', viajes: 200, litros: 5440, km: 10200, lv: 27.2, kv: 51, kl: 1.875,
+      dif: 0.36, difKl: 0.25, confirmado: true },
   ] }, choferes: { norma: 20, filas: [] }, litSinDuenio: 0, litTotal: 13440 }
   const F = api._acFrasesHallazgos(lpv, null, [], 0.7)
   const t = F.map((x) => x.t + ' ' + x.p + ' ' + x.q).join(' ')
 
   ok('1. señala a la unidad que gasta de más', /U02/.test(t) && /36%/.test(t),
      'sin el nombre y el porcentaje no hay de qué hablar en la reunión')
-  ok('2. ⛔ trae el DESCARGO: que los kilómetros son los mismos',
-     /no es porque haga rutas m.s largas/.test(t) && /51/.test(t) && /50/.test(t),
-     'sin eso, en la reunión contestan «mi ruta es más larga» y se acabó la conversación')
+  ok('2. ⛔ trae la SEGUNDA MEDIDA: el km por litro',
+     /km por litro/.test(t) && /1[.,]88|1[.,]87/.test(t) && /2[.,]50|2[.,]5\b/.test(t),
+     'sin el km/L, en la reunión contestan «mi ruta es más larga» y se acabó la conversación')
+  ok('2b. …y dice explícitamente que las dos coinciden',
+     /no depende del largo de la ruta/.test(t) && /dicen lo mismo/.test(t),
+     'que dos medidas independientes coincidan es la prueba más fuerte que hay acá')
   ok('3. pone los litros de más y la plata', /1[.,]?440 litros de m.s/.test(t) && /\$/.test(t),
      'un porcentaje sin litros ni dólares no mueve a nadie')
   ok('4. ⛔ NO acusa: manda a revisar el camión ANTES que a la persona',
@@ -75,18 +81,59 @@ const api = new Function('_acFmt', '_lblUnidad',
      'nombrar al que está bien diluye al que no')
 }
 
+// ── 1b. LA QUE SOLO SE SALE POR VIAJE: ES LA RUTA, NO EL CAMIÓN ─────────────────
+// ⛔ ESTE ES EL CONTROL QUE EVITA UNA INJUSTICIA. Sin él, alguien mira la tabla, ve
+//    un +25% y le reclama a un chofer cuyo único pecado es que le tocó la parroquia
+//    lejos. [[norma-una-asercion-mal-escrita-acusa-al-producto]]
+{
+  const lpv = { unidades: { norma: 20, normaKl: 2.5, filas: [
+    { cam: 'U05', viajes: 200, litros: 5000, km: 12500, lv: 25, kv: 62, kl: 2.5,
+      dif: 0.25, difKl: 0, confirmado: false, soloViajes: true },
+  ] }, choferes: { norma: 20, filas: [] }, litSinDuenio: 0, litTotal: 5000 }
+  const F = api._acFrasesHallazgos(lpv, null, [], 0.7)
+  const t = F.map((x) => x.t + ' ' + x.p + ' ' + x.q).join(' ')
+  ok('6. ⛔ la que solo se sale por viaje NO se presenta como culpable',
+     /recorridos son m.s largos/.test(t) && /no hay nada que reclamar/i.test(t),
+     'señalarla sería acusar a quien le tocó la ruta larga')
+  ok('7. …y explica cuál es la medida que sirve para comparar parejo',
+     /km por litro/.test(t) && /no se mueve con el largo/.test(t),
+     'hay que dar la salida, no solo el descargo')
+}
+
 // ── 2. UNA QUE GASTA DE MENOS: NO ES UNA BUENA NOTICIA ───────────────────────────
 {
-  const lpv = { unidades: { norma: 20, filas: [
-    { cam: 'U03', viajes: 200, litros: 2400, lv: 12, kv: 50, dif: -0.4 },
+  const lpv = { unidades: { norma: 20, normaKl: 2.5, filas: [
+    { cam: 'U03', viajes: 200, litros: 2400, km: 10000, lv: 12, kv: 50, kl: 4.17,
+      dif: -0.4, difKl: -0.67, confirmado: true },
   ] }, choferes: { norma: 20, filas: [] }, litSinDuenio: 0, litTotal: 2400 }
   const F = api._acFrasesHallazgos(lpv, null, [], 0.7)
   const t = F.map((x) => x.t + ' ' + x.p + ' ' + x.q).join(' ')
-  ok('6. ⛔ «gasta de menos» NO se presenta como virtud',
+  ok('8. ⛔ «gasta de menos» NO se presenta como virtud',
      /no es bueno|casi nunca es bueno/.test(t) && !/felicit|premi|excelente/i.test(t),
      'si se lee como ahorro, el informe premia al que no registra')
-  ok('7. …y manda a revisar el REGISTRO', /no se registr|no est. anotando|anotando/.test(t),
+  ok('9. …y manda a revisar el REGISTRO', /no se registr|no est. anotando|anotando/.test(t),
      'hay que decir qué buscar, no solo que algo raro pasa')
+}
+
+// ── 2c. EL PAPELEO: cada cifra con la etiqueta de lo que mide ───────────────────
+// 🔴 El informe decía «25 día(s) sin la planilla de viajes cargada» y ese 25 salía de
+//    contar anomalías R11, que se llama «Rodó sin jornada registrada» y mide
+//    KILÓMETROS entre dos lecturas. Los días sin planilla eran 69. Una etiqueta
+//    puesta sobre un número que mide otra cosa inventa un dato.
+{
+  const lpv = { unidades: { norma: 20, filas: [] }, choferes: { filas: [] },
+    diasSinPlanilla: 69, fechasSinPlanilla: 12, litSinDuenio: 0, litTotal: 0 }
+  const anom = [{ cod: 'R11' }, { cod: 'R11' }, { cod: 'R12' }, { cod: 'R7' }, { cod: 'R9' }]
+  const F = api._acFrasesHallazgos(lpv, null, anom, 0.7)
+  const t = F.map((x) => x.t + ' ' + x.p + ' ' + x.q).join(' ')
+  ok('10. ⛔ los días sin planilla salen del CONTEO real, no de las anomalías',
+     /69/.test(t) && /12 fecha/.test(t),
+     'el informe decía 25 porque contaba anomalías R11, que miden kilómetros')
+  ok('11. ⛔ y R11 se llama por lo que mide: kilómetros, no días',
+     /kil.metros rodados que no est.n en ninguna planilla/.test(t) && /2.*tramo/.test(t),
+     'una etiqueta sobre un número que mide otra cosa inventa un dato')
+  ok('12. cada cosa dice QUIÉN la hace', /la oficina/.test(t) && /el chofer/.test(t),
+     'sin dueño, el pendiente no se mueve')
 }
 
 // ── 3. EL TANQUE ─────────────────────────────────────────────────────────────────
