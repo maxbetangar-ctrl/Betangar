@@ -116,9 +116,17 @@ ok('8. ⛔ «por debajo» manda a revisar el REGISTRO, no felicita al chofer',
 ok('9. «por encima» manda a preguntarle al chofer y revisar el camión',
    /preguntarle al chofer/.test(fHtml) && /revisar el cami/.test(fHtml),
    'una desviación hacia arriba sin a quién preguntarle no es accionable')
-ok('10. ⛔ los litros que no se pudieron repartir se DICEN',
-   /no entraron en esta cuenta/.test(fHtml),
-   'si se callan, las cifras parecen cubrir todo el combustible del período y no es así')
+// ⛔ LO QUE FALTA SE DICE COMO COBERTURA, NO COMO ERROR. El texto anterior prometía que las
+//    cifras «se vuelven exactas» cuando entren las planillas — FALSO, y peor que un error de
+//    cuenta: hace desconfiar de números que están bien. Medido el 08/11: calcular con el
+//    período completo y cortado en la última planilla da **0,0% de diferencia** en las 12
+//    unidades, y el mismo orden. Un día sin planilla se excluye ENTERO, no contamina nada.
+ok('10a. ⛔ lo que falta se dice, y se dice como COBERTURA',
+   /cubren el <b>/.test(fHtml) && /del combustible del per/.test(fHtml),
+   'si se calla, las cifras parecen cubrir todo el combustible del período y no es así')
+ok('10b. ⛔ y NO promete que las cifras cambien cuando entren las planillas',
+   !/se vuelven exactas/.test(fHtml) && /no cambia cuando esas planillas entren/.test(fHtml),
+   'prometer exactitud futura implica que lo de hoy está mal, y no lo está')
 ok('11. y se explica que la norma sale de los datos, no de un número a mano',
    /MEDIANA del período/.test(fHtml), 'un umbral sin origen se discute para siempre')
 

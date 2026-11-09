@@ -3219,13 +3219,22 @@ function _acLpvHtml(r){
       '⚠️ <b>Por encima</b> = mirar al chofer y al camión. <b>Por debajo</b> = mirar el registro: gastar mucho menos haciendo los mismos kilómetros casi siempre es que faltan surtidas por asentar.</div>'+
     tabla('POR UNIDAD','cam',r.unidades,'Unidad')+
     tabla('POR CHOFER','chofer',r.choferes,'Chofer')+
-    // ⛔ LO QUE NO SE PUDO REPARTIR SE DICE. Si se callara, las cifras de arriba parecerían
-    //    cubrir todo el combustible del período y no es así.
+    // ⛔ LO QUE NO SE PUDO REPARTIR SE DICE — PERO COMO COBERTURA, NO COMO ERROR.
+    //
+    // ������ ESTE TEXTO DECÍA «en cuanto la oficina cargue esas planillas, estas cifras se vuelven
+    //    exactas». Es FALSO, y es peor que un error de cuenta: hace desconfiar de números que
+    //    están bien. Un día sin planilla se excluye ENTERO — sus litros Y sus viajes— así que no
+    //    ensucia el cociente de nadie.
+    // ������ MEDIDO el 08/11/2026: se calculó el L/viaje de las 12 unidades con el período completo
+    //    y cortado en la última planilla cargada. **Diferencia máxima: 0,0%**, y el orden de
+    //    quién gasta más es idéntico. Lo que crece al cargar las planillas es la COBERTURA.
     ((r.litSinDuenio>0)
-      ? ('<div style="font-size:11px;color:var(--yellow);margin-top:8px;padding:6px 10px;border-radius:8px;background:rgba(251,191,36,.1)">'+
-         '⚠️ <b>'+_acFmt(r.litSinDuenio,0)+' L ('+sinD+'%) no entraron en esta cuenta</b>: son días con combustible cargado pero sin planilla de viajes. '+
-         'Los litros están; lo que falta es con cuántos viajes dividirlos. '+
-         '<b>En cuanto la oficina cargue esas planillas, estas cifras se vuelven exactas</b> — no hace falta nada más.</div>')
+      ? ('<div style="font-size:11px;color:var(--text2);margin-top:8px;padding:6px 10px;border-radius:8px;background:var(--bg3)">'+
+         'ℹ️ Estas cifras cubren el <b>'+(100-sinD)+'%</b> del combustible del período. '+
+         'Los otros '+_acFmt(r.litSinDuenio,0)+' L salieron en días que todavía no tienen planilla de viajes, '+
+         'así que no hay con cuántos viajes dividirlos y ese día queda afuera entero.<br>'+
+         '<b>Lo de arriba no cambia cuando esas planillas entren</b> — un día sin planilla no ensucia el cálculo, '+
+         'queda fuera. Lo que crece es cuánto combustible alcanza a explicar este cuadro.</div>')
       : '')+
   '</div>';
 }
