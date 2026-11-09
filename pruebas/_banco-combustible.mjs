@@ -60,6 +60,11 @@ export function cargarAuditoria(rutaApp = RUTA_APP){
   const ctx = {
     AC_TANQUES:[], AC_MED:[], AC_GASOIL:[], AC_SURTIDAS:[], AC_CK:[], AC_JORNADAS:[],
     AC_ANOM:[], AC_META:{}, AC_SALIDAS_TANQUE:[], FLOTA:{}, _AC_LOTES:null, UNIDAD_CONFIG:{},
+    // ⛔ VACÍO A PROPÓSITO. `AC_HIST` es la historia COMPLETA del tanque, que el producto
+    //    trae aparte porque el saldo es acumulado y no cabe en la ventana del período. Las
+    //    pruebas arman su propio escenario en `AC_GASOIL`, así que acá va vacío y la función
+    //    cae a la ventana — que es justo lo que los fixtures montan.
+    AC_HIST:{gasoil:[],surtidas:[],salidas:[]},
     AC_TOL_PISO:null, AC_SIGMA_CM:null,   // se leen del app.js real más abajo
     formatFecha:(f)=>String(f||'').slice(0,10).split('-').reverse().join('/'),
     _fmtFecha:(f)=>String(f||'').slice(0,10).split('-').reverse().join('/'),

@@ -1922,6 +1922,7 @@ async function bncRenderCuentas(){
 // (Flotilla). Se decide por los datos, nunca por el nombre de la empresa: es un clon.
 // ══════════════════════════════════════════════════════════════════════════════════════════════
 var AC_TANQUES=[], AC_MED=[], AC_GASOIL=[], AC_SURTIDAS=[], AC_CK=[], AC_JORNADAS=[], AC_ANOM=[], AC_META={}, AC_SALIDAS_TANQUE=[], AC_PERIODOS=[];
+var AC_HIST={gasoil:[],surtidas:[],salidas:[]};
 var _acCargando=false;
 
 // ── RUIDO DE LA MEDICIÓN: la tolerancia sale del INSTRUMENTO, no de un número redondo ─────────
@@ -2524,6 +2525,19 @@ async function acCargar(desde,hasta){
   var _iPeriodos=q.length-1;
   var _iTqProp=q.length;
   q.push(supabase.from('configuracion').select('valor').eq('clave','tanques_internos').maybeSingle());
+  // ⛔ EL SALDO DEL TANQUE ES ACUMULADO DESDE EL PRIMER MOVIMIENTO, Y ESO NO CABE EN LA VENTANA
+  //    DEL PERÍODO. `acCargar` trae `gasoil` desde un día antes de `desde`, pero
+  //    `_acSaldoLibrosGalpon` usa '0000-01-01' y escribe en pantalla «desde el primer
+  //    movimiento». Con un período de 3 meses decía **«entraron 1.000 L y salieron 0»** cuando
+  //    la historia real es **5.300 L que entraron y 4.760 que salieron**: el saldo que la regla
+  //    tiene que comprobar salía mal, y con una frase que afirmaba lo contrario.
+  // ⚠️ Son tres tablas CHICAS (cientos de filas en toda la historia), así que traerlas enteras
+  //    no cuesta nada. El resto del módulo sigue mirando solo la ventana, que es lo correcto
+  //    para auditar un período. [[norma-falta-de-dato-no-es-un-dato]]
+  var _iHist=q.length;
+  q.push(supabase.from('gasoil').select('f,lit,src,tipo_operacion,cam').order('id'));
+  q.push(supabase.from('surtidas').select('fecha,tanque,litros').order('id'));
+  q.push(supabase.from('salidas_tanque').select('fecha,litros'));
   var r=await Promise.all(q);
   if(r[0].error)throw new Error('tanques: '+r[0].error.message);
   if(r[1].error)throw new Error('mediciones: '+r[1].error.message);
@@ -2560,6 +2574,13 @@ async function acCargar(desde,hasta){
   // la pude leer»: si la clave no existe o viene rota queda `tanquesPropiosLeido=false`, y el
   // cuadre dice que no lo sabe en vez de afirmar que no hay tanques.
   // [[norma-control-positivo-antes-de-creerle-al-vacio]]
+  // La historia completa, solo para el saldo acumulado del tanque propio.
+  AC_HIST={gasoil:[],surtidas:[],salidas:[]};
+  try{
+    AC_HIST.gasoil=(r[_iHist]&&!r[_iHist].error&&r[_iHist].data)||[];
+    AC_HIST.surtidas=(r[_iHist+1]&&!r[_iHist+1].error&&r[_iHist+1].data)||[];
+    AC_HIST.salidas=(r[_iHist+2]&&!r[_iHist+2].error&&r[_iHist+2].data)||[];
+  }catch(e){ console.log('historia del tanque:',e&&e.message); }
   AC_META.tanquesPropios=[]; AC_META.tanquesPropiosLeido=false;
   try{
     var _ti=(r[_iTqProp]&&!r[_iTqProp].error&&r[_iTqProp].data)?r[_iTqProp].data.valor:null;
@@ -2895,16 +2916,21 @@ function _acSrcEsTanque(src){
   if(s==='tumaca'||s==='boscan')return true;
   return null;   // un nombre nuevo: se avisa, no se adivina
 }
-function _acSalidasGalpon(desde,hasta){
+// ⚠️ `fuente` es opcional: sin ella mira la ventana del período, que es lo correcto para
+//    auditar. El saldo ACUMULADO le pasa la historia entera — ver `_acSaldoLibrosGalpon`.
+function _acSalidasGalpon(desde,hasta,fuente){
   var corte=AC_META.corteSurtidas||'', suma=0;
-  (AC_SURTIDAS||[]).forEach(function(s){
+  var _SU=(fuente&&fuente.surtidas)||AC_SURTIDAS||[];
+  var _GA=(fuente&&fuente.gasoil)||AC_GASOIL||[];
+  var _SA=(fuente&&fuente.salidas)||AC_SALIDAS_TANQUE||[];
+  (_SU).forEach(function(s){
     var f=String(s.fecha||'').slice(0,10);
     if(f<desde||f>hasta)return;
     if(corte&&f<corte)return;
     if(!_acTanquePropio(s.tanque))return;
     suma+=(_acNum(s.litros)||0);
   });
-  (AC_GASOIL||[]).forEach(function(g){
+  (_GA).forEach(function(g){
     if(String(g.tipo_operacion||'')==='compra')return;
     // ⛔ SOLO LO QUE SALIÓ DEL TANQUE. `src` dice de dónde vino el combustible, y hasta el
     //    08/11/2026 esto NO lo miraba: contaba como salida del galpón los **389 despachos de
@@ -2931,7 +2957,7 @@ function _acSalidasGalpon(desde,hasta){
   // tanque de verdad y aparecían como FALTANTE. Un faltante falso repetido enseña a no creerle a
   // la alarma, que es peor que no tenerla [[norma-movimiento-que-el-sistema-no-registra]].
   // No lleva corte: esta tabla nace hoy, todo lo que tenga es posterior y no se pisa con `gasoil`.
-  (AC_SALIDAS_TANQUE||[]).forEach(function(x){
+  (_SA).forEach(function(x){
     var f=String(x.fecha||'').slice(0,10);
     if(f<desde||f>hasta)return;
     suma+=(_acNum(x.litros)||0);
@@ -2940,9 +2966,9 @@ function _acSalidasGalpon(desde,hasta){
 }
 // Las COMPRAS al galpón siguen viviendo en `gasoil` (son las que arman la CxP): el corte no las
 // toca, porque lo que se mudó a `surtidas` es la ENTREGA al camión, no la compra al proveedor.
-function _acComprasGalpon(desde,hasta){
+function _acComprasGalpon(desde,hasta,fuente){
   var suma=0;
-  (AC_GASOIL||[]).forEach(function(g){
+  ((fuente&&fuente.gasoil)||AC_GASOIL||[]).forEach(function(g){
     if(String(g.tipo_operacion||'')!=='compra')return;
     // ⛔ ACÁ LA ASIMETRÍA SE DA VUELTA, y es el mismo razonamiento al revés. En las SALIDAS la
     //    duda no se cuenta, porque contar una salida de más fabrica un faltante y un faltante
@@ -3350,8 +3376,17 @@ function _acFrasesHallazgos(lpv,saldo,anom,costoL){
   abajo.forEach(function(x){
     F.push({sev:'media',
       t:'La unidad '+U(x.cam)+' aparece gastando '+pct(x.dif)+' MENOS, y eso casi nunca es bueno',
-      p:'Figura con <b>'+_acFmt(x.lv,1)+' litros por viaje</b> contra <b>'+_acFmt(u.norma,1)+'</b> del resto, '+
-        'haciendo viajes del mismo largo. Un camión igual a los otros no puede rendir tanto mejor.',
+      // ⛔ ACÁ DECÍA «haciendo viajes del mismo largo» y eso NO estaba comprobado: en el informe
+      //    real una unidad con ese aviso hacía 46,9 km por viaje contra 53 del resto — sus
+      //    viajes SÍ eran más cortos. El hallazgo era correcto, pero la frase que lo sostenía
+      //    era falsa, y una frase falsa en un informe tumba todo lo demás cuando alguien la
+      //    revisa. Ahora cita la medida que SÍ lo sostiene: el km por litro.
+      //    [[norma-una-asercion-mal-escrita-acusa-al-producto]]
+      p:'Figura con <b>'+_acFmt(x.lv,1)+' litros por viaje</b> contra <b>'+_acFmt(u.norma,1)+'</b> del resto. '+
+        ((x.kl&&u.normaKl)?('Y no es por el largo de la ruta: medido contra los kilómetros rinde <b>'+
+          _acFmt(x.kl,2)+' km por litro</b> contra <b>'+_acFmt(u.normaKl,2)+'</b> del resto, '+
+          'o sea que las dos formas de medirlo dicen lo mismo. '):'')+
+        'Un camión igual a los otros no puede rendir tanto mejor.',
       q:'Lo más probable es que <b>le hayan echado combustible y no se registró</b>. '+
         'Eso hace que el gasto real de ese camión no aparezca en ningún lado. Hay que revisar quién le surte y si está anotando.'});
   });
@@ -3622,7 +3657,12 @@ function _acPisoDeteccion(J){
 //      falta un asiento de apertura. Decirlo como faltante sería acusar con un error de registro.
 function _acSaldoLibrosGalpon(){
   var AMPLIO='0000-01-01', FUTURO='9999-12-31';
-  var ent=_acComprasGalpon(AMPLIO,FUTURO), sal=_acSalidasGalpon(AMPLIO,FUTURO);
+  // ⛔ LA HISTORIA ENTERA, NO LA VENTANA. El rango amplio no sirve de nada si el arreglo que
+  //    se recorre solo trae el período: pedía desde el año 0 y miraba tres meses.
+  // ⚠️ `typeof`: el global puede no existir todavía (banco de pruebas, carga a medias).
+  //    Sin historia se cae a la ventana, que es lo que hacía antes — peor, pero no roto.
+  var _H=((typeof AC_HIST!=='undefined')&&AC_HIST&&(AC_HIST.gasoil||[]).length)?AC_HIST:null;
+  var ent=_acComprasGalpon(AMPLIO,FUTURO,_H), sal=_acSalidasGalpon(AMPLIO,FUTURO,_H);
   var cap=_acCapTanquesPropios();   // `null` si no está declarada — ver la función
   var med=(AC_MED||[]).filter(_acEsGalpon).length;
   return {entradas:ent, salidas:sal, saldo:Math.round((ent-sal)*100)/100,
