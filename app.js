@@ -3238,6 +3238,166 @@ function _acLpvHtml(r){
       : '')+
   '</div>';
 }
+// ── 🖨️ INFORME IMPRIMIBLE PARA UNA REUNIÓN CON EL PERSONAL ───────────────────────────────────
+//
+// 🔴 LO PIDIÓ MÁXIMO (08/11/2026): «aparte del reporte, un medio informe de qué notaste, pero de
+//    manera que lo entienda cualquier persona, para poder tomar decisiones… bueno, tal y tal
+//    unidad están usando más combustible que el resto y eso no es normal porque son los mismos
+//    kilómetros, y así».
+//
+// ⛔ LO QUE HACE DISTINTO A ESTO DE UNA TABLA. Una tabla obliga al que la lee a sacar la
+//    conclusión. En una reunión, cada quien saca la suya y se discute la tabla en vez del
+//    problema. Acá el hallazgo viene REDACTADO, con su cifra al lado y lo que hay que hacer.
+//
+// ⛔ Y LO QUE **NO** HACE: no acusa. Dice qué pasó, cuánto, y qué se pregunta. La diferencia
+//    entre «gasta 36% más» y «se está robando el gasoil» es la que sostiene una reunión.
+//    [[norma-una-asercion-mal-escrita-acusa-al-producto]]
+//
+// 📌 EL TEXTO SE GENERA DE LOS DATOS, no está escrito a mano. Si el mes que viene el que se sale
+//    es otro camión, el informe lo dice solo. Un informe redactado a mano envejece en una semana.
+function _acFrasesHallazgos(lpv,saldo,anom,costoL){
+  var F=[];
+  var pct=function(d){ return Math.round(Math.abs(d)*100)+'%'; };
+  var U=function(c){ return (typeof _lblUnidad==='function')?_lblUnidad(c):c; };
+
+  // ── 1. Los que gastan de MÁS ───────────────────────────────────────────────────────────────
+  var u=lpv&&lpv.unidades?lpv.unidades:{filas:[],norma:null};
+  var arriba=(u.filas||[]).filter(function(x){return x.dif>0.20;});
+  if(arriba.length&&u.norma){
+    var kmMed=(function(){ var v=(u.filas||[]).map(function(x){return x.kv;}).filter(function(x){return x>0;}).sort(function(a,b){return a-b;});
+      return v.length?v[Math.floor(v.length/2)]:null; })();
+    arriba.forEach(function(x){
+      var extra=(x.lv-u.norma)*x.viajes;
+      F.push({sev:'alta',
+        t:'La unidad '+U(x.cam)+' está gastando '+pct(x.dif)+' más combustible que el resto',
+        p:'En este período hizo <b>'+x.viajes+' viajes</b> y gastó <b>'+_acFmt(x.lv,1)+' litros por viaje</b>, '+
+          'cuando el resto de la flota gasta <b>'+_acFmt(u.norma,1)+'</b>. '+
+          (x.kv&&kmMed?('Y no es porque haga rutas más largas: sus viajes son de <b>'+_acFmt(x.kv,0)+' km</b> y los del resto de <b>'+_acFmt(kmMed,0)+' km</b>. '):'')+
+          'Son <b>'+_acFmt(extra,0)+' litros de más</b> en el período'+
+          ((costoL>0)?(' — alrededor de <b>$'+_acFmt(extra*costoL,2)+'</b>'):'')+'.',
+        q:'Hay que mirar dos cosas, en este orden: <b>el camión</b> (motor, cauchos, filtros, una fuga) y <b>cómo se está manejando</b>. '+
+          'Si el mecánico no encuentra nada, ahí sí hay una conversación que tener con quien lo maneja.'});
+    });
+  }
+  // ── 2. Los que gastan de MENOS, que NO es una buena noticia ───────────────────────────────
+  var abajo=(u.filas||[]).filter(function(x){return x.dif<-0.20;});
+  abajo.forEach(function(x){
+    F.push({sev:'media',
+      t:'La unidad '+U(x.cam)+' aparece gastando '+pct(x.dif)+' MENOS, y eso casi nunca es bueno',
+      p:'Figura con <b>'+_acFmt(x.lv,1)+' litros por viaje</b> contra <b>'+_acFmt(u.norma,1)+'</b> del resto, '+
+        'haciendo viajes del mismo largo. Un camión igual a los otros no puede rendir tanto mejor.',
+      q:'Lo más probable es que <b>le hayan echado combustible y no se registró</b>. '+
+        'Eso hace que el gasto real de ese camión no aparezca en ningún lado. Hay que revisar quién le surte y si está anotando.'});
+  });
+  // ── 3. El tanque propio ────────────────────────────────────────────────────────────────────
+  if(saldo&&saldo.nuncaMedido&&(saldo.entradas>0||saldo.salidas>0)){
+    F.push({sev:'media',
+      t:'Al tanque del patio nunca se le ha pasado la regla',
+      p:'Desde que existe el sistema entraron <b>'+_acFmt(saldo.entradas,0)+' litros</b> y salieron <b>'+_acFmt(saldo.salidas,0)+'</b>, '+
+        'así que en los papeles deberían quedar <b>'+_acFmt(saldo.saldo,0)+' litros</b>. '+
+        'Pero <b>nadie lo ha medido ni una sola vez</b>, así que no hay forma de confirmarlo.'+
+        ((saldo.saldo<0)?(' Y el número da NEGATIVO, que es imposible: un tanque no entrega más de lo que recibió. Falta asentar lo que ya había adentro cuando arrancó el registro.'):''),
+      q:'Se cierra en diez minutos: <b>pasarle la regla una vez</b> y anotar los centímetros. '+
+        'Si da cerca de '+_acFmt(Math.abs(saldo.saldo),0)+' litros, el tema queda cerrado para siempre. Si da otra cosa, ahí sí hay algo que mirar.'});
+  }
+  // ── 4. El papeleo que falta, agrupado por quién lo hace ───────────────────────────────────
+  var cnt=function(cods){ return (anom||[]).filter(function(a){return cods.indexOf(a.cod)>=0;}).length; };
+  var nPl=cnt(['R11']), nCk=cnt(['R12']), nRg=cnt(['R7','R9']);
+  if(nPl+nCk+nRg>0){
+    var faltan=[];
+    if(nPl)faltan.push('<b>'+nPl+'</b> día(s) sin la planilla de viajes cargada');
+    if(nCk)faltan.push('<b>'+nCk+'</b> checklist sin cerrar (falta el kilometraje de entrada)');
+    if(nRg)faltan.push('<b>'+nRg+'</b> día(s) sin la lectura de la regla del tanque');
+    F.push({sev:'baja',
+      t:'Hay días de los que el sistema no puede decir nada porque falta cargarlos',
+      p:'En este período faltan: '+faltan.join('; ')+'. '+
+        '<b>No significa que falte combustible</b>: significa que de esos días no se puede sacar ninguna conclusión, ni buena ni mala.',
+      q:'La planilla de viajes la carga <b>la oficina</b>. El kilometraje de entrada se completa en el módulo KM. '+
+        'La lectura de la regla la toma <b>el chofer</b> al salir y al llegar, y esa no se puede poner después desde la oficina.'});
+  }
+  return F;
+}
+function acImprimirInforme(){
+  if(typeof abrirImpresionPremium!=='function'){ alert('No está disponible la impresión en esta pantalla.'); return; }
+  var J=(typeof AC_JORNADAS!=='undefined')?AC_JORNADAS:[];
+  if(!J.length){ alert('Primero analizá un período: el informe sale de lo que está en pantalla.'); return; }
+  var desde=AC_META.desde||'', hasta=AC_META.hasta||'';
+  var lpv=_acLitrosPorViaje(J,desde,hasta);
+  var saldo=_acSaldoLibrosGalpon();
+  var costoL=_acCostoL();
+  var totCons=J.filter(function(j){return j.consumo!=null;}).reduce(function(s,j){return s+j.consumo;},0);
+  var F=_acFrasesHallazgos(lpv,saldo,AC_ANOM,costoL);
+  var U=function(c){ return (typeof _lblUnidad==='function')?_lblUnidad(c):c; };
+
+  // ── Las cifras de arriba ───────────────────────────────────────────────────────────────────
+  var sinD=(lpv.litTotal>0)?Math.round(lpv.litSinDuenio*100/lpv.litTotal):0;
+  var graves=(AC_ANOM||[]).filter(function(a){return a.sev==='alta';}).length;
+  var stats=
+    '<div class="stat azul"><div class="lbl">Gasoil del período</div><div class="val">'+_acFmt(totCons,0)+' L</div>'+
+      '<div class="sub2">'+((costoL>0)?('$'+_acFmt(totCons*costoL,2)):'falta el costo por litro')+'</div></div>'+
+    '<div class="stat"><div class="lbl">Litros por viaje (lo normal)</div><div class="val">'+
+      (lpv.unidades.norma?_acFmt(lpv.unidades.norma,1):'—')+'</div><div class="sub2">mediana de la flota</div></div>'+
+    '<div class="stat '+((lpv.unidades.filas||[]).filter(function(x){return Math.abs(x.dif)>0.20;}).length?'rojo':'verde')+'">'+
+      '<div class="lbl">Unidades fuera de lo normal</div><div class="val">'+
+      (lpv.unidades.filas||[]).filter(function(x){return Math.abs(x.dif)>0.20;}).length+'</div>'+
+      '<div class="sub2">de '+(lpv.unidades.filas||[]).length+' con datos suficientes</div></div>'+
+    '<div class="stat '+(graves?'amari':'verde')+'"><div class="lbl">Avisos graves</div><div class="val">'+graves+'</div>'+
+      '<div class="sub2">de '+((AC_ANOM||[]).length)+' en total</div></div>';
+
+  // ── 1. QUÉ ENCONTRAMOS ─────────────────────────────────────────────────────────────────────
+  var body='<h3>Qué encontramos</h3>';
+  if(!F.length){
+    body+='<div class="bk-ok">No apareció nada fuera de lo normal en este período. Las unidades están gastando parecido entre sí y el papeleo está al día.</div>';
+  } else {
+    F.forEach(function(f,i){
+      var cl=(f.sev==='alta')?'bk-err':((f.sev==='media')?'bk-warn':'bk-ok');
+      body+='<div class="'+cl+'" style="margin-bottom:10px">'+
+        '<div style="font-weight:800;font-size:13px;margin-bottom:4px">'+(i+1)+'. '+f.t+'</div>'+
+        '<div style="font-size:12px;line-height:1.6;margin-bottom:6px">'+f.p+'</div>'+
+        '<div style="font-size:12px;line-height:1.6"><b>Qué hacer:</b> '+f.q+'</div>'+
+      '</div>';
+    });
+  }
+
+  // ── 2. LA TABLA, para el que quiera ver el detalle ────────────────────────────────────────
+  var tabla=function(titulo,llave,g,etq){
+    if(!g.filas||!g.filas.length)return '';
+    var h='<h3>'+titulo+'</h3><table><thead><tr><th>'+etq+'</th><th style="text-align:right">Viajes</th>'+
+      '<th style="text-align:right">Litros</th><th style="text-align:right">L/viaje</th>'+
+      '<th style="text-align:right">Km/viaje</th><th>Comparado con el resto</th></tr></thead><tbody>';
+    g.filas.forEach(function(x){
+      var fuera=Math.abs(x.dif)>0.20;
+      var txt=!fuera?'normal':((x.dif>0?'+':'')+Math.round(x.dif*100)+'%');
+      h+='<tr><td><b>'+_mEsc(llave==='cam'?U(x.cam):String(x.chofer))+'</b></td>'+
+        '<td class="mono" style="text-align:right">'+x.viajes+'</td>'+
+        '<td class="mono" style="text-align:right">'+_acFmt(x.litros,0)+'</td>'+
+        '<td class="mono '+(fuera?(x.dif>0?'rv':'bv'):'gv')+'" style="text-align:right"><b>'+_acFmt(x.lv,1)+'</b></td>'+
+        '<td class="mono" style="text-align:right">'+(x.kv?_acFmt(x.kv,0):'—')+'</td>'+
+        '<td>'+txt+'</td></tr>';
+    });
+    return h+'</tbody></table>'+
+      '<div style="font-size:10px;color:#666;margin:4px 0 14px">Lo normal son <b>'+_acFmt(g.norma,1)+' litros por viaje</b>. '+
+      'Se marca lo que se sale más de un 20%.</div>';
+  };
+  body+=tabla('Litros por viaje — por unidad','cam',lpv.unidades,'Unidad');
+  body+=tabla('Litros por viaje — por chofer','chofer',lpv.choferes,'Chofer');
+
+  // ── 3. HASTA DÓNDE LLEGA ESTE INFORME ─────────────────────────────────────────────────────
+  // ⛔ VA EN EL PAPEL, no en una nota al pie que nadie lee. Un informe que no dice qué parte de
+  //    la realidad alcanzó a mirar invita a que se lo discuta entero.
+  body+='<h3>Hasta dónde llega este informe</h3>'+
+    '<div class="bk-ok" style="font-size:12px;line-height:1.6">'+
+    'Las cifras de arriba cubren el <b>'+(100-sinD)+'%</b> del combustible del período. '+
+    (sinD>0?('Los otros '+_acFmt(lpv.litSinDuenio,0)+' litros salieron en días que todavía no tienen la planilla de viajes cargada, '+
+      'así que no hay con cuántos viajes dividirlos y esos días quedan afuera enteros. '+
+      '<b>Las cifras de arriba no cambian</b> cuando esas planillas entren: lo que crece es cuánto combustible alcanza a explicar este cuadro. '):'')+
+    'Lo que este informe <b>no</b> puede decir es por qué pasa cada cosa — eso se pregunta.'+
+    '</div>';
+
+  abrirImpresionPremium('Informe de combustible',
+    'Período del '+(typeof formatFecha==='function'?formatFecha(desde):desde)+' al '+(typeof formatFecha==='function'?formatFecha(hasta):hasta),
+    stats, body, {lbl:'Informe', ref:''});
+}
 function _acConfianza(o){
   o=o||{};
   var c=[];

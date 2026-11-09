@@ -171,6 +171,10 @@ try {
     for (const f of caso.debeDecir) ok(dice(f), `dice «${f}»`)
     for (const f of caso.noDebeDecir) ok(!dice(f), `NO dice «${f}»`)
 
+    // ⚠️ El informe imprimible NO se prueba acá: este fixture no tiene jornadas a propósito
+    //    (no hay mediciones), así que el informe se niega a salir — que es lo correcto. Su
+    //    redacción se prueba en `informe-combustible.test.mjs`, con datos que sí producen
+    //    hallazgos. [[norma-probar-el-camino-no-la-pieza]]
     const img = path.join(SALIDA, `tanque-propio-${CASOS.indexOf(caso) + 1}.png`)
     await pg.screenshot({ path: img, fullPage: true })
     console.log(`   📷 ${img}`)
