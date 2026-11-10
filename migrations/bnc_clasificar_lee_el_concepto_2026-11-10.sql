@@ -136,15 +136,20 @@ begin
      set categoria='compra_divisas', es_gasto=false,
          clasificado_por='banco:type_intervencion_cargo', clasificado_at=now()
    where tipo='debito' and tipo_banco ilike '%Intervencion Cambiaria%'
-     -- ⛔ Y QUE EL CONCEPTO ACOMPAÑE (10/11/2026). El `tipo_banco` lo pone la maquina
-     --    del banco y a veces le pega la etiqueta de intervencion a una transferencia
-     --    comun: asi un pago de GASOIL a una persona quedo como compra de dolares y
-     --    aparecio en el desplegable de la deuda como US$ 4.600 disponibles para
-     --    pagarle a AUTO UNION. Las intervenciones de verdad traen el concepto
-     --    «Cargo Intervencion Cambiaria CARGO»; medido: 5 de 5 lo traen, y los 2 que
-     --    no, no eran intervenciones. El concepto le gana al tipo.
-     --    [[norma-la-palabra-que-identifica-es-la-rara]]
-     and coalesce(concepto_banco,'') ilike '%Intervencion%'
+     -- ⛔ ACA EL `tipo_banco` MANDA, Y EL CONCEPTO NO SIRVE (10/11/2026, 2o intento).
+     --    El 1er intento de esta migracion exigia que el concepto dijera «Intervencion»,
+     --    creyendo que la maquina del banco le pegaba mal la etiqueta a un pago de
+     --    GASOIL. Era al reves: **el banco le COPIA a las tres lineas de la intervencion
+     --    el concepto de la transferencia vecina**. El 02/11 el trio salio asi —
+     --      Cargo Bs 4.092.046,84 · Comision Bs 20.460,23 (0,500% exacto) · Abono US$ 4.600
+     --    — los tres con el texto «GASOIL 2400 LTS PRECIO 065» de OTRA transferencia, la
+     --    de Bs 1.387.729,20 que SI es el gasoil (2.400 L x 0,65 = US$ 1.560, cuadra).
+     --    El `Abono Intervencion Cambiaria` de US$ 4.600 en la cuenta en divisas lo
+     --    prueba: ese dinero entro. ⇒ El concepto es el campo CONTAMINADO; el que lo
+     --    pone la maquina de cambio del banco es el que dice la verdad.
+     --    📌 Lo caza Maximo preguntando «¿salieron 4 millones de gasoil en UNA sola
+     --       transferencia?»: el monto era el doble del ticket habitual del proveedor.
+     --    [[norma-un-filtro-nuestro-tapa-un-dato-que-si-llega]]
      and coalesce(categoria,'') is distinct from 'compra_divisas'
      and coalesce(clasificado_por,'') not like 'manual:%';
 
@@ -166,7 +171,17 @@ begin
    where position(c.cuenta in (coalesce(m.descripcion,'') || ' ' || coalesce(m.concepto_banco,''))) > 0
      and c.cuenta is distinct from m.cuenta
      and coalesce(m.tipo_banco,'') !~* 'IMPUESTOS|Comisi'
-     and coalesce(m.categoria,'') not in ('traspaso_interno','impuestos','comision_banco')
+     -- ⛔ NI PISAR UNA COMPRA DE DIVISAS (10/11/2026). El NIVEL 1 dice «manda sobre
+     --    todo lo demas» y esta regla lo desmentia: la lista de exclusion tenia
+     --    impuestos y comision_banco, pero NO compra_divisas. Como el banco le copia
+     --    a las tres lineas de la intervencion el concepto de la transferencia vecina,
+     --    el 30/10 ese concepto traia una cuenta PROPIA de Betangar y esta regla se
+     --    llevo puesto el cargo: Bs 10.671.063,60 quedaron como traspaso interno
+     --    cuando en realidad **entraron US$ 12.000** a la cuenta en divisas (lo prueba
+     --    su `Abono Intervencion Cambiaria` por ese monto, y la comision de 0,500%).
+     --    ⇒ US$ 12.000 comprados que el modulo de deuda NO veia como disponibles.
+     --    [[norma-arreglar-el-mecanismo-no-el-caso]]
+     and coalesce(m.categoria,'') not in ('traspaso_interno','impuestos','comision_banco','compra_divisas')
      and coalesce(m.clasificado_por,'') not like 'manual:%';
 
   -- ═══ ENTRADAS ═══
@@ -309,17 +324,20 @@ begin
   --    es peor que no tener candado. Se deja el valor y se le quita la CERTEZA, que es
   --    lo que mentia. [[norma-una-asercion-mal-escrita-acusa-al-producto]]
   --    ⛔ MENOS LA INTERVENCION CAMBIARIA, QUE SI VA A BCV (Maximo, 24/09): ahi el
-  --       BCV no es una suposicion, es la tasa de la operacion. El primer intento de
-  --       esto marco las 3 intervenciones legitimas como «tasa supuesta» y el
-  --       desplegable de la deuda les ponia una advertencia a compras correctas. Un
-  --       aviso que salta sobre lo que esta bien deja de significar algo.
-  --       [[norma-un-aviso-que-salta-siempre-no-avisa-de-nada]]
+  --       BCV no es una suposicion, es la tasa de la operacion. Un aviso que salta
+  --       sobre lo que esta bien deja de significar algo.
+  --    ⛔ Y SE RECONOCE POR `tipo_banco`, NO POR EL CONCEPTO: el banco le copia a las
+  --       tres lineas de la intervencion el concepto de la transferencia vecina, asi
+  --       que el concepto de una intervencion puede decir cualquier cosa — el 02/11
+  --       decia «GASOIL». Filtrar por concepto dejaba una compra legitima marcada
+  --       como «tasa supuesta».
+  --       [[norma-un-filtro-nuestro-tapa-un-dato-que-si-llega]]
   update bnc_movimientos m
      set tasa_estimada = true
     from public.tasas_diarias t
    where m.categoria = 'compra_divisas'
      and m.tasa_estimada is not true
-     and coalesce(m.concepto_banco,'') not ilike '%Intervencion%'
+     and coalesce(m.tipo_banco,'') not ilike '%Intervencion%'
      and m.fecha ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}'
      and t.fecha = substring(m.fecha from 1 for 10)::date
      and m.tasa_real = t.bcv_dolar;
