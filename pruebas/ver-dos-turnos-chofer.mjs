@@ -72,8 +72,15 @@ await page.route('**/rest/v1/rpc/**', async (r) => {
   enviados.push({ nombre, cuerpo })
   let datos = []
   if (nombre === 'chofer_checklist_dia') {
+    // ⛔ LA LLAVE ES (fecha, cam, turno) — LAS TRES. El stub comparaba SOLO el turno, así
+    //    que devolvía el checklist de la noche aunque la app lo pidiera con la fecha del día
+    //    siguiente: el arnés tapaba justo el fallo que hay que medir al cruzar la medianoche.
+    //    [[norma-un-filtro-nuestro-tapa-un-dato-que-si-llega]]
     const t = cuerpo.p_turno || 'diurno'
-    datos = (checklistGuardado && checklistGuardado.turno === t) ? [checklistGuardado] : []
+    const f = cuerpo.p_fecha || null
+    const calza = checklistGuardado && checklistGuardado.turno === t &&
+      (!checklistGuardado.fecha || !f || checklistGuardado.fecha === f)
+    datos = calza ? [checklistGuardado] : []
   }
   if (nombre === 'chofer_puede_ver') datos = true
   if (nombre === 'hay_conexion') datos = true
@@ -174,6 +181,163 @@ const leyoNoc = enviados.filter((e) => e.nombre === 'chofer_checklist_dia').pop(
 chequear('ahora le pide a la base el turno nocturno',
   !!(leyoNoc && leyoNoc.cuerpo.p_turno === 'nocturno'), 'p_turno=' + (leyoNoc ? leyoNoc.cuerpo.p_turno : '—'))
 await page.screenshot({ path: path.join(SALIDA, '_turno-nocturno.png') })
+
+// ══════════════════════════════════════════════════════════════════════════════════════════
+// ── 🌙 LA NOCHE CRUZA LA MEDIANOCHE ───────────────────────────────────────────────────────
+//
+// 🔴 POR QUÉ. Máximo, 13/11/2026: *«hay choferes que no logran cerrar lo del turno de la
+//    noche»*. Medido en la base: el turno nocturno se usó DOS veces (06/11, B004 y B009),
+//    abrió a las 18:35 y 19:15 y NINGUNO cerró. El B009 seguía trabajando a la **01:50** del
+//    07/11 — ese viaje quedó con `fecha` del 07, mientras su checklist vive en el 06.
+//
+//    La jornada de la noche CRUZA LAS 00:00, pero `hoy` es una fecha de calendario que rueda
+//    a medianoche, y de ella cuelga TODO: la llave del turno (`btg_turno_<cam>_<hoy>`), las
+//    13 claves locales del día y el `p_fecha` con que se le pide el checklist a la base.
+//
+ // Acá se mide qué le queda al chofer en la pantalla cuando el reloj pasa la medianoche con
+// su jornada abierta. No se adivina: se corre el reloj y se mira.
+//
+// ⚠️ LO QUE ESTA PARTE **NO** AFIRMA. Que `hoy` deje de rodar a medianoche sería el arreglo
+//    de fondo, y NO está hecho a propósito: toca la pieza que usan los doce a las 5:40.
+//    Decisión de Máximo (13/11): primero el rescate, que es aditivo. Así que el cruce de
+//    medianoche se MIDE y se imprime —para que nadie lo dé por arreglado— y lo que se
+//    EXIGE es lo de abajo: que la jornada de anoche tenga una puerta.
+// ══════════════════════════════════════════════════════════════════════════════════════════
+const hoyVEstr = (ms) => new Date(ms - 14400000).toISOString().slice(0, 10)
+const AYER = hoyVEstr(Date.now())
+
+// El chofer de la noche ya hizo su checklist de SALIDA: la jornada está abierta.
+checklistGuardado = { id: 'n1', turno: 'nocturno', fecha: AYER, cam: CAM,
+                      conductor: 'CHOFER DE LA NOCHE', km_salida: 21500, km_entrada: null,
+                      hora_salida: '18:35', hora_entrada: null, llenado_por: 'chofer' }
+await page.evaluate(([cam, f]) => {
+  try { localStorage.setItem('btg_cl_modo_' + cam + '_' + f + '_n', 'llegada') } catch (e) {}
+}, [CAM, AYER])
+await page.reload({ waitUntil: 'domcontentloaded' })
+await page.waitForTimeout(3500)
+const antesMedianoche = await page.evaluate(() => ({ hoy, turno: CL_TURNO, modo: CL_MODO }))
+console.log('\n── la noche, ANTES de las 00:00 ──')
+chequear('la jornada de la noche está ABIERTA (modo llegada)',
+  antesMedianoche.modo === 'llegada', 'modo=' + antesMedianoche.modo + ' turno=' + antesMedianoche.turno)
+
+// ── Se corre el reloj: 02:00 de la madrugada siguiente ────────────────────────────────────
+// No se usa `clock.install()` a propósito: congela los temporizadores y esta app vive de
+// `setTimeout`. Se corre SOLO la fecha, que es lo único que el fallo necesita.
+const ahora = new Date()
+const dosDeLaManiana = new Date(Date.UTC(ahora.getUTCFullYear(), ahora.getUTCMonth(), ahora.getUTCDate() + 1, 6, 0, 0))
+const DESFASE = dosDeLaManiana.getTime() - Date.now()
+await page.addInitScript((d) => {
+  const Real = Date
+  const F = function (...a) { return a.length ? new Real(...a) : new Real(Real.now() + d) }
+  F.now = () => Real.now() + d
+  F.parse = Real.parse; F.UTC = Real.UTC; F.prototype = Real.prototype
+  window.Date = F
+}, DESFASE)
+await page.reload({ waitUntil: 'domcontentloaded' })
+await page.waitForTimeout(3500)
+const HOY_NUEVO = hoyVEstr(Date.now() + DESFASE)
+const trasMedianoche = await page.evaluate(() => ({
+  hoy, turno: CL_TURNO, modo: CL_MODO, suf: _tSuf(),
+  banner: (document.getElementById('llegada-banner') || {}).innerText || '',
+  botonG: (document.getElementById('cl-btn-guardar') || {}).textContent || '',
+  badge: (document.getElementById('cl-turno-badge') || {}).textContent || '',
+}))
+const pidio = enviados.filter((e) => e.nombre === 'chofer_checklist_dia').pop()
+console.log('\n── 02:00 de la madrugada, con la jornada de la noche SIN CERRAR ──')
+console.log('   antes: hoy=' + antesMedianoche.hoy + ' turno=' + antesMedianoche.turno + ' modo=' + antesMedianoche.modo)
+console.log('   ahora: hoy=' + trasMedianoche.hoy + ' turno=' + trasMedianoche.turno + ' modo=' + trasMedianoche.modo + ' sufijo=' + JSON.stringify(trasMedianoche.suf))
+console.log('   le pide a la base: fecha=' + (pidio ? pidio.cuerpo.p_fecha : '—') + ' turno=' + (pidio ? pidio.cuerpo.p_turno : '—'))
+console.log('   botón: ' + JSON.stringify(trasMedianoche.botonG.trim()))
+console.log('   📌 el día de calendario avanzó ' + AYER + ' → ' + HOY_NUEVO + ', y con él se fueron el turno,')
+console.log('      las claves locales y hasta la identidad del chofer. ASÍ SIGUE: es el arreglo de fondo,')
+console.log('      que va aparte. Lo que tiene que haber es la puerta de abajo.')
+await page.screenshot({ path: path.join(SALIDA, '_noche-cruza-medianoche.png') })
+
+// ══════════════════════════════════════════════════════════════════════════════════════════
+// ── 🌙 LA PUERTA: CERRAR LA JORNADA DE ANOCHE ─────────────────────────────────────────────
+//
+// El chofer vuelve a identificarse (es lo que hace la persona: la identidad se le venció con
+// el día) y entonces tiene que ver el banner y poder cerrar lo de anoche — SIN que eso le
+// cambie el día ni el turno de hoy, que es justo lo que no se quiso tocar.
+// ══════════════════════════════════════════════════════════════════════════════════════════
+await page.evaluate((cam) => {
+  try { localStorage.setItem('btg_chofer_dia_' + cam, JSON.stringify({ nombre: 'CHOFER DE LA NOCHE', fecha: _hoyVE() })) } catch (e) {}
+}, CAM)
+await page.reload({ waitUntil: 'domcontentloaded' })
+await page.waitForTimeout(4000)
+const conBanner = await page.evaluate(() => ({
+  visible: ((document.getElementById('jor-banner') || {}).style || {}).display === 'block',
+  texto: (document.getElementById('jor-texto') || {}).innerText || '',
+  hoy, turno: CL_TURNO,
+}))
+console.log('\n── ya es otro día: ¿hay puerta para lo de anoche? ──')
+chequear('⭐ sale el aviso de la jornada de anoche', conBanner.visible,
+  'texto=' + JSON.stringify(conBanner.texto.replace(/\s+/g, ' ').slice(0, 90)))
+chequear('el aviso dice CUÁNDO salió', /18:35/.test(conBanner.texto), conBanner.texto ? 'ok' : '(vacío)')
+chequear('⛔ el día de HOY no se tocó', conBanner.hoy === HOY_NUEVO && conBanner.turno === 'diurno',
+  'hoy=' + conBanner.hoy + ' turno=' + conBanner.turno)
+await page.screenshot({ path: path.join(SALIDA, '_noche-aviso-sin-cerrar.png') })
+
+// Se abre el formulario y se prueba EL CAMINO, no la pieza.
+await page.evaluate(() => jorAbrirCierre())
+await page.waitForTimeout(600)
+// 1º el candado: el odómetro no baja (lo más común es escribir los cm del tanque).
+await page.fill('#jor-km', '43')
+await page.fill('#jor-hora', '02:40')
+await page.click('#jor-guardar')
+await page.waitForTimeout(700)
+const conError = await page.evaluate(() => ({
+  visible: ((document.getElementById('jor-error') || {}).style || {}).display === 'block',
+  texto: (document.getElementById('jor-error') || {}).textContent || '',
+  mandado: null,
+}))
+chequear('⭐ un km MENOR que el de salida se rechaza (no se pregunta)', conError.visible,
+  JSON.stringify(conError.texto.slice(0, 110)))
+chequear('y el aviso explica el motivo más probable', /tanque/i.test(conError.texto))
+await page.screenshot({ path: path.join(SALIDA, '_noche-km-que-baja.png') })
+
+// 2º el cierre de verdad. Se TOCA el botón, no se llama a la función: así se prueba que el
+// `onclick` del HTML existe y que la marca se VE — un estado que solo vive en una variable
+// deja al chofer sin saber qué eligió. [[norma-una-pantalla-se-revisa-en-una-pantalla]]
+const antes = enviados.filter((e) => e.nombre === 'chofer_checklist_guardar').length
+await page.fill('#jor-km', '21680')
+const errorTrasCorregir = await page.evaluate(() => ((document.getElementById('jor-error') || {}).style || {}).display)
+chequear('⭐ el aviso de error se borra al corregir el número', errorTrasCorregir === 'none',
+  'display=' + errorTrasCorregir)
+await page.locator('#jor-comb-btns .comb-btn', { hasText: '1/2' }).first().click()
+const marcado = await page.evaluate(() => {
+  const s = document.querySelectorAll('#jor-comb-btns .comb-btn.sel')
+  return { cuantos: s.length, cual: s.length ? s[0].textContent.trim() : '' }
+})
+chequear('⭐ el botón elegido queda MARCADO, y uno solo',
+  marcado.cuantos === 1 && marcado.cual === '1/2', 'marcados=' + marcado.cuantos + ' → ' + marcado.cual)
+await page.screenshot({ path: path.join(SALIDA, '_noche-cerrar-anoche.png') })
+await page.click('#jor-guardar')
+await page.waitForTimeout(1500)
+const guardados = enviados.filter((e) => e.nombre === 'chofer_checklist_guardar')
+const env = guardados[guardados.length - 1]
+const p = (env && env.cuerpo && env.cuerpo.p) || {}
+console.log('   lo que salió hacia la base:', JSON.stringify(p))
+chequear('⭐ se mandó el cierre', guardados.length > antes)
+chequear('⭐ con la fecha de ANOCHE, no la de hoy', p.fecha === AYER, 'fecha=' + p.fecha + ' (anoche fue ' + AYER + ')')
+chequear('⭐ y con el turno NOCTURNO', p.turno === 'nocturno', 'turno=' + p.turno)
+chequear('lleva el km y la hora de llegada', String(p.km_entrada) === '21680' && p.hora_entrada === '02:40',
+  'km=' + p.km_entrada + ' hora=' + p.hora_entrada)
+chequear('lleva el combustible que marcó', p.comb_entrada === '1/2', 'comb=' + p.comb_entrada)
+// ⛔ LO QUE NO PUEDE MANDAR: nada de la inspección. La RPC solo pisa las claves que vienen,
+//    así que mandar de más borraría el checklist que ese chofer llenó al salir.
+chequear('⛔ NO pisa la inspección ni el km de salida',
+  !('km_salida' in p) && !('luz_delantera_alta' in p) && !('observaciones' in p),
+  'claves=' + Object.keys(p).join(','))
+const trasCierre = await page.evaluate(() => ({
+  banner: ((document.getElementById('jor-banner') || {}).style || {}).display,
+  modal: !!document.getElementById('modal-jor'),
+  hoy, turno: CL_TURNO,
+}))
+chequear('el aviso se va cuando ya está cerrada', trasCierre.banner === 'none' && !trasCierre.modal,
+  'banner=' + trasCierre.banner + ' modal=' + trasCierre.modal)
+chequear('⛔ y el día de hoy SIGUE intacto', trasCierre.hoy === HOY_NUEVO && trasCierre.turno === 'diurno',
+  'hoy=' + trasCierre.hoy + ' turno=' + trasCierre.turno)
 
 const reales = errores.filter((e) => !/rest\/v1|Failed to load|401|406/i.test(e))
 if (reales.length) { console.log('\n⛔ errores de JS:'); reales.slice(0, 8).forEach((e) => console.log('   ' + e)); fallos += reales.length }

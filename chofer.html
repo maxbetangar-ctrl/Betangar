@@ -272,6 +272,23 @@ body{background:#0f1923;color:#fff;font-family:-apple-system,BlinkMacSystemFont,
     <div style="font-size:10px;color:rgba(255,255,255,.4);margin-top:8px">Ya están reportadas. Siguen aquí hasta que el mecánico las arregle.</div>
   </div>
 
+  <!-- ══════ 🌙 LA JORNADA DE LA NOCHE QUE QUEDÓ SIN CERRAR ══════
+       🔴 Máximo, 13/11/2026: «hay choferes que no logran cerrar lo del turno de la noche».
+          La jornada nocturna CRUZA LAS 00:00 y `hoy` rueda a medianoche: al volver, el
+          teléfono pide identificarse de nuevo y abre un checklist DIURNO en blanco del día
+          nuevo. La jornada de anoche queda sin ninguna puerta desde el teléfono — medido en
+          la base: las dos únicas nocturnas (06/11, B004 y B009) siguen abiertas, y el B009
+          registraba viajes a la 01:50 del 07/11.
+       ⛔ ESTE BANNER NO CAMBIA `hoy` NI EL TURNO. Cierra ESA fila y nada más: lo que el
+          chofer haga hoy sigue cayendo en el día de hoy. Es a propósito — el arreglo de
+          fondo (que la jornada le gane al calendario) toca la pieza que usan los 12 a las
+          5:40 y va aparte. Se ve en TODAS las pestañas: el chofer vive en VIAJES. -->
+  <div id="jor-banner" style="display:none;margin:8px 10px 0;background:rgba(109,90,205,.14);border:1px solid rgba(109,90,205,.5);border-radius:12px;padding:11px 13px">
+    <div style="font-size:13px;font-weight:800;color:#cdbdfb">🌙 Turno de anoche SIN CERRAR</div>
+    <div id="jor-texto" style="font-size:12px;color:rgba(255,255,255,.8);margin-top:4px;line-height:1.4"></div>
+    <button type="button" onclick="jorAbrirCierre()" style="margin-top:9px;width:100%;background:#6d5acd;color:#fff;border:none;border-radius:8px;padding:10px;font-weight:800;font-size:13px;cursor:pointer">Cerrar la jornada de anoche</button>
+  </div>
+
   <!-- ══════ TAB VIAJES ══════ -->
   <!-- ══════ TAB SURTIR (combustible por surtida) ══════ -->
   <div class="tab-page" id="tab-surtir">
@@ -1264,6 +1281,198 @@ function soltarUnidadTurno(){
   window.location.reload();
 }
 
+// ═══════════════════════════════════════════════════════════════════════════════════════
+// 🌙 CERRAR LA JORNADA DE LA NOCHE QUE QUEDÓ ABIERTA
+//
+// 🔴 Máximo, 13/11/2026: «hay choferes que no logran cerrar lo del turno de la noche».
+//
+// ⛔ LO QUE PASA, MEDIDO. La jornada nocturna cruza las 00:00 y `hoy` es una fecha de
+//    calendario: a medianoche rueda, y con ella ruedan la llave del turno
+//    (`btg_turno_<cam>_<hoy>`), las 13 claves locales del día y el `p_fecha` con que se le
+//    pide el checklist a la base. A las 02:00, con su jornada abierta, al chofer se le
+//    vence hasta la identidad (`btg_chofer_dia_<cam>` se guarda con la fecha): vuelve a
+//    «¿Quién maneja hoy?» y después aterriza en un checklist DIURNO en blanco del día
+//    nuevo. Su jornada queda SIN NINGUNA PUERTA desde el teléfono.
+//    En la base: las dos únicas nocturnas (06/11, B004 y B009) abrieron 18:35 y 19:15 y
+//    NINGUNA cerró; el B009 registraba viajes a la 01:50 del 07/11.
+//    Reproducido en navegador: `pruebas/ver-dos-turnos-chofer.mjs`.
+//
+// ⛔ ESTO NO TOCA `hoy` NI `CL_TURNO`. Cierra ESA fila —(fecha, cam, turno) explícitos— y
+//    nada más: lo que el chofer haga hoy sigue cayendo en el día de hoy. Si cambiara los
+//    globales, un chofer que toque el botón a las 6:30 de la mañana registraría su jornada
+//    nueva con la fecha de ayer. El arreglo de fondo —que la jornada le gane al
+//    calendario— toca la pieza que usan los 12 a las 5:40 y va aparte, a propósito.
+// ═══════════════════════════════════════════════════════════════════════════════════════
+var JOR_PEND = null;    // {fecha, turno, km_salida, hora_salida, conductor}
+
+function _ayerVE(){ return new Date(Date.now()-14400000-86400000).toISOString().slice(0,10); }
+
+// ⛔ SOLO SE PREGUNTA POR LO QUE NO SE PUEDE VER DE OTRA FORMA. Si el teléfono YA está en la
+//    jornada nocturna de ayer (todavía no pasó la medianoche), la pantalla normal alcanza y
+//    el banner sobraría: diría «sin cerrar» de la misma jornada que tiene delante.
+function jorBuscarPendiente(){
+  if(!supabase || !cam) return;
+  var ayer=_ayerVE();
+  if(hoy===ayer && CL_TURNO==='nocturno') return;
+  // Descartada a mano hoy: no se vuelve a insistir hasta mañana.
+  try{ if(localStorage.getItem('btg_jor_visto_'+cam)===hoy) return; }catch(e){}
+  supabase.rpc('chofer_checklist_dia', {p_cam: cam, p_fecha: ayer, p_turno: 'nocturno'})
+  .then(function(res){
+    // ⛔ «NO VOLVIÓ NADA» ES «NO HAY JORNADA ABIERTA», no «no sé»: si la RPC falla se calla.
+    //    Un banner que sale por un error de red le diría a un chofer que dejó algo abierto
+    //    cuando no dejó nada. [[norma-control-positivo-antes-de-creerle-al-vacio]]
+    if(res.error || !res.data || !res.data.length) return;
+    var d=res.data[0];
+    if(d.llenado_por==='mecanico') return;             // ya la cerró el mecánico
+    // El 0 se trata como null SIEMPRE: es el estado normal «salió y no ha vuelto».
+    var kmEnt=parseFloat(String(d.km_entrada==null?'':d.km_entrada).replace(',','.'))||0;
+    if(kmEnt>0) return;                                 // ya está cerrada
+    if(!d.hora_salida && !d.km_salida) return;          // nunca llegó a salir
+    JOR_PEND={ fecha:ayer, turno:'nocturno', id:d.id,
+               km_salida:parseFloat(String(d.km_salida==null?'':d.km_salida).replace(',','.'))||0,
+               hora_salida:d.hora_salida||'', conductor:d.conductor||'' };
+    jorPintarBanner();
+  }, function(){});
+}
+
+function jorPintarBanner(){
+  var b=document.getElementById('jor-banner'), t=document.getElementById('jor-texto');
+  if(!b||!t||!JOR_PEND) return;
+  var f=JOR_PEND.fecha.split('-');
+  t.innerHTML='Salió el <b>'+f[2]+'/'+f[1]+'</b> a las <b>'+(JOR_PEND.hora_salida||'—')+'</b>'+
+    (JOR_PEND.km_salida>0?(' con <b>'+JOR_PEND.km_salida.toLocaleString('es-VE')+' km</b>'):'')+
+    ' y no se registró la llegada.'+
+    (JOR_PEND.conductor?('<br>Manejaba: '+JOR_PEND.conductor):'');
+  b.style.display='block';
+}
+
+function jorAbrirCierre(){
+  if(!JOR_PEND) return;
+  var prev=document.getElementById('modal-jor'); if(prev) prev.remove();
+  var f=JOR_PEND.fecha.split('-');
+  var hayTanque=!!(CL_TANQUE_UNIDAD||_clEsJac1131());
+  var ov=document.createElement('div');
+  ov.className='modal'; ov.id='modal-jor'; ov.style.display='block';
+  ov.innerHTML='<div class="modal-box" style="margin-top:8vh">'+
+    '<div class="modal-title">🌙 Cerrar el turno del '+f[2]+'/'+f[1]+'</div>'+
+    '<div style="font-size:12px;color:#9fb3c8;margin:6px 0 14px;line-height:1.45">'+
+      'Ponga lo de ESA noche, no lo de hoy.'+
+      (JOR_PEND.km_salida>0?(' Salió con <b>'+JOR_PEND.km_salida.toLocaleString('es-VE')+' km</b>.'):'')+
+    '</div>'+
+    '<label class="cl-label">KM al regresar</label>'+
+    '<input class="cl-input" type="tel" inputmode="numeric" pattern="[0-9]*" autocomplete="off" id="jor-km" placeholder="0" oninput="_kmInput(this,\'jor-km-h\');_jorError(\'\')">'+
+    '<div class="cl-km-hint" id="jor-km-h" style="font-size:12px;color:#6b7280;margin-top:3px;font-weight:600"></div>'+
+    '<label class="cl-label" style="margin-top:12px">Hora de llegada</label>'+
+    '<input class="cl-input" type="time" autocomplete="off" id="jor-hora" onchange="_jorError(\'\')">'+
+    '<label class="cl-label" style="margin-top:12px">¿Cómo quedó el combustible?</label>'+
+    '<div class="comb-btns" id="jor-comb-btns">'+
+      '<button type="button" class="comb-btn" onclick="jorSelComb(\'lleno\',this)">LLENO</button>'+
+      '<button type="button" class="comb-btn" onclick="jorSelComb(\'3/4\',this)">3/4</button>'+
+      '<button type="button" class="comb-btn" onclick="jorSelComb(\'1/2\',this)">1/2</button>'+
+      '<button type="button" class="comb-btn" onclick="jorSelComb(\'1/4\',this)">1/4</button>'+
+      '<button type="button" class="comb-btn" onclick="jorSelComb(\'reserva\',this)">RESERVA</button>'+
+    '</div>'+
+    (hayTanque
+      ? ('<label class="cl-label" style="margin-top:12px">CM del tanque al regresar <span style="opacity:.6">(si lo midió)</span></label>'+
+         '<input class="cl-input" type="number" step="0.1" min="0" max="52.5" autocomplete="off" id="jor-cm" placeholder="0">')
+      : '')+
+    '<div id="jor-error" style="display:none;margin-top:10px;padding:8px 10px;border-radius:8px;background:rgba(248,113,113,.12);border:1px solid rgba(248,113,113,.45);color:#fca5a5;font-size:12px;font-weight:700"></div>'+
+    '<button id="jor-guardar" style="width:100%;padding:15px;font-size:16px;font-weight:800;border:none;border-radius:12px;background:#6d5acd;color:#fff;margin-top:16px">Guardar el cierre</button>'+
+    '<button id="jor-cancelar" style="width:100%;padding:13px;font-size:15px;font-weight:700;margin-top:9px;border:1px solid rgba(255,255,255,.35);border-radius:12px;background:none;color:#fff">Ahora no</button>'+
+    '<div style="font-size:11px;color:rgba(255,255,255,.45);margin-top:12px;line-height:1.4">Si no se acuerda de los datos de esa noche, toque «Ahora no» y avísele a la oficina: ellos lo cierran.</div>'+
+  '</div>';
+  document.body.appendChild(ov);
+  ov.querySelector('#jor-cancelar').onclick=function(){
+    ov.remove();
+    try{ localStorage.setItem('btg_jor_visto_'+cam, hoy); }catch(e){}
+    var b=document.getElementById('jor-banner'); if(b) b.style.display='none';
+  };
+  ov.querySelector('#jor-guardar').onclick=function(){ jorGuardar(); };
+}
+
+var JOR_COMB='';
+function jorSelComb(v, btn){
+  JOR_COMB=v;
+  var c=document.getElementById('jor-comb-btns'); if(!c) return;
+  Array.prototype.forEach.call(c.querySelectorAll('.comb-btn'), function(b){ b.classList.remove('sel'); });
+  if(btn) btn.classList.add('sel');
+}
+
+function _jorError(msg){
+  var e=document.getElementById('jor-error'); if(!e) return;
+  if(!msg){ e.style.display='none'; return; }
+  e.textContent=msg; e.style.display='block';
+  try{ e.scrollIntoView({block:'center'}); }catch(err){}
+}
+
+async function jorGuardar(){
+  if(!JOR_PEND) return;
+  var btn=document.getElementById('jor-guardar');
+  var km=_kmVal('jor-km'), hora=gv('jor-hora');
+  _jorError('');
+  if(!(km>0)){ _jorError('Falta el kilometraje con el que regresó esa noche.'); return; }
+  // ⛔ EL ODÓMETRO NO BAJA — mismo candado que el checklist normal, y por el mismo motivo:
+  //    lo más común es escribir acá los CENTÍMETROS del tanque. Se rechaza, no se pregunta.
+  if(JOR_PEND.km_salida>0 && km < JOR_PEND.km_salida){
+    _jorError('Salió con '+JOR_PEND.km_salida.toLocaleString('es-VE')+' km y está poniendo '+km.toLocaleString('es-VE')+'. '+
+              'El odómetro solo sube. Lo más común: poner acá la medida del tanque en vez del kilometraje.');
+    return;
+  }
+  if(JOR_PEND.km_salida>0 && km > JOR_PEND.km_salida + KM_MAX_DIA){
+    if(!confirm('Venía en '+JOR_PEND.km_salida.toLocaleString('es-VE')+' km y pone '+km.toLocaleString('es-VE')+' km.\n\n'+
+                'Son '+(km-JOR_PEND.km_salida).toLocaleString('es-VE')+' km en una jornada — parece imposible.\n\n¿Seguro que está bien?')) return;
+  }
+  if(!hora){ _jorError('Falta la hora a la que regresó.'); return; }
+  if(btn){ btn.disabled=true; btn.textContent='Guardando…'; }
+
+  // ⛔ SOLO LAS CLAVES DE LA LLEGADA. La RPC actualiza ÚNICAMENTE los campos que vienen en el
+  //    JSON (`case when p ? 'campo'`), así que mandar poco es lo correcto: no pisa el checklist
+  //    de inspección que ese chofer ya había llenado al salir.
+  var reg={ fecha: JOR_PEND.fecha, cam: cam, turno: JOR_PEND.turno,
+            km_entrada: String(km), hora_entrada: hora,
+            chofer_km_entrada: String(km),
+            chofer_fecha_llenado: new Date().toISOString() };
+  if(JOR_COMB){ reg.comb_entrada=JOR_COMB; reg.chofer_comb_entrada=JOR_COMB; }
+
+  var ok=false, motivo='';
+  try{
+    if(isOnline && supabase){
+      var res=await supabase.rpc('chofer_checklist_guardar', {p: reg});
+      if(res.error){ motivo=res.error.message||'no se pudo guardar'; }
+      else if(res.data===null){ motivo='El mecánico ya registró ese checklist — avísele a la oficina.'; }
+      else { ok=true; }
+    } else {
+      motivo='Sin señal. Conéctese un momento y vuelva a intentar: este cierre NO se encola, para que nadie lo dé por hecho.';
+    }
+  }catch(e){ motivo=(e&&e.message)||'no se pudo guardar'; }
+
+  // La medida del tanque de ESA noche, con su fecha y su turno. Es opcional: si falla no se
+  // pierde el cierre, que es lo que vino a hacer el chofer.
+  if(ok){
+    var cmV=parseFloat(gv('jor-cm'));
+    if(!isNaN(cmV) && cmV>0 && clAlturaImposible(cmV)===false){
+      try{
+        await supabase.rpc('chofer_medicion_guardar', {p:{
+          fecha: JOR_PEND.fecha, tanque_id:((CL_TANQUE_UNIDAD&&CL_TANQUE_UNIDAD.tanque_id)||'tanque-jac'),
+          vehiculo_id: cam, momento:'llegada', turno: JOR_PEND.turno,
+          altura_cm: cmV, litros_calculados: clLitrosJac(cmV),
+          registrado_por:(chofer||'chofer'), notas:'Cierre tardío del turno nocturno '+JOR_PEND.fecha
+        }});
+      }catch(e){ console.warn('medicion del cierre tardio no entro', e); }
+    }
+    // Que el odómetro de la unidad no quede atrás por haberse cerrado tarde.
+    try{ await supabase.rpc('chofer_km_subir', {p_cam: cam, p_km: km}); }catch(e){}
+  }
+
+  if(btn){ btn.disabled=false; btn.textContent='Guardar el cierre'; }
+  if(!ok){ _jorError(motivo||'No se pudo guardar. Intente de nuevo.'); return; }
+
+  var ov=document.getElementById('modal-jor'); if(ov) ov.remove();
+  var b=document.getElementById('jor-banner'); if(b) b.style.display='none';
+  JOR_PEND=null; JOR_COMB='';
+  mostrarToast('✅ Turno de anoche cerrado');
+}
+
 // Cambio de turno el mismo día: tocando el nombre en el header se vuelve a preguntar.
 // Hace falta de verdad — la planilla muestra hasta 6 choferes distintos en un mismo camión.
 function cambiarChoferDia(){
@@ -1846,6 +2055,10 @@ function verificarConexion(){
       cargarSemanaSupabase();
       anomCargar();          // refresca las fallas pendientes (y el caché offline)
       avisoCargar();         // refresca el aviso de administración (y el caché offline)
+      // 🌙 ¿Quedó abierta la jornada de anoche? Va ACÁ y no en arrancarApp(): allá
+      //    `supabase` todavía no existe (`iniciarSupabase()` es la última línea), así que
+      //    la pregunta se perdía en silencio y el banner no salía NUNCA.
+      jorBuscarPendiente();
       reportarPermisos();    // que la OFICINA se entere de la cámara bloqueada, no solo el chofer
       sincronizarCola();
     }
