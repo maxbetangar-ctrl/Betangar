@@ -6906,6 +6906,9 @@ async function cargarDatosDB(){
     }catch(e){console.log('comb_periodos load:',e&&e.message);}
     // SURTIDAS post-corte para el motor de rentabilidad (necesita cfg.surtidasCorte ya cargado).
     try{ await cargarSurtidasRent(); }catch(e){}
+    // Junto a SURT_RENT a proposito: las dos alimentan el MISMO costo por unidad, y si una
+    // llega sin la otra la pantalla cobra un combustible que la unidad devolvio.
+    try{ await cargarDevolucionesUnidad(); }catch(e){}
     // PRECIOS $/L de referencia por fuente (clave 'gasoil_precios') — fuente única para el
     // despacho a camión y el import de planillas. Editable en Config; default Tumaca 0.83 / Boscán 0.78.
     try{
@@ -15625,6 +15628,20 @@ async function imprimirCentroCostos(){
         if(!enRango(s.fecha)||s.anulada)return;
         var f=fila(s.cam); f.comb+=_surCostoUsd(s); f.combL+=(parseFloat(s.litros)||0);
       });
+      // ⛔ Y SE LE ACREDITA LO QUE DEVOLVIÓ. Sin esto la unidad que entregó gasoil al tanque
+      //    carga un costo que no quemó, y en una pantalla que existe justo para COMPARAR
+      //    unidades entre sí eso cambia el orden del ranking. El 10/11 la B010 arrastraba
+      //    US$ 120 ajenos. [[norma-una-asercion-mal-escrita-acusa-al-producto]]
+      try{
+        await cargarDevolucionesUnidad();
+        Object.keys(por||{}).concat((DEVOL_UNIDAD||[]).map(function(d){return d.cam;}))
+          .filter(function(c,i,a){ return c && a.indexOf(c)===i; })
+          .forEach(function(cam){
+            var dv=_devUnidad(cam,desde,hasta);
+            if(!dv.litros&&!dv.usd)return;
+            var f=fila(cam); f.comb-=dv.usd; f.combL-=dv.litros; f.combDev=(f.combDev||0)+dv.usd;
+          });
+      }catch(e){ fallas.push('devoluciones: '+((e&&e.message)||'no se pudieron leer')); }
     }catch(e){ fallas.push('combustible: '+((e&&e.message)||'sin conexión')); }
     try{
       var rk=await supabase.from('checklist').select('cam,km_salida,km_entrada').gte('fecha',desde).lte('fecha',hasta);
@@ -18248,7 +18265,45 @@ function _surLbl(t){ return TANQUE_LBL[t]||t||''; }
 // Helpers GLOBALES (usd/_surEsc solo existían como locales de imprimirDashboard → ReferenceError en el panel).
 function usd(n){return '$'+Number(n||0).toLocaleString('es-VE',{minimumFractionDigits:2,maximumFractionDigits:2});}
 function _surEsc(s){return (typeof _mEsc==='function')?_mEsc(s):String(s==null?'':s);}
-var SURT_ADMIN=[], COMB_PERIODOS=[], _perTramos=[], SURT_RENT=[];
+var SURT_ADMIN=[], COMB_PERIODOS=[], _perTramos=[], SURT_RENT=[], DEVOL_UNIDAD=[];
+// ═══════════════════════════════════════════════════════════════════════════════════════
+// EL COMBUSTIBLE QUE LA UNIDAD DEVOLVIÓ — se le ACREDITA, no se le cobra
+//
+// 🔴 Máximo, 14/11/2026: «si ese combustible ya se pagó cuando se les puso a los camiones…
+//    no debería aumentar la cuenta por pagar ¿o sí?». No, y la CxP nunca se tocó. El
+//    problema es la ATRIBUCIÓN: el 10/11 diez unidades entregaron 1.265 L y quedaron
+//    cargando **US$ 847,84** de combustible que NO quemaron. Y el camión que lo reciba
+//    después lo pagaría otra vez.
+//
+// ⛔ MOVER COMBUSTIBLE NO CREA NI DESTRUYE GASTO: el gasto ocurre cuando se QUEMA. Por eso
+//    esto se resta SOLO del costo POR UNIDAD, nunca del gasto de la empresa — la plata
+//    salió de verdad y sigue estando en el resultado. Restarla del total sería borrar un
+//    egreso real. [[norma-salida-de-banco-no-es-gasto]]
+// ═══════════════════════════════════════════════════════════════════════════════════════
+async function cargarDevolucionesUnidad(){
+  if(!(DB_READY&&supabase))return;
+  try{
+    var r=await supabase.from('devoluciones_tanque').select('fecha,cam,litros,costo_usd');
+    // Fail-OPEN: si la tabla no existe en esta instancia, se sigue como antes.
+    if(r&&r.error){ console.log('devoluciones unidad:',r.error.message); DEVOL_UNIDAD=[]; return; }
+    DEVOL_UNIDAD=(r&&r.data)||[];
+  }catch(e){ console.log('devoluciones unidad:',e&&e.message); DEVOL_UNIDAD=[]; }
+}
+// Lo devuelto por UNA unidad en un rango: {usd, litros}. Sin rango, toda su historia.
+function _devUnidad(cam,desde,hasta){
+  var usd=0, lit=0;
+  (DEVOL_UNIDAD||[]).forEach(function(d){
+    if(String(d.cam)!==String(cam))return;
+    var f=String(d.fecha||'').slice(0,10);
+    if(desde&&f<desde)return;
+    if(hasta&&f>hasta)return;
+    lit+=(parseFloat(d.litros)||0);
+    // ⚠️ Sin valorizar NO se inventa un precio: suma litros y $0. Así el informe muestra
+    //    litros que no cuadran con los dólares, que es una pregunta — no un número falso.
+    usd+=(parseFloat(d.costo_usd)||0);
+  });
+  return {usd:Math.round(usd*100)/100, litros:Math.round(lit*100)/100};
+}
 // F3: TODAS las surtidas desde el CORTE (cfg.surtidasCorte), PAGINADAS — motor de RENTABILIDAD
 // (SURTIDAS=35d del dashboard y SURT_ADMIN=rango del panel no cubren cualquier rango de rentabilidad).
 async function cargarSurtidasRent(){
@@ -18817,6 +18872,7 @@ async function _perAplicar(){
   closeModal();
   mostrarToast((okAll?'✅ ':'⚠️ parcial: ')+'Costeadas '+target.length+' surtidas · '+usd(cUsd)+(cxpId?' · CxP generada':''),okAll?'exito':'error');
   try{cargarSurtidasRent();}catch(e){}
+  try{cargarDevolucionesUnidad();}catch(e){}
   scRecargar();
 }
 
@@ -36237,6 +36293,19 @@ function calcRentabilidadCamiones(des,hta){
       map[c].combustible=(map[c].combustible||0)+_surCostoUsd(s);
       map[c].litros=(map[c].litros||0)+(parseFloat(s.litros)||0);
       if(_surPendiente(s)){map[c].combPendL=(map[c].combPendL||0)+(parseFloat(s.litros)||0);map[c].combPendN=(map[c].combPendN||0)+1;}
+    });
+    // ⛔ EL GEMELO DEL CENTRO DE COSTOS. Esta pantalla atribuye el MISMO costo por unidad,
+    //    así que si sólo se acredita allá, las dos dicen cosas distintas del mismo camión —
+    //    y la de rentabilidad es la que decide si una unidad "da plata".
+    //    [[norma-arreglo-en-una-es-arreglo-en-todas-misma-sesion]]
+    (DEVOL_UNIDAD||[]).forEach(function(d){
+      var fd=String(d.fecha||'').slice(0,10);
+      if(fd<_corte)return; if(des&&fd<des)return; if(hta&&fd>hta)return;
+      var c=d.cam; if(!_esDeLaFlota(c))return;
+      if(!map[c])map[c]={cam:c,viajes:0,ingreso:0,ayViajes:0};
+      map[c].combustible=(map[c].combustible||0)-(parseFloat(d.costo_usd)||0);
+      map[c].litros=(map[c].litros||0)-(parseFloat(d.litros)||0);
+      map[c].combDev=(map[c].combDev||0)+(parseFloat(d.costo_usd)||0);
     });
   }
   var rows=Object.keys(map).map(function(c){
