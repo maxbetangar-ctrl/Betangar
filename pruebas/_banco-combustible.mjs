@@ -50,7 +50,7 @@ const FUNCS = ['_acHoy','_acNum','_acFmt','_acUsd','_acCubicar','_acLitrosPorCm'
   '_acDiaSiguiente','_acAlturaValida','_acLotesSurtidas','_acSurtidaUbicable','_acEntradas',
   '_acEntradasSinHora','_acCargaEnLote','_acTanqueDe','_acEsGalpon','_acDedupe','_acArmarJornadas','_acRefModelo',
   '_acRefRend','_acTs','_acAntesDe','_acAnomalias','_acDespDelCuadre','_acVeredictoNoche','_acCuadreSemanal','_acLunesDe','_acEntroDespuesDe','_acMenos','_acCostoL','_fx',
-  '_acSrcEsTanque','_acComprasGalpon','_acSalidasGalpon','_acCuadreGalpon','_acSaldoLibrosGalpon','_acPisoDeteccion','_acConfianza',
+  '_acSrcEsTanque','_acComprasGalpon','_acSalidasGalpon','_acDevolucionesGalpon','_acCuadreGalpon','_acSaldoLibrosGalpon','_acPisoDeteccion','_acConfianza',
   // El criterio unico de "este tanque es de la empresa" (08/11/2026). Reemplazo a CINCO
   // listas escritas a mano, asi que lo tiene que probar el banco y no una copia de el.
   '_acTanquePropio','_acHayTanquePropio','_acCapTanquesPropios']
@@ -59,12 +59,12 @@ export function cargarAuditoria(rutaApp = RUTA_APP){
   const src = readFileSync(rutaApp, 'utf8')
   const ctx = {
     AC_TANQUES:[], AC_MED:[], AC_GASOIL:[], AC_SURTIDAS:[], AC_CK:[], AC_JORNADAS:[],
-    AC_ANOM:[], AC_META:{}, AC_SALIDAS_TANQUE:[], FLOTA:{}, _AC_LOTES:null, UNIDAD_CONFIG:{},
+    AC_ANOM:[], AC_META:{}, AC_SALIDAS_TANQUE:[], AC_DEVOLUCIONES:[], FLOTA:{}, _AC_LOTES:null, UNIDAD_CONFIG:{},
     // ⛔ VACÍO A PROPÓSITO. `AC_HIST` es la historia COMPLETA del tanque, que el producto
     //    trae aparte porque el saldo es acumulado y no cabe en la ventana del período. Las
     //    pruebas arman su propio escenario en `AC_GASOIL`, así que acá va vacío y la función
     //    cae a la ventana — que es justo lo que los fixtures montan.
-    AC_HIST:{gasoil:[],surtidas:[],salidas:[]},
+    AC_HIST:{gasoil:[],surtidas:[],salidas:[],devoluciones:[]},
     AC_TOL_PISO:null, AC_SIGMA_CM:null,   // se leen del app.js real más abajo
     formatFecha:(f)=>String(f||'').slice(0,10).split('-').reverse().join('/'),
     _fmtFecha:(f)=>String(f||'').slice(0,10).split('-').reverse().join('/'),
@@ -183,6 +183,9 @@ export function sembrar(ctx, datos){
   // ⛔ Los períodos de facturación (R16). Si el volcado no los trae, la regla no puede hablar —
   //    y eso NO es «todo cuadra». La prueba de R16 exige que estén, con control positivo.
   ctx.AC_PERIODOS = datos.periodos || []
+  // El gasoil que vuelve de la unidad al tanque. Vacio por omision: los fixtures viejos
+  // no lo traen y tienen que seguir dando lo mismo que antes.
+  ctx.AC_DEVOLUCIONES = datos.devoluciones || []
   ctx.AC_META     = {
     corteSurtidas: String(cfg.surtidas_corte).replace(/"/g, ''),
     rendRefMapa:   JSON.parse(cfg.aud_comb_rend_ref),

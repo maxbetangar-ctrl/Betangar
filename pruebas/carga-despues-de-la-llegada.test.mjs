@@ -149,8 +149,16 @@ ok('13. …pero sí cuenta cuando no se pide el subconjunto',
    entG('U01', '2026-11-04', '2026-11-04', true) === 500, 'se perdió el histórico')
 
 // ── Y que el PRODUCTO lo use: tenerlo no es usarlo ───────────────────────────────────────────
+// ⚠️ 13/11/2026: este control fijaba la expresión LETRA POR LETRA
+//    (`j.salida+j.despJornada-j.llegada`) y se puso rojo al sumarse un término legítimo —
+//    `-j.devuelto`, el gasoil que se le saca a la unidad para echarlo al tanque. El defecto
+//    que vigila NO cambió, así que no se afloja: se pide lo mismo de siempre —que esté
+//    `despJornada` y que la llegada se reste— y se permiten términos en el medio.
+//    `j.desp` pelado sigue sin pasar, porque el patrón exige el nombre completo.
+//    📌 Un control que fija la FORMA en vez del DEFECTO se pone rojo con cada cambio
+//    legítimo, y eso enseña a editarlo sin leerlo — que es como se pierden los candados.
 ok('14. el consumo del día usa `despJornada`, no `desp`',
-   /j\.consumo=.*j\.salida\+j\.despJornada-j\.llegada/.test(js.replace(/\s+/g, ' ')),
+   /j\.consumo=[^;]*j\.salida\+j\.despJornada[^;]*-j\.llegada/.test(js.replace(/\s+/g, ' ')),
    'la función existe pero el consumo sigue sumando el despacho entero')
 ok('15. la tolerancia va sobre lo que entró al cuadre',
    /j\.tol=_acTol\(j\.tanque,j\.salidaCm,j\.llegadaCm,j\.despJornada\)/.test(js.replace(/\s+/g, ' ')),

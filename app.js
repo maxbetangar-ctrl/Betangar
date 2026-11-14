@@ -1921,7 +1921,7 @@ async function bncRenderCuentas(){
 // MODO: si hay tanques configurados ➜ auditoría por CUBICACIÓN (Betangar). Si no ➜ modo SURTIDAS
 // (Flotilla). Se decide por los datos, nunca por el nombre de la empresa: es un clon.
 // ══════════════════════════════════════════════════════════════════════════════════════════════
-var AC_TANQUES=[], AC_MED=[], AC_GASOIL=[], AC_SURTIDAS=[], AC_CK=[], AC_JORNADAS=[], AC_ANOM=[], AC_META={}, AC_SALIDAS_TANQUE=[], AC_PERIODOS=[];
+var AC_TANQUES=[], AC_MED=[], AC_GASOIL=[], AC_SURTIDAS=[], AC_CK=[], AC_JORNADAS=[], AC_ANOM=[], AC_META={}, AC_SALIDAS_TANQUE=[], AC_PERIODOS=[], AC_DEVOLUCIONES=[];
 var AC_HIST={gasoil:[],surtidas:[],salidas:[]};
 var _acCargando=false;
 
@@ -2366,13 +2366,13 @@ function _acTanqueDe(m){
 }
 // ── ⛔ UNA SOLA LISTA DE QUÉ TANQUES SON DE LA EMPRESA ───────────────────────────
 //
-// ������ EL PROBLEMA. «Es un tanque nuestro» estaba escrito a mano en CINCO lugares y de TRES formas
+// ������ EL PROBLEMA. «Es un tanque nuestro» estaba escrito a mano en CINCO lugares y de TRES formas
 //    distintas: `t.tipo==='galpon'` sobre la tabla de tanques (`_acEsGalpon`, el reduce de
 //    capacidad, `sinGalpon`), el substring `indexOf('galpon')` sobre el campo `tanque` de la
 //    surtida (`_acSalidasGalpon`, `_surEsExterna`), y la clave `tanques_internos` de la
 //    configuración — que el motor no leía nunca. [[norma-dos-listas-a-mano-se-desincronizan]]
 //
-// ������ MEDIDO el 08/11/2026 sobre las bases que usan este motor, y las tres formas YA estaban
+// ������ MEDIDO el 08/11/2026 sobre las bases que usan este motor, y las tres formas YA estaban
 //    desincronizadas entre sí. Los tres casos que aparecieron, sin nombrar a nadie:
 //    · La clave de configuración nombra UN tanque y la tabla tiene DOS. Calzaban igual, pero por
 //      el substring — o sea que cada forma estaba tapando el hueco de la otra, que es la manera
@@ -2538,6 +2538,16 @@ async function acCargar(desde,hasta){
   q.push(supabase.from('gasoil').select('f,lit,src,tipo_operacion,cam').order('id'));
   q.push(supabase.from('surtidas').select('fecha,tanque,litros').order('id'));
   q.push(supabase.from('salidas_tanque').select('fecha,litros'));
+  // ── EL GASOIL QUE VUELVE DE LA UNIDAD AL TANQUE (13/11/2026) ─────────────────────────────
+  // ⛔ Un movimiento que rompe el cuadre POR LOS DOS LADOS si no está: la unidad figura
+  //    gastando lo que no quemó, y el tanque recibiendo litros sin origen (lo que dispara
+  //    R14, «amaneció con más»). El 10/11 fueron 1.265 L sacados de 10 unidades al Galpón 1.
+  // ⚠️ VA AL FINAL Y CON SU ÍNDICE GUARDADO, como `_iTqProp` y `_iHist`: insertarla en el
+  //    medio obliga a correr a mano los `r[9]`, `r[10]`, `r[11]` de abajo.
+  //    [[norma-dos-listas-a-mano-se-desincronizan]]
+  // ⚠️ Y entera, no la ventana: el saldo del tanque es acumulado, igual que las tres de arriba.
+  var _iDev=q.length;
+  q.push(supabase.from('devoluciones_tanque').select('fecha,cam,tanque,litros'));
   var r=await Promise.all(q);
   if(r[0].error)throw new Error('tanques: '+r[0].error.message);
   if(r[1].error)throw new Error('mediciones: '+r[1].error.message);
@@ -2602,6 +2612,9 @@ async function acCargar(desde,hasta){
   //    (queda en []) y el cuadre funciona como antes. Un módulo nuevo no puede tumbar la auditoría.
   AC_SALIDAS_TANQUE=(r[11]&&!r[11].error&&r[11].data)||[];
   if(r[11]&&r[11].error)console.log('salidas_tanque auditoria:',r[11].error.message);
+  // Mismo fail-OPEN: una instancia donde la tabla todavía no exista sigue auditando como antes.
+  AC_DEVOLUCIONES=(r[_iDev]&&!r[_iDev].error&&r[_iDev].data)||[];
+  if(r[_iDev]&&r[_iDev].error)console.log('devoluciones_tanque auditoria:',r[_iDev].error.message);
   AC_META.modo=AC_TANQUES.length?'cubicacion':'surtidas';
 }
 
@@ -2805,8 +2818,20 @@ function _acArmarJornadas(desde,hasta){
       if(Math.abs(_ta-_tb)<=30*60*1000){ j.cargaDuplicada={litros:_la,minutos:Math.round(Math.abs(_ta-_tb)/60000)}; }
     } }
     j.cargaImposible=!!(j.cargaGrosera||j.cargaDuplicada);
+    // ── LO QUE LE SACARON Y NO QUEMÓ (13/11/2026) ─────────────────────────────────────────
+    // ⛔ El gasoil extraído de la unidad para echarlo a un tanque propio BAJA LA REGLA igual
+    //    que si lo hubiera quemado, y sin este término el día lo cuenta como consumo. El
+    //    10/11 se le sacó a 10 unidades (1.265 L): la B002 figuraba consumiendo 404,5 L
+    //    contra un típico de 60. Eso no es un número feo, es una ACUSACIÓN a un chofer por
+    //    algo que hizo la empresa. [[norma-una-asercion-mal-escrita-acusa-al-producto]]
+    // ⚠️ Se resta, no se suma: salió del tanque del camión sin pasar por el motor.
+    j.devuelto=(AC_DEVOLUCIONES||[]).reduce(function(s,d){
+      if(String(d.cam)!==j.cam)return s;
+      if(String(d.fecha||'').slice(0,10)!==j.fecha)return s;
+      return s+(_acNum(d.litros)||0);
+    },0);
     // `despJornada` y no `desp`: la carga asentada después de la llegada no está en esa lectura.
-    j.consumo=(j.salida!=null&&j.llegada!=null&&!j.noConf&&!j.cargaImposible)?Math.round((j.salida+j.despJornada-j.llegada)*100)/100:null;
+    j.consumo=(j.salida!=null&&j.llegada!=null&&!j.noConf&&!j.cargaImposible)?Math.round((j.salida+j.despJornada-j.devuelto-j.llegada)*100)/100:null;
     // ⛔ UN RENDIMIENTO FÍSICAMENTE IMPOSIBLE TAMBIÉN INVALIDA EL DÍA.
     //
     // 🔴 Máximo, 06/11/2026, con la foto de la fila: «Solo gasto 5.3 litros en toda la jornada».
@@ -2964,6 +2989,27 @@ function _acSalidasGalpon(desde,hasta,fuente){
   });
   return Math.round(suma*100)/100;
 }
+// ── LO QUE ENTRA AL TANQUE Y **NO** ES UNA COMPRA (13/11/2026) ────────────────────────────────
+// Gasoil sacado de las unidades y echado a un tanque propio. Entra al tanque igual que una
+// compra, pero NO es una compra y por eso va en su propio término y no dentro de
+// `_acComprasGalpon`: esa función alimenta la CxP, y un litro que volvió de un camión no se le
+// debe a ningún proveedor. Mezclarlas haría aparecer una deuda que no existe.
+// [[norma-salida-de-banco-no-es-gasto]] — misma forma: un movimiento que no es lo que parece.
+// ⚠️ Sin corte, como `salidas_tanque`: esta tabla nace hoy y no se pisa con `gasoil`.
+function _acDevolucionesGalpon(desde,hasta,fuente){
+  var suma=0;
+  var _DV=(fuente&&fuente.devoluciones)||AC_DEVOLUCIONES||[];
+  (_DV).forEach(function(d){
+    // Solo lo que entró a un tanque NUESTRO. Si el destino no se reconoce no se cuenta: contar
+    // una entrada de más fabrica un SOBRANTE, que es el lado que no acusa a nadie.
+    if(!_acTanquePropio(d.tanque))return;
+    var f=String(d.fecha||'').slice(0,10);
+    if(f<desde||f>hasta)return;
+    suma+=(_acNum(d.litros)||0);
+  });
+  return Math.round(suma*100)/100;
+}
+
 // Las COMPRAS al galpón siguen viviendo en `gasoil` (son las que arman la CxP): el corte no las
 // toca, porque lo que se mudó a `surtidas` es la ENTREGA al camión, no la compra al proveedor.
 function _acComprasGalpon(desde,hasta,fuente){
@@ -3152,7 +3198,7 @@ function _acLitrosPorViaje(J,desde,hasta){
   //    producto resuelve **25**. Incluye «YURBENIS BERMUDEZ» → «YURVENIS FRANCISCO BERMUDEZ
   //    SUAREZ» (V por B, y dos palabras de menos) y también a los choferes que YA NO TRABAJAN,
   //    porque el padrón se carga entero, sin filtrar por `activo`.
-  //    ������ El único que no resuelve es «MANUEL» a secas: hay más de un Manuel y el sistema NO
+  //    ������ El único que no resuelve es «MANUEL» a secas: hay más de un Manuel y el sistema NO
   //      adivina. Eso se arregla escribiendo el apellido, no aflojando el criterio.
   //    ⚠️ Sin esto, el mismo señor escrito de dos formas sale en DOS filas, y las dos dan un
   //      consumo por viaje que no es el suyo — que es exactamente el error con el que se
@@ -3198,24 +3244,24 @@ function _acLitrosPorViaje(J,desde,hasta){
   });
   // ⛔ DOS MEDIDAS, NO UNA — y es lo que hace al informe difícil de discutir.
   //
-  // ������ Alejandra, al ver el primer informe: *«¿no sería más preciso gasto de combustible contra
+  // ������ Alejandra, al ver el primer informe: *«¿no sería más preciso gasto de combustible contra
   //    kilometraje?»*. Tiene razón, y los choferes van a decir lo mismo: «un viaje a una parroquia
   //    cerca no es igual que a una lejos». Esa objeción **no se discute: se contesta con el dato**.
   //
   //      · LITROS POR VIAJE  — lo que el dueño entiende y compara de un vistazo.
   //      · KM POR LITRO      — no depende del largo de la ruta. Es la que cierra la discusión.
   //
-  // ������ MEDIDO el 08/11/2026: las dos ordenan las unidades IGUAL sobre 3 meses. Que dos medidas
+  // ������ MEDIDO el 08/11/2026: las dos ordenan las unidades IGUAL sobre 3 meses. Que dos medidas
   //    independientes coincidan es la prueba más fuerte que hay acá — y cuando NO coinciden, eso
   //    también es información: significa que la ruta explica la diferencia, no el camión.
   // ⛔ EL SESGO DEL QUE LLENA EL TANQUE Y COMPARTE CAMIÓN.
   //
-  // ������ EL COMBUSTIBLE SE CARGA UN DÍA Y SE QUEMA EN LOS SIGUIENTES. Si uno llena el tanque y
+  // ������ EL COMBUSTIBLE SE CARGA UN DÍA Y SE QUEMA EN LOS SIGUIENTES. Si uno llena el tanque y
   //    otro maneja al día siguiente, los LITROS quedan en la cuenta del primero y los KM en la
   //    del segundo. Para un CAMIÓN eso se promedia en tres meses; para una PERSONA que comparte
   //    camión, NO: castiga sistemáticamente al que carga.
   //
-  // ������ MEDIDO el 08/11/2026 sobre un caso real: un chofer manejó 68 días y en su cuenta quedó
+  // ������ MEDIDO el 08/11/2026 sobre un caso real: un chofer manejó 68 días y en su cuenta quedó
   //    el **96% del combustible** del camión pero solo el **81% de los kilómetros** — otros
   //    manejaron 1.758 km sin cargar una gota. Su km/L salía **1,83**, el peor de la flota, y el
   //    informe lo señalaba con un +25%. Repartido bien da **2,21**, y deja de estar señalado.
@@ -3279,7 +3325,7 @@ function _acLitrosPorViaje(J,desde,hasta){
   };
   // ⛔ EL MÍNIMO DE MUESTRA ERA 30 VIAJES Y SE QUEDÓ CORTO. Máximo sacó un informe de UN MES y
   //    el cuadro señaló **8 de 12 unidades** — eso no son hallazgos, es ruido.
-  // ������ MEDIDO el 08/11/2026 sobre los mismos datos, cambiando solo la ventana:
+  // ������ MEDIDO el 08/11/2026 sobre los mismos datos, cambiando solo la ventana:
   //      1 mes  (~60 viajes/unidad)  → dispersión **26%** · 5 unidades fuera de ±20%
   //      3 meses (~210)              → dispersión  13%  · 2 fuera
   //      5 meses (~315)              → dispersión  11%  · 1 fuera
@@ -3350,11 +3396,11 @@ function _acLpvHtml(r){
     tabla('POR CHOFER','chofer',r.choferes,'Chofer')+
     // ⛔ LO QUE NO SE PUDO REPARTIR SE DICE — PERO COMO COBERTURA, NO COMO ERROR.
     //
-    // ������ ESTE TEXTO DECÍA «en cuanto la oficina cargue esas planillas, estas cifras se vuelven
+    // ������ ESTE TEXTO DECÍA «en cuanto la oficina cargue esas planillas, estas cifras se vuelven
     //    exactas». Es FALSO, y es peor que un error de cuenta: hace desconfiar de números que
     //    están bien. Un día sin planilla se excluye ENTERO — sus litros Y sus viajes— así que no
     //    ensucia el cociente de nadie.
-    // ������ MEDIDO el 08/11/2026: se calculó el L/viaje de las 12 unidades con el período completo
+    // ������ MEDIDO el 08/11/2026: se calculó el L/viaje de las 12 unidades con el período completo
     //    y cortado en la última planilla cargada. **Diferencia máxima: 0,0%**, y el orden de
     //    quién gasta más es idéntico. Lo que crece al cargar las planillas es la COBERTURA.
     ((r.litSinDuenio>0)
@@ -3710,9 +3756,13 @@ function _acSaldoLibrosGalpon(){
   //    Sin historia se cae a la ventana, que es lo que hacía antes — peor, pero no roto.
   var _H=((typeof AC_HIST!=='undefined')&&AC_HIST&&(AC_HIST.gasoil||[]).length)?AC_HIST:null;
   var ent=_acComprasGalpon(AMPLIO,FUTURO,_H), sal=_acSalidasGalpon(AMPLIO,FUTURO,_H);
+  // Lo devuelto por las unidades ENTRA al saldo, pero se guarda aparte para que la pantalla
+  // pueda decir de dónde vino cada litro: comprado no es lo mismo que devuelto.
+  var dev=_acDevolucionesGalpon(AMPLIO,FUTURO,_H);
+  ent=Math.round((ent+dev)*100)/100;
   var cap=_acCapTanquesPropios();   // `null` si no está declarada — ver la función
   var med=(AC_MED||[]).filter(_acEsGalpon).length;
-  return {entradas:ent, salidas:sal, saldo:Math.round((ent-sal)*100)/100,
+  return {entradas:ent, devoluciones:dev, salidas:sal, saldo:Math.round((ent-sal)*100)/100,
           capacidad:cap, capacidadConocida:(cap!=null), medicionesTotales:med,
           nuncaMedido:med===0};
 }
@@ -3726,13 +3776,17 @@ function _acCuadreGalpon(desde,hasta){
     return String(a.created_at||'').localeCompare(String(b.created_at||''));
   });
   var compras=_acComprasGalpon(desde,hasta), despachos=_acSalidasGalpon(desde,hasta);
+  var devol=_acDevolucionesGalpon(desde,hasta);
   var enRango=medG.filter(function(m){ var f=String(m.fecha).slice(0,10); return f>=desde&&f<=hasta; });
   // EL GALPÓN ES BACKUP DE EMERGENCIA (regla de Máximo, 2026-07-24): solo se surte de ahí cuando no
   // se consigue en la estación de servicio. Puede pasar un mes entero sin moverse y después
   // surtirse todos los días. Por eso NO se le puede exigir una medición fija por semana: el tanque
   // tiene dos vidas distintas y se auditan distinto (ver `reposo`).
-  var res={compras:compras,despachos:despachos,mediciones:enRango.length,hay:false,
-           reposo:(compras+despachos)<=0};
+  // ⛔ `reposo` es «nadie tocó este tanque». Una devolución LO TOCA: si no entra acá, un
+  //    período donde sólo hubo devoluciones se declara en reposo y la prueba del reposo
+  //    —«el nivel tiene que ser el MISMO»— acusaría un faltante que es la devolución.
+  var res={compras:compras,devoluciones:devol,despachos:despachos,mediciones:enRango.length,hay:false,
+           reposo:(compras+devol+despachos)<=0};
   if(enRango.length>=2){
     var pri=enRango[0], ult=enRango[enRango.length-1];
     var tqG=_acTanqueDe(pri);
@@ -3740,11 +3794,11 @@ function _acCuadreGalpon(desde,hasta){
     if(lIni!=null&&lFin!=null){
       // Movimientos ENTRE la primera y la última medición (no todo el período).
       var fA=String(pri.fecha).slice(0,10), fB=String(ult.fecha).slice(0,10);
-      var c2=_acComprasGalpon(fA,fB), d2=_acSalidasGalpon(fA,fB);
-      res.hay=true; res.ini=lIni; res.fin=lFin; res.comprasE=c2; res.despachosE=d2;
-      res.esperado=Math.round((lIni+c2-d2)*100)/100;
+      var c2=_acComprasGalpon(fA,fB), d2=_acSalidasGalpon(fA,fB), v2=_acDevolucionesGalpon(fA,fB);
+      res.hay=true; res.ini=lIni; res.fin=lFin; res.comprasE=c2; res.despachosE=d2; res.devolucionesE=v2;
+      res.esperado=Math.round((lIni+c2+v2-d2)*100)/100;
       res.dif=Math.round((lFin-res.esperado)*100)/100;
-      res.mov=c2+d2;
+      res.mov=c2+v2+d2;
       // Misma tolerancia por instrumento que el camión: el galpón mueve ~23,6 L por cm en la zona
       // media, así que dos lecturas en centímetros enteros no pueden ver menos que eso. El fijo de
       // 25 L que había era, otra vez, más fino que la propia regla.
@@ -3752,7 +3806,7 @@ function _acCuadreGalpon(desde,hasta){
       res.desde=fA; res.hasta=fB;
       // En REPOSO no hay nada que "cuadrar": un tanque que nadie tocó tiene que tener el MISMO
       // nivel. Es la prueba más barata y más fuerte que hay — dos lecturas separadas por semanas.
-      res.reposoEntre=(c2+d2)<=0;
+      res.reposoEntre=(c2+v2+d2)<=0;
     }
   }
   return res;
@@ -4459,7 +4513,7 @@ function _acAnomalias(todas,desde,hasta,ref){
     //    HTML — y tiene que escaparlo, porque interpola datos que escribe gente (el nombre de la
     //    estación, la unidad). Las otras 20 reglas escriben plano; esta era la única que metía
     //    `<b>`, y sus etiquetas salían CRUDAS en la pantalla: «<b>no se han medido</b>», literal.
-    //    ������ Lo destapó MIRAR LA CAPTURA. Las 43 aserciones estaban en verde: ninguna mira cómo se
+    //    ������ Lo destapó MIRAR LA CAPTURA. Las 43 aserciones estaban en verde: ninguna mira cómo se
     //      ve. El énfasis va en MAYÚSCULAS, que es lo que usa el resto.
     //      [[norma-una-pantalla-se-revisa-en-una-pantalla]]
     add(sev,'R17','El tanque propio no tiene con qué comprobarse',
@@ -36098,7 +36152,7 @@ function _rentEsCompra(row){return String(row.cam||'').toUpperCase().indexOf('CO
 // aparece es **E/S EL PALOTAL** (17 pagos, Bs 6,6 millones entre marzo y junio).
 // ── ⛔ UN SOLO CLASIFICADOR DE «¿SALIÓ DE NUESTRO TANQUE O SE COMPRÓ AFUERA?» ───────────
 //
-// ������ HABÍA DOS MOTORES contestando la misma pregunta, y uno de ellos decide la PLATA
+// ������ HABÍA DOS MOTORES contestando la misma pregunta, y uno de ellos decide la PLATA
 //    (`_combEgresoUsd` cuenta la fila como gasto solo si es 'afuera'):
 //      · `_acSrcEsTanque` — el de la auditoría: calce EXACTO, y devuelve `true`/`false`/`null`
 //        a propósito, porque «no lo sé» es una respuesta y no un `||`.
@@ -36106,7 +36160,7 @@ function _rentEsCompra(row){return String(row.cam||'').toUpperCase().indexOf('CO
 //    Dos listas a mano del mismo concepto se desincronizan; que hoy coincidan no es una garantía,
 //    es una casualidad que nadie está vigilando. [[norma-dos-listas-a-mano-se-desincronizan]]
 //
-// ������ MEDIDO el 08/11/2026 contra TODOS los valores de `src` que existen en las 5 bases, antes de
+// ������ MEDIDO el 08/11/2026 contra TODOS los valores de `src` que existen en las 5 bases, antes de
 //    tocar nada: **los dos motores no se contradicen en una sola fila.** Y de las 18 palabras de
 //    las dos listas, las únicas que clasifican algo son las que el motor de la auditoría ya
 //    reconoce por nombre exacto. Las otras —nombres de sitios y de depósitos escritos a mano—
