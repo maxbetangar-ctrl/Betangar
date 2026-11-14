@@ -52,6 +52,27 @@ test('lo devuelto entra al tanque, y NO como compra', () => {
   assert.equal(saldo.saldo, 160, 'entradas − salidas')
 })
 
+// 🔴 Máximo, 14/11/2026: «si ese combustible ya se pagó cuando se les puso a los camiones,
+//    al sacarlo de los camiones y ponerlo en el tanque no debería aumentar la cuenta por
+//    pagar ¿o sí?». No, y acá queda clavado: `_acComprasGalpon` es lo que alimenta la CxP, y
+//    una devolución no le debe nada a ningún proveedor. El riesgo real no es que alguien lo
+//    haga a propósito: es que un día se junten los dos términos «porque los dos entran al
+//    tanque». Este caso pone una devolución EL MISMO DÍA que una compra de verdad, que es
+//    cuando la confusión es más fácil.
+test('⭐ una devolución NO aumenta la cuenta por pagar, ni el día de una compra real', () => {
+  ctx.AC_SURTIDAS = []; ctx.AC_SALIDAS_TANQUE = []
+  ctx.AC_GASOIL = [{ f: '2026-11-10', lit: 1000, src: 'tumaca', tipo_operacion: 'compra', cam: 'COMPRA' }]
+  ctx.AC_DEVOLUCIONES = [dev('2026-11-10', 'JAC-B002', 'tanque-galpon-1', 1265)]
+
+  assert.equal(ctx._acComprasGalpon('2026-11-01', '2026-11-30'), 1000,
+    'la CxP sólo puede ver los 1.000 L COMPRADOS: los 1.265 devueltos ya se pagaron una vez')
+  assert.equal(ctx._acDevolucionesGalpon('2026-11-01', '2026-11-30'), 1265)
+
+  const saldo = ctx._acSaldoLibrosGalpon()
+  assert.equal(saldo.entradas, 2265, 'en LITROS sí entran los dos: el tanque recibió 2.265')
+  assert.equal(saldo.devoluciones, 1265, 'pero se pueden separar, que es lo que permite no cobrarlos dos veces')
+})
+
 test('⭐ CONTROL NEGATIVO: una devolución a un tanque que no es nuestro no se cuenta', () => {
   ctx.AC_DEVOLUCIONES = [dev('2026-11-10', 'JAC-B002', 'tanque-de-un-tercero', 160)]
   assert.equal(ctx._acDevolucionesGalpon('2026-11-01', '2026-11-30'), 0,
