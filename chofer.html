@@ -1106,7 +1106,7 @@ function gateChoferDia(){
     var raw = localStorage.getItem(_cgKey());
     if(raw){
       var c = JSON.parse(raw);
-      if(c && c.fecha === _hoyVE() && c.nombre){
+      if(c && c.fecha === _resolverJornada().fecha && c.nombre){
         chofer = c.nombre; CHOFER_ID = c.id || null; CHOFER_CLAVE = c.clave || null;
         arrancarApp(); return;
       }
@@ -1213,7 +1213,7 @@ function confirmarChoferGate(){
     if(btn){ btn.disabled=false; btn.textContent='Entrar'; }
     if(hx && hx===_cgSel.h){
       chofer = _cgSel.nombre; CHOFER_ID = _cgSel.id; CHOFER_CLAVE = clave;
-      try{ localStorage.setItem(_cgKey(), JSON.stringify({fecha:_hoyVE(), id:CHOFER_ID, nombre:chofer, clave:clave})); }catch(e){}
+      try{ localStorage.setItem(_cgKey(), JSON.stringify({fecha:_resolverJornada().fecha, id:CHOFER_ID, nombre:chofer, clave:clave})); }catch(e){}
       var g = document.getElementById('chofer-gate'); if(g) g.style.display='none';
       abrirCuadrillaGate();          // paso 2: quiénes van con él hoy (no obligatorio)
     }
@@ -1237,6 +1237,52 @@ function confirmarChoferGate(){
 //    boton trancado — sin haber salido todavia. Es el mismo accidente que ya paso el 31/07
 //    por leer un 0 como odometro, y se ve igual: la app "no deja".
 // ═══════════════════════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════════════════════════
+// LA JORNADA LE GANA AL CALENDARIO (15/11/2026)
+//
+// 🔴 POR QUÉ. Máximo, 14/11: «me siguen escribiendo los choferes… unos no pueden cerrar,
+//    otros abrir, todo se complicó desde que abrimos los turnos».
+//
+//    `hoy` era una fecha de CALENDARIO y a las 00:00 rodaba llevándose el turno. Medido en
+//    el B008, en 36 horas: Yurvenis cerró su noche a las 02:39, el teléfono lo tiró al día
+//    nuevo, y ahí abrió y cerró una **jornada de DOS MINUTOS** (02:39→02:41) peleando por
+//    registrar su llegada. Después su turno de DÍA (06:08–15:58) quedó guardado como
+//    NOCTURNO, porque el teléfono seguía en modo noche — y con el cupo nocturno ocupado y
+//    cerrado, el chofer de esa noche **no podía abrir**. Cuatro jornadas fantasma así desde
+//    el 04/11, todas de 1 a 4 minutos y todas pegadas a un cambio de turno.
+//
+// ⛔ LA REGLA: mientras una jornada NOCTURNA esté abierta, ella manda — la medianoche no la
+//    corta. Deja de mandar cuando el chofer registra su llegada, o cuando pasa la HORA DE
+//    CORTE. Sin el corte, un teléfono que nadie cerró se quedaría pegado a anoche para
+//    siempre y el chofer de la mañana escribiría en el día de ayer.
+//
+// ⚠️ EL CORTE SON LAS 05:00 y no está puesto a ojo: medido sobre la operación real, el
+//    trabajo de noche nunca pasó de la 01:50 y la salida más temprana de la mañana fue a
+//    las 05:34. Las 05:00 es el único hueco donde no se pisa ninguna de las dos.
+// ═══════════════════════════════════════════════════════════════════════════════════════
+var JORNADA_CORTE_H = 5;                    // 05:00 hora de Venezuela
+function _jornKey(){ return 'btg_jornada_'+cam; }
+function _jornAbierta(){
+  try{ var j=JSON.parse(localStorage.getItem(_jornKey())||'null');
+       return (j&&j.fecha&&j.turno)?j:null; }catch(e){ return null; }
+}
+function _jornAbrir(f,t){ try{ localStorage.setItem(_jornKey(), JSON.stringify({fecha:f,turno:t})); }catch(e){} }
+function _jornCerrar(){ try{ localStorage.removeItem(_jornKey()); }catch(e){} }
+// La (fecha, turno) de AHORA. `turno` viene null cuando manda el calendario.
+function _resolverJornada(){
+  var ms = Date.now()-14400000;                                  // Venezuela
+  var cal = new Date(ms).toISOString().slice(0,10);
+  var horaVE = new Date(ms).getUTCHours();
+  var j = _jornAbierta();
+  if(j && j.turno==='nocturno' && j.fecha!==cal && horaVE < JORNADA_CORTE_H){
+    var ayer = new Date(ms-86400000).toISOString().slice(0,10);
+    // Solo la de ANOCHE. Una jornada de hace tres días es un teléfono que nadie cerró, no
+    // un chofer trabajando: ésa no puede seguir mandando.
+    if(j.fecha===ayer) return {fecha:j.fecha, turno:'nocturno', heredada:true};
+  }
+  return {fecha:cal, turno:null, heredada:false};
+}
+
 var CL_TURNO = 'diurno';
 function _turnoKey(){ return 'btg_turno_'+cam+'_'+hoy; }
 function _cargarTurno(){
@@ -1277,6 +1323,8 @@ function soltarUnidadTurno(){
                 'Lo del turno de hoy en la mañana NO se borra ni se toca.')) return;
     _setTurno('nocturno');
   }
+  // La unidad cambia de manos: la jornada que venia abierta deja de mandar.
+  _jornCerrar();
   try{ localStorage.removeItem(_cgKey()); localStorage.removeItem(_cqKey()); }catch(e){}
   window.location.reload();
 }
@@ -1727,17 +1775,27 @@ function arrancarApp(){
   var now = new Date();
   // HOY en hora de Venezuela (UTC-4). Antes usaba UTC (toISOString) y de noche marcaba el
   // día siguiente → el viaje/checklist quedaba con otra fecha y el dashboard no lo veía "hoy".
-  hoy = new Date(Date.now()-14400000).toISOString().slice(0,10);
+  // ⛔ `hoy` YA NO ES EL CALENDARIO: es la fecha de la JORNADA. Si hay una nocturna abierta
+  //    de anoche y todavía no son las 05:00, ella manda y la medianoche no la corta.
+  var _jr = _resolverJornada();
+  hoy = _jr.fecha;
   // ⛔ EL TURNO SE CARGA ACÁ, apenas se sabe `cam` y `hoy` y ANTES de que se lea una sola
   //    clave local. Cada clave del día lleva el sufijo del turno (`_tSuf()`), así que si
   //    esto corriera después, el teléfono leería el estado del turno equivocado — y el
   //    chofer de la noche vería «día cerrado» sin haber salido.
   _cargarTurno();
+  //    Y si la jornada heredada manda, el turno es el de ELLA — no el que haya quedado
+  //    guardado bajo esa fecha.
+  if(_jr.turno) _setTurno(_jr.turno);
   _pintarTurno();
   // Si la PWA quedó abierta y AMANECIÓ (Android la conserva en memoria días): al volver a primer plano,
   // si la fecha real cambió, recargar → no dejar al chofer trabado viendo/registrando con la fecha de ayer.
   if(!window._hoyWatch){ window._hoyWatch = true; document.addEventListener('visibilitychange', function(){
-    if(document.visibilityState==='visible'){ var hr = new Date(Date.now()-14400000).toISOString().slice(0,10); if(hr!==hoy){ location.reload(); } }
+    // ⛔ SE COMPARA CONTRA LA JORNADA, NO CONTRA EL CALENDARIO. Con el calendario, un
+    //    chofer de noche a las 00:05 recargaba, `_resolverJornada()` le devolvía otra vez
+    //    la fecha de anoche, y al volver a primer plano recargaba DE NUEVO: un bucle que
+    //    le deja el teléfono inservible justo en plena jornada.
+    if(document.visibilityState==='visible'){ var hr = _resolverJornada().fecha; if(hr!==hoy){ location.reload(); } }
   }); }
 
   // Mostrar info
@@ -4502,10 +4560,16 @@ async function _guardarChecklist(){
     if(CL_MODO==='salida'){
       CL_MODO = 'llegada';
       try{localStorage.setItem('btg_cl_modo_'+cam+'_'+hoy+_tSuf(),'llegada');}catch(e){}
+      // ⛔ ACA SE ABRE LA JORNADA. Desde este momento manda ella y no el calendario:
+      //    si el chofer cruza la medianoche, su fecha y su turno NO se mueven.
+      _jornAbrir(hoy, CL_TURNO);
       setTimeout(renderChecklistModo, 800);
     } else {
       CL_MODO = 'cerrado';
       try{localStorage.setItem('btg_cl_modo_'+cam+'_'+hoy+_tSuf(),'cerrado');}catch(e){}
+      // Registro la llegada: la jornada termino. A partir de aca vuelve a mandar el
+      // calendario, y el chofer de la manana encuentra su dia limpio.
+      _jornCerrar();
       setTimeout(renderChecklistModo, 800);
     }
   } else if(enCola){
@@ -4519,6 +4583,9 @@ async function _guardarChecklist(){
     if(CL_MODO==='salida'){
       CL_MODO = 'llegada';
       try{localStorage.setItem('btg_cl_modo_'+cam+'_'+hoy+_tSuf(),'llegada');}catch(e){}
+      // ⛔ ACA SE ABRE LA JORNADA. Desde este momento manda ella y no el calendario:
+      //    si el chofer cruza la medianoche, su fecha y su turno NO se mueven.
+      _jornAbrir(hoy, CL_TURNO);
       setTimeout(renderChecklistModo, 800);
     }
   } else {

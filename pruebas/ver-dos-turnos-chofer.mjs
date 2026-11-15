@@ -211,7 +211,13 @@ checklistGuardado = { id: 'n1', turno: 'nocturno', fecha: AYER, cam: CAM,
                       conductor: 'CHOFER DE LA NOCHE', km_salida: 21500, km_entrada: null,
                       hora_salida: '18:35', hora_entrada: null, llenado_por: 'chofer' }
 await page.evaluate(([cam, f]) => {
-  try { localStorage.setItem('btg_cl_modo_' + cam + '_' + f + '_n', 'llegada') } catch (e) {}
+  try {
+    localStorage.setItem('btg_cl_modo_' + cam + '_' + f + '_n', 'llegada')
+    // ⛔ Y LA JORNADA ABIERTA. Es lo que el producto escribe al guardar la salida
+    //    (`_jornAbrir(hoy, CL_TURNO)`): sin esto el escenario no es el real, porque un
+    //    chofer que salió de verdad SIEMPRE tiene esta clave.
+    localStorage.setItem('btg_jornada_' + cam, JSON.stringify({ fecha: f, turno: 'nocturno' }))
+  } catch (e) {}
 }, [CAM, AYER])
 await page.reload({ waitUntil: 'domcontentloaded' })
 await page.waitForTimeout(3500)
@@ -223,9 +229,14 @@ chequear('la jornada de la noche está ABIERTA (modo llegada)',
 // ── Se corre el reloj: 02:00 de la madrugada siguiente ────────────────────────────────────
 // No se usa `clock.install()` a propósito: congela los temporizadores y esta app vive de
 // `setTimeout`. Se corre SOLO la fecha, que es lo único que el fallo necesita.
-const ahora = new Date()
-const dosDeLaManiana = new Date(Date.UTC(ahora.getUTCFullYear(), ahora.getUTCMonth(), ahora.getUTCDate() + 1, 6, 0, 0))
-const DESFASE = dosDeLaManiana.getTime() - Date.now()
+// ⛔ EL DESFASE SE CALCULA EN HORA DE VENEZUELA, NO EN UTC. La primera version usaba
+//    `getUTCDate()+1`, y corriendo esto despues de las 20:00 VE la fecha UTC YA habia rodado:
+//    el reloj saltaba DOS dias, la jornada dejaba de ser «la de anoche» y la prueba acusaba al
+//    producto de no heredarla. Es la misma confusion de calendario que este cambio arregla,
+//    cometida por la prueba. [[norma-una-asercion-mal-escrita-acusa-al-producto]]
+//    Medianoche VE de AYER en UTC = AYER T04:00Z; +26 h = el dia siguiente a las 02:00 VE.
+const objetivo = new Date(AYER + 'T04:00:00Z').getTime() + 26 * 3600e3
+const DESFASE = objetivo - Date.now()
 await page.addInitScript((d) => {
   const Real = Date
   const F = function (...a) { return a.length ? new Real(...a) : new Real(Real.now() + d) }
@@ -248,9 +259,16 @@ console.log('   antes: hoy=' + antesMedianoche.hoy + ' turno=' + antesMedianoche
 console.log('   ahora: hoy=' + trasMedianoche.hoy + ' turno=' + trasMedianoche.turno + ' modo=' + trasMedianoche.modo + ' sufijo=' + JSON.stringify(trasMedianoche.suf))
 console.log('   le pide a la base: fecha=' + (pidio ? pidio.cuerpo.p_fecha : '—') + ' turno=' + (pidio ? pidio.cuerpo.p_turno : '—'))
 console.log('   botón: ' + JSON.stringify(trasMedianoche.botonG.trim()))
-console.log('   📌 el día de calendario avanzó ' + AYER + ' → ' + HOY_NUEVO + ', y con él se fueron el turno,')
-console.log('      las claves locales y hasta la identidad del chofer. ASÍ SIGUE: es el arreglo de fondo,')
-console.log('      que va aparte. Lo que tiene que haber es la puerta de abajo.')
+console.log('   📌 el día de calendario avanzó ' + AYER + ' → ' + HOY_NUEVO)
+chequear('⭐ la jornada de la noche SIGUE siendo la suya: la medianoche no la corta',
+  trasMedianoche.hoy === AYER, 'hoy=' + trasMedianoche.hoy + ' (abrió el ' + AYER + ')')
+chequear('⭐ y sigue en el turno NOCTURNO',
+  trasMedianoche.turno === 'nocturno', 'turno=' + trasMedianoche.turno)
+chequear('⭐ puede CERRAR: sigue en modo llegada, no en una salida en blanco',
+  trasMedianoche.modo === 'llegada', 'modo=' + trasMedianoche.modo)
+chequear('⭐ y le pide a la base el checklist de SU jornada',
+  !!(pidio && pidio.cuerpo.p_fecha === AYER && pidio.cuerpo.p_turno === 'nocturno'),
+  'pidió ' + (pidio ? pidio.cuerpo.p_fecha + '/' + pidio.cuerpo.p_turno : '—'))
 await page.screenshot({ path: path.join(SALIDA, '_noche-cruza-medianoche.png') })
 
 // ══════════════════════════════════════════════════════════════════════════════════════════
@@ -260,6 +278,16 @@ await page.screenshot({ path: path.join(SALIDA, '_noche-cruza-medianoche.png') }
 // el día) y entonces tiene que ver el banner y poder cerrar lo de anoche — SIN que eso le
 // cambie el día ni el turno de hoy, que es justo lo que no se quiso tocar.
 // ══════════════════════════════════════════════════════════════════════════════════════════
+// ⛔ PASADO EL CORTE. A las 02:00 la jornada TIENE que seguir mandando; el rescate es para
+//    cuando el teléfono se abre despues de las 05:00 y la jornada ya expiró. Se corren 4 h 30
+//    mas sobre el desfase anterior (02:00 + 4:30 = 06:30).
+await page.addInitScript((d) => {
+  const Real = Date
+  const F = function (...a) { return a.length ? new Real(...a) : new Real(Real.now() + d) }
+  F.now = () => Real.now() + d
+  F.parse = Real.parse; F.UTC = Real.UTC; F.prototype = Real.prototype
+  window.Date = F
+}, 4.5 * 3600e3)
 await page.evaluate((cam) => {
   try { localStorage.setItem('btg_chofer_dia_' + cam, JSON.stringify({ nombre: 'CHOFER DE LA NOCHE', fecha: _hoyVE() })) } catch (e) {}
 }, CAM)
