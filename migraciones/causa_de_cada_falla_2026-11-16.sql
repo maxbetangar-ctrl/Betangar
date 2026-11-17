@@ -10,18 +10,21 @@
 --    sigue siendo UN documento con UN período, en vez de dos RPC que la pantalla
 --    tiene que cuadrar. [[norma-dos-listas-a-mano-se-desincronizan]]
 --
--- ── LAS CUATRO CAUSAS, Y EN QUÉ ORDEN GANAN ───────────────────────────────────
+-- ── LAS CINCO CAUSAS, Y EN QUÉ ORDEN GANAN ────────────────────────────────────
 --
 --  1. `bloqueo del sistema`  — hay una fila en `chofer_bloqueos` de esa unidad y
 --     ese día: el chofer tocó Guardar y no quedó nada. Es la ÚNICA que confirma
 --     la excusa, y existe recién desde el 16/11/2026.
---  2. `la cola lo retuvo`    — el checklist llegó al servidor DESPUÉS del día
+--  2. `la jornada todavia no termina` — el día es HOY (o la noche de ayer antes de
+--     las 8). NO es una falla: el chofer está manejando. Va antes que cualquier
+--     conclusión sobre él.
+--  3. `la cola lo retuvo`    — el checklist llegó al servidor DESPUÉS del día
 --     declarado (`created_at` > `fecha`): estuvo sin poder subir. Medido sobre
 --     723 checklists: pasó 3 veces en dos meses.
---  3. `del chofer, probado`  — usó la app DESPUÉS de la salida ese mismo día y
+--  4. `del chofer, probado`  — usó la app DESPUÉS de la salida ese mismo día y
 --     desde el mismo teléfono, o recibió el aviso «le quedó sin cerrar» ESE día.
 --     Cualquiera de las dos refuta «no me dejó»; las dos juntas lo cierran.
---  4. `no decidible`         — ninguna de las anteriores. Se dice, no se inventa.
+--  5. `no decidible`         — ninguna de las anteriores. Se dice, no se inventa.
 --
 -- ⛔ EL ORDEN NO ES CAPRICHO: gana la que CONFIRMA sobre la que REFUTA. Un chofer
 --    puede haberse trabado a las 18:00 y cargar un viaje a las 19:00 — las dos
@@ -59,6 +62,11 @@ declare
   -- [[norma-falta-de-dato-no-es-un-dato]]
   v_bloq_desde date := (select min(fecha)::date from chofer_bloqueos
                          where fecha ~ '^\d{4}-\d{2}-\d{2}$');
+  -- ⛔ LA FECHA Y LA HORA SON LAS DEL NEGOCIO, NO LAS DEL SERVIDOR: a las 20:00 de
+  --    Venezuela ya es el día siguiente en UTC. Misma regla que
+  --    `recordar_cierre_checklist`.
+  v_hoy  date := (now() at time zone 'America/Caracas')::date;
+  v_hora time := (now() at time zone 'America/Caracas')::time;
 begin
   -- ⛔ LA UNIDAD DE CUENTA ES LA DEL INFORME: chofer + fecha, igual que el `dia`
   --    de `btg_informe_llenado` (que agrupa por `conductor, fecha` y nada más).
@@ -108,12 +116,26 @@ begin
                    where s.chofer = a.nom and s.fecha = a.f), a.ult_chk)
       ) ult_act,
       exists (select 1 from cola_mensajes m, unnest(a.cams) u(cam)
-               where m.ref = 'cierre:' || u.cam || ':' || to_char(a.f,'YYYY-MM-DD')) le_aviso
+               where m.ref = 'cierre:' || u.cam || ':' || to_char(a.f,'YYYY-MM-DD')) le_aviso,
+      -- La jornada que todavía no terminó. Se calcula UNA vez y se usa en los dos
+      -- lados —la causa y su prueba— para que no puedan contradecirse.
+      (a.f = v_hoy
+        or (a.turno like '%nocturno%' and a.f = v_hoy - 1 and v_hora < time '08:00')) en_curso
     from abierto a
   ),
   conmotivo as (
     select j.*,
       case when j.bloqueo      then 'bloqueo del sistema'
+           -- ⛔ UNA JORNADA EN CURSO NO ES UNA FALLA, Y ESTO CASI ACUSA A TRES
+           --    PERSONAS QUE ESTABAN MANEJANDO. Medido el 16/11 a las 20:57: tres
+           --    choferes del turno nocturno habían salido a las 18:22, 18:48 y
+           --    19:13 y figuraban como «día sin cerrar» — con nombre y apellido,
+           --    en el informe que se lleva a la reunión. Todavía no habían
+           --    llegado: no hay nada que reclamarles.
+           -- ⚠️ El nocturno cruza la medianoche, así que su jornada sigue abierta
+           --    de madrugada: hasta las 08:00, el día de AYER también está en
+           --    curso para él. [[norma-una-asercion-mal-escrita-acusa-al-producto]]
+           when j.en_curso    then 'la jornada todavia no termina'
            when j.llego_tarde  then 'la cola lo retuvo'
            when j.uso_despues
              or j.le_aviso     then 'del chofer, probado'
@@ -136,8 +158,10 @@ begin
           ' y desde el mismo telefono' end,
         case when j.le_aviso then
           'se le aviso ese mismo dia por WhatsApp que le faltaba cerrar' end,
-        case when not j.bloqueo and not j.llego_tarde and not j.uso_despues
-              and not j.le_aviso then
+        case when j.en_curso then
+          'salio y todavia no llego: la jornada esta abierta, no hay nada que reclamarle' end,
+        case when not j.bloqueo and not j.en_curso and not j.llego_tarde
+              and not j.uso_despues and not j.le_aviso then
           'no hay rastro posterior ni aviso: con lo que hay hoy no se puede decidir' end
       )) prueba
     from juzgado j
@@ -170,6 +194,9 @@ begin
     'resumen', json_build_object(
       'dias_sin_cerrar',      (select count(*) from conmotivo),
       'bloqueo_del_sistema',  (select count(*) from conmotivo where causa='bloqueo del sistema'),
+      -- ⛔ VA APARTE Y NO ES UNA FALLA: sin esta fila, tres choferes que estaban
+      --    manejando inflaban el problema y quedaban señalados.
+      'jornada_en_curso',     (select count(*) from conmotivo where causa='la jornada todavia no termina'),
       'la_cola_lo_retuvo',    (select count(*) from conmotivo where causa='la cola lo retuvo'),
       'del_chofer_probado',   (select count(*) from conmotivo where causa='del chofer, probado'),
       'no_decidible',         (select count(*) from conmotivo where causa='no decidible'),
@@ -180,6 +207,7 @@ begin
       select coalesce(json_agg(x order by x.sin_cerrar desc, x.chofer), '[]'::json) from (
         select nom chofer, count(*) sin_cerrar,
           count(*) filter (where causa='bloqueo del sistema') bloqueo_del_sistema,
+          count(*) filter (where causa='la jornada todavia no termina') jornada_en_curso,
           count(*) filter (where causa='la cola lo retuvo')   la_cola_lo_retuvo,
           count(*) filter (where causa='del chofer, probado') del_chofer_probado,
           count(*) filter (where causa='no decidible')        no_decidible,
@@ -208,7 +236,7 @@ begin
 end $fn$;
 
 comment on function public.btg_causa_dias_sin_cerrar(date, date) is
-  'Por cada dia que un chofer abrio y no cerro, dice la CAUSA con la prueba que la decidio: bloqueo del sistema (hay fila en chofer_bloqueos), la cola lo retuvo (el checklist llego despues del dia declarado), del chofer probado (uso la app despues de la salida ese dia, o se le aviso ese dia), o no decidible. Aparte cuenta el TIPEO: dias cerrados con la hora de llegada anterior a la de salida, EXCLUYENDO el turno nocturno, que cruza la medianoche legitimamente. La regla de la causa vive aca y en ningun otro lado.';
+  'Por cada dia que un chofer abrio y no cerro, dice la CAUSA con la prueba que la decidio: bloqueo del sistema (hay fila en chofer_bloqueos), la jornada todavia no termina (es hoy, o la noche de ayer antes de las 8: el chofer esta manejando y no es una falla), la cola lo retuvo (el checklist llego despues del dia declarado), del chofer probado (uso la app despues de la salida ese dia, o se le aviso ese dia), o no decidible. Aparte cuenta el TIPEO: dias cerrados con la hora de llegada anterior a la de salida, EXCLUYENDO el turno nocturno, que cruza la medianoche legitimamente. La regla de la causa vive aca y en ningun otro lado.';
 
 revoke all on function public.btg_causa_dias_sin_cerrar(date, date) from public, anon;
 grant execute on function public.btg_causa_dias_sin_cerrar(date, date) to authenticated;

@@ -5764,8 +5764,15 @@ function _lleCausas(D, imp){
   var out='<h3 style="margin-top:18px">Por qué no se cerró cada día</h3>';
 
   if(n){
+    // ⛔ LA JORNADA EN CURSO SE DESCUENTA DEL TITULAR, no solo se etiqueta: si no,
+    //    el número grande cuenta como falla a tres choferes que están manejando.
+    var enCurso=Number(R.jornada_en_curso||0);
+    var falla=n-enCurso;
     out+='<div style="font-size:11px;color:'+dim+';margin-bottom:6px">'+
-      'De los <b>'+_lleNum(n)+'</b> días que un chofer abrió y no cerró: '+
+      (enCurso
+        ? 'De los <b>'+_lleNum(n)+'</b> días abiertos, <b>'+_lleNum(enCurso)+'</b> son jornadas que '+
+          'todavía no terminaron (el chofer está en la calle). Quedan <b>'+_lleNum(falla)+'</b> para juzgar: '
+        : 'De los <b>'+_lleNum(n)+'</b> días que un chofer abrió y no cerró: ')+
       '<b>'+_lleNum(R.del_chofer_probado)+'</b> con prueba de que no fue el sistema, '+
       '<b style="color:'+rojo+'">'+_lleNum(R.bloqueo_del_sistema)+'</b> bloqueo del sistema, '+
       '<b>'+_lleNum(R.la_cola_lo_retuvo)+'</b> que la cola del teléfono retuvo, y '+
@@ -5776,7 +5783,9 @@ function _lleCausas(D, imp){
       DD.map(function(d){
         var esSist=String(d.causa||'')==='bloqueo del sistema';
         var esDuda=String(d.causa||'')==='no decidible';
-        var col=esSist?rojo:(esDuda?dim:'');
+        // La jornada abierta se dibuja apagada: es información, no un señalamiento.
+        var esCurso=String(d.causa||'')==='la jornada todavia no termina';
+        var col=esSist?rojo:((esDuda||esCurso)?dim:'');
         return '<tr><td class="mono">'+_lleEsc(formatFecha(d.fecha))+'</td>'+
           '<td>'+_lleEsc(d.unidad)+'</td>'+
           '<td>'+_lleEsc(d.chofer)+'</td>'+
