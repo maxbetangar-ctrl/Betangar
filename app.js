@@ -5589,10 +5589,14 @@ function _lleHtml(D, imp){
   //    los dibujara, el dato existiría y nadie lo vería nunca.
   var revisar=_lleRevisar(D,false);
 
+  // La causa va PEGADA al detalle por área: es la contestación a lo que la
+  // persona va a decir cuando vea su propia fila, no un apéndice del final.
+  var causas=_lleCausas(D,false);
+
   return aviso+titular+tiles+
     '<h3>Lo que hay que atender</h3>'+
     '<div style="font-size:11px;color:var(--text3);margin-bottom:6px">Con esta lista se entra a la reunión. El resto del informe la respalda.</div>'+
-    accion+areas+fallas+mods+revisar+notas;
+    accion+areas+causas+fallas+mods+revisar+notas;
 }
 
 // ── EL PAPEL ─────────────────────────────────────────────────────────────────
@@ -5698,6 +5702,17 @@ function _llePapel(D){
       }).join('')+'</tbody></table>';
   }
 
+  // 6 bis — por qué no se cerró cada día
+  // ⛔ VA EN EL PAPEL, no solo en la pantalla: el informe impreso es el que se
+  //    lleva a la reunión, y es justo ahí donde se dice «el sistema no me dejó».
+  //    Dejarlo solo en la pantalla sería tener la respuesta y no llevarla.
+  var cau=_lleCausas(D,true);
+  if(cau){
+    out+=sec('Por qué no se cerró cada día',
+      'Cada día sin cerrar con su causa y el dato que la decidió. «Del chofer, probado» significa que ese mismo día, y desde el mismo teléfono, usó la aplicación después de la salida, o se le avisó que le faltaba cerrar.');
+    out+=cau.replace(/^<h3[^>]*>[\s\S]*?<\/h3>/, '');
+  }
+
   // 7 — módulos
   if(M.length){
     out+=sec('Qué módulo se usa y quién lo llena','Las filas en rojo son trabajo que la aplicación pide y nadie hace. Eso no es de una persona: es del proceso.');
@@ -5725,6 +5740,76 @@ function _llePapel(D){
   out+='<ul style="font-size:10px;color:#444;padding-left:16px;line-height:1.55;margin-top:4px">'+adv+
     '<li style="margin-bottom:4px">Con menos de 10 días exigibles no se pone nota: la muestra es demasiado chica para sostener una exigencia.</li>'+
     '</ul>';
+  return out;
+}
+
+// ── LA CAUSA DE CADA DÍA SIN CERRAR ─────────────────────────────────────────
+// Máximo, 16/11/2026: «lo primero que van a decir cuando no cerraron un día es
+// que el sistema no los dejó». Esta sección es la respuesta, con el dato al lado.
+//
+// ⛔ ACÁ NO SE DECIDE NADA: la causa y su prueba vienen hechas de
+//    `btg_causa_dias_sin_cerrar`. La pantalla solo dibuja. Si la regla se
+//    calculara también acá serían dos listas a mano, y en esta casa eso ya se
+//    desincronizó seis veces. [[norma-dos-listas-a-mano-se-desincronizan]]
+//
+// ⛔ Y SE DIBUJA EL «NO DECIDIBLE» EN VEZ DE ESCONDERLO. Es la columna que dice
+//    hasta dónde llega la medición: un informe donde todo tiene causa se lee como
+//    si el sistema supiera siempre, y no sabe. [[norma-falta-de-dato-no-es-un-dato]]
+function _lleCausas(D, imp){
+  var C=D.causas||{}, R=C.resumen||{}, DD=C.dias||[], T=C.tipeo||[];
+  var n=Number(R.dias_sin_cerrar||0);
+  if(!n && !T.length) return '';
+  var dim=imp?'#555':'var(--text3)';
+  var rojo=imp?'#b91c1c':'var(--red)';
+  var out='<h3 style="margin-top:18px">Por qué no se cerró cada día</h3>';
+
+  if(n){
+    out+='<div style="font-size:11px;color:'+dim+';margin-bottom:6px">'+
+      'De los <b>'+_lleNum(n)+'</b> días que un chofer abrió y no cerró: '+
+      '<b>'+_lleNum(R.del_chofer_probado)+'</b> con prueba de que no fue el sistema, '+
+      '<b style="color:'+rojo+'">'+_lleNum(R.bloqueo_del_sistema)+'</b> bloqueo del sistema, '+
+      '<b>'+_lleNum(R.la_cola_lo_retuvo)+'</b> que la cola del teléfono retuvo, y '+
+      '<b>'+_lleNum(R.no_decidible)+'</b> que con los datos de hoy no se pueden decidir.'+
+      '</div>';
+    out+='<table><thead><tr><th>Fecha</th><th>Unidad</th><th>Chofer</th><th>Causa</th>'+
+      '<th>Con qué se prueba</th></tr></thead><tbody>'+
+      DD.map(function(d){
+        var esSist=String(d.causa||'')==='bloqueo del sistema';
+        var esDuda=String(d.causa||'')==='no decidible';
+        var col=esSist?rojo:(esDuda?dim:'');
+        return '<tr><td class="mono">'+_lleEsc(formatFecha(d.fecha))+'</td>'+
+          '<td>'+_lleEsc(d.unidad)+'</td>'+
+          '<td>'+_lleEsc(d.chofer)+'</td>'+
+          '<td'+(col?' style="color:'+col+';font-weight:700"':' style="font-weight:700"')+'>'+_lleEsc(d.causa)+'</td>'+
+          '<td style="font-size:11px;color:'+dim+'">'+_lleEsc(d.prueba)+'</td></tr>';
+      }).join('')+'</tbody></table>';
+    // ⛔ HASTA CUÁNDO EL VACÍO NO PRUEBA NADA. Sin esta línea, «0 bloqueos del
+    //    sistema» en un mes viejo se lee como que el sistema nunca falló, cuando
+    //    lo que pasa es que nadie lo estaba anotando.
+    out+='<div style="font-size:10px;color:'+dim+';margin-top:4px">'+
+      (C.bloqueos_se_anotan_desde
+        ? 'Los bloqueos del sistema se anotan desde el '+_lleEsc(formatFecha(C.bloqueos_se_anotan_desde))+
+          '. Para los días anteriores, que no haya ninguno no prueba que no los hubo.'
+        : 'Todavía no se ha anotado ningún bloqueo del sistema. Eso no significa que no los hubo: '+
+          'significa que para este período no hay con qué confirmarlo.')+
+      '</div>';
+  }
+
+  if(T.length){
+    out+='<h3 style="margin-top:14px">Días cerrados con el dato mal cargado '+
+      '<span style="font-weight:400;color:'+dim+'">('+_lleNum(T.length)+')</span></h3>'+
+      '<div style="font-size:11px;color:'+dim+';margin-bottom:6px">'+
+      'Acá el día SÍ se cerró: lo que está mal es lo que se escribió. No es lo mismo que no llenar, '+
+      'y por eso no cuenta como falla de llenado. El turno nocturno no entra: ahí la llegada es '+
+      'anterior a la salida porque cruza la medianoche.</div>'+
+      '<table><thead><tr><th>Fecha</th><th>Unidad</th><th>Chofer</th><th>Qué dice el registro</th>'+
+      '</tr></thead><tbody>'+
+      T.map(function(t){
+        return '<tr><td class="mono">'+_lleEsc(formatFecha(t.fecha))+'</td>'+
+          '<td>'+_lleEsc(t.unidad)+'</td><td>'+_lleEsc(t.chofer)+'</td>'+
+          '<td style="font-size:11px;color:'+dim+'">'+_lleEsc(t.que_dice)+'</td></tr>';
+      }).join('')+'</tbody></table>';
+  }
   return out;
 }
 

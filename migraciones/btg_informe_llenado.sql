@@ -403,8 +403,19 @@ begin
           (select count(*) from inventario_mov where fecha between v_d::text and v_h::text)
       ) m
     ),
+    -- ⛔ LA CAUSA DE CADA DÍA SIN CERRAR, EN UNA LÍNEA. La regla vive en
+    --    `btg_causa_dias_sin_cerrar` y NO se copia acá: si se calculara en los dos
+    --    lados serían dos listas a mano, y ya sabemos cómo termina eso.
+    --    Va con el MISMO período que el resto del informe —el recortado al piso—
+    --    para que no haya dos ventanas distintas en un solo documento.
+    --    [[norma-dos-listas-a-mano-se-desincronizan]]
+    'causas', public.btg_causa_dias_sin_cerrar(v_chk_d, v_h),
     'advertencias', json_build_array(
       'Los 45 puntos de inspeccion NO se guardan: la aplicacion solo guarda los que el chofer marca como malos, dentro del texto de observaciones. No se distingue «reviso todo y esta bien» de «apreto Guardar».',
+      'LA CAUSA DE UN DIA SIN CERRAR REFUTA, NO CONFIRMA. «Del chofer, probado» prueba que NO fue el sistema: uso la app despues de la salida ese mismo dia, o se le aviso ese dia y no lo cerro. Lo contrario —que SI fue el sistema— solo se puede afirmar cuando hay una fila en chofer_bloqueos, y eso se empezo a anotar el 16/11/2026: para los dias anteriores su ausencia no prueba nada.',
+      'NADA GUARDA LA HISTORIA DE LAS CAIDAS: health_check es una sola fila que se pisa en cada prueba. Asi que «ese dia el sistema estaba caido» no se puede comprobar ni para atras ni para adelante, y por eso no es una de las causas.',
+      'EL AVISO CUENTA COMO AVISADO, NO COMO LEIDO: la fila de cola_mensajes prueba que el sistema lo intento. El acuse de entrega real no vive en esta base.',
+      'LA NOTA NO DESCUENTA LOS DIAS BLOQUEADOS. El veredicto sigue contando todos los dias sin cerrar contra el chofer, incluidos los que la causa atribuye al sistema. Cambiar eso es una decision del dueno, no del informe.',
       'La ficha de cada unidad conserva un solo texto de falla, el ultimo: cada observacion nueva reemplaza la anterior. El historial de cada dia si queda en el checklist.',
       'La marca de «critica» se enciende cuando el chofer declara la unidad fuera de servicio ese dia, no por lo que dice el texto.',
       'Un dia libre no es una falta: al chofer se lo juzga por lo que hizo los dias que trabajo, no por cuantos trabajo.'
@@ -415,7 +426,7 @@ begin
 end $$;
 
 comment on function public.btg_informe_llenado(date, date) is
-  'El informe de llenado de la aplicacion por empleado activo, para el periodo que se le pida: devuelve por cada persona cuanto lleno lo que su cargo le exige, el veredicto (Cumple / Observado / A corregir / Sin evaluar) con su motivo y que exigirle, mas los reportes del chofer que seguian abiertos al cierre del periodo y que modulo uso quien. La regla de la nota vive aca y en ningun otro lado. Lo que mira el checklist nunca baja del 12/09/2026, porque antes el checklist no guardaba quien lo llenaba.';
+  'El informe de llenado de la aplicacion por empleado activo, para el periodo que se le pida: devuelve por cada persona cuanto lleno lo que su cargo le exige, el veredicto (Cumple / Observado / A corregir / Sin evaluar) con su motivo y que exigirle, mas los reportes del chofer que seguian abiertos al cierre del periodo y que modulo uso quien. Desde el 16/11/2026 trae tambien «causas»: por cada dia sin cerrar, si fue bloqueo del sistema, si la cola lo retuvo, si es del chofer y con que se prueba, o si no es decidible — mas el tipeo malo aparte. La regla de la nota vive aca y en ningun otro lado; la de la causa, en btg_causa_dias_sin_cerrar. Lo que mira el checklist nunca baja del 12/09/2026, porque antes el checklist no guardaba quien lo llenaba.';
 
 revoke all on function public.btg_informe_llenado(date, date) from public, anon;
 grant execute on function public.btg_informe_llenado(date, date) to authenticated;

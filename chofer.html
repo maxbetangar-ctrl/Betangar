@@ -4650,13 +4650,50 @@ function _clLoQueDiceLaPantalla(){
 var COLA_BLOQ=null;   // null = todavía no se leyó de localStorage
 function cargarColaBloq(){ if(COLA_BLOQ)return COLA_BLOQ; try{ var s=localStorage.getItem('btg_cola_bloq'); COLA_BLOQ=s?_colaSana(JSON.parse(s)):[]; }catch(e){ COLA_BLOQ=[]; } return COLA_BLOQ; }
 function persistColaBloq(){ try{ if(COLA_BLOQ&&COLA_BLOQ.length) localStorage.setItem('btg_cola_bloq',JSON.stringify(COLA_BLOQ)); else localStorage.removeItem('btg_cola_bloq'); }catch(e){} }
+// ⛔ VA POR RPC, Y NO POR UN INSERT NI POR `enqueueWA`.
+//
+// 🔴 ESTO ES LO QUE ESTABA ROTO, y nunca se vio. Acá se llamaba a `enqueueWA(...)`,
+//    que está definida en las otras CUATRO instancias y NO EXISTE en Betangar:
+//    una sola aparición en todo el repo, la del call site. La llamada tiraba
+//    ReferenceError, se la comía el `catch(e){}` de abajo, el aviso se quedaba en
+//    la cola del teléfono y a la medianoche se descartaba. Medido el 16/11 con
+//    control positivo: `cola_mensajes` tipo='bloqueo' = 0 filas, contra 121
+//    'cierre-checklist' y 163 'latido' de la misma tabla. Desde el 19/08, cero.
+//    [[norma-arreglo-en-una-es-arreglo-en-todas-misma-sesion]]
+//
+// ⛔ Y PORTAR LA DE LOS CLONES TAL CUAL HABRÍA FALLADO IGUAL, EN SILENCIO: allá
+//    hace un `insert` directo en `cola_mensajes`, y acá `anon` NO TIENE NI UN
+//    GRANT sobre esa tabla (las cuatro políticas son de `authenticated`). Habría
+//    dado 401 dentro de este mismo catch. [[norma-probar-el-camino-no-la-pieza]]
+//
+// ⛔ LO QUE SE MANDA ES EL RASTRO, NO EL MENSAJE YA ARMADO. El texto del aviso y
+//    la decisión de mandarlo viven en el servidor. Así el 1er intento también
+//    queda anotado —que es lo que el informe necesita para decir la causa— y el
+//    aviso sigue racionado sin que cinco clientes tengan que acordarse de la regla.
 async function _bloqMandar(b){
   var salio=false;
   try{
-    for(var i=0;i<WA_DESTINATARIOS.length;i++){
-      var dest=WA_DESTINATARIOS[i]; if(!dest||!dest.num)continue;
-      try{ if(await enqueueWA(dest.num,b.msg,'bloqueo')) salio=true; }catch(e){}
+    if(typeof supabase==='undefined'||!supabase) return false;
+    var r=await supabase.rpc('chofer_bloqueo_registrar',{p:{
+      fecha:        b.fecha||hoy,
+      cam:          b.cam||cam,
+      conductor:    b.chofer||'',
+      modo:         b.modo||'',
+      intento:      b.n||0,
+      pantalla_dijo:b.dijo||'',
+      turno:        b.turno||'',
+      ocurrido_at:  b.at||new Date().toISOString()
+    }});
+    // ⛔ UN RECHAZO DEL SERVIDOR NO ES «SIN SEÑAL», y las dos cosas no se tratan
+    //    igual: sin señal se reintenta para siempre, un rechazo no se arregla
+    //    reintentando. Pero tampoco se tira al primer no —sería perder justo la
+    //    prueba— así que se cuenta y se suelta al quinto.
+    //    [[norma-la-red-que-traga-el-error-tapa-la-pieza]]
+    if(r&&r.error){
+      b.rech=(b.rech||0)+1;
+      return b.rech>=5;
     }
+    salio=true;
   }catch(e){}
   return salio;
 }
@@ -4681,9 +4718,18 @@ async function _drenarColaBloq(){
   if(!COLA_BLOQ.length||typeof supabase==='undefined'||!supabase)return;
   var quedan=[];
   for(var i=0;i<COLA_BLOQ.length;i++){
-    // Lo de AYER no se manda hoy: un «no puede guardar» que sale al día siguiente
-    // manda a alguien a buscar un problema que ya pasó. Misma regla que las entregas.
-    if(COLA_BLOQ[i].fecha && COLA_BLOQ[i].fecha!==hoy) continue;
+    // ⛔ LAS COLAS VIEJAS DE LOS TELÉFONOS SE SUELTAN. Antes del 16/11 acá se
+    //    guardaban entradas con el mensaje ya armado (`{msg:...}`) y sin forma de
+    //    salir: no hay a dónde mandarlas y quedarían trabadas para siempre.
+    //    Se reconocen porque no traen `v`. [[norma-guardado-localmente-es-una-mentira]]
+    if(!COLA_BLOQ[i] || !COLA_BLOQ[i].v) continue;
+    // ⛔ EL RASTRO DE AYER NO SE DESCARTA — ACÁ ESTABA EL AGUJERO.
+    //    La regla «lo de ayer no se manda hoy» es correcta para el AVISO (mandar a
+    //    alguien a buscar un problema que ya pasó), pero tiraba justo el caso que
+    //    más importa: el chofer que estuvo SIN SEÑAL TODO EL DÍA, que es el único
+    //    que de verdad puede decir «no me dejó». Ahora la fila sube igual y es el
+    //    SERVIDOR el que se calla el aviso si ya no es de hoy.
+    //    [[norma-falta-de-dato-no-es-un-dato]]
     if(!(await _bloqMandar(COLA_BLOQ[i]))) quedan.push(COLA_BLOQ[i]);
   }
   COLA_BLOQ=quedan; persistColaBloq();
@@ -4701,17 +4747,34 @@ function _clBloqLimpiar(){ try{ localStorage.removeItem(_clLlaveBloq()); }catch(
 function _clAvisarBloqueo(){
   var n=0; try{ n=parseInt(localStorage.getItem(_clLlaveBloq())||'0',10)||0; }catch(e){}
   n++; try{ localStorage.setItem(_clLlaveBloq(),String(n)); }catch(e){}
-  // El 1º casi siempre es el chofer corrigiéndose solo. Del 2º en adelante ya no.
-  if(n!==2 && n%5!==0) return;
-  var msg='🔴 '+cam+' · '+(typeof chofer!=='undefined'&&chofer?chofer:'sin chofer')+
-          ' NO PUEDE GUARDAR el checklist ('+(CL_MODO==='llegada'?'LLEGADA':'SALIDA')+')\n'+
-          'Lleva '+n+' intentos y no queda registrado.\n'+
-          'La pantalla le dice: '+(_clLoQueDiceLaPantalla()||'NADA — se traba sin decir por qué');
-  cargarColaBloq(); COLA_BLOQ.push({msg:msg,fecha:hoy,cam:cam,n:n}); persistColaBloq();
+  // ⛔ EL RASTRO SE ANOTA SIEMPRE; EL AVISO SE RACIONA. Acá había un
+  //    `if(n!==2 && n%5!==0) return;` ANTES de encolar: razonable para no saturar
+  //    el canal, pero significaba que el 1er intento no dejaba NADA — y el informe
+  //    de llenado necesita todos para poder decir la causa de un día sin cerrar.
+  //    Ahora se encola cada intento y el SERVIDOR decide cuándo escribir.
+  //    Máximo, 16/11: «cuando no cerraron un día van a decir que el sistema no los
+  //    dejó» — eso solo se puede contestar si cada intento quedó anotado.
+  cargarColaBloq();
+  COLA_BLOQ.push({
+    v:2,                                            // marca de forma: las viejas se sueltan
+    fecha:hoy, cam:cam,
+    chofer:(typeof chofer!=='undefined'&&chofer?chofer:''),
+    modo:(CL_MODO==='llegada'?'llegada':'salida'),
+    n:n,
+    dijo:_clLoQueDiceLaPantalla(),                   // lo que tiene delante de los ojos
+    turno:(typeof CL_TURNO!=='undefined'&&CL_TURNO?CL_TURNO:''),
+    at:new Date().toISOString()                      // CUÁNDO se trabó, no cuándo subió
+  });
+  persistColaBloq();
   try{ drenarColaBloq(); }catch(e){}
   // Y que ÉL sepa que no está solo ahí parado. Si no, la única salida que le queda
   // es escribir por WhatsApp y esperar — que es lo que pasó estos dos días.
-  try{ mostrarToast('Ya avisamos a la oficina de que no le deja guardar.','warn'); }catch(e){}
+  // ⚠️ El cartel sí sigue la regla del 2º y uno de cada 5: el 1er intento casi
+  //    siempre es él corrigiéndose solo, y decirle «ya avisamos» en ese primero
+  //    sería mentirle —el servidor todavía no avisó a nadie— además de ruido.
+  if(n===2 || n%5===0){
+    try{ mostrarToast('Ya avisamos a la oficina de que no le deja guardar.','warn'); }catch(e){}
+  }
 }
 // ── UN AVISO QUE NO SALIÓ DEJA RASTRO ──────────────────────────────────────
 // El dato SIEMPRE queda registrado; lo que puede fallar es el AVISO. Y un aviso
