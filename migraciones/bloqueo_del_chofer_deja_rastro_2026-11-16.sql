@@ -177,12 +177,28 @@ begin
   if v_guardo and v_fecha = v_hoy and coalesce(v_intento,0) >= 2
      and (v_intento = 2 or v_intento % 5 = 0) then
 
-    -- ⛔ EL DESTINO NO SE ESCRIBE ACÁ. Sale de `latidos`, que es de donde lo
-    --    saca el resto de la casa: un número puesto a mano en una función es un
-    --    destinatario por omisión, o sea una fuga el día que cambia.
+    -- ⛔ EL DESTINO NO SE ESCRIBE ACÁ. Un número puesto a mano en una función es
+    --    un destinatario por omisión, o sea una fuga el día que cambia.
     --    [[norma-un-destinatario-por-omision-es-una-fuga]]
-    select public.tel_para_escribir(destino) into v_tel
-      from latidos where nombre = 'soporte-sla';
+    --
+    -- ⛔ Y SE BUSCA EN DOS LADOS PORQUE LAS INSTANCIAS NO SON IGUALES — medido,
+    --    no supuesto: Betangar tiene `latidos.soporte-sla`, y en FLOTILLA la
+    --    tabla `latidos` existe pero está VACÍA. Una función que solo mira ahí
+    --    sale muda en los clones, que es justo donde esta pieza lleva dos meses
+    --    muerta. El respaldo es `wassenger_estado()`, que los cinco ya usan.
+    --    [[norma-las-instancias-se-descubren-no-se-listan]]
+    begin
+      select public.tel_para_escribir(destino) into v_tel
+        from latidos where nombre = 'soporte-sla';
+    exception when others then v_tel := null;
+    end;
+    if v_tel is null then
+      begin
+        select public.tel_para_escribir(public.wassenger_estado()->>'notificar_a')
+          into v_tel;
+      exception when others then v_tel := null;
+      end;
+    end if;
 
     if v_tel is not null then
       insert into cola_mensajes (tipo, telefono, mensaje, estado, ref)
