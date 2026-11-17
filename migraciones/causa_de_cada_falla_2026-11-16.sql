@@ -1,14 +1,23 @@
 -- ══════════════════════════════════════════════════════════════════════════════
--- LA CAUSA DE CADA DÍA SIN CERRAR — «el sistema no me dejó» se contesta con un dato
+-- LA CAUSA DE CADA JORNADA SIN CERRAR — «el sistema no me dejó» se contesta con un dato
 --
--- Máximo, 16/11/2026: «lo primero que van a decir cuando no cerraron un día es
--- que el sistema no los dejó».
+-- Máximo, 16/11/2026: «¿hay forma de estimar cuáles fallas y cuántas han sido por
+-- fallas del sistema y cuántas porque realmente ellos no lo hicieron o tipearon
+-- mal los datos? Lo primero que van a decir cuando no cerraron un día es que el
+-- sistema no los dejó».
 --
 -- ⛔ VIVE EN SU PROPIA FUNCIÓN Y `btg_informe_llenado` LA LLAMA EN UNA LÍNEA.
 --    No se copió la lógica adentro del informe: la regla de la causa tiene que
 --    existir en UN solo lugar, igual que la regla de la nota. Y así el informe
 --    sigue siendo UN documento con UN período, en vez de dos RPC que la pantalla
 --    tiene que cuadrar. [[norma-dos-listas-a-mano-se-desincronizan]]
+--
+-- ⛔ LA UNIDAD ES LA JORNADA (unidad + fecha + turno), LA MISMA QUE EL INFORME.
+--    La primera versión contaba por chofer+fecha para igualar al informe, que
+--    contaba así; el 17/11 el informe pasó a contar jornadas —porque con dos
+--    turnos el día-chofer TAPA jornadas— y esta se movió con él. Dos números
+--    distintos para lo mismo en un solo documento obligan a preguntar cuál es el
+--    verdadero. [[norma-la-etiqueta-sobre-el-numero-equivocado-inventa-un-dato]]
 --
 -- ── LAS CINCO CAUSAS, Y EN QUÉ ORDEN GANAN ────────────────────────────────────
 --
@@ -32,6 +41,11 @@
 --    porque después usó la app sería escribir una acusación con la mitad del dato.
 --    [[norma-una-asercion-mal-escrita-acusa-al-producto]]
 --
+-- ⛔ `juzgables` ES EL NÚMERO QUE CUADRA CON LA NOTA. El informe NO le cuenta al
+--    chofer las jornadas en curso ni las que el sistema trancó, así que el total
+--    de abiertas y lo que se le reclama NO son el mismo número — y el que no está
+--    escrito es el que alguien va a calcular mal. Acá están los dos.
+--
 -- ⛔ EL AVISO SE CRUZA POR `ref`, NO POR TELÉFONO. `recordar_cierre_checklist`
 --    escribe `ref = 'cierre:'||cam||':'||fecha`, que es determinista. Cruzarlo
 --    por número obliga a que la ficha del empleado esté bien, y ya sabemos cómo
@@ -43,10 +57,10 @@
 --    `deliveredAt`, que no vive en esta base. Por eso la prueba dice «se le
 --    avisó», nunca «lo leyó». [[norma-el-destino-de-un-mensaje-es-el-wid]]
 --
--- ⚠️ Y EL TIPEO SE MIDE APARTE, porque no es una falla de llenado: el día está
---    cerrado, el dato está mal. ⛔ La hora de llegada anterior a la de salida es
---    LEGÍTIMA en el turno nocturno —cruza la medianoche—: medido, 7 de 9 noches.
---    Sin separar por turno, el informe habría inventado siete errores.
+-- ⚠️ Y EL TIPEO SE MIDE APARTE, porque no es una falla de llenado: la jornada
+--    está cerrada, el dato está mal. ⛔ La hora de llegada anterior a la de salida
+--    es LEGÍTIMA en el turno nocturno —cruza la medianoche—: medido, 7 de 9
+--    noches. Sin separar por turno, el informe habría inventado siete errores.
 --    [[norma-un-filtro-nuestro-tapa-un-dato-que-si-llega]]
 -- ══════════════════════════════════════════════════════════════════════════════
 
@@ -68,17 +82,8 @@ declare
   v_hoy  date := (now() at time zone 'America/Caracas')::date;
   v_hora time := (now() at time zone 'America/Caracas')::time;
 begin
-  -- ⛔ LA UNIDAD DE CUENTA ES LA DEL INFORME: chofer + fecha, igual que el `dia`
-  --    de `btg_informe_llenado` (que agrupa por `conductor, fecha` y nada más).
-  --    Agrupar también por unidad y por turno daba 32 donde el informe dice 31,
-  --    y dos números distintos para «días sin cerrar» EN EL MISMO DOCUMENTO
-  --    obligan a preguntar cuál es el verdadero. Las unidades y los turnos
-  --    involucrados viajan como lista, que es lo que hace falta para actuar.
-  --    [[norma-la-etiqueta-sobre-el-numero-equivocado-inventa-un-dato]]
-  with dia as (
-    select c.conductor nom, c.fecha::date f,
-      array_agg(distinct c.cam) cams,
-      string_agg(distinct coalesce(c.turno,'?'), '+') turno,
+  with jornada as (
+    select c.conductor nom, c.fecha::date f, c.cam, coalesce(c.turno,'?') turno,
       max((coalesce(c.km_salida,0)>0 or coalesce(c.hora_salida,'')<>'')::int) sal,
       max((coalesce(c.km_entrada,0)>0 or coalesce(c.hora_entrada,'')<>'')::int) lle,
       max(c.created_at) ult_chk,
@@ -90,17 +95,17 @@ begin
     where c.fecha ~ '^\d{4}-\d{2}-\d{2}$'
       and c.fecha between to_char(p_desde,'YYYY-MM-DD') and to_char(p_hasta,'YYYY-MM-DD')
       and c.llenado_por = 'chofer'
-    group by 1,2
+    group by 1,2,3,4
   ),
-  abierto as (select * from dia where sal = 1 and lle = 0),
+  abierto as (select * from jornada where sal = 1 and lle = 0),
   juzgado as (
-    select a.nom, a.f, a.cams, a.turno, a.ult_chk,
+    select a.nom, a.f, a.cam, a.turno, a.ult_chk,
       exists (select 1 from chofer_bloqueos b
-               where b.cam = any(a.cams) and b.fecha = to_char(a.f,'YYYY-MM-DD')) bloqueo,
+               where b.cam = a.cam and b.fecha = to_char(a.f,'YYYY-MM-DD')) bloqueo,
       (select count(*) from chofer_bloqueos b
-        where b.cam = any(a.cams) and b.fecha = to_char(a.f,'YYYY-MM-DD')) bloq_n,
+        where b.cam = a.cam and b.fecha = to_char(a.f,'YYYY-MM-DD')) bloq_n,
       (select max(b.pantalla_dijo) from chofer_bloqueos b
-        where b.cam = any(a.cams) and b.fecha = to_char(a.f,'YYYY-MM-DD')
+        where b.cam = a.cam and b.fecha = to_char(a.f,'YYYY-MM-DD')
           and coalesce(b.pantalla_dijo,'') <> '') bloq_dijo,
       (a.ult_chk at time zone 'America/Caracas')::date > a.f llego_tarde,
       greatest(
@@ -115,8 +120,8 @@ begin
         coalesce((select max(s.created_at) from surtidas s
                    where s.chofer = a.nom and s.fecha = a.f), a.ult_chk)
       ) ult_act,
-      exists (select 1 from cola_mensajes m, unnest(a.cams) u(cam)
-               where m.ref = 'cierre:' || u.cam || ':' || to_char(a.f,'YYYY-MM-DD')) le_aviso,
+      exists (select 1 from cola_mensajes m
+               where m.ref = 'cierre:' || a.cam || ':' || to_char(a.f,'YYYY-MM-DD')) le_aviso,
       -- La jornada que todavía no terminó. Se calcula UNA vez y se usa en los dos
       -- lados —la causa y su prueba— para que no puedan contradecirse.
       (a.f = v_hoy
@@ -126,16 +131,7 @@ begin
   conmotivo as (
     select j.*,
       case when j.bloqueo      then 'bloqueo del sistema'
-           -- ⛔ UNA JORNADA EN CURSO NO ES UNA FALLA, Y ESTO CASI ACUSA A TRES
-           --    PERSONAS QUE ESTABAN MANEJANDO. Medido el 16/11 a las 20:57: tres
-           --    choferes del turno nocturno habían salido a las 18:22, 18:48 y
-           --    19:13 y figuraban como «día sin cerrar» — con nombre y apellido,
-           --    en el informe que se lleva a la reunión. Todavía no habían
-           --    llegado: no hay nada que reclamarles.
-           -- ⚠️ El nocturno cruza la medianoche, así que su jornada sigue abierta
-           --    de madrugada: hasta las 08:00, el día de AYER también está en
-           --    curso para él. [[norma-una-asercion-mal-escrita-acusa-al-producto]]
-           when j.en_curso    then 'la jornada todavia no termina'
+           when j.en_curso     then 'la jornada todavia no termina'
            when j.llego_tarde  then 'la cola lo retuvo'
            when j.uso_despues
              or j.le_aviso     then 'del chofer, probado'
@@ -146,6 +142,8 @@ begin
         case when j.bloqueo then
           'toco Guardar ' || j.bloq_n || ' vez/veces sin que quedara nada; la pantalla decia: ' ||
           coalesce(j.bloq_dijo, 'NADA, se trabo mudo') end,
+        case when j.en_curso then
+          'salio y todavia no llego: la jornada esta abierta, no hay nada que reclamarle' end,
         case when j.llego_tarde then
           'el checklist llego al servidor el ' ||
           to_char(j.ult_chk at time zone 'America/Caracas', 'DD/MM a las HH24:MI') ||
@@ -158,40 +156,30 @@ begin
           ' y desde el mismo telefono' end,
         case when j.le_aviso then
           'se le aviso ese mismo dia por WhatsApp que le faltaba cerrar' end,
-        case when j.en_curso then
-          'salio y todavia no llego: la jornada esta abierta, no hay nada que reclamarle' end,
         case when not j.bloqueo and not j.en_curso and not j.llego_tarde
               and not j.uso_despues and not j.le_aviso then
           'no hay rastro posterior ni aviso: con lo que hay hoy no se puede decidir' end
       )) prueba
     from juzgado j
   ),
-  -- El tipeo: el día ESTÁ cerrado y el dato está mal. No es lo mismo que no llenar.
-  --
-  -- ⛔ ESTE SE MIDE POR JORNADA (unidad + fecha + turno) Y NO POR CHOFER-DÍA, y
-  --    por eso sale de `checklist` y no de `dia`. Las horas de dos unidades del
-  --    mismo día, metidas en un `max()`, inventan un cruce que nadie tipeó: la
-  --    salida de una con la llegada de la otra. Es un número con la etiqueta
-  --    equivocada, que es la forma más barata de acusar a alguien sin razón.
-  --    [[norma-la-etiqueta-sobre-el-numero-equivocado-inventa-un-dato]]
+  -- El tipeo: la jornada SÍ se cerró y lo que está mal es lo que se escribió.
+  -- ⛔ EL NOCTURNO NO ENTRA: ahi la llegada ANTERIOR a la salida es lo correcto,
+  --    porque cruza la medianoche. Medido: 7 de 9 noches.
   tipeo as (
-    select c.conductor nom, c.fecha::date f, c.cam, coalesce(c.turno,'?') turno,
-      max(c.hora_salida) hs, max(c.hora_entrada) he
-    from checklist c
-    where c.fecha ~ '^\d{4}-\d{2}-\d{2}$'
-      and c.fecha between to_char(p_desde,'YYYY-MM-DD') and to_char(p_hasta,'YYYY-MM-DD')
-      and c.llenado_por = 'chofer'
-      -- ⛔ EL NOCTURNO CRUZA LA MEDIANOCHE: ahi la llegada ANTERIOR a la salida es
-      --    lo correcto, no un error. Medido: 7 de 9 noches.
-      and coalesce(c.turno,'') <> 'nocturno'
-    group by 1,2,3,4
-    having max(c.hora_entrada) ~ '^\d{1,2}:\d{2}$'
-       and max(c.hora_salida)  ~ '^\d{1,2}:\d{2}$'
-       and max(c.hora_entrada) < max(c.hora_salida)
+    select j.nom, j.f, j.cam, j.turno, j.hs, j.he
+    from jornada j
+    where j.lle = 1
+      and j.turno <> 'nocturno'
+      and coalesce(j.he,'') ~ '^\d{1,2}:\d{2}$'
+      and coalesce(j.hs,'') ~ '^\d{1,2}:\d{2}$'
+      and j.he < j.hs
   )
   select json_build_object(
+    'unidad_de_cuenta', 'jornada (unidad + fecha + turno), la misma que el informe',
     'bloqueos_se_anotan_desde', v_bloq_desde,
     'resumen', json_build_object(
+      'jornadas_sin_cerrar',  (select count(*) from conmotivo),
+      -- ⛔ Se conserva el nombre viejo: la pantalla desplegada lo lee asi.
       'dias_sin_cerrar',      (select count(*) from conmotivo),
       'bloqueo_del_sistema',  (select count(*) from conmotivo where causa='bloqueo del sistema'),
       -- ⛔ VA APARTE Y NO ES UNA FALLA: sin esta fila, tres choferes que estaban
@@ -200,8 +188,11 @@ begin
       'la_cola_lo_retuvo',    (select count(*) from conmotivo where causa='la cola lo retuvo'),
       'del_chofer_probado',   (select count(*) from conmotivo where causa='del chofer, probado'),
       'no_decidible',         (select count(*) from conmotivo where causa='no decidible'),
+      -- Lo que de verdad se le reclama: es el numero que cuadra con la nota.
+      'juzgables',            (select count(*) from conmotivo
+                                where causa not in ('la jornada todavia no termina','bloqueo del sistema')),
       'jornadas_con_tipeo_malo', (select count(*) from tipeo),
-      'dias_cerrados_medidos',(select count(*) from dia where lle=1)
+      'jornadas_cerradas_medidas',(select count(*) from jornada where lle=1)
     ),
     'por_persona', (
       select coalesce(json_agg(x order by x.sin_cerrar desc, x.chofer), '[]'::json) from (
@@ -217,9 +208,7 @@ begin
     ),
     'dias', (
       select coalesce(json_agg(y order by y.fecha desc, y.unidad), '[]'::json) from (
-        select f fecha,
-          array_to_string(array(select replace(u,'JAC-','') from unnest(cams) u), ', ') unidad,
-          nom chofer, turno, causa, prueba
+        select f fecha, replace(cam,'JAC-','') unidad, nom chofer, turno, causa, prueba
         from conmotivo
       ) y
     ),
@@ -236,7 +225,7 @@ begin
 end $fn$;
 
 comment on function public.btg_causa_dias_sin_cerrar(date, date) is
-  'Por cada dia que un chofer abrio y no cerro, dice la CAUSA con la prueba que la decidio: bloqueo del sistema (hay fila en chofer_bloqueos), la jornada todavia no termina (es hoy, o la noche de ayer antes de las 8: el chofer esta manejando y no es una falla), la cola lo retuvo (el checklist llego despues del dia declarado), del chofer probado (uso la app despues de la salida ese dia, o se le aviso ese dia), o no decidible. Aparte cuenta el TIPEO: dias cerrados con la hora de llegada anterior a la de salida, EXCLUYENDO el turno nocturno, que cruza la medianoche legitimamente. La regla de la causa vive aca y en ningun otro lado.';
+  'Por cada JORNADA (unidad + fecha + turno) que un chofer abrio y no cerro, dice la CAUSA con la prueba que la decidio: bloqueo del sistema (hay fila en chofer_bloqueos), la jornada todavia no termina (es hoy, o la noche de ayer antes de las 8: el chofer esta manejando y no es una falla), la cola lo retuvo (el checklist llego despues del dia declarado), del chofer probado (uso la app despues de la salida ese dia, o se le aviso ese dia), o no decidible. «juzgables» es el subtotal que cuadra con la nota: el informe no le cuenta al chofer las jornadas en curso ni las que el sistema tranco. Aparte cuenta el TIPEO: jornadas cerradas con la hora de llegada anterior a la de salida, EXCLUYENDO el turno nocturno, que cruza la medianoche legitimamente. La regla de la causa vive aca y en ningun otro lado.';
 
 revoke all on function public.btg_causa_dias_sin_cerrar(date, date) from public, anon;
 grant execute on function public.btg_causa_dias_sin_cerrar(date, date) to authenticated;

@@ -66,6 +66,11 @@ declare
   v_chk_d date;          -- piso aplicado, solo para lo que mira el checklist
   v_aviso text := null;
   v_out json;
+  -- ⛔ LA FECHA Y LA HORA SON LAS DEL NEGOCIO: a las 20:00 de Venezuela ya es el
+  --    día siguiente en UTC, y `current_date` mandaría a juzgar una jornada que
+  --    todavía no empezó. Misma regla que `recordar_cierre_checklist`.
+  v_hoy  date := (now() at time zone 'America/Caracas')::date;
+  v_hora time := (now() at time zone 'America/Caracas')::time;
 begin
   perform public.btg_ve_llenado_o_falla();
 
@@ -134,22 +139,65 @@ begin
     select i.id, count(*) n from inicio i join opero o on o.d >= i.d group by 1
   ),
 
-  -- ── CHOFER: el día se abre con la salida y se cierra con la llegada ────────
+  -- ── CHOFER: la JORNADA se abre con la salida y se cierra con la llegada ────
+  --
+  -- ⛔ LA UNIDAD ES LA JORNADA (unidad + fecha + turno), NO EL DÍA-CHOFER.
+  --    Hasta el 17/11/2026 esto agrupaba por `conductor, fecha`, y con DOS TURNOS
+  --    eso TAPA jornadas: medido, Jhan Carlos cerró el diurno de la B006 y tenía
+  --    el nocturno de la MISMA unidad abierto ⇒ su `max(lle)` daba 1 y el día le
+  --    figuraba cerrado. En el período había 723 jornadas y 32 abiertas, pero el
+  --    informe contaba 30 días sin cerrar: **2 tapadas**. Chico hoy y creciendo,
+  --    porque los dos turnos son del 04/11. La casa ya decidió que la jornada le
+  --    gana al calendario; acá faltaba. [[norma-la-etiqueta-sobre-el-numero-equivocado-inventa-un-dato]]
+  --
+  -- ⛔ Y UNA JORNADA EN CURSO NO SE JUZGA: no entra ni como registro ni como
+  --    falta. 🔴 Medido el 16/11 a las 20:57: tres choferes del nocturno habían
+  --    salido 18:22, 18:48 y 19:13 y el informe los contaba como «no cerró»,
+  --    bajándoles el porcentaje por una jornada que todavía estaban manejando.
+  --    ⚠️ El nocturno cruza la medianoche, así que hasta las 08:00 la noche de
+  --    AYER también sigue en curso. [[norma-una-asercion-mal-escrita-acusa-al-producto]]
+  --
+  -- ⛔ NI SE LE CUENTA UN BLOQUEO DEL SISTEMA. Si hay una fila en
+  --    `chofer_bloqueos` de esa unidad y ese día, el chofer tocó Guardar y el
+  --    sistema no lo dejó: eso no es suyo. Es justo lo que Máximo vino a
+  --    preguntar el 16/11, y un informe que lo sabe y se lo cobra igual no
+  --    sirve para la reunión.
+  --
+  -- ✅ MEDIDO ANTES DE APLICARLO: con los tres cambios **no cambia el veredicto
+  --    de NADIE** (0 de 13 choferes). Solo corrige denominadores — y a varios los
+  --    mejora: José Elite 98,0 → 100%, Omar Nava 98,1 → 100%.
   dia as (
-    select c.conductor nom, c.fecha::date f,
+    select c.conductor nom, c.fecha::date f, c.cam, coalesce(c.turno,'?') turno,
       max((coalesce(c.km_salida,0)>0 or coalesce(c.hora_salida,'')<>'')::int) sal,
       max((coalesce(c.km_entrada,0)>0 or coalesce(c.hora_entrada,'')<>'')::int) lle,
       max((coalesce(c.observaciones,'')<>'')::int) obs
     from checklist c
     where c.fecha between v_chk_d::text and v_h::text and c.llenado_por = 'chofer'
-    group by 1,2
+    group by 1,2,3,4
+  ),
+  -- Lo que SÍ se le puede reclamar: se sacan las jornadas abiertas que todavía
+  -- corren, y las que el sistema trancó.
+  juzgable as (
+    select d.* from dia d
+    where not (d.sal = 1 and d.lle = 0 and (
+            d.f = v_hoy
+            or (d.turno like '%nocturno%' and d.f = v_hoy - 1 and v_hora < time '08:00')
+            or exists (select 1 from chofer_bloqueos b
+                        where b.cam = d.cam and b.fecha = to_char(d.f,'YYYY-MM-DD'))))
   ),
   chk as (
-    select nom, count(*) dias_registro,
+    -- ⚠️ Los nombres `dias_*` se CONSERVAN aunque ahora cuenten jornadas: la
+    --    pantalla desplegada los lee por ese nombre, y esta función ya está en
+    --    producción. Los `jornadas_*` son los mismos números con la etiqueta
+    --    correcta, y son los que usa la pantalla nueva.
+    select nom,
+      count(*) dias_registro,  count(*) jornadas_registro,
       count(*) filter (where sal=1 and lle=1) dias_cerrados,
+      count(*) filter (where sal=1 and lle=1) jornadas_cerradas,
       count(*) filter (where sal=1 and lle=0) dias_sin_cerrar,
+      count(*) filter (where sal=1 and lle=0) jornadas_sin_cerrar,
       sum(obs) dias_con_obs
-    from dia group by 1
+    from juzgable group by 1
   ),
   -- Días que fichó y NO dejó checklist: ése es el día que de verdad falta.
   hueco as (
@@ -214,6 +262,13 @@ begin
       coalesce(k.dias_registro,0) dias_registro,
       coalesce(k.dias_cerrados,0) dias_cerrados,
       coalesce(k.dias_sin_cerrar,0) dias_sin_cerrar,
+      -- ⛔ LOS MISMOS NÚMEROS CON LA ETIQUETA QUE NO MIENTE. Los `dias_*` cuentan
+      --    JORNADAS desde el 17/11 y se conservan sólo porque la pantalla
+      --    desplegada los lee por ese nombre. Un campo calculado y no expuesto no
+      --    sirve a nadie: salía `null` y nadie se iba a enterar.
+      coalesce(k.jornadas_registro,0) jornadas_registro,
+      coalesce(k.jornadas_cerradas,0) jornadas_cerradas,
+      coalesce(k.jornadas_sin_cerrar,0) jornadas_sin_cerrar,
       coalesce(k.dias_con_obs,0) dias_con_obs,
       coalesce(f.dias,0) dias_ficho,
       coalesce(h.n,0) ficho_sin_checklist,

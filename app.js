@@ -5761,21 +5761,45 @@ function _lleCausas(D, imp){
   if(!n && !T.length) return '';
   var dim=imp?'#555':'var(--text3)';
   var rojo=imp?'#b91c1c':'var(--red)';
-  var out='<h3 style="margin-top:18px">Por qué no se cerró cada día</h3>';
+  // El `id` existe para poder FOTOGRAFIAR esta sección sola en la prueba de
+  // navegador: el informe entero no entra en una captura (scrollea dentro de su
+  // contenedor, así que `fullPage` devuelve el viewport y nada más), y una
+  // sección que no entra en la foto es una sección que nadie revisó.
+  // [[norma-una-pantalla-se-revisa-en-una-pantalla]]
+  var out=(imp?'':'<div id="lle-causas">')+
+    '<h3 style="margin-top:18px">Por qué no se cerró cada día</h3>';
 
   if(n){
-    // ⛔ LA JORNADA EN CURSO SE DESCUENTA DEL TITULAR, no solo se etiqueta: si no,
-    //    el número grande cuenta como falla a tres choferes que están manejando.
+    // ⛔ EL DESCUENTO NO SE CALCULA ACÁ: SE LEE DE `juzgables`.
+    //    Esta pantalla hacía `n - jornada_en_curso` a mano y daba 15 donde la base
+    //    dice 13 — porque el informe tampoco le cuenta al chofer las jornadas que
+    //    el SISTEMA trancó, y esa mitad de la regla vivía solo en el SQL. Lo cazó
+    //    la prueba de navegador. Una resta propia al lado de una regla ajena es
+    //    una segunda lista a mano, y ya sabemos cómo termina.
+    //    [[norma-dos-listas-a-mano-se-desincronizan]]
     var enCurso=Number(R.jornada_en_curso||0);
-    var falla=n-enCurso;
+    var bloq=Number(R.bloqueo_del_sistema||0);
+    var juzg=(R.juzgables==null?(n-enCurso-bloq):Number(R.juzgables));
+    var descuento=n-juzg;
+    // ⛔ EL DESGLOSE TIENE QUE SUMAR LO QUE DICE EL TITULAR. La primera versión
+    //    decía «Quedan 13 para juzgar:» y enseguida listaba 11 + 2 + 1 + 1 = 15,
+    //    porque metía en la lista los bloqueos que acababa de descontar. Lo cazó
+    //    la CAPTURA, no una aserción: leído de corrido, un número seguido de una
+    //    lista que no le suma destruye la confianza en todo el informe.
+    //    ⇒ Dos frases: lo que se descuenta y por qué, y después SOLO lo juzgable.
+    //    [[norma-la-etiqueta-sobre-el-numero-equivocado-inventa-un-dato]]
+    var motivos=[];
+    if(enCurso) motivos.push('<b>'+_lleNum(enCurso)+'</b> todavía no terminaron');
+    if(bloq)    motivos.push('<b style="color:'+rojo+'">'+_lleNum(bloq)+'</b> las trancó el sistema');
     out+='<div style="font-size:11px;color:'+dim+';margin-bottom:6px">'+
-      (enCurso
-        ? 'De los <b>'+_lleNum(n)+'</b> días abiertos, <b>'+_lleNum(enCurso)+'</b> son jornadas que '+
-          'todavía no terminaron (el chofer está en la calle). Quedan <b>'+_lleNum(falla)+'</b> para juzgar: '
-        : 'De los <b>'+_lleNum(n)+'</b> días que un chofer abrió y no cerró: ')+
+      (descuento>0
+        ? 'De las <b>'+_lleNum(n)+'</b> jornadas que quedaron abiertas, '+motivos.join(' y ')+
+          ': esas <b>'+_lleNum(descuento)+'</b> no se le cuentan a nadie. '+
+          'De las <b>'+_lleNum(juzg)+'</b> que quedan para juzgar: '
+        : 'De las <b>'+_lleNum(n)+'</b> jornadas que un chofer abrió y no cerró: ')+
       '<b>'+_lleNum(R.del_chofer_probado)+'</b> con prueba de que no fue el sistema, '+
-      '<b style="color:'+rojo+'">'+_lleNum(R.bloqueo_del_sistema)+'</b> bloqueo del sistema, '+
-      '<b>'+_lleNum(R.la_cola_lo_retuvo)+'</b> que la cola del teléfono retuvo, y '+
+      (descuento>0?'':'<b style="color:'+rojo+'">'+_lleNum(bloq)+'</b> bloqueo del sistema, ')+
+      '<b>'+_lleNum(R.la_cola_lo_retuvo)+'</b> que la cola del teléfono retuvo y '+
       '<b>'+_lleNum(R.no_decidible)+'</b> que con los datos de hoy no se pueden decidir.'+
       '</div>';
     out+='<table><thead><tr><th>Fecha</th><th>Unidad</th><th>Chofer</th><th>Causa</th>'+
@@ -5819,7 +5843,7 @@ function _lleCausas(D, imp){
           '<td style="font-size:11px;color:'+dim+'">'+_lleEsc(t.que_dice)+'</td></tr>';
       }).join('')+'</tbody></table>';
   }
-  return out;
+  return out+(imp?'':'</div>');
 }
 
 // ── LOS CARGOS A CONFIRMAR, y los checklists que no se le contaron a nadie ──

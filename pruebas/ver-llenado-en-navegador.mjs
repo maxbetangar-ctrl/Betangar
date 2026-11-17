@@ -11,12 +11,17 @@
 //    función devuelve de verdad. El navegador es real y el `app.js` es el mismo
 //    que se despliega. [[verificar-pantalla-en-navegador-sin-sesion]]
 //
-// ⛔ LOS TRES ESTADOS EN LA MISMA CORRIDA, y el que más importa es el que no
-//    tiene datos: una sección condicional sin datos parece que no existe.
-//      1. con datos        → tiene que dibujar las 66 personas
-//      2. sin permiso (42501) → tiene que decir «tu rol no los puede ver»,
+// ⛔ LOS ESTADOS EN LA MISMA CORRIDA, y el que más importa es el que no tiene
+//    datos: una sección condicional sin datos parece que no existe.
+//      1.  con datos        → tiene que dibujar las 66 personas Y las 5 causas
+//      1b. sin ningún bloqueo anotado → tiene que DECIR que todavía no se anotó
+//                               ninguno, en vez de dejar un «0» que se lee como
+//                               «el sistema nunca falló»
+//      2.  sin permiso (42501) → tiene que decir «tu rol no los puede ver»,
 //                               NUNCA una tabla vacía
-//      3. período anterior al 12/09 → tiene que mostrar el aviso del piso
+//      3.  período anterior al 12/09 → tiene que mostrar el aviso del piso
+//      3b. el papel         → las causas también salen impresas
+//      4.  sin días medibles → lo dice con palabras
 //
 // ⚠️ LO QUE ESTO NO PRUEBA: no prueba el RLS, ni los permisos del servidor, ni
 //    que la función SQL esté bien. Prueba lo que la pantalla DIBUJA con una
@@ -128,6 +133,37 @@ async function montar (respuesta) {
 
 const txt = (pg) => pg.$eval('#lle-body', e => e.innerText)
 
+// ⛔ `fullPage: true` ACÁ NO CAPTURA LA PÁGINA: devuelve el viewport y nada más.
+//    El informe scrollea DENTRO de su contenedor, así que el documento mide 1000
+//    px y la captura sale de 1480x1000 siempre. Durante un tiempo todas las
+//    imágenes de esta prueba mostraron sólo la primera pantalla — y lo que se
+//    agregó abajo (la sección de causas) no se vio NUNCA. Se delató porque dos
+//    estados distintos dieron dos PNG **idénticos byte por byte** mientras las
+//    aserciones de los dos salían en verde.
+//    ⇒ Se estira el viewport a la altura real del contenido antes de la foto.
+//    [[norma-una-pantalla-se-revisa-en-una-pantalla]]
+async function foto (pg, ctx, destino) {
+  const alto = await pg.evaluate(() => {
+    const b = document.getElementById('lle-body')
+    return Math.min(14000, Math.max(1000, (b ? b.scrollHeight : 0) + 220))
+  })
+  await pg.setViewportSize({ width: 1480, height: alto })
+  await pg.waitForTimeout(250)
+  await pg.screenshot({ path: destino, fullPage: true })
+  await pg.setViewportSize({ width: 1480, height: 1000 })
+}
+
+// Y la sección que se está revisando, SOLA: una foto de 14.000 px de alto no se
+// mira, y entonces vuelve a no revisarse nada.
+async function fotoSeccion (pg, sel, destino) {
+  const el = await pg.$(sel)
+  if (!el) return false
+  await el.scrollIntoViewIfNeeded()
+  await pg.waitForTimeout(150)
+  await el.screenshot({ path: destino })
+  return true
+}
+
 try {
   // ── 1. CON DATOS ───────────────────────────────────────────────────────────
   console.log('\n1. Con datos (12/09 → 07/11)')
@@ -174,7 +210,85 @@ try {
     //    existe y nadie lo ve — que es igual a no tenerlo.
     ok(/Para confirmar con la empresa/.test(t), 'muestra los cargos a confirmar')
     ok(/se los midió como/i.test(t), 'dice CÓMO se los está midiendo mientras tanto')
-    await pg.screenshot({ path: path.join(SALIDA, 'llenado-1-con-datos.png'), fullPage: true })
+
+    // ── LA CAUSA DE CADA JORNADA SIN CERRAR ──────────────────────────────────
+    // ⛔ SE COMPRUEBAN LAS CINCO CAUSAS UNA POR UNA. Con una sola aserción de que
+    //    «la sección existe», cuatro de las cinco ramas podrían no dibujarse
+    //    nunca y la prueba seguiría verde. El fixture trae una de cada.
+    ok(/Por qué no se cerró cada día/.test(t), 'dibuja la sección de causas')
+    for (const c of ['bloqueo del sistema', 'la jornada todavia no termina',
+      'la cola lo retuvo', 'del chofer, probado', 'no decidible']) {
+      ok(t.includes(c), `dibuja la causa «${c}»`)
+    }
+    ok(/el kilometraje no puede ir para atras/.test(t),
+      'la prueba del bloqueo trae lo que decía la pantalla del chofer')
+    ok(/desde el mismo telefono/.test(t), 'la prueba del chofer dice CON QUÉ se lo refuta')
+    // ⛔ LO QUE MÁS IMPORTA DEL TITULAR: que DESCUENTE lo que no es del chofer. Si
+    //    lo cuenta como falla, el número grande señala a gente que está
+    //    manejando — que es justo el error que esta sección vino a arreglar.
+    // ⛔ EL NÚMERO EXACTO, Y ES EL DE LA BASE (`juzgables`), no una resta de la
+    //    pantalla. Así escrito cazó que `app.js` restaba solo las jornadas en
+    //    curso y decía 15 donde van 13: el informe tampoco le cuenta al chofer
+    //    las que trancó el sistema. Una aserción de «hay un número» no lo habría
+    //    visto. [[norma-test-que-pasa-por-el-motivo-equivocado]]
+    const titular = t.replace(/\s+/g, ' ')
+    ok(/De las 13 que quedan para juzgar/.test(titular),
+      'el titular dice cuántas quedan para juzgar, con el número de la base (13 de 18)')
+    ok(/esas 5 no se le cuentan a nadie/.test(titular),
+      'dice cuántas no se le cuentan a nadie (3 en curso + 2 que trancó el sistema)')
+    ok(/todavía no terminaron/.test(titular) && /las trancó el sistema/.test(titular),
+      'y dice POR QUÉ no se le cuentan, los dos motivos')
+    // ⛔ EL CONTROL QUE FALTABA: que el desglose SUME lo que el titular anuncia.
+    //    La primera versión decía «Quedan 13» y listaba 11+2+1+1 = 15 —metía los
+    //    bloqueos que acababa de descontar— y todas las aserciones estaban en
+    //    verde. Lo vio la captura. Un número seguido de una lista que no le suma
+    //    tira abajo la confianza en el informe entero.
+    const desglose = (titular.match(/De las 13 que quedan para juzgar:(.+?)\./) || [, ''])[1]
+    const suma = (desglose.match(/\d+/g) || []).reduce((a, x) => a + Number(x), 0)
+    ok(suma === 13, `el desglose suma exactamente lo que anuncia el titular (${suma} de 13)`)
+    // El tipeo es la tercera pata de la pregunta de Máximo y va en su propio bloque.
+    ok(/Días cerrados con el dato mal cargado/.test(t), 'dibuja el bloque de tipeo')
+    ok(/que es ANTES/.test(t), 'el tipeo dice qué tiene de malo el registro')
+    ok(/El turno nocturno no entra/.test(t),
+      'avisa que el nocturno no cuenta como tipeo (cruza la medianoche)')
+    // ⛔ CON DATOS, LA LÍNEA TIENE QUE DECIR LA FECHA, no el texto del vacío. Las
+    //    dos capturas salieron IDÉNTICAS byte por byte la primera vez, y ninguna
+    //    aserción lo vio: las dos ramas del condicional caían en la misma.
+    ok(/Los bloqueos del sistema se anotan desde el 16\/11\/2026/.test(t),
+      'con datos, dice DESDE CUÁNDO se anotan los bloqueos')
+    if (process.env.LLENADO_DEPURAR) {
+      console.log('   [1] linea del bloqueo:',
+        (t.match(/(Los bloqueos del sistema se anotan[^\n]*|Todavía no se ha anotado[^\n]*)/) || ['(ninguna)'])[0].slice(0, 110))
+    }
+    await foto(pg, ctx, path.join(SALIDA, 'llenado-1-con-datos.png'))
+    ok(await fotoSeccion(pg, '#lle-causas', path.join(SALIDA, 'llenado-1c-causas.png')),
+      'la seccion de causas se puede fotografiar sola (existe #lle-causas)')
+    await ctx.close()
+  }
+
+  // ── 1b. SIN NINGÚN BLOQUEO ANOTADO TODAVÍA ─────────────────────────────────
+  // ⛔ ES LA RAMA QUE NADIE VERÍA. Cuando `chofer_bloqueos` está vacía, «0
+  //    bloqueos del sistema» se lee como «el sistema nunca falló», y lo que pasa
+  //    es que nadie lo estaba anotando. La pantalla TIENE que decirlo con
+  //    palabras. [[norma-falta-de-dato-no-es-un-dato]]
+  console.log('\n1b. Sin ningún bloqueo anotado (la tabla recién nace)')
+  {
+    const sinBloq = JSON.parse(JSON.stringify(datos))
+    sinBloq.causas.bloqueos_se_anotan_desde = null
+    sinBloq.causas.resumen.bloqueo_del_sistema = 0
+    sinBloq.causas.dias = sinBloq.causas.dias.filter(d => d.causa !== 'bloqueo del sistema')
+    const { ctx, pg } = await montar({ body: sinBloq })
+    const t = await txt(pg)
+    ok(/Todavía no se ha anotado ningún bloqueo/.test(t),
+      'dice que todavía no se anotó ninguno, en vez de dejar un 0 mudo')
+    ok(/no significa que no los hubo/.test(t), 'aclara que el cero NO prueba que no los hubo')
+    ok(!/bloqueo del sistema/.test(t) || /Todavía no se ha anotado/.test(t),
+      'no muestra una causa que no tiene filas')
+    if (process.env.LLENADO_DEPURAR) {
+      console.log('   [1b] linea del bloqueo:',
+        (t.match(/(Los bloqueos del sistema se anotan[^\n]*|Todavía no se ha anotado[^\n]*)/) || ['(ninguna)'])[0].slice(0, 110))
+    }
+    await fotoSeccion(pg, '#lle-causas', path.join(SALIDA, 'llenado-1b-sin-bloqueos.png'))
     await ctx.close()
   }
 
@@ -187,7 +301,7 @@ try {
     ok(/no está disponible para tu usuario/i.test(t), 'dice que no tiene permiso')
     ok(/no es que no haya registros/i.test(t), 'aclara que NO es que no haya datos')
     ok(!/<table/i.test(await pg.$eval('#lle-body', e => e.innerHTML)), 'no dibuja ninguna tabla vacía')
-    await pg.screenshot({ path: path.join(SALIDA, 'llenado-2-sin-permiso.png'), fullPage: true })
+    await foto(pg, ctx, path.join(SALIDA, 'llenado-2-sin-permiso.png'))
     await ctx.close()
   }
 
@@ -200,7 +314,7 @@ try {
     const t = await txt(pg)
     ok(/11\/09\/2026/.test(t), 'muestra el aviso del piso del 12/09')
     ok(/lista fija/.test(t), 'explica por qué, no solo que no se puede')
-    await pg.screenshot({ path: path.join(SALIDA, 'llenado-3-aviso.png'), fullPage: true })
+    await foto(pg, ctx, path.join(SALIDA, 'llenado-3-aviso.png'))
     await ctx.close()
   }
 
@@ -231,6 +345,7 @@ try {
     //    («8. Cómo se midió») se pone roja sin que nada esté mal. Mismo vicio
     //    que la columna por índice fijo.
     for (const s of ['Lo que hay que atender', 'El detalle, área por área',
+      'Por qué no se cerró cada día',
       'Para confirmar con la empresa', 'Cómo se midió']) {
       ok(new RegExp('\\d+\\.\\s*' + s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).test(papel),
         `el papel trae la sección «${s}», numerada`)
@@ -263,6 +378,14 @@ try {
       })
       ok(!!marca && marca.nom.trim().length > 2 && /RIF/i.test(marca.rif),
         `el papel sale con la cabecera de la empresa (${marca ? marca.nom.trim().slice(0, 28) : 'sin cabecera'})`)
+      // ⛔ LA CAUSA TIENE QUE SALIR EN EL PAPEL, no solo en la pantalla: el papel
+      //    es el que se lleva a la reunión, y es ahí donde se dice «el sistema no
+      //    me dejó». Tenerla y no llevarla sería el error completo.
+      ok(/bloqueo del sistema/.test(leido) && /del chofer, probado/.test(leido),
+        'el papel trae las causas, no solo la pantalla')
+      ok(/la jornada todavia no termina/.test(leido),
+        'el papel distingue la jornada en curso (no acusa a quien está manejando)')
+      ok(/que es ANTES/.test(leido), 'el papel trae el bloque de tipeo')
       await hoja.screenshot({ path: path.join(SALIDA, 'llenado-4-papel.png'), fullPage: false })
       await hoja.close()
     }
