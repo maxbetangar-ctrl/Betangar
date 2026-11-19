@@ -5590,9 +5590,12 @@ function _infHtml(D,desde,hasta,paraImprimir){
       '<div style="font-size:13px;color:var(--text2)">No se pudo calcular. El resto del informe sigue siendo válido.</div>');
   }
 
+  var totCobrado = Number(r.cobrado_usd||0) + Number(r.otras_entradas_usd||0);
+  var subCobrado = r.otras_entradas_usd ? 'Alcaldía '+_infUsd(r.cobrado_usd)+' + otros '+_infUsd(r.otras_entradas_usd) : 'del banco — lo que entró de verdad';
+
   html+=card('1 · El resultado del período',
     '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">'+
-      kpi('Cobrado',_infUsd(r.cobrado_usd),'del banco — lo que entró de verdad','#16a34a')+
+      kpi('Cobrado',_infUsd(totCobrado),subCobrado,'#16a34a')+
       kpi('Gasto real',_infUsd(r.gasto_usd),'todo lo que salió','#dc2626')+
       kpi('Pérdida cambiaria',_infUsd(r.cambiario_usd),'bolívares + sobreprecio','#d97706')+
       kpi('UTILIDAD',_infUsd(util),'margen '+(r.margen_pct||0)+'%',util>=0?'#15803d':'#dc2626')+
@@ -5736,8 +5739,42 @@ function _infHtml(D,desde,hasta,paraImprimir){
   }
 
   // ── 7. LA POSICIÓN ─────────────────────────────────────────────────────────────────────────
+  // ⛔ ENLACE DINÁMICO. No se muestra una foto vieja que contradiga la página 1:
+  //    los viajes por cobrar se enlazan al cálculo vivo de D.est, las cuotas vencidas
+  //    a la amortización de D.ton.fin, y las divisas al estado vivo del fondo.
+  var posViva=(D.pos||[]).map(function(orig){
+    var x=Object.assign({},orig);
+    if(x.clave==='viajes_sin_facturar'&&D.est&&D.est.por_facturar_usd!=null){
+      x.monto_usd=D.est.por_facturar_usd;
+      x.vigente_al=hasta;
+      x.titulo='Viajes EJECUTADOS y todavía no facturados ('+(D.est.viajes_sin_facturar||0)+' viajes)';
+      x.nota='Cálculo dinámico en base a planillas operativas menos facturas emitidas al '+formatFecha(hasta)+'.';
+    }
+    if(x.clave==='deuda_vencida'&&D.ton&&D.ton.fin&&D.ton.fin.sinPagar!=null){
+      x.monto_usd=D.ton.fin.sinPagar;
+      x.vigente_al=hasta;
+      x.nota='Cuotas vencidas según tabla de amortización al '+formatFecha(hasta)+'.';
+    }
+    if(D.dolares&&D.dolares.length){
+      var dComp=D.dolares.find(function(d){return d.orden===4;});
+      var dDeuda=D.dolares.find(function(d){return d.orden===5;});
+      var dFondo=D.dolares.find(function(d){return d.orden===6;});
+      if(x.clave==='divisas_compradas'&&dComp){x.monto_usd=dComp.usd;x.vigente_al=hasta;}
+      if(x.clave==='divisas_a_deuda'&&dDeuda){x.monto_usd=Math.abs(dDeuda.usd);x.vigente_al=hasta;}
+      if(x.clave==='fondo_divisas'&&dFondo){x.monto_usd=dFondo.usd;x.vigente_al=hasta;}
+    }
+    return x;
+  }).filter(function(x){
+    // Omitir fiel cumplimiento de la 638 si ya no está en facturas con saldo
+    if(x.clave==='fiel_638'){
+      var f638=(D.fact||[]).find(function(f){return String(f.factura).includes('638')&&!f.fiel_cobrado;});
+      return !!f638;
+    }
+    return true;
+  });
+
   var grupo=function(g,t){
-    var f=(D.pos||[]).filter(function(x){return x.grupo===g;});
+    var f=posViva.filter(function(x){return x.grupo===g;});
     if(!f.length)return '';
     return '<div style="margin-bottom:10px"><div style="font-size:11px;font-weight:800;color:var(--text2);margin-bottom:4px">'+t+'</div>'+
       tabla('<th>Concepto</th><th style="text-align:right">US$</th><th>Al</th>',
@@ -5777,8 +5814,10 @@ async function imprimirInforme(){
   // llevaba logo. [[norma-bitacora-nombrar-la-pieza-que-ya-existe]] · [[norma-tambien-se-vende-por-los-ojos]]
   var R=(INF_DATA&&INF_DATA.res)||{}, E=(INF_DATA&&INF_DATA.est)||{};
   var _u=function(n){ return '$'+Number(n||0).toLocaleString('es-VE',{maximumFractionDigits:0}); };
+  var totCobrado = Number(R.cobrado_usd||0) + Number(R.otras_entradas_usd||0);
+  var subCobrado = R.otras_entradas_usd ? 'Alcaldía '+_u(R.cobrado_usd)+' + otros' : 'del banco';
   var stats=
-    mkStat('Cobrado',_u(R.cobrado_usd),'del banco','azul')+
+    mkStat('Cobrado',_u(totCobrado),subCobrado,'azul')+
     mkStat('Gasto real',_u(R.gasto_usd),'','rojo')+
     mkStat('Pérdida cambiaria',_u(R.cambiario_usd),'ya ocurrida','rojo')+
     mkStat('Utilidad real',_u(R.utilidad_usd),'margen '+(R.margen_pct||0)+'%','verde')+
