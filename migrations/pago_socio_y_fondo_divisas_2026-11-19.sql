@@ -20,7 +20,8 @@
 -- 4. Sincronización continua de compras de divisas y abonos a deuda a btg_fondo_divisas.
 -- ============================================================================
 
--- 1. Reclasificación histórica y de noviembre
+-- 1b. Eliminar apertura obsoleta de 6000 para cuadrar con los $75.845 reales del fondo
+delete from btg_fondo_divisas where tipo = 'apertura';
 update bnc_movimientos
    set categoria = 'pago_socio',
        es_gasto = true,
