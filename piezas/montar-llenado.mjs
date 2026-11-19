@@ -49,7 +49,11 @@ const sello = () => new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '')
 // justo lo que esta pieza existe para evitar.
 if (js.includes('function renderLlenado')) {
   const ini = js.indexOf('// LLENADO DE LA APP POR EMPLEADO')
-  const marcaIni = js.lastIndexOf('// ═', ini) >= 0 ? js.lastIndexOf('// ═', ini) : ini
+  // ⛔ NO SE BUSCA HACIA ATRÁS. `lastIndexOf('// ═', ini)` buscaba el borde de lo que estuviera
+  //    arriba: en Betangar eso era la cabecera del INFORME FINANCIERO y se comió 415 líneas del
+  //    motor de los socios (renderInforme, imprimirInforme). El módulo arranca en `ini`.
+  const marcaIni = ini
+  const teniaInforme = js.includes('function renderInforme')
   const fin = js.indexOf('function _lleTile(lbl,val,col){', ini)
   let cierre = -1
   if (fin >= 0) {
@@ -84,6 +88,9 @@ if (js.includes('function renderLlenado')) {
     console.error(`${nombre}: ⛔ quedó DUPLICADO`); process.exit(1)
   }
   if (falta.length) { console.error(`${nombre}: ⛔ tras actualizar falta ${falta.join(', ')}`); process.exit(1) }
+  if (teniaInforme && !v.includes('function renderInforme')) {
+    console.error(`${nombre}: ⛔ tras actualizar falta renderInforme (se recortó de más). No se toca.`); process.exit(1)
+  }
   console.log(`${nombre}: módulo ACTUALIZADO (${modulo.length} car.) · ?v=${sello2}`)
   process.exit(0)
 }

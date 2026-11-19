@@ -478,6 +478,7 @@ body{background:#0f1923;color:#fff;font-family:-apple-system,BlinkMacSystemFont,
               <label class="cl-label" id="cl-cm-salida-lbl">CM al SALIR del galpón</label>
               <input class="cl-input" type="number" step="0.1" min="0" max="52.5" autocomplete="off" id="cl-cm-salida" placeholder="0" oninput="clCalcLitrosCm('salida')">
               <div id="cl-cm-salida-l" style="font-size:12px;color:#7dc941;margin-top:3px"></div>
+              <div id="cl-relevo-aviso" style="margin-top:6px;font-size:12px;line-height:1.4"></div>
             </div>
             <div class="cl-field" id="cl-cm-llegada-cont" style="display:none">
               <label class="cl-label" id="cl-cm-llegada-lbl">CM al REGRESAR al galpón</label>
@@ -3570,6 +3571,15 @@ function cargarChecklistSupabase(){
       if(_kmRef > 0){ CL_KM_PREV = _kmRef; CL_KM_PREV_OK = true; }
     });
   }catch(e){}
+  // Última entrega registrada de la unidad (para el Acta de Relevo Asistida).
+  try{
+    supabase.rpc('chofer_ultima_medicion', {p_cam: cam}).then(function(ru){
+      if(ru && !ru.error && ru.data){
+        CL_ULTIMA_MEDICION = ru.data;
+        try{ clPintarRelevo(); }catch(e){}
+      }
+    });
+  }catch(e){}
   supabase.rpc('chofer_checklist_dia', {p_cam: cam, p_fecha: hoy, p_turno: CL_TURNO})
   .then(function(res){
     if(res.error || !res.data || !res.data.length){
@@ -3689,6 +3699,7 @@ function renderChecklistModo(){
   // no, el chofer vuelve a guardar lo mismo y la auditoría se lo reclama al día siguiente. Corregir
   // sigue siendo posible, pero es un acto deliberado (y ahora pisa la fila, no crea otra).
   if(CL_MODO === 'cerrado'){
+    var _bRev0 = document.getElementById('cl-relevo-aviso'); if(_bRev0){ _bRev0.style.display = 'none'; }
     if(badge)  { badge.textContent='✅ REGISTRADO'; badge.className='cl-modo-badge badge-llegada'; }
     if(banner) { banner.style.display='block'; banner.style.background='rgba(125,201,65,.10)'; banner.style.borderColor='rgba(125,201,65,.35)'; banner.style.color='#7dc941';
                  // ⛔ ACÁ TERMINABA TODO. Con dos turnos, «día cerrado» ya no es el final: es el
@@ -3711,6 +3722,7 @@ function renderChecklistModo(){
   }
 
   if(CL_MODO === 'llegada'){
+    var _bRev = document.getElementById('cl-relevo-aviso'); if(_bRev){ _bRev.style.display = 'none'; }
     if(badge)  { badge.textContent='🌙 LLEGADA'; badge.className='cl-modo-badge badge-llegada'; }
     if(banner) { banner.style.display='block'; banner.style.background=''; banner.style.borderColor=''; banner.style.color='';
                  banner.innerHTML='🌙 <b>Modo Llegada</b> — El checklist de esta mañana ya está registrado. Complete los datos de llegada.'; }
@@ -3765,6 +3777,7 @@ function renderChecklistModo(){
     var horaSal2 = document.getElementById('cl-hora-salida');
     if(horaSal2){ horaSal2.disabled=false; horaSal2.style.opacity=''; }
     if(btnG)   { btnG.textContent='☀️ Guardar Salida'; btnG.disabled=false; }
+    try{ clPintarRelevo(); }catch(e){}
   }
 
   // Renderizar estado items
@@ -4193,9 +4206,61 @@ function clPintarRangoCm(){
     l.textContent = base + (top!=null ? (' (0-'+String(top).replace('.',',')+')') : '');
   });
 }
+var CL_ULTIMA_MEDICION = null;
+var CL_RELEVO_CONFIRMADO = false;
+var CL_LLEGADA_MAYOR_CONFIRMADA = false;
+
+function clPintarRelevo(){
+  var box = document.getElementById('cl-relevo-aviso');
+  if(!box) return;
+  if(CL_MODO !== 'salida' || !CL_ULTIMA_MEDICION || CL_ULTIMA_MEDICION.altura_cm == null){
+    box.innerHTML = '';
+    box.style.display = 'none';
+    return;
+  }
+  box.style.display = 'block';
+  var valStr = gv('cl-cm-salida');
+  var prevCm = parseFloat(CL_ULTIMA_MEDICION.altura_cm);
+  var prevLit = CL_ULTIMA_MEDICION.litros_calculados != null ? parseFloat(CL_ULTIMA_MEDICION.litros_calculados) : (clLitrosJac(prevCm) || Math.round(prevCm * 9));
+  var prevFecha = CL_ULTIMA_MEDICION.fecha ? (CL_ULTIMA_MEDICION.fecha.slice(8,10) + '/' + CL_ULTIMA_MEDICION.fecha.slice(5,7)) : '';
+  var prevQuien = CL_ULTIMA_MEDICION.registrado_por ? String(CL_ULTIMA_MEDICION.registrado_por).split(',')[0].split(' ')[0] : '';
+
+  if(!valStr || isNaN(parseFloat(valStr)) || parseFloat(valStr) <= 0){
+    box.innerHTML = '<div style="background:rgba(255,255,255,.05);border:1px dashed rgba(255,255,255,.2);padding:7px 10px;border-radius:8px;color:#cbd5e1">' +
+      '📦 <strong>Última entrega registrada:</strong> ' + prevCm.toFixed(1).replace('.0','') + ' cm' +
+      (prevLit ? ' (≈ ' + Math.round(prevLit) + ' L)' : '') +
+      (prevQuien ? ' por ' + prevQuien : '') + (prevFecha ? ' el ' + prevFecha : '') + '.' +
+      '<div style="font-size:11px;opacity:.75;margin-top:2px">Pase la regla física y anote la medida con la que recibe la unidad.</div></div>';
+    return;
+  }
+
+  var cmSal = parseFloat(valStr);
+  var diffCm = Math.round((cmSal - prevCm) * 10) / 10;
+  var litSal = clLitrosJac(cmSal) || (cmSal * 9);
+  var diffLit = Math.round((litSal - prevLit) * 10) / 10;
+
+  if(Math.abs(diffCm) <= 1.5){
+    box.innerHTML = '<div style="background:rgba(125,201,65,.1);border:1px solid rgba(125,201,65,.35);padding:6px 10px;border-radius:8px;color:#86efac;font-weight:700">' +
+      '✅ Conforme con la entrega previa (' + prevCm.toFixed(1).replace('.0','') + ' cm).</div>';
+  } else if(diffCm < -1.5){
+    box.innerHTML = '<div style="background:rgba(239,159,39,.12);border:1px solid rgba(239,159,39,.45);color:#fbbf24;padding:8px 10px;border-radius:8px">' +
+      '⚠️ <strong>Discrepancia en patio / relevo:</strong><br>' +
+      'Se entregó con ' + prevCm.toFixed(1).replace('.0','') + ' cm y usted marca ' + cmSal.toFixed(1).replace('.0','') + ' cm ' +
+      '(<span style="color:#f87171;font-weight:800">' + diffCm.toFixed(1) + ' cm / ≈ ' + diffLit + ' L</span>).<br>' +
+      '<span style="font-size:11px;opacity:.9">Al guardar certificará su recepción con este faltante respecto a la entrega previa.</span></div>';
+  } else {
+    box.innerHTML = '<div style="background:rgba(59,130,246,.12);border:1px solid rgba(59,130,246,.45);color:#93c5fd;padding:8px 10px;border-radius:8px">' +
+      'ℹ️ <strong>Nivel mayor al entregado:</strong><br>' +
+      'Se entregó con ' + prevCm.toFixed(1).replace('.0','') + ' cm y usted marca ' + cmSal.toFixed(1).replace('.0','') + ' cm ' +
+      '(<span style="color:#60a5fa;font-weight:800">+' + diffCm.toFixed(1) + ' cm / ≈ +' + diffLit + ' L</span>).<br>' +
+      '<span style="font-size:11px;opacity:.9">Si se surtió combustible en patio antes de salir, verifique la medida.</span></div>';
+  }
+}
+
 function clCalcLitrosCm(momento){
   var v=gv('cl-cm-'+momento);
   var box=document.getElementById('cl-cm-'+momento+'-l');
+  if(momento==='salida'){ try{ clPintarRelevo(); }catch(e){} }
   if(!box)return;
   // El aviso sale MIENTRAS escribe, no al guardar: si se le fue la coma lo ve en el momento.
   // Y DICE DE QUÉ SE TRATA: pasarse por poco (el tope puede estar corto) no es lo mismo que
@@ -4224,12 +4289,18 @@ async function clGuardarMedicionCm(momento){
   // cola offline. Guardarlo en la cola sería peor: resucita días después sin nadie mirando.
   if(clAlturaImposible(cmV)!==false){ console.warn('medicion cm rechazada: '+cmV+' cm no entra en el tanque'); return; }
   var litros=clLitrosJac(cmV);
-  // El TURNO va en la fila: desde el 04/11 hay dos por dia y sin el, el
-  // segundo chofer PISABA la medicion del primero (06/11: la salida de 37 cm
-  // del B009 la borro la del nocturno y la auditoria mostro 0 litros).
-  // La base igual lo deduce del checklist por si este telefono sirve una
-  // version vieja en cache -- pero mandarlo es gratis y dice la intencion.
-  var row={fecha:hoy,tanque_id:((CL_TANQUE_UNIDAD&&CL_TANQUE_UNIDAD.tanque_id)||'tanque-jac'),vehiculo_id:cam,momento:momento,turno:CL_TURNO,altura_cm:cmV,litros_calculados:litros,registrado_por:(chofer||'chofer'),notas:'Medición chofer '+cam};
+  var notaMed = 'Medición chofer ' + cam;
+  if(momento === 'salida' && CL_ULTIMA_MEDICION && CL_ULTIMA_MEDICION.altura_cm != null){
+    var _pCm = parseFloat(CL_ULTIMA_MEDICION.altura_cm);
+    var _dCm = Math.round((cmV - _pCm) * 10) / 10;
+    if(Math.abs(_dCm) > 1.5){
+      var _lSal = litros != null ? litros : Math.round(cmV * 9);
+      var _lPrev = CL_ULTIMA_MEDICION.litros_calculados != null ? parseFloat(CL_ULTIMA_MEDICION.litros_calculados) : (clLitrosJac(_pCm) || Math.round(_pCm * 9));
+      var _dL = Math.round((_lSal - _lPrev) * 10) / 10;
+      notaMed += ' [Relevo: entrega ' + _pCm.toFixed(1).replace('.0','') + ' cm, recepción ' + cmV.toFixed(1).replace('.0','') + ' cm (' + (_dCm>0?'+':'') + _dCm.toFixed(1) + ' cm / ' + (_dL>0?'+':'') + _dL + ' L)]';
+    }
+  }
+  var row={fecha:hoy,tanque_id:((CL_TANQUE_UNIDAD&&CL_TANQUE_UNIDAD.tanque_id)||'tanque-jac'),vehiculo_id:cam,momento:momento,turno:CL_TURNO,altura_cm:cmV,litros_calculados:litros,registrado_por:(chofer||'chofer'),notas:notaMed};
   try{
     if(isOnline&&supabase){ var r=await supabase.rpc('chofer_medicion_guardar', {p: row}); if(r.error){ console.error('medicion cm error',r.error); throw r.error; } }
     else { localStorage.setItem('btg_medcm_'+cam+'_'+hoy+_tSuf()+'_'+momento, JSON.stringify(row)); }
@@ -4284,6 +4355,58 @@ async function _guardarChecklist(){
       ? ('Escribió '+_clN(_cls.cm)+' en CENTÍMETROS, y el tanque de '+cam+' tiene '+_clN(_cls.cap)+' litros.\n\n¿No marcó los LITROS en vez de los centímetros de la regla?\n\nSi la regla de verdad marca '+_clN(_cls.cm)+' cm, toque Aceptar.')
       : ('Según la configuración, la regla del tanque de '+cam+' llega hasta '+_clN(_cls.tope)+' cm, y usted marcó '+_clN(_cls.cm)+' cm.\n\n¿Seguro que esa es la medida de la regla?\n\nSi es correcta, toque Aceptar: se guarda su medida REAL y avisamos para que corrijan la configuración del tanque.');
     if(!window.confirm(_preg)){ _volverAlCm(); return; }
+  }
+
+  // ── ACTA DE RELEVO ASISTIDA: confirmación de discrepancia con la entrega anterior ──
+  if(CL_MODO === 'salida' && CL_ULTIMA_MEDICION && CL_ULTIMA_MEDICION.altura_cm != null && !CL_RELEVO_CONFIRMADO){
+    var _prevCm = parseFloat(CL_ULTIMA_MEDICION.altura_cm);
+    var _diffCm = Math.round((_cmVal - _prevCm) * 10) / 10;
+    if(Math.abs(_diffCm) > 1.5){
+      var _lSal = clLitrosJac(_cmVal) || Math.round(_cmVal * 9);
+      var _lPrev = CL_ULTIMA_MEDICION.litros_calculados != null ? parseFloat(CL_ULTIMA_MEDICION.litros_calculados) : (clLitrosJac(_prevCm) || Math.round(_prevCm * 9));
+      var _diffLit = Math.round((_lSal - _lPrev) * 10) / 10;
+      var _msgRelevo = (_diffCm < 0)
+        ? ('⚠️ DISCREPANCIA EN RELEVO DE PATIO\n\n' +
+           'La unidad se entregó con ' + _prevCm.toFixed(1).replace('.0','') + ' cm (' + Math.round(_lPrev) + ' L).\n' +
+           'Usted está marcando ' + _cmVal.toFixed(1).replace('.0','') + ' cm (' + Math.round(_lSal) + ' L), con ' + _diffCm.toFixed(1) + ' cm (≈ ' + _diffLit + ' L de diferencia).\n\n' +
+           '¿Confirma que la regla física marca ' + _cmVal.toFixed(1).replace('.0','') + ' cm en este momento?\n\n' +
+           '• Aceptar: certifica su recepción con este faltante en patio.\n' +
+           '• Cancelar: volver a medir con la regla.')
+        : ('ℹ️ NIVEL MAYOR A LA ENTREGA PREVIA\n\n' +
+           'La unidad se entregó con ' + _prevCm.toFixed(1).replace('.0','') + ' cm (' + Math.round(_lPrev) + ' L).\n' +
+           'Usted está marcando ' + _cmVal.toFixed(1).replace('.0','') + ' cm (' + Math.round(_lSal) + ' L), con +' + _diffCm.toFixed(1) + ' cm (≈ +' + _diffLit + ' L).\n\n' +
+           '¿Confirma que la regla física marca ' + _cmVal.toFixed(1).replace('.0','') + ' cm?\n\n' +
+           '• Aceptar: continuar con esta medida.\n' +
+           '• Cancelar: volver a revisar la regla.');
+      if(!window.confirm(_msgRelevo)){
+        var _el = document.getElementById('cl-cm-salida');
+        if(_el){ try{ _el.focus(); _el.select(); _el.scrollIntoView({block:'center'}); }catch(err){} }
+        return;
+      }
+      CL_RELEVO_CONFIRMADO = true;
+    }
+  }
+
+  // ── LLEGADA MAYOR A SALIDA SIN CARGA REGISTRADA ──
+  if(CL_MODO === 'llegada' && !CL_LLEGADA_MAYOR_CONFIRMADA){
+    var _cmSalRef = parseFloat(gv('cl-cm-salida'));
+    if(!isNaN(_cmSalRef) && _cmVal > (_cmSalRef + 1.5)){
+      var _subioL = Math.round(((clLitrosJac(_cmVal)||(_cmVal*9)) - (clLitrosJac(_cmSalRef)||(_cmSalRef*9))) * 10) / 10;
+      var _cantSurtidas = (typeof SURTIDAS_HOY !== 'undefined' && Array.isArray(SURTIDAS_HOY)) ? SURTIDAS_HOY.length : 0;
+      if(_cantSurtidas === 0){
+        var _pregLle = 'ℹ️ ATENCIÓN: El tanque marca más que al salir\n\n' +
+          'Salió con ' + _cmSalRef.toFixed(1).replace('.0','') + ' cm y está marcando llegada con ' + _cmVal.toFixed(1).replace('.0','') + ' cm (+' + _subioL + ' L),\n' +
+          'pero no tiene surtidas de combustible registradas hoy en la aplicación.\n\n' +
+          '• Si surtió combustible: toque Aceptar para guardar y recuerde registrar la carga en la pestaña Surtidas.\n' +
+          '• Si NO surtió: toque Cancelar y verifique la medida de la regla en el tanque.';
+        if(!window.confirm(_pregLle)){
+          var _elLle = document.getElementById('cl-cm-llegada');
+          if(_elLle){ try{ _elLle.focus(); _elLle.select(); _elLle.scrollIntoView({block:'center'}); }catch(err){} }
+          return;
+        }
+        CL_LLEGADA_MAYOR_CONFIRMADA = true;
+      }
+    }
   }
 
   // ⛔ EL NIVEL DE COMBUSTIBLE AL LLEGAR ES OBLIGATORIO.

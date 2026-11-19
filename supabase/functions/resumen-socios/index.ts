@@ -413,6 +413,7 @@ async function armarPdf(r: any, ciclo: any, empresa: string, membrete: any): Pro
       method: "POST",
       headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}`, "Content-Type": "application/json" },
       body: JSON.stringify({ action: "resumen" }),
+      signal: AbortSignal.timeout(6000), // tope de 6s para no colgar la emisión del PDF
     });
     const js = await rs.json();
     const ves = (js?.cuentas ?? []).filter((c: any) => c.moneda === "VES" && c.saldoActual !== null && c.saldoActual !== undefined);
@@ -717,23 +718,25 @@ Deno.serve(async (req) => {
     // ── Con qué sale ─────────────────────────────────────────────────────────────────────────
     // ⛔ LAS HERRAMIENTAS SE COMPRUEBAN AL ARRANCAR, no cuando ya se usaron. Una pieza automática
     //    a la que le falta la credencial falla en silencio y se ve igual que «no había nada».
-    const cfgW = await sel("configuracion?clave=eq.wassenger&select=valor");
+    const [cfgW, cfgM, cfgE, cfgWA] = await Promise.all([
+      sel("configuracion?clave=eq.wassenger&select=valor"),
+      sel("configuracion?clave=eq.informe_membrete&select=valor"),
+      sel("configuracion?clave=eq.empresa&select=valor"),
+      sel("configuracion?clave=eq.whatsapp&select=valor"),
+    ]);
     let w: any = {};
     try { w = JSON.parse(cfgW[0]?.valor ?? "{}"); } catch { w = typeof cfgW[0]?.valor === "object" ? cfgW[0].valor : {}; }
     // El membrete: el logo, quién firma y con qué cargo. Vive en la CONFIGURACIÓN y no en el
     // código para que cambiar el logo o el firmante no exija desplegar — y para poder pegarle la
     // firma escaneada el día que exista, sin tocar nada. [[norma-arreglar-el-mecanismo-no-el-caso]]
-    const cfgM = await sel("configuracion?clave=eq.informe_membrete&select=valor");
     let membrete: any = {};
     try { membrete = JSON.parse(cfgM[0]?.valor ?? "{}"); }
     catch { membrete = typeof cfgM[0]?.valor === "object" ? cfgM[0].valor : {}; }
 
-    const cfgE = await sel("configuracion?clave=eq.empresa&select=valor");
     let emp: any = {};
     try { emp = JSON.parse(cfgE[0]?.valor ?? "{}"); } catch { emp = typeof cfgE[0]?.valor === "object" ? cfgE[0].valor : {}; }
     const empresa = (emp?.nombre || "Inversiones Betangar, C.A.").trim();
 
-    const cfgWA = await sel("configuracion?clave=eq.whatsapp&select=valor");
     let wa: any[] = [];
     try { wa = JSON.parse(cfgWA[0]?.valor || "[]"); } catch { wa = []; }
     const nums = Array.from(new Set((Array.isArray(wa) ? wa : [])
