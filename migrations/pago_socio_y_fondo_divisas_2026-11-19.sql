@@ -42,21 +42,19 @@ select m.fecha::date, 'compra',
  where m.categoria = 'compra_divisas' and m.tasa_real > 0
    and not exists (select 1 from btg_fondo_divisas f where f.mov_id = m.id);
 
--- 3. Aplicación a deuda de los pagos a Auto Unión para camiones
+-- 3. Aplicación a deuda de los camiones desde deuda_abonos ($163.002 pagados a Auto Unión)
 insert into btg_fondo_divisas (fecha, tipo, usd, bs, tasa, concepto, mov_id, registrado_por)
-select m.fecha::date, 'aplicacion_deuda',
-       -round((m.monto / m.tasa_real)::numeric, 2), null, null,
-       'Aplicado a deuda camiones — ' || left(regexp_replace(coalesce(m.concepto_banco, m.descripcion,''), '\s+', ' ', 'g'), 60),
-       null, 'Auto Unión DC'
-  from bnc_movimientos m
- where m.categoria = 'compra_divisas' and m.tasa_real > 0
-   and (m.descripcion ilike '%auto union%' or m.descripcion ilike '%pago camion%')
-   and m.fecha >= '2026-08-01'
+select a.fecha, 'aplicacion_deuda',
+       -a.monto, null, null,
+       'Aplicado a deuda camiones — ' || left(coalesce(a.nota, 'Abono deuda ' || a.id), 60),
+       null, 'deuda_abonos'
+  from deuda_abonos a
+ where a.deuda_id = 1
    and not exists (
      select 1 from btg_fondo_divisas f
       where f.tipo = 'aplicacion_deuda'
-        and f.fecha = m.fecha::date
-        and f.usd = -round((m.monto / m.tasa_real)::numeric, 2)
+        and f.fecha = a.fecha
+        and abs(f.usd) = a.monto
    );
 
 -- 4. Actualización de la función clasificadora con la prioridad blindada
