@@ -268,7 +268,7 @@ begin
 end;
 $function$;
 
--- 5. Función btg_donde_esta_utilidad desglosando lo pagado a camiones ($163.002) y los $63.500 en fondo
+-- 5. Función btg_donde_esta_utilidad desglosando lo pagado a camiones ($163.002) y fondo real ($75.845)
 CREATE OR REPLACE FUNCTION public.btg_donde_esta_utilidad(p_desde text, p_hasta text)
  RETURNS TABLE(orden integer, concepto text, usd numeric, nota text)
  LANGUAGE sql
@@ -291,9 +291,9 @@ AS $function$
          'Cuotas de capital e intereses amortizadas a la financiadora Auto Unión DC. Fuente: deuda_abonos.'::text as nota
   union all
   select 2,
-         'Dólares en fondo disponibles en banco (a tasa BCV)',
-         63500.00,
-         'Dólares comprados a tasa oficial BCV resguardados en la cuenta bancaria en moneda extranjera (no pagados a camiones).'
+         'Dólares en fondo (Banco BNC $64.500 + Jonás $11.345)',
+         75845.00,
+         'US$ 64.500 disponibles en el Banco BNC a tasa BCV + US$ 11.345 en la cuenta de Jonás.'
   union all
   select 3,
          'Sigue en bolívares, en las cuentas operativas',
@@ -301,18 +301,12 @@ AS $function$
          'Bs ' || to_char(round((select bs from sal)), 'FM999,999,999') || ' a la tasa de hoy. Saldo líquido disponible.'
   union all
   select 4,
-         'Se vendieron dólares para cubrir nómina',
-         2356.00,
-         'Dólares que volvieron a bolívares para pagar semanas de personal operativo.'
-  union all
-  select 5,
          'Diferencia por tasas y desfase cambiario',
          round((
            (select utilidad_usd from r)
            - 163002.00
-           - 63500.00
+           - 75845.00
            - ((select bs from sal) / nullif((select t from th),0))
-           - 2356.00
          )::numeric, 2),
          'Diferencial entre la fecha de cobro de facturas y la fecha de ejecución de pagos bancarios.'
   order by 1;
@@ -320,9 +314,10 @@ $function$;
 
 -- 6. Actualización de btg_posicion con los datos vivos y conciliados
 update btg_posicion
-   set monto_usd = 63500,
+   set monto_usd = 75845,
+       titulo = 'Dólares en FONDO: Banco BNC ($64.500) y Jonás ($11.345)',
+       nota = 'Total en fondo: US$ 64.500 disponibles en la cuenta bancaria en moneda extranjera del BNC + US$ 11.345 en la cuenta de Jonás. Declarado por Máximo.',
        vigente_al = current_date,
-       nota = 'Dólares comprados a tasa BCV disponibles en la cuenta bancaria en moneda extranjera (no pagados a camiones, permanecen en fondo). Declarado por Máximo.',
        updated_at = now()
  where clave = 'fondo_divisas';
 
