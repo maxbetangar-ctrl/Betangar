@@ -3633,7 +3633,8 @@ function clCorregirLlegada(){
   renderChecklistModo();
   try{
     // La RPC devuelve la altura SUELTA (numeric), no una fila: no hay `.data[0]`.
-    if(supabase) supabase.rpc('chofer_medicion', {p_cam: cam, p_fecha: hoy, p_momento: 'llegada'})
+    var _turLle = (typeof CL_TURNO !== 'undefined' && CL_TURNO) ? CL_TURNO : 'diurno';
+    if(supabase) supabase.rpc('chofer_medicion', {p_cam: cam, p_fecha: hoy, p_momento: 'llegada', p_turno: _turLle})
       .then(function(r){ if(r&&!r.error&&r.data!=null&&!gv('cl-cm-llegada')){ setVal('cl-cm-llegada', r.data); clCalcLitrosCm('llegada'); } });
   }catch(e){}
   mostrarToast('Corrija lo que haga falta y toque Guardar Llegada','warn');
@@ -3747,7 +3748,7 @@ function renderChecklistModo(){
     var cmSal = document.getElementById('cl-cm-salida');
     if(cmSal){ cmSal.readOnly=true; cmSal.style.opacity='.6'; }
     var cmSalLbl = document.getElementById('cl-cm-salida-lbl');
-    if(cmSalLbl){ cmSalLbl.textContent='CM al SALIR del galpón — ya registrado esta mañana'; }
+    if(cmSalLbl){ cmSalLbl.textContent='CM al SALIR del galpón — ya registrado ' + (CL_TURNO==='nocturno' ? 'al iniciar la noche' : 'esta mañana'); }
     // Prellenar hora llegada SOLO si está vacía: si se está corrigiendo una llegada ya registrada,
     // la hora real no puede quedar pisada por la hora en que se hizo la corrección.
     if(!gv('cl-hora-llegada')){
@@ -3932,7 +3933,8 @@ function clTraerMedicionSalida(){
   try{
     if(!supabase) return;
     if(gv('cl-cm-salida')) return;
-    supabase.rpc('chofer_medicion', {p_cam: cam, p_fecha: hoy, p_momento: 'salida'})
+    var _tur = (typeof CL_TURNO !== 'undefined' && CL_TURNO) ? CL_TURNO : 'diurno';
+    supabase.rpc('chofer_medicion', {p_cam: cam, p_fecha: hoy, p_momento: 'salida', p_turno: _tur})
       .then(function(r){
         // La RPC devuelve la altura SUELTA (numeric), no una fila: no hay `.data[0]`.
         if(r && !r.error && r.data != null && !gv('cl-cm-salida')){
