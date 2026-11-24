@@ -478,7 +478,7 @@ var USUARIOS={
 var PERMISOS={
   superadmin:['informe','relacion','dashboard','entregas','banco-bnc','conciliacion','checklist','mensajes-wa','planilla','historico','reporte','abonos','banco','usd','proveedores','financiero','nomina','asistencia','fichaje','combustible','control-combustible','aud-combustible','km','unidades','documentos','inventario','llantas','metas','empleados','prestamos','multas','stats','ranking','rentabilidad','contratos','multicontrato','usuarios','auditoria','salud','config','galeria','porteria','mecanico','operativo','cxp','cajachica','requisitorio','deudas'],
   admin:['relacion','dashboard','entregas','conciliacion','checklist','planilla','historico','reporte','abonos','banco','usd','proveedores','financiero','nomina','asistencia','fichaje','combustible','control-combustible','aud-combustible','km','unidades','documentos','inventario','llantas','metas','empleados','prestamos','multas','stats','ranking','rentabilidad','contratos','multicontrato','usuarios','auditoria','salud','config','galeria','porteria','mecanico','operativo','cxp','cajachica','requisitorio','deudas'],
-  operador:['relacion','dashboard','entregas','planilla','historico','reporte','abonos','banco','usd','proveedores','financiero','nomina','asistencia','fichaje','combustible','control-combustible','aud-combustible','km','unidades','documentos','inventario','llantas','metas','empleados','prestamos','multas','stats','ranking','rentabilidad','contratos','multicontrato','galeria','requisitorio'],
+  operador:['operativo','relacion','dashboard','entregas','planilla','historico','reporte','abonos','banco','usd','proveedores','financiero','nomina','asistencia','fichaje','combustible','control-combustible','aud-combustible','km','unidades','documentos','inventario','llantas','metas','empleados','prestamos','multas','stats','ranking','rentabilidad','contratos','multicontrato','galeria','requisitorio'],
   rrhh:['dashboard','mensajes-wa','planilla','historico','reporte','proveedores','nomina','asistencia','fichaje','combustible','km','unidades','documentos','inventario','llantas','metas','empleados','prestamos','multas','ranking','galeria','requisitorio'],
   visualizador:['informe','dashboard','entregas','reporte','abonos','banco','usd','financiero','stats','ranking','rentabilidad','contratos','galeria','deudas'],
   directivo:['informe','dashboard','entregas','historico','reporte','abonos','financiero','stats','ranking','rentabilidad','requisitorio','deudas'],
@@ -599,7 +599,7 @@ var NAV_LABELS={
   nomina:'Nomina',asistencia:'Asistencia',fichaje:'Fichaje / Sitios',combustible:'Combustible','control-combustible':'Control Combustible',km:'Km / Servicio',
   documentos:'Documentos',inventario:'Inventario',llantas:'Llantas',metas:'Metas',
   empleados:'Empleados',unidades:'Unidades y Equipos',prestamos:'Prestamos',multas:'Multas',stats:'Estadisticas',rentabilidad:'Rentabilidad x Camion',salud:'Salud de Datos',multicontrato:'Operación / Contratos',
-  porteria:'Porteria',mecanico:'Mecanico',checklist:'Check List',operativo:'Operativo',ranking:'Ranking',contratos:'Contratos',usuarios:'Usuarios',auditoria:'Auditoria',
+  porteria:'Porteria',mecanico:'Mecanico',checklist:'Check List',operativo:'Dashboard Operativo',ranking:'Ranking',contratos:'Contratos',usuarios:'Usuarios',auditoria:'Auditoria',
   recordatorios:'Recordatorios',config:'Configuracion',galeria:'Galeria','mensajes-wa':'Mensajes WA',cxp:'Cuentas x Pagar',deudas:'Deudas',cajachica:'Caja Chica',entregas:'Trazabilidad (Entregas, Mant., Puntos)',
   llenado:'Llenado de la app'
 };
@@ -7221,13 +7221,25 @@ async function cargarDatosMinimos(rol){
       }
     }
 
-    // Rutas estado hoy — operativo
+    // Rutas estado hoy y datos de operaciones — operativo
     if(rol==='operativo'){
       var hoy=fechaVE();
       var rutasRes=await supabase.from('rutas_estado').select('*').eq('fecha',hoy);
       if(rutasRes.data){
         rutasRes.data.forEach(function(r){RUTAS_HOY[r.parroquia]=r;});
       }
+      try{
+        var vjRes=await supabase.from('viajes_chofer').select('*').gte('fecha',_acMenos(7)).order('fecha',{ascending:false});
+        if(vjRes.data&&vjRes.data.length)VIAJES_CHOFER=vjRes.data;
+      }catch(_e){}
+      try{
+        var clRes=await supabase.from('checklist').select('*').gte('fecha',_acMenos(7)).order('fecha',{ascending:false});
+        if(clRes.data&&clRes.data.length)CHECKLIST_DATA=clRes.data;
+      }catch(_e){}
+      try{
+        var surRes=await supabase.from('surtidas').select('*').gte('fecha',_acMenos(3)).order('fecha',{ascending:false});
+        if(surRes.data&&surRes.data.length)SURTIDAS=surRes.data;
+      }catch(_e){}
     }
 
     console.log('Carga minima OK para rol: '+rol);
@@ -31647,33 +31659,423 @@ function mecGuardarNuevoVehiculo(){
 }
 
 // ══════════════════════════════════════════════════
-// MÓDULO JEFE OPERATIVO — Estado de Rutas
+// MÓDULO JEFE OPERATIVO — Dashboard Operativo
 // ══════════════════════════════════════════════════
-var PARROQUIAS = ['CARACCIOLO PARRA PEREZ','VENANCIO PULGAR'];
+var PARROQUIAS = ['CARACCIOLO PARRA PEREZ','VENANCIO PULGAR','OLEGARIO VILLALOBOS','SANTA LUCIA','LUIS HURTADO HIGUERA'];
 var RUTAS_HOY  = {};
 
-function operIniciar(){
-  // Mostrar fecha
-  var fechaEl=document.getElementById('oper-fecha');
-  if(fechaEl)fechaEl.textContent=fmtFechaDow(new Date());
-  // Mostrar parroquias inmediatamente sin esperar DB
-  var hoy=fechaVE();
-  operRenderParroquias(hoy);
-  // Luego cargar si ya registró hoy
-  if(DB_READY&&supabase){
-    supabase.from('rutas_estado').select('*').eq('fecha',hoy).then(function(res){
-      if(res.error||!res.data)return;
-      RUTAS_HOY={};
-      res.data.forEach(function(r){RUTAS_HOY[r.parroquia]=r;});
-      operRenderParroquias(hoy); // Re-render con datos guardados
-    });
+function operParroquiasHoy(fechaStr){
+  var d = new Date((fechaStr||fechaVE()) + 'T12:00:00');
+  var dow = d.getDay(); // 0: Dom, 1: Lun, 2: Mar, 3: Mié, 4: Jue, 5: Vie, 6: Sáb
+  if(dow === 1 || dow === 4) return ['OLEGARIO VILLALOBOS', 'SANTA LUCIA'];
+  if(dow === 2 || dow === 5) return ['CARACCIOLO PARRA PEREZ', 'LUIS HURTADO HIGUERA'];
+  if(dow === 3 || dow === 6) return ['VENANCIO PULGAR'];
+  return ['OPERATIVO IMAU'];
+}
+
+function operSwitchCombTab(tab){
+  var pStq = document.getElementById('oper-panel-stq');
+  var pTrs = document.getElementById('oper-panel-trs');
+  var bStq = document.getElementById('oper-tab-stq');
+  var bTrs = document.getElementById('oper-tab-trs');
+  if(!pStq || !pTrs) return;
+  if(tab === 'trs'){
+    pStq.style.display = 'none'; pTrs.style.display = 'block';
+    if(bStq){ bStq.classList.remove('btn-g'); bStq.classList.add('btn-s'); }
+    if(bTrs){ bTrs.classList.remove('btn-s'); bTrs.classList.add('btn-g'); }
+  } else {
+    pStq.style.display = 'block'; pTrs.style.display = 'none';
+    if(bStq){ bStq.classList.remove('btn-s'); bStq.classList.add('btn-g'); }
+    if(bTrs){ bTrs.classList.remove('btn-g'); bTrs.classList.add('btn-s'); }
   }
+}
+
+async function operIniciar(){
+  var hoy = fechaVE();
+  // Mostrar fecha
+  var fechaEl = document.getElementById('oper-fecha');
+  if(fechaEl) fechaEl.textContent = fmtFechaDow(new Date());
+
+  // Detector de Turno (hora Venezuela)
+  try{
+    var dVE = new Date();
+    var sHora = dVE.toLocaleTimeString('en-US', { timeZone: 'America/Caracas', hour12: false });
+    var hNum = parseInt(sHora.split(':')[0], 10) || 0;
+    var esDiurno = hNum >= 6 && hNum < 18;
+    var bTurno = document.getElementById('oper-turno-badge');
+    if(bTurno){
+      bTurno.textContent = esDiurno ? '☀️ Turno Diurno (06:00 - 18:00)' : '🌙 Turno Nocturno (18:00 - 06:00)';
+      bTurno.style.background = esDiurno ? 'rgba(125,201,65,0.2)' : 'rgba(59,130,246,0.2)';
+      bTurno.style.color = esDiurno ? '#7dc941' : '#60a5fa';
+      bTurno.style.borderColor = esDiurno ? 'rgba(125,201,65,0.4)' : 'rgba(59,130,246,0.4)';
+    }
+  }catch(_e){}
+
+  // Parroquias según cronograma oficial del IMAU
+  var parsHoy = operParroquiasHoy(hoy);
+  PARROQUIAS = parsHoy;
+  operRenderParroquias(hoy);
+
+  // Asegurar surtidas recientes para el combustible de hoy
+  if(typeof cargarSurtidas === 'function' && (!SURTIDAS || !SURTIDAS.length)){
+    try{ await cargarSurtidas(); }catch(_e){}
+  }
+
+  // Cargar estado de rutas hoy desde DB
+  if(DB_READY && supabase){
+    try{
+      var res = await supabase.from('rutas_estado').select('*').eq('fecha', hoy);
+      if(res && res.data){
+        RUTAS_HOY = {};
+        res.data.forEach(function(r){ RUTAS_HOY[r.parroquia] = r; });
+        operRenderParroquias(hoy);
+      }
+    }catch(_e){}
+  }
+
+  // Renderizar componentes del Dashboard Operativo
+  operRenderKPIs();
+  operRenderFlotaGrid();
   operCargarStats();
-  operResumenFlota();
-  try{renderChecklistAnomalias();}catch(e){}  // fallas pendientes (puede cerrarlas)
+  operRenderSurtidasHoy();
+  try{ renderChecklistAnomalias(); }catch(e){}
   operProgramarRecordatorio();
-  try{stqRenderLista();}catch(e){}
-  try{trsLlenarSelects();trsLista();}catch(e){}
+  try{ stqRenderLista(); }catch(e){}
+  try{ trsLlenarSelects(); trsLista(); }catch(e){}
+}
+
+function operRenderKPIs(){
+  var hoy = fechaVE();
+  var cams = (typeof _unidadesTodas==='function') ? _unidadesTodas() : Object.keys(FLOTA||{});
+  if(!cams.length) cams = Object.keys(KM_DATA||{});
+  var comp = cams.filter(function(c){ return c.startsWith('JAC-B'); });
+  if(!comp.length) comp = ['JAC-B001','JAC-B002','JAC-B003','JAC-B004','JAC-B005','JAC-B006','JAC-B007','JAC-B008','JAC-B009','JAC-B010','JAC-B011','JAC-B012'];
+
+  var op = 0, tall = 0, inop = 0;
+  comp.forEach(function(c){
+    var st = _estadoCamReal(c);
+    if(st === 'operativo') op++;
+    else if(st === 'taller') tall++;
+    else inop++;
+  });
+
+  // KPI 1: Flota Operativa
+  var elOp = document.getElementById('oper-kpi-operativos');
+  var elOpSub = document.getElementById('oper-kpi-operativos-sub');
+  if(elOp){
+    var pct = Math.round((op / comp.length) * 100);
+    elOp.textContent = op + ' / ' + comp.length;
+    if(elOpSub) elOpSub.textContent = pct + '% disponibilidad activa';
+  }
+
+  // KPI 2: Taller / Inoperativos
+  var elTall = document.getElementById('oper-kpi-taller');
+  var elTallSub = document.getElementById('oper-kpi-taller-sub');
+  if(elTall){
+    elTall.textContent = (tall + inop) + ' unid.';
+    if(elTallSub) elTallSub.textContent = tall + ' en taller · ' + inop + ' inoperativas';
+  }
+
+  // KPI 3: Viajes Hoy (En vivo vía viajes_chofer y planillas)
+  var elV = document.getElementById('oper-kpi-viajes');
+  var elVSub = document.getElementById('oper-kpi-viajes-sub');
+  if(elV){
+    var vjHoy = (VIAJES_CHOFER||[]).filter(function(x){ return String(x.fecha||'').slice(0,10) === hoy; });
+    var nD = 0, nN = 0;
+    vjHoy.forEach(function(v){
+      if(String(v.turno||'').toLowerCase() === 'nocturno') nN++;
+      else nD++;
+    });
+    var totV = vjHoy.length;
+    // Si choferes aún no marcan viajes por app, verificar si hay planillas registradas hoy
+    if(totV === 0 && typeof REGS !== 'undefined' && Array.isArray(REGS)){
+      var regHoy = REGS.filter(function(r){ return r.f === hoy; });
+      totV = regHoy.reduce(function(a,b){ return a + (b.t||0); }, 0);
+      nD = totV;
+    }
+    elV.textContent = totV + ' viajes';
+    if(elVSub) elVSub.textContent = '☀️ Diurno: ' + nD + ' · 🌙 Noche: ' + nN;
+  }
+
+  // KPI 4: Combustible Surtido Hoy
+  var elC = document.getElementById('oper-kpi-combustible');
+  var elCSub = document.getElementById('oper-kpi-combustible-sub');
+  if(elC){
+    var surHoy = typeof _surtidasHoy === 'function' ? _surtidasHoy() : [];
+    var totL = surHoy.reduce(function(a,b){ return a + (parseFloat(b.litros)||0); }, 0);
+    elC.textContent = Math.round(totL).toLocaleString('es-VE') + ' L';
+    if(elCSub) elCSub.textContent = surHoy.length + ' despacho(s) registrados hoy';
+  }
+
+  // KPI 5: Fallas / Anomalías de Checklist
+  var elA = document.getElementById('oper-kpi-anomalias');
+  var elASub = document.getElementById('oper-kpi-anomalias-sub');
+  if(elA){
+    var anoms = (CHECKLIST_DATA||[]).filter(function(c){ return c.anomalia && !c.resuelta; });
+    elA.textContent = anoms.length + (anoms.length === 1 ? ' abierta' : ' abiertas');
+    if(elASub) elASub.textContent = anoms.length ? 'Atención preventiva pendiente' : 'Flota al día sin reportes';
+  }
+
+  // Resumen en texto superior
+  operResumenFlota();
+}
+
+function operRenderFlotaGrid(){
+  var cont = document.getElementById('oper-flota-grid');
+  if(!cont) return;
+  var hoy = fechaVE();
+
+  // Lista de compactadoras JAC-B001...B012 + Vehículos de Servicio SRV
+  var cams = (typeof _unidadesTodas==='function') ? _unidadesTodas() : Object.keys(FLOTA||{});
+  if(!cams.length) cams = Object.keys(KM_DATA||{});
+  var comp = cams.filter(function(c){ return c.startsWith('JAC-B'); });
+  if(!comp.length) comp = ['JAC-B001','JAC-B002','JAC-B003','JAC-B004','JAC-B005','JAC-B006','JAC-B007','JAC-B008','JAC-B009','JAC-B010','JAC-B011','JAC-B012'];
+  var srv = cams.filter(function(c){ return c.startsWith('SRV'); });
+  var lista = comp.concat(srv);
+
+  // Mapa de viajes hoy por camión
+  var vjCamD = {}, vjCamN = {};
+  (VIAJES_CHOFER||[]).forEach(function(x){
+    if(String(x.fecha||'').slice(0,10) === hoy){
+      if(String(x.turno||'').toLowerCase() === 'nocturno') vjCamN[x.cam] = (vjCamN[x.cam]||0) + 1;
+      else vjCamD[x.cam] = (vjCamD[x.cam]||0) + 1;
+    }
+  });
+
+  // Mapa de checklist hoy por camión (conductor, km hoy, horas)
+  var clCam = {};
+  (CHECKLIST_DATA||[]).forEach(function(x){
+    if(String(x.fecha||'').slice(0,10) === hoy){
+      if(!clCam[x.cam] || (x.turno==='nocturno' && clCam[x.cam].turno!=='nocturno')) clCam[x.cam] = x;
+    }
+  });
+
+  var html = lista.map(function(c){
+    var st = _estadoCamReal(c);
+    var kmObj = KM_DATA[c] || {};
+    var km = parseFloat(kmObj.km) || 0;
+    var ultSrv = parseFloat(kmObj.ultsrv) || 0;
+    var kmDesdeSrv = Math.max(0, km - ultSrv);
+    var kmProx = 5000 - (kmDesdeSrv % 5000);
+    var alertaServicio = kmProx <= 500 && kmProx >= 0;
+
+    var cl = clCam[c] || null;
+    var chofer = cl ? (cl.conductor || cl.chofer || '—') : '—';
+    var vD = vjCamD[c] || 0;
+    var vN = vjCamN[c] || 0;
+    var totV = vD + vN;
+
+    var kmRecorridoHoy = 0;
+    if(cl && cl.km_entrada && cl.km_salida){
+      kmRecorridoHoy = Math.max(0, parseFloat(cl.km_entrada) - parseFloat(cl.km_salida));
+    }
+
+    var colSt = st==='operativo' ? '#10b981' : st==='taller' ? '#f59e0b' : '#ef4444';
+    var bgSt  = st==='operativo' ? 'rgba(16,185,129,0.12)' : st==='taller' ? 'rgba(245,158,11,0.12)' : 'rgba(239,68,68,0.12)';
+    var lblSt = st==='operativo' ? '🟢 OPERATIVO' : st==='taller' ? '🔧 EN TALLER' : '🔴 INOPERATIVO';
+
+    var diasFuera = 0;
+    if(st !== 'operativo' && kmObj.estado_desde){
+      try{ diasFuera = Math.floor((new Date() - new Date(kmObj.estado_desde)) / 86400000); }catch(_e){}
+    }
+    var notaEst = kmObj.nota_estado || '';
+
+    return '<div class="card" style="margin-bottom:0;padding:14px;background:var(--bg2);border:1px solid '+(st!=='operativo'?colSt:'var(--border)')+';border-radius:12px;display:flex;flex-direction:column;justify-content:space-between">'+
+      '<div>'+
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">'+
+          '<b style="font-size:16px;color:var(--text1);letter-spacing:0.5px">🚛 '+c+'</b>'+
+          '<span style="font-size:10px;font-weight:700;color:'+colSt+';background:'+bgSt+';padding:3px 8px;border-radius:12px;border:1px solid '+colSt+'">'+lblSt+'</span>'+
+        '</div>'+
+        '<div style="font-size:11px;color:var(--text3);margin-bottom:6px">'+
+          '👤 Conductor hoy: <b style="color:var(--text1)">'+(chofer!=='—'?_fx(chofer):'Sin registrar')+'</b>'+
+        '</div>'+
+        '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;background:var(--bg3);padding:8px;border-radius:8px;margin-bottom:8px">'+
+          '<div style="font-size:11px">'+
+            '<div style="color:var(--text3);font-size:9px;text-transform:uppercase">Viajes Hoy</div>'+
+            '<div style="font-weight:700;color:var(--text1);font-size:13px">'+totV+' <span style="font-size:10px;color:var(--text3)">(☀️'+vD+' 🌙'+vN+')</span></div>'+
+          '</div>'+
+          '<div style="font-size:11px;text-align:right">'+
+            '<div style="color:var(--text3);font-size:9px;text-transform:uppercase">Odómetro / Hoy</div>'+
+            '<div style="font-weight:700;color:var(--text1);font-size:13px">'+Math.round(km).toLocaleString('es-VE')+' <span style="font-size:10px;color:#7dc941">+'+Math.round(kmRecorridoHoy)+'k</span></div>'+
+          '</div>'+
+        '</div>'+
+        (alertaServicio ?
+          '<div style="background:rgba(245,158,11,0.15);border:1px solid #f59e0b;color:#f59e0b;padding:4px 8px;border-radius:6px;font-size:10px;font-weight:700;margin-bottom:8px">'+
+            '⚠️ Mantenimiento próximo (< '+Math.round(kmProx)+' km)'+
+          '</div>' : '')+
+        (st !== 'operativo' ?
+          '<div style="background:rgba(239,68,68,0.1);border-left:3px solid '+colSt+';padding:6px 8px;border-radius:4px;font-size:11px;color:var(--text2);margin-bottom:8px">'+
+            '<b>Fuera de servicio ('+diasFuera+' d):</b> '+_fx(notaEst||'Sin motivo registrado')+
+          '</div>' : '')+
+      '</div>'+
+      '<div style="margin-top:6px;display:flex;justify-content:flex-end">'+
+        '<button type="button" class="btn btn-s btn-xs" onclick="operModalEstado(\''+c+'\')" style="width:100%;padding:6px 0;font-size:11px;font-weight:700">'+
+          '✏️ Cambiar Estado'+
+        '</button>'+
+      '</div>'+
+    '</div>';
+  }).join('');
+
+  cont.innerHTML = html;
+}
+
+function operModalEstado(cam){
+  var kmObj = KM_DATA[cam] || {};
+  var stActual = _estadoCamReal(cam);
+  var notaActual = kmObj.nota_estado || '';
+
+  var body = '<div style="margin-bottom:12px">'+
+    '<div style="font-size:13px;color:var(--text3);margin-bottom:4px">Unidad seleccionada:</div>'+
+    '<div style="font-size:18px;font-weight:900;color:var(--text1)">🚛 '+cam+'</div>'+
+    '<div style="font-size:11px;color:var(--text3)">Estado actual: <b>'+stActual.toUpperCase()+'</b></div>'+
+  '</div>'+
+  '<div class="fg" style="margin-bottom:12px">'+
+    '<label style="font-size:12px;font-weight:700">Nuevo Estado de la Unidad</label>'+
+    '<select class="fc" id="oper-m-estado" style="font-size:14px;padding:10px">'+
+      '<option value="operativo"'+(stActual==='operativo'?' selected':'')+'>🟢 Operativo (en ruta)</option>'+
+      '<option value="taller"'+(stActual==='taller'?' selected':'')+'>🔧 En Taller (mantenimiento / revisión)</option>'+
+      '<option value="inoperativo"'+(stActual==='inoperativo'?' selected':'')+'>🔴 Inoperativo (parado por falla mayor)</option>'+
+    '</select>'+
+  '</div>'+
+  '<div class="fg" style="margin-bottom:16px">'+
+    '<label style="font-size:12px;font-weight:700">Motivo / Novedad <small style="color:var(--text3)">(obligatorio si no está operativo)</small></label>'+
+    '<textarea class="fc" id="oper-m-nota" rows="3" placeholder="Describe el trabajo o motivo..." style="font-size:13px;resize:none;padding:10px;width:100%;box-sizing:border-box">'+_fx(notaActual)+'</textarea>'+
+  '</div>'+
+  '<div style="display:flex;gap:8px">'+
+    '<button type="button" class="btn btn-g" onclick="operGuardarEstadoModal(\''+cam+'\')" style="flex:1;padding:12px;font-weight:700;font-size:14px">💾 Guardar Cambio</button>'+
+    '<button type="button" class="btn btn-s" onclick="closeModal()" style="padding:12px 18px;font-size:14px">Cancelar</button>'+
+  '</div>';
+
+  openModal('Actualizar Estado de ' + cam, body);
+}
+
+async function operGuardarEstadoModal(cam){
+  var sel = document.getElementById('oper-m-estado');
+  var txt = document.getElementById('oper-m-nota');
+  if(!sel) return;
+  var nuevoEstado = sel.value;
+  var nota = txt ? txt.value.trim() : '';
+
+  if(nuevoEstado !== 'operativo' && !nota){
+    alert('Debes indicar el motivo por el cual la unidad no está operativa.');
+    return;
+  }
+
+  // Guardar a través de mecGuardarEstado para mantener sincronizada la persistencia, cola offline y WhatsApp
+  if(typeof mecGuardarEstado === 'function'){
+    await mecGuardarEstado(cam, nuevoEstado, nota);
+  } else {
+    if(!KM_DATA[cam]) KM_DATA[cam] = { mant:[] };
+    KM_DATA[cam].estado = nuevoEstado;
+    KM_DATA[cam].nota_estado = nota;
+    KM_DATA[cam].estado_desde = fechaVE();
+    KM_DATA[cam].estado_confirmado = true;
+    if(DB_READY && supabase){
+      await supabase.from('km_data').upsert({ cam: cam, estado: nuevoEstado, nota_estado: nota, estado_desde: fechaVE(), estado_confirmado: true });
+    }
+  }
+
+  closeModal();
+  if(typeof mostrarToast === 'function') mostrarToast('✅ Estado de ' + cam + ' actualizado.', 'exito');
+  operIniciar();
+}
+
+function operRenderSurtidasHoy(){
+  var cont = document.getElementById('oper-surtidas-hoy');
+  if(!cont) return;
+  var sur = typeof _surtidasHoy === 'function' ? _surtidasHoy() : [];
+  if(!sur.length){
+    cont.innerHTML = '<div style="color:var(--text3);font-size:12px;padding:20px;text-align:center">⛽ No hay combustible despachado a camiones hoy todavía.</div>';
+    return;
+  }
+  var html = '<div style="max-height:280px;overflow-y:auto">'+
+    sur.map(function(s){
+      var l = parseFloat(s.litros) || 0;
+      var h = String(s.hora || (s.fecha ? s.fecha.slice(11,16) : '') || '—');
+      var tq = s.tanque === 'galpon_1' ? 'Galpón 1' : s.tanque === 'galpon_2' ? 'Galpón 2' : (s.tanque || 'Estación');
+      return '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 6px;border-bottom:1px solid var(--border)">'+
+        '<div>'+
+          '<b style="font-size:13px;color:var(--text1)">🚛 '+(s.cam||'—')+'</b>'+
+          '<div style="font-size:10px;color:var(--text3)">'+tq+' · '+h+(s.creado_por?' ('+s.creado_por+')':'')+'</div>'+
+        '</div>'+
+        '<div style="font-weight:900;font-size:15px;color:#7dc941;font-family:var(--m)">'+
+          Math.round(l).toLocaleString('es-VE')+' L'+
+        '</div>'+
+      '</div>';
+    }).join('')+
+  '</div>';
+  cont.innerHTML = html;
+}
+
+function imprimirDashboardOperativo(){
+  var hoy = fechaVE();
+  var dow = fmtFechaDow(new Date());
+  var hora = (new Date()).toLocaleTimeString('es-VE', { timeZone: 'America/Caracas', hour: '2-digit', minute: '2-digit' });
+  var cams = (typeof _unidadesTodas==='function') ? _unidadesTodas() : Object.keys(FLOTA||{});
+  if(!cams.length) cams = Object.keys(KM_DATA||{});
+  var comp = cams.filter(function(c){ return c.startsWith('JAC-B'); });
+  if(!comp.length) comp = ['JAC-B001','JAC-B002','JAC-B003','JAC-B004','JAC-B005','JAC-B006','JAC-B007','JAC-B008','JAC-B009','JAC-B010','JAC-B011','JAC-B012'];
+
+  var op = 0, tall = 0, inop = 0;
+  comp.forEach(function(c){
+    var st = _estadoCamReal(c);
+    if(st === 'operativo') op++;
+    else if(st === 'taller') tall++;
+    else inop++;
+  });
+
+  var surHoy = typeof _surtidasHoy === 'function' ? _surtidasHoy() : [];
+  var totL = surHoy.reduce(function(a,b){ return a + (parseFloat(b.litros)||0); }, 0);
+  var anoms = (CHECKLIST_DATA||[]).filter(function(c){ return c.anomalia && !c.resuelta; });
+  var pars = operParroquiasHoy(hoy);
+
+  var statsHtml = '<div class="bg-stat"><div class="lbl">Flota Activa</div><div class="val" style="color:#1d9e75">'+op+' / '+comp.length+'</div><div class="sub">'+Math.round(op/comp.length*100)+'% disp.</div></div>'+
+    '<div class="bg-stat"><div class="lbl">En Taller</div><div class="val" style="color:#ef9f27">'+tall+'</div><div class="sub">Mantenimiento</div></div>'+
+    '<div class="bg-stat"><div class="lbl">Inoperativas</div><div class="val" style="color:#e24b4a">'+inop+'</div><div class="sub">Falla mayor</div></div>'+
+    '<div class="bg-stat"><div class="lbl">Gasoil Hoy</div><div class="val" style="color:#0284c7">'+Math.round(totL).toLocaleString('es-VE')+' L</div><div class="sub">'+surHoy.length+' despachos</div></div>'+
+    '<div class="bg-stat"><div class="lbl">Fallas Checklist</div><div class="val" style="color:#dc2626">'+anoms.length+'</div><div class="sub">Abiertas</div></div>';
+
+  var tablaFlota = '<div class="sec-title" style="margin-top:14px;font-size:14px;font-weight:900;border-bottom:2px solid #1e3a5f;padding-bottom:4px">1. Estado Detallado de Unidades (12 Compactadoras)</div>'+
+    '<table class="tabla" style="width:100%;margin-top:8px;font-size:11px;border-collapse:collapse">'+
+    '<thead><tr style="background:#f1f5f9;text-align:left"><th style="padding:6px">Unidad</th><th style="padding:6px">Estado</th><th style="padding:6px">Odómetro</th><th style="padding:6px">Últ. Servicio</th><th style="padding:6px">Observaciones / Novedad</th></tr></thead>'+
+    '<tbody>'+
+    comp.map(function(c){
+      var st = _estadoCamReal(c);
+      var kmObj = KM_DATA[c] || {};
+      var km = parseFloat(kmObj.km) || 0;
+      var ultSrv = parseFloat(kmObj.ultsrv) || 0;
+      var nota = kmObj.nota_estado || '—';
+      var col = st==='operativo'?'#1d9e75':st==='taller'?'#ef9f27':'#e24b4a';
+      return '<tr style="border-bottom:1px solid #e2e8f0">'+
+        '<td style="padding:6px;font-weight:700">🚛 '+c+'</td>'+
+        '<td style="padding:6px;font-weight:700;color:'+col+'">'+st.toUpperCase()+'</td>'+
+        '<td style="padding:6px">'+Math.round(km).toLocaleString('es-VE')+' km</td>'+
+        '<td style="padding:6px">'+Math.round(ultSrv).toLocaleString('es-VE')+' km</td>'+
+        '<td style="padding:6px;font-size:10px;color:#475569">'+_fx(nota)+'</td>'+
+      '</tr>';
+    }).join('')+
+    '</tbody></table>';
+
+  var rutasHtml = '<div class="sec-title" style="margin-top:16px;font-size:14px;font-weight:900;border-bottom:2px solid #1e3a5f;padding-bottom:4px">2. Cobertura de Rutas IMAU Programadas para Hoy</div>'+
+    '<div style="margin-top:8px;display:flex;gap:12px;flex-wrap:wrap">'+
+    pars.map(function(p){
+      var r = RUTAS_HOY[p] || {};
+      var est = r.estado ? (r.estado==='100'?'✅ 100% Completada':r.estado==='80'?'🟡 80% Parcial':'🔴 Incompleta') : '⚪ En Ejecución';
+      return '<div style="background:#f8fafc;border:1px solid #cbd5e1;border-radius:8px;padding:8px 12px;flex:1;min-width:200px">'+
+        '<div style="font-weight:700;font-size:12px;color:#1e3a5f">📍 '+p+'</div>'+
+        '<div style="font-size:11px;font-weight:700;margin-top:2px">'+est+'</div>'+
+        (r.justificacion ? '<div style="font-size:10px;color:#64748b;margin-top:2px">Nota: '+_fx(r.justificacion)+'</div>' : '')+
+      '</div>';
+    }).join('')+
+    '</div>';
+
+  var pieHtml = '<div style="margin-top:30px;display:flex;justify-content:space-around;text-align:center;font-size:11px">'+
+    '<div style="border-top:1px solid #94a3b8;width:220px;padding-top:6px"><b>Samuel Mendoza</b><br>Jefe de Operaciones</div>'+
+    '<div style="border-top:1px solid #94a3b8;width:220px;padding-top:6px"><b>Supervisor de Patio</b><br>Control de Flota y Patio</div>'+
+  '</div>';
+
+  var bodyHtml = tablaFlota + rutasHtml + pieHtml;
+  abrirImpresionPremium('Reporte Diario de Operaciones', dow + ' · Turno ' + (hNum>=6&&hNum<18?'Diurno':'Nocturno') + ' · Emitido ' + hora, statsHtml, bodyHtml);
 }
 
 // ════════════════════════════════════════════════════════════════════════════════════════════

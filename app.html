@@ -327,7 +327,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
     <div class="menu-item" onclick="sp('asistencia')" id="mi-asistencia">✅ Asistencia</div>
     <div class="menu-item" onclick="sp('fichaje')" id="mi-fichaje">🕒 Fichaje / Sitios</div>
     <div class="menu-item" onclick="sp('porteria')" id="mi-porteria">🛡 Porteria</div>
-    <div class="menu-item" onclick="sp('operativo')" id="mi-operativo">🗺 Operativo</div>
+    <div class="menu-item" onclick="sp('operativo')" id="mi-operativo">🗺 Dashboard Operativo</div>
     <!-- La pantalla del GPS vive en su propio archivo (`mapa.html`, con Leaflet y Realtime).
          Estuvo publicada y funcionando desde el 14/08 SIN UN SOLO ENLACE que llevara a ella:
          solo llegaba quien supiera teclear la URL. Una pantalla a la que nadie puede entrar
@@ -3281,7 +3281,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
      Excel sale con el defecto ya corregido. Pasó midiendo este mismo cambio el
      23/09: dos corridas dieron un .xlsx idéntico byte por byte. -->
 <script src="maxware-excel.js?v=20261106-excel"></script>
-<script src="app.js?v=20261119-1900"></script>
+<script src="app.js?v=20261124-dashboard-operativo"></script>
 
 <!-- Modal global -->
 <div id="modal" class="moverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9990;align-items:center;justify-content:center;padding:16px">
@@ -3488,119 +3488,203 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
   </div>
 </div>
 
-<div class="section" id="sec-operativo" style="display:none;flex:1;overflow-y:auto;padding:14px 18px">
-  <div style="max-width:560px;margin:0 auto;padding:8px">
-    <div class="card" style="background:#1e3a5f;border:none;margin-bottom:14px;padding:16px 20px">
-      <div style="display:flex;justify-content:space-between;align-items:center">
+<div class="section" id="sec-operativo" style="display:none;flex:1;overflow-y:auto;padding:16px 20px">
+  <div style="max-width:1400px;margin:0 auto;width:100%">
+    <!-- CABECERA OPERATIVA -->
+    <div class="card" style="background:linear-gradient(135deg,#1e3a5f 0%,#0f2340 100%);border:1px solid rgba(125,201,65,0.3);margin-bottom:14px;padding:16px 20px;border-radius:14px;box-shadow:0 4px 16px rgba(0,0,0,0.3)">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">
         <div>
-          <div style="color:#7dc941;font-size:11px;font-weight:700;letter-spacing:1px">BETANGAR · OPERATIVO</div>
-          <div id="oper-fecha" style="color:#fff;font-size:14px;margin-top:2px">Cargando...</div>
+          <div style="display:flex;align-items:center;gap:10px">
+            <span style="color:#7dc941;font-size:12px;font-weight:800;letter-spacing:1.5px">BETANGAR · OPERACIONES</span>
+            <span id="oper-turno-badge" style="background:rgba(125,201,65,0.2);color:#7dc941;border:1px solid rgba(125,201,65,0.4);font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px">☀️ Turno Diurno</span>
+          </div>
+          <div style="display:flex;align-items:baseline;gap:8px;margin-top:4px">
+            <h1 style="color:#fff;font-size:20px;font-weight:900;margin:0;letter-spacing:-0.5px">Dashboard Operativo</h1>
+            <span id="oper-fecha" style="color:rgba(255,255,255,0.7);font-size:13px;font-family:var(--m)">Cargando fecha...</span>
+          </div>
         </div>
-        <div style="text-align:right">
-          <div style="color:rgba(255,255,255,0.5);font-size:10px">Estado rutas</div>
-          <div style="color:#7dc941;font-size:12px;font-weight:700">Registro diario</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+          <button type="button" class="btn btn-g btn-sm" onclick="location.href='mapa.html'" style="display:flex;align-items:center;gap:6px;font-weight:700">
+            <span>📡</span> Flota en Vivo (GPS)
+          </button>
+          <button type="button" class="btn btn-s btn-sm" onclick="imprimirDashboardOperativo()" style="display:flex;align-items:center;gap:6px">
+            <span>🖨️</span> Imprimir Operativo
+          </button>
+          <button type="button" class="btn btn-s btn-sm" onclick="operIniciar()" style="display:flex;align-items:center;gap:6px">
+            <span>🔄</span> Refrescar
+          </button>
         </div>
       </div>
     </div>
 
-    <div id="oper-parroquias" style="margin-bottom:14px">
-      <div style="text-align:center;color:var(--text3);padding:30px">Cargando...</div>
-    </div>
-    <div class="card" style="margin-bottom:14px">
-      <div class="sh" style="display:flex;justify-content:space-between;align-items:center">
-        <div class="st">🔧 Estado de Unidades</div>
-        <button onclick="operVerFlota()" class="btn btn-s btn-sm">Ver / Actualizar</button>
+    <!-- KPIS OPERATIVOS (5 cards) -->
+    <div id="oper-kpis-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;margin-bottom:16px">
+      <div class="card" style="border-top:3px solid #10b981;padding:14px;margin-bottom:0">
+        <div class="stat-lbl" style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text3);margin-bottom:4px">Flota Operativa</div>
+        <div id="oper-kpi-operativos" style="font-size:24px;font-weight:900;color:#10b981;font-family:var(--m)">-</div>
+        <div id="oper-kpi-operativos-sub" style="font-size:10px;color:var(--text3);margin-top:2px">Disponibilidad activa</div>
       </div>
-      <div id="oper-flota-resumen" style="font-size:13px;color:var(--text3);padding:4px 0">Cargando...</div>
-    </div>
-
-    <div class="card" style="margin-bottom:14px">
-      <div class="sh" style="display:flex;justify-content:space-between;align-items:center">
-        <div class="st">⚠️ Fallas pendientes de la flota</div>
-        <div style="font-size:9px;color:var(--text3)">el chofer las ve hasta que se cierren</div>
+      <div class="card" style="border-top:3px solid #f59e0b;padding:14px;margin-bottom:0">
+        <div class="stat-lbl" style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text3);margin-bottom:4px">En Taller / Inop.</div>
+        <div id="oper-kpi-taller" style="font-size:24px;font-weight:900;color:#f59e0b;font-family:var(--m)">-</div>
+        <div id="oper-kpi-taller-sub" style="font-size:10px;color:var(--text3);margin-top:2px">Unidades fuera de ruta</div>
       </div>
-      <div id="oper-anomalias" style="margin-top:6px"><div style="color:var(--text3);font-size:12px">Cargando…</div></div>
-    </div>
-
-    <!-- ══ SALIDA DE TANQUE (2026-08-18) ═══════════════════════════════════════════════════
-         Va acá, en la pantalla de Samuel, porque él es el único autorizado a cargarlo.
-         ⛔ Que el formulario esté solo acá NO es el candado: el candado son las políticas de
-            `salidas_tanque` (solo rol `operativo` y `superadmin` pueden insertar). Esta
-            pantalla es la puerta cómoda, no la cerradura.
-         Diseño a propósito sin campo de fecha ni desplegables: dos toques y un número. ══ -->
-    <div class="card" style="margin-bottom:14px">
-      <div class="sh"><div class="st">🪫 Sacar gasoil del tanque</div></div>
-      <div style="font-size:12px;color:var(--text3);margin-bottom:12px;line-height:1.5">
-        Para cuando el gasoil <b>no va a un camión</b>: la planta eléctrica, un préstamo, un trasvase.
-        Si no se anota, al tanque le va a faltar y nadie va a saber por qué.
+      <div class="card" style="border-top:3px solid #3b82f6;padding:14px;margin-bottom:0">
+        <div class="stat-lbl" style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text3);margin-bottom:4px">Viajes Hoy (En Vivo)</div>
+        <div id="oper-kpi-viajes" style="font-size:24px;font-weight:900;color:#3b82f6;font-family:var(--m)">-</div>
+        <div id="oper-kpi-viajes-sub" style="font-size:10px;color:var(--text3);margin-top:2px">Reportados por choferes</div>
       </div>
-
-      <div style="font-size:13px;font-weight:700;margin-bottom:6px">1. ¿De cuál tanque?</div>
-      <div style="display:flex;gap:8px;margin-bottom:14px">
-        <button type="button" id="stq-t-galpon_1" onclick="stqTanque('galpon_1')" class="btn btn-s" style="flex:1;padding:16px 4px;font-size:14px;font-weight:700;border-radius:12px">🛢️ Galpón 1</button>
-        <button type="button" id="stq-t-galpon_2" onclick="stqTanque('galpon_2')" class="btn btn-s" style="flex:1;padding:16px 4px;font-size:14px;font-weight:700;border-radius:12px">🛢️ Galpón 2</button>
+      <div class="card" style="border-top:3px solid #06b6d4;padding:14px;margin-bottom:0">
+        <div class="stat-lbl" style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text3);margin-bottom:4px">Combustible Hoy</div>
+        <div id="oper-kpi-combustible" style="font-size:24px;font-weight:900;color:#06b6d4;font-family:var(--m)">-</div>
+        <div id="oper-kpi-combustible-sub" style="font-size:10px;color:var(--text3);margin-top:2px">Litros surtidos a flota</div>
       </div>
-
-      <div style="font-size:13px;font-weight:700;margin-bottom:6px">2. ¿Cuántos litros?</div>
-      <input class="fc" id="stq-lit" type="text" inputmode="decimal" placeholder="0" oninput="stqLitInput()"
-             style="font-size:24px;padding:14px;text-align:center;font-family:var(--m);margin-bottom:4px">
-      <div id="stq-lit-hint" style="font-size:12px;min-height:16px;margin-bottom:12px"></div>
-
-      <div style="font-size:13px;font-weight:700;margin-bottom:6px">3. ¿Para qué?</div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
-        <button type="button" id="stq-d-planta"   onclick="stqDestino('Planta eléctrica')" class="btn btn-s" style="flex:1;min-width:120px;padding:14px 4px;font-size:13px;font-weight:700;border-radius:12px">⚡ Planta eléctrica</button>
-        <button type="button" id="stq-d-prestamo" onclick="stqDestino('Préstamo')"         class="btn btn-s" style="flex:1;min-width:120px;padding:14px 4px;font-size:13px;font-weight:700;border-radius:12px">🤝 Préstamo</button>
-        <button type="button" id="stq-d-otro"     onclick="stqDestino('Otro')"             class="btn btn-s" style="flex:1;min-width:120px;padding:14px 4px;font-size:13px;font-weight:700;border-radius:12px">✏️ Otro</button>
-      </div>
-      <input class="fc" id="stq-nota" type="text" placeholder="¿Para qué fue? (escribilo)" style="display:none;margin-bottom:8px">
-
-      <button class="btn btn-g" id="stq-btn" onclick="stqGuardar()" style="width:100%;padding:16px;font-size:15px;font-weight:700;border-radius:12px">✅ Registrar salida</button>
-
-      <div style="font-weight:700;margin:16px 0 6px;font-size:13px">Últimas salidas</div>
-      <div id="stq-lista" style="font-size:12px;color:var(--text3)">Cargando…</div>
-    </div>
-
-    <!-- ════ GASOIL DE UNA UNIDAD A OTRA ════
-         Pedido urgente de Máximo (04/11/2026): la tarjeta de arriba registra lo que sale DEL
-         TANQUE hacia otro destino, pero lo que de verdad hacía falta es cuando se le saca
-         gasoil a UNA UNIDAD para echárselo a OTRA. Eso NO toca el tanque: el galpón no
-         entrega ni recibe un litro, y por eso va a su propia tabla. Sin registrarlo, la
-         unidad de origen aparece gastando de más y la de destino andando con combustible
-         que nadie le echó.
-         Mismo estilo que la de arriba a propósito: dos toques y un número. -->
-    <div class="card">
-      <div class="sh"><div class="st">🔁 Pasar gasoil de una unidad a otra</div></div>
-      <div style="font-size:12px;color:var(--text3);margin-bottom:10px">
-        Cuando se le saca combustible a un camión para echárselo a otro. <b>El tanque del galpón
-        no se toca</b>: ese gasoil ya había salido. Se registra para que el consumo de cada
-        unidad cuadre.
-      </div>
-
-      <div style="font-weight:700;margin-bottom:6px;font-size:13px">¿De cuál unidad SALIÓ?</div>
-      <select class="fc" id="trs-origen" onchange="trsCambio()" style="margin-bottom:10px"></select>
-
-      <div style="font-weight:700;margin-bottom:6px;font-size:13px">¿A cuál unidad SE LE ECHÓ?</div>
-      <select class="fc" id="trs-destino" onchange="trsCambio()" style="margin-bottom:10px"></select>
-
-      <div style="font-weight:700;margin-bottom:6px;font-size:13px">¿Cuántos litros?</div>
-      <input class="fc" id="trs-lit" type="text" inputmode="decimal" placeholder="0"
-             oninput="trsLitInput()" style="font-size:20px;padding:14px;text-align:center;font-family:var(--m)">
-      <div id="trs-lit-hint" style="font-size:12px;min-height:16px;margin-bottom:10px"></div>
-
-      <input class="fc" id="trs-nota" type="text" placeholder="¿Por qué? (opcional — ej.: se quedó sin gasoil en ruta)" style="margin-bottom:10px">
-
-      <button class="btn btn-g" id="trs-btn" onclick="trsGuardar()" style="width:100%;padding:16px;font-size:15px;font-weight:700;border-radius:12px">✅ Registrar el traslado</button>
-
-      <div style="font-weight:700;margin:16px 0 6px;font-size:13px">Últimos traslados</div>
-      <div id="trs-lista" style="font-size:12px;color:var(--text3)">Cargando…</div>
-    </div>
-
-    <div class="card">
-      <div class="sh"><div class="st">📊 Cumplimiento histórico</div></div>
-      <div id="oper-stats" style="padding:4px 0">
-        <div style="color:var(--text3);font-size:12px;padding:8px">Cargando estadísticas...</div>
+      <div class="card" style="border-top:3px solid #ef4444;padding:14px;margin-bottom:0">
+        <div class="stat-lbl" style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text3);margin-bottom:4px">Fallas Pendientes</div>
+        <div id="oper-kpi-anomalias" style="font-size:24px;font-weight:900;color:#ef4444;font-family:var(--m)">-</div>
+        <div id="oper-kpi-anomalias-sub" style="font-size:10px;color:var(--text3);margin-top:2px">Checklist sin cerrar</div>
       </div>
     </div>
+
+    <!-- SECCIÓN: ESTADO DE FLOTA EN TIEMPO REAL -->
+    <div class="card" style="margin-bottom:16px;padding:16px 20px">
+      <div class="sh" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:12px">
+        <div>
+          <div class="st" style="font-size:15px;display:flex;align-items:center;gap:6px">
+            <span>🚛</span> Monitoreo de Unidades en Tiempo Real
+          </div>
+          <div id="oper-flota-resumen" style="font-size:12px;color:var(--text3);margin-top:2px">Cargando flota...</div>
+        </div>
+        <div style="display:flex;gap:6px">
+          <button onclick="operVerFlota()" class="btn btn-s btn-xs">🔧 Ir a Módulo Mecánico</button>
+        </div>
+      </div>
+      <div id="oper-flota-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px">
+        <div style="color:var(--text3);font-size:12px;padding:16px;grid-column:1/-1;text-align:center">Cargando unidades de la flota...</div>
+      </div>
+    </div>
+
+    <!-- SECCIÓN 2: RUTAS IMAU + CUMPLIMIENTO HISTÓRICO -->
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:16px;margin-bottom:16px">
+      <!-- Columna Rutas Hoy -->
+      <div class="card" style="margin-bottom:0;padding:16px 20px">
+        <div class="sh" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+          <div class="st" style="font-size:14px;display:flex;align-items:center;gap:6px">
+            <span>📍</span> Cronograma y Rutas IMAU (Hoy)
+          </div>
+          <span style="font-size:10px;color:var(--green);font-weight:700">12 Compactadoras</span>
+        </div>
+        <div id="oper-parroquias">
+          <div style="text-align:center;color:var(--text3);padding:24px">Cargando rutas asignadas...</div>
+        </div>
+      </div>
+
+      <!-- Columna Cumplimiento Histórico -->
+      <div class="card" style="margin-bottom:0;padding:16px 20px">
+        <div class="sh" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+          <div class="st" style="font-size:14px;display:flex;align-items:center;gap:6px">
+            <span>📊</span> Cumplimiento Histórico de Cobertura
+          </div>
+          <span style="font-size:10px;color:var(--text3)">Últimos días</span>
+        </div>
+        <div id="oper-stats" style="padding:4px 0">
+          <div style="color:var(--text3);font-size:12px;padding:8px">Cargando estadísticas...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SECCIÓN 3: COMBUSTIBLE DE PATIO (SALIDAS/TRASLADOS) + SURTIDAS DEL DÍA -->
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:16px;margin-bottom:16px">
+      <!-- Columna Herramientas de Tanque de Patio -->
+      <div class="card" style="margin-bottom:0;padding:16px 20px">
+        <div class="sh" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+          <div class="st" style="font-size:14px;display:flex;align-items:center;gap:6px">
+            <span>🛢️</span> Operaciones de Combustible en Patio
+          </div>
+        </div>
+
+        <!-- Selector de Modo: Salida Tanque vs Traslado Camión-Camión -->
+        <div style="display:flex;gap:6px;margin-bottom:14px">
+          <button type="button" id="oper-tab-stq" onclick="operSwitchCombTab('stq')" class="btn btn-g btn-sm" style="flex:1;font-weight:700">🪫 Salida de Tanque</button>
+          <button type="button" id="oper-tab-trs" onclick="operSwitchCombTab('trs')" class="btn btn-s btn-sm" style="flex:1;font-weight:700">🔁 Traslado entre Unidades</button>
+        </div>
+
+        <!-- Subformulario STQ (Salida tanque) -->
+        <div id="oper-panel-stq">
+          <div style="font-size:12px;color:var(--text3);margin-bottom:12px;line-height:1.4">
+            Para cuando el gasoil <b>no va a un camión</b>: planta eléctrica, préstamo o uso de patio.
+          </div>
+          <div style="font-size:12px;font-weight:700;margin-bottom:6px">1. Tanque de origen</div>
+          <div style="display:flex;gap:8px;margin-bottom:12px">
+            <button type="button" id="stq-t-galpon_1" onclick="stqTanque('galpon_1')" class="btn btn-s" style="flex:1;padding:12px 4px;font-size:13px;font-weight:700;border-radius:10px">🛢️ Galpón 1</button>
+            <button type="button" id="stq-t-galpon_2" onclick="stqTanque('galpon_2')" class="btn btn-s" style="flex:1;padding:12px 4px;font-size:13px;font-weight:700;border-radius:10px">🛢️ Galpón 2</button>
+          </div>
+          <div style="font-size:12px;font-weight:700;margin-bottom:6px">2. Litros a retirar</div>
+          <input class="fc" id="stq-lit" type="text" inputmode="decimal" placeholder="0" oninput="stqLitInput()"
+                 style="font-size:22px;padding:10px;text-align:center;font-family:var(--m);margin-bottom:4px">
+          <div id="stq-lit-hint" style="font-size:11px;min-height:16px;margin-bottom:10px"></div>
+          <div style="font-size:12px;font-weight:700;margin-bottom:6px">3. Destino</div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">
+            <button type="button" id="stq-d-planta" onclick="stqDestino('Planta eléctrica')" class="btn btn-s btn-xs" style="flex:1;min-width:100px;padding:10px 4px;font-weight:700;border-radius:8px">⚡ Planta eléctrica</button>
+            <button type="button" id="stq-d-prestamo" onclick="stqDestino('Préstamo')" class="btn btn-s btn-xs" style="flex:1;min-width:100px;padding:10px 4px;font-weight:700;border-radius:8px">🤝 Préstamo</button>
+            <button type="button" id="stq-d-otro" onclick="stqDestino('Otro')" class="btn btn-s btn-xs" style="flex:1;min-width:100px;padding:10px 4px;font-weight:700;border-radius:8px">✏️ Otro</button>
+          </div>
+          <input class="fc" id="stq-nota" type="text" placeholder="¿Para qué fue? (escribilo)" style="display:none;margin-bottom:8px">
+          <button class="btn btn-g" id="stq-btn" onclick="stqGuardar()" style="width:100%;padding:12px;font-size:14px;font-weight:700;border-radius:10px">✅ Registrar Salida de Tanque</button>
+          <div style="font-weight:700;margin:14px 0 6px;font-size:12px">Últimas salidas de patio</div>
+          <div id="stq-lista" style="font-size:12px;color:var(--text3)">Cargando…</div>
+        </div>
+
+        <!-- Subformulario TRS (Traslado camión a camión) -->
+        <div id="oper-panel-trs" style="display:none">
+          <div style="font-size:12px;color:var(--text3);margin-bottom:10px">
+            Cuando se le saca combustible a un camión para echárselo a otro. <b>El tanque de galpón no se toca</b>.
+          </div>
+          <div style="font-weight:700;margin-bottom:4px;font-size:12px">Unidad Origen (de donde SALIÓ)</div>
+          <select class="fc" id="trs-origen" onchange="trsCambio()" style="margin-bottom:10px"></select>
+          <div style="font-weight:700;margin-bottom:4px;font-size:12px">Unidad Destino (a donde SE ECHÓ)</div>
+          <select class="fc" id="trs-destino" onchange="trsCambio()" style="margin-bottom:10px"></select>
+          <div style="font-weight:700;margin-bottom:4px;font-size:12px">Litros trasvasados</div>
+          <input class="fc" id="trs-lit" type="text" inputmode="decimal" placeholder="0"
+                 oninput="trsLitInput()" style="font-size:20px;padding:10px;text-align:center;font-family:var(--m)">
+          <div id="trs-lit-hint" style="font-size:11px;min-height:16px;margin-bottom:8px"></div>
+          <input class="fc" id="trs-nota" type="text" placeholder="¿Por qué? (opcional)" style="margin-bottom:10px">
+          <button class="btn btn-g" id="trs-btn" onclick="trsGuardar()" style="width:100%;padding:12px;font-size:14px;font-weight:700;border-radius:10px">✅ Registrar Traslado</button>
+          <div style="font-weight:700;margin:14px 0 6px;font-size:12px">Últimos traslados</div>
+          <div id="trs-lista" style="font-size:12px;color:var(--text3)">Cargando…</div>
+        </div>
+      </div>
+
+      <!-- Columna Surtidas del Día a Unidades -->
+      <div class="card" style="margin-bottom:0;padding:16px 20px">
+        <div class="sh" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+          <div class="st" style="font-size:14px;display:flex;align-items:center;gap:6px">
+            <span>⛽</span> Combustible Despachado Hoy a Unidades
+          </div>
+          <button class="btn btn-s btn-xs" onclick="sp('combustible')">Ver Módulo Combustible</button>
+        </div>
+        <div id="oper-surtidas-hoy">
+          <div style="color:var(--text3);font-size:12px;padding:16px;text-align:center">Cargando surtidas de hoy...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SECCIÓN 4: FALLAS Y ANOMALÍAS DE CHECKLIST -->
+    <div class="card" style="margin-bottom:16px;padding:16px 20px">
+      <div class="sh" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <div>
+          <div class="st" style="font-size:15px;display:flex;align-items:center;gap:6px">
+            <span>⚠️</span> Fallas y Novedades Abiertas de la Flota
+          </div>
+          <div style="font-size:11px;color:var(--text3);margin-top:2px">Reportadas por conductores en checklist · Siguen abiertas hasta su reparación</div>
+        </div>
+        <button class="btn btn-s btn-xs" onclick="sp('histfallas')">📜 Ver Historial Reparadas</button>
+      </div>
+      <div id="oper-anomalias" style="margin-top:6px">
+        <div style="color:var(--text3);font-size:12px;padding:16px;text-align:center">Cargando anomalías…</div>
+      </div>
+    </div>
+
   </div>
 </div>
 
