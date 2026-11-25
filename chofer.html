@@ -136,7 +136,7 @@ body{background:#0f1923;color:#fff;font-family:-apple-system,BlinkMacSystemFont,
 .llegada-banner{background:rgba(59,143,212,.12);border:1px solid rgba(59,143,212,.35);border-radius:12px;padding:12px 16px;margin-bottom:14px;font-size:13px;color:#3b8fd4;display:none;}
 
 /* ── TOAST ── */
-.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(80px);background:#1d9e75;color:#fff;padding:12px 20px;border-radius:12px;font-size:14px;font-weight:700;z-index:9999;opacity:0;transition:all .35s;white-space:nowrap;}
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(80px);background:#1d9e75;color:#fff;padding:12px 18px;border-radius:12px;font-size:14px;font-weight:700;z-index:9999;opacity:0;transition:all .35s;max-width:92vw;white-space:normal;text-align:center;line-height:1.35;}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
 .toast.error{background:#e24b4a;}
 .toast.warn{background:#ef9f27;}
@@ -864,7 +864,7 @@ if('serviceWorker' in navigator){
         if(newSW.state === 'installed' && navigator.serviceWorker.controller){
           // Hay nueva versión — recargar silenciosamente
           console.log('[App] Nueva versión disponible — actualizando...');
-          newSW.postMessage({tipo: 'skipWaiting'});
+          newSW.postMessage({type: 'SKIP_WAITING', tipo: 'skipWaiting'});
           window.location.reload();
         }
       });
@@ -875,7 +875,7 @@ if('serviceWorker' in navigator){
 
   // Escuchar mensajes del SW
   navigator.serviceWorker.addEventListener('message', function(e){
-    if(e.data && (e.data.tipo === 'sync-disponible' || e.data.type === 'SYNC_VIAJES')){
+    if(e.data && (e.data.tipo === 'sync-disponible' || e.data.type === 'SYNC_VIAJES' || e.data.type === 'SYNC_CHECKLIST')){
       // El SW detectó conexión — sincronizar cola
       if(typeof sincronizarCola === 'function') sincronizarCola();
     }
@@ -1552,12 +1552,17 @@ function _cqKey(){ return 'btg_cuadrilla_dia_'+cam; }
 function _cqColaKey(){ return 'btg_cola_cuadrilla'; }
 
 // Se llama al terminar el gate del chofer. Si ya se declaró HOY en esta unidad, no molesta.
+function _cqFechaActiva(){
+  try{ if(typeof hoy==='string'&&hoy) return hoy; }catch(e){}
+  return _hoyVE();
+}
 function abrirCuadrillaGate(forzar){
+  var _fAct = _cqFechaActiva();
   try{
     var raw = forzar ? null : localStorage.getItem(_cqKey());
     if(raw){
       var c = JSON.parse(raw);
-      if(c && c.fecha === _hoyVE()){
+      if(c && c.fecha === _fAct){
         // Ya la declaró hoy: no se le vuelve a preguntar, pero igual se trae para el header
         // — si no se VE lo que declaró, no hay forma de que note un error y lo corrija.
         CQ_SEL = Array.isArray(c.ayud) ? c.ayud : [];
@@ -1573,7 +1578,7 @@ function abrirCuadrillaGate(forzar){
   CQ_SEL = [];
   try{
     var prev = JSON.parse(localStorage.getItem(_cqKey())||'null');
-    if(prev && prev.fecha === _hoyVE() && Array.isArray(prev.ayud)) CQ_SEL = prev.ayud.slice(0,CQ_MAX);
+    if(prev && prev.fecha === _fAct && Array.isArray(prev.ayud)) CQ_SEL = prev.ayud.slice(0,CQ_MAX);
   }catch(e){}
   var g = document.getElementById('cuadrilla-gate'); if(g) g.style.display='flex';
   var b = document.getElementById('cq-buscar'); if(b) b.value='';
@@ -1667,8 +1672,9 @@ function cqGuardar(){
               p_ayudantes: CQ_SEL.map(function(a){ return a.id; }) };
   // Se anota en la cola ANTES de mandarla: un teléfono sin señal —o que se bloquea mientras
   // sube— perdería la cuadrilla y nadie se enteraría.
-  cqEncolar({ p_cam:reg.p_cam, p_id:reg.p_id, p_clave:reg.p_clave, p_turno:reg.p_turno, p_ayudantes:reg.p_ayudantes });
-  try{ localStorage.setItem(_cqKey(), JSON.stringify({fecha:_hoyVE(), ayud:CQ_SEL})); }catch(e){}
+  var _fAct = _cqFechaActiva();
+  cqEncolar({ p_cam:reg.p_cam, p_id:reg.p_id, p_clave:reg.p_clave, p_turno:reg.p_turno, p_ayudantes:reg.p_ayudantes, fecha:_fAct });
+  try{ localStorage.setItem(_cqKey(), JSON.stringify({fecha:_fAct, ayud:CQ_SEL})); }catch(e){}
   if(btn){ btn.disabled=true; btn.textContent='Guardando…'; }
   var _entrar = function(){
     if(btn){ btn.disabled=false; btn.textContent='Listo'; }
@@ -1689,7 +1695,7 @@ function cqGuardar(){
     supabase.rpc('cuadrilla_declarar', reg).then(function(r){
       var d = r && r.data;
       if(r && r.error){ _entrar(); return; }                     // queda encolada
-      cqDesencolar({ p_cam:reg.p_cam, fecha:_hoyVE() });
+      cqDesencolar({ p_cam:reg.p_cam, p_turno:reg.p_turno, fecha:_fAct });
       if(d && d.ok === false){
         // La base la rechazó: NO se deja creer que quedó. Se le dice y se vuelve a preguntar.
         try{ localStorage.removeItem(_cqKey()); }catch(e){}
@@ -1736,35 +1742,36 @@ function pintarCuadrilla(){
 
 function cqEncolar(reg){
   try{
+    var fAct = reg.fecha || _cqFechaActiva();
+    var tAct = reg.p_turno || 'diurno';
     var c = JSON.parse(localStorage.getItem(_cqColaKey())||'[]');
-    c = c.filter(function(x){ return !(x.p_cam===reg.p_cam && x.fecha===_hoyVE()); });
-    reg.fecha = _hoyVE(); c.push(reg);
+    c = c.filter(function(x){ return !(x.p_cam===reg.p_cam && x.fecha===fAct && (x.p_turno||'diurno')===tAct); });
+    reg.fecha = fAct; reg.p_turno = tAct; c.push(reg);
     localStorage.setItem(_cqColaKey(), JSON.stringify(c));
   }catch(e){}
 }
 function cqDesencolar(reg){
   try{
+    var fAct = reg.fecha || _cqFechaActiva();
+    var tAct = reg.p_turno || 'diurno';
     var c = JSON.parse(localStorage.getItem(_cqColaKey())||'[]');
-    c = c.filter(function(x){ return !(x.p_cam===reg.p_cam && x.fecha===(reg.fecha||_hoyVE())); });
+    c = c.filter(function(x){ return !(x.p_cam===reg.p_cam && x.fecha===fAct && (x.p_turno||'diurno')===tAct); });
     localStorage.setItem(_cqColaKey(), JSON.stringify(c));
   }catch(e){}
 }
-// ⚠️ Solo se reintenta lo de HOY: una cuadrilla de anteayer que subiera ahora quedaría
-//    fechada con el día de hoy (la RPC usa `now()`), o sea, en el camión equivocado.
+// ⚠️ Solo se reintenta lo de la jornada activa / HOY.
 function cqSubirCola(){
   if(!supabase) return;
   var c = [];
   try{ c = JSON.parse(localStorage.getItem(_cqColaKey())||'[]'); }catch(e){ return; }
   if(!c.length) return;
-  var hoyv = _hoyVE(), viejas = c.filter(function(x){ return x.fecha !== hoyv; });
-  if(viejas.length){
-    try{ localStorage.setItem(_cqColaKey(), JSON.stringify(c.filter(function(x){ return x.fecha===hoyv; }))); }catch(e){}
-    console.log('cuadrilla: '+viejas.length+' de días pasados, no se reenvían (la RPC feche hoy)');
+  var hoyv = _hoyVE(), fAct = _cqFechaActiva();
+  var validas = c.filter(function(x){ return x.fecha===hoyv || x.fecha===fAct; });
+  if(validas.length !== c.length){
+    try{ localStorage.setItem(_cqColaKey(), JSON.stringify(validas)); }catch(e){}
   }
-  c.filter(function(x){ return x.fecha===hoyv; }).forEach(function(reg){
+  validas.forEach(function(reg){
     try{
-      // El turno viaja también en el reintento de la cola: si no, una cuadrilla que subió
-      // tarde entraría en el turno de siempre y pisaría la que sí estaba bien.
       supabase.rpc('cuadrilla_declarar', {p_cam:reg.p_cam, p_id:reg.p_id, p_clave:reg.p_clave, p_turno:(reg.p_turno||'diurno'), p_ayudantes:reg.p_ayudantes})
         .then(function(r){ if(r && !r.error && r.data && r.data.ok !== false) cqDesencolar(reg); }, function(){});
     }catch(e){}
@@ -2036,53 +2043,55 @@ function anomCargar(){
 
 // Abre en `anomalias` los ítems que el chofer acaba de marcar en MAL.
 // Si esa falla YA está abierta, NO la duplica (índice único parcial cam+item_norm).
+function _anomEncolar(rpc, payload){
+  try{
+    var c = JSON.parse(localStorage.getItem('btg_cola_anom')||'[]');
+    c.push({rpc:rpc, payload:payload});
+    if(c.length>50) c = c.slice(-50);
+    localStorage.setItem('btg_cola_anom', JSON.stringify(c));
+  }catch(e){}
+}
+function _anomDrenarCola(){
+  if(!supabase || navigator.onLine===false) return;
+  var c = [];
+  try{ c = JSON.parse(localStorage.getItem('btg_cola_anom')||'[]'); }catch(e){ return; }
+  if(!c.length) return;
+  localStorage.removeItem('btg_cola_anom');
+  var fall = [], rest = c.length;
+  c.forEach(function(it){
+    supabase.rpc(it.rpc, it.payload).then(function(r){
+      if(r && r.error) fall.push(it);
+    }, function(){ fall.push(it); }).then(function(){
+      if(--rest<=0){
+        if(fall.length) try{ localStorage.setItem('btg_cola_anom', JSON.stringify(fall)); }catch(e){}
+        try{ anomCargar(); }catch(e){}
+      }
+    });
+  });
+}
 function anomAbrirDesdeChecklist(fallas, obs, quien){
-  if(!supabase || !cam || !fallas || !fallas.length) return Promise.resolve();
-  // Por RPC. El deduplicado por `item_norm` y el alta van en UN SOLO statement del
-  // lado de la base. Antes eran un SELECT y N INSERT desde el navegador: entre el
-  // SELECT y el INSERT se podia colar otro telefono, y encima cualquiera con la llave
-  // publica podia abrir una anomalia a nombre de otro chofer. Aca sube lo que el
-  // chofer marco; QUE se abre y que se ignora por duplicado lo decide la base.
+  if(!cam || !fallas || !fallas.length) return Promise.resolve();
   var items = fallas.map(function(k){
     var lblEl = document.querySelector('#ci-'+k+' .cl-item-name');
     return { item:k, item_norm:anomNorm(k),
              label: lblEl ? lblEl.textContent.trim() : k.replace(/-/g,' '),
              critico: !!ANOM_CRITICOS[k] };
   });
-  return supabase.rpc('chofer_anomalias_abrir',{
-      p_cam:cam, p_items:items, p_obs:obs||'', p_quien:quien||'', p_fecha:hoy
-    }).then(function(r){
-      if(r && r.error) console.warn('anomalias abrir:', r.error.message);
-    }, function(){})
+  var payload = { p_cam:cam, p_items:items, p_obs:obs||'', p_quien:quien||'', p_fecha:hoy };
+  if(!supabase || !isOnline){ _anomEncolar('chofer_anomalias_abrir', payload); return Promise.resolve(); }
+  return supabase.rpc('chofer_anomalias_abrir', payload).then(function(r){
+      if(r && r.error){ console.warn('anomalias abrir:', r.error.message); _anomEncolar('chofer_anomalias_abrir', payload); }
+    }, function(){ _anomEncolar('chofer_anomalias_abrir', payload); })
     .then(function(){ anomCargar(); }, function(){ anomCargar(); });
 }
 
-// La OBSERVACIÓN EN TEXTO del chofer —y el hecho de que declare la unidad fuera de
-// circulación— también son fallas, aunque no haya marcado ningún ítem del checklist.
-//
-// Hasta hoy solo se abría anomalía si `fallas.length`. Lo de la B004 —«la unidad está
-// subiendo la temperatura», 09 y 10/08— vivió únicamente en `checklist.observaciones` y en
-// `km_data.nota_estado`, y NO figuró en ningún listado de pendientes: al dejar de sacarla de
-// circulación, la falla se habría quedado sin un solo lugar donde verse al día siguiente.
-// La convención ya existía en la tabla (item `observacion`, label «Observación del chofer»,
-// origen `chofer`); lo que faltaba era que alguien la escribiera.
-//
-// UNA SOLA abierta por unidad — el índice único parcial es (cam, item_norm) where abierta.
-// Si ya hay una, se REFRESCA con el texto nuevo en vez de perderse en el 23505.
-// Y `critico` solo SUBE: que mañana escriba una nota menor no baja una falla que ayer mandó
-// la unidad al taller. Eso lo cierra la oficina, no esta pantalla.
-// [[estado-unidad-lo-declara-una-persona]]
 function anomAbrirObservacion(texto, estadoCl, quien){
-  if(!supabase || !cam) return Promise.resolve();
-  // Por RPC. La regla —UNA sola abierta por unidad, se REFRESCA si ya hay, y `critico`
-  // solo SUBE— vive ahora en `chofer_anomalia_observacion`, del lado de la base.
-  // Estaba escrita aca, en un archivo que cualquiera puede leer y saltar.
-  return supabase.rpc('chofer_anomalia_observacion',{
-      p_cam:cam, p_texto:String(texto||''), p_estado:String(estadoCl||''),
-      p_quien:quien||'', p_fecha:hoy
-    }).then(function(r){
-      if(r && r.error) console.warn('anomalias observacion:', r.error.message);
-    }, function(){})
+  if(!cam) return Promise.resolve();
+  var payload = { p_cam:cam, p_texto:String(texto||''), p_estado:String(estadoCl||''), p_quien:quien||'', p_fecha:hoy };
+  if(!supabase || !isOnline){ _anomEncolar('chofer_anomalia_observacion', payload); return Promise.resolve(); }
+  return supabase.rpc('chofer_anomalia_observacion', payload).then(function(r){
+      if(r && r.error){ console.warn('anomalias observacion:', r.error.message); _anomEncolar('chofer_anomalia_observacion', payload); }
+    }, function(){ _anomEncolar('chofer_anomalia_observacion', payload); })
     .then(function(){ anomCargar(); }, function(){ anomCargar(); });
 }
 
@@ -3078,12 +3087,11 @@ function getSemanaISO(fecha){
 }
 
 function getLunesDeSemana(){
-  var now = new Date();
-  var day = now.getDay() || 7;
-  var lunes = new Date(now);
-  lunes.setDate(now.getDate() - (day - 1));
-  lunes.setHours(0,0,0,0);
-  return lunes.toISOString().slice(0,10);
+  var base = (typeof hoy==='string'&&hoy) ? hoy : _hoyVE();
+  var d = new Date(base + 'T12:00:00');
+  var day = d.getDay() || 7;
+  d.setDate(d.getDate() - (day - 1));
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
 }
 
 function cargarViajesLocal(){
@@ -3122,7 +3130,7 @@ function cargarViajesSupabase(){
     // es un viaje REAL hecho sin señal. Borrarlo sería perder trabajo del chofer — mucho peor que
     // el fantasma que se está arreglando.
     var enCola = {};
-    COLA_LOCAL.forEach(function(r){ if(r.cam===cam && r.fecha===hoy) enCola[r.viaje_num] = true; });
+    COLA_LOCAL.forEach(function(r){ if(r.cam===cam && r.fecha===hoy && (r.turno||'diurno')===CL_TURNO) enCola[r.viaje_num] = true; });
     Object.keys(VIAJES_HOY).forEach(function(k){
       if(VIAJES_HOY[k] && VIAJES_HOY[k].sincronizado === true && !enServidor[k] && !enCola[k]) delete VIAJES_HOY[k];
     });
@@ -3257,29 +3265,27 @@ function cargarColaLocal(){
 }
 
 function agregarACola(reg){
+  var tReg = reg.turno || 'diurno';
   var existe = COLA_LOCAL.some(function(r){
-    return r.cam===reg.cam && r.viaje_num===reg.viaje_num && r.fecha===reg.fecha;
+    return r.cam===reg.cam && r.viaje_num===reg.viaje_num && r.fecha===reg.fecha && (r.turno||'diurno')===tReg;
   });
   if(!existe){
+    reg.turno = tReg;
     COLA_LOCAL.push(reg);
     try{ localStorage.setItem('btg_cola_chofer', JSON.stringify(COLA_LOCAL)); }catch(e){}
-    idbPut('vj', reg.cam+'|'+reg.fecha+'|'+reg.viaje_num, reg);   // espejo para background sync
+    idbPut('vj', reg.cam+'|'+reg.fecha+'|'+tReg+'|'+reg.viaje_num, reg);   // espejo para background sync
     pedirBackgroundSync('sync-viajes');
   }
   actualizarBannerCola();
 }
 
 // Limpia un registro de la cola dejando SOLO las columnas reales de viajes_chofer y
-// garantizando chofer no-nulo. Esto rescata viajes viejos guardados con la forma vieja
-// (hora_registro/semana/año, o chofer vacío) que antes hacían fallar TODO el lote.
+// garantizando chofer no-nulo y turno preservado.
 function limpiarRegViaje(r){
   return {
     fecha: r.fecha,
     cam: r.cam,
-    // ⛔ ACÁ DECÍA `FLOTA_CHOFERES[r.cam] || 'CHOFER'`: a un viaje viejo sin chofer le PONÍA
-    //    el nombre horneado del camión. Eso no rescata un dato, lo INVENTA — y encima un
-    //    viaje de la cola puede ser de otro día y de otro chofer. [[norma-respaldo-que-inventa-un-dato]]
-    //    Ahora: lo que traiga la fila, y si no trae nada se DICE que no se sabe.
+    turno: r.turno || 'diurno',
     chofer: r.chofer || 'SIN IDENTIFICAR',
     viaje_num: r.viaje_num,
     hora: r.hora || r.hora_registro || '',
@@ -3302,14 +3308,14 @@ var COLA_INC = [];
 function cargarColaINC(){ try{ var s=localStorage.getItem('btg_cola_inc'); if(s) COLA_INC=_colaSana(JSON.parse(s)); }catch(e){ COLA_INC=[]; } }
 function persistColaINC(){ try{ if(COLA_INC.length) localStorage.setItem('btg_cola_inc',JSON.stringify(COLA_INC)); else localStorage.removeItem('btg_cola_inc'); }catch(e){} }
 function agregarChecklistCola(reg){
-  // FUSIONAR (no reemplazar): si ya hay un checklist en cola para este cam+fecha (p.ej. la SALIDA),
-  // la LLEGADA solo trae sus campos de entrada → Object.assign conserva los de salida (km/combustible/
-  // inspección). Antes se descartaba el registro anterior y la oficina perdía el km de salida del día.
-  var i = COLA_CL.findIndex(function(r){ return r.cam===reg.cam && r.fecha===reg.fecha; });
+  // FUSIONAR por cam+fecha+turno para que el nocturno nunca pise al diurno en cola.
+  var tReg = reg.turno || 'diurno';
+  reg.turno = tReg;
+  var i = COLA_CL.findIndex(function(r){ return r.cam===reg.cam && r.fecha===reg.fecha && (r.turno||'diurno')===tReg; });
   if(i>=0){ reg = Object.assign({}, COLA_CL[i], reg); COLA_CL[i] = reg; }
   else COLA_CL.push(reg);
   persistColaCL();
-  idbPut('cl', reg.cam+'|'+reg.fecha, reg);   // espejo para background sync
+  idbPut('cl', reg.cam+'|'+reg.fecha+'|'+tReg, reg);   // espejo para background sync
   pedirBackgroundSync('sync-checklist');
   actualizarBannerCola();
 }
@@ -3335,6 +3341,7 @@ function sincronizarCola(){
   try{ subirColaEntregas(); }catch(e){}
   try{ subirColaSurtidas(); }catch(e){}
   try{ cqSubirCola(); }catch(e){}          // la cuadrilla declarada sin señal
+  try{ _anomDrenarCola(); }catch(e){}      // anomalías del checklist reportadas sin señal
 
   // ── Viajes ──
   if(COLA_LOCAL.length){
@@ -3344,14 +3351,11 @@ function sincronizarCola(){
     var fall = [], rest = pend.length;
     pend.forEach(function(raw){
       var reg = limpiarRegViaje(raw);
+      var tReg = reg.turno || 'diurno';
       supabase.rpc('chofer_viaje_guardar', {p: reg})
       .then(function(res){
         if(res.error){ fall.push(raw); __ultErrSync = 'viaje '+reg.cam+'#'+reg.viaje_num+': '+(res.error.message||res.error.code||'error'); }
-        // El «✓ subido» se pone SOLO si la fila es de ESTE camión y de HOY. Antes se indexaba por
-        // número de viaje a secas: un viaje de AYER que subía hoy marcaba como subido el viaje de
-        // hoy con el mismo número, que podía seguir esperando. Con la reconciliación de arriba eso
-        // dejaría de ser cosmético — se borraría un viaje real del chofer.
-        else { if(!isOnline) actualizarConexion(true); if(reg.fecha===hoy && reg.cam===cam && VIAJES_HOY[reg.viaje_num]) VIAJES_HOY[reg.viaje_num].sincronizado = true; idbDel('vj', reg.cam+'|'+reg.fecha+'|'+reg.viaje_num); }
+        else { if(!isOnline) actualizarConexion(true); if(reg.fecha===hoy && reg.cam===cam && tReg===CL_TURNO && VIAJES_HOY[reg.viaje_num]) VIAJES_HOY[reg.viaje_num].sincronizado = true; idbDel('vj', reg.cam+'|'+reg.fecha+'|'+tReg+'|'+reg.viaje_num); idbDel('vj', reg.cam+'|'+reg.fecha+'|'+reg.viaje_num); }
       }, function(e){ fall.push(raw); __ultErrSync = 'viaje (red): '+((e&&e.message)||e); })
       .then(function(){
         if(--rest <= 0){
@@ -3370,11 +3374,13 @@ function sincronizarCola(){
     localStorage.removeItem('btg_cola_cl');
     var fallC = [], restC = pendC.length;
     pendC.forEach(function(reg){
+      var tRegC = reg.turno || 'diurno';
       supabase.rpc('chofer_checklist_guardar', {p: reg})
       .then(function(res){
         if(res.error){ fallC.push(reg); __ultErrSync = 'checklist '+reg.cam+': '+(res.error.message||res.error.code||'error'); }
         else {
           if(!isOnline) actualizarConexion(true);
+          idbDel('cl', reg.cam+'|'+reg.fecha+'|'+tRegC);
           idbDel('cl', reg.cam+'|'+reg.fecha);
           try{ if(typeof enviarNotificacionWA==='function') enviarNotificacionWA(reg); }catch(e){} // WA del checklist que no salió offline
           if(reg.estado_vehiculo){
@@ -4287,9 +4293,9 @@ var CL_MED_ONCONFLICT='vehiculo_id,fecha,momento';
 async function clGuardarMedicionCm(momento){
   var cmV=parseFloat(gv('cl-cm-'+momento));
   if(isNaN(cmV)||cmV<=0)return; // medición opcional
-  // Segundo candado: aunque se llegue por otro camino, un imposible NO entra a la base ni a la
-  // cola offline. Guardarlo en la cola sería peor: resucita días después sin nadie mirando.
-  if(clAlturaImposible(cmV)!==false){ console.warn('medicion cm rechazada: '+cmV+' cm no entra en el tanque'); return; }
+  // Segundo candado: rechazar solo lecturas físicamente imposibles (>260 cm); las sobre_el_tope ya confirmadas se guardan.
+  var _clsMed = (typeof clClaseDeLectura==='function') ? clClaseDeLectura(cmV) : null;
+  if(_clsMed && _clsMed.clase==='imposible'){ console.warn('medicion cm rechazada (imposible): '+cmV+' cm'); return; }
   var litros=clLitrosJac(cmV);
   var notaMed = 'Medición chofer ' + cam;
   if(momento === 'salida' && CL_ULTIMA_MEDICION && CL_ULTIMA_MEDICION.altura_cm != null){
@@ -4394,7 +4400,7 @@ async function _guardarChecklist(){
     var _cmSalRef = parseFloat(gv('cl-cm-salida'));
     if(!isNaN(_cmSalRef) && _cmVal > (_cmSalRef + 1.5)){
       var _subioL = Math.round(((clLitrosJac(_cmVal)||(_cmVal*9)) - (clLitrosJac(_cmSalRef)||(_cmSalRef*9))) * 10) / 10;
-      var _cantSurtidas = (typeof SURTIDAS_HOY !== 'undefined' && Array.isArray(SURTIDAS_HOY)) ? SURTIDAS_HOY.length : 0;
+      var _cantSurtidas = (typeof SUR_HOY !== 'undefined' && Array.isArray(SUR_HOY)) ? SUR_HOY.length : 0;
       if(_cantSurtidas === 0){
         var _pregLle = 'ℹ️ ATENCIÓN: El tanque marca más que al salir\n\n' +
           'Salió con ' + _cmSalRef.toFixed(1).replace('.0','') + ' cm y está marcando llegada con ' + _cmVal.toFixed(1).replace('.0','') + ' cm (+' + _subioL + ' L),\n' +
@@ -4510,9 +4516,9 @@ async function _guardarChecklist(){
     //    candado, y encima se ve igual que uno que aprobó.
     if(!CL_KM_PREV_OK && typeof supabase!=='undefined' && supabase){
       try{
-        var _rk2 = await supabase.from('km_data').select('km').eq('cam', cam).limit(1);
-        // Mismo criterio que arriba: cero filas NO es una referencia.
-        var _kmRef2 = (_rk2 && !_rk2.error && _rk2.data && _rk2.data[0]) ? (parseInt(_rk2.data[0].km)||0) : 0;
+        // Usar RPC SECURITY DEFINER (km_data directa está cerrada a anon por RLS).
+        var _rk2 = await supabase.rpc('chofer_unidad_km', { p_cam: cam });
+        var _kmRef2 = (_rk2 && !_rk2.error && _rk2.data != null) ? (parseInt(Array.isArray(_rk2.data)?(_rk2.data[0]&&_rk2.data[0].km):(_rk2.data.km!=null?_rk2.data.km:_rk2.data))||0) : 0;
         if(_kmRef2 > 0){ CL_KM_PREV = _kmRef2; CL_KM_PREV_OK = true; }
       }catch(e){}
     }
@@ -4620,7 +4626,8 @@ async function _guardarChecklist(){
     // llave pública. El id vuelve porque la pantalla lo necesita, no porque se abra la tabla.
     var res = await supabase.rpc('chofer_checklist_guardar', {p: registro});
     if(!res.error && res.data === null){
-      mostrarToast('El mecánico ya registró este checklist hoy — avísale a la oficina','warn');
+      if(btn){ btn.disabled=false; btn.textContent='Guardar'; }
+      mostrarToast('El mecánico ya registró este checklist hoy — avise a la oficina','warn');
       return;
     }
     if(!res.error && res.data) CL_ID_EXISTENTE = res.data;
@@ -4711,6 +4718,11 @@ async function _guardarChecklist(){
       // ⛔ ACA SE ABRE LA JORNADA. Desde este momento manda ella y no el calendario:
       //    si el chofer cruza la medianoche, su fecha y su turno NO se mueven.
       _jornAbrir(hoy, CL_TURNO);
+      setTimeout(renderChecklistModo, 800);
+    } else {
+      CL_MODO = 'cerrado';
+      try{localStorage.setItem('btg_cl_modo_'+cam+'_'+hoy+_tSuf(),'cerrado');}catch(e){}
+      _jornCerrar();
       setTimeout(renderChecklistModo, 800);
     }
   } else {
@@ -5053,7 +5065,8 @@ function mostrarToast(msg, tipo){
   el.textContent = msg;
   el.className = 'toast show' + (tipo==='error'?' error':tipo==='warn'?' warn':'');
   if(toastTimer) clearTimeout(toastTimer);
-  toastTimer = setTimeout(function(){ el.className='toast'; }, 3000);
+  var dur = (tipo==='error'||tipo==='warn') ? 6500 : 3000;
+  toastTimer = setTimeout(function(){ el.className='toast'; }, dur);
 }
 
 // ── PWA INSTALL ──

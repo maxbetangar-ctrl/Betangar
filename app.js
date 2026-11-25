@@ -1503,6 +1503,7 @@ function _iniciarSesionCore(){
     if(rolMod[SESION.rol]){
       sp(rolMod[SESION.rol]);
       poblarEmps(); // Solo necesitan empleados
+      procesarColaOffline(); // Drenar registros offline también para roles limitados
       return; // No ejecutar nada más para roles limitados
     }
     // Solo para roles completos (superadmin, admin, operador, rrhh)
@@ -1512,11 +1513,10 @@ function _iniciarSesionCore(){
     procesarColaOffline(); // Sincronizar registros offline
     guardarKmLunes();       // Guardar KM lunes + reporte JAC
     verificarAlertasServicio(); // Alertas servicio 5000km
-    renderWidgetFlota();    // Widget estado flota
+    renderWidgetFlota();    // Widget estado y viajes flota (una sola vez)
     cargarWidgetRutas();    // Widget rutas operativo
     renderDashKmServicio(); // Panel KM/Servicio por unidad (reemplaza el viejo Reporte JAC)
     cargarPanelChoferes();  // Panel viajes choferes
-    renderWidgetFlota();    // Widget viajes flota
     calcRanking&&calcRanking();
     // Banner verde de confirmación
     var bx=document.getElementById('db-status-banner');
@@ -5452,7 +5452,7 @@ async function _infCargar(d,h){
 async function renderInforme(){
   var el=g('inf-body'); if(!el)return;
   if(!(DB_READY&&supabase)){ el.innerHTML='<div class="card" style="color:var(--text3)">Conectá la base.</div>'; return; }
-  var hoy=new Date().toISOString().slice(0,10);
+  var hoy=(typeof fechaVE==='function'?fechaVE():new Date().toISOString().slice(0,10));
   if(g('inf-des')&&!gv('inf-des'))sv('inf-des','2026-03-23');
   if(g('inf-hta')&&!gv('inf-hta'))sv('inf-hta',hoy);
   var d=gv('inf-des')||'2026-03-23', h=gv('inf-hta')||hoy;
@@ -5882,7 +5882,7 @@ function llenadoRapido(v){
 async function renderLlenado(){
   var el=g('lle-body'); if(!el)return;
   if(!(DB_READY&&supabase)){ el.innerHTML='<div class="card" style="color:var(--text3)">Conectá la base.</div>'; return; }
-  var hoy=new Date().toISOString().slice(0,10);
+  var hoy=(typeof fechaVE==='function'?fechaVE():new Date().toISOString().slice(0,10));
   if(g('lle-des')&&!gv('lle-des'))sv('lle-des',LLE_PISO||_lleHace(60));
   if(g('lle-hta')&&!gv('lle-hta'))sv('lle-hta',hoy);
   var d=gv('lle-des')||LLE_PISO||_lleHace(60), h=gv('lle-hta')||hoy;
@@ -6365,7 +6365,7 @@ function _lleTile(lbl,val,col){
 }
 
 async function imprimirLlenado(){
-  var hoy=new Date().toISOString().slice(0,10);
+  var hoy=(typeof fechaVE==='function'?fechaVE():new Date().toISOString().slice(0,10));
   var d=gv('lle-des')||LLE_PISO||_lleHace(60), h=gv('lle-hta')||hoy;
   // ⛔ LA CABECERA Y LOS NÚMEROS TIENEN QUE SER DEL MISMO PERÍODO. Los `input[type=date]` disparan
   //    `change` al PERDER EL FOCO: si alguien escribe una fecha y hace clic directo en «Imprimir»,
@@ -7060,6 +7060,8 @@ function sp(id){
   try{
     if(id==='dashboard'){
     renderDash();
+    try{if(typeof cargarPanelChoferes==='function')cargarPanelChoferes();}catch(e){}
+    try{if(typeof renderWidgetFlota==='function')renderWidgetFlota();}catch(e){}
     cargarSurtidas().then(renderSurtidasHoy).catch(function(){});
     setTimeout(verificarBNCvsAbonos,1000);
     // Esperar que Supabase esté listo antes de notificar BNC
@@ -7225,21 +7227,34 @@ async function cargarDatosMinimos(rol){
     if(rol==='operativo'){
       var hoy=fechaVE();
       var rutasRes=await supabase.from('rutas_estado').select('*').eq('fecha',hoy);
-      if(rutasRes.data){
+      if(rutasRes&&rutasRes.error)console.error('[operativo] rutas_estado:',rutasRes.error.message);
+      else if(rutasRes&&rutasRes.data){
+        RUTAS_HOY={};
         rutasRes.data.forEach(function(r){RUTAS_HOY[r.parroquia]=r;});
       }
       try{
+        var ucRes=await supabase.from('unidad_config').select('*');
+        if(ucRes&&ucRes.error)console.error('[operativo] unidad_config:',ucRes.error.message);
+        else if(ucRes&&Array.isArray(ucRes.data)){
+          ucRes.data.forEach(function(u){if(u&&u.cam)UNIDAD_CONFIG[u.cam]=u;});
+        }
+      }catch(_e){console.error('[operativo] unidad_config exc:',_e&&_e.message);}
+      try{
         var vjRes=await supabase.from('viajes_chofer').select('*').gte('fecha',_acMenos(7)).order('fecha',{ascending:false});
-        if(vjRes.data&&vjRes.data.length)VIAJES_CHOFER=vjRes.data;
-      }catch(_e){}
+        if(vjRes&&vjRes.error)console.error('[operativo] viajes_chofer:',vjRes.error.message);
+        else if(vjRes&&Array.isArray(vjRes.data))VIAJES_CHOFER=vjRes.data;
+      }catch(_e){console.error('[operativo] viajes_chofer exc:',_e&&_e.message);}
       try{
         var clRes=await supabase.from('checklist').select('*').gte('fecha',_acMenos(7)).order('fecha',{ascending:false});
-        if(clRes.data&&clRes.data.length)CHECKLIST_DATA=clRes.data;
-      }catch(_e){}
+        if(clRes&&clRes.error)console.error('[operativo] checklist:',clRes.error.message);
+        else if(clRes&&Array.isArray(clRes.data))CHECKLIST_DATA=clRes.data;
+      }catch(_e){console.error('[operativo] checklist exc:',_e&&_e.message);}
       try{
-        var surRes=await supabase.from('surtidas').select('*').gte('fecha',_acMenos(3)).order('fecha',{ascending:false});
-        if(surRes.data&&surRes.data.length)SURTIDAS=surRes.data;
-      }catch(_e){}
+        // 42 días de surtidas para que _devDerivarCosto() pueda costear traslados Camión→Galpón sin dejar costo_usd en null.
+        var surRes=await supabase.from('surtidas').select('*').gte('fecha',_acMenos(42)).order('fecha',{ascending:false});
+        if(surRes&&surRes.error)console.error('[operativo] surtidas:',surRes.error.message);
+        else if(surRes&&Array.isArray(surRes.data))SURTIDAS=surRes.data;
+      }catch(_e){console.error('[operativo] surtidas exc:',_e&&_e.message);}
     }
 
     console.log('Carga minima OK para rol: '+rol);
@@ -7250,12 +7265,10 @@ async function cargarDatosMinimos(rol){
 
 async function cargarDatosDB(){
   if(!DB_READY){
-    // Intentar reconectar una vez más
+    // Reconectar con initSupabaseClient() para conservar persistSession y storageKey de auth.
     try{
-      var cf=window.supabase&&window.supabase.createClient?window.supabase.createClient:
-             window.createClient?window.createClient:null;
-      if(cf){supabase=cf(SUPA_URL,SUPA_KEY);DB_READY=true;console.log('Reconexión OK');}
-    }catch(e3){}
+      if(typeof initSupabaseClient==='function') initSupabaseClient();
+    }catch(e3){ console.error('Reconexión cargarDatosDB:',e3&&e3.message); }
   }
   if(!DB_READY){
     // Cargar desde localStorage como respaldo
@@ -7357,6 +7370,32 @@ async function cargarDatosDB(){
     // A1: gastos fijos desde la BD (fuente de verdad; ya no se pierden al recargar). Si la consulta
     // falla (RLS/red), NO se toca el array → conserva el seed en memoria (no borra la vista).
     if(gf2&&!gf2.error&&Array.isArray(gf2.data))GASTOS_FIJOS=gf2.data.map(function(x){return{id:x.id,nombre:x.nombre,monto:parseFloat(x.monto)||0,tasa:x.tasa,dia:parseInt(x.dia)||0,activo:x.activo!==false,pagos:[]};});
+    // Cargar TARIFAS ANTES de mapear REGS para que planillas sin monto (m vacío/0)
+    // se valoren con la tarifa real de la BD y no con la semilla.
+    try{
+      var _ct=await supabase.from('configuracion').select('clave,valor').in('clave',['tarifa_contrato_ton','tarifa_pronto_pago_ton','tarifa_toneladas_viaje']);
+      if(_ct&&!_ct.error&&Array.isArray(_ct.data)){
+        var _cm={}; _ct.data.forEach(function(x){_cm[x.clave]=parseFloat(x.valor);});
+        var _tons=(_cm.tarifa_toneladas_viaje>0)?_cm.tarifa_toneladas_viaje:(cfg.tonsViaje||8);
+        if(_cm.tarifa_contrato_ton>0){
+          cfg.tonsViaje=_tons;
+          cfg.tarifaTon=_cm.tarifa_contrato_ton;
+          cfg.tarifa=Math.round(_cm.tarifa_contrato_ton*_tons*100)/100;   // la de CONTRATO manda
+          try{localStorage.removeItem('betangar_cfg_tarifa');}catch(e){}
+        }
+        if(_cm.tarifa_pronto_pago_ton>0){
+          cfg.tarifaProntoPagoTon=_cm.tarifa_pronto_pago_ton;
+          cfg.tarifaProntoPago=Math.round(_cm.tarifa_pronto_pago_ton*_tons*100)/100;
+        }
+      }
+      var _th=await supabase.from('tarifas_contrato').select('desde,usd_por_ton,tons_por_viaje').order('desde',{ascending:false});
+      if(_th&&!_th.error&&Array.isArray(_th.data)&&_th.data.length){
+        TARIFAS=_th.data.map(function(x){
+          return {desde:String(x.desde).slice(0,10),
+                  viaje:Math.round(Number(x.usd_por_ton)*(Number(x.tons_por_viaje)||8)*100)/100};
+        });
+      }
+    }catch(e){console.log('tarifas load:',e&&e.message);}
     // PLANILLAS
     if(p.data&&p.data.length)REGS=p.data.map(function(r){
       var d=parseInt(r.d)||0,n=parseInt(r.n)||0;
@@ -7416,44 +7455,7 @@ async function cargarDatosDB(){
         DATOS_CARGA.fallos.push('la base le da el rol «'+_rolBD+'» y la app usa «'+SESION.rol+'» — cierre sesión y vuelva a entrar');
       }
     }catch(e){}
-    // ⛔ LA TARIFA DEL VIAJE SALE DE LA BASE, NO DEL NAVEGADOR DE CADA UNO.
-    //
-    // 🔴 26/10/2026. Era `cfg.tarifa` en localStorage, así que el valor que quedaba grabado en
-    //    una planilla dependía de QUIÉN la cargaba. Resultado medido: 6 días de octubre con
-    //    DOS tarifas a la vez, y del 19 al 22 «volvió» a la vieja porque la cargó otra
-    //    persona. Se corrigieron 93 planillas (migrations/descuento_pronto_pago_2026-10-26.sql).
-    //    Y el 261,20 del abono 000651 entró por acá: `calcMontoAbono()` multiplica por
-    //    `cfg.tarifa`, y quien registró ese pago tenía la tarifa cambiada en su navegador.
-    //
-    // La tarifa se guarda POR TONELADA porque así se negocia el contrato (el viaje son 8 t).
-    // TARIFA_PRONTO_PAGO es la de la concesión: NO se usa para valorar viajes, solo cuando se
-    // marca un abono como premiado. [[norma-un-valor-derivado-depende-de-la-version-de-su-regla]]
-    try{
-      var _ct=await supabase.from('configuracion').select('clave,valor').in('clave',['tarifa_contrato_ton','tarifa_pronto_pago_ton','tarifa_toneladas_viaje']);
-      if(_ct&&!_ct.error&&Array.isArray(_ct.data)){
-        var _cm={}; _ct.data.forEach(function(x){_cm[x.clave]=parseFloat(x.valor);});
-        var _tons=(_cm.tarifa_toneladas_viaje>0)?_cm.tarifa_toneladas_viaje:(cfg.tonsViaje||8);
-        if(_cm.tarifa_contrato_ton>0){
-          cfg.tonsViaje=_tons;
-          cfg.tarifaTon=_cm.tarifa_contrato_ton;
-          cfg.tarifa=Math.round(_cm.tarifa_contrato_ton*_tons*100)/100;   // la de CONTRATO manda
-          // Se deja de escribir la tarifa en localStorage: era la vía por la que se colaba.
-          try{localStorage.removeItem('betangar_cfg_tarifa');}catch(e){}
-        }
-        if(_cm.tarifa_pronto_pago_ton>0){
-          cfg.tarifaProntoPagoTon=_cm.tarifa_pronto_pago_ton;
-          cfg.tarifaProntoPago=Math.round(_cm.tarifa_pronto_pago_ton*_tons*100)/100;
-        }
-      }
-      // El HISTORIAL de tarifas, que es lo que de verdad valora un viaje.
-      var _th=await supabase.from('tarifas_contrato').select('desde,usd_por_ton,tons_por_viaje').order('desde',{ascending:false});
-      if(_th&&!_th.error&&Array.isArray(_th.data)&&_th.data.length){
-        TARIFAS=_th.data.map(function(x){
-          return {desde:String(x.desde).slice(0,10),
-                  viaje:Math.round(Number(x.usd_por_ton)*(Number(x.tons_por_viaje)||8)*100)/100};
-        });
-      }
-    }catch(e){console.log('tarifas load:',e&&e.message);}
+    // TARIFAS ya se cargaron arriba antes de mapear REGS.
     DATOS_CARGA.hecha=true;
     // Que no haya que adivinarlo: si la sesión perdió el rol, se dice con todas las letras.
     if(DATOS_CARGA.sinRol){
@@ -7469,7 +7471,7 @@ async function cargarDatosDB(){
     // Cargar los abonos PROTEGIDOS (no los pisa el Excel) por núcleo de dígitos.
     if(!a.error&&Array.isArray(a.data))ABONOS_PROTEGIDOS=new Set(a.data.filter(function(x){return x.protegido;}).map(function(x){return _factCore(x.fact);}));
     // EMPLEADOS
-    if(e.data&&e.data.length)EMPLEADOS=e.data.map(function(x){return{id:x.id,nombre:x.nombre,cargo:x.cargo,unidad:x.unidad||'',cedula:x.cedula||'',fnac:x.fnac||'',banco:x.banco||'',tcuenta:x.tcuenta||'',ncuenta:x.ncuenta||'',foto:x.foto_url||'',activo:x.activo!==false,tipoAy:x.tipo_ay||'',email:x.email||'',tel:x.tel||'',whatsapp:x.whatsapp||'',wa_apikey:x.wa_apikey||'',rif:x.rif||'',fingreso:x.fingreso||'',imau:x.imau||false,multicargo:x.multicargo===true,asisteSiempre:x.asiste_siempre===true};});
+    if(e.data&&e.data.length)EMPLEADOS=e.data.map(function(x){return{id:x.id,nombre:x.nombre,cargo:x.cargo,unidad:x.unidad||'',cedula:x.cedula||'',fnac:x.fnac||'',banco:x.banco||'',tcuenta:x.tcuenta||'',ncuenta:x.ncuenta||'',foto:x.foto_url||'',activo:x.activo!==false,tipoAy:x.tipo_ay||'',email:x.email||'',tel:x.tel||'',whatsapp:x.whatsapp||'',wa_apikey:x.wa_apikey||'',rif:x.rif||'',fingreso:x.fingreso||'',fegreso:x.fegreso||'',imau:x.imau||false,multicargo:x.multicargo===true,asisteSiempre:x.asiste_siempre===true};});
     // Las fotos del bucket privado se firman una vez, acá. Ver `_firmarFotos`.
     try{ _firmarFotos(EMPLEADOS,'foto','asistencia'); }catch(_e){}
     // GASOIL
@@ -7538,7 +7540,7 @@ async function cargarDatosDB(){
     try{ await cargarFichajesAsistencia(true); }catch(e){}
     // DOCUMENTOS y METAS: persistidos en configuracion (JSON)
     try{
-      var _dm=await supabase.from('configuracion').select('clave,valor').in('clave',['docs_cam','docs_emp','metas_data','nom_adm']);
+      var _dm=await supabase.from('configuracion').select('clave,valor').in('clave',['docs_cam','docs_emp','metas_data','nom_adm','periodos_cerrados']);
       if(_dm&&_dm.data)_dm.data.forEach(function(row){
         try{var v=JSON.parse(row.valor);
           if(row.clave==='docs_cam')DOCS_CAM=v||{};
@@ -7714,10 +7716,15 @@ function _escribiendo(){var ae=document.activeElement;return ae && /^(INPUT|TEXT
 // sentía lento. NO corre si estás escribiendo.
 async function refrescarVivoLiviano(){
   if(!DB_READY||!supabase||_escribiendo())return;
-  try{ if(typeof renderWidgetFlota==='function') renderWidgetFlota(); }catch(e){}   // viajes + checklist (en vivo)
+  var dashEl=document.getElementById('p-dashboard');
+  var dashVis=!!(dashEl&&dashEl.classList&&dashEl.classList.contains('active'));
+  if(dashVis){
+    try{ if(typeof renderWidgetFlota==='function') renderWidgetFlota(); }catch(e){}
+    try{ if(typeof cargarPanelChoferes==='function') cargarPanelChoferes(); }catch(e){}
+  }
   try{
     var km=await supabase.from('km_data').select('cam,estado,km');                  // estado del camión (chofer/mecánico)
-    if(km&&km.data){ km.data.forEach(function(x){ if(!KM_DATA[x.cam])KM_DATA[x.cam]={mant:[]}; if(x.km!=null)KM_DATA[x.cam].km=parseFloat(x.km)||0; if(x.estado)KM_DATA[x.cam].estado=x.estado; }); if(typeof renderFlotaDash==='function')renderFlotaDash(); }
+    if(km&&km.data){ km.data.forEach(function(x){ if(!KM_DATA[x.cam])KM_DATA[x.cam]={mant:[]}; if(x.km!=null)KM_DATA[x.cam].km=parseFloat(x.km)||0; if(x.estado)KM_DATA[x.cam].estado=x.estado; }); if(dashVis&&typeof renderFlotaDash==='function')renderFlotaDash(); }
   }catch(e){}
 }
 try{setInterval(refrescarVivoLiviano,45000);}catch(e){}
@@ -7725,10 +7732,14 @@ try{setInterval(refrescarVivoLiviano,45000);}catch(e){}
 // cambia con menos frecuencia). Paralelo, no bloquea el liviano.
 async function refrescarPesado(){
   if(!DB_READY||!supabase||_escribiendo())return;
-  try{ await cargarDatosDB(); }catch(e){}
-  // El gasto REAL sale del banco. Se pide una vez al cargar y se vuelve a dibujar el dashboard
-  // cuando llega: si se esperara antes de mostrar nada, la pantalla quedaría en blanco cuando el
-  // banco tarda. Primero se ve algo, después se corrige — y el subtítulo dice qué se está viendo.
+  try{
+    if(typeof cargarDatosPorRol==='function') await cargarDatosPorRol();
+    else await cargarDatosDB();
+  }catch(e){}
+  // Roles limitados no tienen dashboard financiero ni egresos de banco.
+  var _rol=(typeof SESION!=='undefined'&&SESION)?SESION.rol:'';
+  var _esLim=['vigilante','mecanico','operativo','asistencia'].indexOf(_rol)>=0;
+  if(_esLim)return;
   try{ if(typeof renderDash==='function') renderDash(); }catch(e){}
   try{
     cargarEgresosBanco().then(function(r){
@@ -7740,11 +7751,18 @@ async function refrescarPesado(){
   try{ if(typeof renderBncDashResumen==='function') renderBncDashResumen(true); }catch(e){}
 }
 try{setInterval(refrescarPesado,180000);}catch(e){}
+function _esErrorRed(err){
+  if(!err)return false;
+  if(typeof navigator!=='undefined'&&navigator.onLine===false)return true;
+  if(err.status===0)return true;
+  var msg=String((err&&err.message)||err||'');
+  return /failed to fetch|networkerror|load failed|network request failed|fetch failed|err_network|err_internet|timed? ?out|abort/i.test(msg);
+}
 function guardarColaLS(){try{localStorage.setItem('betangar_cola_off',JSON.stringify(COLA_OFFLINE));}catch(e){}}
 function guardarFallidosLS(){try{localStorage.setItem('betangar_cola_fallidos',JSON.stringify(COLA_FALLIDOS));}catch(e){}}
 // Manda un registro al dead-letter (no se pierde; queda visible para revisar).
 function _aFallidos(item,motivo){
-  COLA_FALLIDOS.push({t:item.t,d:item.d,motivo:motivo||'',cuando:(typeof fechaVE==='function'?fechaVE():'')});
+  COLA_FALLIDOS.push({t:item.t,d:item.d,oc:item.oc||_COLA_ONCONFLICT[item.t]||null,motivo:motivo||'',cuando:(typeof fechaVE==='function'?fechaVE():'')});
   if(COLA_FALLIDOS.length>200)COLA_FALLIDOS=COLA_FALLIDOS.slice(-200); // tope sano
   guardarFallidosLS();
 }
@@ -7772,8 +7790,8 @@ function verFallidos(){
 }
 function reintentarFallidos(){
   if(!COLA_FALLIDOS.length)return;
-  // Devolverlos a la cola normal y procesar (les reinicia los intentos).
-  COLA_FALLIDOS.forEach(function(f){COLA_OFFLINE.push({t:f.t,d:f.d,_try:0});});
+  // Devolverlos a la cola normal conservando onConflict (si no, upsert se vuelve insert y choca con UNIQUE).
+  COLA_FALLIDOS.forEach(function(f){COLA_OFFLINE.push({t:f.t,d:f.d,_try:0,oc:f.oc||_COLA_ONCONFLICT[f.t]||null});});
   COLA_FALLIDOS=[];guardarFallidosLS();guardarColaLS();actualizarBannerCola();
   procesarColaOffline();
 }
@@ -7785,7 +7803,7 @@ function descartarFallidos(){
 }
 // Clave de conflicto por tabla con UNIQUE → la cola debe reintentar como UPSERT, no INSERT plano
 // (si no, una planilla/abono/contrato hecho offline choca con su UNIQUE y cae al dead-letter).
-var _COLA_ONCONFLICT={planillas:'p',abonos:'fact',contratos:'id',prestamos:'id',multas:'id',empleados:'id',pagos_alcaldia:'id',gastos_variables:'id',gastos_fijos:'id',bnc_movimientos:'id',tipos_unidad:'id',unidades:'id',operaciones:'id',nomina_extras:'id',llantas:'id',inv_movimientos:'id',salidas_tanque:'id',trasvases_unidad:'id',devoluciones_tanque:'id',rutas_estado:'fecha,parroquia',km_data:'cam',unidad_config:'cam'};
+var _COLA_ONCONFLICT={planillas:'p',abonos:'fact,ref',contratos:'id',prestamos:'id',multas:'id',empleados:'id',pagos_alcaldia:'id',gastos_variables:'id',gastos_fijos:'id',bnc_movimientos:'id',tipos_unidad:'id',unidades:'id',operaciones:'id',nomina_extras:'id',llantas:'id',inv_movimientos:'id',salidas_tanque:'id',trasvases_unidad:'id',devoluciones_tanque:'id',rutas_estado:'fecha,parroquia',km_data:'cam',unidad_config:'cam'};
 function guardarEnCola(t,d,oc){
   COLA_OFFLINE.push({t:t,d:d,_try:0,oc:oc||_COLA_ONCONFLICT[t]||null});
   guardarColaLS();
@@ -7839,13 +7857,21 @@ async function procesarColaOffline(){
         }
       }
       // UPSERT si la tabla tiene clave de conflicto (no perder/duplicar al reintentar); si no, INSERT.
-      var r=item.oc?await supabase.from(item.t).upsert([item.d],{onConflict:item.oc}):await supabase.from(item.t).insert([item.d]);
+      var _oc=item.oc||_COLA_ONCONFLICT[item.t]||null;
+      var r=_oc?await supabase.from(item.t).upsert([item.d],{onConflict:_oc}):await supabase.from(item.t).insert([item.d]);
       if(r.error){
-        // El servidor respondió con error (ej. duplicado/constraint): NO reintentar infinito →
-        // al DEAD-LETTER (visible), no se pierde en silencio.
-        console.log('[Cola offline] a revisar por error del servidor:',r.error.message);
-        _aFallidos(item,'error del servidor: '+r.error.message);
-        if(typeof mostrarToast==='function')mostrarToast('Un registro ('+item.t+') no se pudo guardar; quedó en "revisar".','error');
+        if(_esErrorRed(r.error)){
+          // En supabase-js@2 los cortes de red vuelven en r.error sin lanzar excepción.
+          item._try=(item._try||0)+1;
+          item.oc=_oc;
+          if(item._try<3){COLA_OFFLINE.push(item);}
+          else{ console.log('[Cola offline] a revisar tras 3 intentos (red):',item.t); _aFallidos(item,'sin conexión tras 3 intentos'); }
+        } else {
+          // El servidor respondió con error real (ej. duplicado/constraint): al DEAD-LETTER (visible).
+          console.log('[Cola offline] a revisar por error del servidor:',r.error.message);
+          _aFallidos(item,'error del servidor: '+r.error.message);
+          if(typeof mostrarToast==='function')mostrarToast('Un registro ('+item.t+') no se pudo guardar; quedó en "revisar".','error');
+        }
       } else {
         console.log('[Cola offline] Sincronizado:',item.t);
       }
@@ -7853,6 +7879,7 @@ async function procesarColaOffline(){
       // Falla de red real (sin respuesta): reintentar, pero tras 3 intentos al DEAD-LETTER
       // (visible) para que la cola nunca quede atascada y nada se pierda en silencio.
       item._try=(item._try||0)+1;
+      item.oc=item.oc||_COLA_ONCONFLICT[item.t]||null;
       if(item._try<3){COLA_OFFLINE.push(item);}
       else{ console.log('[Cola offline] a revisar tras 3 intentos:',item.t); _aFallidos(item,'sin conexión tras 3 intentos'); }
     }
@@ -7868,6 +7895,11 @@ async function dbIn(t,d){
   try{
     var res=await supabase.from(t).insert(d).select();
     if(res.error){
+      if(_esErrorRed(res.error)){
+        guardarEnCola(t,d);
+        if(typeof mostrarToast==='function')mostrarToast('Sin conexión: "'+t+'" quedó en cola offline.','error');
+        return null;
+      }
       // El servidor rechazó (duplicado/RLS/validación): NO es falta de internet → no encolar.
       if(typeof mostrarToast==='function')mostrarToast('No se pudo guardar ('+t+'): '+res.error.message,'error');
       return null;
@@ -7880,7 +7912,27 @@ async function dbIn(t,d){
     return null;
   }
 }
-async function dbUp(t,d,c,v){if(!DB_READY||DEMO_MODE)return null;try{var res=await supabase.from(t).upsert(d,{onConflict:c}).select();if(res.error){if(typeof mostrarToast==='function')mostrarToast('No se pudo guardar ('+t+'): '+res.error.message,'error');return null;}return res.data;}catch(e){if(typeof mostrarToast==='function')mostrarToast('Error de conexión al guardar '+t,'error');return null;}}
+async function dbUp(t,d,c,v){
+  if(DEMO_MODE)return null;
+  if(!DB_READY||!supabase){guardarEnCola(t,d,c);if(typeof mostrarToast==='function')mostrarToast('Sin conexión: "'+t+'" quedó en cola offline.','error');return null;}
+  try{
+    var res=await supabase.from(t).upsert(d,{onConflict:c}).select();
+    if(res.error){
+      if(_esErrorRed(res.error)){
+        guardarEnCola(t,d,c);
+        if(typeof mostrarToast==='function')mostrarToast('Sin conexión: "'+t+'" quedó en cola offline.','error');
+        return null;
+      }
+      if(typeof mostrarToast==='function')mostrarToast('No se pudo guardar ('+t+'): '+res.error.message,'error');
+      return null;
+    }
+    return res.data;
+  }catch(e){
+    guardarEnCola(t,d,c);
+    if(typeof mostrarToast==='function')mostrarToast('Sin conexión: "'+t+'" quedó en cola offline.','error');
+    return null;
+  }
+}
 // (2026-07-25) Se quitó `dbDel(t,c,v)`: borraba cualquier tabla sin pasar por el token y no lo
 // llamaba nadie. Un ayudante así vuelve a colarse solo. Para borrar: solicitarToken(...,{op:'del'}).
 
@@ -7925,6 +7977,11 @@ async function guardar(tabla, filas, opts){
     var q=opts.onConflict?supabase.from(tabla).upsert(arr,{onConflict:opts.onConflict}):supabase.from(tabla).insert(arr);
     var res=await q.select();
     if(res.error){
+      if(_esErrorRed(res.error)){
+        arr.forEach(function(f){if(typeof guardarEnCola==='function')guardarEnCola(tabla,f,opts.onConflict);});
+        if(typeof mostrarToast==='function')mostrarToast('Sin conexión: "'+tabla+'" quedó en cola offline','error');
+        return {ok:false,encolado:true,error:res.error};
+      }
       if(typeof mostrarToast==='function')mostrarToast('No se pudo guardar ('+tabla+'): '+res.error.message,'error');
       return {ok:false,error:res.error};
     }
@@ -8111,7 +8168,7 @@ function mostrarModalTasaManual(tipo, callback){
 async function _persistirTasasManual(){
   try{
     if(!(DB_READY&&supabase))return;
-    var hoy=new Date().toISOString().slice(0,10);
+    var hoy=(typeof fechaVE==='function'?fechaVE():new Date().toISOString().slice(0,10));
     await supabase.from('configuracion').upsert([{clave:'tasas_bcv',valor:JSON.stringify({bcvDolar:TASAS.bcvDolar,bcvEuro:TASAS.bcvEuro,binance:TASAS.binance,fecha:hoy,fuente:'manual'})}],{onConflict:'clave',ignoreDuplicates:false});
     await supabase.from('tasas_diarias').upsert([{fecha:hoy,bcv_dolar:TASAS.bcvDolar,bcv_euro:TASAS.bcvEuro,binance:TASAS.binance||null,fuente:'manual'}],{onConflict:'fecha'});
     if(typeof TASAS_DIARIAS!=='undefined')TASAS_DIARIAS[hoy]={dolar:TASAS.bcvDolar,euro:TASAS.bcvEuro,binance:TASAS.binance,fuente:'manual'};
@@ -8255,10 +8312,17 @@ function proxServicio(km,cam){
 // (lo llena el chofer a diario) y un valor viejo o malo en la tabla no lo deja pegado (odómetro no baja).
 function kmActualCam(cam){
   var d=KM_DATA[cam]||{};
-  var v=Math.max(parseFloat(d.km)||0, parseFloat(d.km_entrada_ayer)||0);
-  (typeof CHECKLIST_DATA!=='undefined'?CHECKLIST_DATA:[]).forEach(function(c){if(c&&c.cam===cam){var k=parseFloat(c.km_salida)||0;if(k>v)v=k;}});
+  var _sano=function(x){var n=parseFloat(x)||0;return (n>0&&n<10000000)?n:0;};
+  var v=Math.max(_sano(d.km), _sano(d.km_entrada_ayer));
+  (typeof CHECKLIST_DATA!=='undefined'?CHECKLIST_DATA:[]).forEach(function(c){
+    if(c&&c.cam===cam){
+      var ks=_sano(c.km_salida), ke=_sano(c.km_entrada);
+      if(ks>v)v=ks;
+      if(ke>v)v=ke;
+    }
+  });
   // fallback: el km más alto en las planillas (col S) por si el chofer aún no cargó — el odómetro no baja
-  (typeof REGS!=='undefined'?REGS:[]).forEach(function(r){if(r&&r.cam===cam){var k=parseFloat(r.km)||0;if(k>0&&k<10000000&&k>v)v=k;}});
+  (typeof REGS!=='undefined'?REGS:[]).forEach(function(r){if(r&&r.cam===cam){var k=_sano(r.km);if(k>v)v=k;}});
   return v;
 }
 // Días entre dos FECHAS (no entre dos instantes). Antes esto era
@@ -8454,12 +8518,45 @@ function poblarEmps(){
   // con la MISMA lista que muestra la tabla. Ver _cpUserPoblar().
 }
 
+function _fmtMesFecha(f){
+  if(!f||String(f).length<7)return '';
+  var p=String(f).slice(0,7).split('-');
+  var mi=(parseInt(p[1],10)||0)-1;
+  var ms=['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+  return (mi>=0&&mi<12)?(ms[mi]+'-'+String(p[0]).slice(-2)):String(f).slice(0,7);
+}
+function poblarMesesHist(){
+  var sel=g('hf-mes'); if(!sel)return;
+  var cur=sel.value, set={};
+  var nomL=['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+  var ms=['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+  (REGS||[]).forEach(function(r){ if(r&&r.mes)set[r.mes]=1; });
+  var hoyM=_fmtMesFecha(typeof fechaVE==='function'?fechaVE():new Date().toISOString().slice(0,10));
+  if(hoyM)set[hoyM]=1;
+  var lista=Object.keys(set).sort(function(a,b){
+    var pa=a.split('-'), pb=b.split('-');
+    var ya=2000+(parseInt(pa[1],10)||0), yb=2000+(parseInt(pb[1],10)||0);
+    if(ya!==yb)return ya-yb;
+    return ms.indexOf(pa[0])-ms.indexOf(pb[0]);
+  });
+  if(!lista.length)return;
+  sel.innerHTML='<option value="">Todos</option>'+lista.map(function(k){
+    var p=k.split('-'), mi=ms.indexOf(p[0]);
+    var lbl=(mi>=0?(nomL[mi]+' 20'+p[1]):k);
+    return '<option value="'+k+'"'+(cur===k?' selected':'')+'>'+lbl+'</option>';
+  }).join('');
+}
 function poblarSems(){
+  poblarMesesHist();
   ['rr-sem','hf-sem','nm-sem'].forEach(function(id){
     var sel=g(id);if(!sel)return;
+    if(id==='hf-sem'&&gv('hf-mes')&&typeof _llenarSelectSemanas==='function'){
+      _llenarSelectSemanas('hf-sem',gv('hf-mes'));
+      return;
+    }
     var cur=sel.value;
     sel.innerHTML='<option value="">Todas</option>';
-    ['Semana 1','Semana 2','Semana 3','Semana 4','Semana 5'].forEach(function(s){sel.innerHTML+='<option'+(cur===s?' selected':'')+'>'+s+'</option>';});
+    ['Semana 1','Semana 2','Semana 3','Semana 4','Semana 5','Semana 6'].forEach(function(s){sel.innerHTML+='<option'+(cur===s?' selected':'')+'>'+s+'</option>';});
   });
 }
 // Selector de semana de NÓMINA anotado con las fechas y el SEM-N (según el mes elegido), para
@@ -8710,30 +8807,16 @@ function _renderDashCuerpo(){
   try{actualizarUltimaPlanilla();}catch(e){}
   g('s-viajes-sub').textContent=_sdTop||ultSemTxt;
   g('s-ejec').textContent=_sdTop?'—':('$'+totalM.toLocaleString());
-  if(g('s-ejec-sub'))g('s-ejec-sub').textContent=ultF?('📅 Cargado al '+formatFecha(ultF)):('@ $'+tarifaDe(new Date().toISOString().slice(0,10)).toFixed(2)+'/viaje (vigente; $316,88 hasta el 04/10)');
-  // ⛔ CADA TARJETA IMPRIME SU PROPIO PORCENTAJE. La barra s-pbar mide cobrado/ejecutado y
-  // estaba dentro de la tarjeta "Por Cobrar" (app.html): una barra SIN RÓTULO hereda el
-  // significado de la tarjeta que la contiene, así que al 42% de cobrado la tarjeta roja se
-  // leía "42% por cobrar" — y de ahí "58% cobrado", exactamente al revés. La barra se mudó a
-  // "Cobrado" y ahora ADEMÁS cada sub dice su número: una barra muda vuelve a mentir en cuanto
-  // alguien la mueva de caja.
-  // ⚠️ Y el sub de "Por Cobrar" dice SIN FACTURAR, que es lo que mide (ejecutado − facturado).
-  // Lo facturado y no depositado por la Alcaldía es otra cosa y es mínimo — ver la pestaña
-  // Cobranza, que concilia factura por factura.
-  var _esRRHH=!!(SESION&&SESION.rol==='rrhh');
+  if(g('s-ejec-sub'))g('s-ejec-sub').textContent=ultF?('📅 Cargado al '+formatFecha(ultF)):('@ $'+tarifaDe(typeof fechaVE==='function'?fechaVE():new Date().toISOString().slice(0,10)).toFixed(2)+'/viaje (vigente; $316,88 hasta el 04/10)');
+  var _puedeFin=(typeof misPermisos==='function')?(misPermisos().indexOf('financiero')>=0):!(SESION&&SESION.rol==='rrhh');
+  var _esRRHH=!_puedeFin;
   if(_esRRHH){
-    // El 'Restringido' de s-cobrado-sub lo PISABA la línea siguiente, que escribía los viajes
-    // cobrados siempre: la restricción era texto muerto. Y s-pbar se pintaba igual para RRHH —
-    // un número restringido también se filtra DIBUJADO.
     if(g('s-cobrado'))g('s-cobrado').textContent='—';
     if(g('s-cobrado-sub'))g('s-cobrado-sub').textContent='Restringido';
     if(g('s-porcobrar'))g('s-porcobrar').textContent='—';
     if(g('s-porcobrar-sub'))g('s-porcobrar-sub').textContent='Restringido';
     if(g('s-pbar'))g('s-pbar').style.width='0%';
   }else{
-    // ⛔ SIN DATO NO SE AFIRMA UN NÚMERO. Si la carga no terminó o falló, estas cuatro cifras
-    // serían 0 y el sub diría «100% sin facturar» — que es exactamente lo que Máximo leyó el
-    // 26/10 como «la Alcaldía no ha pagado nada», con US$ 715.247 cobrados en la base.
     var _sd=_dashSinDatos();
     if(_sd){
       g('s-cobrado').textContent='—';
@@ -8746,8 +8829,6 @@ function _renderDashCuerpo(){
     g('s-cobrado-sub').textContent=vCobV.toLocaleString()+' viajes · '+pct+'% de lo ejecutado';
     g('s-porcobrar').textContent='$'+porcobrar.toLocaleString();
     if(g('s-porcobrar-sub'))g('s-porcobrar-sub').textContent=Math.max(0,totalV-vCobV).toLocaleString()+' viajes · '+(100-pct)+'% sin facturar';
-    // El descuento otorgado se DICE, no se esconde: es plata que se decidio no cobrar, y la
-    // decision se toma pago por pago. Si no se nombra, desaparece dentro de la diferencia.
     if(_descuento>0.5&&g('s-cobrado-sub'))g('s-cobrado-sub').textContent+=' · $'+Math.round(_descuento).toLocaleString('es-VE')+' descontados por pronto pago';
     g('s-pbar').style.width=pct+'%';
     }
@@ -8755,7 +8836,9 @@ function _renderDashCuerpo(){
   if(BNC_SALDO>0&&puedeVerSaldo()){g('s-saldo-bnc').textContent='Bs '+(BNC_SALDO/1000).toFixed(0)+'k';g('s-saldo-sub').textContent='Actualizado';}
   // Utilidad Real = cobrado − TODOS los gastos (reemplaza el card "Resumen Financiero" redundante).
   if(g('s-util')){
-    if(SESION&&SESION.rol==='rrhh'){ g('s-util').textContent='—'; if(g('s-util-sub'))g('s-util-sub').textContent='Restringido'; }
+    var _sdUtil=_dashSinDatos();
+    if(!_puedeFin){ g('s-util').textContent='—'; if(g('s-util-sub'))g('s-util-sub').textContent='Restringido'; }
+    else if(_sdUtil){ g('s-util').textContent='—'; if(g('s-util-sub'))g('s-util-sub').textContent=_sdUtil; }
     else {
       var _ur=_utilReal(totalCob);
       g('s-util').textContent='$'+Math.round(_ur).toLocaleString('es-VE');
@@ -9484,12 +9567,12 @@ var FALLAS_REP_TOPE=100;
 // Vuelve a la lista completa. Existe porque con cuatro filtros es fácil dejarse uno
 // puesto y concluir que "no hay nada", que es el error que esta pantalla vino a evitar.
 function hfLimpiar(){
-  ['hf-cam','hf-desde','hf-hasta','hf-quien'].forEach(function(id){ var e=document.getElementById(id); if(e)e.value=''; });
+  ['hfallas-cam','hfallas-desde','hfallas-hasta','hfallas-quien'].forEach(function(id){ var e=document.getElementById(id); if(e)e.value=''; });
   try{ renderFallasReparadas(); }catch(e){}
 }
 // El desplegable de unidades se llena de la MISMA fuente que el resto de la app.
 function hfPoblarUnidades(){
-  var s=document.getElementById('hf-cam'); if(!s)return;
+  var s=document.getElementById('hfallas-cam'); if(!s)return;
   var actual=s.value;
   var cams=[];
   try{ cams=Object.keys((typeof UNIDAD_CONFIG!=='undefined'&&UNIDAD_CONFIG)?UNIDAD_CONFIG:{}).sort(); }catch(e){}
@@ -9508,10 +9591,10 @@ async function renderFallasReparadas(){
     //    búsqueda por unidad devolvería menos de lo que hay. Lo pidió Alejandra el
     //    18/09: por unidad, por fecha y por persona.
     var _q=supabase.from('anomalias').select('*',{count:'exact'}).eq('estado','resuelta');
-    var _cam=(typeof gv==='function'&&document.getElementById('hf-cam'))?gv('hf-cam'):'';
-    var _des=(document.getElementById('hf-desde'))?gv('hf-desde'):'';
-    var _has=(document.getElementById('hf-hasta'))?gv('hf-hasta'):'';
-    var _qui=(document.getElementById('hf-quien'))?String(gv('hf-quien')||'').trim():'';
+    var _cam=(typeof gv==='function'&&document.getElementById('hfallas-cam'))?gv('hfallas-cam'):'';
+    var _des=(document.getElementById('hfallas-desde'))?gv('hfallas-desde'):'';
+    var _has=(document.getElementById('hfallas-hasta'))?gv('hfallas-hasta'):'';
+    var _qui=(document.getElementById('hfallas-quien'))?String(gv('hfallas-quien')||'').trim():'';
     if(_cam) _q=_q.eq('cam',_cam);
     if(_des) _q=_q.gte('resuelta_at',_des);
     // El 'hasta' incluye el día entero: sin esto, buscar "hasta hoy" deja afuera lo
@@ -9801,10 +9884,16 @@ function renderRankingTop5(){
 
 function renderMetasDash(){
   var el=g('dash-metas');if(!el)return;
-  var semHoy=getSem(null);var mesHoy=mesBtg();
+  var hoy=(typeof fechaVE==='function'?fechaVE():new Date().toISOString().slice(0,10));
+  var semHoy=getSem(hoy);var mesHoy=mesBtg();
   var mk=mesHoy+'-'+semHoy;
   var meta=METAS[mk]||{viajesCam:20,viajesFlota:200};
-  var totalV=REGS.filter(function(r){return r.sem===semHoy&&r.mes===mesHoy;}).reduce(function(s,r){return s+r.t;},0);
+  var lun=(typeof getLunesDeRango==='function')?getLunesDeRango(hoy):'';
+  var dom=(lun&&typeof getDomingoDeSemana==='function')?getDomingoDeSemana(lun):'';
+  var totalV=REGS.filter(function(r){
+    if(lun&&dom&&r.f)return r.f>=lun&&r.f<=dom;
+    return r.sem===semHoy&&r.mes===mesHoy;
+  }).reduce(function(s,r){return s+r.t;},0);
   var pct=meta.viajesFlota>0?Math.min(100,Math.round((totalV/meta.viajesFlota)*100)):0;
   var c=pct>=80?'var(--green)':pct>=50?'var(--yellow)':'var(--red)';
   el.innerHTML='<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px"><div style="flex:1"><div style="font-size:11px;color:var(--text2)">'+semHoy+' — Meta: '+meta.viajesFlota+' viajes</div><div class="pbar"><div class="pfill" style="width:'+pct+'%;background:'+c+'"></div></div></div><div style="font-family:var(--m);font-size:16px;font-weight:900;color:'+c+'">'+totalV+'/'+meta.viajesFlota+'</div></div><div style="font-size:10px;color:var(--text3)">'+pct+'% completado</div>';
@@ -10089,7 +10178,7 @@ async function cargarCuotasFinanciamiento(){
 // Sin rango = todas las que ya vencieron hasta hoy. Las futuras no entran: cargarle al período de
 // hoy una cuota que todavía no venció es restarle un gasto que no ocurrió.
 function financiadoraDevengadaUsd(des,hta){
-  var hoy=new Date().toISOString().slice(0,10);
+  var hoy=(typeof fechaVE==='function'?fechaVE():new Date().toISOString().slice(0,10));
   var d=(des||'').slice(0,10), h=(hta||'').slice(0,10)||hoy;
   var r={usd:0,interes:0,capital:0,n:0,sinPagar:0,nSinPagar:0,enteras:0,
          estado:DEUDA_CUOTAS_ESTADO,error:DEUDA_CUOTAS_ERROR,acreedores:[]};
@@ -10508,6 +10597,10 @@ function editarPlanilla(p){
   html+='<div class="fg"><label>Ayudante 3</label><input class="fc" id="ep-ay3" value="'+String(r.ay3||'').replace(/"/g,'&quot;')+'"></div>';
   html+='</div>';
   html+='<div class="fr2">';
+  html+='<div class="fg"><label>Apoyo 1</label><input class="fc" id="ep-ap1" value="'+String(r.ap1||'').replace(/"/g,'&quot;')+'"></div>';
+  html+='<div class="fg"><label>Apoyo 2</label><input class="fc" id="ep-ap2" value="'+String(r.ap2||'').replace(/"/g,'&quot;')+'"></div>';
+  html+='</div>';
+  html+='<div class="fr2">';
   html+='<div class="fg"><label>Viajes Diurnos</label><input type="number" class="fc" id="ep-d" value="'+r.d+'" style="font-family:var(--m)"></div>';
   html+='<div class="fg"><label>Viajes Nocturnos</label><input type="number" class="fc" id="ep-n" value="'+r.n+'" style="font-family:var(--m)"></div>';
   html+='</div>';
@@ -10521,39 +10614,71 @@ function editarPlanilla(p){
   openModal('Editar Planilla #'+p,html);
 }
 
+function refrescarTrasCambioPlanillas(fechaTocado){
+  try{localStorage.setItem('betangar_regs',JSON.stringify(REGS));}catch(e){}
+  try{poblarSems();}catch(e){}
+  try{filtH();}catch(e){}
+  try{renderPlanHoy();}catch(e){}
+  try{renderDash();}catch(e){}
+  try{if(typeof actualizarUltimaPlanilla==='function')actualizarUltimaPlanilla();}catch(e){}
+  try{if(typeof renderAlertaDuplicadasRRHH==='function')renderAlertaDuplicadasRRHH();}catch(e){}
+  // Aviso si se tocó una fecha de una semana que ya tiene nómina cerrada en NOMINA_HIST.
+  if(fechaTocado&&typeof NOMINA_HIST!=='undefined'&&Array.isArray(NOMINA_HIST)&&NOMINA_HIST.length){
+    var _f=String(fechaTocado).slice(0,10);
+    var _hit=NOMINA_HIST.find(function(h){
+      var d=String(h.desde||h.f_desde||'').slice(0,10), a=String(h.hasta||h.f_hasta||'').slice(0,10);
+      return d&&a&&_f>=d&&_f<=a;
+    });
+    if(_hit&&typeof mostrarToast==='function'){
+      mostrarToast('⚠️ Ojo: modificaste una planilla de una semana que ya tiene nómina cerrada ('+(_hit.semana||_hit.desde||_f)+'). Revisa Nómina si corresponde.','info');
+    }
+  }
+}
+
 function guardarEdicionPlanilla(pOriginal){
-  var nuevoNum=document.getElementById('ep-num').value.trim().padStart(5,'0');
+  var rawNum=String(document.getElementById('ep-num').value||'').trim();
+  if(!rawNum||rawNum==='0'||/^0+$/.test(rawNum)){alert('Ingresa un número de planilla válido.');return;}
+  var nuevoNum=/^\d+$/.test(rawNum)?rawNum.padStart(5,'0'):rawNum;
   var accion='Editar planilla #'+pOriginal+(nuevoNum!==pOriginal.replace('DUP','')?' → nuevo #'+nuevoNum:'');
   var idx=REGS.findIndex(function(x){return x.p===pOriginal;});
-  if(idx<0){alert('No encontrada');return;}
-  if(_bloqueoPeriodo(REGS[idx].f,'editar'))return;                          // período de origen cerrado
-  if(_bloqueoPeriodo(document.getElementById('ep-fecha').value,'editar'))return; // no mover a un mes cerrado
-  // Calcular la fila YA, con los valores del formulario presentes. Hay que hacerlo ANTES de pedir el
-  // token: el payload se serializa en accion_data para que el SuperAdmin aplique el cambio al aprobar
-  // (en un solo navegador la sesión del solicitante ya no existe para reusar el DOM).
+  var idxDup=(idx<0)?REGS_DUP.findIndex(function(x){return x.p===pOriginal;}):-1;
+  if(idx<0&&idxDup<0){alert('No encontrada');return;}
+  var orig=(idx>=0)?REGS[idx]:REGS_DUP[idxDup];
+  var nuevaFecha=document.getElementById('ep-fecha').value;
+  if(!nuevaFecha){alert('Selecciona una fecha válida.');return;}
+  if(_bloqueoPeriodo(orig.f,'editar'))return;                          // período de origen cerrado
+  if(_bloqueoPeriodo(nuevaFecha,'editar'))return;                      // no mover a un mes cerrado
   var d=parseInt(document.getElementById('ep-d').value)||0;
   var n=parseInt(document.getElementById('ep-n').value)||0;
   var t=d+n;
+  if(t<=0){alert('La planilla debe tener al menos 1 viaje (diurno o nocturno).');return;}
   var p=nuevoNum;
-  // Ayudantes editables (canoniza el nombre como el chofer; vacío permitido)
+  if(p!==pOriginal&&REGS.some(function(x){return x.p===p;})){
+    alert('Ya existe otra planilla con el número #'+p+'. Elige un número distinto.');
+    return;
+  }
+  // Ayudantes y apoyos editables (canoniza el nombre como el chofer; vacío permitido)
   var _ay1=(document.getElementById('ep-ay1').value||'').trim(); _ay1=_ay1?_nombreCanonico(_ay1):'';
   var _ay2=(document.getElementById('ep-ay2').value||'').trim(); _ay2=_ay2?_nombreCanonico(_ay2):'';
   var _ay3=(document.getElementById('ep-ay3').value||'').trim(); _ay3=_ay3?_nombreCanonico(_ay3):'';
+  var _ap1=(document.getElementById('ep-ap1')?document.getElementById('ep-ap1').value:(orig.ap1||'')).trim(); _ap1=_ap1?_nombreCanonico(_ap1):'';
+  var _ap2=(document.getElementById('ep-ap2')?document.getElementById('ep-ap2').value:(orig.ap2||'')).trim(); _ap2=_ap2?_nombreCanonico(_ap2):'';
   var nuevo={
     p:p,
-    f:document.getElementById('ep-fecha').value,
+    f:nuevaFecha,
     cam:document.getElementById('ep-cam').value,
     ch:_nombreCanonico(document.getElementById('ep-chofer').value),
     r:document.getElementById('ep-ruta').value,
     par:document.getElementById('ep-par').value,
     d:d,n:n,t:t,
-    mes:REGS[idx].mes,sem:REGS[idx].sem,
-    m:t*tarifaDe(document.getElementById('ep-fecha').value),
+    mes:_fmtMesFecha(nuevaFecha)||orig.mes,
+    sem:(typeof getSem==='function'?getSem(nuevaFecha):orig.sem),
+    m:t*tarifaDe(nuevaFecha),
     obs:document.getElementById('ep-obs').value,
-    inc:REGS[idx].inc||'',incDesc:REGS[idx].incDesc||'',
-    ay1:_ay1,ay2:_ay2,ay3:_ay3,
-    gasoil:REGS[idx].gasoil||0,km:REGS[idx].km||0,mant:REGS[idx].mant||'',
-    vertedero:(document.getElementById('ep-vert')?document.getElementById('ep-vert').value:(REGS[idx].vertedero||'La Concepción'))
+    inc:orig.inc||'',incDesc:orig.incDesc||'',
+    ay1:_ay1,ay2:_ay2,ay3:_ay3,ap1:_ap1,ap2:_ap2,
+    gasoil:orig.gasoil||0,km:orig.km||0,mant:orig.mant||'',
+    vertedero:(document.getElementById('ep-vert')?document.getElementById('ep-vert').value:(orig.vertedero||'La Concepción'))
   };
   // Payload en forma de columnas de BD (inc_desc, no incDesc) para el PATCH server-side del SuperAdmin.
   var dbSet={
@@ -10561,28 +10686,46 @@ function guardarEdicionPlanilla(pOriginal){
     ch:nuevo.ch,r:nuevo.r,par:nuevo.par,
     d:nuevo.d,n:nuevo.n,t:nuevo.t,sem:nuevo.sem,
     m:nuevo.m,obs:nuevo.obs,inc:nuevo.inc,
-    inc_desc:nuevo.incDesc,ay1:nuevo.ay1,ay2:nuevo.ay2,ay3:nuevo.ay3,
+    inc_desc:nuevo.incDesc,ay1:nuevo.ay1,ay2:nuevo.ay2,ay3:nuevo.ay3,ap1:nuevo.ap1,ap2:nuevo.ap2,
     gasoil:nuevo.gasoil,km:nuevo.km,mant:nuevo.mant,vertedero:nuevo.vertedero
   };
   // El WHERE del PATCH usa el número ORIGINAL; si el número cambió, el propio set reescribe 'p'.
   var accionData={op:'upd',tabla:'planillas',col:'p',val:pOriginal,set:dbSet};
-  solicitarToken(accion,function(motivo){
+  solicitarToken(accion,async function(motivo){
     // Camino de ejecución LOCAL (SuperAdmin directo o pestaña del solicitante aún viva).
-    var i=REGS.findIndex(function(x){return x.p===pOriginal;});
-    if(i<0)i=idx;
-    // Si cambia el número, eliminar el registro viejo de Supabase
-    if(p!==pOriginal){
-      if(DB_READY&&supabase)supabase.from('planillas').delete().eq('p',pOriginal).then(function(r){if(r&&r.error)console.error('Error elim planilla vieja:',r.error);});
+    var resG=await guardar('planillas',dbSet,{onConflict:'p'});
+    if(!resG.ok&&!resG.encolado){
+      alert('No se pudo guardar la planilla #'+p+': '+(resG.error&&resG.error.message||'error del servidor'));
+      return;
     }
-    REGS[i]=nuevo;
-    // Guardar en Supabase (chequear error: no .then vacío, para no decir "✅" si la nube falló)
-    if(DB_READY&&supabase){
-      supabase.from('planillas').upsert(dbSet,{onConflict:'p'}).then(function(r){if(r&&r.error){console.error('Error guardar planilla editada:',r.error);if(typeof mostrarToast==='function')mostrarToast('No se pudo guardar la edición de la planilla #'+p+' en la nube: '+r.error.message,'error');}});
+    var eraDup=(idxDup>=0);
+    if(p!==pOriginal&&DB_READY&&supabase&&resG.ok){
+      if(eraDup){
+        var rDup=await _rpc('planilla_borrar_dup_corregida',{p_dup:pOriginal});
+        if(rDup&&rDup.error)console.error('Error elim DUP:',rDup.error);
+      } else {
+        var rDel=await supabase.from('planillas').delete().eq('p',pOriginal);
+        if(rDel&&rDel.error)console.error('Error elim planilla vieja:',rDel.error);
+      }
+    }
+    if(eraDup){
+      var jD=REGS_DUP.findIndex(function(x){return x.p===pOriginal;});
+      if(jD>=0)REGS_DUP.splice(jD,1);
+      REGS.push(nuevo);
+      VX[nuevo.cam]=(VX[nuevo.cam]||0)+(nuevo.t||0);
+    } else {
+      var i=REGS.findIndex(function(x){return x.p===pOriginal;});
+      if(i<0)i=idx;
+      var ant=REGS[i];
+      if(ant&&ant.cam)VX[ant.cam]=(VX[ant.cam]||0)-(ant.t||0);
+      REGS[i]=nuevo;
+      VX[nuevo.cam]=(VX[nuevo.cam]||0)+(nuevo.t||0);
     }
     audit('Planilla EDITADA','#'+pOriginal+' → #'+p+' — '+motivo);
     closeModal();
-    filtH();renderDash();renderPlanHoy();
-    alert('✅ Planilla #'+p+' guardada correctamente.');
+    refrescarTrasCambioPlanillas(nuevo.f);
+    if(resG.ok) alert('✅ Planilla #'+p+' guardada correctamente.');
+    else alert('⚠️ Planilla #'+p+' quedó en cola offline (sin conexión). Se subirá al reconectar.');
   },accionData);
 }
 
@@ -10657,40 +10800,41 @@ function _nombreCanonico(n){
   return e?e.nombre:String(n).trim().toUpperCase();
 }
 async function guardarPlanilla(){
-  var p=gv('rp-num');var f=gv('rp-fecha');var c=gv('rp-cam');var ch=gv('rp-chofer');
+  var p=String(gv('rp-num')||'').trim();var f=gv('rp-fecha');var c=gv('rp-cam');var ch=gv('rp-chofer');
   if(!p||!f||!c||!ch){alert('Completa: Planilla, Fecha, Camion, Chofer');return;}
+  if(/^0+$/.test(p)||( /^\d+$/.test(p)&&parseInt(p,10)<=0 )){alert('Ingresa un número de planilla mayor a 0.');return;}
   if(_bloqueoPeriodo(f,'crear'))return;
   var tot=cntD+cntN;if(!tot){alert('Registra al menos 1 viaje');return;}
-  var ns=String(p).padStart(5,'0');
+  var ns=/^\d+$/.test(p)?p.padStart(5,'0'):p;
   if(REGS.some(function(r){return r.p===ns;})){alert('Ya existe la planilla #'+ns);return;}
   // Normalizar chofer + ayudantes a nombre canónico de empleado (calidad de datos)
   var chC=_nombreCanonico(ch);
   var ay1=_nombreCanonico(gv('rp-ay1')), ay2=_nombreCanonico(gv('rp-ay2')), ay3=_nombreCanonico(gv('rp-ay3'));
   // Ayudantes de APOYO (ap1/ap2): NO son los fijos de la unidad. Cobran por escalón diario.
   var ap1=_nombreCanonico(gv('rp-ap1')), ap2=_nombreCanonico(gv('rp-ap2'));
-  // Avisar si algún nombre escrito NO corresponde a un empleado (typo / no registrado)
+  // Avisar si algún nombre escrito NO corresponde a un empleado (excluye 'IMAU' que es marca, no persona)
   var noCasan=[];
   [['Chofer',ch,chC],['Ayudante 1',gv('rp-ay1'),ay1],['Ayudante 2',gv('rp-ay2'),ay2],['Ayudante 3',gv('rp-ay3'),ay3],['Apoyo 1',gv('rp-ap1'),ap1],['Apoyo 2',gv('rp-ap2'),ap2]].forEach(function(x){
-    if(x[1]&&String(x[1]).trim()&&(typeof _empPorNombre==='function')&&!_empPorNombre(x[1]))noCasan.push(x[0]+': "'+x[1]+'"');
+    var raw=String(x[1]||'').trim();
+    if(raw&&raw.toUpperCase()!=='IMAU'&&(typeof _empPorNombre==='function')&&!_empPorNombre(raw))noCasan.push(x[0]+': "'+raw+'"');
   });
   if(noCasan.length){ if(!confirm('⚠ Estos nombres no coinciden con ningún empleado registrado:\n\n'+noCasan.join('\n')+'\n\nSe guardarán tal cual (la nómina/anomalías podrían no reconocerlos). ¿Continuar?'))return; }
   var vert=gv('rp-vert')||'La Concepción';
-  var nr={p:ns,f:f,mes:gv('rp-mes'),cam:c,ch:chC,r:gv('rp-ruta'),par:gv('rp-par'),d:cntD,n:cntN,t:tot,sem:gv('rp-sem'),m:tot*tarifaDe(f),obs:gv('rp-obs'),inc:gv('rp-inc'),incDesc:gv('rp-inc-desc'),ay1:ay1,ay2:ay2,ay3:ay3,ap1:ap1,ap2:ap2,vertedero:vert};
+  var mesVal=gv('rp-mes')||_fmtMesFecha(f);
+  var semVal=gv('rp-sem')||(typeof getSem==='function'?getSem(f):'Semana 1');
+  var nr={p:ns,f:f,mes:mesVal,cam:c,ch:chC,r:gv('rp-ruta'),par:gv('rp-par'),d:cntD,n:cntN,t:tot,sem:semVal,m:tot*tarifaDe(f),obs:gv('rp-obs'),inc:gv('rp-inc'),incDesc:gv('rp-inc-desc'),ay1:ay1,ay2:ay2,ay3:ay3,ap1:ap1,ap2:ap2,vertedero:vert};
   var row={p:nr.p,f:nr.f,mes:nr.mes,cam:nr.cam,ch:nr.ch,r:nr.r,par:nr.par,d:nr.d,n:nr.n,t:nr.t,sem:nr.sem,m:nr.m,obs:nr.obs,inc:nr.inc,inc_desc:nr.incDesc,ay1:ay1,ay2:ay2,ay3:ay3,ap1:ap1,ap2:ap2,gasoil:0,km:0,mant:'',vertedero:vert};
-  // P1: Supabase es la fuente de verdad. Guardar PRIMERO y solo confirmar éxito si responde OK.
-  var _res=await dbUp('planillas',row,'p');
+  // P1: Supabase es la fuente de verdad. API unificada guardar() distingue error de red vs rechazo del servidor.
+  var _res=await guardar('planillas',row,{onConflict:'p'});
+  if(!_res.ok&&!_res.encolado){ return; }
   REGS.push(nr);
   VX[c]=(VX[c]||0)+tot;
-  if(KM_DATA[c])KM_DATA[c].km=(KM_DATA[c].km||0)+Math.round(tot*4.5);
-  if(_res){
+  if(_res.ok){
     audit('Planilla guardada','#'+ns+' '+c+' '+tot+'v');
     var al=g('alert-plan');if(al){al.style.display='block';setTimeout(function(){al.style.display='none';},2500);}
     if(typeof mostrarToast==='function')mostrarToast('✅ Planilla #'+ns+' guardada','exito');
   } else {
-    // Supabase NO confirmó → cola offline + aviso. NUNCA se declara "guardado".
-    guardarEnCola('planillas',row);
     audit('Planilla en cola (sin confirmar)','#'+ns+' '+c+' '+tot+'v');
-    if(typeof mostrarToast==='function')mostrarToast('⚠️ Planilla #'+ns+' quedó EN COLA (sin conexión). Se guardará al reconectar.','error');
   }
   cntD=0;cntN=0;g('cd').textContent=0;g('cn').textContent=0;g('ctot').textContent=0;g('cmonto').textContent='$0';
   // Los de APOYO se limpian siempre: son eventuales (hoy vino, mañana no). Si el nombre quedara
@@ -10698,11 +10842,11 @@ async function guardarPlanilla(){
   ['rp-ap1','rp-ap2'].forEach(function(id){sv(id,'');var v=g(id.replace('rp-','val-'));if(v)v.innerHTML='';});
   sv('rp-vert','La Concepción'); // vuelve al vertedero normal: Resimara es la excepción, no se hereda a la próxima
   sv('rp-num',String(REGS.reduce(function(a,r){return Math.max(a,parseInt(r.p)||0);},0)+1).padStart(5,'0'));
-  renderPlanHoy();renderDash();
+  refrescarTrasCambioPlanillas(f);
 }
 
 function renderPlanHoy(){
-  var hoy=new Date().toISOString().split('T')[0];
+  var hoy=(typeof fechaVE==='function'?fechaVE():new Date().toISOString().split('T')[0]);
   var hoyR=REGS.filter(function(r){return r.f===hoy;});
   var lbl=g('lbl-hoy');if(lbl)lbl.textContent=formatFecha(hoy);
   var el=g('plan-hoy');
@@ -10739,34 +10883,38 @@ function eliminarPlanilla(p){
   var _rp=REGS.find(function(r){return r.p===p;});
   if(_rp&&_bloqueoPeriodo(_rp.f,'eliminar'))return;
   solicitarToken('Eliminar planilla #'+p,function(motivo){
+    if(_rp&&_rp.cam)VX[_rp.cam]=(VX[_rp.cam]||0)-(_rp.t||0);
     REGS=REGS.filter(function(r){return r.p!==p;});
     // No usar .then vacío: chequear el error para no divergir memoria vs BD (si el borrado falla
     // en la nube, avisar). El borrado server-side también lo cubre el superadmin (accionData op:del).
     if(DB_READY&&supabase)supabase.from('planillas').delete().eq('p',p).then(function(r){if(r&&r.error){console.error('Error elim planilla:',r.error);if(typeof mostrarToast==='function')mostrarToast('No se pudo borrar la planilla #'+p+' en la nube: '+r.error.message,'error');}});
     audit('Planilla ELIMINADA','#'+p+' — '+motivo);
-    renderPlanHoy();renderDash();filtH();
+    refrescarTrasCambioPlanillas(_rp&&_rp.f);
   },{op:'del',tabla:'planillas',col:'p',val:p});
 }
 
 // ═══════════════════════════════════════════════════
 // HISTORICO
 // ═══════════════════════════════════════════════════
-function filtH(){
+function _planillasFiltradasHist(){
   var mes=gv('hf-mes'),sem=gv('hf-sem'),cam=gv('hf-cam'),des=gv('hf-des'),hta=gv('hf-hta');
   var per=(gv('hf-per')||'').trim().toUpperCase();
-  var f=REGS.filter(function(r){
+  return REGS.filter(function(r){
     if(mes&&r.mes!==mes)return false;
     if(sem&&r.sem!==sem)return false;
     if(cam&&r.cam!==cam)return false;
     if(des&&r.f<des)return false;
     if(hta&&r.f>hta)return false;
-    // Filtro por persona: busca en chofer (ch) y ayudantes (ay1, ay2, ay3) a la vez.
+    // Filtro por persona: busca en chofer (ch), ayudantes (ay1..ay3) y apoyos (ap1, ap2).
     if(per){
-      var hay=[r.ch,r.ay1,r.ay2,r.ay3].some(function(nm){return nm&&String(nm).toUpperCase().indexOf(per)>=0;});
+      var hay=[r.ch,r.ay1,r.ay2,r.ay3,r.ap1,r.ap2].some(function(nm){return nm&&String(nm).toUpperCase().indexOf(per)>=0;});
       if(!hay)return false;
     }
     return true;
   });
+}
+function filtH(){
+  var f=_planillasFiltradasHist();
   var tv=f.reduce(function(s,r){return s+r.t;},0);
   var tm=f.reduce(function(s,r){return s+r.m;},0);
   var td=f.reduce(function(s,r){return s+r.d;},0);
@@ -10774,7 +10922,12 @@ function filtH(){
   if(g('h-tv'))g('h-tv').textContent=tv;if(g('h-tm'))g('h-tm').textContent='$'+tm.toLocaleString();
   if(g('h-td'))g('h-td').textContent=td;if(g('h-tn'))g('h-tn').textContent=tn;if(g('h-tp'))g('h-tp').textContent=f.length;
   var tb=g('tb-hist');
-  if(tb)tb.innerHTML=f.slice().sort(function(a,b){if(a.f!==b.f)return a.f<b.f?1:-1;return (parseInt(b.p)||0)-(parseInt(a.p)||0);}).map(function(r){return'<tr><td style="font-family:var(--m)">#'+r.p+'</td><td>'+formatFecha(r.f)+'</td><td><span class="badge bt">'+r.mes+'</span></td><td style="font-weight:700">'+r.cam+'</td><td style="font-size:11px" title="'+String(r.ch||'').replace(/"/g,'&quot;')+'">'+_nombreCanonico(r.ch)+'</td><td style="font-size:10px;color:var(--text2)">'+([r.ay1,r.ay2,r.ay3].filter(Boolean).map(function(nm){return _nombreCanonico(nm);}).join(', ')||'—')+'</td><td style="font-size:11px">'+r.r+'</td><td style="font-size:10px;color:var(--text3)">'+r.par+'</td><td style="color:var(--blue)">'+r.d+'</td><td style="color:var(--purple)">'+r.n+'</td><td style="font-weight:700;color:var(--green)">'+r.t+'</td><td><span class="badge by">'+r.sem+'</span></td><td style="font-family:var(--m);color:var(--yellow)">$'+r.m.toLocaleString()+'</td><td><button onclick="editarPlanilla(\''+r.p+'\')" class="btn btn-xs" style="background:var(--teal);color:#fff;padding:2px 5px">✏</button><button onclick="eliminarPlanilla(\''+r.p+'\')" class="btn btn-r btn-xs">×</button></td></tr>';}).join('')||'<tr><td colspan="14" style="text-align:center;color:var(--text3);padding:20px">Sin resultados</td></tr>';
+  if(tb)tb.innerHTML=f.slice().sort(function(a,b){if(a.f!==b.f)return a.f<b.f?1:-1;return (parseInt(b.p)||0)-(parseInt(a.p)||0);}).map(function(r){
+    var _ays=[r.ay1,r.ay2,r.ay3].filter(Boolean).map(function(nm){return _nombreCanonico(nm);});
+    var _aps=[r.ap1,r.ap2].filter(Boolean).map(function(nm){return 'Apoyo: '+_nombreCanonico(nm);});
+    var _ayTxt=_ays.concat(_aps).join(', ')||'—';
+    return'<tr><td style="font-family:var(--m)">#'+r.p+'</td><td>'+formatFecha(r.f)+'</td><td><span class="badge bt">'+r.mes+'</span></td><td style="font-weight:700">'+r.cam+'</td><td style="font-size:11px" title="'+String(r.ch||'').replace(/"/g,'&quot;')+'">'+_nombreCanonico(r.ch)+'</td><td style="font-size:10px;color:var(--text2)">'+_ayTxt+'</td><td style="font-size:11px">'+r.r+'</td><td style="font-size:10px;color:var(--text3)">'+r.par+'</td><td style="color:var(--blue)">'+r.d+'</td><td style="color:var(--purple)">'+r.n+'</td><td style="font-weight:700;color:var(--green)">'+r.t+'</td><td><span class="badge by">'+r.sem+'</span></td><td style="font-family:var(--m);color:var(--yellow)">$'+r.m.toLocaleString()+'</td><td><button onclick="editarPlanilla(\''+r.p+'\')" class="btn btn-xs" style="background:var(--teal);color:#fff;padding:2px 5px">✏</button><button onclick="eliminarPlanilla(\''+r.p+'\')" class="btn btn-r btn-xs">×</button></td></tr>';
+  }).join('')||'<tr><td colspan="14" style="text-align:center;color:var(--text3);padding:20px">Sin resultados</td></tr>';
 }
 function limpH(){['hf-mes','hf-sem','hf-cam','hf-des','hf-hta','hf-per'].forEach(function(id){sv(id,'');});filtH();}
 // ── #8 DETECTOR DE PLANILLAS FALTANTES (huecos en el correlativo) ──────────────────────
@@ -10891,7 +11044,7 @@ async function imprimirToneladasMes(){
   //    DICE. Elegir una en silencio hace que dos informes de la misma empresa den cifras
   //    distintas y nadie sepa cuál creer. [[norma-una-asercion-mal-escrita-acusa-al-producto]]
   var discrepa=(cap&&Number(cap.toneladas)!==_tonsPorViaje())?_tonsPorViaje():null;
-  var hoy=new Date().toISOString().slice(0,10);
+  var hoy=(typeof fechaVE==='function'?fechaVE():new Date().toISOString().slice(0,10));
   var acum=0, totV=0, totP=0, totD=0, totM=0, mesAbierto=null;
 
   var cuerpo=filas.map(function(x,i){
@@ -10959,8 +11112,9 @@ async function imprimirToneladasMes(){
 
 async function exportHistExcel(){
   if(typeof XLSX==='undefined'){alert('XLSX no cargado');return;}
+  var filas=_planillasFiltradasHist();
   var wb=_xlNuevo();
-  var ws=XLSX.utils.json_to_sheet(REGS.map(function(r){return{Planilla:r.p,Fecha:_fechaXL(r.f),Mes:r.mes,Camion:r.cam,Chofer:r.ch,Ayudante1:r.ay1||'',Ayudante2:r.ay2||'',Ayudante3:r.ay3||'',Ruta:r.r,Parroquia:r.par,Diurnos:r.d,Nocturnos:r.n,Total:r.t,Semana:r.sem,'Monto $':r.m};}));
+  var ws=XLSX.utils.json_to_sheet(filas.map(function(r){return{Planilla:r.p,Fecha:_fechaXL(r.f),Mes:r.mes,Camion:r.cam,Chofer:r.ch,Ayudante1:r.ay1||'',Ayudante2:r.ay2||'',Ayudante3:r.ay3||'',Apoyo1:r.ap1||'',Apoyo2:r.ap2||'',Ruta:r.r,Parroquia:r.par,Vertedero:r.vertedero||'La Concepción',Diurnos:r.d,Nocturnos:r.n,Total:r.t,Semana:r.sem,'Monto $':r.m};}));
   _xlFechasVE(ws);XLSX.utils.book_append_sheet(wb,ws,'Planillas');await _xlGuardar(wb,brandArchivo()+'_Historico.xlsx');
 }
 // Aviso claro de DÓNDE quedó guardada la importación.
@@ -11008,14 +11162,17 @@ function importarExcel(input){
   var file=input.files[0];if(!file)return;
   if(!_xlsxListo()){ input.value=''; return; }
   var reader=new FileReader();
-  reader.onload=function(e){
+  reader.onload=async function(e){
     try{
       var wb=XLSX.read(e.target.result,{type:'binary',cellDates:true});
       var resultado=procesarExcelBetangar(wb);
+      // ── GUARDAR EN SUPABASE ANTES DEL ALERT (resuelve mismoTrabajo y borra DUPs ya reemplazadas) ──
+      await guardarImportacionEnDB(resultado);
       var msg='✅ Importacion completada:\n\n';
       msg+='• Planillas (viajes): '+resultado.planillas+' nuevas';
       if(resultado.planillasIgnoradas>0)msg+=', '+resultado.planillasIgnoradas+' ya existian';
       if(resultado.actualizadas&&resultado.actualizadas.length>0)msg+=', '+resultado.actualizadas.length+' actualizadas (mismo número, datos corregidos)';
+      if(resultado.periodosCerradosOmitidas>0)msg+='\n• 🔒 Períodos cerrados: '+resultado.periodosCerradosOmitidas+' fila(s) omitida(s) (mes cerrado)';
       msg+='\n• Abonos/Pagos Alcaldia: '+resultado.abonos+' nuevos';
       msg+='\n• Gasoil: '+resultado.gasoil+' registros';
       // VERTEDERO: de esta columna depende el 1.5× de los nocturnos en Resimara. Si el Excel no la
@@ -11103,11 +11260,8 @@ function importarExcel(input){
         waN+='\nAgrégalos en PARAMETROS o corrige el nombre y vuelve a importar.';
         sendWA(waN,['rrhh','admin']);
       }
-      // Refrescar todas las vistas
-      filtH();renderDash();renderAbonos();renderComb();
-      poblarSems();renderAlertaDuplicadasRRHH();
-      // ── GUARDAR EN SUPABASE ──
-      guardarImportacionEnDB(resultado);
+      // Refrescar todas las vistas (después de guardarImportacionEnDB y de resolver mismoTrabajo)
+      refrescarTrasCambioPlanillas();renderAbonos();renderComb();
       setTimeout(function(){verificarCruceExcel(resultado.nuevasRegs||REGS);},3000);
       alert(msg);
     }catch(e){alert('Error al leer el Excel:\n'+e.message+'\n\nAsegurate de subir el archivo FORMATO_REGISTRO_DE_VIAJES_BETANGAR.xlsm original.');}
@@ -11186,15 +11340,14 @@ async function guardarImportacionEnDB(resultado){
     // sesion y setea `DB_READY`. [[norma-bitacora-nombrar-la-pieza-que-ya-existe]]
     try{ if(typeof initSupabaseClient==='function') initSupabaseClient(); }catch(e2){ console.log('reconexion:', e2&&e2.message); }
     if(!DB_READY){
-      // Guardar en localStorage como respaldo
-      try{localStorage.setItem('betangar_regs',JSON.stringify(resultado.nuevasRegs||[]));localStorage.setItem('betangar_abonos',JSON.stringify(ABONOS));}catch(e3){}
+      // Guardar en localStorage como respaldo (REGS completo para no borrar planillas previas)
+      try{localStorage.setItem('betangar_regs',JSON.stringify(REGS));localStorage.setItem('betangar_abonos',JSON.stringify(ABONOS));}catch(e3){}
       console.warn('DB no disponible — datos guardados en localStorage');
       // AVISO VISIBLE Y PERSISTENTE: el usuario DEBE saber que NO subió a la nube.
       // Sin esto, RRHH cree que guardó, cierra la app y al volver no están todos los viajes.
       avisarEstadoGuardado(false,(resultado.nuevasRegs||[]).length);
-      // No bloquear con alert — continuar
+      return;
     }
-    return;
   }
   // Personal sincronizado desde la LISTA MAESTRA del Excel (nombres/activos/altas). Se persiste
   // SIEMPRE, aunque no haya planillas nuevas (el usuario puede solo cambiar activos y reimportar).
@@ -11253,7 +11406,7 @@ async function guardarImportacionEnDB(resultado){
           r:r.r,par:r.par,d:r.d,n:r.n,t:r.t,
           sem:r.sem,m:r.m,obs:r.obs||'',
           inc:r.inc||'',inc_desc:r.incDesc||'',
-          ay1:r.ay1||'',ay2:r.ay2||'',
+          ay1:r.ay1||'',ay2:r.ay2||'',ay3:r.ay3||'',ap1:r.ap1||'',ap2:r.ap2||'',
           mant:r.mant||'',vertedero:r.vertedero||'La Concepción'
         };
         // gasoil y km: solo actualizar si el Excel trae valor real (>0)
@@ -11266,6 +11419,25 @@ async function guardarImportacionEnDB(resultado){
         if(rp&&rp.error){fallos.push('planillas: '+rp.error.message);}
         else{ guardadas+=lote.length; progEl.textContent='💾 Guardando planillas: '+guardadas+'/'+recienAgregadas.length+'...'; }
       }catch(e){fallos.push('planillas (red): '+(e&&e.message||e));}
+    }
+    // 1b. Borrar DUPs ya reemplazadas DESPUÉS de subir las planillas nuevas (evita condición de carrera)
+    if(resultado.dupsPorBorrar&&resultado.dupsPorBorrar.length&&!DEMO_MODE){
+      for(var _dk=0;_dk<resultado.dupsPorBorrar.length;_dk++){
+        var _kDup=resultado.dupsPorBorrar[_dk];
+        try{
+          var rDup=await _rpc('planilla_borrar_dup_corregida',{p_dup:_kDup});
+          var dDup=rDup&&rDup.data;
+          if(rDup&&rDup.error){
+            console.error('DUP NO se pudo eliminar:',_kDup,rDup.error);
+            resultado.dupsNoBorradas=(resultado.dupsNoBorradas||[]).concat(_kDup+' ('+rDup.error.message+')');
+          }else if(!dDup||dDup.ok!==true){
+            console.error('DUP NO se eliminó:',_kDup,dDup&&dDup.motivo);
+            resultado.dupsNoBorradas=(resultado.dupsNoBorradas||[]).concat(_kDup+' ('+((dDup&&dDup.motivo)||'sin motivo')+')');
+          }else console.log('DUP eliminada:',_kDup,'· reemplazada por',dDup.reemplazada_por);
+        }catch(eDup){
+          resultado.dupsNoBorradas=(resultado.dupsNoBorradas||[]).concat(_kDup+' ('+(eDup&&eDup.message||'red')+')');
+        }
+      }
     }
 
     // 2. Guardar abonos nuevos
@@ -11365,10 +11537,7 @@ function procesarExcelBetangar(wb){
   }
 
   function fmtMes(f){
-    if(!f||f.length<7)return'';
-    var ym=f.slice(0,7);
-    var mm={'2026-01':'ene-26','2026-02':'feb-26','2026-03':'mar-26','2026-04':'abr-26','2026-05':'may-26','2026-06':'jun-26','2026-07':'jul-26','2026-08':'ago-26','2026-09':'sep-26','2026-10':'oct-26','2026-11':'nov-26','2026-12':'dic-26','2025-01':'ene-25','2025-02':'feb-25','2025-03':'mar-25','2025-04':'abr-25','2025-05':'may-25','2025-06':'jun-25','2025-07':'jul-25','2025-08':'ago-25','2025-09':'sep-25','2025-10':'oct-25','2025-11':'nov-25','2025-12':'dic-25'};
-    return mm[ym]||ym;
+    return _fmtMesFecha(f);
   }
 
   // Semana de una planilla = LA MISMA regla que el resto de la app: semana real lunes–domingo
@@ -11566,13 +11735,18 @@ function procesarExcelBetangar(wb){
       var cObs    =leerCelda(sheetRV,'T',fila);
       var cVert   =colVert?leerCelda(sheetRV,colVert,fila):null; // vertedero (La Concepción / Resimara). Vacío = La Concepción.
 
-      // Validar fila: debe tener camion JAC y fecha
+      // Validar fila: debe tener unidad conocida (JAC, AVANCE o registrada en FLOTA/UNIDAD_CONFIG) y fecha
       var cam=String(cCam||'').trim();
-      if(!cam||!cam.startsWith('JAC'))continue;
+      var _camValida=cam&&(cam.startsWith('JAC')||cam.startsWith('AVANCE')||(typeof FLOTA!=='undefined'&&FLOTA&&FLOTA[cam])||(typeof UNIDAD_CONFIG!=='undefined'&&UNIDAD_CONFIG&&UNIDAD_CONFIG[cam]));
+      if(!_camValida)continue;
       if(cam==='ID_CAMION')continue;
 
       var fechaStr=excelFecha(cFecha);
       if(!fechaStr||fechaStr<'2020-01-01'||fechaStr>'2035-01-01')continue;
+      if(typeof _periodoCerrado==='function'&&_periodoCerrado(fechaStr)){
+        resultado.periodosCerradosOmitidas=(resultado.periodosCerradosOmitidas||0)+1;
+        continue;
+      }
 
       // Viajes: sumar diurnos + nocturnos directamente (no confiar en fórmula L)
       var d=parseInt(cDiurn)||0;
@@ -11642,32 +11816,11 @@ function procesarExcelBetangar(wb){
         resultado.dupsEliminadas=(resultado.dupsEliminadas||0)+1;
         resultado.dupsEliminadasKeys=(resultado.dupsEliminadasKeys||[]);
         resultado.dupsEliminadasKeys.push(dupKey);
-        // Eliminar DUP de Supabase
-        // ⛔ SE MIRA EL RESULTADO, y con `.select()`: un delete que no borra NADA
-        //    devuelve exito igual, y el mensaje de arriba ya dice «eliminadas
-        //    automaticamente». Si el borrado no llega a la base, la DUP reaparece al
-        //    recargar la pantalla y la persona vuelve a ver el aviso que le dijimos
-        //    que estaba resuelto — que es justo lo que le paso a Gladis el 01 y 02/09.
-        //    [[norma-insert-sin-select-no-mide]]
-        // ⛔ VA POR RPC, NO POR `delete()` DIRECTO. La policy DELETE de `planillas`
-        //    exige `app_puede_borrar()` = superadmin sin token, y quien carga el Excel
-        //    es RRHH: el borrado directo le fallaba SIEMPRE, en silencio, mientras el
-        //    mensaje decía «eliminadas automáticamente». `planilla_borrar_dup_corregida`
-        //    es `security definer` y solo borra una DUP cuyo MISMO viaje ya está
-        //    cargado con un número válido — si el reemplazo no existe, no borra.
+        // Encolar el borrado RPC de la DUP para ejecutarlo con await DESPUÉS de subir las
+        // planillas de reemplazo en guardarImportacionEnDB() (evita condición de carrera).
         if(DB_READY&&!DEMO_MODE){
-          (function(k){
-            _rpc('planilla_borrar_dup_corregida',{p_dup:k}).then(function(r){
-              var d=r&&r.data;
-              if(r&&r.error){
-                console.error('DUP NO se pudo eliminar:',k,r.error);
-                resultado.dupsNoBorradas=(resultado.dupsNoBorradas||[]).concat(k+' ('+r.error.message+')');
-              }else if(!d||d.ok!==true){
-                console.error('DUP NO se eliminó:',k,d&&d.motivo);
-                resultado.dupsNoBorradas=(resultado.dupsNoBorradas||[]).concat(k+' ('+((d&&d.motivo)||'sin motivo')+')');
-              }else console.log('DUP eliminada:',k,'· reemplazada por',d.reemplazada_por);
-            });
-          })(dupKey);
+          resultado.dupsPorBorrar=(resultado.dupsPorBorrar||[]);
+          if(resultado.dupsPorBorrar.indexOf(dupKey)<0)resultado.dupsPorBorrar.push(dupKey);
         }
       }
       // El número de planilla es el IDENTIFICADOR ÚNICO. El manejo de "ya existe" se
@@ -11677,16 +11830,8 @@ function procesarExcelBetangar(wb){
       var _idxExist=REGS.findIndex(function(r){return r.p===p;});
 
       var mesStr=fmtMes(fechaStr);
-      // Leer semana de col M del Excel si tiene valor válido (no fórmula)
-      var cSemExcel=leerCelda(sheetRV,'M',fila);
-      var semStr='';
-      if(cSemExcel&&typeof cSemExcel==='string'&&cSemExcel.toLowerCase().includes('semana')){
-        semStr=cSemExcel.charAt(0).toUpperCase()+cSemExcel.slice(1).toLowerCase()
-          .replace('semana','Semana').trim();
-      } else if(cSemExcel&&typeof cSemExcel==='number'){
-        semStr='Semana '+Math.round(cSemExcel);
-      }
-      if(!semStr||semStr==='Semana 0')semStr=calcSem(fechaStr);
+      // Semana operativa SIEMPRE lunes–domingo calculada desde fechaStr (regla 04/11/2026)
+      var semStr=calcSem(fechaStr);
       var ay1=String(cAy1||'').trim();var ay2=String(cAy2||'').trim();
       if(ay1==='-')ay1='';if(ay2==='-')ay2='';
       // Normalizar a nombre canónico de empleado (calidad de datos) — igual que el alta manual
@@ -11730,9 +11875,14 @@ function procesarExcelBetangar(wb){
                     ((_ex.ay1||'')!==(nr.ay1||''))||((_ex.ay2||'')!==(nr.ay2||''))||((_ex.obs||'')!==(nr.obs||''))||
                     ((_ex.vertedero||'')!==(nr.vertedero||''));
         if(!_cambio){resultado.planillasIgnoradas++;continue;} // idéntica → no tocar
-        // Conservar gasoil/km que maneja la app si el Excel no trae valor real
+        // Conservar campos que maneja la app (gasoil/km/ay3/ap1/ap2/inc) si el Excel no los trae
         if(!(nr.gasoil>0)&&_ex.gasoil>0)nr.gasoil=_ex.gasoil;
         if(!(nr.km>0)&&_ex.km>0)nr.km=_ex.km;
+        if(_ex.ay3)nr.ay3=_ex.ay3;
+        if(_ex.ap1)nr.ap1=_ex.ap1;
+        if(_ex.ap2)nr.ap2=_ex.ap2;
+        if(_ex.inc)nr.inc=_ex.inc;
+        if(_ex.incDesc)nr.incDesc=_ex.incDesc;
         if(_ex.cam)VX[_ex.cam]=(VX[_ex.cam]||0)-(_ex.t||0); // descontar viajes viejos
         VX[cam]=(VX[cam]||0)+t;
         REGS[_idxExist]=nr;                       // actualizar en memoria
@@ -11776,10 +11926,15 @@ function procesarExcelBetangar(wb){
         }
       }catch(_e){ console.log('aviso mismo-trabajo:', _e && _e.message); }
 
-      REGS.push(nr);
+      if(String(nr.p).indexOf('DUP')===0){
+        // Las DUP van a REGS_DUP para NO inflar Dashboard, Nómina ni Cobranza en esta sesión.
+        REGS_DUP.push(nr);
+      } else {
+        REGS.push(nr);
+        VX[cam]=(VX[cam]||0)+t;
+      }
       resultado.nuevasRegs.push(nr);
       resultado.planillas++;
-      VX[cam]=(VX[cam]||0)+t;
 
       // Gasoil
       // GATE DE CORTE: desde cfg.surtidasCorte la verdad es la SURTIDA del chofer; el gasoil de la
@@ -11788,11 +11943,6 @@ function procesarExcelBetangar(wb){
       if(gasoilV>0&&gasoilV<10000&&!_postCorte){
         GASOIL.push({f:fechaStr,cam:cam,lit:gasoilV,src:'Tumaca',m:gasoilV*((parseFloat(tankCostoLitro)>0)?parseFloat(tankCostoLitro):precioGasoil('tumaca'))});
         resultado.gasoil++;
-      }
-      // KM
-      if(nr.km>0){
-        if(!KM_DATA[cam])KM_DATA[cam]={km:0,f:'',ultsrv:0,mant:[],lavado:'',engrase:''};
-        if(nr.km>KM_DATA[cam].km){KM_DATA[cam].km=nr.km;KM_DATA[cam].f=fechaStr;}
       }
     }
   }
@@ -28569,9 +28719,10 @@ function recargarTrasTokenAccion(ad){
     if(ad.op==='upd'){
       if(ad.tabla==='planillas'&&ad.set&&typeof REGS!=='undefined'){
         var s=ad.set, iU=REGS.findIndex(function(x){return String(x[col])===val;});
-        var rowU={p:s.p,f:s.f,cam:s.cam,ch:s.ch,r:s.r,par:s.par,d:s.d,n:s.n,t:s.t,mes:s.mes,sem:s.sem,m:s.m,obs:s.obs,inc:s.inc,incDesc:s.inc_desc,ay1:s.ay1,ay2:s.ay2,ay3:s.ay3,gasoil:s.gasoil,km:s.km,mant:s.mant};
+        var rowU={p:s.p,f:s.f,cam:s.cam,ch:s.ch,r:s.r,par:s.par,d:s.d,n:s.n,t:s.t,mes:s.mes,sem:s.sem,m:s.m,obs:s.obs,inc:s.inc,incDesc:s.inc_desc,ay1:s.ay1,ay2:s.ay2,ay3:s.ay3,ap1:s.ap1||'',ap2:s.ap2||'',gasoil:s.gasoil,km:s.km,mant:s.mant,vertedero:s.vertedero||'La Concepción'};
         if(iU>=0)REGS[iU]=rowU;
-        if(typeof renderPlanHoy==='function')renderPlanHoy(); if(typeof renderDash==='function')renderDash(); if(typeof filtH==='function')filtH();
+        if(typeof refrescarTrasCambioPlanillas==='function')refrescarTrasCambioPlanillas(rowU.f);
+        else { if(typeof renderPlanHoy==='function')renderPlanHoy(); if(typeof renderDash==='function')renderDash(); if(typeof filtH==='function')filtH(); }
       }
       else if(ad.tabla==='abonos'&&ad.set&&typeof ABONOS!=='undefined'){
         var sA=ad.set, iA=ABONOS.findIndex(function(x){return String(x[col])===val;});
@@ -31571,11 +31722,11 @@ function mecSelEstado(estado){
 //     volvia a aparecer operativa al recargar, y el dashboard la contaba como
 //     disponible. Ahora, si el servidor no confirma, va a la COLA OFFLINE.
 //     [[norma-guardado-localmente-es-una-mentira]]
-async function mecGuardarEstado(cam){
-  var estado=window._mecEstadoSel;
-  var nota=document.getElementById('mec-nota-inp')?document.getElementById('mec-nota-inp').value.trim():'';
-  if(!estado){alert('Selecciona un estado');return;}
-  if(estado!=='operativo'&&!nota){alert('Debes explicar por qué la unidad no está operativa');return;}
+async function mecGuardarEstado(cam, estadoParam, notaParam){
+  var estado=(estadoParam!==undefined&&estadoParam!==null)?estadoParam:window._mecEstadoSel;
+  var nota=(notaParam!==undefined&&notaParam!==null)?String(notaParam).trim():(document.getElementById('mec-nota-inp')?document.getElementById('mec-nota-inp').value.trim():'');
+  if(!estado){alert('Selecciona un estado');return false;}
+  if(estado!=='operativo'&&!nota){alert('Debes explicar por qué la unidad no está operativa');return false;}
 
   // Si cambia A operativo y tenía nota de falla → preguntar si fue reparado
   var notaAnterior=KM_DATA[cam]?KM_DATA[cam].nota_estado||'':'';
@@ -31636,6 +31787,7 @@ async function mecGuardarEstado(cam){
     'Por: '+(SESION.nombre||'Mecanico')+'\n'+
     'Fecha: '+fmtFechaHora(new Date());
   sendWA(msgEstado,['socios','operativo']);
+  return _ok;
   // 2026-07-21: quitado el espejo a `flota_estado` (tabla sin lectores). El estado ya quedó
   // guardado arriba en km_data, que es lo que lee el dashboard.
 }
@@ -31665,7 +31817,9 @@ function mecGuardarNuevoVehiculo(){
 // ══════════════════════════════════════════════════
 // MÓDULO JEFE OPERATIVO — Dashboard Operativo
 // ══════════════════════════════════════════════════
-var PARROQUIAS = ['CARACCIOLO PARRA PEREZ','VENANCIO PULGAR','OLEGARIO VILLALOBOS','SANTA LUCIA','LUIS HURTADO HIGUERA'];
+var PARROQUIAS_TODAS = ['CARACCIOLO PARRA PEREZ','VENANCIO PULGAR','OLEGARIO VILLALOBOS','SANTA LUCIA','LUIS HURTADO HIGUERA'];
+var PARROQUIAS = PARROQUIAS_TODAS.slice();
+var PARROQUIAS_HOY = [];
 var RUTAS_HOY  = {};
 
 function operParroquiasHoy(fechaStr){
@@ -31711,34 +31865,57 @@ async function operIniciar(){
     }
   }catch(_e){}
 
-  // Parroquias según cronograma oficial del IMAU
-  var parsHoy = operParroquiasHoy(hoy);
-  PARROQUIAS = parsHoy;
+  // Parroquias según cronograma oficial del IMAU (sin sobreescribir PARROQUIAS_TODAS)
+  PARROQUIAS_HOY = operParroquiasHoy(hoy).slice();
   operRenderParroquias(hoy);
 
-  // Asegurar surtidas recientes para el combustible de hoy
-  if(typeof cargarSurtidas === 'function' && (!SURTIDAS || !SURTIDAS.length)){
+  // Refrescar datos vivos desde Supabase
+  if(typeof cargarSurtidas === 'function'){
     try{ await cargarSurtidas(); }catch(_e){}
   }
-
-  // Cargar estado de rutas hoy desde DB
   if(DB_READY && supabase){
     try{
-      var res = await supabase.from('rutas_estado').select('*').eq('fecha', hoy);
-      if(res && res.data){
+      var [resR, resKm, resVj, resCl] = await Promise.all([
+        supabase.from('rutas_estado').select('*').eq('fecha', hoy),
+        supabase.from('km_data').select('*'),
+        supabase.from('viajes_chofer').select('*').gte('fecha', _acMenos(7)).order('fecha', {ascending:false}),
+        supabase.from('checklist').select('*').gte('fecha', _acMenos(7)).order('fecha', {ascending:false})
+      ]);
+      if(resR && !resR.error && Array.isArray(resR.data)){
         RUTAS_HOY = {};
-        res.data.forEach(function(r){ RUTAS_HOY[r.parroquia] = r; });
+        resR.data.forEach(function(r){
+          r._guardado = true;
+          RUTAS_HOY[r.parroquia] = r;
+          if(PARROQUIAS_HOY.indexOf(r.parroquia) < 0) PARROQUIAS_HOY.push(r.parroquia);
+        });
         operRenderParroquias(hoy);
+      } else if(resR && resR.error) console.error('[operIniciar] rutas_estado:', resR.error.message);
+      if(resKm && !resKm.error && Array.isArray(resKm.data)){
+        resKm.data.forEach(function(x){
+          if(!KM_DATA[x.cam])KM_DATA[x.cam]={mant:[]};
+          KM_DATA[x.cam].km=parseFloat(x.km)||0;
+          KM_DATA[x.cam].f=x.f||'';
+          KM_DATA[x.cam].ultsrv=parseFloat(x.ult_srv)||0;
+          KM_DATA[x.cam].estado=x.estado||'operativo';
+          KM_DATA[x.cam].nota_estado=x.nota_estado||'';
+          KM_DATA[x.cam].estado_desde=x.estado_desde||null;
+          KM_DATA[x.cam].estado_confirmado=!!x.estado_confirmado;
+          KM_DATA[x.cam].km_entrada_ayer=parseFloat(x.km_entrada_ayer)||0;
+        });
       }
-    }catch(_e){}
+      if(resVj && !resVj.error && Array.isArray(resVj.data)) VIAJES_CHOFER = resVj.data;
+      if(resCl && !resCl.error && Array.isArray(resCl.data)) CHECKLIST_DATA = resCl.data;
+    }catch(_e){ console.error('[operIniciar] refresh:', _e&&_e.message); }
   }
+
+  // Cargar anomalías abiertas ANTES de pintar KPIs para que ANOM_ABIERTAS esté al día
+  try{ if(typeof renderChecklistAnomalias==='function') await renderChecklistAnomalias(); }catch(e){}
 
   // Renderizar componentes del Dashboard Operativo
   operRenderKPIs();
   operRenderFlotaGrid();
   operCargarStats();
   operRenderSurtidasHoy();
-  try{ renderChecklistAnomalias(); }catch(e){}
   operProgramarRecordatorio();
   try{ stqRenderLista(); }catch(e){}
   try{ trsLlenarSelects(); trsLista(); }catch(e){}
@@ -31777,7 +31954,7 @@ function operRenderKPIs(){
     if(elTallSub) elTallSub.textContent = tall + ' en taller · ' + inop + ' inoperativas';
   }
 
-  // KPI 3: Viajes Hoy (En vivo vía viajes_chofer y planillas)
+  // KPI 3: Viajes Hoy (En vivo vía viajes_chofer y fallback planillas)
   var elV = document.getElementById('oper-kpi-viajes');
   var elVSub = document.getElementById('oper-kpi-viajes-sub');
   if(elV){
@@ -31791,8 +31968,9 @@ function operRenderKPIs(){
     // Si choferes aún no marcan viajes por app, verificar si hay planillas registradas hoy
     if(totV === 0 && typeof REGS !== 'undefined' && Array.isArray(REGS)){
       var regHoy = REGS.filter(function(r){ return r.f === hoy; });
-      totV = regHoy.reduce(function(a,b){ return a + (b.t||0); }, 0);
-      nD = totV;
+      nD = regHoy.reduce(function(a,b){ return a + (parseInt(b.d)||0); }, 0);
+      nN = regHoy.reduce(function(a,b){ return a + (parseInt(b.n)||0); }, 0);
+      totV = regHoy.reduce(function(a,b){ return a + (parseInt(b.t)||0); }, 0);
     }
     elV.textContent = totV + ' viajes';
     if(elVSub) elVSub.textContent = '☀️ Diurno: ' + nD + ' · 🌙 Noche: ' + nN;
@@ -31808,13 +31986,13 @@ function operRenderKPIs(){
     if(elCSub) elCSub.textContent = surHoy.length + ' despacho(s) registrados hoy';
   }
 
-  // KPI 5: Fallas / Anomalías de Checklist
+  // KPI 5: Fallas / Anomalías de Checklist (fuente real: ANOM_ABIERTAS)
   var elA = document.getElementById('oper-kpi-anomalias');
   var elASub = document.getElementById('oper-kpi-anomalias-sub');
   if(elA){
-    var anoms = (CHECKLIST_DATA||[]).filter(function(c){ return c.anomalia && !c.resuelta; });
-    elA.textContent = anoms.length + (anoms.length === 1 ? ' abierta' : ' abiertas');
-    if(elASub) elASub.textContent = anoms.length ? 'Atención preventiva pendiente' : 'Flota al día sin reportes';
+    var nAnom = (typeof ANOM_ABIERTAS !== 'undefined' && Array.isArray(ANOM_ABIERTAS)) ? ANOM_ABIERTAS.length : 0;
+    elA.textContent = nAnom + (nAnom === 1 ? ' abierta' : ' abiertas');
+    if(elASub) elASub.textContent = nAnom ? 'Atención preventiva pendiente' : 'Flota al día sin reportes';
   }
 
   // Resumen en texto superior
@@ -31854,11 +32032,11 @@ function operRenderFlotaGrid(){
   var html = lista.map(function(c){
     var st = _estadoCamReal(c);
     var kmObj = KM_DATA[c] || {};
-    var km = parseFloat(kmObj.km) || 0;
-    var ultSrv = parseFloat(kmObj.ultsrv) || 0;
-    var kmDesdeSrv = Math.max(0, km - ultSrv);
-    var kmProx = 5000 - (kmDesdeSrv % 5000);
-    var alertaServicio = kmProx <= 500 && kmProx >= 0;
+    var km = (typeof kmActualCam === 'function') ? kmActualCam(c) : (parseFloat(kmObj.km) || 0);
+    var prox = (typeof proxServicio === 'function') ? proxServicio(km, c) : ((parseFloat(kmObj.ultsrv)||0) + 5000);
+    var kmProx = prox - km;
+    var servicioVencido = km > 0 && kmProx <= 0;
+    var alertaServicio = km > 0 && kmProx <= 500;
 
     var cl = clCam[c] || null;
     var chofer = cl ? (cl.conductor || cl.chofer || '—') : '—';
@@ -31877,7 +32055,7 @@ function operRenderFlotaGrid(){
 
     var diasFuera = 0;
     if(st !== 'operativo' && kmObj.estado_desde){
-      try{ diasFuera = Math.floor((new Date() - new Date(kmObj.estado_desde)) / 86400000); }catch(_e){}
+      diasFuera = (typeof diasDesde === 'function') ? Math.max(0, diasDesde(kmObj.estado_desde)) : 0;
     }
     var notaEst = kmObj.nota_estado || '';
 
@@ -31901,8 +32079,8 @@ function operRenderFlotaGrid(){
           '</div>'+
         '</div>'+
         (alertaServicio ?
-          '<div style="background:rgba(245,158,11,0.15);border:1px solid #f59e0b;color:#f59e0b;padding:4px 8px;border-radius:6px;font-size:10px;font-weight:700;margin-bottom:8px">'+
-            '⚠️ Mantenimiento próximo (< '+Math.round(kmProx)+' km)'+
+          '<div style="background:'+(servicioVencido?'rgba(239,68,68,0.15)':'rgba(245,158,11,0.15)')+';border:1px solid '+(servicioVencido?'#ef4444':'#f59e0b')+';color:'+(servicioVencido?'#ef4444':'#f59e0b')+';padding:4px 8px;border-radius:6px;font-size:10px;font-weight:700;margin-bottom:8px">'+
+            (servicioVencido?('🔴 Mantenimiento VENCIDO (+'+Math.round(Math.abs(kmProx))+' km)'):('⚠️ Mantenimiento próximo (< '+Math.round(kmProx)+' km)'))+
           '</div>' : '')+
         (st !== 'operativo' ?
           '<div style="background:rgba(239,68,68,0.1);border-left:3px solid '+colSt+';padding:6px 8px;border-radius:4px;font-size:11px;color:var(--text2);margin-bottom:8px">'+
@@ -31963,21 +32141,19 @@ async function operGuardarEstadoModal(cam){
   }
 
   // Guardar a través de mecGuardarEstado para mantener sincronizada la persistencia, cola offline y WhatsApp
+  var _guardadoOk = false;
   if(typeof mecGuardarEstado === 'function'){
-    await mecGuardarEstado(cam, nuevoEstado, nota);
+    _guardadoOk = !!(await mecGuardarEstado(cam, nuevoEstado, nota));
   } else {
+    var rowEst = { cam: cam, estado: nuevoEstado, nota_estado: nota, estado_desde: nuevoEstado!=='operativo'?fechaVE():null, estado_confirmado: nuevoEstado!=='operativo' };
+    var rG = await guardar('km_data', rowEst, { onConflict: 'cam' });
+    _guardadoOk = !!rG.ok;
     if(!KM_DATA[cam]) KM_DATA[cam] = { mant:[] };
-    KM_DATA[cam].estado = nuevoEstado;
-    KM_DATA[cam].nota_estado = nota;
-    KM_DATA[cam].estado_desde = fechaVE();
-    KM_DATA[cam].estado_confirmado = true;
-    if(DB_READY && supabase){
-      await supabase.from('km_data').upsert({ cam: cam, estado: nuevoEstado, nota_estado: nota, estado_desde: fechaVE(), estado_confirmado: true });
-    }
+    Object.assign(KM_DATA[cam], rowEst);
+    closeModal();
   }
 
-  closeModal();
-  if(typeof mostrarToast === 'function') mostrarToast('✅ Estado de ' + cam + ' actualizado.', 'exito');
+  if(_guardadoOk && typeof mostrarToast === 'function') mostrarToast('✅ Estado de ' + cam + ' actualizado.', 'exito');
   operIniciar();
 }
 
@@ -32013,6 +32189,11 @@ function imprimirDashboardOperativo(){
   var hoy = fechaVE();
   var dow = fmtFechaDow(new Date());
   var hora = (new Date()).toLocaleTimeString('es-VE', { timeZone: 'America/Caracas', hour: '2-digit', minute: '2-digit' });
+  var hNum = 12;
+  try{
+    var sHora = (new Date()).toLocaleTimeString('en-US', { timeZone: 'America/Caracas', hour12: false });
+    hNum = parseInt(sHora.split(':')[0], 10) || 0;
+  }catch(_e){}
   var cams = (typeof _unidadesTodas==='function') ? _unidadesTodas() : Object.keys(FLOTA||{});
   if(!cams.length) cams = Object.keys(KM_DATA||{});
   var comp = cams.filter(function(c){ return c.startsWith('JAC-B'); });
@@ -32028,14 +32209,14 @@ function imprimirDashboardOperativo(){
 
   var surHoy = typeof _surtidasHoy === 'function' ? _surtidasHoy() : [];
   var totL = surHoy.reduce(function(a,b){ return a + (parseFloat(b.litros)||0); }, 0);
-  var anoms = (CHECKLIST_DATA||[]).filter(function(c){ return c.anomalia && !c.resuelta; });
-  var pars = operParroquiasHoy(hoy);
+  var nAnom = (typeof ANOM_ABIERTAS !== 'undefined' && Array.isArray(ANOM_ABIERTAS)) ? ANOM_ABIERTAS.length : 0;
+  var pars = (PARROQUIAS_HOY && PARROQUIAS_HOY.length) ? PARROQUIAS_HOY : operParroquiasHoy(hoy);
 
   var statsHtml = '<div class="bg-stat"><div class="lbl">Flota Activa</div><div class="val" style="color:#1d9e75">'+op+' / '+comp.length+'</div><div class="sub">'+Math.round(op/comp.length*100)+'% disp.</div></div>'+
     '<div class="bg-stat"><div class="lbl">En Taller</div><div class="val" style="color:#ef9f27">'+tall+'</div><div class="sub">Mantenimiento</div></div>'+
     '<div class="bg-stat"><div class="lbl">Inoperativas</div><div class="val" style="color:#e24b4a">'+inop+'</div><div class="sub">Falla mayor</div></div>'+
     '<div class="bg-stat"><div class="lbl">Gasoil Hoy</div><div class="val" style="color:#0284c7">'+Math.round(totL).toLocaleString('es-VE')+' L</div><div class="sub">'+surHoy.length+' despachos</div></div>'+
-    '<div class="bg-stat"><div class="lbl">Fallas Checklist</div><div class="val" style="color:#dc2626">'+anoms.length+'</div><div class="sub">Abiertas</div></div>';
+    '<div class="bg-stat"><div class="lbl">Fallas Checklist</div><div class="val" style="color:#dc2626">'+nAnom+'</div><div class="sub">Abiertas</div></div>';
 
   var tablaFlota = '<div class="sec-title" style="margin-top:14px;font-size:14px;font-weight:900;border-bottom:2px solid #1e3a5f;padding-bottom:4px">1. Estado Detallado de Unidades (12 Compactadoras)</div>'+
     '<table class="tabla" style="width:100%;margin-top:8px;font-size:11px;border-collapse:collapse">'+
@@ -32044,7 +32225,7 @@ function imprimirDashboardOperativo(){
     comp.map(function(c){
       var st = _estadoCamReal(c);
       var kmObj = KM_DATA[c] || {};
-      var km = parseFloat(kmObj.km) || 0;
+      var km = (typeof kmActualCam === 'function') ? kmActualCam(c) : (parseFloat(kmObj.km) || 0);
       var ultSrv = parseFloat(kmObj.ultsrv) || 0;
       var nota = kmObj.nota_estado || '—';
       var col = st==='operativo'?'#1d9e75':st==='taller'?'#ef9f27':'#e24b4a';
@@ -32071,8 +32252,9 @@ function imprimirDashboardOperativo(){
     }).join('')+
     '</div>';
 
+  var responsableOper = (typeof SESION!=='undefined'&&SESION&&SESION.nombre)?SESION.nombre:'Jefe de Operaciones';
   var pieHtml = '<div style="margin-top:30px;display:flex;justify-content:space-around;text-align:center;font-size:11px">'+
-    '<div style="border-top:1px solid #94a3b8;width:220px;padding-top:6px"><b>Samuel Mendoza</b><br>Jefe de Operaciones</div>'+
+    '<div style="border-top:1px solid #94a3b8;width:220px;padding-top:6px"><b>'+_fx(responsableOper)+'</b><br>Jefe de Operaciones</div>'+
     '<div style="border-top:1px solid #94a3b8;width:220px;padding-top:6px"><b>Supervisor de Patio</b><br>Control de Flota y Patio</div>'+
   '</div>';
 
@@ -32666,7 +32848,8 @@ async function combStqGuardar(){
 function operRenderParroquias(hoy){
   var cont=document.getElementById('oper-parroquias');
   if(!cont)return;
-  cont.innerHTML=PARROQUIAS.map(function(par){
+  var lista=(PARROQUIAS_HOY&&PARROQUIAS_HOY.length)?PARROQUIAS_HOY:operParroquiasHoy(hoy);
+  cont.innerHTML=lista.map(function(par){
     var r=RUTAS_HOY[par];
     var estado=r?r.estado:null;
     var just=r?r.justificacion:'';
@@ -32679,11 +32862,13 @@ function operRenderParroquias(hoy){
       if(estado===e&&cols[e])return 'background:'+cols[e].bg+';border-color:'+cols[e].bc+';color:'+cols[e].c+';font-weight:700';
       return '';
     }
-    var yaGuardado=!!estado;
-    return '<div style="background:var(--bg2);border:1px solid '+(yaGuardado&&cols[estado]?cols[estado].bc:'var(--border)')+';border-radius:16px;padding:18px;margin-bottom:12px">'+
+    var yaGuardado=!!(r&&r._guardado&&estado);
+    var sinGuardar=!!(estado&&!yaGuardado);
+    return '<div style="background:var(--bg2);border:1px solid '+(yaGuardado&&cols[estado]?cols[estado].bc:sinGuardar?'rgba(245,158,11,.6)':'var(--border)')+';border-radius:16px;padding:18px;margin-bottom:12px">'+
       '<div style="font-size:15px;font-weight:700;color:var(--text1);margin-bottom:14px">📍 '+par+
       (yaGuardado?'<span style="margin-left:8px;font-size:12px;color:'+(cols[estado]?cols[estado].c:'#888')+'">'+
-        (estado==='100'?'✅ Completada':estado==='80'?'🟡 80%':'🔴 Incompleta')+'</span>':'')+
+        (estado==='100'?'✅ Completada':estado==='80'?'🟡 80%':'🔴 Incompleta')+'</span>':
+       sinGuardar?'<span style="margin-left:8px;font-size:11px;color:#f59e0b;font-weight:700">⏳ Sin guardar</span>':'')+
       '</div>'+
       '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px">'+
       '<button data-p="'+par+'" data-e="100" onclick="operSelEstado(this)" class="btn" style="padding:14px 4px;font-size:14px;border-radius:12px;'+btnSty('100')+'">✅ 100%</button>'+
@@ -32704,21 +32889,14 @@ function operRenderParroquias(hoy){
 function operSelEstado(btn){
   var par=btn.dataset.p;
   var estado=btn.dataset.e;
-  if(!RUTAS_HOY[par])RUTAS_HOY[par]={parroquia:par,estado:null,justificacion:''};
+  if(!RUTAS_HOY[par])RUTAS_HOY[par]={parroquia:par,estado:null,justificacion:'',_guardado:false};
   RUTAS_HOY[par].estado=estado;
+  RUTAS_HOY[par]._guardado=false;
   var hoy=fechaVE();
   operRenderParroquias(hoy);
 }
 
 // (!) 12/09/2026 -- ACA DECIA «Guardado localmente» Y NO GUARDABA NADA.
-//     Sin conexion hacia `RUTAS_HOY[par]=reg` -que vive SOLO EN MEMORIA,
-//     comprobado: no se persiste en ninguna parte- y avisaba «✅ Guardado
-//     localmente». Al recargar la pagina el estado de la parroquia se perdia y
-//     el de operativo creia que estaba guardado.
-//     Ahora se sigue el patron que YA usa el guardado de planillas: si el
-//     servidor no CONFIRMA, el registro va a la COLA OFFLINE y el aviso dice
-//     «en cola, sin confirmar» -- nunca «guardado».
-//     [[norma-guardado-localmente-es-una-mentira]]
 async function operGuardar(par,hoy){
   var r=RUTAS_HOY[par];
   var estado=r?r.estado:null;
@@ -32730,24 +32908,18 @@ async function operGuardar(par,hoy){
     if(!just){alert('Debes explicar por qué no se completó al 100%');return;}
   }
   var reg={fecha:hoy,parroquia:par,estado:estado,justificacion:just,registrado_por:SESION.nombre||'Operativo'};
-  RUTAS_HOY[par]=reg;
-  // `dbUp` devuelve las filas si el servidor CONFIRMO, y null si no (sin
-  // conexion, rechazo o sin respuesta). En null se encola, igual que planillas.
-  var _res=await dbUp('rutas_estado',[reg],'fecha,parroquia');
+  var _res=await guardar('rutas_estado',reg,{onConflict:'fecha,parroquia'});
+  RUTAS_HOY[par]=Object.assign({},reg,{_guardado:!!(_res.ok||_res.encolado)});
   operRenderParroquias(hoy);
   operCargarStats();
-  if(_res){
-    alert('✅ '+par.split(' ')[0]+'... guardado correctamente');
+  if(_res.ok){
+    alert('✅ '+par+' guardado correctamente');
+  } else if(_res.encolado){
+    alert('📴 «'+par+'» quedó EN COLA, sin confirmar.\n\nEstá guardado en este equipo y se sube solo cuando haya conexión. No lo cargues de nuevo.');
   } else {
-    guardarEnCola('rutas_estado',reg);
-    alert('📴 «'+par+'» quedó EN COLA, sin confirmar.\n\nEstá guardado en este '
-      +'equipo y se sube solo cuando haya conexión. No lo cargues de nuevo.');
+    return;
   }
-  // (!) El aviso a los socios sale en LOS DOS CASOS. Lo que les importa es la
-  //     cobertura de la parroquia de hoy, y `sendWA` tiene su propia cola: si
-  //     esperara a que la fila esté confirmada, un día sin internet sería un día
-  //     sin reporte. [[norma-mensaje-frenado-se-ve-igual-que-nada]]
-  var pct=estado==='100'?'100%':estado==='75'?'75%':estado==='50'?'50%':estado==='25'?'25%':'0%';
+  var pct=estado==='100'?'100%':estado==='80'?'80%':estado==='incompleta'?'Incompleta':(estado+'%');
   var msgRuta=brandTag()+' - Estado de Ruta Actualizado\n\n'+
     'Parroquia: '+par+'\n'+
     'Cobertura: '+pct+'\n'+
@@ -32766,7 +32938,7 @@ function operCargarStats(){
   }
   supabase.from('rutas_estado').select('*').order('fecha',{ascending:false}).limit(90).then(function(res){
     if(res.error||!res.data){cont.innerHTML='<div style="color:var(--text3);font-size:12px;padding:8px">Sin datos aún</div>';return;}
-    var html=PARROQUIAS.map(function(par){
+    var html=PARROQUIAS_TODAS.map(function(par){
       var regs=res.data.filter(function(d){return d.parroquia===par;});
       if(!regs.length)return '<div style="color:var(--text3);font-size:12px;padding:8px">'+par+': Sin registros aún</div>';
       var total=regs.length;
@@ -32776,7 +32948,7 @@ function operCargarStats(){
       var incompletos=regs.filter(function(d){return d.estado!=='100';});
       return '<div style="background:var(--bg3);border-radius:12px;padding:12px;margin-bottom:8px">'+
         '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">'+
-        '<div style="font-size:13px;font-weight:700;color:var(--text1)">'+par.split(' ')[0]+'...</div>'+
+        '<div style="font-size:13px;font-weight:700;color:var(--text1)">'+par+'</div>'+
         '<div style="font-size:20px;font-weight:700;color:'+col+'">'+pct+'%</div></div>'+
         '<div style="background:var(--bg2);border-radius:20px;height:8px;overflow:hidden;margin-bottom:6px">'+
         '<div style="width:'+pct+'%;height:100%;background:'+col+';border-radius:20px"></div></div>'+
@@ -33810,31 +33982,41 @@ function cargarPanelChoferes(){
       '<div style="flex:1;text-align:center;background:var(--bg3);border-radius:6px;padding:5px"><div style="font-size:9px;color:var(--text3);text-transform:uppercase">Facturado (planillas)</div><div style="font-size:18px;font-weight:800;font-family:var(--m);color:#3b8fd4">'+planDiaTot+'</div></div></div>';
   }
   supabase.from('viajes_chofer').select('*').eq('fecha',hoy).order('cam').then(function(res){
-    if(res.error || !res.data || !res.data.length){
-      cont.innerHTML=cab(0)+'<div style="color:var(--text3);font-size:11px;padding:4px 2px">Sin reportes de choferes hoy (la app del chofer no está registrando). Los viajes reales entran por <b>planillas</b>.</div>';
+    if(res.error){
+      cont.innerHTML=cab(0)+'<div style="color:var(--red);font-size:11px;padding:4px 2px">No se pudieron leer viajes de choferes: '+res.error.message+'</div>';
       return;
     }
-    // Agrupar por camión
+    var planDia = (typeof REGS!=='undefined'?REGS:[]).filter(function(r){return r.f===hoy;});
+    // Unión de camiones en viajes_chofer y en planillas del día (cruce en ambos sentidos) + desglose por turno
     var porCam = {};
-    res.data.forEach(function(v){
-      if(!porCam[v.cam])porCam[v.cam]={chofer:v.chofer,viajes:[],total:0};
-      porCam[v.cam].viajes.push(v.hora);
+    (res.data||[]).forEach(function(v){
+      if(!porCam[v.cam])porCam[v.cam]={choferes:[],d:0,n:0,total:0};
+      var chNm=String(v.chofer||'').trim();
+      if(chNm&&porCam[v.cam].choferes.indexOf(chNm)<0)porCam[v.cam].choferes.push(chNm);
+      if(String(v.turno||'').toLowerCase()==='nocturno')porCam[v.cam].n++;
+      else porCam[v.cam].d++;
       porCam[v.cam].total++;
     });
-    // Comparar con planillas del día
-    var planDia = REGS.filter(function(r){return r.f===hoy;});
-    var html = Object.keys(porCam).sort().map(function(cam){
+    planDia.forEach(function(r){
+      if(!porCam[r.cam])porCam[r.cam]={choferes:r.ch?[r.ch]:[],d:0,n:0,total:0};
+    });
+    var camsLista = Object.keys(porCam).sort();
+    if(!camsLista.length){
+      cont.innerHTML=cab(0)+'<div style="color:var(--text3);font-size:11px;padding:4px 2px">Sin reportes de choferes ni planillas hoy.</div>';
+      return;
+    }
+    var html = camsLista.map(function(cam){
       var d = porCam[cam];
-      // Buscar planilla oficial
       var planCam = planDia.filter(function(r){return r.cam===cam;});
-      var viajesOficial = planCam.reduce(function(s,r){return s+r.t;},0);
+      var viajesOficial = planCam.reduce(function(s,r){return s+(parseInt(r.t)||0);},0);
       var discrepancia = viajesOficial > 0 && d.total !== viajesOficial;
       var color = discrepancia ? '#e24b4a' : viajesOficial > 0 ? '#1d9e75' : '#ef9f27';
+      var turnoTxt = (d.d||d.n)?(' <span style="font-size:10px;color:var(--text3)">(☀️'+d.d+' 🌙'+d.n+')</span>'):'';
       return '<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:0.5px solid var(--border)">'+
         '<div><div style="font-size:13px;font-weight:700;color:var(--text1)">'+cam+'</div>'+
-        '<div style="font-size:11px;color:var(--text3)">'+d.chofer+'</div></div>'+
+        '<div style="font-size:11px;color:var(--text3)">'+(d.choferes.join(' / ')||'Sin chofer')+'</div></div>'+
         '<div style="text-align:right">'+
-        '<div style="font-size:15px;font-weight:700;color:'+color+'">'+d.total+'v</div>'+
+        '<div style="font-size:15px;font-weight:700;color:'+color+'">'+d.total+'v'+turnoTxt+'</div>'+
         (viajesOficial>0?'<div style="font-size:10px;color:'+(discrepancia?'#e24b4a':'var(--text3)')+'">Planilla: '+viajesOficial+'v'+(discrepancia?' ⚠️':'')+'</div>':
         '<div style="font-size:10px;color:var(--text3)">Sin planilla aún</div>')+
         '</div></div>';
@@ -33974,13 +34156,7 @@ function checkResumenPagosSabado(){
 // Verificar cada hora si es sabado
 setInterval(checkResumenPagosSabado,3600000);
 
-// Auto-refresh panel choferes y widget flota cada 90s
-setInterval(function(){
-  if(DB_READY && SESION && ['superadmin','admin','operador','rrhh','visualizador','directivo'].indexOf(SESION.rol)>=0){
-    cargarPanelChoferes();
-    renderWidgetFlota();
-  }
-}, 90000);
+// El refresco en vivo ya corre en refrescarVivoLiviano() cada 45s (sin timers duplicados).
 
 // ══════════════════════════════════════════════════
 // GESTIÓN ACTIVOS/INACTIVOS — RRHH y Secretaria
@@ -34778,32 +34954,42 @@ function FLOTA_MAP_WF(){
   });
   return m;
 }
-function puedeVerWidgetFlota(){if(!SESION)return false;return['superadmin','admin','operador','rrhh','visualizador','directivo'].indexOf(SESION.rol)>=0;}
-function getLunesWF(){var now=new Date();var day=now.getDay()||7;var l=new Date(now);l.setDate(now.getDate()-(day-1));l.setHours(0,0,0,0);return l.toISOString().slice(0,10);}
+function puedeVerWidgetFlota(){
+  if(!SESION)return false;
+  if(typeof misPermisos==='function')return misPermisos().indexOf('dashboard')>=0;
+  return['superadmin','admin','operador','rrhh','visualizador','directivo'].indexOf(SESION.rol)>=0;
+}
+function getLunesWF(){
+  var hoy=(typeof fechaVE==='function')?fechaVE():new Date().toISOString().slice(0,10);
+  if(typeof getLunesDeRango==='function')return getLunesDeRango(hoy);
+  var d=new Date(hoy+'T12:00:00');var day=d.getDay()||7;d.setDate(d.getDate()-(day-1));
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+}
 function renderWidgetFlota(){
   if(!puedeVerWidgetFlota())return;
   var g1=document.getElementById('wf-grid-camiones'),g2=document.getElementById('wf-total-hoy'),g3=document.getElementById('wf-total-semana'),g4=document.getElementById('wf-semana-rango'),g5=document.getElementById('widget-flota-update');
   if(!g1||!DB_READY||!supabase)return;
   var hoy=fechaVE(),lunes=getLunesWF();
-  var ld=new Date(lunes),dd=new Date(ld);dd.setDate(ld.getDate()+6);
-  if(g4)g4.textContent=formatFecha(ld)+' – '+formatFecha(dd);
+  // Anclar al mediodía local para evitar salto a domingo por UTC-4.
+  var ld=new Date(lunes+'T12:00:00'),dd=new Date(ld);dd.setDate(ld.getDate()+6);
+  var _isoLocalWF=function(dt){return dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0')+'-'+String(dt.getDate()).padStart(2,'0');};
+  if(g4)g4.textContent=formatFecha(_isoLocalWF(ld))+' – '+formatFecha(_isoLocalWF(dd));
   var _mapWF=FLOTA_MAP_WF(); var cams=Object.keys(_mapWF);
   Promise.all([
-    supabase.from('viajes_chofer').select('cam,viaje_num').eq('fecha',hoy),
-    supabase.from('viajes_chofer').select('cam,viaje_num,fecha').gte('fecha',lunes).lte('fecha',hoy),
-    supabase.from('checklist').select('cam,estado_vehiculo').eq('fecha',hoy)
+    supabase.from('viajes_chofer').select('cam,viaje_num,turno').eq('fecha',hoy),
+    supabase.from('viajes_chofer').select('cam,viaje_num,fecha,turno').gte('fecha',lunes).lte('fecha',hoy),
+    supabase.from('checklist').select('cam,estado_vehiculo,turno,km_salida,km_entrada').eq('fecha',hoy)
   ]).then(function(res){
     var ph={},ps={};cams.forEach(function(c){ph[c]=0;ps[c]=0;});
     if(!res[0].error&&res[0].data)res[0].data.forEach(function(v){if(ph[v.cam]!==undefined)ph[v.cam]++;});
     var porDia={};
-    if(!res[1].error&&res[1].data)res[1].data.forEach(function(v){if(ps[v.cam]!==undefined)ps[v.cam]++;porDia[v.fecha]=(porDia[v.fecha]||0)+1;});
-    // Desglose semanal por día (lunes a sábado, la operación es L-S) — vista en vivo choferes
-    // ⛔ LUNES A DOMINGO (Máximo, 04/11/2026). Faltaba la columna del domingo y los viajes
-    //    de ese día no se veían acá: la operación SÍ trabaja los domingos.
+    if(!res[1].error&&res[1].data){
+      res[1].data.forEach(function(v){if(ps[v.cam]!==undefined)ps[v.cam]++;porDia[v.fecha]=(porDia[v.fecha]||0)+1;});
+    }
     var nomDias=['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'];
     var celdas='';
     for(var di=0;di<7;di++){
-      var dfecha=new Date(ld);dfecha.setDate(ld.getDate()+di);var ds=dfecha.toISOString().slice(0,10);
+      var dfecha=new Date(ld);dfecha.setDate(ld.getDate()+di);var ds=_isoLocalWF(dfecha);
       var nv=porDia[ds]||0; var esHoy=(ds===hoy);
       celdas+='<div style="flex:1;text-align:center;padding:4px 2px;border-radius:6px;'+(esHoy?'background:rgba(125,201,65,.12);border:1px solid rgba(125,201,65,.35)':'background:var(--bg3)')+'">'+
         '<div style="font-size:9px;color:var(--text3)">'+nomDias[di]+'</div>'+
@@ -34813,9 +34999,15 @@ function renderWidgetFlota(){
     var totSemDias=Object.keys(porDia).reduce(function(s,k){return s+porDia[k];},0);
     if(wsd)wsd.innerHTML='<div style="font-size:10px;color:var(--text3);margin-bottom:4px;text-transform:uppercase;letter-spacing:1px">Registro de la semana (choferes) — total <b style="color:#3b8fd4">'+totSemDias+'</b> viajes</div>'+
       '<div style="display:flex;gap:4px">'+celdas+'</div>';
-    // Checklists completados hoy por camión
-    var ckSet={};
-    if(!res[2].error&&res[2].data)res[2].data.forEach(function(c){if(ckSet[c.cam]===undefined)ckSet[c.cam]=c.estado_vehiculo||'operativo';});
+    // Checklists completados hoy por camión — si hubo dos turnos, prioriza el estado más grave (inoperativo > taller > operativo).
+    var ckSet={}, _prio={inoperativo:3,taller:2,operativo:1};
+    if(!res[2].error&&res[2].data)res[2].data.forEach(function(c){
+      var est=String(c.estado_vehiculo||'operativo');
+      var kEst=est==='inoperativo'?'inoperativo':(est.indexOf('taller')===0?'taller':'operativo');
+      var prev=ckSet[c.cam];
+      var kPrev=!prev?'':(prev==='inoperativo'?'inoperativo':(prev.indexOf('taller')===0?'taller':'operativo'));
+      if(!prev||(_prio[kEst]||0)>(_prio[kPrev]||0))ckSet[c.cam]=est;
+    });
     var ckCount=cams.filter(function(c){return ckSet[c]!==undefined;}).length;
     var ckHechos=cams.filter(function(c){return ckSet[c]!==undefined;}).map(function(c){return c.replace('JAC-','');});
     var ckFaltan=cams.filter(function(c){return ckSet[c]===undefined;}).map(function(c){return c.replace('JAC-','');});
@@ -38544,7 +38736,7 @@ async function renderFondoUsd(){
   }catch(e){ res.innerHTML='<div style="color:var(--red)">No se pudo cargar el fondo: '+relEsc(e.message||e)+'</div>'; }
 }
 function fdNuevo(){
-  var hoy=new Date().toISOString().slice(0,10);
+  var hoy=(typeof fechaVE==='function'?fechaVE():new Date().toISOString().slice(0,10));
   openModal('Registrar salida del fondo',
     '<div style="font-size:11px;color:var(--text3);margin-bottom:10px">Los dólares que salen del fondo: un abono a la deuda de los camiones, o dólares que hubo que vender para cubrir algo. Se descuentan del saldo.</div>'+
     '<div class="fr2">'+

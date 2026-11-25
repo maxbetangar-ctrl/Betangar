@@ -73,7 +73,7 @@ audit(...); mostrarToast(...);
 
 | Módulo (id) | Tabla(s) | Render / claves |
 |---|---|---|
-| Dashboard (`dashboard`) | REGS, ABONOS, viajes_chofer, checklist, bnc | `renderDash`, `renderWidgetFlota` (viajes chofer hoy + desglose semanal Lun–Sáb), `cargarPanelChoferes` (En vivo vs Facturado), `renderDashFinanciero` (Facturado/Cobrado/Por Cobrar/Utilidad Real), `renderReporteKM` (recorridos desde checklist) |
+| Dashboard (`dashboard`) | REGS, ABONOS, viajes_chofer, checklist, bnc | `renderDash`, `renderWidgetFlota` (viajes chofer hoy + desglose semanal Lun–Dom), `cargarPanelChoferes` (En vivo vs Facturado), `renderDashFinanciero` (Facturado/Cobrado/Por Cobrar/Utilidad Real), `renderDashKmServicio` |
 | Registro Diario (`planilla`) | planillas | alta manual + import Excel (`onConflict:'p'`); produce REGS |
 | Histórico (`historico`) | planillas | filtros por semana |
 | **Cobranza / Alcaldía (`reporte`)** | planillas, abonos (`onConflict:'fact'`), pagos_alcaldia | **Módulo unificado de cobros** — 4 pestañas: Estado de Cuenta (FIFO + antigüedad/aging + KPIs + Recordatorio WA), Ejecución Semanal, **Pagos** (registrar abonos; antes el módulo "Abonos", fundido aquí), Precios. Motor único `calcCobranzaSemanas()` / `calcCobranzaAging()` (mismo cálculo en reporte y panel). `sp('abonos')` redirige a la pestaña Pagos; el menú "Abonos" se eliminó. |
@@ -146,7 +146,7 @@ BNC: bnc-webhook(edge) ──bnc_notificaciones──► Banco/Conciliación/Das
 4. **RLS:** tabla nueva → crear policy `anon USING(true)` o el módulo falla en silencio.
 5. **WhatsApp desde el cliente:** SIEMPRE `new Image().src=callmebot...`, nunca `fetch` (CORS). Gemini sí usa fetch (POST).
 6. **Odómetro nunca baja:** `guardarKm` pide confirmación si el km nuevo < anterior; el checklist del mecánico usa `Math.max`. KM del día sale de checklist (km_entrada−km_salida), no de km_data.
-7. **Fechas:** en BD todo `YYYY-MM-DD` (texto o date), `cam` = `JAC-B0XX`. En UI se muestra dd/mm/aa. Semanas operativas **lunes–sábado**.
+7. **Fechas:** en BD todo `YYYY-MM-DD` (texto o date), `cam` = `JAC-B0XX`. En UI se muestra dd/mm/aa. Semanas operativas **lunes–domingo**.
 8. **No hardcodear tasas:** usar `TASAS` (BCV) o modal manual.
 9. **NO tocar módulos que ya funcionan** sin auditoría previa; `node --check` (extrayendo el JS inline) antes de commit; commit + push a main.
 10. **Geppetto comparte el Supabase** — no tocar `edu_*`/`usdt_*`.
