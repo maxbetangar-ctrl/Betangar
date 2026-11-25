@@ -53,12 +53,12 @@ test('E7/E16/C5: chofer.html resetea SUR_GPS, persiste SUR_HOY, envía turno y d
 test('E8/E15: _perCalc concatena warn, calcula tasa ponderada por tramo y _surPendiente exige litros > 0', () => {
   assert.ok(appJs.includes("warn+='<div style=\"color:#9fb3c8;margin-top:4px\">'"));
   assert.ok(appJs.includes('tasaSel=(_usdSum>0)?(_bsSum/_usdSum):tramos[0].tasa;'));
-  assert.ok(appJs.includes('function _surPendiente(s){ return _surEsExterna(s)&&!s.costo_definido&&(parseFloat(s&&s.litros)||0)>0&&!s.anulada; }'));
+  assert.ok(appJs.includes('function _surPendiente(s){ return _surEsExterna(s)&&!s.costo_definido&&(s.litros==null||(parseFloat(s.litros)||0)>0)&&!s.anulada; }'));
 });
 
 test('E9/E10/E11/E12/E14/C1: Auditoría soporta relevo mismo día, tanque_id en galpón, trasvases, turno en acNoConfiable y resetea _AC_LOTES', () => {
   assert.ok(appJs.includes('var _esRelevoMismoDia=(_diasHueco===0 && ant.turno && hoy.turno && ant.turno!==hoy.turno);'));
-  assert.ok(appJs.includes("var idEnt = m.vehiculo_id || ('TQ:'+(m.tanque_id||''));"));
+  assert.ok(appJs.includes("if(!m.vehiculo_id&&m.tanque_id) k='TQ:'+m.tanque_id+'|'+k;"));
   assert.ok(appJs.includes('window.AC_TRASVASES='));
   assert.ok(appJs.includes('var _devAplicadosDia={};'));
   assert.ok(appJs.includes(".eq('momento',cual).eq('turno',t).select()"));

@@ -2455,9 +2455,9 @@ function _acDedupe(filas){
   var porMomento={}, dupIguales=0;
   (filas||[]).slice().sort(function(a,b){ return String(a.created_at||'').localeCompare(String(b.created_at||'')); })
   .forEach(function(m){
-    // Para tanques del galpón (vehiculo_id=null), incluir tanque_id para no colapsar T1 y T2.
-    var idEnt = m.vehiculo_id || ('TQ:'+(m.tanque_id||''));
-    var k=[idEnt,String(m.fecha).slice(0,10),m.momento,_acTurno(m)].join('|');
+    var k=[m.vehiculo_id,String(m.fecha).slice(0,10),m.momento,_acTurno(m)].join('|');
+    // Para tanques del galpón (vehiculo_id=null), prefijar tanque_id para no colapsar T1 y T2.
+    if(!m.vehiculo_id&&m.tanque_id) k='TQ:'+m.tanque_id+'|'+k;
     (porMomento[k]=porMomento[k]||[]).push(m);
   });
   var out=[], corregidas={}, noConf={};
@@ -19073,7 +19073,7 @@ async function cargarSurtidas(){
 function _surtidasHoy(){ var hoy=fechaVE(); return (SURTIDAS||[]).filter(function(s){return String(s.fecha||'').slice(0,10)===hoy;}); }
 function _surEsExterna(s){ return !!s && !_acTanquePropio(s.tanque); }
 function _surCostoUsd(s){ if(_surEsExterna(s)&&!s.costo_definido)return 0; return parseFloat(s&&s.costo_usd)||0; } // costo HORNEADO (galpón=promedio tanque, estación=mezclado); pendiente=0
-function _surPendiente(s){ return _surEsExterna(s)&&!s.costo_definido&&(parseFloat(s&&s.litros)||0)>0&&!s.anulada; }
+function _surPendiente(s){ return _surEsExterna(s)&&!s.costo_definido&&(s.litros==null||(parseFloat(s.litros)||0)>0)&&!s.anulada; }
 function _surLbl(t){ return TANQUE_LBL[t]||t||''; }
 
 // ═══════ F2: SURTIDAS Y COSTEO (combustible por origen; admin cuesta las de estación) ═══════
