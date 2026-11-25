@@ -39997,9 +39997,13 @@ async function rsCicloActual(){
     if(!c){ _rsEstado('No se pudo leer el ciclo.','mal'); return; }
     g('rs-desde').value=String(c.desde).slice(0,10);
     g('rs-hasta').value=String(c.hasta).slice(0,10);
-    _rsEstado(c.arranque==='sin_pago'
-      ? 'Ciclo abierto: la Alcaldia no ha vuelto a pagar, van '+c.dias+' dias.'
-      : 'Ciclo abierto desde el pago de la Alcaldia: '+c.dias+' dias, '+c.cobros+' cobro(s).');
+    _rsEstado(c.arranque==='nuevo_pago'
+      ? 'Ciclo cerrado listo (de pago a pago): '+c.dias+' dias, '+c.cobros+' cobro(s).'
+      : c.arranque==='seguimiento_sin_pago'
+        ? 'Corte de seguimiento (8+ dias sin nuevo pago): '+c.dias+' dias.'
+        : c.arranque==='sin_pago'
+          ? 'Ciclo abierto: la Alcaldia no ha vuelto a pagar, van '+c.dias+' dias.'
+          : 'Ciclo abierto desde el pago de la Alcaldia: '+c.dias+' dias, '+c.cobros+' cobro(s).');
     await rsVer();
   }catch(e){ _rsEstado('No se pudo leer el ciclo: '+(e.message||e),'mal'); }
 }
@@ -40206,15 +40210,15 @@ async function rsCorridas(){
     var h='<div class="card" style="font-size:11px">';
     h+='<div class="st" style="margin-bottom:6px;font-size:11px">ENVIOS A LOS SOCIOS</div>';
     h+='<div style="color:var(--text2);font-size:10px;margin-bottom:8px">'+
-       (cuando ? 'Sale solo los '+_rsEsc(cuando)+' (hora de Venezuela).' : 'No se pudo leer cuando sale.')+
-       ' Aca consta cada envio: si falta el de esta semana, no llego.</div>';
+       (cuando ? (/^(al |cuando |no |est)/i.test(cuando) ? 'Sale solo '+_rsEsc(cuando) : 'Sale solo los '+_rsEsc(cuando))+' (hora de Venezuela).' : 'No se pudo leer cuando sale.')+
+       ' Aca consta cada envio: si falta un ciclo cerrado, no llego.</div>';
     if(!filas.length){
-      h+='<div style="color:var(--text2)">Todavia no salio ninguno.'+(cuando?' El primero sale el proximo '+_rsEsc(cuando.split(' a las ')[0]).replace(/s$/,''):'')+'.</div>';
+      h+='<div style="color:var(--text2)">Todavia no salio ninguno.</div>';
     }else{
       var ult=new Date(filas[0].enviado_at);
       var dias=Math.floor((Date.now()-ult.getTime())/86400000);
-      if(dias>8) h+='<div style="color:var(--red);font-weight:700;margin-bottom:6px">El ultimo salio hace '+dias+' dias'+
-        (cuando?', y deberia salir cada semana los '+_rsEsc(cuando.split(' a las ')[0]):'')+'.</div>';
+      if(dias>10) h+='<div style="color:var(--red);font-weight:700;margin-bottom:6px">El ultimo salio hace '+dias+' dias'+
+        (cuando?' ('+_rsEsc(cuando)+')':'')+'.</div>';
       h+='<table style="width:100%;border-collapse:collapse"><tr style="text-align:left;color:var(--text2)">'+
          '<th>Salio</th><th>Periodo</th><th>A cuantos</th></tr>';
       filas.forEach(function(f){

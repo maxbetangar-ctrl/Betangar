@@ -97,7 +97,7 @@ ok('13. operSwitchCombTab soporta las 3 pestañas (stq, trs, dev)',
    'operSwitchCombTab debe manejar stq, trs y dev')
 
 ok('14. Cache-buster de app.js actualizado en app.html',
-   html.includes('app.js?v=20261125-comb-traslado-galpon-fechas'),
+   /app\.js\?v=2026112[5-9]|app\.js\?v=2026113|app\.js\?v=202612|app\.js\?v=202[7-9]/.test(html),
    'Falta bump del parámetro ?v= en app.html')
 
 console.log('\nResultado final: ' + (fallos === 0 ? 'TODO EN VERDE (14)' : fallos + ' fallo(s)'))

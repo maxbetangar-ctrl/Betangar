@@ -418,7 +418,9 @@ async function armarPdf(r: any, ciclo: any, empresa: string, membrete: any): Pro
     const js = await rs.json();
     const ves = (js?.cuentas ?? []).filter((c: any) => c.moneda === "VES" && c.saldoActual !== null && c.saldoActual !== undefined);
     if (ves.length) {
-      const final = ves.reduce((s: number, c: any) => s + Number(c.saldoActual), 0);
+      const saldoHoy = ves.reduce((s: number, c: any) => s + Number(c.saldoActual), 0);
+      const vesPost = Number(r.ves_posterior_neto_bs || 0);
+      const final = Math.round((saldoHoy - vesPost) * 100) / 100;
       const entroBs = Number(r.entro.alcaldia_bs || 0) + Number(r.entro.otros_bs || 0);
       const salioBs = Number(r.salio_gasto.total_bs || 0) + Number(r.salio_no_gasto.total_bs || 0) +
                       Number(r.divisas_compradas?.bs || 0);
@@ -438,8 +440,10 @@ async function armarPdf(r: any, ciclo: any, empresa: string, membrete: any): Pro
       nota("Esta es la cuenta completa de los bolívares, y arranca con lo que ya teníamos porque "
          + "sin ese renglón no se puede seguir. "
          + (Number(r.divisas_compradas?.bs) > 0
-            ? `Fíjense: compramos ${usd(r.divisas_compradas.usd)} en dólares (${bs(r.divisas_compradas.bs)}) y entró menos que eso. `
-              + `La diferencia salió del saldo con el que veníamos, no de lo que cobramos esta semana, y esos dólares siguen siendo nuestros: están en la cuenta en US$. `
+            ? (Number(r.divisas_compradas.bs) > entroBs
+                ? `Fíjense: compramos ${usd(r.divisas_compradas.usd)} en dólares (${bs(r.divisas_compradas.bs)}) y entró menos que eso. `
+                  + `La diferencia salió del saldo con el que veníamos, no de lo que cobramos esta semana, y esos dólares siguen siendo nuestros: están en la cuenta en US$. `
+                : `Los ${usd(r.divisas_compradas.usd)} comprados en dólares (${bs(r.divisas_compradas.bs)}) siguen siendo nuestros: pasaron a la cuenta en US$. `)
             : "")
          + "Si alguna vez las cuentas no les cuadraron, no era que las cifras estuvieran mal: era que faltaba este renglón. "
          + "Viendo solo lo que entró y lo que salió, es imposible explicar en qué se usó el dinero, porque parte venía de la semana anterior. "
@@ -606,11 +610,19 @@ async function avisarComoSalio(): Promise<Response> {
   const destinoAviso = dueno.length ? [dueno[0]] : ["584147379886"];
 
   if (!c) {
-    const msg = "⚠️ *El resumen de esta semana no salió*\n\n" +
-      "No quedó registrada ninguna corrida nueva. Puede ser que el trabajo programado no " +
+    // Con revisión diaria (pago a pago), los días en que el ciclo sigue abierto NO debe salir
+    // informe ni alarma. Solo avisamos si había un ciclo LISTO para salir y no se registró corrida.
+    const cl = await rpc("btg_ciclo_alcaldia_listo");
+    const estado = Array.isArray(cl) ? cl[0] : cl;
+    if (!estado?.listo) {
+      return json({ ok: true, acuse: false, corrida: null, motivo: estado?.motivo || "ciclo_abierto" });
+    }
+    const msg = "⚠️ *El resumen del ciclo cerrado no salió*\n\n" +
+      `Había un ciclo listo (${ddmm(String(estado.desde))} al ${ddmm(String(estado.hasta))}), ` +
+      "pero no quedó registrada ninguna corrida nueva. Puede ser que el trabajo programado no " +
       "disparara, o que se cortara antes de encolar. Nadie lo recibió.";
     await enqueue(destinoAviso.map((n) => ({ telefono: n, mensaje: msg, tipo: "resumen_acuse", estado: "pendiente" })));
-    return json({ ok: true, acuse: true, corrida: null, aviso: "no hubo corrida" });
+    return json({ ok: true, acuse: true, corrida: null, aviso: "habia ciclo listo y no hubo corrida", estado });
   }
 
   const ids: number[] = Array.isArray(c.cola_ids) ? c.cola_ids : [];
@@ -706,10 +718,22 @@ Deno.serve(async (req) => {
     let hasta = u.searchParams.get("hasta");
     let ciclo: any = null;
     if (!desde || !hasta) {
-      const c = await rpc("btg_ciclo_alcaldia");
-      ciclo = Array.isArray(c) ? c[0] : c;
-      if (!ciclo) return json({ ok: false, error: "btg_ciclo_alcaldia no devolvió nada" }, 500);
-      desde = ciclo.desde; hasta = ciclo.hasta;
+      if (!soloPdf && !dry) {
+        // Envío automático diario: solo sale cuando el ciclo cerró (entró nuevo pago principal
+        // o pasaron 8 días completos sin pago). Nunca corta el día en curso.
+        const cl = await rpc("btg_ciclo_alcaldia_listo");
+        ciclo = Array.isArray(cl) ? cl[0] : cl;
+        if (!ciclo) return json({ ok: false, error: "btg_ciclo_alcaldia_listo no devolvió nada" }, 500);
+        if (!ciclo.listo) {
+          return json({ ok: true, enviado: false, motivo: ciclo.motivo || "ciclo_abierto", ciclo });
+        }
+        desde = ciclo.desde; hasta = ciclo.hasta;
+      } else {
+        const c = await rpc("btg_ciclo_alcaldia");
+        ciclo = Array.isArray(c) ? c[0] : c;
+        if (!ciclo) return json({ ok: false, error: "btg_ciclo_alcaldia no devolvió nada" }, 500);
+        desde = ciclo.desde; hasta = ciclo.hasta;
+      }
     }
 
     const r = await rpc("btg_resumen_socios", { p_desde: desde, p_hasta: hasta });
