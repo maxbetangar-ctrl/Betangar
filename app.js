@@ -2455,7 +2455,9 @@ function _acDedupe(filas){
   var porMomento={}, dupIguales=0;
   (filas||[]).slice().sort(function(a,b){ return String(a.created_at||'').localeCompare(String(b.created_at||'')); })
   .forEach(function(m){
-    var k=[m.vehiculo_id,String(m.fecha).slice(0,10),m.momento,_acTurno(m)].join('|');
+    // Para tanques del galpón (vehiculo_id=null), incluir tanque_id para no colapsar T1 y T2.
+    var idEnt = m.vehiculo_id || ('TQ:'+(m.tanque_id||''));
+    var k=[idEnt,String(m.fecha).slice(0,10),m.momento,_acTurno(m)].join('|');
     (porMomento[k]=porMomento[k]||[]).push(m);
   });
   var out=[], corregidas={}, noConf={};
@@ -2487,6 +2489,7 @@ function _acDedupe(filas){
 
 // ── Carga de datos del período (+1 día antes: la merma nocturna necesita la llegada previa) ────
 async function acCargar(desde,hasta){
+  if(typeof _AC_LOTES!=='undefined') _AC_LOTES=null;
   var desdeExt=_acMenos(1,desde);
   var q=[
     supabase.from('combustible_tanques_config').select('*'),
@@ -2548,6 +2551,8 @@ async function acCargar(desde,hasta){
   // ⚠️ Y entera, no la ventana: el saldo del tanque es acumulado, igual que las tres de arriba.
   var _iDev=q.length;
   q.push(supabase.from('devoluciones_tanque').select('fecha,cam,tanque,litros'));
+  var _iTrs=q.length;
+  q.push(supabase.from('trasvases_unidad').select('fecha,cam_origen,cam_destino,litros').gte('fecha',desdeExt).lte('fecha',hasta));
   var r=await Promise.all(q);
   if(r[0].error)throw new Error('tanques: '+r[0].error.message);
   if(r[1].error)throw new Error('mediciones: '+r[1].error.message);
@@ -2612,6 +2617,8 @@ async function acCargar(desde,hasta){
   //    (queda en []) y el cuadre funciona como antes. Un módulo nuevo no puede tumbar la auditoría.
   AC_SALIDAS_TANQUE=(r[11]&&!r[11].error&&r[11].data)||[];
   if(r[11]&&r[11].error)console.log('salidas_tanque auditoria:',r[11].error.message);
+  window.AC_TRASVASES=(r[_iTrs]&&!r[_iTrs].error&&r[_iTrs].data)||[];
+  if(r[_iTrs]&&r[_iTrs].error)console.log('trasvases_unidad auditoria:',r[_iTrs].error.message);
   // Mismo fail-OPEN: una instancia donde la tabla todavía no exista sigue auditando como antes.
   AC_DEVOLUCIONES=(r[_iDev]&&!r[_iDev].error&&r[_iDev].data)||[];
   if(r[_iDev]&&r[_iDev].error)console.log('devoluciones_tanque auditoria:',r[_iDev].error.message);
@@ -2686,6 +2693,7 @@ function _acArmarJornadas(desde,hasta){
   });
 
   // Despachos y km del día, y el cálculo del consumo.
+  var _devAplicadosDia={};
   jor.forEach(function(j){
     // Lo que le cargaron ENTRE las dos lecturas de la jornada (es lo que pide el consumo: salió con
     // X, le echaron Y, llegó con Z). Con la hora de la surtida se sabe si entró dentro de la jornada.
@@ -2825,13 +2833,27 @@ function _acArmarJornadas(desde,hasta){
     //    contra un típico de 60. Eso no es un número feo, es una ACUSACIÓN a un chofer por
     //    algo que hizo la empresa. [[norma-una-asercion-mal-escrita-acusa-al-producto]]
     // ⚠️ Se resta, no se suma: salió del tanque del camión sin pasar por el motor.
+    // Evitar doble descuento de devoluciones/trasvases en días de doble turno (si no tienen turno explícito, se atribuyen una sola vez por camión+día).
+    var _devKeyDia=j.cam+'|'+j.fecha;
+    var _yaDev=(_devAplicadosDia[_devKeyDia]===true);
     j.devuelto=(AC_DEVOLUCIONES||[]).reduce(function(s,d){
       if(String(d.cam)!==j.cam)return s;
       if(String(d.fecha||'').slice(0,10)!==j.fecha)return s;
+      if(d.turno){ if(String(d.turno)!==String(j.turno||'diurno'))return s; }
+      else if(_yaDev) return s;
       return s+(_acNum(d.litros)||0);
     },0);
+    j.trasvaseNeto=(typeof AC_TRASVASES!=='undefined'&&Array.isArray(AC_TRASVASES)?AC_TRASVASES:[]).reduce(function(s,tr){
+      if(String(tr.fecha||'').slice(0,10)!==j.fecha)return s;
+      if(_yaDev)return s;
+      var lt=_acNum(tr.litros)||0;
+      if(String(tr.cam_destino)===j.cam) return s+lt;
+      if(String(tr.cam_origen)===j.cam) return s-lt;
+      return s;
+    },0);
+    _devAplicadosDia[_devKeyDia]=true;
     // `despJornada` y no `desp`: la carga asentada después de la llegada no está en esa lectura.
-    j.consumo=(j.salida!=null&&j.llegada!=null&&!j.noConf&&!j.cargaImposible)?Math.round((j.salida+j.despJornada-j.devuelto-j.llegada)*100)/100:null;
+    j.consumo=(j.salida!=null&&j.llegada!=null&&!j.noConf&&!j.cargaImposible)?Math.round((j.salida+j.despJornada+(j.trasvaseNeto||0)-j.devuelto-j.llegada)*100)/100:null;
     // ⛔ UN RENDIMIENTO FÍSICAMENTE IMPOSIBLE TAMBIÉN INVALIDA EL DÍA.
     //
     // 🔴 Máximo, 06/11/2026, con la foto de la fila: «Solo gasto 5.3 litros en toda la jornada».
@@ -3213,34 +3235,33 @@ function _acLitrosPorViaje(J,desde,hasta){
   (typeof REGS!=='undefined'?REGS:[]).forEach(function(r){
     var f=String(r.f||'').slice(0,10); if(f<desde||f>hasta)return;
     var v=parseInt(r.t,10)||0; if(v<=0)return;
-    pl[String(r.cam||'')+'|'+f]={viajes:v,chofer:canon(r.ch)};
+    var k=String(r.cam||'')+'|'+f;
+    if(!pl[k]) pl[k]={viajes:0,chofer:canon(r.ch)};
+    pl[k].viajes+=v;
+    if(!pl[k].chofer&&r.ch) pl[k].chofer=canon(r.ch);
   });
-  var porU={}, porC={}, litSinDuenio=0, litTotal=0, diasSinPlanilla=0, fechasSin={};
+  var porU={}, porC={}, litSinDuenio=0, litTotal=0, diasSinPlanilla=0, fechasSin={}, viajesYaSumados={};
   (J||[]).forEach(function(j){
     var lit=_acNum(j.desp)||0; litTotal+=lit;
-    var p=pl[String(j.cam)+'|'+String(j.fecha).slice(0,10)];
-    // ⛔ UN DÍA SIN PLANILLA NO SE REPARTE. Sus litros existen pero no tienen a quién
-    //    atribuirse: se cuentan aparte y se dicen. Repartirlos "proporcionalmente" sería
-    //    inventar. [[norma-falta-de-dato-no-es-un-dato]]
+    var kDia=String(j.cam)+'|'+String(j.fecha).slice(0,10);
+    var p=pl[kDia];
     if(!p){
       litSinDuenio+=lit;
-      // ⛔ SE CUENTAN ACÁ, DE VERDAD. El informe decía «25 días sin planilla» y ese 25 salía de
-      //    contar anomalías R11 — que se llama «Rodó sin jornada registrada» y mide KILÓMETROS
-      //    entre dos lecturas, no días. Los días sin planilla eran **69**, en 12 fechas.
-      //    Una etiqueta puesta sobre un número que mide otra cosa inventa un dato.
-      //    [[norma-una-asercion-mal-escrita-acusa-al-producto]]
       diasSinPlanilla++; fechasSin[String(j.fecha).slice(0,10)]=1;
       return;
     }
+    var sumarViajes=!viajesYaSumados[kDia];
+    viajesYaSumados[kDia]=true;
     var u=porU[j.cam]||(porU[j.cam]={cam:j.cam,viajes:0,litros:0,km:0,dias:0});
-    u.viajes+=p.viajes; u.litros+=lit; u.km+=(_acNum(j.km)||0); u.dias++;
+    if(sumarViajes){ u.viajes+=p.viajes; u.dias++; }
+    u.litros+=lit; u.km+=(_acNum(j.km)||0);
     if(p.chofer){
       var c=porC[p.chofer]||(porC[p.chofer]={chofer:p.chofer,viajes:0,litros:0,km:0,dias:0,porCam:{}});
-      c.viajes+=p.viajes; c.litros+=lit; c.km+=(_acNum(j.km)||0); c.dias++;
+      if(sumarViajes){ c.viajes+=p.viajes; c.dias++; }
+      c.litros+=lit; c.km+=(_acNum(j.km)||0);
       var pc=c.porCam[j.cam]||(c.porCam[j.cam]={km:0,litros:0});
       pc.km+=(_acNum(j.km)||0); pc.litros+=lit;
     }
-
   });
   // ⛔ DOS MEDIDAS, NO UNA — y es lo que hace al informe difícil de discutir.
   //
@@ -4035,36 +4056,36 @@ async function acVeredicto(id,v){
 // ⛔ Lo declara una PERSONA y queda su nombre. El sistema no lo deduce solo: mirando los datos,
 //    una lectura copiada del día anterior es indistinguible de una lectura real.
 //    Ver [[estado-unidad-lo-declara-una-persona]].
-async function acNoConfiable(cam,fecha){
+async function acNoConfiable(cam,fecha,turno){
   if(!DB_READY||!supabase){ mostrarToast('Sin conexión: esto se guarda en la base, no en el navegador','error'); return; }
-  var cual=(prompt('¿Cuál de las dos lecturas es falsa?\n\nEscribí  salida  o  llegada','salida')||'').trim().toLowerCase();
+  var t=turno||'diurno';
+  var cual=(prompt('¿Cuál de las dos lecturas es falsa ('+t+')?\n\nEscribí  salida  o  llegada','salida')||'').trim().toLowerCase();
   if(!cual)return;
   if(cual!=='salida'&&cual!=='llegada'){ mostrarToast('Tiene que ser "salida" o "llegada"','error'); return; }
-  // El motivo es OBLIGATORIO: un dato descartado sin razón escrita es un número que desaparece y
-  // nadie sabe por qué. Es lo que va a leer el dueño cuando pregunte por qué faltan litros.
   var motivo=(prompt('¿Por qué no se puede saber la verdadera?\n\nEsto queda en la auditoría y lo va a leer quien pregunte por el número.')||'').trim();
   if(!motivo){ mostrarToast('Sin motivo no se marca: el número tiene que poder explicarse','error'); return; }
   var quien=(typeof SESION!=='undefined'&&SESION)?SESION.usuario:'';
   var res=await supabase.from('combustible_mediciones').update({
     no_confiable:true, no_confiable_motivo:motivo, no_confiable_por:quien,
     no_confiable_at:new Date().toISOString()
-  }).eq('vehiculo_id',cam).eq('fecha',fecha).eq('momento',cual).select();
+  }).eq('vehiculo_id',cam).eq('fecha',fecha).eq('momento',cual).eq('turno',t).select();
   if(res.error){ mostrarToast('No se pudo marcar: '+res.error.message,'error'); return; }
   if(!res.data||!res.data.length){ mostrarToast('No se encontró esa lectura para marcar','error'); return; }
-  if(typeof audit==='function')audit('Medición declarada no confiable',cam+' '+fecha+' '+cual+' — '+motivo);
+  if(typeof audit==='function')audit('Medición declarada no confiable',cam+' '+fecha+' '+t+' '+cual+' — '+motivo);
   mostrarToast('Marcada. Esa jornada sale del consumo del período','exito');
   acBuscar();
 }
 
 // Deshacer. Una declaración equivocada tiene que poder volverse atrás, y también queda en el rastro.
-async function acNoConfiableQuitar(cam,fecha,momento){
+async function acNoConfiableQuitar(cam,fecha,momento,turno){
   if(!DB_READY||!supabase){ mostrarToast('Sin conexión','error'); return; }
-  if(!confirm('¿Volver a dar por buena la lectura de '+momento+'?\n\nEsa jornada vuelve a contar en el consumo del período.'))return;
+  var t=turno||'diurno';
+  if(!confirm('¿Volver a dar por buena la lectura de '+momento+' ('+t+')?\n\nEsa jornada vuelve a contar en el consumo del período.'))return;
   var res=await supabase.from('combustible_mediciones').update({
     no_confiable:false, no_confiable_motivo:null, no_confiable_por:null, no_confiable_at:null
-  }).eq('vehiculo_id',cam).eq('fecha',fecha).eq('momento',momento).select();
+  }).eq('vehiculo_id',cam).eq('fecha',fecha).eq('momento',momento).eq('turno',t).select();
   if(res.error){ mostrarToast('No se pudo: '+res.error.message,'error'); return; }
-  if(typeof audit==='function')audit('Medición vuelta a dar por buena',cam+' '+fecha+' '+momento);
+  if(typeof audit==='function')audit('Medición vuelta a dar por buena',cam+' '+fecha+' '+t+' '+momento);
   mostrarToast('Vuelve a contar','exito');
   acBuscar();
 }
@@ -4196,7 +4217,8 @@ function _acAnomalias(todas,desde,hasta,ref){
       //    días, porque a partir de cierto hueco el tramo deja de ser una respuesta útil: nadie
       //    puede decir qué pasó un jueves de la semana pasada.
       var _diasHueco=Math.round((new Date(hoy.fecha+'T12:00:00')-new Date(fLle+'T12:00:00'))/86400000);
-      if(!(_diasHueco>=1&&_diasHueco<=AC_NOCHE_DIAS_MAX))continue;   // (a) hueco fuera de rango
+      var _esRelevoMismoDia=(_diasHueco===0 && ant.turno && hoy.turno && ant.turno!==hoy.turno);
+      if(!((_diasHueco>=1&&_diasHueco<=AC_NOCHE_DIAS_MAX)||_esRelevoMismoDia))continue;   // (a) hueco fuera de rango
       if(kmFantasma==null)continue;                       // sin odómetro no se opina de merma
       // ⛔ LA NOCHE USA **UNA LECTURA DE CADA JORNADA**, NO LA ARITMÉTICA DEL DÍA.
       //    Antes acá decía `if(ant.conf!=='completa'||hoy.conf!=='completa')continue`, y `conf`
@@ -5219,8 +5241,8 @@ function _acRender(){
       '<td style="font-size:10px;white-space:nowrap">'+
         (j.noConf
           ? ('<span style="color:var(--red);font-weight:700" title="'+_mEsc((j.noConf.motivo||'')+(j.noConf.por?(' — lo declaró '+j.noConf.por):''))+'">⛔ dato falso</span>'+
-             ' <a href="#" onclick="acNoConfiableQuitar(\''+_mEsc(j.cam)+'\',\''+j.fecha+'\',\''+_mEsc(j.noConf.momento||'salida')+'\');return false;" style="color:var(--text3)">deshacer</a>')
-          : ('<a href="#" onclick="acNoConfiable(\''+_mEsc(j.cam)+'\',\''+j.fecha+'\');return false;" style="color:var(--text3)" title="El dato es falso y no se puede saber el verdadero">marcar dato falso</a>'))+
+             ' <a href="#" onclick="acNoConfiableQuitar(\''+_mEsc(j.cam)+'\',\''+j.fecha+'\',\''+_mEsc(j.noConf.momento||'salida')+'\',\''+_mEsc(j.turno||'diurno')+'\');return false;" style="color:var(--text3)">deshacer</a>')
+          : ('<a href="#" onclick="acNoConfiable(\''+_mEsc(j.cam)+'\',\''+j.fecha+'\',\''+_mEsc(j.turno||'diurno')+'\');return false;" style="color:var(--text3)" title="El dato es falso y no se puede saber el verdadero">marcar dato falso</a>'))+
       '</td>'+
     '</tr>';
   }).join('');
@@ -7084,7 +7106,7 @@ function sp(id){
     if(id==='financiero'){renderFinanzasSubnav('financiero');renderFinDash();renderGastosFijos();renderProveedoresLista();renderBancoFin();autoLlenarTasasEnFormularios();}
     if(id==='abonos'){renderAbonos();calcMontoAbono();}
     if(id==='nomina')recalcNom();
-    if(id==='combustible'){renderCombSubnav('combustible');renderComb();renderGasolPersonal();setTimeout(renderGasoil,100);scAbrir();try{combMovIniciar();}catch(e){}}
+    if(id==='combustible'){renderCombSubnav('combustible');renderComb();renderGasolPersonal();setTimeout(renderGasoil,100);scAbrir();try{gcompPrefillPrecio();}catch(e){}try{combMovIniciar();}catch(e){}}
     if(id==='control-combustible'){renderCombSubnav('control-combustible');renderControlComb();}
     // Auditoría de combustible: no se auto-analiza al entrar (la consulta pega a 4 tablas).
     // Se dejan las fechas de los últimos 14 días y la persona toca Analizar.
@@ -15989,20 +16011,29 @@ function recalcCostoTanqueDesdeCompras(){
   if(litAcum>0){ tankCostoLitro=Math.round((costoAcum/litAcum)*1000)/1000; guardarCostoTanque(); }
 }
 function updTank(){
-  var niv=parseFloat(gv('tank-niv'))||tankNivel;
+  var rawNiv=parseFloat(gv('tank-niv'));
+  var niv=isNaN(rawNiv)?(parseFloat(tankNivel)||0):Math.max(0,rawNiv);
   tankNivel=niv;var cap=cfg.tanque||4600;
   var pct=Math.min(100,Math.max(0,(niv/cap)*100));
   var fill=g('tank-fill');var lbl=g('tank-lbl');var al=g('tank-alerta');
   if(fill){fill.style.height=pct+'%';fill.style.background=pct<20?'linear-gradient(0deg,#ef4444,#f87171)':pct<40?'linear-gradient(0deg,#f59e0b,#fbbf24)':'linear-gradient(0deg,#22c55e,#4ade80)';}
   if(lbl)lbl.textContent=niv.toLocaleString()+' L ('+pct.toFixed(0)+'%)';
   if(al){if(pct<20){al.textContent='⚠ Nivel critico';al.style.color='var(--red)';}else if(pct<40){al.textContent='⚡ Nivel bajo';al.style.color='var(--yellow)';}else{al.textContent='';}}
-  if(pct<20)sendWA('⛽ ALERTA: Tanque Tumaca al '+pct.toFixed(0)+'%. Solo '+niv+' litros.',['operativo','mecanica']);
+  if(pct<20){
+    var _waKey='btg_wa_tank_low_'+(typeof fechaVE==='function'?fechaVE():'');
+    try{
+      if(!localStorage.getItem(_waKey)){
+        localStorage.setItem(_waKey,'1');
+        sendWA('⛽ ALERTA: Tanque Tumaca al '+pct.toFixed(0)+'%. Solo '+niv+' litros.',['operativo','mecanica']);
+      }
+    }catch(e){}
+  }
 }
 async function addCombustible(){
   var f=gv('tank-f');
   if(!f){ if(typeof mostrarToast==='function')mostrarToast('Seleccioná la fecha del ajuste','error'); else alert('Seleccioná la fecha del ajuste'); return; }
   var add=parseFloat(gv('tank-add'))||0;if(!add){alert('Ingresa los litros a agregar');return;}
-  tankNivel=Math.min(cfg.tanque||4600,tankNivel+add);sv('tank-niv',tankNivel.toString());sv('tank-add','');updTank();
+  tankNivel=Math.max(0,Math.min(cfg.tanque||4600,(parseFloat(tankNivel)||0)+add));sv('tank-niv',tankNivel.toString());sv('tank-add','');updTank();
   guardarNivelTanque();
   audit('Tanque cargado',formatFecha(f)+' · '+(add>0?'+':'')+add+'L');
   if(typeof mostrarToast==='function')mostrarToast('Tanque ('+formatFecha(f)+'): '+(add>0?'+':'')+add+' L → '+tankNivel+' L','exito');
@@ -16135,31 +16166,54 @@ function guardarCompraCombustible(){
     // Registro en gasoil (tipo compra) — Supabase primero, confirmar según respuesta
     var r={f:f,cam:'COMPRA · '+provLabel,lit:lit,src:provLabel,m:parseFloat(totalUsd.toFixed(2)),tipo_operacion:'compra'};
     var gRow={f:r.f,cam:r.cam,lit:r.lit,src:r.src,m:r.m,tipo_operacion:'compra'};
-    var okG=false;
+    var okG=false, enColaG=false;
     if(DB_READY&&supabase){
       try{var resG=await supabase.from('gasoil').insert([gRow]).select();
-        if(resG.error){if(typeof mostrarToast==='function')mostrarToast('No se pudo guardar la compra: '+resG.error.message,'error');}
-        else{okG=true;if(resG.data&&resG.data[0])r.id=resG.data[0].id;}
-      }catch(e){if(typeof mostrarToast==='function')mostrarToast('Sin conexión al guardar la compra.','error');}
-    }
-    if(!okG&&typeof guardarEnCola==='function')guardarEnCola('gasoil',gRow);
+        if(resG.error){
+          if(typeof _esErrorRed==='function'&&_esErrorRed(resG.error)){
+            enColaG=true;
+          } else {
+            if(typeof mostrarToast==='function')mostrarToast('No se pudo guardar la compra: '+resG.error.message,'error');
+            return;
+          }
+        } else {
+          okG=true;
+          if(resG.data&&resG.data[0])r.id=resG.data[0].id;
+        }
+      }catch(e){ enColaG=true; }
+    } else { enColaG=true; }
+    if(enColaG&&typeof guardarEnCola==='function')guardarEnCola('gasoil',gRow);
     GASOIL.push(r);
     try{localStorage.setItem('btg_gasoil',JSON.stringify(GASOIL));}catch(e){}
     // Genera CxP automáticamente
-    var okCxp=false;
-    if(DB_READY&&supabase){
-      var cxpRow={
-        fecha:f, fecha_venc:null,
-        prov_nombre:provNombre, tipo_proveedor:'sin_soporte', sin_soporte:true,
-        descripcion:'Compra combustible '+lit+' L @ $'+costoUnit.toFixed(3)+'/L', factura:'', nota:'Generada automáticamente desde Combustible',
-        base_usd:parseFloat(totalUsd.toFixed(2)), iva_pct:0, iva_usd:0, total_usd:parseFloat(totalUsd.toFixed(2)),
-        ret_iva_pct:0, ret_iva_usd:0, ret_islr_pct:0, ret_islr_usd:0, neto_pagar:parseFloat(totalUsd.toFixed(2)),
-        estado:'pendiente', tasa_tipo:tasaTipo, tasa_val:(typeof getTasa==='function'?getTasa(tasaTipo):TASAS[tasaTipo])||0, created_at:new Date().toISOString()
-      };
+    var okCxp=false, cxpRow={
+      fecha:f, fecha_venc:null,
+      prov_nombre:provNombre, tipo_proveedor:'sin_soporte', sin_soporte:true,
+      descripcion:'Compra combustible '+lit+' L @ $'+costoUnit.toFixed(3)+'/L', factura:'', nota:'Generada automáticamente desde Combustible',
+      base_usd:parseFloat(totalUsd.toFixed(2)), iva_pct:0, iva_usd:0, total_usd:parseFloat(totalUsd.toFixed(2)),
+      ret_iva_pct:0, ret_iva_usd:0, ret_islr_pct:0, ret_islr_usd:0, neto_pagar:parseFloat(totalUsd.toFixed(2)),
+      estado:'pendiente', tasa_tipo:tasaTipo, tasa_val:(typeof getTasa==='function'?getTasa(tasaTipo):TASAS[tasaTipo])||0, created_at:new Date().toISOString()
+    };
+    if(DB_READY&&supabase&&okG){
       try{var resC=await supabase.from('cxp').insert([cxpRow]).select();
-        if(resC.error){console.log('CxP compra error:',resC.error.message);}
-        else{okCxp=true;if(resC.data&&resC.data[0]&&typeof CXP!=='undefined'&&CXP)CXP.push(resC.data[0]);}
-      }catch(e){}
+        if(resC.error){
+          if(typeof _esErrorRed==='function'&&_esErrorRed(resC.error)){
+            if(typeof guardarEnCola==='function')guardarEnCola('cxp',cxpRow);
+          } else {
+            console.error('CxP compra error:',resC.error.message);
+            if(typeof mostrarToast==='function')mostrarToast('Compra guardada, pero NO se generó la CxP: '+resC.error.message,'error');
+          }
+        } else {
+          okCxp=true;
+          if(resC.data&&resC.data[0]&&typeof CXP!=='undefined'&&CXP){
+            CXP.push(typeof _normCxpRow==='function'?_normCxpRow(resC.data[0]):resC.data[0]);
+          }
+        }
+      }catch(e){
+        if(typeof guardarEnCola==='function')guardarEnCola('cxp',cxpRow);
+      }
+    } else if(enColaG&&typeof guardarEnCola==='function'){
+      guardarEnCola('cxp',cxpRow);
     }
     sv('gcomp-lit','');
     audit('Compra combustible',provLabel+' '+lit+'L $'+totalUsd.toFixed(2));
@@ -16171,10 +16225,16 @@ async function guardarGasol(){
   var per=gv('gp-per'),lit=parseFloat(gv('gp-lit'))||0,f=gv('gp-f');
   if(!f){ if(typeof mostrarToast==='function')mostrarToast('Seleccioná la fecha del registro','error'); else alert('Seleccioná la fecha'); return; }
   if(!lit){alert('Ingresa litros');return;}
-  var m=lit*0.5;var r={f:f,per:per,lit:lit,m:m};GASOL.push(r);var _okG=await dbIn('gasol',{f:f,per:per,lit:lit,m:m});if(_okG&&typeof mostrarToast==='function')mostrarToast('Gasolina: '+per+' '+lit+' L ('+formatFecha(f)+') guardada','exito');
+  var mManual=parseFloat(gv('gp-m'));
+  var m=(!isNaN(mManual)&&mManual>0)?mManual:Math.round(lit*0.5*100)/100;
+  var _okG=await dbIn('gasol',{f:f,per:per,lit:lit,m:m});
+  if(!_okG && DB_READY) return; // rechazo del servidor: no contaminar GASOL en memoria
+  var r={id:(_okG&&_okG[0]?_okG[0].id:undefined),f:f,per:per,lit:lit,m:m};
+  GASOL.push(r);
+  if(_okG&&typeof mostrarToast==='function')mostrarToast('Gasolina: '+per+' '+lit+' L ($'+m.toFixed(2)+') guardada','exito');
   try{localStorage.setItem('btg_gasol',JSON.stringify(GASOL));}catch(e){}
   renderGasolPersonal();
-  sv('gp-lit','');audit('Gasolina registrada',per+' '+lit+'L');
+  sv('gp-lit','');if(g('gp-m'))sv('gp-m','');audit('Gasolina registrada',per+' '+lit+'L $'+m.toFixed(2));
 }
 
 // Render gasolina personal con boton eliminar (token), filtra registros sin monto
@@ -16199,7 +16259,7 @@ function renderGasolPersonal(){
   if(!datos.length){tb.innerHTML='<tr><td colspan="5" style="text-align:center;color:var(--text3);padding:12px">Sin registros</td></tr>';return;}
   tb.innerHTML=datos.slice().reverse().map(function(o){
     var r=o.r;
-    return '<tr><td style="font-size:10px">'+formatFecha(r.f)+'</td><td style="font-size:11px">'+String(r.per||'').split(' ')[0]+'</td><td>'+r.lit+'</td><td>$'+Number(r.m).toFixed(2)+'</td>'+
+    return '<tr><td style="font-size:10px">'+formatFecha(r.f)+'</td><td style="font-size:11px">'+_mEsc(String(r.per||'—'))+'</td><td>'+r.lit+'</td><td>$'+Number(r.m).toFixed(2)+'</td>'+
       '<td><button class="btn btn-s btn-xs" data-gidx="'+o.i+'" onclick="solicitarEliminarGasolPersonal(this.dataset.gidx)">🗑</button></td></tr>';
   }).join('');
 }
@@ -16380,7 +16440,7 @@ async function imprimirCentroCostos(){
       if(rs&&rs.error){
         var _cod=String(rs.error.code||''), _msg=String(rs.error.message||'');
         if(_cod==='PGRST202'||_cod==='42883'||/does not exist|Could not find the function|schema cache/i.test(_msg)){
-          var rd=await supabase.from('surtidas').select('fecha,cam,litros,costo_usd,costo_litro_usd')
+          var rd=await supabase.from('surtidas').select('fecha,cam,litros,tanque,costo_definido,costo_usd,costo_litro_usd,litros_transporte,anulada')
                    .gte('fecha',desde).lte('fecha',hasta);
           if(rd&&rd.error)fallas.push('combustible: '+(rd.error.message||'no se pudo leer'));
           else _surt=rd.data||[];
@@ -19005,22 +19065,15 @@ var TANQUE_LBL={galpon_1:'🛢️ Galpón 1', galpon_2:'🛢️ Galpón 2', 'tan
 async function cargarSurtidas(){
   if(!(DB_READY&&supabase))return;
   try{
-    var desde=new Date(Date.now()-35*86400000).toISOString().slice(0,10);
+    var desde=(typeof _acMenos==='function')?_acMenos(35):new Date(Date.now()-35*86400000).toISOString().slice(0,10);
     var r=await supabase.from('surtidas').select('*').gte('fecha',desde).order('fecha',{ascending:false}).order('hora',{ascending:false});
     if(r&&!r.error&&Array.isArray(r.data))SURTIDAS=r.data;
   }catch(e){ console.log('surtidas load',e&&e.message); }
 }
 function _surtidasHoy(){ var hoy=fechaVE(); return (SURTIDAS||[]).filter(function(s){return String(s.fecha||'').slice(0,10)===hoy;}); }
-// ⛔ EL CRITERIO ES «NO ES DEL GALPÓN», no «es igual a 'estacion'». Desde el 08/11/2026 existe
-//    un tercer valor, `sin_confirmar`, para cuando el GPS no pudo ubicar la carga. Eso significa
-//    «no sé CUÁL estación», NO «no sé si se compró»: nunca es el galpón, porque el galpón ahora
-//    exige una marca deliberada de la oficina. Con la comparación vieja (`==='estacion'`) una
-//    surtida sin ubicar quedaba fuera del costeo PARA SIEMPRE —ni siquiera después de que
-//    administración le pusiera precio— y además no figuraba como pendiente: valía $0 y nadie
-//    se enteraba. [[norma-falta-de-dato-no-es-un-dato]]
 function _surEsExterna(s){ return !!s && !_acTanquePropio(s.tanque); }
 function _surCostoUsd(s){ if(_surEsExterna(s)&&!s.costo_definido)return 0; return parseFloat(s&&s.costo_usd)||0; } // costo HORNEADO (galpón=promedio tanque, estación=mezclado); pendiente=0
-function _surPendiente(s){ return _surEsExterna(s)&&!s.costo_definido; }
+function _surPendiente(s){ return _surEsExterna(s)&&!s.costo_definido&&(parseFloat(s&&s.litros)||0)>0&&!s.anulada; }
 function _surLbl(t){ return TANQUE_LBL[t]||t||''; }
 
 // ═══════ F2: SURTIDAS Y COSTEO (combustible por origen; admin cuesta las de estación) ═══════
@@ -19086,7 +19139,7 @@ async function cargarSurtidasRent(){
 async function cargarSurtidasCosteo(des,hta){
   if(!(DB_READY&&supabase))return;
   try{
-    des=des||new Date(Date.now()-14*86400000).toISOString().slice(0,10);
+    des=des||((typeof _acMenos==='function')?_acMenos(14):new Date(Date.now()-14*86400000).toISOString().slice(0,10));
     hta=hta||fechaVE();
     var r=await supabase.from('surtidas').select('*').gte('fecha',des).lte('fecha',hta).order('fecha',{ascending:false}).order('hora',{ascending:false});
     if(r&&!r.error&&Array.isArray(r.data))SURT_ADMIN=r.data;
@@ -19096,7 +19149,7 @@ async function cargarSurtidasCosteo(des,hta){
 }
 function _scInit(){ // fija fechas por defecto (últimos 14 días) la primera vez
   var d=g('sc-des'), h=g('sc-hta'); if(!d||!h)return;
-  if(!d.value) d.value=new Date(Date.now()-14*86400000).toISOString().slice(0,10);
+  if(!d.value) d.value=(typeof _acMenos==='function')?_acMenos(14):new Date(Date.now()-14*86400000).toISOString().slice(0,10);
   if(!h.value) h.value=fechaVE();
 }
 function scAbrir(){ _scInit(); scRecargar(); }
@@ -19122,11 +19175,11 @@ function renderSurtidasCosteo(){
   //    📌 Un tercer estado no se reparte entre los dos que ya existían: se muestra aparte, que
   //      es lo que hace que alguien lo resuelva. [[norma-falta-de-dato-no-es-un-dato]]
   var litGal=0,litEst=0,litPend=0,litSin=0,totUsd=0;
-  (SURT_ADMIN||[]).forEach(function(s){ var l=parseFloat(s.litros)||0;
+  arr.forEach(function(s){ var l=parseFloat(s.litros)||0;
     var t=String(s.tanque||'');
-    if(t==='estacion'){ litEst+=l; if(!s.costo_definido)litPend+=l; }
+    if(t==='estacion'){ litEst+=l; if(_surPendiente(s))litPend+=l; }
     else if(t.indexOf('galpon')>=0){ litGal+=l; }
-    else { litSin+=l; }
+    else { litSin+=l; if(_surPendiente(s))litPend+=l; }
     totUsd+=_scCostoUsd(s);
   });
   var chip=function(lbl,val,col){ return '<div style="flex:1;min-width:110px;background:#0e2038;border:1px solid #24405f;border-radius:10px;padding:8px 10px"><div style="font-size:10px;color:#9fb3c8">'+lbl+'</div><div style="font-size:16px;font-weight:800;color:'+(col||'#fff')+'">'+val+'</div></div>'; };
@@ -19142,11 +19195,11 @@ function renderSurtidasCosteo(){
   // se reparten ni se esconden: un renglón «sin asignar» es lo que hace que alguien lo asigne.
   var porEst={};
   (SURT_ADMIN||[]).forEach(function(s){
-    if(s.tanque!=='estacion')return;
+    if(!_surEsExterna(s))return;
     var e=String(s.estacion_nombre||'').trim()||'— sin asignar —';
     porEst[e]=porEst[e]||{lit:0,usd:0,n:0,pend:0};
     var o=porEst[e]; o.n++; o.lit+=parseFloat(s.litros)||0;
-    o.usd+=_scCostoUsd(s); if(!s.costo_definido)o.pend++;
+    o.usd+=_scCostoUsd(s); if(_surPendiente(s))o.pend++;
   });
   var te=g('sc-por-estacion');
   if(te){
@@ -19483,10 +19536,12 @@ function _perCalc(){
     } else {
       warn='<div style="margin-top:6px;font-size:10px;color:var(--text3)">Sin los litros de la factura no se puede comprobar nada: se da por bueno lo cargado.</div>';
     }
-    warn='<div style="color:#9fb3c8;margin-top:4px">'+marc.length+' camión(es) × primeros '+n+' L a $'+a.toFixed(3)+' ('+lBase.toLocaleString('es-VE')+' L) + resto a $'+b.toFixed(3)+' ('+lResto.toLocaleString('es-VE')+' L). <b>Cada unidad queda con SU $/L real</b>, no con el promedio.</div>';
+    warn+='<div style="color:#9fb3c8;margin-top:4px">'+marc.length+' camión(es) × primeros '+n+' L a $'+a.toFixed(3)+' ('+lBase.toLocaleString('es-VE')+' L) + resto a $'+b.toFixed(3)+' ('+lResto.toLocaleString('es-VE')+' L). <b>Cada unidad queda con SU $/L real</b>, no con el promedio.</div>';
   }else{
-    _perTramos.forEach(function(t){ var l=parseFloat(t.litros)||0, pr=parseFloat(t.precio)||0;
-      litF+=l; cUsd+=l*pr; tasa=_perTasaVal(t.tasaTipo); });
+    var _cBsTr=0;
+    _perTramos.forEach(function(t){ var l=parseFloat(t.litros)||0, pr=parseFloat(t.precio)||0, ts=_perTasaVal(t.tasaTipo);
+      litF+=l; cUsd+=l*pr; _cBsTr+=(l*pr*ts); });
+    tasa=(cUsd>0)?(_cBsTr/cUsd):_perTasaVal((_perTramos[0]&&_perTramos[0].tasaTipo)||'bcvDolar');
     var difPct=litF>0?Math.abs(litF-litSur)/litF*100:0;
     if(difPct>2 && litSur>0) warn='<div style="color:#ffb020;margin-top:4px">⚠️ Litros de tramos ('+litF.toLocaleString('es-VE')+') ≠ litros de las surtidas marcadas ('+litSur.toLocaleString('es-VE')+'). La estación factura por su totalizador; verificá.</div>';
   }
@@ -19534,7 +19589,9 @@ async function _perAplicar(){
   }else{
     tramos=_perTramos.map(function(t){return {litros:parseFloat(t.litros)||0,precio_usd:parseFloat(t.precio)||0,tasa:_perTasaVal(t.tasaTipo),tasa_tipo:t.tasaTipo};}).filter(function(t){return t.litros>0&&t.precio_usd>0;});
     if(!tramos.length){ alert('Cargá al menos un tramo con litros y precio.'); return; }
-    tasaSel=tramos[0].tasa;
+    var _usdSum=tramos.reduce(function(a,t){return a+(t.litros*t.precio_usd);},0);
+    var _bsSum=tramos.reduce(function(a,t){return a+(t.litros*t.precio_usd*t.tasa);},0);
+    tasaSel=(_usdSum>0)?(_bsSum/_usdSum):tramos[0].tasa;
   }
   // Las surtidas ya NO salen de un rango de fechas: son las que la persona marcó. Ver el
   // comentario de arriba — dos estaciones intercaladas no se separan por fecha.
@@ -19627,7 +19684,7 @@ async function _perAplicar(){
   var cxpId=null;
   try{ var rc=await supabase.from('cxp').insert([cxpRow]).select();
     if(rc.error){ console.log('CxP estación error',rc.error.message); mostrarToast('Aviso: no se pudo generar la CxP: '+rc.error.message,'error'); }
-    else if(rc.data&&rc.data[0]){ cxpId=rc.data[0].id; if(typeof CXP!=='undefined'&&CXP)CXP.push(rc.data[0]); }
+    else if(rc.data&&rc.data[0]){ cxpId=rc.data[0].id; if(typeof CXP!=='undefined'&&CXP)CXP.push(typeof _normCxpRow==='function'?_normCxpRow(rc.data[0]):rc.data[0]); }
   }catch(e){ console.log('CxP estación:',e&&e.message); }
   if(cxpId&&perId){ try{ await supabase.from('combustible_periodos').update({cxp_id:cxpId}).eq('id',perId); }catch(e){ console.log('period cxp_id:',e&&e.message); } }
   audit('Costeo combustible estación', est+' '+litF+'L $'+cUsd.toFixed(2)+' → '+target.length+' surtidas');
@@ -25875,16 +25932,15 @@ async function renderFinDash(){
       var f=String(x.fecha||'').slice(0,10);
       if(f<_combCorte)return s;
       if(!enRango(f))return s;
-      // Toda compra que NO sea del galpon entra aca, incluida la que el GPS no pudo
-      // ubicar: `sin_confirmar` es «no se CUAL estacion», no «no se si se compro».
-      // Con la comparacion vieja quedaba fuera del gasto para siempre, aun despues de
-      // que administracion le pusiera precio.
       if(!_surEsExterna(x))return s;
-      // ⛔ La que ya pertenece a un PERIODO costeado NO se suma aca: su costo entra por egEst
-      //    (combustible_periodos.costo_total_usd). Contarla en los dos lados es el mismo
-      //    combustible dos veces — y con 0 periodos cargados eso no se notaba.
       if(x&&x.desglose&&(typeof x.desglose==='object')&&x.desglose.periodo_id)return s;
       return s+((typeof _surCostoUsd==='function')?(_surCostoUsd(x)||0):(parseFloat(x.costo_usd)||0));
+    },0);
+    // Sumar períodos costeados de estación (`combustible_periodos`) dentro del rango en paridad con _totalEgresosLegacy.
+    egGas+=(typeof COMB_PERIODOS!=='undefined'?COMB_PERIODOS:[]).reduce(function(s,p){
+      var fPer=String(p.hasta||p.desde||'').slice(0,10);
+      if(!enRango(fPer))return s;
+      return s+(parseFloat(p.costo_total_usd)||0);
     },0);
   }
 
@@ -32337,16 +32393,18 @@ async function _stqPersistir(opts){
     nota:nota||null,
     registrado_por:(SESION&&SESION.nombre)||''
   };
-  var ok=false;
+  var ok=false, enCola=false;
   try{
     if(DB_READY&&supabase){
       var res=await supabase.from('salidas_tanque').insert([row]).select();
-      if(res.error){ mostrarToast('No se pudo guardar: '+res.error.message,'error'); }
-      else ok=true;
-    }
-    if(!ok) guardarEnCola('salidas_tanque',row);
+      if(res.error){
+        if(typeof _esErrorRed==='function'&&_esErrorRed(res.error)) enCola=true;
+        else { mostrarToast('No se pudo guardar: '+res.error.message,'error'); return false; }
+      } else ok=true;
+    } else { enCola=true; }
+    if(enCola) guardarEnCola('salidas_tanque',row);
     try{ audit('salida_tanque', formatFecha(fecha)+' · '+row.tanque+' · '+lit+' L · '+row.destino); }catch(e){}
-    mostrarToast(ok?'✅ Salida registrada ('+formatFecha(fecha)+')':'📵 Guardada (se sube al reconectar)','exito');
+    mostrarToast(ok?'✅ Salida registrada ('+formatFecha(fecha)+')':'📵 Guardada en cola offline (se sube al reconectar)',ok?'exito':'warn');
     stqRenderLista();
     return true;
   } finally {
@@ -32466,19 +32524,20 @@ async function _trsPersistir(opts){
   if(btn){ btn.disabled=true; btn.textContent='Guardando…'; }
   var row={ id:'TRS-'+Date.now(), fecha:fecha, cam_origen:o, cam_destino:d,
             litros:lit, nota:nota||null, registrado_por:(SESION&&SESION.nombre)||'' };
-  var ok=false;
+  var ok=false, enCola=false;
   try{
     if(DB_READY&&supabase){
-      // ⛔ Con `.select()`: un insert sin él afirma que guardó sin haberlo medido.
-      //    [[norma-insert-sin-select-no-mide]]
       var res=await supabase.from('trasvases_unidad').insert([row]).select();
-      if(res.error){ mostrarToast('No se pudo guardar: '+res.error.message,'error'); }
-      else if(!res.data||!res.data.length){ mostrarToast('No se guardó: la base no devolvió la fila','error'); }
+      if(res.error){
+        if(typeof _esErrorRed==='function'&&_esErrorRed(res.error)) enCola=true;
+        else { mostrarToast('No se pudo guardar: '+res.error.message,'error'); return false; }
+      }
+      else if(!res.data||!res.data.length){ mostrarToast('No se guardó: la base no devolvió la fila','error'); return false; }
       else ok=true;
-    }
-    if(!ok) guardarEnCola('trasvases_unidad',row);
+    } else { enCola=true; }
+    if(enCola) guardarEnCola('trasvases_unidad',row);
     try{ audit('trasvase_unidad', formatFecha(fecha)+' · '+o+' → '+d+' · '+lit+' L'+(nota?(' · '+nota):'')); }catch(e){}
-    mostrarToast(ok?'✅ Traslado registrado ('+formatFecha(fecha)+')':'📵 Guardado (se sube al reconectar)','exito');
+    mostrarToast(ok?'✅ Traslado registrado ('+formatFecha(fecha)+')':'📵 Guardado en cola offline (se sube al reconectar)',ok?'exito':'warn');
     trsLista();
     return true;
   }catch(e){ mostrarToast('No se pudo guardar: '+(e&&e.message||e),'error'); return false; }
@@ -32632,8 +32691,11 @@ function _devDerivarCosto(cam, fecha){
   try{
     var fRef = fecha || fechaVE();
     var dRef = new Date(fRef+'T12:00:00');
-    var fMin = new Date(dRef.getTime() - 42*86400000).toISOString().slice(0,10);
-    var pool = (SURT_ADMIN&&SURT_ADMIN.length ? SURT_ADMIN : []).concat(SURTIDAS||[]);
+    dRef.setDate(dRef.getDate()-42);
+    var fMin = dRef.getFullYear()+'-'+String(dRef.getMonth()+1).padStart(2,'0')+'-'+String(dRef.getDate()).padStart(2,'0');
+    var pool = (SURT_ADMIN&&SURT_ADMIN.length ? SURT_ADMIN : [])
+      .concat(SURTIDAS||[])
+      .concat(typeof SURT_RENT!=='undefined'&&SURT_RENT?SURT_RENT:[]);
     var vistos={}, sumUsd=0, sumLit=0;
     pool.forEach(function(s){
       if(!s || String(s.cam)!==String(cam)) return;
@@ -32688,17 +32750,20 @@ async function _devPersistir(opts){
     row.costo_usd = Math.round(lit * cDer.cl * 100)/100;
     row.costo_origen = cDer.origen;
   }
-  var ok=false;
+  var ok=false, enCola=false;
   try{
     if(DB_READY&&supabase){
       var res=await supabase.from('devoluciones_tanque').insert([row]).select();
-      if(res.error){ mostrarToast('No se pudo guardar: '+res.error.message,'error'); }
-      else if(!res.data||!res.data.length){ mostrarToast('No se guardó: la base no devolvió la fila','error'); }
+      if(res.error){
+        if(typeof _esErrorRed==='function'&&_esErrorRed(res.error)) enCola=true;
+        else { mostrarToast('No se pudo guardar: '+res.error.message,'error'); return false; }
+      }
+      else if(!res.data||!res.data.length){ mostrarToast('No se guardó: la base no devolvió la fila','error'); return false; }
       else ok=true;
-    }
-    if(!ok) guardarEnCola('devoluciones_tanque',row);
+    } else { enCola=true; }
+    if(enCola) guardarEnCola('devoluciones_tanque',row);
     try{ audit('devolucion_tanque', formatFecha(fecha)+' · '+cam+' → '+tqLbl+' · '+lit+' L'+(nota?(' · '+nota):'')); }catch(e){}
-    mostrarToast(ok?'✅ Traslado al galpón registrado ('+formatFecha(fecha)+')':'📵 Guardado (se sube al reconectar)','exito');
+    mostrarToast(ok?'✅ Traslado al galpón registrado ('+formatFecha(fecha)+')':'📵 Guardado en cola offline (se sube al reconectar)',ok?'exito':'warn');
     try{ if(typeof cargarDevolucionesUnidad==='function') cargarDevolucionesUnidad(); }catch(e){}
     devLista();
     return true;
@@ -36713,7 +36778,10 @@ function ccTanquesGalpon(){return COMB_TANQUES.filter(function(t){return t.tipo=
 function combLitros(tanqueId, alturaCm){
   var t=ccTanque(tanqueId); if(!t||!t.tabla_cubicacion)return 0;
   var cm=parseFloat(alturaCm); if(isNaN(cm)||cm<0)return 0;
-  var tabla=t.tabla_cubicacion, maxH=parseFloat(t.altura_max_cm)||0;
+  var tabla=t.tabla_cubicacion;
+  if(typeof tabla==='string'){ try{tabla=JSON.parse(tabla);}catch(e){return 0;} }
+  if(!tabla||typeof tabla!=='object')return 0;
+  var maxH=parseFloat(t.altura_max_cm)||0;
   if(maxH&&cm>maxH)cm=maxH;
   function val(k){
     if(k<=0)return 0;
@@ -36729,34 +36797,50 @@ function combLitros(tanqueId, alturaCm){
 
 // ------- Lectura de gasoil en memoria (despachos = cam que NO empieza por "COMPRA") -------
 function ccEsCompra(row){return String(row.cam||'').toUpperCase().indexOf('COMPRA')===0;}
-function ccDespachosFecha(fecha){return GASOIL.filter(function(x){return x.f===fecha&&!ccEsCompra(x);});}
+function ccDespachosFecha(fecha){
+  var corte=(typeof cfg!=='undefined'&&cfg&&cfg.surtidasCorte)?String(cfg.surtidasCorte).slice(0,10):'';
+  if(corte && fecha>=corte){
+    return (typeof SURTIDAS!=='undefined'?SURTIDAS:[]).filter(function(s){
+      return String(s.fecha||'').slice(0,10)===fecha && !s.anulada && (parseFloat(s.litros)||0)>0;
+    }).map(function(s){ return {f:String(s.fecha).slice(0,10), cam:s.cam, lit:parseFloat(s.litros)||0, src:s.tanque||'', m:parseFloat(s.costo_usd)||0}; });
+  }
+  return GASOIL.filter(function(x){return x.f===fecha&&!ccEsCompra(x);});
+}
 function ccLitrosDespachadosFecha(fecha){return ccDespachosFecha(fecha).reduce(function(s,x){return s+(parseFloat(x.lit)||0);},0);}
-// ⛔ 07/11/2026 — ESTA FUNCIÓN LEÍA UNA TABLA QUE LA CASA DEJÓ DE USAR, y por eso
-//    las alertas de combustible llevaban MUERTAS DESDE EL 23/06. Medido:
-//      `gasoil`  → última fila el **02/09**   (hace más de dos meses)
-//      `surtidas`→ última fila el **04/11**   (viva)
-//    Como `real<=0` hacía `return` para cada unidad, las alertas 2 y 3 no podían
-//    dispararse NUNCA. No estaba rota: estaba leyendo el lugar equivocado, que se
-//    ve exactamente igual que «no hubo nada que avisar».
-//    [[norma-falta-de-dato-no-es-un-dato]] · [[norma-un-filtro-nuestro-tapa-un-dato-que-si-llega]]
-// ⛔ El orden importa: PRIMERO `gasoil`, que es donde viven las fechas viejas. Así
-//    un reporte de agosto sigue dando exactamente el mismo número que antes, y lo
-//    nuevo sale de donde hoy se carga.
 function ccLitrosCamFecha(cam,fecha){
-  var vieja=GASOIL.filter(function(x){return x.f===fecha&&x.cam===cam;}).reduce(function(s,x){return s+(parseFloat(x.lit)||0);},0);
+  var corte=(typeof cfg!=='undefined'&&cfg&&cfg.surtidasCorte)?String(cfg.surtidasCorte).slice(0,10):'';
+  if(corte && fecha>=corte){
+    return (typeof SURTIDAS!=='undefined'?SURTIDAS:[]).filter(function(s){
+      return String(s.fecha||'').slice(0,10)===fecha && s.cam===cam && !s.anulada;
+    }).reduce(function(s,x){return s+(parseFloat(x.litros)||0);},0);
+  }
+  var vieja=GASOIL.filter(function(x){return x.f===fecha&&x.cam===cam&&!ccEsCompra(x);}).reduce(function(s,x){return s+(parseFloat(x.lit)||0);},0);
   if(vieja>0)return vieja;
   return (typeof SURTIDAS!=='undefined'?SURTIDAS:[]).filter(function(s){
     return String(s.fecha||'').slice(0,10)===fecha && s.cam===cam && !s.anulada;
   }).reduce(function(s,x){return s+(parseFloat(x.litros)||0);},0);
 }
-// Litros cargados a una unidad en un RANGO. Ver por qué el rango, en `checkAlertasCombustible`.
+// Litros cargados a una unidad en un RANGO respetando cfg.surtidasCorte (evita doble conteo GASOIL + SURTIDAS).
 function ccLitrosCamRango(cam,desde,hasta){
+  var corte=(typeof cfg!=='undefined'&&cfg&&cfg.surtidasCorte)?String(cfg.surtidasCorte).slice(0,10):'';
   var t=0;
-  GASOIL.forEach(function(x){ if(x.cam===cam&&x.f>=desde&&x.f<=hasta)t+=(parseFloat(x.lit)||0); });
+  GASOIL.forEach(function(x){
+    if(x.cam!==cam||ccEsCompra(x))return;
+    var f=String(x.f||'').slice(0,10);
+    if(f<desde||f>hasta)return;
+    if(corte&&f>=corte)return; // post-corte manda SURTIDAS
+    t+=(parseFloat(x.lit)||0);
+  });
   (typeof SURTIDAS!=='undefined'?SURTIDAS:[]).forEach(function(s){
     var f=String(s.fecha||'').slice(0,10);
-    if(s.cam===cam&&f>=desde&&f<=hasta&&!s.anulada)t+=(parseFloat(s.litros)||0);
+    if(s.cam!==cam||f<desde||f>hasta||s.anulada)return;
+    if(corte&&f<corte)return; // pre-corte manda GASOIL
+    t+=(parseFloat(s.litros)||0);
   });
+  if(typeof _devUnidad==='function'){
+    var dv=_devUnidad(cam,desde,hasta);
+    if(dv&&dv.litros>0) t=Math.max(0, t-dv.litros);
+  }
   return t;
 }
 // Viajes de planilla por unidad en un rango.
@@ -36918,7 +37002,11 @@ async function borrarMedicionTanque(id){
   // BORRAR = TOKEN (2026-07-25): la medición es la prueba con la que la auditoría señala faltantes.
   solicitarToken('Eliminar medición de tanque '+id,async function(mot){
     try{var r=await supabase.from('combustible_mediciones').delete().eq('id',id);
-      if(r.error)console.log('borrarMedicionTanque:',r.error.message);
+      if(r.error){
+        console.error('borrarMedicionTanque:',r.error.message);
+        mostrarToast('No se pudo eliminar la medición: '+r.error.message,'error');
+        return;
+      }
     }catch(e){mostrarToast('Sin conexión','error');return;}
     COMB_MEDICIONES=COMB_MEDICIONES.filter(function(m){return m.id!==id;});
     if(typeof audit==='function')audit('Medición de tanque ELIMINADA',id+' -- '+mot);

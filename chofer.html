@@ -2703,6 +2703,16 @@ async function subirColaEntregas(){
 //    que es lo correcto. Mandar null lo volvería 'principal' dentro del RPC y también andaría,
 //    pero 'estacion' es lo que de verdad está declarando la app.
 var SUR_FOTO_FILE=null, SUR_GPS=null, SUR_GPS_FAILS=0, SUR_TANQUE='estacion', SUR_HOY=[];
+function _surHoyKey(){ return 'btg_sur_hoy_'+(cam||'')+'_'+(hoy||''); }
+function _surCargarHoyLocal(){
+  try{
+    var s=localStorage.getItem(_surHoyKey());
+    if(s){ var a=JSON.parse(s); if(Array.isArray(a)) SUR_HOY=a; }
+  }catch(e){}
+}
+function _surGuardarHoyLocal(){
+  try{ localStorage.setItem(_surHoyKey(), JSON.stringify(SUR_HOY.slice(0,30))); }catch(e){}
+}
 var SUR_TANQUE_LBL={galpon_1:'🛢️ Galpón 1', galpon_2:'🛢️ Galpón 2', estacion:'⛽ Estación de servicio'};
 var COLA_SUR=[];
 function cargarColaSur(){ try{ var s=localStorage.getItem('btg_cola_sur'); if(s) COLA_SUR=_colaSana(JSON.parse(s)); }catch(e){ COLA_SUR=[]; } }
@@ -2773,34 +2783,33 @@ async function procesarColaFotos(){
     mostrarToast('📷 '+(pend.length-quedan.length)+' foto(s) que faltaban ya se subieron','exito');
 }
 async function subirColaSurtidas(){
-  if(!(isOnline && supabase) || !COLA_SUR.length) return;
+  if(!supabase || !COLA_SUR.length) return;
   var pend=COLA_SUR.slice(); COLA_SUR=[];
   for(var i=0;i<pend.length;i++){
     try{
-      // ⛔ `_int` es NUESTRO contador y no puede viajar a la base: se saca antes de mandar.
       var fila=pend[i], _int=(fila._int||0)+1, envio={};
       for(var k in fila){ if(k!=='_int') envio[k]=fila[k]; }
       var r=await supabase.rpc('surtida_registrar',{ p:envio });
       if(r&&r.error){
-        // El servidor puede rechazar por REGLA (litros imposibles): eso no se arregla reintentando.
-        // Si se reencola, la cola queda trabada y el banner nunca se apaga. Se descarta y se avisa.
-        if(/litros/i.test(r.error.message||'')){
-          try{ mostrarToast('Se descartó una surtida con litros imposibles ('+(fila.litros)+' L). Registrala de nuevo con el número correcto.','error'); }catch(e2){}
+        if(/^DUPLICADA/i.test(r.error.message||'')){
+          // Ya estaba registrada en el servidor: no reencolar infinito.
+        } else if(/litros/i.test(r.error.message||'')){
+          try{ mostrarToast('Se descartó una surtida con litros imposibles ('+(fila.litros)+' L). Regístrela de nuevo con el número correcto.','error'); }catch(e2){}
         } else if(_int >= 3){
-          // ⛔ TRES RECHAZOS DEL SERVIDOR NO SON UN PROBLEMA DE SEÑAL. Antes se reencolaba
-          // para siempre y en silencio: eso es lo que tuvo la carga de combustible rota tres
-          // días (26-29/08) sin que nadie se enterara, porque la cola reintenta callada y la
-          // pantalla decía «guardada». Se deja de insistir y se DICE.
           fila._int=_int; COLA_SUR.push(fila);
           try{ mostrarToast('⚠️ Una surtida de las '+(fila.hora||'')+' lleva '+_int+' intentos y el sistema la sigue rechazando ('+(r.error.message||'').slice(0,60)+'). NO es falta de señal: avísele a la oficina.','error'); }catch(e2){}
         } else {
           fila._int=_int; COLA_SUR.push(fila);
         }
+      } else {
+        if(!isOnline) actualizarConexion(true);
       }
     }
-    catch(e){ COLA_SUR.push(pend[i]); }   // sin red: se reintenta, sin gastar el contador
+    catch(e){ COLA_SUR.push(pend[i]); }
   }
   persistColaSur();
+  try{ if(typeof actualizarBannerCola==='function') actualizarBannerCola(); }catch(e){}
+  try{ surRenderHoy(); }catch(e){}
 }
 function surSetTanque(t){
   SUR_TANQUE=t;
@@ -2969,7 +2978,7 @@ async function surGuardar(){
       //    doble toque de una carga de verdad, y no le tranca el registro a nadie.
       //    [[norma-catalogo-no-puede-trancar-el-registro]]
       id:(cam||'X')+'-S-'+hoy+'-'+String(SUR_TANQUE||'').replace(/[^A-Za-z0-9]/g,'').slice(0,10)+'-'+String(lit).replace('.','_')+'-'+Math.floor(now.getTime()/600000),
-      fecha:hoy, hora:p2(now.getHours())+':'+p2(now.getMinutes()),
+      fecha:hoy, hora:p2(now.getHours())+':'+p2(now.getMinutes()), turno:(typeof CL_TURNO!=='undefined'&&CL_TURNO?CL_TURNO:'diurno'),
       cam:cam||'', chofer:chofer||'', tanque:SUR_TANQUE, litros:lit, costo_litro_usd:null,
       foto_url:fotoUrl, lat:(SUR_GPS?SUR_GPS.lat:null), lng:(SUR_GPS?SUR_GPS.lng:null),
       precision_gps:(SUR_GPS?SUR_GPS.acc:null), token:tok
@@ -2999,7 +3008,7 @@ async function surGuardar(){
     // Se encola igual aunque la hayan rechazado por OTRA cosa: la foto ya se subió y el trabajo
     // está hecho, así que el dato NO se tira. Lo que cambia es lo que se le dice a la persona.
     if(!ok && !duplicada) surEncolar(row);
-    if(!duplicada){ SUR_HOY.unshift(row); }
+    if(!duplicada){ SUR_HOY.unshift(row); _surGuardarHoyLocal(); }
     surRenderHoy();
     if(ok){
       mostrarToast('✅ Surtida registrada','exito');
@@ -3012,7 +3021,7 @@ async function surGuardar(){
     }else{
       mostrarToast('📵 Sin señal: guardada en el teléfono, se sube sola al reconectar','exito');
     }
-    document.getElementById('sur-litros').value=''; SUR_FOTO_FILE=null; SUR_GPS_FAILS=0;
+    document.getElementById('sur-litros').value=''; SUR_FOTO_FILE=null; SUR_GPS=null; SUR_GPS_FAILS=0;
     // El tanque tambien se limpia: cada surtida es una declaracion propia. Dejar puesto el
     // de la anterior seria volver a poner un valor por defecto, con otro nombre.
     SUR_TANQUE='estacion';   // no vuelve a null: ya no hay nada que elegir
@@ -3024,6 +3033,7 @@ async function surGuardar(){
   finally{ btn.disabled=false; btn.textContent=t0; surPintarPide(); }   // t0 puede ser el texto viejo: esto lo deja coherente
 }
 function surRenderHoy(){
+  if(!SUR_HOY.length) _surCargarHoyLocal();
   var cont=document.getElementById('sur-hoy-lista'); if(!cont)return;
   var lista=SUR_HOY.slice();
   COLA_SUR.forEach(function(c){ if(c.cam===cam && c.fecha===hoy && !lista.some(function(x){return x.id===c.id;})) lista.push(c); });
