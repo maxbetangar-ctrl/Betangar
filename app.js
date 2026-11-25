@@ -493,8 +493,8 @@ var PERMISOS={
   compras:['dashboard','requisitorio','ordenes','proveedores','inventario','unidades','documentos'],
   asistencia:['asistencia'],
   vigilante:['porteria'],
-  mecanico:['mecanico','checklist','llantas','km','unidades','requisitorio'],
-  operativo:['operativo','requisitorio'],
+  mecanico:['mecanico','checklist','histfallas','llantas','km','unidades','requisitorio'],
+  operativo:['operativo','histfallas','requisitorio'],
   // ANALISTA DE FLOTA. Lo pidio el jefe de operaciones de otra empresa (FLOTILLA) el 03/09/2026 para Yudis Fernandez:
   // «los registros de mantenimiento, inventarios y ordenes de servicio. Para anular, modificar
   // o crear debe solicitar autorizacion al sup. administrador».
@@ -7243,6 +7243,16 @@ async function cargarDatosMinimos(rol){
           KM_DATA[x.cam].modelo=x.cam.startsWith('SRV')?(x.nota_estado||'Servicio'):'JAC 1035';
         });
       }
+      if(rol==='mecanico'){
+        try{
+          var ucM=await supabase.from('unidad_config').select('*');
+          if(ucM&&!ucM.error&&Array.isArray(ucM.data)) ucM.data.forEach(function(u){if(u&&u.cam)UNIDAD_CONFIG[u.cam]=u;});
+        }catch(_e){console.error('[mecanico] unidad_config:',_e&&_e.message);}
+        try{
+          var clM=await supabase.from('checklist').select('*').gte('fecha',_acMenos(7)).order('fecha',{ascending:false});
+          if(clM&&!clM.error&&Array.isArray(clM.data)) CHECKLIST_DATA=clM.data;
+        }catch(_e){console.error('[mecanico] checklist:',_e&&_e.message);}
+      }
     }
 
     // Rutas estado hoy y datos de operaciones — operativo
@@ -7561,17 +7571,21 @@ async function cargarDatosDB(){
     // FICHAJES REALES (app: selfie+GPS+geocerca) desde asistencia_dia -> alimentan el tablero de Asistencia y el cotejo RRHH.
     try{ await cargarFichajesAsistencia(true); }catch(e){}
     // DOCUMENTOS y METAS: persistidos en configuracion (JSON)
+    window._docsCargadosOk=false;
     try{
       var _dm=await supabase.from('configuracion').select('clave,valor').in('clave',['docs_cam','docs_emp','metas_data','nom_adm','periodos_cerrados']);
-      if(_dm&&_dm.data)_dm.data.forEach(function(row){
-        try{var v=JSON.parse(row.valor);
-          if(row.clave==='docs_cam')DOCS_CAM=v||{};
-          else if(row.clave==='docs_emp')DOCS_EMP=v||{};
-          else if(row.clave==='metas_data')METAS=v||{};
+      if(_dm&&!_dm.error&&Array.isArray(_dm.data)){
+        window._docsCargadosOk=true;
+        _dm.data.forEach(function(row){
+          try{var v=JSON.parse(row.valor);
+            if(row.clave==='docs_cam')DOCS_CAM=v||{};
+            else if(row.clave==='docs_emp')DOCS_EMP=v||{};
+            else if(row.clave==='metas_data')METAS=v||{};
           else if(row.clave==='nom_adm'){if(Array.isArray(v))NOM_ADM=v;}
           else if(row.clave==='periodos_cerrados'){if(Array.isArray(v))PERIODOS_CERRADOS=v;}
         }catch(e){}
       });
+      }
     }catch(e){}
     // CXP
     if(cxp.data&&cxp.data.length)CXP=cxp.data.map(_normCxpRow); // mismo normalizador que cargarCxP (ambos esquemas → sin $NaN)
@@ -15710,9 +15724,10 @@ function _iniciarCierreOrden(id){
 //   • inventario → Entrada a inventario (stock); se vuelve gasto de unidad al instalarse (Registrar Uso)
 // Crédito → abre la CxP prellenada (enlazada por orden_id). Sin doble conteo: caja=CxP una vez; costo de
 // unidad=mantenimientos; valor almacén=inventario. Costo de la orden = suma mant ligados + entradas ligadas.
-function _iniciarCierreCompra(id){
+async function _iniciarCierreCompra(id){
   var o=(ORDENES_SERV||[]).find(function(x){return x.id===id;}); if(!o){alert('Orden no encontrada');return;}
   window._ccOrden=id;
+  if(typeof cargarInvMov==='function' && !(INV_MOV&&INV_MOV.length)){ try{ await cargarInvMov(); }catch(e){} }
   var esPatio=(o.cams||[]).length===1&&o.cams[0]==='PATIO';
   var esInv=(o.cams||[]).length===1&&o.cams[0]==='INVENTARIO';
   var destino=esInv?'📦 Inventario (existencia)':(esPatio?'🏭 Patio / uso general':(o.cams||[]).map(function(c){return _unidadCorta(c);}).join(', '));
@@ -15741,7 +15756,7 @@ function _ccDestino(){
 }
 function _ccInvItem(){ var w=g('cc-invnuevo-wrap'); if(w)w.style.display=(gv('cc-invitem')==='__nuevo')?'block':'none'; }
 function _ccPoblarProv(){ var sp=g('cc-prov'); if(!sp)return; sp.innerHTML='<option value="">— elegir —</option>'; (typeof PROVEEDORES!=='undefined'?PROVEEDORES:[]).forEach(function(p){sp.innerHTML+='<option value="'+p.id+'">'+_mEsc(p.nombre)+(p.cat?(' · '+_mEsc(p.cat)):'')+'</option>';}); sp.innerHTML+='<option value="__otro">➕ Otro (escribir)</option>'; }
-function _ccPoblarInv(){ var si=g('cc-invitem'); if(!si)return; si.innerHTML='<option value="__nuevo">➕ Nuevo ítem…</option>'; (INVENTARIO||[]).forEach(function(x){si.innerHTML+='<option value="'+x.id+'">'+_mEsc(x.nombre)+' (stock '+(x.stock||0)+')</option>';}); }
+function _ccPoblarInv(){ var si=g('cc-invitem'); if(!si)return; si.innerHTML='<option value="__nuevo">➕ Nuevo ítem…</option>'; (typeof _invActivos==='function'?_invActivos():(INVENTARIO||[])).forEach(function(x){si.innerHTML+='<option value="'+x.id+'">'+_mEsc(x.nombre)+' (stock '+(x.stock||0)+')</option>';}); }
 function _ccLimpiarLinea(){ ['cc-item','cc-costo','cc-cam','cc-km','cc-invnuevo'].forEach(function(id){sv(id,'');}); sv('cc-cant','1'); sv('cc-garantia',''); var f=g('cc-foto'); if(f)f.value=''; }
 function _ccCostoOrden(ordenId){
   var c=0;
@@ -15749,10 +15764,11 @@ function _ccCostoOrden(ordenId){
   (INV_MOV||[]).forEach(function(m){ if(m.ordenId===ordenId&&m.tipo==='Entrada')c+=((parseFloat(m.cantidad)||0)*(parseFloat(m.precio)||0)); });
   return Math.round(c*100)/100;
 }
-function _ccActualizarOrden(ordenId,terminar){
-  var o=(ORDENES_SERV||[]).find(function(x){return x.id===ordenId;}); if(!o)return;
-  o.costo=_ccCostoOrden(ordenId);
-  var patch={costo_usd:o.costo};
+async function _ccActualizarOrden(ordenId,terminar){
+  var o=(ORDENES_SERV||[]).find(function(x){return x.id===ordenId;}); if(!o)return false;
+  var prevEstado=o.estado, prevCosto=o.costo, prevFechaCierre=o.fechaCierre;
+  var nuevoCosto=_ccCostoOrden(ordenId);
+  var patch={costo_usd:nuevoCosto};
   // ⛔ SIN FIRMA NO CIERRA, PERO EL TRABAJO NO SE PIERDE: el costo se guarda igual y la
   //    orden queda `en_proceso` esperando la aprobación. Y el estado local NO se pone en
   //    'hecha': la base lo va a rechazar, y la lista estaría diciendo 🟢 Hecha sobre una
@@ -15760,10 +15776,35 @@ function _ccActualizarOrden(ordenId,terminar){
   var _faltaF=terminar?_osFirmaFalta(o):'';
   if(_faltaF){
     terminar=false;
-    if(o.estado==='emitida'){ o.estado='en_proceso'; patch.estado='en_proceso'; }
+    if(o.estado==='emitida'){ patch.estado='en_proceso'; }
     alert('⛔ La orden no se puede cerrar todavía.\n\n'+_faltaF+'\n\nEl trabajo y el costo SÍ quedaron registrados.');
   }
-  if(terminar){ o.estado='hecha'; o.fechaCierre=(typeof fechaVE==='function')?fechaVE():''; patch.estado='hecha'; patch.fecha_cierre=o.fechaCierre;
+  if(terminar){
+    var _fc=(typeof fechaVE==='function')?fechaVE():'';
+    patch.estado='hecha'; patch.fecha_cierre=_fc;
+  } else if(o.estado==='emitida'){
+    patch.estado='en_proceso';
+  }
+  if(DB_READY&&supabase){
+    try{
+      var _r=await supabase.from('ordenes_servicio').update(patch).eq('id',ordenId).select();
+      if(_r&&_r.error){
+        if(typeof mostrarToast==='function')mostrarToast('No se pudo actualizar la orden: '+_r.error.message,'error');
+        return false;
+      }
+      if(!(_r&&_r.data&&_r.data.length)){
+        if(typeof mostrarToast==='function')mostrarToast('No se actualizó ninguna fila de la orden '+ordenId,'error');
+        return false;
+      }
+    }catch(e){
+      if(typeof mostrarToast==='function')mostrarToast('Sin conexión al actualizar la orden '+ordenId,'error');
+      return false;
+    }
+  }
+  o.costo=nuevoCosto;
+  if(patch.estado)o.estado=patch.estado;
+  if(patch.fecha_cierre)o.fechaCierre=patch.fecha_cierre;
+  if(terminar){
     // "Hecho" cierra la orden (hoja de vida), NO paga. Si hay deuda con saldo, avisar que sigue en CxP.
     try{
       var _deu=(typeof CXP!=='undefined'?CXP:[]).filter(function(c){return c.orden_id&&String(c.orden_id)===String(ordenId)&&_cxpSaldoUsd(c)>0.005;});
@@ -15773,8 +15814,7 @@ function _ccActualizarOrden(ordenId,terminar){
       }
     }catch(e){}
   }
-  else if(o.estado==='emitida'){ o.estado='en_proceso'; patch.estado='en_proceso'; }
-  if(DB_READY&&supabase){ try{ supabase.from('ordenes_servicio').update(patch).eq('id',ordenId).then(function(r){if(r&&r.error&&typeof mostrarToast==='function')mostrarToast('No se pudo actualizar la orden: '+r.error.message,'error');}); }catch(e){} }
+  return true;
 }
 // ⛔ EL ESTILO VA EN LA CELDA, NO EN LA TABLA, Y ESTA ES LA RAZÓN.
 //    La hoja de estilos tiene `td{...white-space:nowrap}` (app.html) apuntando DIRECTO al td.
@@ -15900,7 +15940,7 @@ async function _ccAgregarLinea(){
       var mem={id:idM,cam:cam,fecha:fecha,km:km,horas:0,itemId:itemCat,tipo:nombre,tipoTrabajo:'cambio',desc:row.desc_trabajo,costo:costo,proveedor:provNom,foto:fotoUrl,anomalia:false,motivo:'',ordenId:ordenId,garantiaHasta:garHasta,centroCosto:'',origen:''};
       await _ccInsertMant(row,mem);
       if(itemCat)_sincronizarCicloMant(cam,itemCat,fecha); // si es lavado/engrase, refresca su ciclo en el espejo
-      if(km>0){ if(!KM_DATA[cam])KM_DATA[cam]={km:0,f:'',ultsrv:0,mant:[],lavado:'',engrase:''}; if(km>=(parseInt(KM_DATA[cam].km)||0)){KM_DATA[cam].km=km;KM_DATA[cam].f=fecha;} }
+      _syncKmDataSiSube(cam,km,fecha);
     } else if(destino==='patio'){
       var centro=gv('cc-centro')||'otros', idP='MT'+Date.now();
       // ⛔ El tipo de gasto se DERIVA de la orden. Estaba fijo en 'compra', y desde que una orden
@@ -15928,7 +15968,7 @@ async function _ccAgregarLinea(){
         orden_id:ordenId,garantia_hasta:garHasta});
       if(!_rm)return;
     }
-    _ccActualizarOrden(ordenId,false);
+    await _ccActualizarOrden(ordenId,false);
     audit('Línea de compra registrada',ordenId+' · '+nombre+' · $'+costo+' · '+destino);
     if(pago==='credito'){ _ccAbrirCxP(o,provId,provNom,costo); return; }
     _ccLimpiarLinea(); _ccRenderLineas();
@@ -15936,19 +15976,24 @@ async function _ccAgregarLinea(){
     if(typeof mostrarToast==='function')mostrarToast('✅ Línea registrada ('+destino+')','exito');
   } finally { var b=g('cc-add-btn'); if(b){b.disabled=false;b.textContent='➕ Registrar esta línea';} }
 }
-function _ccTerminar(){
+async function _ccTerminar(){
   var ordenId=window._ccOrden, o=(ORDENES_SERV||[]).find(function(x){return x.id===ordenId;}); if(!o)return;
   var hayMant=(MANTENIMIENTOS||[]).some(function(m){return m.ordenId===ordenId;});
   var hayInv=(INV_MOV||[]).some(function(m){return m.ordenId===ordenId&&m.tipo==='Entrada';});
   if(!hayMant&&!hayInv){ if(!confirm('No registraste ninguna línea de compra. ¿Cerrar la orden igual?'))return; }
-  _ccActualizarOrden(ordenId,true);
-  audit('Orden de compra cerrada',ordenId+' · $'+(o.costo||0));
-  _ccCerrarModal();
-  if(typeof mostrarToast==='function')mostrarToast('🟢 Orden de compra '+ordenId+' completada ($'+(o.costo||0).toFixed(2)+')','exito');
+  var _ok=await _ccActualizarOrden(ordenId,true);
+  if(!_ok)return;
+  if(o.estado==='hecha'){
+    audit('Orden de compra cerrada',ordenId+' · $'+(o.costo||0));
+    _ccCerrarModal();
+    if(typeof mostrarToast==='function')mostrarToast('🟢 Orden de compra '+ordenId+' completada ($'+(o.costo||0).toFixed(2)+')','exito');
+  } else {
+    try{renderOrdenesServicio();}catch(e){}
+  }
 }
 // Tras registrar un mantenimiento ligado a una orden: recalcula su estado (emitida→en_proceso→hecha)
 // según cuántas de sus unidades ya tienen evento ligado. Fuente única: mantenimientos.orden_id.
-function _cerrarOrdenTrasMant(ordenId){
+async function _cerrarOrdenTrasMant(ordenId){
   var o=(ORDENES_SERV||[]).find(function(x){return x.id===ordenId;}); if(!o)return;
   var hechas={}; (MANTENIMIENTOS||[]).forEach(function(m){ if(m.ordenId===ordenId && m.cam)hechas[m.cam]=1; });
   var total=(o.cams||[]).length||1;
@@ -15958,12 +16003,32 @@ function _cerrarOrdenTrasMant(ordenId){
   //    registrado queda; lo que espera es la aprobación.
   var _faltaF=(nuevo==='hecha')?_osFirmaFalta(o):'';
   if(_faltaF){ nuevo='en_proceso'; alert('⛔ La orden no se puede cerrar todavía.\n\n'+_faltaF+'\n\nEl trabajo SÍ quedó registrado.'); }
-  o.estado=nuevo;
   var patch={estado:nuevo};
-  if(nuevo==='hecha'){ o.fechaCierre=(typeof fechaVE==='function')?fechaVE():''; patch.fecha_cierre=o.fechaCierre;
-    var costo=0; (MANTENIMIENTOS||[]).forEach(function(m){ if(m.ordenId===ordenId)costo+=(parseFloat(m.costo)||0); }); o.costo=Math.round(costo*100)/100; patch.costo_usd=o.costo;
+  var nuevoCosto=o.costo;
+  var nuevaFechaCierre=o.fechaCierre;
+  if(nuevo==='hecha'){
+    nuevaFechaCierre=(typeof fechaVE==='function')?fechaVE():''; patch.fecha_cierre=nuevaFechaCierre;
+    var costo=0; (MANTENIMIENTOS||[]).forEach(function(m){ if(m.ordenId===ordenId)costo+=(parseFloat(m.costo)||0); });
+    nuevoCosto=Math.round(costo*100)/100; patch.costo_usd=nuevoCosto;
   }
-  if(DB_READY&&supabase){ try{ supabase.from('ordenes_servicio').update(patch).eq('id',ordenId).then(function(r){if(r&&r.error&&typeof mostrarToast==='function')mostrarToast('No se pudo actualizar la orden: '+r.error.message,'error');}); }catch(e){} }
+  if(DB_READY&&supabase){
+    try{
+      var _r=await supabase.from('ordenes_servicio').update(patch).eq('id',ordenId).select();
+      if(_r&&_r.error){
+        if(typeof mostrarToast==='function')mostrarToast('No se pudo actualizar la orden: '+_r.error.message,'error');
+        return;
+      }
+      if(!(_r&&_r.data&&_r.data.length)){
+        if(typeof mostrarToast==='function')mostrarToast('No se actualizó la orden '+ordenId+' en la base','error');
+        return;
+      }
+    }catch(e){
+      if(typeof mostrarToast==='function')mostrarToast('Sin conexión al actualizar la orden '+ordenId,'error');
+      return;
+    }
+  }
+  o.estado=nuevo;
+  if(nuevo==='hecha'){ o.fechaCierre=nuevaFechaCierre; o.costo=nuevoCosto; }
   if(typeof mostrarToast==='function')mostrarToast(nuevo==='hecha'?('🟢 Orden '+ordenId+' COMPLETADA'):('🔵 Orden '+ordenId+' en proceso ('+nHechas+'/'+total+')'),'exito');
   try{renderOrdenesServicio();}catch(e){}
   // Devolver al usuario a Órdenes: vino de ahí a cerrar y tiene que VER el estado cambiado (si no,
@@ -16545,6 +16610,24 @@ async function imprimirCentroCostos(){
   abrirImpresionPremium('Costo por unidad','Del '+formatFecha(desde)+' al '+formatFecha(hasta),stats,body);
 }
 
+// Persiste km_data si el km ingresado desde mantenimiento/servicio/evidencia es >= al actual.
+// Antes solo actualizaba KM_DATA en memoria y se perdía al recargar.
+function _syncKmDataSiSube(cam,km,fecha){
+  if(!cam||!(km>0)||typeof KM_DATA==='undefined')return;
+  if(!KM_DATA[cam])KM_DATA[cam]={km:0,f:'',ultsrv:0,mant:[],lavado:'',engrase:''};
+  var prev=parseInt(KM_DATA[cam].km)||0;
+  if(km<prev)return;
+  var f=String(fecha||(typeof fechaVE==='function'?fechaVE():'')).slice(0,10);
+  KM_DATA[cam].km=km; if(f)KM_DATA[cam].f=f;
+  if(DB_READY&&supabase){
+    try{
+      supabase.from('km_data').upsert([{cam:cam,km:km,f:f||null,updated_by:(SESION?SESION.nombre:'')}],{onConflict:'cam'}).select().then(function(r){
+        if(r&&r.error)console.warn('km_data sync:',r.error.message);
+      });
+    }catch(e){}
+  }
+}
+
 async function borrarOdo(cam){
   if(!KM_DATA[cam])return;
   // ⛔ BORRARLO NO ES LA FORMA DE CORREGIRLO, Y ADEMÁS APAGA EL CONTROL.
@@ -16557,10 +16640,18 @@ async function borrarOdo(cam){
     +'escribí el kilometraje correcto en «Registrar km» y listo, el sistema deja que la oficina lo baje.\n\n'
     +'Si lo borrás, queda en CERO y mientras tanto el control que impide que el kilometraje vaya para atrás QUEDA APAGADO: cualquier número que cargue un chofer va a entrar.\n\n'
     +'¿Borrarlo igual?'))return;
-  KM_DATA[cam].km=0;KM_DATA[cam].ultsrv=0;KM_DATA[cam].f='';
-  if(DB_READY&&supabase){try{var _r=await supabase.from('km_data').update({km:0,ultsrv:0,f:null}).eq('cam',cam);
-    if(_r.error&&typeof mostrarToast==='function')mostrarToast('No se pudo borrar: '+_r.error.message,'error');}catch(e){}}
-  audit('Odometro borrado',cam);renderKm();
+  // BORRAR ODÓMETRO = TOKEN: dejar el odómetro en 0 apaga el control anti-retroceso.
+  solicitarToken('Borrar odómetro de '+cam,async function(mot){
+    if(DB_READY&&supabase){
+      try{
+        var _r=await supabase.from('km_data').update({km:0,ult_srv:0,f:null}).eq('cam',cam).select();
+        if(_r&&_r.error){if(typeof mostrarToast==='function')mostrarToast('No se pudo borrar: '+_r.error.message,'error');return;}
+      }catch(e){if(typeof mostrarToast==='function')mostrarToast('Sin conexión al borrar el odómetro.','error');return;}
+    }
+    KM_DATA[cam].km=0;KM_DATA[cam].ultsrv=0;KM_DATA[cam].f='';
+    audit('Odometro borrado',cam+(mot?' -- '+mot:''));renderKm();
+    if(typeof mostrarToast==='function')mostrarToast('🗑️ Odómetro de '+cam+' reiniciado a 0','exito');
+  },{op:'upd',tabla:'km_data',col:'cam',val:cam});
 }
 // Borra el ÚLTIMO lavado/engrase de la fuente única (mantenimientos) y recalcula el espejo km_data
 // al evento anterior (o lo vacía). Un solo lugar de borrado, coherente con el registro.
@@ -16605,48 +16696,52 @@ async function guardarKm(){
   var cam=gv('km-cam'),km=parseInt(gv('km-val'))||0,f=gv('km-f'),mant=gv('km-mant'),desc=gv('km-desc'),itemId=gv('km-item')||'';
   if(!cam||!km){alert('Completa camion y km');return;}
   if(!KM_DATA[cam])KM_DATA[cam]={km:0,f:'',ultsrv:0,mant:[],lavado:'',engrase:''};
-  // BLINDAJE: el odómetro no retrocede. Si el km nuevo es MENOR que el último registrado,
-  // es typo o cambio de tablero — pedir confirmación explícita (evita los KM negativos).
-  var kmPrev=parseFloat(KM_DATA[cam].km)||0;
+  // BLINDAJE: el odómetro no retrocede. Comparar contra kmActualCam(cam) (que incluye lo que cargó el chofer).
+  var kmPrev=(typeof kmActualCam==='function')?(parseFloat(kmActualCam(cam))||0):(parseFloat(KM_DATA[cam].km)||0);
   if(kmPrev>0 && km<kmPrev){
     if(!confirm('⚠ El KM ingresado ('+km.toLocaleString()+') es MENOR que el último registrado de '+cam+' ('+kmPrev.toLocaleString()+').\n\nEl odómetro no debería retroceder. ¿Es una corrección o cambio de tablero?\n\nAceptar = guardar de todos modos · Cancelar = revisar el número.'))return;
   } else if(kmPrev>0 && (km-kmPrev)>5000){
     if(!confirm('⚠ Salto grande: '+cam+' pasó de '+kmPrev.toLocaleString()+' a '+km.toLocaleString()+' km (+'+(km-kmPrev).toLocaleString()+'). ¿Es correcto?'))return;
   }
-  KM_DATA[cam].km=km;KM_DATA[cam].f=f;
-  if(mant){KM_DATA[cam].mant.push({f:f,km:km,tipo:mant,desc:desc});if(mant.includes('5000'))KM_DATA[cam].ultsrv=km;}
-  // FUENTE ÚNICA: si se registró un mantenimiento, va a la MISMA tabla `mantenimientos` que la
-  // Hoja de vida, con id + ítem del catálogo (si se eligió) → alimenta el historial Y el preventivo,
-  // y se refleja al instante (sin recargar). Un solo registro, no dos.
   var _mid=null, _mdesc='';
   if(mant){
     _mid='MT'+Date.now(); _mdesc=(desc?desc+' ':'')+'(por '+(SESION?SESION.nombre:'?')+')';
-    if(typeof MANTENIMIENTOS!=='undefined')MANTENIMIENTOS.unshift({id:_mid,cam:cam,fecha:f,km:km,itemId:itemId,tipo:mant,desc:_mdesc,costo:0,proveedor:'',foto:''});
   }
-  // Guardar en Supabase
+  // Guardar en Supabase ANTES de confirmar éxito (esperar respuesta real con .select())
   if(DB_READY&&supabase){
-    var kmUpdate={cam:cam,km:km,f:f,updated_by:SESION?SESION.nombre:''};
-    if(mant.includes('5000'))kmUpdate.ultsrv=km;
-    // ⛔ SE MIRA EL RESULTADO, Y CON `.select()`. Hasta el 19/09/2026 esto solo
-    //    escribía en la consola si fallaba: si la base rechazaba el cambio, la
-    //    pantalla decía que guardó y la persona volvía a intentarlo sin entender.
-    //    Es literalmente lo que reportó Elicindo — «me hace los cambios pero en el
-    //    sistema no me agarra los números ingresados» (SOP-20260918-27EN).
-    //    [[norma-insert-sin-select-no-mide]]
-    supabase.from('km_data').upsert([kmUpdate],{onConflict:'cam'}).select().then(function(r){
-      if(r&&r.error){
-        console.error('Error km_data:',r.error);
-        if(typeof mostrarToast==='function')mostrarToast('NO se guardó el kilometraje de '+cam+': '+r.error.message,'error');
-      } else if(!(r&&r.data&&r.data.length)){
-        if(typeof mostrarToast==='function')mostrarToast('El kilometraje de '+cam+' NO quedó guardado: la base no tocó ninguna fila. Avisá al servicio técnico.','error');
+    var kmUpdate={cam:cam,km:km,f:f||null,updated_by:SESION?SESION.nombre:''};
+    if(mant&&mant.includes('5000'))kmUpdate.ult_srv=km;
+    try{
+      var _rk=await supabase.from('km_data').upsert([kmUpdate],{onConflict:'cam'}).select();
+      if(_rk&&_rk.error){
+        console.error('Error km_data:',_rk.error);
+        if(typeof mostrarToast==='function')mostrarToast('NO se guardó el kilometraje de '+cam+': '+_rk.error.message,'error');
+        else alert('NO se guardó el kilometraje de '+cam+': '+_rk.error.message);
+        return;
       }
-    });
-    if(mant){
-      supabase.from('mantenimientos').upsert([{
-        id:_mid,cam:cam,f:f,km:km,item_id:itemId,tipo:mant,
-        desc_trabajo:_mdesc,costo_usd:0,proveedor:'',foto_url:''
-      }],{onConflict:'id'}).then(function(r){if(r&&r.error)console.log('mantenimientos:',r.error.message);});
+      if(!(_rk&&_rk.data&&_rk.data.length)){
+        if(typeof mostrarToast==='function')mostrarToast('El kilometraje de '+cam+' NO quedó guardado: la base no tocó ninguna fila. Avisá al servicio técnico.','error');
+        return;
+      }
+    }catch(e){
+      if(typeof mostrarToast==='function')mostrarToast('Sin conexión: no se guardó el kilometraje de '+cam,'error');
+      return;
     }
+    if(mant){
+      try{
+        var _rm=await supabase.from('mantenimientos').upsert([{
+          id:_mid,cam:cam,f:f,km:km,item_id:itemId,tipo:mant,
+          desc_trabajo:_mdesc,costo_usd:0,proveedor:'',foto_url:''
+        }],{onConflict:'id'}).select();
+        if(_rm&&_rm.error&&typeof mostrarToast==='function')mostrarToast('Km guardado, pero falló el registro de mantenimiento: '+_rm.error.message,'error');
+      }catch(e){ console.log('mantenimientos:',e&&e.message); }
+    }
+  }
+  KM_DATA[cam].km=km;KM_DATA[cam].f=f;
+  if(mant){
+    KM_DATA[cam].mant.push({f:f,km:km,tipo:mant,desc:desc});
+    if(mant.includes('5000'))KM_DATA[cam].ultsrv=km;
+    if(typeof MANTENIMIENTOS!=='undefined')MANTENIMIENTOS.unshift({id:_mid,cam:cam,fecha:f,km:km,itemId:itemId,tipo:mant,desc:_mdesc,costo:0,proveedor:'',foto:''});
   }
   audit('Km registrado',cam+' '+km+'km'+(mant?' — '+mant:''));
   renderKm();try{if(typeof renderHistMant==='function')renderHistMant();}catch(e){}sv('km-val','');sv('km-mant','');sv('km-desc','');sv('km-item','');
@@ -16780,7 +16875,7 @@ function _intervaloEsperado(it,itemId){
   if(base==='meses')d=d*30; // meses→días aprox
   return {tipo:'dias',valor:d};
 }
-function _diasEntre(a,b){ var x=new Date(String(a).slice(0,10)+'T12:00:00'), y=new Date(String(b).slice(0,10)+'T12:00:00'); if(isNaN(x)||isNaN(y))return 0; return Math.round((y-x)/86400000); }
+function _diasEntre(a,b){ var x=new Date(String(a).slice(0,10)+'T12:00:00'), y=new Date(String(b).slice(0,10)+'T12:00:00'); if(isNaN(x)||isNaN(y))return NaN; return Math.round((y-x)/86400000); }
 // Parsea lo que escribe el usuario para "cada cuánto": "365"→días · "5000km"/"5000 km"→km.
 function _parseIntervalo(s){ s=String(s||'').toLowerCase().trim(); if(!s)return null; var n=parseFloat(s.replace(/[^\d.]/g,'')); if(!(n>0))return null; return /km/.test(s)?{tipo:'km',valor:n}:{tipo:'dias',valor:n}; }
 // Persiste el intervalo aprendido en el catálogo (para no volver a preguntar).
@@ -16805,7 +16900,7 @@ async function _registrarServicioSimple(cam,itemId,nombre,fecha,obs){
   if(!ok&&typeof guardarEnCola==='function')guardarEnCola('mantenimientos',row,'id');
   if(typeof MANTENIMIENTOS!=='undefined')MANTENIMIENTOS.unshift(mem);
   _sincronizarCicloMant(cam,itemId,f); // refresca el espejo km_data del ciclo
-  if(km>0){ if(!KM_DATA[cam])KM_DATA[cam]={km:0,f:'',ultsrv:0,mant:[],lavado:'',engrase:''}; if(km>=(parseInt(KM_DATA[cam].km)||0)){KM_DATA[cam].km=km;KM_DATA[cam].f=f;} }
+  _syncKmDataSiSube(cam,km,f);
   audit(nombre+' registrado',cam+' '+f);
   if(typeof mostrarToast==='function')mostrarToast(ok?('✅ '+nombre+' registrado: '+cam):('⏳ '+nombre+' en cola (se guardará al reconectar)'),ok?'exito':'error');
   return ok;
@@ -18323,7 +18418,7 @@ async function registrarMantItem(){
   // Coherencia con el odómetro (nunca retrocede): si el km del trabajo es mayor, actualiza KM_DATA.
   // SOLO si el trabajo es de HOY: cargar un trabajo viejo no puede mover el odómetro actual de la
   // unidad (si no, un registro histórico mal tipeado adelanta el odómetro de toda la flota).
-  if(km>0&&_esHoy){ if(!KM_DATA[cam])KM_DATA[cam]={km:0,f:'',ultsrv:0,mant:[],lavado:'',engrase:''}; if(km>=(parseInt(KM_DATA[cam].km)||0)){KM_DATA[cam].km=km;KM_DATA[cam].f=fecha;} }
+  if(km>0&&_esHoy){ _syncKmDataSiSube(cam,km,fecha); }
   // Coherencia con el horímetro: si la unidad va por horas, actualiza horas_actuales (nunca baja).
   if(esHoras&&horas>0){ if(!UNIDAD_CONFIG[cam])UNIDAD_CONFIG[cam]={}; if(horas>=(parseInt(UNIDAD_CONFIG[cam].horasActuales)||0)){UNIDAD_CONFIG[cam].horasActuales=horas; if(DB_READY&&supabase){try{supabase.from('unidad_config').upsert([{cam:cam,horas_actuales:horas}],{onConflict:'cam'}).then(function(){});}catch(e){}}} }
   _sincronizarCicloMant(cam,itemId,fecha); // si es lavado/engrase, refresca su ciclo (módulo Lavados/plan)
@@ -20158,7 +20253,7 @@ async function entregaAHojaVida(id){
   // Reflejar en memoria de la hoja de vida (sin recargar todo).
   try{ if(typeof MANTENIMIENTOS!=='undefined')MANTENIMIENTOS.unshift({id:mantId,cam:row.cam,fecha:row.f,km:km,horas:0,itemId:'',tipo:row.tipo,tipoTrabajo:'cambio',desc:desc,costo:0,proveedor:'',foto:row.foto_url}); }catch(err){}
   // Coherencia con el odómetro (nunca retrocede).
-  try{ if(km>0&&typeof KM_DATA!=='undefined'){ if(!KM_DATA[e.cam])KM_DATA[e.cam]={km:0,f:'',ultsrv:0,mant:[],lavado:'',engrase:''}; if(km>=(parseInt(KM_DATA[e.cam].km)||0)){KM_DATA[e.cam].km=km;KM_DATA[e.cam].f=e.fecha||'';} } }catch(err){}
+  try{ if(km>0){ _syncKmDataSiSube(e.cam,km,e.fecha||''); } }catch(err){}
   audit('Mantenimiento → hoja de vida',row.cam+' · '+row.tipo+(km?(' · '+km+'km'):'')+' (desde evidencia)');
   mostrarToast('✅ Agregado a la hoja de vida de '+row.cam,'exito');
   renderEntregas();
@@ -20240,9 +20335,12 @@ function _mantEstadoCalc(base,intervalo,aviso,ultimo,lecturaActual,hoyISO){
     var venc=ref+intervalo, restante=venc-(parseInt(lecturaActual)||0);
     return {estado:restante<=0?'vencido':(restante<=aviso?'proximo':'al_dia'),restante:restante,venc:venc,vencTxt:venc.toLocaleString()+suf,unidad:base};
   }
+  if(!ultimo.fecha||isNaN(new Date(String(ultimo.fecha).slice(0,10)+'T12:00:00')))return {estado:'sin_dato',restante:null,venc:null,vencTxt:'',unidad:'dias'};
   var dias=base==='meses'?intervalo*30:intervalo;
+  var avisoD=base==='meses'?aviso*30:aviso;
   var vencF=addDays(ultimo.fecha,dias), restD=_diasEntreISO(hoyISO,vencF);
-  return {estado:restD<0?'vencido':(restD<=aviso?'proximo':'al_dia'),restante:restD,venc:vencF,vencTxt:formatFecha(vencF),unidad:'dias'};
+  if(isNaN(restD))return {estado:'sin_dato',restante:null,venc:null,vencTxt:'',unidad:'dias'};
+  return {estado:restD<0?'vencido':(restD<=avisoD?'proximo':'al_dia'),restante:restD,venc:vencF,vencTxt:formatFecha(vencF),unidad:'dias'};
 }
 var _MANT_RANK={vencido:3,proximo:2,al_dia:1,sin_dato:0,sin_medida:0,sin_intervalo:-1};
 function _mantPeor(a,b){ return (_MANT_RANK[(b&&b.estado)||'']||0) > (_MANT_RANK[(a&&a.estado)||'']||0) ? b : a; }
@@ -20271,10 +20369,18 @@ function _mantEstado(cam,it){
   var peor=_mantPeor(insp,cambio)||insp||cambio||{estado:'sin_intervalo'};
   return {cam:cam,itemId:it.id,nombre:it.nombre,base:it.base,critico:!!it.critico,ultimo:lastAny,insp:insp,cambio:cambio,estado:peor.estado,restante:peor.restante,venc:peor.venc,vencTxt:peor.vencTxt,unidad:peor.unidad};
 }
-// Lista de vencidos/próximos de TODA la flota, ordenada por urgencia.
+// Lista de vencidos/próximos de TODA la flota activa (excluye bajas, PATIO, INVENTARIO y DUP*), ordenada por urgencia.
+function _prevUnidadesActivas(){
+  return _unidadesTodas().filter(function(cam){
+    if(!cam||cam==='PATIO'||cam==='INVENTARIO'||/^DUP/i.test(cam))return false;
+    var u=(typeof FLOTA!=='undefined'&&FLOTA[cam])?FLOTA[cam]:null;
+    if(u&&u.activo===false)return false;
+    return true;
+  });
+}
 function calcMantPreventivo(){
   var out=[];
-  _hvUnidades().forEach(function(cam){
+  _prevUnidadesActivas().forEach(function(cam){
     _itemsPlantilla(cam).forEach(function(it){
       var e=_mantEstado(cam,it);
       [['Revisar',e.insp],['Cambiar',e.cambio]].forEach(function(p){
@@ -20303,7 +20409,7 @@ function enviarRecordatoriosMant(){
   var msg='🔧 RECORDATORIO DE MANTENIMIENTO — '+(typeof brandNom==='function'?brandNom():'FlotaMax')+'\n'+formatFecha(new Date())+'\n';
   if(venc.length)msg+='\n🔴 VENCIDOS ('+venc.length+'):\n'+venc.slice(0,25).map(function(e){return '• '+e.cam+' — '+e.nombre;}).join('\n')+'\n';
   if(prox.length)msg+='\n🟡 POR VENCER ('+prox.length+'):\n'+prox.slice(0,25).map(function(e){return '• '+e.cam+' — '+e.nombre+' ('+e.vencTxt+')';}).join('\n')+'\n';
-  if(typeof sendWA==='function')sendWA(msg,['mecanico','admin','directivo','operativo']);
+  if(typeof sendWA==='function')sendWA(msg,['mecanica','admin','directivo','operativo']);
   audit('Recordatorio mantenimiento enviado',venc.length+' vencidos · '+prox.length+' próximos');
   if(typeof mostrarToast==='function')mostrarToast('📲 Recordatorio enviado (mecánico, gerencia, operaciones)','exito');
 }
@@ -20330,7 +20436,7 @@ function _mantBadge(est){
 function renderPreventivoEstado(){
   var el=g('prev-estado'); if(!el)return;
   // 🅿️ Unidades PARADAS (>90 días sin movimiento) — igual les vence batería/cauchos por tiempo.
-  var paradas=_hvUnidades().map(function(cam){return {cam:cam,p:_unidadParada(cam)};}).filter(function(x){return x.p.parada;});
+  var paradas=_prevUnidadesActivas().map(function(cam){return {cam:cam,p:_unidadParada(cam)};}).filter(function(x){return x.p.parada;});
   var paradasHtml=paradas.length?('<div style="background:rgba(245,158,11,.12);border:1px solid var(--amber);border-radius:6px;padding:6px 9px;margin-bottom:8px;font-size:11px;color:var(--amber)">🅿️ <b>'+paradas.length+' unidad(es) PARADA(S)</b> (sin rodar hace +90 días): '+paradas.map(function(x){return _mEsc(x.cam)+' ('+x.p.dias+'d)';}).join(', ')+'. Igual les vence <b>batería y cauchos</b> por tiempo.</div>'):'';
   var lista=calcMantPreventivo();
   if(!lista.length){el.innerHTML=paradasHtml+'<div style="color:var(--green);font-size:12px;padding:10px">✓ Nada vencido ni por vencer con los intervalos actuales.</div>';return;}
@@ -22973,20 +23079,23 @@ function switchDocTab(t){['alertas','cams','emps'].forEach(function(x){var el=g(
 
 function renderDocAlertas(){
   var vencidos=[],proximos=[];
-  var hoy=new Date().toISOString().split('T')[0];
+  var activasCam={}; _unidadesTodas().forEach(function(c){activasCam[c]=1;});
   Object.keys(DOCS_CAM).forEach(function(cam){
+    if(!activasCam[cam])return;
     ['seguro','circulacion','revision'].forEach(function(tipo){
       var d=DOCS_CAM[cam][tipo];if(!d||!d.venc)return;
-      var dr=diasHasta(d.venc);var label=cam+' — '+tipo;
+      var dr=diasHasta(d.venc);if(isNaN(dr))return;
+      var label=cam+' — '+tipo;
       if(dr<0)vencidos.push({label:label,dr:dr,badge:vencBadge(dr)});
       else if(dr<=30)proximos.push({label:label,dr:dr,badge:vencBadge(dr)});
     });
   });
   Object.keys(DOCS_EMP).forEach(function(eid){
-    var emp=EMPLEADOS.find(function(e){return e.id===eid;});if(!emp)return;
+    var emp=EMPLEADOS.find(function(e){return e.id===eid;});if(!emp||emp.activo===false)return;
     ['cedula','licencia','medico'].forEach(function(tipo){
       var d=DOCS_EMP[eid][tipo];if(!d||!d.venc)return;
-      var dr=diasHasta(d.venc);var label=nombreQueDistingue(emp.nombre,_nombresEmpleados())+' — '+tipo;
+      var dr=diasHasta(d.venc);if(isNaN(dr))return;
+      var label=nombreQueDistingue(emp.nombre,_nombresEmpleados())+' — '+tipo;
       if(dr<0)vencidos.push({label:label,dr:dr,badge:vencBadge(dr)});
       else if(dr<=30)proximos.push({label:label,dr:dr,badge:vencBadge(dr)});
     });
@@ -23037,7 +23146,10 @@ function renderDocTablas(){
   }).join('');
   var dct=g('doc-cam-tabla');
   if(dct)dct.innerHTML=htmlCam||'<div style="color:var(--text3);font-size:12px;padding:10px">Sin camiones</div>';
-  var emps=EMPLEADOS.filter(function(e){return e.cargo==='Chofer'&&e.activo;});
+  var emps=EMPLEADOS.filter(function(e){return e.activo!==false;}).sort(function(a,b){
+    var ca=(a.cargo==='Chofer')?0:1, cb=(b.cargo==='Chofer')?0:1;
+    return ca-cb || String(a.nombre||'').localeCompare(String(b.nombre||''));
+  });
   var tiposEmp=['cedula','licencia','medico'];
   var htmlEmp=emps.map(function(emp){
     var d=DOCS_EMP[emp.id]||{};
@@ -23048,68 +23160,106 @@ function renderDocTablas(){
     }).join('');
     return '<div style="border:1px solid var(--border);border-radius:10px;margin-bottom:6px;overflow:hidden">'+
       '<div onclick="toggleDocPanel(\'emp\',\''+emp.id+'\')" style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;cursor:pointer;background:var(--bg2)">'+
-        '<div style="font-weight:700;font-size:12px">👤 '+emp.nombre+'</div>'+
+        '<div style="font-weight:700;font-size:12px">👤 '+emp.nombre+(emp.cargo?' <span style="font-weight:400;font-size:10px;color:var(--text3)">· '+emp.cargo+'</span>':'')+'</div>'+
         '<div style="display:flex;gap:8px;align-items:center">'+_docResumenBadge(d,tiposEmp)+'<span id="docarrow-emp-'+emp.id+'" style="color:var(--text3)">▸</span></div></div>'+
       '<div id="docpanel-emp-'+emp.id+'" style="display:none;padding:6px 10px;background:var(--bg3)"><table style="width:100%"><thead><tr><th>Documento</th><th>N.</th><th>Grado</th><th>Vence</th><th>Estado</th></tr></thead><tbody>'+detalle+'</tbody></table></div>'+
     '</div>';
   }).join('');
   var det=g('doc-emp-tabla');
-  if(det)det.innerHTML=htmlEmp||'<div style="color:var(--text3);font-size:12px;padding:10px">Sin choferes activos</div>';
+  if(det)det.innerHTML=htmlEmp||'<div style="color:var(--text3);font-size:12px;padding:10px">Sin empleados activos</div>';
 }
 
 // Persistir documentos en Supabase (configuracion.docs_cam/docs_emp como JSON) + localStorage.
-// Antes solo se guardaban en memoria → se perdían al recargar.
-function guardarDocs(){
-  try{localStorage.setItem('btg_docs_cam',JSON.stringify(DOCS_CAM));localStorage.setItem('btg_docs_emp',JSON.stringify(DOCS_EMP));}catch(e){}
-  // Persistir SIEMPRE via REST directo (no depende de DB_READY). Antes, si el cliente
-  // supabase-js no estaba listo, NO se guardaba: los cambios/borrados de documentos se
-  // perdian al recargar y documentos de PRUEBA seguian disparando alertas de vencimiento.
-  fetch(SUPA_URL+'/rest/v1/configuracion?on_conflict=clave',{
-    method:'POST',
-    headers:_tokRestHdr({'Content-Type':'application/json','Prefer':'resolution=merge-duplicates,return=minimal'}),
-    body:JSON.stringify([{clave:'docs_cam',valor:JSON.stringify(DOCS_CAM)},{clave:'docs_emp',valor:JSON.stringify(DOCS_EMP)}])
-  }).then(function(r){
-    if(!r.ok)r.text().then(function(t){if(typeof mostrarToast==='function')mostrarToast('No se pudieron guardar documentos: '+t,'error');});
-  }).catch(function(e){if(typeof mostrarToast==='function')mostrarToast('Sin conexion: documentos no guardados. Reintenta.','error');});
+// Blindaje: nunca sobrescribe el blob JSON si los documentos no terminaron de cargar desde BD,
+// refresca JWT antes del POST y guarda solo la clave modificada verificando respuesta real.
+async function guardarDocs(soloClave){
+  if(DB_READY&&supabase&&window._docsCargadosOk===false){
+    if(typeof mostrarToast==='function')mostrarToast('No se guardó: los documentos aún no cargaron desde el servidor. Recargá la página antes de editar.','error');
+    return false;
+  }
+  var payload=[];
+  if(!soloClave||soloClave==='docs_cam')payload.push({clave:'docs_cam',valor:JSON.stringify(DOCS_CAM)});
+  if(!soloClave||soloClave==='docs_emp')payload.push({clave:'docs_emp',valor:JSON.stringify(DOCS_EMP)});
+  try{
+    if(typeof _ensureJWT==='function'){ try{ await _ensureJWT(); }catch(e){} }
+    var r=await fetch(SUPA_URL+'/rest/v1/configuracion?on_conflict=clave',{
+      method:'POST',
+      headers:_tokRestHdr({'Content-Type':'application/json','Prefer':'resolution=merge-duplicates,return=representation'}),
+      body:JSON.stringify(payload)
+    });
+    if(!r.ok){
+      var txt=''; try{txt=await r.text();}catch(e){}
+      if(typeof mostrarToast==='function')mostrarToast('No se pudieron guardar documentos: '+(txt||r.status),'error');
+      return false;
+    }
+    var data=null; try{data=await r.json();}catch(e){}
+    if(!Array.isArray(data)||!data.length){
+      if(typeof mostrarToast==='function')mostrarToast('La base no confirmó el guardado de documentos. Reintenta.','error');
+      return false;
+    }
+    try{localStorage.setItem('btg_docs_cam',JSON.stringify(DOCS_CAM));localStorage.setItem('btg_docs_emp',JSON.stringify(DOCS_EMP));}catch(e){}
+    return true;
+  }catch(e){
+    if(typeof mostrarToast==='function')mostrarToast('Sin conexion: documentos no guardados. Reintenta.','error');
+    return false;
+  }
 }
-function guardarDocCam(){
+async function guardarDocCam(){
   var cam=gv('doc-cam-sel'),tipo=gv('doc-cam-tipo'),venc=gv('doc-cam-venc'),num=gv('doc-cam-num'),ente=gv('doc-cam-ente');
   if(!cam||!tipo){alert('Selecciona camion y tipo de documento');return;}
   if(!DOCS_CAM[cam])DOCS_CAM[cam]={seguro:{},circulacion:{},revision:{}};
-  if(!venc){
+  var prev=DOCS_CAM[cam][tipo]?Object.assign({},DOCS_CAM[cam][tipo]):null;
+  var borrando=!venc;
+  if(borrando){
     // Sin fecha = BORRAR ese documento (asi se limpia una alerta de vencimiento erronea/prueba)
     if(!confirm('Sin fecha se BORRARA el documento "'+tipo+'" de '+cam+' y dejara de avisar su vencimiento. ¿Continuar?'))return;
     DOCS_CAM[cam][tipo]={venc:'',num:'',ente:''};
-    guardarDocs();
+  } else {
+    DOCS_CAM[cam][tipo]={venc:venc,num:num,ente:ente};
+  }
+  var ok=await guardarDocs('docs_cam');
+  if(!ok){
+    if(prev)DOCS_CAM[cam][tipo]=prev; else delete DOCS_CAM[cam][tipo];
+    return;
+  }
+  if(borrando){
     audit('Documento camion BORRADO',cam+' '+tipo);
     if(typeof mostrarToast==='function')mostrarToast('🗑️ Documento '+tipo+' de '+cam+' borrado','exito');
   } else {
-    DOCS_CAM[cam][tipo]={venc:venc,num:num,ente:ente};
-    guardarDocs();
     audit('Documento camion actualizado',cam+' '+tipo+' vence:'+venc);
     if(typeof mostrarToast==='function')mostrarToast('✅ Documento guardado','exito');
   }
   renderDocAlertas();renderDocTablas();
+  try{if(typeof renderDash==='function')renderDash();}catch(e){}
   sv('doc-cam-num','');sv('doc-cam-ente','');sv('doc-cam-venc','');
 }
 
-function guardarDocEmp(){
+async function guardarDocEmp(){
   var empId=gv('doc-emp-sel'),tipo=gv('doc-emp-tipo'),venc=gv('doc-emp-venc'),num=gv('doc-emp-num'),grado=gv('doc-emp-grado');
   if(!empId||!tipo){alert('Selecciona empleado y tipo de documento');return;}
   if(!DOCS_EMP[empId])DOCS_EMP[empId]={};
-  if(!venc){
+  var prev=DOCS_EMP[empId][tipo]?Object.assign({},DOCS_EMP[empId][tipo]):null;
+  var borrando=!venc;
+  if(borrando){
     if(!confirm('Sin fecha se BORRARA el documento "'+tipo+'" de este empleado y dejara de avisar su vencimiento. ¿Continuar?'))return;
     DOCS_EMP[empId][tipo]={venc:'',num:'',grado:''};
-    guardarDocs();
+  } else {
+    DOCS_EMP[empId][tipo]={venc:venc,num:num,grado:grado};
+  }
+  var ok=await guardarDocs('docs_emp');
+  if(!ok){
+    if(prev)DOCS_EMP[empId][tipo]=prev; else delete DOCS_EMP[empId][tipo];
+    return;
+  }
+  if(borrando){
     audit('Documento empleado BORRADO',empId+' '+tipo);
     if(typeof mostrarToast==='function')mostrarToast('🗑️ Documento '+tipo+' borrado','exito');
   } else {
-    DOCS_EMP[empId][tipo]={venc:venc,num:num,grado:grado};
-    guardarDocs();
     audit('Documento empleado actualizado',empId+' '+tipo+' vence:'+venc);
     if(typeof mostrarToast==='function')mostrarToast('✅ Documento guardado','exito');
   }
   renderDocAlertas();renderDocTablas();
+  try{if(typeof renderDash==='function')renderDash();}catch(e){}
   sv('doc-emp-num','');sv('doc-emp-venc','');
 }
 
@@ -23804,7 +23954,7 @@ async function _invEntradaStock(itemId){
     if(!r)return;
     item.precio=precioU;
     ['inv-ent-cant','inv-ent-factura','inv-ent-prov'].forEach(function(x){sv(x,'');});
-    _invPoblarSelects(); renderInventario();
+    _invPoblarSelects(); renderInventario(); try{if(typeof renderComprasSugeridas==='function')renderComprasSugeridas();}catch(e){}
     if(typeof mostrarToast==='function')mostrarToast('✅ Entraron '+_invNum(cant)+' '+(item.unidad||'')+' de '+item.nombre+' → stock '+_invNum(r.stock),'exito');
     audit('Entrada de stock',item.nombre+' +'+cant+' '+(item.unidad||'')+' (Fact '+factura+')');
   } finally { var b=g('inv-add-btn'); if(b)b.disabled=false; _invAddModo(); }
@@ -23834,7 +23984,8 @@ async function guardarItemInv(){
   audit('Item inventario agregado',nombre);
   ['inv-nombre','inv-stock-ini','inv-stock-min','inv-precio'].forEach(function(id){sv(id,'');});
   _invPoblarSelects();
-  renderInventario();alert('✅ '+nombre+' agregado al inventario.');
+  renderInventario(); try{if(typeof renderComprasSugeridas==='function')renderComprasSugeridas();}catch(e){}
+  alert('✅ '+nombre+' agregado al inventario.');
 }
 
 // ── AUDITORÍA DE INSUMOS (#2): movimientos persistentes + factura + foto + alerta de garantía ──
@@ -23943,7 +24094,7 @@ async function registrarUsoInv(){
   audit('Uso inventario',item.nombre+' x'+cant+' en '+cam+' (Fact '+factura+')');
   ['inv-uso-cant','inv-uso-motivo','inv-uso-factura'].forEach(function(id){sv(id,'');}); if(fEl)fEl.value='';
   _invPoblarSelects(); try{_invUsoAviso();}catch(e){}
-  renderInventario();
+  renderInventario(); try{if(typeof renderComprasSugeridas==='function')renderComprasSugeridas();}catch(e){}
   if(typeof mostrarToast==='function')mostrarToast('✅ Instalado desde stock (Fact '+factura+')'+(fotoUrl?' con foto':'')+' → gasto de '+_unidadCorta(cam)+' $'+((parseFloat(item.precio)||0)*cant).toFixed(2),'exito');
 }
 
@@ -23969,7 +24120,7 @@ async function eliminarItemInv(id){
     try{localStorage.setItem('btg_inventario',JSON.stringify(INVENTARIO));}catch(e){}
     audit('Item de inventario ELIMINADO',item.nombre+' -- '+mot);
     _invPoblarSelects();
-    renderInventario();
+    renderInventario(); try{if(typeof renderComprasSugeridas==='function')renderComprasSugeridas();}catch(e){}
   },{op:'del',tabla:'inventario',col:'id',val:id});
 }
 function _invCat(x){ return (x.cat||x.categoria||''); }
@@ -24048,13 +24199,29 @@ function _llId(cam,pos){ return cam+'|'+pos; }
 // Estado derivado de la profundidad: <3mm Cambiar, 3-6 Regular, >=6 Buena (umbral configurable cfg.llMm).
 function _estadoLlMm(mm){ mm=parseFloat(mm); if(isNaN(mm))return null; var min=parseFloat(cfg.llMmMin)||3, ok=parseFloat(cfg.llMmOk)||6; return mm<min?'Cambiar Urgente':(mm<ok?'Regular':'Buena'); }
 async function _guardarLlanta(cam,ll){
+  var payload={id:_llId(cam,ll.posicion),cam:cam,posicion:ll.posicion,estado:ll.estado,km:ll.km||0,fecha:ll.fecha||null,marca:ll.marca||null,precio:ll.precio||0,mm:(ll.mm!=null?ll.mm:null),mm_inicial:(ll.mmInicial!=null?ll.mmInicial:null),km_instalada:ll.kmInstalada||0,fecha_instalada:ll.fechaInstalada||null};
   if(DB_READY&&supabase){
-    try{var r=await supabase.from('llantas').upsert([{id:_llId(cam,ll.posicion),cam:cam,posicion:ll.posicion,estado:ll.estado,km:ll.km||0,fecha:ll.fecha||null,marca:ll.marca||null,precio:ll.precio||0,mm:(ll.mm!=null?ll.mm:null),mm_inicial:(ll.mmInicial!=null?ll.mmInicial:null),km_instalada:ll.kmInstalada||0,fecha_instalada:ll.fechaInstalada||null}],{onConflict:'id'});
-      if(r&&r.error){if(typeof mostrarToast==='function')mostrarToast('No se pudo guardar la llanta: '+r.error.message,'error');return;}
-      return;
+    try{
+      var r=await supabase.from('llantas').upsert([payload],{onConflict:'id'}).select();
+      if(r&&r.error){
+        var esRed=(typeof _esErrorRed==='function')?_esErrorRed(r.error):/fetch|network|timeout/i.test(String(r.error.message||''));
+        if(esRed&&typeof guardarEnCola==='function'){
+          guardarEnCola('llantas',payload,'id');
+          if(typeof mostrarToast==='function')mostrarToast('Sin conexión: llanta en cola para sincronizar','info');
+          return true;
+        }
+        if(typeof mostrarToast==='function')mostrarToast('No se pudo guardar la llanta: '+r.error.message,'error');
+        return false;
+      }
+      if(!(r&&r.data&&r.data.length)){
+        if(typeof mostrarToast==='function')mostrarToast('La base no confirmó el guardado de la llanta','error');
+        return false;
+      }
+      return true;
     }catch(e){}
   }
-  if(typeof guardarEnCola==='function')guardarEnCola('llantas',{id:_llId(cam,ll.posicion),cam:cam,posicion:ll.posicion,estado:ll.estado,km:ll.km||0,fecha:ll.fecha||null,marca:ll.marca||null,precio:ll.precio||0,mm:(ll.mm!=null?ll.mm:null),mm_inicial:(ll.mmInicial!=null?ll.mmInicial:null),km_instalada:ll.kmInstalada||0,fecha_instalada:ll.fechaInstalada||null},'id');
+  if(typeof guardarEnCola==='function')guardarEnCola('llantas',payload,'id');
+  return true;
 }
 async function cargarLlantas(){
   if(!(DB_READY&&supabase))return;
@@ -24201,7 +24368,7 @@ async function renderDesgasteLlantas(){
   var el=g('ll-desgaste'); if(!el)return;
   if(!(DB_READY&&supabase)){ el.innerHTML='<div style="color:var(--text3);font-size:12px;padding:8px">Sin conexión</div>'; return; }
   var r=null;
-  try{ r=await supabase.from('llantas_mediciones').select('cam,posicion,fecha,mm,km_unidad,marca,origen').order('fecha',{ascending:true}); }catch(e){}
+  try{ r=await _selectAllG('llantas_mediciones',['fecha','id'],'cam,posicion,fecha,mm,km_unidad,marca,origen'); }catch(e){}
   if(!r||r.error||!r.data){ el.innerHTML='<div style="color:var(--text3);font-size:12px;padding:8px">No se pudo cargar el historial de mediciones</div>'; return; }
   var filas=r.data;
   if(!filas.length){ el.innerHTML='<div style="color:var(--text3);font-size:12px;padding:10px">Todavía no hay mediciones guardadas. Toque una llanta en la cuadrícula de arriba y anote sus milímetros: con dos mediciones en fechas distintas ya se ve cómo se está gastando.</div>'; return; }
@@ -24322,24 +24489,18 @@ function _sparkLl(s){
 }
 
 
-function ciclarLlanta(cam,idx){
-  var estados=['Buena','Regular','Cambiar Urgente'];
-  var cur=LLANTAS[cam][idx].estado;
-  LLANTAS[cam][idx].estado=estados[(estados.indexOf(cur)+1)%estados.length];
-  renderLlantas();
-}
-
 function registrarCambioLl(){
-  var cam=gv('ll-cam'),pos=gv('ll-pos'),km=parseInt(gv('ll-km'))||0,fecha=gv('ll-fecha');
+  var cam=gv('ll-cam'),pos=gv('ll-pos'),km=parseInt(gv('ll-km'))||0,fecha=(gv('ll-fecha')||'').trim()||fechaVE();
   if(!cam||!pos){alert('Selecciona camion y posicion');return;}
+  if(fecha>fechaVE()){alert('Esa fecha todavía no llegó. Revisá la fecha del cambio.');return;}
   if(!LLANTAS[cam])LLANTAS[cam]=POS_LL.map(function(p){return{posicion:p,estado:'Buena',km:0,fecha:''};});
   var ll=LLANTAS[cam].find(function(l){return l.posicion===pos;});
   if(!ll){ll={posicion:pos};LLANTAS[cam].push(ll);}
   var marca=(gv('ll-marca')||'').trim(), precio=parseFloat(gv('ll-precio'))||0;
   var mm=(gv('ll-mm')!==''&&gv('ll-mm')!=null)?parseFloat(gv('ll-mm')):null;
-  // Llanta NUEVA: reinicia la vida útil (mm inicial = mm de hoy, km y fecha de instalación).
-  ll.marca=marca||ll.marca||''; if(precio)ll.precio=precio;
-  if(mm!=null){ll.mm=mm;ll.mmInicial=mm;}
+  // Llanta NUEVA: reinicia la vida útil sin heredar marca/precio/mm de la llanta vieja.
+  ll.marca=marca; ll.precio=precio;
+  ll.mm=mm; ll.mmInicial=mm;
   ll.km=km; ll.kmInstalada=km; ll.fecha=fecha; ll.fechaInstalada=fecha;
   ll.estado=(mm!=null?_estadoLlMm(mm):'Buena')||'Buena';
   _guardarLlanta(cam,ll);
@@ -31757,10 +31918,11 @@ function mecAbrirEditar(cam){
 function mecSelEstado(estado){
   window._mecEstadoSel=estado;
   var cols={operativo:{bg:'rgba(29,158,117,.2)',bc:'#1d9e75',c:'#1d9e75'},
+            taller:{bg:'rgba(239,159,39,.2)',bc:'#ef9f27',c:'#ef9f27'},
             taller_betangar:{bg:'rgba(239,159,39,.2)',bc:'#ef9f27',c:'#ef9f27'},
             taller_jac:{bg:'rgba(59,143,212,.2)',bc:'#3b8fd4',c:'#3b8fd4'},
             inoperativo:{bg:'rgba(226,75,74,.2)',bc:'#e24b4a',c:'#e24b4a'}};
-  ['operativo','taller_betangar','taller_jac','inoperativo'].forEach(function(e){
+  ['operativo','taller','taller_betangar','taller_jac','inoperativo'].forEach(function(e){
     var b=document.getElementById('mec-btn-'+e);
     if(!b)return;
     b.style.background='';b.style.borderColor='';b.style.color='';
@@ -33814,15 +33976,11 @@ function clMarcar(btn,campo,val){
 }
 
 function clCargarExistente(cam){
+  window._clTurnoActual='diurno';
+  window._clModoNocheRow=null;
+  clModoManana();
   if(!DB_READY||!supabase)return;
   var hoy=fechaVE();
-  // ⛔ `.single()` REVIENTA si vuelve más de una fila, y desde el 04/11/2026 una unidad puede
-  //    tener DOS checklists el mismo día (turno diurno y nocturno). Con `.single()` esta
-  //    pantalla habría empezado a fallar justo el día en que arranque la jornada nocturna
-  //    —y solo en las unidades que hicieran los dos turnos—, con un error de base que no le
-  //    dice nada a quien lo lee. Se piden los dos ORDENADOS y se toma el último cargado:
-  //    es el que la oficina está mirando cuando entra a corregir.
-  //    [[norma-correccion-heredada-toca-todas-las-tablas]]
   supabase.from('checklist').select('*').eq('fecha',hoy).eq('cam',cam)
     .order('turno',{ascending:true}).then(function(res){
     if(!res.data||!res.data.length)return;
@@ -33830,8 +33988,10 @@ function clCargarExistente(cam){
     var d=res.data.length>1
       ? (res.data.filter(function(x){return x.turno==='nocturno';})[0]||res.data[res.data.length-1])
       : res.data[0];
+    window._clTurnoActual = d.turno || 'diurno';
     // Detectar modo: si ya tiene datos de mañana → modo noche
     if(d.hora_salida||d.km_salida){
+      window._clModoNocheRow = d;
       clModoNoche(d);
       return;
     }
@@ -33874,15 +34034,45 @@ function clCargarExistente(cam){
   }).catch(function(){});
 }
 
-function clGuardar(){
+async function clGuardar(){
   var cam=document.getElementById('cl-cam')?document.getElementById('cl-cam').value:'';
   if(!cam){alert('Selecciona el camión primero');return;}
   var kmSalida=parseFloat(document.getElementById('cl-km-salida')?document.getElementById('cl-km-salida').value:0)||0;
   var kmEntrada=parseFloat(document.getElementById('cl-km-entrada')?document.getElementById('cl-km-entrada').value:0)||0;
   var hoy=fechaVE();
+  if(!DB_READY||!supabase){alert('Sin conexión — no se pudo guardar');return;}
+
+  // MODO LLEGADA (NOCHE): actualizar SOLO los campos de llegada por id para NO borrar
+  // la inspección, combustible de salida, daños ni observaciones de la mañana, ni pisar
+  // el estado a 'operativo' si la mañana reportó fallas críticas.
+  var rowNoche = window._clModoNocheRow;
+  if(rowNoche && rowNoche.id && String(rowNoche.cam)===String(cam)){
+    var updLle = {
+      km_entrada: kmEntrada || null,
+      hora_entrada: (document.getElementById('cl-hora-entrada')?document.getElementById('cl-hora-entrada').value:'') || null,
+      comb_entrada: CL_COMB.entrada || null,
+      mecanico: SESION.nombre || ''
+    };
+    if(window._kmSalidaEditable && kmSalida > 0) updLle.km_salida = kmSalida;
+    var rLle = await supabase.from('checklist').update(updLle).eq('id', rowNoche.id).select();
+    if(rLle.error){ alert('Error guardando llegada: '+rLle.error.message); return; }
+    if(!rLle.data||!rLle.data.length){ alert('No se actualizó ninguna fila de llegada.'); return; }
+    if(kmEntrada>0&&KM_DATA[cam]){
+      var kmPrevN=parseFloat(KM_DATA[cam].km)||0;
+      var kmNuevoN=Math.max(kmPrevN,kmEntrada);
+      KM_DATA[cam].km_entrada_ayer=kmEntrada;
+      KM_DATA[cam].km=kmNuevoN;
+      var rkN=await supabase.from('km_data').update({km:kmNuevoN,km_entrada_ayer:kmEntrada,f:hoy}).eq('cam',cam).select();
+      if(rkN&&rkN.error)console.error('clGuardar llegada km_data:',rkN.error.message);
+    }
+    alert('✅ Llegada registrada — '+cam);
+    try{ renderWidgetFlota(); }catch(e){}
+    return;
+  }
 
   var reg={
     fecha:hoy, cam:cam,
+    turno: window._clTurnoActual || 'diurno',
     conductor:document.getElementById('cl-conductor')?document.getElementById('cl-conductor').value:'',
     km_salida:kmSalida, km_entrada:kmEntrada,
     hora_salida:document.getElementById('cl-hora-salida')?document.getElementById('cl-hora-salida').value:'',
@@ -33905,132 +34095,111 @@ function clGuardar(){
     });
   });
 
-  // Guardar en Supabase
-  if(!DB_READY||!supabase){alert('Sin conexión — no se pudo guardar');return;}
-
-  // ⛔ EL TURNO ENTRA EN LA LLAVE (04/11/2026). `checklist` dejó de ser UNIQUE (fecha, cam)
-  //    y pasó a (fecha, cam, turno) para que la jornada nocturna pueda llevar su propio
-  //    control. Un `upsert` con `onConflict` que nombre una llave que ya no existe NO se
-  //    cae a la mitad: Postgres lo rechaza entero, así que la oficina habría dejado de poder
-  //    guardar un checklist a mano — y el mensaje sería un error de base sin sentido para
-  //    quien lo lee. Si el registro no trae turno, es el de siempre.
-  //    [[norma-correccion-heredada-toca-todas-las-tablas]]
   if(!reg.turno) reg.turno='diurno';
-  supabase.from('checklist').upsert([reg],{onConflict:'fecha,cam,turno'}).then(function(res){
-    if(res.error){alert('Error guardando: '+res.error.message);return;}
+  var res = await supabase.from('checklist').upsert([reg],{onConflict:'fecha,cam,turno'}).select();
+  if(res.error){alert('Error guardando: '+res.error.message);return;}
 
-    // Actualizar KM_DATA con el km de entrada (para precargar mañana como salida).
-    // BLINDAJE: el odómetro (km) nunca baja — si la entrada es menor que el actual (typo),
-    // se conserva el mayor. km_entrada_ayer sí refleja la entrada real para la precarga.
-    if(kmEntrada>0&&KM_DATA[cam]){
-      var kmPrevMec=parseFloat(KM_DATA[cam].km)||0;
-      var kmNuevoMec=Math.max(kmPrevMec,kmEntrada);
-      KM_DATA[cam].km_entrada_ayer=kmEntrada;
-      KM_DATA[cam].km=kmNuevoMec;
-      supabase.from('km_data').update({km:kmNuevoMec,km_entrada_ayer:kmEntrada,f:hoy}).eq('cam',cam).then(function(){});
-    }
+  // Actualizar KM_DATA con el km de entrada (odómetro nunca baja)
+  if(kmEntrada>0&&KM_DATA[cam]){
+    var kmPrevMec=parseFloat(KM_DATA[cam].km)||0;
+    var kmNuevoMec=Math.max(kmPrevMec,kmEntrada);
+    KM_DATA[cam].km_entrada_ayer=kmEntrada;
+    KM_DATA[cam].km=kmNuevoMec;
+    var rkM=await supabase.from('km_data').update({km:kmNuevoMec,km_entrada_ayer:kmEntrada,f:hoy}).eq('cam',cam).select();
+    if(rkM&&rkM.error)console.error('clGuardar km_data:',rkM.error.message);
+  }
 
-    // Evaluar ítems en MAL estado y actualizar estado del camión automáticamente
-    var malos=Object.keys(CL_ESTADO).filter(function(k){return CL_ESTADO[k]==='mal';});
-    
-    // Ítems críticos que ponen el camión en taller automáticamente
-    var criticos=['freno_mano','freno_servicio','aceite_motor','fugas','presion_aire',
-                  'tuercas_esparragos','mangueras_hidraulicas','toma_fuerza','motor'];
-    var tieneCritico=malos.some(function(k){return criticos.indexOf(k)>=0;});
-    
-    if(malos.length){
-      // Construir mensaje de fallas
-      var listaFallas=malos.map(function(k){
-        var label='';
-        Object.keys(CL_SECCIONES).forEach(function(sec){
-          CL_SECCIONES[sec].forEach(function(item){if(item.startsWith(k+':'))label=item.split(':')[1];});
-        });
-        return (criticos.indexOf(k)>=0?'🔴 ':'⚠️ ')+label;
-      }).join('\n');
-      
-      // Cada falla queda ABIERTA hasta que la cierren: el chofer la ve en su celular
-      // todos los días, no solo el día que se reportó.
-      try{
-        var _fallasAnom=malos.map(function(k){
-          var _lbl='';
-          Object.keys(CL_SECCIONES).forEach(function(sec){
-            CL_SECCIONES[sec].forEach(function(item){if(item.startsWith(k+':'))_lbl=item.split(':')[1];});
-          });
-          return {item:k,label:_lbl||k.replace(/_/g,' '),critico:criticos.indexOf(k)>=0};
-        });
-        // Los daños de carrocería también son falla pendiente (siempre críticos).
-        var _dLbl={danio_frontal:'Daño frontal',danio_lateral_izq:'Daño lateral izq.',danio_lateral_der:'Daño lateral der.',danio_posterior:'Daño posterior',danio_techo:'Daño techo'};
-        Object.keys(_dLbl).forEach(function(dk){
-          var v=String(reg[dk]||'').trim();
-          if(v&&v!=='0'&&v!=='ok')_fallasAnom.push({item:dk,label:_dLbl[dk],critico:true});
-        });
-        anomAbrirDesdeOficina(cam,_fallasAnom,reg.observaciones,SESION.nombre||'Mecánico')
-          .then(function(){try{renderChecklistAnomalias();}catch(e){}});
-      }catch(e){console.warn('anomalias:',e&&e.message);}
-
-      var msg=brandTag()+' - CHECKLIST CON FALLAS\n\n'+
-        'Unidad: '+cam+'\n'+
-        'Fallas: '+malos.length+' item(s)\n'+listaFallas+
-        '\nRegistrado por: '+(SESION.nombre||'')+'\n'+
-        'Fecha: '+hoy;
-      // Socios siempre + mecánico solo si lo llenó el chofer (no el mismo mecánico)
-      sendWA(msg,['socios','mecanico','operativo']);
-      
-      // Actualizar estado del camión automáticamente
-      var nuevoEstado=tieneCritico?'taller':'operativo';
-      var notaAuto=tieneCritico?
-        'Falla critica checklist '+hoy+': '+listaFallas.replace(/[🔴⚠️]/g,'').trim():
-        'Checklist '+hoy+' con observaciones menores';
-      
-      // estado_desde = día en que SALIÓ de circulación (se conserva si ya venía fuera, se limpia al
-      // volver a operativa). Sin esto quedaba NULL en toda la flota y los "días fuera" salían de la
-      // última planilla → el dashboard decía "N días en taller" siendo días sin planilla (2026-07-20).
-      var _desdeCk=(nuevoEstado!=='operativo')?((KM_DATA[cam]&&KM_DATA[cam].estado_desde)||hoy):null;
-      supabase.from('km_data').update({
-        estado:nuevoEstado,
-        nota_estado:notaAuto,
-        estado_desde:_desdeCk,
-        updated_by:SESION.nombre||'Mecanico'
-      }).eq('cam',cam).then(function(){
-        if(KM_DATA[cam]){KM_DATA[cam].estado=nuevoEstado;KM_DATA[cam].nota_estado=notaAuto;KM_DATA[cam].estado_desde=_desdeCk;}
-      });
-      
-      if(tieneCritico){
-        alert('Checklist guardado — '+cam+'\n\nCAMION ENVIADO A TALLER automaticamente por fallas criticas.\nSocios notificados por WhatsApp.');
-      } else {
-        alert('Checklist guardado — '+cam+'\n\n'+malos.length+' observacion(es) menor(es). Socios notificados.');
-      }
-    } else {
-      // Sin fallas detectadas — usar estado seleccionado manualmente
-      var estadoFinal=window._clEstadoFinal||'operativo';
-      var motEl=document.getElementById('cl-motivo');
-      var motivoFinal=motEl&&estadoFinal!=='operativo'?motEl.value.trim():'';
-      var notaFinal=estadoFinal==='operativo'?'Checklist OK — '+hoy:motivoFinal||'Sin especificar';
-      var _desdeCk2=(estadoFinal!=='operativo')?((KM_DATA[cam]&&KM_DATA[cam].estado_desde)||hoy):null;
-      supabase.from('km_data').update({
-        estado:estadoFinal,
-        nota_estado:notaFinal,
-        estado_desde:_desdeCk2,
-        updated_by:SESION.nombre||'Mecanico'
-      }).eq('cam',cam).then(function(){
-        if(KM_DATA[cam]){KM_DATA[cam].estado=estadoFinal;KM_DATA[cam].nota_estado=notaFinal;KM_DATA[cam].estado_desde=_desdeCk2;}
-        renderWidgetFlota();
-      });
-      // Notificar checklist OK solo cuando el estado no es operativo (para no spam)
-      if(estadoFinal!=='operativo'){
-        var msgCLOk=brandTag()+' - CHECKLIST '+cam+'\n\n'+
-          'Estado: '+estadoFinal.toUpperCase()+'\n'+
-          (motivoFinal?'Motivo: '+motivoFinal+'\n':'')+
-          'Por: '+(SESION?SESION.nombre:'')+'\n'+
-          'Fecha: '+hoy;
-        sendWA(msgCLOk,['socios','mecanico','operativo']);
-      }
-      var msgOk='Checklist guardado — '+cam+' — '+estadoFinal.toUpperCase();
-      if(estadoFinal!=='operativo'&&motivoFinal)msgOk+='\n'+motivoFinal;
-      alert(msgOk);
-      window._clEstadoFinal=null;
-    }
+  // Evaluar ítems en MAL estado + daños de carrocería (fuera de if(malos.length) para no perder daños solos)
+  var malos=Object.keys(CL_ESTADO).filter(function(k){return CL_ESTADO[k]==='mal';});
+  var criticos=(typeof _CL_CRITICOS!=='undefined'&&Array.isArray(_CL_CRITICOS)&&_CL_CRITICOS.length)
+    ? _CL_CRITICOS
+    : ['freno_mano','freno_servicio','aceite_motor','refrigerante','liquido_hidraulico','fugas','presion_aire','tuercas_esparragos','mangueras_hidraulicas','toma_fuerza','motor'];
+  var _dLbl={danio_frontal:'Daño frontal',danio_lateral_izq:'Daño lateral izq.',danio_lateral_der:'Daño lateral der.',danio_posterior:'Daño posterior',danio_techo:'Daño techo'};
+  var daniosAct=[];
+  Object.keys(_dLbl).forEach(function(dk){
+    var v=String(reg[dk]||'').trim();
+    if(v&&v!=='0'&&v!=='ok')daniosAct.push({item:dk,label:_dLbl[dk],critico:true});
   });
+  var tieneCritico=malos.some(function(k){return criticos.indexOf(k)>=0;}) || daniosAct.length>0;
+
+  if(malos.length || daniosAct.length){
+    var listaFallas=malos.map(function(k){
+      var label='';
+      Object.keys(CL_SECCIONES).forEach(function(sec){
+        CL_SECCIONES[sec].forEach(function(item){if(item.startsWith(k+':'))label=item.split(':')[1];});
+      });
+      return (criticos.indexOf(k)>=0?'🔴 ':'⚠️ ')+label;
+    }).concat(daniosAct.map(function(d){return '🔴 '+d.label;})).join('\n');
+
+    try{
+      var _fallasAnom=malos.map(function(k){
+        var _lbl='';
+        Object.keys(CL_SECCIONES).forEach(function(sec){
+          CL_SECCIONES[sec].forEach(function(item){if(item.startsWith(k+':'))_lbl=item.split(':')[1];});
+        });
+        return {item:k,label:_lbl||k.replace(/_/g,' '),critico:criticos.indexOf(k)>=0};
+      }).concat(daniosAct);
+      anomAbrirDesdeOficina(cam,_fallasAnom,reg.observaciones,SESION.nombre||'Mecánico')
+        .then(function(){try{renderChecklistAnomalias();}catch(e){}});
+    }catch(e){console.warn('anomalias:',e&&e.message);}
+
+    var msg=brandTag()+' - CHECKLIST CON FALLAS\n\n'+
+      'Unidad: '+cam+'\n'+
+      'Fallas: '+(malos.length+daniosAct.length)+' item(s)\n'+listaFallas+
+      '\nRegistrado por: '+(SESION.nombre||'')+'\n'+
+      'Fecha: '+hoy;
+    // Rol correcto en WA es 'mecanica' (antes decía 'mecanico' y nunca llegaba al taller)
+    sendWA(msg,['socios','mecanica','operativo']);
+
+    var nuevoEstado=tieneCritico?'taller':'operativo';
+    var notaAuto=tieneCritico?
+      'Falla critica checklist '+hoy+': '+listaFallas.replace(/[🔴⚠️]/g,'').trim():
+      'Checklist '+hoy+' con observaciones menores';
+    var _desdeCk=(nuevoEstado!=='operativo')?((KM_DATA[cam]&&KM_DATA[cam].estado_desde)||hoy):null;
+    var rkEst=await supabase.from('km_data').update({
+      estado:nuevoEstado,
+      nota_estado:notaAuto,
+      estado_desde:_desdeCk,
+      estado_confirmado:(nuevoEstado!=='operativo'),
+      updated_by:SESION.nombre||'Mecanico'
+    }).eq('cam',cam).select();
+    if(rkEst&&rkEst.error){ console.error('clGuardar estado km_data:',rkEst.error.message); }
+    else if(KM_DATA[cam]){KM_DATA[cam].estado=nuevoEstado;KM_DATA[cam].nota_estado=notaAuto;KM_DATA[cam].estado_desde=_desdeCk;KM_DATA[cam].estado_confirmado=(nuevoEstado!=='operativo');}
+
+    if(tieneCritico){
+      alert('Checklist guardado — '+cam+'\n\nCAMION ENVIADO A TALLER automaticamente por fallas criticas.\nSocios notificados por WhatsApp.');
+    } else {
+      alert('Checklist guardado — '+cam+'\n\n'+malos.length+' observacion(es) menor(es). Socios notificados.');
+    }
+  } else {
+    var estadoFinal=window._clEstadoFinal||'operativo';
+    var motEl=document.getElementById('cl-motivo');
+    var motivoFinal=motEl&&estadoFinal!=='operativo'?motEl.value.trim():'';
+    var notaFinal=estadoFinal==='operativo'?'Checklist OK — '+hoy:motivoFinal||'Sin especificar';
+    var _desdeCk2=(estadoFinal!=='operativo')?((KM_DATA[cam]&&KM_DATA[cam].estado_desde)||hoy):null;
+    var rkEst2=await supabase.from('km_data').update({
+      estado:estadoFinal,
+      nota_estado:notaFinal,
+      estado_desde:_desdeCk2,
+      estado_confirmado:(estadoFinal!=='operativo'),
+      updated_by:SESION.nombre||'Mecanico'
+    }).eq('cam',cam).select();
+    if(rkEst2&&rkEst2.error){ console.error('clGuardar estado2 km_data:',rkEst2.error.message); }
+    else if(KM_DATA[cam]){KM_DATA[cam].estado=estadoFinal;KM_DATA[cam].nota_estado=notaFinal;KM_DATA[cam].estado_desde=_desdeCk2;KM_DATA[cam].estado_confirmado=(estadoFinal!=='operativo');}
+    try{renderWidgetFlota();}catch(e){}
+    if(estadoFinal!=='operativo'){
+      var msgCLOk=brandTag()+' - CHECKLIST '+cam+'\n\n'+
+        'Estado: '+estadoFinal.toUpperCase()+'\n'+
+        (motivoFinal?'Motivo: '+motivoFinal+'\n':'')+
+        'Por: '+(SESION?SESION.nombre:'')+'\n'+
+        'Fecha: '+hoy;
+      sendWA(msgCLOk,['socios','mecanica','operativo']);
+    }
+    var msgOk='Checklist guardado — '+cam+' — '+estadoFinal.toUpperCase();
+    if(estadoFinal!=='operativo'&&motivoFinal)msgOk+='\n'+motivoFinal;
+    alert(msgOk);
+    window._clEstadoFinal=null;
+  }
 }
 // ══════════════════════════════════════════════════
 // PANEL VIAJES CHOFERES — Dashboard
@@ -34369,6 +34538,7 @@ function clSelEstado(btn, estado){
   var btns = document.querySelectorAll('#cl-estado-btns button');
   var cols = {
     operativo:      {bg:'rgba(29,158,117,.2)',bc:'#1d9e75',c:'#1d9e75'},
+    taller:         {bg:'rgba(239,159,39,.2)',bc:'#ef9f27',c:'#ef9f27'},
     taller_betangar:{bg:'rgba(239,159,39,.2)',bc:'#ef9f27',c:'#ef9f27'},
     taller_jac:     {bg:'rgba(59,143,212,.2)',bc:'#3b8fd4',c:'#3b8fd4'},
     inoperativo:    {bg:'rgba(226,75,74,.2)',bc:'#e24b4a',c:'#e24b4a'}
@@ -34663,10 +34833,10 @@ function verificarAlertasServicio(){
   var nl='\n';
   cams.forEach(function(cam){
     var d=KM_DATA[cam]||{};
-    var km=d.km||0;
+    var km=(typeof kmActualCam==='function')?kmActualCam(cam):(d.km||0);
     if(!km)return;
-    var proximoSrv=Math.ceil(km/5000)*5000;
-    if(proximoSrv===km)proximoSrv+=5000;
+    var proximoSrv=(typeof proxServicio==='function')?proxServicio(km,cam):(Math.ceil(km/5000)*5000);
+    if(!proximoSrv||proximoSrv<=km)proximoSrv=Math.ceil((km+1)/5000)*5000;
     var faltanKm=proximoSrv-km;
     if(faltanKm>700)return;
     var alertKey='betangar_alerta_srv_'+cam+'_'+proximoSrv;
