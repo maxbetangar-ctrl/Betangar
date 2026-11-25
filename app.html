@@ -2034,6 +2034,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
         <div class="fg"><label>Nivel Actual (L)</label><input class="fc" id="tank-niv" type="number" placeholder="4600" oninput="updTank()"></div>
         <div class="fg"><label>Ajuste manual (L)</label><input class="fc" id="tank-add" type="number" placeholder="0"></div>
       </div>
+      <div class="fg"><label>Fecha del ajuste</label><input class="fc" id="tank-f" type="date"></div>
       <button class="btn btn-s btn-sm" style="width:100%" onclick="addCombustible()">± Ajustar Tanque</button>
     </div>
     <div class="card">
@@ -2080,6 +2081,91 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
       <div class="fr2" style="margin-bottom:8px"><div class="fg" style="margin:0"><label style="font-size:10px">Filtrar por fecha</label><input class="fc" id="gp-filtro-f" type="date" onchange="renderGasolPersonal()" style="padding:6px 8px"></div><div class="fg" style="margin:0"><label style="font-size:10px">Filtrar por persona</label><select class="fc" id="gp-filtro-per" onchange="renderGasolPersonal()" style="padding:6px 8px"><option value="">Todas</option></select></div></div>
       <div style="text-align:right;margin-bottom:4px"><button class="btn btn-s btn-xs" onclick="document.getElementById('gp-filtro-f').value='';document.getElementById('gp-filtro-per').value='';renderGasolPersonal()">Limpiar filtros</button></div>
       <div class="tw" style="max-height:160px;overflow-y:auto"><table><thead><tr><th>Fecha</th><th>Persona</th><th>L</th><th>$</th><th></th></tr></thead><tbody id="tb-gasol"></tbody></table></div>
+    </div>
+  </div>
+  <div class="card" id="card-comb-movimientos" style="margin-bottom:10px">
+    <div class="sh" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">
+      <div class="st">🔁 Movimientos de Combustible en Patio (Traslados y Salidas)</div>
+    </div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">
+      <button type="button" id="comb-tab-dev" onclick="combSwitchMovTab('dev')" class="btn btn-g btn-sm" style="flex:1;min-width:150px;font-weight:700">🛢️ Camión → Tanque Galpón</button>
+      <button type="button" id="comb-tab-trs" onclick="combSwitchMovTab('trs')" class="btn btn-s btn-sm" style="flex:1;min-width:150px;font-weight:700">🔁 Camión → Camión</button>
+      <button type="button" id="comb-tab-stq" onclick="combSwitchMovTab('stq')" class="btn btn-s btn-sm" style="flex:1;min-width:150px;font-weight:700">🪫 Salida de Tanque</button>
+    </div>
+
+    <!-- PANEL 1: CAMIÓN → TANQUE DEL GALPÓN (devoluciones_tanque) -->
+    <div id="comb-panel-dev">
+      <div style="font-size:11px;color:var(--text3);margin-bottom:8px;line-height:1.4">
+        Cuando se le saca combustible a un camión para ponerlo en reserva en el tanque interno del galpón. Se acredita a la unidad y entra al tanque del galpón (no genera deuda/CxP).
+      </div>
+      <div class="fr3">
+        <div class="fg"><label>Fecha</label><input class="fc" id="comb-dev-fecha" type="date"></div>
+        <div class="fg"><label>Camión Origen (de donde SALIÓ)</label><select class="fc" id="comb-dev-cam"></select></div>
+        <div class="fg"><label>Tanque Destino (Galpón)</label><select class="fc" id="comb-dev-tanque"><option value="tanque-galpon-1">🛢️ Galpón 1</option><option value="tanque-galpon-2">🛢️ Galpón 2</option></select></div>
+      </div>
+      <div class="fr2">
+        <div class="fg">
+          <label>Litros trasladados</label>
+          <input class="fc" id="comb-dev-lit" type="text" inputmode="decimal" placeholder="0" oninput="devLitInput('comb-')">
+          <div id="comb-dev-lit-hint" style="font-size:11px;min-height:15px;margin-top:2px"></div>
+        </div>
+        <div class="fg"><label>Motivo / Nota (opcional)</label><input class="fc" id="comb-dev-nota" type="text" placeholder="Ej: reserva en galpón, camión a taller"></div>
+      </div>
+      <button class="btn btn-g btn-sm" id="comb-dev-btn" onclick="combDevGuardar()" style="width:100%;margin-bottom:10px">✅ Registrar Traslado Camión → Galpón</button>
+      <div style="font-weight:700;margin:6px 0;font-size:12px">Últimos traslados Camión → Galpón</div>
+      <div class="tw" style="max-height:200px;overflow-y:auto">
+        <table><thead><tr><th>Fecha</th><th>Camión</th><th>Tanque Destino</th><th style="text-align:right">Litros</th><th>Motivo / Nota</th><th>Registrado por</th></tr></thead><tbody id="comb-dev-lista"><tr><td colspan="6" style="text-align:center;color:var(--text3)">Cargando…</td></tr></tbody></table>
+      </div>
+    </div>
+
+    <!-- PANEL 2: CAMIÓN → CAMIÓN (trasvases_unidad) -->
+    <div id="comb-panel-trs" style="display:none">
+      <div style="font-size:11px;color:var(--text3);margin-bottom:8px">
+        Cuando se le saca combustible a un camión para echárselo a otro. <b>El tanque del galpón no se toca.</b>
+      </div>
+      <div class="fr3">
+        <div class="fg"><label>Fecha</label><input class="fc" id="comb-trs-fecha" type="date"></div>
+        <div class="fg"><label>Unidad Origen</label><select class="fc" id="comb-trs-origen" onchange="combTrsCambio()"></select></div>
+        <div class="fg"><label>Unidad Destino</label><select class="fc" id="comb-trs-destino" onchange="combTrsCambio()"></select></div>
+      </div>
+      <div class="fr2">
+        <div class="fg">
+          <label>Litros trasvasados</label>
+          <input class="fc" id="comb-trs-lit" type="text" inputmode="decimal" placeholder="0" oninput="combTrsLitInput()">
+          <div id="comb-trs-lit-hint" style="font-size:11px;min-height:15px;margin-top:2px"></div>
+        </div>
+        <div class="fg"><label>Nota (opcional)</label><input class="fc" id="comb-trs-nota" type="text" placeholder="¿Por qué? (opcional)"></div>
+      </div>
+      <button class="btn btn-g btn-sm" id="comb-trs-btn" onclick="combTrsGuardar()" style="width:100%;margin-bottom:10px">✅ Registrar Traslado entre Unidades</button>
+      <div style="font-weight:700;margin:6px 0;font-size:12px">Últimos traslados entre unidades</div>
+      <div class="tw" style="max-height:200px;overflow-y:auto">
+        <table><thead><tr><th>Fecha</th><th>Origen</th><th>Destino</th><th style="text-align:right">Litros</th><th>Nota</th><th>Registrado por</th></tr></thead><tbody id="comb-trs-lista"><tr><td colspan="6" style="text-align:center;color:var(--text3)">Cargando…</td></tr></tbody></table>
+      </div>
+    </div>
+
+    <!-- PANEL 3: SALIDA DE TANQUE (salidas_tanque) -->
+    <div id="comb-panel-stq" style="display:none">
+      <div style="font-size:11px;color:var(--text3);margin-bottom:8px">
+        Para cuando el gasoil sale del tanque del galpón y <b>no va a un camión</b>: planta eléctrica, préstamo o uso de patio.
+      </div>
+      <div class="fr3">
+        <div class="fg"><label>Fecha</label><input class="fc" id="comb-stq-fecha" type="date"></div>
+        <div class="fg"><label>Tanque de Origen</label><select class="fc" id="comb-stq-tanque"><option value="galpon_1">🛢️ Galpón 1</option><option value="galpon_2">🛢️ Galpón 2</option></select></div>
+        <div class="fg"><label>Destino</label><select class="fc" id="comb-stq-destino"><option value="Planta eléctrica">⚡ Planta eléctrica</option><option value="Préstamo">🤝 Préstamo</option><option value="Otro">✏️ Otro</option></select></div>
+      </div>
+      <div class="fr2">
+        <div class="fg">
+          <label>Litros retirados</label>
+          <input class="fc" id="comb-stq-lit" type="text" inputmode="decimal" placeholder="0" oninput="combStqLitInput()">
+          <div id="comb-stq-lit-hint" style="font-size:11px;min-height:15px;margin-top:2px"></div>
+        </div>
+        <div class="fg"><label>Nota (obligatoria si Destino es Otro)</label><input class="fc" id="comb-stq-nota" type="text" placeholder="¿Para qué fue?"></div>
+      </div>
+      <button class="btn btn-g btn-sm" id="comb-stq-btn" onclick="combStqGuardar()" style="width:100%;margin-bottom:10px">✅ Registrar Salida de Tanque</button>
+      <div style="font-weight:700;margin:6px 0;font-size:12px">Últimas salidas de tanque</div>
+      <div class="tw" style="max-height:200px;overflow-y:auto">
+        <table><thead><tr><th>Fecha</th><th>Tanque</th><th>Destino</th><th style="text-align:right">Litros</th><th>Nota</th><th>Registrado por</th></tr></thead><tbody id="comb-stq-lista"><tr><td colspan="6" style="text-align:center;color:var(--text3)">Cargando…</td></tr></tbody></table>
+      </div>
     </div>
   </div>
   <div class="card" id="card-surtidas-costeo" style="margin-bottom:10px">
@@ -3281,7 +3367,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
      Excel sale con el defecto ya corregido. Pasó midiendo este mismo cambio el
      23/09: dos corridas dieron un .xlsx idéntico byte por byte. -->
 <script src="maxware-excel.js?v=20261106-excel"></script>
-<script src="app.js?v=20261124-dashboard-operativo"></script>
+<script src="app.js?v=20261125-comb-traslado-galpon-fechas"></script>
 
 <!-- Modal global -->
 <div id="modal" class="moverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9990;align-items:center;justify-content:center;padding:16px">
@@ -3603,10 +3689,11 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
           </div>
         </div>
 
-        <!-- Selector de Modo: Salida Tanque vs Traslado Camión-Camión -->
-        <div style="display:flex;gap:6px;margin-bottom:14px">
-          <button type="button" id="oper-tab-stq" onclick="operSwitchCombTab('stq')" class="btn btn-g btn-sm" style="flex:1;font-weight:700">🪫 Salida de Tanque</button>
-          <button type="button" id="oper-tab-trs" onclick="operSwitchCombTab('trs')" class="btn btn-s btn-sm" style="flex:1;font-weight:700">🔁 Traslado entre Unidades</button>
+        <!-- Selector de Modo: Salida Tanque vs Camión-Camión vs Camión-Galpón -->
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px">
+          <button type="button" id="oper-tab-stq" onclick="operSwitchCombTab('stq')" class="btn btn-g btn-sm" style="flex:1;min-width:110px;font-weight:700">🪫 Salida de Tanque</button>
+          <button type="button" id="oper-tab-trs" onclick="operSwitchCombTab('trs')" class="btn btn-s btn-sm" style="flex:1;min-width:110px;font-weight:700">🔁 Camión → Camión</button>
+          <button type="button" id="oper-tab-dev" onclick="operSwitchCombTab('dev')" class="btn btn-s btn-sm" style="flex:1;min-width:110px;font-weight:700">🛢️ Camión → Galpón</button>
         </div>
 
         <!-- Subformulario STQ (Salida tanque) -->
@@ -3614,6 +3701,8 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
           <div style="font-size:12px;color:var(--text3);margin-bottom:12px;line-height:1.4">
             Para cuando el gasoil <b>no va a un camión</b>: planta eléctrica, préstamo o uso de patio.
           </div>
+          <div style="font-size:12px;font-weight:700;margin-bottom:4px">Fecha</div>
+          <input class="fc" id="stq-fecha" type="date" style="margin-bottom:10px">
           <div style="font-size:12px;font-weight:700;margin-bottom:6px">1. Tanque de origen</div>
           <div style="display:flex;gap:8px;margin-bottom:12px">
             <button type="button" id="stq-t-galpon_1" onclick="stqTanque('galpon_1')" class="btn btn-s" style="flex:1;padding:12px 4px;font-size:13px;font-weight:700;border-radius:10px">🛢️ Galpón 1</button>
@@ -3640,6 +3729,8 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
           <div style="font-size:12px;color:var(--text3);margin-bottom:10px">
             Cuando se le saca combustible a un camión para echárselo a otro. <b>El tanque de galpón no se toca</b>.
           </div>
+          <div style="font-weight:700;margin-bottom:4px;font-size:12px">Fecha</div>
+          <input class="fc" id="trs-fecha" type="date" style="margin-bottom:10px">
           <div style="font-weight:700;margin-bottom:4px;font-size:12px">Unidad Origen (de donde SALIÓ)</div>
           <select class="fc" id="trs-origen" onchange="trsCambio()" style="margin-bottom:10px"></select>
           <div style="font-weight:700;margin-bottom:4px;font-size:12px">Unidad Destino (a donde SE ECHÓ)</div>
@@ -3652,6 +3743,30 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
           <button class="btn btn-g" id="trs-btn" onclick="trsGuardar()" style="width:100%;padding:12px;font-size:14px;font-weight:700;border-radius:10px">✅ Registrar Traslado</button>
           <div style="font-weight:700;margin:14px 0 6px;font-size:12px">Últimos traslados</div>
           <div id="trs-lista" style="font-size:12px;color:var(--text3)">Cargando…</div>
+        </div>
+
+        <!-- Subformulario DEV (Traslado camión a tanque del galpón) -->
+        <div id="oper-panel-dev" style="display:none">
+          <div style="font-size:12px;color:var(--text3);margin-bottom:10px;line-height:1.4">
+            Cuando se le saca combustible a un camión para ponerlo en reserva en el <b>tanque interno del galpón</b>. Se descuenta de la unidad y entra al galpón (no genera CxP).
+          </div>
+          <div style="font-weight:700;margin-bottom:4px;font-size:12px">Fecha</div>
+          <input class="fc" id="dev-fecha" type="date" style="margin-bottom:10px">
+          <div style="font-weight:700;margin-bottom:4px;font-size:12px">1. Camión Origen (de donde SALIÓ)</div>
+          <select class="fc" id="dev-cam" style="margin-bottom:10px"></select>
+          <div style="font-weight:700;margin-bottom:6px;font-size:12px">2. Tanque Destino (en el Galpón)</div>
+          <div style="display:flex;gap:8px;margin-bottom:12px">
+            <button type="button" id="dev-t-tanque-galpon-1" onclick="devTanque('tanque-galpon-1')" class="btn btn-s" style="flex:1;padding:12px 4px;font-size:13px;font-weight:700;border-radius:10px">🛢️ Galpón 1</button>
+            <button type="button" id="dev-t-tanque-galpon-2" onclick="devTanque('tanque-galpon-2')" class="btn btn-s" style="flex:1;padding:12px 4px;font-size:13px;font-weight:700;border-radius:10px">🛢️ Galpón 2</button>
+          </div>
+          <div style="font-weight:700;margin-bottom:4px;font-size:12px">3. Litros trasladados al galpón</div>
+          <input class="fc" id="dev-lit" type="text" inputmode="decimal" placeholder="0"
+                 oninput="devLitInput()" style="font-size:20px;padding:10px;text-align:center;font-family:var(--m)">
+          <div id="dev-lit-hint" style="font-size:11px;min-height:16px;margin-bottom:8px"></div>
+          <input class="fc" id="dev-nota" type="text" placeholder="Motivo / Nota (opcional, ej: reserva galpón)" style="margin-bottom:10px">
+          <button class="btn btn-g" id="dev-btn" onclick="devGuardar()" style="width:100%;padding:12px;font-size:14px;font-weight:700;border-radius:10px">✅ Registrar Traslado al Galpón</button>
+          <div style="font-weight:700;margin:14px 0 6px;font-size:12px">Últimos traslados al galpón</div>
+          <div id="dev-lista" style="font-size:12px;color:var(--text3)">Cargando…</div>
         </div>
       </div>
 

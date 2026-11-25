@@ -1460,8 +1460,8 @@ function _iniciarSesionCore(){
   var galCams=document.getElementById('gal-cams');if(galCams)galCams.textContent=Object.keys(FLOTA).length;
   var fEl=document.getElementById('fecha-top');
   if(fEl)fEl.textContent=fmtFechaDow(new Date());
-  var hoy=new Date().toISOString().split('T')[0];
-  ['rp-fecha','rr-des','rr-hta','ab-f','gc-f','gp-f','km-f','cxp-fecha','mul-fecha','prest-fecha','doc-cam-venc','doc-emp-venc','cont-venc','cont-inicio','ll-fecha','bnc-mov-des','bnc-mov-hta','np-fecha','alc-fecha','gv-fecha'].forEach(function(id){var el=document.getElementById(id);if(el&&!el.value)el.value=hoy;});
+  var hoy=(typeof fechaVE==='function')?fechaVE():new Date().toISOString().split('T')[0];
+  ['rp-fecha','rr-des','rr-hta','ab-f','gc-f','gp-f','gcomp-f','tank-f','stq-fecha','trs-fecha','dev-fecha','comb-dev-fecha','comb-trs-fecha','comb-stq-fecha','km-f','cxp-fecha','mul-fecha','prest-fecha','doc-cam-venc','doc-emp-venc','cont-venc','cont-inicio','ll-fecha','bnc-mov-des','bnc-mov-hta','np-fecha','alc-fecha','gv-fecha'].forEach(function(id){var el=document.getElementById(id);if(el&&!el.value)el.value=hoy;});
   var rpSem=document.getElementById('rp-sem');if(rpSem)rpSem.value=getSem(null);
   var rpMes=document.getElementById('rp-mes');if(rpMes)rpMes.value=mesBtg();
   poblarCams();poblarEmps();poblarSems();renderWANums();
@@ -7082,7 +7082,7 @@ function sp(id){
     if(id==='financiero'){renderFinanzasSubnav('financiero');renderFinDash();renderGastosFijos();renderProveedoresLista();renderBancoFin();autoLlenarTasasEnFormularios();}
     if(id==='abonos'){renderAbonos();calcMontoAbono();}
     if(id==='nomina')recalcNom();
-    if(id==='combustible'){renderCombSubnav('combustible');renderComb();renderGasolPersonal();setTimeout(renderGasoil,100);scAbrir();}
+    if(id==='combustible'){renderCombSubnav('combustible');renderComb();renderGasolPersonal();setTimeout(renderGasoil,100);scAbrir();try{combMovIniciar();}catch(e){}}
     if(id==='control-combustible'){renderCombSubnav('control-combustible');renderControlComb();}
     // Auditoría de combustible: no se auto-analiza al entrar (la consulta pega a 4 tablas).
     // Se dejan las fechas de los últimos 14 días y la persona toca Analizar.
@@ -7785,7 +7785,7 @@ function descartarFallidos(){
 }
 // Clave de conflicto por tabla con UNIQUE → la cola debe reintentar como UPSERT, no INSERT plano
 // (si no, una planilla/abono/contrato hecho offline choca con su UNIQUE y cae al dead-letter).
-var _COLA_ONCONFLICT={planillas:'p',abonos:'fact',contratos:'id',prestamos:'id',multas:'id',empleados:'id',pagos_alcaldia:'id',gastos_variables:'id',gastos_fijos:'id',bnc_movimientos:'id',tipos_unidad:'id',unidades:'id',operaciones:'id',nomina_extras:'id',llantas:'id',inv_movimientos:'id',salidas_tanque:'id',trasvases_unidad:'id',rutas_estado:'fecha,parroquia',km_data:'cam',unidad_config:'cam'};
+var _COLA_ONCONFLICT={planillas:'p',abonos:'fact',contratos:'id',prestamos:'id',multas:'id',empleados:'id',pagos_alcaldia:'id',gastos_variables:'id',gastos_fijos:'id',bnc_movimientos:'id',tipos_unidad:'id',unidades:'id',operaciones:'id',nomina_extras:'id',llantas:'id',inv_movimientos:'id',salidas_tanque:'id',trasvases_unidad:'id',devoluciones_tanque:'id',rutas_estado:'fecha,parroquia',km_data:'cam',unidad_config:'cam'};
 function guardarEnCola(t,d,oc){
   COLA_OFFLINE.push({t:t,d:d,_try:0,oc:oc||_COLA_ONCONFLICT[t]||null});
   guardarColaLS();
@@ -15849,11 +15849,13 @@ function updTank(){
   if(pct<20)sendWA('⛽ ALERTA: Tanque Tumaca al '+pct.toFixed(0)+'%. Solo '+niv+' litros.',['operativo','mecanica']);
 }
 async function addCombustible(){
+  var f=gv('tank-f');
+  if(!f){ if(typeof mostrarToast==='function')mostrarToast('Seleccioná la fecha del ajuste','error'); else alert('Seleccioná la fecha del ajuste'); return; }
   var add=parseFloat(gv('tank-add'))||0;if(!add){alert('Ingresa los litros a agregar');return;}
   tankNivel=Math.min(cfg.tanque||4600,tankNivel+add);sv('tank-niv',tankNivel.toString());sv('tank-add','');updTank();
   guardarNivelTanque();
-  audit('Tanque cargado','+'+add+'L');
-  if(typeof mostrarToast==='function')mostrarToast('Tanque: +'+add+' L → '+tankNivel+' L','exito');
+  audit('Tanque cargado',formatFecha(f)+' · '+(add>0?'+':'')+add+'L');
+  if(typeof mostrarToast==='function')mostrarToast('Tanque ('+formatFecha(f)+'): '+(add>0?'+':'')+add+' L → '+tankNivel+' L','exito');
 }
 // Mostrar el campo de precio manual solo cuando la fuente es Estación de servicio.
 function gcToggleFuente(){
@@ -15954,7 +15956,8 @@ function guardarCompraCombustible(){
   var lit=parseFloat(gv('gcomp-lit'))||0;
   var precio=parseFloat(gv('gcomp-precio'))||0; // $/L (precio en dólares; la tasa es solo para Bs/CxP)
   var tasaTipo=gv('gcomp-tasa')||'bcvDolar';
-  var f=gv('gcomp-f')||fechaVE();
+  var f=gv('gcomp-f');
+  if(!f){ if(typeof mostrarToast==='function')mostrarToast('Seleccioná la fecha de la compra','error'); else alert('Seleccioná la fecha de la compra'); return; }
   if(!lit){alert('Ingresa los litros comprados');return;}
   if(!precio){alert('Ingresa el precio por litro ($/L)');return;}
   var provLabel = prov==='boscan' ? 'Boscán' : 'Tumaca';
@@ -16016,8 +16019,9 @@ function guardarCompraCombustible(){
 }
 async function guardarGasol(){
   var per=gv('gp-per'),lit=parseFloat(gv('gp-lit'))||0,f=gv('gp-f');
+  if(!f){ if(typeof mostrarToast==='function')mostrarToast('Seleccioná la fecha del registro','error'); else alert('Seleccioná la fecha'); return; }
   if(!lit){alert('Ingresa litros');return;}
-  var m=lit*0.5;if(!f)f=fechaVE();var r={f:f,per:per,lit:lit,m:m};GASOL.push(r);var _okG=await dbIn('gasol',{f:f,per:per,lit:lit,m:m});if(_okG&&typeof mostrarToast==='function')mostrarToast('Gasolina: '+per+' '+lit+' L guardada','exito');
+  var m=lit*0.5;var r={f:f,per:per,lit:lit,m:m};GASOL.push(r);var _okG=await dbIn('gasol',{f:f,per:per,lit:lit,m:m});if(_okG&&typeof mostrarToast==='function')mostrarToast('Gasolina: '+per+' '+lit+' L ('+formatFecha(f)+') guardada','exito');
   try{localStorage.setItem('btg_gasol',JSON.stringify(GASOL));}catch(e){}
   renderGasolPersonal();
   sv('gp-lit','');audit('Gasolina registrada',per+' '+lit+'L');
@@ -18846,7 +18850,7 @@ async function cargarEntregas(){
 var SURTIDAS=[];
 // `sin_confirmar` lleva etiqueta PROPIA y no cae en el `||t` crudo del final de `_surLbl`:
 // en la tabla se leia literalmente "sin_confirmar", que no le dice nada a nadie.
-var TANQUE_LBL={galpon_1:'🛢️ Galpón 1', galpon_2:'🛢️ Galpón 2', principal:'🛢️ Tanque',
+var TANQUE_LBL={galpon_1:'🛢️ Galpón 1', galpon_2:'🛢️ Galpón 2', 'tanque-galpon-1':'🛢️ Galpón 1', 'tanque-galpon-2':'🛢️ Galpón 2', principal:'🛢️ Tanque',
   estacion:'⛽ Estación de servicio', sin_confirmar:'❓ Sin ubicar (el GPS no pudo)'};
 async function cargarSurtidas(){
   if(!(DB_READY&&supabase))return;
@@ -19012,7 +19016,7 @@ function renderSurtidasCosteo(){
     var cl=pend?'—':('$'+(parseFloat(s.costo_litro_usd)||0).toFixed(3));
     var co=pend?'<span style="color:#ffb020">⏳ por definir</span>':usd(parseFloat(s.costo_usd)||0);
     var est=pend?'<span style="color:#ffb020">pendiente</span>':'<span style="color:#7dc941">✅ costeado</span>';
-    return '<tr><td>'+(String(s.fecha||'').slice(8,10)+'/'+String(s.fecha||'').slice(5,7))+'</td><td style="font-weight:700">'+_surEsc(s.cam||'')+'</td><td>'+_surEsc(_surLbl(s.tanque))+'</td><td style="text-align:right;font-family:var(--m)">'+l.toLocaleString('es-VE')+'</td><td style="text-align:right;font-family:var(--m)">'+cl+'</td><td style="text-align:right;font-family:var(--m)">'+co+'</td><td>'+est+'</td></tr>';
+    return '<tr><td>'+formatFecha(s.fecha)+'</td><td style="font-weight:700">'+_surEsc(s.cam||'')+'</td><td>'+_surEsc(_surLbl(s.tanque))+'</td><td style="text-align:right;font-family:var(--m)">'+l.toLocaleString('es-VE')+'</td><td style="text-align:right;font-family:var(--m)">'+cl+'</td><td style="text-align:right;font-family:var(--m)">'+co+'</td><td>'+est+'</td></tr>';
   }).join('');
   // Períodos
   var tp=g('sc-periodos'); if(tp){ if(!(COMB_PERIODOS||[]).length){ tp.innerHTML='<tr><td colspan="6" style="text-align:center;color:#9fb3c8">Ninguno todavía.</td></tr>'; }
@@ -31674,24 +31678,20 @@ function operParroquiasHoy(fechaStr){
 }
 
 function operSwitchCombTab(tab){
-  var pStq = document.getElementById('oper-panel-stq');
-  var pTrs = document.getElementById('oper-panel-trs');
-  var bStq = document.getElementById('oper-tab-stq');
-  var bTrs = document.getElementById('oper-tab-trs');
-  if(!pStq || !pTrs) return;
-  if(tab === 'trs'){
-    pStq.style.display = 'none'; pTrs.style.display = 'block';
-    if(bStq){ bStq.classList.remove('btn-g'); bStq.classList.add('btn-s'); }
-    if(bTrs){ bTrs.classList.remove('btn-s'); bTrs.classList.add('btn-g'); }
-  } else {
-    pStq.style.display = 'block'; pTrs.style.display = 'none';
-    if(bStq){ bStq.classList.remove('btn-s'); bStq.classList.add('btn-g'); }
-    if(bTrs){ bTrs.classList.remove('btn-g'); bTrs.classList.add('btn-s'); }
-  }
+  ['stq','trs','dev'].forEach(function(k){
+    var p = document.getElementById('oper-panel-'+k);
+    var b = document.getElementById('oper-tab-'+k);
+    if(p) p.style.display = (k === tab) ? 'block' : 'none';
+    if(b){
+      if(k === tab){ b.classList.remove('btn-s'); b.classList.add('btn-g'); }
+      else { b.classList.remove('btn-g'); b.classList.add('btn-s'); }
+    }
+  });
 }
 
 async function operIniciar(){
   var hoy = fechaVE();
+  ['stq-fecha','trs-fecha','dev-fecha'].forEach(function(id){ var el=document.getElementById(id); if(el&&!el.value) el.value=hoy; });
   // Mostrar fecha
   var fechaEl = document.getElementById('oper-fecha');
   if(fechaEl) fechaEl.textContent = fmtFechaDow(new Date());
@@ -31742,6 +31742,7 @@ async function operIniciar(){
   operProgramarRecordatorio();
   try{ stqRenderLista(); }catch(e){}
   try{ trsLlenarSelects(); trsLista(); }catch(e){}
+  try{ devLlenarSelects(); devLista(); }catch(e){}
 }
 
 function operRenderKPIs(){
@@ -31991,12 +31992,13 @@ function operRenderSurtidasHoy(){
   var html = '<div style="max-height:280px;overflow-y:auto">'+
     sur.map(function(s){
       var l = parseFloat(s.litros) || 0;
+      var fS = s.fecha ? formatFecha(s.fecha) : '';
       var h = String(s.hora || (s.fecha ? s.fecha.slice(11,16) : '') || '—');
       var tq = s.tanque === 'galpon_1' ? 'Galpón 1' : s.tanque === 'galpon_2' ? 'Galpón 2' : (s.tanque || 'Estación');
       return '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 6px;border-bottom:1px solid var(--border)">'+
         '<div>'+
           '<b style="font-size:13px;color:var(--text1)">🚛 '+(s.cam||'—')+'</b>'+
-          '<div style="font-size:10px;color:var(--text3)">'+tq+' · '+h+(s.creado_por?' ('+s.creado_por+')':'')+'</div>'+
+          '<div style="font-size:10px;color:var(--text3)">'+(fS?fS+' · ':'')+tq+' · '+h+(s.creado_por?' ('+s.creado_por+')':'')+'</div>'+
         '</div>'+
         '<div style="font-weight:900;font-size:15px;color:#7dc941;font-family:var(--m)">'+
           Math.round(l).toLocaleString('es-VE')+' L'+
@@ -32125,29 +32127,31 @@ function _stqLit(){
   var n=parseFloat(v); return isFinite(n)?n:null;
 }
 
-async function stqGuardar(){
-  if(!STQ_TANQUE){ mostrarToast('Tocá de cuál tanque salió','error'); return; }
-  var lit=_stqLit();
-  if(!(lit>0)){ mostrarToast('Escribí cuántos litros salieron','error'); return; }
+async function _stqPersistir(opts){
+  var fecha = String(opts.fecha||'').trim();
+  if(!fecha){ mostrarToast('Seleccioná la fecha de la salida','error'); return false; }
+  if(!opts.tanque){ mostrarToast('Tocá de cuál tanque salió','error'); return false; }
+  var lit = opts.lit;
+  if(!(lit>0)){ mostrarToast('Escribí cuántos litros salieron','error'); return false; }
   // ⛔ TOPE DURO: un dato imposible se RECHAZA, no se topa. Si se guardara el número topado,
   //    quedaría en la base como si fuera cierto y nadie sabría que se corrigió solo.
   if(lit>STQ_MAX_L){
     mostrarToast('En el tanque no caben '+lit.toLocaleString('es-VE')+' L (el máximo es '+STQ_MAX_L.toLocaleString('es-VE')+'). Revisá el número.','error');
-    var f=document.getElementById('stq-lit'); if(f){ try{ f.focus(); f.select(); }catch(e){} }
-    return;
+    if(opts.litEl){ try{ opts.litEl.focus(); opts.litEl.select(); }catch(e){} }
+    return false;
   }
-  if(!STQ_DESTINO){ mostrarToast('Tocá para qué salió','error'); return; }
-  var nota=String((document.getElementById('stq-nota')||{}).value||'').trim();
-  if(STQ_DESTINO==='Otro' && !nota){ mostrarToast('Escribí para qué fue','error'); return; }
+  if(!opts.destino){ mostrarToast('Tocá para qué salió','error'); return false; }
+  var nota = String(opts.nota||'').trim();
+  if(opts.destino==='Otro' && !nota){ mostrarToast('Escribí para qué fue','error'); return false; }
 
-  var btn=document.getElementById('stq-btn'); var t0=btn?btn.textContent:'';
+  var btn=opts.btn; var t0=btn?btn.textContent:'';
   if(btn){ btn.disabled=true; btn.textContent='Guardando…'; }
   var row={
     id:'STQ-'+Date.now(),
-    fecha:fechaVE(),
-    tanque:STQ_TANQUE,
+    fecha:fecha,
+    tanque:opts.tanque,
     litros:lit,
-    destino:STQ_DESTINO,
+    destino:opts.destino,
     nota:nota||null,
     registrado_por:(SESION&&SESION.nombre)||''
   };
@@ -32159,15 +32163,30 @@ async function stqGuardar(){
       else ok=true;
     }
     if(!ok) guardarEnCola('salidas_tanque',row);
-    try{ audit('salida_tanque', row.tanque+' · '+lit+' L · '+row.destino); }catch(e){}
-    mostrarToast(ok?'✅ Salida registrada':'📵 Guardada (se sube al reconectar)','exito');
+    try{ audit('salida_tanque', formatFecha(fecha)+' · '+row.tanque+' · '+lit+' L · '+row.destino); }catch(e){}
+    mostrarToast(ok?'✅ Salida registrada ('+formatFecha(fecha)+')':'📵 Guardada (se sube al reconectar)','exito');
+    stqRenderLista();
+    return true;
+  } finally {
+    if(btn){ btn.disabled=false; btn.textContent=t0||'✅ Registrar salida'; }
+  }
+}
+
+async function stqGuardar(){
+  var ok = await _stqPersistir({
+    fecha: gv('stq-fecha'),
+    tanque: STQ_TANQUE,
+    lit: _stqLit(),
+    litEl: document.getElementById('stq-lit'),
+    destino: STQ_DESTINO,
+    nota: (document.getElementById('stq-nota')||{}).value||'',
+    btn: document.getElementById('stq-btn')
+  });
+  if(ok){
     document.getElementById('stq-lit').value='';
     var nn=document.getElementById('stq-nota'); if(nn){ nn.value=''; nn.style.display='none'; }
     STQ_TANQUE=null; STQ_DESTINO=null; _stqPinta('stq-t-',null); _stqPinta('stq-d-',null);
     document.getElementById('stq-lit-hint').textContent='';
-    stqRenderLista();
-  } finally {
-    if(btn){ btn.disabled=false; btn.textContent=t0||'✅ Registrar salida'; }
   }
 }
 
@@ -32183,10 +32202,6 @@ async function stqGuardar(){
 //    de más y la de DESTINO andando con combustible que nadie le echó. Eso ya se vio: el
 //    04/11/2026 la auditoría de FLOTILLA marcó 5 cargas por encima de la capacidad del
 //    tanque que «huelen a traslado sin marcar».
-//
-// ⚠️ Mismo criterio de pantalla que la tarjeta de arriba: para alguien que no es de
-//    tecnología. Sin campo de fecha (es hoy) y con el aviso del número imposible MIENTRAS
-//    escribe, no al apretar.
 // ═══════════════════════════════════════════════════════════════════════════════════════
 var TRS_MAX_L = 600;   // ningún camión de la flota lleva más que esto en su tanque
 
@@ -32197,34 +32212,35 @@ function _trsUnidades(){
   if(!l.length) l = Object.keys(FLOTA||{});
   return l.sort();
 }
-function trsLlenarSelects(){
-  var o=g('trs-origen'), d=g('trs-destino');
-  if(!o||!d) return;
+function _llenarSelectUnidades(ids){
   var us=_trsUnidades();
-  if(!us.length){
-    // ⛔ Un desplegable vacío se ve igual que uno que no cargó. Que lo DIGA.
-    var vacio='<option value="">— no hay unidades activas cargadas —</option>';
-    o.innerHTML=vacio; d.innerHTML=vacio; return;
-  }
-  var opts='<option value="">— elegir —</option>'+us.map(function(c){
+  var vacio='<option value="">— no hay unidades activas cargadas —</option>';
+  var opts=us.length ? ('<option value="">— elegir —</option>'+us.map(function(c){
     return '<option value="'+_mEsc(c)+'">'+_mEsc(c)+'</option>';
-  }).join('');
-  if(!o.value) o.innerHTML=opts;
-  if(!d.value) d.innerHTML=opts;
+  }).join('')) : vacio;
+  (ids||[]).forEach(function(id){
+    var el=g(id); if(!el) return;
+    if(!el.value || el.options.length<=1) el.innerHTML=opts;
+  });
 }
-function _trsLit(){
-  var v=String((g('trs-lit')||{}).value||'').replace(',','.').trim();
+function trsLlenarSelects(){
+  _llenarSelectUnidades(['trs-origen','trs-destino','comb-trs-origen','comb-trs-destino']);
+}
+function _trsLit(id){
+  var v=String((g(id||'trs-lit')||{}).value||'').replace(',','.').trim();
   var n=parseFloat(v); return isFinite(n)?n:null;
 }
-function trsLitInput(){
-  var h=g('trs-lit-hint'); if(!h) return;
-  var l=_trsLit();
+function _trsLitInputEl(litId, hintId){
+  var h=g(hintId); if(!h) return;
+  var l=_trsLit(litId);
   if(l==null||l<=0){ h.textContent=''; return; }
   if(l>TRS_MAX_L){
     h.style.color='var(--red)';
     h.textContent='⛔ '+l.toLocaleString('es-VE')+' L no caben en el tanque de un camión (máximo '+TRS_MAX_L.toLocaleString('es-VE')+' L).';
   } else { h.style.color='var(--text3)'; h.textContent=l.toLocaleString('es-VE')+' L'; }
 }
+function trsLitInput(){ _trsLitInputEl('trs-lit','trs-lit-hint'); }
+function combTrsLitInput(){ _trsLitInputEl('comb-trs-lit','comb-trs-lit-hint'); }
 // Avisa EN EL MOMENTO si eligió la misma unidad de los dos lados, en vez de dejarlo llenar
 // todo y rechazárselo al final.
 function trsCambio(){
@@ -32234,30 +32250,39 @@ function trsCambio(){
     h.textContent='⛔ Es la misma unidad de los dos lados.';
   } else { trsLitInput(); }
 }
+function combTrsCambio(){
+  var o=gv('comb-trs-origen'), d=gv('comb-trs-destino'), h=g('comb-trs-lit-hint');
+  if(o && d && o===d && h){
+    h.style.color='var(--red)';
+    h.textContent='⛔ Es la misma unidad de los dos lados.';
+  } else { combTrsLitInput(); }
+}
 
-async function trsGuardar(){
-  var o=gv('trs-origen'), d=gv('trs-destino');
-  if(!o){ mostrarToast('Elegí de cuál unidad salió','error'); return; }
-  if(!d){ mostrarToast('Elegí a cuál unidad se le echó','error'); return; }
+async function _trsPersistir(opts){
+  var fecha=String(opts.fecha||'').trim();
+  if(!fecha){ mostrarToast('Seleccioná la fecha del traslado','error'); return false; }
+  var o=opts.origen, d=opts.destino;
+  if(!o){ mostrarToast('Elegí de cuál unidad salió','error'); return false; }
+  if(!d){ mostrarToast('Elegí a cuál unidad se le echó','error'); return false; }
   // ⛔ La base también lo rechaza (constraint `trasvase_no_a_si_misma`): esto es la puerta
   //    cómoda, no el candado. [[norma-las-barreras-de-prompt-no-son-candados]]
-  if(o===d){ mostrarToast('No puede ser la misma unidad de los dos lados','error'); return; }
-  var lit=_trsLit();
-  if(!(lit>0)){ mostrarToast('Escribí cuántos litros se pasaron','error'); return; }
+  if(o===d){ mostrarToast('No puede ser la misma unidad de los dos lados','error'); return false; }
+  var lit=opts.lit;
+  if(!(lit>0)){ mostrarToast('Escribí cuántos litros se pasaron','error'); return false; }
   // ⛔ TOPE DURO: un dato imposible se RECHAZA, no se topa. Un número topado queda en la base
   //    como si fuera cierto y nadie sabe que se corrigió solo.
   if(lit>TRS_MAX_L){
     mostrarToast('En el tanque de un camión no caben '+lit.toLocaleString('es-VE')+' L (el máximo es '+TRS_MAX_L.toLocaleString('es-VE')+'). Revisá el número.','error');
-    var f=g('trs-lit'); if(f){ try{ f.focus(); f.select(); }catch(e){} }
-    return;
+    if(opts.litEl){ try{ opts.litEl.focus(); opts.litEl.select(); }catch(e){} }
+    return false;
   }
-  var nota=String((g('trs-nota')||{}).value||'').trim();
-  if(!confirm('¿Registrar que se le pasaron '+lit.toLocaleString('es-VE')+' L de la '+o+' a la '+d+'?\n\n'+
-              'El tanque del galpón no se toca: ese gasoil ya había salido.')) return;
+  var nota=String(opts.nota||'').trim();
+  if(!confirm('¿Registrar que el '+formatFecha(fecha)+' se le pasaron '+lit.toLocaleString('es-VE')+' L de la '+o+' a la '+d+'?\n\n'+
+              'El tanque del galpón no se toca: ese gasoil ya había salido.')) return false;
 
-  var btn=g('trs-btn'); var t0=btn?btn.textContent:'';
+  var btn=opts.btn; var t0=btn?btn.textContent:'';
   if(btn){ btn.disabled=true; btn.textContent='Guardando…'; }
-  var row={ id:'TRS-'+Date.now(), fecha:fechaVE(), cam_origen:o, cam_destino:d,
+  var row={ id:'TRS-'+Date.now(), fecha:fecha, cam_origen:o, cam_destino:d,
             litros:lit, nota:nota||null, registrado_por:(SESION&&SESION.nombre)||'' };
   var ok=false;
   try{
@@ -32270,51 +32295,372 @@ async function trsGuardar(){
       else ok=true;
     }
     if(!ok) guardarEnCola('trasvases_unidad',row);
-    try{ audit('trasvase_unidad', o+' → '+d+' · '+lit+' L'+(nota?(' · '+nota):'')); }catch(e){}
-    mostrarToast(ok?'✅ Traslado registrado':'📵 Guardado (se sube al reconectar)','exito');
+    try{ audit('trasvase_unidad', formatFecha(fecha)+' · '+o+' → '+d+' · '+lit+' L'+(nota?(' · '+nota):'')); }catch(e){}
+    mostrarToast(ok?'✅ Traslado registrado ('+formatFecha(fecha)+')':'📵 Guardado (se sube al reconectar)','exito');
+    trsLista();
+    return true;
+  }catch(e){ mostrarToast('No se pudo guardar: '+(e&&e.message||e),'error'); return false; }
+  finally {
+    if(btn){ btn.disabled=false; btn.textContent=t0||'✅ Registrar el traslado'; }
+  }
+}
+
+async function trsGuardar(){
+  var ok = await _trsPersistir({
+    fecha: gv('trs-fecha'),
+    origen: gv('trs-origen'),
+    destino: gv('trs-destino'),
+    lit: _trsLit('trs-lit'),
+    litEl: g('trs-lit'),
+    nota: (g('trs-nota')||{}).value||'',
+    btn: g('trs-btn')
+  });
+  if(ok){
     try{ g('trs-lit').value=''; g('trs-nota').value=''; trsLitInput(); }catch(e){}
     try{ sv('trs-origen',''); sv('trs-destino',''); }catch(e){}
-    trsLista();
-  }catch(e){ mostrarToast('No se pudo guardar: '+(e&&e.message||e),'error'); }
-  if(btn){ btn.disabled=false; btn.textContent=t0||'✅ Registrar el traslado'; }
+  }
 }
 
 async function trsLista(){
-  var el=g('trs-lista'); if(!el) return;
-  if(!(DB_READY&&supabase)){ el.textContent='Sin conexión a la base.'; return; }
-  var r=await supabase.from('trasvases_unidad').select('*')
-    .order('fecha',{ascending:false}).order('created_at',{ascending:false}).limit(10);
-  if(r.error){ el.innerHTML='<span style="color:var(--red)">No se pudo leer: '+_mEsc(r.error.message)+'</span>'; return; }
-  if(!r.data||!r.data.length){
-    // Una lista vacía se dice, no se deja en blanco.
-    el.textContent='Todavía no se registró ningún traslado entre unidades.'; return;
+  var el=g('trs-lista'), tb=g('comb-trs-lista');
+  if(!el && !tb) return;
+  if(!(DB_READY&&supabase)){
+    if(el) el.textContent='Sin conexión a la base.';
+    if(tb) tb.innerHTML='<tr><td colspan="6" style="text-align:center;color:var(--text3)">Sin conexión a la base.</td></tr>';
+    return;
   }
-  el.innerHTML=r.data.map(function(x){
-    return '<div style="padding:5px 0;border-bottom:1px solid var(--border)">'+
-      '<b>'+_mEsc(x.cam_origen)+'</b> → <b>'+_mEsc(x.cam_destino)+'</b> · '+
-      '<span style="font-family:var(--m);color:var(--amber)">'+(parseFloat(x.litros)||0).toLocaleString('es-VE')+' L</span> · '+
-      formatFecha(x.fecha)+
-      (x.nota?('<br><span style="color:var(--text3)">'+_mEsc(x.nota)+'</span>'):'')+
-      '</div>';
-  }).join('');
+  var r=await supabase.from('trasvases_unidad').select('*')
+    .order('fecha',{ascending:false}).order('created_at',{ascending:false}).limit(15);
+  if(r.error){
+    if(el) el.innerHTML='<span style="color:var(--red)">No se pudo leer: '+_mEsc(r.error.message)+'</span>';
+    if(tb) tb.innerHTML='<tr><td colspan="6" style="color:var(--red)">No se pudo leer: '+_mEsc(r.error.message)+'</td></tr>';
+    return;
+  }
+  var d=r.data||[];
+  if(!d.length){
+    if(el) el.textContent='Todavía no se registró ningún traslado entre unidades.';
+    if(tb) tb.innerHTML='<tr><td colspan="6" style="text-align:center;color:var(--text3)">Todavía no se registró ningún traslado entre unidades.</td></tr>';
+    return;
+  }
+  if(el){
+    el.innerHTML=d.slice(0,10).map(function(x){
+      return '<div style="padding:5px 0;border-bottom:1px solid var(--border)">'+
+        '<b>'+_mEsc(x.cam_origen)+'</b> → <b>'+_mEsc(x.cam_destino)+'</b> · '+
+        '<span style="font-family:var(--m);color:var(--amber)">'+(parseFloat(x.litros)||0).toLocaleString('es-VE')+' L</span> · '+
+        formatFecha(x.fecha)+
+        (x.nota?('<br><span style="color:var(--text3)">'+_mEsc(x.nota)+'</span>'):'')+
+        '</div>';
+    }).join('');
+  }
+  if(tb){
+    tb.innerHTML=d.map(function(x){
+      return '<tr><td>'+formatFecha(x.fecha)+'</td><td style="font-weight:700">'+_mEsc(x.cam_origen)+'</td><td style="font-weight:700">'+_mEsc(x.cam_destino)+'</td>'+
+        '<td style="text-align:right;font-family:var(--m);color:var(--amber)">'+(parseFloat(x.litros)||0).toLocaleString('es-VE')+' L</td>'+
+        '<td style="font-size:11px;color:var(--text3)">'+_mEsc(x.nota||'—')+'</td>'+
+        '<td style="font-size:11px;color:var(--text3)">'+_mEsc(x.registrado_por||'—')+'</td></tr>';
+    }).join('');
+  }
 }
 
 async function stqRenderLista(){
-  var c=document.getElementById('stq-lista'); if(!c)return;
-  if(!(DB_READY&&supabase)){ c.textContent='Sin conexión — se ven al reconectar.'; return; }
-  var r=await supabase.from('salidas_tanque').select('*').order('fecha',{ascending:false}).order('created_at',{ascending:false}).limit(10);
+  var c=document.getElementById('stq-lista'), tb=document.getElementById('comb-stq-lista');
+  if(!c && !tb)return;
+  if(!(DB_READY&&supabase)){
+    if(c) c.textContent='Sin conexión — se ven al reconectar.';
+    if(tb) tb.innerHTML='<tr><td colspan="6" style="text-align:center;color:var(--text3)">Sin conexión — se ven al reconectar.</td></tr>';
+    return;
+  }
+  var r=await supabase.from('salidas_tanque').select('*').order('fecha',{ascending:false}).order('created_at',{ascending:false}).limit(15);
   // ⚠️ Una lista vacía por ERROR se ve igual que «todavía no hay ninguna». Se dicen distinto.
-  if(r.error){ c.innerHTML='<span style="color:var(--red)">No se pudo leer la lista (las salidas no se perdieron, es esta pantalla la que no pudo consultarlas).</span>'; return; }
+  if(r.error){
+    if(c) c.innerHTML='<span style="color:var(--red)">No se pudo leer la lista (las salidas no se perdieron, es esta pantalla la que no pudo consultarlas).</span>';
+    if(tb) tb.innerHTML='<tr><td colspan="6" style="color:var(--red)">No se pudo leer la lista.</td></tr>';
+    return;
+  }
   var d=r.data||[];
-  if(!d.length){ c.textContent='Todavía no se registró ninguna salida.'; return; }
-  c.innerHTML=d.map(function(x){
-    var tq = x.tanque==='galpon_1'?'Galpón 1':'Galpón 2';
-    var f  = String(x.fecha||'').split('-').reverse().join('/');
-    return '<div style="padding:6px 0;border-bottom:1px solid var(--bd)">'
-      + '<b>'+Number(x.litros).toLocaleString('es-VE')+' L</b> · '+tq+' → '+(x.destino||'')
-      + (x.nota?' <i>('+x.nota+')</i>':'')
-      + '<br><span style="font-size:11px;color:var(--text3)">'+f+(x.registrado_por?' · '+x.registrado_por:'')+'</span></div>';
-  }).join('');
+  if(!d.length){
+    if(c) c.textContent='Todavía no se registró ninguna salida.';
+    if(tb) tb.innerHTML='<tr><td colspan="6" style="text-align:center;color:var(--text3)">Todavía no se registró ninguna salida.</td></tr>';
+    return;
+  }
+  if(c){
+    c.innerHTML=d.slice(0,10).map(function(x){
+      var tq = x.tanque==='galpon_1'?'Galpón 1':'Galpón 2';
+      var f  = formatFecha(x.fecha);
+      return '<div style="padding:6px 0;border-bottom:1px solid var(--bd)">'
+        + '<b>'+Number(x.litros).toLocaleString('es-VE')+' L</b> · '+tq+' → '+_mEsc(x.destino||'')
+        + (x.nota?' <i>('+_mEsc(x.nota)+')</i>':'')
+        + '<br><span style="font-size:11px;color:var(--text3)">'+f+(x.registrado_por?' · '+_mEsc(x.registrado_por):'')+'</span></div>';
+    }).join('');
+  }
+  if(tb){
+    tb.innerHTML=d.map(function(x){
+      var tq = x.tanque==='galpon_1'?'Galpón 1':'Galpón 2';
+      return '<tr><td>'+formatFecha(x.fecha)+'</td><td>'+tq+'</td><td>'+_mEsc(x.destino||'')+'</td>'+
+        '<td style="text-align:right;font-family:var(--m)">'+Number(x.litros).toLocaleString('es-VE')+' L</td>'+
+        '<td style="font-size:11px;color:var(--text3)">'+_mEsc(x.nota||'—')+'</td>'+
+        '<td style="font-size:11px;color:var(--text3)">'+_mEsc(x.registrado_por||'—')+'</td></tr>';
+    }).join('');
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════════════
+// GASOIL QUE VUELVE: CAMIÓN → TANQUE DEL GALPÓN (`devoluciones_tanque`)
+//
+// Cuando se le saca combustible a un camión para ponerlo en reserva en el tanque interno
+// del galpón. Se acredita a la unidad (no lo quemó) y entra al tanque del galpón SIN
+// generar deuda/CxP (ya estaba pagado cuando se surtió al camión).
+// ═══════════════════════════════════════════════════════════════════════════════════════
+var DEV_MAX_L = 600;   // máximo físico del tanque de un camión
+var DEV_TANQUE = null;
+
+function _devTanqueLbl(t){
+  if(t==='tanque-galpon-1'||t==='galpon_1') return 'Galpón 1';
+  if(t==='tanque-galpon-2'||t==='galpon_2') return 'Galpón 2';
+  return t||'Galpón';
+}
+function devTanque(t){
+  DEV_TANQUE = t;
+  ['tanque-galpon-1','tanque-galpon-2'].forEach(function(k){
+    var b=document.getElementById('dev-t-'+k); if(!b) return;
+    b.classList.remove('btn-g'); b.classList.add('btn-s');
+  });
+  if(t){ var el=document.getElementById('dev-t-'+t); if(el){ el.classList.remove('btn-s'); el.classList.add('btn-g'); } }
+}
+function devLlenarSelects(){
+  _llenarSelectUnidades(['dev-cam','comb-dev-cam']);
+}
+function _devLit(pref){
+  var v=String((g((pref||'')+'dev-lit')||{}).value||'').replace(',','.').trim();
+  var n=parseFloat(v); return isFinite(n)?n:null;
+}
+function devLitInput(pref){
+  var p=pref||'';
+  var h=g(p+'dev-lit-hint'); if(!h) return;
+  var l=_devLit(p);
+  if(l==null||l<=0){ h.textContent=''; return; }
+  if(l>DEV_MAX_L){
+    h.style.color='var(--red)';
+    h.textContent='⛔ '+l.toLocaleString('es-VE')+' L no caben en el tanque de un camión (máximo '+DEV_MAX_L.toLocaleString('es-VE')+' L).';
+  } else { h.style.color='var(--text3)'; h.textContent=l.toLocaleString('es-VE')+' L'; }
+}
+// Deriva el $/L promedio ponderado de las surtidas recientes (últimas 6 semanas) de la unidad.
+// Si no hay surtidas costeadas en memoria, devuelve null (nunca inventa un precio).
+function _devDerivarCosto(cam, fecha){
+  try{
+    var fRef = fecha || fechaVE();
+    var dRef = new Date(fRef+'T12:00:00');
+    var fMin = new Date(dRef.getTime() - 42*86400000).toISOString().slice(0,10);
+    var pool = (SURT_ADMIN&&SURT_ADMIN.length ? SURT_ADMIN : []).concat(SURTIDAS||[]);
+    var vistos={}, sumUsd=0, sumLit=0;
+    pool.forEach(function(s){
+      if(!s || String(s.cam)!==String(cam)) return;
+      var k = s.id || (s.fecha+'|'+s.cam+'|'+s.litros);
+      if(vistos[k]) return; vistos[k]=1;
+      var f = String(s.fecha||'').slice(0,10);
+      if(f<fMin || f>fRef) return;
+      var l = parseFloat(s.litros)||0, u = parseFloat(s.costo_usd)||0;
+      if(l>0 && u>0){ sumLit+=l; sumUsd+=u; }
+    });
+    if(sumLit>0 && sumUsd>0){
+      return { cl: Math.round((sumUsd/sumLit)*10000)/10000, origen: 'promedio ponderado de las surtidas de la unidad (últimas 6 semanas)' };
+    }
+  }catch(e){}
+  return null;
+}
+
+async function _devPersistir(opts){
+  var fecha = String(opts.fecha||'').trim();
+  if(!fecha){ mostrarToast('Seleccioná la fecha del traslado','error'); return false; }
+  var cam = String(opts.cam||'').trim();
+  if(!cam){ mostrarToast('Elegí de cuál camión salió el combustible','error'); return false; }
+  var tanque = String(opts.tanque||'').trim();
+  if(!tanque){ mostrarToast('Elegí a cuál tanque del galpón entró','error'); return false; }
+  var lit = opts.lit;
+  if(!(lit>0)){ mostrarToast('Escribí cuántos litros se trasladaron','error'); return false; }
+  if(lit>DEV_MAX_L){
+    mostrarToast('En el tanque de un camión no caben '+lit.toLocaleString('es-VE')+' L (el máximo es '+DEV_MAX_L.toLocaleString('es-VE')+'). Revisá el número.','error');
+    if(opts.litEl){ try{ opts.litEl.focus(); opts.litEl.select(); }catch(e){} }
+    return false;
+  }
+  var nota = String(opts.nota||'').trim();
+  var tqLbl = _devTanqueLbl(tanque);
+  if(!confirm('¿Registrar traslado el '+formatFecha(fecha)+' de '+lit.toLocaleString('es-VE')+' L desde '+cam+' hacia el tanque '+tqLbl+'?\n\n'+
+              'Se acredita a la unidad y entra al tanque interno del galpón (no genera deuda/CxP).')) return false;
+
+  var btn=opts.btn; var t0=btn?btn.textContent:'';
+  if(btn){ btn.disabled=true; btn.textContent='Guardando…'; }
+  var row={
+    id:'DT-'+Date.now(),
+    fecha:fecha,
+    cam:cam,
+    tanque:tanque,
+    litros:lit,
+    motivo:'traslado al tanque del galpón',
+    nota:nota||null,
+    registrado_por:(SESION&&SESION.nombre)||''
+  };
+  var cDer = _devDerivarCosto(cam, fecha);
+  if(cDer){
+    row.costo_litro_usd = cDer.cl;
+    row.costo_usd = Math.round(lit * cDer.cl * 100)/100;
+    row.costo_origen = cDer.origen;
+  }
+  var ok=false;
+  try{
+    if(DB_READY&&supabase){
+      var res=await supabase.from('devoluciones_tanque').insert([row]).select();
+      if(res.error){ mostrarToast('No se pudo guardar: '+res.error.message,'error'); }
+      else if(!res.data||!res.data.length){ mostrarToast('No se guardó: la base no devolvió la fila','error'); }
+      else ok=true;
+    }
+    if(!ok) guardarEnCola('devoluciones_tanque',row);
+    try{ audit('devolucion_tanque', formatFecha(fecha)+' · '+cam+' → '+tqLbl+' · '+lit+' L'+(nota?(' · '+nota):'')); }catch(e){}
+    mostrarToast(ok?'✅ Traslado al galpón registrado ('+formatFecha(fecha)+')':'📵 Guardado (se sube al reconectar)','exito');
+    try{ if(typeof cargarDevolucionesUnidad==='function') cargarDevolucionesUnidad(); }catch(e){}
+    devLista();
+    return true;
+  }catch(e){ mostrarToast('No se pudo guardar: '+(e&&e.message||e),'error'); return false; }
+  finally {
+    if(btn){ btn.disabled=false; btn.textContent=t0||'✅ Registrar Traslado al Galpón'; }
+  }
+}
+
+async function devGuardar(){
+  var ok = await _devPersistir({
+    fecha: gv('dev-fecha'),
+    cam: gv('dev-cam'),
+    tanque: DEV_TANQUE,
+    lit: _devLit(''),
+    litEl: g('dev-lit'),
+    nota: (g('dev-nota')||{}).value||'',
+    btn: g('dev-btn')
+  });
+  if(ok){
+    try{ g('dev-lit').value=''; g('dev-nota').value=''; devLitInput(''); }catch(e){}
+    try{ sv('dev-cam',''); }catch(e){}
+    DEV_TANQUE=null; devTanque(null);
+  }
+}
+
+async function devLista(){
+  var el=g('dev-lista'), tb=g('comb-dev-lista');
+  if(!el && !tb) return;
+  if(!(DB_READY&&supabase)){
+    if(el) el.textContent='Sin conexión a la base.';
+    if(tb) tb.innerHTML='<tr><td colspan="6" style="text-align:center;color:var(--text3)">Sin conexión a la base.</td></tr>';
+    return;
+  }
+  var r=await supabase.from('devoluciones_tanque').select('*')
+    .order('fecha',{ascending:false}).order('created_at',{ascending:false}).limit(15);
+  if(r.error){
+    if(el) el.innerHTML='<span style="color:var(--red)">No se pudo leer: '+_mEsc(r.error.message)+'</span>';
+    if(tb) tb.innerHTML='<tr><td colspan="6" style="color:var(--red)">No se pudo leer: '+_mEsc(r.error.message)+'</td></tr>';
+    return;
+  }
+  var d=r.data||[];
+  if(!d.length){
+    if(el) el.textContent='Todavía no se registró ningún traslado de camión al galpón.';
+    if(tb) tb.innerHTML='<tr><td colspan="6" style="text-align:center;color:var(--text3)">Todavía no se registró ningún traslado de camión al galpón.</td></tr>';
+    return;
+  }
+  if(el){
+    el.innerHTML=d.slice(0,10).map(function(x){
+      return '<div style="padding:5px 0;border-bottom:1px solid var(--border)">'+
+        '<b>'+_mEsc(x.cam)+'</b> → <b>🛢️ '+_mEsc(_devTanqueLbl(x.tanque))+'</b> · '+
+        '<span style="font-family:var(--m);color:var(--green2)">'+(parseFloat(x.litros)||0).toLocaleString('es-VE')+' L</span> · '+
+        formatFecha(x.fecha)+
+        (x.nota?('<br><span style="color:var(--text3)">'+_mEsc(x.nota)+'</span>'):'')+
+        '</div>';
+    }).join('');
+  }
+  if(tb){
+    tb.innerHTML=d.map(function(x){
+      var obs = [x.motivo, x.nota].filter(Boolean).join(' · ') || '—';
+      return '<tr><td>'+formatFecha(x.fecha)+'</td><td style="font-weight:700">'+_mEsc(x.cam)+'</td>'+
+        '<td>🛢️ '+_mEsc(_devTanqueLbl(x.tanque))+'</td>'+
+        '<td style="text-align:right;font-family:var(--m);color:var(--green2)">'+(parseFloat(x.litros)||0).toLocaleString('es-VE')+' L</td>'+
+        '<td style="font-size:11px;color:var(--text3)">'+_mEsc(obs)+'</td>'+
+        '<td style="font-size:11px;color:var(--text3)">'+_mEsc(x.registrado_por||'—')+'</td></tr>';
+    }).join('');
+  }
+}
+
+// ── MÓDULO COMBUSTIBLE: Movimientos de Patio (pestañas y wrappers) ──────────────────────
+function combSwitchMovTab(tab){
+  ['dev','trs','stq'].forEach(function(k){
+    var p=g('comb-panel-'+k), b=g('comb-tab-'+k);
+    if(p) p.style.display=(k===tab)?'block':'none';
+    if(b){
+      if(k===tab){ b.classList.remove('btn-s'); b.classList.add('btn-g'); }
+      else { b.classList.remove('btn-g'); b.classList.add('btn-s'); }
+    }
+  });
+}
+function combMovIniciar(){
+  var hoy = fechaVE();
+  ['tank-f','gcomp-f','gp-f','comb-dev-fecha','comb-trs-fecha','comb-stq-fecha'].forEach(function(id){
+    var el=g(id); if(el && !el.value) el.value=hoy;
+  });
+  trsLlenarSelects();
+  devLlenarSelects();
+  devLista();
+  trsLista();
+  stqRenderLista();
+}
+function combStqLitInput(){
+  var h=g('comb-stq-lit-hint'); if(!h) return;
+  var v=String((g('comb-stq-lit')||{}).value||'').replace(',','.').trim();
+  var l=parseFloat(v);
+  if(!isFinite(l)||l<=0){ h.textContent=''; return; }
+  if(l>STQ_MAX_L){ h.style.color='var(--red)'; h.textContent='⛔ '+l.toLocaleString('es-VE')+' L no caben en el tanque (máximo '+STQ_MAX_L.toLocaleString('es-VE')+' L).'; }
+  else { h.style.color='var(--text3)'; h.textContent=l.toLocaleString('es-VE')+' L'; }
+}
+async function combDevGuardar(){
+  var ok = await _devPersistir({
+    fecha: gv('comb-dev-fecha'),
+    cam: gv('comb-dev-cam'),
+    tanque: gv('comb-dev-tanque'),
+    lit: _devLit('comb-'),
+    litEl: g('comb-dev-lit'),
+    nota: (g('comb-dev-nota')||{}).value||'',
+    btn: g('comb-dev-btn')
+  });
+  if(ok){
+    try{ g('comb-dev-lit').value=''; g('comb-dev-nota').value=''; devLitInput('comb-'); }catch(e){}
+    try{ sv('comb-dev-cam',''); }catch(e){}
+  }
+}
+async function combTrsGuardar(){
+  var ok = await _trsPersistir({
+    fecha: gv('comb-trs-fecha'),
+    origen: gv('comb-trs-origen'),
+    destino: gv('comb-trs-destino'),
+    lit: _trsLit('comb-trs-lit'),
+    litEl: g('comb-trs-lit'),
+    nota: (g('comb-trs-nota')||{}).value||'',
+    btn: g('comb-trs-btn')
+  });
+  if(ok){
+    try{ g('comb-trs-lit').value=''; g('comb-trs-nota').value=''; combTrsLitInput(); }catch(e){}
+    try{ sv('comb-trs-origen',''); sv('comb-trs-destino',''); }catch(e){}
+  }
+}
+async function combStqGuardar(){
+  var v=String((g('comb-stq-lit')||{}).value||'').replace(',','.').trim();
+  var lit=parseFloat(v);
+  var ok = await _stqPersistir({
+    fecha: gv('comb-stq-fecha'),
+    tanque: gv('comb-stq-tanque'),
+    lit: isFinite(lit)?lit:null,
+    litEl: g('comb-stq-lit'),
+    destino: gv('comb-stq-destino'),
+    nota: (g('comb-stq-nota')||{}).value||'',
+    btn: g('comb-stq-btn')
+  });
+  if(ok){
+    try{ g('comb-stq-lit').value=''; g('comb-stq-nota').value=''; combStqLitInput(); }catch(e){}
+  }
 }
 
 function operRenderParroquias(hoy){
