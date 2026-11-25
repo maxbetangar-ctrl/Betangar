@@ -319,18 +319,30 @@ Deno.serve(async (req)=>{
       // Devuelve null si no hay ni un movimiento — de la nada no sale un cero.
       const saldoDeMovimientos = async (acc: string): Promise<number | null> => {
         try {
-          const u = `${Deno.env.get("SUPABASE_URL")}/rest/v1/bnc_movimientos` +
-            `?cuenta=eq.${encodeURIComponent(acc)}&select=tipo,monto`;
-          const rr = await fetch(u, { headers: { apikey: Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
-                      Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!}` } });
-          if (!rr.ok) return null;
-          const filas = await rr.json();
-          if (!Array.isArray(filas) || !filas.length) return null;
           let s = 0;
-          for (const f of filas) {
-            const v = parseFloat(f.monto || 0);
-            s += (String(f.tipo) === "debito") ? -v : v;
+          let count = 0;
+          const PAGE = 1000;
+          for (let offset = 0; offset < 50000; offset += PAGE) {
+            const u = `${Deno.env.get("SUPABASE_URL")}/rest/v1/bnc_movimientos` +
+              `?cuenta=eq.${encodeURIComponent(acc)}&select=tipo,monto&order=id.asc`;
+            const rr = await fetch(u, {
+              headers: {
+                apikey: Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+                Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!}`,
+                Range: `${offset}-${offset + PAGE - 1}`,
+              },
+            });
+            if (!rr.ok) return offset === 0 ? null : Math.round(s * 100) / 100;
+            const filas = await rr.json();
+            if (!Array.isArray(filas) || !filas.length) break;
+            for (const f of filas) {
+              const v = parseFloat(f.monto || 0);
+              s += (String(f.tipo) === "debito") ? -v : v;
+              count++;
+            }
+            if (filas.length < PAGE) break;
           }
+          if (!count) return null;
           return Math.round(s * 100) / 100;
         } catch (e) { console.error("saldoDeMovimientos", acc, String(e)); return null; }
       };
@@ -386,7 +398,7 @@ Deno.serve(async (req)=>{
           for (const m of movsHoy){
             const amt = parseFloat(m.Amount || 0);
             const delta = String(m.BalanceDelta || '').toLowerCase();
-            if (delta.includes('ingreso') || delta.includes('credito') || delta.includes('crÃ©dito')) ingresos += amt;
+            if (delta.includes('ingreso') || delta.includes('credito') || delta.includes('crédito')) ingresos += amt;
             else egresos += amt;
           }
         }

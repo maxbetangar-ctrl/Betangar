@@ -146,7 +146,11 @@ Deno.serve(async (req) => {
     // no deja ver el mensaje que se va a mandar, que es justo lo que se quiere revisar antes.
     const pendientes: any[] = [];
     for (const o of ops) {
-      const key = `divisa_banco_${o.ref_banco}_${String(o.fecha).slice(0, 10)}`;
+      // Clave separada para el aviso preliminar (cuando aún falta el abono USD) vs el definitivo:
+      // si se usara la misma clave, el aviso definitivo con monto USD y tasa real quedaría bloqueado para siempre.
+      const key = o.falta_el_abono
+        ? `divisa_banco_prelim_${o.ref_banco}_${String(o.fecha).slice(0, 10)}`
+        : `divisa_banco_${o.ref_banco}_${String(o.fecha).slice(0, 10)}`;
       if (await yaAviso(key)) continue;
 
       const viejo = diasEntre(String(o.fecha).slice(0, 10), hoy) > DIAS_FRESCO;

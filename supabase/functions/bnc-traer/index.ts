@@ -50,7 +50,8 @@ const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SRK = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 const sb = createClient(SUPABASE_URL, SRK);
 
-const hoyISO = () => new Date().toISOString().slice(0, 10);
+// Fecha de hoy en Venezuela (UTC-4), no UTC (a partir de las 20:00 VET cambiaba de día).
+const hoyISO = () => new Date(Date.now() - 4 * 3600 * 1000).toISOString().slice(0, 10);
 const dMas = (f: string, n: number) => { const d = new Date(f + 'T12:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
 // El BNC devuelve dd/mm/aaaa. Sin convertir, cualquier comparación de fechas falla en silencio.
 const iso = (s: string) => { const m = String(s || '').match(/^(\d{2})\/(\d{2})\/(\d{4})/); return m ? `${m[3]}-${m[2]}-${m[1]}` : String(s || '').slice(0, 10); };
@@ -287,6 +288,8 @@ Deno.serve(async (req) => {
     let cuentasOk = 0; const cuentasMal: string[] = [];
 
     for (const acc of cuentas) {
+      // Moneda real de la cuenta según saldo BNC (VES o USD) — evita guardar movimientos USD como VES.
+      const monedaAcc = String((saldo.saldos?.[acc]?.CurrencyCode ?? saldo.saldos?.[acc]?.currencyCode) || 'VES').toUpperCase();
       // try/catch POR CUENTA: si una falla, las demás igual se traen. Un solo fallo abortando el
       // lote dejaría la corrida marcada como buena pero con datos incompletos.
       try {
@@ -304,6 +307,7 @@ Deno.serve(async (req) => {
               id: 'bnc_' + cn,
               fecha: iso(m.Date),
               monto: Math.abs(Number(m.Amount) || 0),
+              moneda: monedaAcc,
               tipo: m.BalanceDelta === 'Egreso' ? 'debito' : 'credito',
               descripcion: lim(m.Concept) || lim(m.Type) || null,
               // `concepto_banco` guarda lo que dijo el BANCO, aparte de `descripcion` —que en los

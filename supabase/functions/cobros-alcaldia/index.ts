@@ -309,24 +309,35 @@ Deno.serve(async (req) => {
     // el sello `factura/pata` en `bnc_movimientos` (que lee `v_cobro_facturas`, o sea la pantalla).
     // Separadas fue como una pudo estar mal dos semanas sin que la otra lo notara.
     const nuevos = patas.filter((p) => p.mov && !p.yaGuardado);
-    const filas = nuevos.map((p) => ({
-      id: `${p.fact}-${p.pata}`, fact: p.fact, pata: p.pata,
-      fecha: p.mov!.fecha || p.fechaFact, banco: "BNC", referencia: p.mov!.ref,
-      monto_bs: p.mov!.bs, obs: `Reconocido solo por el supervisor: ${p.mov!.desc}`.slice(0, 300),
-      creado_por: "supervisor-cobros",
-    }));
+    // Deduplicar por id (fact-pata): si una factura tiene varios abonos parciales en la misma corrida,
+    // enviar dos filas con el mismo id en un solo POST ?on_conflict=id hace que Postgres aborte todo el batch.
+    const filasMap = new Map<string, any>();
+    for (const p of nuevos) {
+      const fid = `${p.fact}-${p.pata}`;
+      if (!filasMap.has(fid)) {
+        filasMap.set(fid, {
+          id: fid, fact: p.fact, pata: p.pata,
+          fecha: p.mov!.fecha || p.fechaFact, banco: "BNC", referencia: p.mov!.ref,
+          monto_bs: p.mov!.bs, obs: `Reconocido solo por el supervisor: ${p.mov!.desc}`.slice(0, 300),
+          creado_por: "supervisor-cobros",
+        });
+      }
+    }
+    const filas = Array.from(filasMap.values());
     if (filas.length && !dry) {
-      await fetch(`${SUPABASE_URL}/rest/v1/cobros_factura?on_conflict=id`, {
+      const rUp = await fetch(`${SUPABASE_URL}/rest/v1/cobros_factura?on_conflict=id`, {
         method: "POST",
         headers: { ...HDR, "Content-Type": "application/json", Prefer: "resolution=merge-duplicates,return=minimal" },
         body: JSON.stringify(filas),
       });
+      if (!rUp.ok) console.error("cobros_factura upsert fallo:", rUp.status, await rUp.text());
       for (const p of nuevos) {
-        await fetch(`${SUPABASE_URL}/rest/v1/bnc_movimientos?id=eq.${encodeURIComponent(p.mov!.id)}`, {
+        const rPat = await fetch(`${SUPABASE_URL}/rest/v1/bnc_movimientos?id=eq.${encodeURIComponent(p.mov!.id)}`, {
           method: "PATCH",
           headers: { ...HDR, "Content-Type": "application/json", Prefer: "return=minimal" },
-          body: JSON.stringify({ factura: p.fact, pata: p.pata }),
+          body: JSON.stringify({ factura: p.fact, pata: p.pata, conciliado: true }),
         });
+        if (!rPat.ok) console.error("bnc_movimientos patch fallo:", p.mov!.id, rPat.status);
       }
     }
 

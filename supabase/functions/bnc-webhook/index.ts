@@ -28,7 +28,8 @@ function parseFechaBNC(fecha: string, hora: string): string {
   if (!fecha || fecha.length < 8) return new Date().toISOString();
   const y = fecha.slice(0,4), m = fecha.slice(4,6), d = fecha.slice(6,8);
   const hh = hora ? hora.slice(0,2) : "00", mm = hora ? hora.slice(2,4) : "00";
-  return `${y}-${m}-${d}T${hh}:${mm}:00Z`;
+  // El BNC envía fecha y hora local de Venezuela (UTC-4), no UTC.
+  return `${y}-${m}-${d}T${hh}:${mm}:00-04:00`;
 }
 
 function labelTipo(tipo: string): string {
@@ -60,12 +61,30 @@ serve(async (req) => {
     const body = await req.json();
     const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
+    const refBnc = String(body.DestinyBankReference || body.OriginBankReference || "").trim();
+    const montoNum = parseFloat(body.Amount || "0");
+    const ctaDest = String(body.CreditorAccount || "").trim();
+    // Idempotencia ante reintentos HTTP del BNC: no duplicar notificación ni WhatsApps.
+    if (refBnc) {
+      const dup = await supabase.from("bnc_notificaciones")
+        .select("id")
+        .eq("referencia", refBnc)
+        .eq("monto", montoNum)
+        .eq("cuenta_destino", ctaDest)
+        .limit(1);
+      if (!dup.error && Array.isArray(dup.data) && dup.data.length > 0) {
+        return new Response(JSON.stringify({ status: "duplicado", id: dup.data[0].id }), {
+          status: 200, headers: { "Content-Type": "application/json" }
+        });
+      }
+    }
+
     const { data, error } = await supabase.from("bnc_notificaciones").insert([{
       payload_raw:    JSON.stringify(body),
-      cuenta_destino: body.CreditorAccount || "",
+      cuenta_destino: ctaDest,
       cuenta_origen:  body.DebtorAccount || "",
-      monto:          parseFloat(body.Amount || "0"),
-      referencia:     body.DestinyBankReference || body.OriginBankReference || "",
+      monto:          montoNum,
+      referencia:     refBnc,
       tipo:           body.PaymentType || "",
       tipo_label:     labelTipo(body.PaymentType || ""),
       fecha_recibido: parseFechaBNC(body.Date || "", body.Hour || ""),

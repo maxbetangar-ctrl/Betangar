@@ -1621,18 +1621,17 @@ function aplicarPermisos(){
   // ⚠️ `cerrar-sesion` y `seguridad-2fa` NO estan en NAV_LABELS —comprobado por dos
   //    vias antes de tocar esto—, asi que este bucle no los alcanza y nadie puede
   //    quedarse sin poder salir.
+  var _tieneHubFin=['financiero','proveedores','cajachica'].some(function(k){return perms.indexOf(k)>=0;});
   Object.keys(NAV_LABELS).forEach(function(p){
     var mi=document.getElementById('mi-'+p);
     if(!mi)return;
-    if(perms.indexOf(p)>=0){ mi.style.display='flex'; }
+    if(perms.indexOf(p)>=0 || (p==='financiero'&&_tieneHubFin)){ mi.style.display='flex'; }
     else { mi.remove(); }
   });
   // El item de menú "💰 Finanzas" (mi-financiero → abrirFinanzas) es un HUB que agrupa
-  // proveedores/financiero/cajachica. Antes solo aparecía con la llave 'financiero' → un rol con
-  // 'proveedores' pero sin 'financiero' (RRHH) NUNCA veía la entrada y no podía llegar a Proveedores.
-  // Ahora se muestra si el rol tiene CUALQUIERA de los sub-módulos (abrirFinanzas abre el primero que tenga).
+  // proveedores/financiero/cajachica. Evaluado arriba antes del remove() para no borrarlo.
   var miFin=document.getElementById('mi-financiero');
-  if(miFin)miFin.style.display=(['financiero','proveedores','cajachica'].some(function(k){return perms.indexOf(k)>=0;}))?'flex':'none';
+  if(miFin)miFin.style.display=_tieneHubFin?'flex':'none';
   // Botón cerrar sesión siempre visible para TODOS los roles
   var miLogout=document.getElementById('mi-cerrar-sesion');
   if(miLogout)miLogout.style.display='flex';
@@ -5816,7 +5815,7 @@ function _infHtml(D,desde,hasta,paraImprimir){
   return html;
 }
 async function imprimirInforme(){
-  var d=gv('inf-des')||'2026-03-23', h=gv('inf-hta')||new Date().toISOString().slice(0,10);
+  var d=gv('inf-des')||'2026-03-23', h=gv('inf-hta')||(typeof fechaVE==='function'?fechaVE():new Date().toISOString().slice(0,10));
   // ⛔ LA CABECERA Y LOS NÚMEROS TIENEN QUE SER DEL MISMO PERÍODO.
   // Antes bastaba con que INF_DATA existiera. Pero los `input[type=date]` disparan `change` al
   // PERDER EL FOCO: si alguien escribe una fecha nueva y hace clic directo en «Imprimir», el clic
@@ -6488,7 +6487,7 @@ function relSelectCat(id,actual){
 }
 async function relRenderPendientes(cont,est){
   var r=await supabase.from('bnc_movimientos')
-    .select('id,fecha,monto,tipo,descripcion,concepto_banco,referencia,categoria,es_gasto,control_number,cuenta')
+    .select('id,fecha,monto,moneda,tipo,descripcion,concepto_banco,referencia,categoria,es_gasto,control_number,cuenta')
     .in('categoria',['sin_clasificar','⏳pendiente_explicar']).order('fecha',{ascending:false}).limit(500);
   if(r.error)throw new Error(r.error.message);
   var ms=r.data||[];
@@ -6498,14 +6497,15 @@ async function relRenderPendientes(cont,est){
     '<div style="font-size:12px;color:var(--text3);margin-top:4px">Todos los movimientos del banco tienen categoría.</div></div>'; return; }
   cont.innerHTML=ms.map(function(m){
     var esSal=m.tipo==='debito';
+    var esBs=(typeof bncEsBs==='function')?bncEsBs(m):(String(m.moneda||'VES').toUpperCase()==='VES');
     var tasa=(typeof getTasaFecha==='function'&&getTasaFecha(m.fecha,'dolar'))||0;
+    var montoHtml=(typeof bncMontoTxt==='function')?bncMontoTxt(m,2):((esBs?'Bs ':'US$ ')+Number(m.monto).toLocaleString('es-VE',{minimumFractionDigits:2}));
+    var eqHtml=esBs?(tasa?'<span style="font-size:11px;color:var(--text3);font-weight:400"> · $'+(Number(m.monto)/tasa).toFixed(2)+'</span>':''):'';
     return '<div class="card" style="margin-bottom:10px">'+
       '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap">'+
         '<div><span class="badge '+(esSal?'br':'bg')+'">'+(esSal?'↑ Salida':'↓ Entrada')+'</span> '+
           '<b style="margin-left:6px">'+formatFecha(m.fecha)+'</b></div>'+
-        '<div style="font-family:var(--m);font-weight:800;color:'+(esSal?'var(--red)':'var(--green)')+'">Bs '+
-          Number(m.monto).toLocaleString('es-VE',{minimumFractionDigits:2})+
-          (tasa?'<span style="font-size:11px;color:var(--text3);font-weight:400"> · $'+(Number(m.monto)/tasa).toFixed(2)+'</span>':'')+'</div>'+
+        '<div style="font-family:var(--m);font-weight:800;color:'+(esSal?'var(--red)':'var(--green)')+'">'+montoHtml+eqHtml+'</div>'+
       '</div>'+
       // Las DOS versiones del concepto. No dicen lo mismo y ninguna gana siempre: el fiel de la
       // factura 000627 quedó anotado como «Credito Inmediato Recibido» y el banco lo llama
@@ -6540,11 +6540,12 @@ async function relGuardar(id,esSalida){
   var fila={categoria:cat, es_gasto:esGasto, clasificado_por:'manual:'+quien, clasificado_at:new Date().toISOString()};
   var ok=false;
   try{
-    var res=await supabase.from('bnc_movimientos').update(fila).eq('id',id);
-    if(res.error){ mostrarToast('No se pudo guardar: '+res.error.message,'error'); }
+    var res=await supabase.from('bnc_movimientos').update(fila).eq('id',id).select();
+    if(res&&res.error){ mostrarToast('No se pudo guardar: '+res.error.message,'error'); }
+    else if(!(res&&res.data&&res.data.length)){ mostrarToast('La base no actualizó el movimiento (revisá permisos).','error'); }
     else ok=true;
   }catch(e){ mostrarToast('No se pudo guardar: '+(e.message||e),'error'); }
-  if(!ok){ if(typeof guardarEnCola==='function')guardarEnCola('bnc_movimientos',Object.assign({id:id},fila),'id'); return; }
+  if(!ok){ return; }
   audit('relacion_clasificar','mov '+id+' → '+cat+(esGasto?' (gasto)':' (no es gasto)'));
   mostrarToast('Guardado: '+relNombreCat(cat),'exito');
   renderRelacion();
@@ -7591,7 +7592,7 @@ async function cargarDatosDB(){
     if(cxp.data&&cxp.data.length)CXP=cxp.data.map(_normCxpRow); // mismo normalizador que cargarCxP (ambos esquemas → sin $NaN)
     // PROVEEDORES
     if(pv.data&&pv.data.length)PROVEEDORES=pv.data.map(function(x){return{
-        id:x.id,nombre:x.nombre,rif:x.rif||'',
+        id:x.id,nombre:x.nombre,razon_social:x.razon_social||'',rif:x.rif||'',
         banco:x.banco||'',tcuenta:x.tcuenta||'',ncuenta:x.ncuenta||'',
         tel:x.tel||'',cat:x.categoria||'',
         tasa:x.tasa||'bcvDolar',
@@ -8466,7 +8467,9 @@ function bncMovGuardar(id){ // re-persiste un movimiento ya existente tras cambi
 // abriera la pantalla se insertaría todo de nuevo.
 function bncFilaBanco(m){
   var cn=String(m._cn||'').trim(); if(!cn)return null;   // sin ControlNumber NO se guarda: no hay llave
-  return { id:'bnc_'+cn, fecha:String(m.fecha||'').slice(0,10), monto:Math.abs(Number(m.bs)||0),
+  var mon=String(m._moneda||'VES').toUpperCase();
+  var montoOrig=(mon!=='VES'&&m._montoOrig!=null)?Math.abs(Number(m._montoOrig)||0):Math.abs(Number(m.bs)||0);
+  return { id:'bnc_'+cn, fecha:String(m.fecha||'').slice(0,10), monto:montoOrig, moneda:mon,
     tipo:(m.tipo==='ingreso'?'credito':'debito'), descripcion:m.desc||null, referencia:m.ref||null,
     // `concepto_banco` = lo que dijo el BANCO, en columna aparte de `descripcion`, que en los
     // movimientos viejos trae lo que anotó la oficina y no se pisa. NO son lo mismo y hace falta
@@ -8487,27 +8490,19 @@ async function bncGuardarDesdeBanco(movs){
   movs.forEach(function(m){ var f=bncFilaBanco(m); if(f)filas.push(f); else sin++; });
   if(!filas.length)return {ok:0,sin:sin,error:null};
   if(!(DB_READY&&supabase)){
-    // Sin base: a la cola offline, que ya es idempotente por 'id' (y el id viene del ControlNumber).
-    if(typeof guardarEnCola==='function')filas.forEach(function(f){guardarEnCola('bnc_movimientos',f,'id');});
-    return {ok:0,sin:sin,error:'sin conexión — quedó en la cola'};
+    // NO encolar bnc_movimientos en guardarEnCola (que hace upsert sin ignoreDuplicates y pisaría
+    // descripciones manuales de administración); bnc-traer y la próxima apertura lo re-traen idempotente.
+    return {ok:0,sin:sin,error:'sin conexión — se sincronizará al reconectar'};
   }
   var ok=0,err=null;
   // En tandas: un upsert de 2.000 filas de una vez se cae por tamaño de payload.
   for(var i=0;i<filas.length;i+=200){
     var tanda=filas.slice(i,i+200);
     try{
-      // ⛔ `ignoreDuplicates:true` (= ON CONFLICT DO NOTHING) NO es un detalle: es lo que impide
-      // que el traído del banco PISE lo que ya está guardado. La descripción de los movimientos
-      // viejos trae la clasificación que escribió la administración («… — PAGO DE NÓMINA»,
-      // «E/S EL PALOTAL - GASOIL 2.289 LITROS»), que la API del BNC NO da: ella devuelve el texto
-      // crudo de la transferencia. Con un upsert normal (DO UPDATE) cada visita a la pantalla
-      // borraría ese trabajo y la clasificación se quedaría sin la única fuente que la explica.
       var res=await supabase.from('bnc_movimientos').upsert(tanda,{onConflict:'control_number',ignoreDuplicates:true});
-      if(res&&res.error){ err=res.error.message; console.error('bnc banco persist:',err);
-        if(typeof guardarEnCola==='function')tanda.forEach(function(f){guardarEnCola('bnc_movimientos',f,'id');}); }
+      if(res&&res.error){ err=res.error.message; console.error('bnc banco persist:',err); }
       else ok+=tanda.length;
-    }catch(e){ err=e.message;
-      if(typeof guardarEnCola==='function')tanda.forEach(function(f){guardarEnCola('bnc_movimientos',f,'id');}); }
+    }catch(e){ err=e.message; }
   }
   // Clasificar lo recién entrado. Si no se llama, la categoría queda NULL y el movimiento no
   // aparece en ningún cuadro: se pierde en silencio, que es peor que no haberlo traído.
@@ -10093,7 +10088,7 @@ function _asegurarEgresosBanco(alLlegar){
 async function cargarEgresosBanco(desde,hasta){
   if(!(DB_READY&&supabase)||DEMO_MODE)return null;
   try{
-    var d=desde||'2026-01-01', h=hasta||new Date().toISOString().slice(0,10);
+    var d=desde||'2026-01-01', h=hasta||(typeof fechaVE==='function'?fechaVE():new Date().toISOString().slice(0,10));
     var r=await _rpc('btg_resumen_socio',{p_desde:d,p_hasta:h});
     if(r.error){ console.error('btg_resumen_socio:',r.error.message); return null; }
     var x=Array.isArray(r.data)?r.data[0]:r.data;
@@ -10241,7 +10236,7 @@ function financiadoraDevengadaUsd(des,hta){
 //    [[norma-un-candado-que-vacia-una-columna-no-se-nota]]
 async function _gastoBancoRango(desde,hasta){
   if(!(DB_READY&&supabase)||DEMO_MODE)return {error:'sin conexión a la base'};
-  var d=(desde||'').slice(0,10)||'2026-01-01', h=(hasta||'').slice(0,10)||new Date().toISOString().slice(0,10);
+  var d=(desde||'').slice(0,10)||'2026-01-01', h=(hasta||'').slice(0,10)||(typeof fechaVE==='function'?fechaVE():new Date().toISOString().slice(0,10));
   try{
     var r=await _rpc('btg_resumen_socio',{p_desde:d,p_hasta:h});
     if(r.error)return {error:r.error.message||String(r.error)};
@@ -12060,7 +12055,7 @@ function calcMontoAbono(){
   // ⛔ LA TARIFA DEL DESCUENTO SOLO SE USA SI SE MARCO EL PAGO. Por defecto manda la de
   // CONTRATO: el viaje vale lo mismo siempre, y el descuento es una concesion de ESTE pago.
   var _conDesc=!!(g('ab-desc')&&g('ab-desc').checked);
-  var tarifa=(_conDesc&&cfg.tarifaProntoPago>0)?cfg.tarifaProntoPago:tarifaDe(gv('ab-fecha'));
+  var tarifa=(_conDesc&&cfg.tarifaProntoPago>0)?cfg.tarifaProntoPago:tarifaDe(gv('ab-f'));
   // Que se vea EN NUMEROS cuanto se esta regalando, antes de apretar Registrar. Un descuento
   // que no muestra su costo se da sin pensarlo. [[norma-un-mensaje-negativo-debe-decir-cual-causa]]
   var _sub=g('ab-desc-sub');
@@ -12103,6 +12098,7 @@ async function guardarAbono(){
           // La decision del descuento viaja CON el pago: es lo que lo explica despues.
           descuento:!!(g('ab-desc')&&g('ab-desc').checked)};
   if(!ab.f||!(ab.m>0)){alert('Completa la fecha y un monto MAYOR a 0.');return;}
+  if(typeof _bloqueoPeriodo==='function'&&_bloqueoPeriodo(ab.f,'registrar abono'))return;
   // La FACTURA es la identidad del abono (NO la fecha). Exigirla evita que el mismo pago
   // entre dos veces con fechas distintas.
   if(!ab.fact){alert('Escribe el numero de factura.\n\nLa factura es la que identifica el abono (no la fecha), para que el mismo pago no se duplique.');return;}
@@ -12191,7 +12187,7 @@ async function guardarAbono(){
   if(typeof WA_SEND==='function')WA_SEND('584145253105','',_msgAbono); // Alejandro Castillo (todo ingreso, alta 13/08/2026)
   renderAbonos();renderDash();
   ['ab-f','ab-fact','ab-v','ab-m','ab-obs','ab-ref'].forEach(function(id){sv(id,'');});
-  var hoy=new Date().toISOString().split('T')[0];sv('ab-f',hoy);
+  var hoy=(typeof fechaVE==='function')?fechaVE():new Date().toISOString().split('T')[0];sv('ab-f',hoy);
 }
 
 function renderAbonos(){
@@ -12243,34 +12239,45 @@ function renderAbonos(){
         '<td style="font-family:var(--m);font-size:10px">'+a.ref+'</td>'+
         '<td style="font-size:11px;color:var(--text2)">'+a.obs+'</td>'+
         '<td style="display:flex;gap:4px">'+
-          '<button class="btn btn-xs" style="background:var(--teal);color:#fff" onclick="abrirEditarAbono(this)" data-fact="'+a.fact+'" data-f="'+a.f+'" data-v="'+a.v+'" data-m="'+a.m+'" data-obs="'+a.obs+'" data-ref="'+a.ref+'">✏</button>'+
-          '<button class="btn btn-r btn-xs" onclick="eliminarAbono(this.dataset.fact)" data-fact="'+a.fact+'">✕</button>'+
+          '<button class="btn btn-xs" style="background:var(--teal);color:#fff" onclick="abrirEditarAbono(this)" data-fact="'+a.fact+'" data-f="'+a.f+'" data-v="'+a.v+'" data-m="'+a.m+'" data-obs="'+(a.obs||'').replace(/"/g,'&quot;')+'" data-ref="'+(a.ref||'').replace(/"/g,'&quot;')+'" data-desc="'+(a.descuento?'1':'0')+'">✏</button>'+
+          '<button class="btn btn-r btn-xs" onclick="eliminarAbono(this.dataset.fact,this.dataset.ref)" data-fact="'+a.fact+'" data-ref="'+(a.ref||'').replace(/"/g,'&quot;')+'">✕</button>'+
         '</td>';
       return tr.outerHTML;
     });
     tb.innerHTML=rows.join('');
   }
 }
-function eliminarAbono(fact){
-  // El abono es DINERO (cobro): igual que préstamos/multas/planilla, borrarlo exige TOKEN de
-  // autorización. El token reemplaza al confirm: si no es superadmin, Maximo/Francisco aprueban
-  // y la acción la ejecuta el superadmin server-side (accionData op:'del').
-  var ab=ABONOS.find(function(a){return String(a.fact)===String(fact);});
-  solicitarToken('Eliminar abono Fact #'+fact+(ab?' ($'+ab.m+')':''),function(motivo){
-    ABONOS=ABONOS.filter(function(a){return String(a.fact)!==String(fact);});
-    renderAbonos();renderDash();
-    try{localStorage.setItem('betangar_abonos',JSON.stringify(ABONOS));}catch(e){}
-    // Borrado via REST directo con el JWT de sesión (no depende de DB_READY) y se AVISA si falla,
-    // para que el borrado quede de verdad. (Antes, sin DB_READY listo, reaparecía al recargar.)
-    fetch(SUPA_URL+'/rest/v1/abonos?fact=eq.'+encodeURIComponent(fact),{
-      method:'DELETE',
-      headers:_tokRestHdr({'Prefer':'return=minimal'})
-    }).then(function(r){
-      if(!r.ok){r.text().then(function(t){if(typeof mostrarToast==='function')mostrarToast('No se pudo borrar el abono en la nube ('+fact+'): '+t,'error');});}
-      else{console.log('Abono eliminado de Supabase: fact='+fact);if(typeof mostrarToast==='function')mostrarToast('🗑️ Abono '+fact+' eliminado','exito');}
-    }).catch(function(e){if(typeof mostrarToast==='function')mostrarToast('Sin conexion: el borrado del abono '+fact+' no se guardo. Reintenta.','error');});
-    audit('Abono ELIMINADO','Fact #'+fact+(ab?' $'+ab.m:'')+' — '+motivo);
-  },{op:'del',tabla:'abonos',col:'fact',val:String(fact)});
+function eliminarAbono(fact,ref){
+  var refStr=(ref==null)?'':String(ref);
+  var ab=ABONOS.find(function(a){return String(a.fact)===String(fact)&&String(a.ref||'')===refStr;});
+  if(ab&&typeof _bloqueoPeriodo==='function'&&_bloqueoPeriodo(ab.f,'eliminar abono'))return;
+  var q='fact=eq.'+encodeURIComponent(fact)+'&ref=eq.'+encodeURIComponent(refStr);
+  solicitarToken('Eliminar abono Fact #'+fact+(refStr?' Ref '+refStr:'')+(ab?' ($'+ab.m+')':''),async function(motivo){
+    try{
+      if(typeof _ensureJWT==='function'){try{await _ensureJWT();}catch(e){}}
+      var r=await fetch(SUPA_URL+'/rest/v1/abonos?'+q,{
+        method:'DELETE',
+        headers:_tokRestHdr({'Prefer':'return=representation'})
+      });
+      if(!r.ok){
+        var t=await r.text();
+        if(typeof mostrarToast==='function')mostrarToast('No se pudo borrar el abono en la nube ('+fact+'): '+t,'error');
+        return;
+      }
+      var delRows=null; try{delRows=await r.json();}catch(e){}
+      if(!Array.isArray(delRows)||!delRows.length){
+        if(typeof mostrarToast==='function')mostrarToast('La base no borró ninguna fila del abono '+fact+' (revisá permisos/referencia).','error');
+        return;
+      }
+      ABONOS=ABONOS.filter(function(a){return !(String(a.fact)===String(fact)&&String(a.ref||'')===refStr);});
+      renderAbonos();renderDash();
+      try{localStorage.setItem('betangar_abonos',JSON.stringify(ABONOS));}catch(e){}
+      if(typeof mostrarToast==='function')mostrarToast('🗑️ Abono '+fact+(refStr?' ('+refStr+')':'')+' eliminado','exito');
+      audit('Abono ELIMINADO','Fact #'+fact+(refStr?' Ref:'+refStr:'')+(ab?' $'+ab.m:'')+' — '+motivo);
+    }catch(e){
+      if(typeof mostrarToast==='function')mostrarToast('Sin conexion: el borrado del abono '+fact+' no se guardo. Reintenta.','error');
+    }
+  },{op:'del',tabla:'abonos',col:'fact',val:String(fact),ref:refStr});
 }
 
 function abrirEditarAbono(btn){
@@ -12280,32 +12287,47 @@ function abrirEditarAbono(btn){
   var m=btn.dataset.m;
   var obs=btn.dataset.obs||'';
   var ref=btn.dataset.ref||'';
+  var descFlag=btn.dataset.desc==='1';
+  if(typeof _bloqueoPeriodo==='function'&&_bloqueoPeriodo(f,'editar abono'))return;
   var nf=prompt('Fecha (YYYY-MM-DD):',f); if(!nf)return;
-  var nv=prompt('Viajes pagados:',v); if(!nv)return;
+  if(typeof _bloqueoPeriodo==='function'&&_bloqueoPeriodo(nf,'editar abono'))return;
+  var nv=prompt('Viajes pagados:',v); if(nv===null)return;
   var nm=prompt('Monto $:',m); if(!nm)return;
-  var nobs=prompt('Observación:',obs)||obs;
-  // El abono es DINERO: editarlo exige TOKEN. El set (columnas de BD) se serializa en accionData
-  // para que el superadmin aplique el PATCH server-side al aprobar (op:'upd').
-  var dbSet={f:nf,v:parseInt(nv),m:parseInt(nm),obs:nobs};
-  solicitarToken('Editar abono Fact #'+fact,function(motivo){
-    // Actualizar en array local
-    ABONOS=ABONOS.map(function(a){
-      if(String(a.fact)===String(fact)) return {f:nf,fact:a.fact,v:parseInt(nv),m:parseInt(nm),obs:nobs,ref:ref,contrato:a.contrato||null};
-      return a;
-    });
-    renderAbonos();renderDash();
-    try{localStorage.setItem('betangar_abonos',JSON.stringify(ABONOS));}catch(e){}
-    // Actualizar en Supabase via REST directo (no depende de DB_READY, igual que el borrado)
-    fetch(SUPA_URL+'/rest/v1/abonos?fact=eq.'+encodeURIComponent(fact),{
-      method:'PATCH',
-      headers:_tokRestHdr({'Content-Type':'application/json','Prefer':'return=minimal'}),
-      body:JSON.stringify(dbSet)
-    }).then(function(r){
-      if(!r.ok){r.text().then(function(t){if(typeof mostrarToast==='function')mostrarToast('No se pudo actualizar el abono: '+t,'error');});}
-      else if(typeof mostrarToast==='function')mostrarToast('✏ Abono '+fact+' actualizado','exito');
-    }).catch(function(e){if(typeof mostrarToast==='function')mostrarToast('Sin conexion: el cambio del abono no se guardo. Reintenta.','error');});
-    audit('Abono EDITADO','Fact #'+fact+' → $'+dbSet.m+' — '+motivo);
-  },{op:'upd',tabla:'abonos',col:'fact',val:String(fact),set:dbSet});
+  var nmNum=Math.round((parseFloat(String(nm).replace(',','.'))||0)*100)/100;
+  if(!(nmNum>0)){alert('Monto inválido');return;}
+  var nobs=prompt('Observación:',obs); if(nobs===null)nobs=obs;
+  var dbSet={f:nf,v:parseInt(nv)||0,m:nmNum,obs:nobs,descuento:descFlag};
+  var q='fact=eq.'+encodeURIComponent(fact)+'&ref=eq.'+encodeURIComponent(ref);
+  solicitarToken('Editar abono Fact #'+fact+(ref?' Ref '+ref:''),async function(motivo){
+    try{
+      if(typeof _ensureJWT==='function'){try{await _ensureJWT();}catch(e){}}
+      var r=await fetch(SUPA_URL+'/rest/v1/abonos?'+q,{
+        method:'PATCH',
+        headers:_tokRestHdr({'Content-Type':'application/json','Prefer':'return=representation'}),
+        body:JSON.stringify(dbSet)
+      });
+      if(!r.ok){
+        var t=await r.text();
+        if(typeof mostrarToast==='function')mostrarToast('No se pudo actualizar el abono: '+t,'error');
+        return;
+      }
+      var updRows=null; try{updRows=await r.json();}catch(e){}
+      if(!Array.isArray(updRows)||!updRows.length){
+        if(typeof mostrarToast==='function')mostrarToast('La base no actualizó el abono '+fact,'error');
+        return;
+      }
+      ABONOS=ABONOS.map(function(a){
+        if(String(a.fact)===String(fact)&&String(a.ref||'')===String(ref)) return Object.assign({},a,{f:nf,v:dbSet.v,m:dbSet.m,obs:nobs,descuento:descFlag});
+        return a;
+      });
+      renderAbonos();renderDash();
+      try{localStorage.setItem('betangar_abonos',JSON.stringify(ABONOS));}catch(e){}
+      if(typeof mostrarToast==='function')mostrarToast('✏ Abono '+fact+' actualizado','exito');
+      audit('Abono EDITADO','Fact #'+fact+(ref?' Ref:'+ref:'')+' → $'+dbSet.m+' — '+motivo);
+    }catch(e){
+      if(typeof mostrarToast==='function')mostrarToast('Sin conexion: el cambio del abono no se guardo. Reintenta.','error');
+    }
+  },{op:'upd',tabla:'abonos',col:'fact',val:String(fact),ref:ref,set:dbSet});
 }
 function imprimirAbonos(){
   if(!ABONOS.length){alert('Sin abonos registrados');return;}
@@ -15574,9 +15596,34 @@ async function _osCancelarOrden(id){
   var o=(ORDENES_SERV||[]).find(function(x){return x.id===id;}); if(!o){alert('Orden no encontrada');return;}
   if(o.estado==='hecha'){alert('Esta orden ya fue marcada como HECHA; no se puede cancelar (quedó ligada a un mantenimiento).');return;}
   if(o.estado==='cancelada'){alert('Esta orden ya está cancelada.');return;}
+  var cxpLig=(typeof CXP!=='undefined'?CXP:[]).filter(function(c){return c.orden_id&&String(c.orden_id)===String(id)&&c.estado!=='anulada';});
+  if(cxpLig.length){
+    var salLig=cxpLig.reduce(function(a,c){return a+(typeof _cxpSaldoUsd==='function'?_cxpSaldoUsd(c):(parseFloat(c.neto_pagar)||0));},0);
+    if(!confirm('⚠️ Esta orden tiene '+cxpLig.length+' Cuenta(s) por Pagar enlazada(s) (saldo $'+salLig.toFixed(2)+').\n\nSi cancelás la orden, la CxP NO se borra sola y quedará como deuda abierta. ¿Continuar igual?'))return;
+  }
   var motivo=prompt('¿Por qué se cancela la orden '+id+'?\n\nEl registro NO se borra: queda en el historial marcado como CANCELADA con este motivo.');
   if(motivo===null)return; // cerró el prompt
   motivo=(motivo||'').trim(); if(!motivo){alert('Escribí el motivo de la cancelación.');return;}
+  solicitarToken('Cancelar orden '+id+': '+motivo, async function(motTok){
+    var usr=SESION?SESION.usuario:'?';
+    var sello='⛔ CANCELADA '+fmtFechaHora(new Date())+' por '+usr+': '+motivo+(motTok&&motTok!==motivo?(' ['+motTok+']'):'');
+    var notasNuevas=(o.notas?o.notas+'\n':'')+sello;
+    var ok=false;
+    if(DB_READY&&supabase){
+      try{
+        var r=await supabase.from('ordenes_servicio').update({estado:'cancelada',notas:notasNuevas}).eq('id',id).select();
+        if(r&&r.error){if(typeof mostrarToast==='function')mostrarToast('No se pudo cancelar: '+r.error.message,'error');return;}
+        if(!(r&&r.data&&r.data.length)){if(typeof mostrarToast==='function')mostrarToast('La base no canceló la orden '+id,'error');return;}
+        ok=true;
+      }catch(e){if(typeof mostrarToast==='function')mostrarToast('Sin conexión al cancelar la orden','error');return;}
+    } else ok=true;
+    if(!ok)return;
+    o.estado='cancelada'; o.notas=notasNuevas;
+    audit('Orden cancelada',id+' — '+motivo);
+    if(typeof mostrarToast==='function')mostrarToast('⛔ Orden '+id+' marcada como cancelada','exito');
+    try{renderOrdenesServicio();}catch(e){}
+  });
+  return;
   var usr=SESION?SESION.usuario:'?';
   var sello='⛔ CANCELADA '+fmtFechaHora(new Date())+' por '+usr+': '+motivo;
   var notasNuevas=(o.notas?o.notas+'\n':'')+sello;
@@ -20613,8 +20660,9 @@ function renderBNCDash(){
   }
   // Asegura que la tarjeta de saldo quede oculta para roles no autorizados
   aplicarVisibilidadSaldo();
-  var entH=BNC_MOV.filter(function(m){return m.tipo==='credito'&&m.fecha===new Date().toISOString().split('T')[0];});
-  var totEntH=entH.reduce(function(s,m){return s+m.monto;},0);
+  var _hoyBnc=(typeof fechaVE==='function')?fechaVE():new Date().toISOString().split('T')[0];
+  var entH=BNC_MOV.filter(function(m){return m.tipo==='credito'&&m.fecha===_hoyBnc;});
+  var totEntH=entH.reduce(function(s,m){return s+(typeof bncMontoBs==='function'?bncMontoBs(m):m.monto);},0);
   if(g('bnc-entr-hoy'))g('bnc-entr-hoy').textContent='Bs '+totEntH.toLocaleString('es-VE',{maximumFractionDigits:0});
   if(g('bnc-entr-count'))g('bnc-entr-count').textContent=entH.length+' transferencias';
   var pend=BNC_MOV.filter(function(m){return m.pendienteAutorizacion;}).length;
@@ -20800,8 +20848,8 @@ async function renderMovBNC(){
   //    casillas del DOM y el navegador las restaura al recargar: una fecha puesta
   //    una vez queda pegada, y hasta hoy nada lo decía.
   try{ await _movPintarAlcance('tb-bnc-mov','bnc-mov-alcance',des,hta,tipo,f.length,'bncMovVerTodo()'); }catch(e){}
-  var totEntr=f.filter(function(m){return m.tipo==='credito';}).reduce(function(s,m){return s+m.monto;},0);
-  var totSal=f.filter(function(m){return m.tipo==='debito';}).reduce(function(s,m){return s+m.monto;},0);
+  var totEntr=f.filter(function(m){return m.tipo==='credito';}).reduce(function(s,m){return s+(typeof bncMontoBs==='function'?bncMontoBs(m):m.monto);},0);
+  var totSal=f.filter(function(m){return m.tipo==='debito';}).reduce(function(s,m){return s+(typeof bncMontoBs==='function'?bncMontoBs(m):m.monto);},0);
   var bal=totEntr-totSal;
   if(g('bnc-tot-entr'))g('bnc-tot-entr').textContent='Bs '+totEntr.toLocaleString('es-VE',{maximumFractionDigits:0});
   if(g('bnc-tot-sal'))g('bnc-tot-sal').textContent='Bs '+totSal.toLocaleString('es-VE',{maximumFractionDigits:0});
@@ -21303,6 +21351,9 @@ async function cargarCxpAux(){ // facturas (Bs) + abonos; se llama al abrir Prov
   }catch(e){console.log('cargarCxpAux',e&&e.message||e);}
 }
 function switchProvTab(t){
+  var _puedeCxp=(typeof tienePermiso==='function')?tienePermiso('cxp'):true;
+  if(!_puedeCxp && ['cxp','ret','hist'].indexOf(t)>=0){ t='ordenes'; }
+  ['cxp','ret','hist'].forEach(function(x){ var sw=g('sw-prov-'+x); if(sw)sw.style.display=_puedeCxp?'':'none'; });
   ['ordenes','cxp','lista','ret','hist'].forEach(function(x){var el=g('tab-prov-'+x);var sw=g('sw-prov-'+x);if(el)el.style.display=x===t?'block':'none';if(sw){sw.classList.remove('on');if(x===t)sw.classList.add('on');}});
   if(t==='cxp'){renderCXP();fillCxpOrdenSelect();}
   if(t==='ret'){fillFacProvSelect();facPrefill();renderRetenciones();calcFac();}
@@ -21446,12 +21497,15 @@ async function pagarRetencionSeniat(periodo){
   if(ref===null)return;
   ref=String(ref).trim();
   if(!ref){ mostrarToast('Hace falta la referencia para registrar el pago','warn'); return; }
-  var hoyD=(typeof fechaVE==='function')?fechaVE():new Date().toISOString().slice(0,10);
-  var res=await supabase.from('seniat_retenciones').update({estado:'pagada',fecha_pago:hoyD,ref_pago:ref}).eq('periodo',periodo).select();
-  if(res.error){ mostrarToast('No se pudo registrar: '+res.error.message,'error'); return; }
-  try{ audit('Pago retenciones SENIAT',periodo+' · ref '+ref); }catch(e){}
-  mostrarToast('✅ Retenciones marcadas como pagadas','exito');
-  renderCxpSeniat(); try{renderFiscalBanner();}catch(e){}
+  solicitarToken('Marcar pagadas retenciones SENIAT '+periodo+' (ref '+ref+')', async function(mot){
+    var hoyD=(typeof fechaVE==='function')?fechaVE():new Date().toISOString().slice(0,10);
+    var res=await supabase.from('seniat_retenciones').update({estado:'pagada',fecha_pago:hoyD,ref_pago:ref}).eq('periodo',periodo).select();
+    if(res&&res.error){ mostrarToast('No se pudo registrar: '+res.error.message,'error'); return; }
+    if(!(res&&res.data&&res.data.length)){ mostrarToast('La base no actualizó la quincena '+periodo,'error'); return; }
+    try{ audit('Pago retenciones SENIAT',periodo+' · ref '+ref+(mot?(' -- '+mot):'')); }catch(e){}
+    mostrarToast('✅ Retenciones marcadas como pagadas','exito');
+    renderCxpSeniat(); try{renderFiscalBanner();}catch(e){}
+  });
 }
 
 function renderCXP(){
@@ -22208,12 +22262,11 @@ function guardarFactura(){
           'y después nadie va a tener el papel a mano para buscarlo.\n\n'+
           '¿El papel de verdad no lo trae? Aceptar la guarda igual, sin número.'))return;
   }
-  // Mismo proveedor + mismo n° de control = la misma factura cargada dos veces, aunque le hayan
-  // escrito distinto el n° de factura. El de control es el que no se repite.
-  var _repeCtrl=CXP_FACTURAS.find(function(f){
+  // Mismo proveedor + mismo n° de control = la misma factura cargada dos veces (solo si _ctrl no está vacío).
+  var _repeCtrl=_ctrl ? CXP_FACTURAS.find(function(f){
     return String(f.prov_id||'')===String(pid) &&
            String(f.num_control||'').trim().toLowerCase()===_ctrl.toLowerCase();
-  });
+  }) : null;
   if(_repeCtrl&&!confirm('⚠️ Este proveedor ya tiene una factura con el N° de Control '+_ctrl+
       ' (la '+(_repeCtrl.nro_factura||'s/n')+', del '+formatFecha(_repeCtrl.fecha)+').\n\n'+
       'Dos facturas no pueden compartir número de control: o es la misma cargada dos veces, o '+
@@ -22569,10 +22622,16 @@ function borrarFactura(id){
     if(typeof mostrarToast==='function')mostrarToast('🗑️ Factura borrada','exito');
   };
   // BORRAR = TOKEN (2026-07-25): una factura borrada mueve la deuda y las retenciones del SENIAT.
-  solicitarToken('Borrar factura '+(f.nro_factura||id)+' del libro de compras',function(mot){
+  solicitarToken('Borrar factura '+(f.nro_factura||id)+' del libro de compras',async function(mot){
+    if(DB_READY&&supabase){
+      try{
+        var r=await supabase.from('cxp_facturas').delete().eq('id',id).select();
+        if(r&&r.error){ if(typeof mostrarToast==='function')mostrarToast('No se pudo borrar la factura: '+r.error.message,'error'); return; }
+        if(!(r&&r.data&&r.data.length)){ if(typeof mostrarToast==='function')mostrarToast('La base no borró la factura (revisá permisos/RLS)','error'); return; }
+      }catch(e){ if(typeof mostrarToast==='function')mostrarToast('Sin conexión al borrar la factura','error'); return; }
+    }
     audit('Factura de compra ELIMINADA',(f.nro_factura||'')+' ('+id+') -- '+mot);
-    if(DB_READY&&supabase)supabase.from('cxp_facturas').delete().eq('id',id).then(function(r){if(r.error)console.log('borrarFactura:',r.error.message);done();});
-    else done();
+    done();
   },{op:'del',tabla:'cxp_facturas',col:'id',val:id});
 }
 // Botón por tipo. Si ya se emitió, muestra el NÚMERO y reimprime ese mismo:
@@ -22703,12 +22762,13 @@ async function emitirComprobanteRet(idFactura, tipo){
     if(r.error||!r.data){alert('No se pudo pedir el número: '+((r.error&&r.error.message)||'sin respuesta'));return;}
     numero=r.data;
     var up={}; up[campo]=numero; up[campoF]=(typeof fechaVE==='function'?fechaVE():new Date().toISOString().slice(0,10));
-    var g2=await supabase.from('cxp_facturas').update(up).eq('id',f.id);
-    if(g2.error){
+    var g2=await supabase.from('cxp_facturas').update(up).eq('id',f.id).select();
+    if((g2&&g2.error)||!(g2&&g2.data&&g2.data.length)){
       // ⛔ El número ya se consumió. Se dice, no se esconde: si no queda escrito,
       //    la próxima emisión pide otro y este queda de hueco sin explicación.
-      alert('⚠️ Se emitió el número '+numero+' pero NO se pudo guardar en la factura ('+g2.error.message+
+      alert('⚠️ Se emitió el número '+numero+' pero NO se pudo guardar en la factura ('+((g2&&g2.error&&g2.error.message)||'0 filas actualizadas / RLS')+
             ').\nAnótalo: si vuelves a emitir, saldrá uno nuevo y este queda en el aire.');
+      return;
     }else{
       f[campo]=numero; f[campoF]=up[campoF];
       // ⛔ Queda escrito SI salió sellado. Uno sin sello que después nadie
@@ -22960,15 +23020,21 @@ async function _provCrearRapido(nombre){
   try{ if(typeof mostrarToast==='function')mostrarToast('✅ Proveedor "'+nom+'" registrado y enlazado a la orden','exito'); }catch(e){}
   return pv;
 }
-function guardarProveedor(){
+async function guardarProveedor(){
   var nombre=_provNombreLimpio(gv('pv-nombre'));if(!nombre){alert('Ingresa el nombre del proveedor');return;}
-  var id=gv('pv-edit-id')||('P'+Date.now());
+  var editId=gv('pv-edit-id');
+  var id=editId||('P'+Date.now());
+  var rifFmt=_rifFmt(gv('pv-rif'));
+  if(!editId&&rifFmt){
+    var dupRif=(PROVEEDORES||[]).find(function(p){return p.activo!==false&&p.rif&&String(p.rif).replace(/[^A-Z0-9]/gi,'').toUpperCase()===String(rifFmt).replace(/[^A-Z0-9]/gi,'').toUpperCase();});
+    if(dupRif&&!confirm('⚠️ Ya existe un proveedor con el RIF '+rifFmt+' («'+dupRif.nombre+'»).\n\nDuplicar proveedores fragmenta CxP y retenciones. ¿Guardar de todos modos?'))return;
+  }
   var tipoDoc=gv('pv-tipo-doc')||'con_factura';
-  var tipoContrib=gv('pv-tipo-contrib')||'ordinario';
-  var actividadIslr=gv('pv-actividad-islr')||'0';
+  var tipoContrib=(tipoDoc==='sin_soporte'||tipoDoc==='nota_entrega')?'no_contrib':(gv('pv-tipo-contrib')||'ordinario');
+  var actividadIslr=(tipoContrib==='no_contrib')?'0':(gv('pv-actividad-islr')||'0');
   var retIvaPct=tipoContrib==='especial'?100:tipoContrib==='ordinario'?75:0;
   var pv={
-    id:id,nombre:nombre,rif:_rifFmt(gv('pv-rif')),
+    id:id,nombre:nombre,rif:rifFmt,
     banco:gv('pv-banco'),tcuenta:gv('pv-tcuenta'),ncuenta:_cuentaFmt(gv('pv-ncuenta')),
     tel:gv('pv-tel'),cat:gv('pv-cat'),
     tasa:gv('pv-tasa')||'bcvDolar',
@@ -22984,47 +23050,38 @@ function guardarProveedor(){
     islr_pct:parseFloat(actividadIslr)||0,
     activo:true
   };
-  var idx=PROVEEDORES.findIndex(function(p){return p.id===id;});
-  if(idx>=0)PROVEEDORES[idx]=pv;else PROVEEDORES.push(pv);
   if(DB_READY&&supabase){
-    supabase.from('proveedores').upsert([{
-      id:pv.id,nombre:pv.nombre,rif:pv.rif,
-      banco:pv.banco,tcuenta:pv.tcuenta,ncuenta:pv.ncuenta,
-      tel:pv.tel,categoria:pv.cat,tasa:pv.tasa,
-      tipo_doc:pv.tipo_doc,
-      tipo_contrib:pv.tipo_contrib,
-      actividad_islr:pv.actividad_islr,
-      notas:pv.notas,
-      contrib:pv.contrib,
-      ret_pct:pv.ret_pct,
-      islr_pct:pv.islr_pct,
-      activo:true
-    }],{onConflict:'id',ignoreDuplicates:false}).then(function(r){
-      if(r.error)alert('Error guardando proveedor: '+r.error.message);
-      else{_provRefrescarUI();alert('✅ Proveedor guardado correctamente.');}
-    });
-  } else {
-    _provRefrescarUI();
-    alert('✅ Proveedor guardado (sin conexión Supabase).');
+    try{
+      var r=await supabase.from('proveedores').upsert([{
+        id:pv.id,nombre:pv.nombre,rif:pv.rif,
+        banco:pv.banco,tcuenta:pv.tcuenta,ncuenta:pv.ncuenta,
+        tel:pv.tel,categoria:pv.cat,tasa:pv.tasa,
+        tipo_doc:pv.tipo_doc,
+        tipo_contrib:pv.tipo_contrib,
+        actividad_islr:pv.actividad_islr,
+        notas:pv.notas,
+        contrib:pv.contrib,
+        ret_pct:pv.ret_pct,
+        islr_pct:pv.islr_pct,
+        activo:true
+      }],{onConflict:'id',ignoreDuplicates:false}).select();
+      if(r&&r.error){alert('Error guardando proveedor: '+r.error.message);return;}
+      if(!(r&&r.data&&r.data.length)){alert('La base no confirmó el guardado del proveedor.');return;}
+    }catch(e){alert('Sin conexión al guardar proveedor.');return;}
   }
+  var idx=PROVEEDORES.findIndex(function(p){return p.id===id;});
+  if(idx>=0)PROVEEDORES[idx]=Object.assign({},PROVEEDORES[idx],pv);else PROVEEDORES.push(pv);
+  _provRefrescarUI();
   ['pv-nombre','pv-rif','pv-ncuenta','pv-tel','pv-notas'].forEach(function(id){sv(id,'');});
   sv('pv-edit-id','');
+  alert('✅ Proveedor guardado correctamente.');
 }
-// ⛔ GUARDAR UN PROVEEDOR NO AVISABA NADA. Estas tres líneas llamaban a `renderProveedores()`,
-// una función que NO EXISTE (la real es renderProveedoresLista). Dentro del .then() el
-// ReferenceError se tragaba solo: no salía el "✅ Proveedor guardado", la lista de la derecha
-// no se refrescaba y el proveedor recién creado NO aparecía en el desplegable de Cuentas por
-// Pagar hasta recargar la página. Sin conexión era peor: reventaba ANTES de limpiar el
-// formulario, así que el siguiente proveedor se escribía encima del anterior.
-// Ahora un solo lugar refresca TODO lo que muestra proveedores.
 function _provRefrescarUI(){
   try{ renderProveedoresLista(); }catch(e){ console.warn('prov lista',e&&e.message); }
-  // Desplegables que listan proveedores: si no se repueblan, el que se acaba de registrar no
-  // se puede elegir para su deuda (que es justo lo que se hace a continuación).
   ['cxp-prov','ret-prov','gv-prov'].forEach(function(sid){
     var sel=g(sid); if(!sel)return; var prev=sel.value;
     sel.innerHTML='<option value="">-- Seleccionar --</option>'+
-      PROVEEDORES.map(function(p){return '<option value="'+_mEsc(String(p.id))+'">'+_mEsc(p.nombre||'')+'</option>';}).join('');
+      PROVEEDORES.filter(function(p){return p.activo!==false;}).map(function(p){return '<option value="'+_mEsc(String(p.id))+'">'+_mEsc(p.nombre||'')+'</option>';}).join('');
     if(prev)sel.value=prev;
   });
   try{ if(typeof _osPoblarForm==='function')_osPoblarForm(); }catch(e){}   // proveedor/taller de las órdenes
@@ -26324,9 +26381,25 @@ function renderAlcResumen(){
   if(el75)el75.innerHTML='<div style="font-size:12px;color:var(--text2)">Total neto: <b style="color:var(--green)">$'+totalNeto.toFixed(0)+'</b> × 7.5% = <b style="color:var(--yellow)">$'+pct75.toFixed(0)+'</b> para Maximo</div>';
 }
 
+async function marcarFielDevuelto(id){
+  var p=PAGOS_ALC.find(function(x){return String(x.id)===String(id);});
+  if(!p||p.fielDevuelto)return;
+  if(!confirm('¿Marcar el Fiel Cumplimiento de la factura '+p.fact+' como DEVUELTO?'))return;
+  if(DB_READY&&supabase){
+    try{
+      var r=await supabase.from('pagos_alcaldia').update({fiel_devuelto:true}).eq('id',p.id).select();
+      if(r&&r.error){ if(typeof mostrarToast==='function')mostrarToast('No se pudo guardar: '+r.error.message,'error'); return; }
+      if(!(r&&r.data&&r.data.length)){ if(typeof mostrarToast==='function')mostrarToast('La base no actualizó el pago '+p.fact,'error'); return; }
+    }catch(e){ if(typeof mostrarToast==='function')mostrarToast('Sin conexión: no se guardó la devolución de Fiel','error'); return; }
+  }
+  p.fielDevuelto=true;
+  audit('Fiel cumplimiento devuelto','Fact '+p.fact);
+  if(typeof mostrarToast==='function')mostrarToast('✅ Fiel Cumplimiento marcado como devuelto','exito');
+  renderPagosAlcTabla();
+}
 function renderPagosAlcTabla(){
   var tb=g('tb-pagos-alc');
-  if(tb)tb.innerHTML=PAGOS_ALC.slice().reverse().map(function(p){return'<tr><td>'+formatFecha(p.fecha)+'</td><td style="font-family:var(--m)">'+p.fact+'</td><td style="color:var(--green)">'+p.viajes+'</td><td style="font-family:var(--m)">$'+p.base.toFixed(0)+'</td><td style="font-family:var(--m);font-weight:700;color:var(--green)">$'+p.neto.toFixed(0)+'</td><td style="font-family:var(--m);color:var(--yellow)">Bs '+(p.neto*p.tasa).toFixed(0)+'</td><td style="font-family:var(--m)">'+p.tasa+'</td><td><span class="badge '+(p.fielDevuelto?'bg':'by')+'">'+(p.fielDevuelto?'Devuelto':'Pendiente')+'</span></td><td style="font-family:var(--m);color:var(--teal)">$'+(p.neto*0.075).toFixed(0)+'</td><td><button onclick="PAGOS_ALC.find(function(x){return x.id===\''+p.id+'\'}).fielDevuelto=true;renderPagosAlcTabla();" class="btn btn-g btn-xs">Dev.Fiel</button></td></tr>';}).join('')||'<tr><td colspan="10" style="text-align:center;color:var(--text3);padding:20px">Sin pagos registrados</td></tr>';
+  if(tb)tb.innerHTML=PAGOS_ALC.slice().reverse().map(function(p){return'<tr><td>'+formatFecha(p.fecha)+'</td><td style="font-family:var(--m)">'+p.fact+'</td><td style="color:var(--green)">'+p.viajes+'</td><td style="font-family:var(--m)">$'+p.base.toFixed(0)+'</td><td style="font-family:var(--m);font-weight:700;color:var(--green)">$'+p.neto.toFixed(0)+'</td><td style="font-family:var(--m);color:var(--yellow)">Bs '+(p.neto*p.tasa).toFixed(0)+'</td><td style="font-family:var(--m)">'+p.tasa+'</td><td><span class="badge '+(p.fielDevuelto?'bg':'by')+'">'+(p.fielDevuelto?'Devuelto':'Pendiente')+'</span></td><td style="font-family:var(--m);color:var(--teal)">$'+(p.neto*0.075).toFixed(0)+'</td><td>'+(p.fielDevuelto?'<span style="color:var(--text3);font-size:10px">✓</span>':'<button onclick="marcarFielDevuelto(\''+p.id+'\')" class="btn btn-g btn-xs">Dev.Fiel</button>')+'</td></tr>';}).join('')||'<tr><td colspan="10" style="text-align:center;color:var(--text3);padding:20px">Sin pagos registrados</td></tr>';
 }
 
 function renderGastosFijos(){
@@ -26508,8 +26581,10 @@ function _tasaDelGastoVar(){
   return (f && typeof getTasaFecha==='function' && getTasaFecha(f,'dolar')) || TASAS.bcvDolar || cfg.tasa;
 }
 
-function guardarGastoVar(){
+async function guardarGastoVar(){
   var desc=gv('gv-desc');if(!desc){alert('Ingresa la descripcion');return;}
+  var fechaGV=gv('gv-fecha')||(typeof fechaVE==='function'?fechaVE():'');
+  if(typeof _bloqueoPeriodo==='function'&&_bloqueoPeriodo(fechaGV,'registrar gasto variable'))return;
   // Prioridad: la tasa DEL DÍA DEL GASTO. Si no hay ninguna, pedirla manual y reintentar.
   var tasa=_tasaDelGastoVar();
   if(!tasa){ tasaOManual('bcvDolar', function(){ guardarGastoVar(); }); return; }
@@ -26519,32 +26594,30 @@ function guardarGastoVar(){
   var _bsMano=parseFloat(gv('gv-bs'))||0;
   var bs=(_gvBsTocado && _bsMano>0) ? _bsMano : usd*tasa;
   if(!(usd>0)){alert('Ingresa un monto en USD MAYOR a 0.');return;} // M6: no aceptar $0 ni negativos
-  var item={id:'GV'+Date.now(),fecha:gv('gv-fecha'),cat:gv('gv-cat'),desc:desc,bs:bs,usd:usd,ref:gv('gv-ref'),fact:gv('gv-fact')};
-  GASTOS_VARIABLES.push(item);
+  var item={id:'GV'+Date.now(),fecha:fechaGV,cat:gv('gv-cat'),desc:desc,bs:bs,usd:usd,ref:gv('gv-ref'),fact:gv('gv-fact')};
+  var rowDB={id:item.id,fecha:item.fecha,categoria:item.cat,descripcion:item.desc,bs:item.bs,usd:item.usd,referencia:item.ref,factura:item.fact};
   if(DB_READY&&supabase){
-    supabase.from('gastos_variables').insert([{
-      // ⛔ LAS COLUMNAS SON `bs` Y `usd`. Esto escribia `monto_bs`/`monto_usd` y un
-      //    `registrado_por` que la tabla NO TIENE, asi que Postgres rechazaba el insert
-      //    completo: en toda la historia de la app no se guardo NI UN gasto variable (0 filas
-      //    el 19/10/2026) y la pantalla igual decia que si, porque el error solo iba a la
-      //    consola. El lector tenia el mismo error al reves, mapeando `monto_usd` a `usd`:
-      //    aunque el insert hubiera entrado, cada gasto habria valido $0.
-      id:item.id,fecha:item.fecha,categoria:item.cat,
-      descripcion:item.desc,bs:item.bs,usd:item.usd,
-      referencia:item.ref,factura:item.fact
-    }]).then(function(r){
-      if(r.error){
-        // Y que NO se pierda en la consola: un gasto que no se guardo le falta a la Utilidad
-        // Real, y nadie mira la consola. [[norma-la-barra-que-no-dice-que-sigue]]
+    try{
+      var r=await supabase.from('gastos_variables').insert([rowDB]).select();
+      if(r&&r.error){
         console.error('Error gasto:',r.error);
-        if(typeof mostrarToast==='function')mostrarToast('NO se guardo el gasto variable: '+(r.error.message||r.error),'error');
-        if(typeof guardarEnCola==='function')guardarEnCola('gastos_variables',{id:item.id,fecha:item.fecha,categoria:item.cat,descripcion:item.desc,bs:item.bs,usd:item.usd,referencia:item.ref,factura:item.fact});
+        var esRed=(typeof _esErrorRed==='function')?_esErrorRed(r.error):/fetch|network|timeout/i.test(String(r.error.message||''));
+        if(esRed&&typeof guardarEnCola==='function'){ guardarEnCola('gastos_variables',rowDB); if(typeof mostrarToast==='function')mostrarToast('Sin conexión: gasto variable en cola','info'); }
+        else { if(typeof mostrarToast==='function')mostrarToast('NO se guardo el gasto variable: '+(r.error.message||r.error),'error'); return; }
+      } else if(!(r&&r.data&&r.data.length)){
+        if(typeof mostrarToast==='function')mostrarToast('La base no confirmó el gasto variable','error');
+        return;
       }
-    });
-  }
+    }catch(e){
+      if(typeof guardarEnCola==='function')guardarEnCola('gastos_variables',rowDB);
+      if(typeof mostrarToast==='function')mostrarToast('Sin conexión: gasto variable en cola','info');
+    }
+  } else if(typeof guardarEnCola==='function'){ guardarEnCola('gastos_variables',rowDB); }
+  GASTOS_VARIABLES.push(item);
   audit('Gasto variable registrado',desc+' $'+usd);
   ['gv-desc','gv-bs','gv-usd','gv-ref','gv-fact'].forEach(function(id){sv(id,'');});
   renderGastosVariables();
+  try{if(typeof renderDash==='function')renderDash();if(typeof renderFinDash==='function')renderFinDash();}catch(e){}
 }
 
 // ⛔ UN TOTAL SIN PERÍODO NO SE PUEDE COMPARAR CON NADA. el jefe de operaciones de otra empresa, 05/11/2026:
@@ -26770,19 +26843,15 @@ function imprimirReporteFinanciero(){
   //    recalcularan acá, el papel y la pantalla terminarían diciendo cosas distintas.
   //    [[norma-fuente-unica-datos]]
   var _egNom=_nominaRealUsd();
-  var _egGas=GASOIL.reduce(function(s,x){return s+(_rentEsCompra(x)?(parseFloat(x.m)||0):0);},0);
-  var _egFij=(typeof GASTOS_FIJOS!=='undefined'?GASTOS_FIJOS:[]).reduce(function(s,x){return s+(x.monto||0);},0);
+  var _egGas=GASOIL.reduce(function(s,x){return s+(_rentEsCompra(x)?(parseFloat(x.m)||0):0);},0)
+    +(typeof COMB_PERIODOS!=='undefined'?COMB_PERIODOS:[]).reduce(function(s,p){return s+(parseFloat(p.costo_total_usd)||0);},0);
+  var _egFij=(typeof GASTOS_FIJOS!=='undefined'?GASTOS_FIJOS:[]).filter(function(x){return x.activo!==false;}).reduce(function(s,x){return s+(x.monto||0);},0);
   var _egVar=(typeof GASTOS_VARIABLES!=='undefined'?GASTOS_VARIABLES:[]).reduce(function(s,x){return s+(x.usd||0);},0);
-  var _egCxP=(typeof CXP!=='undefined'?CXP:[]).filter(function(c){return !_esCxpCombustible(c);})
-    .reduce(function(s,c){return s+(parseFloat(c.neto_pagar||c.netoPagar||c.total_usd||0)||0);},0);
-  // ⛔ ACÁ EL APORTE ES REAL Y TIENE SU PROPIA FUENTE. En los demás productos el porcentaje
-  //    lo declara la instancia (`_aporteUsd`), pero en Betangar el pago a socios NO es un
-  //    7,5 % plano: cada factura lleva el porcentaje que le tocaba (7 % hasta la 625, 7,5 %
-  //    desde la 626) y eso lo sabe `pagoSocioDesglose`. Usar el plano acá cambiaría una cifra
-  //    de plata que los socios leen. [[norma-fuente-unica-datos]]
+  var _egCxP=(typeof CXP!=='undefined'?CXP:[]).filter(function(c){return (typeof _cxpCuentaEnEgresos==='function'?_cxpCuentaEnEgresos(c):!_esCxpCombustible(c));})
+    .reduce(function(s,c){return s+(typeof _cxpCostoUsd==='function'?_cxpCostoUsd(c):(parseFloat(c.neto_pagar||c.netoPagar||c.total_usd||0)||0));},0);
   var _egApo=(typeof pagoSocioDesglose==='function')?(pagoSocioDesglose('','').total||0):0;
   var _egTot=_totalEgresos(totalCob);
-  var _util=totalCob-_egTot;
+  var _util=(typeof _utilReal==='function')?_utilReal(totalCob):(totalCob-_egTot);
   var _usd=function(n){ return '$'+(n||0).toLocaleString('es-VE',{minimumFractionDigits:2,maximumFractionDigits:2}); };
   var _ren=function(l,v,extra){
     return '<tr'+(extra||'')+'><td>'+l+'</td><td class="mono" style="text-align:right">'+_usd(v)+'</td>'+
@@ -29000,13 +29069,19 @@ function elimMulta(id){
 function elimGastoVar(id){
   var x=GASTOS_VARIABLES.find(function(g){return g.id===id;});
   if(!x)return;
-  solicitarToken('Eliminar gasto: '+x.desc,function(mot){
+  if(typeof _bloqueoPeriodo==='function'&&_bloqueoPeriodo(x.fecha,'eliminar gasto variable'))return;
+  solicitarToken('Eliminar gasto: '+x.desc,async function(mot){
+    if(DB_READY&&supabase){
+      try{
+        var r=await supabase.from('gastos_variables').delete().eq('id',id).select();
+        if(r&&r.error){ if(typeof mostrarToast==='function')mostrarToast('No se pudo eliminar: '+r.error.message,'error'); return; }
+        if(!(r&&r.data&&r.data.length)){ if(typeof mostrarToast==='function')mostrarToast('La base no eliminó el gasto variable','error'); return; }
+      }catch(e){ if(typeof mostrarToast==='function')mostrarToast('Sin conexión al eliminar el gasto','error'); return; }
+    }
     GASTOS_VARIABLES=GASTOS_VARIABLES.filter(function(g){return g.id!==id;});
-    // M1 (auditoría 2026-07-04): borrar TAMBIÉN en la nube (antes solo memoria → reaparecía al
-    // recargar y seguía restando en la Utilidad Real). accionData → el superadmin lo aplica al aprobar.
-    if(DB_READY&&supabase)supabase.from('gastos_variables').delete().eq('id',id).then(function(r){if(r&&r.error)console.error('Error elim gasto variable:',r.error);});
     audit('Gasto Variable ELIMINADO',x.desc+' -- '+mot);
     renderGastosVariables();
+    try{if(typeof renderDash==='function')renderDash();if(typeof renderFinDash==='function')renderFinDash();}catch(e){}
   },{op:'del',tabla:'gastos_variables',col:'id',val:id});
 }
 function elimGastoFijo(id){
@@ -30187,23 +30262,28 @@ async function verificarPagoBNCpendiente(){
 
 function asociarPagoBNC(){
   if(!CXP_BNC_PENDIENTE)return;
-  var montoPago=parseFloat(CXP_BNC_PENDIENTE.monto||0);
+  var rawM=parseFloat(CXP_BNC_PENDIENTE.monto||0);
+  var mon=String(CXP_BNC_PENDIENTE.moneda||'VES').toUpperCase();
+  var fPago=String(CXP_BNC_PENDIENTE.fecha_recibido||'').slice(0,10);
+  var tasaP=(typeof getTasaFecha==='function'&&getTasaFecha(fPago,'dolar'))||TASAS.bcvDolar||cfg.tasa||0;
+  var montoPago=(mon==='VES'&&tasaP>0)?(rawM/tasaP):rawM;
   var cxpMatch=CXP.filter(function(c){
-    return c.estado==='pendiente'&&Math.abs(parseFloat(c.neto_pagar||0)-montoPago)<1;
+    return c.estado==='pendiente'&&Math.abs(parseFloat(c.neto_pagar||0)-montoPago)<Math.max(2,montoPago*0.02);
   });
-  if(!cxpMatch.length){alert('No hay CxP pendiente con ese monto');return;}
-  // Si hay una sola, abrir directamente. Si hay varias, mostrar selección.
+  if(!cxpMatch.length){alert('No hay CxP pendiente con ese monto (~$'+montoPago.toFixed(2)+')');return;}
+  var refB=CXP_BNC_PENDIENTE.referencia||'';
+  // Abrir modal PRIMERO y llenar ref DESPUÉS (abrirPagarCxP limpia pagar-ref al abrir)
   if(cxpMatch.length===1){
-    sv('pagar-ref',CXP_BNC_PENDIENTE.referencia||'');
     abrirPagarCxP(cxpMatch[0].id);
+    sv('pagar-ref',refB);
   } else {
     var opts=cxpMatch.map(function(c,i){return i+': '+c.prov_nombre+' $'+parseFloat(c.neto_pagar).toFixed(2);}).join('\n');
     var sel=prompt('¿Cuál CxP corresponde? (ingresa el número)\n\n'+opts);
     if(sel===null)return;
     var idx=parseInt(sel);
     if(isNaN(idx)||!cxpMatch[idx]){alert('Selección inválida');return;}
-    sv('pagar-ref',CXP_BNC_PENDIENTE.referencia||'');
     abrirPagarCxP(cxpMatch[idx].id);
+    sv('pagar-ref',refB);
   }
   g('cxp-bnc-alert').style.display='none';
 }
@@ -30662,20 +30742,22 @@ function calcSemanasAbiertas(){
 function registrarAbonoDesdeWNC(){
   if(!BNC_ABONO_PENDIENTE)return;
   var pago = BNC_ABONO_PENDIENTE.pago;
-  var monto = parseFloat(pago.monto||0);
-  var viajes = Math.round(monto/tarifaDe(pago.fecha));
-  // Pre-llenar formulario de abono
-  sp('abonos');
+  var rawM = parseFloat(pago.monto||0);
+  var mon = String(pago.moneda||'VES').toUpperCase();
+  var fPago = String(pago.fecha||pago.fecha_recibido||'').slice(0,10)||fechaVE();
+  var tasaP = (typeof getTasaFecha==='function'&&getTasaFecha(fPago,'dolar'))||TASAS.bcvDolar||cfg.tasa||0;
+  var monto = (mon==='VES'&&tasaP>0)?Math.round((rawM/tasaP)*100)/100:rawM;
+  var tar = tarifaDe(fPago)||1;
+  var viajes = Math.round(monto/tar);
+  // Pre-llenar formulario de abono con los IDs reales (#ab-f, #ab-m, #ab-ref, #ab-v)
+  sp('reportes');
+  if(typeof switchRptTab==='function')switchRptTab('pagos');
   setTimeout(function(){
-    var fechaEl = g('ab-fecha');if(fechaEl)fechaEl.value=pago.fecha||fechaVE();
-    var montoEl = g('ab-monto');if(montoEl)montoEl.value=monto.toFixed(2);
-    var refEl   = g('ab-ref');if(refEl)refEl.value=pago.referencia||pago.ref_bnc||'';
-    var viajesEl= g('ab-viajes');if(viajesEl)viajesEl.value=viajes;
+    sv('ab-f',fPago);
+    sv('ab-m',monto.toFixed(2));
+    sv('ab-ref',pago.referencia||pago.ref_bnc||'');
+    sv('ab-v',String(viajes));
     alert('✅ Formulario de abono prellenado con los datos del pago BNC.\nRevisa y confirma los datos antes de guardar.');
-    // Marcar BNC como procesado
-    if(supabase&&pago.id){
-      supabase.from('bnc_notificaciones').update({procesado:true}).eq('id',pago.id);
-    }
     g('bnc-abono-alert').style.display='none';
     BNC_ABONO_PENDIENTE=null;
   },500);
@@ -30733,7 +30815,7 @@ function calcSaldoCaja(){
 function renderCajaChica(){
   var hoy=fechaVE();
   var tasa=getTasa('bcvDolar');
-  if(!tasa){tasaOManual('bcvDolar',function(t){tasa=t;calcCajachica();});return;}
+  if(!tasa){tasaOManual('bcvDolar',function(){renderCajaChica();});return;}
   var saldo=calcSaldoCaja();
   var gastadoHoy=CAJACHICA.gastos
     .filter(function(g){return g.fecha===hoy;})
@@ -30751,14 +30833,15 @@ function renderCajaChica(){
   var elCF=g('cc-con-factura');if(elCF)elCF.textContent='Bs '+conFact.toFixed(0);
   var elSF=g('cc-sin-factura');if(elSF)elSF.textContent='Bs '+sinFact.toFixed(0);
 
-  // Tabla gastos
+  // Tabla gastos: conservar el USD histórico (montoUsd o montoBs/g2.tasa), NO recalcular con tasa de hoy.
   var tb=g('tb-cajachica');
   if(tb){
     if(!CAJACHICA.gastos.length){
       tb.innerHTML='<tr><td colspan="5" style="text-align:center;color:var(--text3);padding:20px">Sin gastos registrados</td></tr>';
     } else {
       tb.innerHTML=CAJACHICA.gastos.slice().reverse().map(function(g2){
-        var usd=(parseFloat(g2.montoBs||0)/tasa).toFixed(2);
+        var _tHist=parseFloat(g2.tasa)||tasa;
+        var usd=(g2.montoUsd&&g2.montoUsd>0)?parseFloat(g2.montoUsd).toFixed(2):(_tHist>0?(parseFloat(g2.montoBs||0)/_tHist).toFixed(2):'0.00');
         return '<tr>'+
           '<td>'+formatFecha(g2.fecha)+'</td>'+
           '<td>'+g2.concepto+'</td>'+
@@ -30803,41 +30886,50 @@ function cerrarModalCaja(){var m=g('modal-cajachica');if(m)m.style.display='none
 
 function calcCajachica(){
   var bs=parseFloat(gv('cc-monto-bs'))||0;
-  var tasa=getTasa('bcvDolar');
-  if(!tasa){tasaOManual('bcvDolar',function(t){tasa=t;calcCajachica();});return;}
+  var f=gv('cc-fecha');
+  var tasa=(f&&typeof getTasaFecha==='function'&&getTasaFecha(f,'dolar'))||getTasa('bcvDolar');
+  if(!tasa){tasaOManual('bcvDolar',function(){calcCajachica();});return;}
   var usd=bs/tasa;
   var el=g('cc-monto-usd');if(el)el.value=usd.toFixed(2);
 }
 
-function guardarGastoCaja(){
-  var fecha=gv('cc-fecha');
+async function guardarGastoCaja(){
+  var fecha=gv('cc-fecha')||fechaVE();
   var concepto=gv('cc-concepto');
   var montoBs=parseFloat(gv('cc-monto-bs'))||0;
   var factura=gv('cc-factura')||'no';
   if(!concepto||!(montoBs>0)){alert('Ingresa el concepto y un monto MAYOR a 0.');return;} // M6: no $0/negativos
-  var tasa=getTasa('bcvDolar');
-  if(!tasa){tasaOManual('bcvDolar',function(t){tasa=t;calcCajachica();});return;}
+  if(typeof _bloqueoPeriodo==='function'&&_bloqueoPeriodo(fecha,'registrar gasto de caja chica'))return;
+  var tasa=(typeof getTasaFecha==='function'&&getTasaFecha(fecha,'dolar'))||getTasa('bcvDolar');
+  if(!tasa){tasaOManual('bcvDolar',function(){guardarGastoCaja();});return;}
   var gasto={
     id:'CC'+Date.now(),
     fecha:fecha,
     concepto:concepto,
     montoBs:montoBs,
-    montoUsd:montoBs/tasa,
+    montoUsd:Math.round((montoBs/tasa)*100)/100,
     factura:factura,
     tasa:tasa
   };
+  var rowDB={fecha:gasto.fecha,concepto:gasto.concepto,monto_bs:gasto.montoBs,monto_usd:gasto.montoUsd,con_factura:factura==='si',tasa:gasto.tasa};
+  if(DB_READY&&supabase){
+    try{
+      var r=await supabase.from('caja_chica').insert([rowDB]).select();
+      if(r&&r.error){
+        var esRed=(typeof _esErrorRed==='function')?_esErrorRed(r.error):/fetch|network|timeout/i.test(String(r.error.message||''));
+        if(esRed&&typeof guardarEnCola==='function'){ guardarEnCola('caja_chica',rowDB); if(typeof mostrarToast==='function')mostrarToast('Sin conexión: gasto de caja chica en cola','info'); }
+        else { if(typeof mostrarToast==='function')mostrarToast('No se pudo guardar en caja chica: '+r.error.message,'error'); return; }
+      } else if(!(r&&r.data&&r.data.length)){
+        if(typeof mostrarToast==='function')mostrarToast('La base no confirmó el gasto de caja chica','error');
+        return;
+      } else if(r.data[0]&&r.data[0].id){ gasto.id=r.data[0].id; }
+    }catch(e){
+      if(typeof guardarEnCola==='function')guardarEnCola('caja_chica',rowDB);
+      if(typeof mostrarToast==='function')mostrarToast('Sin conexión: gasto de caja chica en cola','info');
+    }
+  } else if(typeof guardarEnCola==='function'){ guardarEnCola('caja_chica',rowDB); }
   CAJACHICA.gastos.push(gasto);
   guardarCajaChicaLS();
-  // Guardar en Supabase si existe tabla
-  if(DB_READY&&supabase){
-    supabase.from('caja_chica').insert([{
-      fecha:gasto.fecha,concepto:gasto.concepto,
-      monto_bs:gasto.montoBs,monto_usd:gasto.montoUsd,
-      con_factura:factura==='si',tasa:gasto.tasa
-    }]).then(function(r){
-      if(r.error)console.log('CajaChica Supabase:',r.error.message);
-    });
-  }
   cerrarModalCaja();
   renderCajaChica();
   audit('Caja Chica',concepto+' Bs '+montoBs.toFixed(0));
@@ -30846,7 +30938,7 @@ function guardarGastoCaja(){
 function abrirReposicionCaja(){
   var m=g('modal-reposicion');if(!m)return;
   var tasa=getTasa('bcvDolar');
-  if(!tasa){tasaOManual('bcvDolar',function(t){tasa=t;calcCajachica();});return;}
+  if(!tasa){tasaOManual('bcvDolar',function(){abrirReposicionCaja();});return;}
   sv('cc-rep-fecha',fechaVE());
   sv('cc-rep-tasa',tasa.toFixed(2));
   var bsEl=g('cc-rep-bs');
@@ -30854,21 +30946,31 @@ function abrirReposicionCaja(){
   m.style.display='block';
 }
 
-function guardarReposicion(){
-  var fecha=gv('cc-rep-fecha');
+async function guardarReposicion(){
+  var fecha=gv('cc-rep-fecha')||fechaVE();
+  if(typeof _bloqueoPeriodo==='function'&&_bloqueoPeriodo(fecha,'registrar reposición de caja chica'))return;
   var tasa=parseFloat(gv('cc-rep-tasa'))||TASAS.bcvDolar||cfg.tasa;
   if(!tasa){ tasaOManual('bcvDolar', function(){ guardarReposicion(); }); return; } // no inventar tasa
   var montoBs=CAJACHICA.montoFijo*tasa;
   var rep={fecha:fecha,tasa:tasa,montoBs:montoBs,montoUsd:CAJACHICA.montoFijo};
-  CAJACHICA.reposiciones.push(rep);
-  // NO purgar gastos acá (antes el filtro estaba INVERTIDO: conservaba los viejos y borraba los nuevos).
-  // Se conserva el historial completo; calcSaldoCaja y los totales filtran por la última reposición.
-  guardarCajaChicaLS();
+  var rowDB={fecha:fecha,tasa:tasa,monto_bs:montoBs,monto_usd:CAJACHICA.montoFijo};
   if(DB_READY&&supabase){
-    supabase.from('caja_chica_reposiciones').insert([{
-      fecha:fecha,tasa:tasa,monto_bs:montoBs,monto_usd:CAJACHICA.montoFijo
-    }]).then(function(r){if(r.error)console.log('Reposicion Supabase:',r.error.message);});
-  }
+    try{
+      var r=await supabase.from('caja_chica_reposiciones').insert([rowDB]).select();
+      if(r&&r.error){
+        var esRed=(typeof _esErrorRed==='function')?_esErrorRed(r.error):/fetch|network|timeout/i.test(String(r.error.message||''));
+        if(esRed&&typeof guardarEnCola==='function'){ guardarEnCola('caja_chica_reposiciones',rowDB); if(typeof mostrarToast==='function')mostrarToast('Sin conexión: reposición en cola','info'); }
+        else { if(typeof mostrarToast==='function')mostrarToast('No se pudo guardar la reposición: '+r.error.message,'error'); return; }
+      } else if(!(r&&r.data&&r.data.length)){
+        if(typeof mostrarToast==='function')mostrarToast('La base no confirmó la reposición de caja chica','error');
+        return;
+      }
+    }catch(e){
+      if(typeof guardarEnCola==='function')guardarEnCola('caja_chica_reposiciones',rowDB);
+    }
+  } else if(typeof guardarEnCola==='function'){ guardarEnCola('caja_chica_reposiciones',rowDB); }
+  CAJACHICA.reposiciones.push(rep);
+  guardarCajaChicaLS();
   g('modal-reposicion').style.display='none';
   renderCajaChica();
   sendWA(brandTag()+' - Caja Chica repuesta\nFecha: '+fecha+'\nMonto: $'+CAJACHICA.montoFijo+' = Bs '+montoBs.toFixed(0)+'\nTasa BCV: '+tasa,['socios']);
@@ -36047,16 +36149,28 @@ async function cargarTasas(){
   // trae de dolarapi/euros/oficial en cada carga.
   try{var re=await fetch('https://ve.dolarapi.com/v1/euros/oficial',{mode:'cors',signal:AbortSignal.timeout(5000)});if(re.ok){var de=await re.json();var ev=parseFloat(de.promedio||de.precio||0);if(ev>100)eurN=ev;}}catch(e){}
   if(bcvN&&bcvN>100){
-    // CANDADO: el euro NUNCA es menor que el dolar. Si la fuente fallo (eurN<=dolar o 0), se
-    // reconstruye del dolar (ratio ~1.13, cercano al real) en vez de dejar un valor viejo pegado.
-    TASAS.bcvDolar=bcvN;TASAS.bcvEuro=(eurN>bcvN)?eurN:Math.round(bcvN*1.13*100)/100;
+    // CANDADO: el euro NUNCA se fabrica con un multiplicador (antes bcvN*1.13 sobrescribía tasas_diarias).
+    // Si la API de euros devolvió un valor real (> bcvN), se usa; si falló, se conserva el euro real
+    // previo de hoy/caché (si es > bcvN) o queda en 0 (sin inventar).
+    var _hoyTD=(typeof fechaVE==='function'?fechaVE():new Date().toISOString().slice(0,10));
+    var _eurPrev=(TASAS_DIARIAS[_hoyTD]&&TASAS_DIARIAS[_hoyTD].euro>bcvN)?TASAS_DIARIAS[_hoyTD].euro:((TASAS.bcvEuro>bcvN)?TASAS.bcvEuro:0);
+    var _eurReal=(eurN>bcvN)?eurN:0;
+    TASAS_DISPONIBLES=true;
+    TASAS.bcvDolar=bcvN;TASAS.bcvEuro=_eurReal||_eurPrev;
     TASAS.binance=(binN&&binN>100)?binN:(TASAS.binance&&TASAS.binance>100?TASAS.binance:bcvN);TASAS.promedio=((bcvN+TASAS.binance)/2);
     TASAS.fecha=formatFecha(new Date());TASAS.hora=new Date().toLocaleTimeString('es-VE',{hour:'2-digit',minute:'2-digit'});TASAS.fuente=fuenteOk;
-    if(DB_READY&&supabase){try{await supabase.from('configuracion').upsert([{clave:'tasas_bcv',valor:JSON.stringify({bcvDolar:TASAS.bcvDolar,bcvEuro:TASAS.bcvEuro,binance:TASAS.binance,promedio:TASAS.promedio,fecha:TASAS.fecha,hora:TASAS.hora,fuente:TASAS.fuente})}],{onConflict:'clave',ignoreDuplicates:false});}catch(e){}
-      // Historial diario: graba la tasa de HOY por fecha (PK = fecha, no se sobrescriben días
-      // anteriores). Así cualquier pago queda valorable a la tasa exacta de su día.
-      try{var _hoyTD=(typeof fechaVE==='function'?fechaVE():new Date().toISOString().slice(0,10));
-        await supabase.from('tasas_diarias').upsert([{fecha:_hoyTD,bcv_dolar:TASAS.bcvDolar,bcv_euro:TASAS.bcvEuro,binance:TASAS.binance,fuente:TASAS.fuente}],{onConflict:'fecha'});
+    if(DB_READY&&supabase){
+      try{
+        var _rc=await supabase.from('configuracion').upsert([{clave:'tasas_bcv',valor:JSON.stringify({bcvDolar:TASAS.bcvDolar,bcvEuro:TASAS.bcvEuro,binance:TASAS.binance,promedio:TASAS.promedio,fecha:TASAS.fecha,hora:TASAS.hora,fuente:TASAS.fuente})}],{onConflict:'clave',ignoreDuplicates:false}).select();
+        if(_rc&&_rc.error)console.warn('tasas_bcv upsert:',_rc.error.message);
+      }catch(e){}
+      // Historial diario: solo escribir bcv_euro si es real (o conservar el real ya guardado hoy).
+      try{
+        var _rowTD={fecha:_hoyTD,bcv_dolar:TASAS.bcvDolar,binance:TASAS.binance,fuente:TASAS.fuente};
+        if(_eurReal)_rowTD.bcv_euro=_eurReal;
+        else if(_eurPrev)_rowTD.bcv_euro=_eurPrev;
+        var _rtd=await supabase.from('tasas_diarias').upsert([_rowTD],{onConflict:'fecha'}).select();
+        if(_rtd&&_rtd.error)console.warn('tasas_diarias upsert:',_rtd.error.message);
         TASAS_DIARIAS[_hoyTD]={dolar:TASAS.bcvDolar,euro:TASAS.bcvEuro,binance:TASAS.binance,fuente:TASAS.fuente};
       }catch(e){}
     }
@@ -36220,7 +36334,7 @@ async function renderConciliacionBNC(){
               // _cn/_acc/_prev viajan para poder GUARDAR el movimiento (ver bncGuardarDesdeBanco).
               // `ControlNumber` es la llave del banco; `PreviousBalance` es lo único que distingue
               // dos filas idénticas de un lote de nómina.
-              bancoMovs.push({fecha:_fechaBNC(m.Date),tipo:esIng?'ingreso':'egreso',bs:Math.round(aBs(amt,moneda)*100)/100,ref:refs,desc:(cpt||String(m.Type||'').trim()),_conc:false,
+              bancoMovs.push({fecha:_fechaBNC(m.Date),tipo:esIng?'ingreso':'egreso',bs:Math.round(aBs(amt,moneda)*100)/100,_moneda:moneda,_montoOrig:amt,ref:refs,desc:(cpt||String(m.Type||'').trim()),_conc:false,
                 _cn:String(m.ControlNumber||'').trim(),_acc:acc,_prev:(m.PreviousBalance==null?null:Number(m.PreviousBalance)),
                 _tipoBanco:String(m.Type||'').replace(/\s+/g,' ').trim()||null,_codBanco:(m.Code==null?null:String(m.Code))});
             });
@@ -36744,6 +36858,19 @@ async function renderConciliacionBNC(){
 // Amiga, …), así que no alcanza con ninguna API: esto lo registra la oficina con su banco y su
 // referencia. Identidad = factura+pata → idempotente, no se puede duplicar el mismo cobro.
 // No éxito-falso: solo se refleja en memoria DESPUÉS de que la BD confirme.
+// Parsea montos escritos tanto en formato es-VE (12.345,67) como US/JS (12345.67) sin multiplicar por 100.
+function _parseMontoBsInput(s){
+  var raw=String(s==null?'':s).trim().replace(/\s+/g,'');
+  if(!raw)return NaN;
+  if(raw.indexOf(',')>=0 && raw.indexOf('.')>=0){
+    return raw.lastIndexOf(',')>raw.lastIndexOf('.')
+      ? parseFloat(raw.replace(/\./g,'').replace(',','.'))
+      : parseFloat(raw.replace(/,/g,''));
+  }
+  if(raw.indexOf(',')>=0)return parseFloat(raw.replace(',','.'));
+  if(/^\d+\.\d{1,2}$/.test(raw))return parseFloat(raw);
+  return parseFloat(raw.replace(/\./g,''));
+}
 function concCobroMarcar(fact,pata,bsEsperado){
   var banco=prompt('¿De qué banco entró el pago de la factura '+fact+' ('+pata+')?\n\n(La Alcaldía cambia de banco según el pago: BNC, Banca Amiga, …)','Banca Amiga');
   if(banco===null)return; banco=String(banco).trim(); if(!banco){mostrarToast('Escribe el banco','error');return;}
@@ -36755,7 +36882,7 @@ function concCobroMarcar(fact,pata,bsEsperado){
   var mDef=(Number(bsEsperado)||0).toFixed(2);
   var mIn=prompt('Monto REAL en Bs que entró:\n\n(Lo esperado es '+mDef+'. Si entró distinto, escribe lo que de verdad entró.)',mDef);
   if(mIn===null)return;
-  var monto=parseFloat(String(mIn).replace(/\./g,'').replace(',','.'));
+  var monto=_parseMontoBsInput(mIn);
   if(!(monto>0)){mostrarToast('Monto inválido','error');return;}
   var row={id:String(fact)+'-'+pata,fact:String(fact),pata:pata,fecha:fecha,banco:banco,referencia:String(ref).trim(),monto_bs:Math.round(monto*100)/100,obs:'Registrado a mano desde la conciliación',creado_por:(SESION&&SESION.nombre)||''};
   var aplicar=function(){
@@ -36768,7 +36895,8 @@ function concCobroMarcar(fact,pata,bsEsperado){
   if(typeof DEMO_MODE!=='undefined'&&DEMO_MODE){aplicar();return;}
   if(DB_READY&&supabase){
     supabase.from('cobros_factura').upsert([row],{onConflict:'id'}).select().then(function(r){
-      if(r.error){mostrarToast('No se pudo registrar: '+r.error.message,'error');return;}
+      if(r&&r.error){mostrarToast('No se pudo registrar: '+r.error.message,'error');return;}
+      if(!(r&&r.data&&r.data.length)){mostrarToast('La base no confirmó el registro del cobro','error');return;}
       aplicar();
     });
   } else aplicar();
@@ -36787,7 +36915,8 @@ function concCxpMarcar(pagoId){
   if(typeof DEMO_MODE!=='undefined'&&DEMO_MODE){aplicar();return;}
   if(DB_READY&&supabase){
     supabase.from('cxp_pagos').update({conciliado_banco:true,conciliado_ref:refB,conciliado_fecha:hoy}).in('id',ids).select().then(function(r){
-      if(r.error){if(typeof mostrarToast==='function')mostrarToast('No se pudo conciliar: '+r.error.message,'error');return;}
+      if(r&&r.error){if(typeof mostrarToast==='function')mostrarToast('No se pudo conciliar: '+r.error.message,'error');return;}
+      if(!(r&&r.data&&r.data.length)){if(typeof mostrarToast==='function')mostrarToast('La base no actualizó ningún pago al conciliar','error');return;}
       aplicar();
     });
   } else aplicar();
@@ -36795,17 +36924,20 @@ function concCxpMarcar(pagoId){
 function concCxpDesmarcar(pagoId){
   var p=(typeof CXP_PAGOS!=='undefined'?CXP_PAGOS:[]).find(function(x){return String(x.id)===String(pagoId);});
   if(!p)return;
-  if(typeof confirm==='function'&&!confirm('¿Deshacer la conciliación de este pago con el banco?'))return;
-  // Se deshace el grupo entero: si se concilió junto, se descoencilia junto.
   var hs=_cxpPagoHermanos(p), ids=hs.map(function(x){return x.id;});
-  var aplicar=function(){ hs.forEach(function(x){x.conciliado_banco=false;x.conciliado_ref=null;x.conciliado_fecha=null;}); if(typeof audit==='function')audit('Conciliación de pago CxP deshecha',(p.ref||p.id)+(hs.length>1?(' · '+hs.length+' órdenes'):'')); if(typeof mostrarToast==='function')mostrarToast('Conciliación deshecha','info'); renderConciliacionBNC(); };
-  if(typeof DEMO_MODE!=='undefined'&&DEMO_MODE){aplicar();return;}
-  if(DB_READY&&supabase){
-    supabase.from('cxp_pagos').update({conciliado_banco:false,conciliado_ref:null,conciliado_fecha:null}).in('id',ids).select().then(function(r){
-      if(r.error){if(typeof mostrarToast==='function')mostrarToast('No se pudo deshacer: '+r.error.message,'error');return;}
-      aplicar();
-    });
-  } else aplicar();
+  solicitarToken('Deshacer conciliación bancaria de pago CxP '+(p.ref||p.id),function(motivo){
+    var aplicar=function(){ hs.forEach(function(x){x.conciliado_banco=false;x.conciliado_ref=null;x.conciliado_fecha=null;}); if(typeof audit==='function')audit('Conciliación de pago CxP deshecha',(p.ref||p.id)+(hs.length>1?(' · '+hs.length+' órdenes'):'')+(motivo?(' — '+motivo):'')); if(typeof mostrarToast==='function')mostrarToast('Conciliación deshecha','info'); renderConciliacionBNC(); };
+    if(typeof DEMO_MODE!=='undefined'&&DEMO_MODE){aplicar();return;}
+    if(DB_READY&&supabase){
+      supabase.from('cxp_pagos').update({conciliado_banco:false,conciliado_ref:null,conciliado_fecha:null}).in('id',ids).select().then(function(r){
+        if(r&&r.error){if(typeof mostrarToast==='function')mostrarToast('No se pudo deshacer: '+r.error.message,'error');return;}
+        if(!(r&&r.data&&r.data.length)){if(typeof mostrarToast==='function')mostrarToast('La base no actualizó ningún pago al desconciliar','error');return;}
+        // Limpiar el espejo en bnc_movimientos para que el débito bancario no quede trabado como conciliado
+        try{ supabase.from('bnc_movimientos').update({cxp_pago_id:null,conciliado:false}).in('cxp_pago_id',ids).select().then(function(){}); }catch(e){}
+        aplicar();
+      });
+    } else aplicar();
+  });
 }
 
 // Tipos de mantenimiento (KM) — estaban orfanos dentro del HTML de porteria, ahora en el script
@@ -40513,11 +40645,12 @@ function _rsPintar(r){
   h+='<div class="st" style="margin-bottom:6px;font-size:11px">ENTRO</div>';
   var alc=r.entro&&r.entro.alcaldia||[];
   if(alc.length){ alc.forEach(function(c){
-    h+=fila('Alcaldia - factura '+c.factura+' ('+(c.pata==='fiel'?'fiel 10%':c.pata)+'), '+_rsDdmm(c.fecha),
+    var lblAlc=c.detalle?c.detalle:('Alcaldia - factura '+(c.factura||'s/n')+' ('+(c.pata==='fiel'?'fiel 10%':c.pata)+')');
+    h+=fila(lblAlc+', '+_rsDdmm(c.fecha),
             _rsBs(c.bs)+'   '+_rsUsd(c.usd)); }); }
   else h+=fila('La Alcaldia no pago en este periodo','—',{color:'var(--red)'});
   (r.entro&&r.entro.otros||[]).forEach(function(o){
-    h+=fila(o.categoria+' - '+String(o.texto||'').slice(0,40)+', '+_rsDdmm(o.fecha), _rsBs(o.bs)+'   '+_rsUsd(o.usd)); });
+    h+=fila((RS_NOMBRE[o.categoria]||o.categoria)+' - '+String(o.texto||'').slice(0,40)+', '+_rsDdmm(o.fecha), _rsBs(o.bs)+'   '+_rsUsd(o.usd)); });
   h+=fila('TOTAL QUE ENTRO',_rsUsd(r.entro&&r.entro.total_usd),{bold:true,color:'var(--green)'});
   h+='</div>';
 
@@ -40536,11 +40669,14 @@ function _rsPintar(r){
   var cam=(r.salio_no_gasto&&r.salio_no_gasto.camiones)||[];
   cam.forEach(function(c){ h+=fila('Abono a la deuda de los camiones, '+_rsDdmm(c.fecha)+' (a '+_rsN(c.tasa,2)+')',
     _rsBs(c.bs)+'   '+_rsUsd(c.usd)); });
+  var divComp=r.divisas_compradas||(r.salio_no_gasto&&r.salio_no_gasto.divisas_compradas)||[];
+  divComp.forEach(function(d){ h+=fila('Compra de divisas, '+_rsDdmm(d.fecha)+(d.tasa?' (a '+_rsN(d.tasa,2)+')':''),
+    _rsBs(d.bs)+'   '+_rsUsd(d.usd)); });
   ((r.salio_no_gasto&&r.salio_no_gasto.divisas_sin_destino)||[]).forEach(function(d){
     h+=fila('Dolares comprados sin destino declarado, '+_rsDdmm(d.fecha), _rsBs(d.bs)+'   '+_rsUsd(d.usd),{color:'var(--red)'}); });
-  if(!cam.length && !((r.salio_no_gasto&&r.salio_no_gasto.divisas_sin_destino)||[]).length) h+=fila('Nada en este periodo','—');
+  if(!cam.length && !divComp.length && !((r.salio_no_gasto&&r.salio_no_gasto.divisas_sin_destino)||[]).length) h+=fila('Nada en este periodo','—');
   h+=fila('TOTAL QUE SALIO SIN SER GASTO',_rsUsd(r.salio_no_gasto&&r.salio_no_gasto.total_usd),{bold:true});
-  h+='<div style="margin-top:6px;color:var(--text2);font-size:10px">No empobrece a la empresa: baja la deuda de los camiones, que es patrimonio. Solo los intereses de la cuota son gasto.</div>';
+  if(cam.length)h+='<div style="margin-top:6px;color:var(--text2);font-size:10px">No empobrece a la empresa: baja la deuda de los camiones, que es patrimonio. Solo los intereses de la cuota son gasto.</div>';
   h+='</div>';
 
   var saldo=Number(r.saldo_usd||0);
