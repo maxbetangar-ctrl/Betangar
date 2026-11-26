@@ -20042,24 +20042,264 @@ async function _surAplicarCorreccion(id,s,set,detalle,antes,lit){
   mostrarToast('✅ Corregido: '+_surFmtVE(antes,2)+' L → '+_surFmtVE(lit,2)+' L','exito');
   try{ renderSurtidasHoy(); }catch(e){}
 }
-function renderSurtidasHoy(){
-  var cont=g('dash-surtidas'); if(!cont)return;
-  var arr=_surtidasHoy();
-  var res=g('dash-surtidas-resumen');
-  if(!arr.length){ cont.innerHTML='<div style="color:var(--text3);font-size:12px;padding:6px">Sin surtidas registradas hoy.</div>'; if(res)res.textContent=''; return; }
-  var totLit=arr.reduce(function(a,s){return a+(parseFloat(s.litros)||0);},0);
-  var totUsd=arr.reduce(function(a,s){return a+_surCostoUsd(s);},0);
-  var unids={}; arr.forEach(function(s){if(s.cam)unids[s.cam]=1;});
-  var porTanque={}; arr.forEach(function(s){var t=s.tanque||'principal'; porTanque[t]=(porTanque[t]||0)+(parseFloat(s.litros)||0);});
-  var tasa=TASAS.bcvDolar||0;
-  if(res)res.textContent=Object.keys(unids).length+' unid · '+totLit.toLocaleString('es-VE')+' L · $'+totUsd.toFixed(2);
-  var chips=Object.keys(porTanque).map(function(t){return '<span style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:3px 8px;font-size:11px;margin-right:6px">'+_surLbl(t)+': <b>'+porTanque[t].toLocaleString('es-VE')+' L</b></span>';}).join('');
+var _SUR_DASH_CACHE={}; // fecha -> array (para fechas fuera de los últimos 35 días)
+var _SUR_MED_CACHE={};  // fecha -> array de combustible_mediciones cuando COMB_MEDICIONES no está cargado
+function _surPuedeVerPlata(modo){
+  if(modo==='oper') return false;
+  if(typeof SESION!=='undefined'&&SESION&&SESION.rol==='operativo') return false;
+  if(typeof misPermisos==='function') return misPermisos().indexOf('financiero')>=0;
+  return !(typeof SESION!=='undefined'&&SESION&&SESION.rol==='rrhh');
+}
+function _surDashFechaSel(modo){
+  var id=(modo==='oper')?'oper-surt-fecha':'dash-surt-fecha';
+  var el=g(id);
+  var hoy=(typeof fechaVE==='function')?fechaVE():new Date().toISOString().slice(0,10);
+  if(el && !el.value) el.value=hoy;
+  return (el && el.value) ? String(el.value).slice(0,10) : hoy;
+}
+function _surDashOrigenSel(modo){
+  var id=(modo==='oper')?'oper-surt-origen':'dash-surt-origen';
+  return gv(id)||'todas';
+}
+function _surDashIrFecha(cual, modo){
+  var hoy=(typeof fechaVE==='function')?fechaVE():new Date().toISOString().slice(0,10);
+  var f=hoy;
+  if(cual==='ayer'){
+    var d=new Date(hoy+'T12:00:00Z'); d.setUTCDate(d.getUTCDate()-1);
+    f=d.toISOString().slice(0,10);
+  }
+  var id=(modo==='oper')?'oper-surt-fecha':'dash-surt-fecha';
+  var el=g(id); if(el)el.value=f;
+  if(modo==='oper'){ if(typeof operRenderSurtidasHoy==='function')operRenderSurtidasHoy(); }
+  else { renderSurtidasHoy(); }
+}
+function _surFiltrarDia(arr, origen){
+  return (arr||[]).filter(function(s){
+    if(origen==='estacion') return (typeof _surEsExterna==='function') ? _surEsExterna(s) : (String(s.tanque||'')==='estacion');
+    if(origen==='galpon') return (typeof _surEsExterna==='function') ? !_surEsExterna(s) : (String(s.tanque||'')!=='estacion');
+    return true;
+  });
+}
+// Agrupa las surtidas válidas (litros > 0) de un día por unidad para cotejo y pago a la estación de servicio.
+function _resumenCotejoSurtidas(arr){
+  var porUnidad={}, porTanque={}, totLit=0, totUsd=0, nValidas=0;
+  (arr||[]).forEach(function(s){
+    var l=parseFloat(s.litros)||0;
+    var anulada=(s.corregido_por && l===0) || !!s.anulada;
+    if(anulada || l<=0) return;
+    nValidas++;
+    var u=String(s.cam||'SIN UNIDAD').trim();
+    if(!porUnidad[u]) porUnidad[u]={cam:u, litros:0, cargas:0, costoUsd:0, fotos:0, fotoItems:[], origenes:{}};
+    porUnidad[u].litros+=l;
+    porUnidad[u].cargas++;
+    porUnidad[u].costoUsd+=(typeof _surCostoUsd==='function'?_surCostoUsd(s):(parseFloat(s.costo_usd)||0));
+    if(s.foto_url){
+      porUnidad[u].fotos++;
+      porUnidad[u].fotoItems.push({url:s.foto_url, id:s.id||'', hora:s.hora||'', litros:l});
+    }
+    var tk=s.tanque||'principal';
+    porUnidad[u].origenes[tk]=(porUnidad[u].origenes[tk]||0)+l;
+    porTanque[tk]=(porTanque[tk]||0)+l;
+    totLit+=l;
+    totUsd+=(typeof _surCostoUsd==='function'?_surCostoUsd(s):(parseFloat(s.costo_usd)||0));
+  });
+  var unidades=Object.keys(porUnidad).sort().map(function(k){
+    var x=porUnidad[k];
+    x.litros=Math.round(x.litros*100)/100;
+    x.costoUsd=Math.round(x.costoUsd*100)/100;
+    return x;
+  });
+  return {
+    unidades:unidades,
+    porTanque:porTanque,
+    totLit:Math.round(totLit*100)/100,
+    totUsd:Math.round(totUsd*100)/100,
+    nUnidades:unidades.length,
+    nValidas:nValidas
+  };
+}
+// Verifica coherencia entre los litros surtidos a una unidad en `fecha` y sus mediciones de regla (cm -> L) y capacidad del tanque.
+function _cotejoCoherenciaUnidad(cam, fecha, litrosSurtidos, meds, tanques, vehiculos){
+  var lista=(meds||[]).filter(function(m){
+    return String(m.vehiculo_id||'').trim()===String(cam||'').trim() && String(m.fecha||'').slice(0,10)===fecha;
+  });
+  lista.sort(function(a,b){
+    var ta=String(a.created_at||a.id||''), tb=String(b.created_at||b.id||'');
+    return ta<tb?-1:(ta>tb?1:0);
+  });
+  var sal=null, lle=null;
+  lista.forEach(function(m){
+    var mo=String(m.momento||'').toLowerCase();
+    if(mo==='salida'||mo==='inicio') sal=m;
+    else if(mo==='llegada'||mo==='fin') lle=m;
+  });
+  // Capacidad física del tanque de la unidad (si está configurada)
+  var cap=0;
+  var tqId='';
+  var veh=(vehiculos||[]).find(function(v){ return String(v.id||v.vehiculo_id||v.cam||'').trim()===String(cam||'').trim(); });
+  if(veh && veh.tanque_id) tqId=veh.tanque_id;
+  if(!tqId && (sal||lle)) tqId=(sal||lle).tanque_id||'';
+  if(tqId){
+    var tq=(tanques||[]).find(function(t){ return String(t.id)===String(tqId); });
+    if(tq && parseFloat(tq.capacidad_litros)>0) cap=parseFloat(tq.capacidad_litros);
+  }
+  function _litMed(m){
+    if(!m) return null;
+    var lc=parseFloat(m.litros_calculados);
+    if(isFinite(lc) && lc>0) return Math.round(lc*10)/10;
+    if(typeof combLitros==='function' && m.tanque_id && m.altura_cm!=null){
+      var calc=combLitros(m.tanque_id, m.altura_cm);
+      if(isFinite(calc)) return Math.round(calc*10)/10;
+    }
+    return isFinite(lc)?Math.round(lc*10)/10:null;
+  }
+  var salL=_litMed(sal), lleL=_litMed(lle);
+  var salCm=(sal&&sal.altura_cm!=null)?parseFloat(sal.altura_cm):null;
+  var lleCm=(lle&&lle.altura_cm!=null)?parseFloat(lle.altura_cm):null;
+  var medTxt=[];
+  if(sal) medTxt.push('Sal: '+(salCm!=null?salCm+'cm':'?')+(salL!=null?' ('+salL+' L)':''));
+  if(lle) medTxt.push('Lle: '+(lleCm!=null?lleCm+'cm':'?')+(lleL!=null?' ('+lleL+' L)':''));
+  var resumenMed=medTxt.join(' · ');
+
+  // 1) Excede la capacidad física del tanque
+  if(cap>0 && litrosSurtidos > cap+10){
+    return {estado:'alerta', badge:'🔴 Excede tanque', detalle:'Surtido '+litrosSurtidos+' L > cap. '+cap+' L'+(resumenMed?' · '+resumenMed:''), salCm:salCm, salL:salL, lleCm:lleCm, lleL:lleL, cap:cap, consumo:null};
+  }
+  // 2) Ambas mediciones (salida + llegada): verificar balance salida + surtido - llegada
+  if(sal && lle && salL!=null && lleL!=null){
+    var consumo=Math.round((salL + litrosSurtidos - lleL)*10)/10;
+    if(consumo < -15){
+      return {estado:'alerta', badge:'🔴 Incoherente cm', detalle:resumenMed+' · Balance negativo ('+consumo+' L)', salCm:salCm, salL:salL, lleCm:lleCm, lleL:lleL, cap:cap, consumo:consumo};
+    }
+    if(consumo <= 0){
+      return {estado:'revisar', badge:'🟡 Revisar cm', detalle:resumenMed+' · Balance '+consumo+' L (tolerancia)', salCm:salCm, salL:salL, lleCm:lleCm, lleL:lleL, cap:cap, consumo:consumo};
+    }
+    return {estado:'ok', badge:'✅ Cuadra con cm', detalle:resumenMed+' · Consumo: '+consumo+' L', salCm:salCm, salL:salL, lleCm:lleCm, lleL:lleL, cap:cap, consumo:consumo};
+  }
+  // 3) Solo una medición
+  if(sal || lle){
+    return {estado:'parcial', badge:'📏 1 medición cm', detalle:resumenMed+' (falta '+(sal?'llegada':'salida')+')', salCm:salCm, salL:salL, lleCm:lleCm, lleL:lleL, cap:cap, consumo:null};
+  }
+  // 4) Sin mediciones de regla ese día
+  return {estado:'sin_med', badge:'⚪ Sin medición cm', detalle:'Sin lectura de regla registrada el '+fecha, salCm:null, salL:null, lleCm:null, lleL:null, cap:cap, consumo:null};
+}
+function _surMedicionesDia(fecha){
+  if(typeof COMB_MEDICIONES!=='undefined'&&Array.isArray(COMB_MEDICIONES)&&COMB_MEDICIONES.length){
+    return COMB_MEDICIONES.filter(function(m){ return String(m.fecha||'').slice(0,10)===fecha; });
+  }
+  return _SUR_MED_CACHE[fecha]||[];
+}
+async function _surCargarMedicionesSiFaltan(fecha){
+  if(!(DB_READY&&supabase))return;
+  var tieneMem=(typeof COMB_MEDICIONES!=='undefined'&&Array.isArray(COMB_MEDICIONES)&&COMB_MEDICIONES.length>0);
+  if(tieneMem || _SUR_MED_CACHE[fecha]) return;
+  _SUR_MED_CACHE[fecha]=[];
+  try{
+    var r=await supabase.from('combustible_mediciones').select('*').eq('fecha',fecha).order('created_at',{ascending:true});
+    if(r&&!r.error&&Array.isArray(r.data)){
+      _SUR_MED_CACHE[fecha]=r.data;
+      if(typeof COMB_TANQUES!=='undefined'&&!COMB_TANQUES.length){
+        var t=await supabase.from('combustible_tanques_config').select('*').order('id');
+        if(t&&!t.error&&Array.isArray(t.data))COMB_TANQUES=t.data;
+      }
+      if(typeof COMB_VEHICULOS!=='undefined'&&!COMB_VEHICULOS.length){
+        var v=await supabase.from('combustible_vehiculos_config').select('*').order('id');
+        if(v&&!v.error&&Array.isArray(v.data))COMB_VEHICULOS=v.data;
+      }
+      try{ renderSurtidasHoy(); }catch(e){}
+      try{ if(typeof operRenderSurtidasHoy==='function')operRenderSurtidasHoy(); }catch(e){}
+    }
+  }catch(e){}
+}
+function _surObtenerDia(fecha){
+  var hoy=(typeof fechaVE==='function')?fechaVE():new Date().toISOString().slice(0,10);
+  var base=(SURTIDAS||[]).filter(function(s){return String(s.fecha||'').slice(0,10)===fecha;});
+  if(base.length || fecha===hoy) return base;
+  if(_SUR_DASH_CACHE[fecha]) return _SUR_DASH_CACHE[fecha];
+  return base;
+}
+async function _surCargarFechaRemotaSiFalta(fecha){
+  if(!(DB_READY&&supabase))return;
+  var desde35=(typeof _acMenos==='function')?_acMenos(35):new Date(Date.now()-35*86400000).toISOString().slice(0,10);
+  if(fecha>=desde35 || _SUR_DASH_CACHE[fecha]) return;
+  try{
+    var r=await supabase.from('surtidas').select('*').eq('fecha',fecha).order('hora',{ascending:false});
+    if(r&&!r.error&&Array.isArray(r.data)){
+      _SUR_DASH_CACHE[fecha]=r.data;
+      try{ renderSurtidasHoy(); }catch(e){}
+      try{ if(typeof operRenderSurtidasHoy==='function')operRenderSurtidasHoy(); }catch(e){}
+    }
+  }catch(e){}
+}
+function _renderCotejoSurtidasEn(opts){
+  var modo=(opts&&opts.modo)||'dash';
+  var cont=g(opts.contId); if(!cont)return;
+  var fecha=_surDashFechaSel(modo);
+  var origen=_surDashOrigenSel(modo);
+  var hoy=(typeof fechaVE==='function')?fechaVE():new Date().toISOString().slice(0,10);
+  var tit=g(opts.titId);
+  if(tit)tit.textContent='⛽ Surtidas '+(fecha===hoy?'de hoy':('del '+formatFecha(fecha)))+' — cotejo E/S';
+  _surCargarFechaRemotaSiFalta(fecha);
+  _surCargarMedicionesSiFaltan(fecha);
+  var arr=_surFiltrarDia(_surObtenerDia(fecha), origen);
+  var res=g(opts.resId);
+  if(!arr.length){
+    cont.innerHTML='<div style="color:var(--text3);font-size:12px;padding:10px;text-align:center">Sin surtidas registradas para '+formatFecha(fecha)+(origen!=='todas'?' en ese origen':'')+'.</div>';
+    if(res)res.textContent='';
+    return;
+  }
+  var cot=_resumenCotejoSurtidas(arr);
+  var medsDia=_surMedicionesDia(fecha);
+  var tanques=(typeof COMB_TANQUES!=='undefined'&&Array.isArray(COMB_TANQUES))?COMB_TANQUES:[];
+  var vehiculos=(typeof COMB_VEHICULOS!=='undefined'&&Array.isArray(COMB_VEHICULOS))?COMB_VEHICULOS:[];
+  var verPlata=_surPuedeVerPlata(modo);
+  var tasa=(typeof TASAS!=='undefined'&&TASAS&&TASAS.bcvDolar)||0;
+  var nAlertas=0, nSinFoto=0;
+  // Bloque de COTEJO POR UNIDAD (litros + foto verificable + coherencia con cm de regla)
+  var resumenUnid=cot.unidades.map(function(u){
+    var coh=_cotejoCoherenciaUnidad(u.cam, fecha, u.litros, medsDia, tanques, vehiculos);
+    if(coh.estado==='alerta') nAlertas++;
+    if(!u.fotoItems.length) nSinFoto++;
+    var colCoh=coh.estado==='ok'?'var(--green)':coh.estado==='alerta'?'var(--red)':coh.estado==='revisar'?'var(--yellow)':'var(--text3)';
+    var bgBorder=coh.estado==='alerta'?'rgba(239,68,68,.55)':'var(--border)';
+    var fotosHtml=u.fotoItems.length
+      ? u.fotoItems.map(function(fi,idx){
+          var lbl=u.fotoItems.length>1?('📷 '+(idx+1)):'📷 Foto';
+          return '<a href="#" onclick="_surVerFoto(\''+_mEsc(fi.url||fi.id)+'\');return false" title="Ver foto surtida '+(fi.hora||'')+' ('+fi.litros+' L)" style="color:var(--teal);text-decoration:none;font-size:10px;font-weight:700;background:rgba(20,184,166,.12);border:1px solid rgba(20,184,166,.35);border-radius:5px;padding:1px 5px">'+lbl+'</a>';
+        }).join(' ')
+      : '<span style="font-size:10px;color:var(--red);font-weight:700" title="Chofer no subió foto de respaldo">⚠️ Sin foto</span>';
+    return '<div style="background:var(--bg3);border:1px solid '+bgBorder+';border-radius:7px;padding:6px 9px;font-size:11px;display:flex;flex-direction:column;gap:4px">'+
+      '<div style="display:flex;justify-content:space-between;align-items:center;gap:6px">'+
+        '<span><b>'+_mEsc(u.cam)+'</b>'+(u.cargas>1?' <span style="font-size:9px;color:var(--text3)">('+u.cargas+' cargas)</span>':'')+'</span>'+
+        '<span style="font-family:var(--m);font-weight:800;color:var(--teal);font-size:12px">'+u.litros.toLocaleString('es-VE',{maximumFractionDigits:2})+' L</span>'+
+      '</div>'+
+      '<div style="display:flex;justify-content:space-between;align-items:center;gap:4px;flex-wrap:wrap">'+
+        '<span style="font-size:10px;font-weight:700;color:'+colCoh+'" title="'+_mEsc(coh.detalle)+'">'+coh.badge+'</span>'+
+        '<span style="display:flex;gap:3px;align-items:center">'+fotosHtml+'</span>'+
+      '</div>'+
+      '<div style="font-size:9.5px;color:var(--text3);line-height:1.25">'+_mEsc(coh.detalle)+'</div>'+
+    '</div>';
+  }).join('');
+  if(res)res.innerHTML='<b>'+cot.nUnidades+' unidad(es)</b> · <b style="color:var(--teal);font-size:12px">'+cot.totLit.toLocaleString('es-VE',{maximumFractionDigits:2})+' L totales</b>'+
+    (verPlata&&cot.totUsd>0?(' · $'+cot.totUsd.toFixed(2)):'')+
+    (nAlertas?(' · <span style="color:var(--red);font-weight:700">🔴 '+nAlertas+' alerta(s) cm</span>'):'')+
+    (nSinFoto?(' · <span style="color:var(--yellow);font-weight:700">⚠️ '+nSinFoto+' sin foto</span>'):'');
+  var chipsOrigen=Object.keys(cot.porTanque).map(function(t){return '<span style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:3px 8px;font-size:11px;margin-right:6px">'+_surLbl(t)+': <b>'+cot.porTanque[t].toLocaleString('es-VE',{maximumFractionDigits:2})+' L</b></span>';}).join('');
+  var puedeAud=(typeof misPermisos==='function') && misPermisos().indexOf('aud-combustible')>=0;
+  var btnAud=puedeAud?'<button class="btn btn-s btn-xs" onclick="sp(\'aud-combustible\')" title="Abrir Auditoría de Combustible completa">🔍 Auditoría</button>':'';
+  var bloqueCotejo='<div style="background:rgba(20,184,166,.07);border:1px solid rgba(20,184,166,.35);border-radius:9px;padding:9px 10px;margin-bottom:10px">'+
+    '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;margin-bottom:7px">'+
+      '<span style="font-size:11px;font-weight:800;color:var(--teal)">🧾 RESUMEN POR UNIDAD (cotejo E/S · foto · regla cm)</span>'+
+      '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">'+
+        btnAud+
+        '<span style="font-family:var(--m);font-size:13px;font-weight:900;color:var(--green);background:rgba(34,197,94,.12);border:1px solid rgba(34,197,94,.35);border-radius:7px;padding:2px 9px">TOTAL: '+cot.totLit.toLocaleString('es-VE',{maximumFractionDigits:2})+' L</span>'+
+      '</div>'+
+    '</div>'+
+    '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(205px,1fr));gap:6px">'+resumenUnid+'</div>'+
+  '</div>';
+
   var filas=arr.map(function(s){
     var l=parseFloat(s.litros)||0, cu=_surCostoUsd(s);
-    // Una surtida corregida lo DICE: si no, el número cambia y nadie sabe que alguien lo tocó.
-    // ⛔ UNA ANULADA TIENE QUE DECIRLO FUERTE. Queda en 0 litros, así que en la lista se
-    //    vería como una fila cualquiera con un cero — indistinguible de un error de carga.
-    //    Se marca, se tacha, y se dice POR QUÉ se anuló y quién.
     var _anulada = (s.corregido_por && l===0);
     var _motivoAnul = '';
     if(_anulada){
@@ -20073,10 +20313,89 @@ function renderSurtidasHoy(){
       ? (' <span title="'+_surEscC('Anulada por '+(s.corregido_por||'')+(_motivoAnul?(' — '+_motivoAnul):''))+'" style="font-size:9px;color:var(--red);font-weight:700">⛔ ANULADA</span>')
       : (' <span title="Corregido por '+_surEscC(s.corregido_por)+'" style="font-size:9px;color:var(--yellow)">✏️ corregida</span>')):'';
     var btnCor=_surPuedeCorregir()?(' <a href="#" onclick="surCorregir(\''+_surEscC(s.id)+'\');return false" style="color:var(--yellow)" title="Corregir los litros">✏️</a>'):'';
-    return '<tr'+(_anulada?' style="opacity:.55"':'')+'><td style="font-size:11px">'+(s.hora||'')+'</td><td style="font-weight:700;font-size:11px">'+(s.cam||'')+'</td><td style="font-size:11px">'+_surLbl(s.tanque)+'</td><td style="font-family:var(--m);text-align:right'+(_anulada?';text-decoration:line-through':'')+'">'+l.toLocaleString('es-VE')+' L'+corr+'</td><td style="font-family:var(--m);text-align:right;color:var(--green)">$'+cu.toFixed(2)+'</td><td style="text-align:center">'+(s.foto_url?'<a href="#" onclick="_surVerFoto(\''+_mEsc(s.foto_url)+'\');return false" style="color:var(--teal)">📷</a>':'')+''+btnCor+'</td></tr>';
+    var btnFoto=s.foto_url
+      ? '<a href="#" onclick="_surVerFoto(\''+_mEsc(s.foto_url)+'\');return false" style="color:var(--teal);text-decoration:none;font-weight:700;font-size:11px" title="Abrir foto subida por el chofer">📷 Ver</a>'
+      : '<span style="color:var(--text3);font-size:10px">—</span>';
+    return '<tr'+(_anulada?' style="opacity:.55"':'')+'><td style="font-size:11px">'+(s.hora||'')+'</td><td style="font-weight:700;font-size:11px">'+(s.cam||'')+'</td><td style="font-size:11px">'+_surLbl(s.tanque)+'</td><td style="font-family:var(--m);text-align:right'+(_anulada?';text-decoration:line-through':'')+'">'+l.toLocaleString('es-VE')+' L'+corr+'</td>'+(verPlata?('<td style="font-family:var(--m);text-align:right;color:var(--green)">$'+cu.toFixed(2)+'</td>'):'')+'<td style="text-align:center">'+btnFoto+btnCor+'</td></tr>';
   }).join('');
-  cont.innerHTML='<div style="margin-bottom:8px">'+chips+'<span style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:3px 8px;font-size:11px">Total: <b style="color:var(--green)">$'+totUsd.toFixed(2)+'</b>'+(tasa?' ≈ Bs '+(totUsd*tasa).toLocaleString('es-VE',{maximumFractionDigits:0}):'')+'</span></div>'+
-    '<div style="overflow-x:auto"><table style="width:100%"><thead><tr><th>Hora</th><th>Unidad</th><th>Tanque</th><th style="text-align:right">Litros</th><th style="text-align:right">Costo</th><th>Foto</th></tr></thead><tbody>'+filas+'</tbody></table></div>';
+  var wrapStyle=opts.maxH?(' style="overflow-x:auto;max-height:'+opts.maxH+'px;overflow-y:auto"'):' style="overflow-x:auto"';
+  cont.innerHTML=bloqueCotejo+
+    '<div style="margin-bottom:8px;display:flex;flex-wrap:wrap;gap:6px;align-items:center">'+chipsOrigen+
+      (verPlata&&cot.totUsd>0?'<span style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:3px 8px;font-size:11px">Costo: <b style="color:var(--green)">$'+cot.totUsd.toFixed(2)+'</b>'+(tasa?' ≈ Bs '+(cot.totUsd*tasa).toLocaleString('es-VE',{maximumFractionDigits:0}):'')+'</span>':'')+
+    '</div>'+
+    '<div'+wrapStyle+'><table style="width:100%"><thead><tr><th>Hora</th><th>Unidad</th><th>Origen</th><th style="text-align:right">Litros</th>'+(verPlata?'<th style="text-align:right">Costo</th>':'')+'<th>Foto</th></tr></thead><tbody>'+filas+'</tbody></table></div>';
+}
+function renderSurtidasHoy(){
+  _renderCotejoSurtidasEn({
+    modo:'dash',
+    contId:'dash-surtidas',
+    titId:'dash-surtidas-titulo',
+    resId:'dash-surtidas-resumen'
+  });
+}
+function copiarCotejoSurtidas(modo){
+  var fecha=_surDashFechaSel(modo);
+  var origen=_surDashOrigenSel(modo);
+  var arr=_surFiltrarDia(_surObtenerDia(fecha), origen);
+  var cot=_resumenCotejoSurtidas(arr);
+  if(!cot.nUnidades){ if(typeof mostrarToast==='function')mostrarToast('No hay surtidas en esa fecha para copiar','warn'); return; }
+  var origLbl=origen==='estacion'?'Estación de servicio':(origen==='galpon'?'Galpón':'Todos los orígenes');
+  var lineas=['⛽ SURTIDAS DEL '+formatFecha(fecha)+' ('+origLbl+')'];
+  cot.unidades.forEach(function(u){
+    lineas.push('• '+u.cam+': '+u.litros.toLocaleString('es-VE',{maximumFractionDigits:2})+' L'+(u.cargas>1?' ('+u.cargas+' cargas)':''));
+  });
+  lineas.push('━━━━━━━━━━━━━━━');
+  lineas.push('TOTAL: '+cot.totLit.toLocaleString('es-VE',{maximumFractionDigits:2})+' L ('+cot.nUnidades+' unidades)');
+  var txt=lineas.join('\n');
+  if(navigator.clipboard&&navigator.clipboard.writeText){
+    navigator.clipboard.writeText(txt).then(function(){
+      if(typeof mostrarToast==='function')mostrarToast('📋 Resumen de cotejo copiado ('+cot.totLit.toLocaleString('es-VE')+' L)','exito');
+    }).catch(function(){ prompt('Copia el resumen de surtidas:', txt); });
+  } else { prompt('Copia el resumen de surtidas:', txt); }
+}
+function imprimirCotejoSurtidas(modo){
+  var fecha=_surDashFechaSel(modo);
+  var origen=_surDashOrigenSel(modo);
+  var arr=_surFiltrarDia(_surObtenerDia(fecha), origen);
+  var cot=_resumenCotejoSurtidas(arr);
+  if(!cot.nUnidades){ alert('No hay surtidas registradas para '+formatFecha(fecha)); return; }
+  var verPlata=_surPuedeVerPlata(modo);
+  var medsDia=_surMedicionesDia(fecha);
+  var tanques=(typeof COMB_TANQUES!=='undefined'&&Array.isArray(COMB_TANQUES))?COMB_TANQUES:[];
+  var vehiculos=(typeof COMB_VEHICULOS!=='undefined'&&Array.isArray(COMB_VEHICULOS))?COMB_VEHICULOS:[];
+  var origLbl=origen==='estacion'?'Estación de servicio':(origen==='galpon'?'Galpón propio':'Todos los orígenes');
+  var stats=mkStat('Fecha',formatFecha(fecha),origLbl,'azul')+
+    mkStat('Unidades surtidas',cot.nUnidades,cot.nValidas+' carga(s)','azul')+
+    mkStat('TOTAL LITROS',cot.totLit.toLocaleString('es-VE',{maximumFractionDigits:2})+' L','Para cotejar y pagar','verde')+
+    (verPlata&&cot.totUsd>0?mkStat('Costo ref.','$'+cot.totUsd.toFixed(2),'','amari'):'');
+  var filasU=cot.unidades.map(function(u,i){
+    var origs=Object.keys(u.origenes).map(function(k){return _surLbl(k)+' ('+u.origenes[k].toLocaleString('es-VE',{maximumFractionDigits:2})+' L)';}).join(', ');
+    var coh=_cotejoCoherenciaUnidad(u.cam, fecha, u.litros, medsDia, tanques, vehiculos);
+    return '<tr style="background:'+(i%2===0?'#fff':'#f8fafc')+'">'+
+      '<td><b>'+_mEsc(u.cam)+'</b></td>'+
+      '<td style="text-align:center">'+u.cargas+'</td>'+
+      '<td style="font-size:11px">'+origs+'</td>'+
+      '<td style="text-align:center">'+(u.fotos?'📷 '+u.fotos:'⚠️ 0')+'</td>'+
+      '<td style="font-size:10px"><b>'+_mEsc(coh.badge)+'</b><br><span style="color:#475569">'+_mEsc(coh.detalle)+'</span></td>'+
+      '<td class="mono" style="text-align:right;font-weight:700">'+u.litros.toLocaleString('es-VE',{maximumFractionDigits:2})+' L</td></tr>';
+  }).join('');
+  var filasDet=arr.map(function(s,i){
+    var l=parseFloat(s.litros)||0;
+    var an=(s.corregido_por&&l===0)||!!s.anulada;
+    return '<tr style="background:'+(i%2===0?'#fff':'#f8fafc')+(an?';opacity:.5;text-decoration:line-through':'')+'">'+
+      '<td>'+(s.hora||'—')+'</td><td><b>'+_mEsc(s.cam||'')+'</b></td>'+
+      '<td>'+_mEsc(s.chofer||'—')+'</td><td>'+_surLbl(s.tanque)+'</td>'+
+      '<td class="mono" style="text-align:right">'+l.toLocaleString('es-VE',{maximumFractionDigits:2})+' L</td>'+
+      '<td style="text-align:center">'+(s.foto_url?'✓ Foto':'Sin foto')+'</td></tr>';
+  }).join('');
+  var body='<h3>Resumen por unidad (cotejo con estación de servicio y medición cm)</h3>'+
+    '<table><thead><tr><th>Unidad</th><th style="text-align:center">Cargas</th><th>Origen</th><th style="text-align:center">Fotos</th><th>Coherencia regla (cm)</th><th style="text-align:right">Litros</th></tr></thead><tbody>'+
+    filasU+
+    '<tr style="background:#ecfdf5;font-weight:900;font-size:13px"><td colspan="5">TOTAL A COTEJAR / PAGAR</td><td class="mono" style="text-align:right;color:#15803d">'+cot.totLit.toLocaleString('es-VE',{maximumFractionDigits:2})+' L</td></tr>'+
+    '</tbody></table>'+
+    '<h3 style="margin-top:16px">Detalle de cargas del día</h3>'+
+    '<table><thead><tr><th>Hora</th><th>Unidad</th><th>Chofer</th><th>Origen</th><th style="text-align:right">Litros</th><th style="text-align:center">Respaldo</th></tr></thead><tbody>'+filasDet+'</tbody></table>';
+  abrirImpresionPremium('Informe de Surtidas del Día — Cotejo E/S',formatFecha(fecha)+' · '+origLbl,stats,body);
 }
 // ═══════════════════════════════════════════════════════════════════════════════════════════════
 // FOTOS PRIVADAS — el bucket dejó de ser público, así que la URL guardada YA NO ABRE SOLA.
@@ -32579,31 +32898,16 @@ async function operGuardarEstadoModal(cam){
 }
 
 function operRenderSurtidasHoy(){
-  var cont = document.getElementById('oper-surtidas-hoy');
-  if(!cont) return;
-  var sur = typeof _surtidasHoy === 'function' ? _surtidasHoy() : [];
-  if(!sur.length){
-    cont.innerHTML = '<div style="color:var(--text3);font-size:12px;padding:20px;text-align:center">⛽ No hay combustible despachado a camiones hoy todavía.</div>';
+  if(typeof _renderCotejoSurtidasEn==='function'){
+    _renderCotejoSurtidasEn({
+      modo:'oper',
+      contId:'oper-surtidas-hoy',
+      titId:'oper-surtidas-titulo',
+      resId:'oper-surtidas-resumen',
+      maxH:320
+    });
     return;
   }
-  var html = '<div style="max-height:280px;overflow-y:auto">'+
-    sur.map(function(s){
-      var l = parseFloat(s.litros) || 0;
-      var fS = s.fecha ? formatFecha(s.fecha) : '';
-      var h = String(s.hora || (s.fecha ? s.fecha.slice(11,16) : '') || '—');
-      var tq = s.tanque === 'galpon_1' ? 'Galpón 1' : s.tanque === 'galpon_2' ? 'Galpón 2' : (s.tanque || 'Estación');
-      return '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 6px;border-bottom:1px solid var(--border)">'+
-        '<div>'+
-          '<b style="font-size:13px;color:var(--text1)">🚛 '+(s.cam||'—')+'</b>'+
-          '<div style="font-size:10px;color:var(--text3)">'+(fS?fS+' · ':'')+tq+' · '+h+(s.creado_por?' ('+s.creado_por+')':'')+'</div>'+
-        '</div>'+
-        '<div style="font-weight:900;font-size:15px;color:#7dc941;font-family:var(--m)">'+
-          Math.round(l).toLocaleString('es-VE')+' L'+
-        '</div>'+
-      '</div>';
-    }).join('')+
-  '</div>';
-  cont.innerHTML = html;
 }
 
 function imprimirDashboardOperativo(){

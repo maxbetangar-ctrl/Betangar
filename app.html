@@ -381,7 +381,25 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
   <!-- DEUDA: va ARRIBA, junto a las alertas, porque una cuota vencida es una alerta.
        Solo se dibuja si el rol puede ver lo financiero: si no, ni el titulo aparece. -->
   <div id="dash-deuda" style="margin-bottom:10px"></div>
-  <div class="card" id="card-surtidas-dash" style="margin-bottom:10px"><div class="sh" style="display:flex;justify-content:space-between;align-items:center"><div class="st">⛽ Combustible surtido — hoy</div><div id="dash-surtidas-resumen" style="font-size:10px;color:var(--text3)"></div></div><div id="dash-surtidas" style="margin-top:8px"></div></div>
+  <div class="card" id="card-surtidas-dash" style="margin-bottom:10px">
+    <div class="sh" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">
+      <div class="st" id="dash-surtidas-titulo">⛽ Combustible surtido — cotejo del día</div>
+      <div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap">
+        <button class="btn btn-s btn-xs" onclick="_surDashIrFecha('hoy')" title="Ver hoy">Hoy</button>
+        <button class="btn btn-s btn-xs" onclick="_surDashIrFecha('ayer')" title="Ver ayer">Ayer</button>
+        <input type="date" id="dash-surt-fecha" class="fc" style="padding:3px 6px;font-size:11px;width:auto" onchange="renderSurtidasHoy()">
+        <select id="dash-surt-origen" class="fc" style="padding:3px 6px;font-size:11px;width:auto" onchange="renderSurtidasHoy()">
+          <option value="todas">Todos los orígenes</option>
+          <option value="estacion">Solo Estación de servicio</option>
+          <option value="galpon">Solo Galpón</option>
+        </select>
+        <button class="btn btn-s btn-xs" onclick="copiarCotejoSurtidas()" title="Copiar resumen por unidad para WhatsApp">📋 Copiar</button>
+        <button class="btn btn-g btn-xs" onclick="imprimirCotejoSurtidas()" title="Imprimir informe de cotejo para pagar a la estación">🖨️ Informe</button>
+      </div>
+    </div>
+    <div id="dash-surtidas-resumen" style="font-size:11px;color:var(--text3);margin-top:4px"></div>
+    <div id="dash-surtidas" style="margin-top:8px"></div>
+  </div>
   <!-- 🧠 INTELIGENCIA DE FLOTA — visible para el dueño/gerente; cada tarjeta se calcula en su módulo -->
   <div id="dash-costo-ton" style="margin-bottom:10px"></div>
   <div id="dash-inteligencia" style="margin-bottom:10px"></div>
@@ -3367,7 +3385,7 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
      Excel sale con el defecto ya corregido. Pasó midiendo este mismo cambio el
      23/09: dos corridas dieron un .xlsx idéntico byte por byte. -->
 <script src="maxware-excel.js?v=20261106-excel"></script>
-<script src="app.js?v=20261125-ciclo-pago-a-pago-seguridad"></script>
+<script src="app.js?v=20261125-ciclo-pago-a-pago-cotejo-surtidas"></script>
 
 <!-- Modal global -->
 <div id="modal" class="moverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9990;align-items:center;justify-content:center;padding:16px">
@@ -3770,14 +3788,27 @@ document.addEventListener('DOMContentLoaded',_syncThemeIcon);
         </div>
       </div>
 
-      <!-- Columna Surtidas del Día a Unidades -->
-      <div class="card" style="margin-bottom:0;padding:16px 20px">
-        <div class="sh" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-          <div class="st" style="font-size:14px;display:flex;align-items:center;gap:6px">
-            <span>⛽</span> Combustible Despachado Hoy a Unidades
+      <!-- Columna Surtidas del Día a Unidades (Cotejo E/S — sin montos financieros) -->
+      <div class="card" id="card-surtidas-oper" style="margin-bottom:0;padding:16px 20px">
+        <div class="sh" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;margin-bottom:8px">
+          <div class="st" id="oper-surtidas-titulo" style="font-size:14px;display:flex;align-items:center;gap:6px">
+            <span>⛽</span> Surtidas del día — cotejo E/S
           </div>
-          <button class="btn btn-s btn-xs" onclick="sp('combustible')">Ver Módulo Combustible</button>
+          <div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap">
+            <button class="btn btn-s btn-xs" onclick="_surDashIrFecha('hoy','oper')" title="Ver hoy">Hoy</button>
+            <button class="btn btn-s btn-xs" onclick="_surDashIrFecha('ayer','oper')" title="Ver ayer">Ayer</button>
+            <input type="date" id="oper-surt-fecha" class="fc" style="padding:3px 6px;font-size:11px;width:auto" onchange="operRenderSurtidasHoy()">
+            <select id="oper-surt-origen" class="fc" style="padding:3px 6px;font-size:11px;width:auto" onchange="operRenderSurtidasHoy()">
+              <option value="todas">Todos los orígenes</option>
+              <option value="estacion">Solo Estación de servicio</option>
+              <option value="galpon">Solo Galpón</option>
+            </select>
+            <button class="btn btn-s btn-xs" onclick="copiarCotejoSurtidas('oper')" title="Copiar resumen por unidad para WhatsApp">📋 Copiar</button>
+            <button class="btn btn-g btn-xs" onclick="imprimirCotejoSurtidas('oper')" title="Imprimir informe de cotejo para estación">🖨️ Informe</button>
+            <button class="btn btn-s btn-xs" onclick="sp('combustible')">Ver Módulo</button>
+          </div>
         </div>
+        <div id="oper-surtidas-resumen" style="font-size:11px;color:var(--text3);margin-bottom:8px"></div>
         <div id="oper-surtidas-hoy">
           <div style="color:var(--text3);font-size:12px;padding:16px;text-align:center">Cargando surtidas de hoy...</div>
         </div>
