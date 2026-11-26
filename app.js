@@ -7564,19 +7564,24 @@ async function cargarDatosDB(){
       try{sv('cfg-tumaca-dolar',String(GASOIL_PRECIO.tumaca));sv('cfg-boscan-dolar',String(GASOIL_PRECIO.boscan));}catch(e){}
     }catch(e){console.log('gasoil_precios load:',e&&e.message);}
     // ASISTENCIA: persistida en configuracion.asistencia_data (fuente de verdad) + fallback local
+    window._asistenciaCargadaOk=false;
     try{
       var _as=await supabase.from('configuracion').select('valor').eq('clave','asistencia_data').maybeSingle();
-      if(_as&&_as.data&&_as.data.valor){try{ASISTENCIA=JSON.parse(_as.data.valor)||{};}catch(e){}}
-      else{try{var _al=localStorage.getItem('btg_asistencia');if(_al)ASISTENCIA=JSON.parse(_al)||{};}catch(e){}}
+      if(_as&&!_as.error){
+        window._asistenciaCargadaOk=true;
+        if(_as.data&&_as.data.valor){try{ASISTENCIA=JSON.parse(_as.data.valor)||{};}catch(e){}}
+      } else {try{var _al=localStorage.getItem('btg_asistencia');if(_al)ASISTENCIA=JSON.parse(_al)||{};}catch(e){}}
     }catch(e){try{var _al2=localStorage.getItem('btg_asistencia');if(_al2)ASISTENCIA=JSON.parse(_al2)||{};}catch(e2){}}
     // FICHAJES REALES (app: selfie+GPS+geocerca) desde asistencia_dia -> alimentan el tablero de Asistencia y el cotejo RRHH.
     try{ await cargarFichajesAsistencia(true); }catch(e){}
     // DOCUMENTOS y METAS: persistidos en configuracion (JSON)
     window._docsCargadosOk=false;
+    window._nomAdmCargadoOk=false;
     try{
       var _dm=await supabase.from('configuracion').select('clave,valor').in('clave',['docs_cam','docs_emp','metas_data','nom_adm','periodos_cerrados']);
       if(_dm&&!_dm.error&&Array.isArray(_dm.data)){
         window._docsCargadosOk=true;
+        window._nomAdmCargadoOk=true;
         _dm.data.forEach(function(row){
           try{var v=JSON.parse(row.valor);
             if(row.clave==='docs_cam')DOCS_CAM=v||{};
@@ -12890,30 +12895,47 @@ async function guardarPlanillaEspecial(){
   if(modo==='viajes'&&viajes<=0){alert('Ingresá los viajes-equivalente');return;}
   if(modo==='monto'&&monto<=0){alert('Ingresá el monto');return;}
   var editId=(gv('pe-id')||'').trim();
-  var row={id:editId||('NE'+Date.now()),fecha:gv('pe-fecha')||fechaVE(),empId:empId,empNombre:emp?emp.nombre:'',actividad:actividad,modo:modo,viajes:viajes,monto:monto};
-  if(editId){ var ix=NOMINA_EXTRAS.findIndex(function(x){return String(x.id)===String(editId);}); if(ix>=0)NOMINA_EXTRAS[ix]=row; else NOMINA_EXTRAS.push(row); }
-  else NOMINA_EXTRAS.push(row);
+  var fechaPE=gv('pe-fecha')||fechaVE();
+  if(typeof _bloqueoPeriodo==='function'&&_bloqueoPeriodo(fechaPE,'registrar actividad especial de nómina'))return;
+  var row={id:editId||('NE'+Date.now()),fecha:fechaPE,empId:empId,empNombre:emp?emp.nombre:'',actividad:actividad,modo:modo,viajes:viajes,monto:monto};
   var ok=false;
   var dbRow={id:row.id,fecha:row.fecha,emp_id:row.empId,emp_nombre:row.empNombre,actividad:row.actividad,modo:row.modo,viajes:row.viajes,monto:row.monto};
   if(DB_READY&&supabase){
-    try{var res=await supabase.from('nomina_extras').upsert([dbRow],{onConflict:'id'}); // upsert: sirve para alta y edición
-      if(res&&res.error){mostrarToast('No se pudo guardar: '+res.error.message,'error');}else ok=true;
-    }catch(e){mostrarToast('Sin conexión al guardar la actividad.','error');}
+    try{
+      var res=await supabase.from('nomina_extras').upsert([dbRow],{onConflict:'id'}).select();
+      if(res&&res.error){
+        var esRed=(typeof _esErrorRed==='function')?_esErrorRed(res.error):/fetch|network|timeout/i.test(String(res.error.message||''));
+        if(!esRed){ mostrarToast('No se pudo guardar: '+res.error.message,'error'); return; }
+      } else if(!(res&&res.data&&res.data.length)){
+        mostrarToast('La base no confirmó la actividad especial (revisá permisos).','error'); return;
+      } else ok=true;
+    }catch(e){ mostrarToast('Sin conexión al guardar la actividad.','error'); }
   }
   if(!ok&&typeof guardarEnCola==='function')guardarEnCola('nomina_extras',dbRow,'id');
+  if(editId){ var ix=NOMINA_EXTRAS.findIndex(function(x){return String(x.id)===String(editId);}); if(ix>=0)NOMINA_EXTRAS[ix]=row; else NOMINA_EXTRAS.push(row); }
+  else NOMINA_EXTRAS.push(row);
   audit(editId?'Planilla especial editada':'Planilla especial',row.empNombre+' · '+actividad+' · '+(modo==='monto'?('$'+monto):(viajes+' viaje-equiv')));
   closeModal();
   try{recalcNom();}catch(e){}
   if(typeof mostrarToast==='function')mostrarToast(ok?(editId?'✅ Actividad actualizada':'✅ Actividad registrada (suma a la nómina)'):'⚠️ En cola (sin conexión)',ok?'exito':'error');
 }
 function elimNominaExtra(id){
+  var ex=(NOMINA_EXTRAS||[]).find(function(x){return String(x.id)===String(id);});
+  if(ex&&typeof _bloqueoPeriodo==='function'&&_bloqueoPeriodo(ex.fecha,'eliminar actividad especial de nómina'))return;
   if(!confirm('¿Eliminar esta actividad especial?'))return;
   // BORRAR = TOKEN (2026-07-25): esto es plata de la nómina de alguien.
-  solicitarToken('Eliminar actividad especial de nómina '+id,function(mot){
+  solicitarToken('Eliminar actividad especial de nómina '+id,async function(mot){
+    if(DB_READY&&supabase){
+      try{
+        var r=await supabase.from('nomina_extras').delete().eq('id',id).select();
+        if(r&&r.error){ if(typeof mostrarToast==='function')mostrarToast('No se pudo eliminar: '+r.error.message,'error'); return; }
+        if(!(r&&r.data&&r.data.length)){ if(typeof mostrarToast==='function')mostrarToast('La base no eliminó la actividad especial','error'); return; }
+      }catch(e){ if(typeof mostrarToast==='function')mostrarToast('Sin conexión al eliminar la actividad','error'); return; }
+    }
     NOMINA_EXTRAS=NOMINA_EXTRAS.filter(function(x){return String(x.id)!==String(id);});
-    if(DB_READY&&supabase)supabase.from('nomina_extras').delete().eq('id',id).then(function(r){if(r&&r.error)console.log('elimNominaExtra:',r.error.message);});
     audit('Actividad especial ELIMINADA',String(id)+' -- '+mot);
     try{recalcNom();}catch(e){}
+    if(typeof mostrarToast==='function')mostrarToast('🗑️ Actividad especial eliminada','exito');
   },{op:'del',tabla:'nomina_extras',col:'id',val:id});
 }
 
@@ -14549,6 +14571,7 @@ async function guardarNominaHist(){
   // Rótulo SEM-N secuencial + período en formato legible, derivados de la SEMANA real de las
   // planillas (lunes–domingo), no del selector mensual "Semana 1-5". Fallback al valor viejo si no hay fecha.
   var _wk=_semDeFecha(n.fdesde);
+  if(typeof _bloqueoPeriodo==='function'&&_bloqueoPeriodo(n.fhasta||n.fdesde,'guardar nómina'))return;
   var _semLabel=_wk?_wk.label:n.sem;
   var _periodo=_wk?_wk.periodo:((n.fdesde||'')+(n.fhasta?(' a '+n.fhasta):''));
   var row={id:id, semana:_semLabel, periodo:_periodo,
@@ -14617,6 +14640,7 @@ async function guardarNominaHist(){
   renderNominaHist();
   try{if(typeof renderPrestamos==='function')renderPrestamos();}catch(e){}
   try{if(typeof renderMultas==='function')renderMultas();}catch(e){}
+  try{if(typeof renderDash==='function')renderDash();if(typeof renderFinDash==='function')renderFinDash();}catch(e){}
   audit('Nómina guardada en historial',id+' $'+row.total_usd.toFixed(0));
   // El rótulo va de `_semLabel` (derivado de la fecha), no de `n.sem`: entrando por el aviso de
   // semanas faltantes el selector está vacío y el toast decía «Nómina "" guardada».
@@ -14630,10 +14654,12 @@ async function guardarNominaHist(){
 // SIN rango de fechas (legacy pre-planilla: no se pueden recalcular sin saber qué planillas son).
 async function reguardarTodasNominas(){
   if(!(DB_READY&&supabase)){alert('Sin conexión a la base.');return;}
-  var recalculables=(NOMINA_HIST||[]).filter(function(h){return h.fecha_desde&&h.fecha_hasta;});
-  var sinRango=(NOMINA_HIST||[]).length-recalculables.length;
-  if(!recalculables.length){alert('Ninguna semana tiene rango de fechas guardado → no hay nada recalculable.\n(Las '+sinRango+' semanas viejas no se pueden recalcular sin saber qué planillas les tocan.)');return;}
-  if(!confirm('¿Recalcular y RE-GUARDAR '+recalculables.length+' semana(s) con el motor actual?\n\n• Arregla doble-conteos y patio de cálculos viejos.\n• NO avanza cuotas de préstamos/multas.\n• Sobrescribe los totales y el detalle viejos por los recalculados.\n'+(sinRango?('• '+sinRango+' semana(s) SIN rango de fechas NO se tocan.\n'):'')+'\n¿Continuar?'))return;
+  // Nunca pisar semanas cuya fuente es el Excel de la oficina ('excel' / 'excel-pago'): eso es lo realmente pagado en banco.
+  var recalculables=(NOMINA_HIST||[]).filter(function(h){return h.fecha_desde&&h.fecha_hasta&&!/excel/i.test(String(h.fuente||''));});
+  var saltExcel=(NOMINA_HIST||[]).filter(function(h){return h.fecha_desde&&h.fecha_hasta&&/excel/i.test(String(h.fuente||''));}).length;
+  var sinRango=(NOMINA_HIST||[]).length-recalculables.length-saltExcel;
+  if(!recalculables.length){alert('Ninguna semana generada por la app tiene rango de fechas recalculable.'+(saltExcel?('\n('+saltExcel+' semana(s) de Excel de oficina se protegen y no se tocan.)'):''));return;}
+  if(!confirm('¿Recalcular y RE-GUARDAR '+recalculables.length+' semana(s) generadas por la app con el motor actual?\n\n• Arregla doble-conteos y patio de cálculos viejos.\n• NO avanza cuotas de préstamos/multas.\n'+(saltExcel?('• '+saltExcel+' semana(s) de EXCEL DE OFICINA se protegen y NO se tocan.\n'):'')+(sinRango?('• '+sinRango+' semana(s) SIN rango de fechas NO se tocan.\n'):'')+'\n¿Continuar?'))return;
   // Guardar la selección actual de los filtros de nómina para restaurarla al final.
   var sMes=gv('nm-mes'),sSem=gv('nm-sem'),sDes=gv('nm-des'),sHta=gv('nm-hta');
   var rows=[], saltadas=0;
@@ -14656,7 +14682,7 @@ async function reguardarTodasNominas(){
       fecha_desde:h.fecha_desde, fecha_hasta:h.fecha_hasta,
       total_usd:totUsd, total_bs:tasaHist>0?Math.round(totUsd*tasaHist*100)/100:(parseFloat(h.total_bs)||0),
       op_usd:Math.round((n.totCh+n.totAy)*100)/100, adm_usd:Math.round((n.totAdm||0)*100)/100, imau_bs:tasaHist>0?Math.round((n.totImau||0)*tasaHist*100)/100:0, tasa:h.tasa||null,
-      detalle:{choferes:_conBs(n.choferes),ayudantes:_conBs(n.ayudantes),imau:[],adm:admArr,extras:n.extras||[]}, fuente:'app-reguardado'});
+      detalle:{choferes:_conBs(n.choferes),ayudantes:_conBs(n.ayudantes),imau:n.imau||[],adm:admArr,extras:n.extras||[]}, fuente:'app-reguardado'});
   }
   // Restaurar la selección original y recalcular para el usuario.
   sv('nm-mes',sMes);sv('nm-sem',sSem);sv('nm-des',sDes);sv('nm-hta',sHta);try{calcNom();}catch(e){}
@@ -14667,7 +14693,7 @@ async function reguardarTodasNominas(){
   audit('Nómina re-guardada con motor actual',rows.length+' semanas'+(saltadas?(' ('+saltadas+' sin planillas)'):''));
   try{renderNominaHist();}catch(e){}
   try{renderAuditoriaPagos();}catch(e){}
-  mostrarToast('✅ '+rows.length+' semana(s) re-guardadas con el motor actual'+(sinRango?(' · '+sinRango+' viejas sin rango, no tocadas'):'')+(saltadas?(' · '+saltadas+' sin planillas'):''),'exito');
+  mostrarToast('✅ '+rows.length+' semana(s) re-guardadas con el motor actual'+(saltExcel?(' · '+saltExcel+' de Excel protegidas'):'')+(sinRango?(' · '+sinRango+' viejas sin rango'):'')+(saltadas?(' · '+saltadas+' sin planillas'):''),'exito');
 }
 // Recarga préstamos/multas/nómina desde la BD tras la RPC atómica (estado real, sin drift de memoria).
 async function _recargarNomPrestMulta(){
@@ -14677,33 +14703,43 @@ async function _recargarNomPrestMulta(){
 }
 // Aplica el AVANCE real de las cuotas que calcNom marcó para esta semana (_ultimaNomina._prestAplicar/
 // _multaAplicar): sube semanas_pagadas / cuotas_pagas, marca 'pagado' al completar (WhatsApp UNA vez)
-// y persiste en Supabase. Se llama SOLO desde guardarNominaHist y SOLO la primera vez que se guarda
-// esa semana → ver/recalcular la nómina nunca mueve las cuotas (antes mutaba en cada render).
+// y persiste en Supabase ANTES de avisar por WhatsApp.
 async function aplicarAvanceDescuentos(n){
   if(!n)return;
-  var prestTocados=[], multaTocadas=[];
+  var prestTocados=[], multaTocadas=[], prestCompletos=[];
   (n._prestAplicar||[]).forEach(function(d){
     var p=PRESTAMOS.find(function(x){return x.id===d.id;});
     if(!p||p.estado!=='activo'||(p.semanasPagadas||0)>=p.semanas)return;
-    p.semanasPagadas=(p.semanasPagadas||0)+1; p.pagado=(p.pagado||0)+d.cuota;
-    if(p.semanasPagadas>=p.semanas){p.estado='pagado'; sendWA('💳 Prestamo de '+(d.empNombre||p.empNombre)+' completamente pagado (USD '+(d.montoUsd||p.montoUsd)+')',['rrhh']);}
-    prestTocados.push(p);
+    var nxt=Object.assign({},p,{semanasPagadas:(p.semanasPagadas||0)+1,pagado:(p.pagado||0)+d.cuota});
+    if(nxt.semanasPagadas>=nxt.semanas){nxt.estado='pagado'; prestCompletos.push({nombre:(d.empNombre||p.empNombre),monto:(d.montoUsd||p.montoUsd)});}
+    prestTocados.push({orig:p,nxt:nxt});
   });
   var _tasaPagoM=n.tasa||TASAS.bcvDolar||0;
   (n._multaAplicar||[]).forEach(function(d){
     var m=MULTAS.find(function(x){return x.id===d.id;});
     if(!m||m.estado!=='activo'||(m.cuotasPagas||0)>=m.cuotas)return;
-    // Congelar a Bs a la tasa del día del pago (divisa) o usar el Bs legacy.
     var cuotaBs=d.moneda?((d.cuotaUsd||0)*_tasaPagoM):(d.cuotaBs||0);
-    m.pagadoBs=(m.pagadoBs||0)+cuotaBs; m.cuotasPagas=(m.cuotasPagas||0)+1;
-    if(d.moneda)m.pagadoDiv=(m.pagadoDiv||0)+(d.cuotaDiv||0);
-    if(m.cuotasPagas>=m.cuotas)m.estado='pagado';
-    multaTocadas.push(m);
+    var nxt=Object.assign({},m,{pagadoBs:(m.pagadoBs||0)+cuotaBs,cuotasPagas:(m.cuotasPagas||0)+1});
+    if(d.moneda)nxt.pagadoDiv=(m.pagadoDiv||0)+(d.cuotaDiv||0);
+    if(nxt.cuotasPagas>=nxt.cuotas)nxt.estado='pagado';
+    multaTocadas.push({orig:m,nxt:nxt});
   });
+  var prestOk=true, multaOk=true;
   if(DB_READY&&supabase){
-    if(prestTocados.length){var rp=await supabase.from('prestamos').upsert(prestTocados.map(function(p){return{id:p.id,emp_id:p.empId,emp_nombre:p.empNombre,fecha:p.fecha,monto_usd:p.montoUsd,semanas:p.semanas,cuota_usd:p.cuotaUsd,pagado:p.pagado,semanas_pagadas:p.semanasPagadas,motivo:p.motivo,estado:p.estado};}),{onConflict:'id'}); if(rp&&rp.error)mostrarToast('Cuotas de préstamo no persistieron: '+rp.error.message,'error');}
-    if(multaTocadas.length){var rm=await supabase.from('multas').upsert(multaTocadas.map(function(m){return{id:m.id,cam_id:m.camId,fecha:m.fecha,descripcion:m.desc,monto_bs:m.montoBs,ref:m.ref,responsable:m.resp,chofer_id:m.choferId,cuotas:m.cuotas,cuota_bs:m.cuotaBs,pagado_bs:m.pagadoBs,cuotas_pagas:m.cuotasPagas,estado:m.estado,moneda:m.moneda||null,monto_div:m.montoDiv||null,cuota_div:m.cuotaDiv||null,pagado_div:m.pagadoDiv||0};}),{onConflict:'id'}); if(rm&&rm.error)mostrarToast('Cuotas de multa no persistieron: '+rm.error.message,'error');}
+    if(prestTocados.length){
+      var rp=await supabase.from('prestamos').upsert(prestTocados.map(function(t){var p=t.nxt;return{id:p.id,emp_id:p.empId,emp_nombre:p.empNombre,fecha:p.fecha,monto_usd:p.montoUsd,semanas:p.semanas,cuota_usd:p.cuotaUsd,pagado:p.pagado,semanas_pagadas:p.semanasPagadas,motivo:p.motivo,estado:p.estado};}),{onConflict:'id'}).select();
+      if((rp&&rp.error)||!(rp&&rp.data&&rp.data.length)){ prestOk=false; mostrarToast('Cuotas de préstamo no persistieron: '+((rp&&rp.error&&rp.error.message)||'0 filas'), 'error'); }
+    }
+    if(multaTocadas.length){
+      var rm=await supabase.from('multas').upsert(multaTocadas.map(function(t){var m=t.nxt;return{id:m.id,cam_id:m.camId,fecha:m.fecha,descripcion:m.desc,monto_bs:m.montoBs,ref:m.ref,responsable:m.resp,chofer_id:m.choferId,cuotas:m.cuotas,cuota_bs:m.cuotaBs,pagado_bs:m.pagadoBs,cuotas_pagas:m.cuotasPagas,estado:m.estado,moneda:m.moneda||null,monto_div:m.montoDiv||null,cuota_div:m.cuotaDiv||null,pagado_div:m.pagadoDiv||0};}),{onConflict:'id'}).select();
+      if((rm&&rm.error)||!(rm&&rm.data&&rm.data.length)){ multaOk=false; mostrarToast('Cuotas de multa no persistieron: '+((rm&&rm.error&&rm.error.message)||'0 filas'), 'error'); }
+    }
   }
+  if(prestOk){
+    prestTocados.forEach(function(t){ Object.assign(t.orig,t.nxt); });
+    prestCompletos.forEach(function(c){ sendWA('💳 Prestamo de '+c.nombre+' completamente pagado (USD '+c.monto+')',['rrhh']); });
+  }
+  if(multaOk){ multaTocadas.forEach(function(t){ Object.assign(t.orig,t.nxt); }); }
   try{if(typeof renderPrestamos==='function')renderPrestamos();}catch(e){}
   try{if(typeof renderMultas==='function')renderMultas();}catch(e){}
 }
@@ -14854,7 +14890,16 @@ function agregarNomAdm(){
 // Persiste NOM_ADM (lista de sueldos fijos) en configuracion → sobrevive recargas.
 function guardarNomAdm(){
   if(!(DB_READY&&supabase))return;
-  try{supabase.from('configuracion').upsert([{clave:'nom_adm',valor:JSON.stringify(NOM_ADM)}],{onConflict:'clave'}).then(function(r){if(r&&r.error)console.log('nom_adm save:',r.error.message);});}catch(e){}
+  if(window._nomAdmCargadoOk===false){
+    if(typeof mostrarToast==='function')mostrarToast('No se guardó Nómina Admin: los datos no terminaron de cargar desde BD. Recargá primero.','error');
+    return;
+  }
+  try{
+    supabase.from('configuracion').upsert([{clave:'nom_adm',valor:JSON.stringify(NOM_ADM)}],{onConflict:'clave'}).select().then(function(r){
+      if(r&&r.error&&typeof mostrarToast==='function')mostrarToast('Error guardando Nómina Admin: '+r.error.message,'error');
+      else if(!(r&&r.data&&r.data.length)&&typeof mostrarToast==='function')mostrarToast('La base no confirmó el guardado de Nómina Admin','error');
+    });
+  }catch(e){}
 }
 
 async function montarNominaBNC(){
@@ -14892,16 +14937,19 @@ async function montarNominaBNC(){
     }
   }
   // Persistir el lote en pagos_bnc (historial/forense + base de la idempotencia).
+  var _hoyBncNom=(typeof fechaVE==='function')?fechaVE():new Date().toISOString().split('T')[0];
   if(DB_READY&&supabase&&!DEMO_MODE){
     try{
-      var rows=pagos.map(function(p){return {periodo:periodo,empleado:p.empleado,cuenta:p.cuenta,banco:p.banco,tipo_cuenta:p.tipo,monto_bs:p.montoBs,monto_usd:p.montoUsd,ref:'',estado:'pendiente_autorizacion',fecha:new Date().toISOString().split('T')[0]};});
-      var rp=await supabase.from('pagos_bnc').insert(rows);
-      if(rp&&rp.error&&typeof mostrarToast==='function')mostrarToast('⚠ El registro del lote BNC NO se guardó ('+rp.error.message+'). La próxima vez la app no detectará este montaje como duplicado — anótalo.','error');
+      var rows=pagos.map(function(p){return {periodo:periodo,empleado:p.empleado,cuenta:p.cuenta,banco:p.banco,tipo_cuenta:p.tipo,monto_bs:p.montoBs,monto_usd:p.montoUsd,ref:'',estado:'pendiente_autorizacion',fecha:_hoyBncNom};});
+      var rp=await supabase.from('pagos_bnc').insert(rows).select();
+      if((rp&&rp.error)||!(rp&&rp.data&&rp.data.length)){
+        if(typeof mostrarToast==='function')mostrarToast('⚠ El registro del lote BNC NO se guardó ('+((rp&&rp.error&&rp.error.message)||'0 filas')+'). La próxima vez la app no detectará este montaje como duplicado — anótalo.','error');
+      }
     }catch(e){ if(typeof mostrarToast==='function')mostrarToast('⚠ El registro del lote BNC NO se guardó (sin conexión). La idempotencia no quedará registrada.','error'); }
   }
   // Cola en memoria para la UI del banco (igual que antes).
   pagos.forEach(function(p){
-    bncMovPush({id:Date.now()+'_'+p.cuenta,fecha:new Date().toISOString().split('T')[0],monto:p.montoBs,tipo:'pago_nomina_pend',desc:'NOMINA: '+p.empleado,ref:'',conciliado:false,detalle:p,pendienteAutorizacion:true});
+    bncMovPush({id:Date.now()+'_'+p.cuenta,fecha:_hoyBncNom,monto:p.montoBs,tipo:'pago_nomina_pend',desc:'NOMINA: '+p.empleado,ref:'',conciliado:false,detalle:p,pendienteAutorizacion:true});
   });
   var porAut=BNC_MOV.filter(function(m){return m.pendienteAutorizacion;}).length;
   if(g('bnc-por-aut'))g('bnc-por-aut').textContent=porAut;
@@ -23326,10 +23374,19 @@ async function guardarDocEmp(){
 // P1: persistir asistencia en Supabase (configuracion.asistencia_data) + localStorage.
 // Antes NO se guardaba en ningún lado y se perdía al recargar.
 function guardarAsistencia(){
+  if(DB_READY&&supabase&&window._asistenciaCargadaOk===false){
+    if(typeof mostrarToast==='function')mostrarToast('No se guardó asistencia: aún no cargó desde BD. Recargá primero.','error');
+    return;
+  }
   try{localStorage.setItem('btg_asistencia',JSON.stringify(ASISTENCIA));}catch(e){}
   if(DB_READY&&supabase){
-    try{supabase.from('configuracion').upsert([{clave:'asistencia_data',valor:JSON.stringify(ASISTENCIA)}],{onConflict:'clave'})
-      .then(function(res){if(res&&res.error)console.log('asistencia save:',res.error.message);});}catch(e){}
+    try{
+      supabase.from('configuracion').upsert([{clave:'asistencia_data',valor:JSON.stringify(ASISTENCIA)}],{onConflict:'clave'}).select()
+        .then(function(res){
+          if(res&&res.error&&typeof mostrarToast==='function')mostrarToast('Error guardando asistencia: '+res.error.message,'error');
+          else if(!(res&&res.data&&res.data.length)&&typeof mostrarToast==='function')mostrarToast('La base no confirmó el guardado de asistencia','error');
+        });
+    }catch(e){}
   }
 }
 // ── FICHAJES REALES (asistencia_dia) → fuente de PRESENCIA que alimenta el tablero y el cotejo RRHH ──
@@ -23602,22 +23659,31 @@ function calcPrest(){
   g('prest-calc').style.display='block';
 }
 
-function guardarPrestamo(){
+async function guardarPrestamo(){
   var empId=gv('prest-emp');var monto=parseFloat(gv('prest-monto'))||0;var sems=parseInt(gv('prest-sems'))||1;
-  if(!empId||!monto){alert('Selecciona empleado e ingresa el monto');return;}
+  if(!empId||!(monto>0)){alert('Selecciona empleado e ingresa un monto MAYOR a 0');return;}
+  if(sems<1)sems=1;
+  var fechaP=gv('prest-fecha')||(typeof fechaVE==='function'?fechaVE():'');
+  if(typeof _bloqueoPeriodo==='function'&&_bloqueoPeriodo(fechaP,'registrar préstamo'))return;
   var emp=EMPLEADOS.find(function(e){return e.id===empId;});
-  var item={id:'PR'+Date.now(),empId:empId,empNombre:emp?emp.nombre:'',fecha:gv('prest-fecha'),montoUsd:monto,semanas:sems,cuotaUsd:monto/sems,pagado:0,semanasPagadas:0,motivo:gv('prest-motivo'),estado:'activo',mes:gv('nm-mes')};
-  PRESTAMOS.push(item);
+  var item={id:'PR'+Date.now(),empId:empId,empNombre:emp?emp.nombre:'',fecha:fechaP,montoUsd:monto,semanas:sems,cuotaUsd:Math.round((monto/sems)*100)/100,pagado:0,semanasPagadas:0,motivo:gv('prest-motivo'),estado:'activo',mes:gv('nm-mes')};
+  var rowDB={id:item.id,emp_id:item.empId,emp_nombre:item.empNombre,fecha:item.fecha,monto_usd:item.montoUsd,semanas:item.semanas,cuota_usd:item.cuotaUsd,pagado:0,semanas_pagadas:0,motivo:item.motivo,estado:'activo'};
   if(DB_READY&&supabase){
-    supabase.from('prestamos').insert([{
-      id:item.id,emp_id:item.empId,emp_nombre:item.empNombre,
-      fecha:item.fecha,monto_usd:item.montoUsd,semanas:item.semanas,
-      cuota_usd:item.cuotaUsd,pagado:0,semanas_pagadas:0,
-      motivo:item.motivo,estado:'activo'
-    }]).then(function(r){if(r.error)console.error('Error prestamo:',r.error);});
+    try{
+      var r=await supabase.from('prestamos').insert([rowDB]).select();
+      if(r&&r.error){
+        var esRed=(typeof _esErrorRed==='function')?_esErrorRed(r.error):/fetch|network|timeout/i.test(String(r.error.message||''));
+        if(esRed&&typeof guardarEnCola==='function'){ guardarEnCola('prestamos',rowDB,'id'); if(typeof mostrarToast==='function')mostrarToast('Sin conexión: préstamo en cola','info'); }
+        else { if(typeof mostrarToast==='function')mostrarToast('No se pudo guardar el préstamo: '+r.error.message,'error'); return; }
+      } else if(!(r&&r.data&&r.data.length)){
+        if(typeof mostrarToast==='function')mostrarToast('La base no confirmó el registro del préstamo','error');
+        return;
+      }
+    }catch(e){ if(typeof guardarEnCola==='function')guardarEnCola('prestamos',rowDB,'id'); }
   }
-  audit('Prestamo registrado',(emp?emp.nombre:'')+'$'+monto);
-  alert('✅ Prestamo registrado. Se descontara $'+(monto/sems).toFixed(2)+'/semana de la nomina.');
+  PRESTAMOS.push(item);
+  audit('Prestamo registrado',(emp?emp.nombre:'')+' $'+monto);
+  alert('✅ Prestamo registrado. Se descontara $'+item.cuotaUsd.toFixed(2)+'/semana de la nomina.');
   ['prest-emp','prest-monto','prest-sems','prest-motivo'].forEach(function(id){sv(id,'');});
   g('prest-calc').style.display='none';
   renderPrestamos();
@@ -23718,29 +23784,36 @@ function calcMultaRefBs(){
   el.textContent='≈ Bs '+(monto*tasa).toLocaleString('es-VE',{maximumFractionDigits:0})+' a la tasa de hoy (referencia; se congela al pagar cada cuota)';
 }
 
-function guardarMulta(){
+async function guardarMulta(){
   var camId=gv('mul-cam'),desc=gv('mul-desc');
   var moneda=(gv('mul-moneda')||'USD').toUpperCase(); if(moneda!=='EUR')moneda='USD';
   var monto=parseFloat(gv('mul-monto'))||0;
-  if(!camId||!desc||!monto){alert('Completa camion, descripcion y monto');return;}
+  if(!camId||!desc||!(monto>0)){alert('Completa camion, descripcion y un monto MAYOR a 0');return;}
+  var fechaM=gv('mul-fecha')||(typeof fechaVE==='function'?fechaVE():'');
+  if(typeof _bloqueoPeriodo==='function'&&_bloqueoPeriodo(fechaM,'registrar multa'))return;
   var resp=gv('mul-resp');
-  var cuotasN=parseInt(gv('mul-cuotas'))||1;
+  var cuotasN=Math.max(1,parseInt(gv('mul-cuotas'))||1);
   // Modelo nuevo: la multa se guarda en DIVISA (monto_div). El Bs NO se congela hasta pagar cada
   // cuota (pagado_bs, en aplicarAvanceDescuentos). montoBs/cuotaBs quedan en 0 (legacy).
-  var item={id:'MUL'+Date.now(),camId:camId,fecha:gv('mul-fecha'),desc:desc,
-    moneda:moneda, montoDiv:monto, cuotaDiv: resp==='chofer'? monto/cuotasN : 0, pagadoDiv:0,
+  var item={id:'MUL'+Date.now(),camId:camId,fecha:fechaM,desc:desc,
+    moneda:moneda, montoDiv:monto, cuotaDiv: resp==='chofer'? Math.round((monto/cuotasN)*100)/100 : 0, pagadoDiv:0,
     montoBs:0, ref:gv('mul-ref'),resp:resp,choferId:resp==='chofer'?gv('mul-chofer'):'',
     cuotas:cuotasN, cuotaBs:0, pagadoBs:0, cuotasPagas:0, estado:'activo'};
-  MULTAS.push(item);
+  var rowDB={id:item.id,cam_id:item.camId,fecha:item.fecha,descripcion:item.desc,monto_bs:0,ref:item.ref,responsable:item.resp,chofer_id:item.choferId,cuotas:item.cuotas,cuota_bs:0,pagado_bs:0,cuotas_pagas:0,estado:'activo',moneda:item.moneda,monto_div:item.montoDiv,cuota_div:item.cuotaDiv,pagado_div:0};
   if(DB_READY&&supabase){
-    supabase.from('multas').insert([{
-      id:item.id,cam_id:item.camId,fecha:item.fecha,
-      descripcion:item.desc,monto_bs:0,ref:item.ref,
-      responsable:item.resp,chofer_id:item.choferId,
-      cuotas:item.cuotas,cuota_bs:0,pagado_bs:0,cuotas_pagas:0,estado:'activo',
-      moneda:item.moneda,monto_div:item.montoDiv,cuota_div:item.cuotaDiv,pagado_div:0
-    }]).then(function(r){if(r.error)console.error('Error multa:',r.error);});
+    try{
+      var r=await supabase.from('multas').insert([rowDB]).select();
+      if(r&&r.error){
+        var esRed=(typeof _esErrorRed==='function')?_esErrorRed(r.error):/fetch|network|timeout/i.test(String(r.error.message||''));
+        if(esRed&&typeof guardarEnCola==='function'){ guardarEnCola('multas',rowDB,'id'); if(typeof mostrarToast==='function')mostrarToast('Sin conexión: multa en cola','info'); }
+        else { if(typeof mostrarToast==='function')mostrarToast('No se pudo guardar la multa: '+r.error.message,'error'); return; }
+      } else if(!(r&&r.data&&r.data.length)){
+        if(typeof mostrarToast==='function')mostrarToast('La base no confirmó el registro de la multa','error');
+        return;
+      }
+    }catch(e){ if(typeof guardarEnCola==='function')guardarEnCola('multas',rowDB,'id'); }
   }
+  MULTAS.push(item);
   audit('Multa registrada',camId+' '+moneda+' '+monto);
   alert('✅ Multa registrada en '+moneda+' '+monto+(resp==='chofer'?'.\nSe descontará en nómina; cada cuota se congela en Bs a la tasa del día en que se paga.':'.'));
   ['mul-desc','mul-monto','mul-ref','mul-cuotas'].forEach(function(id){sv(id,'');});
@@ -25566,53 +25639,42 @@ async function guardarEmpleado(){
   var nombre=gv('ne-nombre');if(!nombre){alert('Ingresa el nombre');return;}
   // Usar ID original si estamos editando (evita crear duplicados)
   var idOriginal=document.getElementById('ne-id-original');
-  var id=(idOriginal&&idOriginal.value)?idOriginal.value:(gv('ne-id')||('E'+String(Date.now()).slice(-3)));
-  // Limpiar ID original después de usar
-  if(idOriginal)idOriginal.value='';
-  // Restaurar botón
-  var btnG=document.getElementById('btn-guardar-emp');
-  if(btnG){btnG.textContent='✅ Guardar Empleado';btnG.style.background='';}
+  var esEdicion=!!(idOriginal&&idOriginal.value);
+  var id=esEdicion?idOriginal.value:(gv('ne-id')||('E'+String(Date.now()).slice(-3)));
+  var cedula=String(gv('ne-ced')||'').trim();
+  if(!esEdicion&&cedula){
+    var cedNorm=cedula.replace(/[^0-9]/g,'');
+    var dupCed=(EMPLEADOS||[]).find(function(e){return e.activo!==false&&e.cedula&&String(e.cedula).replace(/[^0-9]/g,'')===cedNorm&&e.id!==id;});
+    if(dupCed&&!confirm('⚠️ Ya existe un empleado activo con la cédula '+cedula+' ('+dupCed.nombre+').\n\n¿Guardarlo de todos modos?'))return;
+  }
   var idx=EMPLEADOS.findIndex(function(e){return e.id===id;});
   // Preservar baja: editar un empleado dado de baja NO debe reactivarlo. Nuevos empleados nacen activos.
   var activoPrev=idx>=0?(EMPLEADOS[idx].activo!==false):true;
-  var emp={id:id,nombre:nombre.toUpperCase(),cargo:gv('ne-cargo'),imau:gv('ne-imau')==='true',unidad:gv('ne-unidad'),cedula:gv('ne-ced'),rif:_rifFmt(gv('ne-rif'))||'',fnac:gv('ne-fnac'),fingreso:gv('ne-fingreso')||'',fegreso:gv('ne-fegreso')||null,email:gv('ne-email'),tel:gv('ne-tel')||'',banco:gv('ne-banco'),whatsapp:gv('ne-whatsapp')||'',wa_apikey:gv('ne-wa-apikey')||'',tcuenta:gv('ne-tcuenta'),ncuenta:_cuentaFmt(gv('ne-ncuenta')),tipoAy:gv('ne-tipoAy'),foto:gv('ne-foto-b64')||'',activo:activoPrev,multicargo:(g('ne-multicargo')?g('ne-multicargo').checked:false),
+  var fegresoVal=gv('ne-fegreso')||null;
+  if(activoPrev&&fegresoVal){
+    if(confirm('Cargaste fecha de egreso ('+fegresoVal+') para '+nombre.toUpperCase()+'.\n\n¿Marcar también al empleado como INACTIVO (de baja)?'))activoPrev=false;
+  }
+  var emp={id:id,nombre:nombre.toUpperCase(),cargo:gv('ne-cargo'),imau:gv('ne-imau')==='true',unidad:gv('ne-unidad'),cedula:cedula,rif:_rifFmt(gv('ne-rif'))||'',fnac:gv('ne-fnac'),fingreso:gv('ne-fingreso')||'',fegreso:fegresoVal,email:gv('ne-email'),tel:gv('ne-tel')||'',banco:gv('ne-banco'),whatsapp:gv('ne-whatsapp')||'',wa_apikey:gv('ne-wa-apikey')||'',tcuenta:gv('ne-tcuenta'),ncuenta:_cuentaFmt(gv('ne-ncuenta')),tipoAy:gv('ne-tipoAy'),foto:gv('ne-foto-b64')||'',activo:activoPrev,multicargo:(g('ne-multicargo')?g('ne-multicargo').checked:false),
     formaPago:gv('ne-forma-pago')||'',
-    // ⚠️ Solo se guarda el monto si el pago es FIJO. Si alguien escribio un numero
-    //    y despues cambio a «por viaje», ese numero NO debe quedar guardado: un
-    //    sueldo mensual colgado de alguien que cobra por viaje se suma dos veces.
     sueldo:(gv('ne-forma-pago')==='fijo' ? (parseFloat(gv('ne-sueldo'))||0) : 0)};
-  if(idx>=0)EMPLEADOS[idx]=emp;else EMPLEADOS.push(emp);
   var resEmp=await supabase.from('empleados').upsert([{
     id:emp.id,nombre:emp.nombre,cargo:emp.cargo,unidad:emp.unidad,
     cedula:emp.cedula,rif:emp.rif||'',fnac:emp.fnac||null,fingreso:emp.fingreso||null,
     email:emp.email,tel:emp.tel||'',banco:emp.banco,tcuenta:emp.tcuenta,
     ncuenta:emp.ncuenta,tipo_ay:emp.tipoAy,imau:emp.imau,foto_url:_rutaFoto(emp.foto),
     activo:emp.activo,whatsapp:emp.whatsapp||'',wa_apikey:emp.wa_apikey||'',multicargo:!!emp.multicargo,
-    // ⛔ SIN ESTAS DOS LINEAS el formulario de sueldo no sirve de nada: el campo se
-    //    llena, el objeto en memoria lo lleva, y al recargar la pantalla vuelve
-    //    vacio porque nunca llego a la base. Se descubrio al preguntarle al codigo
-    //    si el upsert las mandaba, no al mirar la pantalla —que se veia bien—.
-    // ⛔ `sueldo` NO va acá. Lo mantiene el trigger de `empleado_sueldos` a partir
-    //    del historial, y si la ficha tambien lo escribiera ganaria el ultimo en
-    //    correr: un aumento cargado con fecha futura quedaria aplicado hoy.
-    //    La ficha guarda la FORMA de pago; el MONTO entra por el historial.
     forma_pago:emp.formaPago||'',
-    // ⛔ 05/11/2026 — EL MISMO DEFECTO, OTRA VEZ, Y EN EL MISMO UPSERT. El campo «Fecha de
-    //    Egreso» se agregó el 04/11, `emp.fegreso` se arma bien arriba, la pantalla decía
-    //    «guardado correctamente»… y la columna NO SE MANDABA. Nómina tiene un cartel que
-    //    pide cargar las 25 fechas de egreso que faltan: RRHH las habría cargado una por una
-    //    y se habrían perdido todas, con la app diciendo que sí. Un campo que se ve, se
-    //    llena y se confirma es indistinguible de uno que guarda.
-    //    Es la tercera vez que una columna nueva se olvida acá (fnac/fingreso, forma_pago,
-    //    y ahora ésta): al agregar un campo a la ficha hay que agregarlo TAMBIÉN al upsert.
-    //    [[norma-una-asercion-mal-escrita-acusa-al-producto]] · [[norma-dos-listas-a-mano-se-desincronizan]]
     fegreso:emp.fegreso||null
-  }],{onConflict:'id'});
-  if(resEmp.error){
-    console.error('Error guardando empleado:',resEmp.error);
-    alert('❌ Error al guardar: '+resEmp.error.message+'\n\nVerifica tu conexión a internet.');
+  }],{onConflict:'id'}).select();
+  if((resEmp&&resEmp.error)||!(resEmp&&resEmp.data&&resEmp.data.length)){
+    console.error('Error guardando empleado:',resEmp&&resEmp.error);
+    alert('❌ Error al guardar: '+((resEmp&&resEmp.error&&resEmp.error.message)||'la base no confirmó ninguna fila (revisá permisos)')+'\n\nVerifica tu conexión y permisos.');
     return;
   }
+  if(idx>=0)EMPLEADOS[idx]=emp;else EMPLEADOS.push(emp);
+  if(idOriginal)idOriginal.value='';
+  var btnG=document.getElementById('btn-guardar-emp');
+  if(btnG){btnG.textContent='✅ Guardar Empleado';btnG.style.background='';}
   try{ await _sueldoGuardar(emp.id); }catch(e){ console.warn('sueldo:',e); }
   audit('Empleado guardado',emp.nombre);
   alert('✅ '+emp.nombre+' guardado correctamente en Supabase.');
@@ -26776,6 +26838,7 @@ function calcularNomina(){
 async function registrarPagoNom(){
   var ref=gv('np-ref');var total=parseFloat(gv('np-total-bs'))||0;
   if(!total){alert('Calcula la nomina primero');return;}
+  if(typeof _bloqueoPeriodo==='function'&&_bloqueoPeriodo(gv('np-fecha'),'registrar pago de nómina'))return;
   // Guardar también total_usd (Bs / tasa del día del pago): el resumen semanal de WhatsApp lo lee y antes
   // salía $0 porque pagos_nomina nunca tenía total_usd. (auditoría fuente única)
   var _tasaNom=(typeof getTasaFecha==='function'&&getTasaFecha(gv('np-fecha'),'dolar'))||(typeof getTasa==='function'&&getTasa('bcvDolar'))||TASAS.bcvDolar||cfg.tasa||0;
@@ -29045,12 +29108,18 @@ function rechazarTokenPend(id){
 function elimPrestamo(id){
   var p=PRESTAMOS.find(function(x){return x.id===id;});
   if(!p)return;
-  // accionData {op:'del'} → el superadmin elimina en Supabase al aprobar (sesión del solicitante
-  // no requerida). El callback también borra en Supabase para la propia sesión (idempotente).
-  solicitarToken('Eliminar prestamo de '+p.empNombre,function(mot){
+  if(typeof _bloqueoPeriodo==='function'&&_bloqueoPeriodo(p.fecha,'eliminar préstamo'))return;
+  var warnPag=(p.semanasPagadas>0)?(' (⚠️ YA TIENE '+p.semanasPagadas+'/'+p.semanas+' cuotas pagas)'):'';
+  solicitarToken('Eliminar prestamo de '+p.empNombre+warnPag,async function(mot){
+    if(DB_READY&&supabase){
+      try{
+        var r=await supabase.from('prestamos').delete().eq('id',id).select();
+        if(r&&r.error){if(typeof mostrarToast==='function')mostrarToast('No se pudo eliminar el préstamo: '+r.error.message,'error');return;}
+        if(!(r&&r.data&&r.data.length)){if(typeof mostrarToast==='function')mostrarToast('La base no eliminó el préstamo','error');return;}
+      }catch(e){if(typeof mostrarToast==='function')mostrarToast('Sin conexión al eliminar el préstamo','error');return;}
+    }
     PRESTAMOS=PRESTAMOS.filter(function(x){return x.id!==id;});
-    if(DB_READY&&supabase)supabase.from('prestamos').delete().eq('id',id).then(function(r){if(r&&r.error)console.error('Error elim prestamo:',r.error);});
-    audit('Prestamo ELIMINADO',p.empNombre+' -- '+mot);
+    audit('Prestamo ELIMINADO',p.empNombre+warnPag+' -- '+mot);
     renderPrestamos();
     if(typeof mostrarToast==='function')mostrarToast('✅ Prestamo eliminado','exito');
   },{op:'del',tabla:'prestamos',col:'id',val:id});
@@ -29058,10 +29127,18 @@ function elimPrestamo(id){
 function elimMulta(id){
   var m=MULTAS.find(function(x){return x.id===id;});
   if(!m)return;
-  solicitarToken('Eliminar multa '+m.camId,function(mot){
+  if(typeof _bloqueoPeriodo==='function'&&_bloqueoPeriodo(m.fecha,'eliminar multa'))return;
+  var warnPag=(m.cuotasPagas>0)?(' (⚠️ YA TIENE '+m.cuotasPagas+'/'+m.cuotas+' cuotas pagas)'):'';
+  solicitarToken('Eliminar multa '+m.camId+warnPag,async function(mot){
+    if(DB_READY&&supabase){
+      try{
+        var r=await supabase.from('multas').delete().eq('id',id).select();
+        if(r&&r.error){if(typeof mostrarToast==='function')mostrarToast('No se pudo eliminar la multa: '+r.error.message,'error');return;}
+        if(!(r&&r.data&&r.data.length)){if(typeof mostrarToast==='function')mostrarToast('La base no eliminó la multa','error');return;}
+      }catch(e){if(typeof mostrarToast==='function')mostrarToast('Sin conexión al eliminar la multa','error');return;}
+    }
     MULTAS=MULTAS.filter(function(x){return x.id!==id;});
-    if(DB_READY&&supabase)supabase.from('multas').delete().eq('id',id).then(function(r){if(r&&r.error)console.error('Error elim multa:',r.error);});
-    audit('Multa ELIMINADA',m.camId+' -- '+mot);
+    audit('Multa ELIMINADA',m.camId+warnPag+' -- '+mot);
     renderMultas();
     if(typeof mostrarToast==='function')mostrarToast('✅ Multa eliminada','exito');
   },{op:'del',tabla:'multas',col:'id',val:id});

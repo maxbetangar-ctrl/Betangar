@@ -8,10 +8,20 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const HDR = { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` };
 
-async function sel(path: string): Promise<any[]> {
-  const r = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, { headers: HDR });
-  if (!r.ok) { console.error("sel", path, r.status, await r.text()); return []; }
-  return await r.json();
+async function selAll(path: string): Promise<any[]> {
+  const out: any[] = [];
+  const PAGE = 1000;
+  for (let offset = 0; offset < 50000; offset += PAGE) {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
+      headers: { ...HDR, Range: `${offset}-${offset + PAGE - 1}` },
+    });
+    if (!r.ok) { console.error("selAll", path, r.status, await r.text()); break; }
+    const rows = await r.json();
+    if (!Array.isArray(rows) || !rows.length) break;
+    out.push(...rows);
+    if (rows.length < PAGE) break;
+  }
+  return out;
 }
 async function enqueue(rows: any[]) {
   if (!rows.length) return;
@@ -26,8 +36,8 @@ Deno.serve(async (req) => {
   try {
     const dry = new URL(req.url).searchParams.get("dry") === "1";
     // Última nómina guardada (fecha_hasta) y última planilla.
-    const nom = await sel(`nomina_historial?select=fecha_hasta&fecha_hasta=not.is.null&order=fecha_hasta.desc&limit=1`);
-    const plan = await sel(`planillas?select=f&order=f.desc&limit=1`);
+    const nom = await selAll(`nomina_historial?select=fecha_hasta&fecha_hasta=not.is.null&order=fecha_hasta.desc&limit=1`);
+    const plan = await selAll(`planillas?select=f&order=f.desc&limit=1`);
     const lastNom = String(nom[0]?.fecha_hasta || "").slice(0, 10);
     const lastPlan = String(plan[0]?.f || "").slice(0, 10);
     if (!lastPlan) return json({ ok: true, msg: "sin planillas" });
@@ -39,13 +49,13 @@ Deno.serve(async (req) => {
     if (diasAtraso < 7) return json({ ok: true, al_dia: true, lastNom, lastPlan, diasAtraso });
 
     const semanas = Math.max(1, Math.floor(diasAtraso / 7));
-    // Impacto: planillas facturadas en el período sin nómina (proxy del tamaño del hueco).
-    const pf = await sel(`planillas?f=gt.${desde}&f=lte.${lastPlan}&select=m,t`);
+    // Impacto: planillas facturadas en el período sin nómina (paginado; planillas.m está en USD).
+    const pf = await selAll(`planillas?f=gt.${desde}&f=lte.${lastPlan}&select=m,t&order=id.asc`);
     const facturado = pf.reduce((a: number, p: any) => a + (parseFloat(p.m) || 0), 0);
     const viajes = pf.reduce((a: number, p: any) => a + (parseInt(p.t) || 0), 0);
 
     // Destinatarios = socios + admin (fuente única: configuracion.whatsapp).
-    const cfg = await sel(`configuracion?clave=eq.whatsapp&select=valor`);
+    const cfg = await selAll(`configuracion?clave=eq.whatsapp&select=valor`);
     let wa: any[] = [];
     try { wa = JSON.parse(cfg[0]?.valor || "[]"); } catch { wa = []; }
     const nums = Array.from(new Set((Array.isArray(wa) ? wa : [])
@@ -55,7 +65,7 @@ Deno.serve(async (req) => {
 
     const msg = `💰 *Supervisión de nómina*\n\n` +
       `Hay *${semanas} semana(s) de nómina SIN guardar* (la última guardada llega al ${lastNom ? ddmm(lastNom) : "—"}, y ya hay planillas hasta el ${ddmm(lastPlan)}).\n\n` +
-      `⚠️ Mientras no se guarden, la *Utilidad Real está inflada*: cuenta lo cobrado pero NO descuenta esos sueldos. En ese período van *${viajes.toLocaleString("es-VE")} viajes* facturados (Bs ${facturado.toLocaleString("es-VE", { maximumFractionDigits: 0 })}).\n\n` +
+      `⚠️ Mientras no se guarden, la *Utilidad Real está inflada*: cuenta lo cobrado pero NO descuenta esos sueldos. En ese período van *${viajes.toLocaleString("es-VE")} viajes* facturados (US$ ${facturado.toLocaleString("es-VE", { maximumFractionDigits: 2 })}).\n\n` +
       `👉 *Guarda las semanas pendientes* en el módulo Nómina para que los números sean reales.`;
 
     if (dry) return json({ ok: true, dry: true, semanas, lastNom, lastPlan, viajes, facturado, destinos: nums });
