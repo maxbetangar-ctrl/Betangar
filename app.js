@@ -7228,8 +7228,10 @@ async function cargarDatosMinimos(rol){
                fegreso:x.fegreso||'',
                tel:x.tel||'',email:x.email||'',banco:x.banco||'',tcuenta:x.tcuenta||'',
                ncuenta:x.ncuenta||'',whatsapp:x.whatsapp||'',wa_apikey:x.wa_apikey||'',
-               foto:x.foto_url||'',imau:x.imau||false,asisteSiempre:x.asiste_siempre===true};
+               foto:x.foto_url||'',imau:x.imau||false,multicargo:x.multicargo===true,
+               formaPago:x.forma_pago||'',sueldo:parseFloat(x.sueldo)||0,asisteSiempre:x.asiste_siempre===true};
       });
+      try{ _firmarFotos(EMPLEADOS,'foto','asistencia'); }catch(_e){}
     }
 
     // KM data — mecánico y operativo
@@ -7508,9 +7510,9 @@ async function cargarDatosDB(){
     // Cargar los abonos PROTEGIDOS (no los pisa el Excel) por núcleo de dígitos.
     if(!a.error&&Array.isArray(a.data))ABONOS_PROTEGIDOS=new Set(a.data.filter(function(x){return x.protegido;}).map(function(x){return _factCore(x.fact);}));
     // EMPLEADOS
-    if(e.data&&e.data.length)EMPLEADOS=e.data.map(function(x){return{id:x.id,nombre:x.nombre,cargo:x.cargo,unidad:x.unidad||'',cedula:x.cedula||'',fnac:x.fnac||'',banco:x.banco||'',tcuenta:x.tcuenta||'',ncuenta:x.ncuenta||'',foto:x.foto_url||'',activo:x.activo!==false,tipoAy:x.tipo_ay||'',email:x.email||'',tel:x.tel||'',whatsapp:x.whatsapp||'',wa_apikey:x.wa_apikey||'',rif:x.rif||'',fingreso:x.fingreso||'',fegreso:x.fegreso||'',imau:x.imau||false,multicargo:x.multicargo===true,asisteSiempre:x.asiste_siempre===true};});
-    // Las fotos del bucket privado se firman una vez, acá. Ver `_firmarFotos`.
-    try{ _firmarFotos(EMPLEADOS,'foto','asistencia'); }catch(_e){}
+    if(e.data&&e.data.length)EMPLEADOS=e.data.map(function(x){return{id:x.id,nombre:x.nombre,cargo:x.cargo,unidad:x.unidad||'',cedula:x.cedula||'',fnac:x.fnac||'',banco:x.banco||'',tcuenta:x.tcuenta||'',ncuenta:x.ncuenta||'',foto:x.foto_url||'',activo:x.activo!==false,tipoAy:x.tipo_ay||'',email:x.email||'',tel:x.tel||'',whatsapp:x.whatsapp||'',wa_apikey:x.wa_apikey||'',rif:x.rif||'',fingreso:x.fingreso||'',fegreso:x.fegreso||'',imau:x.imau||false,multicargo:x.multicargo===true,formaPago:x.forma_pago||'',sueldo:parseFloat(x.sueldo)||0,asisteSiempre:x.asiste_siempre===true};});
+    // Las fotos de los buckets privados (`asistencia` y `entregas`) se firman en lote acá. Ver `_firmarFotos`.
+    try{ _firmarFotos(EMPLEADOS,'foto','asistencia').then(function(){ try{ var _pe=document.getElementById('p-empleados'); if(_pe&&_pe.classList.contains('active'))renderEmpleados(); }catch(_e2){} }); }catch(_e){}
     // GASOIL
     if(ga.data&&ga.data.length){
       GASOIL=ga.data.map(function(x){return{id:x.id,f:x.f,cam:x.cam,lit:x.lit,src:x.src,m:x.m,tipo_operacion:x.tipo_operacion};});
@@ -11391,22 +11393,34 @@ async function guardarImportacionEnDB(resultado){
   }
   // Personal sincronizado desde la LISTA MAESTRA del Excel (nombres/activos/altas). Se persiste
   // SIEMPRE, aunque no haya planillas nuevas (el usuario puede solo cambiar activos y reimportar).
+  // ⛔ Actualización PARCIAL para empleados existentes (solo nombre/cargo/activo/multicargo/tipo_ay):
+  //    hacer upsert completo pisaba foto_url con URLs firmadas caducables o borraba datos del expediente.
   var _ps=resultado.personalSync;
   if(_ps&&_ps.tocados&&_ps.tocados.length){
-    var empRows=_ps.tocados.map(function(e){return{
-      id:e.id,nombre:e.nombre,cargo:e.cargo,unidad:e.unidad||'',cedula:e.cedula||'',rif:e.rif||'',
-      fnac:e.fnac||null,fingreso:e.fingreso||null,email:e.email||'',tel:e.tel||'',banco:e.banco||'',
-      tcuenta:e.tcuenta||'',ncuenta:e.ncuenta||'',tipo_ay:e.tipoAy||'',imau:!!e.imau,foto_url:e.foto||'',
-      activo:e.activo!==false,whatsapp:e.whatsapp||'',wa_apikey:e.wa_apikey||'',multicargo:!!e.multicargo};}); // fechas vacías → null (Postgres rechaza '' en DATE)
-    try{var rEmp=await supabase.from('empleados').upsert(empRows,{onConflict:'id'});
-      if(rEmp.error){
-        // El lote se cayó (una fila mala tumba todo). Reintento UNA POR UNA para salvar las buenas y aislar la mala.
-        var _falló=0,_ultErr=rEmp.error.message;
-        for(var _i=0;_i<empRows.length;_i++){
-          try{var _r1=await supabase.from('empleados').upsert([empRows[_i]],{onConflict:'id'}); if(_r1.error){_falló++;_ultErr=_r1.error.message;}}catch(_e){_falló++;}
-        }
-        if(_falló>0&&typeof mostrarToast==='function')mostrarToast('⚠ '+_falló+' empleado(s) NO se guardaron: '+_ultErr,'error');
+    try{
+      var _fallo=0,_ultErr='';
+      for(var _i=0;_i<_ps.tocados.length;_i++){
+        var _e=_ps.tocados[_i];
+        try{
+          var _r1;
+          if(_e._esNuevo){
+            _r1=await supabase.from('empleados').insert([{
+              id:_e.id,nombre:_e.nombre,cargo:_e.cargo,unidad:_e.unidad||'',cedula:_e.cedula||'',rif:_e.rif||'',
+              fnac:_e.fnac||null,fingreso:_e.fingreso||null,email:_e.email||'',tel:_e.tel||'',banco:_e.banco||'',
+              tcuenta:_e.tcuenta||'',ncuenta:_e.ncuenta||'',tipo_ay:_e.tipoAy||'',imau:!!_e.imau,foto_url:_rutaFoto(_e.foto),
+              activo:_e.activo!==false,whatsapp:_e.whatsapp||'',wa_apikey:_e.wa_apikey||'',multicargo:!!_e.multicargo
+            }]).select();
+            if(!(_r1&&_r1.error)) delete _e._esNuevo;
+          } else {
+            _r1=await supabase.from('empleados').update({
+              nombre:_e.nombre,cargo:_e.cargo,activo:_e.activo!==false,
+              multicargo:!!_e.multicargo,tipo_ay:_e.tipoAy||''
+            }).eq('id',_e.id).select();
+          }
+          if(_r1&&_r1.error){_fallo++;_ultErr=_r1.error.message;}
+        }catch(_ex){_fallo++;_ultErr=(_ex&&_ex.message)||String(_ex);}
       }
+      if(_fallo>0&&typeof mostrarToast==='function')mostrarToast('⚠ '+_fallo+' empleado(s) NO se guardaron: '+_ultErr,'error');
       try{poblarEmps();}catch(e){}
     }catch(e){if(typeof mostrarToast==='function')mostrarToast('⚠ No se guardó el personal: '+(e&&e.message),'error'); console.log('[personal] sync empleados (exc):',e&&e.message);}
   }
@@ -11723,7 +11737,7 @@ function procesarExcelBetangar(wb){
           var _nid='EX'+String(fr)+(cargo==='Chofer'?'C':'A');
           var nuevo={id:_nid,nombre:completo,cargo:cargo,unidad:'',
             cedula:'',rif:'',fnac:'',fingreso:'',email:'',tel:'',banco:'',tcuenta:'',ncuenta:'',
-            tipoAy:(cargo==='Ayudante'?'interno':''),imau:false,foto:'',activo:activo,whatsapp:'',wa_apikey:'',multicargo:false};
+            tipoAy:(cargo==='Ayudante'?'interno':''),imau:false,foto:'',activo:activo,whatsapp:'',wa_apikey:'',multicargo:false,_esNuevo:true};
           EMPLEADOS.push(nuevo);
           resultado.personalSync.nuevos++;
           resultado.personalSync.tocados.push(nuevo);
@@ -19177,21 +19191,44 @@ async function _procesarEmpleadosExcel(rows,input){
   function gv2(r,f){return col[f]?String(r[col[f]]||'').trim():'';}
   function fdate(v){var s=String(v||'').trim(); var m=s.match(/^(\d{4})-(\d{2})-(\d{2})/); if(m)return m[1]+'-'+m[2]+'-'+m[3]; var m2=s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/); if(m2)return m2[3]+'-'+('0'+m2[2]).slice(-2)+'-'+('0'+m2[1]).slice(-2); return null;}
   function esActivo(v){var s=_slugComp(v); if(s==='no'||s==='inactivo'||s==='0'||s==='false')return false; return true;}
-  var rowsDb=[], sinNombre=0, ts=Date.now();
-  rows.forEach(function(r,i){
+  var rowsDb=[], sinNombre=0, _usadosIds={};
+  (EMPLEADOS||[]).forEach(function(e){ if(e&&e.id)_usadosIds[String(e.id).toUpperCase()]=1; });
+  rows.forEach(function(r){
     var nombre=gv2(r,'nombre'); if(!nombre){sinNombre++;return;}
     var ced=gv2(r,'cedula');
     var ex=(EMPLEADOS||[]).find(function(e){return (ced&&e.cedula&&_slugComp(e.cedula)===_slugComp(ced))||_slugComp(e.nombre)===_slugComp(nombre);});
-    var id=ex?ex.id:('E'+String(ts+i).slice(-6));
-    rowsDb.push({id:id,nombre:nombre.toUpperCase(),cargo:gv2(r,'cargo'),unidad:gv2(r,'unidad'),cedula:ced,rif:gv2(r,'rif'),fnac:fdate(gv2(r,'fnac')),fingreso:fdate(gv2(r,'fingreso')),email:gv2(r,'email'),tel:gv2(r,'tel'),banco:gv2(r,'banco'),tcuenta:gv2(r,'tcuenta'),ncuenta:gv2(r,'ncuenta'),whatsapp:gv2(r,'whatsapp'),forma_pago:gv2(r,'forma_pago'),sueldo:parseFloat(gv2(r,'sueldo'))||0,activo:esActivo(gv2(r,'activo'))});
+    var id=ex?ex.id:_nuevoIdEmpleado(_usadosIds);
+    _usadosIds[String(id).toUpperCase()]=1;
+    // ⛔ MERGE SEGURO: una celda vacía en el Excel NUNCA borra un dato ya cargado en el expediente.
+    var _sueldoRaw=gv2(r,'sueldo'), _sueldoNum=parseFloat(_sueldoRaw);
+    var _activoRaw=gv2(r,'activo');
+    rowsDb.push({
+      id:id,
+      nombre:nombre.toUpperCase(),
+      cargo:gv2(r,'cargo')||(ex?ex.cargo:''),
+      unidad:gv2(r,'unidad')||(ex?ex.unidad:''),
+      cedula:ced||(ex?ex.cedula:''),
+      rif:gv2(r,'rif')||(ex?ex.rif:''),
+      fnac:fdate(gv2(r,'fnac'))||(ex&&ex.fnac?ex.fnac:null),
+      fingreso:fdate(gv2(r,'fingreso'))||(ex&&ex.fingreso?ex.fingreso:null),
+      email:gv2(r,'email')||(ex?ex.email:''),
+      tel:gv2(r,'tel')||(ex?ex.tel:''),
+      banco:gv2(r,'banco')||(ex?ex.banco:''),
+      tcuenta:gv2(r,'tcuenta')||(ex?ex.tcuenta:''),
+      ncuenta:gv2(r,'ncuenta')||(ex?ex.ncuenta:''),
+      whatsapp:gv2(r,'whatsapp')||(ex?ex.whatsapp:''),
+      forma_pago:gv2(r,'forma_pago')||(ex?ex.formaPago:''),
+      sueldo:(_sueldoRaw!==''&&!isNaN(_sueldoNum))?_sueldoNum:(ex?(parseFloat(ex.sueldo)||0):0),
+      activo:_activoRaw!==''?esActivo(_activoRaw):(ex?ex.activo!==false:true)
+    });
   });
   if(!rowsDb.length){alert('No hubo filas con Nombre.');return;}
-  if(!confirm('¿Importar '+rowsDb.length+' empleado(s) del Excel? Se crean/actualizan (match por cédula o nombre).'+(sinNombre?('\n\n'+sinNombre+' fila(s) sin nombre se omiten.'):'')))return;
+  if(!confirm('¿Importar '+rowsDb.length+' empleado(s) del Excel? Se crean/actualizan (match por cédula o nombre; las celdas vacías conservan los datos ya guardados).'+(sinNombre?('\n\n'+sinNombre+' fila(s) sin nombre se omiten.'):'')))return;
   if(!(DB_READY&&supabase)){alert('Sin conexión a la base.');return;}
   var ok=true,err='';
   for(var i=0;i<rowsDb.length;i+=100){ try{ var rr=await supabase.from('empleados').upsert(rowsDb.slice(i,i+100),{onConflict:'id'}); if(rr&&rr.error){ok=false;err=rr.error.message;break;} }catch(ex){ok=false;err=(ex&&ex.message)||ex;break;} }
   if(!ok){ mostrarToast('No se pudo importar: '+err,'error'); return; }
-  try{ var re=await supabase.from('empleados').select('*'); if(re&&!re.error&&re.data)EMPLEADOS=re.data.map(function(x){return {id:x.id,nombre:x.nombre,cargo:x.cargo,unidad:x.unidad,cedula:x.cedula||'',rif:x.rif||'',fnac:x.fnac||'',fingreso:x.fingreso||'',email:x.email||'',tel:x.tel||'',banco:x.banco||'',tcuenta:x.tcuenta||'',ncuenta:x.ncuenta||'',tipoAy:x.tipo_ay||'',imau:!!x.imau,foto:x.foto_url||'',activo:x.activo!==false,whatsapp:x.whatsapp||'',wa_apikey:x.wa_apikey||'',formaPago:x.forma_pago||'',sueldo:parseFloat(x.sueldo)||0};}); }catch(e){}
+  try{ var re=await supabase.from('empleados').select('*'); if(re&&!re.error&&re.data){ EMPLEADOS=re.data.map(function(x){return {id:x.id,nombre:x.nombre,cargo:x.cargo,unidad:x.unidad||'',cedula:x.cedula||'',rif:x.rif||'',fnac:x.fnac||'',fingreso:x.fingreso||'',fegreso:x.fegreso||'',email:x.email||'',tel:x.tel||'',banco:x.banco||'',tcuenta:x.tcuenta||'',ncuenta:x.ncuenta||'',tipoAy:x.tipo_ay||'',imau:!!x.imau,multicargo:x.multicargo===true,asisteSiempre:x.asiste_siempre===true,foto:x.foto_url||'',activo:x.activo!==false,whatsapp:x.whatsapp||'',wa_apikey:x.wa_apikey||'',formaPago:x.forma_pago||'',sueldo:parseFloat(x.sueldo)||0};}); await _firmarFotos(EMPLEADOS,'foto','asistencia'); } }catch(e){}
   audit('Empleados importados de Excel',rowsDb.length+' empleados');
   try{renderEmpleados();}catch(e){} try{poblarEmps();}catch(e){} try{poblarCams();}catch(e){}
   if(input)input.value='';
@@ -20462,27 +20499,54 @@ async function _urlFirmada(bucket, urlOruta, seg){
 // siquiera un descuido rompe la foto — pero la base guarda la ruta, que es lo que corresponde.
 async function _firmarFotos(filas, campo, bucket){
   if(!Array.isArray(filas)||!filas.length||!(DB_READY&&supabase))return;
-  // Se mandan LAS DOS variantes de cada foto (ver `_rutasAProbar`): el lote firma
-  // todas de una y después se toma, para cada fila, la primera que haya abierto.
-  // Pedir dos por foto en UNA llamada cuesta menos que una llamada por foto.
-  var rutas=[],idx=[];
+  // ⛔ MULTI-BUCKET: las fotos de empleados pueden vivir tanto en `asistencia` (subidas nuevas)
+  //    como en `entregas` (37 fichas migradas). Ambos buckets son PRIVADOS: si solo se firmaba
+  //    `asistencia`, las 37 de `entregas` quedaban con /object/public/entregas/... (HTTP 400).
+  //    Agrupamos por bucket real detectado con `_bucketDeUrl` y firmamos cada bucket en lote.
+  var porBucket={};
   filas.forEach(function(r,i){
-    if(!r)return;
-    _rutasAProbar(bucket,r[campo]).forEach(function(p){ rutas.push(p); idx.push(i); });
+    if(!r||!r[campo])return;
+    var val=String(r[campo]);
+    if(val.indexOf('data:')===0)return;
+    var bkt=_bucketDeUrl(val)||bucket;
+    if(!bkt)return;
+    var candidatas=_rutasAProbar(bkt,val);
+    if(!candidatas.length)return;
+    if(!porBucket[bkt])porBucket[bkt]={rutas:[],idx:[]};
+    candidatas.forEach(function(p){ porBucket[bkt].rutas.push(p); porBucket[bkt].idx.push(i); });
   });
-  if(!rutas.length)return;
-  try{
-    var r=await supabase.storage.from(bucket).createSignedUrls(rutas,28800);
-    if(r&&r.error){ console.log('firmar lote '+bucket,r.error.message); return; }
-    var puestas={};
-    (r&&r.data||[]).forEach(function(x,k){
-      var fila=idx[k];
-      if(x&&x.signedUrl&&!puestas[fila]){ filas[fila][campo]=x.signedUrl; puestas[fila]=1; }
-    });
-  }catch(e){ console.log('firmar lote '+bucket,e.message); }
+  var bkts=Object.keys(porBucket);
+  if(!bkts.length)return;
+  for(var b=0;b<bkts.length;b++){
+    var bktName=bkts[b], grp=porBucket[bktName];
+    try{
+      var r=await supabase.storage.from(bktName).createSignedUrls(grp.rutas,28800);
+      if(r&&r.error){ console.log('firmar lote '+bktName,r.error.message); continue; }
+      var puestas={};
+      (r&&r.data||[]).forEach(function(x,k){
+        var fila=grp.idx[k];
+        if(x&&x.signedUrl&&!puestas[fila]){ filas[fila][campo]=x.signedUrl; puestas[fila]=1; }
+      });
+    }catch(e){ console.log('firmar lote '+bktName,e.message); }
+  }
 }
-// Lo que va a la BASE es la RUTA, nunca la URL firmada.
-function _rutaFoto(u){ return _rutaDeUrl('asistencia',u)||String(u||''); }
+// Lo que va a la BASE nunca es una URL firmada caducable (?token=...).
+// - Bucket `asistencia` (o ruta relativa): se guarda la ruta limpia (`empleados/2026/...`).
+// - Otro bucket (ej. `entregas`): se conserva la referencia de bucket sin token
+//   (`.../object/public/entregas/...`) para que `_bucketDeUrl` sepa siempre dónde firmarla.
+function _rutaFoto(u){
+  var s=String(u||'').trim();
+  if(!s||s.indexOf('data:')===0)return s;
+  var bkt=_bucketDeUrl(s);
+  if(bkt&&bkt!=='asistencia'){
+    var rutaOtro=_rutaDeUrl(bkt,s);
+    if(rutaOtro&&typeof SUPA_URL==='string'&&SUPA_URL){
+      return SUPA_URL+'/storage/v1/object/public/'+bkt+'/'+rutaOtro;
+    }
+    return s.split('?')[0].replace('/object/sign/','/object/public/');
+  }
+  return _rutaDeUrl('asistencia',s)||s;
+}
 // ⛔ EL BUCKET SE DEDUCE DE LA URL, NO SE SUPONE.
 // Primera versión: se le pasaba 'asistencia' a todo. Pero las 22 fotos de SURTIDAS viven en
 // `entregas` —las sube el chofer, no la oficina—, así que firmaba contra un bucket donde esa ruta
@@ -25607,9 +25671,11 @@ function switchEmpTab(t){['lista','nuevo','carnets','bancario','cumple'].forEach
     ['ne-id','ne-nombre','ne-cargo','ne-unidad','ne-ced','ne-rif','ne-fnac','ne-fingreso','ne-fegreso','ne-email','ne-tel','ne-banco','ne-tcuenta','ne-ncuenta','ne-imau','ne-tipoAy','ne-whatsapp','ne-wa-apikey','ne-forma-pago','ne-sueldo','ne-sueldo-desde','ne-sueldo-motivo'].forEach(function(fid){var el=g(fid);if(el)el.value='';});
     var _mcn=g('ne-multicargo'); if(_mcn)_mcn.checked=false; try{toggleTipoAy('');}catch(e){}
     sv('ne-foto-b64','');
+    var _fb64=g('ne-foto-b64'); if(_fb64)_fb64.dataset.ver='';
     var prev=g('ne-foto-preview');if(prev)prev.innerHTML='<span style="font-size:40px;color:var(--text3)">👤</span>';
     var fi=g('ne-foto-input');if(fi)fi.value='';
     var hidId=g('ne-id-original');if(hidId)hidId.value='';
+    var neIdEl=g('ne-id');if(neIdEl){neIdEl.readOnly=false;neIdEl.style.opacity='';}
     var btnG=g('btn-guardar-emp');if(btnG){btnG.textContent='✅ Guardar Empleado';btnG.style.background='';}
   }
 }
@@ -25826,6 +25892,7 @@ function renderEmpleados(){
 function cargarEmp(id){
   var e=EMPLEADOS.find(function(x){return x.id===id;});if(!e)return;
   sv('ne-id',e.id);
+  var neIdEl=g('ne-id'); if(neIdEl){neIdEl.readOnly=true;neIdEl.style.opacity='0.75';}
   // Guardar ID original en campo oculto para garantizar que no se pierda
   var hidId=document.getElementById('ne-id-original');
   if(!hidId){hidId=document.createElement('input');hidId.type='hidden';hidId.id='ne-id-original';document.body.appendChild(hidId);}
@@ -25857,10 +25924,11 @@ function cargarEmp(id){
   toggleTipoAy(e.cargo);
   var _mc=g('ne-multicargo'); if(_mc)_mc.checked=!!e.multicargo;
   sv('ne-foto-b64','');
+  var _fb64c=g('ne-foto-b64'); if(_fb64c)_fb64c.dataset.ver='';
   var fi2=g('ne-foto-input');if(fi2)fi2.value='';
   var preview=g('ne-foto-preview');
   if(preview){
-    if(e.foto){preview.innerHTML='<img src="'+e.foto+'" style="width:100%;height:100%;object-fit:cover">';sv('ne-foto-b64',e.foto);}
+    if(e.foto){preview.innerHTML='<img src="'+e.foto+'" style="width:100%;height:100%;object-fit:cover">';sv('ne-foto-b64',e.foto);if(_fb64c)_fb64c.dataset.ver=e.foto;}
     else{preview.innerHTML='<span style="font-size:40px;color:var(--text3)">👤</span>';}
   }
 }
@@ -25950,20 +26018,59 @@ async function previewFoto(input){
     var dataURL=await comprimirImagen(file,640,0.7);            // carnet/listado: 640 px sobra (~40 KB)
     if(preview)preview.innerHTML='<img src="'+dataURL+'" style="width:100%;height:100%;object-fit:cover">';
     var sub=await subirImagenSegura(dataURL,'asistencia',_rutaImg('empleados',gv('ne-id')||gv('ne-ced')));
-    if(sub.ruta){ sv('ne-foto-b64',sub.ruta); if(preview&&sub.ver)preview.innerHTML='<img src="'+_mEsc(sub.ver)+'" style="width:100%;height:100%;object-fit:cover">'; }
-    else{
+    var _fb64p=g('ne-foto-b64');
+    if(sub.ruta){
+      sv('ne-foto-b64',sub.ruta);
+      if(_fb64p)_fb64p.dataset.ver=sub.ver||dataURL;
+      if(preview&&sub.ver)preview.innerHTML='<img src="'+_mEsc(sub.ver)+'" style="width:100%;height:100%;object-fit:cover">';
+    } else {
       sv('ne-foto-b64',dataURL);   // comprimida (~40 KB), no los 500 KB crudos de antes
+      if(_fb64p)_fb64p.dataset.ver=dataURL;
       if(typeof mostrarToast==='function')mostrarToast('La foto no se pudo subir ('+(sub.error||'motivo desconocido')+'); queda guardada en el registro','error');
     }
   }catch(e){ if(typeof mostrarToast==='function')mostrarToast('No se pudo procesar la foto','error'); }
 }
 
+// ⛔ GENERADOR DE ID ÚNICO PARA EMPLEADOS NUEVOS.
+//    Antes `guardarEmpleado()` usaba `'E'+String(Date.now()).slice(-3)` (solo 1.000 IDs
+//    posibles) y hacía `upsert({onConflict:'id'})`: el 22/11/2026 pisó a E022 (Johandry)
+//    al dar de alta a José Troconis, borrándole todo su expediente y foto.
+function _nuevoIdEmpleado(extraUsados){
+  var usados={};
+  (EMPLEADOS||[]).forEach(function(e){ if(e&&e.id)usados[String(e.id).toUpperCase()]=1; });
+  if(extraUsados)Object.keys(extraUsados).forEach(function(k){ usados[String(k).toUpperCase()]=1; });
+  var maxN=0;
+  Object.keys(usados).forEach(function(k){
+    var m=k.match(/^E(\d+)$/);
+    if(m){ var n=parseInt(m[1],10); if(n>maxN)maxN=n; }
+  });
+  var next=maxN+1;
+  var cand='E'+String(next).padStart(3,'0');
+  while(usados[cand]){ next++; cand='E'+String(next).padStart(3,'0'); }
+  return cand;
+}
+
 async function guardarEmpleado(){
   var nombre=gv('ne-nombre');if(!nombre){alert('Ingresa el nombre');return;}
-  // Usar ID original si estamos editando (evita crear duplicados)
+  // Usar ID original si estamos editando (evita crear duplicados o pisar otro empleado)
   var idOriginal=document.getElementById('ne-id-original');
   var esEdicion=!!(idOriginal&&idOriginal.value);
-  var id=esEdicion?idOriginal.value:(gv('ne-id')||('E'+String(Date.now()).slice(-3)));
+  var idManual=String(gv('ne-id')||'').trim().toUpperCase();
+  var id;
+  if(esEdicion){
+    id=idOriginal.value;
+  } else {
+    if(idManual){
+      var yaExiste=(EMPLEADOS||[]).find(function(e){ return e&&String(e.id||'').toUpperCase()===idManual; });
+      if(yaExiste){
+        alert('⛔ El ID '+idManual+' ya pertenece a '+yaExiste.nombre+(yaExiste.activo===false?' (INACTIVO)':'')+'.\n\nNo se puede reutilizar un ID existente porque borraría su expediente y foto.\nDejá el campo ID vacío para generar uno automático, o editá esa ficha desde la lista.');
+        return;
+      }
+      id=idManual;
+    } else {
+      id=_nuevoIdEmpleado();
+    }
+  }
   var cedula=String(gv('ne-ced')||'').trim();
   if(!esEdicion&&cedula){
     var cedNorm=cedula.replace(/[^0-9]/g,'');
@@ -25977,25 +26084,42 @@ async function guardarEmpleado(){
   if(activoPrev&&fegresoVal){
     if(confirm('Cargaste fecha de egreso ('+fegresoVal+') para '+nombre.toUpperCase()+'.\n\n¿Marcar también al empleado como INACTIVO (de baja)?'))activoPrev=false;
   }
-  var emp={id:id,nombre:nombre.toUpperCase(),cargo:gv('ne-cargo'),imau:gv('ne-imau')==='true',unidad:gv('ne-unidad'),cedula:cedula,rif:_rifFmt(gv('ne-rif'))||'',fnac:gv('ne-fnac'),fingreso:gv('ne-fingreso')||'',fegreso:fegresoVal,email:gv('ne-email'),tel:gv('ne-tel')||'',banco:gv('ne-banco'),whatsapp:gv('ne-whatsapp')||'',wa_apikey:gv('ne-wa-apikey')||'',tcuenta:gv('ne-tcuenta'),ncuenta:_cuentaFmt(gv('ne-ncuenta')),tipoAy:gv('ne-tipoAy'),foto:gv('ne-foto-b64')||'',activo:activoPrev,multicargo:(g('ne-multicargo')?g('ne-multicargo').checked:false),
+  var _fotoRaw=gv('ne-foto-b64')||'';
+  var _fb64g=g('ne-foto-b64');
+  var _fotoVer=(_fb64g&&_fb64g.dataset&&_fb64g.dataset.ver)||_fotoRaw;
+  var emp={id:id,nombre:nombre.toUpperCase(),cargo:gv('ne-cargo'),imau:gv('ne-imau')==='true',unidad:gv('ne-unidad'),cedula:cedula,rif:_rifFmt(gv('ne-rif'))||'',fnac:gv('ne-fnac'),fingreso:gv('ne-fingreso')||'',fegreso:fegresoVal,email:gv('ne-email'),tel:gv('ne-tel')||'',banco:gv('ne-banco'),whatsapp:gv('ne-whatsapp')||'',wa_apikey:gv('ne-wa-apikey')||'',tcuenta:gv('ne-tcuenta'),ncuenta:_cuentaFmt(gv('ne-ncuenta')),tipoAy:gv('ne-tipoAy'),foto:_fotoVer,activo:activoPrev,multicargo:(g('ne-multicargo')?g('ne-multicargo').checked:false),
     formaPago:gv('ne-forma-pago')||'',
     sueldo:(gv('ne-forma-pago')==='fijo' ? (parseFloat(gv('ne-sueldo'))||0) : 0)};
-  var resEmp=await supabase.from('empleados').upsert([{
-    id:emp.id,nombre:emp.nombre,cargo:emp.cargo,unidad:emp.unidad,
+  var dbRow={
+    nombre:emp.nombre,cargo:emp.cargo,unidad:emp.unidad,
     cedula:emp.cedula,rif:emp.rif||'',fnac:emp.fnac||null,fingreso:emp.fingreso||null,
     email:emp.email,tel:emp.tel||'',banco:emp.banco,tcuenta:emp.tcuenta,
-    ncuenta:emp.ncuenta,tipo_ay:emp.tipoAy,imau:emp.imau,foto_url:_rutaFoto(emp.foto),
+    ncuenta:emp.ncuenta,tipo_ay:emp.tipoAy,imau:emp.imau,foto_url:_rutaFoto(_fotoRaw),
     activo:emp.activo,whatsapp:emp.whatsapp||'',wa_apikey:emp.wa_apikey||'',multicargo:!!emp.multicargo,
-    forma_pago:emp.formaPago||'',
+    forma_pago:emp.formaPago||'',sueldo:emp.sueldo||0,
     fegreso:emp.fegreso||null
-  }],{onConflict:'id'}).select();
+  };
+  // ⛔ INSERT estricto para altas nuevas (JAMÁS upsert) y UPDATE por id para edición:
+  //    garantiza que un alta nueva nunca pueda sobrescribir el expediente de otra persona.
+  var resEmp;
+  if(esEdicion){
+    resEmp=await supabase.from('empleados').update(dbRow).eq('id',emp.id).select();
+  } else {
+    resEmp=await supabase.from('empleados').insert([Object.assign({id:emp.id},dbRow)]).select();
+  }
   if((resEmp&&resEmp.error)||!(resEmp&&resEmp.data&&resEmp.data.length)){
     console.error('Error guardando empleado:',resEmp&&resEmp.error);
+    var _errCod=resEmp&&resEmp.error&&String(resEmp.error.code||'');
+    if(_errCod==='23505'){
+      alert('⛔ Ya existe un empleado con el ID '+emp.id+' en la base de datos.\n\nNo se sobrescribió el registro existente. Dejá el campo ID vacío para asignar uno nuevo automático.');
+      return;
+    }
     alert('❌ Error al guardar: '+((resEmp&&resEmp.error&&resEmp.error.message)||'la base no confirmó ninguna fila (revisá permisos)')+'\n\nVerifica tu conexión y permisos.');
     return;
   }
   if(idx>=0)EMPLEADOS[idx]=emp;else EMPLEADOS.push(emp);
   if(idOriginal)idOriginal.value='';
+  var neIdEl=g('ne-id');if(neIdEl){neIdEl.readOnly=false;neIdEl.style.opacity='';}
   var btnG=document.getElementById('btn-guardar-emp');
   if(btnG){btnG.textContent='✅ Guardar Empleado';btnG.style.background='';}
   try{ await _sueldoGuardar(emp.id); }catch(e){ console.warn('sueldo:',e); }
@@ -28806,12 +28930,8 @@ function reactivarEmpleadoNomina(empId){
   solicitarToken('Reactivar a '+e.nombre+' (estaba INACTIVO y apareció con viajes en planilla)',function(motivo){
     e.activo=true;
     if(DB_READY&&supabase){
-      supabase.from('empleados').upsert([{
-        id:e.id,nombre:e.nombre,cargo:e.cargo,unidad:e.unidad||'',cedula:e.cedula||'',rif:e.rif||'',
-        fnac:e.fnac||'',fingreso:e.fingreso||'',email:e.email||'',tel:e.tel||'',banco:e.banco||'',
-        tcuenta:e.tcuenta||'',ncuenta:e.ncuenta||'',tipo_ay:e.tipoAy||'',imau:!!e.imau,foto_url:e.foto||'',
-        activo:true,whatsapp:e.whatsapp||'',wa_apikey:e.wa_apikey||'',multicargo:!!e.multicargo
-      }],{onConflict:'id'}).then(function(r){if(r&&r.error)console.log('[reactivar]',r.error.message);});
+      supabase.from('empleados').update({activo:true}).eq('id',e.id).select()
+        .then(function(r){if(r&&r.error)console.log('[reactivar]',r.error.message);});
     }
     audit('Empleado reactivado',e.nombre+(motivo?(' — '+motivo):''));
     closeModal();
