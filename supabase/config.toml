@@ -102,3 +102,6 @@ verify_jwt = false
 # lo diga. El token de la requisicion es la autorizacion, no un JWT.
 [functions.req-archivo]
 verify_jwt = false
+
+[functions.divisas-banco]
+verify_jwt = false

@@ -155,13 +155,14 @@ Deno.serve(async (req) => {
       .select('id,intentos').eq('estado', 'enviando').lt('tomado_at', staleTs).limit(200);
     for (const t of (trabadas || [])) {
       const n = (t.intentos || 0) + 1;
-      await sb.from('cola_mensajes').update({
+      const { error: errResc } = await sb.from('cola_mensajes').update({
         estado: n >= 4 ? 'fallido' : 'pendiente',
         intentos: n,
         error: 'una corrida murio con este mensaje tomado; puede haber SALIDO sin quedar marcado. '
              + 'Rescatado con el intento contado (' + n + ' de 4)' + (n >= 4 ? ', y agotado: no se reintenta mas.' : '.'),
       }).eq('id', t.id);
-      rescatados++;
+      if (errResc) console.error('rescate cola_mensajes err:', t.id, errResc.message);
+      else rescatados++;
     }
   }
   //    Guardia de transición: una fila reclamada por la versión ANTERIOR tiene enviado_at pero no

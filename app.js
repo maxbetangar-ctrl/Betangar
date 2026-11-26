@@ -1808,12 +1808,16 @@ async function bncGuardarConfig(){
   }catch(e){alert('Error guardando: '+e.message);}
 }
 
+async function _bncSaldoHdr(){
+  if(typeof _ensureJWT==='function'){ try{ await _ensureJWT(); }catch(e){} }
+  return (typeof _tokRestHdr==='function') ? _tokRestHdr({'Content-Type':'application/json'}) : {'Content-Type':'application/json','Authorization':'Bearer '+SUPA_KEY};
+}
 // Prueba en vivo del flujo BNC (LogOn -> WorkingKey -> Position/Current) y muestra las cuentas.
 async function bncProbarSaldo(){
   var out=document.getElementById('bnc-probar-saldo-out');
   if(out){out.style.display='block';out.style.background='var(--bg3)';out.style.color='var(--text2)';out.innerHTML='⏳ Probando LogOn + saldo contra el BNC…';}
   try{
-    var r=await fetch(SUPA_URL+'/functions/v1/bnc-saldo',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+SUPA_KEY},body:JSON.stringify({action:'saldo'}),signal:AbortSignal.timeout(45000)});
+    var r=await fetch(SUPA_URL+'/functions/v1/bnc-saldo',{method:'POST',headers:await _bncSaldoHdr(),body:JSON.stringify({action:'saldo'}),signal:AbortSignal.timeout(45000)});
     var d=await r.json();
     if(!d||!d.ok){
       var det=(d&&(d.error||(d.respuesta&&(d.respuesta.message||d.respuesta.Message))))||(d?JSON.stringify(d).slice(0,300):'sin respuesta');
@@ -20732,7 +20736,7 @@ async function consultarSaldoBNC(){
   if(DEMO_MODE){BNC_SALDO=4250000+Math.random()*500000;renderBNCDash();renderDash();return;}
   var fe=g('bnc-saldo-fecha');if(fe)fe.textContent='⏳ Consultando saldo en el BNC…';
   try{
-    var r=await fetch(SUPA_URL+'/functions/v1/bnc-saldo',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+SUPA_KEY},body:JSON.stringify({action:'saldo'}),signal:AbortSignal.timeout(45000)});
+    var r=await fetch(SUPA_URL+'/functions/v1/bnc-saldo',{method:'POST',headers:await _bncSaldoHdr(),body:JSON.stringify({action:'saldo'}),signal:AbortSignal.timeout(45000)});
     var d=await r.json();
     if(!d||!d.ok){
       var det=(d&&(d.error||(d.respuesta&&(d.respuesta.message||d.respuesta.Message))))||(d?JSON.stringify(d).slice(0,300):'sin respuesta');
@@ -21023,7 +21027,7 @@ async function cargarMovRealesBNC(){
   try{ el.innerHTML=await _movRealesNotifsHTML('preview'); }catch(e){ el.innerHTML='<div style="text-align:center;color:var(--text3);padding:14px;font-size:12px">🔄 Consultando el estado de cuenta del banco…</div>'; }
   var html='';
   try{
-    var hdr={'Content-Type':'application/json','Authorization':'Bearer '+SUPA_KEY};
+    var hdr=await _bncSaldoHdr();
     var rs=await fetch(SUPA_URL+'/functions/v1/bnc-saldo',{method:'POST',headers:hdr,body:JSON.stringify({action:'saldo'}),signal:AbortSignal.timeout(30000)});
     var ds=await rs.json(); var bancoMovs=[];
     if(ds&&ds.ok&&ds.saldos){
@@ -21160,7 +21164,7 @@ async function testBNC(){
   res.style.display='block';res.style.color='var(--yellow)';res.textContent='⏳ Probando conexion con el BNC...';
   if(DEMO_MODE){res.style.color='var(--green)';res.textContent='✅ DEMO: Conexion simulada correctamente';BNC_SALDO=4250000;renderBNCDash();return;}
   try{
-    var r=await fetch(SUPA_URL+'/functions/v1/bnc-saldo',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+SUPA_KEY},body:JSON.stringify({action:'saldo'}),signal:AbortSignal.timeout(45000)});
+    var r=await fetch(SUPA_URL+'/functions/v1/bnc-saldo',{method:'POST',headers:await _bncSaldoHdr(),body:JSON.stringify({action:'saldo'}),signal:AbortSignal.timeout(45000)});
     var d=await r.json();
     if(!d||!d.ok){
       var det=(d&&(d.error||(d.respuesta&&(d.respuesta.message||d.respuesta.Message))))||'sin respuesta';
@@ -29029,29 +29033,39 @@ async function aprobarTokenPend(id){
     var rows=await rowRes.json();
     var ad=(Array.isArray(rows)&&rows[0])?rows[0].accion_data:null;
     if(ad&&ad.op==='del'&&ad.tabla&&ad.col){
-      var delRes=await fetch(SUPA_URL+'/rest/v1/'+encodeURIComponent(ad.tabla)+'?'+encodeURIComponent(ad.col)+'=eq.'+encodeURIComponent(ad.val),{
-        method:'DELETE',headers:_tokRestHdr({'Prefer':'return=minimal'})
+      var delQ=encodeURIComponent(ad.col)+'=eq.'+encodeURIComponent(ad.val);
+      if(ad.tabla==='abonos'&&ad.ref!==undefined)delQ+='&ref=eq.'+encodeURIComponent(String(ad.ref));
+      var delRes=await fetch(SUPA_URL+'/rest/v1/'+encodeURIComponent(ad.tabla)+'?'+delQ,{
+        method:'DELETE',headers:_tokRestHdr({'Prefer':'return=representation'})
       });
       if(!delRes.ok){var dt=await delRes.text();if(typeof mostrarToast==='function')mostrarToast('Aprobado, pero no se pudo eliminar: '+dt,'error');}
       else{
-        await fetch(SUPA_URL+'/rest/v1/tokens_pendientes?id=eq.'+encodeURIComponent(id),{method:'PATCH',headers:_tokRestHdr({'Content-Type':'application/json','Prefer':'return=minimal'}),body:JSON.stringify({usado:true})});
-        recargarTrasTokenAccion(ad);
-        if(typeof mostrarToast==='function')mostrarToast('✅ Aprobado y eliminado de '+ad.tabla,'exito');
+        var delRows=null; try{delRows=await delRes.json();}catch(e){}
+        if(!Array.isArray(delRows)||!delRows.length){
+          if(typeof mostrarToast==='function')mostrarToast('Aprobado, pero la base no eliminó ninguna fila en '+ad.tabla,'error');
+        } else {
+          await fetch(SUPA_URL+'/rest/v1/tokens_pendientes?id=eq.'+encodeURIComponent(id),{method:'PATCH',headers:_tokRestHdr({'Content-Type':'application/json','Prefer':'return=minimal'}),body:JSON.stringify({usado:true})});
+          recargarTrasTokenAccion(ad);
+          if(typeof mostrarToast==='function')mostrarToast('✅ Aprobado y eliminado de '+ad.tabla,'exito');
+        }
       }
     } else if(ad&&ad.op==='upd'&&ad.tabla&&ad.col&&ad.set){
-      // EDICIONES (ej. cierre de planilla): el SuperAdmin aplica el cambio aquí mismo. En un solo
-      // navegador la sesión del solicitante ya no existe al aprobar, así que NO podemos depender de
-      // su callback en memoria — el PATCH server-side es la única vía fiable. El payload (ad.set) se
-      // serializó al solicitar el token, con los valores ya calculados (monto, etc.).
-      var updRes=await fetch(SUPA_URL+'/rest/v1/'+encodeURIComponent(ad.tabla)+'?'+encodeURIComponent(ad.col)+'=eq.'+encodeURIComponent(ad.val),{
-        method:'PATCH',headers:_tokRestHdr({'Content-Type':'application/json','Prefer':'return=minimal'}),
+      var updQ=encodeURIComponent(ad.col)+'=eq.'+encodeURIComponent(ad.val);
+      if(ad.tabla==='abonos'&&ad.ref!==undefined)updQ+='&ref=eq.'+encodeURIComponent(String(ad.ref));
+      var updRes=await fetch(SUPA_URL+'/rest/v1/'+encodeURIComponent(ad.tabla)+'?'+updQ,{
+        method:'PATCH',headers:_tokRestHdr({'Content-Type':'application/json','Prefer':'return=representation'}),
         body:JSON.stringify(ad.set)
       });
       if(!updRes.ok){var ut=await updRes.text();if(typeof mostrarToast==='function')mostrarToast('Aprobado, pero no se pudo aplicar la edición: '+ut,'error');}
       else{
-        await fetch(SUPA_URL+'/rest/v1/tokens_pendientes?id=eq.'+encodeURIComponent(id),{method:'PATCH',headers:_tokRestHdr({'Content-Type':'application/json','Prefer':'return=minimal'}),body:JSON.stringify({usado:true})});
-        recargarTrasTokenAccion(ad);
-        if(typeof mostrarToast==='function')mostrarToast('✅ Aprobado y aplicado en '+ad.tabla,'exito');
+        var updRows=null; try{updRows=await updRes.json();}catch(e){}
+        if(!Array.isArray(updRows)||!updRows.length){
+          if(typeof mostrarToast==='function')mostrarToast('Aprobado, pero la base no actualizó ninguna fila en '+ad.tabla,'error');
+        } else {
+          await fetch(SUPA_URL+'/rest/v1/tokens_pendientes?id=eq.'+encodeURIComponent(id),{method:'PATCH',headers:_tokRestHdr({'Content-Type':'application/json','Prefer':'return=minimal'}),body:JSON.stringify({usado:true})});
+          recargarTrasTokenAccion(ad);
+          if(typeof mostrarToast==='function')mostrarToast('✅ Aprobado y aplicado en '+ad.tabla,'exito');
+        }
       }
     } else {
       // Sin accion_data: el solicitante lo ejecuta por polling/entrada manual.
@@ -29074,8 +29088,8 @@ function recargarTrasTokenAccion(ad){
         else { if(typeof renderPlanHoy==='function')renderPlanHoy(); if(typeof renderDash==='function')renderDash(); if(typeof filtH==='function')filtH(); }
       }
       else if(ad.tabla==='abonos'&&ad.set&&typeof ABONOS!=='undefined'){
-        var sA=ad.set, iA=ABONOS.findIndex(function(x){return String(x[col])===val;});
-        if(iA>=0)ABONOS[iA]=Object.assign({},ABONOS[iA],{f:sA.f,v:sA.v,m:sA.m,obs:sA.obs});
+        var sA=ad.set, iA=ABONOS.findIndex(function(x){return String(x[col])===val&&(ad.ref===undefined||String(x.ref||'')===String(ad.ref));});
+        if(iA>=0)ABONOS[iA]=Object.assign({},ABONOS[iA],{f:sA.f,v:sA.v,m:sA.m,obs:sA.obs,descuento:sA.descuento});
         if(typeof renderAbonos==='function')renderAbonos(); if(typeof renderDash==='function')renderDash();
       }
       return;
@@ -29088,12 +29102,17 @@ function recargarTrasTokenAccion(ad){
     else if(ad.tabla==='contratos'){ if(typeof CONTRATOS!=='undefined')CONTRATOS=CONTRATOS.filter(function(x){return String(x[col])!==val;}); if(typeof renderContratos==='function')renderContratos(); }
     else if(ad.tabla==='gastos_variables'){ if(typeof GASTOS_VARIABLES!=='undefined')GASTOS_VARIABLES=GASTOS_VARIABLES.filter(function(x){return String(x[col])!==val;}); if(typeof renderGastos==='function')renderGastos(); if(typeof renderGastosVariables==='function')renderGastosVariables(); }
     else if(ad.tabla==='gastos_fijos'){ if(typeof GASTOS_FIJOS!=='undefined')GASTOS_FIJOS=GASTOS_FIJOS.filter(function(x){return String(x[col])!==val;}); if(typeof renderGastosFijos==='function')renderGastosFijos(); }
-    else if(ad.tabla==='abonos'){ if(typeof ABONOS!=='undefined')ABONOS=ABONOS.filter(function(x){return String(x[col])!==val;}); if(typeof renderAbonos==='function')renderAbonos(); if(typeof renderDash==='function')renderDash(); }
+    else if(ad.tabla==='abonos'){ if(typeof ABONOS!=='undefined')ABONOS=ABONOS.filter(function(x){return !(String(x[col])===val&&(ad.ref===undefined||String(x.ref||'')===String(ad.ref)));}); if(typeof renderAbonos==='function')renderAbonos(); if(typeof renderDash==='function')renderDash(); }
+    else if(ad.tabla==='cxp_facturas'){ if(typeof cargarCxpAux==='function'){ cargarCxpAux().then(function(){ if(typeof renderRetenciones==='function')renderRetenciones(); if(typeof renderCXP==='function')renderCXP(); if(typeof renderHistProv==='function')renderHistProv(); }); } }
+    else if(ad.tabla==='nomina_extras'){ if(typeof NOMINA_EXTRAS!=='undefined')NOMINA_EXTRAS=NOMINA_EXTRAS.filter(function(x){return String(x[col])!==val;}); if(typeof recalcNom==='function')recalcNom(); }
+    else if(ad.tabla==='mantenimientos'){ if(typeof MANTENIMIENTOS!=='undefined')MANTENIMIENTOS=MANTENIMIENTOS.filter(function(x){return String(x[col])!==val;}); if(typeof renderHistMant==='function')renderHistMant(); }
+    else if(ad.tabla==='inventario'){ if(typeof INVENTARIO!=='undefined')INVENTARIO=INVENTARIO.filter(function(x){return String(x[col])!==val;}); if(typeof renderInventario==='function')renderInventario(); }
   }catch(e){console.log('recargarTrasTokenAccion:',e&&e.message);}
 }
 
-function rechazarTokenPend(id){
+async function rechazarTokenPend(id){
   if(!confirm('¿Rechazar y eliminar este token?'))return;
+  if(typeof _ensureJWT==='function'){ try{ await _ensureJWT(); }catch(e){} }
   fetch(SUPA_URL+'/rest/v1/tokens_pendientes?id=eq.'+encodeURIComponent(id),{
     method:'DELETE',
     headers:_tokRestHdr()
@@ -31069,11 +31088,16 @@ function generarTokenAprobacion(accion, datos, callback){
   // FIX banner: registrar también en la tabla Supabase tokens_pendientes para que el
   // superadmin lo vea en el banner (antes este flujo solo guardaba en localStorage).
   try{
-    fetch(SUPA_URL+'/rest/v1/tokens_pendientes',{
-      method:'POST',
-      headers:_tokRestHdr({'Content-Type':'application/json','Prefer':'return=minimal'}),
-      body:JSON.stringify({token:token,usuario:(SESION?SESION.nombre:'--'),accion:accion,motivo:(typeof datos==='string'?datos:''),expira:new Date(expira).toISOString(),usado:false})
-    }).then(function(r){ if(r.ok&&esSuperAdmin())renderTokensPendientes(); }).catch(function(){});
+    Promise.resolve(typeof _ensureJWT==='function'?_ensureJWT():null).then(function(){
+      return fetch(SUPA_URL+'/rest/v1/tokens_pendientes',{
+        method:'POST',
+        headers:_tokRestHdr({'Content-Type':'application/json','Prefer':'return=minimal'}),
+        body:JSON.stringify({token:token,usuario:(SESION?SESION.nombre:'--'),accion:accion,motivo:(typeof datos==='string'?datos:''),expira:new Date(expira).toISOString(),usado:false})
+      });
+    }).then(function(r){
+      if(r&&!r.ok){ console.warn('tokens_pendientes insert err:',r.status); }
+      else if(r&&r.ok&&esSuperAdmin())renderTokensPendientes();
+    }).catch(function(e){ console.warn('tokens_pendientes err:',e&&e.message); });
   }catch(e){}
   
   // Guardar en localStorage
@@ -36275,7 +36299,7 @@ async function renderBncDashResumen(forzar){
   if(!forzar&&_bncResumenCache&&(ahora-_bncResumenTs)<180000){_pintarBncResumen(el,_bncResumenCache);return;}
   if(!el.innerHTML)el.innerHTML='<div style="font-size:11px;color:var(--text3);padding:8px">🏦 Cargando saldos BNC...</div>';
   try{
-    var r=await fetch(SUPA_URL+'/functions/v1/bnc-saldo',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+SUPA_KEY},body:JSON.stringify({action:'resumen'}),signal:AbortSignal.timeout(30000)});
+    var r=await fetch(SUPA_URL+'/functions/v1/bnc-saldo',{method:'POST',headers:await _bncSaldoHdr(),body:JSON.stringify({action:'resumen'}),signal:AbortSignal.timeout(30000)});
     var d=await r.json();
     if(!d||!d.ok){
       el.innerHTML='<div style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:10px;font-size:11px;color:var(--text3)">🏦 Saldos BNC no disponibles'+((d&&d.step==='resumen'&&d.error&&d.error.indexOf('ClientID')>=0)||(d&&d.step==='saldo')?' — configura el ClientID de producción en Config BNC':'')+'</div>';
@@ -36373,7 +36397,7 @@ async function renderConciliacionBNC(){
       return out.length?out:[[d,h]];
     })(desde,hasta);
     var bancoMovs=[],sandbox=false,fuente='API BNC (estado de cuenta) + notificaciones',cuentasMal=[];
-    var hdr={'Content-Type':'application/json','Authorization':'Bearer '+SUPA_KEY};
+    var hdr=await _bncSaldoHdr();
     var apiOk=false;
     try{
       var rs=await fetch(SUPA_URL+'/functions/v1/bnc-saldo',{method:'POST',headers:hdr,body:JSON.stringify({action:'saldo'}),signal:AbortSignal.timeout(30000)});

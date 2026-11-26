@@ -151,6 +151,22 @@ Deno.serve(async (req)=>{
   try {
     const body = await req.json().catch(()=>({}));
     const action = body.action || 'logon';
+    // SEGURIDAD: solo `action: 'tasas'` puede llamarse con la anon key pública (para la pantalla de login).
+    // Cualquier otra acción (saldo, resumen, movimientos, logon) exige SERVICE_ROLE_KEY o JWT de usuario autenticado.
+    if (action !== 'tasas') {
+      const authHdr = req.headers.get('authorization') || '';
+      const token = authHdr.replace(/^Bearer\s+/i, '').trim();
+      const srk = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
+      if (!token) {
+        return jsonResp({ ok: false, error: 'Se requiere autorización' }, 401);
+      }
+      if (!srk || token !== srk) {
+        const { data: uData, error: uErr } = await supabase.auth.getUser(token);
+        if (uErr || !uData?.user) {
+          return jsonResp({ ok: false, error: 'Sesión inválida o no autenticada' }, 401);
+        }
+      }
+    }
     const { data: cfg } = await supabase.from('bnc_config').select('*').order('updated_at', {
       ascending: false
     }).limit(1).maybeSingle();

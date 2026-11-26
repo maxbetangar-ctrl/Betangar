@@ -162,10 +162,11 @@ async function yaEnviado(key: string, dry: boolean): Promise<boolean> {
   const rows = await sel(`alertas_log?alert_key=eq.${encodeURIComponent(key)}&select=alert_key`);
   if (rows.length) return true;
   if (dry) return false;
-  await fetch(`${SUPABASE_URL}/rest/v1/alertas_log`, {
+  const rLog = await fetch(`${SUPABASE_URL}/rest/v1/alertas_log`, {
     method: "POST", headers: { ...HDR, "Content-Type": "application/json", Prefer: "return=minimal" },
     body: JSON.stringify({ alert_key: key }),
   });
+  if (!rLog.ok) console.error("alertas_log insert err", key, rLog.status, await rLog.text());
   return false;
 }
 
