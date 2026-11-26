@@ -26,8 +26,10 @@ verify_jwt = false
 [functions.bnc-pos-virtual]
 verify_jwt = false
 
+# bnc-saldo valida auth internamente: solo action='tasas' es pública (para el login con
+# sb_publishable); saldo/resumen/movimientos exigen SERVICE_ROLE_KEY o JWT de usuario real.
 [functions.bnc-saldo]
-verify_jwt = true
+verify_jwt = false
 
 [functions.bnc-traer]
 verify_jwt = false
